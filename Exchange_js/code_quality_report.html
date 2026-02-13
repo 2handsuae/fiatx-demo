@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>项目代码质量评估报告 - Exchange_js</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; line-height: 1.6; color: #333; max-width: 1000px; margin: 0 auto; padding: 20px; background-color: #f4f7f6; }
+        h1, h2, h3 { color: #2c3e50; }
+        .header { background: #fff; padding: 30px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 20px; text-align: center; }
+        .score-box { display: inline-block; padding: 20px 40px; border-radius: 50%; background: #e67e22; color: #fff; font-size: 48px; font-weight: bold; margin: 20px 0; }
+        .section { background: #fff; padding: 25px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 20px; }
+        .severity-critical { color: #c0392b; font-weight: bold; }
+        .severity-important { color: #d35400; font-weight: bold; }
+        .severity-suggestion { color: #2980b9; font-weight: bold; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th, td { padding: 12px; border-bottom: 1px solid #eee; text-align: left; }
+        th { background-color: #f8f9fa; }
+        .code-snippet { background: #fdf6e3; padding: 10px; border-radius: 4px; font-family: "Courier New", Courier, monospace; font-size: 13px; border-left: 4px solid #b58900; overflow-x: auto; }
+        .badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 12px; margin-right: 5px; }
+        .badge-error { background: #fadbd8; color: #c0392b; }
+        .badge-warning { background: #fef9e7; color: #f1c40f; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>项目代码质量评估报告</h1>
+        <p>项目名称: Exchange_js | 评估日期: 2026-01-27</p>
+        <div class="score-box">65</div>
+        <p>总体状态: <span class="severity-important">待改进</span></p>
+    </div>
+
+    <div class="section">
+        <h2>1. 执行摘要</h2>
+        <p>本项目是一个基于 NestJS 和 React 的交易所/资产管理系统。整体架构设计合理（模块化程度高），但在代码规范执行、测试覆盖率以及前端工程化方面存在显著问题。特别是核心业务流程的测试通过率较低，且前端代码中存在多处硬编码和潜在的运行时错误。</p>
+    </div>
+
+    <div class="section">
+        <h2>2. 关键问题 (Critical)</h2>
+        <table>
+            <tr><th>问题描述</th><th>位置</th><th>影响</th></tr>
+            <tr>
+                <td class="severity-critical">根目录测试文件夹缺失</td>
+                <td>/ (Root)</td>
+                <td>导致 E2E 测试无法运行，项目结构不完整。</td>
+            </tr>
+            <tr>
+                <td class="severity-critical">前端未定义函数引用</td>
+                <td>admin-web/src/pages/DepositTransactionList.tsx</td>
+                <td>点击复制按钮会导致应用崩溃（copyToClipboard 未定义）。</td>
+            </tr>
+            <tr>
+                <td class="severity-critical">测试通过率极低 (44%)</td>
+                <td>src/modules/**/*.spec.ts</td>
+                <td>核心业务逻辑（如支付状态转换）缺乏有效验证。</td>
+            </tr>
+        </table>
+    </div>
+
+    <div class="section">
+        <h2>3. 重要问题 (Important)</h2>
+        <ul>
+            <li><strong>硬编码 API 地址:</strong> 发现 62 处硬编码的 <code>http://localhost:3000</code>，将导致生产环境部署失败。</li>
+            <li><strong>代码重复:</strong> <code>SwapTransactionsService</code> 和 <code>DepositTransactionsService</code> 中的编号生成逻辑完全一致，缺乏抽象。</li>
+            <li><strong>Prisma 版本落后:</strong> 当前版本 5.22.0，最新版本 7.3.0，存在潜在的性能和安全性优化空间。</li>
+        </ul>
+    </div>
+
+    <div class="section">
+        <h2>4. 代码规范分析</h2>
+        <p><strong>Lint 检查结果:</strong></p>
+        <ul>
+            <li><span class="badge badge-error">Error</span> 63 处：主要包括 <code>no-unused-vars</code>, <code>no-explicit-any</code>。</li>
+            <li><span class="badge badge-warning">Warning</span> 19 处：主要包括 <code>react-hooks/exhaustive-deps</code>。</li>
+        </ul>
+        <p><strong>代码示例 (admin-web/src/pages/DepositTransactionList.tsx):</strong></p>
+        <div class="code-snippet">
+            // 缺失的 copyToClipboard 函数<br>
+            &lt;button onClick={() => copyToClipboard(item.referenceNo!, `ref-${item.id}`)}&gt;
+        </div>
+    </div>
+
+    <div class="section">
+        <h2>5. 改进建议优先级</h2>
+        <ol>
+            <li><strong>P0 (立即处理):</strong> 修复前端崩溃 Bug，建立统一的 <code>utils</code> 库处理复制等常用功能。</li>
+            <li><strong>P0 (立即处理):</strong> 修复 NestJS 测试中的依赖注入问题，确保所有单元测试通过。</li>
+            <li><strong>P1 (高优先级):</strong> 引入环境变量管理前端 API 地址。</li>
+            <li><strong>P1 (高优先级):</strong> 修复 ESLint 报错，清理无用变量和 <code>any</code> 类型。</li>
+            <li><strong>P2 (中优先级):</strong> 重构重复的编号生成逻辑。</li>
+            <li><strong>P2 (中优先级):</strong> 升级 Prisma 及其他核心依赖。</li>
+        </ol>
+    </div>
+</body>
+</html>

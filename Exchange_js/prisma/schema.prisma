@@ -1,0 +1,939 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(uuid())
+  userNo    String   @unique @default("TEMP")
+  email     String   @unique
+  password  String
+  role                String
+  status              String
+  failedLoginAttempts Int       @default(0)
+  lockedUntil         DateTime?
+  lastLoginAt         DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  @@map("users")
+}
+
+model CustomerMain {
+  id                 String    @id @default(uuid())
+  customerNo         String    @unique @default("TEMP")
+  email              String?   @unique
+  phone              String?   @unique
+  emailVerifiedAt    DateTime?
+  phoneVerifiedAt    DateTime?
+  firstName          String?
+  lastName           String?
+  companyName        String?
+  passwordHash       String?
+  passwordUpdatedAt  DateTime?
+  authStatus         String    @default("NONE")
+  authLevel          String    @default("NONE")
+  kycId              String?   // Current active KYC record ID
+  eddId              String?   // Current active EDD record ID
+  authLevelExpiresAt DateTime?
+  riskScore          Int?
+  riskLevel          String?
+  riskUpdatedAt      DateTime?
+  failedLoginCount   Int       @default(0)
+  lockedUntil        DateTime?
+  lastLoginAt        DateTime?
+  lastLoginIp        String?
+  locale             String?
+  timezone           String?
+  termsAcceptedAt    DateTime?
+  statusHistory      String?   // JSON tracking of status changes
+  customerType       String    @default("UNKNOWN") // INDIVIDUAL, CORPORATE
+  onboardingStage    String    @default("REGISTERED")
+  onboardingApprovedAt DateTime?
+  onboardingRejectedAt DateTime?
+  onboardingRejectReason String?
+  canTradeSwap       Boolean   @default(false)
+  canTradeWithdraw   Boolean   @default(false)
+  activeCddCaseId    String?
+  activeEddCaseId    String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  // Relations
+  wallets              Wallet[]
+  depositTransactions  DepositTransaction[]
+  swapTransactions     SwapTransaction[]
+  withdrawTransactions WithdrawTransaction[]
+  payouts              Payout[]
+  auditLogs            CustomerAuditLog[]
+  payins               Payin[]
+  kycRecords           KycRecord[]
+  eddRecords           EddRecord[]
+  cddCases             CddCase[]
+  eddCases             EddCase[]
+  corporateProfile     CorporateProfile?
+  uboProfiles          UboProfile[]
+  onboardingAuditLogs  OnboardingAuditLog[]
+  complianceSessions   ComplianceSession[]
+
+  @@map("customer_main")
+}
+
+model KycRecord {
+  id                String   @id @default(uuid())
+  customerId        String
+  provider          String   @default("MANUAL") // e.g., SUMSUB, ONFIDO, MANUAL
+  providerReference String?  @unique
+  status            String   // PENDING, APPROVED, REJECTED, EXPIRED
+  idType            String?  // PASSPORT, ID_CARD, DRIVING_LICENSE
+  idNumber          String?
+  idExpiry          DateTime?
+  firstName         String?
+  lastName          String?
+  dateOfBirth       DateTime?
+  nationality       String?
+  documentFrontUrl  String?
+  documentBackUrl   String?
+  selfieUrl         String?
+  faceMatchScore    Decimal? // Bio match score
+  compImage         String?  // Base image for comparison
+  residentialAddress String?
+  poaType           String?  // Utility Bill, etc.
+  poaDocuments      String?  // JSON array of URLs
+  rejectionReason   String?
+  metadata          String?  // JSON string for raw provider response
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  customer          CustomerMain @relation(fields: [customerId], references: [id])
+
+  @@index([customerId])
+  @@index([status])
+  @@map("kyc_records")
+}
+
+model EddRecord {
+  id                    String   @id @default(uuid())
+  customerId            String
+  status                String   // PENDING, APPROVED, REJECTED
+  sourceOfWealth        String?
+  sourceOfFunds         String?
+  occupation            String?
+  employerName          String?
+  expectedMonthlyVolume Decimal?
+  sorDocuments          String?  // Source of Wealth docs (JSON)
+  sofDocuments          String?  // Source of Funds docs (JSON)
+  supportingDocUrls     String?  // Comma separated or JSON array
+  rejectionReason       String?
+  notes                 String?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  customer              CustomerMain @relation(fields: [customerId], references: [id])
+
+  @@index([customerId])
+  @@index([status])
+  @@map("edd_records")
+}
+
+model CustomerAuditLog {
+  id         String   @id @default(uuid())
+  customerId String
+  operatorId String
+  oldStatus  String
+  newStatus  String
+  reason     String?
+  changedAt  DateTime @default(now())
+
+  customer   CustomerMain @relation(fields: [customerId], references: [id])
+
+  @@map("customer_audit_logs")
+}
+
+model CddCase {
+  id               String   @id @default(uuid())
+  caseNo            String   @unique @default("TEMP")
+  customerId        String
+  customerType      String   @default("INDIVIDUAL")
+  subjectKind       String   @default("INDIVIDUAL_CUSTOMER") // INDIVIDUAL_CUSTOMER, CORPORATE_ENTITY, UBO_PERSON
+  subjectRefId      String   @default("")
+  journeyId         String   @default("")
+  status            String   @default("DRAFT") // DRAFT, SUBMITTED, APPROVED, REJECTED, NEED_INFO
+  submittedAt       DateTime?
+  reviewedAt        DateTime?
+  reviewerId        String?
+  reviewerRole      String?
+  reviewerDecision  String?
+  decisionReason    String?
+  requiresEdd       Boolean  @default(false)
+  riskScore         Int?
+  riskLevel         String?
+  screeningSummary  String?
+  inputData         String? // JSON payload
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  customer          CustomerMain @relation(fields: [customerId], references: [id])
+  eddCases          EddCase[]
+
+  @@index([customerId, status])
+  @@index([customerId, journeyId])
+  @@index([subjectKind, subjectRefId])
+  @@map("cdd_cases")
+}
+
+model EddCase {
+  id               String   @id @default(uuid())
+  caseNo           String   @unique @default("TEMP")
+  customerId       String
+  cddCaseId        String?
+  subjectKind      String   @default("INDIVIDUAL_CUSTOMER") // INDIVIDUAL_CUSTOMER, CORPORATE_ENTITY, UBO_PERSON
+  subjectRefId     String   @default("")
+  journeyId        String   @default("")
+  status           String   @default("DRAFT") // DRAFT, SUBMITTED, MLRO_APPROVED, SENIOR_APPROVED, REJECTED, NEED_INFO
+  submittedAt      DateTime?
+  mlroReviewedAt   DateTime?
+  mlroReviewerId   String?
+  mlroDecision     String?
+  seniorReviewedAt DateTime?
+  seniorReviewerId String?
+  seniorDecision   String?
+  decisionReason   String?
+  sourceOfFunds    String?
+  sourceOfWealth   String?
+  inputData        String? // JSON payload
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  customer         CustomerMain @relation(fields: [customerId], references: [id])
+  cddCase          CddCase?     @relation(fields: [cddCaseId], references: [id])
+
+  @@index([customerId, status])
+  @@index([cddCaseId])
+  @@index([customerId, journeyId])
+  @@index([subjectKind, subjectRefId])
+  @@map("edd_cases")
+}
+
+model CorporateProfile {
+  id                      String   @id @default(uuid())
+  customerId              String   @unique
+  companyName             String
+  registrationNo          String
+  incorporationCountry    String
+  registeredAddress       String?
+  licenseType             String?
+  licenseNumber           String?
+  authorizedSignatoryName String?
+  authorizedSignatoryTitle String?
+  documents               String? // JSON array
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  customer                CustomerMain @relation(fields: [customerId], references: [id])
+
+  @@map("corporate_profiles")
+}
+
+model UboProfile {
+  id               String   @id @default(uuid())
+  customerId       String
+  fullName         String
+  ownershipPercent Decimal?
+  nationality      String?
+  idNumber         String?
+  pepFlag          Boolean  @default(false)
+  status           String   @default("PENDING") // PENDING, CDD_IN_PROGRESS, CDD_APPROVED, EDD_IN_PROGRESS, EDD_APPROVED, REJECTED
+  documents        String? // JSON array
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  customer         CustomerMain @relation(fields: [customerId], references: [id])
+
+  @@index([customerId])
+  @@map("ubo_profiles")
+}
+
+model ComplianceSession {
+  id                String   @id @default(uuid())
+  customerId        String
+  caseType          String // CDD, EDD
+  caseId            String
+  provider          String   @default("MOCK")
+  providerSessionId String   @unique
+  qrCodeUrl         String
+  status            String   @default("PENDING") // PENDING, COMPLETED, EXPIRED, FAILED
+  rawPayload        String?
+  expiresAt         DateTime
+  completedAt       DateTime?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  customer          CustomerMain @relation(fields: [customerId], references: [id])
+
+  @@index([customerId, caseType, caseId])
+  @@index([status, expiresAt])
+  @@map("compliance_sessions")
+}
+
+model OnboardingAuditLog {
+  id         String   @id @default(uuid())
+  customerId String
+  caseType   String?
+  caseId     String?
+  action     String
+  actorId    String
+  actorRole  String
+  fromStage  String?
+  toStage    String?
+  detail     String?
+  createdAt  DateTime @default(now())
+
+  customer   CustomerMain @relation(fields: [customerId], references: [id])
+
+  @@index([customerId, createdAt])
+  @@map("onboarding_audit_logs")
+}
+
+model LiquidityProvider {
+  id             String                   @id
+  name           String
+  email          String?                  @unique
+  phone          String?
+  status         String                   @default("INACTIVE")
+  createdAt      DateTime                 @default(now()) @map("created_at")
+  updatedAt      DateTime                 @updatedAt @map("updated_at")
+  configurations LiquidityConfiguration[]
+
+  @@index([name])
+  @@index([status])
+  @@map("liquidity_provider")
+}
+
+model Asset {
+  id                     String                   @id @default(uuid())
+  assetNo                String?                  @unique
+  type                   String
+  code                   String
+  network                String?
+  decimals               Int
+  description            String?
+  status                 String                   @default("ACTIVE")
+  createdAt              DateTime                 @default(now())
+  updatedAt              DateTime                 @updatedAt
+  depositTransactions    DepositTransaction[]
+  journalHeaderTemplates JournalHeaderTemplate[]
+  journalLines           JournalLine[]
+  journals               Journal[]                @relation("BaseAsset")
+  fromConfigs            LiquidityConfiguration[] @relation("FromAsset")
+  toConfigs              LiquidityConfiguration[] @relation("ToAsset")
+  feeConfigs             LiquidityConfiguration[] @relation("FeeAsset")
+  payins                 Payin[]
+  payouts                Payout[]
+  swapFromTransactions   SwapTransaction[]        @relation("SwapFromAsset")
+  swapToTransactions     SwapTransaction[]        @relation("SwapToAsset")
+  wallets                Wallet[]
+  withdrawTransactions   WithdrawTransaction[]
+
+  @@unique([type, code, network])
+  @@map("assets")
+}
+
+model Payin {
+  id                   String              @id @default(uuid())
+  payinNo              String              @unique @default("TEMP")
+  depositId            String?
+  type                 String              @default("crypto")
+  status               String
+  toWalletId           String?
+  assetId              String
+  amount               Decimal
+  toAddress            String?
+  toIban               String?
+  fromWalletId         String?
+  fromAddress          String?
+  fromIban             String?
+  txHash               String?
+  confirmations        Int                 @default(0)
+  referenceNo          String?
+  providerTxnId        String?
+  receivedAt           DateTime?
+  confirmedAt          DateTime?
+  statusHistory        String?
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+  ownerId              String?             // Added to support relation to CustomerMain
+  clearings            Clearing[]          @relation("ClearingInPayin")
+  deposit              DepositTransaction? @relation("PayinToDeposit")
+  auditLogs            PayinAuditLog[]
+  toWallet             Wallet?             @relation("PayinToWallet", fields: [toWalletId], references: [id])
+  fromWallet           Wallet?             @relation("PayinFromWallet", fields: [fromWalletId], references: [id])
+  asset                Asset               @relation(fields: [assetId], references: [id])
+  customer             CustomerMain?       @relation(fields: [ownerId], references: [id])
+
+  @@unique([txHash, assetId, toAddress])
+  @@index([depositId])
+  @@index([status])
+  @@index([assetId])
+  @@index([receivedAt])
+  @@index([providerTxnId])
+  @@index([txHash])
+  @@map("payins")
+}
+
+model LiquidityConfiguration {
+  id             String            @id @default(uuid())
+  lpId           String
+  fromAssetId    String
+  toAssetId      String
+  rateSourceType String
+  feePercent     Decimal           @default(0)
+  feeFixedAmount Decimal           @default(0)
+  feeAssetId     String?
+  minFromAmount  Decimal?
+  maxFromAmount  Decimal?
+  status         String            @default("ACTIVE")
+  createdAt      DateTime          @default(now()) @map("created_at")
+  updatedAt      DateTime          @updatedAt @map("updated_at")
+  lp             LiquidityProvider @relation(fields: [lpId], references: [id])
+  fromAsset      Asset             @relation("FromAsset", fields: [fromAssetId], references: [id])
+  toAsset        Asset             @relation("ToAsset", fields: [toAssetId], references: [id])
+  feeAsset       Asset?            @relation("FeeAsset", fields: [feeAssetId], references: [id])
+
+  @@index([lpId])
+  @@index([fromAssetId, toAssetId])
+  @@index([status])
+  @@map("liquidity_configurations")
+}
+
+model Wallet {
+  id                  String               @id @default(uuid())
+  walletNo            String?              @unique
+  ownerType           String
+  ownerId             String?
+  ownerNo             String?
+  type                String
+  direction           String
+  assetId             String
+  balance             Decimal              @default(0)
+  lockedBalance       Decimal              @default(0)
+  address             String?
+  memo                String?
+  bankName            String?
+  bankAccount         String?
+  bankCode            String?
+  status              String               @default("ACTIVE")
+  createdAt           DateTime             @default(now()) @map("created_at")
+  updatedAt           DateTime             @updatedAt @map("updated_at")
+  accountName         String?
+  beneficiaryName     String?
+  counterpartyVasp    String?
+  iban                String?
+  depositTransactions DepositTransaction[]
+  depositTransactionsFrom DepositTransaction[] @relation("DepositFromWallet")
+  payins              Payin[]              @relation("PayinToWallet")
+  payinsFrom          Payin[]              @relation("PayinFromWallet")
+  asset               Asset                @relation(fields: [assetId], references: [id])
+  customer            CustomerMain?        @relation(fields: [ownerId], references: [id])
+
+  @@index([ownerType, ownerId])
+  @@index([assetId])
+  @@index([status])
+  @@map("wallets")
+}
+
+model DepositTransaction {
+  id                   String            @id @default(uuid())
+  depositNo            String            @unique
+  ownerType            String
+  ownerId              String
+  status               String
+  assetId              String
+  toWalletId           String
+  payinId              String?           @unique
+  amount               Decimal
+  netAmount            Decimal           @default(0)
+  feeAmount            Decimal           @default(0)
+  fromWalletId         String?
+  fromAddress          String?
+  fromIban             String?
+  toAddress            String?
+  toIban               String?
+  txHash               String?
+  referenceNo          String?
+  expiresAt            DateTime?
+  kytStatus            String            @default("PENDING")
+  kytScreeningId       String?
+  kytRiskScore         Int?
+  kytCheckedAt         DateTime?
+  travelRuleRequired   Boolean           @default(false)
+  travelRuleStatus     String            @default("NOT_REQUIRED")
+  travelRuleTransferId String?
+  counterpartyVasp     String?
+  travelRuleCheckedAt  DateTime?
+  statusHistory        String?
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
+  completedAt          DateTime?
+  auditLogs            DepositAuditLog[]
+  payin                Payin?            @relation("PayinToDeposit", fields: [payinId], references: [id])
+  asset                Asset             @relation(fields: [assetId], references: [id])
+  wallet               Wallet            @relation(fields: [toWalletId], references: [id])
+  fromWallet           Wallet?           @relation("DepositFromWallet", fields: [fromWalletId], references: [id])
+  customer             CustomerMain      @relation(fields: [ownerId], references: [id])
+
+  @@index([depositNo])
+  @@index([ownerType, ownerId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("deposit_transactions")
+}
+
+model PayinAuditLog {
+  id         String   @id @default(uuid())
+  payinId    String
+  operatorId String
+  oldStatus  String
+  newStatus  String
+  reason     String?
+  createdAt  DateTime @default(now())
+  payin      Payin    @relation(fields: [payinId], references: [id])
+
+  @@map("payin_audit_logs")
+}
+
+model DepositAuditLog {
+  id                   String             @id @default(uuid())
+  depositTransactionId String
+  operatorId           String
+  oldStatus            String
+  newStatus            String
+  reason               String?
+  createdAt            DateTime           @default(now())
+  depositTransaction   DepositTransaction @relation(fields: [depositTransactionId], references: [id])
+
+  @@map("deposit_audit_logs")
+}
+
+model Coa {
+  id                   String                @id @default(uuid())
+  code                 String                @unique
+  type                 String
+  name                 String
+  status               String
+  requiredTags         String                @default("[]")
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+  journalLineTemplates JournalLineTemplate[]
+  journalLines         JournalLine[]
+
+  @@index([code])
+  @@index([status])
+  @@map("chart_of_accounts")
+}
+
+model Journal {
+  id                      String                 @id @default(uuid())
+  journalNo               String                 @unique @default("TEMP")
+  sourceType              String
+  sourceId                String
+  sourceNo                String?
+  eventCode               String
+  postingStatus           String                 @default("POSTED")
+  postedAt                DateTime?
+  baseAssetId             String
+  reversalOfJournalId     String?
+  description             String?
+  totalAmount             Decimal?
+  createdAt               DateTime               @default(now())
+  updatedAt               DateTime               @updatedAt
+  journalHeaderTemplateId String?
+  lines                   JournalLine[]
+  baseAsset               Asset                  @relation("BaseAsset", fields: [baseAssetId], references: [id])
+  journalHeaderTemplate   JournalHeaderTemplate? @relation(fields: [journalHeaderTemplateId], references: [id])
+
+  @@index([sourceType, sourceId])
+  @@index([sourceNo])
+  @@index([eventCode])
+  @@index([postingStatus])
+  @@index([baseAssetId])
+  @@index([createdAt])
+  @@index([journalHeaderTemplateId])
+  @@map("journals")
+}
+
+model JournalLine {
+  id                    String               @id
+  journalId             String
+  lineNo                Int
+  accountCode           String
+  drCr                  String
+  amount                Decimal
+  assetId               String
+  baseAmount            Decimal?
+  fxRate                Decimal?
+  ownerType             String?
+  ownerId               String?
+  dimensions            String               @default("{}")
+  description           String?
+  referenceId           String?
+  journalLineTemplateId String?
+  createdAt             DateTime             @default(now())
+  journalLineTemplate   JournalLineTemplate? @relation(fields: [journalLineTemplateId], references: [id])
+  journal               Journal              @relation(fields: [journalId], references: [id])
+  account               Coa                  @relation(fields: [accountCode], references: [code])
+  asset                 Asset                @relation(fields: [assetId], references: [id])
+
+  @@unique([journalId, lineNo])
+  @@index([journalId])
+  @@index([accountCode])
+  @@index([assetId])
+  @@index([ownerType, ownerId])
+  @@index([accountCode, ownerType, ownerId])
+  @@index([journalLineTemplateId])
+  @@map("journal_lines")
+}
+
+model AcctEvent {
+  id                          String                  @id @default(uuid())
+  eventCode                   String                  @unique
+  entityType                  String
+  ownerScope                  String
+  assetType                   String
+  triggerType                 String
+  postingMode                 String
+  clearingMode                String
+  postingReversalOfEventCode  String?
+  clearingReversalOfEventCode String?
+  isActive                    Boolean                 @default(true)
+  description                 String?
+  createdAt                   DateTime                @default(now())
+  updatedAt                   DateTime                @updatedAt
+  fromStatus                  String?
+  toStatus                    String?
+  triggerKey                  String?
+  clearingTemplateCode        String?
+  postingReversalEvent        AcctEvent?              @relation("PostingReversal", fields: [postingReversalOfEventCode], references: [eventCode])
+  reversalOfPosting           AcctEvent[]             @relation("PostingReversal")
+  clearingReversalEvent       AcctEvent?              @relation("ClearingReversal", fields: [clearingReversalOfEventCode], references: [eventCode])
+  reversalOfClearing          AcctEvent[]             @relation("ClearingReversal")
+  journalHeaderTemplates      JournalHeaderTemplate[]
+
+  @@map("acct_events")
+}
+
+model JournalHeaderTemplate {
+  id                   String                @id @default(uuid())
+  templateCode         String                @unique
+  eventCode            String
+  version              Int                   @default(1)
+  status               String                @default("ACTIVE")
+  baseAssetId          String
+  description          String?
+  effectiveFrom        DateTime?
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+  effectiveTo          DateTime?
+  acctEvent            AcctEvent             @relation(fields: [eventCode], references: [eventCode])
+  baseAsset            Asset                 @relation(fields: [baseAssetId], references: [id])
+  journalLineTemplates JournalLineTemplate[]
+  journals             Journal[]
+
+  @@map("journal_header_templates")
+}
+
+model JournalLineTemplate {
+  id              String                @id @default(uuid())
+  templateId      String
+  lineNo          Int
+  accountCode     String
+  drCr            String
+  amountSource    String
+  assetSource     String
+  ownerTypeSource String?
+  ownerIdSource   String?
+  fxRateSource    String?
+  referenceSource String?
+  dimensionsRule  String                @default("{}")
+  conditionExpr   String?
+  description     String?
+  createdAt       DateTime              @default(now())
+  headerTemplate  JournalHeaderTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  account         Coa                   @relation(fields: [accountCode], references: [code])
+  journalLines    JournalLine[]
+
+  @@unique([templateId, lineNo])
+  @@map("journal_line_templates")
+}
+
+model SwapTransaction {
+  id           String                    @id @default(uuid())
+  swapNo       String?                   @unique
+  ownerType    String
+  ownerId      String
+  ownerNo      String?
+  status       String
+  fromAssetId  String
+  fromAssetCode String?
+  fromAmount   Decimal
+  toAssetId    String
+  toAssetCode   String?
+  toAmount     Decimal
+  exchangeRate Decimal
+  statusHistory String?
+  createdAt    DateTime                  @default(now())
+  updatedAt    DateTime                  @updatedAt
+  completedAt  DateTime?
+  auditLogs    SwapTransactionAuditLog[]
+  fromAsset    Asset                     @relation("SwapFromAsset", fields: [fromAssetId], references: [id])
+  toAsset      Asset                     @relation("SwapToAsset", fields: [toAssetId], references: [id])
+  customer     CustomerMain?             @relation(fields: [ownerId], references: [id])
+
+  @@index([swapNo])
+  @@index([ownerType, ownerId])
+  @@index([ownerNo])
+  @@index([fromAssetCode])
+  @@index([toAssetCode])
+  @@index([status])
+  @@index([createdAt])
+  @@map("swap_transactions")
+}
+
+model SwapTransactionAuditLog {
+  id                String          @id @default(uuid())
+  swapTransactionId String
+  operatorId        String
+  oldStatus         String
+  newStatus         String
+  reason            String?
+  createdAt         DateTime        @default(now())
+  swapTransaction   SwapTransaction @relation(fields: [swapTransactionId], references: [id])
+
+  @@map("swap_transaction_audit_logs")
+}
+
+model WithdrawTransaction {
+  id                   String             @id @default(uuid())
+  withdrawNo           String             @unique
+  payoutId             String?            @unique
+  payoutNo             String?
+  ownerType            String
+  ownerId              String
+  ownerNo              String?
+  type                 String
+  status               String
+  assetId              String
+  amount               Decimal
+  feeAmount            Decimal            @default(0)
+  netAmount            Decimal
+  toWalletId           String?
+  toWalletNo           String?
+  toAddress            String?
+  toIban               String?
+  fromWalletId         String?
+  fromWalletNo         String?
+  fromAddress          String?
+  fromIban             String?
+  providerTxnId        String?
+  txHash               String?
+  confirmations        Int                @default(0)
+  referenceNo          String?
+  preKytStatus         String             @default("PENDING")
+  preKytId             String?
+  preKytRiskScore      Int?
+  preKytCheckedAt      DateTime?
+  kytStatus            String             @default("PENDING")
+  kytScreeningId       String?
+  kytRiskScore         Int?
+  kytCheckedAt         DateTime?
+  travelRuleRequired   Boolean            @default(false)
+  counterpartyVasp     String?
+  travelRuleStatus     String             @default("NOT_REQUIRED")
+  travelRuleTransferId String?
+  travelRuleCheckedAt  DateTime?
+  complianceStatus     String             @default("PENDING")
+  complianceReviewedAt DateTime?
+  parentType           String?
+  parentId             String?
+  createdAt            DateTime           @default(now())
+  approvedAt           DateTime?
+  payoutRequestedAt    DateTime?
+  completedAt          DateTime?
+  statusHistory        String?
+  updatedAt            DateTime           @updatedAt
+  payout               Payout?            @relation("WithdrawToPayout")
+  auditLogs            WithdrawAuditLog[]
+  asset                Asset              @relation(fields: [assetId], references: [id])
+  customer             CustomerMain       @relation(fields: [ownerId], references: [id])
+
+  @@index([withdrawNo])
+  @@index([payoutId])
+  @@index([ownerId])
+  @@index([status])
+  @@index([assetId])
+  @@index([toWalletId])
+  @@index([providerTxnId])
+  @@index([txHash])
+  @@index([parentId])
+  @@index([createdAt])
+  @@map("withdraw_transactions")
+}
+
+model Payout {
+  id            String              @id
+  payoutNo      String              @unique @default("TEMP")
+  withdrawId    String              @unique
+  ownerId       String?             // Added to support relation to CustomerMain
+  type          String
+  status        String              @default("PENDING")
+  amount        Decimal
+  assetId       String
+  toWalletId    String?
+  toAddress     String?
+  toIban        String?
+  fromAddress   String?
+  fromIban      String?
+  txHash        String?
+  confirmations Int                 @default(0)
+  referenceNo   String?
+  providerTxnId String?
+  createdAt     DateTime            @default(now())
+  sentAt        DateTime?
+  updatedAt     DateTime            @updatedAt
+  completedAt   DateTime?
+  statusHistory String?
+  clearings     Clearing[]          @relation("ClearingOutPayout")
+  auditLogs     PayoutAuditLog[]
+  withdraw      WithdrawTransaction @relation("WithdrawToPayout", fields: [withdrawId], references: [id])
+  asset         Asset               @relation(fields: [assetId], references: [id])
+  customer      CustomerMain?       @relation(fields: [ownerId], references: [id])
+
+  @@index([withdrawId])
+  @@index([status])
+  @@index([assetId])
+  @@index([createdAt])
+  @@map("payouts")
+}
+
+model PayoutAuditLog {
+  id         String   @id @default(uuid())
+  payoutId   String
+  operatorId String
+  oldStatus  String
+  newStatus  String
+  reason     String?
+  createdAt  DateTime @default(now())
+  payout     Payout   @relation(fields: [payoutId], references: [id])
+
+  @@map("payout_audit_logs")
+}
+
+model WithdrawAuditLog {
+  id                    String              @id @default(uuid())
+  withdrawTransactionId String
+  operatorId            String
+  oldStatus             String
+  newStatus             String
+  reason                String?
+  createdAt             DateTime            @default(now())
+  withdrawTransaction   WithdrawTransaction @relation(fields: [withdrawTransactionId], references: [id])
+
+  @@map("withdraw_audit_logs")
+}
+
+model ClearingTemplate {
+  id                String                 @id @default(uuid())
+  code              String                 @unique
+  clearingType      String
+  sourceType        String
+  isEnabled         Boolean                @default(true)
+  description       String
+  feeMethod         String                 @default("CONFIGURED_FEE")
+  outAssetSource    String
+  outAmountSource   String
+  inAssetSource     String
+  inAmountSource    String
+  feeAssetSource    String
+  feeAmountSource   String
+  outPayoutIdSource String?
+  inPayinIdSource   String?
+  memoTemplate      String?
+  createdAt         DateTime               @default(now()) @map("created_at")
+  updatedAt         DateTime               @updatedAt @map("updated_at")
+  lineTemplates     ClearingLineTemplate[]
+
+  @@map("clearing_templates")
+}
+
+model ClearingLineTemplate {
+  id                 String           @id @default(uuid())
+  clearingTemplateId String
+  lineNo             Int
+  lineType           String
+  partyType          String
+  partyIdSource      String?
+  assetSource        String
+  amountSource       String
+  refTypeConst       String?
+  refIdSource        String?
+  memoTemplate       String?
+  isEnabled          Boolean          @default(true)
+  createdAt          DateTime         @default(now()) @map("created_at")
+  template           ClearingTemplate @relation(fields: [clearingTemplateId], references: [id], onDelete: Cascade)
+
+  @@unique([clearingTemplateId, lineNo])
+  @@map("clearing_line_templates")
+}
+
+model Clearing {
+  id             String         @id @default(uuid())
+  clearingNo     String         @unique @default("TEMP")
+  clearingType   String
+  sourceType     String
+  sourceId       String
+  outAssetId     String
+  outAmount      Decimal
+  inAssetId      String
+  inAmount       Decimal
+  feeAssetId     String
+  feeAmount      Decimal
+  feeMethod      String         @default("CONFIGURED_FEE")
+  outPayoutId    String?
+  inPayinId      String?
+  clearingStatus String         @default("OPEN")
+  memo           String?
+  createdAt      DateTime       @default(now()) @map("created_at")
+  updatedAt      DateTime       @updatedAt @map("updated_at")
+  lines          ClearingLine[]
+  inPayin        Payin?         @relation("ClearingInPayin", fields: [inPayinId], references: [id])
+  outPayout      Payout?        @relation("ClearingOutPayout", fields: [outPayoutId], references: [id])
+
+  @@index([sourceType, sourceId])
+  @@index([clearingStatus])
+  @@index([outPayoutId])
+  @@index([inPayinId])
+  @@map("clearings")
+}
+
+model ClearingLine {
+  id         String   @id @default(uuid())
+  clearingId String
+  lineNo     Int
+  lineType   String
+  partyType  String
+  partyId    String?
+  assetId    String
+  amount     Decimal
+  refType    String?
+  refId      String?
+  createdAt  DateTime @default(now()) @map("created_at")
+  clearing   Clearing @relation(fields: [clearingId], references: [id], onDelete: Cascade)
+
+  @@unique([clearingId, lineNo])
+  @@index([clearingId])
+  @@map("clearing_lines")
+}

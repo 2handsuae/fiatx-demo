@@ -1,0 +1,86 @@
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Patch,
+  Param,
+  Query,
+  UseGuards,
+  BadRequestException,
+} from '@nestjs/common';
+import { AssetsService } from './assets.service';
+import {
+  CreateAssetDto,
+  UpdateAssetStatusDto,
+  AssetStatus,
+  AssetType,
+} from './dto/asset.dto';
+import { AuthGuard } from '@nestjs/passport';
+import {
+  ApiTags,
+  ApiBearerAuth,
+  ApiOperation,
+  ApiQuery,
+} from '@nestjs/swagger';
+import { Prisma } from '@prisma/client';
+
+@ApiTags('assets')
+@ApiBearerAuth()
+@Controller('assets')
+@UseGuards(AuthGuard('jwt'))
+export class AssetsController {
+  constructor(private readonly service: AssetsService) {}
+
+  @Post()
+  @ApiOperation({ summary: 'Create a new asset' })
+  create(@Body() dto: CreateAssetDto) {
+    return this.service.create(dto);
+  }
+
+  @Get()
+  @ApiOperation({ summary: 'List all assets' })
+  @ApiQuery({ name: 'skip', required: false, type: Number })
+  @ApiQuery({ name: 'take', required: false, type: Number })
+  @ApiQuery({ name: 'type', required: false, enum: AssetType })
+  @ApiQuery({ name: 'status', required: false, enum: AssetStatus })
+  @ApiQuery({ name: 'code', required: false, type: String })
+  findAll(
+    @Query('skip') skip?: string,
+    @Query('take') take?: string,
+    @Query('type') type?: AssetType,
+    @Query('status') status?: AssetStatus,
+    @Query('code') code?: string,
+  ) {
+    const where: Prisma.AssetWhereInput = {};
+
+    if (type) {
+      where.type = type;
+    }
+    if (status) {
+      where.status = status;
+    }
+    if (code) {
+      where.code = { contains: code };
+    }
+
+    return this.service.findAll({
+      skip: skip ? Number(skip) : 0,
+      take: take ? Number(take) : 20,
+      where,
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  @Get(':id')
+  @ApiOperation({ summary: 'Get an asset by ID' })
+  findOne(@Param('id') id: string) {
+    return this.service.findOne(id);
+  }
+
+  @Patch(':id/status')
+  @ApiOperation({ summary: 'Change asset status' })
+  changeStatus(@Param('id') id: string, @Body() dto: UpdateAssetStatusDto) {
+    return this.service.changeStatus(id, dto.status);
+  }
+}

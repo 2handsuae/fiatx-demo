@@ -1,0 +1,140 @@
+import {
+  Injectable,
+  Logger,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
+import { PrismaService } from '../../../core/prisma/prisma.service';
+import {
+  CreateJournalLineTemplateDto,
+  UpdateJournalLineTemplateDto,
+  JournalLineTemplateQueryDto,
+} from './dto/journal-line-template.dto';
+import { Prisma } from '@prisma/client';
+
+@Injectable()
+export class JournalLineTemplatesService {
+  private readonly logger = new Logger(JournalLineTemplatesService.name);
+
+  constructor(private prisma: PrismaService) {}
+
+  async create(createDto: CreateJournalLineTemplateDto) {
+    // 1. Validate Header Template
+    const header = await this.prisma.journalHeaderTemplate.findUnique({
+      where: { id: createDto.templateId },
+    });
+    if (!header)
+      throw new BadRequestException(
+        `Journal Header Template ${createDto.templateId} not found`,
+      );
+
+    // 2. Validate COA
+    const coa = await this.prisma.coa.findUnique({
+      where: { code: createDto.accountCode },
+    });
+    if (!coa)
+      throw new BadRequestException(
+        `Account Code ${createDto.accountCode} not found`,
+      );
+
+    // 3. Check Uniqueness
+    const existing = await this.prisma.journalLineTemplate.findUnique({
+      where: {
+        templateId_lineNo: {
+          templateId: createDto.templateId,
+          lineNo: createDto.lineNo,
+        },
+      },
+    });
+    if (existing)
+      throw new BadRequestException(
+        `Line No ${createDto.lineNo} already exists for this template`,
+      );
+
+    return this.prisma.journalLineTemplate.create({
+      data: {
+        ...createDto,
+        dimensionsRule: createDto.dimensionsRule || '{}',
+      },
+    });
+  }
+
+  async findAll(query: JournalLineTemplateQueryDto) {
+    const where: Prisma.JournalLineTemplateWhereInput = {};
+    if (query.templateId) where.templateId = query.templateId;
+
+    return this.prisma.journalLineTemplate.findMany({
+      where,
+      orderBy: { lineNo: 'asc' },
+      include: {
+        account: true,
+      },
+    });
+  }
+
+  async findOne(id: string) {
+    const item = await this.prisma.journalLineTemplate.findUnique({
+      where: { id },
+      include: {
+        account: true,
+      },
+    });
+    if (!item) throw new NotFoundException('Line Template not found');
+    return item;
+  }
+
+  async update(id: string, updateDto: UpdateJournalLineTemplateDto) {
+    if (updateDto.accountCode) {
+      const coa = await this.prisma.coa.findUnique({
+        where: { code: updateDto.accountCode },
+      });
+      if (!coa)
+        throw new BadRequestException(
+          `Account Code ${updateDto.accountCode} not found`,
+        );
+    }
+
+    try {
+      return await this.prisma.journalLineTemplate.update({
+        where: { id },
+        data: updateDto,
+      });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError) {
+        if (error.code === 'P2025')
+          throw new NotFoundException('Line Template not found');
+      }
+      throw error;
+    }
+  }
+
+  async remove(id: string) {
+    try {
+      return await this.prisma.journalLineTemplate.delete({
+        where: { id },
+      });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError) {
+        if (error.code === 'P2025')
+          throw new NotFoundException('Line Template not found');
+      }
+      throw error;
+    }
+  }
+
+  // Helper to reorder lines if needed (not strictly required but good to have)
+  async reorderLines(
+    templateId: string,
+    lines: { id: string; lineNo: number }[],
+  ) {
+    // Transactional update
+    return this.prisma.$transaction(
+      lines.map((line) =>
+        this.prisma.journalLineTemplate.update({
+          where: { id: line.id },
+          data: { lineNo: line.lineNo },
+        }),
+      ),
+    );
+  }
+}
