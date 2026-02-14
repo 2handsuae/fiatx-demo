@@ -1,19 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { 
-  Wallet, 
-  Building2, 
-  History, 
-  RefreshCw, 
-  Info, 
-  AlertTriangle, 
-  Check, 
-  Copy, 
-  ArrowRight,
-  Search,
-  Filter,
-  X,
-  Plus
-} from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Wallet, Building2, History, RefreshCw, Info, AlertTriangle, ArrowRight, X, Plus } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 
@@ -70,7 +56,7 @@ const Withdraw = () => {
   const [manualAddress, setManualAddress] = useState('');
   const [isManualInput, setIsManualInput] = useState(false);
   const [amount, setAmount] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [, setLoading] = useState(false);
   const [balanceLoading, setBalanceLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   

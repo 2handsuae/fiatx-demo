@@ -1,10 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { 
-  ArrowLeft, RefreshCw, Copy, Check, ExternalLink, 
-  FileText, User, CreditCard, Activity, Clock, ShieldCheck, Scale, History, Coins, ArrowRight
-} from 'lucide-react';
-import { copyToClipboard } from '../utils/clipboard';
+import { ArrowLeft, RefreshCw, Copy, Check, ExternalLink, FileText, User, Activity, Clock, Coins, ArrowRight } from 'lucide-react';
 
 interface SwapTransactionDetail {
   id: string;
@@ -70,7 +66,6 @@ const SwapTransactionDetail = () => {
   const [isRejectModalOpen, setIsRejectModalOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [copiedField, setCopiedField] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -102,12 +97,6 @@ const SwapTransactionDetail = () => {
 
     if (id) fetchData();
   }, [id, navigate]);
-
-  const handleCopy = (text: string, field: string) => {
-    copyToClipboard(text);
-    setCopiedField(field);
-    setTimeout(() => setCopiedField(null), 2000);
-  };
 
   const handleAction = async (action: string, reason?: string) => {
     setIsSubmitting(true);

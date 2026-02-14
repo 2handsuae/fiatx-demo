@@ -1,22 +1,49 @@
-import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { User, Mail, Phone, Calendar, ShieldCheck, Clock, AlertCircle } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { useCustomerProfile } from '../hooks/useCustomerProfile';
-import Verification from './Verification';
 
 const CustomerProfile = () => {
   const { profile, loading, error } = useCustomerProfile();
-  const [showVerification, setShowVerification] = useState(false);
+  const navigate = useNavigate();
 
   if (loading) return <div className="p-8 text-center text-gray-500">Loading profile...</div>;
   if (error) return <div className="p-8 text-center text-red-500">{error}</div>;
   if (!profile) return null;
 
-  const isApproved =
-    profile.onboardingStage === 'ONBOARDING_APPROVED' ||
-    (profile.canTradeSwap && profile.canTradeWithdraw);
-  const isRejected = profile.onboardingStage === 'ONBOARDING_REJECTED';
+  const isApproved = profile.complianceStatus === 'ACTIVE';
+  const isRejected =
+    profile.cddStatus === 'REJECTED' ||
+    profile.eddStatus === 'REJECTED' ||
+    profile.finalApprovalStatus === 'REJECTED';
+  const isExpired = profile.complianceStatus === 'EXPIRED' || profile.cddStatus === 'EXPIRED';
+  const isBlocked = profile.complianceStatus === 'BLOCKED' || isRejected;
+  const isRestricted = profile.complianceStatus === 'RESTRICTED';
+  const isInProgress = ['NONE', 'IN_PROGRESS'].includes(profile.complianceStatus);
+  const isFinalPending = profile.finalApprovalStatus === 'PENDING';
   const showVerifyButton = !isApproved;
+
+  const statusIconClass = isApproved
+    ? 'bg-green-100 text-green-600'
+    : isBlocked
+      ? 'bg-red-100 text-red-600'
+      : isExpired
+        ? 'bg-gray-100 text-gray-600'
+        : isRestricted
+          ? 'bg-yellow-100 text-yellow-600'
+          : 'bg-blue-100 text-blue-600';
+
+  const statusBadgeClass = isApproved
+    ? 'bg-green-100 text-green-700'
+    : isBlocked
+      ? 'bg-red-100 text-red-700'
+      : isExpired
+        ? 'bg-gray-100 text-gray-700'
+        : isRestricted
+          ? 'bg-yellow-100 text-yellow-700'
+          : isInProgress
+            ? 'bg-blue-100 text-blue-700'
+            : 'bg-gray-100 text-gray-700';
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto pb-12">
@@ -34,7 +61,7 @@ const CustomerProfile = () => {
       >
           <div className="p-6 border-b border-gray-100 flex items-center justify-between">
               <div className="flex items-center gap-3">
-                  <div className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors duration-300 ${isApproved ? 'bg-green-100 text-green-600' : isRejected ? 'bg-red-100 text-red-600' : 'bg-yellow-100 text-yellow-600'}`}>
+                  <div className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors duration-300 ${statusIconClass}`}>
                       <ShieldCheck size={20} />
                   </div>
                   <div>
@@ -43,12 +70,12 @@ const CustomerProfile = () => {
                   </div>
               </div>
               <div className="flex items-center gap-3">
-                  <span className={`px-3 py-1 rounded-full text-xs font-bold transition-colors duration-300 ${isApproved ? 'bg-green-100 text-green-700' : isRejected ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'}`}>
-                      {profile.onboardingStage.replace(/_/g, ' ')}
+                  <span className={`px-3 py-1 rounded-full text-xs font-bold transition-colors duration-300 ${statusBadgeClass}`}>
+                      {profile.complianceStatus.replace(/_/g, ' ')}
                   </span>
                   {showVerifyButton && (
                       <button 
-                          onClick={() => setShowVerification(true)}
+                          onClick={() => navigate('/verification')}
                           className={`px-4 py-2 ${isRejected ? 'bg-red-600 hover:bg-red-700' : 'bg-brand-primary hover:bg-blue-700'} text-white text-sm font-bold rounded-lg transition-colors`}
                       >
                           {isRejected ? 'Retry' : 'View Detail'}
@@ -60,7 +87,15 @@ const CustomerProfile = () => {
               <div className={`p-4 ${isRejected ? 'bg-red-50/50' : 'bg-gray-50/50'}`}>
                   <div className="flex items-start gap-3 text-sm text-gray-600">
                       <AlertCircle size={16} className={`mt-0.5 ${isRejected ? 'text-red-600' : 'text-brand-primary'}`} />
-                      <p>{isRejected ? profile.onboardingRejectReason || 'Onboarding was rejected. Please update your documents and resubmit.' : 'Complete onboarding (CDD/EDD and approval) to unlock trading features.'}</p>
+                      <p>
+                        {isExpired
+                          ? 'Your CDD document has expired. Please re-initiate CDD verification.'
+                          : isRejected
+                            ? 'Compliance case rejected. Please re-initiate verification.'
+                            : isFinalPending
+                              ? 'EDD approved. Waiting for final management approval.'
+                              : 'Complete onboarding (CDD/EDD) to unlock trading features.'}
+                      </p>
                   </div>
               </div>
           )}
@@ -125,12 +160,6 @@ const CustomerProfile = () => {
             </div>
         </motion.div>
 
-      {/* Verification Modal */}
-      <AnimatePresence>
-          {showVerification && (
-              <Verification isModal onClose={() => setShowVerification(false)} />
-          )}
-      </AnimatePresence>
     </div>
   );
 };

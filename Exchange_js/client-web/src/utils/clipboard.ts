@@ -1,4 +1,4 @@
-export const copyToClipboard = (text: string, id?: string) => {
+export const copyToClipboard = (text: string, _id?: string) => {
   navigator.clipboard.writeText(text).then(() => {
     // Success
   }).catch(err => {

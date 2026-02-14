@@ -40,7 +40,6 @@ import ClearingDetailsList from './pages/ClearingDetailsList';
 import ClearingLineDetail from './pages/ClearingLineDetail';
 import CddCasesPage from './pages/CddCasesPage';
 import EddCasesPage from './pages/EddCasesPage';
-import OnboardingDecisionsPage from './pages/OnboardingDecisionsPage';
 
 function App() {
   return (
@@ -55,7 +54,6 @@ function App() {
              <Route path="customer/management" element={<CustomerManagement />} />
              <Route path="compliance/cdd-cases" element={<CddCasesPage />} />
              <Route path="compliance/edd-cases" element={<EddCasesPage />} />
-             <Route path="compliance/onboarding-decisions" element={<OnboardingDecisionsPage />} />
              <Route path="customer/:id" element={<CustomerDetail />} />
              <Route path="treasury/wallets" element={<WalletList />} />
              <Route path="treasury/wallets/:id" element={<WalletDetail />} />

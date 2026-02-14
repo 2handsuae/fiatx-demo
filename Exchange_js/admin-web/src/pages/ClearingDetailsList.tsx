@@ -1,14 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { 
-  Search, 
-  RefreshCw, 
-  ChevronLeft, 
-  ChevronRight,
-  ExternalLink,
-  Eye,
-  ArrowUpDown,
-  X
-} from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Search, RefreshCw, ChevronLeft, ChevronRight, ExternalLink, Eye, ArrowUpDown, X } from 'lucide-react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 
 interface ClearingLineItem {
@@ -43,7 +34,7 @@ const ClearingDetailsList = () => {
 
   // Pagination & Sorting
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(20);
+  const [pageSize] = useState(20);
   const [total, setTotal] = useState(0);
   const [sortBy, setSortBy] = useState('createdAt');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');

@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, RefreshCw, Eye, Download, ArrowUpRight, CheckCircle, Copy, Plus, ShieldCheck, Lock, Unlock, ArrowRight, XCircle } from 'lucide-react';
+import { Search, RefreshCw, Eye, Download, CheckCircle, Copy, Plus, ShieldCheck, ArrowRight, XCircle } from 'lucide-react';
 import { copyToClipboard } from '../utils/clipboard';
 
 interface WithdrawTransaction {

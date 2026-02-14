@@ -1,4 +1,4 @@
-import { BrowserRouter as Router, Routes, Route, Link, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import CustomerLogin from './pages/CustomerLogin';
 import CustomerRegister from './pages/CustomerRegister';
 import LandingPage from './pages/LandingPage';
@@ -14,7 +14,6 @@ import DashboardOverview from './pages/DashboardOverview';
 import TransactionHistory from './pages/TransactionHistory';
 import { AuthProvider } from './context/AuthContext';
 import { ThemeProvider } from './context/ThemeContext';
-import { WalletPage, WithdrawPage, TransactionPage } from './pages/Placeholders';
 
 function App() {
   return (

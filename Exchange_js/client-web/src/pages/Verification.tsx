@@ -1,14 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AlertCircle, CheckCircle2, Clock, RefreshCw, ShieldCheck, X } from 'lucide-react';
+import { Clock3, QrCode, ShieldCheck } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { QRCodeSVG } from 'qrcode.react';
 import { useCustomerProfile } from '../hooks/useCustomerProfile';
-
-interface VerificationProps {
-  isModal?: boolean;
-  onClose?: () => void;
-}
 
 interface UboItem {
   id: string;
@@ -23,8 +18,16 @@ interface OnboardingSnapshot {
   id: string;
   customerType: 'INDIVIDUAL' | 'CORPORATE' | 'UNKNOWN';
   companyName?: string | null;
-  onboardingStage: string;
-  onboardingRejectReason?: string | null;
+  cddStatus: string;
+  amlRiskTier: string;
+  eddRequired: boolean;
+  eddStatus: string;
+  complianceStatus: string;
+  cddDocumentExpiresAt?: string | null;
+  finalApprovalStatus?: string;
+  currentCddCaseId?: string | null;
+  currentEddCaseId?: string | null;
+  investorClassification?: string | null;
   corporateProfile?: {
     companyName?: string;
     registrationNo?: string;
@@ -42,6 +45,7 @@ interface NextStepPayload {
     | 'COMPLETE_EDD'
     | 'WAIT'
     | 'REINITIATE_CDD'
+    | 'REINITIATE_EDD'
     | 'NONE';
   blockedReason: string | null;
   activeCaseId: string | null;
@@ -63,70 +67,61 @@ interface CaseItem {
   status: string;
   subjectKind: string;
   subjectRefId: string;
-  providerStatus?: string;
   latestSession?: CaseSession | null;
 }
 
-interface UboDraft {
-  id?: string;
-  fullName: string;
-  ownershipPercent: string;
-  nationality: string;
-  pepFlag: boolean;
-}
-
-type EntityPayload =
-  | {
-      customerType: 'INDIVIDUAL';
-    }
-  | {
-      customerType: 'CORPORATE';
-      corporateProfile: {
-        companyName: string;
-        registrationNo: string;
-        incorporationCountry: string;
-      };
-      ubos: Array<{
-        fullName: string;
-        ownershipPercent: number;
-        nationality?: string;
-        pepFlag: boolean;
-      }>;
-    };
-
-const emptyUbo: UboDraft = {
-  fullName: '',
-  ownershipPercent: '',
-  nationality: '',
-  pepFlag: false,
-};
+type IntroStage = 'INTRO' | 'GUIDE' | 'FLOW';
 
 const getErrorMessage = (error: unknown, fallback: string) =>
   error instanceof Error ? error.message : fallback;
 
-const Verification = ({ isModal = false, onClose }: VerificationProps) => {
+const stepGuides = [
+  {
+    title: 'Step 1',
+    text: 'Provide your basic profile details.',
+  },
+  {
+    title: 'Step 2',
+    text: 'Complete face verification.',
+  },
+  {
+    title: 'Step 3',
+    text: 'Verify your residential address.',
+  },
+  {
+    title: 'Step 4',
+    text: 'Pass background and screening checks.',
+  },
+  {
+    title: 'Step 5',
+    text: 'Additional EDD may be required based on risk signals.',
+  },
+];
+
+const primaryButtonClass =
+  'mx-auto flex w-full max-w-md items-center justify-center rounded-2xl bg-gradient-to-r from-blue-600 to-blue-500 px-7 py-4 text-base font-semibold text-white shadow-[0_8px_18px_rgba(37,99,235,0.22)] transition-colors hover:from-blue-600 hover:to-blue-600 disabled:opacity-60';
+
+const cardClass =
+  'rounded-3xl border border-slate-200/70 bg-white px-10 py-10 shadow-[0_8px_24px_rgba(15,23,42,0.06)]';
+
+const statCardClass = 'rounded-2xl border border-slate-200 bg-slate-50/80 px-5 py-4';
+
+const statLabelClass = 'text-sm font-semibold uppercase tracking-wide text-blue-700';
+
+const Verification = () => {
   const { profile, loading, error, refreshProfile } = useCustomerProfile();
   const navigate = useNavigate();
 
   const [onboarding, setOnboarding] = useState<OnboardingSnapshot | null>(null);
   const [nextStep, setNextStep] = useState<NextStepPayload | null>(null);
   const [cases, setCases] = useState<CaseItem[]>([]);
+  const [introStage, setIntroStage] = useState<IntroStage>('INTRO');
   const [message, setMessage] = useState('');
   const [saving, setSaving] = useState(false);
   const [casesLoading, setCasesLoading] = useState(false);
-  const [corporateForm, setCorporateForm] = useState({
-    companyName: '',
-    registrationNo: '',
-    incorporationCountry: '',
-  });
-  const [ubos, setUbos] = useState<UboDraft[]>([emptyUbo]);
+  const [autoStartedEddCaseId, setAutoStartedEddCaseId] = useState<string | null>(null);
 
   const token = localStorage.getItem('customer_token');
-
-  const closePanel = () => {
-    if (onClose) onClose();
-    else navigate('/profile');
-  };
 
   const withAuth = async (url: string, init?: RequestInit) => {
     if (!token) throw new Error('No auth token');
@@ -143,46 +138,14 @@ const Verification = ({ isModal = false, onClose }: VerificationProps) => {
   const loadOnboarding = async () => {
     if (!token) return;
     const response = await withAuth(`${import.meta.env.VITE_API_URL}/onboarding/me`);
-    if (!response.ok) {
-      throw new Error('Failed to load onboarding profile');
-    }
-
-    const data = (await response.json()) as OnboardingSnapshot;
-    setOnboarding(data);
-
-    if (data.corporateProfile) {
-      setCorporateForm({
-        companyName: data.corporateProfile.companyName || data.companyName || '',
-        registrationNo: data.corporateProfile.registrationNo || '',
-        incorporationCountry: data.corporateProfile.incorporationCountry || '',
-      });
-    } else {
-      setCorporateForm((prev) => ({
-        ...prev,
-        companyName: data.companyName || prev.companyName,
-      }));
-    }
-
-    if (Array.isArray(data.uboProfiles) && data.uboProfiles.length > 0) {
-      setUbos(
-        data.uboProfiles.map((ubo) => ({
-          id: ubo.id,
-          fullName: ubo.fullName || '',
-          ownershipPercent:
-            typeof ubo.ownershipPercent === 'number' ? String(ubo.ownershipPercent) : '',
-          nationality: ubo.nationality || '',
-          pepFlag: !!ubo.pepFlag,
-        })),
-      );
-    }
+    if (!response.ok) throw new Error('Failed to load onboarding profile');
+    setOnboarding((await response.json()) as OnboardingSnapshot);
   };
 
   const loadNextStep = async () => {
     if (!token) return;
     const response = await withAuth(`${import.meta.env.VITE_API_URL}/onboarding/next-step`);
-    if (!response.ok) {
-      throw new Error('Failed to load next step');
-    }
+    if (!response.ok) throw new Error('Failed to load next step');
     setNextStep((await response.json()) as NextStepPayload);
   };
 
@@ -191,9 +154,7 @@ const Verification = ({ isModal = false, onClose }: VerificationProps) => {
     setCasesLoading(true);
     try {
       const response = await withAuth(`${import.meta.env.VITE_API_URL}/onboarding/cases`);
-      if (!response.ok) {
-        throw new Error('Failed to load onboarding cases');
-      }
+      if (!response.ok) throw new Error('Failed to load onboarding cases');
       const data = await response.json();
       setCases(Array.isArray(data.items) ? data.items : []);
     } finally {
@@ -205,7 +166,7 @@ const Verification = ({ isModal = false, onClose }: VerificationProps) => {
     try {
       await Promise.all([loadOnboarding(), loadNextStep(), loadCases(), refreshProfile()]);
     } catch (e: unknown) {
-      setMessage(getErrorMessage(e, 'Load failed'));
+      setMessage(getErrorMessage(e, 'Failed to load onboarding data.'));
     }
   };
 
@@ -218,11 +179,9 @@ const Verification = ({ isModal = false, onClose }: VerificationProps) => {
   useEffect(() => {
     const hasPending = cases.some((item) => item.latestSession?.status === 'PENDING');
     if (!hasPending) return;
-
     const timer = window.setInterval(() => {
       Promise.all([loadCases(), loadNextStep()]).catch(() => undefined);
     }, 8000);
-
     return () => window.clearInterval(timer);
   }, [cases]);
 
@@ -233,409 +192,384 @@ const Verification = ({ isModal = false, onClose }: VerificationProps) => {
       const response = await action();
       if (!response.ok) {
         const err = (await response.json().catch(() => ({}))) as { message?: string };
-        setMessage(err.message || 'Operation failed');
-        return;
+        setMessage(err.message || 'Operation failed.');
+        return false;
       }
       setMessage(successMessage);
       await refreshAll();
+      return true;
     } catch (e: unknown) {
-      setMessage(getErrorMessage(e, 'Network error'));
+      setMessage(getErrorMessage(e, 'Network error.'));
+      return false;
     } finally {
       setSaving(false);
     }
   };
 
-  const saveEntity = async () => {
-    if (!onboarding) return;
-    if (onboarding.customerType !== 'INDIVIDUAL' && onboarding.customerType !== 'CORPORATE') {
-      setMessage('Invalid customer type');
-      return;
-    }
-
-    let payload: EntityPayload = {
-      customerType: onboarding.customerType,
-    };
-
-    if (onboarding.customerType === 'CORPORATE') {
-      payload = {
-        customerType: onboarding.customerType,
-        corporateProfile: {
-          companyName: corporateForm.companyName,
-          registrationNo: corporateForm.registrationNo,
-          incorporationCountry: corporateForm.incorporationCountry,
-        },
-        ubos: ubos
-          .filter((ubo) => ubo.fullName.trim())
-          .map((ubo) => ({
-            fullName: ubo.fullName,
-            ownershipPercent: Number(ubo.ownershipPercent || 0),
-            nationality: ubo.nationality || undefined,
-            pepFlag: ubo.pepFlag,
-          })),
-      };
-    }
-
-    await runAction(
-      () =>
-        withAuth(`${import.meta.env.VITE_API_URL}/onboarding/entity`, {
-          method: 'POST',
-          body: JSON.stringify(payload),
-        }),
-      'Entity profile saved.',
-    );
-  };
-
-  const bootstrapCdd = async (successMessage: string) => {
-    await runAction(
+  const bootstrapCdd = async () =>
+    runAction(
       () =>
         withAuth(`${import.meta.env.VITE_API_URL}/onboarding/cdd-cases/bootstrap`, {
           method: 'POST',
           body: JSON.stringify({}),
         }),
-      successMessage,
+      'CDD case and QR session are ready.',
     );
-  };
 
-  const createSession = async (item: CaseItem) => {
-    await runAction(
+  const reinitiateCdd = async () =>
+    runAction(
+      () =>
+        withAuth(`${import.meta.env.VITE_API_URL}/onboarding/cdd-cases/reinitiate`, {
+          method: 'POST',
+          body: JSON.stringify({}),
+        }),
+      'A new CDD case and QR session have been created.',
+    );
+
+  const reinitiateEdd = async () =>
+    runAction(
+      () =>
+        withAuth(`${import.meta.env.VITE_API_URL}/onboarding/edd-cases/reinitiate`, {
+          method: 'POST',
+          body: JSON.stringify({}),
+        }),
+      'A new EDD case and QR session have been created.',
+    );
+
+  const startEdd = async () =>
+    runAction(
+      () =>
+        withAuth(`${import.meta.env.VITE_API_URL}/onboarding/edd-cases/start`, {
+          method: 'POST',
+          body: JSON.stringify({}),
+        }),
+      'EDD QR session is ready.',
+    );
+
+  const createSession = async (item: CaseItem) =>
+    runAction(
       () =>
         withAuth(`${import.meta.env.VITE_API_URL}/onboarding/cases/${item.id}/sessions`, {
           method: 'POST',
-          body: JSON.stringify({
-            caseType: item.caseType,
-            provider: 'MOCK',
-          }),
+          body: JSON.stringify({ caseType: item.caseType, provider: 'MOCK' }),
         }),
-      `${item.caseType} QR session created.`,
+      `${item.caseType} QR session regenerated.`,
     );
-  };
 
-  const mockComplete = async (sessionId: string) => {
-    await runAction(
+  const mockComplete = async (sessionId: string) =>
+    runAction(
       () =>
         withAuth(`${import.meta.env.VITE_API_URL}/onboarding/sessions/${sessionId}/mock-complete`, {
           method: 'POST',
           body: JSON.stringify({ result: 'PASS' }),
         }),
-      'Mock scan completed and case moved to review queue.',
+      'Mock completion submitted. Your case is now in review.',
     );
-  };
 
-  const stage = onboarding?.onboardingStage || profile?.onboardingStage || 'REGISTERED';
-  const approved = stage === 'ONBOARDING_APPROVED';
-  const rejected = stage === 'ONBOARDING_REJECTED';
-  const inReview = ['CDD_UNDER_REVIEW', 'EDD_UNDER_REVIEW', 'EDD_MLRO_APPROVED'].includes(stage);
+  const complianceStatus = onboarding?.complianceStatus || profile?.complianceStatus || 'NONE';
+  const approved = complianceStatus === 'ACTIVE';
+  const pendingFinalApproval =
+    (onboarding?.finalApprovalStatus || profile?.finalApprovalStatus) === 'PENDING';
+  const showIntroFlow =
+    nextStep?.step === 'CDD' && nextStep.action === 'START_CDD' && introStage !== 'FLOW';
 
   const currentCaseType: 'CDD' | 'EDD' = nextStep?.step === 'EDD' ? 'EDD' : 'CDD';
   const currentCaseCandidates = useMemo(
     () => cases.filter((item) => item.caseType === currentCaseType),
     [cases, currentCaseType],
   );
+
   const activeCase =
     currentCaseCandidates.find((item) => item.id === nextStep?.activeCaseId) ||
-    currentCaseCandidates.find((item) => ['DRAFT', 'NEED_INFO', 'SUBMITTED'].includes(item.status)) ||
+    currentCaseCandidates.find((item) => ['PENDING', 'SUBMITTED'].includes(item.status)) ||
     currentCaseCandidates[0] ||
     null;
 
-  const subjectLabel = (item: CaseItem) => {
-    if (item.subjectKind === 'UBO_PERSON') {
-      const ubo = onboarding?.uboProfiles?.find((u) => u.id === item.subjectRefId);
-      return ubo?.fullName || 'UBO';
+  useEffect(() => {
+    if (nextStep?.step === 'CDD' && nextStep.action === 'START_CDD') {
+      setIntroStage((prev) => (prev === 'FLOW' ? 'INTRO' : prev));
+      return;
     }
-    if (item.subjectKind === 'CORPORATE_ENTITY') {
-      return onboarding?.corporateProfile?.companyName || onboarding?.companyName || 'Corporate Entity';
-    }
-    return profile?.firstName || profile?.lastName
-      ? `${profile?.firstName || ''} ${profile?.lastName || ''}`.trim()
-      : 'Individual Customer';
-  };
+    setIntroStage('FLOW');
+  }, [nextStep?.step, nextStep?.action]);
 
-  if (loading) return <div className="p-8 text-center text-gray-500">Loading...</div>;
-  if (error) return <div className="p-8 text-center text-red-500">{error}</div>;
+  useEffect(() => {
+    if (!approved) return;
+    navigate('/profile', { replace: true });
+  }, [approved, navigate]);
+
+  useEffect(() => {
+    if (nextStep?.step !== 'EDD') {
+      setAutoStartedEddCaseId(null);
+      return;
+    }
+    if (!activeCase || activeCase.caseType !== 'EDD') return;
+    if (autoStartedEddCaseId === activeCase.id) return;
+
+    const hasUsableSession =
+      !!activeCase.latestSession?.qrCodeUrl &&
+      activeCase.latestSession.status !== 'FAILED' &&
+      new Date(activeCase.latestSession.expiresAt).getTime() > Date.now();
+    if (hasUsableSession) return;
+
+    setAutoStartedEddCaseId(activeCase.id);
+    startEdd().catch(() => undefined);
+  }, [
+    nextStep?.step,
+    activeCase?.id,
+    activeCase?.latestSession?.status,
+    activeCase?.latestSession?.expiresAt,
+    autoStartedEddCaseId,
+  ]);
+
+  if (loading) return <div className="p-10 text-center text-slate-500">Loading onboarding status...</div>;
+  if (error) return <div className="p-10 text-center text-red-500">{error}</div>;
   if (!profile) return null;
+  if (approved) return null;
+
+  const isCorporate = onboarding?.customerType === 'CORPORATE' || profile.customerType === 'CORPORATE';
+  const reviewCardContent = pendingFinalApproval
+    ? {
+        title: 'Waiting for Final Approval',
+        description: 'EDD has been approved and is now waiting for final management confirmation.',
+      }
+    : nextStep?.requiresEdd
+      ? {
+          title: 'Pending Review',
+          description: 'Your EDD submission is under compliance review.',
+        }
+      : {
+          title: 'Pending Review',
+          description: 'Your CDD submission is under compliance review.',
+        };
 
   return (
-    <div
-      className={
-        isModal
-          ? 'fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm'
-          : 'relative min-h-[calc(100vh-100px)] bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden'
-      }
-    >
-      <motion.div
-        initial={isModal ? { opacity: 0, scale: 0.95 } : { opacity: 1 }}
-        animate={isModal ? { opacity: 1, scale: 1 } : { opacity: 1 }}
-        className={
-          isModal
-            ? 'bg-white rounded-2xl shadow-2xl w-full max-w-4xl h-[820px] relative overflow-hidden flex flex-col'
-            : 'h-full py-8 px-6 overflow-y-auto'
-        }
-      >
-        {isModal && (
-          <button
-            onClick={closePanel}
-            className="absolute top-4 right-4 p-2 text-gray-400 hover:text-gray-600 rounded-full hover:bg-gray-100 transition-colors z-30"
+    <div className="min-h-[calc(100vh-140px)] bg-slate-50/50">
+      <div className="mx-auto max-w-4xl space-y-8 px-8 py-14 lg:px-10 lg:py-16">
+        {message && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.14 }}
+            className="rounded-3xl border border-blue-200/80 bg-blue-50/80 px-6 py-4 text-sm leading-6 text-blue-700"
           >
-            <X size={20} />
-          </button>
+            {message}
+          </motion.div>
         )}
 
-        <div className={isModal ? 'h-full overflow-y-auto p-6 space-y-6' : 'space-y-6 max-w-4xl mx-auto'}>
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <div
-                className={`w-11 h-11 rounded-full flex items-center justify-center ${
-                  approved
-                    ? 'bg-green-100 text-green-600'
-                    : rejected
-                      ? 'bg-red-100 text-red-600'
-                      : 'bg-blue-100 text-blue-600'
-                }`}
+        {isCorporate && (
+          <motion.section
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.16 }}
+            className="rounded-3xl border border-amber-200/80 bg-amber-50/70 px-10 py-10 shadow-[0_8px_24px_rgba(15,23,42,0.05)]"
+          >
+            <h2 className="text-2xl font-bold text-amber-900">Corporate onboarding via support</h2>
+            <p className="mt-4 max-w-3xl text-sm leading-7 text-amber-800">
+              Corporate self-service onboarding is temporarily unavailable on client web. Please contact
+              compliance support to continue the KYB and UBO onboarding process.
+            </p>
+          </motion.section>
+        )}
+
+        {!isCorporate && showIntroFlow && introStage === 'INTRO' && (
+          <motion.section
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.16 }}
+            className={cardClass}
+          >
+            <div className="mx-auto max-w-2xl text-center">
+              <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
+                <ShieldCheck size={20} />
+              </div>
+              <h2 className="mt-6 text-4xl font-black tracking-tight text-slate-900 sm:text-5xl">
+                You are about to start KYC verification
+              </h2>
+              <p className="mx-auto mt-6 max-w-2xl text-lg leading-8 text-slate-600">
+                This process validates your identity, address, and risk profile before full trading
+                access is enabled for your account.
+              </p>
+              <div className="mt-10 space-y-4 text-left">
+                <div className={statCardClass}>
+                  <div className={statLabelClass}>Estimated time</div>
+                  <div className="mt-2 text-2xl font-semibold text-slate-800">3-5 minutes</div>
+                </div>
+                <div className={statCardClass}>
+                  <div className={statLabelClass}>Requirement</div>
+                  <div className="mt-2 text-2xl font-semibold text-slate-800">Valid identification</div>
+                </div>
+                <div className={statCardClass}>
+                  <div className={statLabelClass}>Result</div>
+                  <div className="mt-2 text-2xl font-semibold text-slate-800">Compliance review queue</div>
+                </div>
+              </div>
+              <button
+                onClick={() => setIntroStage('GUIDE')}
+                disabled={saving}
+                className={`${primaryButtonClass} mt-10`}
               >
-                {approved ? (
-                  <CheckCircle2 size={22} />
-                ) : inReview ? (
-                  <Clock size={22} />
-                ) : (
-                  <ShieldCheck size={22} />
-                )}
-              </div>
-              <div>
-                <h1 className="text-xl font-bold text-gray-900">Onboarding Center</h1>
-                <p className="text-sm text-gray-500">
-                  Current stage: {stage.replace(/_/g, ' ')} | Entity: {onboarding?.customerType || profile.customerType}
-                </p>
-              </div>
+                Continue
+              </button>
             </div>
+          </motion.section>
+        )}
 
-            <button
-              onClick={refreshAll}
-              className="p-2 text-gray-500 hover:text-brand-primary"
-              disabled={saving || casesLoading}
-              title="Refresh"
-            >
-              <RefreshCw size={18} className={casesLoading ? 'animate-spin' : ''} />
-            </button>
-          </div>
-
-          {message && (
-            <div className="p-3 rounded-lg border border-blue-200 bg-blue-50 text-blue-700 text-sm">{message}</div>
-          )}
-
-          {approved && (
-            <div className="p-4 rounded-xl border border-green-200 bg-green-50 text-green-700 text-sm">
-              Onboarding approved. Trading permissions are now enabled.
-            </div>
-          )}
-
-          {nextStep && (
-            <section className="rounded-xl border border-gray-200 p-4 space-y-3">
-              <h2 className="font-semibold text-gray-900">Current Path</h2>
-              <div className="text-sm text-gray-700">
-                Step: <span className="font-semibold">{nextStep.step}</span>
-              </div>
-              {nextStep.blockedReason && (
-                <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg p-3">
-                  {nextStep.blockedReason}
-                </div>
-              )}
-            </section>
-          )}
-
-          {nextStep?.step === 'ENTITY_INFO' && onboarding?.customerType === 'CORPORATE' && (
-            <section className="rounded-xl border border-gray-200 p-4 space-y-4">
-              <div className="flex items-center justify-between">
-                <h2 className="font-semibold text-gray-900">Corporate Profile</h2>
-                <button
-                  onClick={saveEntity}
-                  disabled={saving}
-                  className="px-3 py-2 text-sm font-medium rounded-lg bg-brand-primary text-white hover:bg-blue-700 disabled:opacity-60"
-                >
-                  Save Profile
-                </button>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                <input
-                  value={corporateForm.companyName}
-                  onChange={(e) => setCorporateForm((prev) => ({ ...prev, companyName: e.target.value }))}
-                  placeholder="Company Name"
-                  className="px-3 py-2 border border-gray-200 rounded-lg"
-                />
-                <input
-                  value={corporateForm.registrationNo}
-                  onChange={(e) =>
-                    setCorporateForm((prev) => ({ ...prev, registrationNo: e.target.value }))
-                  }
-                  placeholder="Registration No"
-                  className="px-3 py-2 border border-gray-200 rounded-lg"
-                />
-                <input
-                  value={corporateForm.incorporationCountry}
-                  onChange={(e) =>
-                    setCorporateForm((prev) => ({ ...prev, incorporationCountry: e.target.value }))
-                  }
-                  placeholder="Incorporation Country"
-                  className="px-3 py-2 border border-gray-200 rounded-lg"
-                />
-              </div>
-
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <h3 className="font-medium text-gray-800">UBO List</h3>
-                  <button
-                    onClick={() => setUbos((prev) => [...prev, { ...emptyUbo }])}
-                    className="text-sm px-2 py-1 rounded border border-gray-200 hover:bg-gray-50"
+        {!isCorporate && showIntroFlow && introStage === 'GUIDE' && (
+          <motion.section
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.16 }}
+            className={cardClass}
+          >
+            <div className="mx-auto max-w-2xl">
+              <h2 className="text-4xl font-black tracking-tight text-slate-900 text-center">Verification steps</h2>
+              <p className="mx-auto mt-5 max-w-2xl text-base leading-7 text-slate-600 text-center">
+                Follow the five-step path below. After submission, your case enters review automatically.
+              </p>
+              <div className="mt-8 space-y-4">
+                {stepGuides.map((item, index) => (
+                  <div
+                    key={item.title}
+                    className="flex items-start gap-4 rounded-2xl border border-slate-200 bg-slate-50/80 px-5 py-4"
                   >
-                    Add UBO
-                  </button>
-                </div>
-
-                {ubos.map((ubo, index) => (
-                  <div key={`${ubo.id || 'new'}-${index}`} className="grid grid-cols-1 md:grid-cols-5 gap-2">
-                    <input
-                      value={ubo.fullName}
-                      onChange={(e) => {
-                        const value = e.target.value;
-                        setUbos((prev) => prev.map((item, i) => (i === index ? { ...item, fullName: value } : item)));
-                      }}
-                      placeholder="UBO Full Name"
-                      className="px-3 py-2 border border-gray-200 rounded-lg"
-                    />
-                    <input
-                      value={ubo.ownershipPercent}
-                      onChange={(e) => {
-                        const value = e.target.value;
-                        setUbos((prev) =>
-                          prev.map((item, i) => (i === index ? { ...item, ownershipPercent: value } : item)),
-                        );
-                      }}
-                      placeholder="Ownership %"
-                      className="px-3 py-2 border border-gray-200 rounded-lg"
-                    />
-                    <input
-                      value={ubo.nationality}
-                      onChange={(e) => {
-                        const value = e.target.value;
-                        setUbos((prev) =>
-                          prev.map((item, i) => (i === index ? { ...item, nationality: value } : item)),
-                        );
-                      }}
-                      placeholder="Nationality"
-                      className="px-3 py-2 border border-gray-200 rounded-lg"
-                    />
-                    <label className="px-3 py-2 border border-gray-200 rounded-lg text-sm flex items-center gap-2">
-                      <input
-                        type="checkbox"
-                        checked={ubo.pepFlag}
-                        onChange={(e) => {
-                          const checked = e.target.checked;
-                          setUbos((prev) => prev.map((item, i) => (i === index ? { ...item, pepFlag: checked } : item)));
-                        }}
-                      />
-                      PEP
-                    </label>
-                    <button
-                      onClick={() => setUbos((prev) => prev.filter((_, i) => i !== index))}
-                      disabled={ubos.length === 1}
-                      className="px-3 py-2 border border-red-200 text-red-600 rounded-lg disabled:opacity-40"
-                    >
-                      Remove
-                    </button>
+                    <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blue-100 text-[11px] font-semibold text-blue-700">
+                      {index + 1}
+                    </div>
+                    <div className="text-base leading-7 text-slate-700">{item.text}</div>
                   </div>
                 ))}
               </div>
-            </section>
-          )}
+              <button
+                onClick={async () => {
+                  const ok = await bootstrapCdd();
+                  if (ok) setIntroStage('FLOW');
+                }}
+                disabled={saving}
+                className={`${primaryButtonClass} mt-10`}
+              >
+                Start Verification
+              </button>
+            </div>
+          </motion.section>
+        )}
 
-          {nextStep?.step === 'CDD' && (
-            <JourneyCasePanel
-              title="CDD"
-              item={activeCase}
-              loading={casesLoading}
-              saving={saving}
-              subjectLabel={subjectLabel}
-              onCreateSession={createSession}
-              onMockComplete={mockComplete}
-              onStart={() => bootstrapCdd('CDD journey initialized.')}
-            />
-          )}
+        {!isCorporate && nextStep?.step === 'CDD' && !showIntroFlow && (
+          <JourneyCasePanel
+            title="CDD"
+            subtitle="Scan the QR code and complete your CDD verification session."
+            item={activeCase}
+            loading={casesLoading}
+            saving={saving}
+            onCreateSession={createSession}
+            onMockComplete={mockComplete}
+            onStart={bootstrapCdd}
+          />
+        )}
 
-          {nextStep?.step === 'EDD' && (
+        {!isCorporate && nextStep?.step === 'EDD' && (
+          <section className="space-y-6">
+            <div className="rounded-3xl border border-violet-200/80 bg-violet-50/70 px-8 py-5 text-sm leading-7 text-violet-900">
+              Additional Enhanced Due Diligence (EDD) is required for this onboarding journey.
+            </div>
             <JourneyCasePanel
               title="EDD"
+              subtitle="Scan the QR code and complete your EDD verification session."
               item={activeCase}
               loading={casesLoading}
               saving={saving}
-              subjectLabel={subjectLabel}
               onCreateSession={createSession}
               onMockComplete={mockComplete}
-              onStart={() => Promise.resolve()}
+              onStart={startEdd}
             />
-          )}
+          </section>
+        )}
 
-          {nextStep?.step === 'WAIT_REVIEW' && (
-            <section className="rounded-xl border border-gray-200 p-4 space-y-3">
-              <h2 className="font-semibold text-gray-900">Waiting For Review</h2>
-              <p className="text-sm text-gray-600">
-                Compliance is reviewing your {nextStep.requiresEdd ? 'EDD' : 'CDD'} case. Please refresh for latest status.
-              </p>
-              <CaseSummaryList items={cases} caseType={nextStep.requiresEdd ? 'EDD' : 'CDD'} />
-            </section>
-          )}
+        {!isCorporate && nextStep?.step === 'WAIT_REVIEW' && (
+          <motion.section
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.16 }}
+            className={cardClass}
+          >
+            <h2 className="flex items-center justify-center gap-2 text-center text-3xl font-black tracking-tight text-slate-900">
+              <Clock3 size={22} className="text-blue-600" />
+              {reviewCardContent.title}
+            </h2>
+            <p className="mx-auto mt-4 max-w-2xl text-center text-base leading-7 text-slate-600">
+              {reviewCardContent.description}
+            </p>
+            <CaseSummaryList items={cases} caseType={nextStep.requiresEdd ? 'EDD' : 'CDD'} />
+          </motion.section>
+        )}
 
-          {nextStep?.step === 'REINITIATE' && (
-            <section className="rounded-xl border border-red-200 bg-red-50 p-4 space-y-4">
-              <h2 className="font-semibold text-red-900">Onboarding Rejected</h2>
-              <p className="text-sm text-red-700">
-                {nextStep.blockedReason || onboarding?.onboardingRejectReason || 'Please re-initiate verification.'}
-              </p>
-              <button
-                onClick={() => bootstrapCdd('New CDD journey created. Please continue verification.')}
-                disabled={saving}
-                className="px-3 py-2 text-sm font-medium rounded-lg bg-red-600 text-white hover:bg-red-700 disabled:opacity-60"
-              >
-                Re-initiate CDD
-              </button>
-            </section>
-          )}
+        {!isCorporate && nextStep?.step === 'REINITIATE' && (
+          <motion.section
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.16 }}
+            className="rounded-3xl border border-red-200/80 bg-red-50/60 px-10 py-10 shadow-[0_8px_24px_rgba(15,23,42,0.05)]"
+          >
+            <h2 className="text-center text-4xl font-black tracking-tight text-red-900">
+              Verification Rejected
+            </h2>
+            <p className="mx-auto mt-5 max-w-2xl text-center text-base leading-7 text-red-700">
+              {nextStep.blockedReason || 'Please re-initiate verification to continue onboarding.'}
+            </p>
+            <button
+              onClick={() =>
+                nextStep.action === 'REINITIATE_EDD'
+                  ? reinitiateEdd().catch(() => undefined)
+                  : reinitiateCdd().catch(() => undefined)
+              }
+              disabled={saving}
+              className={`${primaryButtonClass} mt-10`}
+            >
+              {nextStep.action === 'REINITIATE_EDD' ? 'Re-initiate EDD' : 'Re-initiate CDD'}
+            </button>
+          </motion.section>
+        )}
 
-          {!approved && (
-            <div className="p-4 rounded-xl border border-yellow-200 bg-yellow-50 text-yellow-700 text-sm flex gap-2">
-              <AlertCircle size={16} className="mt-0.5" />
-              <div>
-                Trading stays blocked until onboarding reaches <span className="font-semibold">ONBOARDING_APPROVED</span>.
-              </div>
-            </div>
-          )}
-        </div>
-      </motion.div>
+        {!isCorporate && nextStep?.step === 'ENTITY_INFO' && (
+          <motion.section
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.16 }}
+            className="rounded-3xl border border-amber-200/80 bg-amber-50/70 px-10 py-10 shadow-[0_8px_24px_rgba(15,23,42,0.05)]"
+          >
+            <h2 className="text-2xl font-bold text-amber-900">Manual setup required</h2>
+            <p className="mt-4 text-sm leading-7 text-amber-800">
+              Your onboarding setup requires support assistance before CDD can start. Please contact support.
+            </p>
+          </motion.section>
+        )}
+      </div>
     </div>
   );
 };
 
 const JourneyCasePanel = ({
   title,
+  subtitle,
   item,
   loading,
   saving,
-  subjectLabel,
   onCreateSession,
   onMockComplete,
   onStart,
 }: {
   title: 'CDD' | 'EDD';
+  subtitle: string;
   item: CaseItem | null;
   loading: boolean;
   saving: boolean;
-  subjectLabel: (item: CaseItem) => string;
-  onCreateSession: (item: CaseItem) => Promise<void>;
-  onMockComplete: (sessionId: string) => Promise<void>;
-  onStart: () => Promise<void>;
+  onCreateSession: (item: CaseItem) => Promise<boolean>;
+  onMockComplete: (sessionId: string) => Promise<boolean>;
+  onStart: () => Promise<boolean>;
 }) => {
   if (loading) {
     return (
-      <section className="rounded-xl border border-gray-200 p-4 text-sm text-gray-500">
+      <section className={cardClass + ' text-center text-sm text-slate-500'}>
         Loading {title} case...
       </section>
     );
@@ -643,69 +577,77 @@ const JourneyCasePanel = ({
 
   if (!item) {
     return (
-      <section className="rounded-xl border border-gray-200 p-4 space-y-3">
-        <h2 className="font-semibold text-gray-900">{title} Verification</h2>
-        <p className="text-sm text-gray-600">No active {title} case found.</p>
-        {title === 'CDD' && (
-          <button
-            onClick={onStart}
-            disabled={saving}
-            className="px-3 py-2 text-sm font-medium rounded-lg bg-brand-primary text-white hover:bg-blue-700 disabled:opacity-60"
-          >
-            Start CDD
-          </button>
-        )}
+      <section className={cardClass}>
+        <h2 className="text-center text-3xl font-black tracking-tight text-slate-900">{title} Verification</h2>
+        <p className="mx-auto mt-5 max-w-2xl text-center text-base leading-7 text-slate-600">
+          No active {title} case is available yet. Start now to generate your verification session.
+        </p>
+        <button
+          onClick={() => onStart().catch(() => undefined)}
+          disabled={saving}
+          className={`${primaryButtonClass} mt-10`}
+        >
+          Start {title}
+        </button>
       </section>
     );
   }
 
+  const hasUsableSession =
+    !!item.latestSession?.qrCodeUrl &&
+    item.latestSession.status !== 'FAILED' &&
+    new Date(item.latestSession.expiresAt).getTime() > Date.now();
+
   return (
-    <section className="rounded-xl border border-gray-200 p-4 space-y-3">
-      <h2 className="font-semibold text-gray-900">{title} Verification</h2>
-      <div className="border border-gray-200 rounded-lg p-3 space-y-3">
-        <div className="flex flex-wrap items-center justify-between gap-2">
+    <section className={cardClass}>
+      <h2 className="text-center text-4xl font-black tracking-tight text-slate-900">{title} Verification</h2>
+      <p className="mx-auto mt-5 max-w-2xl text-center text-base leading-7 text-slate-600">{subtitle}</p>
+
+      <div className="mt-8 rounded-3xl border border-slate-200 bg-slate-50/75 p-7">
+        <div className="flex items-center justify-between gap-4">
           <div>
-            <div className="text-sm font-semibold text-gray-900">{item.caseNo}</div>
-            <div className="text-xs text-gray-500">
-              Subject: {subjectLabel(item)} ({item.subjectKind})
-            </div>
+            <div className="text-sm font-semibold tracking-wide text-slate-900">{item.caseNo}</div>
+            <div className="text-xs text-slate-500">Status: {item.status}</div>
           </div>
-          <div className="flex items-center gap-2 text-xs">
-            <span className="px-2 py-1 rounded-full bg-gray-100 text-gray-700">{item.status}</span>
-            <span className="px-2 py-1 rounded-full bg-blue-100 text-blue-700">
-              Provider: {item.providerStatus || 'NOT_STARTED'}
-            </span>
+          <div className="rounded-xl border border-slate-200 bg-white p-2.5 text-slate-600">
+            <QrCode size={20} />
           </div>
         </div>
 
-        {item.latestSession?.qrCodeUrl && (
-          <div className="flex flex-col md:flex-row md:items-center gap-3">
-            <div className="p-2 border border-gray-200 rounded-lg bg-white w-fit">
-              <QRCodeSVG value={item.latestSession.qrCodeUrl} size={96} />
+        {item.latestSession?.qrCodeUrl ? (
+          <div className="mt-8 grid grid-cols-1 items-center justify-items-center gap-6">
+            <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-[0_6px_20px_rgba(15,23,42,0.08)]">
+              <QRCodeSVG value={item.latestSession.qrCodeUrl} size={192} />
             </div>
-            <div className="text-xs text-gray-600 space-y-1">
-              <div>Session: {item.latestSession.providerSessionId}</div>
-              <div>Status: {item.latestSession.status}</div>
-              <div>Expires: {new Date(item.latestSession.expiresAt).toLocaleString()}</div>
+            <div className="space-y-1 text-center text-xs leading-6 text-slate-600">
+              <div>Session ID: {item.latestSession.providerSessionId}</div>
+              <div>Session Status: {item.latestSession.status}</div>
+              <div>Expires At: {new Date(item.latestSession.expiresAt).toLocaleString()}</div>
             </div>
+          </div>
+        ) : (
+          <div className="mt-6 text-center text-sm leading-7 text-slate-500">
+            No QR session yet. Generate one to continue.
           </div>
         )}
 
-        <div className="flex flex-wrap gap-2">
-          <button
-            onClick={() => onCreateSession(item)}
-            disabled={saving}
-            className="px-3 py-1.5 text-xs rounded-lg border border-gray-200 hover:bg-gray-50 disabled:opacity-60"
-          >
-            Create QR Session
-          </button>
+        <div className="mt-8 flex flex-col items-center gap-4">
+          {!hasUsableSession && (
+            <button
+              onClick={() => onCreateSession(item).catch(() => undefined)}
+              disabled={saving}
+              className="mx-auto flex w-full max-w-md items-center justify-center rounded-2xl border border-slate-300 bg-white px-7 py-4 text-base font-semibold text-slate-700 transition-colors hover:bg-slate-100 disabled:opacity-60"
+            >
+              {item.latestSession ? 'Regenerate QR' : 'Generate QR'}
+            </button>
+          )}
           {item.latestSession?.status === 'PENDING' && (
             <button
-              onClick={() => onMockComplete(item.latestSession!.id)}
+              onClick={() => onMockComplete(item.latestSession!.id).catch(() => undefined)}
               disabled={saving}
-              className="px-3 py-1.5 text-xs rounded-lg bg-green-600 text-white hover:bg-green-700 disabled:opacity-60"
+              className={primaryButtonClass}
             >
-              Mock Complete Scan
+              Mock Complete
             </button>
           )}
         </div>
@@ -723,15 +665,18 @@ const CaseSummaryList = ({
 }) => {
   const filtered = items.filter((item) => item.caseType === caseType).slice(0, 5);
   if (filtered.length === 0) {
-    return <div className="text-sm text-gray-500">No {caseType} cases.</div>;
+    return <div className="mt-5 text-center text-sm leading-7 text-slate-500">No {caseType} cases found.</div>;
   }
 
   return (
-    <div className="space-y-2">
+    <div className="mt-7 space-y-3">
       {filtered.map((item) => (
-        <div key={item.id} className="border border-gray-200 rounded-lg px-3 py-2 text-sm flex justify-between gap-2">
-          <span className="font-medium text-gray-800">{item.caseNo}</span>
-          <span className="text-gray-500">{item.status}</span>
+        <div
+          key={item.id}
+          className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50/80 px-4 py-3 text-sm"
+        >
+          <span className="font-semibold text-slate-800">{item.caseNo}</span>
+          <span className="text-slate-500">{item.status}</span>
         </div>
       ))}
     </div>

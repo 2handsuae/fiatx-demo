@@ -1,20 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { 
-  ArrowLeft, 
-  Hash, 
-  FileText, 
-  DollarSign,
-  Layers,
-  Activity,
-  Calendar,
-  ExternalLink,
-  RefreshCw,
-  AlertCircle,
-  Briefcase,
-  User,
-  Link as LinkIcon
-} from 'lucide-react';
+import { ArrowLeft, Hash, DollarSign, Calendar, ExternalLink, RefreshCw, AlertCircle, User, Link as LinkIcon } from 'lucide-react';
 
 interface ClearingLineDetail {
   id: string;

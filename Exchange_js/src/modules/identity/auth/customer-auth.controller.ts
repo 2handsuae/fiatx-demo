@@ -28,8 +28,11 @@ const RegisterSchema = z.object({
 });
 
 const LoginSchema = z.object({
-  email: z.string().email(),
+  email: z.string().email().optional(),
+  phone: z.string().min(4).optional(),
   password: z.string().min(6),
+}).refine((value) => !!value.email || !!value.phone, {
+  message: 'email or phone is required',
 });
 
 @ApiTags('auth-customer')
@@ -57,8 +60,9 @@ export class CustomerAuthController {
       throw new UnauthorizedException('Invalid input format');
     }
 
+    const identifier = body.email || body.phone;
     const customer = await this.customerAuthService.validateCustomer(
-      body.email,
+      identifier,
       body.password,
     );
     if (!customer) {

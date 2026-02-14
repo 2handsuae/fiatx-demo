@@ -1,9 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { 
-  ArrowLeft, RefreshCw, Copy, Check, ExternalLink, 
-  FileText, User, CreditCard, Activity, Clock, Server, Shield, Scale, MapPin, ArrowUpRight
-} from 'lucide-react';
+import { ArrowLeft, RefreshCw, Copy, Check, ExternalLink, FileText, User, CreditCard, Activity, Clock, Server, MapPin } from 'lucide-react';
 import { copyToClipboard } from '../utils/clipboard';
 
 interface PayoutDetail {
@@ -416,11 +413,7 @@ const InfoField = ({
             <div className={`text-sm font-medium break-all flex items-center gap-2 ${highlight ? 'text-brand-primary' : 'text-gray-900'}`}>
                 {icon && <span className="text-gray-400">{icon}</span>}
                 {link ? (
-                    <a href={link} target={link.startsWith('/') ? undefined : "_blank"} rel={link.startsWith('/') ? undefined : "noopener noreferrer"} className="text-blue-600 hover:underline flex items-center gap-1" onClick={(e) => {
-                        if (link.startsWith('/')) {
-                            // Let the parent component's router handle internal links if possible, or use standard anchor
-                        }
-                    }}>
+                    <a href={link} target={link.startsWith('/') ? undefined : "_blank"} rel={link.startsWith('/') ? undefined : "noopener noreferrer"} className="text-blue-600 hover:underline flex items-center gap-1">
                         {displayValue} <ExternalLink size={12}/>
                     </a>
                 ) : (

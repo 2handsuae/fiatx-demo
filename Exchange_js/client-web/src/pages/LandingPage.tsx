@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import { ArrowRight, Shield, Globe, Zap, Database, Briefcase, ChevronRight, Menu, X } from 'lucide-react';
+import { ArrowRight, Shield, Globe, Zap, Database, Briefcase, Menu, X } from 'lucide-react';
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 

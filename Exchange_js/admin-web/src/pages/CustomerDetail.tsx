@@ -1,6 +1,7 @@
 import { type ReactNode, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Building2, Clock, ShieldCheck, User } from 'lucide-react';
+import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/adminFetch';
 
 interface CorporateProfile {
   companyName: string;
@@ -53,12 +54,22 @@ interface CustomerDetailData {
   lastName?: string | null;
   companyName?: string | null;
   customerType: string;
-  onboardingStage: string;
-  onboardingRejectReason?: string | null;
-  canTradeSwap: boolean;
-  canTradeWithdraw: boolean;
-  onboardingApprovedAt?: string | null;
-  onboardingRejectedAt?: string | null;
+  cddStatus: string;
+  amlRiskTier: string;
+  eddRequired: boolean;
+  eddStatus: string;
+  complianceStatus: string;
+  cddDocumentExpiresAt?: string | null;
+  finalApprovalStatus?: string;
+  finalApprovalReason?: string | null;
+  finalApprovalReviewerId?: string | null;
+  finalApprovalReviewedAt?: string | null;
+  nextReviewAt?: string | null;
+  currentCddCaseId?: string | null;
+  currentEddCaseId?: string | null;
+  investorClassification: string;
+  investorClassificationSource: string;
+  investorClassificationUpdatedAt?: string | null;
   createdAt: string;
   updatedAt: string;
   corporateProfile?: CorporateProfile | null;
@@ -78,34 +89,30 @@ const CustomerDetail = () => {
   const [customer, setCustomer] = useState<CustomerDetailData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [updatingClassification, setUpdatingClassification] = useState(false);
+  const [updatingFinalReview, setUpdatingFinalReview] = useState(false);
+  const [simulatingExpired, setSimulatingExpired] = useState(false);
+
+  const fetchCustomer = async () => {
+    try {
+      const response = await adminFetch(`${import.meta.env.VITE_API_URL}/customers/${id}`);
+
+      if (!response.ok) {
+        throw new Error(await getApiErrorMessage(response, 'Failed to load data.'));
+      }
+
+      setCustomer((await response.json()) as CustomerDetailData);
+    } catch (e: unknown) {
+      if (e instanceof AdminSessionError) {
+        return;
+      }
+      setError(getErrorMessage(e, 'Failed to load data.'));
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const fetchCustomer = async () => {
-      try {
-        const token = localStorage.getItem('admin_token');
-        if (!token) {
-          navigate('/login');
-          return;
-        }
-
-        const response = await fetch(`${import.meta.env.VITE_API_URL}/customers/${id}`, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        });
-
-        if (!response.ok) {
-          throw new Error('Failed to fetch customer details');
-        }
-
-        setCustomer((await response.json()) as CustomerDetailData);
-      } catch (e: unknown) {
-        setError(getErrorMessage(e, 'Network error'));
-      } finally {
-        setLoading(false);
-      }
-    };
-
     if (id) {
       fetchCustomer();
     }
@@ -119,6 +126,114 @@ const CustomerDetail = () => {
     const name = `${customer.firstName || ''} ${customer.lastName || ''}`.trim();
     return name || customer.customerNo;
   }, [customer]);
+
+  const updateInvestorClassification = async () => {
+    if (!customer) return;
+
+    const classification = (window.prompt('Classification: RETAIL | QUALIFIED | INSTITUTIONAL', customer.investorClassification || 'RETAIL') || '').trim().toUpperCase();
+    if (!['RETAIL', 'QUALIFIED', 'INSTITUTIONAL'].includes(classification)) {
+      return;
+    }
+
+    const reason = window.prompt('Please provide reason for override', '') || '';
+    if (!reason.trim()) {
+      return;
+    }
+
+    try {
+      setUpdatingClassification(true);
+      const response = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/admin/compliance/customers/${customer.id}/investor-classification`,
+        {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            classification,
+            reason,
+          }),
+        },
+      );
+
+      if (!response.ok) {
+        throw new Error(await getApiErrorMessage(response, 'Failed to update classification'));
+      }
+
+      await fetchCustomer();
+    } catch (e) {
+      if (e instanceof AdminSessionError) {
+        return;
+      }
+      alert(getErrorMessage(e, 'Failed to update classification'));
+    } finally {
+      setUpdatingClassification(false);
+    }
+  };
+
+  const simulateExpired = async () => {
+    if (!customer) return;
+    if (!window.confirm('Simulate CDD document expiration for this customer?')) return;
+
+    try {
+      setSimulatingExpired(true);
+      const response = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/admin/compliance/customers/${customer.id}/simulate-expired`,
+        {
+          method: 'POST',
+        },
+      );
+
+      if (!response.ok) {
+        throw new Error(await getApiErrorMessage(response, 'Failed to simulate expired'));
+      }
+
+      await fetchCustomer();
+    } catch (e) {
+      if (e instanceof AdminSessionError) {
+        return;
+      }
+      alert(getErrorMessage(e, 'Failed to simulate expired'));
+    } finally {
+      setSimulatingExpired(false);
+    }
+  };
+
+  const reviewFinalDecision = async (decision: 'APPROVE' | 'REJECT') => {
+    if (!customer) return;
+    const reason = decision === 'REJECT' ? window.prompt('Reason for rejection', '') || '' : '';
+    if (decision === 'REJECT' && !reason.trim()) return;
+
+    try {
+      setUpdatingFinalReview(true);
+      const response = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/admin/compliance/customers/${customer.id}/final-review`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            decision,
+            reason: reason || undefined,
+          }),
+        },
+      );
+
+      if (!response.ok) {
+        throw new Error(await getApiErrorMessage(response, 'Failed to submit final review'));
+      }
+
+      await fetchCustomer();
+    } catch (e) {
+      if (e instanceof AdminSessionError) {
+        return;
+      }
+      alert(getErrorMessage(e, 'Failed to submit final review'));
+    } finally {
+      setUpdatingFinalReview(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -160,17 +275,9 @@ const CustomerDetail = () => {
         </div>
 
         <div className="flex flex-wrap gap-3">
-          <StatusBadge label="Onboarding" value={customer.onboardingStage} />
-          <StatusBadge
-            label="Swap Permission"
-            value={customer.canTradeSwap ? 'ENABLED' : 'BLOCKED'}
-            tone={customer.canTradeSwap ? 'green' : 'yellow'}
-          />
-          <StatusBadge
-            label="Withdraw Permission"
-            value={customer.canTradeWithdraw ? 'ENABLED' : 'BLOCKED'}
-            tone={customer.canTradeWithdraw ? 'green' : 'yellow'}
-          />
+          <StatusBadge label="Compliance" value={customer.complianceStatus} />
+          <StatusBadge label="CDD" value={customer.cddStatus} tone="yellow" />
+          <StatusBadge label="EDD" value={customer.eddStatus} tone="blue" />
         </div>
       </div>
 
@@ -183,14 +290,75 @@ const CustomerDetail = () => {
           <KeyValue label="Created At" value={new Date(customer.createdAt).toLocaleString()} />
         </Card>
 
-        <Card title="Progress" icon={<ShieldCheck size={16} />}>
-          <KeyValue label="Onboarding Stage" value={customer.onboardingStage} />
-          <KeyValue label="Approved At" value={formatMaybeTime(customer.onboardingApprovedAt)} />
-          <KeyValue label="Rejected At" value={formatMaybeTime(customer.onboardingRejectedAt)} />
-          <KeyValue label="Reject Reason" value={customer.onboardingRejectReason || '-'} />
+        <Card title="Compliance Snapshot" icon={<ShieldCheck size={16} />}>
+          <KeyValue label="CDD Status" value={customer.cddStatus} />
+          <KeyValue label="AML Risk Tier" value={customer.amlRiskTier} />
+          <KeyValue label="EDD Required" value={customer.eddRequired ? 'YES' : 'NO'} />
+          <KeyValue label="EDD Status" value={customer.eddStatus} />
+          <KeyValue label="Compliance Status" value={customer.complianceStatus} />
+          <KeyValue label="CDD Doc Expires At" value={formatMaybeTime(customer.cddDocumentExpiresAt)} />
+          <KeyValue label="Next Review" value={formatMaybeTime(customer.nextReviewAt)} />
+          <KeyValue label="Current CDD Case" value={customer.currentCddCaseId || '-'} />
+          <KeyValue label="Current EDD Case" value={customer.currentEddCaseId || '-'} />
           <KeyValue label="Last Updated" value={new Date(customer.updatedAt).toLocaleString()} />
+          <div className="mt-3">
+            <button
+              onClick={simulateExpired}
+              disabled={simulatingExpired}
+              className="px-3 py-2 text-xs rounded-lg bg-red-600 text-white hover:bg-red-700 disabled:opacity-60"
+            >
+              {simulatingExpired ? 'Simulating...' : 'Simulate Expired'}
+            </button>
+          </div>
         </Card>
       </div>
+
+      <Card title="Final Approval" icon={<ShieldCheck size={16} />}>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+          <KeyValue label="Status" value={customer.finalApprovalStatus || 'NOT_REQUIRED'} />
+          <KeyValue label="Reviewer" value={customer.finalApprovalReviewerId || '-'} />
+          <KeyValue label="Reviewed At" value={formatMaybeTime(customer.finalApprovalReviewedAt)} />
+          <KeyValue label="Reason" value={customer.finalApprovalReason || '-'} />
+        </div>
+        {customer.finalApprovalStatus === 'PENDING' && (
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              onClick={() => reviewFinalDecision('APPROVE')}
+              disabled={updatingFinalReview}
+              className="px-3 py-2 text-xs rounded-lg bg-green-600 text-white hover:bg-green-700 disabled:opacity-60"
+            >
+              Final Approve
+            </button>
+            <button
+              onClick={() => reviewFinalDecision('REJECT')}
+              disabled={updatingFinalReview}
+              className="px-3 py-2 text-xs rounded-lg bg-red-600 text-white hover:bg-red-700 disabled:opacity-60"
+            >
+              Final Reject
+            </button>
+          </div>
+        )}
+      </Card>
+
+      <Card title="Investor Classification" icon={<ShieldCheck size={16} />}>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+          <KeyValue label="Classification" value={customer.investorClassification || 'RETAIL'} />
+          <KeyValue label="Source" value={customer.investorClassificationSource || 'CDD'} />
+          <KeyValue
+            label="Updated At"
+            value={formatMaybeTime(customer.investorClassificationUpdatedAt)}
+          />
+        </div>
+        <div className="mt-3">
+          <button
+            onClick={updateInvestorClassification}
+            disabled={updatingClassification}
+            className="px-3 py-2 text-xs rounded-lg bg-brand-primary text-white hover:bg-blue-700 disabled:opacity-60"
+          >
+            {updatingClassification ? 'Updating...' : 'Override Classification'}
+          </button>
+        </div>
+      </Card>
 
       {customer.customerType === 'CORPORATE' && (
         <Card title="Corporate Profile" icon={<Building2 size={16} />}>

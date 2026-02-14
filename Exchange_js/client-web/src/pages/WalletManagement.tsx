@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Plus, Wallet, Building2, Copy, CheckCircle, RefreshCw } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Plus, Wallet, Building2, RefreshCw } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 interface WalletItem {

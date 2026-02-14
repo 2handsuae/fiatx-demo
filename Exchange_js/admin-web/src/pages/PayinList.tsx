@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, RefreshCw, Eye, ArrowDownLeft, ShieldCheck, ShieldAlert, Globe } from 'lucide-react';
+import { Search, RefreshCw, Eye } from 'lucide-react';
 
 interface PayinItem {
   id: string;
@@ -39,7 +39,6 @@ const PayinList = () => {
 
   // Filters
   const [statusFilter, setStatusFilter] = useState('');
-  const [assetIdFilter, setAssetIdFilter] = useState(''); // Would need asset list, simplified for now
   const [txHashSearch, setTxHashSearch] = useState('');
 
   const fetchPayins = async () => {

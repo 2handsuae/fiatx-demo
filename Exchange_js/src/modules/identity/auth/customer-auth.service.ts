@@ -47,7 +47,6 @@ export class CustomerAuthService {
         passwordHash,
         customerType: data.customerType,
         companyName: data.customerType === 'CORPORATE' ? data.companyName?.trim() || null : null,
-        onboardingStage: 'ENTITY_IDENTIFIED',
         firstName: data.firstName,
         lastName: data.lastName,
         passwordUpdatedAt: new Date(),
@@ -58,9 +57,14 @@ export class CustomerAuthService {
     return result;
   }
 
-  async validateCustomer(email: string, pass: string): Promise<any> {
-    const customer = await this.prisma.customerMain.findUnique({
-      where: { email },
+  async validateCustomer(identifier: string, pass: string): Promise<any> {
+    const normalized = (identifier || '').trim();
+    if (!normalized) return null;
+
+    const customer = await this.prisma.customerMain.findFirst({
+      where: {
+        OR: [{ email: normalized }, { phone: normalized }],
+      },
     });
 
     if (!customer) {

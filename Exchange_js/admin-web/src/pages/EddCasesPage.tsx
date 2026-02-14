@@ -1,5 +1,6 @@
 import { type ReactNode, useEffect, useState } from 'react';
 import { RefreshCw, X } from 'lucide-react';
+import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/adminFetch';
 
 interface EddCaseItem {
   id: string;
@@ -8,7 +9,6 @@ interface EddCaseItem {
   subjectKind: string;
   subjectRefId: string;
   status: string;
-  providerStatus?: string;
   customer?: {
     customerNo?: string;
     email?: string;
@@ -34,9 +34,15 @@ interface EddCaseDetail {
     lastName?: string;
     companyName?: string | null;
     customerType?: string;
-    onboardingStage?: string;
+    cddStatus?: string;
+    eddStatus?: string;
+    complianceStatus?: string;
   };
   mockDetail?: Record<string, unknown>;
+  latestReport?: {
+    rawPayload?: Record<string, unknown>;
+    normalizedPayload?: Record<string, unknown>;
+  };
 }
 
 const getErrorMessage = (error: unknown, fallback: string) =>
@@ -49,27 +55,25 @@ const EddCasesPage = () => {
   const [detailLoading, setDetailLoading] = useState(false);
   const [detail, setDetail] = useState<EddCaseDetail | null>(null);
 
-  const token = localStorage.getItem('admin_token');
-
   const fetchCases = async () => {
     setLoading(true);
     setMessage('');
     try {
-      const response = await fetch(
+      const response = await adminFetch(
         `${import.meta.env.VITE_API_URL}/admin/compliance/edd-cases?take=200`,
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        },
       );
 
       if (!response.ok) {
-        throw new Error('Failed to fetch EDD cases');
+        throw new Error(await getApiErrorMessage(response, 'Failed to load data.'));
       }
 
       const data = await response.json();
       setItems(Array.isArray(data.items) ? data.items : []);
     } catch (e: unknown) {
-      setMessage(getErrorMessage(e, 'Load failed'));
+      if (e instanceof AdminSessionError) {
+        return;
+      }
+      setMessage(getErrorMessage(e, 'Failed to load data.'));
     } finally {
       setLoading(false);
     }
@@ -79,23 +83,18 @@ const EddCasesPage = () => {
     fetchCases();
   }, []);
 
-  const reviewMlro = async (id: string, decision: 'APPROVE' | 'REJECT' | 'NEED_INFO') => {
-    const reason =
-      decision === 'REJECT' || decision === 'NEED_INFO'
-        ? window.prompt('Please input MLRO reason', '') || ''
-        : undefined;
-
-    if ((decision === 'REJECT' || decision === 'NEED_INFO') && !reason) {
+  const reviewMlro = async (id: string, decision: 'APPROVE' | 'REJECT') => {
+    const reason = decision === 'REJECT' ? window.prompt('Please input MLRO reason', '') || '' : undefined;
+    if (decision === 'REJECT' && !reason) {
       return;
     }
 
     try {
-      const response = await fetch(
+      const response = await adminFetch(
         `${import.meta.env.VITE_API_URL}/admin/compliance/edd-cases/${id}/mlro-review`,
         {
           method: 'POST',
           headers: {
-            Authorization: `Bearer ${token}`,
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({ decision, reason }),
@@ -103,49 +102,16 @@ const EddCasesPage = () => {
       );
 
       if (!response.ok) {
-        const err = (await response.json().catch(() => ({}))) as { message?: string };
-        throw new Error(err.message || 'MLRO review failed');
+        throw new Error(await getApiErrorMessage(response, 'MLRO review failed'));
       }
 
       setMessage(`EDD MLRO ${decision} completed.`);
       fetchCases();
     } catch (e: unknown) {
-      alert(getErrorMessage(e, 'MLRO review failed'));
-    }
-  };
-
-  const reviewSenior = async (id: string, decision: 'APPROVE' | 'REJECT' | 'NEED_INFO') => {
-    const reason =
-      decision === 'REJECT' || decision === 'NEED_INFO'
-        ? window.prompt('Please input senior reason', '') || ''
-        : undefined;
-
-    if ((decision === 'REJECT' || decision === 'NEED_INFO') && !reason) {
-      return;
-    }
-
-    try {
-      const response = await fetch(
-        `${import.meta.env.VITE_API_URL}/admin/compliance/edd-cases/${id}/senior-review`,
-        {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ decision, reason }),
-        },
-      );
-
-      if (!response.ok) {
-        const err = (await response.json().catch(() => ({}))) as { message?: string };
-        throw new Error(err.message || 'Senior review failed');
+      if (e instanceof AdminSessionError) {
+        return;
       }
-
-      setMessage(`EDD Senior ${decision} completed.`);
-      fetchCases();
-    } catch (e: unknown) {
-      alert(getErrorMessage(e, 'Senior review failed'));
+      alert(getErrorMessage(e, 'MLRO review failed'));
     }
   };
 
@@ -153,20 +119,19 @@ const EddCasesPage = () => {
     setDetailLoading(true);
     setDetail(null);
     try {
-      const response = await fetch(
+      const response = await adminFetch(
         `${import.meta.env.VITE_API_URL}/admin/compliance/edd-cases/${id}`,
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        },
       );
 
       if (!response.ok) {
-        const err = (await response.json().catch(() => ({}))) as { message?: string };
-        throw new Error(err.message || 'Failed to load detail');
+        throw new Error(await getApiErrorMessage(response, 'Failed to load data.'));
       }
 
       setDetail((await response.json()) as EddCaseDetail);
     } catch (e: unknown) {
+      if (e instanceof AdminSessionError) {
+        return;
+      }
       alert(getErrorMessage(e, 'Failed to load detail'));
     } finally {
       setDetailLoading(false);
@@ -178,7 +143,7 @@ const EddCasesPage = () => {
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Compliance Center - EDD Cases</h1>
-          <p className="text-sm text-gray-500 mt-1">MLRO and Senior approvals for escalated risk cases.</p>
+          <p className="text-sm text-gray-500 mt-1">MLRO review queue for escalated risk cases.</p>
         </div>
         <button onClick={fetchCases} className="p-2 text-gray-500 hover:text-brand-primary" title="Refresh">
           <RefreshCw size={20} className={loading ? 'animate-spin' : ''} />
@@ -199,20 +164,19 @@ const EddCasesPage = () => {
               <th className="px-4 py-3 text-xs uppercase text-gray-500">Customer</th>
               <th className="px-4 py-3 text-xs uppercase text-gray-500">Subject</th>
               <th className="px-4 py-3 text-xs uppercase text-gray-500">Status</th>
-              <th className="px-4 py-3 text-xs uppercase text-gray-500">Provider</th>
               <th className="px-4 py-3 text-xs uppercase text-gray-500">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-admin-border">
             {loading ? (
               <tr>
-                <td colSpan={6} className="px-4 py-8 text-center text-gray-500">
+                <td colSpan={5} className="px-4 py-8 text-center text-gray-500">
                   Loading...
                 </td>
               </tr>
             ) : items.length === 0 ? (
               <tr>
-                <td colSpan={6} className="px-4 py-8 text-center text-gray-500">
+                <td colSpan={5} className="px-4 py-8 text-center text-gray-500">
                   No cases found
                 </td>
               </tr>
@@ -236,7 +200,6 @@ const EddCasesPage = () => {
                       {item.status}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-xs text-gray-600">{item.providerStatus || 'NOT_STARTED'}</td>
                   <td className="px-4 py-3 space-y-1">
                     <button
                       onClick={() => openDetail(item.id)}
@@ -245,19 +208,13 @@ const EddCasesPage = () => {
                       View Detail
                     </button>
 
-                    {['SUBMITTED', 'NEED_INFO'].includes(item.status) && (
+                    {['SUBMITTED'].includes(item.status) && (
                       <div className="flex flex-wrap gap-1">
                         <button
                           onClick={() => reviewMlro(item.id, 'APPROVE')}
                           className="text-xs bg-indigo-50 text-indigo-700 px-2 py-1 rounded hover:bg-indigo-100"
                         >
                           MLRO Approve
-                        </button>
-                        <button
-                          onClick={() => reviewMlro(item.id, 'NEED_INFO')}
-                          className="text-xs bg-yellow-50 text-yellow-700 px-2 py-1 rounded hover:bg-yellow-100"
-                        >
-                          Need Info
                         </button>
                         <button
                           onClick={() => reviewMlro(item.id, 'REJECT')}
@@ -268,30 +225,7 @@ const EddCasesPage = () => {
                       </div>
                     )}
 
-                    {['MLRO_APPROVED', 'NEED_INFO'].includes(item.status) && (
-                      <div className="flex flex-wrap gap-1">
-                        <button
-                          onClick={() => reviewSenior(item.id, 'APPROVE')}
-                          className="text-xs bg-green-50 text-green-700 px-2 py-1 rounded hover:bg-green-100"
-                        >
-                          Senior Approve
-                        </button>
-                        <button
-                          onClick={() => reviewSenior(item.id, 'NEED_INFO')}
-                          className="text-xs bg-yellow-50 text-yellow-700 px-2 py-1 rounded hover:bg-yellow-100"
-                        >
-                          Need Info
-                        </button>
-                        <button
-                          onClick={() => reviewSenior(item.id, 'REJECT')}
-                          className="text-xs bg-red-50 text-red-700 px-2 py-1 rounded hover:bg-red-100"
-                        >
-                          Reject
-                        </button>
-                      </div>
-                    )}
-
-                    {!['SUBMITTED', 'NEED_INFO', 'MLRO_APPROVED'].includes(item.status) && (
+                    {!['SUBMITTED'].includes(item.status) && (
                       <span className="text-xs text-gray-500">No action</span>
                     )}
                   </td>
@@ -341,6 +275,10 @@ const EddCasesPage = () => {
 
                 <InfoBlock title="Mock Detail">
                   <JsonView data={detail.mockDetail || {}} />
+                </InfoBlock>
+
+                <InfoBlock title="Latest Report">
+                  <JsonView data={detail.latestReport || {}} />
                 </InfoBlock>
               </div>
             )}

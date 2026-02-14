@@ -10,8 +10,8 @@ export class AuthService {
     private jwtService: JwtService,
   ) {}
 
-  async validateUser(email: string, pass: string): Promise<any> {
-    const user = await this.usersService.findOne(email);
+  async validateUser(identifier: string, pass: string): Promise<any> {
+    const user = await this.usersService.findByIdentifier(identifier);
     if (!user) {
       return null;
     }
@@ -29,7 +29,7 @@ export class AuthService {
     ) {
       // Unlock automatically
       await this.usersService.update({
-        where: { email },
+        where: { email: user.email },
         data: { status: 'ACTIVE', failedLoginAttempts: 0, lockedUntil: null },
       });
     }
@@ -37,7 +37,7 @@ export class AuthService {
     const isMatch = await bcrypt.compare(pass, user.password);
     if (isMatch) {
       await this.usersService.update({
-        where: { email },
+        where: { email: user.email },
         data: {
           failedLoginAttempts: 0,
           lockedUntil: null,
@@ -57,7 +57,7 @@ export class AuthService {
       }
 
       await this.usersService.update({
-        where: { email },
+        where: { email: user.email },
         data: updateData,
       });
 
@@ -66,7 +66,7 @@ export class AuthService {
   }
 
   async login(user: any) {
-    const payload = { username: user.email, sub: user.id, role: user.role };
+    const payload = { username: user.email, sub: user.id, role: user.role, type: 'ADMIN' };
     return {
       access_token: this.jwtService.sign(payload),
       user: {

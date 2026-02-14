@@ -10,6 +10,7 @@ import {
   IsString,
   Max,
   Min,
+  MinLength,
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
@@ -105,40 +106,6 @@ export class BootstrapCasesDto {
   journeyId?: string;
 }
 
-export class SaveCddCaseDto {
-  @IsOptional()
-  @IsString()
-  caseId?: string;
-
-  // Flexible payload for CDD/KYB input
-  @IsOptional()
-  inputData?: Record<string, any>;
-}
-
-export class SubmitCaseDto {
-  @IsOptional()
-  @IsString()
-  note?: string;
-}
-
-export class SaveEddCaseDto {
-  @IsOptional()
-  @IsString()
-  caseId?: string;
-
-  @IsOptional()
-  @IsString()
-  sourceOfFunds?: string;
-
-  @IsOptional()
-  @IsString()
-  sourceOfWealth?: string;
-
-  // Flexible payload for EDD evidence
-  @IsOptional()
-  inputData?: Record<string, any>;
-}
-
 export class CreateCaseSessionDto {
   @IsOptional()
   @IsString()
@@ -159,8 +126,8 @@ export class MockCompleteSessionDto {
 
 export class ReviewCddCaseDto {
   @IsString()
-  @IsIn(['APPROVE', 'REJECT', 'NEED_INFO'])
-  decision!: 'APPROVE' | 'REJECT' | 'NEED_INFO';
+  @IsIn(['APPROVE', 'REJECT', 'UPGRADE_EDD'])
+  decision!: 'APPROVE' | 'REJECT' | 'UPGRADE_EDD';
 
   @IsOptional()
   @IsString()
@@ -179,16 +146,36 @@ export class ReviewCddCaseDto {
 
 export class ReviewEddCaseDto {
   @IsString()
-  @IsIn(['APPROVE', 'REJECT', 'NEED_INFO'])
-  decision!: 'APPROVE' | 'REJECT' | 'NEED_INFO';
+  @IsIn(['APPROVE', 'REJECT'])
+  decision!: 'APPROVE' | 'REJECT';
 
   @IsOptional()
   @IsString()
   reason?: string;
 }
 
-export class RejectCustomerDto {
+export class FinalReviewCustomerDto {
   @IsString()
-  @IsNotEmpty()
+  @IsIn(['APPROVE', 'REJECT'])
+  decision!: 'APPROVE' | 'REJECT';
+
+  @IsOptional()
+  @IsString()
+  reason?: string;
+}
+
+export class ReinitiateEddDto {
+  @IsOptional()
+  @IsString()
+  journeyId?: string;
+}
+
+export class UpdateInvestorClassificationDto {
+  @IsString()
+  @IsIn(['RETAIL', 'QUALIFIED', 'INSTITUTIONAL'])
+  classification!: 'RETAIL' | 'QUALIFIED' | 'INSTITUTIONAL';
+
+  @IsString()
+  @MinLength(2)
   reason!: string;
 }

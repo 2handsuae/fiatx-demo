@@ -1,11 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { 
-  RefreshCw, 
-  Plus, 
-  Edit2, 
-  Trash2, 
-  ArrowLeft
-} from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { RefreshCw, Plus, Edit2, Trash2, ArrowLeft } from 'lucide-react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 
 interface ClearingLineTemplateItem {
@@ -55,7 +49,7 @@ const ClearingLineTemplateList = () => {
     fetchItems();
   }, [templateId]);
 
-  const handleDelete = async (id: string) => {
+  const handleDelete = async (_id: string) => {
       if (!window.confirm('Are you sure you want to delete this line?')) return;
       alert('Delete logic not implemented in backend yet');
   };

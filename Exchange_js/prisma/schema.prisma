@@ -35,11 +35,6 @@ model CustomerMain {
   companyName        String?
   passwordHash       String?
   passwordUpdatedAt  DateTime?
-  authStatus         String    @default("NONE")
-  authLevel          String    @default("NONE")
-  kycId              String?   // Current active KYC record ID
-  eddId              String?   // Current active EDD record ID
-  authLevelExpiresAt DateTime?
   riskScore          Int?
   riskLevel          String?
   riskUpdatedAt      DateTime?
@@ -50,16 +45,23 @@ model CustomerMain {
   locale             String?
   timezone           String?
   termsAcceptedAt    DateTime?
-  statusHistory      String?   // JSON tracking of status changes
   customerType       String    @default("UNKNOWN") // INDIVIDUAL, CORPORATE
-  onboardingStage    String    @default("REGISTERED")
-  onboardingApprovedAt DateTime?
-  onboardingRejectedAt DateTime?
-  onboardingRejectReason String?
-  canTradeSwap       Boolean   @default(false)
-  canTradeWithdraw   Boolean   @default(false)
-  activeCddCaseId    String?
-  activeEddCaseId    String?
+  cddStatus          String    @default("NOT_STARTED") // NOT_STARTED, IN_PROGRESS, PENDING_REVIEW, APPROVED, REJECTED, EXPIRED
+  amlRiskTier        String    @default("LOW") // LOW, MEDIUM, HIGH
+  eddRequired        Boolean   @default(false)
+  eddStatus          String    @default("NOT_REQUIRED") // NOT_REQUIRED, REQUIRED, IN_PROGRESS, PENDING_MLRO, APPROVED, REJECTED, EXPIRED
+  complianceStatus   String    @default("NONE") // NONE, IN_PROGRESS, ACTIVE, RESTRICTED, BLOCKED, EXPIRED
+  cddDocumentExpiresAt DateTime?
+  finalApprovalStatus String   @default("NOT_REQUIRED") // NOT_REQUIRED, PENDING, APPROVED, REJECTED
+  finalApprovalReason String?
+  finalApprovalReviewerId String?
+  finalApprovalReviewedAt DateTime?
+  nextReviewAt       DateTime?
+  currentCddCaseId   String?
+  currentEddCaseId   String?
+  investorClassification String @default("RETAIL") // RETAIL, QUALIFIED, INSTITUTIONAL
+  investorClassificationSource String @default("CDD") // CDD, ADMIN_OVERRIDE
+  investorClassificationUpdatedAt DateTime?
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
 
@@ -69,89 +71,17 @@ model CustomerMain {
   swapTransactions     SwapTransaction[]
   withdrawTransactions WithdrawTransaction[]
   payouts              Payout[]
-  auditLogs            CustomerAuditLog[]
   payins               Payin[]
-  kycRecords           KycRecord[]
-  eddRecords           EddRecord[]
   cddCases             CddCase[]
   eddCases             EddCase[]
   corporateProfile     CorporateProfile?
   uboProfiles          UboProfile[]
   onboardingAuditLogs  OnboardingAuditLog[]
   complianceSessions   ComplianceSession[]
+  cddCaseReports       CddCaseReport[]
+  eddCaseReports       EddCaseReport[]
 
   @@map("customer_main")
-}
-
-model KycRecord {
-  id                String   @id @default(uuid())
-  customerId        String
-  provider          String   @default("MANUAL") // e.g., SUMSUB, ONFIDO, MANUAL
-  providerReference String?  @unique
-  status            String   // PENDING, APPROVED, REJECTED, EXPIRED
-  idType            String?  // PASSPORT, ID_CARD, DRIVING_LICENSE
-  idNumber          String?
-  idExpiry          DateTime?
-  firstName         String?
-  lastName          String?
-  dateOfBirth       DateTime?
-  nationality       String?
-  documentFrontUrl  String?
-  documentBackUrl   String?
-  selfieUrl         String?
-  faceMatchScore    Decimal? // Bio match score
-  compImage         String?  // Base image for comparison
-  residentialAddress String?
-  poaType           String?  // Utility Bill, etc.
-  poaDocuments      String?  // JSON array of URLs
-  rejectionReason   String?
-  metadata          String?  // JSON string for raw provider response
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-
-  customer          CustomerMain @relation(fields: [customerId], references: [id])
-
-  @@index([customerId])
-  @@index([status])
-  @@map("kyc_records")
-}
-
-model EddRecord {
-  id                    String   @id @default(uuid())
-  customerId            String
-  status                String   // PENDING, APPROVED, REJECTED
-  sourceOfWealth        String?
-  sourceOfFunds         String?
-  occupation            String?
-  employerName          String?
-  expectedMonthlyVolume Decimal?
-  sorDocuments          String?  // Source of Wealth docs (JSON)
-  sofDocuments          String?  // Source of Funds docs (JSON)
-  supportingDocUrls     String?  // Comma separated or JSON array
-  rejectionReason       String?
-  notes                 String?
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
-
-  customer              CustomerMain @relation(fields: [customerId], references: [id])
-
-  @@index([customerId])
-  @@index([status])
-  @@map("edd_records")
-}
-
-model CustomerAuditLog {
-  id         String   @id @default(uuid())
-  customerId String
-  operatorId String
-  oldStatus  String
-  newStatus  String
-  reason     String?
-  changedAt  DateTime @default(now())
-
-  customer   CustomerMain @relation(fields: [customerId], references: [id])
-
-  @@map("customer_audit_logs")
 }
 
 model CddCase {
@@ -162,7 +92,7 @@ model CddCase {
   subjectKind       String   @default("INDIVIDUAL_CUSTOMER") // INDIVIDUAL_CUSTOMER, CORPORATE_ENTITY, UBO_PERSON
   subjectRefId      String   @default("")
   journeyId         String   @default("")
-  status            String   @default("DRAFT") // DRAFT, SUBMITTED, APPROVED, REJECTED, NEED_INFO
+  status            String   @default("PENDING") // PENDING, SUBMITTED, APPROVED, REJECTED
   submittedAt       DateTime?
   reviewedAt        DateTime?
   reviewerId        String?
@@ -173,12 +103,15 @@ model CddCase {
   riskScore         Int?
   riskLevel         String?
   screeningSummary  String?
+  pepHit            Boolean  @default(false)
+  sanctionsHit      Boolean  @default(false)
   inputData         String? // JSON payload
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
   customer          CustomerMain @relation(fields: [customerId], references: [id])
   eddCases          EddCase[]
+  reports           CddCaseReport[]
 
   @@index([customerId, status])
   @@index([customerId, journeyId])
@@ -194,14 +127,11 @@ model EddCase {
   subjectKind      String   @default("INDIVIDUAL_CUSTOMER") // INDIVIDUAL_CUSTOMER, CORPORATE_ENTITY, UBO_PERSON
   subjectRefId     String   @default("")
   journeyId        String   @default("")
-  status           String   @default("DRAFT") // DRAFT, SUBMITTED, MLRO_APPROVED, SENIOR_APPROVED, REJECTED, NEED_INFO
+  status           String   @default("PENDING") // PENDING, SUBMITTED, APPROVED, REJECTED
   submittedAt      DateTime?
   mlroReviewedAt   DateTime?
   mlroReviewerId   String?
   mlroDecision     String?
-  seniorReviewedAt DateTime?
-  seniorReviewerId String?
-  seniorDecision   String?
   decisionReason   String?
   sourceOfFunds    String?
   sourceOfWealth   String?
@@ -211,6 +141,7 @@ model EddCase {
 
   customer         CustomerMain @relation(fields: [customerId], references: [id])
   cddCase          CddCase?     @relation(fields: [cddCaseId], references: [id])
+  reports          EddCaseReport[]
 
   @@index([customerId, status])
   @@index([cddCaseId])
@@ -278,6 +209,46 @@ model ComplianceSession {
   @@index([customerId, caseType, caseId])
   @@index([status, expiresAt])
   @@map("compliance_sessions")
+}
+
+model CddCaseReport {
+  id                String   @id @default(uuid())
+  customerId        String
+  cddCaseId         String
+  provider          String   @default("MOCK")
+  providerSessionId String?
+  rawPayload        String?
+  normalizedPayload String?
+  receivedAt        DateTime @default(now())
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  customer          CustomerMain @relation(fields: [customerId], references: [id])
+  cddCase           CddCase      @relation(fields: [cddCaseId], references: [id])
+
+  @@index([customerId, cddCaseId])
+  @@index([provider, providerSessionId])
+  @@map("cdd_case_reports")
+}
+
+model EddCaseReport {
+  id                String   @id @default(uuid())
+  customerId        String
+  eddCaseId         String
+  provider          String   @default("MOCK")
+  providerSessionId String?
+  rawPayload        String?
+  normalizedPayload String?
+  receivedAt        DateTime @default(now())
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  customer          CustomerMain @relation(fields: [customerId], references: [id])
+  eddCase           EddCase      @relation(fields: [eddCaseId], references: [id])
+
+  @@index([customerId, eddCaseId])
+  @@index([provider, providerSessionId])
+  @@map("edd_case_reports")
 }
 
 model OnboardingAuditLog {

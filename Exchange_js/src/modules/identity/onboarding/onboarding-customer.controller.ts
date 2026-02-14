@@ -4,7 +4,6 @@ import {
   ForbiddenException,
   Get,
   Param,
-  Patch,
   Post,
   Req,
   UseGuards,
@@ -17,9 +16,7 @@ import {
   BootstrapCasesDto,
   CreateCaseSessionDto,
   MockCompleteSessionDto,
-  SaveCddCaseDto,
-  SaveEddCaseDto,
-  SubmitCaseDto,
+  ReinitiateEddDto,
   UpsertEntityDto,
 } from './dto/onboarding.dto';
 
@@ -69,65 +66,37 @@ export class OnboardingCustomerController {
   }
 
   @Post('cdd-cases/bootstrap')
-  @ApiOperation({ summary: 'Bootstrap required CDD cases by customer type and UBO set' })
+  @ApiOperation({ summary: 'Start CDD journey: bootstrap required CDD cases and auto-create QR session' })
   bootstrapCddCases(
     @Req() req: any,
     @Body(new ValidationPipe({ transform: true })) body: BootstrapCasesDto,
   ) {
     const customerId = this.ensureCustomer(req);
-    return this.onboardingService.bootstrapCddCases(customerId, customerId, body);
+    return this.onboardingService.startCddCases(customerId, customerId, body);
   }
 
-  @Post('cdd-cases')
-  @ApiOperation({ summary: 'Create or update CDD draft case' })
-  saveCddDraft(
-    @Req() req: any,
-    @Body(new ValidationPipe({ transform: true })) body: SaveCddCaseDto,
-  ) {
+  @Post('cdd-cases/reinitiate')
+  @ApiOperation({ summary: 'Re-initiate CDD and auto-create QR session for current CDD case' })
+  reinitiateCddCases(@Req() req: any) {
     const customerId = this.ensureCustomer(req);
-    return this.onboardingService.saveCddDraft(customerId, customerId, body);
+    return this.onboardingService.reinitiateCddCases(customerId, customerId);
   }
 
-  @Patch('cdd-cases/:id/submit')
-  @ApiOperation({ summary: 'Submit CDD case for compliance review' })
-  submitCddCase(
-    @Req() req: any,
-    @Param('id') id: string,
-    @Body(new ValidationPipe({ transform: true })) body: SubmitCaseDto,
-  ) {
+  @Post('edd-cases/start')
+  @ApiOperation({ summary: 'Start EDD current case and auto-create QR session' })
+  startEddCases(@Req() req: any) {
     const customerId = this.ensureCustomer(req);
-    return this.onboardingService.submitCddCase(customerId, customerId, id, body.note);
+    return this.onboardingService.startEddCases(customerId, customerId);
   }
 
-  @Post('edd-cases/bootstrap')
-  @ApiOperation({ summary: 'Bootstrap required EDD cases after CDD triggers EDD escalation' })
-  bootstrapEddCases(
+  @Post('edd-cases/reinitiate')
+  @ApiOperation({ summary: 'Re-initiate EDD cases after EDD rejection' })
+  reinitiateEddCases(
     @Req() req: any,
-    @Body(new ValidationPipe({ transform: true })) body: BootstrapCasesDto,
+    @Body(new ValidationPipe({ transform: true })) body: ReinitiateEddDto,
   ) {
     const customerId = this.ensureCustomer(req);
-    return this.onboardingService.bootstrapEddCases(customerId, customerId, body);
-  }
-
-  @Post('edd-cases')
-  @ApiOperation({ summary: 'Create or update EDD draft case' })
-  saveEddDraft(
-    @Req() req: any,
-    @Body(new ValidationPipe({ transform: true })) body: SaveEddCaseDto,
-  ) {
-    const customerId = this.ensureCustomer(req);
-    return this.onboardingService.saveEddDraft(customerId, customerId, body);
-  }
-
-  @Patch('edd-cases/:id/submit')
-  @ApiOperation({ summary: 'Submit EDD case for MLRO/Senior review' })
-  submitEddCase(
-    @Req() req: any,
-    @Param('id') id: string,
-    @Body(new ValidationPipe({ transform: true })) body: SubmitCaseDto,
-  ) {
-    const customerId = this.ensureCustomer(req);
-    return this.onboardingService.submitEddCase(customerId, customerId, id, body.note);
+    return this.onboardingService.reinitiateEddCases(customerId, customerId, body);
   }
 
   @Post('cases/:id/sessions')
