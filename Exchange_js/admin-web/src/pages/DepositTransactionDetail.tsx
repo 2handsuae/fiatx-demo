@@ -1,9 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { 
-  ArrowLeft, RefreshCw, Copy, Check, ExternalLink, 
-  FileText, User, CreditCard, Activity, Clock, Server, Globe, MapPin, ShieldCheck, Scale
-} from 'lucide-react';
+import { ArrowLeft, RefreshCw, Copy, Check, ExternalLink, FileText, User, CreditCard, Activity, Clock, Globe, MapPin, ShieldCheck, Scale } from 'lucide-react';
 import { copyToClipboard } from '../utils/clipboard';
 
 interface DepositTransactionDetail {

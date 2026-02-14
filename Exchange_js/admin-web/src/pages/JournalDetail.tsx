@@ -1,18 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { 
-  ArrowLeft, 
-  Hash, 
-  FileText, 
-  CheckCircle, 
-  AlertCircle,
-  Database,
-  Clock,
-  RefreshCw,
-  DollarSign,
-  Layers,
-  Activity
-} from 'lucide-react';
+import { ArrowLeft, Hash, FileText, AlertCircle, Clock, RefreshCw, DollarSign, Layers, Activity } from 'lucide-react';
 
 interface JournalDetail {
   id: string;

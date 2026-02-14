@@ -8,14 +8,22 @@ const prisma = new PrismaClient({
 });
 
 async function main() {
+  const seedProfile = (process.env.SEED_PROFILE || 'minimal').trim().toLowerCase();
+  const isFullProfile = seedProfile === 'full';
   console.log('🚀 Start seeding...');
+  console.log(`Seed profile: ${isFullProfile ? 'full' : 'minimal'}`);
 
   await seedAdmin();
-  await seedCustomers();
-  await seedAssets();
-  await seedCOA();
-  await seedAcctConfig();
-  await seedClearing();
+
+  if (isFullProfile) {
+    await seedCustomers();
+    await seedAssets();
+    await seedCOA();
+    await seedAcctConfig();
+    await seedClearing();
+  } else {
+    await seedCustomersMinimal();
+  }
 
   console.log('✅ Seeding finished successfully.');
 }
@@ -45,11 +53,7 @@ async function seedAdmin() {
 // 2. Seed Fake Customers
 async function seedCustomers() {
   console.log('--- Seeding Customers ---');
-  const statuses = [
-    'NONE', 'STANDARD_VERIFYING', 'STANDARD_UNDER_REVIEW', 'STANDARD_REJECTED', 
-    'STANDARD_APPROVED', 'ENHANCED_VERIFYING', 'ENHANCED_UNDER_REVIEW', 
-    'ENHANCED_REJECTED', 'ENHANCED_APPROVED', 'EXPIRED'
-  ];
+  const statuses = ['NONE', 'IN_PROGRESS', 'ACTIVE', 'RESTRICTED', 'BLOCKED', 'EXPIRED'];
 
   for (let i = 1; i <= 10; i++) {
     const status = statuses[Math.floor(Math.random() * statuses.length)];
@@ -63,14 +67,158 @@ async function seedCustomers() {
         phone: `+155500000${i.toString().padStart(2, '0')}`,
         firstName: `Customer${i}`,
         lastName: `Test`,
-        authStatus: status,
-        authLevel: status.includes('ENHANCED_APPROVED') ? 'ENHANCED' : (status.includes('STANDARD_APPROVED') ? 'STANDARD' : 'NONE'),
+        customerType: 'INDIVIDUAL',
+        cddStatus:
+          status === 'NONE'
+            ? 'NOT_STARTED'
+            : status === 'IN_PROGRESS'
+              ? 'IN_PROGRESS'
+              : status === 'ACTIVE' || status === 'RESTRICTED'
+                ? 'APPROVED'
+                : status === 'EXPIRED'
+                  ? 'EXPIRED'
+                  : 'REJECTED',
+        amlRiskTier: 'LOW',
+        eddRequired: false,
+        eddStatus: 'NOT_REQUIRED',
+        complianceStatus: status,
         createdAt: new Date(),
         updatedAt: new Date(),
       }
     });
   }
   console.log('Seeded 10 fake customers');
+}
+
+async function seedCustomersMinimal() {
+  console.log('--- Seeding Minimal Customers ---');
+
+  const basePassword = await bcrypt.hash('123456', 10);
+  const now = new Date();
+  const expiredAt = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+
+  const items: Array<{
+    customerNo: string;
+    email: string;
+    phone: string;
+    firstName: string;
+    cddStatus: string;
+    eddRequired: boolean;
+    eddStatus: string;
+    complianceStatus: string;
+    cddDocumentExpiresAt?: Date | null;
+  }> = [
+    {
+      customerNo: 'CUST-MIN-0001',
+      email: 'minimal_none@example.com',
+      phone: '+15551000001',
+      firstName: 'MinimalNone',
+      cddStatus: 'NOT_STARTED',
+      eddRequired: false,
+      eddStatus: 'NOT_REQUIRED',
+      complianceStatus: 'NONE',
+      cddDocumentExpiresAt: null,
+    },
+    {
+      customerNo: 'CUST-MIN-0002',
+      email: 'minimal_progress@example.com',
+      phone: '+15551000002',
+      firstName: 'MinimalProgress',
+      cddStatus: 'IN_PROGRESS',
+      eddRequired: false,
+      eddStatus: 'NOT_REQUIRED',
+      complianceStatus: 'IN_PROGRESS',
+      cddDocumentExpiresAt: null,
+    },
+    {
+      customerNo: 'CUST-MIN-0003',
+      email: 'minimal_active@example.com',
+      phone: '+15551000003',
+      firstName: 'MinimalActive',
+      cddStatus: 'APPROVED',
+      eddRequired: false,
+      eddStatus: 'NOT_REQUIRED',
+      complianceStatus: 'ACTIVE',
+      cddDocumentExpiresAt: null,
+    },
+    {
+      customerNo: 'CUST-MIN-0004',
+      email: 'minimal_restricted@example.com',
+      phone: '+15551000004',
+      firstName: 'MinimalRestricted',
+      cddStatus: 'APPROVED',
+      eddRequired: true,
+      eddStatus: 'REQUIRED',
+      complianceStatus: 'RESTRICTED',
+      cddDocumentExpiresAt: null,
+    },
+    {
+      customerNo: 'CUST-MIN-0005',
+      email: 'minimal_blocked@example.com',
+      phone: '+15551000005',
+      firstName: 'MinimalBlocked',
+      cddStatus: 'REJECTED',
+      eddRequired: false,
+      eddStatus: 'NOT_REQUIRED',
+      complianceStatus: 'BLOCKED',
+      cddDocumentExpiresAt: null,
+    },
+    {
+      customerNo: 'CUST-MIN-0006',
+      email: 'minimal_expired@example.com',
+      phone: '+15551000006',
+      firstName: 'MinimalExpired',
+      cddStatus: 'EXPIRED',
+      eddRequired: false,
+      eddStatus: 'NOT_REQUIRED',
+      complianceStatus: 'EXPIRED',
+      cddDocumentExpiresAt: expiredAt,
+    },
+  ];
+
+  for (const item of items) {
+    await prisma.customerMain.upsert({
+      where: { email: item.email },
+      update: {
+        customerNo: item.customerNo,
+        phone: item.phone,
+        firstName: item.firstName,
+        lastName: 'Demo',
+        passwordHash: basePassword,
+        passwordUpdatedAt: now,
+        customerType: 'INDIVIDUAL',
+        cddStatus: item.cddStatus,
+        amlRiskTier: 'LOW',
+        eddRequired: item.eddRequired,
+        eddStatus: item.eddStatus,
+        complianceStatus: item.complianceStatus,
+        cddDocumentExpiresAt: item.cddDocumentExpiresAt ?? null,
+        finalApprovalStatus: 'NOT_REQUIRED',
+        finalApprovalReason: null,
+        finalApprovalReviewerId: null,
+        finalApprovalReviewedAt: null,
+      },
+      create: {
+        customerNo: item.customerNo,
+        email: item.email,
+        phone: item.phone,
+        firstName: item.firstName,
+        lastName: 'Demo',
+        passwordHash: basePassword,
+        passwordUpdatedAt: now,
+        customerType: 'INDIVIDUAL',
+        cddStatus: item.cddStatus,
+        amlRiskTier: 'LOW',
+        eddRequired: item.eddRequired,
+        eddStatus: item.eddStatus,
+        complianceStatus: item.complianceStatus,
+        cddDocumentExpiresAt: item.cddDocumentExpiresAt ?? null,
+        finalApprovalStatus: 'NOT_REQUIRED',
+      },
+    });
+  }
+
+  console.log(`Seeded ${items.length} minimal customers`);
 }
 
 // 3. Seed Assets

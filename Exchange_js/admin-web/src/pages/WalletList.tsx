@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, RefreshCw, Plus, Edit, CheckCircle, XCircle, Wallet, Filter } from 'lucide-react';
+import { Search, RefreshCw, Plus, CheckCircle, XCircle, Wallet } from 'lucide-react';
 
 interface WalletItem {
   id: string;

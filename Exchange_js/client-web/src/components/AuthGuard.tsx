@@ -1,16 +1,14 @@
-import React, { useEffect } from 'react';
+import { useEffect, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Lock, ShieldAlert } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import Verification from '../pages/Verification';
 
 interface AuthGuardProps {
-  children: React.ReactNode;
+  children: ReactNode;
 }
 
-const AuthGuard: React.FC<AuthGuardProps> = ({ children }) => {
+const AuthGuard = ({ children }: AuthGuardProps) => {
   const { user, loading, isAuthenticated, error } = useAuth();
-  const [showVerification, setShowVerification] = React.useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -46,11 +44,7 @@ const AuthGuard: React.FC<AuthGuardProps> = ({ children }) => {
       return null;
   }
 
-  // New onboarding gate: rely on explicit trade permissions and stage.
-  const isApproved =
-    user?.onboardingStage === 'ONBOARDING_APPROVED' ||
-    user?.canTradeSwap ||
-    user?.canTradeWithdraw;
+  const isApproved = user?.complianceStatus === 'ACTIVE';
 
   if (!isApproved) {
     return (
@@ -61,22 +55,17 @@ const AuthGuard: React.FC<AuthGuardProps> = ({ children }) => {
             </div>
             <h2 className="text-xl font-bold text-gray-900 mb-2">Verification Required</h2>
             <p className="text-gray-500 mb-8 text-sm leading-relaxed">
-            Please complete onboarding (CDD/EDD and approval) to access this feature.
-            Regulatory requirements block trading before onboarding approval.
+            Please complete onboarding (CDD/EDD) to access this feature.
+            Trading is allowed only when compliance status is ACTIVE.
             </p>
             <button 
-            onClick={() => setShowVerification(true)}
+            onClick={() => navigate('/verification')}
             className="w-full py-3 bg-brand-primary text-white font-semibold rounded-xl shadow-lg shadow-blue-500/20 hover:bg-blue-700 transition-all flex items-center justify-center gap-2"
             >
             <ShieldAlert size={18} />
             Complete Verification
             </button>
         </div>
-
-        {/* Verification Modal */}
-        {showVerification && (
-            <Verification isModal onClose={() => setShowVerification(false)} />
-        )}
       </div>
     );
   }

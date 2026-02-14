@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Copy, RefreshCw, Check, Wallet, Building2, ArrowRightLeft, Info, AlertTriangle, History, X, Search, Filter } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Copy, RefreshCw, Check, Wallet, Building2, ArrowRightLeft, Info, AlertTriangle, History, X, Filter } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { useAuth } from '../context/AuthContext';
 

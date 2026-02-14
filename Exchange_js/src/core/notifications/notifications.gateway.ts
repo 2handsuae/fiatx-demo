@@ -35,10 +35,9 @@ export class NotificationsGateway
     console.log(`Client disconnected: ${client.id}`);
   }
 
-  notifyStatusChange(customerId: string, newStatus: string, authLevel: string) {
-    this.server.to(`customer_${customerId}`).emit('status_updated', {
-      status: newStatus,
-      authLevel: authLevel,
+  notifyComplianceUpdated(customerId: string, payload: Record<string, any>) {
+    this.server.to(`customer_${customerId}`).emit('compliance_updated', {
+      ...payload,
       timestamp: new Date(),
     });
   }

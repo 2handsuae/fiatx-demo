@@ -1,16 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { 
-  Search, 
-  RefreshCw, 
-  Plus, 
-  Edit2, 
-  Power, 
-  ChevronLeft, 
-  ChevronRight, 
-  ArrowUpDown,
-  Code,
-  Settings
-} from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Search, RefreshCw, Plus, Edit2, Power, ChevronLeft, ChevronRight, ArrowUpDown, Settings } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 interface AcctEventItem {
@@ -37,7 +26,7 @@ const AcctEventList = () => {
 
   // Pagination & Sorting
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
+  const [pageSize] = useState(10);
   const [total, setTotal] = useState(0);
   const [sortBy, setSortBy] = useState('createdAt');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Lock, User, ShieldCheck, ArrowRight, Eye, EyeOff, LayoutDashboard, AlertCircle } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
@@ -9,6 +9,27 @@ const AdminLogin = () => {
 
   const [error, setError] = useState('');
   const navigate = useNavigate();
+
+  useEffect(() => {
+    const loginError = localStorage.getItem('admin_login_error');
+    if (loginError) {
+      setError(loginError);
+      localStorage.removeItem('admin_login_error');
+    }
+  }, []);
+
+  const decodeTokenPayload = (token: string): Record<string, any> | null => {
+    try {
+      const payload = token.split('.')[1];
+      if (!payload) return null;
+      const base64 = payload.replace(/-/g, '+').replace(/_/g, '/');
+      const padded = base64.padEnd(base64.length + ((4 - (base64.length % 4)) % 4), '=');
+      const decoded = atob(padded);
+      return JSON.parse(decoded);
+    } catch {
+      return null;
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -29,6 +50,12 @@ const AdminLogin = () => {
 
         if (response.ok) {
             const data = await response.json();
+            const payload = decodeTokenPayload(data.access_token);
+            if (!payload || payload.type !== 'ADMIN') {
+                localStorage.removeItem('admin_token');
+                setError('Invalid admin token. Please contact support.');
+                return;
+            }
             localStorage.setItem('admin_token', data.access_token);
             navigate('/dashboard/members');
         } else {

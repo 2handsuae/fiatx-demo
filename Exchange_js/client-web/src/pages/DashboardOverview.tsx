@@ -132,15 +132,6 @@ const DashboardOverview = () => {
     return acc.plus(valueInAED);
   }, new Decimal(0)).toNumber();
 
-  const formatAED = (value: number) => {
-    return value.toLocaleString('en-AE', {
-      style: 'currency',
-      currency: 'AED',
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2
-    });
-  };
-
   if (loading && assets.length === 0) {
     return (
         <div className="flex items-center justify-center min-h-[400px]">

@@ -10,6 +10,16 @@ export class UsersService {
     return this.prisma.user.findUnique({ where: { email } });
   }
 
+  async findByIdentifier(identifier: string): Promise<User | null> {
+    const value = (identifier || '').trim();
+    if (!value) return null;
+    return this.prisma.user.findFirst({
+      where: {
+        OR: [{ email: value }, { userNo: value }],
+      },
+    });
+  }
+
   async findAll(params: {
     skip?: number;
     take?: number;

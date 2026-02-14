@@ -59,7 +59,6 @@ const DashboardLayout = () => {
       children: [
         { path: '/dashboard/compliance/cdd-cases', label: 'CDD Cases', icon: <ShieldCheck size={18} /> },
         { path: '/dashboard/compliance/edd-cases', label: 'EDD Cases', icon: <Shield size={18} /> },
-        { path: '/dashboard/compliance/onboarding-decisions', label: 'Onboarding Decisions', icon: <UserCheck size={18} /> },
       ],
     },
     {

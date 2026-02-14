@@ -1,9 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { 
-  ArrowLeft, Wallet, User, Hash, Globe, Banknote, Shield,
-  Clock, Activity, MapPin, Server, Copy, Check
-} from 'lucide-react';
+import { ArrowLeft, Wallet, User, Banknote, Clock, Activity, MapPin, Copy, Check } from 'lucide-react';
 import { copyToClipboard } from '../utils/clipboard';
 
 interface WalletDetailData {

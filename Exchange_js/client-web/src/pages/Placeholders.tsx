@@ -1,5 +1,4 @@
-import React from 'react';
-import { Wallet, ArrowDownCircle, ArrowLeftRight, ArrowUpCircle, History, Lock } from 'lucide-react';
+import { Wallet, ArrowDownCircle, ArrowLeftRight, ArrowUpCircle, History } from 'lucide-react';
 
 interface PlaceholderProps {
   title: string;

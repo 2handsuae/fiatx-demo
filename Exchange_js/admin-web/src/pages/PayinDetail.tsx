@@ -1,9 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { 
-  ArrowLeft, RefreshCw, Copy, Check, ExternalLink, ShieldCheck, ShieldAlert, Globe,
-  FileText, Banknote, MapPin, Clock, Activity, User, CreditCard
-} from 'lucide-react';
+import { ArrowLeft, RefreshCw, Copy, Check, ExternalLink, Globe, FileText, Banknote, MapPin, Clock, Activity, User } from 'lucide-react';
 import { copyToClipboard } from '../utils/clipboard';
 
 interface PayinDetail {

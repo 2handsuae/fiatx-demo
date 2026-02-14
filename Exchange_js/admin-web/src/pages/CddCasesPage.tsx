@@ -1,5 +1,6 @@
 import { type ReactNode, useEffect, useState } from 'react';
 import { RefreshCw, X } from 'lucide-react';
+import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/adminFetch';
 
 interface CddCaseItem {
   id: string;
@@ -8,7 +9,6 @@ interface CddCaseItem {
   subjectKind: string;
   subjectRefId: string;
   status: string;
-  providerStatus?: string;
   customer?: {
     customerNo?: string;
     email?: string;
@@ -28,7 +28,8 @@ interface CddCaseDetail {
   riskScore?: number | null;
   riskLevel?: string | null;
   requiresEdd?: boolean;
-  providerStatus?: string;
+  pepHit?: boolean;
+  sanctionsHit?: boolean;
   inputData?: Record<string, unknown>;
   customerSnapshot?: {
     customerNo?: string;
@@ -37,9 +38,15 @@ interface CddCaseDetail {
     lastName?: string;
     companyName?: string | null;
     customerType?: string;
-    onboardingStage?: string;
+    cddStatus?: string;
+    eddStatus?: string;
+    complianceStatus?: string;
   };
   mockDetail?: Record<string, unknown>;
+  latestReport?: {
+    rawPayload?: Record<string, unknown>;
+    normalizedPayload?: Record<string, unknown>;
+  };
 }
 
 const getErrorMessage = (error: unknown, fallback: string) =>
@@ -52,27 +59,25 @@ const CddCasesPage = () => {
   const [detailLoading, setDetailLoading] = useState(false);
   const [detail, setDetail] = useState<CddCaseDetail | null>(null);
 
-  const token = localStorage.getItem('admin_token');
-
   const fetchCases = async () => {
     setLoading(true);
     setMessage('');
     try {
-      const response = await fetch(
+      const response = await adminFetch(
         `${import.meta.env.VITE_API_URL}/admin/compliance/cdd-cases?take=200`,
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        },
       );
 
       if (!response.ok) {
-        throw new Error('Failed to fetch CDD cases');
+        throw new Error(await getApiErrorMessage(response, 'Failed to load data.'));
       }
 
       const data = await response.json();
       setItems(Array.isArray(data.items) ? data.items : []);
     } catch (e: unknown) {
-      setMessage(getErrorMessage(e, 'Load failed'));
+      if (e instanceof AdminSessionError) {
+        return;
+      }
+      setMessage(getErrorMessage(e, 'Failed to load data.'));
     } finally {
       setLoading(false);
     }
@@ -84,25 +89,21 @@ const CddCasesPage = () => {
 
   const reviewCase = async (
     id: string,
-    decision: 'APPROVE' | 'REJECT' | 'NEED_INFO',
+    decision: 'APPROVE' | 'REJECT' | 'UPGRADE_EDD',
     requiresEdd?: boolean,
   ) => {
-    const reason =
-      decision === 'REJECT' || decision === 'NEED_INFO'
-        ? window.prompt('Please input reason', '') || ''
-        : undefined;
+    const reason = decision === 'REJECT' ? window.prompt('Please input reason', '') || '' : undefined;
 
-    if ((decision === 'REJECT' || decision === 'NEED_INFO') && !reason) {
+    if (decision === 'REJECT' && !reason) {
       return;
     }
 
     try {
-      const response = await fetch(
+      const response = await adminFetch(
         `${import.meta.env.VITE_API_URL}/admin/compliance/cdd-cases/${id}/review`,
         {
           method: 'POST',
           headers: {
-            Authorization: `Bearer ${token}`,
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
@@ -114,13 +115,15 @@ const CddCasesPage = () => {
       );
 
       if (!response.ok) {
-        const err = (await response.json().catch(() => ({}))) as { message?: string };
-        throw new Error(err.message || 'Review failed');
+        throw new Error(await getApiErrorMessage(response, 'Review failed'));
       }
 
       setMessage(`CDD ${decision} completed.`);
       fetchCases();
     } catch (e: unknown) {
+      if (e instanceof AdminSessionError) {
+        return;
+      }
       alert(getErrorMessage(e, 'Review failed'));
     }
   };
@@ -129,20 +132,19 @@ const CddCasesPage = () => {
     setDetailLoading(true);
     setDetail(null);
     try {
-      const response = await fetch(
+      const response = await adminFetch(
         `${import.meta.env.VITE_API_URL}/admin/compliance/cdd-cases/${id}`,
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        },
       );
 
       if (!response.ok) {
-        const err = (await response.json().catch(() => ({}))) as { message?: string };
-        throw new Error(err.message || 'Failed to load detail');
+        throw new Error(await getApiErrorMessage(response, 'Failed to load data.'));
       }
 
       setDetail((await response.json()) as CddCaseDetail);
     } catch (e: unknown) {
+      if (e instanceof AdminSessionError) {
+        return;
+      }
       alert(getErrorMessage(e, 'Failed to load detail'));
     } finally {
       setDetailLoading(false);
@@ -179,20 +181,19 @@ const CddCasesPage = () => {
               <th className="px-4 py-3 text-xs uppercase text-gray-500">Customer</th>
               <th className="px-4 py-3 text-xs uppercase text-gray-500">Subject</th>
               <th className="px-4 py-3 text-xs uppercase text-gray-500">Status</th>
-              <th className="px-4 py-3 text-xs uppercase text-gray-500">Provider</th>
               <th className="px-4 py-3 text-xs uppercase text-gray-500">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-admin-border">
             {loading ? (
               <tr>
-                <td colSpan={6} className="px-4 py-8 text-center text-gray-500">
+                <td colSpan={5} className="px-4 py-8 text-center text-gray-500">
                   Loading...
                 </td>
               </tr>
             ) : items.length === 0 ? (
               <tr>
-                <td colSpan={6} className="px-4 py-8 text-center text-gray-500">
+                <td colSpan={5} className="px-4 py-8 text-center text-gray-500">
                   No cases found
                 </td>
               </tr>
@@ -216,7 +217,6 @@ const CddCasesPage = () => {
                       {item.status}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-xs text-gray-600">{item.providerStatus || 'NOT_STARTED'}</td>
                   <td className="px-4 py-3 space-y-1">
                     <button
                       onClick={() => openDetail(item.id)}
@@ -224,22 +224,19 @@ const CddCasesPage = () => {
                     >
                       View Detail
                     </button>
-                    {['SUBMITTED', 'NEED_INFO'].includes(item.status) ? (
+                    {['SUBMITTED'].includes(item.status) ? (
                       <div className="flex flex-wrap gap-1">
                         <button
-                          onClick={() => {
-                            const requiresEdd = window.confirm('Require EDD for this subject?');
-                            reviewCase(item.id, 'APPROVE', requiresEdd);
-                          }}
+                          onClick={() => reviewCase(item.id, 'APPROVE', false)}
                           className="text-xs bg-green-50 text-green-700 px-2 py-1 rounded hover:bg-green-100"
                         >
                           Approve
                         </button>
                         <button
-                          onClick={() => reviewCase(item.id, 'NEED_INFO')}
-                          className="text-xs bg-yellow-50 text-yellow-700 px-2 py-1 rounded hover:bg-yellow-100"
+                          onClick={() => reviewCase(item.id, 'UPGRADE_EDD', true)}
+                          className="text-xs bg-indigo-50 text-indigo-700 px-2 py-1 rounded hover:bg-indigo-100"
                         >
-                          Need Info
+                          Upgrade EDD
                         </button>
                         <button
                           onClick={() => reviewCase(item.id, 'REJECT')}
@@ -284,6 +281,8 @@ const CddCasesPage = () => {
                     riskScore: detail.riskScore,
                     riskLevel: detail.riskLevel,
                     requiresEdd: detail.requiresEdd,
+                    pepHit: detail.pepHit,
+                    sanctionsHit: detail.sanctionsHit,
                   }} />
                 </InfoBlock>
 
@@ -297,6 +296,10 @@ const CddCasesPage = () => {
 
                 <InfoBlock title="Mock Detail">
                   <JsonView data={detail.mockDetail || {}} />
+                </InfoBlock>
+
+                <InfoBlock title="Latest Report">
+                  <JsonView data={detail.latestReport || {}} />
                 </InfoBlock>
               </div>
             )}

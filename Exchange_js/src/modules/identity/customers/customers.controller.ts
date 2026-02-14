@@ -10,6 +10,7 @@ import {
   UseGuards,
   Request,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { CustomersService } from './customers.service';
 import { Prisma } from '@prisma/client';
@@ -28,9 +29,16 @@ import {
 export class CustomersController {
   constructor(private readonly customersService: CustomersService) {}
 
+  private ensureAdmin(req: any) {
+    if (req.user?.type !== 'ADMIN') {
+      throw new ForbiddenException('Admin token required');
+    }
+  }
+
   @Post()
   @ApiOperation({ summary: 'Create a new customer' })
-  create(@Body() createCustomerDto: Prisma.CustomerMainCreateInput) {
+  create(@Request() req: any, @Body() createCustomerDto: Prisma.CustomerMainCreateInput) {
+    this.ensureAdmin(req);
     return this.customersService.create(createCustomerDto);
   }
 
@@ -46,11 +54,13 @@ export class CustomersController {
   })
   @ApiQuery({ name: 'status', required: false, type: String })
   findAll(
+    @Request() req: any,
     @Query('skip') skip?: string,
     @Query('take') take?: string,
     @Query('search') search?: string,
     @Query('status') status?: string,
   ) {
+    this.ensureAdmin(req);
     const where: Prisma.CustomerMainWhereInput = {};
 
     if (search) {
@@ -63,7 +73,7 @@ export class CustomersController {
     }
 
     if (status) {
-      where.authStatus = status;
+      where.complianceStatus = status;
     }
 
     return this.customersService.findAll({
@@ -76,16 +86,19 @@ export class CustomersController {
 
   @Get(':id')
   @ApiOperation({ summary: 'Get a customer by ID' })
-  findOne(@Param('id') id: string) {
+  findOne(@Request() req: any, @Param('id') id: string) {
+    this.ensureAdmin(req);
     return this.customersService.findOne(id);
   }
 
   @Patch(':id')
   @ApiOperation({ summary: 'Update a customer' })
   update(
+    @Request() req: any,
     @Param('id') id: string,
     @Body() updateCustomerDto: Prisma.CustomerMainUpdateInput,
   ) {
+    this.ensureAdmin(req);
     return this.customersService.update({
       where: { id },
       data: updateCustomerDto,
@@ -95,18 +108,20 @@ export class CustomersController {
   @Post(':id/status')
   @ApiOperation({ summary: 'Deprecated: customer status changes moved to onboarding module' })
   async changeStatus(
+    @Request() req: any,
     @Param('id') id: string,
     @Body() body: { status: string, reason?: string },
-    @Request() req: any,
   ) {
+    this.ensureAdmin(req);
     throw new BadRequestException(
-      'Deprecated endpoint. Use /onboarding/* (customer) and /admin/onboarding/* (admin) for onboarding decisions.',
+      'Deprecated endpoint. Use /onboarding/* (customer) and /admin/compliance/* (admin) for onboarding decisions.',
     );
   }
 
   @Delete(':id')
   @ApiOperation({ summary: 'Delete a customer' })
-  remove(@Param('id') id: string) {
+  remove(@Request() req: any, @Param('id') id: string) {
+    this.ensureAdmin(req);
     return this.customersService.remove({ id });
   }
 }

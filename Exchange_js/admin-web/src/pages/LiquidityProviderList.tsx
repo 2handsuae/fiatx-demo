@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { Search, Filter, RefreshCw, Plus, Edit, AlertTriangle, CheckCircle, XCircle } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { Search, RefreshCw, Plus, Edit, CheckCircle, XCircle } from 'lucide-react';
 
 interface LiquidityProvider {
   id: string;

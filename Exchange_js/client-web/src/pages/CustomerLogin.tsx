@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Mail, Lock, ArrowRight, Smartphone, Shield, AlertCircle, Eye, EyeOff } from 'lucide-react';
+import { Mail, ArrowRight, Smartphone, Shield, Eye, EyeOff } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
@@ -26,20 +26,9 @@ const CustomerLogin = () => {
     try {
         const loginData: any = { password: formData.password };
         if (method === 'email') {
-            loginData.email = formData.email;
+            loginData.email = formData.email.trim();
         } else {
-            loginData.email = formData.phone; // Backend logic treats email/phone as identifier, or we can adjust backend. 
-            // Actually our backend validateCustomer takes (email, pass) but logic handles phone if we modify it or just pass phone as email field if backend supports it.
-            // Let's check backend service: validateCustomer(email: string, pass: string).
-            // It searches by email: { where: { email } }. 
-            // Wait, my backend implementation of validateCustomer ONLY checks findUnique({ where: { email } }).
-            // I need to update backend to support phone login if required, but requirements said "仅当邮箱和密码...". 
-            // So for now, let's stick to email login as primary requirement, or if phone login is needed, I should update backend.
-            // Requirement 2 says: "仅当邮箱和密码与表中某条记录完全一致时允许登录".
-            // So I will only support Email login for now to strictly follow requirements, OR if I keep mobile tab, I should treat it as 'identifier'.
-            // However, the backend `validateCustomer` strictly uses `findUnique({ where: { email } })`. 
-            // So phone login won't work unless I update backend. 
-            // Given the user prompt specifically asked for "Email: valid format", I will prioritize Email login working correctly.
+            loginData.phone = formData.phone.trim();
         }
 
         const response = await fetch(`${import.meta.env.VITE_API_URL}/auth/customer/login`, {
@@ -122,6 +111,12 @@ const CustomerLogin = () => {
             <h1 className="text-3xl font-bold text-gray-900">Welcome Back</h1>
             <p className="text-gray-500">Please enter your details to sign in.</p>
           </div>
+
+          {error && (
+            <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+              {error}
+            </div>
+          )}
 
           {/* Login Method Tabs */}
           <div className="flex p-1 bg-gray-100 rounded-xl">

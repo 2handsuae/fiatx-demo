@@ -4,6 +4,7 @@ import {
   ForbiddenException,
   Get,
   Param,
+  Patch,
   Post,
   Query,
   Req,
@@ -14,13 +15,14 @@ import { AuthGuard } from '@nestjs/passport';
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { OnboardingService } from './onboarding.service';
 import {
-  RejectCustomerDto,
+  FinalReviewCustomerDto,
   ReviewCddCaseDto,
   ReviewEddCaseDto,
+  UpdateInvestorClassificationDto,
 } from './dto/onboarding.dto';
 
 @ApiTags('Admin - Onboarding')
-@Controller(['admin/onboarding', 'admin/compliance'])
+@Controller('admin/compliance')
 @UseGuards(AuthGuard('jwt'))
 @ApiBearerAuth()
 export class OnboardingAdminController {
@@ -36,16 +38,32 @@ export class OnboardingAdminController {
     };
   }
 
+  private parseCustomerIds(raw?: string): string[] | undefined {
+    if (!raw) return undefined;
+    const values = raw
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean);
+    return values.length > 0 ? values : undefined;
+  }
+
   @Get('cdd-cases')
   @ApiOperation({ summary: 'List CDD cases for compliance review' })
   @ApiQuery({ name: 'status', required: false, type: String })
   @ApiQuery({ name: 'customerType', required: false, type: String })
+  @ApiQuery({
+    name: 'customerIds',
+    required: false,
+    type: String,
+    description: 'Comma separated customer ids for scoped lookup',
+  })
   @ApiQuery({ name: 'skip', required: false, type: Number })
   @ApiQuery({ name: 'take', required: false, type: Number })
   listCddCases(
     @Req() req: any,
     @Query('status') status?: string,
     @Query('customerType') customerType?: string,
+    @Query('customerIds') customerIds?: string,
     @Query('skip') skip?: string,
     @Query('take') take?: string,
   ) {
@@ -53,13 +71,14 @@ export class OnboardingAdminController {
     return this.onboardingService.listCddCases({
       status,
       customerType,
-      skip: skip ? Number(skip) : 0,
-      take: take ? Number(take) : 20,
+      customerIds: this.parseCustomerIds(customerIds),
+      skip: skip ? Number(skip) : undefined,
+      take: take ? Number(take) : undefined,
     });
   }
 
   @Post('cdd-cases/:id/review')
-  @ApiOperation({ summary: 'Review CDD case (approve/reject/need-info)' })
+  @ApiOperation({ summary: 'Review CDD case (approve/reject/upgrade-edd)' })
   reviewCddCase(
     @Req() req: any,
     @Param('id') id: string,
@@ -77,40 +96,29 @@ export class OnboardingAdminController {
   }
 
   @Get('edd-cases')
-  @ApiOperation({ summary: 'List EDD cases for MLRO/Senior review' })
+  @ApiOperation({ summary: 'List EDD cases for MLRO review' })
   @ApiQuery({ name: 'status', required: false, type: String })
+  @ApiQuery({
+    name: 'customerIds',
+    required: false,
+    type: String,
+    description: 'Comma separated customer ids for scoped lookup',
+  })
   @ApiQuery({ name: 'skip', required: false, type: Number })
   @ApiQuery({ name: 'take', required: false, type: Number })
   listEddCases(
     @Req() req: any,
     @Query('status') status?: string,
+    @Query('customerIds') customerIds?: string,
     @Query('skip') skip?: string,
     @Query('take') take?: string,
   ) {
     this.getAdminActor(req);
     return this.onboardingService.listEddCases({
       status,
-      skip: skip ? Number(skip) : 0,
-      take: take ? Number(take) : 20,
-    });
-  }
-
-  @Get('decisions')
-  @ApiOperation({ summary: 'List onboarding decision queue' })
-  @ApiQuery({ name: 'status', required: false, type: String })
-  @ApiQuery({ name: 'skip', required: false, type: Number })
-  @ApiQuery({ name: 'take', required: false, type: Number })
-  listDecisionQueue(
-    @Req() req: any,
-    @Query('status') status?: string,
-    @Query('skip') skip?: string,
-    @Query('take') take?: string,
-  ) {
-    this.getAdminActor(req);
-    return this.onboardingService.listDecisionQueue({
-      status,
-      skip: skip ? Number(skip) : 0,
-      take: take ? Number(take) : 20,
+      customerIds: this.parseCustomerIds(customerIds),
+      skip: skip ? Number(skip) : undefined,
+      take: take ? Number(take) : undefined,
     });
   }
 
@@ -132,32 +140,42 @@ export class OnboardingAdminController {
     return this.onboardingService.getEddCaseDetail(id);
   }
 
-  @Post('edd-cases/:id/senior-review')
-  @ApiOperation({ summary: 'Senior management review EDD case' })
-  seniorReview(
+  @Post('customers/:id/final-review')
+  @ApiOperation({ summary: 'Customer-level final management decision for EDD-triggered onboarding' })
+  finalReviewCustomer(
     @Req() req: any,
     @Param('id') id: string,
-    @Body(new ValidationPipe({ transform: true })) body: ReviewEddCaseDto,
+    @Body(new ValidationPipe({ transform: true })) body: FinalReviewCustomerDto,
   ) {
     const actor = this.getAdminActor(req);
-    return this.onboardingService.seniorReviewEddCase(id, actor.actorId, actor.actorRole, body);
+    return this.onboardingService.reviewCustomerFinalDecision(
+      id,
+      actor.actorId,
+      actor.actorRole,
+      body,
+    );
   }
 
-  @Post('customers/:id/approve')
-  @ApiOperation({ summary: 'Approve onboarding and unlock trading permissions' })
-  approveCustomer(@Req() req: any, @Param('id') id: string) {
+  @Post('customers/:id/simulate-expired')
+  @ApiOperation({ summary: 'Simulate CDD document expiry and recompute compliance snapshot' })
+  simulateExpired(@Req() req: any, @Param('id') id: string) {
     const actor = this.getAdminActor(req);
-    return this.onboardingService.approveCustomer(id, actor.actorId, actor.actorRole);
+    return this.onboardingService.simulateCustomerExpired(id, actor.actorId, actor.actorRole);
   }
 
-  @Post('customers/:id/reject')
-  @ApiOperation({ summary: 'Reject onboarding and keep trading blocked' })
-  rejectCustomer(
+  @Patch('customers/:id/investor-classification')
+  @ApiOperation({ summary: 'Override investor classification with audit reason' })
+  updateInvestorClassification(
     @Req() req: any,
     @Param('id') id: string,
-    @Body(new ValidationPipe({ transform: true })) body: RejectCustomerDto,
+    @Body(new ValidationPipe({ transform: true })) body: UpdateInvestorClassificationDto,
   ) {
     const actor = this.getAdminActor(req);
-    return this.onboardingService.rejectCustomer(id, actor.actorId, actor.actorRole, body);
+    return this.onboardingService.updateInvestorClassification(
+      id,
+      actor.actorId,
+      actor.actorRole,
+      body,
+    );
   }
 }

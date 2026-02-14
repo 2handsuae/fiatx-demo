@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Search, RefreshCw, Eye, Download, Plus, ArrowRight, CheckCircle, ShieldCheck, Lock, Unlock, Copy } from 'lucide-react';
 import { copyToClipboard } from '../utils/clipboard';
@@ -33,7 +33,7 @@ const DepositTransactionList = () => {
   const [items, setItems] = useState<DepositTransaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [processingId, setProcessingId] = useState<string | null>(null);
-  const [copied, setCopied] = useState<string | null>(null);
+  const [copied] = useState<string | null>(null);
   const [isRejectModalOpen, setIsRejectModalOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
   const [targetId, setTargetId] = useState<string | null>(null);
@@ -43,7 +43,7 @@ const DepositTransactionList = () => {
   const [ownerId, setOwnerId] = useState('');
   const [toWalletId, setToWalletId] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
-  const [assetIdFilter, setAssetIdFilter] = useState('');
+  const [assetIdFilter] = useState('');
 
   const fetchItems = async () => {
     setLoading(true);

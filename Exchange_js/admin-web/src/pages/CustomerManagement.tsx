@@ -1,18 +1,24 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { RefreshCw, Search } from 'lucide-react';
+import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/adminFetch';
 
 interface Customer {
   id: string;
   customerNo: string;
   firstName: string | null;
   lastName: string | null;
+  companyName: string | null;
   email: string | null;
   phone: string | null;
-  onboardingStage: string;
   customerType: string;
-  canTradeSwap: boolean;
-  canTradeWithdraw: boolean;
+  cddStatus: string;
+  amlRiskTier: string;
+  eddRequired: boolean;
+  eddStatus: string;
+  complianceStatus: string;
+  finalApprovalStatus: string;
+  investorClassification?: string;
   createdAt: string;
 }
 
@@ -22,44 +28,88 @@ interface CaseMapItem {
   status: string;
 }
 
+const REQUIRED_CONFIRM_TEXT = "I confirm and approve this customer's onboarding.";
+
+const getComplianceBadgeClass = (status: string) => {
+  if (status === 'ACTIVE') return 'bg-green-100 text-green-800';
+  if (status === 'RESTRICTED') return 'bg-yellow-100 text-yellow-800';
+  if (status === 'IN_PROGRESS') return 'bg-blue-100 text-blue-800';
+  if (status === 'NONE') return 'bg-slate-100 text-slate-800';
+  if (status === 'EXPIRED') return 'bg-gray-100 text-gray-800';
+  return 'bg-red-100 text-red-800';
+};
+
+const getCaseBadgeClass = (status: string) => {
+  if (status === 'APPROVED') return 'bg-green-100 text-green-800';
+  if (status === 'SUBMITTED') return 'bg-blue-100 text-blue-800';
+  if (status === 'PENDING') return 'bg-slate-100 text-slate-800';
+  if (status === 'REJECTED') return 'bg-red-100 text-red-800';
+  return 'bg-gray-100 text-gray-800';
+};
+
+const getCustomerDisplayName = (customer: Customer) => {
+  const fullName = `${customer.firstName || ''} ${customer.lastName || ''}`.trim();
+  if (customer.customerType === 'CORPORATE') {
+    return customer.companyName || fullName || 'Unnamed';
+  }
+  return fullName || customer.companyName || 'Unnamed';
+};
+
+const pad = (value: number) => String(value).padStart(2, '0');
+
+const formatCreatedAt = (value?: string | null) => {
+  if (!value) return '-';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '-';
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(
+    date.getHours(),
+  )}:${pad(date.getMinutes())}`;
+};
+
 const CustomerManagement = () => {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [message, setMessage] = useState('');
+  const [approving, setApproving] = useState(false);
+  const [approveTarget, setApproveTarget] = useState<Customer | null>(null);
+  const [approveInput, setApproveInput] = useState('');
   const [cddCaseByCustomer, setCddCaseByCustomer] = useState<Record<string, CaseMapItem>>({});
   const [eddCaseByCustomer, setEddCaseByCustomer] = useState<Record<string, CaseMapItem>>({});
 
-  const fetchCustomers = async () => {
+  const fetchCustomers = useCallback(async () => {
     setLoading(true);
     setMessage('');
+
     try {
-      const token = localStorage.getItem('admin_token');
       const params = new URLSearchParams();
       if (search) params.append('search', search);
 
-      const [customerRes, cddRes, eddRes] = await Promise.all([
-        fetch(`${import.meta.env.VITE_API_URL}/customers?${params.toString()}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        }),
-        fetch(
-          `${import.meta.env.VITE_API_URL}/admin/onboarding/cdd-cases?take=200`,
-          {
-            headers: { Authorization: `Bearer ${token}` },
-          },
-        ),
-        fetch(
-          `${import.meta.env.VITE_API_URL}/admin/onboarding/edd-cases?take=200`,
-          {
-            headers: { Authorization: `Bearer ${token}` },
-          },
-        ),
-      ]);
+      const customerRes = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/customers?${params.toString()}`,
+      );
 
-      if (customerRes.ok) {
-        const result = await customerRes.json();
-        setCustomers(result.data || []);
+      if (!customerRes.ok) {
+        throw new Error(await getApiErrorMessage(customerRes, 'Failed to load data.'));
       }
+
+      const customerResult = await customerRes.json();
+      const customerList: Customer[] = customerResult.data || [];
+      setCustomers(customerList);
+
+      const customerIds = customerList.map((item) => item.id).filter(Boolean);
+      if (customerIds.length === 0) {
+        setCddCaseByCustomer({});
+        setEddCaseByCustomer({});
+        return;
+      }
+
+      const query = new URLSearchParams();
+      query.append('customerIds', customerIds.join(','));
+      const [cddRes, eddRes] = await Promise.all([
+        adminFetch(`${import.meta.env.VITE_API_URL}/admin/compliance/cdd-cases?${query.toString()}`),
+        adminFetch(`${import.meta.env.VITE_API_URL}/admin/compliance/edd-cases?${query.toString()}`),
+      ]);
 
       if (cddRes.ok) {
         const cdd = await cddRes.json();
@@ -74,6 +124,8 @@ const CustomerManagement = () => {
           }
         });
         setCddCaseByCustomer(map);
+      } else {
+        setCddCaseByCustomer({});
       }
 
       if (eddRes.ok) {
@@ -89,284 +141,104 @@ const CustomerManagement = () => {
           }
         });
         setEddCaseByCustomer(map);
+      } else {
+        setEddCaseByCustomer({});
       }
     } catch (error) {
+      if (error instanceof AdminSessionError) {
+        return;
+      }
       console.error('Failed to fetch onboarding data', error);
-      setMessage('Failed to fetch data');
+      setMessage('Failed to load data.');
+      setCddCaseByCustomer({});
+      setEddCaseByCustomer({});
     } finally {
       setLoading(false);
     }
-  };
-
-  const callApi = async (
-    url: string,
-    method: 'POST' | 'PATCH',
-    body?: Record<string, any>,
-  ) => {
-    const token = localStorage.getItem('admin_token');
-    const response = await fetch(url, {
-      method,
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-      body: body ? JSON.stringify(body) : undefined,
-    });
-    if (!response.ok) {
-      const err = await response.json().catch(() => ({}));
-      throw new Error(err.message || 'Operation failed');
-    }
-    return response.json().catch(() => ({}));
-  };
-
-  const handleCddReview = async (
-    customerId: string,
-    decision: 'APPROVE' | 'REJECT' | 'NEED_INFO',
-  ) => {
-    const cddCase = cddCaseByCustomer[customerId];
-    if (!cddCase) return;
-    const reason =
-      decision === 'REJECT' || decision === 'NEED_INFO'
-        ? window.prompt('Please input review reason', '') || ''
-        : '';
-    if ((decision === 'REJECT' || decision === 'NEED_INFO') && !reason) return;
-
-    try {
-      await callApi(
-        `${import.meta.env.VITE_API_URL}/admin/onboarding/cdd-cases/${cddCase.id}/review`,
-        'POST',
-        {
-          decision,
-          reason: reason || undefined,
-        },
-      );
-      setMessage(`CDD ${decision} completed.`);
-      fetchCustomers();
-    } catch (e: any) {
-      alert(e.message);
-    }
-  };
-
-  const handleMlroReview = async (
-    customerId: string,
-    decision: 'APPROVE' | 'REJECT' | 'NEED_INFO',
-  ) => {
-    const eddCase = eddCaseByCustomer[customerId];
-    if (!eddCase) return;
-    const reason =
-      decision === 'REJECT' || decision === 'NEED_INFO'
-        ? window.prompt('Please input MLRO reason', '') || ''
-        : '';
-    if ((decision === 'REJECT' || decision === 'NEED_INFO') && !reason) return;
-
-    try {
-      await callApi(
-        `${import.meta.env.VITE_API_URL}/admin/onboarding/edd-cases/${eddCase.id}/mlro-review`,
-        'POST',
-        {
-          decision,
-          reason: reason || undefined,
-        },
-      );
-      setMessage(`EDD MLRO ${decision} completed.`);
-      fetchCustomers();
-    } catch (e: any) {
-      alert(e.message);
-    }
-  };
-
-  const handleSeniorReview = async (
-    customerId: string,
-    decision: 'APPROVE' | 'REJECT' | 'NEED_INFO',
-  ) => {
-    const eddCase = eddCaseByCustomer[customerId];
-    if (!eddCase) return;
-    const reason =
-      decision === 'REJECT' || decision === 'NEED_INFO'
-        ? window.prompt('Please input senior review reason', '') || ''
-        : '';
-    if ((decision === 'REJECT' || decision === 'NEED_INFO') && !reason) return;
-
-    try {
-      await callApi(
-        `${import.meta.env.VITE_API_URL}/admin/onboarding/edd-cases/${eddCase.id}/senior-review`,
-        'POST',
-        {
-          decision,
-          reason: reason || undefined,
-        },
-      );
-      setMessage(`EDD Senior ${decision} completed.`);
-      fetchCustomers();
-    } catch (e: any) {
-      alert(e.message);
-    }
-  };
-
-  const handleApproveOnboarding = async (customerId: string) => {
-    try {
-      await callApi(
-        `${import.meta.env.VITE_API_URL}/admin/onboarding/customers/${customerId}/approve`,
-        'POST',
-      );
-      setMessage('Customer onboarding approved.');
-      fetchCustomers();
-    } catch (e: any) {
-      alert(e.message);
-    }
-  };
-
-  const handleRejectOnboarding = async (customerId: string) => {
-    const reason = window.prompt('Please input reject reason', '') || '';
-    if (!reason) return;
-    try {
-      await callApi(
-        `${import.meta.env.VITE_API_URL}/admin/onboarding/customers/${customerId}/reject`,
-        'POST',
-        { reason },
-      );
-      setMessage('Customer onboarding rejected.');
-      fetchCustomers();
-    } catch (e: any) {
-      alert(e.message);
-    }
-  };
-
-  const renderActionButtons = (customer: Customer) => {
-    const stage = customer.onboardingStage;
-    const cddCase = cddCaseByCustomer[customer.id];
-    const eddCase = eddCaseByCustomer[customer.id];
-
-    if (stage === 'CDD_UNDER_REVIEW' && cddCase) {
-      return (
-        <div className="flex gap-1">
-          <button
-            onClick={() => handleCddReview(customer.id, 'APPROVE')}
-            className="text-xs bg-green-50 text-green-700 px-2 py-1 rounded hover:bg-green-100"
-          >
-            CDD Approve
-          </button>
-          <button
-            onClick={() => handleCddReview(customer.id, 'NEED_INFO')}
-            className="text-xs bg-yellow-50 text-yellow-700 px-2 py-1 rounded hover:bg-yellow-100"
-          >
-            Need Info
-          </button>
-          <button
-            onClick={() => handleCddReview(customer.id, 'REJECT')}
-            className="text-xs bg-red-50 text-red-700 px-2 py-1 rounded hover:bg-red-100"
-          >
-            Reject
-          </button>
-        </div>
-      );
-    }
-
-    if (stage === 'EDD_UNDER_REVIEW' && eddCase) {
-      return (
-        <div className="flex gap-1">
-          <button
-            onClick={() => handleMlroReview(customer.id, 'APPROVE')}
-            className="text-xs bg-indigo-50 text-indigo-700 px-2 py-1 rounded hover:bg-indigo-100"
-          >
-            MLRO Approve
-          </button>
-          <button
-            onClick={() => handleMlroReview(customer.id, 'NEED_INFO')}
-            className="text-xs bg-yellow-50 text-yellow-700 px-2 py-1 rounded hover:bg-yellow-100"
-          >
-            Need Info
-          </button>
-          <button
-            onClick={() => handleMlroReview(customer.id, 'REJECT')}
-            className="text-xs bg-red-50 text-red-700 px-2 py-1 rounded hover:bg-red-100"
-          >
-            Reject
-          </button>
-        </div>
-      );
-    }
-
-    if (stage === 'EDD_MLRO_APPROVED' && eddCase) {
-      return (
-        <div className="flex gap-1">
-          <button
-            onClick={() => handleSeniorReview(customer.id, 'APPROVE')}
-            className="text-xs bg-green-50 text-green-700 px-2 py-1 rounded hover:bg-green-100"
-          >
-            Senior Approve
-          </button>
-          <button
-            onClick={() => handleSeniorReview(customer.id, 'NEED_INFO')}
-            className="text-xs bg-yellow-50 text-yellow-700 px-2 py-1 rounded hover:bg-yellow-100"
-          >
-            Need Info
-          </button>
-          <button
-            onClick={() => handleSeniorReview(customer.id, 'REJECT')}
-            className="text-xs bg-red-50 text-red-700 px-2 py-1 rounded hover:bg-red-100"
-          >
-            Reject
-          </button>
-        </div>
-      );
-    }
-
-    if (stage === 'CDD_APPROVED' || stage === 'EDD_APPROVED') {
-      return (
-        <div className="flex gap-1">
-          <button
-            onClick={() => handleApproveOnboarding(customer.id)}
-            className="text-xs bg-green-50 text-green-700 px-2 py-1 rounded hover:bg-green-100"
-          >
-            Final Approve
-          </button>
-          <button
-            onClick={() => handleRejectOnboarding(customer.id)}
-            className="text-xs bg-red-50 text-red-700 px-2 py-1 rounded hover:bg-red-100"
-          >
-            Final Reject
-          </button>
-        </div>
-      );
-    }
-
-    if (stage === 'ONBOARDING_APPROVED') {
-      return <span className="text-xs text-green-700 font-medium">Trading Enabled</span>;
-    }
-
-    if (stage === 'ONBOARDING_REJECTED') {
-      return <span className="text-xs text-red-700 font-medium">Rejected</span>;
-    }
-
-    return <span className="text-xs text-gray-500">Awaiting customer submission</span>;
-  };
-
-  useEffect(() => {
-    fetchCustomers();
   }, [search]);
 
+  useEffect(() => {
+    void fetchCustomers();
+  }, [fetchCustomers]);
+
   const stats = useMemo(() => {
-    const approved = customers.filter((c) => c.onboardingStage === 'ONBOARDING_APPROVED').length;
-    const inReview = customers.filter((c) =>
-      ['CDD_UNDER_REVIEW', 'EDD_UNDER_REVIEW', 'EDD_MLRO_APPROVED'].includes(
-        c.onboardingStage,
-      ),
-    ).length;
-    return { approved, inReview };
+    const none = customers.filter((c) => c.complianceStatus === 'NONE').length;
+    const inProgress = customers.filter((c) => c.complianceStatus === 'IN_PROGRESS').length;
+    const active = customers.filter((c) => c.complianceStatus === 'ACTIVE').length;
+    const restricted = customers.filter((c) => c.complianceStatus === 'RESTRICTED').length;
+    const blocked = customers.filter((c) => c.complianceStatus === 'BLOCKED').length;
+    const expired = customers.filter((c) => c.complianceStatus === 'EXPIRED').length;
+    return { none, inProgress, active, restricted, blocked, expired };
   }, [customers]);
+
+  const openApproveModal = (customer: Customer) => {
+    setApproveTarget(customer);
+    setApproveInput('');
+  };
+
+  const closeApproveModal = () => {
+    setApproveTarget(null);
+    setApproveInput('');
+  };
+
+  const copyConfirmText = async () => {
+    try {
+      await navigator.clipboard.writeText(REQUIRED_CONFIRM_TEXT);
+      setMessage('Confirmation text copied.');
+    } catch {
+      setMessage('Copy failed. Please enter the exact sentence manually.');
+    }
+  };
+
+  const submitFinalApprove = async () => {
+    if (!approveTarget || approveInput !== REQUIRED_CONFIRM_TEXT) return;
+
+    try {
+      setApproving(true);
+      setMessage('');
+      const res = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/admin/compliance/customers/${approveTarget.id}/final-review`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            decision: 'APPROVE',
+            reason: REQUIRED_CONFIRM_TEXT,
+          }),
+        },
+      );
+
+      if (!res.ok) {
+        throw new Error(await getApiErrorMessage(res, 'Final approval failed.'));
+      }
+
+      closeApproveModal();
+      setMessage('Final approval completed.');
+      await fetchCustomers();
+    } catch (error) {
+      if (error instanceof AdminSessionError) {
+        return;
+      }
+      console.error('Failed to final approve customer', error);
+      setMessage('Final approval failed.');
+    } finally {
+      setApproving(false);
+    }
+  };
 
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Onboarding Management</h1>
+          <h1 className="text-2xl font-bold text-gray-900">Customer Compliance Overview</h1>
           <p className="text-sm text-gray-500 mt-1">
-            In review: {stats.inReview} | Approved: {stats.approved}
+            NONE: {stats.none} | IN_PROGRESS: {stats.inProgress} | ACTIVE: {stats.active} | RESTRICTED: {stats.restricted} | BLOCKED: {stats.blocked} | EXPIRED: {stats.expired}
           </p>
         </div>
         <button
-          onClick={fetchCustomers}
+          onClick={() => void fetchCustomers()}
           className="p-2 text-gray-500 hover:text-brand-primary transition-colors"
         >
           <RefreshCw size={20} className={loading ? 'animate-spin' : ''} />
@@ -398,76 +270,184 @@ const CustomerManagement = () => {
             <thead className="bg-admin-content-bg border-b border-admin-border">
               <tr>
                 <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider text-xs">No</th>
-                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider text-xs">Customer</th>
-                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider text-xs">Contact</th>
-                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider text-xs">Type</th>
-                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider text-xs">Stage</th>
-                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider text-xs">Cases</th>
-                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider text-xs">Actions</th>
+                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider text-xs">NAME</th>
+                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider text-xs">EMAIL</th>
+                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider text-xs">TYPE</th>
+                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider text-xs">Created At</th>
+                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider text-xs">COMPLAINCE STATUS</th>
+                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider text-xs">CDD</th>
+                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider text-xs">EDD</th>
+                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider text-xs">ACTION</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-admin-border">
               {loading ? (
                 <tr>
-                  <td colSpan={7} className="px-6 py-8 text-center text-gray-500">
+                  <td colSpan={9} className="px-6 py-8 text-center text-gray-500">
                     Loading customers...
                   </td>
                 </tr>
               ) : customers.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-6 py-8 text-center text-gray-500">
+                  <td colSpan={9} className="px-6 py-8 text-center text-gray-500">
                     No customers found
                   </td>
                 </tr>
               ) : (
-                customers.map((customer) => (
-                  <tr key={customer.id} className="hover:bg-gray-50 transition-colors">
-                    <td className="px-6 py-4 text-xs font-bold text-brand-primary font-mono">
-                      {customer.customerNo || '-'}
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="font-medium text-gray-900">
-                        <Link
-                          to={`/dashboard/customer/${customer.id}`}
-                          className="hover:text-brand-primary hover:underline"
+                customers.map((customer) => {
+                  const cddCase = cddCaseByCustomer[customer.id];
+                  const eddCase = eddCaseByCustomer[customer.id];
+                  const canFinalApprove = customer.finalApprovalStatus === 'PENDING';
+
+                  return (
+                    <tr key={customer.id} className="hover:bg-gray-50 transition-colors">
+                      <td className="px-6 py-4 text-xs font-bold text-brand-primary font-mono">
+                        {customer.customerNo || '-'}
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="font-medium text-gray-900">
+                          <Link
+                            to={`/dashboard/customer/${customer.id}`}
+                            className="hover:text-brand-primary hover:underline"
+                          >
+                            {getCustomerDisplayName(customer)}
+                          </Link>
+                        </div>
+                        <div className="text-xs text-gray-400 font-mono">{customer.id.slice(0, 8)}...</div>
+                      </td>
+                      <td className="px-6 py-4 text-gray-700">{customer.email || '-'}</td>
+                      <td className="px-6 py-4 text-gray-700">{customer.customerType || 'UNKNOWN'}</td>
+                      <td className="px-6 py-4 text-gray-700 whitespace-nowrap">
+                        {formatCreatedAt(customer.createdAt)}
+                      </td>
+                      <td className="px-6 py-4">
+                        <span
+                          className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getComplianceBadgeClass(
+                            customer.complianceStatus,
+                          )}`}
                         >
-                          {customer.firstName || customer.lastName
-                            ? `${customer.firstName || ''} ${customer.lastName || ''}`
-                            : 'Unnamed'}
-                        </Link>
-                      </div>
-                      <div className="text-xs text-gray-400 font-mono">{customer.id.slice(0, 8)}...</div>
-                    </td>
-                    <td className="px-6 py-4 text-gray-600">
-                      <div>{customer.email || '-'}</div>
-                      <div className="text-xs text-gray-400">{customer.phone || '-'}</div>
-                    </td>
-                    <td className="px-6 py-4 text-gray-700">{customer.customerType || 'UNKNOWN'}</td>
-                    <td className="px-6 py-4">
-                      <span
-                        className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                          customer.onboardingStage === 'ONBOARDING_APPROVED'
-                            ? 'bg-green-100 text-green-800'
-                            : customer.onboardingStage === 'ONBOARDING_REJECTED'
-                              ? 'bg-red-100 text-red-800'
-                              : 'bg-yellow-100 text-yellow-800'
-                        }`}
-                      >
-                        {customer.onboardingStage.replace(/_/g, ' ')}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 text-xs text-gray-500">
-                      <div>{cddCaseByCustomer[customer.id]?.caseNo || 'CDD N/A'}</div>
-                      <div>{eddCaseByCustomer[customer.id]?.caseNo || 'EDD N/A'}</div>
-                    </td>
-                    <td className="px-6 py-4">{renderActionButtons(customer)}</td>
-                  </tr>
-                ))
+                          {customer.complianceStatus}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 text-xs text-gray-700">
+                        {cddCase ? (
+                          <div className="space-y-1">
+                            <div className="font-mono text-[11px] text-gray-900">{cddCase.caseNo}</div>
+                            <span
+                              className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium ${getCaseBadgeClass(
+                                cddCase.status,
+                              )}`}
+                            >
+                              {cddCase.status}
+                            </span>
+                          </div>
+                        ) : (
+                          'N/A'
+                        )}
+                      </td>
+                      <td className="px-6 py-4 text-xs text-gray-700">
+                        {eddCase ? (
+                          <div className="space-y-1">
+                            <div className="font-mono text-[11px] text-gray-900">{eddCase.caseNo}</div>
+                            <span
+                              className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium ${getCaseBadgeClass(
+                                eddCase.status,
+                              )}`}
+                            >
+                              {eddCase.status}
+                            </span>
+                          </div>
+                        ) : (
+                          'N/A'
+                        )}
+                      </td>
+                      <td className="px-6 py-4 text-xs">
+                        <div className="flex flex-col items-start gap-2">
+                          <Link
+                            to={`/dashboard/customer/${customer.id}`}
+                            className="text-brand-primary hover:underline"
+                          >
+                            view
+                          </Link>
+                          {canFinalApprove && (
+                            <button
+                              type="button"
+                              onClick={() => openApproveModal(customer)}
+                              disabled={approving}
+                              className="text-brand-primary hover:underline disabled:text-gray-400 disabled:no-underline"
+                            >
+                              final approve
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
         </div>
       </div>
+
+      {approveTarget && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
+          <div className="w-full max-w-md rounded-xl bg-white shadow-xl border border-admin-border">
+            <div className="px-6 py-4 border-b border-admin-border">
+              <h2 className="text-lg font-semibold text-gray-900">Final Approval Confirmation</h2>
+              <p className="mt-1 text-sm text-gray-500">
+                Customer: {getCustomerDisplayName(approveTarget)} ({approveTarget.customerNo || '-'})
+              </p>
+            </div>
+            <div className="px-6 py-4 space-y-4">
+              <p className="text-sm text-gray-700">
+                Copy and paste the sentence below before submitting.
+              </p>
+              <div className="flex items-center gap-2">
+                <input
+                  value={REQUIRED_CONFIRM_TEXT}
+                  readOnly
+                  className="flex-1 rounded-lg border border-admin-border bg-gray-50 px-3 py-2 text-sm font-mono text-gray-700"
+                />
+                <button
+                  type="button"
+                  onClick={() => void copyConfirmText()}
+                  className="rounded-lg border border-admin-border px-3 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                >
+                  Copy text
+                </button>
+              </div>
+              <div className="space-y-1">
+                <label className="text-sm font-medium text-gray-700">Confirmation input</label>
+                <input
+                  value={approveInput}
+                  onChange={(e) => setApproveInput(e.target.value)}
+                  placeholder={`Paste here: ${REQUIRED_CONFIRM_TEXT}`}
+                  className="w-full rounded-lg border border-admin-border px-3 py-2 text-sm text-gray-900 focus:outline-none focus:border-brand-primary focus:ring-1 focus:ring-brand-primary/20"
+                />
+              </div>
+            </div>
+            <div className="px-6 py-4 border-t border-admin-border flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={closeApproveModal}
+                disabled={approving}
+                className="rounded-lg border border-admin-border px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void submitFinalApprove()}
+                disabled={approving || approveInput !== REQUIRED_CONFIRM_TEXT}
+                className="rounded-lg bg-brand-primary px-4 py-2 text-sm font-medium text-white hover:bg-brand-primary/90 disabled:opacity-60"
+              >
+                {approving ? 'Submitting...' : 'Submit final approve'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
