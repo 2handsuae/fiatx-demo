@@ -7,6 +7,7 @@ import {
 } from './dto/deposit-transaction.dto';
 import { BadRequestException } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
+import { TransactionComplianceService } from '../../risk-engine/transaction-compliance/transaction-compliance.service';
 
 describe('DepositTransactionsService', () => {
   let service: DepositTransactionsService;
@@ -44,6 +45,15 @@ describe('DepositTransactionsService', () => {
           provide: EventEmitter2,
           useValue: {
             emit: jest.fn(),
+          },
+        },
+        {
+          provide: TransactionComplianceService,
+          useValue: {
+            getCaseSummaries: jest.fn().mockResolvedValue({
+              kytCase: null,
+              travelRuleCase: null,
+            }),
           },
         },
       ],

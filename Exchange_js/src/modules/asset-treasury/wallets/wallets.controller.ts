@@ -7,7 +7,8 @@ import {
   Param,
   Query,
   UseGuards,
-  Delete,
+  ForbiddenException,
+  Request,
 } from '@nestjs/common';
 import { WalletsService } from './wallets.service';
 import {
@@ -34,9 +35,31 @@ import { Prisma } from '@prisma/client';
 export class WalletsController {
   constructor(private readonly service: WalletsService) {}
 
+  private ensureSupportedToken(req: any) {
+    if (req.user?.type !== 'ADMIN' && req.user?.type !== 'CUSTOMER') {
+      throw new ForbiddenException('Invalid token type');
+    }
+  }
+
+  private ensureAdmin(req: any) {
+    if (req.user?.type !== 'ADMIN') {
+      throw new ForbiddenException('Admin token required');
+    }
+  }
+
   @Post()
   @ApiOperation({ summary: 'Create a new wallet' })
-  create(@Body() dto: CreateWalletDto) {
+  create(@Request() req: any, @Body() dto: CreateWalletDto) {
+    this.ensureSupportedToken(req);
+
+    if (req.user.type === 'CUSTOMER') {
+      if (dto.ownerType !== OwnerType.CUSTOMER || dto.ownerId !== req.user.userId) {
+        throw new ForbiddenException(
+          'Customer can only create CUSTOMER wallets for self',
+        );
+      }
+    }
+
     return this.service.create(dto);
   }
 
@@ -51,6 +74,7 @@ export class WalletsController {
   @ApiQuery({ name: 'status', required: false, enum: WalletStatus })
   @ApiQuery({ name: 'direction', required: false, enum: WalletDirection })
   findAll(
+    @Request() req: any,
     @Query('skip') skip?: string,
     @Query('take') take?: string,
     @Query('ownerType') ownerType?: string,
@@ -60,10 +84,25 @@ export class WalletsController {
     @Query('status') status?: string,
     @Query('direction') direction?: string,
   ) {
+    this.ensureSupportedToken(req);
+
     const where: Prisma.WalletWhereInput = {};
 
-    if (ownerType) where.ownerType = ownerType;
-    if (ownerId) where.ownerId = ownerId;
+    if (req.user.type === 'CUSTOMER') {
+      if (ownerType && ownerType !== OwnerType.CUSTOMER) {
+        throw new ForbiddenException(
+          'Customer can only query CUSTOMER wallets',
+        );
+      }
+      if (ownerId && ownerId !== req.user.userId) {
+        throw new ForbiddenException('Customer can only query own wallets');
+      }
+      where.ownerType = OwnerType.CUSTOMER;
+      where.ownerId = req.user.userId;
+    } else {
+      if (ownerType) where.ownerType = ownerType;
+      if (ownerId) where.ownerId = ownerId;
+    }
     if (type) where.type = type;
     if (assetId) where.assetId = assetId;
     if (status) where.status = status;
@@ -79,13 +118,28 @@ export class WalletsController {
 
   @Get(':id')
   @ApiOperation({ summary: 'Get a wallet by ID' })
-  findOne(@Param('id') id: string) {
-    return this.service.findOne(id);
+  async findOne(@Request() req: any, @Param('id') id: string) {
+    this.ensureSupportedToken(req);
+
+    const wallet = await this.service.findOne(id);
+    if (
+      req.user.type === 'CUSTOMER' &&
+      (wallet.ownerType !== OwnerType.CUSTOMER || wallet.ownerId !== req.user.userId)
+    ) {
+      throw new ForbiddenException('Customer can only access own wallets');
+    }
+
+    return wallet;
   }
 
   @Patch(':id/status')
   @ApiOperation({ summary: 'Change wallet status' })
-  changeStatus(@Param('id') id: string, @Body() dto: UpdateWalletStatusDto) {
+  changeStatus(
+    @Request() req: any,
+    @Param('id') id: string,
+    @Body() dto: UpdateWalletStatusDto,
+  ) {
+    this.ensureAdmin(req);
     return this.service.changeStatus(id, dto.status);
   }
 }

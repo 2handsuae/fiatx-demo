@@ -4,9 +4,15 @@ import { WithdrawTransactionsController } from './withdraw-transactions.controll
 import { PrismaModule } from '../../../core/prisma/prisma.module';
 import { OnboardingModule } from '../../identity/onboarding/onboarding.module';
 import { JournalsModule } from '../../accounting/journals/journals.module';
+import { TransactionComplianceModule } from '../../risk-engine/transaction-compliance/transaction-compliance.module';
 
 @Module({
-  imports: [PrismaModule, OnboardingModule, JournalsModule],
+  imports: [
+    PrismaModule,
+    OnboardingModule,
+    JournalsModule,
+    TransactionComplianceModule,
+  ],
   controllers: [WithdrawTransactionsController],
   providers: [WithdrawTransactionsService],
   exports: [WithdrawTransactionsService],

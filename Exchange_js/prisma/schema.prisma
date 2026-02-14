@@ -66,7 +66,6 @@ model CustomerMain {
   updatedAt          DateTime  @updatedAt
 
   // Relations
-  wallets              Wallet[]
   depositTransactions  DepositTransaction[]
   swapTransactions     SwapTransaction[]
   withdrawTransactions WithdrawTransaction[]
@@ -251,6 +250,110 @@ model EddCaseReport {
   @@map("edd_case_reports")
 }
 
+model KytCase {
+  id                    String          @id @default(uuid())
+  caseNo                String          @unique @default("TEMP")
+  sourceType            String
+  sourceId              String
+  screeningStage        String
+  ownerType             String
+  ownerId               String?
+  assetId               String
+  provider              String          @default("MOCK")
+  providerCaseId        String?
+  status                String          @default("PENDING")
+  riskScore             Int?
+  checkedAt             DateTime?
+  latestRawPayload      String?
+  latestNormalizedPayload String?
+  createdAt             DateTime        @default(now())
+  updatedAt             DateTime        @updatedAt
+
+  reports               KytCaseReport[]
+
+  @@unique([sourceType, sourceId, screeningStage])
+  @@index([sourceType, sourceId])
+  @@index([status])
+  @@index([provider, providerCaseId])
+  @@map("kyt_cases")
+}
+
+model KytCaseReport {
+  id                    String   @id @default(uuid())
+  kytCaseId             String
+  sourceType            String
+  sourceId              String
+  screeningStage        String
+  provider              String   @default("MOCK")
+  providerCaseId        String?
+  rawPayload            String?
+  normalizedPayload     String?
+  receivedAt            DateTime @default(now())
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  kytCase               KytCase  @relation(fields: [kytCaseId], references: [id], onDelete: Cascade)
+
+  @@index([kytCaseId])
+  @@index([sourceType, sourceId, screeningStage])
+  @@index([provider, providerCaseId])
+  @@index([receivedAt])
+  @@map("kyt_case_reports")
+}
+
+model TravelRuleCase {
+  id                    String                @id @default(uuid())
+  caseNo                String                @unique @default("TEMP")
+  sourceType            String
+  sourceId              String
+  ownerType             String
+  ownerId               String?
+  assetId               String
+  provider              String                @default("MOCK")
+  providerTransferId    String?
+  required              Boolean               @default(false)
+  status                String                @default("PENDING")
+  counterpartyVasp      String?
+  checkedAt             DateTime?
+  latestRawPayload      String?
+  latestNormalizedPayload String?
+  createdAt             DateTime              @default(now())
+  updatedAt             DateTime              @updatedAt
+
+  reports               TravelRuleCaseReport[]
+
+  @@unique([sourceType, sourceId])
+  @@index([sourceType, sourceId])
+  @@index([status])
+  @@index([provider, providerTransferId])
+  @@map("travel_rule_cases")
+}
+
+model TravelRuleCaseReport {
+  id                    String          @id @default(uuid())
+  travelRuleCaseId      String
+  sourceType            String
+  sourceId              String
+  provider              String          @default("MOCK")
+  providerTransferId    String?
+  required              Boolean         @default(false)
+  status                String
+  counterpartyVasp      String?
+  rawPayload            String?
+  normalizedPayload     String?
+  receivedAt            DateTime        @default(now())
+  createdAt             DateTime        @default(now())
+  updatedAt             DateTime        @updatedAt
+
+  travelRuleCase        TravelRuleCase  @relation(fields: [travelRuleCaseId], references: [id], onDelete: Cascade)
+
+  @@index([travelRuleCaseId])
+  @@index([sourceType, sourceId])
+  @@index([provider, providerTransferId])
+  @@index([receivedAt])
+  @@map("travel_rule_case_reports")
+}
+
 model OnboardingAuditLog {
   id         String   @id @default(uuid())
   customerId String
@@ -409,7 +512,6 @@ model Wallet {
   payins              Payin[]              @relation("PayinToWallet")
   payinsFrom          Payin[]              @relation("PayinFromWallet")
   asset               Asset                @relation(fields: [assetId], references: [id])
-  customer            CustomerMain?        @relation(fields: [ownerId], references: [id])
 
   @@index([ownerType, ownerId])
   @@index([assetId])

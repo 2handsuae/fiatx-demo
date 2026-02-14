@@ -1,0 +1,173 @@
+import { ClearingTemplatesService } from './clearing-templates.service';
+import { CreateClearingTemplateDto, UpdateClearingTemplateDto, QueryClearingTemplateDto } from './dto/clearing.dto';
+export declare class ClearingTemplatesController {
+    private readonly clearingTemplatesService;
+    constructor(clearingTemplatesService: ClearingTemplatesService);
+    create(createClearingTemplateDto: CreateClearingTemplateDto): Promise<{
+        lineTemplates: {
+            id: string;
+            createdAt: Date;
+            lineNo: number;
+            amountSource: string;
+            assetSource: string;
+            lineType: string;
+            partyType: string;
+            partyIdSource: string | null;
+            refTypeConst: string | null;
+            refIdSource: string | null;
+            memoTemplate: string | null;
+            isEnabled: boolean;
+            clearingTemplateId: string;
+        }[];
+    } & {
+        id: string;
+        createdAt: Date;
+        updatedAt: Date;
+        description: string;
+        code: string;
+        sourceType: string;
+        memoTemplate: string | null;
+        isEnabled: boolean;
+        clearingType: string;
+        feeMethod: string;
+        outAssetSource: string;
+        outAmountSource: string;
+        inAssetSource: string;
+        inAmountSource: string;
+        feeAssetSource: string;
+        feeAmountSource: string;
+        outPayoutIdSource: string | null;
+        inPayinIdSource: string | null;
+    }>;
+    findAll(query: QueryClearingTemplateDto): Promise<{
+        items: ({
+            lineTemplates: {
+                id: string;
+                createdAt: Date;
+                lineNo: number;
+                amountSource: string;
+                assetSource: string;
+                lineType: string;
+                partyType: string;
+                partyIdSource: string | null;
+                refTypeConst: string | null;
+                refIdSource: string | null;
+                memoTemplate: string | null;
+                isEnabled: boolean;
+                clearingTemplateId: string;
+            }[];
+        } & {
+            id: string;
+            createdAt: Date;
+            updatedAt: Date;
+            description: string;
+            code: string;
+            sourceType: string;
+            memoTemplate: string | null;
+            isEnabled: boolean;
+            clearingType: string;
+            feeMethod: string;
+            outAssetSource: string;
+            outAmountSource: string;
+            inAssetSource: string;
+            inAmountSource: string;
+            feeAssetSource: string;
+            feeAmountSource: string;
+            outPayoutIdSource: string | null;
+            inPayinIdSource: string | null;
+        })[];
+        total: number;
+    }>;
+    findOne(id: string): Promise<{
+        lineTemplates: {
+            id: string;
+            createdAt: Date;
+            lineNo: number;
+            amountSource: string;
+            assetSource: string;
+            lineType: string;
+            partyType: string;
+            partyIdSource: string | null;
+            refTypeConst: string | null;
+            refIdSource: string | null;
+            memoTemplate: string | null;
+            isEnabled: boolean;
+            clearingTemplateId: string;
+        }[];
+    } & {
+        id: string;
+        createdAt: Date;
+        updatedAt: Date;
+        description: string;
+        code: string;
+        sourceType: string;
+        memoTemplate: string | null;
+        isEnabled: boolean;
+        clearingType: string;
+        feeMethod: string;
+        outAssetSource: string;
+        outAmountSource: string;
+        inAssetSource: string;
+        inAmountSource: string;
+        feeAssetSource: string;
+        feeAmountSource: string;
+        outPayoutIdSource: string | null;
+        inPayinIdSource: string | null;
+    }>;
+    update(id: string, updateClearingTemplateDto: UpdateClearingTemplateDto): Promise<{
+        lineTemplates: {
+            id: string;
+            createdAt: Date;
+            lineNo: number;
+            amountSource: string;
+            assetSource: string;
+            lineType: string;
+            partyType: string;
+            partyIdSource: string | null;
+            refTypeConst: string | null;
+            refIdSource: string | null;
+            memoTemplate: string | null;
+            isEnabled: boolean;
+            clearingTemplateId: string;
+        }[];
+    } & {
+        id: string;
+        createdAt: Date;
+        updatedAt: Date;
+        description: string;
+        code: string;
+        sourceType: string;
+        memoTemplate: string | null;
+        isEnabled: boolean;
+        clearingType: string;
+        feeMethod: string;
+        outAssetSource: string;
+        outAmountSource: string;
+        inAssetSource: string;
+        inAmountSource: string;
+        feeAssetSource: string;
+        feeAmountSource: string;
+        outPayoutIdSource: string | null;
+        inPayinIdSource: string | null;
+    }>;
+    remove(id: string): Promise<{
+        id: string;
+        createdAt: Date;
+        updatedAt: Date;
+        description: string;
+        code: string;
+        sourceType: string;
+        memoTemplate: string | null;
+        isEnabled: boolean;
+        clearingType: string;
+        feeMethod: string;
+        outAssetSource: string;
+        outAmountSource: string;
+        inAssetSource: string;
+        inAmountSource: string;
+        feeAssetSource: string;
+        feeAmountSource: string;
+        outPayoutIdSource: string | null;
+        inPayinIdSource: string | null;
+    }>;
+}

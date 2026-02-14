@@ -10,6 +10,7 @@ import { WithdrawTransactionsModule } from '../modules/trading/withdraw-transact
 import { PayoutsModule } from '../modules/asset-treasury/payouts/payouts.module';
 import { ClearingModule } from '../modules/clearing-settle/clearing/clearing.module';
 import { PrismaModule } from '../core/prisma/prisma.module';
+import { TransactionComplianceModule } from '../modules/risk-engine/transaction-compliance/transaction-compliance.module';
 
 @Module({
   imports: [
@@ -21,6 +22,7 @@ import { PrismaModule } from '../core/prisma/prisma.module';
     PayoutsModule,
     ClearingModule,
     PrismaModule,
+    TransactionComplianceModule,
   ],
   providers: [
     DepositWorkflowService,

@@ -1,0 +1,136 @@
+import { PrismaService } from '../../../core/prisma/prisma.service';
+import { CreateWalletDto, WalletStatus } from './dto/wallet.dto';
+import { Prisma } from '@prisma/client';
+export declare class WalletsService {
+    private prisma;
+    private readonly logger;
+    constructor(prisma: PrismaService);
+    private resolveCustomerOwnerName;
+    private isUniqueConstraintError;
+    create(data: CreateWalletDto): Promise<{
+        asset: {
+            type: string;
+            code: string;
+        };
+    } & {
+        id: string;
+        status: string;
+        createdAt: Date;
+        updatedAt: Date;
+        type: string;
+        ownerType: string;
+        counterpartyVasp: string | null;
+        assetId: string;
+        ownerId: string | null;
+        ownerNo: string | null;
+        direction: string;
+        address: string | null;
+        memo: string | null;
+        beneficiaryName: string | null;
+        bankName: string | null;
+        bankAccount: string | null;
+        bankCode: string | null;
+        accountName: string | null;
+        iban: string | null;
+        walletNo: string | null;
+        balance: Prisma.Decimal;
+        lockedBalance: Prisma.Decimal;
+    }>;
+    findAll(params: {
+        skip?: number;
+        take?: number;
+        where?: Prisma.WalletWhereInput;
+        orderBy?: Prisma.WalletOrderByWithRelationInput;
+    }): Promise<{
+        items: {
+            ownerNo: string | null;
+            ownerName: string | null;
+            asset: {
+                type: string;
+                code: string;
+            };
+            id: string;
+            status: string;
+            createdAt: Date;
+            updatedAt: Date;
+            type: string;
+            ownerType: string;
+            counterpartyVasp: string | null;
+            assetId: string;
+            ownerId: string | null;
+            direction: string;
+            address: string | null;
+            memo: string | null;
+            beneficiaryName: string | null;
+            bankName: string | null;
+            bankAccount: string | null;
+            bankCode: string | null;
+            accountName: string | null;
+            iban: string | null;
+            walletNo: string | null;
+            balance: Prisma.Decimal;
+            lockedBalance: Prisma.Decimal;
+        }[];
+        total: number;
+    }>;
+    findOne(id: string): Promise<{
+        ownerNo: string | null;
+        asset: {
+            id: string;
+            status: string;
+            createdAt: Date;
+            updatedAt: Date;
+            description: string | null;
+            type: string;
+            code: string;
+            network: string | null;
+            decimals: number;
+            assetNo: string | null;
+        };
+        id: string;
+        status: string;
+        createdAt: Date;
+        updatedAt: Date;
+        type: string;
+        ownerType: string;
+        counterpartyVasp: string | null;
+        assetId: string;
+        ownerId: string | null;
+        direction: string;
+        address: string | null;
+        memo: string | null;
+        beneficiaryName: string | null;
+        bankName: string | null;
+        bankAccount: string | null;
+        bankCode: string | null;
+        accountName: string | null;
+        iban: string | null;
+        walletNo: string | null;
+        balance: Prisma.Decimal;
+        lockedBalance: Prisma.Decimal;
+    }>;
+    changeStatus(id: string, status: WalletStatus): Promise<{
+        id: string;
+        status: string;
+        createdAt: Date;
+        updatedAt: Date;
+        type: string;
+        ownerType: string;
+        counterpartyVasp: string | null;
+        assetId: string;
+        ownerId: string | null;
+        ownerNo: string | null;
+        direction: string;
+        address: string | null;
+        memo: string | null;
+        beneficiaryName: string | null;
+        bankName: string | null;
+        bankAccount: string | null;
+        bankCode: string | null;
+        accountName: string | null;
+        iban: string | null;
+        walletNo: string | null;
+        balance: Prisma.Decimal;
+        lockedBalance: Prisma.Decimal;
+    }>;
+}

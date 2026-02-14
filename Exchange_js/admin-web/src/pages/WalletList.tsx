@@ -1,14 +1,16 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, RefreshCw, Plus, CheckCircle, XCircle, Wallet } from 'lucide-react';
+import { Search, RefreshCw, Plus } from 'lucide-react';
 
 interface WalletItem {
   id: string;
-  walletNo: string;
+  walletNo: string | null;
   ownerType: string;
   ownerId: string | null;
   ownerNo: string | null;
+  ownerName?: string | null;
   type: string;
+  direction: string;
   asset: { code: string; type: string };
   balance: string;
   status: string;
@@ -25,6 +27,30 @@ const WalletList = () => {
   const [typeFilter, setTypeFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [ownerIdSearch, setOwnerIdSearch] = useState('');
+
+  const formatDateTime = (value: string) => {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '-';
+
+    const pad = (num: number) => String(num).padStart(2, '0');
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(
+      date.getDate(),
+    )} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(
+      date.getSeconds(),
+    )}`;
+  };
+
+  const formatBalance = (value: string) => {
+    const numberValue = Number(value);
+    if (!Number.isFinite(numberValue)) return value;
+    return numberValue.toLocaleString();
+  };
+
+  const getStatusActionLabel = (status: string) => {
+    if (status === 'ACTIVE') return '停用';
+    if (status === 'DISABLED') return '启用';
+    return null;
+  };
 
   const fetchWallets = async () => {
     setLoading(true);
@@ -62,6 +88,8 @@ const WalletList = () => {
   }, [ownerTypeFilter, typeFilter, statusFilter]); // Trigger on select change, manual trigger for search input
 
   const handleStatusChange = async (id: string, currentStatus: string) => {
+    if (currentStatus === 'FROZEN') return;
+
     const newStatus = currentStatus === 'ACTIVE' ? 'DISABLED' : 'ACTIVE';
     if (!window.confirm(`Are you sure you want to ${newStatus === 'DISABLED' ? 'disable' : 'enable'} this wallet?`)) return;
 
@@ -174,18 +202,23 @@ const WalletList = () => {
           <table className="w-full text-left text-sm">
             <thead className="bg-admin-content-bg border-b border-admin-border">
               <tr>
-                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">ID / Created</th>
-                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Owner</th>
-                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Type / Asset</th>
-                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Balance</th>
+                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">No</th>
+                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">OwnerType</th>
+                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">OwnerNo</th>
+                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">OwnerName</th>
+                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Type</th>
+                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">AssetCode</th>
+                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Direction</th>
                 <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider text-right">Actions</th>
+                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Balance</th>
+                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Created</th>
+                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-admin-border">
               {loading && wallets.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-6 py-12 text-center text-gray-500">
+                  <td colSpan={11} className="px-6 py-12 text-center text-gray-500">
                     <div className="flex flex-col items-center justify-center">
                       <RefreshCw className="animate-spin mb-2 text-brand-primary" size={24} />
                       Loading wallets...
@@ -194,58 +227,58 @@ const WalletList = () => {
                 </tr>
               ) : wallets.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-6 py-12 text-center text-gray-500">
+                  <td colSpan={11} className="px-6 py-12 text-center text-gray-500">
                     No wallets found
                   </td>
                 </tr>
               ) : (
-                wallets.map((wallet) => (
-                  <tr key={wallet.id} className="hover:bg-gray-50 transition-colors group">
+                wallets.map((wallet) => {
+                  const statusActionLabel = getStatusActionLabel(wallet.status);
+                  return (
+                  <tr key={wallet.id} className="hover:bg-gray-50 transition-colors">
                     <td className="px-6 py-4">
-                      <div className="font-mono text-xs text-brand-primary font-bold">{wallet.walletNo || '-'}</div>
-                      <div className="text-[10px] text-gray-400 font-mono">ID: {wallet.id.substring(0, 8)}...</div>
-                      <div className="text-[10px] text-gray-500 mt-1">{new Date(wallet.createdAt).toLocaleDateString()}</div>
+                      <span className="font-mono text-xs text-brand-primary font-bold">
+                        {wallet.walletNo || '-'}
+                      </span>
                     </td>
                     <td className="px-6 py-4">
-                      <div className="text-[10px] font-medium bg-gray-100 inline-block px-2 py-0.5 rounded text-gray-700 mb-1">
-                        {wallet.ownerType}
-                      </div>
-                      <div className="text-xs text-brand-primary font-mono font-bold">No: {wallet.ownerNo || '-'}</div>
-                      {wallet.ownerId && <div className="text-[10px] text-gray-400 font-mono truncate max-w-[150px]" title={wallet.ownerId}>ID: {wallet.ownerId.substring(0, 8)}...</div>}
+                      {wallet.ownerType || '-'}
                     </td>
-                    <td className="px-6 py-4">
-                      <div className="font-medium text-gray-900">{wallet.type}</div>
-                      <div className="text-xs text-gray-500 flex items-center gap-1">
-                        <span className="font-mono">{wallet.asset.code}</span>
-                        <span className="bg-gray-50 px-1 rounded border border-gray-100">{wallet.asset.type}</span>
-                      </div>
-                    </td>
+                    <td className="px-6 py-4">{wallet.ownerNo || '-'}</td>
+                    <td className="px-6 py-4">{wallet.ownerName || '-'}</td>
+                    <td className="px-6 py-4">{wallet.type || '-'}</td>
+                    <td className="px-6 py-4">{wallet.asset?.code || '-'}</td>
+                    <td className="px-6 py-4">{wallet.direction || '-'}</td>
+                    <td className="px-6 py-4">{renderStatusBadge(wallet.status)}</td>
                     <td className="px-6 py-4 font-mono text-gray-900">
-                      {Number(wallet.balance).toLocaleString()} <span className="text-xs text-gray-500">{wallet.asset.code}</span>
+                      {formatBalance(wallet.balance)}{' '}
+                      <span className="text-xs text-gray-500">{wallet.asset?.code || '-'}</span>
                     </td>
-                    <td className="px-6 py-4">
-                      {renderStatusBadge(wallet.status)}
-                    </td>
-                    <td className="px-6 py-4 text-right">
-                      <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button 
-                          onClick={() => handleStatusChange(wallet.id, wallet.status)}
-                          className={`p-1.5 rounded hover:bg-gray-100 transition-colors ${wallet.status === 'ACTIVE' ? 'text-red-500' : 'text-green-500'}`}
-                          title={wallet.status === 'ACTIVE' ? 'Disable' : 'Enable'}
-                        >
-                          {wallet.status === 'ACTIVE' ? <XCircle size={18} /> : <CheckCircle size={18} />}
-                        </button>
-                        <button 
+                    <td className="px-6 py-4">{formatDateTime(wallet.createdAt)}</td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="flex items-center gap-2 text-sm">
+                        {statusActionLabel ? (
+                          <>
+                            <button
+                              onClick={() => handleStatusChange(wallet.id, wallet.status)}
+                              className="text-brand-primary hover:underline"
+                            >
+                              {statusActionLabel}
+                            </button>
+                            <span className="text-gray-300">|</span>
+                          </>
+                        ) : null}
+                        <button
                           onClick={() => navigate(`/dashboard/treasury/wallets/${wallet.id}`)}
-                          className="p-1.5 text-blue-600 rounded hover:bg-blue-50 transition-colors" 
-                          title="View Details"
+                          className="text-brand-primary hover:underline"
                         >
-                            <Wallet size={18} />
+                          查看
                         </button>
                       </div>
                     </td>
                   </tr>
-                ))
+                  );
+                })
               )}
             </tbody>
           </table>

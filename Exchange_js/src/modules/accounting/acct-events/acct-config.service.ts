@@ -1,13 +1,157 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { DEFAULT_ACCT_EVENTS } from '../../../config/manifests/events.manifest';
 import { DEFAULT_JOURNAL_TEMPLATES } from '../../../config/manifests/journal-templates.manifest';
 
+const DEPOSIT_REJECTED_EVENT_CODES = [
+  'EVT_DEPOSIT_REJECTED__CRYPTO',
+  'EVT_DEPOSIT_REJECTED__FIAT',
+] as const;
+
+const DEPOSIT_EVENT_EXPECTED_TO_STATUS: Record<string, string> = {
+  EVT_DEPOSIT_CONFIRMED__CRYPTO: 'COMPLIANCE_PENDING',
+  EVT_DEPOSIT_CONFIRMED__FIAT: 'COMPLIANCE_PENDING',
+  EVT_DEPOSIT_SUCCESS__CRYPTO: 'SUCCESS',
+  EVT_DEPOSIT_SUCCESS__FIAT: 'SUCCESS',
+};
+
+type DepositEventContractValidation = {
+  ok: boolean;
+  issues: string[];
+};
+
 @Injectable()
-export class AcctConfigService {
+export class AcctConfigService implements OnModuleInit {
   private readonly logger = new Logger(AcctConfigService.name);
 
   constructor(private readonly prisma: PrismaService) {}
+
+  async onModuleInit() {
+    const env = (process.env.NODE_ENV || 'development').toLowerCase();
+
+    if (env === 'production') {
+      const validation = await this.validateDepositEventContract();
+      if (!validation.ok) {
+        this.logger.warn(
+          `Deposit accounting event contract mismatch detected (production check-only): ${validation.issues.join(' | ')}`,
+        );
+      } else {
+        this.logger.log(
+          'Deposit accounting event contract check passed (production mode).',
+        );
+      }
+      return;
+    }
+
+    try {
+      await this.syncDefaults();
+      const validation = await this.validateDepositEventContract();
+      if (!validation.ok) {
+        this.logger.warn(
+          `Deposit accounting event contract mismatch detected after sync: ${validation.issues.join(' | ')}`,
+        );
+      }
+    } catch (error: any) {
+      this.logger.error(
+        `Failed to auto-sync accounting defaults on startup: ${error?.message || String(error)}`,
+      );
+    }
+  }
+
+  private async cleanupRejectedDepositEvents() {
+    try {
+      await (this.prisma as any).journalHeaderTemplate.deleteMany({
+        where: { eventCode: { in: [...DEPOSIT_REJECTED_EVENT_CODES] } },
+      });
+    } catch (error: any) {
+      this.logger.warn(
+        `Failed to delete rejected deposit templates, fallback to inactivate: ${error?.message || String(error)}`,
+      );
+      await (this.prisma as any).journalHeaderTemplate.updateMany({
+        where: { eventCode: { in: [...DEPOSIT_REJECTED_EVENT_CODES] } },
+        data: { status: 'INACTIVE' },
+      });
+    }
+
+    try {
+      await (this.prisma as any).acctEvent.deleteMany({
+        where: { eventCode: { in: [...DEPOSIT_REJECTED_EVENT_CODES] } },
+      });
+    } catch (error: any) {
+      this.logger.warn(
+        `Failed to delete rejected deposit events, fallback to deactivate: ${error?.message || String(error)}`,
+      );
+      await (this.prisma as any).acctEvent.updateMany({
+        where: { eventCode: { in: [...DEPOSIT_REJECTED_EVENT_CODES] } },
+        data: { isActive: false },
+      });
+    }
+  }
+
+  private async validateDepositEventContract(): Promise<DepositEventContractValidation> {
+    const issues: string[] = [];
+    const expectedEventCodes = Object.keys(DEPOSIT_EVENT_EXPECTED_TO_STATUS);
+
+    const rows: Array<{
+      eventCode: string;
+      triggerType: string | null;
+      triggerKey: string | null;
+      fromStatus: string | null;
+      toStatus: string | null;
+      isActive: boolean;
+    }> = await (this.prisma as any).acctEvent.findMany({
+      where: {
+        eventCode: {
+          in: [...expectedEventCodes, ...DEPOSIT_REJECTED_EVENT_CODES],
+        },
+      },
+      select: {
+        eventCode: true,
+        triggerType: true,
+        triggerKey: true,
+        fromStatus: true,
+        toStatus: true,
+        isActive: true,
+      },
+    });
+
+    const byCode = new Map<string, (typeof rows)[number]>(
+      rows.map((row) => [row.eventCode, row]),
+    );
+
+    for (const eventCode of expectedEventCodes) {
+      const row = byCode.get(eventCode);
+      if (!row) {
+        issues.push(`${eventCode} missing`);
+        continue;
+      }
+      if (!row.isActive) {
+        issues.push(`${eventCode} inactive`);
+      }
+      if (row.triggerType !== 'STATUS_TRANSITION') {
+        issues.push(`${eventCode} triggerType=${row.triggerType}`);
+      }
+      if (row.triggerKey !== 'status') {
+        issues.push(`${eventCode} triggerKey=${row.triggerKey}`);
+      }
+      if (row.fromStatus !== null) {
+        issues.push(`${eventCode} fromStatus expected NULL but got ${row.fromStatus}`);
+      }
+      if (row.toStatus !== DEPOSIT_EVENT_EXPECTED_TO_STATUS[eventCode]) {
+        issues.push(
+          `${eventCode} toStatus expected ${DEPOSIT_EVENT_EXPECTED_TO_STATUS[eventCode]} but got ${row.toStatus}`,
+        );
+      }
+    }
+
+    for (const rejectedEventCode of DEPOSIT_REJECTED_EVENT_CODES) {
+      if (byCode.has(rejectedEventCode)) {
+        issues.push(`${rejectedEventCode} should be removed`);
+      }
+    }
+
+    return { ok: issues.length === 0, issues };
+  }
 
   async syncDefaults() {
     this.logger.log('Starting synchronization of default accounting configuration...');
@@ -20,6 +164,10 @@ export class AcctConfigService {
         create: event,
       });
     }
+
+    // 1.1 Cleanup deprecated deposit rejected events/templates
+    await this.cleanupRejectedDepositEvents();
+
     this.logger.log(`Synced ${DEFAULT_ACCT_EVENTS.length} accounting events.`);
 
     // 2. Sync Journal Templates
