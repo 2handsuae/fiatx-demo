@@ -19,14 +19,17 @@ const event_emitter_1 = require("@nestjs/event-emitter");
 const withdraw_events_constant_1 = require("./constants/withdraw-events.constant");
 const no_generator_util_1 = require("../../../common/utils/no-generator.util");
 const journals_service_1 = require("../../accounting/journals/journals.service");
+const transaction_compliance_service_1 = require("../../risk-engine/transaction-compliance/transaction-compliance.service");
+const tx_compliance_types_1 = require("../../risk-engine/transaction-compliance/types/tx-compliance.types");
 let WithdrawTransactionsService = WithdrawTransactionsService_1 = class WithdrawTransactionsService {
     generateWithdrawNo() {
         return (0, no_generator_util_1.generateReferenceNo)('WD');
     }
-    constructor(prisma, eventEmitter, journalsService) {
+    constructor(prisma, eventEmitter, journalsService, transactionComplianceService) {
         this.prisma = prisma;
         this.eventEmitter = eventEmitter;
         this.journalsService = journalsService;
+        this.transactionComplianceService = transactionComplianceService;
         this.logger = new common_1.Logger(WithdrawTransactionsService_1.name);
         this.transitions = {
             [withdraw_transaction_dto_1.WithdrawTransactionStatus.CREATED]: {
@@ -158,7 +161,12 @@ let WithdrawTransactionsService = WithdrawTransactionsService_1 = class Withdraw
         });
         if (!item)
             throw new common_1.NotFoundException('Withdraw transaction not found');
-        return item;
+        const { kytCase, travelRuleCase } = await this.transactionComplianceService.getCaseSummaries(tx_compliance_types_1.TxSourceType.WITHDRAW, id, tx_compliance_types_1.KytScreeningStage.MAIN);
+        return {
+            ...item,
+            kytCase,
+            travelRuleCase,
+        };
     }
     async create(dto, userId, ownerType = 'CUSTOMER') {
         const { assetId, amount, toWalletId, toAddress, toIban, parentType, parentId } = dto;
@@ -266,6 +274,18 @@ let WithdrawTransactionsService = WithdrawTransactionsService_1 = class Withdraw
                     statusHistory: JSON.stringify(history),
                 },
             });
+            let eventSource = updated;
+            if (currentStatus === withdraw_transaction_dto_1.WithdrawTransactionStatus.CREATED &&
+                nextStatus === withdraw_transaction_dto_1.WithdrawTransactionStatus.PENDING_COMPLIANCE) {
+                await this.transactionComplianceService.ensureWithdrawComplianceCases(id, client);
+                const refreshed = await client.withdrawTransaction.findUnique({
+                    where: { id },
+                });
+                if (!refreshed) {
+                    throw new common_1.NotFoundException('Withdraw transaction not found');
+                }
+                eventSource = refreshed;
+            }
             await client.withdrawAuditLog.create({
                 data: {
                     withdrawTransactionId: id,
@@ -287,10 +307,10 @@ let WithdrawTransactionsService = WithdrawTransactionsService_1 = class Withdraw
             }
             else if (nextStatus === withdraw_transaction_dto_1.WithdrawTransactionStatus.APPROVED || nextStatus === withdraw_transaction_dto_1.WithdrawTransactionStatus.PAYOUT_PENDING) {
                 if (currentStatus !== withdraw_transaction_dto_1.WithdrawTransactionStatus.APPROVED && currentStatus !== withdraw_transaction_dto_1.WithdrawTransactionStatus.PAYOUT_PENDING) {
-                    if (updated.type === 'crypto') {
+                    if (eventSource.type === 'crypto') {
                         this.eventEmitter.emit(withdraw_events_constant_1.WithdrawEvents.EVT_WITHDRAWAL_APPROVED__CRYPTO, { withdrawId: id });
                     }
-                    else if (updated.type === 'fiat') {
+                    else if (eventSource.type === 'fiat') {
                         this.eventEmitter.emit(withdraw_events_constant_1.WithdrawEvents.EVT_WITHDRAWAL_APPROVED__FIAT, {
                             withdrawId: id,
                         });
@@ -298,17 +318,17 @@ let WithdrawTransactionsService = WithdrawTransactionsService_1 = class Withdraw
                 }
             }
             else if (nextStatus === withdraw_transaction_dto_1.WithdrawTransactionStatus.SUCCESS) {
-                const successEvent = updated.type === 'crypto' ? withdraw_events_constant_1.WithdrawEvents.EVT_WITHDRAWAL_SUCCESS__CRYPTO : withdraw_events_constant_1.WithdrawEvents.EVT_WITHDRAWAL_SUCCESS__FIAT;
+                const successEvent = eventSource.type === 'crypto' ? withdraw_events_constant_1.WithdrawEvents.EVT_WITHDRAWAL_SUCCESS__CRYPTO : withdraw_events_constant_1.WithdrawEvents.EVT_WITHDRAWAL_SUCCESS__FIAT;
                 this.eventEmitter.emit(successEvent, { withdrawId: id });
             }
             else if (nextStatus === withdraw_transaction_dto_1.WithdrawTransactionStatus.FAILED) {
-                const failedEvent = updated.type === 'crypto' ? withdraw_events_constant_1.WithdrawEvents.EVT_WITHDRAWAL_FAILED__CRYPTO : withdraw_events_constant_1.WithdrawEvents.EVT_WITHDRAWAL_FAILED__FIAT;
+                const failedEvent = eventSource.type === 'crypto' ? withdraw_events_constant_1.WithdrawEvents.EVT_WITHDRAWAL_FAILED__CRYPTO : withdraw_events_constant_1.WithdrawEvents.EVT_WITHDRAWAL_FAILED__FIAT;
                 this.eventEmitter.emit(failedEvent, { withdrawId: id });
             }
             else if (nextStatus === withdraw_transaction_dto_1.WithdrawTransactionStatus.RETURNED) {
                 this.eventEmitter.emit(withdraw_events_constant_1.WithdrawEvents.EVT_WITHDRAWAL_RETURNED__FIAT, { withdrawId: id });
             }
-            return updated;
+            return eventSource;
         };
         if (tx) {
             return executeUpdate(tx);
@@ -368,6 +388,7 @@ exports.WithdrawTransactionsService = WithdrawTransactionsService = WithdrawTran
     (0, common_1.Injectable)(),
     __metadata("design:paramtypes", [prisma_service_1.PrismaService,
         event_emitter_1.EventEmitter2,
-        journals_service_1.JournalsService])
+        journals_service_1.JournalsService,
+        transaction_compliance_service_1.TransactionComplianceService])
 ], WithdrawTransactionsService);
 //# sourceMappingURL=withdraw-transactions.service.js.map

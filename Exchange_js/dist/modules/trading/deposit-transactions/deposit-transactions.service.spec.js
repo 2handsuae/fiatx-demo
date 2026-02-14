@@ -6,6 +6,7 @@ const prisma_service_1 = require("../../../core/prisma/prisma.service");
 const deposit_transaction_dto_1 = require("./dto/deposit-transaction.dto");
 const common_1 = require("@nestjs/common");
 const event_emitter_1 = require("@nestjs/event-emitter");
+const transaction_compliance_service_1 = require("../../risk-engine/transaction-compliance/transaction-compliance.service");
 describe('DepositTransactionsService', () => {
     let service;
     let prisma;
@@ -41,6 +42,15 @@ describe('DepositTransactionsService', () => {
                     provide: event_emitter_1.EventEmitter2,
                     useValue: {
                         emit: jest.fn(),
+                    },
+                },
+                {
+                    provide: transaction_compliance_service_1.TransactionComplianceService,
+                    useValue: {
+                        getCaseSummaries: jest.fn().mockResolvedValue({
+                            kytCase: null,
+                            travelRuleCase: null,
+                        }),
                     },
                 },
             ],

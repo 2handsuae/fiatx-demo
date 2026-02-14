@@ -19,6 +19,7 @@ const withdraw_transactions_module_1 = require("../modules/trading/withdraw-tran
 const payouts_module_1 = require("../modules/asset-treasury/payouts/payouts.module");
 const clearing_module_1 = require("../modules/clearing-settle/clearing/clearing.module");
 const prisma_module_1 = require("../core/prisma/prisma.module");
+const transaction_compliance_module_1 = require("../modules/risk-engine/transaction-compliance/transaction-compliance.module");
 let WorkflowsModule = class WorkflowsModule {
 };
 exports.WorkflowsModule = WorkflowsModule;
@@ -33,6 +34,7 @@ exports.WorkflowsModule = WorkflowsModule = __decorate([
             payouts_module_1.PayoutsModule,
             clearing_module_1.ClearingModule,
             prisma_module_1.PrismaModule,
+            transaction_compliance_module_1.TransactionComplianceModule,
         ],
         providers: [
             deposit_workflow_service_1.DepositWorkflowService,

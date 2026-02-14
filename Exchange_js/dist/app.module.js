@@ -36,6 +36,7 @@ const payouts_module_1 = require("./modules/asset-treasury/payouts/payouts.modul
 const clearing_module_1 = require("./modules/clearing-settle/clearing/clearing.module");
 const risk_engine_module_1 = require("./modules/risk-engine/risk-engine.module");
 const onboarding_module_1 = require("./modules/identity/onboarding/onboarding.module");
+const transaction_compliance_module_1 = require("./modules/risk-engine/transaction-compliance/transaction-compliance.module");
 let AppModule = class AppModule {
 };
 exports.AppModule = AppModule;
@@ -84,6 +85,7 @@ exports.AppModule = AppModule = __decorate([
             payouts_module_1.PayoutsModule,
             clearing_module_1.ClearingModule,
             risk_engine_module_1.RiskEngineModule,
+            transaction_compliance_module_1.TransactionComplianceModule,
             onboarding_module_1.OnboardingModule,
         ],
         controllers: [],

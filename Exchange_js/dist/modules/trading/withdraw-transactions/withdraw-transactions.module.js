@@ -13,12 +13,18 @@ const withdraw_transactions_controller_1 = require("./withdraw-transactions.cont
 const prisma_module_1 = require("../../../core/prisma/prisma.module");
 const onboarding_module_1 = require("../../identity/onboarding/onboarding.module");
 const journals_module_1 = require("../../accounting/journals/journals.module");
+const transaction_compliance_module_1 = require("../../risk-engine/transaction-compliance/transaction-compliance.module");
 let WithdrawTransactionsModule = class WithdrawTransactionsModule {
 };
 exports.WithdrawTransactionsModule = WithdrawTransactionsModule;
 exports.WithdrawTransactionsModule = WithdrawTransactionsModule = __decorate([
     (0, common_1.Module)({
-        imports: [prisma_module_1.PrismaModule, onboarding_module_1.OnboardingModule, journals_module_1.JournalsModule],
+        imports: [
+            prisma_module_1.PrismaModule,
+            onboarding_module_1.OnboardingModule,
+            journals_module_1.JournalsModule,
+            transaction_compliance_module_1.TransactionComplianceModule,
+        ],
         controllers: [withdraw_transactions_controller_1.WithdrawTransactionsController],
         providers: [withdraw_transactions_service_1.WithdrawTransactionsService],
         exports: [withdraw_transactions_service_1.WithdrawTransactionsService],

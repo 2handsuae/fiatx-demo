@@ -15,6 +15,11 @@ import { Prisma } from '@prisma/client';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { DepositStatusChangedEvent } from './events/deposit-transaction.events';
+import { TransactionComplianceService } from '../../risk-engine/transaction-compliance/transaction-compliance.service';
+import {
+  KytScreeningStage,
+  TxSourceType,
+} from '../../risk-engine/transaction-compliance/types/tx-compliance.types';
 
 @Injectable()
 export class DepositTransactionsService {
@@ -23,6 +28,7 @@ export class DepositTransactionsService {
   constructor(
     private prisma: PrismaService,
     private eventEmitter: EventEmitter2,
+    private transactionComplianceService: TransactionComplianceService,
   ) {}
 
   private assertComplianceBeforeSuccess(item: any, nextStatus: DepositTransactionStatus) {
@@ -121,12 +127,21 @@ export class DepositTransactionsService {
         ownerNo = deposit.customer.customerNo;
     }
 
+    const { kytCase, travelRuleCase } =
+      await this.transactionComplianceService.getCaseSummaries(
+        TxSourceType.DEPOSIT,
+        id,
+        KytScreeningStage.MAIN,
+      );
+
     return {
         ...item,
         ownerNo,
         payinNo: deposit.payin?.payinNo,
         toWalletNo: deposit.wallet?.walletNo,
         fromWalletNo: deposit.fromWallet?.walletNo,
+        kytCase,
+        travelRuleCase,
     };
   }
 

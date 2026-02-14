@@ -3,14 +3,16 @@ import { WithdrawTransactionQueryDto, UpdateWithdrawTransactionStatusDto, Create
 import { Prisma } from '@prisma/client';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { JournalsService } from '../../accounting/journals/journals.service';
+import { TransactionComplianceService } from '../../risk-engine/transaction-compliance/transaction-compliance.service';
 export declare class WithdrawTransactionsService {
     private prisma;
     private eventEmitter;
     private journalsService;
+    private transactionComplianceService;
     private readonly logger;
     private generateWithdrawNo;
     private readonly transitions;
-    constructor(prisma: PrismaService, eventEmitter: EventEmitter2, journalsService: JournalsService);
+    constructor(prisma: PrismaService, eventEmitter: EventEmitter2, journalsService: JournalsService, transactionComplianceService: TransactionComplianceService);
     private createAccountingContext;
     private assertComplianceGate;
     findAll(query: WithdrawTransactionQueryDto): Promise<{

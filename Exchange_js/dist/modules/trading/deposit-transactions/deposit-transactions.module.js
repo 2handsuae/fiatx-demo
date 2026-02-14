@@ -10,11 +10,13 @@ exports.DepositTransactionsModule = void 0;
 const common_1 = require("@nestjs/common");
 const deposit_transactions_controller_1 = require("./deposit-transactions.controller");
 const deposit_transactions_service_1 = require("./deposit-transactions.service");
+const transaction_compliance_module_1 = require("../../risk-engine/transaction-compliance/transaction-compliance.module");
 let DepositTransactionsModule = class DepositTransactionsModule {
 };
 exports.DepositTransactionsModule = DepositTransactionsModule;
 exports.DepositTransactionsModule = DepositTransactionsModule = __decorate([
     (0, common_1.Module)({
+        imports: [transaction_compliance_module_1.TransactionComplianceModule],
         controllers: [deposit_transactions_controller_1.DepositTransactionsController],
         providers: [deposit_transactions_service_1.DepositTransactionsService],
         exports: [deposit_transactions_service_1.DepositTransactionsService],

@@ -12,6 +12,11 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { WithdrawEvents } from './constants/withdraw-events.constant';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 import { JournalsService } from '../../accounting/journals/journals.service';
+import { TransactionComplianceService } from '../../risk-engine/transaction-compliance/transaction-compliance.service';
+import {
+  KytScreeningStage,
+  TxSourceType,
+} from '../../risk-engine/transaction-compliance/types/tx-compliance.types';
 
 @Injectable()
 export class WithdrawTransactionsService {
@@ -65,6 +70,7 @@ export class WithdrawTransactionsService {
     private prisma: PrismaService,
     private eventEmitter: EventEmitter2,
     private journalsService: JournalsService,
+    private transactionComplianceService: TransactionComplianceService,
   ) {}
 
   private createAccountingContext(withdrawal: {
@@ -185,7 +191,19 @@ export class WithdrawTransactionsService {
       },
     });
     if (!item) throw new NotFoundException('Withdraw transaction not found');
-    return item;
+
+    const { kytCase, travelRuleCase } =
+      await this.transactionComplianceService.getCaseSummaries(
+        TxSourceType.WITHDRAW,
+        id,
+        KytScreeningStage.MAIN,
+      );
+
+    return {
+      ...item,
+      kytCase,
+      travelRuleCase,
+    };
   }
 
   async create(dto: CreateWithdrawTransactionDto, userId: string, ownerType: string = 'CUSTOMER') {
@@ -329,6 +347,25 @@ export class WithdrawTransactionsService {
         },
       });
 
+      let eventSource = updated;
+
+      if (
+        currentStatus === WithdrawTransactionStatus.CREATED &&
+        nextStatus === WithdrawTransactionStatus.PENDING_COMPLIANCE
+      ) {
+        await this.transactionComplianceService.ensureWithdrawComplianceCases(
+          id,
+          client,
+        );
+        const refreshed = await client.withdrawTransaction.findUnique({
+          where: { id },
+        });
+        if (!refreshed) {
+          throw new NotFoundException('Withdraw transaction not found');
+        }
+        eventSource = refreshed;
+      }
+
       // Create audit log
       await client.withdrawAuditLog.create({
         data: {
@@ -353,28 +390,28 @@ export class WithdrawTransactionsService {
         // Emit approval events if moving to APPROVED or PAYOUT_PENDING (since approve now goes directly to PAYOUT_PENDING)
         // We use a flag or check previous status to avoid double-emitting if we were already APPROVED
         if (currentStatus !== WithdrawTransactionStatus.APPROVED && currentStatus !== WithdrawTransactionStatus.PAYOUT_PENDING) {
-          if (updated.type === 'crypto') {
+          if (eventSource.type === 'crypto') {
             this.eventEmitter.emit(
               WithdrawEvents.EVT_WITHDRAWAL_APPROVED__CRYPTO,
               { withdrawId: id },
             );
-          } else if (updated.type === 'fiat') {
+          } else if (eventSource.type === 'fiat') {
             this.eventEmitter.emit(WithdrawEvents.EVT_WITHDRAWAL_APPROVED__FIAT, {
               withdrawId: id,
             });
           }
         }
       } else if (nextStatus === WithdrawTransactionStatus.SUCCESS) {
-        const successEvent = updated.type === 'crypto' ? WithdrawEvents.EVT_WITHDRAWAL_SUCCESS__CRYPTO : WithdrawEvents.EVT_WITHDRAWAL_SUCCESS__FIAT;
+        const successEvent = eventSource.type === 'crypto' ? WithdrawEvents.EVT_WITHDRAWAL_SUCCESS__CRYPTO : WithdrawEvents.EVT_WITHDRAWAL_SUCCESS__FIAT;
         this.eventEmitter.emit(successEvent, { withdrawId: id });
       } else if (nextStatus === WithdrawTransactionStatus.FAILED) {
-        const failedEvent = updated.type === 'crypto' ? WithdrawEvents.EVT_WITHDRAWAL_FAILED__CRYPTO : WithdrawEvents.EVT_WITHDRAWAL_FAILED__FIAT;
+        const failedEvent = eventSource.type === 'crypto' ? WithdrawEvents.EVT_WITHDRAWAL_FAILED__CRYPTO : WithdrawEvents.EVT_WITHDRAWAL_FAILED__FIAT;
         this.eventEmitter.emit(failedEvent, { withdrawId: id });
       } else if (nextStatus === WithdrawTransactionStatus.RETURNED) {
         this.eventEmitter.emit(WithdrawEvents.EVT_WITHDRAWAL_RETURNED__FIAT, { withdrawId: id });
       }
 
-      return updated;
+      return eventSource;
     };
 
     if (tx) {

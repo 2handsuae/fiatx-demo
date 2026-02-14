@@ -5,6 +5,8 @@ export declare class WalletsService {
     private prisma;
     private readonly logger;
     constructor(prisma: PrismaService);
+    private resolveCustomerOwnerName;
+    private isUniqueConstraintError;
     create(data: CreateWalletDto): Promise<{
         asset: {
             type: string;
@@ -16,23 +18,23 @@ export declare class WalletsService {
         createdAt: Date;
         updatedAt: Date;
         type: string;
-        walletNo: string | null;
         ownerType: string;
+        counterpartyVasp: string | null;
+        assetId: string;
+        ownerId: string | null;
         ownerNo: string | null;
         direction: string;
-        balance: Prisma.Decimal;
-        lockedBalance: Prisma.Decimal;
         address: string | null;
         memo: string | null;
+        beneficiaryName: string | null;
         bankName: string | null;
         bankAccount: string | null;
         bankCode: string | null;
         accountName: string | null;
-        beneficiaryName: string | null;
-        counterpartyVasp: string | null;
         iban: string | null;
-        assetId: string;
-        ownerId: string | null;
+        walletNo: string | null;
+        balance: Prisma.Decimal;
+        lockedBalance: Prisma.Decimal;
     }>;
     findAll(params: {
         skip?: number;
@@ -40,39 +42,39 @@ export declare class WalletsService {
         where?: Prisma.WalletWhereInput;
         orderBy?: Prisma.WalletOrderByWithRelationInput;
     }): Promise<{
-        items: ({
+        items: {
+            ownerNo: string | null;
+            ownerName: string | null;
             asset: {
                 type: string;
                 code: string;
             };
-        } & {
             id: string;
             status: string;
             createdAt: Date;
             updatedAt: Date;
             type: string;
-            walletNo: string | null;
             ownerType: string;
-            ownerNo: string | null;
+            counterpartyVasp: string | null;
+            assetId: string;
+            ownerId: string | null;
             direction: string;
-            balance: Prisma.Decimal;
-            lockedBalance: Prisma.Decimal;
             address: string | null;
             memo: string | null;
+            beneficiaryName: string | null;
             bankName: string | null;
             bankAccount: string | null;
             bankCode: string | null;
             accountName: string | null;
-            beneficiaryName: string | null;
-            counterpartyVasp: string | null;
             iban: string | null;
-            assetId: string;
-            ownerId: string | null;
-        })[];
+            walletNo: string | null;
+            balance: Prisma.Decimal;
+            lockedBalance: Prisma.Decimal;
+        }[];
         total: number;
     }>;
     findOne(id: string): Promise<{
-        ownerNo: any;
+        ownerNo: string | null;
         asset: {
             id: string;
             status: string;
@@ -85,30 +87,27 @@ export declare class WalletsService {
             decimals: number;
             assetNo: string | null;
         };
-        customer: {
-            customerNo: string;
-        } | null;
         id: string;
         status: string;
         createdAt: Date;
         updatedAt: Date;
         type: string;
-        walletNo: string | null;
         ownerType: string;
+        counterpartyVasp: string | null;
+        assetId: string;
+        ownerId: string | null;
         direction: string;
-        balance: Prisma.Decimal;
-        lockedBalance: Prisma.Decimal;
         address: string | null;
         memo: string | null;
+        beneficiaryName: string | null;
         bankName: string | null;
         bankAccount: string | null;
         bankCode: string | null;
         accountName: string | null;
-        beneficiaryName: string | null;
-        counterpartyVasp: string | null;
         iban: string | null;
-        assetId: string;
-        ownerId: string | null;
+        walletNo: string | null;
+        balance: Prisma.Decimal;
+        lockedBalance: Prisma.Decimal;
     }>;
     changeStatus(id: string, status: WalletStatus): Promise<{
         id: string;
@@ -116,22 +115,22 @@ export declare class WalletsService {
         createdAt: Date;
         updatedAt: Date;
         type: string;
-        walletNo: string | null;
         ownerType: string;
+        counterpartyVasp: string | null;
+        assetId: string;
+        ownerId: string | null;
         ownerNo: string | null;
         direction: string;
-        balance: Prisma.Decimal;
-        lockedBalance: Prisma.Decimal;
         address: string | null;
         memo: string | null;
+        beneficiaryName: string | null;
         bankName: string | null;
         bankAccount: string | null;
         bankCode: string | null;
         accountName: string | null;
-        beneficiaryName: string | null;
-        counterpartyVasp: string | null;
         iban: string | null;
-        assetId: string;
-        ownerId: string | null;
+        walletNo: string | null;
+        balance: Prisma.Decimal;
+        lockedBalance: Prisma.Decimal;
     }>;
 }

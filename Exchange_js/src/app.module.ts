@@ -27,6 +27,7 @@ import { PayoutsModule } from './modules/asset-treasury/payouts/payouts.module';
 import { ClearingModule } from './modules/clearing-settle/clearing/clearing.module';
 import { RiskEngineModule } from './modules/risk-engine/risk-engine.module';
 import { OnboardingModule } from './modules/identity/onboarding/onboarding.module';
+import { TransactionComplianceModule } from './modules/risk-engine/transaction-compliance/transaction-compliance.module';
 
 @Module({
   imports: [
@@ -73,6 +74,7 @@ import { OnboardingModule } from './modules/identity/onboarding/onboarding.modul
     PayoutsModule,
     ClearingModule,
     RiskEngineModule,
+    TransactionComplianceModule,
     OnboardingModule,
   ],
   controllers: [],

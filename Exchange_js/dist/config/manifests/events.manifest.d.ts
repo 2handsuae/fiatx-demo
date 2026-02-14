@@ -20,28 +20,13 @@ export declare const DEFAULT_ACCT_EVENTS: ({
     assetType: string;
     triggerType: string;
     triggerKey: string;
-    fromStatus: string;
-    toStatus: string;
-    description: string;
-    postingMode: string;
-    clearingMode: string;
-    isActive: boolean;
-    postingReversalOfEventCode?: undefined;
-    clearingTemplateCode?: undefined;
-} | {
-    eventCode: string;
-    entityType: string;
-    ownerScope: string;
-    assetType: string;
-    triggerType: string;
-    triggerKey: string;
     fromStatus: null;
     toStatus: string;
-    description: string;
     postingMode: string;
     postingReversalOfEventCode: string;
     clearingMode: string;
     isActive: boolean;
+    description: string;
     clearingTemplateCode?: undefined;
 } | {
     eventCode: string;

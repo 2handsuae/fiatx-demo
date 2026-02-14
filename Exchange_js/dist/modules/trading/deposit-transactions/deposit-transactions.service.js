@@ -18,10 +18,13 @@ const client_1 = require("@prisma/client");
 const no_generator_util_1 = require("../../../common/utils/no-generator.util");
 const event_emitter_1 = require("@nestjs/event-emitter");
 const deposit_transaction_events_1 = require("./events/deposit-transaction.events");
+const transaction_compliance_service_1 = require("../../risk-engine/transaction-compliance/transaction-compliance.service");
+const tx_compliance_types_1 = require("../../risk-engine/transaction-compliance/types/tx-compliance.types");
 let DepositTransactionsService = DepositTransactionsService_1 = class DepositTransactionsService {
-    constructor(prisma, eventEmitter) {
+    constructor(prisma, eventEmitter, transactionComplianceService) {
         this.prisma = prisma;
         this.eventEmitter = eventEmitter;
+        this.transactionComplianceService = transactionComplianceService;
         this.logger = new common_1.Logger(DepositTransactionsService_1.name);
     }
     assertComplianceBeforeSuccess(item, nextStatus) {
@@ -106,12 +109,15 @@ let DepositTransactionsService = DepositTransactionsService_1 = class DepositTra
         if (!ownerNo && deposit.ownerType === 'CUSTOMER' && deposit.customer) {
             ownerNo = deposit.customer.customerNo;
         }
+        const { kytCase, travelRuleCase } = await this.transactionComplianceService.getCaseSummaries(tx_compliance_types_1.TxSourceType.DEPOSIT, id, tx_compliance_types_1.KytScreeningStage.MAIN);
         return {
             ...item,
             ownerNo,
             payinNo: deposit.payin?.payinNo,
             toWalletNo: deposit.wallet?.walletNo,
             fromWalletNo: deposit.fromWallet?.walletNo,
+            kytCase,
+            travelRuleCase,
         };
     }
     async updateStatus(id, dto) {
@@ -292,6 +298,7 @@ exports.DepositTransactionsService = DepositTransactionsService;
 exports.DepositTransactionsService = DepositTransactionsService = DepositTransactionsService_1 = __decorate([
     (0, common_1.Injectable)(),
     __metadata("design:paramtypes", [prisma_service_1.PrismaService,
-        event_emitter_1.EventEmitter2])
+        event_emitter_1.EventEmitter2,
+        transaction_compliance_service_1.TransactionComplianceService])
 ], DepositTransactionsService);
 //# sourceMappingURL=deposit-transactions.service.js.map

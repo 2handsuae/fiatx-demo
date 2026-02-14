@@ -21,6 +21,26 @@ let WalletsService = WalletsService_1 = class WalletsService {
         this.prisma = prisma;
         this.logger = new common_1.Logger(WalletsService_1.name);
     }
+    resolveCustomerOwnerName(customer) {
+        if (!customer)
+            return null;
+        const companyName = customer.companyName?.trim();
+        if (companyName)
+            return companyName;
+        const firstName = customer.firstName?.trim() || '';
+        const lastName = customer.lastName?.trim() || '';
+        const fullName = `${firstName} ${lastName}`.trim();
+        if (fullName)
+            return fullName;
+        const email = customer.email?.trim();
+        return email || null;
+    }
+    isUniqueConstraintError(error) {
+        return (typeof error === 'object' &&
+            error !== null &&
+            'code' in error &&
+            error.code === 'P2002');
+    }
     async create(data) {
         this.logger.log(`Creating wallet for ${data.ownerType}`);
         const asset = await this.prisma.asset.findUnique({
@@ -28,6 +48,9 @@ let WalletsService = WalletsService_1 = class WalletsService {
         });
         if (!asset)
             throw new common_1.BadRequestException('Invalid Asset ID');
+        if (data.ownerType === wallet_dto_1.OwnerType.PLATFORM && data.ownerId) {
+            throw new common_1.BadRequestException('Owner ID must be empty for PLATFORM wallets');
+        }
         if (data.ownerType !== wallet_dto_1.OwnerType.PLATFORM && !data.ownerId) {
             throw new common_1.BadRequestException('Owner ID is required for non-PLATFORM wallets');
         }
@@ -82,31 +105,39 @@ let WalletsService = WalletsService_1 = class WalletsService {
             if (!lp)
                 throw new common_1.BadRequestException('Invalid Liquidity Provider ID');
         }
-        const result = await this.prisma.wallet.create({
-            data: {
-                walletNo: (0, no_generator_util_1.generateReferenceNo)('WA'),
-                ownerType: data.ownerType,
-                ownerId: data.ownerId,
-                type: data.type,
-                direction: data.direction,
-                assetId: data.assetId,
-                address: data.address,
-                memo: data.memo,
-                beneficiaryName: data.beneficiaryName,
-                counterpartyVasp: data.counterpartyVasp,
-                bankName: data.bankName,
-                bankAccount: data.bankAccount,
-                bankCode: data.bankCode,
-                accountName: data.accountName,
-                iban: data.iban,
-                status: wallet_dto_1.WalletStatus.ACTIVE,
-            },
-            include: {
-                asset: { select: { code: true, type: true } },
-            },
-        });
-        this.logger.log(`Wallet created: ${result.id}`);
-        return result;
+        try {
+            const result = await this.prisma.wallet.create({
+                data: {
+                    walletNo: (0, no_generator_util_1.generateReferenceNo)('WA'),
+                    ownerType: data.ownerType,
+                    ownerId: data.ownerType === wallet_dto_1.OwnerType.PLATFORM ? null : data.ownerId,
+                    type: data.type,
+                    direction: data.direction,
+                    assetId: data.assetId,
+                    address: data.address,
+                    memo: data.memo,
+                    beneficiaryName: data.beneficiaryName,
+                    counterpartyVasp: data.counterpartyVasp,
+                    bankName: data.bankName,
+                    bankAccount: data.bankAccount,
+                    bankCode: data.bankCode,
+                    accountName: data.accountName,
+                    iban: data.iban,
+                    status: wallet_dto_1.WalletStatus.ACTIVE,
+                },
+                include: {
+                    asset: { select: { code: true, type: true } },
+                },
+            });
+            this.logger.log(`Wallet created: ${result.id}`);
+            return result;
+        }
+        catch (error) {
+            if (this.isUniqueConstraintError(error)) {
+                throw new common_1.BadRequestException('Inbound customer wallet already exists for this asset and type');
+            }
+            throw error;
+        }
     }
     async findAll(params) {
         const { skip, take, where, orderBy } = params;
@@ -122,22 +153,84 @@ let WalletsService = WalletsService_1 = class WalletsService {
             }),
             this.prisma.wallet.count({ where }),
         ]);
-        return { items, total };
+        const customerOwnerIds = [
+            ...new Set(items
+                .filter((item) => item.ownerType === wallet_dto_1.OwnerType.CUSTOMER &&
+                typeof item.ownerId === 'string')
+                .map((item) => item.ownerId)),
+        ];
+        const lpOwnerIds = [
+            ...new Set(items
+                .filter((item) => item.ownerType === wallet_dto_1.OwnerType.LIQUIDITY_PROVIDER &&
+                typeof item.ownerId === 'string')
+                .map((item) => item.ownerId)),
+        ];
+        const [customers, liquidityProviders] = await Promise.all([
+            customerOwnerIds.length
+                ? this.prisma.customerMain.findMany({
+                    where: { id: { in: customerOwnerIds } },
+                    select: {
+                        id: true,
+                        customerNo: true,
+                        customerType: true,
+                        companyName: true,
+                        firstName: true,
+                        lastName: true,
+                        email: true,
+                    },
+                })
+                : Promise.resolve([]),
+            lpOwnerIds.length
+                ? this.prisma.liquidityProvider.findMany({
+                    where: { id: { in: lpOwnerIds } },
+                    select: { id: true, name: true },
+                })
+                : Promise.resolve([]),
+        ]);
+        const customerMap = new Map(customers.map((customer) => [customer.id, customer]));
+        const lpMap = new Map(liquidityProviders.map((provider) => [provider.id, provider]));
+        const normalizedItems = items.map((item) => {
+            let ownerNo = item.ownerNo;
+            let ownerName = null;
+            if (item.ownerType === wallet_dto_1.OwnerType.PLATFORM) {
+                ownerName = 'Platform';
+            }
+            else if (item.ownerType === wallet_dto_1.OwnerType.CUSTOMER &&
+                typeof item.ownerId === 'string') {
+                const customer = customerMap.get(item.ownerId);
+                if (!ownerNo)
+                    ownerNo = customer?.customerNo ?? null;
+                ownerName = this.resolveCustomerOwnerName(customer);
+            }
+            else if (item.ownerType === wallet_dto_1.OwnerType.LIQUIDITY_PROVIDER &&
+                typeof item.ownerId === 'string') {
+                const provider = lpMap.get(item.ownerId);
+                ownerName = provider?.name ?? null;
+            }
+            return {
+                ...item,
+                ownerNo,
+                ownerName,
+            };
+        });
+        return { items: normalizedItems, total };
     }
     async findOne(id) {
         const item = await this.prisma.wallet.findUnique({
             where: { id },
             include: {
                 asset: true,
-                customer: { select: { customerNo: true } },
             },
         });
         if (!item)
             throw new common_1.NotFoundException('Wallet not found');
-        const walletWithCustomer = item;
-        let ownerNo = walletWithCustomer.ownerNo;
-        if (!ownerNo && walletWithCustomer.ownerType === wallet_dto_1.OwnerType.CUSTOMER && walletWithCustomer.customer) {
-            ownerNo = walletWithCustomer.customer.customerNo;
+        let ownerNo = item.ownerNo;
+        if (!ownerNo && item.ownerType === wallet_dto_1.OwnerType.CUSTOMER && item.ownerId) {
+            const customer = await this.prisma.customerMain.findUnique({
+                where: { id: item.ownerId },
+                select: { customerNo: true },
+            });
+            ownerNo = customer?.customerNo ?? null;
         }
         return { ...item, ownerNo };
     }

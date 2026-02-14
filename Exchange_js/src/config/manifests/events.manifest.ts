@@ -7,8 +7,8 @@ export const DEFAULT_ACCT_EVENTS = [
     assetType: 'CRYPTO',
     triggerType: 'STATUS_TRANSITION',
     triggerKey: 'status',
-    fromStatus: null, // Allow transition from any status (e.g., DETECTED or CONFIRMING)
-    toStatus: 'CONFIRMED',
+    fromStatus: null,
+    toStatus: 'COMPLIANCE_PENDING',
     description: '充值确认（币）：受限托管入账 + 客户待审负债',
     postingMode: 'TEMPLATE',
     clearingMode: 'NONE',
@@ -23,7 +23,7 @@ export const DEFAULT_ACCT_EVENTS = [
     triggerType: 'STATUS_TRANSITION',
     triggerKey: 'status',
     fromStatus: null,
-    toStatus: 'CLEARED',
+    toStatus: 'SUCCESS',
     description: '充值成功（币）：待审→可用；受限托管→托管',
     postingMode: 'TEMPLATE',
     clearingMode: 'NONE',
@@ -37,8 +37,8 @@ export const DEFAULT_ACCT_EVENTS = [
     assetType: 'FIAT',
     triggerType: 'STATUS_TRANSITION',
     triggerKey: 'status',
-    fromStatus: 'DETECTED',
-    toStatus: 'CONFIRMED',
+    fromStatus: null,
+    toStatus: 'COMPLIANCE_PENDING',
     description: '充值确认（法币）：受限银行入账 + 客户待审负债',
     postingMode: 'TEMPLATE',
     clearingMode: 'NONE',
@@ -53,45 +53,13 @@ export const DEFAULT_ACCT_EVENTS = [
     triggerType: 'STATUS_TRANSITION',
     triggerKey: 'status',
     fromStatus: null,
-    toStatus: 'CLEARED',
+    toStatus: 'SUCCESS',
     description: '充值成功（法币）：待审→可用；受限银行→银行',
     postingMode: 'TEMPLATE',
     clearingMode: 'NONE',
     isActive: true,
   },
-  // 5. Deposit Rejected (Crypto)
-  {
-    eventCode: 'EVT_DEPOSIT_REJECTED__CRYPTO',
-    entityType: 'DEPOSIT',
-    ownerScope: 'CUSTOMER',
-    assetType: 'CRYPTO',
-    triggerType: 'STATUS_TRANSITION',
-    triggerKey: 'status',
-    fromStatus: null,
-    toStatus: 'DROPPED',
-    description: '充值拒绝（币）：自动冲销“充值确认（币）”',
-    postingMode: 'AUTO_REVERSAL',
-    postingReversalOfEventCode: 'EVT_DEPOSIT_CONFIRMED__CRYPTO',
-    clearingMode: 'NONE',
-    isActive: true,
-  },
-  // 6. Deposit Rejected (Fiat)
-  {
-    eventCode: 'EVT_DEPOSIT_REJECTED__FIAT',
-    entityType: 'DEPOSIT',
-    ownerScope: 'CUSTOMER',
-    assetType: 'FIAT',
-    triggerType: 'STATUS_TRANSITION',
-    triggerKey: 'status',
-    fromStatus: null,
-    toStatus: 'DROPPED',
-    description: '充值拒绝（法币）：自动冲销“充值确认（法币）”',
-    postingMode: 'AUTO_REVERSAL',
-    postingReversalOfEventCode: 'EVT_DEPOSIT_CONFIRMED__FIAT',
-    clearingMode: 'NONE',
-    isActive: true,
-  },
-  // 7. Swap Created
+  // 5. Swap Created
   {
     eventCode: 'EVT_SWAP_CREATED',
     entityType: 'SWAP',
@@ -106,7 +74,7 @@ export const DEFAULT_ACCT_EVENTS = [
     isActive: true,
     description: '兑换创建：锁定客户卖出资产（CREDIT → HELD）',
   },
-  // 8. Swap Rejected
+  // 6. Swap Rejected
   {
     eventCode: 'EVT_SWAP_REJECTED',
     entityType: 'SWAP',
@@ -122,7 +90,7 @@ export const DEFAULT_ACCT_EVENTS = [
     isActive: true,
     description: '兑换拒绝：释放锁定（HELD → CREDIT）',
   },
-  // 9. Swap Success
+  // 7. Swap Success
   {
     eventCode: 'EVT_SWAP_SUCCESS',
     entityType: 'SWAP',
@@ -137,7 +105,7 @@ export const DEFAULT_ACCT_EVENTS = [
     isActive: true,
     description: '兑换成功：消耗锁定(from) 并增加可用(to)',
   },
-  // 10. Withdrawal Created
+  // 8. Withdrawal Created
   {
     eventCode: 'EVT_WITHDRAWAL_CREATED',
     entityType: 'WITHDRAW',
@@ -152,7 +120,7 @@ export const DEFAULT_ACCT_EVENTS = [
     isActive: true,
     description: '提现创建：锁定客户可用资产 (CREDIT → HELD)',
   },
-  // 11. Withdrawal Approved (Crypto)
+  // 9. Withdrawal Approved (Crypto)
   {
     eventCode: 'EVT_WITHDRAWAL_APPROVED__CRYPTO',
     entityType: 'WITHDRAW',
@@ -168,7 +136,7 @@ export const DEFAULT_ACCT_EVENTS = [
     isActive: true,
     description: '提现审批（币）：触发清算并进入在途资产',
   },
-  // 12. Withdrawal Approved (Fiat)
+  // 10. Withdrawal Approved (Fiat)
   {
     eventCode: 'EVT_WITHDRAWAL_APPROVED__FIAT',
     entityType: 'WITHDRAW',
@@ -184,7 +152,7 @@ export const DEFAULT_ACCT_EVENTS = [
     isActive: true,
     description: '提现审批（法币）：触发清算并进入在途资产',
   },
-  // 13. Withdrawal Success (Crypto)
+  // 11. Withdrawal Success (Crypto)
   {
     eventCode: 'EVT_WITHDRAWAL_SUCCESS__CRYPTO',
     entityType: 'WITHDRAW',
@@ -199,7 +167,7 @@ export const DEFAULT_ACCT_EVENTS = [
     isActive: true,
     description: '提现成功（币）：消耗锁定资产',
   },
-  // 14. Withdrawal Success (Fiat)
+  // 12. Withdrawal Success (Fiat)
   {
     eventCode: 'EVT_WITHDRAWAL_SUCCESS__FIAT',
     entityType: 'WITHDRAW',
@@ -214,7 +182,7 @@ export const DEFAULT_ACCT_EVENTS = [
     isActive: true,
     description: '提现成功（法币）：消耗锁定资产',
   },
-  // 15. Withdrawal Cancelled/Rejected
+  // 13. Withdrawal Cancelled/Rejected
   {
     eventCode: 'EVT_WITHDRAWAL_CANCELLED',
     entityType: 'WITHDRAW',

@@ -1,11 +1,13 @@
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { DepositTransactionQueryDto, UpdateDepositTransactionStatusDto } from './dto/deposit-transaction.dto';
 import { EventEmitter2 } from '@nestjs/event-emitter';
+import { TransactionComplianceService } from '../../risk-engine/transaction-compliance/transaction-compliance.service';
 export declare class DepositTransactionsService {
     private prisma;
     private eventEmitter;
+    private transactionComplianceService;
     private readonly logger;
-    constructor(prisma: PrismaService, eventEmitter: EventEmitter2);
+    constructor(prisma: PrismaService, eventEmitter: EventEmitter2, transactionComplianceService: TransactionComplianceService);
     private assertComplianceBeforeSuccess;
     findAll(query: DepositTransactionQueryDto): Promise<{
         items: any;

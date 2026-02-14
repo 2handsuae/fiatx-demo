@@ -22,15 +22,44 @@ let WalletsController = class WalletsController {
     constructor(service) {
         this.service = service;
     }
-    create(dto) {
+    ensureSupportedToken(req) {
+        if (req.user?.type !== 'ADMIN' && req.user?.type !== 'CUSTOMER') {
+            throw new common_1.ForbiddenException('Invalid token type');
+        }
+    }
+    ensureAdmin(req) {
+        if (req.user?.type !== 'ADMIN') {
+            throw new common_1.ForbiddenException('Admin token required');
+        }
+    }
+    create(req, dto) {
+        this.ensureSupportedToken(req);
+        if (req.user.type === 'CUSTOMER') {
+            if (dto.ownerType !== wallet_dto_1.OwnerType.CUSTOMER || dto.ownerId !== req.user.userId) {
+                throw new common_1.ForbiddenException('Customer can only create CUSTOMER wallets for self');
+            }
+        }
         return this.service.create(dto);
     }
-    findAll(skip, take, ownerType, ownerId, type, assetId, status, direction) {
+    findAll(req, skip, take, ownerType, ownerId, type, assetId, status, direction) {
+        this.ensureSupportedToken(req);
         const where = {};
-        if (ownerType)
-            where.ownerType = ownerType;
-        if (ownerId)
-            where.ownerId = ownerId;
+        if (req.user.type === 'CUSTOMER') {
+            if (ownerType && ownerType !== wallet_dto_1.OwnerType.CUSTOMER) {
+                throw new common_1.ForbiddenException('Customer can only query CUSTOMER wallets');
+            }
+            if (ownerId && ownerId !== req.user.userId) {
+                throw new common_1.ForbiddenException('Customer can only query own wallets');
+            }
+            where.ownerType = wallet_dto_1.OwnerType.CUSTOMER;
+            where.ownerId = req.user.userId;
+        }
+        else {
+            if (ownerType)
+                where.ownerType = ownerType;
+            if (ownerId)
+                where.ownerId = ownerId;
+        }
         if (type)
             where.type = type;
         if (assetId)
@@ -46,10 +75,17 @@ let WalletsController = class WalletsController {
             orderBy: { createdAt: 'desc' },
         });
     }
-    findOne(id) {
-        return this.service.findOne(id);
+    async findOne(req, id) {
+        this.ensureSupportedToken(req);
+        const wallet = await this.service.findOne(id);
+        if (req.user.type === 'CUSTOMER' &&
+            (wallet.ownerType !== wallet_dto_1.OwnerType.CUSTOMER || wallet.ownerId !== req.user.userId)) {
+            throw new common_1.ForbiddenException('Customer can only access own wallets');
+        }
+        return wallet;
     }
-    changeStatus(id, dto) {
+    changeStatus(req, id, dto) {
+        this.ensureAdmin(req);
         return this.service.changeStatus(id, dto.status);
     }
 };
@@ -57,9 +93,10 @@ exports.WalletsController = WalletsController;
 __decorate([
     (0, common_1.Post)(),
     (0, swagger_1.ApiOperation)({ summary: 'Create a new wallet' }),
-    __param(0, (0, common_1.Body)()),
+    __param(0, (0, common_1.Request)()),
+    __param(1, (0, common_1.Body)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [wallet_dto_1.CreateWalletDto]),
+    __metadata("design:paramtypes", [Object, wallet_dto_1.CreateWalletDto]),
     __metadata("design:returntype", void 0)
 ], WalletsController.prototype, "create", null);
 __decorate([
@@ -73,33 +110,36 @@ __decorate([
     (0, swagger_1.ApiQuery)({ name: 'assetId', required: false, type: String }),
     (0, swagger_1.ApiQuery)({ name: 'status', required: false, enum: wallet_dto_1.WalletStatus }),
     (0, swagger_1.ApiQuery)({ name: 'direction', required: false, enum: wallet_dto_1.WalletDirection }),
-    __param(0, (0, common_1.Query)('skip')),
-    __param(1, (0, common_1.Query)('take')),
-    __param(2, (0, common_1.Query)('ownerType')),
-    __param(3, (0, common_1.Query)('ownerId')),
-    __param(4, (0, common_1.Query)('type')),
-    __param(5, (0, common_1.Query)('assetId')),
-    __param(6, (0, common_1.Query)('status')),
-    __param(7, (0, common_1.Query)('direction')),
+    __param(0, (0, common_1.Request)()),
+    __param(1, (0, common_1.Query)('skip')),
+    __param(2, (0, common_1.Query)('take')),
+    __param(3, (0, common_1.Query)('ownerType')),
+    __param(4, (0, common_1.Query)('ownerId')),
+    __param(5, (0, common_1.Query)('type')),
+    __param(6, (0, common_1.Query)('assetId')),
+    __param(7, (0, common_1.Query)('status')),
+    __param(8, (0, common_1.Query)('direction')),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String, String, String, String, String, String, String, String]),
+    __metadata("design:paramtypes", [Object, String, String, String, String, String, String, String, String]),
     __metadata("design:returntype", void 0)
 ], WalletsController.prototype, "findAll", null);
 __decorate([
     (0, common_1.Get)(':id'),
     (0, swagger_1.ApiOperation)({ summary: 'Get a wallet by ID' }),
-    __param(0, (0, common_1.Param)('id')),
+    __param(0, (0, common_1.Request)()),
+    __param(1, (0, common_1.Param)('id')),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String]),
-    __metadata("design:returntype", void 0)
+    __metadata("design:paramtypes", [Object, String]),
+    __metadata("design:returntype", Promise)
 ], WalletsController.prototype, "findOne", null);
 __decorate([
     (0, common_1.Patch)(':id/status'),
     (0, swagger_1.ApiOperation)({ summary: 'Change wallet status' }),
-    __param(0, (0, common_1.Param)('id')),
-    __param(1, (0, common_1.Body)()),
+    __param(0, (0, common_1.Request)()),
+    __param(1, (0, common_1.Param)('id')),
+    __param(2, (0, common_1.Body)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String, wallet_dto_1.UpdateWalletStatusDto]),
+    __metadata("design:paramtypes", [Object, String, wallet_dto_1.UpdateWalletStatusDto]),
     __metadata("design:returntype", void 0)
 ], WalletsController.prototype, "changeStatus", null);
 exports.WalletsController = WalletsController = __decorate([

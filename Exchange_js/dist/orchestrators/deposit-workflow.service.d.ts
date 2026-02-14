@@ -6,6 +6,7 @@ import { JournalsService } from '../modules/accounting/journals/journals.service
 import { PayinsService } from '../modules/asset-treasury/payins/payins.service';
 import { DepositStatusChangedEvent } from '../modules/trading/deposit-transactions/events/deposit-transaction.events';
 import { PrismaService } from '../core/prisma/prisma.service';
+import { TransactionComplianceService } from '../modules/risk-engine/transaction-compliance/transaction-compliance.service';
 interface OrchestrationResult {
     updated_payin_status?: string;
     updated_deposit_status?: string;
@@ -19,8 +20,9 @@ export declare class DepositWorkflowService implements OnModuleInit {
     private readonly payinsService;
     private readonly eventEmitter;
     private readonly prisma;
+    private readonly transactionComplianceService;
     private readonly logger;
-    constructor(depositService: DepositTransactionsService, journalService: JournalsService, payinsService: PayinsService, eventEmitter: EventEmitter2, prisma: PrismaService);
+    constructor(depositService: DepositTransactionsService, journalService: JournalsService, payinsService: PayinsService, eventEmitter: EventEmitter2, prisma: PrismaService, transactionComplianceService: TransactionComplianceService);
     onModuleInit(): void;
     handlePayinCreated(event: PayinCreatedEvent): Promise<OrchestrationResult | null>;
     handlePayinStatusChanged(event: PayinStatusChangedEvent): Promise<OrchestrationResult | null>;
@@ -30,7 +32,7 @@ export declare class DepositWorkflowService implements OnModuleInit {
     private orchestratePayinConfirmed;
     private orchestrateDepositSuccess;
     private orchestrateDepositRejected;
-    private triggerAccounting;
+    private triggerDepositAccounting;
     private getSuffix;
     private findDepositByPayinId;
 }

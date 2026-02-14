@@ -21,13 +21,15 @@ const deposit_transaction_dto_1 = require("../modules/trading/deposit-transactio
 const payins_service_1 = require("../modules/asset-treasury/payins/payins.service");
 const deposit_transaction_events_1 = require("../modules/trading/deposit-transactions/events/deposit-transaction.events");
 const prisma_service_1 = require("../core/prisma/prisma.service");
+const transaction_compliance_service_1 = require("../modules/risk-engine/transaction-compliance/transaction-compliance.service");
 let DepositWorkflowService = DepositWorkflowService_1 = class DepositWorkflowService {
-    constructor(depositService, journalService, payinsService, eventEmitter, prisma) {
+    constructor(depositService, journalService, payinsService, eventEmitter, prisma, transactionComplianceService) {
         this.depositService = depositService;
         this.journalService = journalService;
         this.payinsService = payinsService;
         this.eventEmitter = eventEmitter;
         this.prisma = prisma;
+        this.transactionComplianceService = transactionComplianceService;
         this.logger = new common_1.Logger(DepositWorkflowService_1.name);
     }
     onModuleInit() {
@@ -64,12 +66,12 @@ let DepositWorkflowService = DepositWorkflowService_1 = class DepositWorkflowSer
         return result;
     }
     async handleDepositStatusChanged(event) {
-        const { depositId, newStatus, payinId } = event;
+        const { depositId, oldStatus, newStatus, payinId } = event;
         this.logger.log(`Orchestrating Deposit ${depositId} transition to ${newStatus}`);
         let result = null;
         switch (newStatus) {
             case deposit_transaction_dto_1.DepositTransactionStatus.SUCCESS:
-                result = await this.orchestrateDepositSuccess(depositId);
+                result = await this.orchestrateDepositSuccess(depositId, oldStatus);
                 break;
             case deposit_transaction_dto_1.DepositTransactionStatus.REJECTED:
                 result = await this.orchestrateDepositRejected(depositId, payinId);
@@ -121,18 +123,36 @@ let DepositWorkflowService = DepositWorkflowService_1 = class DepositWorkflowSer
             this.logger.debug(`PayIn ${payinId} already CLEARED. Skipping confirmed orchestration.`);
             return result;
         }
+        const fromStatus = deposit.status;
+        let accountingToStatus = null;
         if (deposit.status === deposit_transaction_dto_1.DepositTransactionStatus.PAYIN_PENDING) {
             const updated = await this.depositService.updateStatus(deposit.id, {
                 action: deposit_transaction_dto_1.DepositTransactionAction.PAYIN_CONFIRMED,
             });
             result.updated_deposit_status = updated.status;
+            accountingToStatus = deposit_transaction_dto_1.DepositTransactionStatus.COMPLIANCE_PENDING;
+        }
+        else if (deposit.status === deposit_transaction_dto_1.DepositTransactionStatus.COMPLIANCE_PENDING) {
+            result.updated_deposit_status = deposit.status;
+            accountingToStatus = deposit_transaction_dto_1.DepositTransactionStatus.COMPLIANCE_PENDING;
+        }
+        else {
+            this.logger.debug(`Deposit ${deposit.id} status ${deposit.status} is not eligible for confirmed accounting.`);
+        }
+        if (accountingToStatus === deposit_transaction_dto_1.DepositTransactionStatus.COMPLIANCE_PENDING) {
+            await this.transactionComplianceService.ensureDepositComplianceCases(deposit.id);
         }
         const suffix = this.getSuffix(payin);
         const eventCode = `EVT_DEPOSIT_CONFIRMED__${suffix}`;
         this.eventEmitter.emit(eventCode, { depositId: deposit.id, payinId });
         result.emitted_events.push(eventCode);
-        if (deposit.ownerType === deposit_transaction_dto_1.DepositOwnerType.CUSTOMER) {
-            const journal = await this.triggerAccounting(deposit, eventCode);
+        if (accountingToStatus && deposit.ownerType === deposit_transaction_dto_1.DepositOwnerType.CUSTOMER) {
+            const journal = await this.triggerDepositAccounting({
+                deposit,
+                assetType: suffix,
+                fromStatus,
+                toStatus: accountingToStatus,
+            });
             if (journal) {
                 result.created_or_reversed_journal_entry_ids.push(journal.id);
             }
@@ -141,7 +161,7 @@ let DepositWorkflowService = DepositWorkflowService_1 = class DepositWorkflowSer
         result.updated_payin_status = updatedPayin.status;
         return result;
     }
-    async orchestrateDepositSuccess(depositId) {
+    async orchestrateDepositSuccess(depositId, oldStatus) {
         const result = { emitted_events: [], created_or_reversed_journal_entry_ids: [] };
         const deposit = await this.depositService.findOne(depositId);
         const payin = deposit.payinId ? await this.payinsService.findOne(deposit.payinId) : null;
@@ -150,7 +170,12 @@ let DepositWorkflowService = DepositWorkflowService_1 = class DepositWorkflowSer
         this.eventEmitter.emit(eventCode, { depositId });
         result.emitted_events.push(eventCode);
         if (deposit.ownerType === deposit_transaction_dto_1.DepositOwnerType.CUSTOMER) {
-            const journal = await this.triggerAccounting(deposit, eventCode);
+            const journal = await this.triggerDepositAccounting({
+                deposit,
+                assetType: suffix,
+                fromStatus: oldStatus ?? null,
+                toStatus: deposit_transaction_dto_1.DepositTransactionStatus.SUCCESS,
+            });
             if (journal) {
                 result.created_or_reversed_journal_entry_ids.push(journal.id);
             }
@@ -174,47 +199,6 @@ let DepositWorkflowService = DepositWorkflowService_1 = class DepositWorkflowSer
             const payin = targetPayinId
                 ? await tx.payin.findUnique({ where: { id: targetPayinId } })
                 : null;
-            const suffix = payin ? this.getSuffix(payin) : 'FIAT';
-            const confirmedEventCode = `EVT_DEPOSIT_CONFIRMED__${suffix}`;
-            const reversalEventCode = `REV_${confirmedEventCode}`;
-            const confirmedJournal = await tx.journal.findFirst({
-                where: {
-                    sourceType: 'DEPOSIT',
-                    sourceId: depositId,
-                    eventCode: confirmedEventCode,
-                },
-            });
-            if (confirmedJournal) {
-                const existingReversal = await tx.journal.findFirst({
-                    where: {
-                        sourceType: 'DEPOSIT',
-                        sourceId: depositId,
-                        eventCode: reversalEventCode,
-                    },
-                });
-                if (!existingReversal) {
-                    const reversal = await this.journalService.reverseJournal({
-                        sourceType: 'DEPOSIT',
-                        sourceId: depositId,
-                        reversalEventCode,
-                        targetEventCode: confirmedEventCode,
-                        context: {
-                            src: {
-                                ownerId: deposit.ownerId,
-                                ownerType: deposit.ownerType,
-                                assetId: deposit.assetId,
-                                depositId: deposit.id,
-                                amount: deposit.amount.toString(),
-                                depositNo: deposit.depositNo,
-                                walletId: deposit.toWalletId,
-                            },
-                        },
-                    }, tx);
-                    if (reversal) {
-                        result.created_or_reversed_journal_entry_ids.push(reversal.id);
-                    }
-                }
-            }
             if (payin && payin.status !== payin_dto_1.PayinStatus.CLEARED) {
                 let history = [];
                 try {
@@ -256,17 +240,8 @@ let DepositWorkflowService = DepositWorkflowService_1 = class DepositWorkflowSer
             return result;
         });
     }
-    async triggerAccounting(deposit, eventCode) {
-        const existingJournal = await this.prisma.journal.findFirst({
-            where: {
-                sourceId: deposit.id,
-                eventCode: eventCode,
-            },
-        });
-        if (existingJournal) {
-            this.logger.debug(`Accounting already processed for ${deposit.id} and ${eventCode}`);
-            return existingJournal;
-        }
+    async triggerDepositAccounting(params) {
+        const { deposit, assetType, fromStatus, toStatus, tx } = params;
         const context = {
             src: {
                 ownerId: deposit.ownerId,
@@ -278,12 +253,15 @@ let DepositWorkflowService = DepositWorkflowService_1 = class DepositWorkflowSer
                 walletId: deposit.toWalletId,
             },
         };
-        return this.journalService.createJournal({
-            sourceType: 'DEPOSIT',
-            sourceId: deposit.id,
-            eventCode: eventCode,
+        return this.journalService.triggerEvent({
+            entityType: 'DEPOSIT',
+            triggerKey: 'status',
+            fromStatus: fromStatus ?? null,
+            toStatus,
+            assetType,
             context,
-        });
+            sourceId: deposit.id,
+        }, tx);
     }
     getSuffix(payin) {
         return payin.type.toUpperCase();
@@ -319,6 +297,7 @@ exports.DepositWorkflowService = DepositWorkflowService = DepositWorkflowService
         journals_service_1.JournalsService,
         payins_service_1.PayinsService,
         event_emitter_1.EventEmitter2,
-        prisma_service_1.PrismaService])
+        prisma_service_1.PrismaService,
+        transaction_compliance_service_1.TransactionComplianceService])
 ], DepositWorkflowService);
 //# sourceMappingURL=deposit-workflow.service.js.map
