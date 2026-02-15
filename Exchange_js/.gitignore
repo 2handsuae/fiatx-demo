@@ -3,3 +3,12 @@ node_modules
 .env
 
 /generated/prisma
+
+# Local build/runtime artifacts
+.DS_Store
+dist/
+.trae/
+*.db
+*.db.*
+*.log
+admin_token.txt
