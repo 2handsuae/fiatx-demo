@@ -11,6 +11,8 @@ import { SwapEvents } from './constants/swap-events.constant';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { JournalsService } from '../../accounting/journals/journals.service';
+import { SwapQuotesService } from './swap-quotes.service';
+import { OutstandingsService } from '../../clearing-settle/outstandings/outstandings.service';
 
 describe('SwapWorkflowOrchestrator', () => {
   let orchestrator: SwapWorkflowOrchestrator;
@@ -33,6 +35,13 @@ describe('SwapWorkflowOrchestrator', () => {
     asset: {
       findUnique: jest.fn(),
     },
+    customerMain: {
+      findUnique: jest.fn(),
+    },
+    swapQuote: {
+      findUnique: jest.fn(),
+      updateMany: jest.fn(),
+    },
   };
 
   const mockEventEmitter = {
@@ -41,7 +50,7 @@ describe('SwapWorkflowOrchestrator', () => {
 
   const mockSwapService = {
     generateSwapNo: jest.fn(),
-    fetchMarketRate: jest.fn(),
+    getExecutableRate: jest.fn(),
   };
 
   const mockJournalsService = {
@@ -50,12 +59,23 @@ describe('SwapWorkflowOrchestrator', () => {
     triggerEvent: jest.fn(),
   };
 
+  const mockSwapQuotesService = {
+    getActiveQuoteOrThrow: jest.fn(),
+    consumeQuoteForSwap: jest.fn(),
+  };
+
+  const mockOutstandingsService = {
+    createForSwapSuccess: jest.fn(),
+  };
+
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         SwapWorkflowOrchestrator,
         { provide: SwapTransactionsService, useValue: mockSwapService },
         { provide: JournalsService, useValue: mockJournalsService },
+        { provide: SwapQuotesService, useValue: mockSwapQuotesService },
+        { provide: OutstandingsService, useValue: mockOutstandingsService },
         { provide: PrismaService, useValue: mockPrisma },
         { provide: EventEmitter2, useValue: mockEventEmitter },
       ],
@@ -105,7 +125,12 @@ describe('SwapWorkflowOrchestrator', () => {
         code: 'ETH',
       });
       mockSwapService.generateSwapNo.mockResolvedValue('SW_123');
-      mockSwapService.fetchMarketRate.mockResolvedValue(new Prisma.Decimal(2));
+      mockSwapService.getExecutableRate.mockResolvedValue({
+        executableRate: 2,
+      });
+      mockPrisma.customerMain.findUnique.mockResolvedValue({
+        customerNo: 'CU_0001',
+      });
       mockJournalsService.getCustomerLiabilityBalance.mockResolvedValue({
         availableBalance: new Prisma.Decimal(1000),
       });
@@ -146,7 +171,12 @@ describe('SwapWorkflowOrchestrator', () => {
         type: 'CRYPTO',
         code: 'ETH',
       });
-      mockSwapService.fetchMarketRate.mockResolvedValue(new Prisma.Decimal(2));
+      mockSwapService.getExecutableRate.mockResolvedValue({
+        executableRate: 2,
+      });
+      mockPrisma.customerMain.findUnique.mockResolvedValue({
+        customerNo: 'CU_0001',
+      });
       mockJournalsService.getCustomerLiabilityBalance.mockResolvedValue({
         availableBalance: new Prisma.Decimal(10),
       });
@@ -155,6 +185,84 @@ describe('SwapWorkflowOrchestrator', () => {
         BadRequestException,
       );
       expect(mockPrisma.swapTransaction.create).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('R0B: CREATE_FROM_QUOTE', () => {
+    it('should create swap from active quote and mark quote used', async () => {
+      const quote = {
+        id: 'quote-1',
+        quoteNo: 'QUO_0001',
+        ownerNo: 'CU_0001',
+        fromAssetId: 'asset-1',
+        toAssetId: 'asset-2',
+        amountIn: new Prisma.Decimal(100),
+        amountOut: new Prisma.Decimal(200),
+        rateAllIn: new Prisma.Decimal(2),
+      };
+
+      const mockTx = {
+        id: 'swap-2',
+        swapNo: 'SW_2',
+        ownerId: 'user-1',
+        ownerType: 'CUSTOMER',
+        fromAssetId: 'asset-1',
+        toAssetId: 'asset-2',
+        fromAmount: new Prisma.Decimal(100),
+        toAmount: new Prisma.Decimal(200),
+        exchangeRate: new Prisma.Decimal(2),
+        status: SwapTransactionStatus.PENDING_COMPLIANCE,
+      };
+
+      mockSwapQuotesService.getActiveQuoteOrThrow.mockResolvedValue(quote);
+      mockJournalsService.getCustomerLiabilityBalance.mockResolvedValue({
+        availableBalance: new Prisma.Decimal(1000),
+      });
+      mockPrisma.swapTransaction.create.mockResolvedValue(mockTx);
+      mockSwapQuotesService.consumeQuoteForSwap.mockResolvedValue({
+        ...quote,
+        status: 'USED',
+      });
+      mockPrisma.swapTransactionAuditLog.create.mockResolvedValue({
+        id: 'log-q1',
+      });
+      mockJournalsService.createJournal.mockResolvedValue({ id: 'JO-Q1' });
+
+      const result = await orchestrator.createSwapFromQuote('user-1', 'quote-1');
+
+      expect(result.swap_status_after).toBe(SwapTransactionStatus.PENDING_COMPLIANCE);
+      expect(mockSwapQuotesService.getActiveQuoteOrThrow).toHaveBeenCalled();
+      expect(mockSwapQuotesService.consumeQuoteForSwap).toHaveBeenCalled();
+      expect(mockPrisma.swapTransaction.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            quoteId: 'quote-1',
+          }),
+        }),
+      );
+    });
+
+    it('should block create from quote when available balance is insufficient', async () => {
+      mockSwapQuotesService.getActiveQuoteOrThrow.mockResolvedValue({
+        id: 'quote-2',
+        quoteNo: 'QUO_0002',
+        ownerNo: 'CU_0001',
+        fromAssetId: 'asset-1',
+        toAssetId: 'asset-2',
+        amountIn: new Prisma.Decimal(100),
+        amountOut: new Prisma.Decimal(200),
+        rateAllIn: new Prisma.Decimal(2),
+      });
+      mockJournalsService.getCustomerLiabilityBalance.mockResolvedValue({
+        availableBalance: new Prisma.Decimal(10),
+      });
+
+      await expect(
+        orchestrator.createSwapFromQuote('user-1', 'quote-2'),
+      ).rejects.toThrow(BadRequestException);
+
+      expect(mockPrisma.swapTransaction.create).not.toHaveBeenCalled();
+      expect(mockSwapQuotesService.consumeQuoteForSwap).not.toHaveBeenCalled();
     });
   });
 
@@ -222,6 +330,10 @@ describe('SwapWorkflowOrchestrator', () => {
       });
       mockPrisma.swapTransactionAuditLog.findFirst.mockResolvedValue(null);
       mockJournalsService.triggerEvent.mockResolvedValue({ id: 'JO-2' });
+      mockOutstandingsService.createForSwapSuccess.mockResolvedValue([
+        { id: 'os-out', direction: 'OUT' },
+        { id: 'os-in', direction: 'IN' },
+      ]);
 
       const result = await orchestrator.handleStatusTransition(
         swapId,
@@ -234,6 +346,10 @@ describe('SwapWorkflowOrchestrator', () => {
       expect(eventEmitter.emit).toHaveBeenCalledWith(
         SwapEvents.EVT_SWAP_SUCCESS,
         { swapId, oldStatus: SwapTransactionStatus.PENDING_COMPLIANCE },
+      );
+      expect(mockOutstandingsService.createForSwapSuccess).toHaveBeenCalledWith(
+        mockPrisma,
+        expect.objectContaining({ id: swapId, status: SwapTransactionStatus.SUCCESS }),
       );
     });
 
@@ -263,6 +379,10 @@ describe('SwapWorkflowOrchestrator', () => {
         id: 'log-prev',
       });
       mockJournalsService.triggerEvent.mockResolvedValue({ id: 'JO-3' });
+      mockOutstandingsService.createForSwapSuccess.mockResolvedValue([
+        { id: 'os-out', direction: 'OUT' },
+        { id: 'os-in', direction: 'IN' },
+      ]);
 
       const result = await orchestrator.handleStatusTransition(
         swapId,
@@ -275,6 +395,7 @@ describe('SwapWorkflowOrchestrator', () => {
         SwapEvents.EVT_SWAP_SUCCESS,
         expect.anything(),
       );
+      expect(mockOutstandingsService.createForSwapSuccess).toHaveBeenCalledTimes(1);
     });
   });
 

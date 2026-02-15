@@ -9,6 +9,7 @@ import {
   CreateLiquidityConfigDto,
   UpdateLiquidityConfigDto,
   LiquidityConfigStatus,
+  RateSourceType,
 } from './dto/liquidity-config.dto';
 import { Prisma } from '@prisma/client';
 
@@ -22,6 +23,10 @@ export class LiquidityConfigService {
     this.logger.log(
       `Creating liquidity config for LP ${data.lpId}: ${data.fromAssetId} -> ${data.toAssetId}`,
     );
+
+    if (data.rateSourceType !== RateSourceType.API) {
+      throw new BadRequestException('Only API rate source is supported');
+    }
 
     // Validate foreign keys
     const lp = await this.prisma.liquidityProvider.findUnique({
@@ -52,6 +57,7 @@ export class LiquidityConfigService {
         fromAssetId: data.fromAssetId,
         toAssetId: data.toAssetId,
         rateSourceType: data.rateSourceType,
+        spreadPercent: data.spreadPercent,
         feePercent: data.feePercent,
         feeFixedAmount: data.feeFixedAmount,
         feeAssetId: data.feeAssetId,
@@ -115,6 +121,13 @@ export class LiquidityConfigService {
       );
     }
 
+    if (
+      data.rateSourceType !== undefined &&
+      data.rateSourceType !== RateSourceType.API
+    ) {
+      throw new BadRequestException('Only API rate source is supported');
+    }
+
     if (data.feeAssetId) {
       const feeAsset = await this.prisma.asset.findUnique({
         where: { id: data.feeAssetId },
@@ -126,6 +139,7 @@ export class LiquidityConfigService {
       where: { id },
       data: {
         rateSourceType: data.rateSourceType,
+        spreadPercent: data.spreadPercent,
         feePercent: data.feePercent,
         feeFixedAmount: data.feeFixedAmount,
         feeAssetId: data.feeAssetId,
@@ -165,6 +179,43 @@ export class LiquidityConfigService {
         lp: true,
       },
     });
+  }
+
+  async resolveActiveConfigForPair(fromAssetId: string, toAssetId: string) {
+    const configs = await this.prisma.liquidityConfiguration.findMany({
+      where: {
+        fromAssetId,
+        toAssetId,
+        status: LiquidityConfigStatus.ACTIVE,
+        lp: { status: 'ACTIVE' },
+      },
+      include: {
+        lp: {
+          select: { id: true, name: true, status: true },
+        },
+      },
+    });
+
+    if (configs.length === 0) {
+      throw new BadRequestException(
+        `No active liquidity configuration found for pair ${fromAssetId} -> ${toAssetId}`,
+      );
+    }
+
+    if (configs.length > 1) {
+      throw new BadRequestException(
+        `Multiple active liquidity configurations found for pair ${fromAssetId} -> ${toAssetId}. Keep only one ACTIVE config.`,
+      );
+    }
+
+    const config = configs[0];
+    if (config.rateSourceType !== RateSourceType.API) {
+      throw new BadRequestException(
+        `Unsupported rate source type ${config.rateSourceType}. Only API is allowed.`,
+      );
+    }
+
+    return config;
   }
 
   async getByLpId(lpId: string) {

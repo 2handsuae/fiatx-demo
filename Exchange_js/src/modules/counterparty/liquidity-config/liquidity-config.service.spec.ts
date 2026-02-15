@@ -55,6 +55,7 @@ describe('LiquidityConfigService', () => {
         fromAssetId: 'a1',
         toAssetId: 'a2',
         rateSourceType: RateSourceType.API,
+        spreadPercent: 1.5,
         feePercent: 0.1,
         feeFixedAmount: 0,
       };
@@ -83,6 +84,7 @@ describe('LiquidityConfigService', () => {
           fromAssetId: 'a1',
           toAssetId: 'a2',
           rateSourceType: RateSourceType.API,
+          spreadPercent: 1,
           feePercent: 0,
           feeFixedAmount: 0,
         }),
@@ -115,11 +117,49 @@ describe('LiquidityConfigService', () => {
       });
       mockPrismaService.liquidityConfiguration.update.mockResolvedValue({
         id: '1',
+        spreadPercent: 1.2,
         feePercent: 0.5,
       });
 
-      const result = await service.update('1', { feePercent: 0.5 });
+      const result = await service.update('1', {
+        spreadPercent: 1.2,
+        feePercent: 0.5,
+      });
       expect(result.feePercent).toBe(0.5);
+      expect(result.spreadPercent).toBe(1.2);
+    });
+  });
+
+  describe('resolveActiveConfigForPair', () => {
+    it('should return single active config for pair', async () => {
+      mockPrismaService.liquidityConfiguration.findMany.mockResolvedValue([
+        {
+          id: 'cfg-1',
+          rateSourceType: RateSourceType.API,
+          spreadPercent: 1.5,
+          lp: { id: 'lp1', name: 'LP1', status: 'ACTIVE' },
+        },
+      ]);
+
+      const result = await service.resolveActiveConfigForPair('a1', 'a2');
+      expect(result.id).toBe('cfg-1');
+    });
+
+    it('should throw when no active config exists', async () => {
+      mockPrismaService.liquidityConfiguration.findMany.mockResolvedValue([]);
+      await expect(
+        service.resolveActiveConfigForPair('a1', 'a2'),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should throw when multiple active configs exist', async () => {
+      mockPrismaService.liquidityConfiguration.findMany.mockResolvedValue([
+        { id: 'cfg-1', rateSourceType: RateSourceType.API, lp: { status: 'ACTIVE' } },
+        { id: 'cfg-2', rateSourceType: RateSourceType.API, lp: { status: 'ACTIVE' } },
+      ]);
+      await expect(
+        service.resolveActiveConfigForPair('a1', 'a2'),
+      ).rejects.toThrow(BadRequestException);
     });
   });
 });

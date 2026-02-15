@@ -19,6 +19,7 @@ const LiquidityConfigEdit = () => {
 
   const [formData, setFormData] = useState({
     rateSourceType: 'API',
+    spreadPercent: 0,
     feePercent: 0,
     feeFixedAmount: 0,
     minFromAmount: 0,
@@ -50,6 +51,7 @@ const LiquidityConfigEdit = () => {
 
           setFormData({
             rateSourceType: data.rateSourceType,
+            spreadPercent: Number(data.spreadPercent || 0),
             feePercent: Number(data.feePercent),
             feeFixedAmount: Number(data.feeFixedAmount),
             minFromAmount: Number(data.minFromAmount || 0),
@@ -73,7 +75,7 @@ const LiquidityConfigEdit = () => {
     const { name, value } = e.target;
     setFormData(prev => ({
       ...prev,
-      [name]: ['feePercent', 'feeFixedAmount', 'minFromAmount', 'maxFromAmount'].includes(name) 
+      [name]: ['spreadPercent', 'feePercent', 'feeFixedAmount', 'minFromAmount', 'maxFromAmount'].includes(name) 
         ? parseFloat(value) || 0 
         : value
     }));
@@ -124,7 +126,7 @@ const LiquidityConfigEdit = () => {
         </button>
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Edit Liquidity Config</h1>
-          <p className="text-sm text-gray-500 mt-1">Modify configuration parameters</p>
+          <p className="text-sm text-gray-500 mt-1">LP routing config only (not used for customer-platform swap pricing)</p>
         </div>
       </div>
 
@@ -168,11 +170,22 @@ const LiquidityConfigEdit = () => {
                 required
               >
                 <option value="API">API (Automatic)</option>
-                <option value="MANUAL">Manual (Fixed Rate)</option>
               </select>
             </div>
 
             <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                    <label className="block text-sm font-medium text-gray-700">Spread Percent (%)</label>
+                    <input
+                        type="number"
+                        name="spreadPercent"
+                        value={formData.spreadPercent}
+                        onChange={handleChange}
+                        min="0"
+                        step="0.01"
+                        className="w-full px-3 py-2 bg-white border border-admin-border rounded-lg focus:outline-none focus:border-brand-primary focus:ring-1 focus:ring-brand-primary/20 transition-all"
+                    />
+                </div>
                 <div className="space-y-2">
                     <label className="block text-sm font-medium text-gray-700">Fee Percent (%)</label>
                     <input

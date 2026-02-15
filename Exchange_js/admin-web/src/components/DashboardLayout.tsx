@@ -50,8 +50,23 @@ const DashboardLayout = () => {
       label: 'Customer Management', 
       icon: <UserCog size={20} />, 
       children: [
-        { path: '/dashboard/customer/management', label: 'Customer Management', icon: <Users size={18} /> }
+        { path: '/dashboard/customer/management', label: 'Customer Management', icon: <Users size={18} /> },
       ]
+    },
+    {
+      label: 'Pricing Center',
+      icon: <Coins size={20} />,
+      children: [
+        { path: '/dashboard/pricing/rates', label: 'Swap Rates', icon: <Repeat size={18} /> },
+        { path: '/dashboard/pricing/quotes', label: 'Swap Quotes', icon: <FileText size={18} /> },
+      ],
+    },
+    {
+      label: 'Reconciliation Center',
+      icon: <Activity size={20} />,
+      children: [
+        { path: '/dashboard/reconciliation/outstandings', label: 'Swap Outstandings', icon: <ClipboardList size={18} /> },
+      ],
     },
     {
       label: 'Compliance Center',
@@ -112,7 +127,7 @@ const DashboardLayout = () => {
       icon: <Handshake size={20} />,
       children: [
         { path: '/dashboard/system/liquidity-providers', label: 'Liquidity Providers', icon: <Building2 size={18} /> },
-        { path: '/dashboard/system/liquidity-config', label: 'Liquidity Config', icon: <ShieldCheck size={18} /> }
+        { path: '/dashboard/system/liquidity-config', label: 'LP Liquidity Config', icon: <ShieldCheck size={18} /> }
       ]
     },
     {

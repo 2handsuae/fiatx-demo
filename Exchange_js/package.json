@@ -18,6 +18,8 @@
     "db:base:sync": "ts-node prisma/seed.ts --mode=base",
     "db:biz:init": "ts-node prisma/seed.ts --mode=business",
     "db:biz:reset": "ts-node scripts/reset-business-data.ts",
+    "nos:rebuild:quote-outstanding:dry": "ts-node scripts/rebuild-quote-outstanding-nos.ts",
+    "nos:rebuild:quote-outstanding:apply": "ts-node scripts/rebuild-quote-outstanding-nos.ts --apply",
     "prestart:debug": "npm run prisma:generate",
     "start:debug": "nest start --debug --watch",
     "start:prod": "node dist/main",

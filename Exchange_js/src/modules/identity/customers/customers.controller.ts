@@ -11,6 +11,7 @@ import {
   Request,
   BadRequestException,
   ForbiddenException,
+  ParseUUIDPipe,
 } from '@nestjs/common';
 import { CustomersService } from './customers.service';
 import { Prisma } from '@prisma/client';
@@ -86,7 +87,7 @@ export class CustomersController {
 
   @Get(':id')
   @ApiOperation({ summary: 'Get a customer by ID' })
-  findOne(@Request() req: any, @Param('id') id: string) {
+  findOne(@Request() req: any, @Param('id', new ParseUUIDPipe()) id: string) {
     this.ensureAdmin(req);
     return this.customersService.findOne(id);
   }
@@ -95,7 +96,7 @@ export class CustomersController {
   @ApiOperation({ summary: 'Update a customer' })
   update(
     @Request() req: any,
-    @Param('id') id: string,
+    @Param('id', new ParseUUIDPipe()) id: string,
     @Body() updateCustomerDto: Prisma.CustomerMainUpdateInput,
   ) {
     this.ensureAdmin(req);
@@ -109,7 +110,7 @@ export class CustomersController {
   @ApiOperation({ summary: 'Deprecated: customer status changes moved to onboarding module' })
   async changeStatus(
     @Request() req: any,
-    @Param('id') id: string,
+    @Param('id', new ParseUUIDPipe()) id: string,
     @Body() body: { status: string, reason?: string },
   ) {
     this.ensureAdmin(req);
@@ -120,7 +121,7 @@ export class CustomersController {
 
   @Delete(':id')
   @ApiOperation({ summary: 'Delete a customer' })
-  remove(@Request() req: any, @Param('id') id: string) {
+  remove(@Request() req: any, @Param('id', new ParseUUIDPipe()) id: string) {
     this.ensureAdmin(req);
     return this.customersService.remove({ id });
   }

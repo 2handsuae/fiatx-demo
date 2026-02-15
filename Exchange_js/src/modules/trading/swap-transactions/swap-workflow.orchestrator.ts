@@ -17,6 +17,8 @@ import {
 import { SwapTransactionsService } from './swap-transactions.service';
 import { Prisma } from '@prisma/client';
 import { JournalsService } from '../../accounting/journals/journals.service';
+import { SwapQuotesService } from './swap-quotes.service';
+import { OutstandingsService } from '../../clearing-settle/outstandings/outstandings.service';
 
 export interface SwapOrchestratorOutput {
   swap_status_after: SwapTransactionStatus;
@@ -34,6 +36,8 @@ export class SwapWorkflowOrchestrator {
     private eventEmitter: EventEmitter2,
     private swapService: SwapTransactionsService,
     private journalsService: JournalsService,
+    private swapQuotesService: SwapQuotesService,
+    private outstandingsService: OutstandingsService,
   ) {}
 
   private createAccountingContext(swap: {
@@ -85,10 +89,11 @@ export class SwapWorkflowOrchestrator {
         throw new BadRequestException('Fiat to Fiat swap is not supported');
       }
 
-      const rate = await this.swapService.fetchMarketRate(
-        fromAsset.code,
-        toAsset.code,
+      const rateDetails = await this.swapService.getExecutableRate(
+        fromAsset.id,
+        toAsset.id,
       );
+      const rate = new Prisma.Decimal(rateDetails.executableRate);
       const fromAmount = new Prisma.Decimal(dto.fromAmount);
       const toAmount = fromAmount.mul(rate);
 
@@ -108,12 +113,22 @@ export class SwapWorkflowOrchestrator {
         });
       }
 
+      let ownerNo: string | null = null;
+      if (dto.ownerType === 'CUSTOMER') {
+        const owner = await tx.customerMain.findUnique({
+          where: { id: dto.ownerId },
+          select: { customerNo: true },
+        });
+        ownerNo = owner?.customerNo || null;
+      }
+
       // Create Swap record
       const transaction = await tx.swapTransaction.create({
         data: {
           swapNo,
           ownerType: dto.ownerType,
           ownerId: dto.ownerId,
+          ownerNo,
           status: SwapTransactionStatus.PENDING_COMPLIANCE,
           fromAssetId: dto.fromAssetId,
           fromAmount,
@@ -173,6 +188,111 @@ export class SwapWorkflowOrchestrator {
     return result;
   }
 
+  async createSwapFromQuote(
+    ownerId: string,
+    quoteId: string,
+  ): Promise<SwapOrchestratorOutput> {
+    const now = new Date();
+
+    const result = await this.prisma.$transaction(async (tx: any) => {
+      const quote = await this.swapQuotesService.getActiveQuoteOrThrow(
+        quoteId,
+        'CUSTOMER',
+        ownerId,
+        now,
+        tx,
+      );
+
+      const fromAmount = new Prisma.Decimal(quote.amountIn);
+      const toAmount = new Prisma.Decimal(quote.amountOut);
+      const rate = new Prisma.Decimal(quote.rateAllIn);
+      const swapNo = generateReferenceNo('SWP');
+
+      const balances = await this.journalsService.getCustomerLiabilityBalance(
+        {
+          ownerId,
+          ownerType: 'CUSTOMER',
+          assetId: quote.fromAssetId,
+        },
+        tx,
+      );
+
+      if (balances.availableBalance.lt(fromAmount)) {
+        throw new BadRequestException({
+          code: 'INSUFFICIENT_AVAILABLE_BALANCE',
+          message: `Insufficient available balance for swap asset ${quote.fromAssetId}`,
+        });
+      }
+
+      const transaction = await tx.swapTransaction.create({
+        data: {
+          swapNo,
+          quoteId: quote.id,
+          quoteNo: quote.quoteNo,
+          ownerType: 'CUSTOMER',
+          ownerId,
+          ownerNo: quote.ownerNo,
+          status: SwapTransactionStatus.PENDING_COMPLIANCE,
+          fromAssetId: quote.fromAssetId,
+          fromAmount,
+          toAssetId: quote.toAssetId,
+          toAmount,
+          exchangeRate: rate,
+        },
+        include: {
+          fromAsset: true,
+          toAsset: true,
+        },
+      });
+
+      await this.swapQuotesService.consumeQuoteForSwap(
+        tx,
+        quote.id,
+        'CUSTOMER',
+        ownerId,
+        now,
+      );
+
+      const auditLog = await tx.swapTransactionAuditLog.create({
+        data: {
+          swapTransactionId: transaction.id,
+          operatorId: ownerId,
+          oldStatus: 'NONE',
+          newStatus: SwapTransactionStatus.PENDING_COMPLIANCE,
+          reason: `Created from quote ${quote.id}`,
+        },
+      });
+
+      await this.journalsService.createJournal(
+        {
+          sourceType: 'SWAP',
+          sourceId: transaction.id,
+          eventCode: SwapEvents.EVT_SWAP_CREATED,
+          context: this.createAccountingContext(transaction),
+        },
+        tx,
+      );
+
+      return {
+        swap_status_after: SwapTransactionStatus.PENDING_COMPLIANCE,
+        emitted_events: [SwapEvents.EVT_SWAP_CREATED],
+        audit_log_id: auditLog.id,
+        transaction,
+      };
+    });
+
+    if (result.emitted_events.includes(SwapEvents.EVT_SWAP_CREATED)) {
+      this.logger.log(
+        `Emitting ${SwapEvents.EVT_SWAP_CREATED} for ${result.transaction.id}`,
+      );
+      this.eventEmitter.emit(SwapEvents.EVT_SWAP_CREATED, {
+        swapId: result.transaction.id,
+      });
+    }
+
+    return result;
+  }
+
   /**
    * R1-R4. Status Transitions
    */
@@ -212,6 +332,10 @@ export class SwapWorkflowOrchestrator {
           toAsset: true,
         },
       });
+
+      if (action === SwapTransactionAction.SUCCESS) {
+        await this.outstandingsService.createForSwapSuccess(tx, updated);
+      }
 
       // 2. Record Audit Log
       const auditLog = await tx.swapTransactionAuditLog.create({

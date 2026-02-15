@@ -14,6 +14,19 @@ import axios from 'axios';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { SwapEvents } from './constants/swap-events.constant';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
+import { CustomerSwapRatesService } from '../../identity/customer-swap-rates/customer-swap-rates.service';
+
+export interface SwapExecutableRateResult {
+  fromAssetId: string;
+  toAssetId: string;
+  fromAssetCode: string;
+  toAssetCode: string;
+  marketRate: number;
+  spreadPercent: number;
+  executableRate: number;
+  rateSource: 'BINANCE';
+  fetchedAt: string;
+}
 
 @Injectable()
 export class SwapTransactionsService {
@@ -23,6 +36,7 @@ export class SwapTransactionsService {
   constructor(
     private prisma: PrismaService,
     private eventEmitter: EventEmitter2,
+    private customerSwapRatesService: CustomerSwapRatesService,
   ) {}
 
   async create(dto: {
@@ -218,36 +232,83 @@ export class SwapTransactionsService {
     return rate;
   }
 
-  async preview(dto: {
-    fromAssetId: string;
-    fromAmount: number;
-    toAssetId: string;
-  }) {
-    const fromAsset = await (this.prisma as any).asset.findUnique({
-      where: { id: dto.fromAssetId },
-    });
-    const toAsset = await (this.prisma as any).asset.findUnique({
-      where: { id: dto.toAssetId },
-    });
+  private async getSwapAssetsOrThrow(fromAssetId: string, toAssetId: string) {
+    const [fromAsset, toAsset] = await Promise.all([
+      (this.prisma as any).asset.findUnique({
+        where: { id: fromAssetId },
+      }),
+      (this.prisma as any).asset.findUnique({
+        where: { id: toAssetId },
+      }),
+    ]);
 
-    if (!fromAsset || !toAsset) throw new NotFoundException('Asset not found');
+    if (!fromAsset || !toAsset) {
+      throw new NotFoundException('Asset not found');
+    }
 
     if (fromAsset.type === 'FIAT' && toAsset.type === 'FIAT') {
       throw new BadRequestException('Fiat to Fiat swap is not supported');
     }
 
-    const rate = await this.fetchMarketRate(fromAsset.code, toAsset.code);
-    const fromAmount = new Prisma.Decimal(dto.fromAmount);
-    const toAmount = fromAmount.mul(rate);
+    return { fromAsset, toAsset };
+  }
+
+  async getExecutableRate(fromAssetId: string, toAssetId: string): Promise<SwapExecutableRateResult> {
+    const { fromAsset, toAsset } = await this.getSwapAssetsOrThrow(
+      fromAssetId,
+      toAssetId,
+    );
+
+    const config = await this.customerSwapRatesService.resolveActiveRateForPair(
+      fromAsset.id,
+      toAsset.id,
+    );
+
+    const marketRate = await this.fetchMarketRate(fromAsset.code, toAsset.code);
+    const spreadPercent = new Prisma.Decimal(config.spreadPercent || 0);
+    const spreadMultiplier = new Prisma.Decimal(1).add(
+      spreadPercent.div(100),
+    );
+    const executableRate = marketRate.mul(spreadMultiplier);
 
     return {
       fromAssetId: fromAsset.id,
-      fromAssetCode: fromAsset.code,
-      fromAmount: fromAmount.toNumber(),
       toAssetId: toAsset.id,
+      fromAssetCode: fromAsset.code,
       toAssetCode: toAsset.code,
+      marketRate: marketRate.toNumber(),
+      spreadPercent: spreadPercent.toNumber(),
+      executableRate: executableRate.toNumber(),
+      rateSource: 'BINANCE',
+      fetchedAt: new Date().toISOString(),
+    };
+  }
+
+  async preview(dto: {
+    fromAssetId: string;
+    fromAmount: number;
+    toAssetId: string;
+  }) {
+    const rateDetails = await this.getExecutableRate(
+      dto.fromAssetId,
+      dto.toAssetId,
+    );
+    const fromAmount = new Prisma.Decimal(dto.fromAmount);
+    const executableRate = new Prisma.Decimal(rateDetails.executableRate);
+    const toAmount = fromAmount.mul(executableRate);
+
+    return {
+      fromAssetId: rateDetails.fromAssetId,
+      fromAssetCode: rateDetails.fromAssetCode,
+      fromAmount: fromAmount.toNumber(),
+      toAssetId: rateDetails.toAssetId,
+      toAssetCode: rateDetails.toAssetCode,
       toAmount: toAmount.toNumber(),
-      exchangeRate: rate.toNumber(),
+      exchangeRate: executableRate.toNumber(),
+      marketRate: rateDetails.marketRate,
+      spreadPercent: rateDetails.spreadPercent,
+      rateSource: rateDetails.rateSource,
+      fetchedAt: rateDetails.fetchedAt,
     };
   }
 

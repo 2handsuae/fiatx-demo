@@ -13,7 +13,6 @@ import {
   TrendingUp,
   ArrowRight
 } from 'lucide-react';
-import { Decimal } from 'decimal.js';
 import { useAuth } from '../context/AuthContext';
 
 interface Asset {
@@ -36,14 +35,43 @@ interface SwapTransaction {
   completedAt: string | null;
 }
 
-interface PreviewResult {
+interface FirmQuoteResult {
+  quoteId: string;
+  quoteType: 'FIRM' | 'INDICATIVE';
+  status: 'ACTIVE' | 'USED' | 'EXPIRED' | 'CANCELLED';
+  createdAt: string;
+  expiresAt: string;
+  usedAt?: string | null;
+  baseCurrency: string;
+  quoteCurrency: string;
+  side: 'SELL_BASE' | 'BUY_BASE';
+  amountType: 'EXACT_IN' | 'EXACT_OUT';
+  amountIn: number;
+  currencyIn: string;
+  amountOut: number;
+  currencyOut: string;
+  rateDisplay: number;
+  rateAllIn: number;
+  marketRate: number;
+  spreadPercent: number;
+  spreadBps: number;
+  rateSource: string;
+  fetchedAt: string;
+  feeTotal: number;
+  feeCurrency: string;
+  feeBreakdown: Array<Record<string, unknown>>;
+}
+
+interface LiveRateResult {
   fromAssetId: string;
-  fromAssetCode: string;
-  fromAmount: number;
   toAssetId: string;
+  fromAssetCode: string;
   toAssetCode: string;
-  toAmount: number;
-  exchangeRate: number;
+  marketRate: number;
+  spreadPercent: number;
+  executableRate: number;
+  rateSource: 'BINANCE';
+  fetchedAt: string;
 }
 
 interface AssetBalance {
@@ -64,7 +92,8 @@ const Swap = () => {
   const [toAssetId, setToAssetId] = useState('');
   const [fromAmount, setFromAmount] = useState<string>('');
   const [loading, setLoading] = useState(false);
-  const [preview, setPreview] = useState<PreviewResult | null>(null);
+  const [firmQuote, setFirmQuote] = useState<FirmQuoteResult | null>(null);
+  const [quoteExpiresIn, setQuoteExpiresIn] = useState(0);
   const [showConfirm, setShowConfirm] = useState(false);
   const [swapping, setSwapping] = useState(false);
 
@@ -72,9 +101,12 @@ const Swap = () => {
   const [liveRate, setLiveRate] = useState<number | null>(null);
   const [rateLoading, setRateLoading] = useState(false);
   const [rateError, setRateError] = useState<string | null>(null);
-
-  // Constants
-  const AED_USD_RATE = 3.6725;
+  const [rateMeta, setRateMeta] = useState<{
+    marketRate: number;
+    spreadPercent: number;
+    rateSource: string;
+    fetchedAt: string;
+  } | null>(null);
 
   // History State
   const [history, setHistory] = useState<SwapTransaction[]>([]);
@@ -142,81 +174,90 @@ const Swap = () => {
     }
   }, [activeTab]);
 
-  const fetchBinanceRate = async (from: Asset, to: Asset) => {
-    setRateLoading(true);
+  const fetchLiveRate = async (
+    currentFromAssetId: string,
+    currentToAssetId: string,
+    background = false,
+  ) => {
+    if (!background) {
+      setRateLoading(true);
+    }
     setRateError(null);
     try {
-      const getBinanceCode = (asset: Asset) => {
-        if (asset.code === 'USD' || asset.code === 'AED') return 'USDT';
-        return asset.code;
-      };
-
-      const fromCode = getBinanceCode(from);
-      const toCode = getBinanceCode(to);
-
-      let finalRate = new Decimal(1);
-
-      if (fromCode !== toCode) {
-        const pair = `${fromCode}${toCode}`;
-        const reversePair = `${toCode}${fromCode}`;
-
-        let rate: Decimal | null = null;
-        
-        try {
-          const resp = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${pair}`);
-          if (resp.ok) {
-            const data = await resp.json();
-            rate = new Decimal(data.price);
-          }
-        } catch (e) {}
-
-        if (!rate) {
-          try {
-            const respRev = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${reversePair}`);
-            if (respRev.ok) {
-              const data = await respRev.json();
-              const revRate = new Decimal(data.price);
-              rate = new Decimal(1).div(revRate);
-            }
-          } catch (e) {}
-        }
-
-        if (!rate) {
-          throw new Error('Market pair not available on Binance');
-        }
-        
-        finalRate = rate;
+      const token = localStorage.getItem('customer_token');
+      const params = new URLSearchParams({
+        fromAssetId: currentFromAssetId,
+        toAssetId: currentToAssetId,
+      });
+      const response = await fetch(
+        `${import.meta.env.VITE_API_URL}/swap-transactions/rate?${params.toString()}`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        },
+      );
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.message || 'Failed to fetch real-time rate');
       }
-
-      const aedUsdDecimal = new Decimal(AED_USD_RATE);
-      if (from.code === 'AED') finalRate = finalRate.div(aedUsdDecimal);
-      if (to.code === 'AED') finalRate = finalRate.mul(aedUsdDecimal);
-
-      setLiveRate(finalRate.toNumber());
+      const data: LiveRateResult = await response.json();
+      setLiveRate(data.executableRate);
+      setRateMeta({
+        marketRate: data.marketRate,
+        spreadPercent: data.spreadPercent,
+        rateSource: data.rateSource,
+        fetchedAt: data.fetchedAt,
+      });
     } catch (error: any) {
-      setRateError(error.message);
+      setRateError(error.message || 'Failed to fetch real-time rate');
       setLiveRate(null);
+      setRateMeta(null);
     } finally {
-      setRateLoading(false);
+      if (!background) {
+        setRateLoading(false);
+      }
     }
   };
 
   useEffect(() => {
     const from = assets.find(a => a.id === fromAssetId);
     const to = assets.find(a => a.id === toAssetId);
+    let intervalId: ReturnType<typeof setInterval> | null = null;
+
     if (from && to) {
       if (from.type === 'FIAT' && to.type === 'FIAT') {
         setLiveRate(null);
+        setRateMeta(null);
         setRateError('Fiat to Fiat swap is not supported');
-        return;
+      } else {
+        fetchLiveRate(from.id, to.id, false);
+        intervalId = setInterval(() => {
+          fetchLiveRate(from.id, to.id, true);
+        }, 10000);
       }
-      fetchBinanceRate(from, to);
     } else {
       setLiveRate(null);
+      setRateMeta(null);
+      setRateError(null);
     }
+
+    return () => {
+      if (intervalId) {
+        clearInterval(intervalId);
+      }
+    };
   }, [fromAssetId, toAssetId, assets]);
 
   const currentBalance = balances.find(b => b.assetId === fromAssetId)?.clientCredit || '0';
+
+  const getErrorMessage = (message: unknown, fallback: string) => {
+    if (Array.isArray(message)) {
+      return message.join(', ');
+    }
+    if (typeof message === 'string' && message.trim()) {
+      return message;
+    }
+    return fallback;
+  };
 
   const handleFromAmountChange = (value: string) => {
     if (value === '') {
@@ -242,7 +283,7 @@ const Swap = () => {
     const temp = fromAssetId;
     setFromAssetId(toAssetId);
     setToAssetId(temp);
-    setPreview(null);
+    setFirmQuote(null);
   };
 
   const handlePreview = async () => {
@@ -250,7 +291,7 @@ const Swap = () => {
     setLoading(true);
     try {
       const token = localStorage.getItem('customer_token');
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/swap-transactions/preview`, {
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/swap-transactions/quotes`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -263,22 +304,54 @@ const Swap = () => {
         })
       });
       if (response.ok) {
-        const data = await response.json();
-        setPreview(data);
+        const data: FirmQuoteResult = await response.json();
+        const expiresInSec = Math.max(
+          0,
+          Math.floor((new Date(data.expiresAt).getTime() - Date.now()) / 1000),
+        );
+        setFirmQuote(data);
+        setQuoteExpiresIn(expiresInSec);
         setShowConfirm(true);
       } else {
         const err = await response.json();
-        alert(err.message || 'Failed to get preview');
+        alert(getErrorMessage(err?.message, 'Failed to get quote'));
       }
     } catch (error) {
-      console.error('Preview failed', error);
+      console.error('Quote creation failed', error);
     } finally {
       setLoading(false);
     }
   };
 
+  const handleCloseConfirm = async () => {
+    if (firmQuote && quoteExpiresIn > 0 && firmQuote.status === 'ACTIVE') {
+      try {
+        const token = localStorage.getItem('customer_token');
+        await fetch(`${import.meta.env.VITE_API_URL}/swap-transactions/quotes/${firmQuote.quoteId}/cancel`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({})
+        });
+      } catch (error) {
+        console.error('Quote cancel failed', error);
+      }
+    }
+
+    setShowConfirm(false);
+    setFirmQuote(null);
+    setQuoteExpiresIn(0);
+  };
+
   const handleExecuteSwap = async () => {
-    if (!preview) return;
+    if (!firmQuote) return;
+    if (quoteExpiresIn <= 0) {
+      alert('Quote expired. Please request a new quote.');
+      return;
+    }
+
     setSwapping(true);
     try {
       const token = localStorage.getItem('customer_token');
@@ -289,24 +362,27 @@ const Swap = () => {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          fromAssetId: preview.fromAssetId,
-          toAssetId: preview.toAssetId,
-          fromAmount: preview.fromAmount,
-          toAmount: preview.toAmount,
-          ownerType: 'CUSTOMER',
-          ownerId: user?.id
+          quoteId: firmQuote.quoteId,
         })
       });
       if (response.ok) {
         alert('Swap transaction created successfully!');
         setShowConfirm(false);
         setFromAmount('');
-        setPreview(null);
+        setFirmQuote(null);
+        setQuoteExpiresIn(0);
         setActiveTab('history');
         fetchBalances(); // Refresh balances after swap
       } else {
         const err = await response.json();
-        alert(err.message || 'Swap failed');
+        const message = getErrorMessage(err?.message, 'Swap failed');
+        alert(message);
+
+        if (message.includes('Quote')) {
+          setShowConfirm(false);
+          setFirmQuote(null);
+          setQuoteExpiresIn(0);
+        }
       }
     } catch (error) {
       console.error('Swap failed', error);
@@ -314,6 +390,22 @@ const Swap = () => {
       setSwapping(false);
     }
   };
+
+  useEffect(() => {
+    if (!showConfirm || !firmQuote) return;
+
+    const updateCountdown = () => {
+      const seconds = Math.max(
+        0,
+        Math.floor((new Date(firmQuote.expiresAt).getTime() - Date.now()) / 1000),
+      );
+      setQuoteExpiresIn(seconds);
+    };
+
+    updateCountdown();
+    const timer = setInterval(updateCountdown, 1000);
+    return () => clearInterval(timer);
+  }, [showConfirm, firmQuote]);
 
   const renderStatusBadge = (status: string) => {
     const colors: Record<string, string> = {
@@ -459,17 +551,26 @@ const Swap = () => {
                   <div className="px-2 py-1">
                     {rateLoading ? (
                       <div className="flex items-center gap-2 text-xs text-gray-400 dark:text-gray-500">
-                        <RefreshCw size={12} className="animate-spin" /> Fetching real-time Binance rate...
+                        <RefreshCw size={12} className="animate-spin" /> Fetching real-time executable rate...
                       </div>
                     ) : rateError ? (
                       <div className="flex items-center gap-2 text-xs text-red-500 dark:text-red-400">
                         <AlertTriangle size={12} /> {rateError}
                       </div>
                     ) : liveRate ? (
-                      <div className="flex items-center justify-between text-xs font-medium">
-                        <span className="text-gray-400 dark:text-gray-500">Price:</span>
-                        <span className="text-gray-900 dark:text-gray-200 font-mono">
-                          1 {assets.find(a => a.id === fromAssetId)?.code} = {liveRate.toFixed(8)} {assets.find(a => a.id === toAssetId)?.code}
+                      <div className="space-y-1 text-xs font-medium">
+                        <div className="flex items-center justify-between">
+                          <span className="text-gray-400 dark:text-gray-500">Executable:</span>
+                          <span className="text-gray-900 dark:text-gray-200 font-mono">
+                            1 {assets.find(a => a.id === fromAssetId)?.code} = {liveRate.toFixed(8)} {assets.find(a => a.id === toAssetId)?.code}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between text-gray-400 dark:text-gray-500">
+                          <span>Market:</span>
+                          <span className="font-mono">{rateMeta?.marketRate?.toFixed(8) ?? '-'} | Spread: {rateMeta?.spreadPercent ?? 0}%</span>
+                        </div>
+                        <span className="text-[10px] text-gray-400 dark:text-gray-500">
+                          Source: {rateMeta?.rateSource || 'BINANCE'}
                         </span>
                       </div>
                     ) : null}
@@ -600,13 +701,13 @@ const Swap = () => {
       </div>
 
       {/* Confirmation Modal */}
-      {showConfirm && preview && (
+      {showConfirm && firmQuote && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
           <div className="bg-white dark:bg-gray-800 rounded-3xl shadow-2xl w-full max-w-md overflow-hidden border border-gray-100 dark:border-gray-700">
             <div className="p-8 space-y-8">
               <div className="flex justify-between items-center">
                 <h3 className="text-xl font-bold text-gray-900 dark:text-white">Confirm Swap</h3>
-                <button onClick={() => setShowConfirm(false)} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-colors">
+                <button onClick={handleCloseConfirm} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-colors">
                   <X size={20} className="text-gray-400 dark:text-gray-500" />
                 </button>
               </div>
@@ -615,36 +716,46 @@ const Swap = () => {
                 <div className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-900/50 rounded-2xl border border-gray-100 dark:border-gray-700">
                   <div className="space-y-1">
                     <p className="text-xs text-gray-500 dark:text-gray-400 uppercase font-bold tracking-wider">Sell</p>
-                    <p className="text-lg font-bold text-gray-900 dark:text-white">{preview.fromAmount} {preview.fromAssetCode}</p>
+                    <p className="text-lg font-bold text-gray-900 dark:text-white">{firmQuote.amountIn} {firmQuote.currencyIn}</p>
                   </div>
                   <div className="w-10 h-10 bg-white dark:bg-gray-700 rounded-full flex items-center justify-center shadow-sm border border-gray-100 dark:border-gray-600">
                     <ArrowRight size={20} className="text-brand-primary" />
                   </div>
                   <div className="space-y-1 text-right">
                     <p className="text-xs text-gray-500 dark:text-gray-400 uppercase font-bold tracking-wider">Buy</p>
-                    <p className="text-lg font-bold text-brand-primary">{preview.toAmount.toFixed(6)} {preview.toAssetCode}</p>
+                    <p className="text-lg font-bold text-brand-primary">{firmQuote.amountOut.toFixed(6)} {firmQuote.currencyOut}</p>
                   </div>
                 </div>
 
                 <div className="space-y-3 px-2">
                   <div className="flex justify-between text-sm">
                     <span className="text-gray-500 dark:text-gray-400 font-medium">Exchange Rate</span>
-                    <span className="font-mono text-gray-900 dark:text-gray-200">1 {preview.fromAssetCode} = {preview.exchangeRate.toFixed(6)} {preview.toAssetCode}</span>
+                    <span className="font-mono text-gray-900 dark:text-gray-200">1 {firmQuote.currencyIn} = {firmQuote.rateAllIn.toFixed(6)} {firmQuote.currencyOut}</span>
                   </div>
                   <div className="flex justify-between text-sm">
-                    <span className="text-gray-500 dark:text-gray-400 font-medium">Network Fee</span>
-                    <span className="text-green-600 dark:text-green-400 font-bold">Free</span>
+                    <span className="text-gray-500 dark:text-gray-400 font-medium">Market / Spread</span>
+                    <span className="font-mono text-gray-900 dark:text-gray-200">{firmQuote.marketRate.toFixed(6)} / {firmQuote.spreadPercent}%</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-500 dark:text-gray-400 font-medium">Quote ID</span>
+                    <span className="font-mono text-gray-900 dark:text-gray-200">{firmQuote.quoteId}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-500 dark:text-gray-400 font-medium">Expires In</span>
+                    <span className={`font-bold ${quoteExpiresIn > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-red-600 dark:text-red-400'}`}>
+                      {quoteExpiresIn > 0 ? `${quoteExpiresIn}s` : 'Expired'}
+                    </span>
                   </div>
                 </div>
               </div>
 
               <button
                 onClick={handleExecuteSwap}
-                disabled={swapping}
+                disabled={swapping || quoteExpiresIn <= 0}
                 className="w-full py-4 bg-brand-primary text-white rounded-2xl font-bold hover:bg-brand-primary/90 transition-all shadow-lg shadow-brand-primary/20 flex items-center justify-center gap-2"
               >
                 {swapping ? <RefreshCw className="animate-spin" size={20} /> : <Check size={20} />}
-                Confirm and Swap
+                {quoteExpiresIn > 0 ? 'Confirm and Swap' : 'Quote Expired'}
               </button>
             </div>
           </div>

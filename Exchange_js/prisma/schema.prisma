@@ -406,10 +406,15 @@ model Asset {
   fromConfigs            LiquidityConfiguration[] @relation("FromAsset")
   toConfigs              LiquidityConfiguration[] @relation("ToAsset")
   feeConfigs             LiquidityConfiguration[] @relation("FeeAsset")
+  customerSwapFromConfigs CustomerSwapRateConfiguration[] @relation("CustomerSwapRateFromAsset")
+  customerSwapToConfigs   CustomerSwapRateConfiguration[] @relation("CustomerSwapRateToAsset")
   payins                 Payin[]
   payouts                Payout[]
   swapFromTransactions   SwapTransaction[]        @relation("SwapFromAsset")
   swapToTransactions     SwapTransaction[]        @relation("SwapToAsset")
+  swapQuoteFroms         SwapQuote[]              @relation("SwapQuoteFromAsset")
+  swapQuoteTos           SwapQuote[]              @relation("SwapQuoteToAsset")
+  outstandings           Outstanding[]
   wallets                Wallet[]
   withdrawTransactions   WithdrawTransaction[]
 
@@ -465,6 +470,7 @@ model LiquidityConfiguration {
   fromAssetId    String
   toAssetId      String
   rateSourceType String
+  spreadPercent  Decimal           @default(0)
   feePercent     Decimal           @default(0)
   feeFixedAmount Decimal           @default(0)
   feeAssetId     String?
@@ -482,6 +488,22 @@ model LiquidityConfiguration {
   @@index([fromAssetId, toAssetId])
   @@index([status])
   @@map("liquidity_configurations")
+}
+
+model CustomerSwapRateConfiguration {
+  id            String   @id @default(uuid())
+  fromAssetId   String
+  toAssetId     String
+  spreadPercent Decimal  @default(0)
+  status        String   @default("ACTIVE")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+  fromAsset     Asset    @relation("CustomerSwapRateFromAsset", fields: [fromAssetId], references: [id])
+  toAsset       Asset    @relation("CustomerSwapRateToAsset", fields: [toAssetId], references: [id])
+
+  @@unique([fromAssetId, toAssetId])
+  @@index([status])
+  @@map("customer_swap_rate_configurations")
 }
 
 model Wallet {
@@ -743,9 +765,54 @@ model JournalLineTemplate {
   @@map("journal_line_templates")
 }
 
+model SwapQuote {
+  id           String           @id @default(uuid())
+  quoteNo      String?          @unique
+  quoteType    String           @default("FIRM")
+  status       String           @default("ACTIVE")
+  ownerType    String
+  ownerId      String
+  ownerNo      String?
+  fromAssetId  String
+  fromAssetCode String
+  toAssetId    String
+  toAssetCode  String
+  side         String           @default("SELL_BASE")
+  amountType   String           @default("EXACT_IN")
+  amountIn     Decimal
+  currencyIn   String
+  amountOut    Decimal
+  currencyOut  String
+  rateDisplay  Decimal
+  rateAllIn    Decimal
+  marketRate   Decimal
+  spreadPercent Decimal         @default(0)
+  spreadBps    Int              @default(0)
+  rateSource   String           @default("BINANCE")
+  fetchedAt    DateTime
+  feeTotal     Decimal          @default(0)
+  feeCurrency  String
+  feeBreakdown String?
+  expiresAt    DateTime
+  usedAt       DateTime?
+  cancelledAt  DateTime?
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+  fromAsset    Asset            @relation("SwapQuoteFromAsset", fields: [fromAssetId], references: [id])
+  toAsset      Asset            @relation("SwapQuoteToAsset", fields: [toAssetId], references: [id])
+  swapTransaction SwapTransaction?
+
+  @@index([ownerType, ownerId])
+  @@index([status, expiresAt])
+  @@index([createdAt])
+  @@map("swap_quotes")
+}
+
 model SwapTransaction {
   id           String                    @id @default(uuid())
   swapNo       String?                   @unique
+  quoteId      String?                   @unique @map("quote_id")
+  quoteNo      String?
   ownerType    String
   ownerId      String
   ownerNo      String?
@@ -764,7 +831,9 @@ model SwapTransaction {
   auditLogs    SwapTransactionAuditLog[]
   fromAsset    Asset                     @relation("SwapFromAsset", fields: [fromAssetId], references: [id])
   toAsset      Asset                     @relation("SwapToAsset", fields: [toAssetId], references: [id])
+  quote        SwapQuote?                @relation(fields: [quoteId], references: [id])
   customer     CustomerMain?             @relation(fields: [ownerId], references: [id])
+  outstandings Outstanding[]
 
   @@index([swapNo])
   @@index([ownerType, ownerId])
@@ -774,6 +843,36 @@ model SwapTransaction {
   @@index([status])
   @@index([createdAt])
   @@map("swap_transactions")
+}
+
+model Outstanding {
+  id                String           @id @default(uuid())
+  outstandingNo     String?          @unique
+  sourceType        String
+  sourceId          String
+  sourceNo          String?
+  ownerType         String
+  ownerId           String
+  ownerNo           String?
+  direction         String
+  assetId           String
+  assetCode         String?
+  amount            Decimal
+  status            String           @default("OPEN")
+  swapTransactionId String?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  asset             Asset            @relation(fields: [assetId], references: [id])
+  swapTransaction   SwapTransaction? @relation(fields: [swapTransactionId], references: [id])
+
+  @@unique([sourceType, sourceId, direction])
+  @@index([status])
+  @@index([ownerType, ownerId])
+  @@index([sourceType, sourceId])
+  @@index([createdAt])
+  @@index([assetId])
+  @@index([swapTransactionId])
+  @@map("outstandings")
 }
 
 model SwapTransactionAuditLog {

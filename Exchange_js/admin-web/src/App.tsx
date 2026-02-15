@@ -3,6 +3,13 @@ import AdminLogin from './pages/AdminLogin';
 import DashboardLayout from './components/DashboardLayout';
 import PlatformMembers from './pages/PlatformMembers';
 import CustomerManagement from './pages/CustomerManagement';
+import CustomerSwapRateList from './pages/CustomerSwapRateList';
+import CustomerSwapRateCreate from './pages/CustomerSwapRateCreate';
+import CustomerSwapRateEdit from './pages/CustomerSwapRateEdit';
+import SwapQuoteList from './pages/SwapQuoteList';
+import SwapQuoteDetail from './pages/SwapQuoteDetail';
+import SwapOutstandingList from './pages/SwapOutstandingList';
+import SwapOutstandingDetail from './pages/SwapOutstandingDetail';
 import CustomerDetail from './pages/CustomerDetail';
 import LiquidityProviderList from './pages/LiquidityProviderList';
 import LiquidityProviderCreate from './pages/LiquidityProviderCreate';
@@ -52,6 +59,13 @@ function App() {
              <Route index element={<div className="p-8 text-gray-500">Welcome to Admin Dashboard</div>} />
              <Route path="members" element={<PlatformMembers />} />
              <Route path="customer/management" element={<CustomerManagement />} />
+             <Route path="pricing/rates" element={<CustomerSwapRateList />} />
+             <Route path="pricing/rates/create" element={<CustomerSwapRateCreate />} />
+             <Route path="pricing/rates/edit/:id" element={<CustomerSwapRateEdit />} />
+             <Route path="pricing/quotes" element={<SwapQuoteList />} />
+             <Route path="pricing/quotes/:id" element={<SwapQuoteDetail />} />
+             <Route path="reconciliation/outstandings" element={<SwapOutstandingList />} />
+             <Route path="reconciliation/outstandings/:id" element={<SwapOutstandingDetail />} />
              <Route path="compliance/cdd-cases" element={<CddCasesPage />} />
              <Route path="compliance/edd-cases" element={<EddCasesPage />} />
              <Route path="customer/:id" element={<CustomerDetail />} />

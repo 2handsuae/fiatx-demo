@@ -5,6 +5,7 @@ import { EventEmitterModule } from '@nestjs/event-emitter';
 import { UsersModule } from './modules/identity/users/users.module';
 import { AuthModule } from './modules/identity/auth/auth.module';
 import { CustomersModule } from './modules/identity/customers/customers.module';
+import { CustomerSwapRatesModule } from './modules/identity/customer-swap-rates/customer-swap-rates.module';
 import { NotificationsModule } from './core/notifications/notifications.module';
 import { LiquidityProvidersModule } from './modules/counterparty/liquidity-providers/liquidity-providers.module';
 import { AssetsModule } from './modules/asset-treasury/assets/assets.module';
@@ -25,6 +26,7 @@ import { SwapTransactionsModule } from './modules/trading/swap-transactions/swap
 import { WithdrawTransactionsModule } from './modules/trading/withdraw-transactions/withdraw-transactions.module';
 import { PayoutsModule } from './modules/asset-treasury/payouts/payouts.module';
 import { ClearingModule } from './modules/clearing-settle/clearing/clearing.module';
+import { OutstandingsModule } from './modules/clearing-settle/outstandings/outstandings.module';
 import { RiskEngineModule } from './modules/risk-engine/risk-engine.module';
 import { OnboardingModule } from './modules/identity/onboarding/onboarding.module';
 import { TransactionComplianceModule } from './modules/risk-engine/transaction-compliance/transaction-compliance.module';
@@ -52,6 +54,7 @@ import { TransactionComplianceModule } from './modules/risk-engine/transaction-c
     }),
     UsersModule,
     AuthModule,
+    CustomerSwapRatesModule,
     CustomersModule,
     NotificationsModule,
     LiquidityProvidersModule,
@@ -73,6 +76,7 @@ import { TransactionComplianceModule } from './modules/risk-engine/transaction-c
     WithdrawTransactionsModule,
     PayoutsModule,
     ClearingModule,
+    OutstandingsModule,
     RiskEngineModule,
     TransactionComplianceModule,
     OnboardingModule,

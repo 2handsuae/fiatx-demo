@@ -10,7 +10,6 @@ import { ApiProperty } from '@nestjs/swagger';
 
 export enum RateSourceType {
   API = 'API',
-  MANUAL = 'MANUAL',
 }
 
 export enum LiquidityConfigStatus {
@@ -42,6 +41,14 @@ export class CreateLiquidityConfigDto {
   @IsNumber()
   @Min(0)
   feePercent!: number;
+
+  @ApiProperty({
+    default: 0,
+    description: 'Spread percentage on top of market rate (e.g., 1 for +1%)',
+  })
+  @IsNumber()
+  @Min(0)
+  spreadPercent!: number;
 
   @ApiProperty({ default: 0, description: 'Fixed fee amount' })
   @IsNumber()
@@ -77,6 +84,12 @@ export class UpdateLiquidityConfigDto {
   @Min(0)
   @IsOptional()
   feePercent?: number;
+
+  @ApiProperty({ required: false })
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  spreadPercent?: number;
 
   @ApiProperty({ required: false })
   @IsNumber()
