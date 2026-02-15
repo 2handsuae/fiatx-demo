@@ -28,6 +28,9 @@ export class AcctConfigService implements OnModuleInit {
 
   async onModuleInit() {
     const env = (process.env.NODE_ENV || 'development').toLowerCase();
+    const syncOnBoot =
+      (process.env.ACCT_CONFIG_SYNC_ON_BOOT || '').trim().toLowerCase() ===
+      'true';
 
     if (env === 'production') {
       const validation = await this.validateDepositEventContract();
@@ -38,6 +41,25 @@ export class AcctConfigService implements OnModuleInit {
       } else {
         this.logger.log(
           'Deposit accounting event contract check passed (production mode).',
+        );
+      }
+      return;
+    }
+
+    if (!syncOnBoot) {
+      this.logger.log(
+        'Skip accounting default auto-sync on boot (set ACCT_CONFIG_SYNC_ON_BOOT=true to enable).',
+      );
+      try {
+        const validation = await this.validateDepositEventContract();
+        if (!validation.ok) {
+          this.logger.warn(
+            `Deposit accounting event contract mismatch detected (non-production check-only): ${validation.issues.join(' | ')}`,
+          );
+        }
+      } catch (error: any) {
+        this.logger.error(
+          `Failed to validate accounting config on startup: ${error?.message || String(error)}`,
         );
       }
       return;

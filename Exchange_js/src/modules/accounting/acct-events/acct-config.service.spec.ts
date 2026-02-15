@@ -2,6 +2,7 @@ import { AcctConfigService } from './acct-config.service';
 
 describe('AcctConfigService', () => {
   const originalNodeEnv = process.env.NODE_ENV;
+  const originalSyncOnBoot = process.env.ACCT_CONFIG_SYNC_ON_BOOT;
 
   let service: AcctConfigService;
   let mockPrisma: any;
@@ -9,6 +10,7 @@ describe('AcctConfigService', () => {
   beforeEach(() => {
     jest.restoreAllMocks();
     process.env.NODE_ENV = 'test';
+    delete process.env.ACCT_CONFIG_SYNC_ON_BOOT;
 
     mockPrisma = {
       acctEvent: {
@@ -39,6 +41,7 @@ describe('AcctConfigService', () => {
 
   afterEach(() => {
     process.env.NODE_ENV = originalNodeEnv;
+    process.env.ACCT_CONFIG_SYNC_ON_BOOT = originalSyncOnBoot;
   });
 
   it('syncDefaults should upsert new deposit events and cleanup rejected events', async () => {
@@ -79,8 +82,24 @@ describe('AcctConfigService', () => {
     });
   });
 
-  it('onModuleInit should auto-sync in non-production', async () => {
+  it('onModuleInit should not auto-sync by default in non-production', async () => {
     process.env.NODE_ENV = 'development';
+    const syncSpy = jest
+      .spyOn(service, 'syncDefaults')
+      .mockResolvedValue({ success: true, message: 'ok' } as any);
+    const validateSpy = jest
+      .spyOn(service as any, 'validateDepositEventContract')
+      .mockResolvedValue({ ok: true, issues: [] });
+
+    await service.onModuleInit();
+
+    expect(syncSpy).not.toHaveBeenCalled();
+    expect(validateSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('onModuleInit should auto-sync when ACCT_CONFIG_SYNC_ON_BOOT=true', async () => {
+    process.env.NODE_ENV = 'development';
+    process.env.ACCT_CONFIG_SYNC_ON_BOOT = 'true';
     const syncSpy = jest
       .spyOn(service, 'syncDefaults')
       .mockResolvedValue({ success: true, message: 'ok' } as any);
