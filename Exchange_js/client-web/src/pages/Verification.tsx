@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Clock3, QrCode, ShieldCheck } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { Clock3, QrCode, ShieldCheck, CheckCircle2, AlertTriangle, RefreshCw, Smartphone, ChevronRight } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { QRCodeSVG } from 'qrcode.react';
 import { useCustomerProfile } from '../hooks/useCustomerProfile';
 
@@ -77,36 +77,36 @@ const getErrorMessage = (error: unknown, fallback: string) =>
 
 const stepGuides = [
   {
-    title: 'Step 1',
-    text: 'Provide your basic profile details.',
+    title: 'Basic Profile',
+    text: 'Provide your basic details.',
   },
   {
-    title: 'Step 2',
-    text: 'Complete face verification.',
+    title: 'Face Verification',
+    text: 'Complete liveness check.',
   },
   {
-    title: 'Step 3',
+    title: 'Address Check',
     text: 'Verify your residential address.',
   },
   {
-    title: 'Step 4',
-    text: 'Pass background and screening checks.',
+    title: 'Screening',
+    text: 'Pass background checks.',
   },
   {
-    title: 'Step 5',
-    text: 'Additional EDD may be required based on risk signals.',
+    title: 'Review',
+    text: 'Compliance team review.',
   },
 ];
 
+// Modern UI Constants
 const primaryButtonClass =
-  'mx-auto flex w-full max-w-md items-center justify-center rounded-2xl bg-gradient-to-r from-blue-600 to-blue-500 px-7 py-4 text-base font-semibold text-white shadow-[0_8px_18px_rgba(37,99,235,0.22)] transition-colors hover:from-blue-600 hover:to-blue-600 disabled:opacity-60';
+  'relative overflow-hidden group w-full flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 px-6 py-3.5 text-sm font-semibold text-white shadow-lg shadow-indigo-500/30 transition-all hover:shadow-indigo-500/50 hover:scale-[1.02] active:scale-[0.98] disabled:opacity-70 disabled:cursor-not-allowed disabled:shadow-none';
+
+const secondaryButtonClass =
+  'w-full flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-6 py-3.5 text-sm font-medium text-slate-700 transition-all hover:bg-slate-50 hover:border-slate-300 active:bg-slate-100 disabled:opacity-60';
 
 const cardClass =
-  'rounded-3xl border border-slate-200/70 bg-white px-10 py-10 shadow-[0_8px_24px_rgba(15,23,42,0.06)]';
-
-const statCardClass = 'rounded-2xl border border-slate-200 bg-slate-50/80 px-5 py-4';
-
-const statLabelClass = 'text-sm font-semibold uppercase tracking-wide text-blue-700';
+  'relative w-full overflow-hidden rounded-[2rem] border border-white/60 bg-white/80 px-12 py-16 shadow-[0_20px_40px_-12px_rgba(0,0,0,0.1)] backdrop-blur-xl';
 
 const Verification = () => {
   const { profile, loading, error, refreshProfile } = useCustomerProfile();
@@ -120,6 +120,23 @@ const Verification = () => {
   const [saving, setSaving] = useState(false);
   const [casesLoading, setCasesLoading] = useState(false);
   const [autoStartedEddCaseId, setAutoStartedEddCaseId] = useState<string | null>(null);
+
+  // Add custom styles for scan animation
+   useEffect(() => {
+     const style = document.createElement('style');
+     style.innerHTML = `
+       @keyframes scan {
+         0% { transform: translateY(0); opacity: 0; }
+         15% { opacity: 1; }
+         85% { opacity: 1; }
+         100% { transform: translateY(200px); opacity: 0; }
+       }
+     `;
+     document.head.appendChild(style);
+     return () => {
+       document.head.removeChild(style);
+     };
+   }, []);
 
   const token = localStorage.getItem('customer_token');
 
@@ -322,226 +339,314 @@ const Verification = () => {
     autoStartedEddCaseId,
   ]);
 
-  if (loading) return <div className="p-10 text-center text-slate-500">Loading onboarding status...</div>;
-  if (error) return <div className="p-10 text-center text-red-500">{error}</div>;
+  if (loading) return <div className="flex h-screen items-center justify-center text-slate-400">Loading...</div>;
+  if (error) return <div className="flex h-screen items-center justify-center text-red-500">{error}</div>;
   if (!profile) return null;
   if (approved) return null;
 
   const isCorporate = onboarding?.customerType === 'CORPORATE' || profile.customerType === 'CORPORATE';
   const reviewCardContent = pendingFinalApproval
     ? {
-        title: 'Waiting for Final Approval',
-        description: 'EDD has been approved and is now waiting for final management confirmation.',
+        title: 'Final Approval',
+        description: 'EDD has been approved. Waiting for final management confirmation.',
       }
     : nextStep?.requiresEdd
       ? {
-          title: 'Pending Review',
+          title: 'Under Review',
           description: 'Your EDD submission is under compliance review.',
         }
       : {
-          title: 'Pending Review',
+          title: 'Under Review',
           description: 'Your CDD submission is under compliance review.',
         };
 
   return (
-    <div className="min-h-[calc(100vh-140px)] bg-slate-50/50">
-      <div className="mx-auto max-w-4xl space-y-8 px-8 py-14 lg:px-10 lg:py-16">
-        {message && (
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.14 }}
-            className="rounded-3xl border border-blue-200/80 bg-blue-50/80 px-6 py-4 text-sm leading-6 text-blue-700"
-          >
-            {message}
-          </motion.div>
-        )}
+    <div className="relative min-h-[calc(100vh-80px)] w-full overflow-hidden bg-slate-50 font-['Noto_Sans_SC']">
+      {/* Dynamic Background */}
+      <div className="pointer-events-none absolute inset-0 overflow-hidden">
+        <div className="absolute -left-[10%] top-[20%] h-[500px] w-[500px] rounded-full bg-blue-100/40 blur-[100px]" />
+        <div className="absolute -right-[10%] bottom-[20%] h-[500px] w-[500px] rounded-full bg-violet-100/40 blur-[100px]" />
+      </div>
+
+      <div className="relative mx-auto flex min-h-[calc(100vh-140px)] max-w-5xl flex-col items-center justify-center px-6 py-12">
+        
+        <AnimatePresence mode="wait">
+          {message && (
+            <motion.div
+              initial={{ opacity: 0, y: -20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              className="absolute top-4 z-50 w-full max-w-sm rounded-xl border border-blue-100 bg-white/90 px-4 py-3 text-sm font-medium text-blue-700 shadow-lg backdrop-blur-md"
+            >
+              <div className="flex items-center gap-3">
+                <div className="flex h-6 w-6 items-center justify-center rounded-full bg-blue-100 text-blue-600">
+                  <ShieldCheck size={14} />
+                </div>
+                {message}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {isCorporate && (
           <motion.section
-            initial={{ opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.16 }}
-            className="rounded-3xl border border-amber-200/80 bg-amber-50/70 px-10 py-10 shadow-[0_8px_24px_rgba(15,23,42,0.05)]"
-          >
-            <h2 className="text-2xl font-bold text-amber-900">Corporate onboarding via support</h2>
-            <p className="mt-4 max-w-3xl text-sm leading-7 text-amber-800">
-              Corporate self-service onboarding is temporarily unavailable on client web. Please contact
-              compliance support to continue the KYB and UBO onboarding process.
-            </p>
-          </motion.section>
-        )}
-
-        {!isCorporate && showIntroFlow && introStage === 'INTRO' && (
-          <motion.section
-            initial={{ opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.16 }}
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
             className={cardClass}
           >
-            <div className="mx-auto max-w-2xl text-center">
-              <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
-                <ShieldCheck size={20} />
+            <div className="flex flex-col items-center text-center">
+              <div className="mb-6 rounded-2xl bg-amber-50 p-4 text-amber-600">
+                <AlertTriangle size={32} />
               </div>
-              <h2 className="mt-6 text-4xl font-black tracking-tight text-slate-900 sm:text-5xl">
-                You are about to start KYC verification
-              </h2>
-              <p className="mx-auto mt-6 max-w-2xl text-lg leading-8 text-slate-600">
-                This process validates your identity, address, and risk profile before full trading
-                access is enabled for your account.
+              <h2 className="text-2xl font-bold text-slate-900">Corporate Verification</h2>
+              <p className="mt-4 text-slate-600 leading-relaxed">
+                Corporate self-service onboarding is temporarily unavailable. Please contact our compliance support team to continue the KYB and UBO onboarding process.
               </p>
-              <div className="mt-10 space-y-4 text-left">
-                <div className={statCardClass}>
-                  <div className={statLabelClass}>Estimated time</div>
-                  <div className="mt-2 text-2xl font-semibold text-slate-800">3-5 minutes</div>
-                </div>
-                <div className={statCardClass}>
-                  <div className={statLabelClass}>Requirement</div>
-                  <div className="mt-2 text-2xl font-semibold text-slate-800">Valid identification</div>
-                </div>
-                <div className={statCardClass}>
-                  <div className={statLabelClass}>Result</div>
-                  <div className="mt-2 text-2xl font-semibold text-slate-800">Compliance review queue</div>
-                </div>
-              </div>
-              <button
-                onClick={() => setIntroStage('GUIDE')}
-                disabled={saving}
-                className={`${primaryButtonClass} mt-10`}
-              >
-                Continue
+              <button className={`${secondaryButtonClass} mt-8 border-amber-200 text-amber-700 hover:bg-amber-50`}>
+                Contact Support
               </button>
             </div>
           </motion.section>
         )}
 
-        {!isCorporate && showIntroFlow && introStage === 'GUIDE' && (
-          <motion.section
-            initial={{ opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.16 }}
-            className={cardClass}
-          >
-            <div className="mx-auto max-w-2xl">
-              <h2 className="text-4xl font-black tracking-tight text-slate-900 text-center">Verification steps</h2>
-              <p className="mx-auto mt-5 max-w-2xl text-base leading-7 text-slate-600 text-center">
-                Follow the five-step path below. After submission, your case enters review automatically.
-              </p>
-              <div className="mt-8 space-y-4">
-                {stepGuides.map((item, index) => (
-                  <div
-                    key={item.title}
-                    className="flex items-start gap-4 rounded-2xl border border-slate-200 bg-slate-50/80 px-5 py-4"
-                  >
-                    <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blue-100 text-[11px] font-semibold text-blue-700">
-                      {index + 1}
+        {!isCorporate && (
+          <AnimatePresence mode="wait">
+            {/* INTRO STAGE */}
+            {showIntroFlow && introStage === 'INTRO' && (
+              <motion.section
+                key="intro"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -20 }}
+                transition={{ duration: 0.4 }}
+                className={cardClass}
+              >
+                <div className="flex flex-col items-center text-center">
+                  <div className="mb-8 relative">
+                    <div className="absolute inset-0 bg-blue-500/20 blur-2xl rounded-full" />
+                    <div className="relative rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 p-5 text-white shadow-xl shadow-blue-500/30">
+                      <ShieldCheck size={40} />
                     </div>
-                    <div className="text-base leading-7 text-slate-700">{item.text}</div>
                   </div>
-                ))}
-              </div>
-              <button
-                onClick={async () => {
-                  const ok = await bootstrapCdd();
-                  if (ok) setIntroStage('FLOW');
-                }}
-                disabled={saving}
-                className={`${primaryButtonClass} mt-10`}
+                  
+                  <h2 className="text-3xl font-bold tracking-tight text-slate-900">
+                    Identity Verification
+                  </h2>
+                  <p className="mt-4 text-slate-500 leading-relaxed max-w-xs">
+                    We need to verify your identity to ensure the security of your account and comply with regulations.
+                  </p>
+
+                  <div className="mt-8 grid w-full grid-cols-3 gap-3">
+                    <div className="flex flex-col items-center rounded-2xl bg-slate-50 p-3">
+                      <Clock3 size={20} className="mb-2 text-indigo-500" />
+                      <span className="text-xs font-semibold text-slate-900">~3 min</span>
+                      <span className="text-[10px] text-slate-400">Time</span>
+                    </div>
+                    <div className="flex flex-col items-center rounded-2xl bg-slate-50 p-3">
+                      <Smartphone size={20} className="mb-2 text-indigo-500" />
+                      <span className="text-xs font-semibold text-slate-900">Mobile</span>
+                      <span className="text-[10px] text-slate-400">Device</span>
+                    </div>
+                    <div className="flex flex-col items-center rounded-2xl bg-slate-50 p-3">
+                      <ShieldCheck size={20} className="mb-2 text-indigo-500" />
+                      <span className="text-xs font-semibold text-slate-900">Secure</span>
+                      <span className="text-[10px] text-slate-400">Data</span>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={() => setIntroStage('GUIDE')}
+                    className={`${primaryButtonClass} mt-10`}
+                  >
+                    Start Verification
+                  </button>
+                </div>
+              </motion.section>
+            )}
+
+            {/* GUIDE STAGE */}
+            {showIntroFlow && introStage === 'GUIDE' && (
+              <motion.section
+                key="guide"
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -20 }}
+                transition={{ duration: 0.4 }}
+                className={cardClass}
               >
-                Start Verification
-              </button>
-            </div>
-          </motion.section>
-        )}
+                <div className="flex flex-col">
+                  <h2 className="text-2xl font-bold text-slate-900 text-center mb-2">Process Overview</h2>
+                  <p className="text-center text-slate-500 text-sm mb-8">Complete these steps to unlock full access</p>
+                  
+                  <div className="space-y-4">
+                    {stepGuides.map((item, index) => (
+                      <motion.div
+                        initial={{ opacity: 0, x: -10 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ delay: index * 0.1 }}
+                        key={item.title}
+                        className="flex items-center gap-4 rounded-xl border border-slate-100 bg-slate-50/50 p-3"
+                      >
+                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white text-sm font-bold text-indigo-600 shadow-sm border border-slate-100">
+                          {index + 1}
+                        </div>
+                        <div>
+                          <div className="text-sm font-semibold text-slate-800">{item.title}</div>
+                          <div className="text-xs text-slate-500">{item.text}</div>
+                        </div>
+                      </motion.div>
+                    ))}
+                  </div>
 
-        {!isCorporate && nextStep?.step === 'CDD' && !showIntroFlow && (
-          <JourneyCasePanel
-            title="CDD"
-            subtitle="Scan the QR code and complete your CDD verification session."
-            item={activeCase}
-            loading={casesLoading}
-            saving={saving}
-            onCreateSession={createSession}
-            onMockComplete={mockComplete}
-            onStart={bootstrapCdd}
-          />
-        )}
+                  <button
+                    onClick={async () => {
+                      const ok = await bootstrapCdd();
+                      if (ok) setIntroStage('FLOW');
+                    }}
+                    disabled={saving}
+                    className={`${primaryButtonClass} mt-10`}
+                  >
+                    {saving ? 'Initializing...' : 'Continue to Scan'}
+                    {!saving && <ChevronRight size={16} />}
+                  </button>
+                </div>
+              </motion.section>
+            )}
 
-        {!isCorporate && nextStep?.step === 'EDD' && (
-          <section className="space-y-6">
-            <div className="rounded-3xl border border-violet-200/80 bg-violet-50/70 px-8 py-5 text-sm leading-7 text-violet-900">
-              Additional Enhanced Due Diligence (EDD) is required for this onboarding journey.
-            </div>
-            <JourneyCasePanel
-              title="EDD"
-              subtitle="Scan the QR code and complete your EDD verification session."
-              item={activeCase}
-              loading={casesLoading}
-              saving={saving}
-              onCreateSession={createSession}
-              onMockComplete={mockComplete}
-              onStart={startEdd}
-            />
-          </section>
-        )}
+            {/* FLOW STAGE - CDD */}
+            {nextStep?.step === 'CDD' && !showIntroFlow && (
+              <motion.div
+                key="cdd"
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 1.05 }}
+                transition={{ duration: 0.4 }}
+              >
+                <JourneyCasePanel
+                  title="Verify Identity"
+                  subtitle="Scan with your mobile device to complete verification securely."
+                  item={activeCase}
+                  loading={casesLoading}
+                  saving={saving}
+                  onCreateSession={createSession}
+                  onMockComplete={mockComplete}
+                  onStart={bootstrapCdd}
+                />
+              </motion.div>
+            )}
 
-        {!isCorporate && nextStep?.step === 'WAIT_REVIEW' && (
-          <motion.section
-            initial={{ opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.16 }}
-            className={cardClass}
-          >
-            <h2 className="flex items-center justify-center gap-2 text-center text-3xl font-black tracking-tight text-slate-900">
-              <Clock3 size={22} className="text-blue-600" />
-              {reviewCardContent.title}
-            </h2>
-            <p className="mx-auto mt-4 max-w-2xl text-center text-base leading-7 text-slate-600">
-              {reviewCardContent.description}
-            </p>
-            <CaseSummaryList items={cases} caseType={nextStep.requiresEdd ? 'EDD' : 'CDD'} />
-          </motion.section>
-        )}
+            {/* FLOW STAGE - EDD */}
+            {nextStep?.step === 'EDD' && (
+              <motion.div
+                key="edd"
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ duration: 0.4 }}
+                className="space-y-6 w-full"
+              >
+                <div className="rounded-2xl border border-violet-200 bg-violet-50/80 px-5 py-4 text-sm font-medium text-violet-800 flex items-center gap-3">
+                  <ShieldCheck size={18} />
+                  Enhanced Due Diligence Required
+                </div>
+                <JourneyCasePanel
+                  title="Additional Check"
+                  subtitle="Please complete this additional verification step."
+                  item={activeCase}
+                  loading={casesLoading}
+                  saving={saving}
+                  onCreateSession={createSession}
+                  onMockComplete={mockComplete}
+                  onStart={startEdd}
+                />
+              </motion.div>
+            )}
 
-        {!isCorporate && nextStep?.step === 'REINITIATE' && (
-          <motion.section
-            initial={{ opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.16 }}
-            className="rounded-3xl border border-red-200/80 bg-red-50/60 px-10 py-10 shadow-[0_8px_24px_rgba(15,23,42,0.05)]"
-          >
-            <h2 className="text-center text-4xl font-black tracking-tight text-red-900">
-              Verification Rejected
-            </h2>
-            <p className="mx-auto mt-5 max-w-2xl text-center text-base leading-7 text-red-700">
-              {nextStep.blockedReason || 'Please re-initiate verification to continue onboarding.'}
-            </p>
-            <button
-              onClick={() =>
-                nextStep.action === 'REINITIATE_EDD'
-                  ? reinitiateEdd().catch(() => undefined)
-                  : reinitiateCdd().catch(() => undefined)
-              }
-              disabled={saving}
-              className={`${primaryButtonClass} mt-10`}
-            >
-              {nextStep.action === 'REINITIATE_EDD' ? 'Re-initiate EDD' : 'Re-initiate CDD'}
-            </button>
-          </motion.section>
-        )}
+            {/* FLOW STAGE - WAIT REVIEW */}
+            {nextStep?.step === 'WAIT_REVIEW' && (
+              <motion.section
+                key="wait"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                className={cardClass}
+              >
+                <div className="flex flex-col items-center text-center">
+                  <div className="mb-6 relative">
+                    <div className="absolute inset-0 bg-amber-400/20 blur-xl rounded-full animate-pulse" />
+                    <div className="relative rounded-2xl bg-amber-50 p-5 text-amber-500">
+                      <Clock3 size={40} />
+                    </div>
+                  </div>
+                  
+                  <h2 className="text-2xl font-bold text-slate-900">{reviewCardContent.title}</h2>
+                  <p className="mt-3 text-slate-500 leading-relaxed max-w-lg">
+                    {reviewCardContent.description}
+                  </p>
+                  
+                  <div className="mt-8 w-full border-t border-slate-100 pt-6">
+                    <CaseSummaryList items={cases} caseType={nextStep.requiresEdd ? 'EDD' : 'CDD'} />
+                  </div>
+                </div>
+              </motion.section>
+            )}
 
-        {!isCorporate && nextStep?.step === 'ENTITY_INFO' && (
-          <motion.section
-            initial={{ opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.16 }}
-            className="rounded-3xl border border-amber-200/80 bg-amber-50/70 px-10 py-10 shadow-[0_8px_24px_rgba(15,23,42,0.05)]"
-          >
-            <h2 className="text-2xl font-bold text-amber-900">Manual setup required</h2>
-            <p className="mt-4 text-sm leading-7 text-amber-800">
-              Your onboarding setup requires support assistance before CDD can start. Please contact support.
-            </p>
-          </motion.section>
+            {/* FLOW STAGE - REINITIATE */}
+            {nextStep?.step === 'REINITIATE' && (
+              <motion.section
+                key="rejected"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                className={cardClass}
+              >
+                <div className="flex flex-col items-center text-center">
+                  <div className="mb-6 rounded-2xl bg-red-50 p-5 text-red-500">
+                    <AlertTriangle size={40} />
+                  </div>
+                  
+                  <h2 className="text-2xl font-bold text-slate-900">Verification Failed</h2>
+                  <p className="mt-3 text-red-600/80 font-medium bg-red-50 px-4 py-2 rounded-lg text-sm">
+                    {nextStep.blockedReason || 'Verification could not be completed.'}
+                  </p>
+                  <p className="mt-4 text-slate-500 text-sm">
+                    Please try again. Ensure your documents are clear and details match.
+                  </p>
+
+                  <button
+                    onClick={() =>
+                      nextStep.action === 'REINITIATE_EDD'
+                        ? reinitiateEdd().catch(() => undefined)
+                        : reinitiateCdd().catch(() => undefined)
+                    }
+                    disabled={saving}
+                    className={`${primaryButtonClass} mt-8 bg-gradient-to-r from-red-500 to-orange-600 shadow-red-500/30 hover:shadow-red-500/50`}
+                  >
+                    <RefreshCw size={18} />
+                    {nextStep.action === 'REINITIATE_EDD' ? 'Retry EDD' : 'Retry Verification'}
+                  </button>
+                </div>
+              </motion.section>
+            )}
+
+            {/* FLOW STAGE - MANUAL SETUP */}
+            {nextStep?.step === 'ENTITY_INFO' && (
+              <motion.section
+                key="manual"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                className={cardClass}
+              >
+                <div className="flex flex-col items-center text-center">
+                  <div className="mb-6 rounded-2xl bg-amber-50 p-5 text-amber-500">
+                    <AlertTriangle size={40} />
+                  </div>
+                  <h2 className="text-2xl font-bold text-slate-900">Setup Required</h2>
+                  <p className="mt-3 text-slate-500 leading-relaxed">
+                    Your account requires manual configuration. Please contact support.
+                  </p>
+                  <button className={`${secondaryButtonClass} mt-8`}>Contact Support</button>
+                </div>
+              </motion.section>
+            )}
+          </AnimatePresence>
         )}
       </div>
     </div>
@@ -558,7 +663,7 @@ const JourneyCasePanel = ({
   onMockComplete,
   onStart,
 }: {
-  title: 'CDD' | 'EDD';
+  title: string;
   subtitle: string;
   item: CaseItem | null;
   loading: boolean;
@@ -569,8 +674,11 @@ const JourneyCasePanel = ({
 }) => {
   if (loading) {
     return (
-      <section className={cardClass + ' text-center text-sm text-slate-500'}>
-        Loading {title} case...
+      <section className={cardClass + ' flex items-center justify-center min-h-[400px]'}>
+        <div className="flex flex-col items-center gap-4">
+          <div className="h-10 w-10 animate-spin rounded-full border-4 border-indigo-100 border-t-indigo-600" />
+          <p className="text-sm font-medium text-slate-400">Loading details...</p>
+        </div>
       </section>
     );
   }
@@ -578,17 +686,20 @@ const JourneyCasePanel = ({
   if (!item) {
     return (
       <section className={cardClass}>
-        <h2 className="text-center text-3xl font-black tracking-tight text-slate-900">{title} Verification</h2>
-        <p className="mx-auto mt-5 max-w-2xl text-center text-base leading-7 text-slate-600">
-          No active {title} case is available yet. Start now to generate your verification session.
-        </p>
-        <button
-          onClick={() => onStart().catch(() => undefined)}
-          disabled={saving}
-          className={`${primaryButtonClass} mt-10`}
-        >
-          Start {title}
-        </button>
+        <div className="flex flex-col items-center text-center">
+          <div className="mb-6 rounded-2xl bg-slate-50 p-5 text-slate-400">
+            <QrCode size={40} />
+          </div>
+          <h2 className="text-2xl font-bold text-slate-900">{title}</h2>
+          <p className="mt-3 text-slate-500 leading-relaxed max-w-xs">{subtitle}</p>
+          <button
+            onClick={() => onStart().catch(() => undefined)}
+            disabled={saving}
+            className={`${primaryButtonClass} mt-8`}
+          >
+            Start Now
+          </button>
+        </div>
       </section>
     );
   }
@@ -600,54 +711,67 @@ const JourneyCasePanel = ({
 
   return (
     <section className={cardClass}>
-      <h2 className="text-center text-4xl font-black tracking-tight text-slate-900">{title} Verification</h2>
-      <p className="mx-auto mt-5 max-w-2xl text-center text-base leading-7 text-slate-600">{subtitle}</p>
+      <div className="flex flex-col items-center text-center">
+        <h2 className="text-2xl font-bold text-slate-900">{title}</h2>
+        <p className="mt-2 text-slate-500 text-sm max-w-xs">{subtitle}</p>
 
-      <div className="mt-8 rounded-3xl border border-slate-200 bg-slate-50/75 p-7">
-        <div className="flex items-center justify-between gap-4">
-          <div>
-            <div className="text-sm font-semibold tracking-wide text-slate-900">{item.caseNo}</div>
-            <div className="text-xs text-slate-500">Status: {item.status}</div>
-          </div>
-          <div className="rounded-xl border border-slate-200 bg-white p-2.5 text-slate-600">
-            <QrCode size={20} />
-          </div>
+        {/* QR Code Container */}
+        <div className="mt-8 relative group">
+          {item.latestSession?.qrCodeUrl ? (
+            <div className="relative overflow-hidden rounded-3xl bg-white p-4 shadow-xl shadow-indigo-500/10 border border-indigo-50">
+              <QRCodeSVG value={item.latestSession.qrCodeUrl} size={200} />
+              
+              {/* Scan Line Animation */}
+              <div className="absolute inset-0 pointer-events-none">
+                <div 
+                  className="h-1 w-full bg-indigo-500/50 blur-[2px] shadow-[0_0_15px_rgba(99,102,241,0.6)]"
+                  style={{ animation: 'scan 2s linear infinite' }} 
+                />
+              </div>
+
+              {/* Corner Accents */}
+              <div className="absolute top-3 left-3 w-4 h-4 border-l-2 border-t-2 border-indigo-500 rounded-tl-md" />
+              <div className="absolute top-3 right-3 w-4 h-4 border-r-2 border-t-2 border-indigo-500 rounded-tr-md" />
+              <div className="absolute bottom-3 left-3 w-4 h-4 border-l-2 border-b-2 border-indigo-500 rounded-bl-md" />
+              <div className="absolute bottom-3 right-3 w-4 h-4 border-r-2 border-b-2 border-indigo-500 rounded-br-md" />
+            </div>
+          ) : (
+            <div className="flex h-[200px] w-[200px] items-center justify-center rounded-3xl border-2 border-dashed border-slate-200 bg-slate-50">
+              <span className="text-xs font-medium text-slate-400">QR Expired</span>
+            </div>
+          )}
         </div>
 
-        {item.latestSession?.qrCodeUrl ? (
-          <div className="mt-8 grid grid-cols-1 items-center justify-items-center gap-6">
-            <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-[0_6px_20px_rgba(15,23,42,0.08)]">
-              <QRCodeSVG value={item.latestSession.qrCodeUrl} size={192} />
-            </div>
-            <div className="space-y-1 text-center text-xs leading-6 text-slate-600">
-              <div>Session ID: {item.latestSession.providerSessionId}</div>
-              <div>Session Status: {item.latestSession.status}</div>
-              <div>Expires At: {new Date(item.latestSession.expiresAt).toLocaleString()}</div>
-            </div>
-          </div>
-        ) : (
-          <div className="mt-6 text-center text-sm leading-7 text-slate-500">
-            No QR session yet. Generate one to continue.
+        {/* Session Info */}
+        {item.latestSession && (
+          <div className="mt-6 flex items-center gap-2 rounded-full border border-slate-100 bg-slate-50/50 px-4 py-1.5">
+            <div className={`h-2 w-2 rounded-full ${hasUsableSession ? 'bg-emerald-500 animate-pulse' : 'bg-red-500'}`} />
+            <span className="text-xs font-medium text-slate-600 uppercase tracking-wide">
+              {hasUsableSession ? 'Ready to Scan' : 'Session Expired'}
+            </span>
           </div>
         )}
 
-        <div className="mt-8 flex flex-col items-center gap-4">
+        <div className="mt-8 w-full max-w-xs space-y-3">
           {!hasUsableSession && (
             <button
               onClick={() => onCreateSession(item).catch(() => undefined)}
               disabled={saving}
-              className="mx-auto flex w-full max-w-md items-center justify-center rounded-2xl border border-slate-300 bg-white px-7 py-4 text-base font-semibold text-slate-700 transition-colors hover:bg-slate-100 disabled:opacity-60"
+              className={secondaryButtonClass}
             >
-              {item.latestSession ? 'Regenerate QR' : 'Generate QR'}
+              <RefreshCw size={16} />
+              Regenerate QR Code
             </button>
           )}
+          
+          {/* Mock Button - Weakened Style */}
           {item.latestSession?.status === 'PENDING' && (
             <button
               onClick={() => onMockComplete(item.latestSession!.id).catch(() => undefined)}
               disabled={saving}
-              className={primaryButtonClass}
+              className="w-full text-center text-xs font-medium text-slate-300 hover:text-indigo-400 transition-colors py-2 cursor-pointer"
             >
-              Mock Complete
+              [Dev] Mock Pass
             </button>
           )}
         </div>
@@ -663,20 +787,29 @@ const CaseSummaryList = ({
   items: CaseItem[];
   caseType: 'CDD' | 'EDD';
 }) => {
-  const filtered = items.filter((item) => item.caseType === caseType).slice(0, 5);
-  if (filtered.length === 0) {
-    return <div className="mt-5 text-center text-sm leading-7 text-slate-500">No {caseType} cases found.</div>;
-  }
+  const filtered = items.filter((item) => item.caseType === caseType).slice(0, 3);
+  
+  if (filtered.length === 0) return null;
 
   return (
-    <div className="mt-7 space-y-3">
+    <div className="w-full space-y-2">
+      <div className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-3 text-center">Recent Activity</div>
       {filtered.map((item) => (
         <div
           key={item.id}
-          className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50/80 px-4 py-3 text-sm"
+          className="flex items-center justify-between rounded-xl border border-slate-100 bg-slate-50/50 px-4 py-3 text-sm transition-colors hover:bg-white hover:border-indigo-100"
         >
-          <span className="font-semibold text-slate-800">{item.caseNo}</span>
-          <span className="text-slate-500">{item.status}</span>
+          <div className="flex items-center gap-3">
+            <div className={`h-2 w-2 rounded-full ${
+              item.status === 'APPROVED' ? 'bg-emerald-500' : 
+              item.status === 'REJECTED' ? 'bg-red-500' : 
+              'bg-amber-500'
+            }`} />
+            <span className="font-medium text-slate-700">{item.caseNo}</span>
+          </div>
+          <span className="text-xs font-medium text-slate-500 bg-white px-2 py-1 rounded border border-slate-100">
+            {item.status}
+          </span>
         </div>
       ))}
     </div>
@@ -684,3 +817,4 @@ const CaseSummaryList = ({
 };
 
 export default Verification;
+

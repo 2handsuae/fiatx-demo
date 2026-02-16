@@ -123,10 +123,14 @@ const CustomerDashboardLayout = () => {
           </div>
         </header>
 
-        <main className="flex-1 p-6 lg:p-10 overflow-y-auto">
-          <div className="max-w-7xl mx-auto">
+        <main className={`flex-1 overflow-y-auto relative ${location.pathname === '/verification' ? '' : 'p-6 lg:p-10'}`}>
+          {location.pathname === '/verification' ? (
             <Outlet />
-          </div>
+          ) : (
+            <div className="max-w-7xl mx-auto">
+              <Outlet />
+            </div>
+          )}
         </main>
       </div>
       
