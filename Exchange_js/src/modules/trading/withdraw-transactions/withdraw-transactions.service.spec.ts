@@ -16,6 +16,7 @@ describe('WithdrawTransactionsService', () => {
   let prisma: any;
   let journalsService: any;
   let transactionComplianceService: any;
+  let eventEmitter: any;
 
   const mockTx: any = {
     withdrawTransaction: {
@@ -68,8 +69,12 @@ describe('WithdrawTransactionsService', () => {
     transactionComplianceService = module.get<TransactionComplianceService>(
       TransactionComplianceService,
     );
+    eventEmitter = module.get<EventEmitter2>(EventEmitter2);
 
     jest.clearAllMocks();
+    mockTx.withdrawTransaction.findUnique.mockReset();
+    mockTx.withdrawTransaction.update.mockReset();
+    mockTx.withdrawAuditLog.create.mockReset();
     transactionComplianceService.getCaseSummaries.mockResolvedValue({
       kytCase: null,
       travelRuleCase: null,
@@ -97,7 +102,7 @@ describe('WithdrawTransactionsService', () => {
   });
 
   it('should block approve when compliance is not cleared', async () => {
-    prisma.withdrawTransaction.findUnique.mockResolvedValue({
+    mockTx.withdrawTransaction.findUnique.mockResolvedValue({
       id: 'wd-1',
       status: 'PENDING_COMPLIANCE',
       complianceStatus: 'PENDING',
@@ -116,24 +121,35 @@ describe('WithdrawTransactionsService', () => {
   });
 
   it('should trigger compliance case setup when moving to PENDING_COMPLIANCE', async () => {
-    prisma.withdrawTransaction.findUnique.mockResolvedValue({
-      id: 'wd-2',
-      status: WithdrawTransactionStatus.CREATED,
-      ownerType: 'CUSTOMER',
-      ownerId: 'cust-1',
-      assetId: 'asset-1',
-      type: 'crypto',
-      amount: new Prisma.Decimal(100),
-      netAmount: new Prisma.Decimal(100),
-      feeAmount: new Prisma.Decimal(0),
-      withdrawNo: 'WD0002',
-      travelRuleRequired: false,
-      statusHistory: '[]',
-      auditLogs: [],
-      payout: null,
-      customer: null,
-      asset: null,
-    });
+    mockTx.withdrawTransaction.findUnique
+      .mockResolvedValueOnce({
+        id: 'wd-2',
+        status: WithdrawTransactionStatus.CREATED,
+        ownerType: 'CUSTOMER',
+        ownerId: 'cust-1',
+        assetId: 'asset-1',
+        type: 'crypto',
+        amount: new Prisma.Decimal(100),
+        netAmount: new Prisma.Decimal(100),
+        feeAmount: new Prisma.Decimal(0),
+        withdrawNo: 'WD0002',
+        travelRuleRequired: false,
+        statusHistory: '[]',
+        auditLogs: [],
+        payout: null,
+        customer: null,
+        asset: null,
+      })
+      .mockResolvedValueOnce({
+        id: 'wd-2',
+        status: WithdrawTransactionStatus.PENDING_COMPLIANCE,
+        type: 'crypto',
+        travelRuleRequired: false,
+        travelRuleStatus: 'NOT_REQUIRED',
+        complianceStatus: 'CLEAR',
+        preKytStatus: 'PASS',
+        kytStatus: 'PASS',
+      });
 
     mockTx.withdrawTransaction.update.mockResolvedValue({
       id: 'wd-2',
@@ -146,16 +162,6 @@ describe('WithdrawTransactionsService', () => {
       kytStatus: 'PASS',
     });
     mockTx.withdrawAuditLog.create.mockResolvedValue({ id: 'audit-2' });
-    mockTx.withdrawTransaction.findUnique.mockResolvedValue({
-      id: 'wd-2',
-      status: WithdrawTransactionStatus.PENDING_COMPLIANCE,
-      type: 'crypto',
-      travelRuleRequired: false,
-      travelRuleStatus: 'NOT_REQUIRED',
-      complianceStatus: 'CLEAR',
-      preKytStatus: 'PASS',
-      kytStatus: 'PASS',
-    });
     transactionComplianceService.ensureWithdrawComplianceCases.mockResolvedValue(
       {},
     );
@@ -168,5 +174,51 @@ describe('WithdrawTransactionsService', () => {
       transactionComplianceService.ensureWithdrawComplianceCases,
     ).toHaveBeenCalledWith('wd-2', mockTx);
     expect(result.status).toBe(WithdrawTransactionStatus.PENDING_COMPLIANCE);
+  });
+
+  it('should not emit domain events when external tx is provided', async () => {
+    mockTx.withdrawTransaction.findUnique.mockResolvedValue({
+      id: 'wd-3',
+      status: WithdrawTransactionStatus.PENDING_COMPLIANCE,
+      ownerType: 'CUSTOMER',
+      ownerId: 'cust-1',
+      assetId: 'asset-1',
+      type: 'crypto',
+      amount: new Prisma.Decimal(10),
+      netAmount: new Prisma.Decimal(10),
+      feeAmount: new Prisma.Decimal(0),
+      withdrawNo: 'WD0003',
+      complianceStatus: 'CLEAR',
+      preKytStatus: 'PASS',
+      kytStatus: 'PASS',
+      travelRuleRequired: false,
+      travelRuleStatus: 'NOT_REQUIRED',
+      statusHistory: '[]',
+      approvedAt: null,
+      payoutRequestedAt: null,
+      completedAt: null,
+    });
+    mockTx.withdrawTransaction.update.mockResolvedValue({
+      id: 'wd-3',
+      status: WithdrawTransactionStatus.PAYOUT_PENDING,
+      type: 'crypto',
+      ownerType: 'CUSTOMER',
+      ownerId: 'cust-1',
+      assetId: 'asset-1',
+      amount: new Prisma.Decimal(10),
+      netAmount: new Prisma.Decimal(10),
+      feeAmount: new Prisma.Decimal(0),
+      withdrawNo: 'WD0003',
+    });
+    mockTx.withdrawAuditLog.create.mockResolvedValue({ id: 'audit-3' });
+
+    const result = await service.updateStatus(
+      'wd-3',
+      { action: WithdrawTransactionAction.APPROVE },
+      mockTx,
+    );
+
+    expect(result.status).toBe(WithdrawTransactionStatus.PAYOUT_PENDING);
+    expect(eventEmitter.emit).not.toHaveBeenCalled();
   });
 });

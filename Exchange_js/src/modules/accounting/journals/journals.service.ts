@@ -468,6 +468,21 @@ export class JournalsService {
       }, tx);
     }
 
+    if (event.postingMode === 'BULK_REVERSAL_BY_SOURCE') {
+      return this.reverseAllBySource(
+        {
+          sourceType: entityType,
+          sourceId,
+          context,
+        },
+        tx,
+      );
+    }
+
+    if (event.postingMode === 'NONE') {
+      return null;
+    }
+
     return this.createJournal({
       sourceType: entityType,
       sourceId,
@@ -565,6 +580,46 @@ export class JournalsService {
         return executeReverse(transactionClient);
       });
     }
+  }
+
+  async reverseAllBySource(
+    params: {
+      sourceType: string;
+      sourceId: string;
+      context: any;
+    },
+    tx?: Prisma.TransactionClient,
+  ) {
+    const { sourceType, sourceId, context } = params;
+    const client = tx || this.prisma;
+
+    const originalJournals = await (client as any).journal.findMany({
+      where: {
+        sourceType,
+        sourceId,
+        reversalOfJournalId: null,
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    const reversals: any[] = [];
+    for (const journal of originalJournals) {
+      const reversal = await this.reverseJournal(
+        {
+          sourceType,
+          sourceId,
+          reversalEventCode: `REV_${journal.eventCode}`,
+          targetEventCode: journal.eventCode,
+          context,
+        },
+        tx,
+      );
+      if (reversal) {
+        reversals.push(reversal);
+      }
+    }
+
+    return reversals;
   }
 
   async createDepositJournal(

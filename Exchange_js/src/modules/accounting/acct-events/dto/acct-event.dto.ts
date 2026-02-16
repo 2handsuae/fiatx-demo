@@ -33,6 +33,7 @@ export enum TriggerType {
 export enum PostingMode {
   TEMPLATE = 'TEMPLATE',
   AUTO_REVERSAL = 'AUTO_REVERSAL',
+  BULK_REVERSAL_BY_SOURCE = 'BULK_REVERSAL_BY_SOURCE',
   NONE = 'NONE',
 }
 

@@ -89,4 +89,90 @@ describe('JournalsService', () => {
     expect(balances.heldBalance.toString()).toBe('30');
     expect(balances.availableBalance.toString()).toBe('120');
   });
+
+  it('should route BULK_REVERSAL_BY_SOURCE events to reverseAllBySource', async () => {
+    const mockClient: any = {
+      acctEvent: {
+        findFirst: jest.fn().mockResolvedValue({
+          eventCode: 'EVT_WITHDRAWAL_FAILED__FIAT',
+          postingMode: 'BULK_REVERSAL_BY_SOURCE',
+        }),
+      },
+    };
+
+    const service = new JournalsService({} as any);
+    const reverseAllSpy = jest
+      .spyOn(service as any, 'reverseAllBySource')
+      .mockResolvedValue([{ id: 'REV_1' }, { id: 'REV_2' }]);
+
+    const result = await service.triggerEvent(
+      {
+        entityType: 'WITHDRAW',
+        triggerKey: 'status',
+        toStatus: 'FAILED',
+        assetType: 'FIAT',
+        context: { src: { withdrawNo: 'WD001' } },
+        sourceId: 'WD_1',
+      },
+      mockClient,
+    );
+
+    expect(reverseAllSpy).toHaveBeenCalledWith(
+      {
+        sourceType: 'WITHDRAW',
+        sourceId: 'WD_1',
+        context: { src: { withdrawNo: 'WD001' } },
+      },
+      mockClient,
+    );
+    expect(result).toEqual([{ id: 'REV_1' }, { id: 'REV_2' }]);
+  });
+
+  it('should reverse all original journals by source', async () => {
+    const mockClient: any = {
+      journal: {
+        findMany: jest.fn().mockResolvedValue([
+          { eventCode: 'EVT_WITHDRAWAL_CREATED' },
+          { eventCode: 'EVT_WITHDRAWAL_SUCCESS__FIAT' },
+        ]),
+      },
+    };
+
+    const service = new JournalsService({} as any);
+    const reverseSpy = jest
+      .spyOn(service as any, 'reverseJournal')
+      .mockResolvedValueOnce({ id: 'REV_A' })
+      .mockResolvedValueOnce(null);
+
+    const result = await (service as any).reverseAllBySource(
+      {
+        sourceType: 'WITHDRAW',
+        sourceId: 'WD_2',
+        context: { src: { withdrawNo: 'WD002' } },
+      },
+      mockClient,
+    );
+
+    expect(mockClient.journal.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          sourceType: 'WITHDRAW',
+          sourceId: 'WD_2',
+          reversalOfJournalId: null,
+        }),
+      }),
+    );
+    expect(reverseSpy).toHaveBeenCalledTimes(2);
+    expect(reverseSpy).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        sourceType: 'WITHDRAW',
+        sourceId: 'WD_2',
+        targetEventCode: 'EVT_WITHDRAWAL_CREATED',
+        reversalEventCode: 'REV_EVT_WITHDRAWAL_CREATED',
+      }),
+      mockClient,
+    );
+    expect(result).toEqual([{ id: 'REV_A' }]);
+  });
 });

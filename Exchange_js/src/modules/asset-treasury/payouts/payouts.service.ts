@@ -52,7 +52,6 @@ import { Prisma } from '@prisma/client';
 import { v4 as uuidv4 } from 'uuid';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PayoutEvents } from './constants/payout-events.constant';
-import { WithdrawEvents } from '../../trading/withdraw-transactions/constants/withdraw-events.constant';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 
 @Injectable()
@@ -116,14 +115,32 @@ export class PayoutsService {
   async create(dto: CreatePayoutDto, operatorId: string, tx?: Prisma.TransactionClient) {
     const { withdrawId, type, amount, assetId, toWalletId, toAddress, toIban } = dto;
 
-    const payoutId = this.generatePayoutId();
-
     const executeCreate = async (client: Prisma.TransactionClient) => {
+      const existing = await (client as any).payout.findUnique({
+        where: { withdrawId },
+      });
+      if (existing) {
+        return existing;
+      }
+
+      const withdraw = await (client as any).withdrawTransaction.findUnique({
+        where: { id: withdrawId },
+        select: {
+          id: true,
+          ownerId: true,
+        },
+      });
+      if (!withdraw) {
+        throw new NotFoundException('Withdraw transaction not found');
+      }
+
+      const payoutId = this.generatePayoutId();
       const record = await (client as any).payout.create({
         data: {
           id: payoutId,
           payoutNo: generateReferenceNo('PO'),
           withdrawId,
+          ownerId: withdraw.ownerId,
           type,
           status: PayoutStatus.CREATED,
           amount: new Prisma.Decimal(amount),
@@ -164,18 +181,27 @@ export class PayoutsService {
 
   async updateStatus(id: string, dto: UpdatePayoutStatusDto, operatorId: string, tx?: Prisma.TransactionClient) {
     const { action, txHash, referenceNo, reason } = dto;
-    const item = await this.findOne(id);
-    const oldStatus = item.status as PayoutStatus;
-    const type = item.type as PayoutType;
-
-    const transitions = type === PayoutType.CRYPTO ? CRYPTO_TRANSITIONS : FIAT_TRANSITIONS;
-    const nextStatus = transitions[oldStatus]?.[action] as PayoutStatus;
-
-    if (!nextStatus) {
-      throw new BadRequestException(`Invalid action ${action} for current status ${oldStatus} and type ${type}`);
-    }
 
     const executeUpdate = async (client: Prisma.TransactionClient) => {
+      const item = await (client as any).payout.findUnique({
+        where: { id },
+      });
+      if (!item) {
+        throw new NotFoundException('Payout not found');
+      }
+
+      const oldStatus = item.status as PayoutStatus;
+      const type = item.type as PayoutType;
+      const transitions =
+        type === PayoutType.CRYPTO ? CRYPTO_TRANSITIONS : FIAT_TRANSITIONS;
+      const nextStatus = transitions[oldStatus]?.[action] as PayoutStatus;
+
+      if (!nextStatus) {
+        throw new BadRequestException(
+          `Invalid action ${action} for current status ${oldStatus} and type ${type}`,
+        );
+      }
+
       const updateData: any = { status: nextStatus };
 
       // Update timestamps based on status
@@ -224,50 +250,54 @@ export class PayoutsService {
         },
       });
 
-      // Emit events for statuses
+      const postCommitEvents: Array<{ eventName: string; payload: any }> = [];
       if (nextStatus === PayoutStatus.CONFIRMED) {
-        this.eventEmitter.emit(PayoutEvents.EVT_PAYOUT_CONFIRMED, {
-          payoutId: id,
-          withdrawId: item.withdrawId,
+        postCommitEvents.push({
+          eventName: PayoutEvents.EVT_PAYOUT_CONFIRMED,
+          payload: {
+            payoutId: id,
+            withdrawId: item.withdrawId,
+            status: nextStatus,
+          },
         });
       } else if (nextStatus === PayoutStatus.FAILED || nextStatus === PayoutStatus.TIMEOUT) {
-        if (item.withdrawId) {
-          const event =
-            type === PayoutType.CRYPTO
-              ? WithdrawEvents.EVT_WITHDRAWAL_FAILED__CRYPTO
-              : WithdrawEvents.EVT_WITHDRAWAL_FAILED__FIAT;
-          this.eventEmitter.emit(event, {
+        postCommitEvents.push({
+          eventName:
+            nextStatus === PayoutStatus.FAILED
+              ? PayoutEvents.EVT_PAYOUT_FAILED
+              : PayoutEvents.EVT_PAYOUT_TIMEOUT,
+          payload: {
             withdrawId: item.withdrawId,
             payoutId: id,
             status: nextStatus,
-          });
-        } else {
-          const event =
-            nextStatus === PayoutStatus.FAILED
-              ? PayoutEvents.EVT_PAYOUT_FAILED
-              : PayoutEvents.EVT_PAYOUT_TIMEOUT;
-          this.eventEmitter.emit(event, {
+          },
+        });
+      } else if (nextStatus === PayoutStatus.RETURNED) {
+        postCommitEvents.push({
+          eventName: PayoutEvents.EVT_PAYOUT_RETURNED,
+          payload: {
             payoutId: id,
             withdrawId: item.withdrawId,
-          });
-        }
-      } else if (nextStatus === PayoutStatus.RETURNED) {
-        this.eventEmitter.emit(PayoutEvents.EVT_PAYOUT_RETURNED, {
-          payoutId: id,
-          withdrawId: item.withdrawId,
+            status: nextStatus,
+          },
         });
       }
 
-      return updated;
+      return { updated, postCommitEvents };
     };
 
     if (tx) {
-      return executeUpdate(tx);
-    } else {
-      return await (this.prisma as any).$transaction(async (client: Prisma.TransactionClient) => {
-        return executeUpdate(client);
-      });
+      const result = await executeUpdate(tx);
+      return result.updated;
     }
+
+    const result = await (this.prisma as any).$transaction(
+      async (client: Prisma.TransactionClient) => executeUpdate(client),
+    );
+    for (const event of result.postCommitEvents) {
+      this.eventEmitter.emit(event.eventName, event.payload);
+    }
+    return result.updated;
   }
 
   async createMock(operatorId: string) {

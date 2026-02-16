@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { OnEvent, EventEmitter2 } from '@nestjs/event-emitter';
+import { OnEvent } from '@nestjs/event-emitter';
 import { PrismaService } from '../core/prisma/prisma.service';
 import { WithdrawTransactionsService } from '../modules/trading/withdraw-transactions/withdraw-transactions.service';
 import { PayoutsService } from '../modules/asset-treasury/payouts/payouts.service';
@@ -32,7 +32,6 @@ export class WithdrawWorkflowOrchestrator {
 
   constructor(
     private prisma: PrismaService,
-    private eventEmitter: EventEmitter2,
     private withdrawalService: WithdrawTransactionsService,
     private payoutsService: PayoutsService,
     private journalsService: JournalsService,
@@ -73,19 +72,31 @@ export class WithdrawWorkflowOrchestrator {
     return this.orchestrateSuccessPath(payload.withdrawId, payload.payoutId);
   }
 
-  @OnEvent(WithdrawEvents.EVT_WITHDRAWAL_FAILED__CRYPTO)
-  async onWithdrawalFailedCrypto(payload: { withdrawId: string; payoutId: string; status: PayoutStatus }) {
-    return this.orchestratePayoutEvent(payload.withdrawId, payload.payoutId, payload.status);
+  @OnEvent(PayoutEvents.EVT_PAYOUT_FAILED)
+  async onPayoutFailed(payload: { withdrawId: string; payoutId: string; status: PayoutStatus }) {
+    return this.orchestratePayoutEvent(
+      payload.withdrawId,
+      payload.payoutId,
+      payload.status || PayoutStatus.FAILED,
+    );
   }
 
-  @OnEvent(WithdrawEvents.EVT_WITHDRAWAL_FAILED__FIAT)
-  async onWithdrawalFailedFiat(payload: { withdrawId: string; payoutId: string; status: PayoutStatus }) {
-    return this.orchestratePayoutEvent(payload.withdrawId, payload.payoutId, payload.status);
+  @OnEvent(PayoutEvents.EVT_PAYOUT_TIMEOUT)
+  async onPayoutTimeout(payload: { withdrawId: string; payoutId: string; status: PayoutStatus }) {
+    return this.orchestratePayoutEvent(
+      payload.withdrawId,
+      payload.payoutId,
+      payload.status || PayoutStatus.TIMEOUT,
+    );
   }
 
   @OnEvent(PayoutEvents.EVT_PAYOUT_RETURNED)
-  async onPayoutReturned(payload: { withdrawId: string; payoutId: string }) {
-    return this.orchestratePayoutEvent(payload.withdrawId, payload.payoutId, PayoutStatus.RETURNED);
+  async onPayoutReturned(payload: { withdrawId: string; payoutId: string; status?: PayoutStatus }) {
+    return this.orchestratePayoutEvent(
+      payload.withdrawId,
+      payload.payoutId,
+      payload.status || PayoutStatus.RETURNED,
+    );
   }
 
   // --- Core Orchestration Logic ---
@@ -93,13 +104,26 @@ export class WithdrawWorkflowOrchestrator {
   private async orchestrateWithdrawalEvent(withdrawId: string, eventType: string): Promise<OrchestrationResult | null> {
     this.logger.log(`Orchestrating Withdrawal Event: ${eventType} for ${withdrawId}`);
 
-    // Idempotency Check
-    if (await this.checkIdempotency(withdrawId, eventType)) {
-      this.logger.warn(`Event ${eventType} for withdrawal ${withdrawId} already processed.`);
+    const marker =
+      eventType === WithdrawEvents.EVT_WITHDRAWAL_APPROVED__CRYPTO ||
+      eventType === WithdrawEvents.EVT_WITHDRAWAL_APPROVED__FIAT
+        ? this.markerForWithdrawApproved(withdrawId)
+        : this.markerForWithdrawalEvent(eventType, withdrawId);
+    if (await this.checkIdempotency(withdrawId, marker)) {
+      this.logger.warn(`Event ${eventType} for withdrawal ${withdrawId} already processed by marker.`);
       return null;
     }
 
     const withdrawal = await this.withdrawalService.findOne(withdrawId);
+    if (
+      (eventType === WithdrawEvents.EVT_WITHDRAWAL_APPROVED__CRYPTO ||
+        eventType === WithdrawEvents.EVT_WITHDRAWAL_APPROVED__FIAT) &&
+      withdrawal.status !== WithdrawTransactionStatus.PAYOUT_PENDING
+    ) {
+      this.logger.warn(`Withdrawal ${withdrawId} is not in PAYOUT_PENDING. Skipping approve orchestration.`);
+      return null;
+    }
+
     const suffix = this.getSuffix(withdrawal);
     const isCustomer = withdrawal.ownerType === 'CUSTOMER';
     const result: OrchestrationResult = {
@@ -120,18 +144,18 @@ export class WithdrawWorkflowOrchestrator {
           context: this.createAccountingContext(withdrawal),
           sourceId: withdrawal.id,
         });
-        if (je) result.created_or_reversed_journal_entry_ids.push(je.id);
+        result.created_or_reversed_journal_entry_ids.push(...this.collectJournalIds(je));
       }
-      // Log for idempotency (self-transition if possible, or just audit log)
-      await this.prisma.withdrawAuditLog.create({
+      const log = await this.prisma.withdrawAuditLog.create({
         data: {
           withdrawTransactionId: withdrawId,
           operatorId: 'SYSTEM',
           oldStatus: withdrawal.status,
           newStatus: withdrawal.status,
-          reason: `[${eventType}] Initial accounting processed`,
+          reason: marker,
         },
       });
+      result.audit_log_id = log.id;
     }
     // 2) CANCELLED / 3) REJECTED
     else if (eventType === WithdrawEvents.EVT_WITHDRAWAL_CANCELLED || eventType === WithdrawEvents.EVT_WITHDRAWAL_REJECTED) {
@@ -144,23 +168,22 @@ export class WithdrawWorkflowOrchestrator {
           context: this.createAccountingContext(withdrawal),
           sourceId: withdrawal.id,
         });
-        if (je) result.created_or_reversed_journal_entry_ids.push(je.id);
+        result.created_or_reversed_journal_entry_ids.push(...this.collectJournalIds(je));
       }
-      // Log for idempotency
-      await this.prisma.withdrawAuditLog.create({
+      const log = await this.prisma.withdrawAuditLog.create({
         data: {
           withdrawTransactionId: withdrawId,
           operatorId: 'SYSTEM',
           oldStatus: withdrawal.status,
           newStatus: withdrawal.status,
-          reason: `[${eventType}] Cancellation accounting processed`,
+          reason: marker,
         },
       });
+      result.audit_log_id = log.id;
     }
     // 4) APPROVED (Entering PAYOUT_PENDING)
     else if (eventType === WithdrawEvents.EVT_WITHDRAWAL_APPROVED__CRYPTO || eventType === WithdrawEvents.EVT_WITHDRAWAL_APPROVED__FIAT) {
       await (this.prisma as any).$transaction(async (tx: any) => {
-        // Trigger Clearing (Idempotent inside Service)
         await this.clearingsService.triggerClearing(
           {
             sourceType: 'WITHDRAWAL',
@@ -174,12 +197,10 @@ export class WithdrawWorkflowOrchestrator {
         const updatedAfterClearing = await tx.withdrawTransaction.findUnique({
           where: { id: withdrawId },
         });
-
         if (!updatedAfterClearing) {
           throw new Error(`Withdrawal ${withdrawId} not found after clearing`);
         }
 
-        // JE: Approved (Only if customer)
         if (isCustomer) {
           const je = await this.journalsService.triggerEvent(
             {
@@ -192,39 +213,53 @@ export class WithdrawWorkflowOrchestrator {
             },
             tx,
           );
-          if (je) result.created_or_reversed_journal_entry_ids.push(je.id);
+          result.created_or_reversed_journal_entry_ids.push(...this.collectJournalIds(je));
         }
 
-        // Create/Bind Payout
-        const payout = await this.payoutsService.create(
-          {
-            withdrawId: updatedAfterClearing.id,
-            type: suffix === 'CRYPTO' ? PayoutType.CRYPTO : PayoutType.FIAT,
-            amount: updatedAfterClearing.netAmount.toString(),
-            assetId: updatedAfterClearing.assetId,
-            toAddress: updatedAfterClearing.toAddress || undefined,
-            toIban: updatedAfterClearing.toIban || undefined,
-            toWalletId: updatedAfterClearing.toWalletId || undefined,
-          },
-          'SYSTEM',
-          tx,
-        );
-        result.payout_binding_status = 'created';
+        let payout = await tx.payout.findUnique({
+          where: { withdrawId: updatedAfterClearing.id },
+        });
+        if (!payout) {
+          payout = await this.payoutsService.create(
+            {
+              withdrawId: updatedAfterClearing.id,
+              type: suffix === 'CRYPTO' ? PayoutType.CRYPTO : PayoutType.FIAT,
+              amount: updatedAfterClearing.netAmount.toString(),
+              assetId: updatedAfterClearing.assetId,
+              toAddress: updatedAfterClearing.toAddress || undefined,
+              toIban: updatedAfterClearing.toIban || undefined,
+              toWalletId: updatedAfterClearing.toWalletId || undefined,
+            },
+            'SYSTEM',
+            tx,
+          );
+          result.payout_binding_status = 'created';
+        } else {
+          result.payout_binding_status = 'bound';
+        }
 
-        const updatedStatus = await this.withdrawalService.updateStatus(
-          withdrawId,
-          {
-            action: WithdrawTransactionAction.APPROVE,
-            reason: `[${eventType}] Payout initiated: ${payout.id}`,
+        await tx.withdrawTransaction.update({
+          where: { id: updatedAfterClearing.id },
+          data: {
+            payoutId: payout.id,
+            payoutNo: payout.payoutNo,
           },
-          tx,
-        );
-        result.updated_withdrawal_status = updatedStatus.status;
+        });
+
+        result.updated_withdrawal_status = updatedAfterClearing.status;
+
+        const log = await tx.withdrawAuditLog.create({
+          data: {
+            withdrawTransactionId: withdrawId,
+            operatorId: 'SYSTEM',
+            oldStatus: withdrawal.status,
+            newStatus: updatedAfterClearing.status,
+            reason: marker,
+          },
+        });
+        result.audit_log_id = log.id;
       });
     }
-
-    const latestLog = await this.getLatestAuditLog(withdrawId);
-    result.audit_log_id = latestLog?.id || '';
 
     this.logger.log(`Orchestration Result: ${JSON.stringify(result)}`);
     return result;
@@ -233,9 +268,8 @@ export class WithdrawWorkflowOrchestrator {
   private async orchestrateSuccessPath(withdrawId: string, payoutId: string): Promise<OrchestrationResult | null> {
     this.logger.log(`Orchestrating Atomic Success Path for Withdrawal ${withdrawId} and Payout ${payoutId}`);
 
-    // Idempotency check: Use a specific success-path audit log marker
-    const eventType = 'SUCCESS_PATH_ATOMIC';
-    if (await this.checkIdempotency(withdrawId, eventType)) {
+    const marker = this.markerForSuccessPath(withdrawId, payoutId);
+    if (await this.checkIdempotency(withdrawId, marker)) {
       this.logger.warn(`Success path for withdrawal ${withdrawId} already processed.`);
       return null;
     }
@@ -256,14 +290,12 @@ export class WithdrawWorkflowOrchestrator {
     };
 
     return await (this.prisma as any).$transaction(async (tx: any) => {
-      // 1. Update Withdrawal to SUCCESS
       const updatedWithdrawal = await this.withdrawalService.updateStatus(withdrawId, {
         action: WithdrawTransactionAction.SUCCESS,
-        reason: `[${eventType}] Payout confirmed. Setting withdrawal to SUCCESS.`,
+        reason: `[${marker}] Payout confirmed. Setting withdrawal to SUCCESS.`,
       }, tx);
       result.updated_withdrawal_status = updatedWithdrawal.status;
 
-      // 2. JE: Success (Only if customer)
       if (isCustomer) {
         const je = await this.journalsService.triggerEvent({
           entityType: 'WITHDRAW',
@@ -273,24 +305,22 @@ export class WithdrawWorkflowOrchestrator {
           context: this.createAccountingContext(updatedWithdrawal),
           sourceId: updatedWithdrawal.id,
         }, tx);
-        if (je) result.created_or_reversed_journal_entry_ids.push(je.id);
+        result.created_or_reversed_journal_entry_ids.push(...this.collectJournalIds(je));
       }
 
-      // 3. Update Payout to CLEAR
       const updatedPayout = await this.payoutsService.updateStatus(payoutId, {
         action: PayoutAction.CLEAR,
-        reason: `[${eventType}] Internal accounting completed successfully.`,
+        reason: `[${marker}] Internal accounting completed successfully.`,
       }, 'SYSTEM', tx);
       result.updated_payout_status = updatedPayout.status;
 
-      // 4. Final Audit Log for Orchestrator completion
       const log = await tx.withdrawAuditLog.create({
         data: {
           withdrawTransactionId: withdrawId,
           operatorId: 'SYSTEM',
           oldStatus: withdrawal.status,
           newStatus: updatedWithdrawal.status,
-          reason: `[${eventType}] Atomic success path completed.`,
+          reason: marker,
         },
       });
       result.audit_log_id = log.id;
@@ -303,9 +333,36 @@ export class WithdrawWorkflowOrchestrator {
   private async orchestratePayoutEvent(withdrawId: string, payoutId: string, status: PayoutStatus): Promise<OrchestrationResult | null> {
     this.logger.log(`Orchestrating Payout Result: ${status} for Withdrawal ${withdrawId}`);
 
+    if (
+      status !== PayoutStatus.FAILED &&
+      status !== PayoutStatus.TIMEOUT &&
+      status !== PayoutStatus.RETURNED
+    ) {
+      this.logger.warn(`Unsupported payout status ${status} for orchestration.`);
+      return null;
+    }
+
+    const marker = this.markerForPayoutResult(withdrawId, payoutId, status);
+    if (await this.checkIdempotency(withdrawId, marker)) {
+      this.logger.warn(`Payout result ${status} for ${withdrawId} already processed.`);
+      return null;
+    }
+
     const withdrawal = await this.withdrawalService.findOne(withdrawId);
-    if (withdrawal.status !== WithdrawTransactionStatus.PAYOUT_PENDING && status !== PayoutStatus.RETURNED) {
+    if (status !== PayoutStatus.RETURNED && withdrawal.status !== WithdrawTransactionStatus.PAYOUT_PENDING) {
       this.logger.warn(`Withdrawal ${withdrawId} is not in PAYOUT_PENDING. Skipping back-propagation.`);
+      return null;
+    }
+    if (
+      status === PayoutStatus.RETURNED &&
+      withdrawal.status !== WithdrawTransactionStatus.SUCCESS &&
+      withdrawal.status !== WithdrawTransactionStatus.RETURNED
+    ) {
+      this.logger.warn(`Withdrawal ${withdrawId} is not in SUCCESS/RETURNED for returned flow.`);
+      return null;
+    }
+    if (status === PayoutStatus.RETURNED && withdrawal.status === WithdrawTransactionStatus.RETURNED) {
+      this.logger.warn(`Withdrawal ${withdrawId} already RETURNED. Skip repeated return event.`);
       return null;
     }
 
@@ -313,63 +370,54 @@ export class WithdrawWorkflowOrchestrator {
     const suffix = this.getSuffix(withdrawal);
     const result: OrchestrationResult = {
       payout_binding_status: 'unchanged',
-      emitted_events: [],
+      emitted_events: [status],
       created_or_reversed_journal_entry_ids: [],
       audit_log_id: '',
     };
 
-    // 5.2/5.3 Failure & Return Path (Full Rollback)
-    if (status === PayoutStatus.FAILED || status === PayoutStatus.TIMEOUT || status === PayoutStatus.RETURNED) {
-      const isReturn = status === PayoutStatus.RETURNED;
-      const feedbackEvent = isReturn ? WithdrawEvents.EVT_WITHDRAWAL_RETURNED__FIAT : `EVT_WITHDRAWAL_FAILED__${suffix}`;
+    const isReturn = status === PayoutStatus.RETURNED;
+    await (this.prisma as any).$transaction(async (tx: any) => {
+      const updatedWithdrawal = await this.withdrawalService.updateStatus(
+        withdrawId,
+        {
+          action: isReturn
+            ? WithdrawTransactionAction.RETURN
+            : WithdrawTransactionAction.FAIL,
+          reason: `[${marker}] Payout ${payoutId} ${status.toLowerCase()}.`,
+        },
+        tx,
+      );
+      result.updated_withdrawal_status = updatedWithdrawal.status;
 
-      await (this.prisma as any).$transaction(async (tx: any) => {
-        // Update Withdrawal Status
-        const updatedWithdrawal = await this.withdrawalService.updateStatus(
-          withdrawId,
+      if (isCustomer) {
+        const posting = await this.journalsService.triggerEvent(
           {
-            action: isReturn
-              ? WithdrawTransactionAction.RETURN
-              : WithdrawTransactionAction.FAIL,
-            reason: `[${feedbackEvent}] Payout ${payoutId} ${status.toLowerCase()}. Performing full reversal.`,
+            entityType: 'WITHDRAW',
+            triggerKey: 'status',
+            toStatus: updatedWithdrawal.status,
+            assetType: suffix,
+            context: this.createAccountingContext(updatedWithdrawal),
+            sourceId: updatedWithdrawal.id,
           },
           tx,
         );
-        result.updated_withdrawal_status = updatedWithdrawal.status;
+        result.created_or_reversed_journal_entry_ids.push(
+          ...this.collectJournalIds(posting),
+        );
+      }
 
-        // Full JE Rollback (Only if customer)
-        if (isCustomer) {
-          const journals = await tx.journal.findMany({
-            where: { sourceId: withdrawId, sourceType: 'WITHDRAW' },
-          });
-
-          for (const journal of journals) {
-            if (journal.reversalOfJournalId) continue;
-
-            const reversal = await this.journalsService.reverseJournal(
-              {
-                sourceType: 'WITHDRAW',
-                sourceId: withdrawId,
-                reversalEventCode: `REV_${journal.eventCode}`,
-                targetEventCode: journal.eventCode,
-                context: this.createAccountingContext(updatedWithdrawal),
-              },
-              tx,
-            );
-            if (reversal) result.created_or_reversed_journal_entry_ids.push(reversal.id);
-          }
-        }
-
-        // Cancel Clearing
-        await this.clearingsService.updateStatusBySource(withdrawId, 'CANCELLED', tx);
+      await this.clearingsService.updateStatusBySource(withdrawId, 'CANCELLED', tx);
+      const log = await tx.withdrawAuditLog.create({
+        data: {
+          withdrawTransactionId: withdrawId,
+          operatorId: 'SYSTEM',
+          oldStatus: withdrawal.status,
+          newStatus: updatedWithdrawal.status,
+          reason: marker,
+        },
       });
-
-      this.eventEmitter.emit(feedbackEvent, { withdrawId, payoutId, status });
-      result.emitted_events.push(feedbackEvent);
-    }
-
-    const latestLog = await this.getLatestAuditLog(withdrawId);
-    result.audit_log_id = latestLog?.id || '';
+      result.audit_log_id = log.id;
+    });
 
     this.logger.log(`Orchestration Result: ${JSON.stringify(result)}`);
     return result;
@@ -381,21 +429,42 @@ export class WithdrawWorkflowOrchestrator {
     return withdrawal.type.toUpperCase() as 'CRYPTO' | 'FIAT';
   }
 
-  private async checkIdempotency(withdrawId: string, eventType: string): Promise<boolean> {
+  private async checkIdempotency(withdrawId: string, marker: string): Promise<boolean> {
     const existingLog = await this.prisma.withdrawAuditLog.findFirst({
       where: {
         withdrawTransactionId: withdrawId,
-        reason: { contains: eventType },
+        reason: marker,
       },
     });
     return !!existingLog;
   }
 
-  private async getLatestAuditLog(withdrawId: string) {
-    return this.prisma.withdrawAuditLog.findFirst({
-      where: { withdrawTransactionId: withdrawId },
-      orderBy: { createdAt: 'desc' },
-    });
+  private markerForWithdrawalEvent(eventType: string, withdrawId: string) {
+    return `ORCH::WITHDRAW_EVENT::${eventType}::${withdrawId}::DONE`;
+  }
+
+  private markerForWithdrawApproved(withdrawId: string) {
+    return `ORCH::WITHDRAW_APPROVED::${withdrawId}::DONE`;
+  }
+
+  private markerForSuccessPath(withdrawId: string, payoutId: string) {
+    return `ORCH::WITHDRAW_SUCCESS_PATH::${withdrawId}::${payoutId}::DONE`;
+  }
+
+  private markerForPayoutResult(
+    withdrawId: string,
+    payoutId: string,
+    status: PayoutStatus,
+  ) {
+    return `ORCH::WITHDRAW_PAYOUT_RESULT::${withdrawId}::${payoutId}::${status}::DONE`;
+  }
+
+  private collectJournalIds(posting: any): string[] {
+    if (!posting) return [];
+    if (Array.isArray(posting)) {
+      return posting.filter(Boolean).map((item) => item.id);
+    }
+    return posting.id ? [posting.id] : [];
   }
 
   private createAccountingContext(withdrawal: any) {

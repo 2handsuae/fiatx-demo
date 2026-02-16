@@ -22,6 +22,9 @@ import {
 export class WithdrawTransactionsService {
   private readonly logger = new Logger(WithdrawTransactionsService.name);
 
+  private readonly txEventDisabledHint =
+    'Transactional status update completed without emitting domain events';
+
   // Helper to generate withdraw number
   private generateWithdrawNo(): string {
     return generateReferenceNo('WD');
@@ -299,50 +302,71 @@ export class WithdrawTransactionsService {
     return created;
   }
 
-  async updateStatus(id: string, dto: UpdateWithdrawTransactionStatusDto, tx?: Prisma.TransactionClient) {
+  async updateStatus(
+    id: string,
+    dto: UpdateWithdrawTransactionStatusDto,
+    tx?: Prisma.TransactionClient,
+  ) {
     const { action, reason } = dto;
-    const item = await this.findOne(id);
-    const currentStatus = item.status as WithdrawTransactionStatus;
-
-    const nextStatus = this.transitions[currentStatus]?.[action];
-
-    if (!nextStatus) {
-      throw new BadRequestException(
-        `Invalid action "${action}" for current status "${currentStatus}"`,
-      );
-    }
-
-    this.assertComplianceGate(item, nextStatus);
 
     const executeUpdate = async (client: Prisma.TransactionClient) => {
-      // Parse existing history
+      const item = await (client as any).withdrawTransaction.findUnique({
+        where: { id },
+      });
+      if (!item) {
+        throw new NotFoundException('Withdraw transaction not found');
+      }
+
+      const currentStatus = item.status as WithdrawTransactionStatus;
+      const nextStatus = this.transitions[currentStatus]?.[action];
+
+      if (!nextStatus) {
+        throw new BadRequestException(
+          `Invalid action "${action}" for current status "${currentStatus}"`,
+        );
+      }
+
+      this.assertComplianceGate(item, nextStatus);
+
       let history: any[] = [];
       try {
         if (item.statusHistory) {
           history = JSON.parse(item.statusHistory);
         }
-      } catch (e) {
-        // ignore parse error
+      } catch {
+        history = [];
       }
 
-      // Add new entry
       history.push({
         status: nextStatus,
         timestamp: new Date().toISOString(),
-        operator: 'SYSTEM', // Should be from request user
-        note: reason || `Status changed from ${currentStatus} to ${nextStatus}`
+        operator: 'SYSTEM',
+        note: reason || `Status changed from ${currentStatus} to ${nextStatus}`,
       });
 
-      // Update transaction status
       const updated = await client.withdrawTransaction.update({
         where: { id },
         data: {
           status: nextStatus,
-          // Update timestamps based on status
-          approvedAt: (nextStatus === WithdrawTransactionStatus.APPROVED || nextStatus === WithdrawTransactionStatus.PAYOUT_PENDING) && !item.approvedAt ? new Date() : item.approvedAt,
-          payoutRequestedAt: nextStatus === WithdrawTransactionStatus.PAYOUT_PENDING ? new Date() : item.payoutRequestedAt,
-          completedAt: [WithdrawTransactionStatus.SUCCESS, WithdrawTransactionStatus.FAILED, WithdrawTransactionStatus.REJECTED, WithdrawTransactionStatus.CANCELLED, WithdrawTransactionStatus.RETURNED].includes(nextStatus) ? new Date() : item.completedAt,
-          // Update status history
+          approvedAt:
+            (nextStatus === WithdrawTransactionStatus.APPROVED ||
+              nextStatus === WithdrawTransactionStatus.PAYOUT_PENDING) &&
+            !item.approvedAt
+              ? new Date()
+              : item.approvedAt,
+          payoutRequestedAt:
+            nextStatus === WithdrawTransactionStatus.PAYOUT_PENDING
+              ? new Date()
+              : item.payoutRequestedAt,
+          completedAt: [
+            WithdrawTransactionStatus.SUCCESS,
+            WithdrawTransactionStatus.FAILED,
+            WithdrawTransactionStatus.REJECTED,
+            WithdrawTransactionStatus.CANCELLED,
+            WithdrawTransactionStatus.RETURNED,
+          ].includes(nextStatus)
+            ? new Date()
+            : item.completedAt,
           statusHistory: JSON.stringify(history),
         },
       });
@@ -357,7 +381,7 @@ export class WithdrawTransactionsService {
           id,
           client,
         );
-        const refreshed = await client.withdrawTransaction.findUnique({
+        const refreshed = await (client as any).withdrawTransaction.findUnique({
           where: { id },
         });
         if (!refreshed) {
@@ -366,61 +390,89 @@ export class WithdrawTransactionsService {
         eventSource = refreshed;
       }
 
-      // Create audit log
       await client.withdrawAuditLog.create({
         data: {
           withdrawTransactionId: id,
-          operatorId: 'SYSTEM', // Should be from request user
+          operatorId: 'SYSTEM',
           oldStatus: currentStatus,
           newStatus: nextStatus,
           reason: reason || `Action: ${action}`,
         },
       });
 
-      // Emit events based on next status
+      const postCommitEvents: Array<{ eventName: string; payload: any }> = [];
+
       if (nextStatus === WithdrawTransactionStatus.CANCELLED) {
-        this.eventEmitter.emit(WithdrawEvents.EVT_WITHDRAWAL_CANCELLED, {
-          withdrawId: id,
+        postCommitEvents.push({
+          eventName: WithdrawEvents.EVT_WITHDRAWAL_CANCELLED,
+          payload: { withdrawId: id },
         });
       } else if (nextStatus === WithdrawTransactionStatus.REJECTED) {
-        this.eventEmitter.emit(WithdrawEvents.EVT_WITHDRAWAL_REJECTED, {
-          withdrawId: id,
+        postCommitEvents.push({
+          eventName: WithdrawEvents.EVT_WITHDRAWAL_REJECTED,
+          payload: { withdrawId: id },
         });
-      } else if (nextStatus === WithdrawTransactionStatus.APPROVED || nextStatus === WithdrawTransactionStatus.PAYOUT_PENDING) {
-        // Emit approval events if moving to APPROVED or PAYOUT_PENDING (since approve now goes directly to PAYOUT_PENDING)
-        // We use a flag or check previous status to avoid double-emitting if we were already APPROVED
-        if (currentStatus !== WithdrawTransactionStatus.APPROVED && currentStatus !== WithdrawTransactionStatus.PAYOUT_PENDING) {
+      } else if (
+        nextStatus === WithdrawTransactionStatus.APPROVED ||
+        nextStatus === WithdrawTransactionStatus.PAYOUT_PENDING
+      ) {
+        if (
+          currentStatus !== WithdrawTransactionStatus.APPROVED &&
+          currentStatus !== WithdrawTransactionStatus.PAYOUT_PENDING
+        ) {
           if (eventSource.type === 'crypto') {
-            this.eventEmitter.emit(
-              WithdrawEvents.EVT_WITHDRAWAL_APPROVED__CRYPTO,
-              { withdrawId: id },
-            );
+            postCommitEvents.push({
+              eventName: WithdrawEvents.EVT_WITHDRAWAL_APPROVED__CRYPTO,
+              payload: { withdrawId: id },
+            });
           } else if (eventSource.type === 'fiat') {
-            this.eventEmitter.emit(WithdrawEvents.EVT_WITHDRAWAL_APPROVED__FIAT, {
-              withdrawId: id,
+            postCommitEvents.push({
+              eventName: WithdrawEvents.EVT_WITHDRAWAL_APPROVED__FIAT,
+              payload: { withdrawId: id },
             });
           }
         }
       } else if (nextStatus === WithdrawTransactionStatus.SUCCESS) {
-        const successEvent = eventSource.type === 'crypto' ? WithdrawEvents.EVT_WITHDRAWAL_SUCCESS__CRYPTO : WithdrawEvents.EVT_WITHDRAWAL_SUCCESS__FIAT;
-        this.eventEmitter.emit(successEvent, { withdrawId: id });
+        const successEvent =
+          eventSource.type === 'crypto'
+            ? WithdrawEvents.EVT_WITHDRAWAL_SUCCESS__CRYPTO
+            : WithdrawEvents.EVT_WITHDRAWAL_SUCCESS__FIAT;
+        postCommitEvents.push({
+          eventName: successEvent,
+          payload: { withdrawId: id },
+        });
       } else if (nextStatus === WithdrawTransactionStatus.FAILED) {
-        const failedEvent = eventSource.type === 'crypto' ? WithdrawEvents.EVT_WITHDRAWAL_FAILED__CRYPTO : WithdrawEvents.EVT_WITHDRAWAL_FAILED__FIAT;
-        this.eventEmitter.emit(failedEvent, { withdrawId: id });
+        const failedEvent =
+          eventSource.type === 'crypto'
+            ? WithdrawEvents.EVT_WITHDRAWAL_FAILED__CRYPTO
+            : WithdrawEvents.EVT_WITHDRAWAL_FAILED__FIAT;
+        postCommitEvents.push({
+          eventName: failedEvent,
+          payload: { withdrawId: id },
+        });
       } else if (nextStatus === WithdrawTransactionStatus.RETURNED) {
-        this.eventEmitter.emit(WithdrawEvents.EVT_WITHDRAWAL_RETURNED__FIAT, { withdrawId: id });
+        postCommitEvents.push({
+          eventName: WithdrawEvents.EVT_WITHDRAWAL_RETURNED__FIAT,
+          payload: { withdrawId: id },
+        });
       }
 
-      return eventSource;
+      return { updated: eventSource, postCommitEvents };
     };
 
     if (tx) {
-      return executeUpdate(tx);
-    } else {
-      return await (this.prisma as any).$transaction(async (client: Prisma.TransactionClient) => {
-        return executeUpdate(client);
-      });
+      const result = await executeUpdate(tx);
+      this.logger.debug(this.txEventDisabledHint);
+      return result.updated;
     }
+
+    const result = await (this.prisma as any).$transaction(
+      async (client: Prisma.TransactionClient) => executeUpdate(client),
+    );
+    for (const event of result.postCommitEvents) {
+      this.eventEmitter.emit(event.eventName, event.payload);
+    }
+    return result.updated;
   }
 
   async createMockData() {

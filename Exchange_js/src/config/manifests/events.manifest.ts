@@ -182,7 +182,52 @@ export const DEFAULT_ACCT_EVENTS = [
     isActive: true,
     description: '提现成功（法币）：消耗锁定资产',
   },
-  // 13. Withdrawal Cancelled/Rejected
+  // 13. Withdrawal Failed (Crypto)
+  {
+    eventCode: 'EVT_WITHDRAWAL_FAILED__CRYPTO',
+    entityType: 'WITHDRAW',
+    ownerScope: 'CUSTOMER',
+    assetType: 'CRYPTO',
+    triggerType: 'STATUS_TRANSITION',
+    triggerKey: 'status',
+    fromStatus: null,
+    toStatus: 'FAILED',
+    postingMode: 'BULK_REVERSAL_BY_SOURCE',
+    clearingMode: 'NONE',
+    isActive: true,
+    description: '提现失败（币）：冲销该提现单全部记账',
+  },
+  // 14. Withdrawal Failed (Fiat)
+  {
+    eventCode: 'EVT_WITHDRAWAL_FAILED__FIAT',
+    entityType: 'WITHDRAW',
+    ownerScope: 'CUSTOMER',
+    assetType: 'FIAT',
+    triggerType: 'STATUS_TRANSITION',
+    triggerKey: 'status',
+    fromStatus: null,
+    toStatus: 'FAILED',
+    postingMode: 'BULK_REVERSAL_BY_SOURCE',
+    clearingMode: 'NONE',
+    isActive: true,
+    description: '提现失败（法币）：冲销该提现单全部记账',
+  },
+  // 15. Withdrawal Returned (Fiat)
+  {
+    eventCode: 'EVT_WITHDRAWAL_RETURNED__FIAT',
+    entityType: 'WITHDRAW',
+    ownerScope: 'CUSTOMER',
+    assetType: 'FIAT',
+    triggerType: 'STATUS_TRANSITION',
+    triggerKey: 'status',
+    fromStatus: null,
+    toStatus: 'RETURNED',
+    postingMode: 'BULK_REVERSAL_BY_SOURCE',
+    clearingMode: 'NONE',
+    isActive: true,
+    description: '提现退回：冲销该提现单全部记账',
+  },
+  // 16. Withdrawal Cancelled/Rejected
   {
     eventCode: 'EVT_WITHDRAWAL_CANCELLED',
     entityType: 'WITHDRAW',
