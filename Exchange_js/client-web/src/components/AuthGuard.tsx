@@ -48,23 +48,32 @@ const AuthGuard = ({ children }: AuthGuardProps) => {
 
   if (!isApproved) {
     return (
-      <div className="absolute inset-0 z-10 bg-white/80 backdrop-blur-sm flex items-center justify-center p-4 rounded-xl">
-        <div className="bg-white p-8 rounded-2xl shadow-xl border border-gray-100 max-w-md w-full text-center">
-            <div className="w-16 h-16 bg-blue-50 rounded-full flex items-center justify-center text-brand-primary mx-auto mb-6">
-            <Lock size={32} />
+      <div className="absolute inset-0 z-10 bg-slate-50/50 backdrop-blur-sm flex items-center justify-center p-4 rounded-xl">
+        <div className="relative overflow-hidden rounded-[2rem] border border-white/60 bg-white/90 px-8 py-10 shadow-[0_20px_40px_-12px_rgba(0,0,0,0.1)] backdrop-blur-xl max-w-md w-full text-center">
+            {/* Ambient Background */}
+            <div className="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none z-0">
+                <div className="absolute -top-[50%] -left-[50%] w-[200%] h-[200%] bg-gradient-to-br from-blue-50/50 via-transparent to-violet-50/50 opacity-60"></div>
             </div>
-            <h2 className="text-xl font-bold text-gray-900 mb-2">Verification Required</h2>
-            <p className="text-gray-500 mb-8 text-sm leading-relaxed">
-            Please complete onboarding (CDD/EDD) to access this feature.
-            Trading is allowed only when compliance status is ACTIVE.
-            </p>
-            <button 
-            onClick={() => navigate('/verification')}
-            className="w-full py-3 bg-brand-primary text-white font-semibold rounded-xl shadow-lg shadow-blue-500/20 hover:bg-blue-700 transition-all flex items-center justify-center gap-2"
-            >
-            <ShieldAlert size={18} />
-            Complete Verification
-            </button>
+
+            <div className="relative z-10">
+                <div className="w-16 h-16 bg-gradient-to-br from-blue-50 to-indigo-50 rounded-2xl rotate-3 flex items-center justify-center text-blue-600 mx-auto mb-6 shadow-inner border border-white">
+                    <div className="-rotate-3">
+                        <Lock size={32} />
+                    </div>
+                </div>
+                <h2 className="text-2xl font-bold text-slate-900 mb-3">Verification Required</h2>
+                <p className="text-slate-500 mb-8 text-sm leading-relaxed">
+                    Please complete onboarding (CDD/EDD) to access this feature.
+                    Trading is allowed only when compliance status is ACTIVE.
+                </p>
+                <button 
+                    onClick={() => navigate('/verification')}
+                    className="w-full py-3.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-bold rounded-xl shadow-lg shadow-blue-500/30 hover:shadow-blue-500/50 hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-2"
+                >
+                    <ShieldAlert size={18} />
+                    Complete Verification
+                </button>
+            </div>
         </div>
       </div>
     );
