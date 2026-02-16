@@ -9,14 +9,14 @@ Any agent/thread must read this folder first before proposing or implementing ch
 2. `docs/constraints/backend-architecture-constraints.md`
 3. `docs/constraints/runtime-config-constraints.md`
 4. `docs/constraints/onboarding-flow-constraints.md`
-5. `docs/constraints/customer-transaction-deposit-flow-constraints.md`
+5. `docs/constraints/customer-transaction-flow-constraints.md`
 
 ## Scope
 - Frontend: `admin-web`, `client-web`
 - Backend: `src/**`, `prisma/**`, `scripts/**`
 - Runtime: local dev scripts, envs, startup/reset workflow
 - Domain flow: onboarding and compliance lifecycle
-- Domain flow: customer deposit transaction workflow
+- Domain flow: customer transaction workflow (deposit/swap/withdraw)
 
 ## Enforcement Level
 - `MUST`: mandatory constraint, no exception unless owner explicitly approves.
