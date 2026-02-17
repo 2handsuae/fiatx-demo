@@ -8,6 +8,7 @@ Before any code change in `Exchange_js`, read:
 4. `docs/constraints/runtime-config-constraints.md`
 5. `docs/constraints/onboarding-flow-constraints.md`
 6. `docs/constraints/customer-transaction-flow-constraints.md`
+7. `docs/constraints/internal-transaction-flow-constraints.md`
 
 ## Scope
 - Backend: `src/**`, `prisma/**`, `scripts/**`
