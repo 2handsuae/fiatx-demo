@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Clock3, QrCode, ShieldCheck, CheckCircle2, AlertTriangle, RefreshCw, Smartphone, ChevronRight } from 'lucide-react';
+import { Clock3, QrCode, ShieldCheck, AlertTriangle, RefreshCw, Smartphone, ChevronRight } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { QRCodeSVG } from 'qrcode.react';
 import { useCustomerProfile } from '../hooks/useCustomerProfile';
