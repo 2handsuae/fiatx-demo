@@ -82,7 +82,8 @@ const DashboardLayout = () => {
       children: [
         { path: '/exchange/deposit-transactions', label: 'Deposit Transactions', icon: <Download size={18} /> },
         { path: '/exchange/withdraw-transactions', label: 'Withdraw Transactions', icon: <Upload size={18} /> },
-        { path: '/exchange/swap-transactions', label: 'Swap Transactions', icon: <Repeat size={18} /> }
+        { path: '/exchange/swap-transactions', label: 'Swap Transactions', icon: <Repeat size={18} /> },
+        { path: '/exchange/internal-transactions', label: 'Internal Transactions', icon: <Repeat size={18} /> }
       ]
     },
     {
@@ -108,7 +109,8 @@ const DashboardLayout = () => {
       children: [
         { path: '/dashboard/treasury/wallets', label: 'Wallet & Account', icon: <Wallet size={18} /> },
         { path: '/dashboard/treasury/payins', label: 'Payin Records', icon: <LogIn size={18} /> },
-        { path: '/dashboard/treasury/payouts', label: 'Payout Records', icon: <LogOut size={18} /> }
+        { path: '/dashboard/treasury/payouts', label: 'Payout Records', icon: <LogOut size={18} /> },
+        { path: '/dashboard/treasury/internal-funds', label: 'Internal Funds', icon: <Activity size={18} /> }
       ]
     },
     {

@@ -455,4 +455,78 @@ export const DEFAULT_JOURNAL_TEMPLATES = [
       },
     ],
   },
+  // 15. Internal Transaction Created (Crypto Collection)
+  {
+    header: {
+      templateCode: 'TPL_EVT_INTERNAL_TX_CREATED_V1',
+      eventCode: 'EVT_INTERNAL_TX_CREATED',
+      version: 1,
+      status: 'ACTIVE',
+      description: '内部归集创建：托管可用转在途',
+    },
+    lines: [
+      {
+        lineNo: 1,
+        accountCode: 'A.CUSTODY_IN_TRANSIT',
+        drCr: 'DR',
+        amountSource: 'AMOUNT',
+        assetSource: 'ASSET_ID',
+        ownerTypeSource: 'src.toWalletOwnerType',
+        dimensionsRule: '{"assetId":"{{src.assetId}}","walletId":"{{src.toWalletId}}","internalTxNo":"{{src.internalTxNo}}"}',
+        description: '归集创建：在途托管增加',
+      },
+      {
+        lineNo: 2,
+        accountCode: 'A.CUSTODY',
+        drCr: 'CR',
+        amountSource: 'AMOUNT',
+        assetSource: 'ASSET_ID',
+        ownerTypeSource: 'src.fromWalletOwnerType',
+        dimensionsRule: '{"assetId":"{{src.assetId}}","walletId":"{{src.fromWalletId}}","internalTxNo":"{{src.internalTxNo}}"}',
+        description: '归集创建：托管可用减少',
+      },
+    ],
+  },
+  // 16. Internal Transaction Success (Crypto Collection)
+  {
+    header: {
+      templateCode: 'TPL_EVT_INTERNAL_TX_SUCCESS_V1',
+      eventCode: 'EVT_INTERNAL_TX_SUCCESS',
+      version: 1,
+      status: 'ACTIVE',
+      description: '内部归集成功：在途回托管并记录网络费',
+    },
+    lines: [
+      {
+        lineNo: 1,
+        accountCode: 'A.CUSTODY',
+        drCr: 'DR',
+        amountSource: 'NET_AMOUNT',
+        assetSource: 'ASSET_ID',
+        ownerTypeSource: 'src.toWalletOwnerType',
+        dimensionsRule: '{"assetId":"{{src.assetId}}","walletId":"{{src.toWalletId}}","internalTxNo":"{{src.internalTxNo}}"}',
+        description: '归集成功：托管可用增加',
+      },
+      {
+        lineNo: 2,
+        accountCode: 'E.NETWORK_FEE',
+        drCr: 'DR',
+        amountSource: 'FEE_AMOUNT',
+        assetSource: 'ASSET_ID',
+        ownerTypeSource: 'src.fromWalletOwnerType',
+        dimensionsRule: '{"assetId":"{{src.assetId}}","walletId":"{{src.fromWalletId}}","internalTxNo":"{{src.internalTxNo}}"}',
+        description: '归集成功：记录链上网络费用',
+      },
+      {
+        lineNo: 3,
+        accountCode: 'A.CUSTODY_IN_TRANSIT',
+        drCr: 'CR',
+        amountSource: 'AMOUNT',
+        assetSource: 'ASSET_ID',
+        ownerTypeSource: 'src.toWalletOwnerType',
+        dimensionsRule: '{"assetId":"{{src.assetId}}","walletId":"{{src.toWalletId}}","internalTxNo":"{{src.internalTxNo}}"}',
+        description: '归集成功：核销在途托管',
+      },
+    ],
+  },
 ];

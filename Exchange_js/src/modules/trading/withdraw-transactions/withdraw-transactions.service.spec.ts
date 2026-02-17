@@ -10,6 +10,7 @@ import {
   WithdrawTransactionStatus,
 } from './dto/withdraw-transaction.dto';
 import { TransactionComplianceService } from '../../risk-engine/transaction-compliance/transaction-compliance.service';
+import { WithdrawEvents } from './constants/withdraw-events.constant';
 
 describe('WithdrawTransactionsService', () => {
   let service: WithdrawTransactionsService;
@@ -220,5 +221,46 @@ describe('WithdrawTransactionsService', () => {
 
     expect(result.status).toBe(WithdrawTransactionStatus.PAYOUT_PENDING);
     expect(eventEmitter.emit).not.toHaveBeenCalled();
+  });
+
+  it('should emit fiat approval event based on asset.type', async () => {
+    mockTx.withdrawTransaction.findUnique.mockResolvedValue({
+      id: 'wd-4',
+      status: WithdrawTransactionStatus.PENDING_COMPLIANCE,
+      ownerType: 'CUSTOMER',
+      ownerId: 'cust-1',
+      assetId: 'asset-fiat',
+      amount: new Prisma.Decimal(20),
+      netAmount: new Prisma.Decimal(20),
+      feeAmount: new Prisma.Decimal(0),
+      withdrawNo: 'WD0004',
+      complianceStatus: 'CLEAR',
+      preKytStatus: 'PASS',
+      kytStatus: 'PASS',
+      travelRuleRequired: false,
+      travelRuleStatus: 'NOT_REQUIRED',
+      statusHistory: '[]',
+      approvedAt: null,
+      payoutRequestedAt: null,
+      completedAt: null,
+      asset: {
+        type: 'FIAT',
+      },
+    });
+    mockTx.withdrawTransaction.update.mockResolvedValue({
+      id: 'wd-4',
+      status: WithdrawTransactionStatus.PAYOUT_PENDING,
+    });
+    mockTx.withdrawAuditLog.create.mockResolvedValue({ id: 'audit-4' });
+
+    const result = await service.updateStatus('wd-4', {
+      action: WithdrawTransactionAction.APPROVE,
+    });
+
+    expect(result.status).toBe(WithdrawTransactionStatus.PAYOUT_PENDING);
+    expect(eventEmitter.emit).toHaveBeenCalledWith(
+      WithdrawEvents.EVT_WITHDRAWAL_APPROVED__FIAT,
+      { withdrawId: 'wd-4' },
+    );
   });
 });

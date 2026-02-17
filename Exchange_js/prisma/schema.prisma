@@ -417,6 +417,8 @@ model Asset {
   outstandings           Outstanding[]
   wallets                Wallet[]
   withdrawTransactions   WithdrawTransaction[]
+  internalTransactions   InternalTransaction[]
+  internalFunds          InternalFund[]
 
   @@unique([type, code, network])
   @@map("assets")
@@ -533,6 +535,10 @@ model Wallet {
   depositTransactionsFrom DepositTransaction[] @relation("DepositFromWallet")
   payins              Payin[]              @relation("PayinToWallet")
   payinsFrom          Payin[]              @relation("PayinFromWallet")
+  internalTransactionsFrom InternalTransaction[] @relation("InternalTxFromWallet")
+  internalTransactionsTo InternalTransaction[]   @relation("InternalTxToWallet")
+  internalFundsFrom   InternalFund[]       @relation("InternalFundFromWallet")
+  internalFundsTo     InternalFund[]       @relation("InternalFundToWallet")
   asset               Asset                @relation(fields: [assetId], references: [id])
 
   @@index([ownerType, ownerId])
@@ -612,6 +618,115 @@ model DepositAuditLog {
   depositTransaction   DepositTransaction @relation(fields: [depositTransactionId], references: [id])
 
   @@map("deposit_audit_logs")
+}
+
+model InternalTransaction {
+  id          String   @id @default(uuid())
+  internalTxNo String  @unique
+  type        String
+  status      String
+  sourceType  String
+  sourceId    String
+  sourceNo    String?
+  ownerType   String
+  ownerId     String
+  ownerNo     String?
+  assetId     String
+  amount      Decimal
+  feeAmount   Decimal  @default(0)
+  netAmount   Decimal
+  fromWalletId String?
+  fromAddress String?
+  fromIban    String?
+  toWalletId  String?
+  toAddress   String?
+  toIban      String?
+  referenceNo String?
+  statusHistory String?
+  createdAt   DateTime @default(now())
+  completedAt DateTime?
+  updatedAt   DateTime @updatedAt
+  asset       Asset    @relation(fields: [assetId], references: [id])
+  fromWallet  Wallet?  @relation("InternalTxFromWallet", fields: [fromWalletId], references: [id])
+  toWallet    Wallet?  @relation("InternalTxToWallet", fields: [toWalletId], references: [id])
+  funds       InternalFund[]
+  auditLogs   InternalTransactionAuditLog[]
+
+  @@unique([sourceType, sourceId, type])
+  @@index([status])
+  @@index([createdAt])
+  @@index([assetId])
+  @@map("internal_transactions")
+}
+
+model InternalFund {
+  id                    String   @id @default(uuid())
+  internalFundNo        String   @unique
+  internalTransactionId String
+  status                String
+  assetId               String
+  amount                Decimal
+  feeAmount             Decimal  @default(0)
+  netAmount             Decimal
+  fromWalletId          String?
+  fromAddress           String?
+  fromIban              String?
+  toWalletId            String?
+  toAddress             String?
+  toIban                String?
+  txHash                String?
+  confirmations         Int      @default(0)
+  referenceNo           String?
+  providerTxnId         String?
+  nonce                 String?
+  blockNo               String?
+  gasUsed               String?
+  effectiveGasPrice     String?
+  sentAt                DateTime?
+  confirmedAt           DateTime?
+  completedAt           DateTime?
+  statusHistory         String?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  internalTransaction   InternalTransaction @relation(fields: [internalTransactionId], references: [id], onDelete: Cascade)
+  asset                 Asset    @relation(fields: [assetId], references: [id])
+  fromWallet            Wallet?  @relation("InternalFundFromWallet", fields: [fromWalletId], references: [id])
+  toWallet              Wallet?  @relation("InternalFundToWallet", fields: [toWalletId], references: [id])
+  auditLogs             InternalFundAuditLog[]
+
+  @@index([internalTransactionId])
+  @@index([status])
+  @@index([txHash])
+  @@index([createdAt])
+  @@map("internal_funds")
+}
+
+model InternalTransactionAuditLog {
+  id                    String   @id @default(uuid())
+  internalTransactionId String
+  operatorId            String
+  oldStatus             String
+  newStatus             String
+  reason                String?
+  createdAt             DateTime @default(now())
+  internalTransaction   InternalTransaction @relation(fields: [internalTransactionId], references: [id], onDelete: Cascade)
+
+  @@index([internalTransactionId])
+  @@map("internal_transaction_audit_logs")
+}
+
+model InternalFundAuditLog {
+  id            String   @id @default(uuid())
+  internalFundId String
+  operatorId    String
+  oldStatus     String
+  newStatus     String
+  reason        String?
+  createdAt     DateTime @default(now())
+  internalFund  InternalFund @relation(fields: [internalFundId], references: [id], onDelete: Cascade)
+
+  @@index([internalFundId])
+  @@map("internal_fund_audit_logs")
 }
 
 model Coa {
@@ -896,7 +1011,6 @@ model WithdrawTransaction {
   ownerType            String
   ownerId              String
   ownerNo              String?
-  type                 String
   status               String
   assetId              String
   amount               Decimal

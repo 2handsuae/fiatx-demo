@@ -274,6 +274,12 @@ export class JournalsService {
       } else if (sourceType === 'PAYOUT') {
         const source = await (client as any).payout.findUnique({ where: { id: sourceId }, select: { payoutNo: true } });
         sourceNo = source?.payoutNo;
+      } else if (sourceType === 'INTERNAL_TX') {
+        const source = await (client as any).internalTransaction.findUnique({
+          where: { id: sourceId },
+          select: { internalTxNo: true },
+        });
+        sourceNo = source?.internalTxNo;
       } else if (sourceType === 'CLEARING') {
         const source = await (client as any).clearing.findUnique({ where: { id: sourceId }, select: { clearingNo: true } });
         sourceNo = source?.clearingNo;

@@ -30,4 +30,34 @@ export const DEFAULT_CLEARING_TEMPLATES = [
       }
     ],
   },
+  {
+    code: 'INTERNAL_TX_COLLECTION_V1',
+    clearingType: 'INTERNAL_COLLECTION',
+    sourceType: 'INTERNAL_TX',
+    description: '内部归集清分模板：总额拆分为净额与网络费',
+    isEnabled: true,
+    feeMethod: 'ACTUAL_FEE',
+    outAssetSource: 'src.assetId',
+    outAmountSource: 'src.amount',
+    inAssetSource: 'src.assetId',
+    inAmountSource: 'src.netAmount',
+    feeAssetSource: 'src.assetId',
+    feeAmountSource: 'src.feeAmount',
+    lineTemplates: [
+      {
+        lineNo: 1,
+        lineType: 'OUTGOING',
+        partyType: 'PLATFORM',
+        assetSource: 'src.assetId',
+        amountSource: 'src.netAmount',
+      },
+      {
+        lineNo: 2,
+        lineType: 'FEE',
+        partyType: 'PLATFORM',
+        assetSource: 'src.assetId',
+        amountSource: 'src.feeAmount',
+      },
+    ],
+  },
 ];
