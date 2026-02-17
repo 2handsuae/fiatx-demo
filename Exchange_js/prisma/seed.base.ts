@@ -1,4 +1,5 @@
 import { PrismaClient } from '@prisma/client';
+import { createHash } from 'crypto';
 import * as bcrypt from 'bcrypt';
 import { DEFAULT_ASSETS } from '../src/config/manifests/assets.manifest';
 import { DEFAULT_COA } from '../src/config/manifests/coa.manifest';
@@ -9,6 +10,28 @@ import { DEFAULT_CLEARING_TEMPLATES } from '../src/config/manifests/clearing-tem
 const DEFAULT_ADMIN_EMAIL = 'admin@fiatx.com';
 const DEFAULT_ADMIN_USER_NO = 'ADMIN-001';
 const DEFAULT_ADMIN_PASSWORD = '123456';
+const DEFAULT_BASE_CUSTOMER_EMAIL = 'shawn@fiatx.com';
+const DEFAULT_BASE_CUSTOMER_NO = 'CUST-BASE-SHAWN';
+const DEFAULT_BASE_CUSTOMER_PASSWORD = '123456';
+const DEFAULT_BASE_CUSTOMER_FIRST_NAME = 'Shawn';
+const DEFAULT_BASE_CUSTOMER_LAST_NAME = 'FiatX';
+
+const SYSTEM_WALLET_ROLES = ['MASTER', 'LIQ'] as const;
+type SystemWalletRole = (typeof SYSTEM_WALLET_ROLES)[number];
+
+const SYSTEM_WALLET_ROLE_CONFIG: Record<
+  SystemWalletRole,
+  { ownerType: 'CUSTOMER' | 'PLATFORM'; ownerNo: string }
+> = {
+  MASTER: {
+    ownerType: 'CUSTOMER',
+    ownerNo: 'CUSTOMER_POOL',
+  },
+  LIQ: {
+    ownerType: 'PLATFORM',
+    ownerNo: 'PLATFORM',
+  },
+};
 
 const DEPRECATED_DEPOSIT_REJECTED_EVENT_CODES = [
   'EVT_DEPOSIT_REJECTED__CRYPTO',
@@ -18,7 +41,9 @@ const DEPRECATED_DEPOSIT_REJECTED_EVENT_CODES = [
 export async function seedBase(prisma: PrismaClient): Promise<void> {
   console.log('--- Seeding Base Configuration ---');
   await seedAdmin(prisma);
+  await seedBaseCustomers(prisma);
   await seedAssets(prisma);
+  await seedSystemWallets(prisma);
   await seedCoa(prisma);
   await seedAcctEvents(prisma);
   await seedJournalTemplates(prisma);
@@ -56,6 +81,49 @@ async function seedAdmin(prisma: PrismaClient): Promise<void> {
   });
 }
 
+async function seedBaseCustomers(prisma: PrismaClient): Promise<void> {
+  const now = new Date();
+  const passwordHash = await bcrypt.hash(DEFAULT_BASE_CUSTOMER_PASSWORD, 10);
+
+  await prisma.customerMain.upsert({
+    where: { email: DEFAULT_BASE_CUSTOMER_EMAIL },
+    update: {
+      customerNo: DEFAULT_BASE_CUSTOMER_NO,
+      firstName: DEFAULT_BASE_CUSTOMER_FIRST_NAME,
+      lastName: DEFAULT_BASE_CUSTOMER_LAST_NAME,
+      passwordHash,
+      passwordUpdatedAt: now,
+      customerType: 'INDIVIDUAL',
+      cddStatus: 'APPROVED',
+      amlRiskTier: 'LOW',
+      eddRequired: false,
+      eddStatus: 'NOT_REQUIRED',
+      complianceStatus: 'ACTIVE',
+      cddDocumentExpiresAt: null,
+      finalApprovalStatus: 'NOT_REQUIRED',
+      finalApprovalReason: null,
+      finalApprovalReviewerId: null,
+      finalApprovalReviewedAt: null,
+    },
+    create: {
+      customerNo: DEFAULT_BASE_CUSTOMER_NO,
+      email: DEFAULT_BASE_CUSTOMER_EMAIL,
+      firstName: DEFAULT_BASE_CUSTOMER_FIRST_NAME,
+      lastName: DEFAULT_BASE_CUSTOMER_LAST_NAME,
+      passwordHash,
+      passwordUpdatedAt: now,
+      customerType: 'INDIVIDUAL',
+      cddStatus: 'APPROVED',
+      amlRiskTier: 'LOW',
+      eddRequired: false,
+      eddStatus: 'NOT_REQUIRED',
+      complianceStatus: 'ACTIVE',
+      cddDocumentExpiresAt: null,
+      finalApprovalStatus: 'NOT_REQUIRED',
+    },
+  });
+}
+
 async function seedAssets(prisma: PrismaClient): Promise<void> {
   for (const asset of DEFAULT_ASSETS) {
     const normalizedNetwork = normalizeNetwork(asset.network);
@@ -83,6 +151,49 @@ async function seedAssets(prisma: PrismaClient): Promise<void> {
         status: asset.status,
       },
     });
+  }
+}
+
+async function seedSystemWallets(prisma: PrismaClient): Promise<void> {
+  const cryptoAssets = await prisma.asset.findMany({
+    where: { type: 'CRYPTO' },
+    select: { id: true, code: true, network: true },
+    orderBy: [{ code: 'asc' }, { network: 'asc' }],
+  });
+
+  for (const asset of cryptoAssets) {
+    for (const role of SYSTEM_WALLET_ROLES) {
+      const config = SYSTEM_WALLET_ROLE_CONFIG[role];
+      const walletNo = buildSystemWalletNo(role, asset.code, asset.network);
+      const address = buildSystemWalletAddress(role, asset.code, asset.network);
+
+      await (prisma as any).wallet.upsert({
+        where: { walletNo },
+        update: {
+          ownerType: config.ownerType,
+          ownerId: null,
+          ownerNo: config.ownerNo,
+          type: 'CRYPTO_ADDRESS',
+          direction: 'BIDIRECTIONAL',
+          assetId: asset.id,
+          address,
+          status: 'ACTIVE',
+        },
+        create: {
+          walletNo,
+          ownerType: config.ownerType,
+          ownerId: null,
+          ownerNo: config.ownerNo,
+          type: 'CRYPTO_ADDRESS',
+          direction: 'BIDIRECTIONAL',
+          assetId: asset.id,
+          address,
+          status: 'ACTIVE',
+          balance: 0,
+          lockedBalance: 0,
+        },
+      });
+    }
   }
 }
 
@@ -260,8 +371,21 @@ async function isBaseComplete(prisma: PrismaClient): Promise<boolean> {
     return false;
   }
 
+  const baseCustomerExists =
+    (await prisma.customerMain.count({
+      where: {
+        email: DEFAULT_BASE_CUSTOMER_EMAIL,
+        passwordHash: { not: null },
+        cddStatus: 'APPROVED',
+        complianceStatus: 'ACTIVE',
+      },
+    })) > 0;
+  if (!baseCustomerExists) {
+    return false;
+  }
+
   const existingAssets = await prisma.asset.findMany({
-    select: { type: true, code: true, network: true },
+    select: { id: true, type: true, code: true, network: true },
   });
   const assetKeys = new Set(
     existingAssets.map((asset) => `${asset.type}:${asset.code}:${normalizeNetwork(asset.network)}`),
@@ -271,6 +395,56 @@ async function isBaseComplete(prisma: PrismaClient): Promise<boolean> {
   );
   if (!allAssetsExist) {
     return false;
+  }
+
+  const cryptoAssets = existingAssets.filter((asset) => asset.type === 'CRYPTO');
+  const expectedWallets = new Map<
+    string,
+    { assetId: string; ownerType: 'CUSTOMER' | 'PLATFORM' }
+  >();
+  for (const asset of cryptoAssets) {
+    for (const role of SYSTEM_WALLET_ROLES) {
+      const walletNo = buildSystemWalletNo(role, asset.code, asset.network);
+      expectedWallets.set(walletNo, {
+        assetId: asset.id,
+        ownerType: SYSTEM_WALLET_ROLE_CONFIG[role].ownerType,
+      });
+    }
+  }
+
+  const expectedWalletNos = Array.from(expectedWallets.keys());
+  if (expectedWalletNos.length > 0) {
+    const existingWallets = await (prisma as any).wallet.findMany({
+      where: {
+        walletNo: { in: expectedWalletNos },
+      },
+      select: {
+        walletNo: true,
+        assetId: true,
+        ownerType: true,
+        ownerId: true,
+        status: true,
+      },
+    });
+
+    if (existingWallets.length < expectedWalletNos.length) {
+      return false;
+    }
+
+    for (const wallet of existingWallets) {
+      const expected = expectedWallets.get(wallet.walletNo);
+      if (!expected) {
+        return false;
+      }
+      if (
+        wallet.assetId !== expected.assetId ||
+        wallet.ownerType !== expected.ownerType ||
+        wallet.ownerId !== null ||
+        wallet.status !== 'ACTIVE'
+      ) {
+        return false;
+      }
+    }
   }
 
   const coaCount = await prisma.coa.count({
@@ -306,6 +480,44 @@ async function isBaseComplete(prisma: PrismaClient): Promise<boolean> {
 
 function normalizeNetwork(network: string | null | undefined): string {
   return network ?? '';
+}
+
+function normalizeSegment(value: string): string {
+  return value.toUpperCase().replace(/[^A-Z0-9]+/g, '_');
+}
+
+function buildSystemWalletNo(
+  role: SystemWalletRole,
+  assetCode: string,
+  network: string | null | undefined,
+): string {
+  return `SYS_${role}_${normalizeSegment(assetCode)}_${normalizeSegment(network || 'NA')}`;
+}
+
+function buildSystemWalletAddress(
+  role: SystemWalletRole,
+  assetCode: string,
+  network: string | null | undefined,
+): string {
+  const normalizedNetwork = normalizeSegment(network || 'NA');
+  const normalizedCode = normalizeSegment(assetCode);
+  const hash = createHash('sha256')
+    .update(`${role}|${normalizedCode}|${normalizedNetwork}`)
+    .digest('hex');
+
+  if (normalizedNetwork === 'BITCOIN') {
+    return `bc1q${hash.slice(0, 38)}`;
+  }
+
+  if (normalizedNetwork === 'TRON') {
+    return `T${hash.slice(0, 33)}`;
+  }
+
+  if (normalizedNetwork === 'ETHEREUM') {
+    return `0x${hash.slice(0, 40)}`;
+  }
+
+  return `sys_${role.toLowerCase()}_${normalizedCode.toLowerCase()}_${normalizedNetwork.toLowerCase()}_${hash.slice(0, 12)}`;
 }
 
 function readOptionalString(source: unknown, key: string): string | null {
