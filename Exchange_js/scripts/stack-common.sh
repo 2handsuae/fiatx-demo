@@ -2,7 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+ROOT_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
 STACK=""
 WT_DIR=""
@@ -33,7 +33,7 @@ load_stack_config() {
     main)
       STACK="main"
       WT_DIR="${ROOT_DIR}"
-      APP_DIR="${WT_DIR}/Exchange_js"
+      APP_DIR="${ROOT_DIR}/Exchange_js"
       BACKEND_PORT="3000"
       ADMIN_PORT="3001"
       CLIENT_PORT="3002"
