@@ -32,7 +32,7 @@ load_stack_config() {
   case "$stack" in
     main)
       STACK="main"
-      WT_DIR="${ROOT_DIR}/.wt/integration"
+      WT_DIR="${ROOT_DIR}"
       APP_DIR="${WT_DIR}/Exchange_js"
       BACKEND_PORT="3000"
       ADMIN_PORT="3001"
