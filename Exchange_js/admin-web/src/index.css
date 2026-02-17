@@ -4,11 +4,11 @@
 
 :root {
   /* Default to light theme for admin content area */
-  color-scheme: light;
+  color-scheme: light dark;
 }
 
 body {
-  @apply bg-admin-content-bg text-gray-900 overflow-x-hidden;
+  @apply bg-admin-content-bg text-gray-900 overflow-x-hidden dark:bg-deep-space dark:text-white;
   font-family: 'Inter', sans-serif;
 }
 
