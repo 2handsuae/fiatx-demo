@@ -11,7 +11,8 @@ import {
   ShieldCheck,
   Zap,
   TrendingUp,
-  ArrowRight
+  ArrowRight,
+  Filter
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
@@ -111,6 +112,7 @@ const Swap = () => {
   // History State
   const [history, setHistory] = useState<SwapTransaction[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyStatus, setHistoryStatus] = useState('');
 
   useEffect(() => {
     fetchAssets();
@@ -154,7 +156,10 @@ const Swap = () => {
     setHistoryLoading(true);
     try {
       const token = localStorage.getItem('customer_token');
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/swap-transactions/my`, {
+      const params = new URLSearchParams();
+      if (historyStatus) params.append('status', historyStatus);
+      
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/swap-transactions/my?${params.toString()}`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (response.ok) {
@@ -172,7 +177,7 @@ const Swap = () => {
     if (activeTab === 'history') {
       fetchHistory();
     }
-  }, [activeTab]);
+  }, [activeTab, historyStatus]);
 
   const fetchLiveRate = async (
     currentFromAssetId: string,
@@ -409,13 +414,14 @@ const Swap = () => {
 
   const renderStatusBadge = (status: string) => {
     const colors: Record<string, string> = {
-      PENDING_COMPLIANCE: 'bg-blue-100 text-blue-800',
-      UNDER_REVIEW: 'bg-yellow-100 text-yellow-800',
-      SUCCESS: 'bg-emerald-100 text-emerald-800',
-      REJECTED: 'bg-red-100 text-red-800',
+      PENDING_COMPLIANCE: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300',
+      UNDER_REVIEW: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300',
+      SUCCESS: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300',
+      REJECTED: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300',
+      FAILED: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300',
     };
     return (
-      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${colors[status] || 'bg-gray-100 text-gray-800'}`}>
+      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${colors[status] || 'bg-slate-100 text-slate-800'}`}>
         {status}
       </span>
     );
@@ -430,34 +436,34 @@ const Swap = () => {
         </div>
       </div>
 
-      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden min-h-[500px]">
+      <div className="min-h-[600px] bg-white dark:bg-gray-800 rounded-3xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
         {/* Tabs */}
-        <div className="border-b border-gray-100 dark:border-gray-700">
-          <div className="flex overflow-x-auto">
+        <div className="border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50">
+          <div className="flex overflow-x-auto px-6">
             <button
               onClick={() => setActiveTab('swap')}
-              className={`px-6 py-4 text-sm font-medium transition-colors border-b-2 flex-1 sm:flex-none justify-center whitespace-nowrap ${
+              className={`px-6 py-4 text-sm font-bold transition-colors border-b-[3px] flex-1 sm:flex-none justify-center whitespace-nowrap ${
                 activeTab === 'swap' 
-                  ? 'border-brand-primary text-brand-primary' 
-                  : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+                  ? 'border-blue-600 text-blue-600 bg-white dark:bg-gray-800' 
+                  : 'border-transparent text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'
               }`}
             >
               <div className="flex items-center gap-2">
                 <ArrowRightLeft size={18} />
-                Swap Assets
+                Swap
               </div>
             </button>
             <button
               onClick={() => setActiveTab('history')}
-              className={`px-6 py-4 text-sm font-medium transition-colors border-b-2 flex-1 sm:flex-none justify-center whitespace-nowrap ${
+              className={`px-6 py-4 text-sm font-bold transition-colors border-b-[3px] flex-1 sm:flex-none justify-center whitespace-nowrap ${
                 activeTab === 'history' 
-                  ? 'border-brand-primary text-brand-primary' 
-                  : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+                  ? 'border-blue-600 text-blue-600 bg-white dark:bg-gray-800' 
+                  : 'border-transparent text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'
               }`}
             >
               <div className="flex items-center gap-2">
                 <History size={18} />
-                Transaction History
+                History
               </div>
             </button>
           </div>
@@ -465,10 +471,10 @@ const Swap = () => {
 
         <div className="p-6">
           {activeTab === 'swap' ? (
-            <div className="flex flex-col lg:flex-row gap-12">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               {/* Left Side: Swap Interface */}
-              <div className="flex-1 max-w-xl">
-                <div className="space-y-4">
+              <div className="lg:col-span-2">
+                <div className="space-y-4 p-6 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-200 dark:border-slate-700">
                   {/* From Asset Widget */}
                   <div className="bg-gray-50 dark:bg-gray-900/50 rounded-3xl p-6 border border-gray-100 dark:border-gray-700 hover:border-brand-primary/30 transition-all">
                     <div className="flex justify-between items-center mb-4">
@@ -579,7 +585,7 @@ const Swap = () => {
                   <button
                     onClick={handlePreview}
                     disabled={loading || !fromAssetId || !toAssetId || !fromAmount || !!rateError || rateLoading}
-                    className="w-full py-5 bg-brand-primary text-white rounded-3xl font-bold text-lg hover:bg-brand-primary/90 transition-all shadow-xl shadow-brand-primary/20 disabled:opacity-50 disabled:grayscale flex items-center justify-center gap-2"
+                    className="w-full py-5 bg-gradient-to-r from-brand-primary to-brand-primary/80 text-white rounded-2xl font-bold text-lg hover:from-brand-primary/90 hover:to-brand-primary/70 transition-all shadow-xl shadow-brand-primary/20 disabled:opacity-50 disabled:grayscale flex items-center justify-center gap-2"
                   >
                     {loading ? <RefreshCw className="animate-spin" size={20} /> : <Zap size={20} />}
                     {rateError && rateError.includes('Fiat') ? 'Unsupported Pair' : 'Swap Now'}
@@ -588,42 +594,42 @@ const Swap = () => {
               </div>
 
               {/* Right Side: Educational Info */}
-              <div className="lg:w-80 shrink-0">
-                <div className="bg-brand-primary/5 dark:bg-brand-primary/10 rounded-2xl p-6 border border-brand-primary/10 dark:border-brand-primary/20 space-y-6">
-                  <div className="flex items-center gap-2 text-brand-primary">
-                    <div className="p-2 bg-brand-primary/10 dark:bg-brand-primary/20 rounded-lg">
+              <div className="lg:col-span-1">
+                <div className="bg-blue-50 dark:bg-blue-900/20 rounded-2xl p-6 border border-blue-100 dark:border-blue-900/30 space-y-6 sticky top-6">
+                  <div className="flex items-center gap-2 text-blue-800 dark:text-blue-300">
+                    <div className="p-2 bg-blue-100 dark:bg-blue-800/30 rounded-lg">
                       <Info size={24} />
                     </div>
-                    <h3 className="font-bold text-lg">About Swap</h3>
+                    <h3 className="font-bold text-lg">Instructions</h3>
                   </div>
                   
                   <div className="space-y-4">
                     <div className="flex gap-3">
-                      <Zap size={20} className="text-brand-primary shrink-0 mt-1" />
+                      <Zap size={20} className="text-blue-600 dark:text-blue-400 shrink-0 mt-1" />
                       <div>
-                        <h4 className="text-sm font-bold text-gray-900 dark:text-white">Instant Execution</h4>
-                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Exchange assets instantly without waiting for market orders.</p>
+                        <h4 className="text-sm font-bold text-blue-900 dark:text-blue-100">Instant Execution</h4>
+                        <p className="text-xs text-blue-800/80 dark:text-blue-200/80 mt-1">Exchange assets instantly without waiting for market orders.</p>
                       </div>
                     </div>
                     
                     <div className="flex gap-3">
-                      <TrendingUp size={20} className="text-brand-primary shrink-0 mt-1" />
+                      <TrendingUp size={20} className="text-blue-600 dark:text-blue-400 shrink-0 mt-1" />
                       <div>
-                        <h4 className="text-sm font-bold text-gray-900 dark:text-white">Competitive Rates</h4>
-                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">We source the best rates from multiple liquidity providers.</p>
+                        <h4 className="text-sm font-bold text-blue-900 dark:text-blue-100">Competitive Rates</h4>
+                        <p className="text-xs text-blue-800/80 dark:text-blue-200/80 mt-1">We source the best rates from multiple liquidity providers.</p>
                       </div>
                     </div>
 
                     <div className="flex gap-3">
-                      <ShieldCheck size={20} className="text-brand-primary shrink-0 mt-1" />
+                      <ShieldCheck size={20} className="text-blue-600 dark:text-blue-400 shrink-0 mt-1" />
                       <div>
-                        <h4 className="text-sm font-bold text-gray-900 dark:text-white">Secure & Compliant</h4>
-                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">All transactions are monitored for safety and compliance.</p>
+                        <h4 className="text-sm font-bold text-blue-900 dark:text-blue-100">Secure & Compliant</h4>
+                        <p className="text-xs text-blue-800/80 dark:text-blue-200/80 mt-1">All transactions are monitored for safety and compliance.</p>
                       </div>
                     </div>
                   </div>
 
-                  <div className="p-4 bg-white/60 dark:bg-gray-800/60 rounded-xl border border-brand-primary/10 dark:border-brand-primary/20">
+                  <div className="p-4 bg-white/60 dark:bg-gray-800/60 rounded-xl border border-blue-100 dark:border-blue-900/30">
                     <div className="flex gap-2 items-start">
                       <AlertTriangle size={18} className="text-amber-500 shrink-0 mt-0.5" />
                       <p className="text-[11px] text-amber-800 dark:text-amber-300 leading-relaxed">
@@ -637,28 +643,51 @@ const Swap = () => {
           ) : (
             /* Transaction History Tab */
             <div className="space-y-4">
-              <div className="overflow-x-auto rounded-xl border border-gray-100 dark:border-gray-700">
+              <div className="flex flex-wrap gap-3 mb-4">
+                  <div className="flex items-center gap-2 bg-slate-50 dark:bg-slate-900/50 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700">
+                      <Filter size={16} className="text-slate-500 dark:text-slate-400" />
+                      <select 
+                        value={historyStatus}
+                        onChange={(e) => setHistoryStatus(e.target.value)}
+                        className="bg-transparent text-sm text-slate-700 dark:text-slate-200 focus:outline-none"
+                      >
+                          <option value="">All Status</option>
+                          <option value="SUCCESS">Success</option>
+                          <option value="FAILED">Failed</option>
+                          <option value="PENDING_COMPLIANCE">Pending Compliance</option>
+                      </select>
+                  </div>
+                  <button 
+                    onClick={fetchHistory}
+                    className="p-2 text-slate-500 dark:text-slate-400 hover:text-brand-primary hover:bg-slate-50 dark:hover:bg-slate-700 rounded-lg transition-colors ml-auto"
+                    title="Refresh"
+                  >
+                      <RefreshCw size={18} className={historyLoading ? 'animate-spin' : ''} />
+                  </button>
+              </div>
+
+              <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-700">
                 <table className="w-full text-left text-sm">
-                  <thead className="bg-gray-50 dark:bg-gray-900/50 border-b border-gray-100 dark:border-gray-700">
+                  <thead className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-700">
                     <tr>
-                      <th className="px-6 py-4 font-medium text-gray-500 dark:text-gray-400">Transaction No</th>
-                      <th className="px-6 py-4 font-medium text-gray-500 dark:text-gray-400">Time</th>
-                      <th className="px-6 py-4 font-medium text-gray-500 dark:text-gray-400">Swap Pair</th>
-                      <th className="px-6 py-4 font-medium text-gray-500 dark:text-gray-400">Amount</th>
-                      <th className="px-6 py-4 font-medium text-gray-500 dark:text-gray-400">Status</th>
+                      <th className="px-6 py-4 font-medium text-slate-500 dark:text-slate-400">Transaction No</th>
+                      <th className="px-6 py-4 font-medium text-slate-500 dark:text-slate-400">Time</th>
+                      <th className="px-6 py-4 font-medium text-slate-500 dark:text-slate-400">Swap Pair</th>
+                      <th className="px-6 py-4 font-medium text-slate-500 dark:text-slate-400">Amount</th>
+                      <th className="px-6 py-4 font-medium text-slate-500 dark:text-slate-400">Status</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-gray-50 dark:divide-gray-700">
+                  <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
                     {historyLoading ? (
                       <tr>
-                        <td colSpan={5} className="px-6 py-12 text-center text-gray-400 dark:text-gray-500">
+                        <td colSpan={5} className="px-6 py-12 text-center text-slate-400 dark:text-slate-500">
                           <RefreshCw className="animate-spin mx-auto mb-2" size={24} />
                           Loading history...
                         </td>
                       </tr>
                     ) : history.length === 0 ? (
                       <tr>
-                        <td colSpan={5} className="px-6 py-12 text-center text-gray-400 dark:text-gray-500">
+                        <td colSpan={5} className="px-6 py-12 text-center text-slate-400 dark:text-slate-500">
                           <div className="flex flex-col items-center">
                             <History size={32} className="opacity-20 dark:opacity-10 mb-2" />
                             <p>No swap transactions found</p>
@@ -667,22 +696,22 @@ const Swap = () => {
                       </tr>
                     ) : (
                       history.map(tx => (
-                        <tr key={tx.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors">
+                        <tr key={tx.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors">
                           <td className="px-6 py-4 font-mono text-gray-900 dark:text-white">{tx.swapNo}</td>
-                          <td className="px-6 py-4 text-gray-500 dark:text-gray-400 text-xs">
+                          <td className="px-6 py-4 text-slate-500 dark:text-slate-400 text-xs">
                             <div>{new Date(tx.createdAt).toLocaleDateString('en-US')}</div>
                             <div>{new Date(tx.createdAt).toLocaleTimeString('en-US')}</div>
                           </td>
                           <td className="px-6 py-4">
                             <div className="flex items-center gap-2 font-medium text-gray-900 dark:text-white">
-                              {tx.fromAsset.code} <ArrowRight size={14} className="text-gray-400 dark:text-gray-500" /> {tx.toAsset.code}
+                              {tx.fromAsset.code} <ArrowRight size={14} className="text-slate-400 dark:text-slate-500" /> {tx.toAsset.code}
                             </div>
                           </td>
                           <td className="px-6 py-4">
                             <div className="font-bold text-gray-900 dark:text-white">
                               {Number(tx.toAmount).toLocaleString('en-US')} {tx.toAsset.code}
                             </div>
-                            <div className="text-[10px] text-gray-400 dark:text-gray-500">
+                            <div className="text-[10px] text-slate-400 dark:text-slate-500">
                               From: {Number(tx.fromAmount).toLocaleString('en-US')} {tx.fromAsset.code}
                             </div>
                           </td>
@@ -703,45 +732,45 @@ const Swap = () => {
       {/* Confirmation Modal */}
       {showConfirm && firmQuote && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-          <div className="bg-white dark:bg-gray-800 rounded-3xl shadow-2xl w-full max-w-md overflow-hidden border border-gray-100 dark:border-gray-700">
+          <div className="bg-white dark:bg-gray-800 rounded-3xl shadow-2xl w-full max-w-md overflow-hidden border border-slate-200 dark:border-slate-700">
             <div className="p-8 space-y-8">
               <div className="flex justify-between items-center">
                 <h3 className="text-xl font-bold text-gray-900 dark:text-white">Confirm Swap</h3>
-                <button onClick={handleCloseConfirm} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-colors">
-                  <X size={20} className="text-gray-400 dark:text-gray-500" />
+                <button onClick={handleCloseConfirm} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition-colors">
+                  <X size={20} className="text-slate-400 dark:text-slate-500" />
                 </button>
               </div>
 
               <div className="space-y-6">
-                <div className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-900/50 rounded-2xl border border-gray-100 dark:border-gray-700">
+                <div className="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-200 dark:border-slate-700">
                   <div className="space-y-1">
-                    <p className="text-xs text-gray-500 dark:text-gray-400 uppercase font-bold tracking-wider">Sell</p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 uppercase font-bold tracking-wider">Sell</p>
                     <p className="text-lg font-bold text-gray-900 dark:text-white">{firmQuote.amountIn} {firmQuote.currencyIn}</p>
                   </div>
-                  <div className="w-10 h-10 bg-white dark:bg-gray-700 rounded-full flex items-center justify-center shadow-sm border border-gray-100 dark:border-gray-600">
+                  <div className="w-10 h-10 bg-white dark:bg-slate-700 rounded-full flex items-center justify-center shadow-sm border border-slate-200 dark:border-slate-600">
                     <ArrowRight size={20} className="text-brand-primary" />
                   </div>
                   <div className="space-y-1 text-right">
-                    <p className="text-xs text-gray-500 dark:text-gray-400 uppercase font-bold tracking-wider">Buy</p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 uppercase font-bold tracking-wider">Buy</p>
                     <p className="text-lg font-bold text-brand-primary">{firmQuote.amountOut.toFixed(6)} {firmQuote.currencyOut}</p>
                   </div>
                 </div>
 
                 <div className="space-y-3 px-2">
                   <div className="flex justify-between text-sm">
-                    <span className="text-gray-500 dark:text-gray-400 font-medium">Exchange Rate</span>
+                    <span className="text-slate-500 dark:text-slate-400 font-medium">Exchange Rate</span>
                     <span className="font-mono text-gray-900 dark:text-gray-200">1 {firmQuote.currencyIn} = {firmQuote.rateAllIn.toFixed(6)} {firmQuote.currencyOut}</span>
                   </div>
                   <div className="flex justify-between text-sm">
-                    <span className="text-gray-500 dark:text-gray-400 font-medium">Market / Spread</span>
+                    <span className="text-slate-500 dark:text-slate-400 font-medium">Market / Spread</span>
                     <span className="font-mono text-gray-900 dark:text-gray-200">{firmQuote.marketRate.toFixed(6)} / {firmQuote.spreadPercent}%</span>
                   </div>
                   <div className="flex justify-between text-sm">
-                    <span className="text-gray-500 dark:text-gray-400 font-medium">Quote ID</span>
+                    <span className="text-slate-500 dark:text-slate-400 font-medium">Quote ID</span>
                     <span className="font-mono text-gray-900 dark:text-gray-200">{firmQuote.quoteId}</span>
                   </div>
                   <div className="flex justify-between text-sm">
-                    <span className="text-gray-500 dark:text-gray-400 font-medium">Expires In</span>
+                    <span className="text-slate-500 dark:text-slate-400 font-medium">Expires In</span>
                     <span className={`font-bold ${quoteExpiresIn > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-red-600 dark:text-red-400'}`}>
                       {quoteExpiresIn > 0 ? `${quoteExpiresIn}s` : 'Expired'}
                     </span>
@@ -752,7 +781,7 @@ const Swap = () => {
               <button
                 onClick={handleExecuteSwap}
                 disabled={swapping || quoteExpiresIn <= 0}
-                className="w-full py-4 bg-brand-primary text-white rounded-2xl font-bold hover:bg-brand-primary/90 transition-all shadow-lg shadow-brand-primary/20 flex items-center justify-center gap-2"
+                className="w-full py-4 bg-gradient-to-r from-brand-primary to-brand-primary/80 text-white rounded-2xl font-bold hover:from-brand-primary/90 hover:to-brand-primary/70 transition-all shadow-lg shadow-brand-primary/20 flex items-center justify-center gap-2"
               >
                 {swapping ? <RefreshCw className="animate-spin" size={20} /> : <Check size={20} />}
                 {quoteExpiresIn > 0 ? 'Confirm and Swap' : 'Quote Expired'}

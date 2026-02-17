@@ -48,31 +48,49 @@ const AuthGuard = ({ children }: AuthGuardProps) => {
 
   if (!isApproved) {
     return (
-      <div className="absolute inset-0 z-10 bg-slate-50/50 backdrop-blur-sm flex items-center justify-center p-4 rounded-xl">
-        <div className="relative overflow-hidden rounded-[2rem] border border-white/60 bg-white/90 px-8 py-10 shadow-[0_20px_40px_-12px_rgba(0,0,0,0.1)] backdrop-blur-xl max-w-md w-full text-center">
+      <div className="absolute inset-0 z-10 bg-slate-50/80 backdrop-blur-md flex items-center justify-center p-6">
+        <div className="relative overflow-hidden rounded-[2.5rem] border border-white/60 bg-white/95 px-10 py-12 shadow-[0_25px_50px_-12px_rgba(0,0,0,0.15)] backdrop-blur-xl max-w-lg w-full text-center">
             {/* Ambient Background */}
-            <div className="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none z-0">
-                <div className="absolute -top-[50%] -left-[50%] w-[200%] h-[200%] bg-gradient-to-br from-blue-50/50 via-transparent to-violet-50/50 opacity-60"></div>
+            <div className="absolute inset-0 overflow-hidden pointer-events-none">
+                <div className="absolute -top-1/2 -left-1/2 w-[200%] h-[200%] bg-gradient-to-br from-blue-50/80 via-transparent to-indigo-50/60"></div>
+                <div className="absolute top-0 right-0 w-32 h-32 bg-blue-100/50 rounded-full blur-3xl"></div>
+                <div className="absolute bottom-0 left-0 w-32 h-32 bg-violet-100/50 rounded-full blur-3xl"></div>
             </div>
 
             <div className="relative z-10">
-                <div className="w-16 h-16 bg-gradient-to-br from-blue-50 to-indigo-50 rounded-2xl rotate-3 flex items-center justify-center text-blue-600 mx-auto mb-6 shadow-inner border border-white">
-                    <div className="-rotate-3">
-                        <Lock size={32} />
+                {/* Icon Container */}
+                <div className="relative inline-flex mb-8">
+                    <div className="absolute inset-0 bg-gradient-to-br from-blue-400 to-indigo-500 rounded-3xl blur-xl opacity-30 animate-pulse"></div>
+                    <div className="relative w-20 h-20 bg-gradient-to-br from-blue-50 to-indigo-50 rounded-[1.25rem] rotate-6 flex items-center justify-center text-blue-600 shadow-xl border border-white/80">
+                        <div className="-rotate-6">
+                            <Lock size={36} strokeWidth={1.5} />
+                        </div>
                     </div>
                 </div>
-                <h2 className="text-2xl font-bold text-slate-900 mb-3">Verification Required</h2>
-                <p className="text-slate-500 mb-8 text-sm leading-relaxed">
-                    Please complete onboarding (CDD/EDD) to access this feature.
-                    Trading is allowed only when compliance status is ACTIVE.
+                
+                {/* Title */}
+                <h2 className="text-3xl font-bold text-slate-900 mb-4 tracking-tight">
+                    Verification Required
+                </h2>
+                
+                {/* Description */}
+                <p className="text-slate-500 mb-8 text-base leading-relaxed max-w-sm mx-auto">
+                    Complete your identity verification to unlock full access to trading features.
                 </p>
+
+                {/* CTA Button */}
                 <button 
                     onClick={() => navigate('/verification')}
-                    className="w-full py-3.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-bold rounded-xl shadow-lg shadow-blue-500/30 hover:shadow-blue-500/50 hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-2"
+                    className="w-full py-4 bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-600 text-white font-bold rounded-2xl shadow-xl shadow-blue-500/25 hover:shadow-blue-500/40 hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-2.5 text-base"
                 >
-                    <ShieldAlert size={18} />
-                    Complete Verification
+                    <ShieldAlert size={20} strokeWidth={2} />
+                    Start Verification
                 </button>
+
+                {/* Footer Note */}
+                <p className="mt-6 text-xs text-slate-400">
+                    Takes approximately 3-5 minutes to complete
+                </p>
             </div>
         </div>
       </div>
