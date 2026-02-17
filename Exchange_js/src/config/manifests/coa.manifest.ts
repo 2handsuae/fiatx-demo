@@ -22,4 +22,5 @@ export const DEFAULT_COA = [
   { code: 'R.WITHDRAW_FEE', name: 'Withdrawal Fee Revenue', type: 'REVENUE', status: 'ACTIVE' },
   { code: 'E.LP_COST', name: 'Liquidity Provider Cost', type: 'EXPENSE', status: 'ACTIVE' },
   { code: 'E.BANK_FEE', name: 'Bank Transfer Fee', type: 'EXPENSE', status: 'ACTIVE' },
+  { code: 'E.NETWORK_FEE', name: 'Blockchain Network Fee', type: 'EXPENSE', status: 'ACTIVE' },
 ];

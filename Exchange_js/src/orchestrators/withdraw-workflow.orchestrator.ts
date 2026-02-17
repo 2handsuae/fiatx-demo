@@ -426,7 +426,13 @@ export class WithdrawWorkflowOrchestrator {
   // --- Helpers ---
 
   private getSuffix(withdrawal: any): 'CRYPTO' | 'FIAT' {
-    return withdrawal.type.toUpperCase() as 'CRYPTO' | 'FIAT';
+    if (withdrawal?.asset?.type === 'CRYPTO' || withdrawal?.asset?.type === 'FIAT') {
+      return withdrawal.asset.type;
+    }
+    if (typeof withdrawal?.type === 'string') {
+      return withdrawal.type.toUpperCase() as 'CRYPTO' | 'FIAT';
+    }
+    return 'FIAT';
   }
 
   private async checkIdempotency(withdrawId: string, marker: string): Promise<boolean> {

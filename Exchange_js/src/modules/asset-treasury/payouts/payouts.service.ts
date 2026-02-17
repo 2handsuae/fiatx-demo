@@ -303,12 +303,21 @@ export class PayoutsService {
   async createMock(operatorId: string) {
     const assets = await (this.prisma as any).asset.findMany({ take: 10 });
     if (assets.length === 0) throw new BadRequestException('No assets found to create mock payouts');
+    const customers = await (this.prisma as any).customerMain.findMany({
+      take: 10,
+      select: {
+        id: true,
+        customerNo: true,
+      },
+    });
+    if (customers.length === 0) throw new BadRequestException('No customers found to create mock payouts');
 
     const createdPayouts: any[] = [];
 
     for (let i = 0; i < 3; i++) {
       const asset = assets[Math.floor(Math.random() * assets.length)];
-      const type = Math.random() > 0.5 ? PayoutType.CRYPTO : PayoutType.FIAT;
+      const customer = customers[Math.floor(Math.random() * customers.length)];
+      const type = asset.type === 'FIAT' ? PayoutType.FIAT : PayoutType.CRYPTO;
       const amount = Math.floor(Math.random() * 1000) + 10;
       const withdrawNo = `WDR_MOCK_${uuidv4().substring(0, 8)}`;
       const withdrawId = uuidv4();
@@ -320,12 +329,15 @@ export class PayoutsService {
             id: withdrawId,
             withdrawNo,
             ownerType: 'CUSTOMER',
-            ownerId: 'MOCK_USER',
-            type: 'WITHDRAW',
-            status: 'APPROVED',
+            ownerId: customer.id,
+            ownerNo: customer.customerNo,
+            status: 'PAYOUT_PENDING',
             assetId: asset.id,
             amount: new Prisma.Decimal(amount),
             netAmount: new Prisma.Decimal(amount),
+            feeAmount: new Prisma.Decimal(0),
+            toAddress: type === PayoutType.CRYPTO ? '0x' + uuidv4().replace(/-/g, '') : null,
+            toIban: type === PayoutType.FIAT ? 'IBAN' + uuidv4().substring(0, 20) : null,
           },
         });
 

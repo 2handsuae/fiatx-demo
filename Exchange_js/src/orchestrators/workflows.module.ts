@@ -11,6 +11,9 @@ import { PayoutsModule } from '../modules/asset-treasury/payouts/payouts.module'
 import { ClearingModule } from '../modules/clearing-settle/clearing/clearing.module';
 import { PrismaModule } from '../core/prisma/prisma.module';
 import { TransactionComplianceModule } from '../modules/risk-engine/transaction-compliance/transaction-compliance.module';
+import { InternalTransactionsModule } from '../modules/asset-treasury/internal-transactions/internal-transactions.module';
+import { InternalFundsModule } from '../modules/asset-treasury/internal-funds/internal-funds.module';
+import { InternalCollectionWorkflowOrchestrator } from './internal-collection-workflow.orchestrator';
 
 @Module({
   imports: [
@@ -23,16 +26,20 @@ import { TransactionComplianceModule } from '../modules/risk-engine/transaction-
     ClearingModule,
     PrismaModule,
     TransactionComplianceModule,
+    InternalTransactionsModule,
+    InternalFundsModule,
   ],
   providers: [
     DepositWorkflowService,
     SwapWorkflowService,
     WithdrawWorkflowOrchestrator,
+    InternalCollectionWorkflowOrchestrator,
   ],
   exports: [
     DepositWorkflowService,
     SwapWorkflowService,
     WithdrawWorkflowOrchestrator,
+    InternalCollectionWorkflowOrchestrator,
   ],
 })
 export class WorkflowsModule {}

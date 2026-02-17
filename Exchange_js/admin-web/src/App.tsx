@@ -22,6 +22,10 @@ import PayinList from './pages/PayinList';
 import PayinDetail from './pages/PayinDetail';
 import PayoutList from './pages/PayoutList';
 import PayoutDetail from './pages/PayoutDetail';
+import InternalTransactionList from './pages/InternalTransactionList';
+import InternalTransactionDetail from './pages/InternalTransactionDetail';
+import InternalFundList from './pages/InternalFundList';
+import InternalFundDetail from './pages/InternalFundDetail';
 import AssetList from './pages/AssetList';
 import AssetCreate from './pages/AssetCreate';
 import DepositTransactionList from './pages/DepositTransactionList';
@@ -75,6 +79,8 @@ function App() {
              <Route path="treasury/payins/:id" element={<PayinDetail />} />
              <Route path="treasury/payouts" element={<PayoutList />} />
              <Route path="treasury/payouts/:id" element={<PayoutDetail />} />
+             <Route path="treasury/internal-funds" element={<InternalFundList />} />
+             <Route path="treasury/internal-funds/:id" element={<InternalFundDetail />} />
              <Route path="system/liquidity-providers" element={<LiquidityProviderList />} />
              <Route path="system/liquidity-providers/create" element={<LiquidityProviderCreate />} />
              <Route path="system/liquidity-config" element={<LiquidityConfigList />} />
@@ -96,6 +102,8 @@ function App() {
               <Route path="withdraw-transactions/:id" element={<WithdrawTransactionDetail />} />
               <Route path="swap-transactions" element={<SwapTransactionList />} />
               <Route path="swap-transactions/:id" element={<SwapTransactionDetail />} />
+              <Route path="internal-transactions" element={<InternalTransactionList />} />
+              <Route path="internal-transactions/:id" element={<InternalTransactionDetail />} />
            </Route>
 
            <Route path="/ledger">

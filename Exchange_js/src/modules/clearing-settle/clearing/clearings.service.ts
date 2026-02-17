@@ -315,6 +315,12 @@ export class ClearingsService {
                 } else if (item.sourceType === 'SWAP') {
                      const src = await (this.prisma as any).swapTransaction.findUnique({ where: { id: item.sourceId }, select: { swapNo: true } });
                      sourceNo = src?.swapNo;
+                } else if (item.sourceType === 'INTERNAL_TX') {
+                     const src = await (this.prisma as any).internalTransaction.findUnique({
+                        where: { id: item.sourceId },
+                        select: { internalTxNo: true },
+                     });
+                     sourceNo = src?.internalTxNo;
                 }
             } catch (e) {}
         }

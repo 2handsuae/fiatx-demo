@@ -7,7 +7,7 @@ import { JournalsService } from '../modules/accounting/journals/journals.service
 import { ClearingsService } from '../modules/clearing-settle/clearing/clearings.service';
 import { PrismaService } from '../core/prisma/prisma.service';
 import { WithdrawTransactionStatus } from '../modules/trading/withdraw-transactions/dto/withdraw-transaction.dto';
-import { PayoutStatus } from '../modules/asset-treasury/payouts/dto/payout.dto';
+import { PayoutStatus, PayoutType } from '../modules/asset-treasury/payouts/dto/payout.dto';
 
 jest.mock('uuid', () => ({
   v4: () => 'mock-uuid',
@@ -60,6 +60,7 @@ describe('WithdrawWorkflowOrchestrator', () => {
     status: WithdrawTransactionStatus.PAYOUT_PENDING,
     ownerType: 'CUSTOMER',
     type: 'fiat',
+    asset: { type: 'FIAT' },
     ownerId: 'CUST_1',
     assetId: 'AST_1',
     withdrawNo: 'WD0001',
@@ -102,11 +103,13 @@ describe('WithdrawWorkflowOrchestrator', () => {
     mockWithdrawalService.findOne.mockResolvedValue({
       ...baseWithdrawal,
       type: 'crypto',
+      asset: { type: 'CRYPTO' },
     });
     mockWithdrawalService.updateStatus.mockResolvedValue({
       ...baseWithdrawal,
       status: WithdrawTransactionStatus.SUCCESS,
       type: 'crypto',
+      asset: { type: 'CRYPTO' },
     });
     mockJournalsService.triggerEvent.mockResolvedValue({ id: 'JE_1' });
     mockPayoutsService.updateStatus.mockResolvedValue({
@@ -185,6 +188,43 @@ describe('WithdrawWorkflowOrchestrator', () => {
       }),
     );
     expect(result?.payout_binding_status).toBe('created');
+  });
+
+  it('should use asset.type when deriving payout type suffix', async () => {
+    mockPrisma.withdrawAuditLog.findFirst.mockResolvedValue(null);
+    mockWithdrawalService.findOne.mockResolvedValue({
+      ...baseWithdrawal,
+      type: 'crypto',
+      asset: { type: 'FIAT' },
+    });
+    mockPrisma.withdrawTransaction.findUnique.mockResolvedValue({
+      ...baseWithdrawal,
+      asset: { type: 'FIAT' },
+    });
+    mockJournalsService.triggerEvent.mockResolvedValue({ id: 'JE_ASSET' });
+    mockPrisma.payout.findUnique.mockResolvedValue(null);
+    mockPayoutsService.create.mockResolvedValue({
+      id: 'PO_3',
+      payoutNo: 'PO0003',
+    });
+    mockPrisma.withdrawTransaction.update.mockResolvedValue({
+      ...baseWithdrawal,
+      payoutId: 'PO_3',
+      payoutNo: 'PO0003',
+    });
+    mockPrisma.withdrawAuditLog.create.mockResolvedValue({ id: 'LOG_ASSET' });
+
+    await orchestrator.onWithdrawalApprovedFiat({
+      withdrawId: 'WD_1',
+    });
+
+    expect(payoutsService.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: PayoutType.FIAT,
+      }),
+      'SYSTEM',
+      mockPrisma,
+    );
   });
 
   it('should process payout failed via config-driven triggerEvent and cancel clearing', async () => {

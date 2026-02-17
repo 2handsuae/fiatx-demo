@@ -69,11 +69,6 @@ export enum WithdrawOwnerType {
   LP = 'LP',
 }
 
-export enum WithdrawType {
-  CRYPTO = 'crypto',
-  FIAT = 'fiat',
-}
-
 export enum ComplianceStatus {
   PENDING = 'PENDING',
   CLEAR = 'CLEAR',

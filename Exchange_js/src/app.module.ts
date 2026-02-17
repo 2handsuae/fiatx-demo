@@ -25,6 +25,8 @@ import { MonitoringModule } from './core/monitoring/monitoring.module';
 import { SwapTransactionsModule } from './modules/trading/swap-transactions/swap-transactions.module';
 import { WithdrawTransactionsModule } from './modules/trading/withdraw-transactions/withdraw-transactions.module';
 import { PayoutsModule } from './modules/asset-treasury/payouts/payouts.module';
+import { InternalTransactionsModule } from './modules/asset-treasury/internal-transactions/internal-transactions.module';
+import { InternalFundsModule } from './modules/asset-treasury/internal-funds/internal-funds.module';
 import { ClearingModule } from './modules/clearing-settle/clearing/clearing.module';
 import { OutstandingsModule } from './modules/clearing-settle/outstandings/outstandings.module';
 import { RiskEngineModule } from './modules/risk-engine/risk-engine.module';
@@ -75,6 +77,8 @@ import { TransactionComplianceModule } from './modules/risk-engine/transaction-c
     SwapTransactionsModule,
     WithdrawTransactionsModule,
     PayoutsModule,
+    InternalTransactionsModule,
+    InternalFundsModule,
     ClearingModule,
     OutstandingsModule,
     RiskEngineModule,

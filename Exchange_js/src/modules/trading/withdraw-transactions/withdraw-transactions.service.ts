@@ -25,6 +25,10 @@ export class WithdrawTransactionsService {
   private readonly txEventDisabledHint =
     'Transactional status update completed without emitting domain events';
 
+  private deriveWithdrawType(assetType?: string | null): 'crypto' | 'fiat' {
+    return String(assetType || '').toUpperCase() === 'FIAT' ? 'fiat' : 'crypto';
+  }
+
   // Helper to generate withdraw number
   private generateWithdrawNo(): string {
     return generateReferenceNo('WD');
@@ -170,7 +174,13 @@ export class WithdrawTransactionsService {
       (this.prisma as any).withdrawTransaction.count({ where }),
     ]);
 
-    return { items, total };
+    return {
+      items: items.map((item: any) => ({
+        ...item,
+        type: this.deriveWithdrawType(item.asset?.type),
+      })),
+      total,
+    };
   }
 
   async findOne(id: string) {
@@ -204,6 +214,7 @@ export class WithdrawTransactionsService {
 
     return {
       ...item,
+      type: this.deriveWithdrawType(item.asset?.type),
       kytCase,
       travelRuleCase,
     };
@@ -250,7 +261,6 @@ export class WithdrawTransactionsService {
           ownerType,
           ownerId: userId,
           ownerNo,
-          type: asset.type === 'FIAT' ? 'fiat' : 'crypto',
           status: WithdrawTransactionStatus.CREATED,
           assetId,
           amount: amountDecimal,
@@ -299,7 +309,10 @@ export class WithdrawTransactionsService {
       withdrawId: created.id,
     });
 
-    return created;
+    return {
+      ...created,
+      type: this.deriveWithdrawType(asset.type),
+    };
   }
 
   async updateStatus(
@@ -312,11 +325,19 @@ export class WithdrawTransactionsService {
     const executeUpdate = async (client: Prisma.TransactionClient) => {
       const item = await (client as any).withdrawTransaction.findUnique({
         where: { id },
+        include: {
+          asset: {
+            select: {
+              type: true,
+            },
+          },
+        },
       });
       if (!item) {
         throw new NotFoundException('Withdraw transaction not found');
       }
 
+      const withdrawType = this.deriveWithdrawType(item.asset?.type);
       const currentStatus = item.status as WithdrawTransactionStatus;
       const nextStatus = this.transitions[currentStatus]?.[action];
 
@@ -383,6 +404,13 @@ export class WithdrawTransactionsService {
         );
         const refreshed = await (client as any).withdrawTransaction.findUnique({
           where: { id },
+          include: {
+            asset: {
+              select: {
+                type: true,
+              },
+            },
+          },
         });
         if (!refreshed) {
           throw new NotFoundException('Withdraw transaction not found');
@@ -420,12 +448,12 @@ export class WithdrawTransactionsService {
           currentStatus !== WithdrawTransactionStatus.APPROVED &&
           currentStatus !== WithdrawTransactionStatus.PAYOUT_PENDING
         ) {
-          if (eventSource.type === 'crypto') {
+          if (withdrawType === 'crypto') {
             postCommitEvents.push({
               eventName: WithdrawEvents.EVT_WITHDRAWAL_APPROVED__CRYPTO,
               payload: { withdrawId: id },
             });
-          } else if (eventSource.type === 'fiat') {
+          } else if (withdrawType === 'fiat') {
             postCommitEvents.push({
               eventName: WithdrawEvents.EVT_WITHDRAWAL_APPROVED__FIAT,
               payload: { withdrawId: id },
@@ -434,7 +462,7 @@ export class WithdrawTransactionsService {
         }
       } else if (nextStatus === WithdrawTransactionStatus.SUCCESS) {
         const successEvent =
-          eventSource.type === 'crypto'
+          withdrawType === 'crypto'
             ? WithdrawEvents.EVT_WITHDRAWAL_SUCCESS__CRYPTO
             : WithdrawEvents.EVT_WITHDRAWAL_SUCCESS__FIAT;
         postCommitEvents.push({
@@ -443,7 +471,7 @@ export class WithdrawTransactionsService {
         });
       } else if (nextStatus === WithdrawTransactionStatus.FAILED) {
         const failedEvent =
-          eventSource.type === 'crypto'
+          withdrawType === 'crypto'
             ? WithdrawEvents.EVT_WITHDRAWAL_FAILED__CRYPTO
             : WithdrawEvents.EVT_WITHDRAWAL_FAILED__FIAT;
         postCommitEvents.push({
@@ -457,7 +485,13 @@ export class WithdrawTransactionsService {
         });
       }
 
-      return { updated: eventSource, postCommitEvents };
+      return {
+        updated: {
+          ...eventSource,
+          type: withdrawType,
+        },
+        postCommitEvents,
+      };
     };
 
     if (tx) {
@@ -481,17 +515,29 @@ export class WithdrawTransactionsService {
       throw new BadRequestException('No assets found. Please seed assets first.');
     }
 
+    const customers = await (this.prisma as any).customerMain.findMany({
+      take: 20,
+      select: {
+        id: true,
+        customerNo: true,
+      },
+    });
+    if (customers.length === 0) {
+      throw new BadRequestException('No customers found. Please seed customers first.');
+    }
+
     const records = [];
     for (let i = 0; i < 10; i++) {
       const asset = assets[Math.floor(Math.random() * assets.length)];
+      const customer = customers[Math.floor(Math.random() * customers.length)];
       const amount = (Math.random() * 1000 + 10).toFixed(2);
       
-      const record = await (this.prisma as any).withdrawTransaction.create({
+      const created = await (this.prisma as any).withdrawTransaction.create({
         data: {
           withdrawNo: `WDR-${Date.now()}-${i}`,
           ownerType: 'CUSTOMER',
-          ownerId: `USER-${Math.floor(Math.random() * 1000)}`,
-          type: asset.type === 'FIAT' ? 'fiat' : 'crypto',
+          ownerId: customer.id,
+          ownerNo: customer.customerNo,
           status: WithdrawTransactionStatus.CREATED,
           assetId: asset.id,
           amount: new Prisma.Decimal(amount),
@@ -507,12 +553,15 @@ export class WithdrawTransactionsService {
           }]),
         },
       });
-      records.push(record);
+      records.push({
+        ...created,
+        type: this.deriveWithdrawType(asset.type),
+      });
 
       // Initial audit log
       await (this.prisma as any).withdrawAuditLog.create({
         data: {
-          withdrawTransactionId: record.id,
+          withdrawTransactionId: created.id,
           operatorId: 'SYSTEM',
           oldStatus: 'NONE',
           newStatus: WithdrawTransactionStatus.CREATED,

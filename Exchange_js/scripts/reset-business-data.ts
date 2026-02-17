@@ -20,6 +20,8 @@ async function resetBusinessData(): Promise<void> {
   deleted.swap_transaction_audit_logs = (await prisma.swapTransactionAuditLog.deleteMany()).count;
   deleted.payout_audit_logs = (await prisma.payoutAuditLog.deleteMany()).count;
   deleted.withdraw_audit_logs = (await prisma.withdrawAuditLog.deleteMany()).count;
+  deleted.internal_fund_audit_logs = (await (prisma as any).internalFundAuditLog.deleteMany()).count;
+  deleted.internal_transaction_audit_logs = (await (prisma as any).internalTransactionAuditLog.deleteMany()).count;
 
   deleted.cdd_case_reports = (await prisma.cddCaseReport.deleteMany()).count;
   deleted.edd_case_reports = (await prisma.eddCaseReport.deleteMany()).count;
@@ -29,6 +31,8 @@ async function resetBusinessData(): Promise<void> {
 
   deleted.payouts = (await prisma.payout.deleteMany()).count;
   deleted.withdraw_transactions = (await prisma.withdrawTransaction.deleteMany()).count;
+  deleted.internal_funds = (await (prisma as any).internalFund.deleteMany()).count;
+  deleted.internal_transactions = (await (prisma as any).internalTransaction.deleteMany()).count;
   deleted.deposit_transactions = (await prisma.depositTransaction.deleteMany()).count;
   deleted.payins = (await prisma.payin.deleteMany()).count;
   deleted.swap_transactions = (await prisma.swapTransaction.deleteMany()).count;
