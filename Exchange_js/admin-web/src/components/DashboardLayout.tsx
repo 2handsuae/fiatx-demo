@@ -30,14 +30,39 @@ import {
   Building2,
   ShieldCheck,
   Shield,
-  UserCheck
+  UserCheck,
+  Sun,
+  Moon
 } from 'lucide-react';
 import { Link, useLocation, useNavigate, Outlet } from 'react-router-dom';
+import { useEffect } from 'react';
 
 const DashboardLayout = () => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [isDarkMode, setIsDarkMode] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('theme') === 'dark' || 
+        (!localStorage.getItem('theme') && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    }
+    return false;
+  });
+
   const location = useLocation();
   const navigate = useNavigate();
+
+  useEffect(() => {
+    if (isDarkMode) {
+      document.documentElement.classList.add('dark');
+      localStorage.setItem('theme', 'dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+      localStorage.setItem('theme', 'light');
+    }
+  }, [isDarkMode]);
+
+  const toggleTheme = () => {
+    setIsDarkMode(!isDarkMode);
+  };
 
   const handleLogout = () => {
     localStorage.removeItem('admin_token');
@@ -140,7 +165,7 @@ const DashboardLayout = () => {
   ];
 
   return (
-    <div className="h-screen bg-admin-content-bg flex font-['Noto_Sans_SC'] overflow-hidden">
+    <div className="h-screen bg-admin-content-bg dark:bg-deep-space flex font-['Noto_Sans_SC'] overflow-hidden">
       {/* Sidebar */}
       <aside className={`fixed lg:static inset-y-0 left-0 z-50 w-64 bg-admin-sidebar-bg text-admin-sidebar-text transition-transform duration-300 ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'} lg:w-64 flex flex-col border-r border-admin-sidebar-hover h-full`}>
         <div className="h-16 flex-none flex items-center px-6 border-b border-admin-sidebar-hover">
@@ -201,20 +226,27 @@ const DashboardLayout = () => {
 
       {/* Main Content */}
       <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
-        <header className="bg-white border-b border-admin-border h-16 flex-none flex items-center justify-between px-6">
+        <header className="bg-white dark:bg-admin-sidebar-bg dark:border-admin-sidebar-hover border-b border-admin-border h-16 flex-none flex items-center justify-between px-6">
           <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="lg:hidden text-gray-500 hover:text-gray-700">
             <Menu size={24} />
           </button>
           <div className="flex items-center gap-4 ml-auto">
+             <button 
+               onClick={toggleTheme} 
+               className="p-2 rounded-lg text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-admin-sidebar-hover transition-colors"
+               title={isDarkMode ? "Switch to Light Mode" : "Switch to Dark Mode"}
+             >
+               {isDarkMode ? <Sun size={20} /> : <Moon size={20} />}
+             </button>
              <div className="text-right">
-               <div className="text-sm font-bold text-gray-900">Admin</div>
+               <div className="text-sm font-bold text-gray-900 dark:text-white">Admin</div>
                <div className="text-xs text-gray-500">Super Administrator</div>
              </div>
              <div className="w-10 h-10 bg-brand-primary rounded-full flex items-center justify-center text-white font-bold">A</div>
           </div>
         </header>
 
-        <main className="flex-1 p-6 overflow-y-auto">
+        <main className="flex-1 p-6 overflow-y-auto dark:bg-deep-space dark:text-white">
           <Outlet />
         </main>
       </div>
