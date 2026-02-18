@@ -1,31 +1,34 @@
 # Internal Transaction Flow Constraints
 
 ## 1) Scope and Intent
-- MUST define constraints for internal treasury movements represented by:
+- MUST define constraints for platform internal treasury movements represented by:
 1. `internal_transactions` (order layer)
 2. `internal_funds` (fund-fact layer)
-- MUST treat `internal_funds` as the smallest immutable movement fact (`from -> to -> amount/fee/net`).
+- MUST treat `internal_funds` as the smallest movement fact (`from -> to -> amount/fee/net`).
 - MUST keep relation `internal_transactions (1) : internal_funds (N)`.
-- MUST keep this flow independent from customer deposit workflow implementation files.
+- MUST keep internal workflow orchestration independent from customer deposit workflow files.
 
-## 2) Supported Scenario (Current Baseline)
-- MUST support crypto collection from deposit address to platform master custody wallet.
-- MUST trigger only when:
+## 2) Supported Initiation Modes
+- MUST support two internal initiation modes:
+1. auto collection from deposit wallet to master wallet (`DEP_TO_MASTER`)
+2. manual internal transfer submission from admin (`INTERNAL_MANUAL` source)
+- Auto collection MUST trigger only on:
 1. event: `deposit.status.changed`
 2. `newStatus = SUCCESS`
 3. `deposit.asset.type = CRYPTO`
-- MUST skip FIAT deposits for internal collection.
+- FIAT deposit MUST NOT trigger internal collection.
 
 ## 3) Canonical Data Contract
 - `internal_transactions` MUST keep:
 1. external/admin identifier: `internalTxNo`
 2. idempotency key: `(sourceType, sourceId, type)` unique
-3. display/business status and aggregated amounts
+3. status + approval status + aggregated amounts
+4. approval/audit fields: `approvalStatus`, `makerUserId`, `checkerUserId`, `checkedAt`, `reviewReason`
 - `internal_funds` MUST keep:
 1. external/admin identifier: `internalFundNo`
-2. blockchain transfer facts (`txHash`, confirmations, nonce/block/gas fields)
-3. status machine and audit trail
-- `internal_funds` MUST NOT introduce business `type`; movement semantics come from linked `internal_transaction`.
+2. transfer facts (`txHash`, confirmations, nonce/block/gas fields)
+3. status history + audit trail
+- `internal_funds` MUST NOT carry business `type`; movement semantics come from linked `internal_transaction`.
 
 ## 4) Type and Status Contracts
 - Internal transaction type enum MUST remain:
@@ -38,85 +41,115 @@
 7. `PAYOUT_TO_LIQ`
 8. `CLIENT_BANK_TO_LIQ_BANK`
 9. `LIQ_BANK_TO_CLIENT_BANK`
-- Collection scenario MUST use `DEP_TO_MASTER`.
-- Internal transaction status MUST remain:
+- Manual crypto creation whitelist MUST remain:
+1. `MASTER_TO_LIQ`
+2. `LIQ_TO_MASTER`
+3. `MASTER_TO_PAYOUT`
+4. `PAYOUT_TO_MASTER`
+5. `LIQ_TO_PAYOUT`
+6. `PAYOUT_TO_LIQ`
+- Internal transaction status enum MUST remain:
 1. `INTERNAL_FUNDS_PENDING` (initial)
 2. `SUCCESS`
 3. `FAILED`
 4. `CANCELLED`
-- Internal fund status/action machine MUST follow `internal-funds.service.ts` transition map; ad-hoc transitions are forbidden.
+5. `REJECTED`
+- Internal transaction approval status enum MUST remain:
+1. `PENDING`
+2. `APPROVED`
+3. `REJECTED`
+- Internal fund transition machine MUST follow `internal-funds.service.ts`; ad-hoc transitions are forbidden.
 
-## 5) Orchestration and Ordering
-- Collection orchestration MUST run through `InternalCollectionWorkflowOrchestrator`.
-- Creation sequence MUST be:
+## 5) Wallet Routing and System Wallet Baseline
+- Internal wallet routing MUST be role-based (`walletRole`) and type-mapped (`fromRole -> toRole`).
+- System crypto wallets MUST be resolved by deterministic walletNo:
+1. `buildCryptoSystemWalletNo('MASTER', code, network)`
+2. `buildCryptoSystemWalletNo('PAYOUT', code, network)`
+3. `buildCryptoSystemWalletNo('LIQ', code, network)`
+- System wallet owner contract MUST remain:
+1. master/payout customer pool: `ownerType=CUSTOMER`, `ownerId=NULL`
+2. platform liquidity pool: `ownerType=PLATFORM`, `ownerId=NULL`
+- Missing required target wallet MUST be explicit skip/failure with reason; silent success is forbidden.
+
+## 6) Orchestration and Ordering
+- Auto collection ordering MUST be:
 1. idempotency check by `(sourceType=DEPOSIT, sourceId, type=DEP_TO_MASTER)`
-2. resolve `SYS_CUST_CRYPTO_MASTER_<CODE>_<NETWORK>` wallet (ownerType `CUSTOMER`, ownerId `NULL`)
-3. create `internal_transaction` with status `INTERNAL_FUNDS_PENDING`
-4. create one `internal_fund` with status `CREATED`
-- MUST trigger created accounting event on internal transaction creation.
-- Success sequence MUST be:
-1. internal fund reaches `CONFIRMED`
-2. aggregate internal transaction to `SUCCESS`
-3. trigger clearing (`EVT_INTERNAL_TX_SUCCESS`)
-4. trigger journal event for transaction success
-5. auto-update confirmed internal fund(s) to `CLEAR`
+2. resolve master wallet
+3. create `internal_transaction` with `status=INTERNAL_FUNDS_PENDING`
+4. create initial `internal_fund` with `status=CREATED`
+5. trigger created accounting event at transaction creation
+- Manual submit ordering MUST be:
+1. validate type whitelist + wallet role route + asset precision + wallet active
+2. create `internal_transaction` with `status=INTERNAL_FUNDS_PENDING`, `approvalStatus=PENDING`
+3. trigger created accounting event at transaction creation
+4. MUST NOT create fund before review approve
+- Manual review approve ordering MUST be:
+1. validate `approvalStatus=PENDING`
+2. set checker fields + `approvalStatus=APPROVED`
+3. create first `internal_fund(status=CREATED)`
+- Manual review reject ordering MUST be:
+1. set transaction terminal status `REJECTED`
+2. set `approvalStatus=REJECTED`
+3. trigger `EVT_INTERNAL_TX_REJECTED` auto-reversal of created posting
 
-## 6) Aggregation Rules (Funds -> Transaction)
-- Transaction becomes `SUCCESS` when all funds are in `{CONFIRMED, CLEAR}`.
+## 7) Aggregation Rules (Funds -> Transaction)
+- Transaction becomes `SUCCESS` when all linked funds are in `{CONFIRMED, CLEAR}`.
 - Transaction becomes `FAILED` when at least one fund is `{FAILED, TIMEOUT}` and no progressing fund exists.
-- Transaction becomes `CANCELLED` when all funds are `CANCELLED`.
-- MUST be idempotent: if computed status equals current status, no event/clearing re-trigger.
+- Transaction becomes `CANCELLED` when all linked funds are `CANCELLED`.
+- On success path MUST keep ordering:
+1. aggregate transaction to `SUCCESS`
+2. trigger success clearing + success journal event
+3. auto-update confirmed fund(s) to `CLEAR`
+- MUST be idempotent: if computed status equals current status, no duplicate event/clearing trigger.
 
-## 7) Accounting and Clearing Contracts
+## 8) Accounting and Clearing Contracts
 - Event set MUST remain:
 1. `EVT_INTERNAL_TX_CREATED`
 2. `EVT_INTERNAL_TX_SUCCESS`
 3. `EVT_INTERNAL_TX_FAILED`
 4. `EVT_INTERNAL_TX_CANCELLED`
+5. `EVT_INTERNAL_TX_REJECTED`
 - `EVT_INTERNAL_TX_SUCCESS` MUST use clearing template `INTERNAL_TX_COLLECTION_V1`.
-- Internal collection clearing template MUST always emit two lines:
+- `INTERNAL_TX_COLLECTION_V1` MUST always emit 2 lines:
 1. `OUTGOING` with `netAmount`
 2. `FEE` with `feeAmount` (line MUST exist even when fee is `0`)
-- Journal templates MUST preserve wallet dimension tags (`walletId`) and ownerType derived from wallet (`fromWalletOwnerType`/`toWalletOwnerType`) for INTERNAL_TX postings.
+- Journal templates for INTERNAL_TX asset lines MUST include wallet dimension (`walletId`) and ownerType derived from from/to wallet.
 - Internal collection COA baseline MUST include:
 1. `A.CUSTODY`
 2. `A.CUSTODY_IN_TRANSIT`
 3. `E.NETWORK_FEE`
 
-## 8) Wallet Baseline Dependency
-- Base seed MUST provide active system wallets for each CRYPTO asset:
-1. `SYS_CUST_CRYPTO_MASTER_<CODE>_<NETWORK>` (`ownerType=CUSTOMER`, `ownerId=NULL`)
-2. `SYS_CUST_CRYPTO_PAYOUT_<CODE>_<NETWORK>` (`ownerType=CUSTOMER`, `ownerId=NULL`)
-3. `SYS_PLATFORM_CRYPTO_LIQ_<CODE>_<NETWORK>` (`ownerType=PLATFORM`, `ownerId=NULL`)
-- Missing master wallet MUST cause collection skip with explicit reason (not silent success).
-
 ## 9) Admin API and UI Contract
-- Admin routes MUST remain:
+- Admin routes MUST include:
 1. `GET /admin/internal-transactions`
 2. `GET /admin/internal-transactions/:id`
-3. `GET /admin/internal-funds`
-4. `GET /admin/internal-funds/:id`
-5. `PATCH /admin/internal-funds/:id/status`
-6. `POST /admin/internal-funds/mock`
+3. `POST /admin/internal-transactions` (manual submit)
+4. `PATCH /admin/internal-transactions/:id/review` (approve/reject)
+5. `GET /admin/internal-funds`
+6. `GET /admin/internal-funds/:id`
+7. `PATCH /admin/internal-funds/:id/status`
+8. `POST /admin/internal-funds/mock`
 - Menu placement MUST remain:
 1. `Internal Transactions` under exchange/customer transaction group
 2. `Internal Funds` under treasury group
 
 ## 10) Compatibility Constraints
-- Withdraw DB `type` column remains removed; runtime branch selection derives from asset type.
-- Internal transaction behavior changes MUST NOT reintroduce withdraw `type` persistence.
+- Withdraw DB `type` column remains removed; runtime branching derives from asset type.
+- Internal transaction changes MUST NOT reintroduce withdraw `type` persistence.
 
-## 11) Reset and Verification Baseline
+## 11) Verification Baseline
 - Any flow change MUST be verified under:
 1. `npm run db:base:sync`
-2. `npm run db:biz:init` or `reset-main` script path
+2. `npm run db:biz:init` (or reset script path)
 - Verification MUST include:
-1. created event posting exists after transaction creation
-2. success triggers both clearing and journals
-3. FIAT deposit success does not create internal records
-4. idempotent re-trigger does not duplicate records
+1. auto collection creates tx/fund only for `SUCCESS + CRYPTO` deposit
+2. manual submit creates tx only (no fund)
+3. manual approve creates first fund
+4. manual reject moves tx to `REJECTED` and reverses created posting
+5. success triggers both clearing + journals and then auto-clears confirmed funds
+6. idempotent re-trigger does not duplicate records
 
 ## 12) Assumptions and Defaults
-- Current productionized scope is crypto collection; additional internal routes are future extensions.
-- Constraint language follows existing constraints folder style (English).
-- This document is behavioral contract; API/path/schema expansion requires explicit owner approval.
+- Constraint language is English (aligned with constraints folder style).
+- Current hard implementation focus is crypto internal treasury routes; fiat internal types remain reserved/compat unless explicitly enabled.
+- This document is behavioral contract; schema/path expansion requires explicit owner approval.
