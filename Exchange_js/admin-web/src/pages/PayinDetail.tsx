@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, RefreshCw, Copy, Check, ExternalLink, Globe, FileText, Banknote, MapPin, Clock, Activity, User } from 'lucide-react';
 import { copyToClipboard } from '../utils/clipboard';
+import { formatAssetAmount } from '../utils/number-format';
 
 interface PayinDetail {
   id: string;
@@ -257,7 +258,7 @@ const PayinDetail = () => {
         <DetailCard title="Assets & Amount" icon={<Banknote size={18}/>}>
             <InfoField label="Asset ID (Symbol)" value={payin.asset.code} source="main" />
             <InfoField label="Asset Name" value={payin.asset.description || payin.asset.code} source="main" />
-            <InfoField label="Amount" value={`${Number(payin.amount).toLocaleString()}`} highlight source="main" />
+            <InfoField label="Amount" value={formatAssetAmount(payin.amount, payin.asset.decimals)} highlight source="main" />
             <InfoField label="Decimals" value={payin.asset.decimals.toString()} source="main" />
         </DetailCard>
 

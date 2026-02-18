@@ -258,7 +258,7 @@ export const DEFAULT_ACCT_EVENTS = [
     isActive: true,
     description: '提现拒绝：冲销锁定',
   },
-  // 17. Internal Transaction Created (Crypto Collection)
+  // 17. Internal Transaction Created (Crypto Internal Transfer)
   {
     eventCode: 'EVT_INTERNAL_TX_CREATED',
     entityType: 'INTERNAL_TX',
@@ -271,9 +271,9 @@ export const DEFAULT_ACCT_EVENTS = [
     postingMode: 'TEMPLATE',
     clearingMode: 'NONE',
     isActive: true,
-    description: '内部归集创建：托管可用转入在途',
+    description: '内部调拨创建：可用资产转入在途',
   },
-  // 18. Internal Transaction Success (Crypto Collection)
+  // 18. Internal Transaction Success (Crypto Internal Transfer)
   {
     eventCode: 'EVT_INTERNAL_TX_SUCCESS',
     entityType: 'INTERNAL_TX',
@@ -287,7 +287,7 @@ export const DEFAULT_ACCT_EVENTS = [
     clearingMode: 'TEMPLATE',
     clearingTemplateCode: 'INTERNAL_TX_COLLECTION_V1',
     isActive: true,
-    description: '内部归集成功：在途回到托管，并记录网络费',
+    description: '内部调拨成功：在途回到目标托管，并记录网络费',
   },
   // 19. Internal Transaction Failed
   {
@@ -303,7 +303,7 @@ export const DEFAULT_ACCT_EVENTS = [
     postingReversalOfEventCode: 'EVT_INTERNAL_TX_CREATED',
     clearingMode: 'NONE',
     isActive: true,
-    description: '内部归集失败：冲回创建分录',
+    description: '内部调拨失败：冲回创建分录',
   },
   // 20. Internal Transaction Cancelled
   {
@@ -319,6 +319,22 @@ export const DEFAULT_ACCT_EVENTS = [
     postingReversalOfEventCode: 'EVT_INTERNAL_TX_CREATED',
     clearingMode: 'NONE',
     isActive: true,
-    description: '内部归集取消：冲回创建分录',
+    description: '内部调拨取消：冲回创建分录',
+  },
+  // 21. Internal Transaction Rejected
+  {
+    eventCode: 'EVT_INTERNAL_TX_REJECTED',
+    entityType: 'INTERNAL_TX',
+    ownerScope: 'PLATFORM',
+    assetType: 'CRYPTO',
+    triggerType: 'STATUS_TRANSITION',
+    triggerKey: 'status',
+    fromStatus: null,
+    toStatus: 'REJECTED',
+    postingMode: 'AUTO_REVERSAL',
+    postingReversalOfEventCode: 'EVT_INTERNAL_TX_CREATED',
+    clearingMode: 'NONE',
+    isActive: true,
+    description: '内部调拨驳回：冲回创建分录',
   },
 ];

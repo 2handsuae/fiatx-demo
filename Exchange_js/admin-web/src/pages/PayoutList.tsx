@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Search, RefreshCw, Eye } from 'lucide-react';
+import { formatAssetAmount } from '../utils/number-format';
 
 interface PayoutItem {
   id: string;
@@ -10,7 +11,7 @@ interface PayoutItem {
   status: string;
   amount: string;
   assetId: string;
-  asset: { code: string; type: string; network: string | null };
+  asset: { code: string; type: string; network: string | null; decimals?: number };
   toAddress: string | null;
   toIban: string | null;
   txHash: string | null;
@@ -316,7 +317,7 @@ const PayoutList = () => {
                       )}
                     </td>
                     <td className="px-6 py-4">
-                      <div className="font-medium text-gray-900">{Number(payout.amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 8 })} {payout.asset.code}</div>
+                      <div className="font-medium text-gray-900">{formatAssetAmount(payout.amount, payout.asset.decimals)} {payout.asset.code}</div>
                       <div className="text-xs text-gray-500">{payout.asset.network}</div>
                     </td>
                     <td className="px-6 py-4">{renderStatusBadge(payout.status)}</td>

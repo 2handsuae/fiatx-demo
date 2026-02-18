@@ -1,4 +1,4 @@
-import { PrismaClient } from '@prisma/client';
+import { Prisma, PrismaClient } from '@prisma/client';
 import { createHash } from 'crypto';
 import * as bcrypt from 'bcrypt';
 import { DEFAULT_ASSETS } from '../src/config/manifests/assets.manifest';
@@ -6,6 +6,7 @@ import { DEFAULT_COA } from '../src/config/manifests/coa.manifest';
 import { DEFAULT_ACCT_EVENTS } from '../src/config/manifests/events.manifest';
 import { DEFAULT_JOURNAL_TEMPLATES } from '../src/config/manifests/journal-templates.manifest';
 import { DEFAULT_CLEARING_TEMPLATES } from '../src/config/manifests/clearing-templates.manifest';
+import { buildDeterministicWalletNo } from '../src/common/utils/no-generator.util';
 
 const DEFAULT_ADMIN_EMAIL = 'admin@fiatx.com';
 const DEFAULT_ADMIN_USER_NO = 'ADMIN-001';
@@ -16,22 +17,58 @@ const DEFAULT_BASE_CUSTOMER_PASSWORD = '123456';
 const DEFAULT_BASE_CUSTOMER_FIRST_NAME = 'Shawn';
 const DEFAULT_BASE_CUSTOMER_LAST_NAME = 'FiatX';
 
-const SYSTEM_WALLET_ROLES = ['MASTER', 'LIQ'] as const;
-type SystemWalletRole = (typeof SYSTEM_WALLET_ROLES)[number];
+const CRYPTO_SYSTEM_WALLET_KINDS = [
+  'CUST_CRYPTO_MASTER',
+  'CUST_CRYPTO_PAYOUT',
+  'PLATFORM_CRYPTO_LIQ',
+] as const;
+type CryptoSystemWalletKind = (typeof CRYPTO_SYSTEM_WALLET_KINDS)[number];
 
-const SYSTEM_WALLET_ROLE_CONFIG: Record<
-  SystemWalletRole,
-  { ownerType: 'CUSTOMER' | 'PLATFORM'; ownerNo: string }
+const CRYPTO_SYSTEM_WALLET_KIND_CONFIG: Record<
+  CryptoSystemWalletKind,
+  { ownerType: 'CUSTOMER' | 'PLATFORM'; ownerNo: string; walletRole: string }
 > = {
-  MASTER: {
+  CUST_CRYPTO_MASTER: {
     ownerType: 'CUSTOMER',
     ownerNo: 'CUSTOMER_POOL',
+    walletRole: 'MASTER',
   },
-  LIQ: {
+  CUST_CRYPTO_PAYOUT: {
+    ownerType: 'CUSTOMER',
+    ownerNo: 'CUSTOMER_POOL',
+    walletRole: 'PAYOUT',
+  },
+  PLATFORM_CRYPTO_LIQ: {
     ownerType: 'PLATFORM',
     ownerNo: 'PLATFORM',
+    walletRole: 'LIQ',
   },
 };
+
+const FIAT_POOL_WALLET_KINDS = ['CUST_BANK', 'LIQ_BANK'] as const;
+type FiatPoolWalletKind = (typeof FIAT_POOL_WALLET_KINDS)[number];
+
+const FIAT_POOL_WALLET_KIND_CONFIG: Record<
+  FiatPoolWalletKind,
+  { ownerType: 'CUSTOMER' | 'PLATFORM'; ownerNo: string; walletRole: string }
+> = {
+  CUST_BANK: {
+    ownerType: 'CUSTOMER',
+    ownerNo: 'CUSTOMER_POOL',
+    walletRole: 'CUST_BANK',
+  },
+  LIQ_BANK: {
+    ownerType: 'PLATFORM',
+    ownerNo: 'PLATFORM',
+    walletRole: 'LIQ_BANK',
+  },
+};
+
+const DEFAULT_CRYPTO_AED_VALUATION_BY_CODE: Record<string, string> = {
+  USDT: '3.6725',
+  BTC: '250000',
+};
+const PLATFORM_LIQUIDITY_OPENING_AED = new Prisma.Decimal('1000000');
 
 const DEPRECATED_DEPOSIT_REJECTED_EVENT_CODES = [
   'EVT_DEPOSIT_REJECTED__CRYPTO',
@@ -44,6 +81,8 @@ export async function seedBase(prisma: PrismaClient): Promise<void> {
   await seedBaseCustomers(prisma);
   await seedAssets(prisma);
   await seedSystemWallets(prisma);
+  await seedAssetValuationRates(prisma);
+  await seedLiquidityOpeningBalances(prisma);
   await seedCoa(prisma);
   await seedAcctEvents(prisma);
   await seedJournalTemplates(prisma);
@@ -125,6 +164,12 @@ async function seedBaseCustomers(prisma: PrismaClient): Promise<void> {
 }
 
 async function seedAssets(prisma: PrismaClient): Promise<void> {
+  const keepConditions = DEFAULT_ASSETS.map((asset) => ({
+    type: asset.type,
+    code: asset.code,
+    network: normalizeNetwork(asset.network),
+  }));
+
   for (const asset of DEFAULT_ASSETS) {
     const normalizedNetwork = normalizeNetwork(asset.network);
     await prisma.asset.upsert({
@@ -152,20 +197,35 @@ async function seedAssets(prisma: PrismaClient): Promise<void> {
       },
     });
   }
+
+  await prisma.asset.updateMany({
+    where: {
+      NOT: {
+        OR: keepConditions,
+      },
+    },
+    data: {
+      status: 'INACTIVE',
+    },
+  });
 }
 
 async function seedSystemWallets(prisma: PrismaClient): Promise<void> {
   const cryptoAssets = await prisma.asset.findMany({
-    where: { type: 'CRYPTO' },
+    where: { type: 'CRYPTO', status: 'ACTIVE' },
     select: { id: true, code: true, network: true },
     orderBy: [{ code: 'asc' }, { network: 'asc' }],
   });
 
   for (const asset of cryptoAssets) {
-    for (const role of SYSTEM_WALLET_ROLES) {
-      const config = SYSTEM_WALLET_ROLE_CONFIG[role];
-      const walletNo = buildSystemWalletNo(role, asset.code, asset.network);
-      const address = buildSystemWalletAddress(role, asset.code, asset.network);
+    for (const kind of CRYPTO_SYSTEM_WALLET_KINDS) {
+      const config = CRYPTO_SYSTEM_WALLET_KIND_CONFIG[kind];
+      const walletNo = buildCryptoSystemWalletNo(
+        kind,
+        asset.code,
+        asset.network,
+      );
+      const address = buildSystemWalletAddress(kind, asset.code, asset.network);
 
       await (prisma as any).wallet.upsert({
         where: { walletNo },
@@ -175,6 +235,7 @@ async function seedSystemWallets(prisma: PrismaClient): Promise<void> {
           ownerNo: config.ownerNo,
           type: 'CRYPTO_ADDRESS',
           direction: 'BIDIRECTIONAL',
+          walletRole: config.walletRole,
           assetId: asset.id,
           address,
           status: 'ACTIVE',
@@ -186,6 +247,7 @@ async function seedSystemWallets(prisma: PrismaClient): Promise<void> {
           ownerNo: config.ownerNo,
           type: 'CRYPTO_ADDRESS',
           direction: 'BIDIRECTIONAL',
+          walletRole: config.walletRole,
           assetId: asset.id,
           address,
           status: 'ACTIVE',
@@ -194,6 +256,191 @@ async function seedSystemWallets(prisma: PrismaClient): Promise<void> {
         },
       });
     }
+  }
+
+  const fiatAssets = await prisma.asset.findMany({
+    where: { type: 'FIAT', status: 'ACTIVE' },
+    select: { id: true, code: true },
+    orderBy: [{ code: 'asc' }],
+  });
+
+  for (const asset of fiatAssets) {
+    for (const kind of FIAT_POOL_WALLET_KINDS) {
+      const config = FIAT_POOL_WALLET_KIND_CONFIG[kind];
+      const walletNo = buildFiatPoolWalletNo(kind, asset.code);
+      const iban = buildSystemPoolIban(kind, asset.code);
+
+      await (prisma as any).wallet.upsert({
+        where: { walletNo },
+        update: {
+          ownerType: config.ownerType,
+          ownerId: null,
+          ownerNo: config.ownerNo,
+          type: 'FIAT_BANK',
+          direction: 'BIDIRECTIONAL',
+          walletRole: config.walletRole,
+          assetId: asset.id,
+          iban,
+          bankName: 'FiatX Internal Bank',
+          accountName:
+            kind === 'CUST_BANK'
+              ? 'Customer Asset Pool'
+              : 'Platform Liquidity Pool',
+          status: 'ACTIVE',
+        },
+        create: {
+          walletNo,
+          ownerType: config.ownerType,
+          ownerId: null,
+          ownerNo: config.ownerNo,
+          type: 'FIAT_BANK',
+          direction: 'BIDIRECTIONAL',
+          walletRole: config.walletRole,
+          assetId: asset.id,
+          iban,
+          bankName: 'FiatX Internal Bank',
+          accountName:
+            kind === 'CUST_BANK'
+              ? 'Customer Asset Pool'
+              : 'Platform Liquidity Pool',
+          status: 'ACTIVE',
+          balance: 0,
+          lockedBalance: 0,
+        },
+      });
+    }
+  }
+}
+
+async function seedAssetValuationRates(prisma: PrismaClient): Promise<void> {
+  const cryptoAssets = await prisma.asset.findMany({
+    where: { type: 'CRYPTO', status: 'ACTIVE' },
+    select: { id: true, code: true },
+  });
+
+  for (const asset of cryptoAssets) {
+    const price =
+      DEFAULT_CRYPTO_AED_VALUATION_BY_CODE[asset.code] ??
+      DEFAULT_CRYPTO_AED_VALUATION_BY_CODE.USDT;
+
+    await (prisma as any).assetValuationRate.upsert({
+      where: {
+        assetId_quoteAssetCode: {
+          assetId: asset.id,
+          quoteAssetCode: 'AED',
+        },
+      },
+      update: {
+        price,
+        status: 'ACTIVE',
+      },
+      create: {
+        assetId: asset.id,
+        quoteAssetCode: 'AED',
+        price,
+        status: 'ACTIVE',
+      },
+    });
+  }
+}
+
+async function seedLiquidityOpeningBalances(
+  prisma: PrismaClient,
+): Promise<void> {
+  const platformLiqWallets = await (prisma as any).wallet.findMany({
+    where: {
+      ownerType: 'PLATFORM',
+      ownerId: null,
+      status: 'ACTIVE',
+      walletRole: 'LIQ',
+    },
+    include: {
+      asset: {
+        select: {
+          id: true,
+          type: true,
+          code: true,
+          decimals: true,
+        },
+      },
+    },
+  });
+
+  if (!platformLiqWallets.length) {
+    return;
+  }
+
+  const assetIds = Array.from(
+    new Set(
+      platformLiqWallets
+        .map((wallet: any) => wallet.assetId)
+        .filter(
+          (assetId: unknown): assetId is string => typeof assetId === 'string',
+        ),
+    ),
+  );
+  const valuationRates = await (prisma as any).assetValuationRate.findMany({
+    where: {
+      assetId: { in: assetIds },
+      quoteAssetCode: 'AED',
+      status: 'ACTIVE',
+    },
+    select: {
+      assetId: true,
+      price: true,
+    },
+  });
+  const valuationByAssetId = new Map<string, Prisma.Decimal>(
+    valuationRates.map((item: { assetId: string; price: Prisma.Decimal }) => [
+      item.assetId,
+      new Prisma.Decimal(item.price),
+    ]),
+  );
+
+  for (const wallet of platformLiqWallets) {
+    if (wallet.asset?.type !== 'CRYPTO') continue;
+    const valuation = valuationByAssetId.get(wallet.assetId);
+    if (!valuation || valuation.lte(0)) continue;
+
+    const decimals = Number(wallet.asset.decimals ?? 8);
+    const openingAmount = PLATFORM_LIQUIDITY_OPENING_AED.div(
+      valuation,
+    ).toDecimalPlaces(
+      Number.isFinite(decimals) ? decimals : 8,
+      Prisma.Decimal.ROUND_DOWN,
+    );
+
+    const existingSnapshot = await (
+      prisma as any
+    ).walletBalanceSnapshot.findUnique({
+      where: {
+        walletId_assetId: {
+          walletId: wallet.id,
+          assetId: wallet.assetId,
+        },
+      },
+      select: { id: true },
+    });
+    if (existingSnapshot) continue;
+
+    await (prisma as any).wallet.update({
+      where: { id: wallet.id },
+      data: {
+        balance: openingAmount,
+        lockedBalance: new Prisma.Decimal(0),
+      },
+    });
+
+    await (prisma as any).walletBalanceSnapshot.create({
+      data: {
+        walletId: wallet.id,
+        assetId: wallet.assetId,
+        availableBalance: openingAmount,
+        restrictedBalance: new Prisma.Decimal(0),
+        inTransitBalance: new Prisma.Decimal(0),
+        totalBalance: openingAmount,
+      },
+    });
   }
 }
 
@@ -229,25 +476,35 @@ async function seedAcctEvents(prisma: PrismaClient): Promise<void> {
   await cleanupDeprecatedDepositRejectedEvents(prisma);
 }
 
-async function cleanupDeprecatedDepositRejectedEvents(prisma: PrismaClient): Promise<void> {
+async function cleanupDeprecatedDepositRejectedEvents(
+  prisma: PrismaClient,
+): Promise<void> {
   try {
     await prisma.journalHeaderTemplate.deleteMany({
-      where: { eventCode: { in: [...DEPRECATED_DEPOSIT_REJECTED_EVENT_CODES] } },
+      where: {
+        eventCode: { in: [...DEPRECATED_DEPOSIT_REJECTED_EVENT_CODES] },
+      },
     });
   } catch {
     await prisma.journalHeaderTemplate.updateMany({
-      where: { eventCode: { in: [...DEPRECATED_DEPOSIT_REJECTED_EVENT_CODES] } },
+      where: {
+        eventCode: { in: [...DEPRECATED_DEPOSIT_REJECTED_EVENT_CODES] },
+      },
       data: { status: 'INACTIVE' },
     });
   }
 
   try {
     await prisma.acctEvent.deleteMany({
-      where: { eventCode: { in: [...DEPRECATED_DEPOSIT_REJECTED_EVENT_CODES] } },
+      where: {
+        eventCode: { in: [...DEPRECATED_DEPOSIT_REJECTED_EVENT_CODES] },
+      },
     });
   } catch {
     await prisma.acctEvent.updateMany({
-      where: { eventCode: { in: [...DEPRECATED_DEPOSIT_REJECTED_EVENT_CODES] } },
+      where: {
+        eventCode: { in: [...DEPRECATED_DEPOSIT_REJECTED_EVENT_CODES] },
+      },
       data: { isActive: false },
     });
   }
@@ -255,8 +512,10 @@ async function cleanupDeprecatedDepositRejectedEvents(prisma: PrismaClient): Pro
 
 async function seedJournalTemplates(prisma: PrismaClient): Promise<void> {
   const baseAsset =
-    (await prisma.asset.findFirst({ where: { code: 'AED' }, orderBy: { createdAt: 'asc' } })) ??
-    (await prisma.asset.findFirst({ orderBy: { createdAt: 'asc' } }));
+    (await prisma.asset.findFirst({
+      where: { code: 'AED' },
+      orderBy: { createdAt: 'asc' },
+    })) ?? (await prisma.asset.findFirst({ orderBy: { createdAt: 'asc' } }));
 
   if (!baseAsset) {
     throw new Error('No base asset found when seeding journal templates.');
@@ -366,7 +625,8 @@ async function seedClearingTemplates(prisma: PrismaClient): Promise<void> {
 }
 
 async function isBaseComplete(prisma: PrismaClient): Promise<boolean> {
-  const adminExists = (await prisma.user.count({ where: { email: DEFAULT_ADMIN_EMAIL } })) > 0;
+  const adminExists =
+    (await prisma.user.count({ where: { email: DEFAULT_ADMIN_EMAIL } })) > 0;
   if (!adminExists) {
     return false;
   }
@@ -385,29 +645,57 @@ async function isBaseComplete(prisma: PrismaClient): Promise<boolean> {
   }
 
   const existingAssets = await prisma.asset.findMany({
-    select: { id: true, type: true, code: true, network: true },
+    select: { id: true, type: true, code: true, network: true, status: true },
   });
+  const activeAssets = existingAssets.filter(
+    (asset) => asset.status === 'ACTIVE',
+  );
   const assetKeys = new Set(
-    existingAssets.map((asset) => `${asset.type}:${asset.code}:${normalizeNetwork(asset.network)}`),
+    activeAssets.map(
+      (asset) =>
+        `${asset.type}:${asset.code}:${normalizeNetwork(asset.network)}`,
+    ),
   );
   const allAssetsExist = DEFAULT_ASSETS.every((asset) =>
-    assetKeys.has(`${asset.type}:${asset.code}:${normalizeNetwork(asset.network)}`),
+    assetKeys.has(
+      `${asset.type}:${asset.code}:${normalizeNetwork(asset.network)}`,
+    ),
   );
   if (!allAssetsExist) {
     return false;
   }
 
-  const cryptoAssets = existingAssets.filter((asset) => asset.type === 'CRYPTO');
+  if (activeAssets.length !== DEFAULT_ASSETS.length) {
+    return false;
+  }
+
+  const cryptoAssets = activeAssets.filter((asset) => asset.type === 'CRYPTO');
+  const fiatAssets = activeAssets.filter((asset) => asset.type === 'FIAT');
   const expectedWallets = new Map<
     string,
-    { assetId: string; ownerType: 'CUSTOMER' | 'PLATFORM' }
+    { assetId: string; ownerType: 'CUSTOMER' | 'PLATFORM'; walletRole: string }
   >();
   for (const asset of cryptoAssets) {
-    for (const role of SYSTEM_WALLET_ROLES) {
-      const walletNo = buildSystemWalletNo(role, asset.code, asset.network);
+    for (const kind of CRYPTO_SYSTEM_WALLET_KINDS) {
+      const walletNo = buildCryptoSystemWalletNo(
+        kind,
+        asset.code,
+        asset.network,
+      );
       expectedWallets.set(walletNo, {
         assetId: asset.id,
-        ownerType: SYSTEM_WALLET_ROLE_CONFIG[role].ownerType,
+        ownerType: CRYPTO_SYSTEM_WALLET_KIND_CONFIG[kind].ownerType,
+        walletRole: CRYPTO_SYSTEM_WALLET_KIND_CONFIG[kind].walletRole,
+      });
+    }
+  }
+  for (const asset of fiatAssets) {
+    for (const kind of FIAT_POOL_WALLET_KINDS) {
+      const walletNo = buildFiatPoolWalletNo(kind, asset.code);
+      expectedWallets.set(walletNo, {
+        assetId: asset.id,
+        ownerType: FIAT_POOL_WALLET_KIND_CONFIG[kind].ownerType,
+        walletRole: FIAT_POOL_WALLET_KIND_CONFIG[kind].walletRole,
       });
     }
   }
@@ -419,11 +707,13 @@ async function isBaseComplete(prisma: PrismaClient): Promise<boolean> {
         walletNo: { in: expectedWalletNos },
       },
       select: {
+        id: true,
         walletNo: true,
         assetId: true,
         ownerType: true,
         ownerId: true,
         status: true,
+        walletRole: true,
       },
     });
 
@@ -439,6 +729,7 @@ async function isBaseComplete(prisma: PrismaClient): Promise<boolean> {
       if (
         wallet.assetId !== expected.assetId ||
         wallet.ownerType !== expected.ownerType ||
+        wallet.walletRole !== expected.walletRole ||
         wallet.ownerId !== null ||
         wallet.status !== 'ACTIVE'
       ) {
@@ -455,24 +746,70 @@ async function isBaseComplete(prisma: PrismaClient): Promise<boolean> {
   }
 
   const eventCount = await prisma.acctEvent.count({
-    where: { eventCode: { in: DEFAULT_ACCT_EVENTS.map((item) => item.eventCode) } },
+    where: {
+      eventCode: { in: DEFAULT_ACCT_EVENTS.map((item) => item.eventCode) },
+    },
   });
   if (eventCount < DEFAULT_ACCT_EVENTS.length) {
     return false;
   }
 
   const journalTemplateCount = await prisma.journalHeaderTemplate.count({
-    where: { templateCode: { in: DEFAULT_JOURNAL_TEMPLATES.map((item) => item.header.templateCode) } },
+    where: {
+      templateCode: {
+        in: DEFAULT_JOURNAL_TEMPLATES.map((item) => item.header.templateCode),
+      },
+    },
   });
   if (journalTemplateCount < DEFAULT_JOURNAL_TEMPLATES.length) {
     return false;
   }
 
   const clearingTemplateCount = await prisma.clearingTemplate.count({
-    where: { code: { in: DEFAULT_CLEARING_TEMPLATES.map((item) => item.code) } },
+    where: {
+      code: { in: DEFAULT_CLEARING_TEMPLATES.map((item) => item.code) },
+    },
   });
   if (clearingTemplateCount < DEFAULT_CLEARING_TEMPLATES.length) {
     return false;
+  }
+
+  if (cryptoAssets.length > 0) {
+    const valuationCount = await (prisma as any).assetValuationRate.count({
+      where: {
+        assetId: { in: cryptoAssets.map((asset) => asset.id) },
+        quoteAssetCode: 'AED',
+        status: 'ACTIVE',
+      },
+    });
+    if (valuationCount < cryptoAssets.length) {
+      return false;
+    }
+  }
+
+  const platformLiqWalletIds = (
+    await (prisma as any).wallet.findMany({
+      where: {
+        ownerType: 'PLATFORM',
+        ownerId: null,
+        status: 'ACTIVE',
+        walletRole: 'LIQ',
+      },
+      select: { id: true },
+    })
+  ).map((wallet: { id: string }) => wallet.id);
+
+  if (platformLiqWalletIds.length > 0) {
+    const openingSnapshotCount = await (
+      prisma as any
+    ).walletBalanceSnapshot.count({
+      where: {
+        walletId: { in: platformLiqWalletIds },
+      },
+    });
+    if (openingSnapshotCount < platformLiqWalletIds.length) {
+      return false;
+    }
   }
 
   return true;
@@ -486,23 +823,28 @@ function normalizeSegment(value: string): string {
   return value.toUpperCase().replace(/[^A-Z0-9]+/g, '_');
 }
 
-function buildSystemWalletNo(
-  role: SystemWalletRole,
+function buildCryptoSystemWalletNo(
+  kind: CryptoSystemWalletKind,
   assetCode: string,
   network: string | null | undefined,
 ): string {
-  return `SYS_${role}_${normalizeSegment(assetCode)}_${normalizeSegment(network || 'NA')}`;
+  const role = CRYPTO_SYSTEM_WALLET_KIND_CONFIG[kind].walletRole;
+  return buildDeterministicWalletNo(
+    role,
+    normalizeSegment(assetCode),
+    normalizeSegment(network || 'NA'),
+  );
 }
 
 function buildSystemWalletAddress(
-  role: SystemWalletRole,
+  kind: CryptoSystemWalletKind,
   assetCode: string,
   network: string | null | undefined,
 ): string {
   const normalizedNetwork = normalizeSegment(network || 'NA');
   const normalizedCode = normalizeSegment(assetCode);
   const hash = createHash('sha256')
-    .update(`${role}|${normalizedCode}|${normalizedNetwork}`)
+    .update(`${kind}|${normalizedCode}|${normalizedNetwork}`)
     .digest('hex');
 
   if (normalizedNetwork === 'BITCOIN') {
@@ -517,7 +859,26 @@ function buildSystemWalletAddress(
     return `0x${hash.slice(0, 40)}`;
   }
 
-  return `sys_${role.toLowerCase()}_${normalizedCode.toLowerCase()}_${normalizedNetwork.toLowerCase()}_${hash.slice(0, 12)}`;
+  return `sys_${kind.toLowerCase()}_${normalizedCode.toLowerCase()}_${normalizedNetwork.toLowerCase()}_${hash.slice(0, 12)}`;
+}
+
+function buildFiatPoolWalletNo(
+  kind: FiatPoolWalletKind,
+  assetCode: string,
+): string {
+  const role = FIAT_POOL_WALLET_KIND_CONFIG[kind].walletRole;
+  return buildDeterministicWalletNo(role, normalizeSegment(assetCode), 'NA');
+}
+
+function buildSystemPoolIban(
+  kind: FiatPoolWalletKind,
+  assetCode: string,
+): string {
+  const hash = createHash('sha256')
+    .update(`${kind}|${normalizeSegment(assetCode)}`)
+    .digest('hex')
+    .toUpperCase();
+  return `AE00FIATX${hash.slice(0, 16)}`;
 }
 
 function readOptionalString(source: unknown, key: string): string | null {

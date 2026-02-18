@@ -18,6 +18,7 @@ import {
   OwnerType,
   WalletType,
   WalletDirection,
+  WalletRole,
 } from './dto/wallet.dto';
 import { AuthGuard } from '@nestjs/passport';
 import {
@@ -73,6 +74,7 @@ export class WalletsController {
   @ApiQuery({ name: 'assetId', required: false, type: String })
   @ApiQuery({ name: 'status', required: false, enum: WalletStatus })
   @ApiQuery({ name: 'direction', required: false, enum: WalletDirection })
+  @ApiQuery({ name: 'walletRole', required: false, enum: WalletRole })
   findAll(
     @Request() req: any,
     @Query('skip') skip?: string,
@@ -83,6 +85,7 @@ export class WalletsController {
     @Query('assetId') assetId?: string,
     @Query('status') status?: string,
     @Query('direction') direction?: string,
+    @Query('walletRole') walletRole?: string,
   ) {
     this.ensureSupportedToken(req);
 
@@ -107,6 +110,7 @@ export class WalletsController {
     if (assetId) where.assetId = assetId;
     if (status) where.status = status;
     if (direction) where.direction = direction;
+    if (walletRole) where.walletRole = walletRole;
 
     return this.service.findAll({
       skip: skip ? Number(skip) : 0,
@@ -130,6 +134,22 @@ export class WalletsController {
     }
 
     return wallet;
+  }
+
+  @Get(':id/balance')
+  @ApiOperation({ summary: 'Get wallet projected balance summary' })
+  async findBalance(@Request() req: any, @Param('id') id: string) {
+    this.ensureSupportedToken(req);
+
+    const wallet = await this.service.findOne(id);
+    if (
+      req.user.type === 'CUSTOMER' &&
+      (wallet.ownerType !== OwnerType.CUSTOMER || wallet.ownerId !== req.user.userId)
+    ) {
+      throw new ForbiddenException('Customer can only access own wallets');
+    }
+
+    return this.service.findBalance(id);
   }
 
   @Patch(':id/status')

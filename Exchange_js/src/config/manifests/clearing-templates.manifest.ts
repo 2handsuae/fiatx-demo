@@ -34,7 +34,7 @@ export const DEFAULT_CLEARING_TEMPLATES = [
     code: 'INTERNAL_TX_COLLECTION_V1',
     clearingType: 'INTERNAL_COLLECTION',
     sourceType: 'INTERNAL_TX',
-    description: '内部归集清分模板：总额拆分为净额与网络费',
+    description: '内部调拨清分模板：总额拆分为净额与网络费',
     isEnabled: true,
     feeMethod: 'ACTUAL_FEE',
     outAssetSource: 'src.assetId',

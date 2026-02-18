@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, RefreshCw } from 'lucide-react';
+import { formatAssetAmount, formatRate8 } from '../utils/number-format';
 
 interface SwapOutstandingDetailData {
   id: string;
@@ -11,6 +12,7 @@ interface SwapOutstandingDetailData {
   ownerNo: string | null;
   direction: string;
   assetCode: string | null;
+  asset?: { code?: string | null; decimals?: number | null } | null;
   amount: string;
   status: string;
   createdAt: string;
@@ -22,8 +24,8 @@ interface SwapOutstandingDetailData {
     fromAmount: string;
     toAmount: string;
     exchangeRate: string;
-    fromAsset?: { code?: string | null } | null;
-    toAsset?: { code?: string | null } | null;
+    fromAsset?: { code?: string | null; decimals?: number | null } | null;
+    toAsset?: { code?: string | null; decimals?: number | null } | null;
   } | null;
 }
 
@@ -119,8 +121,8 @@ const SwapOutstandingDetail = () => {
           <Field label="Direction" value={data.direction} />
           <Field label="Owner" value={`${data.ownerType} / ${data.ownerNo || 'N/A'}`} />
           <Field label="Source" value={`${data.sourceType} / ${data.sourceNo || 'N/A'}`} />
-          <Field label="Asset" value={data.assetCode || 'N/A'} />
-          <Field label="Amount" value={Number(data.amount).toLocaleString()} />
+          <Field label="Asset" value={data.assetCode || data.asset?.code || 'N/A'} />
+          <Field label="Amount" value={formatAssetAmount(data.amount, data.asset?.decimals)} />
           <Field label="Created At" value={new Date(data.createdAt).toLocaleString('en-US')} />
           <Field label="Updated At" value={new Date(data.updatedAt).toLocaleString('en-US')} />
         </div>
@@ -139,9 +141,9 @@ const SwapOutstandingDetail = () => {
             />
             <Field
               label="Amounts"
-              value={`${Number(data.swapTransaction.fromAmount).toLocaleString()} -> ${Number(data.swapTransaction.toAmount).toLocaleString()}`}
+              value={`${formatAssetAmount(data.swapTransaction.fromAmount, data.swapTransaction.fromAsset?.decimals)} -> ${formatAssetAmount(data.swapTransaction.toAmount, data.swapTransaction.toAsset?.decimals)}`}
             />
-            <Field label="Exchange Rate" value={Number(data.swapTransaction.exchangeRate).toLocaleString()} />
+            <Field label="Exchange Rate" value={formatRate8(data.swapTransaction.exchangeRate)} />
           </div>
         ) : (
           <div className="text-sm text-gray-500">No swap linked to this outstanding.</div>

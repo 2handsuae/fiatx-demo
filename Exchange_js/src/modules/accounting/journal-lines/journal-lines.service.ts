@@ -47,6 +47,7 @@ export class JournalLinesService {
           asset: {
             select: {
               code: true,
+              decimals: true,
             },
           },
         },

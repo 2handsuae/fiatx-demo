@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, RefreshCw } from 'lucide-react';
+import { formatAssetAmount } from '../utils/number-format';
 
 type AuditLog = {
   id: string;
@@ -41,6 +42,7 @@ type InternalFundDetailData = {
     code: string;
     type: string;
     network?: string | null;
+    decimals?: number;
   };
   internalTransaction?: {
     id: string;
@@ -254,13 +256,10 @@ const InternalFundDetail = () => {
         />
         <InfoCard
           label="Amount"
-          value={`${Number(data.amount).toLocaleString(undefined, {
-            minimumFractionDigits: 2,
-            maximumFractionDigits: 8,
-          })}`}
+          value={formatAssetAmount(data.amount, data.asset?.decimals)}
         />
-        <InfoCard label="Fee" value={data.feeAmount || '0'} />
-        <InfoCard label="Net" value={data.netAmount || '0'} />
+        <InfoCard label="Fee" value={formatAssetAmount(data.feeAmount, data.asset?.decimals)} />
+        <InfoCard label="Net" value={formatAssetAmount(data.netAmount, data.asset?.decimals)} />
         <InfoCard label="From" value={data.fromAddress || data.fromIban || '-'} />
         <InfoCard label="To" value={data.toAddress || data.toIban || '-'} />
         <InfoCard label="Tx Hash" value={data.txHash || '-'} />

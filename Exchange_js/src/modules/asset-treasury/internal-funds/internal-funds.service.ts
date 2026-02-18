@@ -18,6 +18,10 @@ import {
   InternalTransactionStatus,
   InternalTransactionType,
 } from '../internal-transactions/dto/internal-transaction.dto';
+import {
+  isCryptoLiqWalletNo,
+  isCryptoMasterWalletNo,
+} from '../wallets/system-wallet.util';
 
 const CRYPTO_TRANSITIONS: Record<
   InternalFundStatus,
@@ -248,7 +252,8 @@ export class InternalFundsService {
               netAmount:
                 input.netAmount ??
                 new Prisma.Decimal(internalTx.netAmount || internalTx.amount),
-              fromWalletId: input.fromWalletId ?? internalTx.fromWalletId ?? null,
+              fromWalletId:
+                input.fromWalletId ?? internalTx.fromWalletId ?? null,
               fromAddress: input.fromAddress ?? internalTx.fromAddress ?? null,
               fromIban: input.fromIban ?? internalTx.fromIban ?? null,
               toWalletId: input.toWalletId ?? internalTx.toWalletId ?? null,
@@ -294,7 +299,9 @@ export class InternalFundsService {
     };
 
     if (tx) return execute(tx);
-    return (this.prisma as any).$transaction((client: TxClient) => execute(client));
+    return (this.prisma as any).$transaction((client: TxClient) =>
+      execute(client),
+    );
   }
 
   async updateStatus(
@@ -347,7 +354,8 @@ export class InternalFundsService {
 
       if (
         nextStatus === InternalFundStatus.SIGNING ||
-        (item.asset?.type === 'FIAT' && nextStatus === InternalFundStatus.CONFIRMING)
+        (item.asset?.type === 'FIAT' &&
+          nextStatus === InternalFundStatus.CONFIRMING)
       ) {
         if (!item.sentAt) {
           updateData.sentAt = new Date();
@@ -364,13 +372,15 @@ export class InternalFundsService {
 
       if (txHash) updateData.txHash = txHash;
       if (referenceNo) updateData.referenceNo = referenceNo;
-      if (feeAmount !== undefined) updateData.feeAmount = new Prisma.Decimal(feeAmount);
+      if (feeAmount !== undefined)
+        updateData.feeAmount = new Prisma.Decimal(feeAmount);
       if (providerTxnId) updateData.providerTxnId = providerTxnId;
       if (nonce) updateData.nonce = nonce;
       if (blockNo) updateData.blockNo = blockNo;
       if (gasUsed) updateData.gasUsed = gasUsed;
       if (effectiveGasPrice) updateData.effectiveGasPrice = effectiveGasPrice;
-      if (typeof confirmations === 'number') updateData.confirmations = confirmations;
+      if (typeof confirmations === 'number')
+        updateData.confirmations = confirmations;
 
       updateData.statusHistory = this.appendStatusHistory(
         item.statusHistory,
@@ -394,11 +404,12 @@ export class InternalFundsService {
         },
       });
 
-      const txStatus = await this.internalTransactionsService.syncStatusFromFunds(
-        item.internalTransaction.id,
-        operatorId,
-        client,
-      );
+      const txStatus =
+        await this.internalTransactionsService.syncStatusFromFunds(
+          item.internalTransaction.id,
+          operatorId,
+          client,
+        );
 
       if (
         nextStatus === InternalFundStatus.CONFIRMED &&
@@ -415,7 +426,9 @@ export class InternalFundsService {
     };
 
     if (tx) return execute(tx);
-    return (this.prisma as any).$transaction((client: TxClient) => execute(client));
+    return (this.prisma as any).$transaction((client: TxClient) =>
+      execute(client),
+    );
   }
 
   async findAllForAdmin(query: InternalFundQueryDto) {
@@ -432,7 +445,8 @@ export class InternalFundsService {
     } = query;
 
     const where: any = {};
-    if (internalTransactionId) where.internalTransactionId = internalTransactionId;
+    if (internalTransactionId)
+      where.internalTransactionId = internalTransactionId;
     if (status) where.status = status;
     if (txHash) where.txHash = { contains: txHash };
     if (internalFundNo) where.internalFundNo = { contains: internalFundNo };
@@ -499,10 +513,7 @@ export class InternalFundsService {
   async createMock(operatorId = 'SYSTEM') {
     const systemWallets = await (this.prisma as any).wallet.findMany({
       where: {
-        OR: [
-          { walletNo: { startsWith: 'SYS_MASTER_' } },
-          { walletNo: { startsWith: 'SYS_LIQ_' } },
-        ],
+        walletRole: { in: ['MASTER', 'LIQ'] },
         status: 'ACTIVE',
       },
       include: {
@@ -524,20 +535,21 @@ export class InternalFundsService {
         });
       }
       const pair = pairByAsset.get(wallet.assetId)!;
-      if (String(wallet.walletNo || '').startsWith('SYS_MASTER_')) {
+      if (isCryptoMasterWalletNo(wallet)) {
         pair.fromWallet = wallet;
-      } else if (String(wallet.walletNo || '').startsWith('SYS_LIQ_')) {
+      } else if (isCryptoLiqWalletNo(wallet)) {
         pair.toWallet = wallet;
       }
     }
 
     const candidates = Array.from(pairByAsset.values()).filter(
-      (pair) => pair.asset?.type === 'CRYPTO' && pair.fromWallet && pair.toWallet,
+      (pair) =>
+        pair.asset?.type === 'CRYPTO' && pair.fromWallet && pair.toWallet,
     );
 
     if (!candidates.length) {
       throw new BadRequestException(
-        'No active SYS_MASTER_/SYS_LIQ_ wallet pair found for mock creation',
+        'No active MASTER/LIQ wallet pair found for mock creation',
       );
     }
 
@@ -548,31 +560,32 @@ export class InternalFundsService {
     const amount = new Prisma.Decimal((Math.random() * 10 + 1).toFixed(6));
 
     return (this.prisma as any).$transaction(async (tx: TxClient) => {
-      const internalTx = await this.internalTransactionsService.createStandaloneTransaction(
-        {
-          type: InternalTransactionType.MASTER_TO_LIQ,
-          status: InternalTransactionStatus.INTERNAL_FUNDS_PENDING,
-          sourceType: 'MOCK',
-          sourceId: `MOCK_${Date.now()}_${Math.floor(Math.random() * 10000)}`,
-          sourceNo: generateReferenceNo('MOCK'),
-          ownerType: 'PLATFORM',
-          ownerId: 'PLATFORM',
-          ownerNo: 'PLATFORM',
-          assetId: asset.id,
-          amount,
-          feeAmount: new Prisma.Decimal(0),
-          netAmount: amount,
-          fromWalletId: fromWallet?.id ?? null,
-          fromAddress: fromWallet?.address ?? `0xmockfrom${Date.now()}`,
-          fromIban: null,
-          toWalletId: toWallet?.id ?? null,
-          toAddress: toWallet?.address ?? `0xmockto${Date.now()}`,
-          toIban: null,
-          referenceNo: generateReferenceNo('MOCKREF'),
-        },
-        operatorId,
-        tx,
-      );
+      const internalTx =
+        await this.internalTransactionsService.createStandaloneTransaction(
+          {
+            type: InternalTransactionType.MASTER_TO_LIQ,
+            status: InternalTransactionStatus.INTERNAL_FUNDS_PENDING,
+            sourceType: 'MOCK',
+            sourceId: `MOCK_${Date.now()}_${Math.floor(Math.random() * 10000)}`,
+            sourceNo: generateReferenceNo('MOCK'),
+            ownerType: 'PLATFORM',
+            ownerId: 'PLATFORM',
+            ownerNo: 'PLATFORM',
+            assetId: asset.id,
+            amount,
+            feeAmount: new Prisma.Decimal(0),
+            netAmount: amount,
+            fromWalletId: fromWallet?.id ?? null,
+            fromAddress: fromWallet?.address ?? `0xmockfrom${Date.now()}`,
+            fromIban: null,
+            toWalletId: toWallet?.id ?? null,
+            toAddress: toWallet?.address ?? `0xmockto${Date.now()}`,
+            toIban: null,
+            referenceNo: generateReferenceNo('MOCKREF'),
+          },
+          operatorId,
+          tx,
+        );
 
       return this.createFromInternalTransaction(
         {

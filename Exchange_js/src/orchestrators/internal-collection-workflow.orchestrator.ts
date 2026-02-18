@@ -3,6 +3,7 @@ import { OnEvent } from '@nestjs/event-emitter';
 import { PrismaService } from '../core/prisma/prisma.service';
 import { InternalTransactionsService } from '../modules/asset-treasury/internal-transactions/internal-transactions.service';
 import { InternalFundsService } from '../modules/asset-treasury/internal-funds/internal-funds.service';
+import { buildCryptoSystemWalletNo } from '../modules/asset-treasury/wallets/system-wallet.util';
 import { DepositStatusChangedEvent } from '../modules/trading/deposit-transactions/events/deposit-transaction.events';
 import { DepositTransactionStatus } from '../modules/trading/deposit-transactions/dto/deposit-transaction.dto';
 
@@ -42,6 +43,8 @@ export interface ReconcileMissingCollectionsResult {
 @Injectable()
 export class InternalCollectionWorkflowOrchestrator {
   private readonly logger = new Logger(InternalCollectionWorkflowOrchestrator.name);
+  private static readonly RETRYABLE_ATTEMPTS = 3;
+  private static readonly RETRYABLE_DELAY_MS = 250;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -55,22 +58,67 @@ export class InternalCollectionWorkflowOrchestrator {
       return null;
     }
 
-    const result = await this.reconcileMissingCollections({
-      depositId: event.depositId,
-      onlyMissing: false,
-      dryRun: false,
-      operatorId: 'SYSTEM',
-    });
+    for (
+      let attempt = 1;
+      attempt <= InternalCollectionWorkflowOrchestrator.RETRYABLE_ATTEMPTS;
+      attempt += 1
+    ) {
+      const result = await this.reconcileMissingCollections({
+        depositId: event.depositId,
+        onlyMissing: false,
+        dryRun: false,
+        operatorId: 'SYSTEM',
+      });
 
-    const created = result.items.find((item) => item.action === 'CREATED');
-    if (!created?.internalTransactionId || !created.internalFundId) {
-      return null;
+      const created = result.items.find((item) => item.action === 'CREATED');
+      if (created?.internalTransactionId && created.internalFundId) {
+        return {
+          internalTransactionId: created.internalTransactionId,
+          internalFundId: created.internalFundId,
+        };
+      }
+
+      const idempotent = result.items.find(
+        (item) =>
+          item.action === 'IDEMPOTENT' &&
+          item.internalTransactionId &&
+          item.internalFundId,
+      );
+      if (idempotent?.internalTransactionId && idempotent.internalFundId) {
+        return {
+          internalTransactionId: idempotent.internalTransactionId,
+          internalFundId: idempotent.internalFundId,
+        };
+      }
+
+      const failed = result.items.find((item) => item.action === 'FAILED');
+      const retryable = this.isRetryableInsufficientBalanceError(failed?.reason);
+      if (!retryable || attempt >= InternalCollectionWorkflowOrchestrator.RETRYABLE_ATTEMPTS) {
+        return null;
+      }
+
+      this.logger.warn(
+        `Internal collection retry scheduled for deposit ${event.depositId} after insufficient balance window (attempt ${attempt})`,
+      );
+      await this.sleep(
+        InternalCollectionWorkflowOrchestrator.RETRYABLE_DELAY_MS * attempt,
+      );
     }
 
-    return {
-      internalTransactionId: created.internalTransactionId,
-      internalFundId: created.internalFundId,
-    };
+    return null;
+  }
+
+  private isRetryableInsufficientBalanceError(reason?: string): boolean {
+    if (!reason) return false;
+    const text = reason.toLowerCase();
+    return (
+      text.includes('insufficient available balance') ||
+      text.includes('insufficient_wallet_balance')
+    );
+  }
+
+  private async sleep(ms: number): Promise<void> {
+    await new Promise((resolve) => setTimeout(resolve, ms));
   }
 
   async reconcileMissingCollections(
@@ -168,7 +216,7 @@ export class InternalCollectionWorkflowOrchestrator {
           continue;
         }
 
-        const masterWalletNo = this.buildSystemWalletNo(
+        const masterWalletNo = buildCryptoSystemWalletNo(
           'MASTER',
           deposit.asset.code,
           deposit.asset.network,
@@ -305,19 +353,5 @@ export class InternalCollectionWorkflowOrchestrator {
     }
 
     return result;
-  }
-
-  private buildSystemWalletNo(
-    role: 'MASTER' | 'PAYOUT' | 'LIQ',
-    assetCode: string,
-    network: string | null | undefined,
-  ) {
-    const code = this.normalizeSegment(assetCode);
-    const net = this.normalizeSegment(network || 'NA');
-    return `SYS_${role}_${code}_${net}`;
-  }
-
-  private normalizeSegment(value: string) {
-    return value.toUpperCase().replace(/[^A-Z0-9]+/g, '_');
   }
 }

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Hash, FileText, DollarSign, Layers, Activity, Calendar, ExternalLink, RefreshCw, AlertCircle } from 'lucide-react';
+import { formatAssetAmount } from '../utils/number-format';
 
 interface JournalLineDetail {
   id: string;
@@ -33,6 +34,7 @@ interface JournalLineDetail {
   };
   asset: {
     code: string;
+    decimals?: number;
   };
 }
 
@@ -180,7 +182,11 @@ const JournalLineDetail = () => {
         <DetailCard title="Amount & FX" icon={<DollarSign size={18}/>}>
             <InfoField label="Asset Code" value={data.asset?.code} highlight />
             <InfoField label="Asset ID" value={data.assetId} />
-            <InfoField label="Tx Amount" value={formatAmount(data.amount)} highlight />
+            <InfoField
+              label="Tx Amount"
+              value={formatAssetAmount(data.amount, data.asset?.decimals)}
+              highlight
+            />
             <InfoField label="FX Rate" value={data.fxRate} />
             <InfoField label="Base Amount" value={formatAmount(data.baseAmount)} highlight />
         </DetailCard>

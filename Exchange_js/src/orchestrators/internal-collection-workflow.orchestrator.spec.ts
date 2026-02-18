@@ -63,7 +63,8 @@ describe('InternalCollectionWorkflowOrchestrator', () => {
     internalTransactionsService = module.get<InternalTransactionsService>(
       InternalTransactionsService,
     );
-    internalFundsService = module.get<InternalFundsService>(InternalFundsService);
+    internalFundsService =
+      module.get<InternalFundsService>(InternalFundsService);
 
     jest.clearAllMocks();
   });
@@ -77,6 +78,59 @@ describe('InternalCollectionWorkflowOrchestrator', () => {
 
     expect(result).toBeNull();
     expect(prisma.depositTransaction.findMany).not.toHaveBeenCalled();
+  });
+
+  it('should retry on insufficient balance window and then create collection', async () => {
+    const reconcileSpy = jest
+      .spyOn(orchestrator as any, 'reconcileMissingCollections')
+      .mockResolvedValueOnce({
+        scanned: 1,
+        created: 0,
+        idempotent: 0,
+        skipped: 0,
+        failed: 1,
+        items: [
+          {
+            depositId: 'dep-retry',
+            depositNo: 'DEP-RETRY',
+            action: 'FAILED',
+            reason:
+              'Insufficient available balance for wallet wallet-1 asset asset-1',
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        scanned: 1,
+        created: 1,
+        idempotent: 0,
+        skipped: 0,
+        failed: 0,
+        items: [
+          {
+            depositId: 'dep-retry',
+            depositNo: 'DEP-RETRY',
+            action: 'CREATED',
+            internalTransactionId: 'itx-retry',
+            internalFundId: 'ifd-retry',
+          },
+        ],
+      });
+    const sleepSpy = jest
+      .spyOn(orchestrator as any, 'sleep')
+      .mockResolvedValue(undefined);
+
+    const result = await orchestrator.onDepositStatusChanged({
+      depositId: 'dep-retry',
+      oldStatus: DepositTransactionStatus.COMPLIANCE_PENDING,
+      newStatus: DepositTransactionStatus.SUCCESS,
+    } as any);
+
+    expect(result).toEqual({
+      internalTransactionId: 'itx-retry',
+      internalFundId: 'ifd-retry',
+    });
+    expect(reconcileSpy).toHaveBeenCalledTimes(2);
+    expect(sleepSpy).toHaveBeenCalledTimes(1);
   });
 
   it('should skip non-CRYPTO deposit in reconcile', async () => {
@@ -119,7 +173,9 @@ describe('InternalCollectionWorkflowOrchestrator', () => {
       }),
     );
     expect(prisma.internalTransaction.findUnique).not.toHaveBeenCalled();
-    expect(internalTransactionsService.createFromDepositSuccess).not.toHaveBeenCalled();
+    expect(
+      internalTransactionsService.createFromDepositSuccess,
+    ).not.toHaveBeenCalled();
   });
 
   it('should create internal transaction and internal fund for crypto success deposit', async () => {
@@ -150,7 +206,7 @@ describe('InternalCollectionWorkflowOrchestrator', () => {
     prisma.internalFund.findFirst.mockResolvedValue(null);
     prisma.wallet.findFirst.mockResolvedValue({
       id: 'wallet-master',
-      walletNo: 'SYS_MASTER_BTC_BTC',
+      walletNo: 'WA-MST-BTC-BTC',
       address: '0xmaster',
       iban: null,
     });
@@ -171,21 +227,25 @@ describe('InternalCollectionWorkflowOrchestrator', () => {
     expect(prisma.wallet.findFirst).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
-          walletNo: 'SYS_MASTER_BTC_BTC',
+          walletNo: 'WA-MST-BTC-BTC',
           ownerType: 'CUSTOMER',
           ownerId: null,
           assetId: 'asset-btc',
         }),
       }),
     );
-    expect(internalTransactionsService.createFromDepositSuccess).toHaveBeenCalledWith(
+    expect(
+      internalTransactionsService.createFromDepositSuccess,
+    ).toHaveBeenCalledWith(
       expect.objectContaining({
         deposit: expect.objectContaining({ id: 'dep-crypto' }),
       }),
       'SYSTEM',
       mockTxClient,
     );
-    expect(internalFundsService.createFromInternalTransaction).toHaveBeenCalledWith(
+    expect(
+      internalFundsService.createFromInternalTransaction,
+    ).toHaveBeenCalledWith(
       {
         internalTransactionId: 'itx-1',
       },
@@ -242,8 +302,12 @@ describe('InternalCollectionWorkflowOrchestrator', () => {
         internalTransactionId: 'itx-existing',
       }),
     );
-    expect(internalTransactionsService.createFromDepositSuccess).not.toHaveBeenCalled();
-    expect(internalFundsService.createFromInternalTransaction).not.toHaveBeenCalled();
+    expect(
+      internalTransactionsService.createFromDepositSuccess,
+    ).not.toHaveBeenCalled();
+    expect(
+      internalFundsService.createFromInternalTransaction,
+    ).not.toHaveBeenCalled();
   });
 
   it('should support dry-run for missing collections', async () => {
@@ -273,7 +337,7 @@ describe('InternalCollectionWorkflowOrchestrator', () => {
     prisma.internalTransaction.findUnique.mockResolvedValue(null);
     prisma.wallet.findFirst.mockResolvedValue({
       id: 'wallet-master',
-      walletNo: 'SYS_MASTER_BTC_BTC',
+      walletNo: 'WA-MST-BTC-BTC',
       address: '0xmaster',
       iban: null,
     });
@@ -291,7 +355,11 @@ describe('InternalCollectionWorkflowOrchestrator', () => {
         action: 'WOULD_CREATE',
       }),
     );
-    expect(internalTransactionsService.createFromDepositSuccess).not.toHaveBeenCalled();
-    expect(internalFundsService.createFromInternalTransaction).not.toHaveBeenCalled();
+    expect(
+      internalTransactionsService.createFromDepositSuccess,
+    ).not.toHaveBeenCalled();
+    expect(
+      internalFundsService.createFromInternalTransaction,
+    ).not.toHaveBeenCalled();
   });
 });

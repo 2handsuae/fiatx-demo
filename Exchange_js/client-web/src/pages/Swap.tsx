@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { 
+import {
   ArrowRightLeft, 
   History, 
   Info, 
@@ -15,21 +15,23 @@ import {
   Filter
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { formatAssetAmount, formatRate8, normalizeDecimals } from '../utils/number-format';
 
 interface Asset {
   id: string;
   code: string;
   type: string;
   network: string | null;
+  decimals?: number | null;
 }
 
 interface SwapTransaction {
   id: string;
   swapNo: string;
   status: string;
-  fromAsset: { code: string };
+  fromAsset: { code: string; decimals?: number | null };
   fromAmount: string;
-  toAsset: { code: string };
+  toAsset: { code: string; decimals?: number | null };
   toAmount: string;
   exchangeRate: string;
   createdAt: string;
@@ -253,6 +255,12 @@ const Swap = () => {
   }, [fromAssetId, toAssetId, assets]);
 
   const currentBalance = balances.find(b => b.assetId === fromAssetId)?.clientCredit || '0';
+  const fromAsset = assets.find((a) => a.id === fromAssetId);
+  const toAsset = assets.find((a) => a.id === toAssetId);
+  const fromAssetDecimals = normalizeDecimals(fromAsset?.decimals, 8);
+  const toAssetDecimals = normalizeDecimals(toAsset?.decimals, 8);
+  const getAssetDecimalsByCode = (code?: string | null) =>
+    normalizeDecimals(assets.find((a) => a.code === code)?.decimals, 8);
 
   const getErrorMessage = (message: unknown, fallback: string) => {
     if (Array.isArray(message)) {
@@ -482,7 +490,7 @@ const Swap = () => {
                         <span className="text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">You Sell</span>
                         {fromAssetId && (
                           <div className="flex items-center gap-1 text-[10px] font-bold text-gray-400 dark:text-gray-500">
-                            Available: <span className="text-brand-primary">{parseFloat(currentBalance).toLocaleString(undefined, { maximumFractionDigits: 8 })}</span>
+                            Available: <span className="text-brand-primary">{formatAssetAmount(currentBalance, fromAssetDecimals)}</span>
                             <button 
                               onClick={handleSetMax}
                               className="ml-1 px-1.5 py-0.5 bg-brand-primary/10 text-brand-primary rounded hover:bg-brand-primary/20 transition-colors"
@@ -545,7 +553,9 @@ const Swap = () => {
                     </div>
                     <div className="flex items-center gap-4">
                       <div className="flex-1 text-4xl font-bold text-gray-900 dark:text-white overflow-hidden truncate">
-                        {liveRate && fromAmount ? (Number(fromAmount) * liveRate).toLocaleString(undefined, { maximumFractionDigits: 8 }) : '0.00'}
+                        {liveRate && fromAmount
+                          ? formatAssetAmount(Number(fromAmount) * liveRate, toAssetDecimals)
+                          : formatAssetAmount(0, toAssetDecimals)}
                       </div>
                       <div className="text-xl font-bold text-gray-400 dark:text-gray-500">
                         {assets.find(a => a.id === toAssetId)?.code || ''}
@@ -568,12 +578,12 @@ const Swap = () => {
                         <div className="flex items-center justify-between">
                           <span className="text-gray-400 dark:text-gray-500">Executable:</span>
                           <span className="text-gray-900 dark:text-gray-200 font-mono">
-                            1 {assets.find(a => a.id === fromAssetId)?.code} = {liveRate.toFixed(8)} {assets.find(a => a.id === toAssetId)?.code}
+                            1 {assets.find(a => a.id === fromAssetId)?.code} = {formatRate8(liveRate)} {assets.find(a => a.id === toAssetId)?.code}
                           </span>
                         </div>
                         <div className="flex items-center justify-between text-gray-400 dark:text-gray-500">
                           <span>Market:</span>
-                          <span className="font-mono">{rateMeta?.marketRate?.toFixed(8) ?? '-'} | Spread: {rateMeta?.spreadPercent ?? 0}%</span>
+                          <span className="font-mono">{formatRate8(rateMeta?.marketRate)} | Spread: {rateMeta?.spreadPercent ?? 0}%</span>
                         </div>
                         <span className="text-[10px] text-gray-400 dark:text-gray-500">
                           Source: {rateMeta?.rateSource || 'BINANCE'}
@@ -709,10 +719,10 @@ const Swap = () => {
                           </td>
                           <td className="px-6 py-4">
                             <div className="font-bold text-gray-900 dark:text-white">
-                              {Number(tx.toAmount).toLocaleString('en-US')} {tx.toAsset.code}
+                              {formatAssetAmount(tx.toAmount, tx.toAsset.decimals)} {tx.toAsset.code}
                             </div>
                             <div className="text-[10px] text-slate-400 dark:text-slate-500">
-                              From: {Number(tx.fromAmount).toLocaleString('en-US')} {tx.fromAsset.code}
+                              From: {formatAssetAmount(tx.fromAmount, tx.fromAsset.decimals)} {tx.fromAsset.code}
                             </div>
                           </td>
                           <td className="px-6 py-4">
@@ -745,25 +755,29 @@ const Swap = () => {
                 <div className="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-200 dark:border-slate-700">
                   <div className="space-y-1">
                     <p className="text-xs text-slate-500 dark:text-slate-400 uppercase font-bold tracking-wider">Sell</p>
-                    <p className="text-lg font-bold text-gray-900 dark:text-white">{firmQuote.amountIn} {firmQuote.currencyIn}</p>
+                    <p className="text-lg font-bold text-gray-900 dark:text-white">
+                      {formatAssetAmount(firmQuote.amountIn, getAssetDecimalsByCode(firmQuote.currencyIn))} {firmQuote.currencyIn}
+                    </p>
                   </div>
                   <div className="w-10 h-10 bg-white dark:bg-slate-700 rounded-full flex items-center justify-center shadow-sm border border-slate-200 dark:border-slate-600">
                     <ArrowRight size={20} className="text-brand-primary" />
                   </div>
                   <div className="space-y-1 text-right">
                     <p className="text-xs text-slate-500 dark:text-slate-400 uppercase font-bold tracking-wider">Buy</p>
-                    <p className="text-lg font-bold text-brand-primary">{firmQuote.amountOut.toFixed(6)} {firmQuote.currencyOut}</p>
+                    <p className="text-lg font-bold text-brand-primary">
+                      {formatAssetAmount(firmQuote.amountOut, getAssetDecimalsByCode(firmQuote.currencyOut))} {firmQuote.currencyOut}
+                    </p>
                   </div>
                 </div>
 
                 <div className="space-y-3 px-2">
                   <div className="flex justify-between text-sm">
                     <span className="text-slate-500 dark:text-slate-400 font-medium">Exchange Rate</span>
-                    <span className="font-mono text-gray-900 dark:text-gray-200">1 {firmQuote.currencyIn} = {firmQuote.rateAllIn.toFixed(6)} {firmQuote.currencyOut}</span>
+                    <span className="font-mono text-gray-900 dark:text-gray-200">1 {firmQuote.currencyIn} = {formatRate8(firmQuote.rateAllIn)} {firmQuote.currencyOut}</span>
                   </div>
                   <div className="flex justify-between text-sm">
                     <span className="text-slate-500 dark:text-slate-400 font-medium">Market / Spread</span>
-                    <span className="font-mono text-gray-900 dark:text-gray-200">{firmQuote.marketRate.toFixed(6)} / {firmQuote.spreadPercent}%</span>
+                    <span className="font-mono text-gray-900 dark:text-gray-200">{formatRate8(firmQuote.marketRate)} / {firmQuote.spreadPercent}%</span>
                   </div>
                   <div className="flex justify-between text-sm">
                     <span className="text-slate-500 dark:text-slate-400 font-medium">Quote ID</span>

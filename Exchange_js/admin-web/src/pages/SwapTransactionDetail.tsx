@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, RefreshCw, Copy, Check, ExternalLink, FileText, User, Activity, Clock, Coins, ArrowRight } from 'lucide-react';
+import { formatAssetAmount, formatRate8 } from '../utils/number-format';
 
 interface SwapTransactionDetail {
   id: string;
@@ -229,21 +230,21 @@ const SwapTransactionDetail = () => {
             <DetailCard title="Sell Asset (From)" icon={<ArrowRight size={18} className="rotate-45 text-red-500" />} columns={1}>
                 <InfoField label="Asset Code" value={data.fromAssetCode || data.fromAsset.code} highlight source="main" />
                 <InfoField label="Asset Type" value={data.fromAsset.type} source="main" />
-                <InfoField label="Amount" value={`${Number(data.fromAmount).toLocaleString()} ${data.fromAsset.code}`} highlight source="main" />
+                <InfoField label="Amount" value={`${formatAssetAmount(data.fromAmount, data.fromAsset.decimals)} ${data.fromAsset.code}`} highlight source="main" />
                 <InfoField label="Asset ID" value={data.fromAssetId} source="main" />
             </DetailCard>
 
             <DetailCard title="Buy Asset (To)" icon={<ArrowRight size={18} className="-rotate-45 text-green-500" />} columns={1}>
                 <InfoField label="Asset Code" value={data.toAssetCode || data.toAsset.code} highlight source="main" />
                 <InfoField label="Asset Type" value={data.toAsset.type} source="main" />
-                <InfoField label="Amount" value={`${Number(data.toAmount).toLocaleString()} ${data.toAsset.code}`} highlight source="main" />
+                <InfoField label="Amount" value={`${formatAssetAmount(data.toAmount, data.toAsset.decimals)} ${data.toAsset.code}`} highlight source="main" />
                 <InfoField label="Asset ID" value={data.toAssetId} source="main" />
             </DetailCard>
         </div>
 
         {/* 3. Pricing */}
         <DetailCard title="Price & Rate" icon={<Coins size={18} />}>
-            <InfoField label="Exchange Rate" value={Number(data.exchangeRate).toFixed(8)} highlight source="main" />
+            <InfoField label="Exchange Rate" value={formatRate8(data.exchangeRate)} highlight source="main" />
             <InfoField label="Pair" value={`${data.fromAsset.code} -> ${data.toAsset.code}`} source="main" />
         </DetailCard>
 

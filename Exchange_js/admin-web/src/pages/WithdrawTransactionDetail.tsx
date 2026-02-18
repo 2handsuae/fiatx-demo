@@ -5,6 +5,7 @@ import {
   FileText, User, CreditCard, Activity, Clock, Server, Shield, Scale, MapPin
 } from 'lucide-react';
 import { copyToClipboard } from '../utils/clipboard';
+import { formatAssetAmount } from '../utils/number-format';
 
 interface WithdrawTransactionDetail {
   id: string;
@@ -302,9 +303,9 @@ const WithdrawTransactionDetail = () => {
             <InfoField label="Asset ID" value={data.assetId} source="main" />
             <InfoField label="Asset Code" value={data.asset.code} highlight source="main" />
             <InfoField label="Asset Network" value={data.asset.network} source="main" />
-            <InfoField label="Amount" value={`${Number(data.amount).toLocaleString()}`} highlight source="main" />
-            <InfoField label="Fee Amount" value={`${Number(data.feeAmount).toLocaleString()}`} source="main" />
-            <InfoField label="Net Amount" value={`${Number(data.netAmount).toLocaleString()}`} highlight source="main" />
+            <InfoField label="Amount" value={formatAssetAmount(data.amount, data.asset.decimals)} highlight source="main" />
+            <InfoField label="Fee Amount" value={formatAssetAmount(data.feeAmount, data.asset.decimals)} source="main" />
+            <InfoField label="Net Amount" value={formatAssetAmount(data.netAmount, data.asset.decimals)} highlight source="main" />
         </DetailCard>
 
         {/* 3. Destination Info */}

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Hash, FileText, DollarSign, Activity, Calendar, ExternalLink, RefreshCw, AlertCircle, Briefcase, Link as LinkIcon, ArrowRightLeft } from 'lucide-react';
+import { formatAssetAmount } from '../utils/number-format';
 
 interface ClearingDetail {
   id: string;
@@ -14,13 +15,16 @@ interface ClearingDetail {
   
   outAssetId: string;
   outAssetNo?: string | null;
+  outAssetDecimals?: number | null;
   outAmount: string;
   inAssetId: string;
   inAssetNo?: string | null;
+  inAssetDecimals?: number | null;
   inAmount: string;
   
   feeAssetId: string | null;
   feeAssetNo?: string | null;
+  feeAssetDecimals?: number | null;
   feeAmount: string | null;
   feeMethod: string;
   
@@ -80,11 +84,6 @@ const ClearingDetail = () => {
         second: '2-digit',
         hour12: false
     });
-  };
-
-  const formatAmount = (val: string | null) => {
-    if (!val) return '0.00';
-    return Number(val).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 8 });
   };
 
   const renderStatusBadge = (status: string) => {
@@ -185,7 +184,11 @@ const ClearingDetail = () => {
                 </h4>
                 <div className="grid grid-cols-2 gap-4">
                     <InfoField label="Out Asset No" value={data.outAssetNo} highlight />
-                    <InfoField label="Out Amount" value={formatAmount(data.outAmount)} highlight />
+                    <InfoField
+                      label="Out Amount"
+                      value={formatAssetAmount(data.outAmount, data.outAssetDecimals)}
+                      highlight
+                    />
                     <InfoField label="Out Asset ID" value={data.outAssetId} />
                 </div>
             </div>
@@ -196,7 +199,11 @@ const ClearingDetail = () => {
                 </h4>
                 <div className="grid grid-cols-2 gap-4">
                     <InfoField label="In Asset No" value={data.inAssetNo} highlight />
-                    <InfoField label="In Amount" value={formatAmount(data.inAmount)} highlight />
+                    <InfoField
+                      label="In Amount"
+                      value={formatAssetAmount(data.inAmount, data.inAssetDecimals)}
+                      highlight
+                    />
                     <InfoField label="In Asset ID" value={data.inAssetId} />
                 </div>
             </div>
@@ -205,7 +212,10 @@ const ClearingDetail = () => {
         {/* 4. Fee Processing (手续费处理) */}
         <DetailCard title="Fee Processing" icon={<DollarSign size={18}/>}>
             <InfoField label="Fee Asset No" value={data.feeAssetNo} highlight />
-            <InfoField label="Fee Amount" value={formatAmount(data.feeAmount)} />
+            <InfoField
+              label="Fee Amount"
+              value={formatAssetAmount(data.feeAmount, data.feeAssetDecimals)}
+            />
             <InfoField label="Fee Method" value={data.feeMethod} />
             <InfoField label="Fee Asset ID" value={data.feeAssetId} />
         </DetailCard>

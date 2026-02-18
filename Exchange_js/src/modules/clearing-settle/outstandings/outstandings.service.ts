@@ -47,6 +47,22 @@ export class OutstandingsService {
     return owner?.customerNo || null;
   }
 
+  private async resolveAssetCode(
+    tx: Prisma.TransactionClient,
+    assetId: string,
+    assetCode?: string | null,
+  ): Promise<string | null> {
+    if (assetCode && assetCode.trim()) {
+      return assetCode;
+    }
+
+    const asset = await (tx as any).asset.findUnique({
+      where: { id: assetId },
+      select: { code: true },
+    });
+    return asset?.code || null;
+  }
+
   private isOutstandingNoUniqueConflict(error: unknown): boolean {
     const maybeError = error as {
       code?: string;
@@ -102,17 +118,28 @@ export class OutstandingsService {
 
     const ownerNo = await this.resolveOwnerNo(tx, swap);
 
+    const fromAssetCode = await this.resolveAssetCode(
+      tx,
+      swap.fromAssetId,
+      swap.fromAssetCode,
+    );
+    const toAssetCode = await this.resolveAssetCode(
+      tx,
+      swap.toAssetId,
+      swap.toAssetCode,
+    );
+
     const rows = [
       {
         direction: OutstandingDirection.OUT,
         assetId: swap.fromAssetId,
-        assetCode: swap.fromAssetCode,
+        assetCode: fromAssetCode,
         amount: new Prisma.Decimal(swap.fromAmount),
       },
       {
         direction: OutstandingDirection.IN,
         assetId: swap.toAssetId,
-        assetCode: swap.toAssetCode,
+        assetCode: toAssetCode,
         amount: new Prisma.Decimal(swap.toAmount),
       },
     ];

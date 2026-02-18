@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Eye, RefreshCw, Search } from 'lucide-react';
+import { formatAssetAmount } from '../utils/number-format';
 
 interface SwapOutstandingListItem {
   id: string;
@@ -11,6 +12,7 @@ interface SwapOutstandingListItem {
   ownerNo: string | null;
   direction: 'IN' | 'OUT';
   assetCode: string | null;
+  asset?: { code?: string | null; decimals?: number | null } | null;
   amount: string;
   status: string;
   createdAt: string;
@@ -213,8 +215,10 @@ const SwapOutstandingList = () => {
                     <td className="px-6 py-4 font-mono text-xs text-gray-700">{item.ownerNo || 'N/A'}</td>
                     <td className="px-6 py-4 font-mono text-xs text-gray-700">{item.sourceNo || 'N/A'}</td>
                     <td className="px-6 py-4">
-                      <div className="font-mono text-gray-800">{item.assetCode || 'N/A'}</div>
-                      <div className="text-xs text-gray-500">{Number(item.amount).toLocaleString()}</div>
+                      <div className="font-mono text-gray-800">{item.assetCode || item.asset?.code || 'N/A'}</div>
+                      <div className="text-xs text-gray-500">
+                        {formatAssetAmount(item.amount, item.asset?.decimals)}
+                      </div>
                     </td>
                     <td className="px-6 py-4 text-xs text-gray-500">
                       {new Date(item.createdAt).toLocaleString('en-US')}

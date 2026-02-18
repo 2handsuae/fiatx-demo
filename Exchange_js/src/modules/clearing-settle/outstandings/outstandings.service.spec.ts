@@ -163,6 +163,61 @@ describe('OutstandingsService', () => {
     ).rejects.toThrow(BadRequestException);
   });
 
+  it('fills assetCode from asset master when swap assetCode is empty', async () => {
+    const tx: any = {
+      asset: {
+        findUnique: jest
+          .fn()
+          .mockResolvedValueOnce({ code: 'BTC' })
+          .mockResolvedValueOnce({ code: 'USDT' }),
+      },
+      outstanding: {
+        findUnique: jest.fn().mockResolvedValue(null),
+        create: jest.fn().mockResolvedValue({}),
+        update: jest.fn().mockResolvedValue({}),
+        findMany: jest.fn().mockResolvedValue([
+          { id: 'os-out', direction: 'OUT' },
+          { id: 'os-in', direction: 'IN' },
+        ]),
+      },
+    };
+
+    await service.createForSwapSuccess(tx, {
+      id: 'swap-1',
+      swapNo: 'SWP-1',
+      ownerType: 'CUSTOMER',
+      ownerId: 'customer-1',
+      ownerNo: 'CU_0001',
+      status: 'SUCCESS',
+      fromAssetId: 'asset-from',
+      fromAssetCode: null,
+      fromAmount: new Prisma.Decimal(1.5),
+      toAssetId: 'asset-to',
+      toAssetCode: '',
+      toAmount: new Prisma.Decimal(20),
+    });
+
+    expect(tx.asset.findUnique).toHaveBeenCalledTimes(2);
+    expect(tx.outstanding.create).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        data: expect.objectContaining({
+          direction: 'OUT',
+          assetCode: 'BTC',
+        }),
+      }),
+    );
+    expect(tx.outstanding.create).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        data: expect.objectContaining({
+          direction: 'IN',
+          assetCode: 'USDT',
+        }),
+      }),
+    );
+  });
+
   it('lists outstandings for admin with total', async () => {
     mockPrismaService.outstanding.findMany.mockResolvedValue([
       { id: 'os-1', sourceType: 'SWAP' },

@@ -6,7 +6,6 @@ export class TreasuryService {
   constructor(private prisma: PrismaService) {}
 
   async getCustomerAssets(customerId: string) {
-    // Fetch all unique assets for which the customer has wallets
     const wallets = await (this.prisma as any).wallet.findMany({
       where: {
         ownerType: 'CUSTOMER',
@@ -17,97 +16,84 @@ export class TreasuryService {
       },
     });
 
-    // Group wallets by assetId to avoid duplicates in the final output
-    const uniqueAssetIds = [...new Set(wallets.map((w: any) => w.assetId as string))];
-    
-    // Calculate real-time balance from Journal Lines for each unique asset
-    const assetsWithBalance = await Promise.all(
-      uniqueAssetIds.map(async (assetId) => {
-        const wallet = wallets.find((w: any) => w.assetId === assetId);
-        
-        const aggregate = await (this.prisma as any).journalLine.aggregate({
-          _sum: {
-            amount: true,
-          },
-          where: {
-            accountCode: 'L.CLIENT_CREDIT', // The liability account representing user balance
-            ownerType: 'CUSTOMER',
-            ownerId: customerId,
-            assetId: assetId,
-            drCr: 'CR', // Credit increases liability (user balance)
-          },
-        });
+    const walletByAssetId = new Map<string, any>();
+    for (const wallet of wallets) {
+      if (!walletByAssetId.has(wallet.assetId)) {
+        walletByAssetId.set(wallet.assetId, wallet);
+      }
+    }
 
-        const debitAggregate = await (this.prisma as any).journalLine.aggregate(
-          {
-            _sum: {
-              amount: true,
-            },
-            where: {
-              accountCode: 'L.CLIENT_CREDIT',
-              ownerType: 'CUSTOMER',
-              ownerId: customerId,
-              assetId: assetId,
-              drCr: 'DR', // Debit decreases liability
-            },
-          },
-        );
+    // Derive customer assets from ledger first, then merge wallet assets.
+    // This prevents missing liabilities (e.g. AED after swap) when no wallet exists for that asset.
+    const ledgerAggregates = await (this.prisma as any).journalLine.groupBy({
+      by: ['assetId', 'accountCode', 'drCr'],
+      _sum: { amount: true },
+      where: {
+        ownerType: 'CUSTOMER',
+        ownerId: customerId,
+        accountCode: { in: ['L.CLIENT_CREDIT', 'L.CLIENT_HELD'] },
+      },
+    });
 
-        const totalCr = aggregate._sum.amount
-          ? Number(aggregate._sum.amount)
-          : 0;
-        const totalDr = debitAggregate._sum.amount
-          ? Number(debitAggregate._sum.amount)
-          : 0;
-        const realBalance = totalCr - totalDr;
+    const assetIds = new Set<string>(wallets.map((wallet: any) => wallet.assetId));
+    for (const row of ledgerAggregates) {
+      if (row.assetId) {
+        assetIds.add(row.assetId);
+      }
+    }
 
-        // Calculate locked balance from Journal Lines (account: L.CLIENT_HELD)
-        const lockedCrAggregate = await (
-          this.prisma as any
-        ).journalLine.aggregate({
-          _sum: { amount: true },
-          where: {
-            accountCode: 'L.CLIENT_HELD',
-            ownerType: 'CUSTOMER',
-            ownerId: customerId,
-            assetId: assetId,
-            drCr: 'CR', // Credit increases liability (locked balance)
-          },
-        });
+    if (!assetIds.size) {
+      return [];
+    }
 
-        const lockedDrAggregate = await (
-          this.prisma as any
-        ).journalLine.aggregate({
-          _sum: { amount: true },
-          where: {
-            accountCode: 'L.CLIENT_HELD',
-            ownerType: 'CUSTOMER',
-            ownerId: customerId,
-            assetId: assetId,
-            drCr: 'DR', // Debit decreases locked balance
-          },
-        });
-
-        const lockedTotalCr = lockedCrAggregate._sum.amount
-          ? Number(lockedCrAggregate._sum.amount)
-          : 0;
-        const lockedTotalDr = lockedDrAggregate._sum.amount
-          ? Number(lockedDrAggregate._sum.amount)
-          : 0;
-        const realLockedBalance = lockedTotalCr - lockedTotalDr;
-
-        return {
-          assetId: assetId,
-          assetCode: wallet.asset.code,
-          assetType: wallet.asset.type,
-          clientCredit: realBalance, // Use real-time ledger balance
-          lockedBalance: realLockedBalance, // Now using ledger balance too!
-          walletId: wallet.id, // Reference one of the wallets for this asset
-          walletBalance: wallet.balance,
-        };
-      }),
+    const assets = await (this.prisma as any).asset.findMany({
+      where: { id: { in: Array.from(assetIds) } },
+      select: { id: true, code: true, type: true, decimals: true },
+    });
+    const assetById = new Map<
+      string,
+      { id: string; code: string; type: string; decimals: number }
+    >(
+      assets.map(
+        (asset: { id: string; code: string; type: string; decimals: number }) => [
+          asset.id,
+          asset,
+        ],
+      ),
     );
 
-    return assetsWithBalance;
+    const sumMap = new Map<string, number>();
+    for (const row of ledgerAggregates) {
+      const key = `${row.assetId}::${row.accountCode}::${row.drCr}`;
+      const amount = row?._sum?.amount ? Number(row._sum.amount) : 0;
+      sumMap.set(key, amount);
+    }
+
+    const result = Array.from(assetIds)
+      .map((assetId) => {
+        const asset = assetById.get(assetId);
+        if (!asset) return null;
+
+        const wallet = walletByAssetId.get(assetId) || null;
+        const creditCr = sumMap.get(`${assetId}::L.CLIENT_CREDIT::CR`) || 0;
+        const creditDr = sumMap.get(`${assetId}::L.CLIENT_CREDIT::DR`) || 0;
+        const heldCr = sumMap.get(`${assetId}::L.CLIENT_HELD::CR`) || 0;
+        const heldDr = sumMap.get(`${assetId}::L.CLIENT_HELD::DR`) || 0;
+
+        return {
+          assetId,
+          assetCode: asset.code,
+          assetType: asset.type,
+          assetDecimals: asset.decimals,
+          clientCredit: creditCr - creditDr,
+          lockedBalance: heldCr - heldDr,
+          walletId: wallet?.id || null,
+          walletBalance: wallet?.balance ?? null,
+        };
+      })
+      .filter((item): item is NonNullable<typeof item> => Boolean(item))
+      .sort((a, b) => a.assetCode.localeCompare(b.assetCode));
+
+    return result;
   }
 }

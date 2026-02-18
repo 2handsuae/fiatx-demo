@@ -419,6 +419,9 @@ model Asset {
   withdrawTransactions   WithdrawTransaction[]
   internalTransactions   InternalTransaction[]
   internalFunds          InternalFund[]
+  walletBalanceSnapshots WalletBalanceSnapshot[]
+  walletBalanceEntries   WalletBalanceEntry[]
+  valuationRates         AssetValuationRate[]
 
   @@unique([type, code, network])
   @@map("assets")
@@ -516,6 +519,7 @@ model Wallet {
   ownerNo             String?
   type                String
   direction           String
+  walletRole          String               @default("GENERAL")
   assetId             String
   balance             Decimal              @default(0)
   lockedBalance       Decimal              @default(0)
@@ -539,6 +543,9 @@ model Wallet {
   internalTransactionsTo InternalTransaction[]   @relation("InternalTxToWallet")
   internalFundsFrom   InternalFund[]       @relation("InternalFundFromWallet")
   internalFundsTo     InternalFund[]       @relation("InternalFundToWallet")
+  journalLines        JournalLine[]        @relation("JournalLineWallet")
+  balanceSnapshots    WalletBalanceSnapshot[]
+  balanceEntries      WalletBalanceEntry[]
   asset               Asset                @relation(fields: [assetId], references: [id])
 
   @@index([ownerType, ownerId])
@@ -625,6 +632,11 @@ model InternalTransaction {
   internalTxNo String  @unique
   type        String
   status      String
+  approvalStatus String @default("APPROVED")
+  makerUserId String?
+  checkerUserId String?
+  checkedAt DateTime?
+  reviewReason String?
   sourceType  String
   sourceId    String
   sourceNo    String?
@@ -654,6 +666,7 @@ model InternalTransaction {
 
   @@unique([sourceType, sourceId, type])
   @@index([status])
+  @@index([approvalStatus])
   @@index([createdAt])
   @@index([assetId])
   @@map("internal_transactions")
@@ -788,6 +801,7 @@ model JournalLine {
   fxRate                Decimal?
   ownerType             String?
   ownerId               String?
+  walletId              String?
   dimensions            String               @default("{}")
   description           String?
   referenceId           String?
@@ -797,6 +811,8 @@ model JournalLine {
   journal               Journal              @relation(fields: [journalId], references: [id])
   account               Coa                  @relation(fields: [accountCode], references: [code])
   asset                 Asset                @relation(fields: [assetId], references: [id])
+  wallet                Wallet?              @relation("JournalLineWallet", fields: [walletId], references: [id])
+  walletBalanceEntry    WalletBalanceEntry?
 
   @@unique([journalId, lineNo])
   @@index([journalId])
@@ -805,7 +821,65 @@ model JournalLine {
   @@index([ownerType, ownerId])
   @@index([accountCode, ownerType, ownerId])
   @@index([journalLineTemplateId])
+  @@index([walletId])
+  @@index([walletId, assetId])
   @@map("journal_lines")
+}
+
+model WalletBalanceSnapshot {
+  id               String   @id @default(uuid())
+  walletId         String
+  assetId          String
+  availableBalance Decimal  @default(0)
+  restrictedBalance Decimal @default(0)
+  inTransitBalance Decimal  @default(0)
+  totalBalance     Decimal  @default(0)
+  lastJournalLineId String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  wallet           Wallet   @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  asset            Asset    @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@unique([walletId, assetId])
+  @@index([walletId])
+  @@index([assetId])
+  @@map("wallet_balance_snapshots")
+}
+
+model WalletBalanceEntry {
+  id               String   @id @default(uuid())
+  journalLineId    String   @unique
+  walletId         String
+  assetId          String
+  accountCode      String
+  drCr             String
+  amount           Decimal
+  deltaAvailable   Decimal  @default(0)
+  deltaRestricted  Decimal  @default(0)
+  deltaInTransit   Decimal  @default(0)
+  createdAt        DateTime @default(now())
+  journalLine      JournalLine @relation(fields: [journalLineId], references: [id], onDelete: Cascade)
+  wallet           Wallet   @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  asset            Asset    @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@index([walletId, assetId])
+  @@index([createdAt])
+  @@map("wallet_balance_entries")
+}
+
+model AssetValuationRate {
+  id             String   @id @default(uuid())
+  assetId        String
+  quoteAssetCode String
+  price          Decimal
+  status         String   @default("ACTIVE")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  asset          Asset    @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@unique([assetId, quoteAssetCode])
+  @@index([status])
+  @@map("asset_valuation_rates")
 }
 
 model AcctEvent {

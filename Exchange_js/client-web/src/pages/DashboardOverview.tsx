@@ -3,6 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import { Wallet, TrendingUp, TrendingDown, Lock, RefreshCw, DollarSign, ShieldCheck, History, AlertCircle, ArrowUpRight, ArrowDownRight, Coins } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Decimal } from 'decimal.js';
+import { formatAssetAmount } from '../utils/number-format';
 
 interface AssetData {
   assetId: string;
@@ -11,6 +12,7 @@ interface AssetData {
   clientCredit: string;
   lockedBalance: string;
   walletId: string;
+  assetDecimals?: number;
 }
 
 interface PlatformAsset {
@@ -19,6 +21,7 @@ interface PlatformAsset {
   type: string;
   status: string;
   name?: string;
+  decimals?: number;
 }
 
 interface MarketRate {
@@ -297,6 +300,8 @@ const DashboardOverview = () => {
                       const available = userAsset ? parseFloat(userAsset.clientCredit) : 0;
                       const locked = userAsset ? parseFloat(userAsset.lockedBalance) : 0;
                       const total = available + locked;
+                      const amountDecimals =
+                        platformAsset.decimals ?? userAsset?.assetDecimals;
                       
                       return (
                         <div key={platformAsset.id} className="px-6 py-4 hover:bg-slate-50 transition-colors flex items-center justify-between group">
@@ -311,13 +316,13 @@ const DashboardOverview = () => {
                             </div>
                             <div className="flex items-center gap-8">
                                 <div className="text-right">
-                                    <span className="block font-semibold text-slate-900">{available.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 8 })}</span>
+                                    <span className="block font-semibold text-slate-900">{formatAssetAmount(available, amountDecimals)}</span>
                                     <span className="text-[10px] text-slate-400">Available</span>
                                 </div>
                                 <div className="text-right min-w-[80px]">
                                     <div className="flex items-center justify-end gap-1 text-slate-500">
                                         {locked > 0 && <Lock size={12} className="text-amber-500" />}
-                                        <span className="font-medium">{locked.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 8 })}</span>
+                                        <span className="font-medium">{formatAssetAmount(locked, amountDecimals)}</span>
                                     </div>
                                     <span className="text-[10px] text-slate-400">Locked</span>
                                 </div>

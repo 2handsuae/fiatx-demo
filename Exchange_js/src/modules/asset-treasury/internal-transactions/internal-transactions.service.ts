@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Injectable,
   InternalServerErrorException,
   NotFoundException,
@@ -10,6 +11,7 @@ import { JournalsService } from '../../accounting/journals/journals.service';
 import { ClearingsService } from '../../clearing-settle/clearing/clearings.service';
 import {
   InternalTransactionQueryDto,
+  InternalTransactionApprovalStatus,
   InternalTransactionStatus,
   InternalTransactionType,
 } from './dto/internal-transaction.dto';
@@ -58,6 +60,11 @@ interface CreateStandaloneInput {
   toIban?: string | null;
   referenceNo?: string | null;
   status?: InternalTransactionStatus;
+  approvalStatus?: InternalTransactionApprovalStatus;
+  makerUserId?: string | null;
+  checkerUserId?: string | null;
+  checkedAt?: Date | null;
+  reviewReason?: string | null;
 }
 
 @Injectable()
@@ -67,6 +74,7 @@ export class InternalTransactionsService {
     InternalTransactionStatus.SUCCESS,
     InternalTransactionStatus.FAILED,
     InternalTransactionStatus.CANCELLED,
+    InternalTransactionStatus.REJECTED,
   ]);
 
   constructor(
@@ -189,6 +197,12 @@ export class InternalTransactionsService {
     input: CreateStandaloneInput,
     operatorId: string,
   ) {
+    if (!input.fromWalletId || !input.toWalletId) {
+      throw new BadRequestException(
+        'fromWalletId and toWalletId are required for internal transaction',
+      );
+    }
+
     for (
       let attempt = 1;
       attempt <= InternalTransactionsService.MAX_NO_GENERATION_RETRIES;
@@ -197,6 +211,8 @@ export class InternalTransactionsService {
       const internalTxNo = generateReferenceNo('ITX');
       const status =
         input.status ?? InternalTransactionStatus.INTERNAL_FUNDS_PENDING;
+      const approvalStatus =
+        input.approvalStatus ?? InternalTransactionApprovalStatus.APPROVED;
       const statusHistory = this.appendStatusHistory(
         null,
         status,
@@ -210,6 +226,11 @@ export class InternalTransactionsService {
             internalTxNo,
             type: input.type,
             status,
+            approvalStatus,
+            makerUserId: input.makerUserId ?? null,
+            checkerUserId: input.checkerUserId ?? null,
+            checkedAt: input.checkedAt ?? null,
+            reviewReason: input.reviewReason ?? null,
             sourceType: input.sourceType,
             sourceId: input.sourceId,
             sourceNo: input.sourceNo ?? null,
@@ -349,6 +370,189 @@ export class InternalTransactionsService {
     );
   }
 
+  async approveManualReview(
+    internalTransactionId: string,
+    operatorId: string,
+    reviewReason?: string | null,
+    tx?: TxClient,
+  ) {
+    const execute = async (client: TxClient) => {
+      const item = await (client as any).internalTransaction.findUnique({
+        where: { id: internalTransactionId },
+        include: {
+          asset: true,
+          fromWallet: {
+            select: {
+              id: true,
+              ownerType: true,
+            },
+          },
+          toWallet: {
+            select: {
+              id: true,
+              ownerType: true,
+            },
+          },
+        },
+      });
+      if (!item) {
+        throw new NotFoundException('Internal transaction not found');
+      }
+      if (item.sourceType !== 'INTERNAL_MANUAL') {
+        throw new BadRequestException('Only INTERNAL_MANUAL transaction can be reviewed');
+      }
+      if (item.approvalStatus !== InternalTransactionApprovalStatus.PENDING) {
+        throw new BadRequestException(
+          `Review is only allowed for approvalStatus=PENDING, current=${item.approvalStatus}`,
+        );
+      }
+
+      const updated = await (client as any).internalTransaction.update({
+        where: { id: internalTransactionId },
+        data: {
+          approvalStatus: InternalTransactionApprovalStatus.APPROVED,
+          checkerUserId: operatorId,
+          checkedAt: new Date(),
+          reviewReason: reviewReason ?? null,
+        },
+        include: {
+          asset: true,
+          fromWallet: {
+            select: {
+              id: true,
+              ownerType: true,
+            },
+          },
+          toWallet: {
+            select: {
+              id: true,
+              ownerType: true,
+            },
+          },
+        },
+      });
+
+      await (client as any).internalTransactionAuditLog.create({
+        data: {
+          internalTransactionId,
+          operatorId,
+          oldStatus: item.status,
+          newStatus: item.status,
+          reason:
+            reviewReason?.trim() ||
+            'Manual review approved, waiting for internal funds execution',
+        },
+      });
+
+      return updated;
+    };
+
+    if (tx) return execute(tx);
+    return (this.prisma as any).$transaction((client: TxClient) =>
+      execute(client),
+    );
+  }
+
+  async rejectManualReview(
+    internalTransactionId: string,
+    operatorId: string,
+    reviewReason?: string | null,
+    tx?: TxClient,
+  ) {
+    const execute = async (client: TxClient) => {
+      const item = await (client as any).internalTransaction.findUnique({
+        where: { id: internalTransactionId },
+        include: {
+          asset: true,
+          fromWallet: {
+            select: {
+              id: true,
+              ownerType: true,
+            },
+          },
+          toWallet: {
+            select: {
+              id: true,
+              ownerType: true,
+            },
+          },
+        },
+      });
+      if (!item) {
+        throw new NotFoundException('Internal transaction not found');
+      }
+      if (item.sourceType !== 'INTERNAL_MANUAL') {
+        throw new BadRequestException('Only INTERNAL_MANUAL transaction can be reviewed');
+      }
+      if (item.approvalStatus !== InternalTransactionApprovalStatus.PENDING) {
+        throw new BadRequestException(
+          `Review is only allowed for approvalStatus=PENDING, current=${item.approvalStatus}`,
+        );
+      }
+      if (
+        InternalTransactionsService.TERMINAL_STATUSES.has(
+          item.status as InternalTransactionStatus,
+        )
+      ) {
+        throw new BadRequestException(
+          `Cannot reject terminal transaction with status=${item.status}`,
+        );
+      }
+
+      const nextStatus = InternalTransactionStatus.REJECTED;
+      const updated = await (client as any).internalTransaction.update({
+        where: { id: internalTransactionId },
+        data: {
+          status: nextStatus,
+          approvalStatus: InternalTransactionApprovalStatus.REJECTED,
+          checkerUserId: operatorId,
+          checkedAt: new Date(),
+          reviewReason: reviewReason ?? null,
+          statusHistory: this.appendStatusHistory(
+            item.statusHistory,
+            nextStatus,
+            operatorId,
+            reviewReason?.trim() || 'Manual review rejected',
+          ),
+          completedAt: new Date(),
+        },
+        include: {
+          asset: true,
+          fromWallet: {
+            select: {
+              id: true,
+              ownerType: true,
+            },
+          },
+          toWallet: {
+            select: {
+              id: true,
+              ownerType: true,
+            },
+          },
+        },
+      });
+
+      await (client as any).internalTransactionAuditLog.create({
+        data: {
+          internalTransactionId,
+          operatorId,
+          oldStatus: item.status,
+          newStatus: nextStatus,
+          reason: reviewReason?.trim() || 'Manual review rejected',
+        },
+      });
+
+      await this.triggerStatusEvent(client, updated, item.status, nextStatus);
+      return updated;
+    };
+
+    if (tx) return execute(tx);
+    return (this.prisma as any).$transaction((client: TxClient) =>
+      execute(client),
+    );
+  }
+
   async syncStatusFromFunds(
     internalTransactionId: string,
     operatorId = 'SYSTEM',
@@ -386,6 +590,9 @@ export class InternalTransactionsService {
       const current = item.status as InternalTransactionStatus;
       const statuses = (item.funds || []).map((fund: any) => String(fund.status));
       if (!statuses.length) return item;
+      if (InternalTransactionsService.TERMINAL_STATUSES.has(current)) {
+        return item;
+      }
 
       let next = current;
 
@@ -499,6 +706,7 @@ export class InternalTransactionsService {
       take = 20,
       status,
       type,
+      approvalStatus,
       sourceType,
       sourceId,
       sourceNo,
@@ -513,6 +721,7 @@ export class InternalTransactionsService {
     const where: any = {};
     if (status) where.status = status;
     if (type) where.type = type;
+    if (approvalStatus) where.approvalStatus = approvalStatus;
     if (sourceType) where.sourceType = sourceType;
     if (sourceId) where.sourceId = { contains: sourceId };
     if (sourceNo) where.sourceNo = { contains: sourceNo };

@@ -322,7 +322,7 @@ export const DEFAULT_JOURNAL_TEMPLATES = [
         amountSource: 'NET_AMOUNT',
         assetSource: 'ASSET_ID',
         ownerTypeSource: 'PLATFORM',
-        dimensionsRule: '{"assetId":"{{src.assetId}}"}',
+        dimensionsRule: '{"assetId":"{{src.assetId}}","walletId":"{{src.fromWalletId}}"}',
         description: '提现审批：资产进入在途托管',
       },
       {
@@ -332,7 +332,7 @@ export const DEFAULT_JOURNAL_TEMPLATES = [
         amountSource: 'NET_AMOUNT',
         assetSource: 'ASSET_ID',
         ownerTypeSource: 'PLATFORM',
-        dimensionsRule: '{"assetId":"{{src.assetId}}"}',
+        dimensionsRule: '{"assetId":"{{src.assetId}}","walletId":"{{src.fromWalletId}}"}',
         description: '提现审批：从托管可用转出',
       },
     ],
@@ -354,7 +354,7 @@ export const DEFAULT_JOURNAL_TEMPLATES = [
         amountSource: 'NET_AMOUNT',
         assetSource: 'ASSET_ID',
         ownerTypeSource: 'PLATFORM',
-        dimensionsRule: '{"assetId":"{{src.assetId}}"}',
+        dimensionsRule: '{"assetId":"{{src.assetId}}","walletId":"{{src.fromWalletId}}"}',
         description: '提现审批：资产进入在途银行',
       },
       {
@@ -364,7 +364,7 @@ export const DEFAULT_JOURNAL_TEMPLATES = [
         amountSource: 'NET_AMOUNT',
         assetSource: 'ASSET_ID',
         ownerTypeSource: 'PLATFORM',
-        dimensionsRule: '{"assetId":"{{src.assetId}}"}',
+        dimensionsRule: '{"assetId":"{{src.assetId}}","walletId":"{{src.fromWalletId}}"}',
         description: '提现审批：从银行可用转出',
       },
     ],
@@ -397,7 +397,7 @@ export const DEFAULT_JOURNAL_TEMPLATES = [
         amountSource: 'NET_AMOUNT',
         assetSource: 'ASSET_ID',
         ownerTypeSource: 'PLATFORM',
-        dimensionsRule: '{"assetId":"{{src.assetId}}"}',
+        dimensionsRule: '{"assetId":"{{src.assetId}}","walletId":"{{src.fromWalletId}}"}',
         description: '提现成功：核销在途资产',
       },
       {
@@ -440,7 +440,7 @@ export const DEFAULT_JOURNAL_TEMPLATES = [
         amountSource: 'NET_AMOUNT',
         assetSource: 'ASSET_ID',
         ownerTypeSource: 'PLATFORM',
-        dimensionsRule: '{"assetId":"{{src.assetId}}"}',
+        dimensionsRule: '{"assetId":"{{src.assetId}}","walletId":"{{src.fromWalletId}}"}',
         description: '提现成功：核销在途资产',
       },
       {
@@ -455,14 +455,14 @@ export const DEFAULT_JOURNAL_TEMPLATES = [
       },
     ],
   },
-  // 15. Internal Transaction Created (Crypto Collection)
+  // 15. Internal Transaction Created (Crypto Internal Transfer)
   {
     header: {
       templateCode: 'TPL_EVT_INTERNAL_TX_CREATED_V1',
       eventCode: 'EVT_INTERNAL_TX_CREATED',
       version: 1,
       status: 'ACTIVE',
-      description: '内部归集创建：托管可用转在途',
+      description: '内部调拨创建：可用资产转在途',
     },
     lines: [
       {
@@ -473,7 +473,7 @@ export const DEFAULT_JOURNAL_TEMPLATES = [
         assetSource: 'ASSET_ID',
         ownerTypeSource: 'src.toWalletOwnerType',
         dimensionsRule: '{"assetId":"{{src.assetId}}","walletId":"{{src.toWalletId}}","internalTxNo":"{{src.internalTxNo}}"}',
-        description: '归集创建：在途托管增加',
+        description: '调拨创建：在途资产增加',
       },
       {
         lineNo: 2,
@@ -483,18 +483,18 @@ export const DEFAULT_JOURNAL_TEMPLATES = [
         assetSource: 'ASSET_ID',
         ownerTypeSource: 'src.fromWalletOwnerType',
         dimensionsRule: '{"assetId":"{{src.assetId}}","walletId":"{{src.fromWalletId}}","internalTxNo":"{{src.internalTxNo}}"}',
-        description: '归集创建：托管可用减少',
+        description: '调拨创建：来源可用资产减少',
       },
     ],
   },
-  // 16. Internal Transaction Success (Crypto Collection)
+  // 16. Internal Transaction Success (Crypto Internal Transfer)
   {
     header: {
       templateCode: 'TPL_EVT_INTERNAL_TX_SUCCESS_V1',
       eventCode: 'EVT_INTERNAL_TX_SUCCESS',
       version: 1,
       status: 'ACTIVE',
-      description: '内部归集成功：在途回托管并记录网络费',
+      description: '内部调拨成功：在途回目标托管并记录网络费',
     },
     lines: [
       {
@@ -505,7 +505,7 @@ export const DEFAULT_JOURNAL_TEMPLATES = [
         assetSource: 'ASSET_ID',
         ownerTypeSource: 'src.toWalletOwnerType',
         dimensionsRule: '{"assetId":"{{src.assetId}}","walletId":"{{src.toWalletId}}","internalTxNo":"{{src.internalTxNo}}"}',
-        description: '归集成功：托管可用增加',
+        description: '调拨成功：目标可用资产增加',
       },
       {
         lineNo: 2,
@@ -515,7 +515,7 @@ export const DEFAULT_JOURNAL_TEMPLATES = [
         assetSource: 'ASSET_ID',
         ownerTypeSource: 'src.fromWalletOwnerType',
         dimensionsRule: '{"assetId":"{{src.assetId}}","walletId":"{{src.fromWalletId}}","internalTxNo":"{{src.internalTxNo}}"}',
-        description: '归集成功：记录链上网络费用',
+        description: '调拨成功：记录链上网络费用',
       },
       {
         lineNo: 3,
@@ -525,7 +525,7 @@ export const DEFAULT_JOURNAL_TEMPLATES = [
         assetSource: 'ASSET_ID',
         ownerTypeSource: 'src.toWalletOwnerType',
         dimensionsRule: '{"assetId":"{{src.assetId}}","walletId":"{{src.toWalletId}}","internalTxNo":"{{src.internalTxNo}}"}',
-        description: '归集成功：核销在途托管',
+        description: '调拨成功：核销在途资产',
       },
     ],
   },

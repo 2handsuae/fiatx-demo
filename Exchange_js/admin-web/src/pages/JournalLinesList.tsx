@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Search, RefreshCw, ChevronLeft, ChevronRight, ArrowUpDown, X, Eye } from 'lucide-react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import { formatAssetAmount } from '../utils/number-format';
 
 interface JournalLineItem {
   id: string;
@@ -17,7 +18,7 @@ interface JournalLineItem {
   createdAt: string;
   journal: { eventCode: string; journalNo: string };
   account: { name: string };
-  asset: { code: string };
+  asset: { code: string; decimals?: number };
 }
 
 const JournalLinesList = () => {
@@ -243,7 +244,7 @@ const JournalLinesList = () => {
                     </td>
                     <td className="px-4 py-4">{renderDrCr(item.drCr)}</td>
                     <td className="px-4 py-4 font-bold text-gray-900">
-                        {Number(item.amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 8 })}
+                        {formatAssetAmount(item.amount, item.asset?.decimals)}
                     </td>
                     <td className="px-4 py-4">
                         <span className="px-1.5 py-0.5 bg-gray-100 rounded text-[10px] font-bold text-gray-600">{item.asset.code}</span>

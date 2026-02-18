@@ -1,13 +1,14 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Search, RefreshCw, Eye } from 'lucide-react';
+import { formatAssetAmount } from '../utils/number-format';
 
 interface PayinItem {
   id: string;
   payinNo: string;
   depositId: string | null;
   status: string;
-  asset: { code: string; type: string; network: string | null };
+  asset: { code: string; type: string; network: string | null; decimals?: number };
   type: string;
   amount: string;
   toWallet: { ownerType: string; ownerId: string | null; address: string | null; accountName: string | null } | null;
@@ -270,7 +271,7 @@ const PayinList = () => {
                       )}
                     </td>
                     <td className="px-6 py-4">
-                      <div className="font-medium text-gray-900">{Number(payin.amount).toLocaleString()} {payin.asset.code}</div>
+                      <div className="font-medium text-gray-900">{formatAssetAmount(payin.amount, payin.asset.decimals)} {payin.asset.code}</div>
                       <div className="text-xs text-gray-500">{payin.asset.network}</div>
                     </td>
                     <td className="px-6 py-4">

@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { 
+import {
   Search, 
   RefreshCw, 
   ChevronLeft, 
@@ -13,6 +13,7 @@ import {
   History
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { formatAssetAmount } from '../utils/number-format';
 
 interface BalanceHistoryItem {
   id: string;
@@ -167,12 +168,8 @@ const CustomerBalanceHistory = () => {
     }
   };
 
-  const formatAmount = (amount: string | number, decimals: number = 2) => {
-    return Number(amount).toLocaleString(undefined, { 
-      minimumFractionDigits: decimals, 
-      maximumFractionDigits: decimals 
-    });
-  };
+  const formatAmount = (amount: string | number, decimals: number = 2) =>
+    formatAssetAmount(amount, decimals);
 
   const totalPages = Math.ceil(total / pageSize);
 

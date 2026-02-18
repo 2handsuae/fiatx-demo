@@ -5,8 +5,11 @@ import { IsEnum, IsOptional, IsString } from 'class-validator';
 export enum InternalTransactionType {
   DEP_TO_MASTER = 'DEP_TO_MASTER',
   MASTER_TO_PAYOUT = 'MASTER_TO_PAYOUT',
+  PAYOUT_TO_MASTER = 'PAYOUT_TO_MASTER',
   MASTER_TO_LIQ = 'MASTER_TO_LIQ',
+  LIQ_TO_MASTER = 'LIQ_TO_MASTER',
   LIQ_TO_PAYOUT = 'LIQ_TO_PAYOUT',
+  PAYOUT_TO_LIQ = 'PAYOUT_TO_LIQ',
   CLIENT_BANK_TO_LIQ_BANK = 'CLIENT_BANK_TO_LIQ_BANK',
   LIQ_BANK_TO_CLIENT_BANK = 'LIQ_BANK_TO_CLIENT_BANK',
 }
@@ -16,6 +19,13 @@ export enum InternalTransactionStatus {
   SUCCESS = 'SUCCESS',
   FAILED = 'FAILED',
   CANCELLED = 'CANCELLED',
+  REJECTED = 'REJECTED',
+}
+
+export enum InternalTransactionApprovalStatus {
+  PENDING = 'PENDING',
+  APPROVED = 'APPROVED',
+  REJECTED = 'REJECTED',
 }
 
 export class InternalTransactionQueryDto {
@@ -38,6 +48,11 @@ export class InternalTransactionQueryDto {
   @IsOptional()
   @IsEnum(InternalTransactionType)
   type?: InternalTransactionType;
+
+  @ApiPropertyOptional({ enum: InternalTransactionApprovalStatus })
+  @IsOptional()
+  @IsEnum(InternalTransactionApprovalStatus)
+  approvalStatus?: InternalTransactionApprovalStatus;
 
   @ApiPropertyOptional()
   @IsOptional()

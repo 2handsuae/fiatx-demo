@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { RefreshCw, Search } from 'lucide-react';
+import { formatAssetAmount } from '../utils/number-format';
 
 type InternalFundItem = {
   id: string;
@@ -17,6 +18,7 @@ type InternalFundItem = {
     code: string;
     type: string;
     network?: string | null;
+    decimals?: number;
   };
   internalTransaction?: {
     id: string;
@@ -299,13 +301,12 @@ const InternalFundList = () => {
                     </td>
                     <td className="px-6 py-4">
                       <div className="font-medium text-gray-900">
-                        {Number(item.amount).toLocaleString(undefined, {
-                          minimumFractionDigits: 2,
-                          maximumFractionDigits: 8,
-                        })}{' '}
+                        {formatAssetAmount(item.amount, item.asset?.decimals)}{' '}
                         {item.asset?.code || '-'}
                       </div>
-                      <div className="text-xs text-gray-500">fee: {item.feeAmount || '0'}</div>
+                      <div className="text-xs text-gray-500">
+                        fee: {formatAssetAmount(item.feeAmount, item.asset?.decimals)}
+                      </div>
                     </td>
                     <td className="px-6 py-4">
                       <div className="text-xs text-gray-500 truncate max-w-[240px]" title={item.fromAddress || ''}>

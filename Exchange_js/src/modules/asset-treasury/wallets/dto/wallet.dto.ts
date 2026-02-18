@@ -25,6 +25,16 @@ export enum WalletDirection {
   BIDIRECTIONAL = 'BIDIRECTIONAL',
 }
 
+export enum WalletRole {
+  GENERAL = 'GENERAL',
+  DEPOSIT = 'DEPOSIT',
+  MASTER = 'MASTER',
+  PAYOUT = 'PAYOUT',
+  LIQ = 'LIQ',
+  CUST_BANK = 'CUST_BANK',
+  LIQ_BANK = 'LIQ_BANK',
+}
+
 export enum WalletStatus {
   ACTIVE = 'ACTIVE',
   FROZEN = 'FROZEN',
@@ -51,6 +61,11 @@ export class CreateWalletDto {
   @ApiProperty({ enum: WalletDirection })
   @IsEnum(WalletDirection)
   direction!: WalletDirection;
+
+  @ApiProperty({ enum: WalletRole, required: false })
+  @IsEnum(WalletRole)
+  @IsOptional()
+  walletRole?: WalletRole;
 
   @ApiProperty({ description: 'Asset ID' })
   @IsUUID()

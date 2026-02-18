@@ -22,7 +22,10 @@ describe('WalletsService', () => {
       create: jest.fn(),
       findMany: jest.fn(),
       count: jest.fn(),
+      findUnique: jest.fn(),
     },
+    walletBalanceSnapshot: { findMany: jest.fn(), findUnique: jest.fn() },
+    assetValuationRate: { findMany: jest.fn(), findUnique: jest.fn() },
   };
 
   const customerInboundDto: CreateWalletDto = {
@@ -56,6 +59,11 @@ describe('WalletsService', () => {
     (prisma as any).wallet.create.mockResolvedValue({ id: 'wallet-1' });
     (prisma as any).wallet.findMany.mockResolvedValue([]);
     (prisma as any).wallet.count.mockResolvedValue(0);
+    (prisma as any).wallet.findUnique.mockResolvedValue(null);
+    (prisma as any).walletBalanceSnapshot.findMany.mockResolvedValue([]);
+    (prisma as any).walletBalanceSnapshot.findUnique.mockResolvedValue(null);
+    (prisma as any).assetValuationRate.findMany.mockResolvedValue([]);
+    (prisma as any).assetValuationRate.findUnique.mockResolvedValue(null);
   });
 
   it('should reject PLATFORM wallet with ownerId', async () => {
@@ -110,6 +118,19 @@ describe('WalletsService', () => {
 
     await expect(service.create(customerInboundDto)).rejects.toThrow(
       'Inbound customer wallet already exists for this asset and type',
+    );
+  });
+
+  it('should generate DEPOSIT role walletNo for customer inbound wallet', async () => {
+    await service.create(customerInboundDto);
+
+    expect((prisma as any).wallet.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          walletRole: 'DEPOSIT',
+          walletNo: expect.stringMatching(/^WA-DEP-\d{10}$/),
+        }),
+      }),
     );
   });
 
@@ -282,5 +303,52 @@ describe('WalletsService', () => {
         ownerName: null,
       }),
     );
+  });
+
+  it('should return snapshot balance and AED valuation in findBalance', async () => {
+    (prisma as any).wallet.findUnique.mockResolvedValue({
+      id: 'wallet-balance-1',
+      walletNo: 'WA-LIQ-BTC-BITCOIN',
+      ownerType: OwnerType.PLATFORM,
+      ownerId: null,
+      ownerNo: 'PLATFORM',
+      assetId: 'asset-btc',
+      balance: '4',
+      lockedBalance: '0',
+      asset: {
+        id: 'asset-btc',
+        code: 'BTC',
+        type: 'CRYPTO',
+        network: 'BITCOIN',
+        decimals: 8,
+      },
+    });
+    (prisma as any).walletBalanceSnapshot.findUnique.mockResolvedValue({
+      walletId: 'wallet-balance-1',
+      assetId: 'asset-btc',
+      availableBalance: '4',
+      restrictedBalance: '0',
+      totalBalance: '4',
+      updatedAt: new Date('2026-02-17T00:00:00.000Z'),
+    });
+    (prisma as any).assetValuationRate.findUnique.mockResolvedValue({
+      price: '250000',
+      quoteAssetCode: 'AED',
+      status: 'ACTIVE',
+      updatedAt: new Date('2026-02-17T00:00:00.000Z'),
+    });
+
+    const result = await service.findBalance('wallet-balance-1');
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        walletId: 'wallet-balance-1',
+        walletNo: 'WA-LIQ-BTC-BITCOIN',
+        quoteAssetCode: 'AED',
+      }),
+    );
+    expect(result.availableBalance.toString()).toBe('4');
+    expect(result.totalAedEquivalent?.toString()).toBe('1000000');
+    expect(result).not.toHaveProperty('inTransitBalance');
   });
 });

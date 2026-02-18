@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Search, RefreshCw, Eye, Download, Plus, ArrowRight, CheckCircle, ShieldCheck, Lock, Unlock, Copy } from 'lucide-react';
 import { copyToClipboard } from '../utils/clipboard';
+import { formatAssetAmount } from '../utils/number-format';
 
 interface DepositTransaction {
   id: string;
@@ -9,7 +10,7 @@ interface DepositTransaction {
   ownerType: string;
   ownerId: string;
   status: string;
-  asset: { code: string; type: string; network: string | null };
+  asset: { code: string; type: string; network: string | null; decimals?: number };
   amount: string;
   netAmount: string;
   feeAmount: string;
@@ -341,7 +342,7 @@ const DepositTransactionList = () => {
                       )}
                     </td>
                     <td className="px-6 py-4">
-                      <div className="font-medium text-gray-900">{Number(item.amount).toLocaleString()} {item.asset.code}</div>
+                      <div className="font-medium text-gray-900">{formatAssetAmount(item.amount, item.asset.decimals)} {item.asset.code}</div>
                     </td>
                     <td className="px-6 py-4">
                       {renderStatusBadge(item.status)}

@@ -2,12 +2,14 @@ import { useState, useEffect } from 'react';
 import { Wallet, Building2, History, RefreshCw, Info, AlertTriangle, ArrowRight, X, Plus, Filter, ShieldCheck, Clock, Coins } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
+import { formatAssetAmount } from '../utils/number-format';
 
 interface Asset {
   id: string;
   code: string;
   type: string;
   network: string | null;
+  decimals?: number;
 }
 
 interface AssetBalance {
@@ -15,13 +17,14 @@ interface AssetBalance {
   assetCode: string;
   clientCredit: number;
   lockedBalance: number;
+  assetDecimals?: number;
 }
 
 interface WalletItem {
   id: string;
   type: string;
   direction: string;
-  asset: { id: string; code: string; type: string };
+  asset: { id: string; code: string; type: string; decimals?: number };
   address?: string;
   memo?: string;
   bankName?: string;
@@ -36,7 +39,7 @@ interface WithdrawTransaction {
   withdrawNo: string;
   status: string;
   amount: string;
-  asset: { code: string; network: string | null };
+  asset: { code: string; network: string | null; decimals?: number };
   createdAt: string;
   completedAt: string | null;
   toAddress: string | null;
@@ -405,7 +408,7 @@ const Withdraw = () => {
                                           </td>
                                           <td className="px-4 py-3">
                                               <div className="font-medium text-gray-900 dark:text-white">
-                                                  {Number(tx.amount).toLocaleString()} {tx.asset.code}
+                                                  {formatAssetAmount(tx.amount, tx.asset.decimals)} {tx.asset.code}
                                               </div>
                                           </td>
                                           <td className="px-4 py-3">
@@ -563,7 +566,11 @@ const Withdraw = () => {
                                         {balanceLoading ? (
                                             <span className="flex items-center gap-1"><RefreshCw size={10} className="animate-spin" /> Loading balance...</span>
                                         ) : (
-                                            `Available: ${availableBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 8 })} ${assets.find(a => a.id === selectedAssetId)?.code}`
+                                            `Available: ${formatAssetAmount(
+                                              availableBalance,
+                                              assets.find((a) => a.id === selectedAssetId)
+                                                ?.decimals,
+                                            )} ${assets.find(a => a.id === selectedAssetId)?.code}`
                                         )}
                                     </span>
                                     <button 
@@ -714,7 +721,7 @@ const Withdraw = () => {
                   <div className="p-6 space-y-6">
                       <div className="text-center">
                           <div className="text-3xl font-bold text-gray-900 dark:text-white mb-1">
-                              {Number(selectedTx.amount).toLocaleString()} <span className="text-slate-500 dark:text-slate-400 text-xl">{selectedTx.asset.code}</span>
+                              {formatAssetAmount(selectedTx.amount, selectedTx.asset.decimals)} <span className="text-slate-500 dark:text-slate-400 text-xl">{selectedTx.asset.code}</span>
                           </div>
                           <div className="mt-2">
                                {renderStatusBadge(selectedTx.status)}

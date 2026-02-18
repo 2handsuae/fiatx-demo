@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, RefreshCw } from 'lucide-react';
+import { formatAssetAmount } from '../utils/number-format';
 
 type InternalFundBrief = {
   id: string;
@@ -25,6 +26,11 @@ type InternalTransactionDetailData = {
   internalTxNo: string;
   type: string;
   status: string;
+  approvalStatus?: string;
+  makerUserId?: string | null;
+  checkerUserId?: string | null;
+  checkedAt?: string | null;
+  reviewReason?: string | null;
   sourceType: string;
   sourceId: string;
   sourceNo?: string | null;
@@ -45,22 +51,31 @@ type InternalTransactionDetailData = {
     code: string;
     type: string;
     network?: string | null;
+    decimals?: number;
   };
   funds: InternalFundBrief[];
   auditLogs: AuditLog[];
 };
 
 const STATUS_COLORS: Record<string, string> = {
-  CREATED: 'bg-gray-100 text-gray-800',
+  INTERNAL_FUNDS_PENDING: 'bg-blue-100 text-blue-800',
   SUCCESS: 'bg-emerald-100 text-emerald-800',
   FAILED: 'bg-red-100 text-red-800',
   CANCELLED: 'bg-orange-100 text-orange-800',
+  REJECTED: 'bg-rose-100 text-rose-800',
+};
+
+const APPROVAL_COLORS: Record<string, string> = {
+  PENDING: 'bg-amber-100 text-amber-800',
+  APPROVED: 'bg-emerald-100 text-emerald-800',
+  REJECTED: 'bg-rose-100 text-rose-800',
 };
 
 const InternalTransactionDetail = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
+  const [reviewing, setReviewing] = useState(false);
   const [data, setData] = useState<InternalTransactionDetailData | null>(null);
 
   const fetchDetail = async () => {
@@ -102,6 +117,53 @@ const InternalTransactionDetail = () => {
     }
   }, [data?.statusHistory]);
 
+  const canReview =
+    data?.sourceType === 'INTERNAL_MANUAL' &&
+    data?.status === 'INTERNAL_FUNDS_PENDING' &&
+    (data?.approvalStatus || 'APPROVED') === 'PENDING';
+
+  const handleReview = async (action: 'APPROVE' | 'REJECT') => {
+    if (!id) return;
+    let reason: string | undefined;
+    if (action === 'REJECT') {
+      const input = window.prompt('Reject reason');
+      if (!input || input.trim().length < 2) {
+        alert('Reject reason is required');
+        return;
+      }
+      reason = input.trim();
+    } else {
+      const input = window.prompt('Approve note (optional)');
+      reason = input?.trim() || undefined;
+    }
+
+    setReviewing(true);
+    try {
+      const token = localStorage.getItem('admin_token');
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/admin/internal-transactions/${id}/review`, {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ action, reason }),
+      });
+
+      if (!response.ok) {
+        const err = await response.json();
+        alert(`Review failed: ${err.message || 'Unknown error'}`);
+        return;
+      }
+
+      await fetchDetail();
+    } catch (error) {
+      console.error('Failed to review internal transaction', error);
+      alert('Network error');
+    } finally {
+      setReviewing(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[300px]">
@@ -133,18 +195,46 @@ const InternalTransactionDetail = () => {
               >
                 {data.status}
               </span>
+              <span
+                className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${
+                  APPROVAL_COLORS[data.approvalStatus || 'APPROVED'] ||
+                  'bg-gray-100 text-gray-800'
+                }`}
+              >
+                {data.approvalStatus || 'APPROVED'}
+              </span>
             </div>
             <div className="mt-2 text-sm text-gray-500 font-mono">
               {data.internalTxNo} · {data.type}
             </div>
           </div>
         </div>
-        <button
-          onClick={fetchDetail}
-          className="p-2 text-gray-500 hover:text-brand-primary transition-colors border border-gray-200 rounded-lg bg-white"
-        >
-          <RefreshCw size={18} />
-        </button>
+        <div className="flex items-center gap-2">
+          {canReview ? (
+            <>
+              <button
+                onClick={() => handleReview('APPROVE')}
+                disabled={reviewing}
+                className="px-3 py-2 rounded-lg text-sm font-medium bg-emerald-600 hover:bg-emerald-700 text-white disabled:opacity-60"
+              >
+                Approve
+              </button>
+              <button
+                onClick={() => handleReview('REJECT')}
+                disabled={reviewing}
+                className="px-3 py-2 rounded-lg text-sm font-medium bg-rose-600 hover:bg-rose-700 text-white disabled:opacity-60"
+              >
+                Reject
+              </button>
+            </>
+          ) : null}
+          <button
+            onClick={fetchDetail}
+            className="p-2 text-gray-500 hover:text-brand-primary transition-colors border border-gray-200 rounded-lg bg-white"
+          >
+            <RefreshCw size={18} />
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -156,15 +246,19 @@ const InternalTransactionDetail = () => {
         />
         <InfoCard
           label="Amount"
-          value={`${Number(data.amount).toLocaleString(undefined, {
-            minimumFractionDigits: 2,
-            maximumFractionDigits: 8,
-          })}`}
+          value={formatAssetAmount(data.amount, data.asset?.decimals)}
         />
-        <InfoCard label="Fee" value={data.feeAmount || '0'} />
-        <InfoCard label="Net" value={data.netAmount || '0'} />
+        <InfoCard label="Fee" value={formatAssetAmount(data.feeAmount, data.asset?.decimals)} />
+        <InfoCard label="Net" value={formatAssetAmount(data.netAmount, data.asset?.decimals)} />
         <InfoCard label="From" value={data.fromAddress || data.fromIban || '-'} />
         <InfoCard label="To" value={data.toAddress || data.toIban || '-'} />
+        <InfoCard label="Maker" value={data.makerUserId || '-'} />
+        <InfoCard label="Checker" value={data.checkerUserId || '-'} />
+        <InfoCard
+          label="Checked At"
+          value={data.checkedAt ? new Date(data.checkedAt).toLocaleString() : '-'}
+        />
+        <InfoCard label="Review Reason" value={data.reviewReason || '-'} />
       </div>
 
       <section className="bg-white rounded-xl border border-admin-border shadow-sm overflow-hidden">
@@ -187,7 +281,9 @@ const InternalTransactionDetail = () => {
                     <div className="text-xs text-gray-500 mt-1">{new Date(fund.createdAt).toLocaleString()}</div>
                   </div>
                   <div className="text-right">
-                    <div className="text-sm font-medium text-gray-900">{fund.amount}</div>
+                    <div className="text-sm font-medium text-gray-900">
+                      {formatAssetAmount(fund.amount, data.asset?.decimals)}
+                    </div>
                     <div className="text-xs text-gray-500">{fund.status}</div>
                   </div>
                 </div>

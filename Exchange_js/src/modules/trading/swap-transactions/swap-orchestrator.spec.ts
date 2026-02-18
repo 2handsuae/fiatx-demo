@@ -148,6 +148,14 @@ describe('SwapWorkflowOrchestrator', () => {
         SwapEvents.EVT_SWAP_CREATED,
         { swapId: 'swap-1' },
       );
+      expect(mockPrisma.swapTransaction.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            fromAssetCode: 'BTC',
+            toAssetCode: 'ETH',
+          }),
+        }),
+      );
       expect(mockJournalsService.createJournal).toHaveBeenCalled();
     });
 
@@ -195,7 +203,9 @@ describe('SwapWorkflowOrchestrator', () => {
         quoteNo: 'QUO_0001',
         ownerNo: 'CU_0001',
         fromAssetId: 'asset-1',
+        fromAssetCode: 'BTC',
         toAssetId: 'asset-2',
+        toAssetCode: 'ETH',
         amountIn: new Prisma.Decimal(100),
         amountOut: new Prisma.Decimal(200),
         rateAllIn: new Prisma.Decimal(2),
@@ -237,6 +247,8 @@ describe('SwapWorkflowOrchestrator', () => {
         expect.objectContaining({
           data: expect.objectContaining({
             quoteId: 'quote-1',
+            fromAssetCode: 'BTC',
+            toAssetCode: 'ETH',
           }),
         }),
       );
@@ -248,7 +260,9 @@ describe('SwapWorkflowOrchestrator', () => {
         quoteNo: 'QUO_0002',
         ownerNo: 'CU_0001',
         fromAssetId: 'asset-1',
+        fromAssetCode: 'BTC',
         toAssetId: 'asset-2',
+        toAssetCode: 'ETH',
         amountIn: new Prisma.Decimal(100),
         amountOut: new Prisma.Decimal(200),
         rateAllIn: new Prisma.Decimal(2),

@@ -31,10 +31,13 @@
 - Internal transaction type enum MUST remain:
 1. `DEP_TO_MASTER`
 2. `MASTER_TO_PAYOUT`
-3. `MASTER_TO_LIQ`
-4. `LIQ_TO_PAYOUT`
-5. `CLIENT_BANK_TO_LIQ_BANK`
-6. `LIQ_BANK_TO_CLIENT_BANK`
+3. `PAYOUT_TO_MASTER`
+4. `MASTER_TO_LIQ`
+5. `LIQ_TO_MASTER`
+6. `LIQ_TO_PAYOUT`
+7. `PAYOUT_TO_LIQ`
+8. `CLIENT_BANK_TO_LIQ_BANK`
+9. `LIQ_BANK_TO_CLIENT_BANK`
 - Collection scenario MUST use `DEP_TO_MASTER`.
 - Internal transaction status MUST remain:
 1. `INTERNAL_FUNDS_PENDING` (initial)
@@ -47,7 +50,7 @@
 - Collection orchestration MUST run through `InternalCollectionWorkflowOrchestrator`.
 - Creation sequence MUST be:
 1. idempotency check by `(sourceType=DEPOSIT, sourceId, type=DEP_TO_MASTER)`
-2. resolve `SYS_MASTER_<CODE>_<NETWORK>` wallet (ownerType `CUSTOMER`, ownerId `NULL`)
+2. resolve `SYS_CUST_CRYPTO_MASTER_<CODE>_<NETWORK>` wallet (ownerType `CUSTOMER`, ownerId `NULL`)
 3. create `internal_transaction` with status `INTERNAL_FUNDS_PENDING`
 4. create one `internal_fund` with status `CREATED`
 - MUST trigger created accounting event on internal transaction creation.
@@ -82,8 +85,9 @@
 
 ## 8) Wallet Baseline Dependency
 - Base seed MUST provide active system wallets for each CRYPTO asset:
-1. `SYS_MASTER_<CODE>_<NETWORK>` (`ownerType=CUSTOMER`, `ownerId=NULL`)
-2. `SYS_LIQ_<CODE>_<NETWORK>` (`ownerType=PLATFORM`, `ownerId=NULL`)
+1. `SYS_CUST_CRYPTO_MASTER_<CODE>_<NETWORK>` (`ownerType=CUSTOMER`, `ownerId=NULL`)
+2. `SYS_CUST_CRYPTO_PAYOUT_<CODE>_<NETWORK>` (`ownerType=CUSTOMER`, `ownerId=NULL`)
+3. `SYS_PLATFORM_CRYPTO_LIQ_<CODE>_<NETWORK>` (`ownerType=PLATFORM`, `ownerId=NULL`)
 - Missing master wallet MUST cause collection skip with explicit reason (not silent success).
 
 ## 9) Admin API and UI Contract

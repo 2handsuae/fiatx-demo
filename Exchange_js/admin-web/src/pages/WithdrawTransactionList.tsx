@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Search, RefreshCw, Eye, Download, CheckCircle, Copy, Plus, ShieldCheck, ArrowRight, XCircle } from 'lucide-react';
 import { copyToClipboard } from '../utils/clipboard';
+import { formatAssetAmount } from '../utils/number-format';
 
 interface WithdrawTransaction {
   id: string;
@@ -11,7 +12,7 @@ interface WithdrawTransaction {
   ownerNo?: string;
   status: string;
   type: string;
-  asset: { code: string; type: string; network: string | null };
+  asset: { code: string; type: string; network: string | null; decimals?: number };
   amount: string;
   netAmount: string;
   feeAmount: string;
@@ -432,7 +433,7 @@ const WithdrawTransactionList = () => {
                     </td>
                     <td className="px-6 py-4">
                       <div className="font-medium text-gray-900">
-                        {Number(item.amount).toLocaleString()} {item.asset.code}
+                        {formatAssetAmount(item.amount, item.asset.decimals)} {item.asset.code}
                       </div>
                     </td>
                     <td className="px-6 py-4">

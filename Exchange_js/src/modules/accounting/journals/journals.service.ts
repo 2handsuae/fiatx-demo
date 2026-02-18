@@ -13,8 +13,303 @@ import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 @Injectable()
 export class JournalsService {
   private readonly logger = new Logger(JournalsService.name);
+  private static readonly WALLET_TRACKED_SOURCE_TYPES = new Set([
+    'DEPOSIT',
+    'WITHDRAW',
+    'WITHDRAWAL',
+    'INTERNAL_TX',
+  ]);
 
   constructor(private prisma: PrismaService) {}
+
+  private resolveWalletBalanceBucket(
+    accountCode: string | null | undefined,
+  ): 'AVAILABLE' | 'RESTRICTED' | 'IN_TRANSIT' | null {
+    if (!accountCode) return null;
+    if (accountCode === 'A.CUSTODY' || accountCode === 'A.BANK') {
+      return 'AVAILABLE';
+    }
+    if (
+      accountCode === 'A.CUSTODY_RESTRICTED' ||
+      accountCode === 'A.BANK_RESTRICTED'
+    ) {
+      return 'RESTRICTED';
+    }
+    if (
+      accountCode === 'A.CUSTODY_IN_TRANSIT' ||
+      accountCode === 'A.BANK_IN_TRANSIT'
+    ) {
+      return 'IN_TRANSIT';
+    }
+    return null;
+  }
+
+  private isAssetAccount(accountCode: string | null | undefined): boolean {
+    return typeof accountCode === 'string' && accountCode.startsWith('A.');
+  }
+
+  private extractWalletIdFromDimensions(dimensions: string): string | null {
+    if (!dimensions) return null;
+    try {
+      const parsed = JSON.parse(dimensions);
+      if (!parsed || typeof parsed !== 'object') return null;
+      const raw = (parsed as Record<string, unknown>).walletId;
+      if (typeof raw !== 'string') return null;
+      const trimmed = raw.trim();
+      if (!trimmed || trimmed.includes('{{') || trimmed.includes('}}')) {
+        return null;
+      }
+      return trimmed ? trimmed : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private shouldEnforceWalletId(sourceType: string): boolean {
+    return JournalsService.WALLET_TRACKED_SOURCE_TYPES.has(String(sourceType || '').toUpperCase());
+  }
+
+  private assertAssetLinesHaveWalletId(
+    sourceType: string,
+    eventCode: string,
+    lines: Array<{
+      lineNo: number;
+      accountCode: string;
+      walletId?: string | null;
+    }>,
+  ) {
+    if (!this.shouldEnforceWalletId(sourceType)) return;
+
+    for (const line of lines) {
+      if (!this.isAssetAccount(line.accountCode)) continue;
+      if (line.walletId) continue;
+
+      throw new BadRequestException({
+        code: 'WALLET_ID_REQUIRED',
+        message: `walletId is required for asset line ${line.lineNo} (${line.accountCode}) on ${sourceType} ${eventCode}`,
+      });
+    }
+  }
+
+  private async alignAssetLineOwnerTypeWithWallet(
+    client: Prisma.TransactionClient,
+    lines: Array<{
+      accountCode: string;
+      ownerType?: string | null;
+      walletId?: string | null;
+    }>,
+  ) {
+    const walletIds = Array.from(
+      new Set(
+        lines
+          .map((line) => line.walletId)
+          .filter(
+            (walletId): walletId is string =>
+              typeof walletId === 'string' && walletId.length > 0,
+          ),
+      ),
+    );
+
+    if (!walletIds.length) return;
+
+    const wallets = await (client as any).wallet.findMany({
+      where: { id: { in: walletIds } },
+      select: { id: true, ownerType: true },
+    });
+    const walletById = new Map<string, { id: string; ownerType: string }>(
+      wallets.map((wallet: { id: string; ownerType: string }) => [
+        wallet.id,
+        wallet,
+      ]),
+    );
+
+    for (const line of lines) {
+      if (!line.walletId || !this.isAssetAccount(line.accountCode)) continue;
+      const wallet = walletById.get(line.walletId);
+      if (!wallet) {
+        throw new BadRequestException(
+          `Wallet ${line.walletId} not found for asset journal line`,
+        );
+      }
+      line.ownerType = wallet.ownerType;
+    }
+  }
+
+  private async projectWalletBalances(
+    client: Prisma.TransactionClient,
+    lines: Array<{
+      id: string;
+      walletId?: string | null;
+      assetId?: string | null;
+      accountCode: string;
+      drCr: string;
+      amount: Prisma.Decimal;
+    }>,
+  ) {
+    const candidates = lines.filter(
+      (line) => line.walletId && line.assetId && this.resolveWalletBalanceBucket(line.accountCode),
+    );
+    if (!candidates.length) return;
+
+    const existingEntries = await (client as any).walletBalanceEntry.findMany({
+      where: { journalLineId: { in: candidates.map((line) => line.id) } },
+      select: { journalLineId: true },
+    });
+    const projectedLineIds = new Set(
+      existingEntries.map((entry: { journalLineId: string }) => entry.journalLineId),
+    );
+
+    const pending = candidates.filter(
+      (line) => !projectedLineIds.has(line.id) && line.walletId && line.assetId,
+    );
+    if (!pending.length) return;
+
+    const balanceDeltaByBucket = new Map<
+      string,
+      {
+        walletId: string;
+        assetId: string;
+        bucket: 'AVAILABLE' | 'RESTRICTED' | 'IN_TRANSIT';
+        delta: Prisma.Decimal;
+      }
+    >();
+    for (const line of pending) {
+      if (!line.walletId || !line.assetId) continue;
+      const bucket = this.resolveWalletBalanceBucket(line.accountCode);
+      if (!bucket) continue;
+
+      const direction = line.drCr === 'DR' ? new Prisma.Decimal(1) : new Prisma.Decimal(-1);
+      const delta = this.parseDecimal(line.amount).mul(direction);
+      const bucketKey = `${line.walletId}::${line.assetId}::${bucket}`;
+
+      const existing = balanceDeltaByBucket.get(bucketKey);
+      if (existing) {
+        existing.delta = existing.delta.plus(delta);
+      } else {
+        balanceDeltaByBucket.set(bucketKey, {
+          walletId: line.walletId,
+          assetId: line.assetId,
+          bucket,
+          delta,
+        });
+      }
+    }
+
+    if (balanceDeltaByBucket.size > 0) {
+      const walletIds = Array.from(
+        new Set(
+          Array.from(balanceDeltaByBucket.values()).map((item) => item.walletId),
+        ),
+      );
+      const assetIds = Array.from(
+        new Set(
+          Array.from(balanceDeltaByBucket.values()).map((item) => item.assetId),
+        ),
+      );
+
+      const snapshots = await (client as any).walletBalanceSnapshot.findMany({
+        where: {
+          walletId: { in: walletIds },
+          assetId: { in: assetIds },
+        },
+        select: {
+          walletId: true,
+          assetId: true,
+          availableBalance: true,
+          restrictedBalance: true,
+          inTransitBalance: true,
+        },
+      });
+      const snapshotByKey = new Map<
+        string,
+        {
+          availableBalance: Prisma.Decimal | string | number;
+          restrictedBalance: Prisma.Decimal | string | number;
+          inTransitBalance: Prisma.Decimal | string | number;
+        }
+      >(
+        snapshots.map((snapshot: any) => [
+          `${snapshot.walletId}::${snapshot.assetId}`,
+          {
+            availableBalance: snapshot.availableBalance,
+            restrictedBalance: snapshot.restrictedBalance,
+            inTransitBalance: snapshot.inTransitBalance,
+          },
+        ]),
+      );
+
+      for (const deltaItem of balanceDeltaByBucket.values()) {
+        const snapshot = snapshotByKey.get(
+          `${deltaItem.walletId}::${deltaItem.assetId}`,
+        );
+        const current =
+          deltaItem.bucket === 'AVAILABLE'
+            ? this.parseDecimal(snapshot?.availableBalance)
+            : deltaItem.bucket === 'RESTRICTED'
+              ? this.parseDecimal(snapshot?.restrictedBalance)
+              : this.parseDecimal(snapshot?.inTransitBalance);
+        const next = current.plus(deltaItem.delta);
+        if (next.lt(0)) {
+          throw new BadRequestException({
+            code: 'INSUFFICIENT_WALLET_BALANCE',
+            message: `Insufficient ${deltaItem.bucket.toLowerCase()} balance for wallet ${deltaItem.walletId} asset ${deltaItem.assetId}`,
+          });
+        }
+      }
+    }
+
+    for (const line of pending) {
+      if (!line.walletId || !line.assetId) continue;
+      const bucket = this.resolveWalletBalanceBucket(line.accountCode);
+      if (!bucket) continue;
+
+      const direction = line.drCr === 'DR' ? new Prisma.Decimal(1) : new Prisma.Decimal(-1);
+      const amount = this.parseDecimal(line.amount);
+      const delta = amount.mul(direction);
+      const deltaAvailable = bucket === 'AVAILABLE' ? delta : new Prisma.Decimal(0);
+      const deltaRestricted = bucket === 'RESTRICTED' ? delta : new Prisma.Decimal(0);
+      const deltaInTransit = bucket === 'IN_TRANSIT' ? delta : new Prisma.Decimal(0);
+
+      await (client as any).walletBalanceEntry.create({
+        data: {
+          journalLineId: line.id,
+          walletId: line.walletId,
+          assetId: line.assetId,
+          accountCode: line.accountCode,
+          drCr: line.drCr,
+          amount,
+          deltaAvailable,
+          deltaRestricted,
+          deltaInTransit,
+        },
+      });
+
+      await (client as any).walletBalanceSnapshot.upsert({
+        where: {
+          walletId_assetId: {
+            walletId: line.walletId,
+            assetId: line.assetId,
+          },
+        },
+        update: {
+          availableBalance: { increment: deltaAvailable },
+          restrictedBalance: { increment: deltaRestricted },
+          inTransitBalance: { increment: deltaInTransit },
+          totalBalance: { increment: delta },
+          lastJournalLineId: line.id,
+        },
+        create: {
+          walletId: line.walletId,
+          assetId: line.assetId,
+          availableBalance: deltaAvailable,
+          restrictedBalance: deltaRestricted,
+          inTransitBalance: deltaInTransit,
+          totalBalance: delta,
+          lastJournalLineId: line.id,
+        },
+      });
+    }
+  }
 
   private toCanonicalSourcePath(source: string): string {
     if (source === 'source') return 'src';
@@ -341,6 +636,7 @@ export class JournalsService {
         lineTemplate.dimensionsRule,
         context,
       );
+      const walletId = this.extractWalletIdFromDimensions(dimensions);
       const description = this.processTemplateString(
         lineTemplate.description || template.description,
         context,
@@ -358,11 +654,14 @@ export class JournalsService {
         referenceId,
         ownerType,
         ownerId,
+        walletId,
         dimensions,
         description,
         journalLineTemplateId: lineTemplate.id,
       });
     }
+
+    await this.alignAssetLineOwnerTypeWithWallet(client, linesCreateInput);
 
     this.assertJournalBalancedByAsset(
       linesCreateInput.map((line) => ({
@@ -372,6 +671,15 @@ export class JournalsService {
         assetId: line.assetId,
       })),
       eventCode,
+    );
+    this.assertAssetLinesHaveWalletId(
+      sourceType,
+      eventCode,
+      linesCreateInput.map((line) => ({
+        lineNo: line.lineNo,
+        accountCode: line.accountCode,
+        walletId: line.walletId,
+      })),
     );
 
     const executeCreate = async (transactionClient: Prisma.TransactionClient) => {
@@ -398,6 +706,7 @@ export class JournalsService {
 
         if (linesCreateInput.length > 0) {
           await transactionClient.journalLine.createMany({ data: linesCreateInput });
+          await this.projectWalletBalances(transactionClient, linesCreateInput);
         }
 
         return createdJournal;
@@ -548,6 +857,7 @@ export class JournalsService {
       fxRate: line.fxRate,
       ownerType: line.ownerType,
       ownerId: line.ownerId,
+      walletId: line.walletId ?? this.extractWalletIdFromDimensions(line.dimensions || '{}'),
       dimensions: line.dimensions,
       referenceId: line.referenceId,
       description: `[REVERSAL] ${line.description}`,
@@ -574,6 +884,7 @@ export class JournalsService {
 
       if (reversalLines.length > 0) {
         await transactionClient.journalLine.createMany({ data: reversalLines });
+        await this.projectWalletBalances(transactionClient, reversalLines);
       }
 
       return createdJournal;

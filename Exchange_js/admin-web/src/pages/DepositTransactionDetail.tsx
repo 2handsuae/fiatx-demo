@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, RefreshCw, Copy, Check, ExternalLink, FileText, User, CreditCard, Activity, Clock, Globe, MapPin, ShieldCheck, Scale } from 'lucide-react';
 import { copyToClipboard } from '../utils/clipboard';
+import { formatAssetAmount } from '../utils/number-format';
 
 interface DepositTransactionDetail {
   id: string;
@@ -253,9 +254,9 @@ const DepositTransactionDetail = () => {
         <DetailCard title="Assets & Amount" icon={<CreditCard size={18} />}>
             <InfoField label="Asset ID" value={data.asset.code} source="main" />
             <InfoField label="Asset Name" value={`${data.asset.code} (${data.asset.network})`} source="main" />
-            <InfoField label="Amount" value={`${Number(data.amount).toLocaleString()}`} highlight source="main" />
-            <InfoField label="Fee Amount" value={`${Number(data.feeAmount).toLocaleString()}`} source="main" />
-            <InfoField label="Net Amount" value={`${Number(data.netAmount).toLocaleString()}`} highlight source="main" />
+            <InfoField label="Amount" value={formatAssetAmount(data.amount, data.asset.decimals)} highlight source="main" />
+            <InfoField label="Fee Amount" value={formatAssetAmount(data.feeAmount, data.asset.decimals)} source="main" />
+            <InfoField label="Net Amount" value={formatAssetAmount(data.netAmount, data.asset.decimals)} highlight source="main" />
         </DetailCard>
 
         {/* 3. Destination Info */}

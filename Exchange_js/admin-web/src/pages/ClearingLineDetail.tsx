@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Hash, DollarSign, Calendar, ExternalLink, RefreshCw, AlertCircle, User, Link as LinkIcon } from 'lucide-react';
+import { formatAssetAmount } from '../utils/number-format';
 
 interface ClearingLineDetail {
   id: string;
@@ -15,6 +16,7 @@ interface ClearingLineDetail {
   
   assetId: string;
   assetCode?: string | null;
+  assetDecimals?: number | null;
   amount: string;
   
   refType: string | null;
@@ -69,11 +71,6 @@ const ClearingLineDetail = () => {
         second: '2-digit',
         hour12: false
     });
-  };
-
-  const formatAmount = (val: string | null) => {
-    if (!val) return '0.00';
-    return Number(val).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 8 });
   };
 
   const renderTypeBadge = (type: string) => {
@@ -186,7 +183,11 @@ const ClearingLineDetail = () => {
         <DetailCard title="Amount & Asset" icon={<DollarSign size={18}/>}>
             <InfoField label="Asset Code" value={data.assetCode} highlight />
             <InfoField label="Asset ID" value={data.assetId} />
-            <InfoField label="Amount" value={formatAmount(data.amount)} highlight />
+            <InfoField
+              label="Amount"
+              value={formatAssetAmount(data.amount, data.assetDecimals)}
+              highlight
+            />
         </DetailCard>
 
         {/* 4. Tracking Reference (追踪引用) */}

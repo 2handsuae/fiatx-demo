@@ -7,7 +7,10 @@ import { JournalsService } from '../modules/accounting/journals/journals.service
 import { ClearingsService } from '../modules/clearing-settle/clearing/clearings.service';
 import { PrismaService } from '../core/prisma/prisma.service';
 import { WithdrawTransactionStatus } from '../modules/trading/withdraw-transactions/dto/withdraw-transaction.dto';
-import { PayoutStatus, PayoutType } from '../modules/asset-treasury/payouts/dto/payout.dto';
+import {
+  PayoutStatus,
+  PayoutType,
+} from '../modules/asset-treasury/payouts/dto/payout.dto';
 
 jest.mock('uuid', () => ({
   v4: () => 'mock-uuid',
@@ -30,6 +33,9 @@ describe('WithdrawWorkflowOrchestrator', () => {
     withdrawTransaction: {
       findUnique: jest.fn(),
       update: jest.fn(),
+    },
+    wallet: {
+      findFirst: jest.fn(),
     },
     payout: {
       findUnique: jest.fn(),
@@ -70,13 +76,18 @@ describe('WithdrawWorkflowOrchestrator', () => {
     toAddress: null,
     toIban: 'IBAN_1',
     toWalletId: null,
+    fromWalletId: 'WALLET_SRC_1',
+    fromWalletNo: 'WA-LBK-AED-NA',
   };
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         WithdrawWorkflowOrchestrator,
-        { provide: WithdrawTransactionsService, useValue: mockWithdrawalService },
+        {
+          provide: WithdrawTransactionsService,
+          useValue: mockWithdrawalService,
+        },
         { provide: PayoutsService, useValue: mockPayoutsService },
         { provide: JournalsService, useValue: mockJournalsService },
         { provide: ClearingsService, useValue: mockClearingsService },
@@ -135,12 +146,16 @@ describe('WithdrawWorkflowOrchestrator', () => {
       'SYSTEM',
       mockPrisma,
     );
-    expect(result?.updated_withdrawal_status).toBe(WithdrawTransactionStatus.SUCCESS);
+    expect(result?.updated_withdrawal_status).toBe(
+      WithdrawTransactionStatus.SUCCESS,
+    );
     expect(result?.updated_payout_status).toBe(PayoutStatus.CLEAR);
   });
 
   it('should skip payout confirmed when marker exists', async () => {
-    mockPrisma.withdrawAuditLog.findFirst.mockResolvedValue({ id: 'LOG_EXIST' });
+    mockPrisma.withdrawAuditLog.findFirst.mockResolvedValue({
+      id: 'LOG_EXIST',
+    });
 
     const result = await orchestrator.onPayoutConfirmed({
       withdrawId: 'WD_1',
@@ -188,6 +203,75 @@ describe('WithdrawWorkflowOrchestrator', () => {
       }),
     );
     expect(result?.payout_binding_status).toBe('created');
+  });
+
+  it('should resolve source wallet before approved accounting when fromWalletId is missing', async () => {
+    mockPrisma.withdrawAuditLog.findFirst.mockResolvedValue(null);
+    mockWithdrawalService.findOne.mockResolvedValue({
+      ...baseWithdrawal,
+      fromWalletId: null,
+      fromWalletNo: null,
+      asset: { type: 'FIAT', code: 'AED', network: null },
+    });
+    mockPrisma.withdrawTransaction.findUnique
+      .mockResolvedValueOnce({
+        ...baseWithdrawal,
+        fromWalletId: null,
+        fromWalletNo: null,
+        asset: { type: 'FIAT', code: 'AED', network: null },
+      })
+      .mockResolvedValueOnce({
+        ...baseWithdrawal,
+        fromWalletId: 'WALLET_RESOLVED_1',
+        fromWalletNo: 'WA-LBK-AED-NA',
+        asset: { type: 'FIAT' },
+      });
+    mockPrisma.wallet.findFirst.mockResolvedValue({
+      id: 'WALLET_RESOLVED_1',
+      walletNo: 'WA-LBK-AED-NA',
+      address: null,
+      iban: 'AE00FIATX1234567890',
+    });
+    mockPrisma.withdrawTransaction.update
+      .mockResolvedValueOnce({
+        ...baseWithdrawal,
+        fromWalletId: 'WALLET_RESOLVED_1',
+        fromWalletNo: 'WA-LBK-AED-NA',
+      })
+      .mockResolvedValueOnce({
+        ...baseWithdrawal,
+        payoutId: 'PO_2',
+        payoutNo: 'PO0002',
+      });
+    mockJournalsService.triggerEvent.mockResolvedValue({ id: 'JE_APR2' });
+    mockPrisma.payout.findUnique.mockResolvedValue(null);
+    mockPayoutsService.create.mockResolvedValue({
+      id: 'PO_2',
+      payoutNo: 'PO0002',
+    });
+    mockPrisma.withdrawAuditLog.create.mockResolvedValue({ id: 'LOG_APR2' });
+
+    await orchestrator.onWithdrawalApprovedFiat({
+      withdrawId: 'WD_1',
+    });
+
+    expect(mockPrisma.wallet.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          walletNo: 'WA-LBK-AED-NA',
+          ownerType: 'PLATFORM',
+          assetId: 'AST_1',
+        }),
+      }),
+    );
+    expect(mockPrisma.withdrawTransaction.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          fromWalletId: 'WALLET_RESOLVED_1',
+          fromWalletNo: 'WA-LBK-AED-NA',
+        }),
+      }),
+    );
   });
 
   it('should use asset.type when deriving payout type suffix', async () => {

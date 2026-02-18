@@ -88,6 +88,10 @@ export class WithdrawTransactionsService {
     netAmount: Prisma.Decimal;
     feeAmount: Prisma.Decimal;
     withdrawNo: string;
+    fromWalletId?: string | null;
+    fromWalletNo?: string | null;
+    toWalletId?: string | null;
+    toWalletNo?: string | null;
   }) {
     return {
       src: {
@@ -98,6 +102,10 @@ export class WithdrawTransactionsService {
         netAmount: withdrawal.netAmount.toString(),
         feeAmount: withdrawal.feeAmount.toString(),
         withdrawNo: withdrawal.withdrawNo,
+        fromWalletId: withdrawal.fromWalletId ?? null,
+        fromWalletNo: withdrawal.fromWalletNo ?? null,
+        toWalletId: withdrawal.toWalletId ?? null,
+        toWalletNo: withdrawal.toWalletNo ?? null,
       },
     };
   }

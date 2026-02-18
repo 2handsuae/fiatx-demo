@@ -2,18 +2,20 @@ import { useState, useEffect } from 'react';
 import { Copy, RefreshCw, Check, Wallet, Building2, Info, AlertTriangle, History, X, Filter, ShieldCheck, Clock } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { useAuth } from '../context/AuthContext';
+import { formatAssetAmount } from '../utils/number-format';
 
 interface Asset {
   id: string;
   code: string;
   type: string;
   network: string | null;
+  decimals?: number;
 }
 
 interface WalletItem {
   id: string;
   type: string;
-  asset: { code: string; type: string };
+  asset: { code: string; type: string; decimals?: number };
   address?: string;
   memo?: string;
   bankName?: string;
@@ -33,6 +35,7 @@ interface Transaction {
     asset: {
         code: string;
         network: string | null;
+        decimals?: number;
     };
     txHash: string | null;
     referenceNo: string | null;
@@ -464,7 +467,7 @@ const Deposit = () => {
                                         </td>
                                         <td className="px-4 py-3">
                                             <div className="font-medium text-slate-900 dark:text-white">
-                                                {Number(tx.amount).toLocaleString()} {tx.asset.code}
+                                                {formatAssetAmount(tx.amount, tx.asset.decimals)} {tx.asset.code}
                                             </div>
                                         </td>
                                         <td className="px-4 py-3">
@@ -695,7 +698,7 @@ const Deposit = () => {
                 <div className="p-6 space-y-6">
                     <div className="text-center">
                         <div className="text-3xl font-bold text-slate-900 dark:text-white mb-2">
-                            {Number(selectedTx.amount).toLocaleString()} <span className="text-slate-500 dark:text-slate-400 text-xl">{selectedTx.asset.code}</span>
+                            {formatAssetAmount(selectedTx.amount, selectedTx.asset.decimals)} <span className="text-slate-500 dark:text-slate-400 text-xl">{selectedTx.asset.code}</span>
                         </div>
                         <div className="mt-2">
                              {renderStatusBadge(selectedTx.status)}

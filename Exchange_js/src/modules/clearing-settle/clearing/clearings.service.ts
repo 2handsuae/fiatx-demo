@@ -290,18 +290,40 @@ export class ClearingsService {
     // Enrich with Asset Codes and Source Nos
     const enrichedItems = await Promise.all(items.map(async (item: any) => {
         let outAssetNo = null;
+        let outAssetDecimals: number | null = null;
         let inAssetNo = null;
+        let inAssetDecimals: number | null = null;
+        let feeAssetNo = null;
+        let feeAssetDecimals: number | null = null;
         let sourceNo = null;
 
         // Fetch Asset Codes
-        if (item.outAssetId) {
-            const asset = await (this.prisma as any).asset.findUnique({ where: { id: item.outAssetId }, select: { code: true } });
-            outAssetNo = asset?.code;
-        }
-        if (item.inAssetId) {
-            const asset = await (this.prisma as any).asset.findUnique({ where: { id: item.inAssetId }, select: { code: true } });
-            inAssetNo = asset?.code;
-        }
+        const [outAsset, inAsset, feeAsset] = await Promise.all([
+          item.outAssetId
+            ? (this.prisma as any).asset.findUnique({
+                where: { id: item.outAssetId },
+                select: { code: true, decimals: true },
+              })
+            : null,
+          item.inAssetId
+            ? (this.prisma as any).asset.findUnique({
+                where: { id: item.inAssetId },
+                select: { code: true, decimals: true },
+              })
+            : null,
+          item.feeAssetId
+            ? (this.prisma as any).asset.findUnique({
+                where: { id: item.feeAssetId },
+                select: { code: true, decimals: true },
+              })
+            : null,
+        ]);
+        outAssetNo = outAsset?.code ?? null;
+        outAssetDecimals = outAsset?.decimals ?? null;
+        inAssetNo = inAsset?.code ?? null;
+        inAssetDecimals = inAsset?.decimals ?? null;
+        feeAssetNo = feeAsset?.code ?? null;
+        feeAssetDecimals = feeAsset?.decimals ?? null;
 
         // Fetch Source No based on type
         if (item.sourceId) {
@@ -328,7 +350,11 @@ export class ClearingsService {
         return {
             ...item,
             outAssetNo,
+            outAssetDecimals,
             inAssetNo,
+            inAssetDecimals,
+            feeAssetNo,
+            feeAssetDecimals,
             sourceNo
         };
     }));
@@ -362,8 +388,11 @@ export class ClearingsService {
     return {
         ...clearing,
         outAssetNo: outAsset?.code || null,
+        outAssetDecimals: outAsset?.decimals ?? null,
         inAssetNo: inAsset?.code || null,
+        inAssetDecimals: inAsset?.decimals ?? null,
         feeAssetNo: feeAsset?.code || null,
+        feeAssetDecimals: feeAsset?.decimals ?? null,
         outPayoutNo: clearing.outPayout?.payoutNo || null,
         inPayinNo: clearing.inPayin?.payinNo || null
     };
@@ -398,16 +427,22 @@ export class ClearingsService {
     }
 
     let assetCode = null;
+    let assetDecimals: number | null = null;
     try {
-        const asset = await (this.prisma as any).asset.findUnique({ where: { id: line.assetId }, select: { code: true } });
+        const asset = await (this.prisma as any).asset.findUnique({
+          where: { id: line.assetId },
+          select: { code: true, decimals: true },
+        });
         assetCode = asset?.code;
+        assetDecimals = asset?.decimals ?? null;
     } catch (e) {}
 
     return {
         ...line,
         clearingNo: line.clearing?.clearingNo,
         partyNo,
-        assetCode
+        assetCode,
+        assetDecimals,
     };
   }
 
@@ -454,15 +489,21 @@ export class ClearingsService {
         }
 
         let assetNo = null;
+        let assetDecimals: number | null = null;
         if (item.assetId) {
-            const asset = await (this.prisma as any).asset.findUnique({ where: { id: item.assetId }, select: { code: true } });
+            const asset = await (this.prisma as any).asset.findUnique({
+              where: { id: item.assetId },
+              select: { code: true, decimals: true },
+            });
             assetNo = asset?.code;
+            assetDecimals = asset?.decimals ?? null;
         }
 
         return { 
             ...item, 
             partyNo,
-            assetNo
+            assetNo,
+            assetDecimals,
         };
     }));
 

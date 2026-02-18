@@ -148,6 +148,7 @@ export class PayinsService {
               code: true,
               type: true,
               network: true,
+              decimals: true,
             },
           },
           toWallet: {

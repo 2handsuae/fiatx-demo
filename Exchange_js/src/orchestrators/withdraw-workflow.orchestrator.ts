@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { PrismaService } from '../core/prisma/prisma.service';
 import { WithdrawTransactionsService } from '../modules/trading/withdraw-transactions/withdraw-transactions.service';
@@ -16,6 +16,10 @@ import {
   PayoutType,
   PayoutAction,
 } from '../modules/asset-treasury/payouts/dto/payout.dto';
+import {
+  buildCryptoSystemWalletNo,
+  buildFiatPoolWalletNo,
+} from '../modules/asset-treasury/wallets/system-wallet.util';
 
 export interface OrchestrationResult {
   updated_withdrawal_status?: string;
@@ -184,18 +188,48 @@ export class WithdrawWorkflowOrchestrator {
     // 4) APPROVED (Entering PAYOUT_PENDING)
     else if (eventType === WithdrawEvents.EVT_WITHDRAWAL_APPROVED__CRYPTO || eventType === WithdrawEvents.EVT_WITHDRAWAL_APPROVED__FIAT) {
       await (this.prisma as any).$transaction(async (tx: any) => {
+        const withdrawalForPosting = await tx.withdrawTransaction.findUnique({
+          where: { id: withdrawId },
+          include: {
+            asset: {
+              select: {
+                id: true,
+                code: true,
+                network: true,
+                type: true,
+              },
+            },
+          },
+        });
+        if (!withdrawalForPosting) {
+          throw new BadRequestException(`Withdrawal ${withdrawId} not found`);
+        }
+
+        const withdrawWithSourceWallet = await this.ensureSourceWalletBound(
+          tx,
+          withdrawalForPosting,
+          suffix,
+        );
+
         await this.clearingsService.triggerClearing(
           {
             sourceType: 'WITHDRAWAL',
-            sourceId: withdrawal.id,
+            sourceId: withdrawWithSourceWallet.id,
             eventCode: eventType,
-            context: this.createAccountingContext(withdrawal),
+            context: this.createAccountingContext(withdrawWithSourceWallet),
           },
           tx,
         );
 
         const updatedAfterClearing = await tx.withdrawTransaction.findUnique({
           where: { id: withdrawId },
+          include: {
+            asset: {
+              select: {
+                type: true,
+              },
+            },
+          },
         });
         if (!updatedAfterClearing) {
           throw new Error(`Withdrawal ${withdrawId} not found after clearing`);
@@ -296,14 +330,41 @@ export class WithdrawWorkflowOrchestrator {
       }, tx);
       result.updated_withdrawal_status = updatedWithdrawal.status;
 
+      let postingWithdrawal = updatedWithdrawal;
+      if (!postingWithdrawal.fromWalletId) {
+        const current = await tx.withdrawTransaction.findUnique({
+          where: { id: withdrawId },
+          include: {
+            asset: {
+              select: {
+                id: true,
+                code: true,
+                network: true,
+                type: true,
+              },
+            },
+          },
+        });
+        if (!current) {
+          throw new BadRequestException(
+            `Withdrawal ${withdrawId} not found while binding source wallet`,
+          );
+        }
+        postingWithdrawal = await this.ensureSourceWalletBound(
+          tx,
+          current,
+          suffix,
+        );
+      }
+
       if (isCustomer) {
         const je = await this.journalsService.triggerEvent({
           entityType: 'WITHDRAW',
           triggerKey: 'status',
           toStatus: WithdrawTransactionStatus.SUCCESS,
           assetType: suffix,
-          context: this.createAccountingContext(updatedWithdrawal),
-          sourceId: updatedWithdrawal.id,
+          context: this.createAccountingContext(postingWithdrawal),
+          sourceId: postingWithdrawal.id,
         }, tx);
         result.created_or_reversed_journal_entry_ids.push(...this.collectJournalIds(je));
       }
@@ -483,7 +544,77 @@ export class WithdrawWorkflowOrchestrator {
         netAmount: withdrawal.netAmount.toString(),
         feeAmount: withdrawal.feeAmount.toString(),
         withdrawNo: withdrawal.withdrawNo,
+        fromWalletId: withdrawal.fromWalletId ?? null,
+        fromWalletNo: withdrawal.fromWalletNo ?? null,
+        toWalletId: withdrawal.toWalletId ?? null,
+        toWalletNo: withdrawal.toWalletNo ?? null,
       },
     };
+  }
+
+  private async ensureSourceWalletBound(
+    tx: any,
+    withdrawal: any,
+    suffix: 'CRYPTO' | 'FIAT',
+  ) {
+    if (withdrawal.fromWalletId) {
+      return withdrawal;
+    }
+
+    const asset = withdrawal.asset;
+    if (!asset) {
+      throw new BadRequestException(
+        `Asset is missing for withdrawal ${withdrawal.id}`,
+      );
+    }
+
+    const walletNo =
+      suffix === 'CRYPTO'
+        ? buildCryptoSystemWalletNo('PAYOUT', asset.code, asset.network)
+        : buildFiatPoolWalletNo('LIQ_BANK', asset.code);
+    const ownerType = suffix === 'CRYPTO' ? 'CUSTOMER' : 'PLATFORM';
+
+    const sourceWallet = await tx.wallet.findFirst({
+      where: {
+        walletNo,
+        ownerType,
+        ownerId: null,
+        assetId: withdrawal.assetId,
+        status: 'ACTIVE',
+      },
+      select: {
+        id: true,
+        walletNo: true,
+        address: true,
+        iban: true,
+      },
+    });
+
+    if (!sourceWallet) {
+      throw new BadRequestException(
+        `Source wallet ${walletNo} not found for withdrawal ${withdrawal.id}`,
+      );
+    }
+
+    const updated = await tx.withdrawTransaction.update({
+      where: { id: withdrawal.id },
+      data: {
+        fromWalletId: sourceWallet.id,
+        fromWalletNo: sourceWallet.walletNo ?? walletNo,
+        fromAddress: sourceWallet.address ?? null,
+        fromIban: sourceWallet.iban ?? null,
+      },
+      include: {
+        asset: {
+          select: {
+            type: true,
+            code: true,
+            network: true,
+          },
+        },
+      },
+    });
+
+    return updated;
   }
 }

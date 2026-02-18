@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Search, RefreshCw, ChevronLeft, ChevronRight, ExternalLink, Eye, ArrowUpDown, X } from 'lucide-react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
+import { formatAssetAmount } from '../utils/number-format';
 
 interface ClearingLineItem {
   id: string;
@@ -12,7 +13,8 @@ interface ClearingLineItem {
   partyNo?: string | null;
   assetId: string;
   assetNo?: string | null;
-  amount: number;
+  assetDecimals?: number | null;
+  amount: number | string;
   refType: string;
   refId: string;
   createdAt: string;
@@ -224,7 +226,9 @@ const ClearingDetailsList = () => {
                         </div>
                     </td>
                     <td className="px-4 py-4">
-                        <div className="font-bold text-gray-900">{item.amount}</div>
+                        <div className="font-bold text-gray-900">
+                          {formatAssetAmount(item.amount, item.assetDecimals)}
+                        </div>
                         <div className="text-[10px] text-brand-primary font-bold" title={item.assetId}>
                             {item.assetNo || item.assetId}
                         </div>

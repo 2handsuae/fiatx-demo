@@ -13,6 +13,7 @@ import {
   Search,
   AlertCircle
 } from 'lucide-react';
+import { formatAssetAmount } from '../utils/number-format';
 
 interface TransactionItem {
   id: string;
@@ -123,12 +124,8 @@ const TransactionHistory = () => {
     fetchTransactions();
   }, [fetchAssetInfo, fetchTransactions]);
 
-  const formatAmount = (amount: string | number, decimals: number = 2) => {
-    return Number(amount).toLocaleString(undefined, { 
-      minimumFractionDigits: decimals, 
-      maximumFractionDigits: decimals 
-    });
-  };
+  const formatAmount = (amount: string | number, decimals: number = 2) =>
+    formatAssetAmount(amount, decimals);
 
   const totalPages = Math.ceil(total / pageSize);
 

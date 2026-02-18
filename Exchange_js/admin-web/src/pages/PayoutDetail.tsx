@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, RefreshCw, Copy, Check, ExternalLink, FileText, User, CreditCard, Activity, Clock, Server, MapPin } from 'lucide-react';
 import { copyToClipboard } from '../utils/clipboard';
+import { formatAssetAmount } from '../utils/number-format';
 
 interface PayoutDetail {
   id: string;
@@ -11,7 +12,7 @@ interface PayoutDetail {
   status: string;
   amount: string;
   assetId: string;
-  asset: { code: string; type: string; network: string | null };
+  asset: { code: string; type: string; network: string | null; decimals?: number };
   toWalletId: string | null;
   toAddress: string | null;
   toIban: string | null;
@@ -265,7 +266,7 @@ const PayoutDetail = () => {
             <InfoField label="Asset ID" value={data.assetId} source="main" />
             <InfoField label="Asset Code" value={data.asset.code} highlight source="main" />
             <InfoField label="Asset Network" value={data.asset.network} source="main" />
-            <InfoField label="Amount" value={`${Number(data.amount).toLocaleString()}`} highlight source="main" />
+            <InfoField label="Amount" value={formatAssetAmount(data.amount, data.asset?.decimals)} highlight source="main" />
         </DetailCard>
 
         {/* 3. Destination Info */}

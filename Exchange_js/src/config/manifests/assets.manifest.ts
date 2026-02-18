@@ -9,15 +9,6 @@ export const DEFAULT_ASSETS = [
     decimals: 2,
     status: 'ACTIVE',
   },
-  {
-    assetNo: 'AS_USD',
-    type: 'FIAT',
-    code: 'USD',
-    network: '',
-    description: 'US Dollar',
-    decimals: 2,
-    status: 'ACTIVE',
-  },
   // 2. Crypto
   {
     assetNo: 'AS_USDT_TRON',
@@ -25,15 +16,6 @@ export const DEFAULT_ASSETS = [
     code: 'USDT',
     network: 'TRON',
     description: 'Tether (TRC20)',
-    decimals: 6,
-    status: 'ACTIVE',
-  },
-  {
-    assetNo: 'AS_USDT_ETH',
-    type: 'CRYPTO',
-    code: 'USDT',
-    network: 'ETHEREUM',
-    description: 'Tether (ERC20)',
     decimals: 6,
     status: 'ACTIVE',
   },

@@ -3,6 +3,7 @@ import {
   BadRequestException,
   NotFoundException,
   Logger,
+  InternalServerErrorException,
 } from '@nestjs/common';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import {
@@ -11,16 +12,92 @@ import {
   OwnerType,
   WalletDirection,
   WalletType,
+  WalletRole,
 } from './dto/wallet.dto';
 import { Prisma } from '@prisma/client';
 import * as crypto from 'crypto';
-import { generateReferenceNo } from '../../../common/utils/no-generator.util';
+import { generateRandomWalletNo } from '../../../common/utils/no-generator.util';
 
 @Injectable()
 export class WalletsService {
   private readonly logger = new Logger(WalletsService.name);
+  private static readonly MAX_WALLET_NO_RETRIES = 5;
 
   constructor(private prisma: PrismaService) {}
+
+  private buildWalletBalanceView(
+    wallet: {
+      id: string;
+      assetId: string;
+      balance: Prisma.Decimal | string | number;
+      lockedBalance: Prisma.Decimal | string | number;
+    },
+    snapshot?: {
+      availableBalance: Prisma.Decimal | string | number;
+      restrictedBalance: Prisma.Decimal | string | number;
+      updatedAt: Date;
+    } | null,
+  ) {
+    const availableBalance =
+      snapshot?.availableBalance !== undefined
+        ? new Prisma.Decimal(snapshot.availableBalance)
+        : new Prisma.Decimal(wallet.balance || 0);
+    const restrictedBalance =
+      snapshot?.restrictedBalance !== undefined
+        ? new Prisma.Decimal(snapshot.restrictedBalance)
+        : new Prisma.Decimal(wallet.lockedBalance || 0);
+    const totalBalance = availableBalance.plus(restrictedBalance);
+
+    return {
+      availableBalance,
+      restrictedBalance,
+      totalBalance,
+      balanceUpdatedAt: snapshot?.updatedAt ?? null,
+    };
+  }
+
+  private async getWalletBalanceSnapshotMap(walletIds: string[]) {
+    if (!walletIds.length) return new Map<string, any>();
+
+    const snapshots = await (this.prisma as any).walletBalanceSnapshot.findMany(
+      {
+        where: {
+          walletId: { in: walletIds },
+        },
+        select: {
+          walletId: true,
+          availableBalance: true,
+          restrictedBalance: true,
+          updatedAt: true,
+        },
+      },
+    );
+
+    return new Map(snapshots.map((item: any) => [item.walletId, item]));
+  }
+
+  private async getAedRateByAssetMap(assetIds: string[]) {
+    if (!assetIds.length) return new Map<string, Prisma.Decimal>();
+
+    const rates = await (this.prisma as any).assetValuationRate.findMany({
+      where: {
+        assetId: { in: assetIds },
+        quoteAssetCode: 'AED',
+        status: 'ACTIVE',
+      },
+      select: {
+        assetId: true,
+        price: true,
+      },
+    });
+
+    return new Map(
+      rates.map((item: { assetId: string; price: Prisma.Decimal }) => [
+        item.assetId,
+        new Prisma.Decimal(item.price),
+      ]),
+    );
+  }
 
   private resolveCustomerOwnerName(customer?: {
     companyName: string | null;
@@ -49,6 +126,18 @@ export class WalletsService {
       'code' in error &&
       (error as { code?: unknown }).code === 'P2002'
     );
+  }
+
+  private isWalletNoUniqueConstraintError(error: unknown): boolean {
+    const maybe = error as {
+      code?: string;
+      meta?: { target?: string[] | string };
+    };
+    if (maybe?.code !== 'P2002') return false;
+    const target = maybe.meta?.target;
+    if (Array.isArray(target)) return target.includes('walletNo');
+    if (typeof target === 'string') return target.includes('walletNo');
+    return false;
   }
 
   async create(data: CreateWalletDto) {
@@ -90,7 +179,7 @@ export class WalletsService {
             type: data.type,
           },
           include: {
-            asset: { select: { code: true, type: true } },
+            asset: { select: { code: true, type: true, decimals: true } },
           },
         });
         if (existing) {
@@ -130,41 +219,64 @@ export class WalletsService {
       if (!lp) throw new BadRequestException('Invalid Liquidity Provider ID');
     }
 
-    try {
-      const result = await this.prisma.wallet.create({
-        data: {
-          walletNo: generateReferenceNo('WA'),
-          ownerType: data.ownerType,
-          ownerId: data.ownerType === OwnerType.PLATFORM ? null : data.ownerId,
-          type: data.type,
-          direction: data.direction,
-          assetId: data.assetId,
-          address: data.address,
-          memo: data.memo,
-          beneficiaryName: data.beneficiaryName,
-          counterpartyVasp: data.counterpartyVasp,
-          bankName: data.bankName,
-          bankAccount: data.bankAccount,
-          bankCode: data.bankCode,
-          accountName: data.accountName,
-          iban: data.iban,
-          status: WalletStatus.ACTIVE,
-        },
-        include: {
-          asset: { select: { code: true, type: true } },
-        },
-      });
+    for (
+      let attempt = 1;
+      attempt <= WalletsService.MAX_WALLET_NO_RETRIES;
+      attempt += 1
+    ) {
+      const walletRole =
+        data.walletRole ??
+        (data.ownerType === OwnerType.CUSTOMER &&
+        data.direction === WalletDirection.INBOUND
+          ? WalletRole.DEPOSIT
+          : WalletRole.GENERAL);
+      const walletNo = generateRandomWalletNo(walletRole);
 
-      this.logger.log(`Wallet created: ${result.id}`);
-      return result;
-    } catch (error) {
-      if (this.isUniqueConstraintError(error)) {
-        throw new BadRequestException(
-          'Inbound customer wallet already exists for this asset and type',
-        );
+      try {
+        const result = await this.prisma.wallet.create({
+          data: {
+            walletNo,
+            ownerType: data.ownerType,
+            ownerId:
+              data.ownerType === OwnerType.PLATFORM ? null : data.ownerId,
+            type: data.type,
+            direction: data.direction,
+            walletRole,
+            assetId: data.assetId,
+            address: data.address,
+            memo: data.memo,
+            beneficiaryName: data.beneficiaryName,
+            counterpartyVasp: data.counterpartyVasp,
+            bankName: data.bankName,
+            bankAccount: data.bankAccount,
+            bankCode: data.bankCode,
+            accountName: data.accountName,
+            iban: data.iban,
+            status: WalletStatus.ACTIVE,
+          },
+          include: {
+            asset: { select: { code: true, type: true, decimals: true } },
+          },
+        });
+
+        this.logger.log(`Wallet created: ${result.id}`);
+        return result;
+      } catch (error) {
+        if (this.isWalletNoUniqueConstraintError(error)) {
+          continue;
+        }
+        if (this.isUniqueConstraintError(error)) {
+          throw new BadRequestException(
+            'Inbound customer wallet already exists for this asset and type',
+          );
+        }
+        throw error;
       }
-      throw error;
     }
+
+    throw new InternalServerErrorException(
+      `Failed to generate unique walletNo after ${WalletsService.MAX_WALLET_NO_RETRIES} attempts`,
+    );
   }
 
   async findAll(params: {
@@ -181,10 +293,25 @@ export class WalletsService {
         where,
         orderBy,
         include: {
-          asset: { select: { code: true, type: true } },
+          asset: {
+            select: {
+              id: true,
+              code: true,
+              type: true,
+              network: true,
+              decimals: true,
+            },
+          },
         },
       }),
       this.prisma.wallet.count({ where }),
+    ]);
+
+    const walletIds = items.map((item) => item.id);
+    const assetIds = Array.from(new Set(items.map((item) => item.assetId)));
+    const [snapshotByWalletId, aedRateByAssetId] = await Promise.all([
+      this.getWalletBalanceSnapshotMap(walletIds),
+      this.getAedRateByAssetMap(assetIds),
     ]);
 
     const customerOwnerIds = [
@@ -234,7 +361,9 @@ export class WalletsService {
         : Promise.resolve([]),
     ]);
 
-    const customerMap = new Map(customers.map((customer) => [customer.id, customer]));
+    const customerMap = new Map(
+      customers.map((customer) => [customer.id, customer]),
+    );
     const lpMap = new Map(
       liquidityProviders.map((provider) => [provider.id, provider]),
     );
@@ -260,10 +389,26 @@ export class WalletsService {
         ownerName = provider?.name ?? null;
       }
 
+      const snapshot = snapshotByWalletId.get(item.id) ?? null;
+      const balanceView = this.buildWalletBalanceView(item, snapshot);
+      const totalAedEquivalent =
+        item.asset.type === 'FIAT'
+          ? item.asset.code === 'AED'
+            ? balanceView.totalBalance
+            : null
+          : (() => {
+              const rate = aedRateByAssetId.get(item.assetId) as
+                | Prisma.Decimal
+                | undefined;
+              return rate ? balanceView.totalBalance.mul(rate) : null;
+            })();
+
       return {
         ...item,
         ownerNo,
         ownerName,
+        ...balanceView,
+        totalAedEquivalent,
       };
     });
 
@@ -279,6 +424,29 @@ export class WalletsService {
     });
     if (!item) throw new NotFoundException('Wallet not found');
 
+    const [snapshot, valuationRate] = await Promise.all([
+      (this.prisma as any).walletBalanceSnapshot.findUnique({
+        where: {
+          walletId_assetId: {
+            walletId: item.id,
+            assetId: item.assetId,
+          },
+        },
+      }),
+      (this.prisma as any).assetValuationRate.findUnique({
+        where: {
+          assetId_quoteAssetCode: {
+            assetId: item.assetId,
+            quoteAssetCode: 'AED',
+          },
+        },
+        select: {
+          price: true,
+          status: true,
+        },
+      }),
+    ]);
+
     let ownerNo: string | null = item.ownerNo;
     if (!ownerNo && item.ownerType === OwnerType.CUSTOMER && item.ownerId) {
       const customer = await this.prisma.customerMain.findUnique({
@@ -288,7 +456,93 @@ export class WalletsService {
       ownerNo = customer?.customerNo ?? null;
     }
 
-    return { ...item, ownerNo };
+    const balanceView = this.buildWalletBalanceView(item, snapshot);
+    const totalAedEquivalent =
+      item.asset.type === 'FIAT'
+        ? item.asset.code === 'AED'
+          ? balanceView.totalBalance
+          : null
+        : valuationRate?.status === 'ACTIVE'
+          ? balanceView.totalBalance.mul(
+              new Prisma.Decimal(valuationRate.price),
+            )
+          : null;
+
+    return {
+      ...item,
+      ownerNo,
+      ...balanceView,
+      totalAedEquivalent,
+    };
+  }
+
+  async findBalance(id: string) {
+    const wallet = await this.prisma.wallet.findUnique({
+      where: { id },
+      include: {
+        asset: {
+          select: {
+            id: true,
+            code: true,
+            type: true,
+            network: true,
+            decimals: true,
+          },
+        },
+      },
+    });
+    if (!wallet) throw new NotFoundException('Wallet not found');
+
+    const [snapshot, valuationRate] = await Promise.all([
+      (this.prisma as any).walletBalanceSnapshot.findUnique({
+        where: {
+          walletId_assetId: {
+            walletId: wallet.id,
+            assetId: wallet.assetId,
+          },
+        },
+      }),
+      (this.prisma as any).assetValuationRate.findUnique({
+        where: {
+          assetId_quoteAssetCode: {
+            assetId: wallet.assetId,
+            quoteAssetCode: 'AED',
+          },
+        },
+        select: {
+          price: true,
+          quoteAssetCode: true,
+          status: true,
+          updatedAt: true,
+        },
+      }),
+    ]);
+
+    const balanceView = this.buildWalletBalanceView(wallet, snapshot);
+    const quotePrice =
+      wallet.asset.type === 'FIAT'
+        ? wallet.asset.code === 'AED'
+          ? new Prisma.Decimal(1)
+          : null
+        : valuationRate?.status === 'ACTIVE'
+          ? new Prisma.Decimal(valuationRate.price)
+          : null;
+
+    return {
+      walletId: wallet.id,
+      walletNo: wallet.walletNo,
+      ownerType: wallet.ownerType,
+      ownerId: wallet.ownerId,
+      ownerNo: wallet.ownerNo,
+      asset: wallet.asset,
+      ...balanceView,
+      quoteAssetCode: 'AED',
+      quotePrice,
+      totalAedEquivalent: quotePrice
+        ? balanceView.totalBalance.mul(quotePrice)
+        : null,
+      valuationUpdatedAt: valuationRate?.updatedAt ?? null,
+    };
   }
 
   async changeStatus(id: string, status: WalletStatus) {

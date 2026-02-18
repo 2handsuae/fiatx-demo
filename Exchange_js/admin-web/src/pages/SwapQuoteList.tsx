@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Eye, RefreshCw, Search } from 'lucide-react';
+import { formatAssetAmount, formatRate8 } from '../utils/number-format';
 
 interface SwapQuoteListItem {
   id: string;
@@ -10,6 +11,8 @@ interface SwapQuoteListItem {
   ownerNo: string | null;
   fromAssetCode: string;
   toAssetCode: string;
+  fromAsset?: { code: string; decimals?: number | null } | null;
+  toAsset?: { code: string; decimals?: number | null } | null;
   amountIn: string;
   amountOut: string;
   rateAllIn: string;
@@ -219,14 +222,14 @@ const SwapQuoteList = () => {
                     </td>
                     <td className="px-6 py-4">
                       <div className="text-red-600">
-                        {Number(item.amountIn).toLocaleString()} {item.fromAssetCode}
+                        {formatAssetAmount(item.amountIn, item.fromAsset?.decimals)} {item.fromAssetCode}
                       </div>
                       <div className="text-green-600 text-xs">
-                        {Number(item.amountOut).toLocaleString()} {item.toAssetCode}
+                        {formatAssetAmount(item.amountOut, item.toAsset?.decimals)} {item.toAssetCode}
                       </div>
                     </td>
                     <td className="px-6 py-4 font-mono text-gray-700">
-                      {Number(item.rateAllIn).toFixed(8)}
+                      {formatRate8(item.rateAllIn)}
                     </td>
                     <td className="px-6 py-4 text-xs text-gray-500">
                       <div>C: {new Date(item.createdAt).toLocaleString('en-US')}</div>

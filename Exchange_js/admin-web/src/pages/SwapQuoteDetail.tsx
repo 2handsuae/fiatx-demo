@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, RefreshCw } from 'lucide-react';
+import { formatAssetAmount, formatRate8 } from '../utils/number-format';
 
 interface SwapQuoteDetailData {
   id: string;
@@ -11,6 +12,8 @@ interface SwapQuoteDetailData {
   ownerNo: string | null;
   fromAssetCode: string;
   toAssetCode: string;
+  fromAsset?: { code: string; decimals?: number | null } | null;
+  toAsset?: { code: string; decimals?: number | null } | null;
   side: string;
   amountType: string;
   amountIn: string;
@@ -107,6 +110,12 @@ const SwapQuoteDetail = () => {
   }
 
   if (!data) return null;
+  const feeDecimals =
+    data.feeCurrency === data.fromAssetCode
+      ? data.fromAsset?.decimals
+      : data.feeCurrency === data.toAssetCode
+      ? data.toAsset?.decimals
+      : 8;
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto pb-12">
@@ -147,11 +156,11 @@ const SwapQuoteDetail = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <Field label="Pair" value={`${data.fromAssetCode} -> ${data.toAssetCode}`} />
           <Field label="Side / Amount Type" value={`${data.side} / ${data.amountType}`} />
-          <Field label="Amount In" value={`${Number(data.amountIn).toLocaleString()} ${data.currencyIn}`} />
-          <Field label="Amount Out" value={`${Number(data.amountOut).toLocaleString()} ${data.currencyOut}`} />
-          <Field label="Rate Display" value={Number(data.rateDisplay).toFixed(8)} />
-          <Field label="Rate All-In" value={Number(data.rateAllIn).toFixed(8)} />
-          <Field label="Market Rate" value={Number(data.marketRate).toFixed(8)} />
+          <Field label="Amount In" value={`${formatAssetAmount(data.amountIn, data.fromAsset?.decimals)} ${data.currencyIn}`} />
+          <Field label="Amount Out" value={`${formatAssetAmount(data.amountOut, data.toAsset?.decimals)} ${data.currencyOut}`} />
+          <Field label="Rate Display" value={formatRate8(data.rateDisplay)} />
+          <Field label="Rate All-In" value={formatRate8(data.rateAllIn)} />
+          <Field label="Market Rate" value={formatRate8(data.marketRate)} />
           <Field label="Spread" value={`${Number(data.spreadPercent)}% (${data.spreadBps} bps)`} />
           <Field label="Rate Source" value={data.rateSource} />
           <Field label="Fetched At" value={new Date(data.fetchedAt).toLocaleString('en-US')} />
@@ -161,7 +170,7 @@ const SwapQuoteDetail = () => {
       <div className="bg-white rounded-xl border border-admin-border shadow-sm p-6">
         <h3 className="text-sm font-bold text-gray-900 uppercase mb-4">Fees</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-4">
-          <Field label="Fee Total" value={`${Number(data.feeTotal).toLocaleString()} ${data.feeCurrency}`} />
+          <Field label="Fee Total" value={`${formatAssetAmount(data.feeTotal, feeDecimals)} ${data.feeCurrency}`} />
           <Field label="Fee Breakdown Items" value={String(feeBreakdown.length)} />
         </div>
         <pre className="text-xs bg-gray-50 border border-gray-100 rounded-lg p-3 overflow-auto text-gray-700">

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Search, RefreshCw, Eye, CheckCircle, XCircle, ShieldCheck } from 'lucide-react';
+import { formatAssetAmount, formatRate8 } from '../utils/number-format';
 
 interface SwapTransaction {
   id: string;
@@ -8,9 +9,9 @@ interface SwapTransaction {
   ownerType: string;
   ownerId: string;
   status: string;
-  fromAsset: { code: string; type: string };
+  fromAsset: { code: string; type: string; decimals?: number | null };
   fromAmount: string;
-  toAsset: { code: string; type: string };
+  toAsset: { code: string; type: string; decimals?: number | null };
   toAmount: string;
   exchangeRate: string;
   createdAt: string;
@@ -231,18 +232,18 @@ const SwapTransactionList = () => {
                     </td>
                     <td className="px-6 py-4">
                       <div className="font-medium text-red-600">
-                        {Number(item.fromAmount).toLocaleString()} {item.fromAsset.code}
+                        {formatAssetAmount(item.fromAmount, item.fromAsset.decimals)} {item.fromAsset.code}
                       </div>
                       <div className="text-xs text-gray-400">{item.fromAsset.type}</div>
                     </td>
                     <td className="px-6 py-4">
                       <div className="font-medium text-green-600">
-                        {Number(item.toAmount).toLocaleString()} {item.toAsset.code}
+                        {formatAssetAmount(item.toAmount, item.toAsset.decimals)} {item.toAsset.code}
                       </div>
                       <div className="text-xs text-gray-400">{item.toAsset.type}</div>
                     </td>
                     <td className="px-6 py-4 font-mono text-gray-600">
-                      {Number(item.exchangeRate).toFixed(6)}
+                      {formatRate8(item.exchangeRate)}
                     </td>
                     <td className="px-6 py-4">
                       {renderStatusBadge(item.status)}
