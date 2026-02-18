@@ -175,3 +175,29 @@
 - Constraint language is English (aligned with constraints folder style).
 - Current default implementation enables fiat manual and outstanding-settlement routes only for `CUST_BANK <-> LIQ_BANK`.
 - This document is behavioral contract; schema/path expansion requires explicit owner approval.
+
+## 13) Recent Decision Log (2026-02-18)
+- Outstanding settlement MUST remain a reconciliation-domain orchestrator and MUST NOT bypass internal execution layers.
+- Settlement execution chain MUST remain:
+1. `outstanding_settlement (1)`
+2. `internal_transactions (N, per asset)`
+3. `internal_funds (1:1 with current implementation)`
+- Event/template naming for INTERNAL_TX MUST remain explicit by asset domain:
+1. `EVT_INTERNAL_TX_*__CRYPTO`
+2. `EVT_INTERNAL_TX_*__FIAT`
+- `WITHDRAWAL_FAILED` contract MUST stay unified as:
+1. event code: `EVT_WITHDRAWAL_FAILED`
+2. assetType: `ALL`
+3. posting mode: `BULK_REVERSAL_BY_SOURCE`
+- Legacy non-suffixed internal tx events/templates and split withdrawal-failed events are deprecated and MUST be cleaned from active defaults.
+- FIAT withdraw source wallet binding for posting MUST use `buildFiatPoolWalletNo('CUST_BANK', code)` (AED baseline `WA-CBK-AED-NA`), and MUST NOT route to `LIQ_BANK` for withdraw posting.
+- Wallet-bound posting idempotency remains unchanged:
+1. if `withdraw.fromWalletId` already exists, do not rebind automatically
+2. the wallet fix is forward-effective for newly bound FIAT withdraws
+- Business reset boundary MUST include these tables:
+1. `swap_quotes`
+2. `outstandings`
+3. `outstanding_settlements`
+4. `outstanding_settlement_items`
+5. `customer_swap_rate_configurations`
+- Base config boundary MUST keep `asset_valuation_rates` in base scope (not business reset scope).
