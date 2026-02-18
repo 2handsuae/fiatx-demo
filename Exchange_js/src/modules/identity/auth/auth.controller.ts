@@ -2,6 +2,7 @@ import {
   Controller,
   Post,
   Body,
+  Req,
   UnauthorizedException,
   HttpCode,
   HttpStatus,
@@ -20,18 +21,30 @@ const LoginSchema = z.object({
 export class AuthController {
   constructor(private authService: AuthService) {}
 
+  private resolveRequestSourceIp(req: any): string | undefined {
+    const xff = req.headers?.['x-forwarded-for'];
+    if (typeof xff === 'string' && xff.length > 0) {
+      return xff.split(',')[0]?.trim();
+    }
+    return req.ip;
+  }
+
   @Post('login')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Login for admin' })
   @ApiResponse({ status: 200, description: 'Return JWT token' })
-  async login(@Body() body: any) {
+  async login(@Req() req: any, @Body() body: any) {
     // Validate input
     const result = LoginSchema.safeParse(body);
     if (!result.success) {
       throw new UnauthorizedException('Invalid input format');
     }
 
-    const user = await this.authService.validateUser(body.email, body.password);
+    const user = await this.authService.validateUser(body.email, body.password, {
+      requestId: req.id,
+      sourceIp: this.resolveRequestSourceIp(req),
+      sourcePlatform: 'ADMIN_AUTH_API',
+    });
     if (!user) {
       throw new UnauthorizedException('Invalid credentials');
     }

@@ -19,6 +19,14 @@ import { Prisma } from '@prisma/client';
 import { JournalsService } from '../../accounting/journals/journals.service';
 import { SwapQuotesService } from './swap-quotes.service';
 import { OutstandingsService } from '../../clearing-settle/outstandings/outstandings.service';
+import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
+import {
+  AuditActions,
+  AuditEntityTypes,
+  AuditModules,
+  buildStateTransitionAction,
+} from '../../risk-engine/audit-logs/constants/audit-actions.constant';
+import { AuditTriggerType } from '../../risk-engine/audit-logs/dto/audit-log.dto';
 
 export interface SwapOrchestratorOutput {
   swap_status_after: SwapTransactionStatus;
@@ -30,6 +38,7 @@ export interface SwapOrchestratorOutput {
 @Injectable()
 export class SwapWorkflowOrchestrator {
   private readonly logger = new Logger(SwapWorkflowOrchestrator.name);
+  private readonly auditLogsService: AuditLogsService;
 
   constructor(
     private prisma: PrismaService,
@@ -38,7 +47,9 @@ export class SwapWorkflowOrchestrator {
     private journalsService: JournalsService,
     private swapQuotesService: SwapQuotesService,
     private outstandingsService: OutstandingsService,
-  ) {}
+  ) {
+    this.auditLogsService = new AuditLogsService(prisma);
+  }
 
   private createAccountingContext(swap: {
     id: string;
@@ -144,16 +155,33 @@ export class SwapWorkflowOrchestrator {
         },
       });
 
-      // Write audit trail
-      const auditLog = await tx.swapTransactionAuditLog.create({
-        data: {
-          swapTransactionId: transaction.id,
-          operatorId: dto.ownerId,
-          oldStatus: 'NONE',
-          newStatus: SwapTransactionStatus.PENDING_COMPLIANCE,
+      const auditLog = await this.auditLogsService.recordByActor(
+        {
+          triggerType: AuditTriggerType.DATA_CREATE,
+          action: AuditActions.SWAP_CREATED,
+          module: AuditModules.SWAP_TRANSACTIONS,
+          entityType: AuditEntityTypes.SWAP_TRANSACTION,
+          entityId: transaction.id,
+          entityNo: transaction.swapNo || undefined,
+          entityOwnerType: transaction.ownerType,
+          entityOwnerId: transaction.ownerId,
           reason: 'Initial creation',
+          afterData: {
+            status: transaction.status,
+            fromAssetId: transaction.fromAssetId,
+            toAssetId: transaction.toAssetId,
+            fromAmount: transaction.fromAmount?.toString?.(),
+            toAmount: transaction.toAmount?.toString?.(),
+          },
+          sourcePlatform: 'SYSTEM',
         },
-      });
+        {
+          actorType: dto.ownerType === 'CUSTOMER' ? 'CUSTOMER' : 'ADMIN',
+          actorId: dto.ownerId,
+          actorRole: dto.ownerType,
+        },
+        tx,
+      );
 
       await this.journalsService.createJournal(
         {
@@ -257,15 +285,37 @@ export class SwapWorkflowOrchestrator {
         now,
       );
 
-      const auditLog = await tx.swapTransactionAuditLog.create({
-        data: {
-          swapTransactionId: transaction.id,
-          operatorId: ownerId,
-          oldStatus: 'NONE',
-          newStatus: SwapTransactionStatus.PENDING_COMPLIANCE,
+      const auditLog = await this.auditLogsService.recordByActor(
+        {
+          triggerType: AuditTriggerType.DATA_CREATE,
+          action: AuditActions.SWAP_CREATED,
+          module: AuditModules.SWAP_TRANSACTIONS,
+          entityType: AuditEntityTypes.SWAP_TRANSACTION,
+          entityId: transaction.id,
+          entityNo: transaction.swapNo || undefined,
+          entityOwnerType: transaction.ownerType,
+          entityOwnerId: transaction.ownerId,
           reason: `Created from quote ${quote.id}`,
+          metadata: {
+            quoteId: quote.id,
+            quoteNo: quote.quoteNo,
+          },
+          afterData: {
+            status: transaction.status,
+            fromAssetId: transaction.fromAssetId,
+            toAssetId: transaction.toAssetId,
+            fromAmount: transaction.fromAmount?.toString?.(),
+            toAmount: transaction.toAmount?.toString?.(),
+          },
+          sourcePlatform: 'CUSTOMER_API',
         },
-      });
+        {
+          actorType: 'CUSTOMER',
+          actorId: ownerId,
+          actorRole: 'CUSTOMER',
+        },
+        tx,
+      );
 
       await this.journalsService.createJournal(
         {
@@ -341,16 +391,30 @@ export class SwapWorkflowOrchestrator {
         await this.outstandingsService.createForSwapSuccess(tx, updated);
       }
 
-      // 2. Record Audit Log
-      const auditLog = await tx.swapTransactionAuditLog.create({
-        data: {
-          swapTransactionId: id,
-          operatorId,
-          oldStatus: currentStatus,
-          newStatus: nextStatus,
+      const auditLog = await this.auditLogsService.recordByActor(
+        {
+          triggerType: AuditTriggerType.STATE_TRANSITION,
+          action: buildStateTransitionAction('SWAP', currentStatus, nextStatus),
+          module: AuditModules.SWAP_TRANSACTIONS,
+          entityType: AuditEntityTypes.SWAP_TRANSACTION,
+          entityId: updated.id,
+          entityNo: updated.swapNo || undefined,
+          entityOwnerType: updated.ownerType,
+          entityOwnerId: updated.ownerId,
+          statusFrom: currentStatus,
+          statusTo: nextStatus,
           reason: dto.reason || `Action: ${action}`,
+          beforeData: { status: currentStatus },
+          afterData: { status: nextStatus },
+          sourcePlatform: operatorId === 'SYSTEM' ? 'SYSTEM' : 'ADMIN_API',
         },
-      });
+        {
+          actorType: operatorId === 'SYSTEM' ? 'SYSTEM' : 'ADMIN',
+          actorId: operatorId,
+          actorRole: operatorId === 'SYSTEM' ? 'SYSTEM' : 'ADMIN',
+        },
+        tx,
+      );
 
       if (
         action === SwapTransactionAction.SUCCESS ||
@@ -370,39 +434,12 @@ export class SwapWorkflowOrchestrator {
         );
       }
 
-      // 3. Emit Events based on rules (with idempotency check, for notifications only)
       const emitted_events: string[] = [];
 
-      const checkAndEmit = async (
-        event: string,
-        swapId: string,
-        payload: any,
-      ) => {
-        const existingLog = await tx.swapTransactionAuditLog.findFirst({
-          where: {
-            swapTransactionId: swapId,
-            newStatus: nextStatus,
-            id: { not: auditLog.id },
-          },
-        });
-
-        if (!existingLog) {
-          // this.eventEmitter.emit(event, payload); // MOVE OUTSIDE
-          emitted_events.push(event);
-        } else {
-          this.logger.warn(
-            `[Idempotency] Event ${event} for swap ${swapId} already emitted previously. Skipping.`,
-          );
-        }
-      };
-
       if (action === SwapTransactionAction.SUCCESS) {
-        await checkAndEmit(SwapEvents.EVT_SWAP_SUCCESS, id, { swapId: id });
+        emitted_events.push(SwapEvents.EVT_SWAP_SUCCESS);
       } else if (action === SwapTransactionAction.REJECT) {
-        await checkAndEmit(SwapEvents.EVT_SWAP_REJECTED, id, {
-          swapId: id,
-          reason: dto.reason,
-        });
+        emitted_events.push(SwapEvents.EVT_SWAP_REJECTED);
       }
 
       return {

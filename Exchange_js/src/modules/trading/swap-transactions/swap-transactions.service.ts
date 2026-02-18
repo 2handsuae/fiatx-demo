@@ -15,6 +15,14 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { SwapEvents } from './constants/swap-events.constant';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 import { CustomerSwapRatesService } from '../../identity/customer-swap-rates/customer-swap-rates.service';
+import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
+import {
+  AuditActions,
+  AuditEntityTypes,
+  AuditModules,
+  buildStateTransitionAction,
+} from '../../risk-engine/audit-logs/constants/audit-actions.constant';
+import { AuditTriggerType } from '../../risk-engine/audit-logs/dto/audit-log.dto';
 
 export interface SwapExecutableRateResult {
   fromAssetId: string;
@@ -32,12 +40,22 @@ export interface SwapExecutableRateResult {
 export class SwapTransactionsService {
   private readonly logger = new Logger(SwapTransactionsService.name);
   private readonly AED_USD_RATE = 3.6725;
+  private readonly auditLogsService: AuditLogsService;
 
   constructor(
     private prisma: PrismaService,
     private eventEmitter: EventEmitter2,
     private customerSwapRatesService: CustomerSwapRatesService,
-  ) {}
+  ) {
+    this.auditLogsService = new AuditLogsService(prisma);
+  }
+
+  private resolveActor(operatorId: string) {
+    if (operatorId === 'SYSTEM') {
+      return { actorType: 'SYSTEM', actorId: 'SYSTEM', actorRole: 'SYSTEM' };
+    }
+    return { actorType: 'ADMIN', actorId: operatorId, actorRole: 'ADMIN' };
+  }
 
   async create(dto: {
     ownerType: string;
@@ -84,6 +102,24 @@ export class SwapTransactionsService {
     });
 
     this.logger.log(`Swap created: ${swap.id} (${swap.swapNo})`);
+    await this.auditLogsService.recordSystem({
+      triggerType: AuditTriggerType.DATA_CREATE,
+      action: AuditActions.SWAP_CREATED,
+      module: AuditModules.SWAP_TRANSACTIONS,
+      entityType: AuditEntityTypes.SWAP_TRANSACTION,
+      entityId: swap.id,
+      entityNo: swap.swapNo || undefined,
+      entityOwnerType: swap.ownerType,
+      entityOwnerId: swap.ownerId,
+      afterData: {
+        status: swap.status,
+        fromAssetId: swap.fromAssetId,
+        toAssetId: swap.toAssetId,
+        fromAmount: swap.fromAmount?.toString?.(),
+        toAmount: swap.toAmount?.toString?.(),
+      },
+      sourcePlatform: 'SYSTEM',
+    });
     this.eventEmitter.emit(SwapEvents.EVT_SWAP_CREATED, { swapId: swap.id });
 
     return swap;
@@ -129,15 +165,26 @@ export class SwapTransactionsService {
         },
       });
 
-      await (tx as any).swapTransactionAuditLog.create({
-        data: {
-          swapTransactionId: id,
-          operatorId,
-          oldStatus,
-          newStatus,
+      await this.auditLogsService.recordByActor(
+        {
+          triggerType: AuditTriggerType.STATE_TRANSITION,
+          action: buildStateTransitionAction('SWAP', oldStatus, newStatus),
+          module: AuditModules.SWAP_TRANSACTIONS,
+          entityType: AuditEntityTypes.SWAP_TRANSACTION,
+          entityId: updated.id,
+          entityNo: updated.swapNo || undefined,
+          entityOwnerType: updated.ownerType,
+          entityOwnerId: updated.ownerId,
+          statusFrom: oldStatus,
+          statusTo: newStatus,
           reason,
+          beforeData: { status: oldStatus },
+          afterData: { status: newStatus },
+          sourcePlatform: operatorId === 'SYSTEM' ? 'SYSTEM' : 'ADMIN_API',
         },
-      });
+        this.resolveActor(operatorId),
+        tx as Prisma.TransactionClient,
+      );
 
       return updated;
     });

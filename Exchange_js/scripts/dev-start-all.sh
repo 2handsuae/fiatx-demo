@@ -4,7 +4,14 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
-RUNTIME_DIR="/tmp/exchange_js_dev_runtime"
+BACKEND_PORT="${BACKEND_PORT:-3400}"
+ADMIN_PORT="${ADMIN_PORT:-3401}"
+CLIENT_PORT="${CLIENT_PORT:-3402}"
+BACKEND_URL="http://localhost:${BACKEND_PORT}"
+ADMIN_URL="http://localhost:${ADMIN_PORT}"
+CLIENT_URL="http://localhost:${CLIENT_PORT}"
+
+RUNTIME_DIR="/tmp/exchange_js_dev_runtime_${BACKEND_PORT}"
 BACKEND_LOG="${RUNTIME_DIR}/backend.log"
 ADMIN_LOG="${RUNTIME_DIR}/admin.log"
 CLIENT_LOG="${RUNTIME_DIR}/client.log"
@@ -113,6 +120,32 @@ bootstrap_database_if_needed() {
   )
 }
 
+ensure_audit_log_schema() {
+  local db_file
+  db_file="$(resolve_db_file)"
+  local migration_file="${MIGRATIONS_DIR}/20260218172000_audit_log_subject_no_enhancement/migration.sql"
+
+  if [[ ! -f "${db_file}" ]]; then
+    return 0
+  fi
+
+  if [[ ! -f "${migration_file}" ]]; then
+    return 0
+  fi
+
+  local has_actor_no
+  has_actor_no="$(sqlite3 "${db_file}" "PRAGMA table_info('audit_log_events');" 2>/dev/null | grep -c '|actorNo|')"
+  local has_subject_table
+  has_subject_table="$(sqlite3 "${db_file}" ".tables" 2>/dev/null | grep -c 'audit_log_subject_nos')"
+
+  if [[ "${has_actor_no}" -gt 0 && "${has_subject_table}" -gt 0 ]]; then
+    return 0
+  fi
+
+  echo "[backend] Applying audit log subject-no migration to ${db_file}..."
+  sqlite3 "${db_file}" < "${migration_file}"
+}
+
 assert_port_free() {
   local port="$1"
   local name="$2"
@@ -154,45 +187,48 @@ ensure_dependencies "backend" "${BACKEND_DIR}"
 ensure_dependencies "admin" "${ADMIN_DIR}"
 ensure_dependencies "client" "${CLIENT_DIR}"
 bootstrap_database_if_needed
+ensure_audit_log_schema
+DB_FILE="$(resolve_db_file)"
 
 bash "${SCRIPT_DIR}/dev-stop-all.sh" >/dev/null 2>&1 || true
 rm -f "${BACKEND_PID_FILE}" "${ADMIN_PID_FILE}" "${CLIENT_PID_FILE}"
 
-assert_port_free "3000" "backend"
-assert_port_free "3001" "admin"
-assert_port_free "3002" "client"
+assert_port_free "${BACKEND_PORT}" "backend"
+assert_port_free "${ADMIN_PORT}" "admin"
+assert_port_free "${CLIENT_PORT}" "client"
 
-echo "Starting backend on 3000..."
+echo "Starting backend on ${BACKEND_PORT}..."
 (
   cd "${BACKEND_DIR}"
-  API_PORT=3000 \
-  ADMIN_URL="http://localhost:3001" \
-  CLIENT_URL="http://localhost:3002" \
+  API_PORT="${BACKEND_PORT}" \
+  ADMIN_URL="${ADMIN_URL}" \
+  CLIENT_URL="${CLIENT_URL}" \
+  DATABASE_URL="file:${DB_FILE}" \
   npm run start:dev >"${BACKEND_LOG}" 2>&1
 ) &
 
-echo "Starting admin on 3001..."
+echo "Starting admin on ${ADMIN_PORT}..."
 (
   cd "${ADMIN_DIR}"
-  VITE_API_URL="http://localhost:3000" \
-  npm run dev -- --port 3001 >"${ADMIN_LOG}" 2>&1
+  VITE_API_URL="${BACKEND_URL}" \
+  npm run dev -- --port "${ADMIN_PORT}" >"${ADMIN_LOG}" 2>&1
 ) &
 
-echo "Starting client on 3002..."
+echo "Starting client on ${CLIENT_PORT}..."
 (
   cd "${CLIENT_DIR}"
-  VITE_API_URL="http://localhost:3000" \
-  npm run dev -- --port 3002 >"${CLIENT_LOG}" 2>&1
+  VITE_API_URL="${BACKEND_URL}" \
+  npm run dev -- --port "${CLIENT_PORT}" >"${CLIENT_LOG}" 2>&1
 ) &
 
-capture_listener_pid "backend" "3000" "${BACKEND_PID_FILE}"
-capture_listener_pid "admin" "3001" "${ADMIN_PID_FILE}"
-capture_listener_pid "client" "3002" "${CLIENT_PID_FILE}"
+capture_listener_pid "backend" "${BACKEND_PORT}" "${BACKEND_PID_FILE}"
+capture_listener_pid "admin" "${ADMIN_PORT}" "${ADMIN_PID_FILE}"
+capture_listener_pid "client" "${CLIENT_PORT}" "${CLIENT_PID_FILE}"
 
 echo "All services started."
-echo "API:   http://localhost:3000"
-echo "Admin: http://localhost:3001"
-echo "Client:http://localhost:3002"
+echo "API:   ${BACKEND_URL}"
+echo "Admin: ${ADMIN_URL}"
+echo "Client:${CLIENT_URL}"
 echo ""
 echo "Logs:"
 echo "  ${BACKEND_LOG}"

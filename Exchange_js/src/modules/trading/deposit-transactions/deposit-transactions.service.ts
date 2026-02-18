@@ -20,16 +20,26 @@ import {
   KytScreeningStage,
   TxSourceType,
 } from '../../risk-engine/transaction-compliance/types/tx-compliance.types';
+import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
+import {
+  AuditEntityTypes,
+  AuditModules,
+  buildStateTransitionAction,
+} from '../../risk-engine/audit-logs/constants/audit-actions.constant';
+import { AuditTriggerType } from '../../risk-engine/audit-logs/dto/audit-log.dto';
 
 @Injectable()
 export class DepositTransactionsService {
   private readonly logger = new Logger(DepositTransactionsService.name);
+  private readonly auditLogsService: AuditLogsService;
 
   constructor(
     private prisma: PrismaService,
     private eventEmitter: EventEmitter2,
     private transactionComplianceService: TransactionComplianceService,
-  ) {}
+  ) {
+    this.auditLogsService = new AuditLogsService(prisma);
+  }
 
   private assertComplianceBeforeSuccess(item: any, nextStatus: DepositTransactionStatus) {
     if (nextStatus !== DepositTransactionStatus.SUCCESS) return;
@@ -185,15 +195,21 @@ export class DepositTransactionsService {
       data: updateData,
     });
 
-    // Write audit log
-    await (this.prisma as any).depositAuditLog.create({
-      data: {
-        depositTransactionId: id,
-        operatorId: 'SYSTEM',
-        oldStatus: currentStatus,
-        newStatus: nextStatus,
-        reason: dto.reason || `Action: ${action}`,
-      },
+    await this.auditLogsService.recordSystem({
+      triggerType: AuditTriggerType.STATE_TRANSITION,
+      action: buildStateTransitionAction('DEPOSIT', currentStatus, nextStatus),
+      module: AuditModules.DEPOSIT_TRANSACTIONS,
+      entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+      entityId: updated.id,
+      entityNo: updated.depositNo,
+      entityOwnerType: updated.ownerType,
+      entityOwnerId: updated.ownerId,
+      statusFrom: currentStatus,
+      statusTo: nextStatus,
+      reason: dto.reason || `Action: ${action}`,
+      beforeData: { status: currentStatus },
+      afterData: { status: nextStatus },
+      sourcePlatform: 'SYSTEM',
     });
 
     this.eventEmitter.emit(

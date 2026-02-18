@@ -87,8 +87,35 @@ bootstrap_database_if_needed() {
   done < <(find "${MIGRATIONS_DIR}" -name migration.sql | sort)
 }
 
+ensure_audit_log_schema() {
+  local db_file
+  db_file="$(resolve_db_file)"
+  local migration_file="${MIGRATIONS_DIR}/20260218172000_audit_log_subject_no_enhancement/migration.sql"
+
+  if [[ ! -f "${db_file}" ]]; then
+    return 0
+  fi
+
+  if [[ ! -f "${migration_file}" ]]; then
+    return 0
+  fi
+
+  local has_actor_no
+  has_actor_no="$(sqlite3 "${db_file}" "PRAGMA table_info('audit_log_events');" 2>/dev/null | grep -c '|actorNo|')"
+  local has_subject_table
+  has_subject_table="$(sqlite3 "${db_file}" ".tables" 2>/dev/null | grep -c 'audit_log_subject_nos')"
+
+  if [[ "${has_actor_no}" -gt 0 && "${has_subject_table}" -gt 0 ]]; then
+    return 0
+  fi
+
+  echo "[backend] Applying audit log subject-no migration to ${db_file}..."
+  sqlite3 "${db_file}" < "${migration_file}"
+}
+
 ensure_backend_dependencies
 bootstrap_database_if_needed
+ensure_audit_log_schema
 
 cd "${ROOT_DIR}"
 echo "Running business data reset..."

@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { AuthService } from './auth.service';
 import { UsersService } from '../users/users.service';
 import { JwtService } from '@nestjs/jwt';
+import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
 
 describe('AuthService', () => {
   let service: AuthService;
@@ -21,6 +22,12 @@ describe('AuthService', () => {
           provide: JwtService,
           useValue: {
             sign: jest.fn(),
+          },
+        },
+        {
+          provide: AuditLogsService,
+          useValue: {
+            recordByActor: jest.fn(),
           },
         },
       ],

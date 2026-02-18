@@ -8,12 +8,22 @@ import { PrismaService } from '../../../core/prisma/prisma.service';
 import { CreateAssetDto, AssetStatus, AssetType } from './dto/asset.dto';
 import { Prisma } from '@prisma/client';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
+import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
+import {
+  AuditActions,
+  AuditEntityTypes,
+  AuditModules,
+} from '../../risk-engine/audit-logs/constants/audit-actions.constant';
+import { AuditResult, AuditTriggerType } from '../../risk-engine/audit-logs/dto/audit-log.dto';
 
 @Injectable()
 export class AssetsService {
   private readonly logger = new Logger(AssetsService.name);
+  private readonly auditLogsService: AuditLogsService;
 
-  constructor(private prisma: PrismaService) {}
+  constructor(private prisma: PrismaService) {
+    this.auditLogsService = new AuditLogsService(prisma);
+  }
 
   async create(data: CreateAssetDto) {
     this.logger.log(
@@ -53,6 +63,24 @@ export class AssetsService {
       },
     });
 
+    await this.auditLogsService.recordSystem({
+      triggerType: AuditTriggerType.CONFIG_CHANGE,
+      action: AuditActions.ASSET_CONFIG_UPDATED,
+      module: AuditModules.ASSETS,
+      entityType: AuditEntityTypes.ASSET,
+      entityId: result.id,
+      entityNo: result.assetNo || undefined,
+      result: AuditResult.SUCCESS,
+      reason: 'Asset config created',
+      afterData: {
+        type: result.type,
+        code: result.code,
+        network: result.network,
+        status: result.status,
+      },
+      sourcePlatform: 'ADMIN_API',
+    });
+
     this.logger.log(`Asset created: ${result.id}`);
     return result;
   }
@@ -89,10 +117,27 @@ export class AssetsService {
     this.logger.log(`Changing status of Asset ${id} to ${status}`);
 
     // Validate status transition if needed, currently only ACTIVE <-> DISABLED
+    const before = await this.findOne(id);
 
     const result = await this.prisma.asset.update({
       where: { id },
       data: { status },
+    });
+
+    await this.auditLogsService.recordSystem({
+      triggerType: AuditTriggerType.CONFIG_CHANGE,
+      action: AuditActions.ASSET_CONFIG_UPDATED,
+      module: AuditModules.ASSETS,
+      entityType: AuditEntityTypes.ASSET,
+      entityId: result.id,
+      entityNo: result.assetNo || undefined,
+      statusFrom: before.status,
+      statusTo: result.status,
+      result: AuditResult.SUCCESS,
+      reason: 'Asset status changed',
+      beforeData: { status: before.status },
+      afterData: { status: result.status },
+      sourcePlatform: 'ADMIN_API',
     });
 
     this.logger.log(`Status changed for Asset: ${id}`);

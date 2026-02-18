@@ -7,12 +7,22 @@ import {
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { CreateCoaDto, UpdateCoaDto, CoaQueryDto } from './dto/coa.dto';
 import { Prisma } from '@prisma/client';
+import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
+import {
+  AuditActions,
+  AuditEntityTypes,
+  AuditModules,
+} from '../../risk-engine/audit-logs/constants/audit-actions.constant';
+import { AuditResult, AuditTriggerType } from '../../risk-engine/audit-logs/dto/audit-log.dto';
 
 @Injectable()
 export class CoaService {
   private readonly logger = new Logger(CoaService.name);
+  private readonly auditLogsService: AuditLogsService;
 
-  constructor(private prisma: PrismaService) {}
+  constructor(private prisma: PrismaService) {
+    this.auditLogsService = new AuditLogsService(prisma);
+  }
 
   async create(createCoaDto: CreateCoaDto) {
     const { requiredTags, ...rest } = createCoaDto;
@@ -32,6 +42,23 @@ export class CoaService {
         ...rest,
         requiredTags: JSON.stringify(requiredTags || []),
       },
+    });
+
+    await this.auditLogsService.recordSystem({
+      triggerType: AuditTriggerType.CONFIG_CHANGE,
+      action: AuditActions.COA_CONFIG_UPDATED,
+      module: AuditModules.COA,
+      entityType: AuditEntityTypes.COA,
+      entityId: item.id,
+      entityNo: item.code,
+      result: AuditResult.SUCCESS,
+      reason: 'COA created',
+      afterData: {
+        code: item.code,
+        type: item.type,
+        status: item.status,
+      },
+      sourcePlatform: 'ADMIN_API',
     });
 
     return {
@@ -84,6 +111,7 @@ export class CoaService {
   }
 
   async update(id: string, updateCoaDto: UpdateCoaDto) {
+    const before = await this.findOne(id);
     const { requiredTags, ...rest } = updateCoaDto;
     const data: Prisma.CoaUpdateInput = { ...rest };
 
@@ -95,6 +123,29 @@ export class CoaService {
       const item = await this.prisma.coa.update({
         where: { id },
         data,
+      });
+      await this.auditLogsService.recordSystem({
+        triggerType: AuditTriggerType.CONFIG_CHANGE,
+        action: AuditActions.COA_CONFIG_UPDATED,
+        module: AuditModules.COA,
+        entityType: AuditEntityTypes.COA,
+        entityId: item.id,
+        entityNo: item.code,
+        result: AuditResult.SUCCESS,
+        reason: 'COA updated',
+        beforeData: {
+          code: before.code,
+          type: before.type,
+          status: before.status,
+          requiredTags: before.requiredTags,
+        },
+        afterData: {
+          code: item.code,
+          type: item.type,
+          status: item.status,
+          requiredTags: JSON.parse(item.requiredTags),
+        },
+        sourcePlatform: 'ADMIN_API',
       });
       return {
         ...item,
@@ -110,8 +161,26 @@ export class CoaService {
   }
 
   async remove(id: string) {
+    const before = await this.findOne(id);
     try {
-      return await this.prisma.coa.delete({ where: { id } });
+      const deleted = await this.prisma.coa.delete({ where: { id } });
+      await this.auditLogsService.recordSystem({
+        triggerType: AuditTriggerType.CONFIG_CHANGE,
+        action: AuditActions.COA_CONFIG_UPDATED,
+        module: AuditModules.COA,
+        entityType: AuditEntityTypes.COA,
+        entityId: deleted.id,
+        entityNo: deleted.code,
+        result: AuditResult.SUCCESS,
+        reason: 'COA deleted',
+        beforeData: {
+          code: before.code,
+          type: before.type,
+          status: before.status,
+        },
+        sourcePlatform: 'ADMIN_API',
+      });
+      return deleted;
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError) {
         if (error.code === 'P2025')

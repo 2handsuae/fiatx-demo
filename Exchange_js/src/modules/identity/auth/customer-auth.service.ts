@@ -9,13 +9,33 @@ import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { Prisma } from '@prisma/client';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
+import { createHash } from 'crypto';
+import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
+import {
+  AuditActions,
+  AuditEntityTypes,
+  AuditModules,
+} from '../../risk-engine/audit-logs/constants/audit-actions.constant';
+import { AuditResult, AuditTriggerType } from '../../risk-engine/audit-logs/dto/audit-log.dto';
+
+interface AuthRequestContext {
+  requestId?: string;
+  sourceIp?: string;
+  sourcePlatform?: string;
+}
 
 @Injectable()
 export class CustomerAuthService {
   constructor(
     private prisma: PrismaService,
     private jwtService: JwtService,
+    private auditLogsService: AuditLogsService,
   ) {}
+
+  private maskIdentifier(identifier: string) {
+    const normalized = String(identifier || '').trim().toLowerCase();
+    return createHash('sha256').update(normalized).digest('hex');
+  }
 
   async register(data: {
     email: string;
@@ -57,7 +77,11 @@ export class CustomerAuthService {
     return result;
   }
 
-  async validateCustomer(identifier: string, pass: string): Promise<any> {
+  async validateCustomer(
+    identifier: string,
+    pass: string,
+    ctx: AuthRequestContext = {},
+  ): Promise<any> {
     const normalized = (identifier || '').trim();
     if (!normalized) return null;
 
@@ -68,16 +92,86 @@ export class CustomerAuthService {
     });
 
     if (!customer) {
+      await this.auditLogsService.recordByActor(
+        {
+          triggerType: AuditTriggerType.AUTH_EVENT,
+          action: AuditActions.CUSTOMER_LOGIN_FAILED,
+          module: AuditModules.CUSTOMER_AUTH,
+          entityType: AuditEntityTypes.AUTH,
+          result: AuditResult.FAILED,
+          reason: 'Customer login failed: account not found',
+          metadata: {
+            identifierHash: this.maskIdentifier(normalized),
+          },
+          requestId: ctx.requestId,
+          sourceIp: ctx.sourceIp,
+          sourcePlatform: ctx.sourcePlatform || 'CUSTOMER_AUTH_API',
+        },
+        {
+          actorType: 'CUSTOMER',
+          actorId: 'UNKNOWN',
+          actorRole: 'CUSTOMER',
+        },
+      );
       return null;
     }
 
     if (!customer.passwordHash) {
       // Customer exists but no password set (maybe only phone verified?)
+      await this.auditLogsService.recordByActor(
+        {
+          triggerType: AuditTriggerType.AUTH_EVENT,
+          action: AuditActions.CUSTOMER_LOGIN_FAILED,
+          module: AuditModules.CUSTOMER_AUTH,
+          entityType: AuditEntityTypes.AUTH,
+          entityId: customer.id,
+          entityNo: customer.customerNo,
+          result: AuditResult.FAILED,
+          reason: 'Customer login failed: password not initialized',
+          metadata: {
+            identifierHash: this.maskIdentifier(normalized),
+          },
+          requestId: ctx.requestId,
+          sourceIp: ctx.sourceIp,
+          sourcePlatform: ctx.sourcePlatform || 'CUSTOMER_AUTH_API',
+        },
+        {
+          actorType: 'CUSTOMER',
+          actorId: customer.id,
+          actorNo: customer.customerNo,
+          actorRole: 'CUSTOMER',
+        },
+      );
       return null;
     }
 
     // Check lock status
     if (customer.lockedUntil && customer.lockedUntil > new Date()) {
+      await this.auditLogsService.recordByActor(
+        {
+          triggerType: AuditTriggerType.AUTH_EVENT,
+          action: AuditActions.ACCOUNT_LOCKED,
+          module: AuditModules.CUSTOMER_AUTH,
+          entityType: AuditEntityTypes.AUTH,
+          entityId: customer.id,
+          entityNo: customer.customerNo,
+          result: AuditResult.REJECTED,
+          reason: 'Customer account locked',
+          metadata: {
+            lockedUntil: customer.lockedUntil.toISOString(),
+            identifierHash: this.maskIdentifier(normalized),
+          },
+          requestId: ctx.requestId,
+          sourceIp: ctx.sourceIp,
+          sourcePlatform: ctx.sourcePlatform || 'CUSTOMER_AUTH_API',
+        },
+        {
+          actorType: 'CUSTOMER',
+          actorId: customer.id,
+          actorNo: customer.customerNo,
+          actorRole: 'CUSTOMER',
+        },
+      );
       throw new ForbiddenException('Account is locked. Try again later.');
     } else if (customer.lockedUntil && customer.lockedUntil <= new Date()) {
       // Unlock automatically
@@ -85,6 +179,27 @@ export class CustomerAuthService {
         where: { id: customer.id },
         data: { failedLoginCount: 0, lockedUntil: null },
       });
+      await this.auditLogsService.recordByActor(
+        {
+          triggerType: AuditTriggerType.AUTH_EVENT,
+          action: AuditActions.ACCOUNT_UNLOCKED,
+          module: AuditModules.CUSTOMER_AUTH,
+          entityType: AuditEntityTypes.AUTH,
+          entityId: customer.id,
+          entityNo: customer.customerNo,
+          result: AuditResult.SUCCESS,
+          reason: 'Customer account auto unlocked after lock timeout',
+          requestId: ctx.requestId,
+          sourceIp: ctx.sourceIp,
+          sourcePlatform: ctx.sourcePlatform || 'CUSTOMER_AUTH_API',
+        },
+        {
+          actorType: 'CUSTOMER',
+          actorId: customer.id,
+          actorNo: customer.customerNo,
+          actorRole: 'CUSTOMER',
+        },
+      );
     }
 
     const isMatch = await bcrypt.compare(pass, customer.passwordHash);
@@ -98,6 +213,26 @@ export class CustomerAuthService {
           lastLoginAt: new Date(),
         },
       });
+      await this.auditLogsService.recordByActor(
+        {
+          triggerType: AuditTriggerType.AUTH_EVENT,
+          action: AuditActions.CUSTOMER_LOGIN_SUCCESS,
+          module: AuditModules.CUSTOMER_AUTH,
+          entityType: AuditEntityTypes.AUTH,
+          entityId: customer.id,
+          entityNo: customer.customerNo,
+          result: AuditResult.SUCCESS,
+          requestId: ctx.requestId,
+          sourceIp: ctx.sourceIp,
+          sourcePlatform: ctx.sourcePlatform || 'CUSTOMER_AUTH_API',
+        },
+        {
+          actorType: 'CUSTOMER',
+          actorId: customer.id,
+          actorNo: customer.customerNo,
+          actorRole: 'CUSTOMER',
+        },
+      );
       const { passwordHash, ...result } = customer;
       return result;
     } else {
@@ -113,6 +248,63 @@ export class CustomerAuthService {
         where: { id: customer.id },
         data: updateData,
       });
+
+      await this.auditLogsService.recordByActor(
+        {
+          triggerType: AuditTriggerType.AUTH_EVENT,
+          action: AuditActions.CUSTOMER_LOGIN_FAILED,
+          module: AuditModules.CUSTOMER_AUTH,
+          entityType: AuditEntityTypes.AUTH,
+          entityId: customer.id,
+          entityNo: customer.customerNo,
+          result: AuditResult.FAILED,
+          reason:
+            attempts >= 5
+              ? 'Customer login failed and account locked'
+              : 'Customer login failed: invalid password',
+          metadata: {
+            failedLoginAttempts: attempts,
+            lockApplied: attempts >= 5,
+          },
+          requestId: ctx.requestId,
+          sourceIp: ctx.sourceIp,
+          sourcePlatform: ctx.sourcePlatform || 'CUSTOMER_AUTH_API',
+        },
+        {
+          actorType: 'CUSTOMER',
+          actorId: customer.id,
+          actorNo: customer.customerNo,
+          actorRole: 'CUSTOMER',
+        },
+      );
+
+      if (attempts >= 5) {
+        await this.auditLogsService.recordByActor(
+          {
+            triggerType: AuditTriggerType.AUTH_EVENT,
+            action: AuditActions.ACCOUNT_LOCKED,
+            module: AuditModules.CUSTOMER_AUTH,
+            entityType: AuditEntityTypes.AUTH,
+            entityId: customer.id,
+            entityNo: customer.customerNo,
+            result: AuditResult.REJECTED,
+            reason: 'Customer account locked by failed login attempts',
+            metadata: {
+              failedLoginAttempts: attempts,
+              lockedUntil: updateData.lockedUntil?.toISOString?.() || null,
+            },
+            requestId: ctx.requestId,
+            sourceIp: ctx.sourceIp,
+            sourcePlatform: ctx.sourcePlatform || 'CUSTOMER_AUTH_API',
+          },
+          {
+            actorType: 'CUSTOMER',
+            actorId: customer.id,
+            actorNo: customer.customerNo,
+            actorRole: 'CUSTOMER',
+          },
+        );
+      }
 
       return null;
     }

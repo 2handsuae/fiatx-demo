@@ -2,17 +2,62 @@ import { Injectable, ForbiddenException } from '@nestjs/common';
 import { UsersService } from '../users/users.service';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
+import { createHash } from 'crypto';
+import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
+import {
+  AuditActions,
+  AuditEntityTypes,
+  AuditModules,
+} from '../../risk-engine/audit-logs/constants/audit-actions.constant';
+import { AuditResult, AuditTriggerType } from '../../risk-engine/audit-logs/dto/audit-log.dto';
+
+interface AuthRequestContext {
+  requestId?: string;
+  sourceIp?: string;
+  sourcePlatform?: string;
+}
 
 @Injectable()
 export class AuthService {
   constructor(
     private usersService: UsersService,
     private jwtService: JwtService,
+    private auditLogsService: AuditLogsService,
   ) {}
 
-  async validateUser(identifier: string, pass: string): Promise<any> {
+  private maskIdentifier(identifier: string) {
+    const normalized = String(identifier || '').trim().toLowerCase();
+    return createHash('sha256').update(normalized).digest('hex');
+  }
+
+  async validateUser(
+    identifier: string,
+    pass: string,
+    ctx: AuthRequestContext = {},
+  ): Promise<any> {
     const user = await this.usersService.findByIdentifier(identifier);
     if (!user) {
+      await this.auditLogsService.recordByActor(
+        {
+          triggerType: AuditTriggerType.AUTH_EVENT,
+          action: AuditActions.ADMIN_LOGIN_FAILED,
+          module: AuditModules.AUTH,
+          entityType: AuditEntityTypes.AUTH,
+          result: AuditResult.FAILED,
+          reason: 'Admin login failed: account not found',
+          metadata: {
+            identifierHash: this.maskIdentifier(identifier),
+          },
+          requestId: ctx.requestId,
+          sourceIp: ctx.sourceIp,
+          sourcePlatform: ctx.sourcePlatform || 'ADMIN_AUTH_API',
+        },
+        {
+          actorType: 'ADMIN',
+          actorId: 'UNKNOWN',
+          actorRole: 'UNKNOWN',
+        },
+      );
       return null;
     }
 
@@ -21,6 +66,31 @@ export class AuthService {
       user.lockedUntil &&
       user.lockedUntil > new Date()
     ) {
+      await this.auditLogsService.recordByActor(
+        {
+          triggerType: AuditTriggerType.AUTH_EVENT,
+          action: AuditActions.ACCOUNT_LOCKED,
+          module: AuditModules.AUTH,
+          entityType: AuditEntityTypes.AUTH,
+          entityId: user.id,
+          entityNo: user.userNo,
+          result: AuditResult.REJECTED,
+          reason: 'Admin account locked',
+          metadata: {
+            lockedUntil: user.lockedUntil.toISOString(),
+            identifierHash: this.maskIdentifier(identifier),
+          },
+          requestId: ctx.requestId,
+          sourceIp: ctx.sourceIp,
+          sourcePlatform: ctx.sourcePlatform || 'ADMIN_AUTH_API',
+        },
+        {
+          actorType: 'ADMIN',
+          actorId: user.id,
+          actorNo: user.userNo,
+          actorRole: user.role,
+        },
+      );
       throw new ForbiddenException('Account is locked. Try again later.');
     } else if (
       user.status === 'LOCKED' &&
@@ -32,6 +102,27 @@ export class AuthService {
         where: { email: user.email },
         data: { status: 'ACTIVE', failedLoginAttempts: 0, lockedUntil: null },
       });
+      await this.auditLogsService.recordByActor(
+        {
+          triggerType: AuditTriggerType.AUTH_EVENT,
+          action: AuditActions.ACCOUNT_UNLOCKED,
+          module: AuditModules.AUTH,
+          entityType: AuditEntityTypes.AUTH,
+          entityId: user.id,
+          entityNo: user.userNo,
+          result: AuditResult.SUCCESS,
+          reason: 'Admin account auto unlocked after lock timeout',
+          requestId: ctx.requestId,
+          sourceIp: ctx.sourceIp,
+          sourcePlatform: ctx.sourcePlatform || 'ADMIN_AUTH_API',
+        },
+        {
+          actorType: 'ADMIN',
+          actorId: user.id,
+          actorNo: user.userNo,
+          actorRole: user.role,
+        },
+      );
     }
 
     const isMatch = await bcrypt.compare(pass, user.password);
@@ -44,6 +135,26 @@ export class AuthService {
           lastLoginAt: new Date(),
         },
       });
+      await this.auditLogsService.recordByActor(
+        {
+          triggerType: AuditTriggerType.AUTH_EVENT,
+          action: AuditActions.ADMIN_LOGIN_SUCCESS,
+          module: AuditModules.AUTH,
+          entityType: AuditEntityTypes.AUTH,
+          entityId: user.id,
+          entityNo: user.userNo,
+          result: AuditResult.SUCCESS,
+          requestId: ctx.requestId,
+          sourceIp: ctx.sourceIp,
+          sourcePlatform: ctx.sourcePlatform || 'ADMIN_AUTH_API',
+        },
+        {
+          actorType: 'ADMIN',
+          actorId: user.id,
+          actorNo: user.userNo,
+          actorRole: user.role,
+        },
+      );
       const { password: _, ...result } = user;
       return result;
     } else {
@@ -60,6 +171,63 @@ export class AuthService {
         where: { email: user.email },
         data: updateData,
       });
+
+      await this.auditLogsService.recordByActor(
+        {
+          triggerType: AuditTriggerType.AUTH_EVENT,
+          action: AuditActions.ADMIN_LOGIN_FAILED,
+          module: AuditModules.AUTH,
+          entityType: AuditEntityTypes.AUTH,
+          entityId: user.id,
+          entityNo: user.userNo,
+          result: AuditResult.FAILED,
+          reason:
+            attempts >= 5
+              ? 'Admin login failed and account locked'
+              : 'Admin login failed: invalid password',
+          metadata: {
+            failedLoginAttempts: attempts,
+            lockApplied: attempts >= 5,
+          },
+          requestId: ctx.requestId,
+          sourceIp: ctx.sourceIp,
+          sourcePlatform: ctx.sourcePlatform || 'ADMIN_AUTH_API',
+        },
+        {
+          actorType: 'ADMIN',
+          actorId: user.id,
+          actorNo: user.userNo,
+          actorRole: user.role,
+        },
+      );
+
+      if (attempts >= 5) {
+        await this.auditLogsService.recordByActor(
+          {
+            triggerType: AuditTriggerType.AUTH_EVENT,
+            action: AuditActions.ACCOUNT_LOCKED,
+            module: AuditModules.AUTH,
+            entityType: AuditEntityTypes.AUTH,
+            entityId: user.id,
+            entityNo: user.userNo,
+            result: AuditResult.REJECTED,
+            reason: 'Admin account locked by failed login attempts',
+            metadata: {
+              failedLoginAttempts: attempts,
+              lockedUntil: updateData.lockedUntil?.toISOString?.() || null,
+            },
+            requestId: ctx.requestId,
+            sourceIp: ctx.sourceIp,
+            sourcePlatform: ctx.sourcePlatform || 'ADMIN_AUTH_API',
+          },
+          {
+            actorType: 'ADMIN',
+            actorId: user.id,
+            actorNo: user.userNo,
+            actorRole: user.role,
+          },
+        );
+      }
 
       return null;
     }

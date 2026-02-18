@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-RUNTIME_DIR="/tmp/exchange_js_dev_runtime"
+BACKEND_PORT="${BACKEND_PORT:-3400}"
+ADMIN_PORT="${ADMIN_PORT:-3401}"
+CLIENT_PORT="${CLIENT_PORT:-3402}"
+
+RUNTIME_DIR="/tmp/exchange_js_dev_runtime_${BACKEND_PORT}"
 BACKEND_PID_FILE="${RUNTIME_DIR}/backend.pid"
 ADMIN_PID_FILE="${RUNTIME_DIR}/admin.pid"
 CLIENT_PID_FILE="${RUNTIME_DIR}/client.pid"
@@ -73,9 +77,9 @@ stop_process() {
   fi
 }
 
-stop_process "backend" "${BACKEND_PID_FILE}" "3000" "/Exchange_js/dist/main"
-stop_process "admin" "${ADMIN_PID_FILE}" "3001" "--port 3001"
-stop_process "client" "${CLIENT_PID_FILE}" "3002" "--port 3002"
+stop_process "backend" "${BACKEND_PID_FILE}" "${BACKEND_PORT}" "/Exchange_js/dist/main"
+stop_process "admin" "${ADMIN_PID_FILE}" "${ADMIN_PORT}" "--port ${ADMIN_PORT}"
+stop_process "client" "${CLIENT_PID_FILE}" "${CLIENT_PORT}" "--port ${CLIENT_PORT}"
 
 cleanup_orphans_by_pattern() {
   local name="$1"
@@ -94,7 +98,7 @@ cleanup_orphans_by_pattern() {
 
 # Catch watcher parent processes that may survive after listener process exits.
 cleanup_orphans_by_pattern "backend-orphan" "/Exchange_js/node_modules/.bin/nest start --watch"
-cleanup_orphans_by_pattern "admin-orphan" "/Exchange_js/admin-web/node_modules/.bin/vite --port 3001"
-cleanup_orphans_by_pattern "client-orphan" "/Exchange_js/client-web/node_modules/.bin/vite --port 3002"
+cleanup_orphans_by_pattern "admin-orphan" "/Exchange_js/admin-web/node_modules/.bin/vite --port ${ADMIN_PORT}"
+cleanup_orphans_by_pattern "client-orphan" "/Exchange_js/client-web/node_modules/.bin/vite --port ${CLIENT_PORT}"
 
 echo "All dev services stopped."

@@ -8,6 +8,12 @@ import {
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
+import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
+import {
+  AuditEntityTypes,
+  AuditModules,
+} from '../../risk-engine/audit-logs/constants/audit-actions.constant';
+import { AuditTriggerType } from '../../risk-engine/audit-logs/dto/audit-log.dto';
 import {
   BootstrapCasesDto,
   CreateCaseSessionDto,
@@ -71,7 +77,11 @@ interface NextStepPayload {
 
 @Injectable()
 export class OnboardingService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly auditLogsService: AuditLogsService;
+
+  constructor(private readonly prisma: PrismaService) {
+    this.auditLogsService = new AuditLogsService(prisma);
+  }
 
   private async writeAudit(input: {
     customerId: string;
@@ -84,19 +94,42 @@ export class OnboardingService {
     caseId?: string;
     detail?: string | null;
   }) {
-    await (this.prisma as any).onboardingAuditLog.create({
-      data: {
-        customerId: input.customerId,
+    const normalizedRole = String(input.actorRole || '').toUpperCase();
+    const actorType = normalizedRole.includes('CUSTOMER')
+      ? 'CUSTOMER'
+      : normalizedRole
+        ? 'ADMIN'
+        : 'SYSTEM';
+
+    await this.auditLogsService.recordByActor(
+      {
+        triggerType:
+          input.fromStage && input.toStage && input.fromStage !== input.toStage
+            ? AuditTriggerType.STATE_TRANSITION
+            : undefined,
         action: input.action,
-        actorId: input.actorId,
-        actorRole: input.actorRole,
-        fromStage: input.fromStage || null,
-        toStage: input.toStage || null,
-        caseType: input.caseType || null,
-        caseId: input.caseId || null,
-        detail: input.detail || null,
+        module: AuditModules.ONBOARDING,
+        entityType: AuditEntityTypes.ONBOARDING,
+        entityId: input.caseId || input.customerId,
+        entityOwnerType: 'CUSTOMER',
+        entityOwnerId: input.customerId,
+        statusFrom: input.fromStage || undefined,
+        statusTo: input.toStage || undefined,
+        reason: input.detail || undefined,
+        metadata: {
+          customerId: input.customerId,
+          caseType: input.caseType || null,
+          caseId: input.caseId || null,
+          detail: input.detail || null,
+        },
+        sourcePlatform: 'SYSTEM',
       },
-    });
+      {
+        actorType,
+        actorId: input.actorId || 'SYSTEM',
+        actorRole: input.actorRole || undefined,
+      },
+    );
   }
 
   private parseJsonSafely(value?: string | null): Record<string, any> {

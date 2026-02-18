@@ -53,12 +53,23 @@ import { v4 as uuidv4 } from 'uuid';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PayoutEvents } from './constants/payout-events.constant';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
+import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
+import {
+  AuditActions,
+  AuditEntityTypes,
+  AuditModules,
+  buildStateTransitionAction,
+} from '../../risk-engine/audit-logs/constants/audit-actions.constant';
+import { AuditTriggerType } from '../../risk-engine/audit-logs/dto/audit-log.dto';
 
 @Injectable()
 export class PayoutsService {
   private readonly logger = new Logger(PayoutsService.name);
+  private readonly auditLogsService: AuditLogsService;
 
-  constructor(private prisma: PrismaService, private eventEmitter: EventEmitter2) {}
+  constructor(private prisma: PrismaService, private eventEmitter: EventEmitter2) {
+    this.auditLogsService = new AuditLogsService(prisma);
+  }
 
   private generatePayoutId(): string {
     return `PO_${uuidv4()}`;
@@ -157,15 +168,32 @@ export class PayoutsService {
         },
       });
 
-      await (client as any).payoutAuditLog.create({
-        data: {
-          payoutId: record.id,
-          operatorId,
-          oldStatus: 'NONE',
-          newStatus: PayoutStatus.CREATED,
+      await this.auditLogsService.recordByActor(
+        {
+          triggerType: AuditTriggerType.DATA_CREATE,
+          action: AuditActions.PAYOUT_CREATED,
+          module: AuditModules.PAYOUTS,
+          entityType: AuditEntityTypes.PAYOUT,
+          entityId: record.id,
+          entityNo: record.payoutNo,
+          entityOwnerType: 'CUSTOMER',
+          entityOwnerId: record.ownerId || undefined,
           reason: 'Payout initiated',
+          afterData: {
+            status: record.status,
+            withdrawId: record.withdrawId,
+            amount: record.amount?.toString?.(),
+            assetId: record.assetId,
+          },
+          sourcePlatform: operatorId === 'SYSTEM' ? 'SYSTEM' : 'ADMIN_API',
         },
-      });
+        {
+          actorType: operatorId === 'SYSTEM' ? 'SYSTEM' : 'ADMIN',
+          actorId: operatorId,
+          actorRole: operatorId === 'SYSTEM' ? 'SYSTEM' : 'ADMIN',
+        },
+        client,
+      );
 
       return record;
     };
@@ -240,15 +268,31 @@ export class PayoutsService {
         data: updateData,
       });
 
-      await client.payoutAuditLog.create({
-        data: {
-          payoutId: id,
-          operatorId,
-          oldStatus,
-          newStatus: nextStatus,
-          reason: reason || (action ? `Action: ${action}` : `Status updated to ${nextStatus}`),
+      await this.auditLogsService.recordByActor(
+        {
+          triggerType: AuditTriggerType.STATE_TRANSITION,
+          action: buildStateTransitionAction('PAYOUT', oldStatus, nextStatus),
+          module: AuditModules.PAYOUTS,
+          entityType: AuditEntityTypes.PAYOUT,
+          entityId: updated.id,
+          entityNo: updated.payoutNo,
+          entityOwnerType: 'CUSTOMER',
+          entityOwnerId: updated.ownerId || undefined,
+          statusFrom: oldStatus,
+          statusTo: nextStatus,
+          reason:
+            reason || (action ? `Action: ${action}` : `Status updated to ${nextStatus}`),
+          beforeData: { status: oldStatus },
+          afterData: { status: nextStatus },
+          sourcePlatform: operatorId === 'SYSTEM' ? 'SYSTEM' : 'ADMIN_API',
         },
-      });
+        {
+          actorType: operatorId === 'SYSTEM' ? 'SYSTEM' : 'ADMIN',
+          actorId: operatorId,
+          actorRole: operatorId === 'SYSTEM' ? 'SYSTEM' : 'ADMIN',
+        },
+        client,
+      );
 
       const postCommitEvents: Array<{ eventName: string; payload: any }> = [];
       if (nextStatus === PayoutStatus.CONFIRMED) {
@@ -355,15 +399,26 @@ export class PayoutsService {
           },
         });
 
-        await tx.payoutAuditLog.create({
-          data: {
-            payoutId: payout.id,
-            operatorId,
-            oldStatus: 'NONE',
-            newStatus: PayoutStatus.CREATED,
+        await this.auditLogsService.recordByActor(
+          {
+            triggerType: AuditTriggerType.DATA_CREATE,
+            action: AuditActions.PAYOUT_CREATED,
+            module: AuditModules.PAYOUTS,
+            entityType: AuditEntityTypes.PAYOUT,
+            entityId: payout.id,
+            entityOwnerType: 'CUSTOMER',
+            entityOwnerId: withdraw.ownerId,
             reason: 'Mock payout created',
+            afterData: { status: payout.status, withdrawId: payout.withdrawId },
+            sourcePlatform: 'SYSTEM',
           },
-        });
+          {
+            actorType: operatorId === 'SYSTEM' ? 'SYSTEM' : 'ADMIN',
+            actorId: operatorId,
+            actorRole: operatorId === 'SYSTEM' ? 'SYSTEM' : 'ADMIN',
+          },
+          tx,
+        );
 
         createdPayouts.push(payout);
       });

@@ -11,12 +11,22 @@ import {
   JournalLineTemplateQueryDto,
 } from './dto/journal-line-template.dto';
 import { Prisma } from '@prisma/client';
+import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
+import {
+  AuditActions,
+  AuditEntityTypes,
+  AuditModules,
+} from '../../risk-engine/audit-logs/constants/audit-actions.constant';
+import { AuditResult, AuditTriggerType } from '../../risk-engine/audit-logs/dto/audit-log.dto';
 
 @Injectable()
 export class JournalLineTemplatesService {
   private readonly logger = new Logger(JournalLineTemplatesService.name);
+  private readonly auditLogsService: AuditLogsService;
 
-  constructor(private prisma: PrismaService) {}
+  constructor(private prisma: PrismaService) {
+    this.auditLogsService = new AuditLogsService(prisma);
+  }
 
   async create(createDto: CreateJournalLineTemplateDto) {
     // 1. Validate Header Template
@@ -51,12 +61,30 @@ export class JournalLineTemplatesService {
         `Line No ${createDto.lineNo} already exists for this template`,
       );
 
-    return this.prisma.journalLineTemplate.create({
+    const created = await this.prisma.journalLineTemplate.create({
       data: {
         ...createDto,
         dimensionsRule: createDto.dimensionsRule || '{}',
       },
     });
+
+    await this.auditLogsService.recordSystem({
+      triggerType: AuditTriggerType.CONFIG_CHANGE,
+      action: AuditActions.JOURNAL_TEMPLATE_UPDATED,
+      module: AuditModules.JOURNAL_LINE_TEMPLATES,
+      entityType: AuditEntityTypes.JOURNAL_LINE_TEMPLATE,
+      entityId: created.id,
+      result: AuditResult.SUCCESS,
+      reason: 'Journal line template created',
+      afterData: {
+        templateId: created.templateId,
+        lineNo: created.lineNo,
+        accountCode: created.accountCode,
+      },
+      sourcePlatform: 'ADMIN_API',
+    });
+
+    return created;
   }
 
   async findAll(query: JournalLineTemplateQueryDto) {
@@ -84,6 +112,7 @@ export class JournalLineTemplatesService {
   }
 
   async update(id: string, updateDto: UpdateJournalLineTemplateDto) {
+    const before = await this.findOne(id);
     if (updateDto.accountCode) {
       const coa = await this.prisma.coa.findUnique({
         where: { code: updateDto.accountCode },
@@ -95,10 +124,35 @@ export class JournalLineTemplatesService {
     }
 
     try {
-      return await this.prisma.journalLineTemplate.update({
+      const updated = await this.prisma.journalLineTemplate.update({
         where: { id },
         data: updateDto,
       });
+
+      await this.auditLogsService.recordSystem({
+        triggerType: AuditTriggerType.CONFIG_CHANGE,
+        action: AuditActions.JOURNAL_TEMPLATE_UPDATED,
+        module: AuditModules.JOURNAL_LINE_TEMPLATES,
+        entityType: AuditEntityTypes.JOURNAL_LINE_TEMPLATE,
+        entityId: updated.id,
+        result: AuditResult.SUCCESS,
+        reason: 'Journal line template updated',
+        beforeData: {
+          templateId: before.templateId,
+          lineNo: before.lineNo,
+          accountCode: before.accountCode,
+          drCr: before.drCr,
+        },
+        afterData: {
+          templateId: updated.templateId,
+          lineNo: updated.lineNo,
+          accountCode: updated.accountCode,
+          drCr: updated.drCr,
+        },
+        sourcePlatform: 'ADMIN_API',
+      });
+
+      return updated;
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError) {
         if (error.code === 'P2025')
@@ -109,10 +163,27 @@ export class JournalLineTemplatesService {
   }
 
   async remove(id: string) {
+    const before = await this.findOne(id);
     try {
-      return await this.prisma.journalLineTemplate.delete({
+      const deleted = await this.prisma.journalLineTemplate.delete({
         where: { id },
       });
+      await this.auditLogsService.recordSystem({
+        triggerType: AuditTriggerType.CONFIG_CHANGE,
+        action: AuditActions.JOURNAL_TEMPLATE_UPDATED,
+        module: AuditModules.JOURNAL_LINE_TEMPLATES,
+        entityType: AuditEntityTypes.JOURNAL_LINE_TEMPLATE,
+        entityId: id,
+        result: AuditResult.SUCCESS,
+        reason: 'Journal line template deleted',
+        beforeData: {
+          templateId: before.templateId,
+          lineNo: before.lineNo,
+          accountCode: before.accountCode,
+        },
+        sourcePlatform: 'ADMIN_API',
+      });
+      return deleted;
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError) {
         if (error.code === 'P2025')
