@@ -48,6 +48,9 @@
 4. `PAYOUT_TO_MASTER`
 5. `LIQ_TO_PAYOUT`
 6. `PAYOUT_TO_LIQ`
+- Manual fiat creation whitelist MUST be enabled:
+1. `CLIENT_BANK_TO_LIQ_BANK`
+2. `LIQ_BANK_TO_CLIENT_BANK`
 - Internal transaction status enum MUST remain:
 1. `INTERNAL_FUNDS_PENDING` (initial)
 2. `SUCCESS`
@@ -66,6 +69,9 @@
 1. `buildCryptoSystemWalletNo('MASTER', code, network)`
 2. `buildCryptoSystemWalletNo('PAYOUT', code, network)`
 3. `buildCryptoSystemWalletNo('LIQ', code, network)`
+- Fiat pool wallets MUST be resolved by deterministic walletNo:
+1. `buildFiatPoolWalletNo('CUST_BANK', code)`
+2. `buildFiatPoolWalletNo('LIQ_BANK', code)`
 - System wallet owner contract MUST remain:
 1. master/payout customer pool: `ownerType=CUSTOMER`, `ownerId=NULL`
 2. platform liquidity pool: `ownerType=PLATFORM`, `ownerId=NULL`
@@ -90,7 +96,9 @@
 - Manual review reject ordering MUST be:
 1. set transaction terminal status `REJECTED`
 2. set `approvalStatus=REJECTED`
-3. trigger `EVT_INTERNAL_TX_REJECTED` auto-reversal of created posting
+3. trigger asset-type aligned auto-reversal event:
+   - CRYPTO: `EVT_INTERNAL_TX_REJECTED__CRYPTO`
+   - FIAT: `EVT_INTERNAL_TX_REJECTED__FIAT`
 
 ## 7) Aggregation Rules (Funds -> Transaction)
 - Transaction becomes `SUCCESS` when all linked funds are in `{CONFIRMED, CLEAR}`.
@@ -104,20 +112,34 @@
 
 ## 8) Accounting and Clearing Contracts
 - Event set MUST remain:
-1. `EVT_INTERNAL_TX_CREATED`
-2. `EVT_INTERNAL_TX_SUCCESS`
-3. `EVT_INTERNAL_TX_FAILED`
-4. `EVT_INTERNAL_TX_CANCELLED`
-5. `EVT_INTERNAL_TX_REJECTED`
-- `EVT_INTERNAL_TX_SUCCESS` MUST use clearing template `INTERNAL_TX_COLLECTION_V1`.
+1. CRYPTO:
+   - `EVT_INTERNAL_TX_CREATED__CRYPTO`
+   - `EVT_INTERNAL_TX_SUCCESS__CRYPTO`
+   - `EVT_INTERNAL_TX_FAILED__CRYPTO`
+   - `EVT_INTERNAL_TX_CANCELLED__CRYPTO`
+   - `EVT_INTERNAL_TX_REJECTED__CRYPTO`
+2. FIAT:
+   - `EVT_INTERNAL_TX_CREATED__FIAT`
+   - `EVT_INTERNAL_TX_SUCCESS__FIAT`
+   - `EVT_INTERNAL_TX_FAILED__FIAT`
+   - `EVT_INTERNAL_TX_CANCELLED__FIAT`
+   - `EVT_INTERNAL_TX_REJECTED__FIAT`
+- Success events MUST use clearing template `INTERNAL_TX_COLLECTION_V1`:
+1. `EVT_INTERNAL_TX_SUCCESS__CRYPTO`
+2. `EVT_INTERNAL_TX_SUCCESS__FIAT`
 - `INTERNAL_TX_COLLECTION_V1` MUST always emit 2 lines:
 1. `OUTGOING` with `netAmount`
 2. `FEE` with `feeAmount` (line MUST exist even when fee is `0`)
 - Journal templates for INTERNAL_TX asset lines MUST include wallet dimension (`walletId`) and ownerType derived from from/to wallet.
 - Internal collection COA baseline MUST include:
-1. `A.CUSTODY`
-2. `A.CUSTODY_IN_TRANSIT`
-3. `E.NETWORK_FEE`
+1. CRYPTO:
+   - `A.CUSTODY`
+   - `A.CUSTODY_IN_TRANSIT`
+   - `E.NETWORK_FEE`
+2. FIAT:
+   - `A.BANK`
+   - `A.BANK_IN_TRANSIT`
+   - `E.BANK_FEE`
 
 ## 9) Admin API and UI Contract
 - Admin routes MUST include:
@@ -151,5 +173,5 @@
 
 ## 12) Assumptions and Defaults
 - Constraint language is English (aligned with constraints folder style).
-- Current hard implementation focus is crypto internal treasury routes; fiat internal types remain reserved/compat unless explicitly enabled.
+- Current default implementation enables fiat manual and outstanding-settlement routes only for `CUST_BANK <-> LIQ_BANK`.
 - This document is behavioral contract; schema/path expansion requires explicit owner approval.

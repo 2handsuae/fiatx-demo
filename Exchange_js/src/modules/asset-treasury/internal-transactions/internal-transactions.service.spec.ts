@@ -1,6 +1,9 @@
 import { Prisma } from '@prisma/client';
 import { InternalTransactionsService } from './internal-transactions.service';
-import { InternalTransactionStatus } from './dto/internal-transaction.dto';
+import {
+  InternalTransactionStatus,
+  InternalTransactionType,
+} from './dto/internal-transaction.dto';
 
 describe('InternalTransactionsService', () => {
   let service: InternalTransactionsService;
@@ -55,6 +58,7 @@ describe('InternalTransactionsService', () => {
       id: 'itx-1',
       internalTxNo: 'ITX001',
       status: InternalTransactionStatus.SUCCESS,
+      asset: { type: 'CRYPTO' },
       ownerId: 'cust-1',
       ownerType: 'CUSTOMER',
       assetId: 'asset-1',
@@ -79,7 +83,49 @@ describe('InternalTransactionsService', () => {
       expect.objectContaining({
         sourceType: 'INTERNAL_TX',
         sourceId: 'itx-1',
-        eventCode: 'EVT_INTERNAL_TX_SUCCESS',
+        eventCode: 'EVT_INTERNAL_TX_SUCCESS__CRYPTO',
+      }),
+      prisma,
+    );
+  });
+
+  it('should trigger fiat success clearing event when internal tx settles to SUCCESS', async () => {
+    prisma.internalTransaction.findUnique.mockResolvedValue({
+      id: 'itx-fiat-success',
+      internalTxNo: 'ITX-FIAT-S',
+      status: InternalTransactionStatus.INTERNAL_FUNDS_PENDING,
+      statusHistory: '[]',
+      ownerId: 'platform',
+      ownerType: 'PLATFORM',
+      assetId: 'asset-fiat',
+      amount: new Prisma.Decimal(20),
+      netAmount: new Prisma.Decimal(20),
+      feeAmount: new Prisma.Decimal(0),
+      funds: [{ status: 'CONFIRMED' }],
+    });
+    prisma.internalTransaction.update.mockResolvedValue({
+      id: 'itx-fiat-success',
+      internalTxNo: 'ITX-FIAT-S',
+      status: InternalTransactionStatus.SUCCESS,
+      asset: { type: 'FIAT' },
+      ownerId: 'platform',
+      ownerType: 'PLATFORM',
+      assetId: 'asset-fiat',
+      amount: new Prisma.Decimal(20),
+      netAmount: new Prisma.Decimal(20),
+      feeAmount: new Prisma.Decimal(0),
+    });
+    prisma.internalTransactionAuditLog.create.mockResolvedValue({ id: 'log-fiat-s' });
+    journalsService.triggerEvent.mockResolvedValue({ id: 'journal-fiat-s' });
+
+    const result = await service.syncStatusFromFunds('itx-fiat-success', 'SYSTEM');
+
+    expect(result.status).toBe(InternalTransactionStatus.SUCCESS);
+    expect(clearingsService.triggerClearing).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sourceType: 'INTERNAL_TX',
+        sourceId: 'itx-fiat-success',
+        eventCode: 'EVT_INTERNAL_TX_SUCCESS__FIAT',
       }),
       prisma,
     );
@@ -137,6 +183,62 @@ describe('InternalTransactionsService', () => {
         entityType: 'INTERNAL_TX',
         toStatus: InternalTransactionStatus.INTERNAL_FUNDS_PENDING,
         sourceId: 'itx-created',
+      }),
+      prisma,
+    );
+  });
+
+  it('should trigger FIAT created event when creating standalone FIAT transaction', async () => {
+    prisma.internalTransaction.create.mockResolvedValue({
+      id: 'itx-fiat-created',
+      internalTxNo: 'ITX_FIAT_1',
+      status: InternalTransactionStatus.INTERNAL_FUNDS_PENDING,
+      ownerType: 'PLATFORM',
+      ownerId: 'PLATFORM',
+      assetId: 'asset-fiat',
+      amount: new Prisma.Decimal(1000),
+      netAmount: new Prisma.Decimal(1000),
+      feeAmount: new Prisma.Decimal(0),
+      fromWalletId: 'wallet-from',
+      toWalletId: 'wallet-to',
+      fromWallet: { id: 'wallet-from', ownerType: 'CUSTOMER' },
+      toWallet: { id: 'wallet-to', ownerType: 'PLATFORM' },
+      asset: { type: 'FIAT' },
+    });
+    prisma.internalTransactionAuditLog.create.mockResolvedValue({
+      id: 'log-fiat-created',
+    });
+    journalsService.triggerEvent.mockResolvedValue({ id: 'journal-fiat-created' });
+
+    const created = await service.createStandaloneTransaction(
+      {
+        type: InternalTransactionType.CLIENT_BANK_TO_LIQ_BANK,
+        sourceType: 'INTERNAL_MANUAL',
+        sourceId: 'manual-fiat-1',
+        sourceNo: 'MANUAL-FIAT-1',
+        ownerType: 'PLATFORM',
+        ownerId: 'PLATFORM',
+        ownerNo: 'PLATFORM',
+        assetId: 'asset-fiat',
+        amount: new Prisma.Decimal(1000),
+        feeAmount: new Prisma.Decimal(0),
+        netAmount: new Prisma.Decimal(1000),
+        fromWalletId: 'wallet-from',
+        fromIban: 'AE11-CUST',
+        toWalletId: 'wallet-to',
+        toIban: 'AE22-LIQ',
+        referenceNo: 'MANUAL-FIAT-1',
+      },
+      'SYSTEM',
+    );
+
+    expect(created.id).toBe('itx-fiat-created');
+    expect(journalsService.triggerEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        entityType: 'INTERNAL_TX',
+        toStatus: InternalTransactionStatus.INTERNAL_FUNDS_PENDING,
+        sourceId: 'itx-fiat-created',
+        assetType: 'FIAT',
       }),
       prisma,
     );

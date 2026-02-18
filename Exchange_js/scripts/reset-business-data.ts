@@ -35,7 +35,12 @@ async function resetBusinessData(): Promise<void> {
   deleted.internal_transactions = (await (prisma as any).internalTransaction.deleteMany()).count;
   deleted.deposit_transactions = (await prisma.depositTransaction.deleteMany()).count;
   deleted.payins = (await prisma.payin.deleteMany()).count;
+  deleted.outstandings = (await (prisma as any).outstanding.deleteMany()).count;
+  deleted.outstanding_settlement_items = (await (prisma as any).outstandingSettlementItem.deleteMany()).count;
+  deleted.outstanding_settlements = (await (prisma as any).outstandingSettlement.deleteMany()).count;
   deleted.swap_transactions = (await prisma.swapTransaction.deleteMany()).count;
+  deleted.swap_quotes = (await prisma.swapQuote.deleteMany()).count;
+  deleted.customer_swap_rate_configurations = (await prisma.customerSwapRateConfiguration.deleteMany()).count;
 
   deleted.compliance_sessions = (await prisma.complianceSession.deleteMany()).count;
   deleted.edd_cases = (await prisma.eddCase.deleteMany()).count;

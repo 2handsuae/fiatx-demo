@@ -4,6 +4,7 @@ import {
   InternalServerErrorException,
   NotFoundException,
 } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
@@ -119,6 +120,7 @@ export class InternalFundsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly internalTransactionsService: InternalTransactionsService,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
 
   private getTransitionMap(assetType: string) {
@@ -422,13 +424,32 @@ export class InternalFundsService {
         );
       }
 
-      return updated;
+      return {
+        updated,
+        eventPayload: {
+          internalFundId: item.id,
+          internalTransactionId: item.internalTransaction.id,
+          oldStatus: currentStatus,
+          newStatus: nextStatus,
+          operatorId,
+        },
+      };
     };
 
-    if (tx) return execute(tx);
-    return (this.prisma as any).$transaction((client: TxClient) =>
-      execute(client),
+    if (tx) {
+      const result = await execute(tx);
+      return result.updated;
+    }
+
+    const result = await (this.prisma as any).$transaction(
+      (client: TxClient) => execute(client),
     );
+
+    if (result?.eventPayload) {
+      this.eventEmitter.emit('internal-fund.status.changed', result.eventPayload);
+    }
+
+    return result.updated;
   }
 
   async findAllForAdmin(query: InternalFundQueryDto) {

@@ -10,7 +10,9 @@ import {
   InternalTransactionStatus,
 } from '../internal-transactions/dto/internal-transaction.dto';
 import {
+  MANUAL_INTERNAL_TRANSACTION_TYPES,
   MANUAL_CRYPTO_INTERNAL_TRANSACTION_TYPES,
+  MANUAL_FIAT_INTERNAL_TRANSACTION_TYPES,
   MANUAL_INTERNAL_TX_TYPE_WALLET_ROUTE,
   type ManualInternalTransactionType,
 } from '../internal-transactions/internal-transaction.constants';
@@ -36,6 +38,21 @@ export class InternalTransactionWorkflowService {
       throw new BadRequestException(`Type ${type} is not allowed for manual creation`);
     }
     return route;
+  }
+
+  private resolveExpectedAssetType(type: ManualInternalTransactionType) {
+    if (
+      (MANUAL_CRYPTO_INTERNAL_TRANSACTION_TYPES as readonly string[]).includes(type)
+    ) {
+      return 'CRYPTO';
+    }
+    if (
+      (MANUAL_FIAT_INTERNAL_TRANSACTION_TYPES as readonly string[]).includes(type)
+    ) {
+      return 'FIAT';
+    }
+
+    throw new BadRequestException(`Type ${type} is not allowed for manual creation`);
   }
 
   private resolveSourceId(requestId?: string) {
@@ -65,9 +82,9 @@ export class InternalTransactionWorkflowService {
     operatorId = 'SYSTEM',
   ) {
     const manualType = dto.type as ManualInternalTransactionType;
-    if (!MANUAL_CRYPTO_INTERNAL_TRANSACTION_TYPES.includes(manualType)) {
+    if (!MANUAL_INTERNAL_TRANSACTION_TYPES.includes(manualType)) {
       throw new BadRequestException(
-        `Only manual crypto internal transaction types are allowed`,
+        `Type ${manualType} is not allowed for manual creation`,
       );
     }
 
@@ -78,6 +95,7 @@ export class InternalTransactionWorkflowService {
 
     const sourceId = this.resolveSourceId(dto.requestId);
     const route = this.resolveManualRoute(manualType);
+    const expectedAssetType = this.resolveExpectedAssetType(manualType);
 
     return (this.prisma as any).$transaction(async (tx: TxClient) => {
       const uniqueKey = {
@@ -124,8 +142,10 @@ export class InternalTransactionWorkflowService {
       if (!asset) {
         throw new NotFoundException(`Asset ${dto.assetId} not found`);
       }
-      if (asset.type !== 'CRYPTO') {
-        throw new BadRequestException('Only CRYPTO assets are supported');
+      if (asset.type !== expectedAssetType) {
+        throw new BadRequestException(
+          `Asset type mismatch: ${manualType} requires ${expectedAssetType}, got ${asset.type}`,
+        );
       }
 
       this.ensureAmountPrecision(dto.amount, Number(asset.decimals || 0));

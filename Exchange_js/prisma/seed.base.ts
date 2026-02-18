@@ -69,10 +69,30 @@ const DEFAULT_CRYPTO_AED_VALUATION_BY_CODE: Record<string, string> = {
   BTC: '250000',
 };
 const PLATFORM_LIQUIDITY_OPENING_AED = new Prisma.Decimal('1000000');
+const PLATFORM_LIQ_BANK_AED_OPENING = new Prisma.Decimal('1000000');
+const PLATFORM_LIQ_BANK_AED_WALLET_NO = 'WA-LBK-AED-NA';
 
 const DEPRECATED_DEPOSIT_REJECTED_EVENT_CODES = [
   'EVT_DEPOSIT_REJECTED__CRYPTO',
   'EVT_DEPOSIT_REJECTED__FIAT',
+] as const;
+
+const LEGACY_INTERNAL_TX_EVENT_CODES = [
+  'EVT_INTERNAL_TX_CREATED',
+  'EVT_INTERNAL_TX_SUCCESS',
+  'EVT_INTERNAL_TX_FAILED',
+  'EVT_INTERNAL_TX_CANCELLED',
+  'EVT_INTERNAL_TX_REJECTED',
+] as const;
+
+const LEGACY_INTERNAL_TX_TEMPLATE_CODES = [
+  'TPL_EVT_INTERNAL_TX_CREATED_V1',
+  'TPL_EVT_INTERNAL_TX_SUCCESS_V1',
+] as const;
+
+const LEGACY_WITHDRAW_FAILED_EVENT_CODES = [
+  'EVT_WITHDRAWAL_FAILED__CRYPTO',
+  'EVT_WITHDRAWAL_FAILED__FIAT',
 ] as const;
 
 export async function seedBase(prisma: PrismaClient): Promise<void> {
@@ -442,6 +462,65 @@ async function seedLiquidityOpeningBalances(
       },
     });
   }
+
+  const fiatLiqBankWallet = await (prisma as any).wallet.findFirst({
+    where: {
+      walletNo: PLATFORM_LIQ_BANK_AED_WALLET_NO,
+      ownerType: 'PLATFORM',
+      ownerId: null,
+      status: 'ACTIVE',
+      walletRole: 'LIQ_BANK',
+    },
+    include: {
+      asset: {
+        select: {
+          id: true,
+          type: true,
+          code: true,
+        },
+      },
+    },
+  });
+
+  if (
+    !fiatLiqBankWallet ||
+    fiatLiqBankWallet.asset?.type !== 'FIAT' ||
+    fiatLiqBankWallet.asset?.code !== 'AED'
+  ) {
+    return;
+  }
+
+  const existingFiatSnapshot = await (
+    prisma as any
+  ).walletBalanceSnapshot.findUnique({
+    where: {
+      walletId_assetId: {
+        walletId: fiatLiqBankWallet.id,
+        assetId: fiatLiqBankWallet.assetId,
+      },
+    },
+    select: { id: true },
+  });
+  if (existingFiatSnapshot) return;
+
+  await (prisma as any).wallet.update({
+    where: { id: fiatLiqBankWallet.id },
+    data: {
+      balance: PLATFORM_LIQ_BANK_AED_OPENING,
+      lockedBalance: new Prisma.Decimal(0),
+    },
+  });
+
+  await (prisma as any).walletBalanceSnapshot.create({
+    data: {
+      walletId: fiatLiqBankWallet.id,
+      assetId: fiatLiqBankWallet.assetId,
+      availableBalance: PLATFORM_LIQ_BANK_AED_OPENING,
+      restrictedBalance: new Prisma.Decimal(0),
+      inTransitBalance: new Prisma.Decimal(0),
+      totalBalance: PLATFORM_LIQ_BANK_AED_OPENING,
+    },
+  });
 }
 
 async function seedCoa(prisma: PrismaClient): Promise<void> {
@@ -474,6 +553,8 @@ async function seedAcctEvents(prisma: PrismaClient): Promise<void> {
   }
 
   await cleanupDeprecatedDepositRejectedEvents(prisma);
+  await cleanupLegacyInternalTxAndWithdrawFailedContracts(prisma);
+  await cleanupInactiveNonDefaultAccountingContracts(prisma);
 }
 
 async function cleanupDeprecatedDepositRejectedEvents(
@@ -508,6 +589,95 @@ async function cleanupDeprecatedDepositRejectedEvents(
       data: { isActive: false },
     });
   }
+}
+
+async function cleanupLegacyInternalTxAndWithdrawFailedContracts(
+  prisma: PrismaClient,
+): Promise<void> {
+  try {
+    await prisma.journalHeaderTemplate.deleteMany({
+      where: {
+        OR: [
+          {
+            templateCode: {
+              in: [...LEGACY_INTERNAL_TX_TEMPLATE_CODES],
+            },
+          },
+          {
+            eventCode: {
+              in: [...LEGACY_INTERNAL_TX_EVENT_CODES],
+            },
+          },
+        ],
+      },
+    });
+  } catch {
+    await prisma.journalHeaderTemplate.updateMany({
+      where: {
+        OR: [
+          {
+            templateCode: {
+              in: [...LEGACY_INTERNAL_TX_TEMPLATE_CODES],
+            },
+          },
+          {
+            eventCode: {
+              in: [...LEGACY_INTERNAL_TX_EVENT_CODES],
+            },
+          },
+        ],
+      },
+      data: { status: 'INACTIVE' },
+    });
+  }
+
+  try {
+    await prisma.acctEvent.deleteMany({
+      where: {
+        eventCode: {
+          in: [
+            ...LEGACY_INTERNAL_TX_EVENT_CODES,
+            ...LEGACY_WITHDRAW_FAILED_EVENT_CODES,
+          ],
+        },
+      },
+    });
+  } catch {
+    await prisma.acctEvent.updateMany({
+      where: {
+        eventCode: {
+          in: [
+            ...LEGACY_INTERNAL_TX_EVENT_CODES,
+            ...LEGACY_WITHDRAW_FAILED_EVENT_CODES,
+          ],
+        },
+      },
+      data: { isActive: false },
+    });
+  }
+}
+
+async function cleanupInactiveNonDefaultAccountingContracts(
+  prisma: PrismaClient,
+): Promise<void> {
+  const defaultEventCodes = DEFAULT_ACCT_EVENTS.map((item) => item.eventCode);
+  const defaultTemplateCodes = DEFAULT_JOURNAL_TEMPLATES.map(
+    (item) => item.header.templateCode,
+  );
+
+  await prisma.journalHeaderTemplate.deleteMany({
+    where: {
+      status: 'INACTIVE',
+      templateCode: { notIn: defaultTemplateCodes },
+    },
+  });
+
+  await prisma.acctEvent.deleteMany({
+    where: {
+      isActive: false,
+      eventCode: { notIn: defaultEventCodes },
+    },
+  });
 }
 
 async function seedJournalTemplates(prisma: PrismaClient): Promise<void> {
@@ -808,6 +978,45 @@ async function isBaseComplete(prisma: PrismaClient): Promise<boolean> {
       },
     });
     if (openingSnapshotCount < platformLiqWalletIds.length) {
+      return false;
+    }
+  }
+
+  const platformLiqBankAedWallet = await (prisma as any).wallet.findFirst({
+    where: {
+      walletNo: PLATFORM_LIQ_BANK_AED_WALLET_NO,
+      ownerType: 'PLATFORM',
+      ownerId: null,
+      status: 'ACTIVE',
+      walletRole: 'LIQ_BANK',
+    },
+    include: {
+      asset: {
+        select: {
+          type: true,
+          code: true,
+        },
+      },
+    },
+  });
+
+  if (
+    platformLiqBankAedWallet &&
+    platformLiqBankAedWallet.asset?.type === 'FIAT' &&
+    platformLiqBankAedWallet.asset?.code === 'AED'
+  ) {
+    const fiatOpeningSnapshot = await (
+      prisma as any
+    ).walletBalanceSnapshot.findUnique({
+      where: {
+        walletId_assetId: {
+          walletId: platformLiqBankAedWallet.id,
+          assetId: platformLiqBankAedWallet.assetId,
+        },
+      },
+      select: { id: true },
+    });
+    if (!fiatOpeningSnapshot) {
       return false;
     }
   }

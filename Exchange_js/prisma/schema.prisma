@@ -415,6 +415,7 @@ model Asset {
   swapQuoteFroms         SwapQuote[]              @relation("SwapQuoteFromAsset")
   swapQuoteTos           SwapQuote[]              @relation("SwapQuoteToAsset")
   outstandings           Outstanding[]
+  outstandingSettlementItems OutstandingSettlementItem[]
   wallets                Wallet[]
   withdrawTransactions   WithdrawTransaction[]
   internalTransactions   InternalTransaction[]
@@ -663,6 +664,7 @@ model InternalTransaction {
   toWallet    Wallet?  @relation("InternalTxToWallet", fields: [toWalletId], references: [id])
   funds       InternalFund[]
   auditLogs   InternalTransactionAuditLog[]
+  outstandingSettlementItems OutstandingSettlementItem[]
 
   @@unique([sourceType, sourceId, type])
   @@index([status])
@@ -706,6 +708,7 @@ model InternalFund {
   fromWallet            Wallet?  @relation("InternalFundFromWallet", fields: [fromWalletId], references: [id])
   toWallet              Wallet?  @relation("InternalFundToWallet", fields: [toWalletId], references: [id])
   auditLogs             InternalFundAuditLog[]
+  closedOutstandings    Outstanding[]
 
   @@index([internalTransactionId])
   @@index([status])
@@ -1049,10 +1052,18 @@ model Outstanding {
   amount            Decimal
   status            String           @default("OPEN")
   swapTransactionId String?
+  settlementId      String?
+  settlementItemId  String?
+  lockedAt          DateTime?
+  closedAt          DateTime?
+  closedByInternalFundId String?
   createdAt         DateTime         @default(now())
   updatedAt         DateTime         @updatedAt
   asset             Asset            @relation(fields: [assetId], references: [id])
   swapTransaction   SwapTransaction? @relation(fields: [swapTransactionId], references: [id])
+  settlement        OutstandingSettlement? @relation(fields: [settlementId], references: [id], onDelete: SetNull)
+  settlementItem    OutstandingSettlementItem? @relation(fields: [settlementItemId], references: [id], onDelete: SetNull)
+  closedByInternalFund InternalFund? @relation(fields: [closedByInternalFundId], references: [id], onDelete: SetNull)
 
   @@unique([sourceType, sourceId, direction])
   @@index([status])
@@ -1061,7 +1072,65 @@ model Outstanding {
   @@index([createdAt])
   @@index([assetId])
   @@index([swapTransactionId])
+  @@index([settlementId])
+  @@index([settlementItemId])
+  @@index([closedByInternalFundId])
   @@map("outstandings")
+}
+
+model OutstandingSettlement {
+  id                    String                     @id @default(uuid())
+  settlementNo          String                     @unique
+  sourceType            String                     @default("SWAP")
+  rangeStartAt          DateTime?
+  cutoffAt              DateTime
+  status                String
+  requestId             String?                    @unique
+  makerUserId           String?
+  note                  String?
+  totalOutstandingCount Int                        @default(0)
+  closedOutstandingCount Int                       @default(0)
+  totalAssetCount       Int                        @default(0)
+  closedAssetCount      Int                        @default(0)
+  createdAt             DateTime                   @default(now())
+  updatedAt             DateTime                   @updatedAt
+  completedAt           DateTime?
+  items                 OutstandingSettlementItem[]
+  outstandings          Outstanding[]
+
+  @@index([status])
+  @@index([sourceType])
+  @@index([createdAt])
+  @@map("outstanding_settlements")
+}
+
+model OutstandingSettlementItem {
+  id                    String                @id @default(uuid())
+  settlementId          String
+  assetId               String
+  assetCode             String?
+  totalInAmount         Decimal               @default(0)
+  totalOutAmount        Decimal               @default(0)
+  netAmount             Decimal
+  internalType          String?
+  internalTransactionId String?
+  status                String
+  outstandingCount      Int                   @default(0)
+  closedOutstandingCount Int                  @default(0)
+  createdAt             DateTime              @default(now())
+  updatedAt             DateTime              @updatedAt
+  closedAt              DateTime?
+  settlement            OutstandingSettlement @relation(fields: [settlementId], references: [id], onDelete: Cascade)
+  asset                 Asset                 @relation(fields: [assetId], references: [id])
+  internalTransaction   InternalTransaction?  @relation(fields: [internalTransactionId], references: [id], onDelete: SetNull)
+  outstandings          Outstanding[]
+
+  @@unique([settlementId, assetId])
+  @@index([settlementId])
+  @@index([assetId])
+  @@index([internalTransactionId])
+  @@index([status])
+  @@map("outstanding_settlement_items")
 }
 
 model SwapTransactionAuditLog {

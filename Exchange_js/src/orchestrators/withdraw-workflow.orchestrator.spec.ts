@@ -77,7 +77,7 @@ describe('WithdrawWorkflowOrchestrator', () => {
     toIban: 'IBAN_1',
     toWalletId: null,
     fromWalletId: 'WALLET_SRC_1',
-    fromWalletNo: 'WA-LBK-AED-NA',
+    fromWalletNo: 'WA-CBK-AED-NA',
   };
 
   beforeEach(async () => {
@@ -223,12 +223,12 @@ describe('WithdrawWorkflowOrchestrator', () => {
       .mockResolvedValueOnce({
         ...baseWithdrawal,
         fromWalletId: 'WALLET_RESOLVED_1',
-        fromWalletNo: 'WA-LBK-AED-NA',
+        fromWalletNo: 'WA-CBK-AED-NA',
         asset: { type: 'FIAT' },
       });
     mockPrisma.wallet.findFirst.mockResolvedValue({
       id: 'WALLET_RESOLVED_1',
-      walletNo: 'WA-LBK-AED-NA',
+      walletNo: 'WA-CBK-AED-NA',
       address: null,
       iban: 'AE00FIATX1234567890',
     });
@@ -236,7 +236,7 @@ describe('WithdrawWorkflowOrchestrator', () => {
       .mockResolvedValueOnce({
         ...baseWithdrawal,
         fromWalletId: 'WALLET_RESOLVED_1',
-        fromWalletNo: 'WA-LBK-AED-NA',
+        fromWalletNo: 'WA-CBK-AED-NA',
       })
       .mockResolvedValueOnce({
         ...baseWithdrawal,
@@ -258,8 +258,8 @@ describe('WithdrawWorkflowOrchestrator', () => {
     expect(mockPrisma.wallet.findFirst).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
-          walletNo: 'WA-LBK-AED-NA',
-          ownerType: 'PLATFORM',
+          walletNo: 'WA-CBK-AED-NA',
+          ownerType: 'CUSTOMER',
           assetId: 'AST_1',
         }),
       }),
@@ -268,7 +268,7 @@ describe('WithdrawWorkflowOrchestrator', () => {
       expect.objectContaining({
         data: expect.objectContaining({
           fromWalletId: 'WALLET_RESOLVED_1',
-          fromWalletNo: 'WA-LBK-AED-NA',
+          fromWalletNo: 'WA-CBK-AED-NA',
         }),
       }),
     );

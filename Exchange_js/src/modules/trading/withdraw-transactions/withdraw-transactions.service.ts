@@ -478,12 +478,8 @@ export class WithdrawTransactionsService {
           payload: { withdrawId: id },
         });
       } else if (nextStatus === WithdrawTransactionStatus.FAILED) {
-        const failedEvent =
-          withdrawType === 'crypto'
-            ? WithdrawEvents.EVT_WITHDRAWAL_FAILED__CRYPTO
-            : WithdrawEvents.EVT_WITHDRAWAL_FAILED__FIAT;
         postCommitEvents.push({
-          eventName: failedEvent,
+          eventName: WithdrawEvents.EVT_WITHDRAWAL_FAILED,
           payload: { withdrawId: id },
         });
       } else if (nextStatus === WithdrawTransactionStatus.RETURNED) {

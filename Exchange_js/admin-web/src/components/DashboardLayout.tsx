@@ -90,6 +90,7 @@ const DashboardLayout = () => {
       label: 'Reconciliation Center',
       icon: <Activity size={20} />,
       children: [
+        { path: '/dashboard/reconciliation/outstanding-settlements', label: 'Outstanding Settlements', icon: <ClipboardList size={18} /> },
         { path: '/dashboard/reconciliation/outstandings', label: 'Swap Outstandings', icon: <ClipboardList size={18} /> },
       ],
     },

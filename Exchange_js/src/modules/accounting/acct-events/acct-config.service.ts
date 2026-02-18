@@ -8,6 +8,24 @@ const DEPOSIT_REJECTED_EVENT_CODES = [
   'EVT_DEPOSIT_REJECTED__FIAT',
 ] as const;
 
+const LEGACY_INTERNAL_TX_EVENT_CODES = [
+  'EVT_INTERNAL_TX_CREATED',
+  'EVT_INTERNAL_TX_SUCCESS',
+  'EVT_INTERNAL_TX_FAILED',
+  'EVT_INTERNAL_TX_CANCELLED',
+  'EVT_INTERNAL_TX_REJECTED',
+] as const;
+
+const LEGACY_INTERNAL_TX_TEMPLATE_CODES = [
+  'TPL_EVT_INTERNAL_TX_CREATED_V1',
+  'TPL_EVT_INTERNAL_TX_SUCCESS_V1',
+] as const;
+
+const LEGACY_WITHDRAW_FAILED_EVENT_CODES = [
+  'EVT_WITHDRAWAL_FAILED__CRYPTO',
+  'EVT_WITHDRAWAL_FAILED__FIAT',
+] as const;
+
 const DEPOSIT_EVENT_EXPECTED_TO_STATUS: Record<string, string> = {
   EVT_DEPOSIT_CONFIRMED__CRYPTO: 'COMPLIANCE_PENDING',
   EVT_DEPOSIT_CONFIRMED__FIAT: 'COMPLIANCE_PENDING',
@@ -110,6 +128,109 @@ export class AcctConfigService implements OnModuleInit {
     }
   }
 
+  private async cleanupLegacyInternalTxAndWithdrawFailedContracts() {
+    try {
+      await (this.prisma as any).journalHeaderTemplate.deleteMany({
+        where: {
+          OR: [
+            {
+              templateCode: {
+                in: [...LEGACY_INTERNAL_TX_TEMPLATE_CODES],
+              },
+            },
+            {
+              eventCode: {
+                in: [...LEGACY_INTERNAL_TX_EVENT_CODES],
+              },
+            },
+          ],
+        },
+      });
+    } catch (error: any) {
+      this.logger.warn(
+        `Failed to delete legacy internal tx templates, fallback to inactivate: ${error?.message || String(error)}`,
+      );
+      await (this.prisma as any).journalHeaderTemplate.updateMany({
+        where: {
+          OR: [
+            {
+              templateCode: {
+                in: [...LEGACY_INTERNAL_TX_TEMPLATE_CODES],
+              },
+            },
+            {
+              eventCode: {
+                in: [...LEGACY_INTERNAL_TX_EVENT_CODES],
+              },
+            },
+          ],
+        },
+        data: { status: 'INACTIVE' },
+      });
+    }
+
+    try {
+      await (this.prisma as any).acctEvent.deleteMany({
+        where: {
+          eventCode: {
+            in: [
+              ...LEGACY_INTERNAL_TX_EVENT_CODES,
+              ...LEGACY_WITHDRAW_FAILED_EVENT_CODES,
+            ],
+          },
+        },
+      });
+    } catch (error: any) {
+      this.logger.warn(
+        `Failed to delete legacy internal tx/withdraw failed events, fallback to deactivate: ${error?.message || String(error)}`,
+      );
+      await (this.prisma as any).acctEvent.updateMany({
+        where: {
+          eventCode: {
+            in: [
+              ...LEGACY_INTERNAL_TX_EVENT_CODES,
+              ...LEGACY_WITHDRAW_FAILED_EVENT_CODES,
+            ],
+          },
+        },
+        data: { isActive: false },
+      });
+    }
+  }
+
+  private async cleanupInactiveNonDefaultAccountingContracts() {
+    const defaultEventCodes = DEFAULT_ACCT_EVENTS.map((item) => item.eventCode);
+    const defaultTemplateCodes = DEFAULT_JOURNAL_TEMPLATES.map(
+      (item) => item.header.templateCode,
+    );
+
+    try {
+      await (this.prisma as any).journalHeaderTemplate.deleteMany({
+        where: {
+          status: 'INACTIVE',
+          templateCode: { notIn: defaultTemplateCodes },
+        },
+      });
+    } catch (error: any) {
+      this.logger.warn(
+        `Failed to delete inactive non-default journal templates: ${error?.message || String(error)}`,
+      );
+    }
+
+    try {
+      await (this.prisma as any).acctEvent.deleteMany({
+        where: {
+          isActive: false,
+          eventCode: { notIn: defaultEventCodes },
+        },
+      });
+    } catch (error: any) {
+      this.logger.warn(
+        `Failed to delete inactive non-default accounting events: ${error?.message || String(error)}`,
+      );
+    }
+  }
+
   private async validateDepositEventContract(): Promise<DepositEventContractValidation> {
     const issues: string[] = [];
     const expectedEventCodes = Object.keys(DEPOSIT_EVENT_EXPECTED_TO_STATUS);
@@ -189,6 +310,8 @@ export class AcctConfigService implements OnModuleInit {
 
     // 1.1 Cleanup deprecated deposit rejected events/templates
     await this.cleanupRejectedDepositEvents();
+    await this.cleanupLegacyInternalTxAndWithdrawFailedContracts();
+    await this.cleanupInactiveNonDefaultAccountingContracts();
 
     this.logger.log(`Synced ${DEFAULT_ACCT_EVENTS.length} accounting events.`);
 

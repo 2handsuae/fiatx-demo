@@ -116,6 +116,8 @@ const SwapOutstandingList = () => {
             >
               <option value="">All Status</option>
               <option value="OPEN">OPEN</option>
+              <option value="LOCKED">LOCKED</option>
+              <option value="CLOSED">CLOSED</option>
             </select>
             <select
               value={direction}

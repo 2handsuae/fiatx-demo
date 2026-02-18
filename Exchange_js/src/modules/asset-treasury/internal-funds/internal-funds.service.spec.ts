@@ -10,6 +10,7 @@ describe('InternalFundsService', () => {
   let service: InternalFundsService;
   let prisma: any;
   let internalTransactionsService: any;
+  let eventEmitter: any;
 
   beforeEach(() => {
     prisma = {
@@ -34,7 +35,15 @@ describe('InternalFundsService', () => {
       createStandaloneTransaction: jest.fn(),
     };
 
-    service = new InternalFundsService(prisma, internalTransactionsService);
+    eventEmitter = {
+      emit: jest.fn(),
+    };
+
+    service = new InternalFundsService(
+      prisma,
+      internalTransactionsService,
+      eventEmitter,
+    );
     jest.clearAllMocks();
   });
 
@@ -79,6 +88,15 @@ describe('InternalFundsService', () => {
       'itx-1',
       'SYSTEM',
       prisma,
+    );
+    expect(eventEmitter.emit).toHaveBeenCalledWith(
+      'internal-fund.status.changed',
+      expect.objectContaining({
+        internalFundId: 'ifd-1',
+        internalTransactionId: 'itx-1',
+        oldStatus: InternalFundStatus.CREATED,
+        newStatus: InternalFundStatus.SIGNING,
+      }),
     );
   });
 

@@ -140,6 +140,95 @@ describe('InternalTransactionWorkflowService', () => {
     );
   });
 
+  it('creates pending manual FIAT transaction for bank pool route', async () => {
+    txClient.internalTransaction.findUnique.mockResolvedValue(null);
+    txClient.asset.findUnique.mockResolvedValue({
+      id: 'asset-aed',
+      type: 'FIAT',
+      code: 'AED',
+      network: null,
+      decimals: 2,
+    });
+    txClient.wallet.findUnique
+      .mockResolvedValueOnce({
+        id: 'wallet-cust-bank',
+        walletRole: 'CUST_BANK',
+        ownerType: 'CUSTOMER',
+        ownerId: null,
+        ownerNo: 'CUSTOMER_POOL',
+        assetId: 'asset-aed',
+        status: 'ACTIVE',
+        address: null,
+        iban: 'AE11-CUST',
+      })
+      .mockResolvedValueOnce({
+        id: 'wallet-liq-bank',
+        walletRole: 'LIQ_BANK',
+        ownerType: 'PLATFORM',
+        ownerId: null,
+        ownerNo: 'PLATFORM',
+        assetId: 'asset-aed',
+        status: 'ACTIVE',
+        address: null,
+        iban: 'AE22-LIQ',
+      });
+    internalTransactionsService.createStandaloneTransaction.mockResolvedValue({
+      id: 'itx-fiat-1',
+    });
+
+    const result = await service.createManualTransaction(
+      {
+        type: InternalTransactionType.CLIENT_BANK_TO_LIQ_BANK,
+        assetId: 'asset-aed',
+        fromWalletId: 'wallet-cust-bank',
+        toWalletId: 'wallet-liq-bank',
+        amount: '1000.25',
+        reason: 'Fiat bank pool rebalance',
+      },
+      'admin-1',
+    );
+
+    expect(internalTransactionsService.createStandaloneTransaction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: InternalTransactionType.CLIENT_BANK_TO_LIQ_BANK,
+        assetId: 'asset-aed',
+        fromWalletId: 'wallet-cust-bank',
+        toWalletId: 'wallet-liq-bank',
+      }),
+      'admin-1',
+      txClient,
+    );
+    expect(result).toEqual(
+      expect.objectContaining({
+        idempotent: false,
+        internalTransaction: { id: 'itx-fiat-1' },
+        internalFund: null,
+      }),
+    );
+  });
+
+  it('rejects when type-asset pair is mismatched', async () => {
+    txClient.internalTransaction.findUnique.mockResolvedValue(null);
+    txClient.asset.findUnique.mockResolvedValue({
+      id: 'asset-aed',
+      type: 'FIAT',
+      code: 'AED',
+      network: null,
+      decimals: 2,
+    });
+
+    await expect(
+      service.createManualTransaction({
+        type: InternalTransactionType.MASTER_TO_LIQ,
+        assetId: 'asset-aed',
+        fromWalletId: 'wallet-master',
+        toWalletId: 'wallet-liq',
+        amount: '1',
+        reason: 'invalid pair',
+      }),
+    ).rejects.toThrow('Asset type mismatch');
+  });
+
   it('returns existing transaction and existing fund for same requestId idempotency', async () => {
     txClient.internalTransaction.findUnique.mockResolvedValue({
       id: 'itx-existing',
@@ -208,6 +297,47 @@ describe('InternalTransactionWorkflowService', () => {
         toWalletId: 'wallet-liq',
         amount: '1',
         reason: 'invalid route',
+      }),
+    ).rejects.toThrow('fromWallet role mismatch');
+  });
+
+  it('rejects FIAT route when wallet role does not match', async () => {
+    txClient.internalTransaction.findUnique.mockResolvedValue(null);
+    txClient.asset.findUnique.mockResolvedValue({
+      id: 'asset-aed',
+      type: 'FIAT',
+      code: 'AED',
+      network: null,
+      decimals: 2,
+    });
+    txClient.wallet.findUnique
+      .mockResolvedValueOnce({
+        id: 'wallet-wrong',
+        walletRole: 'LIQ',
+        ownerType: 'PLATFORM',
+        ownerId: null,
+        ownerNo: 'PLATFORM',
+        assetId: 'asset-aed',
+        status: 'ACTIVE',
+      })
+      .mockResolvedValueOnce({
+        id: 'wallet-liq-bank',
+        walletRole: 'LIQ_BANK',
+        ownerType: 'PLATFORM',
+        ownerId: null,
+        ownerNo: 'PLATFORM',
+        assetId: 'asset-aed',
+        status: 'ACTIVE',
+      });
+
+    await expect(
+      service.createManualTransaction({
+        type: InternalTransactionType.CLIENT_BANK_TO_LIQ_BANK,
+        assetId: 'asset-aed',
+        fromWalletId: 'wallet-wrong',
+        toWalletId: 'wallet-liq-bank',
+        amount: '10',
+        reason: 'invalid fiat route',
       }),
     ).rejects.toThrow('fromWallet role mismatch');
   });

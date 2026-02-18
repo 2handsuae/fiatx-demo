@@ -10,6 +10,8 @@ import SwapQuoteList from './pages/SwapQuoteList';
 import SwapQuoteDetail from './pages/SwapQuoteDetail';
 import SwapOutstandingList from './pages/SwapOutstandingList';
 import SwapOutstandingDetail from './pages/SwapOutstandingDetail';
+import OutstandingSettlementList from './pages/OutstandingSettlementList';
+import OutstandingSettlementDetail from './pages/OutstandingSettlementDetail';
 import CustomerDetail from './pages/CustomerDetail';
 import LiquidityProviderList from './pages/LiquidityProviderList';
 import LiquidityProviderCreate from './pages/LiquidityProviderCreate';
@@ -68,6 +70,8 @@ function App() {
              <Route path="pricing/rates/edit/:id" element={<CustomerSwapRateEdit />} />
              <Route path="pricing/quotes" element={<SwapQuoteList />} />
              <Route path="pricing/quotes/:id" element={<SwapQuoteDetail />} />
+             <Route path="reconciliation/outstanding-settlements" element={<OutstandingSettlementList />} />
+             <Route path="reconciliation/outstanding-settlements/:id" element={<OutstandingSettlementDetail />} />
              <Route path="reconciliation/outstandings" element={<SwapOutstandingList />} />
              <Route path="reconciliation/outstandings/:id" element={<SwapOutstandingDetail />} />
              <Route path="compliance/cdd-cases" element={<CddCasesPage />} />

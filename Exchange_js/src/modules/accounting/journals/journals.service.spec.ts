@@ -94,7 +94,7 @@ describe('JournalsService', () => {
     const mockClient: any = {
       acctEvent: {
         findFirst: jest.fn().mockResolvedValue({
-          eventCode: 'EVT_WITHDRAWAL_FAILED__FIAT',
+          eventCode: 'EVT_WITHDRAWAL_FAILED',
           postingMode: 'BULK_REVERSAL_BY_SOURCE',
         }),
       },

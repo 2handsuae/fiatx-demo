@@ -458,8 +458,8 @@ export const DEFAULT_JOURNAL_TEMPLATES = [
   // 15. Internal Transaction Created (Crypto Internal Transfer)
   {
     header: {
-      templateCode: 'TPL_EVT_INTERNAL_TX_CREATED_V1',
-      eventCode: 'EVT_INTERNAL_TX_CREATED',
+      templateCode: 'TPL_EVT_INTERNAL_TX_CREATED__CRYPTO_V1',
+      eventCode: 'EVT_INTERNAL_TX_CREATED__CRYPTO',
       version: 1,
       status: 'ACTIVE',
       description: '内部调拨创建：可用资产转在途',
@@ -490,8 +490,8 @@ export const DEFAULT_JOURNAL_TEMPLATES = [
   // 16. Internal Transaction Success (Crypto Internal Transfer)
   {
     header: {
-      templateCode: 'TPL_EVT_INTERNAL_TX_SUCCESS_V1',
-      eventCode: 'EVT_INTERNAL_TX_SUCCESS',
+      templateCode: 'TPL_EVT_INTERNAL_TX_SUCCESS__CRYPTO_V1',
+      eventCode: 'EVT_INTERNAL_TX_SUCCESS__CRYPTO',
       version: 1,
       status: 'ACTIVE',
       description: '内部调拨成功：在途回目标托管并记录网络费',
@@ -526,6 +526,80 @@ export const DEFAULT_JOURNAL_TEMPLATES = [
         ownerTypeSource: 'src.toWalletOwnerType',
         dimensionsRule: '{"assetId":"{{src.assetId}}","walletId":"{{src.toWalletId}}","internalTxNo":"{{src.internalTxNo}}"}',
         description: '调拨成功：核销在途资产',
+      },
+    ],
+  },
+  // 17. Internal Transaction Created (Fiat Internal Transfer)
+  {
+    header: {
+      templateCode: 'TPL_EVT_INTERNAL_TX_CREATED__FIAT_V1',
+      eventCode: 'EVT_INTERNAL_TX_CREATED__FIAT',
+      version: 1,
+      status: 'ACTIVE',
+      description: '内部调拨创建（法币）：可用资产转在途',
+    },
+    lines: [
+      {
+        lineNo: 1,
+        accountCode: 'A.BANK_IN_TRANSIT',
+        drCr: 'DR',
+        amountSource: 'AMOUNT',
+        assetSource: 'ASSET_ID',
+        ownerTypeSource: 'src.toWalletOwnerType',
+        dimensionsRule: '{"assetId":"{{src.assetId}}","walletId":"{{src.toWalletId}}","internalTxNo":"{{src.internalTxNo}}"}',
+        description: '调拨创建（法币）：在途资产增加',
+      },
+      {
+        lineNo: 2,
+        accountCode: 'A.BANK',
+        drCr: 'CR',
+        amountSource: 'AMOUNT',
+        assetSource: 'ASSET_ID',
+        ownerTypeSource: 'src.fromWalletOwnerType',
+        dimensionsRule: '{"assetId":"{{src.assetId}}","walletId":"{{src.fromWalletId}}","internalTxNo":"{{src.internalTxNo}}"}',
+        description: '调拨创建（法币）：来源可用资产减少',
+      },
+    ],
+  },
+  // 18. Internal Transaction Success (Fiat Internal Transfer)
+  {
+    header: {
+      templateCode: 'TPL_EVT_INTERNAL_TX_SUCCESS__FIAT_V1',
+      eventCode: 'EVT_INTERNAL_TX_SUCCESS__FIAT',
+      version: 1,
+      status: 'ACTIVE',
+      description: '内部调拨成功（法币）：在途回目标银行池并记录银行费',
+    },
+    lines: [
+      {
+        lineNo: 1,
+        accountCode: 'A.BANK',
+        drCr: 'DR',
+        amountSource: 'NET_AMOUNT',
+        assetSource: 'ASSET_ID',
+        ownerTypeSource: 'src.toWalletOwnerType',
+        dimensionsRule: '{"assetId":"{{src.assetId}}","walletId":"{{src.toWalletId}}","internalTxNo":"{{src.internalTxNo}}"}',
+        description: '调拨成功（法币）：目标可用资产增加',
+      },
+      {
+        lineNo: 2,
+        accountCode: 'E.BANK_FEE',
+        drCr: 'DR',
+        amountSource: 'FEE_AMOUNT',
+        assetSource: 'ASSET_ID',
+        ownerTypeSource: 'src.fromWalletOwnerType',
+        dimensionsRule: '{"assetId":"{{src.assetId}}","walletId":"{{src.fromWalletId}}","internalTxNo":"{{src.internalTxNo}}"}',
+        description: '调拨成功（法币）：记录银行费用',
+      },
+      {
+        lineNo: 3,
+        accountCode: 'A.BANK_IN_TRANSIT',
+        drCr: 'CR',
+        amountSource: 'AMOUNT',
+        assetSource: 'ASSET_ID',
+        ownerTypeSource: 'src.toWalletOwnerType',
+        dimensionsRule: '{"assetId":"{{src.assetId}}","walletId":"{{src.toWalletId}}","internalTxNo":"{{src.internalTxNo}}"}',
+        description: '调拨成功（法币）：核销在途资产',
       },
     ],
   },

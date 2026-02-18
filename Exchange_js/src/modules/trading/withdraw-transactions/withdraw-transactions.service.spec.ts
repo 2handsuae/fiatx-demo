@@ -263,4 +263,40 @@ describe('WithdrawTransactionsService', () => {
       { withdrawId: 'wd-4' },
     );
   });
+
+  it('should emit unified failed event when payout fails', async () => {
+    mockTx.withdrawTransaction.findUnique.mockResolvedValue({
+      id: 'wd-5',
+      status: WithdrawTransactionStatus.PAYOUT_PENDING,
+      ownerType: 'CUSTOMER',
+      ownerId: 'cust-1',
+      assetId: 'asset-fiat',
+      amount: new Prisma.Decimal(30),
+      netAmount: new Prisma.Decimal(30),
+      feeAmount: new Prisma.Decimal(0),
+      withdrawNo: 'WD0005',
+      statusHistory: '[]',
+      approvedAt: new Date(),
+      payoutRequestedAt: new Date(),
+      completedAt: null,
+      asset: {
+        type: 'FIAT',
+      },
+    });
+    mockTx.withdrawTransaction.update.mockResolvedValue({
+      id: 'wd-5',
+      status: WithdrawTransactionStatus.FAILED,
+    });
+    mockTx.withdrawAuditLog.create.mockResolvedValue({ id: 'audit-5' });
+
+    const result = await service.updateStatus('wd-5', {
+      action: WithdrawTransactionAction.FAIL,
+    });
+
+    expect(result.status).toBe(WithdrawTransactionStatus.FAILED);
+    expect(eventEmitter.emit).toHaveBeenCalledWith(
+      WithdrawEvents.EVT_WITHDRAWAL_FAILED,
+      { withdrawId: 'wd-5' },
+    );
+  });
 });

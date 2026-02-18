@@ -571,8 +571,8 @@ export class WithdrawWorkflowOrchestrator {
     const walletNo =
       suffix === 'CRYPTO'
         ? buildCryptoSystemWalletNo('PAYOUT', asset.code, asset.network)
-        : buildFiatPoolWalletNo('LIQ_BANK', asset.code);
-    const ownerType = suffix === 'CRYPTO' ? 'CUSTOMER' : 'PLATFORM';
+        : buildFiatPoolWalletNo('CUST_BANK', asset.code);
+    const ownerType = 'CUSTOMER';
 
     const sourceWallet = await tx.wallet.findFirst({
       where: {

@@ -1,6 +1,11 @@
 import { InternalTransactionType } from './dto/internal-transaction.dto';
 
-export type InternalTxSystemWalletRole = 'MASTER' | 'LIQ' | 'PAYOUT';
+export type InternalTxSystemWalletRole =
+  | 'MASTER'
+  | 'LIQ'
+  | 'PAYOUT'
+  | 'CUST_BANK'
+  | 'LIQ_BANK';
 
 export const MANUAL_CRYPTO_INTERNAL_TRANSACTION_TYPES = [
   InternalTransactionType.MASTER_TO_LIQ,
@@ -11,8 +16,18 @@ export const MANUAL_CRYPTO_INTERNAL_TRANSACTION_TYPES = [
   InternalTransactionType.PAYOUT_TO_LIQ,
 ] as const;
 
+export const MANUAL_FIAT_INTERNAL_TRANSACTION_TYPES = [
+  InternalTransactionType.CLIENT_BANK_TO_LIQ_BANK,
+  InternalTransactionType.LIQ_BANK_TO_CLIENT_BANK,
+] as const;
+
+export const MANUAL_INTERNAL_TRANSACTION_TYPES = [
+  ...MANUAL_CRYPTO_INTERNAL_TRANSACTION_TYPES,
+  ...MANUAL_FIAT_INTERNAL_TRANSACTION_TYPES,
+] as const;
+
 export type ManualInternalTransactionType =
-  (typeof MANUAL_CRYPTO_INTERNAL_TRANSACTION_TYPES)[number];
+  (typeof MANUAL_INTERNAL_TRANSACTION_TYPES)[number];
 
 export const MANUAL_INTERNAL_TX_TYPE_WALLET_ROUTE: Record<
   ManualInternalTransactionType,
@@ -41,5 +56,13 @@ export const MANUAL_INTERNAL_TX_TYPE_WALLET_ROUTE: Record<
   [InternalTransactionType.PAYOUT_TO_LIQ]: {
     fromRole: 'PAYOUT',
     toRole: 'LIQ',
+  },
+  [InternalTransactionType.CLIENT_BANK_TO_LIQ_BANK]: {
+    fromRole: 'CUST_BANK',
+    toRole: 'LIQ_BANK',
+  },
+  [InternalTransactionType.LIQ_BANK_TO_CLIENT_BANK]: {
+    fromRole: 'LIQ_BANK',
+    toRole: 'CUST_BANK',
   },
 };

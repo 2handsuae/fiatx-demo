@@ -26,6 +26,8 @@
     "db:biz:reset": "ts-node scripts/reset-business-data.ts",
     "internal:collection:backfill:dry": "ts-node scripts/backfill-internal-collections.ts --dry-run",
     "internal:collection:backfill:apply": "ts-node scripts/backfill-internal-collections.ts",
+    "internal:tx:fiat:backfill:dry": "ts-node scripts/backfill-fiat-internal-tx-accounting.ts --dry-run",
+    "internal:tx:fiat:backfill:apply": "ts-node scripts/backfill-fiat-internal-tx-accounting.ts",
     "wallet:balance:rebuild:dry": "ts-node scripts/rebuild-wallet-balances.ts --dry-run",
     "wallet:balance:rebuild:apply": "ts-node scripts/rebuild-wallet-balances.ts --apply",
     "wallet:no:backfill:dry": "ts-node scripts/backfill-wallet-no-v2.ts --dry-run",

@@ -9,6 +9,8 @@ export enum OutstandingDirection {
 
 export enum OutstandingStatus {
   OPEN = 'OPEN',
+  LOCKED = 'LOCKED',
+  CLOSED = 'CLOSED',
 }
 
 export class OutstandingQueryDto {

@@ -169,6 +169,11 @@ export class OutstandingsService {
             amount: row.amount,
             status: 'OPEN',
             swapTransactionId: swap.id,
+            settlementId: null,
+            settlementItemId: null,
+            lockedAt: null,
+            closedAt: null,
+            closedByInternalFundId: null,
           },
         });
         continue;
@@ -187,6 +192,11 @@ export class OutstandingsService {
         amount: row.amount,
         status: 'OPEN',
         swapTransactionId: swap.id,
+        settlementId: null,
+        settlementItemId: null,
+        lockedAt: null,
+        closedAt: null,
+        closedByInternalFundId: null,
       });
     }
 

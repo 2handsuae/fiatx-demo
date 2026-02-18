@@ -30,6 +30,7 @@ import { InternalFundsModule } from './modules/asset-treasury/internal-funds/int
 import { InternalTransactionWorkflowModule } from './modules/asset-treasury/internal-transaction-workflow/internal-transaction-workflow.module';
 import { ClearingModule } from './modules/clearing-settle/clearing/clearing.module';
 import { OutstandingsModule } from './modules/clearing-settle/outstandings/outstandings.module';
+import { OutstandingSettlementsModule } from './modules/clearing-settle/outstanding-settlements/outstanding-settlements.module';
 import { RiskEngineModule } from './modules/risk-engine/risk-engine.module';
 import { OnboardingModule } from './modules/identity/onboarding/onboarding.module';
 import { TransactionComplianceModule } from './modules/risk-engine/transaction-compliance/transaction-compliance.module';
@@ -83,6 +84,7 @@ import { TransactionComplianceModule } from './modules/risk-engine/transaction-c
     InternalTransactionWorkflowModule,
     ClearingModule,
     OutstandingsModule,
+    OutstandingSettlementsModule,
     RiskEngineModule,
     TransactionComplianceModule,
     OnboardingModule,

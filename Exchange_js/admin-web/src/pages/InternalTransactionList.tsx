@@ -20,7 +20,9 @@ type InternalTransactionItem = {
     decimals?: number;
   };
   fromAddress?: string | null;
+  fromIban?: string | null;
   toAddress?: string | null;
+  toIban?: string | null;
   createdAt: string;
 };
 
@@ -52,25 +54,69 @@ type CreateFormState = {
 };
 
 const MANUAL_TYPE_OPTIONS = [
-  'MASTER_TO_LIQ',
-  'LIQ_TO_MASTER',
-  'MASTER_TO_PAYOUT',
-  'PAYOUT_TO_MASTER',
-  'LIQ_TO_PAYOUT',
-  'PAYOUT_TO_LIQ',
-];
+  {
+    value: 'MASTER_TO_LIQ',
+    assetType: 'CRYPTO',
+    fromRole: 'MASTER',
+    toRole: 'LIQ',
+  },
+  {
+    value: 'LIQ_TO_MASTER',
+    assetType: 'CRYPTO',
+    fromRole: 'LIQ',
+    toRole: 'MASTER',
+  },
+  {
+    value: 'MASTER_TO_PAYOUT',
+    assetType: 'CRYPTO',
+    fromRole: 'MASTER',
+    toRole: 'PAYOUT',
+  },
+  {
+    value: 'PAYOUT_TO_MASTER',
+    assetType: 'CRYPTO',
+    fromRole: 'PAYOUT',
+    toRole: 'MASTER',
+  },
+  {
+    value: 'LIQ_TO_PAYOUT',
+    assetType: 'CRYPTO',
+    fromRole: 'LIQ',
+    toRole: 'PAYOUT',
+  },
+  {
+    value: 'PAYOUT_TO_LIQ',
+    assetType: 'CRYPTO',
+    fromRole: 'PAYOUT',
+    toRole: 'LIQ',
+  },
+  {
+    value: 'CLIENT_BANK_TO_LIQ_BANK',
+    assetType: 'FIAT',
+    fromRole: 'CUST_BANK',
+    toRole: 'LIQ_BANK',
+  },
+  {
+    value: 'LIQ_BANK_TO_CLIENT_BANK',
+    assetType: 'FIAT',
+    fromRole: 'LIQ_BANK',
+    toRole: 'CUST_BANK',
+  },
+] as const;
 
-const TYPE_ROLE_ROUTE: Record<string, { fromRole: string; toRole: string }> = {
-  MASTER_TO_LIQ: { fromRole: 'MASTER', toRole: 'LIQ' },
-  LIQ_TO_MASTER: { fromRole: 'LIQ', toRole: 'MASTER' },
-  MASTER_TO_PAYOUT: { fromRole: 'MASTER', toRole: 'PAYOUT' },
-  PAYOUT_TO_MASTER: { fromRole: 'PAYOUT', toRole: 'MASTER' },
-  LIQ_TO_PAYOUT: { fromRole: 'LIQ', toRole: 'PAYOUT' },
-  PAYOUT_TO_LIQ: { fromRole: 'PAYOUT', toRole: 'LIQ' },
-};
+const TYPE_ROLE_ROUTE = MANUAL_TYPE_OPTIONS.reduce<
+  Record<string, { fromRole: string; toRole: string; assetType: 'CRYPTO' | 'FIAT' }>
+>((acc, item) => {
+  acc[item.value] = {
+    fromRole: item.fromRole,
+    toRole: item.toRole,
+    assetType: item.assetType,
+  };
+  return acc;
+}, {});
 
 const INITIAL_FORM_STATE: CreateFormState = {
-  type: MANUAL_TYPE_OPTIONS[0],
+  type: MANUAL_TYPE_OPTIONS[0].value,
   assetId: '',
   fromWalletId: '',
   toWalletId: '',
@@ -153,12 +199,12 @@ const InternalTransactionList = () => {
     }
   };
 
-  const fetchCryptoAssets = async () => {
+  const fetchAssetsByType = async (assetType: 'CRYPTO' | 'FIAT') => {
     setAssetsLoading(true);
     try {
       const token = localStorage.getItem('admin_token');
       const response = await fetch(
-        `${import.meta.env.VITE_API_URL}/assets?type=CRYPTO&status=ACTIVE&take=200`,
+        `${import.meta.env.VITE_API_URL}/assets?type=${assetType}&status=ACTIVE&take=200`,
         {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -173,7 +219,13 @@ const InternalTransactionList = () => {
         if (list.length > 0) {
           setForm((prev) => ({
             ...prev,
-            assetId: prev.assetId || list[0].id,
+            assetId:
+              list.find((item) => item.id === prev.assetId)?.id || list[0].id,
+          }));
+        } else {
+          setForm((prev) => ({
+            ...prev,
+            assetId: '',
           }));
         }
       } else if (response.status === 401) {
@@ -184,7 +236,7 @@ const InternalTransactionList = () => {
         alert(`Load assets failed: ${err.message || 'Unknown error'}`);
       }
     } catch (error) {
-      console.error('Failed to fetch crypto assets', error);
+      console.error(`Failed to fetch ${assetType} assets`, error);
       alert('Load assets failed');
     } finally {
       setAssetsLoading(false);
@@ -271,16 +323,13 @@ const InternalTransactionList = () => {
     fetchRoleWallets();
   }, [showCreateModal, form.assetId, form.type]);
 
-  const openCreateModal = async () => {
+  useEffect(() => {
+    if (!showCreateModal || !route) return;
+    fetchAssetsByType(route.assetType);
+  }, [showCreateModal, form.type]);
+
+  const openCreateModal = () => {
     setShowCreateModal(true);
-    if (assets.length) {
-      setForm((prev) => ({
-        ...prev,
-        assetId: prev.assetId || assets[0].id,
-      }));
-      return;
-    }
-    await fetchCryptoAssets();
   };
 
   const closeCreateModal = () => {
@@ -476,11 +525,17 @@ const InternalTransactionList = () => {
                         <div className="text-xs text-gray-500">fee: {item.feeAmount || '0'}</div>
                       </td>
                       <td className="px-6 py-4">
-                        <div className="text-xs text-gray-500 truncate max-w-[260px]" title={item.fromAddress || ''}>
-                          from: {item.fromAddress || '-'}
+                        <div
+                          className="text-xs text-gray-500 truncate max-w-[260px]"
+                          title={item.fromAddress || item.fromIban || ''}
+                        >
+                          from: {item.fromAddress || item.fromIban || '-'}
                         </div>
-                        <div className="text-xs text-gray-500 truncate max-w-[260px]" title={item.toAddress || ''}>
-                          to: {item.toAddress || '-'}
+                        <div
+                          className="text-xs text-gray-500 truncate max-w-[260px]"
+                          title={item.toAddress || item.toIban || ''}
+                        >
+                          to: {item.toAddress || item.toIban || '-'}
                         </div>
                       </td>
                       <td className="px-6 py-4 space-y-2">
@@ -531,12 +586,23 @@ const InternalTransactionList = () => {
                   <label className="block text-sm text-gray-600 mb-1">Type</label>
                   <select
                     value={form.type}
-                    onChange={(e) => setForm((prev) => ({ ...prev, type: e.target.value }))}
+                    onChange={(e) => {
+                      setAssets([]);
+                      setFromWallets([]);
+                      setToWallets([]);
+                      setForm((prev) => ({
+                        ...prev,
+                        type: e.target.value,
+                        assetId: '',
+                        fromWalletId: '',
+                        toWalletId: '',
+                      }));
+                    }}
                     className="w-full px-3 py-2 border border-admin-border rounded-lg text-sm"
                   >
-                    {MANUAL_TYPE_OPTIONS.map((type) => (
-                      <option key={type} value={type}>
-                        {type}
+                    {MANUAL_TYPE_OPTIONS.map((item) => (
+                      <option key={item.value} value={item.value}>
+                        {item.value}
                       </option>
                     ))}
                   </select>
@@ -551,7 +617,11 @@ const InternalTransactionList = () => {
                     disabled={assetsLoading}
                   >
                     {assetOptions.length === 0 ? (
-                      <option value="">{assetsLoading ? 'Loading assets...' : 'No crypto assets'}</option>
+                      <option value="">
+                        {assetsLoading
+                          ? 'Loading assets...'
+                          : `No ${route?.assetType || 'CRYPTO'} assets`}
+                      </option>
                     ) : (
                       assetOptions.map((asset) => (
                         <option key={asset.id} value={asset.id}>

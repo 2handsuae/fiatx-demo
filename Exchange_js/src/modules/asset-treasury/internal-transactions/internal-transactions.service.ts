@@ -679,11 +679,15 @@ export class InternalTransactionsService {
       });
 
       if (next === InternalTransactionStatus.SUCCESS) {
+        const successEventCode =
+          updated?.asset?.type === 'FIAT'
+            ? 'EVT_INTERNAL_TX_SUCCESS__FIAT'
+            : 'EVT_INTERNAL_TX_SUCCESS__CRYPTO';
         await this.clearingsService.triggerClearing(
           {
             sourceType: 'INTERNAL_TX',
             sourceId: updated.id,
-            eventCode: 'EVT_INTERNAL_TX_SUCCESS',
+            eventCode: successEventCode,
             context: this.createAccountingContext(updated),
           },
           client,

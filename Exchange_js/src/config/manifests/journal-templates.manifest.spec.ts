@@ -32,8 +32,10 @@ describe('Journal Template Wallet Tag Constraints', () => {
   ] as const;
 
   const internalEventCodes = [
-    'EVT_INTERNAL_TX_CREATED',
-    'EVT_INTERNAL_TX_SUCCESS',
+    'EVT_INTERNAL_TX_CREATED__CRYPTO',
+    'EVT_INTERNAL_TX_SUCCESS__CRYPTO',
+    'EVT_INTERNAL_TX_CREATED__FIAT',
+    'EVT_INTERNAL_TX_SUCCESS__FIAT',
   ] as const;
 
   it('deposit asset lines must contain walletId tag from src.walletId', () => {
@@ -67,4 +69,3 @@ describe('Journal Template Wallet Tag Constraints', () => {
     }
   });
 });
-
