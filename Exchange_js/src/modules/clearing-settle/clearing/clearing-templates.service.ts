@@ -1,14 +1,25 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { CreateClearingTemplateDto, UpdateClearingTemplateDto, QueryClearingTemplateDto } from './dto/clearing.dto';
+import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
+import {
+  AuditActions,
+  AuditEntityTypes,
+  AuditModules,
+} from '../../risk-engine/audit-logs/constants/audit-actions.constant';
+import { AuditResult, AuditTriggerType } from '../../risk-engine/audit-logs/dto/audit-log.dto';
 
 @Injectable()
 export class ClearingTemplatesService {
-  constructor(private prisma: PrismaService) {}
+  private readonly auditLogsService: AuditLogsService;
+
+  constructor(private prisma: PrismaService) {
+    this.auditLogsService = new AuditLogsService(prisma);
+  }
 
   async create(dto: CreateClearingTemplateDto) {
     const { lineTemplates, ...headerData } = dto;
-    return this.prisma.clearingTemplate.create({
+    const created = await this.prisma.clearingTemplate.create({
       data: {
         ...headerData,
         lineTemplates: lineTemplates ? {
@@ -19,6 +30,23 @@ export class ClearingTemplatesService {
         lineTemplates: true
       }
     });
+    await this.auditLogsService.recordSystem({
+      triggerType: AuditTriggerType.CONFIG_CHANGE,
+      action: AuditActions.CLEARING_TEMPLATE_UPDATED,
+      module: AuditModules.CLEARING_TEMPLATES,
+      entityType: AuditEntityTypes.CLEARING_TEMPLATE,
+      entityId: created.id,
+      entityNo: created.code,
+      result: AuditResult.SUCCESS,
+      reason: 'Clearing template created',
+      afterData: {
+        code: created.code,
+        isEnabled: created.isEnabled,
+        lineTemplateCount: created.lineTemplates?.length || 0,
+      },
+      sourcePlatform: 'ADMIN_API',
+    });
+    return created;
   }
 
   async findAll(query: QueryClearingTemplateDto) {
@@ -58,6 +86,7 @@ export class ClearingTemplatesService {
 
   async update(id: string, dto: UpdateClearingTemplateDto) {
     const { lineTemplates, ...headerData } = dto;
+    const before = await this.findOne(id);
     
     // For simplicity in MVP, if lineTemplates provided, we replace all existing ones
     if (lineTemplates) {
@@ -66,7 +95,7 @@ export class ClearingTemplatesService {
       });
     }
 
-    return this.prisma.clearingTemplate.update({
+    const updated = await this.prisma.clearingTemplate.update({
       where: { id },
       data: {
         ...headerData,
@@ -78,11 +107,50 @@ export class ClearingTemplatesService {
         lineTemplates: true
       }
     });
+    await this.auditLogsService.recordSystem({
+      triggerType: AuditTriggerType.CONFIG_CHANGE,
+      action: AuditActions.CLEARING_TEMPLATE_UPDATED,
+      module: AuditModules.CLEARING_TEMPLATES,
+      entityType: AuditEntityTypes.CLEARING_TEMPLATE,
+      entityId: updated.id,
+      entityNo: updated.code,
+      result: AuditResult.SUCCESS,
+      reason: 'Clearing template updated',
+      beforeData: {
+        code: before.code,
+        isEnabled: before.isEnabled,
+        lineTemplateCount: before.lineTemplates?.length || 0,
+      },
+      afterData: {
+        code: updated.code,
+        isEnabled: updated.isEnabled,
+        lineTemplateCount: updated.lineTemplates?.length || 0,
+      },
+      sourcePlatform: 'ADMIN_API',
+    });
+    return updated;
   }
 
   async remove(id: string) {
-    return this.prisma.clearingTemplate.delete({
+    const before = await this.findOne(id);
+    const deleted = await this.prisma.clearingTemplate.delete({
       where: { id }
     });
+    await this.auditLogsService.recordSystem({
+      triggerType: AuditTriggerType.CONFIG_CHANGE,
+      action: AuditActions.CLEARING_TEMPLATE_UPDATED,
+      module: AuditModules.CLEARING_TEMPLATES,
+      entityType: AuditEntityTypes.CLEARING_TEMPLATE,
+      entityId: id,
+      entityNo: before.code,
+      result: AuditResult.SUCCESS,
+      reason: 'Clearing template deleted',
+      beforeData: {
+        code: before.code,
+        isEnabled: before.isEnabled,
+      },
+      sourcePlatform: 'ADMIN_API',
+    });
+    return deleted;
   }
 }

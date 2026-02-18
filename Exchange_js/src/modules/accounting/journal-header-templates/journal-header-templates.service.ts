@@ -11,12 +11,22 @@ import {
   JournalHeaderTemplateQueryDto,
 } from './dto/journal-header-template.dto';
 import { Prisma } from '@prisma/client';
+import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
+import {
+  AuditActions,
+  AuditEntityTypes,
+  AuditModules,
+} from '../../risk-engine/audit-logs/constants/audit-actions.constant';
+import { AuditResult, AuditTriggerType } from '../../risk-engine/audit-logs/dto/audit-log.dto';
 
 @Injectable()
 export class JournalHeaderTemplatesService {
   private readonly logger = new Logger(JournalHeaderTemplatesService.name);
+  private readonly auditLogsService: AuditLogsService;
 
-  constructor(private prisma: PrismaService) {}
+  constructor(private prisma: PrismaService) {
+    this.auditLogsService = new AuditLogsService(prisma);
+  }
 
   async create(createDto: CreateJournalHeaderTemplateDto) {
     const existing = await this.prisma.journalHeaderTemplate.findUnique({
@@ -45,9 +55,28 @@ export class JournalHeaderTemplatesService {
         `Asset ID ${createDto.baseAssetId} not found`,
       );
 
-    return this.prisma.journalHeaderTemplate.create({
+    const created = await this.prisma.journalHeaderTemplate.create({
       data: createDto,
     });
+
+    await this.auditLogsService.recordSystem({
+      triggerType: AuditTriggerType.CONFIG_CHANGE,
+      action: AuditActions.JOURNAL_TEMPLATE_UPDATED,
+      module: AuditModules.JOURNAL_HEADER_TEMPLATES,
+      entityType: AuditEntityTypes.JOURNAL_HEADER_TEMPLATE,
+      entityId: created.id,
+      entityNo: created.templateCode,
+      result: AuditResult.SUCCESS,
+      reason: 'Journal header template created',
+      afterData: {
+        templateCode: created.templateCode,
+        eventCode: created.eventCode,
+        status: created.status,
+      },
+      sourcePlatform: 'ADMIN_API',
+    });
+
+    return created;
   }
 
   async findAll(query: JournalHeaderTemplateQueryDto) {
@@ -88,6 +117,7 @@ export class JournalHeaderTemplatesService {
   }
 
   async update(id: string, updateDto: UpdateJournalHeaderTemplateDto) {
+    const before = await this.findOne(id);
     if (updateDto.baseAssetId) {
       const asset = await this.prisma.asset.findUnique({
         where: { id: updateDto.baseAssetId },
@@ -99,10 +129,34 @@ export class JournalHeaderTemplatesService {
     }
 
     try {
-      return await this.prisma.journalHeaderTemplate.update({
+      const updated = await this.prisma.journalHeaderTemplate.update({
         where: { id },
         data: updateDto,
       });
+
+      await this.auditLogsService.recordSystem({
+        triggerType: AuditTriggerType.CONFIG_CHANGE,
+        action: AuditActions.JOURNAL_TEMPLATE_UPDATED,
+        module: AuditModules.JOURNAL_HEADER_TEMPLATES,
+        entityType: AuditEntityTypes.JOURNAL_HEADER_TEMPLATE,
+        entityId: updated.id,
+        entityNo: updated.templateCode,
+        result: AuditResult.SUCCESS,
+        reason: 'Journal header template updated',
+        beforeData: {
+          templateCode: before.templateCode,
+          eventCode: before.eventCode,
+          status: before.status,
+        },
+        afterData: {
+          templateCode: updated.templateCode,
+          eventCode: updated.eventCode,
+          status: updated.status,
+        },
+        sourcePlatform: 'ADMIN_API',
+      });
+
+      return updated;
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError) {
         if (error.code === 'P2025')

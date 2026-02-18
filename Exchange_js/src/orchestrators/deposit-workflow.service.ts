@@ -13,6 +13,13 @@ import { PayinsService } from '../modules/asset-treasury/payins/payins.service';
 import { DepositStatusChangedEvent } from '../modules/trading/deposit-transactions/events/deposit-transaction.events';
 import { PrismaService } from '../core/prisma/prisma.service';
 import { TransactionComplianceService } from '../modules/risk-engine/transaction-compliance/transaction-compliance.service';
+import { AuditLogsService } from '../modules/risk-engine/audit-logs/audit-logs.service';
+import {
+  AuditEntityTypes,
+  AuditModules,
+  buildStateTransitionAction,
+} from '../modules/risk-engine/audit-logs/constants/audit-actions.constant';
+import { AuditTriggerType } from '../modules/risk-engine/audit-logs/dto/audit-log.dto';
 
 interface OrchestrationResult {
   updated_payin_status?: string;
@@ -25,6 +32,7 @@ interface OrchestrationResult {
 @Injectable()
 export class DepositWorkflowService implements OnModuleInit {
   private readonly logger = new Logger(DepositWorkflowService.name);
+  private readonly auditLogsService: AuditLogsService;
 
   constructor(
     private readonly depositService: DepositTransactionsService,
@@ -33,7 +41,9 @@ export class DepositWorkflowService implements OnModuleInit {
     private readonly eventEmitter: EventEmitter2,
     private readonly prisma: PrismaService,
     private readonly transactionComplianceService: TransactionComplianceService,
-  ) {}
+  ) {
+    this.auditLogsService = new AuditLogsService(prisma);
+  }
 
   onModuleInit() {
     this.logger.log(
@@ -280,15 +290,25 @@ export class DepositWorkflowService implements OnModuleInit {
           },
         });
 
-        await tx.payinAuditLog.create({
-          data: {
-            payinId: payin.id,
-            operatorId: 'SYSTEM',
-            oldStatus: payin.status,
-            newStatus: PayinStatus.CLEARED,
+        await this.auditLogsService.recordSystem(
+          {
+            triggerType: AuditTriggerType.STATE_TRANSITION,
+            action: buildStateTransitionAction('PAYIN', payin.status, PayinStatus.CLEARED),
+            module: AuditModules.PAYINS,
+            entityType: AuditEntityTypes.PAYIN,
+            entityId: payin.id,
+            entityNo: payin.payinNo,
+            entityOwnerType: payin.ownerId ? 'CUSTOMER' : undefined,
+            entityOwnerId: payin.ownerId || undefined,
+            statusFrom: payin.status,
+            statusTo: PayinStatus.CLEARED,
             reason: 'Deposit rejected orchestration',
+            beforeData: { status: payin.status },
+            afterData: { status: PayinStatus.CLEARED },
+            sourcePlatform: 'SYSTEM',
           },
-        });
+          tx,
+        );
 
         result.updated_payin_status = updatedPayin.status;
       } else if (payin) {

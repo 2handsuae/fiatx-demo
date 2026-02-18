@@ -16,6 +16,14 @@ import {
   PayoutType,
   PayoutAction,
 } from '../modules/asset-treasury/payouts/dto/payout.dto';
+import { AuditLogsService } from '../modules/risk-engine/audit-logs/audit-logs.service';
+import {
+  AuditActions,
+  AuditEntityTypes,
+  AuditModules,
+  buildStateTransitionAction,
+} from '../modules/risk-engine/audit-logs/constants/audit-actions.constant';
+import { AuditTriggerType } from '../modules/risk-engine/audit-logs/dto/audit-log.dto';
 
 export interface OrchestrationResult {
   updated_withdrawal_status?: string;
@@ -29,6 +37,7 @@ export interface OrchestrationResult {
 @Injectable()
 export class WithdrawWorkflowOrchestrator {
   private readonly logger = new Logger(WithdrawWorkflowOrchestrator.name);
+  private readonly auditLogsService: AuditLogsService;
 
   constructor(
     private prisma: PrismaService,
@@ -36,7 +45,9 @@ export class WithdrawWorkflowOrchestrator {
     private payoutsService: PayoutsService,
     private journalsService: JournalsService,
     private clearingsService: ClearingsService,
-  ) {}
+  ) {
+    this.auditLogsService = new AuditLogsService(prisma);
+  }
 
   // --- Withdrawal Listeners ---
 
@@ -146,14 +157,19 @@ export class WithdrawWorkflowOrchestrator {
         });
         result.created_or_reversed_journal_entry_ids.push(...this.collectJournalIds(je));
       }
-      const log = await this.prisma.withdrawAuditLog.create({
-        data: {
-          withdrawTransactionId: withdrawId,
-          operatorId: 'SYSTEM',
-          oldStatus: withdrawal.status,
-          newStatus: withdrawal.status,
-          reason: marker,
-        },
+      const log = await this.auditLogsService.recordSystem({
+        triggerType: AuditTriggerType.SYSTEM_EVENT,
+        action: AuditActions.SYSTEM_WITHDRAW_CREATED_ORCHESTRATED,
+        module: AuditModules.WITHDRAW_WORKFLOW,
+        entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+        entityId: withdrawId,
+        entityNo: withdrawal.withdrawNo,
+        entityOwnerType: withdrawal.ownerType,
+        entityOwnerId: withdrawal.ownerId,
+        reason: marker,
+        metadata: { eventType },
+        idempotencyKey: marker,
+        sourcePlatform: 'SYSTEM',
       });
       result.audit_log_id = log.id;
     }
@@ -170,14 +186,19 @@ export class WithdrawWorkflowOrchestrator {
         });
         result.created_or_reversed_journal_entry_ids.push(...this.collectJournalIds(je));
       }
-      const log = await this.prisma.withdrawAuditLog.create({
-        data: {
-          withdrawTransactionId: withdrawId,
-          operatorId: 'SYSTEM',
-          oldStatus: withdrawal.status,
-          newStatus: withdrawal.status,
-          reason: marker,
-        },
+      const log = await this.auditLogsService.recordSystem({
+        triggerType: AuditTriggerType.SYSTEM_EVENT,
+        action: AuditActions.SYSTEM_WITHDRAW_TERMINAL_ORCHESTRATED,
+        module: AuditModules.WITHDRAW_WORKFLOW,
+        entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+        entityId: withdrawId,
+        entityNo: withdrawal.withdrawNo,
+        entityOwnerType: withdrawal.ownerType,
+        entityOwnerId: withdrawal.ownerId,
+        reason: marker,
+        metadata: { eventType },
+        idempotencyKey: marker,
+        sourcePlatform: 'SYSTEM',
       });
       result.audit_log_id = log.id;
     }
@@ -248,15 +269,26 @@ export class WithdrawWorkflowOrchestrator {
 
         result.updated_withdrawal_status = updatedAfterClearing.status;
 
-        const log = await tx.withdrawAuditLog.create({
-          data: {
-            withdrawTransactionId: withdrawId,
-            operatorId: 'SYSTEM',
-            oldStatus: withdrawal.status,
-            newStatus: updatedAfterClearing.status,
+        const log = await this.auditLogsService.recordSystem(
+          {
+            triggerType: AuditTriggerType.SYSTEM_EVENT,
+            action: AuditActions.SYSTEM_WITHDRAW_APPROVED_ORCHESTRATED,
+            module: AuditModules.WITHDRAW_WORKFLOW,
+            entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+            entityId: withdrawId,
+            entityNo: updatedAfterClearing.withdrawNo,
+            entityOwnerType: updatedAfterClearing.ownerType,
+            entityOwnerId: updatedAfterClearing.ownerId,
+            statusFrom: withdrawal.status,
+            statusTo: updatedAfterClearing.status,
             reason: marker,
+            beforeData: { status: withdrawal.status },
+            afterData: { status: updatedAfterClearing.status, payoutId: payout.id },
+            idempotencyKey: marker,
+            sourcePlatform: 'SYSTEM',
           },
-        });
+          tx,
+        );
         result.audit_log_id = log.id;
       });
     }
@@ -314,15 +346,30 @@ export class WithdrawWorkflowOrchestrator {
       }, 'SYSTEM', tx);
       result.updated_payout_status = updatedPayout.status;
 
-      const log = await tx.withdrawAuditLog.create({
-        data: {
-          withdrawTransactionId: withdrawId,
-          operatorId: 'SYSTEM',
-          oldStatus: withdrawal.status,
-          newStatus: updatedWithdrawal.status,
+      const log = await this.auditLogsService.recordSystem(
+        {
+          triggerType: AuditTriggerType.STATE_TRANSITION,
+          action: buildStateTransitionAction(
+            'WITHDRAW',
+            withdrawal.status,
+            updatedWithdrawal.status,
+          ),
+          module: AuditModules.WITHDRAW_WORKFLOW,
+          entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+          entityId: withdrawId,
+          entityNo: updatedWithdrawal.withdrawNo,
+          entityOwnerType: updatedWithdrawal.ownerType,
+          entityOwnerId: updatedWithdrawal.ownerId,
+          statusFrom: withdrawal.status,
+          statusTo: updatedWithdrawal.status,
           reason: marker,
+          beforeData: { status: withdrawal.status },
+          afterData: { status: updatedWithdrawal.status },
+          idempotencyKey: marker,
+          sourcePlatform: 'SYSTEM',
         },
-      });
+        tx,
+      );
       result.audit_log_id = log.id;
 
       this.logger.log(`Atomic Success Path Result: ${JSON.stringify(result)}`);
@@ -407,15 +454,30 @@ export class WithdrawWorkflowOrchestrator {
       }
 
       await this.clearingsService.updateStatusBySource(withdrawId, 'CANCELLED', tx);
-      const log = await tx.withdrawAuditLog.create({
-        data: {
-          withdrawTransactionId: withdrawId,
-          operatorId: 'SYSTEM',
-          oldStatus: withdrawal.status,
-          newStatus: updatedWithdrawal.status,
+      const log = await this.auditLogsService.recordSystem(
+        {
+          triggerType: AuditTriggerType.STATE_TRANSITION,
+          action: buildStateTransitionAction(
+            'WITHDRAW',
+            withdrawal.status,
+            updatedWithdrawal.status,
+          ),
+          module: AuditModules.WITHDRAW_WORKFLOW,
+          entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+          entityId: withdrawId,
+          entityNo: updatedWithdrawal.withdrawNo,
+          entityOwnerType: updatedWithdrawal.ownerType,
+          entityOwnerId: updatedWithdrawal.ownerId,
+          statusFrom: withdrawal.status,
+          statusTo: updatedWithdrawal.status,
           reason: marker,
+          beforeData: { status: withdrawal.status },
+          afterData: { status: updatedWithdrawal.status, payoutStatus: status },
+          idempotencyKey: marker,
+          sourcePlatform: 'SYSTEM',
         },
-      });
+        tx,
+      );
       result.audit_log_id = log.id;
     });
 
@@ -436,13 +498,7 @@ export class WithdrawWorkflowOrchestrator {
   }
 
   private async checkIdempotency(withdrawId: string, marker: string): Promise<boolean> {
-    const existingLog = await this.prisma.withdrawAuditLog.findFirst({
-      where: {
-        withdrawTransactionId: withdrawId,
-        reason: marker,
-      },
-    });
-    return !!existingLog;
+    return this.auditLogsService.hasIdempotencyKey(marker);
   }
 
   private markerForWithdrawalEvent(eventType: string, withdrawId: string) {

@@ -18,6 +18,14 @@ import {
   InternalTransactionStatus,
   InternalTransactionType,
 } from '../internal-transactions/dto/internal-transaction.dto';
+import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
+import {
+  AuditActions,
+  AuditEntityTypes,
+  AuditModules,
+  buildStateTransitionAction,
+} from '../../risk-engine/audit-logs/constants/audit-actions.constant';
+import { AuditTriggerType } from '../../risk-engine/audit-logs/dto/audit-log.dto';
 
 const CRYPTO_TRANSITIONS: Record<
   InternalFundStatus,
@@ -111,11 +119,14 @@ type CreateFromInternalTransactionInput = {
 @Injectable()
 export class InternalFundsService {
   private static readonly MAX_NO_GENERATION_RETRIES = 10;
+  private readonly auditLogsService: AuditLogsService;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly internalTransactionsService: InternalTransactionsService,
-  ) {}
+  ) {
+    this.auditLogsService = new AuditLogsService(prisma);
+  }
 
   private getTransitionMap(assetType: string) {
     return assetType === 'FIAT' ? FIAT_TRANSITIONS : CRYPTO_TRANSITIONS;
@@ -195,15 +206,31 @@ export class InternalFundsService {
         },
       });
 
-      await (client as any).internalFundAuditLog.create({
-        data: {
-          internalFundId: fund.id,
-          operatorId,
-          oldStatus: InternalFundStatus.CONFIRMED,
-          newStatus: InternalFundStatus.CLEAR,
+      await this.auditLogsService.recordByActor(
+        {
+          triggerType: AuditTriggerType.STATE_TRANSITION,
+          action: buildStateTransitionAction(
+            'INTERNAL_FUND',
+            InternalFundStatus.CONFIRMED,
+            InternalFundStatus.CLEAR,
+          ),
+          module: AuditModules.INTERNAL_FUNDS,
+          entityType: AuditEntityTypes.INTERNAL_FUND,
+          entityId: fund.id,
+          statusFrom: InternalFundStatus.CONFIRMED,
+          statusTo: InternalFundStatus.CLEAR,
           reason,
+          beforeData: { status: InternalFundStatus.CONFIRMED },
+          afterData: { status: InternalFundStatus.CLEAR },
+          sourcePlatform: 'SYSTEM',
         },
-      });
+        {
+          actorType: operatorId === 'SYSTEM' ? 'SYSTEM' : 'ADMIN',
+          actorId: operatorId,
+          actorRole: operatorId === 'SYSTEM' ? 'SYSTEM' : 'ADMIN',
+        },
+        client,
+      );
     }
   }
 
@@ -269,15 +296,28 @@ export class InternalFundsService {
             },
           });
 
-          await (client as any).internalFundAuditLog.create({
-            data: {
-              internalFundId: created.id,
-              operatorId,
-              oldStatus: 'NONE',
-              newStatus: status,
+          await this.auditLogsService.recordByActor(
+            {
+              triggerType: AuditTriggerType.DATA_CREATE,
+              action: AuditActions.INTERNAL_FUND_CREATED,
+              module: AuditModules.INTERNAL_FUNDS,
+              entityType: AuditEntityTypes.INTERNAL_FUND,
+              entityId: created.id,
+              entityNo: created.internalFundNo,
               reason: 'Initial creation',
+              afterData: {
+                status: created.status,
+                internalTransactionId: created.internalTransactionId,
+              },
+              sourcePlatform: operatorId === 'SYSTEM' ? 'SYSTEM' : 'ADMIN_API',
             },
-          });
+            {
+              actorType: operatorId === 'SYSTEM' ? 'SYSTEM' : 'ADMIN',
+              actorId: operatorId,
+              actorRole: operatorId === 'SYSTEM' ? 'SYSTEM' : 'ADMIN',
+            },
+            client,
+          );
 
           return created;
         } catch (error) {
@@ -384,15 +424,28 @@ export class InternalFundsService {
         data: updateData,
       });
 
-      await (client as any).internalFundAuditLog.create({
-        data: {
-          internalFundId: id,
-          operatorId,
-          oldStatus: currentStatus,
-          newStatus: nextStatus,
+      await this.auditLogsService.recordByActor(
+        {
+          triggerType: AuditTriggerType.STATE_TRANSITION,
+          action: buildStateTransitionAction('INTERNAL_FUND', currentStatus, nextStatus),
+          module: AuditModules.INTERNAL_FUNDS,
+          entityType: AuditEntityTypes.INTERNAL_FUND,
+          entityId: updated.id,
+          entityNo: updated.internalFundNo,
+          statusFrom: currentStatus,
+          statusTo: nextStatus,
           reason: reason || `Action: ${action}`,
+          beforeData: { status: currentStatus },
+          afterData: { status: nextStatus },
+          sourcePlatform: operatorId === 'SYSTEM' ? 'SYSTEM' : 'ADMIN_API',
         },
-      });
+        {
+          actorType: operatorId === 'SYSTEM' ? 'SYSTEM' : 'ADMIN',
+          actorId: operatorId,
+          actorRole: operatorId === 'SYSTEM' ? 'SYSTEM' : 'ADMIN',
+        },
+        client,
+      );
 
       const txStatus = await this.internalTransactionsService.syncStatusFromFunds(
         item.internalTransaction.id,

@@ -17,10 +17,19 @@ import {
   KytScreeningStage,
   TxSourceType,
 } from '../../risk-engine/transaction-compliance/types/tx-compliance.types';
+import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
+import {
+  AuditActions,
+  AuditEntityTypes,
+  AuditModules,
+  buildStateTransitionAction,
+} from '../../risk-engine/audit-logs/constants/audit-actions.constant';
+import { AuditTriggerType } from '../../risk-engine/audit-logs/dto/audit-log.dto';
 
 @Injectable()
 export class WithdrawTransactionsService {
   private readonly logger = new Logger(WithdrawTransactionsService.name);
+  private readonly auditLogsService: AuditLogsService;
 
   private readonly txEventDisabledHint =
     'Transactional status update completed without emitting domain events';
@@ -78,7 +87,9 @@ export class WithdrawTransactionsService {
     private eventEmitter: EventEmitter2,
     private journalsService: JournalsService,
     private transactionComplianceService: TransactionComplianceService,
-  ) {}
+  ) {
+    this.auditLogsService = new AuditLogsService(prisma);
+  }
 
   private createAccountingContext(withdrawal: {
     ownerId: string;
@@ -280,16 +291,31 @@ export class WithdrawTransactionsService {
         },
       });
 
-      // Create initial audit log
-      await tx.withdrawAuditLog.create({
-        data: {
-          withdrawTransactionId: record.id,
-          operatorId: userId,
-          oldStatus: 'NONE',
-          newStatus: WithdrawTransactionStatus.CREATED,
+      await this.auditLogsService.recordByActor(
+        {
+          triggerType: AuditTriggerType.DATA_CREATE,
+          action: AuditActions.WITHDRAW_CREATED,
+          module: AuditModules.WITHDRAW_TRANSACTIONS,
+          entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+          entityId: record.id,
+          entityNo: record.withdrawNo,
+          entityOwnerType: record.ownerType,
+          entityOwnerId: record.ownerId,
           reason: 'Customer initiated withdrawal',
+          afterData: {
+            status: record.status,
+            amount: record.amount?.toString?.(),
+            assetId: record.assetId,
+          },
+          sourcePlatform: ownerType === 'CUSTOMER' ? 'CUSTOMER_API' : 'ADMIN_API',
         },
-      });
+        {
+          actorType: ownerType,
+          actorId: userId,
+          actorRole: ownerType,
+        },
+        tx,
+      );
 
       await this.journalsService.createJournal(
         {
@@ -418,15 +444,25 @@ export class WithdrawTransactionsService {
         eventSource = refreshed;
       }
 
-      await client.withdrawAuditLog.create({
-        data: {
-          withdrawTransactionId: id,
-          operatorId: 'SYSTEM',
-          oldStatus: currentStatus,
-          newStatus: nextStatus,
+      await this.auditLogsService.recordSystem(
+        {
+          triggerType: AuditTriggerType.STATE_TRANSITION,
+          action: buildStateTransitionAction('WITHDRAW', currentStatus, nextStatus),
+          module: AuditModules.WITHDRAW_TRANSACTIONS,
+          entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+          entityId: updated.id,
+          entityNo: updated.withdrawNo,
+          entityOwnerType: updated.ownerType,
+          entityOwnerId: updated.ownerId,
+          statusFrom: currentStatus,
+          statusTo: nextStatus,
           reason: reason || `Action: ${action}`,
+          beforeData: { status: currentStatus },
+          afterData: { status: nextStatus },
+          sourcePlatform: 'SYSTEM',
         },
-      });
+        client,
+      );
 
       const postCommitEvents: Array<{ eventName: string; payload: any }> = [];
 
@@ -558,15 +594,18 @@ export class WithdrawTransactionsService {
         type: this.deriveWithdrawType(asset.type),
       });
 
-      // Initial audit log
-      await (this.prisma as any).withdrawAuditLog.create({
-        data: {
-          withdrawTransactionId: created.id,
-          operatorId: 'SYSTEM',
-          oldStatus: 'NONE',
-          newStatus: WithdrawTransactionStatus.CREATED,
-          reason: 'Initial creation',
-        },
+      await this.auditLogsService.recordSystem({
+        triggerType: AuditTriggerType.DATA_CREATE,
+        action: AuditActions.WITHDRAW_CREATED,
+        module: AuditModules.WITHDRAW_TRANSACTIONS,
+        entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+        entityId: created.id,
+        entityNo: created.withdrawNo,
+        entityOwnerType: created.ownerType,
+        entityOwnerId: created.ownerId,
+        reason: 'Initial creation',
+        afterData: { status: created.status },
+        sourcePlatform: 'SYSTEM',
       });
     }
 

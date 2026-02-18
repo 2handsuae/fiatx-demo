@@ -373,6 +373,92 @@ model OnboardingAuditLog {
   @@map("onboarding_audit_logs")
 }
 
+model AuditLogEvent {
+  id              String   @id @default(uuid())
+  auditNo         String   @unique @default("TEMP")
+  triggerType     String
+  action          String
+  module          String
+  entityType      String
+  entityId        String?
+  entityNo        String?
+  entityOwnerType String?
+  entityOwnerId   String?
+  statusFrom      String?
+  statusTo        String?
+  actorType       String
+  actorId         String
+  actorNo         String?
+  actorRole       String?
+  requestId       String?
+  sourceIp        String?
+  sourcePlatform  String?
+  result          String   @default("SUCCESS")
+  reason          String?
+  metadata        String?
+  beforeData      String?
+  afterData       String?
+  idempotencyKey  String?  @unique
+  payloadDigest   String
+  maskVersion     String   @default("v1")
+  retainedUntil   DateTime
+  entityOwnerNo   String?
+  archivedAt      DateTime?
+  occurredAt      DateTime @default(now())
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  subjectNos      AuditLogSubjectNo[]
+
+  @@index([occurredAt])
+  @@index([triggerType, occurredAt])
+  @@index([module, occurredAt])
+  @@index([entityType, entityId])
+  @@index([actorType, actorId])
+  @@index([module, entityType, entityId, occurredAt])
+  @@index([actorType, actorId, occurredAt])
+  @@index([actorNo, occurredAt])
+  @@index([entityOwnerNo, occurredAt])
+  @@index([result, occurredAt])
+  @@index([retainedUntil])
+  @@index([archivedAt])
+  @@map("audit_log_events")
+}
+
+model AuditEvidencePackage {
+  id             String   @id @default(uuid())
+  packageNo      String   @unique @default("TEMP")
+  exportedByType String
+  exportedById   String
+  exportedByRole String?
+  filterSnapshot String?
+  itemCount      Int
+  digest         String
+  manifest       String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([createdAt])
+  @@index([exportedByType, exportedById])
+  @@map("audit_evidence_packages")
+}
+
+model AuditLogSubjectNo {
+  id          String        @id @default(uuid())
+  eventId     String
+  subjectRole String
+  subjectType String
+  subjectId   String?
+  subjectNo   String
+  occurredAt  DateTime
+  createdAt   DateTime      @default(now())
+  event       AuditLogEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@index([subjectNo, occurredAt])
+  @@index([subjectType, subjectNo, occurredAt])
+  @@index([eventId])
+  @@map("audit_log_subject_nos")
+}
+
 model LiquidityProvider {
   id             String                   @id
   name           String

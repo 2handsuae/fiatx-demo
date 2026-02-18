@@ -15,12 +15,22 @@ import {
 import { Prisma } from '@prisma/client';
 import * as crypto from 'crypto';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
+import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
+import {
+  AuditActions,
+  AuditEntityTypes,
+  AuditModules,
+} from '../../risk-engine/audit-logs/constants/audit-actions.constant';
+import { AuditResult, AuditTriggerType } from '../../risk-engine/audit-logs/dto/audit-log.dto';
 
 @Injectable()
 export class WalletsService {
   private readonly logger = new Logger(WalletsService.name);
+  private readonly auditLogsService: AuditLogsService;
 
-  constructor(private prisma: PrismaService) {}
+  constructor(private prisma: PrismaService) {
+    this.auditLogsService = new AuditLogsService(prisma);
+  }
 
   private resolveCustomerOwnerName(customer?: {
     companyName: string | null;
@@ -153,6 +163,29 @@ export class WalletsService {
         include: {
           asset: { select: { code: true, type: true } },
         },
+      });
+
+      await this.auditLogsService.recordSystem({
+        triggerType: AuditTriggerType.DATA_CREATE,
+        action: AuditActions.WALLET_CREATED,
+        module: AuditModules.WALLETS,
+        entityType: AuditEntityTypes.WALLET,
+        entityId: result.id,
+        entityNo: result.walletNo || undefined,
+        entityOwnerType: result.ownerType,
+        entityOwnerId: result.ownerId || undefined,
+        entityOwnerNo: result.ownerNo || undefined,
+        result: AuditResult.SUCCESS,
+        reason: 'Wallet created',
+        afterData: {
+          ownerType: result.ownerType,
+          ownerId: result.ownerId,
+          type: result.type,
+          direction: result.direction,
+          status: result.status,
+          assetId: result.assetId,
+        },
+        sourcePlatform: 'ADMIN_API',
       });
 
       this.logger.log(`Wallet created: ${result.id}`);
@@ -293,9 +326,28 @@ export class WalletsService {
 
   async changeStatus(id: string, status: WalletStatus) {
     this.logger.log(`Changing status of wallet ${id} to ${status}`);
+    const before = await this.findOne(id);
     const result = await this.prisma.wallet.update({
       where: { id },
       data: { status },
+    });
+    await this.auditLogsService.recordSystem({
+      triggerType: AuditTriggerType.DATA_UPDATE,
+      action: AuditActions.WALLET_STATUS_UPDATED,
+      module: AuditModules.WALLETS,
+      entityType: AuditEntityTypes.WALLET,
+      entityId: result.id,
+      entityNo: result.walletNo || undefined,
+      entityOwnerType: result.ownerType,
+      entityOwnerId: result.ownerId || undefined,
+      entityOwnerNo: before.ownerNo || undefined,
+      statusFrom: before.status,
+      statusTo: result.status,
+      result: AuditResult.SUCCESS,
+      reason: 'Wallet status changed',
+      beforeData: { status: before.status },
+      afterData: { status: result.status },
+      sourcePlatform: 'ADMIN_API',
     });
     return result;
   }

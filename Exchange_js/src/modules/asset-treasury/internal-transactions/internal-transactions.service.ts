@@ -8,6 +8,14 @@ import { PrismaService } from '../../../core/prisma/prisma.service';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 import { JournalsService } from '../../accounting/journals/journals.service';
 import { ClearingsService } from '../../clearing-settle/clearing/clearings.service';
+import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
+import {
+  AuditActions,
+  AuditEntityTypes,
+  AuditModules,
+  buildStateTransitionAction,
+} from '../../risk-engine/audit-logs/constants/audit-actions.constant';
+import { AuditTriggerType } from '../../risk-engine/audit-logs/dto/audit-log.dto';
 import {
   InternalTransactionQueryDto,
   InternalTransactionStatus,
@@ -73,7 +81,10 @@ export class InternalTransactionsService {
     private readonly prisma: PrismaService,
     private readonly journalsService: JournalsService,
     private readonly clearingsService: ClearingsService,
-  ) {}
+  ) {
+    this.auditLogsService = new AuditLogsService(prisma);
+  }
+  private readonly auditLogsService: AuditLogsService;
 
   private appendStatusHistory(
     current: string | null | undefined,
@@ -249,15 +260,32 @@ export class InternalTransactionsService {
           },
         });
 
-        await (client as any).internalTransactionAuditLog.create({
-          data: {
-            internalTransactionId: created.id,
-            operatorId,
-            oldStatus: 'NONE',
-            newStatus: status,
+        await this.auditLogsService.recordByActor(
+          {
+            triggerType: AuditTriggerType.DATA_CREATE,
+            action: AuditActions.INTERNAL_TX_CREATED,
+            module: AuditModules.INTERNAL_TRANSACTIONS,
+            entityType: AuditEntityTypes.INTERNAL_TRANSACTION,
+            entityId: created.id,
+            entityNo: created.internalTxNo,
+            entityOwnerType: created.ownerType,
+            entityOwnerId: created.ownerId,
             reason: 'Initial creation',
+            afterData: {
+              status: created.status,
+              sourceType: created.sourceType,
+              sourceId: created.sourceId,
+              type: created.type,
+            },
+            sourcePlatform: operatorId === 'SYSTEM' ? 'SYSTEM' : 'ADMIN_API',
           },
-        });
+          {
+            actorType: operatorId === 'SYSTEM' ? 'SYSTEM' : 'ADMIN',
+            actorId: operatorId,
+            actorRole: operatorId === 'SYSTEM' ? 'SYSTEM' : 'ADMIN',
+          },
+          client,
+        );
 
         await this.triggerStatusEvent(client, created, null, status);
         return created;
@@ -461,15 +489,30 @@ export class InternalTransactionsService {
         },
       });
 
-      await (client as any).internalTransactionAuditLog.create({
-        data: {
-          internalTransactionId,
-          operatorId,
-          oldStatus: current,
-          newStatus: next,
+      await this.auditLogsService.recordByActor(
+        {
+          triggerType: AuditTriggerType.STATE_TRANSITION,
+          action: buildStateTransitionAction('INTERNAL_TX', current, next),
+          module: AuditModules.INTERNAL_TRANSACTIONS,
+          entityType: AuditEntityTypes.INTERNAL_TRANSACTION,
+          entityId: updated.id,
+          entityNo: updated.internalTxNo,
+          entityOwnerType: updated.ownerType,
+          entityOwnerId: updated.ownerId,
+          statusFrom: current,
+          statusTo: next,
           reason: 'Aggregated from internal funds',
+          beforeData: { status: current },
+          afterData: { status: next },
+          sourcePlatform: operatorId === 'SYSTEM' ? 'SYSTEM' : 'ADMIN_API',
         },
-      });
+        {
+          actorType: operatorId === 'SYSTEM' ? 'SYSTEM' : 'ADMIN',
+          actorId: operatorId,
+          actorRole: operatorId === 'SYSTEM' ? 'SYSTEM' : 'ADMIN',
+        },
+        client,
+      );
 
       if (next === InternalTransactionStatus.SUCCESS) {
         await this.clearingsService.triggerClearing(

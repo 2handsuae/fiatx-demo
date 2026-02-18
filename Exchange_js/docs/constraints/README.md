@@ -11,6 +11,7 @@ Any agent/thread must read this folder first before proposing or implementing ch
 4. `docs/constraints/onboarding-flow-constraints.md`
 5. `docs/constraints/customer-transaction-flow-constraints.md`
 6. `docs/constraints/internal-transaction-flow-constraints.md`
+7. `docs/constraints/audit-logging-constraints.md`
 
 ## Scope
 - Frontend: `admin-web`, `client-web`
@@ -19,6 +20,7 @@ Any agent/thread must read this folder first before proposing or implementing ch
 - Domain flow: onboarding and compliance lifecycle
 - Domain flow: customer transaction workflow (deposit/swap/withdraw)
 - Domain flow: internal treasury workflow (`internal_transactions` / `internal_funds`)
+- Domain flow: unified audit logging and evidence package
 
 ## Enforcement Level
 - `MUST`: mandatory constraint, no exception unless owner explicitly approves.

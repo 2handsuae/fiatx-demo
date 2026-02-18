@@ -17,16 +17,47 @@ import {
   SwapQuoteType,
   SwapSide,
 } from './dto/swap-quote.dto';
+import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
+import {
+  AuditActions,
+  AuditEntityTypes,
+  AuditModules,
+} from '../../risk-engine/audit-logs/constants/audit-actions.constant';
+import { AuditResult, AuditTriggerType } from '../../risk-engine/audit-logs/dto/audit-log.dto';
 
 @Injectable()
 export class SwapQuotesService {
   private static readonly QUOTE_TTL_MS = 30 * 1000;
   private static readonly MAX_NO_GENERATION_RETRIES = 10;
+  private readonly auditLogsService: AuditLogsService;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly swapTransactionsService: SwapTransactionsService,
-  ) {}
+  ) {
+    this.auditLogsService = new AuditLogsService(prisma);
+  }
+
+  private buildQuoteActor(
+    ownerType: string,
+    ownerId: string,
+    ownerNo?: string | null,
+  ) {
+    if (ownerType === 'CUSTOMER') {
+      return {
+        actorType: 'CUSTOMER',
+        actorId: ownerId,
+        actorNo: ownerNo || undefined,
+        actorRole: 'CUSTOMER',
+      };
+    }
+
+    return {
+      actorType: 'SYSTEM',
+      actorId: ownerId || 'SYSTEM',
+      actorRole: ownerType || 'SYSTEM',
+    };
+  }
 
   private toResponse(quote: SwapQuote) {
     let feeBreakdown: any[] = [];
@@ -199,6 +230,32 @@ export class SwapQuotesService {
       expiresAt,
     });
 
+    await this.auditLogsService.recordByActor(
+      {
+        triggerType: AuditTriggerType.DATA_CREATE,
+        action: AuditActions.SWAP_QUOTE_CREATED,
+        module: AuditModules.SWAP_QUOTES,
+        entityType: AuditEntityTypes.SWAP_QUOTE,
+        entityId: created.id,
+        entityNo: created.quoteNo || undefined,
+        entityOwnerType: created.ownerType,
+        entityOwnerId: created.ownerId,
+        entityOwnerNo: created.ownerNo || undefined,
+        result: AuditResult.SUCCESS,
+        reason: 'Swap quote created',
+        afterData: {
+          status: created.status,
+          fromAssetId: created.fromAssetId,
+          toAssetId: created.toAssetId,
+          amountIn: created.amountIn.toString(),
+          amountOut: created.amountOut.toString(),
+          expiresAt: created.expiresAt,
+        },
+        sourcePlatform: ownerType === 'CUSTOMER' ? 'CUSTOMER_API' : 'SYSTEM',
+      },
+      this.buildQuoteActor(ownerType, ownerId, created.ownerNo),
+    );
+
     return this.toResponse(created);
   }
 
@@ -263,9 +320,34 @@ export class SwapQuotesService {
       throw new BadRequestException('Quote is not active');
     }
 
-    return (tx as any).swapQuote.findUnique({
+    const updated = await (tx as any).swapQuote.findUnique({
       where: { id: quoteId },
-    }) as Promise<SwapQuote>;
+    }) as SwapQuote;
+
+    await this.auditLogsService.recordByActor(
+      {
+        triggerType: AuditTriggerType.DATA_UPDATE,
+        action: AuditActions.SWAP_QUOTE_USED,
+        module: AuditModules.SWAP_QUOTES,
+        entityType: AuditEntityTypes.SWAP_QUOTE,
+        entityId: updated.id,
+        entityNo: updated.quoteNo || undefined,
+        entityOwnerType: updated.ownerType,
+        entityOwnerId: updated.ownerId,
+        entityOwnerNo: updated.ownerNo || undefined,
+        result: AuditResult.SUCCESS,
+        reason: 'Swap quote consumed',
+        statusFrom: SwapQuoteStatus.ACTIVE,
+        statusTo: SwapQuoteStatus.USED,
+        beforeData: { status: SwapQuoteStatus.ACTIVE },
+        afterData: { status: SwapQuoteStatus.USED, usedAt: updated.usedAt },
+        sourcePlatform: ownerType === 'CUSTOMER' ? 'CUSTOMER_API' : 'SYSTEM',
+      },
+      this.buildQuoteActor(ownerType, ownerId, updated.ownerNo),
+      tx,
+    );
+
+    return updated;
   }
 
   async cancelQuote(
@@ -302,6 +384,28 @@ export class SwapQuotesService {
         cancelledAt: now,
       },
     });
+
+    await this.auditLogsService.recordByActor(
+      {
+        triggerType: AuditTriggerType.DATA_UPDATE,
+        action: AuditActions.SWAP_QUOTE_CANCELLED,
+        module: AuditModules.SWAP_QUOTES,
+        entityType: AuditEntityTypes.SWAP_QUOTE,
+        entityId: cancelled.id,
+        entityNo: cancelled.quoteNo || undefined,
+        entityOwnerType: cancelled.ownerType,
+        entityOwnerId: cancelled.ownerId,
+        entityOwnerNo: cancelled.ownerNo || undefined,
+        result: AuditResult.SUCCESS,
+        reason: 'Swap quote cancelled',
+        statusFrom: SwapQuoteStatus.ACTIVE,
+        statusTo: SwapQuoteStatus.CANCELLED,
+        beforeData: { status: SwapQuoteStatus.ACTIVE },
+        afterData: { status: SwapQuoteStatus.CANCELLED, cancelledAt: cancelled.cancelledAt },
+        sourcePlatform: ownerType === 'CUSTOMER' ? 'CUSTOMER_API' : 'SYSTEM',
+      },
+      this.buildQuoteActor(ownerType, ownerId, cancelled.ownerNo),
+    );
 
     return this.toResponse(cancelled);
   }

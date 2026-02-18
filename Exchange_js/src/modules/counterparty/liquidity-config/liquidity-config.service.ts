@@ -12,12 +12,22 @@ import {
   RateSourceType,
 } from './dto/liquidity-config.dto';
 import { Prisma } from '@prisma/client';
+import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
+import {
+  AuditActions,
+  AuditEntityTypes,
+  AuditModules,
+} from '../../risk-engine/audit-logs/constants/audit-actions.constant';
+import { AuditResult, AuditTriggerType } from '../../risk-engine/audit-logs/dto/audit-log.dto';
 
 @Injectable()
 export class LiquidityConfigService {
   private readonly logger = new Logger(LiquidityConfigService.name);
+  private readonly auditLogsService: AuditLogsService;
 
-  constructor(private prisma: PrismaService) {}
+  constructor(private prisma: PrismaService) {
+    this.auditLogsService = new AuditLogsService(prisma);
+  }
 
   async create(data: CreateLiquidityConfigDto) {
     this.logger.log(
@@ -65,6 +75,23 @@ export class LiquidityConfigService {
         maxFromAmount: data.maxFromAmount,
         status: LiquidityConfigStatus.ACTIVE,
       },
+    });
+
+    await this.auditLogsService.recordSystem({
+      triggerType: AuditTriggerType.CONFIG_CHANGE,
+      action: AuditActions.LP_CONFIG_UPDATED,
+      module: AuditModules.LIQUIDITY_CONFIG,
+      entityType: AuditEntityTypes.LIQUIDITY_CONFIG,
+      entityId: result.id,
+      result: AuditResult.SUCCESS,
+      reason: 'Liquidity config created',
+      afterData: {
+        lpId: result.lpId,
+        fromAssetId: result.fromAssetId,
+        toAssetId: result.toAssetId,
+        status: result.status,
+      },
+      sourcePlatform: 'ADMIN_API',
     });
 
     this.logger.log(`Liquidity config created: ${result.id}`);
@@ -148,21 +175,79 @@ export class LiquidityConfigService {
       },
     });
 
+    await this.auditLogsService.recordSystem({
+      triggerType: AuditTriggerType.CONFIG_CHANGE,
+      action: AuditActions.LP_CONFIG_UPDATED,
+      module: AuditModules.LIQUIDITY_CONFIG,
+      entityType: AuditEntityTypes.LIQUIDITY_CONFIG,
+      entityId: result.id,
+      result: AuditResult.SUCCESS,
+      reason: 'Liquidity config updated',
+      beforeData: {
+        spreadPercent: config.spreadPercent,
+        feePercent: config.feePercent,
+        feeFixedAmount: config.feeFixedAmount,
+        minFromAmount: config.minFromAmount,
+        maxFromAmount: config.maxFromAmount,
+      },
+      afterData: {
+        spreadPercent: result.spreadPercent,
+        feePercent: result.feePercent,
+        feeFixedAmount: result.feeFixedAmount,
+        minFromAmount: result.minFromAmount,
+        maxFromAmount: result.maxFromAmount,
+      },
+      sourcePlatform: 'ADMIN_API',
+    });
+
     this.logger.log(`Liquidity config updated: ${id}`);
     return result;
   }
 
   async remove(id: string) {
     this.logger.log(`Deleting liquidity config ${id}`);
-    await this.findOne(id); // Ensure exists
-    return this.prisma.liquidityConfiguration.delete({ where: { id } });
+    const before = await this.findOne(id); // Ensure exists
+    const deleted = await this.prisma.liquidityConfiguration.delete({ where: { id } });
+    await this.auditLogsService.recordSystem({
+      triggerType: AuditTriggerType.CONFIG_CHANGE,
+      action: AuditActions.LP_CONFIG_UPDATED,
+      module: AuditModules.LIQUIDITY_CONFIG,
+      entityType: AuditEntityTypes.LIQUIDITY_CONFIG,
+      entityId: id,
+      result: AuditResult.SUCCESS,
+      reason: 'Liquidity config deleted',
+      beforeData: {
+        id: before.id,
+        lpId: before.lpId,
+        fromAssetId: before.fromAssetId,
+        toAssetId: before.toAssetId,
+        status: before.status,
+      },
+      sourcePlatform: 'ADMIN_API',
+    });
+    return deleted;
   }
 
   async changeStatus(id: string, status: LiquidityConfigStatus) {
     this.logger.log(`Changing status of config ${id} to ${status}`);
+    const before = await this.findOne(id);
     const result = await this.prisma.liquidityConfiguration.update({
       where: { id },
       data: { status },
+    });
+    await this.auditLogsService.recordSystem({
+      triggerType: AuditTriggerType.CONFIG_CHANGE,
+      action: AuditActions.LP_CONFIG_UPDATED,
+      module: AuditModules.LIQUIDITY_CONFIG,
+      entityType: AuditEntityTypes.LIQUIDITY_CONFIG,
+      entityId: id,
+      statusFrom: before.status,
+      statusTo: result.status,
+      result: AuditResult.SUCCESS,
+      reason: 'Liquidity config status changed',
+      beforeData: { status: before.status },
+      afterData: { status: result.status },
+      sourcePlatform: 'ADMIN_API',
     });
     return result;
   }

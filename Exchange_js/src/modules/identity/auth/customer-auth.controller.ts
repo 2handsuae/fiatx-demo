@@ -2,6 +2,7 @@ import {
   Controller,
   Post,
   Body,
+  Req,
   UnauthorizedException,
   HttpCode,
   HttpStatus,
@@ -40,6 +41,14 @@ const LoginSchema = z.object({
 export class CustomerAuthController {
   constructor(private customerAuthService: CustomerAuthService) {}
 
+  private resolveRequestSourceIp(req: any): string | undefined {
+    const xff = req.headers?.['x-forwarded-for'];
+    if (typeof xff === 'string' && xff.length > 0) {
+      return xff.split(',')[0]?.trim();
+    }
+    return req.ip;
+  }
+
   @Post('register')
   @ApiOperation({ summary: 'Register a new customer' })
   async register(@Body() body: any) {
@@ -54,7 +63,7 @@ export class CustomerAuthController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Login for customer' })
   @ApiResponse({ status: 200, description: 'Return JWT token' })
-  async login(@Body() body: any) {
+  async login(@Req() req: any, @Body() body: any) {
     const result = LoginSchema.safeParse(body);
     if (!result.success) {
       throw new UnauthorizedException('Invalid input format');
@@ -64,6 +73,11 @@ export class CustomerAuthController {
     const customer = await this.customerAuthService.validateCustomer(
       identifier,
       body.password,
+      {
+        requestId: req.id,
+        sourceIp: this.resolveRequestSourceIp(req),
+        sourcePlatform: 'CUSTOMER_AUTH_API',
+      },
     );
     if (!customer) {
       throw new UnauthorizedException('Invalid credentials');

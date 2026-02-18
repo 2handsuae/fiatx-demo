@@ -11,12 +11,22 @@ import {
   CustomerSwapRateStatus,
   UpdateCustomerSwapRateDto,
 } from './dto/customer-swap-rate.dto';
+import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
+import {
+  AuditActions,
+  AuditEntityTypes,
+  AuditModules,
+} from '../../risk-engine/audit-logs/constants/audit-actions.constant';
+import { AuditResult, AuditTriggerType } from '../../risk-engine/audit-logs/dto/audit-log.dto';
 
 @Injectable()
 export class CustomerSwapRatesService {
   private readonly logger = new Logger(CustomerSwapRatesService.name);
+  private readonly auditLogsService: AuditLogsService;
 
-  constructor(private prisma: PrismaService) {}
+  constructor(private prisma: PrismaService) {
+    this.auditLogsService = new AuditLogsService(prisma);
+  }
 
   async create(data: CreateCustomerSwapRateDto) {
     this.logger.log(
@@ -48,7 +58,7 @@ export class CustomerSwapRatesService {
       );
     }
 
-    return this.prisma.customerSwapRateConfiguration.create({
+    const created = await this.prisma.customerSwapRateConfiguration.create({
       data: {
         fromAssetId: data.fromAssetId,
         toAssetId: data.toAssetId,
@@ -60,6 +70,25 @@ export class CustomerSwapRatesService {
         toAsset: { select: { code: true, type: true } },
       },
     });
+
+    await this.auditLogsService.recordSystem({
+      triggerType: AuditTriggerType.CONFIG_CHANGE,
+      action: AuditActions.CUSTOMER_SWAP_RATE_UPDATED,
+      module: AuditModules.CUSTOMER_SWAP_RATES,
+      entityType: AuditEntityTypes.CUSTOMER_SWAP_RATE,
+      entityId: created.id,
+      result: AuditResult.SUCCESS,
+      reason: 'Customer swap rate config created',
+      afterData: {
+        fromAssetId: created.fromAssetId,
+        toAssetId: created.toAssetId,
+        spreadPercent: created.spreadPercent,
+        status: created.status,
+      },
+      sourcePlatform: 'ADMIN_API',
+    });
+
+    return created;
   }
 
   async findAll(params: {
@@ -100,9 +129,9 @@ export class CustomerSwapRatesService {
   }
 
   async update(id: string, data: UpdateCustomerSwapRateDto) {
-    await this.findOne(id);
+    const before = await this.findOne(id);
 
-    return this.prisma.customerSwapRateConfiguration.update({
+    const updated = await this.prisma.customerSwapRateConfiguration.update({
       where: { id },
       data: {
         spreadPercent: data.spreadPercent,
@@ -112,14 +141,50 @@ export class CustomerSwapRatesService {
         toAsset: { select: { code: true, type: true } },
       },
     });
+
+    await this.auditLogsService.recordSystem({
+      triggerType: AuditTriggerType.CONFIG_CHANGE,
+      action: AuditActions.CUSTOMER_SWAP_RATE_UPDATED,
+      module: AuditModules.CUSTOMER_SWAP_RATES,
+      entityType: AuditEntityTypes.CUSTOMER_SWAP_RATE,
+      entityId: updated.id,
+      result: AuditResult.SUCCESS,
+      reason: 'Customer swap rate config updated',
+      beforeData: {
+        spreadPercent: before.spreadPercent,
+        status: before.status,
+      },
+      afterData: {
+        spreadPercent: updated.spreadPercent,
+        status: updated.status,
+      },
+      sourcePlatform: 'ADMIN_API',
+    });
+
+    return updated;
   }
 
   async changeStatus(id: string, status: CustomerSwapRateStatus) {
-    await this.findOne(id);
-    return this.prisma.customerSwapRateConfiguration.update({
+    const before = await this.findOne(id);
+    const updated = await this.prisma.customerSwapRateConfiguration.update({
       where: { id },
       data: { status },
     });
+    await this.auditLogsService.recordSystem({
+      triggerType: AuditTriggerType.CONFIG_CHANGE,
+      action: AuditActions.CUSTOMER_SWAP_RATE_UPDATED,
+      module: AuditModules.CUSTOMER_SWAP_RATES,
+      entityType: AuditEntityTypes.CUSTOMER_SWAP_RATE,
+      entityId: updated.id,
+      statusFrom: before.status,
+      statusTo: updated.status,
+      result: AuditResult.SUCCESS,
+      reason: 'Customer swap rate status changed',
+      beforeData: { status: before.status },
+      afterData: { status: updated.status },
+      sourcePlatform: 'ADMIN_API',
+    });
+    return updated;
   }
 
   async resolveActiveRateForPair(fromAssetId: string, toAssetId: string) {

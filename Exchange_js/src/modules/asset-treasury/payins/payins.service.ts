@@ -20,15 +20,26 @@ import {
   PayinCreatedEvent,
 } from './events/payin.events';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
+import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
+import {
+  AuditActions,
+  AuditEntityTypes,
+  AuditModules,
+  buildStateTransitionAction,
+} from '../../risk-engine/audit-logs/constants/audit-actions.constant';
+import { AuditTriggerType } from '../../risk-engine/audit-logs/dto/audit-log.dto';
 
 @Injectable()
 export class PayinsService {
   private readonly logger = new Logger(PayinsService.name);
+  private readonly auditLogsService: AuditLogsService;
 
   constructor(
     private prisma: PrismaService,
     private eventEmitter: EventEmitter2,
-  ) {}
+  ) {
+    this.auditLogsService = new AuditLogsService(prisma);
+  }
 
   async simulate(dto: SimulatePayinDto) {
     const { assetId, toWalletId, type } = dto;
@@ -90,15 +101,24 @@ export class PayinsService {
       },
     });
 
-    // Initial audit log
-    await (this.prisma as any).payinAuditLog.create({
-      data: {
-        payinId: payin.id,
-        operatorId: 'SYSTEM',
-        oldStatus: 'NONE',
-        newStatus: PayinStatus.DETECTED,
-        reason: 'Initial simulation',
+    await this.auditLogsService.recordSystem({
+      triggerType: AuditTriggerType.DATA_CREATE,
+      action: AuditActions.PAYIN_CREATED,
+      module: AuditModules.PAYINS,
+      entityType: AuditEntityTypes.PAYIN,
+      entityId: payin.id,
+      entityNo: payin.payinNo,
+      entityOwnerType: wallet.ownerType,
+      entityOwnerId: wallet.ownerId || undefined,
+      reason: 'Initial simulation',
+      afterData: {
+        status: payin.status,
+        type: payin.type,
+        amount: payin.amount?.toString?.(),
+        assetId: payin.assetId,
+        toWalletId: payin.toWalletId,
       },
+      sourcePlatform: 'SYSTEM',
     });
 
     this.logger.log(`Emitting payin.created event for ${payin.id}`);
@@ -295,15 +315,20 @@ export class PayinsService {
       },
     });
 
-    // Write audit log
-    await (this.prisma as any).payinAuditLog.create({
-      data: {
-        payinId: id,
-        operatorId: 'SYSTEM',
-        oldStatus: currentStatus,
-        newStatus: nextStatus,
-        reason: `Action: ${action}`,
-      },
+    await this.auditLogsService.recordSystem({
+      triggerType: AuditTriggerType.STATE_TRANSITION,
+      action: buildStateTransitionAction('PAYIN', currentStatus, nextStatus),
+      module: AuditModules.PAYINS,
+      entityType: AuditEntityTypes.PAYIN,
+      entityId: updatedPayin.id,
+      entityNo: updatedPayin.payinNo,
+      entityOwnerId: updatedPayin.ownerId || undefined,
+      statusFrom: currentStatus,
+      statusTo: nextStatus,
+      reason: `Action: ${action}`,
+      beforeData: { status: currentStatus },
+      afterData: { status: nextStatus },
+      sourcePlatform: 'SYSTEM',
     });
 
     this.eventEmitter.emit(

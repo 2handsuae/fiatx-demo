@@ -23,14 +23,24 @@ import {
 } from './types/tx-compliance.types';
 import { DepositTransactionStatus } from '../../trading/deposit-transactions/dto/deposit-transaction.dto';
 import { WithdrawTransactionStatus } from '../../trading/withdraw-transactions/dto/withdraw-transaction.dto';
+import { AuditLogsService } from '../audit-logs/audit-logs.service';
+import {
+  AuditActions,
+  AuditEntityTypes,
+  AuditModules,
+} from '../audit-logs/constants/audit-actions.constant';
+import { AuditResult, AuditTriggerType } from '../audit-logs/dto/audit-log.dto';
 
 type DbClient = Prisma.TransactionClient | PrismaService;
 
 @Injectable()
 export class TransactionComplianceService {
   private readonly logger = new Logger(TransactionComplianceService.name);
+  private readonly auditLogsService: AuditLogsService;
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService) {
+    this.auditLogsService = new AuditLogsService(prisma);
+  }
 
   private getClient(tx?: Prisma.TransactionClient): DbClient {
     return tx ?? this.prisma;
@@ -323,6 +333,20 @@ export class TransactionComplianceService {
     const providerCaseId = input.providerCaseId || null;
     const rawPayload = this.serializePayload(input.rawPayload);
     const normalizedPayload = this.serializePayload(input.normalizedPayload);
+    const existed = await client.kytCase.findUnique({
+      where: {
+        sourceType_sourceId_screeningStage: {
+          sourceType: input.sourceType,
+          sourceId: input.sourceId,
+          screeningStage: input.screeningStage,
+        },
+      },
+      select: {
+        id: true,
+        caseNo: true,
+        status: true,
+      },
+    });
 
     const record = await client.kytCase.upsert({
       where: {
@@ -376,6 +400,45 @@ export class TransactionComplianceService {
       },
     });
 
+    await this.auditLogsService.recordSystem(
+      {
+        triggerType: existed
+          ? AuditTriggerType.DATA_UPDATE
+          : AuditTriggerType.DATA_CREATE,
+        action: existed
+          ? AuditActions.KYT_CASE_UPDATED
+          : AuditActions.KYT_CASE_CREATED,
+        module: AuditModules.TRANSACTION_COMPLIANCE,
+        entityType: AuditEntityTypes.KYT_CASE,
+        entityId: record.id,
+        entityNo: record.caseNo,
+        entityOwnerType: record.ownerType,
+        entityOwnerId: record.ownerId || undefined,
+        reason: existed
+          ? 'KYT case updated by compliance flow'
+          : 'KYT case created by compliance flow',
+        beforeData: existed
+          ? {
+              status: existed.status,
+            }
+          : undefined,
+        afterData: {
+          status: record.status,
+          screeningStage: record.screeningStage,
+          provider: record.provider,
+          providerCaseId: record.providerCaseId,
+        },
+        metadata: {
+          sourceType: record.sourceType,
+          sourceId: record.sourceId,
+          reportId: report.id,
+          createdNew: !existed,
+        },
+        sourcePlatform: tx ? 'SYSTEM_TX' : 'SYSTEM',
+      },
+      tx,
+    );
+
     return { case: record, report };
   }
 
@@ -395,6 +458,19 @@ export class TransactionComplianceService {
     const providerTransferId = input.providerTransferId || null;
     const rawPayload = this.serializePayload(input.rawPayload);
     const normalizedPayload = this.serializePayload(input.normalizedPayload);
+    const existed = await client.travelRuleCase.findUnique({
+      where: {
+        sourceType_sourceId: {
+          sourceType: input.sourceType,
+          sourceId: input.sourceId,
+        },
+      },
+      select: {
+        id: true,
+        caseNo: true,
+        status: true,
+      },
+    });
 
     const record = await client.travelRuleCase.upsert({
       where: {
@@ -449,6 +525,41 @@ export class TransactionComplianceService {
         receivedAt: checkedAt,
       },
     });
+
+    await this.auditLogsService.recordSystem(
+      {
+        triggerType: AuditTriggerType.DATA_UPDATE,
+        action: AuditActions.TRAVEL_RULE_UPDATED,
+        module: AuditModules.TRANSACTION_COMPLIANCE,
+        entityType: AuditEntityTypes.TRAVEL_RULE_CASE,
+        entityId: record.id,
+        entityNo: record.caseNo,
+        entityOwnerType: record.ownerType,
+        entityOwnerId: record.ownerId || undefined,
+        reason: existed
+          ? 'Travel Rule case updated by compliance flow'
+          : 'Travel Rule case created by compliance flow',
+        beforeData: existed
+          ? {
+              status: existed.status,
+            }
+          : undefined,
+        afterData: {
+          status: record.status,
+          provider: record.provider,
+          providerTransferId: record.providerTransferId,
+          required: record.required,
+        },
+        metadata: {
+          sourceType: record.sourceType,
+          sourceId: record.sourceId,
+          reportId: report.id,
+          createdNew: !existed,
+        },
+        sourcePlatform: tx ? 'SYSTEM_TX' : 'SYSTEM',
+      },
+      tx,
+    );
 
     return { case: record, report };
   }
@@ -1112,6 +1223,25 @@ export class TransactionComplianceService {
     this.logger.log(
       `tx compliance mock-backfill finished: mode=${providerMode}, dryRun=${dryRun}, scanned=${scanned}, processed=${processed}`,
     );
+
+    await this.auditLogsService.recordSystem({
+      triggerType: AuditTriggerType.SYSTEM_EVENT,
+      action: AuditActions.SYSTEM_TX_COMPLIANCE_BACKFILL_EXECUTED,
+      module: AuditModules.TRANSACTION_COMPLIANCE,
+      entityType: AuditEntityTypes.KYT_CASE,
+      result: AuditResult.SUCCESS,
+      reason: dryRun
+        ? 'Transaction compliance backfill dry-run executed'
+        : 'Transaction compliance backfill executed',
+      metadata: {
+        mode: providerMode,
+        dryRun,
+        scanned,
+        processed,
+        summary,
+      },
+      sourcePlatform: 'SYSTEM',
+    });
 
     return {
       mode: providerMode,
