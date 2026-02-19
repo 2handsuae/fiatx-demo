@@ -12,6 +12,7 @@ import {
   ValidationPipe,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
+import { AdminPermissionGuard } from 'src/modules/identity/access-control/admin-permission.guard';
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { OnboardingService } from './onboarding.service';
 import {
@@ -23,7 +24,7 @@ import {
 
 @ApiTags('Admin - Onboarding')
 @Controller('admin/compliance')
-@UseGuards(AuthGuard('jwt'))
+@UseGuards(AuthGuard('jwt'), AdminPermissionGuard)
 @ApiBearerAuth()
 export class OnboardingAdminController {
   constructor(private readonly onboardingService: OnboardingService) {}

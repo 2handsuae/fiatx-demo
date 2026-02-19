@@ -9,6 +9,7 @@ import {
   Request,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
+import { AdminPermissionGuard } from 'src/modules/identity/access-control/admin-permission.guard';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { SwapTransactionsService } from './swap-transactions.service';
 import { SwapWorkflowOrchestrator } from './swap-workflow.orchestrator';
@@ -25,7 +26,7 @@ import { SwapQuotesService } from './swap-quotes.service';
 
 @ApiTags('Customer - Swap Transactions')
 @Controller('swap-transactions')
-@UseGuards(AuthGuard('jwt'))
+@UseGuards(AuthGuard('jwt'), AdminPermissionGuard)
 @ApiBearerAuth()
 export class SwapTransactionsCustomerController {
   constructor(

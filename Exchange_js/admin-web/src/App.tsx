@@ -1,4 +1,5 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import type { ReactElement } from 'react';
 import AdminLogin from './pages/AdminLogin';
 import DashboardLayout from './components/DashboardLayout';
 import PlatformMembers from './pages/PlatformMembers';
@@ -54,82 +55,340 @@ import ClearingLineDetail from './pages/ClearingLineDetail';
 import CddCasesPage from './pages/CddCasesPage';
 import EddCasesPage from './pages/EddCasesPage';
 import AuditLogsPage from './pages/AuditLogsPage';
+import RoleManagement from './pages/RoleManagement';
+import { useAdminSession } from './contexts/AdminSessionContext';
+import { PERMISSIONS } from './rbac/permissions';
+
+const FullPageMessage = ({
+  title,
+  description,
+}: {
+  title: string;
+  description: string;
+}) => (
+  <div className="min-h-screen bg-gray-50 flex items-center justify-center px-6">
+    <div className="max-w-md w-full bg-white border border-gray-200 shadow-sm rounded-xl p-8 text-center">
+      <h1 className="text-2xl font-bold text-gray-900">{title}</h1>
+      <p className="text-sm text-gray-600 mt-3">{description}</p>
+    </div>
+  </div>
+);
+
+const ForbiddenPage = () => (
+  <FullPageMessage
+    title="403 Permission Denied"
+    description="You are signed in, but your role does not have permission to access this page."
+  />
+);
+
+const SessionLoading = () => (
+  <FullPageMessage
+    title="Loading Session"
+    description="Verifying your admin role and permissions..."
+  />
+);
+
+const RequireAuthenticated = ({ children }: { children: ReactElement }) => {
+  const { isLoading, isAuthenticated } = useAdminSession();
+  if (isLoading) {
+    return <SessionLoading />;
+  }
+
+  if (!isAuthenticated) {
+    return <Navigate to="/admin/login" replace />;
+  }
+
+  return children;
+};
+
+const RequirePermission = ({
+  permissions,
+  children,
+}: {
+  permissions: string[];
+  children: ReactElement;
+}) => {
+  const { isLoading, isAuthenticated, hasAnyPermission } = useAdminSession();
+
+  if (isLoading) {
+    return <SessionLoading />;
+  }
+
+  if (!isAuthenticated) {
+    return <Navigate to="/admin/login" replace />;
+  }
+
+  if (permissions.length === 0 || hasAnyPermission(permissions)) {
+    return children;
+  }
+
+  return <ForbiddenPage />;
+};
+
+const LoginEntry = () => {
+  const { isLoading, isAuthenticated } = useAdminSession();
+
+  if (isLoading) {
+    return <SessionLoading />;
+  }
+
+  if (isAuthenticated) {
+    return <Navigate to="/dashboard" replace />;
+  }
+
+  return <AdminLogin />;
+};
+
+const withPermission = (element: ReactElement, permissions: string[]) => (
+  <RequirePermission permissions={permissions}>{element}</RequirePermission>
+);
 
 function App() {
   return (
     <Router>
       <Routes>
-        <Route path="/admin/login" element={<AdminLogin />} />
-        
-        <Route element={<DashboardLayout />}>
-           <Route path="/dashboard">
-             <Route index element={<div className="p-8 text-gray-500">Welcome to Admin Dashboard</div>} />
-             <Route path="members" element={<PlatformMembers />} />
-             <Route path="customer/management" element={<CustomerManagement />} />
-             <Route path="pricing/rates" element={<CustomerSwapRateList />} />
-             <Route path="pricing/rates/create" element={<CustomerSwapRateCreate />} />
-             <Route path="pricing/rates/edit/:id" element={<CustomerSwapRateEdit />} />
-             <Route path="pricing/quotes" element={<SwapQuoteList />} />
-             <Route path="pricing/quotes/:id" element={<SwapQuoteDetail />} />
-             <Route path="reconciliation/outstanding-settlements" element={<OutstandingSettlementList />} />
-             <Route path="reconciliation/outstanding-settlements/:id" element={<OutstandingSettlementDetail />} />
-             <Route path="reconciliation/outstandings" element={<SwapOutstandingList />} />
-             <Route path="reconciliation/outstandings/:id" element={<SwapOutstandingDetail />} />
-             <Route path="compliance/cdd-cases" element={<CddCasesPage />} />
-             <Route path="compliance/edd-cases" element={<EddCasesPage />} />
-             <Route path="compliance/audit-logs" element={<AuditLogsPage />} />
-             <Route path="customer/:id" element={<CustomerDetail />} />
-             <Route path="treasury/wallets" element={<WalletList />} />
-             <Route path="treasury/wallets/:id" element={<WalletDetail />} />
-             <Route path="treasury/payins" element={<PayinList />} />
-             <Route path="treasury/payins/:id" element={<PayinDetail />} />
-             <Route path="treasury/payouts" element={<PayoutList />} />
-             <Route path="treasury/payouts/:id" element={<PayoutDetail />} />
-             <Route path="treasury/internal-funds" element={<InternalFundList />} />
-             <Route path="treasury/internal-funds/:id" element={<InternalFundDetail />} />
-             <Route path="system/liquidity-providers" element={<LiquidityProviderList />} />
-             <Route path="system/liquidity-providers/create" element={<LiquidityProviderCreate />} />
-             <Route path="system/liquidity-config" element={<LiquidityConfigList />} />
-             <Route path="system/liquidity-config/create" element={<LiquidityConfigCreate />} />
-             <Route path="system/liquidity-config/edit/:id" element={<LiquidityConfigEdit />} />
-             <Route path="system/assets" element={<AssetList />} />
-              <Route path="system/assets/create" element={<AssetCreate />} />
-              <Route path="system/acct-events" element={<AcctEventList />} />
-              <Route path="system/journal-header-templates" element={<JournalHeaderTemplateList />} />
-              <Route path="system/journal-line-templates" element={<JournalLineTemplateList />} />
-              <Route path="system/clearing-header-templates" element={<ClearingHeaderTemplateList />} />
-              <Route path="system/clearing-line-templates" element={<ClearingLineTemplateList />} />
-            </Route>
+        <Route path="/admin/login" element={<LoginEntry />} />
 
-           <Route path="/exchange">
-              <Route path="deposit-transactions" element={<DepositTransactionList />} />
-              <Route path="deposit-transactions/:id" element={<DepositTransactionDetail />} />
-              <Route path="withdraw-transactions" element={<WithdrawTransactionList />} />
-              <Route path="withdraw-transactions/:id" element={<WithdrawTransactionDetail />} />
-              <Route path="swap-transactions" element={<SwapTransactionList />} />
-              <Route path="swap-transactions/:id" element={<SwapTransactionDetail />} />
-              <Route path="internal-transactions" element={<InternalTransactionList />} />
-              <Route path="internal-transactions/:id" element={<InternalTransactionDetail />} />
-           </Route>
+        <Route
+          element={
+            <RequireAuthenticated>
+              <DashboardLayout />
+            </RequireAuthenticated>
+          }
+        >
+          <Route path="/dashboard">
+            <Route
+              index
+              element={withPermission(
+                <div className="p-8 text-gray-500">Welcome to Admin Dashboard</div>,
+                [PERMISSIONS.BASE_ACCESS],
+              )}
+            />
+            <Route
+              path="members"
+              element={withPermission(<PlatformMembers />, [PERMISSIONS.USERS_READ])}
+            />
+            <Route
+              path="members/roles"
+              element={withPermission(<RoleManagement />, [PERMISSIONS.IAM_ROLES_READ])}
+            />
+            <Route
+              path="customer/management"
+              element={withPermission(<CustomerManagement />, [PERMISSIONS.CUSTOMERS_READ])}
+            />
+            <Route
+              path="pricing/rates"
+              element={withPermission(<CustomerSwapRateList />, [PERMISSIONS.CUSTOMER_SWAP_RATES_READ])}
+            />
+            <Route
+              path="pricing/rates/create"
+              element={withPermission(<CustomerSwapRateCreate />, [PERMISSIONS.CUSTOMER_SWAP_RATES_WRITE])}
+            />
+            <Route
+              path="pricing/rates/edit/:id"
+              element={withPermission(<CustomerSwapRateEdit />, [PERMISSIONS.CUSTOMER_SWAP_RATES_EDIT])}
+            />
+            <Route
+              path="pricing/quotes"
+              element={withPermission(<SwapQuoteList />, [PERMISSIONS.SWAP_QUOTES_READ])}
+            />
+            <Route
+              path="pricing/quotes/:id"
+              element={withPermission(<SwapQuoteDetail />, [PERMISSIONS.SWAP_QUOTES_DETAIL_READ])}
+            />
+            <Route
+              path="reconciliation/outstanding-settlements"
+              element={withPermission(<OutstandingSettlementList />, [PERMISSIONS.OUTSTANDING_SETTLEMENTS_READ])}
+            />
+            <Route
+              path="reconciliation/outstanding-settlements/:id"
+              element={withPermission(<OutstandingSettlementDetail />, [PERMISSIONS.OUTSTANDING_SETTLEMENT_DETAIL_READ])}
+            />
+            <Route
+              path="reconciliation/outstandings"
+              element={withPermission(<SwapOutstandingList />, [PERMISSIONS.OUTSTANDINGS_READ])}
+            />
+            <Route
+              path="reconciliation/outstandings/:id"
+              element={withPermission(<SwapOutstandingDetail />, [PERMISSIONS.OUTSTANDING_DETAIL_READ])}
+            />
+            <Route
+              path="compliance/cdd-cases"
+              element={withPermission(<CddCasesPage />, [PERMISSIONS.CDD_CASES_READ])}
+            />
+            <Route
+              path="compliance/edd-cases"
+              element={withPermission(<EddCasesPage />, [PERMISSIONS.EDD_CASES_READ])}
+            />
+            <Route
+              path="compliance/audit-logs"
+              element={withPermission(<AuditLogsPage />, [PERMISSIONS.AUDIT_LOGS_READ])}
+            />
+            <Route
+              path="customer/:id"
+              element={withPermission(<CustomerDetail />, [PERMISSIONS.CUSTOMERS_DETAIL_READ])}
+            />
+            <Route
+              path="treasury/wallets"
+              element={withPermission(<WalletList />, [PERMISSIONS.WALLETS_READ])}
+            />
+            <Route
+              path="treasury/wallets/:id"
+              element={withPermission(<WalletDetail />, [PERMISSIONS.WALLET_DETAIL_READ])}
+            />
+            <Route
+              path="treasury/payins"
+              element={withPermission(<PayinList />, [PERMISSIONS.PAYINS_READ])}
+            />
+            <Route
+              path="treasury/payins/:id"
+              element={withPermission(<PayinDetail />, [PERMISSIONS.PAYIN_DETAIL_READ])}
+            />
+            <Route
+              path="treasury/payouts"
+              element={withPermission(<PayoutList />, [PERMISSIONS.PAYOUTS_READ])}
+            />
+            <Route
+              path="treasury/payouts/:id"
+              element={withPermission(<PayoutDetail />, [PERMISSIONS.PAYOUT_DETAIL_READ])}
+            />
+            <Route
+              path="treasury/internal-funds"
+              element={withPermission(<InternalFundList />, [PERMISSIONS.INTERNAL_FUNDS_READ])}
+            />
+            <Route
+              path="treasury/internal-funds/:id"
+              element={withPermission(<InternalFundDetail />, [PERMISSIONS.INTERNAL_FUND_DETAIL_READ])}
+            />
+            <Route
+              path="system/liquidity-providers"
+              element={withPermission(<LiquidityProviderList />, [PERMISSIONS.LIQUIDITY_PROVIDERS_READ])}
+            />
+            <Route
+              path="system/liquidity-providers/create"
+              element={withPermission(<LiquidityProviderCreate />, [PERMISSIONS.LIQUIDITY_PROVIDERS_CREATE])}
+            />
+            <Route
+              path="system/liquidity-config"
+              element={withPermission(<LiquidityConfigList />, [PERMISSIONS.LIQUIDITY_CONFIG_READ])}
+            />
+            <Route
+              path="system/liquidity-config/create"
+              element={withPermission(<LiquidityConfigCreate />, [PERMISSIONS.LIQUIDITY_CONFIG_CREATE])}
+            />
+            <Route
+              path="system/liquidity-config/edit/:id"
+              element={withPermission(<LiquidityConfigEdit />, [PERMISSIONS.LIQUIDITY_CONFIG_UPDATE])}
+            />
+            <Route
+              path="system/assets"
+              element={withPermission(<AssetList />, [PERMISSIONS.ASSETS_READ])}
+            />
+            <Route
+              path="system/assets/create"
+              element={withPermission(<AssetCreate />, [PERMISSIONS.ASSETS_CREATE])}
+            />
+            <Route
+              path="system/acct-events"
+              element={withPermission(<AcctEventList />, [PERMISSIONS.ACCT_EVENTS_READ])}
+            />
+            <Route
+              path="system/journal-header-templates"
+              element={withPermission(<JournalHeaderTemplateList />, [PERMISSIONS.JOURNAL_HEADER_TEMPLATES_READ])}
+            />
+            <Route
+              path="system/journal-line-templates"
+              element={withPermission(<JournalLineTemplateList />, [PERMISSIONS.JOURNAL_LINE_TEMPLATES_READ])}
+            />
+            <Route
+              path="system/clearing-header-templates"
+              element={withPermission(<ClearingHeaderTemplateList />, [PERMISSIONS.CLEARING_TEMPLATES_READ])}
+            />
+            <Route
+              path="system/clearing-line-templates"
+              element={withPermission(<ClearingLineTemplateList />, [PERMISSIONS.CLEARING_TEMPLATES_READ])}
+            />
+          </Route>
 
-           <Route path="/ledger">
-              <Route path="coa" element={<CoaList />} />
-              <Route path="journals" element={<JournalList />} />
-              <Route path="journals/:id" element={<JournalDetail />} />
-              <Route path="journal-lines" element={<JournalLinesList />} />
-              <Route path="journal-lines/:id" element={<JournalLineDetail />} />
-              <Route path="balance-history" element={<CustomerBalanceHistory />} />
-           </Route>
+          <Route path="/exchange">
+            <Route
+              path="deposit-transactions"
+              element={withPermission(<DepositTransactionList />, [PERMISSIONS.DEPOSIT_TRANSACTIONS_READ])}
+            />
+            <Route
+              path="deposit-transactions/:id"
+              element={withPermission(<DepositTransactionDetail />, [PERMISSIONS.DEPOSIT_TRANSACTION_DETAIL_READ])}
+            />
+            <Route
+              path="withdraw-transactions"
+              element={withPermission(<WithdrawTransactionList />, [PERMISSIONS.WITHDRAW_TRANSACTIONS_READ])}
+            />
+            <Route
+              path="withdraw-transactions/:id"
+              element={withPermission(<WithdrawTransactionDetail />, [PERMISSIONS.WITHDRAW_TRANSACTION_DETAIL_READ])}
+            />
+            <Route
+              path="swap-transactions"
+              element={withPermission(<SwapTransactionList />, [PERMISSIONS.SWAP_TRANSACTIONS_READ])}
+            />
+            <Route
+              path="swap-transactions/:id"
+              element={withPermission(<SwapTransactionDetail />, [PERMISSIONS.SWAP_TRANSACTION_DETAIL_READ])}
+            />
+            <Route
+              path="internal-transactions"
+              element={withPermission(<InternalTransactionList />, [PERMISSIONS.INTERNAL_TRANSACTIONS_READ])}
+            />
+            <Route
+              path="internal-transactions/:id"
+              element={withPermission(<InternalTransactionDetail />, [PERMISSIONS.INTERNAL_TRANSACTION_DETAIL_READ])}
+            />
+          </Route>
 
-           <Route path="/clearing">
-              <Route path="management" element={<ClearingManagementList />} />
-              <Route path="management/:id" element={<ClearingDetail />} />
-              <Route path="details" element={<ClearingDetailsList />} />
-              <Route path="lines/:id" element={<ClearingLineDetail />} />
-           </Route>
+          <Route path="/ledger">
+            <Route path="coa" element={withPermission(<CoaList />, [PERMISSIONS.COA_READ])} />
+            <Route path="journals" element={withPermission(<JournalList />, [PERMISSIONS.JOURNALS_READ])} />
+            <Route
+              path="journals/:id"
+              element={withPermission(<JournalDetail />, [PERMISSIONS.JOURNAL_DETAIL_READ])}
+            />
+            <Route
+              path="journal-lines"
+              element={withPermission(<JournalLinesList />, [PERMISSIONS.JOURNAL_LINES_READ])}
+            />
+            <Route
+              path="journal-lines/:id"
+              element={withPermission(<JournalLineDetail />, [PERMISSIONS.JOURNAL_LINE_DETAIL_READ])}
+            />
+            <Route
+              path="balance-history"
+              element={withPermission(<CustomerBalanceHistory />, [PERMISSIONS.CUSTOMER_BALANCE_HISTORY_READ])}
+            />
+          </Route>
+
+          <Route path="/clearing">
+            <Route
+              path="management"
+              element={withPermission(<ClearingManagementList />, [PERMISSIONS.CLEARINGS_READ])}
+            />
+            <Route
+              path="management/:id"
+              element={withPermission(<ClearingDetail />, [PERMISSIONS.CLEARING_DETAIL_READ])}
+            />
+            <Route
+              path="details"
+              element={withPermission(<ClearingDetailsList />, [PERMISSIONS.CLEARING_LINES_READ])}
+            />
+            <Route
+              path="lines/:id"
+              element={withPermission(<ClearingLineDetail />, [PERMISSIONS.CLEARING_LINE_DETAIL_READ])}
+            />
+          </Route>
         </Route>
 
+        <Route path="/forbidden" element={<ForbiddenPage />} />
         <Route path="/" element={<Navigate to="/admin/login" replace />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Router>
   );

@@ -23,11 +23,12 @@ import {
   ApiBearerAuth,
 } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
+import { AdminPermissionGuard } from 'src/modules/identity/access-control/admin-permission.guard';
 
 @ApiTags('Deposit Transactions')
 @ApiBearerAuth()
 @Controller('deposit-transactions')
-@UseGuards(AuthGuard('jwt'))
+@UseGuards(AuthGuard('jwt'), AdminPermissionGuard)
 export class DepositTransactionsController {
   constructor(private readonly service: DepositTransactionsService) {}
 

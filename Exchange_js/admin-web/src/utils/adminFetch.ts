@@ -1,4 +1,5 @@
 const SESSION_EXPIRED_MESSAGE = 'Session expired, please sign in again.';
+const PERMISSION_DENIED_MESSAGE = 'Permission denied for this action.';
 
 export class AdminSessionError extends Error {
   constructor(message = SESSION_EXPIRED_MESSAGE) {
@@ -7,9 +8,17 @@ export class AdminSessionError extends Error {
   }
 }
 
+export class AdminPermissionError extends Error {
+  constructor(message = PERMISSION_DENIED_MESSAGE) {
+    super(message);
+    this.name = 'AdminPermissionError';
+  }
+}
+
 const redirectToLogin = (message: string) => {
   localStorage.removeItem('admin_token');
   localStorage.setItem('admin_login_error', message);
+  window.dispatchEvent(new Event('admin-auth-changed'));
   window.location.href = '/admin/login';
 };
 
@@ -31,9 +40,13 @@ export const adminFetch = async (
     headers,
   });
 
-  if (response.status === 401 || response.status === 403) {
+  if (response.status === 401) {
     redirectToLogin(SESSION_EXPIRED_MESSAGE);
     throw new AdminSessionError();
+  }
+
+  if (response.status === 403) {
+    throw new AdminPermissionError(PERMISSION_DENIED_MESSAGE);
   }
 
   return response;
@@ -53,4 +66,3 @@ export const getApiErrorMessage = async (
   }
   return fallback;
 };
-

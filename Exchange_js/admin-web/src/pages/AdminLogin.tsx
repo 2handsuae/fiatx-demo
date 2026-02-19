@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Lock, User, ShieldCheck, ArrowRight, Eye, EyeOff, LayoutDashboard, AlertCircle } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { notifyAdminAuthChanged } from '../contexts/AdminSessionContext';
 
 const AdminLogin = () => {
   const [showPassword, setShowPassword] = useState(false);
@@ -53,11 +54,13 @@ const AdminLogin = () => {
             const payload = decodeTokenPayload(data.access_token);
             if (!payload || payload.type !== 'ADMIN') {
                 localStorage.removeItem('admin_token');
+                notifyAdminAuthChanged();
                 setError('Invalid admin token. Please contact support.');
                 return;
             }
             localStorage.setItem('admin_token', data.access_token);
-            navigate('/dashboard/members');
+            notifyAdminAuthChanged();
+            navigate('/dashboard');
         } else {
             const err = await response.json();
             setError(err.message || 'Login failed');

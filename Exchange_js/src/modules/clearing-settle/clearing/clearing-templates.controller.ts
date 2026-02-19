@@ -1,8 +1,21 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, Query, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Patch,
+  Param,
+  Delete,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
+import { AuthGuard } from '@nestjs/passport';
 import { ClearingTemplatesService } from './clearing-templates.service';
 import { CreateClearingTemplateDto, UpdateClearingTemplateDto, QueryClearingTemplateDto } from './dto/clearing.dto';
+import { AdminPermissionGuard } from 'src/modules/identity/access-control/admin-permission.guard';
 
 @Controller('clearing-templates')
+@UseGuards(AuthGuard('jwt'), AdminPermissionGuard)
 export class ClearingTemplatesController {
   constructor(private readonly clearingTemplatesService: ClearingTemplatesService) {}
 

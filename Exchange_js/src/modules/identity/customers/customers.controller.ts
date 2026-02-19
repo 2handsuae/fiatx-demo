@@ -16,6 +16,7 @@ import {
 import { CustomersService } from './customers.service';
 import { Prisma } from '@prisma/client';
 import { AuthGuard } from '@nestjs/passport';
+import { AdminPermissionGuard } from 'src/modules/identity/access-control/admin-permission.guard';
 import {
   ApiTags,
   ApiBearerAuth,
@@ -26,7 +27,7 @@ import {
 @ApiTags('customers')
 @ApiBearerAuth()
 @Controller('customers')
-@UseGuards(AuthGuard('jwt'))
+@UseGuards(AuthGuard('jwt'), AdminPermissionGuard)
 export class CustomersController {
   constructor(private readonly customersService: CustomersService) {}
 

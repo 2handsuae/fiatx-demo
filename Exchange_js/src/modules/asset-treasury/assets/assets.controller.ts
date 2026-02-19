@@ -17,6 +17,7 @@ import {
   AssetType,
 } from './dto/asset.dto';
 import { AuthGuard } from '@nestjs/passport';
+import { AdminPermissionGuard } from 'src/modules/identity/access-control/admin-permission.guard';
 import {
   ApiTags,
   ApiBearerAuth,
@@ -28,7 +29,7 @@ import { Prisma } from '@prisma/client';
 @ApiTags('assets')
 @ApiBearerAuth()
 @Controller('assets')
-@UseGuards(AuthGuard('jwt'))
+@UseGuards(AuthGuard('jwt'), AdminPermissionGuard)
 export class AssetsController {
   constructor(private readonly service: AssetsService) {}
 

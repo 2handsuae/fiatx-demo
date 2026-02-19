@@ -1,9 +1,10 @@
-import { Injectable, ForbiddenException } from '@nestjs/common';
+import { Injectable, ForbiddenException, Optional } from '@nestjs/common';
 import { UsersService } from '../users/users.service';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { createHash } from 'crypto';
 import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
+import { AccessControlService } from '../access-control/access-control.service';
 import {
   AuditActions,
   AuditEntityTypes,
@@ -23,6 +24,7 @@ export class AuthService {
     private usersService: UsersService,
     private jwtService: JwtService,
     private auditLogsService: AuditLogsService,
+    @Optional() private accessControlService?: AccessControlService,
   ) {}
 
   private maskIdentifier(identifier: string) {
@@ -234,14 +236,51 @@ export class AuthService {
   }
 
   async login(user: any) {
-    const payload = { username: user.email, sub: user.id, role: user.role, type: 'ADMIN' };
+    const roleCodes = this.accessControlService
+      ? await this.accessControlService.getUserRoleCodes(user.id)
+      : [];
+    const primaryRole = roleCodes[0] || user.role || 'ADMIN';
+    const payload = {
+      username: user.email,
+      sub: user.id,
+      userNo: user.userNo,
+      role: primaryRole,
+      type: 'ADMIN',
+    };
     return {
       access_token: this.jwtService.sign(payload),
       user: {
+        id: user.id,
+        userNo: user.userNo,
         email: user.email,
-        role: user.role,
+        role: primaryRole,
+        roles: roleCodes,
         lastLoginAt: user.lastLoginAt,
       },
+    };
+  }
+
+  async getAdminSession(userId: string) {
+    const user = await this.usersService.findById(userId);
+    if (!user) {
+      throw new ForbiddenException('Invalid admin session');
+    }
+
+    const [roles, permissions] = this.accessControlService
+      ? await Promise.all([
+          this.accessControlService.getUserRoleCodes(userId),
+          this.accessControlService.getUserPermissionCodes(userId),
+        ])
+      : [[], []];
+
+    return {
+      id: user.id,
+      userNo: user.userNo,
+      email: user.email,
+      status: user.status,
+      lastLoginAt: user.lastLoginAt,
+      roles,
+      permissions,
     };
   }
 }

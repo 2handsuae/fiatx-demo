@@ -4,6 +4,7 @@ import { ConfigModule } from '@nestjs/config';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { UsersModule } from './modules/identity/users/users.module';
 import { AuthModule } from './modules/identity/auth/auth.module';
+import { AccessControlModule } from './modules/identity/access-control/access-control.module';
 import { CustomersModule } from './modules/identity/customers/customers.module';
 import { CustomerSwapRatesModule } from './modules/identity/customer-swap-rates/customer-swap-rates.module';
 import { NotificationsModule } from './core/notifications/notifications.module';
@@ -59,6 +60,7 @@ import { AuditLogsModule } from './modules/risk-engine/audit-logs/audit-logs.mod
     }),
     UsersModule,
     AuthModule,
+    AccessControlModule,
     CustomerSwapRatesModule,
     CustomersModule,
     NotificationsModule,

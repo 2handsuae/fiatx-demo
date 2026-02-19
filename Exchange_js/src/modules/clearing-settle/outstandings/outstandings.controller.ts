@@ -6,13 +6,14 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
+import { AdminPermissionGuard } from 'src/modules/identity/access-control/admin-permission.guard';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { OutstandingsService } from './outstandings.service';
 import { OutstandingQueryDto } from './dto/outstanding.dto';
 
 @ApiTags('Admin - Reconciliation Outstandings')
 @Controller('admin/reconciliation/outstandings')
-@UseGuards(AuthGuard('jwt'))
+@UseGuards(AuthGuard('jwt'), AdminPermissionGuard)
 @ApiBearerAuth()
 export class OutstandingsController {
   constructor(private readonly outstandingsService: OutstandingsService) {}

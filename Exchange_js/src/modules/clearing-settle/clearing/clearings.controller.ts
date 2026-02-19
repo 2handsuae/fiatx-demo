@@ -1,8 +1,11 @@
-import { Controller, Get, Post, Param, Query } from '@nestjs/common';
+import { Controller, Get, Post, Param, Query, UseGuards } from '@nestjs/common';
+import { AuthGuard } from '@nestjs/passport';
 import { ClearingsService } from './clearings.service';
 import { QueryClearingDto, QueryClearingLineDto } from './dto/clearing.dto';
+import { AdminPermissionGuard } from 'src/modules/identity/access-control/admin-permission.guard';
 
 @Controller('clearings')
+@UseGuards(AuthGuard('jwt'), AdminPermissionGuard)
 export class ClearingsController {
   constructor(private readonly clearingsService: ClearingsService) {}
 

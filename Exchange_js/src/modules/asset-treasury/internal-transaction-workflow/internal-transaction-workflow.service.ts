@@ -71,7 +71,7 @@ export class InternalTransactionWorkflowService {
   }
 
   private isSelfApprovalAllowed(): boolean {
-    const raw = (process.env.INTERNAL_TX_ALLOW_SELF_APPROVAL || 'true')
+    const raw = (process.env.INTERNAL_TX_ALLOW_SELF_APPROVAL || 'false')
       .trim()
       .toLowerCase();
     return raw !== 'false' && raw !== '0' && raw !== 'no';

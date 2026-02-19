@@ -7,15 +7,87 @@ import { DEFAULT_ACCT_EVENTS } from '../src/config/manifests/events.manifest';
 import { DEFAULT_JOURNAL_TEMPLATES } from '../src/config/manifests/journal-templates.manifest';
 import { DEFAULT_CLEARING_TEMPLATES } from '../src/config/manifests/clearing-templates.manifest';
 import { buildDeterministicWalletNo } from '../src/common/utils/no-generator.util';
+import {
+  RBAC_PERMISSION_DEFINITIONS,
+  RBAC_ROLE_DEFINITIONS,
+  buildRolePermissionCodeMap,
+} from '../src/modules/identity/access-control/rbac.catalog';
 
 const DEFAULT_ADMIN_EMAIL = 'admin@fiatx.com';
 const DEFAULT_ADMIN_USER_NO = 'ADMIN-001';
 const DEFAULT_ADMIN_PASSWORD = '123456';
+const DEFAULT_ROLE_ADMIN_PASSWORD = '123456';
 const DEFAULT_BASE_CUSTOMER_EMAIL = 'shawn@fiatx.com';
 const DEFAULT_BASE_CUSTOMER_NO = 'CUST-BASE-SHAWN';
 const DEFAULT_BASE_CUSTOMER_PASSWORD = '123456';
 const DEFAULT_BASE_CUSTOMER_FIRST_NAME = 'Shawn';
 const DEFAULT_BASE_CUSTOMER_LAST_NAME = 'FiatX';
+
+type RoleSeedAccount = {
+  roleCode: string;
+  email: string;
+  userNo: string;
+};
+
+const ROLE_SEED_ACCOUNTS: RoleSeedAccount[] = [
+  { roleCode: 'SUPER_ADMIN', email: 'admin@fiatx.com', userNo: 'ADMIN-001' },
+  { roleCode: 'IAM_ADMIN', email: 'iam_admin@fiatx.com', userNo: 'ADMIN-IAM' },
+  { roleCode: 'APPROVER', email: 'approver@fiatx.com', userNo: 'ADMIN-APPROVER' },
+  {
+    roleCode: 'COMPLIANCE_OFFICER',
+    email: 'compliance_officer@fiatx.com',
+    userNo: 'ADMIN-CO',
+  },
+  { roleCode: 'MLRO', email: 'mlro@fiatx.com', userNo: 'ADMIN-MLRO' },
+  {
+    roleCode: 'ALERT_ANALYST',
+    email: 'alert_analyst@fiatx.com',
+    userNo: 'ADMIN-ALERT',
+  },
+  {
+    roleCode: 'CUSTOMER_OPS',
+    email: 'customer_ops@fiatx.com',
+    userNo: 'ADMIN-CUSTOPS',
+  },
+  {
+    roleCode: 'TRADING_OPS',
+    email: 'trading_ops@fiatx.com',
+    userNo: 'ADMIN-TRDOPS',
+  },
+  {
+    roleCode: 'TREASURY_MAKER',
+    email: 'treasury_maker@fiatx.com',
+    userNo: 'ADMIN-TRMKR',
+  },
+  {
+    roleCode: 'TREASURY_CHECKER',
+    email: 'treasury_checker@fiatx.com',
+    userNo: 'ADMIN-TRCHK',
+  },
+  {
+    roleCode: 'ACCOUNTING_OPS',
+    email: 'accounting_ops@fiatx.com',
+    userNo: 'ADMIN-ACCOPS',
+  },
+  {
+    roleCode: 'SETTLEMENT_OPS',
+    email: 'settlement_ops@fiatx.com',
+    userNo: 'ADMIN-STLOPS',
+  },
+  { roleCode: 'RECON_OPS', email: 'recon_ops@fiatx.com', userNo: 'ADMIN-RECON' },
+  {
+    roleCode: 'CONFIG_ADMIN',
+    email: 'config_admin@fiatx.com',
+    userNo: 'ADMIN-CONFIG',
+  },
+  {
+    roleCode: 'AUDIT_OFFICER',
+    email: 'audit_officer@fiatx.com',
+    userNo: 'ADMIN-AUDIT',
+  },
+  { roleCode: 'DPO', email: 'dpo@fiatx.com', userNo: 'ADMIN-DPO' },
+  { roleCode: 'CISO', email: 'ciso@fiatx.com', userNo: 'ADMIN-CISO' },
+];
 
 const CRYPTO_SYSTEM_WALLET_KINDS = [
   'CUST_CRYPTO_MASTER',
@@ -98,6 +170,7 @@ const LEGACY_WITHDRAW_FAILED_EVENT_CODES = [
 export async function seedBase(prisma: PrismaClient): Promise<void> {
   console.log('--- Seeding Base Configuration ---');
   await seedAdmin(prisma);
+  await seedRbac(prisma);
   await seedBaseCustomers(prisma);
   await seedAssets(prisma);
   await seedSystemWallets(prisma);
@@ -127,17 +200,236 @@ async function seedAdmin(prisma: PrismaClient): Promise<void> {
     where: { email: DEFAULT_ADMIN_EMAIL },
     update: {
       password,
-      role: 'ADMIN',
+      role: 'SUPER_ADMIN',
       status: 'ACTIVE',
     },
     create: {
       userNo: DEFAULT_ADMIN_USER_NO,
       email: DEFAULT_ADMIN_EMAIL,
       password,
-      role: 'ADMIN',
+      role: 'SUPER_ADMIN',
       status: 'ACTIVE',
     },
   });
+}
+
+async function seedRbac(prisma: PrismaClient): Promise<void> {
+  const rolePermissionCodeMap = buildRolePermissionCodeMap();
+
+  for (const role of RBAC_ROLE_DEFINITIONS) {
+    await (prisma as any).role.upsert({
+      where: { code: role.code },
+      update: {
+        name: role.name,
+        description: role.description,
+        status: 'ACTIVE',
+      },
+      create: {
+        code: role.code,
+        name: role.name,
+        description: role.description,
+        status: 'ACTIVE',
+      },
+    });
+  }
+
+  for (const permission of RBAC_PERMISSION_DEFINITIONS) {
+    await (prisma as any).permission.upsert({
+      where: { code: permission.code },
+      update: {
+        name: permission.name,
+        description: permission.description,
+        method: permission.method,
+        path: permission.path,
+      },
+      create: {
+        code: permission.code,
+        name: permission.name,
+        description: permission.description,
+        method: permission.method,
+        path: permission.path,
+      },
+    });
+  }
+
+  const [roles, permissions] = await Promise.all([
+    (prisma as any).role.findMany({
+      where: {
+        code: { in: RBAC_ROLE_DEFINITIONS.map((item) => item.code) },
+      },
+      select: { id: true, code: true },
+    }),
+    (prisma as any).permission.findMany({
+      where: {
+        code: { in: RBAC_PERMISSION_DEFINITIONS.map((item) => item.code) },
+      },
+      select: { id: true, code: true },
+    }),
+  ]);
+
+  const roleIdByCode = new Map<string, string>();
+  const permissionIdByCode = new Map<string, string>();
+  roles.forEach((item: any) => roleIdByCode.set(item.code, item.id));
+  permissions.forEach((item: any) => permissionIdByCode.set(item.code, item.id));
+
+  const desiredPairs: Array<{ roleId: string; permissionId: string }> = [];
+  for (const role of RBAC_ROLE_DEFINITIONS) {
+    const roleId = roleIdByCode.get(role.code);
+    if (!roleId) continue;
+
+    for (const permissionCode of rolePermissionCodeMap[role.code] || []) {
+      const permissionId = permissionIdByCode.get(permissionCode);
+      if (!permissionId) continue;
+      desiredPairs.push({ roleId, permissionId });
+    }
+  }
+
+  for (const pair of desiredPairs) {
+    await (prisma as any).rolePermission.upsert({
+      where: {
+        roleId_permissionId: {
+          roleId: pair.roleId,
+          permissionId: pair.permissionId,
+        },
+      },
+      update: {},
+      create: pair,
+    });
+  }
+
+  const desiredPairKey = new Set(
+    desiredPairs.map((item) => `${item.roleId}:${item.permissionId}`),
+  );
+
+  const existingPairs = await (prisma as any).rolePermission.findMany({
+    where: {
+      roleId: { in: roles.map((item: any) => item.id) },
+    },
+    select: { id: true, roleId: true, permissionId: true },
+  });
+
+  const stalePairIds = existingPairs
+    .filter((item: any) => !desiredPairKey.has(`${item.roleId}:${item.permissionId}`))
+    .map((item: any) => item.id);
+
+  if (stalePairIds.length > 0) {
+    await (prisma as any).rolePermission.deleteMany({
+      where: { id: { in: stalePairIds } },
+    });
+  }
+
+  await seedRoleAdminAccounts(prisma, roleIdByCode);
+}
+
+async function seedRoleAdminAccounts(
+  prisma: PrismaClient,
+  roleIdByCode: Map<string, string>,
+): Promise<void> {
+  const password = await bcrypt.hash(DEFAULT_ROLE_ADMIN_PASSWORD, 10);
+
+  for (const account of ROLE_SEED_ACCOUNTS) {
+    const roleId = roleIdByCode.get(account.roleCode);
+    if (!roleId) {
+      throw new Error(`Role not found for seed account: ${account.roleCode}`);
+    }
+
+    const user = await prisma.user.upsert({
+      where: { email: account.email },
+      update: {
+        userNo: account.userNo,
+        password,
+        role: account.roleCode,
+        status: 'ACTIVE',
+      },
+      create: {
+        userNo: account.userNo,
+        email: account.email,
+        password,
+        role: account.roleCode,
+        status: 'ACTIVE',
+      },
+      select: { id: true },
+    });
+
+    await (prisma as any).userRole.upsert({
+      where: {
+        userId_roleId: {
+          userId: user.id,
+          roleId,
+        },
+      },
+      update: {},
+      create: {
+        userId: user.id,
+        roleId,
+      },
+    });
+
+    await (prisma as any).userRole.deleteMany({
+      where: {
+        userId: user.id,
+        roleId: { not: roleId },
+      },
+    });
+  }
+}
+
+async function areRoleSeedAccountsComplete(prisma: PrismaClient): Promise<boolean> {
+  const users = await prisma.user.findMany({
+    where: {
+      email: {
+        in: ROLE_SEED_ACCOUNTS.map((item) => item.email),
+      },
+    },
+    select: {
+      id: true,
+      userNo: true,
+      email: true,
+      role: true,
+      status: true,
+      userRoles: {
+        include: {
+          role: {
+            select: {
+              code: true,
+            },
+          },
+        },
+      },
+    },
+  });
+
+  if (users.length !== ROLE_SEED_ACCOUNTS.length) {
+    return false;
+  }
+
+  const userByEmail = new Map(users.map((item) => [item.email, item]));
+
+  for (const expected of ROLE_SEED_ACCOUNTS) {
+    const user = userByEmail.get(expected.email);
+    if (!user) {
+      return false;
+    }
+
+    if (user.userNo !== expected.userNo) {
+      return false;
+    }
+
+    if (user.status !== 'ACTIVE') {
+      return false;
+    }
+
+    if (user.role !== expected.roleCode) {
+      return false;
+    }
+
+    const boundRoleCodes = user.userRoles.map((item) => item.role.code).sort();
+    if (boundRoleCodes.length !== 1 || boundRoleCodes[0] !== expected.roleCode) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 async function seedBaseCustomers(prisma: PrismaClient): Promise<void> {
@@ -798,6 +1090,11 @@ async function isBaseComplete(prisma: PrismaClient): Promise<boolean> {
   const adminExists =
     (await prisma.user.count({ where: { email: DEFAULT_ADMIN_EMAIL } })) > 0;
   if (!adminExists) {
+    return false;
+  }
+
+  const roleSeedAccountsComplete = await areRoleSeedAccountsComplete(prisma);
+  if (!roleSeedAccountsComplete) {
     return false;
   }
 

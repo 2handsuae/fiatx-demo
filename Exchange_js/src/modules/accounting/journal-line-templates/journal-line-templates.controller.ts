@@ -7,7 +7,9 @@ import {
   Param,
   Delete,
   Query,
+  UseGuards,
 } from '@nestjs/common';
+import { AuthGuard } from '@nestjs/passport';
 import { JournalLineTemplatesService } from './journal-line-templates.service';
 import {
   CreateJournalLineTemplateDto,
@@ -15,9 +17,11 @@ import {
   JournalLineTemplateQueryDto,
 } from './dto/journal-line-template.dto';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
+import { AdminPermissionGuard } from 'src/modules/identity/access-control/admin-permission.guard';
 
 @ApiTags('Journal Line Templates')
 @Controller('journal-line-templates')
+@UseGuards(AuthGuard('jwt'), AdminPermissionGuard)
 export class JournalLineTemplatesController {
   constructor(private readonly service: JournalLineTemplatesService) {}
 

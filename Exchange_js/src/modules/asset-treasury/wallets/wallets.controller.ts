@@ -21,6 +21,7 @@ import {
   WalletRole,
 } from './dto/wallet.dto';
 import { AuthGuard } from '@nestjs/passport';
+import { AdminPermissionGuard } from 'src/modules/identity/access-control/admin-permission.guard';
 import {
   ApiTags,
   ApiBearerAuth,
@@ -32,7 +33,7 @@ import { Prisma } from '@prisma/client';
 @ApiTags('wallets')
 @ApiBearerAuth()
 @Controller('wallets')
-@UseGuards(AuthGuard('jwt'))
+@UseGuards(AuthGuard('jwt'), AdminPermissionGuard)
 export class WalletsController {
   constructor(private readonly service: WalletsService) {}
 

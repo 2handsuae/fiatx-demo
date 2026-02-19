@@ -1,10 +1,13 @@
-import { Controller, Get, Param, Query } from '@nestjs/common';
+import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
+import { AuthGuard } from '@nestjs/passport';
 import { JournalsService } from './journals.service';
 import { JournalQueryDto } from './dto/journal.dto';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
+import { AdminPermissionGuard } from 'src/modules/identity/access-control/admin-permission.guard';
 
 @ApiTags('Journals')
 @Controller('journals')
+@UseGuards(AuthGuard('jwt'), AdminPermissionGuard)
 export class JournalsController {
   constructor(private readonly journalsService: JournalsService) {}
 

@@ -10,6 +10,7 @@ import {
   ValidationPipe,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
+import { AdminPermissionGuard } from 'src/modules/identity/access-control/admin-permission.guard';
 import {
   ApiBearerAuth,
   ApiOperation,
@@ -26,7 +27,7 @@ import { TransactionComplianceService } from './transaction-compliance.service';
 
 @ApiTags('Admin - Transaction Compliance')
 @Controller('admin/compliance')
-@UseGuards(AuthGuard('jwt'))
+@UseGuards(AuthGuard('jwt'), AdminPermissionGuard)
 @ApiBearerAuth()
 export class TransactionComplianceAdminController {
   constructor(

@@ -18,6 +18,7 @@ import {
   LiquidityConfigStatus,
 } from './dto/liquidity-config.dto';
 import { AuthGuard } from '@nestjs/passport';
+import { AdminPermissionGuard } from 'src/modules/identity/access-control/admin-permission.guard';
 import {
   ApiTags,
   ApiBearerAuth,
@@ -29,7 +30,7 @@ import { Prisma } from '@prisma/client';
 @ApiTags('liquidity-configurations')
 @ApiBearerAuth()
 @Controller('liquidity-configurations')
-@UseGuards(AuthGuard('jwt'))
+@UseGuards(AuthGuard('jwt'), AdminPermissionGuard)
 export class LiquidityConfigController {
   constructor(private readonly service: LiquidityConfigService) {}
 

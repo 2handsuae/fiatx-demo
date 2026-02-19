@@ -8,13 +8,14 @@ import {
   ValidationPipe,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
+import { AdminPermissionGuard } from 'src/modules/identity/access-control/admin-permission.guard';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { InternalTransactionsService } from './internal-transactions.service';
 import { InternalTransactionQueryDto } from './dto/internal-transaction.dto';
 
 @ApiTags('Admin - Internal Transactions')
 @Controller('admin/internal-transactions')
-@UseGuards(AuthGuard('jwt'))
+@UseGuards(AuthGuard('jwt'), AdminPermissionGuard)
 @ApiBearerAuth()
 export class InternalTransactionsController {
   constructor(

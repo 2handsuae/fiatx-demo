@@ -11,6 +11,7 @@ import {
   ValidationPipe,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
+import { AdminPermissionGuard } from 'src/modules/identity/access-control/admin-permission.guard';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { AuditLogsService } from './audit-logs.service';
 import {
@@ -22,7 +23,7 @@ import {
 
 @ApiTags('Admin - Audit Logs')
 @Controller('admin/audit-logs')
-@UseGuards(AuthGuard('jwt'))
+@UseGuards(AuthGuard('jwt'), AdminPermissionGuard)
 @ApiBearerAuth()
 export class AuditLogsController {
   constructor(private readonly auditLogsService: AuditLogsService) {}

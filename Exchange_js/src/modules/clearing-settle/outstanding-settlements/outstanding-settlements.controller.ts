@@ -11,6 +11,7 @@ import {
   ValidationPipe,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
+import { AdminPermissionGuard } from 'src/modules/identity/access-control/admin-permission.guard';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import {
   CreateOutstandingSettlementDto,
@@ -21,7 +22,7 @@ import { OutstandingSettlementsService } from './outstanding-settlements.service
 @ApiTags('Admin - Reconciliation Outstanding Settlements')
 @ApiBearerAuth()
 @Controller('admin/reconciliation/outstanding-settlements')
-@UseGuards(AuthGuard('jwt'))
+@UseGuards(AuthGuard('jwt'), AdminPermissionGuard)
 export class OutstandingSettlementsController {
   constructor(
     private readonly outstandingSettlementsService: OutstandingSettlementsService,

@@ -2,10 +2,11 @@ import { Controller, Get, Param, UseGuards } from '@nestjs/common';
 import { TreasuryService } from './treasury.service';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
+import { AdminPermissionGuard } from 'src/modules/identity/access-control/admin-permission.guard';
 
 @ApiTags('treasury')
 @ApiBearerAuth()
-@UseGuards(AuthGuard('jwt'))
+@UseGuards(AuthGuard('jwt'), AdminPermissionGuard)
 @Controller('treasury')
 export class TreasuryController {
   constructor(private readonly treasuryService: TreasuryService) {}

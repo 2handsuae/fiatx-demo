@@ -12,6 +12,7 @@ Any agent/thread must read this folder first before proposing or implementing ch
 5. `docs/constraints/customer-transaction-flow-constraints.md`
 6. `docs/constraints/internal-transaction-flow-constraints.md`
 7. `docs/constraints/audit-logging-constraints.md`
+8. `docs/constraints/rbac-member-management-constraints.md`
 
 ## Scope
 - Frontend: `admin-web`, `client-web`
@@ -21,6 +22,7 @@ Any agent/thread must read this folder first before proposing or implementing ch
 - Domain flow: customer transaction workflow (deposit/swap/withdraw)
 - Domain flow: internal treasury workflow (`internal_transactions` / `internal_funds`)
 - Domain flow: unified audit logging and evidence package
+- Domain flow: admin member management and RBAC seed account baseline
 
 ## Enforcement Level
 - `MUST`: mandatory constraint, no exception unless owner explicitly approves.

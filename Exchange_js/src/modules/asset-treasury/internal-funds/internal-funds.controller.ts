@@ -12,6 +12,7 @@ import {
   ValidationPipe,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
+import { AdminPermissionGuard } from 'src/modules/identity/access-control/admin-permission.guard';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { InternalFundsService } from './internal-funds.service';
 import {
@@ -22,7 +23,7 @@ import {
 @ApiTags('Admin - Internal Funds')
 @ApiBearerAuth()
 @Controller('admin/internal-funds')
-@UseGuards(AuthGuard('jwt'))
+@UseGuards(AuthGuard('jwt'), AdminPermissionGuard)
 export class InternalFundsController {
   constructor(private readonly internalFundsService: InternalFundsService) {}
 

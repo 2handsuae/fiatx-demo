@@ -4,10 +4,11 @@ import { JournalLineQueryDto } from './dto/journal-line.dto';
 import { CustomerBalanceHistoryQueryDto } from './dto/customer-balance-history.dto';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
+import { AdminPermissionGuard } from 'src/modules/identity/access-control/admin-permission.guard';
 
 @ApiTags('Journal Lines')
 @ApiBearerAuth()
-@UseGuards(AuthGuard('jwt'))
+@UseGuards(AuthGuard('jwt'), AdminPermissionGuard)
 @Controller('journal-lines')
 export class JournalLinesController {
   constructor(private readonly journalLinesService: JournalLinesService) {}

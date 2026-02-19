@@ -10,6 +10,7 @@ Before any code change in `Exchange_js`, read:
 6. `docs/constraints/customer-transaction-flow-constraints.md`
 7. `docs/constraints/internal-transaction-flow-constraints.md`
 8. `docs/constraints/audit-logging-constraints.md`
+9. `docs/constraints/rbac-member-management-constraints.md`
 
 ## Scope
 - Backend: `src/**`, `prisma/**`, `scripts/**`
@@ -33,3 +34,10 @@ Before any code change in `Exchange_js`, read:
 - FIAT internal transaction accounting must mirror CRYPTO lifecycle semantics (created posting, terminal success/reversal, wallet snapshot projection), using FIAT-specific events/templates.
 - FIAT withdraw source wallet for posting/binding is `CUST_BANK` pool (AED baseline `WA-CBK-AED-NA`), not `LIQ_BANK`.
 - Business reset boundary includes quote/outstanding/rate business tables; base config keeps valuation/accounting templates/events.
+
+## Recent Core Decisions (2026-02-19)
+- `Platform Members` is the single member-management entry under `Backend Member Management`; keep create-member and assign-roles workflow in this page.
+- Role and permission explanation is split into dedicated `Role Management` page; do not duplicate catalog blocks back into `Platform Members`.
+- Base seed MUST preserve one fixed admin account per RBAC role (17 total role seed accounts) and keep deterministic role binding on every base sync.
+- `SUPER_ADMIN` seed identity remains `admin@fiatx.com` (`ADMIN-001`); no extra `super_admin@...` seed account.
+- Seed role binding rule for role accounts is strict single-role convergence: target role MUST exist in `user_roles`, non-target role bindings MUST be removed.

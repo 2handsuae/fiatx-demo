@@ -24,11 +24,12 @@ import {
   ApiBearerAuth,
 } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
+import { AdminPermissionGuard } from 'src/modules/identity/access-control/admin-permission.guard';
 
 @ApiTags('Withdraw Transactions')
 @ApiBearerAuth()
 @Controller('withdraw-transactions')
-@UseGuards(AuthGuard('jwt'))
+@UseGuards(AuthGuard('jwt'), AdminPermissionGuard)
 export class WithdrawTransactionsController {
   constructor(
     private readonly service: WithdrawTransactionsService,

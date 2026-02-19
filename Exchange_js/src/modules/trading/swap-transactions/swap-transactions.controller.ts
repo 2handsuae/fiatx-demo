@@ -11,6 +11,7 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
+import { AdminPermissionGuard } from 'src/modules/identity/access-control/admin-permission.guard';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { SwapTransactionsService } from './swap-transactions.service';
 import { SwapWorkflowOrchestrator } from './swap-workflow.orchestrator';
@@ -24,7 +25,7 @@ import { AdminSwapQuoteQueryDto } from './dto/swap-quote.dto';
 
 @ApiTags('Admin - Swap Transactions')
 @Controller('admin/swap-transactions')
-@UseGuards(AuthGuard('jwt'))
+@UseGuards(AuthGuard('jwt'), AdminPermissionGuard)
 @ApiBearerAuth()
 export class SwapTransactionsController {
   constructor(

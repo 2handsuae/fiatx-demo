@@ -12,6 +12,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
+import { AdminPermissionGuard } from 'src/modules/identity/access-control/admin-permission.guard';
 import {
   ApiBearerAuth,
   ApiOperation,
@@ -29,7 +30,7 @@ import { CustomerSwapRatesService } from './customer-swap-rates.service';
 @ApiTags('customers/swap-rates')
 @ApiBearerAuth()
 @Controller('customers/swap-rates')
-@UseGuards(AuthGuard('jwt'))
+@UseGuards(AuthGuard('jwt'), AdminPermissionGuard)
 export class CustomerSwapRatesController {
   constructor(private readonly service: CustomerSwapRatesService) {}
 

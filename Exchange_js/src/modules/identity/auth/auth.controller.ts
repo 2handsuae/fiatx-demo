@@ -1,15 +1,22 @@
 import {
   Controller,
+  Get,
   Post,
   Body,
   Req,
+  ForbiddenException,
+  UseGuards,
   UnauthorizedException,
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
+import { AuthGuard } from '@nestjs/passport';
 import { AuthService } from './auth.service';
-import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { z } from 'zod';
+import { AdminPermissionGuard } from '../access-control/admin-permission.guard';
+import { RequirePermissions } from '../access-control/require-permissions.decorator';
+import { buildPermissionCode } from '../access-control/permission-code.util';
 
 const LoginSchema = z.object({
   email: z.string().min(1),
@@ -49,5 +56,17 @@ export class AuthController {
       throw new UnauthorizedException('Invalid credentials');
     }
     return this.authService.login(user);
+  }
+
+  @Get('me')
+  @UseGuards(AuthGuard('jwt'), AdminPermissionGuard)
+  @RequirePermissions(buildPermissionCode('GET', '/auth/me'))
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Get current admin session with RBAC snapshot' })
+  async me(@Req() req: any) {
+    if (req.user?.type !== 'ADMIN') {
+      throw new ForbiddenException('Admin token required');
+    }
+    return this.authService.getAdminSession(req.user.userId);
   }
 }

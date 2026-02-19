@@ -4,6 +4,7 @@ import { CustomerAuthService } from './customer-auth.service';
 import { AuthController } from './auth.controller';
 import { CustomerAuthController } from './customer-auth.controller';
 import { UsersModule } from '../users/users.module';
+import { AccessControlModule } from '../access-control/access-control.module';
 import { PassportModule } from '@nestjs/passport';
 import { JwtModule } from '@nestjs/jwt';
 import { JwtStrategy } from './jwt.strategy';
@@ -11,6 +12,7 @@ import { JwtStrategy } from './jwt.strategy';
 @Module({
   imports: [
     UsersModule,
+    AccessControlModule,
     PassportModule,
     JwtModule.register({
       secret: process.env.JWT_SECRET || 'secretKey',

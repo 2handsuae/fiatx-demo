@@ -7,13 +7,17 @@ import {
   Param,
   Delete,
   Query,
+  UseGuards,
 } from '@nestjs/common';
+import { AuthGuard } from '@nestjs/passport';
 import { CoaService } from './coa.service';
 import { CreateCoaDto, UpdateCoaDto, CoaQueryDto } from './dto/coa.dto';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
+import { AdminPermissionGuard } from 'src/modules/identity/access-control/admin-permission.guard';
 
 @ApiTags('Chart of Accounts')
 @Controller('coa')
+@UseGuards(AuthGuard('jwt'), AdminPermissionGuard)
 export class CoaController {
   constructor(private readonly coaService: CoaService) {}
 
