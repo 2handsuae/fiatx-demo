@@ -62,6 +62,7 @@ interface WithdrawTransactionDetail {
   // Compliance Overall
   complianceStatus: string;
   complianceReviewedAt: string | null;
+  derivedComplianceStatus?: string;
   
   // Internal
   parentType: string | null;
@@ -76,6 +77,27 @@ interface WithdrawTransactionDetail {
   
   // Audit
   statusHistory: string | null;
+  preKytCase?: {
+    id: string;
+    caseNo: string;
+    status: string;
+    provider?: string;
+    providerCaseId?: string | null;
+  } | null;
+  kytCase?: {
+    id: string;
+    caseNo: string;
+    status: string;
+    provider?: string;
+    providerCaseId?: string | null;
+  } | null;
+  travelRuleCase?: {
+    id: string;
+    caseNo: string;
+    status: string;
+    provider?: string;
+    providerTransferId?: string | null;
+  } | null;
 
   // Relations
   asset: {
@@ -374,6 +396,21 @@ const WithdrawTransactionDetail = () => {
             <InfoField label="Pre-KYT ID" value={data.preKytId} source="main" />
             <InfoField label="Risk Score" value={data.preKytRiskScore?.toString()} source="main" />
             <InfoField label="Checked At" value={data.preKytCheckedAt ? new Date(data.preKytCheckedAt).toLocaleString() : 'N/A'} source="main" />
+            <InfoField label="Case No" value={data.preKytCase?.caseNo} source="main" />
+            <InfoField
+              label="Provider Case ID"
+              value={data.preKytCase?.providerCaseId || null}
+              source="main"
+            />
+            <div className="sm:col-span-2">
+              <button
+                onClick={() => navigate(`/dashboard/compliance/tx-evidence/WITHDRAW/${data.id}`)}
+                className="inline-flex items-center gap-1 text-xs px-3 py-2 rounded border border-gray-200 hover:bg-gray-50 text-gray-700"
+              >
+                View Compliance Cases
+                <ExternalLink size={12} />
+              </button>
+            </div>
         </DetailCard>
 
         {/* 7. Compliance (KYT) */}
@@ -382,6 +419,12 @@ const WithdrawTransactionDetail = () => {
             <InfoField label="Screening ID" value={data.kytScreeningId} source="main" />
             <InfoField label="Risk Score" value={data.kytRiskScore?.toString()} source="main" />
             <InfoField label="Checked At" value={data.kytCheckedAt ? new Date(data.kytCheckedAt).toLocaleString() : 'N/A'} source="main" />
+            <InfoField label="Case No" value={data.kytCase?.caseNo} source="main" />
+            <InfoField
+              label="Provider Case ID"
+              value={data.kytCase?.providerCaseId || null}
+              source="main"
+            />
         </DetailCard>
 
         {/* 8. Regulation (Travel Rule) */}
@@ -391,12 +434,19 @@ const WithdrawTransactionDetail = () => {
             <InfoField label="Counterparty VASP" value={data.counterpartyVasp} source="main" />
             <InfoField label="Transfer ID" value={data.travelRuleTransferId} source="main" />
             <InfoField label="Checked At" value={data.travelRuleCheckedAt ? new Date(data.travelRuleCheckedAt).toLocaleString() : 'N/A'} source="main" />
+            <InfoField label="Case No" value={data.travelRuleCase?.caseNo} source="main" />
+            <InfoField
+              label="Provider Transfer ID"
+              value={data.travelRuleCase?.providerTransferId || null}
+              source="main"
+            />
         </DetailCard>
 
         {/* 9. Status & Timings */}
         <DetailCard title="Status & Timings" icon={<Clock size={18} />}>
              <InfoField label="Current Status" value={data.status} highlight source="main" />
              <InfoField label="Compliance Status" value={data.complianceStatus} source="main" />
+             <InfoField label="Derived Compliance" value={data.derivedComplianceStatus || null} source="main" />
              <InfoField label="Created At" value={new Date(data.createdAt).toLocaleString()} source="main" />
              <InfoField label="Approved At" value={data.approvedAt ? new Date(data.approvedAt).toLocaleString() : 'N/A'} source="main" />
              <InfoField label="Payout Requested At" value={data.payoutRequestedAt ? new Date(data.payoutRequestedAt).toLocaleString() : 'N/A'} source="main" />

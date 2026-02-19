@@ -1,4 +1,4 @@
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useParams } from 'react-router-dom';
 import type { ReactElement } from 'react';
 import AdminLogin from './pages/AdminLogin';
 import AdminInviteActivate from './pages/AdminInviteActivate';
@@ -55,6 +55,10 @@ import ClearingDetailsList from './pages/ClearingDetailsList';
 import ClearingLineDetail from './pages/ClearingLineDetail';
 import CddCasesPage from './pages/CddCasesPage';
 import EddCasesPage from './pages/EddCasesPage';
+import TransactionComplianceCasesPage from './pages/TransactionComplianceCasesPage';
+import TransactionComplianceCaseDetailPage from './pages/TransactionComplianceCaseDetailPage';
+import TransactionKytCasesPage from './pages/TransactionKytCasesPage';
+import TransactionTravelRuleCasesPage from './pages/TransactionTravelRuleCasesPage';
 import AuditLogsPage from './pages/AuditLogsPage';
 import RoleManagement from './pages/RoleManagement';
 import { useAdminSession } from './contexts/AdminSessionContext';
@@ -144,6 +148,16 @@ const withPermission = (element: ReactElement, permissions: string[]) => (
   <RequirePermission permissions={permissions}>{element}</RequirePermission>
 );
 
+function LegacyTxCaseDetailRedirect() {
+  const { sourceType = '', sourceId = '' } = useParams();
+  return (
+    <Navigate
+      to={`/dashboard/compliance/tx-evidence/${String(sourceType).toUpperCase()}/${sourceId}`}
+      replace
+    />
+  );
+}
+
 function App() {
   return (
     <Router>
@@ -221,6 +235,39 @@ function App() {
             <Route
               path="compliance/edd-cases"
               element={withPermission(<EddCasesPage />, [PERMISSIONS.EDD_CASES_READ])}
+            />
+            <Route
+              path="compliance/tx-evidence"
+              element={withPermission(<TransactionComplianceCasesPage />, [PERMISSIONS.BASE_ACCESS])}
+            />
+            <Route
+              path="compliance/tx-evidence/:sourceType/:sourceId"
+              element={withPermission(
+                <TransactionComplianceCaseDetailPage />,
+                [PERMISSIONS.BASE_ACCESS],
+              )}
+            />
+            <Route
+              path="compliance/kyt-cases"
+              element={withPermission(<TransactionKytCasesPage />, [PERMISSIONS.BASE_ACCESS])}
+            />
+            <Route
+              path="compliance/travel-rule-cases"
+              element={withPermission(
+                <TransactionTravelRuleCasesPage />,
+                [PERMISSIONS.BASE_ACCESS],
+              )}
+            />
+            <Route
+              path="compliance/tx-cases"
+              element={withPermission(
+                <Navigate to="/dashboard/compliance/tx-evidence" replace />,
+                [PERMISSIONS.BASE_ACCESS],
+              )}
+            />
+            <Route
+              path="compliance/tx-cases/:sourceType/:sourceId"
+              element={withPermission(<LegacyTxCaseDetailRedirect />, [PERMISSIONS.BASE_ACCESS])}
             />
             <Route
               path="compliance/audit-logs"

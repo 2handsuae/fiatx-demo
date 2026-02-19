@@ -47,6 +47,7 @@ interface DepositTransactionDetail {
   travelRuleTransferId: string | null;
   counterpartyVasp: string | null;
   travelRuleCheckedAt: string | null;
+  derivedComplianceStatus?: string;
   
   // Timings
   createdAt: string;
@@ -65,6 +66,20 @@ interface DepositTransactionDetail {
   
   // Audit
   statusHistory: string | null;
+  kytCase?: {
+    id: string;
+    caseNo: string;
+    status: string;
+    provider?: string;
+    providerCaseId?: string | null;
+  } | null;
+  travelRuleCase?: {
+    id: string;
+    caseNo: string;
+    status: string;
+    provider?: string;
+    providerTransferId?: string | null;
+  } | null;
   auditLogs?: Array<{
     id: string;
     oldStatus: string;
@@ -296,6 +311,18 @@ const DepositTransactionDetail = () => {
             <InfoField label="Screening ID" value={data.kytScreeningId} source="main" />
             <InfoField label="Risk Score" value={data.kytRiskScore?.toString()} source="main" />
             <InfoField label="Checked At" value={data.kytCheckedAt ? new Date(data.kytCheckedAt).toLocaleString() : 'N/A'} source="main" />
+            <InfoField label="Case No" value={data.kytCase?.caseNo} source="main" />
+            <InfoField label="Provider Case ID" value={data.kytCase?.providerCaseId || null} source="main" />
+            <InfoField label="Derived Compliance" value={data.derivedComplianceStatus || null} highlight source="main" />
+            <div className="sm:col-span-2">
+              <button
+                onClick={() => navigate(`/dashboard/compliance/tx-evidence/DEPOSIT/${data.id}`)}
+                className="inline-flex items-center gap-1 text-xs px-3 py-2 rounded border border-gray-200 hover:bg-gray-50 text-gray-700"
+              >
+                View Compliance Cases
+                <ExternalLink size={12} />
+              </button>
+            </div>
         </DetailCard>
 
         {/* 7. Regulation (Travel Rule) */}
@@ -305,6 +332,12 @@ const DepositTransactionDetail = () => {
             <InfoField label="Transfer ID" value={data.travelRuleTransferId} source="main" />
             <InfoField label="Counterparty VASP" value={data.counterpartyVasp} source="main" />
             <InfoField label="Checked At" value={data.travelRuleCheckedAt ? new Date(data.travelRuleCheckedAt).toLocaleString() : 'N/A'} source="main" />
+            <InfoField label="Case No" value={data.travelRuleCase?.caseNo} source="main" />
+            <InfoField
+              label="Provider Transfer ID"
+              value={data.travelRuleCase?.providerTransferId || null}
+              source="main"
+            />
         </DetailCard>
 
         {/* 8. Status & Timings */}

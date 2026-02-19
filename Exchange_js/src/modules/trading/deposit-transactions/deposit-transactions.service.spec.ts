@@ -50,9 +50,10 @@ describe('DepositTransactionsService', () => {
         {
           provide: TransactionComplianceService,
           useValue: {
-            getCaseSummaries: jest.fn().mockResolvedValue({
-              kytCase: null,
+            getTransactionCaseAggregate: jest.fn().mockResolvedValue({
+              mainKytCase: null,
               travelRuleCase: null,
+              derivedComplianceStatus: 'PENDING',
             }),
           },
         },
@@ -84,6 +85,9 @@ describe('DepositTransactionsService', () => {
         kytStatus: 'PASS',
         travelRuleRequired: false,
         travelRuleStatus: 'NOT_REQUIRED',
+        asset: {
+          type: 'CRYPTO',
+        },
       };
       ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValue(mockRecord);
       ((prisma as any).depositTransaction.update as jest.Mock).mockImplementation(({ data }) => 
@@ -205,6 +209,9 @@ describe('DepositTransactionsService', () => {
         kytStatus: 'PENDING',
         travelRuleRequired: false,
         travelRuleStatus: 'NOT_REQUIRED',
+        asset: {
+          type: 'CRYPTO',
+        },
       };
       ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValue(mockRecord);
 
@@ -213,6 +220,37 @@ describe('DepositTransactionsService', () => {
           action: DepositTransactionAction.SUCCESS,
         }),
       ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should allow FIAT SUCCESS even when KYT is pending', async () => {
+      const mockRecord = {
+        id: mockId,
+        status: DepositTransactionStatus.COMPLIANCE_PENDING,
+        ownerType: 'CUSTOMER',
+        ownerId: 'U123',
+        assetId: 'A123',
+        amount: '100',
+        payinId: 'P123',
+        kytStatus: 'PENDING',
+        travelRuleRequired: true,
+        travelRuleStatus: 'PENDING',
+        asset: {
+          type: 'FIAT',
+        },
+      };
+      ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValue(
+        mockRecord,
+      );
+      ((prisma as any).depositTransaction.update as jest.Mock).mockResolvedValue({
+        ...mockRecord,
+        status: DepositTransactionStatus.SUCCESS,
+      });
+
+      await expect(
+        service.updateStatus(mockId, {
+          action: DepositTransactionAction.SUCCESS,
+        }),
+      ).resolves.toBeDefined();
     });
 
     it('should transition from PAYIN_PENDING to FAILED via fail action', async () => {

@@ -8,6 +8,9 @@ import {
 
 describe('TransactionComplianceAdminController', () => {
   const serviceMock = {
+    callbackKytCase: jest.fn(),
+    callbackTravelRuleCase: jest.fn(),
+    getTransactionCaseAggregate: jest.fn(),
     mockCompleteKytCase: jest.fn(),
     mockCompleteTravelRuleCase: jest.fn(),
     mockBackfill: jest.fn(),
@@ -55,6 +58,78 @@ describe('TransactionComplianceAdminController', () => {
       screeningStage: KytScreeningStage.MAIN,
     });
     expect(result).toEqual({ ok: true });
+  });
+
+  it('should reject callback when signature is invalid and signature mode enabled', async () => {
+    process.env.TX_COMPLIANCE_CALLBACK_SIGNATURE = 'secret';
+    expect(() =>
+      controller.callbackKytCase(
+        { user: { type: 'ADMIN' } },
+        'bad-signature',
+        {
+          sourceType: TxSourceType.WITHDRAW,
+          sourceId: 'wd-1',
+          providerCaseId: 'kyt-001',
+        },
+      ),
+    ).toThrow(ForbiddenException);
+    delete process.env.TX_COMPLIANCE_CALLBACK_SIGNATURE;
+  });
+
+  it('should allow callback when signature is valid', async () => {
+    process.env.TX_COMPLIANCE_CALLBACK_SIGNATURE = 'secret';
+    serviceMock.callbackTravelRuleCase.mockResolvedValue({ ok: true });
+
+    const result = await controller.callbackTravelRuleCase(
+      {},
+      'secret',
+      {
+        sourceType: TxSourceType.WITHDRAW,
+        sourceId: 'wd-1',
+        providerTransferId: 'trv-001',
+      },
+    );
+
+    expect(serviceMock.callbackTravelRuleCase).toHaveBeenCalledWith({
+      sourceType: TxSourceType.WITHDRAW,
+      sourceId: 'wd-1',
+      providerTransferId: 'trv-001',
+    });
+    expect(result).toEqual({ ok: true });
+    delete process.env.TX_COMPLIANCE_CALLBACK_SIGNATURE;
+  });
+
+  it('should return aggregated tx cases for admin', async () => {
+    serviceMock.getTransactionCaseAggregate.mockResolvedValue({
+      sourceType: TxSourceType.WITHDRAW,
+      sourceId: 'wd-1',
+      preKytCase: null,
+      mainKytCase: null,
+      travelRuleCase: null,
+      derivedComplianceStatus: 'PENDING',
+    });
+
+    const result = await controller.getTransactionCases(
+      { user: { type: 'ADMIN' } },
+      TxSourceType.WITHDRAW,
+      'wd-1',
+      'true',
+      'false',
+      '10',
+      '5',
+    );
+
+    expect(serviceMock.getTransactionCaseAggregate).toHaveBeenCalledWith(
+      TxSourceType.WITHDRAW,
+      'wd-1',
+      {
+        includeReports: true,
+        includePayload: false,
+        limit: 10,
+        offset: 5,
+      },
+    );
+    expect(result.derivedComplianceStatus).toBe('PENDING');
   });
 
   it('should reject customer token for mock backfill', async () => {

@@ -17,7 +17,6 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { DepositStatusChangedEvent } from './events/deposit-transaction.events';
 import { TransactionComplianceService } from '../../risk-engine/transaction-compliance/transaction-compliance.service';
 import {
-  KytScreeningStage,
   TxSourceType,
 } from '../../risk-engine/transaction-compliance/types/tx-compliance.types';
 import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
@@ -43,18 +42,25 @@ export class DepositTransactionsService {
 
   private assertComplianceBeforeSuccess(item: any, nextStatus: DepositTransactionStatus) {
     if (nextStatus !== DepositTransactionStatus.SUCCESS) return;
+    const assetType = String(item.asset?.type || '').toUpperCase();
+    if (assetType !== 'CRYPTO') return;
 
+    const reasons: string[] = [];
     if (item.kytStatus !== 'PASS') {
-      throw new BadRequestException({
-        code: 'COMPLIANCE_NOT_CLEARED',
-        message: `Deposit ${item.id} kytStatus is not PASS`,
-      });
+      reasons.push(`kytStatus=${item.kytStatus || 'UNKNOWN'} (expected PASS)`);
     }
 
     if (item.travelRuleRequired === true && item.travelRuleStatus !== 'ACCEPTED') {
+      reasons.push(
+        `travelRuleStatus=${item.travelRuleStatus || 'UNKNOWN'} (expected ACCEPTED when travelRuleRequired=true)`,
+      );
+    }
+
+    if (reasons.length > 0) {
       throw new BadRequestException({
         code: 'COMPLIANCE_NOT_CLEARED',
-        message: `Deposit ${item.id} travelRuleStatus is not ACCEPTED`,
+        message: `Deposit ${item.id} compliance not cleared: ${reasons.join('; ')}`,
+        details: reasons,
       });
     }
   }
@@ -137,11 +143,14 @@ export class DepositTransactionsService {
         ownerNo = deposit.customer.customerNo;
     }
 
-    const { kytCase, travelRuleCase } =
-      await this.transactionComplianceService.getCaseSummaries(
+    const caseAggregate =
+      await this.transactionComplianceService.getTransactionCaseAggregate(
         TxSourceType.DEPOSIT,
         id,
-        KytScreeningStage.MAIN,
+        {
+          includeReports: false,
+          includePayload: false,
+        },
       );
 
     return {
@@ -150,8 +159,9 @@ export class DepositTransactionsService {
         payinNo: deposit.payin?.payinNo,
         toWalletNo: deposit.wallet?.walletNo,
         fromWalletNo: deposit.fromWallet?.walletNo,
-        kytCase,
-        travelRuleCase,
+        kytCase: caseAggregate.mainKytCase,
+        travelRuleCase: caseAggregate.travelRuleCase,
+        derivedComplianceStatus: caseAggregate.derivedComplianceStatus,
     };
   }
 
