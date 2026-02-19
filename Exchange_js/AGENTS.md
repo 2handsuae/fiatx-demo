@@ -45,3 +45,16 @@ Before any code change in `Exchange_js`, read:
 - Base seed MUST preserve one fixed admin account per RBAC role (17 total role seed accounts) and keep deterministic role binding on every base sync.
 - `SUPER_ADMIN` seed identity remains `admin@fiatx.com` (`ADMIN-001`); no extra `super_admin@...` seed account.
 - Seed role binding rule for role accounts is strict single-role convergence: target role MUST exist in `user_roles`, non-target role bindings MUST be removed.
+- Transaction compliance keeps three evidence case semantics:
+1. `PRE-KYT`: wallet screening
+2. `KYT`: transaction screening
+3. `TRAVEL_RULE`: counterparty information exchange
+- Auto case creation timing is locked for `CRYPTO` flows:
+1. withdraw `CREATED` => create `PRE-KYT`
+2. deposit `payin CONFIRMED` => create `MAIN-KYT` + `TRAVEL_RULE`
+3. withdraw `payout CONFIRMED` => create `MAIN-KYT` + `TRAVEL_RULE`
+- Transaction page remains the only approval gate; compliance case pages are evidence-only and MUST NOT expose case-level approve/reject/override.
+- Admin compliance navigation is split into `Tx Evidence Bundles`, `KYT Cases`, and `Travel Rule Cases` (with legacy `tx-cases` path compatibility).
+- Withdraw compliance gate is locked as:
+1. `CRYPTO`: enforce `preKytStatus=PASS`
+2. `FIAT`: no PRE-KYT gate
