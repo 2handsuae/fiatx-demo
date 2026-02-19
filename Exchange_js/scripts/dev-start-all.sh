@@ -58,7 +58,7 @@ resolve_db_file() {
   fi
 
   if [[ -z "${db_url}" ]]; then
-    echo "${ROOT_DIR}/dev.db"
+    echo "${PRISMA_DIR}/dev.db"
     return 0
   fi
 
@@ -89,35 +89,29 @@ db_has_required_tables() {
 bootstrap_database_if_needed() {
   local db_file
   db_file="$(resolve_db_file)"
+  local should_seed_business="false"
 
-  if db_has_required_tables "${db_file}"; then
-    echo "[backend] Database schema exists: ${db_file}"
-    return 0
-  fi
-
-  if ! command -v sqlite3 >/dev/null 2>&1; then
-    echo "[backend] sqlite3 is required to bootstrap database schema."
-    exit 1
-  fi
-
-  if [[ ! -d "${MIGRATIONS_DIR}" ]]; then
-    echo "[backend] Migrations directory not found: ${MIGRATIONS_DIR}"
-    exit 1
+  if ! db_has_required_tables "${db_file}"; then
+    should_seed_business="true"
   fi
 
   mkdir -p "$(dirname "${db_file}")"
   : > "${db_file}"
-  echo "[backend] Database schema missing, applying migrations to ${db_file}..."
-
-  while IFS= read -r migration; do
-    sqlite3 "${db_file}" < "${migration}"
-  done < <(find "${MIGRATIONS_DIR}" -name migration.sql | sort)
-
-  echo "[backend] Seeding minimal business dataset..."
+  echo "[backend] Applying pending Prisma migrations to ${db_file}..."
   (
     cd "${BACKEND_DIR}"
-    DATABASE_URL="file:${db_file}" npm run db:biz:init
+    DATABASE_URL="file:${db_file}" npx prisma migrate deploy
   )
+
+  if [[ "${should_seed_business}" == "true" ]]; then
+    echo "[backend] Seeding minimal business dataset..."
+    (
+      cd "${BACKEND_DIR}"
+      DATABASE_URL="file:${db_file}" npm run db:biz:init
+    )
+  else
+    echo "[backend] Database schema exists: ${db_file}"
+  fi
 }
 
 ensure_audit_log_schema() {

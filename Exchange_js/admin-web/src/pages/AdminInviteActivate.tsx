@@ -128,7 +128,10 @@ const AdminInviteActivate = () => {
             <input
               type="password"
               value={password}
-              onChange={(event) => setPassword(event.target.value)}
+              onChange={(event) => {
+                setPassword(event.target.value);
+                setError(null);
+              }}
               minLength={6}
               required
               className="w-full px-3 py-2 border border-admin-border rounded-lg focus:outline-none focus:ring-1 focus:ring-brand-primary focus:border-brand-primary"
@@ -139,7 +142,10 @@ const AdminInviteActivate = () => {
             <input
               type="password"
               value={confirmPassword}
-              onChange={(event) => setConfirmPassword(event.target.value)}
+              onChange={(event) => {
+                setConfirmPassword(event.target.value);
+                setError(null);
+              }}
               minLength={6}
               required
               className="w-full px-3 py-2 border border-admin-border rounded-lg focus:outline-none focus:ring-1 focus:ring-brand-primary focus:border-brand-primary"
@@ -147,7 +153,7 @@ const AdminInviteActivate = () => {
           </div>
           <button
             type="submit"
-            disabled={loading || !!error || submitting}
+            disabled={loading || submitting || !email}
             className="w-full py-2 rounded-md bg-gray-900 text-white hover:bg-black disabled:opacity-60"
           >
             {submitting ? 'Submitting...' : 'Activate Account'}

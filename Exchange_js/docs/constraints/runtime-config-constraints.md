@@ -34,14 +34,16 @@
 - `dev:start` MUST:
 1. ensure dependencies
 2. ensure DB schema exists (if missing, bootstrap from migrations)
-3. ensure business init on empty DB
-4. start backend/admin/client in fixed local ports
+3. apply pending Prisma migrations for existing local DB before starting services
+4. ensure business init on empty DB
+5. start backend/admin/client in fixed local ports
 - `dev:stop` MUST:
 1. stop by managed PID first
 2. clean fallback orphan processes for the same project
 - `dev:reset` MUST:
 1. reset business data only
-2. not auto-start services
+2. apply pending Prisma migrations before business reset execution
+3. not auto-start services
 
 ## 6) Safety Rules
 - MUST NOT commit local runtime artifacts:

@@ -248,32 +248,29 @@ db_has_required_tables() {
 }
 
 bootstrap_database_if_needed() {
-  local migrations_dir="${APP_DIR}/prisma/migrations"
   local db_file
   db_file="$(resolve_db_file)"
+  local should_seed_business="false"
 
-  if db_has_required_tables "${db_file}"; then
-    return 0
-  fi
-
-  if [[ ! -d "${migrations_dir}" ]]; then
-    echo "[${STACK}] migrations directory not found: ${migrations_dir}" >&2
-    return 1
+  if ! db_has_required_tables "${db_file}"; then
+    should_seed_business="true"
   fi
 
   mkdir -p "$(dirname "${db_file}")"
   : > "${db_file}"
-  echo "[${STACK}] database schema missing, applying migrations to ${db_file}"
-
-  while IFS= read -r migration; do
-    sqlite3 "${db_file}" < "${migration}"
-  done < <(find "${migrations_dir}" -name migration.sql | sort)
-
-  echo "[${STACK}] seeding minimal business dataset..."
+  echo "[${STACK}] applying pending Prisma migrations to ${db_file}"
   (
     cd "${APP_DIR}"
-    DATABASE_URL="file:${db_file}" npm run db:biz:init
+    DATABASE_URL="file:${db_file}" npx prisma migrate deploy
   )
+
+  if [[ "${should_seed_business}" == "true" ]]; then
+    echo "[${STACK}] seeding minimal business dataset..."
+    (
+      cd "${APP_DIR}"
+      DATABASE_URL="file:${db_file}" npm run db:biz:init
+    )
+  fi
 }
 
 ensure_port_free() {
