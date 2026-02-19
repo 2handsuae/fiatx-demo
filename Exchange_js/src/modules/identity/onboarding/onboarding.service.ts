@@ -3,6 +3,7 @@ import {
   ForbiddenException,
   InternalServerErrorException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
@@ -14,6 +15,7 @@ import {
   AuditModules,
 } from '../../risk-engine/audit-logs/constants/audit-actions.constant';
 import { AuditTriggerType } from '../../risk-engine/audit-logs/dto/audit-log.dto';
+import { ComplianceAlertsService } from '../../risk-engine/compliance-alerts/compliance-alerts.service';
 import {
   BootstrapCasesDto,
   CreateCaseSessionDto,
@@ -77,10 +79,13 @@ interface NextStepPayload {
 
 @Injectable()
 export class OnboardingService {
+  private readonly logger = new Logger(OnboardingService.name);
   private readonly auditLogsService: AuditLogsService;
+  private readonly complianceAlertsService: ComplianceAlertsService;
 
   constructor(private readonly prisma: PrismaService) {
     this.auditLogsService = new AuditLogsService(prisma);
+    this.complianceAlertsService = new ComplianceAlertsService(prisma);
   }
 
   private async writeAudit(input: {
@@ -130,6 +135,44 @@ export class OnboardingService {
         actorRole: input.actorRole || undefined,
       },
     );
+  }
+
+  private async triggerOnboardingAlert(input: {
+    ruleCode: string;
+    sourceType: string;
+    sourceId: string;
+    sourceNo?: string | null;
+    customerId: string;
+    customerNo?: string | null;
+    title?: string;
+    message: string;
+    metadata?: Record<string, unknown>;
+  }) {
+    try {
+      await this.complianceAlertsService.triggerSystemAlert({
+        ruleCode: input.ruleCode,
+        sourceModule: AuditModules.ONBOARDING,
+        sourceType: input.sourceType,
+        sourceId: input.sourceId,
+        sourceNo: input.sourceNo || null,
+        entityType: AuditEntityTypes.ONBOARDING,
+        entityId: input.sourceId,
+        entityNo: input.sourceNo || null,
+        ownerType: 'CUSTOMER',
+        ownerId: input.customerId,
+        customerId: input.customerId,
+        customerNo: input.customerNo || null,
+        title: input.title,
+        message: input.message,
+        metadata: input.metadata || {},
+      });
+    } catch (error) {
+      this.logger.warn(
+        `Failed to trigger onboarding alert ${input.ruleCode}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
   }
 
   private parseJsonSafely(value?: string | null): Record<string, any> {
@@ -1989,6 +2032,80 @@ export class OnboardingService {
       }),
     });
 
+    if (cddCase.sanctionsHit) {
+      await this.triggerOnboardingAlert({
+        ruleCode: 'ONB_SANCTIONS_HIT',
+        sourceType: 'CDD_CASE',
+        sourceId: caseId,
+        sourceNo: cddCase.caseNo,
+        customerId,
+        customerNo: cddCase.customer?.customerNo || null,
+        message: `CDD case ${cddCase.caseNo} has sanctions hit`,
+        metadata: {
+          decision: dto.decision,
+          sanctionsHit: true,
+          pepHit: cddCase.pepHit,
+          riskScore: decidedRiskScore,
+          riskLevel: decidedRiskLevel,
+        },
+      });
+    }
+
+    if (cddCase.pepHit) {
+      await this.triggerOnboardingAlert({
+        ruleCode: 'ONB_PEP_HIT',
+        sourceType: 'CDD_CASE',
+        sourceId: caseId,
+        sourceNo: cddCase.caseNo,
+        customerId,
+        customerNo: cddCase.customer?.customerNo || null,
+        message: `CDD case ${cddCase.caseNo} has PEP hit`,
+        metadata: {
+          decision: dto.decision,
+          sanctionsHit: cddCase.sanctionsHit,
+          pepHit: true,
+          riskScore: decidedRiskScore,
+          riskLevel: decidedRiskLevel,
+        },
+      });
+    }
+
+    if (dto.decision === 'REJECT') {
+      await this.triggerOnboardingAlert({
+        ruleCode: 'ONB_CDD_REJECTED',
+        sourceType: 'CDD_CASE',
+        sourceId: caseId,
+        sourceNo: cddCase.caseNo,
+        customerId,
+        customerNo: cddCase.customer?.customerNo || null,
+        message: `CDD case ${cddCase.caseNo} was rejected`,
+        metadata: {
+          decision: dto.decision,
+          reason: dto.reason || null,
+        },
+      });
+    }
+
+    if (
+      snapshot?.complianceStatus &&
+      ['BLOCKED', 'RESTRICTED'].includes(snapshot.complianceStatus)
+    ) {
+      await this.triggerOnboardingAlert({
+        ruleCode: 'ONB_COMPLIANCE_BLOCKED_OR_RESTRICTED',
+        sourceType: 'CUSTOMER',
+        sourceId: customerId,
+        sourceNo: cddCase.customer?.customerNo || null,
+        customerId,
+        customerNo: cddCase.customer?.customerNo || null,
+        message: `Customer compliance status is ${snapshot.complianceStatus}`,
+        metadata: {
+          complianceStatus: snapshot.complianceStatus,
+          caseNo: cddCase.caseNo,
+          decision: dto.decision,
+        },
+      });
+    }
+
     return { id: caseId, status: caseStatus, complianceStatus: snapshot?.complianceStatus };
   }
 
@@ -2126,6 +2243,42 @@ export class OnboardingService {
       toStage: snapshot?.complianceStatus || null,
       detail: dto.reason || null,
     });
+
+    if (dto.decision === 'REJECT') {
+      await this.triggerOnboardingAlert({
+        ruleCode: 'ONB_EDD_REJECTED',
+        sourceType: 'EDD_CASE',
+        sourceId: caseId,
+        sourceNo: eddCase.caseNo,
+        customerId,
+        customerNo: eddCase.customer?.customerNo || null,
+        message: `EDD case ${eddCase.caseNo} was rejected`,
+        metadata: {
+          decision: dto.decision,
+          reason: dto.reason || null,
+        },
+      });
+    }
+
+    if (
+      snapshot?.complianceStatus &&
+      ['BLOCKED', 'RESTRICTED'].includes(snapshot.complianceStatus)
+    ) {
+      await this.triggerOnboardingAlert({
+        ruleCode: 'ONB_COMPLIANCE_BLOCKED_OR_RESTRICTED',
+        sourceType: 'CUSTOMER',
+        sourceId: customerId,
+        sourceNo: eddCase.customer?.customerNo || null,
+        customerId,
+        customerNo: eddCase.customer?.customerNo || null,
+        message: `Customer compliance status is ${snapshot.complianceStatus}`,
+        metadata: {
+          complianceStatus: snapshot.complianceStatus,
+          caseNo: eddCase.caseNo,
+          decision: dto.decision,
+        },
+      });
+    }
 
     return { id: caseId, status, complianceStatus: snapshot?.complianceStatus };
   }
@@ -2529,6 +2682,7 @@ export class OnboardingService {
       where: { id: customerId },
       select: {
         id: true,
+        customerNo: true,
         cddStatus: true,
         eddRequired: true,
         eddStatus: true,
@@ -2573,6 +2727,43 @@ export class OnboardingService {
       toStage: updated?.complianceStatus || null,
       detail: dto.reason || null,
     });
+
+    if (dto.decision === 'REJECT') {
+      await this.triggerOnboardingAlert({
+        ruleCode: 'ONB_FINAL_REJECTED',
+        sourceType: 'CUSTOMER_FINAL_REVIEW',
+        sourceId: customerId,
+        sourceNo: customer.customerNo || null,
+        customerId,
+        customerNo: customer.customerNo || null,
+        message: `Final review rejected for customer ${customer.customerNo || customerId}`,
+        metadata: {
+          decision: dto.decision,
+          reason: dto.reason || null,
+          finalApprovalStatus: updated?.finalApprovalStatus || null,
+        },
+      });
+    }
+
+    if (
+      updated?.complianceStatus &&
+      ['BLOCKED', 'RESTRICTED'].includes(updated.complianceStatus)
+    ) {
+      await this.triggerOnboardingAlert({
+        ruleCode: 'ONB_COMPLIANCE_BLOCKED_OR_RESTRICTED',
+        sourceType: 'CUSTOMER',
+        sourceId: customerId,
+        sourceNo: customer.customerNo || null,
+        customerId,
+        customerNo: customer.customerNo || null,
+        message: `Customer compliance status is ${updated.complianceStatus}`,
+        metadata: {
+          complianceStatus: updated.complianceStatus,
+          finalApprovalStatus: updated.finalApprovalStatus,
+          decision: dto.decision,
+        },
+      });
+    }
 
     return updated;
   }

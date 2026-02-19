@@ -25,11 +25,13 @@ import {
   buildStateTransitionAction,
 } from '../../risk-engine/audit-logs/constants/audit-actions.constant';
 import { AuditTriggerType } from '../../risk-engine/audit-logs/dto/audit-log.dto';
+import { ComplianceAlertsService } from '../../risk-engine/compliance-alerts/compliance-alerts.service';
 
 @Injectable()
 export class WithdrawTransactionsService {
   private readonly logger = new Logger(WithdrawTransactionsService.name);
   private readonly auditLogsService: AuditLogsService;
+  private readonly complianceAlertsService: ComplianceAlertsService;
 
   private readonly txEventDisabledHint =
     'Transactional status update completed without emitting domain events';
@@ -89,6 +91,7 @@ export class WithdrawTransactionsService {
     private transactionComplianceService: TransactionComplianceService,
   ) {
     this.auditLogsService = new AuditLogsService(prisma);
+    this.complianceAlertsService = new ComplianceAlertsService(prisma);
   }
 
   private createAccountingContext(withdrawal: {
@@ -121,7 +124,40 @@ export class WithdrawTransactionsService {
     };
   }
 
-  private assertComplianceGate(item: any, nextStatus: WithdrawTransactionStatus) {
+  private async triggerComplianceGateBlockedAlert(
+    item: any,
+    reason: string,
+    detail: Record<string, unknown>,
+  ) {
+    try {
+      await this.complianceAlertsService.triggerSystemAlert({
+        ruleCode: 'TX_COMPLIANCE_GATE_BLOCKED',
+        sourceModule: AuditModules.WITHDRAW_TRANSACTIONS,
+        sourceType: TxSourceType.WITHDRAW,
+        sourceId: item.id,
+        sourceNo: item.withdrawNo || null,
+        entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+        entityId: item.id,
+        entityNo: item.withdrawNo || null,
+        ownerType: item.ownerType,
+        ownerId: item.ownerId || null,
+        ownerNo: item.ownerNo || null,
+        customerId: item.ownerType === 'CUSTOMER' ? item.ownerId : null,
+        customerNo: item.ownerType === 'CUSTOMER' ? item.ownerNo : null,
+        title: 'Transaction Blocked by Compliance Gate',
+        message: reason,
+        metadata: detail,
+      });
+    } catch (error) {
+      this.logger.warn(
+        `Failed to write compliance gate alert for withdraw ${item.id}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+  }
+
+  private async assertComplianceGate(item: any, nextStatus: WithdrawTransactionStatus) {
     if (
       ![
         WithdrawTransactionStatus.PAYOUT_PENDING,
@@ -136,6 +172,18 @@ export class WithdrawTransactionsService {
       item.preKytStatus !== 'PASS' ||
       item.kytStatus !== 'PASS'
     ) {
+      await this.triggerComplianceGateBlockedAlert(
+        item,
+        `Withdrawal ${item.id} compliance not cleared for status ${nextStatus}`,
+        {
+          nextStatus,
+          complianceStatus: item.complianceStatus || null,
+          preKytStatus: item.preKytStatus || null,
+          kytStatus: item.kytStatus || null,
+          travelRuleRequired: item.travelRuleRequired ?? null,
+          travelRuleStatus: item.travelRuleStatus || null,
+        },
+      );
       throw new BadRequestException({
         code: 'COMPLIANCE_NOT_CLEARED',
         message: `Withdrawal ${item.id} compliance not cleared for status ${nextStatus}`,
@@ -146,6 +194,18 @@ export class WithdrawTransactionsService {
       item.travelRuleRequired === true &&
       item.travelRuleStatus !== 'ACCEPTED'
     ) {
+      await this.triggerComplianceGateBlockedAlert(
+        item,
+        `Withdrawal ${item.id} travel rule not accepted for status ${nextStatus}`,
+        {
+          nextStatus,
+          complianceStatus: item.complianceStatus || null,
+          preKytStatus: item.preKytStatus || null,
+          kytStatus: item.kytStatus || null,
+          travelRuleRequired: item.travelRuleRequired ?? null,
+          travelRuleStatus: item.travelRuleStatus || null,
+        },
+      );
       throw new BadRequestException({
         code: 'COMPLIANCE_NOT_CLEARED',
         message: `Withdrawal ${item.id} travel rule not accepted for status ${nextStatus}`,
@@ -381,7 +441,7 @@ export class WithdrawTransactionsService {
         );
       }
 
-      this.assertComplianceGate(item, nextStatus);
+      await this.assertComplianceGate(item, nextStatus);
 
       let history: any[] = [];
       try {

@@ -459,6 +459,74 @@ model AuditLogSubjectNo {
   @@map("audit_log_subject_nos")
 }
 
+model ComplianceAlert {
+  id               String                 @id @default(uuid())
+  alertNo          String                 @unique @default("TEMP")
+  dedupeKey        String                 @unique
+  ruleCode         String
+  capCode          String?
+  severity         String
+  status           String                 @default("NEW")
+  title            String
+  message          String
+  sourceModule     String
+  sourceType       String
+  sourceId         String
+  sourceNo         String?
+  entityType       String?
+  entityId         String?
+  entityNo         String?
+  ownerType        String?
+  ownerId          String?
+  ownerNo          String?
+  customerId       String?
+  customerNo       String?
+  firstOccurredAt  DateTime
+  lastOccurredAt   DateTime
+  dueAt            DateTime
+  hitCount         Int                    @default(1)
+  assigneeUserId   String?
+  assigneeUserNo   String?
+  assignedAt       DateTime?
+  closedAt         DateTime?
+  closeReason      String?
+  lastActionById   String?
+  lastActionByNo   String?
+  lastActionByRole String?
+  lastActionAt     DateTime?
+  metadata         String?
+  retainedUntil    DateTime
+  createdAt        DateTime               @default(now())
+  updatedAt        DateTime               @updatedAt
+  events           ComplianceAlertEvent[]
+
+  @@index([status, lastOccurredAt])
+  @@index([severity, status, dueAt])
+  @@index([ruleCode, lastOccurredAt])
+  @@index([sourceType, sourceId, lastOccurredAt])
+  @@index([customerNo, lastOccurredAt])
+  @@map("compliance_alerts")
+}
+
+model ComplianceAlertEvent {
+  id             String          @id @default(uuid())
+  alertId        String
+  eventType      String
+  eventAt        DateTime        @default(now())
+  actorType      String
+  actorId        String
+  actorNo        String?
+  actorRole      String?
+  note           String?
+  payload        String?
+  sourcePlatform String?
+  createdAt      DateTime        @default(now())
+  alert          ComplianceAlert @relation(fields: [alertId], references: [id], onDelete: Cascade)
+
+  @@index([alertId, eventAt])
+  @@map("compliance_alert_events")
+}
+
 model LiquidityProvider {
   id             String                   @id
   name           String

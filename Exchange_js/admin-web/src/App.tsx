@@ -54,6 +54,7 @@ import ClearingLineDetail from './pages/ClearingLineDetail';
 import CddCasesPage from './pages/CddCasesPage';
 import EddCasesPage from './pages/EddCasesPage';
 import AuditLogsPage from './pages/AuditLogsPage';
+import ComplianceAlertsPage from './pages/ComplianceAlertsPage';
 
 function App() {
   return (
@@ -77,6 +78,7 @@ function App() {
              <Route path="reconciliation/outstandings/:id" element={<SwapOutstandingDetail />} />
              <Route path="compliance/cdd-cases" element={<CddCasesPage />} />
              <Route path="compliance/edd-cases" element={<EddCasesPage />} />
+             <Route path="compliance/alerts" element={<ComplianceAlertsPage />} />
              <Route path="compliance/audit-logs" element={<AuditLogsPage />} />
              <Route path="customer/:id" element={<CustomerDetail />} />
              <Route path="treasury/wallets" element={<WalletList />} />
