@@ -32,3 +32,18 @@ Before any code change in `Exchange_js`, read:
 - FIAT internal transaction accounting must mirror CRYPTO lifecycle semantics (created posting, terminal success/reversal, wallet snapshot projection), using FIAT-specific events/templates.
 - FIAT withdraw source wallet for posting/binding is `CUST_BANK` pool (AED baseline `WA-CBK-AED-NA`), not `LIQ_BANK`.
 - Business reset boundary includes quote/outstanding/rate business tables; base config keeps valuation/accounting templates/events.
+
+## Recent Core Decisions (2026-02-19)
+- Transaction compliance keeps three evidence case semantics:
+1. `PRE-KYT`: wallet screening
+2. `KYT`: transaction screening
+3. `TRAVEL_RULE`: counterparty information exchange
+- Auto case creation timing is locked for `CRYPTO` flows:
+1. withdraw `CREATED` => create `PRE-KYT`
+2. deposit `payin CONFIRMED` => create `MAIN-KYT` + `TRAVEL_RULE`
+3. withdraw `payout CONFIRMED` => create `MAIN-KYT` + `TRAVEL_RULE`
+- Transaction page remains the only approval gate; compliance case pages are evidence-only and MUST NOT expose case-level approve/reject/override.
+- Admin compliance navigation is split into `Tx Evidence Bundles`, `KYT Cases`, and `Travel Rule Cases` (with legacy `tx-cases` path compatibility).
+- Withdraw compliance gate is locked as:
+1. `CRYPTO`: enforce `preKytStatus=PASS`
+2. `FIAT`: no PRE-KYT gate
