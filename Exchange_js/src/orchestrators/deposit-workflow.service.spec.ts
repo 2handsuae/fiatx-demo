@@ -35,7 +35,7 @@ describe('DepositWorkflowService', () => {
   };
 
   const mockTransactionComplianceService = {
-    ensureDepositComplianceCases: jest.fn(),
+    ensureDepositMainCasesOnPayinConfirmed: jest.fn(),
   };
 
   const mockTx = {
@@ -114,9 +114,44 @@ describe('DepositWorkflowService', () => {
     expect(mockJournalsService.createJournal).not.toHaveBeenCalled();
     expect(mockJournalsService.reverseJournal).not.toHaveBeenCalled();
     expect(
-      mockTransactionComplianceService.ensureDepositComplianceCases,
-    ).toHaveBeenCalledWith('dep-1');
+      mockTransactionComplianceService.ensureDepositMainCasesOnPayinConfirmed,
+    ).toHaveBeenCalledWith('dep-1', 'payin-1');
     expect(result?.created_or_reversed_journal_entry_ids).toEqual(['je-1']);
+  });
+
+  it('fiat payin confirmed should invoke tx-case hook as no-op', async () => {
+    mockPrisma.depositTransaction.findUnique.mockResolvedValue({
+      id: 'dep-fiat-1',
+      status: DepositTransactionStatus.PAYIN_PENDING,
+      ownerType: DepositOwnerType.CUSTOMER,
+      ownerId: 'cust-1',
+      assetId: 'asset-fiat-1',
+      amount: { toString: () => '100.00' },
+      depositNo: 'DEPFIAT001',
+      toWalletId: 'wallet-fiat-1',
+    });
+    mockPayinsService.findOne.mockResolvedValue({
+      id: 'payin-fiat-1',
+      status: PayinStatus.CONFIRMED,
+      type: 'fiat',
+    });
+    mockDepositService.updateStatus.mockResolvedValue({
+      status: DepositTransactionStatus.COMPLIANCE_PENDING,
+    });
+    mockJournalsService.triggerEvent.mockResolvedValue({ id: 'je-fiat-1' });
+    mockPayinsService.updateStatus.mockResolvedValue({ status: PayinStatus.CLEARED });
+    mockTransactionComplianceService.ensureDepositMainCasesOnPayinConfirmed.mockResolvedValue(
+      null,
+    );
+
+    await service.handlePayinStatusChanged({
+      payinId: 'payin-fiat-1',
+      newStatus: PayinStatus.CONFIRMED,
+    } as any);
+
+    expect(
+      mockTransactionComplianceService.ensureDepositMainCasesOnPayinConfirmed,
+    ).toHaveBeenCalledWith('dep-fiat-1', 'payin-fiat-1');
   });
 
   it('deposit success should trigger DEPOSIT SUCCESS accounting via triggerEvent', async () => {
@@ -219,7 +254,7 @@ describe('DepositWorkflowService', () => {
 
     expect(mockJournalsService.triggerEvent).not.toHaveBeenCalled();
     expect(
-      mockTransactionComplianceService.ensureDepositComplianceCases,
-    ).toHaveBeenCalledWith('dep-4');
+      mockTransactionComplianceService.ensureDepositMainCasesOnPayinConfirmed,
+    ).toHaveBeenCalledWith('dep-4', 'payin-4');
   });
 });

@@ -173,8 +173,9 @@ export class DepositWorkflowService implements OnModuleInit {
     }
 
     if (accountingToStatus === DepositTransactionStatus.COMPLIANCE_PENDING) {
-      await this.transactionComplianceService.ensureDepositComplianceCases(
+      await this.transactionComplianceService.ensureDepositMainCasesOnPayinConfirmed(
         deposit.id,
+        payin.id,
       );
     }
 

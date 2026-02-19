@@ -57,8 +57,8 @@ describe('WithdrawTransactionsService', () => {
         {
           provide: TransactionComplianceService,
           useValue: {
-            ensureWithdrawComplianceCases: jest.fn(),
-            getCaseSummaries: jest.fn(),
+            ensureWithdrawPreKytCaseOnCreate: jest.fn(),
+            getTransactionCaseAggregate: jest.fn(),
           },
         },
       ],
@@ -76,9 +76,11 @@ describe('WithdrawTransactionsService', () => {
     mockTx.withdrawTransaction.findUnique.mockReset();
     mockTx.withdrawTransaction.update.mockReset();
     mockTx.withdrawAuditLog.create.mockReset();
-    transactionComplianceService.getCaseSummaries.mockResolvedValue({
-      kytCase: null,
+    transactionComplianceService.getTransactionCaseAggregate.mockResolvedValue({
+      preKytCase: null,
+      mainKytCase: null,
       travelRuleCase: null,
+      derivedComplianceStatus: 'PENDING',
     });
   });
 
@@ -102,16 +104,93 @@ describe('WithdrawTransactionsService', () => {
     expect(mockTx.withdrawTransaction.create).not.toHaveBeenCalled();
   });
 
+  it('should create PRE-KYT case on crypto withdraw create', async () => {
+    prisma.asset.findUnique.mockResolvedValue({ id: 'asset-1', type: 'CRYPTO' });
+    prisma.customerMain.findUnique.mockResolvedValue({ customerNo: 'C001' });
+    journalsService.getCustomerLiabilityBalance.mockResolvedValue({
+      availableBalance: new Prisma.Decimal(1000),
+    });
+    mockTx.withdrawTransaction.create.mockResolvedValue({
+      id: 'wd-create-1',
+      ownerType: 'CUSTOMER',
+      ownerId: 'user-1',
+      assetId: 'asset-1',
+      amount: new Prisma.Decimal(100),
+      netAmount: new Prisma.Decimal(100),
+      feeAmount: new Prisma.Decimal(0),
+      withdrawNo: 'WD1001',
+      fromWalletId: null,
+      fromWalletNo: null,
+      toWalletId: null,
+      toWalletNo: null,
+    });
+    mockTx.withdrawAuditLog.create.mockResolvedValue({ id: 'audit-create-1' });
+    journalsService.createJournal.mockResolvedValue({ id: 'je-create-1' });
+    transactionComplianceService.ensureWithdrawPreKytCaseOnCreate.mockResolvedValue(
+      {},
+    );
+
+    await service.create(
+      {
+        assetId: 'asset-1',
+        amount: 100,
+      } as any,
+      'user-1',
+    );
+
+    expect(
+      transactionComplianceService.ensureWithdrawPreKytCaseOnCreate,
+    ).toHaveBeenCalledWith('wd-create-1', mockTx);
+  });
+
+  it('should invoke PRE-KYT hook as no-op on fiat withdraw create', async () => {
+    prisma.asset.findUnique.mockResolvedValue({ id: 'asset-fiat-1', type: 'FIAT' });
+    prisma.customerMain.findUnique.mockResolvedValue({ customerNo: 'C001' });
+    journalsService.getCustomerLiabilityBalance.mockResolvedValue({
+      availableBalance: new Prisma.Decimal(1000),
+    });
+    mockTx.withdrawTransaction.create.mockResolvedValue({
+      id: 'wd-create-2',
+      ownerType: 'CUSTOMER',
+      ownerId: 'user-1',
+      assetId: 'asset-fiat-1',
+      amount: new Prisma.Decimal(100),
+      netAmount: new Prisma.Decimal(100),
+      feeAmount: new Prisma.Decimal(0),
+      withdrawNo: 'WD1002',
+      fromWalletId: null,
+      fromWalletNo: null,
+      toWalletId: null,
+      toWalletNo: null,
+    });
+    mockTx.withdrawAuditLog.create.mockResolvedValue({ id: 'audit-create-2' });
+    journalsService.createJournal.mockResolvedValue({ id: 'je-create-2' });
+    transactionComplianceService.ensureWithdrawPreKytCaseOnCreate.mockResolvedValue(
+      null,
+    );
+
+    await service.create(
+      {
+        assetId: 'asset-fiat-1',
+        amount: 100,
+      } as any,
+      'user-1',
+    );
+
+    expect(
+      transactionComplianceService.ensureWithdrawPreKytCaseOnCreate,
+    ).toHaveBeenCalledWith('wd-create-2', mockTx);
+  });
+
   it('should block approve when compliance is not cleared', async () => {
     mockTx.withdrawTransaction.findUnique.mockResolvedValue({
       id: 'wd-1',
       status: 'PENDING_COMPLIANCE',
-      complianceStatus: 'PENDING',
       preKytStatus: 'PENDING',
-      kytStatus: 'PENDING',
-      travelRuleRequired: false,
-      travelRuleStatus: 'NOT_REQUIRED',
       statusHistory: '[]',
+      asset: {
+        type: 'CRYPTO',
+      },
     });
 
     await expect(
@@ -121,7 +200,7 @@ describe('WithdrawTransactionsService', () => {
     ).rejects.toThrow(BadRequestException);
   });
 
-  it('should trigger compliance case setup when moving to PENDING_COMPLIANCE', async () => {
+  it('should not auto-create compliance case when moving to PENDING_COMPLIANCE', async () => {
     mockTx.withdrawTransaction.findUnique
       .mockResolvedValueOnce({
         id: 'wd-2',
@@ -134,46 +213,33 @@ describe('WithdrawTransactionsService', () => {
         netAmount: new Prisma.Decimal(100),
         feeAmount: new Prisma.Decimal(0),
         withdrawNo: 'WD0002',
-        travelRuleRequired: false,
         statusHistory: '[]',
         auditLogs: [],
         payout: null,
         customer: null,
-        asset: null,
+        asset: {
+          type: 'CRYPTO',
+        },
       })
-      .mockResolvedValueOnce({
-        id: 'wd-2',
-        status: WithdrawTransactionStatus.PENDING_COMPLIANCE,
-        type: 'crypto',
-        travelRuleRequired: false,
-        travelRuleStatus: 'NOT_REQUIRED',
-        complianceStatus: 'CLEAR',
-        preKytStatus: 'PASS',
-        kytStatus: 'PASS',
-      });
+      .mockResolvedValueOnce(null);
 
     mockTx.withdrawTransaction.update.mockResolvedValue({
       id: 'wd-2',
       status: WithdrawTransactionStatus.PENDING_COMPLIANCE,
       type: 'crypto',
-      travelRuleRequired: false,
-      travelRuleStatus: 'NOT_REQUIRED',
-      complianceStatus: 'CLEAR',
-      preKytStatus: 'PASS',
-      kytStatus: 'PASS',
+      asset: {
+        type: 'CRYPTO',
+      },
     });
     mockTx.withdrawAuditLog.create.mockResolvedValue({ id: 'audit-2' });
-    transactionComplianceService.ensureWithdrawComplianceCases.mockResolvedValue(
-      {},
-    );
 
     const result = await service.updateStatus('wd-2', {
       action: WithdrawTransactionAction.CHECK,
     });
 
     expect(
-      transactionComplianceService.ensureWithdrawComplianceCases,
-    ).toHaveBeenCalledWith('wd-2', mockTx);
+      transactionComplianceService.ensureWithdrawPreKytCaseOnCreate,
+    ).not.toHaveBeenCalled();
     expect(result.status).toBe(WithdrawTransactionStatus.PENDING_COMPLIANCE);
   });
 
@@ -191,9 +257,6 @@ describe('WithdrawTransactionsService', () => {
       withdrawNo: 'WD0003',
       complianceStatus: 'CLEAR',
       preKytStatus: 'PASS',
-      kytStatus: 'PASS',
-      travelRuleRequired: false,
-      travelRuleStatus: 'NOT_REQUIRED',
       statusHistory: '[]',
       approvedAt: null,
       payoutRequestedAt: null,
@@ -236,9 +299,6 @@ describe('WithdrawTransactionsService', () => {
       withdrawNo: 'WD0004',
       complianceStatus: 'CLEAR',
       preKytStatus: 'PASS',
-      kytStatus: 'PASS',
-      travelRuleRequired: false,
-      travelRuleStatus: 'NOT_REQUIRED',
       statusHistory: '[]',
       approvedAt: null,
       payoutRequestedAt: null,

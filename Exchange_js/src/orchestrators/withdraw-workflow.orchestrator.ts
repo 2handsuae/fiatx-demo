@@ -7,6 +7,7 @@ import { JournalsService } from '../modules/accounting/journals/journals.service
 import { ClearingsService } from '../modules/clearing-settle/clearing/clearings.service';
 import { WithdrawEvents } from '../modules/trading/withdraw-transactions/constants/withdraw-events.constant';
 import { PayoutEvents } from '../modules/asset-treasury/payouts/constants/payout-events.constant';
+import { TransactionComplianceService } from '../modules/risk-engine/transaction-compliance/transaction-compliance.service';
 import {
   WithdrawTransactionStatus,
   WithdrawTransactionAction,
@@ -40,6 +41,7 @@ export class WithdrawWorkflowOrchestrator {
     private payoutsService: PayoutsService,
     private journalsService: JournalsService,
     private clearingsService: ClearingsService,
+    private transactionComplianceService: TransactionComplianceService,
   ) {}
 
   // --- Withdrawal Listeners ---
@@ -324,6 +326,12 @@ export class WithdrawWorkflowOrchestrator {
     };
 
     return await (this.prisma as any).$transaction(async (tx: any) => {
+      await this.transactionComplianceService.ensureWithdrawMainCasesOnPayoutConfirmed(
+        withdrawId,
+        payoutId,
+        tx,
+      );
+
       const updatedWithdrawal = await this.withdrawalService.updateStatus(withdrawId, {
         action: WithdrawTransactionAction.SUCCESS,
         reason: `[${marker}] Payout confirmed. Setting withdrawal to SUCCESS.`,

@@ -6,6 +6,7 @@ import { PayoutsService } from '../modules/asset-treasury/payouts/payouts.servic
 import { JournalsService } from '../modules/accounting/journals/journals.service';
 import { ClearingsService } from '../modules/clearing-settle/clearing/clearings.service';
 import { PrismaService } from '../core/prisma/prisma.service';
+import { TransactionComplianceService } from '../modules/risk-engine/transaction-compliance/transaction-compliance.service';
 import { WithdrawTransactionStatus } from '../modules/trading/withdraw-transactions/dto/withdraw-transaction.dto';
 import {
   PayoutStatus,
@@ -22,6 +23,7 @@ describe('WithdrawWorkflowOrchestrator', () => {
   let payoutsService: any;
   let journalsService: any;
   let clearingsService: any;
+  let transactionComplianceService: any;
   let prisma: any;
 
   const mockPrisma: any = {
@@ -61,6 +63,10 @@ describe('WithdrawWorkflowOrchestrator', () => {
     updateStatusBySource: jest.fn(),
   };
 
+  const mockTransactionComplianceService = {
+    ensureWithdrawMainCasesOnPayoutConfirmed: jest.fn(),
+  };
+
   const baseWithdrawal = {
     id: 'WD_1',
     status: WithdrawTransactionStatus.PAYOUT_PENDING,
@@ -91,6 +97,10 @@ describe('WithdrawWorkflowOrchestrator', () => {
         { provide: PayoutsService, useValue: mockPayoutsService },
         { provide: JournalsService, useValue: mockJournalsService },
         { provide: ClearingsService, useValue: mockClearingsService },
+        {
+          provide: TransactionComplianceService,
+          useValue: mockTransactionComplianceService,
+        },
         { provide: PrismaService, useValue: mockPrisma },
       ],
     }).compile();
@@ -104,6 +114,9 @@ describe('WithdrawWorkflowOrchestrator', () => {
     payoutsService = module.get<PayoutsService>(PayoutsService);
     journalsService = module.get<JournalsService>(JournalsService);
     clearingsService = module.get<ClearingsService>(ClearingsService);
+    transactionComplianceService = module.get<TransactionComplianceService>(
+      TransactionComplianceService,
+    );
     prisma = module.get<PrismaService>(PrismaService);
 
     jest.clearAllMocks();
@@ -123,6 +136,9 @@ describe('WithdrawWorkflowOrchestrator', () => {
       asset: { type: 'CRYPTO' },
     });
     mockJournalsService.triggerEvent.mockResolvedValue({ id: 'JE_1' });
+    mockTransactionComplianceService.ensureWithdrawMainCasesOnPayoutConfirmed.mockResolvedValue(
+      {},
+    );
     mockPayoutsService.updateStatus.mockResolvedValue({
       id: 'PO_1',
       status: PayoutStatus.CLEAR,
@@ -140,6 +156,9 @@ describe('WithdrawWorkflowOrchestrator', () => {
       expect.objectContaining({ action: 'success' }),
       mockPrisma,
     );
+    expect(
+      transactionComplianceService.ensureWithdrawMainCasesOnPayoutConfirmed,
+    ).toHaveBeenCalledWith('WD_1', 'PO_1', mockPrisma);
     expect(payoutsService.updateStatus).toHaveBeenCalledWith(
       'PO_1',
       expect.objectContaining({ action: 'CLEAR' }),

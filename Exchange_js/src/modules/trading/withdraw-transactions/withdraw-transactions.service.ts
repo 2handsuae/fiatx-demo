@@ -14,7 +14,6 @@ import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 import { JournalsService } from '../../accounting/journals/journals.service';
 import { TransactionComplianceService } from '../../risk-engine/transaction-compliance/transaction-compliance.service';
 import {
-  KytScreeningStage,
   TxSourceType,
 } from '../../risk-engine/transaction-compliance/types/tx-compliance.types';
 
@@ -120,24 +119,17 @@ export class WithdrawTransactionsService {
       return;
     }
 
-    if (
-      item.complianceStatus !== 'CLEAR' ||
-      item.preKytStatus !== 'PASS' ||
-      item.kytStatus !== 'PASS'
-    ) {
-      throw new BadRequestException({
-        code: 'COMPLIANCE_NOT_CLEARED',
-        message: `Withdrawal ${item.id} compliance not cleared for status ${nextStatus}`,
-      });
+    const reasons: string[] = [];
+    const assetType = String(item.asset?.type || '').toUpperCase();
+    if (assetType === 'CRYPTO' && item.preKytStatus !== 'PASS') {
+      reasons.push(`preKytStatus=${item.preKytStatus || 'UNKNOWN'} (expected PASS)`);
     }
 
-    if (
-      item.travelRuleRequired === true &&
-      item.travelRuleStatus !== 'ACCEPTED'
-    ) {
+    if (reasons.length > 0) {
       throw new BadRequestException({
         code: 'COMPLIANCE_NOT_CLEARED',
-        message: `Withdrawal ${item.id} travel rule not accepted for status ${nextStatus}`,
+        message: `Withdrawal ${item.id} compliance not cleared for status ${nextStatus}: ${reasons.join('; ')}`,
+        details: reasons,
       });
     }
   }
@@ -213,18 +205,23 @@ export class WithdrawTransactionsService {
     });
     if (!item) throw new NotFoundException('Withdraw transaction not found');
 
-    const { kytCase, travelRuleCase } =
-      await this.transactionComplianceService.getCaseSummaries(
+    const caseAggregate =
+      await this.transactionComplianceService.getTransactionCaseAggregate(
         TxSourceType.WITHDRAW,
         id,
-        KytScreeningStage.MAIN,
+        {
+          includeReports: false,
+          includePayload: false,
+        },
       );
 
     return {
       ...item,
       type: this.deriveWithdrawType(item.asset?.type),
-      kytCase,
-      travelRuleCase,
+      preKytCase: caseAggregate.preKytCase,
+      kytCase: caseAggregate.mainKytCase,
+      travelRuleCase: caseAggregate.travelRuleCase,
+      derivedComplianceStatus: caseAggregate.derivedComplianceStatus,
     };
   }
 
@@ -306,6 +303,11 @@ export class WithdrawTransactionsService {
           eventCode: WithdrawEvents.EVT_WITHDRAWAL_CREATED,
           context: this.createAccountingContext(record),
         },
+        tx,
+      );
+
+      await this.transactionComplianceService.ensureWithdrawPreKytCaseOnCreate(
+        record.id,
         tx,
       );
 
@@ -401,30 +403,6 @@ export class WithdrawTransactionsService {
       });
 
       let eventSource = updated;
-
-      if (
-        currentStatus === WithdrawTransactionStatus.CREATED &&
-        nextStatus === WithdrawTransactionStatus.PENDING_COMPLIANCE
-      ) {
-        await this.transactionComplianceService.ensureWithdrawComplianceCases(
-          id,
-          client,
-        );
-        const refreshed = await (client as any).withdrawTransaction.findUnique({
-          where: { id },
-          include: {
-            asset: {
-              select: {
-                type: true,
-              },
-            },
-          },
-        });
-        if (!refreshed) {
-          throw new NotFoundException('Withdraw transaction not found');
-        }
-        eventSource = refreshed;
-      }
 
       await client.withdrawAuditLog.create({
         data: {

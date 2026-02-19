@@ -1,4 +1,4 @@
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useParams } from 'react-router-dom';
 import AdminLogin from './pages/AdminLogin';
 import DashboardLayout from './components/DashboardLayout';
 import PlatformMembers from './pages/PlatformMembers';
@@ -53,6 +53,20 @@ import ClearingDetailsList from './pages/ClearingDetailsList';
 import ClearingLineDetail from './pages/ClearingLineDetail';
 import CddCasesPage from './pages/CddCasesPage';
 import EddCasesPage from './pages/EddCasesPage';
+import TransactionComplianceCasesPage from './pages/TransactionComplianceCasesPage';
+import TransactionComplianceCaseDetailPage from './pages/TransactionComplianceCaseDetailPage';
+import TransactionKytCasesPage from './pages/TransactionKytCasesPage';
+import TransactionTravelRuleCasesPage from './pages/TransactionTravelRuleCasesPage';
+
+function LegacyTxCaseDetailRedirect() {
+  const { sourceType = '', sourceId = '' } = useParams();
+  return (
+    <Navigate
+      to={`/dashboard/compliance/tx-evidence/${String(sourceType).toUpperCase()}/${sourceId}`}
+      replace
+    />
+  );
+}
 
 function App() {
   return (
@@ -76,6 +90,12 @@ function App() {
              <Route path="reconciliation/outstandings/:id" element={<SwapOutstandingDetail />} />
              <Route path="compliance/cdd-cases" element={<CddCasesPage />} />
              <Route path="compliance/edd-cases" element={<EddCasesPage />} />
+             <Route path="compliance/tx-evidence" element={<TransactionComplianceCasesPage />} />
+             <Route path="compliance/tx-evidence/:sourceType/:sourceId" element={<TransactionComplianceCaseDetailPage />} />
+             <Route path="compliance/kyt-cases" element={<TransactionKytCasesPage />} />
+             <Route path="compliance/travel-rule-cases" element={<TransactionTravelRuleCasesPage />} />
+             <Route path="compliance/tx-cases" element={<Navigate to="/dashboard/compliance/tx-evidence" replace />} />
+             <Route path="compliance/tx-cases/:sourceType/:sourceId" element={<LegacyTxCaseDetailRedirect />} />
              <Route path="customer/:id" element={<CustomerDetail />} />
              <Route path="treasury/wallets" element={<WalletList />} />
              <Route path="treasury/wallets/:id" element={<WalletDetail />} />

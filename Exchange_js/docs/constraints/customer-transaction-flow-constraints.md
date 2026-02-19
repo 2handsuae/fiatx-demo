@@ -125,3 +125,31 @@
 - Scope: customer transaction flows only (deposit/swap/withdraw).
 - Security/auth hardening is out of scope unless explicitly required by a separate task.
 - Async convergence and idempotency remain strong MUST constraints.
+
+## 14) Transaction Compliance Case Boundary
+- PRE-KYT/KYT/TRAVEL RULE MUST be treated as transaction evidence cases, not approval workflows.
+- Transaction release/reject authority MUST stay in transaction state actions only:
+1. withdraw/deposit/swap approve or reject actions
+2. compliance case records are read-only evidence from provider callbacks
+- Auto-case creation timing MUST follow:
+1. `WITHDRAW` + `CRYPTO`: create `PRE-KYT` (`screeningStage=PRE_TXN`) immediately on withdraw `CREATED`
+2. `DEPOSIT` + `CRYPTO`: create `MAIN-KYT` + `TRAVEL_RULE` on `payin CONFIRMED`
+3. `WITHDRAW` + `CRYPTO`: create `MAIN-KYT` + `TRAVEL_RULE` on `payout CONFIRMED`
+4. `FIAT` deposit/withdraw MUST NOT auto-create PRE-KYT
+- The following callback upsert endpoints are the canonical production ingestion path:
+1. `POST /admin/compliance/tx-kyt-cases/callback`
+2. `POST /admin/compliance/tx-travel-rule-cases/callback`
+- Callback idempotency MUST be enforced by provider reference + source scope:
+1. KYT: `providerCaseId + sourceType + sourceId + screeningStage`
+2. Travel Rule: `providerTransferId + sourceType + sourceId`
+- Compliance detail retrieval MUST support aggregated source-level read model:
+1. `GET /admin/compliance/tx-cases/:sourceType/:sourceId`
+2. response includes `preKytCase`, `mainKytCase`, `travelRuleCase`, `derivedComplianceStatus`
+- Withdraw approval gate contract MUST follow:
+1. `CRYPTO` withdraw approve/success only checks `preKytStatus=PASS`
+2. `FIAT` withdraw approve/success does not enforce PRE-KYT gate
+- Manual override of provider case decision at case API level is forbidden in current phase.
+- Admin Compliance Center MUST expose read-only pages:
+1. `Tx Evidence Bundles`
+2. `KYT Cases`
+3. `Travel Rule Cases`

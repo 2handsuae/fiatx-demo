@@ -98,6 +98,9 @@ const DashboardLayout = () => {
       label: 'Compliance Center',
       icon: <ClipboardList size={20} />,
       children: [
+        { path: '/dashboard/compliance/tx-evidence', label: 'Tx Evidence Bundles', icon: <ShieldCheck size={18} /> },
+        { path: '/dashboard/compliance/kyt-cases', label: 'KYT Cases', icon: <ShieldCheck size={18} /> },
+        { path: '/dashboard/compliance/travel-rule-cases', label: 'Travel Rule Cases', icon: <ShieldCheck size={18} /> },
         { path: '/dashboard/compliance/cdd-cases', label: 'CDD Cases', icon: <ShieldCheck size={18} /> },
         { path: '/dashboard/compliance/edd-cases', label: 'EDD Cases', icon: <Shield size={18} /> },
       ],

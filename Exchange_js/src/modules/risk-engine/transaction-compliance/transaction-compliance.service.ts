@@ -11,6 +11,8 @@ import {
   MockBackfillDto,
   MockKytCaseCompleteDto,
   MockTravelRuleCaseCompleteDto,
+  TxKytCaseCallbackDto,
+  TxTravelRuleCaseCallbackDto,
   TxCaseListQueryDto,
 } from './dto/tx-compliance.dto';
 import {
@@ -52,6 +54,10 @@ export class TransactionComplianceService {
       return payload;
     }
     return JSON.stringify(payload);
+  }
+
+  private isCryptoAssetType(assetType?: string | null): boolean {
+    return String(assetType || '').toUpperCase() === 'CRYPTO';
   }
 
   private generateCaseNo(prefix: 'KYT' | 'TRV'): string {
@@ -143,6 +149,68 @@ export class TransactionComplianceService {
     }
 
     return 'PENDING';
+  }
+
+  private deriveSingleStageComplianceStatus(input: {
+    kytStatus: string;
+    travelRuleStatus: string;
+    travelRuleRequired: boolean;
+    hasKyt: boolean;
+    hasTravel: boolean;
+  }): 'PENDING' | 'CLEAR' | 'HOLD' | 'REJECT' {
+    const { kytStatus, travelRuleStatus, travelRuleRequired, hasKyt, hasTravel } =
+      input;
+
+    if (!hasKyt || !hasTravel) {
+      return 'PENDING';
+    }
+
+    if (kytStatus === 'FAIL') {
+      return 'REJECT';
+    }
+
+    if (travelRuleRequired && travelRuleStatus === 'REJECTED') {
+      return 'REJECT';
+    }
+
+    if (kytStatus === 'REVIEW') {
+      return 'HOLD';
+    }
+
+    if (
+      travelRuleRequired &&
+      ['PENDING', 'SENT', 'RECEIVED', 'EXPIRED'].includes(travelRuleStatus)
+    ) {
+      return 'HOLD';
+    }
+
+    if (
+      kytStatus === 'PASS' &&
+      (!travelRuleRequired || travelRuleStatus === 'ACCEPTED')
+    ) {
+      return 'CLEAR';
+    }
+
+    return 'PENDING';
+  }
+
+  private normalizeSourceType(raw: string): TxSourceType {
+    const current = String(raw || '').toUpperCase();
+    if (Object.values(TxSourceType).includes(current as TxSourceType)) {
+      return current as TxSourceType;
+    }
+    throw new BadRequestException(`Unsupported sourceType: ${raw}`);
+  }
+
+  private clampReportPagination(input: {
+    limit?: number;
+    offset?: number;
+  }): { limit: number; offset: number } {
+    const rawLimit = Number.isFinite(input.limit) ? Number(input.limit) : 20;
+    const rawOffset = Number.isFinite(input.offset) ? Number(input.offset) : 0;
+    const limit = Math.max(1, Math.min(100, Math.trunc(rawLimit)));
+    const offset = Math.max(0, Math.trunc(rawOffset));
+    return { limit, offset };
   }
 
   private async resolveSourceContext(
@@ -308,9 +376,324 @@ export class TransactionComplianceService {
     return { items, total };
   }
 
+  async callbackKytCase(
+    dto: TxKytCaseCallbackDto,
+    tx?: Prisma.TransactionClient,
+  ) {
+    const sourceType = this.normalizeSourceType(dto.sourceType);
+    const sourceContext =
+      this.resolveManualSourceContext({
+        sourceType,
+        sourceId: dto.sourceId,
+        ownerType: dto.ownerType,
+        ownerId: dto.ownerId,
+        assetId: dto.assetId,
+      }) ||
+      (await this.resolveSourceContext(sourceType, dto.sourceId, tx));
+    const screeningStage = dto.screeningStage ?? KytScreeningStage.MAIN;
+    const checkedAt = dto.checkedAt ? new Date(dto.checkedAt) : new Date();
+    const normalizedStatus = this.normalizeKytStatus(dto.status);
+
+    const upserted = await this.upsertKytCaseAndAppendReport(
+      {
+        ...sourceContext,
+        screeningStage,
+        provider: dto.provider || 'EXTERNAL',
+        providerCaseId: dto.providerCaseId,
+        status: normalizedStatus,
+        riskScore: dto.riskScore ?? null,
+        checkedAt,
+        rawPayload: dto.rawPayload || {
+          providerCaseId: dto.providerCaseId,
+          sourceType,
+          sourceId: dto.sourceId,
+          screeningStage,
+          status: normalizedStatus,
+          riskScore: dto.riskScore ?? null,
+          checkedAt: checkedAt.toISOString(),
+        },
+        normalizedPayload: dto.normalizedPayload || {
+          status: normalizedStatus,
+          riskScore: dto.riskScore ?? null,
+          checkedAt: checkedAt.toISOString(),
+        },
+      },
+      tx,
+      { dedupeReport: true },
+    );
+
+    if (sourceType === TxSourceType.DEPOSIT) {
+      await this.syncDepositSnapshotFromCases(dto.sourceId, tx);
+    } else if (sourceType === TxSourceType.WITHDRAW) {
+      await this.syncWithdrawSnapshotFromCases(dto.sourceId, tx);
+    }
+
+    const aggregate = await this.getTransactionCaseAggregate(
+      sourceType,
+      dto.sourceId,
+      {
+        includeReports: true,
+        includePayload: true,
+        limit: 20,
+        offset: 0,
+      },
+      tx,
+    );
+
+    return {
+      callbackAccepted: true,
+      caseId: upserted.case.id,
+      reportId: upserted.report?.id || null,
+      reportDeduped: upserted.reportDeduped,
+      ...aggregate,
+    };
+  }
+
+  async callbackTravelRuleCase(
+    dto: TxTravelRuleCaseCallbackDto,
+    tx?: Prisma.TransactionClient,
+  ) {
+    const sourceType = this.normalizeSourceType(dto.sourceType);
+    const sourceContext =
+      this.resolveManualSourceContext({
+        sourceType,
+        sourceId: dto.sourceId,
+        ownerType: dto.ownerType,
+        ownerId: dto.ownerId,
+        assetId: dto.assetId,
+      }) ||
+      (await this.resolveSourceContext(sourceType, dto.sourceId, tx));
+    const checkedAt = dto.checkedAt ? new Date(dto.checkedAt) : new Date();
+    const required = dto.required ?? false;
+    const normalizedStatus = this.normalizeTravelRuleStatus(dto.status, required);
+
+    const upserted = await this.upsertTravelRuleCaseAndAppendReport(
+      {
+        ...sourceContext,
+        provider: dto.provider || 'EXTERNAL',
+        providerTransferId: dto.providerTransferId,
+        required,
+        status: normalizedStatus,
+        counterpartyVasp: dto.counterpartyVasp || null,
+        checkedAt,
+        rawPayload: dto.rawPayload || {
+          providerTransferId: dto.providerTransferId,
+          sourceType,
+          sourceId: dto.sourceId,
+          required,
+          status: normalizedStatus,
+          counterpartyVasp: dto.counterpartyVasp || null,
+          checkedAt: checkedAt.toISOString(),
+        },
+        normalizedPayload: dto.normalizedPayload || {
+          required,
+          status: normalizedStatus,
+          counterpartyVasp: dto.counterpartyVasp || null,
+          checkedAt: checkedAt.toISOString(),
+        },
+      },
+      tx,
+      { dedupeReport: true },
+    );
+
+    if (sourceType === TxSourceType.DEPOSIT) {
+      await this.syncDepositSnapshotFromCases(dto.sourceId, tx);
+    } else if (sourceType === TxSourceType.WITHDRAW) {
+      await this.syncWithdrawSnapshotFromCases(dto.sourceId, tx);
+    }
+
+    const aggregate = await this.getTransactionCaseAggregate(
+      sourceType,
+      dto.sourceId,
+      {
+        includeReports: true,
+        includePayload: true,
+        limit: 20,
+        offset: 0,
+      },
+      tx,
+    );
+
+    return {
+      callbackAccepted: true,
+      caseId: upserted.case.id,
+      reportId: upserted.report?.id || null,
+      reportDeduped: upserted.reportDeduped,
+      ...aggregate,
+    };
+  }
+
+  async getTransactionCaseAggregate(
+    sourceTypeInput: TxSourceType | string,
+    sourceId: string,
+    options?: {
+      includeReports?: boolean;
+      includePayload?: boolean;
+      limit?: number;
+      offset?: number;
+    },
+    tx?: Prisma.TransactionClient,
+  ) {
+    const sourceType = this.normalizeSourceType(sourceTypeInput as string);
+    const client = this.getClient(tx) as any;
+    const includeReports = options?.includeReports !== false;
+    const includePayload = options?.includePayload === true;
+    const { limit, offset } = this.clampReportPagination({
+      limit: options?.limit,
+      offset: options?.offset,
+    });
+
+    const kytReportSelect = includePayload
+      ? {
+          id: true,
+          sourceType: true,
+          sourceId: true,
+          screeningStage: true,
+          provider: true,
+          providerCaseId: true,
+          rawPayload: true,
+          normalizedPayload: true,
+          receivedAt: true,
+          createdAt: true,
+        }
+      : {
+          id: true,
+          sourceType: true,
+          sourceId: true,
+          screeningStage: true,
+          provider: true,
+          providerCaseId: true,
+          receivedAt: true,
+          createdAt: true,
+        };
+
+    const travelReportSelect = includePayload
+      ? {
+          id: true,
+          sourceType: true,
+          sourceId: true,
+          provider: true,
+          providerTransferId: true,
+          required: true,
+          status: true,
+          counterpartyVasp: true,
+          rawPayload: true,
+          normalizedPayload: true,
+          receivedAt: true,
+          createdAt: true,
+        }
+      : {
+          id: true,
+          sourceType: true,
+          sourceId: true,
+          provider: true,
+          providerTransferId: true,
+          required: true,
+          status: true,
+          counterpartyVasp: true,
+          receivedAt: true,
+          createdAt: true,
+        };
+
+    const kytInclude = includeReports
+      ? {
+          reports: {
+            orderBy: { receivedAt: 'desc' },
+            skip: offset,
+            take: limit,
+            select: kytReportSelect,
+          },
+        }
+      : undefined;
+
+    const travelInclude = includeReports
+      ? {
+          reports: {
+            orderBy: { receivedAt: 'desc' },
+            skip: offset,
+            take: limit,
+            select: travelReportSelect,
+          },
+        }
+      : undefined;
+
+    const [preKytCase, mainKytCase, travelRuleCase] = await Promise.all([
+      sourceType === TxSourceType.WITHDRAW
+        ? client.kytCase.findUnique({
+            where: {
+              sourceType_sourceId_screeningStage: {
+                sourceType,
+                sourceId,
+                screeningStage: KytScreeningStage.PRE_TXN,
+              },
+            },
+            include: kytInclude,
+          })
+        : Promise.resolve(null),
+      client.kytCase.findUnique({
+        where: {
+          sourceType_sourceId_screeningStage: {
+            sourceType,
+            sourceId,
+            screeningStage: KytScreeningStage.MAIN,
+          },
+        },
+        include: kytInclude,
+      }),
+      client.travelRuleCase.findUnique({
+        where: {
+          sourceType_sourceId: {
+            sourceType,
+            sourceId,
+          },
+        },
+        include: travelInclude,
+      }),
+    ]);
+
+    const preStatus = this.normalizeKytStatus(preKytCase?.status);
+    const mainStatus = this.normalizeKytStatus(mainKytCase?.status);
+    const travelRequired = travelRuleCase?.required ?? false;
+    const travelStatus = this.normalizeTravelRuleStatus(
+      travelRuleCase?.status,
+      travelRequired,
+    );
+
+    const derivedComplianceStatus =
+      sourceType === TxSourceType.WITHDRAW
+        ? this.deriveWithdrawComplianceStatus({
+            preKytStatus: preStatus,
+            mainKytStatus: mainStatus,
+            travelRuleStatus: travelStatus,
+            travelRuleRequired: travelRequired,
+            hasPre: !!preKytCase,
+            hasMain: !!mainKytCase,
+            hasTravel: !!travelRuleCase,
+          })
+        : this.deriveSingleStageComplianceStatus({
+            kytStatus: mainStatus,
+            travelRuleStatus: travelStatus,
+            travelRuleRequired: travelRequired,
+            hasKyt: !!mainKytCase,
+            hasTravel: !!travelRuleCase,
+          });
+
+    return {
+      sourceType,
+      sourceId,
+      preKytCase: preKytCase || null,
+      mainKytCase: mainKytCase || null,
+      travelRuleCase: travelRuleCase || null,
+      derivedComplianceStatus,
+    };
+  }
+
   async upsertKytCaseAndAppendReport(
     input: UpsertKytCaseInput,
     tx?: Prisma.TransactionClient,
+    options?: {
+      dedupeReport?: boolean;
+    },
   ) {
     if (!input.assetId) {
       throw new BadRequestException('assetId is required for KYT case');
@@ -362,26 +745,48 @@ export class TransactionComplianceService {
       },
     });
 
-    const report = await client.kytCaseReport.create({
-      data: {
-        kytCaseId: record.id,
-        sourceType: input.sourceType,
-        sourceId: input.sourceId,
-        screeningStage: input.screeningStage,
-        provider,
-        providerCaseId,
-        rawPayload,
-        normalizedPayload,
-        receivedAt: checkedAt,
-      },
-    });
+    let dedupedReport = null;
+    if (options?.dedupeReport) {
+      dedupedReport = await client.kytCaseReport.findFirst({
+        where: {
+          kytCaseId: record.id,
+          sourceType: input.sourceType,
+          sourceId: input.sourceId,
+          screeningStage: input.screeningStage,
+          provider,
+          providerCaseId,
+          rawPayload,
+          normalizedPayload,
+        },
+        orderBy: { receivedAt: 'desc' },
+      });
+    }
 
-    return { case: record, report };
+    const report =
+      dedupedReport ||
+      (await client.kytCaseReport.create({
+        data: {
+          kytCaseId: record.id,
+          sourceType: input.sourceType,
+          sourceId: input.sourceId,
+          screeningStage: input.screeningStage,
+          provider,
+          providerCaseId,
+          rawPayload,
+          normalizedPayload,
+          receivedAt: checkedAt,
+        },
+      }));
+
+    return { case: record, report, reportDeduped: !!dedupedReport };
   }
 
   async upsertTravelRuleCaseAndAppendReport(
     input: UpsertTravelRuleCaseInput,
     tx?: Prisma.TransactionClient,
+    options?: {
+      dedupeReport?: boolean;
+    },
   ) {
     if (!input.assetId) {
       throw new BadRequestException('assetId is required for Travel Rule case');
@@ -434,23 +839,44 @@ export class TransactionComplianceService {
       },
     });
 
-    const report = await client.travelRuleCaseReport.create({
-      data: {
-        travelRuleCaseId: record.id,
-        sourceType: input.sourceType,
-        sourceId: input.sourceId,
-        provider,
-        providerTransferId,
-        required,
-        status,
-        counterpartyVasp: input.counterpartyVasp || null,
-        rawPayload,
-        normalizedPayload,
-        receivedAt: checkedAt,
-      },
-    });
+    let dedupedReport = null;
+    if (options?.dedupeReport) {
+      dedupedReport = await client.travelRuleCaseReport.findFirst({
+        where: {
+          travelRuleCaseId: record.id,
+          sourceType: input.sourceType,
+          sourceId: input.sourceId,
+          provider,
+          providerTransferId,
+          status,
+          required,
+          counterpartyVasp: input.counterpartyVasp || null,
+          rawPayload,
+          normalizedPayload,
+        },
+        orderBy: { receivedAt: 'desc' },
+      });
+    }
 
-    return { case: record, report };
+    const report =
+      dedupedReport ||
+      (await client.travelRuleCaseReport.create({
+        data: {
+          travelRuleCaseId: record.id,
+          sourceType: input.sourceType,
+          sourceId: input.sourceId,
+          provider,
+          providerTransferId,
+          required,
+          status,
+          counterpartyVasp: input.counterpartyVasp || null,
+          rawPayload,
+          normalizedPayload,
+          receivedAt: checkedAt,
+        },
+      }));
+
+    return { case: record, report, reportDeduped: !!dedupedReport };
   }
 
   async syncDepositSnapshotFromCases(
@@ -601,8 +1027,111 @@ export class TransactionComplianceService {
     });
   }
 
-  async ensureDepositComplianceCases(
+  async ensureWithdrawPreKytCaseOnCreate(
+    withdrawId: string,
+    tx?: Prisma.TransactionClient,
+  ) {
+    const client = this.getClient(tx);
+    const withdrawal = await client.withdrawTransaction.findUnique({
+      where: { id: withdrawId },
+      select: {
+        id: true,
+        ownerType: true,
+        ownerId: true,
+        assetId: true,
+        asset: {
+          select: {
+            type: true,
+          },
+        },
+      },
+    });
+
+    if (!withdrawal) {
+      throw new NotFoundException(`Withdraw ${withdrawId} not found`);
+    }
+
+    if (!this.isCryptoAssetType(withdrawal.asset?.type)) {
+      return null;
+    }
+
+    const providerMode = this.getProviderMode();
+    const provider = providerMode === 'MOCK' ? 'MOCK' : 'MANUAL';
+    const checkedAt = new Date();
+
+    if (providerMode === 'MOCK') {
+      const riskScore = Math.floor(Math.random() * 20) + 1;
+      const providerCaseId = `MOCK-KYT-PRE-${Date.now()}-${Math.floor(
+        Math.random() * 10000,
+      )}`;
+
+      await this.upsertKytCaseAndAppendReport(
+        {
+          sourceType: TxSourceType.WITHDRAW,
+          sourceId: withdrawal.id,
+          screeningStage: KytScreeningStage.PRE_TXN,
+          ownerType: withdrawal.ownerType,
+          ownerId: withdrawal.ownerId,
+          assetId: withdrawal.assetId,
+          provider,
+          providerCaseId,
+          status: 'PASS',
+          riskScore,
+          checkedAt,
+          rawPayload: this.buildMockKytPayload({
+            sourceType: TxSourceType.WITHDRAW,
+            sourceId: withdrawal.id,
+            stage: KytScreeningStage.PRE_TXN,
+            status: 'PASS',
+            riskScore,
+            providerCaseId,
+          }),
+          normalizedPayload: {
+            status: 'PASS',
+            riskScore,
+            triggerEntityType: 'WITHDRAW',
+            triggerEntityId: withdrawal.id,
+            triggerStatus: 'CREATED',
+          },
+        },
+        tx,
+      );
+    } else {
+      await this.upsertKytCaseAndAppendReport(
+        {
+          sourceType: TxSourceType.WITHDRAW,
+          sourceId: withdrawal.id,
+          screeningStage: KytScreeningStage.PRE_TXN,
+          ownerType: withdrawal.ownerType,
+          ownerId: withdrawal.ownerId,
+          assetId: withdrawal.assetId,
+          provider,
+          status: 'PENDING',
+          checkedAt,
+          rawPayload: {
+            status: 'PENDING',
+            stage: KytScreeningStage.PRE_TXN,
+            triggerEntityType: 'WITHDRAW',
+            triggerEntityId: withdrawal.id,
+            triggerStatus: 'CREATED',
+          },
+          normalizedPayload: {
+            status: 'PENDING',
+            triggerEntityType: 'WITHDRAW',
+            triggerEntityId: withdrawal.id,
+            triggerStatus: 'CREATED',
+          },
+        },
+        tx,
+      );
+    }
+
+    return this.syncWithdrawSnapshotFromCases(withdrawal.id, tx);
+  }
+
+  async ensureDepositMainCasesOnPayinConfirmed(
     depositId: string,
+    payinId: string,
     tx?: Prisma.TransactionClient,
   ) {
     const client = this.getClient(tx);
@@ -614,11 +1143,20 @@ export class TransactionComplianceService {
         ownerId: true,
         assetId: true,
         travelRuleRequired: true,
+        asset: {
+          select: {
+            type: true,
+          },
+        },
       },
     });
 
     if (!deposit) {
       throw new NotFoundException(`Deposit ${depositId} not found`);
+    }
+
+    if (!this.isCryptoAssetType(deposit.asset?.type)) {
+      return null;
     }
 
     const providerMode = this.getProviderMode();
@@ -647,17 +1185,25 @@ export class TransactionComplianceService {
           status: 'PASS',
           riskScore,
           checkedAt,
-          rawPayload: this.buildMockKytPayload({
-            sourceType: TxSourceType.DEPOSIT,
-            sourceId: deposit.id,
-            stage: KytScreeningStage.MAIN,
-            status: 'PASS',
-            riskScore,
-            providerCaseId,
-          }),
+          rawPayload: {
+            ...this.buildMockKytPayload({
+              sourceType: TxSourceType.DEPOSIT,
+              sourceId: deposit.id,
+              stage: KytScreeningStage.MAIN,
+              status: 'PASS',
+              riskScore,
+              providerCaseId,
+            }),
+            triggerEntityType: 'PAYIN',
+            triggerEntityId: payinId,
+            triggerStatus: 'CONFIRMED',
+          },
           normalizedPayload: {
             status: 'PASS',
             riskScore,
+            triggerEntityType: 'PAYIN',
+            triggerEntityId: payinId,
+            triggerStatus: 'CONFIRMED',
           },
         },
         tx,
@@ -676,16 +1222,24 @@ export class TransactionComplianceService {
           required: deposit.travelRuleRequired,
           status: travelStatus,
           checkedAt,
-          rawPayload: this.buildMockTravelPayload({
-            sourceType: TxSourceType.DEPOSIT,
-            sourceId: deposit.id,
-            status: travelStatus,
-            required: deposit.travelRuleRequired,
-            providerTransferId,
-          }),
+          rawPayload: {
+            ...this.buildMockTravelPayload({
+              sourceType: TxSourceType.DEPOSIT,
+              sourceId: deposit.id,
+              status: travelStatus,
+              required: deposit.travelRuleRequired,
+              providerTransferId,
+            }),
+            triggerEntityType: 'PAYIN',
+            triggerEntityId: payinId,
+            triggerStatus: 'CONFIRMED',
+          },
           normalizedPayload: {
             required: deposit.travelRuleRequired,
             status: travelStatus,
+            triggerEntityType: 'PAYIN',
+            triggerEntityId: payinId,
+            triggerStatus: 'CONFIRMED',
           },
         },
         tx,
@@ -704,9 +1258,15 @@ export class TransactionComplianceService {
           rawPayload: {
             status: 'PENDING',
             source: 'manual-placeholder',
+            triggerEntityType: 'PAYIN',
+            triggerEntityId: payinId,
+            triggerStatus: 'CONFIRMED',
           },
           normalizedPayload: {
             status: 'PENDING',
+            triggerEntityType: 'PAYIN',
+            triggerEntityId: payinId,
+            triggerStatus: 'CONFIRMED',
           },
         },
         tx,
@@ -725,10 +1285,16 @@ export class TransactionComplianceService {
           rawPayload: {
             status: deposit.travelRuleRequired ? 'PENDING' : 'NOT_REQUIRED',
             source: 'manual-placeholder',
+            triggerEntityType: 'PAYIN',
+            triggerEntityId: payinId,
+            triggerStatus: 'CONFIRMED',
           },
           normalizedPayload: {
             required: deposit.travelRuleRequired,
             status: deposit.travelRuleRequired ? 'PENDING' : 'NOT_REQUIRED',
+            triggerEntityType: 'PAYIN',
+            triggerEntityId: payinId,
+            triggerStatus: 'CONFIRMED',
           },
         },
         tx,
@@ -738,8 +1304,9 @@ export class TransactionComplianceService {
     return this.syncDepositSnapshotFromCases(deposit.id, tx);
   }
 
-  async ensureWithdrawComplianceCases(
+  async ensureWithdrawMainCasesOnPayoutConfirmed(
     withdrawId: string,
+    payoutId: string,
     tx?: Prisma.TransactionClient,
   ) {
     const client = this.getClient(tx);
@@ -751,6 +1318,11 @@ export class TransactionComplianceService {
         ownerId: true,
         assetId: true,
         travelRuleRequired: true,
+        asset: {
+          select: {
+            type: true,
+          },
+        },
       },
     });
 
@@ -758,52 +1330,22 @@ export class TransactionComplianceService {
       throw new NotFoundException(`Withdraw ${withdrawId} not found`);
     }
 
+    if (!this.isCryptoAssetType(withdrawal.asset?.type)) {
+      return null;
+    }
+
     const providerMode = this.getProviderMode();
     const provider = providerMode === 'MOCK' ? 'MOCK' : 'MANUAL';
+    const checkedAt = new Date();
 
     if (providerMode === 'MOCK') {
-      const checkedAt = new Date();
-      const preRisk = Math.floor(Math.random() * 20) + 1;
       const mainRisk = Math.floor(Math.random() * 30) + 1;
-
-      const preProviderCaseId = `MOCK-KYT-PRE-${Date.now()}-${Math.floor(
-        Math.random() * 10000,
-      )}`;
       const mainProviderCaseId = `MOCK-KYT-MAIN-${Date.now()}-${Math.floor(
         Math.random() * 10000,
       )}`;
       const providerTransferId = `MOCK-TRV-${Date.now()}-${Math.floor(
         Math.random() * 10000,
       )}`;
-
-      await this.upsertKytCaseAndAppendReport(
-        {
-          sourceType: TxSourceType.WITHDRAW,
-          sourceId: withdrawal.id,
-          screeningStage: KytScreeningStage.PRE_TXN,
-          ownerType: withdrawal.ownerType,
-          ownerId: withdrawal.ownerId,
-          assetId: withdrawal.assetId,
-          provider,
-          providerCaseId: preProviderCaseId,
-          status: 'PASS',
-          riskScore: preRisk,
-          checkedAt,
-          rawPayload: this.buildMockKytPayload({
-            sourceType: TxSourceType.WITHDRAW,
-            sourceId: withdrawal.id,
-            stage: KytScreeningStage.PRE_TXN,
-            status: 'PASS',
-            riskScore: preRisk,
-            providerCaseId: preProviderCaseId,
-          }),
-          normalizedPayload: {
-            status: 'PASS',
-            riskScore: preRisk,
-          },
-        },
-        tx,
-      );
 
       await this.upsertKytCaseAndAppendReport(
         {
@@ -818,17 +1360,25 @@ export class TransactionComplianceService {
           status: 'PASS',
           riskScore: mainRisk,
           checkedAt,
-          rawPayload: this.buildMockKytPayload({
-            sourceType: TxSourceType.WITHDRAW,
-            sourceId: withdrawal.id,
-            stage: KytScreeningStage.MAIN,
-            status: 'PASS',
-            riskScore: mainRisk,
-            providerCaseId: mainProviderCaseId,
-          }),
+          rawPayload: {
+            ...this.buildMockKytPayload({
+              sourceType: TxSourceType.WITHDRAW,
+              sourceId: withdrawal.id,
+              stage: KytScreeningStage.MAIN,
+              status: 'PASS',
+              riskScore: mainRisk,
+              providerCaseId: mainProviderCaseId,
+            }),
+            triggerEntityType: 'PAYOUT',
+            triggerEntityId: payoutId,
+            triggerStatus: 'CONFIRMED',
+          },
           normalizedPayload: {
             status: 'PASS',
             riskScore: mainRisk,
+            triggerEntityType: 'PAYOUT',
+            triggerEntityId: payoutId,
+            triggerStatus: 'CONFIRMED',
           },
         },
         tx,
@@ -847,37 +1397,29 @@ export class TransactionComplianceService {
           required: withdrawal.travelRuleRequired,
           status: travelStatus,
           checkedAt,
-          rawPayload: this.buildMockTravelPayload({
-            sourceType: TxSourceType.WITHDRAW,
-            sourceId: withdrawal.id,
-            status: travelStatus,
-            required: withdrawal.travelRuleRequired,
-            providerTransferId,
-          }),
+          rawPayload: {
+            ...this.buildMockTravelPayload({
+              sourceType: TxSourceType.WITHDRAW,
+              sourceId: withdrawal.id,
+              status: travelStatus,
+              required: withdrawal.travelRuleRequired,
+              providerTransferId,
+            }),
+            triggerEntityType: 'PAYOUT',
+            triggerEntityId: payoutId,
+            triggerStatus: 'CONFIRMED',
+          },
           normalizedPayload: {
             required: withdrawal.travelRuleRequired,
             status: travelStatus,
+            triggerEntityType: 'PAYOUT',
+            triggerEntityId: payoutId,
+            triggerStatus: 'CONFIRMED',
           },
         },
         tx,
       );
     } else {
-      await this.upsertKytCaseAndAppendReport(
-        {
-          sourceType: TxSourceType.WITHDRAW,
-          sourceId: withdrawal.id,
-          screeningStage: KytScreeningStage.PRE_TXN,
-          ownerType: withdrawal.ownerType,
-          ownerId: withdrawal.ownerId,
-          assetId: withdrawal.assetId,
-          provider,
-          status: 'PENDING',
-          rawPayload: { status: 'PENDING', stage: KytScreeningStage.PRE_TXN },
-          normalizedPayload: { status: 'PENDING' },
-        },
-        tx,
-      );
-
       await this.upsertKytCaseAndAppendReport(
         {
           sourceType: TxSourceType.WITHDRAW,
@@ -888,8 +1430,19 @@ export class TransactionComplianceService {
           assetId: withdrawal.assetId,
           provider,
           status: 'PENDING',
-          rawPayload: { status: 'PENDING', stage: KytScreeningStage.MAIN },
-          normalizedPayload: { status: 'PENDING' },
+          rawPayload: {
+            status: 'PENDING',
+            stage: KytScreeningStage.MAIN,
+            triggerEntityType: 'PAYOUT',
+            triggerEntityId: payoutId,
+            triggerStatus: 'CONFIRMED',
+          },
+          normalizedPayload: {
+            status: 'PENDING',
+            triggerEntityType: 'PAYOUT',
+            triggerEntityId: payoutId,
+            triggerStatus: 'CONFIRMED',
+          },
         },
         tx,
       );
@@ -906,10 +1459,16 @@ export class TransactionComplianceService {
           status: withdrawal.travelRuleRequired ? 'PENDING' : 'NOT_REQUIRED',
           rawPayload: {
             status: withdrawal.travelRuleRequired ? 'PENDING' : 'NOT_REQUIRED',
+            triggerEntityType: 'PAYOUT',
+            triggerEntityId: payoutId,
+            triggerStatus: 'CONFIRMED',
           },
           normalizedPayload: {
             required: withdrawal.travelRuleRequired,
             status: withdrawal.travelRuleRequired ? 'PENDING' : 'NOT_REQUIRED',
+            triggerEntityType: 'PAYOUT',
+            triggerEntityId: payoutId,
+            triggerStatus: 'CONFIRMED',
           },
         },
         tx,
@@ -917,6 +1476,29 @@ export class TransactionComplianceService {
     }
 
     return this.syncWithdrawSnapshotFromCases(withdrawal.id, tx);
+  }
+
+  async ensureDepositComplianceCases(
+    depositId: string,
+    tx?: Prisma.TransactionClient,
+  ) {
+    return this.ensureDepositMainCasesOnPayinConfirmed(
+      depositId,
+      `LEGACY-DEPOSIT-${depositId}`,
+      tx,
+    );
+  }
+
+  async ensureWithdrawComplianceCases(
+    withdrawId: string,
+    tx?: Prisma.TransactionClient,
+  ) {
+    await this.ensureWithdrawPreKytCaseOnCreate(withdrawId, tx);
+    return this.ensureWithdrawMainCasesOnPayoutConfirmed(
+      withdrawId,
+      `LEGACY-WITHDRAW-${withdrawId}`,
+      tx,
+    );
   }
 
   async mockCompleteKytCase(
@@ -1128,57 +1710,23 @@ export class TransactionComplianceService {
     screeningStage: KytScreeningStage = KytScreeningStage.MAIN,
     tx?: Prisma.TransactionClient,
   ): Promise<{ kytCase: Partial<KytCase> | null; travelRuleCase: Partial<TravelRuleCase> | null }> {
-    const client = this.getClient(tx);
-
-    const [kytCase, travelRuleCase] = await Promise.all([
-      client.kytCase.findUnique({
-        where: {
-          sourceType_sourceId_screeningStage: {
-            sourceType,
-            sourceId,
-            screeningStage,
-          },
-        },
-        select: {
-          id: true,
-          caseNo: true,
-          sourceType: true,
-          sourceId: true,
-          screeningStage: true,
-          provider: true,
-          providerCaseId: true,
-          status: true,
-          riskScore: true,
-          checkedAt: true,
-          updatedAt: true,
-        },
-      }),
-      client.travelRuleCase.findUnique({
-        where: {
-          sourceType_sourceId: {
-            sourceType,
-            sourceId,
-          },
-        },
-        select: {
-          id: true,
-          caseNo: true,
-          sourceType: true,
-          sourceId: true,
-          provider: true,
-          providerTransferId: true,
-          required: true,
-          status: true,
-          counterpartyVasp: true,
-          checkedAt: true,
-          updatedAt: true,
-        },
-      }),
-    ]);
+    const aggregate = await this.getTransactionCaseAggregate(
+      sourceType,
+      sourceId,
+      {
+        includeReports: false,
+        includePayload: false,
+      },
+      tx,
+    );
+    const kytCase =
+      screeningStage === KytScreeningStage.PRE_TXN
+        ? aggregate.preKytCase
+        : aggregate.mainKytCase;
 
     return {
       kytCase,
-      travelRuleCase,
+      travelRuleCase: aggregate.travelRuleCase,
     };
   }
 }
