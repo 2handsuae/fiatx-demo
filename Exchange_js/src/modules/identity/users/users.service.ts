@@ -7,6 +7,7 @@ import {
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { User, Prisma } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
+import { randomBytes } from 'crypto';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 import { AccessControlService } from '../access-control/access-control.service';
 import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
@@ -15,6 +16,7 @@ import {
   AuditEntityTypes,
   AuditModules,
 } from '../../risk-engine/audit-logs/constants/audit-actions.constant';
+import { AdminInvitationsService } from './admin-invitations.service';
 
 interface CreateAdminUserInput {
   email: string;
@@ -26,7 +28,6 @@ interface CreateAdminUserInput {
   };
 }
 
-const INITIAL_ADMIN_PASSWORD = '123456';
 const MAX_USER_NO_GENERATION_RETRIES = 10;
 
 @Injectable()
@@ -35,6 +36,7 @@ export class UsersService {
     private prisma: PrismaService,
     private accessControlService: AccessControlService,
     private auditLogsService: AuditLogsService,
+    private adminInvitationsService: AdminInvitationsService,
   ) {}
 
   private normalizeEmail(email: string): string {
@@ -110,7 +112,8 @@ export class UsersService {
       throw new ConflictException('Email already exists');
     }
 
-    const passwordHash = await bcrypt.hash(INITIAL_ADMIN_PASSWORD, 10);
+    const temporaryPassword = randomBytes(24).toString('hex');
+    const passwordHash = await bcrypt.hash(temporaryPassword, 10);
     let createdUser: User | null = null;
 
     for (let i = 0; i < MAX_USER_NO_GENERATION_RETRIES; i += 1) {
@@ -122,7 +125,7 @@ export class UsersService {
             email: normalizedEmail,
             password: passwordHash,
             role: normalizedRoleCodes[0],
-            status: 'ACTIVE',
+            status: 'INACTIVE',
           },
         });
         break;
@@ -143,8 +146,18 @@ export class UsersService {
       );
     }
 
-    let roleBinding: { roles: string[]; warnings: string[] };
+    let invitation: {
+      inviteLink: string;
+      inviteExpiresAt: string;
+      inviteStatus: 'PENDING';
+    } | null = null;
+    let roleBinding: { roles: string[]; warnings: string[] } | null = null;
     try {
+      invitation = await this.adminInvitationsService.createInvitationForUser({
+        userId: createdUser.id,
+        actor: input.actor,
+      });
+
       roleBinding = await this.accessControlService.replaceUserRoles(
         createdUser.id,
         normalizedRoleCodes,
@@ -157,6 +170,10 @@ export class UsersService {
         })
         .catch(() => undefined);
       throw error;
+    }
+
+    if (!invitation || !roleBinding) {
+      throw new InternalServerErrorException('Failed to create user invitation');
     }
 
     await this.auditLogsService.recordByActor(
@@ -177,7 +194,9 @@ export class UsersService {
           userNo: createdUser.userNo,
           userEmail: createdUser.email,
           warnings: roleBinding.warnings,
-          initialPasswordPolicy: 'FIXED_123456',
+          initialPasswordPolicy: 'INVITATION_ACTIVATION_REQUIRED',
+          inviteStatus: invitation.inviteStatus,
+          inviteExpiresAt: invitation.inviteExpiresAt,
         },
       },
       {
@@ -196,7 +215,24 @@ export class UsersService {
       role: createdUser.role,
       roles: roleBinding.roles,
       warnings: roleBinding.warnings,
+      inviteLink: invitation.inviteLink,
+      inviteExpiresAt: invitation.inviteExpiresAt,
+      inviteStatus: invitation.inviteStatus,
     };
+  }
+
+  async resendAdminInvitation(input: {
+    userId: string;
+    actor: {
+      actorId: string;
+      actorRole: string;
+      actorNo?: string;
+    };
+  }) {
+    return this.adminInvitationsService.resendInvitationForUser({
+      userId: input.userId,
+      actor: input.actor,
+    });
   }
 
   async findAll(params: {

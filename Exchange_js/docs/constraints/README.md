@@ -23,6 +23,7 @@ Any agent/thread must read this folder first before proposing or implementing ch
 - Domain flow: internal treasury workflow (`internal_transactions` / `internal_funds`)
 - Domain flow: unified audit logging and evidence package
 - Domain flow: admin member management and RBAC seed account baseline
+- Domain flow: admin member invitation activation lifecycle (`INACTIVE -> invite -> password setup -> ACTIVE`)
 
 ## Enforcement Level
 - `MUST`: mandatory constraint, no exception unless owner explicitly approves.

@@ -3,6 +3,7 @@ export const PERMISSIONS = {
 
   USERS_READ: 'api.get.users',
   USERS_CREATE: 'api.post.users',
+  USERS_INVITATION_RESEND: 'api.post.users_id_invitations_resend',
   IAM_ROLES_READ: 'api.get.admin_iam_roles',
   IAM_PERMISSIONS_READ: 'api.get.admin_iam_permissions',
   IAM_USER_ROLES_READ: 'api.get.admin_iam_users_id_roles',

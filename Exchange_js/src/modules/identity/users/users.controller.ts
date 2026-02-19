@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Param,
   UseGuards,
   Query,
   Req,
@@ -73,5 +74,23 @@ export class UsersController {
         .map((item: any) => item.role?.code)
         .filter(Boolean),
     }));
+  }
+
+  @Post(':id/invitations/resend')
+  @RequirePermissions(buildPermissionCode('POST', '/users/:id/invitations/resend'))
+  @ApiOperation({ summary: 'Resend admin invitation link for INACTIVE member' })
+  async resendInvitation(@Req() req: any, @Param('id') id: string) {
+    if (req.user?.type !== 'ADMIN') {
+      throw new ForbiddenException('Admin token required');
+    }
+
+    return this.usersService.resendAdminInvitation({
+      userId: id,
+      actor: {
+        actorId: req.user.userId,
+        actorRole: req.user.role || 'ADMIN',
+        actorNo: req.user.userNo,
+      },
+    });
   }
 }

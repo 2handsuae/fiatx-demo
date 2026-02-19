@@ -4,12 +4,14 @@ import { PrismaService } from '../../../core/prisma/prisma.service';
 import { AccessControlService } from '../access-control/access-control.service';
 import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
 import { ConflictException } from '@nestjs/common';
+import { AdminInvitationsService } from './admin-invitations.service';
 
 describe('UsersService', () => {
   let service: UsersService;
   let prisma: any;
   let accessControlService: any;
   let auditLogsService: any;
+  let adminInvitationsService: any;
 
   beforeEach(async () => {
     prisma = {
@@ -30,6 +32,11 @@ describe('UsersService', () => {
       recordByActor: jest.fn(),
     };
 
+    adminInvitationsService = {
+      createInvitationForUser: jest.fn(),
+      resendInvitationForUser: jest.fn(),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         UsersService,
@@ -44,6 +51,10 @@ describe('UsersService', () => {
         {
           provide: AuditLogsService,
           useValue: auditLogsService,
+        },
+        {
+          provide: AdminInvitationsService,
+          useValue: adminInvitationsService,
         },
       ],
     }).compile();
@@ -62,7 +73,12 @@ describe('UsersService', () => {
       userNo: 'ADM2602190001',
       email: 'new-admin@fiatx.com',
       role: 'IAM_ADMIN',
-      status: 'ACTIVE',
+      status: 'INACTIVE',
+    });
+    adminInvitationsService.createInvitationForUser.mockResolvedValue({
+      inviteLink: 'http://localhost:3001/admin/activate?token=abc',
+      inviteExpiresAt: '2026-02-20T00:00:00.000Z',
+      inviteStatus: 'PENDING',
     });
     accessControlService.replaceUserRoles.mockResolvedValue({
       userId: 'user-1',
@@ -86,8 +102,18 @@ describe('UsersService', () => {
     const createdPayload = prisma.user.create.mock.calls[0][0];
     expect(createdPayload.data.email).toBe('new-admin@fiatx.com');
     expect(createdPayload.data.role).toBe('IAM_ADMIN');
+    expect(createdPayload.data.status).toBe('INACTIVE');
     expect(createdPayload.data.password).not.toBe('123456');
     expect(createdPayload.data.password).toBeDefined();
+
+    expect(adminInvitationsService.createInvitationForUser).toHaveBeenCalledWith({
+      userId: 'user-1',
+      actor: {
+        actorId: 'admin-1',
+        actorRole: 'SUPER_ADMIN',
+        actorNo: 'ADMIN-001',
+      },
+    });
 
     expect(accessControlService.replaceUserRoles).toHaveBeenCalledWith(
       'user-1',
@@ -104,6 +130,7 @@ describe('UsersService', () => {
       userNo: 'ADM2602190001',
       email: 'new-admin@fiatx.com',
       roles: ['IAM_ADMIN'],
+      inviteStatus: 'PENDING',
     });
   });
 
@@ -121,5 +148,36 @@ describe('UsersService', () => {
         },
       }),
     ).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('should resend admin invitation', async () => {
+    adminInvitationsService.resendInvitationForUser.mockResolvedValue({
+      userId: 'user-1',
+      userNo: 'ADM2602190001',
+      email: 'new-admin@fiatx.com',
+      status: 'INACTIVE',
+      inviteLink: 'http://localhost:3001/admin/activate?token=next',
+      inviteExpiresAt: '2026-02-20T01:00:00.000Z',
+      inviteStatus: 'PENDING',
+    });
+
+    const result = await service.resendAdminInvitation({
+      userId: 'user-1',
+      actor: {
+        actorId: 'admin-1',
+        actorRole: 'SUPER_ADMIN',
+        actorNo: 'ADMIN-001',
+      },
+    });
+
+    expect(adminInvitationsService.resendInvitationForUser).toHaveBeenCalledWith({
+      userId: 'user-1',
+      actor: {
+        actorId: 'admin-1',
+        actorRole: 'SUPER_ADMIN',
+        actorNo: 'ADMIN-001',
+      },
+    });
+    expect(result.inviteStatus).toBe('PENDING');
   });
 });

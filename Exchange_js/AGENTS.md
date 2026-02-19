@@ -38,6 +38,10 @@ Before any code change in `Exchange_js`, read:
 ## Recent Core Decisions (2026-02-19)
 - `Platform Members` is the single member-management entry under `Backend Member Management`; keep create-member and assign-roles workflow in this page.
 - Role and permission explanation is split into dedicated `Role Management` page; do not duplicate catalog blocks back into `Platform Members`.
+- Platform member onboarding uses invitation activation flow:
+1. create member with `INACTIVE` status
+2. issue one-time invitation link (`24h` TTL, resend invalidates prior token)
+3. invited admin sets password and activates account (`INACTIVE -> ACTIVE`)
 - Base seed MUST preserve one fixed admin account per RBAC role (17 total role seed accounts) and keep deterministic role binding on every base sync.
 - `SUPER_ADMIN` seed identity remains `admin@fiatx.com` (`ADMIN-001`); no extra `super_admin@...` seed account.
 - Seed role binding rule for role accounts is strict single-role convergence: target role MUST exist in `user_roles`, non-target role bindings MUST be removed.

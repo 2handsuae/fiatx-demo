@@ -1,6 +1,7 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import type { ReactElement } from 'react';
 import AdminLogin from './pages/AdminLogin';
+import AdminInviteActivate from './pages/AdminInviteActivate';
 import DashboardLayout from './components/DashboardLayout';
 import PlatformMembers from './pages/PlatformMembers';
 import CustomerManagement from './pages/CustomerManagement';
@@ -148,6 +149,7 @@ function App() {
     <Router>
       <Routes>
         <Route path="/admin/login" element={<LoginEntry />} />
+        <Route path="/admin/activate" element={<AdminInviteActivate />} />
 
         <Route
           element={

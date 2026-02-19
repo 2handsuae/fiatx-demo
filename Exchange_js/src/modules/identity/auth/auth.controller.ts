@@ -4,11 +4,13 @@ import {
   Post,
   Body,
   Req,
+  Param,
   ForbiddenException,
   UseGuards,
   UnauthorizedException,
   HttpCode,
   HttpStatus,
+  ValidationPipe,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { AuthService } from './auth.service';
@@ -17,6 +19,7 @@ import { z } from 'zod';
 import { AdminPermissionGuard } from '../access-control/admin-permission.guard';
 import { RequirePermissions } from '../access-control/require-permissions.decorator';
 import { buildPermissionCode } from '../access-control/permission-code.util';
+import { AcceptAdminInvitationDto } from './dto/admin-invitation.dto';
 
 const LoginSchema = z.object({
   email: z.string().min(1),
@@ -56,6 +59,25 @@ export class AuthController {
       throw new UnauthorizedException('Invalid credentials');
     }
     return this.authService.login(user);
+  }
+
+  @Get('admin-invitations/:token')
+  @ApiOperation({ summary: 'Validate admin invitation token' })
+  async previewInvitation(@Param('token') token: string) {
+    return this.authService.getAdminInvitationPreview(token);
+  }
+
+  @Post('admin-invitations/accept')
+  @ApiOperation({ summary: 'Accept admin invitation and activate account' })
+  async acceptInvitation(
+    @Req() req: any,
+    @Body(new ValidationPipe({ transform: true })) body: AcceptAdminInvitationDto,
+  ) {
+    return this.authService.acceptAdminInvitation(body.token, body.password, {
+      requestId: req.id,
+      sourceIp: this.resolveRequestSourceIp(req),
+      sourcePlatform: 'ADMIN_INVITATION_API',
+    });
   }
 
   @Get('me')

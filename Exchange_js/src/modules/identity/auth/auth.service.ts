@@ -1,5 +1,6 @@
 import { Injectable, ForbiddenException, Optional } from '@nestjs/common';
 import { UsersService } from '../users/users.service';
+import { AdminInvitationsService } from '../users/admin-invitations.service';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { createHash } from 'crypto';
@@ -22,6 +23,7 @@ interface AuthRequestContext {
 export class AuthService {
   constructor(
     private usersService: UsersService,
+    private adminInvitationsService: AdminInvitationsService,
     private jwtService: JwtService,
     private auditLogsService: AuditLogsService,
     @Optional() private accessControlService?: AccessControlService,
@@ -61,6 +63,37 @@ export class AuthService {
         },
       );
       return null;
+    }
+
+    if (user.status === 'INACTIVE') {
+      await this.auditLogsService.recordByActor(
+        {
+          triggerType: AuditTriggerType.AUTH_EVENT,
+          action: AuditActions.ADMIN_LOGIN_FAILED,
+          module: AuditModules.AUTH,
+          entityType: AuditEntityTypes.AUTH,
+          entityId: user.id,
+          entityNo: user.userNo,
+          result: AuditResult.REJECTED,
+          reason: 'Admin login rejected: account not activated',
+          metadata: {
+            identifierHash: this.maskIdentifier(identifier),
+            accountStatus: user.status,
+          },
+          requestId: ctx.requestId,
+          sourceIp: ctx.sourceIp,
+          sourcePlatform: ctx.sourcePlatform || 'ADMIN_AUTH_API',
+        },
+        {
+          actorType: 'ADMIN',
+          actorId: user.id,
+          actorNo: user.userNo,
+          actorRole: user.role,
+        },
+      );
+      throw new ForbiddenException(
+        'Account not activated. Please complete invitation setup first.',
+      );
     }
 
     if (
@@ -282,5 +315,17 @@ export class AuthService {
       roles,
       permissions,
     };
+  }
+
+  async getAdminInvitationPreview(token: string) {
+    return this.adminInvitationsService.getInvitationPreview(token);
+  }
+
+  async acceptAdminInvitation(
+    token: string,
+    password: string,
+    ctx: AuthRequestContext = {},
+  ) {
+    return this.adminInvitationsService.acceptInvitation(token, password, ctx);
   }
 }

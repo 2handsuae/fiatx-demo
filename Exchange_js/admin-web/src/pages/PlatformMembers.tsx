@@ -34,6 +34,13 @@ interface RoleCatalogItem {
   }>;
 }
 
+interface InvitePayload {
+  email: string;
+  inviteLink: string;
+  inviteExpiresAt: string;
+  inviteStatus: string;
+}
+
 const PlatformMembers = () => {
   const { hasAnyPermission } = useAdminSession();
 
@@ -43,6 +50,7 @@ const PlatformMembers = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [invitePayload, setInvitePayload] = useState<InvitePayload | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
 
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -58,11 +66,16 @@ const PlatformMembers = () => {
   const [savingRoles, setSavingRoles] = useState(false);
   const [modalError, setModalError] = useState<string | null>(null);
   const [modalWarnings, setModalWarnings] = useState<string[]>([]);
+  const [resendingMemberId, setResendingMemberId] = useState<string | null>(null);
 
   const canReadRoleCatalog = hasAnyPermission([PERMISSIONS.IAM_ROLES_READ]);
   const canReadUserRoles = hasAnyPermission([PERMISSIONS.IAM_USER_ROLES_READ]);
   const canAssignRoles = hasAnyPermission([PERMISSIONS.IAM_USER_ROLES_WRITE]);
   const canCreateMember = hasAnyPermission([PERMISSIONS.USERS_CREATE]);
+  const canResendInvite = hasAnyPermission([
+    PERMISSIONS.USERS_INVITATION_RESEND,
+    PERMISSIONS.USERS_CREATE,
+  ]);
 
   const fetchJson = async <T,>(url: string, init?: RequestInit): Promise<T> => {
     const response = await adminFetch(url, init);
@@ -92,7 +105,6 @@ const PlatformMembers = () => {
   const refreshData = async () => {
     setLoading(true);
     setError(null);
-    setNotice(null);
 
     try {
       await Promise.all([fetchMembers(), fetchRoleCatalog()]);
@@ -170,14 +182,18 @@ const PlatformMembers = () => {
 
     setCreatingMember(true);
     setCreateError(null);
+    setInvitePayload(null);
 
     try {
-      await fetchJson<{
+      const payload = await fetchJson<{
         id: string;
         userNo: string;
         email: string;
         status: string;
         roles: string[];
+        inviteLink: string;
+        inviteExpiresAt: string;
+        inviteStatus: string;
       }>(`${import.meta.env.VITE_API_URL}/users`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -188,7 +204,13 @@ const PlatformMembers = () => {
       });
 
       closeCreateModal();
-      setNotice(`已创建成员 ${normalizedEmail}，初始密码为 123456。`);
+      setNotice(`已创建成员 ${normalizedEmail}，状态为 INACTIVE，请发送邀请链接完成激活。`);
+      setInvitePayload({
+        email: payload.email,
+        inviteLink: payload.inviteLink,
+        inviteExpiresAt: payload.inviteExpiresAt,
+        inviteStatus: payload.inviteStatus,
+      });
       await fetchMembers();
     } catch (err) {
       if (err instanceof AdminPermissionError) {
@@ -198,6 +220,49 @@ const PlatformMembers = () => {
       }
     } finally {
       setCreatingMember(false);
+    }
+  };
+
+  const copyInviteLink = async (link: string) => {
+    try {
+      await navigator.clipboard.writeText(link);
+      setNotice('邀请链接已复制。');
+    } catch {
+      setError('复制失败，请手动复制邀请链接。');
+    }
+  };
+
+  const submitResendInvite = async (member: Member) => {
+    setResendingMemberId(member.id);
+    setError(null);
+    setNotice(null);
+    setInvitePayload(null);
+
+    try {
+      const payload = await fetchJson<{
+        email: string;
+        inviteLink: string;
+        inviteExpiresAt: string;
+        inviteStatus: string;
+      }>(`${import.meta.env.VITE_API_URL}/users/${member.id}/invitations/resend`, {
+        method: 'POST',
+      });
+
+      setNotice(`已为 ${member.email} 重发邀请链接。`);
+      setInvitePayload({
+        email: payload.email,
+        inviteLink: payload.inviteLink,
+        inviteExpiresAt: payload.inviteExpiresAt,
+        inviteStatus: payload.inviteStatus,
+      });
+    } catch (err) {
+      if (err instanceof AdminPermissionError) {
+        setError('权限不足，无法重发邀请。');
+      } else {
+        setError(err instanceof Error ? err.message : 'Failed to resend invitation.');
+      }
+    } finally {
+      setResendingMemberId(null);
     }
   };
 
@@ -317,6 +382,28 @@ const PlatformMembers = () => {
         </div>
       )}
 
+      {invitePayload && (
+        <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800 space-y-2">
+          <div>
+            邀请对象：{invitePayload.email} | 状态：{invitePayload.inviteStatus}
+          </div>
+          <div>过期时间：{new Date(invitePayload.inviteExpiresAt).toLocaleString()}</div>
+          <div className="break-all font-mono text-xs bg-white border border-blue-100 rounded px-2 py-1">
+            {invitePayload.inviteLink}
+          </div>
+          <div>
+            <button
+              onClick={() => {
+                void copyInviteLink(invitePayload.inviteLink);
+              }}
+              className="text-xs px-3 py-1.5 rounded-md border border-blue-200 bg-white hover:bg-blue-100 transition-colors"
+            >
+              Copy Invite Link
+            </button>
+          </div>
+        </div>
+      )}
+
       {modalWarnings.length > 0 && (
         <div className="rounded-lg border border-yellow-200 bg-yellow-50 px-4 py-3 text-sm text-yellow-700">
           {modalWarnings.join(' | ')}
@@ -406,18 +493,32 @@ const PlatformMembers = () => {
                         {member.lastLoginAt ? new Date(member.lastLoginAt).toLocaleString() : '-'}
                       </td>
                       <td className="px-6 py-4 text-right">
-                        {canAssignRoles ? (
-                          <button
-                            onClick={() => {
-                              void openRoleModal(member);
-                            }}
-                            className="text-xs px-3 py-1.5 rounded-md border border-admin-border hover:bg-admin-content-bg"
-                          >
-                            Assign Roles
-                          </button>
-                        ) : (
-                          <span className="text-xs text-gray-400">No edit permission</span>
-                        )}
+                        <div className="inline-flex gap-2">
+                          {canAssignRoles ? (
+                            <button
+                              onClick={() => {
+                                void openRoleModal(member);
+                              }}
+                              className="text-xs px-3 py-1.5 rounded-md border border-admin-border hover:bg-admin-content-bg"
+                            >
+                              Assign Roles
+                            </button>
+                          ) : null}
+                          {canResendInvite && member.status === 'INACTIVE' ? (
+                            <button
+                              onClick={() => {
+                                void submitResendInvite(member);
+                              }}
+                              disabled={resendingMemberId === member.id}
+                              className="text-xs px-3 py-1.5 rounded-md border border-admin-border hover:bg-admin-content-bg disabled:opacity-60"
+                            >
+                              {resendingMemberId === member.id ? 'Resending...' : 'Resend Invite'}
+                            </button>
+                          ) : null}
+                          {!canAssignRoles && !(canResendInvite && member.status === 'INACTIVE') ? (
+                            <span className="text-xs text-gray-400">No edit permission</span>
+                          ) : null}
+                        </div>
                       </td>
                     </tr>
                   );
@@ -438,7 +539,7 @@ const PlatformMembers = () => {
             <div className="px-5 py-4 border-b border-admin-border flex items-center justify-between">
               <div>
                 <h3 className="font-semibold text-gray-900">Create Member</h3>
-                <p className="text-xs text-gray-500 mt-1">初始密码固定为 123456</p>
+                <p className="text-xs text-gray-500 mt-1">成员创建后为 INACTIVE，需通过邀请链接设密激活</p>
               </div>
               <button onClick={closeCreateModal} className="text-gray-400 hover:text-gray-600">
                 <X size={18} />
