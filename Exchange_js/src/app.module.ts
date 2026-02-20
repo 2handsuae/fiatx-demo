@@ -36,6 +36,8 @@ import { RiskEngineModule } from './modules/risk-engine/risk-engine.module';
 import { OnboardingModule } from './modules/identity/onboarding/onboarding.module';
 import { TransactionComplianceModule } from './modules/risk-engine/transaction-compliance/transaction-compliance.module';
 import { AuditLogsModule } from './modules/risk-engine/audit-logs/audit-logs.module';
+import { ComplianceAlertsModule } from './modules/risk-engine/compliance-alerts/compliance-alerts.module';
+import { ComplianceIncidentsModule } from './modules/risk-engine/compliance-incidents/compliance-incidents.module';
 
 @Module({
   imports: [
@@ -91,6 +93,8 @@ import { AuditLogsModule } from './modules/risk-engine/audit-logs/audit-logs.mod
     RiskEngineModule,
     TransactionComplianceModule,
     AuditLogsModule,
+    ComplianceAlertsModule,
+    ComplianceIncidentsModule,
     OnboardingModule,
   ],
   controllers: [],

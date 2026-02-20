@@ -60,6 +60,8 @@ import TransactionComplianceCaseDetailPage from './pages/TransactionComplianceCa
 import TransactionKytCasesPage from './pages/TransactionKytCasesPage';
 import TransactionTravelRuleCasesPage from './pages/TransactionTravelRuleCasesPage';
 import AuditLogsPage from './pages/AuditLogsPage';
+import ComplianceAlertsPage from './pages/ComplianceAlertsPage';
+import ComplianceIncidentsPage from './pages/ComplianceIncidentsPage';
 import RoleManagement from './pages/RoleManagement';
 import { useAdminSession } from './contexts/AdminSessionContext';
 import { PERMISSIONS } from './rbac/permissions';
@@ -235,6 +237,14 @@ function App() {
             <Route
               path="compliance/edd-cases"
               element={withPermission(<EddCasesPage />, [PERMISSIONS.EDD_CASES_READ])}
+            />
+            <Route
+              path="compliance/alerts"
+              element={withPermission(<ComplianceAlertsPage />, [PERMISSIONS.BASE_ACCESS])}
+            />
+            <Route
+              path="compliance/incidents"
+              element={withPermission(<ComplianceIncidentsPage />, [PERMISSIONS.BASE_ACCESS])}
             />
             <Route
               path="compliance/tx-evidence"

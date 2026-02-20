@@ -189,6 +189,18 @@ const DashboardLayout = () => {
           requiredPermissions: [PERMISSIONS.EDD_CASES_READ],
         },
         {
+          path: '/dashboard/compliance/alerts',
+          label: 'Alerts',
+          icon: <Activity size={18} />,
+          requiredPermissions: [PERMISSIONS.BASE_ACCESS],
+        },
+        {
+          path: '/dashboard/compliance/incidents',
+          label: 'Incidents',
+          icon: <Activity size={18} />,
+          requiredPermissions: [PERMISSIONS.BASE_ACCESS],
+        },
+        {
           path: '/dashboard/compliance/audit-logs',
           label: 'Audit Logs',
           icon: <FileText size={18} />,

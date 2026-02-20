@@ -13,12 +13,14 @@ Any agent/thread must read this folder first before proposing or implementing ch
 6. `docs/constraints/internal-transaction-flow-constraints.md`
 7. `docs/constraints/audit-logging-constraints.md`
 8. `docs/constraints/rbac-member-management-constraints.md`
+9. `docs/constraints/compliance-alert-incident-constraints.md`
 
 ## Scope
 - Frontend: `admin-web`, `client-web`
 - Backend: `src/**`, `prisma/**`, `scripts/**`
 - Runtime: local dev scripts, envs, startup/reset workflow
 - Domain flow: onboarding and compliance lifecycle
+- Domain flow: compliance alert and incident lifecycle
 - Domain flow: customer transaction workflow (deposit/swap/withdraw)
 - Domain flow: internal treasury workflow (`internal_transactions` / `internal_funds`)
 - Domain flow: unified audit logging and evidence package
