@@ -43,10 +43,12 @@
 - MUST include P0 coverage actions for:
 1. Auth
 2. Compliance (KYT/Travel Rule)
-3. Config domains
-4. Wallet
-5. Customer
-6. Swap Quote lifecycle
+3. Compliance Alert/Incident lifecycle
+4. Config domains
+5. Wallet
+6. Customer
+7. Swap Quote lifecycle
+- Compliance alert/incident domain actions SHOULD use `DATA_CREATE` / `DATA_UPDATE` trigger types with domain action names (`ALERT_*`, `INCIDENT_*`), instead of `MANUAL_*` / `SYSTEM_*`.
 
 ## No-First Query Constraints
 - `GET /admin/audit-logs` MUST support exact filters:
@@ -65,10 +67,11 @@
 - MUST cover P0 domains in unified write path:
 1. Auth login chain
 2. Transaction compliance
-3. Config center changes
-4. Wallet master data
-5. Customer master data
-6. Swap Quote lifecycle
+3. Compliance alert and incident lifecycle
+4. Config center changes
+5. Wallet master data
+6. Customer master data
+7. Swap Quote lifecycle
 - SHOULD write via `recordByActor()` for human/API actions and `recordSystem()` for jobs/orchestrators.
 
 ## Evidence Package and Export Constraints

@@ -541,7 +541,7 @@ export class ComplianceAlertsService {
 
       await this.auditLogsService.recordSystem(
         {
-          triggerType: AuditTriggerType.SYSTEM_EVENT,
+          triggerType: AuditTriggerType.DATA_UPDATE,
           action: AuditActions.ALERT_TRIGGERED,
           module: AuditModules.COMPLIANCE_ALERTS,
           entityType: AuditEntityTypes.COMPLIANCE_ALERT,
@@ -636,7 +636,7 @@ export class ComplianceAlertsService {
 
       await this.auditLogsService.recordSystem(
         {
-          triggerType: AuditTriggerType.SYSTEM_EVENT,
+          triggerType: AuditTriggerType.DATA_UPDATE,
           action: AuditActions.ALERT_TRIGGERED,
           module: AuditModules.COMPLIANCE_ALERTS,
           entityType: AuditEntityTypes.COMPLIANCE_ALERT,
@@ -713,7 +713,7 @@ export class ComplianceAlertsService {
 
     await this.auditLogsService.recordSystem(
       {
-        triggerType: AuditTriggerType.SYSTEM_EVENT,
+        triggerType: AuditTriggerType.DATA_UPDATE,
         action: AuditActions.ALERT_TRIGGERED,
         module: AuditModules.COMPLIANCE_ALERTS,
         entityType: AuditEntityTypes.COMPLIANCE_ALERT,
@@ -856,8 +856,10 @@ export class ComplianceAlertsService {
     id: string,
     dto: UpdateComplianceAlertActionDto,
     actor: ComplianceAlertActorContext,
+    tx?: Prisma.TransactionClient,
   ) {
-    const current = await this.prisma.complianceAlert.findUnique({
+    const db = this.getDb(tx);
+    const current = await db.complianceAlert.findUnique({
       where: { id },
     });
     if (!current) {
@@ -891,7 +893,7 @@ export class ComplianceAlertsService {
 
     if (dto.action === ComplianceAlertAction.ASSIGN) {
       assigneeUserId = this.normalizeOptionalString(dto.assigneeUserId) || actor.actorId;
-      assigneeUserNo = await this.resolveUserNo(assigneeUserId, this.prisma);
+      assigneeUserNo = await this.resolveUserNo(assigneeUserId, db);
       if (!assigneeUserNo) {
         throw new BadRequestException(`Assignee user not found: ${assigneeUserId}`);
       }
@@ -905,12 +907,12 @@ export class ComplianceAlertsService {
       updateData.closeReason = reason || note || null;
     }
 
-    const updated = await this.prisma.complianceAlert.update({
+    const updated = await db.complianceAlert.update({
       where: { id },
       data: updateData,
     });
 
-    await this.appendEvent(this.prisma, {
+    await this.appendEvent(db, {
       alertId: updated.id,
       eventType: resolution.eventType,
       eventAt: now,
@@ -933,9 +935,7 @@ export class ComplianceAlertsService {
 
     await this.auditLogsService.recordByActor(
       {
-        triggerType: resolution.statusChanged
-          ? AuditTriggerType.STATE_TRANSITION
-          : AuditTriggerType.MANUAL_OVERRIDE,
+        triggerType: AuditTriggerType.DATA_UPDATE,
         action: resolution.auditAction,
         module: AuditModules.COMPLIANCE_ALERTS,
         entityType: AuditEntityTypes.COMPLIANCE_ALERT,
@@ -960,8 +960,27 @@ export class ComplianceAlertsService {
         actorNo: actor.actorNo,
         actorRole: actor.actorRole,
       },
+      tx,
     );
 
-    return this.findOne(updated.id);
+    const detail = await db.complianceAlert.findUnique({
+      where: { id: updated.id },
+      include: {
+        events: {
+          orderBy: { eventAt: 'desc' },
+        },
+      },
+    });
+
+    if (!detail) {
+      throw new NotFoundException(`Compliance alert not found: ${updated.id}`);
+    }
+
+    return {
+      ...this.mapAlert(detail),
+      events: (detail as AlertWithEvents).events.map((event) =>
+        this.mapAlertEvent(event),
+      ),
+    };
   }
 }

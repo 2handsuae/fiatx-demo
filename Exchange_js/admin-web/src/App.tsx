@@ -55,6 +55,7 @@ import CddCasesPage from './pages/CddCasesPage';
 import EddCasesPage from './pages/EddCasesPage';
 import AuditLogsPage from './pages/AuditLogsPage';
 import ComplianceAlertsPage from './pages/ComplianceAlertsPage';
+import ComplianceIncidentsPage from './pages/ComplianceIncidentsPage';
 
 function App() {
   return (
@@ -79,6 +80,7 @@ function App() {
              <Route path="compliance/cdd-cases" element={<CddCasesPage />} />
              <Route path="compliance/edd-cases" element={<EddCasesPage />} />
              <Route path="compliance/alerts" element={<ComplianceAlertsPage />} />
+             <Route path="compliance/incidents" element={<ComplianceIncidentsPage />} />
              <Route path="compliance/audit-logs" element={<AuditLogsPage />} />
              <Route path="customer/:id" element={<CustomerDetail />} />
              <Route path="treasury/wallets" element={<WalletList />} />

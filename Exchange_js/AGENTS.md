@@ -7,9 +7,10 @@ Before any code change in `Exchange_js`, read:
 3. `docs/constraints/backend-architecture-constraints.md`
 4. `docs/constraints/runtime-config-constraints.md`
 5. `docs/constraints/onboarding-flow-constraints.md`
-6. `docs/constraints/customer-transaction-flow-constraints.md`
-7. `docs/constraints/internal-transaction-flow-constraints.md`
-8. `docs/constraints/audit-logging-constraints.md`
+6. `docs/constraints/compliance-alert-incident-constraints.md`
+7. `docs/constraints/customer-transaction-flow-constraints.md`
+8. `docs/constraints/internal-transaction-flow-constraints.md`
+9. `docs/constraints/audit-logging-constraints.md`
 
 ## Scope
 - Backend: `src/**`, `prisma/**`, `scripts/**`
@@ -33,3 +34,9 @@ Before any code change in `Exchange_js`, read:
 - FIAT internal transaction accounting must mirror CRYPTO lifecycle semantics (created posting, terminal success/reversal, wallet snapshot projection), using FIAT-specific events/templates.
 - FIAT withdraw source wallet for posting/binding is `CUST_BANK` pool (AED baseline `WA-CBK-AED-NA`), not `LIQ_BANK`.
 - Business reset boundary includes quote/outstanding/rate business tables; base config keeps valuation/accounting templates/events.
+
+## Recent Core Decisions (2026-02-20)
+- Compliance Incident V1 is enabled and is created manually from alert escalation (`POST /admin/compliance/incidents/from-alert/:alertId`).
+- Incident mainline is fixed to `NEW -> ASSIGNED -> INVESTIGATING -> RESOLVED -> CLOSED`, with branch to `FALSE_POSITIVE`; terminal states cannot reopen.
+- One incident can aggregate multiple alerts, but one alert can belong to only one incident (`compliance_incident_alerts.alertId` global unique).
+- Alert escalation to incident must run in one DB transaction: escalate alert to terminal `ESCALATED` and create incident + primary link atomically.

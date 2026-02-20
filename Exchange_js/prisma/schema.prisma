@@ -499,6 +499,8 @@ model ComplianceAlert {
   createdAt        DateTime               @default(now())
   updatedAt        DateTime               @updatedAt
   events           ComplianceAlertEvent[]
+  primaryIncident  ComplianceIncident?    @relation("PrimaryIncidentAlert")
+  incidentLinks    ComplianceIncidentAlert[]
 
   @@index([status, lastOccurredAt])
   @@index([severity, status, dueAt])
@@ -525,6 +527,97 @@ model ComplianceAlertEvent {
 
   @@index([alertId, eventAt])
   @@map("compliance_alert_events")
+}
+
+model ComplianceIncident {
+  id                String                    @id @default(uuid())
+  incidentNo        String                    @unique @default("TEMP")
+  status            String                    @default("NEW")
+  severity          String
+  title             String
+  summary           String
+  primaryAlertId    String?                   @unique
+  primaryAlertNo    String?
+  customerId        String?
+  customerNo        String?
+  entityType        String?
+  entityId          String?
+  entityNo          String?
+  sourceModule      String?
+  sourceType        String?
+  ownerUserId       String?
+  ownerUserNo       String?
+  assignedAt        DateTime?
+  alertCount        Int                       @default(1)
+  firstAlertAt      DateTime
+  lastAlertAt       DateTime
+  dueAt             DateTime
+  resolvedAt        DateTime?
+  closedAt          DateTime?
+  closeReason       String?
+  rootCauseCategory String?
+  resolutionSummary String?
+  containmentSummary String?
+  closureChecklist  String?
+  lastActionById    String?
+  lastActionByNo    String?
+  lastActionByRole  String?
+  lastActionAt      DateTime?
+  metadata          String?
+  retainedUntil     DateTime
+  createdAt         DateTime                  @default(now())
+  updatedAt         DateTime                  @updatedAt
+  primaryAlert      ComplianceAlert?          @relation("PrimaryIncidentAlert", fields: [primaryAlertId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  alerts            ComplianceIncidentAlert[]
+  events            ComplianceIncidentEvent[]
+
+  @@index([status, lastActionAt])
+  @@index([severity, status, dueAt])
+  @@index([customerNo, lastActionAt])
+  @@index([primaryAlertId])
+  @@index([lastAlertAt])
+  @@map("compliance_incidents")
+}
+
+model ComplianceIncidentAlert {
+  id           String             @id @default(uuid())
+  incidentId   String
+  alertId      String             @unique
+  alertNo      String
+  relationType String
+  linkedAt     DateTime           @default(now())
+  linkedByType String
+  linkedById   String
+  linkedByNo   String?
+  linkedByRole String?
+  note         String?
+  createdAt    DateTime           @default(now())
+  incident     ComplianceIncident @relation(fields: [incidentId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  alert        ComplianceAlert    @relation(fields: [alertId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([incidentId, alertId])
+  @@index([incidentId, relationType, linkedAt])
+  @@index([alertId])
+  @@map("compliance_incident_alerts")
+}
+
+model ComplianceIncidentEvent {
+  id             String             @id @default(uuid())
+  incidentId     String
+  eventType      String
+  eventAt        DateTime           @default(now())
+  actorType      String
+  actorId        String
+  actorNo        String?
+  actorRole      String?
+  note           String?
+  payload        String?
+  sourcePlatform String?
+  createdAt      DateTime           @default(now())
+  incident       ComplianceIncident @relation(fields: [incidentId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@index([incidentId, eventAt])
+  @@map("compliance_incident_events")
 }
 
 model LiquidityProvider {

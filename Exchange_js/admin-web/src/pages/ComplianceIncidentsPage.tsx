@@ -7,41 +7,60 @@ import {
   getApiErrorMessage,
 } from '../utils/adminFetch';
 
-type AlertSeverity = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
-type AlertStatus =
+type IncidentSeverity = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+type IncidentStatus =
   | 'NEW'
   | 'ASSIGNED'
-  | 'IN_REVIEW'
-  | 'ESCALATED'
+  | 'INVESTIGATING'
   | 'RESOLVED'
+  | 'CLOSED'
   | 'FALSE_POSITIVE';
-type AlertAction =
-  | 'START_REVIEW'
+type IncidentAction =
   | 'ASSIGN'
-  | 'ESCALATE'
-  | 'RESOLVE'
+  | 'START_INVESTIGATION'
+  | 'MARK_RESOLVED'
+  | 'CLOSE'
   | 'MARK_FALSE_POSITIVE';
 
-interface AlertItem {
+interface IncidentItem {
   id: string;
-  alertNo: string;
-  ruleCode: string;
-  capCode?: string | null;
-  severity: AlertSeverity;
-  status: AlertStatus;
+  incidentNo: string;
+  status: IncidentStatus;
+  severity: IncidentSeverity;
   title: string;
-  message: string;
-  sourceType: string;
-  sourceId: string;
-  sourceNo?: string | null;
+  summary: string;
+  primaryAlertNo?: string | null;
   customerNo?: string | null;
-  assigneeUserNo?: string | null;
-  hitCount: number;
+  ownerUserNo?: string | null;
+  alertCount: number;
   dueAt: string;
-  lastOccurredAt: string;
+  lastActionAt?: string | null;
 }
 
-interface AlertEvent {
+interface IncidentAlertLink {
+  id: string;
+  alertId: string;
+  alertNo: string;
+  relationType: 'PRIMARY' | 'RELATED';
+  linkedAt: string;
+  linkedByNo?: string | null;
+  note?: string | null;
+  alert?: {
+    id: string;
+    alertNo: string;
+    ruleCode: string;
+    severity: string;
+    status: string;
+    title: string;
+    sourceType: string;
+    sourceId: string;
+    sourceNo?: string | null;
+    dueAt: string;
+    lastOccurredAt: string;
+  } | null;
+}
+
+interface IncidentEvent {
   id: string;
   eventType: string;
   eventAt: string;
@@ -52,42 +71,39 @@ interface AlertEvent {
   payload?: unknown;
 }
 
-interface AlertDetail extends AlertItem {
-  sourceModule: string;
+interface IncidentDetail extends IncidentItem {
+  customerId?: string | null;
   entityType?: string | null;
   entityNo?: string | null;
-  ownerNo?: string | null;
-  closeReason?: string | null;
+  sourceModule?: string | null;
+  sourceType?: string | null;
+  assignedAt?: string | null;
+  resolvedAt?: string | null;
   closedAt?: string | null;
+  closeReason?: string | null;
+  rootCauseCategory?: string | null;
+  resolutionSummary?: string | null;
+  containmentSummary?: string | null;
+  closureChecklist?: unknown;
   metadata?: unknown;
-  events: AlertEvent[];
+  alerts: IncidentAlertLink[];
+  events: IncidentEvent[];
 }
 
-interface AlertListResponse {
+interface IncidentListResponse {
   total: number;
   skip: number;
   take: number;
-  items: AlertItem[];
-}
-
-interface SimulateAlertsResponse {
-  createdCount: number;
-  items: AlertItem[];
-}
-
-interface IncidentFromAlertResponse {
-  id: string;
-  incidentNo: string;
+  items: IncidentItem[];
 }
 
 interface FilterState {
-  status: '' | AlertStatus;
-  severity: '' | AlertSeverity;
-  ruleCode: string;
-  sourceType: string;
-  sourceId: string;
+  incidentNo: string;
+  status: '' | IncidentStatus;
+  severity: '' | IncidentSeverity;
   customerNo: string;
-  assigneeUserId: string;
+  ownerUserId: string;
+  alertNo: string;
   keyword: string;
   overdueOnly: boolean;
 }
@@ -95,18 +111,17 @@ interface FilterState {
 const PAGE_SIZE = 20;
 
 const DEFAULT_FILTERS: FilterState = {
+  incidentNo: '',
   status: '',
   severity: '',
-  ruleCode: '',
-  sourceType: '',
-  sourceId: '',
   customerNo: '',
-  assigneeUserId: '',
+  ownerUserId: '',
+  alertNo: '',
   keyword: '',
   overdueOnly: false,
 };
 
-const CLOSED_STATUSES: AlertStatus[] = ['ESCALATED', 'RESOLVED', 'FALSE_POSITIVE'];
+const CLOSED_STATUSES: IncidentStatus[] = ['CLOSED', 'FALSE_POSITIVE'];
 
 const formatDateTime = (value?: string | null): string => {
   if (!value) return '-';
@@ -125,75 +140,73 @@ const toPrettyJson = (value: unknown): string => {
   }
 };
 
-const getSeverityClass = (severity: AlertSeverity) => {
+const getSeverityClass = (severity: IncidentSeverity) => {
   if (severity === 'CRITICAL') return 'bg-red-100 text-red-800';
   if (severity === 'HIGH') return 'bg-orange-100 text-orange-800';
   if (severity === 'MEDIUM') return 'bg-yellow-100 text-yellow-800';
   return 'bg-gray-100 text-gray-700';
 };
 
-const getStatusClass = (status: AlertStatus) => {
+const getStatusClass = (status: IncidentStatus) => {
   if (status === 'NEW') return 'bg-blue-100 text-blue-800';
   if (status === 'ASSIGNED') return 'bg-indigo-100 text-indigo-800';
-  if (status === 'IN_REVIEW') return 'bg-purple-100 text-purple-800';
-  if (status === 'ESCALATED') return 'bg-red-100 text-red-800';
+  if (status === 'INVESTIGATING') return 'bg-purple-100 text-purple-800';
   if (status === 'RESOLVED') return 'bg-green-100 text-green-800';
+  if (status === 'CLOSED') return 'bg-gray-200 text-gray-800';
   return 'bg-gray-100 text-gray-700';
 };
 
-const isOverdue = (item: AlertItem) =>
+const isOverdue = (item: IncidentItem) =>
   !CLOSED_STATUSES.includes(item.status) &&
   new Date(item.dueAt).getTime() < Date.now();
 
-const getAllowedActions = (status: AlertStatus): AlertAction[] => {
-  if (status === 'NEW') {
-    return ['ASSIGN'];
-  }
+const getAllowedActions = (status: IncidentStatus): IncidentAction[] => {
+  if (status === 'NEW') return ['ASSIGN', 'MARK_FALSE_POSITIVE'];
   if (status === 'ASSIGNED') {
-    return ['START_REVIEW', 'ASSIGN', 'ESCALATE', 'MARK_FALSE_POSITIVE'];
+    return ['ASSIGN', 'START_INVESTIGATION', 'MARK_FALSE_POSITIVE'];
   }
-  if (status === 'IN_REVIEW') {
-    return ['ASSIGN', 'ESCALATE', 'RESOLVE', 'MARK_FALSE_POSITIVE'];
+  if (status === 'INVESTIGATING') {
+    return ['ASSIGN', 'MARK_RESOLVED', 'MARK_FALSE_POSITIVE'];
   }
+  if (status === 'RESOLVED') return ['CLOSE'];
   return [];
 };
 
-const actionLabelMap: Record<AlertAction, string> = {
-  START_REVIEW: 'Start Review',
+const actionLabelMap: Record<IncidentAction, string> = {
   ASSIGN: 'Assign to Me',
-  ESCALATE: 'Escalate to Incident',
-  RESOLVE: 'Resolve',
+  START_INVESTIGATION: 'Start Investigation',
+  MARK_RESOLVED: 'Mark Resolved',
+  CLOSE: 'Close',
   MARK_FALSE_POSITIVE: 'False Positive',
 };
 
-const ComplianceAlertsPage = () => {
+const ComplianceIncidentsPage = () => {
   const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
-  const [items, setItems] = useState<AlertItem[]>([]);
+  const [items, setItems] = useState<IncidentItem[]>([]);
   const [total, setTotal] = useState(0);
   const [currentPage, setCurrentPage] = useState(1);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
-  const [detail, setDetail] = useState<AlertDetail | null>(null);
+  const [detail, setDetail] = useState<IncidentDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
-  const [acting, setActing] = useState<AlertAction | null>(null);
-  const [simulating, setSimulating] = useState(false);
+  const [acting, setActing] = useState<IncidentAction | null>(null);
+  const [linking, setLinking] = useState(false);
 
   const hasFilters = useMemo(() => {
     return (
+      !!filters.incidentNo.trim() ||
       !!filters.status ||
       !!filters.severity ||
-      !!filters.ruleCode.trim() ||
-      !!filters.sourceType.trim() ||
-      !!filters.sourceId.trim() ||
       !!filters.customerNo.trim() ||
-      !!filters.assigneeUserId.trim() ||
+      !!filters.ownerUserId.trim() ||
+      !!filters.alertNo.trim() ||
       !!filters.keyword.trim() ||
       filters.overdueOnly
     );
   }, [filters]);
 
-  const fetchAlerts = async (
+  const fetchIncidents = async (
     targetPage: number,
     activeFilters: FilterState = filters,
   ) => {
@@ -204,38 +217,37 @@ const ComplianceAlertsPage = () => {
       params.set('skip', String((targetPage - 1) * PAGE_SIZE));
       params.set('take', String(PAGE_SIZE));
 
+      if (activeFilters.incidentNo.trim()) params.set('incidentNo', activeFilters.incidentNo.trim());
       if (activeFilters.status) params.set('status', activeFilters.status);
       if (activeFilters.severity) params.set('severity', activeFilters.severity);
-      if (activeFilters.ruleCode.trim()) params.set('ruleCode', activeFilters.ruleCode.trim());
-      if (activeFilters.sourceType.trim()) params.set('sourceType', activeFilters.sourceType.trim());
-      if (activeFilters.sourceId.trim()) params.set('sourceId', activeFilters.sourceId.trim());
       if (activeFilters.customerNo.trim()) params.set('customerNo', activeFilters.customerNo.trim());
-      if (activeFilters.assigneeUserId.trim()) params.set('assigneeUserId', activeFilters.assigneeUserId.trim());
+      if (activeFilters.ownerUserId.trim()) params.set('ownerUserId', activeFilters.ownerUserId.trim());
+      if (activeFilters.alertNo.trim()) params.set('alertNo', activeFilters.alertNo.trim());
       if (activeFilters.keyword.trim()) params.set('keyword', activeFilters.keyword.trim());
       if (activeFilters.overdueOnly) params.set('overdueOnly', 'true');
 
       const response = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/compliance/alerts?${params.toString()}`,
+        `${import.meta.env.VITE_API_URL}/admin/compliance/incidents?${params.toString()}`,
       );
 
       if (!response.ok) {
-        throw new Error(await getApiErrorMessage(response, 'Failed to load alerts.'));
+        throw new Error(await getApiErrorMessage(response, 'Failed to load incidents.'));
       }
 
-      const data = (await response.json()) as AlertListResponse;
+      const data = (await response.json()) as IncidentListResponse;
       setItems(Array.isArray(data.items) ? data.items : []);
       setTotal(typeof data.total === 'number' ? data.total : 0);
       setCurrentPage(targetPage);
     } catch (e: unknown) {
       if (e instanceof AdminSessionError) return;
-      setError(e instanceof Error ? e.message : 'Failed to load alerts.');
+      setError(e instanceof Error ? e.message : 'Failed to load incidents.');
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchAlerts(1);
+    fetchIncidents(1);
   }, []);
 
   const openDetail = async (id: string) => {
@@ -243,69 +255,81 @@ const ComplianceAlertsPage = () => {
     setError('');
     try {
       const response = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/compliance/alerts/${id}`,
+        `${import.meta.env.VITE_API_URL}/admin/compliance/incidents/${id}`,
       );
       if (!response.ok) {
-        throw new Error(await getApiErrorMessage(response, 'Failed to load alert detail.'));
+        throw new Error(await getApiErrorMessage(response, 'Failed to load incident detail.'));
       }
-      const data = (await response.json()) as AlertDetail;
+      const data = (await response.json()) as IncidentDetail;
       setDetail(data);
     } catch (e: unknown) {
       if (e instanceof AdminSessionError) return;
-      setError(e instanceof Error ? e.message : 'Failed to load alert detail.');
+      setError(e instanceof Error ? e.message : 'Failed to load incident detail.');
     } finally {
       setDetailLoading(false);
     }
   };
 
-  const handleAction = async (action: AlertAction) => {
+  const handleAction = async (action: IncidentAction) => {
     if (!detail) return;
     setActing(action);
     setError('');
     setMessage('');
+
     try {
       let reason: string | undefined;
-      if (action === 'ESCALATE' || action === 'RESOLVE' || action === 'MARK_FALSE_POSITIVE') {
+      let rootCauseCategory: string | undefined;
+      let resolutionSummary: string | undefined;
+      let containmentSummary: string | undefined;
+      let closureChecklist: string[] | undefined;
+
+      if (action === 'MARK_RESOLVED' || action === 'CLOSE' || action === 'MARK_FALSE_POSITIVE') {
         reason = window.prompt('Please provide reason', '') || '';
         if (!reason.trim()) {
           throw new Error(`Action ${action} requires a reason.`);
         }
       }
 
-      if (action === 'ESCALATE') {
-        const response = await adminFetch(
-          `${import.meta.env.VITE_API_URL}/admin/compliance/incidents/from-alert/${detail.id}`,
-          {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ reason }),
-          },
-        );
-
-        if (!response.ok) {
-          throw new Error(await getApiErrorMessage(response, 'Escalation failed.'));
+      if (action === 'MARK_RESOLVED') {
+        rootCauseCategory = window.prompt('Root cause category', '') || '';
+        if (!rootCauseCategory.trim()) {
+          throw new Error('MARK_RESOLVED requires rootCauseCategory.');
         }
 
-        const data = (await response.json()) as IncidentFromAlertResponse;
-        setMessage(
-          data.incidentNo
-            ? `Escalated to incident ${data.incidentNo}.`
-            : 'Escalated and incident created.',
-        );
-        await fetchAlerts(currentPage);
-        await openDetail(detail.id);
-        return;
+        resolutionSummary = window.prompt('Resolution summary', '') || '';
+        if (!resolutionSummary.trim()) {
+          throw new Error('MARK_RESOLVED requires resolutionSummary.');
+        }
+
+        containmentSummary = window.prompt('Containment summary (optional)', '') || '';
       }
 
-      const payload: Record<string, unknown> = {
-        action,
-      };
+      if (action === 'CLOSE') {
+        const checklistInput =
+          window.prompt(
+            'Closure checklist (comma-separated, at least 3 items)',
+            'Evidence collected,Impact assessed,Audit logs completed',
+          ) || '';
+
+        closureChecklist = checklistInput
+          .split(',')
+          .map((item) => item.trim())
+          .filter((item) => item.length > 0);
+
+        if (closureChecklist.length < 3) {
+          throw new Error('CLOSE requires at least 3 closure checklist items.');
+        }
+      }
+
+      const payload: Record<string, unknown> = { action };
       if (reason) payload.reason = reason;
+      if (rootCauseCategory) payload.rootCauseCategory = rootCauseCategory;
+      if (resolutionSummary) payload.resolutionSummary = resolutionSummary;
+      if (containmentSummary) payload.containmentSummary = containmentSummary;
+      if (closureChecklist) payload.closureChecklist = closureChecklist;
 
       const response = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/compliance/alerts/${detail.id}/action`,
+        `${import.meta.env.VITE_API_URL}/admin/compliance/incidents/${detail.id}/action`,
         {
           method: 'PATCH',
           headers: {
@@ -319,10 +343,10 @@ const ComplianceAlertsPage = () => {
         throw new Error(await getApiErrorMessage(response, 'Action failed.'));
       }
 
-      const updated = (await response.json()) as AlertDetail;
+      const updated = (await response.json()) as IncidentDetail;
       setDetail(updated);
       setMessage(`Action ${action} completed.`);
-      await fetchAlerts(currentPage);
+      await fetchIncidents(currentPage);
     } catch (e: unknown) {
       if (e instanceof AdminSessionError) return;
       setError(e instanceof Error ? e.message : 'Action failed.');
@@ -331,68 +355,72 @@ const ComplianceAlertsPage = () => {
     }
   };
 
-  const resetFilters = async () => {
-    setFilters(DEFAULT_FILTERS);
-    await fetchAlerts(1, DEFAULT_FILTERS);
-  };
-
-  const handleSimulate = async () => {
-    setSimulating(true);
+  const handleLinkAlert = async () => {
+    if (!detail) return;
+    setLinking(true);
     setError('');
     setMessage('');
+
     try {
+      const alertId = window.prompt('Alert ID to link', '') || '';
+      if (!alertId.trim()) {
+        throw new Error('alertId is required.');
+      }
+      const note = window.prompt('Link note (optional)', '') || '';
+
       const response = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/compliance/alerts/simulate`,
+        `${import.meta.env.VITE_API_URL}/admin/compliance/incidents/${detail.id}/alerts`,
         {
           method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            alertId: alertId.trim(),
+            note: note.trim() || undefined,
+          }),
         },
       );
+
       if (!response.ok) {
-        throw new Error(
-          await getApiErrorMessage(response, 'Failed to simulate alerts.'),
-        );
+        throw new Error(await getApiErrorMessage(response, 'Failed to link alert.'));
       }
 
-      const data = (await response.json()) as SimulateAlertsResponse;
-      const createdCount =
-        typeof data.createdCount === 'number' ? data.createdCount : 10;
-      setMessage(`Generated ${createdCount} random alerts.`);
-      await fetchAlerts(1);
+      const updated = (await response.json()) as IncidentDetail;
+      setDetail(updated);
+      setMessage('Alert linked successfully.');
+      await fetchIncidents(currentPage);
     } catch (e: unknown) {
       if (e instanceof AdminSessionError) return;
-      setError(e instanceof Error ? e.message : 'Failed to simulate alerts.');
+      setError(e instanceof Error ? e.message : 'Failed to link alert.');
     } finally {
-      setSimulating(false);
+      setLinking(false);
     }
   };
+
+  const resetFilters = async () => {
+    setFilters(DEFAULT_FILTERS);
+    await fetchIncidents(1, DEFAULT_FILTERS);
+  };
+
+  const canLinkAlert =
+    detail && ['ASSIGNED', 'INVESTIGATING'].includes(detail.status);
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Compliance Center - Alerts</h1>
-          <p className="text-sm text-gray-500 mt-1">Monitor and close compliance alerts.</p>
+          <h1 className="text-2xl font-bold text-gray-900">Compliance Center - Incidents</h1>
+          <p className="text-sm text-gray-500 mt-1">Manage escalated compliance incidents.</p>
         </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={handleSimulate}
-            className="inline-flex items-center gap-2 px-3 py-2 rounded bg-indigo-600 text-white text-sm hover:bg-indigo-700 disabled:opacity-60"
-            disabled={simulating || loading}
-          >
-            {simulating ? 'Simulating...' : 'Simulate 10 Alerts'}
-          </button>
-          <button
-            onClick={() => fetchAlerts(currentPage)}
-            className="p-2 text-gray-500 hover:text-brand-primary disabled:opacity-60"
-            title="Refresh"
-            disabled={loading || simulating}
-          >
-            <RefreshCw
-              size={20}
-              className={loading || simulating ? 'animate-spin' : ''}
-            />
-          </button>
-        </div>
+        <button
+          onClick={() => fetchIncidents(currentPage)}
+          className="p-2 text-gray-500 hover:text-brand-primary disabled:opacity-60"
+          title="Refresh"
+          disabled={loading}
+        >
+          <RefreshCw size={20} className={loading ? 'animate-spin' : ''} />
+        </button>
       </div>
 
       {message && (
@@ -410,9 +438,9 @@ const ComplianceAlertsPage = () => {
         <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-3">
           <input
             className="border border-admin-border rounded px-3 py-2 text-sm"
-            placeholder="Rule code"
-            value={filters.ruleCode}
-            onChange={(e) => setFilters((prev) => ({ ...prev, ruleCode: e.target.value }))}
+            placeholder="Incident no"
+            value={filters.incidentNo}
+            onChange={(e) => setFilters((prev) => ({ ...prev, incidentNo: e.target.value }))}
           />
           <select
             className="border border-admin-border rounded px-3 py-2 text-sm"
@@ -424,9 +452,9 @@ const ComplianceAlertsPage = () => {
             <option value="">All status</option>
             <option value="NEW">NEW</option>
             <option value="ASSIGNED">ASSIGNED</option>
-            <option value="IN_REVIEW">IN_REVIEW</option>
-            <option value="ESCALATED">ESCALATED</option>
+            <option value="INVESTIGATING">INVESTIGATING</option>
             <option value="RESOLVED">RESOLVED</option>
+            <option value="CLOSED">CLOSED</option>
             <option value="FALSE_POSITIVE">FALSE_POSITIVE</option>
           </select>
           <select
@@ -444,27 +472,21 @@ const ComplianceAlertsPage = () => {
           </select>
           <input
             className="border border-admin-border rounded px-3 py-2 text-sm"
-            placeholder="Source type"
-            value={filters.sourceType}
-            onChange={(e) => setFilters((prev) => ({ ...prev, sourceType: e.target.value }))}
-          />
-          <input
-            className="border border-admin-border rounded px-3 py-2 text-sm"
-            placeholder="Source id"
-            value={filters.sourceId}
-            onChange={(e) => setFilters((prev) => ({ ...prev, sourceId: e.target.value }))}
-          />
-          <input
-            className="border border-admin-border rounded px-3 py-2 text-sm"
             placeholder="Customer no"
             value={filters.customerNo}
             onChange={(e) => setFilters((prev) => ({ ...prev, customerNo: e.target.value }))}
           />
           <input
             className="border border-admin-border rounded px-3 py-2 text-sm"
-            placeholder="Assignee user id"
-            value={filters.assigneeUserId}
-            onChange={(e) => setFilters((prev) => ({ ...prev, assigneeUserId: e.target.value }))}
+            placeholder="Owner user id"
+            value={filters.ownerUserId}
+            onChange={(e) => setFilters((prev) => ({ ...prev, ownerUserId: e.target.value }))}
+          />
+          <input
+            className="border border-admin-border rounded px-3 py-2 text-sm"
+            placeholder="Alert no"
+            value={filters.alertNo}
+            onChange={(e) => setFilters((prev) => ({ ...prev, alertNo: e.target.value }))}
           />
           <input
             className="border border-admin-border rounded px-3 py-2 text-sm md:col-span-2"
@@ -483,9 +505,9 @@ const ComplianceAlertsPage = () => {
         </div>
         <div className="flex items-center gap-2">
           <button
-            onClick={() => fetchAlerts(1)}
+            onClick={() => fetchIncidents(1)}
             className="inline-flex items-center gap-2 px-3 py-2 rounded bg-brand-primary text-white text-sm hover:opacity-90"
-            disabled={loading || simulating}
+            disabled={loading}
           >
             <Search size={14} />
             Search
@@ -493,7 +515,7 @@ const ComplianceAlertsPage = () => {
           <button
             onClick={resetFilters}
             className="inline-flex items-center gap-2 px-3 py-2 rounded border border-admin-border text-sm hover:bg-gray-50"
-            disabled={loading || simulating || !hasFilters}
+            disabled={loading || !hasFilters}
           >
             <X size={14} />
             Reset
@@ -506,14 +528,14 @@ const ComplianceAlertsPage = () => {
           <table className="w-full text-left text-sm">
             <thead className="bg-admin-content-bg border-b border-admin-border">
               <tr>
-                <th className="px-4 py-3 text-xs uppercase text-gray-500">Alert</th>
-                <th className="px-4 py-3 text-xs uppercase text-gray-500">Rule</th>
-                <th className="px-4 py-3 text-xs uppercase text-gray-500">Severity</th>
+                <th className="px-4 py-3 text-xs uppercase text-gray-500">Incident</th>
                 <th className="px-4 py-3 text-xs uppercase text-gray-500">Status</th>
-                <th className="px-4 py-3 text-xs uppercase text-gray-500">Source</th>
-                <th className="px-4 py-3 text-xs uppercase text-gray-500">Hit</th>
+                <th className="px-4 py-3 text-xs uppercase text-gray-500">Severity</th>
+                <th className="px-4 py-3 text-xs uppercase text-gray-500">Customer</th>
+                <th className="px-4 py-3 text-xs uppercase text-gray-500">Primary Alert</th>
+                <th className="px-4 py-3 text-xs uppercase text-gray-500">Owner</th>
                 <th className="px-4 py-3 text-xs uppercase text-gray-500">Due</th>
-                <th className="px-4 py-3 text-xs uppercase text-gray-500">Assignee</th>
+                <th className="px-4 py-3 text-xs uppercase text-gray-500">Last Action</th>
                 <th className="px-4 py-3 text-xs uppercase text-gray-500">Action</th>
               </tr>
             </thead>
@@ -527,42 +549,35 @@ const ComplianceAlertsPage = () => {
               ) : items.length === 0 ? (
                 <tr>
                   <td colSpan={9} className="px-4 py-8 text-center text-gray-500">
-                    No alerts found
+                    No incidents found
                   </td>
                 </tr>
               ) : (
                 items.map((item) => (
                   <tr key={item.id} className="hover:bg-gray-50">
                     <td className="px-4 py-3">
-                      <div className="font-semibold text-gray-900">{item.alertNo}</div>
+                      <div className="font-semibold text-gray-900">{item.incidentNo}</div>
                       <div className="text-xs text-gray-500">{item.title}</div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="text-gray-900">{item.ruleCode}</div>
-                      <div className="text-xs text-gray-500">{item.capCode || '-'}</div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className={`px-2 py-1 rounded-full text-xs ${getSeverityClass(item.severity)}`}>
-                        {item.severity}
-                      </span>
                     </td>
                     <td className="px-4 py-3">
                       <span className={`px-2 py-1 rounded-full text-xs ${getStatusClass(item.status)}`}>
                         {item.status}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-gray-700">
-                      <div>{item.sourceType}</div>
-                      <div className="text-xs text-gray-500">{item.sourceNo || item.sourceId}</div>
+                    <td className="px-4 py-3">
+                      <span className={`px-2 py-1 rounded-full text-xs ${getSeverityClass(item.severity)}`}>
+                        {item.severity}
+                      </span>
                     </td>
-                    <td className="px-4 py-3 text-gray-700">{item.hitCount}</td>
+                    <td className="px-4 py-3 text-gray-700">{item.customerNo || '-'}</td>
+                    <td className="px-4 py-3 text-gray-700">{item.primaryAlertNo || '-'}</td>
+                    <td className="px-4 py-3 text-gray-700">{item.ownerUserNo || '-'}</td>
                     <td className="px-4 py-3">
                       <div className={isOverdue(item) ? 'text-red-700 font-medium' : 'text-gray-700'}>
                         {formatDateTime(item.dueAt)}
                       </div>
-                      <div className="text-xs text-gray-500">Last {formatDateTime(item.lastOccurredAt)}</div>
                     </td>
-                    <td className="px-4 py-3 text-gray-700">{item.assigneeUserNo || '-'}</td>
+                    <td className="px-4 py-3 text-gray-700">{formatDateTime(item.lastActionAt)}</td>
                     <td className="px-4 py-3">
                       <button
                         className="text-xs border border-gray-200 px-2 py-1 rounded hover:bg-gray-50"
@@ -581,7 +596,7 @@ const ComplianceAlertsPage = () => {
           currentPage={currentPage}
           totalItems={total}
           pageSize={PAGE_SIZE}
-          onPageChange={(page) => fetchAlerts(page)}
+          onPageChange={(page) => fetchIncidents(page)}
         />
       </div>
 
@@ -590,9 +605,7 @@ const ComplianceAlertsPage = () => {
           <div className="w-full max-w-5xl bg-white rounded-xl shadow-xl border border-admin-border max-h-[90vh] overflow-y-auto">
             <div className="sticky top-0 bg-white border-b border-admin-border px-4 py-3 flex items-center justify-between">
               <div>
-                <h3 className="text-lg font-bold text-gray-900">
-                  Alert Detail - {detail.alertNo}
-                </h3>
+                <h3 className="text-lg font-bold text-gray-900">Incident Detail - {detail.incidentNo}</h3>
                 <p className="text-xs text-gray-500">{detail.id}</p>
               </div>
               <button
@@ -611,31 +624,31 @@ const ComplianceAlertsPage = () => {
                   <InfoCard
                     title="Summary"
                     rows={[
-                      ['Rule', detail.ruleCode],
-                      ['Severity', detail.severity],
                       ['Status', detail.status],
-                      ['CAP', detail.capCode || '-'],
-                      ['Message', detail.message],
+                      ['Severity', detail.severity],
+                      ['Customer', detail.customerNo || '-'],
+                      ['Primary Alert', detail.primaryAlertNo || '-'],
+                      ['Summary', detail.summary],
                     ]}
                   />
                   <InfoCard
                     title="Source"
                     rows={[
-                      ['Module', detail.sourceModule],
-                      ['Source Type', detail.sourceType],
-                      ['Source', detail.sourceNo || detail.sourceId],
+                      ['Source Module', detail.sourceModule || '-'],
+                      ['Source Type', detail.sourceType || '-'],
                       ['Entity', detail.entityNo || detail.entityType || '-'],
-                      ['Customer', detail.customerNo || '-'],
+                      ['Alert Count', String(detail.alertCount || 0)],
+                      ['Owner', detail.ownerUserNo || '-'],
                     ]}
                   />
                   <InfoCard
                     title="Lifecycle"
                     rows={[
                       ['Due', formatDateTime(detail.dueAt)],
-                      ['Last Seen', formatDateTime(detail.lastOccurredAt)],
-                      ['Hit Count', String(detail.hitCount)],
-                      ['Assignee', detail.assigneeUserNo || '-'],
+                      ['Assigned At', formatDateTime(detail.assignedAt)],
+                      ['Resolved At', formatDateTime(detail.resolvedAt)],
                       ['Closed At', formatDateTime(detail.closedAt)],
+                      ['Close Reason', detail.closeReason || '-'],
                     ]}
                   />
                 </div>
@@ -650,21 +663,60 @@ const ComplianceAlertsPage = () => {
                         <button
                           key={action}
                           onClick={() => handleAction(action)}
-                          disabled={acting !== null}
+                          disabled={acting !== null || linking}
                           className="px-3 py-1.5 rounded border border-admin-border text-sm hover:bg-gray-50 disabled:opacity-60"
                         >
                           {acting === action ? 'Processing...' : actionLabelMap[action]}
                         </button>
                       ))}
+                      {canLinkAlert && (
+                        <button
+                          onClick={handleLinkAlert}
+                          disabled={acting !== null || linking}
+                          className="px-3 py-1.5 rounded border border-admin-border text-sm hover:bg-gray-50 disabled:opacity-60"
+                        >
+                          {linking ? 'Linking...' : 'Link Alert'}
+                        </button>
+                      )}
                     </div>
                   )}
                 </div>
 
                 <div className="border border-admin-border rounded-lg p-4">
-                  <h4 className="font-semibold text-gray-900 mb-3">Metadata</h4>
+                  <h4 className="font-semibold text-gray-900 mb-3">Resolution</h4>
                   <pre className="text-xs bg-gray-50 border border-admin-border rounded p-3 overflow-auto max-h-56">
-                    {toPrettyJson(detail.metadata)}
+                    {toPrettyJson({
+                      rootCauseCategory: detail.rootCauseCategory,
+                      resolutionSummary: detail.resolutionSummary,
+                      containmentSummary: detail.containmentSummary,
+                      closureChecklist: detail.closureChecklist,
+                    })}
                   </pre>
+                </div>
+
+                <div className="border border-admin-border rounded-lg p-4">
+                  <h4 className="font-semibold text-gray-900 mb-3">Related Alerts</h4>
+                  {detail.alerts.length === 0 ? (
+                    <div className="text-sm text-gray-500">No linked alerts</div>
+                  ) : (
+                    <div className="space-y-3">
+                      {detail.alerts.map((link) => (
+                        <div key={link.id} className="border border-admin-border rounded p-3">
+                          <div className="flex items-center justify-between text-xs text-gray-500">
+                            <span>{link.relationType}</span>
+                            <span>{formatDateTime(link.linkedAt)}</span>
+                          </div>
+                          <div className="text-sm text-gray-800 mt-1">
+                            {link.alertNo} {link.alert?.title ? `- ${link.alert.title}` : ''}
+                          </div>
+                          <div className="text-xs text-gray-500 mt-1">
+                            {link.alert?.ruleCode || '-'} / {link.alert?.status || '-'} / {link.alert?.severity || '-'}
+                          </div>
+                          {link.note && <div className="text-sm text-gray-700 mt-1">{link.note}</div>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
                 <div className="border border-admin-border rounded-lg p-4">
@@ -680,11 +732,10 @@ const ComplianceAlertsPage = () => {
                             <span>{formatDateTime(event.eventAt)}</span>
                           </div>
                           <div className="text-sm text-gray-800 mt-1">
-                            Actor: {event.actorNo || event.actorType} {event.actorRole ? `(${event.actorRole})` : ''}
+                            Actor: {event.actorNo || event.actorType}{' '}
+                            {event.actorRole ? `(${event.actorRole})` : ''}
                           </div>
-                          {event.note && (
-                            <div className="text-sm text-gray-700 mt-1">{event.note}</div>
-                          )}
+                          {event.note && <div className="text-sm text-gray-700 mt-1">{event.note}</div>}
                           <pre className="text-xs bg-gray-50 border border-admin-border rounded p-2 mt-2 overflow-auto max-h-40">
                             {toPrettyJson(event.payload)}
                           </pre>
@@ -722,4 +773,4 @@ const InfoCard = ({
   </div>
 );
 
-export default ComplianceAlertsPage;
+export default ComplianceIncidentsPage;

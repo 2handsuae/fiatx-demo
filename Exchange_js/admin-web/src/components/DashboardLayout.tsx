@@ -101,6 +101,7 @@ const DashboardLayout = () => {
         { path: '/dashboard/compliance/cdd-cases', label: 'CDD Cases', icon: <ShieldCheck size={18} /> },
         { path: '/dashboard/compliance/edd-cases', label: 'EDD Cases', icon: <Shield size={18} /> },
         { path: '/dashboard/compliance/alerts', label: 'Alerts', icon: <Activity size={18} /> },
+        { path: '/dashboard/compliance/incidents', label: 'Incidents', icon: <Activity size={18} /> },
         { path: '/dashboard/compliance/audit-logs', label: 'Audit Logs', icon: <FileText size={18} /> },
       ],
     },
