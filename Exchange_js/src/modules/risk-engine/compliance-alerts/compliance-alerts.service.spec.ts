@@ -255,6 +255,223 @@ describe('ComplianceAlertsService', () => {
     expect(result.status).toBe(ComplianceAlertStatus.OPEN);
   });
 
+  it('should forbid reassign when actor is not current assignee', async () => {
+    prismaMock.complianceAlert.findUnique.mockResolvedValue(
+      buildAlert({
+        status: ComplianceAlertStatus.ASSIGNED,
+        assigneeUserId: 'admin-1',
+        assigneeUserNo: 'US0001',
+      }),
+    );
+
+    await expect(
+      service.applyAction(
+        'alert-1',
+        {
+          action: ComplianceAlertAction.ASSIGN,
+          assigneeUserId: 'admin-3',
+        },
+        {
+          actorType: 'ADMIN',
+          actorId: 'admin-2',
+          actorNo: 'US0002',
+          actorRole: 'ADMIN',
+        },
+      ),
+    ).rejects.toThrow('can reassign');
+  });
+
+  it('should allow reassign when actor is current assignee', async () => {
+    prismaMock.complianceAlert.findUnique
+      .mockResolvedValueOnce(
+        buildAlert({
+          status: ComplianceAlertStatus.ASSIGNED,
+          assigneeUserId: 'admin-1',
+          assigneeUserNo: 'US0001',
+        }),
+      )
+      .mockResolvedValueOnce({
+        ...buildAlert({
+          status: ComplianceAlertStatus.ASSIGNED,
+          assigneeUserId: 'admin-2',
+          assigneeUserNo: 'US0002',
+        }),
+        events: [],
+      });
+    prismaMock.user.findUnique.mockResolvedValue({ userNo: 'US0002' });
+    prismaMock.complianceAlert.update.mockResolvedValue(
+      buildAlert({
+        status: ComplianceAlertStatus.ASSIGNED,
+        assigneeUserId: 'admin-2',
+        assigneeUserNo: 'US0002',
+      }),
+    );
+
+    const result = await service.applyAction(
+      'alert-1',
+      {
+        action: ComplianceAlertAction.ASSIGN,
+        assigneeUserId: 'admin-2',
+      },
+      {
+        actorType: 'ADMIN',
+        actorId: 'admin-1',
+        actorNo: 'US0001',
+        actorRole: 'ADMIN',
+      },
+    );
+
+    expect(result.status).toBe(ComplianceAlertStatus.ASSIGNED);
+    expect(prismaMock.complianceAlert.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          assigneeUserId: 'admin-2',
+          assigneeUserNo: 'US0002',
+        }),
+      }),
+    );
+  });
+
+  it('should forbid ESCALATE when actor is not current assignee in ASSIGNED status', async () => {
+    prismaMock.complianceAlert.findUnique.mockResolvedValue(
+      buildAlert({
+        status: ComplianceAlertStatus.ASSIGNED,
+        assigneeUserId: 'admin-1',
+        assigneeUserNo: 'US0001',
+      }),
+    );
+
+    await expect(
+      service.applyAction(
+        'alert-1',
+        { action: ComplianceAlertAction.ESCALATE, reason: 'handoff' },
+        {
+          actorType: 'ADMIN',
+          actorId: 'admin-2',
+          actorNo: 'US0002',
+          actorRole: 'ADMIN',
+        },
+      ),
+    ).rejects.toThrow('Only assignee');
+  });
+
+  it('should forbid CLOSE when actor is not current assignee in ASSIGNED status', async () => {
+    prismaMock.complianceAlert.findUnique.mockResolvedValue(
+      buildAlert({
+        status: ComplianceAlertStatus.ASSIGNED,
+        assigneeUserId: 'admin-1',
+        assigneeUserNo: 'US0001',
+      }),
+    );
+
+    await expect(
+      service.applyAction(
+        'alert-1',
+        { action: ComplianceAlertAction.CLOSE, reason: 'resolved' },
+        {
+          actorType: 'ADMIN',
+          actorId: 'admin-2',
+          actorNo: 'US0002',
+          actorRole: 'ADMIN',
+        },
+      ),
+    ).rejects.toThrow('Only assignee');
+  });
+
+  it('should allow assignee to ESCALATE from ASSIGNED status', async () => {
+    prismaMock.complianceAlert.findUnique
+      .mockResolvedValueOnce(
+        buildAlert({
+          status: ComplianceAlertStatus.ASSIGNED,
+          assigneeUserId: 'admin-1',
+          assigneeUserNo: 'US0001',
+        }),
+      )
+      .mockResolvedValueOnce({
+        ...buildAlert({
+          status: ComplianceAlertStatus.ESCALATED,
+          assigneeUserId: 'admin-1',
+          assigneeUserNo: 'US0001',
+        }),
+        events: [],
+      });
+    prismaMock.complianceAlert.update.mockResolvedValue(
+      buildAlert({
+        status: ComplianceAlertStatus.ESCALATED,
+        assigneeUserId: 'admin-1',
+        assigneeUserNo: 'US0001',
+      }),
+    );
+
+    const result = await service.applyAction(
+      'alert-1',
+      { action: ComplianceAlertAction.ESCALATE, reason: 'manual escalate' },
+      {
+        actorType: 'ADMIN',
+        actorId: 'admin-1',
+        actorNo: 'US0001',
+        actorRole: 'ADMIN',
+      },
+    );
+
+    expect(result.status).toBe(ComplianceAlertStatus.ESCALATED);
+  });
+
+  it('should keep ASSIGNED status and record decision via ASSIGN action', async () => {
+    prismaMock.complianceAlert.findUnique
+      .mockResolvedValueOnce(
+        buildAlert({
+          status: ComplianceAlertStatus.ASSIGNED,
+          assigneeUserId: 'admin-1',
+          assigneeUserNo: 'US0001',
+        }),
+      )
+      .mockResolvedValueOnce({
+        ...buildAlert({
+          status: ComplianceAlertStatus.ASSIGNED,
+          assigneeUserId: 'admin-1',
+          assigneeUserNo: 'US0001',
+          decision: 'APPROVE',
+        }),
+        events: [],
+      });
+    prismaMock.user.findUnique.mockResolvedValue({ userNo: 'US0001' });
+    prismaMock.complianceAlert.update.mockResolvedValue(
+      buildAlert({
+        status: ComplianceAlertStatus.ASSIGNED,
+        assigneeUserId: 'admin-1',
+        assigneeUserNo: 'US0001',
+        decision: 'APPROVE',
+      }),
+    );
+
+    const result = await service.applyAction(
+      'alert-1',
+      {
+        action: ComplianceAlertAction.ASSIGN,
+        assigneeUserId: 'admin-1',
+        decision: 'APPROVE',
+        note: 'record decision only',
+      },
+      {
+        actorType: 'ADMIN',
+        actorId: 'admin-1',
+        actorNo: 'US0001',
+        actorRole: 'ADMIN',
+      },
+    );
+
+    expect(result.status).toBe(ComplianceAlertStatus.ASSIGNED);
+    expect(prismaMock.complianceAlert.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: ComplianceAlertStatus.ASSIGNED,
+          decision: 'APPROVE',
+        }),
+      }),
+    );
+  });
+
   it('should reject CLOSE without reason', async () => {
     prismaMock.complianceAlert.findUnique.mockResolvedValue(buildAlert({ status: 'OPEN' }));
 
@@ -305,18 +522,24 @@ describe('ComplianceAlertsService', () => {
   });
 
   it('should simulate 10 alerts with unique sourceIds', async () => {
-    const triggerSpy = jest.spyOn(service, 'triggerSystemAlert').mockImplementation(async (input) =>
-      buildAlert({
-        id: `alert-${input.sourceId}`,
-        alertNo: `ALT-SIM-${input.sourceId}`,
-        ruleCode: input.ruleCode,
-        severity: ComplianceAlertSeverity.HIGH,
-        status: ComplianceAlertStatus.OPEN,
-        sourceType: input.sourceType,
-        sourceId: input.sourceId,
-        lastOccurredAt: new Date('2026-02-19T00:00:00.000Z'),
-      }),
-    );
+    const triggerSpy = jest
+      .spyOn(service, 'triggerSystemAlert')
+      .mockImplementation(async (input) => ({
+        ...buildAlert({
+          id: `alert-${input.sourceId}`,
+          alertNo: `ALT-SIM-${input.sourceId}`,
+          ruleCode: input.ruleCode,
+          severity: ComplianceAlertSeverity.HIGH,
+          status: ComplianceAlertStatus.OPEN,
+          sourceType: input.sourceType,
+          sourceId: input.sourceId,
+          lastOccurredAt: new Date('2026-02-19T00:00:00.000Z'),
+        }),
+        metadata: {},
+        linkedCaseIds: null,
+        decisionRecordIds: null,
+        recommendedDecisions: [],
+      }));
 
     const result = await service.simulateRandomAlerts(10);
 

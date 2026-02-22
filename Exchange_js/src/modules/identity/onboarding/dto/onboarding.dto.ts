@@ -15,6 +15,14 @@ import {
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
+export const ONBOARDING_MOCK_DATA_TYPES = [
+  'LOW_RISK',
+  'MEDIUM_RISK',
+  'HIGH_RISK_OR_PEP',
+] as const;
+
+export type OnboardingMockDataType = (typeof ONBOARDING_MOCK_DATA_TYPES)[number];
+
 export class CorporateProfileDto {
   @IsString()
   @IsNotEmpty()
@@ -122,6 +130,11 @@ export class MockCompleteSessionDto {
   @IsString()
   @IsIn(['PASS', 'FAIL'])
   result?: 'PASS' | 'FAIL';
+
+  @IsOptional()
+  @IsString()
+  @IsIn(ONBOARDING_MOCK_DATA_TYPES)
+  mockDataType?: OnboardingMockDataType;
 }
 
 export class ReviewCddCaseDto {
@@ -154,6 +167,16 @@ export class ReviewEddCaseDto {
   reason?: string;
 }
 
+export class ApplyOnboardingAlertDecisionDto {
+  @IsString()
+  @IsIn(['APPROVE', 'REJECT', 'REQUIRE_EDD'])
+  decision!: 'APPROVE' | 'REJECT' | 'REQUIRE_EDD';
+
+  @IsOptional()
+  @IsString()
+  reason?: string;
+}
+
 export class FinalReviewCustomerDto {
   @IsString()
   @IsIn(['APPROVE', 'REJECT'])
@@ -168,6 +191,45 @@ export class ReinitiateEddDto {
   @IsOptional()
   @IsString()
   journeyId?: string;
+}
+
+export class DecisionRecordQueryDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  skip?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(200)
+  take?: number;
+
+  @IsOptional()
+  @IsString()
+  status?: string;
+
+  @IsOptional()
+  @IsString()
+  contextType?: string;
+
+  @IsOptional()
+  @IsString()
+  outputDecision?: string;
+
+  @IsOptional()
+  @IsString()
+  customerId?: string;
+
+  @IsOptional()
+  @IsString()
+  subjectId?: string;
+
+  @IsOptional()
+  @IsString()
+  policyVersion?: string;
 }
 
 export class UpdateInvestorClassificationDto {

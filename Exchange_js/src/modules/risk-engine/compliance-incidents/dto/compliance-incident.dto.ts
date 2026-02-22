@@ -72,6 +72,25 @@ export class CreateIncidentFromAlertDto {
   @IsString()
   @IsNotEmpty()
   reason!: string;
+
+  @IsOptional()
+  @IsString()
+  decision?: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  linkedCaseIds?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  decisionRecordIds?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  recommendedActions?: string[];
 }
 
 export class LinkIncidentAlertDto {

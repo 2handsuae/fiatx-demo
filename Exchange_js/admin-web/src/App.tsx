@@ -62,6 +62,7 @@ import TransactionTravelRuleCasesPage from './pages/TransactionTravelRuleCasesPa
 import AuditLogsPage from './pages/AuditLogsPage';
 import ComplianceAlertsPage from './pages/ComplianceAlertsPage';
 import ComplianceIncidentsPage from './pages/ComplianceIncidentsPage';
+import RiskPolicyExecutionsPage from './pages/RiskPolicyExecutionsPage';
 import RoleManagement from './pages/RoleManagement';
 import { useAdminSession } from './contexts/AdminSessionContext';
 import { PERMISSIONS } from './rbac/permissions';
@@ -282,6 +283,10 @@ function App() {
             <Route
               path="compliance/audit-logs"
               element={withPermission(<AuditLogsPage />, [PERMISSIONS.AUDIT_LOGS_READ])}
+            />
+            <Route
+              path="risk/policy-executions"
+              element={withPermission(<RiskPolicyExecutionsPage />, [PERMISSIONS.CDD_CASES_READ])}
             />
             <Route
               path="customer/:id"

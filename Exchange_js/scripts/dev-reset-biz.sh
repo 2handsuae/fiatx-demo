@@ -49,41 +49,18 @@ resolve_db_file() {
   echo "${PRISMA_DIR}/dev.db"
 }
 
-db_has_required_tables() {
-  local db_file="$1"
-  if [[ ! -f "${db_file}" ]]; then
-    return 1
-  fi
-
-  local tables
-  tables="$(sqlite3 "${db_file}" '.tables' 2>/dev/null || true)"
-  [[ "${tables}" == *"customer_main"* ]] && [[ "${tables}" == *"users"* ]]
-}
-
 bootstrap_database_if_needed() {
   local db_file
   db_file="$(resolve_db_file)"
-  local should_seed_business="false"
-
-  if ! db_has_required_tables "${db_file}"; then
-    should_seed_business="true"
-  fi
 
   mkdir -p "$(dirname "${db_file}")"
-  : > "${db_file}"
   echo "[backend] Applying pending Prisma migrations to ${db_file}..."
   (
     cd "${ROOT_DIR}"
     DATABASE_URL="file:${db_file}" npx prisma migrate deploy
   )
 
-  if [[ "${should_seed_business}" == "true" ]]; then
-    echo "[backend] Seeding minimal business dataset..."
-    (
-      cd "${ROOT_DIR}"
-      DATABASE_URL="file:${db_file}" npm run db:biz:init
-    )
-  fi
+  echo "[backend] Database schema ready: ${db_file}"
 }
 
 ensure_audit_log_schema() {
@@ -115,8 +92,9 @@ ensure_audit_log_schema() {
 ensure_backend_dependencies
 bootstrap_database_if_needed
 ensure_audit_log_schema
+DB_FILE="$(resolve_db_file)"
 
 cd "${ROOT_DIR}"
 echo "Running business data reset..."
-npm run db:biz:reset
+DATABASE_URL="file:${DB_FILE}" npm run db:biz:reset
 echo "Business data reset finished."

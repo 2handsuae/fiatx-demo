@@ -74,16 +74,27 @@
 ## 6) CDD/EDD Orchestration Constraints
 - Starting onboarding MUST create or reuse active CDD case in `CREATED`.
 - Session completion MUST move case to `RECEIVED`, store provider payload, then finalize case as `FINAL` after evaluation.
-- If decision is `REQUIRE_EDD`, system MUST create/reuse EDD case and move customer to `PENDING_EDD`.
-- EDD completion MUST evaluate again and then move customer to:
-1. `REJECTED`, or
-2. `FINAL_APPROVAL`
+- CDD completion MUST evaluate risk and move customer to `REVIEW_CDD` (container waiting for recommendation execution).
+- EDD completion MUST evaluate risk and move customer to `REVIEW_EDD` (container waiting for recommendation execution).
 - Final approve/reject action MUST only be allowed from `FINAL_APPROVAL`.
 
 ## 7) Alert and Incident Integration
 - Onboarding review signal MUST be upserted by journey key (`customerId:journeyId`) as one alert in MVP.
 - EDD re-evaluation SHOULD update existing journey alert instead of always creating a second alert.
 - Alert/incident decision details MAY be written to filter fields (`decisionRecommendation`, `decision`) but MUST NOT change state-machine definition.
+- Recommendation options MUST come from risk-engine output (`recommendedDecisions`) and be projected to alert/incident detail.
+- Recommendation set contract MUST remain:
+1. CDD review: `APPROVE`, `REJECT`, `REQUIRE_EDD`
+2. EDD review: `APPROVE`, `REJECT`
+- `REVIEW_CDD` stage MAY be progressed by assigned onboarding journey alert decision action:
+1. `APPROVE` -> customer `ACTIVE`
+2. `REJECT` -> customer `REJECTED`
+3. `REQUIRE_EDD` -> create/reuse EDD case and move customer to `PENDING_EDD`
+- `REVIEW_EDD` stage MAY be progressed by assigned onboarding journey alert/incident decision action:
+1. `APPROVE` -> customer `FINAL_APPROVAL`
+2. `REJECT` -> customer `REJECTED`
+- Recommendation actions are intentionally repeat-callable at container level; illegal transitions MUST be blocked by onboarding stage validation.
+- Alert workflow state (`ASSIGN/ESCALATE/CLOSE`) and onboarding recommendation actions MUST stay decoupled.
 
 ## 8) Trading Gate and Legacy Snapshot
 - Trading eligibility gate MUST use `publicStatus === ACTIVE`.

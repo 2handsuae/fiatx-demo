@@ -85,10 +85,22 @@ export class RiskEngineService {
     return false;
   }
 
+  private buildOnboardingDecisionActions(decisions: string[]): RiskRecommendedAction[] {
+    return [
+      {
+        type: 'ONBOARDING_RECOMMEND_DECISIONS',
+        payload: {
+          decisions,
+        },
+      },
+    ];
+  }
+
   private evaluateBySignals(input: EvaluateRiskInput): Omit<EvaluateRiskOutput, 'decisionRecordId' | 'policyVersion'> {
     const signals = input.signals || {};
     const riskScore = this.toNumber(signals.riskScore) ?? 0;
     const riskLevel = String(signals.riskLevel || '').toUpperCase();
+    const mockDataType = String(signals.mockDataType || '').toUpperCase();
     const sanctionsHit = this.toBoolean(signals.sanctionsHit);
     const pepHit = this.toBoolean(signals.pepHit);
     const adverseMediaHit = this.toBoolean(signals.adverseMediaHit);
@@ -96,6 +108,86 @@ export class RiskEngineService {
 
     const reasonCodes: string[] = [];
     const recommendedActions: RiskRecommendedAction[] = [];
+
+    if (input.contextType === 'ONBOARDING_CDD') {
+      let severity: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL' = 'MEDIUM';
+
+      if (sanctionsHit) {
+        reasonCodes.push('SANCTIONS_HIT');
+        severity = 'CRITICAL';
+      } else if (mockDataType === 'LOW_RISK') {
+        reasonCodes.push('CDD_LOW_RISK_CLEAR');
+        severity = 'LOW';
+      } else if (mockDataType === 'MEDIUM_RISK') {
+        reasonCodes.push('CDD_MEDIUM_RISK_REVIEW');
+        severity = 'MEDIUM';
+      } else if (mockDataType === 'HIGH_RISK_OR_PEP') {
+        reasonCodes.push('CDD_HIGH_RISK_OR_PEP');
+        if (pepHit) reasonCodes.push('PEP_HIT');
+        severity = 'HIGH';
+      } else {
+        if (pepHit) reasonCodes.push('PEP_HIT');
+        if (adverseMediaHit) reasonCodes.push('ADVERSE_MEDIA_HIT');
+        if (riskLevel === 'HIGH' || riskScore >= 70) reasonCodes.push('HIGH_RISK_SCORE');
+        if (reasonCodes.length === 0) reasonCodes.push('CDD_REVIEW_REQUIRED');
+        severity = riskLevel === 'HIGH' || riskScore >= 70 || pepHit ? 'HIGH' : 'MEDIUM';
+      }
+
+      recommendedActions.push({
+        type: 'UPSERT_ALERT',
+        payload: {
+          severity,
+          recommendation: 'REVIEW',
+          reasonCodes,
+        },
+      });
+      recommendedActions.push(
+        ...this.buildOnboardingDecisionActions([
+          'APPROVE',
+          'REJECT',
+          'REQUIRE_EDD',
+        ]),
+      );
+      return { decision: 'REVIEW', reasonCodes, recommendedActions };
+    }
+
+    if (input.contextType === 'ONBOARDING_EDD') {
+      let severity: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL' = 'MEDIUM';
+      if (!eddSubmitted) {
+        reasonCodes.push('EDD_INCOMPLETE');
+        severity = 'MEDIUM';
+      } else {
+        if (sanctionsHit) {
+          reasonCodes.push('SANCTIONS_HIT');
+          severity = 'CRITICAL';
+        }
+        if (pepHit) reasonCodes.push('PEP_HIT');
+        if (adverseMediaHit) reasonCodes.push('ADVERSE_MEDIA_HIT');
+        if (riskLevel === 'HIGH' || riskScore >= 75) reasonCodes.push('HIGH_RISK_SCORE');
+        if (reasonCodes.length === 0) {
+          reasonCodes.push('EDD_CLEAR');
+          severity = 'LOW';
+        } else if (severity !== 'CRITICAL') {
+          severity = reasonCodes.includes('HIGH_RISK_SCORE') ? 'HIGH' : 'MEDIUM';
+        }
+      }
+
+      recommendedActions.push({
+        type: 'UPSERT_ALERT',
+        payload: {
+          severity,
+          recommendation: 'REVIEW',
+          reasonCodes,
+        },
+      });
+      recommendedActions.push(
+        ...this.buildOnboardingDecisionActions([
+          'APPROVE',
+          'REJECT',
+        ]),
+      );
+      return { decision: 'REVIEW', reasonCodes, recommendedActions };
+    }
 
     if (sanctionsHit) {
       reasonCodes.push('SANCTIONS_HIT');
@@ -114,84 +206,6 @@ export class RiskEngineService {
         },
       });
       return { decision: 'REJECT', reasonCodes, recommendedActions };
-    }
-
-    if (input.contextType === 'ONBOARDING_CDD') {
-      if (pepHit || adverseMediaHit || riskLevel === 'HIGH' || riskScore >= 70) {
-        if (pepHit) reasonCodes.push('PEP_HIT');
-        if (adverseMediaHit) reasonCodes.push('ADVERSE_MEDIA_HIT');
-        if (riskLevel === 'HIGH' || riskScore >= 70) reasonCodes.push('HIGH_RISK_SCORE');
-        recommendedActions.push({
-          type: 'REQUIRE_EDD',
-          payload: {
-            recommendation: 'REQUIRE_EDD',
-            reasonCodes,
-          },
-        });
-        recommendedActions.push({
-          type: 'UPSERT_ALERT',
-          payload: {
-            severity: 'HIGH',
-            recommendation: 'REQUIRE_EDD',
-            reasonCodes,
-          },
-        });
-        return { decision: 'REQUIRE_EDD', reasonCodes, recommendedActions };
-      }
-
-      reasonCodes.push('CDD_CLEAR');
-      recommendedActions.push({
-        type: 'PENDING_FINAL_DECISION',
-        payload: { recommendation: 'APPROVE' },
-      });
-      return { decision: 'APPROVE', reasonCodes, recommendedActions };
-    }
-
-    if (input.contextType === 'ONBOARDING_EDD') {
-      if (!eddSubmitted) {
-        reasonCodes.push('EDD_INCOMPLETE');
-        recommendedActions.push({
-          type: 'UPSERT_ALERT',
-          payload: {
-            severity: 'MEDIUM',
-            recommendation: 'REVIEW',
-            reasonCodes,
-          },
-        });
-        return { decision: 'REVIEW', reasonCodes, recommendedActions };
-      }
-
-      if (pepHit || adverseMediaHit || riskLevel === 'HIGH' || riskScore >= 75) {
-        if (pepHit) reasonCodes.push('PEP_HIT');
-        if (adverseMediaHit) reasonCodes.push('ADVERSE_MEDIA_HIT');
-        if (riskLevel === 'HIGH' || riskScore >= 75) reasonCodes.push('HIGH_RISK_SCORE');
-        recommendedActions.push({
-          type: 'UPSERT_ALERT',
-          payload: {
-            severity: 'HIGH',
-            recommendation: 'REVIEW',
-            reasonCodes,
-          },
-        });
-        recommendedActions.push({
-          type: 'PENDING_FINAL_DECISION',
-          payload: {
-            recommendation: 'REVIEW',
-            requiresManualFinalDecision: true,
-          },
-        });
-        return { decision: 'REVIEW', reasonCodes, recommendedActions };
-      }
-
-      reasonCodes.push('EDD_CLEAR');
-      recommendedActions.push({
-        type: 'PENDING_FINAL_DECISION',
-        payload: {
-          recommendation: 'APPROVE',
-          requiresManualFinalDecision: true,
-        },
-      });
-      return { decision: 'APPROVE', reasonCodes, recommendedActions };
     }
 
     reasonCodes.push('UNKNOWN_CONTEXT');

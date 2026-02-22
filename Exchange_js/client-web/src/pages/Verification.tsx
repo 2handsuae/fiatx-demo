@@ -49,6 +49,30 @@ interface CaseItem {
   createdAt: string;
 }
 
+type CddMockDataType = 'LOW_RISK' | 'MEDIUM_RISK' | 'HIGH_RISK_OR_PEP';
+
+const CDD_MOCK_OPTIONS: Array<{
+  value: CddMockDataType;
+  label: string;
+  description: string;
+}> = [
+  {
+    value: 'LOW_RISK',
+    label: 'Low risk',
+    description: 'Auto low-risk approval path with low-risk mock package.',
+  },
+  {
+    value: 'MEDIUM_RISK',
+    label: 'Medium risk',
+    description: 'Create OPEN alert and wait for manual review.',
+  },
+  {
+    value: 'HIGH_RISK_OR_PEP',
+    label: 'High risk or PEP',
+    description: 'Create alert, then auto-escalate and create incident.',
+  },
+];
+
 const getErrorMessage = (error: unknown, fallback: string) =>
   error instanceof Error ? error.message : fallback;
 
@@ -65,6 +89,9 @@ const Verification = () => {
   const [casesLoading, setCasesLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
+  const [mockDialogSessionId, setMockDialogSessionId] = useState<string | null>(null);
+  const [selectedMockDataType, setSelectedMockDataType] =
+    useState<CddMockDataType>('LOW_RISK');
 
   const token = localStorage.getItem('customer_token');
 
@@ -203,15 +230,54 @@ const Verification = () => {
       `${item.caseType} session created.`,
     );
 
-  const mockComplete = async (sessionId: string) =>
+  const openCddMockDialog = (sessionId: string) => {
+    setSelectedMockDataType('LOW_RISK');
+    setMockDialogSessionId(sessionId);
+  };
+
+  const closeCddMockDialog = () => {
+    if (saving) return;
+    setMockDialogSessionId(null);
+  };
+
+  const submitCddMockComplete = async () => {
+    if (!mockDialogSessionId) return;
+    const pickedType = selectedMockDataType;
+    const ok = await runAction(
+      () =>
+        withAuth(
+          `${import.meta.env.VITE_API_URL}/onboarding/sessions/${mockDialogSessionId}/mock-complete`,
+          {
+            method: 'POST',
+            body: JSON.stringify({ mockDataType: pickedType }),
+          },
+        ),
+      `CDD mock callback simulated (${pickedType}).`,
+    );
+
+    if (ok) {
+      setMockDialogSessionId(null);
+    }
+  };
+
+  const mockCompleteEdd = async (sessionId: string) =>
     runAction(
       () =>
         withAuth(`${import.meta.env.VITE_API_URL}/onboarding/sessions/${sessionId}/mock-complete`, {
           method: 'POST',
           body: JSON.stringify({ result: 'PASS' }),
         }),
-      'Session callback simulated.',
+      'EDD mock callback simulated.',
     );
+
+  const handleMockCompleteClick = async (sessionId: string, caseType: 'CDD' | 'EDD') => {
+    if (caseType === 'CDD') {
+      openCddMockDialog(sessionId);
+      return;
+    }
+
+    await mockCompleteEdd(sessionId);
+  };
 
   const publicStatus =
     nextStep?.publicStatus || onboarding?.publicStatus || profile?.publicStatus || 'NONE';
@@ -387,7 +453,12 @@ const Verification = () => {
                     Expires At: <span className="text-slate-800">{new Date(activeCase.latestSession.expiresAt).toLocaleString()}</span>
                   </div>
                   <button
-                    onClick={() => mockComplete(activeCase.latestSession!.sessionId)}
+                    onClick={() =>
+                      handleMockCompleteClick(
+                        activeCase.latestSession!.sessionId,
+                        activeCase.caseType,
+                      )
+                    }
                     disabled={saving || activeCase.latestSession.status !== 'PENDING'}
                     className={`${buttonClass} bg-green-600 text-white hover:bg-green-700`}
                   >
@@ -451,7 +522,12 @@ const Verification = () => {
                           </button>
                           {item.latestSession?.status === 'PENDING' && (
                             <button
-                              onClick={() => mockComplete(item.latestSession!.sessionId)}
+                              onClick={() =>
+                                handleMockCompleteClick(
+                                  item.latestSession!.sessionId,
+                                  item.caseType,
+                                )
+                              }
                               disabled={saving}
                               className={`${buttonClass} bg-green-600 px-3 py-1.5 text-xs text-white hover:bg-green-700`}
                             >
@@ -467,6 +543,66 @@ const Verification = () => {
             </table>
           </div>
         </section>
+
+        {mockDialogSessionId && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
+            <div
+              className="absolute inset-0 bg-slate-900/45"
+              onClick={closeCddMockDialog}
+              aria-hidden="true"
+            />
+            <div className="relative z-10 w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl">
+              <h3 className="text-lg font-semibold text-slate-900">Select CDD Mock Data Type</h3>
+              <p className="mt-1 text-sm text-slate-500">
+                Choose the risk package before submitting mock completion.
+              </p>
+
+              <div className="mt-4 space-y-3">
+                {CDD_MOCK_OPTIONS.map((option) => (
+                  <label
+                    key={option.value}
+                    className={`flex cursor-pointer items-start gap-3 rounded-xl border px-3 py-3 ${
+                      selectedMockDataType === option.value
+                        ? 'border-indigo-500 bg-indigo-50'
+                        : 'border-slate-200 bg-white hover:border-slate-300'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="cdd-mock-data-type"
+                      value={option.value}
+                      checked={selectedMockDataType === option.value}
+                      onChange={() => setSelectedMockDataType(option.value)}
+                      className="mt-1 h-4 w-4 border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                      disabled={saving}
+                    />
+                    <div>
+                      <div className="text-sm font-semibold text-slate-900">{option.label}</div>
+                      <div className="text-xs text-slate-600">{option.description}</div>
+                    </div>
+                  </label>
+                ))}
+              </div>
+
+              <div className="mt-6 flex items-center justify-end gap-2">
+                <button
+                  onClick={closeCddMockDialog}
+                  disabled={saving}
+                  className={`${buttonClass} border border-slate-300 bg-white text-slate-700 hover:bg-slate-50`}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => submitCddMockComplete()}
+                  disabled={saving}
+                  className={`${buttonClass} bg-green-600 text-white hover:bg-green-700`}
+                >
+                  {saving ? 'Submitting...' : 'Confirm Mock Complete'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -23,6 +23,16 @@
 - Required fields MUST be enforced:
 1. `ESCALATE`: `reason`
 2. `CLOSE`: `reason`
+- Assignee execution rule MUST be enforced for sensitive actions:
+1. when status is `ASSIGNED` or `ESCALATED`, `ESCALATE` and `CLOSE` MUST be executed by current `assigneeUserId`
+2. admin UI and backend service MUST apply the same restriction logic
+- Reassign guard MUST be enforced:
+1. when status is `ASSIGNED`, changing assignee (`ASSIGN` to a different user) MUST be performed by current `assigneeUserId`
+2. non-assignee reassign attempts MUST be rejected by backend with `403`
+- Recommendation execution rule for onboarding container flow MUST be:
+1. recommendation buttons are rendered from risk-engine output (`recommendedDecisions`)
+2. recommendation execution MAY be invoked multiple times in UI/API
+3. actual transition validity MUST be enforced by onboarding state-machine checks (illegal stage transition returns `400/409`)
 - Alert dedupe key MUST stay `ruleCode:sourceType:sourceId[:stage]`.
 - When same dedupe key hits a closed alert, implementation MUST create a new alert row and rotate old dedupe key archive suffix.
 
@@ -30,25 +40,32 @@
 - Incident status machine MUST remain:
 1. `OPEN`
 2. `ASSIGNED`
-3. `RESOLVED`
-4. `CLOSED`
+3. `CLOSED`
 - Closed status MUST be terminal.
+- Legacy `RESOLVED` data MAY exist for read compatibility, but MUST NOT be produced by new workflow transitions.
 - Incident action constraints MUST remain:
 1. `OPEN` -> `ASSIGN` / `LINK_ALERT`
-2. `ASSIGNED` -> `ASSIGN` / `RESOLVE` / `LINK_ALERT`
-3. `RESOLVED` -> `CLOSE`
-4. `CLOSED` -> no action
+2. `ASSIGNED` -> `ASSIGN` / `CLOSE` / `LINK_ALERT`
+3. `CLOSED` -> no action
 - Required fields MUST be enforced:
-1. `RESOLVE`: `reason`
-2. `CLOSE`: `reason`
+1. `CLOSE`: `reason`
+- Incident assignee role whitelist MUST be enforced:
+1. assign/reassign target MUST be `SUPER_ADMIN` or `MLRO`
+2. in `ASSIGNED`, reassign and close MUST be executed by current assignee
+- Incident close MUST cascade close all linked alerts in `OPEN/ASSIGNED/ESCALATED`.
 
 ## 4) Alert to Incident Escalation Constraints
 - Incident creation in V1 MUST be manual from alert escalation:
 1. `POST /admin/compliance/incidents/from-alert/:alertId`
+- Explicit exception (mock only): CDD mock `HIGH_RISK_OR_PEP` MAY auto-run escalation by system actor:
+1. system escalates alert
+2. system creates incident from alert with recommended actions metadata
+- This exception MUST stay limited to CDD mock flow for demo/testing, and MUST NOT override production manual-escalation policy.
 - Escalation MUST be transactional and atomic:
 1. alert transitions to `ESCALATED`
 2. incident row is created with `status=OPEN`
 3. primary relation row is created in `compliance_incident_alerts`
+4. incident metadata SHOULD inherit recommendation payload from source alert when available (`recommendedActions` / `recommendedDecisions`)
 - One alert MUST belong to at most one incident (`alertId` global unique in relation table).
 - One incident MAY aggregate multiple alerts (`PRIMARY` + `RELATED`).
 
@@ -75,14 +92,16 @@
 2. `GET /admin/compliance/alerts/:id`
 3. `PATCH /admin/compliance/alerts/:id/action`
 4. `POST /admin/compliance/alerts/simulate`
+5. `POST /admin/compliance/alerts/:id/onboarding-decision`
 - Incident admin APIs MUST remain:
 1. `GET /admin/compliance/incidents`
 2. `GET /admin/compliance/incidents/:id`
 3. `PATCH /admin/compliance/incidents/:id/action`
 4. `POST /admin/compliance/incidents/from-alert/:alertId`
 5. `POST /admin/compliance/incidents/:id/alerts`
+6. `POST /admin/compliance/incidents/:id/onboarding-decision`
 - List responses MUST stay machine-parsable `{ total, skip, take, items[] }`.
-- Detail responses MUST include timeline events and linked relation records.
+- Detail responses MUST include timeline events, linked relation records, and risk recommendation projection (`recommendedDecisions` where applicable).
 
 ## 8) Audit Logging Constraints (Alert/Incident)
 - All alert/incident writes MUST go through `AuditLogsService`.

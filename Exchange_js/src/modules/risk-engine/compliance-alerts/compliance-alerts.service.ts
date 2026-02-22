@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -159,12 +160,56 @@ export class ComplianceAlertsService {
     }
   }
 
+  private normalizeRecommendedDecision(value: unknown): string | null {
+    const normalized = String(value || '').trim().toUpperCase();
+    if (!normalized) return null;
+    if (normalized === 'APPROVE') return 'APPROVE';
+    if (normalized === 'REJECT') return 'REJECT';
+    if (normalized === 'REQUIRE_EDD') return 'REQUIRE_EDD';
+    return null;
+  }
+
+  private dedupeRecommendedDecisions(decisions: unknown[]): string[] {
+    const normalized = decisions
+      .map((item) => this.normalizeRecommendedDecision(item))
+      .filter((item): item is string => !!item);
+    return Array.from(new Set(normalized));
+  }
+
+  private mapRecommendedDecisions(
+    row: ComplianceAlert,
+    metadata: Record<string, unknown>,
+  ): string[] {
+    const fromMetadata = Array.isArray(metadata.recommendedDecisions)
+      ? this.dedupeRecommendedDecisions(metadata.recommendedDecisions as unknown[])
+      : [];
+    if (fromMetadata.length > 0) return fromMetadata;
+
+    const contextType = String(metadata.contextType || '').toUpperCase();
+    if (contextType === 'ONBOARDING_CDD') {
+      return ['APPROVE', 'REJECT', 'REQUIRE_EDD'];
+    }
+    if (contextType === 'ONBOARDING_EDD') {
+      return ['APPROVE', 'REJECT'];
+    }
+
+    const recommendation = this.normalizeRecommendedDecision(row.decisionRecommendation);
+    return recommendation ? [recommendation] : [];
+  }
+
   private mapAlert(row: ComplianceAlert) {
+    const metadata = this.parseJson(row.metadata);
+    const normalizedMetadata =
+      metadata && typeof metadata === 'object' && !Array.isArray(metadata)
+        ? (metadata as Record<string, unknown>)
+        : {};
+
     return {
       ...row,
-      metadata: this.parseJson(row.metadata),
+      metadata: metadata || {},
       linkedCaseIds: this.parseJson(row.linkedCaseIds),
       decisionRecordIds: this.parseJson(row.decisionRecordIds),
+      recommendedDecisions: this.mapRecommendedDecisions(row, normalizedMetadata),
     };
   }
 
@@ -886,6 +931,40 @@ export class ComplianceAlertsService {
 
     const currentStatus = current.status as ComplianceAlertStatus;
     this.assertActionAllowed(currentStatus, dto.action);
+
+    if (
+      currentStatus === ComplianceAlertStatus.ASSIGNED &&
+      dto.action === ComplianceAlertAction.ASSIGN
+    ) {
+      const currentAssigneeUserId = this.normalizeOptionalString(current.assigneeUserId);
+      const targetAssigneeUserId = this.normalizeOptionalString(dto.assigneeUserId) || actor.actorId;
+      if (
+        currentAssigneeUserId &&
+        targetAssigneeUserId !== currentAssigneeUserId &&
+        actor.actorId !== currentAssigneeUserId
+      ) {
+        throw new ForbiddenException(
+          `Only assignee ${currentAssigneeUserId} can reassign this alert`,
+        );
+      }
+    }
+
+    if (
+      [ComplianceAlertStatus.ASSIGNED, ComplianceAlertStatus.ESCALATED].includes(currentStatus) &&
+      [ComplianceAlertAction.ESCALATE, ComplianceAlertAction.CLOSE].includes(dto.action)
+    ) {
+      const currentAssigneeUserId = this.normalizeOptionalString(current.assigneeUserId);
+      if (!currentAssigneeUserId) {
+        throw new ForbiddenException(
+          `Action ${dto.action} requires an assigned owner on status ${currentStatus}`,
+        );
+      }
+      if (currentAssigneeUserId !== actor.actorId) {
+        throw new ForbiddenException(
+          `Only assignee ${currentAssigneeUserId} can execute action ${dto.action}`,
+        );
+      }
+    }
 
     const resolution = this.resolveAction(dto.action, currentStatus);
     const reason = this.normalizeOptionalString(dto.reason);

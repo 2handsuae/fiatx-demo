@@ -8,6 +8,7 @@ export enum ComplianceIncidentSeverity {
 export enum ComplianceIncidentStatus {
   OPEN = 'OPEN',
   ASSIGNED = 'ASSIGNED',
+  // Legacy value kept for read compatibility. New flow does not transition to RESOLVED.
   RESOLVED = 'RESOLVED',
   CLOSED = 'CLOSED',
 }
@@ -15,7 +16,6 @@ export enum ComplianceIncidentStatus {
 export enum ComplianceIncidentAction {
   ASSIGN = 'ASSIGN',
   LINK_ALERT = 'LINK_ALERT',
-  RESOLVE = 'RESOLVE',
   CLOSE = 'CLOSE',
 }
 

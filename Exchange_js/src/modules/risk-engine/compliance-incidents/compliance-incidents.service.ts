@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -56,6 +57,8 @@ type IncidentDetailRow = ComplianceIncident & {
         sourceType: string;
         sourceId: string;
         sourceNo: string | null;
+        decisionRecommendation: string | null;
+        metadata: string | null;
         dueAt: Date;
         lastOccurredAt: Date;
       } | null;
@@ -121,6 +124,29 @@ export class ComplianceIncidentsService {
     }
   }
 
+  private normalizeRecommendedDecision(value: unknown): string | null {
+    const normalized = String(value || '').trim().toUpperCase();
+    if (!normalized) return null;
+    if (normalized === 'APPROVE') return 'APPROVE';
+    if (normalized === 'REJECT') return 'REJECT';
+    if (normalized === 'REQUIRE_EDD') return 'REQUIRE_EDD';
+    return null;
+  }
+
+  private dedupeRecommendedDecisions(values: unknown[]): string[] {
+    const normalized = values
+      .map((item) => this.normalizeRecommendedDecision(item))
+      .filter((item): item is string => !!item);
+    return Array.from(new Set(normalized));
+  }
+
+  private getRecommendedDecisionsFromMetadata(
+    metadata: Record<string, unknown>,
+  ): string[] {
+    if (!Array.isArray(metadata.recommendedDecisions)) return [];
+    return this.dedupeRecommendedDecisions(metadata.recommendedDecisions as unknown[]);
+  }
+
   private toRetainedUntil(base: Date): Date {
     const retainedUntil = new Date(base);
     retainedUntil.setFullYear(retainedUntil.getFullYear() + 8);
@@ -156,10 +182,18 @@ export class ComplianceIncidentsService {
   }
 
   private mapIncident(row: ComplianceIncident) {
+    const metadata = this.parseJson(row.metadata);
+    const normalizedMetadata =
+      metadata && typeof metadata === 'object' && !Array.isArray(metadata)
+        ? (metadata as Record<string, unknown>)
+        : {};
     return {
       ...row,
       closureChecklist: this.parseJson(row.closureChecklist),
-      metadata: this.parseJson(row.metadata),
+      metadata: metadata || {},
+      recommendedDecisions: this.getRecommendedDecisionsFromMetadata(
+        normalizedMetadata,
+      ),
     };
   }
 
@@ -182,6 +216,8 @@ export class ComplianceIncidentsService {
         sourceType: string;
         sourceId: string;
         sourceNo: string | null;
+        decisionRecommendation: string | null;
+        metadata: string | null;
         dueAt: Date;
         lastOccurredAt: Date;
       } | null;
@@ -214,7 +250,7 @@ export class ComplianceIncidentsService {
         if (
           ![
             ComplianceIncidentAction.ASSIGN,
-            ComplianceIncidentAction.RESOLVE,
+            ComplianceIncidentAction.CLOSE,
             ComplianceIncidentAction.LINK_ALERT,
           ].includes(action)
         ) {
@@ -252,14 +288,6 @@ export class ComplianceIncidentsService {
           requireReason: false,
           statusChanged: currentStatus !== ComplianceIncidentStatus.ASSIGNED,
         };
-      case ComplianceIncidentAction.RESOLVE:
-        return {
-          nextStatus: ComplianceIncidentStatus.RESOLVED,
-          eventType: ComplianceIncidentEventType.RESOLVED,
-          auditAction: AuditActions.INCIDENT_RESOLVED,
-          requireReason: true,
-          statusChanged: currentStatus !== ComplianceIncidentStatus.RESOLVED,
-        };
       case ComplianceIncidentAction.CLOSE:
         return {
           nextStatus: ComplianceIncidentStatus.CLOSED,
@@ -277,15 +305,54 @@ export class ComplianceIncidentsService {
     }
   }
 
-  private async resolveUserNo(
+  private async resolveIncidentAssignee(
     userId: string,
     db: IncidentWriteClient,
-  ): Promise<string | null> {
+  ): Promise<{ userNo: string; roleCodes: string[] }> {
     const user = await db.user.findUnique({
       where: { id: userId },
-      select: { userNo: true },
+      select: {
+        userNo: true,
+        role: true,
+        status: true,
+        userRoles: {
+          select: {
+            role: {
+              select: { code: true },
+            },
+          },
+        },
+      },
     });
-    return user?.userNo || null;
+
+    if (!user || !user.userNo) {
+      throw new BadRequestException(`Assignee user not found: ${userId}`);
+    }
+    if (String(user.status || '').toUpperCase() !== 'ACTIVE') {
+      throw new BadRequestException(`Assignee user is not ACTIVE: ${userId}`);
+    }
+
+    const roleCodes = Array.from(
+      new Set(
+        [
+          String(user.role || '').trim().toUpperCase(),
+          ...(user.userRoles || [])
+            .map((item: any) => String(item?.role?.code || '').trim().toUpperCase()),
+        ].filter(Boolean),
+      ),
+    );
+
+    const eligible = roleCodes.includes('SUPER_ADMIN') || roleCodes.includes('MLRO');
+    if (!eligible) {
+      throw new BadRequestException(
+        `Incident assignee must have SUPER_ADMIN or MLRO role: ${userId}`,
+      );
+    }
+
+    return {
+      userNo: user.userNo,
+      roleCodes,
+    };
   }
 
   private async appendEvent(
@@ -409,6 +476,8 @@ export class ComplianceIncidentsService {
                 sourceType: true,
                 sourceId: true,
                 sourceNo: true,
+                decisionRecommendation: true,
+                metadata: true,
                 dueAt: true,
                 lastOccurredAt: true,
               },
@@ -427,10 +496,36 @@ export class ComplianceIncidentsService {
     }
 
     const row = item as IncidentDetailRow;
+    const mappedIncident = this.mapIncident(row);
+    const mappedAlerts = row.alerts.map((alertLink) => this.mapIncidentAlert(alertLink));
+    const primaryAlert = mappedAlerts.find((item) => item.relationType === 'PRIMARY')?.alert;
+    const primaryAlertMetadata =
+      primaryAlert?.metadata && typeof primaryAlert.metadata === 'string'
+        ? this.parseJson(primaryAlert.metadata)
+        : primaryAlert?.metadata;
+    const normalizedPrimaryAlertMetadata =
+      primaryAlertMetadata &&
+      typeof primaryAlertMetadata === 'object' &&
+      !Array.isArray(primaryAlertMetadata)
+        ? (primaryAlertMetadata as Record<string, unknown>)
+        : {};
+    const recommendedDecisions =
+      (mappedIncident as any).recommendedDecisions?.length > 0
+        ? (mappedIncident as any).recommendedDecisions
+        : this.getRecommendedDecisionsFromMetadata(normalizedPrimaryAlertMetadata);
+    const fallbackRecommendation = this.normalizeRecommendedDecision(
+      (primaryAlert as any)?.decisionRecommendation,
+    );
 
     return {
-      ...this.mapIncident(row),
-      alerts: row.alerts.map((alertLink) => this.mapIncidentAlert(alertLink)),
+      ...mappedIncident,
+      recommendedDecisions:
+        recommendedDecisions.length > 0
+          ? recommendedDecisions
+          : fallbackRecommendation
+            ? [fallbackRecommendation]
+            : [],
+      alerts: mappedAlerts,
       events: row.events.map((event) => this.mapIncidentEvent(event)),
     };
   }
@@ -444,6 +539,25 @@ export class ComplianceIncidentsService {
     if (!reason) {
       throw new BadRequestException('reason is required');
     }
+    const decision = this.normalizeOptionalString(dto.decision);
+    const linkedCaseIds =
+      Array.isArray(dto.linkedCaseIds) && dto.linkedCaseIds.length > 0
+        ? dto.linkedCaseIds
+            .map((item) => this.normalizeOptionalString(item))
+            .filter(Boolean) as string[]
+        : [];
+    const decisionRecordIds =
+      Array.isArray(dto.decisionRecordIds) && dto.decisionRecordIds.length > 0
+        ? dto.decisionRecordIds
+            .map((item) => this.normalizeOptionalString(item))
+            .filter(Boolean) as string[]
+        : [];
+    const recommendedActions =
+      Array.isArray(dto.recommendedActions) && dto.recommendedActions.length > 0
+        ? dto.recommendedActions
+            .map((item) => this.normalizeOptionalString(item))
+            .filter(Boolean) as string[]
+        : [];
 
     const createdIncidentId = await this.prisma.$transaction(async (tx) => {
       const existingLink = await tx.complianceIncidentAlert.findUnique({
@@ -473,6 +587,24 @@ export class ComplianceIncidentsService {
         );
       }
 
+      const alertMetadata =
+        updatedAlert.metadata &&
+        typeof updatedAlert.metadata === 'object' &&
+        !Array.isArray(updatedAlert.metadata)
+          ? (updatedAlert.metadata as Record<string, unknown>)
+          : {};
+      const inheritedRecommendedActions = Array.isArray(alertMetadata.recommendedActions)
+        ? (alertMetadata.recommendedActions as unknown[])
+            .map((item) => this.normalizeOptionalString(item))
+            .filter(Boolean) as string[]
+        : [];
+      const inheritedRecommendedDecisions =
+        this.getRecommendedDecisionsFromMetadata(alertMetadata);
+      const effectiveRecommendedActions =
+        recommendedActions.length > 0
+          ? recommendedActions
+          : inheritedRecommendedActions;
+
       const now = new Date();
       const incident = await tx.complianceIncident.create({
         data: {
@@ -498,6 +630,11 @@ export class ComplianceIncidentsService {
           dueAt:
             updatedAlert.dueAt ||
             this.toDueAt(updatedAlert.severity as ComplianceIncidentSeverity, now),
+          decision,
+          linkedCaseIds: this.serializeJson(linkedCaseIds.length > 0 ? linkedCaseIds : null),
+          decisionRecordIds: this.serializeJson(
+            decisionRecordIds.length > 0 ? decisionRecordIds : null,
+          ),
           lastActionById: actor.actorId,
           lastActionByNo: actor.actorNo || null,
           lastActionByRole: actor.actorRole || null,
@@ -508,6 +645,11 @@ export class ComplianceIncidentsService {
             createdFromAlertNo: updatedAlert.alertNo,
             sourceType: updatedAlert.sourceType,
             sourceId: updatedAlert.sourceId,
+            decision,
+            linkedCaseIds,
+            decisionRecordIds,
+            engineRecommendedActions: effectiveRecommendedActions,
+            recommendedDecisions: inheritedRecommendedDecisions,
           }),
           retainedUntil: updatedAlert.retainedUntil || this.toRetainedUntil(now),
         },
@@ -541,6 +683,11 @@ export class ComplianceIncidentsService {
           primaryAlertId: updatedAlert.id,
           primaryAlertNo: updatedAlert.alertNo,
           action: 'ESCALATE_FROM_ALERT',
+          decision,
+          linkedCaseIds,
+          decisionRecordIds,
+          recommendedActions: effectiveRecommendedActions,
+          recommendedDecisions: inheritedRecommendedDecisions,
         },
         sourcePlatform: actor.sourcePlatform || 'ADMIN_API',
       });
@@ -560,6 +707,11 @@ export class ComplianceIncidentsService {
             primaryAlertId: updatedAlert.id,
             primaryAlertNo: updatedAlert.alertNo,
             severity: incident.severity,
+            decision,
+            linkedCaseIds,
+            decisionRecordIds,
+            recommendedActions: effectiveRecommendedActions,
+            recommendedDecisions: inheritedRecommendedDecisions,
           },
           sourcePlatform: actor.sourcePlatform || 'ADMIN_API',
         },
@@ -731,123 +883,195 @@ export class ComplianceIncidentsService {
     dto: UpdateComplianceIncidentActionDto,
     actor: ComplianceIncidentActorContext,
   ) {
-    const current = await this.prisma.complianceIncident.findUnique({
-      where: { id },
-    });
-
-    if (!current) {
-      throw new NotFoundException(`Compliance incident not found: ${id}`);
-    }
-
-    const currentStatus = current.status as ComplianceIncidentStatus;
-    this.assertActionAllowed(currentStatus, dto.action);
-
-    const resolution = this.resolveAction(dto.action, currentStatus);
-    const reason = this.normalizeOptionalString(dto.reason);
-    const note = this.normalizeOptionalString(dto.note);
-    const decision = this.normalizeOptionalString(dto.decision);
-    const linkedCaseIds = this.serializeJson(dto.linkedCaseIds || null);
-    const decisionRecordIds = this.serializeJson(dto.decisionRecordIds || null);
-
-    if (resolution.requireReason && !reason) {
-      throw new BadRequestException(`Action ${dto.action} requires a reason`);
-    }
-
-    const now = new Date();
-    const updateData: Prisma.ComplianceIncidentUpdateInput = {
-      status: resolution.nextStatus,
-      lastActionById: actor.actorId,
-      lastActionByNo: actor.actorNo || null,
-      lastActionByRole: actor.actorRole || null,
-      lastActionAt: now,
-      decision: decision || undefined,
-      linkedCaseIds: linkedCaseIds || undefined,
-      decisionRecordIds: decisionRecordIds || undefined,
-    };
-
-    let assigneeUserId: string | null = null;
-    let assigneeUserNo: string | null = null;
-
-    if (dto.action === ComplianceIncidentAction.ASSIGN) {
-      assigneeUserId = this.normalizeOptionalString(dto.assigneeUserId) || actor.actorId;
-      assigneeUserNo = await this.resolveUserNo(assigneeUserId, this.prisma);
-      if (!assigneeUserNo) {
-        throw new BadRequestException(`Assignee user not found: ${assigneeUserId}`);
+    const updatedId = await this.prisma.$transaction(async (tx) => {
+      const current = await tx.complianceIncident.findUnique({
+        where: { id },
+      });
+      if (!current) {
+        throw new NotFoundException(`Compliance incident not found: ${id}`);
       }
 
-      updateData.ownerUserId = assigneeUserId;
-      updateData.ownerUserNo = assigneeUserNo;
-      updateData.assignedAt = now;
-    }
+      const currentStatus = current.status as ComplianceIncidentStatus;
+      this.assertActionAllowed(currentStatus, dto.action);
 
-    if (dto.action === ComplianceIncidentAction.RESOLVE) {
-      updateData.resolvedAt = now;
-      updateData.closeReason = reason || note || null;
-    }
+      const resolution = this.resolveAction(dto.action, currentStatus);
+      const reason = this.normalizeOptionalString(dto.reason);
+      const note = this.normalizeOptionalString(dto.note);
+      const decision = this.normalizeOptionalString(dto.decision);
+      const linkedCaseIds = this.serializeJson(dto.linkedCaseIds || null);
+      const decisionRecordIds = this.serializeJson(dto.decisionRecordIds || null);
 
-    if (dto.action === ComplianceIncidentAction.CLOSE) {
-      updateData.closedAt = now;
-      updateData.closeReason = reason || note || null;
-    }
+      if (resolution.requireReason && !reason) {
+        throw new BadRequestException(`Action ${dto.action} requires a reason`);
+      }
 
-    const updated = await this.prisma.complianceIncident.update({
-      where: { id },
-      data: updateData,
-    });
+      const now = new Date();
+      const updateData: Prisma.ComplianceIncidentUpdateInput = {
+        status: resolution.nextStatus,
+        lastActionById: actor.actorId,
+        lastActionByNo: actor.actorNo || null,
+        lastActionByRole: actor.actorRole || null,
+        lastActionAt: now,
+        decision: decision || undefined,
+        linkedCaseIds: linkedCaseIds || undefined,
+        decisionRecordIds: decisionRecordIds || undefined,
+      };
 
-    await this.appendEvent(this.prisma, {
-      incidentId: updated.id,
-      eventType: resolution.eventType,
-      eventAt: now,
-      actorType: actor.actorType,
-      actorId: actor.actorId,
-      actorNo: actor.actorNo || null,
-      actorRole: actor.actorRole || null,
-      note: note || reason || `${dto.action} executed`,
-      payload: {
-        action: dto.action,
-        reason: reason || null,
-        note: note || null,
-        assigneeUserId,
-        assigneeUserNo,
-        decision,
-        linkedCaseIds: dto.linkedCaseIds || null,
-        decisionRecordIds: dto.decisionRecordIds || null,
-        statusFrom: currentStatus,
-        statusTo: updated.status,
-      },
-      sourcePlatform: actor.sourcePlatform || 'ADMIN_API',
-    });
+      let assigneeUserId: string | null = null;
+      let assigneeUserNo: string | null = null;
 
-    await this.auditLogsService.recordByActor(
-      {
-        triggerType: AuditTriggerType.DATA_UPDATE,
-        action: resolution.auditAction,
-        module: AuditModules.COMPLIANCE_INCIDENTS,
-        entityType: AuditEntityTypes.COMPLIANCE_INCIDENT,
-        entityId: updated.id,
-        entityNo: updated.incidentNo,
-        statusFrom: resolution.statusChanged ? currentStatus : undefined,
-        statusTo: resolution.statusChanged ? updated.status : undefined,
-        reason: reason || note || `${dto.action} executed`,
-        metadata: {
+      if (dto.action === ComplianceIncidentAction.ASSIGN) {
+        assigneeUserId =
+          this.normalizeOptionalString(dto.assigneeUserId) || actor.actorId;
+
+        if (currentStatus === ComplianceIncidentStatus.ASSIGNED) {
+          const currentOwnerUserId = this.normalizeOptionalString(current.ownerUserId);
+          if (!currentOwnerUserId || currentOwnerUserId !== actor.actorId) {
+            throw new ForbiddenException(
+              `Only assignee ${currentOwnerUserId} can reassign this incident`,
+            );
+          }
+        }
+
+        const assignee = await this.resolveIncidentAssignee(assigneeUserId, tx);
+        assigneeUserNo = assignee.userNo;
+        updateData.ownerUserId = assigneeUserId;
+        updateData.ownerUserNo = assigneeUserNo;
+        updateData.assignedAt = now;
+      }
+
+      if (dto.action === ComplianceIncidentAction.CLOSE) {
+        if (currentStatus === ComplianceIncidentStatus.ASSIGNED) {
+          const currentOwnerUserId = this.normalizeOptionalString(current.ownerUserId);
+          if (!currentOwnerUserId || currentOwnerUserId !== actor.actorId) {
+            throw new ForbiddenException(
+              `Only assignee ${currentOwnerUserId} can close this incident`,
+            );
+          }
+        }
+        updateData.closedAt = now;
+        updateData.closeReason = reason || note || null;
+      }
+
+      const updated = await tx.complianceIncident.update({
+        where: { id },
+        data: updateData,
+      });
+
+      if (dto.action === ComplianceIncidentAction.CLOSE) {
+        const linkedAlerts = await tx.complianceAlert.findMany({
+          where: {
+            incidentLinks: {
+              some: { incidentId: updated.id },
+            },
+            status: {
+              in: [
+                ComplianceAlertStatus.OPEN,
+                ComplianceAlertStatus.ASSIGNED,
+                ComplianceAlertStatus.ESCALATED,
+              ],
+            },
+          },
+          select: {
+            id: true,
+            status: true,
+          },
+        });
+
+        for (const linkedAlert of linkedAlerts) {
+          await tx.complianceAlert.update({
+            where: { id: linkedAlert.id },
+            data: {
+              status: ComplianceAlertStatus.CLOSED,
+              closedAt: now,
+              closeReason:
+                reason || note || `Closed by incident ${updated.incidentNo}`,
+              lastActionById: actor.actorId,
+              lastActionByNo: actor.actorNo || null,
+              lastActionByRole: actor.actorRole || null,
+              lastActionAt: now,
+            },
+          });
+          await tx.complianceAlertEvent.create({
+            data: {
+              alertId: linkedAlert.id,
+              eventType: 'CLOSED',
+              eventAt: now,
+              actorType: actor.actorType,
+              actorId: actor.actorId,
+              actorNo: actor.actorNo || null,
+              actorRole: actor.actorRole || null,
+              note:
+                reason || note || `Closed with incident ${updated.incidentNo}`,
+              payload: JSON.stringify({
+                action: 'INCIDENT_CLOSE_SYNC',
+                incidentId: updated.id,
+                statusFrom: linkedAlert.status,
+                statusTo: ComplianceAlertStatus.CLOSED,
+              }),
+              sourcePlatform: actor.sourcePlatform || 'ADMIN_API',
+            },
+          });
+        }
+      }
+
+      await this.appendEvent(tx, {
+        incidentId: updated.id,
+        eventType: resolution.eventType,
+        eventAt: now,
+        actorType: actor.actorType,
+        actorId: actor.actorId,
+        actorNo: actor.actorNo || null,
+        actorRole: actor.actorRole || null,
+        note: note || reason || `${dto.action} executed`,
+        payload: {
           action: dto.action,
+          reason: reason || null,
+          note: note || null,
           assigneeUserId,
           assigneeUserNo,
           decision,
           linkedCaseIds: dto.linkedCaseIds || null,
           decisionRecordIds: dto.decisionRecordIds || null,
+          statusFrom: currentStatus,
+          statusTo: updated.status,
         },
         sourcePlatform: actor.sourcePlatform || 'ADMIN_API',
-      },
-      {
-        actorType: actor.actorType,
-        actorId: actor.actorId,
-        actorNo: actor.actorNo,
-        actorRole: actor.actorRole,
-      },
-    );
+      });
 
-    return this.findOne(updated.id);
+      await this.auditLogsService.recordByActor(
+        {
+          triggerType: AuditTriggerType.DATA_UPDATE,
+          action: resolution.auditAction,
+          module: AuditModules.COMPLIANCE_INCIDENTS,
+          entityType: AuditEntityTypes.COMPLIANCE_INCIDENT,
+          entityId: updated.id,
+          entityNo: updated.incidentNo,
+          statusFrom: resolution.statusChanged ? currentStatus : undefined,
+          statusTo: resolution.statusChanged ? updated.status : undefined,
+          reason: reason || note || `${dto.action} executed`,
+          metadata: {
+            action: dto.action,
+            assigneeUserId,
+            assigneeUserNo,
+            decision,
+            linkedCaseIds: dto.linkedCaseIds || null,
+            decisionRecordIds: dto.decisionRecordIds || null,
+          },
+          sourcePlatform: actor.sourcePlatform || 'ADMIN_API',
+        },
+        {
+          actorType: actor.actorType,
+          actorId: actor.actorId,
+          actorNo: actor.actorNo,
+          actorRole: actor.actorRole,
+        },
+        tx,
+      );
+
+      return updated.id;
+    });
+
+    return this.findOne(updatedId);
   }
 }

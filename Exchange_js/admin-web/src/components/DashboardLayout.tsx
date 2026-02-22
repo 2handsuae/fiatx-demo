@@ -209,6 +209,18 @@ const DashboardLayout = () => {
       ],
     },
     {
+      label: 'Risk Management',
+      icon: <Shield size={20} />,
+      children: [
+        {
+          path: '/dashboard/risk/policy-executions',
+          label: 'Risk Policy Executions',
+          icon: <Activity size={18} />,
+          requiredPermissions: [PERMISSIONS.CDD_CASES_READ],
+        },
+      ],
+    },
+    {
       label: 'Customer Transaction',
       icon: <ArrowLeftRight size={20} />,
       children: [

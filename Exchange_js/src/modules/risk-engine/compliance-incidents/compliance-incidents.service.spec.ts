@@ -28,6 +28,11 @@ describe('ComplianceIncidentsService', () => {
     },
     complianceAlert: {
       findUnique: jest.fn(),
+      findMany: jest.fn(),
+      update: jest.fn(),
+    },
+    complianceAlertEvent: {
+      create: jest.fn(),
     },
     user: {
       findUnique: jest.fn(),
@@ -103,6 +108,12 @@ describe('ComplianceIncidentsService', () => {
       dueAt: new Date('2026-02-20T00:00:00.000Z'),
       retainedUntil: new Date('2034-02-19T00:00:00.000Z'),
     } as any);
+    prismaMock.user.findUnique.mockResolvedValue({
+      userNo: 'US0001',
+      role: 'SUPER_ADMIN',
+      status: 'ACTIVE',
+      userRoles: [{ role: { code: 'SUPER_ADMIN' } }],
+    });
 
     service = new ComplianceIncidentsService(prismaMock);
   });
@@ -143,6 +154,50 @@ describe('ComplianceIncidentsService', () => {
     expect(result.id).toBe('inc-1');
   });
 
+  it('should persist decision and recommended action fields when creating incident from alert', async () => {
+    prismaMock.complianceIncidentAlert.findUnique.mockResolvedValue(null);
+    prismaMock.complianceIncident.create.mockResolvedValue(buildIncident());
+    prismaMock.complianceIncidentAlert.create.mockResolvedValue({ id: 'link-1' });
+    prismaMock.complianceIncidentEvent.create.mockResolvedValue({ id: 'evt-1' });
+
+    jest.spyOn(service, 'findOne').mockResolvedValue({
+      id: 'inc-1',
+      incidentNo: 'INC2602010001',
+      alerts: [],
+      events: [],
+    } as any);
+
+    await service.createFromAlert(
+      'alert-1',
+      {
+        reason: 'System escalation for mock high risk',
+        decision: 'REVIEW',
+        linkedCaseIds: ['cdd-1'],
+        decisionRecordIds: ['dr-1'],
+        recommendedActions: ['UPSERT_ALERT', 'ESCALATE_INCIDENT'],
+      },
+      {
+        actorType: 'SYSTEM',
+        actorId: 'SYSTEM',
+        actorNo: 'SYSTEM',
+        actorRole: 'SYSTEM',
+      },
+    );
+
+    const createArgs = prismaMock.complianceIncident.create.mock.calls[0][0];
+    expect(createArgs.data.decision).toBe('REVIEW');
+    expect(createArgs.data.linkedCaseIds).toBe('["cdd-1"]');
+    expect(createArgs.data.decisionRecordIds).toBe('["dr-1"]');
+    expect(JSON.parse(createArgs.data.metadata)).toEqual(
+      expect.objectContaining({
+        decision: 'REVIEW',
+        linkedCaseIds: ['cdd-1'],
+        decisionRecordIds: ['dr-1'],
+        engineRecommendedActions: ['UPSERT_ALERT', 'ESCALATE_INCIDENT'],
+      }),
+    );
+  });
+
   it('should reject createFromAlert when alert already linked', async () => {
     prismaMock.complianceIncidentAlert.findUnique.mockResolvedValue({
       incidentId: 'inc-existing',
@@ -160,7 +215,7 @@ describe('ComplianceIncidentsService', () => {
     ).rejects.toThrow(ConflictException);
   });
 
-  it('should require reason for RESOLVE action', async () => {
+  it('should require reason for CLOSE action', async () => {
     prismaMock.complianceIncident.findUnique.mockResolvedValue(
       buildIncident({ status: ComplianceIncidentStatus.ASSIGNED }),
     );
@@ -169,7 +224,7 @@ describe('ComplianceIncidentsService', () => {
       service.applyAction(
         'inc-1',
         {
-          action: ComplianceIncidentAction.RESOLVE,
+          action: ComplianceIncidentAction.CLOSE,
         },
         {
           actorType: 'ADMIN',
@@ -202,7 +257,12 @@ describe('ComplianceIncidentsService', () => {
     prismaMock.complianceIncident.findUnique.mockResolvedValue(
       buildIncident({ status: ComplianceIncidentStatus.OPEN }),
     );
-    prismaMock.user.findUnique.mockResolvedValue({ userNo: 'US0001' });
+    prismaMock.user.findUnique.mockResolvedValue({
+      userNo: 'US0001',
+      role: 'SUPER_ADMIN',
+      status: 'ACTIVE',
+      userRoles: [{ role: { code: 'SUPER_ADMIN' } }],
+    });
     prismaMock.complianceIncident.update.mockResolvedValue(
       buildIncident({
         status: ComplianceIncidentStatus.ASSIGNED,
@@ -240,6 +300,187 @@ describe('ComplianceIncidentsService', () => {
       }),
     );
     expect(result.status).toBe(ComplianceIncidentStatus.ASSIGNED);
+  });
+
+  it('should reject assigning incident to user without SUPER_ADMIN or MLRO role', async () => {
+    prismaMock.complianceIncident.findUnique.mockResolvedValue(
+      buildIncident({ status: ComplianceIncidentStatus.OPEN }),
+    );
+    prismaMock.user.findUnique.mockResolvedValue({
+      userNo: 'US0008',
+      role: 'ALERT_ANALYST',
+      status: 'ACTIVE',
+      userRoles: [{ role: { code: 'ALERT_ANALYST' } }],
+    });
+
+    await expect(
+      service.applyAction(
+        'inc-1',
+        {
+          action: ComplianceIncidentAction.ASSIGN,
+          assigneeUserId: 'admin-8',
+        },
+        {
+          actorType: 'ADMIN',
+          actorId: 'admin-1',
+        },
+      ),
+    ).rejects.toThrow('SUPER_ADMIN or MLRO');
+  });
+
+  it('should reject reassign in ASSIGNED when actor is not current assignee', async () => {
+    prismaMock.complianceIncident.findUnique.mockResolvedValue(
+      buildIncident({
+        status: ComplianceIncidentStatus.ASSIGNED,
+        ownerUserId: 'admin-1',
+        ownerUserNo: 'US0001',
+      }),
+    );
+
+    await expect(
+      service.applyAction(
+        'inc-1',
+        {
+          action: ComplianceIncidentAction.ASSIGN,
+          assigneeUserId: 'admin-2',
+        },
+        {
+          actorType: 'ADMIN',
+          actorId: 'admin-9',
+          actorNo: 'US0009',
+          actorRole: 'MLRO',
+        },
+      ),
+    ).rejects.toThrow('can reassign');
+  });
+
+  it('should allow assignee to reassign in ASSIGNED status', async () => {
+    prismaMock.complianceIncident.findUnique.mockResolvedValue(
+      buildIncident({
+        status: ComplianceIncidentStatus.ASSIGNED,
+        ownerUserId: 'admin-1',
+        ownerUserNo: 'US0001',
+      }),
+    );
+    prismaMock.user.findUnique.mockResolvedValue({
+      userNo: 'US0002',
+      role: 'MLRO',
+      status: 'ACTIVE',
+      userRoles: [{ role: { code: 'MLRO' } }],
+    });
+    prismaMock.complianceIncident.update.mockResolvedValue(
+      buildIncident({
+        status: ComplianceIncidentStatus.ASSIGNED,
+        ownerUserId: 'admin-2',
+        ownerUserNo: 'US0002',
+      }),
+    );
+    prismaMock.complianceIncidentEvent.create.mockResolvedValue({ id: 'evt-1' });
+
+    jest.spyOn(service, 'findOne').mockResolvedValue({
+      id: 'inc-1',
+      status: ComplianceIncidentStatus.ASSIGNED,
+      ownerUserId: 'admin-2',
+      ownerUserNo: 'US0002',
+      alerts: [],
+      events: [],
+    } as any);
+
+    const result = await service.applyAction(
+      'inc-1',
+      {
+        action: ComplianceIncidentAction.ASSIGN,
+        assigneeUserId: 'admin-2',
+      },
+      {
+        actorType: 'ADMIN',
+        actorId: 'admin-1',
+        actorNo: 'US0001',
+        actorRole: 'SUPER_ADMIN',
+      },
+    );
+
+    expect(result.status).toBe(ComplianceIncidentStatus.ASSIGNED);
+    expect(prismaMock.complianceIncident.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          ownerUserId: 'admin-2',
+          ownerUserNo: 'US0002',
+        }),
+      }),
+    );
+  });
+
+  it('should reject close in ASSIGNED when actor is not current assignee', async () => {
+    prismaMock.complianceIncident.findUnique.mockResolvedValue(
+      buildIncident({
+        status: ComplianceIncidentStatus.ASSIGNED,
+        ownerUserId: 'admin-1',
+        ownerUserNo: 'US0001',
+      }),
+    );
+
+    await expect(
+      service.applyAction(
+        'inc-1',
+        {
+          action: ComplianceIncidentAction.CLOSE,
+          reason: 'close',
+        },
+        {
+          actorType: 'ADMIN',
+          actorId: 'admin-9',
+          actorNo: 'US0009',
+          actorRole: 'MLRO',
+        },
+      ),
+    ).rejects.toThrow('can close');
+  });
+
+  it('should close linked alerts when closing incident', async () => {
+    prismaMock.complianceIncident.findUnique.mockResolvedValue(
+      buildIncident({
+        status: ComplianceIncidentStatus.ASSIGNED,
+        ownerUserId: 'admin-1',
+      }),
+    );
+    prismaMock.complianceIncident.update.mockResolvedValue(
+      buildIncident({
+        status: ComplianceIncidentStatus.CLOSED,
+        ownerUserId: 'admin-1',
+      }),
+    );
+    prismaMock.complianceAlert.findMany.mockResolvedValue([
+      { id: 'alert-1', status: 'ASSIGNED' },
+      { id: 'alert-2', status: 'ESCALATED' },
+    ]);
+    prismaMock.complianceAlert.update.mockResolvedValue({});
+    prismaMock.complianceAlertEvent.create.mockResolvedValue({});
+    prismaMock.complianceIncidentEvent.create.mockResolvedValue({ id: 'evt-1' });
+
+    jest.spyOn(service, 'findOne').mockResolvedValue({
+      id: 'inc-1',
+      status: ComplianceIncidentStatus.CLOSED,
+      alerts: [],
+      events: [],
+    } as any);
+
+    const result = await service.applyAction(
+      'inc-1',
+      {
+        action: ComplianceIncidentAction.CLOSE,
+        reason: 'investigation completed',
+      },
+      {
+        actorType: 'ADMIN',
+        actorId: 'admin-1',
+        actorRole: 'SUPER_ADMIN',
+      },
+    );
+
+    expect(prismaMock.complianceAlert.findMany).toHaveBeenCalled();
+    expect(prismaMock.complianceAlert.update).toHaveBeenCalledTimes(2);
+    expect(result.status).toBe(ComplianceIncidentStatus.CLOSED);
   });
 
   it('should reject duplicate linked alert', async () => {

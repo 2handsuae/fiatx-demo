@@ -236,40 +236,64 @@ resolve_db_file() {
   echo "${prisma_dir}/dev.db"
 }
 
-db_has_required_tables() {
+db_needs_seed_data() {
   local db_file="$1"
+  local required_tables=("users" "roles" "permissions" "customer_main")
+
   if [[ ! -f "${db_file}" ]]; then
-    return 1
+    echo "[${STACK}] seed check: database file is missing (${db_file})"
+    return 0
   fi
 
-  local tables
-  tables="$(sqlite3 "${db_file}" '.tables' 2>/dev/null || true)"
-  [[ "${tables}" == *"customer_main"* ]] && [[ "${tables}" == *"users"* ]]
+  for table in "${required_tables[@]}"; do
+    local table_exists
+    table_exists="$(
+      sqlite3 "${db_file}" \
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='${table}';" \
+        2>/dev/null || echo "0"
+    )"
+    if [[ "${table_exists}" != "1" ]]; then
+      echo "[${STACK}] seed check: required table '${table}' is missing"
+      return 0
+    fi
+
+    local row_count
+    row_count="$(sqlite3 "${db_file}" "SELECT COUNT(*) FROM ${table};" 2>/dev/null || echo "0")"
+    if ! [[ "${row_count}" =~ ^[0-9]+$ ]] || [[ "${row_count}" -eq 0 ]]; then
+      echo "[${STACK}] seed check: table '${table}' has no baseline rows"
+      return 0
+    fi
+  done
+
+  return 1
 }
 
 bootstrap_database_if_needed() {
   local db_file
   db_file="$(resolve_db_file)"
-  local should_seed_business="false"
-
-  if ! db_has_required_tables "${db_file}"; then
-    should_seed_business="true"
-  fi
 
   mkdir -p "$(dirname "${db_file}")"
-  : > "${db_file}"
   echo "[${STACK}] applying pending Prisma migrations to ${db_file}"
   (
     cd "${APP_DIR}"
     DATABASE_URL="file:${db_file}" npx prisma migrate deploy
   )
 
-  if [[ "${should_seed_business}" == "true" ]]; then
-    echo "[${STACK}] seeding minimal business dataset..."
+  if db_needs_seed_data "${db_file}"; then
+    echo "[${STACK}] missing login baseline data, running seed auto-heal..."
     (
       cd "${APP_DIR}"
       DATABASE_URL="file:${db_file}" npm run db:biz:init
     )
+
+    if db_needs_seed_data "${db_file}"; then
+      echo "[${STACK}] FATAL: seed auto-heal failed, login baseline data is still missing." >&2
+      exit 1
+    fi
+
+    echo "[${STACK}] seed auto-heal completed."
+  else
+    echo "[${STACK}] login baseline data verified: ${db_file}"
   fi
 }
 

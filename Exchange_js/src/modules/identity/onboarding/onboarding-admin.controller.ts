@@ -14,8 +14,12 @@ import {
 import { AuthGuard } from '@nestjs/passport';
 import { AdminPermissionGuard } from 'src/modules/identity/access-control/admin-permission.guard';
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
+import { buildPermissionCode } from '../access-control/permission-code.util';
+import { RequirePermissions } from '../access-control/require-permissions.decorator';
 import { OnboardingService } from './onboarding.service';
 import {
+  ApplyOnboardingAlertDecisionDto,
+  DecisionRecordQueryDto,
   FinalReviewCustomerDto,
   ReviewCddCaseDto,
   ReviewEddCaseDto,
@@ -139,6 +143,67 @@ export class OnboardingAdminController {
   getEddCaseDetail(@Req() req: any, @Param('id') id: string) {
     this.getAdminActor(req);
     return this.onboardingService.getEddCaseDetail(id);
+  }
+
+  @Post('alerts/:id/onboarding-decision')
+  @RequirePermissions(buildPermissionCode('POST', '/admin/compliance/cdd-cases/:id/review'))
+  @ApiOperation({ summary: 'Apply onboarding decision from assigned onboarding journey alert' })
+  applyOnboardingDecisionFromAlert(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Body(new ValidationPipe({ transform: true })) body: ApplyOnboardingAlertDecisionDto,
+  ) {
+    const actor = this.getAdminActor(req);
+    return this.onboardingService.applyOnboardingDecisionFromAlert(
+      id,
+      actor.actorId,
+      actor.actorRole,
+      body,
+    );
+  }
+
+  @Post('incidents/:id/onboarding-decision')
+  @RequirePermissions(buildPermissionCode('POST', '/admin/compliance/cdd-cases/:id/review'))
+  @ApiOperation({ summary: 'Apply onboarding decision from assigned onboarding incident' })
+  applyOnboardingDecisionFromIncident(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Body(new ValidationPipe({ transform: true })) body: ApplyOnboardingAlertDecisionDto,
+  ) {
+    const actor = this.getAdminActor(req);
+    return this.onboardingService.applyOnboardingDecisionFromIncident(
+      id,
+      actor.actorId,
+      actor.actorRole,
+      body,
+    );
+  }
+
+  @Get('decision-records')
+  @RequirePermissions(buildPermissionCode('GET', '/admin/compliance/cdd-cases'))
+  @ApiOperation({ summary: 'List onboarding risk decision records' })
+  @ApiQuery({ name: 'status', required: false, type: String })
+  @ApiQuery({ name: 'contextType', required: false, type: String })
+  @ApiQuery({ name: 'outputDecision', required: false, type: String })
+  @ApiQuery({ name: 'customerId', required: false, type: String })
+  @ApiQuery({ name: 'subjectId', required: false, type: String })
+  @ApiQuery({ name: 'policyVersion', required: false, type: String })
+  @ApiQuery({ name: 'skip', required: false, type: Number })
+  @ApiQuery({ name: 'take', required: false, type: Number })
+  listDecisionRecords(
+    @Req() req: any,
+    @Query(new ValidationPipe({ transform: true })) query: DecisionRecordQueryDto,
+  ) {
+    this.getAdminActor(req);
+    return this.onboardingService.listDecisionRecords(query);
+  }
+
+  @Get('decision-records/:id')
+  @RequirePermissions(buildPermissionCode('GET', '/admin/compliance/cdd-cases'))
+  @ApiOperation({ summary: 'Get onboarding risk decision record detail' })
+  getDecisionRecordDetail(@Req() req: any, @Param('id') id: string) {
+    this.getAdminActor(req);
+    return this.onboardingService.getDecisionRecordDetail(id);
   }
 
   @Post('customers/:id/final-review')
