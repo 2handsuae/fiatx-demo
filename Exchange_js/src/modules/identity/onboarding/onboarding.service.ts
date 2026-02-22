@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   Logger,
@@ -179,7 +180,7 @@ export class OnboardingService {
 
     return {
       result,
-      mockDataType: result === 'FAIL' ? 'HIGH_RISK_OR_PEP' : 'LOW_RISK',
+      mockDataType: result === 'FAIL' ? 'SANCTION_AND_OTHER' : 'LOW_RISK',
     };
   }
 
@@ -245,13 +246,25 @@ export class OnboardingService {
       };
     }
 
+    if (mockDataType === 'HIGH_RISK_OR_PEP') {
+      return {
+        ...base,
+        outcome: 'FLAGGED',
+        riskScore: 82 + (seed % 12),
+        riskLevel: 'HIGH',
+        pepHit: true,
+        sanctionsHit: false,
+        adverseMediaHit: true,
+      };
+    }
+
     return {
       ...base,
       outcome: 'FLAGGED',
-      riskScore: 82 + (seed % 12),
-      riskLevel: 'HIGH',
-      pepHit: true,
-      sanctionsHit: false,
+      riskScore: 92 + (seed % 8),
+      riskLevel: 'CRITICAL',
+      pepHit: this.pickFrom(seed + 17, [false, true, false]),
+      sanctionsHit: true,
       adverseMediaHit: true,
     };
   }
@@ -481,6 +494,18 @@ export class OnboardingService {
     return this.normalizeAlertSeverity(upsertAction?.payload?.severity, fallback);
   }
 
+  private hasEscalateIncidentAction(
+    recommendedActions: RiskRecommendedAction[],
+  ): boolean {
+    return recommendedActions.some((action) => action.type === 'ESCALATE_INCIDENT');
+  }
+
+  private isConflictError(error: unknown): boolean {
+    if (error instanceof ConflictException) return true;
+    const message = String((error as any)?.message || error || '').toLowerCase();
+    return message.includes('already linked') || message.includes('conflict');
+  }
+
   private async upsertJourneyAlert(input: AlertUpsertInput): Promise<any | null> {
     const actionNames = this.getRecommendedActionNames(input.recommendedActions || []);
     const recommendedDecisions =
@@ -650,7 +675,7 @@ export class OnboardingService {
       data: updateData,
     });
 
-    await this.upsertJourneyAlert({
+    const upsertedAlert = await this.upsertJourneyAlert({
       customerId: customer.id,
       customerNo: customer.customerNo || null,
       journeyId,
@@ -667,6 +692,44 @@ export class OnboardingService {
       recommendedDecisions,
       contextType: 'ONBOARDING_CDD',
     });
+
+    if (
+      upsertedAlert?.id &&
+      this.hasEscalateIncidentAction(recommendedActions)
+    ) {
+      const actionNames = this.getRecommendedActionNames(recommendedActions);
+      const reason = `Auto escalation from CDD mock (${input.mockDataType}) with reasonCodes=${reasonCodes.join(',') || 'N/A'}`;
+
+      try {
+        await this.complianceIncidentsService.createFromAlert(
+          upsertedAlert.id,
+          {
+            reason,
+            decision: recommendation,
+            linkedCaseIds,
+            decisionRecordIds: [decisionRecordId],
+            recommendedActions: actionNames,
+          },
+          {
+            actorType: 'SYSTEM',
+            actorId: 'SYSTEM',
+            actorNo: 'SYSTEM',
+            actorRole: 'SYSTEM',
+            sourcePlatform: 'SYSTEM',
+          },
+        );
+      } catch (error) {
+        if (this.isConflictError(error)) {
+          this.logger.warn(
+            `Skip duplicate incident auto-escalation for alert=${upsertedAlert.id}: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          );
+        } else {
+          throw error;
+        }
+      }
+    }
 
     return updated;
   }

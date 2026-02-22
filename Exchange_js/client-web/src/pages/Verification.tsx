@@ -49,10 +49,15 @@ interface CaseItem {
   createdAt: string;
 }
 
-type CddMockDataType = 'LOW_RISK' | 'MEDIUM_RISK' | 'HIGH_RISK_OR_PEP';
+type CddMockDataType =
+  | 'LOW_RISK'
+  | 'MEDIUM_RISK'
+  | 'HIGH_RISK_OR_PEP'
+  | 'SANCTION_AND_OTHER';
+type CddMockDialogOption = 'LOW_RISK' | 'MEDIUM_HIGH_MIX' | 'SANCTION_AND_OTHER';
 
 const CDD_MOCK_OPTIONS: Array<{
-  value: CddMockDataType;
+  value: CddMockDialogOption;
   label: string;
   description: string;
 }> = [
@@ -62,14 +67,16 @@ const CDD_MOCK_OPTIONS: Array<{
     description: 'Auto low-risk approval path with low-risk mock package.',
   },
   {
-    value: 'MEDIUM_RISK',
-    label: 'Medium risk',
-    description: 'Create OPEN alert and wait for manual review.',
+    value: 'MEDIUM_HIGH_MIX',
+    label: 'Medium risk / High risk or PEP',
+    description:
+      'Randomly submit MEDIUM_RISK or HIGH_RISK_OR_PEP. Alert only, no auto escalation.',
   },
   {
-    value: 'HIGH_RISK_OR_PEP',
-    label: 'High risk or PEP',
-    description: 'Create alert, then auto-escalate and create incident.',
+    value: 'SANCTION_AND_OTHER',
+    label: 'Sanction & other',
+    description:
+      'Create alert, auto-escalate to ESCALATED, and auto-create incident.',
   },
 ];
 
@@ -91,7 +98,7 @@ const Verification = () => {
   const [message, setMessage] = useState('');
   const [mockDialogSessionId, setMockDialogSessionId] = useState<string | null>(null);
   const [selectedMockDataType, setSelectedMockDataType] =
-    useState<CddMockDataType>('LOW_RISK');
+    useState<CddMockDialogOption>('LOW_RISK');
 
   const token = localStorage.getItem('customer_token');
 
@@ -240,9 +247,19 @@ const Verification = () => {
     setMockDialogSessionId(null);
   };
 
+  const resolveDialogMockDataType = (
+    value: CddMockDialogOption,
+  ): CddMockDataType => {
+    if (value === 'MEDIUM_HIGH_MIX') {
+      return Math.random() < 0.5 ? 'MEDIUM_RISK' : 'HIGH_RISK_OR_PEP';
+    }
+    return value;
+  };
+
   const submitCddMockComplete = async () => {
     if (!mockDialogSessionId) return;
-    const pickedType = selectedMockDataType;
+    const selectedOption = selectedMockDataType;
+    const pickedType = resolveDialogMockDataType(selectedOption);
     const ok = await runAction(
       () =>
         withAuth(
@@ -252,7 +269,7 @@ const Verification = () => {
             body: JSON.stringify({ mockDataType: pickedType }),
           },
         ),
-      `CDD mock callback simulated (${pickedType}).`,
+      `CDD mock callback simulated (${selectedOption} -> ${pickedType}).`,
     );
 
     if (ok) {

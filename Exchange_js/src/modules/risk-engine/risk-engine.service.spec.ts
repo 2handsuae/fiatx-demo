@@ -80,6 +80,9 @@ describe('RiskEngineService', () => {
         }),
       ]),
     );
+    expect(
+      result.recommendedActions.some((action) => action.type === 'ESCALATE_INCIDENT'),
+    ).toBe(false);
   });
 
   it('should return REVIEW with onboarding decision options for CDD HIGH_RISK_OR_PEP mock input', async () => {
@@ -104,6 +107,52 @@ describe('RiskEngineService', () => {
           payload: expect.objectContaining({
             severity: 'HIGH',
             recommendation: 'REVIEW',
+          }),
+        }),
+        expect.objectContaining({
+          type: 'ONBOARDING_RECOMMEND_DECISIONS',
+          payload: expect.objectContaining({
+            decisions: ['APPROVE', 'REJECT', 'REQUIRE_EDD'],
+          }),
+        }),
+      ]),
+    );
+    expect(
+      result.recommendedActions.some((action) => action.type === 'ESCALATE_INCIDENT'),
+    ).toBe(false);
+  });
+
+  it('should return REVIEW with ESCALATE_INCIDENT for CDD SANCTION_AND_OTHER mock input', async () => {
+    const result = await service.evaluate({
+      contextType: 'ONBOARDING_CDD',
+      customerId: 'c1',
+      subjectId: 'c1',
+      signals: {
+        mockDataType: 'SANCTION_AND_OTHER',
+        sanctionsHit: true,
+        adverseMediaHit: true,
+        riskScore: 96,
+        riskLevel: 'CRITICAL',
+      },
+    });
+
+    expect(result.decision).toBe('REVIEW');
+    expect(result.reasonCodes).toEqual(
+      expect.arrayContaining(['SANCTIONS_HIT', 'ADVERSE_MEDIA_HIT']),
+    );
+    expect(result.recommendedActions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'UPSERT_ALERT',
+          payload: expect.objectContaining({
+            severity: 'CRITICAL',
+            recommendation: 'REVIEW',
+          }),
+        }),
+        expect.objectContaining({
+          type: 'ESCALATE_INCIDENT',
+          payload: expect.objectContaining({
+            reasonCode: 'SANCTIONS_HIT',
           }),
         }),
         expect.objectContaining({

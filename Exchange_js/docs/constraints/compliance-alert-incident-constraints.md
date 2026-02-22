@@ -57,7 +57,7 @@
 ## 4) Alert to Incident Escalation Constraints
 - Incident creation in V1 MUST be manual from alert escalation:
 1. `POST /admin/compliance/incidents/from-alert/:alertId`
-- Explicit exception (mock only): CDD mock `HIGH_RISK_OR_PEP` MAY auto-run escalation by system actor:
+- Explicit exception (mock only): CDD mock `SANCTION_AND_OTHER` MAY auto-run escalation by system actor:
 1. system escalates alert
 2. system creates incident from alert with recommended actions metadata
 - This exception MUST stay limited to CDD mock flow for demo/testing, and MUST NOT override production manual-escalation policy.

@@ -19,6 +19,7 @@ export const ONBOARDING_MOCK_DATA_TYPES = [
   'LOW_RISK',
   'MEDIUM_RISK',
   'HIGH_RISK_OR_PEP',
+  'SANCTION_AND_OTHER',
 ] as const;
 
 export type OnboardingMockDataType = (typeof ONBOARDING_MOCK_DATA_TYPES)[number];

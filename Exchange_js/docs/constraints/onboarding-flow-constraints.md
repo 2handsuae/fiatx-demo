@@ -76,6 +76,13 @@
 - Session completion MUST move case to `RECEIVED`, store provider payload, then finalize case as `FINAL` after evaluation.
 - CDD completion MUST evaluate risk and move customer to `REVIEW_CDD` (container waiting for recommendation execution).
 - EDD completion MUST evaluate risk and move customer to `REVIEW_EDD` (container waiting for recommendation execution).
+- CDD mock submission profile MUST support:
+1. `LOW_RISK` -> create/update onboarding journey alert only
+2. `MEDIUM_RISK` / `HIGH_RISK_OR_PEP` -> create/update onboarding journey alert only
+3. `SANCTION_AND_OTHER` -> create/update onboarding journey alert, then auto-escalate and auto-create incident
+- Legacy compatibility for CDD mock completion MUST remain:
+1. when `mockDataType` is missing and `result='FAIL'`, map to `SANCTION_AND_OTHER`
+2. otherwise map to `LOW_RISK`
 - Final approve/reject action MUST only be allowed from `FINAL_APPROVAL`.
 
 ## 7) Alert and Incident Integration

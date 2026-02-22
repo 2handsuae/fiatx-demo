@@ -814,7 +814,68 @@ describe('OnboardingService', () => {
     expect(result.publicStatus).toBe('REVIEW_CDD');
   });
 
-  it('should map legacy result=FAIL to HIGH_RISK_OR_PEP mock data type', async () => {
+  it('should auto-escalate and create incident for SANCTION_AND_OTHER CDD mock', async () => {
+    seedCddMockFlow();
+    prismaMock.customerMain.update.mockResolvedValue({
+      id: 'c1',
+      publicStatus: 'REVIEW_CDD',
+    });
+    riskEngineMock.evaluate.mockResolvedValue({
+      decision: 'REVIEW',
+      decisionRecordId: 'dr-sanction',
+      reasonCodes: ['SANCTIONS_HIT', 'ADVERSE_MEDIA_HIT'],
+      recommendedActions: [
+        {
+          type: 'UPSERT_ALERT',
+          payload: {
+            severity: 'CRITICAL',
+            recommendation: 'REVIEW',
+          },
+        },
+        {
+          type: 'ESCALATE_INCIDENT',
+          payload: {
+            reasonCode: 'SANCTIONS_HIT',
+          },
+        },
+        {
+          type: 'ONBOARDING_RECOMMEND_DECISIONS',
+          payload: { decisions: ['APPROVE', 'REJECT', 'REQUIRE_EDD'] },
+        },
+      ],
+    });
+
+    const result = await service.mockCompleteSession('c1', 'c1', 'ses-1', {
+      mockDataType: 'SANCTION_AND_OTHER',
+    });
+
+    expect(complianceAlertsMock.triggerSystemAlert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        severity: 'CRITICAL',
+        decisionRecommendation: 'REVIEW',
+      }),
+    );
+    expect(complianceIncidentsMock.createFromAlert).toHaveBeenCalledWith(
+      'alert-1',
+      expect.objectContaining({
+        decision: 'REVIEW',
+        linkedCaseIds: ['cdd-1'],
+        decisionRecordIds: ['dr-sanction'],
+        recommendedActions: expect.arrayContaining([
+          'UPSERT_ALERT',
+          'ESCALATE_INCIDENT',
+          'ONBOARDING_RECOMMEND_DECISIONS',
+        ]),
+      }),
+      expect.objectContaining({
+        actorType: 'SYSTEM',
+        actorId: 'SYSTEM',
+      }),
+    );
+    expect(result.publicStatus).toBe('REVIEW_CDD');
+  });
+
+  it('should map legacy result=FAIL to SANCTION_AND_OTHER mock data type', async () => {
     seedCddMockFlow();
     riskEngineMock.evaluate.mockResolvedValue({
       decision: 'APPROVE',
@@ -830,7 +891,7 @@ describe('OnboardingService', () => {
     expect(riskEngineMock.evaluate).toHaveBeenCalledWith(
       expect.objectContaining({
         signals: expect.objectContaining({
-          mockDataType: 'HIGH_RISK_OR_PEP',
+          mockDataType: 'SANCTION_AND_OTHER',
         }),
       }),
     );

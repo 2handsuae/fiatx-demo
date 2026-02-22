@@ -112,7 +112,12 @@ export class RiskEngineService {
     if (input.contextType === 'ONBOARDING_CDD') {
       let severity: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL' = 'MEDIUM';
 
-      if (sanctionsHit) {
+      if (mockDataType === 'SANCTION_AND_OTHER') {
+        reasonCodes.push('SANCTIONS_HIT');
+        if (adverseMediaHit) reasonCodes.push('ADVERSE_MEDIA_HIT');
+        if (pepHit) reasonCodes.push('PEP_HIT');
+        severity = 'CRITICAL';
+      } else if (sanctionsHit) {
         reasonCodes.push('SANCTIONS_HIT');
         severity = 'CRITICAL';
       } else if (mockDataType === 'LOW_RISK') {
@@ -141,6 +146,15 @@ export class RiskEngineService {
           reasonCodes,
         },
       });
+      if (mockDataType === 'SANCTION_AND_OTHER') {
+        recommendedActions.push({
+          type: 'ESCALATE_INCIDENT',
+          payload: {
+            reasonCode: 'SANCTIONS_HIT',
+            severity: 'CRITICAL',
+          },
+        });
+      }
       recommendedActions.push(
         ...this.buildOnboardingDecisionActions([
           'APPROVE',
