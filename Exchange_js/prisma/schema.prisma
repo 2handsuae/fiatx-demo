@@ -122,18 +122,23 @@ model CustomerMain {
   locale             String?
   timezone           String?
   termsAcceptedAt    DateTime?
-  customerType       String    @default("UNKNOWN") // INDIVIDUAL, CORPORATE
-  cddStatus          String    @default("NOT_STARTED") // NOT_STARTED, IN_PROGRESS, PENDING_REVIEW, APPROVED, REJECTED, EXPIRED
+  customerType       String    @default("UNKNOWN") // INDIVIDUAL, CORPORATE(legacy disabled in current onboarding)
+  publicStatus       String    @default("NONE") // NONE, PENDING_CDD, REVIEW_CDD, PENDING_EDD, REVIEW_EDD, FINAL_APPROVAL, ACTIVE, REJECTED, WITHDRAWN
+  cddStatus          String    @default("NOT_STARTED") // legacy compatibility field
   amlRiskTier        String    @default("LOW") // LOW, MEDIUM, HIGH
   eddRequired        Boolean   @default(false)
-  eddStatus          String    @default("NOT_REQUIRED") // NOT_REQUIRED, REQUIRED, IN_PROGRESS, PENDING_MLRO, APPROVED, REJECTED, EXPIRED
-  complianceStatus   String    @default("NONE") // NONE, IN_PROGRESS, ACTIVE, RESTRICTED, BLOCKED, EXPIRED
+  eddStatus          String    @default("NOT_REQUIRED") // legacy compatibility field
+  complianceStatus   String    @default("NONE") // legacy compatibility field
   cddDocumentExpiresAt DateTime?
   finalApprovalStatus String   @default("NOT_REQUIRED") // NOT_REQUIRED, PENDING, APPROVED, REJECTED
   finalApprovalReason String?
   finalApprovalReviewerId String?
   finalApprovalReviewedAt DateTime?
   nextReviewAt       DateTime?
+  activeJourneyId    String?
+  activeCaseType     String?
+  activeCaseId       String?
+  latestDecisionRecordId String?
   currentCddCaseId   String?
   currentEddCaseId   String?
   investorClassification String @default("RETAIL") // RETAIL, QUALIFIED, INSTITUTIONAL
@@ -153,6 +158,7 @@ model CustomerMain {
   corporateProfile     CorporateProfile?
   uboProfiles          UboProfile[]
   onboardingAuditLogs  OnboardingAuditLog[]
+  onboardingDecisionRecords OnboardingDecisionRecord[]
   complianceSessions   ComplianceSession[]
   cddCaseReports       CddCaseReport[]
   eddCaseReports       EddCaseReport[]
@@ -168,7 +174,7 @@ model CddCase {
   subjectKind       String   @default("INDIVIDUAL_CUSTOMER") // INDIVIDUAL_CUSTOMER, CORPORATE_ENTITY, UBO_PERSON
   subjectRefId      String   @default("")
   journeyId         String   @default("")
-  status            String   @default("PENDING") // PENDING, SUBMITTED, APPROVED, REJECTED
+  status            String   @default("CREATED") // CREATED, RECEIVED, FINAL
   submittedAt       DateTime?
   reviewedAt        DateTime?
   reviewerId        String?
@@ -203,7 +209,7 @@ model EddCase {
   subjectKind      String   @default("INDIVIDUAL_CUSTOMER") // INDIVIDUAL_CUSTOMER, CORPORATE_ENTITY, UBO_PERSON
   subjectRefId     String   @default("")
   journeyId        String   @default("")
-  status           String   @default("PENDING") // PENDING, SUBMITTED, APPROVED, REJECTED
+  status           String   @default("CREATED") // CREATED, RECEIVED, FINAL
   submittedAt      DateTime?
   mlroReviewedAt   DateTime?
   mlroReviewerId   String?
@@ -450,6 +456,32 @@ model OnboardingAuditLog {
   @@map("onboarding_audit_logs")
 }
 
+model OnboardingDecisionRecord {
+  id                 String   @id @default(uuid())
+  customerId         String
+  contextType        String // ONBOARDING_CDD, ONBOARDING_EDD
+  subjectId          String
+  policyVersion      String
+  status             String   @default("CREATED") // CREATED, COMPLETED, FAILED
+  inputPayload       String?
+  inputHash          String
+  outputDecision     String?
+  recommendedActions String?
+  outputs            String?
+  reasonCodes        String?
+  errorMessage       String?
+  createdAt          DateTime @default(now())
+  completedAt        DateTime?
+  updatedAt          DateTime @updatedAt
+
+  customer           CustomerMain @relation(fields: [customerId], references: [id])
+
+  @@index([customerId, createdAt])
+  @@index([contextType, subjectId, createdAt])
+  @@index([status, createdAt])
+  @@map("onboarding_decision_records")
+}
+
 model AuditLogEvent {
   id              String   @id @default(uuid())
   auditNo         String   @unique @default("TEMP")
@@ -543,7 +575,7 @@ model ComplianceAlert {
   ruleCode         String
   capCode          String?
   severity         String
-  status           String                 @default("NEW")
+  status           String                 @default("OPEN") // OPEN, ASSIGNED, ESCALATED, CLOSED
   title            String
   message          String
   sourceModule     String
@@ -565,6 +597,11 @@ model ComplianceAlert {
   assigneeUserId   String?
   assigneeUserNo   String?
   assignedAt       DateTime?
+  journeyId        String?
+  decisionRecommendation String?
+  decision         String?
+  linkedCaseIds    String?
+  decisionRecordIds String?
   closedAt         DateTime?
   closeReason      String?
   lastActionById   String?
@@ -609,7 +646,7 @@ model ComplianceAlertEvent {
 model ComplianceIncident {
   id                String                    @id @default(uuid())
   incidentNo        String                    @unique @default("TEMP")
-  status            String                    @default("NEW")
+  status            String                    @default("OPEN") // OPEN, ASSIGNED, RESOLVED, CLOSED
   severity          String
   title             String
   summary           String
@@ -636,6 +673,9 @@ model ComplianceIncident {
   resolutionSummary String?
   containmentSummary String?
   closureChecklist  String?
+  decision          String?
+  linkedCaseIds     String?
+  decisionRecordIds String?
   lastActionById    String?
   lastActionByNo    String?
   lastActionByRole  String?

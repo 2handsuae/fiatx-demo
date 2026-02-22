@@ -30,10 +30,8 @@ async function seedCustomersMinimal(prisma: PrismaClient): Promise<void> {
     email: string;
     phone: string;
     firstName: string;
-    cddStatus: string;
+    publicStatus: string;
     eddRequired: boolean;
-    eddStatus: string;
-    complianceStatus: string;
     cddDocumentExpiresAt: Date | null;
   }> = [
     {
@@ -41,10 +39,8 @@ async function seedCustomersMinimal(prisma: PrismaClient): Promise<void> {
       email: 'minimal_none@example.com',
       phone: '+15551000001',
       firstName: 'MinimalNone',
-      cddStatus: 'NOT_STARTED',
+      publicStatus: 'NONE',
       eddRequired: false,
-      eddStatus: 'NOT_REQUIRED',
-      complianceStatus: 'NONE',
       cddDocumentExpiresAt: null,
     },
     {
@@ -52,10 +48,8 @@ async function seedCustomersMinimal(prisma: PrismaClient): Promise<void> {
       email: 'minimal_progress@example.com',
       phone: '+15551000002',
       firstName: 'MinimalProgress',
-      cddStatus: 'IN_PROGRESS',
+      publicStatus: 'PENDING_CDD',
       eddRequired: false,
-      eddStatus: 'NOT_REQUIRED',
-      complianceStatus: 'IN_PROGRESS',
       cddDocumentExpiresAt: null,
     },
     {
@@ -63,10 +57,8 @@ async function seedCustomersMinimal(prisma: PrismaClient): Promise<void> {
       email: 'minimal_active@example.com',
       phone: '+15551000003',
       firstName: 'MinimalActive',
-      cddStatus: 'APPROVED',
+      publicStatus: 'ACTIVE',
       eddRequired: false,
-      eddStatus: 'NOT_REQUIRED',
-      complianceStatus: 'ACTIVE',
       cddDocumentExpiresAt: null,
     },
     {
@@ -74,10 +66,8 @@ async function seedCustomersMinimal(prisma: PrismaClient): Promise<void> {
       email: 'minimal_restricted@example.com',
       phone: '+15551000004',
       firstName: 'MinimalRestricted',
-      cddStatus: 'APPROVED',
+      publicStatus: 'FINAL_APPROVAL',
       eddRequired: true,
-      eddStatus: 'REQUIRED',
-      complianceStatus: 'RESTRICTED',
       cddDocumentExpiresAt: null,
     },
     {
@@ -85,10 +75,8 @@ async function seedCustomersMinimal(prisma: PrismaClient): Promise<void> {
       email: 'minimal_blocked@example.com',
       phone: '+15551000005',
       firstName: 'MinimalBlocked',
-      cddStatus: 'REJECTED',
+      publicStatus: 'REJECTED',
       eddRequired: false,
-      eddStatus: 'NOT_REQUIRED',
-      complianceStatus: 'BLOCKED',
       cddDocumentExpiresAt: null,
     },
     {
@@ -96,15 +84,54 @@ async function seedCustomersMinimal(prisma: PrismaClient): Promise<void> {
       email: 'minimal_expired@example.com',
       phone: '+15551000006',
       firstName: 'MinimalExpired',
-      cddStatus: 'EXPIRED',
+      publicStatus: 'PENDING_CDD',
       eddRequired: false,
-      eddStatus: 'NOT_REQUIRED',
-      complianceStatus: 'EXPIRED',
       cddDocumentExpiresAt: expiredAt,
     },
   ];
 
   for (const item of items) {
+    const legacy = (() => {
+      if (item.publicStatus === 'ACTIVE') {
+        return {
+          cddStatus: 'APPROVED',
+          eddStatus: item.eddRequired ? 'APPROVED' : 'NOT_REQUIRED',
+          complianceStatus: 'ACTIVE',
+          finalApprovalStatus: 'APPROVED',
+        };
+      }
+      if (item.publicStatus === 'FINAL_APPROVAL') {
+        return {
+          cddStatus: 'APPROVED',
+          eddStatus: 'APPROVED',
+          complianceStatus: 'IN_PROGRESS',
+          finalApprovalStatus: 'PENDING',
+        };
+      }
+      if (item.publicStatus === 'REJECTED') {
+        return {
+          cddStatus: 'REJECTED',
+          eddStatus: item.eddRequired ? 'REJECTED' : 'NOT_REQUIRED',
+          complianceStatus: 'BLOCKED',
+          finalApprovalStatus: 'REJECTED',
+        };
+      }
+      if (item.publicStatus === 'PENDING_CDD') {
+        return {
+          cddStatus: item.cddDocumentExpiresAt ? 'EXPIRED' : 'IN_PROGRESS',
+          eddStatus: 'NOT_REQUIRED',
+          complianceStatus: item.cddDocumentExpiresAt ? 'EXPIRED' : 'IN_PROGRESS',
+          finalApprovalStatus: 'NOT_REQUIRED',
+        };
+      }
+      return {
+        cddStatus: 'NOT_STARTED',
+        eddStatus: 'NOT_REQUIRED',
+        complianceStatus: 'NONE',
+        finalApprovalStatus: 'NOT_REQUIRED',
+      };
+    })();
+
     await prisma.customerMain.upsert({
       where: { email: item.email },
       update: {
@@ -115,13 +142,14 @@ async function seedCustomersMinimal(prisma: PrismaClient): Promise<void> {
         passwordHash: basePassword,
         passwordUpdatedAt: now,
         customerType: 'INDIVIDUAL',
-        cddStatus: item.cddStatus,
+        publicStatus: item.publicStatus,
+        cddStatus: legacy.cddStatus,
         amlRiskTier: 'LOW',
         eddRequired: item.eddRequired,
-        eddStatus: item.eddStatus,
-        complianceStatus: item.complianceStatus,
+        eddStatus: legacy.eddStatus,
+        complianceStatus: legacy.complianceStatus,
         cddDocumentExpiresAt: item.cddDocumentExpiresAt,
-        finalApprovalStatus: 'NOT_REQUIRED',
+        finalApprovalStatus: legacy.finalApprovalStatus,
         finalApprovalReason: null,
         finalApprovalReviewerId: null,
         finalApprovalReviewedAt: null,
@@ -135,13 +163,14 @@ async function seedCustomersMinimal(prisma: PrismaClient): Promise<void> {
         passwordHash: basePassword,
         passwordUpdatedAt: now,
         customerType: 'INDIVIDUAL',
-        cddStatus: item.cddStatus,
+        publicStatus: item.publicStatus,
+        cddStatus: legacy.cddStatus,
         amlRiskTier: 'LOW',
         eddRequired: item.eddRequired,
-        eddStatus: item.eddStatus,
-        complianceStatus: item.complianceStatus,
+        eddStatus: legacy.eddStatus,
+        complianceStatus: legacy.complianceStatus,
         cddDocumentExpiresAt: item.cddDocumentExpiresAt,
-        finalApprovalStatus: 'NOT_REQUIRED',
+        finalApprovalStatus: legacy.finalApprovalStatus,
       },
     });
   }

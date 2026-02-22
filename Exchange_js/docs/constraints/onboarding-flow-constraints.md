@@ -4,73 +4,104 @@
 - Scope module: `src/modules/identity/onboarding/**`.
 - Customer endpoints under `/onboarding/**`.
 - Admin compliance endpoints under `/admin/compliance/**`.
-- MUST keep customer and admin authority separated by token type.
+- Customer and admin authority MUST remain separated by token type.
 
-## 2) Single-Path Next Step Contract
-- `getNextStep` is the single decision source for UI guidance.
-- Allowed `step` values:
-1. `ENTITY_INFO`
-2. `CDD`
-3. `WAIT_REVIEW`
-4. `EDD`
-5. `REINITIATE`
-6. `COMPLETED`
-- Allowed `action` values:
-1. `SAVE_ENTITY`
-2. `START_CDD`
+## 2) Canonical Identities
+- Onboarding domain MUST only use these identities:
+1. `customer`
+2. `cddCase`
+3. `eddCase`
+4. `onboardingDecisionRecord`
+5. `alert`
+6. `incident`
+- MRLO/Senior approval MUST be represented as action + audit log, not a new entity.
+
+## 3) Next-Step Contract
+- `getNextStep` is the single source for onboarding guidance.
+- Contract output MUST be:
+1. `publicStatus`
+2. `actions[]`
+3. `blockedReason`
+4. `activeCaseId`
+5. `requiresEdd`
+- Allowed `publicStatus`:
+1. `NONE`
+2. `PENDING_CDD`
+3. `REVIEW_CDD`
+4. `PENDING_EDD`
+5. `REVIEW_EDD`
+6. `FINAL_APPROVAL`
+7. `ACTIVE`
+8. `REJECTED`
+9. `WITHDRAWN`
+- Allowed action types:
+1. `START_CDD`
+2. `CREATE_CDD_SESSION`
 3. `COMPLETE_CDD`
-4. `COMPLETE_EDD`
-5. `WAIT`
-6. `REINITIATE_CDD`
-7. `REINITIATE_EDD`
-8. `NONE`
-- MUST NOT introduce parallel/competing "next step" logic in controllers or frontend pages.
+4. `START_EDD`
+5. `CREATE_EDD_SESSION`
+6. `COMPLETE_EDD`
+7. `WAIT_REVIEW`
+8. `WAIT_FINAL_APPROVAL`
+9. `REINITIATE_CDD`
+10. `NONE`
+- MUST NOT add competing next-step logic in controller or frontend page layers.
 
-## 3) Entity Preconditions
-- `customerType` MUST be explicit (`INDIVIDUAL` or `CORPORATE`) before case bootstrapping.
-- Corporate onboarding MUST require:
-1. corporate profile
-2. at least one UBO
-- Missing prerequisites MUST return explicit validation errors.
+## 4) State Machine Constraints
+- Customer lifecycle MUST stay progress-only:
+1. `NONE -> PENDING_CDD -> REVIEW_CDD -> PENDING_EDD -> REVIEW_EDD -> FINAL_APPROVAL -> ACTIVE`
+- Customer terminal status MUST stay:
+1. `REJECTED`
+2. `WITHDRAWN`
+- CDD/EDD case lifecycle MUST stay:
+1. `CREATED -> RECEIVED -> FINAL`
+- DecisionRecord lifecycle MUST stay:
+1. `CREATED -> COMPLETED | FAILED`
+- State fields MUST express lifecycle progress only, not business decisions.
 
-## 4) Case Lifecycle Constraints
-- CDD/EDD review actions MUST only apply to `SUBMITTED` cases.
-- CDD review outcomes:
-1. `APPROVE`
-2. `REJECT`
-3. `UPGRADE_EDD`
-- EDD MLRO outcomes:
-1. `APPROVE`
-2. `REJECT`
-- Final customer decision only allowed after CDD approved + EDD approved when EDD required.
+## 5) Risk Engine Constraints
+- Risk decision domain MUST expose one entry:
+1. `evaluate(contextType, subjectId, signals, policyVersion?)`
+- Every evaluate call MUST persist one `onboardingDecisionRecord`.
+- DecisionRecord MUST be replayable with:
+1. `contextType`
+2. `policyVersion`
+3. `inputHash`
+4. input snapshot
+5. output (`decision`, `recommendedActions`, `reasonCodes`)
+- External CDD/EDD provider callback MUST be treated as evidence input only; final routing is decided by Risk Engine output mapping.
 
-## 5) Reinitiation Rules
-- CDD reinitiation only allowed when next action is `REINITIATE_CDD`.
-- EDD reinitiation only allowed after EDD/final-approval rejection, and when CDD is approved.
-- Reinitiation MUST create/attach valid active case context and session context.
+## 6) CDD/EDD Orchestration Constraints
+- Starting onboarding MUST create or reuse active CDD case in `CREATED`.
+- Session completion MUST move case to `RECEIVED`, store provider payload, then finalize case as `FINAL` after evaluation.
+- If decision is `REQUIRE_EDD`, system MUST create/reuse EDD case and move customer to `PENDING_EDD`.
+- EDD completion MUST evaluate again and then move customer to:
+1. `REJECTED`, or
+2. `FINAL_APPROVAL`
+- Final approve/reject action MUST only be allowed from `FINAL_APPROVAL`.
 
-## 6) Compliance Snapshot and Trading Gate
-- Any onboarding state mutation MUST trigger compliance snapshot recomputation.
-- Trading eligibility MUST gate on `complianceStatus === ACTIVE`.
-- Onboarding-related reject/expired states MUST map to actionable reinitiation outcome.
+## 7) Alert and Incident Integration
+- Onboarding review signal MUST be upserted by journey key (`customerId:journeyId`) as one alert in MVP.
+- EDD re-evaluation SHOULD update existing journey alert instead of always creating a second alert.
+- Alert/incident decision details MAY be written to filter fields (`decisionRecommendation`, `decision`) but MUST NOT change state-machine definition.
 
-## 7) Session and Provider Handling
-- Session creation MUST be case-bound and traceable.
-- Mock completion path MUST behave deterministically and update case lifecycle consistently.
-- Provider payload mapping MUST be stored as structured data (raw/normalized where applicable).
+## 8) Trading Gate and Legacy Snapshot
+- Trading eligibility gate MUST use `publicStatus === ACTIVE`.
+- Legacy fields (`complianceStatus`, `cddStatus`, `eddStatus`) MAY be maintained as compatibility snapshot only.
+- Reinitiation MUST only be available for rejected/withdrawn/expired scenarios.
 
-## 8) Auditability (Mandatory)
-- Key onboarding actions MUST write onboarding audit logs, including:
+## 9) Auditability (Mandatory)
+- Key onboarding actions MUST write onboarding audit logs with:
 1. actor id/role
 2. customer id
 3. case type/id when applicable
 4. from/to stage when applicable
 5. detail payload
-- MUST keep reason fields for review/rejection/final decision.
+- Decision transition actions MUST keep reason fields for audit and replay.
 
-## 9) Thread Delivery Checklist (Onboarding)
-- Next-step contract unchanged or explicitly versioned.
-- Status transitions validated (including invalid transition tests).
-- Role boundary tested (customer vs admin token).
-- Reinitiation path tested for both CDD and EDD.
-- Audit log entries verified for new critical actions.
+## 10) Thread Delivery Checklist (Onboarding)
+- `publicStatus + actions[]` contract unchanged or explicitly versioned.
+- Customer/case/decision transitions validated with tests.
+- Risk Engine evaluate-to-record behavior validated.
+- Alert/incident linkage validated for onboarding journey rules.
+- Audit log records verified for critical actions.

@@ -15,8 +15,6 @@ const CustomerRegister = () => {
     email: '',
     password: '',
     confirmPassword: '',
-    customerType: 'INDIVIDUAL' as 'INDIVIDUAL' | 'CORPORATE',
-    companyName: '',
   });
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -30,12 +28,6 @@ const CustomerRegister = () => {
       return;
     }
 
-    if (formData.customerType === 'CORPORATE' && !formData.companyName.trim()) {
-      setError('Company name is required for corporate registration');
-      setIsLoading(false);
-      return;
-    }
-
     try {
       const response = await fetch(`${import.meta.env.VITE_API_URL}/auth/customer/register`, {
         method: 'POST',
@@ -43,8 +35,7 @@ const CustomerRegister = () => {
         body: JSON.stringify({
           email: formData.email,
           password: formData.password,
-          customerType: formData.customerType,
-          companyName: formData.customerType === 'CORPORATE' ? formData.companyName : undefined,
+          customerType: 'INDIVIDUAL',
           firstName: formData.username // Using username as firstName for now
         })
       });
@@ -214,47 +205,9 @@ const CustomerRegister = () => {
                 </div>
             </div>
 
-            <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">Entity Type</label>
-                <div className="grid grid-cols-2 gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setFormData({ ...formData, customerType: 'INDIVIDUAL' })}
-                    className={`px-4 py-3 rounded-xl border text-sm font-semibold transition-all ${
-                      formData.customerType === 'INDIVIDUAL'
-                        ? 'border-purple-600 bg-purple-50 text-purple-700'
-                        : 'border-gray-200 text-gray-600 hover:border-purple-200'
-                    }`}
-                  >
-                    Individual
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setFormData({ ...formData, customerType: 'CORPORATE' })}
-                    className={`px-4 py-3 rounded-xl border text-sm font-semibold transition-all ${
-                      formData.customerType === 'CORPORATE'
-                        ? 'border-purple-600 bg-purple-50 text-purple-700'
-                        : 'border-gray-200 text-gray-600 hover:border-purple-200'
-                    }`}
-                  >
-                    Corporate
-                  </button>
-                </div>
+            <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-600">
+              当前仅支持个人客户（Individual）注册。
             </div>
-
-            {formData.customerType === 'CORPORATE' && (
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">Company Legal Name</label>
-                <input
-                  type="text"
-                  required
-                  value={formData.companyName}
-                  onChange={(e) => setFormData({ ...formData, companyName: e.target.value })}
-                  className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 outline-none transition-all"
-                  placeholder="Enter company legal name"
-                />
-              </div>
-            )}
 
             <div className="flex items-start gap-2">
                 <input type="checkbox" required className="mt-1 w-4 h-4 rounded border-gray-300 text-purple-600 focus:ring-purple-500/20" />

@@ -1,5 +1,6 @@
 import { Transform, Type } from 'class-transformer';
 import {
+  IsArray,
   IsBoolean,
   IsEnum,
   IsInt,
@@ -85,6 +86,24 @@ export class UpdateComplianceAlertActionDto {
   @IsOptional()
   @IsString()
   note?: string;
+
+  @IsOptional()
+  @IsString()
+  recommendation?: string;
+
+  @IsOptional()
+  @IsString()
+  decision?: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  linkedCaseIds?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  decisionRecordIds?: string[];
 }
 
 export interface ComplianceAlertActorContext {

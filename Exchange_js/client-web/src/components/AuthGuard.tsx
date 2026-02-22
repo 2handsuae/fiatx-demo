@@ -44,7 +44,7 @@ const AuthGuard = ({ children }: AuthGuardProps) => {
       return null;
   }
 
-  const isApproved = user?.complianceStatus === 'ACTIVE';
+  const isApproved = user?.publicStatus === 'ACTIVE';
 
   if (!isApproved) {
     return (

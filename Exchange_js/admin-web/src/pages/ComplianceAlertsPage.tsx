@@ -9,18 +9,15 @@ import {
 
 type AlertSeverity = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
 type AlertStatus =
-  | 'NEW'
+  | 'OPEN'
   | 'ASSIGNED'
-  | 'IN_REVIEW'
   | 'ESCALATED'
-  | 'RESOLVED'
-  | 'FALSE_POSITIVE';
+  | 'CLOSED';
 type AlertAction =
-  | 'START_REVIEW'
   | 'ASSIGN'
+  | 'UNASSIGN'
   | 'ESCALATE'
-  | 'RESOLVE'
-  | 'MARK_FALSE_POSITIVE';
+  | 'CLOSE';
 
 interface AlertItem {
   id: string;
@@ -106,7 +103,7 @@ const DEFAULT_FILTERS: FilterState = {
   overdueOnly: false,
 };
 
-const CLOSED_STATUSES: AlertStatus[] = ['ESCALATED', 'RESOLVED', 'FALSE_POSITIVE'];
+const CLOSED_STATUSES: AlertStatus[] = ['CLOSED'];
 
 const formatDateTime = (value?: string | null): string => {
   if (!value) return '-';
@@ -133,11 +130,10 @@ const getSeverityClass = (severity: AlertSeverity) => {
 };
 
 const getStatusClass = (status: AlertStatus) => {
-  if (status === 'NEW') return 'bg-blue-100 text-blue-800';
+  if (status === 'OPEN') return 'bg-blue-100 text-blue-800';
   if (status === 'ASSIGNED') return 'bg-indigo-100 text-indigo-800';
-  if (status === 'IN_REVIEW') return 'bg-purple-100 text-purple-800';
   if (status === 'ESCALATED') return 'bg-red-100 text-red-800';
-  if (status === 'RESOLVED') return 'bg-green-100 text-green-800';
+  if (status === 'CLOSED') return 'bg-green-100 text-green-800';
   return 'bg-gray-100 text-gray-700';
 };
 
@@ -146,24 +142,17 @@ const isOverdue = (item: AlertItem) =>
   new Date(item.dueAt).getTime() < Date.now();
 
 const getAllowedActions = (status: AlertStatus): AlertAction[] => {
-  if (status === 'NEW') {
-    return ['ASSIGN'];
-  }
-  if (status === 'ASSIGNED') {
-    return ['START_REVIEW', 'ASSIGN', 'ESCALATE', 'MARK_FALSE_POSITIVE'];
-  }
-  if (status === 'IN_REVIEW') {
-    return ['ASSIGN', 'ESCALATE', 'RESOLVE', 'MARK_FALSE_POSITIVE'];
-  }
+  if (status === 'OPEN') return ['ASSIGN', 'ESCALATE', 'CLOSE'];
+  if (status === 'ASSIGNED') return ['ASSIGN', 'UNASSIGN', 'ESCALATE', 'CLOSE'];
+  if (status === 'ESCALATED') return ['CLOSE'];
   return [];
 };
 
 const actionLabelMap: Record<AlertAction, string> = {
-  START_REVIEW: 'Start Review',
   ASSIGN: 'Assign to Me',
+  UNASSIGN: 'Unassign',
   ESCALATE: 'Escalate to Incident',
-  RESOLVE: 'Resolve',
-  MARK_FALSE_POSITIVE: 'False Positive',
+  CLOSE: 'Close',
 };
 
 const ComplianceAlertsPage = () => {
@@ -265,7 +254,7 @@ const ComplianceAlertsPage = () => {
     setMessage('');
     try {
       let reason: string | undefined;
-      if (action === 'ESCALATE' || action === 'RESOLVE' || action === 'MARK_FALSE_POSITIVE') {
+      if (action === 'ESCALATE' || action === 'CLOSE') {
         reason = window.prompt('Please provide reason', '') || '';
         if (!reason.trim()) {
           throw new Error(`Action ${action} requires a reason.`);
@@ -422,12 +411,10 @@ const ComplianceAlertsPage = () => {
             }
           >
             <option value="">All status</option>
-            <option value="NEW">NEW</option>
+            <option value="OPEN">OPEN</option>
             <option value="ASSIGNED">ASSIGNED</option>
-            <option value="IN_REVIEW">IN_REVIEW</option>
             <option value="ESCALATED">ESCALATED</option>
-            <option value="RESOLVED">RESOLVED</option>
-            <option value="FALSE_POSITIVE">FALSE_POSITIVE</option>
+            <option value="CLOSED">CLOSED</option>
           </select>
           <select
             className="border border-admin-border rounded px-3 py-2 text-sm"

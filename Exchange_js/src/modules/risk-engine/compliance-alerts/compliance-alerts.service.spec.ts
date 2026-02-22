@@ -35,7 +35,7 @@ describe('ComplianceAlertsService', () => {
     ruleCode: 'TX_KYT_FAIL',
     capCode: 'CAP-027',
     severity: ComplianceAlertSeverity.CRITICAL,
-    status: ComplianceAlertStatus.NEW,
+    status: ComplianceAlertStatus.OPEN,
     title: 'title',
     message: 'message',
     sourceModule: 'risk-engine/transaction-compliance',
@@ -50,6 +50,11 @@ describe('ComplianceAlertsService', () => {
     ownerNo: 'CU0001',
     customerId: 'customer-1',
     customerNo: 'CU0001',
+    journeyId: null,
+    decisionRecommendation: null,
+    decision: null,
+    linkedCaseIds: null,
+    decisionRecordIds: null,
     firstOccurredAt: new Date('2026-02-19T00:00:00.000Z'),
     lastOccurredAt: new Date('2026-02-19T00:00:00.000Z'),
     dueAt: new Date('2026-02-19T04:00:00.000Z'),
@@ -72,20 +77,14 @@ describe('ComplianceAlertsService', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    jest
-      .spyOn(AuditLogsService.prototype, 'recordSystem')
-      .mockResolvedValue({} as any);
-    jest
-      .spyOn(AuditLogsService.prototype, 'recordByActor')
-      .mockResolvedValue({} as any);
+    jest.spyOn(AuditLogsService.prototype, 'recordSystem').mockResolvedValue({} as any);
+    jest.spyOn(AuditLogsService.prototype, 'recordByActor').mockResolvedValue({} as any);
     service = new ComplianceAlertsService(prismaMock);
   });
 
   it('should create a new alert when dedupe key does not exist', async () => {
     prismaMock.complianceAlert.findUnique.mockResolvedValue(null);
-    prismaMock.customerMain.findUnique.mockResolvedValue({
-      customerNo: 'CU0001',
-    });
+    prismaMock.customerMain.findUnique.mockResolvedValue({ customerNo: 'CU0001' });
     prismaMock.complianceAlert.create.mockResolvedValue(buildAlert());
 
     const result = await service.triggerSystemAlert({
@@ -102,21 +101,18 @@ describe('ComplianceAlertsService', () => {
     expect(prismaMock.complianceAlert.create).toHaveBeenCalledTimes(1);
     expect(prismaMock.complianceAlertEvent.create).toHaveBeenCalledTimes(1);
     expect(result.ruleCode).toBe('TX_KYT_FAIL');
+    expect(result.status).toBe(ComplianceAlertStatus.OPEN);
   });
 
   it('should update hitCount when existing open alert is triggered again', async () => {
     prismaMock.complianceAlert.findUnique.mockResolvedValue({
       id: 'alert-1',
-      status: ComplianceAlertStatus.NEW,
+      status: ComplianceAlertStatus.OPEN,
       hitCount: 2,
       alertNo: 'ALT2602010001',
     });
-    prismaMock.customerMain.findUnique.mockResolvedValue({
-      customerNo: 'CU0001',
-    });
-    prismaMock.complianceAlert.update.mockResolvedValue(
-      buildAlert({ hitCount: 3 }),
-    );
+    prismaMock.customerMain.findUnique.mockResolvedValue({ customerNo: 'CU0001' });
+    prismaMock.complianceAlert.update.mockResolvedValue(buildAlert({ hitCount: 3 }));
 
     await service.triggerSystemAlert({
       ruleCode: 'TX_KYT_REVIEW',
@@ -138,22 +134,20 @@ describe('ComplianceAlertsService', () => {
     );
   });
 
-  it('should create new alert and rotate dedupeKey when existing alert is terminal', async () => {
+  it('should create new alert and rotate dedupe key when existing alert is closed', async () => {
     prismaMock.complianceAlert.findUnique.mockResolvedValue({
       id: 'alert-1',
-      status: ComplianceAlertStatus.RESOLVED,
+      status: ComplianceAlertStatus.CLOSED,
       hitCount: 4,
       alertNo: 'ALT2602010001',
     });
-    prismaMock.customerMain.findUnique.mockResolvedValue({
-      customerNo: 'CU0001',
-    });
+    prismaMock.customerMain.findUnique.mockResolvedValue({ customerNo: 'CU0001' });
     prismaMock.complianceAlert.update.mockResolvedValue(buildAlert());
     prismaMock.complianceAlert.create.mockResolvedValue(
       buildAlert({
         id: 'alert-2',
         alertNo: 'ALT2602010002',
-        status: ComplianceAlertStatus.NEW,
+        status: ComplianceAlertStatus.OPEN,
         dedupeKey: 'TX_TRAVEL_RULE_EXPIRED:WITHDRAW:wd-2',
         hitCount: 1,
       }),
@@ -185,7 +179,11 @@ describe('ComplianceAlertsService', () => {
     prismaMock.complianceAlert.findUnique
       .mockResolvedValueOnce(buildAlert())
       .mockResolvedValueOnce({
-        ...buildAlert(),
+        ...buildAlert({
+          status: ComplianceAlertStatus.ASSIGNED,
+          assigneeUserId: 'admin-1',
+          assigneeUserNo: 'US0001',
+        }),
         events: [],
       });
     prismaMock.user.findUnique.mockResolvedValue({ userNo: 'US0001' });
@@ -220,15 +218,50 @@ describe('ComplianceAlertsService', () => {
     expect(result.id).toBe('alert-1');
   });
 
-  it('should reject RESOLVE without reason', async () => {
-    prismaMock.complianceAlert.findUnique.mockResolvedValue(
-      buildAlert({ status: ComplianceAlertStatus.IN_REVIEW }),
+  it('should allow UNASSIGN from ASSIGNED and move to OPEN', async () => {
+    prismaMock.complianceAlert.findUnique
+      .mockResolvedValueOnce(
+        buildAlert({
+          status: ComplianceAlertStatus.ASSIGNED,
+          assigneeUserId: 'admin-1',
+          assigneeUserNo: 'US0001',
+        }),
+      )
+      .mockResolvedValueOnce({
+        ...buildAlert({
+          status: ComplianceAlertStatus.OPEN,
+          assigneeUserId: null,
+          assigneeUserNo: null,
+        }),
+        events: [],
+      });
+    prismaMock.complianceAlert.update.mockResolvedValue(
+      buildAlert({
+        status: ComplianceAlertStatus.OPEN,
+        assigneeUserId: null,
+        assigneeUserNo: null,
+      }),
     );
+
+    const result = await service.applyAction(
+      'alert-1',
+      { action: ComplianceAlertAction.UNASSIGN },
+      {
+        actorType: 'ADMIN',
+        actorId: 'admin-1',
+      },
+    );
+
+    expect(result.status).toBe(ComplianceAlertStatus.OPEN);
+  });
+
+  it('should reject CLOSE without reason', async () => {
+    prismaMock.complianceAlert.findUnique.mockResolvedValue(buildAlert({ status: 'OPEN' }));
 
     await expect(
       service.applyAction(
         'alert-1',
-        { action: ComplianceAlertAction.RESOLVE },
+        { action: ComplianceAlertAction.CLOSE },
         {
           actorType: 'ADMIN',
           actorId: 'admin-1',
@@ -237,66 +270,15 @@ describe('ComplianceAlertsService', () => {
     ).rejects.toThrow('requires a reason');
   });
 
-  it('should reject START_REVIEW from NEW', async () => {
-    prismaMock.complianceAlert.findUnique.mockResolvedValue(
-      buildAlert({ status: ComplianceAlertStatus.NEW }),
-    );
-
-    await expect(
-      service.applyAction(
-        'alert-1',
-        { action: ComplianceAlertAction.START_REVIEW },
-        {
-          actorType: 'ADMIN',
-          actorId: 'admin-1',
-        },
-      ),
-    ).rejects.toThrow('is not allowed');
-  });
-
-  it('should allow ASSIGN from IN_REVIEW and move back to ASSIGNED', async () => {
-    prismaMock.complianceAlert.findUnique
-      .mockResolvedValueOnce(
-        buildAlert({ status: ComplianceAlertStatus.IN_REVIEW }),
-      )
-      .mockResolvedValueOnce({
-        ...buildAlert({
-          status: ComplianceAlertStatus.ASSIGNED,
-          assigneeUserId: 'admin-1',
-          assigneeUserNo: 'US0001',
-        }),
-        events: [],
-      });
-    prismaMock.user.findUnique.mockResolvedValue({ userNo: 'US0001' });
-    prismaMock.complianceAlert.update.mockResolvedValue(
-      buildAlert({
-        status: ComplianceAlertStatus.ASSIGNED,
-        assigneeUserId: 'admin-1',
-        assigneeUserNo: 'US0001',
-      }),
-    );
-
-    const result = await service.applyAction(
-      'alert-1',
-      { action: ComplianceAlertAction.ASSIGN },
-      {
-        actorType: 'ADMIN',
-        actorId: 'admin-1',
-      },
-    );
-
-    expect(result.status).toBe(ComplianceAlertStatus.ASSIGNED);
-  });
-
   it('should reject terminal status action', async () => {
     prismaMock.complianceAlert.findUnique.mockResolvedValue(
-      buildAlert({ status: ComplianceAlertStatus.ESCALATED }),
+      buildAlert({ status: ComplianceAlertStatus.CLOSED }),
     );
 
     await expect(
       service.applyAction(
         'alert-1',
-        { action: ComplianceAlertAction.RESOLVE, reason: 'done' },
+        { action: ComplianceAlertAction.ESCALATE, reason: 'handoff' },
         {
           actorType: 'ADMIN',
           actorId: 'admin-1',
@@ -307,7 +289,7 @@ describe('ComplianceAlertsService', () => {
 
   it('should reject removed action REOPEN', async () => {
     prismaMock.complianceAlert.findUnique.mockResolvedValue(
-      buildAlert({ status: ComplianceAlertStatus.RESOLVED }),
+      buildAlert({ status: ComplianceAlertStatus.CLOSED }),
     );
 
     await expect(
@@ -323,20 +305,18 @@ describe('ComplianceAlertsService', () => {
   });
 
   it('should simulate 10 alerts with unique sourceIds', async () => {
-    const triggerSpy = jest
-      .spyOn(service, 'triggerSystemAlert')
-      .mockImplementation(async (input) =>
-        buildAlert({
-          id: `alert-${input.sourceId}`,
-          alertNo: `ALT-SIM-${input.sourceId}`,
-          ruleCode: input.ruleCode,
-          severity: ComplianceAlertSeverity.HIGH,
-          status: ComplianceAlertStatus.NEW,
-          sourceType: input.sourceType,
-          sourceId: input.sourceId,
-          lastOccurredAt: new Date('2026-02-19T00:00:00.000Z'),
-        }),
-      );
+    const triggerSpy = jest.spyOn(service, 'triggerSystemAlert').mockImplementation(async (input) =>
+      buildAlert({
+        id: `alert-${input.sourceId}`,
+        alertNo: `ALT-SIM-${input.sourceId}`,
+        ruleCode: input.ruleCode,
+        severity: ComplianceAlertSeverity.HIGH,
+        status: ComplianceAlertStatus.OPEN,
+        sourceType: input.sourceType,
+        sourceId: input.sourceId,
+        lastOccurredAt: new Date('2026-02-19T00:00:00.000Z'),
+      }),
+    );
 
     const result = await service.simulateRandomAlerts(10);
 
@@ -344,9 +324,7 @@ describe('ComplianceAlertsService', () => {
     const sourceIds = triggerSpy.mock.calls.map(([input]) => input.sourceId);
     expect(new Set(sourceIds).size).toBe(10);
     expect(
-      triggerSpy.mock.calls.every(
-        ([input]) => input.sourcePlatform === 'ADMIN_SIMULATOR',
-      ),
+      triggerSpy.mock.calls.every(([input]) => input.sourcePlatform === 'ADMIN_SIMULATOR'),
     ).toBe(true);
     expect(result.createdCount).toBe(10);
     expect(result.items).toHaveLength(10);

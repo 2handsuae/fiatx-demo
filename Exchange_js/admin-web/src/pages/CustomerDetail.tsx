@@ -54,6 +54,7 @@ interface CustomerDetailData {
   lastName?: string | null;
   companyName?: string | null;
   customerType: string;
+  publicStatus: string;
   cddStatus: string;
   amlRiskTier: string;
   eddRequired: boolean;
@@ -275,7 +276,7 @@ const CustomerDetail = () => {
         </div>
 
         <div className="flex flex-wrap gap-3">
-          <StatusBadge label="Compliance" value={customer.complianceStatus} />
+          <StatusBadge label="Public" value={customer.publicStatus || customer.complianceStatus} />
           <StatusBadge label="CDD" value={customer.cddStatus} tone="yellow" />
           <StatusBadge label="EDD" value={customer.eddStatus} tone="blue" />
         </div>
@@ -295,6 +296,7 @@ const CustomerDetail = () => {
           <KeyValue label="AML Risk Tier" value={customer.amlRiskTier} />
           <KeyValue label="EDD Required" value={customer.eddRequired ? 'YES' : 'NO'} />
           <KeyValue label="EDD Status" value={customer.eddStatus} />
+          <KeyValue label="Public Status" value={customer.publicStatus || customer.complianceStatus} />
           <KeyValue label="Compliance Status" value={customer.complianceStatus} />
           <KeyValue label="CDD Doc Expires At" value={formatMaybeTime(customer.cddDocumentExpiresAt)} />
           <KeyValue label="Next Review" value={formatMaybeTime(customer.nextReviewAt)} />
@@ -320,7 +322,7 @@ const CustomerDetail = () => {
           <KeyValue label="Reviewed At" value={formatMaybeTime(customer.finalApprovalReviewedAt)} />
           <KeyValue label="Reason" value={customer.finalApprovalReason || '-'} />
         </div>
-        {customer.finalApprovalStatus === 'PENDING' && (
+        {(customer.publicStatus === 'FINAL_APPROVAL' || customer.finalApprovalStatus === 'PENDING') && (
           <div className="mt-3 flex flex-wrap gap-2">
             <button
               onClick={() => reviewFinalDecision('APPROVE')}

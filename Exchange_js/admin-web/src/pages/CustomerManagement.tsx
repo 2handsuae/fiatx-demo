@@ -12,6 +12,7 @@ interface Customer {
   email: string | null;
   phone: string | null;
   customerType: string;
+  publicStatus: string;
   cddStatus: string;
   amlRiskTier: string;
   eddRequired: boolean;
@@ -32,10 +33,11 @@ const REQUIRED_CONFIRM_TEXT = "I confirm and approve this customer's onboarding.
 
 const getComplianceBadgeClass = (status: string) => {
   if (status === 'ACTIVE') return 'bg-green-100 text-green-800';
-  if (status === 'RESTRICTED') return 'bg-yellow-100 text-yellow-800';
-  if (status === 'IN_PROGRESS') return 'bg-blue-100 text-blue-800';
+  if (status === 'FINAL_APPROVAL') return 'bg-indigo-100 text-indigo-800';
+  if (status === 'REVIEW_CDD' || status === 'REVIEW_EDD') return 'bg-purple-100 text-purple-800';
+  if (status === 'PENDING_CDD' || status === 'PENDING_EDD') return 'bg-blue-100 text-blue-800';
   if (status === 'NONE') return 'bg-slate-100 text-slate-800';
-  if (status === 'EXPIRED') return 'bg-gray-100 text-gray-800';
+  if (status === 'WITHDRAWN') return 'bg-gray-100 text-gray-800';
   return 'bg-red-100 text-red-800';
 };
 
@@ -162,13 +164,17 @@ const CustomerManagement = () => {
   }, [fetchCustomers]);
 
   const stats = useMemo(() => {
-    const none = customers.filter((c) => c.complianceStatus === 'NONE').length;
-    const inProgress = customers.filter((c) => c.complianceStatus === 'IN_PROGRESS').length;
-    const active = customers.filter((c) => c.complianceStatus === 'ACTIVE').length;
-    const restricted = customers.filter((c) => c.complianceStatus === 'RESTRICTED').length;
-    const blocked = customers.filter((c) => c.complianceStatus === 'BLOCKED').length;
-    const expired = customers.filter((c) => c.complianceStatus === 'EXPIRED').length;
-    return { none, inProgress, active, restricted, blocked, expired };
+    const none = customers.filter((c) => c.publicStatus === 'NONE').length;
+    const pending = customers.filter((c) =>
+      ['PENDING_CDD', 'PENDING_EDD'].includes(c.publicStatus),
+    ).length;
+    const review = customers.filter((c) =>
+      ['REVIEW_CDD', 'REVIEW_EDD'].includes(c.publicStatus),
+    ).length;
+    const finalApproval = customers.filter((c) => c.publicStatus === 'FINAL_APPROVAL').length;
+    const active = customers.filter((c) => c.publicStatus === 'ACTIVE').length;
+    const rejected = customers.filter((c) => c.publicStatus === 'REJECTED').length;
+    return { none, pending, review, finalApproval, active, rejected };
   }, [customers]);
 
   const openApproveModal = (customer: Customer) => {
@@ -232,11 +238,11 @@ const CustomerManagement = () => {
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Customer Compliance Overview</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            NONE: {stats.none} | IN_PROGRESS: {stats.inProgress} | ACTIVE: {stats.active} | RESTRICTED: {stats.restricted} | BLOCKED: {stats.blocked} | EXPIRED: {stats.expired}
-          </p>
-        </div>
+            <h1 className="text-2xl font-bold text-gray-900">Customer Compliance Overview</h1>
+            <p className="text-sm text-gray-500 mt-1">
+            NONE: {stats.none} | PENDING: {stats.pending} | REVIEW: {stats.review} | FINAL_APPROVAL: {stats.finalApproval} | ACTIVE: {stats.active} | REJECTED: {stats.rejected}
+            </p>
+          </div>
         <button
           onClick={() => void fetchCustomers()}
           className="p-2 text-gray-500 hover:text-brand-primary transition-colors"
@@ -297,7 +303,9 @@ const CustomerManagement = () => {
                 customers.map((customer) => {
                   const cddCase = cddCaseByCustomer[customer.id];
                   const eddCase = eddCaseByCustomer[customer.id];
-                  const canFinalApprove = customer.finalApprovalStatus === 'PENDING';
+                  const customerStatus = customer.publicStatus || customer.complianceStatus;
+                  const canFinalApprove =
+                    customerStatus === 'FINAL_APPROVAL' || customer.finalApprovalStatus === 'PENDING';
 
                   return (
                     <tr key={customer.id} className="hover:bg-gray-50 transition-colors">
@@ -326,7 +334,7 @@ const CustomerManagement = () => {
                             customer.complianceStatus,
                           )}`}
                         >
-                          {customer.complianceStatus}
+                          {customerStatus}
                         </span>
                       </td>
                       <td className="px-6 py-4 text-xs text-gray-700">

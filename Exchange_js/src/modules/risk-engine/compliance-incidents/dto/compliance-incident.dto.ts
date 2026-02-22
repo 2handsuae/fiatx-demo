@@ -1,6 +1,5 @@
 import { Transform, Type } from 'class-transformer';
 import {
-  ArrayMinSize,
   IsArray,
   IsBoolean,
   IsEnum,
@@ -103,20 +102,17 @@ export class UpdateComplianceIncidentActionDto {
 
   @IsOptional()
   @IsString()
-  rootCauseCategory?: string;
-
-  @IsOptional()
-  @IsString()
-  resolutionSummary?: string;
-
-  @IsOptional()
-  @IsString()
-  containmentSummary?: string;
+  decision?: string;
 
   @IsOptional()
   @IsArray()
-  @ArrayMinSize(3)
-  closureChecklist?: unknown[];
+  @IsString({ each: true })
+  linkedCaseIds?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  decisionRecordIds?: string[];
 }
 
 export interface ComplianceIncidentActorContext {

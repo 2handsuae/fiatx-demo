@@ -37,7 +37,7 @@ describe('ComplianceIncidentsService', () => {
   const buildIncident = (overrides: Record<string, unknown> = {}) => ({
     id: 'inc-1',
     incidentNo: 'INC2602010001',
-    status: ComplianceIncidentStatus.NEW,
+    status: ComplianceIncidentStatus.OPEN,
     severity: ComplianceIncidentSeverity.HIGH,
     title: 'Incident title',
     summary: 'Incident summary',
@@ -60,9 +60,9 @@ describe('ComplianceIncidentsService', () => {
     resolvedAt: null,
     closedAt: null,
     closeReason: null,
-    rootCauseCategory: null,
-    resolutionSummary: null,
-    containmentSummary: null,
+    decision: null,
+    linkedCaseIds: null,
+    decisionRecordIds: null,
     closureChecklist: null,
     lastActionById: 'admin-1',
     lastActionByNo: 'US0001',
@@ -160,24 +160,23 @@ describe('ComplianceIncidentsService', () => {
     ).rejects.toThrow(ConflictException);
   });
 
-  it('should require rootCauseCategory and resolutionSummary for MARK_RESOLVED', async () => {
+  it('should require reason for RESOLVE action', async () => {
     prismaMock.complianceIncident.findUnique.mockResolvedValue(
-      buildIncident({ status: ComplianceIncidentStatus.INVESTIGATING }),
+      buildIncident({ status: ComplianceIncidentStatus.ASSIGNED }),
     );
 
     await expect(
       service.applyAction(
         'inc-1',
         {
-          action: ComplianceIncidentAction.MARK_RESOLVED,
-          reason: 'handled',
+          action: ComplianceIncidentAction.RESOLVE,
         },
         {
           actorType: 'ADMIN',
           actorId: 'admin-1',
         },
       ),
-    ).rejects.toThrow('rootCauseCategory');
+    ).rejects.toThrow('requires a reason');
   });
 
   it('should reject terminal status actions', async () => {
@@ -201,7 +200,7 @@ describe('ComplianceIncidentsService', () => {
 
   it('should assign incident to actor by default', async () => {
     prismaMock.complianceIncident.findUnique.mockResolvedValue(
-      buildIncident({ status: ComplianceIncidentStatus.NEW }),
+      buildIncident({ status: ComplianceIncidentStatus.OPEN }),
     );
     prismaMock.user.findUnique.mockResolvedValue({ userNo: 'US0001' });
     prismaMock.complianceIncident.update.mockResolvedValue(

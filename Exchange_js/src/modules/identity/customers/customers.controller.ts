@@ -75,7 +75,7 @@ export class CustomersController {
     }
 
     if (status) {
-      where.complianceStatus = status;
+      where.publicStatus = status;
     }
 
     return this.customersService.findAll({

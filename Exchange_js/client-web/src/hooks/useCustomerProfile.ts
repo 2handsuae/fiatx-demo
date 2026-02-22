@@ -8,6 +8,8 @@ export interface CustomerProfileData {
   lastName: string | null;
   companyName?: string | null;
   customerType: string;
+  publicStatus: string;
+  actions?: Array<{ type: string; payload?: Record<string, unknown> }>;
   cddStatus: string;
   amlRiskTier: string;
   eddRequired: boolean;
@@ -50,6 +52,8 @@ export const useCustomerProfile = () => {
         setProfile({
           ...data,
           customerType: data.customerType || 'UNKNOWN',
+          publicStatus: data.publicStatus || 'NONE',
+          actions: Array.isArray(data.actions) ? data.actions : [],
           cddStatus: data.cddStatus || 'NOT_STARTED',
           amlRiskTier: data.amlRiskTier || 'LOW',
           eddRequired: !!data.eddRequired,

@@ -38,9 +38,7 @@ interface CddCaseDetail {
     lastName?: string;
     companyName?: string | null;
     customerType?: string;
-    cddStatus?: string;
-    eddStatus?: string;
-    complianceStatus?: string;
+    publicStatus?: string;
   };
   mockDetail?: Record<string, unknown>;
   latestReport?: {
@@ -86,47 +84,6 @@ const CddCasesPage = () => {
   useEffect(() => {
     fetchCases();
   }, []);
-
-  const reviewCase = async (
-    id: string,
-    decision: 'APPROVE' | 'REJECT' | 'UPGRADE_EDD',
-    requiresEdd?: boolean,
-  ) => {
-    const reason = decision === 'REJECT' ? window.prompt('Please input reason', '') || '' : undefined;
-
-    if (decision === 'REJECT' && !reason) {
-      return;
-    }
-
-    try {
-      const response = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/compliance/cdd-cases/${id}/review`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            decision,
-            reason,
-            requiresEdd,
-          }),
-        },
-      );
-
-      if (!response.ok) {
-        throw new Error(await getApiErrorMessage(response, 'Review failed'));
-      }
-
-      setMessage(`CDD ${decision} completed.`);
-      fetchCases();
-    } catch (e: unknown) {
-      if (e instanceof AdminSessionError) {
-        return;
-      }
-      alert(getErrorMessage(e, 'Review failed'));
-    }
-  };
 
   const openDetail = async (id: string) => {
     setDetailLoading(true);
@@ -224,30 +181,7 @@ const CddCasesPage = () => {
                     >
                       View Detail
                     </button>
-                    {['SUBMITTED'].includes(item.status) ? (
-                      <div className="flex flex-wrap gap-1">
-                        <button
-                          onClick={() => reviewCase(item.id, 'APPROVE', false)}
-                          className="text-xs bg-green-50 text-green-700 px-2 py-1 rounded hover:bg-green-100"
-                        >
-                          Approve
-                        </button>
-                        <button
-                          onClick={() => reviewCase(item.id, 'UPGRADE_EDD', true)}
-                          className="text-xs bg-indigo-50 text-indigo-700 px-2 py-1 rounded hover:bg-indigo-100"
-                        >
-                          Upgrade EDD
-                        </button>
-                        <button
-                          onClick={() => reviewCase(item.id, 'REJECT')}
-                          className="text-xs bg-red-50 text-red-700 px-2 py-1 rounded hover:bg-red-100"
-                        >
-                          Reject
-                        </button>
-                      </div>
-                    ) : (
-                      <span className="text-xs text-gray-500">No action</span>
-                    )}
+                    <span className="text-xs text-gray-500">Read-only evidence</span>
                   </td>
                 </tr>
               ))

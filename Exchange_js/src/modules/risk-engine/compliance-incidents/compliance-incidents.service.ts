@@ -198,11 +198,11 @@ export class ComplianceIncidentsService {
     action: ComplianceIncidentAction,
   ) {
     switch (currentStatus) {
-      case ComplianceIncidentStatus.NEW:
+      case ComplianceIncidentStatus.OPEN:
         if (
           ![
             ComplianceIncidentAction.ASSIGN,
-            ComplianceIncidentAction.MARK_FALSE_POSITIVE,
+            ComplianceIncidentAction.LINK_ALERT,
           ].includes(action)
         ) {
           throw new BadRequestException(
@@ -214,21 +214,8 @@ export class ComplianceIncidentsService {
         if (
           ![
             ComplianceIncidentAction.ASSIGN,
-            ComplianceIncidentAction.START_INVESTIGATION,
-            ComplianceIncidentAction.MARK_FALSE_POSITIVE,
-          ].includes(action)
-        ) {
-          throw new BadRequestException(
-            `Action ${action} is not allowed from status ${currentStatus}`,
-          );
-        }
-        return;
-      case ComplianceIncidentStatus.INVESTIGATING:
-        if (
-          ![
-            ComplianceIncidentAction.ASSIGN,
-            ComplianceIncidentAction.MARK_RESOLVED,
-            ComplianceIncidentAction.MARK_FALSE_POSITIVE,
+            ComplianceIncidentAction.RESOLVE,
+            ComplianceIncidentAction.LINK_ALERT,
           ].includes(action)
         ) {
           throw new BadRequestException(
@@ -244,7 +231,6 @@ export class ComplianceIncidentsService {
         }
         return;
       case ComplianceIncidentStatus.CLOSED:
-      case ComplianceIncidentStatus.FALSE_POSITIVE:
         throw new BadRequestException(
           `Action ${action} is not allowed from terminal status ${currentStatus}`,
         );
@@ -266,15 +252,7 @@ export class ComplianceIncidentsService {
           requireReason: false,
           statusChanged: currentStatus !== ComplianceIncidentStatus.ASSIGNED,
         };
-      case ComplianceIncidentAction.START_INVESTIGATION:
-        return {
-          nextStatus: ComplianceIncidentStatus.INVESTIGATING,
-          eventType: ComplianceIncidentEventType.INVESTIGATION_STARTED,
-          auditAction: AuditActions.INCIDENT_INVESTIGATION_STARTED,
-          requireReason: false,
-          statusChanged: currentStatus !== ComplianceIncidentStatus.INVESTIGATING,
-        };
-      case ComplianceIncidentAction.MARK_RESOLVED:
+      case ComplianceIncidentAction.RESOLVE:
         return {
           nextStatus: ComplianceIncidentStatus.RESOLVED,
           eventType: ComplianceIncidentEventType.RESOLVED,
@@ -289,14 +267,6 @@ export class ComplianceIncidentsService {
           auditAction: AuditActions.INCIDENT_CLOSED,
           requireReason: true,
           statusChanged: currentStatus !== ComplianceIncidentStatus.CLOSED,
-        };
-      case ComplianceIncidentAction.MARK_FALSE_POSITIVE:
-        return {
-          nextStatus: ComplianceIncidentStatus.FALSE_POSITIVE,
-          eventType: ComplianceIncidentEventType.FALSE_POSITIVE,
-          auditAction: AuditActions.INCIDENT_FALSE_POSITIVE,
-          requireReason: true,
-          statusChanged: currentStatus !== ComplianceIncidentStatus.FALSE_POSITIVE,
         };
       case ComplianceIncidentAction.LINK_ALERT:
         throw new BadRequestException(
@@ -507,7 +477,7 @@ export class ComplianceIncidentsService {
       const incident = await tx.complianceIncident.create({
         data: {
           incidentNo: generateReferenceNo('INC'),
-          status: ComplianceIncidentStatus.NEW,
+          status: ComplianceIncidentStatus.OPEN,
           severity: updatedAlert.severity,
           title: updatedAlert.title,
           summary: reason,
@@ -631,12 +601,12 @@ export class ComplianceIncidentsService {
       const status = incident.status as ComplianceIncidentStatus;
       if (
         ![
+          ComplianceIncidentStatus.OPEN,
           ComplianceIncidentStatus.ASSIGNED,
-          ComplianceIncidentStatus.INVESTIGATING,
         ].includes(status)
       ) {
         throw new BadRequestException(
-          `Incident ${incidentId} must be ASSIGNED or INVESTIGATING to link alerts`,
+          `Incident ${incidentId} must be OPEN or ASSIGNED to link alerts`,
         );
       }
 
@@ -775,29 +745,12 @@ export class ComplianceIncidentsService {
     const resolution = this.resolveAction(dto.action, currentStatus);
     const reason = this.normalizeOptionalString(dto.reason);
     const note = this.normalizeOptionalString(dto.note);
-    const rootCauseCategory = this.normalizeOptionalString(dto.rootCauseCategory);
-    const resolutionSummary = this.normalizeOptionalString(dto.resolutionSummary);
-    const containmentSummary = this.normalizeOptionalString(dto.containmentSummary);
+    const decision = this.normalizeOptionalString(dto.decision);
+    const linkedCaseIds = this.serializeJson(dto.linkedCaseIds || null);
+    const decisionRecordIds = this.serializeJson(dto.decisionRecordIds || null);
 
     if (resolution.requireReason && !reason) {
       throw new BadRequestException(`Action ${dto.action} requires a reason`);
-    }
-
-    if (dto.action === ComplianceIncidentAction.MARK_RESOLVED) {
-      if (!rootCauseCategory) {
-        throw new BadRequestException('MARK_RESOLVED requires rootCauseCategory');
-      }
-      if (!resolutionSummary) {
-        throw new BadRequestException('MARK_RESOLVED requires resolutionSummary');
-      }
-    }
-
-    if (dto.action === ComplianceIncidentAction.CLOSE) {
-      if (!Array.isArray(dto.closureChecklist) || dto.closureChecklist.length < 3) {
-        throw new BadRequestException(
-          'CLOSE requires closureChecklist with at least 3 items',
-        );
-      }
     }
 
     const now = new Date();
@@ -807,6 +760,9 @@ export class ComplianceIncidentsService {
       lastActionByNo: actor.actorNo || null,
       lastActionByRole: actor.actorRole || null,
       lastActionAt: now,
+      decision: decision || undefined,
+      linkedCaseIds: linkedCaseIds || undefined,
+      decisionRecordIds: decisionRecordIds || undefined,
     };
 
     let assigneeUserId: string | null = null;
@@ -824,21 +780,12 @@ export class ComplianceIncidentsService {
       updateData.assignedAt = now;
     }
 
-    if (dto.action === ComplianceIncidentAction.MARK_RESOLVED) {
+    if (dto.action === ComplianceIncidentAction.RESOLVE) {
       updateData.resolvedAt = now;
-      updateData.closeReason = reason || null;
-      updateData.rootCauseCategory = rootCauseCategory;
-      updateData.resolutionSummary = resolutionSummary;
-      updateData.containmentSummary = containmentSummary;
+      updateData.closeReason = reason || note || null;
     }
 
     if (dto.action === ComplianceIncidentAction.CLOSE) {
-      updateData.closedAt = now;
-      updateData.closeReason = reason || note || null;
-      updateData.closureChecklist = this.serializeJson(dto.closureChecklist);
-    }
-
-    if (dto.action === ComplianceIncidentAction.MARK_FALSE_POSITIVE) {
       updateData.closedAt = now;
       updateData.closeReason = reason || note || null;
     }
@@ -863,12 +810,11 @@ export class ComplianceIncidentsService {
         note: note || null,
         assigneeUserId,
         assigneeUserNo,
+        decision,
+        linkedCaseIds: dto.linkedCaseIds || null,
+        decisionRecordIds: dto.decisionRecordIds || null,
         statusFrom: currentStatus,
         statusTo: updated.status,
-        rootCauseCategory,
-        resolutionSummary,
-        containmentSummary,
-        closureChecklist: dto.closureChecklist || null,
       },
       sourcePlatform: actor.sourcePlatform || 'ADMIN_API',
     });
@@ -888,8 +834,9 @@ export class ComplianceIncidentsService {
           action: dto.action,
           assigneeUserId,
           assigneeUserNo,
-          rootCauseCategory,
-          resolutionSummary,
+          decision,
+          linkedCaseIds: dto.linkedCaseIds || null,
+          decisionRecordIds: dto.decisionRecordIds || null,
         },
         sourcePlatform: actor.sourcePlatform || 'ADMIN_API',
       },

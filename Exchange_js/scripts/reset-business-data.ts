@@ -28,6 +28,12 @@ async function resetBusinessData(): Promise<void> {
   deleted.kyt_case_reports = (await prisma.kytCaseReport.deleteMany()).count;
   deleted.travel_rule_case_reports = (await prisma.travelRuleCaseReport.deleteMany()).count;
   deleted.onboarding_audit_logs = (await prisma.onboardingAuditLog.deleteMany()).count;
+  deleted.onboarding_decision_records = (await (prisma as any).onboardingDecisionRecord.deleteMany()).count;
+  deleted.compliance_incident_events = (await prisma.complianceIncidentEvent.deleteMany()).count;
+  deleted.compliance_incident_alerts = (await prisma.complianceIncidentAlert.deleteMany()).count;
+  deleted.compliance_incidents = (await prisma.complianceIncident.deleteMany()).count;
+  deleted.compliance_alert_events = (await prisma.complianceAlertEvent.deleteMany()).count;
+  deleted.compliance_alerts = (await prisma.complianceAlert.deleteMany()).count;
 
   deleted.payouts = (await prisma.payout.deleteMany()).count;
   deleted.withdraw_transactions = (await prisma.withdrawTransaction.deleteMany()).count;

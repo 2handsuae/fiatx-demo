@@ -6,38 +6,30 @@ export enum ComplianceAlertSeverity {
 }
 
 export enum ComplianceAlertStatus {
-  NEW = 'NEW',
+  OPEN = 'OPEN',
   ASSIGNED = 'ASSIGNED',
-  IN_REVIEW = 'IN_REVIEW',
   ESCALATED = 'ESCALATED',
-  RESOLVED = 'RESOLVED',
-  FALSE_POSITIVE = 'FALSE_POSITIVE',
+  CLOSED = 'CLOSED',
 }
 
 export enum ComplianceAlertAction {
-  START_REVIEW = 'START_REVIEW',
   ASSIGN = 'ASSIGN',
+  UNASSIGN = 'UNASSIGN',
   ESCALATE = 'ESCALATE',
-  RESOLVE = 'RESOLVE',
-  MARK_FALSE_POSITIVE = 'MARK_FALSE_POSITIVE',
+  CLOSE = 'CLOSE',
 }
 
 export enum ComplianceAlertEventType {
   TRIGGERED = 'TRIGGERED',
-  REOPENED = 'REOPENED',
-  ACKED = 'ACKED',
-  REVIEW_STARTED = 'REVIEW_STARTED',
   ASSIGNED = 'ASSIGNED',
+  UNASSIGNED = 'UNASSIGNED',
   ESCALATED = 'ESCALATED',
-  RESOLVED = 'RESOLVED',
-  FALSE_POSITIVE = 'FALSE_POSITIVE',
-  MANUAL_REOPENED = 'MANUAL_REOPENED',
+  CLOSED = 'CLOSED',
+  UPDATED = 'UPDATED',
 }
 
 export const CLOSED_ALERT_STATUSES: ComplianceAlertStatus[] = [
-  ComplianceAlertStatus.ESCALATED,
-  ComplianceAlertStatus.RESOLVED,
-  ComplianceAlertStatus.FALSE_POSITIVE,
+  ComplianceAlertStatus.CLOSED,
 ];
 
 export const ALERT_SLA_HOURS: Record<ComplianceAlertSeverity, number> = {
@@ -133,6 +125,13 @@ export const COMPLIANCE_ALERT_RULES: Record<string, ComplianceAlertRuleDefinitio
     title: 'Customer Compliance Restricted or Blocked',
     defaultMessage:
       'Customer compliance status changed to RESTRICTED or BLOCKED.',
+  },
+  ONB_ONBOARDING_JOURNEY_REVIEW: {
+    ruleCode: 'ONB_ONBOARDING_JOURNEY_REVIEW',
+    capCode: 'CAP-004',
+    severity: ComplianceAlertSeverity.HIGH,
+    title: 'Onboarding Journey Review Required',
+    defaultMessage: 'Onboarding journey requires compliance handling.',
   },
 };
 

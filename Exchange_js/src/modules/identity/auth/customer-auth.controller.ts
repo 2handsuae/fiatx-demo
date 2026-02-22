@@ -14,18 +14,9 @@ import { z } from 'zod';
 const RegisterSchema = z.object({
   email: z.string().email(),
   password: z.string().min(6),
-  customerType: z.enum(['INDIVIDUAL', 'CORPORATE']),
-  companyName: z.string().trim().min(1).optional(),
+  customerType: z.enum(['INDIVIDUAL']).default('INDIVIDUAL'),
   firstName: z.string().optional(),
   lastName: z.string().optional(),
-}).superRefine((val, ctx) => {
-  if (val.customerType === 'CORPORATE' && !val.companyName) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['companyName'],
-      message: 'companyName is required for corporate customer',
-    });
-  }
 });
 
 const LoginSchema = z.object({

@@ -1,21 +1,19 @@
 import {
   BadRequestException,
   ForbiddenException,
-  InternalServerErrorException,
   Injectable,
   Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { PrismaService } from '../../../core/prisma/prisma.service';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
-import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
+import { PrismaService } from '../../../core/prisma/prisma.service';
 import {
-  AuditEntityTypes,
-  AuditModules,
-} from '../../risk-engine/audit-logs/constants/audit-actions.constant';
-import { AuditTriggerType } from '../../risk-engine/audit-logs/dto/audit-log.dto';
+  ComplianceAlertAction,
+  ComplianceAlertSeverity,
+} from '../../risk-engine/compliance-alerts/constants/compliance-alert-rules.constant';
 import { ComplianceAlertsService } from '../../risk-engine/compliance-alerts/compliance-alerts.service';
+import { RiskDecision, RiskEngineService } from '../../risk-engine/risk-engine.service';
 import {
   BootstrapCasesDto,
   CreateCaseSessionDto,
@@ -29,63 +27,200 @@ import {
 } from './dto/onboarding.dto';
 
 type TradeAction = 'SWAP' | 'WITHDRAW';
-type SubjectKind = 'INDIVIDUAL_CUSTOMER' | 'CORPORATE_ENTITY' | 'UBO_PERSON';
 type CaseType = 'CDD' | 'EDD';
-type CddStatus =
-  | 'NOT_STARTED'
-  | 'IN_PROGRESS'
-  | 'PENDING_REVIEW'
-  | 'APPROVED'
-  | 'REJECTED'
-  | 'EXPIRED';
-type EddStatus =
-  | 'NOT_REQUIRED'
-  | 'REQUIRED'
-  | 'IN_PROGRESS'
-  | 'PENDING_MLRO'
-  | 'APPROVED'
-  | 'REJECTED'
-  | 'EXPIRED';
-type ComplianceStatus =
-  | 'NONE'
-  | 'IN_PROGRESS'
-  | 'ACTIVE'
-  | 'RESTRICTED'
-  | 'BLOCKED'
-  | 'EXPIRED';
-type FinalApprovalStatus = 'NOT_REQUIRED' | 'PENDING' | 'APPROVED' | 'REJECTED';
+type SubjectKind = 'INDIVIDUAL_CUSTOMER' | 'CORPORATE_ENTITY' | 'UBO_PERSON';
 
-interface SubjectDescriptor {
-  subjectKind: SubjectKind;
-  subjectRefId: string;
-  label: string;
+export type CustomerPublicStatus =
+  | 'NONE'
+  | 'PENDING_CDD'
+  | 'REVIEW_CDD'
+  | 'PENDING_EDD'
+  | 'REVIEW_EDD'
+  | 'FINAL_APPROVAL'
+  | 'ACTIVE'
+  | 'REJECTED'
+  | 'WITHDRAWN';
+
+export type OnboardingActionType =
+  | 'START_CDD'
+  | 'CREATE_CDD_SESSION'
+  | 'COMPLETE_CDD'
+  | 'START_EDD'
+  | 'CREATE_EDD_SESSION'
+  | 'COMPLETE_EDD'
+  | 'WAIT_REVIEW'
+  | 'WAIT_FINAL_APPROVAL'
+  | 'REINITIATE_CDD'
+  | 'NONE';
+
+export interface OnboardingAction {
+  type: OnboardingActionType;
+  payload?: Record<string, unknown>;
 }
 
-interface NextStepPayload {
-  step: 'ENTITY_INFO' | 'CDD' | 'WAIT_REVIEW' | 'EDD' | 'REINITIATE' | 'COMPLETED';
-  action:
-    | 'SAVE_ENTITY'
-    | 'START_CDD'
-    | 'COMPLETE_CDD'
-    | 'COMPLETE_EDD'
-    | 'WAIT'
-    | 'REINITIATE_CDD'
-    | 'REINITIATE_EDD'
-    | 'NONE';
+export interface NextStepPayload {
+  publicStatus: CustomerPublicStatus;
+  actions: OnboardingAction[];
   blockedReason: string | null;
   activeCaseId: string | null;
   requiresEdd: boolean;
 }
 
+interface AlertUpsertInput {
+  customerId: string;
+  customerNo: string | null;
+  journeyId: string;
+  recommendation: string;
+  decision?: string | null;
+  severity?: ComplianceAlertSeverity;
+  message: string;
+  linkedCaseIds?: string[];
+  decisionRecordIds?: string[];
+}
+
+export interface SessionResponse {
+  sessionId: string;
+  providerSessionId: string;
+  caseType: CaseType;
+  caseId: string;
+  qrCodeUrl: string;
+  expiresAt: Date;
+  status: string;
+}
+
 @Injectable()
 export class OnboardingService {
   private readonly logger = new Logger(OnboardingService.name);
-  private readonly auditLogsService: AuditLogsService;
-  private readonly complianceAlertsService: ComplianceAlertsService;
 
-  constructor(private readonly prisma: PrismaService) {
-    this.auditLogsService = new AuditLogsService(prisma);
-    this.complianceAlertsService = new ComplianceAlertsService(prisma);
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly riskEngineService: RiskEngineService,
+    private readonly complianceAlertsService: ComplianceAlertsService,
+  ) {}
+
+  private parseJsonSafely(value?: string | null): Record<string, unknown> {
+    if (!value) return {};
+    try {
+      return JSON.parse(value);
+    } catch {
+      return {};
+    }
+  }
+
+  private normalizePublicStatus(value?: string | null): CustomerPublicStatus {
+    const current = String(value || 'NONE').trim().toUpperCase();
+    const all: CustomerPublicStatus[] = [
+      'NONE',
+      'PENDING_CDD',
+      'REVIEW_CDD',
+      'PENDING_EDD',
+      'REVIEW_EDD',
+      'FINAL_APPROVAL',
+      'ACTIVE',
+      'REJECTED',
+      'WITHDRAWN',
+    ];
+    if (all.includes(current as CustomerPublicStatus)) {
+      return current as CustomerPublicStatus;
+    }
+    return 'NONE';
+  }
+
+  private buildSeed(input: string): number {
+    let hash = 0;
+    for (let i = 0; i < input.length; i += 1) {
+      hash = (hash * 31 + input.charCodeAt(i)) >>> 0;
+    }
+    return hash || 1;
+  }
+
+  private pickFrom<T>(seed: number, values: T[]): T {
+    return values[seed % values.length];
+  }
+
+  private buildMockSignals(caseType: CaseType, caseNo: string, result: 'PASS' | 'FAIL') {
+    const seed = this.buildSeed(`${caseType}:${caseNo}:${result}`);
+    const failMode = result === 'FAIL';
+    const riskScore = failMode
+      ? 75 + (seed % 21)
+      : 25 + (seed % 35);
+    const riskLevel = riskScore >= 75 ? 'HIGH' : riskScore >= 50 ? 'MEDIUM' : 'LOW';
+
+    const pepHit = failMode ? true : this.pickFrom(seed + 3, [false, false, false, true]);
+    const sanctionsHit = failMode ? this.pickFrom(seed + 7, [false, true, false]) : false;
+    const adverseMediaHit = failMode
+      ? this.pickFrom(seed + 11, [true, false, true])
+      : this.pickFrom(seed + 13, [false, false, true, false]);
+
+    return {
+      provider: 'MOCK',
+      caseType,
+      outcome: failMode ? 'FLAGGED' : 'PASS',
+      referenceId: `MOCK-${seed.toString(16).toUpperCase()}`,
+      riskScore,
+      riskLevel,
+      pepHit,
+      sanctionsHit,
+      adverseMediaHit,
+      reviewedAt: new Date().toISOString(),
+    };
+  }
+
+  private addDays(base: Date, days: number): Date {
+    return new Date(base.getTime() + days * 24 * 60 * 60 * 1000);
+  }
+
+  private mapActionsByStatus(status: CustomerPublicStatus): OnboardingAction[] {
+    switch (status) {
+      case 'NONE':
+        return [{ type: 'START_CDD' }];
+      case 'PENDING_CDD':
+        return [{ type: 'COMPLETE_CDD' }];
+      case 'REVIEW_CDD':
+      case 'REVIEW_EDD':
+        return [{ type: 'WAIT_REVIEW' }];
+      case 'PENDING_EDD':
+        return [{ type: 'COMPLETE_EDD' }];
+      case 'FINAL_APPROVAL':
+        return [{ type: 'WAIT_FINAL_APPROVAL' }];
+      case 'ACTIVE':
+        return [{ type: 'NONE' }];
+      case 'REJECTED':
+      case 'WITHDRAWN':
+        return [{ type: 'REINITIATE_CDD' }];
+      default:
+        return [{ type: 'START_CDD' }];
+    }
+  }
+
+  private buildBlockedReason(status: CustomerPublicStatus): string | null {
+    switch (status) {
+      case 'REVIEW_CDD':
+        return 'CDD evidence received and waiting compliance handling.';
+      case 'REVIEW_EDD':
+        return 'EDD evidence received and waiting compliance handling.';
+      case 'FINAL_APPROVAL':
+        return 'Waiting final onboarding decision.';
+      case 'REJECTED':
+        return 'Onboarding is rejected. Re-initiate required.';
+      case 'WITHDRAWN':
+        return 'Onboarding is withdrawn.';
+      case 'ACTIVE':
+        return 'Onboarding completed.';
+      default:
+        return null;
+    }
+  }
+
+  private buildNextStep(customer: any): NextStepPayload {
+    const publicStatus = this.normalizePublicStatus(customer.publicStatus);
+    return {
+      publicStatus,
+      actions: this.mapActionsByStatus(publicStatus),
+      blockedReason: this.buildBlockedReason(publicStatus),
+      activeCaseId: customer.activeCaseId || null,
+      requiresEdd: !!customer.eddRequired,
+    };
   }
 
   private async writeAudit(input: {
@@ -99,682 +234,64 @@ export class OnboardingService {
     caseId?: string;
     detail?: string | null;
   }) {
-    const normalizedRole = String(input.actorRole || '').toUpperCase();
-    const actorType = normalizedRole.includes('CUSTOMER')
-      ? 'CUSTOMER'
-      : normalizedRole
-        ? 'ADMIN'
-        : 'SYSTEM';
-
-    await this.auditLogsService.recordByActor(
-      {
-        triggerType:
-          input.fromStage && input.toStage && input.fromStage !== input.toStage
-            ? AuditTriggerType.STATE_TRANSITION
-            : undefined,
+    await (this.prisma as any).onboardingAuditLog.create({
+      data: {
+        customerId: input.customerId,
+        caseType: input.caseType || null,
+        caseId: input.caseId || null,
         action: input.action,
-        module: AuditModules.ONBOARDING,
-        entityType: AuditEntityTypes.ONBOARDING,
-        entityId: input.caseId || input.customerId,
-        entityOwnerType: 'CUSTOMER',
-        entityOwnerId: input.customerId,
-        statusFrom: input.fromStage || undefined,
-        statusTo: input.toStage || undefined,
-        reason: input.detail || undefined,
-        metadata: {
-          customerId: input.customerId,
-          caseType: input.caseType || null,
-          caseId: input.caseId || null,
-          detail: input.detail || null,
-        },
-        sourcePlatform: 'SYSTEM',
+        actorId: input.actorId,
+        actorRole: input.actorRole,
+        fromStage: input.fromStage || null,
+        toStage: input.toStage || null,
+        detail: input.detail || null,
       },
-      {
-        actorType,
-        actorId: input.actorId || 'SYSTEM',
-        actorRole: input.actorRole || undefined,
-      },
-    );
+    });
   }
 
-  private async triggerOnboardingAlert(input: {
-    ruleCode: string;
-    sourceType: string;
-    sourceId: string;
-    sourceNo?: string | null;
-    customerId: string;
-    customerNo?: string | null;
-    title?: string;
-    message: string;
-    metadata?: Record<string, unknown>;
-  }) {
-    try {
-      await this.complianceAlertsService.triggerSystemAlert({
-        ruleCode: input.ruleCode,
-        sourceModule: AuditModules.ONBOARDING,
-        sourceType: input.sourceType,
-        sourceId: input.sourceId,
-        sourceNo: input.sourceNo || null,
-        entityType: AuditEntityTypes.ONBOARDING,
-        entityId: input.sourceId,
-        entityNo: input.sourceNo || null,
-        ownerType: 'CUSTOMER',
-        ownerId: input.customerId,
-        customerId: input.customerId,
-        customerNo: input.customerNo || null,
-        title: input.title,
-        message: input.message,
-        metadata: input.metadata || {},
-      });
-    } catch (error) {
-      this.logger.warn(
-        `Failed to trigger onboarding alert ${input.ruleCode}: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
+  private async getCustomerOrThrow(customerId: string, includeEntity = false): Promise<any> {
+    const customer = await this.prisma.customerMain.findUnique({
+      where: { id: customerId },
+      include: includeEntity
+        ? {
+            corporateProfile: true,
+            uboProfiles: {
+              orderBy: { createdAt: 'asc' },
+            },
+          }
+        : undefined,
+    });
+
+    if (!customer) {
+      throw new NotFoundException(`Customer not found: ${customerId}`);
+    }
+
+    return customer;
+  }
+
+  private ensureIndividualOnly(customer: any) {
+    if (customer.customerType === 'CORPORATE') {
+      throw new BadRequestException(
+        'Corporate onboarding is disabled in current onboarding flow.',
       );
     }
   }
 
-  private parseJsonSafely(value?: string | null): Record<string, any> {
-    if (!value) return {};
-    try {
-      return JSON.parse(value);
-    } catch {
-      return {};
-    }
+  private normalizeTake(take?: number): number {
+    if (!take || take < 1) return 20;
+    return Math.min(take, 200);
   }
 
-  private buildSeed(input: string): number {
-    let hash = 0;
-    const text = input || 'UNKNOWN';
-    for (let i = 0; i < text.length; i += 1) {
-      hash = (hash * 31 + text.charCodeAt(i)) >>> 0;
-    }
-    return hash || 1;
+  private normalizeSkip(skip?: number): number {
+    if (!skip || skip < 0) return 0;
+    return skip;
   }
 
-  private pickFrom<T>(seed: number, values: T[]): T {
-    return values[seed % values.length];
-  }
-
-  private buildMockDetail(
-    caseType: CaseType,
-    caseNo: string,
-    subjectKind: SubjectKind,
-  ): Record<string, any> {
-    const seed = this.buildSeed(caseNo);
-    const riskBands = ['LOW', 'MEDIUM', 'HIGH'];
-    const watchlists = ['SANCTIONS', 'PEP', 'ADVERSE_MEDIA', 'NONE'];
-    const countries = ['AE', 'US', 'SG', 'GB', 'HK', 'CA'];
-    const occupations = ['Software Engineer', 'Consultant', 'Entrepreneur', 'Investor'];
-    const fundingSources = ['Salary', 'Business Income', 'Investment Gains', 'Inheritance'];
-    const outcome = this.pickFrom(seed, ['PASS', 'PASS', 'REVIEW_REQUIRED', 'PASS', 'FLAGGED']);
-    const pepHit = this.pickFrom(seed + 23, [false, false, true, false]);
-    const sanctionsHit = this.pickFrom(seed + 29, [false, false, false, true]);
-    const watchlistHit = sanctionsHit ? 'SANCTIONS' : pepHit ? 'PEP' : this.pickFrom(seed + 13, watchlists);
-
-    return {
-      provider: 'MOCK',
-      generatedFrom: caseNo,
-      caseType,
-      subjectKind,
-      referenceId: `MOCK-${seed.toString(16).toUpperCase()}`,
-      outcome,
-      riskBand: this.pickFrom(seed + 7, riskBands),
-      screenedCountry: this.pickFrom(seed + 11, countries),
-      watchlistHit,
-      pepHit,
-      sanctionsHit,
-      confidenceScore: 0.8 + ((seed % 20) / 100),
-      profile: {
-        occupation: this.pickFrom(seed + 17, occupations),
-        sourceOfFunds: this.pickFrom(seed + 19, fundingSources),
-      },
-    };
-  }
-
-  private extractInvestorClassification(
-    inputData: Record<string, any>,
-    customerType: 'INDIVIDUAL' | 'CORPORATE',
-  ): 'RETAIL' | 'QUALIFIED' | 'INSTITUTIONAL' {
-    const raw =
-      inputData?.investorClassification ||
-      inputData?.profile?.investorClassification ||
-      inputData?.classification ||
-      null;
-
-    const normalized = typeof raw === 'string' ? raw.trim().toUpperCase() : '';
-    if (normalized === 'RETAIL') return 'RETAIL';
-    if (normalized === 'QUALIFIED') return 'QUALIFIED';
-    if (normalized === 'INSTITUTIONAL' && customerType === 'CORPORATE') return 'INSTITUTIONAL';
-    return 'RETAIL';
-  }
-
-  private normalizeRiskTier(value?: string | null): 'LOW' | 'MEDIUM' | 'HIGH' {
-    const text = String(value || '').toUpperCase();
-    if (text === 'HIGH') return 'HIGH';
-    if (text === 'MEDIUM') return 'MEDIUM';
-    return 'LOW';
-  }
-
-  private computeNextReviewAt(riskTier: 'LOW' | 'MEDIUM' | 'HIGH'): Date {
-    const now = Date.now();
-    const days = riskTier === 'HIGH' ? 90 : riskTier === 'MEDIUM' ? 180 : 365;
-    return new Date(now + days * 24 * 60 * 60 * 1000);
-  }
-
-  private getCustomerType(customer: any): 'INDIVIDUAL' | 'CORPORATE' {
-    if (customer?.customerType === 'INDIVIDUAL' || customer?.customerType === 'CORPORATE') {
-      return customer.customerType;
-    }
-    throw new BadRequestException('Please identify customer type first.');
-  }
-
-  private buildSubjectDescriptors(customer: any): SubjectDescriptor[] {
-    const customerType = this.getCustomerType(customer);
-    if (customerType === 'INDIVIDUAL') {
-      return [
-        {
-          subjectKind: 'INDIVIDUAL_CUSTOMER',
-          subjectRefId: customer.id,
-          label: 'Individual Customer',
-        },
-      ];
-    }
-
-    if (!customer.corporateProfile) {
-      throw new BadRequestException('Corporate profile is required for corporate onboarding.');
-    }
-
-    const ubos = Array.isArray(customer.uboProfiles) ? customer.uboProfiles : [];
-    if (ubos.length === 0) {
-      throw new BadRequestException('Corporate onboarding requires at least one UBO.');
-    }
-
-    const subjects: SubjectDescriptor[] = [
-      {
-        subjectKind: 'CORPORATE_ENTITY',
-        subjectRefId: customer.id,
-        label: customer.corporateProfile.companyName || 'Corporate Entity',
-      },
-    ];
-
-    ubos.forEach((ubo: any) => {
-      subjects.push({
-        subjectKind: 'UBO_PERSON',
-        subjectRefId: ubo.id,
-        label: ubo.fullName || 'UBO',
-      });
-    });
-
-    return subjects;
-  }
-
-  private buildSubjectDescriptorsSafe(customer: any): SubjectDescriptor[] {
-    try {
-      return this.buildSubjectDescriptors(customer);
-    } catch {
-      return [];
-    }
-  }
-
-  private async resolveJourneyId(
-    customerId: string,
-    preferredJourneyId?: string,
-    txClient?: any,
-  ): Promise<string> {
-    if (preferredJourneyId) return preferredJourneyId;
-
-    const db = txClient || (this.prisma as any);
-    const latest = await db.cddCase.findFirst({
-      where: {
-        customerId,
-        status: {
-          in: ['PENDING', 'SUBMITTED', 'APPROVED'],
-        },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
-
-    if (latest?.journeyId) return latest.journeyId;
-    return generateReferenceNo('ONB');
-  }
-
-  private async getLatestJourneyId(customerId: string, txClient?: any): Promise<string | null> {
-    const db = txClient || (this.prisma as any);
-    const [latestCdd, latestEdd] = await Promise.all([
-      db.cddCase.findFirst({
-        where: { customerId },
-        orderBy: { createdAt: 'desc' },
-        select: { journeyId: true, createdAt: true },
-      }),
-      db.eddCase.findFirst({
-        where: { customerId },
-        orderBy: { createdAt: 'desc' },
-        select: { journeyId: true, createdAt: true },
-      }),
-    ]);
-
-    if (!latestCdd && !latestEdd) return null;
-    if (!latestEdd) return latestCdd.journeyId || null;
-    if (!latestCdd) return latestEdd.journeyId || null;
-
-    return latestCdd.createdAt >= latestEdd.createdAt ? latestCdd.journeyId : latestEdd.journeyId;
-  }
-
-  private async updateUboCaseStatus(
-    tx: any,
-    subjectKind: SubjectKind,
-    subjectRefId: string,
-    status:
-      | 'PENDING'
-      | 'CDD_IN_PROGRESS'
-      | 'CDD_APPROVED'
-      | 'EDD_IN_PROGRESS'
-      | 'EDD_APPROVED'
-      | 'REJECTED',
-  ) {
-    if (subjectKind !== 'UBO_PERSON') return;
-    await tx.uboProfile.updateMany({
-      where: { id: subjectRefId },
-      data: { status },
-    });
-  }
-
-  private indexLatestCaseBySubject(
-    subjects: SubjectDescriptor[],
-    cases: Array<any>,
-  ): Array<any | null> {
-    return subjects.map((subject) => {
-      const list = cases
-        .filter(
-          (item) =>
-            item.subjectKind === subject.subjectKind && item.subjectRefId === subject.subjectRefId,
-        )
-        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-      return list[0] || null;
-    });
-  }
-
-  private determineCddStatus(subjects: SubjectDescriptor[], cddCases: any[]): CddStatus {
-    if (cddCases.length === 0) return 'NOT_STARTED';
-
-    const latestPerSubject =
-      subjects.length > 0
-        ? this.indexLatestCaseBySubject(subjects, cddCases)
-        : [
-            cddCases.sort(
-              (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-            )[0],
-          ];
-
-    if (latestPerSubject.some((item) => !item)) return 'NOT_STARTED';
-    if (latestPerSubject.some((item) => item.status === 'REJECTED')) return 'REJECTED';
-    if (latestPerSubject.every((item) => item.status === 'APPROVED')) return 'APPROVED';
-    if (latestPerSubject.some((item) => item.status === 'SUBMITTED')) return 'PENDING_REVIEW';
-    if (latestPerSubject.some((item) => ['PENDING'].includes(item.status))) {
-      return 'IN_PROGRESS';
-    }
-
-    return 'NOT_STARTED';
-  }
-
-  private determineEddStatus(
-    subjects: SubjectDescriptor[],
-    eddCases: any[],
-    eddRequired: boolean,
-  ): EddStatus {
-    if (!eddRequired) return 'NOT_REQUIRED';
-    if (eddCases.length === 0) return 'REQUIRED';
-
-    const latestPerSubject =
-      subjects.length > 0
-        ? this.indexLatestCaseBySubject(subjects, eddCases)
-        : [
-            eddCases.sort(
-              (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-            )[0],
-          ];
-
-    if (latestPerSubject.some((item) => !item)) return 'REQUIRED';
-    if (latestPerSubject.some((item) => item.status === 'REJECTED')) return 'REJECTED';
-    if (latestPerSubject.every((item) => item.status === 'APPROVED')) return 'APPROVED';
-
-    if (latestPerSubject.some((item) => item.status === 'SUBMITTED')) {
-      return 'PENDING_MLRO';
-    }
-
-    if (latestPerSubject.some((item) => ['PENDING'].includes(item.status))) {
-      return 'IN_PROGRESS';
-    }
-
-    return 'REQUIRED';
-  }
-
-  private computeComplianceStatus(
-    cddStatus: CddStatus,
-    eddRequired: boolean,
-    eddStatus: EddStatus,
-    finalApprovalStatus: FinalApprovalStatus,
-    isExpired: boolean,
-  ): ComplianceStatus {
-    if (isExpired || cddStatus === 'EXPIRED') {
-      return 'EXPIRED';
-    }
-
-    if (cddStatus === 'REJECTED' || eddStatus === 'REJECTED' || finalApprovalStatus === 'REJECTED') {
-      return 'BLOCKED';
-    }
-
-    if (cddStatus === 'NOT_STARTED') {
-      return 'NONE';
-    }
-
-    if (['IN_PROGRESS', 'PENDING_REVIEW'].includes(cddStatus)) {
-      return 'IN_PROGRESS';
-    }
-
-    if (cddStatus !== 'APPROVED') {
-      return 'BLOCKED';
-    }
-
-    if (eddRequired && !['APPROVED', 'NOT_REQUIRED'].includes(eddStatus)) {
-      return 'RESTRICTED';
-    }
-
-    if (eddRequired && finalApprovalStatus !== 'APPROVED') {
-      return 'RESTRICTED';
-    }
-
-    return 'ACTIVE';
-  }
-
-  private pickCurrentCddCaseId(cddCases: any[]): string | null {
-    const byPriority = [
-      ...cddCases.filter((item) => ['PENDING'].includes(item.status)),
-      ...cddCases.filter((item) => item.status === 'SUBMITTED'),
-      ...cddCases,
-    ];
-    const target = byPriority[0] || null;
-    return target?.id || null;
-  }
-
-  private pickCurrentEddCaseId(eddCases: any[]): string | null {
-    const byPriority = [
-      ...eddCases.filter((item) => ['PENDING'].includes(item.status)),
-      ...eddCases.filter((item) => ['SUBMITTED'].includes(item.status)),
-      ...eddCases,
-    ];
-    const target = byPriority[0] || null;
-    return target?.id || null;
-  }
-
-  private async extractLatestRejectedReason(customerId: string): Promise<string | null> {
-    const [rejectedCdd, rejectedEdd] = await Promise.all([
-      (this.prisma as any).cddCase.findFirst({
-        where: { customerId, status: 'REJECTED' },
-        orderBy: { reviewedAt: 'desc' },
-        select: { decisionReason: true, reviewedAt: true },
-      }),
-      (this.prisma as any).eddCase.findFirst({
-        where: { customerId, status: 'REJECTED' },
-        orderBy: { mlroReviewedAt: 'desc' },
-        select: { decisionReason: true, mlroReviewedAt: true },
-      }),
-    ]);
-
-    if (!rejectedCdd && !rejectedEdd) return null;
-    const cddAt = rejectedCdd?.reviewedAt ? new Date(rejectedCdd.reviewedAt).getTime() : 0;
-    const eddAt = rejectedEdd?.mlroReviewedAt ? new Date(rejectedEdd.mlroReviewedAt).getTime() : 0;
-
-    if (eddAt > cddAt) return rejectedEdd?.decisionReason || 'EDD rejected.';
-    return rejectedCdd?.decisionReason || 'CDD rejected.';
-  }
-
-  private isSameSnapshotValue(prev: any, next: any): boolean {
-    if (prev == null && next == null) return true;
-    if (prev instanceof Date || next instanceof Date) {
-      const prevMs = prev == null ? null : new Date(prev).getTime();
-      const nextMs = next == null ? null : new Date(next).getTime();
-      return prevMs === nextMs;
-    }
-    return prev === next;
-  }
-
-  private buildSnapshotDiff(current: Record<string, any>, next: Record<string, any>) {
-    const diff: Record<string, any> = {};
-    Object.entries(next).forEach(([key, value]) => {
-      if (!this.isSameSnapshotValue(current[key], value)) {
-        diff[key] = value;
-      }
-    });
-    return diff;
-  }
-
-  async recomputeComplianceSnapshot(customerId: string, journeyId?: string, txClient?: any) {
-    const db = txClient || (this.prisma as any);
-
-    const customer = await db.customerMain.findUnique({
-      where: { id: customerId },
-      include: {
-        corporateProfile: true,
-        uboProfiles: true,
-      },
-    });
-
-    if (!customer) {
-      throw new NotFoundException('Customer not found');
-    }
-
-    const activeJourneyId = journeyId || (await this.getLatestJourneyId(customerId, db));
-    const isDocumentExpired =
-      !!customer.cddDocumentExpiresAt &&
-      new Date(customer.cddDocumentExpiresAt).getTime() < Date.now();
-
-    if (!activeJourneyId) {
-      const data: Record<string, any> = {
-        cddStatus: (isDocumentExpired ? 'EXPIRED' : 'NOT_STARTED') as CddStatus,
-        amlRiskTier: this.normalizeRiskTier(customer.riskLevel),
-        eddRequired: false,
-        eddStatus: 'NOT_REQUIRED',
-        complianceStatus: (isDocumentExpired ? 'EXPIRED' : 'NONE') as ComplianceStatus,
-        finalApprovalStatus: 'NOT_REQUIRED',
-        finalApprovalReason: null,
-        finalApprovalReviewerId: null,
-        finalApprovalReviewedAt: null,
-        nextReviewAt: null,
-        currentCddCaseId: null,
-        currentEddCaseId: null,
-        investorClassification: customer.investorClassification || 'RETAIL',
-      };
-      const updateData = this.buildSnapshotDiff(customer, data);
-      if (Object.keys(updateData).length > 0) {
-        await db.customerMain.update({
-          where: { id: customerId },
-          data: updateData,
-        });
-      }
-      return data;
-    }
-
-    const [cddCases, eddCases] = await Promise.all([
-      db.cddCase.findMany({
-        where: { customerId, journeyId: activeJourneyId },
-        orderBy: { createdAt: 'desc' },
-      }),
-      db.eddCase.findMany({
-        where: { customerId, journeyId: activeJourneyId },
-        orderBy: { createdAt: 'desc' },
-      }),
-    ]);
-
-    const subjects = this.buildSubjectDescriptorsSafe(customer);
-    let cddStatus = this.determineCddStatus(subjects, cddCases);
-    const shouldForceExpired =
-      isDocumentExpired && !['IN_PROGRESS', 'PENDING_REVIEW'].includes(cddStatus);
-    if (shouldForceExpired) {
-      cddStatus = 'EXPIRED';
-    }
-
-    const riskTier: 'LOW' | 'MEDIUM' | 'HIGH' =
-      cddCases.some((item: any) => this.normalizeRiskTier(item.riskLevel) === 'HIGH')
-        ? 'HIGH'
-        : cddCases.some((item: any) => this.normalizeRiskTier(item.riskLevel) === 'MEDIUM')
-          ? 'MEDIUM'
-          : 'LOW';
-
-    const topRiskCase = [...cddCases]
-      .filter((item) => typeof item.riskScore === 'number')
-      .sort((a, b) => (b.riskScore || 0) - (a.riskScore || 0))[0];
-
-    const eddRequired = cddCases.some((item: any) => !!item.requiresEdd);
-    const eddStatus = this.determineEddStatus(subjects, eddCases, eddRequired);
-
-    let finalApprovalStatus: FinalApprovalStatus = 'NOT_REQUIRED';
-    if (cddStatus === 'APPROVED' && eddRequired && eddStatus === 'APPROVED') {
-      if (customer.finalApprovalStatus === 'APPROVED' || customer.finalApprovalStatus === 'REJECTED') {
-        finalApprovalStatus = customer.finalApprovalStatus;
-      } else {
-        finalApprovalStatus = 'PENDING';
-      }
-    }
-
-    const complianceStatus = this.computeComplianceStatus(
-      cddStatus,
-      eddRequired,
-      eddStatus,
-      finalApprovalStatus,
-      shouldForceExpired,
-    );
-
-    const currentCddCaseId = this.pickCurrentCddCaseId(cddCases);
-    const currentEddCaseId = this.pickCurrentEddCaseId(eddCases);
-
-    let investorClassification: 'RETAIL' | 'QUALIFIED' | 'INSTITUTIONAL' =
-      customer.investorClassification || 'RETAIL';
-    let investorClassificationSource = customer.investorClassificationSource || 'CDD';
-    let investorClassificationUpdatedAt = customer.investorClassificationUpdatedAt || null;
-
-    if (investorClassificationSource !== 'ADMIN_OVERRIDE') {
-      const approvedCdd = [...cddCases]
-        .filter((item) => item.status === 'APPROVED')
-        .sort((a, b) => {
-          const aAt = a.reviewedAt ? new Date(a.reviewedAt).getTime() : 0;
-          const bAt = b.reviewedAt ? new Date(b.reviewedAt).getTime() : 0;
-          return bAt - aAt;
-        })[0];
-
-      if (approvedCdd) {
-        const payload = this.parseJsonSafely(approvedCdd.inputData);
-        const cddClassification = this.extractInvestorClassification(
-          payload,
-          this.getCustomerType(customer),
-        );
-        if (
-          cddClassification !== customer.investorClassification ||
-          customer.investorClassificationSource !== 'CDD'
-        ) {
-          investorClassification = cddClassification;
-          investorClassificationSource = 'CDD';
-          investorClassificationUpdatedAt = new Date();
-        }
-      }
-    }
-
-    const riskScore = topRiskCase?.riskScore ?? customer.riskScore ?? null;
-    const riskLevel = topRiskCase?.riskLevel ?? customer.riskLevel ?? riskTier;
-    const riskUpdatedAt =
-      riskScore !== customer.riskScore || riskLevel !== customer.riskLevel
-        ? new Date()
-        : customer.riskUpdatedAt || null;
-
-    let nextReviewAt: Date | null = null;
-    if (cddStatus === 'APPROVED') {
-      const previousRiskTier = this.normalizeRiskTier(customer.amlRiskTier || customer.riskLevel);
-      const riskTierChanged = previousRiskTier !== riskTier;
-      const justApproved = customer.cddStatus !== 'APPROVED';
-      nextReviewAt =
-        customer.nextReviewAt && !riskTierChanged && !justApproved
-          ? customer.nextReviewAt
-          : this.computeNextReviewAt(riskTier);
-    }
-
-    const finalApprovalMeta =
-      finalApprovalStatus === 'NOT_REQUIRED' || finalApprovalStatus === 'PENDING'
-        ? {
-            finalApprovalReason: null,
-            finalApprovalReviewerId: null,
-            finalApprovalReviewedAt: null,
-          }
-        : {
-            finalApprovalReason: customer.finalApprovalReason || null,
-            finalApprovalReviewerId: customer.finalApprovalReviewerId || null,
-            finalApprovalReviewedAt: customer.finalApprovalReviewedAt || null,
-          };
-
-    const data: Record<string, any> = {
-      cddStatus,
-      amlRiskTier: riskTier,
-      eddRequired,
-      eddStatus,
-      complianceStatus,
-      finalApprovalStatus,
-      nextReviewAt,
-      currentCddCaseId,
-      currentEddCaseId,
-      riskScore,
-      riskLevel,
-      riskUpdatedAt,
-      investorClassification,
-      investorClassificationSource,
-      investorClassificationUpdatedAt,
-      ...finalApprovalMeta,
-    };
-
-    const updateData = this.buildSnapshotDiff(customer, data);
-    if (Object.keys(updateData).length > 0) {
-      await db.customerMain.update({
-        where: { id: customerId },
-        data: updateData,
-      });
-    }
-
-    return data;
-  }
-
-  private async enrichCasesWithSession(caseType: CaseType, cases: any[]): Promise<any[]> {
-    if (cases.length === 0) return [];
-
-    const ids = cases.map((item) => item.id);
-    const sessions = await (this.prisma as any).complianceSession.findMany({
-      where: {
-        caseType,
-        caseId: { in: ids },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
-
-    const latestSessionByCase: Record<string, any> = {};
-    sessions.forEach((session: any) => {
-      if (!latestSessionByCase[session.caseId]) {
-        latestSessionByCase[session.caseId] = session;
-      }
-    });
-
-    return cases.map((item) => {
-      const latest = latestSessionByCase[item.id] || null;
-      return {
-        ...item,
-        latestSession: latest,
-      };
-    });
-  }
-
-  private buildSessionPayload(session: any, caseType: CaseType) {
+  private buildSessionResponse(session: any): SessionResponse {
     return {
       sessionId: session.id,
       providerSessionId: session.providerSessionId,
-      caseType,
+      caseType: session.caseType,
       caseId: session.caseId,
       qrCodeUrl: session.qrCodeUrl,
       expiresAt: session.expiresAt,
@@ -782,802 +299,688 @@ export class OnboardingService {
     };
   }
 
-  private async ensurePendingSessionForCase(
+  private async upsertJourneyAlert(input: AlertUpsertInput): Promise<void> {
+    try {
+      await this.complianceAlertsService.triggerSystemAlert({
+        ruleCode: 'ONB_ONBOARDING_JOURNEY_REVIEW',
+        sourceModule: 'identity/onboarding',
+        sourceType: 'ONBOARDING_JOURNEY',
+        sourceId: `${input.customerId}:${input.journeyId}`,
+        stage: 'ONBOARDING',
+        journeyId: input.journeyId,
+        customerId: input.customerId,
+        customerNo: input.customerNo,
+        ownerType: 'CUSTOMER',
+        ownerId: input.customerId,
+        severity: input.severity || ComplianceAlertSeverity.HIGH,
+        decisionRecommendation: input.recommendation,
+        decision: input.decision || null,
+        linkedCaseIds: input.linkedCaseIds || [],
+        decisionRecordIds: input.decisionRecordIds || [],
+        message: input.message,
+        metadata: {
+          recommendation: input.recommendation,
+          decision: input.decision || null,
+          linkedCaseIds: input.linkedCaseIds || [],
+          decisionRecordIds: input.decisionRecordIds || [],
+        },
+      });
+    } catch (error) {
+      this.logger.warn(
+        `Failed to upsert onboarding journey alert for customer=${input.customerId}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+  }
+
+  private async closeJourneyAlertIfAny(
     customerId: string,
-    actorId: string,
-    caseType: CaseType,
-    caseId: string,
-  ) {
-    const now = Date.now();
-    const latestPending = await (this.prisma as any).complianceSession.findFirst({
+    journeyId: string,
+    reason: string,
+  ): Promise<void> {
+    const alert = await this.prisma.complianceAlert.findFirst({
+      where: {
+        sourceType: 'ONBOARDING_JOURNEY',
+        sourceId: `${customerId}:${journeyId}`,
+        status: {
+          in: ['OPEN', 'ASSIGNED', 'ESCALATED'],
+        },
+      },
+      orderBy: [{ lastOccurredAt: 'desc' }, { createdAt: 'desc' }],
+      select: { id: true },
+    });
+
+    if (!alert) return;
+
+    try {
+      await this.complianceAlertsService.applyAction(
+        alert.id,
+        {
+          action: ComplianceAlertAction.CLOSE,
+          reason,
+          note: reason,
+          decision: 'APPROVE',
+        },
+        {
+          actorType: 'SYSTEM',
+          actorId: 'SYSTEM',
+          actorNo: 'SYSTEM',
+          actorRole: 'SYSTEM',
+          sourcePlatform: 'SYSTEM',
+        },
+      );
+    } catch (error) {
+      this.logger.warn(
+        `Failed to close onboarding journey alert id=${alert.id}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+  }
+
+  private async createEddCaseIfNeeded(
+    customerId: string,
+    journeyId: string,
+    cddCaseId: string,
+  ): Promise<any> {
+    const existing = await this.prisma.eddCase.findFirst({
       where: {
         customerId,
-        caseType,
-        caseId,
-        status: 'PENDING',
-        expiresAt: { gt: new Date() },
+        journeyId,
+        status: 'CREATED',
       },
       orderBy: { createdAt: 'desc' },
     });
 
-    const within30Seconds =
-      !!latestPending && now - new Date(latestPending.createdAt).getTime() <= 30 * 1000;
-    if (within30Seconds && latestPending) {
-      return {
-        session: this.buildSessionPayload(latestPending, caseType),
-        reused: true,
-      };
-    }
+    if (existing) return existing;
 
-    const created = await this.createCaseSession(customerId, actorId, caseId, {
-      caseType,
-      provider: 'MOCK',
-    });
-    return {
-      session: created,
-      reused: false,
-    };
-  }
-
-  async startCddCases(customerId: string, actorId: string, dto?: BootstrapCasesDto) {
-    const bootstrapResult = await this.bootstrapCddCases(customerId, actorId, dto);
-    await this.recomputeComplianceSnapshot(customerId, bootstrapResult.journeyId);
-
-    const snapshot = await this.prisma.customerMain.findUnique({
-      where: { id: customerId },
-      select: { currentCddCaseId: true },
-    });
-
-    const currentCddCaseId = snapshot?.currentCddCaseId || null;
-    if (!currentCddCaseId) {
-      throw new InternalServerErrorException(
-        'CDD case has been created, but no current CDD case is available for QR generation.',
-      );
-    }
-
-    let sessionPayload: {
-      sessionId: string;
-      providerSessionId: string;
-      caseType: CaseType;
-      caseId: string;
-      qrCodeUrl: string;
-      expiresAt: Date;
-      status: string;
-    };
-    let reused = false;
-
-    try {
-      const ensured = await this.ensurePendingSessionForCase(
+    return this.prisma.eddCase.create({
+      data: {
+        caseNo: generateReferenceNo('EDD'),
         customerId,
-        actorId,
-        'CDD',
-        currentCddCaseId,
-      );
-      sessionPayload = ensured.session;
-      reused = ensured.reused;
-    } catch {
-      throw new BadRequestException(
-        'CDD case has been created. Failed to auto-create QR session, please retry generating QR.',
-      );
-    }
-
-    await this.writeAudit({
-      customerId,
-      caseType: 'CDD',
-      caseId: currentCddCaseId,
-      action: 'CDD_SESSION_CREATED_AUTO',
-      actorId,
-      actorRole: actorId === customerId ? 'CUSTOMER' : 'ADMIN',
-      detail: JSON.stringify({
-        sessionId: sessionPayload.sessionId,
-        providerSessionId: sessionPayload.providerSessionId,
-        reused,
-      }),
-    });
-
-    return {
-      journeyId: bootstrapResult.journeyId,
-      currentCddCaseId,
-      session: sessionPayload,
-      items: bootstrapResult.items,
-    };
-  }
-
-  async startEddCases(customerId: string, actorId: string) {
-    await this.recomputeComplianceSnapshot(customerId);
-    const snapshot = await this.prisma.customerMain.findUnique({
-      where: { id: customerId },
-      select: {
-        cddStatus: true,
-        eddRequired: true,
-        eddStatus: true,
-        currentEddCaseId: true,
+        cddCaseId,
+        subjectKind: 'INDIVIDUAL_CUSTOMER',
+        subjectRefId: customerId,
+        journeyId,
+        status: 'CREATED',
       },
     });
-    if (!snapshot) throw new NotFoundException('Customer not found');
-    if (snapshot.cddStatus !== 'APPROVED') {
-      throw new BadRequestException('CDD must be approved before starting EDD.');
-    }
-    if (!snapshot.eddRequired || !['REQUIRED', 'IN_PROGRESS'].includes(snapshot.eddStatus)) {
-      throw new BadRequestException('EDD is not in startable state.');
+  }
+
+  private async handleCddDecision(input: {
+    customer: any;
+    cddCase: any;
+    decision: RiskDecision;
+    decisionRecordId: string;
+    reasonCodes: string[];
+  }) {
+    const { customer, cddCase, decision, decisionRecordId, reasonCodes } = input;
+    const now = new Date();
+    const journeyId = cddCase.journeyId || customer.activeJourneyId || generateReferenceNo('ONB');
+    const reasonText = reasonCodes.join(',') || decision;
+
+    let updateData: Prisma.CustomerMainUpdateInput = {
+      latestDecisionRecordId: decisionRecordId,
+      activeJourneyId: journeyId,
+    };
+
+    let linkedCaseIds = [cddCase.id];
+
+    if (decision === 'APPROVE') {
+      updateData = {
+        ...updateData,
+        publicStatus: 'ACTIVE',
+        cddStatus: 'APPROVED',
+        eddRequired: false,
+        eddStatus: 'NOT_REQUIRED',
+        complianceStatus: 'ACTIVE',
+        finalApprovalStatus: 'APPROVED',
+        finalApprovalReason: 'SYSTEM_AUTO_APPROVE_AFTER_CDD',
+        finalApprovalReviewerId: 'SYSTEM',
+        finalApprovalReviewedAt: now,
+        cddDocumentExpiresAt: this.addDays(now, 365),
+        nextReviewAt: this.addDays(now, 365),
+        activeCaseType: null,
+        activeCaseId: null,
+      };
+    } else if (decision === 'REQUIRE_EDD') {
+      const eddCase = await this.createEddCaseIfNeeded(customer.id, journeyId, cddCase.id);
+      linkedCaseIds = [cddCase.id, eddCase.id];
+      updateData = {
+        ...updateData,
+        publicStatus: 'PENDING_EDD',
+        cddStatus: 'APPROVED',
+        eddRequired: true,
+        eddStatus: 'REQUIRED',
+        complianceStatus: 'IN_PROGRESS',
+        finalApprovalStatus: 'NOT_REQUIRED',
+        finalApprovalReason: null,
+        finalApprovalReviewerId: null,
+        finalApprovalReviewedAt: null,
+        cddDocumentExpiresAt: this.addDays(now, 365),
+        activeCaseType: 'EDD',
+        activeCaseId: eddCase.id,
+        currentEddCaseId: eddCase.id,
+      };
+
+      await this.upsertJourneyAlert({
+        customerId: customer.id,
+        customerNo: customer.customerNo || null,
+        journeyId,
+        recommendation: 'REQUIRE_EDD',
+        message: 'CDD completed and risk engine requires EDD.',
+        severity: ComplianceAlertSeverity.HIGH,
+        linkedCaseIds,
+        decisionRecordIds: [decisionRecordId],
+      });
+    } else if (decision === 'REJECT') {
+      updateData = {
+        ...updateData,
+        publicStatus: 'REJECTED',
+        cddStatus: 'REJECTED',
+        eddRequired: false,
+        eddStatus: 'NOT_REQUIRED',
+        complianceStatus: 'BLOCKED',
+        finalApprovalStatus: 'REJECTED',
+        finalApprovalReason: reasonText,
+        finalApprovalReviewerId: 'SYSTEM',
+        finalApprovalReviewedAt: now,
+        activeCaseType: null,
+        activeCaseId: null,
+      };
+
+      await this.upsertJourneyAlert({
+        customerId: customer.id,
+        customerNo: customer.customerNo || null,
+        journeyId,
+        recommendation: 'REJECT',
+        decision: 'REJECT',
+        message: 'CDD decision is REJECT by risk engine.',
+        severity: ComplianceAlertSeverity.CRITICAL,
+        linkedCaseIds,
+        decisionRecordIds: [decisionRecordId],
+      });
+    } else {
+      updateData = {
+        ...updateData,
+        publicStatus: 'REVIEW_CDD',
+        cddStatus: 'PENDING_REVIEW',
+        eddRequired: false,
+        eddStatus: 'NOT_REQUIRED',
+        complianceStatus: 'IN_PROGRESS',
+        finalApprovalStatus: 'NOT_REQUIRED',
+        finalApprovalReason: null,
+        finalApprovalReviewerId: null,
+        finalApprovalReviewedAt: null,
+      };
+
+      await this.upsertJourneyAlert({
+        customerId: customer.id,
+        customerNo: customer.customerNo || null,
+        journeyId,
+        recommendation: 'REVIEW',
+        message: 'CDD decision requires manual review.',
+        severity: ComplianceAlertSeverity.HIGH,
+        linkedCaseIds,
+        decisionRecordIds: [decisionRecordId],
+      });
     }
 
-    const currentEddCaseId = snapshot.currentEddCaseId || null;
-    if (!currentEddCaseId) {
-      throw new InternalServerErrorException(
-        'EDD case exists, but current EDD case is missing for QR generation.',
-      );
-    }
-
-    const ensured = await this.ensurePendingSessionForCase(
-      customerId,
-      actorId,
-      'EDD',
-      currentEddCaseId,
-    );
-
-    await this.writeAudit({
-      customerId,
-      caseType: 'EDD',
-      caseId: currentEddCaseId,
-      action: 'EDD_SESSION_CREATED_AUTO',
-      actorId,
-      actorRole: actorId === customerId ? 'CUSTOMER' : 'ADMIN',
-      detail: JSON.stringify({
-        sessionId: ensured.session.sessionId,
-        providerSessionId: ensured.session.providerSessionId,
-        reused: ensured.reused,
-      }),
+    const updated = await this.prisma.customerMain.update({
+      where: { id: customer.id },
+      data: updateData,
     });
 
-    return {
-      currentEddCaseId,
-      session: ensured.session,
+    if (decision === 'APPROVE') {
+      await this.closeJourneyAlertIfAny(customer.id, journeyId, 'Onboarding auto-approved after CDD.');
+    }
+
+    return updated;
+  }
+
+  private async handleEddDecision(input: {
+    customer: any;
+    eddCase: any;
+    decision: RiskDecision;
+    decisionRecordId: string;
+    reasonCodes: string[];
+  }) {
+    const { customer, eddCase, decision, decisionRecordId, reasonCodes } = input;
+    const now = new Date();
+    const journeyId = eddCase.journeyId || customer.activeJourneyId || generateReferenceNo('ONB');
+    const reasonText = reasonCodes.join(',') || decision;
+
+    let updateData: Prisma.CustomerMainUpdateInput = {
+      latestDecisionRecordId: decisionRecordId,
+      activeJourneyId: journeyId,
+      activeCaseType: null,
+      activeCaseId: null,
+      eddRequired: true,
+      cddStatus: 'APPROVED',
     };
+
+    if (decision === 'REJECT') {
+      updateData = {
+        ...updateData,
+        publicStatus: 'REJECTED',
+        eddStatus: 'REJECTED',
+        complianceStatus: 'BLOCKED',
+        finalApprovalStatus: 'REJECTED',
+        finalApprovalReason: reasonText,
+        finalApprovalReviewerId: 'SYSTEM',
+        finalApprovalReviewedAt: now,
+      };
+
+      await this.upsertJourneyAlert({
+        customerId: customer.id,
+        customerNo: customer.customerNo || null,
+        journeyId,
+        recommendation: 'REJECT',
+        decision: 'REJECT',
+        message: 'EDD decision is REJECT by risk engine.',
+        severity: ComplianceAlertSeverity.CRITICAL,
+        linkedCaseIds: [eddCase.id],
+        decisionRecordIds: [decisionRecordId],
+      });
+    } else {
+      updateData = {
+        ...updateData,
+        publicStatus: 'FINAL_APPROVAL',
+        eddStatus: 'APPROVED',
+        complianceStatus: 'IN_PROGRESS',
+        finalApprovalStatus: 'PENDING',
+        finalApprovalReason: null,
+        finalApprovalReviewerId: null,
+        finalApprovalReviewedAt: null,
+      };
+
+      await this.upsertJourneyAlert({
+        customerId: customer.id,
+        customerNo: customer.customerNo || null,
+        journeyId,
+        recommendation: decision === 'REVIEW' ? 'REVIEW' : 'APPROVE',
+        message:
+          decision === 'REVIEW'
+            ? 'EDD requires manual final onboarding decision.'
+            : 'EDD completed. Manual final onboarding decision is required.',
+        severity: ComplianceAlertSeverity.HIGH,
+        linkedCaseIds: [eddCase.id],
+        decisionRecordIds: [decisionRecordId],
+      });
+    }
+
+    return this.prisma.customerMain.update({
+      where: { id: customer.id },
+      data: updateData,
+    });
   }
 
   async getMyOnboarding(customerId: string) {
-    await this.recomputeComplianceSnapshot(customerId);
-    const customer = await (this.prisma as any).customerMain.findUnique({
-      where: { id: customerId },
-      include: {
-        corporateProfile: true,
-        uboProfiles: true,
-        cddCases: { orderBy: { createdAt: 'desc' }, take: 20 },
-        eddCases: { orderBy: { createdAt: 'desc' }, take: 20 },
-      },
-    });
-    if (!customer) throw new NotFoundException('Customer not found');
-    return customer;
+    const customer = await this.getCustomerOrThrow(customerId, true);
+    const nextStep = this.buildNextStep(customer);
+
+    return {
+      ...customer,
+      publicStatus: this.normalizePublicStatus(customer.publicStatus),
+      actions: nextStep.actions,
+      blockedReason: nextStep.blockedReason,
+    };
   }
 
   async listMyCases(customerId: string) {
+    await this.getCustomerOrThrow(customerId);
+
     const [cddCases, eddCases] = await Promise.all([
-      (this.prisma as any).cddCase.findMany({
+      this.prisma.cddCase.findMany({
         where: { customerId },
         orderBy: { createdAt: 'desc' },
       }),
-      (this.prisma as any).eddCase.findMany({
+      this.prisma.eddCase.findMany({
         where: { customerId },
         orderBy: { createdAt: 'desc' },
       }),
     ]);
 
-    const [enrichedCdd, enrichedEdd] = await Promise.all([
-      this.enrichCasesWithSession('CDD', cddCases),
-      this.enrichCasesWithSession('EDD', eddCases),
-    ]);
+    const cddIds = cddCases.map((item) => item.id);
+    const eddIds = eddCases.map((item) => item.id);
+
+    const sessions =
+      cddIds.length + eddIds.length > 0
+        ? await this.prisma.complianceSession.findMany({
+            where: {
+              customerId,
+              OR: [
+                ...(cddIds.length > 0
+                  ? [
+                      {
+                        caseType: 'CDD',
+                        caseId: { in: cddIds },
+                      },
+                    ]
+                  : []),
+                ...(eddIds.length > 0
+                  ? [
+                      {
+                        caseType: 'EDD',
+                        caseId: { in: eddIds },
+                      },
+                    ]
+                  : []),
+              ],
+            },
+            orderBy: { createdAt: 'desc' },
+          })
+        : [];
+
+    const latestSessionMap = new Map<string, any>();
+    sessions.forEach((session: any) => {
+      const key = `${session.caseType}:${session.caseId}`;
+      if (!latestSessionMap.has(key)) {
+        latestSessionMap.set(key, session);
+      }
+    });
+
+    const items = [
+      ...cddCases.map((item) => ({
+        ...item,
+        caseType: 'CDD' as const,
+        inputData: this.parseJsonSafely(item.inputData),
+        latestSession: latestSessionMap.get(`CDD:${item.id}`)
+          ? this.buildSessionResponse(latestSessionMap.get(`CDD:${item.id}`))
+          : null,
+      })),
+      ...eddCases.map((item) => ({
+        ...item,
+        caseType: 'EDD' as const,
+        inputData: this.parseJsonSafely(item.inputData),
+        latestSession: latestSessionMap.get(`EDD:${item.id}`)
+          ? this.buildSessionResponse(latestSessionMap.get(`EDD:${item.id}`))
+          : null,
+      })),
+    ].sort(
+      (a: any, b: any) =>
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+    );
 
     return {
-      items: [
-        ...enrichedCdd.map((item) => ({ ...item, caseType: 'CDD' })),
-        ...enrichedEdd.map((item) => ({ ...item, caseType: 'EDD' })),
-      ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
+      total: items.length,
+      items,
     };
   }
 
-  async getNextStep(customerId: string): Promise<NextStepPayload> {
-    await this.recomputeComplianceSnapshot(customerId);
-    const customer = await (this.prisma as any).customerMain.findUnique({
-      where: { id: customerId },
-      include: {
-        corporateProfile: true,
-        uboProfiles: true,
-      },
-    });
-
-    if (!customer) {
-      throw new NotFoundException('Customer not found');
-    }
-
-    if (customer.complianceStatus === 'ACTIVE') {
-      return {
-        step: 'COMPLETED',
-        action: 'NONE',
-        blockedReason: null,
-        activeCaseId: null,
-        requiresEdd: !!customer.eddRequired,
-      };
-    }
-
-    if (customer.cddStatus === 'EXPIRED' || customer.complianceStatus === 'EXPIRED') {
-      return {
-        step: 'REINITIATE',
-        action: 'REINITIATE_CDD',
-        blockedReason: 'CDD document expired. Please re-initiate CDD verification.',
-        activeCaseId: null,
-        requiresEdd: !!customer.eddRequired,
-      };
-    }
-
-    if (customer.cddStatus === 'REJECTED') {
-      return {
-        step: 'REINITIATE',
-        action: 'REINITIATE_CDD',
-        blockedReason:
-          (await this.extractLatestRejectedReason(customerId)) || 'CDD rejected by compliance.',
-        activeCaseId: null,
-        requiresEdd: !!customer.eddRequired,
-      };
-    }
-
-    if (customer.eddStatus === 'REJECTED' && customer.cddStatus === 'APPROVED') {
-      return {
-        step: 'REINITIATE',
-        action: 'REINITIATE_EDD',
-        blockedReason:
-          (await this.extractLatestRejectedReason(customerId)) || 'EDD rejected by compliance.',
-        activeCaseId: null,
-        requiresEdd: !!customer.eddRequired,
-      };
-    }
-
-    if (customer.customerType === 'UNKNOWN') {
-      return {
-        step: 'ENTITY_INFO',
-        action: 'SAVE_ENTITY',
-        blockedReason: 'Please identify account type first.',
-        activeCaseId: null,
-        requiresEdd: false,
-      };
-    }
-
-    if (customer.customerType === 'CORPORATE') {
-      const hasCorporateProfile = !!customer.corporateProfile;
-      const hasUbos = Array.isArray(customer.uboProfiles) && customer.uboProfiles.length > 0;
-      if (!hasCorporateProfile || !hasUbos) {
-        return {
-          step: 'ENTITY_INFO',
-          action: 'SAVE_ENTITY',
-          blockedReason: 'Corporate profile and UBO list are required.',
-          activeCaseId: null,
-          requiresEdd: false,
-        };
-      }
-    }
-
-    if (customer.cddStatus === 'NOT_STARTED') {
-      return {
-        step: 'CDD',
-        action: 'START_CDD',
-        blockedReason: null,
-        activeCaseId: null,
-        requiresEdd: false,
-      };
-    }
-
-    if (customer.cddStatus === 'IN_PROGRESS') {
-      return {
-        step: 'CDD',
-        action: 'COMPLETE_CDD',
-        blockedReason: null,
-        activeCaseId: customer.currentCddCaseId || null,
-        requiresEdd: false,
-      };
-    }
-
-    if (customer.cddStatus === 'PENDING_REVIEW') {
-      return {
-        step: 'WAIT_REVIEW',
-        action: 'WAIT',
-        blockedReason: 'CDD is under compliance review.',
-        activeCaseId: customer.currentCddCaseId || null,
-        requiresEdd: false,
-      };
-    }
-
-    if (customer.cddStatus === 'APPROVED') {
-      if (!customer.eddRequired || customer.eddStatus === 'NOT_REQUIRED') {
-        return {
-          step: customer.complianceStatus === 'ACTIVE' ? 'COMPLETED' : 'WAIT_REVIEW',
-          action: customer.complianceStatus === 'ACTIVE' ? 'NONE' : 'WAIT',
-          blockedReason:
-            customer.complianceStatus === 'ACTIVE'
-              ? null
-              : 'Waiting for compliance status synchronization.',
-          activeCaseId: null,
-          requiresEdd: false,
-        };
-      }
-
-      if (['REQUIRED', 'IN_PROGRESS'].includes(customer.eddStatus)) {
-        return {
-          step: 'EDD',
-          action: 'COMPLETE_EDD',
-          blockedReason: null,
-          activeCaseId: customer.currentEddCaseId || null,
-          requiresEdd: true,
-        };
-      }
-
-      if (['PENDING_MLRO'].includes(customer.eddStatus)) {
-        return {
-          step: 'WAIT_REVIEW',
-          action: 'WAIT',
-          blockedReason: 'EDD is under compliance review.',
-          activeCaseId: customer.currentEddCaseId || null,
-          requiresEdd: true,
-        };
-      }
-
-      if (customer.eddStatus === 'APPROVED' && customer.finalApprovalStatus === 'PENDING') {
-        return {
-          step: 'WAIT_REVIEW',
-          action: 'WAIT',
-          blockedReason: 'EDD approved. Waiting for final management sign-off.',
-          activeCaseId: null,
-          requiresEdd: true,
-        };
-      }
-
-      if (customer.eddStatus === 'APPROVED' && customer.finalApprovalStatus === 'APPROVED') {
-        return {
-          step: 'COMPLETED',
-          action: 'NONE',
-          blockedReason: null,
-          activeCaseId: null,
-          requiresEdd: true,
-        };
-      }
-
-      if (customer.eddStatus === 'APPROVED' && customer.finalApprovalStatus === 'REJECTED') {
-        return {
-          step: 'REINITIATE',
-          action: 'REINITIATE_EDD',
-          blockedReason: 'Final approval rejected. Please re-initiate EDD.',
-          activeCaseId: null,
-          requiresEdd: true,
-        };
-      }
-    }
-
-    return {
-      step: 'CDD',
-      action: 'START_CDD',
-      blockedReason: null,
-      activeCaseId: null,
-      requiresEdd: !!customer.eddRequired,
-    };
-  }
-
-  async assertTradingEligibility(customerId: string, action: TradeAction) {
-    await this.recomputeComplianceSnapshot(customerId);
-    const customer = await this.prisma.customerMain.findUnique({
-      where: { id: customerId },
-      select: {
-        complianceStatus: true,
-        cddStatus: true,
-        eddRequired: true,
-        eddStatus: true,
-        finalApprovalStatus: true,
-      },
-    });
-    if (!customer) {
-      throw new NotFoundException('Customer not found');
-    }
-
-    if (customer.complianceStatus !== 'ACTIVE') {
-      throw new ForbiddenException({
-        code: 'ONBOARDING_REQUIRED',
-        complianceStatus: customer.complianceStatus,
-        cddStatus: customer.cddStatus,
-        eddRequired: customer.eddRequired,
-        eddStatus: customer.eddStatus,
-        finalApprovalStatus: customer.finalApprovalStatus,
-        nextAction: action,
-      });
-    }
+  async getNextStep(customerId: string) {
+    const customer = await this.getCustomerOrThrow(customerId);
+    return this.buildNextStep(customer);
   }
 
   async upsertEntity(customerId: string, actorId: string, dto: UpsertEntityDto) {
-    const customer = await this.prisma.customerMain.findUnique({
+    const customer = await this.getCustomerOrThrow(customerId, true);
+
+    if (dto.customerType !== 'INDIVIDUAL') {
+      throw new BadRequestException('Corporate onboarding is disabled in current flow.');
+    }
+
+    const updated = await this.prisma.customerMain.update({
       where: { id: customerId },
-      select: {
-        id: true,
-        customerType: true,
-        companyName: true,
-        complianceStatus: true,
+      data: {
+        customerType: 'INDIVIDUAL',
+        companyName: null,
       },
     });
-    if (!customer) throw new NotFoundException('Customer not found');
 
-    const lockedType =
-      customer.customerType === 'UNKNOWN'
-        ? dto.customerType
-        : (customer.customerType as 'INDIVIDUAL' | 'CORPORATE');
-
-    if (customer.customerType !== 'UNKNOWN' && dto.customerType !== lockedType) {
-      throw new BadRequestException('Customer type is locked after registration.');
-    }
-
-    if (lockedType === 'INDIVIDUAL') {
-      if (dto.corporateProfile || (dto.ubos && dto.ubos.length > 0)) {
-        throw new BadRequestException(
-          'Individual customer should not submit corporate profile or UBO list.',
-        );
-      }
-    }
-
-    if (lockedType === 'CORPORATE') {
-      if (!dto.corporateProfile) {
-        throw new BadRequestException('corporateProfile is required for corporate customer.');
-      }
-      if (!dto.ubos || dto.ubos.length === 0) {
-        throw new BadRequestException('ubos is required for corporate customer.');
-      }
-    }
-
-    await (this.prisma as any).$transaction(async (tx: any) => {
-      await tx.customerMain.update({
-        where: { id: customerId },
-        data: {
-          customerType: lockedType,
-          companyName:
-            lockedType === 'CORPORATE'
-              ? dto.corporateProfile?.companyName?.trim() || customer.companyName || null
-              : null,
-        },
+    if (customer.corporateProfile) {
+      await this.prisma.corporateProfile.deleteMany({
+        where: { customerId },
       });
+    }
 
-      if (lockedType === 'CORPORATE' && dto.corporateProfile) {
-        await tx.corporateProfile.upsert({
-          where: { customerId },
-          create: {
-            customerId,
-            companyName: dto.corporateProfile.companyName.trim(),
-            registrationNo: dto.corporateProfile.registrationNo,
-            incorporationCountry: dto.corporateProfile.incorporationCountry,
-            registeredAddress: dto.corporateProfile.registeredAddress || null,
-            licenseType: dto.corporateProfile.licenseType || null,
-            licenseNumber: dto.corporateProfile.licenseNumber || null,
-            authorizedSignatoryName: dto.corporateProfile.authorizedSignatoryName || null,
-            authorizedSignatoryTitle: dto.corporateProfile.authorizedSignatoryTitle || null,
-            documents: dto.corporateProfile.documents
-              ? JSON.stringify(dto.corporateProfile.documents)
-              : null,
-          },
-          update: {
-            companyName: dto.corporateProfile.companyName.trim(),
-            registrationNo: dto.corporateProfile.registrationNo,
-            incorporationCountry: dto.corporateProfile.incorporationCountry,
-            registeredAddress: dto.corporateProfile.registeredAddress || null,
-            licenseType: dto.corporateProfile.licenseType || null,
-            licenseNumber: dto.corporateProfile.licenseNumber || null,
-            authorizedSignatoryName: dto.corporateProfile.authorizedSignatoryName || null,
-            authorizedSignatoryTitle: dto.corporateProfile.authorizedSignatoryTitle || null,
-            documents: dto.corporateProfile.documents
-              ? JSON.stringify(dto.corporateProfile.documents)
-              : null,
-          },
-        });
-
-        await tx.uboProfile.deleteMany({ where: { customerId } });
-        if (dto.ubos && dto.ubos.length > 0) {
-          await tx.uboProfile.createMany({
-            data: dto.ubos.map((ubo) => ({
-              customerId,
-              fullName: ubo.fullName,
-              ownershipPercent:
-                typeof ubo.ownershipPercent === 'number'
-                  ? new Prisma.Decimal(ubo.ownershipPercent)
-                  : null,
-              nationality: ubo.nationality || null,
-              idNumber: ubo.idNumber || null,
-              pepFlag: !!ubo.pepFlag,
-              status: 'PENDING',
-              documents: ubo.documents ? JSON.stringify(ubo.documents) : null,
-            })),
-          });
-        }
-      }
-
-      if (lockedType === 'INDIVIDUAL') {
-        await tx.corporateProfile.deleteMany({ where: { customerId } });
-        await tx.uboProfile.deleteMany({ where: { customerId } });
-      }
-
-      await this.recomputeComplianceSnapshot(customerId, undefined, tx);
-    });
-
-    const updated = await this.prisma.customerMain.findUnique({ where: { id: customerId } });
+    if (Array.isArray(customer.uboProfiles) && customer.uboProfiles.length > 0) {
+      await this.prisma.uboProfile.deleteMany({
+        where: { customerId },
+      });
+    }
 
     await this.writeAudit({
       customerId,
       action: 'ENTITY_UPSERT',
       actorId,
       actorRole: 'CUSTOMER',
-      fromStage: customer.complianceStatus,
-      toStage: updated?.complianceStatus || customer.complianceStatus,
-      detail: JSON.stringify({ customerType: lockedType }),
+      fromStage: this.normalizePublicStatus(customer.publicStatus),
+      toStage: this.normalizePublicStatus(updated.publicStatus),
+      detail: 'Customer entity profile normalized to INDIVIDUAL only.',
     });
 
-    return updated;
+    return {
+      ...updated,
+      publicStatus: this.normalizePublicStatus(updated.publicStatus),
+      actions: this.mapActionsByStatus(this.normalizePublicStatus(updated.publicStatus)),
+    };
   }
 
-  async bootstrapCddCases(customerId: string, actorId: string, dto?: BootstrapCasesDto) {
-    const customer = await (this.prisma as any).customerMain.findUnique({
+  async startCddCases(customerId: string, actorId: string, dto: BootstrapCasesDto) {
+    const customer = await this.getCustomerOrThrow(customerId);
+    this.ensureIndividualOnly(customer);
+
+    const currentStatus = this.normalizePublicStatus(customer.publicStatus);
+    if (['REVIEW_CDD', 'REVIEW_EDD', 'FINAL_APPROVAL', 'ACTIVE'].includes(currentStatus)) {
+      throw new BadRequestException(
+        `Current status ${currentStatus} does not allow starting new CDD case.`,
+      );
+    }
+
+    const journeyId = dto?.journeyId || customer.activeJourneyId || generateReferenceNo('ONB');
+
+    let cddCase: any = null;
+    if (customer.currentCddCaseId) {
+      cddCase = await this.prisma.cddCase.findUnique({
+        where: { id: customer.currentCddCaseId },
+      });
+      if (cddCase && cddCase.customerId !== customerId) {
+        cddCase = null;
+      }
+    }
+
+    if (!cddCase || cddCase.status !== 'CREATED') {
+      cddCase = await this.prisma.cddCase.create({
+        data: {
+          caseNo: generateReferenceNo('CDD'),
+          customerId,
+          customerType: 'INDIVIDUAL',
+          subjectKind: 'INDIVIDUAL_CUSTOMER',
+          subjectRefId: customerId,
+          journeyId,
+          status: 'CREATED',
+        },
+      });
+    }
+
+    const updated = await this.prisma.customerMain.update({
       where: { id: customerId },
-      include: {
-        corporateProfile: true,
-        uboProfiles: true,
+      data: {
+        publicStatus: 'PENDING_CDD',
+        cddStatus: 'IN_PROGRESS',
+        eddRequired: false,
+        eddStatus: 'NOT_REQUIRED',
+        complianceStatus: 'IN_PROGRESS',
+        finalApprovalStatus: 'NOT_REQUIRED',
+        finalApprovalReason: null,
+        finalApprovalReviewerId: null,
+        finalApprovalReviewedAt: null,
+        activeJourneyId: journeyId,
+        activeCaseType: 'CDD',
+        activeCaseId: cddCase.id,
+        currentCddCaseId: cddCase.id,
+        currentEddCaseId: null,
       },
     });
 
-    if (!customer) throw new NotFoundException('Customer not found');
-    this.getCustomerType(customer);
-
-    const fromStatus = customer.complianceStatus;
-    const result = await (this.prisma as any).$transaction(async (tx: any) => {
-      const journeyId =
-        dto?.journeyId ||
-        (['REJECTED', 'EXPIRED'].includes(customer.cddStatus)
-          ? generateReferenceNo('ONB')
-          : await this.resolveJourneyId(customerId, undefined, tx));
-
-      const subjects = this.buildSubjectDescriptors(customer);
-
-      const cases: any[] = [];
-      for (const subject of subjects) {
-        const existing = await tx.cddCase.findFirst({
-          where: {
-            customerId,
-            journeyId,
-            subjectKind: subject.subjectKind,
-            subjectRefId: subject.subjectRefId,
-            status: {
-              in: ['PENDING', 'SUBMITTED', 'APPROVED'],
-            },
-          },
-          orderBy: { createdAt: 'desc' },
-        });
-
-        if (existing) {
-          cases.push(existing);
-          continue;
-        }
-
-        const created = await tx.cddCase.create({
-          data: {
-            customerId,
-            caseNo: generateReferenceNo('CDD'),
-            customerType: customer.customerType,
-            status: 'PENDING',
-            subjectKind: subject.subjectKind,
-            subjectRefId: subject.subjectRefId,
-            journeyId,
-          },
-        });
-        cases.push(created);
-
-        await this.updateUboCaseStatus(tx, subject.subjectKind, subject.subjectRefId, 'CDD_IN_PROGRESS');
-      }
-
-      await this.recomputeComplianceSnapshot(customerId, journeyId, tx);
-      return { journeyId, cases };
+    const session = await this.createCaseSession(customerId, actorId, cddCase.id, {
+      caseType: 'CDD',
+      provider: 'MOCK',
     });
-
-    const updated = await this.prisma.customerMain.findUnique({ where: { id: customerId } });
 
     await this.writeAudit({
       customerId,
       action: 'CDD_BOOTSTRAP',
       actorId,
-      actorRole: actorId === customerId ? 'CUSTOMER' : 'ADMIN',
-      fromStage: fromStatus,
-      toStage: updated?.complianceStatus || fromStatus,
-      detail: JSON.stringify({ journeyId: result.journeyId, count: result.cases.length }),
+      actorRole: 'CUSTOMER',
+      caseType: 'CDD',
+      caseId: cddCase.id,
+      fromStage: currentStatus,
+      toStage: 'PENDING_CDD',
+      detail: 'CDD case initialized for onboarding journey.',
     });
 
     return {
-      journeyId: result.journeyId,
-      items: result.cases,
+      journeyId,
+      currentCddCaseId: cddCase.id,
+      session,
+      publicStatus: this.normalizePublicStatus(updated.publicStatus),
+      actions: this.mapActionsByStatus(this.normalizePublicStatus(updated.publicStatus)),
     };
   }
 
-  async bootstrapEddCases(customerId: string, actorId: string, dto?: BootstrapCasesDto) {
-    if (actorId === customerId) {
-      throw new BadRequestException('AUTO_ONLY: EDD bootstrap is triggered by compliance decision.');
+  async reinitiateCddCases(customerId: string, actorId: string) {
+    const customer = await this.getCustomerOrThrow(customerId);
+    const status = this.normalizePublicStatus(customer.publicStatus);
+
+    if (!['REJECTED', 'WITHDRAWN'].includes(status) && customer.cddStatus !== 'EXPIRED') {
+      throw new BadRequestException('CDD re-initiation is only allowed after rejection/withdraw/expiry.');
     }
 
-    const customer = await (this.prisma as any).customerMain.findUnique({
+    await this.prisma.customerMain.update({
       where: { id: customerId },
-      include: {
-        corporateProfile: true,
-        uboProfiles: true,
+      data: {
+        cddDocumentExpiresAt: null,
+        finalApprovalReason: null,
+        finalApprovalReviewerId: null,
+        finalApprovalReviewedAt: null,
       },
     });
 
-    if (!customer) throw new NotFoundException('Customer not found');
-    this.getCustomerType(customer);
-
-    const approvedRequiresEddCase = await (this.prisma as any).cddCase.findFirst({
-      where: {
-        customerId,
-        status: 'APPROVED',
-        requiresEdd: true,
-      },
-      orderBy: { reviewedAt: 'desc' },
+    return this.startCddCases(customerId, actorId, {
+      journeyId: generateReferenceNo('ONB'),
     });
+  }
 
-    if (!approvedRequiresEddCase) {
-      throw new BadRequestException('EDD bootstrap blocked: no approved CDD case requiring EDD.');
+  async startEddCases(customerId: string, actorId: string) {
+    const customer = await this.getCustomerOrThrow(customerId);
+    this.ensureIndividualOnly(customer);
+
+    if (this.normalizePublicStatus(customer.publicStatus) !== 'PENDING_EDD') {
+      throw new BadRequestException('EDD can only be started when customer is in PENDING_EDD status.');
     }
 
-    const fromStatus = customer.complianceStatus;
-    const result = await (this.prisma as any).$transaction(async (tx: any) => {
-      const journeyId =
-        dto?.journeyId ||
-        approvedRequiresEddCase.journeyId ||
-        (await this.resolveJourneyId(customerId, undefined, tx));
-
-      const cddCases = await tx.cddCase.findMany({
-        where: {
-          customerId,
-          journeyId,
-        },
-      });
-
-      const hasEddTrigger = cddCases.some((item: any) => !!item.requiresEdd);
-      if (!hasEddTrigger) {
-        throw new BadRequestException('EDD bootstrap blocked: CDD review has not triggered EDD.');
-      }
-
-      const subjects = this.buildSubjectDescriptors(customer);
-      const allCddApproved = subjects.every((subject) =>
-        cddCases.some(
-          (item: any) =>
-            item.subjectKind === subject.subjectKind &&
-            item.subjectRefId === subject.subjectRefId &&
-            item.status === 'APPROVED',
-        ),
-      );
-
-      if (!allCddApproved) {
-        throw new BadRequestException('EDD bootstrap blocked: required CDD cases are not fully approved.');
-      }
-
-      const cases: any[] = [];
-
-      for (const subject of subjects) {
-        const existing = await tx.eddCase.findFirst({
-          where: {
-            customerId,
-            journeyId,
-            subjectKind: subject.subjectKind,
-            subjectRefId: subject.subjectRefId,
-            status: {
-              in: ['PENDING', 'SUBMITTED', 'APPROVED'],
-            },
-          },
-          orderBy: { createdAt: 'desc' },
-        });
-
-        if (existing) {
-          cases.push(existing);
-          continue;
-        }
-
-        const sourceCddCase = cddCases.find(
-          (item: any) =>
-            item.subjectKind === subject.subjectKind && item.subjectRefId === subject.subjectRefId,
-        );
-
-        const created = await tx.eddCase.create({
-          data: {
-            caseNo: generateReferenceNo('EDD'),
-            customerId,
-            cddCaseId: sourceCddCase?.id || null,
-            status: 'PENDING',
-            subjectKind: subject.subjectKind,
-            subjectRefId: subject.subjectRefId,
-            journeyId,
-          },
-        });
-
-        cases.push(created);
-        await this.updateUboCaseStatus(tx, subject.subjectKind, subject.subjectRefId, 'EDD_IN_PROGRESS');
-      }
-
-      await this.recomputeComplianceSnapshot(customerId, journeyId, tx);
-      return { journeyId, cases };
-    });
-
-    await this.recomputeComplianceSnapshot(customerId, result.journeyId);
-    const updated = await this.prisma.customerMain.findUnique({
-      where: { id: customerId },
-      select: {
-        complianceStatus: true,
-        currentEddCaseId: true,
-      },
-    });
-    const currentEddCaseId = updated?.currentEddCaseId || null;
-    if (!currentEddCaseId) {
-      throw new InternalServerErrorException(
-        'EDD cases were created, but current EDD case is missing for QR generation.',
-      );
+    if (!customer.currentEddCaseId) {
+      throw new BadRequestException('No active EDD case is available for session start.');
     }
 
-    let autoSession:
-      | {
-          sessionId: string;
-          providerSessionId: string;
-          caseType: CaseType;
-          caseId: string;
-          qrCodeUrl: string;
-          expiresAt: Date;
-          status: string;
-        }
-      | null = null;
-    let reused = false;
-    try {
-      const ensured = await this.ensurePendingSessionForCase(
-        customerId,
-        actorId,
-        'EDD',
-        currentEddCaseId,
-      );
-      autoSession = ensured.session;
-      reused = ensured.reused;
-    } catch {
-      throw new BadRequestException(
-        'EDD cases have been created. Failed to auto-create QR session, please retry generating QR.',
-      );
-    }
-
-    await this.writeAudit({
-      customerId,
+    const session = await this.createCaseSession(customerId, actorId, customer.currentEddCaseId, {
       caseType: 'EDD',
-      caseId: currentEddCaseId,
-      action: 'EDD_SESSION_CREATED_AUTO',
-      actorId,
-      actorRole: actorId === customerId ? 'CUSTOMER' : 'ADMIN',
-      detail: JSON.stringify({
-        sessionId: autoSession.sessionId,
-        providerSessionId: autoSession.providerSessionId,
-        reused,
-      }),
+      provider: 'MOCK',
     });
 
     await this.writeAudit({
       customerId,
-      action: 'EDD_BOOTSTRAP',
+      action: 'EDD_START',
       actorId,
-      actorRole: actorId === customerId ? 'CUSTOMER' : 'ADMIN',
-      fromStage: fromStatus,
-      toStage: updated?.complianceStatus || fromStatus,
-      detail: JSON.stringify({
-        journeyId: result.journeyId,
-        count: result.cases.length,
-        currentEddCaseId,
-      }),
+      actorRole: 'CUSTOMER',
+      caseType: 'EDD',
+      caseId: customer.currentEddCaseId,
+      fromStage: 'PENDING_EDD',
+      toStage: 'PENDING_EDD',
+      detail: 'EDD session started by customer.',
     });
 
     return {
-      journeyId: result.journeyId,
-      items: result.cases,
-      currentEddCaseId,
-      session: autoSession,
+      currentEddCaseId: customer.currentEddCaseId,
+      session,
+      publicStatus: 'PENDING_EDD',
+      actions: this.mapActionsByStatus('PENDING_EDD'),
     };
+  }
+
+  async reinitiateEddCases(customerId: string, actorId: string, body: ReinitiateEddDto) {
+    const customer = await this.getCustomerOrThrow(customerId);
+    this.ensureIndividualOnly(customer);
+
+    if (!customer.eddRequired) {
+      throw new BadRequestException('EDD is not required for current onboarding journey.');
+    }
+
+    const journeyId = body?.journeyId || customer.activeJourneyId || generateReferenceNo('ONB');
+    const eddCase = await this.prisma.eddCase.create({
+      data: {
+        caseNo: generateReferenceNo('EDD'),
+        customerId,
+        cddCaseId: customer.currentCddCaseId || null,
+        subjectKind: 'INDIVIDUAL_CUSTOMER',
+        subjectRefId: customerId,
+        journeyId,
+        status: 'CREATED',
+      },
+    });
+
+    const updated = await this.prisma.customerMain.update({
+      where: { id: customerId },
+      data: {
+        publicStatus: 'PENDING_EDD',
+        cddStatus: 'APPROVED',
+        eddRequired: true,
+        eddStatus: 'REQUIRED',
+        complianceStatus: 'IN_PROGRESS',
+        finalApprovalStatus: 'NOT_REQUIRED',
+        finalApprovalReason: null,
+        finalApprovalReviewerId: null,
+        finalApprovalReviewedAt: null,
+        activeJourneyId: journeyId,
+        activeCaseType: 'EDD',
+        activeCaseId: eddCase.id,
+        currentEddCaseId: eddCase.id,
+      },
+    });
+
+    const session = await this.createCaseSession(customerId, actorId, eddCase.id, {
+      caseType: 'EDD',
+      provider: 'MOCK',
+    });
+
+    await this.writeAudit({
+      customerId,
+      action: 'EDD_REINITIATE',
+      actorId,
+      actorRole: 'CUSTOMER',
+      caseType: 'EDD',
+      caseId: eddCase.id,
+      fromStage: this.normalizePublicStatus(customer.publicStatus),
+      toStage: 'PENDING_EDD',
+      detail: 'EDD case re-initiated.',
+    });
+
+    return {
+      journeyId,
+      currentEddCaseId: eddCase.id,
+      session,
+      publicStatus: this.normalizePublicStatus(updated.publicStatus),
+      actions: this.mapActionsByStatus(this.normalizePublicStatus(updated.publicStatus)),
+    };
+  }
+
+  private async getCaseByType(customerId: string, caseId: string, caseType: CaseType): Promise<any> {
+    if (caseType === 'CDD') {
+      const row = await this.prisma.cddCase.findUnique({ where: { id: caseId } });
+      if (!row || row.customerId !== customerId) {
+        throw new NotFoundException(`CDD case not found: ${caseId}`);
+      }
+      return row;
+    }
+
+    const row = await this.prisma.eddCase.findUnique({ where: { id: caseId } });
+    if (!row || row.customerId !== customerId) {
+      throw new NotFoundException(`EDD case not found: ${caseId}`);
+    }
+    return row;
   }
 
   async createCaseSession(
@@ -1586,706 +989,471 @@ export class OnboardingService {
     caseId: string,
     dto: CreateCaseSessionDto,
   ) {
-    let caseType = dto.caseType as CaseType | undefined;
-    let targetCase: any = null;
+    await this.getCustomerOrThrow(customerId);
 
-    if (!caseType || caseType === 'CDD') {
-      const cddCase = await (this.prisma as any).cddCase.findFirst({
-        where: { id: caseId, customerId },
-      });
-      if (cddCase) {
+    let caseType: CaseType | null = dto.caseType || null;
+
+    if (!caseType) {
+      const [cddCase, eddCase] = await Promise.all([
+        this.prisma.cddCase.findUnique({ where: { id: caseId } }),
+        this.prisma.eddCase.findUnique({ where: { id: caseId } }),
+      ]);
+      if (cddCase?.customerId === customerId) {
         caseType = 'CDD';
-        targetCase = cddCase;
-      }
-    }
-
-    if ((!caseType || caseType === 'EDD') && !targetCase) {
-      const eddCase = await (this.prisma as any).eddCase.findFirst({
-        where: { id: caseId, customerId },
-      });
-      if (eddCase) {
+      } else if (eddCase?.customerId === customerId) {
         caseType = 'EDD';
-        targetCase = eddCase;
       }
     }
 
-    if (!targetCase || !caseType) {
-      throw new NotFoundException('Case not found');
+    if (!caseType) {
+      throw new NotFoundException(`Case not found: ${caseId}`);
     }
 
-    if (targetCase.status !== 'PENDING') {
-      throw new BadRequestException('QR session can only be created for pending cases.');
+    const targetCase = await this.getCaseByType(customerId, caseId, caseType);
+    if (targetCase.status !== 'CREATED') {
+      throw new BadRequestException(
+        `${caseType} case must be in CREATED status before creating session.`,
+      );
     }
 
-    const provider = (dto.provider || 'MOCK').toUpperCase();
-    if (provider !== 'MOCK') {
-      throw new BadRequestException('Only MOCK provider is enabled in current phase.');
-    }
-
-    const providerSessionId = generateReferenceNo('SES');
-    const expiresAt = new Date(Date.now() + 30 * 60 * 1000);
-    const qrCodeUrl = `mock://compliance/${providerSessionId}`;
-
-    await (this.prisma as any).complianceSession.updateMany({
+    const now = new Date();
+    const existing = await this.prisma.complianceSession.findFirst({
       where: {
         customerId,
         caseType,
         caseId,
         status: 'PENDING',
+        expiresAt: { gt: now },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    if (existing) {
+      return this.buildSessionResponse(existing);
+    }
+
+    await this.prisma.complianceSession.updateMany({
+      where: {
+        customerId,
+        caseType,
+        caseId,
+        status: 'PENDING',
+        expiresAt: { lt: now },
       },
       data: {
         status: 'EXPIRED',
-        completedAt: new Date(),
       },
     });
 
-    const session = await (this.prisma as any).complianceSession.create({
+    const provider = dto.provider || 'MOCK';
+    const providerSessionId = generateReferenceNo('SES');
+    const created = await this.prisma.complianceSession.create({
       data: {
         customerId,
         caseType,
         caseId,
         provider,
         providerSessionId,
-        qrCodeUrl,
+        qrCodeUrl: `mock://compliance/${providerSessionId}`,
         status: 'PENDING',
-        rawPayload: JSON.stringify({
-          provider,
-          caseType,
-          caseNo: targetCase.caseNo,
-          subjectKind: targetCase.subjectKind,
-          subjectRefId: targetCase.subjectRefId,
-        }),
-        expiresAt,
+        expiresAt: this.addDays(now, 1),
       },
     });
 
     await this.writeAudit({
       customerId,
-      caseType,
-      caseId,
       action: `${caseType}_SESSION_CREATED`,
       actorId,
-      actorRole: actorId === customerId ? 'CUSTOMER' : 'ADMIN',
-      detail: JSON.stringify({ sessionId: session.id, providerSessionId }),
-    });
-
-    return {
-      sessionId: session.id,
-      providerSessionId: session.providerSessionId,
+      actorRole: 'CUSTOMER',
       caseType,
       caseId,
-      qrCodeUrl: session.qrCodeUrl,
-      expiresAt: session.expiresAt,
-      status: session.status,
-    };
+      detail: `Session ${created.id} created for case ${caseId}.`,
+    });
+
+    return this.buildSessionResponse(created);
   }
 
   async mockCompleteSession(
     customerId: string,
     actorId: string,
     sessionId: string,
-    dto?: MockCompleteSessionDto,
+    body: MockCompleteSessionDto = {},
   ) {
-    const session =
-      (await (this.prisma as any).complianceSession.findFirst({
-        where: { id: sessionId, customerId },
-      })) ||
-      (await (this.prisma as any).complianceSession.findFirst({
-        where: { providerSessionId: sessionId, customerId },
-      }));
+    const session = await this.prisma.complianceSession.findFirst({
+      where: {
+        id: sessionId,
+        customerId,
+      },
+    });
 
     if (!session) {
-      throw new NotFoundException('Compliance session not found');
+      throw new NotFoundException(`Compliance session not found: ${sessionId}`);
     }
 
     if (session.status !== 'PENDING') {
-      throw new BadRequestException('Only pending session can be completed.');
+      throw new BadRequestException(`Session ${sessionId} is not pending.`);
     }
 
-    if (new Date(session.expiresAt).getTime() <= Date.now()) {
-      await (this.prisma as any).complianceSession.update({
+    const now = new Date();
+    if (session.expiresAt.getTime() < now.getTime()) {
+      await this.prisma.complianceSession.update({
         where: { id: session.id },
         data: {
           status: 'EXPIRED',
-          completedAt: new Date(),
         },
       });
-      throw new BadRequestException('Compliance session expired. Please regenerate QR session.');
+      throw new BadRequestException(`Session ${sessionId} is expired.`);
     }
 
-    const result = dto?.result || 'PASS';
+    const result: 'PASS' | 'FAIL' = body?.result === 'FAIL' ? 'FAIL' : 'PASS';
 
-    await (this.prisma as any).$transaction(async (tx: any) => {
-      const completedAt = new Date();
-      const sessionStatus = result === 'PASS' ? 'COMPLETED' : 'FAILED';
-      const sessionPayload = {
-        ...this.parseJsonSafely(session.rawPayload),
-        mockResult: result,
-        completedAt: completedAt.toISOString(),
-      };
+    await this.prisma.complianceSession.update({
+      where: { id: session.id },
+      data: {
+        status: 'COMPLETED',
+        completedAt: now,
+        rawPayload: JSON.stringify({
+          callback: 'MOCK',
+          result,
+          completedAt: now.toISOString(),
+        }),
+      },
+    });
 
-      await tx.complianceSession.update({
-        where: { id: session.id },
+    if (session.caseType === 'CDD') {
+      const cddCase = await this.prisma.cddCase.findUnique({
+        where: { id: session.caseId },
+      });
+
+      if (!cddCase || cddCase.customerId !== customerId) {
+        throw new NotFoundException(`CDD case not found: ${session.caseId}`);
+      }
+
+      const customer = await this.getCustomerOrThrow(customerId);
+      const signals = this.buildMockSignals('CDD', cddCase.caseNo, result);
+
+      await this.prisma.cddCase.update({
+        where: { id: cddCase.id },
         data: {
-          status: sessionStatus,
-          completedAt,
-          rawPayload: JSON.stringify(sessionPayload),
+          status: 'RECEIVED',
+          submittedAt: now,
+          inputData: JSON.stringify(signals),
+          riskScore: Number(signals.riskScore),
+          riskLevel: String(signals.riskLevel),
+          pepHit: !!signals.pepHit,
+          sanctionsHit: !!signals.sanctionsHit,
         },
       });
 
-      if (session.caseType === 'CDD') {
-        const cddCase = await tx.cddCase.findFirst({
-          where: { id: session.caseId, customerId },
-        });
-        if (!cddCase) return;
-        if (cddCase.status !== 'PENDING') {
-          throw new BadRequestException('CDD case is not pending and cannot accept session callback.');
-        }
+      await this.prisma.cddCaseReport.create({
+        data: {
+          customerId,
+          cddCaseId: cddCase.id,
+          provider: session.provider,
+          providerSessionId: session.providerSessionId,
+          rawPayload: JSON.stringify({ sessionId, result, signals }),
+          normalizedPayload: JSON.stringify(signals),
+        },
+      });
 
-        const normalizedPayload = {
-          ...this.buildMockDetail('CDD', cddCase.caseNo, cddCase.subjectKind),
-          result,
-          caseNo: cddCase.caseNo,
-        };
+      const decision = await this.riskEngineService.evaluate({
+        contextType: 'ONBOARDING_CDD',
+        customerId,
+        subjectId: cddCase.subjectRefId || customerId,
+        signals,
+        policyVersion: 'onboarding-risk-policy/v1',
+      });
 
-        await tx.cddCaseReport.create({
-          data: {
-            customerId,
-            cddCaseId: cddCase.id,
-            provider: session.provider,
-            providerSessionId: session.providerSessionId,
-            rawPayload: JSON.stringify(sessionPayload),
-            normalizedPayload: JSON.stringify(normalizedPayload),
-            receivedAt: completedAt,
-          },
-        });
+      await this.prisma.cddCase.update({
+        where: { id: cddCase.id },
+        data: {
+          status: 'FINAL',
+          reviewedAt: now,
+          reviewerDecision: decision.decision,
+          decisionReason: decision.reasonCodes.join(',') || decision.decision,
+          requiresEdd: decision.decision === 'REQUIRE_EDD',
+          riskScore: Number(signals.riskScore),
+          riskLevel: String(signals.riskLevel),
+        },
+      });
 
-        await tx.cddCase.update({
-          where: { id: cddCase.id },
-          data:
-            result === 'PASS'
-              ? {
-                  status: 'SUBMITTED',
-                  submittedAt: completedAt,
-                }
-              : {
-                  status: 'REJECTED',
-                  reviewedAt: completedAt,
-                  reviewerId: actorId,
-                  reviewerRole: 'SYSTEM',
-                  reviewerDecision: 'REJECT',
-                  decisionReason: 'Mock provider returned FAIL result.',
-                },
-        });
+      const updatedCustomer = await this.handleCddDecision({
+        customer,
+        cddCase,
+        decision: decision.decision,
+        decisionRecordId: decision.decisionRecordId,
+        reasonCodes: decision.reasonCodes,
+      });
 
-        await this.recomputeComplianceSnapshot(customerId, cddCase.journeyId, tx);
-      } else {
-        const eddCase = await tx.eddCase.findFirst({
-          where: { id: session.caseId, customerId },
-        });
-        if (!eddCase) return;
-        if (eddCase.status !== 'PENDING') {
-          throw new BadRequestException('EDD case is not pending and cannot accept session callback.');
-        }
+      await this.writeAudit({
+        customerId,
+        action: 'CDD_SESSION_COMPLETED',
+        actorId,
+        actorRole: 'CUSTOMER',
+        caseType: 'CDD',
+        caseId: cddCase.id,
+        fromStage: this.normalizePublicStatus(customer.publicStatus),
+        toStage: this.normalizePublicStatus(updatedCustomer.publicStatus),
+        detail: `CDD decision=${decision.decision} reasonCodes=${decision.reasonCodes.join(',')}`,
+      });
 
-        const normalizedPayload = {
-          ...this.buildMockDetail('EDD', eddCase.caseNo, eddCase.subjectKind),
-          result,
-          caseNo: eddCase.caseNo,
-        };
+      return {
+        ...this.buildSessionResponse({ ...session, status: 'COMPLETED' }),
+        decision,
+        publicStatus: this.normalizePublicStatus(updatedCustomer.publicStatus),
+        actions: this.mapActionsByStatus(this.normalizePublicStatus(updatedCustomer.publicStatus)),
+      };
+    }
 
-        await tx.eddCaseReport.create({
-          data: {
-            customerId,
-            eddCaseId: eddCase.id,
-            provider: session.provider,
-            providerSessionId: session.providerSessionId,
-            rawPayload: JSON.stringify(sessionPayload),
-            normalizedPayload: JSON.stringify(normalizedPayload),
-            receivedAt: completedAt,
-          },
-        });
+    const eddCase = await this.prisma.eddCase.findUnique({
+      where: { id: session.caseId },
+    });
+    if (!eddCase || eddCase.customerId !== customerId) {
+      throw new NotFoundException(`EDD case not found: ${session.caseId}`);
+    }
 
-        await tx.eddCase.update({
-          where: { id: eddCase.id },
-          data:
-            result === 'PASS'
-              ? {
-                  status: 'SUBMITTED',
-                  submittedAt: completedAt,
-                }
-              : {
-                  status: 'REJECTED',
-                  mlroReviewedAt: completedAt,
-                  mlroReviewerId: actorId,
-                  mlroDecision: 'REJECT',
-                  decisionReason: 'Mock provider returned FAIL result.',
-                },
-        });
+    const customer = await this.getCustomerOrThrow(customerId);
+    const signals = {
+      ...this.buildMockSignals('EDD', eddCase.caseNo, result),
+      eddSubmitted: true,
+    };
 
-        await this.recomputeComplianceSnapshot(customerId, eddCase.journeyId, tx);
-      }
+    await this.prisma.eddCase.update({
+      where: { id: eddCase.id },
+      data: {
+        status: 'RECEIVED',
+        submittedAt: now,
+        inputData: JSON.stringify(signals),
+      },
     });
 
-    const updated = await this.prisma.customerMain.findUnique({ where: { id: customerId } });
+    await this.prisma.eddCaseReport.create({
+      data: {
+        customerId,
+        eddCaseId: eddCase.id,
+        provider: session.provider,
+        providerSessionId: session.providerSessionId,
+        rawPayload: JSON.stringify({ sessionId, result, signals }),
+        normalizedPayload: JSON.stringify(signals),
+      },
+    });
+
+    const decision = await this.riskEngineService.evaluate({
+      contextType: 'ONBOARDING_EDD',
+      customerId,
+      subjectId: eddCase.subjectRefId || customerId,
+      signals,
+      policyVersion: 'onboarding-risk-policy/v1',
+    });
+
+    await this.prisma.eddCase.update({
+      where: { id: eddCase.id },
+      data: {
+        status: 'FINAL',
+        mlroReviewedAt: now,
+        mlroDecision: decision.decision,
+        decisionReason: decision.reasonCodes.join(',') || decision.decision,
+      },
+    });
+
+    const updatedCustomer = await this.handleEddDecision({
+      customer,
+      eddCase,
+      decision: decision.decision,
+      decisionRecordId: decision.decisionRecordId,
+      reasonCodes: decision.reasonCodes,
+    });
 
     await this.writeAudit({
       customerId,
-      caseType: session.caseType,
-      caseId: session.caseId,
-      action: `${session.caseType}_SESSION_${result}`,
+      action: 'EDD_SESSION_COMPLETED',
       actorId,
       actorRole: 'CUSTOMER',
-      toStage: updated?.complianceStatus || null,
-      detail: JSON.stringify({ sessionId: session.id }),
+      caseType: 'EDD',
+      caseId: eddCase.id,
+      fromStage: this.normalizePublicStatus(customer.publicStatus),
+      toStage: this.normalizePublicStatus(updatedCustomer.publicStatus),
+      detail: `EDD decision=${decision.decision} reasonCodes=${decision.reasonCodes.join(',')}`,
     });
 
     return {
-      sessionId: session.id,
-      status: result === 'PASS' ? 'COMPLETED' : 'FAILED',
-      caseType: session.caseType,
-      caseId: session.caseId,
+      ...this.buildSessionResponse({ ...session, status: 'COMPLETED' }),
+      decision,
+      publicStatus: this.normalizePublicStatus(updatedCustomer.publicStatus),
+      actions: this.mapActionsByStatus(this.normalizePublicStatus(updatedCustomer.publicStatus)),
     };
   }
 
-  async listCddCases(params: {
+  async listCddCases(query: {
     status?: string;
     customerType?: string;
     customerIds?: string[];
     skip?: number;
     take?: number;
   }) {
-    const where: any = {};
-    if (params.status) where.status = params.status;
-    if (params.customerType) where.customerType = params.customerType;
-    if (params.customerIds && params.customerIds.length > 0) {
-      where.customerId = { in: params.customerIds };
+    const skip = this.normalizeSkip(query.skip);
+    const take = this.normalizeTake(query.take);
+
+    const where: Prisma.CddCaseWhereInput = {};
+    if (query.status) where.status = query.status;
+    if (Array.isArray(query.customerIds) && query.customerIds.length > 0) {
+      where.customerId = { in: query.customerIds };
+    }
+    if (query.customerType) {
+      where.customerType = query.customerType;
     }
 
-    const scopedByCustomerIds = !!(params.customerIds && params.customerIds.length > 0);
-    const skip = params.skip ?? (scopedByCustomerIds ? undefined : 0);
-    const take = params.take ?? (scopedByCustomerIds ? undefined : 20);
+    const [total, items] = await Promise.all([
+      this.prisma.cddCase.count({ where }),
+      this.prisma.cddCase.findMany({
+        where,
+        skip,
+        take,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          customer: {
+            select: {
+              id: true,
+              customerNo: true,
+              email: true,
+              firstName: true,
+              lastName: true,
+              customerType: true,
+              companyName: true,
+              publicStatus: true,
+            },
+          },
+        },
+      }),
+    ]);
 
-    const query: any = {
-      where,
-      orderBy: { createdAt: 'desc' },
+    return {
+      total,
+      skip,
+      take,
+      items,
+    };
+  }
+
+  async reviewCddCase(
+    _caseId: string,
+    _actorId: string,
+    _actorRole: string,
+    _dto: ReviewCddCaseDto,
+  ) {
+    throw new BadRequestException(
+      'CDD case page is evidence-only. Please handle decisions via alert/incident workflow.',
+    );
+  }
+
+  async getCddCaseDetail(id: string) {
+    const row = await this.prisma.cddCase.findUnique({
+      where: { id },
       include: {
         customer: {
           select: {
+            id: true,
             customerNo: true,
             email: true,
             firstName: true,
             lastName: true,
             companyName: true,
-            complianceStatus: true,
             customerType: true,
+            publicStatus: true,
+            cddStatus: true,
+            eddStatus: true,
+            complianceStatus: true,
           },
         },
+        reports: {
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+        },
       },
+    });
+
+    if (!row) {
+      throw new NotFoundException(`CDD case not found: ${id}`);
+    }
+
+    const latestReport = row.reports[0] || null;
+
+    return {
+      ...row,
+      inputData: this.parseJsonSafely(row.inputData),
+      customerSnapshot: row.customer,
+      latestReport: latestReport
+        ? {
+            ...latestReport,
+            rawPayload: this.parseJsonSafely(latestReport.rawPayload),
+            normalizedPayload: this.parseJsonSafely(latestReport.normalizedPayload),
+          }
+        : null,
+      mockDetail: this.parseJsonSafely(row.inputData),
     };
-    if (typeof skip === 'number') query.skip = skip;
-    if (typeof take === 'number') query.take = take;
-
-    const [items, total] = await Promise.all([
-      (this.prisma as any).cddCase.findMany(query),
-      (this.prisma as any).cddCase.count({ where }),
-    ]);
-
-    const enrichedItems = await this.enrichCasesWithSession('CDD', items);
-    return { items: enrichedItems, total };
   }
 
-  async reviewCddCase(
-    caseId: string,
-    actorId: string,
-    actorRole: string,
-    dto: ReviewCddCaseDto,
-  ) {
-    const cddCase = await (this.prisma as any).cddCase.findUnique({
-      where: { id: caseId },
-      include: {
-        customer: {
-          include: {
-            corporateProfile: true,
-            uboProfiles: true,
-          },
-        },
-      },
-    });
-
-    if (!cddCase) throw new NotFoundException('CDD case not found');
-    if (!['SUBMITTED'].includes(cddCase.status)) {
-      throw new BadRequestException('Only submitted CDD case can be reviewed.');
-    }
-
-    const decidedRiskScore =
-      typeof dto.riskScore === 'number' ? dto.riskScore : cddCase.riskScore || 0;
-    const decidedRiskLevel =
-      decidedRiskScore >= 70 ? 'HIGH' : decidedRiskScore >= 40 ? 'MEDIUM' : 'LOW';
-    const decidedRequiresEdd =
-      dto.decision === 'UPGRADE_EDD'
-        ? true
-        : typeof dto.requiresEdd === 'boolean'
-          ? dto.requiresEdd
-          : cddCase.requiresEdd || decidedRiskLevel === 'HIGH';
-
-    const customerId = cddCase.customerId;
-    let caseStatus = cddCase.status;
-
-    await (this.prisma as any).$transaction(async (tx: any) => {
-      if (dto.decision === 'REJECT') {
-        caseStatus = 'REJECTED';
-
-        await tx.cddCase.update({
-          where: { id: caseId },
-          data: {
-            status: caseStatus,
-            reviewedAt: new Date(),
-            reviewerId: actorId,
-            reviewerRole: actorRole,
-            reviewerDecision: dto.decision,
-            decisionReason: dto.reason || null,
-          },
-        });
-
-        await this.updateUboCaseStatus(tx, cddCase.subjectKind, cddCase.subjectRefId, 'REJECTED');
-      } else {
-        caseStatus = 'APPROVED';
-
-        await tx.cddCase.update({
-          where: { id: caseId },
-          data: {
-            status: caseStatus,
-            reviewedAt: new Date(),
-            reviewerId: actorId,
-            reviewerRole: actorRole,
-            reviewerDecision: dto.decision,
-            decisionReason: dto.reason || null,
-            riskScore: decidedRiskScore,
-            riskLevel: decidedRiskLevel,
-            requiresEdd: decidedRequiresEdd,
-          },
-        });
-
-        await this.updateUboCaseStatus(
-          tx,
-          cddCase.subjectKind,
-          cddCase.subjectRefId,
-          'CDD_APPROVED',
-        );
-
-        if (cddCase.customer.investorClassificationSource !== 'ADMIN_OVERRIDE') {
-          const payload = this.parseJsonSafely(cddCase.inputData);
-          const classification = this.extractInvestorClassification(
-            payload,
-            this.getCustomerType(cddCase.customer),
-          );
-          await tx.customerMain.update({
-            where: { id: customerId },
-            data: {
-              investorClassification: classification,
-              investorClassificationSource: 'CDD',
-              investorClassificationUpdatedAt: new Date(),
-            },
-          });
-        }
-      }
-
-      await this.recomputeComplianceSnapshot(customerId, cddCase.journeyId, tx);
-    });
-
-    const snapshot = await this.prisma.customerMain.findUnique({
-      where: { id: customerId },
-      select: {
-        cddStatus: true,
-        eddRequired: true,
-        eddStatus: true,
-        complianceStatus: true,
-      },
-    });
-
-    if (
-      dto.decision !== 'REJECT' &&
-      snapshot?.cddStatus === 'APPROVED' &&
-      snapshot.eddRequired &&
-      ['REQUIRED', 'IN_PROGRESS'].includes(snapshot.eddStatus)
-    ) {
-      await this.bootstrapEddCases(customerId, actorId, {
-        journeyId: cddCase.journeyId,
-      });
-    }
-
-    await this.writeAudit({
-      customerId,
-      caseType: 'CDD',
-      caseId,
-      action: `CDD_${dto.decision}`,
-      actorId,
-      actorRole,
-      toStage: snapshot?.complianceStatus || null,
-      detail: JSON.stringify({
-        decision: dto.decision,
-        riskScore: decidedRiskScore,
-        riskLevel: decidedRiskLevel,
-        requiresEdd: decidedRequiresEdd,
-        reason: dto.reason || null,
-      }),
-    });
-
-    if (cddCase.sanctionsHit) {
-      await this.triggerOnboardingAlert({
-        ruleCode: 'ONB_SANCTIONS_HIT',
-        sourceType: 'CDD_CASE',
-        sourceId: caseId,
-        sourceNo: cddCase.caseNo,
-        customerId,
-        customerNo: cddCase.customer?.customerNo || null,
-        message: `CDD case ${cddCase.caseNo} has sanctions hit`,
-        metadata: {
-          decision: dto.decision,
-          sanctionsHit: true,
-          pepHit: cddCase.pepHit,
-          riskScore: decidedRiskScore,
-          riskLevel: decidedRiskLevel,
-        },
-      });
-    }
-
-    if (cddCase.pepHit) {
-      await this.triggerOnboardingAlert({
-        ruleCode: 'ONB_PEP_HIT',
-        sourceType: 'CDD_CASE',
-        sourceId: caseId,
-        sourceNo: cddCase.caseNo,
-        customerId,
-        customerNo: cddCase.customer?.customerNo || null,
-        message: `CDD case ${cddCase.caseNo} has PEP hit`,
-        metadata: {
-          decision: dto.decision,
-          sanctionsHit: cddCase.sanctionsHit,
-          pepHit: true,
-          riskScore: decidedRiskScore,
-          riskLevel: decidedRiskLevel,
-        },
-      });
-    }
-
-    if (dto.decision === 'REJECT') {
-      await this.triggerOnboardingAlert({
-        ruleCode: 'ONB_CDD_REJECTED',
-        sourceType: 'CDD_CASE',
-        sourceId: caseId,
-        sourceNo: cddCase.caseNo,
-        customerId,
-        customerNo: cddCase.customer?.customerNo || null,
-        message: `CDD case ${cddCase.caseNo} was rejected`,
-        metadata: {
-          decision: dto.decision,
-          reason: dto.reason || null,
-        },
-      });
-    }
-
-    if (
-      snapshot?.complianceStatus &&
-      ['BLOCKED', 'RESTRICTED'].includes(snapshot.complianceStatus)
-    ) {
-      await this.triggerOnboardingAlert({
-        ruleCode: 'ONB_COMPLIANCE_BLOCKED_OR_RESTRICTED',
-        sourceType: 'CUSTOMER',
-        sourceId: customerId,
-        sourceNo: cddCase.customer?.customerNo || null,
-        customerId,
-        customerNo: cddCase.customer?.customerNo || null,
-        message: `Customer compliance status is ${snapshot.complianceStatus}`,
-        metadata: {
-          complianceStatus: snapshot.complianceStatus,
-          caseNo: cddCase.caseNo,
-          decision: dto.decision,
-        },
-      });
-    }
-
-    return { id: caseId, status: caseStatus, complianceStatus: snapshot?.complianceStatus };
-  }
-
-  async listEddCases(params: {
+  async listEddCases(query: {
     status?: string;
     customerIds?: string[];
     skip?: number;
     take?: number;
   }) {
-    const where: any = {};
-    if (params.status) where.status = params.status;
-    if (params.customerIds && params.customerIds.length > 0) {
-      where.customerId = { in: params.customerIds };
+    const skip = this.normalizeSkip(query.skip);
+    const take = this.normalizeTake(query.take);
+
+    const where: Prisma.EddCaseWhereInput = {};
+    if (query.status) where.status = query.status;
+    if (Array.isArray(query.customerIds) && query.customerIds.length > 0) {
+      where.customerId = { in: query.customerIds };
     }
 
-    const scopedByCustomerIds = !!(params.customerIds && params.customerIds.length > 0);
-    const skip = params.skip ?? (scopedByCustomerIds ? undefined : 0);
-    const take = params.take ?? (scopedByCustomerIds ? undefined : 20);
-
-    const query: any = {
-      where,
-      orderBy: { createdAt: 'desc' },
-      include: {
-        customer: {
-          select: {
-            customerNo: true,
-            email: true,
-            firstName: true,
-            lastName: true,
-            companyName: true,
-            complianceStatus: true,
-            customerType: true,
+    const [total, items] = await Promise.all([
+      this.prisma.eddCase.count({ where }),
+      this.prisma.eddCase.findMany({
+        where,
+        skip,
+        take,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          customer: {
+            select: {
+              id: true,
+              customerNo: true,
+              email: true,
+              firstName: true,
+              lastName: true,
+              customerType: true,
+              companyName: true,
+              publicStatus: true,
+            },
           },
         },
-        cddCase: {
-          select: {
-            caseNo: true,
-            riskScore: true,
-            riskLevel: true,
-          },
-        },
-      },
-    };
-    if (typeof skip === 'number') query.skip = skip;
-    if (typeof take === 'number') query.take = take;
-
-    const [items, total] = await Promise.all([
-      (this.prisma as any).eddCase.findMany(query),
-      (this.prisma as any).eddCase.count({ where }),
+      }),
     ]);
 
-    const enrichedItems = await this.enrichCasesWithSession('EDD', items);
-    return { items: enrichedItems, total };
+    return {
+      total,
+      skip,
+      take,
+      items,
+    };
   }
 
   async mlroReviewEddCase(
-    caseId: string,
-    actorId: string,
-    actorRole: string,
-    dto: ReviewEddCaseDto,
+    _caseId: string,
+    _actorId: string,
+    _actorRole: string,
+    _dto: ReviewEddCaseDto,
   ) {
-    const eddCase = await (this.prisma as any).eddCase.findUnique({
-      where: { id: caseId },
-      include: {
-        customer: {
-          include: {
-            corporateProfile: true,
-            uboProfiles: true,
-          },
-        },
-      },
-    });
-
-    if (!eddCase) throw new NotFoundException('EDD case not found');
-    if (!['SUBMITTED'].includes(eddCase.status)) {
-      throw new BadRequestException('Only submitted EDD case can be reviewed by MLRO.');
-    }
-
-    const customerId = eddCase.customerId;
-    let status = eddCase.status;
-
-    await (this.prisma as any).$transaction(async (tx: any) => {
-      if (dto.decision === 'APPROVE') {
-        status = 'APPROVED';
-
-        await tx.eddCase.update({
-          where: { id: caseId },
-          data: {
-            status,
-            mlroReviewedAt: new Date(),
-            mlroReviewerId: actorId,
-            mlroDecision: dto.decision,
-            decisionReason: dto.reason || null,
-          },
-        });
-
-        await this.updateUboCaseStatus(
-          tx,
-          eddCase.subjectKind,
-          eddCase.subjectRefId,
-          'EDD_APPROVED',
-        );
-      } else if (dto.decision === 'REJECT') {
-        status = 'REJECTED';
-
-        await tx.eddCase.update({
-          where: { id: caseId },
-          data: {
-            status,
-            mlroReviewedAt: new Date(),
-            mlroReviewerId: actorId,
-            mlroDecision: dto.decision,
-            decisionReason: dto.reason || null,
-          },
-        });
-
-        await this.updateUboCaseStatus(tx, eddCase.subjectKind, eddCase.subjectRefId, 'REJECTED');
-      }
-
-      await this.recomputeComplianceSnapshot(customerId, eddCase.journeyId, tx);
-    });
-
-    const snapshot = await this.prisma.customerMain.findUnique({
-      where: { id: customerId },
-      select: { complianceStatus: true },
-    });
-
-    await this.writeAudit({
-      customerId,
-      caseType: 'EDD',
-      caseId,
-      action: `EDD_MLRO_${dto.decision}`,
-      actorId,
-      actorRole,
-      toStage: snapshot?.complianceStatus || null,
-      detail: dto.reason || null,
-    });
-
-    if (dto.decision === 'REJECT') {
-      await this.triggerOnboardingAlert({
-        ruleCode: 'ONB_EDD_REJECTED',
-        sourceType: 'EDD_CASE',
-        sourceId: caseId,
-        sourceNo: eddCase.caseNo,
-        customerId,
-        customerNo: eddCase.customer?.customerNo || null,
-        message: `EDD case ${eddCase.caseNo} was rejected`,
-        metadata: {
-          decision: dto.decision,
-          reason: dto.reason || null,
-        },
-      });
-    }
-
-    if (
-      snapshot?.complianceStatus &&
-      ['BLOCKED', 'RESTRICTED'].includes(snapshot.complianceStatus)
-    ) {
-      await this.triggerOnboardingAlert({
-        ruleCode: 'ONB_COMPLIANCE_BLOCKED_OR_RESTRICTED',
-        sourceType: 'CUSTOMER',
-        sourceId: customerId,
-        sourceNo: eddCase.customer?.customerNo || null,
-        customerId,
-        customerNo: eddCase.customer?.customerNo || null,
-        message: `Customer compliance status is ${snapshot.complianceStatus}`,
-        metadata: {
-          complianceStatus: snapshot.complianceStatus,
-          caseNo: eddCase.caseNo,
-          decision: dto.decision,
-        },
-      });
-    }
-
-    return { id: caseId, status, complianceStatus: snapshot?.complianceStatus };
+    throw new BadRequestException(
+      'EDD case page is evidence-only. Please handle decisions via alert/incident workflow.',
+    );
   }
 
-  async getCddCaseDetail(caseId: string) {
-    const cddCase = await (this.prisma as any).cddCase.findUnique({
-      where: { id: caseId },
+  async getEddCaseDetail(id: string) {
+    const row = await this.prisma.eddCase.findUnique({
+      where: { id },
       include: {
         customer: {
           select: {
@@ -2296,44 +1464,29 @@ export class OnboardingService {
             lastName: true,
             companyName: true,
             customerType: true,
+            publicStatus: true,
             cddStatus: true,
-            eddRequired: true,
             eddStatus: true,
             complianceStatus: true,
-            cddDocumentExpiresAt: true,
-            finalApprovalStatus: true,
-            finalApprovalReason: true,
-            finalApprovalReviewerId: true,
-            finalApprovalReviewedAt: true,
-            investorClassification: true,
           },
+        },
+        reports: {
+          orderBy: { createdAt: 'desc' },
+          take: 1,
         },
       },
     });
 
-    if (!cddCase) {
-      throw new NotFoundException('CDD case not found');
+    if (!row) {
+      throw new NotFoundException(`EDD case not found: ${id}`);
     }
 
-    const [latestSession, latestReport] = await Promise.all([
-      (this.prisma as any).complianceSession.findFirst({
-        where: {
-          caseType: 'CDD',
-          caseId: cddCase.id,
-        },
-        orderBy: { createdAt: 'desc' },
-      }),
-      (this.prisma as any).cddCaseReport.findFirst({
-        where: { cddCaseId: cddCase.id },
-        orderBy: { receivedAt: 'desc' },
-      }),
-    ]);
+    const latestReport = row.reports[0] || null;
 
     return {
-      ...cddCase,
-      inputData: this.parseJsonSafely(cddCase.inputData),
-      customerSnapshot: cddCase.customer,
-      latestSession,
+      ...row,
+      inputData: this.parseJsonSafely(row.inputData),
+      customerSnapshot: row.customer,
       latestReport: latestReport
         ? {
             ...latestReport,
@@ -2341,334 +1494,7 @@ export class OnboardingService {
             normalizedPayload: this.parseJsonSafely(latestReport.normalizedPayload),
           }
         : null,
-      mockDetail: this.buildMockDetail('CDD', cddCase.caseNo, cddCase.subjectKind),
-    };
-  }
-
-  async getEddCaseDetail(caseId: string) {
-    const eddCase = await (this.prisma as any).eddCase.findUnique({
-      where: { id: caseId },
-      include: {
-        cddCase: {
-          select: {
-            caseNo: true,
-            riskScore: true,
-            riskLevel: true,
-          },
-        },
-        customer: {
-          select: {
-            id: true,
-            customerNo: true,
-            email: true,
-            firstName: true,
-            lastName: true,
-            companyName: true,
-            customerType: true,
-            cddStatus: true,
-            eddRequired: true,
-            eddStatus: true,
-            complianceStatus: true,
-            cddDocumentExpiresAt: true,
-            finalApprovalStatus: true,
-            finalApprovalReason: true,
-            finalApprovalReviewerId: true,
-            finalApprovalReviewedAt: true,
-            investorClassification: true,
-          },
-        },
-      },
-    });
-
-    if (!eddCase) {
-      throw new NotFoundException('EDD case not found');
-    }
-
-    const [latestSession, latestReport] = await Promise.all([
-      (this.prisma as any).complianceSession.findFirst({
-        where: {
-          caseType: 'EDD',
-          caseId: eddCase.id,
-        },
-        orderBy: { createdAt: 'desc' },
-      }),
-      (this.prisma as any).eddCaseReport.findFirst({
-        where: { eddCaseId: eddCase.id },
-        orderBy: { receivedAt: 'desc' },
-      }),
-    ]);
-
-    return {
-      ...eddCase,
-      inputData: this.parseJsonSafely(eddCase.inputData),
-      customerSnapshot: eddCase.customer,
-      latestSession,
-      latestReport: latestReport
-        ? {
-            ...latestReport,
-            rawPayload: this.parseJsonSafely(latestReport.rawPayload),
-            normalizedPayload: this.parseJsonSafely(latestReport.normalizedPayload),
-          }
-        : null,
-      mockDetail: this.buildMockDetail('EDD', eddCase.caseNo, eddCase.subjectKind),
-    };
-  }
-
-  async reinitiateCddCases(customerId: string, actorId: string) {
-    const nextStep = await this.getNextStep(customerId);
-    if (nextStep.action !== 'REINITIATE_CDD') {
-      throw new BadRequestException('CDD re-initiation is not allowed in current onboarding state.');
-    }
-
-    const snapshotBefore = await this.prisma.customerMain.findUnique({
-      where: { id: customerId },
-      select: {
-        cddStatus: true,
-        complianceStatus: true,
-      },
-    });
-    const expiredTriggered = !!snapshotBefore &&
-      (snapshotBefore.cddStatus === 'EXPIRED' || snapshotBefore.complianceStatus === 'EXPIRED');
-
-    const bootstrapResult = await this.bootstrapCddCases(customerId, actorId, {});
-
-    if (expiredTriggered) {
-      await this.prisma.customerMain.update({
-        where: { id: customerId },
-        data: { cddDocumentExpiresAt: null },
-      });
-    }
-
-    await this.recomputeComplianceSnapshot(customerId, bootstrapResult.journeyId);
-    const snapshot = await this.prisma.customerMain.findUnique({
-      where: { id: customerId },
-      select: {
-        currentCddCaseId: true,
-      },
-    });
-
-    const currentCddCaseId = snapshot?.currentCddCaseId || null;
-    if (!currentCddCaseId) {
-      await this.writeAudit({
-        customerId,
-        caseType: 'CDD',
-        action: 'CDD_REINITIATE_ERROR',
-        actorId,
-        actorRole: 'CUSTOMER',
-        detail: 'New CDD case created but currentCddCaseId is empty.',
-      });
-      throw new InternalServerErrorException(
-        'New CDD case created, but no active CDD case was selected. Please retry.',
-      );
-    }
-
-    let ensuredSession:
-      | {
-          session: {
-            sessionId: string;
-            providerSessionId: string;
-            caseType: CaseType;
-            caseId: string;
-            qrCodeUrl: string;
-            expiresAt: Date;
-            status: string;
-          };
-          reused: boolean;
-        }
-      | null = null;
-
-    try {
-      ensuredSession = await this.ensurePendingSessionForCase(
-        customerId,
-        actorId,
-        'CDD',
-        currentCddCaseId,
-      );
-    } catch {
-      throw new BadRequestException(
-        'New CDD case has been created. Failed to auto-create QR session, please retry creating QR.',
-      );
-    }
-
-    await this.recomputeComplianceSnapshot(customerId, bootstrapResult.journeyId);
-
-    await this.writeAudit({
-      customerId,
-      caseType: 'CDD',
-      caseId: currentCddCaseId,
-      action: 'CDD_REINITIATED',
-      actorId,
-      actorRole: 'CUSTOMER',
-      detail: JSON.stringify({
-        journeyId: bootstrapResult.journeyId,
-        autoSessionCaseId: currentCddCaseId,
-        expiredFieldCleared: expiredTriggered,
-      }),
-    });
-
-    await this.writeAudit({
-      customerId,
-      caseType: 'CDD',
-      caseId: currentCddCaseId,
-      action: 'CDD_SESSION_CREATED_AUTO',
-      actorId,
-      actorRole: 'CUSTOMER',
-      detail: JSON.stringify({
-        sessionId: ensuredSession?.session.sessionId || null,
-        providerSessionId: ensuredSession?.session.providerSessionId || null,
-        reused: ensuredSession?.reused || false,
-      }),
-    });
-
-    return {
-      journeyId: bootstrapResult.journeyId,
-      currentCddCaseId,
-      session: ensuredSession?.session || null,
-      items: bootstrapResult.items,
-    };
-  }
-
-  async reinitiateEddCases(customerId: string, actorId: string, dto?: ReinitiateEddDto) {
-    const customer = await (this.prisma as any).customerMain.findUnique({
-      where: { id: customerId },
-      include: {
-        corporateProfile: true,
-        uboProfiles: true,
-      },
-    });
-
-    if (!customer) throw new NotFoundException('Customer not found');
-    if (customer.cddStatus !== 'APPROVED') {
-      throw new BadRequestException('EDD re-initiation requires approved CDD status.');
-    }
-    if (!(customer.eddStatus === 'REJECTED' || customer.finalApprovalStatus === 'REJECTED')) {
-      throw new BadRequestException(
-        'EDD re-initiation is allowed only after EDD or final-approval rejection.',
-      );
-    }
-
-    const fromStatus = customer.complianceStatus;
-    const result = await (this.prisma as any).$transaction(async (tx: any) => {
-      const journeyId =
-        dto?.journeyId || (await this.getLatestJourneyId(customerId, tx)) || generateReferenceNo('ONB');
-      const subjects = this.buildSubjectDescriptors(customer);
-
-      const cddCases = await tx.cddCase.findMany({
-        where: {
-          customerId,
-          journeyId,
-          status: 'APPROVED',
-        },
-      });
-
-      if (cddCases.length === 0) {
-        throw new BadRequestException('No approved CDD cases found for the selected journey.');
-      }
-
-      const cases: any[] = [];
-      for (const subject of subjects) {
-        const sourceCddCase = cddCases.find(
-          (item: any) =>
-            item.subjectKind === subject.subjectKind && item.subjectRefId === subject.subjectRefId,
-        );
-        if (!sourceCddCase) {
-          throw new BadRequestException('Missing approved CDD case for one or more required subjects.');
-        }
-
-        const created = await tx.eddCase.create({
-          data: {
-            caseNo: generateReferenceNo('EDD'),
-            customerId,
-            cddCaseId: sourceCddCase.id,
-            status: 'PENDING',
-            subjectKind: subject.subjectKind,
-            subjectRefId: subject.subjectRefId,
-            journeyId,
-          },
-        });
-        cases.push(created);
-        await this.updateUboCaseStatus(tx, subject.subjectKind, subject.subjectRefId, 'EDD_IN_PROGRESS');
-      }
-
-      await this.recomputeComplianceSnapshot(customerId, journeyId, tx);
-      return { journeyId, cases };
-    });
-
-    await this.recomputeComplianceSnapshot(customerId, result.journeyId);
-    const updated = await this.prisma.customerMain.findUnique({
-      where: { id: customerId },
-      select: {
-        complianceStatus: true,
-        currentEddCaseId: true,
-      },
-    });
-    const currentEddCaseId = updated?.currentEddCaseId || null;
-    if (!currentEddCaseId) {
-      throw new InternalServerErrorException(
-        'EDD cases were reinitiated, but current EDD case is missing for QR generation.',
-      );
-    }
-
-    let ensuredSession:
-      | {
-          session: {
-            sessionId: string;
-            providerSessionId: string;
-            caseType: CaseType;
-            caseId: string;
-            qrCodeUrl: string;
-            expiresAt: Date;
-            status: string;
-          };
-          reused: boolean;
-        }
-      | null = null;
-    try {
-      ensuredSession = await this.ensurePendingSessionForCase(
-        customerId,
-        actorId,
-        'EDD',
-        currentEddCaseId,
-      );
-    } catch {
-      throw new BadRequestException(
-        'EDD case has been created. Failed to auto-create QR session, please retry generating QR.',
-      );
-    }
-
-    await this.writeAudit({
-      customerId,
-      caseType: 'EDD',
-      caseId: currentEddCaseId,
-      action: 'EDD_SESSION_CREATED_AUTO',
-      actorId,
-      actorRole: 'CUSTOMER',
-      detail: JSON.stringify({
-        sessionId: ensuredSession?.session.sessionId || null,
-        providerSessionId: ensuredSession?.session.providerSessionId || null,
-        reused: ensuredSession?.reused || false,
-      }),
-    });
-
-    await this.writeAudit({
-      customerId,
-      action: 'EDD_REINITIATED',
-      actorId,
-      actorRole: 'CUSTOMER',
-      fromStage: fromStatus,
-      toStage: updated?.complianceStatus || fromStatus,
-      detail: JSON.stringify({
-        journeyId: result.journeyId,
-        count: result.cases.length,
-        currentEddCaseId,
-      }),
-    });
-
-    return {
-      journeyId: result.journeyId,
-      items: result.cases,
-      currentEddCaseId,
-      session: ensuredSession?.session || null,
+      mockDetail: this.parseJsonSafely(row.inputData),
     };
   }
 
@@ -2678,138 +1504,109 @@ export class OnboardingService {
     actorRole: string,
     dto: FinalReviewCustomerDto,
   ) {
-    const customer = await this.prisma.customerMain.findUnique({
-      where: { id: customerId },
-      select: {
-        id: true,
-        customerNo: true,
-        cddStatus: true,
-        eddRequired: true,
-        eddStatus: true,
-      },
-    });
-    if (!customer) throw new NotFoundException('Customer not found');
+    const customer = await this.getCustomerOrThrow(customerId);
+    const currentStatus = this.normalizePublicStatus(customer.publicStatus);
 
-    if (!(customer.cddStatus === 'APPROVED' && customer.eddRequired && customer.eddStatus === 'APPROVED')) {
-      throw new BadRequestException('Final review is only available after CDD/EDD are fully approved.');
+    if (currentStatus !== 'FINAL_APPROVAL') {
+      throw new BadRequestException('Final review is only allowed in FINAL_APPROVAL status.');
     }
 
-    const reviewedAt = new Date();
-    const finalApprovalStatus: FinalApprovalStatus = dto.decision === 'APPROVE' ? 'APPROVED' : 'REJECTED';
+    const now = new Date();
+    const decision = dto.decision;
 
-    await (this.prisma as any).$transaction(async (tx: any) => {
-      await tx.customerMain.update({
-        where: { id: customerId },
-        data: {
-          finalApprovalStatus,
-          finalApprovalReason: dto.reason || null,
-          finalApprovalReviewerId: actorId,
-          finalApprovalReviewedAt: reviewedAt,
-        },
-      });
-
-      await this.recomputeComplianceSnapshot(customerId, undefined, tx);
-    });
-
-    const updated = await this.prisma.customerMain.findUnique({
+    const updated = await this.prisma.customerMain.update({
       where: { id: customerId },
-      select: {
-        complianceStatus: true,
-        finalApprovalStatus: true,
+      data: {
+        publicStatus: decision === 'APPROVE' ? 'ACTIVE' : 'REJECTED',
+        complianceStatus: decision === 'APPROVE' ? 'ACTIVE' : 'BLOCKED',
+        finalApprovalStatus: decision === 'APPROVE' ? 'APPROVED' : 'REJECTED',
+        finalApprovalReason: dto.reason || null,
+        finalApprovalReviewerId: actorId,
+        finalApprovalReviewedAt: now,
+        activeCaseType: null,
+        activeCaseId: null,
       },
     });
+
+    const journeyId = customer.activeJourneyId || generateReferenceNo('ONB');
+
+    if (decision === 'APPROVE') {
+      await this.closeJourneyAlertIfAny(
+        customerId,
+        journeyId,
+        'Final onboarding approval completed.',
+      );
+    } else {
+      await this.upsertJourneyAlert({
+        customerId,
+        customerNo: customer.customerNo || null,
+        journeyId,
+        recommendation: 'REJECT',
+        decision: 'REJECT',
+        message: dto.reason || 'Final onboarding decision is REJECT.',
+        severity: ComplianceAlertSeverity.CRITICAL,
+        linkedCaseIds: [customer.currentCddCaseId, customer.currentEddCaseId].filter(
+          Boolean,
+        ) as string[],
+      });
+    }
 
     await this.writeAudit({
       customerId,
-      action: `CUSTOMER_FINAL_${dto.decision}`,
+      action: `FINAL_${decision}`,
       actorId,
       actorRole,
-      toStage: updated?.complianceStatus || null,
+      fromStage: currentStatus,
+      toStage: this.normalizePublicStatus(updated.publicStatus),
       detail: dto.reason || null,
     });
 
-    if (dto.decision === 'REJECT') {
-      await this.triggerOnboardingAlert({
-        ruleCode: 'ONB_FINAL_REJECTED',
-        sourceType: 'CUSTOMER_FINAL_REVIEW',
-        sourceId: customerId,
-        sourceNo: customer.customerNo || null,
-        customerId,
-        customerNo: customer.customerNo || null,
-        message: `Final review rejected for customer ${customer.customerNo || customerId}`,
-        metadata: {
-          decision: dto.decision,
-          reason: dto.reason || null,
-          finalApprovalStatus: updated?.finalApprovalStatus || null,
-        },
-      });
-    }
-
-    if (
-      updated?.complianceStatus &&
-      ['BLOCKED', 'RESTRICTED'].includes(updated.complianceStatus)
-    ) {
-      await this.triggerOnboardingAlert({
-        ruleCode: 'ONB_COMPLIANCE_BLOCKED_OR_RESTRICTED',
-        sourceType: 'CUSTOMER',
-        sourceId: customerId,
-        sourceNo: customer.customerNo || null,
-        customerId,
-        customerNo: customer.customerNo || null,
-        message: `Customer compliance status is ${updated.complianceStatus}`,
-        metadata: {
-          complianceStatus: updated.complianceStatus,
-          finalApprovalStatus: updated.finalApprovalStatus,
-          decision: dto.decision,
-        },
-      });
-    }
-
-    return updated;
+    return {
+      ...updated,
+      publicStatus: this.normalizePublicStatus(updated.publicStatus),
+      actions: this.mapActionsByStatus(this.normalizePublicStatus(updated.publicStatus)),
+    };
   }
 
   async simulateCustomerExpired(customerId: string, actorId: string, actorRole: string) {
-    const customer = await this.prisma.customerMain.findUnique({
-      where: { id: customerId },
-      select: {
-        id: true,
-        cddDocumentExpiresAt: true,
-      },
-    });
-    if (!customer) throw new NotFoundException('Customer not found');
+    const customer = await this.getCustomerOrThrow(customerId);
+    const expiredAt = new Date(Date.now() - 60 * 60 * 1000);
+    const currentStatus = this.normalizePublicStatus(customer.publicStatus);
 
-    const expiryDate = new Date(Date.now() - 24 * 60 * 60 * 1000);
-    await (this.prisma as any).$transaction(async (tx: any) => {
-      await tx.customerMain.update({
-        where: { id: customerId },
-        data: {
-          cddDocumentExpiresAt: expiryDate,
-        },
-      });
-      await this.recomputeComplianceSnapshot(customerId, undefined, tx);
-    });
+    const updateData: Prisma.CustomerMainUpdateInput = {
+      cddDocumentExpiresAt: expiredAt,
+    };
 
-    const updated = await this.prisma.customerMain.findUnique({
+    if (currentStatus === 'ACTIVE') {
+      updateData.publicStatus = 'PENDING_CDD';
+      updateData.cddStatus = 'EXPIRED';
+      updateData.complianceStatus = 'EXPIRED';
+      updateData.finalApprovalStatus = 'NOT_REQUIRED';
+      updateData.finalApprovalReason = 'CDD expired';
+      updateData.finalApprovalReviewerId = null;
+      updateData.finalApprovalReviewedAt = null;
+    }
+
+    const updated = await this.prisma.customerMain.update({
       where: { id: customerId },
-      select: {
-        cddStatus: true,
-        complianceStatus: true,
-        cddDocumentExpiresAt: true,
-      },
+      data: updateData,
     });
 
     await this.writeAudit({
       customerId,
-      action: 'CUSTOMER_SIMULATE_EXPIRED',
+      action: 'SIMULATE_EXPIRED',
       actorId,
       actorRole,
-      toStage: updated?.complianceStatus || null,
-      detail: JSON.stringify({
-        cddDocumentExpiresAt: updated?.cddDocumentExpiresAt || null,
-      }),
+      fromStage: currentStatus,
+      toStage: this.normalizePublicStatus(updated.publicStatus),
+      detail: 'CDD document expiry simulated.',
     });
 
-    return updated;
+    return {
+      ...updated,
+      publicStatus: this.normalizePublicStatus(updated.publicStatus),
+      actions: this.mapActionsByStatus(this.normalizePublicStatus(updated.publicStatus)),
+    };
   }
 
   async updateInvestorClassification(
@@ -2818,18 +1615,7 @@ export class OnboardingService {
     actorRole: string,
     dto: UpdateInvestorClassificationDto,
   ) {
-    const customer = await this.prisma.customerMain.findUnique({
-      where: { id: customerId },
-      select: {
-        id: true,
-        investorClassification: true,
-        investorClassificationSource: true,
-      },
-    });
-
-    if (!customer) {
-      throw new NotFoundException('Customer not found');
-    }
+    await this.getCustomerOrThrow(customerId);
 
     const updated = await this.prisma.customerMain.update({
       where: { id: customerId },
@@ -2838,12 +1624,6 @@ export class OnboardingService {
         investorClassificationSource: 'ADMIN_OVERRIDE',
         investorClassificationUpdatedAt: new Date(),
       },
-      select: {
-        id: true,
-        investorClassification: true,
-        investorClassificationSource: true,
-        investorClassificationUpdatedAt: true,
-      },
     });
 
     await this.writeAudit({
@@ -2851,11 +1631,142 @@ export class OnboardingService {
       action: 'INVESTOR_CLASSIFICATION_UPDATED',
       actorId,
       actorRole,
-      detail: JSON.stringify({
-        from: customer.investorClassification,
-        to: dto.classification,
-        reason: dto.reason,
-      }),
+      detail: dto.reason,
+    });
+
+    return {
+      customerId: updated.id,
+      investorClassification: updated.investorClassification,
+      investorClassificationSource: updated.investorClassificationSource,
+      investorClassificationUpdatedAt: updated.investorClassificationUpdatedAt,
+    };
+  }
+
+  async assertTradingEligibility(customerId: string, action: TradeAction) {
+    const customer = await this.prisma.customerMain.findUnique({
+      where: { id: customerId },
+      select: {
+        id: true,
+        customerNo: true,
+        publicStatus: true,
+        complianceStatus: true,
+        cddStatus: true,
+        eddStatus: true,
+        finalApprovalStatus: true,
+      },
+    });
+
+    if (!customer) {
+      throw new NotFoundException(`Customer not found: ${customerId}`);
+    }
+
+    if (this.normalizePublicStatus(customer.publicStatus) !== 'ACTIVE') {
+      throw new ForbiddenException({
+        message: `${action} is blocked by onboarding gate`,
+        customerId,
+        customerNo: customer.customerNo,
+        publicStatus: customer.publicStatus,
+        complianceStatus: customer.complianceStatus,
+        cddStatus: customer.cddStatus,
+        eddStatus: customer.eddStatus,
+        finalApprovalStatus: customer.finalApprovalStatus,
+      });
+    }
+  }
+
+  async recomputeComplianceSnapshot(customerId: string, _journeyId?: string) {
+    const customer = await this.getCustomerOrThrow(customerId);
+    const publicStatus = this.normalizePublicStatus(customer.publicStatus);
+
+    let patch: Prisma.CustomerMainUpdateInput = {
+      publicStatus,
+    };
+
+    if (publicStatus === 'NONE') {
+      patch = {
+        ...patch,
+        cddStatus: 'NOT_STARTED',
+        eddRequired: false,
+        eddStatus: 'NOT_REQUIRED',
+        complianceStatus: 'NONE',
+        finalApprovalStatus: 'NOT_REQUIRED',
+      };
+    }
+
+    if (publicStatus === 'PENDING_CDD') {
+      patch = {
+        ...patch,
+        cddStatus: 'IN_PROGRESS',
+        eddRequired: false,
+        eddStatus: 'NOT_REQUIRED',
+        complianceStatus: 'IN_PROGRESS',
+      };
+    }
+
+    if (publicStatus === 'REVIEW_CDD') {
+      patch = {
+        ...patch,
+        cddStatus: 'PENDING_REVIEW',
+        eddRequired: false,
+        eddStatus: 'NOT_REQUIRED',
+        complianceStatus: 'IN_PROGRESS',
+      };
+    }
+
+    if (publicStatus === 'PENDING_EDD') {
+      patch = {
+        ...patch,
+        cddStatus: 'APPROVED',
+        eddRequired: true,
+        eddStatus: 'REQUIRED',
+        complianceStatus: 'IN_PROGRESS',
+      };
+    }
+
+    if (publicStatus === 'REVIEW_EDD') {
+      patch = {
+        ...patch,
+        cddStatus: 'APPROVED',
+        eddRequired: true,
+        eddStatus: 'PENDING_MLRO',
+        complianceStatus: 'IN_PROGRESS',
+      };
+    }
+
+    if (publicStatus === 'FINAL_APPROVAL') {
+      patch = {
+        ...patch,
+        cddStatus: 'APPROVED',
+        eddRequired: true,
+        eddStatus: 'APPROVED',
+        complianceStatus: 'IN_PROGRESS',
+        finalApprovalStatus: 'PENDING',
+      };
+    }
+
+    if (publicStatus === 'ACTIVE') {
+      patch = {
+        ...patch,
+        cddStatus: 'APPROVED',
+        eddStatus: customer.eddRequired ? 'APPROVED' : 'NOT_REQUIRED',
+        complianceStatus: 'ACTIVE',
+        finalApprovalStatus: 'APPROVED',
+      };
+    }
+
+    if (['REJECTED', 'WITHDRAWN'].includes(publicStatus)) {
+      patch = {
+        ...patch,
+        cddStatus: customer.cddStatus === 'APPROVED' ? 'APPROVED' : 'REJECTED',
+        eddStatus: customer.eddRequired ? 'REJECTED' : 'NOT_REQUIRED',
+        complianceStatus: 'BLOCKED',
+        finalApprovalStatus: 'REJECTED',
+      };
+    }
+
+    const updated = await this.prisma.customerMain.update({
+      where: { id: customerId },
+      data: patch,
     });
 
     return updated;

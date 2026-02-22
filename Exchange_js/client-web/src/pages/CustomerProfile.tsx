@@ -11,16 +11,13 @@ const CustomerProfile = () => {
   if (error) return <div className="p-8 text-center text-red-500">{error}</div>;
   if (!profile) return null;
 
-  const isApproved = profile.complianceStatus === 'ACTIVE';
-  const isRejected =
-    profile.cddStatus === 'REJECTED' ||
-    profile.eddStatus === 'REJECTED' ||
-    profile.finalApprovalStatus === 'REJECTED';
-  const isExpired = profile.complianceStatus === 'EXPIRED' || profile.cddStatus === 'EXPIRED';
-  const isBlocked = profile.complianceStatus === 'BLOCKED' || isRejected;
-  const isRestricted = profile.complianceStatus === 'RESTRICTED';
-  const isInProgress = ['NONE', 'IN_PROGRESS'].includes(profile.complianceStatus);
-  const isFinalPending = profile.finalApprovalStatus === 'PENDING';
+  const isApproved = profile.publicStatus === 'ACTIVE';
+  const isRejected = profile.publicStatus === 'REJECTED';
+  const isExpired = profile.cddStatus === 'EXPIRED';
+  const isBlocked = isRejected;
+  const isRestricted = profile.publicStatus === 'WITHDRAWN';
+  const isInProgress = !['ACTIVE', 'REJECTED', 'WITHDRAWN'].includes(profile.publicStatus);
+  const isFinalPending = profile.publicStatus === 'FINAL_APPROVAL';
   const showVerifyButton = !isApproved;
 
   const statusIconClass = isApproved
@@ -71,7 +68,7 @@ const CustomerProfile = () => {
               </div>
               <div className="flex items-center gap-3">
                   <span className={`px-3 py-1 rounded-full text-xs font-bold transition-colors duration-300 ${statusBadgeClass}`}>
-                      {profile.complianceStatus.replace(/_/g, ' ')}
+                      {profile.publicStatus.replace(/_/g, ' ')}
                   </span>
                   {showVerifyButton && (
                       <button 

@@ -9,18 +9,11 @@ import {
 
 type IncidentSeverity = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
 type IncidentStatus =
-  | 'NEW'
+  | 'OPEN'
   | 'ASSIGNED'
-  | 'INVESTIGATING'
   | 'RESOLVED'
-  | 'CLOSED'
-  | 'FALSE_POSITIVE';
-type IncidentAction =
-  | 'ASSIGN'
-  | 'START_INVESTIGATION'
-  | 'MARK_RESOLVED'
-  | 'CLOSE'
-  | 'MARK_FALSE_POSITIVE';
+  | 'CLOSED';
+type IncidentAction = 'ASSIGN' | 'RESOLVE' | 'CLOSE';
 
 interface IncidentItem {
   id: string;
@@ -121,7 +114,7 @@ const DEFAULT_FILTERS: FilterState = {
   overdueOnly: false,
 };
 
-const CLOSED_STATUSES: IncidentStatus[] = ['CLOSED', 'FALSE_POSITIVE'];
+const CLOSED_STATUSES: IncidentStatus[] = ['CLOSED'];
 
 const formatDateTime = (value?: string | null): string => {
   if (!value) return '-';
@@ -148,9 +141,8 @@ const getSeverityClass = (severity: IncidentSeverity) => {
 };
 
 const getStatusClass = (status: IncidentStatus) => {
-  if (status === 'NEW') return 'bg-blue-100 text-blue-800';
+  if (status === 'OPEN') return 'bg-blue-100 text-blue-800';
   if (status === 'ASSIGNED') return 'bg-indigo-100 text-indigo-800';
-  if (status === 'INVESTIGATING') return 'bg-purple-100 text-purple-800';
   if (status === 'RESOLVED') return 'bg-green-100 text-green-800';
   if (status === 'CLOSED') return 'bg-gray-200 text-gray-800';
   return 'bg-gray-100 text-gray-700';
@@ -161,23 +153,16 @@ const isOverdue = (item: IncidentItem) =>
   new Date(item.dueAt).getTime() < Date.now();
 
 const getAllowedActions = (status: IncidentStatus): IncidentAction[] => {
-  if (status === 'NEW') return ['ASSIGN', 'MARK_FALSE_POSITIVE'];
-  if (status === 'ASSIGNED') {
-    return ['ASSIGN', 'START_INVESTIGATION', 'MARK_FALSE_POSITIVE'];
-  }
-  if (status === 'INVESTIGATING') {
-    return ['ASSIGN', 'MARK_RESOLVED', 'MARK_FALSE_POSITIVE'];
-  }
+  if (status === 'OPEN') return ['ASSIGN'];
+  if (status === 'ASSIGNED') return ['ASSIGN', 'RESOLVE'];
   if (status === 'RESOLVED') return ['CLOSE'];
   return [];
 };
 
 const actionLabelMap: Record<IncidentAction, string> = {
   ASSIGN: 'Assign to Me',
-  START_INVESTIGATION: 'Start Investigation',
-  MARK_RESOLVED: 'Mark Resolved',
+  RESOLVE: 'Resolve',
   CLOSE: 'Close',
-  MARK_FALSE_POSITIVE: 'False Positive',
 };
 
 const ComplianceIncidentsPage = () => {
@@ -278,55 +263,15 @@ const ComplianceIncidentsPage = () => {
 
     try {
       let reason: string | undefined;
-      let rootCauseCategory: string | undefined;
-      let resolutionSummary: string | undefined;
-      let containmentSummary: string | undefined;
-      let closureChecklist: string[] | undefined;
-
-      if (action === 'MARK_RESOLVED' || action === 'CLOSE' || action === 'MARK_FALSE_POSITIVE') {
+      if (action === 'RESOLVE' || action === 'CLOSE') {
         reason = window.prompt('Please provide reason', '') || '';
         if (!reason.trim()) {
           throw new Error(`Action ${action} requires a reason.`);
         }
       }
 
-      if (action === 'MARK_RESOLVED') {
-        rootCauseCategory = window.prompt('Root cause category', '') || '';
-        if (!rootCauseCategory.trim()) {
-          throw new Error('MARK_RESOLVED requires rootCauseCategory.');
-        }
-
-        resolutionSummary = window.prompt('Resolution summary', '') || '';
-        if (!resolutionSummary.trim()) {
-          throw new Error('MARK_RESOLVED requires resolutionSummary.');
-        }
-
-        containmentSummary = window.prompt('Containment summary (optional)', '') || '';
-      }
-
-      if (action === 'CLOSE') {
-        const checklistInput =
-          window.prompt(
-            'Closure checklist (comma-separated, at least 3 items)',
-            'Evidence collected,Impact assessed,Audit logs completed',
-          ) || '';
-
-        closureChecklist = checklistInput
-          .split(',')
-          .map((item) => item.trim())
-          .filter((item) => item.length > 0);
-
-        if (closureChecklist.length < 3) {
-          throw new Error('CLOSE requires at least 3 closure checklist items.');
-        }
-      }
-
       const payload: Record<string, unknown> = { action };
       if (reason) payload.reason = reason;
-      if (rootCauseCategory) payload.rootCauseCategory = rootCauseCategory;
-      if (resolutionSummary) payload.resolutionSummary = resolutionSummary;
-      if (containmentSummary) payload.containmentSummary = containmentSummary;
-      if (closureChecklist) payload.closureChecklist = closureChecklist;
 
       const response = await adminFetch(
         `${import.meta.env.VITE_API_URL}/admin/compliance/incidents/${detail.id}/action`,
@@ -404,7 +349,7 @@ const ComplianceIncidentsPage = () => {
   };
 
   const canLinkAlert =
-    detail && ['ASSIGNED', 'INVESTIGATING'].includes(detail.status);
+    detail && ['OPEN', 'ASSIGNED'].includes(detail.status);
 
   return (
     <div className="space-y-6">
@@ -450,12 +395,10 @@ const ComplianceIncidentsPage = () => {
             }
           >
             <option value="">All status</option>
-            <option value="NEW">NEW</option>
+            <option value="OPEN">OPEN</option>
             <option value="ASSIGNED">ASSIGNED</option>
-            <option value="INVESTIGATING">INVESTIGATING</option>
             <option value="RESOLVED">RESOLVED</option>
             <option value="CLOSED">CLOSED</option>
-            <option value="FALSE_POSITIVE">FALSE_POSITIVE</option>
           </select>
           <select
             className="border border-admin-border rounded px-3 py-2 text-sm"

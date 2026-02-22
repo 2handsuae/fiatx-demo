@@ -40,8 +40,7 @@ export class CustomerAuthService {
   async register(data: {
     email: string;
     password: string;
-    customerType: 'INDIVIDUAL' | 'CORPORATE';
-    companyName?: string;
+    customerType: 'INDIVIDUAL';
     firstName?: string;
     lastName?: string;
   }) {
@@ -54,10 +53,6 @@ export class CustomerAuthService {
       throw new BadRequestException('Email already exists');
     }
 
-    if (data.customerType === 'CORPORATE' && !data.companyName?.trim()) {
-      throw new BadRequestException('companyName is required for corporate customer');
-    }
-
     const passwordHash = await bcrypt.hash(data.password, 10);
 
     const customer = await this.prisma.customerMain.create({
@@ -65,8 +60,8 @@ export class CustomerAuthService {
         customerNo: generateReferenceNo('CU'),
         email: data.email,
         passwordHash,
-        customerType: data.customerType,
-        companyName: data.customerType === 'CORPORATE' ? data.companyName?.trim() || null : null,
+        customerType: 'INDIVIDUAL',
+        companyName: null,
         firstName: data.firstName,
         lastName: data.lastName,
         passwordUpdatedAt: new Date(),

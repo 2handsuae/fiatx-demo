@@ -39,6 +39,7 @@ export interface TriggerComplianceAlertInput {
   sourceId: string;
   sourceNo?: string | null;
   stage?: string | null;
+  journeyId?: string | null;
   entityType?: string | null;
   entityId?: string | null;
   entityNo?: string | null;
@@ -47,6 +48,10 @@ export interface TriggerComplianceAlertInput {
   ownerNo?: string | null;
   customerId?: string | null;
   customerNo?: string | null;
+  decisionRecommendation?: string | null;
+  decision?: string | null;
+  linkedCaseIds?: string[] | null;
+  decisionRecordIds?: string[] | null;
   title?: string;
   message?: string;
   severity?: ComplianceAlertSeverity;
@@ -158,6 +163,8 @@ export class ComplianceAlertsService {
     return {
       ...row,
       metadata: this.parseJson(row.metadata),
+      linkedCaseIds: this.parseJson(row.linkedCaseIds),
+      decisionRecordIds: this.parseJson(row.decisionRecordIds),
     };
   }
 
@@ -182,31 +189,25 @@ export class ComplianceAlertsService {
   ) {
     switch (action) {
       case ComplianceAlertAction.ASSIGN:
-        if (
-          ![
-            ComplianceAlertStatus.NEW,
-            ComplianceAlertStatus.ASSIGNED,
-            ComplianceAlertStatus.IN_REVIEW,
-          ].includes(currentStatus)
-        ) {
+        if (![ComplianceAlertStatus.OPEN, ComplianceAlertStatus.ASSIGNED].includes(currentStatus)) {
           throw new BadRequestException(
             `Action ASSIGN is not allowed from status ${currentStatus}`,
           );
         }
         return;
-      case ComplianceAlertAction.START_REVIEW:
+      case ComplianceAlertAction.UNASSIGN:
         if (currentStatus !== ComplianceAlertStatus.ASSIGNED) {
           throw new BadRequestException(
-            `Action START_REVIEW is not allowed from status ${currentStatus}`,
+            `Action UNASSIGN is not allowed from status ${currentStatus}`,
           );
         }
         return;
       case ComplianceAlertAction.ESCALATE:
-      case ComplianceAlertAction.MARK_FALSE_POSITIVE:
         if (
           ![
+            ComplianceAlertStatus.OPEN,
             ComplianceAlertStatus.ASSIGNED,
-            ComplianceAlertStatus.IN_REVIEW,
+            ComplianceAlertStatus.ESCALATED,
           ].includes(currentStatus)
         ) {
           throw new BadRequestException(
@@ -214,10 +215,16 @@ export class ComplianceAlertsService {
           );
         }
         return;
-      case ComplianceAlertAction.RESOLVE:
-        if (currentStatus !== ComplianceAlertStatus.IN_REVIEW) {
+      case ComplianceAlertAction.CLOSE:
+        if (
+          ![
+            ComplianceAlertStatus.OPEN,
+            ComplianceAlertStatus.ASSIGNED,
+            ComplianceAlertStatus.ESCALATED,
+          ].includes(currentStatus)
+        ) {
           throw new BadRequestException(
-            `Action RESOLVE is not allowed from status ${currentStatus}`,
+            `Action CLOSE is not allowed from status ${currentStatus}`,
           );
         }
         return;
@@ -240,13 +247,13 @@ export class ComplianceAlertsService {
           statusChanged: currentStatus !== ComplianceAlertStatus.ASSIGNED,
           isCloseAction: false,
         };
-      case ComplianceAlertAction.START_REVIEW:
+      case ComplianceAlertAction.UNASSIGN:
         return {
-          nextStatus: ComplianceAlertStatus.IN_REVIEW,
-          eventType: ComplianceAlertEventType.REVIEW_STARTED,
+          nextStatus: ComplianceAlertStatus.OPEN,
+          eventType: ComplianceAlertEventType.UNASSIGNED,
           auditAction: AuditActions.ALERT_ASSIGNED,
           requireReason: false,
-          statusChanged: currentStatus !== ComplianceAlertStatus.IN_REVIEW,
+          statusChanged: currentStatus !== ComplianceAlertStatus.OPEN,
           isCloseAction: false,
         };
       case ComplianceAlertAction.ESCALATE:
@@ -256,24 +263,15 @@ export class ComplianceAlertsService {
           auditAction: AuditActions.ALERT_ESCALATED,
           requireReason: true,
           statusChanged: currentStatus !== ComplianceAlertStatus.ESCALATED,
-          isCloseAction: true,
+          isCloseAction: false,
         };
-      case ComplianceAlertAction.RESOLVE:
+      case ComplianceAlertAction.CLOSE:
         return {
-          nextStatus: ComplianceAlertStatus.RESOLVED,
-          eventType: ComplianceAlertEventType.RESOLVED,
+          nextStatus: ComplianceAlertStatus.CLOSED,
+          eventType: ComplianceAlertEventType.CLOSED,
           auditAction: AuditActions.ALERT_RESOLVED,
           requireReason: true,
-          statusChanged: currentStatus !== ComplianceAlertStatus.RESOLVED,
-          isCloseAction: true,
-        };
-      case ComplianceAlertAction.MARK_FALSE_POSITIVE:
-        return {
-          nextStatus: ComplianceAlertStatus.FALSE_POSITIVE,
-          eventType: ComplianceAlertEventType.FALSE_POSITIVE,
-          auditAction: AuditActions.ALERT_FALSE_POSITIVE,
-          requireReason: true,
-          statusChanged: currentStatus !== ComplianceAlertStatus.FALSE_POSITIVE,
+          statusChanged: currentStatus !== ComplianceAlertStatus.CLOSED,
           isCloseAction: true,
         };
       default:
@@ -449,6 +447,11 @@ export class ComplianceAlertsService {
     const title = this.normalizeOptionalString(input.title) || rule.title;
     const message =
       this.normalizeOptionalString(input.message) || rule.defaultMessage;
+    const journeyId = this.normalizeOptionalString(input.journeyId);
+    const decisionRecommendation = this.normalizeOptionalString(input.decisionRecommendation);
+    const decision = this.normalizeOptionalString(input.decision);
+    const linkedCaseIds = this.serializeJson(input.linkedCaseIds || null);
+    const decisionRecordIds = this.serializeJson(input.decisionRecordIds || null);
 
     let ownerNo = this.normalizeOptionalString(input.ownerNo);
     let customerId = this.normalizeOptionalString(input.customerId);
@@ -491,7 +494,7 @@ export class ComplianceAlertsService {
           ruleCode: rule.ruleCode,
           capCode,
           severity,
-          status: ComplianceAlertStatus.NEW,
+          status: ComplianceAlertStatus.OPEN,
           title,
           message,
           sourceModule: input.sourceModule,
@@ -506,6 +509,11 @@ export class ComplianceAlertsService {
           ownerNo,
           customerId,
           customerNo,
+          journeyId,
+          decisionRecommendation,
+          decision,
+          linkedCaseIds,
+          decisionRecordIds,
           firstOccurredAt: occurredAt,
           lastOccurredAt: occurredAt,
           dueAt,
@@ -585,7 +593,7 @@ export class ComplianceAlertsService {
           ruleCode: rule.ruleCode,
           capCode,
           severity,
-          status: ComplianceAlertStatus.NEW,
+          status: ComplianceAlertStatus.OPEN,
           title,
           message,
           sourceModule: input.sourceModule,
@@ -600,6 +608,11 @@ export class ComplianceAlertsService {
           ownerNo,
           customerId,
           customerNo,
+          journeyId,
+          decisionRecommendation,
+          decision,
+          linkedCaseIds,
+          decisionRecordIds,
           firstOccurredAt: occurredAt,
           lastOccurredAt: occurredAt,
           dueAt,
@@ -679,6 +692,11 @@ export class ComplianceAlertsService {
         ownerNo,
         customerId,
         customerNo,
+        journeyId,
+        decisionRecommendation,
+        decision,
+        linkedCaseIds,
+        decisionRecordIds,
         lastOccurredAt: occurredAt,
         dueAt,
         hitCount: existing.hitCount + 1,
@@ -872,6 +890,10 @@ export class ComplianceAlertsService {
     const resolution = this.resolveAction(dto.action, currentStatus);
     const reason = this.normalizeOptionalString(dto.reason);
     const note = this.normalizeOptionalString(dto.note);
+    const recommendation = this.normalizeOptionalString(dto.recommendation);
+    const decision = this.normalizeOptionalString(dto.decision);
+    const linkedCaseIds = this.serializeJson(dto.linkedCaseIds || null);
+    const decisionRecordIds = this.serializeJson(dto.decisionRecordIds || null);
 
     if (resolution.requireReason && !reason) {
       throw new BadRequestException(
@@ -886,6 +908,10 @@ export class ComplianceAlertsService {
       lastActionByNo: actor.actorNo || null,
       lastActionByRole: actor.actorRole || null,
       lastActionAt: now,
+      decisionRecommendation: recommendation || undefined,
+      decision: decision || undefined,
+      linkedCaseIds: linkedCaseIds || undefined,
+      decisionRecordIds: decisionRecordIds || undefined,
     };
 
     let assigneeUserId: string | null = null;
@@ -902,9 +928,20 @@ export class ComplianceAlertsService {
       updateData.assignedAt = now;
     }
 
+    if (dto.action === ComplianceAlertAction.UNASSIGN) {
+      updateData.assigneeUserId = null;
+      updateData.assigneeUserNo = null;
+      updateData.assignedAt = null;
+    }
+
     if (resolution.isCloseAction) {
       updateData.closedAt = now;
       updateData.closeReason = reason || note || null;
+      updateData.assigneeUserId = current.assigneeUserId || null;
+      updateData.assigneeUserNo = current.assigneeUserNo || null;
+    } else {
+      updateData.closedAt = null;
+      updateData.closeReason = null;
     }
 
     const updated = await db.complianceAlert.update({
@@ -927,6 +964,10 @@ export class ComplianceAlertsService {
         note: note || null,
         assigneeUserId,
         assigneeUserNo,
+        recommendation,
+        decision,
+        linkedCaseIds: dto.linkedCaseIds || null,
+        decisionRecordIds: dto.decisionRecordIds || null,
         statusFrom: currentStatus,
         statusTo: updated.status,
       },
@@ -951,6 +992,10 @@ export class ComplianceAlertsService {
           note: note || null,
           assigneeUserId,
           assigneeUserNo,
+          recommendation,
+          decision,
+          linkedCaseIds: dto.linkedCaseIds || null,
+          decisionRecordIds: dto.decisionRecordIds || null,
         },
         sourcePlatform: actor.sourcePlatform || 'ADMIN_API',
       },

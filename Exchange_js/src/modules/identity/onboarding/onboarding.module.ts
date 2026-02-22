@@ -3,12 +3,13 @@ import { PrismaModule } from '../../../core/prisma/prisma.module';
 import { OnboardingService } from './onboarding.service';
 import { OnboardingCustomerController } from './onboarding-customer.controller';
 import { OnboardingAdminController } from './onboarding-admin.controller';
+import { RiskEngineModule } from '../../risk-engine/risk-engine.module';
+import { ComplianceAlertsModule } from '../../risk-engine/compliance-alerts/compliance-alerts.module';
 
 @Module({
-  imports: [PrismaModule],
+  imports: [PrismaModule, RiskEngineModule, ComplianceAlertsModule],
   providers: [OnboardingService],
   controllers: [OnboardingCustomerController, OnboardingAdminController],
   exports: [OnboardingService],
 })
 export class OnboardingModule {}
-

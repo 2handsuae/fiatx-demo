@@ -85,8 +85,8 @@ export class UboProfileDto {
 
 export class UpsertEntityDto {
   @IsString()
-  @IsIn(['INDIVIDUAL', 'CORPORATE'])
-  customerType!: 'INDIVIDUAL' | 'CORPORATE';
+  @IsIn(['INDIVIDUAL'])
+  customerType!: 'INDIVIDUAL';
 
   @IsOptional()
   @ValidateNested()
