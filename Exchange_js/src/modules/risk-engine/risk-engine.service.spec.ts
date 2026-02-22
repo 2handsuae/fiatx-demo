@@ -219,5 +219,10 @@ describe('RiskEngineService', () => {
         }),
       ]),
     );
+    const decisionAction = result.recommendedActions.find(
+      (action) => action.type === 'ONBOARDING_RECOMMEND_DECISIONS',
+    );
+    expect(decisionAction?.payload?.decisions).toEqual(['APPROVE', 'REJECT']);
+    expect(decisionAction?.payload?.decisions).not.toContain('REQUIRE_EDD');
   });
 });

@@ -77,7 +77,7 @@
 - CDD completion MUST evaluate risk and move customer to `REVIEW_CDD` (container waiting for recommendation execution).
 - EDD completion MUST evaluate risk and move customer to `REVIEW_EDD` (container waiting for recommendation execution).
 - CDD mock submission profile MUST support:
-1. `LOW_RISK` -> create/update onboarding journey alert only
+1. `LOW_RISK` -> auto-pass onboarding to `ACTIVE` without creating/updating onboarding journey alert
 2. `MEDIUM_RISK` / `HIGH_RISK_OR_PEP` -> create/update onboarding journey alert only
 3. `SANCTION_AND_OTHER` -> create/update onboarding journey alert, then auto-escalate and auto-create incident
 - Legacy compatibility for CDD mock completion MUST remain:
@@ -93,6 +93,7 @@
 - Recommendation set contract MUST remain:
 1. CDD review: `APPROVE`, `REJECT`, `REQUIRE_EDD`
 2. EDD review: `APPROVE`, `REJECT`
+- EDD-stage recommendation rendering MUST NOT show `REQUIRE_EDD` in alert or incident detail views.
 - `REVIEW_CDD` stage MAY be progressed by assigned onboarding journey alert decision action:
 1. `APPROVE` -> customer `ACTIVE`
 2. `REJECT` -> customer `REJECTED`
@@ -123,3 +124,8 @@
 - Risk Engine evaluate-to-record behavior validated.
 - Alert/incident linkage validated for onboarding journey rules.
 - Audit log records verified for critical actions.
+- Cross-module read-model stability verified for `GET /customers/:id` onboarding snapshot fields:
+1. `publicStatus`
+2. `cddCases`
+3. `eddCases`
+4. `onboardingAuditLogs`

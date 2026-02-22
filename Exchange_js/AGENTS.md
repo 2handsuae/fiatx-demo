@@ -62,6 +62,20 @@ Before any code change in `Exchange_js`, read:
 
 ## Recent Core Decisions (2026-02-20)
 - Compliance Incident V1 is enabled and is created manually from alert escalation (`POST /admin/compliance/incidents/from-alert/:alertId`).
-- Incident mainline is fixed to `NEW -> ASSIGNED -> INVESTIGATING -> RESOLVED -> CLOSED`, with branch to `FALSE_POSITIVE`; terminal states cannot reopen.
+- Incident mainline is fixed to `NEW -> ASSIGNED -> INVESTIGATING -> RESOLVED -> CLOSED`, with branch to `FALSE_POSITIVE`; terminal states cannot reopen. (superseded by 2026-02-22 flow)
 - One incident can aggregate multiple alerts, but one alert can belong to only one incident (`compliance_incident_alerts.alertId` global unique).
 - Alert escalation to incident must run in one DB transaction: escalate alert to terminal `ESCALATED` and create incident + primary link atomically.
+
+## Recent Core Decisions (2026-02-22)
+- Incident workflow is simplified to `OPEN -> ASSIGNED -> CLOSED`; legacy `RESOLVED` records are read-only compatible and MUST NOT be produced by new transitions.
+- Alert and incident recommendation buttons are container-level actions sourced from Risk Engine output and are intentionally repeat-callable; onboarding stage legality is the final gate.
+- CDD mock `LOW_RISK` is auto-pass: no onboarding journey alert is created/updated, and customer moves directly to `ACTIVE`.
+- CDD mock `MEDIUM_RISK` / `HIGH_RISK_OR_PEP` create/update onboarding journey alert only; no automatic incident creation.
+- CDD mock `SANCTION_AND_OTHER` is the only auto-escalation exception: create/update alert, auto-escalate, then auto-create incident with inherited recommendation payload.
+- EDD-stage recommendation set is fixed to `APPROVE` / `REJECT`; `REQUIRE_EDD` MUST NOT appear in alert or incident detail after EDD evaluation.
+- Incident recommendation rendering MUST follow primary alert latest recommendation first, with incident metadata snapshot as fallback only.
+
+## Recent Core Decisions (2026-02-23)
+- `GET /customers/:id` is a critical admin onboarding/compliance read-model endpoint and MUST remain stable for customer detail rendering.
+- Customer detail projection queries MUST NOT include Prisma relations that are not defined in current schema (incident example: invalid `include.wallets` caused `500`).
+- Customer-detail read path changes MUST include a regression check that validates relation include legality and endpoint availability (`200` with onboarding snapshot fields).

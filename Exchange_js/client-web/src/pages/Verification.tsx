@@ -64,7 +64,7 @@ const CDD_MOCK_OPTIONS: Array<{
   {
     value: 'LOW_RISK',
     label: 'Low risk',
-    description: 'Auto low-risk approval path with low-risk mock package.',
+    description: 'Auto pass onboarding without creating any alert.',
   },
   {
     value: 'MEDIUM_HIGH_MIX',

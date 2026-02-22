@@ -215,6 +215,50 @@ describe('ComplianceIncidentsService', () => {
     ).rejects.toThrow(ConflictException);
   });
 
+  it('should prioritize primary alert recommendation over incident metadata snapshot', async () => {
+    prismaMock.complianceIncident.findUnique.mockResolvedValue({
+      ...buildIncident({
+        metadata: JSON.stringify({
+          recommendedDecisions: ['APPROVE', 'REJECT', 'REQUIRE_EDD'],
+        }),
+      }),
+      alerts: [
+        {
+          incidentId: 'inc-1',
+          alertId: 'alert-1',
+          relationType: 'PRIMARY',
+          linkedAt: new Date('2026-02-19T00:00:00.000Z'),
+          linkedById: 'admin-1',
+          linkedByNo: 'US0001',
+          linkedByRole: 'SUPER_ADMIN',
+          alert: {
+            id: 'alert-1',
+            alertNo: 'ALT2602010001',
+            ruleCode: 'ONBOARDING_REVIEW',
+            severity: 'HIGH',
+            status: 'ASSIGNED',
+            title: 'Onboarding review alert',
+            sourceType: 'ONBOARDING_JOURNEY',
+            sourceId: 'c1:ONB-1',
+            sourceNo: 'ONB-1',
+            decisionRecommendation: 'APPROVE',
+            metadata: JSON.stringify({
+              recommendedDecisions: ['APPROVE', 'REJECT'],
+            }),
+            dueAt: new Date('2026-02-20T00:00:00.000Z'),
+            lastOccurredAt: new Date('2026-02-19T01:00:00.000Z'),
+          },
+        },
+      ],
+      events: [],
+    });
+
+    const result = await service.findOne('inc-1');
+
+    expect(result.recommendedDecisions).toEqual(['APPROVE', 'REJECT']);
+    expect(result.recommendedDecisions).not.toContain('REQUIRE_EDD');
+  });
+
   it('should require reason for CLOSE action', async () => {
     prismaMock.complianceIncident.findUnique.mockResolvedValue(
       buildIncident({ status: ComplianceIncidentStatus.ASSIGNED }),

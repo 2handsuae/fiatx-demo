@@ -33,6 +33,11 @@
 1. recommendation buttons are rendered from risk-engine output (`recommendedDecisions`)
 2. recommendation execution MAY be invoked multiple times in UI/API
 3. actual transition validity MUST be enforced by onboarding state-machine checks (illegal stage transition returns `400/409`)
+- Incident recommendation projection priority for onboarding flow MUST be:
+1. primary alert latest `metadata.recommendedDecisions`
+2. primary alert `decisionRecommendation` fallback
+3. incident metadata snapshot as final fallback only
+- EDD-stage recommendation rendering MUST NOT contain `REQUIRE_EDD` in either alert or incident detail views.
 - Alert dedupe key MUST stay `ruleCode:sourceType:sourceId[:stage]`.
 - When same dedupe key hits a closed alert, implementation MUST create a new alert row and rotate old dedupe key archive suffix.
 
@@ -102,6 +107,7 @@
 6. `POST /admin/compliance/incidents/:id/onboarding-decision`
 - List responses MUST stay machine-parsable `{ total, skip, take, items[] }`.
 - Detail responses MUST include timeline events, linked relation records, and risk recommendation projection (`recommendedDecisions` where applicable).
+- Alert/incident orchestration changes MUST NOT break customer-detail read model availability (`GET /customers/:id` MUST remain queryable without schema-invalid include/select).
 
 ## 8) Audit Logging Constraints (Alert/Incident)
 - All alert/incident writes MUST go through `AuditLogsService`.
@@ -129,3 +135,4 @@
 - API shape change? -> DTO + controller + page contract aligned.
 - Audit action/module/entity constants aligned with service writes.
 - Build and targeted tests pass for alert and incident modules.
+- Cross-module smoke check confirms admin customer detail (`GET /customers/:id`) remains `200` after alert/incident flow changes.

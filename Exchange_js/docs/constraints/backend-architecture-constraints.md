@@ -44,6 +44,12 @@
 1. impact list
 2. backward compatibility statement
 3. migration strategy (if any)
+- Prisma query projections (`include` / `select`) MUST use schema-defined relations/fields only; implementation MUST NOT rely on `as any` to bypass relation safety.
+- Read-model endpoints (especially `GET /customers/:id`) MUST keep detail projection queryable and MUST return deterministic payload for admin pages.
+- Any behavior change touching detail projection MUST include:
+1. impact list
+2. regression verification steps
+3. explicit check that endpoint remains available (non-500)
 - MUST keep Swagger availability at `/api` in local dev.
 
 ## 8) Thread Delivery Checklist (Backend)
@@ -51,4 +57,5 @@
 - Transaction coverage confirmed for multi-entity writes.
 - Error paths tested.
 - Key module/service tests added or updated where behavior changed.
+- Read-model projection changes validated with regression test coverage (for example `/customers/:id` relation include legality).
 - No accidental startup mutation introduced.

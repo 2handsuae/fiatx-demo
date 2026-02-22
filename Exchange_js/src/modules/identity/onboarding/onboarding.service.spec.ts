@@ -697,8 +697,15 @@ describe('OnboardingService', () => {
     expect(result.eddCase?.id).toBe('edd-1');
   });
 
-  it('should process CDD LOW_RISK mock payload and continue low-risk flow', async () => {
+  it('should auto-pass CDD LOW_RISK to ACTIVE without creating onboarding alert', async () => {
     seedCddMockFlow();
+    prismaMock.customerMain.update.mockResolvedValue({
+      id: 'c1',
+      publicStatus: 'ACTIVE',
+      cddStatus: 'APPROVED',
+      complianceStatus: 'ACTIVE',
+      finalApprovalStatus: 'APPROVED',
+    });
     riskEngineMock.evaluate.mockResolvedValue({
       decision: 'REVIEW',
       decisionRecordId: 'dr-low',
@@ -735,7 +742,30 @@ describe('OnboardingService', () => {
         }),
       }),
     );
-    expect(result.publicStatus).toBe('REVIEW_CDD');
+    const finalizedUpdate = prismaMock.cddCase.update.mock.calls[1][0];
+    expect(finalizedUpdate).toEqual(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          reviewerDecision: 'APPROVE',
+          decisionReason: 'AUTO_LOW_RISK_PASS',
+          requiresEdd: false,
+        }),
+      }),
+    );
+    expect(prismaMock.customerMain.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          publicStatus: 'ACTIVE',
+          cddStatus: 'APPROVED',
+          complianceStatus: 'ACTIVE',
+          finalApprovalStatus: 'APPROVED',
+          activeCaseType: null,
+          activeCaseId: null,
+        }),
+      }),
+    );
+    expect(complianceAlertsMock.triggerSystemAlert).not.toHaveBeenCalled();
+    expect(result.publicStatus).toBe('ACTIVE');
   });
 
   it('should create OPEN alert with recommendation for CDD MEDIUM_RISK', async () => {

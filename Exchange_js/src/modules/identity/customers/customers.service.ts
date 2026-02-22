@@ -69,11 +69,6 @@ export class CustomersService {
     return (this.prisma as any).customerMain.findUnique({
       where: { id },
       include: {
-        wallets: {
-          include: {
-            asset: true,
-          },
-        },
         corporateProfile: true,
         uboProfiles: {
           orderBy: { createdAt: 'asc' },

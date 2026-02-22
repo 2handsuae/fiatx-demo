@@ -642,6 +642,8 @@ export class OnboardingService {
       reasonCodes,
       recommendedActions,
     } = input;
+    const isLowRiskAutoPass = input.mockDataType === 'LOW_RISK';
+    const now = new Date();
     const journeyId = cddCase.journeyId || customer.activeJourneyId || generateReferenceNo('ONB');
     const recommendation = this.getRecommendedDecision(
       recommendedActions,
@@ -652,28 +654,53 @@ export class OnboardingService {
       'ONBOARDING_CDD',
     );
 
-    const updateData: Prisma.CustomerMainUpdateInput = {
-      latestDecisionRecordId: decisionRecordId,
-      activeJourneyId: journeyId,
-      publicStatus: 'REVIEW_CDD',
-      cddStatus: 'PENDING_REVIEW',
-      eddRequired: false,
-      eddStatus: 'NOT_REQUIRED',
-      complianceStatus: 'IN_PROGRESS',
-      finalApprovalStatus: 'NOT_REQUIRED',
-      finalApprovalReason: null,
-      finalApprovalReviewerId: null,
-      finalApprovalReviewedAt: null,
-      activeCaseType: 'CDD',
-      activeCaseId: cddCase.id,
-      currentCddCaseId: cddCase.id,
-    };
+    const updateData: Prisma.CustomerMainUpdateInput = isLowRiskAutoPass
+      ? {
+          latestDecisionRecordId: decisionRecordId,
+          activeJourneyId: journeyId,
+          publicStatus: 'ACTIVE',
+          cddStatus: 'APPROVED',
+          eddRequired: false,
+          eddStatus: 'NOT_REQUIRED',
+          complianceStatus: 'ACTIVE',
+          finalApprovalStatus: 'APPROVED',
+          finalApprovalReason: 'AUTO_LOW_RISK_PASS',
+          finalApprovalReviewerId: 'SYSTEM',
+          finalApprovalReviewedAt: now,
+          activeCaseType: null,
+          activeCaseId: null,
+          currentCddCaseId: cddCase.id,
+          currentEddCaseId: null,
+          cddDocumentExpiresAt: this.addDays(now, 365),
+          nextReviewAt: this.addDays(now, 365),
+        }
+      : {
+          latestDecisionRecordId: decisionRecordId,
+          activeJourneyId: journeyId,
+          publicStatus: 'REVIEW_CDD',
+          cddStatus: 'PENDING_REVIEW',
+          eddRequired: false,
+          eddStatus: 'NOT_REQUIRED',
+          complianceStatus: 'IN_PROGRESS',
+          finalApprovalStatus: 'NOT_REQUIRED',
+          finalApprovalReason: null,
+          finalApprovalReviewerId: null,
+          finalApprovalReviewedAt: null,
+          activeCaseType: 'CDD',
+          activeCaseId: cddCase.id,
+          currentCddCaseId: cddCase.id,
+          currentEddCaseId: null,
+        };
     const linkedCaseIds = [cddCase.id];
 
     const updated = await this.prisma.customerMain.update({
       where: { id: customer.id },
       data: updateData,
     });
+
+    if (isLowRiskAutoPass) {
+      return updated;
+    }
 
     const upsertedAlert = await this.upsertJourneyAlert({
       customerId: customer.id,
@@ -1348,15 +1375,19 @@ export class OnboardingService {
         signals,
         policyVersion: 'onboarding-risk-policy/v1',
       });
+      const effectiveMockDataType = mockDataType || 'LOW_RISK';
+      const isLowRiskAutoPass = effectiveMockDataType === 'LOW_RISK';
 
       await this.prisma.cddCase.update({
         where: { id: cddCase.id },
         data: {
           status: 'FINAL',
           reviewedAt: now,
-          reviewerDecision: decision.decision,
-          decisionReason: decision.reasonCodes.join(',') || decision.decision,
-          requiresEdd: decision.decision === 'REQUIRE_EDD',
+          reviewerDecision: isLowRiskAutoPass ? 'APPROVE' : decision.decision,
+          decisionReason: isLowRiskAutoPass
+            ? 'AUTO_LOW_RISK_PASS'
+            : decision.reasonCodes.join(',') || decision.decision,
+          requiresEdd: isLowRiskAutoPass ? false : decision.decision === 'REQUIRE_EDD',
           riskScore: Number(signals.riskScore),
           riskLevel: String(signals.riskLevel),
         },
@@ -1369,7 +1400,7 @@ export class OnboardingService {
         decisionRecordId: decision.decisionRecordId,
         reasonCodes: decision.reasonCodes,
         recommendedActions: decision.recommendedActions,
-        mockDataType: mockDataType || 'LOW_RISK',
+        mockDataType: effectiveMockDataType,
       });
 
       await this.writeAudit({
@@ -1381,7 +1412,7 @@ export class OnboardingService {
         caseId: cddCase.id,
         fromStage: this.normalizePublicStatus(customer.publicStatus),
         toStage: this.normalizePublicStatus(updatedCustomer.publicStatus),
-        detail: `CDD decision=${decision.decision} mockDataType=${mockDataType || 'LOW_RISK'} reasonCodes=${decision.reasonCodes.join(',')}`,
+        detail: `CDD decision=${isLowRiskAutoPass ? 'AUTO_APPROVE' : decision.decision} mockDataType=${effectiveMockDataType} reasonCodes=${decision.reasonCodes.join(',')}`,
       });
 
       return {

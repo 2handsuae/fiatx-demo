@@ -509,22 +509,22 @@ export class ComplianceIncidentsService {
       !Array.isArray(primaryAlertMetadata)
         ? (primaryAlertMetadata as Record<string, unknown>)
         : {};
-    const recommendedDecisions =
-      (mappedIncident as any).recommendedDecisions?.length > 0
-        ? (mappedIncident as any).recommendedDecisions
-        : this.getRecommendedDecisionsFromMetadata(normalizedPrimaryAlertMetadata);
+    const fromPrimaryAlert = this.getRecommendedDecisionsFromMetadata(
+      normalizedPrimaryAlertMetadata,
+    );
     const fallbackRecommendation = this.normalizeRecommendedDecision(
       (primaryAlert as any)?.decisionRecommendation,
     );
+    const fromIncidentSnapshot = (mappedIncident as any).recommendedDecisions || [];
 
     return {
       ...mappedIncident,
       recommendedDecisions:
-        recommendedDecisions.length > 0
-          ? recommendedDecisions
+        fromPrimaryAlert.length > 0
+          ? fromPrimaryAlert
           : fallbackRecommendation
             ? [fallbackRecommendation]
-            : [],
+            : fromIncidentSnapshot,
       alerts: mappedAlerts,
       events: row.events.map((event) => this.mapIncidentEvent(event)),
     };
