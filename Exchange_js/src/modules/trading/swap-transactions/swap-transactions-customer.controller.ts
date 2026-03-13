@@ -47,7 +47,8 @@ export class SwapTransactionsCustomerController {
 
   @Post('quotes')
   @ApiOperation({ summary: 'Create a firm quote for customer swap' })
-  createQuote(@Request() req: any, @Body() dto: CreateSwapQuoteDto) {
+  async createQuote(@Request() req: any, @Body() dto: CreateSwapQuoteDto) {
+    await this.onboardingService.assertTradingEligibility(req.user.userId, 'SWAP');
     return this.swapQuotesService.createFirmQuote('CUSTOMER', req.user.userId, dto);
   }
 

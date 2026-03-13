@@ -140,6 +140,39 @@ export class CustomerAuthService {
       return null;
     }
 
+    if (String(customer.accountStatus || 'ACTIVE').toUpperCase() === 'FROZEN') {
+      await this.auditLogsService.recordByActor(
+        {
+          triggerType: AuditTriggerType.AUTH_EVENT,
+          action: AuditActions.CUSTOMER_LOGIN_FAILED,
+          module: AuditModules.CUSTOMER_AUTH,
+          entityType: AuditEntityTypes.AUTH,
+          entityId: customer.id,
+          entityNo: customer.customerNo,
+          result: AuditResult.REJECTED,
+          reason: 'Customer login blocked: account frozen',
+          metadata: {
+            accountStatus: customer.accountStatus,
+            accountStatusReason: customer.accountStatusReason || null,
+            identifierHash: this.maskIdentifier(normalized),
+          },
+          requestId: ctx.requestId,
+          sourceIp: ctx.sourceIp,
+          sourcePlatform: ctx.sourcePlatform || 'CUSTOMER_AUTH_API',
+        },
+        {
+          actorType: 'CUSTOMER',
+          actorId: customer.id,
+          actorNo: customer.customerNo,
+          actorRole: 'CUSTOMER',
+        },
+      );
+      throw new ForbiddenException({
+        code: 'CUSTOMER_ACCOUNT_FROZEN',
+        message: '账号已冻结，禁止登录。请联系 WhatsApp 客服处理。',
+      });
+    }
+
     // Check lock status
     if (customer.lockedUntil && customer.lockedUntil > new Date()) {
       await this.auditLogsService.recordByActor(

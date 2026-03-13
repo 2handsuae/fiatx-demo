@@ -294,6 +294,67 @@ describe('OnboardingService', () => {
     expect(result.blockedReason).toContain('Re-initiate');
   });
 
+  it('should auto-expire ACTIVE customer to PENDING_CDD when cddDocumentExpiresAt passed', async () => {
+    prismaMock.customerMain.findUnique
+      .mockResolvedValueOnce({
+        id: 'c1',
+        publicStatus: 'ACTIVE',
+        cddDocumentExpiresAt: new Date(Date.now() - 60 * 1000),
+      })
+      .mockResolvedValueOnce({
+        id: 'c1',
+        publicStatus: 'PENDING_CDD',
+        activeCaseId: null,
+        eddRequired: false,
+      });
+    prismaMock.customerMain.update.mockResolvedValue({
+      id: 'c1',
+      publicStatus: 'PENDING_CDD',
+    });
+
+    const result = await service.getNextStep('c1');
+
+    expect(prismaMock.customerMain.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'c1' },
+        data: expect.objectContaining({
+          publicStatus: 'PENDING_CDD',
+          cddStatus: 'EXPIRED',
+          complianceStatus: 'EXPIRED',
+        }),
+      }),
+    );
+    expect(result.publicStatus).toBe('PENDING_CDD');
+    expect(result.actions).toEqual([{ type: 'COMPLETE_CDD' }]);
+  });
+
+  it('should auto-expire and block DEPOSIT trading when CDD is expired', async () => {
+    prismaMock.customerMain.findUnique
+      .mockResolvedValueOnce({
+        id: 'c1',
+        publicStatus: 'ACTIVE',
+        cddDocumentExpiresAt: new Date(Date.now() - 60 * 1000),
+      })
+      .mockResolvedValueOnce({
+        id: 'c1',
+        customerNo: 'CU1',
+        publicStatus: 'PENDING_CDD',
+        complianceStatus: 'EXPIRED',
+        cddStatus: 'EXPIRED',
+        eddStatus: 'NOT_REQUIRED',
+        finalApprovalStatus: 'NOT_REQUIRED',
+      });
+    prismaMock.customerMain.update.mockResolvedValue({
+      id: 'c1',
+      publicStatus: 'PENDING_CDD',
+    });
+
+    await expect(service.assertTradingEligibility('c1', 'DEPOSIT')).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+    expect(prismaMock.customerMain.update).toHaveBeenCalledTimes(1);
+  });
+
   it('should reject creating session for non-created case', async () => {
     prismaMock.customerMain.findUnique.mockResolvedValue({
       id: 'c1',

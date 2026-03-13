@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Mail, ArrowRight, Smartphone, Shield, Eye, EyeOff } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
@@ -9,6 +9,7 @@ const CustomerLogin = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+  const [toastMessage, setToastMessage] = useState('');
   const navigate = useNavigate();
   const { refreshProfile } = useAuth();
 
@@ -17,6 +18,23 @@ const CustomerLogin = () => {
     phone: '',
     password: ''
   });
+
+  useEffect(() => {
+    const raw = sessionStorage.getItem('customer_login_notice');
+    if (!raw) return;
+
+    sessionStorage.removeItem('customer_login_notice');
+    try {
+      const parsed = JSON.parse(raw) as { code?: string; message?: string };
+      if (String(parsed?.code || '').toUpperCase() === 'CUSTOMER_ACCOUNT_FROZEN') {
+        setToastMessage(
+          parsed?.message || '账号已冻结，禁止登录。请联系 WhatsApp 客服处理。',
+        );
+      }
+    } catch {
+      // ignore malformed notice payload
+    }
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -43,8 +61,14 @@ const CustomerLogin = () => {
             await refreshProfile(); // Refresh global auth state
             navigate('/profile');
         } else {
-            const err = await response.json();
-            setError(err.message || 'Login failed');
+            const err = await response.json().catch(() => ({}));
+            const code = String(err?.code || '').trim().toUpperCase();
+            if (code === 'CUSTOMER_ACCOUNT_FROZEN') {
+                setError('');
+                setToastMessage('账号已冻结，禁止登录。请联系 WhatsApp 客服处理。');
+            } else {
+                setError((typeof err?.message === 'string' && err.message) ? err.message : 'Login failed');
+            }
         }
     } catch (err) {
         setError('Network error. Please try again.');
@@ -55,6 +79,20 @@ const CustomerLogin = () => {
 
   return (
     <div className="min-h-screen flex bg-brand-secondary font-['Noto_Sans_SC']">
+      {toastMessage && (
+        <div className="fixed top-5 right-5 z-50 max-w-sm rounded-xl border border-orange-300 bg-orange-50 px-4 py-3 text-sm text-orange-800 shadow-lg">
+          <div className="font-semibold">登录受限</div>
+          <div className="mt-1">{toastMessage}</div>
+          <button
+            type="button"
+            onClick={() => setToastMessage('')}
+            className="mt-2 text-xs font-medium text-orange-700 hover:text-orange-900"
+          >
+            关闭
+          </button>
+        </div>
+      )}
+
       {/* Left: Brand Image Section (40%) */}
       <div className="hidden lg:flex lg:w-[40%] relative overflow-hidden bg-brand-dark">
         <motion.div 

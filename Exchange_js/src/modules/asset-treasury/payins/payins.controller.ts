@@ -7,6 +7,7 @@ import {
   Patch,
   Body,
   Post,
+  Request,
 } from '@nestjs/common';
 import { PayinsService } from './payins.service';
 import {
@@ -17,17 +18,24 @@ import {
 import { AuthGuard } from '@nestjs/passport';
 import { AdminPermissionGuard } from 'src/modules/identity/access-control/admin-permission.guard';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
+import { OnboardingService } from '../../identity/onboarding/onboarding.service';
 
 @ApiTags('treasury/payins')
 @ApiBearerAuth()
 @Controller('treasury/payins')
 @UseGuards(AuthGuard('jwt'), AdminPermissionGuard)
 export class PayinsController {
-  constructor(private readonly service: PayinsService) {}
+  constructor(
+    private readonly service: PayinsService,
+    private readonly onboardingService: OnboardingService,
+  ) {}
 
   @Post('simulate')
   @ApiOperation({ summary: 'Simulate a new payin (For testing/demo)' })
-  simulate(@Body() dto: SimulatePayinDto) {
+  async simulate(@Request() req: any, @Body() dto: SimulatePayinDto) {
+    if (req.user?.type === 'CUSTOMER') {
+      await this.onboardingService.assertTradingEligibility(req.user.userId, 'DEPOSIT');
+    }
     return this.service.simulate(dto);
   }
 
