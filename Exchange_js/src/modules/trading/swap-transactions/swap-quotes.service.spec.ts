@@ -53,11 +53,46 @@ describe('SwapQuotesService', () => {
       toAssetId: 'asset-2',
       fromAssetCode: 'BTC',
       toAssetCode: 'ETH',
+      fromAssetDecimals: 8,
+      toAssetDecimals: 8,
       marketRate: 2,
       spreadPercent: 1.5,
       executableRate: 2.03,
+      spreadBps: 150,
       rateSource: 'BINANCE',
       fetchedAt: new Date().toISOString(),
+      quoteLockSeconds: 30,
+      pairId: 'PAIR-0001',
+      pairName: 'BTC ↔ ETH',
+      tierId: 'TIER-001',
+      tierName: 'Default Tier',
+      matched: {
+        pairId: 'PAIR-0001',
+        pairName: 'BTC ↔ ETH',
+        tierId: 'TIER-001',
+        tierName: 'Default Tier',
+      },
+      pricingSource: {
+        provider: 'BINANCE',
+        endpoint: 'api/v3/ticker/bookTicker',
+        symbol: 'BTCUSDT',
+        bid: '100000',
+        ask: '100100',
+        sideUsed: 'BID',
+        aedPegApplied: false,
+        aedPegRate: '3.6725',
+        formula: 'baseRate = bid(BTCUSDT)',
+        effectiveBaseRate: '100000',
+        fetchedAt: new Date().toISOString(),
+      },
+      feeBreakdown: [],
+      feeTotals: { ETH: '0' },
+      policyRef: {
+        policyCode: 'SWAP_PRICING',
+        policyId: 'POL-SWAP-ONLINE',
+        business: 'SWAP',
+        channel: 'ONLINE',
+      },
     });
 
     mockPrismaService.customerMain.findUnique.mockResolvedValue({
@@ -86,7 +121,34 @@ describe('SwapQuotesService', () => {
       fetchedAt: new Date(),
       feeTotal: new Prisma.Decimal(0),
       feeCurrency: 'ETH',
-      feeBreakdown: '[]',
+      feeBreakdown: JSON.stringify([
+        {
+          matched: {
+            pairId: 'PAIR-0001',
+            pairName: 'BTC ↔ ETH',
+            tierId: 'TIER-001',
+            tierName: 'Default Tier',
+          },
+          fx: {
+            baseProvider: 'BINANCE',
+            baseRate: '100000',
+            quotedRate: '100000',
+            markupBps: 0,
+            endpoint: 'api/v3/ticker/bookTicker',
+            symbol: 'BTCUSDT',
+            bid: '100000',
+            ask: '100100',
+            sideUsed: 'BID',
+            aedPegApplied: false,
+            aedPegRate: '3.6725',
+            formula: 'baseRate = bid(BTCUSDT)',
+            effectiveBaseRate: '100000',
+            fetchedAt: new Date().toISOString(),
+          },
+          fees: [],
+          totals: { ETH: '0' },
+        },
+      ]),
       createdAt: new Date(),
       expiresAt: new Date(Date.now() + 30000),
       usedAt: null,
@@ -101,6 +163,8 @@ describe('SwapQuotesService', () => {
     expect(result.quoteId).toBe('quote-1');
     expect(result.status).toBe('ACTIVE');
     expect(result.rateAllIn).toBe(2.03);
+    expect(result.matched?.pairId).toBe('PAIR-0001');
+    expect(result.pricingSource?.symbol).toBe('BTCUSDT');
     expect(mockPrismaService.swapQuote.create).toHaveBeenCalled();
   });
 
@@ -110,11 +174,27 @@ describe('SwapQuotesService', () => {
       toAssetId: 'asset-2',
       fromAssetCode: 'BTC',
       toAssetCode: 'ETH',
+      fromAssetDecimals: 8,
+      toAssetDecimals: 8,
       marketRate: 2,
       spreadPercent: 1.5,
       executableRate: 2.03,
+      spreadBps: 150,
       rateSource: 'BINANCE',
       fetchedAt: new Date().toISOString(),
+      quoteLockSeconds: 30,
+      pairId: 'PAIR-0001',
+      pairName: 'BTC ↔ ETH',
+      tierId: 'TIER-001',
+      tierName: 'Default Tier',
+      feeBreakdown: [],
+      feeTotals: { ETH: '0' },
+      policyRef: {
+        policyCode: 'SWAP_PRICING',
+        policyId: 'POL-SWAP-ONLINE',
+        business: 'SWAP',
+        channel: 'ONLINE',
+      },
     });
     mockPrismaService.customerMain.findUnique.mockResolvedValue({
       customerNo: 'CU_0001',
@@ -170,11 +250,27 @@ describe('SwapQuotesService', () => {
       toAssetId: 'asset-2',
       fromAssetCode: 'BTC',
       toAssetCode: 'ETH',
+      fromAssetDecimals: 8,
+      toAssetDecimals: 8,
       marketRate: 2,
       spreadPercent: 1.5,
       executableRate: 2.03,
+      spreadBps: 150,
       rateSource: 'BINANCE',
       fetchedAt: new Date().toISOString(),
+      quoteLockSeconds: 30,
+      pairId: 'PAIR-0001',
+      pairName: 'BTC ↔ ETH',
+      tierId: 'TIER-001',
+      tierName: 'Default Tier',
+      feeBreakdown: [],
+      feeTotals: { ETH: '0' },
+      policyRef: {
+        policyCode: 'SWAP_PRICING',
+        policyId: 'POL-SWAP-ONLINE',
+        business: 'SWAP',
+        channel: 'ONLINE',
+      },
     });
     mockPrismaService.customerMain.findUnique.mockResolvedValue({
       customerNo: 'CU_0001',

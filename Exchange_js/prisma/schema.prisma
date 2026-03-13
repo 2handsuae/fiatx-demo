@@ -770,14 +770,13 @@ model Asset {
   fromConfigs            LiquidityConfiguration[] @relation("FromAsset")
   toConfigs              LiquidityConfiguration[] @relation("ToAsset")
   feeConfigs             LiquidityConfiguration[] @relation("FeeAsset")
-  customerSwapFromConfigs CustomerSwapRateConfiguration[] @relation("CustomerSwapRateFromAsset")
-  customerSwapToConfigs   CustomerSwapRateConfiguration[] @relation("CustomerSwapRateToAsset")
   payins                 Payin[]
   payouts                Payout[]
   swapFromTransactions   SwapTransaction[]        @relation("SwapFromAsset")
   swapToTransactions     SwapTransaction[]        @relation("SwapToAsset")
   swapQuoteFroms         SwapQuote[]              @relation("SwapQuoteFromAsset")
   swapQuoteTos           SwapQuote[]              @relation("SwapQuoteToAsset")
+  withdrawPricingQuotes  WithdrawPricingQuote[]
   outstandings           Outstanding[]
   outstandingSettlementItems OutstandingSettlementItem[]
   wallets                Wallet[]
@@ -860,20 +859,53 @@ model LiquidityConfiguration {
   @@map("liquidity_configurations")
 }
 
-model CustomerSwapRateConfiguration {
-  id            String   @id @default(uuid())
-  fromAssetId   String
-  toAssetId     String
-  spreadPercent Decimal  @default(0)
-  status        String   @default("ACTIVE")
-  createdAt     DateTime @default(now()) @map("created_at")
-  updatedAt     DateTime @updatedAt @map("updated_at")
-  fromAsset     Asset    @relation("CustomerSwapRateFromAsset", fields: [fromAssetId], references: [id])
-  toAsset       Asset    @relation("CustomerSwapRateToAsset", fields: [toAssetId], references: [id])
+model PricingPolicy {
+  id               String   @id @default(uuid())
+  policyCode       String   @unique
+  policyName       String
+  business         String
+  channelOnline    Boolean  @default(true)
+  channelStoreSoon Boolean  @default(true)
+  configJson       String
+  updatedByUserId  String?
+  updatedByUserNo  String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
-  @@unique([fromAssetId, toAssetId])
-  @@index([status])
-  @@map("customer_swap_rate_configurations")
+  @@index([business])
+  @@map("pricing_policies")
+}
+
+model WithdrawPricingQuote {
+  id              String                @id @default(uuid())
+  quoteNo         String                @unique
+  status          String                @default("ACTIVE")
+  ownerType       String
+  ownerId         String
+  ownerNo         String?
+  assetId         String
+  assetCode       String
+  amount          Decimal
+  segment         String
+  riskTier        String
+  matchedAssetId  String
+  matchedTierId   String
+  matchedTierName String
+  feeBreakdown    String
+  totalsJson      String
+  policyRef       String
+  expiresAt       DateTime
+  usedAt          DateTime?
+  cancelledAt     DateTime?
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+  asset           Asset                 @relation(fields: [assetId], references: [id])
+  withdrawals     WithdrawTransaction[]
+
+  @@index([status, expiresAt])
+  @@index([ownerType, ownerId])
+  @@index([assetId, createdAt])
+  @@map("withdraw_pricing_quotes")
 }
 
 model Wallet {
@@ -1552,6 +1584,7 @@ model WithdrawTransaction {
   complianceReviewedAt DateTime?
   parentType           String?
   parentId             String?
+  pricingQuoteId       String?            @unique
   createdAt            DateTime           @default(now())
   approvedAt           DateTime?
   payoutRequestedAt    DateTime?
@@ -1561,6 +1594,7 @@ model WithdrawTransaction {
   payout               Payout?            @relation("WithdrawToPayout")
   auditLogs            WithdrawAuditLog[]
   asset                Asset              @relation(fields: [assetId], references: [id])
+  pricingQuote         WithdrawPricingQuote? @relation(fields: [pricingQuoteId], references: [id])
   customer             CustomerMain       @relation(fields: [ownerId], references: [id])
 
   @@index([withdrawNo])
@@ -1569,6 +1603,7 @@ model WithdrawTransaction {
   @@index([status])
   @@index([assetId])
   @@index([toWalletId])
+  @@index([pricingQuoteId])
   @@index([providerTxnId])
   @@index([txHash])
   @@index([parentId])

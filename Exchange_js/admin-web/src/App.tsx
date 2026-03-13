@@ -5,9 +5,8 @@ import AdminInviteActivate from './pages/AdminInviteActivate';
 import DashboardLayout from './components/DashboardLayout';
 import PlatformMembers from './pages/PlatformMembers';
 import CustomerManagement from './pages/CustomerManagement';
-import CustomerSwapRateList from './pages/CustomerSwapRateList';
-import CustomerSwapRateCreate from './pages/CustomerSwapRateCreate';
-import CustomerSwapRateEdit from './pages/CustomerSwapRateEdit';
+import PricingSwapConfigPage from './pages/PricingSwapConfigPage';
+import PricingWithdrawalConfigPage from './pages/PricingWithdrawalConfigPage';
 import SwapQuoteList from './pages/SwapQuoteList';
 import SwapQuoteDetail from './pages/SwapQuoteDetail';
 import SwapOutstandingList from './pages/SwapOutstandingList';
@@ -197,15 +196,15 @@ function App() {
             />
             <Route
               path="pricing/rates"
-              element={withPermission(<CustomerSwapRateList />, [PERMISSIONS.CUSTOMER_SWAP_RATES_READ])}
+              element={<Navigate to="/dashboard/pricing/swap-config" replace />}
             />
             <Route
-              path="pricing/rates/create"
-              element={withPermission(<CustomerSwapRateCreate />, [PERMISSIONS.CUSTOMER_SWAP_RATES_WRITE])}
+              path="pricing/swap-config"
+              element={withPermission(<PricingSwapConfigPage />, [PERMISSIONS.PRICING_POLICIES_READ])}
             />
             <Route
-              path="pricing/rates/edit/:id"
-              element={withPermission(<CustomerSwapRateEdit />, [PERMISSIONS.CUSTOMER_SWAP_RATES_EDIT])}
+              path="pricing/withdraw-config"
+              element={withPermission(<PricingWithdrawalConfigPage />, [PERMISSIONS.PRICING_WITHDRAW_CONFIG_READ])}
             />
             <Route
               path="pricing/quotes"

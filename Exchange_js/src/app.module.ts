@@ -6,7 +6,6 @@ import { UsersModule } from './modules/identity/users/users.module';
 import { AuthModule } from './modules/identity/auth/auth.module';
 import { AccessControlModule } from './modules/identity/access-control/access-control.module';
 import { CustomersModule } from './modules/identity/customers/customers.module';
-import { CustomerSwapRatesModule } from './modules/identity/customer-swap-rates/customer-swap-rates.module';
 import { NotificationsModule } from './core/notifications/notifications.module';
 import { LiquidityProvidersModule } from './modules/counterparty/liquidity-providers/liquidity-providers.module';
 import { AssetsModule } from './modules/asset-treasury/assets/assets.module';
@@ -25,6 +24,7 @@ import { TreasuryModule } from './modules/asset-treasury/treasury/treasury.modul
 import { MonitoringModule } from './core/monitoring/monitoring.module';
 import { SwapTransactionsModule } from './modules/trading/swap-transactions/swap-transactions.module';
 import { WithdrawTransactionsModule } from './modules/trading/withdraw-transactions/withdraw-transactions.module';
+import { PricingCenterModule } from './modules/trading/pricing-center/pricing-center.module';
 import { PayoutsModule } from './modules/asset-treasury/payouts/payouts.module';
 import { InternalTransactionsModule } from './modules/asset-treasury/internal-transactions/internal-transactions.module';
 import { InternalFundsModule } from './modules/asset-treasury/internal-funds/internal-funds.module';
@@ -63,7 +63,6 @@ import { ComplianceIncidentsModule } from './modules/risk-engine/compliance-inci
     UsersModule,
     AuthModule,
     AccessControlModule,
-    CustomerSwapRatesModule,
     CustomersModule,
     NotificationsModule,
     LiquidityProvidersModule,
@@ -83,6 +82,7 @@ import { ComplianceIncidentsModule } from './modules/risk-engine/compliance-inci
     MonitoringModule,
     SwapTransactionsModule,
     WithdrawTransactionsModule,
+    PricingCenterModule,
     PayoutsModule,
     InternalTransactionsModule,
     InternalFundsModule,

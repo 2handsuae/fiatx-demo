@@ -27,7 +27,6 @@ import { AuditResult, AuditTriggerType } from '../../risk-engine/audit-logs/dto/
 
 @Injectable()
 export class SwapQuotesService {
-  private static readonly QUOTE_TTL_MS = 30 * 1000;
   private static readonly MAX_NO_GENERATION_RETRIES = 10;
   private readonly auditLogsService: AuditLogsService;
 
@@ -69,6 +68,40 @@ export class SwapQuotesService {
       }
     }
 
+    const firstSnapshot =
+      Array.isArray(feeBreakdown) && feeBreakdown.length > 0
+        ? feeBreakdown[0]
+        : null;
+
+    const matched =
+      firstSnapshot && typeof firstSnapshot === 'object'
+        ? (firstSnapshot as any).matched || null
+        : null;
+
+    const fx =
+      firstSnapshot && typeof firstSnapshot === 'object'
+        ? (firstSnapshot as any).fx || null
+        : null;
+    const pricingSource =
+      fx && typeof fx === 'object'
+        ? {
+            provider: quote.rateSource || 'BINANCE',
+            endpoint: fx.endpoint || 'api/v3/ticker/bookTicker',
+            symbol: fx.symbol || null,
+            bid: fx.bid || null,
+            ask: fx.ask || null,
+            sideUsed: fx.sideUsed || null,
+            aedPegApplied: Boolean(fx.aedPegApplied),
+            aedPegRate: fx.aedPegRate || null,
+            formula: fx.formula || null,
+            effectiveBaseRate:
+              fx.effectiveBaseRate || fx.baseRate || quote.marketRate.toString(),
+            fetchedAt:
+              fx.fetchedAt ||
+              (quote.fetchedAt ? new Date(quote.fetchedAt).toISOString() : null),
+          }
+        : null;
+
     return {
       quoteId: quote.id,
       quoteNo: quote.quoteNo,
@@ -96,6 +129,8 @@ export class SwapQuotesService {
       feeTotal: new Prisma.Decimal(quote.feeTotal).toNumber(),
       feeCurrency: quote.feeCurrency,
       feeBreakdown,
+      matched,
+      pricingSource,
     };
   }
 
@@ -171,24 +206,56 @@ export class SwapQuotesService {
     const rate = await this.swapTransactionsService.getExecutableRate(
       dto.fromAssetId,
       dto.toAssetId,
+      {
+        amount: dto.fromAmount,
+        ownerType,
+        ownerId,
+      },
     );
 
     const now = new Date();
-    const expiresAt = new Date(now.getTime() + SwapQuotesService.QUOTE_TTL_MS);
+    const expiresAt = new Date(
+      now.getTime() + rate.quoteLockSeconds * 1000,
+    );
     const rateAllIn = new Prisma.Decimal(rate.executableRate);
     const marketRate = new Prisma.Decimal(rate.marketRate);
     const spreadPercent = new Prisma.Decimal(rate.spreadPercent);
     const amountOut = fromAmount.mul(rateAllIn);
-    const spreadBps = Math.round(spreadPercent.toNumber() * 100);
+    const spreadBps = rate.spreadBps;
+
+    const feeTotal = new Prisma.Decimal(
+      rate.feeTotals?.[rate.toAssetCode] || '0',
+    );
 
     const feeBreakdown = JSON.stringify([
       {
-        type: 'spread',
-        basis: 'BPS',
-        spreadBps,
-        spreadPercent: spreadPercent.toNumber(),
-        marketRate: marketRate.toNumber(),
-        rateAllIn: rateAllIn.toNumber(),
+        policyRef: rate.policyRef,
+        matched:
+          rate.matched || {
+            pairId: rate.pairId,
+            pairName: rate.pairName,
+            tierId: rate.tierId,
+            tierName: rate.tierName,
+          },
+        fx: {
+          baseProvider: rate.rateSource,
+          baseRate: marketRate.toString(),
+          quotedRate: rateAllIn.toString(),
+          markupBps: spreadBps,
+          endpoint: rate.pricingSource?.endpoint || 'api/v3/ticker/bookTicker',
+          symbol: rate.pricingSource?.symbol || null,
+          bid: rate.pricingSource?.bid || null,
+          ask: rate.pricingSource?.ask || null,
+          sideUsed: rate.pricingSource?.sideUsed || null,
+          aedPegApplied: Boolean(rate.pricingSource?.aedPegApplied),
+          aedPegRate: rate.pricingSource?.aedPegRate || null,
+          formula: rate.pricingSource?.formula || null,
+          effectiveBaseRate:
+            rate.pricingSource?.effectiveBaseRate || marketRate.toString(),
+          fetchedAt: rate.pricingSource?.fetchedAt || rate.fetchedAt,
+        },
+        fees: rate.feeBreakdown || [],
+        totals: rate.feeTotals || {},
       },
     ]);
 
@@ -224,7 +291,7 @@ export class SwapQuotesService {
       spreadBps,
       rateSource: rate.rateSource,
       fetchedAt: new Date(rate.fetchedAt),
-      feeTotal: new Prisma.Decimal(0),
+      feeTotal,
       feeCurrency: rate.toAssetCode,
       feeBreakdown,
       expiresAt,

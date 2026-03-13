@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Controller,
   Get,
   Post,
@@ -65,10 +66,16 @@ export class SwapTransactionsCustomerController {
   getRate(
     @Query('fromAssetId') fromAssetId: string,
     @Query('toAssetId') toAssetId: string,
+    @Query('amount') amountRaw: string,
   ) {
+    const amount = Number(amountRaw);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      throw new BadRequestException('amount query parameter is required and must be > 0');
+    }
     return this.swapTransactionsService.getExecutableRate(
       fromAssetId,
       toAssetId,
+      { amount },
     );
   }
 
