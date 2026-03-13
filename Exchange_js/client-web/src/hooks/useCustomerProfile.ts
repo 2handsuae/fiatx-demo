@@ -37,6 +37,7 @@ export const useCustomerProfile = () => {
     try {
       const token = localStorage.getItem('customer_token');
       if (!token) {
+        setProfile(null);
         setLoading(false);
         return;
       }
@@ -70,7 +71,36 @@ export const useCustomerProfile = () => {
           investorClassification: data.investorClassification || 'RETAIL',
         });
       } else {
-        setError('Failed to load profile');
+        let payload: any = {};
+        try {
+          payload = await response.json();
+        } catch {
+          payload = {};
+        }
+
+        if (response.status === 401 || response.status === 403) {
+          localStorage.removeItem('customer_token');
+          setProfile(null);
+
+          const code = String(payload?.code || '').trim().toUpperCase();
+          const message = String(payload?.message || '').trim();
+          if (code === 'CUSTOMER_ACCOUNT_FROZEN') {
+            const noticeMessage =
+              message || '账号已冻结，禁止登录。请联系 WhatsApp 客服处理。';
+            sessionStorage.setItem(
+              'customer_login_notice',
+              JSON.stringify({
+                code,
+                message: noticeMessage,
+              }),
+            );
+          }
+
+          setError('');
+          return;
+        }
+
+        setError(String(payload?.message || 'Failed to load profile'));
       }
     } catch {
       setError('Network error');

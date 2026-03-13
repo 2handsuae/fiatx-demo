@@ -50,3 +50,22 @@
 - Error/loading/empty states covered.
 - Auth flow regression checked (login, token missing, 401/403).
 - Build command passes for touched frontend app.
+
+## 8) Client Verification Page Constraints
+- `/verification` page MUST keep the approved main-style journey layout (`INTRO`, `GUIDE`, `FLOW`) unless explicitly changed by product decision.
+- `/verification` MUST consume onboarding contract from:
+1. `GET /onboarding/me`
+2. `GET /onboarding/next-step`
+3. `GET /onboarding/cases`
+- If frontend uses legacy-style `step/action` rendering, it MUST be derived from backend `publicStatus + actions[]` via local projection and MUST NOT mutate backend contract semantics.
+- CDD mock-complete interaction MUST open a dialog with three options:
+1. `Low risk`
+2. `Medium risk / High risk or PEP`
+3. `Sanction & other`
+- EDD mock-complete interaction MUST remain direct submit (no risk-type dialog).
+- In `PENDING_EDD`, when no valid session link exists, UI MUST show an explicit `Start EDD` action to create link and MUST NOT auto-trigger EDD session creation.
+- Verification completion UX MUST enforce redirect:
+1. `publicStatus === ACTIVE` -> navigate to `/profile`
+- Session compatibility in verification UI MUST support both:
+1. `latestSession.sessionId`
+2. `latestSession.id` (legacy fallback)

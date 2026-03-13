@@ -117,6 +117,10 @@ model CustomerMain {
   riskUpdatedAt      DateTime?
   failedLoginCount   Int       @default(0)
   lockedUntil        DateTime?
+  accountStatus      String    @default("ACTIVE") // ACTIVE, FROZEN
+  accountStatusReason String?
+  accountStatusChangedAt DateTime?
+  accountStatusChangedBy String?
   lastLoginAt        DateTime?
   lastLoginIp        String?
   locale             String?

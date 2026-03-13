@@ -34,7 +34,7 @@ import {
   UpsertEntityDto,
 } from './dto/onboarding.dto';
 
-type TradeAction = 'SWAP' | 'WITHDRAW';
+type TradeAction = 'SWAP' | 'WITHDRAW' | 'DEPOSIT';
 type CaseType = 'CDD' | 'EDD';
 type SubjectKind = 'INDIVIDUAL_CUSTOMER' | 'CORPORATE_ENTITY' | 'UBO_PERSON';
 type MockResult = 'PASS' | 'FAIL';
@@ -370,6 +370,43 @@ export class OnboardingService {
     }
 
     return customer;
+  }
+
+  private async autoExpireIfNeeded(customerId: string): Promise<void> {
+    const customer = await this.prisma.customerMain.findUnique({
+      where: { id: customerId },
+      select: {
+        id: true,
+        publicStatus: true,
+        cddDocumentExpiresAt: true,
+      },
+    });
+
+    if (!customer) {
+      throw new NotFoundException(`Customer not found: ${customerId}`);
+    }
+
+    const currentStatus = this.normalizePublicStatus(customer.publicStatus);
+    const expired =
+      customer.cddDocumentExpiresAt &&
+      customer.cddDocumentExpiresAt.getTime() <= Date.now();
+
+    if (currentStatus !== 'ACTIVE' || !expired) {
+      return;
+    }
+
+    await this.prisma.customerMain.update({
+      where: { id: customerId },
+      data: {
+        publicStatus: 'PENDING_CDD',
+        cddStatus: 'EXPIRED',
+        complianceStatus: 'EXPIRED',
+        finalApprovalStatus: 'NOT_REQUIRED',
+        finalApprovalReason: 'CDD expired',
+        finalApprovalReviewerId: null,
+        finalApprovalReviewedAt: null,
+      },
+    });
   }
 
   private ensureIndividualOnly(customer: any) {
@@ -821,6 +858,7 @@ export class OnboardingService {
   }
 
   async getMyOnboarding(customerId: string) {
+    await this.autoExpireIfNeeded(customerId);
     const customer = await this.getCustomerOrThrow(customerId, true);
     const nextStep = this.buildNextStep(customer);
 
@@ -914,6 +952,7 @@ export class OnboardingService {
   }
 
   async getNextStep(customerId: string) {
+    await this.autoExpireIfNeeded(customerId);
     const customer = await this.getCustomerOrThrow(customerId);
     return this.buildNextStep(customer);
   }
@@ -2450,24 +2489,14 @@ export class OnboardingService {
     const expiredAt = new Date(Date.now() - 60 * 60 * 1000);
     const currentStatus = this.normalizePublicStatus(customer.publicStatus);
 
-    const updateData: Prisma.CustomerMainUpdateInput = {
-      cddDocumentExpiresAt: expiredAt,
-    };
-
-    if (currentStatus === 'ACTIVE') {
-      updateData.publicStatus = 'PENDING_CDD';
-      updateData.cddStatus = 'EXPIRED';
-      updateData.complianceStatus = 'EXPIRED';
-      updateData.finalApprovalStatus = 'NOT_REQUIRED';
-      updateData.finalApprovalReason = 'CDD expired';
-      updateData.finalApprovalReviewerId = null;
-      updateData.finalApprovalReviewedAt = null;
-    }
-
-    const updated = await this.prisma.customerMain.update({
+    await this.prisma.customerMain.update({
       where: { id: customerId },
-      data: updateData,
+      data: {
+        cddDocumentExpiresAt: expiredAt,
+      },
     });
+    await this.autoExpireIfNeeded(customerId);
+    const updated = await this.getCustomerOrThrow(customerId);
 
     await this.writeAudit({
       customerId,
@@ -2520,6 +2549,7 @@ export class OnboardingService {
   }
 
   async assertTradingEligibility(customerId: string, action: TradeAction) {
+    await this.autoExpireIfNeeded(customerId);
     const customer = await this.prisma.customerMain.findUnique({
       where: { id: customerId },
       select: {

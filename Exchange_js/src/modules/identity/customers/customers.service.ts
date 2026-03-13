@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { CustomerMain, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
@@ -156,6 +156,102 @@ export class CustomersService {
     });
 
     return deleted;
+  }
+
+  async freezeCustomer(
+    id: string,
+    operatorId: string,
+    reason?: string,
+  ): Promise<CustomerMain> {
+    const before = await this.prisma.customerMain.findUnique({ where: { id } });
+    if (!before) {
+      throw new NotFoundException(`Customer not found: ${id}`);
+    }
+
+    const resolvedReason = String(reason || '').trim() || 'Manual freeze';
+    const now = new Date();
+    const updated = await this.prisma.customerMain.update({
+      where: { id },
+      data: {
+        accountStatus: 'FROZEN',
+        accountStatusReason: resolvedReason,
+        accountStatusChangedAt: now,
+        accountStatusChangedBy: operatorId,
+      },
+    });
+
+    await this.auditLogsService.recordSystem({
+      triggerType: AuditTriggerType.DATA_UPDATE,
+      action: AuditActions.CUSTOMER_FROZEN,
+      module: AuditModules.CUSTOMERS,
+      entityType: AuditEntityTypes.CUSTOMER,
+      entityId: updated.id,
+      entityNo: updated.customerNo,
+      entityOwnerType: 'CUSTOMER',
+      entityOwnerId: updated.id,
+      entityOwnerNo: updated.customerNo,
+      result: AuditResult.SUCCESS,
+      reason: resolvedReason,
+      beforeData: {
+        accountStatus: before.accountStatus || 'ACTIVE',
+        accountStatusReason: before.accountStatusReason || null,
+      },
+      afterData: {
+        accountStatus: updated.accountStatus,
+        accountStatusReason: updated.accountStatusReason || null,
+      },
+      sourcePlatform: 'ADMIN_API',
+    });
+
+    return updated;
+  }
+
+  async unfreezeCustomer(
+    id: string,
+    operatorId: string,
+    reason?: string,
+  ): Promise<CustomerMain> {
+    const before = await this.prisma.customerMain.findUnique({ where: { id } });
+    if (!before) {
+      throw new NotFoundException(`Customer not found: ${id}`);
+    }
+
+    const resolvedReason = String(reason || '').trim() || 'Manual unfreeze';
+    const now = new Date();
+    const updated = await this.prisma.customerMain.update({
+      where: { id },
+      data: {
+        accountStatus: 'ACTIVE',
+        accountStatusReason: resolvedReason,
+        accountStatusChangedAt: now,
+        accountStatusChangedBy: operatorId,
+      },
+    });
+
+    await this.auditLogsService.recordSystem({
+      triggerType: AuditTriggerType.DATA_UPDATE,
+      action: AuditActions.CUSTOMER_UNFROZEN,
+      module: AuditModules.CUSTOMERS,
+      entityType: AuditEntityTypes.CUSTOMER,
+      entityId: updated.id,
+      entityNo: updated.customerNo,
+      entityOwnerType: 'CUSTOMER',
+      entityOwnerId: updated.id,
+      entityOwnerNo: updated.customerNo,
+      result: AuditResult.SUCCESS,
+      reason: resolvedReason,
+      beforeData: {
+        accountStatus: before.accountStatus || 'ACTIVE',
+        accountStatusReason: before.accountStatusReason || null,
+      },
+      afterData: {
+        accountStatus: updated.accountStatus,
+        accountStatusReason: updated.accountStatusReason || null,
+      },
+      sourcePlatform: 'ADMIN_API',
+    });
+
+    return updated;
   }
 
   async changeStatus(

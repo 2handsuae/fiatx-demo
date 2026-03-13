@@ -79,3 +79,11 @@ Before any code change in `Exchange_js`, read:
 - `GET /customers/:id` is a critical admin onboarding/compliance read-model endpoint and MUST remain stable for customer detail rendering.
 - Customer detail projection queries MUST NOT include Prisma relations that are not defined in current schema (incident example: invalid `include.wallets` caused `500`).
 - Customer-detail read path changes MUST include a regression check that validates relation include legality and endpoint availability (`200` with onboarding snapshot fields).
+
+## Recent Core Decisions (2026-02-22 Verification Integration)
+- Client `/verification` page uses `main` branch visual baseline (`INTRO` / `GUIDE` / `FLOW`) and keeps intro/guide interaction unchanged.
+- Client runtime contract stays `publicStatus + actions[]`; any legacy `step/action` view model is projection-only in frontend and MUST NOT change backend API contract.
+- CDD mock completion is dialog-driven with three options (`LOW_RISK`, `MEDIUM_HIGH_MIX`, `SANCTION_AND_OTHER`) and maps to backend `mockDataType` payload.
+- EDD mock completion stays non-dialog and posts `{ result: 'PASS' }`; EDD session link creation is manual (`Start EDD`) instead of auto-start side effects.
+- `publicStatus === ACTIVE` MUST auto-redirect customer from `/verification` to `/profile`.
+- Session id handling in client MUST support both `latestSession.sessionId` and legacy `latestSession.id` for mock-complete compatibility.

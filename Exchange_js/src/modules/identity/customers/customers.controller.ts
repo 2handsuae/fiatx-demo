@@ -12,6 +12,7 @@ import {
   BadRequestException,
   ForbiddenException,
   ParseUUIDPipe,
+  ValidationPipe,
 } from '@nestjs/common';
 import { CustomersService } from './customers.service';
 import { Prisma } from '@prisma/client';
@@ -23,6 +24,7 @@ import {
   ApiOperation,
   ApiQuery,
 } from '@nestjs/swagger';
+import { FreezeCustomerDto, UnfreezeCustomerDto } from './dto/customer-access.dto';
 
 @ApiTags('customers')
 @ApiBearerAuth()
@@ -117,6 +119,36 @@ export class CustomersController {
     this.ensureAdmin(req);
     throw new BadRequestException(
       'Deprecated endpoint. Use /onboarding/* (customer) and /admin/compliance/* (admin) for onboarding decisions.',
+    );
+  }
+
+  @Post(':id/freeze')
+  @ApiOperation({ summary: 'Freeze customer account access' })
+  freezeCustomer(
+    @Request() req: any,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body(new ValidationPipe({ transform: true })) body: FreezeCustomerDto,
+  ) {
+    this.ensureAdmin(req);
+    return this.customersService.freezeCustomer(
+      id,
+      req.user?.userId || 'ADMIN_SYSTEM',
+      body.reason,
+    );
+  }
+
+  @Post(':id/unfreeze')
+  @ApiOperation({ summary: 'Unfreeze customer account access' })
+  unfreezeCustomer(
+    @Request() req: any,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body(new ValidationPipe({ transform: true })) body: UnfreezeCustomerDto,
+  ) {
+    this.ensureAdmin(req);
+    return this.customersService.unfreezeCustomer(
+      id,
+      req.user?.userId || 'ADMIN_SYSTEM',
+      body.reason,
     );
   }
 

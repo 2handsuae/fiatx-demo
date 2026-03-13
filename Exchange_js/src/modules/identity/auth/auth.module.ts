@@ -8,11 +8,13 @@ import { AccessControlModule } from '../access-control/access-control.module';
 import { PassportModule } from '@nestjs/passport';
 import { JwtModule } from '@nestjs/jwt';
 import { JwtStrategy } from './jwt.strategy';
+import { PrismaModule } from '../../../core/prisma/prisma.module';
 
 @Module({
   imports: [
     UsersModule,
     AccessControlModule,
+    PrismaModule,
     PassportModule,
     JwtModule.register({
       secret: process.env.JWT_SECRET || 'secretKey',

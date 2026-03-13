@@ -206,6 +206,8 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('GET', '/customers/:id', 'Get customer detail', ['CUSTOMER_READ']),
   route('PATCH', '/customers/:id', 'Update customer', ['CUSTOMER_WRITE']),
   route('POST', '/customers/:id/status', 'Change customer status (deprecated)', ['CUSTOMER_WRITE']),
+  route('POST', '/customers/:id/freeze', 'Freeze customer account', ['CUSTOMER_WRITE']),
+  route('POST', '/customers/:id/unfreeze', 'Unfreeze customer account', ['CUSTOMER_WRITE']),
   route('DELETE', '/customers/:id', 'Delete customer', ['CUSTOMER_WRITE']),
 
   // Customer swap rates

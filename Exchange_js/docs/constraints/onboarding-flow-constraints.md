@@ -129,3 +129,16 @@
 2. `cddCases`
 3. `eddCases`
 4. `onboardingAuditLogs`
+
+## 11) Client Verification Projection Rules
+- Client `/verification` UI MAY project backend `publicStatus + actions[]` to a view-only `step/action` model for rendering, but MUST NOT re-define onboarding business states.
+- Projection baseline MUST keep these mappings:
+1. `NONE` + `START_CDD` -> `CDD` / `START_CDD`
+2. `PENDING_CDD` + `COMPLETE_CDD` -> `CDD` / `COMPLETE_CDD`
+3. `PENDING_EDD` + `COMPLETE_EDD` -> `EDD` / `COMPLETE_EDD`
+4. `REVIEW_CDD|REVIEW_EDD` + `WAIT_REVIEW` -> `WAIT_REVIEW` / `WAIT`
+5. `FINAL_APPROVAL` + `WAIT_FINAL_APPROVAL` -> `WAIT_REVIEW` / `WAIT`
+6. `REJECTED|WITHDRAWN` + `REINITIATE_CDD` -> `REINITIATE` / `REINITIATE_CDD`
+7. `ACTIVE` -> terminal completion and client redirect
+- CDD mock-complete in client MUST use dialog selection and post `mockDataType`; EDD mock-complete MUST keep direct `{ result: 'PASS' }`.
+- In `PENDING_EDD`, client MUST require explicit `Start EDD` action to create session link when no valid QR link exists; client MUST NOT auto-start EDD session implicitly.

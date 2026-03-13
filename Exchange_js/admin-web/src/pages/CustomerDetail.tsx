@@ -60,6 +60,10 @@ interface CustomerDetailData {
   eddRequired: boolean;
   eddStatus: string;
   complianceStatus: string;
+  accountStatus?: string;
+  accountStatusReason?: string | null;
+  accountStatusChangedAt?: string | null;
+  accountStatusChangedBy?: string | null;
   cddDocumentExpiresAt?: string | null;
   finalApprovalStatus?: string;
   finalApprovalReason?: string | null;
@@ -93,6 +97,7 @@ const CustomerDetail = () => {
   const [updatingClassification, setUpdatingClassification] = useState(false);
   const [updatingFinalReview, setUpdatingFinalReview] = useState(false);
   const [simulatingExpired, setSimulatingExpired] = useState(false);
+  const [updatingAccountStatus, setUpdatingAccountStatus] = useState(false);
 
   const fetchCustomer = async () => {
     try {
@@ -200,6 +205,42 @@ const CustomerDetail = () => {
     }
   };
 
+  const updateAccountStatus = async (nextStatus: 'FROZEN' | 'ACTIVE') => {
+    if (!customer) return;
+    const actionText = nextStatus === 'FROZEN' ? 'freeze' : 'unfreeze';
+    if (!window.confirm(`Are you sure you want to ${actionText} this customer account?`)) return;
+    const reason = window.prompt(`Reason for ${actionText} (optional)`, '') || '';
+    const body = reason.trim() ? { reason: reason.trim() } : {};
+
+    try {
+      setUpdatingAccountStatus(true);
+      const endpoint =
+        nextStatus === 'FROZEN'
+          ? `${import.meta.env.VITE_API_URL}/customers/${customer.id}/freeze`
+          : `${import.meta.env.VITE_API_URL}/customers/${customer.id}/unfreeze`;
+      const response = await adminFetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+      });
+
+      if (!response.ok) {
+        throw new Error(await getApiErrorMessage(response, `Failed to ${actionText} customer`));
+      }
+
+      await fetchCustomer();
+    } catch (e) {
+      if (e instanceof AdminSessionError) {
+        return;
+      }
+      alert(getErrorMessage(e, `Failed to ${actionText} customer`));
+    } finally {
+      setUpdatingAccountStatus(false);
+    }
+  };
+
   const reviewFinalDecision = async (decision: 'APPROVE' | 'REJECT') => {
     if (!customer) return;
     const reason = decision === 'REJECT' ? window.prompt('Reason for rejection', '') || '' : '';
@@ -277,6 +318,11 @@ const CustomerDetail = () => {
 
         <div className="flex flex-wrap gap-3">
           <StatusBadge label="Public" value={customer.publicStatus || customer.complianceStatus} />
+          <StatusBadge
+            label="Account"
+            value={customer.accountStatus || 'ACTIVE'}
+            tone={customer.accountStatus === 'FROZEN' ? 'yellow' : 'green'}
+          />
           <StatusBadge label="CDD" value={customer.cddStatus} tone="yellow" />
           <StatusBadge label="EDD" value={customer.eddStatus} tone="blue" />
         </div>
@@ -298,18 +344,39 @@ const CustomerDetail = () => {
           <KeyValue label="EDD Status" value={customer.eddStatus} />
           <KeyValue label="Public Status" value={customer.publicStatus || customer.complianceStatus} />
           <KeyValue label="Compliance Status" value={customer.complianceStatus} />
+          <KeyValue label="Account Status" value={customer.accountStatus || 'ACTIVE'} />
+          <KeyValue label="Account Reason" value={customer.accountStatusReason || '-'} />
+          <KeyValue
+            label="Account Changed At"
+            value={formatMaybeTime(customer.accountStatusChangedAt)}
+          />
+          <KeyValue label="Account Changed By" value={customer.accountStatusChangedBy || '-'} />
           <KeyValue label="CDD Doc Expires At" value={formatMaybeTime(customer.cddDocumentExpiresAt)} />
           <KeyValue label="Next Review" value={formatMaybeTime(customer.nextReviewAt)} />
           <KeyValue label="Current CDD Case" value={customer.currentCddCaseId || '-'} />
           <KeyValue label="Current EDD Case" value={customer.currentEddCaseId || '-'} />
           <KeyValue label="Last Updated" value={new Date(customer.updatedAt).toLocaleString()} />
-          <div className="mt-3">
+          <div className="mt-3 flex flex-wrap gap-2">
             <button
               onClick={simulateExpired}
               disabled={simulatingExpired}
               className="px-3 py-2 text-xs rounded-lg bg-red-600 text-white hover:bg-red-700 disabled:opacity-60"
             >
-              {simulatingExpired ? 'Simulating...' : 'Simulate Expired'}
+              {simulatingExpired ? 'Mocking...' : 'Mock Auto Expire'}
+            </button>
+            <button
+              onClick={() => updateAccountStatus('FROZEN')}
+              disabled={updatingAccountStatus || customer.accountStatus === 'FROZEN'}
+              className="px-3 py-2 text-xs rounded-lg bg-rose-600 text-white hover:bg-rose-700 disabled:opacity-60"
+            >
+              {updatingAccountStatus ? 'Updating...' : 'Freeze'}
+            </button>
+            <button
+              onClick={() => updateAccountStatus('ACTIVE')}
+              disabled={updatingAccountStatus || customer.accountStatus !== 'FROZEN'}
+              className="px-3 py-2 text-xs rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-60"
+            >
+              {updatingAccountStatus ? 'Updating...' : 'Unfreeze'}
             </button>
           </div>
         </Card>
