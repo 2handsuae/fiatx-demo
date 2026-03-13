@@ -11,9 +11,16 @@ export const PERMISSIONS = {
 
   CUSTOMERS_READ: 'api.get.customers',
   CUSTOMERS_DETAIL_READ: 'api.get.customers_id',
-  CUSTOMER_SWAP_RATES_READ: 'api.get.customers_swap_rates',
-  CUSTOMER_SWAP_RATES_WRITE: 'api.post.customers_swap_rates',
-  CUSTOMER_SWAP_RATES_EDIT: 'api.put.customers_swap_rates_id',
+  PRICING_POLICIES_READ: 'api.get.admin_pricing_policies',
+  PRICING_SWAP_CONFIG_READ: 'api.get.admin_pricing_policies_swap',
+  PRICING_SWAP_CONFIG_WRITE: 'api.put.admin_pricing_policies_swap',
+  PRICING_WITHDRAW_CONFIG_READ: 'api.get.admin_pricing_policies_withdrawal',
+  PRICING_WITHDRAW_CONFIG_WRITE: 'api.put.admin_pricing_policies_withdrawal',
+
+  // Backward-compatible aliases for existing usages.
+  CUSTOMER_SWAP_RATES_READ: 'api.get.admin_pricing_policies',
+  CUSTOMER_SWAP_RATES_WRITE: 'api.put.admin_pricing_policies_swap',
+  CUSTOMER_SWAP_RATES_EDIT: 'api.put.admin_pricing_policies_withdrawal',
 
   SWAP_QUOTES_READ: 'api.get.admin_swap_transactions_quotes',
   SWAP_QUOTES_DETAIL_READ: 'api.get.admin_swap_transactions_quotes_id',

@@ -4,9 +4,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
-BACKEND_PORT="${BACKEND_PORT:-3400}"
-ADMIN_PORT="${ADMIN_PORT:-3401}"
-CLIENT_PORT="${CLIENT_PORT:-3402}"
+BACKEND_PORT="${BACKEND_PORT:-3100}"
+ADMIN_PORT="${ADMIN_PORT:-3101}"
+CLIENT_PORT="${CLIENT_PORT:-3102}"
 BACKEND_URL="http://localhost:${BACKEND_PORT}"
 ADMIN_URL="http://localhost:${ADMIN_PORT}"
 CLIENT_URL="http://localhost:${CLIENT_PORT}"
@@ -214,28 +214,27 @@ assert_port_free "${ADMIN_PORT}" "admin"
 assert_port_free "${CLIENT_PORT}" "client"
 
 echo "Starting backend on ${BACKEND_PORT}..."
+echo "Building backend artifacts..."
 (
   cd "${BACKEND_DIR}"
+  npm run build >"${BACKEND_LOG}" 2>&1
+)
+nohup env \
   API_PORT="${BACKEND_PORT}" \
   ADMIN_URL="${ADMIN_URL}" \
   CLIENT_URL="${CLIENT_URL}" \
   DATABASE_URL="file:${DB_FILE}" \
-  npm run start:dev >"${BACKEND_LOG}" 2>&1
-) &
+  node "${BACKEND_DIR}/dist/main" >>"${BACKEND_LOG}" 2>&1 &
 
 echo "Starting admin on ${ADMIN_PORT}..."
-(
-  cd "${ADMIN_DIR}"
+nohup env \
   VITE_API_URL="${BACKEND_URL}" \
-  npm run dev -- --port "${ADMIN_PORT}" >"${ADMIN_LOG}" 2>&1
-) &
+  npm --prefix "${ADMIN_DIR}" run dev -- --port "${ADMIN_PORT}" >"${ADMIN_LOG}" 2>&1 &
 
 echo "Starting client on ${CLIENT_PORT}..."
-(
-  cd "${CLIENT_DIR}"
+nohup env \
   VITE_API_URL="${BACKEND_URL}" \
-  npm run dev -- --port "${CLIENT_PORT}" >"${CLIENT_LOG}" 2>&1
-) &
+  npm --prefix "${CLIENT_DIR}" run dev -- --port "${CLIENT_PORT}" >"${CLIENT_LOG}" 2>&1 &
 
 capture_listener_pid "backend" "${BACKEND_PORT}" "${BACKEND_PID_FILE}"
 capture_listener_pid "admin" "${ADMIN_PORT}" "${ADMIN_PID_FILE}"

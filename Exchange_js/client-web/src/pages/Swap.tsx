@@ -38,6 +38,27 @@ interface SwapTransaction {
   completedAt: string | null;
 }
 
+interface SwapMatchedInfo {
+  pairId: string;
+  pairName: string;
+  tierId: string;
+  tierName: string;
+}
+
+interface SwapPricingSourceInfo {
+  provider: 'BINANCE';
+  endpoint: 'api/v3/ticker/bookTicker';
+  symbol: string;
+  bid: string;
+  ask: string;
+  sideUsed: 'BID' | 'INVERSE_ASK';
+  aedPegApplied: boolean;
+  aedPegRate: string;
+  formula: string;
+  effectiveBaseRate: string;
+  fetchedAt: string;
+}
+
 interface FirmQuoteResult {
   quoteId: string;
   quoteType: 'FIRM' | 'INDICATIVE';
@@ -63,6 +84,8 @@ interface FirmQuoteResult {
   feeTotal: number;
   feeCurrency: string;
   feeBreakdown: Array<Record<string, unknown>>;
+  matched?: SwapMatchedInfo | null;
+  pricingSource?: SwapPricingSourceInfo | null;
 }
 
 interface LiveRateResult {
@@ -75,6 +98,8 @@ interface LiveRateResult {
   executableRate: number;
   rateSource: 'BINANCE';
   fetchedAt: string;
+  matched?: SwapMatchedInfo | null;
+  pricingSource?: SwapPricingSourceInfo | null;
 }
 
 interface AssetBalance {
@@ -109,6 +134,8 @@ const Swap = () => {
     spreadPercent: number;
     rateSource: string;
     fetchedAt: string;
+    matched: SwapMatchedInfo | null;
+    pricingSource: SwapPricingSourceInfo | null;
   } | null>(null);
 
   // History State
@@ -184,6 +211,7 @@ const Swap = () => {
   const fetchLiveRate = async (
     currentFromAssetId: string,
     currentToAssetId: string,
+    amount: number,
     background = false,
   ) => {
     if (!background) {
@@ -195,6 +223,7 @@ const Swap = () => {
       const params = new URLSearchParams({
         fromAssetId: currentFromAssetId,
         toAssetId: currentToAssetId,
+        amount: String(amount),
       });
       const response = await fetch(
         `${import.meta.env.VITE_API_URL}/swap-transactions/rate?${params.toString()}`,
@@ -213,6 +242,8 @@ const Swap = () => {
         spreadPercent: data.spreadPercent,
         rateSource: data.rateSource,
         fetchedAt: data.fetchedAt,
+        matched: data.matched || null,
+        pricingSource: data.pricingSource || null,
       });
     } catch (error: any) {
       setRateError(error.message || 'Failed to fetch real-time rate');
@@ -228,6 +259,8 @@ const Swap = () => {
   useEffect(() => {
     const from = assets.find(a => a.id === fromAssetId);
     const to = assets.find(a => a.id === toAssetId);
+    const parsedAmount = Number(fromAmount);
+    const hasValidAmount = Number.isFinite(parsedAmount) && parsedAmount > 0;
     let intervalId: ReturnType<typeof setInterval> | null = null;
 
     if (from && to) {
@@ -235,10 +268,14 @@ const Swap = () => {
         setLiveRate(null);
         setRateMeta(null);
         setRateError('Fiat to Fiat swap is not supported');
+      } else if (!hasValidAmount) {
+        setLiveRate(null);
+        setRateMeta(null);
+        setRateError('输入金额后获取档位汇率');
       } else {
-        fetchLiveRate(from.id, to.id, false);
+        fetchLiveRate(from.id, to.id, parsedAmount, false);
         intervalId = setInterval(() => {
-          fetchLiveRate(from.id, to.id, true);
+          fetchLiveRate(from.id, to.id, parsedAmount, true);
         }, 10000);
       }
     } else {
@@ -252,7 +289,7 @@ const Swap = () => {
         clearInterval(intervalId);
       }
     };
-  }, [fromAssetId, toAssetId, assets]);
+  }, [fromAssetId, toAssetId, fromAmount, assets]);
 
   const currentBalance = balances.find(b => b.assetId === fromAssetId)?.clientCredit || '0';
   const fromAsset = assets.find((a) => a.id === fromAssetId);
@@ -588,6 +625,27 @@ const Swap = () => {
                         <span className="text-[10px] text-gray-400 dark:text-gray-500">
                           Source: {rateMeta?.rateSource || 'BINANCE'}
                         </span>
+                        {rateMeta?.matched && (
+                          <div className="flex items-center justify-between text-gray-400 dark:text-gray-500">
+                            <span>Matched:</span>
+                            <span className="font-mono">
+                              {rateMeta.matched.pairId} / {rateMeta.matched.tierId}
+                            </span>
+                          </div>
+                        )}
+                        {rateMeta?.pricingSource && (
+                          <>
+                            <div className="flex items-center justify-between text-gray-400 dark:text-gray-500">
+                              <span>Order Book:</span>
+                              <span className="font-mono">
+                                {rateMeta.pricingSource.symbol} ({rateMeta.pricingSource.sideUsed === 'BID' ? 'BID' : '1/ASK'})
+                              </span>
+                            </div>
+                            <div className="text-[10px] text-gray-400 dark:text-gray-500 break-all">
+                              Formula: {rateMeta.pricingSource.formula}
+                            </div>
+                          </>
+                        )}
                       </div>
                     ) : null}
                   </div>
@@ -783,6 +841,30 @@ const Swap = () => {
                     <span className="text-slate-500 dark:text-slate-400 font-medium">Quote ID</span>
                     <span className="font-mono text-gray-900 dark:text-gray-200">{firmQuote.quoteId}</span>
                   </div>
+                  {firmQuote.matched && (
+                    <div className="flex justify-between text-sm">
+                      <span className="text-slate-500 dark:text-slate-400 font-medium">Matched Pair / Tier</span>
+                      <span className="font-mono text-gray-900 dark:text-gray-200">
+                        {firmQuote.matched.pairId} / {firmQuote.matched.tierId}
+                      </span>
+                    </div>
+                  )}
+                  {firmQuote.pricingSource && (
+                    <>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-slate-500 dark:text-slate-400 font-medium">Source Symbol / Side</span>
+                        <span className="font-mono text-gray-900 dark:text-gray-200">
+                          {firmQuote.pricingSource.symbol} / {firmQuote.pricingSource.sideUsed === 'BID' ? 'BID' : '1/ASK'}
+                        </span>
+                      </div>
+                      <div className="space-y-1">
+                        <span className="text-slate-500 dark:text-slate-400 font-medium text-sm">Pricing Formula</span>
+                        <div className="font-mono text-[11px] text-gray-900 dark:text-gray-200 break-all">
+                          {firmQuote.pricingSource.formula}
+                        </div>
+                      </div>
+                    </>
+                  )}
                   <div className="flex justify-between text-sm">
                     <span className="text-slate-500 dark:text-slate-400 font-medium">Expires In</span>
                     <span className={`font-bold ${quoteExpiresIn > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-red-600 dark:text-red-400'}`}>

@@ -62,6 +62,9 @@ export class CreateWithdrawTransactionDto {
   @IsOptional()
   @IsString()
   parentId?: string;
+
+  @IsString()
+  quoteId!: string;
 }
 
 export enum WithdrawOwnerType {

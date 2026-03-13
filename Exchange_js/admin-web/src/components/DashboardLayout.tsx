@@ -123,10 +123,16 @@ const DashboardLayout = () => {
       icon: <Coins size={20} />,
       children: [
         {
-          path: '/dashboard/pricing/rates',
-          label: 'Swap Rates',
+          path: '/dashboard/pricing/swap-config',
+          label: 'Swap Config',
           icon: <Repeat size={18} />,
-          requiredPermissions: [PERMISSIONS.CUSTOMER_SWAP_RATES_READ],
+          requiredPermissions: [PERMISSIONS.PRICING_POLICIES_READ],
+        },
+        {
+          path: '/dashboard/pricing/withdraw-config',
+          label: 'Withdrawal Config',
+          icon: <Upload size={18} />,
+          requiredPermissions: [PERMISSIONS.PRICING_WITHDRAW_CONFIG_READ],
         },
         {
           path: '/dashboard/pricing/quotes',

@@ -25,6 +25,7 @@ import {
 } from '../../risk-engine/audit-logs/constants/audit-actions.constant';
 import { AuditTriggerType } from '../../risk-engine/audit-logs/dto/audit-log.dto';
 import { ComplianceAlertsService } from '../../risk-engine/compliance-alerts/compliance-alerts.service';
+import { PricingCenterService } from '../pricing-center/pricing-center.service';
 
 @Injectable()
 export class WithdrawTransactionsService {
@@ -88,6 +89,7 @@ export class WithdrawTransactionsService {
     private eventEmitter: EventEmitter2,
     private journalsService: JournalsService,
     private transactionComplianceService: TransactionComplianceService,
+    private pricingCenterService: PricingCenterService,
   ) {
     this.auditLogsService = new AuditLogsService(prisma);
     this.complianceAlertsService = new ComplianceAlertsService(prisma);
@@ -286,7 +288,16 @@ export class WithdrawTransactionsService {
   }
 
   async create(dto: CreateWithdrawTransactionDto, userId: string, ownerType: string = 'CUSTOMER') {
-    const { assetId, amount, toWalletId, toAddress, toIban, parentType, parentId } = dto;
+    const {
+      assetId,
+      amount,
+      toWalletId,
+      toAddress,
+      toIban,
+      parentType,
+      parentId,
+      quoteId,
+    } = dto;
 
     // Verify asset
     const asset = await (this.prisma as any).asset.findUnique({ where: { id: assetId } });
@@ -295,13 +306,12 @@ export class WithdrawTransactionsService {
     const withdrawNo = this.generateWithdrawNo();
     
     // Fetch owner info if needed
-    let ownerNo = null;
-    if (ownerType === 'CUSTOMER') {
-      const customer = await (this.prisma as any).customerMain.findUnique({ where: { id: userId } });
-      if (customer) ownerNo = customer.customerNo;
-    }
+    const ownerNo = await this.pricingCenterService.resolveOwnerNo(ownerType, userId);
 
     const amountDecimal = new Prisma.Decimal(amount);
+    if (!quoteId) {
+      throw new BadRequestException('quoteId is required for withdrawal');
+    }
 
     const created = await (this.prisma as any).$transaction(async (tx: any) => {
       const balances = await this.journalsService.getCustomerLiabilityBalance(
@@ -320,6 +330,42 @@ export class WithdrawTransactionsService {
         });
       }
 
+      let quoteFeeAmount = new Prisma.Decimal(0);
+      let consumedQuoteId: string | null = null;
+      const now = new Date();
+      const activeQuote = await this.pricingCenterService.getActiveWithdrawQuoteOrThrow(
+        quoteId,
+        ownerType,
+        userId,
+        now,
+        tx,
+      );
+
+      if (activeQuote.assetId !== assetId) {
+        throw new BadRequestException('Withdrawal quote asset mismatch');
+      }
+      if (!new Prisma.Decimal(activeQuote.amount).eq(amountDecimal)) {
+        throw new BadRequestException('Withdrawal quote amount mismatch');
+      }
+
+      const totals = activeQuote.totalsJson
+        ? (JSON.parse(activeQuote.totalsJson) as Record<string, string>)
+        : {};
+      quoteFeeAmount = new Prisma.Decimal(totals[asset.code] || '0');
+      consumedQuoteId = activeQuote.id;
+      await this.pricingCenterService.consumeWithdrawQuoteForWithdraw(
+        tx,
+        quoteId,
+        ownerType,
+        userId,
+        now,
+      );
+
+      const netAmount = amountDecimal.sub(quoteFeeAmount);
+      if (netAmount.lt(0)) {
+        throw new BadRequestException('Net amount must not be negative');
+      }
+
       const record = await tx.withdrawTransaction.create({
         data: {
           withdrawNo,
@@ -329,13 +375,14 @@ export class WithdrawTransactionsService {
           status: WithdrawTransactionStatus.CREATED,
           assetId,
           amount: amountDecimal,
-          netAmount: amountDecimal, // Initial netAmount = amount
-          feeAmount: new Prisma.Decimal(0),
+          netAmount,
+          feeAmount: quoteFeeAmount,
           toWalletId,
           toAddress,
           toIban,
           parentType,
           parentId,
+          pricingQuoteId: consumedQuoteId,
           statusHistory: JSON.stringify([{
             status: WithdrawTransactionStatus.CREATED,
             timestamp: new Date().toISOString(),
@@ -360,6 +407,8 @@ export class WithdrawTransactionsService {
             status: record.status,
             amount: record.amount?.toString?.(),
             assetId: record.assetId,
+            feeAmount: record.feeAmount?.toString?.(),
+            pricingQuoteId: record.pricingQuoteId || null,
           },
           sourcePlatform: ownerType === 'CUSTOMER' ? 'CUSTOMER_API' : 'ADMIN_API',
         },

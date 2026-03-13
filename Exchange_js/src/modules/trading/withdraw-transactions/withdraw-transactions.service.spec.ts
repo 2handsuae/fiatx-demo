@@ -11,6 +11,7 @@ import {
 } from './dto/withdraw-transaction.dto';
 import { TransactionComplianceService } from '../../risk-engine/transaction-compliance/transaction-compliance.service';
 import { WithdrawEvents } from './constants/withdraw-events.constant';
+import { PricingCenterService } from '../pricing-center/pricing-center.service';
 
 describe('WithdrawTransactionsService', () => {
   let service: WithdrawTransactionsService;
@@ -18,6 +19,7 @@ describe('WithdrawTransactionsService', () => {
   let journalsService: any;
   let transactionComplianceService: any;
   let eventEmitter: any;
+  let pricingCenterService: any;
 
   const mockTx: any = {
     withdrawTransaction: {
@@ -61,6 +63,14 @@ describe('WithdrawTransactionsService', () => {
             getTransactionCaseAggregate: jest.fn(),
           },
         },
+        {
+          provide: PricingCenterService,
+          useValue: {
+            resolveOwnerNo: jest.fn(),
+            getActiveWithdrawQuoteOrThrow: jest.fn(),
+            consumeWithdrawQuoteForWithdraw: jest.fn(),
+          },
+        },
       ],
     }).compile();
 
@@ -71,6 +81,7 @@ describe('WithdrawTransactionsService', () => {
       TransactionComplianceService,
     );
     eventEmitter = module.get<EventEmitter2>(EventEmitter2);
+    pricingCenterService = module.get<PricingCenterService>(PricingCenterService);
 
     jest.clearAllMocks();
     mockTx.withdrawTransaction.findUnique.mockReset();
@@ -81,6 +92,17 @@ describe('WithdrawTransactionsService', () => {
       mainKytCase: null,
       travelRuleCase: null,
       derivedComplianceStatus: 'PENDING',
+    });
+    pricingCenterService.resolveOwnerNo.mockResolvedValue('C001');
+    pricingCenterService.getActiveWithdrawQuoteOrThrow.mockResolvedValue({
+      id: 'wq-1',
+      assetId: 'asset-1',
+      amount: new Prisma.Decimal(100),
+      totalsJson: JSON.stringify({}),
+    });
+    pricingCenterService.consumeWithdrawQuoteForWithdraw.mockResolvedValue({
+      id: 'wq-1',
+      status: 'USED',
     });
   });
 
@@ -134,6 +156,7 @@ describe('WithdrawTransactionsService', () => {
       {
         assetId: 'asset-1',
         amount: 100,
+        quoteId: 'wq-1',
       } as any,
       'user-1',
     );
@@ -169,10 +192,22 @@ describe('WithdrawTransactionsService', () => {
       null,
     );
 
+    pricingCenterService.getActiveWithdrawQuoteOrThrow.mockResolvedValue({
+      id: 'wq-2',
+      assetId: 'asset-fiat-1',
+      amount: new Prisma.Decimal(100),
+      totalsJson: JSON.stringify({}),
+    });
+    pricingCenterService.consumeWithdrawQuoteForWithdraw.mockResolvedValue({
+      id: 'wq-2',
+      status: 'USED',
+    });
+
     await service.create(
       {
         assetId: 'asset-fiat-1',
         amount: 100,
+        quoteId: 'wq-2',
       } as any,
       'user-1',
     );
@@ -180,6 +215,23 @@ describe('WithdrawTransactionsService', () => {
     expect(
       transactionComplianceService.ensureWithdrawPreKytCaseOnCreate,
     ).toHaveBeenCalledWith('wd-create-2', mockTx);
+  });
+
+  it('should reject create when quoteId is missing', async () => {
+    prisma.asset.findUnique.mockResolvedValue({ id: 'asset-1', type: 'CRYPTO' });
+    journalsService.getCustomerLiabilityBalance.mockResolvedValue({
+      availableBalance: new Prisma.Decimal(1000),
+    });
+
+    await expect(
+      service.create(
+        {
+          assetId: 'asset-1',
+          amount: 100,
+        } as any,
+        'user-1',
+      ),
+    ).rejects.toThrow('quoteId is required for withdrawal');
   });
 
   it('should block approve when compliance is not cleared', async () => {

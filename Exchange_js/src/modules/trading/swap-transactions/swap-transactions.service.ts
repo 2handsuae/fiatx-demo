@@ -10,11 +10,9 @@ import {
   SwapTransactionStatus,
 } from './dto/swap-transaction.dto';
 import { Prisma } from '@prisma/client';
-import axios from 'axios';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { SwapEvents } from './constants/swap-events.constant';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
-import { CustomerSwapRatesService } from '../../identity/customer-swap-rates/customer-swap-rates.service';
 import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
 import {
   AuditActions,
@@ -23,29 +21,77 @@ import {
   buildStateTransitionAction,
 } from '../../risk-engine/audit-logs/constants/audit-actions.constant';
 import { AuditTriggerType } from '../../risk-engine/audit-logs/dto/audit-log.dto';
+import { PricingCenterService } from '../pricing-center/pricing-center.service';
+
+interface SwapMatchedInfo {
+  pairId: string;
+  pairName: string;
+  tierId: string;
+  tierName: string;
+}
+
+interface SwapPricingSourceInfo {
+  provider: 'BINANCE';
+  endpoint: 'api/v3/ticker/bookTicker';
+  symbol: string;
+  bid: string;
+  ask: string;
+  sideUsed: 'BID' | 'INVERSE_ASK';
+  aedPegApplied: boolean;
+  aedPegRate: string;
+  formula: string;
+  effectiveBaseRate: string;
+  fetchedAt: string;
+}
 
 export interface SwapExecutableRateResult {
   fromAssetId: string;
   toAssetId: string;
   fromAssetCode: string;
   toAssetCode: string;
+  fromAssetDecimals: number;
+  toAssetDecimals: number;
   marketRate: number;
   spreadPercent: number;
   executableRate: number;
-  rateSource: 'BINANCE';
+  spreadBps: number;
+  rateSource: string;
   fetchedAt: string;
+  quoteLockSeconds: number;
+  pairId: string;
+  pairName: string;
+  tierId: string;
+  tierName: string;
+  matched: SwapMatchedInfo;
+  pricingSource: SwapPricingSourceInfo;
+  feeBreakdown: any[];
+  feeTotals: Record<string, string>;
+  policyRef: {
+    policyCode: string;
+    policyId: string;
+    business: 'SWAP';
+    channel: 'ONLINE';
+  };
+}
+
+export interface SwapQuoteComputationResult extends SwapExecutableRateResult {
+  fromAmount: number;
+  toAmount: number;
+  exchangeRate: number;
+  amountOut: number;
+  createdAt: string;
+  expiresAt: string;
 }
 
 @Injectable()
 export class SwapTransactionsService {
   private readonly logger = new Logger(SwapTransactionsService.name);
-  private readonly AED_USD_RATE = 3.6725;
   private readonly auditLogsService: AuditLogsService;
 
   constructor(
     private prisma: PrismaService,
     private eventEmitter: EventEmitter2,
-    private customerSwapRatesService: CustomerSwapRatesService,
+    private pricingCenterService: PricingCenterService,
   ) {
     this.auditLogsService = new AuditLogsService(prisma);
   }
@@ -208,77 +254,6 @@ export class SwapTransactionsService {
     return updatedSwap;
   }
 
-  async fetchMarketRate(
-    fromCode: string,
-    toCode: string,
-  ): Promise<Prisma.Decimal> {
-    // 1. Map USD/AED to USDT for Binance
-    const getBinanceCode = (code: string) => {
-      if (code === 'USD' || code === 'AED') return 'USDT';
-      return code;
-    };
-
-    const bFrom = getBinanceCode(fromCode);
-    const bTo = getBinanceCode(toCode);
-
-    let rate: Prisma.Decimal | null = null;
-
-    if (fromCode === toCode) {
-      rate = new Prisma.Decimal(1);
-    } else if (bFrom === bTo) {
-      // For cases like AED to USDT or USD to USDT, they map to the same Binance code
-      rate = new Prisma.Decimal(1);
-    } else {
-      const pair = `${bFrom}${bTo}`;
-      const reversePair = `${bTo}${bFrom}`;
-
-      // Try forward direction
-      try {
-        const response = await axios.get(
-          `https://api.binance.com/api/v3/ticker/price?symbol=${pair}`,
-        );
-        rate = new Prisma.Decimal(response.data.price);
-        this.logger.log(`[Rate Query] Success: ${pair} = ${rate.toString()}`);
-      } catch (e) {
-        this.logger.warn(
-          `[Rate Query] Forward pair ${pair} failed, trying inverse...`,
-        );
-        // Try inverse direction
-        try {
-          const response = await axios.get(
-            `https://api.binance.com/api/v3/ticker/price?symbol=${reversePair}`,
-          );
-          const revRate = new Prisma.Decimal(response.data.price);
-          rate = new Prisma.Decimal(1).div(revRate);
-          this.logger.log(
-            `[Rate Query] Success (Inverse): ${reversePair} = ${revRate.toString()}, converted to ${pair} = ${rate.toString()}`,
-          );
-        } catch (e2) {
-          this.logger.error(
-            `[Rate Query] Both ${pair} and ${reversePair} failed.`,
-          );
-        }
-      }
-    }
-
-    if (!rate) {
-      throw new BadRequestException(
-        `Market rate not available for ${fromCode}/${toCode} in either direction`,
-      );
-    }
-
-    // 2. Apply AED Bridge
-    const aedUsdRate = new Prisma.Decimal(this.AED_USD_RATE);
-    if (fromCode === 'AED') {
-      rate = rate.div(aedUsdRate);
-    }
-    if (toCode === 'AED') {
-      rate = rate.mul(aedUsdRate);
-    }
-
-    return rate;
-  }
-
   private async getSwapAssetsOrThrow(fromAssetId: string, toAssetId: string) {
     const [fromAsset, toAsset] = await Promise.all([
       (this.prisma as any).asset.findUnique({
@@ -300,34 +275,60 @@ export class SwapTransactionsService {
     return { fromAsset, toAsset };
   }
 
-  async getExecutableRate(fromAssetId: string, toAssetId: string): Promise<SwapExecutableRateResult> {
+  async getExecutableRate(
+    fromAssetId: string,
+    toAssetId: string,
+    options: {
+      amount: number | string | Prisma.Decimal;
+      ownerType?: string;
+      ownerId?: string;
+    },
+  ): Promise<SwapExecutableRateResult> {
     const { fromAsset, toAsset } = await this.getSwapAssetsOrThrow(
       fromAssetId,
       toAssetId,
     );
 
-    const config = await this.customerSwapRatesService.resolveActiveRateForPair(
-      fromAsset.id,
-      toAsset.id,
-    );
+    const amount = new Prisma.Decimal(options.amount);
+    if (amount.lte(0)) {
+      throw new BadRequestException('amount must be greater than 0');
+    }
 
-    const marketRate = await this.fetchMarketRate(fromAsset.code, toAsset.code);
-    const spreadPercent = new Prisma.Decimal(config.spreadPercent || 0);
-    const spreadMultiplier = new Prisma.Decimal(1).add(
-      spreadPercent.div(100),
-    );
-    const executableRate = marketRate.mul(spreadMultiplier);
+    const resolved = await this.pricingCenterService.resolveSwapQuoteForExecution({
+      fromAssetId,
+      toAssetId,
+      amount,
+    });
+    const spreadPercent = new Prisma.Decimal(resolved.markupBps).div(100);
 
     return {
       fromAssetId: fromAsset.id,
       toAssetId: toAsset.id,
       fromAssetCode: fromAsset.code,
       toAssetCode: toAsset.code,
-      marketRate: marketRate.toNumber(),
+      fromAssetDecimals: resolved.fromAssetDecimals,
+      toAssetDecimals: resolved.toAssetDecimals,
+      marketRate: resolved.baseRate.toNumber(),
       spreadPercent: spreadPercent.toNumber(),
-      executableRate: executableRate.toNumber(),
-      rateSource: 'BINANCE',
-      fetchedAt: new Date().toISOString(),
+      executableRate: resolved.quotedRate.toNumber(),
+      spreadBps: resolved.markupBps,
+      rateSource: resolved.baseProvider,
+      fetchedAt: resolved.fetchedAt.toISOString(),
+      quoteLockSeconds: resolved.quoteLockSeconds,
+      pairId: resolved.pairId,
+      pairName: resolved.pairName,
+      tierId: resolved.tierId,
+      tierName: resolved.tierName,
+      matched: {
+        pairId: resolved.pairId,
+        pairName: resolved.pairName,
+        tierId: resolved.tierId,
+        tierName: resolved.tierName,
+      },
+      pricingSource: resolved.pricingSource,
+      feeBreakdown: resolved.fees,
+      feeTotals: resolved.totals,
+      policyRef: resolved.policyRef,
     };
   }
 
@@ -335,27 +336,55 @@ export class SwapTransactionsService {
     fromAssetId: string;
     fromAmount: number;
     toAssetId: string;
-  }) {
+    ownerType?: string;
+    ownerId?: string;
+  }): Promise<SwapQuoteComputationResult> {
     const rateDetails = await this.getExecutableRate(
       dto.fromAssetId,
       dto.toAssetId,
+      {
+        amount: dto.fromAmount,
+        ownerType: dto.ownerType,
+        ownerId: dto.ownerId,
+      },
     );
     const fromAmount = new Prisma.Decimal(dto.fromAmount);
     const executableRate = new Prisma.Decimal(rateDetails.executableRate);
     const toAmount = fromAmount.mul(executableRate);
+    const createdAt = new Date();
+    const expiresAt = new Date(
+      createdAt.getTime() + rateDetails.quoteLockSeconds * 1000,
+    );
 
     return {
       fromAssetId: rateDetails.fromAssetId,
       fromAssetCode: rateDetails.fromAssetCode,
+      fromAssetDecimals: rateDetails.fromAssetDecimals,
       fromAmount: fromAmount.toNumber(),
       toAssetId: rateDetails.toAssetId,
       toAssetCode: rateDetails.toAssetCode,
+      toAssetDecimals: rateDetails.toAssetDecimals,
       toAmount: toAmount.toNumber(),
+      amountOut: toAmount.toNumber(),
       exchangeRate: executableRate.toNumber(),
+      executableRate: executableRate.toNumber(),
       marketRate: rateDetails.marketRate,
       spreadPercent: rateDetails.spreadPercent,
+      spreadBps: rateDetails.spreadBps,
       rateSource: rateDetails.rateSource,
       fetchedAt: rateDetails.fetchedAt,
+      quoteLockSeconds: rateDetails.quoteLockSeconds,
+      pairId: rateDetails.pairId,
+      pairName: rateDetails.pairName,
+      tierId: rateDetails.tierId,
+      tierName: rateDetails.tierName,
+      matched: rateDetails.matched,
+      pricingSource: rateDetails.pricingSource,
+      feeBreakdown: rateDetails.feeBreakdown,
+      feeTotals: rateDetails.feeTotals,
+      policyRef: rateDetails.policyRef,
+      createdAt: createdAt.toISOString(),
+      expiresAt: expiresAt.toISOString(),
     };
   }
 

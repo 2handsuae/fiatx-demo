@@ -208,12 +208,20 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('POST', '/customers/:id/status', 'Change customer status (deprecated)', ['CUSTOMER_WRITE']),
   route('DELETE', '/customers/:id', 'Delete customer', ['CUSTOMER_WRITE']),
 
-  // Customer swap rates
-  route('POST', '/customers/swap-rates', 'Create customer swap rate', ['CUSTOMER_RATE_WRITE']),
-  route('GET', '/customers/swap-rates', 'List customer swap rates', ['CUSTOMER_RATE_READ']),
-  route('GET', '/customers/swap-rates/:id', 'Get customer swap rate detail', ['CUSTOMER_RATE_READ']),
-  route('PUT', '/customers/swap-rates/:id', 'Update customer swap rate', ['CUSTOMER_RATE_WRITE']),
-  route('PATCH', '/customers/swap-rates/:id/status', 'Change customer swap rate status', ['CUSTOMER_RATE_WRITE']),
+  // Pricing center
+  route('GET', '/admin/pricing/policies', 'List pricing policies', ['CUSTOMER_RATE_READ']),
+  route('GET', '/admin/pricing/policies/swap', 'Get swap pricing policy', ['CUSTOMER_RATE_READ']),
+  route('GET', '/admin/pricing/policies/withdrawal', 'Get withdrawal pricing policy', ['CUSTOMER_RATE_READ']),
+  route(
+    'GET',
+    '/admin/pricing/policies/swap/pairs/:pairId/market-source',
+    'Get swap pair market source',
+    ['CUSTOMER_RATE_READ'],
+  ),
+  route('PUT', '/admin/pricing/policies/swap', 'Update swap pricing policy', ['CUSTOMER_RATE_WRITE']),
+  route('PUT', '/admin/pricing/policies/withdrawal', 'Update withdrawal pricing policy', ['CUSTOMER_RATE_WRITE']),
+  route('POST', '/admin/pricing/simulator/swap', 'Simulate swap pricing', ['CUSTOMER_RATE_WRITE']),
+  route('POST', '/withdraw-transactions/quotes', 'Create withdrawal pricing quote', ['TRADING_WITHDRAW_WRITE']),
 
   // Onboarding compliance
   route('GET', '/admin/compliance/cdd-cases', 'List CDD cases', ['ONBOARDING_READ']),

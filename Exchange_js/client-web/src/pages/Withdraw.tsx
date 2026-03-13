@@ -47,6 +47,28 @@ interface WithdrawTransaction {
   txHash: string | null;
 }
 
+interface WithdrawQuoteFeeLine {
+  itemCode: 'WITHDRAW_SERVICE_FEE' | 'NETWORK_FEE_EST';
+  calcType: 'FLAT' | 'PERCENT';
+  currency: string;
+  amount: string;
+  adjustable: boolean;
+}
+
+interface WithdrawQuoteResult {
+  quoteId: string;
+  quoteNo: string;
+  createdAt: string;
+  expiresAt: string;
+  matched: {
+    assetEntryId: string;
+    tierId: string;
+    tierName: string;
+  };
+  fees: WithdrawQuoteFeeLine[];
+  totals: Record<string, string>;
+}
+
 const Withdraw = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -61,7 +83,10 @@ const Withdraw = () => {
   const [amount, setAmount] = useState('');
   const [, setLoading] = useState(false);
   const [balanceLoading, setBalanceLoading] = useState(false);
+  const [quoteLoading, setQuoteLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [quoteError, setQuoteError] = useState<string | null>(null);
+  const [quote, setQuote] = useState<WithdrawQuoteResult | null>(null);
   
   // History State
   const [transactions, setTransactions] = useState<WithdrawTransaction[]>([]);
@@ -178,6 +203,71 @@ const Withdraw = () => {
 
   const selectedBalance = balances.find(b => b.assetId === selectedAssetId);
   const availableBalance = selectedBalance ? selectedBalance.clientCredit : 0;
+  const selectedAsset = assets.find((a) => a.id === selectedAssetId);
+
+  const getErrorMessage = (message: unknown, fallback: string) => {
+    if (Array.isArray(message)) {
+      return message.join(', ');
+    }
+    if (typeof message === 'string' && message.trim()) {
+      return message;
+    }
+    return fallback;
+  };
+
+  const clearQuoteState = () => {
+    setQuote(null);
+    setQuoteError(null);
+  };
+
+  const handlePreviewQuote = async () => {
+    if (!selectedAssetId || !amount || Number(amount) <= 0) {
+      setQuoteError('Please input a valid amount before preview.');
+      setQuote(null);
+      return;
+    }
+
+    const withdrawAmount = parseFloat(amount);
+    if (withdrawAmount > availableBalance) {
+      setQuoteError('Insufficient balance');
+      setQuote(null);
+      return;
+    }
+
+    setQuoteLoading(true);
+    setQuoteError(null);
+    try {
+      const token = localStorage.getItem('customer_token');
+      const response = await fetch(
+        `${import.meta.env.VITE_API_URL}/withdraw-transactions/quotes`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            assetId: selectedAssetId,
+            amount: withdrawAmount,
+          }),
+        },
+      );
+
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(getErrorMessage(err?.message, 'Failed to generate withdrawal quote'));
+      }
+
+      const data = (await response.json()) as WithdrawQuoteResult;
+      setQuote(data);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to generate withdrawal quote';
+      setQuoteError(message);
+      setQuote(null);
+    } finally {
+      setQuoteLoading(false);
+    }
+  };
 
   const handleWithdraw = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -196,20 +286,25 @@ const Withdraw = () => {
         alert('Insufficient balance');
         return;
     }
+    if (!quote?.quoteId) {
+        alert('Please preview fee to generate a quote first.');
+        return;
+    }
 
     setSubmitting(true);
     try {
-        const token = localStorage.getItem('customer_token');
-        const wallet = wallets.find(w => w.id === selectedWalletId);
-        const asset = assets.find(a => a.id === selectedAssetId);
-        
-        const payload = {
-            assetId: selectedAssetId,
-            amount: withdrawAmount,
-            toWalletId: isManualInput ? undefined : selectedWalletId,
-            toAddress: isManualInput ? (asset?.type === 'CRYPTO' ? manualAddress : undefined) : wallet?.address,
-            toIban: isManualInput ? (asset?.type === 'FIAT' ? manualAddress : undefined) : wallet?.iban,
-        };
+      const token = localStorage.getItem('customer_token');
+      const wallet = wallets.find(w => w.id === selectedWalletId);
+      const asset = selectedAsset;
+
+      const payload = {
+          assetId: selectedAssetId,
+          amount: withdrawAmount,
+          toWalletId: isManualInput ? undefined : selectedWalletId,
+          toAddress: isManualInput ? (asset?.type === 'CRYPTO' ? manualAddress : undefined) : wallet?.address,
+          toIban: isManualInput ? (asset?.type === 'FIAT' ? manualAddress : undefined) : wallet?.iban,
+          quoteId: quote.quoteId,
+      };
 
         const response = await fetch(`${import.meta.env.VITE_API_URL}/withdraw-transactions`, {
             method: 'POST',
@@ -225,6 +320,7 @@ const Withdraw = () => {
             setActiveTab('history');
             setAmount('');
             setSelectedWalletId('');
+            clearQuoteState();
             // Refresh balances
             const balancesResponse = await fetch(`${import.meta.env.VITE_API_URL}/treasury/customer/${user?.id}/assets`, {
                 headers: { 'Authorization': `Bearer ${token}` }
@@ -235,7 +331,7 @@ const Withdraw = () => {
             }
         } else {
             const err = await response.json();
-            alert(err.message || 'Failed to submit withdrawal request');
+            alert(getErrorMessage(err?.message, 'Failed to submit withdrawal request'));
         }
     } catch (error) {
         console.error('Withdrawal failed', error);
@@ -252,6 +348,12 @@ const Withdraw = () => {
   );
 
   const filteredWallets = wallets; // Now filtered by API
+  const destinationReady = isManualInput ? Boolean(manualAddress) : Boolean(selectedWalletId);
+
+  useEffect(() => {
+    clearQuoteState();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedAssetId, amount]);
 
   const renderStatusBadge = (status: string) => {
     const colors: Record<string, string> = {
@@ -287,7 +389,13 @@ const Withdraw = () => {
         <div className="border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50">
           <div className="flex overflow-x-auto px-6">
             <button
-              onClick={() => { setActiveTab('crypto'); setSelectedAssetId(''); setSelectedWalletId(''); }}
+              onClick={() => {
+                setActiveTab('crypto');
+                setSelectedAssetId('');
+                setSelectedWalletId('');
+                setAmount('');
+                clearQuoteState();
+              }}
               className={`px-6 py-4 text-sm font-bold transition-colors border-b-[3px] flex-1 sm:flex-none justify-center whitespace-nowrap ${
                 activeTab === 'crypto' 
                   ? 'border-blue-600 text-blue-600 bg-white dark:bg-gray-800' 
@@ -300,7 +408,13 @@ const Withdraw = () => {
               </div>
             </button>
             <button
-              onClick={() => { setActiveTab('fiat'); setSelectedAssetId(''); setSelectedWalletId(''); }}
+              onClick={() => {
+                setActiveTab('fiat');
+                setSelectedAssetId('');
+                setSelectedWalletId('');
+                setAmount('');
+                clearQuoteState();
+              }}
               className={`px-6 py-4 text-sm font-bold transition-colors border-b-[3px] flex-1 sm:flex-none justify-center whitespace-nowrap ${
                 activeTab === 'fiat' 
                   ? 'border-blue-600 text-blue-600 bg-white dark:bg-gray-800' 
@@ -313,7 +427,10 @@ const Withdraw = () => {
               </div>
             </button>
             <button
-              onClick={() => setActiveTab('history')}
+              onClick={() => {
+                setActiveTab('history');
+                clearQuoteState();
+              }}
               className={`px-6 py-4 text-sm font-bold transition-colors border-b-[3px] flex-1 sm:flex-none justify-center whitespace-nowrap ${
                 activeTab === 'history' 
                   ? 'border-blue-600 text-blue-600 bg-white dark:bg-gray-800' 
@@ -583,11 +700,89 @@ const Withdraw = () => {
                                 </div>
                             </div>
 
+                            <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900/30 p-4 space-y-3">
+                                <div className="flex items-center justify-between">
+                                    <h4 className="text-sm font-bold text-gray-900 dark:text-white">Fee Preview</h4>
+                                    <button
+                                        type="button"
+                                        onClick={handlePreviewQuote}
+                                        disabled={quoteLoading || !selectedAssetId || !amount || Number(amount) <= 0}
+                                        className="px-3 py-1.5 text-xs rounded-lg bg-brand-primary text-white hover:bg-brand-primary/90 disabled:opacity-50 inline-flex items-center gap-1"
+                                    >
+                                        {quoteLoading ? <RefreshCw size={12} className="animate-spin" /> : null}
+                                        Preview Fee
+                                    </button>
+                                </div>
+
+                                {quoteError && (
+                                    <div className="text-xs text-red-600 dark:text-red-300">
+                                        {quoteError}
+                                    </div>
+                                )}
+
+                                {!quote && !quoteError && (
+                                    <div className="text-xs text-slate-500 dark:text-slate-400">
+                                        Generate a quote to preview service fee, gas fee, total fee and net amount.
+                                    </div>
+                                )}
+
+                                {quote && (
+                                    <div className="space-y-2 text-xs">
+                                        <div className="flex justify-between">
+                                            <span className="text-slate-500 dark:text-slate-400">Service Fee</span>
+                                            <span className="font-medium text-gray-900 dark:text-white">
+                                                {formatAssetAmount(
+                                                    quote.fees.find((item) => item.itemCode === 'WITHDRAW_SERVICE_FEE')?.amount || 0,
+                                                    selectedAsset?.decimals,
+                                                )} {selectedAsset?.code}
+                                            </span>
+                                        </div>
+                                        <div className="flex justify-between">
+                                            <span className="text-slate-500 dark:text-slate-400">Gas Fee</span>
+                                            <span className="font-medium text-gray-900 dark:text-white">
+                                                {formatAssetAmount(
+                                                    quote.fees.find((item) => item.itemCode === 'NETWORK_FEE_EST')?.amount || 0,
+                                                    selectedAsset?.decimals,
+                                                )} {selectedAsset?.code}
+                                            </span>
+                                        </div>
+                                        <div className="flex justify-between border-t border-slate-200 dark:border-slate-700 pt-2">
+                                            <span className="text-slate-500 dark:text-slate-400">Total Fee</span>
+                                            <span className="font-medium text-gray-900 dark:text-white">
+                                                {formatAssetAmount(
+                                                    quote.totals[selectedAsset?.code || ''] || 0,
+                                                    selectedAsset?.decimals,
+                                                )} {selectedAsset?.code}
+                                            </span>
+                                        </div>
+                                        <div className="flex justify-between">
+                                            <span className="text-slate-500 dark:text-slate-400">Net Amount</span>
+                                            <span className="font-bold text-gray-900 dark:text-white">
+                                                {formatAssetAmount(
+                                                    Number(amount || 0) -
+                                                      Number(quote.totals[selectedAsset?.code || ''] || 0),
+                                                    selectedAsset?.decimals,
+                                                )} {selectedAsset?.code}
+                                            </span>
+                                        </div>
+                                        <div className="text-[10px] text-slate-400 dark:text-slate-500 font-mono">
+                                            Quote: {quote.quoteId}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+
                         {/* Submit Button */}
                         <div className="pt-4">
                             <button
                                 type="submit"
-                                disabled={submitting || !selectedAssetId || !selectedWalletId}
+                                disabled={
+                                    submitting ||
+                                    !selectedAssetId ||
+                                    !destinationReady ||
+                                    !quote?.quoteId ||
+                                    !!quoteLoading
+                                }
                                 className="w-full py-4 bg-gradient-to-r from-brand-primary to-brand-primary/80 text-white rounded-xl hover:from-brand-primary/90 hover:to-brand-primary/70 transition-all disabled:opacity-50 font-bold shadow-lg shadow-brand-primary/20 flex items-center justify-center gap-2"
                             >
                                 {submitting ? (
@@ -597,11 +792,16 @@ const Withdraw = () => {
                                     </>
                                 ) : (
                                     <>
-                                        Withdraw Now
+                                        Confirm Withdraw
                                         <ArrowRight size={20} />
                                     </>
                                 )}
                             </button>
+                            {!quote?.quoteId && (
+                                <p className="text-xs text-slate-500 dark:text-slate-400 mt-2">
+                                    Please generate fee preview before submitting.
+                                </p>
+                            )}
                         </div>
                         </>
                     )}

@@ -103,6 +103,7 @@ export class SwapWorkflowOrchestrator {
       const rateDetails = await this.swapService.getExecutableRate(
         fromAsset.id,
         toAsset.id,
+        { amount: dto.fromAmount },
       );
       const rate = new Prisma.Decimal(rateDetails.executableRate);
       const fromAmount = new Prisma.Decimal(dto.fromAmount);

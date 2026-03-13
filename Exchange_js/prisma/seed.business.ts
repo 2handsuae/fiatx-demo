@@ -17,6 +17,7 @@ export async function seedBusiness(
   }
 
   await seedCustomersMinimal(prisma);
+  await seedPricingPolicies(prisma);
   console.log('✅ Business data seeded.');
 }
 
@@ -176,4 +177,227 @@ async function seedCustomersMinimal(prisma: PrismaClient): Promise<void> {
   }
 
   console.log(`Seeded ${items.length} minimal customers.`);
+}
+
+type SeedAsset = {
+  id: string;
+  code: string;
+  type: string;
+  network: string | null;
+  decimals: number;
+};
+
+const DEFAULT_ROUTING = {
+  strategy: 'PRIMARY_FALLBACK',
+  primaryLp: 'LP_A',
+  fallbackLp: 'LP_B',
+  maxStalenessSec: 30,
+  quoteLockSeconds: 30,
+  rounding: {
+    dp: 8,
+    mode: 'ROUND',
+  },
+};
+
+const DEFAULT_SWAP_FEE_ITEM_CODES = ['SWAP_SERVICE_FEE', 'COMPLIANCE_FEE'];
+const DEFAULT_WITHDRAW_FEE_ITEM_CODES = [
+  'WITHDRAW_SERVICE_FEE',
+  'NETWORK_FEE_EST',
+  'BANK_OUT_FEE',
+  'COMPLIANCE_FEE',
+];
+
+function formatAssetLabel(asset: SeedAsset): string {
+  const network = String(asset.network || '').trim();
+  return network ? `${asset.code}-${network}` : asset.code;
+}
+
+function buildDefaultSwapPolicyConfig(activeAssets: SeedAsset[]) {
+  const pairs: any[] = [];
+  let pairSeq = 1;
+
+  for (let i = 0; i < activeAssets.length; i += 1) {
+    for (let j = i + 1; j < activeAssets.length; j += 1) {
+      const left = activeAssets[i];
+      const right = activeAssets[j];
+      if (left.type === 'FIAT' && right.type === 'FIAT') {
+        continue;
+      }
+
+      const pairId = `PAIR-${String(pairSeq).padStart(4, '0')}`;
+      const tierId = `${pairId}-TIER-001`;
+      pairSeq += 1;
+
+      pairs.push({
+        id: pairId,
+        name: `${formatAssetLabel(left)} ↔ ${formatAssetLabel(right)}`,
+        assetAId: left.id,
+        assetALabel: formatAssetLabel(left),
+        assetBId: right.id,
+        assetBLabel: formatAssetLabel(right),
+        enabled: true,
+        routing: { ...DEFAULT_ROUTING },
+        tiers: [
+          {
+            id: tierId,
+            name: 'Default Tier',
+            priority: 1,
+            enabled: true,
+            rateMarkupBps: 0,
+            conditions: {
+              segment: 'ANY',
+              amountMin: null,
+              amountMax: null,
+            },
+            feeItems: DEFAULT_SWAP_FEE_ITEM_CODES.map((code, index) => ({
+              id: `${tierId}-FEE-${String(index + 1).padStart(3, '0')}`,
+              itemCode: code,
+              calcType: 'FLAT',
+              value: '0',
+              currency: right.code,
+              min: null,
+              cap: null,
+              roundingDp: right.decimals,
+              roundingMode: 'ROUND',
+              adjustable: true,
+            })),
+          },
+        ],
+      });
+    }
+  }
+
+  return {
+    policyId: 'POL-SWAP-ONLINE',
+    policyName: 'Swap Pricing',
+    business: 'SWAP',
+    channel: {
+      online: true,
+      storeComingSoon: true,
+    },
+    pairs,
+  };
+}
+
+function buildDefaultWithdrawalPolicyConfig(activeAssets: SeedAsset[]) {
+  const assets = activeAssets.map((asset, index) => {
+    const assetEntryId = `ASSET-${String(index + 1).padStart(4, '0')}`;
+    const tierId = `${assetEntryId}-TIER-001`;
+    return {
+      id: assetEntryId,
+      assetId: asset.id,
+      assetCode: asset.code,
+      network: asset.network || null,
+      enabled: true,
+      tiers: [
+        {
+          id: tierId,
+          name: 'Default Tier',
+          priority: 1,
+          enabled: true,
+          conditions: {
+            segment: 'ANY',
+            riskTier: 'ANY',
+            amountMin: null,
+            amountMax: null,
+          },
+          feeItems: DEFAULT_WITHDRAW_FEE_ITEM_CODES.map((code, feeIndex) => ({
+            id: `${tierId}-FEE-${String(feeIndex + 1).padStart(3, '0')}`,
+            itemCode: code,
+            calcType: 'FLAT',
+            value: '0',
+            currency: asset.code,
+            min: null,
+            cap: null,
+            roundingDp: asset.decimals,
+            roundingMode: 'ROUND',
+            adjustable: true,
+          })),
+        },
+      ],
+    };
+  });
+
+  return {
+    policyId: 'POL-WITHDRAW-ONLINE',
+    policyName: 'Withdrawal Pricing',
+    business: 'WITHDRAWAL',
+    channel: {
+      online: true,
+      storeComingSoon: true,
+    },
+    assets,
+  };
+}
+
+async function seedPricingPolicies(prisma: PrismaClient): Promise<void> {
+  const activeAssets = await prisma.asset.findMany({
+    where: { status: 'ACTIVE' },
+    orderBy: [{ type: 'asc' }, { code: 'asc' }, { network: 'asc' }],
+    select: {
+      id: true,
+      code: true,
+      type: true,
+      network: true,
+      decimals: true,
+    },
+  });
+
+  if (activeAssets.length === 0) {
+    console.log('Skip pricing policy seed: no active assets found.');
+    return;
+  }
+
+  const swapConfig = buildDefaultSwapPolicyConfig(activeAssets);
+  const withdrawalConfig = buildDefaultWithdrawalPolicyConfig(activeAssets);
+
+  await prisma.pricingPolicy.upsert({
+    where: { policyCode: 'SWAP_PRICING' },
+    update: {
+      policyName: 'Swap Pricing',
+      business: 'SWAP',
+      channelOnline: true,
+      channelStoreSoon: true,
+      configJson: JSON.stringify(swapConfig),
+      updatedByUserId: 'SYSTEM',
+      updatedByUserNo: 'SYSTEM',
+    },
+    create: {
+      policyCode: 'SWAP_PRICING',
+      policyName: 'Swap Pricing',
+      business: 'SWAP',
+      channelOnline: true,
+      channelStoreSoon: true,
+      configJson: JSON.stringify(swapConfig),
+      updatedByUserId: 'SYSTEM',
+      updatedByUserNo: 'SYSTEM',
+    },
+  });
+
+  await prisma.pricingPolicy.upsert({
+    where: { policyCode: 'WITHDRAWAL_PRICING' },
+    update: {
+      policyName: 'Withdrawal Pricing',
+      business: 'WITHDRAWAL',
+      channelOnline: true,
+      channelStoreSoon: true,
+      configJson: JSON.stringify(withdrawalConfig),
+      updatedByUserId: 'SYSTEM',
+      updatedByUserNo: 'SYSTEM',
+    },
+    create: {
+      policyCode: 'WITHDRAWAL_PRICING',
+      policyName: 'Withdrawal Pricing',
+      business: 'WITHDRAWAL',
+      channelOnline: true,
+      channelStoreSoon: true,
+      configJson: JSON.stringify(withdrawalConfig),
+      updatedByUserId: 'SYSTEM',
+      updatedByUserNo: 'SYSTEM',
+    },
+  });
+
+  console.log(
+    `Seeded pricing policies (swap pairs: ${swapConfig.pairs.length}, withdrawal assets: ${withdrawalConfig.assets.length}).`,
+  );
 }
