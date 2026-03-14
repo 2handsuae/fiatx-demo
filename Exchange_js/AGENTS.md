@@ -17,6 +17,32 @@ Before any code change in `Exchange_js`, read:
 - Backend: `src/**`, `prisma/**`, `scripts/**`
 - Frontend: `admin-web/**`, `client-web/**`
 
+## Planning Reference
+- For roadmap, milestone, wave-planning, or scope-sequencing requests, also read:
+  - `docs/project-version-plan.md`
+  - `docs/wave1-foundation-migration-from-exchange-java.md`
+- This planning reference does not override `docs/constraints/**`; constraints remain the behavioral source of truth.
+
+## Product Demo Context
+- This project is primarily a product demo / workflow demonstration system, not a production-security-hardening program.
+- The user is acting mainly as product owner, not as implementation/security engineer.
+- For future discussion, planning, and code changes, default priority is:
+1. clear business logic
+2. correct workflow/state-machine semantics
+3. control gate meaning and evidence traceability
+4. admin/client product experience for demo and review
+- Unless explicitly requested, do NOT optimize for production-grade security completeness such as:
+1. advanced session management
+2. token revocation architecture
+3. device-level session controls
+4. full zero-trust style auth hardening
+5. deep infra/network security design
+- Existing auth/RBAC semantics that support workflow meaning SHOULD be preserved, but gaps in security hardening alone are not treated as blocking if the demo/product logic is already clear and correct.
+- When evaluating completeness, agents SHOULD distinguish:
+1. demo-ready logical completeness
+2. production-ready security completeness
+- Default discussion baseline: if a capability is logically clear, demonstrable, and supports workflow gating correctly, it is acceptable even if security engineering depth is intentionally simplified.
+
 ## Local Workflow Defaults
 - Start: `npm run dev:start`
 - Stop: `npm run dev:stop`
