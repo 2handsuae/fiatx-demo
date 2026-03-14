@@ -3,10 +3,12 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+# shellcheck source=./db-env.sh
+source "${SCRIPT_DIR}/db-env.sh"
 
-BACKEND_PORT="${BACKEND_PORT:-3100}"
-ADMIN_PORT="${ADMIN_PORT:-3101}"
-CLIENT_PORT="${CLIENT_PORT:-3102}"
+BACKEND_PORT="${BACKEND_PORT:-3500}"
+ADMIN_PORT="${ADMIN_PORT:-3501}"
+CLIENT_PORT="${CLIENT_PORT:-3502}"
 BACKEND_URL="http://localhost:${BACKEND_PORT}"
 ADMIN_URL="http://localhost:${ADMIN_PORT}"
 CLIENT_URL="http://localhost:${CLIENT_PORT}"
@@ -22,8 +24,6 @@ CLIENT_PID_FILE="${RUNTIME_DIR}/client.pid"
 BACKEND_DIR="${ROOT_DIR}"
 ADMIN_DIR="${ROOT_DIR}/admin-web"
 CLIENT_DIR="${ROOT_DIR}/client-web"
-MIGRATIONS_DIR="${ROOT_DIR}/prisma/migrations"
-PRISMA_DIR="${ROOT_DIR}/prisma"
 
 ensure_dependencies() {
   local name="$1"
@@ -52,32 +52,14 @@ ensure_dependencies() {
 }
 
 resolve_db_file() {
-  local db_url="${DATABASE_URL:-}"
-  if [[ -z "${db_url}" && -f "${ROOT_DIR}/.env" ]]; then
-    db_url="$(grep -E '^DATABASE_URL=' "${ROOT_DIR}/.env" | tail -n 1 | cut -d'=' -f2- | tr -d '\"' || true)"
-  fi
-
-  if [[ -z "${db_url}" ]]; then
-    echo "${PRISMA_DIR}/dev.db"
-    return 0
-  fi
-
-  if [[ "${db_url}" == file:* ]]; then
-    local raw_path="${db_url#file:}"
-    if [[ "${raw_path}" = /* ]]; then
-      echo "${raw_path}"
-    else
-      echo "${PRISMA_DIR}/${raw_path#./}"
-    fi
-    return 0
-  fi
-
-  echo "${PRISMA_DIR}/dev.db"
+  local db_url
+  db_url="$(read_database_url "${ROOT_DIR}" "audit_evidence")"
+  resolve_db_file_from_url "${ROOT_DIR}" "${db_url}"
 }
 
 db_needs_seed_data() {
   local db_file="$1"
-  local required_tables=("users" "roles" "permissions" "customer_main")
+  local required_tables=("users" "roles" "permissions")
 
   if [[ ! -f "${db_file}" ]]; then
     echo "[backend] Seed check: database file is missing (${db_file})."
@@ -109,57 +91,33 @@ db_needs_seed_data() {
 
 bootstrap_database_if_needed() {
   local db_file
+  local db_url
   db_file="$(resolve_db_file)"
+  db_url="$(read_database_url "${ROOT_DIR}" "audit_evidence")"
 
   mkdir -p "$(dirname "${db_file}")"
   echo "[backend] Applying pending Prisma migrations to ${db_file}..."
   (
     cd "${BACKEND_DIR}"
-    DATABASE_URL="file:${db_file}" npx prisma migrate deploy
+    DATABASE_URL="${db_url}" bash scripts/apply-local-migrations.sh "${BACKEND_DIR}" "audit_evidence"
   )
 
   if db_needs_seed_data "${db_file}"; then
-    echo "[backend] Missing login baseline data. Running seed auto-heal..."
+    echo "[backend] Missing base IAM baseline. Running db:base:sync..."
     (
       cd "${BACKEND_DIR}"
-      DATABASE_URL="file:${db_file}" npm run db:biz:init
+      DATABASE_URL="${db_url}" npm run db:base:sync
     )
 
     if db_needs_seed_data "${db_file}"; then
-      echo "[backend] FATAL: seed auto-heal failed, login baseline data is still missing." >&2
+      echo "[backend] FATAL: db:base:sync failed, base IAM baseline is still missing." >&2
       exit 1
     fi
 
-    echo "[backend] Seed auto-heal completed."
+    echo "[backend] Base IAM baseline sync completed."
   else
-    echo "[backend] Login baseline data verified: ${db_file}"
+    echo "[backend] Base IAM baseline verified: ${db_file}"
   fi
-}
-
-ensure_audit_log_schema() {
-  local db_file
-  db_file="$(resolve_db_file)"
-  local migration_file="${MIGRATIONS_DIR}/20260218172000_audit_log_subject_no_enhancement/migration.sql"
-
-  if [[ ! -f "${db_file}" ]]; then
-    return 0
-  fi
-
-  if [[ ! -f "${migration_file}" ]]; then
-    return 0
-  fi
-
-  local has_actor_no
-  has_actor_no="$(sqlite3 "${db_file}" "PRAGMA table_info('audit_log_events');" 2>/dev/null | grep -c '|actorNo|')"
-  local has_subject_table
-  has_subject_table="$(sqlite3 "${db_file}" ".tables" 2>/dev/null | grep -c 'audit_log_subject_nos')"
-
-  if [[ "${has_actor_no}" -gt 0 && "${has_subject_table}" -gt 0 ]]; then
-    return 0
-  fi
-
-  echo "[backend] Applying audit log subject-no migration to ${db_file}..."
-  sqlite3 "${db_file}" < "${migration_file}"
 }
 
 assert_port_free() {
@@ -203,8 +161,8 @@ ensure_dependencies "backend" "${BACKEND_DIR}"
 ensure_dependencies "admin" "${ADMIN_DIR}"
 ensure_dependencies "client" "${CLIENT_DIR}"
 bootstrap_database_if_needed
-ensure_audit_log_schema
 DB_FILE="$(resolve_db_file)"
+DB_URL="$(read_database_url "${ROOT_DIR}" "audit_evidence")"
 
 bash "${SCRIPT_DIR}/dev-stop-all.sh" >/dev/null 2>&1 || true
 rm -f "${BACKEND_PID_FILE}" "${ADMIN_PID_FILE}" "${CLIENT_PID_FILE}"

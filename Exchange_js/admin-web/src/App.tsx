@@ -59,6 +59,19 @@ import TransactionComplianceCaseDetailPage from './pages/TransactionComplianceCa
 import TransactionKytCasesPage from './pages/TransactionKytCasesPage';
 import TransactionTravelRuleCasesPage from './pages/TransactionTravelRuleCasesPage';
 import AuditLogsPage from './pages/AuditLogsPage';
+import AuditLogDetailPage from './pages/AuditLogDetailPage';
+import EvidenceExportsPage from './pages/EvidenceExportsPage';
+import EvidenceExportDetailPage from './pages/EvidenceExportDetailPage';
+import ApprovalsPage from './pages/ApprovalsPage';
+import ApprovalDetailPage from './pages/ApprovalDetailPage';
+import ChangeTicketsPage from './pages/ChangeTicketsPage';
+import ChangeTicketCreatePage from './pages/ChangeTicketCreatePage';
+import ChangeTicketDetailPage from './pages/ChangeTicketDetailPage';
+import DeleteRequestsPage from './pages/DeleteRequestsPage';
+import DeleteRequestCreatePage from './pages/DeleteRequestCreatePage';
+import DeleteRequestDetailPage from './pages/DeleteRequestDetailPage';
+import SlaTimersPage from './pages/SlaTimersPage';
+import SlaTimerDetailPage from './pages/SlaTimerDetailPage';
 import ComplianceAlertsPage from './pages/ComplianceAlertsPage';
 import ComplianceIncidentsPage from './pages/ComplianceIncidentsPage';
 import RiskPolicyExecutionsPage from './pages/RiskPolicyExecutionsPage';
@@ -281,7 +294,93 @@ function App() {
             />
             <Route
               path="compliance/audit-logs"
+              element={withPermission(
+                <Navigate to="/dashboard/audit/audit-logs" replace />,
+                [PERMISSIONS.AUDIT_LOGS_READ],
+              )}
+            />
+            <Route
+              path="audit/audit-logs"
               element={withPermission(<AuditLogsPage />, [PERMISSIONS.AUDIT_LOGS_READ])}
+            />
+            <Route
+              path="audit/audit-logs/:id"
+              element={withPermission(<AuditLogDetailPage />, [PERMISSIONS.AUDIT_LOGS_READ])}
+            />
+            <Route
+              path="audit/evidence-exports"
+              element={withPermission(<EvidenceExportsPage />, [
+                PERMISSIONS.AUDIT_EVIDENCE_EXPORTS_READ,
+              ])}
+            />
+            <Route
+              path="audit/evidence-exports/:id"
+              element={withPermission(<EvidenceExportDetailPage />, [
+                PERMISSIONS.AUDIT_EVIDENCE_EXPORTS_READ,
+              ])}
+            />
+            <Route
+              path="control-gates/change-tickets"
+              element={withPermission(<ChangeTicketsPage />, [
+                PERMISSIONS.GOV_CHANGE_TICKETS_READ,
+              ])}
+            />
+            <Route
+              path="control-gates/change-tickets/create"
+              element={withPermission(<ChangeTicketCreatePage />, [
+                PERMISSIONS.GOV_CHANGE_TICKET_CREATE,
+              ])}
+            />
+            <Route
+              path="control-gates/change-tickets/:id"
+              element={withPermission(<ChangeTicketDetailPage />, [
+                PERMISSIONS.GOV_CHANGE_TICKET_DETAIL_READ,
+              ])}
+            />
+            <Route
+              path="control-gates/delete-requests"
+              element={withPermission(<DeleteRequestsPage />, [
+                PERMISSIONS.GOV_DELETE_REQUESTS_READ,
+              ])}
+            />
+            <Route
+              path="control-gates/delete-requests/create"
+              element={withPermission(<DeleteRequestCreatePage />, [
+                PERMISSIONS.GOV_DELETE_REQUEST_CREATE,
+              ])}
+            />
+            <Route
+              path="control-gates/delete-requests/:id"
+              element={withPermission(<DeleteRequestDetailPage />, [
+                PERMISSIONS.GOV_DELETE_REQUEST_DETAIL_READ,
+              ])}
+            />
+            <Route
+              path="control-gates/approvals"
+              element={withPermission(<ApprovalsPage />, [PERMISSIONS.GOV_APPROVALS_READ])}
+            />
+            <Route
+              path="control-gates"
+              element={withPermission(
+                <Navigate to="/dashboard/control-gates/change-tickets" replace />,
+                [PERMISSIONS.GOV_CHANGE_TICKETS_READ, PERMISSIONS.GOV_APPROVALS_READ],
+              )}
+            />
+            <Route
+              path="control-gates/approvals/:id"
+              element={withPermission(<ApprovalDetailPage />, [
+                PERMISSIONS.GOV_APPROVAL_DETAIL_READ,
+              ])}
+            />
+            <Route
+              path="control-gates/sla-timers"
+              element={withPermission(<SlaTimersPage />, [PERMISSIONS.GOV_SLA_TIMERS_READ])}
+            />
+            <Route
+              path="control-gates/sla-timers/:id"
+              element={withPermission(<SlaTimerDetailPage />, [
+                PERMISSIONS.GOV_SLA_TIMER_DETAIL_READ,
+              ])}
             />
             <Route
               path="risk/policy-executions"

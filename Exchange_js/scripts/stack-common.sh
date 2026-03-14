@@ -2,7 +2,19 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+# shellcheck source=./db-env.sh
+source "${SCRIPT_DIR}/db-env.sh"
+CURRENT_WT_DIR="$(git -C "${SCRIPT_DIR}" rev-parse --show-toplevel 2>/dev/null || true)"
+if [[ -z "${CURRENT_WT_DIR}" ]]; then
+  CURRENT_WT_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+fi
+
+GIT_COMMON_DIR="$(git -C "${SCRIPT_DIR}" rev-parse --git-common-dir 2>/dev/null || echo "${CURRENT_WT_DIR}/.git")"
+if [[ "${GIT_COMMON_DIR}" = /* ]]; then
+  ROOT_DIR="$(cd "${GIT_COMMON_DIR}/.." && pwd)"
+else
+  ROOT_DIR="$(cd "${CURRENT_WT_DIR}/${GIT_COMMON_DIR}/.." && pwd)"
+fi
 
 STACK=""
 WT_DIR=""
@@ -24,7 +36,7 @@ ADMIN_PID_FILE=""
 CLIENT_PID_FILE=""
 
 usage_stack_name() {
-  echo "Usage: $0 <main|codex|claude|trae>" >&2
+  echo "Usage: $0 <main|codex|claude|trae|audit-evidence>" >&2
 }
 
 load_stack_config() {
@@ -65,6 +77,15 @@ load_stack_config() {
       ADMIN_PORT="3301"
       CLIENT_PORT="3302"
       BRANCH_RULE="trae/*"
+      ;;
+    audit-evidence)
+      STACK="audit-evidence"
+      WT_DIR="${ROOT_DIR}/.wt/audit-evidence"
+      APP_DIR="${WT_DIR}/Exchange_js"
+      BACKEND_PORT="3500"
+      ADMIN_PORT="3501"
+      CLIENT_PORT="3502"
+      BRANCH_RULE="audit&evidence"
       ;;
     *)
       usage_stack_name
@@ -134,20 +155,12 @@ assert_branch_rule() {
   local branch
   branch="$(stack_branch)"
 
-  if [[ "${BRANCH_RULE}" == "main" ]]; then
-    if [[ "${branch}" != "main" ]]; then
-      echo "[${STACK}] expected branch main, got: ${branch}" >&2
-      return 1
-    fi
-    return 0
-  fi
-
   case "${branch}" in
-    ${STACK}/*)
+    ${BRANCH_RULE})
       return 0
       ;;
     *)
-      echo "[${STACK}] expected branch prefix ${STACK}/, got: ${branch}" >&2
+      echo "[${STACK}] expected branch rule ${BRANCH_RULE}, got: ${branch}" >&2
       return 1
       ;;
   esac
@@ -179,6 +192,8 @@ ensure_env_files() {
   local backend_env="${APP_DIR}/.env"
   local admin_env="${APP_DIR}/admin-web/.env"
   local client_env="${APP_DIR}/client-web/.env"
+  local default_db_url
+  default_db_url="$(default_database_url "${STACK}")"
 
   if [[ ! -f "${backend_env}" ]]; then
     cat >"${backend_env}" <<ENV
@@ -190,7 +205,7 @@ API_URL=${BACKEND_URL}
 ADMIN_URL=${ADMIN_URL}
 CLIENT_URL=${CLIENT_URL}
 
-DATABASE_URL="file:./dev.db"
+DATABASE_URL="${default_db_url}"
 ENV
     echo "[${STACK}] created ${backend_env}"
   fi
@@ -211,34 +226,14 @@ ENV
 }
 
 resolve_db_file() {
-  local db_url=""
-  local env_file="${APP_DIR}/.env"
-  local prisma_dir="${APP_DIR}/prisma"
-
-  if [[ -f "${env_file}" ]]; then
-    db_url="$(grep -E '^DATABASE_URL=' "${env_file}" | tail -n 1 | cut -d'=' -f2- | tr -d '"' || true)"
-  fi
-
-  if [[ -z "${db_url}" ]]; then
-    db_url='file:./dev.db'
-  fi
-
-  if [[ "${db_url}" == file:* ]]; then
-    local raw_path="${db_url#file:}"
-    if [[ "${raw_path}" = /* ]]; then
-      echo "${raw_path}"
-    else
-      echo "${prisma_dir}/${raw_path#./}"
-    fi
-    return 0
-  fi
-
-  echo "${prisma_dir}/dev.db"
+  local db_url
+  db_url="$(read_database_url "${APP_DIR}" "${STACK}")"
+  resolve_db_file_from_url "${APP_DIR}" "${db_url}"
 }
 
 db_needs_seed_data() {
   local db_file="$1"
-  local required_tables=("users" "roles" "permissions" "customer_main")
+  local required_tables=("users" "roles" "permissions")
 
   if [[ ! -f "${db_file}" ]]; then
     echo "[${STACK}] seed check: database file is missing (${db_file})"
@@ -270,30 +265,32 @@ db_needs_seed_data() {
 
 bootstrap_database_if_needed() {
   local db_file
+  local db_url
   db_file="$(resolve_db_file)"
+  db_url="$(read_database_url "${APP_DIR}" "${STACK}")"
 
   mkdir -p "$(dirname "${db_file}")"
   echo "[${STACK}] applying pending Prisma migrations to ${db_file}"
   (
     cd "${APP_DIR}"
-    DATABASE_URL="file:${db_file}" npx prisma migrate deploy
+    DATABASE_URL="${db_url}" bash scripts/apply-local-migrations.sh "${APP_DIR}" "${STACK}"
   )
 
   if db_needs_seed_data "${db_file}"; then
-    echo "[${STACK}] missing login baseline data, running seed auto-heal..."
+    echo "[${STACK}] missing base IAM baseline, running db:base:sync..."
     (
       cd "${APP_DIR}"
-      DATABASE_URL="file:${db_file}" npm run db:biz:init
+      DATABASE_URL="${db_url}" npm run db:base:sync
     )
 
     if db_needs_seed_data "${db_file}"; then
-      echo "[${STACK}] FATAL: seed auto-heal failed, login baseline data is still missing." >&2
+      echo "[${STACK}] FATAL: db:base:sync failed, base IAM baseline is still missing." >&2
       exit 1
     fi
 
-    echo "[${STACK}] seed auto-heal completed."
+    echo "[${STACK}] base IAM baseline sync completed."
   else
-    echo "[${STACK}] login baseline data verified: ${db_file}"
+    echo "[${STACK}] base IAM baseline verified: ${db_file}"
   fi
 }
 

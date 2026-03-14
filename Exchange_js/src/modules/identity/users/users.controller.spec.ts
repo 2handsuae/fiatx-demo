@@ -33,7 +33,7 @@ describe('UsersController', () => {
     mockUsersService.createAdminUser.mockResolvedValue({
       id: 'user-1',
       email: 'new-admin@fiatx.com',
-      roles: ['IAM_ADMIN'],
+      roles: ['CISO'],
     });
 
     const req = {
@@ -47,14 +47,14 @@ describe('UsersController', () => {
 
     const body = {
       email: 'new-admin@fiatx.com',
-      roleCodes: ['IAM_ADMIN'],
+      roleCodes: ['CISO'],
     };
 
     await controller.create(req, body as any);
 
     expect(mockUsersService.createAdminUser).toHaveBeenCalledWith({
       email: 'new-admin@fiatx.com',
-      roleCodes: ['IAM_ADMIN'],
+      roleCodes: ['CISO'],
       actor: {
         actorId: 'actor-1',
         actorNo: 'ADMIN-001',
@@ -71,7 +71,7 @@ describe('UsersController', () => {
     };
 
     await expect(
-      controller.create(req, { email: 'x@fiatx.com', roleCodes: ['IAM_ADMIN'] } as any),
+      controller.create(req, { email: 'x@fiatx.com', roleCodes: ['CISO'] } as any),
     ).rejects.toBeInstanceOf(ForbiddenException);
   });
 });

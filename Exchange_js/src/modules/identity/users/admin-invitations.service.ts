@@ -64,7 +64,7 @@ export class AdminInvitationsService {
     const configured =
       this.configService.get<string>('ADMIN_URL') ||
       process.env.ADMIN_URL ||
-      'http://localhost:3001';
+      'http://localhost:3501';
     return configured.replace(/\/+$/, '');
   }
 

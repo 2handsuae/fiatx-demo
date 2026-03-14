@@ -1,15 +1,16 @@
 import {
   BadRequestException,
   ConflictException,
+  Inject,
   Injectable,
   InternalServerErrorException,
 } from '@nestjs/common';
 import { PrismaService } from '../../../core/prisma/prisma.service';
-import { User, Prisma } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { randomBytes } from 'crypto';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 import { AccessControlService } from '../access-control/access-control.service';
+import { getPrimaryRoleCode } from '../access-control/rbac.catalog';
 import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
 import {
   AuditActions,
@@ -29,11 +30,13 @@ interface CreateAdminUserInput {
 }
 
 const MAX_USER_NO_GENERATION_RETRIES = 10;
+type UserRow = any;
 
 @Injectable()
 export class UsersService {
   constructor(
-    private prisma: PrismaService,
+    @Inject(PrismaService)
+    private prisma: PrismaService & Record<string, any>,
     private accessControlService: AccessControlService,
     private auditLogsService: AuditLogsService,
     private adminInvitationsService: AdminInvitationsService,
@@ -75,11 +78,11 @@ export class UsersService {
     return typeof target === 'string' ? target.includes(fieldName) : false;
   }
 
-  async findOne(email: string): Promise<User | null> {
+  async findOne(email: string): Promise<UserRow | null> {
     return this.prisma.user.findUnique({ where: { email } });
   }
 
-  async findByIdentifier(identifier: string): Promise<User | null> {
+  async findByIdentifier(identifier: string): Promise<UserRow | null> {
     const value = (identifier || '').trim();
     if (!value) return null;
     return this.prisma.user.findFirst({
@@ -89,7 +92,7 @@ export class UsersService {
     });
   }
 
-  async findById(id: string): Promise<User | null> {
+  async findById(id: string): Promise<UserRow | null> {
     return this.prisma.user.findUnique({ where: { id } });
   }
 
@@ -103,6 +106,7 @@ export class UsersService {
     if (normalizedRoleCodes.length === 0) {
       throw new BadRequestException('At least one role code is required');
     }
+    const primaryRoleCode = getPrimaryRoleCode(normalizedRoleCodes) || normalizedRoleCodes[0];
 
     const existing = await this.prisma.user.findUnique({
       where: { email: normalizedEmail },
@@ -114,7 +118,7 @@ export class UsersService {
 
     const temporaryPassword = randomBytes(24).toString('hex');
     const passwordHash = await bcrypt.hash(temporaryPassword, 10);
-    let createdUser: User | null = null;
+    let createdUser: UserRow | null = null;
 
     for (let i = 0; i < MAX_USER_NO_GENERATION_RETRIES; i += 1) {
       const userNo = generateReferenceNo('ADM');
@@ -124,7 +128,7 @@ export class UsersService {
             userNo,
             email: normalizedEmail,
             password: passwordHash,
-            role: normalizedRoleCodes[0],
+            role: primaryRoleCode,
             status: 'INACTIVE',
           },
         });
@@ -238,9 +242,9 @@ export class UsersService {
   async findAll(params: {
     skip?: number;
     take?: number;
-    cursor?: Prisma.UserWhereUniqueInput;
-    where?: Prisma.UserWhereInput;
-    orderBy?: Prisma.UserOrderByWithRelationInput;
+    cursor?: any;
+    where?: any;
+    orderBy?: any;
   }): Promise<any[]> {
     const { skip, take, cursor, where, orderBy } = params;
     return this.prisma.user.findMany({
@@ -265,9 +269,9 @@ export class UsersService {
   }
 
   async update(params: {
-    where: Prisma.UserWhereUniqueInput;
-    data: Prisma.UserUpdateInput;
-  }): Promise<User> {
+    where: any;
+    data: any;
+  }): Promise<UserRow> {
     const { where, data } = params;
     return this.prisma.user.update({
       data,

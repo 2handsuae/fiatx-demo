@@ -1,23 +1,28 @@
 import {
   BadRequestException,
+  Inject,
   Injectable,
   InternalServerErrorException,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 import {
   AuditActions,
   AuditEntityTypes,
   AuditModules,
+  AuditWorkflowTypes,
 } from './constants/audit-actions.constant';
 import {
   AuditActorContext,
+  AuditEvidenceExportMode,
+  AuditEvidencePackageStatus,
   AuditLogQueryDto,
   AuditResult,
+  AuditSubjectRole,
   AuditTriggerType,
   CreateAuditLogEventDto,
+  EvidencePackageQueryDto,
   ExportEvidencePackageDto,
 } from './dto/audit-log.dto';
 import {
@@ -32,16 +37,46 @@ import {
 } from './utils/audit-subject-no.util';
 
 export interface EvidenceExportResult {
+  id: string;
   packageNo: string;
   fileName: string;
   generatedAt: string;
+  status: string;
   itemCount: number;
   digest: string;
   manifest: Record<string, unknown>;
-  records: any[];
 }
 
-type AuditWriteClient = Prisma.TransactionClient | PrismaService;
+export interface PreparedEvidenceExportSelection {
+  normalizedCriteria: Record<string, unknown>;
+  filterSnapshot: Record<string, unknown>;
+  selectedEventIds: string[];
+  records: any[];
+  itemCount: number;
+  workflowSummary: {
+    workflowType: string | null;
+    workflowNos: string[];
+  };
+}
+
+export interface BuiltEvidencePackageArtifacts {
+  generatedAt: string;
+  itemCount: number;
+  manifest: Record<string, unknown>;
+  digest: string;
+  packageBody: Record<string, unknown>;
+}
+
+interface DepositWorkflowContext {
+  traceId: string | null;
+  workflowType: string | null;
+  workflowId: string | null;
+  workflowNo: string | null;
+  entityOwnerNo: string | null;
+  relatedSubjectNos: AuditSubjectNoRecord[];
+}
+
+type AuditWriteClient = any;
 
 @Injectable()
 export class AuditLogsService {
@@ -58,9 +93,12 @@ export class AuditLogsService {
     AuditActions.FINAL_APPROVED,
   ]);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    @Inject(PrismaService)
+    private readonly prisma: PrismaService & Record<string, any>,
+  ) {}
 
-  private getDb(client?: Prisma.TransactionClient): AuditWriteClient {
+  private getDb(client?: AuditWriteClient): AuditWriteClient {
     return (client ?? this.prisma) as AuditWriteClient;
   }
 
@@ -78,6 +116,17 @@ export class AuditLogsService {
       db &&
       db.auditLogSubjectNo &&
       typeof db.auditLogSubjectNo.findMany === 'function'
+    );
+  }
+
+  private canOperateAuditEvidencePackage(db: any): boolean {
+    return !!(
+      db &&
+      db.auditEvidencePackage &&
+      typeof db.auditEvidencePackage.create === 'function' &&
+      typeof db.auditEvidencePackage.count === 'function' &&
+      typeof db.auditEvidencePackage.findMany === 'function' &&
+      typeof db.auditEvidencePackage.findUnique === 'function'
     );
   }
 
@@ -179,6 +228,11 @@ export class AuditLogsService {
       ASSET: { model: 'asset', field: 'assetNo' },
       USER: { model: 'user', field: 'userNo' },
       ADMIN: { model: 'user', field: 'userNo' },
+      CHANGE_TICKET: { model: 'changeTicket', field: 'ticketNo' },
+      APPROVAL_CASE: { model: 'approvalCase', field: 'approvalNo' },
+      AUDIT_EVIDENCE_PACKAGE: { model: 'auditEvidencePackage', field: 'packageNo' },
+      DELETE_REQUEST: { model: 'deleteRequest', field: 'requestNo' },
+      SLA_TIMER: { model: 'slaTimer', field: 'timerNo' },
     };
 
     const target = lookupConfig[normalizedType];
@@ -206,20 +260,180 @@ export class AuditLogsService {
     actorNo: string | null,
     entityNo: string | null,
     entityOwnerNo: string | null,
+    extraSubjectNos: AuditSubjectNoRecord[] = [],
   ): AuditSubjectNoRecord[] {
-    return buildAuditSubjectNos({
-      actor: {
-        ...actor,
-        actorNo: actorNo || undefined,
-      },
-      entityType: input.entityType,
-      entityId: input.entityId || null,
-      entityNo,
-      entityOwnerType: input.entityOwnerType || null,
-      entityOwnerId: input.entityOwnerId || null,
-      entityOwnerNo,
-      explicitSubjectNos: input.subjectNos,
+    return this.mergeSubjectNos(
+      buildAuditSubjectNos({
+        actor: {
+          ...actor,
+          actorNo: actorNo || undefined,
+        },
+        entityType: input.entityType,
+        entityId: input.entityId || null,
+        entityNo,
+        entityOwnerType: input.entityOwnerType || null,
+        entityOwnerId: input.entityOwnerId || null,
+        entityOwnerNo,
+        explicitSubjectNos: input.subjectNos,
+      }),
+      extraSubjectNos,
+    );
+  }
+
+  private mergeSubjectNos(
+    current: AuditSubjectNoRecord[],
+    extra: AuditSubjectNoRecord[],
+  ): AuditSubjectNoRecord[] {
+    const seen = new Set<string>();
+
+    return [...current, ...extra].filter((item) => {
+      const key = [
+        item.subjectRole,
+        item.subjectType,
+        item.subjectId || '',
+        item.subjectNo,
+      ].join('|');
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
     });
+  }
+
+  private buildDepositTraceId(payinId?: string | null, depositId?: string | null) {
+    const rootId =
+      this.normalizeOptionalString(payinId) || this.normalizeOptionalString(depositId);
+    return rootId ? `${AuditWorkflowTypes.DEPOSIT}:${rootId}` : null;
+  }
+
+  private buildRelatedSubjectNo(
+    subjectType: string,
+    subjectId: string | null | undefined,
+    subjectNo: string | null | undefined,
+  ): AuditSubjectNoRecord[] {
+    if (!subjectNo) return [];
+
+    return [
+      {
+        subjectRole: AuditSubjectRole.RELATED,
+        subjectType,
+        subjectId: subjectId || null,
+        subjectNo,
+      },
+    ];
+  }
+
+  private async resolveDepositWorkflowContext(
+    input: CreateAuditLogEventDto,
+    entityOwnerNo: string | null,
+    db: any,
+  ): Promise<DepositWorkflowContext> {
+    const explicitWorkflowType = this.normalizeEntityType(input.workflowType);
+    const entityType = this.normalizeEntityType(input.entityType);
+    const shouldResolveDeposit =
+      explicitWorkflowType === AuditWorkflowTypes.DEPOSIT ||
+      entityType === AuditEntityTypes.DEPOSIT_TRANSACTION ||
+      entityType === AuditEntityTypes.PAYIN;
+
+    if (!shouldResolveDeposit) {
+      return {
+        traceId: this.normalizeOptionalString(input.traceId),
+        workflowType: this.normalizeOptionalString(input.workflowType),
+        workflowId: this.normalizeOptionalString(input.workflowId),
+        workflowNo: this.normalizeOptionalString(input.workflowNo),
+        entityOwnerNo,
+        relatedSubjectNos: [],
+      };
+    }
+
+    let deposit: any = null;
+    let payin: any = null;
+
+    if (
+      (entityType === AuditEntityTypes.DEPOSIT_TRANSACTION ||
+        explicitWorkflowType === AuditWorkflowTypes.DEPOSIT) &&
+      (input.workflowId || input.entityId) &&
+      db?.depositTransaction?.findUnique
+    ) {
+      deposit = await db.depositTransaction.findUnique({
+        where: { id: input.workflowId || input.entityId },
+        select: {
+          id: true,
+          depositNo: true,
+          ownerId: true,
+          payinId: true,
+          customer: {
+            select: {
+              customerNo: true,
+            },
+          },
+          payin: {
+            select: {
+              id: true,
+              payinNo: true,
+            },
+          },
+        },
+      });
+      payin = deposit?.payin || null;
+    }
+
+    if (!payin && entityType === AuditEntityTypes.PAYIN && input.entityId && db?.payin?.findUnique) {
+      payin = await db.payin.findUnique({
+        where: { id: input.entityId },
+        select: {
+          id: true,
+          payinNo: true,
+          depositId: true,
+          ownerId: true,
+          customer: {
+            select: {
+              customerNo: true,
+            },
+          },
+          deposit: {
+            select: {
+              id: true,
+              depositNo: true,
+              ownerId: true,
+              customer: {
+                select: {
+                  customerNo: true,
+                },
+              },
+            },
+          },
+        },
+      });
+      if (payin?.deposit) {
+        deposit = payin.deposit;
+      }
+    }
+
+    const resolvedEntityOwnerNo =
+      entityOwnerNo ||
+      deposit?.customer?.customerNo ||
+      payin?.customer?.customerNo ||
+      null;
+
+    const relatedSubjectNos = this.mergeSubjectNos(
+      this.buildRelatedSubjectNo('DEPOSIT', deposit?.id, deposit?.depositNo),
+      this.buildRelatedSubjectNo('PAYIN', payin?.id, payin?.payinNo),
+    );
+
+    return {
+      traceId:
+        this.normalizeOptionalString(input.traceId) ||
+        this.buildDepositTraceId(payin?.id || deposit?.payinId, deposit?.id),
+      workflowType: AuditWorkflowTypes.DEPOSIT,
+      workflowId:
+        this.normalizeOptionalString(input.workflowId) ||
+        this.normalizeOptionalString(deposit?.id),
+      workflowNo:
+        this.normalizeOptionalString(input.workflowNo) ||
+        this.normalizeOptionalString(deposit?.depositNo),
+      entityOwnerNo: resolvedEntityOwnerNo,
+      relatedSubjectNos,
+    };
   }
 
   private serializeJson(value: unknown): string | null {
@@ -238,6 +452,37 @@ export class AuditLogsService {
     } catch {
       return value;
     }
+  }
+
+  private mapEvidencePackage(raw: any) {
+    return {
+      ...raw,
+      approvalCase: raw.approvalCase
+        && !raw.approvalCase.deletedAt
+        ? {
+            id: raw.approvalCase.id,
+            approvalNo: raw.approvalCase.approvalNo,
+            actionType: raw.approvalCase.actionType,
+            entityRef: raw.approvalCase.entityRef,
+            status: raw.approvalCase.status,
+            executionStatus: raw.approvalCase.executionStatus,
+            traceId: raw.approvalCase.traceId,
+            decisionByUserId: raw.approvalCase.decisionByUserId,
+            decisionByRole: raw.approvalCase.decisionByRole,
+            decidedAt: raw.approvalCase.decidedAt,
+            createdAt: raw.approvalCase.createdAt,
+            updatedAt: raw.approvalCase.updatedAt,
+          }
+        : null,
+      digest:
+        raw.status === AuditEvidencePackageStatus.READY || raw.status === AuditEvidencePackageStatus.FAILED
+          ? raw.digest
+          : null,
+      filterSnapshot: this.parseJson(raw.filterSnapshot),
+      selectedEventIdsSnapshot: this.parseJson(raw.selectedEventIdsSnapshot),
+      manifest: this.parseJson(raw.manifest),
+      packageBody: this.parseJson(raw.packageBody),
+    };
   }
 
   private isUniqueConflict(error: unknown, field: string): boolean {
@@ -511,6 +756,9 @@ export class AuditLogsService {
     if (query.actorId) where.actorId = query.actorId;
     if (query.actorNo) where.actorNo = query.actorNo;
     if (query.entityOwnerNo) where.entityOwnerNo = query.entityOwnerNo;
+    if (query.traceId) where.traceId = query.traceId;
+    if (query.workflowType) where.workflowType = query.workflowType;
+    if (query.workflowNo) where.workflowNo = query.workflowNo;
     if (query.result) where.result = query.result;
 
     if (query.subjectNo || query.subjectType) {
@@ -541,6 +789,8 @@ export class AuditLogsService {
         { entityNo: { contains: query.keyword } },
         { actorNo: { contains: query.keyword } },
         { entityOwnerNo: { contains: query.keyword } },
+        { traceId: { contains: query.keyword } },
+        { workflowNo: { contains: query.keyword } },
         { reason: { contains: query.keyword } },
         {
           subjectNos: {
@@ -558,7 +808,7 @@ export class AuditLogsService {
   private async createEventWithUniqueNo(
     data: any,
     subjectNos: AuditSubjectNoRecord[],
-    client?: Prisma.TransactionClient,
+    client?: AuditWriteClient,
   ): Promise<any> {
     const db = this.getDb(client) as any;
     const withSubjectNoRelation =
@@ -639,12 +889,26 @@ export class AuditLogsService {
 
   private async createPackageWithUniqueNo(data: any): Promise<any> {
     const db = this.getDb() as any;
+    if (!this.canOperateAuditEvidencePackage(db)) {
+      const now = new Date();
+      const packageNo = generateReferenceNo('EVP');
+      return {
+        id: `PKG_NOOP_${now.getTime()}`,
+        packageNo,
+        fileName: data.fileName || `${packageNo}.json`,
+        createdAt: now,
+        updatedAt: now,
+        ...data,
+      };
+    }
     for (let i = 0; i < AuditLogsService.MAX_NO_RETRIES; i += 1) {
       try {
+        const packageNo = generateReferenceNo('EVP');
         return await db.auditEvidencePackage.create({
           data: {
             ...data,
-            packageNo: generateReferenceNo('EVP'),
+            packageNo,
+            fileName: data.fileName || `${packageNo}.json`,
           },
         });
       } catch (error) {
@@ -658,9 +922,169 @@ export class AuditLogsService {
     );
   }
 
+  async createEvidencePackageRecord(data: any): Promise<any> {
+    return this.createPackageWithUniqueNo(data);
+  }
+
+  async prepareEvidenceExportSelection(
+    query: ExportEvidencePackageDto,
+  ): Promise<PreparedEvidenceExportSelection> {
+    const skip = this.normalizeSkip(query.skip);
+    const maxItems = this.normalizeExportMaxItems(query.maxItems);
+    const selectedEventIds = Array.from(
+      new Set((query.selectedEventIds || []).map((item) => item.trim()).filter(Boolean)),
+    );
+
+    if (!selectedEventIds.length) {
+      throw new BadRequestException('selectedEventIds is required for selection export');
+    }
+    if (selectedEventIds.length > maxItems) {
+      throw new BadRequestException(`selectedEventIds exceeds export maxItems=${maxItems}`);
+    }
+
+    const where = {
+      ...this.buildWhere(query),
+      id: { in: selectedEventIds },
+    };
+
+    const db = this.getDb() as any;
+    if (!this.canOperateAuditLogEvent(db)) {
+      throw new BadRequestException('Audit log event model is unavailable');
+    }
+
+    const includeSubjectNos = this.canOperateAuditLogSubjectNo(db)
+      ? {
+          include: {
+            subjectNos: {
+              orderBy: { createdAt: 'asc' },
+            },
+          },
+        }
+      : {};
+    const rows = await db.auditLogEvent.findMany({
+      where,
+      skip,
+      take: maxItems,
+      orderBy: [{ occurredAt: 'asc' }, { id: 'asc' }],
+      ...includeSubjectNos,
+    });
+
+    if (!rows.length) {
+      throw new BadRequestException('No audit logs matched the selectedEventIds');
+    }
+
+    const records = rows.map((row: any) => this.mapEvent(row));
+    const explicitWorkflowType = this.normalizeOptionalString(query.workflowType);
+    const resolvedWorkflowTypes = Array.from(
+      new Set(
+        records
+          .map((row: any) => this.normalizeOptionalString(row.workflowType))
+          .filter(Boolean) as string[],
+      ),
+    );
+    const workflowSummaryType =
+      explicitWorkflowType ||
+      (resolvedWorkflowTypes.length === 1 ? resolvedWorkflowTypes[0] : null);
+    return {
+      normalizedCriteria: {
+        mode: query.mode || AuditEvidenceExportMode.SELECTION,
+        skip,
+        maxItems,
+        includeRecords: query.includeRecords !== false,
+        workflowType: explicitWorkflowType,
+        workflowNo: query.workflowNo || null,
+        traceId: query.traceId || null,
+        subjectNo: query.subjectNo || null,
+        subjectType: query.subjectType || null,
+        actorNo: query.actorNo || null,
+        entityOwnerNo: query.entityOwnerNo || null,
+      },
+      filterSnapshot: {
+        ...query,
+        skip,
+        maxItems,
+      },
+      selectedEventIds,
+      records,
+      itemCount: records.length,
+      workflowSummary: {
+        workflowType: workflowSummaryType,
+        workflowNos: Array.from(
+          new Set(records.map((row: any) => row.workflowNo).filter(Boolean)),
+        ).sort() as string[],
+      },
+    };
+  }
+
+  async buildEvidencePackageArtifacts(
+    query: ExportEvidencePackageDto,
+    exporter: AuditActorContext,
+    approvalSummary?: {
+      approvalId: string;
+      approvalNo?: string | null;
+      approvalStatus: string;
+      approvedBy?: string | null;
+      approvalDecidedAt?: string | null;
+    },
+  ): Promise<BuiltEvidencePackageArtifacts> {
+    const selection = await this.prepareEvidenceExportSelection(query);
+    const db = this.getDb() as any;
+    const snapshots = await this.buildDepositSnapshots(selection.records, db);
+    const recordDigests = selection.records.map((row: any) => ({
+      id: row.id,
+      auditNo: row.auditNo,
+      digest: row.payloadDigest || sha256Hex(row),
+    }));
+
+    const generatedAt = new Date().toISOString();
+    const manifest = {
+      version: '1.0',
+      generatedAt,
+      exportedBy: exporter,
+      exportMode: selection.normalizedCriteria.mode,
+      criteria: {
+        ...selection.filterSnapshot,
+        selectedEventIds: selection.selectedEventIds,
+      },
+      workflowSummary: selection.workflowSummary,
+      itemCount: selection.itemCount,
+      digestAlgorithm: 'sha256',
+      recordDigests,
+      approval: approvalSummary
+        ? {
+            approvalId: approvalSummary.approvalId,
+            approvalNo: approvalSummary.approvalNo || null,
+            approvalStatus: approvalSummary.approvalStatus,
+            approvedBy: approvalSummary.approvedBy || null,
+            approvalDecidedAt: approvalSummary.approvalDecidedAt || null,
+          }
+        : undefined,
+    };
+    const packageRecords = query.includeRecords === false ? [] : selection.records;
+    const digest = sha256Hex({
+      manifest,
+      records: packageRecords,
+      snapshots,
+    });
+    const packageBody = {
+      manifest,
+      records: packageRecords,
+      snapshots,
+      digest,
+    };
+
+    return {
+      generatedAt,
+      itemCount: selection.itemCount,
+      manifest,
+      digest,
+      packageBody,
+    };
+  }
+
   async hasIdempotencyKey(
     idempotencyKey: string,
-    client?: Prisma.TransactionClient,
+    client?: AuditWriteClient,
   ): Promise<boolean> {
     const db = this.getDb(client) as any;
     if (!this.canOperateAuditLogEvent(db)) return false;
@@ -674,7 +1098,7 @@ export class AuditLogsService {
   async recordByActor(
     input: CreateAuditLogEventDto,
     actor: AuditActorContext,
-    client?: Prisma.TransactionClient,
+    client?: AuditWriteClient,
   ) {
     const db = this.getDb(client) as any;
     const occurredAt = input.occurredAt ? this.toDate(input.occurredAt) : new Date();
@@ -696,13 +1120,20 @@ export class AuditLogsService {
     const actorNo = await this.resolveActorNo(actor, db);
     const entityNo =
       input.entityNo || (await this.resolveEntityNo(input.entityType, input.entityId, db));
-    const entityOwnerNo = await this.resolveEntityOwnerNo(input, db);
+    const resolvedEntityOwnerNo = await this.resolveEntityOwnerNo(input, db);
+    const workflowContext = await this.resolveDepositWorkflowContext(
+      input,
+      resolvedEntityOwnerNo,
+      db,
+    );
+    const entityOwnerNo = workflowContext.entityOwnerNo;
     const subjectNos = this.buildSubjectNos(
       input,
       actor,
       actorNo,
       entityNo,
       entityOwnerNo,
+      workflowContext.relatedSubjectNos,
     );
 
     const payloadDigest = sha256Hex({
@@ -712,6 +1143,10 @@ export class AuditLogsService {
       entityType: input.entityType,
       entityId: input.entityId || null,
       entityNo: entityNo || null,
+      traceId: workflowContext.traceId,
+      workflowType: workflowContext.workflowType,
+      workflowId: workflowContext.workflowId,
+      workflowNo: workflowContext.workflowNo,
       entityOwnerType: input.entityOwnerType || null,
       entityOwnerId: input.entityOwnerId || null,
       entityOwnerNo: entityOwnerNo || null,
@@ -743,6 +1178,10 @@ export class AuditLogsService {
         entityType: input.entityType,
         entityId: input.entityId ?? null,
         entityNo: entityNo ?? null,
+        traceId: workflowContext.traceId ?? null,
+        workflowType: workflowContext.workflowType ?? null,
+        workflowId: workflowContext.workflowId ?? null,
+        workflowNo: workflowContext.workflowNo ?? null,
         entityOwnerType: input.entityOwnerType ?? null,
         entityOwnerId: input.entityOwnerId ?? null,
         entityOwnerNo: entityOwnerNo ?? null,
@@ -775,7 +1214,7 @@ export class AuditLogsService {
 
   async recordSystem(
     input: CreateAuditLogEventDto,
-    client?: Prisma.TransactionClient,
+    client?: AuditWriteClient,
   ) {
     return this.recordByActor(
       {
@@ -856,64 +1295,234 @@ export class AuditLogsService {
     return this.mapEvent(found);
   }
 
+  private async buildDepositSnapshots(records: any[], db: any) {
+    const workflowIds = Array.from(
+      new Set(
+        records
+          .filter((item) => item.workflowType === AuditWorkflowTypes.DEPOSIT)
+          .map((item) => this.normalizeOptionalString(item.workflowId))
+          .filter(Boolean) as string[],
+      ),
+    );
+
+    if (!workflowIds.length || !db?.depositTransaction?.findMany) {
+      return {
+        deposits: [],
+        kytCases: [],
+        travelRuleCases: [],
+      };
+    }
+
+    const [deposits, kytCases, travelRuleCases] = await Promise.all([
+      db.depositTransaction.findMany({
+        where: { id: { in: workflowIds } },
+        orderBy: { depositNo: 'asc' },
+        include: {
+          payin: {
+            select: {
+              id: true,
+              payinNo: true,
+              status: true,
+              type: true,
+              txHash: true,
+              referenceNo: true,
+              statusHistory: true,
+              receivedAt: true,
+              confirmedAt: true,
+            },
+          },
+          customer: {
+            select: {
+              id: true,
+              customerNo: true,
+              firstName: true,
+              lastName: true,
+              email: true,
+            },
+          },
+          asset: {
+            select: {
+              id: true,
+              code: true,
+              type: true,
+              network: true,
+              decimals: true,
+            },
+          },
+        },
+      }),
+      db.kytCase?.findMany
+        ? db.kytCase.findMany({
+            where: {
+              sourceType: AuditWorkflowTypes.DEPOSIT,
+              sourceId: { in: workflowIds },
+            },
+            orderBy: [{ sourceId: 'asc' }, { screeningStage: 'asc' }],
+            select: {
+              id: true,
+              caseNo: true,
+              sourceId: true,
+              screeningStage: true,
+              status: true,
+              provider: true,
+              providerCaseId: true,
+              checkedAt: true,
+              riskScore: true,
+            },
+          })
+        : Promise.resolve([]),
+      db.travelRuleCase?.findMany
+        ? db.travelRuleCase.findMany({
+            where: {
+              sourceType: AuditWorkflowTypes.DEPOSIT,
+              sourceId: { in: workflowIds },
+            },
+            orderBy: [{ sourceId: 'asc' }, { caseNo: 'asc' }],
+            select: {
+              id: true,
+              caseNo: true,
+              sourceId: true,
+              status: true,
+              required: true,
+              provider: true,
+              providerTransferId: true,
+              checkedAt: true,
+              counterpartyVasp: true,
+            },
+          })
+        : Promise.resolve([]),
+    ]);
+
+    return {
+      deposits,
+      kytCases,
+      travelRuleCases,
+    };
+  }
+
+  async findEvidencePackages(query: EvidencePackageQueryDto) {
+    const skip = this.normalizeSkip(query.skip);
+    const take = this.normalizeTake(query.take);
+    const db = this.getDb() as any;
+
+    if (!this.canOperateAuditEvidencePackage(db)) {
+      return { total: 0, skip, take, items: [] as any[] };
+    }
+
+    const where: any = {};
+    if (query.status) {
+      where.status = query.status;
+    }
+
+    const [total, rows] = await Promise.all([
+      db.auditEvidencePackage.count({ where }),
+      db.auditEvidencePackage.findMany({
+        where,
+        skip,
+        take,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          approvalCase: {
+            select: {
+              id: true,
+              approvalNo: true,
+              actionType: true,
+              entityRef: true,
+              status: true,
+              executionStatus: true,
+              traceId: true,
+              deletedAt: true,
+              decisionByUserId: true,
+              decisionByRole: true,
+              decidedAt: true,
+              createdAt: true,
+              updatedAt: true,
+            },
+          },
+        },
+      }),
+    ]);
+
+    return {
+      total,
+      skip,
+      take,
+      items: rows.map((row: any) => this.mapEvidencePackage(row)),
+    };
+  }
+
+  async findEvidencePackage(id: string) {
+    const db = this.getDb() as any;
+    if (!this.canOperateAuditEvidencePackage(db)) {
+      throw new NotFoundException(`Evidence package not found: ${id}`);
+    }
+
+    const found = await db.auditEvidencePackage.findUnique({
+      where: { id },
+      include: {
+        approvalCase: {
+          select: {
+            id: true,
+            approvalNo: true,
+            actionType: true,
+            entityRef: true,
+            status: true,
+            executionStatus: true,
+            traceId: true,
+            deletedAt: true,
+            decisionByUserId: true,
+            decisionByRole: true,
+            decidedAt: true,
+            createdAt: true,
+            updatedAt: true,
+          },
+        },
+      },
+    });
+    if (!found || found.deletedAt) {
+      throw new NotFoundException(`Evidence package not found: ${id}`);
+    }
+
+    return this.mapEvidencePackage(found);
+  }
+
+  async downloadEvidencePackage(id: string) {
+    const found = await this.findEvidencePackage(id);
+    return {
+      id: found.id,
+      packageNo: found.packageNo,
+      fileName: found.fileName || `${found.packageNo}.json`,
+      digest: found.digest,
+      content:
+        found.packageBody ||
+        {
+          manifest: found.manifest,
+          records: [],
+          snapshots: {},
+          digest: found.digest,
+        },
+    };
+  }
+
   async exportEvidencePackage(
     query: ExportEvidencePackageDto,
     exporter: AuditActorContext,
   ): Promise<EvidenceExportResult> {
-    const skip = this.normalizeSkip(query.skip);
-    const maxItems = this.normalizeExportMaxItems(query.maxItems);
-    const where = this.buildWhere(query);
+    const selection = await this.prepareEvidenceExportSelection(query);
+    const artifacts = await this.buildEvidencePackageArtifacts(query, exporter);
 
-    const db = this.getDb() as any;
-    const includeSubjectNos = this.canOperateAuditLogSubjectNo(db)
-      ? {
-          include: {
-            subjectNos: {
-              orderBy: { createdAt: 'asc' },
-            },
-          },
-        }
-      : {};
-    const rows = await db.auditLogEvent.findMany({
-      where,
-      skip,
-      take: maxItems,
-      orderBy: { occurredAt: 'asc' },
-      ...includeSubjectNos,
-    });
-
-    const records = rows.map((row: any) => this.mapEvent(row));
-    const recordDigests = records.map((row: any) => ({
-      id: row.id,
-      auditNo: row.auditNo,
-      digest: row.payloadDigest || sha256Hex(row),
-    }));
-
-    const generatedAt = new Date().toISOString();
-    const manifest = {
-      version: '1.0',
-      generatedAt,
-      exportedBy: exporter,
-      criteria: {
-        ...query,
-        skip,
-        maxItems,
-      },
-      itemCount: records.length,
-      digestAlgorithm: 'sha256',
-      recordDigests,
-    };
-
-    const digest = sha256Hex({ manifest, records });
-
-    const evidencePackage = await this.createPackageWithUniqueNo({
+    const evidencePackage = await this.createEvidencePackageRecord({
       exportedByType: exporter.actorType,
       exportedById: exporter.actorId,
       exportedByRole: exporter.actorRole ?? null,
-      filterSnapshot: this.serializeJson({ ...query, skip, maxItems }),
-      itemCount: records.length,
-      digest,
-      manifest: this.serializeJson(manifest),
+      status: AuditEvidencePackageStatus.READY,
+      exportMode: query.mode || AuditEvidenceExportMode.SELECTION,
+      filterSnapshot: this.serializeJson(selection.filterSnapshot),
+      selectedEventIdsSnapshot: this.serializeJson(selection.selectedEventIds),
+      itemCount: artifacts.itemCount,
+      digest: artifacts.digest,
+      manifest: this.serializeJson(artifacts.manifest),
+      packageBody: this.serializeJson(artifacts.packageBody),
     });
 
     await this.recordByActor(
@@ -925,10 +1534,11 @@ export class AuditLogsService {
         entityId: evidencePackage.id,
         entityNo: evidencePackage.packageNo,
         result: AuditResult.SUCCESS,
-        reason: `Exported ${records.length} audit logs`,
+        reason: `Exported ${artifacts.itemCount} audit logs`,
         metadata: {
-          digest,
-          itemCount: records.length,
+          digest: artifacts.digest,
+          itemCount: artifacts.itemCount,
+          exportMode: query.mode || AuditEvidenceExportMode.SELECTION,
         },
         requestId: `EXPORT_${evidencePackage.packageNo}`,
         sourcePlatform: 'ADMIN_API',
@@ -937,13 +1547,14 @@ export class AuditLogsService {
     );
 
     return {
+      id: evidencePackage.id,
       packageNo: evidencePackage.packageNo,
-      fileName: `${evidencePackage.packageNo}.json`,
-      generatedAt,
-      itemCount: records.length,
-      digest,
-      manifest,
-      records: query.includeRecords === false ? [] : records,
+      fileName: evidencePackage.fileName || `${evidencePackage.packageNo}.json`,
+      generatedAt: artifacts.generatedAt,
+      status: evidencePackage.status || AuditEvidencePackageStatus.READY,
+      itemCount: artifacts.itemCount,
+      digest: artifacts.digest,
+      manifest: artifacts.manifest,
     };
   }
 

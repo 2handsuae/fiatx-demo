@@ -588,7 +588,7 @@ describe('OnboardingService', () => {
       service.applyOnboardingDecisionFromAlert(
         'alert-onb-1',
         'admin-1',
-        'COMPLIANCE_OFFICER',
+        'COMPLIANCE_LEAD',
         { decision: 'APPROVE' },
       ),
     ).rejects.toBeInstanceOf(BadRequestException);
@@ -605,7 +605,7 @@ describe('OnboardingService', () => {
       service.applyOnboardingDecisionFromAlert(
         'alert-onb-1',
         'admin-1',
-        'COMPLIANCE_OFFICER',
+        'COMPLIANCE_LEAD',
         { decision: 'APPROVE' },
       ),
     ).rejects.toBeInstanceOf(ForbiddenException);
@@ -638,7 +638,7 @@ describe('OnboardingService', () => {
       service.applyOnboardingDecisionFromAlert(
         'alert-onb-1',
         'admin-1',
-        'COMPLIANCE_OFFICER',
+        'COMPLIANCE_LEAD',
         { decision: 'REQUIRE_EDD' },
       ),
     ).rejects.toBeInstanceOf(BadRequestException);
@@ -657,7 +657,7 @@ describe('OnboardingService', () => {
     const result = await service.applyOnboardingDecisionFromAlert(
       'alert-onb-1',
       'admin-1',
-      'COMPLIANCE_OFFICER',
+      'COMPLIANCE_LEAD',
       { decision: 'APPROVE' },
     );
 
@@ -702,7 +702,7 @@ describe('OnboardingService', () => {
     const result = await service.applyOnboardingDecisionFromAlert(
       'alert-onb-1',
       'admin-1',
-      'COMPLIANCE_OFFICER',
+      'COMPLIANCE_LEAD',
       { decision: 'REJECT', reason: 'risk not acceptable' },
     );
 
@@ -739,7 +739,7 @@ describe('OnboardingService', () => {
     const result = await service.applyOnboardingDecisionFromAlert(
       'alert-onb-1',
       'admin-1',
-      'COMPLIANCE_OFFICER',
+      'COMPLIANCE_LEAD',
       { decision: 'REQUIRE_EDD' },
     );
 

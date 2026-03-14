@@ -124,7 +124,6 @@
 - Compliance Center menu MUST include:
 1. `Alerts`
 2. `Incidents`
-3. `Audit Logs`
 - Action buttons MUST be status-aware and hidden/disabled for terminal states.
 - UI MUST prevent duplicate submissions while action request is in-flight.
 - Escalate action in alerts UI MUST create incident (not only set alert status).

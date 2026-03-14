@@ -35,25 +35,20 @@
 2. `ACTIVE` transition happens only after invitation acceptance succeeds
 
 ## 4) Seeded Role Admin Accounts (Base Config)
-- Base seed MUST preserve one fixed admin account per RBAC role (17 total), including:
+- Base seed MUST preserve one fixed admin account per active RBAC role (10 total), including:
 1. `SUPER_ADMIN` -> `admin@fiatx.com` (`ADMIN-001`)
-2. `IAM_ADMIN` -> `iam_admin@fiatx.com`
-3. `APPROVER` -> `approver@fiatx.com`
-4. `COMPLIANCE_OFFICER` -> `compliance_officer@fiatx.com`
-5. `MLRO` -> `mlro@fiatx.com`
-6. `ALERT_ANALYST` -> `alert_analyst@fiatx.com`
-7. `CUSTOMER_OPS` -> `customer_ops@fiatx.com`
-8. `TRADING_OPS` -> `trading_ops@fiatx.com`
-9. `TREASURY_MAKER` -> `treasury_maker@fiatx.com`
-10. `TREASURY_CHECKER` -> `treasury_checker@fiatx.com`
-11. `ACCOUNTING_OPS` -> `accounting_ops@fiatx.com`
-12. `SETTLEMENT_OPS` -> `settlement_ops@fiatx.com`
-13. `RECON_OPS` -> `recon_ops@fiatx.com`
-14. `CONFIG_ADMIN` -> `config_admin@fiatx.com`
-15. `AUDIT_OFFICER` -> `audit_officer@fiatx.com`
-16. `DPO` -> `dpo@fiatx.com`
-17. `CISO` -> `ciso@fiatx.com`
+2. `RI` -> `ri@fiatx.com`
+3. `SM` -> `sm@fiatx.com`
+4. `TECH_ADMIN` -> `tech_admin@fiatx.com`
+5. `OPS_TREASURY` -> `ops_treasury@fiatx.com`
+6. `FINANCE` -> `finance@fiatx.com`
+7. `COMPLIANCE_LEAD` -> `compliance_lead@fiatx.com`
+8. `MLRO` -> `mlro@fiatx.com`
+9. `DPO` -> `dpo@fiatx.com`
+10. `CISO` -> `ciso@fiatx.com`
 - MUST NOT add an extra `super_admin@...` seed identity.
+- Legacy JS role seed identities MUST NOT be recreated in local base seed.
+- If stale legacy role rows exist in an old local database, they MAY be deactivated during one-time cleanup, but MUST NOT be returned by `GET /admin/iam/roles` and MUST NOT be assignable.
 
 ## 5) Seed Behavior Rules
 - Seed sync MUST be idempotent by email (`upsert`).
@@ -67,7 +62,7 @@
 
 ## 6) Completeness Guard (`ensureBaseSeeded`)
 - Base completeness check MUST include role seed account integrity:
-1. all 17 accounts exist
+1. all 10 active role accounts exist
 2. each account is ACTIVE
 3. each account has exact mapped role binding in `user_roles`
 4. `admin@fiatx.com` owns `SUPER_ADMIN`
@@ -80,7 +75,7 @@
 
 ## 8) Delivery Checklist for Related Threads
 - Update `prisma/seed.base.ts` and verify base seed idempotency.
-- Verify role-seed accounts remain 17 after repeated `db:base:sync`.
+- Verify role-seed accounts remain 10 after repeated `db:base:sync`.
 - Verify seed drift repair:
 1. missing role account is recreated
 2. wrong extra role binding is converged back
@@ -90,3 +85,20 @@
 2. resend invalidates previous token
 3. accept sets password and flips status to `ACTIVE`
 4. `INACTIVE` login rejected before activation
+
+## 9) Governance Phase-2 Permission Baseline
+- `Control Gates Center -> Change Tickets` MUST follow the phase-2 role matrix:
+1. all Java roles can read
+2. `TECH_ADMIN / FINANCE / OPS_TREASURY / COMPLIANCE_LEAD / CISO` can create and submit
+3. `TECH_ADMIN / CISO` can run gate checks and mark deploy status
+4. `TECH_ADMIN` can close
+5. `SUPER_ADMIN` keeps full-site bypass permissions for demo
+- `GET /auth/me` permission resolution MUST expose the above permissions after `db:base:sync`.
+
+## 10) Governance Phase-4 Permission Baseline
+- `Control Gates Center -> SLA Timers` MUST follow the phase-4 role matrix:
+1. `TECH_ADMIN / CISO / COMPLIANCE_LEAD / MLRO / DPO / RI / SM` can read
+2. `TECH_ADMIN / CISO / COMPLIANCE_LEAD` can close `CHANGE_POST_APPROVAL_FOLLOWUP`
+3. `OPS_TREASURY / FINANCE` have no SLA timer access in this phase
+4. `SUPER_ADMIN` keeps full-site bypass permissions for demo
+- `GET /auth/me` permission resolution MUST expose the above permissions after `db:base:sync`.

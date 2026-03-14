@@ -72,25 +72,25 @@ describe('UsersService', () => {
       id: 'user-1',
       userNo: 'ADM2602190001',
       email: 'new-admin@fiatx.com',
-      role: 'IAM_ADMIN',
+      role: 'CISO',
       status: 'INACTIVE',
     });
     adminInvitationsService.createInvitationForUser.mockResolvedValue({
-      inviteLink: 'http://localhost:3001/admin/activate?token=abc',
+      inviteLink: 'http://localhost:3501/admin/activate?token=abc',
       inviteExpiresAt: '2026-02-20T00:00:00.000Z',
       inviteStatus: 'PENDING',
     });
     accessControlService.replaceUserRoles.mockResolvedValue({
       userId: 'user-1',
       userNo: 'ADM2602190001',
-      roles: ['IAM_ADMIN'],
+      roles: ['CISO'],
       warnings: [],
     });
     auditLogsService.recordByActor.mockResolvedValue({});
 
     const result = await service.createAdminUser({
       email: 'new-admin@fiatx.com',
-      roleCodes: ['IAM_ADMIN'],
+      roleCodes: ['CISO'],
       actor: {
         actorId: 'admin-1',
         actorRole: 'SUPER_ADMIN',
@@ -101,7 +101,7 @@ describe('UsersService', () => {
     expect(prisma.user.create).toHaveBeenCalledTimes(1);
     const createdPayload = prisma.user.create.mock.calls[0][0];
     expect(createdPayload.data.email).toBe('new-admin@fiatx.com');
-    expect(createdPayload.data.role).toBe('IAM_ADMIN');
+    expect(createdPayload.data.role).toBe('CISO');
     expect(createdPayload.data.status).toBe('INACTIVE');
     expect(createdPayload.data.password).not.toBe('123456');
     expect(createdPayload.data.password).toBeDefined();
@@ -117,7 +117,7 @@ describe('UsersService', () => {
 
     expect(accessControlService.replaceUserRoles).toHaveBeenCalledWith(
       'user-1',
-      ['IAM_ADMIN'],
+      ['CISO'],
       {
         actorId: 'admin-1',
         actorRole: 'SUPER_ADMIN',
@@ -129,7 +129,7 @@ describe('UsersService', () => {
       id: 'user-1',
       userNo: 'ADM2602190001',
       email: 'new-admin@fiatx.com',
-      roles: ['IAM_ADMIN'],
+      roles: ['CISO'],
       inviteStatus: 'PENDING',
     });
   });
@@ -140,7 +140,7 @@ describe('UsersService', () => {
     await expect(
       service.createAdminUser({
         email: 'existing@fiatx.com',
-        roleCodes: ['IAM_ADMIN'],
+        roleCodes: ['CISO'],
         actor: {
           actorId: 'admin-1',
           actorRole: 'SUPER_ADMIN',
@@ -156,7 +156,7 @@ describe('UsersService', () => {
       userNo: 'ADM2602190001',
       email: 'new-admin@fiatx.com',
       status: 'INACTIVE',
-      inviteLink: 'http://localhost:3001/admin/activate?token=next',
+      inviteLink: 'http://localhost:3501/admin/activate?token=next',
       inviteExpiresAt: '2026-02-20T01:00:00.000Z',
       inviteStatus: 'PENDING',
     });
@@ -179,5 +179,46 @@ describe('UsersService', () => {
       },
     });
     expect(result.inviteStatus).toBe('PENDING');
+  });
+
+  it('should persist the highest-priority compatibility role for multi-role users', async () => {
+    prisma.user.findUnique.mockResolvedValue(null);
+    prisma.user.create.mockResolvedValue({
+      id: 'user-2',
+      userNo: 'ADM2602190002',
+      email: 'dual-role@fiatx.com',
+      role: 'CISO',
+      status: 'INACTIVE',
+    });
+    adminInvitationsService.createInvitationForUser.mockResolvedValue({
+      inviteLink: 'http://localhost:3501/admin/activate?token=dual',
+      inviteExpiresAt: '2026-02-20T00:00:00.000Z',
+      inviteStatus: 'PENDING',
+    });
+    accessControlService.replaceUserRoles.mockResolvedValue({
+      userId: 'user-2',
+      userNo: 'ADM2602190002',
+      roles: ['RI', 'CISO'],
+      warnings: [],
+    });
+    auditLogsService.recordByActor.mockResolvedValue({});
+
+    await service.createAdminUser({
+      email: 'dual-role@fiatx.com',
+      roleCodes: ['RI', 'CISO'],
+      actor: {
+        actorId: 'admin-1',
+        actorRole: 'SUPER_ADMIN',
+        actorNo: 'ADMIN-001',
+      },
+    });
+
+    expect(prisma.user.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          role: 'CISO',
+        }),
+      }),
+    );
   });
 });

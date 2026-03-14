@@ -352,9 +352,9 @@ describe('ComplianceIncidentsService', () => {
     );
     prismaMock.user.findUnique.mockResolvedValue({
       userNo: 'US0008',
-      role: 'ALERT_ANALYST',
+      role: 'RI',
       status: 'ACTIVE',
-      userRoles: [{ role: { code: 'ALERT_ANALYST' } }],
+      userRoles: [{ role: { code: 'RI' } }],
     });
 
     await expect(

@@ -8,7 +8,8 @@
 4. accounting
 5. clearing-settle
 6. risk-engine
-7. orchestrators
+7. governance
+8. orchestrators
 - Controllers MUST only handle transport concerns (request/response/auth/validation).
 - Business logic MUST stay in services.
 - Direct DB access MUST stay in services via `PrismaService`.

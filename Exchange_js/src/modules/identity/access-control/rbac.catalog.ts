@@ -52,8 +52,21 @@ export type PermissionGroup =
   | 'COUNTERPARTY_READ'
   | 'COUNTERPARTY_WRITE'
   | 'AUDIT_READ'
-  | 'AUDIT_EXPORT'
-  | 'AUDIT_MANUAL_WRITE';
+  | 'AUDIT_EXPORT_CREATE'
+  | 'AUDIT_EXPORT_READ'
+  | 'AUDIT_MANUAL_WRITE'
+  | 'GOV_APPROVAL_READ'
+  | 'GOV_APPROVAL_WRITE'
+  | 'GOV_APPROVAL_DECIDE'
+  | 'GOV_CHANGE_TICKET_READ'
+  | 'GOV_CHANGE_TICKET_WRITE'
+  | 'GOV_CHANGE_TICKET_GATE'
+  | 'GOV_CHANGE_TICKET_CLOSE'
+  | 'GOV_DELETE_REQUEST_READ'
+  | 'GOV_DELETE_REQUEST_WRITE'
+  | 'GOV_DELETE_REQUEST_EXECUTE'
+  | 'GOV_SLA_READ'
+  | 'GOV_SLA_WRITE';
 
 export interface RbacPermissionDefinition {
   code: string;
@@ -88,106 +101,106 @@ export const RBAC_ROLE_DEFINITIONS: RbacRoleDefinition[] = [
     description: 'Emergency full access account, not for routine operations.',
   },
   {
-    code: 'IAM_ADMIN',
-    name: 'IAM Administrator',
-    description: 'Manage user-role bindings and view permission catalog.',
+    code: 'RI',
+    name: 'Risk Intelligence',
+    description: 'Read-only oversight role for risk and control visibility.',
   },
   {
-    code: 'APPROVER',
-    name: 'Approver',
-    description: 'Management-level final/exception approval role.',
+    code: 'SM',
+    name: 'Senior Management',
+    description: 'Senior management oversight role with read-oriented access.',
   },
   {
-    code: 'COMPLIANCE_OFFICER',
-    name: 'Compliance Officer',
-    description: 'Handle compliance operations and CDD decisions.',
+    code: 'TECH_ADMIN',
+    name: 'Tech Administrator',
+    description: 'Operate technical governance workflows and platform controls.',
+  },
+  {
+    code: 'OPS_TREASURY',
+    name: 'Operations Treasury',
+    description: 'Treasury and operations role for settlement-oriented workflows.',
+  },
+  {
+    code: 'FINANCE',
+    name: 'Finance',
+    description: 'Finance oversight role for accounting and governance flows.',
+  },
+  {
+    code: 'COMPLIANCE_LEAD',
+    name: 'Compliance Lead',
+    description: 'Compliance lead role for audit and export governance.',
   },
   {
     code: 'MLRO',
     name: 'MLRO',
-    description: 'Own EDD/AML final review outcomes.',
-  },
-  {
-    code: 'ALERT_ANALYST',
-    name: 'Alert Analyst',
-    description: 'Triage KYT/Travel Rule alerts and evidence.',
-  },
-  {
-    code: 'CUSTOMER_OPS',
-    name: 'Customer Operations',
-    description: 'Customer lifecycle operations and customer rate config.',
-  },
-  {
-    code: 'TRADING_OPS',
-    name: 'Trading Operations',
-    description: 'Run customer deposit/swap/withdraw workflows.',
-  },
-  {
-    code: 'TREASURY_MAKER',
-    name: 'Treasury Maker',
-    description: 'Initiate treasury/internal transfer operations.',
-  },
-  {
-    code: 'TREASURY_CHECKER',
-    name: 'Treasury Checker',
-    description: 'Review and approve/reject internal transfer requests.',
-  },
-  {
-    code: 'ACCOUNTING_OPS',
-    name: 'Accounting Operations',
-    description: 'Operate accounting and ledger configurations.',
-  },
-  {
-    code: 'SETTLEMENT_OPS',
-    name: 'Settlement Operations',
-    description: 'Operate clearing and settlement execution.',
-  },
-  {
-    code: 'RECON_OPS',
-    name: 'Reconciliation Operations',
-    description: 'Operate reconciliation monitoring and follow-up.',
-  },
-  {
-    code: 'CONFIG_ADMIN',
-    name: 'Configuration Administrator',
-    description: 'Manage asset/counterparty/system configurations.',
-  },
-  {
-    code: 'AUDIT_OFFICER',
-    name: 'Audit Officer',
-    description: 'Read audit logs and export evidence packages.',
+    description: 'Own AML oversight and approval decisions.',
   },
   {
     code: 'DPO',
     name: 'Data Protection Officer',
-    description: 'Data protection oversight via read/export access.',
+    description: 'Data protection oversight for sensitive export governance.',
   },
   {
     code: 'CISO',
     name: 'Chief Information Security Officer',
-    description: 'Security governance with read-oriented platform oversight.',
+    description: 'Security governance and IAM control owner.',
   },
 ];
 
-export const HARD_MUTEX_ROLE_PAIRS: Array<[string, string]> = [
-  ['TREASURY_MAKER', 'TREASURY_CHECKER'],
-];
+export const ACTIVE_RBAC_ROLE_CODES = RBAC_ROLE_DEFINITIONS.map((item) => item.code);
 
-export const SOFT_WARNING_ROLE_GROUPS: Array<{ codes: string[]; message: string }> = [
-  {
-    codes: ['TRADING_OPS', 'COMPLIANCE_OFFICER'],
-    message:
-      'Combining TRADING_OPS with COMPLIANCE_OFFICER increases conflict-of-interest risk.',
-  },
-  {
-    codes: ['TRADING_OPS', 'MLRO'],
-    message: 'Combining TRADING_OPS with MLRO increases conflict-of-interest risk.',
-  },
-  {
-    codes: ['IAM_ADMIN', 'APPROVER'],
-    message: 'Combining IAM_ADMIN with APPROVER reduces segregation of duties.',
-  },
-];
+export const LEGACY_RBAC_ROLE_CODE_MAPPING: Record<string, string> = {
+  IAM_ADMIN: 'CISO',
+  APPROVER: 'TECH_ADMIN',
+  COMPLIANCE_OFFICER: 'COMPLIANCE_LEAD',
+  ALERT_ANALYST: 'COMPLIANCE_LEAD',
+  CUSTOMER_OPS: 'RI',
+  TRADING_OPS: 'OPS_TREASURY',
+  TREASURY_MAKER: 'OPS_TREASURY',
+  TREASURY_CHECKER: 'OPS_TREASURY',
+  ACCOUNTING_OPS: 'FINANCE',
+  SETTLEMENT_OPS: 'OPS_TREASURY',
+  RECON_OPS: 'SM',
+  CONFIG_ADMIN: 'TECH_ADMIN',
+  AUDIT_OFFICER: 'COMPLIANCE_LEAD',
+};
+
+export const LEGACY_RBAC_ROLE_CODES = Object.keys(LEGACY_RBAC_ROLE_CODE_MAPPING);
+
+export const PRIMARY_ROLE_PRIORITY = [
+  'SUPER_ADMIN',
+  'CISO',
+  'DPO',
+  'MLRO',
+  'COMPLIANCE_LEAD',
+  'TECH_ADMIN',
+  'FINANCE',
+  'OPS_TREASURY',
+  'SM',
+  'RI',
+] as const;
+
+export function getPrimaryRoleCode(roleCodes: string[]): string | null {
+  const normalized = Array.from(
+    new Set(
+      (roleCodes || [])
+        .map((item) => String(item || '').trim().toUpperCase())
+        .filter(Boolean),
+    ),
+  );
+
+  for (const roleCode of PRIMARY_ROLE_PRIORITY) {
+    if (normalized.includes(roleCode)) {
+      return roleCode;
+    }
+  }
+
+  return normalized[0] || null;
+}
+
+export const HARD_MUTEX_ROLE_PAIRS: Array<[string, string]> = [];
+
+export const SOFT_WARNING_ROLE_GROUPS: Array<{ codes: string[]; message: string }> = [];
 
 export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   // Session / IAM
@@ -377,85 +390,208 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('POST', '/admin/audit-logs', 'Create manual audit log event', ['AUDIT_MANUAL_WRITE']),
   route('GET', '/admin/audit-logs', 'List audit logs', ['AUDIT_READ']),
   route('GET', '/admin/audit-logs/:id', 'Get audit log detail', ['AUDIT_READ']),
-  route('POST', '/admin/audit-logs/export/evidence-package', 'Export audit evidence package', ['AUDIT_EXPORT']),
+  route('POST', '/admin/audit-logs/export/evidence-package', 'Export audit evidence package', [
+    'AUDIT_EXPORT_CREATE',
+  ]),
+  route('GET', '/admin/audit-logs/evidence-packages', 'List evidence package exports', [
+    'AUDIT_EXPORT_READ',
+  ]),
+  route('GET', '/admin/audit-logs/evidence-packages/:id', 'Get evidence package detail', [
+    'AUDIT_EXPORT_READ',
+  ]),
+  route('GET', '/admin/audit-logs/evidence-packages/:id/download', 'Download evidence package content', [
+    'AUDIT_EXPORT_READ',
+  ]),
+
+  // Governance approvals
+  route('POST', '/admin/control-gates/approvals', 'Create approval case', ['GOV_APPROVAL_WRITE']),
+  route('POST', '/admin/control-gates/approvals/:id/submit', 'Submit approval case', ['GOV_APPROVAL_WRITE']),
+  route('POST', '/admin/control-gates/approvals/:id/approve', 'Approve approval case', ['GOV_APPROVAL_DECIDE']),
+  route('POST', '/admin/control-gates/approvals/:id/reject', 'Reject approval case', ['GOV_APPROVAL_DECIDE']),
+  route('POST', '/admin/control-gates/approvals/:id/cancel', 'Cancel approval case', ['GOV_APPROVAL_WRITE']),
+  route('GET', '/admin/control-gates/approvals/:id', 'Get approval case detail', ['GOV_APPROVAL_READ']),
+  route('GET', '/admin/control-gates/approvals', 'List approval cases', ['GOV_APPROVAL_READ']),
+
+  // Governance change tickets
+  route('POST', '/admin/control-gates/change-tickets', 'Create change ticket', ['GOV_CHANGE_TICKET_WRITE']),
+  route('GET', '/admin/control-gates/change-tickets', 'List change tickets', ['GOV_CHANGE_TICKET_READ']),
+  route('GET', '/admin/control-gates/change-tickets/:id', 'Get change ticket detail', ['GOV_CHANGE_TICKET_READ']),
+  route('POST', '/admin/control-gates/change-tickets/:id/submit', 'Submit change ticket', ['GOV_CHANGE_TICKET_WRITE']),
+  route('POST', '/admin/control-gates/change-tickets/:id/resubmit', 'Resubmit change ticket', ['GOV_CHANGE_TICKET_WRITE']),
+  route('GET', '/admin/control-gates/change-tickets/:id/gate-runs', 'List change ticket gate runs', [
+    'GOV_CHANGE_TICKET_READ',
+  ]),
+  route('POST', '/admin/control-gates/change-tickets/:id/gate-checks', 'Run change ticket gate check', [
+    'GOV_CHANGE_TICKET_GATE',
+  ]),
+  route('POST', '/admin/control-gates/change-tickets/:id/deploy-status', 'Mark change ticket deploy status', [
+    'GOV_CHANGE_TICKET_GATE',
+  ]),
+  route('POST', '/admin/control-gates/change-tickets/:id/close', 'Close change ticket', [
+    'GOV_CHANGE_TICKET_CLOSE',
+  ]),
+
+  // Governance delete requests
+  route('POST', '/admin/control-gates/delete-requests', 'Create delete request', [
+    'GOV_DELETE_REQUEST_WRITE',
+  ]),
+  route('GET', '/admin/control-gates/delete-requests', 'List delete requests', [
+    'GOV_DELETE_REQUEST_READ',
+  ]),
+  route('GET', '/admin/control-gates/delete-requests/:id', 'Get delete request detail', [
+    'GOV_DELETE_REQUEST_READ',
+  ]),
+  route('POST', '/admin/control-gates/delete-requests/:id/submit', 'Submit delete request', [
+    'GOV_DELETE_REQUEST_WRITE',
+  ]),
+  route('POST', '/admin/control-gates/delete-requests/:id/cancel', 'Cancel delete request', [
+    'GOV_DELETE_REQUEST_WRITE',
+  ]),
+  route('POST', '/admin/control-gates/delete-requests/:id/execute', 'Execute delete request', [
+    'GOV_DELETE_REQUEST_EXECUTE',
+  ]),
+
+  // Governance SLA timers
+  route('GET', '/admin/control-gates/sla-timers', 'List SLA timers', ['GOV_SLA_READ']),
+  route('GET', '/admin/control-gates/sla-timers/:id', 'Get SLA timer detail', [
+    'GOV_SLA_READ',
+  ]),
+  route('POST', '/admin/control-gates/sla-timers/:id/recalc', 'Recalculate SLA timer', [
+    'GOV_SLA_WRITE',
+  ]),
+  route('POST', '/admin/control-gates/sla-timers/:id/close', 'Close SLA timer', [
+    'GOV_SLA_WRITE',
+  ]),
+  route(
+    'POST',
+    '/admin/demo/control-gates/sla-timers/approval-timeout',
+    'Create approval-timeout SLA mock chain',
+    ['GOV_SLA_WRITE'],
+  ),
+  route(
+    'POST',
+    '/admin/demo/control-gates/sla-timers/change-follow-up',
+    'Create change follow-up SLA mock chain',
+    ['GOV_SLA_WRITE'],
+  ),
+  route('POST', '/admin/demo/control-gates/sla-timers/:id/expire', 'Mock expire SLA timer', [
+    'GOV_SLA_WRITE',
+  ]),
 ];
 
 export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
   SUPER_ADMIN: [],
-  IAM_ADMIN: ['BASE_ACCESS', 'IAM_READ', 'IAM_ASSIGN', 'AUDIT_READ'],
-  APPROVER: [
-    'BASE_ACCESS',
-    'ONBOARDING_READ',
-    'FINAL_REVIEW_WRITE',
-    'INTERNAL_TX_READ',
-    'INTERNAL_TX_REVIEW',
-    'SETTLEMENT_READ',
-    'SETTLEMENT_WRITE',
-    'AUDIT_READ',
-  ],
-  COMPLIANCE_OFFICER: [
-    'BASE_ACCESS',
-    'ONBOARDING_READ',
-    'CDD_REVIEW_WRITE',
-    'INVESTOR_OVERRIDE_WRITE',
-    'SIMULATE_EXPIRED_WRITE',
-    'TX_COMPLIANCE_READ',
-    'TX_COMPLIANCE_WRITE',
-    'AUDIT_READ',
-  ],
-  MLRO: ['BASE_ACCESS', 'ONBOARDING_READ', 'MLRO_REVIEW_WRITE', 'TX_COMPLIANCE_READ', 'AUDIT_READ'],
-  ALERT_ANALYST: ['BASE_ACCESS', 'TX_COMPLIANCE_READ', 'AUDIT_READ'],
-  CUSTOMER_OPS: [
-    'BASE_ACCESS',
-    'CUSTOMER_READ',
-    'CUSTOMER_WRITE',
-    'CUSTOMER_RATE_READ',
-    'CUSTOMER_RATE_WRITE',
-    'ONBOARDING_READ',
-  ],
-  TRADING_OPS: [
-    'BASE_ACCESS',
-    'TRADING_DEPOSIT_READ',
-    'TRADING_DEPOSIT_WRITE',
-    'TRADING_WITHDRAW_READ',
-    'TRADING_WITHDRAW_WRITE',
-    'TRADING_SWAP_READ',
-    'TRADING_SWAP_WRITE',
-  ],
-  TREASURY_MAKER: [
-    'BASE_ACCESS',
-    'WALLET_READ',
-    'WALLET_WRITE',
-    'PAYIN_READ',
-    'PAYIN_WRITE',
-    'PAYOUT_READ',
-    'PAYOUT_WRITE',
-    'INTERNAL_TX_READ',
-    'INTERNAL_TX_SUBMIT',
-    'INTERNAL_FUND_READ',
-    'INTERNAL_FUND_WRITE',
-  ],
-  TREASURY_CHECKER: ['BASE_ACCESS', 'INTERNAL_TX_READ', 'INTERNAL_TX_REVIEW', 'INTERNAL_FUND_READ', 'AUDIT_READ'],
-  ACCOUNTING_OPS: ['BASE_ACCESS', 'JOURNAL_READ', 'ACCOUNTING_CONFIG_READ', 'ACCOUNTING_CONFIG_WRITE'],
-  SETTLEMENT_OPS: ['BASE_ACCESS', 'CLEARING_READ', 'CLEARING_WRITE', 'SETTLEMENT_READ', 'SETTLEMENT_WRITE'],
-  RECON_OPS: ['BASE_ACCESS', 'RECON_OUTSTANDING_READ', 'SETTLEMENT_READ', 'CLEARING_READ'],
-  CONFIG_ADMIN: [
-    'BASE_ACCESS',
-    'ASSET_CONFIG_READ',
-    'ASSET_CONFIG_WRITE',
-    'COUNTERPARTY_READ',
-    'COUNTERPARTY_WRITE',
-    'ACCOUNTING_CONFIG_READ',
-  ],
-  AUDIT_OFFICER: ['BASE_ACCESS', 'AUDIT_READ', 'AUDIT_EXPORT'],
-  DPO: ['BASE_ACCESS', 'CUSTOMER_READ', 'JOURNAL_READ', 'AUDIT_READ', 'AUDIT_EXPORT'],
-  CISO: [
+  RI: [
     'BASE_ACCESS',
     'IAM_READ',
     'AUDIT_READ',
-    'ASSET_CONFIG_READ',
-    'COUNTERPARTY_READ',
-    'ACCOUNTING_CONFIG_READ',
+    'GOV_APPROVAL_READ',
+    'GOV_CHANGE_TICKET_READ',
+    'GOV_DELETE_REQUEST_READ',
+    'GOV_SLA_READ',
+  ],
+  SM: [
+    'BASE_ACCESS',
+    'IAM_READ',
+    'AUDIT_READ',
+    'GOV_APPROVAL_READ',
+    'GOV_CHANGE_TICKET_READ',
+    'GOV_DELETE_REQUEST_READ',
+    'GOV_SLA_READ',
+  ],
+  TECH_ADMIN: [
+    'BASE_ACCESS',
+    'IAM_READ',
+    'AUDIT_READ',
+    'AUDIT_EXPORT_READ',
+    'GOV_APPROVAL_READ',
+    'GOV_APPROVAL_DECIDE',
+    'GOV_CHANGE_TICKET_READ',
+    'GOV_CHANGE_TICKET_WRITE',
+    'GOV_CHANGE_TICKET_GATE',
+    'GOV_CHANGE_TICKET_CLOSE',
+    'GOV_DELETE_REQUEST_READ',
+    'GOV_DELETE_REQUEST_WRITE',
+    'GOV_DELETE_REQUEST_EXECUTE',
+    'GOV_SLA_READ',
+    'GOV_SLA_WRITE',
+  ],
+  OPS_TREASURY: [
+    'BASE_ACCESS',
+    'IAM_READ',
+    'AUDIT_READ',
+    'GOV_APPROVAL_READ',
+    'GOV_CHANGE_TICKET_READ',
+    'GOV_CHANGE_TICKET_WRITE',
+    'GOV_DELETE_REQUEST_READ',
+    'GOV_DELETE_REQUEST_WRITE',
+  ],
+  FINANCE: [
+    'BASE_ACCESS',
+    'IAM_READ',
+    'AUDIT_READ',
+    'GOV_APPROVAL_READ',
+    'GOV_CHANGE_TICKET_READ',
+    'GOV_CHANGE_TICKET_WRITE',
+    'GOV_DELETE_REQUEST_READ',
+    'GOV_DELETE_REQUEST_WRITE',
+  ],
+  COMPLIANCE_LEAD: [
+    'BASE_ACCESS',
+    'IAM_READ',
+    'AUDIT_READ',
+    'AUDIT_EXPORT_CREATE',
+    'AUDIT_EXPORT_READ',
+    'GOV_APPROVAL_READ',
+    'GOV_APPROVAL_WRITE',
+    'GOV_CHANGE_TICKET_READ',
+    'GOV_CHANGE_TICKET_WRITE',
+    'GOV_DELETE_REQUEST_READ',
+    'GOV_DELETE_REQUEST_WRITE',
+    'GOV_SLA_READ',
+    'GOV_SLA_WRITE',
+  ],
+  MLRO: [
+    'BASE_ACCESS',
+    'IAM_READ',
+    'AUDIT_READ',
+    'AUDIT_EXPORT_CREATE',
+    'AUDIT_EXPORT_READ',
+    'GOV_APPROVAL_READ',
+    'GOV_APPROVAL_WRITE',
+    'GOV_APPROVAL_DECIDE',
+    'GOV_CHANGE_TICKET_READ',
+    'GOV_DELETE_REQUEST_READ',
+    'GOV_SLA_READ',
+  ],
+  DPO: [
+    'BASE_ACCESS',
+    'IAM_READ',
+    'AUDIT_READ',
+    'AUDIT_EXPORT_CREATE',
+    'AUDIT_EXPORT_READ',
+    'GOV_APPROVAL_READ',
+    'GOV_APPROVAL_WRITE',
+    'GOV_APPROVAL_DECIDE',
+    'GOV_CHANGE_TICKET_READ',
+    'GOV_DELETE_REQUEST_READ',
+    'GOV_DELETE_REQUEST_WRITE',
+    'GOV_DELETE_REQUEST_EXECUTE',
+    'GOV_SLA_READ',
+  ],
+  CISO: [
+    'BASE_ACCESS',
+    'IAM_READ',
+    'IAM_ASSIGN',
+    'AUDIT_READ',
+    'GOV_APPROVAL_READ',
+    'GOV_APPROVAL_DECIDE',
+    'GOV_CHANGE_TICKET_READ',
+    'GOV_CHANGE_TICKET_WRITE',
+    'GOV_CHANGE_TICKET_GATE',
+    'GOV_DELETE_REQUEST_READ',
+    'GOV_SLA_READ',
+    'GOV_SLA_WRITE',
   ],
 };
 

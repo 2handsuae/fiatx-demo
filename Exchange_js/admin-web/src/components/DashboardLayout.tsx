@@ -161,6 +161,54 @@ const DashboardLayout = () => {
       ],
     },
     {
+      label: 'Audit Center',
+      icon: <FileText size={20} />,
+      children: [
+        {
+          path: '/dashboard/audit/audit-logs',
+          label: 'Audit Log',
+          icon: <FileText size={18} />,
+          requiredPermissions: [PERMISSIONS.AUDIT_LOGS_READ],
+        },
+        {
+          path: '/dashboard/audit/evidence-exports',
+          label: 'Evidence Export',
+          icon: <Layers size={18} />,
+          requiredPermissions: [PERMISSIONS.AUDIT_EVIDENCE_EXPORTS_READ],
+        },
+      ],
+    },
+    {
+      label: 'Control Gates Center',
+      icon: <ShieldCheck size={20} />,
+      children: [
+        {
+          path: '/dashboard/control-gates/change-tickets',
+          label: 'Change Tickets',
+          icon: <Briefcase size={18} />,
+          requiredPermissions: [PERMISSIONS.GOV_CHANGE_TICKETS_READ],
+        },
+        {
+          path: '/dashboard/control-gates/delete-requests',
+          label: 'Delete Requests',
+          icon: <ClipboardList size={18} />,
+          requiredPermissions: [PERMISSIONS.GOV_DELETE_REQUESTS_READ],
+        },
+        {
+          path: '/dashboard/control-gates/approvals',
+          label: 'Approvals',
+          icon: <Shield size={18} />,
+          requiredPermissions: [PERMISSIONS.GOV_APPROVALS_READ],
+        },
+        {
+          path: '/dashboard/control-gates/sla-timers',
+          label: 'SLA Timers',
+          icon: <History size={18} />,
+          requiredPermissions: [PERMISSIONS.GOV_SLA_TIMERS_READ],
+        },
+      ],
+    },
+    {
       label: 'Compliance Center',
       icon: <ClipboardList size={20} />,
       children: [
@@ -205,12 +253,6 @@ const DashboardLayout = () => {
           label: 'Incidents',
           icon: <Activity size={18} />,
           requiredPermissions: [PERMISSIONS.BASE_ACCESS],
-        },
-        {
-          path: '/dashboard/compliance/audit-logs',
-          label: 'Audit Logs',
-          icon: <FileText size={18} />,
-          requiredPermissions: [PERMISSIONS.AUDIT_LOGS_READ],
         },
       ],
     },

@@ -39,10 +39,10 @@
 
 ## 6) Port and Local Runtime Alignment
 - MUST assume local defaults:
-1. admin `3001`
-2. client `3002`
-3. backend API `3000`
-- MUST keep both frontend `.env` files aligned to `VITE_API_URL=http://localhost:3000` unless environment explicitly changes.
+1. admin `3501`
+2. client `3502`
+3. backend API `3500`
+- MUST keep both frontend `.env` files aligned to `VITE_API_URL=http://localhost:3500` unless environment explicitly changes.
 
 ## 7) Thread Delivery Checklist (Frontend)
 - Route impact identified.
