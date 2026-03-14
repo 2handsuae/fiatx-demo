@@ -146,7 +146,7 @@ const SlaTimerDetailPage = () => {
     setError('');
     try {
       const response = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/governance/sla-timers/${id}`,
+        `${import.meta.env.VITE_API_URL}/admin/control-gates/sla-timers/${id}`,
       );
       if (!response.ok) {
         throw new Error(await getApiErrorMessage(response, 'Failed to load SLA timer.'));
@@ -169,7 +169,7 @@ const SlaTimerDetailPage = () => {
     setMessage('');
     try {
       const response = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/governance/sla-timers/${id}/close`,
+        `${import.meta.env.VITE_API_URL}/admin/control-gates/sla-timers/${id}/close`,
         {
           method: 'POST',
           headers: {
@@ -212,7 +212,7 @@ const SlaTimerDetailPage = () => {
       }
 
       const response = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/governance/sla-timers/${id}/recalc`,
+        `${import.meta.env.VITE_API_URL}/admin/control-gates/sla-timers/${id}/recalc`,
         {
           method: 'POST',
           headers: {
@@ -253,7 +253,7 @@ const SlaTimerDetailPage = () => {
       <div className="space-y-6">
         <div className="flex items-center gap-3">
           <button
-            onClick={() => navigate('/dashboard/governance/sla-timers')}
+            onClick={() => navigate('/dashboard/control-gates/sla-timers')}
             className="inline-flex items-center gap-2 rounded-lg border border-admin-border bg-white px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
           >
             <ArrowLeft size={16} />
@@ -289,7 +289,7 @@ const SlaTimerDetailPage = () => {
           <div className="space-y-2">
             <div className="flex items-center gap-3">
               <button
-                onClick={() => navigate('/dashboard/governance/sla-timers')}
+                onClick={() => navigate('/dashboard/control-gates/sla-timers')}
                 className="inline-flex items-center gap-2 rounded-lg border border-admin-border bg-white px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
               >
                 <ArrowLeft size={16} />
@@ -312,7 +312,7 @@ const SlaTimerDetailPage = () => {
           <div className="flex flex-wrap items-center gap-2">
             {detail.subjectType === 'APPROVAL_CASE' && canViewApproval && (
               <button
-                onClick={() => navigate(`/dashboard/governance/approvals/${detail.subjectId}`)}
+                onClick={() => navigate(`/dashboard/control-gates/approvals/${detail.subjectId}`)}
                 className="inline-flex items-center gap-2 rounded-lg border border-admin-border bg-white px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
               >
                 <Link2 size={16} />
@@ -322,7 +322,7 @@ const SlaTimerDetailPage = () => {
             {detail.subjectType === 'CHANGE_TICKET' && canViewChangeTicket && (
               <button
                 onClick={() =>
-                  navigate(`/dashboard/governance/change-tickets/${detail.subjectId}`)
+                  navigate(`/dashboard/control-gates/change-tickets/${detail.subjectId}`)
                 }
                 className="inline-flex items-center gap-2 rounded-lg border border-admin-border bg-white px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
               >

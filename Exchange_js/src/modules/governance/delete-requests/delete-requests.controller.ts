@@ -24,7 +24,7 @@ import {
 } from './dto/delete-request.dto';
 
 @ApiTags('Admin - Governance Delete Requests')
-@Controller('admin/governance/delete-requests')
+@Controller('admin/control-gates/delete-requests')
 @UseGuards(AuthGuard('jwt'), AdminPermissionGuard)
 @ApiBearerAuth()
 export class DeleteRequestsController {

@@ -26,7 +26,7 @@ import {
 } from './dto/approval.dto';
 
 @ApiTags('Admin - Governance Approvals')
-@Controller('admin/governance/approvals')
+@Controller('admin/control-gates/approvals')
 @UseGuards(AuthGuard('jwt'), AdminPermissionGuard)
 @ApiBearerAuth()
 export class ApprovalsController {

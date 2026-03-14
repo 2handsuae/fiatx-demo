@@ -173,29 +173,29 @@ const DashboardLayout = () => {
       ],
     },
     {
-      label: 'Governance Center',
+      label: 'Control Gates Center',
       icon: <ShieldCheck size={20} />,
       children: [
         {
-          path: '/dashboard/governance/change-tickets',
+          path: '/dashboard/control-gates/change-tickets',
           label: 'Change Tickets',
           icon: <Briefcase size={18} />,
           requiredPermissions: [PERMISSIONS.GOV_CHANGE_TICKETS_READ],
         },
         {
-          path: '/dashboard/governance/delete-requests',
+          path: '/dashboard/control-gates/delete-requests',
           label: 'Delete Requests',
           icon: <ClipboardList size={18} />,
           requiredPermissions: [PERMISSIONS.GOV_DELETE_REQUESTS_READ],
         },
         {
-          path: '/dashboard/governance/approvals',
+          path: '/dashboard/control-gates/approvals',
           label: 'Approvals',
           icon: <Shield size={18} />,
           requiredPermissions: [PERMISSIONS.GOV_APPROVALS_READ],
         },
         {
-          path: '/dashboard/governance/sla-timers',
+          path: '/dashboard/control-gates/sla-timers',
           label: 'SLA Timers',
           icon: <History size={18} />,
           requiredPermissions: [PERMISSIONS.GOV_SLA_TIMERS_READ],

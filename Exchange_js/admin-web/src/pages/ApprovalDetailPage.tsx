@@ -168,7 +168,7 @@ const ApprovalDetailPage = () => {
     setError('');
     try {
       const response = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/governance/approvals/${id}`,
+        `${import.meta.env.VITE_API_URL}/admin/control-gates/approvals/${id}`,
       );
       if (!response.ok) {
         throw new Error(await getApiErrorMessage(response, 'Failed to load approval detail.'));
@@ -199,7 +199,7 @@ const ApprovalDetailPage = () => {
       if (action !== 'cancel' && checkerRole) payload.checkerRole = checkerRole;
 
       const response = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/governance/approvals/${id}/${action}`,
+        `${import.meta.env.VITE_API_URL}/admin/control-gates/approvals/${id}/${action}`,
         {
           method: 'POST',
           headers: {
@@ -241,7 +241,7 @@ const ApprovalDetailPage = () => {
       <div className="space-y-6">
         <div className="flex items-center gap-3">
           <button
-            onClick={() => navigate('/dashboard/governance/approvals')}
+            onClick={() => navigate('/dashboard/control-gates/approvals')}
             className="inline-flex items-center gap-2 rounded-lg border border-admin-border bg-white px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
           >
             <ArrowLeft size={16} />
@@ -266,7 +266,7 @@ const ApprovalDetailPage = () => {
     return (
       <div className="space-y-6">
         <button
-          onClick={() => navigate('/dashboard/governance/approvals')}
+          onClick={() => navigate('/dashboard/control-gates/approvals')}
           className="inline-flex items-center gap-2 rounded-lg border border-admin-border bg-white px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
         >
           <ArrowLeft size={16} />
@@ -284,7 +284,7 @@ const ApprovalDetailPage = () => {
       <div className="flex flex-col gap-4 rounded-xl border border-admin-border bg-white p-6 shadow-sm md:flex-row md:items-start md:justify-between">
         <div className="flex items-start gap-4">
           <button
-            onClick={() => navigate('/dashboard/governance/approvals')}
+            onClick={() => navigate('/dashboard/control-gates/approvals')}
             className="mt-1 inline-flex items-center justify-center rounded-lg border border-admin-border p-2 text-gray-700 hover:bg-gray-50"
           >
             <ArrowLeft size={18} />

@@ -54,7 +54,7 @@ const ChangeTicketCreatePage = () => {
       }
 
       const response = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/governance/change-tickets`,
+        `${import.meta.env.VITE_API_URL}/admin/control-gates/change-tickets`,
         {
           method: 'POST',
           headers: {
@@ -69,7 +69,7 @@ const ChangeTicketCreatePage = () => {
       }
 
       const created = await response.json();
-      navigate(`/dashboard/governance/change-tickets/${created.id}`);
+      navigate(`/dashboard/control-gates/change-tickets/${created.id}`);
     } catch (e: unknown) {
       if (e instanceof AdminSessionError) return;
       setError(e instanceof Error ? e.message : 'Failed to create change ticket.');
@@ -82,7 +82,7 @@ const ChangeTicketCreatePage = () => {
     <div className="mx-auto max-w-3xl space-y-6">
       <div className="flex items-center gap-4">
         <button
-          onClick={() => navigate('/dashboard/governance/change-tickets')}
+          onClick={() => navigate('/dashboard/control-gates/change-tickets')}
           className="rounded-full p-2 text-gray-500 transition-colors hover:bg-gray-100"
         >
           <ArrowLeft size={20} />
@@ -90,7 +90,7 @@ const ChangeTicketCreatePage = () => {
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Create Change Ticket</h1>
           <p className="mt-1 text-sm text-gray-500">
-            Open a release-gated governance ticket with the minimum evidence required.
+            Open a release-gated change ticket with the minimum evidence required.
           </p>
         </div>
       </div>
@@ -226,7 +226,7 @@ const ChangeTicketCreatePage = () => {
           <div className="flex justify-end gap-3 border-t border-admin-border pt-4">
             <button
               type="button"
-              onClick={() => navigate('/dashboard/governance/change-tickets')}
+              onClick={() => navigate('/dashboard/control-gates/change-tickets')}
               className="rounded-lg border border-admin-border bg-white px-4 py-2 text-gray-700 hover:bg-gray-50"
             >
               Cancel

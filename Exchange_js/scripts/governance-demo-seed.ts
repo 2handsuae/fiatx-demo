@@ -77,7 +77,7 @@ async function seedApprovalChain() {
   const created = await authed<ApprovalResponse>(
     adminToken,
     'post',
-    '/admin/governance/approvals',
+    '/admin/control-gates/approvals',
     {
       actionType: 'CHANGE_TICKET_APPROVAL',
       entityRef: `DEMO-APPROVAL-${suffix}`,
@@ -88,12 +88,12 @@ async function seedApprovalChain() {
     },
   );
 
-  await authed<ApprovalResponse>(adminToken, 'post', `/admin/governance/approvals/${created.id}/submit`, {
+  await authed<ApprovalResponse>(adminToken, 'post', `/admin/control-gates/approvals/${created.id}/submit`, {
     reason: 'Governance demo approval submitted',
     traceId: created.traceId,
   });
 
-  return authed<ApprovalResponse>(checkerToken, 'post', `/admin/governance/approvals/${created.id}/approve`, {
+  return authed<ApprovalResponse>(checkerToken, 'post', `/admin/control-gates/approvals/${created.id}/approve`, {
     reason: 'Governance demo approval approved',
   });
 }
@@ -106,7 +106,7 @@ async function seedChangeTicketChain() {
   const created = await authed<ChangeTicketResponse>(
     makerToken,
     'post',
-    '/admin/governance/change-tickets',
+    '/admin/control-gates/change-tickets',
     {
       changeType: 'CONFIG',
       scopeSummary: `Wave1 demo change ${suffix}`,
@@ -119,7 +119,7 @@ async function seedChangeTicketChain() {
   const submitted = await authed<ChangeTicketResponse>(
     makerToken,
     'post',
-    `/admin/governance/change-tickets/${created.id}/submit`,
+    `/admin/control-gates/change-tickets/${created.id}/submit`,
     {
       reason: 'Wave1 demo change submit',
       traceId: created.traceId,
@@ -133,7 +133,7 @@ async function seedChangeTicketChain() {
   await authed<ApprovalResponse>(
     checkerToken,
     'post',
-    `/admin/governance/approvals/${submitted.latestApprovalId}/approve`,
+    `/admin/control-gates/approvals/${submitted.latestApprovalId}/approve`,
     {
       reason: 'Wave1 demo change approved',
     },
@@ -142,7 +142,7 @@ async function seedChangeTicketChain() {
   await authed(
     makerToken,
     'post',
-    `/admin/governance/change-tickets/${created.id}/gate-checks`,
+    `/admin/control-gates/change-tickets/${created.id}/gate-checks`,
     {
       targetEnv: 'UAT',
       releaseVersion: `demo-${suffix}`,
@@ -153,7 +153,7 @@ async function seedChangeTicketChain() {
   await authed<ChangeTicketResponse>(
     makerToken,
     'post',
-    `/admin/governance/change-tickets/${created.id}/deploy-status`,
+    `/admin/control-gates/change-tickets/${created.id}/deploy-status`,
     {
       targetEnv: 'UAT',
       releaseVersion: `demo-${suffix}`,
@@ -165,7 +165,7 @@ async function seedChangeTicketChain() {
   return authed<ChangeTicketResponse>(
     makerToken,
     'post',
-    `/admin/governance/change-tickets/${created.id}/close`,
+    `/admin/control-gates/change-tickets/${created.id}/close`,
     {
       reason: 'Wave1 demo ticket closed',
     },
@@ -180,7 +180,7 @@ async function seedDeleteRequestChain(targetNo: string) {
   const created = await authed<DeleteRequestResponse>(
     makerToken,
     'post',
-    '/admin/governance/delete-requests',
+    '/admin/control-gates/delete-requests',
     {
       targetType: 'CHANGE_TICKET',
       targetNo,
@@ -192,7 +192,7 @@ async function seedDeleteRequestChain(targetNo: string) {
   const submitted = await authed<DeleteRequestResponse>(
     makerToken,
     'post',
-    `/admin/governance/delete-requests/${created.id}/submit`,
+    `/admin/control-gates/delete-requests/${created.id}/submit`,
     {
       reason: 'Wave1 demo delete submit',
       traceId: created.traceId,
@@ -206,7 +206,7 @@ async function seedDeleteRequestChain(targetNo: string) {
   await authed<ApprovalResponse>(
     checkerToken,
     'post',
-    `/admin/governance/approvals/${submitted.latestApprovalId}/approve`,
+    `/admin/control-gates/approvals/${submitted.latestApprovalId}/approve`,
     {
       reason: 'Wave1 demo delete approved',
       checkerRole: 'DPO',
@@ -216,7 +216,7 @@ async function seedDeleteRequestChain(targetNo: string) {
   return authed<DeleteRequestResponse>(
     executorToken,
     'post',
-    `/admin/governance/delete-requests/${created.id}/execute`,
+    `/admin/control-gates/delete-requests/${created.id}/execute`,
     {
       reason: 'Wave1 demo delete executed',
     },
@@ -229,7 +229,7 @@ async function seedSlaDemoChains() {
   const approvalTimeout = await authed<SlaTimerResponse>(
     adminToken,
     'post',
-    '/admin/demo/governance/sla-timers/approval-timeout',
+    '/admin/demo/control-gates/sla-timers/approval-timeout',
     {
       dueInSeconds: 15,
       graceSeconds: 0,
@@ -240,13 +240,13 @@ async function seedSlaDemoChains() {
   const expired = await authed<SlaTimerResponse>(
     adminToken,
     'post',
-    `/admin/demo/governance/sla-timers/${approvalTimeout.id}/expire`,
+    `/admin/demo/control-gates/sla-timers/${approvalTimeout.id}/expire`,
   );
 
   const changeFollowUp = await authed<SlaTimerResponse>(
     adminToken,
     'post',
-    '/admin/demo/governance/sla-timers/change-follow-up',
+    '/admin/demo/control-gates/sla-timers/change-follow-up',
     {
       dueInSeconds: 30,
       graceSeconds: 5,
@@ -257,7 +257,7 @@ async function seedSlaDemoChains() {
   const closed = await authed<SlaTimerResponse>(
     adminToken,
     'post',
-    `/admin/governance/sla-timers/${changeFollowUp.id}/close`,
+    `/admin/control-gates/sla-timers/${changeFollowUp.id}/close`,
     {
       reason: 'Wave1 demo follow-up closed',
     },

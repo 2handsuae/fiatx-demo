@@ -94,7 +94,7 @@ V1 当前只支持 `SELECTION` 模式，即从 `Audit Log` 页面勾选若干事
 - 一级菜单：`Audit Center`
 1. `Audit Log`
 2. `Evidence Export`
-- 一级菜单：`Governance Center`
+- 一级菜单：`Control Gates Center`
 1. `Approvals`
 2. `Change Tickets`
 3. `Delete Requests`
@@ -104,16 +104,16 @@ V1 当前只支持 `SELECTION` 模式，即从 `Audit Log` 页面勾选若干事
 - `Evidence Export` 列表页仅保留列表、分页、刷新、下载入口，不再内嵌 detail 模块；未审批/未就绪记录不可下载。
 - `Evidence Export Detail`：`/dashboard/audit/evidence-exports/:id`
 - `Evidence Export Detail` 仅基于 `audit_evidence_packages` 单条记录字段做语义归类展示，并保留 `manifest/packageBody` JSON。
-- `Approvals`：`/dashboard/governance/approvals`
-- `Approval Detail`：`/dashboard/governance/approvals/:id`
-- `Change Tickets`：`/dashboard/governance/change-tickets`
-- `Change Ticket Create`：`/dashboard/governance/change-tickets/create`
-- `Change Ticket Detail`：`/dashboard/governance/change-tickets/:id`
-- `Delete Requests`：`/dashboard/governance/delete-requests`
-- `Delete Request Create`：`/dashboard/governance/delete-requests/create`
-- `Delete Request Detail`：`/dashboard/governance/delete-requests/:id`
-- `SLA Timers`：`/dashboard/governance/sla-timers`
-- `SLA Timer Detail`：`/dashboard/governance/sla-timers/:id`
+- `Approvals`：`/dashboard/control-gates/approvals`
+- `Approval Detail`：`/dashboard/control-gates/approvals/:id`
+- `Change Tickets`：`/dashboard/control-gates/change-tickets`
+- `Change Ticket Create`：`/dashboard/control-gates/change-tickets/create`
+- `Change Ticket Detail`：`/dashboard/control-gates/change-tickets/:id`
+- `Delete Requests`：`/dashboard/control-gates/delete-requests`
+- `Delete Request Create`：`/dashboard/control-gates/delete-requests/create`
+- `Delete Request Detail`：`/dashboard/control-gates/delete-requests/:id`
+- `SLA Timers`：`/dashboard/control-gates/sla-timers`
+- `SLA Timer Detail`：`/dashboard/control-gates/sla-timers/:id`
 - 兼容路由 `/dashboard/compliance/audit-logs` 仍保留跳转，但菜单中不再展示入口。
 
 ## 6.1 Governance WF-06（Change Ticket + Release Gate）

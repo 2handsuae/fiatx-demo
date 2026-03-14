@@ -350,7 +350,7 @@ const EvidenceExportDetailPage = () => {
           </button>
           {detail.approvalCase && (
             <button
-              onClick={() => navigate(`/dashboard/governance/approvals/${detail.approvalCase?.id}`)}
+              onClick={() => navigate(`/dashboard/control-gates/approvals/${detail.approvalCase?.id}`)}
               className="inline-flex items-center gap-2 rounded-lg border border-admin-border px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
             >
               <Link2 size={16} />

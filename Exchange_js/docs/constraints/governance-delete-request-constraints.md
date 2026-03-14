@@ -95,10 +95,10 @@
 7. `DELETE_REQUEST_EXECUTION_FAILED`
 
 ## 8) Admin UI and Route Contract
-- Governance admin entry MUST surface:
-1. `/dashboard/governance/delete-requests`
-2. `/dashboard/governance/delete-requests/create`
-3. `/dashboard/governance/delete-requests/:id`
+- Control Gates admin entry MUST surface:
+1. `/dashboard/control-gates/delete-requests`
+2. `/dashboard/control-gates/delete-requests/create`
+3. `/dashboard/control-gates/delete-requests/:id`
 - List page MUST remain a pure list page and MUST NOT embed a bottom detail panel.
 - List page default filters MUST support:
 1. `requestNo`

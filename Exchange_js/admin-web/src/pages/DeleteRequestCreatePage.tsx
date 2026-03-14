@@ -32,7 +32,7 @@ const DeleteRequestCreatePage = () => {
       }
 
       const response = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/governance/delete-requests`,
+        `${import.meta.env.VITE_API_URL}/admin/control-gates/delete-requests`,
         {
           method: 'POST',
           headers: {
@@ -47,7 +47,7 @@ const DeleteRequestCreatePage = () => {
       }
 
       const created = await response.json();
-      navigate(`/dashboard/governance/delete-requests/${created.id}`);
+      navigate(`/dashboard/control-gates/delete-requests/${created.id}`);
     } catch (e: unknown) {
       if (e instanceof AdminSessionError) return;
       setError(e instanceof Error ? e.message : 'Failed to create delete request.');
@@ -60,7 +60,7 @@ const DeleteRequestCreatePage = () => {
     <div className="mx-auto max-w-3xl space-y-6">
       <div className="flex items-center gap-4">
         <button
-          onClick={() => navigate('/dashboard/governance/delete-requests')}
+          onClick={() => navigate('/dashboard/control-gates/delete-requests')}
           className="rounded-full p-2 text-gray-500 transition-colors hover:bg-gray-100"
         >
           <ArrowLeft size={20} />
@@ -139,7 +139,7 @@ const DeleteRequestCreatePage = () => {
           <div className="flex items-center justify-end gap-3 border-t border-admin-border pt-4">
             <button
               type="button"
-              onClick={() => navigate('/dashboard/governance/delete-requests')}
+              onClick={() => navigate('/dashboard/control-gates/delete-requests')}
               className="rounded-lg border border-admin-border px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
             >
               Cancel

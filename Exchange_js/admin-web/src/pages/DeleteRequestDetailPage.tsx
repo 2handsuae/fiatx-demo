@@ -123,7 +123,7 @@ const DeleteRequestDetailPage = () => {
     setError('');
     try {
       const response = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/governance/delete-requests/${id}`,
+        `${import.meta.env.VITE_API_URL}/admin/control-gates/delete-requests/${id}`,
       );
       if (!response.ok) {
         throw new Error(await getApiErrorMessage(response, 'Failed to load delete request.'));
@@ -149,7 +149,7 @@ const DeleteRequestDetailPage = () => {
       if (reason.trim()) payload.reason = reason.trim();
 
       const response = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/governance/delete-requests/${id}/${path}`,
+        `${import.meta.env.VITE_API_URL}/admin/control-gates/delete-requests/${id}/${path}`,
         {
           method: 'POST',
           headers: {
@@ -191,7 +191,7 @@ const DeleteRequestDetailPage = () => {
       <div className="space-y-6">
         <div className="flex items-center gap-3">
           <button
-            onClick={() => navigate('/dashboard/governance/delete-requests')}
+            onClick={() => navigate('/dashboard/control-gates/delete-requests')}
             className="inline-flex items-center gap-2 rounded-lg border border-admin-border bg-white px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
           >
             <ArrowLeft size={16} />
@@ -223,7 +223,7 @@ const DeleteRequestDetailPage = () => {
           <div className="space-y-2">
             <div className="flex items-center gap-3">
               <button
-                onClick={() => navigate('/dashboard/governance/delete-requests')}
+                onClick={() => navigate('/dashboard/control-gates/delete-requests')}
                 className="inline-flex items-center gap-2 rounded-lg border border-admin-border bg-white px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
               >
                 <ArrowLeft size={16} />
@@ -246,7 +246,7 @@ const DeleteRequestDetailPage = () => {
           <div className="flex flex-wrap items-center gap-2">
             {detail.latestApprovalId && canViewApproval && (
               <button
-                onClick={() => navigate(`/dashboard/governance/approvals/${detail.latestApprovalId}`)}
+                onClick={() => navigate(`/dashboard/control-gates/approvals/${detail.latestApprovalId}`)}
                 className="inline-flex items-center gap-2 rounded-lg border border-admin-border bg-white px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
               >
                 <Link2 size={16} />

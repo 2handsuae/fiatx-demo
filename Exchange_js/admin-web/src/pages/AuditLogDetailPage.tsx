@@ -291,16 +291,15 @@ const AuditLogDetailPage = () => {
         </button>
       </div>
 
-      <DetailCard title="Event Summary" icon={<FileText size={18} />}>
+      <DetailCard title="Event Identity" icon={<FileText size={18} />}>
         <InfoField label="Audit No" value={detail.auditNo} mono />
         <InfoField label="Action" value={detail.action} />
-        <InfoField label="Result" value={detail.result} />
         <InfoField label="Trigger Type" value={detail.triggerType} />
         <InfoField label="Occurred At" value={formatDateTime(detail.occurredAt)} />
         <InfoField label="Module" value={detail.module} />
       </DetailCard>
 
-      <DetailCard title="Trace & Workflow" icon={<GitBranch size={18} />}>
+      <DetailCard title="Workflow & Correlation" icon={<GitBranch size={18} />}>
         <InfoField label="Trace ID" value={detail.traceId} mono />
         <InfoField label="Workflow Type" value={detail.workflowType} />
         <InfoField label="Workflow No" value={detail.workflowNo} mono />
@@ -308,25 +307,41 @@ const AuditLogDetailPage = () => {
         <InfoField label="Request ID" value={detail.requestId} mono />
       </DetailCard>
 
-      <DetailCard title="Entity & Actor" icon={<User size={18} />}>
+      <DetailCard title="Entity" icon={<FileText size={18} />}>
         <InfoField label="Entity Type" value={detail.entityType} />
         <InfoField label="Entity ID" value={detail.entityId} mono />
         <InfoField label="Entity No" value={detail.entityNo} mono />
         <InfoField label="Entity Owner Type" value={detail.entityOwnerType} />
         <InfoField label="Entity Owner ID" value={detail.entityOwnerId} mono />
         <InfoField label="Entity Owner No" value={detail.entityOwnerNo} mono />
+      </DetailCard>
+
+      <DetailCard title="Actor" icon={<User size={18} />}>
         <InfoField label="Actor Type" value={detail.actorType} />
         <InfoField label="Actor ID" value={detail.actorId} mono />
         <InfoField label="Actor No" value={detail.actorNo} mono />
         <InfoField label="Actor Role" value={detail.actorRole} />
       </DetailCard>
 
-      <DetailCard title="State & Reason" icon={<ShieldCheck size={18} />}>
+      <DetailCard title="State & Outcome" icon={<ShieldCheck size={18} />}>
         <InfoField label="Status From" value={detail.statusFrom} />
         <InfoField label="Status To" value={detail.statusTo} />
+        <InfoField label="Result" value={detail.result} />
         <InfoField label="Reason" value={detail.reason} />
+      </DetailCard>
+
+      <DetailCard title="Source Context" icon={<Clock3 size={18} />}>
         <InfoField label="Source Platform" value={detail.sourcePlatform} />
         <InfoField label="Source IP" value={detail.sourceIp} mono />
+      </DetailCard>
+
+      <DetailCard title="Retention & Integrity" icon={<Clock3 size={18} />}>
+        <InfoField label="Payload Digest" value={detail.payloadDigest} mono />
+        <InfoField label="Mask Version" value={detail.maskVersion} />
+        <InfoField label="Retained Until" value={formatDateTime(detail.retainedUntil)} />
+        <InfoField label="Archived At" value={formatDateTime(detail.archivedAt)} />
+        <InfoField label="Created At" value={formatDateTime(detail.createdAt)} />
+        <InfoField label="Updated At" value={formatDateTime(detail.updatedAt)} />
       </DetailCard>
 
       <DetailCard title="Subject Nos" icon={<FileText size={18} />} columns={1}>
@@ -346,16 +361,7 @@ const AuditLogDetailPage = () => {
         )}
       </DetailCard>
 
-      <DetailCard title="Retention & Integrity" icon={<Clock3 size={18} />}>
-        <InfoField label="Payload Digest" value={detail.payloadDigest} mono />
-        <InfoField label="Mask Version" value={detail.maskVersion} />
-        <InfoField label="Retained Until" value={formatDateTime(detail.retainedUntil)} />
-        <InfoField label="Archived At" value={formatDateTime(detail.archivedAt)} />
-        <InfoField label="Created At" value={formatDateTime(detail.createdAt)} />
-        <InfoField label="Updated At" value={formatDateTime(detail.updatedAt)} />
-      </DetailCard>
-
-      <DetailCard title="Payload Blocks" icon={<FileJson size={18} />} columns={1}>
+      <DetailCard title="Payload" icon={<FileJson size={18} />} columns={1}>
         <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
           <JsonBlock title="Metadata" value={detail.metadata} />
           <JsonBlock title="Before Data" value={detail.beforeData} />

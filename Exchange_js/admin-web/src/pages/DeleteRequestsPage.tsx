@@ -86,7 +86,7 @@ const DeleteRequestsPage = () => {
     setError('');
     try {
       const response = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/governance/delete-requests?${buildParams(
+        `${import.meta.env.VITE_API_URL}/admin/control-gates/delete-requests?${buildParams(
           page,
           nextFilters,
         ).toString()}`,
@@ -115,7 +115,7 @@ const DeleteRequestsPage = () => {
     <div className="space-y-6">
       <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Governance Center - Delete Requests</h1>
+          <h1 className="text-2xl font-bold text-gray-900">Control Gates Center - Delete Requests</h1>
           <p className="mt-1 text-sm text-gray-500">
             Create, review, and execute soft-delete requests with approval linkage.
           </p>
@@ -130,7 +130,7 @@ const DeleteRequestsPage = () => {
           </button>
           {canCreate && (
             <Link
-              to="/dashboard/governance/delete-requests/create"
+              to="/dashboard/control-gates/delete-requests/create"
               className="inline-flex items-center gap-2 rounded-lg bg-brand-primary px-4 py-2 text-sm font-medium text-white hover:bg-brand-primary/90"
             >
               <Plus size={16} />
@@ -247,7 +247,7 @@ const DeleteRequestsPage = () => {
                   <tr key={item.id} className="hover:bg-gray-50">
                     <td className="px-4 py-3">
                       <button
-                        onClick={() => navigate(`/dashboard/governance/delete-requests/${item.id}`)}
+                        onClick={() => navigate(`/dashboard/control-gates/delete-requests/${item.id}`)}
                         className="font-mono text-xs text-brand-primary hover:underline"
                       >
                         {item.requestNo}
@@ -266,7 +266,7 @@ const DeleteRequestsPage = () => {
                     <td className="px-4 py-3 text-gray-500">{formatDateTime(item.createdAt)}</td>
                     <td className="px-4 py-3">
                       <button
-                        onClick={() => navigate(`/dashboard/governance/delete-requests/${item.id}`)}
+                        onClick={() => navigate(`/dashboard/control-gates/delete-requests/${item.id}`)}
                         className="rounded-lg border border-admin-border px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50"
                       >
                         View

@@ -87,7 +87,7 @@ async function runApprovalTimeoutScenario(token: string) {
   const created = await authed<SlaTimerResponse>(
     token,
     'post',
-    '/admin/demo/governance/sla-timers/approval-timeout',
+    '/admin/demo/control-gates/sla-timers/approval-timeout',
     {
       dueInSeconds: 15,
       graceSeconds: 0,
@@ -101,7 +101,7 @@ async function runApprovalTimeoutScenario(token: string) {
   const listed = await authed<{ items: SlaTimerResponse[] }>(
     token,
     'get',
-    '/admin/governance/sla-timers',
+    '/admin/control-gates/sla-timers',
     undefined,
     { timerNo: created.timerNo, take: 10 },
   );
@@ -110,7 +110,7 @@ async function runApprovalTimeoutScenario(token: string) {
   const recalculated = await authed<SlaTimerResponse>(
     token,
     'post',
-    `/admin/governance/sla-timers/${created.id}/recalc`,
+    `/admin/control-gates/sla-timers/${created.id}/recalc`,
     {
       dueInSeconds: 5,
       graceSeconds: 0,
@@ -122,7 +122,7 @@ async function runApprovalTimeoutScenario(token: string) {
   const expired = await authed<SlaTimerResponse>(
     token,
     'post',
-    `/admin/demo/governance/sla-timers/${created.id}/expire`,
+    `/admin/demo/control-gates/sla-timers/${created.id}/expire`,
   );
   assert(expired.status === 'EXPIRED', 'Mock expire should end in EXPIRED');
   assert(
@@ -147,7 +147,7 @@ async function runChangeFollowUpScenario(token: string) {
   const created = await authed<SlaTimerResponse>(
     token,
     'post',
-    '/admin/demo/governance/sla-timers/change-follow-up',
+    '/admin/demo/control-gates/sla-timers/change-follow-up',
     {
       dueInSeconds: 20,
       graceSeconds: 5,
@@ -164,7 +164,7 @@ async function runChangeFollowUpScenario(token: string) {
   const recalculated = await authed<SlaTimerResponse>(
     token,
     'post',
-    `/admin/governance/sla-timers/${created.id}/recalc`,
+    `/admin/control-gates/sla-timers/${created.id}/recalc`,
     {
       dueInSeconds: 25,
       graceSeconds: 10,
@@ -176,7 +176,7 @@ async function runChangeFollowUpScenario(token: string) {
   const closed = await authed<SlaTimerResponse>(
     token,
     'post',
-    `/admin/governance/sla-timers/${created.id}/close`,
+    `/admin/control-gates/sla-timers/${created.id}/close`,
     {
       reason: 'Smoke follow-up close',
     },

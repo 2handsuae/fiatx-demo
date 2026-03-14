@@ -394,77 +394,77 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   ]),
 
   // Governance approvals
-  route('POST', '/admin/governance/approvals', 'Create approval case', ['GOV_APPROVAL_WRITE']),
-  route('POST', '/admin/governance/approvals/:id/submit', 'Submit approval case', ['GOV_APPROVAL_WRITE']),
-  route('POST', '/admin/governance/approvals/:id/approve', 'Approve approval case', ['GOV_APPROVAL_DECIDE']),
-  route('POST', '/admin/governance/approvals/:id/reject', 'Reject approval case', ['GOV_APPROVAL_DECIDE']),
-  route('POST', '/admin/governance/approvals/:id/cancel', 'Cancel approval case', ['GOV_APPROVAL_WRITE']),
-  route('GET', '/admin/governance/approvals/:id', 'Get approval case detail', ['GOV_APPROVAL_READ']),
-  route('GET', '/admin/governance/approvals', 'List approval cases', ['GOV_APPROVAL_READ']),
+  route('POST', '/admin/control-gates/approvals', 'Create approval case', ['GOV_APPROVAL_WRITE']),
+  route('POST', '/admin/control-gates/approvals/:id/submit', 'Submit approval case', ['GOV_APPROVAL_WRITE']),
+  route('POST', '/admin/control-gates/approvals/:id/approve', 'Approve approval case', ['GOV_APPROVAL_DECIDE']),
+  route('POST', '/admin/control-gates/approvals/:id/reject', 'Reject approval case', ['GOV_APPROVAL_DECIDE']),
+  route('POST', '/admin/control-gates/approvals/:id/cancel', 'Cancel approval case', ['GOV_APPROVAL_WRITE']),
+  route('GET', '/admin/control-gates/approvals/:id', 'Get approval case detail', ['GOV_APPROVAL_READ']),
+  route('GET', '/admin/control-gates/approvals', 'List approval cases', ['GOV_APPROVAL_READ']),
 
   // Governance change tickets
-  route('POST', '/admin/governance/change-tickets', 'Create change ticket', ['GOV_CHANGE_TICKET_WRITE']),
-  route('GET', '/admin/governance/change-tickets', 'List change tickets', ['GOV_CHANGE_TICKET_READ']),
-  route('GET', '/admin/governance/change-tickets/:id', 'Get change ticket detail', ['GOV_CHANGE_TICKET_READ']),
-  route('POST', '/admin/governance/change-tickets/:id/submit', 'Submit change ticket', ['GOV_CHANGE_TICKET_WRITE']),
-  route('POST', '/admin/governance/change-tickets/:id/resubmit', 'Resubmit change ticket', ['GOV_CHANGE_TICKET_WRITE']),
-  route('GET', '/admin/governance/change-tickets/:id/gate-runs', 'List change ticket gate runs', [
+  route('POST', '/admin/control-gates/change-tickets', 'Create change ticket', ['GOV_CHANGE_TICKET_WRITE']),
+  route('GET', '/admin/control-gates/change-tickets', 'List change tickets', ['GOV_CHANGE_TICKET_READ']),
+  route('GET', '/admin/control-gates/change-tickets/:id', 'Get change ticket detail', ['GOV_CHANGE_TICKET_READ']),
+  route('POST', '/admin/control-gates/change-tickets/:id/submit', 'Submit change ticket', ['GOV_CHANGE_TICKET_WRITE']),
+  route('POST', '/admin/control-gates/change-tickets/:id/resubmit', 'Resubmit change ticket', ['GOV_CHANGE_TICKET_WRITE']),
+  route('GET', '/admin/control-gates/change-tickets/:id/gate-runs', 'List change ticket gate runs', [
     'GOV_CHANGE_TICKET_READ',
   ]),
-  route('POST', '/admin/governance/change-tickets/:id/gate-checks', 'Run change ticket gate check', [
+  route('POST', '/admin/control-gates/change-tickets/:id/gate-checks', 'Run change ticket gate check', [
     'GOV_CHANGE_TICKET_GATE',
   ]),
-  route('POST', '/admin/governance/change-tickets/:id/deploy-status', 'Mark change ticket deploy status', [
+  route('POST', '/admin/control-gates/change-tickets/:id/deploy-status', 'Mark change ticket deploy status', [
     'GOV_CHANGE_TICKET_GATE',
   ]),
-  route('POST', '/admin/governance/change-tickets/:id/close', 'Close change ticket', [
+  route('POST', '/admin/control-gates/change-tickets/:id/close', 'Close change ticket', [
     'GOV_CHANGE_TICKET_CLOSE',
   ]),
 
   // Governance delete requests
-  route('POST', '/admin/governance/delete-requests', 'Create delete request', [
+  route('POST', '/admin/control-gates/delete-requests', 'Create delete request', [
     'GOV_DELETE_REQUEST_WRITE',
   ]),
-  route('GET', '/admin/governance/delete-requests', 'List delete requests', [
+  route('GET', '/admin/control-gates/delete-requests', 'List delete requests', [
     'GOV_DELETE_REQUEST_READ',
   ]),
-  route('GET', '/admin/governance/delete-requests/:id', 'Get delete request detail', [
+  route('GET', '/admin/control-gates/delete-requests/:id', 'Get delete request detail', [
     'GOV_DELETE_REQUEST_READ',
   ]),
-  route('POST', '/admin/governance/delete-requests/:id/submit', 'Submit delete request', [
+  route('POST', '/admin/control-gates/delete-requests/:id/submit', 'Submit delete request', [
     'GOV_DELETE_REQUEST_WRITE',
   ]),
-  route('POST', '/admin/governance/delete-requests/:id/cancel', 'Cancel delete request', [
+  route('POST', '/admin/control-gates/delete-requests/:id/cancel', 'Cancel delete request', [
     'GOV_DELETE_REQUEST_WRITE',
   ]),
-  route('POST', '/admin/governance/delete-requests/:id/execute', 'Execute delete request', [
+  route('POST', '/admin/control-gates/delete-requests/:id/execute', 'Execute delete request', [
     'GOV_DELETE_REQUEST_EXECUTE',
   ]),
 
   // Governance SLA timers
-  route('GET', '/admin/governance/sla-timers', 'List SLA timers', ['GOV_SLA_READ']),
-  route('GET', '/admin/governance/sla-timers/:id', 'Get SLA timer detail', [
+  route('GET', '/admin/control-gates/sla-timers', 'List SLA timers', ['GOV_SLA_READ']),
+  route('GET', '/admin/control-gates/sla-timers/:id', 'Get SLA timer detail', [
     'GOV_SLA_READ',
   ]),
-  route('POST', '/admin/governance/sla-timers/:id/recalc', 'Recalculate SLA timer', [
+  route('POST', '/admin/control-gates/sla-timers/:id/recalc', 'Recalculate SLA timer', [
     'GOV_SLA_WRITE',
   ]),
-  route('POST', '/admin/governance/sla-timers/:id/close', 'Close SLA timer', [
+  route('POST', '/admin/control-gates/sla-timers/:id/close', 'Close SLA timer', [
     'GOV_SLA_WRITE',
   ]),
   route(
     'POST',
-    '/admin/demo/governance/sla-timers/approval-timeout',
+    '/admin/demo/control-gates/sla-timers/approval-timeout',
     'Create approval-timeout SLA mock chain',
     ['GOV_SLA_WRITE'],
   ),
   route(
     'POST',
-    '/admin/demo/governance/sla-timers/change-follow-up',
+    '/admin/demo/control-gates/sla-timers/change-follow-up',
     'Create change follow-up SLA mock chain',
     ['GOV_SLA_WRITE'],
   ),
-  route('POST', '/admin/demo/governance/sla-timers/:id/expire', 'Mock expire SLA timer', [
+  route('POST', '/admin/demo/control-gates/sla-timers/:id/expire', 'Mock expire SLA timer', [
     'GOV_SLA_WRITE',
   ]),
 ];

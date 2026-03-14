@@ -85,10 +85,10 @@
 11. `CHANGE_TICKET_CLOSED`
 
 ## 8) Admin UI and Route Contract
-- Governance admin entry MUST surface:
-1. `/dashboard/governance/change-tickets`
-2. `/dashboard/governance/change-tickets/create`
-3. `/dashboard/governance/change-tickets/:id`
+- Control Gates admin entry MUST surface:
+1. `/dashboard/control-gates/change-tickets`
+2. `/dashboard/control-gates/change-tickets/create`
+3. `/dashboard/control-gates/change-tickets/:id`
 - List page MUST remain a pure list page and MUST NOT embed a bottom detail panel.
 - List page default filters MUST support:
 1. `ticketNo`

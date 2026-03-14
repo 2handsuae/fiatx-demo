@@ -122,20 +122,20 @@ DTO：`/Users/songshengwei/Documents/codex/projects/重做版/.wt/audit-evidence
 - `GET /admin/audit-logs/evidence-packages`
 - `GET /admin/audit-logs/evidence-packages/:id`
 - `GET /admin/audit-logs/evidence-packages/:id/download`
-- `GET /admin/governance/approvals`
-- `GET /admin/governance/approvals/:id`
-- `POST /admin/governance/approvals/:id/approve`
-- `POST /admin/governance/approvals/:id/reject`
-- `POST /admin/governance/approvals/:id/cancel`
-- `POST /admin/governance/change-tickets`
-- `GET /admin/governance/change-tickets`
-- `GET /admin/governance/change-tickets/:id`
-- `POST /admin/governance/change-tickets/:id/submit`
-- `POST /admin/governance/change-tickets/:id/resubmit`
-- `GET /admin/governance/change-tickets/:id/gate-runs`
-- `POST /admin/governance/change-tickets/:id/gate-checks`
-- `POST /admin/governance/change-tickets/:id/deploy-status`
-- `POST /admin/governance/change-tickets/:id/close`
+- `GET /admin/control-gates/approvals`
+- `GET /admin/control-gates/approvals/:id`
+- `POST /admin/control-gates/approvals/:id/approve`
+- `POST /admin/control-gates/approvals/:id/reject`
+- `POST /admin/control-gates/approvals/:id/cancel`
+- `POST /admin/control-gates/change-tickets`
+- `GET /admin/control-gates/change-tickets`
+- `GET /admin/control-gates/change-tickets/:id`
+- `POST /admin/control-gates/change-tickets/:id/submit`
+- `POST /admin/control-gates/change-tickets/:id/resubmit`
+- `GET /admin/control-gates/change-tickets/:id/gate-runs`
+- `POST /admin/control-gates/change-tickets/:id/gate-checks`
+- `POST /admin/control-gates/change-tickets/:id/deploy-status`
+- `POST /admin/control-gates/change-tickets/:id/close`
 
 ### 查询过滤（`GET /admin/audit-logs`）
 - 分页：`skip/take`
@@ -181,8 +181,8 @@ DTO：`/Users/songshengwei/Documents/codex/projects/重做版/.wt/audit-evidence
 1. `SENSITIVE_EXPORT_APPROVAL`：`DPO/MLRO`
 2. SoD：maker/checker 不能同人
 - 前端入口：
-1. `/dashboard/governance/approvals`
-2. `/dashboard/governance/approvals/:id`
+1. `/dashboard/control-gates/approvals`
+2. `/dashboard/control-gates/approvals/:id`
 
 ## Governance WF-06（Change Ticket + Release Gate）
 - 新模块：
@@ -202,9 +202,9 @@ DTO：`/Users/songshengwei/Documents/codex/projects/重做版/.wt/audit-evidence
 1. `${ticketId}|${targetEnv}|${releaseVersion}`
 2. 活跃态唯一，终态清空
 - 前端入口：
-1. `/dashboard/governance/change-tickets`
-2. `/dashboard/governance/change-tickets/create`
-3. `/dashboard/governance/change-tickets/:id`
+1. `/dashboard/control-gates/change-tickets`
+2. `/dashboard/control-gates/change-tickets/create`
+3. `/dashboard/control-gates/change-tickets/:id`
 - 审计要求：
 1. `workflowType=CHANGE_TICKET`
 2. `workflowNo=ticketNo`
@@ -230,8 +230,8 @@ DTO：`/Users/songshengwei/Documents/codex/projects/重做版/.wt/audit-evidence
 3. 紧急变更 `DEPLOYED / DEPLOY_FAILED` 后创建/复用 `CHANGE_POST_APPROVAL_FOLLOWUP`
 4. 手工关闭 follow-up timer 时同步回写 `change_tickets.postApprovalCompletedAt`
 - 前端入口：
-1. `/dashboard/governance/sla-timers`
-2. `/dashboard/governance/sla-timers/:id`
+1. `/dashboard/control-gates/sla-timers`
+2. `/dashboard/control-gates/sla-timers/:id`
 
 ## 关键接入矩阵（按模块列出接入点与 action）
 ### Deposit workflow（本轮重点验收）

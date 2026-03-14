@@ -321,64 +321,64 @@ function App() {
               ])}
             />
             <Route
-              path="governance/change-tickets"
+              path="control-gates/change-tickets"
               element={withPermission(<ChangeTicketsPage />, [
                 PERMISSIONS.GOV_CHANGE_TICKETS_READ,
               ])}
             />
             <Route
-              path="governance/change-tickets/create"
+              path="control-gates/change-tickets/create"
               element={withPermission(<ChangeTicketCreatePage />, [
                 PERMISSIONS.GOV_CHANGE_TICKET_CREATE,
               ])}
             />
             <Route
-              path="governance/change-tickets/:id"
+              path="control-gates/change-tickets/:id"
               element={withPermission(<ChangeTicketDetailPage />, [
                 PERMISSIONS.GOV_CHANGE_TICKET_DETAIL_READ,
               ])}
             />
             <Route
-              path="governance/delete-requests"
+              path="control-gates/delete-requests"
               element={withPermission(<DeleteRequestsPage />, [
                 PERMISSIONS.GOV_DELETE_REQUESTS_READ,
               ])}
             />
             <Route
-              path="governance/delete-requests/create"
+              path="control-gates/delete-requests/create"
               element={withPermission(<DeleteRequestCreatePage />, [
                 PERMISSIONS.GOV_DELETE_REQUEST_CREATE,
               ])}
             />
             <Route
-              path="governance/delete-requests/:id"
+              path="control-gates/delete-requests/:id"
               element={withPermission(<DeleteRequestDetailPage />, [
                 PERMISSIONS.GOV_DELETE_REQUEST_DETAIL_READ,
               ])}
             />
             <Route
-              path="governance/approvals"
+              path="control-gates/approvals"
               element={withPermission(<ApprovalsPage />, [PERMISSIONS.GOV_APPROVALS_READ])}
             />
             <Route
-              path="governance"
+              path="control-gates"
               element={withPermission(
-                <Navigate to="/dashboard/governance/change-tickets" replace />,
+                <Navigate to="/dashboard/control-gates/change-tickets" replace />,
                 [PERMISSIONS.GOV_CHANGE_TICKETS_READ, PERMISSIONS.GOV_APPROVALS_READ],
               )}
             />
             <Route
-              path="governance/approvals/:id"
+              path="control-gates/approvals/:id"
               element={withPermission(<ApprovalDetailPage />, [
                 PERMISSIONS.GOV_APPROVAL_DETAIL_READ,
               ])}
             />
             <Route
-              path="governance/sla-timers"
+              path="control-gates/sla-timers"
               element={withPermission(<SlaTimersPage />, [PERMISSIONS.GOV_SLA_TIMERS_READ])}
             />
             <Route
-              path="governance/sla-timers/:id"
+              path="control-gates/sla-timers/:id"
               element={withPermission(<SlaTimerDetailPage />, [
                 PERMISSIONS.GOV_SLA_TIMER_DETAIL_READ,
               ])}

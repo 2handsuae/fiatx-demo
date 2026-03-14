@@ -89,7 +89,7 @@ const ChangeTicketsPage = () => {
     setError('');
     try {
       const response = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/governance/change-tickets?${buildParams(
+        `${import.meta.env.VITE_API_URL}/admin/control-gates/change-tickets?${buildParams(
           page,
           nextFilters,
         ).toString()}`,
@@ -118,7 +118,7 @@ const ChangeTicketsPage = () => {
     <div className="space-y-6">
       <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Governance Center - Change Tickets</h1>
+          <h1 className="text-2xl font-bold text-gray-900">Control Gates Center - Change Tickets</h1>
           <p className="mt-1 text-sm text-gray-500">
             Create, review, and track release-gated change tickets with approval linkage.
           </p>
@@ -133,7 +133,7 @@ const ChangeTicketsPage = () => {
           </button>
           {canCreate && (
             <Link
-              to="/dashboard/governance/change-tickets/create"
+              to="/dashboard/control-gates/change-tickets/create"
               className="inline-flex items-center gap-2 rounded-lg bg-brand-primary px-4 py-2 text-sm font-medium text-white hover:bg-brand-primary/90"
             >
               <Plus size={16} />
@@ -251,7 +251,7 @@ const ChangeTicketsPage = () => {
                   <tr key={item.id} className="hover:bg-gray-50">
                     <td className="px-4 py-3">
                       <button
-                        onClick={() => navigate(`/dashboard/governance/change-tickets/${item.id}`)}
+                        onClick={() => navigate(`/dashboard/control-gates/change-tickets/${item.id}`)}
                         className="font-mono text-xs text-brand-primary hover:underline"
                       >
                         {item.ticketNo}
@@ -273,7 +273,7 @@ const ChangeTicketsPage = () => {
                     <td className="px-4 py-3 text-gray-700">{formatDateTime(item.createdAt)}</td>
                     <td className="px-4 py-3">
                       <button
-                        onClick={() => navigate(`/dashboard/governance/change-tickets/${item.id}`)}
+                        onClick={() => navigate(`/dashboard/control-gates/change-tickets/${item.id}`)}
                         className="text-sm font-medium text-brand-primary hover:underline"
                       >
                         View

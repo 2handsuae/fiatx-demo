@@ -14,7 +14,7 @@
 ## 本轮交付范围（Audit Center V1 + Governance Phase 4）
 当前阶段重点交付：
 - Admin 一级菜单 `Audit Center`，下挂 `Audit Log` 与 `Evidence Export`。
-- Admin 一级菜单 `Governance Center`，当前下挂 `Approvals`、`Change Tickets`、`Delete Requests`、`SLA Timers`。
+- Admin 一级菜单 `Control Gates Center`，当前下挂 `Approvals`、`Change Tickets`、`Delete Requests`、`SLA Timers`。
 - `Audit Log` 支持默认按 `DEPOSIT` workflow 检索、勾选审计事件、创建 evidence export request。
 - `Evidence Export` 支持查看导出申请/已生成记录、进入独立详情页；仅审批通过且包体就绪后允许下载 JSON 证据包。
 - Deposit workflow 关键节点统一补齐 `traceId / workflowType / workflowNo`。
@@ -38,17 +38,17 @@
 - `GET /admin/audit-logs/evidence-packages`：查看导出记录列表。
 - `GET /admin/audit-logs/evidence-packages/:id`：查看导出记录详情。
 - `GET /admin/audit-logs/evidence-packages/:id/download`：仅在审批通过且包体 `READY` 时下载持久化 JSON 证据包。
-- `GET /admin/governance/approvals`：查看审批单列表。
-- `GET /admin/governance/approvals/:id`：查看审批单详情。
-- `POST /admin/governance/approvals/:id/approve|reject|cancel`：审批决策。
-- `POST /admin/governance/change-tickets`：创建更改单。
-- `GET /admin/governance/change-tickets`：查看更改单列表。
-- `GET /admin/governance/change-tickets/:id`：查看更改单详情。
-- `POST /admin/governance/change-tickets/:id/submit|resubmit`：提交或重新提交审批。
-- `GET /admin/governance/change-tickets/:id/gate-runs`：查看 gate 执行记录。
-- `POST /admin/governance/change-tickets/:id/gate-checks`：运行发布 gate 校验。
-- `POST /admin/governance/change-tickets/:id/deploy-status`：标记部署结果。
-- `POST /admin/governance/change-tickets/:id/close`：关闭更改单。
+- `GET /admin/control-gates/approvals`：查看审批单列表。
+- `GET /admin/control-gates/approvals/:id`：查看审批单详情。
+- `POST /admin/control-gates/approvals/:id/approve|reject|cancel`：审批决策。
+- `POST /admin/control-gates/change-tickets`：创建更改单。
+- `GET /admin/control-gates/change-tickets`：查看更改单列表。
+- `GET /admin/control-gates/change-tickets/:id`：查看更改单详情。
+- `POST /admin/control-gates/change-tickets/:id/submit|resubmit`：提交或重新提交审批。
+- `GET /admin/control-gates/change-tickets/:id/gate-runs`：查看 gate 执行记录。
+- `POST /admin/control-gates/change-tickets/:id/gate-checks`：运行发布 gate 校验。
+- `POST /admin/control-gates/change-tickets/:id/deploy-status`：标记部署结果。
+- `POST /admin/control-gates/change-tickets/:id/close`：关闭更改单。
 
 ### 后台入口
 主入口位于 Admin 后台一级菜单 `Audit Center`：
@@ -56,16 +56,16 @@
 - `Audit Log Detail`：`/dashboard/audit/audit-logs/:id`
 - `Evidence Export`：`/dashboard/audit/evidence-exports`
 - `Evidence Export Detail`：`/dashboard/audit/evidence-exports/:id`
-- `Approvals`：`/dashboard/governance/approvals`
-- `Approval Detail`：`/dashboard/governance/approvals/:id`
-- `Change Tickets`：`/dashboard/governance/change-tickets`
-- `Change Ticket Create`：`/dashboard/governance/change-tickets/create`
-- `Change Ticket Detail`：`/dashboard/governance/change-tickets/:id`
-- `Delete Requests`：`/dashboard/governance/delete-requests`
-- `Delete Request Create`：`/dashboard/governance/delete-requests/create`
-- `Delete Request Detail`：`/dashboard/governance/delete-requests/:id`
-- `SLA Timers`：`/dashboard/governance/sla-timers`
-- `SLA Timer Detail`：`/dashboard/governance/sla-timers/:id`
+- `Approvals`：`/dashboard/control-gates/approvals`
+- `Approval Detail`：`/dashboard/control-gates/approvals/:id`
+- `Change Tickets`：`/dashboard/control-gates/change-tickets`
+- `Change Ticket Create`：`/dashboard/control-gates/change-tickets/create`
+- `Change Ticket Detail`：`/dashboard/control-gates/change-tickets/:id`
+- `Delete Requests`：`/dashboard/control-gates/delete-requests`
+- `Delete Request Create`：`/dashboard/control-gates/delete-requests/create`
+- `Delete Request Detail`：`/dashboard/control-gates/delete-requests/:id`
+- `SLA Timers`：`/dashboard/control-gates/sla-timers`
+- `SLA Timer Detail`：`/dashboard/control-gates/sla-timers/:id`
 
 兼容路由仍保留：
 - `/dashboard/compliance/audit-logs` -> 跳转到 `/dashboard/audit/audit-logs`

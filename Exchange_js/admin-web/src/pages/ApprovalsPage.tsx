@@ -83,7 +83,7 @@ const ApprovalsPage = () => {
     setError('');
     try {
       const response = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/governance/approvals?${buildParams(page, nextFilters).toString()}`,
+        `${import.meta.env.VITE_API_URL}/admin/control-gates/approvals?${buildParams(page, nextFilters).toString()}`,
       );
       if (!response.ok) {
         throw new Error(await getApiErrorMessage(response, 'Failed to load approvals.'));
@@ -109,9 +109,9 @@ const ApprovalsPage = () => {
     <div className="space-y-6">
       <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Governance Center - Approvals</h1>
+          <h1 className="text-2xl font-bold text-gray-900">Control Gates Center - Approvals</h1>
           <p className="mt-1 text-sm text-gray-500">
-            Review approval cases for sensitive governance actions, including evidence export requests.
+            Review approval cases for sensitive control-gate actions, including evidence export requests.
           </p>
         </div>
         <button
@@ -222,7 +222,7 @@ const ApprovalsPage = () => {
                   <tr key={item.id} className="hover:bg-gray-50">
                     <td className="px-4 py-3">
                       <button
-                        onClick={() => navigate(`/dashboard/governance/approvals/${item.id}`)}
+                        onClick={() => navigate(`/dashboard/control-gates/approvals/${item.id}`)}
                         className="font-mono text-xs text-brand-primary hover:underline"
                       >
                         {item.approvalNo}
@@ -243,7 +243,7 @@ const ApprovalsPage = () => {
                     <td className="px-4 py-3 text-gray-700">{formatDateTime(item.decidedAt)}</td>
                     <td className="px-4 py-3">
                       <button
-                        onClick={() => navigate(`/dashboard/governance/approvals/${item.id}`)}
+                        onClick={() => navigate(`/dashboard/control-gates/approvals/${item.id}`)}
                         className="text-sm font-medium text-brand-primary hover:underline"
                       >
                         View

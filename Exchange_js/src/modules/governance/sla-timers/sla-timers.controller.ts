@@ -22,7 +22,7 @@ import {
 import { SlaTimersService } from './sla-timers.service';
 
 @ApiTags('Admin - Governance SLA Timers')
-@Controller('admin/governance/sla-timers')
+@Controller('admin/control-gates/sla-timers')
 @UseGuards(AuthGuard('jwt'), AdminPermissionGuard)
 @ApiBearerAuth()
 export class SlaTimersController {

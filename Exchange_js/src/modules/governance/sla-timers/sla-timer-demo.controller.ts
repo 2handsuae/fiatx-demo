@@ -20,7 +20,7 @@ import {
 import { SlaTimerMockService } from './sla-timer-mock.service';
 
 @ApiTags('Admin - Governance SLA Timer Demo')
-@Controller('admin/demo/governance/sla-timers')
+@Controller('admin/demo/control-gates/sla-timers')
 @UseGuards(AuthGuard('jwt'), AdminPermissionGuard)
 @ApiBearerAuth()
 export class SlaTimerDemoController {

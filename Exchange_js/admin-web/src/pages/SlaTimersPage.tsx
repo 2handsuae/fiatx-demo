@@ -97,7 +97,7 @@ const SlaTimersPage = () => {
     setError('');
     try {
       const response = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/governance/sla-timers?${buildParams(
+        `${import.meta.env.VITE_API_URL}/admin/control-gates/sla-timers?${buildParams(
           page,
           nextFilters,
         ).toString()}`,
@@ -126,7 +126,7 @@ const SlaTimersPage = () => {
     <div className="space-y-6">
       <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Governance Center - SLA Timers</h1>
+          <h1 className="text-2xl font-bold text-gray-900">Control Gates Center - SLA Timers</h1>
           <p className="mt-1 text-sm text-gray-500">
             Track approval timeout SLA and emergency change follow-up obligations.
           </p>
@@ -265,7 +265,7 @@ const SlaTimersPage = () => {
                   <tr key={item.id} className="hover:bg-gray-50">
                     <td className="px-4 py-3 font-mono text-brand-primary">
                       <Link
-                        to={`/dashboard/governance/sla-timers/${item.id}`}
+                        to={`/dashboard/control-gates/sla-timers/${item.id}`}
                         className="hover:underline"
                       >
                         {item.timerNo}
@@ -293,7 +293,7 @@ const SlaTimersPage = () => {
                     <td className="px-4 py-3 font-mono text-gray-700">{item.traceId}</td>
                     <td className="px-4 py-3">
                       <Link
-                        to={`/dashboard/governance/sla-timers/${item.id}`}
+                        to={`/dashboard/control-gates/sla-timers/${item.id}`}
                         className="text-sm font-medium text-brand-primary hover:underline"
                       >
                         View

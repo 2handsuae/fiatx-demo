@@ -150,8 +150,8 @@ const ChangeTicketDetailPage = () => {
     setError('');
     try {
       const [detailResponse, gateRunsResponse] = await Promise.all([
-        adminFetch(`${import.meta.env.VITE_API_URL}/admin/governance/change-tickets/${id}`),
-        adminFetch(`${import.meta.env.VITE_API_URL}/admin/governance/change-tickets/${id}/gate-runs`),
+        adminFetch(`${import.meta.env.VITE_API_URL}/admin/control-gates/change-tickets/${id}`),
+        adminFetch(`${import.meta.env.VITE_API_URL}/admin/control-gates/change-tickets/${id}/gate-runs`),
       ]);
 
       if (!detailResponse.ok) {
@@ -183,7 +183,7 @@ const ChangeTicketDetailPage = () => {
       if (reason.trim()) payload.reason = reason.trim();
 
       const response = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/governance/change-tickets/${id}/${path}`,
+        `${import.meta.env.VITE_API_URL}/admin/control-gates/change-tickets/${id}/${path}`,
         {
           method: 'POST',
           headers: {
@@ -214,7 +214,7 @@ const ChangeTicketDetailPage = () => {
     setMessage('');
     try {
       const response = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/governance/change-tickets/${id}/gate-checks`,
+        `${import.meta.env.VITE_API_URL}/admin/control-gates/change-tickets/${id}/gate-checks`,
         {
           method: 'POST',
           headers: {
@@ -249,7 +249,7 @@ const ChangeTicketDetailPage = () => {
     setMessage('');
     try {
       const response = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/governance/change-tickets/${id}/deploy-status`,
+        `${import.meta.env.VITE_API_URL}/admin/control-gates/change-tickets/${id}/deploy-status`,
         {
           method: 'POST',
           headers: {
@@ -300,7 +300,7 @@ const ChangeTicketDetailPage = () => {
       <div className="space-y-6">
         <div className="flex items-center gap-3">
           <button
-            onClick={() => navigate('/dashboard/governance/change-tickets')}
+            onClick={() => navigate('/dashboard/control-gates/change-tickets')}
             className="inline-flex items-center gap-2 rounded-lg border border-admin-border bg-white px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
           >
             <ArrowLeft size={16} />
@@ -335,7 +335,7 @@ const ChangeTicketDetailPage = () => {
           <div className="space-y-2">
             <div className="flex items-center gap-3">
               <button
-                onClick={() => navigate('/dashboard/governance/change-tickets')}
+                onClick={() => navigate('/dashboard/control-gates/change-tickets')}
                 className="inline-flex items-center gap-2 rounded-lg border border-admin-border bg-white px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
               >
                 <ArrowLeft size={16} />
@@ -358,7 +358,7 @@ const ChangeTicketDetailPage = () => {
           <div className="flex flex-wrap items-center gap-2">
             {detail.latestApprovalId && canViewApproval && (
               <button
-                onClick={() => navigate(`/dashboard/governance/approvals/${detail.latestApprovalId}`)}
+                onClick={() => navigate(`/dashboard/control-gates/approvals/${detail.latestApprovalId}`)}
                 className="inline-flex items-center gap-2 rounded-lg border border-admin-border bg-white px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
               >
                 <Link2 size={16} />

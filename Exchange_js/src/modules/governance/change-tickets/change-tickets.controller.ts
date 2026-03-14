@@ -27,7 +27,7 @@ import {
 } from './dto/change-ticket.dto';
 
 @ApiTags('Admin - Governance Change Tickets')
-@Controller('admin/governance/change-tickets')
+@Controller('admin/control-gates/change-tickets')
 @UseGuards(AuthGuard('jwt'), AdminPermissionGuard)
 @ApiBearerAuth()
 export class ChangeTicketsController {

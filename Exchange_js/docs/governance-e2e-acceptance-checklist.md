@@ -72,7 +72,7 @@ curl http://localhost:3500/api
   - `ciso@fiatx.com`
 - 菜单可见：
   - `Audit Center -> Audit Log / Evidence Export`
-  - `Governance Center -> Approvals / Change Tickets / Delete Requests / SLA Timers`
+  - `Control Gates Center -> Approvals / Change Tickets / Delete Requests / SLA Timers`
 
 ### 常见失败与排查
 - 登录失败：
@@ -114,7 +114,7 @@ curl http://localhost:3500/api
    - 下载按钮显示 `Waiting Approval`
    - 页面存在 `Open Approval`
 9. 退出登录，使用 `mlro@fiatx.com` 登录。
-10. 进入 `Governance Center -> Approvals`。
+10. 进入 `Control Gates Center -> Approvals`。
 11. 使用以下任一方式找到这张审批单：
    - `Action Type = SENSITIVE_EXPORT_APPROVAL`
    - `Approval No`
@@ -174,7 +174,7 @@ curl http://localhost:3500/api
 
 ### 操作步骤
 1. 使用 `tech_admin@fiatx.com` 登录。
-2. 进入 `Governance Center -> Change Tickets`。
+2. 进入 `Control Gates Center -> Change Tickets`。
 3. 点击 `New Ticket`。
 4. 在 `Create Change Ticket` 页填写：
    - `Change Type = SYSTEM`
@@ -189,7 +189,7 @@ curl http://localhost:3500/api
    - `status = APPROVAL_PENDING`
    - `latestApprovalNo` 已生成
 8. 退出登录，使用 `ciso@fiatx.com` 登录。
-9. 进入 `Governance Center -> Approvals`。
+9. 进入 `Control Gates Center -> Approvals`。
 10. 通过 `Approval No` 或 `Action Type = CHANGE_TICKET_APPROVAL` 找到对应审批。
 11. 打开详情，点击 `Approve`。
 12. 退出登录，重新使用 `tech_admin@fiatx.com` 登录。
@@ -261,7 +261,7 @@ curl http://localhost:3500/api
 ### 操作步骤
 1. 记录上一路径产出的 `ticketNo`。
 2. 使用 `compliance_lead@fiatx.com` 登录。
-3. 进入 `Governance Center -> Delete Requests`。
+3. 进入 `Control Gates Center -> Delete Requests`。
 4. 点击 `New Request`。
 5. 在创建页填写：
    - `Target Type = CHANGE_TICKET`
@@ -275,18 +275,18 @@ curl http://localhost:3500/api
    - `status = APPROVAL_PENDING`
    - `latestApprovalNo` 已生成
 9. 退出登录，使用 `dpo@fiatx.com` 登录。
-10. 进入 `Governance Center -> Approvals`。
+10. 进入 `Control Gates Center -> Approvals`。
 11. 使用 `Approval No` 或 `Action Type = DELETE_REQUEST_APPROVAL` 找到对应审批。
 12. 点击 `Approve`。
 13. 退出登录，使用 `tech_admin@fiatx.com` 登录。
-14. 回到 `Governance Center -> Delete Requests`，通过 `requestNo` 打开详情页。
+14. 回到 `Control Gates Center -> Delete Requests`，通过 `requestNo` 打开详情页。
 15. 预期：
    - `status = READY_TO_EXECUTE`
 16. 点击 `Execute`。
 17. 预期：
    - `status = EXECUTED`
    - `Target Snapshot` 模块有内容
-18. 回到 `Governance Center -> Change Tickets`，搜索之前的 `ticketNo`。
+18. 回到 `Control Gates Center -> Change Tickets`，搜索之前的 `ticketNo`。
 19. 预期：
    - 列表中查不到这张 ticket
 
@@ -345,7 +345,7 @@ curl http://localhost:3500/api
    - `workflowNo`（审批单 `approvalNo`）
    - `traceId`
 3. 使用 `tech_admin@fiatx.com` 登录。
-4. 进入 `Governance Center -> SLA Timers`。
+4. 进入 `Control Gates Center -> SLA Timers`。
 5. 按 `Timer No` 搜索刚才的 `timerNo`。
 6. 打开详情页，确认：
    - `Timer Type = APPROVAL_TIMEOUT`
@@ -381,7 +381,7 @@ curl http://localhost:3500/api
    - `workflowNo`（`ticketNo`）
    - `traceId`
 3. 使用 `tech_admin@fiatx.com` 登录。
-4. 进入 `Governance Center -> SLA Timers`。
+4. 进入 `Control Gates Center -> SLA Timers`。
 5. 按 `Timer No` 搜索刚才的 `timerNo`。
 6. 打开详情页，确认：
    - `Timer Type = CHANGE_POST_APPROVAL_FOLLOWUP`
@@ -528,7 +528,7 @@ echo "$TOKEN" | head -c 24 && echo '...'
 ### 8.4 创建 `APPROVAL_TIMEOUT` demo chain
 
 ```bash
-curl -s http://localhost:3500/admin/demo/governance/sla-timers/approval-timeout \
+curl -s http://localhost:3500/admin/demo/control-gates/sla-timers/approval-timeout \
   -X POST \
   -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
@@ -538,7 +538,7 @@ curl -s http://localhost:3500/admin/demo/governance/sla-timers/approval-timeout 
 ### 8.5 创建 `CHANGE_POST_APPROVAL_FOLLOWUP` demo chain
 
 ```bash
-curl -s http://localhost:3500/admin/demo/governance/sla-timers/change-follow-up \
+curl -s http://localhost:3500/admin/demo/control-gates/sla-timers/change-follow-up \
   -X POST \
   -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
@@ -548,7 +548,7 @@ curl -s http://localhost:3500/admin/demo/governance/sla-timers/change-follow-up 
 ### 8.6 强制使 active timer 过期
 
 ```bash
-curl -s http://localhost:3500/admin/demo/governance/sla-timers/<timerId>/expire \
+curl -s http://localhost:3500/admin/demo/control-gates/sla-timers/<timerId>/expire \
   -X POST \
   -H "Authorization: Bearer $TOKEN"
 ```
@@ -556,7 +556,7 @@ curl -s http://localhost:3500/admin/demo/governance/sla-timers/<timerId>/expire 
 ### 8.7 手工 Recalc timer
 
 ```bash
-curl -s http://localhost:3500/admin/governance/sla-timers/<timerId>/recalc \
+curl -s http://localhost:3500/admin/control-gates/sla-timers/<timerId>/recalc \
   -X POST \
   -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \

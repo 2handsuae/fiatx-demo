@@ -104,9 +104,9 @@
 7. `SLA_NOTIFICATION_SKIPPED`
 
 ## 8) Admin UI and Route Contract
-- Governance admin entry MUST surface:
-1. `/dashboard/governance/sla-timers`
-2. `/dashboard/governance/sla-timers/:id`
+- Control Gates admin entry MUST surface:
+1. `/dashboard/control-gates/sla-timers`
+2. `/dashboard/control-gates/sla-timers/:id`
 - List page MUST remain a pure list page and MUST NOT embed a bottom detail panel.
 - List page filters MUST support:
 1. `timerNo`
@@ -150,6 +150,6 @@
 - Prisma migration added for `sla_notifications`.
 - Approval timeout creation/recalc/expire verified with tests.
 - Emergency change follow-up creation/recalc/close verified with tests.
-- `Governance Center -> SLA Timers` list/detail pages verified, including notification summary and timeline.
+- `Control Gates Center -> SLA Timers` list/detail pages verified, including notification summary and timeline.
 - Demo smoke script provided and repeatable against local stack.
 - RBAC sync updates new SLA routes into active roles.
