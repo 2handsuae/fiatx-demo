@@ -101,6 +101,22 @@ export class PayinsService {
       },
     });
 
+    this.logger.log(`Emitting payin.created event for ${payin.id}`);
+    console.log('PAYIN_SERVICE: Emitting payin.created for', payin.id);
+    const createdEvent = new PayinCreatedEvent(
+      payin.id,
+      payin.status as PayinStatus,
+      payin.type as PayinType,
+      payin.depositId,
+      payin.assetId,
+      payin.amount.toString(),
+    );
+    const emitted =
+      typeof (this.eventEmitter as any).emitAsync === 'function'
+        ? await (this.eventEmitter as any).emitAsync('payin.created', createdEvent)
+        : this.eventEmitter.emit('payin.created', createdEvent);
+    console.log('PAYIN_SERVICE: Emitted result:', emitted);
+
     await this.auditLogsService.recordSystem({
       triggerType: AuditTriggerType.DATA_CREATE,
       action: AuditActions.PAYIN_CREATED,
@@ -110,6 +126,7 @@ export class PayinsService {
       entityNo: payin.payinNo,
       entityOwnerType: wallet.ownerType,
       entityOwnerId: wallet.ownerId || undefined,
+      workflowType: 'DEPOSIT',
       reason: 'Initial simulation',
       afterData: {
         status: payin.status,
@@ -120,21 +137,6 @@ export class PayinsService {
       },
       sourcePlatform: 'SYSTEM',
     });
-
-    this.logger.log(`Emitting payin.created event for ${payin.id}`);
-    console.log('PAYIN_SERVICE: Emitting payin.created for', payin.id);
-    const emitted = this.eventEmitter.emit(
-      'payin.created',
-      new PayinCreatedEvent(
-        payin.id,
-        payin.status as PayinStatus,
-        payin.type as PayinType,
-        payin.depositId,
-        payin.assetId,
-        payin.amount.toString(),
-      ),
-    );
-    console.log('PAYIN_SERVICE: Emitted result:', emitted);
 
     return payin;
   }
@@ -323,7 +325,9 @@ export class PayinsService {
       entityType: AuditEntityTypes.PAYIN,
       entityId: updatedPayin.id,
       entityNo: updatedPayin.payinNo,
+      entityOwnerType: updatedPayin.ownerId ? 'CUSTOMER' : undefined,
       entityOwnerId: updatedPayin.ownerId || undefined,
+      workflowType: 'DEPOSIT',
       statusFrom: currentStatus,
       statusTo: nextStatus,
       reason: `Action: ${action}`,

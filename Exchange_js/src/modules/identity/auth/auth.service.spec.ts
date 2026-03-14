@@ -61,8 +61,8 @@ describe('AuthService', () => {
     usersService.findByIdentifier.mockResolvedValue({
       id: 'user-1',
       userNo: 'ADM-001',
-      role: 'IAM_ADMIN',
-      email: 'iam_admin@fiatx.com',
+      role: 'CISO',
+      email: 'ciso@fiatx.com',
       password: '$2b$10$abc',
       status: 'INACTIVE',
       failedLoginAttempts: 0,
@@ -71,7 +71,7 @@ describe('AuthService', () => {
     auditLogsService.recordByActor.mockResolvedValue({});
 
     await expect(
-      service.validateUser('iam_admin@fiatx.com', '123456'),
+      service.validateUser('ciso@fiatx.com', '123456'),
     ).rejects.toBeInstanceOf(ForbiddenException);
     expect(auditLogsService.recordByActor).toHaveBeenCalled();
   });

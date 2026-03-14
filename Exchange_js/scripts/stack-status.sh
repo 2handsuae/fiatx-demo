@@ -36,3 +36,4 @@ print_stack_row main
 print_stack_row codex
 print_stack_row claude
 print_stack_row trae
+print_stack_row audit-evidence

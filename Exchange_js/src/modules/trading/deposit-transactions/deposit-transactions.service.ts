@@ -21,6 +21,7 @@ import {
 } from '../../risk-engine/transaction-compliance/types/tx-compliance.types';
 import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
 import {
+  AuditActions,
   AuditEntityTypes,
   AuditModules,
   buildStateTransitionAction,
@@ -261,6 +262,7 @@ export class DepositTransactionsService {
       entityNo: updated.depositNo,
       entityOwnerType: updated.ownerType,
       entityOwnerId: updated.ownerId,
+      workflowType: 'DEPOSIT',
       statusFrom: currentStatus,
       statusTo: nextStatus,
       reason: dto.reason || `Action: ${action}`,
@@ -358,8 +360,7 @@ export class DepositTransactionsService {
     if (!wallet) throw new NotFoundException('Wallet not found');
 
     const depositNo = generateReferenceNo('DEP');
-
-    return (this.prisma as any).depositTransaction.create({
+    const created = await (this.prisma as any).depositTransaction.create({
       data: {
         depositNo,
         ownerType: wallet.ownerType,
@@ -385,6 +386,28 @@ export class DepositTransactionsService {
         toIban: wallet.iban,
       },
     });
+
+    await this.auditLogsService.recordSystem({
+      triggerType: AuditTriggerType.DATA_CREATE,
+      action: AuditActions.DEPOSIT_CREATED_FROM_PAYIN,
+      module: AuditModules.DEPOSIT_TRANSACTIONS,
+      entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+      entityId: created.id,
+      entityNo: created.depositNo,
+      entityOwnerType: created.ownerType,
+      entityOwnerId: created.ownerId,
+      workflowType: 'DEPOSIT',
+      reason: 'Deposit created from payin detection',
+      afterData: {
+        status: created.status,
+        amount: created.amount?.toString?.(),
+        assetId: created.assetId,
+        payinId: created.payinId,
+      },
+      sourcePlatform: 'SYSTEM',
+    });
+
+    return created;
   }
 
   async createRandom(): Promise<any> {

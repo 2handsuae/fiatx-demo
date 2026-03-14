@@ -7,10 +7,12 @@ import {
   AuditModules,
 } from '../../risk-engine/audit-logs/constants/audit-actions.constant';
 import {
+  ACTIVE_RBAC_ROLE_CODES,
   HARD_MUTEX_ROLE_PAIRS,
   RBAC_PERMISSION_CODE_SET,
   RBAC_PERMISSION_DEFINITIONS,
   SOFT_WARNING_ROLE_GROUPS,
+  getPrimaryRoleCode,
 } from './rbac.catalog';
 
 interface AdminActorContext {
@@ -37,6 +39,9 @@ export class AccessControlService {
   }
 
   private validateHardMutex(roleCodes: string[]) {
+    if (roleCodes.includes('SUPER_ADMIN')) {
+      return;
+    }
     const set = new Set(roleCodes);
     for (const [left, right] of HARD_MUTEX_ROLE_PAIRS) {
       if (set.has(left) && set.has(right)) {
@@ -46,6 +51,9 @@ export class AccessControlService {
   }
 
   private buildSoftWarnings(roleCodes: string[]): string[] {
+    if (roleCodes.includes('SUPER_ADMIN')) {
+      return [];
+    }
     const set = new Set(roleCodes);
     return SOFT_WARNING_ROLE_GROUPS.filter((rule) =>
       rule.codes.every((code) => set.has(code)),
@@ -54,6 +62,10 @@ export class AccessControlService {
 
   async listRoles() {
     const roles = await (this.prisma as any).role.findMany({
+      where: {
+        status: 'ACTIVE',
+        code: { in: ACTIVE_RBAC_ROLE_CODES },
+      },
       orderBy: { code: 'asc' },
       include: {
         rolePermissions: {
@@ -100,7 +112,13 @@ export class AccessControlService {
 
   async getUserRoleCodes(userId: string): Promise<string[]> {
     const userRoles = await (this.prisma as any).userRole.findMany({
-      where: { userId },
+      where: {
+        userId,
+        role: {
+          status: 'ACTIVE',
+          code: { in: ACTIVE_RBAC_ROLE_CODES },
+        },
+      },
       include: { role: true },
       orderBy: { role: { code: 'asc' } },
     });
@@ -110,7 +128,13 @@ export class AccessControlService {
 
   async getUserRoles(userId: string) {
     const userRoles = await (this.prisma as any).userRole.findMany({
-      where: { userId },
+      where: {
+        userId,
+        role: {
+          status: 'ACTIVE',
+          code: { in: ACTIVE_RBAC_ROLE_CODES },
+        },
+      },
       include: { role: true },
       orderBy: { role: { code: 'asc' } },
     });
@@ -124,8 +148,19 @@ export class AccessControlService {
   }
 
   async getUserPermissionCodes(userId: string): Promise<string[]> {
+    const roleCodes = await this.getUserRoleCodes(userId);
+    if (roleCodes.includes('SUPER_ADMIN')) {
+      return RBAC_PERMISSION_DEFINITIONS.map((item) => item.code).sort();
+    }
+
     const userRoles = await (this.prisma as any).userRole.findMany({
-      where: { userId },
+      where: {
+        userId,
+        role: {
+          status: 'ACTIVE',
+          code: { in: ACTIVE_RBAC_ROLE_CODES },
+        },
+      },
       include: {
         role: {
           include: {
@@ -169,6 +204,9 @@ export class AccessControlService {
     actor: AdminActorContext,
   ) {
     const normalizedRoleCodes = this.normalizeRoleCodes(roleCodes);
+    if (normalizedRoleCodes.length === 0) {
+      throw new BadRequestException('At least one active role code is required');
+    }
     this.validateHardMutex(normalizedRoleCodes);
 
     const user = await this.prisma.user.findUnique({
@@ -199,6 +237,7 @@ export class AccessControlService {
     }
 
     const beforeRoleCodes = await this.getUserRoleCodes(userId);
+    const primaryRoleCode = getPrimaryRoleCode(normalizedRoleCodes);
 
     await (this.prisma as any).$transaction(async (tx: any) => {
       await tx.userRole.deleteMany({
@@ -213,6 +252,13 @@ export class AccessControlService {
           })),
         });
       }
+
+      await tx.user.update({
+        where: { id: userId },
+        data: {
+          role: primaryRoleCode || normalizedRoleCodes[0],
+        },
+      });
     });
 
     const afterRoleCodes = await this.getUserRoleCodes(userId);

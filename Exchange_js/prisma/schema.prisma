@@ -491,6 +491,10 @@ model AuditLogEvent {
   entityType      String
   entityId        String?
   entityNo        String?
+  traceId         String?
+  workflowType    String?
+  workflowId      String?
+  workflowNo      String?
   entityOwnerType String?
   entityOwnerId   String?
   statusFrom      String?
@@ -527,6 +531,9 @@ model AuditLogEvent {
   @@index([actorType, actorId, occurredAt])
   @@index([actorNo, occurredAt])
   @@index([entityOwnerNo, occurredAt])
+  @@index([traceId, occurredAt])
+  @@index([workflowType, occurredAt])
+  @@index([workflowType, workflowNo, occurredAt])
   @@index([result, occurredAt])
   @@index([retainedUntil])
   @@index([archivedAt])
@@ -534,21 +541,264 @@ model AuditLogEvent {
 }
 
 model AuditEvidencePackage {
-  id             String   @id @default(uuid())
-  packageNo      String   @unique @default("TEMP")
-  exportedByType String
-  exportedById   String
-  exportedByRole String?
-  filterSnapshot String?
-  itemCount      Int
-  digest         String
-  manifest       String
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  id                     String   @id @default(uuid())
+  packageNo              String   @unique @default("TEMP")
+  approvalCaseId         String?  @unique
+  exportedByType         String
+  exportedById           String
+  exportedByRole         String?
+  status                 String   @default("READY")
+  exportMode             String   @default("SELECTION")
+  fileName               String?
+  filterSnapshot         String?
+  selectedEventIdsSnapshot String?
+  itemCount              Int
+  digest                 String
+  manifest               String
+  packageBody            String?
+  deletedAt              DateTime?
+  deletedBy              String?
+  deleteRequestId        String?
+  deleteReason           String?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+  approvalCase           ApprovalCase? @relation(fields: [approvalCaseId], references: [id], onDelete: SetNull)
 
   @@index([createdAt])
   @@index([exportedByType, exportedById])
+  @@index([status, createdAt])
+  @@index([exportMode, createdAt])
+  @@index([approvalCaseId])
+  @@index([deletedAt])
   @@map("audit_evidence_packages")
+}
+
+model ApprovalCase {
+  id                 String               @id @default(uuid())
+  approvalNo         String               @unique
+  actionType         String
+  entityRef          String
+  makerUserId        String
+  status             String               @default("DRAFT")
+  executionStatus    String               @default("NOT_EXECUTED")
+  riskLevel          String               @default("HIGH")
+  checkerRoles       String
+  selectedCheckerRole String
+  allowCancel        Boolean              @default(true)
+  allowRetry         Boolean              @default(true)
+  docRef             String?
+  metadataJson       String               @default("{}")
+  traceId            String
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+  submittedAt        DateTime?
+  timeoutAt          DateTime?
+  decidedAt          DateTime?
+  executedAt         DateTime?
+  decisionByUserId   String?
+  decisionByRole     String?
+  decisionReason     String?
+  deletedAt          DateTime?
+  deletedBy          String?
+  deleteRequestId    String?
+  deleteReason       String?
+  steps              ApprovalStep[]
+  evidencePackage    AuditEvidencePackage?
+  latestForChangeTicket ChangeTicket?     @relation("ChangeTicketLatestApproval")
+  latestForDeleteRequest DeleteRequest?   @relation("DeleteRequestLatestApproval")
+
+  @@index([actionType, entityRef, status])
+  @@index([status, timeoutAt])
+  @@index([traceId, createdAt])
+  @@index([deletedAt])
+  @@map("approval_cases")
+}
+
+model ApprovalStep {
+  id                   String       @id @default(uuid())
+  approvalCaseId       String
+  stepNo               Int
+  status               String       @default("PENDING")
+  checkerRoleCandidates String
+  decidedByUserId      String?
+  decidedByRole        String?
+  reason               String?
+  decidedAt            DateTime?
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
+  approvalCase         ApprovalCase @relation(fields: [approvalCaseId], references: [id], onDelete: Cascade)
+
+  @@unique([approvalCaseId, stepNo])
+  @@index([approvalCaseId, stepNo])
+  @@map("approval_steps")
+}
+
+model ApprovalActionPolicy {
+  actionType    String   @id
+  riskLevel     String   @default("HIGH")
+  checkerRoles  String
+  timeoutHours  Int      @default(24)
+  allowCancel   Boolean  @default(true)
+  allowRetry    Boolean  @default(true)
+  updatedAt     DateTime @updatedAt
+
+  @@map("approval_action_policies")
+}
+
+model ApprovalSodRule {
+  ruleCode    String   @id
+  enabled     Boolean  @default(true)
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("approval_sod_rules")
+}
+
+model ChangeTicket {
+  id                   String               @id @default(uuid())
+  ticketNo             String               @unique @default("TEMP")
+  status               String               @default("DRAFT")
+  changeType           String?
+  scopeSummary         String?
+  riskLevel            String               @default("HIGH")
+  testEvidenceRef      String?
+  rollbackPlanRef      String?
+  latestApprovalId     String?              @unique
+  latestApprovalStatus String?
+  traceId              String
+  emergency            Boolean              @default(false)
+  emergencyReason      String?
+  postApprovalDueAt    DateTime?
+  postApprovalCompletedAt DateTime?
+  createdByUserId      String
+  submittedByUserId    String?
+  closedByUserId       String?
+  submittedAt          DateTime?
+  deployedAt           DateTime?
+  closedAt             DateTime?
+  deletedAt            DateTime?
+  deletedBy            String?
+  deleteRequestId      String?
+  deleteReason         String?
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+  latestApproval       ApprovalCase?        @relation("ChangeTicketLatestApproval", fields: [latestApprovalId], references: [id], onDelete: SetNull)
+  gateRuns             ChangeTicketGateRun[]
+
+  @@index([status, createdAt])
+  @@index([ticketNo, createdAt])
+  @@index([traceId, createdAt])
+  @@index([latestApprovalStatus, createdAt])
+  @@index([deletedAt])
+  @@map("change_tickets")
+}
+
+model ChangeTicketGateRun {
+  id             String       @id @default(uuid())
+  ticketId       String
+  targetEnv      String
+  releaseVersion String
+  status         String       @default("PENDING")
+  reason         String?
+  failureReason  String?
+  operatorUserId String
+  traceId        String
+  startedAt      DateTime?
+  finishedAt     DateTime?
+  activeKey      String?      @unique
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  ticket         ChangeTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@index([ticketId, createdAt])
+  @@index([status, createdAt])
+  @@index([traceId, createdAt])
+  @@index([ticketId, targetEnv, releaseVersion, createdAt])
+  @@map("change_ticket_gate_runs")
+}
+
+model DeleteRequest {
+  id                   String        @id @default(uuid())
+  requestNo            String        @unique @default("TEMP")
+  targetType           String
+  targetId             String
+  targetNo             String
+  status               String        @default("DRAFT")
+  latestApprovalId     String?       @unique
+  latestApprovalStatus String?
+  makerUserId          String
+  submittedByUserId    String?
+  executedByUserId     String?
+  deleteReason         String
+  docRef               String?
+  targetSnapshotJson   String        @default("{}")
+  traceId              String
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
+  submittedAt          DateTime?
+  executedAt           DateTime?
+  latestApproval       ApprovalCase? @relation("DeleteRequestLatestApproval", fields: [latestApprovalId], references: [id], onDelete: SetNull)
+
+  @@index([status, createdAt])
+  @@index([requestNo, createdAt])
+  @@index([targetType, targetId, status])
+  @@index([targetType, targetNo, status])
+  @@index([traceId, createdAt])
+  @@index([latestApprovalStatus, createdAt])
+  @@map("delete_requests")
+}
+
+model SlaTimer {
+  id            String            @id @default(uuid())
+  timerNo       String            @unique @default("TEMP")
+  workflowType  String
+  workflowId    String
+  workflowNo    String
+  subjectType   String
+  subjectId     String
+  subjectNo     String
+  timerType     String
+  ownerUserId   String
+  status        String            @default("ACTIVE")
+  dueAt         DateTime
+  graceSeconds  Int               @default(120)
+  traceId       String
+  contextJson   String            @default("{}")
+  closedAt      DateTime?
+  expiredAt     DateTime?
+  activeKey     String?           @unique
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+  notifications SlaNotification[]
+
+  @@index([timerNo, createdAt])
+  @@index([timerType, status, dueAt])
+  @@index([workflowType, workflowNo, createdAt])
+  @@index([subjectType, subjectNo, createdAt])
+  @@index([ownerUserId, status, createdAt])
+  @@index([traceId, createdAt])
+  @@map("sla_timers")
+}
+
+model SlaNotification {
+  id               String   @id @default(uuid())
+  timerId          String
+  notificationType String
+  status           String   @default("SCHEDULED")
+  scheduledAt      DateTime
+  triggeredAt      DateTime?
+  reasonCode       String?
+  message          String?
+  metadataJson     String   @default("{}")
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  timer            SlaTimer @relation(fields: [timerId], references: [id], onDelete: Cascade)
+
+  @@index([timerId, createdAt])
+  @@index([notificationType, status, scheduledAt])
+  @@index([status, scheduledAt])
+  @@map("sla_notifications")
 }
 
 model AuditLogSubjectNo {

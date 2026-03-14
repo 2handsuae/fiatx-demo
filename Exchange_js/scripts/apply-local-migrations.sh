@@ -1,0 +1,110 @@
+#!/usr/bin/env bash
+set -euo pipefail
+export LC_ALL=C
+export LANG=C
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=./db-env.sh
+source "${SCRIPT_DIR}/db-env.sh"
+
+APP_DIR="${1:-$(cd "${SCRIPT_DIR}/.." && pwd)}"
+DB_SCOPE="${2:-audit_evidence}"
+DB_URL="${DATABASE_URL:-$(read_database_url "${APP_DIR}" "${DB_SCOPE}")}"
+DB_FILE="$(resolve_db_file_from_url "${APP_DIR}" "${DB_URL}")"
+SCHEMA_FILE="${APP_DIR}/prisma/schema.prisma"
+MIGRATIONS_DIR="${APP_DIR}/prisma/migrations"
+PRISMA_BIN="${APP_DIR}/node_modules/.bin/prisma"
+
+if [[ ! -x "${PRISMA_BIN}" ]]; then
+  echo "Missing Prisma CLI binary: ${PRISMA_BIN}" >&2
+  exit 1
+fi
+
+if [[ ! -f "${SCHEMA_FILE}" ]]; then
+  echo "Missing Prisma schema: ${SCHEMA_FILE}" >&2
+  exit 1
+fi
+
+mkdir -p "$(dirname "${DB_FILE}")"
+
+run_sql_file() {
+  local sql_file="$1"
+  DATABASE_URL="${DB_URL}" "${PRISMA_BIN}" db execute --file "${sql_file}" --schema "${SCHEMA_FILE}" >/dev/null
+}
+
+create_migration_table() {
+  local temp_sql
+  temp_sql="$(mktemp -t exchange-js-migration-table)"
+  cat >"${temp_sql}" <<'SQL'
+CREATE TABLE IF NOT EXISTS "_prisma_migrations" (
+  "id" TEXT NOT NULL PRIMARY KEY,
+  "checksum" TEXT NOT NULL,
+  "finished_at" DATETIME,
+  "migration_name" TEXT NOT NULL UNIQUE,
+  "logs" TEXT,
+  "rolled_back_at" DATETIME,
+  "started_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "applied_steps_count" INTEGER NOT NULL DEFAULT 0
+);
+SQL
+  run_sql_file "${temp_sql}"
+  rm -f "${temp_sql}"
+}
+
+escape_sql_literal() {
+  printf "%s" "$1" | sed "s/'/''/g"
+}
+
+create_wrapped_sql() {
+  local migration_name="$1"
+  local migration_file="$2"
+  local checksum="$3"
+  local temp_sql="$4"
+
+  {
+    echo "BEGIN IMMEDIATE;"
+    cat "${migration_file}"
+    echo
+    echo "INSERT INTO \"_prisma_migrations\" ("
+    echo "  \"id\","
+    echo "  \"checksum\","
+    echo "  \"finished_at\","
+    echo "  \"migration_name\","
+    echo "  \"logs\","
+    echo "  \"rolled_back_at\","
+    echo "  \"started_at\","
+    echo "  \"applied_steps_count\""
+    echo ") VALUES ("
+    echo "  lower(hex(randomblob(16))),"
+    echo "  '$(escape_sql_literal "${checksum}")',"
+    echo "  CURRENT_TIMESTAMP,"
+    echo "  '$(escape_sql_literal "${migration_name}")',"
+    echo "  '',"
+    echo "  NULL,"
+    echo "  CURRENT_TIMESTAMP,"
+    echo "  1"
+    echo ");"
+    echo "COMMIT;"
+  } >"${temp_sql}"
+}
+
+create_migration_table
+
+while IFS= read -r migration_file; do
+  migration_name="$(basename "$(dirname "${migration_file}")")"
+  applied_count="$(sqlite3 "${DB_FILE}" "SELECT COUNT(*) FROM _prisma_migrations WHERE migration_name='${migration_name}' AND finished_at IS NOT NULL;" 2>/dev/null || echo "0")"
+  if [[ "${applied_count}" != "0" ]]; then
+    echo "[migrate] skip ${migration_name}"
+    continue
+  fi
+
+  checksum="$(shasum -a 256 "${migration_file}" | awk '{print $1}')"
+  wrapped_sql="$(mktemp -t exchange-js-migration-apply)"
+  create_wrapped_sql "${migration_name}" "${migration_file}" "${checksum}" "${wrapped_sql}"
+
+  echo "[migrate] apply ${migration_name}"
+  run_sql_file "${wrapped_sql}"
+  rm -f "${wrapped_sql}"
+done < <(find "${MIGRATIONS_DIR}" -maxdepth 2 -name migration.sql | sort)
+
+echo "[migrate] schema ready: ${DB_FILE}"

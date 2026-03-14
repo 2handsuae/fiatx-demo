@@ -4,6 +4,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=./stack-common.sh
 source "${SCRIPT_DIR}/stack-common.sh"
+# shellcheck source=./db-env.sh
+source "${SCRIPT_DIR}/db-env.sh"
 
 if [[ $# -ne 1 ]]; then
   usage_stack_name
@@ -23,6 +25,7 @@ ensure_dependencies "backend" "${APP_DIR}"
 ensure_dependencies "admin" "${APP_DIR}/admin-web"
 ensure_dependencies "client" "${APP_DIR}/client-web"
 bootstrap_database_if_needed
+DB_URL="$(read_database_url "${APP_DIR}" "${STACK}")"
 
 bash "${SCRIPT_DIR}/stack-stop.sh" "${STACK}" >/dev/null 2>&1 || true
 rm -f "${BACKEND_PID_FILE}" "${ADMIN_PID_FILE}" "${CLIENT_PID_FILE}"
@@ -37,6 +40,7 @@ echo "[${STACK}] starting backend on ${BACKEND_PORT}"
   API_PORT="${BACKEND_PORT}" \
   ADMIN_URL="${ADMIN_URL}" \
   CLIENT_URL="${CLIENT_URL}" \
+  DATABASE_URL="${DB_URL}" \
   npm run start:dev >"${BACKEND_LOG}" 2>&1
 ) &
 

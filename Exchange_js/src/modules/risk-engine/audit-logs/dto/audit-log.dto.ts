@@ -7,6 +7,7 @@ import {
   IsEnum,
   IsInt,
   IsOptional,
+  IsUUID,
   IsString,
   Max,
   Min,
@@ -30,6 +31,19 @@ export enum AuditResult {
   SUCCESS = 'SUCCESS',
   FAILED = 'FAILED',
   REJECTED = 'REJECTED',
+}
+
+export enum AuditEvidencePackageStatus {
+  PENDING_APPROVAL = 'PENDING_APPROVAL',
+  READY = 'READY',
+  FAILED = 'FAILED',
+  REJECTED = 'REJECTED',
+  CANCELLED = 'CANCELLED',
+  EXPIRED = 'EXPIRED',
+}
+
+export enum AuditEvidenceExportMode {
+  SELECTION = 'SELECTION',
 }
 
 export interface AuditActorContext {
@@ -93,6 +107,26 @@ export class CreateAuditLogEventDto {
   @IsOptional()
   @IsString()
   entityNo?: string;
+
+  @ApiPropertyOptional({ description: '流程链追踪ID（本轮主要用于 deposit workflow）' })
+  @IsOptional()
+  @IsString()
+  traceId?: string;
+
+  @ApiPropertyOptional({ description: '工作流类型，例如 DEPOSIT' })
+  @IsOptional()
+  @IsString()
+  workflowType?: string;
+
+  @ApiPropertyOptional({ description: '工作流根实体ID，例如 depositId' })
+  @IsOptional()
+  @IsString()
+  workflowId?: string;
+
+  @ApiPropertyOptional({ description: '工作流编号，例如 depositNo' })
+  @IsOptional()
+  @IsString()
+  workflowNo?: string;
 
   @ApiPropertyOptional()
   @IsOptional()
@@ -238,6 +272,21 @@ export class AuditLogQueryDto {
   @IsString()
   subjectType?: string;
 
+  @ApiPropertyOptional({ description: '按流程链ID过滤' })
+  @IsOptional()
+  @IsString()
+  traceId?: string;
+
+  @ApiPropertyOptional({ description: '按工作流类型过滤，例如 DEPOSIT' })
+  @IsOptional()
+  @IsString()
+  workflowType?: string;
+
+  @ApiPropertyOptional({ description: '按工作流编号过滤，例如 depositNo' })
+  @IsOptional()
+  @IsString()
+  workflowNo?: string;
+
   @ApiPropertyOptional({ enum: AuditResult })
   @IsOptional()
   @IsEnum(AuditResult)
@@ -266,6 +315,19 @@ export class AuditLogQueryDto {
 }
 
 export class ExportEvidencePackageDto extends AuditLogQueryDto {
+  @ApiPropertyOptional({ enum: AuditEvidenceExportMode, default: AuditEvidenceExportMode.SELECTION })
+  @IsOptional()
+  @IsEnum(AuditEvidenceExportMode)
+  mode?: AuditEvidenceExportMode;
+
+  @ApiPropertyOptional({
+    type: [String],
+    description: '勾选导出的审计事件 ID 列表',
+  })
+  @IsArray()
+  @IsUUID('4', { each: true })
+  selectedEventIds!: string[];
+
   @ApiPropertyOptional({ description: '导出最大条数，默认 1000，最大 5000' })
   @IsOptional()
   @Type(() => Number)
@@ -279,4 +341,26 @@ export class ExportEvidencePackageDto extends AuditLogQueryDto {
   @Type(() => Boolean)
   @IsBoolean()
   includeRecords?: boolean;
+}
+
+export class EvidencePackageQueryDto {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  skip?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(200)
+  take?: number;
+
+  @ApiPropertyOptional({ enum: AuditEvidencePackageStatus })
+  @IsOptional()
+  @IsEnum(AuditEvidencePackageStatus)
+  status?: AuditEvidencePackageStatus;
 }

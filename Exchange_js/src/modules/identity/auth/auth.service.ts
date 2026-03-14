@@ -6,6 +6,7 @@ import * as bcrypt from 'bcrypt';
 import { createHash } from 'crypto';
 import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
 import { AccessControlService } from '../access-control/access-control.service';
+import { getPrimaryRoleCode } from '../access-control/rbac.catalog';
 import {
   AuditActions,
   AuditEntityTypes,
@@ -272,7 +273,7 @@ export class AuthService {
     const roleCodes = this.accessControlService
       ? await this.accessControlService.getUserRoleCodes(user.id)
       : [];
-    const primaryRole = roleCodes[0] || user.role || 'ADMIN';
+    const primaryRole = getPrimaryRoleCode(roleCodes) || user.role || 'ADMIN';
     const payload = {
       username: user.email,
       sub: user.id,

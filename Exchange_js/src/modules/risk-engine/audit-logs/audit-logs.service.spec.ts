@@ -23,8 +23,27 @@ describe('AuditLogsService', () => {
         findUnique: jest.fn(),
         updateMany: jest.fn(),
       },
+      auditLogSubjectNo: {
+        findMany: jest.fn(),
+      },
       auditEvidencePackage: {
         create: jest.fn(),
+        count: jest.fn(),
+        findMany: jest.fn(),
+        findUnique: jest.fn(),
+      },
+      payin: {
+        findUnique: jest.fn(),
+      },
+      depositTransaction: {
+        findUnique: jest.fn(),
+        findMany: jest.fn(),
+      },
+      kytCase: {
+        findMany: jest.fn(),
+      },
+      travelRuleCase: {
+        findMany: jest.fn(),
       },
     };
 
@@ -155,6 +174,66 @@ describe('AuditLogsService', () => {
 
     expect(result.triggerType).toBe(AuditTriggerType.STATE_TRANSITION);
     expect(result.action).toBe(AuditActions.CDD_APPROVED);
+  });
+
+  it('should derive deposit trace and workflow context for payin events', async () => {
+    prisma.payin.findUnique.mockResolvedValue({
+      id: 'payin-1',
+      payinNo: 'PI2603010001',
+      depositId: 'dep-1',
+      customer: { customerNo: 'CU2603010001' },
+      deposit: {
+        id: 'dep-1',
+        depositNo: 'DEP2603010001',
+        ownerId: 'cust-1',
+        customer: { customerNo: 'CU2603010001' },
+      },
+    });
+    prisma.auditLogEvent.findUnique.mockResolvedValue(null);
+    prisma.auditLogEvent.create.mockImplementation(({ data }: any) =>
+      Promise.resolve({
+        id: 'a-deposit-workflow',
+        auditNo: 'AUD2603010001',
+        ...data,
+        subjectNos: data.subjectNos?.create?.map((item: any, index: number) => ({
+          id: `subject-${index}`,
+          eventId: 'a-deposit-workflow',
+          createdAt: new Date('2026-03-01T10:00:00.000Z'),
+          ...item,
+        })),
+      }),
+    );
+
+    const result = await service.recordSystem({
+      triggerType: AuditTriggerType.DATA_CREATE,
+      action: AuditActions.PAYIN_CREATED,
+      module: AuditModules.PAYINS,
+      entityType: AuditEntityTypes.PAYIN,
+      entityId: 'payin-1',
+      entityNo: 'PI2603010001',
+      entityOwnerType: 'CUSTOMER',
+      entityOwnerId: 'cust-1',
+      workflowType: 'DEPOSIT',
+      reason: 'Initial simulation',
+      afterData: { status: 'DETECTED' },
+    });
+
+    expect(result.traceId).toBe('DEPOSIT:payin-1');
+    expect(result.workflowType).toBe('DEPOSIT');
+    expect(result.workflowId).toBe('dep-1');
+    expect(result.workflowNo).toBe('DEP2603010001');
+    expect(result.subjectNos).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          subjectType: 'DEPOSIT',
+          subjectNo: 'DEP2603010001',
+        }),
+        expect.objectContaining({
+          subjectType: 'PAYIN',
+          subjectNo: 'PI2603010001',
+        }),
+      ]),
+    );
   });
 
   it('should mask payload and generate payloadDigest', async () => {
@@ -356,6 +435,7 @@ describe('AuditLogsService', () => {
 
     const where = prisma.auditLogEvent.count.mock.calls[0][0].where;
     expect(where.archivedAt).toBeNull();
+    expect(where.deletedAt).toBeUndefined();
     expect(where.occurredAt.gte.toISOString()).toBe('2026-02-18T00:00:00.000Z');
     expect(where.occurredAt.lte.toISOString()).toBe('2026-02-18T23:59:59.999Z');
     expect(where.OR).toEqual(
@@ -453,13 +533,21 @@ describe('AuditLogsService', () => {
         beforeData: JSON.stringify({ status: 'CREATED' }),
         afterData: JSON.stringify({ status: 'PAYOUT_PENDING' }),
         occurredAt: new Date('2026-02-18T10:00:00.000Z'),
+        workflowType: 'DEPOSIT',
+        workflowId: 'dep-1',
+        workflowNo: 'DEP2602180001',
       },
     ]);
 
     prisma.auditEvidencePackage.create.mockResolvedValue({
       id: 'pkg-id-1',
       packageNo: 'EVP2602180001',
+      status: 'READY',
+      fileName: 'EVP2602180001.json',
     });
+    prisma.depositTransaction.findMany.mockResolvedValue([]);
+    prisma.kytCase.findMany.mockResolvedValue([]);
+    prisma.travelRuleCase.findMany.mockResolvedValue([]);
 
     prisma.auditLogEvent.findUnique.mockResolvedValue(null);
     prisma.auditLogEvent.create.mockResolvedValue({
@@ -480,7 +568,13 @@ describe('AuditLogsService', () => {
     });
 
     const result = await service.exportEvidencePackage(
-      { maxItems: 500, includeRecords: true },
+      {
+        maxItems: 500,
+        includeRecords: true,
+        mode: 'SELECTION' as any,
+        selectedEventIds: ['a4'],
+        workflowType: 'DEPOSIT',
+      },
       {
         actorType: 'ADMIN',
         actorId: 'admin-1',
@@ -488,19 +582,87 @@ describe('AuditLogsService', () => {
       },
     );
 
+    expect(result.id).toBe('pkg-id-1');
     expect(result.packageNo).toBe('EVP2602180001');
+    expect(result.status).toBe('READY');
     expect(result.itemCount).toBe(1);
     expect(result.digest).toHaveLength(64);
-    expect(result.records).toHaveLength(1);
     expect(prisma.auditEvidencePackage.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
           exportedByType: 'ADMIN',
           exportedById: 'admin-1',
+          exportMode: 'SELECTION',
+          status: 'READY',
           itemCount: 1,
+          packageBody: expect.any(String),
         }),
       }),
     );
     expect(prisma.auditLogEvent.create).toHaveBeenCalled();
+  });
+
+  it('should list and parse persisted evidence packages', async () => {
+    prisma.auditEvidencePackage.count.mockResolvedValue(1);
+    prisma.auditEvidencePackage.findMany.mockResolvedValue([
+      {
+        id: 'pkg-1',
+        packageNo: 'EVP2603010001',
+        status: 'READY',
+        exportMode: 'SELECTION',
+        fileName: 'EVP2603010001.json',
+        filterSnapshot: JSON.stringify({ workflowType: 'DEPOSIT' }),
+        selectedEventIdsSnapshot: JSON.stringify(['a1', 'a2']),
+        itemCount: 2,
+        digest: 'd'.repeat(64),
+        manifest: JSON.stringify({ version: '1.0' }),
+        packageBody: JSON.stringify({ digest: 'd'.repeat(64) }),
+        exportedByType: 'ADMIN',
+        exportedById: 'admin-1',
+        createdAt: new Date('2026-03-01T10:00:00.000Z'),
+        updatedAt: new Date('2026-03-01T10:00:00.000Z'),
+      },
+    ]);
+
+    const result = await service.findEvidencePackages({ take: 20 });
+
+    expect(result.total).toBe(1);
+    expect(result.items[0].filterSnapshot).toEqual({ workflowType: 'DEPOSIT' });
+    expect(result.items[0].selectedEventIdsSnapshot).toEqual(['a1', 'a2']);
+    expect(result.items[0].manifest).toEqual({ version: '1.0' });
+  });
+
+  it('should download persisted evidence package content without rebuilding it', async () => {
+    prisma.auditEvidencePackage.findUnique.mockResolvedValue({
+      id: 'pkg-2',
+      packageNo: 'EVP2603010002',
+      fileName: 'EVP2603010002.json',
+      digest: 'f'.repeat(64),
+      manifest: JSON.stringify({ version: '1.0' }),
+      packageBody: JSON.stringify({
+        manifest: { version: '1.0' },
+        records: [{ id: 'a1' }],
+        snapshots: { deposits: [] },
+        digest: 'f'.repeat(64),
+      }),
+      exportedByType: 'ADMIN',
+      exportedById: 'admin-1',
+      status: 'READY',
+      exportMode: 'SELECTION',
+      itemCount: 1,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    const result = await service.downloadEvidencePackage('pkg-2');
+
+    expect(result.packageNo).toBe('EVP2603010002');
+    expect(result.fileName).toBe('EVP2603010002.json');
+    expect(result.content).toEqual(
+      expect.objectContaining({
+        records: [{ id: 'a1' }],
+        digest: 'f'.repeat(64),
+      }),
+    );
   });
 });

@@ -8,8 +8,9 @@
 4. `asset-treasury`
 5. `accounting`
 6. `clearing-settle`
-7. `orchestrators`
-- MUST keep canonical implementation under `/Users/songshengwei/Documents/codex/projects/重做版/.wt/audit-logging/Exchange_js/src/modules/risk-engine/audit-logs`.
+7. `governance`
+8. `orchestrators`
+- MUST keep canonical implementation under `/Users/songshengwei/Documents/codex/projects/重做版/.wt/audit-evidence/Exchange_js/src/modules/risk-engine/audit-logs`.
 - MUST route all new audit writes through `AuditLogsService` (no ad-hoc table writes in feature modules).
 - SHOULD keep module/action/entity dictionaries centralized in `constants/audit-actions.constant.ts`.
 
@@ -72,6 +73,7 @@
 5. Wallet master data
 6. Customer master data
 7. Swap Quote lifecycle
+8. Governance change ticket and release gate lifecycle
 - SHOULD write via `recordByActor()` for human/API actions and `recordSystem()` for jobs/orchestrators.
 
 ## Evidence Package and Export Constraints
@@ -102,7 +104,8 @@
 2. `GET /admin/audit-logs`
 3. `GET /admin/audit-logs/:id`
 4. `POST /admin/audit-logs/export/evidence-package`
-- MUST keep admin entrypoint for audit logs in Compliance Center navigation.
+- Audit Logs MUST be surfaced under `Audit Center`.
+- Compliance Center MUST NOT duplicate the `Audit Logs` navigation entry.
 - MUST preserve machine-parsable response shape for list/detail/export.
 - SHOULD keep old data readable even after schema enhancement.
 

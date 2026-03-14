@@ -38,6 +38,7 @@ import { TransactionComplianceModule } from './modules/risk-engine/transaction-c
 import { AuditLogsModule } from './modules/risk-engine/audit-logs/audit-logs.module';
 import { ComplianceAlertsModule } from './modules/risk-engine/compliance-alerts/compliance-alerts.module';
 import { ComplianceIncidentsModule } from './modules/risk-engine/compliance-incidents/compliance-incidents.module';
+import { GovernanceModule } from './modules/governance/governance.module';
 
 @Module({
   imports: [
@@ -93,6 +94,7 @@ import { ComplianceIncidentsModule } from './modules/risk-engine/compliance-inci
     RiskEngineModule,
     TransactionComplianceModule,
     AuditLogsModule,
+    GovernanceModule,
     ComplianceAlertsModule,
     ComplianceIncidentsModule,
     OnboardingModule,

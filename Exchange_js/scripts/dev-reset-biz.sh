@@ -3,8 +3,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
-MIGRATIONS_DIR="${ROOT_DIR}/prisma/migrations"
-PRISMA_DIR="${ROOT_DIR}/prisma"
+# shellcheck source=./db-env.sh
+source "${SCRIPT_DIR}/db-env.sh"
 
 ensure_backend_dependencies() {
   if [[ -d "${ROOT_DIR}/node_modules" ]]; then
@@ -26,75 +26,35 @@ ensure_backend_dependencies() {
 }
 
 resolve_db_file() {
-  local db_url="${DATABASE_URL:-}"
-  if [[ -z "${db_url}" && -f "${ROOT_DIR}/.env" ]]; then
-    db_url="$(grep -E '^DATABASE_URL=' "${ROOT_DIR}/.env" | tail -n 1 | cut -d'=' -f2- | tr -d '\"' || true)"
-  fi
-
-  if [[ -z "${db_url}" ]]; then
-    echo "${PRISMA_DIR}/dev.db"
-    return 0
-  fi
-
-  if [[ "${db_url}" == file:* ]]; then
-    local raw_path="${db_url#file:}"
-    if [[ "${raw_path}" = /* ]]; then
-      echo "${raw_path}"
-    else
-      echo "${PRISMA_DIR}/${raw_path#./}"
-    fi
-    return 0
-  fi
-
-  echo "${PRISMA_DIR}/dev.db"
+  local db_url
+  db_url="$(read_database_url "${ROOT_DIR}" "audit_evidence")"
+  resolve_db_file_from_url "${ROOT_DIR}" "${db_url}"
 }
 
 bootstrap_database_if_needed() {
   local db_file
+  local db_url
   db_file="$(resolve_db_file)"
+  db_url="$(read_database_url "${ROOT_DIR}" "audit_evidence")"
 
   mkdir -p "$(dirname "${db_file}")"
   echo "[backend] Applying pending Prisma migrations to ${db_file}..."
   (
     cd "${ROOT_DIR}"
-    DATABASE_URL="file:${db_file}" npx prisma migrate deploy
+    DATABASE_URL="${db_url}" bash scripts/apply-local-migrations.sh "${ROOT_DIR}" "audit_evidence"
   )
 
   echo "[backend] Database schema ready: ${db_file}"
 }
 
-ensure_audit_log_schema() {
-  local db_file
-  db_file="$(resolve_db_file)"
-  local migration_file="${MIGRATIONS_DIR}/20260218172000_audit_log_subject_no_enhancement/migration.sql"
-
-  if [[ ! -f "${db_file}" ]]; then
-    return 0
-  fi
-
-  if [[ ! -f "${migration_file}" ]]; then
-    return 0
-  fi
-
-  local has_actor_no
-  has_actor_no="$(sqlite3 "${db_file}" "PRAGMA table_info('audit_log_events');" 2>/dev/null | grep -c '|actorNo|')"
-  local has_subject_table
-  has_subject_table="$(sqlite3 "${db_file}" ".tables" 2>/dev/null | grep -c 'audit_log_subject_nos')"
-
-  if [[ "${has_actor_no}" -gt 0 && "${has_subject_table}" -gt 0 ]]; then
-    return 0
-  fi
-
-  echo "[backend] Applying audit log subject-no migration to ${db_file}..."
-  sqlite3 "${db_file}" < "${migration_file}"
-}
-
 ensure_backend_dependencies
 bootstrap_database_if_needed
-ensure_audit_log_schema
 DB_FILE="$(resolve_db_file)"
+DB_URL="$(read_database_url "${ROOT_DIR}" "audit_evidence")"
 
 cd "${ROOT_DIR}"
+echo "Syncing base IAM data..."
+DATABASE_URL="${DB_URL}" npm run db:base:sync
 echo "Running business data reset..."
-DATABASE_URL="file:${DB_FILE}" npm run db:biz:reset
+DATABASE_URL="${DB_URL}" npm run db:biz:reset
 echo "Business data reset finished."

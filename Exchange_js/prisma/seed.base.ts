@@ -8,10 +8,19 @@ import { DEFAULT_JOURNAL_TEMPLATES } from '../src/config/manifests/journal-templ
 import { DEFAULT_CLEARING_TEMPLATES } from '../src/config/manifests/clearing-templates.manifest';
 import { buildDeterministicWalletNo } from '../src/common/utils/no-generator.util';
 import {
+  ACTIVE_RBAC_ROLE_CODES,
+  LEGACY_RBAC_ROLE_CODES,
+  LEGACY_RBAC_ROLE_CODE_MAPPING,
   RBAC_PERMISSION_DEFINITIONS,
   RBAC_ROLE_DEFINITIONS,
   buildRolePermissionCodeMap,
+  getPrimaryRoleCode,
 } from '../src/modules/identity/access-control/rbac.catalog';
+import {
+  ApprovalSoDRuleCodes,
+  DEFAULT_APPROVAL_POLICIES,
+  joinRoleCsv,
+} from '../src/modules/governance/approvals/constants/approval.constants';
 
 const DEFAULT_ADMIN_EMAIL = 'admin@fiatx.com';
 const DEFAULT_ADMIN_USER_NO = 'ADMIN-001';
@@ -31,60 +40,21 @@ type RoleSeedAccount = {
 
 const ROLE_SEED_ACCOUNTS: RoleSeedAccount[] = [
   { roleCode: 'SUPER_ADMIN', email: 'admin@fiatx.com', userNo: 'ADMIN-001' },
-  { roleCode: 'IAM_ADMIN', email: 'iam_admin@fiatx.com', userNo: 'ADMIN-IAM' },
-  { roleCode: 'APPROVER', email: 'approver@fiatx.com', userNo: 'ADMIN-APPROVER' },
+  { roleCode: 'RI', email: 'ri@fiatx.com', userNo: 'ADMIN-RI' },
+  { roleCode: 'SM', email: 'sm@fiatx.com', userNo: 'ADMIN-SM' },
+  { roleCode: 'TECH_ADMIN', email: 'tech_admin@fiatx.com', userNo: 'ADMIN-TECH' },
   {
-    roleCode: 'COMPLIANCE_OFFICER',
-    email: 'compliance_officer@fiatx.com',
-    userNo: 'ADMIN-CO',
+    roleCode: 'OPS_TREASURY',
+    email: 'ops_treasury@fiatx.com',
+    userNo: 'ADMIN-OPS-TR',
+  },
+  { roleCode: 'FINANCE', email: 'finance@fiatx.com', userNo: 'ADMIN-FIN' },
+  {
+    roleCode: 'COMPLIANCE_LEAD',
+    email: 'compliance_lead@fiatx.com',
+    userNo: 'ADMIN-COM-LEAD',
   },
   { roleCode: 'MLRO', email: 'mlro@fiatx.com', userNo: 'ADMIN-MLRO' },
-  {
-    roleCode: 'ALERT_ANALYST',
-    email: 'alert_analyst@fiatx.com',
-    userNo: 'ADMIN-ALERT',
-  },
-  {
-    roleCode: 'CUSTOMER_OPS',
-    email: 'customer_ops@fiatx.com',
-    userNo: 'ADMIN-CUSTOPS',
-  },
-  {
-    roleCode: 'TRADING_OPS',
-    email: 'trading_ops@fiatx.com',
-    userNo: 'ADMIN-TRDOPS',
-  },
-  {
-    roleCode: 'TREASURY_MAKER',
-    email: 'treasury_maker@fiatx.com',
-    userNo: 'ADMIN-TRMKR',
-  },
-  {
-    roleCode: 'TREASURY_CHECKER',
-    email: 'treasury_checker@fiatx.com',
-    userNo: 'ADMIN-TRCHK',
-  },
-  {
-    roleCode: 'ACCOUNTING_OPS',
-    email: 'accounting_ops@fiatx.com',
-    userNo: 'ADMIN-ACCOPS',
-  },
-  {
-    roleCode: 'SETTLEMENT_OPS',
-    email: 'settlement_ops@fiatx.com',
-    userNo: 'ADMIN-STLOPS',
-  },
-  { roleCode: 'RECON_OPS', email: 'recon_ops@fiatx.com', userNo: 'ADMIN-RECON' },
-  {
-    roleCode: 'CONFIG_ADMIN',
-    email: 'config_admin@fiatx.com',
-    userNo: 'ADMIN-CONFIG',
-  },
-  {
-    roleCode: 'AUDIT_OFFICER',
-    email: 'audit_officer@fiatx.com',
-    userNo: 'ADMIN-AUDIT',
-  },
   { roleCode: 'DPO', email: 'dpo@fiatx.com', userNo: 'ADMIN-DPO' },
   { roleCode: 'CISO', email: 'ciso@fiatx.com', userNo: 'ADMIN-CISO' },
 ];
@@ -171,6 +141,7 @@ export async function seedBase(prisma: PrismaClient): Promise<void> {
   console.log('--- Seeding Base Configuration ---');
   await seedAdmin(prisma);
   await seedRbac(prisma);
+  await seedGovernanceApprovalBaseline(prisma);
   await seedBaseCustomers(prisma);
   await seedAssets(prisma);
   await seedSystemWallets(prisma);
@@ -211,6 +182,89 @@ async function seedAdmin(prisma: PrismaClient): Promise<void> {
       status: 'ACTIVE',
     },
   });
+}
+
+async function deactivateLegacyRoles(prisma: PrismaClient): Promise<void> {
+  if (!LEGACY_RBAC_ROLE_CODES.length) {
+    return;
+  }
+
+  await (prisma as any).role.updateMany({
+    where: {
+      code: { in: LEGACY_RBAC_ROLE_CODES },
+    },
+    data: {
+      status: 'INACTIVE',
+    },
+  });
+}
+
+async function migrateLegacyUserRoles(
+  prisma: PrismaClient,
+  roleIdByCode: Map<string, string>,
+): Promise<void> {
+  const userRoles = await (prisma as any).userRole.findMany({
+    include: {
+      role: {
+        select: {
+          code: true,
+          status: true,
+        },
+      },
+    },
+    orderBy: [{ userId: 'asc' }, { role: { code: 'asc' } }],
+  });
+
+  const desiredCodesByUserId = new Map<string, string[]>();
+  for (const userRole of userRoles) {
+    const roleCode = String(userRole.role?.code || '').trim().toUpperCase();
+    if (!roleCode) {
+      continue;
+    }
+
+    const mappedRoleCode =
+      LEGACY_RBAC_ROLE_CODE_MAPPING[roleCode] ||
+      (ACTIVE_RBAC_ROLE_CODES.includes(roleCode) ? roleCode : null);
+    if (!mappedRoleCode) {
+      continue;
+    }
+
+    const current = desiredCodesByUserId.get(userRole.userId) || [];
+    if (!current.includes(mappedRoleCode)) {
+      current.push(mappedRoleCode);
+      desiredCodesByUserId.set(userRole.userId, current);
+    }
+  }
+
+  for (const [userId, desiredRoleCodes] of desiredCodesByUserId.entries()) {
+    const filteredRoleCodes = desiredRoleCodes.filter((code) => roleIdByCode.has(code));
+    if (!filteredRoleCodes.length) {
+      continue;
+    }
+
+    const roleIds = filteredRoleCodes
+      .map((code) => roleIdByCode.get(code))
+      .filter(Boolean) as string[];
+    const primaryRoleCode = getPrimaryRoleCode(filteredRoleCodes) || filteredRoleCodes[0];
+
+    await (prisma as any).$transaction(async (tx: any) => {
+      await tx.userRole.deleteMany({
+        where: { userId },
+      });
+
+      await tx.userRole.createMany({
+        data: roleIds.map((roleId) => ({
+          userId,
+          roleId,
+        })),
+      });
+
+      await tx.user.update({
+        where: { id: userId },
+        data: { role: primaryRoleCode },
+      });
+    });
+  }
 }
 
 async function seedRbac(prisma: PrismaClient): Promise<void> {
@@ -318,7 +372,45 @@ async function seedRbac(prisma: PrismaClient): Promise<void> {
     });
   }
 
+  await migrateLegacyUserRoles(prisma, roleIdByCode);
+  await deactivateLegacyRoles(prisma);
   await seedRoleAdminAccounts(prisma, roleIdByCode);
+}
+
+async function seedGovernanceApprovalBaseline(prisma: PrismaClient): Promise<void> {
+  for (const [actionType, policy] of Object.entries(DEFAULT_APPROVAL_POLICIES)) {
+    await prisma.approvalActionPolicy.upsert({
+      where: { actionType },
+      update: {
+        riskLevel: policy.riskLevel,
+        checkerRoles: joinRoleCsv(policy.checkerRoles),
+        timeoutHours: policy.timeoutHours,
+        allowCancel: policy.allowCancel,
+        allowRetry: policy.allowRetry,
+      },
+      create: {
+        actionType,
+        riskLevel: policy.riskLevel,
+        checkerRoles: joinRoleCsv(policy.checkerRoles),
+        timeoutHours: policy.timeoutHours,
+        allowCancel: policy.allowCancel,
+        allowRetry: policy.allowRetry,
+      },
+    });
+  }
+
+  await prisma.approvalSodRule.upsert({
+    where: { ruleCode: ApprovalSoDRuleCodes.DENY_SAME_USER_MAKER_CHECKER },
+    update: {
+      enabled: true,
+      description: 'Maker and checker must be different users unless SUPER_ADMIN bypass applies.',
+    },
+    create: {
+      ruleCode: ApprovalSoDRuleCodes.DENY_SAME_USER_MAKER_CHECKER,
+      enabled: true,
+      description: 'Maker and checker must be different users unless SUPER_ADMIN bypass applies.',
+    },
+  });
 }
 
 async function seedRoleAdminAccounts(
@@ -372,6 +464,7 @@ async function seedRoleAdminAccounts(
       },
     });
   }
+
 }
 
 async function areRoleSeedAccountsComplete(prisma: PrismaClient): Promise<boolean> {
@@ -1093,9 +1186,62 @@ async function isBaseComplete(prisma: PrismaClient): Promise<boolean> {
     return false;
   }
 
+  const [activeRoleCount, legacyActiveCount] = await Promise.all([
+    (prisma as any).role.count({
+      where: {
+        status: 'ACTIVE',
+        code: { in: ACTIVE_RBAC_ROLE_CODES },
+      },
+    }),
+    LEGACY_RBAC_ROLE_CODES.length
+      ? (prisma as any).role.count({
+          where: {
+            status: 'ACTIVE',
+            code: { in: LEGACY_RBAC_ROLE_CODES },
+          },
+        })
+      : Promise.resolve(0),
+  ]);
+
+  if (activeRoleCount !== ACTIVE_RBAC_ROLE_CODES.length || legacyActiveCount !== 0) {
+    return false;
+  }
+
   const roleSeedAccountsComplete = await areRoleSeedAccountsComplete(prisma);
   if (!roleSeedAccountsComplete) {
     return false;
+  }
+
+  const approvalPolicies = await prisma.approvalActionPolicy.findMany({
+    where: {
+      actionType: { in: Object.keys(DEFAULT_APPROVAL_POLICIES) },
+    },
+    select: {
+      actionType: true,
+      riskLevel: true,
+      checkerRoles: true,
+      timeoutHours: true,
+      allowCancel: true,
+      allowRetry: true,
+    },
+  });
+  if (approvalPolicies.length !== Object.keys(DEFAULT_APPROVAL_POLICIES).length) {
+    return false;
+  }
+  for (const [actionType, policy] of Object.entries(DEFAULT_APPROVAL_POLICIES)) {
+    const existing = approvalPolicies.find((item) => item.actionType === actionType);
+    if (!existing) {
+      return false;
+    }
+    if (
+      existing.riskLevel !== policy.riskLevel ||
+      existing.checkerRoles !== joinRoleCsv(policy.checkerRoles) ||
+      existing.timeoutHours !== policy.timeoutHours ||
+      existing.allowCancel !== policy.allowCancel ||
+      existing.allowRetry !== policy.allowRetry
+    ) {
+      return false;
+    }
   }
 
   const baseCustomerExists =

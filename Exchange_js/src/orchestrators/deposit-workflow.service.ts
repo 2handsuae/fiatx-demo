@@ -15,6 +15,7 @@ import { PrismaService } from '../core/prisma/prisma.service';
 import { TransactionComplianceService } from '../modules/risk-engine/transaction-compliance/transaction-compliance.service';
 import { AuditLogsService } from '../modules/risk-engine/audit-logs/audit-logs.service';
 import {
+  AuditActions,
   AuditEntityTypes,
   AuditModules,
   buildStateTransitionAction,
@@ -183,10 +184,30 @@ export class DepositWorkflowService implements OnModuleInit {
     }
 
     if (accountingToStatus === DepositTransactionStatus.COMPLIANCE_PENDING) {
-      await this.transactionComplianceService.ensureDepositMainCasesOnPayinConfirmed(
+      const syncResult =
+        await this.transactionComplianceService.ensureDepositMainCasesOnPayinConfirmed(
         deposit.id,
         payin.id,
       );
+
+      await this.auditLogsService.recordSystem({
+        triggerType: AuditTriggerType.DATA_UPDATE,
+        action: AuditActions.DEPOSIT_COMPLIANCE_EVIDENCE_SYNCED,
+        module: AuditModules.DEPOSIT_TRANSACTIONS,
+        entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+        entityId: deposit.id,
+        entityNo: deposit.depositNo,
+        entityOwnerType: deposit.ownerType,
+        entityOwnerId: deposit.ownerId,
+        workflowType: 'DEPOSIT',
+        reason: 'Deposit compliance evidence synchronized after payin confirmed',
+        metadata: {
+          payinId: payin.id,
+          payinNo: payin.payinNo || null,
+          snapshot: syncResult,
+        },
+        sourcePlatform: 'SYSTEM',
+      });
     }
 
     // 2. Emit Event
@@ -205,6 +226,25 @@ export class DepositWorkflowService implements OnModuleInit {
       });
       if (journal) {
         result.created_or_reversed_journal_entry_ids.push(journal.id);
+        await this.auditLogsService.recordSystem({
+          triggerType: AuditTriggerType.DATA_UPDATE,
+          action: AuditActions.DEPOSIT_ACCOUNTING_POSTED,
+          module: AuditModules.DEPOSIT_TRANSACTIONS,
+          entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+          entityId: deposit.id,
+          entityNo: deposit.depositNo,
+          entityOwnerType: deposit.ownerType,
+          entityOwnerId: deposit.ownerId,
+          workflowType: 'DEPOSIT',
+          reason: 'Deposit accounting posted after payin confirmed',
+          metadata: {
+            journalId: journal.id,
+            fromStatus,
+            toStatus: accountingToStatus,
+            assetType: suffix,
+          },
+          sourcePlatform: 'SYSTEM',
+        });
       }
     }
 
@@ -241,6 +281,25 @@ export class DepositWorkflowService implements OnModuleInit {
       });
       if (journal) {
         result.created_or_reversed_journal_entry_ids.push(journal.id);
+        await this.auditLogsService.recordSystem({
+          triggerType: AuditTriggerType.DATA_UPDATE,
+          action: AuditActions.DEPOSIT_ACCOUNTING_POSTED,
+          module: AuditModules.DEPOSIT_TRANSACTIONS,
+          entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+          entityId: deposit.id,
+          entityNo: deposit.depositNo,
+          entityOwnerType: deposit.ownerType,
+          entityOwnerId: deposit.ownerId,
+          workflowType: 'DEPOSIT',
+          reason: 'Deposit success accounting posted',
+          metadata: {
+            journalId: journal.id,
+            fromStatus: oldStatus ?? null,
+            toStatus: DepositTransactionStatus.SUCCESS,
+            assetType: suffix,
+          },
+          sourcePlatform: 'SYSTEM',
+        });
       }
     }
 
@@ -301,6 +360,7 @@ export class DepositWorkflowService implements OnModuleInit {
             entityNo: payin.payinNo,
             entityOwnerType: payin.ownerId ? 'CUSTOMER' : undefined,
             entityOwnerId: payin.ownerId || undefined,
+            workflowType: 'DEPOSIT',
             statusFrom: payin.status,
             statusTo: PayinStatus.CLEARED,
             reason: 'Deposit rejected orchestration',
