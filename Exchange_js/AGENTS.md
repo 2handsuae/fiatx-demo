@@ -11,10 +11,11 @@ Before any code change in `Exchange_js`, read:
 7. `docs/constraints/internal-transaction-flow-constraints.md`
 8. `docs/constraints/audit-logging-constraints.md`
 9. `docs/constraints/rbac-member-management-constraints.md`
-10. `docs/constraints/governance-change-ticket-constraints.md`
-11. `docs/constraints/governance-delete-request-constraints.md`
-12. `docs/constraints/governance-sla-timer-constraints.md`
-13. `docs/constraints/compliance-alert-incident-constraints.md`
+10. `docs/constraints/governance-approval-constraints.md`
+11. `docs/constraints/governance-change-ticket-constraints.md`
+12. `docs/constraints/governance-delete-request-constraints.md`
+13. `docs/constraints/governance-sla-timer-constraints.md`
+14. `docs/constraints/compliance-alert-incident-constraints.md`
 
 ## Scope
 - Backend: `src/**`, `prisma/**`, `scripts/**`
@@ -25,6 +26,8 @@ Before any code change in `Exchange_js`, read:
   - `docs/project-version-plan.md`
   - `docs/wave1-foundation-migration-from-exchange-java.md`
 - This planning reference does not override `docs/constraints/**`; constraints remain the behavioral source of truth.
+- `docs/project-version-plan.md` is the current planning reference for wave scope and sequencing.
+- `docs/wave1-foundation-migration-from-exchange-java.md` is a historical migration-reference document and MUST NOT be treated as the current implementation truth.
 
 ## Product Demo Context
 - This project is primarily a product demo / workflow demonstration system, not a production-security-hardening program.
@@ -75,7 +78,7 @@ Before any code change in `Exchange_js`, read:
 1. create member with `INACTIVE` status
 2. issue one-time invitation link (`24h` TTL, resend invalidates prior token)
 3. invited admin sets password and activates account (`INACTIVE -> ACTIVE`)
-- Base seed MUST preserve one fixed admin account per RBAC role (17 total role seed accounts) and keep deterministic role binding on every base sync.
+- Base seed MUST preserve one fixed admin account per active RBAC role (10 total role seed accounts) and keep deterministic role binding on every base sync.
 - `SUPER_ADMIN` seed identity remains `admin@fiatx.com` (`ADMIN-001`); no extra `super_admin@...` seed account.
 - Seed role binding rule for role accounts is strict single-role convergence: target role MUST exist in `user_roles`, non-target role bindings MUST be removed.
 - Transaction compliance keeps three evidence case semantics:

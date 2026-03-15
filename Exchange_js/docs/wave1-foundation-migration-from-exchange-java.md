@@ -1,5 +1,15 @@
 # Wave 1 底座迁移计划书 (`EXCHANGE_JAVA_wave2` -> `Exchange_js`)
 
+> 历史迁移参考文档。
+> 本文用于记录 Java 来源仓库评估与迁移思路，不作为当前 `Exchange_js` 实现状态的 source of truth。
+> 当前实现状态以 `docs/constraints/**` 和现行代码为准。
+
+## 0. Current Status Snapshot
+
+- `WF-01 ~ WF-06` 已在 `Exchange_js` 的 Wave 1 中落地为当前实现基线。
+- `WF-GOV-02` 仍未在当前 `Exchange_js` 中落地。
+- 本文中关于 `due soon / breach / DeletionLog / GOV-02` 的内容仅代表当时对 Java 来源仓库和迁移策略的评估，不代表当前 JS 代码现状。
+
 ## 1. 结论
 
 `/Users/songshengwei/Documents/codex/projects/EXCHANGE_JAVA_wave2` 是一个相当成熟的 `Wave 1` 控制底座来源仓库，但如果严格按当前项目定义的 `Wave 1 DoD` 评估，它并不是 `100%` 完成。

@@ -41,9 +41,9 @@
 | --- | --- | --- |
 | `WF-01` Audit Events + Evidence Export | `Wave 1` | 一次性完成基础能力，后续各波只扩展覆盖面 |
 | `WF-02` RBAC + Auth Boundary | `Wave 1` | 一次性完成基础能力 |
-| `WF-03` SoD Block + Maker-Checker | `Wave 1` | 先完成通用引擎与 3 类敏感动作复用 |
-| `WF-04` Notice Registry + SLA Timers | `Wave 1` | 先完成通用 timer/SLA engine 与最小 notice skeleton |
-| `WF-05` Retention + Delete Gate | `Wave 1` | 先完成 soft delete、DeletionLog、审批闭环 |
+| `WF-03` SoD Block + Maker-Checker | `Wave 1` | 已按 Wave 1 落地通用 approval engine 与 3 类敏感动作复用 |
+| `WF-04` Notice Registry + SLA Timers | `Wave 1` | 已按 Wave 1 落地简化版 governance SLA timer + notification registry |
+| `WF-05` Retention + Delete Gate | `Wave 1` | 已按 Wave 1 落地 delete request + soft delete gate 审批闭环 |
 | `WF-06` Change Ticket + Release Gate + Link Integrity | `Wave 1`、`Wave 8` | `Wave 1` 完成发布闸门 P0；`Wave 8` 完成 P2 的 link integrity 深化 |
 | `WF-07` PayIn→Deposit | `Wave 4` | 完整交付充值链路 |
 | `WF-08` Pricing→Quote→Swap | `Wave 5` | 完整交付兑换链路 |
@@ -62,7 +62,7 @@
 | `WF-23` Complaints + Disputes/Refunds + RCA/CAPA | `Wave 8` | 后置扩展；如监管优先级提高，可前移到 `Wave 7` |
 | `WF-24` Regulatory Reporting Calendar + Production Packs + Agreements | `Wave 8` | 后置扩展 |
 | `WF-GOV-01` Governance Registries | `Wave 7` | 治理台账全量上线 |
-| `WF-GOV-02` Filing + Receipt + Effectiveness Gate | `Wave 1`、`Wave 7` | `Wave 1` 完成最小生效闸门；`Wave 7` 完成 filing/receipt/effective 全链路 |
+| `WF-GOV-02` Filing + Receipt + Effectiveness Gate | `Wave 7` | `Wave 1` 未落地；后续单独完成 filing/receipt/effective 全链路 |
 | `WF-GOV-03` Security/Privacy Programme Evidence Factory | `Wave 8` | 后置扩展 |
 | `WF-GOV-04` Policy & Attestation Lifecycle | `Wave 8` | 后置扩展 |
 
@@ -77,17 +77,16 @@
 
 **目标**
 
-建立所有后续业务都会复用的控制面底座：权限边界、审计取证、maker-checker、软删除、发布闸门、通用计时器，以及最小生效门禁。
+建立所有后续业务都会复用的控制面底座：权限边界、审计取证、maker-checker、软删除、发布闸门，以及 Governance 范围内的通用计时器。
 
 **本波 workflow**
 
 - `WF-01` 全量
 - `WF-02` 全量
-- `WF-03` Phase A
-- `WF-04` Phase A
-- `WF-05` Phase A（soft delete only）
-- `WF-06` Phase A（P0 release gate only）
-- `WF-GOV-02` Phase A（minimum effectiveness gate）
+- `WF-03` Approval Engine + maker-checker
+- `WF-04` Governance SLA Timer + notification registry
+- `WF-05` Delete Request + soft delete gate
+- `WF-06` Change Ticket + Release Gate
 
 **为什么放在这里**
 
@@ -98,29 +97,27 @@
 
 - 统一审计事件标准、统一查询接口、统一证据包导出、`export_hash` 生成。
 - `RBAC + Auth Boundary` 生效，客户端/管理端边界明确，未授权请求默认拒绝并留痕。
-- maker-checker 引擎落地，并至少复用于：
+- maker-checker 引擎落地，并已至少复用于：
   - 敏感导出
   - 软删除
-  - 发布/生效动作
+  - 发布动作
 - soft delete 能力落地：
-  - `deleted_at`
-  - `DeletionLog`
-  - 审批流闭环
+  - `deletedAt / deletedBy / deleteRequestId / deleteReason`
+  - `Delete Request`
+  - 审批流闭环与快照保留
 - Release gate 生效：
   - 缺变更单禁止上线
   - 缺测试证据禁止上线
   - 缺回滚方案禁止上线
-- 通用 timer/SLA engine 落地，支持：
-  - `4h`
-  - `24h`
-  - `48h`
-  - `72h`
-  - `T+N`
-- 最小 effectiveness gate 生效：没有 filing receipt 或 effective 标记时，禁止对应功能开放。
+- Governance 范围内 SLA 能力落地：
+  - `APPROVAL_TIMEOUT`
+  - `CHANGE_POST_APPROVAL_FOLLOWUP`
+  - notification registry
+  - `Close / Recalc / demo mock`
 
 **Wave DoD**
 
-- `WF-03/01/02/06(P0)/05(软删)/04 + GOV-02 最小门禁` 达到用户定义的 Wave 1 DoD。
+- `WF-01 / WF-02 / WF-03 / WF-04 / WF-05 / WF-06` 达到当前项目定义的 Wave 1 交付基线。
 
 **代表性 UAT**
 
