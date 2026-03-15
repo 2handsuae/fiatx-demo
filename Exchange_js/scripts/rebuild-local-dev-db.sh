@@ -2,41 +2,48 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+# shellcheck source=./stack-common.sh
+source "${SCRIPT_DIR}/stack-common.sh"
 # shellcheck source=./db-env.sh
 source "${SCRIPT_DIR}/db-env.sh"
 
-DB_URL="$(read_database_url "${ROOT_DIR}" "audit_evidence")"
-DB_FILE="$(resolve_db_file_from_url "${ROOT_DIR}" "${DB_URL}")"
+require_commands sqlite3 npm find git
 
-echo "[wave1] stopping local services"
-bash "${SCRIPT_DIR}/dev-stop-all.sh" >/dev/null 2>&1 || true
+load_stack_config main
+assert_stack_paths
+assert_branch_rule
 
-mkdir -p "$(dirname "${DB_FILE}")"
+echo "[main] stopping local services"
+bash "${SCRIPT_DIR}/stack-stop.sh" main >/dev/null 2>&1 || true
 
-if [[ -f "${DB_FILE}" ]]; then
-  backup_file="${DB_FILE}.bak-$(date +%Y%m%d%H%M%S)"
-  cp "${DB_FILE}" "${backup_file}"
-  echo "[wave1] database backup created: ${backup_file}"
+db_file="$(resolve_db_file)"
+db_url="$(read_database_url "${APP_DIR}" "${STACK}")"
+
+mkdir -p "$(dirname "${db_file}")"
+
+if [[ -f "${db_file}" ]]; then
+  backup_file="${db_file}.bak-$(date +%Y%m%d%H%M%S)"
+  cp "${db_file}" "${backup_file}"
+  echo "[main] database backup created: ${backup_file}"
 fi
 
-rm -f "${DB_FILE}" "${DB_FILE}-journal" "${DB_FILE}-wal" "${DB_FILE}-shm"
+rm -f "${db_file}" "${db_file}-journal" "${db_file}-wal" "${db_file}-shm"
 
-echo "[wave1] rebuilding local database from Prisma migrations"
+echo "[main] rebuilding local database from versioned migrations"
 (
-  cd "${ROOT_DIR}"
-  DATABASE_URL="${DB_URL}" bash scripts/apply-local-migrations.sh "${ROOT_DIR}" "audit_evidence"
+  cd "${APP_DIR}"
+  DATABASE_URL="${db_url}" bash scripts/apply-local-migrations.sh "${APP_DIR}" "${STACK}"
 )
 
-echo "[wave1] syncing base IAM data"
+echo "[main] syncing base IAM data"
 (
-  cd "${ROOT_DIR}"
-  DATABASE_URL="${DB_URL}" npm run db:base:sync
+  cd "${APP_DIR}"
+  DATABASE_URL="${db_url}" npm run db:base:sync
 )
 
-echo "[wave1] rebuild complete"
+echo "[main] rebuild complete"
 echo "Run next:"
 echo "  npm run runtime:diagnose"
 echo "  npm run dev:start"
 echo "Optional demo data:"
-echo "  npm run governance:demo:seed"
+echo "  DATABASE_URL=\"${db_url}\" npm run governance:demo:seed"

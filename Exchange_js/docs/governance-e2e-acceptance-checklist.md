@@ -19,15 +19,15 @@
 - 外发通知能力（邮件、短信、站内消息）
 - `Delete Request` 的批量删除、恢复删除、用户删除
 
-### 当前分支运行口径
-- 当前 `audit-evidence` worktree 默认端口是：
-  - backend: `http://localhost:3500`
-  - admin-web: `http://localhost:3501`
-  - client-web: `http://localhost:3502`
+### 当前 main 运行口径
+- 当前 `main` stack 默认端口是：
+  - backend: `http://localhost:3000`
+  - admin-web: `http://localhost:3001`
+  - client-web: `http://localhost:3002`
 - Admin 登录入口：
-  - `http://localhost:3501/admin/login`
+  - `http://localhost:3001/admin/login`
 - Swagger / 健康检查入口：
-  - `http://localhost:3500/api`
+  - `http://localhost:3000/api`
 
 ### 建议验收顺序
 1. `Approval`
@@ -54,15 +54,15 @@
 ### 环境命令
 
 ```bash
-cd /Users/songshengwei/Documents/codex/projects/重做版/.wt/audit-evidence/Exchange_js
+cd /Users/songshengwei/Documents/codex/projects/重做版/Exchange_js
 npm run db:base:sync
 npm run dev:start
-curl http://localhost:3500/api
+curl http://localhost:3000/api
 ```
 
 ### 通过标准
-- `curl http://localhost:3500/api` 返回 `200`
-- 能打开 `http://localhost:3501/admin/login`
+- `curl http://localhost:3000/api` 返回 `200`
+- 能打开 `http://localhost:3001/admin/login`
 - 以下账号都能登录：
   - `admin@fiatx.com`
   - `mlro@fiatx.com`
@@ -80,7 +80,7 @@ curl http://localhost:3500/api
   - 确认密码仍是 `123456`
 - 菜单缺失：
   - 退出并重新登录
-  - 确认 backend 跑的是当前分支端口 `3500`
+  - 确认 backend 跑的是当前 `main` 端口 `3000`
 - 页面报 `Internal server error`：
   - 先执行 `npm run db:migrate:local`
   - 再执行 `npm run db:base:sync`
@@ -499,17 +499,17 @@ curl http://localhost:3500/api
 ### 8.1 环境基线
 
 ```bash
-cd /Users/songshengwei/Documents/codex/projects/重做版/.wt/audit-evidence/Exchange_js
+cd /Users/songshengwei/Documents/codex/projects/重做版/Exchange_js
 npm run db:base:sync
 npm run dev:start
-curl http://localhost:3500/api
+curl http://localhost:3000/api
 ```
 
 ### 8.2 一键跑通 SLA demo
 
 ```bash
-cd /Users/songshengwei/Documents/codex/projects/重做版/.wt/audit-evidence/Exchange_js
-export API_BASE_URL=http://localhost:3500
+cd /Users/songshengwei/Documents/codex/projects/重做版/Exchange_js
+export API_BASE_URL=http://localhost:3000
 export ADMIN_EMAIL=admin@fiatx.com
 export ADMIN_PASSWORD=123456
 npm run sla:demo:smoke
@@ -518,7 +518,7 @@ npm run sla:demo:smoke
 ### 8.3 获取 Bearer Token
 
 ```bash
-TOKEN=$(curl -s http://localhost:3500/auth/login \
+TOKEN=$(curl -s http://localhost:3000/auth/login \
   -H 'Content-Type: application/json' \
   -d '{"email":"admin@fiatx.com","password":"123456"}' \
   | node -e "let s='';process.stdin.on('data',d=>s+=d);process.stdin.on('end',()=>process.stdout.write(JSON.parse(s).access_token));")
@@ -528,7 +528,7 @@ echo "$TOKEN" | head -c 24 && echo '...'
 ### 8.4 创建 `APPROVAL_TIMEOUT` demo chain
 
 ```bash
-curl -s http://localhost:3500/admin/demo/control-gates/sla-timers/approval-timeout \
+curl -s http://localhost:3000/admin/demo/control-gates/sla-timers/approval-timeout \
   -X POST \
   -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
@@ -538,7 +538,7 @@ curl -s http://localhost:3500/admin/demo/control-gates/sla-timers/approval-timeo
 ### 8.5 创建 `CHANGE_POST_APPROVAL_FOLLOWUP` demo chain
 
 ```bash
-curl -s http://localhost:3500/admin/demo/control-gates/sla-timers/change-follow-up \
+curl -s http://localhost:3000/admin/demo/control-gates/sla-timers/change-follow-up \
   -X POST \
   -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
@@ -548,7 +548,7 @@ curl -s http://localhost:3500/admin/demo/control-gates/sla-timers/change-follow-
 ### 8.6 强制使 active timer 过期
 
 ```bash
-curl -s http://localhost:3500/admin/demo/control-gates/sla-timers/<timerId>/expire \
+curl -s http://localhost:3000/admin/demo/control-gates/sla-timers/<timerId>/expire \
   -X POST \
   -H "Authorization: Bearer $TOKEN"
 ```
@@ -556,7 +556,7 @@ curl -s http://localhost:3500/admin/demo/control-gates/sla-timers/<timerId>/expi
 ### 8.7 手工 Recalc timer
 
 ```bash
-curl -s http://localhost:3500/admin/control-gates/sla-timers/<timerId>/recalc \
+curl -s http://localhost:3000/admin/control-gates/sla-timers/<timerId>/recalc \
   -X POST \
   -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
@@ -566,6 +566,6 @@ curl -s http://localhost:3500/admin/control-gates/sla-timers/<timerId>/recalc \
 ### 8.8 按 workflowNo 快速拉审计
 
 ```bash
-curl -s "http://localhost:3500/admin/audit-logs?workflowNo=<workflowNo>&take=100" \
+curl -s "http://localhost:3000/admin/audit-logs?workflowNo=<workflowNo>&take=100" \
   -H "Authorization: Bearer $TOKEN"
 ```

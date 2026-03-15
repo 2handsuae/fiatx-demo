@@ -37,7 +37,7 @@ type SlaTimerResponse = {
   status: string;
 };
 
-const baseUrl = process.env.API_BASE_URL || 'http://localhost:3500';
+const baseUrl = process.env.API_BASE_URL || 'http://localhost:3000';
 const defaultPassword = process.env.ADMIN_PASSWORD || '123456';
 
 function uniqueSuffix() {

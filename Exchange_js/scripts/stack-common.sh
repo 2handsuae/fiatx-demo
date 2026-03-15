@@ -9,12 +9,11 @@ if [[ -z "${CURRENT_WT_DIR}" ]]; then
   CURRENT_WT_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 fi
 
-GIT_COMMON_DIR="$(git -C "${SCRIPT_DIR}" rev-parse --git-common-dir 2>/dev/null || echo "${CURRENT_WT_DIR}/.git")"
-if [[ "${GIT_COMMON_DIR}" = /* ]]; then
-  ROOT_DIR="$(cd "${GIT_COMMON_DIR}/.." && pwd)"
-else
-  ROOT_DIR="$(cd "${CURRENT_WT_DIR}/${GIT_COMMON_DIR}/.." && pwd)"
-fi
+GIT_COMMON_DIR="$(
+  git -C "${SCRIPT_DIR}" rev-parse --path-format=absolute --git-common-dir 2>/dev/null ||
+    echo "${CURRENT_WT_DIR}/.git"
+)"
+ROOT_DIR="$(cd "${GIT_COMMON_DIR}/.." && pwd)"
 
 STACK=""
 WT_DIR=""
@@ -206,6 +205,7 @@ ADMIN_URL=${ADMIN_URL}
 CLIENT_URL=${CLIENT_URL}
 
 DATABASE_URL="${default_db_url}"
+GOVERNANCE_DEMO_ENABLED=true
 ENV
     echo "[${STACK}] created ${backend_env}"
   fi

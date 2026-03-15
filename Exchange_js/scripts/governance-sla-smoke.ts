@@ -29,7 +29,7 @@ type AuditListResponse = {
   }>;
 };
 
-const baseUrl = process.env.API_BASE_URL || 'http://localhost:3500';
+const baseUrl = process.env.API_BASE_URL || 'http://localhost:3000';
 const email = process.env.ADMIN_EMAIL || 'admin@fiatx.com';
 const password = process.env.ADMIN_PASSWORD || '123456';
 

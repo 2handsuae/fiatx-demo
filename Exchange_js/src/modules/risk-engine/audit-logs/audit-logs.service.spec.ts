@@ -1,4 +1,4 @@
-import { NotFoundException } from '@nestjs/common';
+import { InternalServerErrorException, NotFoundException } from '@nestjs/common';
 import { AuditLogsService } from './audit-logs.service';
 import {
   AuditResult,
@@ -626,16 +626,38 @@ describe('AuditLogsService', () => {
 
     const result = await service.findEvidencePackages({ take: 20 });
 
+    expect(prisma.auditEvidencePackage.count).toHaveBeenCalledWith({
+      where: { deletedAt: null },
+    });
+    expect(prisma.auditEvidencePackage.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { deletedAt: null },
+      }),
+    );
     expect(result.total).toBe(1);
     expect(result.items[0].filterSnapshot).toEqual({ workflowType: 'DEPOSIT' });
     expect(result.items[0].selectedEventIdsSnapshot).toEqual(['a1', 'a2']);
     expect(result.items[0].manifest).toEqual({ version: '1.0' });
   });
 
+  it('should reject soft-deleted evidence packages on detail and download', async () => {
+    prisma.auditEvidencePackage.findUnique.mockResolvedValue({
+      id: 'pkg-deleted',
+      packageNo: 'EVP2603010999',
+      deletedAt: new Date('2026-03-01T11:00:00.000Z'),
+    });
+
+    await expect(service.findEvidencePackage('pkg-deleted')).rejects.toThrow(NotFoundException);
+    await expect(service.downloadEvidencePackage('pkg-deleted')).rejects.toThrow(
+      NotFoundException,
+    );
+  });
+
   it('should download persisted evidence package content without rebuilding it', async () => {
     prisma.auditEvidencePackage.findUnique.mockResolvedValue({
       id: 'pkg-2',
       packageNo: 'EVP2603010002',
+      deletedAt: null,
       fileName: 'EVP2603010002.json',
       digest: 'f'.repeat(64),
       manifest: JSON.stringify({ version: '1.0' }),
@@ -664,5 +686,34 @@ describe('AuditLogsService', () => {
         digest: 'f'.repeat(64),
       }),
     );
+  });
+
+  it('should fail fast when audit evidence storage is unavailable', async () => {
+    delete prisma.auditEvidencePackage;
+
+    await expect(service.findEvidencePackages({ take: 20 })).rejects.toThrow(
+      InternalServerErrorException,
+    );
+  });
+
+  it('should fail fast when audit event storage is unavailable', async () => {
+    delete prisma.auditLogEvent;
+
+    await expect(
+      service.recordByActor(
+        {
+          action: AuditActions.ADMIN_LOGIN_SUCCESS,
+          module: AuditModules.AUTH,
+          entityType: AuditEntityTypes.AUTH,
+        },
+        {
+          actorType: 'ADMIN',
+          actorId: 'admin-1',
+          actorRole: 'OPS',
+        },
+      ),
+    ).rejects.toThrow(InternalServerErrorException);
+
+    await expect(service.findAll({ take: 20 })).rejects.toThrow(InternalServerErrorException);
   });
 });

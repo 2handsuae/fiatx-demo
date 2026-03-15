@@ -13,46 +13,35 @@ load_stack_config main
 assert_stack_paths
 assert_branch_rule
 
-bash "${SCRIPT_DIR}/stack-stop.sh" main
-
-db_file="$(resolve_db_file)"
 db_url="$(read_database_url "${APP_DIR}" "${STACK}")"
+db_file="$(resolve_db_file)"
+
+echo "[main] stopping services before business reset"
+bash "${SCRIPT_DIR}/stack-stop.sh" main >/dev/null 2>&1 || true
 
 mkdir -p "$(dirname "${db_file}")"
-if [[ -f "${db_file}" ]]; then
-  backup_file="${db_file}.bak-$(date +%Y%m%d%H%M%S)"
-  cp "${db_file}" "${backup_file}"
-  echo "[main] backup created: ${backup_file}"
-fi
 
-rm -f "${db_file}"
-
-echo "[main] rebuilding database schema: ${db_file}"
+echo "[main] applying pending migrations: ${db_file}"
 (
   cd "${APP_DIR}"
   DATABASE_URL="${db_url}" bash scripts/apply-local-migrations.sh "${APP_DIR}" "${STACK}"
 )
 
-echo "[main] syncing base config"
+echo "[main] syncing base IAM config"
 (
   cd "${APP_DIR}"
   DATABASE_URL="${db_url}" npm run db:base:sync
 )
 
-echo "[main] seeding business data"
+echo "[main] resetting business data"
 (
   cd "${APP_DIR}"
-  DATABASE_URL="${db_url}" npm run db:biz:init
+  DATABASE_URL="${db_url}" npm run db:biz:reset
 )
 
-bash "${SCRIPT_DIR}/stack-up.sh" main
-
 echo ""
-echo "[main] reset complete"
-echo "API:    ${BACKEND_URL}"
-echo "Admin:  ${ADMIN_URL}"
-echo "Client: ${CLIENT_URL}"
-echo "Logs:"
-echo "  ${BACKEND_LOG}"
-echo "  ${ADMIN_LOG}"
-echo "  ${CLIENT_LOG}"
+echo "[main] business reset complete"
+echo "Database: ${db_file}"
+echo "Run next:"
+echo "  npm run runtime:diagnose"
+echo "  npm run dev:start"

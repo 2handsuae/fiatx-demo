@@ -5,11 +5,13 @@ import { AdminInvitationsService } from '../users/admin-invitations.service';
 import { JwtService } from '@nestjs/jwt';
 import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
 import { ForbiddenException } from '@nestjs/common';
+import { AccessControlService } from '../access-control/access-control.service';
 
 describe('AuthService', () => {
   let service: AuthService;
   let usersService: any;
   let auditLogsService: any;
+  let accessControlService: any;
 
   beforeEach(async () => {
     usersService = {
@@ -21,6 +23,11 @@ describe('AuthService', () => {
 
     auditLogsService = {
       recordByActor: jest.fn(),
+    };
+
+    accessControlService = {
+      getUserRoleCodes: jest.fn(),
+      getUserPermissionCodes: jest.fn(),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -46,6 +53,10 @@ describe('AuthService', () => {
         {
           provide: AuditLogsService,
           useValue: auditLogsService,
+        },
+        {
+          provide: AccessControlService,
+          useValue: accessControlService,
         },
       ],
     }).compile();
@@ -74,5 +85,36 @@ describe('AuthService', () => {
       service.validateUser('ciso@fiatx.com', '123456'),
     ).rejects.toBeInstanceOf(ForbiddenException);
     expect(auditLogsService.recordByActor).toHaveBeenCalled();
+  });
+
+  it('should return resolved role and permission sets for admin session', async () => {
+    usersService.findById.mockResolvedValue({
+      id: 'user-1',
+      userNo: 'ADMIN-TECH',
+      email: 'tech_admin@fiatx.com',
+      status: 'ACTIVE',
+      lastLoginAt: new Date('2026-03-15T08:00:00.000Z'),
+    });
+    accessControlService.getUserRoleCodes.mockResolvedValue(['TECH_ADMIN']);
+    accessControlService.getUserPermissionCodes.mockResolvedValue([
+      'api.get.admin_control_gates_change_tickets',
+      'api.post.admin_control_gates_change_tickets',
+      'api.get.admin_control_gates_sla_timers',
+    ]);
+
+    const result = await service.getAdminSession('user-1');
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        id: 'user-1',
+        userNo: 'ADMIN-TECH',
+        roles: ['TECH_ADMIN'],
+        permissions: [
+          'api.get.admin_control_gates_change_tickets',
+          'api.post.admin_control_gates_change_tickets',
+          'api.get.admin_control_gates_sla_timers',
+        ],
+      }),
+    );
   });
 });

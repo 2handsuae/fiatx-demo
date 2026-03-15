@@ -2,12 +2,12 @@
 
 ## 架构总览与模块边界
 统一审计采用“中心写入 + 业务接入”的结构：
-- 审计中心模块：`/Users/songshengwei/Documents/codex/projects/重做版/.wt/audit-evidence/Exchange_js/src/modules/risk-engine/audit-logs`
-- 审批治理模块：`/Users/songshengwei/Documents/codex/projects/重做版/.wt/audit-evidence/Exchange_js/src/modules/governance/approvals`
-- 更改单治理模块：`/Users/songshengwei/Documents/codex/projects/重做版/.wt/audit-evidence/Exchange_js/src/modules/governance/change-tickets`
-- 后端入口控制器：`/Users/songshengwei/Documents/codex/projects/重做版/.wt/audit-evidence/Exchange_js/src/modules/risk-engine/audit-logs/audit-logs.controller.ts`
-- 核心写入服务：`/Users/songshengwei/Documents/codex/projects/重做版/.wt/audit-evidence/Exchange_js/src/modules/risk-engine/audit-logs/audit-logs.service.ts`
-- 常量与规范：`/Users/songshengwei/Documents/codex/projects/重做版/.wt/audit-evidence/Exchange_js/src/modules/risk-engine/audit-logs/constants/audit-actions.constant.ts`
+- 审计中心模块：`/Users/songshengwei/Documents/codex/projects/重做版/Exchange_js/src/modules/risk-engine/audit-logs`
+- 审批治理模块：`/Users/songshengwei/Documents/codex/projects/重做版/Exchange_js/src/modules/governance/approvals`
+- 更改单治理模块：`/Users/songshengwei/Documents/codex/projects/重做版/Exchange_js/src/modules/governance/change-tickets`
+- 后端入口控制器：`/Users/songshengwei/Documents/codex/projects/重做版/Exchange_js/src/modules/risk-engine/audit-logs/audit-logs.controller.ts`
+- 核心写入服务：`/Users/songshengwei/Documents/codex/projects/重做版/Exchange_js/src/modules/risk-engine/audit-logs/audit-logs.service.ts`
+- 常量与规范：`/Users/songshengwei/Documents/codex/projects/重做版/Exchange_js/src/modules/risk-engine/audit-logs/constants/audit-actions.constant.ts`
 - 工具：
 1. 脱敏：`.../utils/audit-mask.util.ts`
 2. 摘要：`.../utils/audit-digest.util.ts`
@@ -18,7 +18,7 @@
 - 旧审计表仅保留历史读取，不再承接新写入。
 
 ## 数据模型（`audit_log_events`、`audit_log_subject_nos`、`audit_evidence_packages`）
-Prisma 定义位于：`/Users/songshengwei/Documents/codex/projects/重做版/.wt/audit-evidence/Exchange_js/prisma/schema.prisma`
+Prisma 定义位于：`/Users/songshengwei/Documents/codex/projects/重做版/Exchange_js/prisma/schema.prisma`
 
 ### 1) `audit_log_events`
 核心字段：
@@ -89,7 +89,7 @@ Prisma 定义位于：`/Users/songshengwei/Documents/codex/projects/重做版/.w
 - 系统动作：`SYSTEM_*`
 
 动作字典定义位置：
-- `/Users/songshengwei/Documents/codex/projects/重做版/.wt/audit-evidence/Exchange_js/src/modules/risk-engine/audit-logs/constants/audit-actions.constant.ts`
+- `/Users/songshengwei/Documents/codex/projects/重做版/Exchange_js/src/modules/risk-engine/audit-logs/constants/audit-actions.constant.ts`
 
 ## `AuditLogsService` 写入链路（脱敏、摘要、幂等、No 归一、subjectNos 构建）
 写入主链路在 `recordByActor()`：
@@ -111,8 +111,8 @@ Prisma 定义位于：`/Users/songshengwei/Documents/codex/projects/重做版/.w
 - 追加一条 `EVIDENCE_EXPORT` 审计事件，并通过 `ApprovalsService.markExecutionResult()` 回写审批执行态
 
 ## API/DTO 契约（查询过滤、详情、导出）
-控制器：`/Users/songshengwei/Documents/codex/projects/重做版/.wt/audit-evidence/Exchange_js/src/modules/risk-engine/audit-logs/audit-logs.controller.ts`
-DTO：`/Users/songshengwei/Documents/codex/projects/重做版/.wt/audit-evidence/Exchange_js/src/modules/risk-engine/audit-logs/dto/audit-log.dto.ts`
+控制器：`/Users/songshengwei/Documents/codex/projects/重做版/Exchange_js/src/modules/risk-engine/audit-logs/audit-logs.controller.ts`
+DTO：`/Users/songshengwei/Documents/codex/projects/重做版/Exchange_js/src/modules/risk-engine/audit-logs/dto/audit-log.dto.ts`
 
 ### 已有接口
 - `POST /admin/audit-logs`
@@ -235,9 +235,9 @@ DTO：`/Users/songshengwei/Documents/codex/projects/重做版/.wt/audit-evidence
 
 ## 关键接入矩阵（按模块列出接入点与 action）
 ### Deposit workflow（本轮重点验收）
-- `/Users/songshengwei/Documents/codex/projects/重做版/.wt/audit-evidence/Exchange_js/src/modules/asset-treasury/payins/payins.service.ts`
-- `/Users/songshengwei/Documents/codex/projects/重做版/.wt/audit-evidence/Exchange_js/src/modules/trading/deposit-transactions/deposit-transactions.service.ts`
-- `/Users/songshengwei/Documents/codex/projects/重做版/.wt/audit-evidence/Exchange_js/src/orchestrators/deposit-workflow.service.ts`
+- `/Users/songshengwei/Documents/codex/projects/重做版/Exchange_js/src/modules/asset-treasury/payins/payins.service.ts`
+- `/Users/songshengwei/Documents/codex/projects/重做版/Exchange_js/src/modules/trading/deposit-transactions/deposit-transactions.service.ts`
+- `/Users/songshengwei/Documents/codex/projects/重做版/Exchange_js/src/orchestrators/deposit-workflow.service.ts`
 - 动作：
 1. `PAYIN_CREATED`
 2. `DEPOSIT_CREATED_FROM_PAYIN`
@@ -247,8 +247,8 @@ DTO：`/Users/songshengwei/Documents/codex/projects/重做版/.wt/audit-evidence
 6. `DEPOSIT_ACCOUNTING_POSTED`
 
 ### Governance Change Ticket workflow（第二阶段）
-- `/Users/songshengwei/Documents/codex/projects/重做版/.wt/audit-evidence/Exchange_js/src/modules/governance/change-tickets/change-tickets.service.ts`
-- `/Users/songshengwei/Documents/codex/projects/重做版/.wt/audit-evidence/Exchange_js/src/modules/governance/change-tickets/release-gates.service.ts`
+- `/Users/songshengwei/Documents/codex/projects/重做版/Exchange_js/src/modules/governance/change-tickets/change-tickets.service.ts`
+- `/Users/songshengwei/Documents/codex/projects/重做版/Exchange_js/src/modules/governance/change-tickets/release-gates.service.ts`
 - 动作：
 1. `CHANGE_TICKET_CREATED`
 2. `CHANGE_TICKET_SUBMITTED`
@@ -264,29 +264,29 @@ DTO：`/Users/songshengwei/Documents/codex/projects/重做版/.wt/audit-evidence
 
 以下为当前关键接入点（P0 优先）：
 - Auth
-1. `/Users/songshengwei/Documents/codex/projects/重做版/.wt/audit-evidence/Exchange_js/src/modules/identity/auth/auth.service.ts`
-2. `/Users/songshengwei/Documents/codex/projects/重做版/.wt/audit-evidence/Exchange_js/src/modules/identity/auth/customer-auth.service.ts`
+1. `/Users/songshengwei/Documents/codex/projects/重做版/Exchange_js/src/modules/identity/auth/auth.service.ts`
+2. `/Users/songshengwei/Documents/codex/projects/重做版/Exchange_js/src/modules/identity/auth/customer-auth.service.ts`
 3. 动作：`ADMIN_LOGIN_SUCCESS/FAILED`、`CUSTOMER_LOGIN_SUCCESS/FAILED`、`ACCOUNT_LOCKED/UNLOCKED`
 
 - Compliance
-1. `/Users/songshengwei/Documents/codex/projects/重做版/.wt/audit-evidence/Exchange_js/src/modules/risk-engine/transaction-compliance/transaction-compliance.service.ts`
+1. `/Users/songshengwei/Documents/codex/projects/重做版/Exchange_js/src/modules/risk-engine/transaction-compliance/transaction-compliance.service.ts`
 2. 动作：`KYT_CASE_CREATED`、`KYT_CASE_UPDATED`、`TRAVEL_RULE_UPDATED`、`SYSTEM_TX_COMPLIANCE_BACKFILL_EXECUTED`
 
 - Config
-1. `/Users/songshengwei/Documents/codex/projects/重做版/.wt/audit-evidence/Exchange_js/src/modules/asset-treasury/assets/assets.service.ts`
-2. `/Users/songshengwei/Documents/codex/projects/重做版/.wt/audit-evidence/Exchange_js/src/modules/counterparty/liquidity-config/liquidity-config.service.ts`
-3. `/Users/songshengwei/Documents/codex/projects/重做版/.wt/audit-evidence/Exchange_js/src/modules/accounting/acct-events/acct-events.service.ts`
-4. `/Users/songshengwei/Documents/codex/projects/重做版/.wt/audit-evidence/Exchange_js/src/modules/clearing-settle/clearing/clearing-templates.service.ts`
-5. `/Users/songshengwei/Documents/codex/projects/重做版/.wt/audit-evidence/Exchange_js/src/modules/accounting/journal-header-templates/journal-header-templates.service.ts`
-6. `/Users/songshengwei/Documents/codex/projects/重做版/.wt/audit-evidence/Exchange_js/src/modules/accounting/journal-line-templates/journal-line-templates.service.ts`
-7. `/Users/songshengwei/Documents/codex/projects/重做版/.wt/audit-evidence/Exchange_js/src/modules/identity/customer-swap-rates/customer-swap-rates.service.ts`
-8. `/Users/songshengwei/Documents/codex/projects/重做版/.wt/audit-evidence/Exchange_js/src/modules/accounting/coa/coa.service.ts`
+1. `/Users/songshengwei/Documents/codex/projects/重做版/Exchange_js/src/modules/asset-treasury/assets/assets.service.ts`
+2. `/Users/songshengwei/Documents/codex/projects/重做版/Exchange_js/src/modules/counterparty/liquidity-config/liquidity-config.service.ts`
+3. `/Users/songshengwei/Documents/codex/projects/重做版/Exchange_js/src/modules/accounting/acct-events/acct-events.service.ts`
+4. `/Users/songshengwei/Documents/codex/projects/重做版/Exchange_js/src/modules/clearing-settle/clearing/clearing-templates.service.ts`
+5. `/Users/songshengwei/Documents/codex/projects/重做版/Exchange_js/src/modules/accounting/journal-header-templates/journal-header-templates.service.ts`
+6. `/Users/songshengwei/Documents/codex/projects/重做版/Exchange_js/src/modules/accounting/journal-line-templates/journal-line-templates.service.ts`
+7. `/Users/songshengwei/Documents/codex/projects/重做版/Exchange_js/src/modules/identity/customer-swap-rates/customer-swap-rates.service.ts`
+8. `/Users/songshengwei/Documents/codex/projects/重做版/Exchange_js/src/modules/accounting/coa/coa.service.ts`
 9. 动作：`ASSET_CONFIG_UPDATED`、`LP_CONFIG_UPDATED`、`ACCT_EVENT_UPDATED`、`CLEARING_TEMPLATE_UPDATED`、`JOURNAL_TEMPLATE_UPDATED`、`COA_CONFIG_UPDATED`、`CUSTOMER_SWAP_RATE_UPDATED`
 
 - 主数据与报价
-1. `/Users/songshengwei/Documents/codex/projects/重做版/.wt/audit-evidence/Exchange_js/src/modules/asset-treasury/wallets/wallets.service.ts`
-2. `/Users/songshengwei/Documents/codex/projects/重做版/.wt/audit-evidence/Exchange_js/src/modules/identity/customers/customers.service.ts`
-3. `/Users/songshengwei/Documents/codex/projects/重做版/.wt/audit-evidence/Exchange_js/src/modules/trading/swap-transactions/swap-quotes.service.ts`
+1. `/Users/songshengwei/Documents/codex/projects/重做版/Exchange_js/src/modules/asset-treasury/wallets/wallets.service.ts`
+2. `/Users/songshengwei/Documents/codex/projects/重做版/Exchange_js/src/modules/identity/customers/customers.service.ts`
+3. `/Users/songshengwei/Documents/codex/projects/重做版/Exchange_js/src/modules/trading/swap-transactions/swap-quotes.service.ts`
 4. 动作：`WALLET_CREATED`、`WALLET_STATUS_UPDATED`、`CUSTOMER_CREATED/UPDATED/DELETED`、`SWAP_QUOTE_CREATED/CANCELLED/USED`
 
 - 既有交易链（已统一）
@@ -295,11 +295,11 @@ DTO：`/Users/songshengwei/Documents/codex/projects/重做版/.wt/audit-evidence
 
 ## 脚本与运维（`audit:backfill:*`、`audit:backfill:nos:*`、`audit:retention:*`）
 脚本路径：
-- `/Users/songshengwei/Documents/codex/projects/重做版/.wt/audit-evidence/Exchange_js/scripts/backfill-audit-log-events.ts`
-- `/Users/songshengwei/Documents/codex/projects/重做版/.wt/audit-evidence/Exchange_js/scripts/backfill-audit-log-nos.ts`
-- `/Users/songshengwei/Documents/codex/projects/重做版/.wt/audit-evidence/Exchange_js/scripts/audit-retention-job.ts`
+- `/Users/songshengwei/Documents/codex/projects/重做版/Exchange_js/scripts/backfill-audit-log-events.ts`
+- `/Users/songshengwei/Documents/codex/projects/重做版/Exchange_js/scripts/backfill-audit-log-nos.ts`
+- `/Users/songshengwei/Documents/codex/projects/重做版/Exchange_js/scripts/audit-retention-job.ts`
 
-命令示例（在 `/Users/songshengwei/Documents/codex/projects/重做版/.wt/audit-evidence/Exchange_js` 执行）：
+命令示例（在 `/Users/songshengwei/Documents/codex/projects/重做版/Exchange_js` 执行）：
 ```bash
 npm run audit:backfill:dry
 npm run audit:backfill:apply
@@ -322,7 +322,7 @@ npm run dev:reset
 
 排查步骤：
 ```bash
-cd /Users/songshengwei/Documents/codex/projects/重做版/.wt/audit-evidence/Exchange_js
+cd /Users/songshengwei/Documents/codex/projects/重做版/Exchange_js
 npx prisma migrate status
 npm run db:migrate:local
 npx prisma generate
@@ -330,8 +330,8 @@ npx prisma generate
 
 若为本地 SQLite，可快速确认表结构：
 ```bash
-sqlite3 /tmp/exchange_js_audit_evidence/dev.db ".schema audit_log_events"
-sqlite3 /tmp/exchange_js_audit_evidence/dev.db ".schema audit_log_subject_nos"
+sqlite3 /tmp/exchange_js_main/dev.db ".schema audit_log_events"
+sqlite3 /tmp/exchange_js_main/dev.db ".schema audit_log_subject_nos"
 ```
 
 ### 2) `requestId` 类型归一问题

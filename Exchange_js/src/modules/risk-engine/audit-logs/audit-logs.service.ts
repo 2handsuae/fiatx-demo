@@ -98,6 +98,12 @@ export class AuditLogsService {
     private readonly prisma: PrismaService & Record<string, any>,
   ) {}
 
+  private auditStorageUnavailable(resource: string): InternalServerErrorException {
+    return new InternalServerErrorException(
+      `${resource} is unavailable. Run npm run db:migrate:local or npm run dev:rebuild and retry.`,
+    );
+  }
+
   private getDb(client?: AuditWriteClient): AuditWriteClient {
     return (client ?? this.prisma) as AuditWriteClient;
   }
@@ -826,15 +832,7 @@ export class AuditLogsService {
       : {};
 
     if (!this.canOperateAuditLogEvent(db)) {
-      const now = new Date();
-      return {
-        id: `AUDIT_NOOP_${now.getTime()}`,
-        auditNo: generateReferenceNo('AUD'),
-        createdAt: now,
-        updatedAt: now,
-        subjectNos,
-        ...data,
-      };
+      throw this.auditStorageUnavailable('Audit log event storage');
     }
 
     if (data.idempotencyKey) {
@@ -890,16 +888,7 @@ export class AuditLogsService {
   private async createPackageWithUniqueNo(data: any): Promise<any> {
     const db = this.getDb() as any;
     if (!this.canOperateAuditEvidencePackage(db)) {
-      const now = new Date();
-      const packageNo = generateReferenceNo('EVP');
-      return {
-        id: `PKG_NOOP_${now.getTime()}`,
-        packageNo,
-        fileName: data.fileName || `${packageNo}.json`,
-        createdAt: now,
-        updatedAt: now,
-        ...data,
-      };
+      throw this.auditStorageUnavailable('Audit evidence package storage');
     }
     for (let i = 0; i < AuditLogsService.MAX_NO_RETRIES; i += 1) {
       try {
@@ -1087,7 +1076,9 @@ export class AuditLogsService {
     client?: AuditWriteClient,
   ): Promise<boolean> {
     const db = this.getDb(client) as any;
-    if (!this.canOperateAuditLogEvent(db)) return false;
+    if (!this.canOperateAuditLogEvent(db)) {
+      throw this.auditStorageUnavailable('Audit log event storage');
+    }
     const existing = await db.auditLogEvent.findUnique({
       where: { idempotencyKey },
       select: { id: true },
@@ -1238,7 +1229,7 @@ export class AuditLogsService {
 
     const db = this.getDb() as any;
     if (!this.canOperateAuditLogEvent(db)) {
-      return { total: 0, skip, take, items: [] as any[] };
+      throw this.auditStorageUnavailable('Audit log event storage');
     }
     const includeSubjectNos = this.canOperateAuditLogSubjectNo(db)
       ? {
@@ -1272,7 +1263,7 @@ export class AuditLogsService {
   async findOne(id: string) {
     const db = this.getDb() as any;
     if (!this.canOperateAuditLogEvent(db)) {
-      throw new NotFoundException(`Audit log not found: ${id}`);
+      throw this.auditStorageUnavailable('Audit log event storage');
     }
     const includeSubjectNos = this.canOperateAuditLogSubjectNo(db)
       ? {
@@ -1406,10 +1397,12 @@ export class AuditLogsService {
     const db = this.getDb() as any;
 
     if (!this.canOperateAuditEvidencePackage(db)) {
-      return { total: 0, skip, take, items: [] as any[] };
+      throw this.auditStorageUnavailable('Audit evidence package storage');
     }
 
-    const where: any = {};
+    const where: any = {
+      deletedAt: null,
+    };
     if (query.status) {
       where.status = query.status;
     }
@@ -1454,7 +1447,7 @@ export class AuditLogsService {
   async findEvidencePackage(id: string) {
     const db = this.getDb() as any;
     if (!this.canOperateAuditEvidencePackage(db)) {
-      throw new NotFoundException(`Evidence package not found: ${id}`);
+      throw this.auditStorageUnavailable('Audit evidence package storage');
     }
 
     const found = await db.auditEvidencePackage.findUnique({

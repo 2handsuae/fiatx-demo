@@ -9,11 +9,11 @@ import { ConfigService } from '@nestjs/config';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
   const configService = app.get(ConfigService);
-  const port = configService.get<number>('API_PORT') || 3500;
+  const port = configService.get<number>('API_PORT') || 3000;
   const adminUrl =
-    configService.get<string>('ADMIN_URL') || 'http://localhost:3501';
+    configService.get<string>('ADMIN_URL') || 'http://localhost:3001';
   const clientUrl =
-    configService.get<string>('CLIENT_URL') || 'http://localhost:3502';
+    configService.get<string>('CLIENT_URL') || 'http://localhost:3002';
 
   app.useLogger(app.get(Logger));
   app.useGlobalPipes(new ValidationPipe({ transform: true, whitelist: true }));

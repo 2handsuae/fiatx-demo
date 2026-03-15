@@ -1,40 +1,160 @@
 #!/usr/bin/env bash
 set -euo pipefail
+export LC_ALL=C
+export LANG=C
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 # shellcheck source=./db-env.sh
 source "${SCRIPT_DIR}/db-env.sh"
+# shellcheck source=./stack-common.sh
+source "${SCRIPT_DIR}/stack-common.sh"
 
-db_url="$(read_database_url "${ROOT_DIR}" "audit_evidence")"
-db_file="$(resolve_db_file_from_url "${ROOT_DIR}" "${db_url}")"
-backend_port="$(grep -E '^API_PORT=' "${ROOT_DIR}/.env" | tail -n 1 | cut -d'=' -f2- || echo "3500")"
-admin_port="$(grep -E '^DEV_SERVER_PORT=' "${ROOT_DIR}/admin-web/.env.local" | tail -n 1 | cut -d'=' -f2- || echo "3501")"
-client_port="$(grep -E '^DEV_SERVER_PORT=' "${ROOT_DIR}/client-web/.env.local" | tail -n 1 | cut -d'=' -f2- || echo "3502")"
-
-if [[ ! -f "${db_file}" ]]; then
-  echo "{\"cwd\":\"${ROOT_DIR}\",\"databaseUrl\":\"${db_url}\",\"dbFile\":\"${db_file}\",\"dbExists\":false,\"backendPort\":\"${backend_port}\",\"adminPort\":\"${admin_port}\",\"clientPort\":\"${client_port}\"}"
-  exit 0
+stack="${1:-main}"
+if ! load_stack_config "${stack}" >/dev/null 2>&1; then
+  usage_stack_name
+  exit 1
 fi
 
-latest_migration="$(sqlite3 "${db_file}" "SELECT migration_name FROM _prisma_migrations ORDER BY finished_at DESC, migration_name DESC LIMIT 1;" 2>/dev/null || true)"
-approval_count="$(sqlite3 "${db_file}" "SELECT COUNT(*) FROM approval_cases;" 2>/dev/null || echo "0")"
-change_ticket_count="$(sqlite3 "${db_file}" "SELECT COUNT(*) FROM change_tickets;" 2>/dev/null || echo "0")"
-delete_request_count="$(sqlite3 "${db_file}" "SELECT COUNT(*) FROM delete_requests;" 2>/dev/null || echo "0")"
-sla_timer_count="$(sqlite3 "${db_file}" "SELECT COUNT(*) FROM sla_timers;" 2>/dev/null || echo "0")"
-evidence_package_count="$(sqlite3 "${db_file}" "SELECT COUNT(*) FROM audit_evidence_packages;" 2>/dev/null || echo "0")"
+db_url="$(read_database_url "${APP_DIR}" "${STACK}")"
+db_file="$(resolve_db_file_from_url "${APP_DIR}" "${db_url}")"
+migrations_dir="${APP_DIR}/prisma/migrations"
+tmp_dir="$(mktemp -d -t exchange-js-runtime-diagnose)"
+local_rows="${tmp_dir}/local.tsv"
+applied_rows="${tmp_dir}/applied.tsv"
+
+cleanup() {
+  rm -rf "${tmp_dir}"
+}
+
+trap cleanup EXIT
+
+json_escape() {
+  local value="${1:-}"
+  value="${value//\\/\\\\}"
+  value="${value//\"/\\\"}"
+  value="${value//$'\n'/\\n}"
+  printf '%s' "${value}"
+}
+
+json_array() {
+  local first="true"
+  printf '['
+  for item in "$@"; do
+    [[ -z "${item}" ]] && continue
+    if [[ "${first}" == "false" ]]; then
+      printf ','
+    fi
+    printf '"%s"' "$(json_escape "${item}")"
+    first="false"
+  done
+  printf ']'
+}
+
+: >"${local_rows}"
+: >"${applied_rows}"
+
+pending_local=()
+missing_local=()
+checksum_mismatches=()
+
+while IFS= read -r migration_file; do
+  migration_name="$(basename "$(dirname "${migration_file}")")"
+  checksum="$(shasum -a 256 "${migration_file}" | awk '{print $1}')"
+  printf '%s|%s\n' "${migration_name}" "${checksum}" >>"${local_rows}"
+done < <(find "${migrations_dir}" -maxdepth 2 -name migration.sql | sort)
+
+db_exists="false"
+latest_applied=""
+
+if [[ -f "${db_file}" ]]; then
+  db_exists="true"
+  migration_table_exists="$(
+    sqlite3 "${db_file}" \
+      "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='_prisma_migrations';" \
+      2>/dev/null || echo "0"
+  )"
+
+  if [[ "${migration_table_exists}" == "1" ]]; then
+    sqlite3 -separator '|' "${db_file}" \
+      "SELECT migration_name, COALESCE(checksum, '') FROM _prisma_migrations WHERE finished_at IS NOT NULL ORDER BY migration_name ASC;" \
+      >"${applied_rows}" 2>/dev/null || true
+
+    latest_applied="$(
+      sqlite3 "${db_file}" \
+        "SELECT migration_name FROM _prisma_migrations WHERE finished_at IS NOT NULL ORDER BY migration_name DESC LIMIT 1;" \
+        2>/dev/null || true
+    )"
+  fi
+fi
+
+lookup_checksum() {
+  local rows_file="$1"
+  local target_name="$2"
+  awk -F'|' -v target="${target_name}" '$1 == target { print $2; exit }' "${rows_file}"
+}
+
+while IFS='|' read -r migration_name checksum; do
+  [[ -z "${migration_name}" ]] && continue
+  applied_checksum="$(lookup_checksum "${applied_rows}" "${migration_name}")"
+  if [[ -z "${applied_checksum}" ]]; then
+    pending_local+=("${migration_name}")
+    continue
+  fi
+
+  if [[ "${applied_checksum}" != "${checksum}" ]]; then
+    checksum_mismatches+=("${migration_name}")
+  fi
+done <"${local_rows}"
+
+while IFS='|' read -r migration_name checksum; do
+  [[ -z "${migration_name}" ]] && continue
+  if [[ -z "$(lookup_checksum "${local_rows}" "${migration_name}")" ]]; then
+    missing_local+=("${migration_name}")
+  fi
+done <"${applied_rows}"
+
+latest_local=""
+local_count="$(wc -l <"${local_rows}" | tr -d ' ')"
+applied_count="$(wc -l <"${applied_rows}" | tr -d ' ')"
+if [[ "${local_count}" -gt 0 ]]; then
+  latest_local="$(tail -n 1 "${local_rows}" | cut -d'|' -f1)"
+fi
+
+approval_count="0"
+change_ticket_count="0"
+delete_request_count="0"
+sla_timer_count="0"
+evidence_package_count="0"
+
+if [[ "${db_exists}" == "true" ]]; then
+  approval_count="$(sqlite3 "${db_file}" "SELECT COUNT(*) FROM approval_cases;" 2>/dev/null || echo "0")"
+  change_ticket_count="$(sqlite3 "${db_file}" "SELECT COUNT(*) FROM change_tickets;" 2>/dev/null || echo "0")"
+  delete_request_count="$(sqlite3 "${db_file}" "SELECT COUNT(*) FROM delete_requests;" 2>/dev/null || echo "0")"
+  sla_timer_count="$(sqlite3 "${db_file}" "SELECT COUNT(*) FROM sla_timers;" 2>/dev/null || echo "0")"
+  evidence_package_count="$(sqlite3 "${db_file}" "SELECT COUNT(*) FROM audit_evidence_packages;" 2>/dev/null || echo "0")"
+fi
 
 cat <<EOF
 {
-  "cwd": "${ROOT_DIR}",
-  "databaseUrl": "${db_url}",
-  "dbFile": "${db_file}",
-  "dbExists": true,
-  "migrationHead": "${latest_migration}",
+  "stack": "$(json_escape "${STACK}")",
+  "cwd": "$(json_escape "${APP_DIR}")",
+  "databaseUrl": "$(json_escape "${db_url}")",
+  "dbFile": "$(json_escape "${db_file}")",
+  "dbExists": ${db_exists},
   "ports": {
-    "backend": "${backend_port}",
-    "admin": "${admin_port}",
-    "client": "${client_port}"
+    "backend": "${BACKEND_PORT}",
+    "admin": "${ADMIN_PORT}",
+    "client": "${CLIENT_PORT}"
+  },
+  "migration": {
+    "latestLocal": "$(json_escape "${latest_local}")",
+    "latestApplied": "$(json_escape "${latest_applied}")",
+    "localCount": ${local_count},
+    "appliedCount": ${applied_count},
+    "pendingLocal": $(json_array "${pending_local[@]-}"),
+    "missingLocal": $(json_array "${missing_local[@]-}"),
+    "checksumMismatches": $(json_array "${checksum_mismatches[@]-}"),
+    "driftDetected": $([[ "${#pending_local[@]}" -gt 0 || "${#missing_local[@]}" -gt 0 || "${#checksum_mismatches[@]}" -gt 0 ]] && echo "true" || echo "false")
   },
   "counts": {
     "approvalCases": ${approval_count},

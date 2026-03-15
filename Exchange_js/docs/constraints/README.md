@@ -46,9 +46,11 @@ Any agent/thread must read this folder first before proposing or implementing ch
 4. migration plan (if behavior changes)
 
 ## Current Local Baseline
-- API default: `3500`
-- Admin default: `3501`
-- Client default: `3502`
-- Database URL default in backend `.env`: `DATABASE_URL="file:/tmp/exchange_js_audit_evidence/dev.db"`
+- Standard `main` stack entry: `npm run stack:up:main` or `npm run dev:start`
+- API default: `3000`
+- Admin default: `3001`
+- Client default: `3002`
+- Database URL default in backend `.env`: `DATABASE_URL="file:/tmp/exchange_js_main/dev.db"`
 - Stack-local SQLite defaults MUST stay on ASCII-safe absolute paths such as `/tmp/exchange_js_<stack>/dev.db`
 - Local schema bootstrap entry: `npm run db:migrate:local` (versioned SQL chain runner)
+- Governance/runtime repair playbook: `docs/local-main-runtime-runbook.md`

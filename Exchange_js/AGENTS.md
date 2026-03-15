@@ -11,7 +11,10 @@ Before any code change in `Exchange_js`, read:
 7. `docs/constraints/internal-transaction-flow-constraints.md`
 8. `docs/constraints/audit-logging-constraints.md`
 9. `docs/constraints/rbac-member-management-constraints.md`
-10. `docs/constraints/compliance-alert-incident-constraints.md`
+10. `docs/constraints/governance-change-ticket-constraints.md`
+11. `docs/constraints/governance-delete-request-constraints.md`
+12. `docs/constraints/governance-sla-timer-constraints.md`
+13. `docs/constraints/compliance-alert-incident-constraints.md`
 
 ## Scope
 - Backend: `src/**`, `prisma/**`, `scripts/**`
@@ -44,9 +47,12 @@ Before any code change in `Exchange_js`, read:
 - Default discussion baseline: if a capability is logically clear, demonstrable, and supports workflow gating correctly, it is acceptable even if security engineering depth is intentionally simplified.
 
 ## Local Workflow Defaults
-- Start: `npm run dev:start`
-- Stop: `npm run dev:stop`
-- Biz reset: `npm run dev:reset`
+- Main stack up: `npm run dev:start` (delegates to `stack:up:main`)
+- Main stack down: `npm run dev:stop` (delegates to `stack:down:main`)
+- Biz reset only: `npm run dev:reset`
+- Full local DB rebuild: `npm run dev:rebuild`
+- Diagnose runtime / migration drift: `npm run runtime:diagnose`
+- Governance/runtime runbook: `docs/local-main-runtime-runbook.md`
 
 ## Non-Negotiables
 - Do not commit secrets or local runtime artifacts.

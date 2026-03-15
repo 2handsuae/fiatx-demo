@@ -76,7 +76,7 @@ describe('UsersService', () => {
       status: 'INACTIVE',
     });
     adminInvitationsService.createInvitationForUser.mockResolvedValue({
-      inviteLink: 'http://localhost:3501/admin/activate?token=abc',
+      inviteLink: 'http://localhost:3001/admin/activate?token=abc',
       inviteExpiresAt: '2026-02-20T00:00:00.000Z',
       inviteStatus: 'PENDING',
     });
@@ -156,7 +156,7 @@ describe('UsersService', () => {
       userNo: 'ADM2602190001',
       email: 'new-admin@fiatx.com',
       status: 'INACTIVE',
-      inviteLink: 'http://localhost:3501/admin/activate?token=next',
+      inviteLink: 'http://localhost:3001/admin/activate?token=next',
       inviteExpiresAt: '2026-02-20T01:00:00.000Z',
       inviteStatus: 'PENDING',
     });
@@ -191,7 +191,7 @@ describe('UsersService', () => {
       status: 'INACTIVE',
     });
     adminInvitationsService.createInvitationForUser.mockResolvedValue({
-      inviteLink: 'http://localhost:3501/admin/activate?token=dual',
+      inviteLink: 'http://localhost:3001/admin/activate?token=dual',
       inviteExpiresAt: '2026-02-20T00:00:00.000Z',
       inviteStatus: 'PENDING',
     });

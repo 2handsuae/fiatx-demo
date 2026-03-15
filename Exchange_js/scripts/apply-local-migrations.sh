@@ -8,7 +8,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/db-env.sh"
 
 APP_DIR="${1:-$(cd "${SCRIPT_DIR}/.." && pwd)}"
-DB_SCOPE="${2:-audit_evidence}"
+DB_SCOPE="${2:-main}"
 DB_URL="${DATABASE_URL:-$(read_database_url "${APP_DIR}" "${DB_SCOPE}")}"
 DB_FILE="$(resolve_db_file_from_url "${APP_DIR}" "${DB_URL}")"
 SCHEMA_FILE="${APP_DIR}/prisma/schema.prisma"
@@ -92,13 +92,29 @@ create_migration_table
 
 while IFS= read -r migration_file; do
   migration_name="$(basename "$(dirname "${migration_file}")")"
+  checksum="$(shasum -a 256 "${migration_file}" | awk '{print $1}')"
   applied_count="$(sqlite3 "${DB_FILE}" "SELECT COUNT(*) FROM _prisma_migrations WHERE migration_name='${migration_name}' AND finished_at IS NOT NULL;" 2>/dev/null || echo "0")"
   if [[ "${applied_count}" != "0" ]]; then
+    applied_checksum="$(
+      sqlite3 "${DB_FILE}" \
+        "SELECT checksum FROM _prisma_migrations WHERE migration_name='${migration_name}' AND finished_at IS NOT NULL ORDER BY finished_at DESC LIMIT 1;" \
+        2>/dev/null || true
+    )"
+    if [[ -z "${applied_checksum}" ]]; then
+      echo "[migrate] ERROR ${migration_name}: applied migration is missing checksum metadata" >&2
+      exit 1
+    fi
+    if [[ "${applied_checksum}" != "${checksum}" ]]; then
+      echo "[migrate] ERROR ${migration_name}: checksum drift detected." >&2
+      echo "[migrate] expected applied checksum: ${applied_checksum}" >&2
+      echo "[migrate] current file checksum:   ${checksum}" >&2
+      echo "[migrate] add a new migration instead of editing an applied migration." >&2
+      exit 1
+    fi
     echo "[migrate] skip ${migration_name}"
     continue
   fi
 
-  checksum="$(shasum -a 256 "${migration_file}" | awk '{print $1}')"
   wrapped_sql="$(mktemp -t exchange-js-migration-apply)"
   create_wrapped_sql "${migration_name}" "${migration_file}" "${checksum}" "${wrapped_sql}"
 

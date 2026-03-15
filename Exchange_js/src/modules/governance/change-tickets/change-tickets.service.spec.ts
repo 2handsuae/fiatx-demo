@@ -279,6 +279,88 @@ describe('ChangeTicketsService', () => {
     );
   });
 
+  it('runs a gate check from READY_FOR_DEPLOY and records pass audit', async () => {
+    prisma.changeTicket.findUnique.mockResolvedValue(
+      buildTicket({
+        status: ChangeTicketStatuses.READY_FOR_DEPLOY,
+        latestApprovalId: 'approval-1',
+        latestApprovalStatus: ApprovalStatuses.APPROVED,
+      }),
+    );
+    prisma.changeTicketGateRun.create.mockResolvedValue({
+      id: 'run-1',
+      ticketId: 'ticket-1',
+      targetEnv: 'UAT',
+      releaseVersion: 'v1.0.0',
+      status: 'PENDING',
+      reason: 'preflight',
+      failureReason: null,
+      operatorUserId: actor.userId,
+      traceId: 'trace-1',
+      startedAt: null,
+      finishedAt: null,
+      createdAt: baseDate,
+    });
+    prisma.changeTicketGateRun.update
+      .mockResolvedValueOnce({
+        id: 'run-1',
+        ticketId: 'ticket-1',
+        targetEnv: 'UAT',
+        releaseVersion: 'v1.0.0',
+        status: 'RUNNING',
+        reason: 'preflight',
+        failureReason: null,
+        operatorUserId: actor.userId,
+        traceId: 'trace-1',
+        startedAt: baseDate,
+        finishedAt: null,
+        createdAt: baseDate,
+      })
+      .mockResolvedValueOnce({
+        id: 'run-1',
+        ticketId: 'ticket-1',
+        targetEnv: 'UAT',
+        releaseVersion: 'v1.0.0',
+        status: 'PASSED',
+        reason: 'preflight',
+        failureReason: null,
+        operatorUserId: actor.userId,
+        traceId: 'trace-1',
+        startedAt: baseDate,
+        finishedAt: baseDate,
+        createdAt: baseDate,
+      });
+
+    const result = await service.runGateCheck(
+      'ticket-1',
+      {
+        targetEnv: 'UAT',
+        releaseVersion: 'v1.0.0',
+        reason: 'preflight',
+      },
+      actor,
+    );
+
+    expect(result.status).toBe('PASSED');
+    expect(prisma.changeTicketGateRun.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: 'PENDING',
+          targetEnv: 'UAT',
+          releaseVersion: 'v1.0.0',
+        }),
+      }),
+    );
+    expect(auditLogsService.recordByActor).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: AuditActions.RELEASE_GATE_PASSED,
+        workflowNo: 'CT2603140001',
+        entityType: AuditEntityTypes.CHANGE_TICKET_GATE_RUN,
+      }),
+      expect.anything(),
+    );
+  });
+
   it('blocks close when ticket has not been deployed', async () => {
     prisma.changeTicket.findUnique.mockResolvedValue(buildTicket());
 

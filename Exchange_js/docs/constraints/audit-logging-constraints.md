@@ -10,7 +10,7 @@
 6. `clearing-settle`
 7. `governance`
 8. `orchestrators`
-- MUST keep canonical implementation under `/Users/songshengwei/Documents/codex/projects/重做版/.wt/audit-evidence/Exchange_js/src/modules/risk-engine/audit-logs`.
+- MUST keep canonical implementation under `/Users/songshengwei/Documents/codex/projects/重做版/Exchange_js/src/modules/risk-engine/audit-logs`.
 - MUST route all new audit writes through `AuditLogsService` (no ad-hoc table writes in feature modules).
 - SHOULD keep module/action/entity dictionaries centralized in `constants/audit-actions.constant.ts`.
 
@@ -108,6 +108,7 @@
 - Compliance Center MUST NOT duplicate the `Audit Logs` navigation entry.
 - MUST preserve machine-parsable response shape for list/detail/export.
 - SHOULD keep old data readable even after schema enhancement.
+- Governance/audit read-write paths MUST fail fast when required audit tables are unavailable; MUST NOT silently downgrade to noop/in-memory success responses.
 
 ## Thread Delivery Checklist
 - Constraint links added to both `AGENTS.md` and `docs/constraints/README.md`.
