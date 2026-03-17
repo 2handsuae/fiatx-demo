@@ -9,12 +9,20 @@ type DecisionRecordItem = {
   id: string;
   customerId: string;
   contextType: string;
+  subjectType: string;
   subjectId: string;
+  ownerType: string;
+  ownerId: string;
   policyVersion: string;
   status: DecisionRecordStatus | string;
   outputDecision?: string | null;
   reasonCodes?: string[];
   recommendedActions?: Array<Record<string, unknown>>;
+  workflow?: string | null;
+  stage?: string | null;
+  rule?: string | null;
+  orchestration?: Record<string, unknown>;
+  workflowTransition?: Record<string, unknown>;
   errorMessage?: string | null;
   createdAt: string;
   completedAt?: string | null;
@@ -43,7 +51,7 @@ interface FilterState {
   status: string;
   contextType: string;
   outputDecision: string;
-  customerId: string;
+  ownerId: string;
   subjectId: string;
   policyVersion: string;
 }
@@ -54,7 +62,7 @@ const DEFAULT_FILTERS: FilterState = {
   status: '',
   contextType: '',
   outputDecision: '',
-  customerId: '',
+  ownerId: '',
   subjectId: '',
   policyVersion: '',
 };
@@ -112,8 +120,8 @@ const RiskPolicyExecutionsPage = () => {
       if (activeFilters.outputDecision.trim()) {
         params.set('outputDecision', activeFilters.outputDecision.trim());
       }
-      if (activeFilters.customerId.trim()) {
-        params.set('customerId', activeFilters.customerId.trim());
+      if (activeFilters.ownerId.trim()) {
+        params.set('ownerId', activeFilters.ownerId.trim());
       }
       if (activeFilters.subjectId.trim()) {
         params.set('subjectId', activeFilters.subjectId.trim());
@@ -123,7 +131,7 @@ const RiskPolicyExecutionsPage = () => {
       }
 
       const response = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/compliance/decision-records?${params.toString()}`,
+        `${import.meta.env.VITE_API_URL}/admin/risk/decision-records?${params.toString()}`,
       );
 
       if (!response.ok) {
@@ -161,7 +169,7 @@ const RiskPolicyExecutionsPage = () => {
     setError('');
     try {
       const response = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/compliance/decision-records/${id}`,
+        `${import.meta.env.VITE_API_URL}/admin/risk/decision-records/${id}`,
       );
       if (!response.ok) {
         throw new Error(await getApiErrorMessage(response, 'Failed to load decision record detail.'));
@@ -228,9 +236,9 @@ const RiskPolicyExecutionsPage = () => {
             className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
           />
           <input
-            value={filters.customerId}
-            onChange={(e) => setFilters((prev) => ({ ...prev, customerId: e.target.value }))}
-            placeholder="Customer ID"
+            value={filters.ownerId}
+            onChange={(e) => setFilters((prev) => ({ ...prev, ownerId: e.target.value }))}
+            placeholder="Owner ID"
             className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
           />
           <input
@@ -276,7 +284,7 @@ const RiskPolicyExecutionsPage = () => {
                 <th className="px-4 py-3 text-xs uppercase text-gray-500">Time</th>
                 <th className="px-4 py-3 text-xs uppercase text-gray-500">DecisionRecord</th>
                 <th className="px-4 py-3 text-xs uppercase text-gray-500">Context</th>
-                <th className="px-4 py-3 text-xs uppercase text-gray-500">Customer</th>
+                <th className="px-4 py-3 text-xs uppercase text-gray-500">Owner</th>
                 <th className="px-4 py-3 text-xs uppercase text-gray-500">Subject</th>
                 <th className="px-4 py-3 text-xs uppercase text-gray-500">Policy</th>
                 <th className="px-4 py-3 text-xs uppercase text-gray-500">Status</th>
@@ -311,12 +319,26 @@ const RiskPolicyExecutionsPage = () => {
                       <div className="font-semibold text-gray-900">{item.id.slice(0, 12)}...</div>
                       <div className="text-xs text-gray-500">{item.id}</div>
                     </td>
-                    <td className="px-4 py-3 text-gray-700">{item.contextType}</td>
                     <td className="px-4 py-3 text-gray-700">
-                      <div>{item.customer?.customerNo || '-'}</div>
-                      <div className="text-xs text-gray-500">{item.customerId}</div>
+                      <div>{item.contextType}</div>
+                      <div className="text-xs text-gray-500">
+                        {item.workflow || '-'} / {item.stage || '-'}
+                      </div>
+                      <div className="text-xs text-gray-400">{item.rule || '-'}</div>
                     </td>
-                    <td className="px-4 py-3 text-gray-700">{item.subjectId}</td>
+                    <td className="px-4 py-3 text-gray-700">
+                      <div>{item.ownerType}</div>
+                      <div className="text-xs text-gray-500">{item.ownerId}</div>
+                      {item.ownerType === 'CUSTOMER' && item.customer && (
+                        <div className="text-xs text-gray-400">
+                          {item.customer.customerNo || item.customer.email || '-'}
+                        </div>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-gray-700">
+                      <div>{item.subjectType}</div>
+                      <div className="text-xs text-gray-500">{item.subjectId}</div>
+                    </td>
                     <td className="px-4 py-3 text-gray-700">{item.policyVersion}</td>
                     <td className="px-4 py-3">
                       <span className={`px-2 py-1 rounded-full text-xs ${getStatusClass(item.status)}`}>
@@ -393,12 +415,42 @@ const RiskPolicyExecutionsPage = () => {
                       <div className="text-gray-900 font-medium">{detail.policyVersion}</div>
                     </div>
                     <div>
-                      <div className="text-xs text-gray-500">Customer ID</div>
-                      <div className="text-gray-900 font-medium">{detail.customerId}</div>
+                      <div className="text-xs text-gray-500">Owner Type</div>
+                      <div className="text-gray-900 font-medium">{detail.ownerType}</div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-gray-500">Owner ID</div>
+                      <div className="text-gray-900 font-medium">{detail.ownerId}</div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-gray-500">Subject Type</div>
+                      <div className="text-gray-900 font-medium">{detail.subjectType}</div>
                     </div>
                     <div>
                       <div className="text-xs text-gray-500">Subject ID</div>
                       <div className="text-gray-900 font-medium">{detail.subjectId}</div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-gray-500">Customer ID</div>
+                      <div className="text-gray-900 font-medium">{detail.customerId}</div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-gray-500">Customer Summary</div>
+                      <div className="text-gray-900 font-medium">
+                        {detail.customer?.customerNo || detail.customer?.email || '-'}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-gray-500">Workflow</div>
+                      <div className="text-gray-900 font-medium">{detail.workflow || '-'}</div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-gray-500">Stage</div>
+                      <div className="text-gray-900 font-medium">{detail.stage || '-'}</div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-gray-500">Rule</div>
+                      <div className="text-gray-900 font-medium">{detail.rule || '-'}</div>
                     </div>
                     <div>
                       <div className="text-xs text-gray-500">Created At</div>
@@ -437,6 +489,30 @@ const RiskPolicyExecutionsPage = () => {
                   <div className="p-3">
                     <pre className="text-xs bg-gray-950 text-gray-100 rounded-lg p-3 overflow-auto">
                       {toPrettyJson(detail.recommendedActions || [])}
+                    </pre>
+                  </div>
+                </section>
+
+                <section className="border border-gray-200 rounded-lg overflow-hidden">
+                  <div className="px-3 py-2 bg-gray-50 border-b border-gray-200 text-xs font-semibold text-gray-600 uppercase">
+                    Orchestration
+                  </div>
+                  <div className="p-3">
+                    <pre className="text-xs bg-gray-950 text-gray-100 rounded-lg p-3 overflow-auto">
+                      {toPrettyJson(detail.orchestration || detail.outputs?.orchestration || {})}
+                    </pre>
+                  </div>
+                </section>
+
+                <section className="border border-gray-200 rounded-lg overflow-hidden">
+                  <div className="px-3 py-2 bg-gray-50 border-b border-gray-200 text-xs font-semibold text-gray-600 uppercase">
+                    Workflow Transition
+                  </div>
+                  <div className="p-3">
+                    <pre className="text-xs bg-gray-950 text-gray-100 rounded-lg p-3 overflow-auto">
+                      {toPrettyJson(
+                        detail.workflowTransition || detail.outputs?.workflowTransition || {},
+                      )}
                     </pre>
                   </div>
                 </section>

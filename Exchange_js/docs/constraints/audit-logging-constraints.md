@@ -44,12 +44,12 @@
 - MUST include P0 coverage actions for:
 1. Auth
 2. Compliance (KYT/Travel Rule)
-3. Compliance Alert/Incident lifecycle
+3. Current V1 Compliance Alert/Incident implementation lifecycle
 4. Config domains
 5. Wallet
 6. Customer
 7. Swap Quote lifecycle
-- Compliance alert/incident domain actions SHOULD use `DATA_CREATE` / `DATA_UPDATE` trigger types with domain action names (`ALERT_*`, `INCIDENT_*`), instead of `MANUAL_*` / `SYSTEM_*`.
+- Compliance alert/current-incident implementation actions SHOULD use `DATA_CREATE` / `DATA_UPDATE` trigger types with domain action names (`ALERT_*`, `INCIDENT_*`), instead of `MANUAL_*` / `SYSTEM_*`.
 
 ## No-First Query Constraints
 - `GET /admin/audit-logs` MUST support exact filters:
@@ -68,7 +68,7 @@
 - MUST cover P0 domains in unified write path:
 1. Auth login chain
 2. Transaction compliance
-3. Compliance alert and incident lifecycle
+3. Current V1 compliance alert and incident implementation lifecycle
 4. Config center changes
 5. Wallet master data
 6. Customer master data

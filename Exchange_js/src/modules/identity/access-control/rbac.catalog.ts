@@ -20,6 +20,13 @@ export type PermissionGroup =
   | 'FINAL_REVIEW_WRITE'
   | 'INVESTOR_OVERRIDE_WRITE'
   | 'SIMULATE_EXPIRED_WRITE'
+  | 'RISK_DECISION_RECORD_READ'
+  | 'ALERT_READ'
+  | 'ALERT_WRITE'
+  | 'CASE_READ'
+  | 'CASE_WRITE'
+  | 'CASE_EXPORT_READ'
+  | 'CASE_EXPORT_WRITE'
   | 'TX_COMPLIANCE_READ'
   | 'TX_COMPLIANCE_WRITE'
   | 'TRADING_DEPOSIT_READ'
@@ -238,6 +245,98 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('POST', '/admin/compliance/customers/:id/final-review', 'Final review customer', ['FINAL_REVIEW_WRITE']),
   route('POST', '/admin/compliance/customers/:id/simulate-expired', 'Simulate customer expired', ['SIMULATE_EXPIRED_WRITE']),
   route('PATCH', '/admin/compliance/customers/:id/investor-classification', 'Override investor classification', ['INVESTOR_OVERRIDE_WRITE']),
+
+  // Risk decision records
+  route('GET', '/admin/risk/decision-records', 'List risk decision records', ['RISK_DECISION_RECORD_READ']),
+  route('GET', '/admin/risk/decision-records/:id', 'Get risk decision record detail', ['RISK_DECISION_RECORD_READ']),
+
+  // Alert triage center
+  route('GET', '/admin/compliance/alerts', 'List compliance alerts', ['ALERT_READ']),
+  route('GET', '/admin/compliance/alerts/:id', 'Get compliance alert detail', ['ALERT_READ']),
+  route('PATCH', '/admin/compliance/alerts/:id/action', 'Apply compliance alert action', ['ALERT_WRITE']),
+  route('POST', '/admin/compliance/alerts/simulate', 'Simulate compliance alerts', ['ALERT_WRITE']),
+  route(
+    'POST',
+    '/admin/compliance/alerts/:id/onboarding-decision',
+    'Apply onboarding decision from alert',
+    ['ALERT_WRITE'],
+  ),
+  route('GET', '/admin/compliance/cases', 'List compliance cases', ['CASE_READ']),
+  route('GET', '/admin/compliance/cases/:id', 'Get compliance case detail', ['CASE_READ']),
+  route(
+    'POST',
+    '/admin/compliance/cases/from-alert/:alertId',
+    'Create compliance case from alert',
+    ['CASE_WRITE'],
+  ),
+  route(
+    'PATCH',
+    '/admin/compliance/cases/:id/action',
+    'Apply compliance case action',
+    ['CASE_WRITE'],
+  ),
+  route(
+    'POST',
+    '/admin/compliance/cases/:id/alerts',
+    'Link alert into compliance case',
+    ['CASE_WRITE'],
+  ),
+  route(
+    'POST',
+    '/admin/compliance/cases/:id/onboarding-decision',
+    'Apply onboarding decision from case',
+    ['CASE_WRITE'],
+  ),
+  route(
+    'POST',
+    '/admin/compliance/cases/export/evidence-package',
+    'Create case evidence export request',
+    ['CASE_EXPORT_WRITE'],
+  ),
+  route(
+    'GET',
+    '/admin/compliance/cases/evidence-packages',
+    'List case evidence package exports',
+    ['CASE_EXPORT_READ'],
+  ),
+  route(
+    'GET',
+    '/admin/compliance/cases/evidence-packages/:id',
+    'Get case evidence package detail',
+    ['CASE_EXPORT_READ'],
+  ),
+  route(
+    'GET',
+    '/admin/compliance/cases/evidence-packages/:id/download',
+    'Download case evidence package content',
+    ['CASE_EXPORT_READ'],
+  ),
+  route('GET', '/admin/compliance/incidents', 'List compliance incidents', ['CASE_READ']),
+  route('GET', '/admin/compliance/incidents/:id', 'Get compliance incident detail', ['CASE_READ']),
+  route(
+    'POST',
+    '/admin/compliance/incidents/from-alert/:alertId',
+    'Create compliance incident from alert',
+    ['CASE_WRITE'],
+  ),
+  route(
+    'PATCH',
+    '/admin/compliance/incidents/:id/action',
+    'Apply compliance incident action',
+    ['CASE_WRITE'],
+  ),
+  route(
+    'POST',
+    '/admin/compliance/incidents/:id/alerts',
+    'Link alert into compliance incident',
+    ['CASE_WRITE'],
+  ),
+  route(
+    'POST',
+    '/admin/compliance/incidents/:id/onboarding-decision',
+    'Apply onboarding decision from incident',
+    ['CASE_WRITE'],
+  ),
 
   // Transaction compliance
   route('POST', '/admin/compliance/tx-kyt-cases/mock-complete', 'Mock complete KYT case', ['TX_COMPLIANCE_WRITE']),
@@ -475,6 +574,10 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'BASE_ACCESS',
     'IAM_READ',
     'AUDIT_READ',
+    'RISK_DECISION_RECORD_READ',
+    'ALERT_READ',
+    'CASE_READ',
+    'CASE_EXPORT_READ',
     'GOV_APPROVAL_READ',
     'GOV_CHANGE_TICKET_READ',
     'GOV_DELETE_REQUEST_READ',
@@ -484,6 +587,10 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'BASE_ACCESS',
     'IAM_READ',
     'AUDIT_READ',
+    'RISK_DECISION_RECORD_READ',
+    'ALERT_READ',
+    'CASE_READ',
+    'CASE_EXPORT_READ',
     'GOV_APPROVAL_READ',
     'GOV_CHANGE_TICKET_READ',
     'GOV_DELETE_REQUEST_READ',
@@ -494,6 +601,7 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'IAM_READ',
     'AUDIT_READ',
     'AUDIT_EXPORT_READ',
+    'RISK_DECISION_RECORD_READ',
     'GOV_APPROVAL_READ',
     'GOV_APPROVAL_DECIDE',
     'GOV_CHANGE_TICKET_READ',
@@ -532,6 +640,13 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'AUDIT_READ',
     'AUDIT_EXPORT_CREATE',
     'AUDIT_EXPORT_READ',
+    'RISK_DECISION_RECORD_READ',
+    'ALERT_READ',
+    'ALERT_WRITE',
+    'CASE_READ',
+    'CASE_WRITE',
+    'CASE_EXPORT_READ',
+    'CASE_EXPORT_WRITE',
     'GOV_APPROVAL_READ',
     'GOV_APPROVAL_WRITE',
     'GOV_CHANGE_TICKET_READ',
@@ -547,6 +662,13 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'AUDIT_READ',
     'AUDIT_EXPORT_CREATE',
     'AUDIT_EXPORT_READ',
+    'RISK_DECISION_RECORD_READ',
+    'ALERT_READ',
+    'ALERT_WRITE',
+    'CASE_READ',
+    'CASE_WRITE',
+    'CASE_EXPORT_READ',
+    'CASE_EXPORT_WRITE',
     'GOV_APPROVAL_READ',
     'GOV_APPROVAL_WRITE',
     'GOV_APPROVAL_DECIDE',
@@ -574,6 +696,10 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'IAM_READ',
     'IAM_ASSIGN',
     'AUDIT_READ',
+    'RISK_DECISION_RECORD_READ',
+    'ALERT_READ',
+    'CASE_READ',
+    'CASE_EXPORT_READ',
     'GOV_APPROVAL_READ',
     'GOV_APPROVAL_DECIDE',
     'GOV_CHANGE_TICKET_READ',

@@ -1,6 +1,5 @@
 import {
   BadRequestException,
-  ConflictException,
   ForbiddenException,
   Injectable,
   Logger,
@@ -13,8 +12,21 @@ import {
   ComplianceAlertAction,
   ComplianceAlertSeverity,
 } from '../../risk-engine/compliance-alerts/constants/compliance-alert-rules.constant';
-import { ComplianceAlertsService } from '../../risk-engine/compliance-alerts/compliance-alerts.service';
 import { ComplianceIncidentsService } from '../../risk-engine/compliance-incidents/compliance-incidents.service';
+import {
+  ALERT_DISPOSITION_CODES,
+  CASE_DISPOSITION_CODES,
+} from '../../risk-engine/constants/compliance-disposition.constant';
+import {
+  getCanonicalOnboardingRuleForStage,
+  ONBOARDING_REVIEW_STAGES,
+  OnboardingReviewStage,
+  ONBOARDING_WORKFLOW,
+} from '../../risk-engine/constants/onboarding-compliance-workflow.constant';
+import {
+  RiskDecisionOrchestratorService,
+  UpsertOnboardingReviewAlertInput,
+} from '../../risk-engine/risk-decision-orchestrator.service';
 import {
   RiskDecision,
   RiskEngineService,
@@ -33,12 +45,12 @@ import {
   UpdateInvestorClassificationDto,
   UpsertEntityDto,
 } from './dto/onboarding.dto';
+import { WorkflowTransitionService } from './workflow-transition.service';
 
 type TradeAction = 'SWAP' | 'WITHDRAW';
 type CaseType = 'CDD' | 'EDD';
 type SubjectKind = 'INDIVIDUAL_CUSTOMER' | 'CORPORATE_ENTITY' | 'UBO_PERSON';
 type MockResult = 'PASS' | 'FAIL';
-
 export type CustomerPublicStatus =
   | 'NONE'
   | 'PENDING_CDD'
@@ -75,22 +87,6 @@ export interface NextStepPayload {
   requiresEdd: boolean;
 }
 
-interface AlertUpsertInput {
-  customerId: string;
-  customerNo: string | null;
-  journeyId: string;
-  recommendation: string;
-  decision?: string | null;
-  severity?: ComplianceAlertSeverity;
-  message: string;
-  linkedCaseIds?: string[];
-  decisionRecordIds?: string[];
-  reasonCodes?: string[];
-  recommendedActions?: RiskRecommendedAction[];
-  recommendedDecisions?: string[];
-  contextType?: 'ONBOARDING_CDD' | 'ONBOARDING_EDD' | null;
-}
-
 export interface SessionResponse {
   sessionId: string;
   providerSessionId: string;
@@ -108,7 +104,8 @@ export class OnboardingService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly riskEngineService: RiskEngineService,
-    private readonly complianceAlertsService: ComplianceAlertsService,
+    private readonly riskDecisionOrchestratorService: RiskDecisionOrchestratorService,
+    private readonly workflowTransitionService: WorkflowTransitionService,
     private readonly complianceIncidentsService: ComplianceIncidentsService,
   ) {}
 
@@ -402,197 +399,24 @@ export class OnboardingService {
     };
   }
 
-  private normalizeAlertSeverity(
-    value: unknown,
-    fallback: ComplianceAlertSeverity = ComplianceAlertSeverity.HIGH,
-  ): ComplianceAlertSeverity {
-    const normalized = String(value || '').toUpperCase();
-    if (normalized === ComplianceAlertSeverity.LOW) return ComplianceAlertSeverity.LOW;
-    if (normalized === ComplianceAlertSeverity.MEDIUM) return ComplianceAlertSeverity.MEDIUM;
-    if (normalized === ComplianceAlertSeverity.HIGH) return ComplianceAlertSeverity.HIGH;
-    if (normalized === ComplianceAlertSeverity.CRITICAL) return ComplianceAlertSeverity.CRITICAL;
-    return fallback;
-  }
-
-  private getRecommendedActionNames(recommendedActions: RiskRecommendedAction[]): string[] {
-    return Array.from(
-      new Set(
-        recommendedActions
-          .map((action) => String(action?.type || '').trim())
-          .filter(Boolean),
-      ),
-    );
-  }
-
-  private normalizeRecommendedDecision(value: unknown): string | null {
-    const normalized = String(value || '').trim().toUpperCase();
-    if (!normalized) return null;
-    if (normalized === 'APPROVE') return 'APPROVE';
-    if (normalized === 'REJECT') return 'REJECT';
-    if (normalized === 'REQUIRE_EDD') return 'REQUIRE_EDD';
-    return null;
-  }
-
-  private dedupeRecommendedDecisions(decisions: string[]): string[] {
-    const list = decisions
-      .map((item) => this.normalizeRecommendedDecision(item))
-      .filter((item): item is string => !!item);
-    return Array.from(new Set(list));
-  }
-
-  private getUpsertAlertAction(
-    recommendedActions: RiskRecommendedAction[],
-  ): RiskRecommendedAction | null {
-    return recommendedActions.find((action) => action.type === 'UPSERT_ALERT') || null;
-  }
-
-  private getDecisionOptionAction(
-    recommendedActions: RiskRecommendedAction[],
-  ): RiskRecommendedAction | null {
-    return (
-      recommendedActions.find(
-        (action) => action.type === 'ONBOARDING_RECOMMEND_DECISIONS',
-      ) || null
-    );
-  }
-
-  private getRecommendedDecisions(
-    recommendedActions: RiskRecommendedAction[],
-    contextType: 'ONBOARDING_CDD' | 'ONBOARDING_EDD',
-  ): string[] {
-    const optionAction = this.getDecisionOptionAction(recommendedActions);
-    const payloadDecisions = Array.isArray(optionAction?.payload?.decisions)
-      ? (optionAction?.payload?.decisions as unknown[])
-      : [];
-    const normalized = this.dedupeRecommendedDecisions(
-      payloadDecisions.map((item) => String(item)),
-    );
-    if (normalized.length > 0) return normalized;
-    if (contextType === 'ONBOARDING_CDD') {
-      return ['APPROVE', 'REJECT', 'REQUIRE_EDD'];
-    }
-    return ['APPROVE', 'REJECT'];
-  }
-
-  private getRecommendedDecision(
-    recommendedActions: RiskRecommendedAction[],
-    fallback: string,
-  ): string {
-    const upsertAction = this.getUpsertAlertAction(recommendedActions);
-    const recommendation = upsertAction?.payload?.recommendation;
-    if (typeof recommendation === 'string' && recommendation.trim()) {
-      return recommendation.trim().toUpperCase();
-    }
-    return fallback;
-  }
-
-  private getRecommendedAlertSeverity(
-    recommendedActions: RiskRecommendedAction[],
-    fallback: ComplianceAlertSeverity,
-  ): ComplianceAlertSeverity {
-    const upsertAction = this.getUpsertAlertAction(recommendedActions);
-    return this.normalizeAlertSeverity(upsertAction?.payload?.severity, fallback);
-  }
-
-  private hasEscalateIncidentAction(
-    recommendedActions: RiskRecommendedAction[],
-  ): boolean {
-    return recommendedActions.some((action) => action.type === 'ESCALATE_INCIDENT');
-  }
-
-  private isConflictError(error: unknown): boolean {
-    if (error instanceof ConflictException) return true;
-    const message = String((error as any)?.message || error || '').toLowerCase();
-    return message.includes('already linked') || message.includes('conflict');
-  }
-
-  private async upsertJourneyAlert(input: AlertUpsertInput): Promise<any | null> {
-    const actionNames = this.getRecommendedActionNames(input.recommendedActions || []);
-    const recommendedDecisions =
-      this.dedupeRecommendedDecisions(input.recommendedDecisions || []) ||
-      [];
-    try {
-      return await this.complianceAlertsService.triggerSystemAlert({
-        ruleCode: 'ONB_ONBOARDING_JOURNEY_REVIEW',
-        sourceModule: 'identity/onboarding',
-        sourceType: 'ONBOARDING_JOURNEY',
-        sourceId: `${input.customerId}:${input.journeyId}`,
-        stage: 'ONBOARDING',
-        journeyId: input.journeyId,
-        customerId: input.customerId,
-        customerNo: input.customerNo,
-        ownerType: 'CUSTOMER',
-        ownerId: input.customerId,
-        severity: input.severity || ComplianceAlertSeverity.HIGH,
-        decisionRecommendation: input.recommendation,
-        decision: input.decision || null,
-        linkedCaseIds: input.linkedCaseIds || [],
-        decisionRecordIds: input.decisionRecordIds || [],
-        message: input.message,
-        metadata: {
-          recommendation: input.recommendation,
-          decision: input.decision || null,
-          linkedCaseIds: input.linkedCaseIds || [],
-          decisionRecordIds: input.decisionRecordIds || [],
-          reasonCodes: input.reasonCodes || [],
-          recommendedActions: actionNames,
-          recommendedDecisions,
-          contextType: input.contextType || null,
-        },
-      });
-    } catch (error) {
-      this.logger.warn(
-        `Failed to upsert onboarding journey alert for customer=${input.customerId}: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      );
-      return null;
-    }
+  private async upsertJourneyAlert(
+    input: UpsertOnboardingReviewAlertInput,
+  ): Promise<any | null> {
+    return this.riskDecisionOrchestratorService.upsertOnboardingReviewAlert(input);
   }
 
   private async closeJourneyAlertIfAny(
     customerId: string,
     journeyId: string,
     reason: string,
+    stage?: OnboardingReviewStage,
   ): Promise<void> {
-    const alert = await this.prisma.complianceAlert.findFirst({
-      where: {
-        sourceType: 'ONBOARDING_JOURNEY',
-        sourceId: `${customerId}:${journeyId}`,
-        status: {
-          in: ['OPEN', 'ASSIGNED', 'ESCALATED'],
-        },
-      },
-      orderBy: [{ lastOccurredAt: 'desc' }, { createdAt: 'desc' }],
-      select: { id: true },
+    await this.riskDecisionOrchestratorService.closeLatestJourneyAlertIfAny({
+      customerId,
+      journeyId,
+      reason,
+      stage,
     });
-
-    if (!alert) return;
-
-    try {
-      await this.complianceAlertsService.applyAction(
-        alert.id,
-        {
-          action: ComplianceAlertAction.CLOSE,
-          reason,
-          note: reason,
-          decision: 'APPROVE',
-        },
-        {
-          actorType: 'SYSTEM',
-          actorId: 'SYSTEM',
-          actorNo: 'SYSTEM',
-          actorRole: 'SYSTEM',
-          sourcePlatform: 'SYSTEM',
-        },
-      );
-    } catch (error) {
-      this.logger.warn(
-        `Failed to close onboarding journey alert id=${alert.id}: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      );
-    }
   }
 
   private async createEddCaseIfNeeded(
@@ -645,14 +469,6 @@ export class OnboardingService {
     const isLowRiskAutoPass = input.mockDataType === 'LOW_RISK';
     const now = new Date();
     const journeyId = cddCase.journeyId || customer.activeJourneyId || generateReferenceNo('ONB');
-    const recommendation = this.getRecommendedDecision(
-      recommendedActions,
-      'REVIEW',
-    );
-    const recommendedDecisions = this.getRecommendedDecisions(
-      recommendedActions,
-      'ONBOARDING_CDD',
-    );
 
     const updateData: Prisma.CustomerMainUpdateInput = isLowRiskAutoPass
       ? {
@@ -698,65 +514,19 @@ export class OnboardingService {
       data: updateData,
     });
 
-    if (isLowRiskAutoPass) {
-      return updated;
-    }
-
-    const upsertedAlert = await this.upsertJourneyAlert({
+    await this.riskDecisionOrchestratorService.orchestrate({
+      workflow: ONBOARDING_WORKFLOW,
+      stage: ONBOARDING_REVIEW_STAGES.REVIEW_CDD,
       customerId: customer.id,
       customerNo: customer.customerNo || null,
       journeyId,
-      recommendation,
-      message: 'CDD submitted. Waiting for onboarding review decision.',
-      severity: this.getRecommendedAlertSeverity(
-        recommendedActions,
-        ComplianceAlertSeverity.HIGH,
-      ),
       linkedCaseIds,
-      decisionRecordIds: [decisionRecordId],
+      decisionRecordId,
+      decision: input.decision,
       reasonCodes,
       recommendedActions,
-      recommendedDecisions,
       contextType: 'ONBOARDING_CDD',
     });
-
-    if (
-      upsertedAlert?.id &&
-      this.hasEscalateIncidentAction(recommendedActions)
-    ) {
-      const actionNames = this.getRecommendedActionNames(recommendedActions);
-      const reason = `Auto escalation from CDD mock (${input.mockDataType}) with reasonCodes=${reasonCodes.join(',') || 'N/A'}`;
-
-      try {
-        await this.complianceIncidentsService.createFromAlert(
-          upsertedAlert.id,
-          {
-            reason,
-            decision: recommendation,
-            linkedCaseIds,
-            decisionRecordIds: [decisionRecordId],
-            recommendedActions: actionNames,
-          },
-          {
-            actorType: 'SYSTEM',
-            actorId: 'SYSTEM',
-            actorNo: 'SYSTEM',
-            actorRole: 'SYSTEM',
-            sourcePlatform: 'SYSTEM',
-          },
-        );
-      } catch (error) {
-        if (this.isConflictError(error)) {
-          this.logger.warn(
-            `Skip duplicate incident auto-escalation for alert=${upsertedAlert.id}: ${
-              error instanceof Error ? error.message : String(error)
-            }`,
-          );
-        } else {
-          throw error;
-        }
-      }
-    }
 
     return updated;
   }
@@ -771,11 +541,6 @@ export class OnboardingService {
   }) {
     const { customer, eddCase, decisionRecordId, reasonCodes, recommendedActions } = input;
     const journeyId = eddCase.journeyId || customer.activeJourneyId || generateReferenceNo('ONB');
-    const recommendation = this.getRecommendedDecision(recommendedActions, 'REVIEW');
-    const recommendedDecisions = this.getRecommendedDecisions(
-      recommendedActions,
-      'ONBOARDING_EDD',
-    );
 
     const updateData: Prisma.CustomerMainUpdateInput = {
       latestDecisionRecordId: decisionRecordId,
@@ -799,21 +564,17 @@ export class OnboardingService {
       data: updateData,
     });
 
-    await this.upsertJourneyAlert({
+    await this.riskDecisionOrchestratorService.orchestrate({
+      workflow: ONBOARDING_WORKFLOW,
+      stage: ONBOARDING_REVIEW_STAGES.REVIEW_EDD,
       customerId: customer.id,
       customerNo: customer.customerNo || null,
       journeyId,
-      recommendation,
-      message: 'EDD submitted. Waiting for onboarding review decision.',
-      severity: this.getRecommendedAlertSeverity(
-        recommendedActions,
-        ComplianceAlertSeverity.HIGH,
-      ),
       linkedCaseIds: [eddCase.id],
-      decisionRecordIds: [decisionRecordId],
+      decisionRecordId,
+      decision: input.decision,
       reasonCodes,
       recommendedActions,
-      recommendedDecisions,
       contextType: 'ONBOARDING_EDD',
     });
 
@@ -1370,8 +1131,10 @@ export class OnboardingService {
 
       const decision = await this.riskEngineService.evaluate({
         contextType: 'ONBOARDING_CDD',
-        customerId,
+        subjectType: cddCase.subjectKind || 'UNKNOWN',
         subjectId: cddCase.subjectRefId || customerId,
+        ownerType: 'CUSTOMER',
+        ownerId: customerId,
         signals,
         policyVersion: 'onboarding-risk-policy/v1',
       });
@@ -1458,8 +1221,10 @@ export class OnboardingService {
 
     const decision = await this.riskEngineService.evaluate({
       contextType: 'ONBOARDING_EDD',
-      customerId,
+      subjectType: eddCase.subjectKind || 'UNKNOWN',
       subjectId: eddCase.subjectRefId || customerId,
+      ownerType: 'CUSTOMER',
+      ownerId: customerId,
       signals,
       policyVersion: 'onboarding-risk-policy/v1',
     });
@@ -1561,7 +1326,7 @@ export class OnboardingService {
     _dto: ReviewCddCaseDto,
   ) {
     throw new BadRequestException(
-      'CDD case page is evidence-only. Please handle decisions via alert/incident workflow.',
+      'CDD case page is evidence-only. Please handle decisions via alert/case workflow.',
     );
   }
 
@@ -1666,7 +1431,7 @@ export class OnboardingService {
     _dto: ReviewEddCaseDto,
   ) {
     throw new BadRequestException(
-      'EDD case page is evidence-only. Please handle decisions via alert/incident workflow.',
+      'EDD case page is evidence-only. Please handle decisions via alert/case workflow.',
     );
   }
 
@@ -1728,6 +1493,60 @@ export class OnboardingService {
     return { customerId, journeyId };
   }
 
+  private normalizeOnboardingAlertStage(
+    value?: string | null,
+  ): OnboardingReviewStage | null {
+    const current = String(value || '').trim().toUpperCase();
+    if (current === 'REVIEW_CDD' || current === 'REVIEW_EDD') {
+      return current as OnboardingReviewStage;
+    }
+    return null;
+  }
+
+  private getExpectedReviewStage(
+    status: CustomerPublicStatus,
+  ): OnboardingReviewStage | null {
+    if (status === 'REVIEW_CDD') return 'REVIEW_CDD';
+    if (status === 'REVIEW_EDD') return 'REVIEW_EDD';
+    return null;
+  }
+
+  private mapOnboardingAlertDisposition(decision: string) {
+    switch (String(decision || '').trim().toUpperCase()) {
+      case 'APPROVE':
+        return ALERT_DISPOSITION_CODES.APPROVE_STAGE;
+      case 'REJECT':
+        return ALERT_DISPOSITION_CODES.REJECT_STAGE;
+      case 'REQUIRE_EDD':
+        return ALERT_DISPOSITION_CODES.REQUIRE_EDD;
+      default:
+        throw new BadRequestException(`Unsupported onboarding alert decision: ${decision}`);
+    }
+  }
+
+  private mapOnboardingCaseDisposition(decision: string) {
+    switch (String(decision || '').trim().toUpperCase()) {
+      case 'APPROVE':
+        return CASE_DISPOSITION_CODES.APPROVE_STAGE;
+      case 'REJECT':
+        return CASE_DISPOSITION_CODES.REJECT_STAGE;
+      case 'REQUIRE_EDD':
+        return CASE_DISPOSITION_CODES.REQUIRE_EDD;
+      default:
+        throw new BadRequestException(`Unsupported onboarding case decision: ${decision}`);
+    }
+  }
+
+  private mapOnboardingWorkflowDisposition(decision: string) {
+    return this.mapOnboardingAlertDisposition(decision);
+  }
+
+  private dedupeStringList(values: Array<string | null | undefined>): string[] {
+    return Array.from(
+      new Set(values.map((item) => String(item || '').trim()).filter(Boolean)),
+    );
+  }
+
   private mergeDecisionMetadata(
     currentMetadata: Record<string, unknown>,
     payload: {
@@ -1738,6 +1557,9 @@ export class OnboardingService {
       source: 'ALERT' | 'INCIDENT';
       sourceRefId: string;
     },
+    options?: {
+      appendHistory?: boolean;
+    },
   ): Record<string, unknown> {
     const nowIso = new Date().toISOString();
     const historyRaw = Array.isArray(currentMetadata.decisionHistory)
@@ -1746,22 +1568,26 @@ export class OnboardingService {
     const history = historyRaw
       .filter((item) => item && typeof item === 'object')
       .slice(-19);
+    const nextHistory =
+      options?.appendHistory === false
+        ? historyRaw.filter((item) => item && typeof item === 'object')
+        : [
+            ...history,
+            {
+              decision: payload.decision,
+              reason: payload.reason || null,
+              source: payload.source,
+              sourceRefId: payload.sourceRefId,
+              at: nowIso,
+            },
+          ];
     return {
       ...currentMetadata,
       decision: payload.decision,
       recommendation: payload.decision,
       linkedCaseIds: payload.linkedCaseIds,
       decisionRecordIds: payload.decisionRecordIds,
-      decisionHistory: [
-        ...history,
-        {
-          decision: payload.decision,
-          reason: payload.reason || null,
-          source: payload.source,
-          sourceRefId: payload.sourceRefId,
-          at: nowIso,
-        },
-      ],
+      decisionHistory: nextHistory,
     };
   }
 
@@ -1777,10 +1603,12 @@ export class OnboardingService {
       decisionRecordIds: string[];
       source: 'ALERT' | 'INCIDENT';
       sourceRefId: string;
+      closeAlert?: boolean;
     },
   ) {
     const now = new Date();
     const metadata = this.parseJsonSafely(alert.metadata);
+    const dispositionCode = this.mapOnboardingAlertDisposition(input.decision);
     const mergedMetadata = this.mergeDecisionMetadata(metadata, {
       decision: input.decision,
       reason: input.reason,
@@ -1790,14 +1618,52 @@ export class OnboardingService {
       sourceRefId: input.sourceRefId,
     });
 
+    const dispositionRecord = await tx.complianceAlertDispositionRecord.create({
+      data: {
+        alertId: alert.id,
+        dispositionCode,
+        reason: input.reason || null,
+        isFinal: input.closeAlert !== false,
+        supersedesRecordId: String(alert.currentDispositionRecordId || '').trim() || null,
+        decisionRecordId: input.decisionRecordIds[0] || null,
+        source: `${input.source}_ONBOARDING_DECISION`,
+        sourceRefId: input.sourceRefId,
+        actorType: 'ADMIN',
+        actorId: input.actorId,
+        actorNo: null,
+        actorRole: input.actorRole,
+        createdAt: now,
+      },
+    });
+
     const updated = await tx.complianceAlert.update({
       where: { id: alert.id },
       data: {
+        status: input.closeAlert === false ? alert.status : 'CLOSED',
+        closedAt: input.closeAlert === false ? alert.closedAt : now,
+        closeReason:
+          input.closeAlert === false
+            ? alert.closeReason
+            : input.reason || `Onboarding decision ${input.decision}.`,
         decisionRecommendation: input.decision,
         decision: input.decision,
         linkedCaseIds: JSON.stringify(input.linkedCaseIds),
         decisionRecordIds: JSON.stringify(input.decisionRecordIds),
         metadata: JSON.stringify(mergedMetadata),
+        currentDispositionCode: dispositionCode,
+        currentDispositionReason: input.reason || null,
+        currentDispositionAt: now,
+        currentDispositionById: input.actorId,
+        currentDispositionByNo: null,
+        currentDispositionByRole: input.actorRole,
+        currentDispositionRecordId: dispositionRecord.id,
+        finalDispositionCode:
+          input.closeAlert === false ? alert.finalDispositionCode : dispositionCode,
+        finalDispositionReason:
+          input.closeAlert === false ? alert.finalDispositionReason : input.reason || null,
+        finalDispositionAt: input.closeAlert === false ? alert.finalDispositionAt : now,
+        finalDispositionRecordId:
+          input.closeAlert === false ? alert.finalDispositionRecordId : dispositionRecord.id,
         lastActionById: input.actorId,
         lastActionByRole: input.actorRole,
         lastActionAt: now,
@@ -1807,7 +1673,7 @@ export class OnboardingService {
     await tx.complianceAlertEvent.create({
       data: {
         alertId: alert.id,
-        eventType: 'UPDATED',
+        eventType: input.closeAlert === false ? 'UPDATED' : 'CLOSED',
         eventAt: now,
         actorType: 'ADMIN',
         actorId: input.actorId,
@@ -1819,6 +1685,7 @@ export class OnboardingService {
           source: input.source,
           sourceRefId: input.sourceRefId,
           decision: input.decision,
+          dispositionCode,
           linkedCaseIds: input.linkedCaseIds,
           decisionRecordIds: input.decisionRecordIds,
         }),
@@ -1827,6 +1694,79 @@ export class OnboardingService {
     });
 
     return updated;
+  }
+
+  private async syncDecisionLinksOnAlert(
+    tx: Prisma.TransactionClient,
+    alert: any,
+    input: {
+      decision: string;
+      reason: string;
+      linkedCaseIds: string[];
+      decisionRecordIds: string[];
+      source: 'ALERT' | 'INCIDENT';
+      sourceRefId: string;
+    },
+  ) {
+    const metadata = this.parseJsonSafely(alert.metadata);
+    const mergedMetadata = this.mergeDecisionMetadata(
+      metadata,
+      {
+        decision: input.decision,
+        reason: input.reason,
+        linkedCaseIds: input.linkedCaseIds,
+        decisionRecordIds: input.decisionRecordIds,
+        source: input.source,
+        sourceRefId: input.sourceRefId,
+      },
+      {
+        appendHistory: false,
+      },
+    );
+
+    return tx.complianceAlert.update({
+      where: { id: alert.id },
+      data: {
+        linkedCaseIds: JSON.stringify(input.linkedCaseIds),
+        decisionRecordIds: JSON.stringify(input.decisionRecordIds),
+        metadata: JSON.stringify(mergedMetadata),
+      },
+    });
+  }
+
+  private async syncDecisionLinksOnIncident(
+    tx: Prisma.TransactionClient,
+    incident: any,
+    input: {
+      decision: string;
+      reason: string;
+      linkedCaseIds: string[];
+      decisionRecordIds: string[];
+      sourceRefId: string;
+    },
+  ) {
+    const metadata = this.parseJsonSafely(incident.metadata);
+    const mergedMetadata = this.mergeDecisionMetadata(
+      metadata,
+      {
+        decision: input.decision,
+        reason: input.reason,
+        linkedCaseIds: input.linkedCaseIds,
+        decisionRecordIds: input.decisionRecordIds,
+        source: 'INCIDENT',
+        sourceRefId: input.sourceRefId,
+      },
+      {
+        appendHistory: false,
+      },
+    );
+
+    return tx.complianceIncident.update({
+      where: { id: incident.id },
+      data: {
+        metadata: JSON.stringify(mergedMetadata),
+      },
+    });
   }
 
   private async applyOnboardingDecisionByAlert(
@@ -1842,7 +1782,6 @@ export class OnboardingService {
   ) {
     const { alert, actorId, actorRole, dto } = input;
     const reason = String(dto.reason || '').trim();
-    const now = new Date();
     const { customerId, journeyId: alertJourneyId } = this.resolveAlertBinding(alert);
     if (!customerId) {
       throw new BadRequestException('Onboarding alert is missing customer binding.');
@@ -1856,6 +1795,18 @@ export class OnboardingService {
     }
 
     const fromStatus = this.normalizePublicStatus(customer.publicStatus);
+    const expectedStage = this.getExpectedReviewStage(fromStatus);
+    const alertStage = this.normalizeOnboardingAlertStage(alert.stage) || expectedStage;
+    if (!expectedStage) {
+      throw new BadRequestException(
+        `Onboarding decision is only allowed in REVIEW_CDD/REVIEW_EDD, current=${fromStatus}`,
+      );
+    }
+    if (alertStage && expectedStage !== alertStage) {
+      throw new BadRequestException(
+        `Onboarding alert stage mismatch, expected=${expectedStage}, actual=${alertStage}`,
+      );
+    }
     const journeyId =
       alertJourneyId || String(customer.activeJourneyId || '').trim() || generateReferenceNo('ONB');
     const alertLinkedCaseIds = this.parseJsonArraySafely<string>(alert.linkedCaseIds);
@@ -1863,230 +1814,62 @@ export class OnboardingService {
     const latestDecisionRecordId =
       alertDecisionRecordIds[0] || customer.latestDecisionRecordId || null;
 
-    let linkedCaseIds: string[] = [];
-    let eddCase: any | null = null;
-    let caseType: 'CDD' | 'EDD' = 'CDD';
-    let caseId = '';
-    let customerUpdateData: Prisma.CustomerMainUpdateInput = {
-      activeJourneyId: journeyId,
-      latestDecisionRecordId,
-    };
-
-    if (fromStatus === 'REVIEW_CDD') {
-      let cddCase = customer.currentCddCaseId
-        ? await tx.cddCase.findUnique({
-            where: { id: customer.currentCddCaseId },
-          })
-        : null;
-      if (cddCase && cddCase.customerId !== customer.id) {
-        cddCase = null;
-      }
-      if (!cddCase && alertLinkedCaseIds.length > 0) {
-        cddCase = await tx.cddCase.findFirst({
-          where: {
-            id: { in: alertLinkedCaseIds },
-            customerId: customer.id,
-          },
-          orderBy: { createdAt: 'desc' },
-        });
-      }
-      if (!cddCase) {
-        throw new BadRequestException(
-          'Unable to locate CDD case for onboarding decision action.',
-        );
-      }
-
-      linkedCaseIds = [cddCase.id];
-      caseType = 'CDD';
-      caseId = cddCase.id;
-
-      if (dto.decision === 'APPROVE') {
-        customerUpdateData = {
-          ...customerUpdateData,
-          publicStatus: 'ACTIVE',
-          cddStatus: 'APPROVED',
-          eddRequired: false,
-          eddStatus: 'NOT_REQUIRED',
-          complianceStatus: 'ACTIVE',
-          finalApprovalStatus: 'APPROVED',
-          finalApprovalReason: reason || 'ALERT_APPROVE',
-          finalApprovalReviewerId: actorId,
-          finalApprovalReviewedAt: now,
-          cddDocumentExpiresAt: this.addDays(now, 365),
-          nextReviewAt: this.addDays(now, 365),
-          activeCaseType: null,
-          activeCaseId: null,
-          currentEddCaseId: null,
-        };
-      } else if (dto.decision === 'REJECT') {
-        customerUpdateData = {
-          ...customerUpdateData,
-          publicStatus: 'REJECTED',
-          cddStatus: 'REJECTED',
-          eddRequired: false,
-          eddStatus: 'NOT_REQUIRED',
-          complianceStatus: 'BLOCKED',
-          finalApprovalStatus: 'REJECTED',
-          finalApprovalReason: reason || 'ALERT_REJECT',
-          finalApprovalReviewerId: actorId,
-          finalApprovalReviewedAt: now,
-          activeCaseType: null,
-          activeCaseId: null,
-          currentEddCaseId: null,
-        };
-      } else {
-        eddCase = await this.createEddCaseIfNeeded(customer.id, journeyId, cddCase.id, tx);
-        linkedCaseIds.push(eddCase.id);
-        customerUpdateData = {
-          ...customerUpdateData,
-          publicStatus: 'PENDING_EDD',
-          cddStatus: 'APPROVED',
-          eddRequired: true,
-          eddStatus: 'REQUIRED',
-          complianceStatus: 'IN_PROGRESS',
-          finalApprovalStatus: 'NOT_REQUIRED',
-          finalApprovalReason: null,
-          finalApprovalReviewerId: null,
-          finalApprovalReviewedAt: null,
-          cddDocumentExpiresAt: this.addDays(now, 365),
-          activeCaseType: 'EDD',
-          activeCaseId: eddCase.id,
-          currentEddCaseId: eddCase.id,
-        };
-      }
-
-      await tx.cddCase.update({
-        where: { id: cddCase.id },
-        data: {
-          status: 'FINAL',
-          reviewerId: actorId,
-          reviewerRole: actorRole,
-          reviewedAt: now,
-          reviewerDecision: dto.decision,
-          decisionReason: reason || dto.decision,
-          requiresEdd: dto.decision === 'REQUIRE_EDD',
-        },
-      });
-    } else if (fromStatus === 'REVIEW_EDD') {
-      if (dto.decision === 'REQUIRE_EDD') {
-        throw new BadRequestException(
-          'REQUIRE_EDD is not valid while customer is in REVIEW_EDD.',
-        );
-      }
-
-      let reviewEddCase = customer.currentEddCaseId
-        ? await tx.eddCase.findUnique({
-            where: { id: customer.currentEddCaseId },
-          })
-        : null;
-      if (reviewEddCase && reviewEddCase.customerId !== customer.id) {
-        reviewEddCase = null;
-      }
-      if (!reviewEddCase && alertLinkedCaseIds.length > 0) {
-        reviewEddCase = await tx.eddCase.findFirst({
-          where: {
-            id: { in: alertLinkedCaseIds },
-            customerId: customer.id,
-          },
-          orderBy: { createdAt: 'desc' },
-        });
-      }
-      if (!reviewEddCase) {
-        throw new BadRequestException(
-          'Unable to locate EDD case for onboarding decision action.',
-        );
-      }
-
-      caseType = 'EDD';
-      caseId = reviewEddCase.id;
-      linkedCaseIds = [reviewEddCase.id];
-      eddCase = reviewEddCase;
-
-      if (dto.decision === 'APPROVE') {
-        customerUpdateData = {
-          ...customerUpdateData,
-          publicStatus: 'FINAL_APPROVAL',
-          cddStatus: 'APPROVED',
-          eddRequired: true,
-          eddStatus: 'APPROVED',
-          complianceStatus: 'IN_PROGRESS',
-          finalApprovalStatus: 'PENDING',
-          finalApprovalReason: null,
-          finalApprovalReviewerId: null,
-          finalApprovalReviewedAt: null,
-          activeCaseType: null,
-          activeCaseId: null,
-        };
-      } else {
-        customerUpdateData = {
-          ...customerUpdateData,
-          publicStatus: 'REJECTED',
-          cddStatus: 'APPROVED',
-          eddRequired: true,
-          eddStatus: 'REJECTED',
-          complianceStatus: 'BLOCKED',
-          finalApprovalStatus: 'REJECTED',
-          finalApprovalReason: reason || 'ALERT_REJECT',
-          finalApprovalReviewerId: actorId,
-          finalApprovalReviewedAt: now,
-          activeCaseType: null,
-          activeCaseId: null,
-        };
-      }
-
-      await tx.eddCase.update({
-        where: { id: reviewEddCase.id },
-        data: {
-          status: 'FINAL',
-          mlroReviewerId: actorId,
-          mlroReviewedAt: now,
-          mlroDecision: dto.decision,
-          decisionReason: reason || dto.decision,
-        },
-      });
-    } else {
+    if (expectedStage === 'REVIEW_EDD' && dto.decision === 'REQUIRE_EDD') {
       throw new BadRequestException(
-        `Onboarding decision is only allowed in REVIEW_CDD/REVIEW_EDD, current=${fromStatus}`,
+        'REQUIRE_EDD is not valid while customer is in REVIEW_EDD.',
       );
     }
 
-    const updatedCustomer = await tx.customerMain.update({
-      where: { id: customer.id },
-      data: customerUpdateData,
-    });
-
-    await this.recordDecisionOnAlert(tx, alert, {
+    const recordedAlert = await this.recordDecisionOnAlert(tx, alert, {
       actorId,
       actorRole,
       decision: dto.decision,
       reason,
-      linkedCaseIds,
+      linkedCaseIds: alertLinkedCaseIds,
       decisionRecordIds: alertDecisionRecordIds,
       source: input.source,
       sourceRefId: input.sourceRefId,
+      closeAlert: true,
     });
 
-    const toStatus = this.normalizePublicStatus(updatedCustomer.publicStatus);
-    await tx.onboardingAuditLog.create({
-      data: {
-        customerId: customer.id,
-        caseType,
-        caseId,
-        action: `${input.source}_${dto.decision}`,
-        actorId,
-        actorRole,
-        fromStage: fromStatus,
-        toStage: toStatus,
-        detail: reason || null,
-      },
+    const transition = await this.workflowTransitionService.transition(tx, {
+      workflow: ONBOARDING_WORKFLOW,
+      stage: expectedStage,
+      producerType: input.source === 'INCIDENT' ? 'CASE' : 'ALERT',
+      producerId: input.sourceRefId,
+      customerId: customer.id,
+      journeyId,
+      dispositionCode: this.mapOnboardingWorkflowDisposition(dto.decision),
+      reason,
+      actorId,
+      actorRole,
+      latestDecisionRecordId,
+      linkedCaseIds: alertLinkedCaseIds,
     });
+
+    const linkedCaseIds = this.dedupeStringList([
+      ...alertLinkedCaseIds,
+      transition.eddCase?.id || null,
+      transition.activeCaseId || null,
+    ]);
+    if (JSON.stringify(linkedCaseIds) !== JSON.stringify(alertLinkedCaseIds)) {
+      await this.syncDecisionLinksOnAlert(tx, recordedAlert, {
+        decision: dto.decision,
+        reason,
+        linkedCaseIds,
+        decisionRecordIds: alertDecisionRecordIds,
+        source: input.source,
+        sourceRefId: input.sourceRefId,
+      });
+    }
 
     return {
       alertId: alert.id,
-      updatedCustomer,
-      eddCase,
+      updatedCustomer: transition.updatedCustomer,
+      eddCase: transition.eddCase || null,
       linkedCaseIds,
       decisionRecordIds: alertDecisionRecordIds,
+      transition,
     };
   }
 
@@ -2128,7 +1911,9 @@ export class OnboardingService {
       });
     });
 
-    const alertDetail = await this.complianceAlertsService.findOne(txResult.alertId);
+    const alertDetail = await this.riskDecisionOrchestratorService.findAlertDetail(
+      txResult.alertId,
+    );
     const toStatus = this.normalizePublicStatus(txResult.updatedCustomer.publicStatus);
 
     return {
@@ -2142,6 +1927,7 @@ export class OnboardingService {
         requiresEdd: !!txResult.updatedCustomer.eddRequired,
       },
       eddCase: txResult.eddCase,
+      transition: txResult.transition,
     };
   }
 
@@ -2156,19 +1942,19 @@ export class OnboardingService {
         where: { id: incidentId },
       });
       if (!incident) {
-        throw new NotFoundException(`Compliance incident not found: ${incidentId}`);
+        throw new NotFoundException(`Compliance case not found: ${incidentId}`);
       }
       if (incident.status !== 'ASSIGNED') {
         throw new BadRequestException(
-          `Onboarding decision from incident is only allowed when incident is ASSIGNED, current=${incident.status}`,
+          `Onboarding decision from case is only allowed when case is ASSIGNED, current=${incident.status}`,
         );
       }
       if (String(incident.ownerUserId || '').trim() !== actorId) {
-        throw new ForbiddenException('Only incident assignee can apply onboarding decision.');
+        throw new ForbiddenException('Only case assignee can apply onboarding decision.');
       }
       if (!incident.primaryAlertId) {
         throw new BadRequestException(
-          'Incident has no primary onboarding alert binding.',
+          'Case has no primary onboarding alert binding.',
         );
       }
 
@@ -2182,7 +1968,7 @@ export class OnboardingService {
       }
       if (alert.sourceType !== 'ONBOARDING_JOURNEY') {
         throw new BadRequestException(
-          'Incident onboarding decision requires onboarding journey alert.',
+          'Case onboarding decision requires onboarding journey alert.',
         );
       }
 
@@ -2196,6 +1982,7 @@ export class OnboardingService {
       });
 
       const incidentMetadata = this.parseJsonSafely(incident.metadata);
+      const incidentDispositionCode = this.mapOnboardingCaseDisposition(dto.decision);
       const mergedIncidentMetadata = this.mergeDecisionMetadata(incidentMetadata, {
         decision: dto.decision,
         reason: String(dto.reason || '').trim(),
@@ -2206,11 +1993,37 @@ export class OnboardingService {
       });
 
       const now = new Date();
+      const incidentDispositionRecord =
+        await tx.complianceIncidentDispositionRecord.create({
+          data: {
+            incidentId: incident.id,
+            dispositionCode: incidentDispositionCode,
+            reason: String(dto.reason || '').trim() || null,
+            isFinal: false,
+            supersedesRecordId:
+              String(incident.currentDispositionRecordId || '').trim() || null,
+            decisionRecordId: decisionResult.decisionRecordIds[0] || null,
+            source: 'INCIDENT_ONBOARDING_DECISION',
+            sourceRefId: incident.id,
+            actorType: 'ADMIN',
+            actorId,
+            actorNo: null,
+            actorRole,
+            createdAt: now,
+          },
+        });
       await tx.complianceIncident.update({
         where: { id: incident.id },
         data: {
           decision: dto.decision,
           metadata: JSON.stringify(mergedIncidentMetadata),
+          currentDispositionCode: incidentDispositionCode,
+          currentDispositionReason: String(dto.reason || '').trim() || null,
+          currentDispositionAt: now,
+          currentDispositionById: actorId,
+          currentDispositionByNo: null,
+          currentDispositionByRole: actorRole,
+          currentDispositionRecordId: incidentDispositionRecord.id,
           lastActionById: actorId,
           lastActionByRole: actorRole,
           lastActionAt: now,
@@ -2226,14 +2039,23 @@ export class OnboardingService {
           actorRole,
           note:
             String(dto.reason || '').trim() ||
-            `Onboarding decision ${dto.decision} from incident.`,
+            `Onboarding decision ${dto.decision} from case.`,
           payload: JSON.stringify({
             action: 'ONBOARDING_DECISION',
             decision: dto.decision,
+            dispositionCode: incidentDispositionCode,
             alertId: alert.id,
           }),
           sourcePlatform: 'ADMIN_API',
         },
+      });
+
+      await this.syncDecisionLinksOnIncident(tx, incident, {
+        decision: dto.decision,
+        reason: String(dto.reason || '').trim(),
+        linkedCaseIds: decisionResult.linkedCaseIds,
+        decisionRecordIds: decisionResult.decisionRecordIds,
+        sourceRefId: incident.id,
       });
 
       return {
@@ -2243,7 +2065,7 @@ export class OnboardingService {
     });
 
     const [alertDetail, incidentDetail] = await Promise.all([
-      this.complianceAlertsService.findOne(txResult.alertId),
+      this.riskDecisionOrchestratorService.findAlertDetail(txResult.alertId),
       this.complianceIncidentsService.findOne(txResult.incidentId),
     ]);
     const toStatus = this.normalizePublicStatus(txResult.updatedCustomer.publicStatus);
@@ -2260,118 +2082,7 @@ export class OnboardingService {
         requiresEdd: !!txResult.updatedCustomer.eddRequired,
       },
       eddCase: txResult.eddCase,
-    };
-  }
-
-  async listDecisionRecords(query: {
-    status?: string;
-    contextType?: string;
-    outputDecision?: string;
-    customerId?: string;
-    subjectId?: string;
-    policyVersion?: string;
-    skip?: number;
-    take?: number;
-  }) {
-    const skip = this.normalizeSkip(query.skip);
-    const take = this.normalizeTake(query.take);
-
-    const where: Prisma.OnboardingDecisionRecordWhereInput = {};
-    const status = String(query.status || '').trim();
-    const contextType = String(query.contextType || '').trim();
-    const outputDecision = String(query.outputDecision || '').trim();
-    const customerId = String(query.customerId || '').trim();
-    const subjectId = String(query.subjectId || '').trim();
-    const policyVersion = String(query.policyVersion || '').trim();
-
-    if (status) where.status = status;
-    if (contextType) where.contextType = contextType;
-    if (outputDecision) where.outputDecision = outputDecision;
-    if (customerId) where.customerId = customerId;
-    if (subjectId) where.subjectId = subjectId;
-    if (policyVersion) {
-      where.policyVersion = { contains: policyVersion };
-    }
-
-    const decisionRecordRepo = (this.prisma as any).onboardingDecisionRecord;
-
-    const [total, rows] = await Promise.all([
-      decisionRecordRepo.count({ where }),
-      decisionRecordRepo.findMany({
-        where,
-        skip,
-        take,
-        orderBy: { createdAt: 'desc' },
-        select: {
-          id: true,
-          customerId: true,
-          contextType: true,
-          subjectId: true,
-          policyVersion: true,
-          status: true,
-          inputHash: true,
-          outputDecision: true,
-          recommendedActions: true,
-          reasonCodes: true,
-          errorMessage: true,
-          createdAt: true,
-          completedAt: true,
-          updatedAt: true,
-          customer: {
-            select: {
-              id: true,
-              customerNo: true,
-              email: true,
-            },
-          },
-        },
-      }),
-    ]);
-
-    const items = rows.map((row: any) => ({
-      ...row,
-      recommendedActions: this.parseJsonArraySafely(row.recommendedActions),
-      reasonCodes: this.parseJsonArraySafely<string>(row.reasonCodes),
-    }));
-
-    return {
-      total,
-      skip,
-      take,
-      items,
-    };
-  }
-
-  async getDecisionRecordDetail(id: string) {
-    const decisionRecordRepo = (this.prisma as any).onboardingDecisionRecord;
-    const row = await decisionRecordRepo.findUnique({
-      where: { id },
-      include: {
-        customer: {
-          select: {
-            id: true,
-            customerNo: true,
-            email: true,
-            firstName: true,
-            lastName: true,
-            customerType: true,
-            companyName: true,
-            publicStatus: true,
-          },
-        },
-      },
-    });
-
-    if (!row) {
-      throw new NotFoundException(`Decision record not found: ${id}`);
-    }
-
-    return {
-      ...row,
-      inputPayload: this.parseJsonSafely(row.inputPayload),
-      recommendedActions: this.parseJsonArraySafely(row.recommendedActions),
-      outputs: this.parseJsonSafely(row.outputs),
-      reasonCodes: this.parseJsonArraySafely<string>(row.reasonCodes),
+      transition: txResult.transition,
     };
   }
 
@@ -2412,12 +2123,14 @@ export class OnboardingService {
         customerId,
         journeyId,
         'Final onboarding approval completed.',
+        ONBOARDING_REVIEW_STAGES.REVIEW_EDD,
       );
     } else {
       await this.upsertJourneyAlert({
         customerId,
         customerNo: customer.customerNo || null,
         journeyId,
+        stage: ONBOARDING_REVIEW_STAGES.REVIEW_EDD,
         recommendation: 'REJECT',
         decision: 'REJECT',
         message: dto.reason || 'Final onboarding decision is REJECT.',
@@ -2527,6 +2240,8 @@ export class OnboardingService {
         customerNo: true,
         publicStatus: true,
         complianceStatus: true,
+        complianceHoldStatus: true,
+        complianceHoldCaseId: true,
         cddStatus: true,
         eddStatus: true,
         finalApprovalStatus: true,
@@ -2544,6 +2259,21 @@ export class OnboardingService {
         customerNo: customer.customerNo,
         publicStatus: customer.publicStatus,
         complianceStatus: customer.complianceStatus,
+        cddStatus: customer.cddStatus,
+        eddStatus: customer.eddStatus,
+        finalApprovalStatus: customer.finalApprovalStatus,
+      });
+    }
+
+    if (String(customer.complianceHoldStatus || 'ACTIVE').toUpperCase() === 'FROZEN') {
+      throw new ForbiddenException({
+        message: `${action} is blocked by compliance hold`,
+        customerId,
+        customerNo: customer.customerNo,
+        publicStatus: customer.publicStatus,
+        complianceStatus: customer.complianceStatus,
+        complianceHoldStatus: customer.complianceHoldStatus,
+        complianceHoldCaseId: customer.complianceHoldCaseId,
         cddStatus: customer.cddStatus,
         eddStatus: customer.eddStatus,
         finalApprovalStatus: customer.finalApprovalStatus,

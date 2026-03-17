@@ -58,6 +58,10 @@ export class ComplianceAlertQueryDto {
   assigneeUserId?: string;
 
   @IsOptional()
+  @IsString()
+  stage?: string;
+
+  @IsOptional()
   @Transform(({ value }) => {
     if (typeof value === 'boolean') return value;
     if (typeof value === 'string') return value.toLowerCase() === 'true';
@@ -94,6 +98,23 @@ export class UpdateComplianceAlertActionDto {
   @IsOptional()
   @IsString()
   decision?: string;
+
+  @IsOptional()
+  @IsString()
+  dispositionCode?: string;
+
+  @IsOptional()
+  @IsString()
+  dispositionReason?: string;
+
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'string') return value.toLowerCase() === 'true';
+    return false;
+  })
+  @IsBoolean()
+  finalizeDisposition?: boolean;
 
   @IsOptional()
   @IsArray()

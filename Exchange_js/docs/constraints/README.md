@@ -16,14 +16,15 @@ Any agent/thread must read this folder first before proposing or implementing ch
 9. `docs/constraints/governance-change-ticket-constraints.md`
 10. `docs/constraints/governance-delete-request-constraints.md`
 11. `docs/constraints/governance-sla-timer-constraints.md`
-12. `docs/constraints/compliance-alert-incident-constraints.md`
+12. `docs/constraints/compliance-alert-case-foundation-constraints.md`
+13. `docs/constraints/compliance-alert-incident-constraints.md`
 
 ## Scope
 - Frontend: `admin-web`, `client-web`
 - Backend: `src/**`, `prisma/**`, `scripts/**`
 - Runtime: local dev scripts, envs, startup/reset workflow
 - Domain flow: onboarding and compliance lifecycle
-- Domain flow: compliance alert and incident lifecycle
+- Domain flow: current V1 compliance alert and incident implementation lifecycle
 - Domain flow: customer transaction workflow (deposit/swap/withdraw)
 - Domain flow: internal treasury workflow (`internal_transactions` / `internal_funds`)
 - Domain flow: unified audit logging and evidence package
@@ -31,6 +32,7 @@ Any agent/thread must read this folder first before proposing or implementing ch
 - Domain flow: governance change ticket and release gate workflow
 - Domain flow: governance delete request and soft delete gate workflow
 - Domain flow: governance SLA timer workflow
+- Domain flow: `Wave 2` compliance alert / case foundation semantics
 - Domain flow: admin member invitation activation lifecycle (`INACTIVE -> invite -> password setup -> ACTIVE`)
 
 ## Enforcement Level

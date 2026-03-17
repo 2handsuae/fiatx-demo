@@ -4,9 +4,19 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { ComplianceAlert, ComplianceAlertEvent, Prisma } from '@prisma/client';
+import {
+  ComplianceAlert,
+  ComplianceAlertDispositionRecord,
+  ComplianceAlertEvent,
+  Prisma,
+} from '@prisma/client';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 import { PrismaService } from '../../../core/prisma/prisma.service';
+import {
+  ALERT_DISPOSITION_CODES,
+  mirrorLegacyDecisionFromDisposition,
+  normalizeAlertDispositionCode,
+} from '../constants/compliance-disposition.constant';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
 import {
   AuditActions,
@@ -29,9 +39,25 @@ import {
   ComplianceAlertQueryDto,
   UpdateComplianceAlertActionDto,
 } from './dto/compliance-alert.dto';
+import {
+  ALERT_COMPLIANCE_ACTIONS,
+  ALERT_COMPLIANCE_ACTIONS_BY_STAGE,
+  ALERT_WORK_ITEM_ACTIONS,
+  LEGACY_ONBOARDING_REVIEW_RULE,
+  ONBOARDING_REVIEW_STAGES,
+  ONBOARDING_SOURCE_TYPE,
+  ONBOARDING_WORKFLOW,
+  getCanonicalOnboardingRuleForStage,
+  isOnboardingSourceType,
+  normalizeOnboardingReviewStage,
+  normalizeOnboardingRuleCode,
+} from '../constants/onboarding-compliance-workflow.constant';
 
 type AlertWriteClient = Prisma.TransactionClient | PrismaService;
-type AlertWithEvents = ComplianceAlert & { events: ComplianceAlertEvent[] };
+type AlertWithEvents = ComplianceAlert & {
+  events: ComplianceAlertEvent[];
+  dispositionRecords: ComplianceAlertDispositionRecord[];
+};
 
 export interface TriggerComplianceAlertInput {
   ruleCode: string;
@@ -111,6 +137,107 @@ export class ComplianceAlertsService {
     return normalized.length ? normalized : null;
   }
 
+  private normalizeStringList(value: unknown): string[] {
+    if (!Array.isArray(value)) return [];
+    return value
+      .map((item) => String(item || '').trim())
+      .filter(Boolean);
+  }
+
+  private extractReasonCodes(metadata: Record<string, unknown>): string[] {
+    return this.normalizeStringList(metadata.reasonCodes);
+  }
+
+  private assertOnboardingAlertInput(
+    input: Pick<TriggerComplianceAlertInput, 'sourceType' | 'stage' | 'ruleCode'>,
+  ) {
+    if (!isOnboardingSourceType(input.sourceType)) {
+      throw new BadRequestException(
+        'Compliance alerts are onboarding-only in current runtime.',
+      );
+    }
+
+    const stage = normalizeOnboardingReviewStage(input.stage);
+    if (!stage) {
+      throw new BadRequestException(
+        `Unsupported onboarding alert stage: ${String(input.stage || '')}`,
+      );
+    }
+
+    const canonicalRule = normalizeOnboardingRuleCode(input.ruleCode, stage);
+    if (!canonicalRule) {
+      throw new BadRequestException(
+        `Unsupported onboarding alert ruleCode: ${String(input.ruleCode || '')}`,
+      );
+    }
+
+    return { stage, canonicalRule };
+  }
+
+  private getRuleSnapshot(row: {
+    sourceType?: string | null;
+    stage?: string | null;
+    ruleCode?: string | null;
+  }) {
+    const rawStage = this.normalizeOptionalString((row as any).stage);
+    const stage = normalizeOnboardingReviewStage(rawStage);
+    const rule =
+      normalizeOnboardingRuleCode((row as any).ruleCode, stage) ||
+      this.normalizeOptionalString((row as any).ruleCode);
+    const workflow = isOnboardingSourceType((row as any).sourceType)
+      ? ONBOARDING_WORKFLOW
+      : null;
+
+    return {
+      workflow,
+      stage: stage || rawStage,
+      rule,
+    };
+  }
+
+  private getAvailableWorkItemActions(
+    row: {
+      status?: string | null;
+      assigneeUserId?: string | null;
+    },
+    actorId?: string | null,
+  ): string[] {
+    const status = String(row.status || '').trim().toUpperCase();
+    const assigneeUserId = this.normalizeOptionalString(row.assigneeUserId);
+    const isCurrentAssignee = !!actorId && !!assigneeUserId && assigneeUserId === actorId;
+
+    if (status === ComplianceAlertStatus.OPEN) {
+      return [ALERT_WORK_ITEM_ACTIONS.ASSIGN];
+    }
+    if (status === ComplianceAlertStatus.ASSIGNED && isCurrentAssignee) {
+      return [ALERT_WORK_ITEM_ACTIONS.REASSIGN, ALERT_WORK_ITEM_ACTIONS.CLOSE];
+    }
+    if (status === ComplianceAlertStatus.ESCALATED && isCurrentAssignee) {
+      return [ALERT_WORK_ITEM_ACTIONS.CLOSE];
+    }
+    return [];
+  }
+
+  private getAvailableComplianceActions(
+    row: {
+      status?: string | null;
+      assigneeUserId?: string | null;
+      stage?: string | null;
+    },
+    actorId?: string | null,
+  ): string[] {
+    const status = String(row.status || '').trim().toUpperCase();
+    const stage = normalizeOnboardingReviewStage((row as any).stage);
+    const assigneeUserId = this.normalizeOptionalString(row.assigneeUserId);
+    const isCurrentAssignee = !!actorId && !!assigneeUserId && assigneeUserId === actorId;
+
+    if (!stage || status !== ComplianceAlertStatus.ASSIGNED || !isCurrentAssignee) {
+      return [];
+    }
+
+    return [...ALERT_COMPLIANCE_ACTIONS_BY_STAGE[stage]];
+  }
+
   private toRetainedUntil(occurredAt: Date): Date {
     const retainedUntil = new Date(occurredAt);
     retainedUntil.setFullYear(retainedUntil.getFullYear() + 8);
@@ -160,6 +287,175 @@ export class ComplianceAlertsService {
     }
   }
 
+  private resolveExplicitDispositionCode(input: {
+    dispositionCode?: unknown;
+    decision?: unknown;
+  }) {
+    const rawDispositionCode = this.normalizeOptionalString(input.dispositionCode);
+    if (rawDispositionCode) {
+      const normalized = normalizeAlertDispositionCode(rawDispositionCode);
+      if (!normalized) {
+        throw new BadRequestException(
+          `Unsupported alert dispositionCode: ${rawDispositionCode}`,
+        );
+      }
+      return normalized;
+    }
+
+    const rawDecision = this.normalizeOptionalString(input.decision);
+    if (rawDecision) {
+      const normalized = normalizeAlertDispositionCode(rawDecision);
+      if (!normalized) {
+        throw new BadRequestException(`Unsupported alert decision: ${rawDecision}`);
+      }
+      return normalized;
+    }
+
+    return null;
+  }
+
+  private getCurrentDispositionSnapshot(row: {
+    currentDispositionCode?: string | null;
+    currentDispositionReason?: string | null;
+    currentDispositionAt?: Date | null;
+    currentDispositionById?: string | null;
+    currentDispositionByNo?: string | null;
+    currentDispositionByRole?: string | null;
+    currentDispositionRecordId?: string | null;
+    decision?: string | null;
+  }) {
+    const currentDispositionCode =
+      normalizeAlertDispositionCode((row as any).currentDispositionCode) ||
+      normalizeAlertDispositionCode(row.decision);
+    return {
+      currentDispositionCode,
+      currentDispositionReason: this.normalizeOptionalString(
+        (row as any).currentDispositionReason,
+      ),
+      currentDispositionAt: (row as any).currentDispositionAt || null,
+      currentDispositionById: this.normalizeOptionalString(
+        (row as any).currentDispositionById,
+      ),
+      currentDispositionByNo: this.normalizeOptionalString(
+        (row as any).currentDispositionByNo,
+      ),
+      currentDispositionByRole: this.normalizeOptionalString(
+        (row as any).currentDispositionByRole,
+      ),
+      currentDispositionRecordId: this.normalizeOptionalString(
+        (row as any).currentDispositionRecordId,
+      ),
+    };
+  }
+
+  private getFinalDispositionSnapshot(
+    row: {
+      finalDispositionCode?: string | null;
+      finalDispositionReason?: string | null;
+      finalDispositionAt?: Date | null;
+      finalDispositionRecordId?: string | null;
+      decision?: string | null;
+      status?: string | null;
+    },
+    current: ReturnType<ComplianceAlertsService['getCurrentDispositionSnapshot']>,
+  ) {
+    const storedFinal =
+      normalizeAlertDispositionCode((row as any).finalDispositionCode) ||
+      (this.isClosedStatus(String((row as any).status || ''))
+        ? normalizeAlertDispositionCode(row.decision)
+        : null);
+
+    return {
+      finalDispositionCode: storedFinal,
+      finalDispositionReason:
+        this.normalizeOptionalString((row as any).finalDispositionReason) || null,
+      finalDispositionAt: (row as any).finalDispositionAt || null,
+      finalDispositionRecordId:
+        this.normalizeOptionalString((row as any).finalDispositionRecordId) ||
+        (storedFinal && current.currentDispositionCode === storedFinal
+          ? current.currentDispositionRecordId
+          : null),
+    };
+  }
+
+  private mapDispositionRecord(row: ComplianceAlertDispositionRecord) {
+    const dispositionCode =
+      normalizeAlertDispositionCode(row.dispositionCode) || row.dispositionCode;
+    return {
+      ...row,
+      dispositionCode,
+      legacyDecision:
+        mirrorLegacyDecisionFromDisposition(dispositionCode) || dispositionCode,
+    };
+  }
+
+  private buildAlertDetailResponse(
+    item: AlertWithEvents,
+    actor?: ComplianceAlertActorContext | null,
+  ) {
+    const mapped = this.mapAlert(item);
+    const events = Array.isArray(item.events) ? item.events : [];
+    const dispositionRecords = Array.isArray(item.dispositionRecords)
+      ? item.dispositionRecords
+      : [];
+
+    return {
+      ...mapped,
+      events: events.map((event) => this.mapAlertEvent(event)),
+      dispositionHistory: dispositionRecords.map((record) =>
+        this.mapDispositionRecord(record),
+      ),
+      availableWorkItemActions: this.getAvailableWorkItemActions(
+        item,
+        actor?.actorId || null,
+      ),
+      availableComplianceActions: this.getAvailableComplianceActions(
+        item,
+        actor?.actorId || null,
+      ),
+    };
+  }
+
+  private async createDispositionRecord(
+    db: AlertWriteClient,
+    current: {
+      id: string;
+      currentDispositionRecordId?: string | null;
+    },
+    input: {
+      dispositionCode: string;
+      reason?: string | null;
+      isFinal: boolean;
+      decisionRecordId?: string | null;
+      source?: string | null;
+      sourceRefId?: string | null;
+      actorType: string;
+      actorId: string;
+      actorNo?: string | null;
+      actorRole?: string | null;
+      createdAt: Date;
+    },
+  ) {
+    return db.complianceAlertDispositionRecord.create({
+      data: {
+        alertId: current.id,
+        dispositionCode: input.dispositionCode,
+        reason: input.reason || null,
+        isFinal: input.isFinal,
+        supersedesRecordId:
+          this.normalizeOptionalString(current.currentDispositionRecordId) || null,
+        decisionRecordId: this.normalizeOptionalString(input.decisionRecordId) || null,
+        source: this.normalizeOptionalString(input.source) || null,
+        sourceRefId: this.normalizeOptionalString(input.sourceRefId) || null,
+        actorType: input.actorType,
+        actorId: input.actorId,
+        actorNo: input.actorNo || null,
+        actorRole: input.actorRole || null,
+        createdAt: input.createdAt,
+      },
+    });
+  }
+
   private normalizeRecommendedDecision(value: unknown): string | null {
     const normalized = String(value || '').trim().toUpperCase();
     if (!normalized) return null;
@@ -203,10 +499,33 @@ export class ComplianceAlertsService {
       metadata && typeof metadata === 'object' && !Array.isArray(metadata)
         ? (metadata as Record<string, unknown>)
         : {};
+    const ruleSnapshot = this.getRuleSnapshot(row);
+    const currentDisposition = this.getCurrentDispositionSnapshot(row);
+    const finalDisposition = this.getFinalDispositionSnapshot(row, currentDisposition);
+    const mirroredDecision =
+      mirrorLegacyDecisionFromDisposition(currentDisposition.currentDispositionCode) ||
+      this.normalizeOptionalString(row.decision);
 
     return {
       ...row,
+      workflow: ruleSnapshot.workflow,
+      stage: ruleSnapshot.stage,
+      rule: ruleSnapshot.rule,
+      ruleCode: ruleSnapshot.rule,
       metadata: metadata || {},
+      reasonCodes: this.extractReasonCodes(normalizedMetadata),
+      currentDispositionCode: currentDisposition.currentDispositionCode,
+      currentDispositionReason: currentDisposition.currentDispositionReason,
+      currentDispositionAt: currentDisposition.currentDispositionAt,
+      currentDispositionById: currentDisposition.currentDispositionById,
+      currentDispositionByNo: currentDisposition.currentDispositionByNo,
+      currentDispositionByRole: currentDisposition.currentDispositionByRole,
+      currentDispositionRecordId: currentDisposition.currentDispositionRecordId,
+      finalDispositionCode: finalDisposition.finalDispositionCode,
+      finalDispositionReason: finalDisposition.finalDispositionReason,
+      finalDispositionAt: finalDisposition.finalDispositionAt,
+      finalDispositionRecordId: finalDisposition.finalDispositionRecordId,
+      decision: mirroredDecision,
       linkedCaseIds: this.parseJson(row.linkedCaseIds),
       decisionRecordIds: this.parseJson(row.decisionRecordIds),
       recommendedDecisions: this.mapRecommendedDecisions(row, normalizedMetadata),
@@ -387,7 +706,9 @@ export class ComplianceAlertsService {
   }
 
   private buildSimulationRuleCodes(count: number): string[] {
-    const availableRuleCodes = Object.keys(COMPLIANCE_ALERT_RULES);
+    const availableRuleCodes = Object.keys(COMPLIANCE_ALERT_RULES).filter((ruleCode) =>
+      ruleCode !== 'ONB_ONBOARDING_JOURNEY_REVIEW',
+    );
     if (availableRuleCodes.length === 0) {
       throw new BadRequestException('No compliance alert rules configured');
     }
@@ -405,61 +726,38 @@ export class ComplianceAlertsService {
     return picked;
   }
 
-  private randomTxSourceType(): 'DEPOSIT' | 'WITHDRAW' {
-    return Math.random() < 0.5 ? 'DEPOSIT' : 'WITHDRAW';
-  }
-
   private buildSimulatedAlertInput(
     ruleCode: string,
     batchId: string,
-    index: number,
+  index: number,
   ): TriggerComplianceAlertInput {
     const sequence = String(index + 1).padStart(2, '0');
     const randomSegment = Math.floor(Math.random() * 1_000_000)
       .toString(36)
       .padStart(4, '0');
-    const sourceId = `sim-${batchId}-${sequence}-${randomSegment}`;
     const customerId = `sim-customer-${batchId}-${sequence}`;
+    const journeyId = `sim-journey-${batchId}-${sequence}`;
+    const sourceId = `${customerId}:${journeyId}`;
     const customerNo = `SIMCU-${batchId.slice(-6).toUpperCase()}-${sequence}`;
     const entityId = `sim-entity-${batchId}-${sequence}-${randomSegment}`;
     const entityNo = `SIM-ENT-${batchId.slice(-6).toUpperCase()}-${sequence}`;
     const sourceNo = `SIM-SRC-${batchId.slice(-6).toUpperCase()}-${sequence}`;
-
-    let sourceModule: string = AuditModules.TRANSACTION_COMPLIANCE;
-    let sourceType: string = this.randomTxSourceType();
-    let entityType: string = AuditEntityTypes.KYT_CASE;
-
-    if (ruleCode.startsWith('ONB_')) {
-      sourceModule = AuditModules.ONBOARDING;
-      sourceType = 'CUSTOMER';
-      entityType = AuditEntityTypes.CUSTOMER;
-    } else if (ruleCode.startsWith('TX_TRAVEL_RULE_')) {
-      sourceModule = AuditModules.TRANSACTION_COMPLIANCE;
-      sourceType = this.randomTxSourceType();
-      entityType = AuditEntityTypes.TRAVEL_RULE_CASE;
-    } else if (ruleCode === 'TX_COMPLIANCE_GATE_BLOCKED') {
-      sourceType = this.randomTxSourceType();
-      sourceModule =
-        sourceType === 'DEPOSIT'
-          ? AuditModules.DEPOSIT_TRANSACTIONS
-          : AuditModules.WITHDRAW_TRANSACTIONS;
-      entityType =
-        sourceType === 'DEPOSIT'
-          ? AuditEntityTypes.DEPOSIT_TRANSACTION
-          : AuditEntityTypes.WITHDRAW_TRANSACTION;
-    } else if (ruleCode.startsWith('TX_KYT_')) {
-      sourceModule = AuditModules.TRANSACTION_COMPLIANCE;
-      sourceType = this.randomTxSourceType();
-      entityType = AuditEntityTypes.KYT_CASE;
-    }
+    const stage =
+      normalizeOnboardingReviewStage(
+        ruleCode === 'ONB_EDD_REVIEW_REQUIRED'
+          ? ONBOARDING_REVIEW_STAGES.REVIEW_EDD
+          : ONBOARDING_REVIEW_STAGES.REVIEW_CDD,
+      ) || ONBOARDING_REVIEW_STAGES.REVIEW_CDD;
 
     return {
       ruleCode,
-      sourceModule,
-      sourceType,
+      sourceModule: AuditModules.ONBOARDING,
+      sourceType: ONBOARDING_SOURCE_TYPE,
       sourceId,
       sourceNo,
-      entityType,
+      stage,
+      journeyId,
+      entityType: AuditEntityTypes.CUSTOMER,
       entityId,
       entityNo,
       ownerType: 'CUSTOMER',
@@ -472,6 +770,7 @@ export class ComplianceAlertsService {
         simulated: true,
         batchId,
         sequence: index + 1,
+        reasonCodes: ruleCode === 'ONB_EDD_REVIEW_REQUIRED' ? ['EDD_REQUIRED'] : ['CDD_REQUIRED'],
       },
       sourcePlatform: 'ADMIN_SIMULATOR',
     };
@@ -482,10 +781,15 @@ export class ComplianceAlertsService {
     tx?: Prisma.TransactionClient,
   ) {
     const db = this.getDb(tx);
-    const rule = this.ensureRule(input.ruleCode);
+    const { stage, canonicalRule } = this.assertOnboardingAlertInput(input);
+    const rule = this.ensureRule(canonicalRule);
     const occurredAt = input.occurredAt || new Date();
     const severity = input.severity || rule.severity;
-    const dedupeKey = this.buildDedupeKey(input);
+    const dedupeKey = this.buildDedupeKey({
+      ...input,
+      ruleCode: canonicalRule,
+      stage,
+    });
     const dueAt = this.toDueAt(severity, occurredAt);
     const retainedUntil = this.toRetainedUntil(occurredAt);
     const capCode = this.normalizeOptionalString(input.capCode) || rule.capCode || null;
@@ -497,6 +801,9 @@ export class ComplianceAlertsService {
     const decision = this.normalizeOptionalString(input.decision);
     const linkedCaseIds = this.serializeJson(input.linkedCaseIds || null);
     const decisionRecordIds = this.serializeJson(input.decisionRecordIds || null);
+    const explicitDispositionCode = this.resolveExplicitDispositionCode({
+      decision: input.decision,
+    });
 
     let ownerNo = this.normalizeOptionalString(input.ownerNo);
     let customerId = this.normalizeOptionalString(input.customerId);
@@ -536,14 +843,14 @@ export class ComplianceAlertsService {
         data: {
           alertNo: generateReferenceNo('ALT'),
           dedupeKey,
-          ruleCode: rule.ruleCode,
+          ruleCode: canonicalRule,
           capCode,
           severity,
           status: ComplianceAlertStatus.OPEN,
           title,
           message,
           sourceModule: input.sourceModule,
-          sourceType: input.sourceType,
+          sourceType: ONBOARDING_SOURCE_TYPE,
           sourceId: input.sourceId,
           sourceNo: this.normalizeOptionalString(input.sourceNo),
           entityType: this.normalizeOptionalString(input.entityType),
@@ -555,10 +862,12 @@ export class ComplianceAlertsService {
           customerId,
           customerNo,
           journeyId,
+          stage,
           decisionRecommendation,
           decision,
           linkedCaseIds,
           decisionRecordIds,
+          overdueMarkedAt: null,
           firstOccurredAt: occurredAt,
           lastOccurredAt: occurredAt,
           dueAt,
@@ -582,15 +891,46 @@ export class ComplianceAlertsService {
         actorRole: 'SYSTEM',
         note: message,
         payload: {
-          ruleCode: rule.ruleCode,
+          ruleCode: canonicalRule,
           dedupeKey,
-          sourceType: input.sourceType,
+          sourceType: ONBOARDING_SOURCE_TYPE,
           sourceId: input.sourceId,
-          stage: this.normalizeOptionalString(input.stage),
+          stage,
           metadata: input.metadata || null,
         },
         sourcePlatform,
       });
+
+      if (explicitDispositionCode) {
+        const record = await this.createDispositionRecord(db, created, {
+          dispositionCode: explicitDispositionCode,
+          reason: null,
+          isFinal: false,
+          decisionRecordId: Array.isArray(input.decisionRecordIds)
+            ? input.decisionRecordIds[0] || null
+            : null,
+          source: 'SYSTEM_TRIGGER',
+          sourceRefId: created.id,
+          actorType: 'SYSTEM',
+          actorId: 'SYSTEM',
+          actorNo: 'SYSTEM',
+          actorRole: 'SYSTEM',
+          createdAt: occurredAt,
+        });
+
+        await db.complianceAlert.update({
+          where: { id: created.id },
+          data: {
+            currentDispositionCode: explicitDispositionCode,
+            currentDispositionReason: null,
+            currentDispositionAt: occurredAt,
+            currentDispositionById: 'SYSTEM',
+            currentDispositionByNo: 'SYSTEM',
+            currentDispositionByRole: 'SYSTEM',
+            currentDispositionRecordId: record.id,
+          },
+        });
+      }
 
       await this.auditLogsService.recordSystem(
         {
@@ -604,7 +944,7 @@ export class ComplianceAlertsService {
           entityOwnerId: created.ownerId || undefined,
           reason: `Alert triggered: ${rule.ruleCode}`,
           metadata: {
-            ruleCode: rule.ruleCode,
+            ruleCode: canonicalRule,
             severity: created.severity,
             sourceType: created.sourceType,
             sourceId: created.sourceId,
@@ -635,14 +975,14 @@ export class ComplianceAlertsService {
         data: {
           alertNo: generateReferenceNo('ALT'),
           dedupeKey,
-          ruleCode: rule.ruleCode,
+          ruleCode: canonicalRule,
           capCode,
           severity,
           status: ComplianceAlertStatus.OPEN,
           title,
           message,
           sourceModule: input.sourceModule,
-          sourceType: input.sourceType,
+          sourceType: ONBOARDING_SOURCE_TYPE,
           sourceId: input.sourceId,
           sourceNo: this.normalizeOptionalString(input.sourceNo),
           entityType: this.normalizeOptionalString(input.entityType),
@@ -654,10 +994,12 @@ export class ComplianceAlertsService {
           customerId,
           customerNo,
           journeyId,
+          stage,
           decisionRecommendation,
           decision,
           linkedCaseIds,
           decisionRecordIds,
+          overdueMarkedAt: null,
           firstOccurredAt: occurredAt,
           lastOccurredAt: occurredAt,
           dueAt,
@@ -679,18 +1021,49 @@ export class ComplianceAlertsService {
         actorId: 'SYSTEM',
         actorNo: 'SYSTEM',
         actorRole: 'SYSTEM',
-        note: `Alert triggered after terminal state: ${rule.ruleCode}`,
+        note: `Alert triggered after terminal state: ${canonicalRule}`,
         payload: {
-          ruleCode: rule.ruleCode,
+          ruleCode: canonicalRule,
           dedupeKey,
           previousAlertId: existing.id,
-          sourceType: input.sourceType,
+          sourceType: ONBOARDING_SOURCE_TYPE,
           sourceId: input.sourceId,
-          stage: this.normalizeOptionalString(input.stage),
+          stage,
           metadata: input.metadata || null,
         },
         sourcePlatform,
       });
+
+      if (explicitDispositionCode) {
+        const record = await this.createDispositionRecord(db, createdAfterClosed, {
+          dispositionCode: explicitDispositionCode,
+          reason: null,
+          isFinal: false,
+          decisionRecordId: Array.isArray(input.decisionRecordIds)
+            ? input.decisionRecordIds[0] || null
+            : null,
+          source: 'SYSTEM_TRIGGER',
+          sourceRefId: createdAfterClosed.id,
+          actorType: 'SYSTEM',
+          actorId: 'SYSTEM',
+          actorNo: 'SYSTEM',
+          actorRole: 'SYSTEM',
+          createdAt: occurredAt,
+        });
+
+        await db.complianceAlert.update({
+          where: { id: createdAfterClosed.id },
+          data: {
+            currentDispositionCode: explicitDispositionCode,
+            currentDispositionReason: null,
+            currentDispositionAt: occurredAt,
+            currentDispositionById: 'SYSTEM',
+            currentDispositionByNo: 'SYSTEM',
+            currentDispositionByRole: 'SYSTEM',
+            currentDispositionRecordId: record.id,
+          },
+        });
+      }
 
       await this.auditLogsService.recordSystem(
         {
@@ -702,9 +1075,9 @@ export class ComplianceAlertsService {
           entityNo: createdAfterClosed.alertNo,
           entityOwnerType: createdAfterClosed.ownerType || undefined,
           entityOwnerId: createdAfterClosed.ownerId || undefined,
-          reason: `Alert triggered after terminal state: ${rule.ruleCode}`,
+          reason: `Alert triggered after terminal state: ${canonicalRule}`,
           metadata: {
-            ruleCode: rule.ruleCode,
+            ruleCode: canonicalRule,
             severity: createdAfterClosed.severity,
             sourceType: createdAfterClosed.sourceType,
             sourceId: createdAfterClosed.sourceId,
@@ -738,10 +1111,12 @@ export class ComplianceAlertsService {
         customerId,
         customerNo,
         journeyId,
+        stage,
         decisionRecommendation,
         decision,
         linkedCaseIds,
         decisionRecordIds,
+        overdueMarkedAt: null,
         lastOccurredAt: occurredAt,
         dueAt,
         hitCount: existing.hitCount + 1,
@@ -754,6 +1129,37 @@ export class ComplianceAlertsService {
       },
     });
 
+    if (explicitDispositionCode) {
+      const record = await this.createDispositionRecord(db, updated, {
+        dispositionCode: explicitDispositionCode,
+        reason: null,
+        isFinal: false,
+        decisionRecordId: Array.isArray(input.decisionRecordIds)
+          ? input.decisionRecordIds[0] || null
+          : null,
+        source: 'SYSTEM_TRIGGER',
+        sourceRefId: updated.id,
+        actorType: 'SYSTEM',
+        actorId: 'SYSTEM',
+        actorNo: 'SYSTEM',
+        actorRole: 'SYSTEM',
+        createdAt: occurredAt,
+      });
+
+      await db.complianceAlert.update({
+        where: { id: updated.id },
+        data: {
+          currentDispositionCode: explicitDispositionCode,
+          currentDispositionReason: null,
+          currentDispositionAt: occurredAt,
+          currentDispositionById: 'SYSTEM',
+          currentDispositionByNo: 'SYSTEM',
+          currentDispositionByRole: 'SYSTEM',
+          currentDispositionRecordId: record.id,
+        },
+      });
+    }
+
     await this.appendEvent(db, {
       alertId: updated.id,
       eventType: ComplianceAlertEventType.TRIGGERED,
@@ -762,13 +1168,13 @@ export class ComplianceAlertsService {
       actorId: 'SYSTEM',
       actorNo: 'SYSTEM',
       actorRole: 'SYSTEM',
-      note: `Alert triggered again: ${rule.ruleCode}`,
+      note: `Alert triggered again: ${canonicalRule}`,
       payload: {
-        ruleCode: rule.ruleCode,
+        ruleCode: canonicalRule,
         dedupeKey,
-        sourceType: input.sourceType,
+        sourceType: ONBOARDING_SOURCE_TYPE,
         sourceId: input.sourceId,
-        stage: this.normalizeOptionalString(input.stage),
+        stage,
         metadata: input.metadata || null,
       },
       sourcePlatform,
@@ -784,9 +1190,9 @@ export class ComplianceAlertsService {
         entityNo: updated.alertNo,
         entityOwnerType: updated.ownerType || undefined,
         entityOwnerId: updated.ownerId || undefined,
-        reason: `Alert re-triggered: ${rule.ruleCode}`,
+        reason: `Alert re-triggered: ${canonicalRule}`,
         metadata: {
-          ruleCode: rule.ruleCode,
+          ruleCode: canonicalRule,
           severity: updated.severity,
           sourceType: updated.sourceType,
           sourceId: updated.sourceId,
@@ -818,7 +1224,7 @@ export class ComplianceAlertsService {
       createdItems.push({
         id: created.id,
         alertNo: created.alertNo,
-        ruleCode: created.ruleCode,
+        ruleCode: created.ruleCode || selectedRuleCodes[i],
         severity: created.severity as ComplianceAlertSeverity,
         status: created.status as ComplianceAlertStatus,
         sourceType: created.sourceType,
@@ -836,16 +1242,83 @@ export class ComplianceAlertsService {
   async findAll(query: ComplianceAlertQueryDto) {
     const skip = this.normalizeSkip(query.skip);
     const take = this.normalizeTake(query.take);
-    const where: Prisma.ComplianceAlertWhereInput = {};
+    const where: Prisma.ComplianceAlertWhereInput = {
+      sourceType: ONBOARDING_SOURCE_TYPE,
+    };
     const andConditions: Prisma.ComplianceAlertWhereInput[] = [];
+    const normalizedStage = normalizeOnboardingReviewStage(query.stage);
+    const rawRuleCode = this.normalizeOptionalString(query.ruleCode)?.toUpperCase() || null;
 
     if (query.status) where.status = query.status;
     if (query.severity) where.severity = query.severity;
-    if (query.ruleCode) where.ruleCode = query.ruleCode;
-    if (query.sourceType) where.sourceType = query.sourceType;
+    if (query.sourceType && !isOnboardingSourceType(query.sourceType)) {
+      return {
+        total: 0,
+        skip,
+        take,
+        items: [],
+      };
+    }
     if (query.sourceId) where.sourceId = query.sourceId;
     if (query.customerNo) where.customerNo = query.customerNo;
     if (query.assigneeUserId) where.assigneeUserId = query.assigneeUserId;
+    if (normalizedStage) {
+      where.stage = normalizedStage;
+    } else {
+      where.stage = {
+        in: Object.values(ONBOARDING_REVIEW_STAGES),
+      };
+    }
+
+    if (rawRuleCode) {
+      const cddRule =
+        getCanonicalOnboardingRuleForStage(ONBOARDING_REVIEW_STAGES.REVIEW_CDD) ||
+        'ONB_CDD_REVIEW_REQUIRED';
+      const eddRule =
+        getCanonicalOnboardingRuleForStage(ONBOARDING_REVIEW_STAGES.REVIEW_EDD) ||
+        'ONB_EDD_REVIEW_REQUIRED';
+      const normalizedRule =
+        normalizeOnboardingRuleCode(rawRuleCode, normalizedStage || undefined) ||
+        (rawRuleCode === LEGACY_ONBOARDING_REVIEW_RULE ? rawRuleCode : null);
+
+      if (!normalizedRule) {
+        return {
+          total: 0,
+          skip,
+          take,
+          items: [],
+        };
+      }
+
+      if (normalizedRule === LEGACY_ONBOARDING_REVIEW_RULE) {
+        andConditions.push({
+          OR: [
+            {
+              ruleCode: LEGACY_ONBOARDING_REVIEW_RULE,
+            },
+            {
+              ruleCode: {
+                in: [cddRule, eddRule],
+              },
+            },
+          ],
+        });
+      } else {
+        andConditions.push({
+          OR: [
+            { ruleCode: normalizedRule },
+            {
+              ruleCode: LEGACY_ONBOARDING_REVIEW_RULE,
+              stage:
+                normalizedStage ||
+                (normalizedRule === cddRule
+                  ? ONBOARDING_REVIEW_STAGES.REVIEW_CDD
+                  : ONBOARDING_REVIEW_STAGES.REVIEW_EDD),
+            },
+          ],
+        });
+      }
+    }
 
     const keyword = this.normalizeOptionalString(query.keyword);
     if (keyword) {
@@ -893,12 +1366,15 @@ export class ComplianceAlertsService {
     };
   }
 
-  async findOne(id: string) {
+  async findOne(id: string, actor?: ComplianceAlertActorContext | null) {
     const item = await this.prisma.complianceAlert.findUnique({
       where: { id },
       include: {
         events: {
           orderBy: { eventAt: 'desc' },
+        },
+        dispositionRecords: {
+          orderBy: [{ createdAt: 'desc' }],
         },
       },
     });
@@ -907,12 +1383,100 @@ export class ComplianceAlertsService {
       throw new NotFoundException(`Compliance alert not found: ${id}`);
     }
 
-    return {
-      ...this.mapAlert(item),
-      events: (item as AlertWithEvents).events.map((event) =>
-        this.mapAlertEvent(event),
-      ),
-    };
+    if (
+      !isOnboardingSourceType(item.sourceType) ||
+      !normalizeOnboardingReviewStage((item as any).stage)
+    ) {
+      throw new NotFoundException(`Compliance alert not found: ${id}`);
+    }
+
+    return this.buildAlertDetailResponse(item as AlertWithEvents, actor);
+  }
+
+  async markOverdueAlerts(now = new Date()) {
+    const rows = await this.prisma.complianceAlert.findMany({
+      where: {
+        dueAt: { lt: now },
+        status: { notIn: CLOSED_ALERT_STATUSES },
+        overdueMarkedAt: null,
+      },
+      select: {
+        id: true,
+        alertNo: true,
+        status: true,
+        ownerType: true,
+        ownerId: true,
+      },
+      take: 200,
+      orderBy: { dueAt: 'asc' },
+    });
+
+    for (const row of rows) {
+      await this.prisma.$transaction(async (tx) => {
+        const current = await tx.complianceAlert.findUnique({
+          where: { id: row.id },
+          select: {
+            id: true,
+            alertNo: true,
+            status: true,
+            ownerType: true,
+            ownerId: true,
+            overdueMarkedAt: true,
+          },
+        });
+        if (!current || current.overdueMarkedAt || this.isClosedStatus(current.status)) {
+          return;
+        }
+
+        await tx.complianceAlert.update({
+          where: { id: current.id },
+          data: {
+            overdueMarkedAt: now,
+            lastActionById: 'SYSTEM',
+            lastActionByNo: 'SYSTEM',
+            lastActionByRole: 'SYSTEM',
+            lastActionAt: now,
+          },
+        });
+
+        await this.appendEvent(tx, {
+          alertId: current.id,
+          eventType: ComplianceAlertEventType.OVERDUE_MARKED,
+          eventAt: now,
+          actorType: 'SYSTEM',
+          actorId: 'SYSTEM',
+          actorNo: 'SYSTEM',
+          actorRole: 'SYSTEM',
+          note: `Alert ${current.alertNo} marked overdue`,
+          payload: {
+            action: 'OVERDUE_MARKED',
+            markedAt: now.toISOString(),
+          },
+          sourcePlatform: 'SYSTEM',
+        });
+
+        await this.auditLogsService.recordSystem(
+          {
+            triggerType: AuditTriggerType.SYSTEM_EVENT,
+            action: AuditActions.ALERT_OVERDUE_MARKED,
+            module: AuditModules.COMPLIANCE_ALERTS,
+            entityType: AuditEntityTypes.COMPLIANCE_ALERT,
+            entityId: current.id,
+            entityNo: current.alertNo,
+            entityOwnerType: current.ownerType || undefined,
+            entityOwnerId: current.ownerId || undefined,
+            reason: `Alert ${current.alertNo} marked overdue`,
+            metadata: {
+              markedAt: now.toISOString(),
+            },
+            sourcePlatform: 'SYSTEM',
+          },
+          tx,
+        );
+      });
+    }
+
+    return { markedCount: rows.length };
   }
 
   async applyAction(
@@ -927,6 +1491,14 @@ export class ComplianceAlertsService {
     });
     if (!current) {
       throw new NotFoundException(`Compliance alert not found: ${id}`);
+    }
+    if (
+      !isOnboardingSourceType(current.sourceType) ||
+      !normalizeOnboardingReviewStage((current as any).stage)
+    ) {
+      throw new BadRequestException(
+        `Alert ${id} is outside onboarding-only runtime scope`,
+      );
     }
 
     const currentStatus = current.status as ComplianceAlertStatus;
@@ -971,6 +1543,12 @@ export class ComplianceAlertsService {
     const note = this.normalizeOptionalString(dto.note);
     const recommendation = this.normalizeOptionalString(dto.recommendation);
     const decision = this.normalizeOptionalString(dto.decision);
+    const dispositionReason =
+      this.normalizeOptionalString(dto.dispositionReason) || reason || note;
+    const explicitDispositionCode = this.resolveExplicitDispositionCode({
+      dispositionCode: dto.dispositionCode,
+      decision: dto.decision,
+    });
     const linkedCaseIds = this.serializeJson(dto.linkedCaseIds || null);
     const decisionRecordIds = this.serializeJson(dto.decisionRecordIds || null);
 
@@ -1023,6 +1601,68 @@ export class ComplianceAlertsService {
       updateData.closeReason = null;
     }
 
+    let resolvedDispositionCode = explicitDispositionCode;
+    let finalizeDisposition =
+      dto.action === ComplianceAlertAction.CLOSE &&
+      (!!resolvedDispositionCode || !!dto.finalizeDisposition);
+
+    if (dto.action === ComplianceAlertAction.ESCALATE) {
+      resolvedDispositionCode = ALERT_DISPOSITION_CODES.ESCALATE_TO_CASE;
+      finalizeDisposition = true;
+    }
+
+    if (resolvedDispositionCode) {
+      const record = await this.createDispositionRecord(db, current, {
+        dispositionCode: resolvedDispositionCode,
+        reason: dispositionReason,
+        isFinal: finalizeDisposition,
+        decisionRecordId: Array.isArray(dto.decisionRecordIds)
+          ? dto.decisionRecordIds[0] || null
+          : null,
+        source: 'ALERT_ACTION',
+        sourceRefId: id,
+        actorType: actor.actorType,
+        actorId: actor.actorId,
+        actorNo: actor.actorNo || null,
+        actorRole: actor.actorRole || null,
+        createdAt: now,
+      });
+
+      updateData.currentDispositionCode = resolvedDispositionCode;
+      updateData.currentDispositionReason = dispositionReason || null;
+      updateData.currentDispositionAt = now;
+      updateData.currentDispositionById = actor.actorId;
+      updateData.currentDispositionByNo = actor.actorNo || null;
+      updateData.currentDispositionByRole = actor.actorRole || null;
+      updateData.currentDispositionRecordId = record.id;
+      updateData.decision =
+        mirrorLegacyDecisionFromDisposition(resolvedDispositionCode) ||
+        resolvedDispositionCode;
+
+      if (finalizeDisposition) {
+        updateData.finalDispositionCode = resolvedDispositionCode;
+        updateData.finalDispositionReason = dispositionReason || null;
+        updateData.finalDispositionAt = now;
+        updateData.finalDispositionRecordId = record.id;
+      }
+    } else if (resolution.isCloseAction) {
+      const currentDisposition = this.getCurrentDispositionSnapshot(current);
+      if (currentDisposition.currentDispositionCode) {
+        updateData.finalDispositionCode = currentDisposition.currentDispositionCode;
+        updateData.finalDispositionReason =
+          currentDisposition.currentDispositionReason || null;
+        updateData.finalDispositionAt = now;
+        updateData.finalDispositionRecordId =
+          currentDisposition.currentDispositionRecordId || null;
+        if (!decision) {
+          updateData.decision =
+            mirrorLegacyDecisionFromDisposition(
+              currentDisposition.currentDispositionCode,
+            ) || currentDisposition.currentDispositionCode;
+        }
+      }
+    }
+
     const updated = await db.complianceAlert.update({
       where: { id },
       data: updateData,
@@ -1044,7 +1684,12 @@ export class ComplianceAlertsService {
         assigneeUserId,
         assigneeUserNo,
         recommendation,
-        decision,
+        decision:
+          mirrorLegacyDecisionFromDisposition(resolvedDispositionCode) ||
+          decision,
+        dispositionCode: resolvedDispositionCode,
+        dispositionReason: dispositionReason || null,
+        finalizeDisposition,
         linkedCaseIds: dto.linkedCaseIds || null,
         decisionRecordIds: dto.decisionRecordIds || null,
         statusFrom: currentStatus,
@@ -1072,7 +1717,12 @@ export class ComplianceAlertsService {
           assigneeUserId,
           assigneeUserNo,
           recommendation,
-          decision,
+          decision:
+            mirrorLegacyDecisionFromDisposition(resolvedDispositionCode) ||
+            decision,
+          dispositionCode: resolvedDispositionCode,
+          dispositionReason: dispositionReason || null,
+          finalizeDisposition,
           linkedCaseIds: dto.linkedCaseIds || null,
           decisionRecordIds: dto.decisionRecordIds || null,
         },
@@ -1093,6 +1743,9 @@ export class ComplianceAlertsService {
         events: {
           orderBy: { eventAt: 'desc' },
         },
+        dispositionRecords: {
+          orderBy: [{ createdAt: 'desc' }],
+        },
       },
     });
 
@@ -1100,11 +1753,6 @@ export class ComplianceAlertsService {
       throw new NotFoundException(`Compliance alert not found: ${updated.id}`);
     }
 
-    return {
-      ...this.mapAlert(detail),
-      events: (detail as AlertWithEvents).events.map((event) =>
-        this.mapAlertEvent(event),
-      ),
-    };
+    return this.buildAlertDetailResponse(detail as AlertWithEvents, actor);
   }
 }

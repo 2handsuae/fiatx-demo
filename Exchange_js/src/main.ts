@@ -4,6 +4,7 @@ import { Logger } from 'nestjs-pino';
 import { ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { ConfigService } from '@nestjs/config';
+import { expandLoopbackOrigins } from './common/utils/loopback-origin.util';
 // import { AllExceptionsFilter } from './common/filters/all-exceptions.filter'; // Commented out until file is recreated
 
 async function bootstrap() {
@@ -14,13 +15,26 @@ async function bootstrap() {
     configService.get<string>('ADMIN_URL') || 'http://localhost:3501';
   const clientUrl =
     configService.get<string>('CLIENT_URL') || 'http://localhost:3502';
+  const allowedOrigins = new Set(
+    expandLoopbackOrigins([adminUrl, clientUrl]),
+  );
 
   app.useLogger(app.get(Logger));
   app.useGlobalPipes(new ValidationPipe({ transform: true, whitelist: true }));
 
   // Enable CORS for Admin and Client
   app.enableCors({
-    origin: [adminUrl, clientUrl],
+    origin: (
+      origin: string | undefined,
+      callback: (err: Error | null, allow?: boolean) => void,
+    ) => {
+      if (!origin || allowedOrigins.has(origin)) {
+        callback(null, true);
+        return;
+      }
+
+      callback(null, false);
+    },
     credentials: true,
   });
 

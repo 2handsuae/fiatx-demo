@@ -8,6 +8,9 @@ describe('ComplianceIncidentsAdminController', () => {
     findAll: jest.fn(),
     createFromAlert: jest.fn(),
     findOne: jest.fn(),
+    getReport: jest.fn(),
+    saveReportDraft: jest.fn(),
+    finalizeReport: jest.fn(),
     applyAction: jest.fn(),
     linkAlert: jest.fn(),
   };
@@ -123,5 +126,62 @@ describe('ComplianceIncidentsAdminController', () => {
       expect.objectContaining({ actorId: 'admin-1' }),
     );
     expect(result).toEqual({ id: 'inc-1' });
+  });
+
+  it('should call report compatibility endpoints for admin', async () => {
+    serviceMock.getReport.mockResolvedValue({ currentReport: { id: 'report-1' } });
+    serviceMock.saveReportDraft.mockResolvedValue({ currentReport: { id: 'report-1' } });
+    serviceMock.finalizeReport.mockResolvedValue({ currentReport: { id: 'report-1' } });
+
+    await controller.getReport(
+      {
+        user: {
+          type: 'ADMIN',
+          userId: 'admin-1',
+          userNo: 'US0001',
+          role: 'ADMIN',
+        },
+      },
+      'inc-1',
+    );
+    await controller.saveReportDraft(
+      {
+        user: {
+          type: 'ADMIN',
+          userId: 'admin-1',
+          userNo: 'US0001',
+          role: 'ADMIN',
+        },
+      },
+      'inc-1',
+      { factsSummary: 'facts' },
+    );
+    await controller.finalizeReport(
+      {
+        user: {
+          type: 'ADMIN',
+          userId: 'admin-1',
+          userNo: 'US0001',
+          role: 'ADMIN',
+        },
+      },
+      'inc-1',
+      {},
+    );
+
+    expect(serviceMock.getReport).toHaveBeenCalledWith(
+      'inc-1',
+      expect.objectContaining({ actorId: 'admin-1' }),
+    );
+    expect(serviceMock.saveReportDraft).toHaveBeenCalledWith(
+      'inc-1',
+      { factsSummary: 'facts' },
+      expect.objectContaining({ actorId: 'admin-1' }),
+    );
+    expect(serviceMock.finalizeReport).toHaveBeenCalledWith(
+      'inc-1',
+      {},
+      expect.objectContaining({ actorId: 'admin-1' }),
+    );
   });
 });
