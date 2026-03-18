@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { RefreshCw, Search, X } from 'lucide-react';
 import Pagination from '../components/common/Pagination';
+import { PERMISSIONS } from '../rbac/permissions';
 import {
   AdminSessionError,
   adminFetch,
@@ -14,16 +15,23 @@ type AlertStatus =
   | 'ASSIGNED'
   | 'ESCALATED'
   | 'CLOSED';
-type AlertAction =
-  | 'ASSIGN'
-  | 'ESCALATE'
-  | 'CLOSE';
-type WorkflowAction = 'ASSIGN' | 'REASSIGN' | 'ESCALATE' | 'CLOSE';
+type AlertWorkItemAction = 'ASSIGN' | 'REASSIGN' | 'CLOSE';
 type RecommendedDecision = 'APPROVE' | 'REJECT' | 'REQUIRE_EDD';
+type AlertDispositionCode =
+  | 'APPROVE_STAGE'
+  | 'REJECT_STAGE'
+  | 'REQUIRE_EDD'
+  | 'ESCALATE_TO_CASE'
+  | 'FALSE_POSITIVE'
+  | 'NO_ACTION';
+type AlertComplianceAction = AlertDispositionCode;
 
 interface AlertItem {
   id: string;
   alertNo: string;
+  workflow?: string | null;
+  stage?: string | null;
+  rule?: string | null;
   ruleCode: string;
   capCode?: string | null;
   severity: AlertSeverity;
@@ -39,8 +47,10 @@ interface AlertItem {
   decisionRecommendation?: string | null;
   decision?: string | null;
   recommendedDecisions?: string[];
+  reasonCodes?: string[];
   hitCount: number;
   dueAt: string;
+  overdueMarkedAt?: string | null;
   lastOccurredAt: string;
 }
 
@@ -55,6 +65,19 @@ interface AlertEvent {
   payload?: unknown;
 }
 
+interface DispositionRecord {
+  id: string;
+  dispositionCode: AlertDispositionCode | string;
+  decision?: string | null;
+  reason?: string | null;
+  isFinal?: boolean;
+  actorNo?: string | null;
+  actorRole?: string | null;
+  source?: string | null;
+  sourceRefId?: string | null;
+  createdAt: string;
+}
+
 interface AlertDetail extends AlertItem {
   sourceModule: string;
   entityType?: string | null;
@@ -63,8 +86,19 @@ interface AlertDetail extends AlertItem {
   assigneeUserId?: string | null;
   closeReason?: string | null;
   closedAt?: string | null;
+  currentDispositionCode?: AlertDispositionCode | string | null;
+  currentDispositionReason?: string | null;
+  currentDispositionAt?: string | null;
+  finalDispositionCode?: AlertDispositionCode | string | null;
+  finalDispositionReason?: string | null;
+  finalDispositionAt?: string | null;
   metadata?: unknown;
+  linkedCaseIds?: string[] | null;
+  decisionRecordIds?: string[] | null;
   recommendedDecisions?: string[];
+  dispositionHistory?: DispositionRecord[];
+  availableWorkItemActions?: AlertWorkItemAction[];
+  availableComplianceActions?: AlertComplianceAction[];
   events: AlertEvent[];
 }
 
@@ -80,9 +114,16 @@ interface SimulateAlertsResponse {
   items: AlertItem[];
 }
 
-interface IncidentFromAlertResponse {
+interface CaseFromAlertResponse {
   id: string;
+  caseNo?: string;
   incidentNo: string;
+}
+
+interface ProviderResponseLink {
+  label: string;
+  path: string;
+  description: string;
 }
 
 interface OnboardingAlertDecisionResponse {
@@ -109,8 +150,8 @@ interface UserListItem {
 interface FilterState {
   status: '' | AlertStatus;
   severity: '' | AlertSeverity;
+  stage: '' | 'REVIEW_CDD' | 'REVIEW_EDD';
   ruleCode: string;
-  sourceType: string;
   sourceId: string;
   customerNo: string;
   assigneeUserId: string;
@@ -123,8 +164,8 @@ const PAGE_SIZE = 20;
 const DEFAULT_FILTERS: FilterState = {
   status: '',
   severity: '',
+  stage: '',
   ruleCode: '',
-  sourceType: '',
   sourceId: '',
   customerNo: '',
   assigneeUserId: '',
@@ -151,6 +192,51 @@ const toPrettyJson = (value: unknown): string => {
   }
 };
 
+const getMetadataRecord = (value: unknown): Record<string, unknown> => {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  return {};
+};
+
+const normalizeStringList = (value: unknown): string[] => {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => String(item || '').trim())
+    .filter(Boolean);
+};
+
+const ALERT_CLOSE_DISPOSITIONS: AlertDispositionCode[] = [
+  'APPROVE_STAGE',
+  'REJECT_STAGE',
+  'REQUIRE_EDD',
+  'FALSE_POSITIVE',
+  'NO_ACTION',
+];
+
+const getProviderResponseLink = (detail: AlertDetail): ProviderResponseLink | null => {
+  const metadata = getMetadataRecord(detail.metadata);
+  const contextType = String(metadata.contextType || '').trim().toUpperCase();
+
+  if (contextType === 'ONBOARDING_EDD') {
+    return {
+      label: 'EDD Evidence',
+      path: '/dashboard/compliance/edd-cases',
+      description: 'Read-only provider response container for onboarding EDD evidence.',
+    };
+  }
+
+  if (contextType === 'ONBOARDING_CDD' || detail.ruleCode.startsWith('ONB_')) {
+    return {
+      label: 'CDD Evidence',
+      path: '/dashboard/compliance/cdd-cases',
+      description: 'Read-only provider response container for onboarding CDD evidence.',
+    };
+  }
+
+  return null;
+};
+
 const getSeverityClass = (severity: AlertSeverity) => {
   if (severity === 'CRITICAL') return 'bg-red-100 text-red-800';
   if (severity === 'HIGH') return 'bg-orange-100 text-orange-800';
@@ -170,28 +256,19 @@ const isOverdue = (item: AlertItem) =>
   !CLOSED_STATUSES.includes(item.status) &&
   new Date(item.dueAt).getTime() < Date.now();
 
-const getWorkflowActions = (
-  detail: AlertDetail,
-  currentUserId?: string | null,
-): WorkflowAction[] => {
-  const isCurrentAssignee =
-    !!currentUserId &&
-    !!detail.assigneeUserId &&
-    detail.assigneeUserId === currentUserId;
-
-  if (detail.status === 'OPEN') return ['ASSIGN'];
-  if (detail.status === 'ASSIGNED' && isCurrentAssignee) {
-    return ['REASSIGN', 'ESCALATE', 'CLOSE'];
-  }
-  if (detail.status === 'ESCALATED' && isCurrentAssignee) return ['CLOSE'];
-  return [];
-};
-
-const actionLabelMap: Record<WorkflowAction, string> = {
+const alertWorkItemActionLabelMap: Record<AlertWorkItemAction, string> = {
   ASSIGN: 'Assign',
   REASSIGN: 'Reassign',
-  ESCALATE: 'Escalate to Incident',
   CLOSE: 'Close',
+};
+
+const alertComplianceActionLabelMap: Record<AlertComplianceAction, string> = {
+  APPROVE_STAGE: 'Approve Stage',
+  REJECT_STAGE: 'Reject Stage',
+  REQUIRE_EDD: 'Require EDD',
+  ESCALATE_TO_CASE: 'Escalate to Case',
+  FALSE_POSITIVE: 'False Positive',
+  NO_ACTION: 'No Action',
 };
 
 const normalizeRecommendedDecisions = (
@@ -208,14 +285,15 @@ const normalizeRecommendedDecisions = (
   return Array.from(new Set(normalized));
 };
 
-const recommendedDecisionLabelMap: Record<RecommendedDecision, string> = {
-  APPROVE: 'Approve',
-  REJECT: 'Reject',
-  REQUIRE_EDD: 'Require EDD',
+const normalizeActionList = <T extends string>(value: unknown): T[] => {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => String(item || '').trim().toUpperCase())
+    .filter(Boolean) as T[];
 };
 
 const ComplianceAlertsPage = () => {
-  const { session } = useAdminSession();
+  const { session, hasPermission } = useAdminSession();
 
   const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
   const [items, setItems] = useState<AlertItem[]>([]);
@@ -226,22 +304,28 @@ const ComplianceAlertsPage = () => {
   const [message, setMessage] = useState('');
   const [detail, setDetail] = useState<AlertDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
-  const [acting, setActing] = useState<AlertAction | null>(null);
-  const [recommendationActing, setRecommendationActing] =
-    useState<RecommendedDecision | null>(null);
+  const [acting, setActing] = useState<string | null>(null);
   const [simulating, setSimulating] = useState(false);
   const [assignModalOpen, setAssignModalOpen] = useState(false);
   const [assignCandidates, setAssignCandidates] = useState<UserListItem[]>([]);
   const [assignCandidatesLoading, setAssignCandidatesLoading] = useState(false);
   const [assignCandidatesError, setAssignCandidatesError] = useState('');
   const [selectedAssigneeUserId, setSelectedAssigneeUserId] = useState('');
+  const [lastEscalatedCase, setLastEscalatedCase] =
+    useState<CaseFromAlertResponse | null>(null);
+
+  const canWriteAlerts = hasPermission(PERMISSIONS.ALERTS_WRITE);
+  const canWriteCases = hasPermission(PERMISSIONS.CASES_WRITE);
+  const canReadRiskDecisionRecords = hasPermission(
+    PERMISSIONS.RISK_DECISION_RECORDS_READ,
+  );
 
   const hasFilters = useMemo(() => {
     return (
       !!filters.status ||
       !!filters.severity ||
+      !!filters.stage ||
       !!filters.ruleCode.trim() ||
-      !!filters.sourceType.trim() ||
       !!filters.sourceId.trim() ||
       !!filters.customerNo.trim() ||
       !!filters.assigneeUserId.trim() ||
@@ -263,8 +347,8 @@ const ComplianceAlertsPage = () => {
 
       if (activeFilters.status) params.set('status', activeFilters.status);
       if (activeFilters.severity) params.set('severity', activeFilters.severity);
+      if (activeFilters.stage) params.set('stage', activeFilters.stage);
       if (activeFilters.ruleCode.trim()) params.set('ruleCode', activeFilters.ruleCode.trim());
-      if (activeFilters.sourceType.trim()) params.set('sourceType', activeFilters.sourceType.trim());
       if (activeFilters.sourceId.trim()) params.set('sourceId', activeFilters.sourceId.trim());
       if (activeFilters.customerNo.trim()) params.set('customerNo', activeFilters.customerNo.trim());
       if (activeFilters.assigneeUserId.trim()) params.set('assigneeUserId', activeFilters.assigneeUserId.trim());
@@ -374,6 +458,7 @@ const ComplianceAlertsPage = () => {
     setActing('ASSIGN');
     setError('');
     setMessage('');
+    setLastEscalatedCase(null);
     try {
       const response = await adminFetch(
         `${import.meta.env.VITE_API_URL}/admin/compliance/alerts/${detail.id}/action`,
@@ -406,7 +491,7 @@ const ComplianceAlertsPage = () => {
     }
   };
 
-  const handleRecommendedDecision = async (decision: RecommendedDecision) => {
+  const applyOnboardingDecision = async (decision: RecommendedDecision) => {
     if (!detail) return;
     if (!detail.assigneeUserId) {
       setError('Current alert has no assignee.');
@@ -418,9 +503,10 @@ const ComplianceAlertsPage = () => {
         ? window.prompt('Reason (optional)', '') || ''
         : '';
 
-    setRecommendationActing(decision);
+    setActing(decision);
     setError('');
     setMessage('');
+    setLastEscalatedCase(null);
     try {
       const response = await adminFetch(
         `${import.meta.env.VITE_API_URL}/admin/compliance/alerts/${detail.id}/onboarding-decision`,
@@ -461,55 +547,28 @@ const ComplianceAlertsPage = () => {
       if (e instanceof AdminSessionError) return;
       setError(e instanceof Error ? e.message : 'Failed to apply onboarding decision.');
     } finally {
-      setRecommendationActing(null);
+      setActing(null);
     }
   };
 
-  const handleAction = async (action: AlertAction) => {
+  const submitAlertAction = async (
+    action: 'CLOSE',
+    options?: {
+      reason?: string;
+      dispositionCode?: AlertDispositionCode;
+    },
+  ) => {
     if (!detail) return;
     setActing(action);
     setError('');
     setMessage('');
+    setLastEscalatedCase(null);
     try {
-      let reason: string | undefined;
-      if (action === 'ESCALATE' || action === 'CLOSE') {
-        reason = window.prompt('Please provide reason', '') || '';
-        if (!reason.trim()) {
-          throw new Error(`Action ${action} requires a reason.`);
-        }
-      }
-
-      if (action === 'ESCALATE') {
-        const response = await adminFetch(
-          `${import.meta.env.VITE_API_URL}/admin/compliance/incidents/from-alert/${detail.id}`,
-          {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ reason }),
-          },
-        );
-
-        if (!response.ok) {
-          throw new Error(await getApiErrorMessage(response, 'Escalation failed.'));
-        }
-
-        const data = (await response.json()) as IncidentFromAlertResponse;
-        setMessage(
-          data.incidentNo
-            ? `Escalated to incident ${data.incidentNo}.`
-            : 'Escalated and incident created.',
-        );
-        await fetchAlerts(currentPage);
-        await openDetail(detail.id);
-        return;
-      }
-
       const payload: Record<string, unknown> = {
         action,
       };
-      if (reason) payload.reason = reason;
+      if (options?.reason) payload.reason = options.reason;
+      if (options?.dispositionCode) payload.dispositionCode = options.dispositionCode;
 
       const response = await adminFetch(
         `${import.meta.env.VITE_API_URL}/admin/compliance/alerts/${detail.id}/action`,
@@ -535,6 +594,108 @@ const ComplianceAlertsPage = () => {
       setError(e instanceof Error ? e.message : 'Action failed.');
     } finally {
       setActing(null);
+    }
+  };
+
+  const handleWorkItemAction = async (action: AlertWorkItemAction) => {
+    if (!detail) return;
+    if (action === 'ASSIGN' || action === 'REASSIGN') {
+      await openAssignModal();
+      return;
+    }
+
+    const reason = window.prompt('Close reason', '') || '';
+    if (!reason.trim()) {
+      setError('Closing alert requires a reason.');
+      return;
+    }
+
+    let dispositionCode: AlertDispositionCode | undefined;
+    if (!detail.currentDispositionCode) {
+      const promptValue =
+        window.prompt(
+          `Disposition code (${ALERT_CLOSE_DISPOSITIONS.join(' / ')})`,
+          'NO_ACTION',
+        ) || '';
+      if (!promptValue.trim()) {
+        setError('Closing without an existing disposition requires a disposition code.');
+        return;
+      }
+      dispositionCode = promptValue.trim().toUpperCase() as AlertDispositionCode;
+    }
+
+    await submitAlertAction('CLOSE', {
+      reason: reason.trim(),
+      dispositionCode,
+    });
+  };
+
+  const handleComplianceAction = async (action: AlertComplianceAction) => {
+    if (!detail) return;
+
+    if (action === 'APPROVE_STAGE') {
+      await applyOnboardingDecision('APPROVE');
+      return;
+    }
+    if (action === 'REJECT_STAGE') {
+      await applyOnboardingDecision('REJECT');
+      return;
+    }
+    if (action === 'REQUIRE_EDD') {
+      await applyOnboardingDecision('REQUIRE_EDD');
+      return;
+    }
+    if (action === 'ESCALATE_TO_CASE') {
+      setActing(action);
+      setError('');
+      setMessage('');
+      setLastEscalatedCase(null);
+      try {
+        const reason = window.prompt('Escalation reason', '') || '';
+        if (!reason.trim()) {
+          throw new Error('Escalation requires a reason.');
+        }
+        const response = await adminFetch(
+          `${import.meta.env.VITE_API_URL}/admin/compliance/cases/from-alert/${detail.id}`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ reason: reason.trim() }),
+          },
+        );
+        if (!response.ok) {
+          throw new Error(await getApiErrorMessage(response, 'Escalation failed.'));
+        }
+        const data = (await response.json()) as CaseFromAlertResponse;
+        setLastEscalatedCase(data);
+        setMessage(
+          data.caseNo || data.incidentNo
+            ? `Case ${data.caseNo || data.incidentNo} created. Continue investigation in the cases queue.`
+            : 'Case created. Continue investigation in the cases queue.',
+        );
+        await fetchAlerts(currentPage);
+        await openDetail(detail.id);
+      } catch (e: unknown) {
+        if (e instanceof AdminSessionError) return;
+        setError(e instanceof Error ? e.message : 'Escalation failed.');
+      } finally {
+        setActing(null);
+      }
+      return;
+    }
+
+    if (action === 'FALSE_POSITIVE' || action === 'NO_ACTION') {
+      const reason = window.prompt('Please provide reason', '') || '';
+      if (!reason.trim()) {
+        setError(`${alertComplianceActionLabelMap[action]} requires a reason.`);
+        return;
+      }
+      await submitAlertAction('CLOSE', {
+        reason: reason.trim(),
+        dispositionCode: action,
+      });
     }
   };
 
@@ -573,37 +734,43 @@ const ComplianceAlertsPage = () => {
     }
   };
 
-  const currentAdminId = session?.id || null;
-  const isCurrentAssignee =
-    !!detail &&
-    !!currentAdminId &&
-    !!detail.assigneeUserId &&
-    detail.assigneeUserId === currentAdminId;
-  const workflowActions = detail ? getWorkflowActions(detail, currentAdminId) : [];
+  const workItemActions =
+    detail && canWriteAlerts
+      ? normalizeActionList<AlertWorkItemAction>(detail.availableWorkItemActions)
+      : [];
+  const complianceActions =
+    detail && canWriteAlerts
+      ? normalizeActionList<AlertComplianceAction>(detail.availableComplianceActions).filter(
+          (action) => action !== 'ESCALATE_TO_CASE' || canWriteCases,
+        )
+      : [];
   const recommendedDecisions = normalizeRecommendedDecisions(
     detail?.recommendedDecisions,
   );
-  const showRecommendationActions =
-    !!detail &&
-    detail.status === 'ASSIGNED' &&
-    isCurrentAssignee &&
-    detail.sourceType === 'ONBOARDING_JOURNEY';
+  const providerResponseLink = detail ? getProviderResponseLink(detail) : null;
+  const decisionRecordIds = normalizeStringList(detail?.decisionRecordIds);
+  const linkedEvidenceIds = normalizeStringList(detail?.linkedCaseIds);
+  const reasonCodes = normalizeStringList(detail?.reasonCodes);
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Compliance Center - Alerts</h1>
-          <p className="text-sm text-gray-500 mt-1">Monitor and close compliance alerts.</p>
+          <p className="text-sm text-gray-500 mt-1">
+            Triage onboarding review hits through a canonical workflow / stage / rule model.
+          </p>
         </div>
         <div className="flex items-center gap-2">
-          <button
-            onClick={handleSimulate}
-            className="inline-flex items-center gap-2 px-3 py-2 rounded bg-indigo-600 text-white text-sm hover:bg-indigo-700 disabled:opacity-60"
-            disabled={simulating || loading}
-          >
-            {simulating ? 'Simulating...' : 'Simulate 10 Alerts'}
-          </button>
+          {canWriteAlerts && (
+            <button
+              onClick={handleSimulate}
+              className="inline-flex items-center gap-2 px-3 py-2 rounded bg-indigo-600 text-white text-sm hover:bg-indigo-700 disabled:opacity-60"
+              disabled={simulating || loading}
+            >
+              {simulating ? 'Simulating...' : 'Simulate 10 Alerts'}
+            </button>
+          )}
           <button
             onClick={() => fetchAlerts(currentPage)}
             className="p-2 text-gray-500 hover:text-brand-primary disabled:opacity-60"
@@ -623,11 +790,30 @@ const ComplianceAlertsPage = () => {
           {message}
         </div>
       )}
+      {(lastEscalatedCase?.caseNo || lastEscalatedCase?.incidentNo) && (
+        <div className="flex items-center justify-between gap-3 px-4 py-3 border border-indigo-200 bg-indigo-50 rounded-lg text-sm">
+          <div className="text-indigo-900">
+            Case <span className="font-semibold">{lastEscalatedCase?.caseNo || lastEscalatedCase?.incidentNo}</span> is
+            ready for investigation.
+          </div>
+          <a
+            href="/dashboard/compliance/cases"
+            className="inline-flex items-center rounded border border-indigo-300 px-3 py-1.5 text-indigo-700 hover:bg-indigo-100"
+          >
+            Open Cases
+          </a>
+        </div>
+      )}
       {error && (
         <div className="px-4 py-3 border border-red-200 bg-red-50 rounded-lg text-red-700 text-sm">
           {error}
         </div>
       )}
+      <div className="px-4 py-3 border border-amber-200 bg-amber-50 rounded-lg text-sm text-amber-900">
+        {canWriteAlerts
+          ? 'Alerts are now onboarding-only review work items. Work item actions manage ownership and closure; compliance actions express the triage outcome.'
+          : 'You currently have read-only triage access. Use this page to inspect onboarding alerts, evidence context, and escalation outcomes.'}
+      </div>
 
       <div className="bg-white rounded-xl shadow-sm border border-admin-border p-4 space-y-3">
         <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-3">
@@ -663,12 +849,17 @@ const ComplianceAlertsPage = () => {
             <option value="HIGH">HIGH</option>
             <option value="CRITICAL">CRITICAL</option>
           </select>
-          <input
+          <select
             className="border border-admin-border rounded px-3 py-2 text-sm"
-            placeholder="Source type"
-            value={filters.sourceType}
-            onChange={(e) => setFilters((prev) => ({ ...prev, sourceType: e.target.value }))}
-          />
+            value={filters.stage}
+            onChange={(e) =>
+              setFilters((prev) => ({ ...prev, stage: e.target.value as FilterState['stage'] }))
+            }
+          >
+            <option value="">All stage</option>
+            <option value="REVIEW_CDD">REVIEW_CDD</option>
+            <option value="REVIEW_EDD">REVIEW_EDD</option>
+          </select>
           <input
             className="border border-admin-border rounded px-3 py-2 text-sm"
             placeholder="Source id"
@@ -728,11 +919,11 @@ const ComplianceAlertsPage = () => {
             <thead className="bg-admin-content-bg border-b border-admin-border">
               <tr>
                 <th className="px-4 py-3 text-xs uppercase text-gray-500">Alert</th>
-                <th className="px-4 py-3 text-xs uppercase text-gray-500">Rule</th>
+                <th className="px-4 py-3 text-xs uppercase text-gray-500">Workflow / Stage / Rule</th>
                 <th className="px-4 py-3 text-xs uppercase text-gray-500">Severity</th>
                 <th className="px-4 py-3 text-xs uppercase text-gray-500">Status</th>
                 <th className="px-4 py-3 text-xs uppercase text-gray-500">Source</th>
-                <th className="px-4 py-3 text-xs uppercase text-gray-500">Hit</th>
+                <th className="px-4 py-3 text-xs uppercase text-gray-500">Reason Codes</th>
                 <th className="px-4 py-3 text-xs uppercase text-gray-500">Due</th>
                 <th className="px-4 py-3 text-xs uppercase text-gray-500">Assignee</th>
                 <th className="px-4 py-3 text-xs uppercase text-gray-500">Action</th>
@@ -759,8 +950,9 @@ const ComplianceAlertsPage = () => {
                       <div className="text-xs text-gray-500">{item.title}</div>
                     </td>
                     <td className="px-4 py-3">
-                      <div className="text-gray-900">{item.ruleCode}</div>
-                      <div className="text-xs text-gray-500">{item.capCode || '-'}</div>
+                      <div className="text-gray-900">{item.workflow || 'ONBOARDING'}</div>
+                      <div className="text-xs text-gray-500">{item.stage || '-'}</div>
+                      <div className="text-xs text-gray-500">{item.rule || item.ruleCode}</div>
                     </td>
                     <td className="px-4 py-3">
                       <span className={`px-2 py-1 rounded-full text-xs ${getSeverityClass(item.severity)}`}>
@@ -776,11 +968,19 @@ const ComplianceAlertsPage = () => {
                       <div>{item.sourceType}</div>
                       <div className="text-xs text-gray-500">{item.sourceNo || item.sourceId}</div>
                     </td>
-                    <td className="px-4 py-3 text-gray-700">{item.hitCount}</td>
+                    <td className="px-4 py-3 text-gray-700">
+                      <div>{normalizeStringList(item.reasonCodes).join(', ') || '-'}</div>
+                      <div className="text-xs text-gray-500">Hit count {item.hitCount}</div>
+                    </td>
                     <td className="px-4 py-3">
                       <div className={isOverdue(item) ? 'text-red-700 font-medium' : 'text-gray-700'}>
                         {formatDateTime(item.dueAt)}
                       </div>
+                      {item.overdueMarkedAt && (
+                        <div className="text-xs text-red-600">
+                          Flagged {formatDateTime(item.overdueMarkedAt)}
+                        </div>
+                      )}
                       <div className="text-xs text-gray-500">Last {formatDateTime(item.lastOccurredAt)}</div>
                     </td>
                     <td className="px-4 py-3 text-gray-700">{item.assigneeUserNo || '-'}</td>
@@ -829,18 +1029,20 @@ const ComplianceAlertsPage = () => {
             ) : (
               <div className="p-4 space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <InfoCard
-                    title="Summary"
-                    rows={[
-                      ['Rule', detail.ruleCode],
-                      ['Severity', detail.severity],
-                      ['Status', detail.status],
-                      ['Recommendation', detail.decisionRecommendation || '-'],
-                      ['Decision', detail.decision || '-'],
-                      ['CAP', detail.capCode || '-'],
-                      ['Message', detail.message],
-                    ]}
-                  />
+                    <InfoCard
+                      title="Summary"
+                      rows={[
+                        ['Workflow', detail.workflow || 'ONBOARDING'],
+                        ['Stage', detail.stage || '-'],
+                        ['Rule', detail.rule || detail.ruleCode],
+                        ['Severity', detail.severity],
+                        ['Status', detail.status],
+                        ['Recommendation', detail.decisionRecommendation || '-'],
+                        ['Decision', detail.decision || '-'],
+                        ['Recommended Decisions', recommendedDecisions.join(', ') || '-'],
+                        ['Message', detail.message],
+                      ]}
+                    />
                   <InfoCard
                     title="Source"
                     rows={[
@@ -849,12 +1051,14 @@ const ComplianceAlertsPage = () => {
                       ['Source', detail.sourceNo || detail.sourceId],
                       ['Entity', detail.entityNo || detail.entityType || '-'],
                       ['Customer', detail.customerNo || '-'],
+                      ['Reason Codes', reasonCodes.join(', ') || '-'],
                     ]}
                   />
                   <InfoCard
                     title="Lifecycle"
                     rows={[
                       ['Due', formatDateTime(detail.dueAt)],
+                      ['Overdue Flagged At', formatDateTime(detail.overdueMarkedAt)],
                       ['Last Seen', formatDateTime(detail.lastOccurredAt)],
                       ['Hit Count', String(detail.hitCount)],
                       ['Assignee', detail.assigneeUserNo || '-'],
@@ -864,33 +1068,108 @@ const ComplianceAlertsPage = () => {
                 </div>
 
                 <div className="border border-admin-border rounded-lg p-4">
-                  <h4 className="font-semibold text-gray-900 mb-3">Workflow Actions</h4>
-                  {workflowActions.length === 0 ? (
+                  <h4 className="font-semibold text-gray-900 mb-3">Triage Context</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                    <div className="space-y-2">
+                      <div className="text-xs uppercase text-gray-500">Provider Response</div>
+                      <div className="text-gray-900 font-medium">
+                        {providerResponseLink?.label || 'No mapped provider response page'}
+                      </div>
+                      <div className="text-gray-600">
+                        {providerResponseLink?.description ||
+                          'This alert does not currently map to a dedicated provider response page.'}
+                      </div>
+                      {providerResponseLink && (
+                        <a
+                          href={providerResponseLink.path}
+                          className="inline-flex items-center rounded border border-admin-border px-3 py-1.5 hover:bg-gray-50"
+                        >
+                          Open Evidence Page
+                        </a>
+                      )}
+                    </div>
+                    <div className="space-y-2">
+                      <div className="text-xs uppercase text-gray-500">Risk Engine Trace</div>
+                      <div className="text-gray-900 font-medium">
+                        {decisionRecordIds.length > 0
+                          ? decisionRecordIds.join(', ')
+                          : 'No linked decision records'}
+                      </div>
+                      <div className="text-gray-600">
+                        Review canonical decision record payloads in Risk Policy Executions.
+                      </div>
+                      <a
+                        href="/dashboard/risk/policy-executions"
+                        className={`inline-flex items-center rounded border px-3 py-1.5 ${
+                          canReadRiskDecisionRecords
+                            ? 'border-admin-border hover:bg-gray-50'
+                            : 'border-gray-200 text-gray-400 pointer-events-none'
+                        }`}
+                      >
+                        Open Risk Policy Executions
+                      </a>
+                    </div>
+                  </div>
+                  {linkedEvidenceIds.length > 0 && (
+                    <div className="mt-4 border-t border-admin-border pt-4">
+                      <div className="text-xs uppercase text-gray-500 mb-2">Linked Evidence IDs</div>
+                      <div className="text-sm text-gray-700 break-all">
+                        {linkedEvidenceIds.join(', ')}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="border border-admin-border rounded-lg p-4">
+                  <h4 className="font-semibold text-gray-900 mb-3">Disposition</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <InfoCard
+                      title="Current"
+                      rows={[
+                        ['Code', detail.currentDispositionCode || '-'],
+                        ['Reason', detail.currentDispositionReason || '-'],
+                        ['At', formatDateTime(detail.currentDispositionAt)],
+                      ]}
+                    />
+                    <InfoCard
+                      title="Final"
+                      rows={[
+                        ['Code', detail.finalDispositionCode || '-'],
+                        ['Reason', detail.finalDispositionReason || '-'],
+                        ['At', formatDateTime(detail.finalDispositionAt)],
+                      ]}
+                    />
+                  </div>
+                  <div className="mt-4">
+                    <div className="text-sm font-medium text-gray-900 mb-2">
+                      Disposition History
+                    </div>
+                    <pre className="text-xs bg-gray-50 border border-admin-border rounded p-3 overflow-auto max-h-56">
+                      {toPrettyJson(detail.dispositionHistory || [])}
+                    </pre>
+                  </div>
+                </div>
+
+                <div className="border border-admin-border rounded-lg p-4">
+                  <h4 className="font-semibold text-gray-900 mb-3">Work Item Actions</h4>
+                  {workItemActions.length === 0 ? (
                     <div className="text-sm text-gray-500">
-                      No workflow actions available for current user in this status.
+                      No work item actions available for current user in this status.
                     </div>
                   ) : (
                     <div className="flex flex-wrap gap-2">
-                      {workflowActions.map((action) => (
+                      {workItemActions.map((action) => (
                         <button
                           key={action}
                           onClick={() => {
-                            if (action === 'ASSIGN' || action === 'REASSIGN') {
-                              void openAssignModal();
-                              return;
-                            }
-                            void handleAction(action as AlertAction);
+                            void handleWorkItemAction(action);
                           }}
                           disabled={
-                            acting !== null ||
-                            recommendationActing !== null ||
-                            assignCandidatesLoading
+                            acting !== null || assignCandidatesLoading
                           }
                           className="px-3 py-1.5 rounded border border-admin-border text-sm hover:bg-gray-50 disabled:opacity-60"
                         >
-                          {acting === action
-                            ? 'Processing...'
-                            : actionLabelMap[action]}
+                          {acting === action ? 'Processing...' : alertWorkItemActionLabelMap[action]}
                         </button>
                       ))}
                     </div>
@@ -898,36 +1177,27 @@ const ComplianceAlertsPage = () => {
                 </div>
 
                 <div className="border border-admin-border rounded-lg p-4">
-                  <h4 className="font-semibold text-gray-900 mb-3">Risk Engine Recommended Actions</h4>
-                  {!showRecommendationActions ? (
+                  <h4 className="font-semibold text-gray-900 mb-3">Compliance Actions</h4>
+                  {complianceActions.length === 0 ? (
                     <div className="text-sm text-gray-500">
-                      Recommended actions are available only when this onboarding alert is ASSIGNED to you.
-                    </div>
-                  ) : recommendedDecisions.length === 0 ? (
-                    <div className="text-sm text-gray-500">
-                      No recommended onboarding decision for this alert.
+                      No compliance actions available for current user in this status.
                     </div>
                   ) : (
-                    <div className="space-y-2">
-                      <div className="flex flex-wrap gap-2">
-                        {recommendedDecisions.map((decision) => (
-                          <button
-                            key={decision}
-                            onClick={() => {
-                              void handleRecommendedDecision(decision);
-                            }}
-                            disabled={
-                              acting !== null ||
-                              recommendationActing !== null
-                            }
-                            className="px-3 py-1.5 rounded border border-admin-border text-sm hover:bg-gray-50 disabled:opacity-60"
-                          >
-                            {recommendationActing === decision
-                              ? 'Processing...'
-                              : recommendedDecisionLabelMap[decision]}
-                          </button>
-                        ))}
-                      </div>
+                    <div className="flex flex-wrap gap-2">
+                      {complianceActions.map((action) => (
+                        <button
+                          key={action}
+                          onClick={() => {
+                            void handleComplianceAction(action);
+                          }}
+                          disabled={acting !== null}
+                          className="px-3 py-1.5 rounded border border-admin-border text-sm hover:bg-gray-50 disabled:opacity-60"
+                        >
+                          {acting === action
+                            ? 'Processing...'
+                            : alertComplianceActionLabelMap[action]}
+                        </button>
+                      ))}
                     </div>
                   )}
                 </div>

@@ -4,6 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { OnboardingService } from './onboarding.service';
+import { WORKFLOW_TRANSITION_CODES } from './onboarding-workflow-transition.service';
 
 describe('OnboardingService', () => {
   const prismaMock: any = {
@@ -27,6 +28,9 @@ describe('OnboardingService', () => {
       findFirst: jest.fn(),
       create: jest.fn(),
     },
+    eddCaseReport: {
+      create: jest.fn(),
+    },
     complianceSession: {
       findFirst: jest.fn(),
       update: jest.fn(),
@@ -41,11 +45,17 @@ describe('OnboardingService', () => {
     complianceAlertEvent: {
       create: jest.fn(),
     },
+    complianceAlertDispositionRecord: {
+      create: jest.fn(),
+    },
     complianceIncident: {
       findUnique: jest.fn(),
       update: jest.fn(),
     },
     complianceIncidentEvent: {
+      create: jest.fn(),
+    },
+    complianceIncidentDispositionRecord: {
       create: jest.fn(),
     },
     onboardingDecisionRecord: {
@@ -62,10 +72,15 @@ describe('OnboardingService', () => {
     evaluate: jest.fn(),
   };
 
-  const complianceAlertsMock: any = {
-    triggerSystemAlert: jest.fn(),
-    applyAction: jest.fn(),
-    findOne: jest.fn(),
+  const orchestratorMock: any = {
+    orchestrate: jest.fn(),
+    upsertOnboardingReviewAlert: jest.fn(),
+    closeLatestJourneyAlertIfAny: jest.fn(),
+    findAlertDetail: jest.fn(),
+  };
+
+  const workflowTransitionServiceMock: any = {
+    transition: jest.fn(),
   };
 
   const complianceIncidentsMock: any = {
@@ -78,10 +93,17 @@ describe('OnboardingService', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     prismaMock.$transaction.mockImplementation(async (callback: any) => callback(prismaMock));
+    prismaMock.complianceAlertDispositionRecord.create.mockResolvedValue({
+      id: 'alert-disp-1',
+    });
+    prismaMock.complianceIncidentDispositionRecord.create.mockResolvedValue({
+      id: 'case-disp-1',
+    });
     service = new OnboardingService(
       prismaMock,
       riskEngineMock,
-      complianceAlertsMock,
+      orchestratorMock,
+      workflowTransitionServiceMock,
       complianceIncidentsMock,
     );
   });
@@ -110,6 +132,7 @@ describe('OnboardingService', () => {
       customerId: 'c1',
       caseNo: 'CDD2602010001',
       journeyId: 'ONB-1',
+      subjectKind: 'INDIVIDUAL_CUSTOMER',
       subjectRefId: 'c1',
     };
 
@@ -125,8 +148,19 @@ describe('OnboardingService', () => {
     });
     prismaMock.onboardingAuditLog.create.mockResolvedValue({ id: 'audit-1' });
     prismaMock.complianceAlert.findFirst.mockResolvedValue(null);
-    complianceAlertsMock.triggerSystemAlert.mockResolvedValue({ id: 'alert-1' });
-    complianceAlertsMock.findOne.mockResolvedValue({
+    orchestratorMock.orchestrate.mockResolvedValue({
+      workflow: 'ONBOARDING',
+      stage: 'REVIEW_CDD',
+      rule: 'ONB_CDD_REVIEW_REQUIRED',
+      recommendedDecisions: ['APPROVE', 'REJECT', 'REQUIRE_EDD'],
+      executedActions: [{ type: 'UPSERT_ALERT' }],
+      skippedActions: [],
+      alertId: 'alert-1',
+      alertNo: 'ALT0001',
+      alertUpserted: true,
+    });
+    orchestratorMock.upsertOnboardingReviewAlert.mockResolvedValue({ id: 'alert-1' });
+    orchestratorMock.findAlertDetail.mockResolvedValue({
       id: 'alert-1',
       status: 'OPEN',
       sourceType: 'ONBOARDING_JOURNEY',
@@ -204,7 +238,7 @@ describe('OnboardingService', () => {
       journeyId: 'ONB-1',
       status: 'CREATED',
     });
-    complianceAlertsMock.findOne.mockResolvedValue({
+    orchestratorMock.findAlertDetail.mockResolvedValue({
       id: 'alert-onb-1',
       status: 'ASSIGNED',
       sourceType: 'ONBOARDING_JOURNEY',
@@ -214,6 +248,25 @@ describe('OnboardingService', () => {
       linkedCaseIds: ['cdd-1'],
       decisionRecordIds: ['dr-1'],
       events: [],
+    });
+    workflowTransitionServiceMock.transition.mockResolvedValue({
+      workflow: 'ONBOARDING',
+      stage: 'REVIEW_CDD',
+      dispositionCode: 'APPROVE_STAGE',
+      transitionCode: WORKFLOW_TRANSITION_CODES.CDD_APPROVE_TO_ACTIVE,
+      fromStatus: 'REVIEW_CDD',
+      toStatus: 'ACTIVE',
+      executed: true,
+      updatedCustomer: {
+        ...customer,
+        publicStatus: 'ACTIVE',
+        cddStatus: 'APPROVED',
+        eddRequired: false,
+        activeCaseId: null,
+      },
+      eddCase: null,
+      activeCaseId: null,
+      finalApprovalStatus: 'APPROVED',
     });
     prismaMock.onboardingAuditLog.create.mockResolvedValue({ id: 'audit-alert-1' });
 
@@ -229,6 +282,8 @@ describe('OnboardingService', () => {
       id: 'c1',
       customerNo: 'CU1',
       publicStatus: 'ACTIVE',
+      complianceHoldStatus: 'ACTIVE',
+      complianceHoldCaseId: null,
       complianceStatus: 'ACTIVE',
       cddStatus: 'APPROVED',
       eddStatus: 'NOT_REQUIRED',
@@ -243,10 +298,30 @@ describe('OnboardingService', () => {
       id: 'c1',
       customerNo: 'CU1',
       publicStatus: 'REVIEW_CDD',
+      complianceHoldStatus: 'ACTIVE',
+      complianceHoldCaseId: null,
       complianceStatus: 'IN_PROGRESS',
       cddStatus: 'PENDING_REVIEW',
       eddStatus: 'NOT_REQUIRED',
       finalApprovalStatus: 'NOT_REQUIRED',
+    });
+
+    await expect(service.assertTradingEligibility('c1', 'WITHDRAW')).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+  });
+
+  it('should block trading when compliance hold is FROZEN', async () => {
+    prismaMock.customerMain.findUnique.mockResolvedValue({
+      id: 'c1',
+      customerNo: 'CU1',
+      publicStatus: 'ACTIVE',
+      complianceHoldStatus: 'FROZEN',
+      complianceHoldCaseId: 'inc-1',
+      complianceStatus: 'ACTIVE',
+      cddStatus: 'APPROVED',
+      eddStatus: 'NOT_REQUIRED',
+      finalApprovalStatus: 'APPROVED',
     });
 
     await expect(service.assertTradingEligibility('c1', 'WITHDRAW')).rejects.toBeInstanceOf(
@@ -457,126 +532,6 @@ describe('OnboardingService', () => {
     expect(result.complianceStatus).toBe('NONE');
   });
 
-  it('should list decision records with default pagination and filters', async () => {
-    prismaMock.onboardingDecisionRecord.count.mockResolvedValue(1);
-    prismaMock.onboardingDecisionRecord.findMany.mockResolvedValue([
-      {
-        id: 'dr-1',
-        customerId: 'c1',
-        contextType: 'ONBOARDING_CDD',
-        subjectId: 'c1',
-        policyVersion: 'onboarding-risk-policy/v1',
-        status: 'COMPLETED',
-        inputHash: 'hash-1',
-        outputDecision: 'APPROVE',
-        recommendedActions: '[{"type":"PENDING_FINAL_DECISION"}]',
-        reasonCodes: '["CDD_CLEAR"]',
-        errorMessage: null,
-        createdAt: new Date('2026-02-20T00:00:00.000Z'),
-        completedAt: new Date('2026-02-20T00:01:00.000Z'),
-        updatedAt: new Date('2026-02-20T00:01:00.000Z'),
-        customer: {
-          id: 'c1',
-          customerNo: 'CU1',
-          email: 'u1@test.local',
-        },
-      },
-    ]);
-
-    const result = await service.listDecisionRecords({
-      status: 'COMPLETED',
-      contextType: 'ONBOARDING_CDD',
-      outputDecision: 'APPROVE',
-      customerId: 'c1',
-      subjectId: 'c1',
-      policyVersion: 'risk-policy',
-      skip: -3,
-      take: 999,
-    });
-
-    expect(prismaMock.onboardingDecisionRecord.count).toHaveBeenCalledWith({
-      where: {
-        status: 'COMPLETED',
-        contextType: 'ONBOARDING_CDD',
-        outputDecision: 'APPROVE',
-        customerId: 'c1',
-        subjectId: 'c1',
-        policyVersion: { contains: 'risk-policy' },
-      },
-    });
-    expect(prismaMock.onboardingDecisionRecord.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: {
-          status: 'COMPLETED',
-          contextType: 'ONBOARDING_CDD',
-          outputDecision: 'APPROVE',
-          customerId: 'c1',
-          subjectId: 'c1',
-          policyVersion: { contains: 'risk-policy' },
-        },
-        skip: 0,
-        take: 200,
-        orderBy: { createdAt: 'desc' },
-      }),
-    );
-    expect(result.total).toBe(1);
-    expect(result.skip).toBe(0);
-    expect(result.take).toBe(200);
-    expect(result.items[0].reasonCodes).toEqual(['CDD_CLEAR']);
-    expect(result.items[0].recommendedActions).toEqual([
-      { type: 'PENDING_FINAL_DECISION' },
-    ]);
-  });
-
-  it('should throw when decision record detail does not exist', async () => {
-    prismaMock.onboardingDecisionRecord.findUnique.mockResolvedValue(null);
-
-    await expect(service.getDecisionRecordDetail('missing-id')).rejects.toBeInstanceOf(
-      NotFoundException,
-    );
-  });
-
-  it('should parse decision record detail json fields', async () => {
-    prismaMock.onboardingDecisionRecord.findUnique.mockResolvedValue({
-      id: 'dr-2',
-      customerId: 'c2',
-      contextType: 'ONBOARDING_EDD',
-      subjectId: 'c2',
-      policyVersion: 'onboarding-risk-policy/v1',
-      status: 'COMPLETED',
-      inputPayload: '{"riskScore":72,"pepHit":true}',
-      inputHash: 'hash-2',
-      outputDecision: 'REVIEW',
-      recommendedActions: '[{"type":"UPSERT_ALERT"}]',
-      outputs: '{"decision":"REVIEW","reasonCodes":["PEP_HIT"]}',
-      reasonCodes: '["PEP_HIT"]',
-      errorMessage: null,
-      createdAt: new Date('2026-02-20T00:00:00.000Z'),
-      completedAt: new Date('2026-02-20T00:01:00.000Z'),
-      updatedAt: new Date('2026-02-20T00:01:00.000Z'),
-      customer: {
-        id: 'c2',
-        customerNo: 'CU2',
-        email: 'u2@test.local',
-        firstName: 'A',
-        lastName: 'B',
-        customerType: 'INDIVIDUAL',
-        companyName: null,
-        publicStatus: 'REVIEW_EDD',
-      },
-    });
-
-    const result = await service.getDecisionRecordDetail('dr-2');
-
-    expect(result.inputPayload).toEqual({ riskScore: 72, pepHit: true });
-    expect(result.outputs).toEqual({
-      decision: 'REVIEW',
-      reasonCodes: ['PEP_HIT'],
-    });
-    expect(result.reasonCodes).toEqual(['PEP_HIT']);
-    expect(result.recommendedActions).toEqual([{ type: 'UPSERT_ALERT' }]);
-  });
-
   it('should reject onboarding alert decision when alert is not onboarding journey', async () => {
     seedAlertDecisionFlow({
       alert: {
@@ -646,14 +601,6 @@ describe('OnboardingService', () => {
 
   it('should apply APPROVE decision and move onboarding to ACTIVE', async () => {
     seedAlertDecisionFlow();
-    prismaMock.customerMain.update.mockResolvedValue({
-      id: 'c1',
-      publicStatus: 'ACTIVE',
-      cddStatus: 'APPROVED',
-      eddRequired: false,
-      activeCaseId: null,
-      customerNo: 'CU0001',
-    });
     const result = await service.applyOnboardingDecisionFromAlert(
       'alert-onb-1',
       'admin-1',
@@ -661,20 +608,15 @@ describe('OnboardingService', () => {
       { decision: 'APPROVE' },
     );
 
-    expect(prismaMock.customerMain.update).toHaveBeenCalledWith(
+    expect(workflowTransitionServiceMock.transition).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({
-          publicStatus: 'ACTIVE',
-          cddStatus: 'APPROVED',
-        }),
+        customerMain: prismaMock.customerMain,
       }),
-    );
-    expect(prismaMock.cddCase.update).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({
-          reviewerDecision: 'APPROVE',
-          requiresEdd: false,
-        }),
+        workflow: 'ONBOARDING',
+        stage: 'REVIEW_CDD',
+        producerType: 'ALERT',
+        dispositionCode: 'APPROVE_STAGE',
       }),
     );
     expect(prismaMock.complianceAlert.update).toHaveBeenCalledWith(
@@ -691,13 +633,25 @@ describe('OnboardingService', () => {
 
   it('should apply REJECT decision and move onboarding to REJECTED', async () => {
     seedAlertDecisionFlow();
-    prismaMock.customerMain.update.mockResolvedValue({
-      id: 'c1',
-      publicStatus: 'REJECTED',
-      cddStatus: 'REJECTED',
-      eddRequired: false,
+    workflowTransitionServiceMock.transition.mockResolvedValue({
+      workflow: 'ONBOARDING',
+      stage: 'REVIEW_CDD',
+      dispositionCode: 'REJECT_STAGE',
+      transitionCode: WORKFLOW_TRANSITION_CODES.CDD_REJECT_TO_REJECTED,
+      fromStatus: 'REVIEW_CDD',
+      toStatus: 'REJECTED',
+      executed: true,
+      updatedCustomer: {
+        id: 'c1',
+        publicStatus: 'REJECTED',
+        cddStatus: 'REJECTED',
+        eddRequired: false,
+        activeCaseId: null,
+        customerNo: 'CU0001',
+      },
+      eddCase: null,
       activeCaseId: null,
-      customerNo: 'CU0001',
+      finalApprovalStatus: 'REJECTED',
     });
     const result = await service.applyOnboardingDecisionFromAlert(
       'alert-onb-1',
@@ -706,12 +660,10 @@ describe('OnboardingService', () => {
       { decision: 'REJECT', reason: 'risk not acceptable' },
     );
 
-    expect(prismaMock.customerMain.update).toHaveBeenCalledWith(
+    expect(workflowTransitionServiceMock.transition).toHaveBeenCalledWith(
+      expect.anything(),
       expect.objectContaining({
-        data: expect.objectContaining({
-          publicStatus: 'REJECTED',
-          cddStatus: 'REJECTED',
-        }),
+        dispositionCode: 'REJECT_STAGE',
       }),
     );
     expect(result.customer.publicStatus).toBe('REJECTED');
@@ -719,22 +671,33 @@ describe('OnboardingService', () => {
 
   it('should apply REQUIRE_EDD decision and create EDD case', async () => {
     seedAlertDecisionFlow();
-    prismaMock.eddCase.findFirst.mockResolvedValue(null);
-    prismaMock.eddCase.create.mockResolvedValue({
+    const eddCase = {
       id: 'edd-1',
       caseNo: 'EDD2603010001',
       customerId: 'c1',
       cddCaseId: 'cdd-1',
       journeyId: 'ONB-1',
       status: 'CREATED',
-    });
-    prismaMock.customerMain.update.mockResolvedValue({
-      id: 'c1',
-      publicStatus: 'PENDING_EDD',
-      cddStatus: 'APPROVED',
-      eddRequired: true,
+    };
+    workflowTransitionServiceMock.transition.mockResolvedValue({
+      workflow: 'ONBOARDING',
+      stage: 'REVIEW_CDD',
+      dispositionCode: 'REQUIRE_EDD',
+      transitionCode: WORKFLOW_TRANSITION_CODES.CDD_REQUIRE_EDD_TO_PENDING_EDD,
+      fromStatus: 'REVIEW_CDD',
+      toStatus: 'PENDING_EDD',
+      executed: true,
+      updatedCustomer: {
+        id: 'c1',
+        publicStatus: 'PENDING_EDD',
+        cddStatus: 'APPROVED',
+        eddRequired: true,
+        activeCaseId: 'edd-1',
+        customerNo: 'CU0001',
+      },
+      eddCase,
       activeCaseId: 'edd-1',
-      customerNo: 'CU0001',
+      finalApprovalStatus: 'NOT_REQUIRED',
     });
     const result = await service.applyOnboardingDecisionFromAlert(
       'alert-onb-1',
@@ -743,19 +706,15 @@ describe('OnboardingService', () => {
       { decision: 'REQUIRE_EDD' },
     );
 
-    expect(prismaMock.eddCase.create).toHaveBeenCalled();
-    expect(prismaMock.customerMain.update).toHaveBeenCalledWith(
+    expect(workflowTransitionServiceMock.transition).toHaveBeenCalledWith(
+      expect.anything(),
       expect.objectContaining({
-        data: expect.objectContaining({
-          publicStatus: 'PENDING_EDD',
-          eddRequired: true,
-          activeCaseType: 'EDD',
-          activeCaseId: 'edd-1',
-        }),
+        dispositionCode: 'REQUIRE_EDD',
       }),
     );
     expect(result.customer.publicStatus).toBe('PENDING_EDD');
     expect(result.eddCase?.id).toBe('edd-1');
+    expect(prismaMock.complianceAlert.update).toHaveBeenCalledTimes(2);
   });
 
   it('should auto-pass CDD LOW_RISK to ACTIVE without creating onboarding alert', async () => {
@@ -798,6 +757,9 @@ describe('OnboardingService', () => {
     );
     expect(riskEngineMock.evaluate).toHaveBeenCalledWith(
       expect.objectContaining({
+        ownerType: 'CUSTOMER',
+        ownerId: 'c1',
+        subjectType: 'INDIVIDUAL_CUSTOMER',
         signals: expect.objectContaining({
           mockDataType: 'LOW_RISK',
         }),
@@ -825,7 +787,13 @@ describe('OnboardingService', () => {
         }),
       }),
     );
-    expect(complianceAlertsMock.triggerSystemAlert).not.toHaveBeenCalled();
+    expect(orchestratorMock.orchestrate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workflow: 'ONBOARDING',
+        stage: 'REVIEW_CDD',
+        decisionRecordId: 'dr-low',
+      }),
+    );
     expect(result.publicStatus).toBe('ACTIVE');
   });
 
@@ -858,13 +826,12 @@ describe('OnboardingService', () => {
       mockDataType: 'MEDIUM_RISK',
     });
 
-    expect(complianceAlertsMock.triggerSystemAlert).toHaveBeenCalledWith(
+    expect(orchestratorMock.orchestrate).toHaveBeenCalledWith(
       expect.objectContaining({
-        severity: 'MEDIUM',
-        decisionRecommendation: 'REVIEW',
-        metadata: expect.objectContaining({
-          recommendedDecisions: ['APPROVE', 'REJECT', 'REQUIRE_EDD'],
-        }),
+        workflow: 'ONBOARDING',
+        stage: 'REVIEW_CDD',
+        decisionRecordId: 'dr-medium',
+        contextType: 'ONBOARDING_CDD',
       }),
     );
     expect(complianceIncidentsMock.createFromAlert).not.toHaveBeenCalled();
@@ -900,12 +867,18 @@ describe('OnboardingService', () => {
       mockDataType: 'HIGH_RISK_OR_PEP',
     });
 
-    expect(complianceAlertsMock.triggerSystemAlert).toHaveBeenCalled();
+    expect(orchestratorMock.orchestrate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workflow: 'ONBOARDING',
+        stage: 'REVIEW_CDD',
+        decisionRecordId: 'dr-high',
+      }),
+    );
     expect(complianceIncidentsMock.createFromAlert).not.toHaveBeenCalled();
     expect(result.publicStatus).toBe('REVIEW_CDD');
   });
 
-  it('should auto-escalate and create incident for SANCTION_AND_OTHER CDD mock', async () => {
+  it('should keep SANCTION_AND_OTHER CDD mock in alert triage without auto-creating incident', async () => {
     seedCddMockFlow();
     prismaMock.customerMain.update.mockResolvedValue({
       id: 'c1',
@@ -940,29 +913,14 @@ describe('OnboardingService', () => {
       mockDataType: 'SANCTION_AND_OTHER',
     });
 
-    expect(complianceAlertsMock.triggerSystemAlert).toHaveBeenCalledWith(
+    expect(orchestratorMock.orchestrate).toHaveBeenCalledWith(
       expect.objectContaining({
-        severity: 'CRITICAL',
-        decisionRecommendation: 'REVIEW',
+        workflow: 'ONBOARDING',
+        stage: 'REVIEW_CDD',
+        decisionRecordId: 'dr-sanction',
       }),
     );
-    expect(complianceIncidentsMock.createFromAlert).toHaveBeenCalledWith(
-      'alert-1',
-      expect.objectContaining({
-        decision: 'REVIEW',
-        linkedCaseIds: ['cdd-1'],
-        decisionRecordIds: ['dr-sanction'],
-        recommendedActions: expect.arrayContaining([
-          'UPSERT_ALERT',
-          'ESCALATE_INCIDENT',
-          'ONBOARDING_RECOMMEND_DECISIONS',
-        ]),
-      }),
-      expect.objectContaining({
-        actorType: 'SYSTEM',
-        actorId: 'SYSTEM',
-      }),
-    );
+    expect(complianceIncidentsMock.createFromAlert).not.toHaveBeenCalled();
     expect(result.publicStatus).toBe('REVIEW_CDD');
   });
 
@@ -981,6 +939,9 @@ describe('OnboardingService', () => {
 
     expect(riskEngineMock.evaluate).toHaveBeenCalledWith(
       expect.objectContaining({
+        ownerType: 'CUSTOMER',
+        ownerId: 'c1',
+        subjectType: 'INDIVIDUAL_CUSTOMER',
         signals: expect.objectContaining({
           mockDataType: 'SANCTION_AND_OTHER',
         }),
@@ -1001,9 +962,101 @@ describe('OnboardingService', () => {
 
     expect(riskEngineMock.evaluate).toHaveBeenCalledWith(
       expect.objectContaining({
+        ownerType: 'CUSTOMER',
+        ownerId: 'c1',
+        subjectType: 'INDIVIDUAL_CUSTOMER',
         signals: expect.objectContaining({
           mockDataType: 'LOW_RISK',
         }),
+      }),
+    );
+  });
+
+  it('should pass canonical owner and subject mapping for EDD risk evaluation', async () => {
+    const now = new Date(Date.now() + 10 * 60 * 1000);
+    prismaMock.complianceSession.findFirst.mockResolvedValue({
+      id: 'ses-edd-1',
+      customerId: 'c1',
+      caseType: 'EDD',
+      caseId: 'edd-1',
+      provider: 'MOCK',
+      providerSessionId: 'ESE2602010001',
+      qrCodeUrl: 'mock://compliance/ESE2602010001',
+      status: 'PENDING',
+      expiresAt: now,
+    });
+    prismaMock.complianceSession.update.mockResolvedValue({ id: 'ses-edd-1' });
+    prismaMock.eddCase.findUnique.mockResolvedValue({
+      id: 'edd-1',
+      customerId: 'c1',
+      caseNo: 'EDD2602010001',
+      subjectKind: 'CORPORATE_ENTITY',
+      subjectRefId: 'corp-1',
+      status: 'CREATED',
+    });
+    prismaMock.eddCase.update.mockResolvedValue({ id: 'edd-1' });
+    prismaMock.eddCaseReport.create.mockResolvedValue({ id: 'edr-1' });
+    prismaMock.customerMain.findUnique.mockResolvedValue({
+      id: 'c1',
+      customerNo: 'CU0001',
+      publicStatus: 'PENDING_EDD',
+      activeJourneyId: 'ONB-1',
+      currentEddCaseId: 'edd-1',
+    });
+    prismaMock.customerMain.update.mockResolvedValue({
+      id: 'c1',
+      customerNo: 'CU0001',
+      publicStatus: 'REVIEW_EDD',
+    });
+    prismaMock.onboardingAuditLog.create.mockResolvedValue({ id: 'audit-edd-1' });
+    orchestratorMock.orchestrate.mockResolvedValue({
+      workflow: 'ONBOARDING',
+      stage: 'REVIEW_EDD',
+      rule: 'ONB_EDD_REVIEW_REQUIRED',
+      recommendedDecisions: ['APPROVE', 'REJECT'],
+      executedActions: [{ type: 'UPSERT_ALERT' }],
+      skippedActions: [],
+      alertId: 'alert-edd-1',
+      alertNo: 'ALT0002',
+      alertUpserted: true,
+    });
+    orchestratorMock.findAlertDetail.mockResolvedValue({
+      id: 'alert-edd-1',
+      status: 'OPEN',
+      sourceType: 'ONBOARDING_JOURNEY',
+      recommendedDecisions: ['APPROVE', 'REJECT'],
+      linkedCaseIds: ['edd-1'],
+      decisionRecordIds: ['dr-edd-1'],
+      events: [],
+    });
+    riskEngineMock.evaluate.mockResolvedValue({
+      decision: 'REVIEW',
+      decisionRecordId: 'dr-edd-1',
+      reasonCodes: ['EDD_CLEAR'],
+      recommendedActions: [
+        {
+          type: 'UPSERT_ALERT',
+          payload: {
+            severity: 'LOW',
+            recommendation: 'REVIEW',
+          },
+        },
+        {
+          type: 'ONBOARDING_RECOMMEND_DECISIONS',
+          payload: { decisions: ['APPROVE', 'REJECT'] },
+        },
+      ],
+    });
+
+    await service.mockCompleteSession('c1', 'c1', 'ses-edd-1');
+
+    expect(riskEngineMock.evaluate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        contextType: 'ONBOARDING_EDD',
+        ownerType: 'CUSTOMER',
+        ownerId: 'c1',
+        subjectType: 'CORPORATE_ENTITY',
+        subjectId: 'corp-1',
       }),
     );
   });

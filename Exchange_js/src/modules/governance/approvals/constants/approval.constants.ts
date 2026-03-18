@@ -1,5 +1,6 @@
 export const ApprovalActionTypes = {
   SENSITIVE_EXPORT_APPROVAL: 'SENSITIVE_EXPORT_APPROVAL',
+  CASE_EVIDENCE_EXPORT_APPROVAL: 'CASE_EVIDENCE_EXPORT_APPROVAL',
   CHANGE_TICKET_APPROVAL: 'CHANGE_TICKET_APPROVAL',
   DELETE_REQUEST_APPROVAL: 'DELETE_REQUEST_APPROVAL',
 } as const;
@@ -74,6 +75,13 @@ export const DEFAULT_APPROVAL_POLICIES: Record<
   }
 > = {
   [ApprovalActionTypes.SENSITIVE_EXPORT_APPROVAL]: {
+    riskLevel: ApprovalRiskLevels.HIGH,
+    checkerRoles: ['DPO', 'MLRO'],
+    timeoutHours: 24,
+    allowCancel: true,
+    allowRetry: true,
+  },
+  [ApprovalActionTypes.CASE_EVIDENCE_EXPORT_APPROVAL]: {
     riskLevel: ApprovalRiskLevels.HIGH,
     checkerRoles: ['DPO', 'MLRO'],
     timeoutHours: 24,

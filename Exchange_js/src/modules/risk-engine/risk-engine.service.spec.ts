@@ -17,28 +17,32 @@ describe('RiskEngineService', () => {
     service = new RiskEngineService(prismaMock);
   });
 
+  const buildInput = (overrides?: Partial<Parameters<RiskEngineService['evaluate']>[0]>) => ({
+    contextType: 'ONBOARDING_CDD',
+    subjectType: 'INDIVIDUAL_CUSTOMER',
+    subjectId: 'c1',
+    ownerType: 'CUSTOMER',
+    ownerId: 'c1',
+    signals: {},
+    ...overrides,
+  });
+
   it('should return REVIEW with onboarding decision options for CDD LOW_RISK mock input', async () => {
-    const result = await service.evaluate({
-      contextType: 'ONBOARDING_CDD',
-      customerId: 'c1',
-      subjectId: 'c1',
+    const result = await service.evaluate(buildInput({
       signals: {
         mockDataType: 'LOW_RISK',
         riskScore: 26,
         riskLevel: 'LOW',
       },
-    });
+    }));
 
     expect(result.decision).toBe('REVIEW');
     expect(result.reasonCodes).toEqual(['CDD_LOW_RISK_CLEAR']);
+    expect(
+      result.recommendedActions.some((action) => action.type === 'UPSERT_ALERT'),
+    ).toBe(false);
     expect(result.recommendedActions).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({
-          type: 'UPSERT_ALERT',
-          payload: expect.objectContaining({
-            recommendation: 'REVIEW',
-          }),
-        }),
         expect.objectContaining({
           type: 'ONBOARDING_RECOMMEND_DECISIONS',
           payload: expect.objectContaining({
@@ -47,19 +51,33 @@ describe('RiskEngineService', () => {
         }),
       ]),
     );
+    expect(prismaMock.onboardingDecisionRecord.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        customerId: 'c1',
+        contextType: 'ONBOARDING_CDD',
+        subjectId: 'c1',
+        inputPayload: expect.any(String),
+      }),
+    });
+    expect(
+      JSON.parse(prismaMock.onboardingDecisionRecord.create.mock.calls[0][0].data.inputPayload),
+    ).toEqual(
+      expect.objectContaining({
+        subjectType: 'INDIVIDUAL_CUSTOMER',
+        ownerType: 'CUSTOMER',
+        ownerId: 'c1',
+      }),
+    );
   });
 
   it('should return REVIEW with UPSERT_ALERT for CDD MEDIUM_RISK mock input', async () => {
-    const result = await service.evaluate({
-      contextType: 'ONBOARDING_CDD',
-      customerId: 'c1',
-      subjectId: 'c1',
+    const result = await service.evaluate(buildInput({
       signals: {
         mockDataType: 'MEDIUM_RISK',
         riskScore: 58,
         riskLevel: 'MEDIUM',
       },
-    });
+    }));
 
     expect(result.decision).toBe('REVIEW');
     expect(result.reasonCodes).toEqual(['CDD_MEDIUM_RISK_REVIEW']);
@@ -86,17 +104,14 @@ describe('RiskEngineService', () => {
   });
 
   it('should return REVIEW with onboarding decision options for CDD HIGH_RISK_OR_PEP mock input', async () => {
-    const result = await service.evaluate({
-      contextType: 'ONBOARDING_CDD',
-      customerId: 'c1',
-      subjectId: 'c1',
+    const result = await service.evaluate(buildInput({
       signals: {
         mockDataType: 'HIGH_RISK_OR_PEP',
         riskScore: 91,
         riskLevel: 'HIGH',
         pepHit: true,
       },
-    });
+    }));
 
     expect(result.decision).toBe('REVIEW');
     expect(result.reasonCodes).toEqual(['CDD_HIGH_RISK_OR_PEP', 'PEP_HIT']);
@@ -122,11 +137,8 @@ describe('RiskEngineService', () => {
     ).toBe(false);
   });
 
-  it('should return REVIEW with ESCALATE_INCIDENT for CDD SANCTION_AND_OTHER mock input', async () => {
-    const result = await service.evaluate({
-      contextType: 'ONBOARDING_CDD',
-      customerId: 'c1',
-      subjectId: 'c1',
+  it('should return REVIEW without legacy auto-escalate for CDD SANCTION_AND_OTHER mock input', async () => {
+    const result = await service.evaluate(buildInput({
       signals: {
         mockDataType: 'SANCTION_AND_OTHER',
         sanctionsHit: true,
@@ -134,7 +146,7 @@ describe('RiskEngineService', () => {
         riskScore: 96,
         riskLevel: 'CRITICAL',
       },
-    });
+    }));
 
     expect(result.decision).toBe('REVIEW');
     expect(result.reasonCodes).toEqual(
@@ -150,12 +162,6 @@ describe('RiskEngineService', () => {
           }),
         }),
         expect.objectContaining({
-          type: 'ESCALATE_INCIDENT',
-          payload: expect.objectContaining({
-            reasonCode: 'SANCTIONS_HIT',
-          }),
-        }),
-        expect.objectContaining({
           type: 'ONBOARDING_RECOMMEND_DECISIONS',
           payload: expect.objectContaining({
             decisions: ['APPROVE', 'REJECT', 'REQUIRE_EDD'],
@@ -163,20 +169,23 @@ describe('RiskEngineService', () => {
         }),
       ]),
     );
+    expect(
+      result.recommendedActions.some((action) => action.type === 'ESCALATE_INCIDENT'),
+    ).toBe(false);
+    expect(
+      result.recommendedActions.some((action) => action.type === 'AUTO_ESCALATE_CASE'),
+    ).toBe(false);
   });
 
   it('should return review-mode recommendation options for legacy non-mock CDD input', async () => {
-    const result = await service.evaluate({
-      contextType: 'ONBOARDING_CDD',
-      customerId: 'c1',
-      subjectId: 'c1',
+    const result = await service.evaluate(buildInput({
       signals: {
         riskScore: 78,
         riskLevel: 'HIGH',
         pepHit: true,
         sanctionsHit: false,
       },
-    });
+    }));
 
     expect(result.decision).toBe('REVIEW');
     expect(result.reasonCodes).toEqual(
@@ -196,16 +205,14 @@ describe('RiskEngineService', () => {
   });
 
   it('should return REVIEW with approve/reject options for onboarding EDD input', async () => {
-    const result = await service.evaluate({
+    const result = await service.evaluate(buildInput({
       contextType: 'ONBOARDING_EDD',
-      customerId: 'c1',
-      subjectId: 'c1',
       signals: {
         riskScore: 52,
         riskLevel: 'MEDIUM',
         eddSubmitted: true,
       },
-    });
+    }));
 
     expect(result.decision).toBe('REVIEW');
     expect(result.recommendedActions).toEqual(
@@ -224,5 +231,18 @@ describe('RiskEngineService', () => {
     );
     expect(decisionAction?.payload?.decisions).toEqual(['APPROVE', 'REJECT']);
     expect(decisionAction?.payload?.decisions).not.toContain('REQUIRE_EDD');
+  });
+
+  it('should reject non-customer owner type during Phase 2 storage', async () => {
+    await expect(
+      service.evaluate(
+        buildInput({
+          ownerType: 'TRANSACTION',
+          ownerId: 'tx-1',
+        }),
+      ),
+    ).rejects.toThrow(RiskEngineService.PHASE2_UNSUPPORTED_OWNER_TYPE);
+
+    expect(prismaMock.onboardingDecisionRecord.create).not.toHaveBeenCalled();
   });
 });

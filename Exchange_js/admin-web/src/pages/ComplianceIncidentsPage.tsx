@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { RefreshCw, Search, X } from 'lucide-react';
 import Pagination from '../components/common/Pagination';
+import { PERMISSIONS } from '../rbac/permissions';
 import {
   AdminSessionError,
   adminFetch,
@@ -10,25 +12,103 @@ import { useAdminSession } from '../contexts/AdminSessionContext';
 
 type IncidentSeverity = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
 type IncidentStatus = 'OPEN' | 'ASSIGNED' | 'RESOLVED' | 'CLOSED';
-type IncidentAction = 'ASSIGN' | 'CLOSE';
-type IncidentWorkflowAction = 'ASSIGN' | 'REASSIGN' | 'CLOSE';
+type FreezeStatus = 'ACTIVE' | 'FROZEN';
+type ReportStatus = 'NOT_REPORTED' | 'REPORTED';
+type CaseReportStatus = 'DRAFT' | 'FINALIZED' | 'SUPERSEDED';
+type CaseWorkItemAction =
+  | 'ASSIGN'
+  | 'REASSIGN'
+  | 'LINK_ALERT'
+  | 'CLOSE';
 type RecommendedDecision = 'APPROVE' | 'REJECT' | 'REQUIRE_EDD';
+type CaseType = 'ONBOARDING' | 'TRANSACTION' | 'GENERIC';
+type CaseDispositionCode =
+  | 'APPROVE_STAGE'
+  | 'REJECT_STAGE'
+  | 'REQUIRE_EDD'
+  | 'CLEAR'
+  | 'RESTRICT'
+  | 'REPORT'
+  | 'FALSE_POSITIVE';
+type CaseComplianceAction =
+  | 'APPROVE_STAGE'
+  | 'REJECT_STAGE'
+  | 'REQUIRE_EDD'
+  | 'FREEZE'
+  | 'UNFREEZE'
+  | 'REPORT'
+  | 'FALSE_POSITIVE';
+
+interface IncidentReport {
+  id: string;
+  version: number;
+  isCurrent: boolean;
+  status: CaseReportStatus;
+  workflow: string;
+  stage?: string | null;
+  ruleCode?: string | null;
+  factsSummary?: string | null;
+  investigationScope?: string | null;
+  evidenceSummary?: string | null;
+  containmentSummary?: string | null;
+  analystConclusion?: string | null;
+  recommendedActions?: unknown;
+  finalDispositionCode?: CaseDispositionCode | string | null;
+  finalDispositionReason?: string | null;
+  linkedAlertSnapshot?: unknown;
+  decisionRecordSnapshot?: unknown;
+  providerResponseSnapshot?: unknown;
+  createdByUserNo?: string | null;
+  finalizedByUserNo?: string | null;
+  finalizedAt?: string | null;
+  supersededAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface ReportDraftState {
+  factsSummary: string;
+  investigationScope: string;
+  evidenceSummary: string;
+  containmentSummary: string;
+  analystConclusion: string;
+  recommendedActions: string;
+  finalDispositionCode: string;
+  finalDispositionReason: string;
+}
 
 interface IncidentItem {
   id: string;
+  caseNo?: string;
   incidentNo: string;
+  workflow?: string | null;
+  stage?: string | null;
+  rule?: string | null;
+  ruleCode?: string | null;
+  caseType?: CaseType;
   status: IncidentStatus;
   severity: IncidentSeverity;
   title: string;
   summary: string;
   primaryAlertNo?: string | null;
   customerNo?: string | null;
+  assigneeUserId?: string | null;
+  assigneeUserNo?: string | null;
   ownerUserId?: string | null;
   ownerUserNo?: string | null;
+  freezeStatus?: FreezeStatus;
+  frozenAt?: string | null;
+  freezeReason?: string | null;
+  reportStatus?: ReportStatus;
+  reportRefNo?: string | null;
+  reportedAt?: string | null;
+  reportReason?: string | null;
+  overdueMarkedAt?: string | null;
   alertCount: number;
   dueAt: string;
   lastActionAt?: string | null;
   recommendedDecisions?: string[];
+  reasonCodes?: string[];
 }
 
 interface IncidentAlertLink {
@@ -42,6 +122,9 @@ interface IncidentAlertLink {
   alert?: {
     id: string;
     alertNo: string;
+    workflow?: string | null;
+    stage?: string | null;
+    rule?: string | null;
     ruleCode: string;
     severity: string;
     status: string;
@@ -65,23 +148,50 @@ interface IncidentEvent {
   payload?: unknown;
 }
 
+interface DispositionRecord {
+  id: string;
+  dispositionCode: CaseDispositionCode | string;
+  decision?: string | null;
+  reason?: string | null;
+  isFinal?: boolean;
+  actorNo?: string | null;
+  actorRole?: string | null;
+  source?: string | null;
+  sourceRefId?: string | null;
+  createdAt: string;
+}
+
 interface IncidentDetail extends IncidentItem {
   customerId?: string | null;
   entityType?: string | null;
   entityNo?: string | null;
   sourceModule?: string | null;
   sourceType?: string | null;
+  assigneeUserId?: string | null;
+  assigneeUserNo?: string | null;
   ownerUserId?: string | null;
   assignedAt?: string | null;
   resolvedAt?: string | null;
   closedAt?: string | null;
   closeReason?: string | null;
+  currentDispositionCode?: CaseDispositionCode | string | null;
+  currentDispositionReason?: string | null;
+  currentDispositionAt?: string | null;
+  finalDispositionCode?: CaseDispositionCode | string | null;
+  finalDispositionReason?: string | null;
+  finalDispositionAt?: string | null;
   rootCauseCategory?: string | null;
   resolutionSummary?: string | null;
   containmentSummary?: string | null;
   closureChecklist?: unknown;
   metadata?: unknown;
   recommendedDecisions?: string[];
+  dispositionHistory?: DispositionRecord[];
+  currentReport?: IncidentReport | null;
+  reportHistory?: IncidentReport[];
+  reportLocked?: boolean;
+  availableWorkItemActions?: CaseWorkItemAction[];
+  availableComplianceActions?: CaseComplianceAction[];
   alerts: IncidentAlertLink[];
   events: IncidentEvent[];
 }
@@ -96,6 +206,7 @@ interface UserListItem {
 }
 
 interface OnboardingIncidentDecisionResponse {
+  case?: IncidentDetail;
   incident: IncidentDetail;
   alert: {
     id: string;
@@ -119,11 +230,11 @@ interface IncidentListResponse {
 }
 
 interface FilterState {
-  incidentNo: string;
+  caseNo: string;
   status: '' | IncidentStatus;
   severity: '' | IncidentSeverity;
   customerNo: string;
-  ownerUserId: string;
+  assigneeUserId: string;
   alertNo: string;
   keyword: string;
   overdueOnly: boolean;
@@ -132,11 +243,11 @@ interface FilterState {
 const PAGE_SIZE = 20;
 
 const DEFAULT_FILTERS: FilterState = {
-  incidentNo: '',
+  caseNo: '',
   status: '',
   severity: '',
   customerNo: '',
-  ownerUserId: '',
+  assigneeUserId: '',
   alertNo: '',
   keyword: '',
   overdueOnly: false,
@@ -151,6 +262,26 @@ const formatDateTime = (value?: string | null): string => {
   return date.toLocaleString();
 };
 
+const CASE_CLOSE_DISPOSITIONS: CaseDispositionCode[] = [
+  'APPROVE_STAGE',
+  'REJECT_STAGE',
+  'REQUIRE_EDD',
+  'RESTRICT',
+  'REPORT',
+  'FALSE_POSITIVE',
+];
+
+const EMPTY_REPORT_DRAFT: ReportDraftState = {
+  factsSummary: '',
+  investigationScope: '',
+  evidenceSummary: '',
+  containmentSummary: '',
+  analystConclusion: '',
+  recommendedActions: '',
+  finalDispositionCode: '',
+  finalDispositionReason: '',
+};
+
 const toPrettyJson = (value: unknown): string => {
   if (value === null || value === undefined) return '-';
   if (typeof value === 'string') return value;
@@ -159,6 +290,33 @@ const toPrettyJson = (value: unknown): string => {
   } catch {
     return String(value);
   }
+};
+
+const toTextAreaValue = (value: unknown): string => {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'string') return value;
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item || '').trim()).filter(Boolean).join('\n');
+  }
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+};
+
+const buildReportDraftState = (report?: IncidentReport | null): ReportDraftState => {
+  if (!report) return { ...EMPTY_REPORT_DRAFT };
+  return {
+    factsSummary: report.factsSummary || '',
+    investigationScope: report.investigationScope || '',
+    evidenceSummary: report.evidenceSummary || '',
+    containmentSummary: report.containmentSummary || '',
+    analystConclusion: report.analystConclusion || '',
+    recommendedActions: toTextAreaValue(report.recommendedActions),
+    finalDispositionCode: String(report.finalDispositionCode || '').trim(),
+    finalDispositionReason: report.finalDispositionReason || '',
+  };
 };
 
 const getSeverityClass = (severity: IncidentSeverity) => {
@@ -176,25 +334,19 @@ const getStatusClass = (status: IncidentStatus) => {
   return 'bg-gray-100 text-gray-700';
 };
 
+const getFreezeStatusClass = (status?: FreezeStatus) => {
+  if (status === 'FROZEN') return 'bg-red-100 text-red-800';
+  return 'bg-emerald-100 text-emerald-800';
+};
+
+const getReportStatusClass = (status?: ReportStatus) => {
+  if (status === 'REPORTED') return 'bg-violet-100 text-violet-800';
+  return 'bg-gray-100 text-gray-700';
+};
+
 const isOverdue = (item: IncidentItem) =>
   !CLOSED_STATUSES.includes(item.status) &&
   new Date(item.dueAt).getTime() < Date.now();
-
-const getAllowedActions = (
-  detail: IncidentDetail,
-  currentUserId?: string | null,
-): IncidentWorkflowAction[] => {
-  const isCurrentAssignee =
-    !!currentUserId &&
-    !!detail.ownerUserId &&
-    detail.ownerUserId === currentUserId;
-
-  if (detail.status === 'OPEN') return ['ASSIGN'];
-  if (detail.status === 'ASSIGNED' && isCurrentAssignee) {
-    return ['REASSIGN', 'CLOSE'];
-  }
-  return [];
-};
 
 const normalizeRecommendedDecisions = (
   values?: string[],
@@ -210,20 +362,33 @@ const normalizeRecommendedDecisions = (
   return Array.from(new Set(normalized));
 };
 
-const actionLabelMap: Record<IncidentWorkflowAction, string> = {
+const caseWorkItemActionLabelMap: Record<CaseWorkItemAction, string> = {
   ASSIGN: 'Assign',
   REASSIGN: 'Reassign',
+  LINK_ALERT: 'Link Alert',
   CLOSE: 'Close',
 };
 
-const recommendedDecisionLabelMap: Record<RecommendedDecision, string> = {
-  APPROVE: 'Approve',
-  REJECT: 'Reject',
+const caseComplianceActionLabelMap: Record<CaseComplianceAction, string> = {
+  APPROVE_STAGE: 'Approve Stage',
+  REJECT_STAGE: 'Reject Stage',
   REQUIRE_EDD: 'Require EDD',
+  FREEZE: 'Freeze',
+  UNFREEZE: 'Unfreeze',
+  REPORT: 'Report',
+  FALSE_POSITIVE: 'False Positive',
 };
 
-const ComplianceIncidentsPage = () => {
-  const { session } = useAdminSession();
+const normalizeActionList = <T extends string>(value: unknown): T[] => {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => String(item || '').trim().toUpperCase())
+    .filter(Boolean) as T[];
+};
+
+const ComplianceCasesPage = () => {
+  const navigate = useNavigate();
+  const { session, hasPermission } = useAdminSession();
   const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
   const [items, setItems] = useState<IncidentItem[]>([]);
   const [total, setTotal] = useState(0);
@@ -233,10 +398,15 @@ const ComplianceIncidentsPage = () => {
   const [message, setMessage] = useState('');
   const [detail, setDetail] = useState<IncidentDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
-  const [acting, setActing] = useState<IncidentAction | null>(null);
-  const [recommendationActing, setRecommendationActing] =
-    useState<RecommendedDecision | null>(null);
+  const [acting, setActing] = useState<string | null>(null);
   const [linking, setLinking] = useState(false);
+  const [reportDraft, setReportDraft] = useState<ReportDraftState>(EMPTY_REPORT_DRAFT);
+  const [reportSaving, setReportSaving] = useState(false);
+  const [reportFinalizing, setReportFinalizing] = useState(false);
+  const [reportRevisionArmed, setReportRevisionArmed] = useState(false);
+
+  const canWriteCases = hasPermission(PERMISSIONS.CASES_WRITE);
+  const canReadCaseExports = hasPermission(PERMISSIONS.CASE_EVIDENCE_EXPORTS_READ);
 
   const [assignModalOpen, setAssignModalOpen] = useState(false);
   const [assignCandidates, setAssignCandidates] = useState<UserListItem[]>([]);
@@ -246,11 +416,11 @@ const ComplianceIncidentsPage = () => {
 
   const hasFilters = useMemo(() => {
     return (
-      !!filters.incidentNo.trim() ||
+      !!filters.caseNo.trim() ||
       !!filters.status ||
       !!filters.severity ||
       !!filters.customerNo.trim() ||
-      !!filters.ownerUserId.trim() ||
+      !!filters.assigneeUserId.trim() ||
       !!filters.alertNo.trim() ||
       !!filters.keyword.trim() ||
       filters.overdueOnly
@@ -268,21 +438,21 @@ const ComplianceIncidentsPage = () => {
       params.set('skip', String((targetPage - 1) * PAGE_SIZE));
       params.set('take', String(PAGE_SIZE));
 
-      if (activeFilters.incidentNo.trim()) params.set('incidentNo', activeFilters.incidentNo.trim());
+      if (activeFilters.caseNo.trim()) params.set('caseNo', activeFilters.caseNo.trim());
       if (activeFilters.status) params.set('status', activeFilters.status);
       if (activeFilters.severity) params.set('severity', activeFilters.severity);
       if (activeFilters.customerNo.trim()) params.set('customerNo', activeFilters.customerNo.trim());
-      if (activeFilters.ownerUserId.trim()) params.set('ownerUserId', activeFilters.ownerUserId.trim());
+      if (activeFilters.assigneeUserId.trim()) params.set('assigneeUserId', activeFilters.assigneeUserId.trim());
       if (activeFilters.alertNo.trim()) params.set('alertNo', activeFilters.alertNo.trim());
       if (activeFilters.keyword.trim()) params.set('keyword', activeFilters.keyword.trim());
       if (activeFilters.overdueOnly) params.set('overdueOnly', 'true');
 
       const response = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/compliance/incidents?${params.toString()}`,
+        `${import.meta.env.VITE_API_URL}/admin/compliance/cases?${params.toString()}`,
       );
 
       if (!response.ok) {
-        throw new Error(await getApiErrorMessage(response, 'Failed to load incidents.'));
+        throw new Error(await getApiErrorMessage(response, 'Failed to load cases.'));
       }
 
       const data = (await response.json()) as IncidentListResponse;
@@ -291,7 +461,7 @@ const ComplianceIncidentsPage = () => {
       setCurrentPage(targetPage);
     } catch (e: unknown) {
       if (e instanceof AdminSessionError) return;
-      setError(e instanceof Error ? e.message : 'Failed to load incidents.');
+      setError(e instanceof Error ? e.message : 'Failed to load cases.');
     } finally {
       setLoading(false);
     }
@@ -300,6 +470,11 @@ const ComplianceIncidentsPage = () => {
   useEffect(() => {
     void fetchIncidents(1);
   }, []);
+
+  useEffect(() => {
+    setReportDraft(buildReportDraftState(detail?.currentReport));
+    setReportRevisionArmed(false);
+  }, [detail?.id, detail?.currentReport?.id, detail?.currentReport?.updatedAt]);
 
   const openDetail = async (id: string) => {
     setDetailLoading(true);
@@ -310,16 +485,18 @@ const ComplianceIncidentsPage = () => {
     setSelectedAssigneeUserId('');
     try {
       const response = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/compliance/incidents/${id}`,
+        `${import.meta.env.VITE_API_URL}/admin/compliance/cases/${id}`,
       );
       if (!response.ok) {
-        throw new Error(await getApiErrorMessage(response, 'Failed to load incident detail.'));
+        throw new Error(await getApiErrorMessage(response, 'Failed to load case detail.'));
       }
       const data = (await response.json()) as IncidentDetail;
       setDetail(data);
+      setReportDraft(buildReportDraftState(data.currentReport));
+      setReportRevisionArmed(false);
     } catch (e: unknown) {
       if (e instanceof AdminSessionError) return;
-      setError(e instanceof Error ? e.message : 'Failed to load incident detail.');
+      setError(e instanceof Error ? e.message : 'Failed to load case detail.');
     } finally {
       setDetailLoading(false);
     }
@@ -350,7 +527,11 @@ const ComplianceIncidentsPage = () => {
             ].filter(Boolean),
           ),
         );
-        return roleCodes.includes('SUPER_ADMIN') || roleCodes.includes('MLRO');
+        return (
+          roleCodes.includes('SUPER_ADMIN') ||
+          roleCodes.includes('MLRO') ||
+          roleCodes.includes('COMPLIANCE_LEAD')
+        );
       })
       .sort((a, b) => {
         const aNo = (a.userNo || '').toUpperCase();
@@ -369,6 +550,7 @@ const ComplianceIncidentsPage = () => {
       const candidates = await fetchAssignCandidates();
       setAssignCandidates(candidates);
       const defaultAssignee =
+        detail.assigneeUserId ||
         detail.ownerUserId ||
         session?.id ||
         (candidates.length > 0 ? candidates[0].id : '');
@@ -396,7 +578,7 @@ const ComplianceIncidentsPage = () => {
     setMessage('');
     try {
       const response = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/compliance/incidents/${detail.id}/action`,
+        `${import.meta.env.VITE_API_URL}/admin/compliance/cases/${detail.id}/action`,
         {
           method: 'PATCH',
           headers: {
@@ -426,26 +608,25 @@ const ComplianceIncidentsPage = () => {
     }
   };
 
-  const handleAction = async (action: IncidentAction) => {
+  const submitCaseAction = async (
+    action: 'CLOSE' | 'FREEZE' | 'UNFREEZE' | 'REPORT',
+    options?: {
+      reason?: string;
+      dispositionCode?: CaseDispositionCode;
+    },
+  ) => {
     if (!detail) return;
     setActing(action);
     setError('');
     setMessage('');
 
     try {
-      let reason: string | undefined;
-      if (action === 'CLOSE') {
-        reason = window.prompt('Please provide reason', '') || '';
-        if (!reason.trim()) {
-          throw new Error(`Action ${action} requires a reason.`);
-        }
-      }
-
       const payload: Record<string, unknown> = { action };
-      if (reason) payload.reason = reason;
+      if (options?.reason) payload.reason = options.reason;
+      if (options?.dispositionCode) payload.dispositionCode = options.dispositionCode;
 
       const response = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/compliance/incidents/${detail.id}/action`,
+        `${import.meta.env.VITE_API_URL}/admin/compliance/cases/${detail.id}/action`,
         {
           method: 'PATCH',
           headers: {
@@ -461,7 +642,15 @@ const ComplianceIncidentsPage = () => {
 
       const updated = (await response.json()) as IncidentDetail;
       setDetail(updated);
-      setMessage(`Action ${action} completed.`);
+      if (action === 'REPORT' && updated.reportRefNo) {
+        setMessage(`Report recorded as ${updated.reportRefNo}.`);
+      } else if (action === 'FREEZE') {
+        setMessage('Customer compliance hold enabled from this case.');
+      } else if (action === 'UNFREEZE') {
+        setMessage('Customer compliance hold released.');
+      } else {
+        setMessage(`Action ${action} completed.`);
+      }
       await fetchIncidents(currentPage);
     } catch (e: unknown) {
       if (e instanceof AdminSessionError) return;
@@ -471,19 +660,87 @@ const ComplianceIncidentsPage = () => {
     }
   };
 
-  const handleRecommendedDecision = async (decision: RecommendedDecision) => {
+  const saveCaseReportDraft = async () => {
+    if (!detail) return;
+    setReportSaving(true);
+    setError('');
+    setMessage('');
+
+    try {
+      const response = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/admin/compliance/cases/${detail.id}/report/draft`,
+        {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(reportDraft),
+        },
+      );
+
+      if (!response.ok) {
+        throw new Error(await getApiErrorMessage(response, 'Failed to save draft.'));
+      }
+
+      await openDetail(detail.id);
+      await fetchIncidents(currentPage);
+      setMessage('Investigation report draft saved.');
+    } catch (e: unknown) {
+      if (e instanceof AdminSessionError) return;
+      setError(e instanceof Error ? e.message : 'Failed to save draft.');
+    } finally {
+      setReportSaving(false);
+    }
+  };
+
+  const finalizeCaseReport = async () => {
+    if (!detail) return;
+    setReportFinalizing(true);
+    setError('');
+    setMessage('');
+
+    try {
+      const response = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/admin/compliance/cases/${detail.id}/report/finalize`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({}),
+        },
+      );
+
+      if (!response.ok) {
+        throw new Error(
+          await getApiErrorMessage(response, 'Failed to finalize report.'),
+        );
+      }
+
+      await openDetail(detail.id);
+      await fetchIncidents(currentPage);
+      setMessage('Investigation report finalized.');
+    } catch (e: unknown) {
+      if (e instanceof AdminSessionError) return;
+      setError(e instanceof Error ? e.message : 'Failed to finalize report.');
+    } finally {
+      setReportFinalizing(false);
+    }
+  };
+
+  const applyOnboardingDecision = async (decision: RecommendedDecision) => {
     if (!detail) return;
     const reasonInput =
       decision === 'REJECT'
         ? window.prompt('Reason (optional)', '') || ''
         : '';
 
-    setRecommendationActing(decision);
+    setActing(decision);
     setError('');
     setMessage('');
     try {
       const response = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/compliance/incidents/${detail.id}/onboarding-decision`,
+        `${import.meta.env.VITE_API_URL}/admin/compliance/cases/${detail.id}/onboarding-decision`,
         {
           method: 'POST',
           headers: {
@@ -506,7 +763,7 @@ const ComplianceIncidentsPage = () => {
       }
 
       const data = (await response.json()) as OnboardingIncidentDecisionResponse;
-      setDetail(data.incident);
+      setDetail(data.case || data.incident);
       if (decision === 'REQUIRE_EDD' && data.eddCase?.caseNo) {
         setMessage(
           `Decision applied. Onboarding moved to ${data.customer.publicStatus}. EDD case ${data.eddCase.caseNo} created.`,
@@ -525,7 +782,7 @@ const ComplianceIncidentsPage = () => {
           : 'Failed to apply onboarding decision.',
       );
     } finally {
-      setRecommendationActing(null);
+      setActing(null);
     }
   };
 
@@ -543,7 +800,7 @@ const ComplianceIncidentsPage = () => {
       const note = window.prompt('Link note (optional)', '') || '';
 
       const response = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/compliance/incidents/${detail.id}/alerts`,
+        `${import.meta.env.VITE_API_URL}/admin/compliance/cases/${detail.id}/alerts`,
         {
           method: 'POST',
           headers: {
@@ -572,44 +829,153 @@ const ComplianceIncidentsPage = () => {
     }
   };
 
+  const handleWorkItemAction = async (action: CaseWorkItemAction) => {
+    if (!detail) return;
+    if (action === 'ASSIGN' || action === 'REASSIGN') {
+      await openAssignModal();
+      return;
+    }
+    if (action === 'LINK_ALERT') {
+      await handleLinkAlert();
+      return;
+    }
+
+    const reason = window.prompt('Close reason', '') || '';
+    if (!reason.trim()) {
+      setError('Closing case requires a reason.');
+      return;
+    }
+
+    let dispositionCode: CaseDispositionCode | undefined;
+    if (!detail.currentDispositionCode) {
+      const promptValue =
+        window.prompt(
+          `Disposition code (${CASE_CLOSE_DISPOSITIONS.join(' / ')})`,
+          'FALSE_POSITIVE',
+        ) || '';
+      if (!promptValue.trim()) {
+        setError('Closing without an existing disposition requires a disposition code.');
+        return;
+      }
+      dispositionCode = promptValue.trim().toUpperCase() as CaseDispositionCode;
+    }
+
+    await submitCaseAction('CLOSE', {
+      reason: reason.trim(),
+      dispositionCode,
+    });
+  };
+
+  const handleComplianceAction = async (action: CaseComplianceAction) => {
+    if (!detail) return;
+
+    if (action === 'APPROVE_STAGE') {
+      await applyOnboardingDecision('APPROVE');
+      return;
+    }
+    if (action === 'REJECT_STAGE') {
+      await applyOnboardingDecision('REJECT');
+      return;
+    }
+    if (action === 'REQUIRE_EDD') {
+      await applyOnboardingDecision('REQUIRE_EDD');
+      return;
+    }
+    if (action === 'FALSE_POSITIVE') {
+      const reason = window.prompt('Please provide reason', '') || '';
+      if (!reason.trim()) {
+        setError('False Positive requires a reason.');
+        return;
+      }
+      await submitCaseAction('CLOSE', {
+        reason: reason.trim(),
+        dispositionCode: 'FALSE_POSITIVE',
+      });
+      return;
+    }
+
+    const promptTitle =
+      action === 'FREEZE'
+        ? 'Freeze reason'
+        : action === 'UNFREEZE'
+          ? 'Unfreeze reason'
+          : 'Internal report reason';
+    const reason = window.prompt(promptTitle, '') || '';
+    if (!reason.trim()) {
+      setError(`${caseComplianceActionLabelMap[action]} requires a reason.`);
+      return;
+    }
+
+    await submitCaseAction(action as 'FREEZE' | 'UNFREEZE' | 'REPORT', {
+      reason: reason.trim(),
+    });
+  };
+
   const resetFilters = async () => {
     setFilters(DEFAULT_FILTERS);
     await fetchIncidents(1, DEFAULT_FILTERS);
   };
 
-  const canLinkAlert =
-    !!detail && ['OPEN', 'ASSIGNED'].includes(detail.status);
-
-  const currentAdminId = session?.id || null;
-  const isCurrentAssignee =
-    !!detail &&
-    !!currentAdminId &&
-    !!detail.ownerUserId &&
-    detail.ownerUserId === currentAdminId;
-  const workflowActions = detail ? getAllowedActions(detail, currentAdminId) : [];
+  const workItemActions =
+    detail && canWriteCases
+      ? normalizeActionList<CaseWorkItemAction>(detail.availableWorkItemActions)
+      : [];
+  const complianceActions =
+    detail && canWriteCases
+      ? normalizeActionList<CaseComplianceAction>(detail.availableComplianceActions)
+      : [];
   const recommendedDecisions = normalizeRecommendedDecisions(
     detail?.recommendedDecisions,
   );
-  const showRecommendationActions =
+  const reasonCodes = normalizeActionList<string>(detail?.reasonCodes);
+  const currentReportStatus = detail?.currentReport?.status || null;
+  const reportLocked = !!detail?.reportLocked;
+  const canEditDraft =
+    canWriteCases &&
     !!detail &&
-    detail.status === 'ASSIGNED' &&
-    isCurrentAssignee;
+    !reportLocked &&
+    (!detail.currentReport ||
+      currentReportStatus === 'DRAFT' ||
+      reportRevisionArmed);
+  const canFinalizeReport =
+    canWriteCases &&
+    !!detail &&
+    !reportLocked &&
+    currentReportStatus === 'DRAFT';
+  const canReviseReport =
+    canWriteCases &&
+    !!detail &&
+    !reportLocked &&
+    currentReportStatus === 'FINALIZED' &&
+    !reportRevisionArmed;
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Compliance Center - Incidents</h1>
-          <p className="text-sm text-gray-500 mt-1">Manage escalated compliance incidents.</p>
+          <h1 className="text-2xl font-bold text-gray-900">Compliance Center - Cases</h1>
+          <p className="text-sm text-gray-500 mt-1">
+            Investigate onboarding review escalations through a canonical workflow / stage / rule queue.
+          </p>
         </div>
-        <button
-          onClick={() => fetchIncidents(currentPage)}
-          className="p-2 text-gray-500 hover:text-brand-primary disabled:opacity-60"
-          title="Refresh"
-          disabled={loading}
-        >
-          <RefreshCw size={20} className={loading ? 'animate-spin' : ''} />
-        </button>
+        <div className="flex items-center gap-2">
+          {canReadCaseExports && (
+            <button
+              onClick={() => navigate('/dashboard/compliance/case-evidence-exports')}
+              className="px-3 py-2 rounded border border-admin-border text-sm hover:bg-gray-50"
+            >
+              Case Evidence Exports
+            </button>
+          )}
+          <button
+            onClick={() => fetchIncidents(currentPage)}
+            className="p-2 text-gray-500 hover:text-brand-primary disabled:opacity-60"
+            title="Refresh"
+            disabled={loading}
+          >
+            <RefreshCw size={20} className={loading ? 'animate-spin' : ''} />
+          </button>
+        </div>
       </div>
 
       {message && (
@@ -622,15 +988,23 @@ const ComplianceIncidentsPage = () => {
           {error}
         </div>
       )}
+      <div className="px-4 py-3 border border-slate-200 bg-slate-50 rounded-lg text-sm text-slate-700">
+        {canWriteCases
+          ? 'Cases are onboarding-only investigation objects. Work item actions manage ownership and linkage; compliance actions express the investigation outcome.'
+          : 'You currently have read-only access to onboarding compliance cases created from alert escalation.'}
+      </div>
 
       <div className="bg-white rounded-xl shadow-sm border border-admin-border p-4 space-y-3">
         <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-3">
           <input
             className="border border-admin-border rounded px-3 py-2 text-sm"
-            placeholder="Incident no"
-            value={filters.incidentNo}
-            onChange={(e) => setFilters((prev) => ({ ...prev, incidentNo: e.target.value }))}
+            placeholder="Case no"
+            value={filters.caseNo}
+            onChange={(e) => setFilters((prev) => ({ ...prev, caseNo: e.target.value }))}
           />
+          <div className="border border-admin-border rounded px-3 py-2 text-sm bg-gray-50 text-gray-700">
+            Workflow: ONBOARDING
+          </div>
           <select
             className="border border-admin-border rounded px-3 py-2 text-sm"
             value={filters.status}
@@ -664,9 +1038,9 @@ const ComplianceIncidentsPage = () => {
           />
           <input
             className="border border-admin-border rounded px-3 py-2 text-sm"
-            placeholder="Owner user id"
-            value={filters.ownerUserId}
-            onChange={(e) => setFilters((prev) => ({ ...prev, ownerUserId: e.target.value }))}
+            placeholder="Assignee user id"
+            value={filters.assigneeUserId}
+            onChange={(e) => setFilters((prev) => ({ ...prev, assigneeUserId: e.target.value }))}
           />
           <input
             className="border border-admin-border rounded px-3 py-2 text-sm"
@@ -714,12 +1088,15 @@ const ComplianceIncidentsPage = () => {
           <table className="w-full text-left text-sm">
             <thead className="bg-admin-content-bg border-b border-admin-border">
               <tr>
-                <th className="px-4 py-3 text-xs uppercase text-gray-500">Incident</th>
+                <th className="px-4 py-3 text-xs uppercase text-gray-500">Case</th>
                 <th className="px-4 py-3 text-xs uppercase text-gray-500">Status</th>
                 <th className="px-4 py-3 text-xs uppercase text-gray-500">Severity</th>
+                <th className="px-4 py-3 text-xs uppercase text-gray-500">Workflow / Stage / Rule</th>
+                <th className="px-4 py-3 text-xs uppercase text-gray-500">Freeze</th>
+                <th className="px-4 py-3 text-xs uppercase text-gray-500">Report</th>
                 <th className="px-4 py-3 text-xs uppercase text-gray-500">Customer</th>
                 <th className="px-4 py-3 text-xs uppercase text-gray-500">Primary Alert</th>
-                <th className="px-4 py-3 text-xs uppercase text-gray-500">Owner</th>
+                <th className="px-4 py-3 text-xs uppercase text-gray-500">Assignee</th>
                 <th className="px-4 py-3 text-xs uppercase text-gray-500">Due</th>
                 <th className="px-4 py-3 text-xs uppercase text-gray-500">Last Action</th>
                 <th className="px-4 py-3 text-xs uppercase text-gray-500">Action</th>
@@ -728,21 +1105,21 @@ const ComplianceIncidentsPage = () => {
             <tbody className="divide-y divide-admin-border">
               {loading ? (
                 <tr>
-                  <td colSpan={9} className="px-4 py-8 text-center text-gray-500">
+                  <td colSpan={12} className="px-4 py-8 text-center text-gray-500">
                     Loading...
                   </td>
                 </tr>
               ) : items.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="px-4 py-8 text-center text-gray-500">
-                    No incidents found
+                  <td colSpan={12} className="px-4 py-8 text-center text-gray-500">
+                    No cases found
                   </td>
                 </tr>
               ) : (
                 items.map((item) => (
                   <tr key={item.id} className="hover:bg-gray-50">
                     <td className="px-4 py-3">
-                      <div className="font-semibold text-gray-900">{item.incidentNo}</div>
+                      <div className="font-semibold text-gray-900">{item.caseNo || item.incidentNo}</div>
                       <div className="text-xs text-gray-500">{item.title}</div>
                     </td>
                     <td className="px-4 py-3">
@@ -755,13 +1132,49 @@ const ComplianceIncidentsPage = () => {
                         {item.severity}
                       </span>
                     </td>
+                    <td className="px-4 py-3 text-gray-700">
+                      <div>{item.workflow || 'ONBOARDING'}</div>
+                      <div className="text-xs text-gray-500">{item.stage || '-'}</div>
+                      <div className="text-xs text-gray-500">{item.rule || '-'}</div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex flex-col gap-1">
+                        <span
+                          className={`inline-flex w-fit px-2 py-1 rounded-full text-xs ${getFreezeStatusClass(item.freezeStatus)}`}
+                        >
+                          {item.freezeStatus || 'ACTIVE'}
+                        </span>
+                        {item.frozenAt && (
+                          <span className="text-xs text-gray-500">
+                            {formatDateTime(item.frozenAt)}
+                          </span>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex flex-col gap-1">
+                        <span
+                          className={`inline-flex w-fit px-2 py-1 rounded-full text-xs ${getReportStatusClass(item.reportStatus)}`}
+                        >
+                          {item.reportStatus || 'NOT_REPORTED'}
+                        </span>
+                        <span className="text-xs text-gray-500">
+                          {item.reportRefNo || formatDateTime(item.reportedAt)}
+                        </span>
+                      </div>
+                    </td>
                     <td className="px-4 py-3 text-gray-700">{item.customerNo || '-'}</td>
                     <td className="px-4 py-3 text-gray-700">{item.primaryAlertNo || '-'}</td>
-                    <td className="px-4 py-3 text-gray-700">{item.ownerUserNo || '-'}</td>
+                    <td className="px-4 py-3 text-gray-700">{item.assigneeUserNo || item.ownerUserNo || '-'}</td>
                     <td className="px-4 py-3">
                       <div className={isOverdue(item) ? 'text-red-700 font-medium' : 'text-gray-700'}>
                         {formatDateTime(item.dueAt)}
                       </div>
+                      {item.overdueMarkedAt && (
+                        <div className="text-xs text-red-600 mt-1">
+                          Flagged {formatDateTime(item.overdueMarkedAt)}
+                        </div>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-gray-700">{formatDateTime(item.lastActionAt)}</td>
                     <td className="px-4 py-3">
@@ -791,7 +1204,7 @@ const ComplianceIncidentsPage = () => {
           <div className="w-full max-w-5xl bg-white rounded-xl shadow-xl border border-admin-border max-h-[90vh] overflow-y-auto">
             <div className="sticky top-0 bg-white border-b border-admin-border px-4 py-3 flex items-center justify-between">
               <div>
-                <h3 className="text-lg font-bold text-gray-900">Incident Detail - {detail.incidentNo}</h3>
+                <h3 className="text-lg font-bold text-gray-900">Case Detail - {detail.caseNo || detail.incidentNo}</h3>
                 <p className="text-xs text-gray-500">{detail.id}</p>
               </div>
               <button
@@ -807,31 +1220,42 @@ const ComplianceIncidentsPage = () => {
             ) : (
               <div className="p-4 space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <InfoCard
+                      title="Summary"
+                      rows={[
+                        ['Status', detail.status],
+                        ['Severity', detail.severity],
+                        ['Workflow', detail.workflow || 'ONBOARDING'],
+                        ['Stage', detail.stage || '-'],
+                        ['Rule', detail.rule || detail.ruleCode || '-'],
+                        ['Freeze Status', detail.freezeStatus || 'ACTIVE'],
+                        ['Report Status', detail.reportStatus || 'NOT_REPORTED'],
+                        ['Customer', detail.customerNo || '-'],
+                        ['Primary Alert', detail.primaryAlertNo || '-'],
+                        ['Recommended Decisions', recommendedDecisions.join(', ') || '-'],
+                        ['Summary', detail.summary],
+                      ]}
+                    />
                   <InfoCard
-                    title="Summary"
-                    rows={[
-                      ['Status', detail.status],
-                      ['Severity', detail.severity],
-                      ['Customer', detail.customerNo || '-'],
-                      ['Primary Alert', detail.primaryAlertNo || '-'],
-                      ['Summary', detail.summary],
-                    ]}
-                  />
-                  <InfoCard
-                    title="Source"
-                    rows={[
-                      ['Source Module', detail.sourceModule || '-'],
-                      ['Source Type', detail.sourceType || '-'],
-                      ['Entity', detail.entityNo || detail.entityType || '-'],
-                      ['Alert Count', String(detail.alertCount || 0)],
-                      ['Owner', detail.ownerUserNo || '-'],
-                    ]}
+                      title="Source"
+                      rows={[
+                        ['Source Module', detail.sourceModule || '-'],
+                        ['Source Type', detail.sourceType || '-'],
+                        ['Entity', detail.entityNo || detail.entityType || '-'],
+                        ['Reason Codes', reasonCodes.join(', ') || '-'],
+                        ['Alert Count', String(detail.alertCount || 0)],
+                        ['Assignee', detail.assigneeUserNo || detail.ownerUserNo || '-'],
+                        ['Report Ref', detail.reportRefNo || '-'],
+                      ]}
                   />
                   <InfoCard
                     title="Lifecycle"
                     rows={[
                       ['Due', formatDateTime(detail.dueAt)],
+                      ['Overdue Flagged At', formatDateTime(detail.overdueMarkedAt)],
                       ['Assigned At', formatDateTime(detail.assignedAt)],
+                      ['Frozen At', formatDateTime(detail.frozenAt)],
+                      ['Reported At', formatDateTime(detail.reportedAt)],
                       ['Resolved At (legacy)', formatDateTime(detail.resolvedAt)],
                       ['Closed At', formatDateTime(detail.closedAt)],
                       ['Close Reason', detail.closeReason || '-'],
@@ -840,75 +1264,53 @@ const ComplianceIncidentsPage = () => {
                 </div>
 
                 <div className="border border-admin-border rounded-lg p-4">
-                  <h4 className="font-semibold text-gray-900 mb-3">Workflow Actions</h4>
-                  {workflowActions.length === 0 ? (
+                  <h4 className="font-semibold text-gray-900 mb-3">Work Item Actions</h4>
+                  {workItemActions.length === 0 ? (
                     <div className="text-sm text-gray-500">
-                      No workflow actions available for current user in this status.
+                      No work item actions available for current user in this status.
                     </div>
                   ) : (
                     <div className="flex flex-wrap gap-2">
-                      {workflowActions.map((action) => (
+                      {workItemActions.map((action) => (
                         <button
                           key={action}
                           onClick={() => {
-                            if (action === 'ASSIGN' || action === 'REASSIGN') {
-                              void openAssignModal();
-                              return;
-                            }
-                            void handleAction(action as IncidentAction);
+                            void handleWorkItemAction(action);
                           }}
                           disabled={
-                            acting !== null ||
-                            recommendationActing !== null ||
-                            assignCandidatesLoading ||
-                            linking
+                            acting !== null || assignCandidatesLoading || linking
                           }
                           className="px-3 py-1.5 rounded border border-admin-border text-sm hover:bg-gray-50 disabled:opacity-60"
                         >
-                          {acting === action ? 'Processing...' : actionLabelMap[action]}
+                          {acting === action || (linking && action === 'LINK_ALERT')
+                            ? 'Processing...'
+                            : caseWorkItemActionLabelMap[action]}
                         </button>
                       ))}
-                      {canLinkAlert && (
-                        <button
-                          onClick={handleLinkAlert}
-                          disabled={
-                            acting !== null ||
-                            recommendationActing !== null ||
-                            linking
-                          }
-                          className="px-3 py-1.5 rounded border border-admin-border text-sm hover:bg-gray-50 disabled:opacity-60"
-                        >
-                          {linking ? 'Linking...' : 'Link Alert'}
-                        </button>
-                      )}
                     </div>
                   )}
                 </div>
 
                 <div className="border border-admin-border rounded-lg p-4">
-                  <h4 className="font-semibold text-gray-900 mb-3">Risk Engine Recommended Actions</h4>
-                  {!showRecommendationActions ? (
+                  <h4 className="font-semibold text-gray-900 mb-3">Compliance Actions</h4>
+                  {complianceActions.length === 0 ? (
                     <div className="text-sm text-gray-500">
-                      Recommended actions are available only when this incident is ASSIGNED to you.
-                    </div>
-                  ) : recommendedDecisions.length === 0 ? (
-                    <div className="text-sm text-gray-500">
-                      No recommended onboarding decision for this incident.
+                      No compliance actions available for current user in this status.
                     </div>
                   ) : (
                     <div className="flex flex-wrap gap-2">
-                      {recommendedDecisions.map((decision) => (
+                      {complianceActions.map((action) => (
                         <button
-                          key={decision}
+                          key={action}
                           onClick={() => {
-                            void handleRecommendedDecision(decision);
+                            void handleComplianceAction(action);
                           }}
-                          disabled={acting !== null || recommendationActing !== null}
+                          disabled={acting !== null || linking}
                           className="px-3 py-1.5 rounded border border-admin-border text-sm hover:bg-gray-50 disabled:opacity-60"
                         >
-                          {recommendationActing === decision
+                          {acting === action
                             ? 'Processing...'
-                            : recommendedDecisionLabelMap[decision]}
+                            : caseComplianceActionLabelMap[action]}
                         </button>
                       ))}
                     </div>
@@ -916,15 +1318,266 @@ const ComplianceIncidentsPage = () => {
                 </div>
 
                 <div className="border border-admin-border rounded-lg p-4">
-                  <h4 className="font-semibold text-gray-900 mb-3">Resolution</h4>
-                  <pre className="text-xs bg-gray-50 border border-admin-border rounded p-3 overflow-auto max-h-56">
-                    {toPrettyJson({
-                      rootCauseCategory: detail.rootCauseCategory,
-                      resolutionSummary: detail.resolutionSummary,
-                      containmentSummary: detail.containmentSummary,
-                      closureChecklist: detail.closureChecklist,
-                    })}
-                  </pre>
+                  <h4 className="font-semibold text-gray-900 mb-3">Compliance Disposition</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <InfoCard
+                      title="Current"
+                      rows={[
+                        ['Code', detail.currentDispositionCode || '-'],
+                        ['Reason', detail.currentDispositionReason || '-'],
+                        ['At', formatDateTime(detail.currentDispositionAt)],
+                      ]}
+                    />
+                    <InfoCard
+                      title="Final"
+                      rows={[
+                        ['Code', detail.finalDispositionCode || '-'],
+                        ['Reason', detail.finalDispositionReason || '-'],
+                        ['At', formatDateTime(detail.finalDispositionAt)],
+                      ]}
+                    />
+                  </div>
+                  <div className="mt-4">
+                    <div className="text-sm font-medium text-gray-900 mb-2">
+                      Disposition History
+                    </div>
+                    <pre className="text-xs bg-gray-50 border border-admin-border rounded p-3 overflow-auto max-h-56">
+                      {toPrettyJson(detail.dispositionHistory || [])}
+                    </pre>
+                  </div>
+                  <div className="mt-4 border-t border-admin-border pt-4">
+                    <div className="text-sm font-medium text-gray-900 mb-2">
+                      Freeze / Report Snapshot
+                    </div>
+                    <pre className="text-xs bg-gray-50 border border-admin-border rounded p-3 overflow-auto max-h-56">
+                      {toPrettyJson({
+                        freezeStatus: detail.freezeStatus || 'ACTIVE',
+                        frozenAt: detail.frozenAt,
+                        freezeReason: detail.freezeReason,
+                        reportStatus: detail.reportStatus || 'NOT_REPORTED',
+                        reportRefNo: detail.reportRefNo,
+                        reportedAt: detail.reportedAt,
+                        reportReason: detail.reportReason,
+                        overdueMarkedAt: detail.overdueMarkedAt,
+                      })}
+                    </pre>
+                  </div>
+                </div>
+
+                <div className="border border-admin-border rounded-lg p-4 space-y-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <h4 className="font-semibold text-gray-900">Investigation Report</h4>
+                      <p className="text-xs text-gray-500 mt-1">
+                        Finalize a case report before REPORT or CLOSE becomes available.
+                      </p>
+                    </div>
+                    <div className="text-xs">
+                      <span
+                        className={`inline-flex px-2 py-1 rounded-full ${
+                          reportLocked
+                            ? 'bg-gray-200 text-gray-800'
+                            : 'bg-emerald-100 text-emerald-800'
+                        }`}
+                      >
+                        {reportLocked ? 'Locked' : 'Editable'}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <label className="text-sm text-gray-700">
+                      <div className="mb-1 font-medium">Facts Summary</div>
+                      <textarea
+                        value={reportDraft.factsSummary}
+                        onChange={(e) =>
+                          setReportDraft((prev) => ({
+                            ...prev,
+                            factsSummary: e.target.value,
+                          }))
+                        }
+                        disabled={!canEditDraft || reportSaving || reportFinalizing}
+                        className="w-full min-h-24 border border-admin-border rounded px-3 py-2 text-sm disabled:bg-gray-50"
+                      />
+                    </label>
+                    <label className="text-sm text-gray-700">
+                      <div className="mb-1 font-medium">Investigation Scope</div>
+                      <textarea
+                        value={reportDraft.investigationScope}
+                        onChange={(e) =>
+                          setReportDraft((prev) => ({
+                            ...prev,
+                            investigationScope: e.target.value,
+                          }))
+                        }
+                        disabled={!canEditDraft || reportSaving || reportFinalizing}
+                        className="w-full min-h-24 border border-admin-border rounded px-3 py-2 text-sm disabled:bg-gray-50"
+                      />
+                    </label>
+                    <label className="text-sm text-gray-700">
+                      <div className="mb-1 font-medium">Evidence Summary</div>
+                      <textarea
+                        value={reportDraft.evidenceSummary}
+                        onChange={(e) =>
+                          setReportDraft((prev) => ({
+                            ...prev,
+                            evidenceSummary: e.target.value,
+                          }))
+                        }
+                        disabled={!canEditDraft || reportSaving || reportFinalizing}
+                        className="w-full min-h-24 border border-admin-border rounded px-3 py-2 text-sm disabled:bg-gray-50"
+                      />
+                    </label>
+                    <label className="text-sm text-gray-700">
+                      <div className="mb-1 font-medium">Containment Summary</div>
+                      <textarea
+                        value={reportDraft.containmentSummary}
+                        onChange={(e) =>
+                          setReportDraft((prev) => ({
+                            ...prev,
+                            containmentSummary: e.target.value,
+                          }))
+                        }
+                        disabled={!canEditDraft || reportSaving || reportFinalizing}
+                        className="w-full min-h-24 border border-admin-border rounded px-3 py-2 text-sm disabled:bg-gray-50"
+                      />
+                    </label>
+                    <label className="text-sm text-gray-700">
+                      <div className="mb-1 font-medium">Analyst Conclusion</div>
+                      <textarea
+                        value={reportDraft.analystConclusion}
+                        onChange={(e) =>
+                          setReportDraft((prev) => ({
+                            ...prev,
+                            analystConclusion: e.target.value,
+                          }))
+                        }
+                        disabled={!canEditDraft || reportSaving || reportFinalizing}
+                        className="w-full min-h-24 border border-admin-border rounded px-3 py-2 text-sm disabled:bg-gray-50"
+                      />
+                    </label>
+                    <label className="text-sm text-gray-700">
+                      <div className="mb-1 font-medium">
+                        Recommended Actions
+                      </div>
+                      <textarea
+                        value={reportDraft.recommendedActions}
+                        onChange={(e) =>
+                          setReportDraft((prev) => ({
+                            ...prev,
+                            recommendedActions: e.target.value,
+                          }))
+                        }
+                        disabled={!canEditDraft || reportSaving || reportFinalizing}
+                        className="w-full min-h-24 border border-admin-border rounded px-3 py-2 text-sm disabled:bg-gray-50"
+                      />
+                    </label>
+                    <label className="text-sm text-gray-700">
+                      <div className="mb-1 font-medium">Final Disposition</div>
+                      <select
+                        value={reportDraft.finalDispositionCode}
+                        onChange={(e) =>
+                          setReportDraft((prev) => ({
+                            ...prev,
+                            finalDispositionCode: e.target.value,
+                          }))
+                        }
+                        disabled={!canEditDraft || reportSaving || reportFinalizing}
+                        className="w-full border border-admin-border rounded px-3 py-2 text-sm disabled:bg-gray-50"
+                      >
+                        <option value="">Select disposition</option>
+                        {CASE_CLOSE_DISPOSITIONS.map((code) => (
+                          <option key={code} value={code}>
+                            {code}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="text-sm text-gray-700">
+                      <div className="mb-1 font-medium">
+                        Final Disposition Reason
+                      </div>
+                      <textarea
+                        value={reportDraft.finalDispositionReason}
+                        onChange={(e) =>
+                          setReportDraft((prev) => ({
+                            ...prev,
+                            finalDispositionReason: e.target.value,
+                          }))
+                        }
+                        disabled={!canEditDraft || reportSaving || reportFinalizing}
+                        className="w-full min-h-24 border border-admin-border rounded px-3 py-2 text-sm disabled:bg-gray-50"
+                      />
+                    </label>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    {canEditDraft && (
+                      <button
+                        onClick={() => {
+                          void saveCaseReportDraft();
+                        }}
+                        disabled={reportSaving || reportFinalizing}
+                        className="px-3 py-1.5 rounded border border-admin-border text-sm hover:bg-gray-50 disabled:opacity-60"
+                      >
+                        {reportSaving ? 'Saving...' : 'Save Draft'}
+                      </button>
+                    )}
+                    {canFinalizeReport && (
+                      <button
+                        onClick={() => {
+                          void finalizeCaseReport();
+                        }}
+                        disabled={reportSaving || reportFinalizing}
+                        className="px-3 py-1.5 rounded border border-admin-border text-sm hover:bg-gray-50 disabled:opacity-60"
+                      >
+                        {reportFinalizing ? 'Finalizing...' : 'Finalize Report'}
+                      </button>
+                    )}
+                    {canReviseReport && (
+                      <button
+                        onClick={() => {
+                          setReportDraft(buildReportDraftState(detail.currentReport));
+                          setReportRevisionArmed(true);
+                        }}
+                        className="px-3 py-1.5 rounded border border-admin-border text-sm hover:bg-gray-50"
+                      >
+                        Revise Report
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <InfoCard
+                      title="Current Report"
+                      rows={[
+                        ['Version', String(detail.currentReport?.version || '-')],
+                        ['Status', detail.currentReport?.status || '-'],
+                        ['Final Disposition', detail.currentReport?.finalDispositionCode || '-'],
+                        ['Finalized At', formatDateTime(detail.currentReport?.finalizedAt)],
+                        ['Finalized By', detail.currentReport?.finalizedByUserNo || '-'],
+                      ]}
+                    />
+                    <InfoCard
+                      title="Report Lock Status"
+                      rows={[
+                        ['Locked', reportLocked ? 'YES' : 'NO'],
+                        ['Current Report Id', detail.currentReport?.id || '-'],
+                        ['Mirror Resolution', detail.resolutionSummary || '-'],
+                        ['Mirror Containment', detail.containmentSummary || '-'],
+                        ['Mirror Snapshot', toPrettyJson(detail.closureChecklist)],
+                      ]}
+                    />
+                  </div>
+
+                  <div>
+                    <div className="text-sm font-medium text-gray-900 mb-2">
+                      Report History
+                    </div>
+                    <pre className="text-xs bg-gray-50 border border-admin-border rounded p-3 overflow-auto max-h-56">
+                      {toPrettyJson(detail.reportHistory || [])}
+                    </pre>
+                  </div>
                 </div>
 
                 <div className="border border-admin-border rounded-lg p-4">
@@ -943,7 +1596,10 @@ const ComplianceIncidentsPage = () => {
                             {link.alertNo} {link.alert?.title ? `- ${link.alert.title}` : ''}
                           </div>
                           <div className="text-xs text-gray-500 mt-1">
-                            {link.alert?.ruleCode || '-'} / {link.alert?.status || '-'} / {link.alert?.severity || '-'}
+                            {(link.alert?.workflow || 'ONBOARDING')} / {(link.alert?.stage || '-')} / {(link.alert?.rule || link.alert?.ruleCode || '-')}
+                          </div>
+                          <div className="text-xs text-gray-500 mt-1">
+                            {link.alert?.status || '-'} / {link.alert?.severity || '-'}
                           </div>
                           {link.note && <div className="text-sm text-gray-700 mt-1">{link.note}</div>}
                         </div>
@@ -953,7 +1609,7 @@ const ComplianceIncidentsPage = () => {
                 </div>
 
                 <div className="border border-admin-border rounded-lg p-4">
-                  <h4 className="font-semibold text-gray-900 mb-3">Event Timeline</h4>
+                  <h4 className="font-semibold text-gray-900 mb-3">Case Timeline</h4>
                   {detail.events.length === 0 ? (
                     <div className="text-sm text-gray-500">No events</div>
                   ) : (
@@ -989,9 +1645,9 @@ const ComplianceIncidentsPage = () => {
             <div className="px-4 py-3 border-b border-admin-border flex items-center justify-between">
               <div>
                 <h4 className="text-base font-semibold text-gray-900">
-                  {detail.status === 'ASSIGNED' ? 'Reassign Incident' : 'Assign Incident'}
+                  {detail.status === 'ASSIGNED' ? 'Reassign Case' : 'Assign Case'}
                 </h4>
-                <p className="text-xs text-gray-500">{detail.incidentNo}</p>
+                <p className="text-xs text-gray-500">{detail.caseNo || detail.incidentNo}</p>
               </div>
               <button
                 onClick={() => setAssignModalOpen(false)}
@@ -1008,7 +1664,7 @@ const ComplianceIncidentsPage = () => {
               ) : (
                 <>
                   <label className="block text-sm text-gray-700">
-                    Assignee (SUPER_ADMIN / MLRO only)
+                    Assignee (SUPER_ADMIN / COMPLIANCE_LEAD / MLRO)
                   </label>
                   <select
                     className="w-full border border-admin-border rounded px-3 py-2 text-sm"
@@ -1085,4 +1741,4 @@ const InfoCard = ({
   </div>
 );
 
-export default ComplianceIncidentsPage;
+export default ComplianceCasesPage;

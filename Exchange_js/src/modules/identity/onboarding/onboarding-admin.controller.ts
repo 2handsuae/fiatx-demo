@@ -1,5 +1,6 @@
 import {
   Body,
+  ConflictException,
   Controller,
   ForbiddenException,
   Get,
@@ -17,6 +18,7 @@ import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger'
 import { buildPermissionCode } from '../access-control/permission-code.util';
 import { RequirePermissions } from '../access-control/require-permissions.decorator';
 import { OnboardingService } from './onboarding.service';
+import { RiskDecisionRecordsService } from '../../risk-engine/risk-decision-records.service';
 import {
   ApplyOnboardingAlertDecisionDto,
   DecisionRecordQueryDto,
@@ -31,7 +33,10 @@ import {
 @UseGuards(AuthGuard('jwt'), AdminPermissionGuard)
 @ApiBearerAuth()
 export class OnboardingAdminController {
-  constructor(private readonly onboardingService: OnboardingService) {}
+  constructor(
+    private readonly onboardingService: OnboardingService,
+    private readonly riskDecisionRecordsService: RiskDecisionRecordsService,
+  ) {}
 
   private getAdminActor(req: any) {
     if (req.user?.type === 'CUSTOMER') {
@@ -52,6 +57,8 @@ export class OnboardingAdminController {
     return values.length > 0 ? values : undefined;
   }
 
+  // CDD/EDD endpoints expose onboarding provider-response containers and should
+  // not be treated as the platform compliance Case object.
   @Get('cdd-cases')
   @ApiOperation({ summary: 'List CDD cases for compliance review' })
   @ApiQuery({ name: 'status', required: false, type: String })
@@ -89,8 +96,10 @@ export class OnboardingAdminController {
     @Param('id') id: string,
     @Body(new ValidationPipe({ transform: true })) body: ReviewCddCaseDto,
   ) {
-    const actor = this.getAdminActor(req);
-    return this.onboardingService.reviewCddCase(id, actor.actorId, actor.actorRole, body);
+    this.getAdminActor(req);
+    void id;
+    void body;
+    throw new ConflictException('Use alert triage workflow');
   }
 
   @Get('cdd-cases/:id')
@@ -134,8 +143,10 @@ export class OnboardingAdminController {
     @Param('id') id: string,
     @Body(new ValidationPipe({ transform: true })) body: ReviewEddCaseDto,
   ) {
-    const actor = this.getAdminActor(req);
-    return this.onboardingService.mlroReviewEddCase(id, actor.actorId, actor.actorRole, body);
+    this.getAdminActor(req);
+    void id;
+    void body;
+    throw new ConflictException('Use alert triage workflow');
   }
 
   @Get('edd-cases/:id')
@@ -146,7 +157,7 @@ export class OnboardingAdminController {
   }
 
   @Post('alerts/:id/onboarding-decision')
-  @RequirePermissions(buildPermissionCode('POST', '/admin/compliance/cdd-cases/:id/review'))
+  @RequirePermissions(buildPermissionCode('POST', '/admin/compliance/alerts/:id/onboarding-decision'))
   @ApiOperation({ summary: 'Apply onboarding decision from assigned onboarding journey alert' })
   applyOnboardingDecisionFromAlert(
     @Req() req: any,
@@ -162,9 +173,30 @@ export class OnboardingAdminController {
     );
   }
 
+  @Post('cases/:id/onboarding-decision')
+  @RequirePermissions(buildPermissionCode('POST', '/admin/compliance/cases/:id/onboarding-decision'))
+  @ApiOperation({ summary: 'Apply onboarding decision from assigned onboarding case' })
+  async applyOnboardingDecisionFromCase(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Body(new ValidationPipe({ transform: true })) body: ApplyOnboardingAlertDecisionDto,
+  ) {
+    const actor = this.getAdminActor(req);
+    const result = await this.onboardingService.applyOnboardingDecisionFromIncident(
+      id,
+      actor.actorId,
+      actor.actorRole,
+      body,
+    );
+    return {
+      ...result,
+      case: result.incident,
+    };
+  }
+
   @Post('incidents/:id/onboarding-decision')
-  @RequirePermissions(buildPermissionCode('POST', '/admin/compliance/cdd-cases/:id/review'))
-  @ApiOperation({ summary: 'Apply onboarding decision from assigned onboarding incident' })
+  @RequirePermissions(buildPermissionCode('POST', '/admin/compliance/incidents/:id/onboarding-decision'))
+  @ApiOperation({ summary: 'Apply onboarding decision from assigned onboarding incident (compatibility alias)' })
   applyOnboardingDecisionFromIncident(
     @Req() req: any,
     @Param('id') id: string,
@@ -179,13 +211,16 @@ export class OnboardingAdminController {
     );
   }
 
+  // Decision records are the canonical risk-execution read model. The legacy
+  // /admin/compliance endpoints remain as compatibility aliases during Wave 2.
   @Get('decision-records')
-  @RequirePermissions(buildPermissionCode('GET', '/admin/compliance/cdd-cases'))
+  @RequirePermissions(buildPermissionCode('GET', '/admin/risk/decision-records'))
   @ApiOperation({ summary: 'List onboarding risk decision records' })
   @ApiQuery({ name: 'status', required: false, type: String })
   @ApiQuery({ name: 'contextType', required: false, type: String })
   @ApiQuery({ name: 'outputDecision', required: false, type: String })
   @ApiQuery({ name: 'customerId', required: false, type: String })
+  @ApiQuery({ name: 'ownerId', required: false, type: String })
   @ApiQuery({ name: 'subjectId', required: false, type: String })
   @ApiQuery({ name: 'policyVersion', required: false, type: String })
   @ApiQuery({ name: 'skip', required: false, type: Number })
@@ -195,15 +230,24 @@ export class OnboardingAdminController {
     @Query(new ValidationPipe({ transform: true })) query: DecisionRecordQueryDto,
   ) {
     this.getAdminActor(req);
-    return this.onboardingService.listDecisionRecords(query);
+    return this.riskDecisionRecordsService.listDecisionRecords({
+      status: query.status,
+      contextType: query.contextType,
+      outputDecision: query.outputDecision,
+      ownerId: query.ownerId || query.customerId,
+      subjectId: query.subjectId,
+      policyVersion: query.policyVersion,
+      skip: query.skip,
+      take: query.take,
+    });
   }
 
   @Get('decision-records/:id')
-  @RequirePermissions(buildPermissionCode('GET', '/admin/compliance/cdd-cases'))
+  @RequirePermissions(buildPermissionCode('GET', '/admin/risk/decision-records/:id'))
   @ApiOperation({ summary: 'Get onboarding risk decision record detail' })
   getDecisionRecordDetail(@Req() req: any, @Param('id') id: string) {
     this.getAdminActor(req);
-    return this.onboardingService.getDecisionRecordDetail(id);
+    return this.riskDecisionRecordsService.getDecisionRecordDetail(id);
   }
 
   @Post('customers/:id/final-review')

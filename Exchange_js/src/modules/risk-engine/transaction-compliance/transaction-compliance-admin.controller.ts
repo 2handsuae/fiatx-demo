@@ -140,6 +140,8 @@ export class TransactionComplianceAdminController {
     return this.transactionComplianceService.mockBackfill(body);
   }
 
+  // KYT/Travel Rule/Tx Evidence endpoints expose provider responses and
+  // evidence containers; they are not the platform compliance Case object.
   @Get('tx-kyt-cases')
   @UseGuards(AuthGuard('jwt'), AdminPermissionGuard)
   @ApiOperation({ summary: 'List transaction KYT cases' })

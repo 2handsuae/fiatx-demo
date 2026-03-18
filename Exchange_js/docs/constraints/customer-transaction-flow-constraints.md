@@ -126,21 +126,21 @@
 - Security/auth hardening is out of scope unless explicitly required by a separate task.
 - Async convergence and idempotency remain strong MUST constraints.
 
-## 14) Transaction Compliance Case Boundary
-- PRE-KYT/KYT/TRAVEL RULE MUST be treated as transaction evidence cases, not approval workflows.
-- Case semantic roles are fixed:
+## 14) Transaction Compliance Evidence Container Boundary
+- PRE-KYT/KYT/TRAVEL RULE MUST be treated as transaction evidence containers, not approval workflows and not the platform compliance `Case`.
+- Provider response semantic roles are fixed:
 1. `PRE-KYT` = wallet screening
 2. `KYT` = transaction screening
 3. `TRAVEL_RULE` = counterparty information exchange
 - Transaction release/reject authority MUST stay in transaction state actions only:
 1. withdraw/deposit/swap approve or reject actions
-2. compliance case records are read-only evidence from provider callbacks
-- Auto-case creation timing MUST follow:
+2. provider response records are read-only evidence from provider callbacks
+- Auto-record creation timing MUST follow:
 1. `WITHDRAW` + `CRYPTO`: create `PRE-KYT` (`screeningStage=PRE_TXN`) immediately on withdraw `CREATED`
 2. `DEPOSIT` + `CRYPTO`: create `MAIN-KYT` + `TRAVEL_RULE` on `payin CONFIRMED`
 3. `WITHDRAW` + `CRYPTO`: create `MAIN-KYT` + `TRAVEL_RULE` on `payout CONFIRMED`
 4. `FIAT` deposit/withdraw MUST NOT auto-create PRE-KYT
-- Case-to-transaction binding MUST remain on transaction identity (`sourceType=DEPOSIT|WITHDRAW`, `sourceId=<transactionId>`), while trigger origin (`payinId` / `payoutId` / `withdrawId`) is stored in report payload.
+- Provider response-to-transaction binding MUST remain on transaction identity (`sourceType=DEPOSIT|WITHDRAW`, `sourceId=<transactionId>`), while trigger origin (`payinId` / `payoutId` / `withdrawId`) is stored in report payload.
 - The following callback upsert endpoints are the canonical production ingestion path:
 1. `POST /admin/compliance/tx-kyt-cases/callback`
 2. `POST /admin/compliance/tx-travel-rule-cases/callback`
@@ -153,12 +153,12 @@
 - Withdraw approval gate contract MUST follow:
 1. `CRYPTO` withdraw approve/success only checks `preKytStatus=PASS`
 2. `FIAT` withdraw approve/success does not enforce PRE-KYT gate
-- Manual override of provider case decision at case API level is forbidden in current phase.
+- Manual override of provider response decision at the read-model API level is forbidden in current phase.
 - Admin Compliance Center MUST expose read-only pages:
 1. `Tx Evidence Bundles`
-2. `KYT Cases`
-3. `Travel Rule Cases`
+2. `KYT Cases` (legacy implementation label for provider response records)
+3. `Travel Rule Cases` (legacy implementation label for provider response records)
 - `Tx Evidence Bundles` page is the source-level read model and MUST:
 1. aggregate one row per `sourceType + sourceId`
 2. show `preKytCase` / `mainKytCase` / `travelRuleCase` + `derivedComplianceStatus`
-3. provide navigation to case details only, without any approval action
+3. provide navigation to provider response details only, without any approval action

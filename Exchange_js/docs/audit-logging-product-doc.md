@@ -24,7 +24,7 @@
 
 已有统一审计能力仍保留可读，本轮重点验收的标准化覆盖范围收敛到 deposit workflow：
 - Auth：平台用户与客户登录成功/失败、锁定/解锁。
-- Compliance：KYT case、Travel Rule 更新与补偿任务行为。
+- Compliance：KYT provider response、Travel Rule provider response 更新与补偿任务行为。
 - Config：资产、LP 配置、会计事件、清结算模板、分录模板、COA、客户汇率配置。
 - 主数据：Wallet、Customer 的创建/更新/状态变化。
 - 报价：Swap Quote 创建/取消/使用。

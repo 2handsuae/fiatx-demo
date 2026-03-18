@@ -11,6 +11,7 @@ import {
   Min,
 } from 'class-validator';
 import {
+  ComplianceCaseType,
   ComplianceIncidentAction,
   ComplianceIncidentSeverity,
   ComplianceIncidentStatus,
@@ -47,6 +48,10 @@ export class ComplianceIncidentQueryDto {
   ownerUserId?: string;
 
   @IsOptional()
+  @IsString()
+  assigneeUserId?: string;
+
+  @IsOptional()
   @Transform(({ value }) => {
     if (typeof value === 'boolean') return value;
     if (typeof value === 'string') return value.toLowerCase() === 'true';
@@ -65,6 +70,14 @@ export class ComplianceIncidentQueryDto {
 
   @IsOptional()
   @IsString()
+  caseNo?: string;
+
+  @IsOptional()
+  @IsEnum(ComplianceCaseType)
+  caseType?: ComplianceCaseType;
+
+  @IsOptional()
+  @IsString()
   alertNo?: string;
 }
 
@@ -76,6 +89,23 @@ export class CreateIncidentFromAlertDto {
   @IsOptional()
   @IsString()
   decision?: string;
+
+  @IsOptional()
+  @IsString()
+  dispositionCode?: string;
+
+  @IsOptional()
+  @IsString()
+  dispositionReason?: string;
+
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'string') return value.toLowerCase() === 'true';
+    return false;
+  })
+  @IsBoolean()
+  finalizeDisposition?: boolean;
 
   @IsOptional()
   @IsArray()
@@ -122,6 +152,23 @@ export class UpdateComplianceIncidentActionDto {
   @IsOptional()
   @IsString()
   decision?: string;
+
+  @IsOptional()
+  @IsString()
+  dispositionCode?: string;
+
+  @IsOptional()
+  @IsString()
+  dispositionReason?: string;
+
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'string') return value.toLowerCase() === 'true';
+    return false;
+  })
+  @IsBoolean()
+  finalizeDisposition?: boolean;
 
   @IsOptional()
   @IsArray()

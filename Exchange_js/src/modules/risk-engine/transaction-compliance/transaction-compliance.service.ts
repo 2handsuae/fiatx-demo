@@ -32,7 +32,6 @@ import {
   AuditModules,
 } from '../audit-logs/constants/audit-actions.constant';
 import { AuditResult, AuditTriggerType } from '../audit-logs/dto/audit-log.dto';
-import { ComplianceAlertsService } from '../compliance-alerts/compliance-alerts.service';
 
 type DbClient = Prisma.TransactionClient | PrismaService;
 
@@ -40,11 +39,9 @@ type DbClient = Prisma.TransactionClient | PrismaService;
 export class TransactionComplianceService {
   private readonly logger = new Logger(TransactionComplianceService.name);
   private readonly auditLogsService: AuditLogsService;
-  private readonly complianceAlertsService: ComplianceAlertsService;
 
   constructor(private readonly prisma: PrismaService) {
     this.auditLogsService = new AuditLogsService(prisma);
-    this.complianceAlertsService = new ComplianceAlertsService(prisma);
   }
 
   private getClient(tx?: Prisma.TransactionClient): DbClient {
@@ -247,49 +244,9 @@ export class TransactionComplianceService {
     if (normalizedStatus !== 'REVIEW' && normalizedStatus !== 'FAIL') {
       return;
     }
-
-    const ruleCode = normalizedStatus === 'FAIL' ? 'TX_KYT_FAIL' : 'TX_KYT_REVIEW';
-    const message =
-      normalizedStatus === 'FAIL'
-        ? `KYT case ${input.caseNo} reached FAIL status`
-        : `KYT case ${input.caseNo} reached REVIEW status`;
-
-    try {
-      await this.complianceAlertsService.triggerSystemAlert(
-        {
-          ruleCode,
-          sourceModule: AuditModules.TRANSACTION_COMPLIANCE,
-          sourceType: input.sourceType,
-          sourceId: input.sourceId,
-          stage: input.screeningStage,
-          entityType: AuditEntityTypes.KYT_CASE,
-          entityId: input.caseId,
-          entityNo: input.caseNo,
-          ownerType: input.ownerType,
-          ownerId: input.ownerId || undefined,
-          ownerNo: input.ownerNo || undefined,
-          title:
-            normalizedStatus === 'FAIL'
-              ? 'Transaction KYT Failed'
-              : 'Transaction KYT Review Required',
-          message,
-          metadata: {
-            screeningStage: input.screeningStage,
-            provider: input.provider || null,
-            providerCaseId: input.providerCaseId || null,
-            riskScore: input.riskScore ?? null,
-          },
-          sourcePlatform: tx ? 'SYSTEM_TX' : 'SYSTEM',
-        },
-        tx,
-      );
-    } catch (error) {
-      this.logger.warn(
-        `Failed to trigger KYT alert for case ${input.caseId}: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      );
-    }
+    this.logger.debug(
+      `Skip legacy KYT alert for case ${input.caseId}: onboarding-only alert runtime active. status=${normalizedStatus} sourceType=${input.sourceType} sourceId=${input.sourceId}`,
+    );
   }
 
   private async maybeTriggerTravelRuleAlert(
@@ -315,51 +272,9 @@ export class TransactionComplianceService {
     );
     if (!input.required) return;
     if (normalizedStatus !== 'REJECTED' && normalizedStatus !== 'EXPIRED') return;
-
-    const ruleCode =
-      normalizedStatus === 'REJECTED'
-        ? 'TX_TRAVEL_RULE_REJECTED'
-        : 'TX_TRAVEL_RULE_EXPIRED';
-    const message =
-      normalizedStatus === 'REJECTED'
-        ? `Travel Rule case ${input.caseNo} was rejected`
-        : `Travel Rule case ${input.caseNo} expired`;
-
-    try {
-      await this.complianceAlertsService.triggerSystemAlert(
-        {
-          ruleCode,
-          sourceModule: AuditModules.TRANSACTION_COMPLIANCE,
-          sourceType: input.sourceType,
-          sourceId: input.sourceId,
-          entityType: AuditEntityTypes.TRAVEL_RULE_CASE,
-          entityId: input.caseId,
-          entityNo: input.caseNo,
-          ownerType: input.ownerType,
-          ownerId: input.ownerId || undefined,
-          ownerNo: input.ownerNo || undefined,
-          title:
-            normalizedStatus === 'REJECTED'
-              ? 'Travel Rule Rejected'
-              : 'Travel Rule Expired',
-          message,
-          metadata: {
-            required: input.required,
-            provider: input.provider || null,
-            providerTransferId: input.providerTransferId || null,
-            counterpartyVasp: input.counterpartyVasp || null,
-          },
-          sourcePlatform: tx ? 'SYSTEM_TX' : 'SYSTEM',
-        },
-        tx,
-      );
-    } catch (error) {
-      this.logger.warn(
-        `Failed to trigger Travel Rule alert for case ${input.caseId}: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      );
-    }
+    this.logger.debug(
+      `Skip legacy travel-rule alert for case ${input.caseId}: onboarding-only alert runtime active. status=${normalizedStatus} sourceType=${input.sourceType} sourceId=${input.sourceId}`,
+    );
   }
 
   private async resolveSourceContext(

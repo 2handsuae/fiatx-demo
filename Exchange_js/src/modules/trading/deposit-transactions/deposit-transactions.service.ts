@@ -27,13 +27,10 @@ import {
   buildStateTransitionAction,
 } from '../../risk-engine/audit-logs/constants/audit-actions.constant';
 import { AuditTriggerType } from '../../risk-engine/audit-logs/dto/audit-log.dto';
-import { ComplianceAlertsService } from '../../risk-engine/compliance-alerts/compliance-alerts.service';
-
 @Injectable()
 export class DepositTransactionsService {
   private readonly logger = new Logger(DepositTransactionsService.name);
   private readonly auditLogsService: AuditLogsService;
-  private readonly complianceAlertsService: ComplianceAlertsService;
 
   constructor(
     private prisma: PrismaService,
@@ -41,7 +38,6 @@ export class DepositTransactionsService {
     private transactionComplianceService: TransactionComplianceService,
   ) {
     this.auditLogsService = new AuditLogsService(prisma);
-    this.complianceAlertsService = new ComplianceAlertsService(prisma);
   }
 
   private async triggerComplianceGateBlockedAlert(
@@ -49,32 +45,9 @@ export class DepositTransactionsService {
     reason: string,
     detail: Record<string, unknown>,
   ) {
-    try {
-      await this.complianceAlertsService.triggerSystemAlert({
-        ruleCode: 'TX_COMPLIANCE_GATE_BLOCKED',
-        sourceModule: AuditModules.DEPOSIT_TRANSACTIONS,
-        sourceType: TxSourceType.DEPOSIT,
-        sourceId: item.id,
-        sourceNo: item.depositNo || null,
-        entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-        entityId: item.id,
-        entityNo: item.depositNo || null,
-        ownerType: item.ownerType,
-        ownerId: item.ownerId || null,
-        ownerNo: item.ownerNo || null,
-        customerId: item.ownerType === 'CUSTOMER' ? item.ownerId : null,
-        customerNo: item.ownerType === 'CUSTOMER' ? item.ownerNo : null,
-        title: 'Transaction Blocked by Compliance Gate',
-        message: reason,
-        metadata: detail,
-      });
-    } catch (error) {
-      this.logger.warn(
-        `Failed to write compliance gate alert for deposit ${item.id}: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      );
-    }
+    this.logger.debug(
+      `Skip legacy tx compliance alert for deposit ${item.id}: onboarding-only alert runtime active. reason=${reason} detail=${JSON.stringify(detail)}`,
+    );
   }
 
   private async assertComplianceBeforeSuccess(item: any, nextStatus: DepositTransactionStatus) {

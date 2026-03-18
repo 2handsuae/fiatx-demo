@@ -226,6 +226,10 @@ export class DecisionRecordQueryDto {
 
   @IsOptional()
   @IsString()
+  ownerId?: string;
+
+  @IsOptional()
+  @IsString()
   subjectId?: string;
 
   @IsOptional()

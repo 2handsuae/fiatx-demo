@@ -402,14 +402,8 @@ const WithdrawTransactionDetail = () => {
               value={data.preKytCase?.providerCaseId || null}
               source="main"
             />
-            <div className="sm:col-span-2">
-              <button
-                onClick={() => navigate(`/dashboard/compliance/tx-evidence/WITHDRAW/${data.id}`)}
-                className="inline-flex items-center gap-1 text-xs px-3 py-2 rounded border border-gray-200 hover:bg-gray-50 text-gray-700"
-              >
-                View Compliance Cases
-                <ExternalLink size={12} />
-              </button>
+            <div className="sm:col-span-2 rounded border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-600">
+              Transaction-specific compliance evidence pages are no longer part of the active compliance runtime.
             </div>
         </DetailCard>
 

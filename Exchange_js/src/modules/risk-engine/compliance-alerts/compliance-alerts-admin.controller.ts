@@ -12,7 +12,10 @@ import {
   ValidationPipe,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
+import { AdminPermissionGuard } from 'src/modules/identity/access-control/admin-permission.guard';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { buildPermissionCode } from '../../identity/access-control/permission-code.util';
+import { RequirePermissions } from '../../identity/access-control/require-permissions.decorator';
 import { ComplianceAlertsService } from './compliance-alerts.service';
 import {
   ComplianceAlertQueryDto,
@@ -21,7 +24,7 @@ import {
 
 @ApiTags('Admin - Compliance Alerts')
 @Controller('admin/compliance/alerts')
-@UseGuards(AuthGuard('jwt'))
+@UseGuards(AuthGuard('jwt'), AdminPermissionGuard)
 @ApiBearerAuth()
 export class ComplianceAlertsAdminController {
   constructor(private readonly complianceAlertsService: ComplianceAlertsService) {}
@@ -41,6 +44,7 @@ export class ComplianceAlertsAdminController {
   }
 
   @Get()
+  @RequirePermissions(buildPermissionCode('GET', '/admin/compliance/alerts'))
   @ApiOperation({ summary: 'List compliance alerts with filters' })
   findAll(
     @Req() req: any,
@@ -51,6 +55,7 @@ export class ComplianceAlertsAdminController {
   }
 
   @Post('simulate')
+  @RequirePermissions(buildPermissionCode('POST', '/admin/compliance/alerts/simulate'))
   @ApiOperation({ summary: 'Simulate 10 random compliance alerts' })
   simulate(@Req() req: any) {
     this.ensureAdmin(req);
@@ -58,13 +63,15 @@ export class ComplianceAlertsAdminController {
   }
 
   @Get(':id')
+  @RequirePermissions(buildPermissionCode('GET', '/admin/compliance/alerts/:id'))
   @ApiOperation({ summary: 'Get compliance alert detail by id' })
   findOne(@Req() req: any, @Param('id') id: string) {
-    this.ensureAdmin(req);
-    return this.complianceAlertsService.findOne(id);
+    const actor = this.ensureAdmin(req);
+    return this.complianceAlertsService.findOne(id, actor);
   }
 
   @Patch(':id/action')
+  @RequirePermissions(buildPermissionCode('PATCH', '/admin/compliance/alerts/:id/action'))
   @ApiOperation({ summary: 'Apply action to compliance alert' })
   applyAction(
     @Req() req: any,

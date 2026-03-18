@@ -1,6 +1,7 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { createHash } from 'crypto';
 import { PrismaService } from '../../core/prisma/prisma.service';
+import { RISK_RECOMMENDED_ACTIONS } from './constants/risk-recommended-actions.constant';
 
 export type RiskDecision = 'APPROVE' | 'REJECT' | 'REQUIRE_EDD' | 'REVIEW';
 
@@ -11,8 +12,10 @@ export interface RiskRecommendedAction {
 
 export interface EvaluateRiskInput {
   contextType: string;
-  customerId: string;
+  subjectType: string;
   subjectId: string;
+  ownerType: string;
+  ownerId: string;
   signals: Record<string, unknown>;
   policyVersion?: string;
 }
@@ -27,6 +30,8 @@ export interface EvaluateRiskOutput {
 
 @Injectable()
 export class RiskEngineService {
+  static readonly PHASE2_UNSUPPORTED_OWNER_TYPE = 'Phase 2 storage unsupported owner type';
+
   private readonly logger = new Logger(RiskEngineService.name);
 
   constructor(private readonly prisma: PrismaService) {}
@@ -88,7 +93,7 @@ export class RiskEngineService {
   private buildOnboardingDecisionActions(decisions: string[]): RiskRecommendedAction[] {
     return [
       {
-        type: 'ONBOARDING_RECOMMEND_DECISIONS',
+        type: RISK_RECOMMENDED_ACTIONS.ONBOARDING_RECOMMEND_DECISIONS,
         payload: {
           decisions,
         },
@@ -138,20 +143,13 @@ export class RiskEngineService {
         severity = riskLevel === 'HIGH' || riskScore >= 70 || pepHit ? 'HIGH' : 'MEDIUM';
       }
 
-      recommendedActions.push({
-        type: 'UPSERT_ALERT',
-        payload: {
-          severity,
-          recommendation: 'REVIEW',
-          reasonCodes,
-        },
-      });
-      if (mockDataType === 'SANCTION_AND_OTHER') {
+      if (mockDataType !== 'LOW_RISK') {
         recommendedActions.push({
-          type: 'ESCALATE_INCIDENT',
+          type: RISK_RECOMMENDED_ACTIONS.UPSERT_ALERT,
           payload: {
-            reasonCode: 'SANCTIONS_HIT',
-            severity: 'CRITICAL',
+            severity,
+            recommendation: 'REVIEW',
+            reasonCodes,
           },
         });
       }
@@ -187,7 +185,7 @@ export class RiskEngineService {
       }
 
       recommendedActions.push({
-        type: 'UPSERT_ALERT',
+        type: RISK_RECOMMENDED_ACTIONS.UPSERT_ALERT,
         payload: {
           severity,
           recommendation: 'REVIEW',
@@ -206,7 +204,7 @@ export class RiskEngineService {
     if (sanctionsHit) {
       reasonCodes.push('SANCTIONS_HIT');
       recommendedActions.push({
-        type: 'UPSERT_ALERT',
+        type: RISK_RECOMMENDED_ACTIONS.UPSERT_ALERT,
         payload: {
           severity: 'CRITICAL',
           recommendation: 'REJECT',
@@ -214,7 +212,7 @@ export class RiskEngineService {
         },
       });
       recommendedActions.push({
-        type: 'ESCALATE_INCIDENT',
+        type: RISK_RECOMMENDED_ACTIONS.AUTO_ESCALATE_CASE,
         payload: {
           reasonCode: 'SANCTIONS_HIT',
         },
@@ -224,7 +222,7 @@ export class RiskEngineService {
 
     reasonCodes.push('UNKNOWN_CONTEXT');
     recommendedActions.push({
-      type: 'UPSERT_ALERT',
+      type: RISK_RECOMMENDED_ACTIONS.UPSERT_ALERT,
       payload: {
         severity: 'MEDIUM',
         recommendation: 'REVIEW',
@@ -235,17 +233,23 @@ export class RiskEngineService {
   }
 
   async evaluate(input: EvaluateRiskInput): Promise<EvaluateRiskOutput> {
+    if (input.ownerType !== 'CUSTOMER') {
+      throw new BadRequestException(RiskEngineService.PHASE2_UNSUPPORTED_OWNER_TYPE);
+    }
+
     const policyVersion = input.policyVersion || 'onboarding-risk-policy/v1';
     const maskedInput = {
       contextType: input.contextType,
-      customerId: input.customerId,
+      subjectType: input.subjectType,
       subjectId: input.subjectId,
+      ownerType: input.ownerType,
+      ownerId: input.ownerId,
       signals: this.maskSignals(input.signals || {}),
     };
     const inputHash = createHash('sha256').update(this.stableStringify(maskedInput)).digest('hex');
     const created = await (this.prisma as any).onboardingDecisionRecord.create({
       data: {
-        customerId: input.customerId,
+        customerId: input.ownerId,
         contextType: input.contextType,
         subjectId: input.subjectId,
         policyVersion,
@@ -292,7 +296,7 @@ export class RiskEngineService {
         },
       });
       this.logger.error(
-        `Risk evaluate failed for customer=${input.customerId}, context=${input.contextType}`,
+        `Risk evaluate failed for owner=${input.ownerType}:${input.ownerId}, context=${input.contextType}`,
         error instanceof Error ? error.stack : String(error),
       );
       throw error;
