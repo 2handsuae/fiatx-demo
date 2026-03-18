@@ -1,4 +1,4 @@
-# 项目 8-Wave 版本规划（Agent Working Guide）
+# 项目 9-Wave 版本规划（Agent Working Guide）
 
 ## 1. 文档目的与使用方式
 
@@ -44,27 +44,27 @@
 | `WF-03` SoD Block + Maker-Checker | `Wave 1` | 已按 Wave 1 落地通用 approval engine 与 3 类敏感动作复用 |
 | `WF-04` Notice Registry + SLA Timers | `Wave 1` | 已按 Wave 1 落地简化版 governance SLA timer + notification registry |
 | `WF-05` Retention + Delete Gate | `Wave 1` | 已按 Wave 1 落地 delete request + soft delete gate 审批闭环 |
-| `WF-06` Change Ticket + Release Gate + Link Integrity | `Wave 1`、`Wave 8` | `Wave 1` 完成发布闸门 P0；`Wave 8` 完成 P2 的 link integrity 深化 |
-| `WF-07` PayIn→Deposit | `Wave 4` | 完整交付充值链路 |
-| `WF-08` Pricing→Quote→Swap | `Wave 5` | 完整交付兑换链路 |
-| `WF-09` Withdraw→Payout | `Wave 6` | 完整交付提现链路 |
-| `WF-10` Onboarding + Trading Eligibility Gate | `Wave 2`、`Wave 3` | `Wave 2` 完成与 risk engine 的 review container 接轨；`Wave 3` 完成完整 onboarding 状态机 |
-| `WF-11` Wallet Binding + VA Standards + Key Safeguarding | `Wave 3` | 完成客户/平台钱包与银行账户模型 |
-| `WF-12` Risk Engine Cases | `Wave 2`、`Wave 3`、`Wave 4`、`Wave 6` | `Wave 2` 完成标准内核；`Wave 3` 接 onboarding sanctions；`Wave 4/6` 接入交易侧案例 |
+| `WF-06` Change Ticket + Release Gate + Link Integrity | `Wave 1`、`Wave 9` | `Wave 1` 完成发布闸门 P0；`Wave 9` 完成 P2 的 link integrity 深化 |
+| `WF-07` PayIn→Deposit | `Wave 5` | 完整交付充值链路 |
+| `WF-08` Pricing→Quote→Swap | `Wave 6` | 完整交付兑换链路 |
+| `WF-09` Withdraw→Payout | `Wave 7` | 完整交付提现链路 |
+| `WF-10` Onboarding + Trading Eligibility Gate | `Wave 2`、`Wave 3` | `Wave 2` 完成与 risk engine 的 review container 接轨；`Wave 3` 完成 customer onboarding 主状态机与 customer 管理 |
+| `WF-11` Wallet Binding + VA Standards + Key Safeguarding | `Wave 4` | 完成客户/平台钱包与银行账户模型 |
+| `WF-12` Risk Engine Cases | `Wave 2`、`Wave 3`、`Wave 5`、`Wave 7` | `Wave 2` 完成标准内核；`Wave 3` 接 onboarding sanctions；`Wave 5/7` 接入交易侧案例 |
 | `WF-14` Alerts→Incidents + Incident Mgmt | `Wave 2` | 标准告警/事件内核提前完成 |
-| `WF-15` Posting Engine + Base Config Center | `Wave 3` | 完整交付账务底座 |
-| `WF-16` Safeguarding Reconciliation + Funding SLA | `Wave 6`、`Wave 7` | `Wave 6` 做最小日对账；`Wave 7` 做全量保障对账闭环 |
-| `WF-17` Periodic Risk Review | `Wave 3` | 与 onboarding/customer gate 一起完成 |
-| `WF-18` Monthly Statements | `Wave 8` | 后置扩展 |
-| `WF-19` Splitting Items + Fee Engine | `Wave 3`、`Wave 5`、`Wave 7` | `Wave 3` 完成骨架；`Wave 5` 覆盖 swap；`Wave 7` 覆盖 treasury/reconciliation |
-| `WF-21` Internal Treasury | `Wave 7` | 在客户主链稳定后做全量内部资金运营 |
-| `WF-22` Outsourcing Governance | `Wave 8` | 后置扩展 |
-| `WF-23` Complaints + Disputes/Refunds + RCA/CAPA | `Wave 8` | 后置扩展；如监管优先级提高，可前移到 `Wave 7` |
-| `WF-24` Regulatory Reporting Calendar + Production Packs + Agreements | `Wave 8` | 后置扩展 |
-| `WF-GOV-01` Governance Registries | `Wave 7` | 治理台账全量上线 |
-| `WF-GOV-02` Filing + Receipt + Effectiveness Gate | `Wave 7` | `Wave 1` 未落地；后续单独完成 filing/receipt/effective 全链路 |
-| `WF-GOV-03` Security/Privacy Programme Evidence Factory | `Wave 8` | 后置扩展 |
-| `WF-GOV-04` Policy & Attestation Lifecycle | `Wave 8` | 后置扩展 |
+| `WF-15` Posting Engine + Base Config Center | `Wave 4` | 完整交付账务底座 |
+| `WF-16` Safeguarding Reconciliation + Funding SLA | `Wave 7`、`Wave 8` | `Wave 7` 做最小日对账；`Wave 8` 做全量保障对账闭环 |
+| `WF-17` Periodic Risk Review | `Wave 3` | 与 onboarding/customer gate 一起完成正式 customer review 闭环 |
+| `WF-18` Monthly Statements | `Wave 9` | 后置扩展 |
+| `WF-19` Splitting Items + Fee Engine | `Wave 4`、`Wave 6`、`Wave 8` | `Wave 4` 完成骨架；`Wave 6` 覆盖 swap；`Wave 8` 覆盖 treasury/reconciliation |
+| `WF-21` Internal Treasury | `Wave 8` | 在客户主链稳定后做全量内部资金运营 |
+| `WF-22` Outsourcing Governance | `Wave 9` | 后置扩展 |
+| `WF-23` Complaints + Disputes/Refunds + RCA/CAPA | `Wave 9` | 后置扩展；如监管优先级提高，可前移到 `Wave 8` |
+| `WF-24` Regulatory Reporting Calendar + Production Packs + Agreements | `Wave 9` | 后置扩展 |
+| `WF-GOV-01` Governance Registries | `Wave 8` | 治理台账全量上线 |
+| `WF-GOV-02` Filing + Receipt + Effectiveness Gate | `Wave 8` | `Wave 1` 未落地；后续单独完成 filing/receipt/effective 全链路 |
+| `WF-GOV-03` Security/Privacy Programme Evidence Factory | `Wave 9` | 后置扩展 |
+| `WF-GOV-04` Policy & Attestation Lifecycle | `Wave 9` | 后置扩展 |
 
 备注：
 
@@ -212,28 +212,89 @@
 - 全量 onboarding/KYB 状态机
 - 客户钱包/银行账户模型
 
-### Wave 3：账务内核 + 客户与资产结构（Ledger + Customer/Asset Structure）
+### Wave 3：客户入驻与客户管理（Customer Onboarding + Customer Management）
 
 **目标**
 
-完成账务底座、配置中心、onboarding 完整状态机、钱包/账户模型、冻结门禁与周期复审，为充值链路做足前置准备。
+完成 customer onboarding 主状态机、customer 档案/状态/限制、trading eligibility gate、periodic review 与 onboarding sanctions integration，并把 onboarding 与 Compliance Center 的联动做成正式可验收闭环。
+
+**本波 workflow**
+
+- `WF-10` Phase B
+- `WF-12` Phase B（onboarding sanctions integration）
+- `WF-17` 全量
+
+**为什么放在这里**
+
+- customer 是否准入、是否可交易、是否需要限制、是否进入周期复审，必须先于所有资金业务主链稳定下来。
+- `Wave 2` 已经把 Compliance Center 和 onboarding review container 打通；这一波负责把 customer 主状态机和 customer 管理补成正式业务闭环。
+
+**P0 交付物**
+
+- onboarding 完整状态机落地：
+  - `CDD`
+  - `EDD`
+  - `FINAL_APPROVAL`
+  - trading eligibility gate
+- customer 管理最小闭环落地：
+  - customer 档案查询
+  - customer 状态/限制快照
+  - customer eligibility 管理
+- 冻结门禁生效：被冻结主体不可交易、不可出金。
+- 周期复审到期自动限制，复审通过后解除。
+- sanctions screening 接入 onboarding：
+  - 命中自动建案
+  - 自动触发冻结动作
+- Compliance Center 正式验收剧本可执行：
+  - onboarding review alert/case
+  - case report
+  - freeze/report 对 workflow 的非推进行为
+  - final review 进入 customer 主状态机
+
+**Wave DoD**
+
+- `WF-10/17` 达到“未通过不可交易、被冻结不可交易/不可出金、周期复审闭环可运行”的标准。
+- `WF-12 Phase B` 达到“onboarding sanctions integration 可自动建案并正确联动限制”的标准。
+
+**代表性 UAT**
+
+- 主流程：
+  - 新客户完成 CDD/EDD
+  - 通过 Compliance Center 完成 review 与 final approval
+  - 客户获得准入
+  - customer eligibility gate 生效
+  - periodic review 到期后自动限制，复审通过后恢复
+- 异常回滚流程：
+  - 客户命中 sanctions
+  - 自动建案并冻结
+  - 尝试交易时被自动阻断
+  - 阻断日志、case 证据和 onboarding transition 可导出
+
+**明确不做**
+
+- 钱包/银行账户模型
+- posting/config center
+- splitting items + fee 骨架
+- payin/deposit 实际入账链路
+- quote/swap 生命周期
+- payout/withdraw 链路
+
+### Wave 4：账务内核与资产结构（Ledger + Asset Structure）
+
+**目标**
+
+完成账务底座、配置中心、钱包/账户模型和 fee/splitting skeleton，为充值链路、兑换链路和后续资产运营准备可复用底座。
 
 **本波 workflow**
 
 - `WF-15` 全量
 - `WF-19` Phase A
-- `WF-10` Phase B
 - `WF-11` 全量
-- `WF-17` 全量
-- `WF-12` Phase B（onboarding sanctions integration）
 
 **为什么放在这里**
 
-- `Wave 4` 要做充值，必须先有：
-  - 完整客户准入状态
-  - 钱包/银行账户模型
-  - 账务配置中心
-  - 冻结/限制门禁
+- 新 `Wave 3` 已经把 customer 准入、限制与周期复审稳定下来；这一波补齐账务与资产结构，为下一波充值链路提供前置底座。
+- 钱包/银行账户模型和 posting/config center 不再作为 onboarding 的一部分，而是作为资金业务底层能力独立交付。
 
 **P0 交付物**
 
@@ -248,38 +309,26 @@
 - `splitting items + fee` 最小骨架可用于：
   - 交易场景
   - 资金场景
-- onboarding 完整状态机落地：
-  - `CDD`
-  - `EDD`
-  - `KYB`
-  - trading eligibility gate
 - 钱包/账户模型落地：
   - 客户 `3` 钱包 + `1` 银行账户
   - 平台 `1` 钱包 + `1` 银行账户
-- 冻结门禁生效：被冻结主体不可交易、不可出金。
-- 周期复审到期自动限制，复审通过后解除。
-- sanctions screening 接入 onboarding：
-  - 命中自动建案
-  - 自动触发冻结动作
 
 **Wave DoD**
 
 - `WF-15/19` 达到“账务内核可被业务复用”的标准。
-- `WF-10/11/17` 达到“未通过不可交易、被冻结不可交易/不可出金”的标准。
+- `WF-11` 达到“客户/平台资产结构可支撑下一波充值与兑换链路”的标准。
 
 **代表性 UAT**
 
 - 主流程：
-  - 新客户完成 CDD/EDD/KYB
-  - risk engine 给出通过结论
-  - 客户获得 `ACTIVE`
+  - 配置资产、科目、模板
+  - 业务事件生成分录
   - 钱包与银行账户模型可查询
-  - investor/trading gate 生效
+  - fee/splitting skeleton 可被后续业务引用
 - 异常回滚流程：
-  - 客户命中 sanctions
-  - 自动建案并冻结
-  - 尝试交易时被自动阻断
-  - 阻断日志和 case 证据可导出
+  - 模板配置错误或借贷不平
+  - 系统自动阻断过账
+  - 不污染余额、不生成脏账务数据
 
 **明确不做**
 
@@ -287,7 +336,7 @@
 - quote/swap 生命周期
 - payout/withdraw 链路
 
-### Wave 4：充值链路（PayIn -> Deposit）
+### Wave 5：充值链路（PayIn -> Deposit）
 
 **目标**
 
@@ -300,7 +349,7 @@
 
 **为什么放在这里**
 
-- 充值是客户主链中最先发生、风险最可控的一段，适合在 onboarding 与账务底座完成后率先交付。
+- 充值是客户主链中最先发生、风险最可控的一段，适合在新 `Wave 3-4` 完成后率先交付。
 
 **P0 交付物**
 
@@ -339,7 +388,7 @@
 - withdraw/payout
 - 日对账全量 break 管理
 
-### Wave 5：兑换链路（Pricing -> Quote -> Swap）
+### Wave 6：兑换链路（Pricing -> Quote -> Swap）
 
 **目标**
 
@@ -400,7 +449,7 @@
 - 日对账 full break lifecycle
 - complaints/disputes
 
-### Wave 6：提现闭环 + 交易合规全量接入（Withdraw / Payout / Tx Compliance）
+### Wave 7：提现闭环 + 交易合规全量接入（Withdraw / Payout / Tx Compliance）
 
 **目标**
 
@@ -463,7 +512,7 @@
 - internal treasury 全量运营工具
 - governance registries
 
-### Wave 7：财务运营与治理主线（Finance Ops + Governance）
+### Wave 8：财务运营与治理主线（Finance Ops + Governance）
 
 **目标**
 
@@ -479,7 +528,7 @@
 
 **为什么放在这里**
 
-- 客户资金主链在 `Wave 4-6` 完成后，这一波负责把运营、保障、治理、报送真正变成可持续的合规体系。
+- 客户资金主链在 `Wave 5-7` 完成后，这一波负责把运营、保障、治理、报送真正变成可持续的合规体系。
 
 **P0 交付物**
 
@@ -533,7 +582,7 @@
 - complaints/disputes
 - security/privacy evidence factory
 
-### Wave 8：后置扩展与证据工厂（Deferred Extensions）
+### Wave 9：后置扩展与证据工厂（Deferred Extensions）
 
 **目标**
 
@@ -551,7 +600,7 @@
 
 **为什么放在这里**
 
-- 这些能力重要，但不应阻塞前面七个 waves 的交易主链、账务主链与合规主链。
+- 这些能力重要，但不应阻塞前面八个 waves 的交易主链、账务主链与合规主链。
 
 **P0 交付物**
 
@@ -605,12 +654,13 @@
 ## 6. 关键依赖关系（给 Agent 的快速判断）
 
 - 如果需求涉及 `risk decision / case / alert / incident / freeze / unfreeze`，优先看 `Wave 2`。
-- 如果需求涉及 `customer eligibility / onboarding / KYB / periodic review / wallet-account model`，优先看 `Wave 3`。
-- 如果需求涉及 `payin / deposit`，优先看 `Wave 4`。
-- 如果需求涉及 `quote / swap / best execution / product restriction`，优先看 `Wave 5`。
-- 如果需求涉及 `withdraw / payout / pre-kyt / tx kyt / travel rule / reversal / minimum reconciliation`，优先看 `Wave 6`。
-- 如果需求涉及 `internal treasury / safeguarding full reconciliation / filing receipt effectiveness / governance registry`，优先看 `Wave 7`。
-- 如果需求涉及 `monthly statements / outsourcing / complaints / regulatory calendar / policy attestation / security privacy evidence`，优先看 `Wave 8`。
+- 如果需求涉及 `customer onboarding / customer status / customer restriction / onboarding final approval / eligibility gate / periodic review`，优先看 `Wave 3`。
+- 如果需求涉及 `wallet-account model / ledger / posting / base config / fee skeleton`，优先看 `Wave 4`。
+- 如果需求涉及 `payin / deposit`，优先看 `Wave 5`。
+- 如果需求涉及 `quote / swap / best execution / product restriction`，优先看 `Wave 6`。
+- 如果需求涉及 `withdraw / payout / pre-kyt / tx kyt / travel rule / reversal / minimum reconciliation`，优先看 `Wave 7`。
+- 如果需求涉及 `internal treasury / safeguarding full reconciliation / filing receipt effectiveness / governance registry`，优先看 `Wave 8`。
+- 如果需求涉及 `monthly statements / outsourcing / complaints / regulatory calendar / policy attestation / security privacy evidence`，优先看 `Wave 9`。
 
 ## 7. Agent 执行注意事项
 
