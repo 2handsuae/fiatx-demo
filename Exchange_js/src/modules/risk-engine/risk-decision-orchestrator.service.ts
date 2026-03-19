@@ -6,12 +6,16 @@ import {
 } from './compliance-alerts/constants/compliance-alert-rules.constant';
 import { ComplianceAlertsService } from './compliance-alerts/compliance-alerts.service';
 import {
+  ComplianceReviewRule,
+  ComplianceReviewStage,
+  ComplianceWorkflow,
+  PERIODIC_REVIEW_SOURCE_TYPE,
+  PERIODIC_REVIEW_WORKFLOW,
+  getCanonicalReviewRuleForStage,
   getCanonicalOnboardingRuleForStage,
   ONBOARDING_REVIEW_STAGES,
   ONBOARDING_SOURCE_TYPE,
   ONBOARDING_WORKFLOW,
-  OnboardingReviewRule,
-  OnboardingReviewStage,
 } from './constants/onboarding-compliance-workflow.constant';
 import {
   normalizeRiskRecommendedActionType,
@@ -23,17 +27,20 @@ import { RiskDecision, RiskRecommendedAction } from './risk-engine.service';
 const AUTO_ESCALATE_DISABLED_REASON = 'PHASE7_AUTO_ESCALATE_NOT_ENABLED';
 
 export interface RiskDecisionOrchestratorInput {
-  workflow: typeof ONBOARDING_WORKFLOW;
-  stage: OnboardingReviewStage;
+  workflow: ComplianceWorkflow;
+  stage: ComplianceReviewStage;
   customerId: string;
   customerNo?: string | null;
-  journeyId: string;
+  journeyId?: string;
+  sourceId?: string;
+  sourceNo?: string | null;
   linkedCaseIds?: string[];
   decisionRecordId: string;
   decision: RiskDecision;
   reasonCodes: string[];
   recommendedActions: RiskRecommendedAction[];
   contextType: string;
+  sourceModule?: string;
 }
 
 export interface RiskDecisionOrchestratorActionResult {
@@ -42,9 +49,9 @@ export interface RiskDecisionOrchestratorActionResult {
 }
 
 export interface RiskDecisionOrchestratorOutput {
-  workflow: typeof ONBOARDING_WORKFLOW;
-  stage: OnboardingReviewStage;
-  rule: OnboardingReviewRule;
+  workflow: ComplianceWorkflow;
+  stage: ComplianceReviewStage;
+  rule: ComplianceReviewRule;
   recommendedDecisions: string[];
   executedActions: RiskDecisionOrchestratorActionResult[];
   skippedActions: RiskDecisionOrchestratorActionResult[];
@@ -54,10 +61,13 @@ export interface RiskDecisionOrchestratorOutput {
 }
 
 export interface UpsertOnboardingReviewAlertInput {
+  workflow: ComplianceWorkflow;
   customerId: string;
   customerNo?: string | null;
-  journeyId: string;
-  stage: OnboardingReviewStage;
+  journeyId?: string;
+  sourceId: string;
+  sourceNo?: string | null;
+  stage: ComplianceReviewStage;
   recommendation: string;
   decision?: string | null;
   severity?: ComplianceAlertSeverity;
@@ -67,7 +77,13 @@ export interface UpsertOnboardingReviewAlertInput {
   reasonCodes?: string[];
   recommendedActions?: RiskRecommendedAction[];
   recommendedDecisions?: string[];
-  contextType?: 'ONBOARDING_CDD' | 'ONBOARDING_EDD' | null;
+  contextType?:
+    | 'ONBOARDING_CDD'
+    | 'ONBOARDING_EDD'
+    | 'PERIODIC_REVIEW_CDD'
+    | 'PERIODIC_REVIEW_EDD'
+    | null;
+  sourceModule?: string;
 }
 
 @Injectable()
@@ -143,18 +159,18 @@ export class RiskDecisionOrchestratorService {
     );
   }
 
-  private getStageDefaultMessage(stage: OnboardingReviewStage): string {
+  private getStageDefaultMessage(stage: ComplianceReviewStage): string {
     if (stage === ONBOARDING_REVIEW_STAGES.REVIEW_EDD) {
-      return 'EDD submitted. Waiting for onboarding review decision.';
+      return 'EDD submitted. Waiting for compliance review decision.';
     }
-    return 'CDD submitted. Waiting for onboarding review decision.';
+    return 'CDD submitted. Waiting for compliance review decision.';
   }
 
   private async writeOrchestrationSnapshot(
     decisionRecordId: string,
     snapshot: RiskDecisionOrchestratorOutput,
   ) {
-    const current = await (this.prisma as any).onboardingDecisionRecord.findUnique({
+    const current = await (this.prisma as any).workflowDecisionRecord.findUnique({
       where: { id: decisionRecordId },
       select: { outputs: true },
     });
@@ -180,7 +196,7 @@ export class RiskDecisionOrchestratorService {
       },
     };
 
-    await (this.prisma as any).onboardingDecisionRecord.update({
+    await (this.prisma as any).workflowDecisionRecord.update({
       where: { id: decisionRecordId },
       data: {
         outputs: JSON.stringify(nextOutputs),
@@ -189,16 +205,19 @@ export class RiskDecisionOrchestratorService {
   }
 
   async orchestrate(input: RiskDecisionOrchestratorInput): Promise<RiskDecisionOrchestratorOutput> {
-    if (input.workflow !== ONBOARDING_WORKFLOW) {
+    if (
+      input.workflow !== ONBOARDING_WORKFLOW &&
+      input.workflow !== PERIODIC_REVIEW_WORKFLOW
+    ) {
       throw new BadRequestException(
         `Unsupported risk orchestration workflow: ${String(input.workflow || '')}`,
       );
     }
 
-    const rule = getCanonicalOnboardingRuleForStage(input.stage);
+    const rule = getCanonicalReviewRuleForStage(input.stage, input.workflow);
     if (!rule) {
       throw new BadRequestException(
-        `Unsupported onboarding orchestration stage: ${String(input.stage || '')}`,
+        `Unsupported risk orchestration stage: ${String(input.stage || '')}`,
       );
     }
 
@@ -220,10 +239,16 @@ export class RiskDecisionOrchestratorService {
 
     const upsertPayload = this.getUpsertAlertPayload(input.recommendedActions);
     if (normalizedActionTypes.includes(RISK_RECOMMENDED_ACTIONS.UPSERT_ALERT) && upsertPayload) {
+      const resolvedSourceId =
+        String(input.sourceId || '').trim() ||
+        (input.journeyId ? `${input.customerId}:${input.journeyId}` : '');
+      const resolvedSourceNo = String(input.sourceNo || '').trim() || input.journeyId || null;
       const alert = await this.upsertOnboardingReviewAlert({
+        workflow: input.workflow,
         customerId: input.customerId,
         customerNo: input.customerNo || null,
-        journeyId: input.journeyId,
+        sourceId: resolvedSourceId,
+        sourceNo: resolvedSourceNo,
         stage: input.stage,
         recommendation:
           String(upsertPayload.payload?.recommendation || '').trim().toUpperCase() || 'REVIEW',
@@ -238,7 +263,11 @@ export class RiskDecisionOrchestratorService {
         recommendedActions: input.recommendedActions,
         recommendedDecisions,
         contextType:
-          input.contextType === 'ONBOARDING_EDD' ? 'ONBOARDING_EDD' : 'ONBOARDING_CDD',
+          input.contextType === 'ONBOARDING_EDD' ||
+          input.contextType === 'PERIODIC_REVIEW_EDD'
+            ? (input.contextType as 'ONBOARDING_EDD' | 'PERIODIC_REVIEW_EDD')
+            : (input.contextType as 'ONBOARDING_CDD' | 'PERIODIC_REVIEW_CDD'),
+        sourceModule: input.sourceModule,
       });
       if (alert) {
         alertId = alert.id;
@@ -264,7 +293,7 @@ export class RiskDecisionOrchestratorService {
     }
 
     const snapshot: RiskDecisionOrchestratorOutput = {
-      workflow: ONBOARDING_WORKFLOW,
+      workflow: input.workflow,
       stage: input.stage,
       rule,
       recommendedDecisions,
@@ -291,13 +320,30 @@ export class RiskDecisionOrchestratorService {
     );
 
     try {
+      const resolvedSourceId =
+        String(input.sourceId || '').trim() ||
+        (input.journeyId ? `${input.customerId}:${input.journeyId}` : '');
+      const resolvedSourceNo = String(input.sourceNo || '').trim() || input.journeyId || null;
+      const sourceType =
+        input.workflow === PERIODIC_REVIEW_WORKFLOW
+          ? PERIODIC_REVIEW_SOURCE_TYPE
+          : ONBOARDING_SOURCE_TYPE;
+      const canonicalRule =
+        getCanonicalReviewRuleForStage(input.stage, input.workflow) ||
+        getCanonicalOnboardingRuleForStage(input.stage) ||
+        'ONB_CDD_REVIEW_REQUIRED';
+
       return await this.complianceAlertsService.triggerSystemAlert({
-        ruleCode: getCanonicalOnboardingRuleForStage(input.stage) || 'ONB_CDD_REVIEW_REQUIRED',
-        sourceModule: 'identity/onboarding',
-        sourceType: ONBOARDING_SOURCE_TYPE,
-        sourceId: `${input.customerId}:${input.journeyId}`,
+        ruleCode: canonicalRule,
+        sourceModule: input.sourceModule || 'identity/onboarding',
+        sourceType,
+        sourceId: resolvedSourceId,
+        sourceNo: resolvedSourceNo,
         stage: input.stage,
-        journeyId: input.journeyId,
+        journeyId:
+          input.workflow === ONBOARDING_WORKFLOW
+            ? resolvedSourceId.split(':')[1] || input.journeyId || null
+            : null,
         customerId: input.customerId,
         customerNo: input.customerNo || null,
         ownerType: 'CUSTOMER',
@@ -309,6 +355,8 @@ export class RiskDecisionOrchestratorService {
         decisionRecordIds: input.decisionRecordIds || [],
         message: input.message,
         metadata: {
+          workflow: input.workflow,
+          sourceType,
           recommendation: input.recommendation,
           decision: input.decision || null,
           linkedCaseIds: input.linkedCaseIds || [],
@@ -330,15 +378,15 @@ export class RiskDecisionOrchestratorService {
   }
 
   async closeLatestJourneyAlertIfAny(input: {
-    customerId: string;
-    journeyId: string;
+    sourceType?: string;
+    sourceId: string;
     reason: string;
-    stage?: OnboardingReviewStage;
+    stage?: ComplianceReviewStage;
   }): Promise<void> {
     const alert = await this.prisma.complianceAlert.findFirst({
       where: {
-        sourceType: ONBOARDING_SOURCE_TYPE,
-        sourceId: `${input.customerId}:${input.journeyId}`,
+        sourceType: input.sourceType || ONBOARDING_SOURCE_TYPE,
+        sourceId: input.sourceId,
         ...(input.stage ? { stage: input.stage } : {}),
         status: {
           in: ['OPEN', 'ASSIGNED', 'ESCALATED'],

@@ -8,21 +8,32 @@ export interface CustomerProfileData {
   lastName: string | null;
   companyName?: string | null;
   customerType: string;
-  publicStatus: string;
+  onboardingStatus?: string;
+  operatingStatus?: string;
+  restrictionStatus?: string;
+  complianceHoldStatus?: string;
   actions?: Array<{ type: string; payload?: Record<string, unknown> }>;
-  cddStatus: string;
   amlRiskTier: string;
   eddRequired: boolean;
-  eddStatus: string;
-  complianceStatus: string;
   cddDocumentExpiresAt?: string | null;
-  finalApprovalStatus?: string;
-  finalApprovalReason?: string | null;
-  finalApprovalReviewerId?: string | null;
-  finalApprovalReviewedAt?: string | null;
   nextReviewAt?: string | null;
-  currentCddCaseId?: string | null;
-  currentEddCaseId?: string | null;
+  activePeriodicReviewCycleId?: string | null;
+  periodicReviewOverdueAt?: string | null;
+  periodicReviewOverdueReason?: string | null;
+  activePeriodicReviewCycle?: {
+    id: string;
+    cycleNo: string;
+    status: string;
+    dueAt: string;
+    triggeredAt?: string | null;
+    clearedAt?: string | null;
+    rejectedAt?: string | null;
+    currentCddResponseId?: string | null;
+    currentEddResponseId?: string | null;
+    primaryAlertId?: string | null;
+    primaryIncidentId?: string | null;
+    resolutionReason?: string | null;
+  } | null;
   investorClassification?: string | null;
   createdAt: string;
   lastLoginAt: string | null;
@@ -53,21 +64,19 @@ export const useCustomerProfile = () => {
         setProfile({
           ...data,
           customerType: data.customerType || 'UNKNOWN',
-          publicStatus: data.publicStatus || 'NONE',
+          onboardingStatus: data.onboardingStatus || 'NONE',
+          operatingStatus: data.operatingStatus || 'INACTIVE',
+          restrictionStatus: data.restrictionStatus || 'CLEAR',
+          complianceHoldStatus: data.complianceHoldStatus || 'ACTIVE',
           actions: Array.isArray(data.actions) ? data.actions : [],
-          cddStatus: data.cddStatus || 'NOT_STARTED',
           amlRiskTier: data.amlRiskTier || 'LOW',
           eddRequired: !!data.eddRequired,
-          eddStatus: data.eddStatus || 'NOT_REQUIRED',
-          complianceStatus: data.complianceStatus || 'NONE',
           cddDocumentExpiresAt: data.cddDocumentExpiresAt || null,
-          finalApprovalStatus: data.finalApprovalStatus || 'NOT_REQUIRED',
-          finalApprovalReason: data.finalApprovalReason || null,
-          finalApprovalReviewerId: data.finalApprovalReviewerId || null,
-          finalApprovalReviewedAt: data.finalApprovalReviewedAt || null,
           nextReviewAt: data.nextReviewAt || null,
-          currentCddCaseId: data.currentCddCaseId || null,
-          currentEddCaseId: data.currentEddCaseId || null,
+          activePeriodicReviewCycleId: data.activePeriodicReviewCycleId || null,
+          periodicReviewOverdueAt: data.periodicReviewOverdueAt || null,
+          periodicReviewOverdueReason: data.periodicReviewOverdueReason || null,
+          activePeriodicReviewCycle: data.activePeriodicReviewCycle || null,
           investorClassification: data.investorClassification || 'RETAIL',
         });
       } else {

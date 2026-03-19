@@ -3,7 +3,7 @@ import { RiskDecisionRecordsService } from './risk-decision-records.service';
 
 describe('RiskDecisionRecordsService', () => {
   const prismaMock: any = {
-    onboardingDecisionRecord: {
+    workflowDecisionRecord: {
       count: jest.fn(),
       findMany: jest.fn(),
       findUnique: jest.fn(),
@@ -18,8 +18,8 @@ describe('RiskDecisionRecordsService', () => {
   });
 
   it('should list decision records with canonical owner fields and parsed arrays', async () => {
-    prismaMock.onboardingDecisionRecord.count.mockResolvedValue(2);
-    prismaMock.onboardingDecisionRecord.findMany.mockResolvedValue([
+    prismaMock.workflowDecisionRecord.count.mockResolvedValue(2);
+    prismaMock.workflowDecisionRecord.findMany.mockResolvedValue([
       {
         id: 'dr-1',
         customerId: 'c1',
@@ -32,7 +32,7 @@ describe('RiskDecisionRecordsService', () => {
         outputDecision: 'REVIEW',
         recommendedActions: '[{"type":"UPSERT_ALERT"},{"type":"ESCALATE_INCIDENT"}]',
         outputs:
-          '{"orchestration":{"workflow":"ONBOARDING","stage":"REVIEW_CDD","rule":"ONB_CDD_REVIEW_REQUIRED","executedActions":[{"type":"UPSERT_ALERT"}],"skippedActions":[{"type":"AUTO_ESCALATE_CASE","reason":"PHASE7_AUTO_ESCALATE_NOT_ENABLED"}],"alertUpserted":true},"workflowTransition":{"workflow":"ONBOARDING","stage":"REVIEW_CDD","dispositionCode":"REQUIRE_EDD","transitionCode":"CDD_REQUIRE_EDD_TO_PENDING_EDD","fromStatus":"REVIEW_CDD","toStatus":"PENDING_EDD","executed":true,"eddCaseId":"edd-1","activeCaseId":"edd-1"}}',
+          '{"orchestration":{"workflow":"ONBOARDING","stage":"REVIEW_CDD","rule":"ONB_CDD_REVIEW_REQUIRED","executedActions":[{"type":"UPSERT_ALERT"}],"skippedActions":[{"type":"AUTO_ESCALATE_CASE","reason":"PHASE7_AUTO_ESCALATE_NOT_ENABLED"}],"alertUpserted":true},"workflowTransition":{"workflow":"ONBOARDING","stage":"REVIEW_CDD","dispositionCode":"REQUIRE_EDD","transitionCode":"CDD_REQUIRE_EDD_TO_PENDING_EDD","fromStatus":"REVIEW_CDD","toStatus":"PENDING_EDD","executed":true,"eddResponseId":"edd-1","activeCaseId":"edd-1"}}',
         reasonCodes: '["CDD_REVIEW_REQUIRED"]',
         errorMessage: null,
         createdAt: new Date('2026-02-20T00:00:00.000Z'),
@@ -72,13 +72,13 @@ describe('RiskDecisionRecordsService', () => {
       take: 999,
     });
 
-    expect(prismaMock.onboardingDecisionRecord.count).toHaveBeenCalledWith({
+    expect(prismaMock.workflowDecisionRecord.count).toHaveBeenCalledWith({
       where: {
         customerId: 'c1',
         status: 'COMPLETED',
       },
     });
-    expect(prismaMock.onboardingDecisionRecord.findMany).toHaveBeenCalledWith(
+    expect(prismaMock.workflowDecisionRecord.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: {
           customerId: 'c1',
@@ -123,8 +123,8 @@ describe('RiskDecisionRecordsService', () => {
     );
   });
 
-  it('should parse detail payloads and keep compatibility fields', async () => {
-    prismaMock.onboardingDecisionRecord.findUnique.mockResolvedValue({
+  it('should parse detail payloads and return canonical customer snapshot', async () => {
+    prismaMock.workflowDecisionRecord.findUnique.mockResolvedValue({
       id: 'dr-2',
       customerId: 'c2',
       contextType: 'ONBOARDING_EDD',
@@ -150,7 +150,6 @@ describe('RiskDecisionRecordsService', () => {
         lastName: 'B',
         customerType: 'INDIVIDUAL',
         companyName: null,
-        publicStatus: 'REVIEW_EDD',
       },
     });
 
@@ -185,7 +184,7 @@ describe('RiskDecisionRecordsService', () => {
   });
 
   it('should throw when detail record does not exist', async () => {
-    prismaMock.onboardingDecisionRecord.findUnique.mockResolvedValue(null);
+    prismaMock.workflowDecisionRecord.findUnique.mockResolvedValue(null);
 
     await expect(service.getDecisionRecordDetail('missing')).rejects.toBeInstanceOf(
       NotFoundException,

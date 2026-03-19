@@ -9,10 +9,8 @@ import {
   Query,
   UseGuards,
   Request,
-  BadRequestException,
   ForbiddenException,
   ParseUUIDPipe,
-  ValidationPipe,
 } from '@nestjs/common';
 import { CustomersService } from './customers.service';
 import { Prisma } from '@prisma/client';
@@ -24,7 +22,41 @@ import {
   ApiOperation,
   ApiQuery,
 } from '@nestjs/swagger';
-import { FreezeCustomerDto, UnfreezeCustomerDto } from './dto/customer-access.dto';
+
+const buildCustomerStatusWhere = (status?: string): Prisma.CustomerMainWhereInput | null => {
+  const normalized = String(status || '').trim().toUpperCase();
+  if (!normalized) {
+    return null;
+  }
+
+  switch (normalized) {
+    case 'ACTIVE':
+      return {
+        onboardingStatus: 'APPROVED',
+        operatingStatus: 'ACTIVE',
+      };
+    case 'PENDING_CDD':
+      return { onboardingStatus: 'PENDING_CDD_INPUT' };
+    case 'REVIEW_CDD':
+      return { onboardingStatus: 'CDD_UNDER_REVIEW' };
+    case 'PENDING_EDD':
+      return { onboardingStatus: 'PENDING_EDD_INPUT' };
+    case 'REVIEW_EDD':
+      return { onboardingStatus: 'EDD_UNDER_REVIEW' };
+    case 'FINAL_APPROVAL':
+    case 'APPROVED':
+    case 'REJECTED':
+    case 'WITHDRAWN':
+    case 'NONE':
+    case 'PENDING_CDD_INPUT':
+    case 'CDD_UNDER_REVIEW':
+    case 'PENDING_EDD_INPUT':
+    case 'EDD_UNDER_REVIEW':
+      return { onboardingStatus: normalized };
+    default:
+      return { onboardingStatus: normalized };
+  }
+};
 
 @ApiTags('customers')
 @ApiBearerAuth()
@@ -56,7 +88,13 @@ export class CustomersController {
     type: String,
     description: 'Search by name, email or phone',
   })
-  @ApiQuery({ name: 'status', required: false, type: String })
+  @ApiQuery({
+    name: 'status',
+    required: false,
+    type: String,
+    description:
+      'Compatibility filter. Accepts legacy values (e.g. ACTIVE, REVIEW_CDD) and canonical onboardingStatus values; internally mapped to canonical conditions.',
+  })
   findAll(
     @Request() req: any,
     @Query('skip') skip?: string,
@@ -76,8 +114,14 @@ export class CustomersController {
       ];
     }
 
-    if (status) {
-      where.publicStatus = status;
+    const statusWhere = buildCustomerStatusWhere(status);
+    if (statusWhere) {
+      const existingAnd = Array.isArray(where.AND)
+        ? where.AND
+        : where.AND
+          ? [where.AND]
+          : [];
+      where.AND = [...existingAnd, statusWhere];
     }
 
     return this.customersService.findAll({
@@ -107,49 +151,6 @@ export class CustomersController {
       where: { id },
       data: updateCustomerDto,
     });
-  }
-
-  @Post(':id/status')
-  @ApiOperation({ summary: 'Deprecated: customer status changes moved to onboarding module' })
-  async changeStatus(
-    @Request() req: any,
-    @Param('id', new ParseUUIDPipe()) id: string,
-    @Body() body: { status: string, reason?: string },
-  ) {
-    this.ensureAdmin(req);
-    throw new BadRequestException(
-      'Deprecated endpoint. Use /onboarding/* (customer) and /admin/compliance/* (admin) for onboarding decisions.',
-    );
-  }
-
-  @Post(':id/freeze')
-  @ApiOperation({ summary: 'Freeze customer account access' })
-  freezeCustomer(
-    @Request() req: any,
-    @Param('id', new ParseUUIDPipe()) id: string,
-    @Body(new ValidationPipe({ transform: true })) body: FreezeCustomerDto,
-  ) {
-    this.ensureAdmin(req);
-    return this.customersService.freezeCustomer(
-      id,
-      req.user?.userId || 'ADMIN_SYSTEM',
-      body.reason,
-    );
-  }
-
-  @Post(':id/unfreeze')
-  @ApiOperation({ summary: 'Unfreeze customer account access' })
-  unfreezeCustomer(
-    @Request() req: any,
-    @Param('id', new ParseUUIDPipe()) id: string,
-    @Body(new ValidationPipe({ transform: true })) body: UnfreezeCustomerDto,
-  ) {
-    this.ensureAdmin(req);
-    return this.customersService.unfreezeCustomer(
-      id,
-      req.user?.userId || 'ADMIN_SYSTEM',
-      body.reason,
-    );
   }
 
   @Delete(':id')

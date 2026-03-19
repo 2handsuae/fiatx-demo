@@ -101,6 +101,10 @@ export class RiskEngineService {
     ];
   }
 
+  private buildPeriodicReviewDecisionActions(decisions: string[]): RiskRecommendedAction[] {
+    return this.buildOnboardingDecisionActions(decisions);
+  }
+
   private evaluateBySignals(input: EvaluateRiskInput): Omit<EvaluateRiskOutput, 'decisionRecordId' | 'policyVersion'> {
     const signals = input.signals || {};
     const riskScore = this.toNumber(signals.riskScore) ?? 0;
@@ -114,7 +118,8 @@ export class RiskEngineService {
     const reasonCodes: string[] = [];
     const recommendedActions: RiskRecommendedAction[] = [];
 
-    if (input.contextType === 'ONBOARDING_CDD') {
+    if (input.contextType === 'ONBOARDING_CDD' || input.contextType === 'PERIODIC_REVIEW_CDD') {
+      const isPeriodicReview = input.contextType === 'PERIODIC_REVIEW_CDD';
       let severity: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL' = 'MEDIUM';
 
       if (mockDataType === 'SANCTION_AND_OTHER') {
@@ -126,7 +131,7 @@ export class RiskEngineService {
         reasonCodes.push('SANCTIONS_HIT');
         severity = 'CRITICAL';
       } else if (mockDataType === 'LOW_RISK') {
-        reasonCodes.push('CDD_LOW_RISK_CLEAR');
+        reasonCodes.push(isPeriodicReview ? 'PRR_CDD_LOW_RISK_REVIEW' : 'CDD_LOW_RISK_CLEAR');
         severity = 'LOW';
       } else if (mockDataType === 'MEDIUM_RISK') {
         reasonCodes.push('CDD_MEDIUM_RISK_REVIEW');
@@ -143,7 +148,16 @@ export class RiskEngineService {
         severity = riskLevel === 'HIGH' || riskScore >= 70 || pepHit ? 'HIGH' : 'MEDIUM';
       }
 
-      if (mockDataType !== 'LOW_RISK') {
+      if (!isPeriodicReview && mockDataType !== 'LOW_RISK') {
+        recommendedActions.push({
+          type: RISK_RECOMMENDED_ACTIONS.UPSERT_ALERT,
+          payload: {
+            severity,
+            recommendation: 'REVIEW',
+            reasonCodes,
+          },
+        });
+      } else if (isPeriodicReview) {
         recommendedActions.push({
           type: RISK_RECOMMENDED_ACTIONS.UPSERT_ALERT,
           payload: {
@@ -154,16 +168,22 @@ export class RiskEngineService {
         });
       }
       recommendedActions.push(
-        ...this.buildOnboardingDecisionActions([
-          'APPROVE',
-          'REJECT',
-          'REQUIRE_EDD',
-        ]),
+        ...(isPeriodicReview
+          ? this.buildPeriodicReviewDecisionActions([
+              'APPROVE',
+              'REJECT',
+              'REQUIRE_EDD',
+            ])
+          : this.buildOnboardingDecisionActions([
+              'APPROVE',
+              'REJECT',
+              'REQUIRE_EDD',
+            ])),
       );
       return { decision: 'REVIEW', reasonCodes, recommendedActions };
     }
 
-    if (input.contextType === 'ONBOARDING_EDD') {
+    if (input.contextType === 'ONBOARDING_EDD' || input.contextType === 'PERIODIC_REVIEW_EDD') {
       let severity: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL' = 'MEDIUM';
       if (!eddSubmitted) {
         reasonCodes.push('EDD_INCOMPLETE');
@@ -247,7 +267,7 @@ export class RiskEngineService {
       signals: this.maskSignals(input.signals || {}),
     };
     const inputHash = createHash('sha256').update(this.stableStringify(maskedInput)).digest('hex');
-    const created = await (this.prisma as any).onboardingDecisionRecord.create({
+    const created = await (this.prisma as any).workflowDecisionRecord.create({
       data: {
         customerId: input.ownerId,
         contextType: input.contextType,
@@ -267,7 +287,7 @@ export class RiskEngineService {
         recommendedActions: evaluated.recommendedActions,
       };
 
-      await (this.prisma as any).onboardingDecisionRecord.update({
+      await (this.prisma as any).workflowDecisionRecord.update({
         where: { id: created.id },
         data: {
           status: 'COMPLETED',
@@ -287,7 +307,7 @@ export class RiskEngineService {
         decisionRecordId: created.id,
       };
     } catch (error) {
-      await (this.prisma as any).onboardingDecisionRecord.update({
+      await (this.prisma as any).workflowDecisionRecord.update({
         where: { id: created.id },
         data: {
           status: 'FAILED',

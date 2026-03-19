@@ -194,6 +194,7 @@ export class ApprovalsService {
       status: approval.status,
       decisionByUserId: approval.decisionByUserId,
       decisionByRole: approval.decisionByRole,
+      decisionReason: approval.decisionReason,
       decidedAt: approval.decidedAt ? approval.decidedAt.toISOString() : null,
     };
   }

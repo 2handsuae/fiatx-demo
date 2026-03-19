@@ -2,20 +2,21 @@
 
 ## Mandatory Read First
 Before any code change in `Exchange_js`, read:
-1. `docs/constraints/README.md`
-2. `docs/constraints/frontend-ui-constraints.md`
-3. `docs/constraints/backend-architecture-constraints.md`
-4. `docs/constraints/runtime-config-constraints.md`
-5. `docs/constraints/onboarding-flow-constraints.md`
-6. `docs/constraints/customer-transaction-flow-constraints.md`
-7. `docs/constraints/internal-transaction-flow-constraints.md`
-8. `docs/constraints/audit-logging-constraints.md`
-9. `docs/constraints/rbac-member-management-constraints.md`
-10. `docs/constraints/governance-approval-constraints.md`
-11. `docs/constraints/governance-change-ticket-constraints.md`
-12. `docs/constraints/governance-delete-request-constraints.md`
-13. `docs/constraints/governance-sla-timer-constraints.md`
-14. `docs/constraints/compliance-alert-incident-constraints.md`
+1. `docs/README.md`
+2. `docs/constraints/README.md`
+3. `docs/constraints/frontend-ui-constraints.md`
+4. `docs/constraints/backend-architecture-constraints.md`
+5. `docs/constraints/runtime-config-constraints.md`
+6. `docs/constraints/onboarding-flow-constraints.md`
+7. `docs/constraints/customer-transaction-flow-constraints.md`
+8. `docs/constraints/internal-transaction-flow-constraints.md`
+9. `docs/constraints/audit-logging-constraints.md`
+10. `docs/constraints/rbac-member-management-constraints.md`
+11. `docs/constraints/governance-approval-constraints.md`
+12. `docs/constraints/governance-change-ticket-constraints.md`
+13. `docs/constraints/governance-delete-request-constraints.md`
+14. `docs/constraints/governance-sla-timer-constraints.md`
+15. `docs/constraints/compliance-alert-incident-constraints.md`
 
 ## Scope
 - Backend: `src/**`, `prisma/**`, `scripts/**`
@@ -23,11 +24,74 @@ Before any code change in `Exchange_js`, read:
 
 ## Planning Reference
 - For roadmap, milestone, wave-planning, or scope-sequencing requests, also read:
-  - `docs/project-version-plan.md`
-  - `docs/wave1-foundation-migration-from-exchange-java.md`
+  - `docs/roadmap/project-version-plan.md`
+  - `docs/roadmap/wave1-foundation-migration-from-exchange-java.md`
 - This planning reference does not override `docs/constraints/**`; constraints remain the behavioral source of truth.
-- `docs/project-version-plan.md` is the current planning reference for wave scope and sequencing.
-- `docs/wave1-foundation-migration-from-exchange-java.md` is a historical migration-reference document and MUST NOT be treated as the current implementation truth.
+- `docs/roadmap/project-version-plan.md` is the current planning reference for wave scope and sequencing.
+- `docs/roadmap/wave1-foundation-migration-from-exchange-java.md` is a historical migration-reference document and MUST NOT be treated as the current implementation truth.
+
+## Documentation Governance
+- Documentation rules are mandatory for every future thread in `Exchange_js`.
+- Read order for project documentation governance:
+1. `AGENTS.md`
+2. `docs/README.md`
+3. `docs/constraints/README.md`
+4. then the task-relevant files under `docs/constraints/**`, `docs/specs/**`, `docs/roadmap/**`, `docs/cleanup/**`, `docs/adr/**`, `docs/acceptance/**`
+
+### Documentation Layers
+- Project documentation is split into these layers:
+1. `docs/roadmap/`: project / wave / phase planning
+2. `docs/cleanup/`: legacy cleanup, compatibility removal, staged convergence plans
+3. `docs/constraints/`: non-negotiable rules and hard boundaries
+4. `docs/specs/`: workflow, entity, field, and read-model semantics
+5. `docs/adr/`: architecture and product decision records
+6. `docs/acceptance/`: runbooks, demo flows, validation checklists
+7. `docs/glossary/`: shared terminology and naming definitions
+
+### Source Of Truth Order
+- If documents conflict, use this precedence:
+1. `docs/constraints/**`
+2. `docs/specs/**`
+3. `docs/adr/**`
+4. `docs/cleanup/**`
+5. `docs/roadmap/**`
+6. `docs/acceptance/**`
+- `roadmap` and `phase plan` documents define scope and sequencing only. They MUST NOT silently override active constraints or active specs.
+- Historical migration or phase documents MUST be explicitly marked when they are no longer current implementation truth.
+
+### Thread Completion Rule
+- Every completed thread MUST perform a documentation impact check before close-out.
+- If the thread changes behavior, constraints, scope boundary, cleanup stage, field meaning, workflow meaning, API contract, runtime/migration semantics, or deprecation status, the relevant docs MUST be updated in the same thread.
+- If the thread does not require doc changes, the final response MUST explicitly say why documentation was not updated.
+- Final response MUST contain one of:
+1. `Documentation updated: ...`
+2. `Documentation update not needed: ...`
+
+### Mandatory Documentation Update Triggers
+- Update docs when the thread does any of the following:
+1. add / remove / rename a workflow
+2. add / remove canonical fields
+3. convert a field between canonical and mirror / compatibility status
+4. change constraints or invariants
+5. change page, API, DTO, or read-model contract semantics
+6. move cleanup to a new stage or remove a legacy alias
+7. change runtime, database, migration, or local stack operation semantics
+8. change approval, audit, compliance, or onboarding stage meaning
+
+### Usually No Documentation Update Needed
+- Documentation updates are usually not required for:
+1. pure styling changes
+2. wording-only UI changes without semantic change
+3. test-only additions
+4. internal refactors that do not change behavior or contracts
+- If skipped, the final response still MUST explain why.
+
+### Non-Negotiable Documentation Rules
+- Do not leave behavior changes undocumented when an active constraints/spec/cleanup/roadmap file has become stale because of the thread.
+- Do not treat temporary compatibility aliases as permanent product truth.
+- Do not let `README`, `constraints`, `spec`, and `cleanup` documents disagree without explicitly stating which one supersedes the others.
+- Do not add a new workflow, field, or status without deciding which doc layer owns its long-term definition.
+- Prefer updating the smallest correct source-of-truth document instead of scattering the same rule across many files.
 
 ## Product Demo Context
 - This project is primarily a product demo / workflow demonstration system, not a production-security-hardening program.
@@ -55,7 +119,7 @@ Before any code change in `Exchange_js`, read:
 - Biz reset only: `npm run dev:reset`
 - Full local DB rebuild: `npm run dev:rebuild`
 - Diagnose runtime / migration drift: `npm run runtime:diagnose`
-- Governance/runtime runbook: `docs/local-main-runtime-runbook.md`
+- Governance/runtime runbook: `docs/acceptance/local-main-runtime-runbook.md`
 
 ## Non-Negotiables
 - Do not commit secrets or local runtime artifacts.

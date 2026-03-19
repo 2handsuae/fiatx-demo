@@ -12,6 +12,10 @@ import {
 import { AnimatePresence, motion } from 'framer-motion';
 import { QRCodeSVG } from 'qrcode.react';
 import { useCustomerProfile } from '../hooks/useCustomerProfile';
+import {
+  normalizeCanonicalOnboardingStatus,
+  normalizeCanonicalOperatingStatus,
+} from '../utils/customerOnboarding';
 
 interface UboItem {
   id: string;
@@ -31,20 +35,15 @@ interface OnboardingSnapshot {
   id: string;
   customerType: 'INDIVIDUAL' | 'CORPORATE' | 'UNKNOWN';
   companyName?: string | null;
-  publicStatus?: string;
+  onboardingStatus?: string;
+  operatingStatus?: string;
+  restrictionStatus?: string;
   actions?: OnboardingAction[];
   blockedReason?: string | null;
-  cddStatus: string;
   amlRiskTier: string;
   eddRequired: boolean;
-  eddStatus: string;
-  complianceStatus: string;
   cddDocumentExpiresAt?: string | null;
-  finalApprovalStatus?: string;
-  currentCddCaseId?: string | null;
-  currentEddCaseId?: string | null;
   investorClassification?: string | null;
-  activeCaseId?: string | null;
   corporateProfile?: {
     companyName?: string;
     registrationNo?: string;
@@ -53,36 +52,72 @@ interface OnboardingSnapshot {
   uboProfiles?: UboItem[];
 }
 
+interface PeriodicReviewSnapshot {
+  activePeriodicReviewCycleId?: string | null;
+  periodicReviewOverdueAt?: string | null;
+  periodicReviewOverdueReason?: string | null;
+  nextReviewAt?: string | null;
+  restrictionStatus?: string;
+  complianceHoldStatus?: string;
+  cycle?: {
+    id: string;
+    cycleNo: string;
+    status: string;
+    dueAt: string;
+    triggeredAt?: string | null;
+    clearedAt?: string | null;
+    rejectedAt?: string | null;
+    currentCddResponseId?: string | null;
+    currentEddResponseId?: string | null;
+    primaryAlertId?: string | null;
+    primaryIncidentId?: string | null;
+    resolutionReason?: string | null;
+  } | null;
+  status?: string | null;
+  actions?: OnboardingAction[];
+  blockedReason?: string | null;
+  activeCaseId?: string | null;
+  requiresEdd?: boolean;
+}
+
 interface NextStepPayload {
-  publicStatus: string;
   actions: OnboardingAction[];
   blockedReason: string | null;
   activeCaseId: string | null;
   requiresEdd: boolean;
 }
 
-interface CaseSession {
+interface PeriodicReviewNextStepPayload {
+  status: string | null;
+  actions: OnboardingAction[];
+  blockedReason: string | null;
+  activeCaseId: string | null;
+  requiresEdd: boolean;
+}
+
+interface ResponseSession {
   id?: string;
   sessionId?: string;
+  responseType?: 'CDD' | 'EDD';
   status: string;
   qrCodeUrl: string;
   providerSessionId: string;
   expiresAt: string;
 }
 
-interface CaseItem {
+interface ResponseItem {
   id: string;
-  caseNo: string;
-  caseType: 'CDD' | 'EDD';
+  responseNo: string;
+  responseType: 'CDD' | 'EDD';
   status: string;
   subjectKind: string;
   subjectRefId?: string;
-  latestSession?: CaseSession | null;
+  latestSession?: ResponseSession | null;
 }
 
 type IntroStage = 'INTRO' | 'GUIDE' | 'FLOW';
-type LegacyStep = 'ENTITY_INFO' | 'CDD' | 'WAIT_REVIEW' | 'EDD' | 'REINITIATE' | 'COMPLETED';
-type LegacyAction =
+type VerificationStep = 'ENTITY_INFO' | 'CDD' | 'WAIT_REVIEW' | 'EDD' | 'REINITIATE' | 'COMPLETED';
+type VerificationAction =
   | 'SAVE_ENTITY'
   | 'START_CDD'
   | 'COMPLETE_CDD'
@@ -92,13 +127,12 @@ type LegacyAction =
   | 'REINITIATE_EDD'
   | 'NONE';
 
-interface LegacyNextStepPayload {
-  step: LegacyStep;
-  action: LegacyAction;
+interface VerificationStepState {
+  step: VerificationStep;
+  action: VerificationAction;
   blockedReason: string | null;
   activeCaseId: string | null;
   requiresEdd: boolean;
-  publicStatus: string;
   actions: OnboardingAction[];
 }
 
@@ -136,113 +170,119 @@ const CDD_MOCK_OPTIONS: Array<{
 const getErrorMessage = (error: unknown, fallback: string) =>
   error instanceof Error ? error.message : fallback;
 
-const resolveSessionId = (session?: CaseSession | null): string | null => {
+const resolveSessionId = (session?: ResponseSession | null): string | null => {
   if (!session) return null;
   const value = String(session.sessionId || session.id || '').trim();
   return value || null;
 };
 
-const mapNextStepToLegacy = (
+const mapOnboardingToStep = (
   nextStep: NextStepPayload | null,
   onboarding: OnboardingSnapshot | null,
   profile: {
-    publicStatus?: string;
+    onboardingStatus?: string;
+    operatingStatus?: string;
     actions?: OnboardingAction[];
     eddRequired?: boolean;
   } | null,
-): LegacyNextStepPayload => {
-  const publicStatus =
-    nextStep?.publicStatus || onboarding?.publicStatus || profile?.publicStatus || 'NONE';
+): VerificationStepState => {
+  const onboardingStatus = normalizeCanonicalOnboardingStatus(
+    onboarding?.onboardingStatus ?? profile?.onboardingStatus,
+  );
+  const operatingStatus = normalizeCanonicalOperatingStatus(
+    onboarding?.operatingStatus ?? profile?.operatingStatus,
+  );
   const actions =
     nextStep?.actions || onboarding?.actions || profile?.actions || [];
   const blockedReason = nextStep?.blockedReason || onboarding?.blockedReason || null;
-  const activeCaseId = nextStep?.activeCaseId || onboarding?.activeCaseId || null;
   const requiresEdd =
     nextStep?.requiresEdd ?? onboarding?.eddRequired ?? profile?.eddRequired ?? false;
-
   const hasAction = (actionType: string) =>
     actions.some((item) => String(item?.type || '').toUpperCase() === actionType);
+  const activeCaseId =
+    nextStep?.activeCaseId || null;
 
-  if (publicStatus === 'ACTIVE') {
+  if (onboardingStatus === 'APPROVED' && operatingStatus === 'ACTIVE') {
     return {
       step: 'COMPLETED',
       action: 'NONE',
       blockedReason,
       activeCaseId,
       requiresEdd,
-      publicStatus,
       actions,
     };
   }
 
-  if (publicStatus === 'REJECTED' || publicStatus === 'WITHDRAWN' || hasAction('REINITIATE_CDD')) {
+  if (
+    onboardingStatus === 'REJECTED' ||
+    onboardingStatus === 'WITHDRAWN' ||
+    hasAction('REINITIATE_CDD')
+  ) {
     return {
       step: 'REINITIATE',
       action: hasAction('REINITIATE_EDD') ? 'REINITIATE_EDD' : 'REINITIATE_CDD',
       blockedReason,
       activeCaseId,
       requiresEdd,
-      publicStatus,
       actions,
     };
   }
 
-  if (publicStatus === 'FINAL_APPROVAL' || hasAction('WAIT_FINAL_APPROVAL')) {
+  if (onboardingStatus === 'FINAL_APPROVAL' || hasAction('WAIT_FINAL_APPROVAL')) {
     return {
       step: 'WAIT_REVIEW',
       action: 'WAIT',
       blockedReason,
       activeCaseId,
       requiresEdd: true,
-      publicStatus,
       actions,
     };
   }
 
-  if (publicStatus === 'REVIEW_CDD' || publicStatus === 'REVIEW_EDD' || hasAction('WAIT_REVIEW')) {
+  if (
+    onboardingStatus === 'CDD_UNDER_REVIEW' ||
+    onboardingStatus === 'EDD_UNDER_REVIEW' ||
+    hasAction('WAIT_REVIEW')
+  ) {
     return {
       step: 'WAIT_REVIEW',
       action: 'WAIT',
       blockedReason,
       activeCaseId,
-      requiresEdd: publicStatus === 'REVIEW_EDD' || requiresEdd,
-      publicStatus,
+      requiresEdd: onboardingStatus === 'EDD_UNDER_REVIEW' || requiresEdd,
       actions,
     };
   }
 
-  if (publicStatus === 'PENDING_EDD' || hasAction('COMPLETE_EDD')) {
+  if (onboardingStatus === 'PENDING_EDD_INPUT' || hasAction('COMPLETE_EDD')) {
     return {
       step: 'EDD',
       action: 'COMPLETE_EDD',
       blockedReason,
       activeCaseId,
       requiresEdd: true,
-      publicStatus,
       actions,
     };
   }
 
-  if (publicStatus === 'PENDING_CDD' || hasAction('COMPLETE_CDD')) {
+  if (onboardingStatus === 'PENDING_CDD_INPUT' || hasAction('COMPLETE_CDD')) {
     return {
       step: 'CDD',
-      action: 'COMPLETE_CDD',
+      action: hasAction('START_CDD') && !activeCaseId ? 'START_CDD' : 'COMPLETE_CDD',
       blockedReason,
       activeCaseId,
       requiresEdd,
-      publicStatus,
       actions,
     };
   }
 
-  if (publicStatus === 'NONE' || hasAction('START_CDD')) {
+  if (onboardingStatus === 'NONE' || hasAction('START_CDD')) {
     return {
       step: 'CDD',
       action: 'START_CDD',
       blockedReason,
       activeCaseId,
       requiresEdd,
-      publicStatus,
       actions,
     };
   }
@@ -253,7 +293,81 @@ const mapNextStepToLegacy = (
     blockedReason,
     activeCaseId,
     requiresEdd,
-    publicStatus,
+    actions,
+  };
+};
+
+const mapPeriodicReviewNextStepToLegacy = (
+  nextStep: PeriodicReviewNextStepPayload | null,
+  periodicReview: PeriodicReviewSnapshot | null,
+): VerificationStepState => {
+  const status = String(nextStep?.status || periodicReview?.status || '').trim().toUpperCase();
+  const actions = nextStep?.actions || periodicReview?.actions || [];
+  const blockedReason = nextStep?.blockedReason || periodicReview?.blockedReason || null;
+  const activeCaseId =
+    nextStep?.activeCaseId ||
+    periodicReview?.activeCaseId ||
+    periodicReview?.cycle?.currentEddResponseId ||
+    periodicReview?.cycle?.currentCddResponseId ||
+    null;
+  const requiresEdd =
+    nextStep?.requiresEdd ??
+    periodicReview?.requiresEdd ??
+    ['PENDING_EDD_INPUT', 'EDD_UNDER_REVIEW'].includes(status);
+
+  const hasAction = (actionType: string) =>
+    actions.some((item) => String(item?.type || '').toUpperCase() === actionType);
+
+  if (status === 'REJECTED') {
+    return {
+      step: 'WAIT_REVIEW',
+      action: 'WAIT',
+      blockedReason: blockedReason || 'Periodic review rejected.',
+      activeCaseId,
+      requiresEdd,
+      actions,
+    };
+  }
+
+  if (status === 'CDD_UNDER_REVIEW') {
+    return {
+      step: 'WAIT_REVIEW',
+      action: 'WAIT',
+      blockedReason: blockedReason,
+      activeCaseId,
+      requiresEdd: false,
+      actions,
+    };
+  }
+
+  if (status === 'EDD_UNDER_REVIEW') {
+    return {
+      step: 'WAIT_REVIEW',
+      action: 'WAIT',
+      blockedReason: blockedReason,
+      activeCaseId,
+      requiresEdd: true,
+      actions,
+    };
+  }
+
+  if (status === 'PENDING_EDD_INPUT' || hasAction('COMPLETE_EDD')) {
+    return {
+      step: 'EDD',
+      action: 'COMPLETE_EDD',
+      blockedReason,
+      activeCaseId,
+      requiresEdd: true,
+      actions,
+    };
+  }
+
+  return {
+    step: 'CDD',
+    action: hasAction('START_CDD') ? 'START_CDD' : 'COMPLETE_CDD',
+    blockedReason,
+    activeCaseId,
+    requiresEdd: false,
     actions,
   };
 };
@@ -295,8 +409,11 @@ const Verification = () => {
   const navigate = useNavigate();
 
   const [onboarding, setOnboarding] = useState<OnboardingSnapshot | null>(null);
+  const [periodicReview, setPeriodicReview] = useState<PeriodicReviewSnapshot | null>(null);
   const [nextStep, setNextStep] = useState<NextStepPayload | null>(null);
-  const [cases, setCases] = useState<CaseItem[]>([]);
+  const [periodicNextStep, setPeriodicNextStep] =
+    useState<PeriodicReviewNextStepPayload | null>(null);
+  const [responses, setResponses] = useState<ResponseItem[]>([]);
   const [introStage, setIntroStage] = useState<IntroStage>('INTRO');
   const [message, setMessage] = useState('');
   const [saving, setSaving] = useState(false);
@@ -322,6 +439,10 @@ const Verification = () => {
   }, []);
 
   const token = localStorage.getItem('customer_token');
+  const verificationMode =
+    profile?.activePeriodicReviewCycleId || profile?.periodicReviewOverdueAt
+      ? 'PERIODIC_REVIEW'
+      : 'ONBOARDING';
 
   const withAuth = async (url: string, init?: RequestInit) => {
     if (!token) throw new Error('No auth token');
@@ -342,8 +463,32 @@ const Verification = () => {
     setOnboarding((await response.json()) as OnboardingSnapshot);
   };
 
+  const loadPeriodicReview = async () => {
+    if (!token) return;
+    const response = await withAuth(`${import.meta.env.VITE_API_URL}/periodic-review/me`);
+    if (!response.ok) throw new Error('Failed to load periodic review profile');
+    setPeriodicReview((await response.json()) as PeriodicReviewSnapshot);
+  };
+
   const loadNextStep = async () => {
     if (!token) return;
+    if (verificationMode === 'PERIODIC_REVIEW') {
+      const response = await withAuth(
+        `${import.meta.env.VITE_API_URL}/periodic-review/next-step`,
+      );
+      if (!response.ok) throw new Error('Failed to load periodic review next step');
+      const data = (await response.json()) as PeriodicReviewNextStepPayload;
+      setPeriodicNextStep({
+        ...data,
+        actions: Array.isArray(data.actions) ? data.actions : [],
+        blockedReason: data.blockedReason || null,
+        activeCaseId: data.activeCaseId || null,
+        requiresEdd: !!data.requiresEdd,
+      });
+      setNextStep(null);
+      return;
+    }
+
     const response = await withAuth(`${import.meta.env.VITE_API_URL}/onboarding/next-step`);
     if (!response.ok) throw new Error('Failed to load next step');
     const data = (await response.json()) as NextStepPayload;
@@ -354,20 +499,32 @@ const Verification = () => {
       activeCaseId: data.activeCaseId || null,
       requiresEdd: !!data.requiresEdd,
     });
+    setPeriodicNextStep(null);
   };
 
-  const loadCases = async () => {
+  const loadResponses = async () => {
     if (!token) return;
     setCasesLoading(true);
     try {
-      const response = await withAuth(`${import.meta.env.VITE_API_URL}/onboarding/cases`);
-      if (!response.ok) throw new Error('Failed to load onboarding cases');
+      const response = await withAuth(
+        `${import.meta.env.VITE_API_URL}/${
+          verificationMode === 'PERIODIC_REVIEW' ? 'periodic-review' : 'onboarding'
+        }/responses`,
+      );
+      if (!response.ok) {
+        throw new Error(
+          verificationMode === 'PERIODIC_REVIEW'
+            ? 'Failed to load periodic review responses'
+            : 'Failed to load onboarding responses',
+        );
+      }
       const data = await response.json();
       const normalized = (Array.isArray(data.items) ? data.items : []).map((item: any) => {
         const latestSession = item.latestSession
           ? {
               id: item.latestSession.id,
               sessionId: item.latestSession.sessionId || item.latestSession.id,
+              responseType: item.latestSession.responseType || item.responseType,
               status: item.latestSession.status,
               qrCodeUrl: item.latestSession.qrCodeUrl,
               providerSessionId: item.latestSession.providerSessionId,
@@ -377,11 +534,13 @@ const Verification = () => {
 
         return {
           ...item,
+          responseNo: item.responseNo,
+          responseType: item.responseType,
           latestSession,
-        } as CaseItem;
+        } as ResponseItem;
       });
 
-      setCases(normalized);
+      setResponses(normalized);
     } finally {
       setCasesLoading(false);
     }
@@ -389,9 +548,21 @@ const Verification = () => {
 
   const refreshAll = async () => {
     try {
-      await Promise.all([loadOnboarding(), loadNextStep(), loadCases(), refreshProfile()]);
+      await Promise.all([
+        verificationMode === 'PERIODIC_REVIEW' ? loadPeriodicReview() : loadOnboarding(),
+        loadNextStep(),
+        loadResponses(),
+        refreshProfile(),
+      ]);
     } catch (e: unknown) {
-      setMessage(getErrorMessage(e, 'Failed to load onboarding data.'));
+      setMessage(
+        getErrorMessage(
+          e,
+          verificationMode === 'PERIODIC_REVIEW'
+            ? 'Failed to load periodic review data.'
+            : 'Failed to load onboarding data.',
+        ),
+      );
     }
   };
 
@@ -399,16 +570,16 @@ const Verification = () => {
     if (profile && token) {
       refreshAll().catch(() => undefined);
     }
-  }, [profile?.id]);
+  }, [profile?.id, profile?.activePeriodicReviewCycleId, profile?.periodicReviewOverdueAt]);
 
   useEffect(() => {
-    const hasPending = cases.some((item) => item.latestSession?.status === 'PENDING');
+    const hasPending = responses.some((item) => item.latestSession?.status === 'PENDING');
     if (!hasPending) return;
     const timer = window.setInterval(() => {
-      Promise.all([loadCases(), loadNextStep()]).catch(() => undefined);
+      Promise.all([loadResponses(), loadNextStep()]).catch(() => undefined);
     }, 8000);
     return () => window.clearInterval(timer);
-  }, [cases]);
+  }, [responses]);
 
   const runAction = async (action: () => Promise<Response>, successMessage: string) => {
     setSaving(true);
@@ -434,61 +605,91 @@ const Verification = () => {
   const bootstrapCdd = async () =>
     runAction(
       () =>
-        withAuth(`${import.meta.env.VITE_API_URL}/onboarding/cdd-cases/bootstrap`, {
+        withAuth(
+          `${import.meta.env.VITE_API_URL}/${
+            verificationMode === 'PERIODIC_REVIEW'
+              ? 'periodic-review/cdd-responses/start'
+              : 'onboarding/cdd-responses/bootstrap'
+          }`,
+          {
           method: 'POST',
           body: JSON.stringify({}),
-        }),
-      'CDD case and QR session are ready.',
+          },
+        ),
+      verificationMode === 'PERIODIC_REVIEW'
+        ? 'Periodic review CDD session is ready.'
+        : 'CDD response and QR session are ready.',
     );
 
   const reinitiateCdd = async () =>
     runAction(
       () =>
-        withAuth(`${import.meta.env.VITE_API_URL}/onboarding/cdd-cases/reinitiate`, {
+        withAuth(`${import.meta.env.VITE_API_URL}/onboarding/cdd-responses/reinitiate`, {
           method: 'POST',
           body: JSON.stringify({}),
         }),
-      'A new CDD case and QR session have been created.',
+      'A new CDD response and QR session have been created.',
     );
 
   const reinitiateEdd = async () =>
     runAction(
       () =>
-        withAuth(`${import.meta.env.VITE_API_URL}/onboarding/edd-cases/reinitiate`, {
+        withAuth(`${import.meta.env.VITE_API_URL}/onboarding/edd-responses/reinitiate`, {
           method: 'POST',
           body: JSON.stringify({}),
         }),
-      'A new EDD case and QR session have been created.',
+      'A new EDD response and QR session have been created.',
     );
 
   const startEdd = async () =>
     runAction(
       () =>
-        withAuth(`${import.meta.env.VITE_API_URL}/onboarding/edd-cases/start`, {
+        withAuth(
+          `${import.meta.env.VITE_API_URL}/${
+            verificationMode === 'PERIODIC_REVIEW'
+              ? 'periodic-review/edd-responses/start'
+              : 'onboarding/edd-responses/start'
+          }`,
+          {
           method: 'POST',
           body: JSON.stringify({}),
-        }),
-      'EDD QR session is ready.',
+          },
+        ),
+      verificationMode === 'PERIODIC_REVIEW'
+        ? 'Periodic review EDD QR session is ready.'
+        : 'EDD QR session is ready.',
     );
 
-  const createSession = async (item: CaseItem) =>
+  const createSession = async (item: ResponseItem) =>
     runAction(
       () =>
-        withAuth(`${import.meta.env.VITE_API_URL}/onboarding/cases/${item.id}/sessions`, {
-          method: 'POST',
-          body: JSON.stringify({ caseType: item.caseType, provider: 'MOCK' }),
-        }),
-      `${item.caseType} QR session regenerated.`,
+        withAuth(
+          `${import.meta.env.VITE_API_URL}/${
+            verificationMode === 'PERIODIC_REVIEW' ? 'periodic-review' : 'onboarding'
+          }/responses/${item.id}/sessions`,
+          {
+            method: 'POST',
+            body: JSON.stringify({ responseType: item.responseType, provider: 'MOCK' }),
+          },
+        ),
+      `${item.responseType} QR session regenerated.`,
     );
 
   const mockCompleteEdd = async (sessionId: string) =>
     runAction(
       () =>
-        withAuth(`${import.meta.env.VITE_API_URL}/onboarding/sessions/${sessionId}/mock-complete`, {
-          method: 'POST',
-          body: JSON.stringify({ result: 'PASS' }),
-        }),
-      'EDD mock callback simulated.',
+        withAuth(
+          `${import.meta.env.VITE_API_URL}/${
+            verificationMode === 'PERIODIC_REVIEW' ? 'periodic-review' : 'onboarding'
+          }/response-sessions/${sessionId}/mock-complete`,
+          {
+            method: 'POST',
+            body: JSON.stringify({ result: 'PASS' }),
+          },
+        ),
+      verificationMode === 'PERIODIC_REVIEW'
+        ? 'Periodic review EDD mock callback simulated.'
+        : 'EDD mock callback simulated.',
     );
 
   const openCddMockDialog = (sessionId: string) => {
@@ -516,7 +717,9 @@ const Verification = () => {
     const ok = await runAction(
       () =>
         withAuth(
-          `${import.meta.env.VITE_API_URL}/onboarding/sessions/${mockDialogSessionId}/mock-complete`,
+          `${import.meta.env.VITE_API_URL}/${
+            verificationMode === 'PERIODIC_REVIEW' ? 'periodic-review' : 'onboarding'
+          }/response-sessions/${mockDialogSessionId}/mock-complete`,
           {
             method: 'POST',
             body: JSON.stringify({ mockDataType: pickedType }),
@@ -530,14 +733,14 @@ const Verification = () => {
     }
   };
 
-  const handleMockComplete = async (session: CaseSession, caseType: 'CDD' | 'EDD') => {
+  const handleMockComplete = async (session: ResponseSession, responseType: 'CDD' | 'EDD') => {
     const sessionId = resolveSessionId(session);
     if (!sessionId) {
       setMessage('Session id is missing. Please regenerate QR code first.');
       return false;
     }
 
-    if (caseType === 'CDD') {
+    if (responseType === 'CDD') {
       openCddMockDialog(sessionId);
       return true;
     }
@@ -545,44 +748,55 @@ const Verification = () => {
     return mockCompleteEdd(sessionId);
   };
 
-  const legacyNextStep = useMemo(
-    () => mapNextStepToLegacy(nextStep, onboarding, profile),
-    [nextStep, onboarding, profile],
+  const currentStep = useMemo(
+    () =>
+      verificationMode === 'PERIODIC_REVIEW'
+        ? mapPeriodicReviewNextStepToLegacy(periodicNextStep, periodicReview)
+        : mapOnboardingToStep(nextStep, onboarding, profile),
+    [verificationMode, periodicNextStep, periodicReview, nextStep, onboarding, profile],
   );
 
-  const approved = legacyNextStep.publicStatus === 'ACTIVE';
+  const onboardingStatus = normalizeCanonicalOnboardingStatus(
+    onboarding?.onboardingStatus ?? profile?.onboardingStatus,
+  );
+  const operatingStatus = normalizeCanonicalOperatingStatus(
+    onboarding?.operatingStatus ?? profile?.operatingStatus,
+  );
+  const approved =
+    verificationMode === 'ONBOARDING' &&
+    onboardingStatus === 'APPROVED' &&
+    operatingStatus === 'ACTIVE';
   const pendingFinalApproval =
-    legacyNextStep.publicStatus === 'FINAL_APPROVAL' ||
-    (onboarding?.finalApprovalStatus || profile?.finalApprovalStatus) === 'PENDING';
+    verificationMode === 'ONBOARDING' && onboardingStatus === 'FINAL_APPROVAL';
   const showIntroFlow =
-    legacyNextStep.step === 'CDD' &&
-    legacyNextStep.action === 'START_CDD' &&
+    currentStep.step === 'CDD' &&
+    currentStep.action === 'START_CDD' &&
     introStage !== 'FLOW';
 
-  const currentCaseType: 'CDD' | 'EDD' = legacyNextStep.step === 'EDD' ? 'EDD' : 'CDD';
-  const currentCaseCandidates = useMemo(
-    () => cases.filter((item) => item.caseType === currentCaseType),
-    [cases, currentCaseType],
+  const currentResponseType: 'CDD' | 'EDD' = currentStep.step === 'EDD' ? 'EDD' : 'CDD';
+  const currentResponseCandidates = useMemo(
+    () => responses.filter((item) => item.responseType === currentResponseType),
+    [responses, currentResponseType],
   );
 
-  const activeCase =
-    currentCaseCandidates.find((item) => item.id === legacyNextStep.activeCaseId) ||
-    currentCaseCandidates.find((item) => ['PENDING', 'SUBMITTED'].includes(item.status)) ||
-    currentCaseCandidates[0] ||
+  const activeResponse =
+    currentResponseCandidates.find((item) => item.id === currentStep.activeCaseId) ||
+    currentResponseCandidates.find((item) => ['PENDING', 'SUBMITTED'].includes(item.status)) ||
+    currentResponseCandidates[0] ||
     null;
 
   const hasUsableActiveSession =
-    !!activeCase?.latestSession?.qrCodeUrl &&
-    activeCase.latestSession.status !== 'FAILED' &&
-    new Date(activeCase.latestSession.expiresAt).getTime() > Date.now();
+    !!activeResponse?.latestSession?.qrCodeUrl &&
+    activeResponse.latestSession.status !== 'FAILED' &&
+    new Date(activeResponse.latestSession.expiresAt).getTime() > Date.now();
 
   useEffect(() => {
-    if (legacyNextStep.step === 'CDD' && legacyNextStep.action === 'START_CDD') {
+    if (currentStep.step === 'CDD' && currentStep.action === 'START_CDD') {
       setIntroStage((prev) => (prev === 'FLOW' ? 'INTRO' : prev));
       return;
     }
     setIntroStage('FLOW');
-  }, [legacyNextStep.step, legacyNextStep.action]);
+  }, [currentStep.step, currentStep.action]);
 
   useEffect(() => {
     if (!approved) return;
@@ -602,14 +816,20 @@ const Verification = () => {
         title: 'Final Approval',
         description: 'EDD has been approved. Waiting for final management confirmation.',
       }
-    : legacyNextStep.requiresEdd
+    : currentStep.requiresEdd
       ? {
-          title: 'Under Review',
-          description: 'Your EDD submission is under compliance review.',
+          title: verificationMode === 'PERIODIC_REVIEW' ? 'Periodic Review' : 'Under Review',
+          description:
+            verificationMode === 'PERIODIC_REVIEW'
+              ? 'Your periodic review EDD submission is under compliance review.'
+              : 'Your EDD submission is under compliance review.',
         }
       : {
-          title: 'Under Review',
-          description: 'Your CDD submission is under compliance review.',
+          title: verificationMode === 'PERIODIC_REVIEW' ? 'Periodic Review' : 'Under Review',
+          description:
+            verificationMode === 'PERIODIC_REVIEW'
+              ? 'Your periodic review CDD submission is under compliance review.'
+              : 'Your CDD submission is under compliance review.',
         };
 
   return (
@@ -766,7 +986,7 @@ const Verification = () => {
               </motion.section>
             )}
 
-            {legacyNextStep.step === 'CDD' && !showIntroFlow && (
+            {currentStep.step === 'CDD' && !showIntroFlow && (
               <motion.div
                 key="cdd"
                 initial={{ opacity: 0, scale: 0.95 }}
@@ -774,10 +994,10 @@ const Verification = () => {
                 exit={{ opacity: 0, scale: 1.05 }}
                 transition={{ duration: 0.4 }}
               >
-                <JourneyCasePanel
+                <JourneyResponsePanel
                   title="Verify Identity"
                   subtitle="Scan with your mobile device to complete verification securely."
-                  item={activeCase}
+                  item={activeResponse}
                   loading={casesLoading}
                   saving={saving}
                   onCreateSession={createSession}
@@ -787,7 +1007,7 @@ const Verification = () => {
               </motion.div>
             )}
 
-            {legacyNextStep.step === 'EDD' && (
+            {currentStep.step === 'EDD' && (
               <motion.div
                 key="edd"
                 initial={{ opacity: 0, scale: 0.95 }}
@@ -812,7 +1032,7 @@ const Verification = () => {
                       </div>
                       <h2 className="text-2xl font-bold text-slate-900">Start EDD Verification</h2>
                       <p className="mt-3 text-slate-500 leading-relaxed max-w-md">
-                        Your EDD case is ready. Generate your verification link first, then scan QR
+                        Your EDD response is ready. Generate your verification link first, then scan QR
                         to continue.
                       </p>
                       <button
@@ -826,10 +1046,10 @@ const Verification = () => {
                     </div>
                   </motion.section>
                 ) : (
-                  <JourneyCasePanel
+                  <JourneyResponsePanel
                     title="Additional Check"
                     subtitle="Please complete this additional verification step."
-                    item={activeCase}
+                  item={activeResponse}
                     loading={casesLoading}
                     saving={saving}
                     onCreateSession={createSession}
@@ -840,7 +1060,7 @@ const Verification = () => {
               </motion.div>
             )}
 
-            {legacyNextStep.step === 'WAIT_REVIEW' && (
+            {currentStep.step === 'WAIT_REVIEW' && (
               <motion.section
                 key="wait"
                 initial={{ opacity: 0, y: 20 }}
@@ -861,13 +1081,16 @@ const Verification = () => {
                   </p>
 
                   <div className="mt-8 w-full border-t border-slate-100 pt-6">
-                    <CaseSummaryList items={cases} caseType={legacyNextStep.requiresEdd ? 'EDD' : 'CDD'} />
+                    <ResponseSummaryList
+                      items={responses}
+                      responseType={currentStep.requiresEdd ? 'EDD' : 'CDD'}
+                    />
                   </div>
                 </div>
               </motion.section>
             )}
 
-            {legacyNextStep.step === 'REINITIATE' && (
+            {currentStep.step === 'REINITIATE' && (
               <motion.section
                 key="rejected"
                 initial={{ opacity: 0, y: 20 }}
@@ -881,7 +1104,7 @@ const Verification = () => {
 
                   <h2 className="text-2xl font-bold text-slate-900">Verification Failed</h2>
                   <p className="mt-3 text-red-600/80 font-medium bg-red-50 px-4 py-2 rounded-lg text-sm">
-                    {legacyNextStep.blockedReason || 'Verification could not be completed.'}
+                    {currentStep.blockedReason || 'Verification could not be completed.'}
                   </p>
                   <p className="mt-4 text-slate-500 text-sm">
                     Please try again. Ensure your documents are clear and details match.
@@ -889,7 +1112,7 @@ const Verification = () => {
 
                   <button
                     onClick={() =>
-                      legacyNextStep.action === 'REINITIATE_EDD'
+                      currentStep.action === 'REINITIATE_EDD'
                         ? reinitiateEdd().catch(() => undefined)
                         : reinitiateCdd().catch(() => undefined)
                     }
@@ -897,13 +1120,13 @@ const Verification = () => {
                     className={`${primaryButtonClass} mt-8 bg-gradient-to-r from-red-500 to-orange-600 shadow-red-500/30 hover:shadow-red-500/50`}
                   >
                     <RefreshCw size={18} />
-                    {legacyNextStep.action === 'REINITIATE_EDD' ? 'Retry EDD' : 'Retry Verification'}
+                    {currentStep.action === 'REINITIATE_EDD' ? 'Retry EDD' : 'Retry Verification'}
                   </button>
                 </div>
               </motion.section>
             )}
 
-            {legacyNextStep.step === 'ENTITY_INFO' && (
+            {currentStep.step === 'ENTITY_INFO' && (
               <motion.section
                 key="manual"
                 initial={{ opacity: 0, y: 20 }}
@@ -985,7 +1208,7 @@ const Verification = () => {
   );
 };
 
-const JourneyCasePanel = ({
+const JourneyResponsePanel = ({
   title,
   subtitle,
   item,
@@ -997,11 +1220,11 @@ const JourneyCasePanel = ({
 }: {
   title: string;
   subtitle: string;
-  item: CaseItem | null;
+  item: ResponseItem | null;
   loading: boolean;
   saving: boolean;
-  onCreateSession: (item: CaseItem) => Promise<boolean>;
-  onMockComplete: (session: CaseSession, caseType: 'CDD' | 'EDD') => Promise<boolean>;
+  onCreateSession: (item: ResponseItem) => Promise<boolean>;
+  onMockComplete: (session: ResponseSession, responseType: 'CDD' | 'EDD') => Promise<boolean>;
   onStart: () => Promise<boolean>;
 }) => {
   if (loading) {
@@ -1103,7 +1326,7 @@ const JourneyCasePanel = ({
                 if (!item.latestSession || !sessionId) {
                   return;
                 }
-                onMockComplete(item.latestSession, item.caseType).catch(() => undefined);
+                onMockComplete(item.latestSession, item.responseType).catch(() => undefined);
               }}
               disabled={saving || !sessionId}
               className="w-full text-center text-xs font-medium text-slate-300 hover:text-indigo-400 transition-colors py-2 cursor-pointer disabled:cursor-not-allowed disabled:hover:text-slate-300"
@@ -1117,14 +1340,14 @@ const JourneyCasePanel = ({
   );
 };
 
-const CaseSummaryList = ({
+const ResponseSummaryList = ({
   items,
-  caseType,
+  responseType,
 }: {
-  items: CaseItem[];
-  caseType: 'CDD' | 'EDD';
+  items: ResponseItem[];
+  responseType: 'CDD' | 'EDD';
 }) => {
-  const filtered = items.filter((item) => item.caseType === caseType).slice(0, 3);
+  const filtered = items.filter((item) => item.responseType === responseType).slice(0, 3);
 
   if (filtered.length === 0) return null;
 
@@ -1148,7 +1371,7 @@ const CaseSummaryList = ({
                     : 'bg-amber-500'
               }`}
             />
-            <span className="font-medium text-slate-700">{item.caseNo}</span>
+            <span className="font-medium text-slate-700">{item.responseNo}</span>
           </div>
           <span className="text-xs font-medium text-slate-500 bg-white px-2 py-1 rounded border border-slate-100">
             {item.status}

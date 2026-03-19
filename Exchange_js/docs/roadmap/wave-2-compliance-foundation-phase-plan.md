@@ -76,7 +76,7 @@
 - 存储外部系统返回的结构化响应
 - 保留回放、比对、审计、证据展示所需字段
 - 在后台提供可视化查看能力
-- 当前代码里的 `CddCase / EddCase / KytCase / TravelRuleCase` 都按这个层来解释
+- 当前代码里的 `CddResponse / EddResponse / KytCase / TravelRuleCase` 都按这个层来解释
 
 它们不是合规调查对象，不与 `Case` 争夺命名。
 
@@ -146,9 +146,10 @@
 
 - `Phase 1-5`: `Foundation Build`
   - 解决“平台基座先跑起来”的问题
-- `Phase 6-9`: `Foundation Hardening`
+- `Phase 6-12`: `Foundation Hardening`
   - 解决“语义、编排、调查、工作流契约定型”的问题
-  - 当前只按 onboarding review 场景收口，不再混写 transaction/generic 的 `alert / case` 规则
+  - `Phase 6-9` 先按 onboarding review 场景收口
+  - `Phase 10-12` 再把 onboarding / periodic review 与 transaction 共用的 `alert / case / workflow / report / MLRO` 分层补齐
 
 | Phase | 名称 | 目标 |
 | --- | --- | --- |
@@ -161,6 +162,9 @@
 | `Phase 7` | Risk Decision -> Alert Orchestration | 让 alert 来源统一收口到 risk/policy decision 层 |
 | `Phase 8` | Case Investigation Kernel | 让 case 成为真正的调查对象而不只是动作容器 |
 | `Phase 9` | Workflow Transition Contract | 让业务工作流通过 disposition 消费结论并推进状态 |
+| `Phase 10` | Alert Outcome And Workflow Decision Split | 把 alert triage outcome 与 workflow decision 正式拆层 |
+| `Phase 11` | Case State Machine And Interim Measures | 把 case 定义成正式调查对象，并单列临时处置措施 |
+| `Phase 12` | Report, MLRO Review And Final Disposition Gate | 把调查报告、MLRO 审核与最终结论生效链路定型 |
 
 建议执行顺序：
 
@@ -169,6 +173,9 @@
 3. `Phase 7`
 4. `Phase 8`
 5. `Phase 9`
+6. `Phase 10`
+7. `Phase 11`
+8. `Phase 12`
 
 ---
 
@@ -206,9 +213,9 @@
 
 | 当前实现对象 | Phase 1 语义定位 | 说明 |
 | --- | --- | --- |
-| `CddCase` / `EddCase` | `Provider Response` | onboarding 外部响应/证据容器，不占用合规 `Case` 语义 |
+| `CddResponse` / `EddResponse` | `Provider Response` | onboarding 外部响应/证据容器，不占用合规 `Case` 语义 |
 | `KytCase` / `TravelRuleCase` | `Provider Response` | 交易侧外部响应/证据容器 |
-| `OnboardingDecisionRecord` | `Decision Record` 的当前特化实现 | 后续在 `Phase 2` 平台化 |
+| `WorkflowDecisionRecord` | `Decision Record` 的当前特化实现 | 后续在 `Phase 2` 平台化 |
 | `ComplianceAlert` | `Alert` | 当前分诊对象实现 |
 | `ComplianceIncident` | `Case` 的当前过渡实现 | 当前运行时仍保留 `incident` 命名 |
 
@@ -718,7 +725,185 @@
 
 ---
 
-## 15. 与现有代码的映射建议
+## 15. Phase 10：Alert Outcome And Workflow Decision Split
+
+### 目标
+
+把 `alert` 从“混合动作容器”收口成轻量 triage work item，并把 workflow 推进从 alert action 中彻底拆出来。
+
+### 范围
+
+- `Alert Action`
+- `Alert Outcome`
+- `Workflow Decision`
+- workflow-bound alert 与 generic alert 的差异
+- onboarding / periodic review 与 transaction 两类 alert 分流模型
+
+### P0 交付物
+
+- `Alert Action / Alert Outcome / Workflow Decision` 三层边界图
+- workflow-bound alert 的最小动作集
+- transaction alert 的最小 triage 分流图
+- `False Positive -> Clear` 自动收敛规则
+- `alert disposition` 与 `workflow decision` 分别建模的说明
+
+### 核心规则
+
+- `Alert Action` 固定为轻量 triage / ownership：
+  - `ASSIGN`
+  - `REASSIGN`
+  - `FALSE_POSITIVE`
+  - `ESCALATE_TO_CASE`
+- `Workflow Decision` 独立于 alert action，至少包含：
+  - `CLEAR`
+  - `REQUIRE_EDD`
+  - `REJECT`
+- `False Positive` 在 workflow-bound alert 上自动收敛到 `workflow decision = CLEAR`
+- 但记录层必须分开：
+  - `alert disposition`
+  - `workflow decision`
+- `No Action` 不再作为 workflow-bound alert 的推荐长期模型
+- `Confirm Risk` 不作为独立按钮引入
+- `Escalate to Case` 只表示 triage 升级，不表示 workflow 推进
+- onboarding / periodic review 中，不再把 `Approve Stage` 作为推荐长期命名，统一收口到 `CLEAR`
+
+### Wave DoD
+
+- 实现者不再把 `False Positive / Escalate to Case / Clear / Require EDD / Reject` 视为同一类按钮
+- onboarding / periodic review 的 alert 页面可以清楚拆成 triage outcome 与 workflow decision 两个区域
+- transaction alert 的职责边界与 workflow-bound alert 清楚分开
+
+### 明确不做
+
+- 不在本 phase 直接改现有 UI 或 API
+- 不把 case investigation 流程一并塞进 alert 模型
+- 不在本 phase 引入 `Confirm Risk` 中间态
+
+---
+
+## 16. Phase 11：Case State Machine And Interim Measures
+
+### 目标
+
+把 `Case` 定义成正式调查对象，而不是 alert 放大版，并把临时处置措施从 workflow decision 中拆出来。
+
+### 范围
+
+- `Case` 状态机
+- `Case Actions`
+- `Interim Measures`
+- `Workflow Decisions`
+- onboarding case 与 transaction case 的最小分流模型
+
+### P0 交付物
+
+- 新 `Case` 状态机图
+- `Case Actions / Interim Measures / Workflow Decisions` 三层按钮分组
+- onboarding case 与 transaction case 的最小动作矩阵
+- transaction 主线：
+  - `Alert -> Escalate to Case -> Interim Measure -> Investigate -> Final Disposition`
+
+### 核心规则
+
+- `Case` 目标状态机固定为：
+  - `OPEN`
+  - `ASSIGNED`
+  - `INVESTIGATING`
+  - `PENDING_MLRO_REVIEW`
+  - `CLOSED`
+- `RESOLVED` 只保留为历史兼容，不再生产
+- `Case Actions` 只负责 work item 本身：
+  - `ASSIGN`
+  - `REASSIGN`
+  - `FALSE_POSITIVE`
+  - `LINK_ALERT`（若保留）
+- `Interim Measures` 单独成类：
+  - `FREEZE`
+  - `UNFREEZE`
+  - `RESTRICT`
+  - `UNRESTRICT`
+- `Workflow Decisions` 只在 case 承载 workflow 时出现：
+  - `CLEAR`
+  - `REQUIRE_EDD`
+  - `REJECT`
+- investigator 允许先采取一轮临时措施，再继续调查
+- onboarding case 只是复杂 review 的 investigation 容器，不是所有 EDD 自动升级后的默认形态
+
+### Wave DoD
+
+- 实现者不再把 `FREEZE / RESTRICT / REPORT / CLEAR / REQUIRE_EDD / REJECT` 全部混成同一类 case action
+- case 的多轮处置不再依赖单薄的 `OPEN / ASSIGNED / CLOSED` 三态解释
+- onboarding 与 transaction 的 case 分工可以从文档直接读出
+
+### 明确不做
+
+- 不在本 phase 直接落地双人审批或 approval policy
+- 不在本 phase 定义所有 transaction 最终 disposition 枚举
+- 不要求本 phase 改写现有运行时代码
+
+---
+
+## 17. Phase 12：Report, MLRO Review And Final Disposition Gate
+
+### 目标
+
+把“调查完成”与“最终结论生效”正式分层，并让 `MLRO` 成为 case 最终结论生效前的治理 gate。
+
+### 范围
+
+- `Report Lifecycle`
+- `MLRO Review Gate`
+- `proposed final disposition`
+- `approved final disposition`
+- workflow-bound case 与 transaction case 的最终结论收口
+
+### P0 交付物
+
+- report lifecycle 定义
+- `INVESTIGATING -> PENDING_MLRO_REVIEW -> CLOSED` 的门禁图
+- `proposed final disposition` 与 `approved final disposition` 的边界说明
+- `final disposition` 与 `workflow decision` 的分层说明
+- onboarding / periodic review 与 transaction 的最终结论示例路径
+
+### 核心规则
+
+- `Report Lifecycle` 独立存在，不等于最终 disposition：
+  - `draft`
+  - `finalize`
+  - `returned / superseded`
+- `MLRO Review Gate` 是 case 最终结论生效前的必经环节
+- `INVESTIGATING -> PENDING_MLRO_REVIEW` 的前置条件至少包含：
+  - finalized report
+  - proposed final disposition
+  - 必要时带 proposed workflow decision
+- `MLRO` 只有两类标准结果：
+  - `RETURN_FOR_INVESTIGATION`
+  - `APPROVE_FINAL_DISPOSITION`
+- 只有 MLRO 批准后，才执行：
+  - 最终业务处置
+  - 若为 workflow-bound case，再执行 workflow transition
+  - 然后 case `CLOSED`
+- `REPORT` 不再等同于“写报告”，而是 final disposition 的一种可能结论
+- 双场景示例固定为：
+  - onboarding / periodic review：`CLEAR / REQUIRE_EDD / REJECT`
+  - transaction：`REPORT / MAINTAIN_RESTRICTION / RELEASE_RESTRICTION / CLEAR`
+- “EDD review 需要更高治理” 不得被直接解释为 “EDD 自动升级成 case”
+
+### Wave DoD
+
+- 文档里 `report`、`MLRO review`、`final disposition`、`workflow decision` 四层不再混写
+- 实现者能明确知道何时只是调查完成，何时才是最终结论生效
+- onboarding / periodic review 与 transaction 两种最终结论路径都具备统一治理口径
+
+### 明确不做
+
+- 不在本 phase 直接确定 EDD 后双人审批的具体实现方案
+- 不把 approvals 模块的具体 step 设计提前写死到 case 模型中
+- 不把 `REPORT` 直接等同为外部正式报送集成
+
+---
+
+## 18. 与现有代码的映射建议
 
 当前代码在 `Wave 2` 中建议按下面方式解释：
 
@@ -734,7 +919,7 @@
 - `transaction-compliance` 下 `KYT / Travel Rule`
   - 当前角色：交易侧 provider response/evidence container
   - 目标角色：只读外部响应容器 + 证据对象
-- `onboarding` 下 `cddCase / eddCase`
+- `onboarding` 下 `cddResponse / eddResponse`
   - 当前角色：onboarding provider response/evidence container
   - 目标角色：不再占用通用 `Case` 语义
 - `onboarding decision record`
@@ -749,10 +934,13 @@
 - `resolutionSummary / closureChecklist`
   - 当前角色：case close/summary 的过渡字段
   - 目标角色：后续映射到正式 `Case Report` 体系
+- 当前 alert / case 页面与服务实现
+  - 当前角色：仍混有 `alert triage`、`workflow decision`、`interim measures`
+  - 目标角色：在 `Phase 10-12` 中完成职责拆分，而不是继续往 mixed model 里堆按钮
 
 ---
 
-## 16. 本波关键约束
+## 19. 本波关键约束
 
 - 不允许再把 `KYT / Travel Rule / CDD / EDD` 容器定义成通用 `Case`
 - 不允许在 onboarding 内再长出一套独立 review 容器
@@ -765,20 +953,28 @@
 - 不允许继续用 `triggerType` 组织 `alert / case`
 - 不允许把 `FINAL_APPROVAL` 当作当前 `alert / case` stage
 - 不允许在当前 hardening 主线里继续保留 `TX_*` rule 作为 active scope
+- 不允许再把 `workflow decision` 混写成 `alert action`
+- 不允许继续把 `False Positive / Escalate to Case` 和 `Clear / Require EDD / Reject` 当成同一类按钮
+- 不允许 `Case` 在无 finalized report、无 MLRO gate 时直接成为最终处置 owner
+- 不允许把 `REPORT` 继续同时表示“报告生命周期动作”和“最终处置结果”
+- 不允许把“EDD review 需要更高治理”直接解释为“EDD 自动升级成 case”
 
 ---
 
-## 17. 建议的验收顺序
+## 20. 建议的验收顺序
 
 1. `Phase 1-5` 文档与基座建设段完成
 2. `Phase 6` disposition model 定型
 3. `Phase 7` risk decision -> alert orchestration 定型
 4. `Phase 8` case investigation kernel 定型
 5. `Phase 9` workflow transition contract 定型
+6. `Phase 10` alert outcome 与 workflow decision 分层定型
+7. `Phase 11` case state machine 与 interim measures 定型
+8. `Phase 12` report / MLRO review / final disposition gate 定型
 
 ---
 
-## 18. 后续维护规则
+## 21. 后续维护规则
 
 - 当 `Wave 2` 范围发生变化时，优先更新本文件，再更新更细的约束文档。
 - 如果某个需求跨多个 phase，必须明确：

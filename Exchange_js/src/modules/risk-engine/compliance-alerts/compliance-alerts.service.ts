@@ -46,11 +46,14 @@ import {
   LEGACY_ONBOARDING_REVIEW_RULE,
   ONBOARDING_REVIEW_STAGES,
   ONBOARDING_SOURCE_TYPE,
-  ONBOARDING_WORKFLOW,
+  PERIODIC_REVIEW_WORKFLOW,
   getCanonicalOnboardingRuleForStage,
-  isOnboardingSourceType,
+  getCanonicalReviewRuleForStage,
+  getWorkflowFromSourceType,
+  isSupportedReviewSourceType,
+  normalizeComplianceReviewStage,
+  normalizeComplianceRuleCode,
   normalizeOnboardingReviewStage,
-  normalizeOnboardingRuleCode,
 } from '../constants/onboarding-compliance-workflow.constant';
 
 type AlertWriteClient = Prisma.TransactionClient | PrismaService;
@@ -148,30 +151,31 @@ export class ComplianceAlertsService {
     return this.normalizeStringList(metadata.reasonCodes);
   }
 
-  private assertOnboardingAlertInput(
+  private assertReviewAlertInput(
     input: Pick<TriggerComplianceAlertInput, 'sourceType' | 'stage' | 'ruleCode'>,
   ) {
-    if (!isOnboardingSourceType(input.sourceType)) {
+    const workflow = getWorkflowFromSourceType(input.sourceType);
+    if (!workflow) {
       throw new BadRequestException(
-        'Compliance alerts are onboarding-only in current runtime.',
+        `Unsupported compliance alert sourceType: ${String(input.sourceType || '')}`,
       );
     }
 
-    const stage = normalizeOnboardingReviewStage(input.stage);
+    const stage = normalizeComplianceReviewStage(input.stage);
     if (!stage) {
       throw new BadRequestException(
-        `Unsupported onboarding alert stage: ${String(input.stage || '')}`,
+        `Unsupported compliance alert stage: ${String(input.stage || '')}`,
       );
     }
 
-    const canonicalRule = normalizeOnboardingRuleCode(input.ruleCode, stage);
+    const canonicalRule = normalizeComplianceRuleCode(input.ruleCode, stage, workflow);
     if (!canonicalRule) {
       throw new BadRequestException(
-        `Unsupported onboarding alert ruleCode: ${String(input.ruleCode || '')}`,
+        `Unsupported compliance alert ruleCode: ${String(input.ruleCode || '')}`,
       );
     }
 
-    return { stage, canonicalRule };
+    return { workflow, stage, canonicalRule };
   }
 
   private getRuleSnapshot(row: {
@@ -180,13 +184,11 @@ export class ComplianceAlertsService {
     ruleCode?: string | null;
   }) {
     const rawStage = this.normalizeOptionalString((row as any).stage);
-    const stage = normalizeOnboardingReviewStage(rawStage);
+    const workflow = getWorkflowFromSourceType((row as any).sourceType);
+    const stage = normalizeComplianceReviewStage(rawStage);
     const rule =
-      normalizeOnboardingRuleCode((row as any).ruleCode, stage) ||
+      normalizeComplianceRuleCode((row as any).ruleCode, stage, workflow) ||
       this.normalizeOptionalString((row as any).ruleCode);
-    const workflow = isOnboardingSourceType((row as any).sourceType)
-      ? ONBOARDING_WORKFLOW
-      : null;
 
     return {
       workflow,
@@ -227,7 +229,7 @@ export class ComplianceAlertsService {
     actorId?: string | null,
   ): string[] {
     const status = String(row.status || '').trim().toUpperCase();
-    const stage = normalizeOnboardingReviewStage((row as any).stage);
+    const stage = normalizeComplianceReviewStage((row as any).stage);
     const assigneeUserId = this.normalizeOptionalString(row.assigneeUserId);
     const isCurrentAssignee = !!actorId && !!assigneeUserId && assigneeUserId === actorId;
 
@@ -482,10 +484,10 @@ export class ComplianceAlertsService {
     if (fromMetadata.length > 0) return fromMetadata;
 
     const contextType = String(metadata.contextType || '').toUpperCase();
-    if (contextType === 'ONBOARDING_CDD') {
+    if (contextType === 'ONBOARDING_CDD' || contextType === 'PERIODIC_REVIEW_CDD') {
       return ['APPROVE', 'REJECT', 'REQUIRE_EDD'];
     }
-    if (contextType === 'ONBOARDING_EDD') {
+    if (contextType === 'ONBOARDING_EDD' || contextType === 'PERIODIC_REVIEW_EDD') {
       return ['APPROVE', 'REJECT'];
     }
 
@@ -781,7 +783,7 @@ export class ComplianceAlertsService {
     tx?: Prisma.TransactionClient,
   ) {
     const db = this.getDb(tx);
-    const { stage, canonicalRule } = this.assertOnboardingAlertInput(input);
+    const { stage, canonicalRule } = this.assertReviewAlertInput(input);
     const rule = this.ensureRule(canonicalRule);
     const occurredAt = input.occurredAt || new Date();
     const severity = input.severity || rule.severity;
@@ -850,7 +852,7 @@ export class ComplianceAlertsService {
           title,
           message,
           sourceModule: input.sourceModule,
-          sourceType: ONBOARDING_SOURCE_TYPE,
+          sourceType: input.sourceType,
           sourceId: input.sourceId,
           sourceNo: this.normalizeOptionalString(input.sourceNo),
           entityType: this.normalizeOptionalString(input.entityType),
@@ -893,7 +895,7 @@ export class ComplianceAlertsService {
         payload: {
           ruleCode: canonicalRule,
           dedupeKey,
-          sourceType: ONBOARDING_SOURCE_TYPE,
+          sourceType: input.sourceType,
           sourceId: input.sourceId,
           stage,
           metadata: input.metadata || null,
@@ -982,7 +984,7 @@ export class ComplianceAlertsService {
           title,
           message,
           sourceModule: input.sourceModule,
-          sourceType: ONBOARDING_SOURCE_TYPE,
+          sourceType: input.sourceType,
           sourceId: input.sourceId,
           sourceNo: this.normalizeOptionalString(input.sourceNo),
           entityType: this.normalizeOptionalString(input.entityType),
@@ -1026,7 +1028,7 @@ export class ComplianceAlertsService {
           ruleCode: canonicalRule,
           dedupeKey,
           previousAlertId: existing.id,
-          sourceType: ONBOARDING_SOURCE_TYPE,
+          sourceType: input.sourceType,
           sourceId: input.sourceId,
           stage,
           metadata: input.metadata || null,
@@ -1172,7 +1174,7 @@ export class ComplianceAlertsService {
       payload: {
         ruleCode: canonicalRule,
         dedupeKey,
-        sourceType: ONBOARDING_SOURCE_TYPE,
+        sourceType: input.sourceType,
         sourceId: input.sourceId,
         stage,
         metadata: input.metadata || null,
@@ -1242,21 +1244,26 @@ export class ComplianceAlertsService {
   async findAll(query: ComplianceAlertQueryDto) {
     const skip = this.normalizeSkip(query.skip);
     const take = this.normalizeTake(query.take);
-    const where: Prisma.ComplianceAlertWhereInput = {
-      sourceType: ONBOARDING_SOURCE_TYPE,
-    };
+    const where: Prisma.ComplianceAlertWhereInput = {};
     const andConditions: Prisma.ComplianceAlertWhereInput[] = [];
-    const normalizedStage = normalizeOnboardingReviewStage(query.stage);
+    const normalizedStage = normalizeComplianceReviewStage(query.stage);
     const rawRuleCode = this.normalizeOptionalString(query.ruleCode)?.toUpperCase() || null;
 
     if (query.status) where.status = query.status;
     if (query.severity) where.severity = query.severity;
-    if (query.sourceType && !isOnboardingSourceType(query.sourceType)) {
+    if (query.sourceType && !isSupportedReviewSourceType(query.sourceType)) {
       return {
         total: 0,
         skip,
         take,
         items: [],
+      };
+    }
+    if (query.sourceType) {
+      where.sourceType = query.sourceType;
+    } else {
+      where.sourceType = {
+        in: [ONBOARDING_SOURCE_TYPE, 'PERIODIC_REVIEW_CYCLE'],
       };
     }
     if (query.sourceId) where.sourceId = query.sourceId;
@@ -1271,14 +1278,12 @@ export class ComplianceAlertsService {
     }
 
     if (rawRuleCode) {
-      const cddRule =
-        getCanonicalOnboardingRuleForStage(ONBOARDING_REVIEW_STAGES.REVIEW_CDD) ||
-        'ONB_CDD_REVIEW_REQUIRED';
-      const eddRule =
-        getCanonicalOnboardingRuleForStage(ONBOARDING_REVIEW_STAGES.REVIEW_EDD) ||
-        'ONB_EDD_REVIEW_REQUIRED';
       const normalizedRule =
-        normalizeOnboardingRuleCode(rawRuleCode, normalizedStage || undefined) ||
+        normalizeComplianceRuleCode(
+          rawRuleCode,
+          normalizedStage || undefined,
+          query.sourceType,
+        ) ||
         (rawRuleCode === LEGACY_ONBOARDING_REVIEW_RULE ? rawRuleCode : null);
 
       if (!normalizedRule) {
@@ -1298,22 +1303,36 @@ export class ComplianceAlertsService {
             },
             {
               ruleCode: {
-                in: [cddRule, eddRule],
+                in: [
+                  getCanonicalOnboardingRuleForStage(ONBOARDING_REVIEW_STAGES.REVIEW_CDD) ||
+                    'ONB_CDD_REVIEW_REQUIRED',
+                  getCanonicalOnboardingRuleForStage(ONBOARDING_REVIEW_STAGES.REVIEW_EDD) ||
+                    'ONB_EDD_REVIEW_REQUIRED',
+                  getCanonicalReviewRuleForStage(
+                    ONBOARDING_REVIEW_STAGES.REVIEW_CDD,
+                    PERIODIC_REVIEW_WORKFLOW,
+                  ) || 'PRR_CDD_REVIEW_REQUIRED',
+                  getCanonicalReviewRuleForStage(
+                    ONBOARDING_REVIEW_STAGES.REVIEW_EDD,
+                    PERIODIC_REVIEW_WORKFLOW,
+                  ) || 'PRR_EDD_REVIEW_REQUIRED',
+                ],
               },
             },
           ],
         });
       } else {
+        const legacyCompatibleStage =
+          normalizedStage ||
+          (String(normalizedRule).includes('_EDD_')
+            ? ONBOARDING_REVIEW_STAGES.REVIEW_EDD
+            : ONBOARDING_REVIEW_STAGES.REVIEW_CDD);
         andConditions.push({
           OR: [
             { ruleCode: normalizedRule },
             {
               ruleCode: LEGACY_ONBOARDING_REVIEW_RULE,
-              stage:
-                normalizedStage ||
-                (normalizedRule === cddRule
-                  ? ONBOARDING_REVIEW_STAGES.REVIEW_CDD
-                  : ONBOARDING_REVIEW_STAGES.REVIEW_EDD),
+              stage: legacyCompatibleStage,
             },
           ],
         });
@@ -1384,8 +1403,8 @@ export class ComplianceAlertsService {
     }
 
     if (
-      !isOnboardingSourceType(item.sourceType) ||
-      !normalizeOnboardingReviewStage((item as any).stage)
+      !isSupportedReviewSourceType(item.sourceType) ||
+      !normalizeComplianceReviewStage((item as any).stage)
     ) {
       throw new NotFoundException(`Compliance alert not found: ${id}`);
     }
@@ -1493,11 +1512,11 @@ export class ComplianceAlertsService {
       throw new NotFoundException(`Compliance alert not found: ${id}`);
     }
     if (
-      !isOnboardingSourceType(current.sourceType) ||
-      !normalizeOnboardingReviewStage((current as any).stage)
+      !isSupportedReviewSourceType(current.sourceType) ||
+      !normalizeComplianceReviewStage((current as any).stage)
     ) {
       throw new BadRequestException(
-        `Alert ${id} is outside onboarding-only runtime scope`,
+        `Alert ${id} is outside supported review scope`,
       );
     }
 

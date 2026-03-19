@@ -33,8 +33,8 @@ export const PERMISSIONS = {
   OUTSTANDINGS_READ: 'api.get.admin_reconciliation_outstandings',
   OUTSTANDING_DETAIL_READ: 'api.get.admin_reconciliation_outstandings_id',
 
-  CDD_CASES_READ: 'api.get.admin_compliance_cdd_cases',
-  EDD_CASES_READ: 'api.get.admin_compliance_edd_cases',
+  CDD_RESPONSES_READ: 'api.get.admin_compliance_cdd_responses',
+  EDD_RESPONSES_READ: 'api.get.admin_compliance_edd_responses',
   ALERTS_READ: 'api.get.admin_compliance_alerts',
   ALERTS_WRITE: 'api.patch.admin_compliance_alerts_id_action',
   CASES_READ: 'api.get.admin_compliance_cases',

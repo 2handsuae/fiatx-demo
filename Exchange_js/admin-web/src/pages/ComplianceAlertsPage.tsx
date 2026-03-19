@@ -130,13 +130,14 @@ interface OnboardingAlertDecisionResponse {
   alert: AlertDetail;
   customer: {
     id: string;
-    publicStatus: string;
+    onboardingStatus?: string | null;
+    operatingStatus?: string | null;
     activeCaseId?: string | null;
     requiresEdd?: boolean;
   };
-  eddCase?: {
+  eddResponse?: {
     id: string;
-    caseNo?: string | null;
+    responseNo?: string | null;
   } | null;
 }
 
@@ -206,6 +207,24 @@ const normalizeStringList = (value: unknown): string[] => {
     .filter(Boolean);
 };
 
+const getOnboardingDecisionSummary = (customer: {
+  onboardingStatus?: string | null;
+  operatingStatus?: string | null;
+}) => {
+  const onboardingStatus = String(customer.onboardingStatus || '').trim().toUpperCase();
+  const operatingStatus = String(customer.operatingStatus || '').trim().toUpperCase();
+
+  if (onboardingStatus === 'APPROVED' && operatingStatus === 'ACTIVE') return 'active onboarding';
+  if (onboardingStatus === 'FINAL_APPROVAL') return 'final approval';
+  if (onboardingStatus === 'PENDING_EDD_INPUT') return 'EDD input';
+  if (onboardingStatus === 'EDD_UNDER_REVIEW') return 'EDD review';
+  if (onboardingStatus === 'CDD_UNDER_REVIEW') return 'CDD review';
+  if (onboardingStatus === 'REJECTED') return 'rejected';
+  if (onboardingStatus === 'WITHDRAWN') return 'withdrawn';
+  if (onboardingStatus === 'PENDING_CDD_INPUT') return 'CDD input';
+  return onboardingStatus || 'updated onboarding state';
+};
+
 const ALERT_CLOSE_DISPOSITIONS: AlertDispositionCode[] = [
   'APPROVE_STAGE',
   'REJECT_STAGE',
@@ -219,19 +238,19 @@ const getProviderResponseLink = (detail: AlertDetail): ProviderResponseLink | nu
   const contextType = String(metadata.contextType || '').trim().toUpperCase();
 
   if (contextType === 'ONBOARDING_EDD') {
-    return {
-      label: 'EDD Evidence',
-      path: '/dashboard/compliance/edd-cases',
-      description: 'Read-only provider response container for onboarding EDD evidence.',
-    };
+      return {
+        label: 'EDD Evidence',
+        path: '/dashboard/compliance/edd-responses',
+        description: 'Read-only provider response container for onboarding EDD evidence.',
+      };
   }
 
   if (contextType === 'ONBOARDING_CDD' || detail.ruleCode.startsWith('ONB_')) {
-    return {
-      label: 'CDD Evidence',
-      path: '/dashboard/compliance/cdd-cases',
-      description: 'Read-only provider response container for onboarding CDD evidence.',
-    };
+      return {
+        label: 'CDD Evidence',
+        path: '/dashboard/compliance/cdd-responses',
+        description: 'Read-only provider response container for onboarding CDD evidence.',
+      };
   }
 
   return null;
@@ -508,8 +527,11 @@ const ComplianceAlertsPage = () => {
     setMessage('');
     setLastEscalatedCase(null);
     try {
+      const isPeriodicReview = String(detail.workflow || '').trim().toUpperCase() === 'PERIODIC_REVIEW';
       const response = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/compliance/alerts/${detail.id}/onboarding-decision`,
+        `${import.meta.env.VITE_API_URL}/admin/compliance/alerts/${detail.id}/${
+          isPeriodicReview ? 'periodic-review-decision' : 'onboarding-decision'
+        }`,
         {
           method: 'POST',
           headers: {
@@ -526,20 +548,26 @@ const ComplianceAlertsPage = () => {
         throw new Error(
           await getApiErrorMessage(
             response,
-            'Failed to apply onboarding decision.',
+            isPeriodicReview
+              ? 'Failed to apply periodic review decision.'
+              : 'Failed to apply onboarding decision.',
           ),
         );
       }
 
       const data = (await response.json()) as OnboardingAlertDecisionResponse;
       setDetail(data.alert);
-      if (decision === 'REQUIRE_EDD' && data.eddCase?.caseNo) {
+      if (decision === 'REQUIRE_EDD' && data.eddResponse?.responseNo) {
         setMessage(
-          `Decision applied. Onboarding moved to ${data.customer.publicStatus}. EDD case ${data.eddCase.caseNo} created.`,
+          `Decision applied. ${
+            isPeriodicReview ? 'Periodic review' : 'Onboarding'
+          } moved to ${getOnboardingDecisionSummary(data.customer)}. EDD response ${data.eddResponse.responseNo} created.`,
         );
       } else {
         setMessage(
-          `Decision applied. Onboarding moved to ${data.customer.publicStatus}.`,
+          `Decision applied. ${
+            isPeriodicReview ? 'Periodic review' : 'Onboarding'
+          } moved to ${getOnboardingDecisionSummary(data.customer)}.`,
         );
       }
       await fetchAlerts(currentPage);

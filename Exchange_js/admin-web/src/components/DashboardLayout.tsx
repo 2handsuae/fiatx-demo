@@ -213,16 +213,16 @@ const DashboardLayout = () => {
       icon: <ClipboardList size={20} />,
       children: [
         {
-          path: '/dashboard/compliance/cdd-cases',
-          label: 'CDD Cases',
+          path: '/dashboard/compliance/cdd-responses',
+          label: 'CDD Responses',
           icon: <ShieldCheck size={18} />,
-          requiredPermissions: [PERMISSIONS.CDD_CASES_READ],
+          requiredPermissions: [PERMISSIONS.CDD_RESPONSES_READ],
         },
         {
-          path: '/dashboard/compliance/edd-cases',
-          label: 'EDD Cases',
+          path: '/dashboard/compliance/edd-responses',
+          label: 'EDD Responses',
           icon: <Shield size={18} />,
-          requiredPermissions: [PERMISSIONS.EDD_CASES_READ],
+          requiredPermissions: [PERMISSIONS.EDD_RESPONSES_READ],
         },
         {
           path: '/dashboard/compliance/alerts',

@@ -40,10 +40,10 @@ describe('JwtStrategy', () => {
     expect(prismaMock.customerMain.findUnique).not.toHaveBeenCalled();
   });
 
-  it('should reject customer token when account is frozen', async () => {
+  it('should reject customer token when compliance hold is frozen', async () => {
     prismaMock.customerMain.findUnique.mockResolvedValue({
       id: 'c1',
-      accountStatus: 'FROZEN',
+      complianceHoldStatus: 'FROZEN',
     });
 
     await expect(
@@ -57,10 +57,35 @@ describe('JwtStrategy', () => {
     ).rejects.toBeInstanceOf(ForbiddenException);
   });
 
-  it('should allow customer token when account is active', async () => {
+  it('should allow customer token when restriction is present but hold is active', async () => {
     prismaMock.customerMain.findUnique.mockResolvedValue({
       id: 'c1',
-      accountStatus: 'ACTIVE',
+      complianceHoldStatus: 'ACTIVE',
+      restrictionStatus: 'RESTRICTED',
+    });
+
+    await expect(
+      strategy.validate({
+        sub: 'c1',
+        username: 'test@example.com',
+        userNo: 'CU-1',
+        role: 'CUSTOMER',
+        type: 'CUSTOMER',
+      }),
+    ).resolves.toEqual({
+      userId: 'c1',
+      username: 'test@example.com',
+      userNo: 'CU-1',
+      role: 'CUSTOMER',
+      type: 'CUSTOMER',
+    });
+  });
+
+  it('should allow customer token when customer is restricted but not frozen', async () => {
+    prismaMock.customerMain.findUnique.mockResolvedValue({
+      id: 'c1',
+      complianceHoldStatus: 'ACTIVE',
+      restrictionStatus: 'RESTRICTED',
     });
 
     await expect(

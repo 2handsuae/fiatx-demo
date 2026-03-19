@@ -109,17 +109,17 @@ export class UpsertEntityDto {
   ubos?: UboProfileDto[];
 }
 
-export class BootstrapCasesDto {
+export class BootstrapResponsesDto {
   @IsOptional()
   @IsString()
   journeyId?: string;
 }
 
-export class CreateCaseSessionDto {
+export class CreateResponseSessionDto {
   @IsOptional()
   @IsString()
   @IsIn(['CDD', 'EDD'])
-  caseType?: 'CDD' | 'EDD';
+  responseType?: 'CDD' | 'EDD';
 
   @IsOptional()
   @IsString()
@@ -138,7 +138,7 @@ export class MockCompleteSessionDto {
   mockDataType?: OnboardingMockDataType;
 }
 
-export class ReviewCddCaseDto {
+export class ReviewCddResponseDto {
   @IsString()
   @IsIn(['APPROVE', 'REJECT', 'UPGRADE_EDD'])
   decision!: 'APPROVE' | 'REJECT' | 'UPGRADE_EDD';
@@ -158,7 +158,7 @@ export class ReviewCddCaseDto {
   riskScore?: number;
 }
 
-export class ReviewEddCaseDto {
+export class ReviewEddResponseDto {
   @IsString()
   @IsIn(['APPROVE', 'REJECT'])
   decision!: 'APPROVE' | 'REJECT';
@@ -183,6 +183,12 @@ export class FinalReviewCustomerDto {
   @IsIn(['APPROVE', 'REJECT'])
   decision!: 'APPROVE' | 'REJECT';
 
+  @IsOptional()
+  @IsString()
+  reason?: string;
+}
+
+export class SubmitFinalApprovalDto {
   @IsOptional()
   @IsString()
   reason?: string;

@@ -1,6 +1,5 @@
 import {
   Body,
-  ConflictException,
   Controller,
   ForbiddenException,
   Get,
@@ -22,9 +21,7 @@ import { RiskDecisionRecordsService } from '../../risk-engine/risk-decision-reco
 import {
   ApplyOnboardingAlertDecisionDto,
   DecisionRecordQueryDto,
-  FinalReviewCustomerDto,
-  ReviewCddCaseDto,
-  ReviewEddCaseDto,
+  SubmitFinalApprovalDto,
   UpdateInvestorClassificationDto,
 } from './dto/onboarding.dto';
 
@@ -59,59 +56,16 @@ export class OnboardingAdminController {
 
   // CDD/EDD endpoints expose onboarding provider-response containers and should
   // not be treated as the platform compliance Case object.
-  @Get('cdd-cases')
-  @ApiOperation({ summary: 'List CDD cases for compliance review' })
+  @Get('cdd-responses')
+  @ApiOperation({ summary: 'List CDD responses for compliance review.' })
   @ApiQuery({ name: 'status', required: false, type: String })
   @ApiQuery({ name: 'customerType', required: false, type: String })
   @ApiQuery({
-    name: 'customerIds',
+    name: 'workflow',
     required: false,
     type: String,
-    description: 'Comma separated customer ids for scoped lookup',
+    description: 'Filter response workflow: ONBOARDING | PERIODIC_REVIEW. Omit to include both.',
   })
-  @ApiQuery({ name: 'skip', required: false, type: Number })
-  @ApiQuery({ name: 'take', required: false, type: Number })
-  listCddCases(
-    @Req() req: any,
-    @Query('status') status?: string,
-    @Query('customerType') customerType?: string,
-    @Query('customerIds') customerIds?: string,
-    @Query('skip') skip?: string,
-    @Query('take') take?: string,
-  ) {
-    this.getAdminActor(req);
-    return this.onboardingService.listCddCases({
-      status,
-      customerType,
-      customerIds: this.parseCustomerIds(customerIds),
-      skip: skip ? Number(skip) : undefined,
-      take: take ? Number(take) : undefined,
-    });
-  }
-
-  @Post('cdd-cases/:id/review')
-  @ApiOperation({ summary: 'Review CDD case (approve/reject/upgrade-edd)' })
-  reviewCddCase(
-    @Req() req: any,
-    @Param('id') id: string,
-    @Body(new ValidationPipe({ transform: true })) body: ReviewCddCaseDto,
-  ) {
-    this.getAdminActor(req);
-    void id;
-    void body;
-    throw new ConflictException('Use alert triage workflow');
-  }
-
-  @Get('cdd-cases/:id')
-  @ApiOperation({ summary: 'Get CDD case detail with customer snapshot and mock detail payload' })
-  getCddCaseDetail(@Req() req: any, @Param('id') id: string) {
-    this.getAdminActor(req);
-    return this.onboardingService.getCddCaseDetail(id);
-  }
-
-  @Get('edd-cases')
-  @ApiOperation({ summary: 'List EDD cases for MLRO review' })
-  @ApiQuery({ name: 'status', required: false, type: String })
   @ApiQuery({
     name: 'customerIds',
     required: false,
@@ -120,40 +74,73 @@ export class OnboardingAdminController {
   })
   @ApiQuery({ name: 'skip', required: false, type: Number })
   @ApiQuery({ name: 'take', required: false, type: Number })
-  listEddCases(
+  listCddResponses(
     @Req() req: any,
     @Query('status') status?: string,
+    @Query('customerType') customerType?: string,
+    @Query('workflow') workflow?: string,
     @Query('customerIds') customerIds?: string,
     @Query('skip') skip?: string,
     @Query('take') take?: string,
   ) {
     this.getAdminActor(req);
-    return this.onboardingService.listEddCases({
+    return this.onboardingService.listCddResponses({
       status,
+      customerType,
+      workflow,
       customerIds: this.parseCustomerIds(customerIds),
       skip: skip ? Number(skip) : undefined,
       take: take ? Number(take) : undefined,
     });
   }
 
-  @Post('edd-cases/:id/mlro-review')
-  @ApiOperation({ summary: 'MLRO review EDD case' })
-  mlroReview(
-    @Req() req: any,
-    @Param('id') id: string,
-    @Body(new ValidationPipe({ transform: true })) body: ReviewEddCaseDto,
-  ) {
+  @Get('cdd-responses/:id')
+  @ApiOperation({ summary: 'Get CDD response detail with customer snapshot and mock detail payload.' })
+  getCddResponseDetail(@Req() req: any, @Param('id') id: string) {
     this.getAdminActor(req);
-    void id;
-    void body;
-    throw new ConflictException('Use alert triage workflow');
+    return this.onboardingService.getCddResponseDetail(id);
   }
 
-  @Get('edd-cases/:id')
-  @ApiOperation({ summary: 'Get EDD case detail with customer snapshot and mock detail payload' })
-  getEddCaseDetail(@Req() req: any, @Param('id') id: string) {
+  @Get('edd-responses')
+  @ApiOperation({ summary: 'List EDD responses for MLRO review.' })
+  @ApiQuery({ name: 'status', required: false, type: String })
+  @ApiQuery({
+    name: 'workflow',
+    required: false,
+    type: String,
+    description: 'Filter response workflow: ONBOARDING | PERIODIC_REVIEW. Omit to include both.',
+  })
+  @ApiQuery({
+    name: 'customerIds',
+    required: false,
+    type: String,
+    description: 'Comma separated customer ids for scoped lookup',
+  })
+  @ApiQuery({ name: 'skip', required: false, type: Number })
+  @ApiQuery({ name: 'take', required: false, type: Number })
+  listEddResponses(
+    @Req() req: any,
+    @Query('status') status?: string,
+    @Query('workflow') workflow?: string,
+    @Query('customerIds') customerIds?: string,
+    @Query('skip') skip?: string,
+    @Query('take') take?: string,
+  ) {
     this.getAdminActor(req);
-    return this.onboardingService.getEddCaseDetail(id);
+    return this.onboardingService.listEddResponses({
+      status,
+      workflow,
+      customerIds: this.parseCustomerIds(customerIds),
+      skip: skip ? Number(skip) : undefined,
+      take: take ? Number(take) : undefined,
+    });
+  }
+
+  @Get('edd-responses/:id')
+  @ApiOperation({ summary: 'Get EDD response detail with customer snapshot and mock detail payload.' })
+  getEddResponseDetail(@Req() req: any, @Param('id') id: string) {
+    this.getAdminActor(req);
+    return this.onboardingService.getEddResponseDetail(id);
   }
 
   @Post('alerts/:id/onboarding-decision')
@@ -250,15 +237,16 @@ export class OnboardingAdminController {
     return this.riskDecisionRecordsService.getDecisionRecordDetail(id);
   }
 
-  @Post('customers/:id/final-review')
-  @ApiOperation({ summary: 'Customer-level final management decision for EDD-triggered onboarding' })
-  finalReviewCustomer(
+  @Post('customers/:id/final-approval/submit')
+  @RequirePermissions(buildPermissionCode('POST', '/admin/control-gates/approvals'))
+  @ApiOperation({ summary: 'Create or resubmit onboarding final approval and return approval detail' })
+  submitCustomerFinalApproval(
     @Req() req: any,
     @Param('id') id: string,
-    @Body(new ValidationPipe({ transform: true })) body: FinalReviewCustomerDto,
+    @Body(new ValidationPipe({ transform: true })) body: SubmitFinalApprovalDto,
   ) {
     const actor = this.getAdminActor(req);
-    return this.onboardingService.reviewCustomerFinalDecision(
+    return this.onboardingService.submitCustomerFinalApproval(
       id,
       actor.actorId,
       actor.actorRole,

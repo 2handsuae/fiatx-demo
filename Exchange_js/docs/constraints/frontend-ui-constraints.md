@@ -56,8 +56,9 @@
 - `/verification` MUST consume onboarding contract from:
 1. `GET /onboarding/me`
 2. `GET /onboarding/next-step`
-3. `GET /onboarding/cases`
-- If frontend uses legacy-style `step/action` rendering, it MUST be derived from backend `publicStatus + actions[]` via local projection and MUST NOT mutate backend contract semantics.
+3. `GET /onboarding/responses`
+- `/verification` MUST treat canonical customer fields from `GET /onboarding/me` as the primary onboarding state source.
+- `GET /onboarding/next-step` remains a guidance contract; frontend MAY consume `actions[]`, `blockedReason`, and `activeCaseId`, but MUST NOT treat it as the main state truth over canonical customer fields.
 - CDD mock-complete interaction MUST open a dialog with three options:
 1. `Low risk`
 2. `Medium risk / High risk or PEP`
@@ -65,7 +66,7 @@
 - EDD mock-complete interaction MUST remain direct submit (no risk-type dialog).
 - In `PENDING_EDD`, when no valid session link exists, UI MUST show an explicit `Start EDD` action to create link and MUST NOT auto-trigger EDD session creation.
 - Verification completion UX MUST enforce redirect:
-1. `publicStatus === ACTIVE` -> navigate to `/profile`
+1. `onboardingStatus = APPROVED` and `operatingStatus = ACTIVE` -> navigate to `/profile`
 - Session compatibility in verification UI MUST support both:
 1. `latestSession.sessionId`
 2. `latestSession.id` (legacy fallback)

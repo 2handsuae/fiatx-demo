@@ -7,6 +7,7 @@ export enum ComplianceIncidentSeverity {
 
 export enum ComplianceCaseType {
   ONBOARDING = 'ONBOARDING',
+  PERIODIC_REVIEW = 'PERIODIC_REVIEW',
   TRANSACTION = 'TRANSACTION',
   GENERIC = 'GENERIC',
 }
@@ -40,6 +41,8 @@ export enum ComplianceIncidentAction {
   LINK_ALERT = 'LINK_ALERT',
   FREEZE = 'FREEZE',
   UNFREEZE = 'UNFREEZE',
+  RESTRICT = 'RESTRICT',
+  UNRESTRICT = 'UNRESTRICT',
   REPORT = 'REPORT',
   CLOSE = 'CLOSE',
 }
@@ -52,6 +55,8 @@ export enum ComplianceIncidentEventType {
   REPORT_FINALIZED = 'REPORT_FINALIZED',
   FROZEN = 'FROZEN',
   UNFROZEN = 'UNFROZEN',
+  RESTRICTED = 'RESTRICTED',
+  UNRESTRICTED = 'UNRESTRICTED',
   REPORTED = 'REPORTED',
   OVERDUE_MARKED = 'OVERDUE_MARKED',
   RESOLVED = 'RESOLVED',

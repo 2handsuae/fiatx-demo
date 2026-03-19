@@ -2,7 +2,7 @@ import { RiskDecisionOrchestratorService } from './risk-decision-orchestrator.se
 
 describe('RiskDecisionOrchestratorService', () => {
   const prismaMock: any = {
-    onboardingDecisionRecord: {
+    workflowDecisionRecord: {
       findUnique: jest.fn(),
       update: jest.fn(),
     },
@@ -21,11 +21,11 @@ describe('RiskDecisionOrchestratorService', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    prismaMock.onboardingDecisionRecord.findUnique.mockResolvedValue({
+    prismaMock.workflowDecisionRecord.findUnique.mockResolvedValue({
       id: 'dr-1',
       outputs: '{"decision":"REVIEW"}',
     });
-    prismaMock.onboardingDecisionRecord.update.mockResolvedValue({ id: 'dr-1' });
+    prismaMock.workflowDecisionRecord.update.mockResolvedValue({ id: 'dr-1' });
     prismaMock.complianceAlert.findFirst.mockResolvedValue(null);
     complianceAlertsMock.triggerSystemAlert.mockResolvedValue({
       id: 'alt-1',
@@ -79,7 +79,7 @@ describe('RiskDecisionOrchestratorService', () => {
         alertUpserted: true,
       }),
     );
-    expect(prismaMock.onboardingDecisionRecord.update).toHaveBeenCalledWith({
+    expect(prismaMock.workflowDecisionRecord.update).toHaveBeenCalledWith({
       where: { id: 'dr-1' },
       data: {
         outputs: expect.any(String),

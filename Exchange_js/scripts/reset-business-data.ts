@@ -23,12 +23,12 @@ async function resetBusinessData(): Promise<void> {
   deleted.internal_fund_audit_logs = (await (prisma as any).internalFundAuditLog.deleteMany()).count;
   deleted.internal_transaction_audit_logs = (await (prisma as any).internalTransactionAuditLog.deleteMany()).count;
 
-  deleted.cdd_case_reports = (await prisma.cddCaseReport.deleteMany()).count;
-  deleted.edd_case_reports = (await prisma.eddCaseReport.deleteMany()).count;
+  deleted.cdd_case_reports = (await prisma.cddResponseReport.deleteMany()).count;
+  deleted.edd_case_reports = (await prisma.eddResponseReport.deleteMany()).count;
   deleted.kyt_case_reports = (await prisma.kytCaseReport.deleteMany()).count;
   deleted.travel_rule_case_reports = (await prisma.travelRuleCaseReport.deleteMany()).count;
   deleted.onboarding_audit_logs = (await prisma.onboardingAuditLog.deleteMany()).count;
-  deleted.onboarding_decision_records = (await (prisma as any).onboardingDecisionRecord.deleteMany()).count;
+  deleted.onboarding_decision_records = (await (prisma as any).workflowDecisionRecord.deleteMany()).count;
   deleted.compliance_incident_events = (await prisma.complianceIncidentEvent.deleteMany()).count;
   deleted.compliance_incident_alerts = (await prisma.complianceIncidentAlert.deleteMany()).count;
   deleted.compliance_incidents = (await prisma.complianceIncident.deleteMany()).count;
@@ -50,8 +50,8 @@ async function resetBusinessData(): Promise<void> {
   deleted.pricing_policies = (await (prisma as any).pricingPolicy.deleteMany()).count;
 
   deleted.compliance_sessions = (await prisma.complianceSession.deleteMany()).count;
-  deleted.edd_cases = (await prisma.eddCase.deleteMany()).count;
-  deleted.cdd_cases = (await prisma.cddCase.deleteMany()).count;
+  deleted.edd_cases = (await prisma.eddResponse.deleteMany()).count;
+  deleted.cdd_cases = (await prisma.cddResponse.deleteMany()).count;
   deleted.corporate_profiles = (await prisma.corporateProfile.deleteMany()).count;
   deleted.ubo_profiles = (await prisma.uboProfile.deleteMany()).count;
   deleted.kyt_cases = (await prisma.kytCase.deleteMany()).count;

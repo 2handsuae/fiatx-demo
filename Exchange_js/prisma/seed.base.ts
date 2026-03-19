@@ -538,16 +538,12 @@ async function seedBaseCustomers(prisma: PrismaClient): Promise<void> {
       passwordHash,
       passwordUpdatedAt: now,
       customerType: 'INDIVIDUAL',
-      cddStatus: 'APPROVED',
+      onboardingStatus: 'APPROVED',
+      operatingStatus: 'ACTIVE',
+      restrictionStatus: 'CLEAR',
       amlRiskTier: 'LOW',
       eddRequired: false,
-      eddStatus: 'NOT_REQUIRED',
-      complianceStatus: 'ACTIVE',
       cddDocumentExpiresAt: null,
-      finalApprovalStatus: 'NOT_REQUIRED',
-      finalApprovalReason: null,
-      finalApprovalReviewerId: null,
-      finalApprovalReviewedAt: null,
     },
     create: {
       customerNo: DEFAULT_BASE_CUSTOMER_NO,
@@ -557,13 +553,12 @@ async function seedBaseCustomers(prisma: PrismaClient): Promise<void> {
       passwordHash,
       passwordUpdatedAt: now,
       customerType: 'INDIVIDUAL',
-      cddStatus: 'APPROVED',
+      onboardingStatus: 'APPROVED',
+      operatingStatus: 'ACTIVE',
+      restrictionStatus: 'CLEAR',
       amlRiskTier: 'LOW',
       eddRequired: false,
-      eddStatus: 'NOT_REQUIRED',
-      complianceStatus: 'ACTIVE',
       cddDocumentExpiresAt: null,
-      finalApprovalStatus: 'NOT_REQUIRED',
     },
   });
 }
@@ -1249,8 +1244,9 @@ async function isBaseComplete(prisma: PrismaClient): Promise<boolean> {
       where: {
         email: DEFAULT_BASE_CUSTOMER_EMAIL,
         passwordHash: { not: null },
-        cddStatus: 'APPROVED',
-        complianceStatus: 'ACTIVE',
+        onboardingStatus: 'APPROVED',
+        operatingStatus: 'ACTIVE',
+        restrictionStatus: 'CLEAR',
       },
     })) > 0;
   if (!baseCustomerExists) {

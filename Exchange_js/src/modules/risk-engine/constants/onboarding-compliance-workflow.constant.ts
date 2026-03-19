@@ -1,5 +1,15 @@
 export const ONBOARDING_WORKFLOW = 'ONBOARDING' as const;
+export const PERIODIC_REVIEW_WORKFLOW = 'PERIODIC_REVIEW' as const;
+
 export const ONBOARDING_SOURCE_TYPE = 'ONBOARDING_JOURNEY' as const;
+export const PERIODIC_REVIEW_SOURCE_TYPE = 'PERIODIC_REVIEW_CYCLE' as const;
+
+export type ComplianceWorkflow =
+  | typeof ONBOARDING_WORKFLOW
+  | typeof PERIODIC_REVIEW_WORKFLOW;
+export type ComplianceSourceType =
+  | typeof ONBOARDING_SOURCE_TYPE
+  | typeof PERIODIC_REVIEW_SOURCE_TYPE;
 
 export const ONBOARDING_REVIEW_STAGES = {
   REVIEW_CDD: 'REVIEW_CDD',
@@ -16,6 +26,17 @@ export const ONBOARDING_REVIEW_RULES = {
 
 export type OnboardingReviewRule =
   (typeof ONBOARDING_REVIEW_RULES)[keyof typeof ONBOARDING_REVIEW_RULES];
+
+export const PERIODIC_REVIEW_RULES = {
+  PRR_CDD_REVIEW_REQUIRED: 'PRR_CDD_REVIEW_REQUIRED',
+  PRR_EDD_REVIEW_REQUIRED: 'PRR_EDD_REVIEW_REQUIRED',
+} as const;
+
+export type PeriodicReviewRule =
+  (typeof PERIODIC_REVIEW_RULES)[keyof typeof PERIODIC_REVIEW_RULES];
+
+export type ComplianceReviewStage = OnboardingReviewStage;
+export type ComplianceReviewRule = OnboardingReviewRule | PeriodicReviewRule;
 
 export const LEGACY_ONBOARDING_REVIEW_RULE =
   'ONB_ONBOARDING_JOURNEY_REVIEW' as const;
@@ -40,10 +61,33 @@ export const ONBOARDING_REVIEW_RULE_TO_STAGE: Record<
     ONBOARDING_REVIEW_STAGES.REVIEW_EDD,
 };
 
+export const PERIODIC_REVIEW_STAGE_TO_RULE: Record<
+  ComplianceReviewStage,
+  PeriodicReviewRule
+> = {
+  [ONBOARDING_REVIEW_STAGES.REVIEW_CDD]:
+    PERIODIC_REVIEW_RULES.PRR_CDD_REVIEW_REQUIRED,
+  [ONBOARDING_REVIEW_STAGES.REVIEW_EDD]:
+    PERIODIC_REVIEW_RULES.PRR_EDD_REVIEW_REQUIRED,
+};
+
+export const PERIODIC_REVIEW_RULE_TO_STAGE: Record<
+  PeriodicReviewRule,
+  ComplianceReviewStage
+> = {
+  [PERIODIC_REVIEW_RULES.PRR_CDD_REVIEW_REQUIRED]:
+    ONBOARDING_REVIEW_STAGES.REVIEW_CDD,
+  [PERIODIC_REVIEW_RULES.PRR_EDD_REVIEW_REQUIRED]:
+    ONBOARDING_REVIEW_STAGES.REVIEW_EDD,
+};
+
 const ONBOARDING_STAGE_SET = new Set<string>(
   Object.values(ONBOARDING_REVIEW_STAGES),
 );
 const ONBOARDING_RULE_SET = new Set<string>(Object.values(ONBOARDING_REVIEW_RULES));
+const PERIODIC_REVIEW_RULE_SET = new Set<string>(
+  Object.values(PERIODIC_REVIEW_RULES),
+);
 
 export const ALERT_WORK_ITEM_ACTIONS = {
   ASSIGN: 'ASSIGN',
@@ -82,6 +126,8 @@ export const CASE_COMPLIANCE_ACTIONS = {
   REQUIRE_EDD: 'REQUIRE_EDD',
   FREEZE: 'FREEZE',
   UNFREEZE: 'UNFREEZE',
+  RESTRICT: 'RESTRICT',
+  UNRESTRICT: 'UNRESTRICT',
   REPORT: 'REPORT',
   FALSE_POSITIVE: 'FALSE_POSITIVE',
 } as const;
@@ -133,11 +179,40 @@ export const CASE_COMPLIANCE_ACTIONS_BY_STAGE: Record<
   ],
 };
 
+export function normalizeComplianceWorkflow(
+  value: unknown,
+): ComplianceWorkflow | null {
+  const normalized = String(value || '').trim().toUpperCase();
+  if (!normalized) return null;
+  if (normalized === ONBOARDING_WORKFLOW) return ONBOARDING_WORKFLOW;
+  if (normalized === PERIODIC_REVIEW_WORKFLOW) return PERIODIC_REVIEW_WORKFLOW;
+  return null;
+}
+
 export function isOnboardingSourceType(value: unknown): boolean {
   return (
     String(value || '').trim().toUpperCase() ===
     ONBOARDING_SOURCE_TYPE.toUpperCase()
   );
+}
+
+export function isPeriodicReviewSourceType(value: unknown): boolean {
+  return (
+    String(value || '').trim().toUpperCase() ===
+    PERIODIC_REVIEW_SOURCE_TYPE.toUpperCase()
+  );
+}
+
+export function isSupportedReviewSourceType(value: unknown): boolean {
+  return isOnboardingSourceType(value) || isPeriodicReviewSourceType(value);
+}
+
+export function getWorkflowFromSourceType(
+  value: unknown,
+): ComplianceWorkflow | null {
+  if (isOnboardingSourceType(value)) return ONBOARDING_WORKFLOW;
+  if (isPeriodicReviewSourceType(value)) return PERIODIC_REVIEW_WORKFLOW;
+  return null;
 }
 
 export function normalizeOnboardingReviewStage(
@@ -149,11 +224,32 @@ export function normalizeOnboardingReviewStage(
   return normalized as OnboardingReviewStage;
 }
 
+export function normalizeComplianceReviewStage(
+  value: unknown,
+): ComplianceReviewStage | null {
+  return normalizeOnboardingReviewStage(value);
+}
+
 export function getCanonicalOnboardingRuleForStage(
   stage: unknown,
 ): OnboardingReviewRule | null {
   const normalizedStage = normalizeOnboardingReviewStage(stage);
   if (!normalizedStage) return null;
+  return ONBOARDING_REVIEW_STAGE_TO_RULE[normalizedStage];
+}
+
+export function getCanonicalReviewRuleForStage(
+  stage: unknown,
+  workflow: unknown,
+): ComplianceReviewRule | null {
+  const normalizedStage = normalizeComplianceReviewStage(stage);
+  const normalizedWorkflow = normalizeComplianceWorkflow(workflow);
+  if (!normalizedStage || !normalizedWorkflow) return null;
+
+  if (normalizedWorkflow === PERIODIC_REVIEW_WORKFLOW) {
+    return PERIODIC_REVIEW_STAGE_TO_RULE[normalizedStage];
+  }
+
   return ONBOARDING_REVIEW_STAGE_TO_RULE[normalizedStage];
 }
 
@@ -182,7 +278,65 @@ export function normalizeOnboardingRuleCode(
   return null;
 }
 
+export function normalizePeriodicReviewRuleCode(
+  ruleCode: unknown,
+  stage?: unknown,
+): PeriodicReviewRule | null {
+  const normalizedRule = String(ruleCode || '').trim().toUpperCase();
+  const normalizedStage = normalizeComplianceReviewStage(stage);
+
+  if (normalizedStage) {
+    const canonicalForStage = PERIODIC_REVIEW_STAGE_TO_RULE[normalizedStage];
+    if (!normalizedRule) {
+      return canonicalForStage;
+    }
+    if (normalizedRule === canonicalForStage) {
+      return canonicalForStage;
+    }
+    return null;
+  }
+
+  if (!normalizedRule) return null;
+  if (PERIODIC_REVIEW_RULE_SET.has(normalizedRule)) {
+    return normalizedRule as PeriodicReviewRule;
+  }
+  return null;
+}
+
+export function normalizeComplianceRuleCode(
+  ruleCode: unknown,
+  stage?: unknown,
+  workflowOrSourceType?: unknown,
+): ComplianceReviewRule | null {
+  const workflow =
+    normalizeComplianceWorkflow(workflowOrSourceType) ||
+    getWorkflowFromSourceType(workflowOrSourceType) ||
+    null;
+
+  if (workflow === PERIODIC_REVIEW_WORKFLOW) {
+    return normalizePeriodicReviewRuleCode(ruleCode, stage);
+  }
+
+  if (workflow === ONBOARDING_WORKFLOW) {
+    return normalizeOnboardingRuleCode(ruleCode, stage);
+  }
+
+  return (
+    normalizeOnboardingRuleCode(ruleCode, stage) ||
+    normalizePeriodicReviewRuleCode(ruleCode, stage)
+  );
+}
+
 export function getOnboardingRuleDisplayLabel(ruleCode: unknown): string {
+  const normalized = String(ruleCode || '').trim().toUpperCase();
+  if (!normalized) return '-';
+  if (normalized === LEGACY_ONBOARDING_REVIEW_RULE) {
+    return ONBOARDING_REVIEW_RULES.ONB_CDD_REVIEW_REQUIRED;
+  }
+  return normalized;
+}
+
+export function getComplianceRuleDisplayLabel(ruleCode: unknown): string {
   const normalized = String(ruleCode || '').trim().toUpperCase();
   if (!normalized) return '-';
   if (normalized === LEGACY_ONBOARDING_REVIEW_RULE) {

@@ -11,31 +11,25 @@
 ## 2) Canonical Identities
 - Onboarding domain MUST only use these identities:
 1. `customer`
-2. `cddCase` (onboarding evidence container / provider response, not compliance `Case`)
-3. `eddCase` (onboarding evidence container / provider response, not compliance `Case`)
-4. `onboardingDecisionRecord`
+2. `cddResponse` (onboarding evidence container / provider response, not compliance `Case`)
+3. `eddResponse` (onboarding evidence container / provider response, not compliance `Case`)
+4. `workflowDecisionRecord`
 5. `alert`
 6. `incident` (current runtime implementation of compliance `Case` integration)
-- MRLO/Senior approval MUST be represented as action + audit log, not a new entity.
+- Final approval MUST be approval-backed and projected back to customer lifecycle.
+- Approval runtime semantics are defined by the approvals module; onboarding MUST consume approval result projection instead of directly inventing a separate final-review entity.
+- Note:
+1. `cddResponse / eddResponse / workflowDecisionRecord` are current physical/runtime names
+2. operator-facing canonical naming is `CDD Response / EDD Response`
+3. physical rename is explicitly deferred and MUST NOT be assumed in ongoing implementation work
 
 ## 3) Next-Step Contract
 - `getNextStep` is the single source for onboarding guidance.
 - Contract output MUST be:
-1. `publicStatus`
-2. `actions[]`
-3. `blockedReason`
-4. `activeCaseId`
-5. `requiresEdd`
-- Allowed `publicStatus`:
-1. `NONE`
-2. `PENDING_CDD`
-3. `REVIEW_CDD`
-4. `PENDING_EDD`
-5. `REVIEW_EDD`
-6. `FINAL_APPROVAL`
-7. `ACTIVE`
-8. `REJECTED`
-9. `WITHDRAWN`
+1. `actions[]`
+2. `blockedReason`
+3. `activeCaseId`
+4. `requiresEdd`
 - Allowed action types:
 1. `START_CDD`
 2. `CREATE_CDD_SESSION`
@@ -48,10 +42,11 @@
 9. `REINITIATE_CDD`
 10. `NONE`
 - MUST NOT add competing next-step logic in controller or frontend page layers.
+- Frontend MAY use `actions[]`, `blockedReason`, and `activeCaseId` from this contract, but onboarding primary state MUST be derived from canonical customer fields.
 
 ## 4) State Machine Constraints
 - Customer lifecycle MUST stay progress-only:
-1. `NONE -> PENDING_CDD -> REVIEW_CDD -> PENDING_EDD -> REVIEW_EDD -> FINAL_APPROVAL -> ACTIVE`
+1. `NONE -> PENDING_CDD_INPUT -> CDD_UNDER_REVIEW -> PENDING_EDD_INPUT -> EDD_UNDER_REVIEW -> FINAL_APPROVAL -> APPROVED`
 - Customer terminal status MUST stay:
 1. `REJECTED`
 2. `WITHDRAWN`
@@ -64,7 +59,7 @@
 ## 5) Risk Engine Constraints
 - Risk decision domain MUST expose one entry:
 1. `evaluate(contextType, subjectId, signals, policyVersion?)`
-- Every evaluate call MUST persist one `onboardingDecisionRecord`.
+- Every evaluate call MUST persist one `workflowDecisionRecord`.
 - DecisionRecord MUST be replayable with:
 1. `contextType`
 2. `policyVersion`
@@ -74,12 +69,12 @@
 - External CDD/EDD provider callback MUST be treated as evidence input only; final routing is decided by Risk Engine output mapping.
 
 ## 6) CDD/EDD Orchestration Constraints
-- Starting onboarding MUST create or reuse active CDD evidence container (`cddCase`) in `CREATED`.
+- Starting onboarding MUST create or reuse active CDD evidence container (`cddResponse`) in `CREATED`.
 - Session completion MUST move the onboarding evidence container to `RECEIVED`, store provider payload, then finalize it as `FINAL` after evaluation.
-- CDD completion MUST evaluate risk and move customer to `REVIEW_CDD` (container waiting for recommendation execution).
-- EDD completion MUST evaluate risk and move customer to `REVIEW_EDD` (container waiting for recommendation execution).
+- CDD completion MUST evaluate risk and move customer to `CDD_UNDER_REVIEW` (container waiting for recommendation execution).
+- EDD completion MUST evaluate risk and move customer to `EDD_UNDER_REVIEW` (container waiting for recommendation execution).
 - CDD mock submission profile MUST support:
-1. `LOW_RISK` -> auto-pass onboarding to `ACTIVE` without creating/updating onboarding journey alert
+1. `LOW_RISK` -> auto-pass onboarding to `APPROVED + ACTIVE` without creating/updating onboarding journey alert
 2. `MEDIUM_RISK` / `HIGH_RISK_OR_PEP` -> create/update onboarding journey alert only
 3. `SANCTION_AND_OTHER` -> create/update onboarding journey alert only
 - Legacy compatibility for CDD mock completion MUST remain:
@@ -97,9 +92,9 @@
 2. EDD review: `APPROVE`, `REJECT`
 - EDD-stage recommendation rendering MUST NOT show `REQUIRE_EDD` in alert or incident detail views.
 - `REVIEW_CDD` stage MAY be progressed by assigned onboarding journey alert decision action:
-1. `APPROVE` -> customer `ACTIVE`
+1. `APPROVE` -> customer `APPROVED + ACTIVE`
 2. `REJECT` -> customer `REJECTED`
-3. `REQUIRE_EDD` -> create/reuse EDD evidence container (`eddCase`) and move customer to `PENDING_EDD`
+3. `REQUIRE_EDD` -> create/reuse EDD evidence container (`eddResponse`) and move customer to `PENDING_EDD_INPUT`
 - `REVIEW_EDD` stage MAY be progressed by assigned onboarding journey alert/incident decision action:
 1. `APPROVE` -> customer `FINAL_APPROVAL`
 2. `REJECT` -> customer `REJECTED`
@@ -109,8 +104,12 @@
 - Alert workflow state (`ASSIGN/ESCALATE/CLOSE`) and onboarding recommendation actions MUST stay decoupled.
 
 ## 8) Trading Gate and Legacy Snapshot
-- Trading eligibility gate MUST use `publicStatus === ACTIVE`.
-- Legacy fields (`complianceStatus`, `cddStatus`, `eddStatus`) MAY be maintained as compatibility snapshot only.
+- Trading eligibility gate MUST use canonical customer state:
+1. `onboardingStatus = APPROVED`
+2. `operatingStatus = ACTIVE`
+3. `restrictionStatus != RESTRICTED`
+4. `complianceHoldStatus != FROZEN`
+- Legacy fields (`complianceStatus`, `cddStatus`, `eddStatus`) have been removed from customer schema/payload and MUST NOT be reintroduced as customer lifecycle truth.
 - Reinitiation MUST only be available for rejected/withdrawn/expired scenarios.
 
 ## 9) Auditability (Mandatory)
@@ -123,26 +122,27 @@
 - Decision transition actions MUST keep reason fields for audit and replay.
 
 ## 10) Thread Delivery Checklist (Onboarding)
-- `publicStatus + actions[]` contract unchanged or explicitly versioned.
+- `getNextStep` contract changes explicitly versioned/documented when touched.
 - Customer/case/decision transitions validated with tests.
 - Risk Engine evaluate-to-record behavior validated.
 - Alert/incident linkage validated for onboarding journey rules.
 - Audit log records verified for critical actions.
 - Cross-module read-model stability verified for `GET /customers/:id` onboarding snapshot fields:
-1. `publicStatus`
-2. `cddCases`
-3. `eddCases`
+1. canonical customer status fields
+2. `cddResponses`
+3. `eddResponses`
 4. `onboardingAuditLogs`
 
 ## 11) Client Verification Projection Rules
-- Client `/verification` UI MAY project backend `publicStatus + actions[]` to a view-only `step/action` model for rendering, but MUST NOT re-define onboarding business states.
-- Projection baseline MUST keep these mappings:
-1. `NONE` + `START_CDD` -> `CDD` / `START_CDD`
-2. `PENDING_CDD` + `COMPLETE_CDD` -> `CDD` / `COMPLETE_CDD`
-3. `PENDING_EDD` + `COMPLETE_EDD` -> `EDD` / `COMPLETE_EDD`
-4. `REVIEW_CDD|REVIEW_EDD` + `WAIT_REVIEW` -> `WAIT_REVIEW` / `WAIT`
-5. `FINAL_APPROVAL` + `WAIT_FINAL_APPROVAL` -> `WAIT_REVIEW` / `WAIT`
-6. `REJECTED|WITHDRAWN` + `REINITIATE_CDD` -> `REINITIATE` / `REINITIATE_CDD`
-7. `ACTIVE` -> terminal completion and client redirect
+- Client `/verification` UI MUST treat canonical customer fields as the primary onboarding state source.
+- `getNextStep` MAY still be consumed for action guidance, `blockedReason`, and `activeCaseId`, but MUST NOT be treated as the primary onboarding state source.
+- Projection baseline MUST keep these canonical mappings:
+1. `onboardingStatus = NONE` -> `CDD` / `START_CDD`
+2. `onboardingStatus = PENDING_CDD_INPUT` -> `CDD` / `COMPLETE_CDD`
+3. `onboardingStatus = PENDING_EDD_INPUT` -> `EDD` / `COMPLETE_EDD`
+4. `onboardingStatus = CDD_UNDER_REVIEW | EDD_UNDER_REVIEW` -> `WAIT_REVIEW` / `WAIT`
+5. `onboardingStatus = FINAL_APPROVAL` -> `WAIT_REVIEW` / `WAIT`
+6. `onboardingStatus = REJECTED | WITHDRAWN` -> `REINITIATE` / `REINITIATE_CDD`
+7. `onboardingStatus = APPROVED` and `operatingStatus = ACTIVE` -> terminal completion and client redirect
 - CDD mock-complete in client MUST use dialog selection and post `mockDataType`; EDD mock-complete MUST keep direct `{ result: 'PASS' }`.
 - In `PENDING_EDD`, client MUST require explicit `Start EDD` action to create session link when no valid QR link exists; client MUST NOT auto-start EDD session implicitly.

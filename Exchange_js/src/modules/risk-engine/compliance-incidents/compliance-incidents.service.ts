@@ -63,10 +63,12 @@ import {
   ONBOARDING_REVIEW_STAGES,
   ONBOARDING_SOURCE_TYPE,
   ONBOARDING_WORKFLOW,
-  getCanonicalOnboardingRuleForStage,
-  isOnboardingSourceType,
-  normalizeOnboardingReviewStage,
-  normalizeOnboardingRuleCode,
+  PERIODIC_REVIEW_SOURCE_TYPE,
+  PERIODIC_REVIEW_WORKFLOW,
+  getWorkflowFromSourceType,
+  isSupportedReviewSourceType,
+  normalizeComplianceReviewStage,
+  normalizeComplianceRuleCode,
 } from '../constants/onboarding-compliance-workflow.constant';
 
 type IncidentWriteClient = Prisma.TransactionClient | PrismaService;
@@ -240,6 +242,9 @@ export class ComplianceIncidentsService {
     if (sourceType === 'ONBOARDING_JOURNEY') {
       return ComplianceCaseType.ONBOARDING;
     }
+    if (sourceType === PERIODIC_REVIEW_SOURCE_TYPE) {
+      return ComplianceCaseType.PERIODIC_REVIEW;
+    }
     if (
       sourceType === 'DEPOSIT' ||
       sourceType === 'WITHDRAW' ||
@@ -250,32 +255,33 @@ export class ComplianceIncidentsService {
     return ComplianceCaseType.GENERIC;
   }
 
-  private assertOnboardingCaseScope(input: {
+  private assertReviewCaseScope(input: {
     sourceType?: string | null;
     stage?: string | null;
     ruleCode?: string | null;
   }) {
-    if (!isOnboardingSourceType(input.sourceType)) {
+    const workflow = getWorkflowFromSourceType(input.sourceType);
+    if (!workflow) {
       throw new BadRequestException(
-        'Compliance cases are onboarding-only in current runtime.',
+        `Unsupported compliance case sourceType: ${String(input.sourceType || '')}`,
       );
     }
 
-    const stage = normalizeOnboardingReviewStage(input.stage);
+    const stage = normalizeComplianceReviewStage(input.stage);
     if (!stage) {
       throw new BadRequestException(
-        `Unsupported onboarding case stage: ${String(input.stage || '')}`,
+        `Unsupported compliance case stage: ${String(input.stage || '')}`,
       );
     }
 
-    const rule = normalizeOnboardingRuleCode(input.ruleCode, stage);
+    const rule = normalizeComplianceRuleCode(input.ruleCode, stage, workflow);
     if (!rule) {
       throw new BadRequestException(
-        `Unsupported onboarding case ruleCode: ${String(input.ruleCode || '')}`,
+        `Unsupported compliance case ruleCode: ${String(input.ruleCode || '')}`,
       );
     }
 
-    return { stage, rule };
+    return { workflow, stage, rule };
   }
 
   private getCaseStructureSnapshot(row: {
@@ -284,13 +290,11 @@ export class ComplianceIncidentsService {
     ruleCode?: string | null;
   }) {
     const rawStage = this.normalizeOptionalString((row as any).stage);
-    const stage = normalizeOnboardingReviewStage(rawStage);
+    const workflow = getWorkflowFromSourceType((row as any).sourceType);
+    const stage = normalizeComplianceReviewStage(rawStage);
     const rule =
-      normalizeOnboardingRuleCode((row as any).ruleCode, stage) ||
+      normalizeComplianceRuleCode((row as any).ruleCode, stage, workflow) ||
       this.normalizeOptionalString((row as any).ruleCode);
-    const workflow = isOnboardingSourceType((row as any).sourceType)
-      ? ONBOARDING_WORKFLOW
-      : null;
 
     return {
       workflow,
@@ -370,9 +374,12 @@ export class ComplianceIncidentsService {
 
   private getAvailableWorkItemActions(
     row: {
+      id: string;
       status?: string | null;
       ownerUserId?: string | null;
       freezeStatus?: string | null;
+      restrictionStatus?: string | null;
+      restrictionCaseId?: string | null;
       reports?: ComplianceIncidentReport[] | null;
     },
     actorId?: string | null,
@@ -380,10 +387,18 @@ export class ComplianceIncidentsService {
     const status = String(row.status || '').trim().toUpperCase();
     const ownerUserId = this.normalizeOptionalString(row.ownerUserId);
     const freezeStatus = this.normalizeFreezeStatus((row as any).freezeStatus);
+    const restrictionStatus = this.normalizeRestrictionStatus(
+      (row as any).restrictionStatus,
+    );
+    const restrictionCaseId = this.normalizeOptionalString(
+      (row as any).restrictionCaseId,
+    );
     const hasFinalizedReport = !!this.getCurrentFinalizedReport(
       Array.isArray((row as any).reports) ? ((row as any).reports as ComplianceIncidentReport[]) : [],
     );
     const isCurrentAssignee = !!actorId && !!ownerUserId && ownerUserId === actorId;
+    const isRestrictedByCurrentCase =
+      restrictionStatus === 'RESTRICTED' && restrictionCaseId === row.id;
 
     if (status === ComplianceIncidentStatus.OPEN) {
       return [CASE_WORK_ITEM_ACTIONS.ASSIGN, CASE_WORK_ITEM_ACTIONS.LINK_ALERT];
@@ -395,7 +410,8 @@ export class ComplianceIncidentsService {
       ];
       if (
         hasFinalizedReport &&
-        freezeStatus !== ComplianceCaseFreezeStatus.FROZEN
+        freezeStatus !== ComplianceCaseFreezeStatus.FROZEN &&
+        !isRestrictedByCurrentCase
       ) {
         actions.push(CASE_WORK_ITEM_ACTIONS.CLOSE);
       }
@@ -406,10 +422,15 @@ export class ComplianceIncidentsService {
 
   private getAvailableComplianceActions(
     row: {
+      id: string;
       status?: string | null;
       ownerUserId?: string | null;
       customerId?: string | null;
       freezeStatus?: string | null;
+      complianceHoldStatus?: string | null;
+      complianceHoldCaseId?: string | null;
+      restrictionStatus?: string | null;
+      restrictionCaseId?: string | null;
       reportStatus?: string | null;
       stage?: string | null;
       reports?: ComplianceIncidentReport[] | null;
@@ -417,10 +438,21 @@ export class ComplianceIncidentsService {
     actorId?: string | null,
   ): string[] {
     const status = String(row.status || '').trim().toUpperCase();
-    const stage = normalizeOnboardingReviewStage((row as any).stage);
+    const stage = normalizeComplianceReviewStage((row as any).stage);
     const ownerUserId = this.normalizeOptionalString(row.ownerUserId);
     const customerId = this.normalizeOptionalString((row as any).customerId);
-    const freezeStatus = this.normalizeFreezeStatus((row as any).freezeStatus);
+    const holdStatus = this.normalizeFreezeStatus(
+      (row as any).complianceHoldStatus ?? (row as any).freezeStatus,
+    );
+    const holdCaseId = this.normalizeOptionalString(
+      (row as any).complianceHoldCaseId,
+    );
+    const restrictionStatus = this.normalizeRestrictionStatus(
+      (row as any).restrictionStatus,
+    );
+    const restrictionCaseId = this.normalizeOptionalString(
+      (row as any).restrictionCaseId,
+    );
     const reportStatus = this.normalizeReportStatus((row as any).reportStatus);
     const hasFinalizedReport = !!this.getCurrentFinalizedReport(
       Array.isArray((row as any).reports) ? ((row as any).reports as ComplianceIncidentReport[]) : [],
@@ -430,9 +462,20 @@ export class ComplianceIncidentsService {
 
     if (status === ComplianceIncidentStatus.OPEN || (status === ComplianceIncidentStatus.ASSIGNED && isCurrentAssignee)) {
       if (customerId) {
-        if (freezeStatus === ComplianceCaseFreezeStatus.FROZEN) {
-          actions.push(CASE_COMPLIANCE_ACTIONS.UNFREEZE);
+        if (restrictionStatus === 'RESTRICTED') {
+          if (restrictionCaseId === row.id) {
+            actions.push(CASE_COMPLIANCE_ACTIONS.UNRESTRICT);
+          }
         } else {
+          actions.push(CASE_COMPLIANCE_ACTIONS.RESTRICT);
+        }
+
+        if (
+          holdStatus === ComplianceCaseFreezeStatus.FROZEN &&
+          holdCaseId === row.id
+        ) {
+          actions.push(CASE_COMPLIANCE_ACTIONS.UNFREEZE);
+        } else if (holdStatus !== ComplianceCaseFreezeStatus.FROZEN) {
           actions.push(CASE_COMPLIANCE_ACTIONS.FREEZE);
         }
       }
@@ -461,6 +504,14 @@ export class ComplianceIncidentsService {
       return ComplianceCaseFreezeStatus.FROZEN;
     }
     return ComplianceCaseFreezeStatus.ACTIVE;
+  }
+
+  private normalizeRestrictionStatus(value: unknown): 'CLEAR' | 'RESTRICTED' {
+    const normalized = String(value || '').trim().toUpperCase();
+    if (normalized === 'RESTRICTED') {
+      return 'RESTRICTED';
+    }
+    return 'CLEAR';
   }
 
   private normalizeReportStatus(value: unknown): ComplianceCaseReportStatus {
@@ -693,9 +744,10 @@ export class ComplianceIncidentsService {
   ) {
     const alertRule =
       row.alert &&
-      normalizeOnboardingRuleCode(
+      normalizeComplianceRuleCode(
         row.alert.ruleCode,
         (row.alert as any).stage || null,
+        row.alert.sourceType,
       );
     return {
       ...row,
@@ -719,6 +771,9 @@ export class ComplianceIncidentsService {
             ComplianceIncidentAction.ASSIGN,
             ComplianceIncidentAction.LINK_ALERT,
             ComplianceIncidentAction.FREEZE,
+            ComplianceIncidentAction.UNFREEZE,
+            ComplianceIncidentAction.RESTRICT,
+            ComplianceIncidentAction.UNRESTRICT,
             ComplianceIncidentAction.REPORT,
           ].includes(action)
         ) {
@@ -735,6 +790,8 @@ export class ComplianceIncidentsService {
             ComplianceIncidentAction.LINK_ALERT,
             ComplianceIncidentAction.FREEZE,
             ComplianceIncidentAction.UNFREEZE,
+            ComplianceIncidentAction.RESTRICT,
+            ComplianceIncidentAction.UNRESTRICT,
             ComplianceIncidentAction.REPORT,
           ].includes(action)
         ) {
@@ -796,6 +853,22 @@ export class ComplianceIncidentsService {
           requireReason: true,
           statusChanged: false,
         };
+      case ComplianceIncidentAction.RESTRICT:
+        return {
+          nextStatus: currentStatus,
+          eventType: ComplianceIncidentEventType.RESTRICTED,
+          auditAction: AuditActions.INCIDENT_RESTRICTED,
+          requireReason: true,
+          statusChanged: false,
+        };
+      case ComplianceIncidentAction.UNRESTRICT:
+        return {
+          nextStatus: currentStatus,
+          eventType: ComplianceIncidentEventType.UNRESTRICTED,
+          auditAction: AuditActions.INCIDENT_UNRESTRICTED,
+          requireReason: true,
+          statusChanged: false,
+        };
       case ComplianceIncidentAction.REPORT:
         return {
           nextStatus: currentStatus,
@@ -813,19 +886,34 @@ export class ComplianceIncidentsService {
     }
   }
 
-  private async getCustomerHoldSnapshot(
+  private async findCustomerControlSnapshot(
     customerId: string,
     db: IncidentWriteClient,
   ) {
-    const customer = await db.customerMain.findUnique({
+    return db.customerMain.findUnique({
       where: { id: customerId },
       select: {
         id: true,
         customerNo: true,
+        restrictionStatus: true,
+        restrictionCaseId: true,
+        restrictionReason: true,
+        restrictionSetAt: true,
+        restrictionReleasedAt: true,
         complianceHoldStatus: true,
         complianceHoldCaseId: true,
+        complianceHoldReason: true,
+        complianceHoldSetAt: true,
+        complianceHoldReleasedAt: true,
       },
     });
+  }
+
+  private async getCustomerControlSnapshot(
+    customerId: string,
+    db: IncidentWriteClient,
+  ) {
+    const customer = await this.findCustomerControlSnapshot(customerId, db);
     if (!customer) {
       throw new NotFoundException(`Customer not found: ${customerId}`);
     }
@@ -952,11 +1040,11 @@ export class ComplianceIncidentsService {
       throw new NotFoundException(`Compliance case not found: ${incidentId}`);
     }
     if (
-      !isOnboardingSourceType(incident.sourceType) ||
-      !normalizeOnboardingReviewStage((incident as any).stage)
+      !isSupportedReviewSourceType(incident.sourceType) ||
+      !normalizeComplianceReviewStage((incident as any).stage)
     ) {
       throw new BadRequestException(
-        `Case ${incidentId} is outside onboarding-only runtime scope`,
+        `Case ${incidentId} is outside supported review scope`,
       );
     }
 
@@ -993,9 +1081,13 @@ export class ComplianceIncidentsService {
         ? {
             id: link.alert.id,
             alertNo: link.alert.alertNo,
-            stage: normalizeOnboardingReviewStage(link.alert.stage) || link.alert.stage,
+            stage: normalizeComplianceReviewStage(link.alert.stage) || link.alert.stage,
             ruleCode:
-              normalizeOnboardingRuleCode(link.alert.ruleCode, link.alert.stage) ||
+              normalizeComplianceRuleCode(
+                link.alert.ruleCode,
+                link.alert.stage,
+                link.alert.sourceType,
+              ) ||
               link.alert.ruleCode,
             sourceType: link.alert.sourceType,
             sourceId: link.alert.sourceId,
@@ -1134,7 +1226,6 @@ export class ComplianceIncidentsService {
     const skip = this.normalizeSkip(query.skip);
     const take = this.normalizeTake(query.take);
     const where: Prisma.ComplianceIncidentWhereInput = {
-      sourceType: ONBOARDING_SOURCE_TYPE,
       stage: { in: Object.values(ONBOARDING_REVIEW_STAGES) },
     };
     const andConditions: Prisma.ComplianceIncidentWhereInput[] = [];
@@ -1150,7 +1241,12 @@ export class ComplianceIncidentsService {
       where.ownerUserId = assigneeUserId;
     }
 
-    if (query.caseType && query.caseType !== ComplianceCaseType.ONBOARDING) {
+    if (
+      query.caseType &&
+      ![ComplianceCaseType.ONBOARDING, ComplianceCaseType.PERIODIC_REVIEW].includes(
+        query.caseType,
+      )
+    ) {
       return {
         total: 0,
         skip,
@@ -1158,7 +1254,16 @@ export class ComplianceIncidentsService {
         items: [],
       };
     }
-    where.caseType = ComplianceCaseType.ONBOARDING;
+    if (query.caseType) {
+      where.caseType = query.caseType;
+    } else {
+      where.caseType = {
+        in: [ComplianceCaseType.ONBOARDING, ComplianceCaseType.PERIODIC_REVIEW],
+      };
+    }
+    where.sourceType = {
+      in: [ONBOARDING_SOURCE_TYPE, PERIODIC_REVIEW_SOURCE_TYPE],
+    };
 
     const caseNo =
       this.normalizeOptionalString(query.caseNo) ||
@@ -1502,13 +1607,24 @@ export class ComplianceIncidentsService {
       throw new NotFoundException(`Compliance case not found: ${id}`);
     }
     if (
-      !isOnboardingSourceType(item.sourceType) ||
-      !normalizeOnboardingReviewStage((item as any).stage)
+      !isSupportedReviewSourceType(item.sourceType) ||
+      !normalizeComplianceReviewStage((item as any).stage)
     ) {
       throw new NotFoundException(`Compliance case not found: ${id}`);
     }
 
     const row = item as IncidentDetailRow;
+    const customerControl =
+      row.customerId
+        ? await this.findCustomerControlSnapshot(row.customerId, this.prisma)
+        : null;
+    const actionContext = {
+      ...row,
+      restrictionStatus: customerControl?.restrictionStatus ?? null,
+      restrictionCaseId: customerControl?.restrictionCaseId ?? null,
+      complianceHoldStatus: customerControl?.complianceHoldStatus ?? null,
+      complianceHoldCaseId: customerControl?.complianceHoldCaseId ?? null,
+    };
     const mappedIncident = this.mapIncident(row);
     const mappedAlerts = row.alerts.map((alertLink) => this.mapIncidentAlert(alertLink));
     const reportHistory = (row.reports || []).map((report) =>
@@ -1554,11 +1670,11 @@ export class ComplianceIncidentsService {
       alerts: mappedAlerts,
       events: row.events.map((event) => this.mapIncidentEvent(event)),
       availableWorkItemActions: this.getAvailableWorkItemActions(
-        row,
+        actionContext,
         actor?.actorId || null,
       ),
       availableComplianceActions: this.getAvailableComplianceActions(
-        row,
+        actionContext,
         actor?.actorId || null,
       ),
     };
@@ -1712,7 +1828,7 @@ export class ComplianceIncidentsService {
           `Alert ${alertId} must be ESCALATED before case creation`,
         );
       }
-      const { stage, rule } = this.assertOnboardingCaseScope({
+      const { workflow, stage, rule } = this.assertReviewCaseScope({
         sourceType: updatedAlert.sourceType,
         stage: (updatedAlert as any).stage,
         ruleCode: (updatedAlert as any).rule || (updatedAlert as any).ruleCode,
@@ -1735,7 +1851,10 @@ export class ComplianceIncidentsService {
         recommendedActions.length > 0
           ? recommendedActions
           : inheritedRecommendedActions;
-      const caseType = ComplianceCaseType.ONBOARDING;
+      const caseType =
+        workflow === PERIODIC_REVIEW_WORKFLOW
+          ? ComplianceCaseType.PERIODIC_REVIEW
+          : ComplianceCaseType.ONBOARDING;
 
       const now = new Date();
       const incident = await tx.complianceIncident.create({
@@ -1778,7 +1897,7 @@ export class ComplianceIncidentsService {
             createReason: reason,
             createdFromAlertId: updatedAlert.id,
             createdFromAlertNo: updatedAlert.alertNo,
-            workflow: ONBOARDING_WORKFLOW,
+            workflow,
             stage,
             rule,
             caseType,
@@ -1823,7 +1942,7 @@ export class ComplianceIncidentsService {
           primaryAlertId: updatedAlert.id,
           primaryAlertNo: updatedAlert.alertNo,
           action: 'ESCALATE_FROM_ALERT',
-          workflow: ONBOARDING_WORKFLOW,
+          workflow,
           stage,
           rule,
           caseType,
@@ -1850,7 +1969,7 @@ export class ComplianceIncidentsService {
           metadata: {
             primaryAlertId: updatedAlert.id,
             primaryAlertNo: updatedAlert.alertNo,
-            workflow: ONBOARDING_WORKFLOW,
+            workflow,
             stage,
             rule,
             caseType,
@@ -1898,11 +2017,11 @@ export class ComplianceIncidentsService {
         throw new NotFoundException(`Compliance case not found: ${incidentId}`);
       }
       if (
-        !isOnboardingSourceType(incident.sourceType) ||
-        !normalizeOnboardingReviewStage((incident as any).stage)
+        !isSupportedReviewSourceType(incident.sourceType) ||
+        !normalizeComplianceReviewStage((incident as any).stage)
       ) {
         throw new BadRequestException(
-          `Case ${incidentId} is outside onboarding-only runtime scope`,
+          `Case ${incidentId} is outside supported review scope`,
         );
       }
 
@@ -1947,11 +2066,11 @@ export class ComplianceIncidentsService {
         throw new NotFoundException(`Compliance alert not found: ${alertId}`);
       }
       if (
-        !isOnboardingSourceType(alert.sourceType) ||
-        !normalizeOnboardingReviewStage((alert as any).stage)
+        !isSupportedReviewSourceType(alert.sourceType) ||
+        !normalizeComplianceReviewStage((alert as any).stage)
       ) {
         throw new BadRequestException(
-          `Alert ${alertId} is outside onboarding-only runtime scope`,
+          `Alert ${alertId} is outside supported review scope`,
         );
       }
 
@@ -2067,11 +2186,11 @@ export class ComplianceIncidentsService {
         throw new NotFoundException(`Compliance case not found: ${id}`);
       }
       if (
-        !isOnboardingSourceType(current.sourceType) ||
-        !normalizeOnboardingReviewStage((current as any).stage)
+        !isSupportedReviewSourceType(current.sourceType) ||
+        !normalizeComplianceReviewStage((current as any).stage)
       ) {
         throw new BadRequestException(
-          `Case ${id} is outside onboarding-only runtime scope`,
+          `Case ${id} is outside supported review scope`,
         );
       }
 
@@ -2080,6 +2199,34 @@ export class ComplianceIncidentsService {
       const currentFinalizedReport = this.getCurrentFinalizedReport(
         current.reports || [],
       );
+      let customerControlSnapshot:
+        | Awaited<ReturnType<ComplianceIncidentsService['findCustomerControlSnapshot']>>
+        | null
+        | undefined;
+      const loadCustomerControlSnapshot = async (): Promise<
+        NonNullable<
+          Awaited<
+            ReturnType<ComplianceIncidentsService['findCustomerControlSnapshot']>
+          >
+        >
+      > => {
+        if (!current.customerId) {
+          throw new BadRequestException(
+            `Only customer-bound cases support ${dto.action}`,
+          );
+        }
+        if (customerControlSnapshot === undefined) {
+          customerControlSnapshot = await this.getCustomerControlSnapshot(
+            current.customerId,
+            tx,
+          );
+        }
+        return customerControlSnapshot as NonNullable<
+          Awaited<
+            ReturnType<ComplianceIncidentsService['findCustomerControlSnapshot']>
+          >
+        >;
+      };
 
       const resolution = this.resolveAction(dto.action, currentStatus);
       const reason = this.normalizeOptionalString(dto.reason);
@@ -2139,6 +2286,8 @@ export class ComplianceIncidentsService {
           ComplianceIncidentAction.CLOSE,
           ComplianceIncidentAction.FREEZE,
           ComplianceIncidentAction.UNFREEZE,
+          ComplianceIncidentAction.RESTRICT,
+          ComplianceIncidentAction.UNRESTRICT,
           ComplianceIncidentAction.REPORT,
         ].includes(dto.action) &&
         currentStatus === ComplianceIncidentStatus.ASSIGNED
@@ -2151,13 +2300,10 @@ export class ComplianceIncidentsService {
       }
 
       if (dto.action === ComplianceIncidentAction.FREEZE) {
-        if (!current.customerId) {
-          throw new BadRequestException('Only customer-bound cases support FREEZE');
-        }
-        const customer = await this.getCustomerHoldSnapshot(current.customerId, tx);
-        const currentHoldStatus = String(customer.complianceHoldStatus || 'ACTIVE')
-          .trim()
-          .toUpperCase();
+        const customer = await loadCustomerControlSnapshot();
+        const currentHoldStatus = this.normalizeFreezeStatus(
+          customer.complianceHoldStatus,
+        );
         if (currentHoldStatus === ComplianceCaseFreezeStatus.FROZEN) {
           if (customer.complianceHoldCaseId === current.id) {
             throw new ConflictException(`Customer ${customer.id} is already frozen by this case`);
@@ -2172,7 +2318,7 @@ export class ComplianceIncidentsService {
         updateData.freezeReason = reason;
 
         await tx.customerMain.update({
-          where: { id: current.customerId },
+          where: { id: current.customerId! },
           data: {
             complianceHoldStatus: ComplianceCaseFreezeStatus.FROZEN,
             complianceHoldCaseId: current.id,
@@ -2184,13 +2330,10 @@ export class ComplianceIncidentsService {
       }
 
       if (dto.action === ComplianceIncidentAction.UNFREEZE) {
-        if (!current.customerId) {
-          throw new BadRequestException('Only customer-bound cases support UNFREEZE');
-        }
-        const customer = await this.getCustomerHoldSnapshot(current.customerId, tx);
-        const currentHoldStatus = String(customer.complianceHoldStatus || 'ACTIVE')
-          .trim()
-          .toUpperCase();
+        const customer = await loadCustomerControlSnapshot();
+        const currentHoldStatus = this.normalizeFreezeStatus(
+          customer.complianceHoldStatus,
+        );
         if (currentHoldStatus !== ComplianceCaseFreezeStatus.FROZEN) {
           throw new ConflictException(`Customer ${customer.id} is not currently frozen`);
         }
@@ -2208,12 +2351,68 @@ export class ComplianceIncidentsService {
         updateData.freezeReason = null;
 
         await tx.customerMain.update({
-          where: { id: current.customerId },
+          where: { id: current.customerId! },
           data: {
             complianceHoldStatus: ComplianceCaseFreezeStatus.ACTIVE,
             complianceHoldCaseId: null,
             complianceHoldReason: null,
             complianceHoldReleasedAt: now,
+          },
+        });
+      }
+
+      if (dto.action === ComplianceIncidentAction.RESTRICT) {
+        const customer = await loadCustomerControlSnapshot();
+        const currentRestrictionStatus = this.normalizeRestrictionStatus(
+          customer.restrictionStatus,
+        );
+        if (currentRestrictionStatus === 'RESTRICTED') {
+          if (customer.restrictionCaseId === current.id) {
+            throw new ConflictException(
+              `Customer ${customer.id} is already restricted by this case`,
+            );
+          }
+          throw new ConflictException(
+            `Customer ${customer.id} is already restricted by case ${customer.restrictionCaseId}`,
+          );
+        }
+
+        await tx.customerMain.update({
+          where: { id: current.customerId! },
+          data: {
+            restrictionStatus: 'RESTRICTED',
+            restrictionCaseId: current.id,
+            restrictionReason: reason,
+            restrictionSetAt: now,
+            restrictionReleasedAt: null,
+          },
+        });
+      }
+
+      if (dto.action === ComplianceIncidentAction.UNRESTRICT) {
+        const customer = await loadCustomerControlSnapshot();
+        const currentRestrictionStatus = this.normalizeRestrictionStatus(
+          customer.restrictionStatus,
+        );
+        if (currentRestrictionStatus !== 'RESTRICTED') {
+          throw new ConflictException(`Customer ${customer.id} is not currently restricted`);
+        }
+        if (
+          customer.restrictionCaseId &&
+          String(customer.restrictionCaseId).trim() !== current.id
+        ) {
+          throw new ConflictException(
+            `Customer ${customer.id} is restricted by another case ${customer.restrictionCaseId}`,
+          );
+        }
+
+        await tx.customerMain.update({
+          where: { id: current.customerId! },
+          data: {
+            restrictionStatus: 'CLEAR',
+            restrictionCaseId: null,
+            restrictionReason: null,
+            restrictionReleasedAt: now,
           },
         });
       }
@@ -2260,6 +2459,18 @@ export class ComplianceIncidentsService {
             );
           }
         }
+        if (current.customerId) {
+          const customer = await loadCustomerControlSnapshot();
+          if (
+            this.normalizeRestrictionStatus(customer.restrictionStatus) ===
+              'RESTRICTED' &&
+            customer.restrictionCaseId === current.id
+          ) {
+            throw new BadRequestException(
+              `Case ${current.id} must be unrestricted before it can be closed`,
+            );
+          }
+        }
         updateData.closedAt = now;
         updateData.closeReason = reason || note || null;
       }
@@ -2270,6 +2481,10 @@ export class ComplianceIncidentsService {
         (!!resolvedDispositionCode || !!dto.finalizeDisposition);
 
       if (dto.action === ComplianceIncidentAction.FREEZE) {
+        resolvedDispositionCode = CASE_DISPOSITION_CODES.RESTRICT;
+      }
+
+      if (dto.action === ComplianceIncidentAction.RESTRICT) {
         resolvedDispositionCode = CASE_DISPOSITION_CODES.RESTRICT;
       }
 

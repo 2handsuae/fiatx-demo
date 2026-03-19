@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { RefreshCw, Search } from 'lucide-react';
+import CaseBoundCustomerControlModal, {
+  type CustomerControlAction,
+} from '../components/CaseBoundCustomerControlModal';
 import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/adminFetch';
 
 interface Customer {
@@ -12,34 +15,42 @@ interface Customer {
   email: string | null;
   phone: string | null;
   customerType: string;
-  publicStatus: string;
-  cddStatus: string;
+  onboardingStatus?: string;
+  operatingStatus?: string;
+  restrictionStatus?: string;
+  restrictionCaseId?: string | null;
+  complianceHoldStatus?: string;
+  complianceHoldCaseId?: string | null;
   amlRiskTier: string;
   eddRequired: boolean;
-  eddStatus: string;
-  complianceStatus: string;
-  finalApprovalStatus: string;
+  latestFinalApprovalId?: string | null;
+  latestFinalApprovalStatus?: string | null;
+  latestFinalApproval?: {
+    id: string;
+    approvalNo: string;
+    status: string;
+    decidedAt?: string | null;
+    decisionByRole?: string | null;
+  } | null;
+  activePeriodicReviewCycleId?: string | null;
+  periodicReviewOverdueAt?: string | null;
+  periodicReviewOverdueReason?: string | null;
+  activePeriodicReviewCycle?: {
+    id: string;
+    cycleNo: string;
+    status: string;
+    dueAt: string;
+    primaryIncidentId?: string | null;
+  } | null;
   investorClassification?: string;
   createdAt: string;
 }
 
 interface CaseMapItem {
   id: string;
-  caseNo: string;
+  responseNo: string;
   status: string;
 }
-
-const REQUIRED_CONFIRM_TEXT = "I confirm and approve this customer's onboarding.";
-
-const getComplianceBadgeClass = (status: string) => {
-  if (status === 'ACTIVE') return 'bg-green-100 text-green-800';
-  if (status === 'FINAL_APPROVAL') return 'bg-indigo-100 text-indigo-800';
-  if (status === 'REVIEW_CDD' || status === 'REVIEW_EDD') return 'bg-purple-100 text-purple-800';
-  if (status === 'PENDING_CDD' || status === 'PENDING_EDD') return 'bg-blue-100 text-blue-800';
-  if (status === 'NONE') return 'bg-slate-100 text-slate-800';
-  if (status === 'WITHDRAWN') return 'bg-gray-100 text-gray-800';
-  return 'bg-red-100 text-red-800';
-};
 
 const getCaseBadgeClass = (status: string) => {
   if (status === 'APPROVED') return 'bg-green-100 text-green-800';
@@ -47,6 +58,63 @@ const getCaseBadgeClass = (status: string) => {
   if (status === 'PENDING') return 'bg-slate-100 text-slate-800';
   if (status === 'REJECTED') return 'bg-red-100 text-red-800';
   return 'bg-gray-100 text-gray-800';
+};
+
+const getCanonicalBadgeClass = (status: string) => {
+  if (status === 'APPROVED' || status === 'ACTIVE' || status === 'CLEAR') {
+    return 'bg-green-100 text-green-800';
+  }
+  if (status === 'FINAL_APPROVAL' || status === 'RESTRICTED' || status === 'FROZEN') {
+    return 'bg-amber-100 text-amber-800';
+  }
+  if (status.includes('REVIEW')) {
+    return 'bg-purple-100 text-purple-800';
+  }
+  if (status.includes('PENDING') || status === 'INACTIVE') {
+    return 'bg-blue-100 text-blue-800';
+  }
+  if (status === 'REJECTED' || status === 'WITHDRAWN') {
+    return 'bg-red-100 text-red-800';
+  }
+  return 'bg-slate-100 text-slate-800';
+};
+
+const getCustomerLifecycleBucket = (customer: Pick<Customer, 'onboardingStatus' | 'operatingStatus'>) => {
+  const onboardingStatus = String(customer.onboardingStatus || 'NONE').toUpperCase();
+  const operatingStatus = String(customer.operatingStatus || 'INACTIVE').toUpperCase();
+
+  if (onboardingStatus === 'APPROVED' && operatingStatus === 'ACTIVE') {
+    return 'ACTIVE';
+  }
+  if (onboardingStatus === 'FINAL_APPROVAL') {
+    return 'FINAL_APPROVAL';
+  }
+  if (onboardingStatus === 'REJECTED') {
+    return 'REJECTED';
+  }
+  if (onboardingStatus === 'WITHDRAWN') {
+    return 'WITHDRAWN';
+  }
+  if (['CDD_UNDER_REVIEW', 'EDD_UNDER_REVIEW'].includes(onboardingStatus)) {
+    return 'REVIEW';
+  }
+  if (['PENDING_CDD_INPUT', 'PENDING_EDD_INPUT'].includes(onboardingStatus)) {
+    return 'PENDING';
+  }
+  if (onboardingStatus === 'NONE') {
+    return 'NONE';
+  }
+  return onboardingStatus || 'NONE';
+};
+
+const getPrimaryCustomerStatus = (
+  customer: Pick<Customer, 'onboardingStatus' | 'operatingStatus'>,
+) => {
+  const bucket = getCustomerLifecycleBucket(customer);
+  if (bucket === 'ACTIVE') {
+    return 'ACTIVE';
+  }
+  return String(customer.onboardingStatus || 'NONE').toUpperCase();
 };
 
 const getCustomerDisplayName = (customer: Customer) => {
@@ -68,16 +136,26 @@ const formatCreatedAt = (value?: string | null) => {
   )}:${pad(date.getMinutes())}`;
 };
 
+const formatMaybeTime = (value?: string | null) => {
+  if (!value) return '-';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString();
+};
+
 const CustomerManagement = () => {
+  const navigate = useNavigate();
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [message, setMessage] = useState('');
-  const [approving, setApproving] = useState(false);
-  const [approveTarget, setApproveTarget] = useState<Customer | null>(null);
-  const [approveInput, setApproveInput] = useState('');
-  const [cddCaseByCustomer, setCddCaseByCustomer] = useState<Record<string, CaseMapItem>>({});
-  const [eddCaseByCustomer, setEddCaseByCustomer] = useState<Record<string, CaseMapItem>>({});
+  const [submittingFinalApprovalId, setSubmittingFinalApprovalId] = useState<string | null>(null);
+  const [cddResponseByCustomer, setCddResponseByCustomer] = useState<Record<string, CaseMapItem>>({});
+  const [eddResponseByCustomer, setEddResponseByCustomer] = useState<Record<string, CaseMapItem>>({});
+  const [controlTarget, setControlTarget] = useState<{
+    customer: Customer;
+    action: CustomerControlAction;
+  } | null>(null);
 
   const fetchCustomers = useCallback(async () => {
     setLoading(true);
@@ -101,16 +179,17 @@ const CustomerManagement = () => {
 
       const customerIds = customerList.map((item) => item.id).filter(Boolean);
       if (customerIds.length === 0) {
-        setCddCaseByCustomer({});
-        setEddCaseByCustomer({});
+        setCddResponseByCustomer({});
+        setEddResponseByCustomer({});
         return;
       }
 
       const query = new URLSearchParams();
       query.append('customerIds', customerIds.join(','));
+      query.append('workflow', 'ONBOARDING');
       const [cddRes, eddRes] = await Promise.all([
-        adminFetch(`${import.meta.env.VITE_API_URL}/admin/compliance/cdd-cases?${query.toString()}`),
-        adminFetch(`${import.meta.env.VITE_API_URL}/admin/compliance/edd-cases?${query.toString()}`),
+        adminFetch(`${import.meta.env.VITE_API_URL}/admin/compliance/cdd-responses?${query.toString()}`),
+        adminFetch(`${import.meta.env.VITE_API_URL}/admin/compliance/edd-responses?${query.toString()}`),
       ]);
 
       if (cddRes.ok) {
@@ -120,14 +199,14 @@ const CustomerManagement = () => {
           if (!map[item.customerId]) {
             map[item.customerId] = {
               id: item.id,
-              caseNo: item.caseNo,
+              responseNo: item.responseNo,
               status: item.status,
             };
           }
         });
-        setCddCaseByCustomer(map);
+        setCddResponseByCustomer(map);
       } else {
-        setCddCaseByCustomer({});
+        setCddResponseByCustomer({});
       }
 
       if (eddRes.ok) {
@@ -137,14 +216,14 @@ const CustomerManagement = () => {
           if (!map[item.customerId]) {
             map[item.customerId] = {
               id: item.id,
-              caseNo: item.caseNo,
+              responseNo: item.responseNo,
               status: item.status,
             };
           }
         });
-        setEddCaseByCustomer(map);
+        setEddResponseByCustomer(map);
       } else {
-        setEddCaseByCustomer({});
+        setEddResponseByCustomer({});
       }
     } catch (error) {
       if (error instanceof AdminSessionError) {
@@ -152,8 +231,8 @@ const CustomerManagement = () => {
       }
       console.error('Failed to fetch onboarding data', error);
       setMessage('Failed to load data.');
-      setCddCaseByCustomer({});
-      setEddCaseByCustomer({});
+      setCddResponseByCustomer({});
+      setEddResponseByCustomer({});
     } finally {
       setLoading(false);
     }
@@ -164,73 +243,69 @@ const CustomerManagement = () => {
   }, [fetchCustomers]);
 
   const stats = useMemo(() => {
-    const none = customers.filter((c) => c.publicStatus === 'NONE').length;
-    const pending = customers.filter((c) =>
-      ['PENDING_CDD', 'PENDING_EDD'].includes(c.publicStatus),
+    const none = customers.filter((c) => getCustomerLifecycleBucket(c) === 'NONE').length;
+    const pending = customers.filter((c) => getCustomerLifecycleBucket(c) === 'PENDING').length;
+    const review = customers.filter((c) => getCustomerLifecycleBucket(c) === 'REVIEW').length;
+    const finalApproval = customers.filter(
+      (c) => getCustomerLifecycleBucket(c) === 'FINAL_APPROVAL',
     ).length;
-    const review = customers.filter((c) =>
-      ['REVIEW_CDD', 'REVIEW_EDD'].includes(c.publicStatus),
+    const active = customers.filter((c) => getCustomerLifecycleBucket(c) === 'ACTIVE').length;
+    const rejected = customers.filter((c) =>
+      ['REJECTED', 'WITHDRAWN'].includes(getCustomerLifecycleBucket(c)),
     ).length;
-    const finalApproval = customers.filter((c) => c.publicStatus === 'FINAL_APPROVAL').length;
-    const active = customers.filter((c) => c.publicStatus === 'ACTIVE').length;
-    const rejected = customers.filter((c) => c.publicStatus === 'REJECTED').length;
     return { none, pending, review, finalApproval, active, rejected };
   }, [customers]);
 
-  const openApproveModal = (customer: Customer) => {
-    setApproveTarget(customer);
-    setApproveInput('');
+  const openControlModal = (customer: Customer, action: CustomerControlAction) => {
+    setControlTarget({ customer, action });
   };
 
-  const closeApproveModal = () => {
-    setApproveTarget(null);
-    setApproveInput('');
+  const closeControlModal = () => {
+    setControlTarget(null);
   };
 
-  const copyConfirmText = async () => {
-    try {
-      await navigator.clipboard.writeText(REQUIRED_CONFIRM_TEXT);
-      setMessage('Confirmation text copied.');
-    } catch {
-      setMessage('Copy failed. Please enter the exact sentence manually.');
-    }
-  };
-
-  const submitFinalApprove = async () => {
-    if (!approveTarget || approveInput !== REQUIRED_CONFIRM_TEXT) return;
+  const submitFinalApproval = async (customer: Customer) => {
+    const isResubmit =
+      !!customer.latestFinalApprovalId &&
+      ['CANCELLED', 'EXPIRED'].includes(customer.latestFinalApprovalStatus || '');
 
     try {
-      setApproving(true);
+      setSubmittingFinalApprovalId(customer.id);
       setMessage('');
       const res = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/compliance/customers/${approveTarget.id}/final-review`,
+        `${import.meta.env.VITE_API_URL}/admin/compliance/customers/${customer.id}/final-approval/submit`,
         {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({
-            decision: 'APPROVE',
-            reason: REQUIRED_CONFIRM_TEXT,
-          }),
+          body: JSON.stringify({}),
         },
       );
 
       if (!res.ok) {
-        throw new Error(await getApiErrorMessage(res, 'Final approval failed.'));
+        throw new Error(await getApiErrorMessage(res, 'Final approval submit failed.'));
       }
 
-      closeApproveModal();
-      setMessage('Final approval completed.');
+      const data = (await res.json()) as {
+        id?: string;
+        approvalNo?: string;
+      };
+      setMessage(
+        `${isResubmit ? 'Final approval resubmitted' : 'Final approval created'}${data.approvalNo ? `: ${data.approvalNo}` : '.'}`,
+      );
       await fetchCustomers();
+      if (data.id) {
+        navigate(`/dashboard/control-gates/approvals/${data.id}`);
+      }
     } catch (error) {
       if (error instanceof AdminSessionError) {
         return;
       }
-      console.error('Failed to final approve customer', error);
-      setMessage('Final approval failed.');
+      console.error('Failed to submit final approval', error);
+      setMessage('Final approval submit failed.');
     } finally {
-      setApproving(false);
+      setSubmittingFinalApprovalId(null);
     }
   };
 
@@ -280,32 +355,39 @@ const CustomerManagement = () => {
                 <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider text-xs">EMAIL</th>
                 <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider text-xs">TYPE</th>
                 <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider text-xs">Created At</th>
-                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider text-xs">COMPLAINCE STATUS</th>
-                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider text-xs">CDD</th>
-                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider text-xs">EDD</th>
+                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider text-xs">PRIMARY STATUS</th>
+                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider text-xs">CANONICAL</th>
+                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider text-xs">CDD RESPONSE</th>
+                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider text-xs">EDD RESPONSE</th>
+                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider text-xs">FINAL APPROVAL</th>
                 <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider text-xs">ACTION</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-admin-border">
               {loading ? (
                 <tr>
-                  <td colSpan={9} className="px-6 py-8 text-center text-gray-500">
+                  <td colSpan={11} className="px-6 py-8 text-center text-gray-500">
                     Loading customers...
                   </td>
                 </tr>
               ) : customers.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="px-6 py-8 text-center text-gray-500">
+                  <td colSpan={11} className="px-6 py-8 text-center text-gray-500">
                     No customers found
                   </td>
                 </tr>
               ) : (
                 customers.map((customer) => {
-                  const cddCase = cddCaseByCustomer[customer.id];
-                  const eddCase = eddCaseByCustomer[customer.id];
-                  const customerStatus = customer.publicStatus || customer.complianceStatus;
-                  const canFinalApprove =
-                    customerStatus === 'FINAL_APPROVAL' || customer.finalApprovalStatus === 'PENDING';
+                  const cddResponse = cddResponseByCustomer[customer.id];
+                  const eddResponse = eddResponseByCustomer[customer.id];
+                  const customerStatus = getPrimaryCustomerStatus(customer);
+                  const latestApprovalStatus =
+                    customer.latestFinalApprovalStatus || customer.latestFinalApproval?.status || '-';
+                  const canSubmitFinalApproval =
+                    customer.onboardingStatus === 'FINAL_APPROVAL' &&
+                    (!customer.latestFinalApprovalId ||
+                      ['CANCELLED', 'EXPIRED'].includes(latestApprovalStatus));
+                  const canOpenFinalApproval = !!customer.latestFinalApprovalId;
 
                   return (
                     <tr key={customer.id} className="hover:bg-gray-50 transition-colors">
@@ -330,23 +412,55 @@ const CustomerManagement = () => {
                       </td>
                       <td className="px-6 py-4">
                         <span
-                          className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getComplianceBadgeClass(
-                            customer.complianceStatus,
+                          className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getCanonicalBadgeClass(
+                            customerStatus,
                           )}`}
                         >
                           {customerStatus}
                         </span>
                       </td>
                       <td className="px-6 py-4 text-xs text-gray-700">
-                        {cddCase ? (
+                        <div className="space-y-1">
+                          <span
+                            className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium ${getCanonicalBadgeClass(
+                              customer.onboardingStatus || 'NONE',
+                            )}`}
+                          >
+                            ONB {customer.onboardingStatus || 'NONE'}
+                          </span>
+                          <span
+                            className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium ${getCanonicalBadgeClass(
+                              customer.operatingStatus || 'INACTIVE',
+                            )}`}
+                          >
+                            OPS {customer.operatingStatus || 'INACTIVE'}
+                          </span>
+                          <span
+                            className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium ${getCanonicalBadgeClass(
+                              customer.restrictionStatus || 'CLEAR',
+                            )}`}
+                          >
+                            RES {customer.restrictionStatus || 'CLEAR'}
+                          </span>
+                          <span
+                            className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium ${getCanonicalBadgeClass(
+                              customer.complianceHoldStatus || 'ACTIVE',
+                            )}`}
+                          >
+                            HOLD {customer.complianceHoldStatus || 'ACTIVE'}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 text-xs text-gray-700">
+                        {cddResponse ? (
                           <div className="space-y-1">
-                            <div className="font-mono text-[11px] text-gray-900">{cddCase.caseNo}</div>
+                            <div className="font-mono text-[11px] text-gray-900">{cddResponse.responseNo}</div>
                             <span
                               className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium ${getCaseBadgeClass(
-                                cddCase.status,
+                                cddResponse.status,
                               )}`}
                             >
-                              {cddCase.status}
+                              {cddResponse.status}
                             </span>
                           </div>
                         ) : (
@@ -354,20 +468,53 @@ const CustomerManagement = () => {
                         )}
                       </td>
                       <td className="px-6 py-4 text-xs text-gray-700">
-                        {eddCase ? (
+                        {eddResponse ? (
                           <div className="space-y-1">
-                            <div className="font-mono text-[11px] text-gray-900">{eddCase.caseNo}</div>
+                            <div className="font-mono text-[11px] text-gray-900">{eddResponse.responseNo}</div>
                             <span
                               className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium ${getCaseBadgeClass(
-                                eddCase.status,
+                                eddResponse.status,
                               )}`}
                             >
-                              {eddCase.status}
+                              {eddResponse.status}
                             </span>
                           </div>
                         ) : (
                           'N/A'
                         )}
+                      </td>
+                      <td className="px-6 py-4 text-xs text-gray-700">
+                        <div className="space-y-1">
+                          <div className="font-mono text-[11px] text-gray-900">
+                            {customer.latestFinalApproval?.approvalNo || '-'}
+                          </div>
+                          <span
+                            className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium ${getCaseBadgeClass(
+                              latestApprovalStatus,
+                            )}`}
+                          >
+                            {latestApprovalStatus}
+                          </span>
+                          <div className="text-[11px] text-gray-500">
+                            Role: {customer.latestFinalApproval?.decisionByRole || '-'}
+                          </div>
+                          <div className="text-[11px] text-gray-500">
+                            Decided: {formatMaybeTime(customer.latestFinalApproval?.decidedAt)}
+                          </div>
+                          {(customer.activePeriodicReviewCycleId ||
+                            customer.periodicReviewOverdueAt) && (
+                            <div className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] text-amber-700">
+                              PRR:{' '}
+                              {customer.activePeriodicReviewCycle?.cycleNo ||
+                                customer.activePeriodicReviewCycleId ||
+                                'OVERDUE'}
+                              {' / '}
+                              {customer.activePeriodicReviewCycle?.status ||
+                                customer.periodicReviewOverdueReason ||
+                                'DUE'}
+                            </div>
+                          )}
+                        </div>
                       </td>
                       <td className="px-6 py-4 text-xs">
                         <div className="flex flex-col items-start gap-2">
@@ -377,16 +524,65 @@ const CustomerManagement = () => {
                           >
                             view
                           </Link>
-                          {canFinalApprove && (
+                          {canSubmitFinalApproval && (
                             <button
                               type="button"
-                              onClick={() => openApproveModal(customer)}
-                              disabled={approving}
+                              onClick={() => void submitFinalApproval(customer)}
+                              disabled={submittingFinalApprovalId === customer.id}
                               className="text-brand-primary hover:underline disabled:text-gray-400 disabled:no-underline"
                             >
-                              final approve
+                              {submittingFinalApprovalId === customer.id
+                                ? 'submitting final approval...'
+                                : customer.latestFinalApprovalId
+                                  ? 'resubmit final approval'
+                                  : 'create final approval'}
                             </button>
                           )}
+                          {canOpenFinalApproval && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                navigate(
+                                  `/dashboard/control-gates/approvals/${customer.latestFinalApprovalId}`,
+                                )
+                              }
+                              className="text-brand-primary hover:underline"
+                            >
+                              open final approval
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => openControlModal(customer, 'RESTRICT')}
+                            disabled={customer.restrictionStatus === 'RESTRICTED'}
+                            className="text-brand-primary hover:underline disabled:text-gray-400 disabled:no-underline"
+                          >
+                            restrict
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => openControlModal(customer, 'UNRESTRICT')}
+                            disabled={customer.restrictionStatus !== 'RESTRICTED'}
+                            className="text-brand-primary hover:underline disabled:text-gray-400 disabled:no-underline"
+                          >
+                            unrestrict
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => openControlModal(customer, 'FREEZE')}
+                            disabled={customer.complianceHoldStatus === 'FROZEN'}
+                            className="text-brand-primary hover:underline disabled:text-gray-400 disabled:no-underline"
+                          >
+                            freeze
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => openControlModal(customer, 'UNFREEZE')}
+                            disabled={customer.complianceHoldStatus !== 'FROZEN'}
+                            className="text-brand-primary hover:underline disabled:text-gray-400 disabled:no-underline"
+                          >
+                            unfreeze
+                          </button>
                         </div>
                       </td>
                     </tr>
@@ -398,64 +594,27 @@ const CustomerManagement = () => {
         </div>
       </div>
 
-      {approveTarget && (
-        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
-          <div className="w-full max-w-md rounded-xl bg-white shadow-xl border border-admin-border">
-            <div className="px-6 py-4 border-b border-admin-border">
-              <h2 className="text-lg font-semibold text-gray-900">Final Approval Confirmation</h2>
-              <p className="mt-1 text-sm text-gray-500">
-                Customer: {getCustomerDisplayName(approveTarget)} ({approveTarget.customerNo || '-'})
-              </p>
-            </div>
-            <div className="px-6 py-4 space-y-4">
-              <p className="text-sm text-gray-700">
-                Copy and paste the sentence below before submitting.
-              </p>
-              <div className="flex items-center gap-2">
-                <input
-                  value={REQUIRED_CONFIRM_TEXT}
-                  readOnly
-                  className="flex-1 rounded-lg border border-admin-border bg-gray-50 px-3 py-2 text-sm font-mono text-gray-700"
-                />
-                <button
-                  type="button"
-                  onClick={() => void copyConfirmText()}
-                  className="rounded-lg border border-admin-border px-3 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50"
-                >
-                  Copy text
-                </button>
-              </div>
-              <div className="space-y-1">
-                <label className="text-sm font-medium text-gray-700">Confirmation input</label>
-                <input
-                  value={approveInput}
-                  onChange={(e) => setApproveInput(e.target.value)}
-                  placeholder={`Paste here: ${REQUIRED_CONFIRM_TEXT}`}
-                  className="w-full rounded-lg border border-admin-border px-3 py-2 text-sm text-gray-900 focus:outline-none focus:border-brand-primary focus:ring-1 focus:ring-brand-primary/20"
-                />
-              </div>
-            </div>
-            <div className="px-6 py-4 border-t border-admin-border flex justify-end gap-3">
-              <button
-                type="button"
-                onClick={closeApproveModal}
-                disabled={approving}
-                className="rounded-lg border border-admin-border px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-60"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => void submitFinalApprove()}
-                disabled={approving || approveInput !== REQUIRED_CONFIRM_TEXT}
-                className="rounded-lg bg-brand-primary px-4 py-2 text-sm font-medium text-white hover:bg-brand-primary/90 disabled:opacity-60"
-              >
-                {approving ? 'Submitting...' : 'Submit final approve'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <CaseBoundCustomerControlModal
+        open={!!controlTarget}
+        action={controlTarget?.action || null}
+        customerNo={controlTarget?.customer.customerNo}
+        customerLabel={controlTarget ? getCustomerDisplayName(controlTarget.customer) : null}
+        currentCaseId={
+          controlTarget?.action === 'UNRESTRICT'
+            ? controlTarget?.customer.restrictionCaseId || null
+            : controlTarget?.action === 'UNFREEZE'
+              ? controlTarget?.customer.complianceHoldCaseId || null
+              : null
+        }
+        onClose={closeControlModal}
+        onSubmitted={async () => {
+          const action = controlTarget?.action;
+          await fetchCustomers();
+          if (action) {
+            setMessage(`${action.toLowerCase()} completed.`);
+          }
+        }}
+      />
     </div>
   );
 };

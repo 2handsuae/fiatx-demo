@@ -6,14 +6,27 @@ import {
 import { Prisma } from '@prisma/client';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 import {
+  buildCustomerLifecyclePatch as buildCustomerLifecycleStatePatch,
+  CustomerOnboardingStatus,
+  CustomerOperatingStatus,
+  CustomerPublicStatus,
+  CustomerReviewStage,
+  CustomerRestrictionStatus,
+  getExpectedReviewStageFromCustomerState,
+  getLegacyPublicStatusFromCanonical,
+  resolveCustomerCanonicalState,
+} from '../customer-status.util';
+import {
   ALERT_DISPOSITION_CODES,
   CASE_DISPOSITION_CODES,
 } from '../../risk-engine/constants/compliance-disposition.constant';
 import {
+  ComplianceReviewStage,
+  ComplianceWorkflow,
   ONBOARDING_REVIEW_STAGES,
   ONBOARDING_WORKFLOW,
-  OnboardingReviewStage,
 } from '../../risk-engine/constants/onboarding-compliance-workflow.constant';
+import { OnboardingFinalApprovalService } from './onboarding-final-approval.service';
 
 export type WorkflowTransitionProducerType = 'ALERT' | 'CASE';
 
@@ -23,30 +36,26 @@ export const WORKFLOW_TRANSITION_CODES = {
   CDD_REQUIRE_EDD_TO_PENDING_EDD: 'CDD_REQUIRE_EDD_TO_PENDING_EDD',
   EDD_APPROVE_TO_FINAL_APPROVAL: 'EDD_APPROVE_TO_FINAL_APPROVAL',
   EDD_REJECT_TO_REJECTED: 'EDD_REJECT_TO_REJECTED',
+  PERIODIC_REVIEW_CDD_APPROVE_TO_CLEARED: 'PERIODIC_REVIEW_CDD_APPROVE_TO_CLEARED',
+  PERIODIC_REVIEW_CDD_REJECT_TO_REJECTED: 'PERIODIC_REVIEW_CDD_REJECT_TO_REJECTED',
+  PERIODIC_REVIEW_CDD_REQUIRE_EDD_TO_PENDING_EDD:
+    'PERIODIC_REVIEW_CDD_REQUIRE_EDD_TO_PENDING_EDD',
+  PERIODIC_REVIEW_EDD_APPROVE_TO_CLEARED: 'PERIODIC_REVIEW_EDD_APPROVE_TO_CLEARED',
+  PERIODIC_REVIEW_EDD_REJECT_TO_REJECTED: 'PERIODIC_REVIEW_EDD_REJECT_TO_REJECTED',
   NO_TRANSITION: 'NO_TRANSITION',
 } as const;
 
 export type WorkflowTransitionCode =
   (typeof WORKFLOW_TRANSITION_CODES)[keyof typeof WORKFLOW_TRANSITION_CODES];
 
-export type CustomerPublicStatus =
-  | 'NONE'
-  | 'PENDING_CDD'
-  | 'REVIEW_CDD'
-  | 'PENDING_EDD'
-  | 'REVIEW_EDD'
-  | 'FINAL_APPROVAL'
-  | 'ACTIVE'
-  | 'REJECTED'
-  | 'WITHDRAWN';
-
 export interface WorkflowTransitionInput {
-  workflow: typeof ONBOARDING_WORKFLOW;
-  stage: OnboardingReviewStage;
+  workflow: ComplianceWorkflow;
+  stage: ComplianceReviewStage;
   producerType: WorkflowTransitionProducerType;
   producerId: string;
   customerId: string;
-  journeyId: string;
+  journeyId?: string;
+  sourceId?: string;
   dispositionCode: string;
   reason?: string | null;
   actorId: string;
@@ -56,21 +65,28 @@ export interface WorkflowTransitionInput {
 }
 
 export interface WorkflowTransitionOutput {
-  workflow: typeof ONBOARDING_WORKFLOW;
-  stage: OnboardingReviewStage;
+  workflow: ComplianceWorkflow;
+  stage: ComplianceReviewStage;
   dispositionCode: string;
   transitionCode: WorkflowTransitionCode;
   fromStatus: CustomerPublicStatus;
   toStatus: CustomerPublicStatus;
   executed: boolean;
   updatedCustomer: any;
-  eddCase?: any | null;
+  eddResponse?: any | null;
   activeCaseId?: string | null;
   finalApprovalStatus?: string | null;
+  latestFinalApprovalId?: string | null;
+  latestFinalApprovalStatus?: string | null;
+  createdFinalApprovalId?: string | null;
 }
 
 @Injectable()
 export class OnboardingWorkflowTransitionService {
+  constructor(
+    private readonly onboardingFinalApprovalService: OnboardingFinalApprovalService,
+  ) {}
+
   private readonly noTransitionDispositionCodes = new Set<string>([
     ALERT_DISPOSITION_CODES.ESCALATE_TO_CASE,
     ALERT_DISPOSITION_CODES.FALSE_POSITIVE,
@@ -80,23 +96,48 @@ export class OnboardingWorkflowTransitionService {
     CASE_DISPOSITION_CODES.FALSE_POSITIVE,
   ]);
 
-  private normalizePublicStatus(value?: string | null): CustomerPublicStatus {
-    const normalized = String(value || 'NONE').trim().toUpperCase();
-    const all: CustomerPublicStatus[] = [
-      'NONE',
-      'PENDING_CDD',
-      'REVIEW_CDD',
-      'PENDING_EDD',
-      'REVIEW_EDD',
-      'FINAL_APPROVAL',
-      'ACTIVE',
-      'REJECTED',
-      'WITHDRAWN',
-    ];
-    if (all.includes(normalized as CustomerPublicStatus)) {
-      return normalized as CustomerPublicStatus;
+  private getCustomerPublicStatus(customer: {
+    onboardingStatus?: string | null;
+    operatingStatus?: string | null;
+    restrictionStatus?: string | null;
+  }): CustomerPublicStatus {
+    return getLegacyPublicStatusFromCanonical(resolveCustomerCanonicalState(customer).onboardingStatus);
+  }
+
+  private buildCustomerLifecyclePatch(
+    customer: {
+      onboardingStatus?: string | null;
+      operatingStatus?: string | null;
+      restrictionStatus?: string | null;
+      eddRequired?: boolean | null;
+      cddDocumentExpiresAt?: Date | string | null;
+    },
+    next: {
+      onboardingStatus: CustomerOnboardingStatus;
+      operatingStatus?: CustomerOperatingStatus;
+      restrictionStatus?: CustomerRestrictionStatus;
+      eddRequired?: boolean;
+    },
+  ): Prisma.CustomerMainUpdateInput {
+    return buildCustomerLifecycleStatePatch(customer, next);
+  }
+
+  private buildLatestFinalApprovalBindingPatch(
+    approvalId?: string | null,
+  ): Prisma.CustomerMainUpdateInput {
+    if (approvalId) {
+      return {
+        latestFinalApproval: {
+          connect: { id: approvalId },
+        },
+      };
     }
-    return 'NONE';
+
+    return {
+      latestFinalApproval: {
+        disconnect: true,
+      },
+    };
   }
 
   private addDays(base: Date, days: number): Date {
@@ -107,23 +148,34 @@ export class OnboardingWorkflowTransitionService {
     return String(value || '').trim().toUpperCase();
   }
 
-  private getExpectedReviewStage(status: CustomerPublicStatus): OnboardingReviewStage | null {
-    if (status === ONBOARDING_REVIEW_STAGES.REVIEW_CDD) {
-      return ONBOARDING_REVIEW_STAGES.REVIEW_CDD;
-    }
-    if (status === ONBOARDING_REVIEW_STAGES.REVIEW_EDD) {
-      return ONBOARDING_REVIEW_STAGES.REVIEW_EDD;
-    }
-    return null;
+  private getExpectedReviewStage(customer: {
+    onboardingStatus?: string | null;
+    operatingStatus?: string | null;
+    restrictionStatus?: string | null;
+  }): CustomerReviewStage | null {
+    return getExpectedReviewStageFromCustomerState(customer);
   }
 
-  private async createEddCaseIfNeeded(
+  private getCompatibilityFinalApprovalStatus(customer: {
+    latestFinalApprovalStatus?: string | null;
+    onboardingStatus?: string | null;
+  }): string | null {
+    const latest = String(customer.latestFinalApprovalStatus || '').trim().toUpperCase();
+    if (latest === 'APPROVED' || latest === 'REJECTED' || latest === 'PENDING') {
+      return latest;
+    }
+    return String(customer.onboardingStatus || '').trim().toUpperCase() === 'FINAL_APPROVAL'
+      ? 'PENDING'
+      : null;
+  }
+
+  private async createEddResponseIfNeeded(
     tx: Prisma.TransactionClient,
     customerId: string,
     journeyId: string,
-    cddCaseId: string,
+    cddResponseId: string,
   ) {
-    const existing = await tx.eddCase.findFirst({
+    const existing = await tx.eddResponse.findFirst({
       where: {
         customerId,
         journeyId,
@@ -134,11 +186,11 @@ export class OnboardingWorkflowTransitionService {
 
     if (existing) return existing;
 
-    return tx.eddCase.create({
+    return tx.eddResponse.create({
       data: {
         caseNo: generateReferenceNo('EDD'),
         customerId,
-        cddCaseId,
+        cddResponseId,
         subjectKind: 'INDIVIDUAL_CUSTOMER',
         subjectRefId: customerId,
         journeyId,
@@ -147,68 +199,76 @@ export class OnboardingWorkflowTransitionService {
     });
   }
 
-  private async resolveCddCase(
+  private async resolveCddResponse(
     tx: Prisma.TransactionClient,
     customer: any,
     linkedCaseIds: string[],
   ) {
-    let cddCase = customer.currentCddCaseId
-      ? await tx.cddCase.findUnique({
-          where: { id: customer.currentCddCaseId },
-        })
-      : null;
-    if (cddCase && cddCase.customerId !== customer.id) {
-      cddCase = null;
-    }
-    if (!cddCase && linkedCaseIds.length > 0) {
-      cddCase = await tx.cddCase.findFirst({
+    let cddResponse = null;
+    if (linkedCaseIds.length > 0) {
+      cddResponse = await tx.cddResponse.findFirst({
         where: {
           id: { in: linkedCaseIds },
           customerId: customer.id,
+          workflow: ONBOARDING_WORKFLOW,
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+    }
+    if (!cddResponse) {
+      cddResponse = await tx.cddResponse.findFirst({
+        where: {
+          customerId: customer.id,
+          workflow: ONBOARDING_WORKFLOW,
+          ...(customer.activeJourneyId ? { journeyId: customer.activeJourneyId } : {}),
         },
         orderBy: { createdAt: 'desc' },
       });
     }
 
-    if (!cddCase) {
+    if (!cddResponse) {
       throw new BadRequestException(
-        'Unable to locate CDD case for onboarding workflow transition.',
+        'Unable to locate CDD response for onboarding workflow transition.',
       );
     }
 
-    return cddCase;
+    return cddResponse;
   }
 
-  private async resolveEddCase(
+  private async resolveEddResponse(
     tx: Prisma.TransactionClient,
     customer: any,
     linkedCaseIds: string[],
   ) {
-    let eddCase = customer.currentEddCaseId
-      ? await tx.eddCase.findUnique({
-          where: { id: customer.currentEddCaseId },
-        })
-      : null;
-    if (eddCase && eddCase.customerId !== customer.id) {
-      eddCase = null;
-    }
-    if (!eddCase && linkedCaseIds.length > 0) {
-      eddCase = await tx.eddCase.findFirst({
+    let eddResponse = null;
+    if (linkedCaseIds.length > 0) {
+      eddResponse = await tx.eddResponse.findFirst({
         where: {
           id: { in: linkedCaseIds },
           customerId: customer.id,
+          workflow: ONBOARDING_WORKFLOW,
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+    }
+    if (!eddResponse) {
+      eddResponse = await tx.eddResponse.findFirst({
+        where: {
+          customerId: customer.id,
+          workflow: ONBOARDING_WORKFLOW,
+          ...(customer.activeJourneyId ? { journeyId: customer.activeJourneyId } : {}),
         },
         orderBy: { createdAt: 'desc' },
       });
     }
 
-    if (!eddCase) {
+    if (!eddResponse) {
       throw new BadRequestException(
-        'Unable to locate EDD case for onboarding workflow transition.',
+        'Unable to locate EDD response for onboarding workflow transition.',
       );
     }
 
-    return eddCase;
+    return eddResponse;
   }
 
   private buildAuditAction(input: {
@@ -239,7 +299,7 @@ export class OnboardingWorkflowTransitionService {
     const decisionRecordId = String(input.latestDecisionRecordId || '').trim();
     if (!decisionRecordId) return;
 
-    const current = await (tx as any).onboardingDecisionRecord.findUnique({
+    const current = await (tx as any).workflowDecisionRecord.findUnique({
       where: { id: decisionRecordId },
       select: { outputs: true },
     });
@@ -266,12 +326,12 @@ export class OnboardingWorkflowTransitionService {
         fromStatus: output.fromStatus,
         toStatus: output.toStatus,
         executed: output.executed,
-        eddCaseId: output.eddCase?.id || null,
+        eddResponseId: output.eddResponse?.id || null,
         activeCaseId: output.activeCaseId || null,
       },
     };
 
-    await (tx as any).onboardingDecisionRecord.update({
+    await (tx as any).workflowDecisionRecord.update({
       where: { id: decisionRecordId },
       data: {
         outputs: JSON.stringify(nextOutputs),
@@ -288,7 +348,7 @@ export class OnboardingWorkflowTransitionService {
       throw new BadRequestException(`Unsupported onboarding workflow: ${workflow || 'UNKNOWN'}`);
     }
 
-    const stage = String(input.stage || '').trim().toUpperCase() as OnboardingReviewStage;
+    const stage = String(input.stage || '').trim().toUpperCase() as ComplianceReviewStage;
     if (
       stage !== ONBOARDING_REVIEW_STAGES.REVIEW_CDD &&
       stage !== ONBOARDING_REVIEW_STAGES.REVIEW_EDD
@@ -303,8 +363,8 @@ export class OnboardingWorkflowTransitionService {
       throw new NotFoundException(`Customer not found: ${input.customerId}`);
     }
 
-    const fromStatus = this.normalizePublicStatus(customer.publicStatus);
-    const expectedStage = this.getExpectedReviewStage(fromStatus);
+    const fromStatus = this.getCustomerPublicStatus(customer);
+    const expectedStage = this.getExpectedReviewStage(customer);
     if (!expectedStage) {
       throw new BadRequestException(
         `Workflow transition is only allowed in REVIEW_CDD/REVIEW_EDD, current=${fromStatus}`,
@@ -331,9 +391,12 @@ export class OnboardingWorkflowTransitionService {
         toStatus: fromStatus,
         executed: false,
         updatedCustomer: customer,
-        eddCase: null,
-        activeCaseId: customer.activeCaseId || null,
-        finalApprovalStatus: customer.finalApprovalStatus || null,
+        eddResponse: null,
+        activeCaseId: linkedCaseIds[0] || null,
+        finalApprovalStatus: this.getCompatibilityFinalApprovalStatus(customer),
+        latestFinalApprovalId: customer.latestFinalApprovalId || null,
+        latestFinalApprovalStatus: customer.latestFinalApprovalStatus || null,
+        createdFinalApprovalId: null,
       };
       await this.writeWorkflowTransitionSnapshot(tx, input, noTransition);
       return noTransition;
@@ -342,76 +405,67 @@ export class OnboardingWorkflowTransitionService {
     const now = new Date();
     let toStatus: CustomerPublicStatus = fromStatus;
     let transitionCode: WorkflowTransitionCode = WORKFLOW_TRANSITION_CODES.NO_TRANSITION;
-    let eddCase: any | null = null;
+    let eddResponse: any | null = null;
     let caseType: 'CDD' | 'EDD' | null = null;
     let caseId: string | null = null;
+    let createdFinalApprovalId: string | null = null;
     let customerUpdateData: Prisma.CustomerMainUpdateInput = {
       activeJourneyId: input.journeyId,
       latestDecisionRecordId: input.latestDecisionRecordId || customer.latestDecisionRecordId || null,
     };
 
     if (stage === ONBOARDING_REVIEW_STAGES.REVIEW_CDD) {
-      const cddCase = await this.resolveCddCase(tx, customer, linkedCaseIds);
+      const cddResponse = await this.resolveCddResponse(tx, customer, linkedCaseIds);
       caseType = 'CDD';
-      caseId = cddCase.id;
+      caseId = cddResponse.id;
 
       if (dispositionCode === ALERT_DISPOSITION_CODES.APPROVE_STAGE) {
         transitionCode = WORKFLOW_TRANSITION_CODES.CDD_APPROVE_TO_ACTIVE;
         toStatus = 'ACTIVE';
         customerUpdateData = {
           ...customerUpdateData,
-          publicStatus: 'ACTIVE',
-          cddStatus: 'APPROVED',
-          eddRequired: false,
-          eddStatus: 'NOT_REQUIRED',
-          complianceStatus: 'ACTIVE',
-          finalApprovalStatus: 'APPROVED',
-          finalApprovalReason: String(input.reason || '').trim() || 'ALERT_APPROVE',
-          finalApprovalReviewerId: input.actorId,
-          finalApprovalReviewedAt: now,
+          ...this.buildCustomerLifecyclePatch(customer, {
+            onboardingStatus: 'APPROVED',
+            operatingStatus: 'ACTIVE',
+            eddRequired: false,
+          }),
+          ...this.buildLatestFinalApprovalBindingPatch(null),
+          latestFinalApprovalStatus: null,
           cddDocumentExpiresAt: this.addDays(now, 365),
           nextReviewAt: this.addDays(now, 365),
-          activeCaseType: null,
-          activeCaseId: null,
-          currentEddCaseId: null,
         };
       } else if (dispositionCode === ALERT_DISPOSITION_CODES.REJECT_STAGE) {
         transitionCode = WORKFLOW_TRANSITION_CODES.CDD_REJECT_TO_REJECTED;
         toStatus = 'REJECTED';
         customerUpdateData = {
           ...customerUpdateData,
-          publicStatus: 'REJECTED',
-          cddStatus: 'REJECTED',
-          eddRequired: false,
-          eddStatus: 'NOT_REQUIRED',
-          complianceStatus: 'BLOCKED',
-          finalApprovalStatus: 'REJECTED',
-          finalApprovalReason: String(input.reason || '').trim() || 'ALERT_REJECT',
-          finalApprovalReviewerId: input.actorId,
-          finalApprovalReviewedAt: now,
-          activeCaseType: null,
-          activeCaseId: null,
-          currentEddCaseId: null,
+          ...this.buildCustomerLifecyclePatch(customer, {
+            onboardingStatus: 'REJECTED',
+            operatingStatus: 'INACTIVE',
+            eddRequired: false,
+          }),
+          ...this.buildLatestFinalApprovalBindingPatch(null),
+          latestFinalApprovalStatus: null,
         };
       } else if (dispositionCode === ALERT_DISPOSITION_CODES.REQUIRE_EDD) {
-        eddCase = await this.createEddCaseIfNeeded(tx, customer.id, input.journeyId, cddCase.id);
+        eddResponse = await this.createEddResponseIfNeeded(
+          tx,
+          customer.id,
+          input.journeyId || customer.activeJourneyId || generateReferenceNo('ONB'),
+          cddResponse.id,
+        );
         transitionCode = WORKFLOW_TRANSITION_CODES.CDD_REQUIRE_EDD_TO_PENDING_EDD;
         toStatus = 'PENDING_EDD';
         customerUpdateData = {
           ...customerUpdateData,
-          publicStatus: 'PENDING_EDD',
-          cddStatus: 'APPROVED',
-          eddRequired: true,
-          eddStatus: 'REQUIRED',
-          complianceStatus: 'IN_PROGRESS',
-          finalApprovalStatus: 'NOT_REQUIRED',
-          finalApprovalReason: null,
-          finalApprovalReviewerId: null,
-          finalApprovalReviewedAt: null,
+          ...this.buildCustomerLifecyclePatch(customer, {
+            onboardingStatus: 'PENDING_EDD_INPUT',
+            operatingStatus: 'INACTIVE',
+            eddRequired: true,
+          }),
+          ...this.buildLatestFinalApprovalBindingPatch(null),
+          latestFinalApprovalStatus: null,
           cddDocumentExpiresAt: this.addDays(now, 365),
-          activeCaseType: 'EDD',
-          activeCaseId: eddCase.id,
-          currentEddCaseId: eddCase.id,
         };
       } else {
         throw new BadRequestException(
@@ -419,8 +473,8 @@ export class OnboardingWorkflowTransitionService {
         );
       }
 
-      await tx.cddCase.update({
-        where: { id: cddCase.id },
+      await tx.cddResponse.update({
+        where: { id: cddResponse.id },
         data: {
           status: 'FINAL',
           reviewerId: input.actorId,
@@ -437,44 +491,44 @@ export class OnboardingWorkflowTransitionService {
         },
       });
     } else {
-      const reviewEddCase = await this.resolveEddCase(tx, customer, linkedCaseIds);
+      const reviewEddResponse = await this.resolveEddResponse(tx, customer, linkedCaseIds);
       caseType = 'EDD';
-      caseId = reviewEddCase.id;
-      eddCase = reviewEddCase;
+      caseId = reviewEddResponse.id;
+      eddResponse = reviewEddResponse;
 
       if (dispositionCode === ALERT_DISPOSITION_CODES.APPROVE_STAGE) {
         transitionCode = WORKFLOW_TRANSITION_CODES.EDD_APPROVE_TO_FINAL_APPROVAL;
         toStatus = 'FINAL_APPROVAL';
+        const finalApproval =
+          await this.onboardingFinalApprovalService.ensurePendingApprovalInTransaction(tx, {
+            customer,
+            actorId: input.actorId,
+            actorRole: input.actorRole,
+            reason: String(input.reason || '').trim() || null,
+          });
+        createdFinalApprovalId = finalApproval.created ? finalApproval.approval.id : null;
         customerUpdateData = {
           ...customerUpdateData,
-          publicStatus: 'FINAL_APPROVAL',
-          cddStatus: 'APPROVED',
-          eddRequired: true,
-          eddStatus: 'APPROVED',
-          complianceStatus: 'IN_PROGRESS',
-          finalApprovalStatus: 'PENDING',
-          finalApprovalReason: null,
-          finalApprovalReviewerId: null,
-          finalApprovalReviewedAt: null,
-          activeCaseType: null,
-          activeCaseId: null,
+          ...this.buildCustomerLifecyclePatch(customer, {
+            onboardingStatus: 'FINAL_APPROVAL',
+            operatingStatus: 'INACTIVE',
+            eddRequired: true,
+          }),
+          ...this.buildLatestFinalApprovalBindingPatch(finalApproval.approval.id),
+          latestFinalApprovalStatus: finalApproval.approval.status,
         };
       } else if (dispositionCode === ALERT_DISPOSITION_CODES.REJECT_STAGE) {
         transitionCode = WORKFLOW_TRANSITION_CODES.EDD_REJECT_TO_REJECTED;
         toStatus = 'REJECTED';
         customerUpdateData = {
           ...customerUpdateData,
-          publicStatus: 'REJECTED',
-          cddStatus: 'APPROVED',
-          eddRequired: true,
-          eddStatus: 'REJECTED',
-          complianceStatus: 'BLOCKED',
-          finalApprovalStatus: 'REJECTED',
-          finalApprovalReason: String(input.reason || '').trim() || 'ALERT_REJECT',
-          finalApprovalReviewerId: input.actorId,
-          finalApprovalReviewedAt: now,
-          activeCaseType: null,
-          activeCaseId: null,
+          ...this.buildCustomerLifecyclePatch(customer, {
+            onboardingStatus: 'REJECTED',
+            operatingStatus: 'INACTIVE',
+            eddRequired: true,
+          }),
+          ...this.buildLatestFinalApprovalBindingPatch(null),
+          latestFinalApprovalStatus: null,
         };
       } else {
         throw new BadRequestException(
@@ -482,8 +536,8 @@ export class OnboardingWorkflowTransitionService {
         );
       }
 
-      await tx.eddCase.update({
-        where: { id: reviewEddCase.id },
+      await tx.eddResponse.update({
+        where: { id: reviewEddResponse.id },
         data: {
           status: 'FINAL',
           mlroReviewerId: input.actorId,
@@ -526,9 +580,12 @@ export class OnboardingWorkflowTransitionService {
       toStatus,
       executed: true,
       updatedCustomer,
-      eddCase,
-      activeCaseId: updatedCustomer.activeCaseId || null,
-      finalApprovalStatus: updatedCustomer.finalApprovalStatus || null,
+      eddResponse,
+      activeCaseId: eddResponse?.id || null,
+      finalApprovalStatus: this.getCompatibilityFinalApprovalStatus(updatedCustomer),
+      latestFinalApprovalId: updatedCustomer.latestFinalApprovalId || null,
+      latestFinalApprovalStatus: updatedCustomer.latestFinalApprovalStatus || null,
+      createdFinalApprovalId,
     };
     await this.writeWorkflowTransitionSnapshot(tx, input, output);
     return output;

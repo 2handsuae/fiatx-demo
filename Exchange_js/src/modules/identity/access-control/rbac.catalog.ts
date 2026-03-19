@@ -17,7 +17,6 @@ export type PermissionGroup =
   | 'ONBOARDING_READ'
   | 'CDD_REVIEW_WRITE'
   | 'MLRO_REVIEW_WRITE'
-  | 'FINAL_REVIEW_WRITE'
   | 'INVESTOR_OVERRIDE_WRITE'
   | 'SIMULATE_EXPIRED_WRITE'
   | 'RISK_DECISION_RECORD_READ'
@@ -225,9 +224,6 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('GET', '/customers', 'List customers', ['CUSTOMER_READ']),
   route('GET', '/customers/:id', 'Get customer detail', ['CUSTOMER_READ']),
   route('PATCH', '/customers/:id', 'Update customer', ['CUSTOMER_WRITE']),
-  route('POST', '/customers/:id/status', 'Change customer status (deprecated)', ['CUSTOMER_WRITE']),
-  route('POST', '/customers/:id/freeze', 'Freeze customer account', ['CUSTOMER_WRITE']),
-  route('POST', '/customers/:id/unfreeze', 'Unfreeze customer account', ['CUSTOMER_WRITE']),
   route('DELETE', '/customers/:id', 'Delete customer', ['CUSTOMER_WRITE']),
 
   // Pricing center
@@ -246,13 +242,12 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('POST', '/withdraw-transactions/quotes', 'Create withdrawal pricing quote', ['TRADING_WITHDRAW_WRITE']),
 
   // Onboarding compliance
-  route('GET', '/admin/compliance/cdd-cases', 'List CDD cases', ['ONBOARDING_READ']),
-  route('POST', '/admin/compliance/cdd-cases/:id/review', 'Review CDD case', ['CDD_REVIEW_WRITE']),
-  route('GET', '/admin/compliance/cdd-cases/:id', 'Get CDD case detail', ['ONBOARDING_READ']),
-  route('GET', '/admin/compliance/edd-cases', 'List EDD cases', ['ONBOARDING_READ']),
-  route('POST', '/admin/compliance/edd-cases/:id/mlro-review', 'MLRO review EDD case', ['MLRO_REVIEW_WRITE']),
-  route('GET', '/admin/compliance/edd-cases/:id', 'Get EDD case detail', ['ONBOARDING_READ']),
-  route('POST', '/admin/compliance/customers/:id/final-review', 'Final review customer', ['FINAL_REVIEW_WRITE']),
+  route('GET', '/admin/compliance/cdd-responses', 'List CDD responses', ['ONBOARDING_READ']),
+  route('POST', '/admin/compliance/cdd-responses/:id/review', 'Review CDD response', ['CDD_REVIEW_WRITE']),
+  route('GET', '/admin/compliance/cdd-responses/:id', 'Get CDD response detail', ['ONBOARDING_READ']),
+  route('GET', '/admin/compliance/edd-responses', 'List EDD responses', ['ONBOARDING_READ']),
+  route('POST', '/admin/compliance/edd-responses/:id/mlro-review', 'MLRO review EDD response', ['MLRO_REVIEW_WRITE']),
+  route('GET', '/admin/compliance/edd-responses/:id', 'Get EDD response detail', ['ONBOARDING_READ']),
   route('POST', '/admin/compliance/customers/:id/simulate-expired', 'Simulate customer expired', ['SIMULATE_EXPIRED_WRITE']),
   route('PATCH', '/admin/compliance/customers/:id/investor-classification', 'Override investor classification', ['INVESTOR_OVERRIDE_WRITE']),
 

@@ -7,6 +7,7 @@
 适用原则：
 
 - 本文是 `Wave 3` 的专项规划文档，不替代 `AGENTS.md` 与 `docs/constraints/**`。
+- `Wave 3` 的 legacy 收口与兼容删除计划以 `docs/cleanup/wave-3-cleanup-master-plan.md` 为准；本文件只负责功能范围与 phase 顺序，不承担 cleanup 真相。
 - onboarding 当前运行时约束以 `docs/constraints/onboarding-flow-constraints.md` 为准。
 - onboarding 与 compliance center 的对接约束以 `docs/constraints/onboarding-alert-case-workflow-stage-rule-mapping.md` 为准。
 - `Wave 3` 只聚焦：
@@ -50,7 +51,9 @@
 - `restrictionStatus` 与 `complianceHoldStatus` 并存：
   - `RESTRICTED` 表示 customer 限制
   - `FROZEN` 表示更强的合规冻结
-- `publicStatus / cddStatus / eddStatus / complianceStatus / finalApprovalStatus` 保留为兼容镜像字段，不再作为主判断依据。
+- `publicStatus / cddStatus / eddStatus / complianceStatus / finalApprovalStatus` 在 Wave 3 阶段曾作为兼容镜像字段保留。
+- 截至当前代码，以上 legacy customer 字段已从 `CustomerMain` 和 customer-facing/admin-facing payload 中删除。
+- 截至当前代码，Wave 3 customer/onboarding 对外兼容 contract 也已完成收口；剩余 cleanup 仅在内部物理命名和前端打包层面。
 
 ### 3.2 CDD / EDD 主体
 
@@ -61,7 +64,8 @@
 - `Response` canonical 生命周期固定为：
   - `CREATED`
   - `COMPLETED`
-- 物理表可继续沿用 `cddCase / eddCase` 作为兼容实现。
+- 物理表可继续沿用 `cddResponse / eddResponse` 作为兼容实现。
+- response payload 已统一为 `responseNo / responseType`；`caseNo / caseType` alias 已从 onboarding / periodic review 对外 contract 删除。
 
 ### 3.3 Compliance Center 对接
 
@@ -257,6 +261,21 @@ customer onboarding 主链固定为：
   - 合规中心 review
   - 通过后清除 restriction
   - 拒绝则保持 restriction
+
+---
+
+## 9. Wave 3 Cleanup 当前状态补充
+
+- `Stage 1` 到 `Stage 8` 的 cleanup 已全部完成。
+- cleanup 后续正式按三段推进：
+  - `Stage 6`：compatibility contract cleanup
+  - `Stage 7`：physical rename
+  - `Stage 8`：frontend bundling optimization
+- 其中：
+  - `Stage 6` 已完成，主要完成 `/onboarding/next-step.publicStatus`、response payload `caseNo / caseType`、legacy helper / legacy 文案 / snapshot 残留清理
+  - `Stage 7` 已完成，主要完成 `CddResponse / EddResponse / WorkflowDecisionRecord` 及其直接耦合 runtime symbol 的 physical rename
+  - `Stage 8` 已完成，主要完成 `admin-web` 与 `client-web` 的前端打包优化，并消除了 Vite large chunk warning
+- 注意：这里的 `Stage 6/7/8` 是 cleanup 编号，不替代本 roadmap 内部的 phase 编号。
 - periodic review 复用：
   - `Response`
   - `Decision Record`
@@ -354,8 +373,8 @@ reviewStage：
 
 ### Compatibility
 
-- 旧 `publicStatus` 等字段仍可读
-- 旧 onboarding 路由在兼容期内不回归
+- customer/onboarding 对外 legacy contract 已收口完成
+- 当前剩余兼容只在内部物理命名与少量 transaction-compliance case 语义边界，不在本 roadmap 主链回归
 
 ### Formal UAT
 

@@ -4,6 +4,10 @@ import { CustomersService } from './customers.service';
 
 describe('CustomersController', () => {
   let controller: CustomersController;
+  const customersServiceMock = {
+    findAll: jest.fn(),
+    findOne: jest.fn(),
+  };
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -11,11 +15,7 @@ describe('CustomersController', () => {
       providers: [
         {
           provide: CustomersService,
-          useValue: {
-            findAll: jest.fn(),
-            findOne: jest.fn(),
-            changeStatus: jest.fn(),
-          },
+          useValue: customersServiceMock,
         },
       ],
     }).compile();
@@ -23,7 +23,72 @@ describe('CustomersController', () => {
     controller = module.get<CustomersController>(CustomersController);
   });
 
+  afterEach(() => {
+    jest.clearAllMocks();
+  });
+
   it('should be defined', () => {
     expect(controller).toBeDefined();
+  });
+
+  it('should map legacy ACTIVE filter to canonical active conditions', () => {
+    controller.findAll({ user: { type: 'ADMIN' } }, undefined, undefined, undefined, 'ACTIVE');
+
+    expect(customersServiceMock.findAll).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          AND: expect.arrayContaining([
+            expect.objectContaining({
+              onboardingStatus: 'APPROVED',
+              operatingStatus: 'ACTIVE',
+            }),
+          ]),
+        }),
+      }),
+    );
+  });
+
+  it('should map legacy review filter to canonical onboarding status', () => {
+    controller.findAll(
+      { user: { type: 'ADMIN' } },
+      undefined,
+      undefined,
+      undefined,
+      'REVIEW_CDD',
+    );
+
+    expect(customersServiceMock.findAll).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          AND: expect.arrayContaining([
+            expect.objectContaining({
+              onboardingStatus: 'CDD_UNDER_REVIEW',
+            }),
+          ]),
+        }),
+      }),
+    );
+  });
+
+  it('should accept canonical onboarding status directly', () => {
+    controller.findAll(
+      { user: { type: 'ADMIN' } },
+      undefined,
+      undefined,
+      undefined,
+      'FINAL_APPROVAL',
+    );
+
+    expect(customersServiceMock.findAll).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          AND: expect.arrayContaining([
+            expect.objectContaining({
+              onboardingStatus: 'FINAL_APPROVAL',
+            }),
+          ]),
+        }),
+      }),
+    );
   });
 });

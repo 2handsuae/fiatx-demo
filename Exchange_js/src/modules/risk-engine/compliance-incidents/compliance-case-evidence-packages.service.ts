@@ -178,7 +178,7 @@ export class ComplianceCaseEvidencePackagesService {
   private async buildDecisionRecordSnapshots(ids: string[]) {
     if (!ids.length) return [];
 
-    const rows = await this.prisma.onboardingDecisionRecord.findMany({
+    const rows = await this.prisma.workflowDecisionRecord.findMany({
       where: { id: { in: ids } },
       include: {
         customer: {
@@ -257,7 +257,7 @@ export class ComplianceCaseEvidencePackagesService {
     }
 
     if (cddIds.size > 0) {
-      const rows = await this.prisma.cddCase.findMany({
+      const rows = await this.prisma.cddResponse.findMany({
         where: { id: { in: Array.from(cddIds) } },
         include: {
           reports: {
@@ -285,7 +285,7 @@ export class ComplianceCaseEvidencePackagesService {
     }
 
     if (eddIds.size > 0) {
-      const rows = await this.prisma.eddCase.findMany({
+      const rows = await this.prisma.eddResponse.findMany({
         where: { id: { in: Array.from(eddIds) } },
         include: {
           reports: {

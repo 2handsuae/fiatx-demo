@@ -34,6 +34,39 @@ describe('rbac.catalog', () => {
     ).toBe(true);
   });
 
+  it('should register canonical onboarding response permissions', () => {
+    const permissionCodes = new Set(
+      RBAC_PERMISSION_DEFINITIONS.map((item) => item.code),
+    );
+
+    expect(permissionCodes.has(buildPermissionCode('GET', '/admin/compliance/cdd-responses'))).toBe(true);
+    expect(permissionCodes.has(buildPermissionCode('GET', '/admin/compliance/edd-responses'))).toBe(true);
+  });
+
+  it('should retire deprecated direct-control and compatibility review aliases', () => {
+    const permissionCodes = new Set(
+      RBAC_PERMISSION_DEFINITIONS.map((item) => item.code),
+    );
+
+    expect(permissionCodes.has(buildPermissionCode('POST', '/customers/:id/status'))).toBe(false);
+    expect(permissionCodes.has(buildPermissionCode('POST', '/customers/:id/freeze'))).toBe(false);
+    expect(permissionCodes.has(buildPermissionCode('POST', '/customers/:id/unfreeze'))).toBe(false);
+    expect(permissionCodes.has(buildPermissionCode('POST', '/admin/compliance/cdd-cases/:id/review'))).toBe(false);
+    expect(permissionCodes.has(buildPermissionCode('POST', '/admin/compliance/edd-cases/:id/mlro-review'))).toBe(false);
+    expect(permissionCodes.has(buildPermissionCode('POST', '/admin/compliance/customers/:id/final-review'))).toBe(false);
+  });
+
+  it('should retire case-named response read aliases after Stage 3B', () => {
+    const permissionCodes = new Set(
+      RBAC_PERMISSION_DEFINITIONS.map((item) => item.code),
+    );
+
+    expect(permissionCodes.has(buildPermissionCode('GET', '/admin/compliance/cdd-cases'))).toBe(false);
+    expect(permissionCodes.has(buildPermissionCode('GET', '/admin/compliance/cdd-cases/:id'))).toBe(false);
+    expect(permissionCodes.has(buildPermissionCode('GET', '/admin/compliance/edd-cases'))).toBe(false);
+    expect(permissionCodes.has(buildPermissionCode('GET', '/admin/compliance/edd-cases/:id'))).toBe(false);
+  });
+
   it('should grant alert read/write groups to the expected roles', () => {
     const permissionMap = buildRolePermissionCodeMap();
     const alertReadCode = buildPermissionCode('GET', '/admin/compliance/alerts');

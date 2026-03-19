@@ -3,6 +3,7 @@ export const ApprovalActionTypes = {
   CASE_EVIDENCE_EXPORT_APPROVAL: 'CASE_EVIDENCE_EXPORT_APPROVAL',
   CHANGE_TICKET_APPROVAL: 'CHANGE_TICKET_APPROVAL',
   DELETE_REQUEST_APPROVAL: 'DELETE_REQUEST_APPROVAL',
+  ONBOARDING_FINAL_APPROVAL: 'ONBOARDING_FINAL_APPROVAL',
 } as const;
 
 export const ApprovalStatuses = {
@@ -61,6 +62,7 @@ export interface ApprovalDecisionEvent {
   status: string;
   decisionByUserId?: string | null;
   decisionByRole?: string | null;
+  decisionReason?: string | null;
   decidedAt?: string | null;
 }
 
@@ -98,6 +100,13 @@ export const DEFAULT_APPROVAL_POLICIES: Record<
   [ApprovalActionTypes.DELETE_REQUEST_APPROVAL]: {
     riskLevel: ApprovalRiskLevels.HIGH,
     checkerRoles: ['DPO', 'TECH_ADMIN'],
+    timeoutHours: 24,
+    allowCancel: true,
+    allowRetry: true,
+  },
+  [ApprovalActionTypes.ONBOARDING_FINAL_APPROVAL]: {
+    riskLevel: ApprovalRiskLevels.HIGH,
+    checkerRoles: ['MLRO'],
     timeoutHours: 24,
     allowCancel: true,
     allowRetry: true,

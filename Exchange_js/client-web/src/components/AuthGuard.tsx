@@ -2,6 +2,7 @@ import { useEffect, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Lock, ShieldAlert } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { isCustomerApprovedForAccess } from '../utils/customerOnboarding';
 
 interface AuthGuardProps {
   children: ReactNode;
@@ -44,7 +45,7 @@ const AuthGuard = ({ children }: AuthGuardProps) => {
       return null;
   }
 
-  const isApproved = user?.publicStatus === 'ACTIVE';
+  const isApproved = user ? isCustomerApprovedForAccess(user) : false;
 
   if (!isApproved) {
     return (

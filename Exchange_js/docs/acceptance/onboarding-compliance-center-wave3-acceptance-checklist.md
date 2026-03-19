@@ -24,6 +24,12 @@ It verifies:
   - external `STR / SAR`
   - transaction/generic compliance runtime
 
+## Route Naming Note
+
+- response-named routes are canonical for onboarding / periodic review provider-response containers
+- case-named response routes have been retired from runtime
+- operator-facing navigation should use `CDD Responses / EDD Responses`
+
 ## Chain 1: `LOW_RISK CDD`
 
 1. Start onboarding for a fresh customer and complete mock CDD with `LOW_RISK`.
@@ -37,7 +43,8 @@ It verifies:
    - no onboarding review alert is created
 5. Open customer onboarding snapshot.
 6. Verify:
-   - `publicStatus = ACTIVE`
+   - `onboardingStatus = APPROVED`
+   - `operatingStatus = ACTIVE`
    - no active compliance alert/case is shown
 
 ## Chain 2: `REVIEW_CDD -> REQUIRE_EDD`
@@ -52,8 +59,8 @@ It verifies:
 5. Execute onboarding decision `REQUIRE_EDD`.
 6. Verify:
    - the alert writes final disposition `REQUIRE_EDD`
-   - the customer moves to `PENDING_EDD`
-   - an `eddCase` is created or reused
+   - the customer moves to `PENDING_EDD_INPUT`
+   - an `eddResponse` is created or reused
    - decision record detail shows `workflowTransition.transitionCode = CDD_REQUIRE_EDD_TO_PENDING_EDD`
 
 ## Chain 3: `REVIEW_EDD -> APPROVE_STAGE`
@@ -91,7 +98,7 @@ It verifies:
    - `REPORT`
 4. Verify:
    - case disposition changes as expected (`RESTRICT`, `REPORT`)
-   - customer onboarding `publicStatus` does not change because of these actions
+   - customer onboarding canonical status does not change because of these actions
    - if a decision record is linked, `workflowTransition.transitionCode = NO_TRANSITION`
 
 ## Decision Record Verification
@@ -113,3 +120,4 @@ The two sections must tell a coherent story:
 - EDD review decisions move workflow exactly once and to the expected next status
 - compliance actions such as escalate/freeze/report do not accidentally mutate onboarding workflow
 - admin can replay both orchestration and workflow transition from decision record detail
+- manual verification MUST use canonical customer status as the truth source; `getNextStep` is action guidance only and no longer carries `publicStatus`

@@ -140,7 +140,7 @@ export class CustomerAuthService {
       return null;
     }
 
-    if (String(customer.accountStatus || 'ACTIVE').toUpperCase() === 'FROZEN') {
+    if (String(customer.complianceHoldStatus || 'ACTIVE').toUpperCase() === 'FROZEN') {
       await this.auditLogsService.recordByActor(
         {
           triggerType: AuditTriggerType.AUTH_EVENT,
@@ -150,10 +150,10 @@ export class CustomerAuthService {
           entityId: customer.id,
           entityNo: customer.customerNo,
           result: AuditResult.REJECTED,
-          reason: 'Customer login blocked: account frozen',
+          reason: 'Customer login blocked: compliance hold frozen',
           metadata: {
-            accountStatus: customer.accountStatus,
-            accountStatusReason: customer.accountStatusReason || null,
+            complianceHoldStatus: customer.complianceHoldStatus || null,
+            complianceHoldReason: customer.complianceHoldReason || null,
             identifierHash: this.maskIdentifier(normalized),
           },
           requestId: ctx.requestId,

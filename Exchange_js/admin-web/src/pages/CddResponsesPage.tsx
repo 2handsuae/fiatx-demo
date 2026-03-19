@@ -2,13 +2,16 @@ import { type ReactNode, useEffect, useState } from 'react';
 import { RefreshCw, X } from 'lucide-react';
 import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/adminFetch';
 
-interface CddCaseItem {
+interface CddResponseItem {
   id: string;
-  caseNo: string;
+  responseNo: string;
+  responseType?: string | null;
   customerId: string;
   subjectKind: string;
   subjectRefId: string;
   status: string;
+  workflow?: string | null;
+  periodicReviewCycleId?: string | null;
   customer?: {
     customerNo?: string;
     email?: string;
@@ -19,15 +22,18 @@ interface CddCaseItem {
   };
 }
 
-interface CddCaseDetail {
+interface CddResponseDetail {
   id: string;
-  caseNo: string;
+  responseNo: string;
+  responseType?: string | null;
   status: string;
   subjectKind: string;
   subjectRefId: string;
   riskScore?: number | null;
   riskLevel?: string | null;
   requiresEdd?: boolean;
+  workflow?: string | null;
+  periodicReviewCycleId?: string | null;
   pepHit?: boolean;
   sanctionsHit?: boolean;
   inputData?: Record<string, unknown>;
@@ -38,7 +44,9 @@ interface CddCaseDetail {
     lastName?: string;
     companyName?: string | null;
     customerType?: string;
-    publicStatus?: string;
+    onboardingStatus?: string;
+    operatingStatus?: string;
+    restrictionStatus?: string;
   };
   mockDetail?: Record<string, unknown>;
   latestReport?: {
@@ -50,19 +58,27 @@ interface CddCaseDetail {
 const getErrorMessage = (error: unknown, fallback: string) =>
   error instanceof Error ? error.message : fallback;
 
-const CddCasesPage = () => {
-  const [items, setItems] = useState<CddCaseItem[]>([]);
+const CddResponsesPage = () => {
+  const [items, setItems] = useState<CddResponseItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState('');
   const [detailLoading, setDetailLoading] = useState(false);
-  const [detail, setDetail] = useState<CddCaseDetail | null>(null);
+  const [detail, setDetail] = useState<CddResponseDetail | null>(null);
+  const [workflowFilter, setWorkflowFilter] = useState<'ALL' | 'ONBOARDING' | 'PERIODIC_REVIEW'>(
+    'ALL',
+  );
 
-  const fetchCases = async () => {
+  const fetchResponses = async () => {
     setLoading(true);
     setMessage('');
     try {
+      const params = new URLSearchParams();
+      params.set('take', '200');
+      if (workflowFilter !== 'ALL') {
+        params.set('workflow', workflowFilter);
+      }
       const response = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/compliance/cdd-cases?take=200`,
+        `${import.meta.env.VITE_API_URL}/admin/compliance/cdd-responses?${params.toString()}`,
       );
 
       if (!response.ok) {
@@ -82,22 +98,22 @@ const CddCasesPage = () => {
   };
 
   useEffect(() => {
-    fetchCases();
-  }, []);
+    fetchResponses();
+  }, [workflowFilter]);
 
-  const openDetail = async (id: string) => {
+  const openResponseDetail = async (id: string) => {
     setDetailLoading(true);
     setDetail(null);
     try {
       const response = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/compliance/cdd-cases/${id}`,
+        `${import.meta.env.VITE_API_URL}/admin/compliance/cdd-responses/${id}`,
       );
 
       if (!response.ok) {
         throw new Error(await getApiErrorMessage(response, 'Failed to load data.'));
       }
 
-      setDetail((await response.json()) as CddCaseDetail);
+      setDetail((await response.json()) as CddResponseDetail);
     } catch (e: unknown) {
       if (e instanceof AdminSessionError) {
         return;
@@ -112,16 +128,29 @@ const CddCasesPage = () => {
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Compliance Center - CDD Cases</h1>
-          <p className="text-sm text-gray-500 mt-1">Review customer/company/UBO CDD cases.</p>
+          <h1 className="text-2xl font-bold text-gray-900">Compliance Center - CDD Responses</h1>
+          <p className="text-sm text-gray-500 mt-1">Review customer/company/UBO CDD responses.</p>
         </div>
-        <button
-          onClick={fetchCases}
-          className="p-2 text-gray-500 hover:text-brand-primary"
-          title="Refresh"
-        >
-          <RefreshCw size={20} className={loading ? 'animate-spin' : ''} />
-        </button>
+        <div className="flex items-center gap-3">
+          <select
+            value={workflowFilter}
+            onChange={(event) =>
+              setWorkflowFilter(event.target.value as 'ALL' | 'ONBOARDING' | 'PERIODIC_REVIEW')
+            }
+            className="rounded-lg border border-admin-border px-3 py-2 text-sm"
+          >
+            <option value="ALL">All workflows</option>
+            <option value="ONBOARDING">Onboarding</option>
+            <option value="PERIODIC_REVIEW">Periodic review</option>
+          </select>
+          <button
+            onClick={fetchResponses}
+            className="p-2 text-gray-500 hover:text-brand-primary"
+            title="Refresh"
+          >
+            <RefreshCw size={20} className={loading ? 'animate-spin' : ''} />
+          </button>
+        </div>
       </div>
 
       {message && (
@@ -134,9 +163,10 @@ const CddCasesPage = () => {
         <table className="w-full text-left text-sm">
           <thead className="bg-admin-content-bg border-b border-admin-border">
             <tr>
-              <th className="px-4 py-3 text-xs uppercase text-gray-500">Case</th>
+              <th className="px-4 py-3 text-xs uppercase text-gray-500">Response</th>
               <th className="px-4 py-3 text-xs uppercase text-gray-500">Customer</th>
               <th className="px-4 py-3 text-xs uppercase text-gray-500">Subject</th>
+              <th className="px-4 py-3 text-xs uppercase text-gray-500">Workflow</th>
               <th className="px-4 py-3 text-xs uppercase text-gray-500">Status</th>
               <th className="px-4 py-3 text-xs uppercase text-gray-500">Actions</th>
             </tr>
@@ -144,21 +174,21 @@ const CddCasesPage = () => {
           <tbody className="divide-y divide-admin-border">
             {loading ? (
               <tr>
-                <td colSpan={5} className="px-4 py-8 text-center text-gray-500">
+                <td colSpan={6} className="px-4 py-8 text-center text-gray-500">
                   Loading...
                 </td>
               </tr>
             ) : items.length === 0 ? (
               <tr>
-                <td colSpan={5} className="px-4 py-8 text-center text-gray-500">
-                  No cases found
+                <td colSpan={6} className="px-4 py-8 text-center text-gray-500">
+                  No responses found
                 </td>
               </tr>
             ) : (
               items.map((item) => (
                 <tr key={item.id} className="hover:bg-gray-50">
                   <td className="px-4 py-3">
-                    <div className="font-semibold text-gray-900">{item.caseNo}</div>
+                    <div className="font-semibold text-gray-900">{item.responseNo}</div>
                     <div className="text-xs text-gray-400">{item.id.slice(0, 8)}...</div>
                   </td>
                   <td className="px-4 py-3 text-gray-700">
@@ -169,6 +199,12 @@ const CddCasesPage = () => {
                     <div>{item.subjectKind}</div>
                     <div className="text-xs text-gray-500">{item.subjectRefId.slice(0, 8)}...</div>
                   </td>
+                  <td className="px-4 py-3 text-gray-700">
+                    <div>{item.workflow || 'ONBOARDING'}</div>
+                    <div className="text-xs text-gray-500">
+                      {item.periodicReviewCycleId || '-'}
+                    </div>
+                  </td>
                   <td className="px-4 py-3">
                     <span className="px-2 py-1 rounded-full text-xs bg-yellow-100 text-yellow-800">
                       {item.status}
@@ -176,7 +212,7 @@ const CddCasesPage = () => {
                   </td>
                   <td className="px-4 py-3 space-y-1">
                     <button
-                      onClick={() => openDetail(item.id)}
+                      onClick={() => openResponseDetail(item.id)}
                       className="text-xs border border-gray-200 px-2 py-1 rounded hover:bg-gray-50"
                     >
                       View Detail
@@ -195,7 +231,9 @@ const CddCasesPage = () => {
           <div className="w-full max-w-3xl bg-white rounded-xl shadow-xl border border-admin-border max-h-[90vh] overflow-y-auto">
             <div className="sticky top-0 bg-white border-b border-admin-border px-4 py-3 flex items-center justify-between">
               <div>
-                <h3 className="text-lg font-bold text-gray-900">CDD Detail - {detail.caseNo}</h3>
+                <h3 className="text-lg font-bold text-gray-900">
+                  CDD Response Detail - {detail.responseNo}
+                </h3>
                 <p className="text-xs text-gray-500">{detail.id}</p>
               </div>
               <button onClick={() => setDetail(null)} className="p-2 text-gray-500 hover:text-gray-700">
@@ -207,17 +245,21 @@ const CddCasesPage = () => {
               <div className="p-6 text-sm text-gray-500">Loading detail...</div>
             ) : (
               <div className="p-4 space-y-4 text-sm">
-                <InfoBlock title="Case">
-                  <JsonView data={{
-                    status: detail.status,
-                    subjectKind: detail.subjectKind,
-                    subjectRefId: detail.subjectRefId,
-                    riskScore: detail.riskScore,
-                    riskLevel: detail.riskLevel,
-                    requiresEdd: detail.requiresEdd,
-                    pepHit: detail.pepHit,
-                    sanctionsHit: detail.sanctionsHit,
-                  }} />
+                <InfoBlock title="Response">
+                  <JsonView
+                    data={{
+                      workflow: detail.workflow || 'ONBOARDING',
+                      periodicReviewCycleId: detail.periodicReviewCycleId,
+                      status: detail.status,
+                      subjectKind: detail.subjectKind,
+                      subjectRefId: detail.subjectRefId,
+                      riskScore: detail.riskScore,
+                      riskLevel: detail.riskLevel,
+                      requiresEdd: detail.requiresEdd,
+                      pepHit: detail.pepHit,
+                      sanctionsHit: detail.sanctionsHit,
+                    }}
+                  />
                 </InfoBlock>
 
                 <InfoBlock title="Customer Snapshot">
@@ -265,4 +307,4 @@ const JsonView = ({ data }: { data: Record<string, unknown> }) => (
   </pre>
 );
 
-export default CddCasesPage;
+export default CddResponsesPage;

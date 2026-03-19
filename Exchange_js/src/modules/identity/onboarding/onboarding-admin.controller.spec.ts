@@ -1,19 +1,17 @@
-import { ConflictException, ForbiddenException } from '@nestjs/common';
+import { ForbiddenException } from '@nestjs/common';
 import { OnboardingAdminController } from './onboarding-admin.controller';
 import { OnboardingService } from './onboarding.service';
 import { RiskDecisionRecordsService } from '../../risk-engine/risk-decision-records.service';
 
 describe('OnboardingAdminController', () => {
   const onboardingServiceMock = {
-    listCddCases: jest.fn(),
-    reviewCddCase: jest.fn(),
-    getCddCaseDetail: jest.fn(),
-    listEddCases: jest.fn(),
-    mlroReviewEddCase: jest.fn(),
-    getEddCaseDetail: jest.fn(),
+    listCddResponses: jest.fn(),
+    getCddResponseDetail: jest.fn(),
+    listEddResponses: jest.fn(),
+    getEddResponseDetail: jest.fn(),
     applyOnboardingDecisionFromAlert: jest.fn(),
     applyOnboardingDecisionFromIncident: jest.fn(),
-    reviewCustomerFinalDecision: jest.fn(),
+    submitCustomerFinalApproval: jest.fn(),
     simulateCustomerExpired: jest.fn(),
     updateInvestorClassification: jest.fn(),
   };
@@ -79,33 +77,11 @@ describe('OnboardingAdminController', () => {
     expect(result).toEqual({ id: 'dr-1' });
   });
 
-  it('should block direct CDD review endpoint and require triage workflow', async () => {
-    expect(() =>
-      controller.reviewCddCase(
-        { user: { type: 'ADMIN', userId: 'admin-1', role: 'COMPLIANCE_LEAD' } },
-        'cdd-1',
-        { decision: 'APPROVE' } as any,
-      ),
-    ).toThrow(new ConflictException('Use alert triage workflow'));
-    expect(onboardingServiceMock.reviewCddCase).not.toHaveBeenCalled();
-  });
-
-  it('should block direct EDD review endpoint and require triage workflow', async () => {
-    expect(() =>
-      controller.mlroReview(
-        { user: { type: 'ADMIN', userId: 'admin-1', role: 'MLRO' } },
-        'edd-1',
-        { decision: 'APPROVE' } as any,
-      ),
-    ).toThrow(new ConflictException('Use alert triage workflow'));
-    expect(onboardingServiceMock.mlroReviewEddCase).not.toHaveBeenCalled();
-  });
-
   it('should expose canonical case onboarding-decision route and mirror case payload', async () => {
     onboardingServiceMock.applyOnboardingDecisionFromIncident.mockResolvedValue({
       incident: { id: 'inc-1', caseNo: 'CAS2603010001' },
       alert: { id: 'alert-1' },
-      customer: { id: 'c1', publicStatus: 'ACTIVE' },
+      customer: { id: 'c1', onboardingStatus: 'APPROVED', operatingStatus: 'ACTIVE' },
     });
 
     const result = await controller.applyOnboardingDecisionFromCase(
@@ -128,5 +104,33 @@ describe('OnboardingAdminController', () => {
     );
     expect(result.case).toEqual({ id: 'inc-1', caseNo: 'CAS2603010001' });
     expect(result.incident).toEqual({ id: 'inc-1', caseNo: 'CAS2603010001' });
+  });
+
+  it('should submit customer final approval through onboarding service', async () => {
+    onboardingServiceMock.submitCustomerFinalApproval.mockResolvedValue({
+      id: 'approval-1',
+      approvalNo: 'APR2603180001',
+      status: 'PENDING',
+    });
+
+    const result = await controller.submitCustomerFinalApproval(
+      {
+        user: {
+          type: 'ADMIN',
+          userId: 'admin-1',
+          role: 'COMPLIANCE_LEAD',
+        },
+      },
+      'c1',
+      { reason: 'submit' } as any,
+    );
+
+    expect(onboardingServiceMock.submitCustomerFinalApproval).toHaveBeenCalledWith(
+      'c1',
+      'admin-1',
+      'COMPLIANCE_LEAD',
+      { reason: 'submit' },
+    );
+    expect(result.approvalNo).toBe('APR2603180001');
   });
 });

@@ -14,8 +14,8 @@ import { AdminPermissionGuard } from 'src/modules/identity/access-control/admin-
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { OnboardingService } from './onboarding.service';
 import {
-  BootstrapCasesDto,
-  CreateCaseSessionDto,
+  BootstrapResponsesDto,
+  CreateResponseSessionDto,
   MockCompleteSessionDto,
   ReinitiateEddDto,
   UpsertEntityDto,
@@ -36,17 +36,17 @@ export class OnboardingCustomerController {
   }
 
   @Get('me')
-  @ApiOperation({ summary: 'Get my onboarding status and active cases' })
+  @ApiOperation({ summary: 'Get my onboarding status and active responses' })
   getMyOnboarding(@Req() req: any) {
     const customerId = this.ensureCustomer(req);
     return this.onboardingService.getMyOnboarding(customerId);
   }
 
-  @Get('cases')
-  @ApiOperation({ summary: 'List my CDD/EDD cases with latest provider session status' })
-  listMyCases(@Req() req: any) {
+  @Get('responses')
+  @ApiOperation({ summary: 'List my CDD/EDD responses with latest provider session status.' })
+  listMyResponses(@Req() req: any) {
     const customerId = this.ensureCustomer(req);
-    return this.onboardingService.listMyCases(customerId);
+    return this.onboardingService.listMyResponses(customerId);
   }
 
   @Get('next-step')
@@ -66,54 +66,54 @@ export class OnboardingCustomerController {
     return this.onboardingService.upsertEntity(customerId, customerId, body);
   }
 
-  @Post('cdd-cases/bootstrap')
-  @ApiOperation({ summary: 'Start CDD journey: bootstrap required CDD cases and auto-create QR session' })
-  bootstrapCddCases(
+  @Post('cdd-responses/bootstrap')
+  @ApiOperation({ summary: 'Start CDD journey: bootstrap required CDD responses and auto-create QR session.' })
+  bootstrapCddResponses(
     @Req() req: any,
-    @Body(new ValidationPipe({ transform: true })) body: BootstrapCasesDto,
+    @Body(new ValidationPipe({ transform: true })) body: BootstrapResponsesDto,
   ) {
     const customerId = this.ensureCustomer(req);
-    return this.onboardingService.startCddCases(customerId, customerId, body);
+    return this.onboardingService.startCddResponses(customerId, customerId, body);
   }
 
-  @Post('cdd-cases/reinitiate')
-  @ApiOperation({ summary: 'Re-initiate CDD and auto-create QR session for current CDD case' })
-  reinitiateCddCases(@Req() req: any) {
+  @Post('cdd-responses/reinitiate')
+  @ApiOperation({ summary: 'Re-initiate CDD and auto-create QR session for current CDD response.' })
+  reinitiateCddResponses(@Req() req: any) {
     const customerId = this.ensureCustomer(req);
-    return this.onboardingService.reinitiateCddCases(customerId, customerId);
+    return this.onboardingService.reinitiateCddResponses(customerId, customerId);
   }
 
-  @Post('edd-cases/start')
-  @ApiOperation({ summary: 'Start EDD current case and auto-create QR session' })
-  startEddCases(@Req() req: any) {
+  @Post('edd-responses/start')
+  @ApiOperation({ summary: 'Start current EDD response and auto-create QR session.' })
+  startEddResponses(@Req() req: any) {
     const customerId = this.ensureCustomer(req);
-    return this.onboardingService.startEddCases(customerId, customerId);
+    return this.onboardingService.startEddResponses(customerId, customerId);
   }
 
-  @Post('edd-cases/reinitiate')
-  @ApiOperation({ summary: 'Re-initiate EDD cases after EDD rejection' })
-  reinitiateEddCases(
+  @Post('edd-responses/reinitiate')
+  @ApiOperation({ summary: 'Re-initiate EDD responses after EDD rejection.' })
+  reinitiateEddResponses(
     @Req() req: any,
     @Body(new ValidationPipe({ transform: true })) body: ReinitiateEddDto,
   ) {
     const customerId = this.ensureCustomer(req);
-    return this.onboardingService.reinitiateEddCases(customerId, customerId, body);
+    return this.onboardingService.reinitiateEddResponses(customerId, customerId, body);
   }
 
-  @Post('cases/:id/sessions')
-  @ApiOperation({ summary: 'Create third-party compliance session and return QR payload' })
-  createCaseSession(
+  @Post('responses/:id/sessions')
+  @ApiOperation({ summary: 'Create third-party compliance response session and return QR payload.' })
+  createResponseSession(
     @Req() req: any,
     @Param('id') id: string,
-    @Body(new ValidationPipe({ transform: true })) body: CreateCaseSessionDto,
+    @Body(new ValidationPipe({ transform: true })) body: CreateResponseSessionDto,
   ) {
     const customerId = this.ensureCustomer(req);
-    return this.onboardingService.createCaseSession(customerId, customerId, id, body);
+    return this.onboardingService.createResponseSession(customerId, customerId, id, body);
   }
 
-  @Post('sessions/:sessionId/mock-complete')
-  @ApiOperation({ summary: 'Mock callback: complete compliance session and advance case status' })
-  mockCompleteSession(
+  @Post('response-sessions/:sessionId/mock-complete')
+  @ApiOperation({ summary: 'Mock callback: complete compliance response session and advance response status.' })
+  mockCompleteResponseSession(
     @Req() req: any,
     @Param('sessionId') sessionId: string,
     @Body(new ValidationPipe({ transform: true })) body: MockCompleteSessionDto,

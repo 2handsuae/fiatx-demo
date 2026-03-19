@@ -178,6 +178,11 @@ describe('ComplianceIncidentsService', () => {
     });
     prismaMock.customerMain.findUnique.mockResolvedValue({
       id: 'customer-1',
+      restrictionStatus: 'CLEAR',
+      restrictionCaseId: null,
+      restrictionReason: null,
+      restrictionSetAt: null,
+      restrictionReleasedAt: null,
       complianceHoldStatus: 'ACTIVE',
       complianceHoldCaseId: null,
       complianceHoldReason: null,
@@ -818,6 +823,211 @@ describe('ComplianceIncidentsService', () => {
       }),
     );
     expect(result.freezeStatus).toBe('ACTIVE');
+  });
+
+  it('should restrict customer when RESTRICT action is applied', async () => {
+    prismaMock.complianceIncident.findUnique.mockResolvedValue(
+      buildIncident({
+        status: ComplianceIncidentStatus.ASSIGNED,
+        ownerUserId: 'admin-1',
+        ownerUserNo: 'US0001',
+      }),
+    );
+    prismaMock.complianceIncident.update.mockResolvedValue(
+      buildIncident({
+        status: ComplianceIncidentStatus.ASSIGNED,
+        ownerUserId: 'admin-1',
+        ownerUserNo: 'US0001',
+        currentDispositionCode: 'RESTRICT',
+        currentDispositionReason: 'high risk customer restriction',
+      }),
+    );
+    prismaMock.complianceIncidentEvent.create.mockResolvedValue({ id: 'evt-1' });
+
+    jest.spyOn(service, 'findOne').mockResolvedValue({
+      id: 'inc-1',
+      status: ComplianceIncidentStatus.ASSIGNED,
+      currentDispositionCode: 'RESTRICT',
+      alerts: [],
+      events: [],
+    } as any);
+
+    await service.applyAction(
+      'inc-1',
+      {
+        action: ComplianceIncidentAction.RESTRICT,
+        reason: 'high risk customer restriction',
+      },
+      {
+        actorType: 'ADMIN',
+        actorId: 'admin-1',
+        actorNo: 'US0001',
+        actorRole: 'SUPER_ADMIN',
+      },
+    );
+
+    expect(prismaMock.customerMain.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'customer-1' },
+        data: expect.objectContaining({
+          restrictionStatus: 'RESTRICTED',
+          restrictionCaseId: 'inc-1',
+          restrictionReason: 'high risk customer restriction',
+        }),
+      }),
+    );
+    expect(prismaMock.complianceIncidentDispositionRecord.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          incidentId: 'inc-1',
+          dispositionCode: 'RESTRICT',
+        }),
+      }),
+    );
+  });
+
+  it('should unrestrict customer only when current case owns the restriction', async () => {
+    prismaMock.complianceIncident.findUnique.mockResolvedValue(
+      buildIncident({
+        status: ComplianceIncidentStatus.ASSIGNED,
+        ownerUserId: 'admin-1',
+        ownerUserNo: 'US0001',
+      }),
+    );
+    prismaMock.customerMain.findUnique.mockResolvedValue({
+      id: 'customer-1',
+      restrictionStatus: 'RESTRICTED',
+      restrictionCaseId: 'inc-1',
+      restrictionReason: 'high risk customer restriction',
+      restrictionSetAt: new Date('2026-02-19T02:00:00.000Z'),
+      restrictionReleasedAt: null,
+      complianceHoldStatus: 'ACTIVE',
+      complianceHoldCaseId: null,
+      complianceHoldReason: null,
+      complianceHoldSetAt: null,
+      complianceHoldReleasedAt: null,
+    });
+    prismaMock.complianceIncident.update.mockResolvedValue(
+      buildIncident({
+        status: ComplianceIncidentStatus.ASSIGNED,
+        ownerUserId: 'admin-1',
+        ownerUserNo: 'US0001',
+        currentDispositionCode: 'RESTRICT',
+      }),
+    );
+    prismaMock.complianceIncidentEvent.create.mockResolvedValue({ id: 'evt-1' });
+
+    jest.spyOn(service, 'findOne').mockResolvedValue({
+      id: 'inc-1',
+      status: ComplianceIncidentStatus.ASSIGNED,
+      currentDispositionCode: 'RESTRICT',
+      alerts: [],
+      events: [],
+    } as any);
+
+    await service.applyAction(
+      'inc-1',
+      {
+        action: ComplianceIncidentAction.UNRESTRICT,
+        reason: 'restriction cleared after review',
+      },
+      {
+        actorType: 'ADMIN',
+        actorId: 'admin-1',
+        actorNo: 'US0001',
+        actorRole: 'SUPER_ADMIN',
+      },
+    );
+
+    expect(prismaMock.customerMain.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'customer-1' },
+        data: expect.objectContaining({
+          restrictionStatus: 'CLEAR',
+          restrictionCaseId: null,
+          restrictionReason: null,
+        }),
+      }),
+    );
+  });
+
+  it('should reject UNRESTRICT when another case owns the restriction', async () => {
+    prismaMock.complianceIncident.findUnique.mockResolvedValue(
+      buildIncident({
+        status: ComplianceIncidentStatus.ASSIGNED,
+        ownerUserId: 'admin-1',
+        ownerUserNo: 'US0001',
+      }),
+    );
+    prismaMock.customerMain.findUnique.mockResolvedValue({
+      id: 'customer-1',
+      restrictionStatus: 'RESTRICTED',
+      restrictionCaseId: 'inc-other',
+      restrictionReason: 'high risk customer restriction',
+      restrictionSetAt: new Date('2026-02-19T02:00:00.000Z'),
+      restrictionReleasedAt: null,
+      complianceHoldStatus: 'ACTIVE',
+      complianceHoldCaseId: null,
+      complianceHoldReason: null,
+      complianceHoldSetAt: null,
+      complianceHoldReleasedAt: null,
+    });
+
+    await expect(
+      service.applyAction(
+        'inc-1',
+        {
+          action: ComplianceIncidentAction.UNRESTRICT,
+          reason: 'restriction cleared after review',
+        },
+        {
+          actorType: 'ADMIN',
+          actorId: 'admin-1',
+          actorNo: 'US0001',
+          actorRole: 'SUPER_ADMIN',
+        },
+      ),
+    ).rejects.toThrow('Customer customer-1 is restricted by another case inc-other');
+  });
+
+  it('should reject CLOSE when current case still owns an active restriction', async () => {
+    prismaMock.complianceIncident.findUnique.mockResolvedValue(
+      buildIncident({
+        status: ComplianceIncidentStatus.ASSIGNED,
+        ownerUserId: 'admin-1',
+        ownerUserNo: 'US0001',
+        reports: [buildReport({ status: 'FINALIZED', finalizedAt: new Date('2026-02-19T02:30:00.000Z') })],
+      }),
+    );
+    prismaMock.customerMain.findUnique.mockResolvedValue({
+      id: 'customer-1',
+      restrictionStatus: 'RESTRICTED',
+      restrictionCaseId: 'inc-1',
+      restrictionReason: 'high risk customer restriction',
+      restrictionSetAt: new Date('2026-02-19T02:00:00.000Z'),
+      restrictionReleasedAt: null,
+      complianceHoldStatus: 'ACTIVE',
+      complianceHoldCaseId: null,
+      complianceHoldReason: null,
+      complianceHoldSetAt: null,
+      complianceHoldReleasedAt: null,
+    });
+
+    await expect(
+      service.applyAction(
+        'inc-1',
+        {
+          action: ComplianceIncidentAction.CLOSE,
+          reason: 'investigation completed',
+        },
+        {
+          actorType: 'ADMIN',
+          actorId: 'admin-1',
+          actorNo: 'US0001',
+          actorRole: 'SUPER_ADMIN',
+        },
+      ),
+    ).rejects.toThrow('Case inc-1 must be unrestricted before it can be closed');
   });
 
   it('should create report record when REPORT action is applied', async () => {

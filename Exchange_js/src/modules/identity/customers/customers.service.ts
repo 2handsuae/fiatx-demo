@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { CustomerMain, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
@@ -8,6 +8,82 @@ import {
   AuditModules,
 } from '../../risk-engine/audit-logs/constants/audit-actions.constant';
 import { AuditResult, AuditTriggerType } from '../../risk-engine/audit-logs/dto/audit-log.dto';
+
+const finalApprovalSummarySelect = {
+  id: true,
+  approvalNo: true,
+  status: true,
+  decidedAt: true,
+  decisionByRole: true,
+} satisfies Prisma.ApprovalCaseSelect;
+
+const periodicReviewCycleSummarySelect = {
+  id: true,
+  cycleNo: true,
+  status: true,
+  dueAt: true,
+  triggeredAt: true,
+  clearedAt: true,
+  rejectedAt: true,
+  currentCddResponseId: true,
+  currentEddResponseId: true,
+  primaryAlertId: true,
+  primaryIncidentId: true,
+  resolutionReason: true,
+} satisfies Prisma.PeriodicReviewCycleSelect;
+
+const customerListInclude = {
+  latestFinalApproval: {
+    select: finalApprovalSummarySelect,
+  },
+  activePeriodicReviewCycle: {
+    select: periodicReviewCycleSummarySelect,
+  },
+} satisfies Prisma.CustomerMainInclude;
+
+const customerDetailInclude = {
+  corporateProfile: true,
+  uboProfiles: {
+    orderBy: { createdAt: 'asc' as const },
+  },
+  cddResponses: {
+    orderBy: { createdAt: 'desc' as const },
+    take: 30,
+  },
+  eddResponses: {
+    orderBy: { createdAt: 'desc' as const },
+    take: 30,
+  },
+  onboardingAuditLogs: {
+    orderBy: { createdAt: 'desc' as const },
+    take: 100,
+  },
+  latestFinalApproval: {
+    select: finalApprovalSummarySelect,
+  },
+  activePeriodicReviewCycle: {
+    select: periodicReviewCycleSummarySelect,
+  },
+} satisfies Prisma.CustomerMainInclude;
+
+type CustomerListPayload = Prisma.CustomerMainGetPayload<{
+  include: typeof customerListInclude;
+}>;
+
+type CustomerDetailPayload = Prisma.CustomerMainGetPayload<{
+  include: typeof customerDetailInclude;
+}>;
+
+type ResponseSummary = {
+  id: string;
+  responseNo: string | null;
+  responseType: 'CDD' | 'EDD';
+} & Record<string, unknown>;
+
+type CustomerDetailView = Omit<CustomerDetailPayload, 'cddResponses' | 'eddResponses'> & {
+  cddResponses: ResponseSummary[];
+  eddResponses: ResponseSummary[];
+};
 
 @Injectable()
 export class CustomersService {
@@ -36,7 +112,8 @@ export class CustomersService {
       reason: 'Customer created',
       afterData: {
         customerType: created.customerType,
-        complianceStatus: created.complianceStatus,
+        onboardingStatus: created.onboardingStatus,
+        operatingStatus: created.operatingStatus,
       },
       sourcePlatform: 'ADMIN_API',
     });
@@ -50,7 +127,7 @@ export class CustomersService {
     cursor?: Prisma.CustomerMainWhereUniqueInput;
     where?: Prisma.CustomerMainWhereInput;
     orderBy?: Prisma.CustomerMainOrderByWithRelationInput;
-  }): Promise<{ data: CustomerMain[]; total: number }> {
+  }): Promise<{ data: CustomerListPayload[]; total: number }> {
     const { skip, take, cursor, where, orderBy } = params;
     const [data, total] = await this.prisma.$transaction([
       this.prisma.customerMain.findMany({
@@ -59,34 +136,36 @@ export class CustomersService {
         cursor,
         where,
         orderBy,
+        include: customerListInclude,
       }),
       this.prisma.customerMain.count({ where }),
     ]);
     return { data, total };
   }
 
-  async findOne(id: string): Promise<any> {
-    return (this.prisma as any).customerMain.findUnique({
+  async findOne(id: string): Promise<CustomerDetailView | null> {
+    const customer = await this.prisma.customerMain.findUnique({
       where: { id },
-      include: {
-        corporateProfile: true,
-        uboProfiles: {
-          orderBy: { createdAt: 'asc' },
-        },
-        cddCases: {
-          orderBy: { createdAt: 'desc' },
-          take: 30,
-        },
-        eddCases: {
-          orderBy: { createdAt: 'desc' },
-          take: 30,
-        },
-        onboardingAuditLogs: {
-          orderBy: { createdAt: 'desc' },
-          take: 100,
-        },
-      },
+      include: customerDetailInclude,
     });
+
+    if (!customer) {
+      return null;
+    }
+
+    return {
+      ...customer,
+      cddResponses: (customer.cddResponses || []).map(({ caseNo, ...item }) => ({
+        ...item,
+        responseNo: caseNo,
+        responseType: 'CDD' as const,
+      })),
+      eddResponses: (customer.eddResponses || []).map(({ caseNo, ...item }) => ({
+        ...item,
+        responseNo: caseNo,
+        responseType: 'EDD' as const,
+      })),
+    };
   }
 
   async update(params: {
@@ -115,12 +194,14 @@ export class CustomersService {
       beforeData: before
         ? {
             customerType: before.customerType,
-            complianceStatus: before.complianceStatus,
+            onboardingStatus: before.onboardingStatus,
+            operatingStatus: before.operatingStatus,
           }
         : undefined,
       afterData: {
         customerType: updated.customerType,
-        complianceStatus: updated.complianceStatus,
+        onboardingStatus: updated.onboardingStatus,
+        operatingStatus: updated.operatingStatus,
       },
       sourcePlatform: 'ADMIN_API',
     });
@@ -149,119 +230,13 @@ export class CustomersService {
       beforeData: before
         ? {
             customerType: before.customerType,
-            complianceStatus: before.complianceStatus,
+            onboardingStatus: before.onboardingStatus,
+            operatingStatus: before.operatingStatus,
           }
         : undefined,
       sourcePlatform: 'ADMIN_API',
     });
 
     return deleted;
-  }
-
-  async freezeCustomer(
-    id: string,
-    operatorId: string,
-    reason?: string,
-  ): Promise<CustomerMain> {
-    const before = await this.prisma.customerMain.findUnique({ where: { id } });
-    if (!before) {
-      throw new NotFoundException(`Customer not found: ${id}`);
-    }
-
-    const resolvedReason = String(reason || '').trim() || 'Manual freeze';
-    const now = new Date();
-    const updated = await this.prisma.customerMain.update({
-      where: { id },
-      data: {
-        accountStatus: 'FROZEN',
-        accountStatusReason: resolvedReason,
-        accountStatusChangedAt: now,
-        accountStatusChangedBy: operatorId,
-      },
-    });
-
-    await this.auditLogsService.recordSystem({
-      triggerType: AuditTriggerType.DATA_UPDATE,
-      action: AuditActions.CUSTOMER_FROZEN,
-      module: AuditModules.CUSTOMERS,
-      entityType: AuditEntityTypes.CUSTOMER,
-      entityId: updated.id,
-      entityNo: updated.customerNo,
-      entityOwnerType: 'CUSTOMER',
-      entityOwnerId: updated.id,
-      entityOwnerNo: updated.customerNo,
-      result: AuditResult.SUCCESS,
-      reason: resolvedReason,
-      beforeData: {
-        accountStatus: before.accountStatus || 'ACTIVE',
-        accountStatusReason: before.accountStatusReason || null,
-      },
-      afterData: {
-        accountStatus: updated.accountStatus,
-        accountStatusReason: updated.accountStatusReason || null,
-      },
-      sourcePlatform: 'ADMIN_API',
-    });
-
-    return updated;
-  }
-
-  async unfreezeCustomer(
-    id: string,
-    operatorId: string,
-    reason?: string,
-  ): Promise<CustomerMain> {
-    const before = await this.prisma.customerMain.findUnique({ where: { id } });
-    if (!before) {
-      throw new NotFoundException(`Customer not found: ${id}`);
-    }
-
-    const resolvedReason = String(reason || '').trim() || 'Manual unfreeze';
-    const now = new Date();
-    const updated = await this.prisma.customerMain.update({
-      where: { id },
-      data: {
-        accountStatus: 'ACTIVE',
-        accountStatusReason: resolvedReason,
-        accountStatusChangedAt: now,
-        accountStatusChangedBy: operatorId,
-      },
-    });
-
-    await this.auditLogsService.recordSystem({
-      triggerType: AuditTriggerType.DATA_UPDATE,
-      action: AuditActions.CUSTOMER_UNFROZEN,
-      module: AuditModules.CUSTOMERS,
-      entityType: AuditEntityTypes.CUSTOMER,
-      entityId: updated.id,
-      entityNo: updated.customerNo,
-      entityOwnerType: 'CUSTOMER',
-      entityOwnerId: updated.id,
-      entityOwnerNo: updated.customerNo,
-      result: AuditResult.SUCCESS,
-      reason: resolvedReason,
-      beforeData: {
-        accountStatus: before.accountStatus || 'ACTIVE',
-        accountStatusReason: before.accountStatusReason || null,
-      },
-      afterData: {
-        accountStatus: updated.accountStatus,
-        accountStatusReason: updated.accountStatusReason || null,
-      },
-      sourcePlatform: 'ADMIN_API',
-    });
-
-    return updated;
-  }
-
-  async changeStatus(
-    _id: string,
-    _newStatus: string,
-    _operatorId: string,
-    _reason?: string,
-  ): Promise<CustomerMain> {
-    throw new BadRequestException(
-      'Deprecated endpoint. Use /onboarding/* (customer) and /admin/compliance/* (admin).',
-    );
   }
 }

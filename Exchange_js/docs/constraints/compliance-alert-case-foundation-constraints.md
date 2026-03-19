@@ -4,7 +4,7 @@
 - This document is the authoritative Phase 1 domain baseline for `Wave 2` compliance foundation work.
 - It freezes domain language only; it does NOT require runtime code, database, route, or UI mutations in this phase.
 - It MUST be read together with:
-1. `docs/wave-2-compliance-foundation-phase-plan.md`
+1. `docs/roadmap/wave-2-compliance-foundation-phase-plan.md`
 2. `docs/constraints/compliance-alert-incident-constraints.md`
 - When this document conflicts with current implementation naming, this document wins for domain semantics, while `compliance-alert-incident-constraints.md` wins for current runtime compatibility.
 
@@ -29,8 +29,8 @@
 
 ## 3) Current Implementation Mapping
 - Current code objects MUST be interpreted as follows in all new planning and design threads:
-1. `KytCase`, `TravelRuleCase`, `CddCase`, `EddCase` -> provider response / evidence containers
-2. `OnboardingDecisionRecord` -> current onboarding-specific implementation of `Decision Record`
+1. `KytCase`, `TravelRuleCase`, `CddResponse`, `EddResponse` -> provider response / evidence containers
+2. `WorkflowDecisionRecord` -> current onboarding-specific implementation of `Decision Record`
 3. `ComplianceAlert` -> current `Alert` implementation
 4. `ComplianceIncident` -> current transitional implementation of `Case`
 - The presence of `*Case` in legacy model names does NOT grant those records the canonical compliance `Case` meaning.
@@ -50,7 +50,7 @@
 11. `reasonCodes`
 12. `recommendedActions`
 - Phase 1 freezes this minimum contract as a design target only.
-- Phase 1 MUST NOT require replacing `onboardingDecisionRecord` yet.
+- Phase 1 MUST NOT require replacing `workflowDecisionRecord` yet.
 
 ## 5) Alert and Case Lifecycle Baseline
 - Canonical `Alert` status machine MUST remain:

@@ -36,6 +36,8 @@ type CaseComplianceAction =
   | 'REQUIRE_EDD'
   | 'FREEZE'
   | 'UNFREEZE'
+  | 'RESTRICT'
+  | 'UNRESTRICT'
   | 'REPORT'
   | 'FALSE_POSITIVE';
 
@@ -214,11 +216,12 @@ interface OnboardingIncidentDecisionResponse {
   };
   customer: {
     id: string;
-    publicStatus: string;
+    onboardingStatus?: string | null;
+    operatingStatus?: string | null;
   };
-  eddCase?: {
+  eddResponse?: {
     id: string;
-    caseNo?: string | null;
+    responseNo?: string | null;
   } | null;
 }
 
@@ -260,6 +263,24 @@ const formatDateTime = (value?: string | null): string => {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleString();
+};
+
+const getOnboardingDecisionSummary = (customer: {
+  onboardingStatus?: string | null;
+  operatingStatus?: string | null;
+}) => {
+  const onboardingStatus = String(customer.onboardingStatus || '').trim().toUpperCase();
+  const operatingStatus = String(customer.operatingStatus || '').trim().toUpperCase();
+
+  if (onboardingStatus === 'APPROVED' && operatingStatus === 'ACTIVE') return 'active onboarding';
+  if (onboardingStatus === 'FINAL_APPROVAL') return 'final approval';
+  if (onboardingStatus === 'PENDING_EDD_INPUT') return 'EDD input';
+  if (onboardingStatus === 'EDD_UNDER_REVIEW') return 'EDD review';
+  if (onboardingStatus === 'CDD_UNDER_REVIEW') return 'CDD review';
+  if (onboardingStatus === 'REJECTED') return 'rejected';
+  if (onboardingStatus === 'WITHDRAWN') return 'withdrawn';
+  if (onboardingStatus === 'PENDING_CDD_INPUT') return 'CDD input';
+  return onboardingStatus || 'updated onboarding state';
 };
 
 const CASE_CLOSE_DISPOSITIONS: CaseDispositionCode[] = [
@@ -375,6 +396,8 @@ const caseComplianceActionLabelMap: Record<CaseComplianceAction, string> = {
   REQUIRE_EDD: 'Require EDD',
   FREEZE: 'Freeze',
   UNFREEZE: 'Unfreeze',
+  RESTRICT: 'Restrict',
+  UNRESTRICT: 'Unrestrict',
   REPORT: 'Report',
   FALSE_POSITIVE: 'False Positive',
 };
@@ -609,7 +632,7 @@ const ComplianceCasesPage = () => {
   };
 
   const submitCaseAction = async (
-    action: 'CLOSE' | 'FREEZE' | 'UNFREEZE' | 'REPORT',
+    action: 'CLOSE' | 'FREEZE' | 'UNFREEZE' | 'RESTRICT' | 'UNRESTRICT' | 'REPORT',
     options?: {
       reason?: string;
       dispositionCode?: CaseDispositionCode;
@@ -648,6 +671,10 @@ const ComplianceCasesPage = () => {
         setMessage('Customer compliance hold enabled from this case.');
       } else if (action === 'UNFREEZE') {
         setMessage('Customer compliance hold released.');
+      } else if (action === 'RESTRICT') {
+        setMessage('Customer restriction enabled from this case.');
+      } else if (action === 'UNRESTRICT') {
+        setMessage('Customer restriction released.');
       } else {
         setMessage(`Action ${action} completed.`);
       }
@@ -730,6 +757,7 @@ const ComplianceCasesPage = () => {
 
   const applyOnboardingDecision = async (decision: RecommendedDecision) => {
     if (!detail) return;
+    const isPeriodicReview = String(detail.workflow || '').trim().toUpperCase() === 'PERIODIC_REVIEW';
     const reasonInput =
       decision === 'REJECT'
         ? window.prompt('Reason (optional)', '') || ''
@@ -740,7 +768,9 @@ const ComplianceCasesPage = () => {
     setMessage('');
     try {
       const response = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/compliance/cases/${detail.id}/onboarding-decision`,
+        `${import.meta.env.VITE_API_URL}/admin/compliance/cases/${detail.id}/${
+          isPeriodicReview ? 'periodic-review-decision' : 'onboarding-decision'
+        }`,
         {
           method: 'POST',
           headers: {
@@ -757,20 +787,26 @@ const ComplianceCasesPage = () => {
         throw new Error(
           await getApiErrorMessage(
             response,
-            'Failed to apply onboarding decision.',
+            isPeriodicReview
+              ? 'Failed to apply periodic review decision.'
+              : 'Failed to apply onboarding decision.',
           ),
         );
       }
 
       const data = (await response.json()) as OnboardingIncidentDecisionResponse;
       setDetail(data.case || data.incident);
-      if (decision === 'REQUIRE_EDD' && data.eddCase?.caseNo) {
+      if (decision === 'REQUIRE_EDD' && data.eddResponse?.responseNo) {
         setMessage(
-          `Decision applied. Onboarding moved to ${data.customer.publicStatus}. EDD case ${data.eddCase.caseNo} created.`,
+          `Decision applied. ${
+            isPeriodicReview ? 'Periodic review' : 'Onboarding'
+          } moved to ${getOnboardingDecisionSummary(data.customer)}. EDD response ${data.eddResponse.responseNo} created.`,
         );
       } else {
         setMessage(
-          `Decision applied. Onboarding moved to ${data.customer.publicStatus}.`,
+          `Decision applied. ${
+            isPeriodicReview ? 'Periodic review' : 'Onboarding'
+          } moved to ${getOnboardingDecisionSummary(data.customer)}.`,
         );
       }
       await fetchIncidents(currentPage);
@@ -779,7 +815,9 @@ const ComplianceCasesPage = () => {
       setError(
         e instanceof Error
           ? e.message
-          : 'Failed to apply onboarding decision.',
+          : isPeriodicReview
+            ? 'Failed to apply periodic review decision.'
+            : 'Failed to apply onboarding decision.',
       );
     } finally {
       setActing(null);
@@ -899,6 +937,10 @@ const ComplianceCasesPage = () => {
         ? 'Freeze reason'
         : action === 'UNFREEZE'
           ? 'Unfreeze reason'
+          : action === 'RESTRICT'
+            ? 'Restriction reason'
+            : action === 'UNRESTRICT'
+              ? 'Unrestriction reason'
           : 'Internal report reason';
     const reason = window.prompt(promptTitle, '') || '';
     if (!reason.trim()) {
@@ -906,9 +948,12 @@ const ComplianceCasesPage = () => {
       return;
     }
 
-    await submitCaseAction(action as 'FREEZE' | 'UNFREEZE' | 'REPORT', {
+    await submitCaseAction(
+      action as 'FREEZE' | 'UNFREEZE' | 'RESTRICT' | 'UNRESTRICT' | 'REPORT',
+      {
       reason: reason.trim(),
-    });
+      },
+    );
   };
 
   const resetFilters = async () => {

@@ -117,39 +117,35 @@ model CustomerMain {
   riskUpdatedAt      DateTime?
   failedLoginCount   Int       @default(0)
   lockedUntil        DateTime?
-  accountStatus      String    @default("ACTIVE") // ACTIVE, FROZEN
-  accountStatusReason String?
-  accountStatusChangedAt DateTime?
-  accountStatusChangedBy String?
   lastLoginAt        DateTime?
   lastLoginIp        String?
   locale             String?
   timezone           String?
   termsAcceptedAt    DateTime?
   customerType       String    @default("UNKNOWN") // INDIVIDUAL, CORPORATE(legacy disabled in current onboarding)
-  publicStatus       String    @default("NONE") // NONE, PENDING_CDD, REVIEW_CDD, PENDING_EDD, REVIEW_EDD, FINAL_APPROVAL, ACTIVE, REJECTED, WITHDRAWN
-  cddStatus          String    @default("NOT_STARTED") // legacy compatibility field
+  onboardingStatus   String    @default("NONE") // NONE, PENDING_CDD_INPUT, CDD_UNDER_REVIEW, PENDING_EDD_INPUT, EDD_UNDER_REVIEW, FINAL_APPROVAL, APPROVED, REJECTED, WITHDRAWN
+  operatingStatus    String    @default("INACTIVE") // INACTIVE, ACTIVE
+  restrictionStatus  String    @default("CLEAR") // CLEAR, RESTRICTED
+  restrictionCaseId  String?
+  restrictionReason  String?
+  restrictionSetAt   DateTime?
+  restrictionReleasedAt DateTime?
   amlRiskTier        String    @default("LOW") // LOW, MEDIUM, HIGH
   eddRequired        Boolean   @default(false)
-  eddStatus          String    @default("NOT_REQUIRED") // legacy compatibility field
-  complianceStatus   String    @default("NONE") // legacy compatibility field
   complianceHoldStatus String  @default("ACTIVE") // ACTIVE, FROZEN
   complianceHoldCaseId String?
   complianceHoldReason String?
   complianceHoldSetAt DateTime?
   complianceHoldReleasedAt DateTime?
   cddDocumentExpiresAt DateTime?
-  finalApprovalStatus String   @default("NOT_REQUIRED") // NOT_REQUIRED, PENDING, APPROVED, REJECTED
-  finalApprovalReason String?
-  finalApprovalReviewerId String?
-  finalApprovalReviewedAt DateTime?
+  latestFinalApprovalId String? @unique
+  latestFinalApprovalStatus String?
   nextReviewAt       DateTime?
+  activePeriodicReviewCycleId String? @unique
+  periodicReviewOverdueAt DateTime?
+  periodicReviewOverdueReason String?
   activeJourneyId    String?
-  activeCaseType     String?
-  activeCaseId       String?
   latestDecisionRecordId String?
-  currentCddCaseId   String?
-  currentEddCaseId   String?
   investorClassification String @default("RETAIL") // RETAIL, QUALIFIED, INSTITUTIONAL
   investorClassificationSource String @default("CDD") // CDD, ADMIN_OVERRIDE
   investorClassificationUpdatedAt DateTime?
@@ -162,21 +158,26 @@ model CustomerMain {
   withdrawTransactions WithdrawTransaction[]
   payouts              Payout[]
   payins               Payin[]
-  cddCases             CddCase[]
-  eddCases             EddCase[]
+  cddResponses             CddResponse[]
+  eddResponses             EddResponse[]
   corporateProfile     CorporateProfile?
   uboProfiles          UboProfile[]
   onboardingAuditLogs  OnboardingAuditLog[]
-  onboardingDecisionRecords OnboardingDecisionRecord[]
+  workflowDecisionRecords WorkflowDecisionRecord[]
   complianceSessions   ComplianceSession[]
-  cddCaseReports       CddCaseReport[]
-  eddCaseReports       EddCaseReport[]
+  cddResponseReports       CddResponseReport[]
+  eddResponseReports       EddResponseReport[]
+  latestFinalApproval  ApprovalCase? @relation("CustomerLatestFinalApproval", fields: [latestFinalApprovalId], references: [id], onDelete: SetNull)
+  activePeriodicReviewCycle PeriodicReviewCycle? @relation("CustomerActivePeriodicReviewCycle", fields: [activePeriodicReviewCycleId], references: [id], onDelete: SetNull)
+  periodicReviewCycles PeriodicReviewCycle[] @relation("CustomerPeriodicReviewCycles")
 
   @@index([complianceHoldStatus])
+  @@index([latestFinalApprovalStatus])
+  @@index([activePeriodicReviewCycleId])
   @@map("customer_main")
 }
 
-model CddCase {
+model CddResponse {
   id               String   @id @default(uuid())
   caseNo            String   @unique @default("TEMP")
   customerId        String
@@ -184,6 +185,8 @@ model CddCase {
   subjectKind       String   @default("INDIVIDUAL_CUSTOMER") // INDIVIDUAL_CUSTOMER, CORPORATE_ENTITY, UBO_PERSON
   subjectRefId      String   @default("")
   journeyId         String   @default("")
+  workflow          String   @default("ONBOARDING")
+  periodicReviewCycleId String?
   status            String   @default("CREATED") // CREATED, RECEIVED, FINAL
   submittedAt       DateTime?
   reviewedAt        DateTime?
@@ -202,23 +205,28 @@ model CddCase {
   updatedAt         DateTime @updatedAt
 
   customer          CustomerMain @relation(fields: [customerId], references: [id])
-  eddCases          EddCase[]
-  reports           CddCaseReport[]
+  eddResponses          EddResponse[]
+  reports           CddResponseReport[]
+  periodicReviewCycle PeriodicReviewCycle? @relation("PeriodicReviewCycleCddResponses", fields: [periodicReviewCycleId], references: [id], onDelete: SetNull)
 
   @@index([customerId, status])
   @@index([customerId, journeyId])
+  @@index([workflow, status])
+  @@index([periodicReviewCycleId])
   @@index([subjectKind, subjectRefId])
-  @@map("cdd_cases")
+  @@map("cdd_responses")
 }
 
-model EddCase {
+model EddResponse {
   id               String   @id @default(uuid())
   caseNo           String   @unique @default("TEMP")
   customerId       String
-  cddCaseId        String?
+  cddResponseId        String?
   subjectKind      String   @default("INDIVIDUAL_CUSTOMER") // INDIVIDUAL_CUSTOMER, CORPORATE_ENTITY, UBO_PERSON
   subjectRefId     String   @default("")
   journeyId        String   @default("")
+  workflow         String   @default("ONBOARDING")
+  periodicReviewCycleId String?
   status           String   @default("CREATED") // CREATED, RECEIVED, FINAL
   submittedAt      DateTime?
   mlroReviewedAt   DateTime?
@@ -232,14 +240,47 @@ model EddCase {
   updatedAt        DateTime @updatedAt
 
   customer         CustomerMain @relation(fields: [customerId], references: [id])
-  cddCase          CddCase?     @relation(fields: [cddCaseId], references: [id])
-  reports          EddCaseReport[]
+  cddResponse          CddResponse?     @relation(fields: [cddResponseId], references: [id])
+  reports          EddResponseReport[]
+  periodicReviewCycle PeriodicReviewCycle? @relation("PeriodicReviewCycleEddResponses", fields: [periodicReviewCycleId], references: [id], onDelete: SetNull)
 
   @@index([customerId, status])
-  @@index([cddCaseId])
+  @@index([cddResponseId])
   @@index([customerId, journeyId])
+  @@index([workflow, status])
+  @@index([periodicReviewCycleId])
   @@index([subjectKind, subjectRefId])
-  @@map("edd_cases")
+  @@map("edd_responses")
+}
+
+model PeriodicReviewCycle {
+  id                     String   @id @default(uuid())
+  cycleNo                String   @unique @default("TEMP")
+  customerId             String
+  status                 String   @default("PENDING_CDD_INPUT") // PENDING_CDD_INPUT, CDD_UNDER_REVIEW, PENDING_EDD_INPUT, EDD_UNDER_REVIEW, CLEARED, REJECTED
+  dueAt                  DateTime
+  triggeredAt            DateTime?
+  clearedAt              DateTime?
+  rejectedAt             DateTime?
+  currentCddResponseId       String?
+  currentEddResponseId       String?
+  primaryAlertId         String?
+  primaryIncidentId      String?
+  latestDecisionRecordId String?
+  resolutionReason       String?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  customer               CustomerMain @relation("CustomerPeriodicReviewCycles", fields: [customerId], references: [id], onDelete: Cascade)
+  activeCustomer         CustomerMain? @relation("CustomerActivePeriodicReviewCycle")
+  cddResponses               CddResponse[]     @relation("PeriodicReviewCycleCddResponses")
+  eddResponses               EddResponse[]     @relation("PeriodicReviewCycleEddResponses")
+
+  @@index([customerId, status])
+  @@index([status, dueAt])
+  @@index([primaryAlertId])
+  @@index([primaryIncidentId])
+  @@map("periodic_review_cycles")
 }
 
 model CorporateProfile {
@@ -303,10 +344,10 @@ model ComplianceSession {
   @@map("compliance_sessions")
 }
 
-model CddCaseReport {
+model CddResponseReport {
   id                String   @id @default(uuid())
   customerId        String
-  cddCaseId         String
+  cddResponseId         String
   provider          String   @default("MOCK")
   providerSessionId String?
   rawPayload        String?
@@ -316,17 +357,17 @@ model CddCaseReport {
   updatedAt         DateTime @updatedAt
 
   customer          CustomerMain @relation(fields: [customerId], references: [id])
-  cddCase           CddCase      @relation(fields: [cddCaseId], references: [id])
+  cddResponse           CddResponse      @relation(fields: [cddResponseId], references: [id])
 
-  @@index([customerId, cddCaseId])
+  @@index([customerId, cddResponseId])
   @@index([provider, providerSessionId])
-  @@map("cdd_case_reports")
+  @@map("cdd_response_reports")
 }
 
-model EddCaseReport {
+model EddResponseReport {
   id                String   @id @default(uuid())
   customerId        String
-  eddCaseId         String
+  eddResponseId         String
   provider          String   @default("MOCK")
   providerSessionId String?
   rawPayload        String?
@@ -336,11 +377,11 @@ model EddCaseReport {
   updatedAt         DateTime @updatedAt
 
   customer          CustomerMain @relation(fields: [customerId], references: [id])
-  eddCase           EddCase      @relation(fields: [eddCaseId], references: [id])
+  eddResponse           EddResponse      @relation(fields: [eddResponseId], references: [id])
 
-  @@index([customerId, eddCaseId])
+  @@index([customerId, eddResponseId])
   @@index([provider, providerSessionId])
-  @@map("edd_case_reports")
+  @@map("edd_response_reports")
 }
 
 model KytCase {
@@ -466,7 +507,7 @@ model OnboardingAuditLog {
   @@map("onboarding_audit_logs")
 }
 
-model OnboardingDecisionRecord {
+model WorkflowDecisionRecord {
   id                 String   @id @default(uuid())
   customerId         String
   contextType        String // ONBOARDING_CDD, ONBOARDING_EDD
@@ -489,7 +530,7 @@ model OnboardingDecisionRecord {
   @@index([customerId, createdAt])
   @@index([contextType, subjectId, createdAt])
   @@index([status, createdAt])
-  @@map("onboarding_decision_records")
+  @@map("workflow_decision_records")
 }
 
 model AuditLogEvent {
@@ -644,6 +685,7 @@ model ApprovalCase {
   caseEvidencePackage ComplianceCaseEvidencePackage? @relation("ComplianceCaseEvidencePackageApprovalCase")
   latestForChangeTicket ChangeTicket?     @relation("ChangeTicketLatestApproval")
   latestForDeleteRequest DeleteRequest?   @relation("DeleteRequestLatestApproval")
+  latestForCustomerFinalApproval CustomerMain? @relation("CustomerLatestFinalApproval")
 
   @@index([actionType, entityRef, status])
   @@index([status, timeoutAt])

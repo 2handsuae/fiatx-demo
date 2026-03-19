@@ -2,9 +2,12 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../core/prisma/prisma.service';
 import {
+  getCanonicalReviewRuleForStage,
+  getWorkflowFromSourceType,
   getCanonicalOnboardingRuleForStage,
   ONBOARDING_REVIEW_STAGES,
   ONBOARDING_WORKFLOW,
+  PERIODIC_REVIEW_WORKFLOW,
   OnboardingReviewStage,
 } from './constants/onboarding-compliance-workflow.constant';
 import { normalizeRiskRecommendedActionType } from './constants/risk-recommended-actions.constant';
@@ -79,6 +82,19 @@ export class RiskDecisionRecordsService {
     const normalized = String(contextType || '').trim().toUpperCase();
     if (normalized === 'ONBOARDING_CDD') return ONBOARDING_REVIEW_STAGES.REVIEW_CDD;
     if (normalized === 'ONBOARDING_EDD') return ONBOARDING_REVIEW_STAGES.REVIEW_EDD;
+    if (normalized === 'PERIODIC_REVIEW_CDD') return ONBOARDING_REVIEW_STAGES.REVIEW_CDD;
+    if (normalized === 'PERIODIC_REVIEW_EDD') return ONBOARDING_REVIEW_STAGES.REVIEW_EDD;
+    return null;
+  }
+
+  private getWorkflowFromContextType(contextType?: string | null) {
+    const normalized = String(contextType || '').trim().toUpperCase();
+    if (normalized === 'PERIODIC_REVIEW_CDD' || normalized === 'PERIODIC_REVIEW_EDD') {
+      return PERIODIC_REVIEW_WORKFLOW;
+    }
+    if (normalized === 'ONBOARDING_CDD' || normalized === 'ONBOARDING_EDD') {
+      return ONBOARDING_WORKFLOW;
+    }
     return null;
   }
 
@@ -99,13 +115,16 @@ export class RiskDecisionRecordsService {
       this.getStageFromContextType(input.contextType) ||
       null;
     const normalizedStage = stage ? String(stage).trim().toUpperCase() : null;
-    const rule =
-      String(orchestration.rule || '').trim() ||
-      getCanonicalOnboardingRuleForStage(normalizedStage || null) ||
-      null;
     const workflow =
       String(orchestration.workflow || '').trim() ||
+      this.getWorkflowFromContextType(input.contextType) ||
+      getWorkflowFromSourceType(orchestration.sourceType) ||
       (normalizedStage ? ONBOARDING_WORKFLOW : '');
+    const rule =
+      String(orchestration.rule || '').trim() ||
+      getCanonicalReviewRuleForStage(normalizedStage || null, workflow || null) ||
+      getCanonicalOnboardingRuleForStage(normalizedStage || null) ||
+      null;
     const workflowTransition =
       input.outputs &&
       input.outputs.workflowTransition &&
@@ -162,7 +181,7 @@ export class RiskDecisionRecordsService {
     const skip = this.normalizeSkip(query.skip);
     const take = this.normalizeTake(query.take);
 
-    const where: Prisma.OnboardingDecisionRecordWhereInput = {};
+    const where: Prisma.WorkflowDecisionRecordWhereInput = {};
     const status = String(query.status || '').trim();
     const contextType = String(query.contextType || '').trim();
     const outputDecision = String(query.outputDecision || '').trim();
@@ -179,7 +198,7 @@ export class RiskDecisionRecordsService {
       where.policyVersion = { contains: policyVersion };
     }
 
-    const decisionRecordRepo = (this.prisma as any).onboardingDecisionRecord;
+    const decisionRecordRepo = (this.prisma as any).workflowDecisionRecord;
     const [total, rows] = await Promise.all([
       decisionRecordRepo.count({ where }),
       decisionRecordRepo.findMany({
@@ -224,7 +243,7 @@ export class RiskDecisionRecordsService {
   }
 
   async getDecisionRecordDetail(id: string) {
-    const decisionRecordRepo = (this.prisma as any).onboardingDecisionRecord;
+    const decisionRecordRepo = (this.prisma as any).workflowDecisionRecord;
     const row = await decisionRecordRepo.findUnique({
       where: { id },
       include: {
@@ -237,7 +256,6 @@ export class RiskDecisionRecordsService {
             lastName: true,
             customerType: true,
             companyName: true,
-            publicStatus: true,
           },
         },
       },

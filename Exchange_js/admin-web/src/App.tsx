@@ -1,81 +1,82 @@
+import { lazy, Suspense, type ReactElement } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import type { ReactElement } from 'react';
 import AdminLogin from './pages/AdminLogin';
 import AdminInviteActivate from './pages/AdminInviteActivate';
 import DashboardLayout from './components/DashboardLayout';
-import PlatformMembers from './pages/PlatformMembers';
-import CustomerManagement from './pages/CustomerManagement';
-import PricingSwapConfigPage from './pages/PricingSwapConfigPage';
-import PricingWithdrawalConfigPage from './pages/PricingWithdrawalConfigPage';
-import SwapQuoteList from './pages/SwapQuoteList';
-import SwapQuoteDetail from './pages/SwapQuoteDetail';
-import SwapOutstandingList from './pages/SwapOutstandingList';
-import SwapOutstandingDetail from './pages/SwapOutstandingDetail';
-import OutstandingSettlementList from './pages/OutstandingSettlementList';
-import OutstandingSettlementDetail from './pages/OutstandingSettlementDetail';
-import CustomerDetail from './pages/CustomerDetail';
-import LiquidityProviderList from './pages/LiquidityProviderList';
-import LiquidityProviderCreate from './pages/LiquidityProviderCreate';
-import LiquidityConfigList from './pages/LiquidityConfigList';
-import LiquidityConfigCreate from './pages/LiquidityConfigCreate';
-import LiquidityConfigEdit from './pages/LiquidityConfigEdit';
-import WalletList from './pages/WalletList';
-import WalletDetail from './pages/WalletDetail';
-import PayinList from './pages/PayinList';
-import PayinDetail from './pages/PayinDetail';
-import PayoutList from './pages/PayoutList';
-import PayoutDetail from './pages/PayoutDetail';
-import InternalTransactionList from './pages/InternalTransactionList';
-import InternalTransactionDetail from './pages/InternalTransactionDetail';
-import InternalFundList from './pages/InternalFundList';
-import InternalFundDetail from './pages/InternalFundDetail';
-import AssetList from './pages/AssetList';
-import AssetCreate from './pages/AssetCreate';
-import DepositTransactionList from './pages/DepositTransactionList';
-import DepositTransactionDetail from './pages/DepositTransactionDetail';
-import WithdrawTransactionList from './pages/WithdrawTransactionList';
-import WithdrawTransactionDetail from './pages/WithdrawTransactionDetail';
-import SwapTransactionList from './pages/SwapTransactionList';
-import SwapTransactionDetail from './pages/SwapTransactionDetail';
-import CoaList from './pages/CoaList';
-import JournalList from './pages/JournalList';
-import JournalDetail from './pages/JournalDetail';
-import JournalLinesList from './pages/JournalLinesList';
-import JournalLineDetail from './pages/JournalLineDetail';
-import CustomerBalanceHistory from './pages/CustomerBalanceHistory';
-import AcctEventList from './pages/AcctEventList';
-import JournalHeaderTemplateList from './pages/JournalHeaderTemplateList';
-import JournalLineTemplateList from './pages/JournalLineTemplateList';
-import ClearingHeaderTemplateList from './pages/ClearingHeaderTemplateList';
-import ClearingLineTemplateList from './pages/ClearingLineTemplateList';
-import ClearingManagementList from './pages/ClearingManagementList';
-import ClearingDetail from './pages/ClearingDetail';
-import ClearingDetailsList from './pages/ClearingDetailsList';
-import ClearingLineDetail from './pages/ClearingLineDetail';
-import CddCasesPage from './pages/CddCasesPage';
-import EddCasesPage from './pages/EddCasesPage';
-import AuditLogsPage from './pages/AuditLogsPage';
-import AuditLogDetailPage from './pages/AuditLogDetailPage';
-import EvidenceExportsPage from './pages/EvidenceExportsPage';
-import EvidenceExportDetailPage from './pages/EvidenceExportDetailPage';
-import ApprovalsPage from './pages/ApprovalsPage';
-import ApprovalDetailPage from './pages/ApprovalDetailPage';
-import ChangeTicketsPage from './pages/ChangeTicketsPage';
-import ChangeTicketCreatePage from './pages/ChangeTicketCreatePage';
-import ChangeTicketDetailPage from './pages/ChangeTicketDetailPage';
-import DeleteRequestsPage from './pages/DeleteRequestsPage';
-import DeleteRequestCreatePage from './pages/DeleteRequestCreatePage';
-import DeleteRequestDetailPage from './pages/DeleteRequestDetailPage';
-import SlaTimersPage from './pages/SlaTimersPage';
-import SlaTimerDetailPage from './pages/SlaTimerDetailPage';
-import ComplianceAlertsPage from './pages/ComplianceAlertsPage';
-import ComplianceIncidentsPage from './pages/ComplianceIncidentsPage';
-import CaseEvidenceExportsPage from './pages/CaseEvidenceExportsPage';
-import CaseEvidenceExportDetailPage from './pages/CaseEvidenceExportDetailPage';
-import RiskPolicyExecutionsPage from './pages/RiskPolicyExecutionsPage';
-import RoleManagement from './pages/RoleManagement';
 import { useAdminSession } from './contexts/AdminSessionContext';
 import { PERMISSIONS } from './rbac/permissions';
+
+const PlatformMembers = lazy(() => import('./pages/PlatformMembers'));
+const CustomerManagement = lazy(() => import('./pages/CustomerManagement'));
+const PricingSwapConfigPage = lazy(() => import('./pages/PricingSwapConfigPage'));
+const PricingWithdrawalConfigPage = lazy(() => import('./pages/PricingWithdrawalConfigPage'));
+const SwapQuoteList = lazy(() => import('./pages/SwapQuoteList'));
+const SwapQuoteDetail = lazy(() => import('./pages/SwapQuoteDetail'));
+const SwapOutstandingList = lazy(() => import('./pages/SwapOutstandingList'));
+const SwapOutstandingDetail = lazy(() => import('./pages/SwapOutstandingDetail'));
+const OutstandingSettlementList = lazy(() => import('./pages/OutstandingSettlementList'));
+const OutstandingSettlementDetail = lazy(() => import('./pages/OutstandingSettlementDetail'));
+const CustomerDetail = lazy(() => import('./pages/CustomerDetail'));
+const LiquidityProviderList = lazy(() => import('./pages/LiquidityProviderList'));
+const LiquidityProviderCreate = lazy(() => import('./pages/LiquidityProviderCreate'));
+const LiquidityConfigList = lazy(() => import('./pages/LiquidityConfigList'));
+const LiquidityConfigCreate = lazy(() => import('./pages/LiquidityConfigCreate'));
+const LiquidityConfigEdit = lazy(() => import('./pages/LiquidityConfigEdit'));
+const WalletList = lazy(() => import('./pages/WalletList'));
+const WalletDetail = lazy(() => import('./pages/WalletDetail'));
+const PayinList = lazy(() => import('./pages/PayinList'));
+const PayinDetail = lazy(() => import('./pages/PayinDetail'));
+const PayoutList = lazy(() => import('./pages/PayoutList'));
+const PayoutDetail = lazy(() => import('./pages/PayoutDetail'));
+const InternalTransactionList = lazy(() => import('./pages/InternalTransactionList'));
+const InternalTransactionDetail = lazy(() => import('./pages/InternalTransactionDetail'));
+const InternalFundList = lazy(() => import('./pages/InternalFundList'));
+const InternalFundDetail = lazy(() => import('./pages/InternalFundDetail'));
+const AssetList = lazy(() => import('./pages/AssetList'));
+const AssetCreate = lazy(() => import('./pages/AssetCreate'));
+const DepositTransactionList = lazy(() => import('./pages/DepositTransactionList'));
+const DepositTransactionDetail = lazy(() => import('./pages/DepositTransactionDetail'));
+const WithdrawTransactionList = lazy(() => import('./pages/WithdrawTransactionList'));
+const WithdrawTransactionDetail = lazy(() => import('./pages/WithdrawTransactionDetail'));
+const SwapTransactionList = lazy(() => import('./pages/SwapTransactionList'));
+const SwapTransactionDetail = lazy(() => import('./pages/SwapTransactionDetail'));
+const CoaList = lazy(() => import('./pages/CoaList'));
+const JournalList = lazy(() => import('./pages/JournalList'));
+const JournalDetail = lazy(() => import('./pages/JournalDetail'));
+const JournalLinesList = lazy(() => import('./pages/JournalLinesList'));
+const JournalLineDetail = lazy(() => import('./pages/JournalLineDetail'));
+const CustomerBalanceHistory = lazy(() => import('./pages/CustomerBalanceHistory'));
+const AcctEventList = lazy(() => import('./pages/AcctEventList'));
+const JournalHeaderTemplateList = lazy(() => import('./pages/JournalHeaderTemplateList'));
+const JournalLineTemplateList = lazy(() => import('./pages/JournalLineTemplateList'));
+const ClearingHeaderTemplateList = lazy(() => import('./pages/ClearingHeaderTemplateList'));
+const ClearingLineTemplateList = lazy(() => import('./pages/ClearingLineTemplateList'));
+const ClearingManagementList = lazy(() => import('./pages/ClearingManagementList'));
+const ClearingDetail = lazy(() => import('./pages/ClearingDetail'));
+const ClearingDetailsList = lazy(() => import('./pages/ClearingDetailsList'));
+const ClearingLineDetail = lazy(() => import('./pages/ClearingLineDetail'));
+const CddResponsesPage = lazy(() => import('./pages/CddResponsesPage'));
+const EddResponsesPage = lazy(() => import('./pages/EddResponsesPage'));
+const AuditLogsPage = lazy(() => import('./pages/AuditLogsPage'));
+const AuditLogDetailPage = lazy(() => import('./pages/AuditLogDetailPage'));
+const EvidenceExportsPage = lazy(() => import('./pages/EvidenceExportsPage'));
+const EvidenceExportDetailPage = lazy(() => import('./pages/EvidenceExportDetailPage'));
+const ApprovalsPage = lazy(() => import('./pages/ApprovalsPage'));
+const ApprovalDetailPage = lazy(() => import('./pages/ApprovalDetailPage'));
+const ChangeTicketsPage = lazy(() => import('./pages/ChangeTicketsPage'));
+const ChangeTicketCreatePage = lazy(() => import('./pages/ChangeTicketCreatePage'));
+const ChangeTicketDetailPage = lazy(() => import('./pages/ChangeTicketDetailPage'));
+const DeleteRequestsPage = lazy(() => import('./pages/DeleteRequestsPage'));
+const DeleteRequestCreatePage = lazy(() => import('./pages/DeleteRequestCreatePage'));
+const DeleteRequestDetailPage = lazy(() => import('./pages/DeleteRequestDetailPage'));
+const SlaTimersPage = lazy(() => import('./pages/SlaTimersPage'));
+const SlaTimerDetailPage = lazy(() => import('./pages/SlaTimerDetailPage'));
+const ComplianceAlertsPage = lazy(() => import('./pages/ComplianceAlertsPage'));
+const ComplianceIncidentsPage = lazy(() => import('./pages/ComplianceIncidentsPage'));
+const CaseEvidenceExportsPage = lazy(() => import('./pages/CaseEvidenceExportsPage'));
+const CaseEvidenceExportDetailPage = lazy(() => import('./pages/CaseEvidenceExportDetailPage'));
+const RiskPolicyExecutionsPage = lazy(() => import('./pages/RiskPolicyExecutionsPage'));
+const RoleManagement = lazy(() => import('./pages/RoleManagement'));
 
 const FullPageMessage = ({
   title,
@@ -103,6 +104,13 @@ const SessionLoading = () => (
   <FullPageMessage
     title="Loading Session"
     description="Verifying your admin role and permissions..."
+  />
+);
+
+const RouteLoading = () => (
+  <FullPageMessage
+    title="Loading Page"
+    description="Preparing the requested admin page..."
   />
 );
 
@@ -158,7 +166,9 @@ const LoginEntry = () => {
 };
 
 const withPermission = (element: ReactElement, permissions: string[]) => (
-  <RequirePermission permissions={permissions}>{element}</RequirePermission>
+  <RequirePermission permissions={permissions}>
+    <Suspense fallback={<RouteLoading />}>{element}</Suspense>
+  </RequirePermission>
 );
 
 function App() {
@@ -232,12 +242,12 @@ function App() {
               element={withPermission(<SwapOutstandingDetail />, [PERMISSIONS.OUTSTANDING_DETAIL_READ])}
             />
             <Route
-              path="compliance/cdd-cases"
-              element={withPermission(<CddCasesPage />, [PERMISSIONS.CDD_CASES_READ])}
+              path="compliance/cdd-responses"
+              element={withPermission(<CddResponsesPage />, [PERMISSIONS.CDD_RESPONSES_READ])}
             />
             <Route
-              path="compliance/edd-cases"
-              element={withPermission(<EddCasesPage />, [PERMISSIONS.EDD_CASES_READ])}
+              path="compliance/edd-responses"
+              element={withPermission(<EddResponsesPage />, [PERMISSIONS.EDD_RESPONSES_READ])}
             />
             <Route
               path="compliance/alerts"

@@ -3,7 +3,7 @@
 ## 文档导航
 - 产品文档：[audit-logging-product-doc.md](./audit-logging-product-doc.md)
 - 技术文档：[audit-logging-technical-doc.md](./audit-logging-technical-doc.md)
-- 审计约束：[audit-logging-constraints.md](./constraints/audit-logging-constraints.md)
+- 审计约束：[audit-logging-constraints.md](../../constraints/audit-logging-constraints.md)
 
 > 以下保留 v1 快速概览，作为历史上下文。
 

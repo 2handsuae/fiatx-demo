@@ -2,7 +2,7 @@ import { RiskEngineService } from './risk-engine.service';
 
 describe('RiskEngineService', () => {
   const prismaMock: any = {
-    onboardingDecisionRecord: {
+    workflowDecisionRecord: {
       create: jest.fn(),
       update: jest.fn(),
     },
@@ -12,8 +12,8 @@ describe('RiskEngineService', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    prismaMock.onboardingDecisionRecord.create.mockResolvedValue({ id: 'dr-1' });
-    prismaMock.onboardingDecisionRecord.update.mockResolvedValue({ id: 'dr-1' });
+    prismaMock.workflowDecisionRecord.create.mockResolvedValue({ id: 'dr-1' });
+    prismaMock.workflowDecisionRecord.update.mockResolvedValue({ id: 'dr-1' });
     service = new RiskEngineService(prismaMock);
   });
 
@@ -51,7 +51,7 @@ describe('RiskEngineService', () => {
         }),
       ]),
     );
-    expect(prismaMock.onboardingDecisionRecord.create).toHaveBeenCalledWith({
+    expect(prismaMock.workflowDecisionRecord.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         customerId: 'c1',
         contextType: 'ONBOARDING_CDD',
@@ -60,7 +60,7 @@ describe('RiskEngineService', () => {
       }),
     });
     expect(
-      JSON.parse(prismaMock.onboardingDecisionRecord.create.mock.calls[0][0].data.inputPayload),
+      JSON.parse(prismaMock.workflowDecisionRecord.create.mock.calls[0][0].data.inputPayload),
     ).toEqual(
       expect.objectContaining({
         subjectType: 'INDIVIDUAL_CUSTOMER',
@@ -243,6 +243,6 @@ describe('RiskEngineService', () => {
       ),
     ).rejects.toThrow(RiskEngineService.PHASE2_UNSUPPORTED_OWNER_TYPE);
 
-    expect(prismaMock.onboardingDecisionRecord.create).not.toHaveBeenCalled();
+    expect(prismaMock.workflowDecisionRecord.create).not.toHaveBeenCalled();
   });
 });

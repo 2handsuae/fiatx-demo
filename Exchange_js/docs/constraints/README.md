@@ -1,8 +1,17 @@
 # Constraints Index (For Future Threads)
 
+Status: active
+Owner: project-owner-and-agents
+Last Updated: 2026-03-19
+Applies To: `Exchange_js`
+Supersedes: none
+Depends On: `AGENTS.md`, `docs/README.md`
+Source of Truth Level: constraints-index
+
 ## Purpose
 These documents define non-negotiable engineering constraints for all future thread work in `Exchange_js`.
-Any agent/thread must read this folder first before proposing or implementing changes.
+Any agent/thread must read this folder before proposing or implementing changes that touch constrained behavior.
+This file is the constraints subtree index under the project-level documentation governance in `docs/README.md`.
 
 ## Required Reading Order
 1. `docs/constraints/frontend-ui-constraints.md`
@@ -42,6 +51,15 @@ Any agent/thread must read this folder first before proposing or implementing ch
 - `SHOULD`: preferred default; deviation needs reason in PR/thread notes.
 - `MAY`: optional guidance.
 
+## Precedence
+- `docs/constraints/**` overrides:
+1. `docs/specs/**`
+2. `docs/adr/**`
+3. `docs/cleanup/**`
+4. `docs/roadmap/**`
+5. `docs/acceptance/**`
+- If a constraint becomes stale because implementation changed, the relevant thread must update it instead of relying on chat-only clarification.
+
 ## Change Protocol
 - Any change to these constraints MUST include:
 1. changed file(s)
@@ -57,4 +75,4 @@ Any agent/thread must read this folder first before proposing or implementing ch
 - Database URL default in backend `.env`: `DATABASE_URL="file:/tmp/exchange_js_main/dev.db"`
 - Stack-local SQLite defaults MUST stay on ASCII-safe absolute paths such as `/tmp/exchange_js_<stack>/dev.db`
 - Local schema bootstrap entry: `npm run db:migrate:local` (versioned SQL chain runner)
-- Governance/runtime repair playbook: `docs/local-main-runtime-runbook.md`
+- Governance/runtime repair playbook: `docs/acceptance/local-main-runtime-runbook.md`

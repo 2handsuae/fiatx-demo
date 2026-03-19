@@ -2,6 +2,30 @@ import { useNavigate } from 'react-router-dom';
 import { User, Mail, Phone, Calendar, ShieldCheck, Clock, AlertCircle } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useCustomerProfile } from '../hooks/useCustomerProfile';
+import {
+  isCustomerApprovedForAccess,
+  isCustomerFinalApprovalPending,
+  isCustomerInProgress,
+  isCustomerRejected,
+  isCustomerWithdrawn,
+} from '../utils/customerOnboarding';
+
+const getPrimaryStatusLabel = (input: {
+  onboardingStatus?: string | null;
+  operatingStatus?: string | null;
+  restrictionStatus?: string | null;
+  complianceHoldStatus?: string | null;
+}) => {
+  const complianceHoldStatus = String(input.complianceHoldStatus || 'ACTIVE').trim().toUpperCase();
+  const restrictionStatus = String(input.restrictionStatus || 'CLEAR').trim().toUpperCase();
+  const onboardingStatus = String(input.onboardingStatus || 'NONE').trim().toUpperCase();
+  const operatingStatus = String(input.operatingStatus || 'INACTIVE').trim().toUpperCase();
+
+  if (complianceHoldStatus === 'FROZEN') return 'FROZEN';
+  if (restrictionStatus === 'RESTRICTED') return 'RESTRICTED';
+  if (onboardingStatus === 'APPROVED' && operatingStatus === 'ACTIVE') return 'ACTIVE';
+  return onboardingStatus;
+};
 
 const CustomerProfile = () => {
   const { profile, loading, error } = useCustomerProfile();
@@ -11,14 +35,45 @@ const CustomerProfile = () => {
   if (error) return <div className="p-8 text-center text-red-500">{error}</div>;
   if (!profile) return null;
 
-  const isApproved = profile.publicStatus === 'ACTIVE';
-  const isRejected = profile.publicStatus === 'REJECTED';
-  const isExpired = profile.cddStatus === 'EXPIRED';
-  const isBlocked = isRejected;
-  const isRestricted = profile.publicStatus === 'WITHDRAWN';
-  const isInProgress = !['ACTIVE', 'REJECTED', 'WITHDRAWN'].includes(profile.publicStatus);
-  const isFinalPending = profile.publicStatus === 'FINAL_APPROVAL';
+  const onboardingStatus = String(profile.onboardingStatus || 'NONE').toUpperCase();
+  const restrictionStatus = String(profile.restrictionStatus || 'CLEAR').toUpperCase();
+  const complianceHoldStatus = String(profile.complianceHoldStatus || 'ACTIVE').toUpperCase();
+  const statusLabel = getPrimaryStatusLabel(profile);
+  const isApproved = isCustomerApprovedForAccess(profile);
+  const isRejected = isCustomerRejected(profile);
+  const isWithdrawn = isCustomerWithdrawn(profile);
+  const isExpired = !!(
+    profile.cddDocumentExpiresAt &&
+    onboardingStatus === 'PENDING_CDD_INPUT' &&
+    new Date(profile.cddDocumentExpiresAt).getTime() <= Date.now()
+  );
+  const isBlocked = isRejected || isWithdrawn;
+  const isRestricted =
+    restrictionStatus === 'RESTRICTED' || complianceHoldStatus === 'FROZEN';
+  const isInProgress = isCustomerInProgress(profile);
+  const isFinalPending = isCustomerFinalApprovalPending(profile);
   const showVerifyButton = !isApproved;
+  const periodicReviewStatus = String(
+    profile.activePeriodicReviewCycle?.status ||
+      (profile.periodicReviewOverdueAt ? 'OVERDUE' : ''),
+  )
+    .trim()
+    .toUpperCase();
+  const showPeriodicReviewBanner = !!(
+    profile.activePeriodicReviewCycleId || profile.periodicReviewOverdueAt
+  );
+  const periodicReviewMessage =
+    periodicReviewStatus === 'REJECTED'
+      ? 'Periodic review was rejected. Trading restrictions remain in place until compliance resolves the cycle.'
+      : periodicReviewStatus === 'EDD_UNDER_REVIEW'
+        ? 'Your periodic review EDD submission is under compliance review.'
+        : periodicReviewStatus === 'CDD_UNDER_REVIEW'
+          ? 'Your periodic review CDD submission is under compliance review.'
+          : periodicReviewStatus === 'PENDING_EDD_INPUT'
+            ? 'Additional EDD information is required for your periodic review.'
+            : profile.periodicReviewOverdueAt
+              ? 'Periodic review is due and waiting to be triggered after current restrictions are cleared.'
+              : 'Periodic review is active. Complete the required response to continue.';
 
   const statusIconClass = isApproved
     ? 'bg-green-100 text-green-600'
@@ -68,14 +123,14 @@ const CustomerProfile = () => {
               </div>
               <div className="flex items-center gap-3">
                   <span className={`px-3 py-1 rounded-full text-xs font-bold transition-colors duration-300 ${statusBadgeClass}`}>
-                      {profile.publicStatus.replace(/_/g, ' ')}
+                      {statusLabel.replace(/_/g, ' ')}
                   </span>
                   {showVerifyButton && (
                       <button 
                           onClick={() => navigate('/verification')}
-                          className={`px-4 py-2 ${isRejected ? 'bg-red-600 hover:bg-red-700' : 'bg-brand-primary hover:bg-blue-700'} text-white text-sm font-bold rounded-lg transition-colors`}
+                          className={`px-4 py-2 ${isBlocked ? 'bg-red-600 hover:bg-red-700' : 'bg-brand-primary hover:bg-blue-700'} text-white text-sm font-bold rounded-lg transition-colors`}
                       >
-                          {isRejected ? 'Retry' : 'View Detail'}
+                          {isBlocked ? 'Retry' : 'View Detail'}
                       </button>
                   )}
               </div>
@@ -84,19 +139,57 @@ const CustomerProfile = () => {
               <div className={`p-4 ${isRejected ? 'bg-red-50/50' : 'bg-gray-50/50'}`}>
                   <div className="flex items-start gap-3 text-sm text-gray-600">
                       <AlertCircle size={16} className={`mt-0.5 ${isRejected ? 'text-red-600' : 'text-brand-primary'}`} />
-                      <p>
+                      <div>
+                        <p>
                         {isExpired
                           ? 'Your CDD document has expired. Please re-initiate CDD verification.'
-                          : isRejected
+                          : isBlocked
                             ? 'Compliance case rejected. Please re-initiate verification.'
                             : isFinalPending
                               ? 'EDD approved. Waiting for final management approval.'
+                              : isInProgress && onboardingStatus === 'NONE'
+                              ? 'Start onboarding to unlock trading features.'
                               : 'Complete onboarding (CDD/EDD) to unlock trading features.'}
-                      </p>
+                        </p>
+                      </div>
                   </div>
               </div>
           )}
       </motion.div>
+
+      {showPeriodicReviewBanner && (
+        <motion.div
+          layout
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.05 }}
+          className="bg-amber-50 rounded-xl shadow-sm border border-amber-200 overflow-hidden"
+        >
+          <div className="p-6 border-b border-amber-100 flex items-center justify-between gap-4">
+            <div>
+              <h3 className="font-bold text-amber-900">Periodic Review</h3>
+              <p className="text-sm text-amber-700 mt-1">
+                {periodicReviewMessage}
+              </p>
+            </div>
+            <button
+              onClick={() => navigate('/verification')}
+              className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white text-sm font-bold rounded-lg transition-colors"
+            >
+              Open Review
+            </button>
+          </div>
+          <div className="px-6 py-4 text-sm text-amber-800 flex flex-wrap gap-4">
+            <span>Status: {periodicReviewStatus || 'ACTIVE'}</span>
+            {profile.activePeriodicReviewCycle?.cycleNo && (
+              <span>Cycle: {profile.activePeriodicReviewCycle.cycleNo}</span>
+            )}
+            {profile.nextReviewAt && (
+              <span>Next Review At: {new Date(profile.nextReviewAt).toLocaleDateString()}</span>
+            )}
+          </div>
+        </motion.div>
+      )}
 
       {/* Basic Info Card */}
         <motion.div 
