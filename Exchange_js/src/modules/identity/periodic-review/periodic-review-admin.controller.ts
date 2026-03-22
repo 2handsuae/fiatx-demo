@@ -82,15 +82,11 @@ export class PeriodicReviewAdminController {
     @Body(new ValidationPipe({ transform: true })) body: ApplyOnboardingAlertDecisionDto,
   ) {
     const actor = this.getAdminActor(req);
-    const result = await this.periodicReviewService.applyDecisionFromIncident(
+    return this.periodicReviewService.applyDecisionFromIncident(
       id,
       actor.actorId,
       actor.actorRole,
       body,
     );
-    return {
-      ...result,
-      case: result.incident,
-    };
   }
 }

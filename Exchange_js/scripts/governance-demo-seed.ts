@@ -108,7 +108,7 @@ async function seedChangeTicketChain() {
     'post',
     '/admin/control-gates/change-tickets',
     {
-      changeType: 'CONFIG',
+      changeType: 'GOVERNANCE_POLICY_CHANGE',
       scopeSummary: `Wave1 demo change ${suffix}`,
       testEvidenceRef: `TEST-EVIDENCE-${suffix}`,
       rollbackPlanRef: `ROLLBACK-${suffix}`,

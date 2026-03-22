@@ -20,7 +20,11 @@
 - Local SQLite MUST use an ASCII-safe absolute path to avoid Prisma migrate failures on Unicode worktree paths.
 - Standard `main` DB file MUST be treated as: `/tmp/exchange_js_main/dev.db`.
 - Experimental stacks MAY derive sibling defaults such as `/tmp/exchange_js_audit_evidence/dev.db` or `/tmp/exchange_js_codex/dev.db`, but MUST stay in the `/tmp/exchange_js_<stack>/dev.db` pattern.
-- Any script that bootstraps DB MUST read `DATABASE_URL` first and MUST NOT hardcode `file:./dev.db`.
+- Stack-managed commands such as `dev:start`, `dev:rebuild`, `runtime:diagnose`, and `stack up <stack>` MUST resolve DB path by stack name first:
+1. explicit `DATABASE_URL` env override
+2. stack default path `/tmp/exchange_js_<stack>/dev.db`
+3. local `.env` only for non-stack direct app startup
+- Any script that bootstraps DB MUST honor explicit `DATABASE_URL` override first and MUST NOT hardcode `file:./dev.db`.
 - Local bootstrap MUST execute the versioned SQL chain in `prisma/migrations/**/migration.sql` via `scripts/apply-local-migrations.sh`; do not reintroduce ad-hoc schema patch functions.
 - Applied migration directories in `prisma/migrations/**` MUST be immutable after execution; local tooling MUST fail fast on checksum drift instead of silently skipping edited migration files.
 

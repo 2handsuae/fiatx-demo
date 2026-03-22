@@ -87,6 +87,24 @@ describe('AuthService', () => {
     expect(auditLogsService.recordByActor).toHaveBeenCalled();
   });
 
+  it('should reject deleted admin login through active-user lookup filtering', async () => {
+    usersService.findByIdentifier.mockResolvedValue(null);
+    auditLogsService.recordByActor.mockResolvedValue({});
+
+    const result = await service.validateUser('deleted-admin@fiatx.com', '123456');
+
+    expect(result).toBeNull();
+    expect(auditLogsService.recordByActor).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: expect.any(String),
+        reason: 'Admin login failed: account not found',
+      }),
+      expect.objectContaining({
+        actorId: 'UNKNOWN',
+      }),
+    );
+  });
+
   it('should return resolved role and permission sets for admin session', async () => {
     usersService.findById.mockResolvedValue({
       id: 'user-1',
@@ -142,5 +160,13 @@ describe('AuthService', () => {
       }),
     );
     expect(result.user.roles).toEqual(['SUPER_ADMIN', 'MLRO']);
+  });
+
+  it('should reject deleted admin session snapshots', async () => {
+    usersService.findById.mockResolvedValue(null);
+
+    await expect(service.getAdminSession('deleted-user')).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
   });
 });

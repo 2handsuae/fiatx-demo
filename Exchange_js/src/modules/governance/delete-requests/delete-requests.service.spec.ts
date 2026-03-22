@@ -44,7 +44,7 @@ const buildChangeTicketTarget = (overrides: Record<string, unknown> = {}) => ({
   id: 'ticket-1',
   ticketNo: 'CT2603150001',
   status: 'CLOSED',
-  changeType: 'SYSTEM',
+  changeType: 'ADMIN_ACCESS_CHANGE',
   latestApprovalId: 'approval-ticket-1',
   latestApprovalStatus: 'APPROVED',
   traceId: 'trace-ticket-1',
@@ -54,6 +54,50 @@ const buildChangeTicketTarget = (overrides: Record<string, unknown> = {}) => ({
   deletedBy: null,
   deleteRequestId: null,
   deleteReason: null,
+  ...overrides,
+});
+
+const buildCaseEvidencePackageTarget = (overrides: Record<string, unknown> = {}) => ({
+  id: 'case-package-1',
+  packageNo: 'CEP2603150001',
+  approvalCaseId: 'approval-case-1',
+  status: 'READY',
+  exportMode: 'CASE_SELECTION',
+  itemCount: 2,
+  digest: 'd'.repeat(64),
+  createdAt: baseDate,
+  updatedAt: baseDate,
+  deletedAt: null,
+  deletedBy: null,
+  deleteRequestId: null,
+  deleteReason: null,
+  approvalCase: {
+    approvalNo: 'APR2603150099',
+    status: ApprovalStatuses.APPROVED,
+  },
+  ...overrides,
+});
+
+const buildAdminUserTarget = (overrides: Record<string, unknown> = {}) => ({
+  id: 'user-1',
+  userNo: 'ADM2603150001',
+  email: 'ops@example.com',
+  status: 'ACTIVE',
+  role: 'OPS',
+  createdAt: baseDate,
+  updatedAt: baseDate,
+  deletedAt: null,
+  deletedBy: null,
+  deleteRequestId: null,
+  deleteReason: null,
+  userRoles: [
+    {
+      role: {
+        code: 'OPS',
+        name: 'Operations',
+      },
+    },
+  ],
   ...overrides,
 });
 
@@ -95,6 +139,19 @@ describe('DeleteRequestsService', () => {
         findFirst: jest.fn(),
         findUnique: jest.fn(),
         update: jest.fn(),
+      },
+      complianceCaseEvidencePackage: {
+        findFirst: jest.fn(),
+        findUnique: jest.fn(),
+        update: jest.fn(),
+      },
+      user: {
+        findFirst: jest.fn(),
+        findUnique: jest.fn(),
+        update: jest.fn(),
+      },
+      adminUserInvitation: {
+        updateMany: jest.fn(),
       },
       deleteRequest: {
         findFirst: jest.fn(),
@@ -172,6 +229,41 @@ describe('DeleteRequestsService', () => {
 
     expect(result.requestNo).toBe('DR2603150001');
     expect(prisma.deleteRequest.create).not.toHaveBeenCalled();
+  });
+
+  it('creates a delete request for case evidence export targets', async () => {
+    prisma.complianceCaseEvidencePackage.findFirst.mockResolvedValue(
+      buildCaseEvidencePackageTarget(),
+    );
+    prisma.deleteRequest.findFirst.mockResolvedValue(null);
+    prisma.deleteRequest.create.mockResolvedValue(
+      buildDeleteRequest({
+        targetType: DeleteRequestTargetTypes.COMPLIANCE_CASE_EVIDENCE_PACKAGE,
+        targetId: 'case-package-1',
+        targetNo: 'CEP2603150001',
+      }),
+    );
+
+    const result = await service.create(
+      {
+        targetType: DeleteRequestTargetTypes.COMPLIANCE_CASE_EVIDENCE_PACKAGE,
+        targetNo: 'CEP2603150001',
+        deleteReason: 'Cleanup exported case package',
+      },
+      actor,
+    );
+
+    expect(result.targetType).toBe(
+      DeleteRequestTargetTypes.COMPLIANCE_CASE_EVIDENCE_PACKAGE,
+    );
+    expect(prisma.deleteRequest.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          targetType: DeleteRequestTargetTypes.COMPLIANCE_CASE_EVIDENCE_PACKAGE,
+          targetNo: 'CEP2603150001',
+        }),
+      }),
+    );
   });
 
   it('submits a draft delete request and links approval', async () => {
@@ -386,6 +478,89 @@ describe('DeleteRequestsService', () => {
         statusTo: DeleteRequestStatuses.EXECUTED,
       }),
       expect.anything(),
+    );
+  });
+
+  it('executes admin-user delete request and revokes pending invitations', async () => {
+    prisma.deleteRequest.findUnique.mockResolvedValue(
+      buildDeleteRequest({
+        status: DeleteRequestStatuses.READY_TO_EXECUTE,
+        targetType: DeleteRequestTargetTypes.ADMIN_USER,
+        targetId: 'user-1',
+        targetNo: 'ADM2603150001',
+        latestApprovalId: 'approval-1',
+        latestApprovalStatus: ApprovalStatuses.APPROVED,
+        latestApproval: {
+          id: 'approval-1',
+          approvalNo: 'APR2603150001',
+          status: ApprovalStatuses.APPROVED,
+          traceId: 'trace-1',
+        },
+      }),
+    );
+    prisma.user.findUnique.mockResolvedValue(buildAdminUserTarget());
+    prisma.user.update.mockResolvedValue(
+      buildAdminUserTarget({
+        deletedAt: baseDate,
+        deletedBy: executor.userId,
+        deleteRequestId: 'delete-request-1',
+        deleteReason: 'Cleanup closed ticket',
+      }),
+    );
+    prisma.adminUserInvitation.updateMany.mockResolvedValue({ count: 1 });
+    prisma.deleteRequest.update.mockResolvedValue(
+      buildDeleteRequest({
+        status: DeleteRequestStatuses.EXECUTED,
+        targetType: DeleteRequestTargetTypes.ADMIN_USER,
+        targetId: 'user-1',
+        targetNo: 'ADM2603150001',
+        latestApprovalId: 'approval-1',
+        latestApprovalStatus: ApprovalStatuses.APPROVED,
+        executedByUserId: executor.userId,
+        executedAt: baseDate,
+        targetSnapshotJson: JSON.stringify({
+          targetType: DeleteRequestTargetTypes.ADMIN_USER,
+          targetId: 'user-1',
+          targetNo: 'ADM2603150001',
+        }),
+        latestApproval: {
+          id: 'approval-1',
+          approvalNo: 'APR2603150001',
+          status: ApprovalStatuses.APPROVED,
+          traceId: 'trace-1',
+        },
+      }),
+    );
+    approvalsService.requireApproved.mockResolvedValue({
+      id: 'approval-1',
+      approvalNo: 'APR2603150001',
+      status: ApprovalStatuses.APPROVED,
+    });
+
+    const result = await service.execute(
+      'delete-request-1',
+      { reason: 'execute now' },
+      executor,
+    );
+
+    expect(result.status).toBe(DeleteRequestStatuses.EXECUTED);
+    expect(prisma.user.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'user-1' },
+        data: expect.objectContaining({
+          deletedBy: executor.userId,
+          deleteRequestId: 'delete-request-1',
+        }),
+      }),
+    );
+    expect(prisma.adminUserInvitation.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          userId: 'user-1',
+          consumedAt: null,
+          revokedAt: null,
+        }),
+      }),
     );
   });
 });

@@ -21,6 +21,16 @@ Source of Truth Level: specs-entity
 - read-model outputs
 
 ## Current Entity Specs
+- `docs/specs/entities/audit-evidence-package-entity.md`
+  - Audit Center evidence package semantics and approval-backed export boundary.
+- `docs/specs/entities/change-ticket-entity.md`
+  - Wave 1 release-control ticket semantics and gate linkage.
+- `docs/specs/entities/delete-request-entity.md`
+  - Wave 1 governed soft-delete request semantics.
+- `docs/specs/entities/governance-sla-timer-entity.md`
+  - Governance SLA timer and notification registry semantics.
+- `docs/specs/entities/admin-user-entity.md`
+  - Admin user identity, activation, role-truth, and governed deletion semantics.
 - `docs/specs/entities/compliance-alert-entity.md`
   - Alert triage entity semantics and assignment boundary.
 - `docs/specs/entities/compliance-case-entity.md`

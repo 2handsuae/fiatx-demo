@@ -77,9 +77,9 @@ describe('OnboardingAdminController', () => {
     expect(result).toEqual({ id: 'dr-1' });
   });
 
-  it('should expose canonical case onboarding-decision route and mirror case payload', async () => {
+  it('should expose canonical case onboarding-decision route with case-only payload', async () => {
     onboardingServiceMock.applyOnboardingDecisionFromIncident.mockResolvedValue({
-      incident: { id: 'inc-1', caseNo: 'CAS2603010001' },
+      case: { id: 'inc-1', caseNo: 'CAS2603010001' },
       alert: { id: 'alert-1' },
       customer: { id: 'c1', onboardingStatus: 'APPROVED', operatingStatus: 'ACTIVE' },
     });
@@ -103,7 +103,7 @@ describe('OnboardingAdminController', () => {
       { decision: 'CLEAR' },
     );
     expect(result.case).toEqual({ id: 'inc-1', caseNo: 'CAS2603010001' });
-    expect(result.incident).toEqual({ id: 'inc-1', caseNo: 'CAS2603010001' });
+    expect(result).not.toHaveProperty('incident');
   });
 
   it('should submit customer final approval through onboarding service', async () => {

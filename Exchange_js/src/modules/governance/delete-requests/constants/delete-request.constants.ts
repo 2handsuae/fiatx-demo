@@ -11,8 +11,9 @@ export const DeleteRequestStatuses = {
 
 export const DeleteRequestTargetTypes = {
   CHANGE_TICKET: 'CHANGE_TICKET',
-  APPROVAL_CASE: 'APPROVAL_CASE',
   AUDIT_EVIDENCE_PACKAGE: 'AUDIT_EVIDENCE_PACKAGE',
+  COMPLIANCE_CASE_EVIDENCE_PACKAGE: 'COMPLIANCE_CASE_EVIDENCE_PACKAGE',
+  ADMIN_USER: 'ADMIN_USER',
 } as const;
 
 export const DeleteRequestWorkflowTypes = {

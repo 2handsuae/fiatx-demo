@@ -150,6 +150,11 @@ Source of Truth Level: documentation-governance-index
 - Constraints index:
   - `docs/constraints/README.md`
 - Workflow semantics reference:
+  - `docs/specs/workflows/audit-evidence-export-approval-workflow.md`
+  - `docs/specs/workflows/change-ticket-release-gate-workflow.md`
+  - `docs/specs/workflows/delete-request-soft-delete-workflow.md`
+  - `docs/specs/workflows/governance-sla-timer-workflow.md`
+  - `docs/specs/workflows/admin-member-auth-boundary-workflow.md`
   - `docs/specs/workflows/onboarding-canonical-workflow.md`
   - `docs/specs/workflows/periodic-review-canonical-workflow.md`
   - `docs/specs/workflows/alert-triage-and-case-escalation.md`
@@ -157,6 +162,11 @@ Source of Truth Level: documentation-governance-index
   - `docs/specs/workflows/case-final-lifecycle-and-external-filing.md`
   - `docs/specs/workflows/onboarding-periodic-review-audit-trace-contract.md`
 - Entity semantics reference:
+  - `docs/specs/entities/audit-evidence-package-entity.md`
+  - `docs/specs/entities/change-ticket-entity.md`
+  - `docs/specs/entities/delete-request-entity.md`
+  - `docs/specs/entities/governance-sla-timer-entity.md`
+  - `docs/specs/entities/admin-user-entity.md`
   - `docs/specs/entities/compliance-case-entity.md`
   - `docs/specs/entities/compliance-alert-entity.md`
   - `docs/specs/entities/compliance-case-report-entity.md`
@@ -167,6 +177,8 @@ Source of Truth Level: documentation-governance-index
   - `docs/specs/entities/approval-case-entity.md`
   - `docs/specs/entities/risk-decision-record-entity.md`
 - Module integration reference:
+  - `docs/specs/modules/governance-control-foundation-module.md`
+  - `docs/specs/modules/rbac-member-management-module.md`
   - `docs/specs/modules/compliance-center-module.md`
   - `docs/specs/modules/risk-engine-module.md`
   - `docs/specs/modules/customer-onboarding-module.md`
@@ -174,10 +186,12 @@ Source of Truth Level: documentation-governance-index
   - `docs/specs/modules/approvals-module.md`
   - `docs/specs/modules/audit-logging-module.md`
 - Runtime / validation examples:
+  - `docs/acceptance/wave-1-foundation-final-acceptance.md`
   - `docs/acceptance/wave-2-wave-3-final-acceptance-checklist.md`
   - `docs/acceptance/local-main-runtime-runbook.md`
   - `docs/acceptance/onboarding-compliance-center-wave3-acceptance-checklist.md`
 - Archived cleanup history:
+  - `docs/cleanup/wave-1-governance-audit-cleanup-master-plan.md`
   - `docs/cleanup/wave-2-wave-3-final-closure-plan.md`
   - `docs/cleanup/wave-2-cleanup-master-plan.md`
   - `docs/cleanup/wave-3-cleanup-master-plan.md`
@@ -189,6 +203,15 @@ Source of Truth Level: documentation-governance-index
 4. entity specs
 5. module specs
 6. final acceptance checklist
+7. archived cleanup docs only if retirement history matters
+
+## Wave 1 Recommended Reading Order
+1. roadmap / Wave 1 completion note
+2. relevant constraints
+3. Wave 1 workflow specs
+4. Wave 1 entity specs
+5. Wave 1 module specs
+6. final acceptance
 7. archived cleanup docs only if retirement history matters
 
 ## Wave Completion Documentation Rule
@@ -208,6 +231,24 @@ Source of Truth Level: documentation-governance-index
 - If a wave closes without this documentation set, the wave is implementation-complete but not documentation-complete.
 
 ## Completion Note
+- `Wave 1` governance / audit foundation is now:
+  - implementation-complete
+  - documentation-complete
+- `Wave 1` governance / audit foundation now has durable references across:
+  - `docs/roadmap/project-version-plan.md`
+  - `docs/specs/workflows/audit-evidence-export-approval-workflow.md`
+  - `docs/specs/workflows/change-ticket-release-gate-workflow.md`
+  - `docs/specs/workflows/delete-request-soft-delete-workflow.md`
+  - `docs/specs/workflows/governance-sla-timer-workflow.md`
+  - `docs/specs/workflows/admin-member-auth-boundary-workflow.md`
+  - `docs/specs/entities/audit-evidence-package-entity.md`
+  - `docs/specs/entities/change-ticket-entity.md`
+  - `docs/specs/entities/delete-request-entity.md`
+  - `docs/specs/entities/governance-sla-timer-entity.md`
+  - `docs/specs/entities/admin-user-entity.md`
+  - `docs/specs/modules/governance-control-foundation-module.md`
+  - `docs/specs/modules/rbac-member-management-module.md`
+  - `docs/acceptance/wave-1-foundation-final-acceptance.md`
 - `Wave 2` 与 `Wave 3` 的主体能力和最终收口已经完成。
 - 当前长期真相层是：
 1. `docs/constraints/**`

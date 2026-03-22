@@ -60,6 +60,13 @@ export class UsersService {
     return normalized;
   }
 
+  private activeUserWhere(where?: Record<string, unknown>) {
+    return {
+      ...(where || {}),
+      deletedAt: null,
+    };
+  }
+
   private isUniqueConstraintOn(error: unknown, fieldName: string): boolean {
     const maybe = error as {
       code?: string;
@@ -79,21 +86,27 @@ export class UsersService {
   }
 
   async findOne(email: string): Promise<UserRow | null> {
-    return this.prisma.user.findUnique({ where: { email } });
+    return this.prisma.user.findFirst({
+      where: this.activeUserWhere({
+        email: this.normalizeEmail(email),
+      }),
+    });
   }
 
   async findByIdentifier(identifier: string): Promise<UserRow | null> {
     const value = (identifier || '').trim();
     if (!value) return null;
     return this.prisma.user.findFirst({
-      where: {
+      where: this.activeUserWhere({
         OR: [{ email: value }, { userNo: value }],
-      },
+      }),
     });
   }
 
   async findById(id: string): Promise<UserRow | null> {
-    return this.prisma.user.findUnique({ where: { id } });
+    return this.prisma.user.findFirst({
+      where: this.activeUserWhere({ id }),
+    });
   }
 
   async createAdminUser(input: CreateAdminUserInput) {
@@ -251,7 +264,7 @@ export class UsersService {
       skip,
       take,
       cursor,
-      where,
+      where: this.activeUserWhere(where),
       orderBy,
       include: {
         userRoles: {

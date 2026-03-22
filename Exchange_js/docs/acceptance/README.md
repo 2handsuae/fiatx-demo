@@ -14,6 +14,8 @@ Source of Truth Level: acceptance
 - Do not move user/operator validation steps into workflow specs or module specs unless they are needed as semantic background only.
 
 ## Current Key Acceptance Docs
+- `docs/acceptance/wave-1-foundation-final-acceptance.md`
+  - Final acceptance conclusion for Wave 1 governance / audit foundation. This is the result-summary page, not a replacement for the detailed governance checklist or runtime runbook.
 - `docs/acceptance/wave-2-wave-3-final-acceptance-checklist.md`
   - Top-level final acceptance and operator runbook for Wave 2 case kernel and Wave 3 onboarding / periodic review runtime.
 - `docs/acceptance/onboarding-compliance-center-wave3-acceptance-checklist.md`

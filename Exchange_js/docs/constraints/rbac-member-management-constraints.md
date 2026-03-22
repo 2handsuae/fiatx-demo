@@ -33,6 +33,10 @@
 - MUST keep login gate:
 1. `INACTIVE` admin account login MUST be rejected with readable activation-required message
 2. `ACTIVE` transition happens only after invitation acceptance succeeds
+- MUST keep soft-delete gate for governed admin-user deletion:
+1. soft-deleted admin users MUST be excluded from platform member lists
+2. soft-deleted admin users MUST be rejected by admin login/session lookup
+3. invitation preview, resend, and acceptance MUST reject soft-deleted admin users
 
 ## 4) Seeded Role Admin Accounts (Base Config)
 - Base seed MUST preserve one fixed admin account per active RBAC role (10 total), including:

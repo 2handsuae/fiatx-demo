@@ -1,4 +1,5 @@
 import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
+import { AuditTriggerType } from '../../risk-engine/audit-logs/dto/audit-log.dto';
 import { PeriodicReviewService } from './periodic-review.service';
 
 describe('PeriodicReviewService', () => {
@@ -13,8 +14,17 @@ describe('PeriodicReviewService', () => {
       create: jest.fn(),
       update: jest.fn(),
     },
+    complianceSession: {
+      findFirst: jest.fn(),
+      updateMany: jest.fn(),
+      create: jest.fn(),
+    },
     cddResponse: {
       create: jest.fn(),
+      findUnique: jest.fn(),
+    },
+    eddResponse: {
+      findUnique: jest.fn(),
     },
     onboardingAuditLog: {
       create: jest.fn(),
@@ -34,10 +44,13 @@ describe('PeriodicReviewService', () => {
   const workflowTransitionServiceMock: any = {};
 
   let service: PeriodicReviewService;
+  let recordByActorSpy: jest.SpyInstance;
 
   beforeEach(() => {
     jest.clearAllMocks();
-    jest.spyOn(AuditLogsService.prototype, 'recordByActor').mockResolvedValue({} as any);
+    recordByActorSpy = jest
+      .spyOn(AuditLogsService.prototype, 'recordByActor')
+      .mockResolvedValue({} as any);
     prismaMock.$transaction.mockImplementation(async (callback: (tx: any) => unknown) =>
       callback(prismaMock),
     );
@@ -145,6 +158,47 @@ describe('PeriodicReviewService', () => {
       }),
     );
     expect(result.created).toBe(true);
+  });
+
+  it('should record periodic review session creation as DATA_CREATE audit', async () => {
+    prismaMock.customerMain.findUnique.mockResolvedValue({ id: 'c1', customerNo: 'CU0001' });
+    prismaMock.cddResponse.findUnique.mockResolvedValue({
+      id: 'case-1',
+      customerId: 'c1',
+      workflow: 'PERIODIC_REVIEW',
+      status: 'CREATED',
+      periodicReviewCycleId: 'cycle-1',
+      journeyId: 'PRR0001',
+    });
+    prismaMock.complianceSession.findFirst.mockResolvedValue(null);
+    prismaMock.complianceSession.updateMany.mockResolvedValue({ count: 0 });
+    prismaMock.complianceSession.create.mockResolvedValue({
+      id: 'ses-1',
+      providerSessionId: 'SES2602010001',
+      caseType: 'CDD',
+      caseId: 'case-1',
+      qrCodeUrl: 'mock://compliance/SES2602010001',
+      expiresAt: new Date('2026-03-02T00:00:00.000Z'),
+      status: 'PENDING',
+    });
+
+    const result = await service.createResponseSession('c1', 'c1', 'case-1', {
+      responseType: 'CDD',
+      provider: 'MOCK',
+    });
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        responseType: 'CDD',
+      }),
+    );
+    expect(recordByActorSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'CDD_PERIODIC_REVIEW_SESSION_CREATED',
+        triggerType: AuditTriggerType.DATA_CREATE,
+      }),
+      expect.anything(),
+    );
   });
 
   it('should abort the periodic review transaction when case creation fails', async () => {

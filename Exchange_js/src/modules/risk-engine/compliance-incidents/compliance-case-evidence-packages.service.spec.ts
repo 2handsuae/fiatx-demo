@@ -1,4 +1,4 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { ApprovalsService } from '../../governance/approvals/approvals.service';
 import {
   ApprovalActionTypes,
@@ -296,5 +296,61 @@ describe('ComplianceCaseEvidencePackagesService', () => {
         ],
       }),
     );
+  });
+
+  it('should exclude soft-deleted case evidence packages from list queries', async () => {
+    prismaMock.complianceCaseEvidencePackage.count.mockResolvedValue(1);
+    prismaMock.complianceCaseEvidencePackage.findMany.mockResolvedValue([
+      {
+        id: 'pkg-1',
+        packageNo: 'CEP2602010001',
+        status: AuditEvidencePackageStatus.READY,
+        approvalCase: null,
+      },
+    ]);
+
+    const result = await service.findEvidencePackages({ take: 10 } as any);
+
+    expect(prismaMock.complianceCaseEvidencePackage.count).toHaveBeenCalledWith({
+      where: {
+        deletedAt: null,
+      },
+    });
+    expect(prismaMock.complianceCaseEvidencePackage.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          deletedAt: null,
+        },
+      }),
+    );
+    expect(result.items).toHaveLength(1);
+  });
+
+  it('should hide soft-deleted case evidence packages from detail reads', async () => {
+    prismaMock.complianceCaseEvidencePackage.findFirst.mockResolvedValue({
+      id: 'pkg-1',
+      packageNo: 'CEP2602010001',
+      deletedAt: new Date('2026-03-22T10:00:00.000Z'),
+    });
+
+    await expect(service.findEvidencePackage('pkg-1')).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+  });
+
+  it('should return not found when download is requested for hidden package detail', async () => {
+    jest
+      .spyOn(service, 'findEvidencePackage')
+      .mockRejectedValue(new NotFoundException('Case evidence package not found: pkg-1'));
+
+    await expect(
+      service.downloadEvidencePackage('pkg-1', {
+        actorType: 'ADMIN',
+        userId: 'admin-1',
+        userNo: 'US0001',
+        role: 'MLRO',
+        roleCodes: ['MLRO'],
+      }),
+    ).rejects.toBeInstanceOf(NotFoundException);
   });
 });

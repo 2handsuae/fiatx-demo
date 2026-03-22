@@ -482,10 +482,13 @@ export class OnboardingService {
       workflow: ONBOARDING_WORKFLOW,
       journeyId: input.journeyId || customer?.activeJourneyId || null,
     });
+    const triggerType = String(input.action || '').trim().toUpperCase().endsWith('_CREATED')
+      ? AuditTriggerType.DATA_CREATE
+      : AuditTriggerType.DATA_UPDATE;
 
     await this.auditLogsService.recordByActor(
       {
-        triggerType: AuditTriggerType.STATE_TRANSITION,
+        triggerType,
         action: input.action,
         module: AuditModules.ONBOARDING,
         entityType: AuditEntityTypes.ONBOARDING,
@@ -2319,20 +2322,20 @@ export class OnboardingService {
       };
     });
 
-    const [alertDetail, incidentDetail] = await Promise.all([
+    const [alertDetail, caseDetail] = await Promise.all([
       this.riskDecisionOrchestratorService.findAlertDetail(txResult.alertId),
       this.complianceIncidentsService.findOne(txResult.incidentId),
     ]);
 
     return {
       alert: alertDetail,
-      incident: incidentDetail,
+      case: caseDetail,
       customer: null,
       eddResponse: null,
       transition: null,
       proposal: {
         workflowDecision: txResult.proposedWorkflowDecision,
-        finalDispositionCode: incidentDetail?.proposedFinalDispositionCode ?? null,
+        finalDispositionCode: caseDetail?.proposedFinalDispositionCode ?? null,
       },
     };
   }

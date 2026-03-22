@@ -14,8 +14,9 @@
 - Internal routing and foreign-key relations MAY continue to use `id`, but admin UI and default search MUST prioritize `requestNo` and `targetNo`.
 - Phase 3 target scope MUST be limited to:
 1. `CHANGE_TICKET`
-2. `APPROVAL_CASE`
-3. `AUDIT_EVIDENCE_PACKAGE`
+2. `AUDIT_EVIDENCE_PACKAGE`
+3. `COMPLIANCE_CASE_EVIDENCE_PACKAGE`
+4. `ADMIN_USER`
 - Soft delete fields MUST be standardized on target tables as:
 1. `deletedAt`
 2. `deletedBy`
@@ -55,9 +56,12 @@
 
 ## 5) Target Gate Rules
 - `CHANGE_TICKET` delete target MUST be `CLOSED` and not already deleted.
-- `APPROVAL_CASE` delete target MUST NOT be `PENDING` and not already deleted.
 - `AUDIT_EVIDENCE_PACKAGE` delete target MUST NOT be deleted already.
 - `AUDIT_EVIDENCE_PACKAGE` delete target MUST be blocked when its linked approval is `PENDING`.
+- `COMPLIANCE_CASE_EVIDENCE_PACKAGE` delete target MUST NOT be deleted already.
+- `COMPLIANCE_CASE_EVIDENCE_PACKAGE` delete target MUST be blocked when its linked approval is `PENDING`.
+- `ADMIN_USER` delete target MUST NOT be deleted already and MUST be resolved by `userNo`.
+- `APPROVAL_CASE` MUST NOT remain a supported delete target or compatibility alias.
 - Phase 3 MUST resolve targets by `targetNo` in the UI and create API.
 
 ## 6) Execution and Read Filtering
@@ -68,6 +72,8 @@
 1. `Approvals`
 2. `Change Tickets`
 3. `Evidence Export`
+4. `Case Evidence Export`
+5. `Platform Members / admin auth / admin invitation`
   MUST exclude rows with `deletedAt != null`.
 - Direct detail/download access to soft-deleted target rows MUST return `404`.
 - `Delete Request` list/detail MUST remain readable after target deletion.

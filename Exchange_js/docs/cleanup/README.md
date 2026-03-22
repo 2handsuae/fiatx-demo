@@ -20,6 +20,8 @@ Source of Truth Level: cleanup
 5. `docs/cleanup/wave-3-cleanup-master-plan.md` for historical Wave 3 stage context
 
 ## Current Cleanup Documents
+- Wave 1 master:
+  - `docs/cleanup/wave-1-governance-audit-cleanup-master-plan.md`
 - Wave 2 master:
   - `docs/cleanup/wave-2-cleanup-master-plan.md`
 - Wave 3 master:
@@ -37,6 +39,7 @@ Source of Truth Level: cleanup
   - `docs/cleanup/stage-8-frontend-bundling-optimization.md`
 
 ## Current Status
+- `Wave 1` governance / audit cleanup master 已重新启用，作为当前 active staged cleanup 入口。
 - `Wave 2` 与 `Wave 3` 的 cleanup 文档都已退为历史完成记录。
 - 当前长期真相不在 cleanup 层，而在：
   - `docs/constraints/**`

@@ -1,5 +1,6 @@
 import { BadRequestException, ConflictException } from '@nestjs/common';
 import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
+import { AuditTriggerType } from '../../risk-engine/audit-logs/dto/audit-log.dto';
 import { OnboardingFinalApprovalService } from './onboarding-final-approval.service';
 import {
   ApprovalActionTypes,
@@ -10,6 +11,7 @@ describe('OnboardingFinalApprovalService', () => {
   let prisma: any;
   let approvalsService: any;
   let service: OnboardingFinalApprovalService;
+  let recordByActorSpy: jest.SpyInstance;
 
   beforeEach(() => {
     prisma = {
@@ -30,7 +32,9 @@ describe('OnboardingFinalApprovalService', () => {
       $transaction: jest.fn(async (callback: (tx: any) => unknown) => callback(prisma)),
     };
 
-    jest.spyOn(AuditLogsService.prototype, 'recordByActor').mockResolvedValue({} as any);
+    recordByActorSpy = jest
+      .spyOn(AuditLogsService.prototype, 'recordByActor')
+      .mockResolvedValue({} as any);
 
     approvalsService = {
       createAndSubmit: jest.fn(),
@@ -109,6 +113,13 @@ describe('OnboardingFinalApprovalService', () => {
         role: 'COMPLIANCE_LEAD',
       }),
       'submit',
+    );
+    expect(recordByActorSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'FINAL_APPROVAL_SUBMITTED',
+        triggerType: AuditTriggerType.DATA_UPDATE,
+      }),
+      expect.anything(),
     );
     expect(result.approvalNo).toBe('APR2603180001');
   });

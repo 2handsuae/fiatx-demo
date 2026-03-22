@@ -1,19 +1,19 @@
-# Compliance Alert & Incident Constraints (`risk-engine/compliance-alerts` + `risk-engine/compliance-incidents`, Current Runtime Compatibility Layer)
+# Compliance Alert & Incident Constraints (`risk-engine/compliance-alerts` + `risk-engine/compliance-incidents`, Current Runtime Case Surface)
 
 ## 0) Positioning in Wave 2
 - This document defines CURRENT V1 runtime constraints for the existing alert + incident implementation.
 - Domain-semantic baseline for `Wave 2` MUST follow `docs/constraints/compliance-alert-case-foundation-constraints.md`.
-- In this file, `incident` means the current runtime implementation name that will later evolve into canonical compliance `Case`.
+- In this file, `incident` means the current internal implementation/storage name that now serves canonical compliance `Case`.
 - If a future change needs to choose between:
 1. domain naming
-2. current runtime compatibility
+2. current runtime implementation detail
   use:
 1. `compliance-alert-case-foundation-constraints.md` for domain semantics
-2. this file for current API / schema / UI compatibility
-- Phase 1 MUST NOT interpret this file as approval to keep `incident` as the long-term domain term.
+2. this file for current runtime implementation boundaries
+- External admin/customer contracts MUST use canonical `Case` semantics; this file MUST NOT be read as approval to keep `incident` as an active public contract term.
 
 ## 1) Scope and Ownership
-- MUST cover current compliance alert implementation plus the runtime compatibility layer that now exposes canonical compliance `Case`.
+- MUST cover current compliance alert implementation plus the active runtime case surface exposed as canonical compliance `Case`.
 - MUST apply to:
 1. backend modules `src/modules/risk-engine/compliance-alerts/**`
 2. backend modules `src/modules/risk-engine/compliance-incidents/**`

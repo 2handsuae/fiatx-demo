@@ -18,15 +18,26 @@ default_database_url() {
 
 read_database_url() {
   local root_dir="$1"
-  local scope="${2:-main}"
+  local scope="${2:-}"
   local db_url="${DATABASE_URL:-}"
 
-  if [[ -z "${db_url}" && -f "${root_dir}/.env" ]]; then
+  if [[ -n "${db_url}" ]]; then
+    echo "${db_url}"
+    return 0
+  fi
+
+  if [[ -n "${scope}" ]]; then
+    db_url="$(default_database_url "${scope}")"
+    echo "${db_url}"
+    return 0
+  fi
+
+  if [[ -f "${root_dir}/.env" ]]; then
     db_url="$(grep -E '^DATABASE_URL=' "${root_dir}/.env" | tail -n 1 | cut -d'=' -f2- | tr -d '"' || true)"
   fi
 
   if [[ -z "${db_url}" || "${db_url}" == "file:./dev.db" ]]; then
-    db_url="$(default_database_url "${scope}")"
+    db_url="$(default_database_url "main")"
   fi
 
   echo "${db_url}"

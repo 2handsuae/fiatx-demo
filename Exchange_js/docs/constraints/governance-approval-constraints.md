@@ -42,9 +42,11 @@
 
 ## 4) Action Type and SoD Baseline
 - Approval action types MUST remain limited to the active Wave 1 baseline:
-1. `SENSITIVE_EXPORT_APPROVAL`
-2. `CHANGE_TICKET_APPROVAL`
-3. `DELETE_REQUEST_APPROVAL`
+1. `AUDIT_EVIDENCE_EXPORT_APPROVAL`
+2. `CASE_EVIDENCE_EXPORT_APPROVAL`
+3. `CHANGE_TICKET_APPROVAL`
+4. `DELETE_REQUEST_APPROVAL`
+5. `ONBOARDING_FINAL_APPROVAL`
 - Maker-checker SoD MUST block the same non-super-admin user from acting as both maker and checker.
 - `SUPER_ADMIN` MAY bypass maker-checker SoD, but audit metadata MUST include `superAdminBypass=true`.
 - Duplicate pending approvals for the same `actionType + entityRef` MUST be blocked by engine rules.

@@ -117,7 +117,7 @@ export class SlaTimerMockService {
 
     const ticket = await this.changeTicketsService.create(
       {
-        changeType: ChangeTicketTypes.HOTFIX,
+        changeType: ChangeTicketTypes.GOVERNANCE_POLICY_CHANGE,
         scopeSummary: 'SLA mock emergency follow-up change ticket',
         testEvidenceRef: 'DEMO-TEST-EVIDENCE',
         rollbackPlanRef: 'DEMO-ROLLBACK-PLAN',

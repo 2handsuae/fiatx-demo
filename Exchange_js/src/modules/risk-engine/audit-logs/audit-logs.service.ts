@@ -1497,60 +1497,6 @@ export class AuditLogsService {
     };
   }
 
-  async exportEvidencePackage(
-    query: ExportEvidencePackageDto,
-    exporter: AuditActorContext,
-  ): Promise<EvidenceExportResult> {
-    const selection = await this.prepareEvidenceExportSelection(query);
-    const artifacts = await this.buildEvidencePackageArtifacts(query, exporter);
-
-    const evidencePackage = await this.createEvidencePackageRecord({
-      exportedByType: exporter.actorType,
-      exportedById: exporter.actorId,
-      exportedByRole: exporter.actorRole ?? null,
-      status: AuditEvidencePackageStatus.READY,
-      exportMode: query.mode || AuditEvidenceExportMode.SELECTION,
-      filterSnapshot: this.serializeJson(selection.filterSnapshot),
-      selectedEventIdsSnapshot: this.serializeJson(selection.selectedEventIds),
-      itemCount: artifacts.itemCount,
-      digest: artifacts.digest,
-      manifest: this.serializeJson(artifacts.manifest),
-      packageBody: this.serializeJson(artifacts.packageBody),
-    });
-
-    await this.recordByActor(
-      {
-        triggerType: AuditTriggerType.EVIDENCE_EXPORT,
-        action: AuditActions.AUDIT_EVIDENCE_PACKAGE_EXPORTED,
-        module: AuditModules.AUDIT_LOGS,
-        entityType: AuditEntityTypes.AUDIT_EVIDENCE_PACKAGE,
-        entityId: evidencePackage.id,
-        entityNo: evidencePackage.packageNo,
-        result: AuditResult.SUCCESS,
-        reason: `Exported ${artifacts.itemCount} audit logs`,
-        metadata: {
-          digest: artifacts.digest,
-          itemCount: artifacts.itemCount,
-          exportMode: query.mode || AuditEvidenceExportMode.SELECTION,
-        },
-        requestId: `EXPORT_${evidencePackage.packageNo}`,
-        sourcePlatform: 'ADMIN_API',
-      },
-      exporter,
-    );
-
-    return {
-      id: evidencePackage.id,
-      packageNo: evidencePackage.packageNo,
-      fileName: evidencePackage.fileName || `${evidencePackage.packageNo}.json`,
-      generatedAt: artifacts.generatedAt,
-      status: evidencePackage.status || AuditEvidencePackageStatus.READY,
-      itemCount: artifacts.itemCount,
-      digest: artifacts.digest,
-      manifest: artifacts.manifest,
-    };
-  }
-
   async markArchivedBefore(cutoff: Date, limit = 500) {
     const db = this.getDb() as any;
     if (!this.canOperateAuditLogEvent(db)) {

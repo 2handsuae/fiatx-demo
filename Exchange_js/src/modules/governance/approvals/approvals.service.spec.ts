@@ -12,7 +12,7 @@ const baseDate = new Date('2026-03-14T10:00:00.000Z');
 const buildApproval = (overrides: Record<string, unknown> = {}) => ({
   id: 'approval-1',
   approvalNo: 'APR2603140001',
-  actionType: ApprovalActionTypes.SENSITIVE_EXPORT_APPROVAL,
+  actionType: ApprovalActionTypes.AUDIT_EVIDENCE_EXPORT_APPROVAL,
   entityRef: 'pkg-1',
   makerUserId: 'maker-1',
   status: ApprovalStatuses.DRAFT,
@@ -53,6 +53,7 @@ const buildApproval = (overrides: Record<string, unknown> = {}) => ({
     },
   ],
   evidencePackage: null,
+  caseEvidencePackage: null,
   ...overrides,
 });
 
@@ -96,7 +97,7 @@ describe('ApprovalsService', () => {
 
     approvalPolicyService = {
       getPolicy: jest.fn().mockResolvedValue({
-        actionType: ApprovalActionTypes.SENSITIVE_EXPORT_APPROVAL,
+        actionType: ApprovalActionTypes.AUDIT_EVIDENCE_EXPORT_APPROVAL,
         riskLevel: 'HIGH',
         checkerRoles: ['DPO', 'MLRO'],
         timeoutHours: 24,
@@ -126,7 +127,7 @@ describe('ApprovalsService', () => {
 
     const result = await service.create(
       {
-        actionType: ApprovalActionTypes.SENSITIVE_EXPORT_APPROVAL,
+        actionType: ApprovalActionTypes.AUDIT_EVIDENCE_EXPORT_APPROVAL,
         entityRef: 'pkg-1',
       },
       actor,
@@ -142,7 +143,7 @@ describe('ApprovalsService', () => {
 
     const result = await service.create(
       {
-        actionType: ApprovalActionTypes.SENSITIVE_EXPORT_APPROVAL,
+        actionType: ApprovalActionTypes.AUDIT_EVIDENCE_EXPORT_APPROVAL,
         entityRef: 'pkg-1',
       },
       actor,
@@ -372,7 +373,7 @@ describe('ApprovalsService', () => {
 
     await expect(
       service.requireApproved({
-        actionType: ApprovalActionTypes.SENSITIVE_EXPORT_APPROVAL,
+        actionType: ApprovalActionTypes.AUDIT_EVIDENCE_EXPORT_APPROVAL,
         entityRef: 'pkg-1',
         approvalCaseId: 'approval-1',
         actor,

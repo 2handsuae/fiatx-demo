@@ -83,6 +83,9 @@ export class AdminInvitationsService {
   }
 
   private assertInvitationUsable(invitation: any, now: Date): void {
+    if (invitation.user?.deletedAt) {
+      throw new BadRequestException('Invitation link is no longer valid');
+    }
     if (invitation.revokedAt) {
       throw new BadRequestException('Invitation link is no longer valid');
     }
@@ -152,8 +155,11 @@ export class AdminInvitationsService {
     inviteExpiresAt: string;
     inviteStatus: 'PENDING';
   }> {
-    const user = await this.prisma.user.findUnique({
-      where: { id: options.userId },
+    const user = await this.prisma.user.findFirst({
+      where: {
+        id: options.userId,
+        deletedAt: null,
+      },
       select: { id: true, userNo: true, email: true, status: true },
     });
 
@@ -168,9 +174,9 @@ export class AdminInvitationsService {
     const issued = await this.prisma.$transaction(async (tx) => {
       const currentUser = await tx.user.findUnique({
         where: { id: user.id },
-        select: { status: true },
+        select: { status: true, deletedAt: true },
       });
-      if (!currentUser || currentUser.status !== 'INACTIVE') {
+      if (!currentUser || currentUser.deletedAt || currentUser.status !== 'INACTIVE') {
         throw new BadRequestException('Invitation can only be resent for INACTIVE users');
       }
 
@@ -274,6 +280,7 @@ export class AdminInvitationsService {
             userNo: true,
             email: true,
             status: true,
+            deletedAt: true,
           },
         },
       },
@@ -319,6 +326,7 @@ export class AdminInvitationsService {
                 email: true,
                 role: true,
                 status: true,
+                deletedAt: true,
               },
             },
           },

@@ -13,6 +13,8 @@
 - Controllers MUST only handle transport concerns (request/response/auth/validation).
 - Business logic MUST stay in services.
 - Direct DB access MUST stay in services via `PrismaService`.
+- Any new feature or workflow with durable state, operator-visible control action, or automatic blocking behavior MUST integrate canonical audit logging through `AuditLogsService`.
+- Missing canonical audit logging means the feature is not delivery-complete, even if its primary business path already works.
 
 ## 2) DTO and Validation
 - MUST use DTO classes with `class-validator` and `ValidationPipe`.

@@ -133,6 +133,51 @@ describe('ComplianceAlertsService', () => {
     expect(result.status).toBe(ComplianceAlertStatus.OPEN);
   });
 
+  it('should support periodic review rule codes in the alert registry', async () => {
+    const recordSystemSpy = jest.spyOn(AuditLogsService.prototype, 'recordSystem');
+    prismaMock.complianceAlert.findUnique.mockResolvedValue(null);
+    prismaMock.customerMain.findUnique.mockResolvedValue({ customerNo: 'CU0001' });
+    prismaMock.complianceAlert.create.mockResolvedValue(
+      buildAlert({
+        ruleCode: 'PRR_CDD_REVIEW_REQUIRED',
+        sourceModule: 'identity/periodic-review',
+        sourceType: 'PERIODIC_REVIEW_CYCLE',
+        sourceId: 'cycle-1',
+        sourceNo: 'PRR0001',
+        stage: 'REVIEW_CDD',
+        journeyId: null,
+        dedupeKey:
+          'PRR_CDD_REVIEW_REQUIRED:PERIODIC_REVIEW_CYCLE:cycle-1:REVIEW_CDD',
+        title: 'Periodic Review CDD Review Required',
+      }),
+    );
+
+    const result = await service.triggerSystemAlert({
+      ruleCode: 'PRR_CDD_REVIEW_REQUIRED',
+      sourceModule: 'identity/periodic-review',
+      sourceType: 'PERIODIC_REVIEW_CYCLE',
+      sourceId: 'cycle-1',
+      sourceNo: 'PRR0001',
+      stage: 'REVIEW_CDD',
+      ownerType: 'CUSTOMER',
+      ownerId: 'customer-1',
+      customerId: 'customer-1',
+      metadata: { status: 'REVIEW' },
+    });
+
+    expect(prismaMock.complianceAlert.create).toHaveBeenCalledTimes(1);
+    expect(recordSystemSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        traceId: 'PERIODIC_REVIEW:cycle-1',
+        workflowType: 'PERIODIC_REVIEW',
+        workflowId: 'cycle-1',
+        workflowNo: 'PRR0001',
+      }),
+      undefined,
+    );
+    expect(result.ruleCode).toBe('PRR_CDD_REVIEW_REQUIRED');
+  });
+
   it('should update hitCount when existing open alert is triggered again', async () => {
     prismaMock.complianceAlert.findUnique.mockResolvedValue({
       id: 'alert-1',

@@ -97,7 +97,7 @@ describe('AuditEvidenceExportApprovalService', () => {
     expect(result.status).toBe('PENDING_APPROVAL');
     expect(approvalsService.create).toHaveBeenCalledWith(
       expect.objectContaining({
-        actionType: 'SENSITIVE_EXPORT_APPROVAL',
+        actionType: 'AUDIT_EVIDENCE_EXPORT_APPROVAL',
         entityRef: 'pkg-1',
       }),
       actor,
@@ -135,7 +135,7 @@ describe('AuditEvidenceExportApprovalService', () => {
     await service.handleApprovedApproval({
       approvalId: 'approval-1',
       approvalNo: 'APR2603140001',
-      actionType: 'SENSITIVE_EXPORT_APPROVAL',
+      actionType: 'AUDIT_EVIDENCE_EXPORT_APPROVAL',
       entityRef: 'pkg-1',
       traceId: 'trace-1',
       status: 'APPROVED',
@@ -181,7 +181,7 @@ describe('AuditEvidenceExportApprovalService', () => {
     await service.handleApprovedApproval({
       approvalId: 'approval-1',
       approvalNo: 'APR2603140001',
-      actionType: 'SENSITIVE_EXPORT_APPROVAL',
+      actionType: 'AUDIT_EVIDENCE_EXPORT_APPROVAL',
       entityRef: 'pkg-1',
       traceId: 'trace-1',
       status: 'APPROVED',

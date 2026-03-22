@@ -35,19 +35,26 @@ ensure_port_free "${ADMIN_PORT}" "admin"
 ensure_port_free "${CLIENT_PORT}" "client"
 
 echo "[${STACK}] starting backend on ${BACKEND_PORT}"
-nohup bash -lc \
-  "cd \"${APP_DIR}\" && API_PORT=\"${BACKEND_PORT}\" ADMIN_URL=\"${ADMIN_URL}\" CLIENT_URL=\"${CLIENT_URL}\" DATABASE_URL=\"${DB_URL}\" GOVERNANCE_DEMO_ENABLED=\"${GOVERNANCE_DEMO_ENABLED:-true}\" npm run start" \
-  >"${BACKEND_LOG}" 2>&1 &
+nohup env \
+  API_PORT="${BACKEND_PORT}" \
+  ADMIN_URL="${ADMIN_URL}" \
+  CLIENT_URL="${CLIENT_URL}" \
+  DATABASE_URL="${DB_URL}" \
+  GOVERNANCE_DEMO_ENABLED="${GOVERNANCE_DEMO_ENABLED:-true}" \
+  bash -lc "cd \"${APP_DIR}\" && exec npm run start" \
+  >"${BACKEND_LOG}" 2>&1 </dev/null &
 
 echo "[${STACK}] starting admin on ${ADMIN_PORT}"
-nohup bash -lc \
-  "cd \"${APP_DIR}/admin-web\" && VITE_API_URL=\"${BACKEND_URL}\" npm run dev -- --port \"${ADMIN_PORT}\"" \
-  >"${ADMIN_LOG}" 2>&1 &
+nohup env \
+  VITE_API_URL="${BACKEND_URL}" \
+  bash -lc "cd \"${APP_DIR}/admin-web\" && exec npm run dev -- --port \"${ADMIN_PORT}\"" \
+  >"${ADMIN_LOG}" 2>&1 </dev/null &
 
 echo "[${STACK}] starting client on ${CLIENT_PORT}"
-nohup bash -lc \
-  "cd \"${APP_DIR}/client-web\" && VITE_API_URL=\"${BACKEND_URL}\" npm run dev -- --port \"${CLIENT_PORT}\"" \
-  >"${CLIENT_LOG}" 2>&1 &
+nohup env \
+  VITE_API_URL="${BACKEND_URL}" \
+  bash -lc "cd \"${APP_DIR}/client-web\" && exec npm run dev -- --port \"${CLIENT_PORT}\"" \
+  >"${CLIENT_LOG}" 2>&1 </dev/null &
 
 capture_listener_pid "backend" "${BACKEND_PORT}" "${BACKEND_PID_FILE}"
 capture_listener_pid "admin" "${ADMIN_PORT}" "${ADMIN_PID_FILE}"

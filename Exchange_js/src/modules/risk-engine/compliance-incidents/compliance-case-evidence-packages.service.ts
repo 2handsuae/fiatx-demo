@@ -573,7 +573,9 @@ export class ComplianceCaseEvidencePackagesService {
   async findEvidencePackages(query: ComplianceCaseEvidencePackageQueryDto) {
     const skip = this.normalizeSkip(query.skip);
     const take = this.normalizeTake(query.take);
-    const where: any = {};
+    const where: any = {
+      deletedAt: null,
+    };
     if (query.status) {
       where.status = query.status;
     }
@@ -615,8 +617,11 @@ export class ComplianceCaseEvidencePackagesService {
   }
 
   async findEvidencePackage(id: string) {
-    const found = await this.prisma.complianceCaseEvidencePackage.findUnique({
-      where: { id },
+    const found = await this.prisma.complianceCaseEvidencePackage.findFirst({
+      where: {
+        id,
+        deletedAt: null,
+      },
       include: {
         approvalCase: {
           select: {
@@ -636,7 +641,7 @@ export class ComplianceCaseEvidencePackagesService {
         },
       },
     });
-    if (!found) {
+    if (!found || found.deletedAt) {
       throw new NotFoundException(`Case evidence package not found: ${id}`);
     }
 
@@ -689,6 +694,7 @@ export class ComplianceCaseEvidencePackagesService {
 
     const evidencePackage = await this.prisma.complianceCaseEvidencePackage.findFirst({
       where: {
+        deletedAt: null,
         OR: [{ approvalCaseId: event.approvalId }, { id: event.entityRef }],
       },
     });
@@ -803,6 +809,7 @@ export class ComplianceCaseEvidencePackagesService {
 
     await this.prisma.complianceCaseEvidencePackage.updateMany({
       where: {
+        deletedAt: null,
         OR: [{ approvalCaseId: event.approvalId }, { id: event.entityRef }],
       },
       data: {
@@ -819,6 +826,7 @@ export class ComplianceCaseEvidencePackagesService {
 
     await this.prisma.complianceCaseEvidencePackage.updateMany({
       where: {
+        deletedAt: null,
         OR: [{ approvalCaseId: event.approvalId }, { id: event.entityRef }],
       },
       data: {
@@ -835,6 +843,7 @@ export class ComplianceCaseEvidencePackagesService {
 
     await this.prisma.complianceCaseEvidencePackage.updateMany({
       where: {
+        deletedAt: null,
         OR: [{ approvalCaseId: event.approvalId }, { id: event.entityRef }],
       },
       data: {
