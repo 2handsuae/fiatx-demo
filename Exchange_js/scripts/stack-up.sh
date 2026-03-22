@@ -14,11 +14,47 @@ fi
 
 load_stack_config "$1"
 
-require_commands node npm lsof sqlite3 git
+require_commands node npm lsof sqlite3 git python3
 assert_stack_paths
 assert_branch_rule
 
 mkdir -p "${RUNTIME_DIR}"
+
+launch_detached_service() {
+  local workdir="$1"
+  local logfile="$2"
+  local command_json="$3"
+  local env_json="$4"
+
+  python3 - "$workdir" "$logfile" "$command_json" "$env_json" <<'PY'
+import json
+import os
+import subprocess
+import sys
+
+workdir, logfile, command_json, env_json = sys.argv[1:]
+command = json.loads(command_json)
+extra_env = json.loads(env_json)
+
+env = os.environ.copy()
+for key, value in extra_env.items():
+    env[str(key)] = str(value)
+
+with open(logfile, "ab", buffering=0) as log:
+    proc = subprocess.Popen(
+        command,
+        cwd=workdir,
+        env=env,
+        stdin=subprocess.DEVNULL,
+        stdout=log,
+        stderr=log,
+        start_new_session=True,
+        close_fds=True,
+    )
+
+print(proc.pid)
+PY
+}
 
 ensure_env_files
 ensure_dependencies "backend" "${APP_DIR}"
@@ -34,20 +70,35 @@ ensure_port_free "${BACKEND_PORT}" "backend"
 ensure_port_free "${ADMIN_PORT}" "admin"
 ensure_port_free "${CLIENT_PORT}" "client"
 
+echo "[${STACK}] building backend runtime"
+(
+  cd "${APP_DIR}"
+  npm run build >/dev/null
+)
+
 echo "[${STACK}] starting backend on ${BACKEND_PORT}"
-nohup bash -lc \
-  "cd \"${APP_DIR}\" && API_PORT=\"${BACKEND_PORT}\" ADMIN_URL=\"${ADMIN_URL}\" CLIENT_URL=\"${CLIENT_URL}\" DATABASE_URL=\"${DB_URL}\" GOVERNANCE_DEMO_ENABLED=\"${GOVERNANCE_DEMO_ENABLED:-true}\" npm run start" \
-  >"${BACKEND_LOG}" 2>&1 &
+launch_detached_service \
+  "${APP_DIR}" \
+  "${BACKEND_LOG}" \
+  "[\"node\",\"dist/main\"]" \
+  "{\"API_PORT\":\"${BACKEND_PORT}\",\"ADMIN_URL\":\"${ADMIN_URL}\",\"CLIENT_URL\":\"${CLIENT_URL}\",\"DATABASE_URL\":\"${DB_URL}\",\"GOVERNANCE_DEMO_ENABLED\":\"${GOVERNANCE_DEMO_ENABLED:-true}\"}" \
+  >/dev/null
 
 echo "[${STACK}] starting admin on ${ADMIN_PORT}"
-nohup bash -lc \
-  "cd \"${APP_DIR}/admin-web\" && VITE_API_URL=\"${BACKEND_URL}\" npm run dev -- --port \"${ADMIN_PORT}\"" \
-  >"${ADMIN_LOG}" 2>&1 &
+launch_detached_service \
+  "${APP_DIR}/admin-web" \
+  "${ADMIN_LOG}" \
+  "[\"./node_modules/.bin/vite\",\"--host\",\"0.0.0.0\",\"--port\",\"${ADMIN_PORT}\"]" \
+  "{\"VITE_API_URL\":\"${BACKEND_URL}\"}" \
+  >/dev/null
 
 echo "[${STACK}] starting client on ${CLIENT_PORT}"
-nohup bash -lc \
-  "cd \"${APP_DIR}/client-web\" && VITE_API_URL=\"${BACKEND_URL}\" npm run dev -- --port \"${CLIENT_PORT}\"" \
-  >"${CLIENT_LOG}" 2>&1 &
+launch_detached_service \
+  "${APP_DIR}/client-web" \
+  "${CLIENT_LOG}" \
+  "[\"./node_modules/.bin/vite\",\"--host\",\"0.0.0.0\",\"--port\",\"${CLIENT_PORT}\"]" \
+  "{\"VITE_API_URL\":\"${BACKEND_URL}\"}" \
+  >/dev/null
 
 capture_listener_pid "backend" "${BACKEND_PORT}" "${BACKEND_PID_FILE}"
 capture_listener_pid "admin" "${ADMIN_PORT}" "${ADMIN_PID_FILE}"

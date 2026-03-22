@@ -40,8 +40,8 @@ stop_listener_if_managed "backend" "${BACKEND_PORT}"
 stop_listener_if_managed "admin" "${ADMIN_PORT}"
 stop_listener_if_managed "client" "${CLIENT_PORT}"
 
-cleanup_orphans_by_pattern "backend-orphan" "${APP_DIR}/node_modules/.bin/nest start --watch"
-cleanup_orphans_by_pattern "admin-orphan" "${APP_DIR}/admin-web/node_modules/.bin/vite --port ${ADMIN_PORT}"
-cleanup_orphans_by_pattern "client-orphan" "${APP_DIR}/client-web/node_modules/.bin/vite --port ${CLIENT_PORT}"
+cleanup_orphans_by_pattern "backend-orphan" "${APP_DIR}/dist/main"
+cleanup_orphans_by_pattern "admin-orphan" "${APP_DIR}/admin-web/node_modules/.bin/vite --host 0.0.0.0 --port ${ADMIN_PORT}"
+cleanup_orphans_by_pattern "client-orphan" "${APP_DIR}/client-web/node_modules/.bin/vite --host 0.0.0.0 --port ${CLIENT_PORT}"
 
 echo "[${STACK}] services stopped"
