@@ -16,6 +16,8 @@
 边界要求：
 - 业务模块不直接写 `audit_log_events`，统一经 `AuditLogsService.recordByActor()` / `recordSystem()`。
 - 旧审计表仅保留历史读取，不再承接新写入。
+- 每个新功能、每条新业务流程、每个关键状态迁移、每个自动阻断动作都 MUST 接入这条 canonical write path。
+- 没有接入 canonical audit logging 的功能不得视为完成态。
 
 ## 数据模型（`audit_log_events`、`audit_log_subject_nos`、`audit_evidence_packages`）
 Prisma 定义位于：`/Users/songshengwei/Documents/codex/projects/重做版/Exchange_js/prisma/schema.prisma`
@@ -103,9 +105,9 @@ Prisma 定义位于：`/Users/songshengwei/Documents/codex/projects/重做版/Ex
 8. 保留期：`toRetainedUntil()`（+8 年）
 9. 落库：`createEventWithUniqueNo()`（冲突重试 + 幂等复用）
 
-证据包链路在 `exportEvidencePackage()`：
+证据包链路在 `AuditEvidenceExportApprovalService.createExportRequest()`：
 - `POST /admin/audit-logs/export/evidence-package` 不再直接生成包体，而是先创建 `audit_evidence_packages` 申请记录
-- 同步创建 `approval_case`，动作类型固定为 `SENSITIVE_EXPORT_APPROVAL`
+- 同步创建 `approval_case`，动作类型固定为 `AUDIT_EVIDENCE_EXPORT_APPROVAL`
 - 审批通过事件触发后，再调用 `AuditLogsService.buildEvidencePackageArtifacts()` 生成最终 `manifest/packageBody/digest`
 - 成功后将 `audit_evidence_packages.status` 更新为 `READY`，失败则为 `FAILED`
 - 追加一条 `EVIDENCE_EXPORT` 审计事件，并通过 `ApprovalsService.markExecutionResult()` 回写审批执行态
@@ -178,7 +180,7 @@ DTO：`/Users/songshengwei/Documents/codex/projects/重做版/Exchange_js/src/mo
 1. `DRAFT -> PENDING -> APPROVED / REJECTED / EXPIRED / CANCELLED`
 2. 执行态：`NOT_EXECUTED / EXECUTED / EXECUTION_FAILED`
 - 默认策略：
-1. `SENSITIVE_EXPORT_APPROVAL`：`DPO/MLRO`
+1. `AUDIT_EVIDENCE_EXPORT_APPROVAL`：`DPO/MLRO`
 2. SoD：maker/checker 不能同人
 - 前端入口：
 1. `/dashboard/control-gates/approvals`

@@ -3,7 +3,9 @@
 ## 1. 验收总览
 
 ### 本轮覆盖范围
-- `Approval`：`SENSITIVE_EXPORT_APPROVAL`
+- `Approval`：
+  - `AUDIT_EVIDENCE_EXPORT_APPROVAL`
+  - `CASE_EVIDENCE_EXPORT_APPROVAL`
 - `Change Ticket`：`create -> submit -> approval -> gate -> deploy -> close`
 - `Delete Request`：`create -> submit -> approval -> execute -> soft delete`
 - `SLA Timer`：
@@ -17,7 +19,7 @@
 - Onboarding / CDD / EDD / Incident / Alert 的专项验收
 - 非 Governance 的 SLA 接入
 - 外发通知能力（邮件、短信、站内消息）
-- `Delete Request` 的批量删除、恢复删除、用户删除
+- `Delete Request` 的批量删除、恢复删除
 
 ### 当前 main 运行口径
 - 当前 `main` stack 默认端口是：
@@ -116,7 +118,7 @@ curl http://localhost:3000/api
 9. 退出登录，使用 `mlro@fiatx.com` 登录。
 10. 进入 `Control Gates Center -> Approvals`。
 11. 使用以下任一方式找到这张审批单：
-   - `Action Type = SENSITIVE_EXPORT_APPROVAL`
+   - `Action Type = AUDIT_EVIDENCE_EXPORT_APPROVAL`
    - `Approval No`
 12. 打开审批详情，确认：
    - `approvalNo` 已生成
@@ -177,7 +179,7 @@ curl http://localhost:3000/api
 2. 进入 `Control Gates Center -> Change Tickets`。
 3. 点击 `New Ticket`。
 4. 在 `Create Change Ticket` 页填写：
-   - `Change Type = SYSTEM`
+   - `Change Type = AUDIT_EVIDENCE_POLICY_CHANGE`
    - `Scope Summary = Demo change ticket for governance acceptance`
    - `Test Evidence Ref = TEST-EVIDENCE-001`
    - `Rollback Plan Ref = ROLLBACK-PLAN-001`
@@ -217,6 +219,74 @@ curl http://localhost:3000/api
   - `PENDING -> APPROVED`
 - Gate run：
   - `PENDING/RUNNING -> PASSED`
+
+## 6. Demo Path 3：Case Evidence Export
+
+### 目标
+验证 `Compliance Case -> Case Evidence Export -> Approval -> Download` 的审批化全链路，以及 `Approval Detail` 能直接跳转到 case evidence export。
+
+### 通过标准
+- `Action Type = CASE_EVIDENCE_EXPORT_APPROVAL`
+- 审批前不可下载，审批后可下载
+- `Approval Detail` 存在 case evidence export 追跳入口
+
+## 7. Demo Path 4：Delete Request（Case Evidence Export / Admin User）
+
+### 目标
+验证 delete request 只删除顶层对象，不再支持直接删除 approval，并覆盖：
+- `COMPLIANCE_CASE_EVIDENCE_PACKAGE`
+- `ADMIN_USER`
+
+### 通过标准
+- 创建页 target type 不再出现 `APPROVAL_CASE`
+- 执行后 case evidence export 正常从列表/详情/下载路径隐藏
+- 执行后已软删 admin user 无法登录、无法重发邀请、不会出现在平台成员列表
+- 执行后已软删 admin user 的 invitation preview / accept / role replace 同样被拒绝
+
+## 8. Demo Path 5：Canonical Type Regression
+
+### 目标
+验证 change ticket create 页和 delete request create 页仅暴露 canonical taxonomy。
+
+### 通过标准
+- Change Ticket 下拉项只包含：
+  - `ADMIN_ACCESS_CHANGE`
+  - `RBAC_CATALOG_CHANGE`
+  - `GOVERNANCE_POLICY_CHANGE`
+  - `COMPLIANCE_WORKFLOW_CHANGE`
+  - `CUSTOMER_LIFECYCLE_WORKFLOW_CHANGE`
+  - `AUDIT_EVIDENCE_POLICY_CHANGE`
+- Delete Request 下拉项只包含：
+  - `CHANGE_TICKET`
+  - `AUDIT_EVIDENCE_PACKAGE`
+  - `COMPLIANCE_CASE_EVIDENCE_PACKAGE`
+  - `ADMIN_USER`
+
+## 9. Demo Path 6：Wave 1 Foundation Smoke
+
+### 目标
+将 wave1 底座硬化验收固化为一条可重复执行的 smoke，覆盖 case-only contract、双 evidence export approval detail、case evidence delete 和 admin user soft delete 全链路。
+
+### 冒烟命令
+
+```bash
+API_BASE_URL=http://localhost:3000 npm run wave1:foundation:smoke
+```
+
+### 通过标准
+- onboarding case decision 响应只返回 `case`
+- periodic review case decision 响应只返回 `case`
+- audit export approval detail 返回 `evidencePackage`
+- case export approval detail 返回 `caseEvidencePackage`
+- delete request 删除 `COMPLIANCE_CASE_EVIDENCE_PACKAGE` 后：
+  - 列表隐藏
+  - 详情 `404`
+  - 下载 `404`
+- delete request 删除 `ADMIN_USER` 后：
+  - 平台成员列表隐藏
+  - 登录失败
+  - invitation preview / accept / resend 失败
+  - role replace 失败
 
 ### 预期审计事件
 - `CHANGE_TICKET_CREATED`

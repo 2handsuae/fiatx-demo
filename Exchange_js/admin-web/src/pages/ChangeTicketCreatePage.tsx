@@ -4,12 +4,12 @@ import { AlertCircle, ArrowLeft, Save } from 'lucide-react';
 import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/adminFetch';
 
 const CHANGE_TYPE_OPTIONS = [
-  'SYSTEM',
-  'SECURITY',
-  'ACCESS_CONTROL',
-  'CONFIG',
-  'HOTFIX',
-  'ACCOUNTING',
+  'ADMIN_ACCESS_CHANGE',
+  'RBAC_CATALOG_CHANGE',
+  'GOVERNANCE_POLICY_CHANGE',
+  'COMPLIANCE_WORKFLOW_CHANGE',
+  'CUSTOMER_LIFECYCLE_WORKFLOW_CHANGE',
+  'AUDIT_EVIDENCE_POLICY_CHANGE',
 ];
 
 const ChangeTicketCreatePage = () => {
@@ -17,7 +17,7 @@ const ChangeTicketCreatePage = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [formData, setFormData] = useState({
-    changeType: 'SYSTEM',
+    changeType: 'ADMIN_ACCESS_CHANGE',
     scopeSummary: '',
     testEvidenceRef: '',
     rollbackPlanRef: '',

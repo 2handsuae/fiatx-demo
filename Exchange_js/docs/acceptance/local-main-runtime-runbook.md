@@ -1,7 +1,7 @@
 # Main 本地运行与修复手册
 
 ## 1. 标准基线
-- 工作目录：`/Users/songshengwei/Documents/codex/projects/重做版/Exchange_js`
+- 工作目录：当前 worktree 的 `Exchange_js` 目录
 - 标准本地 stack：`main`
 - 默认端口：
   1. backend `3000`
@@ -24,6 +24,10 @@ npm run runtime:diagnose
 - `npm run dev:stop` 等价于 `npm run stack:down:main`
 - `npm run dev:reset` 只做业务数据重置，不删除整个 DB
 - `npm run dev:rebuild` 会重建本地 `main` DB
+- stack-managed 命令默认锁定 `main` DB：
+  - `/tmp/exchange_js_main/dev.db`
+  - 不应被当前 worktree `.env` 中的实验栈 `DATABASE_URL` 偷换
+  - 若需要临时诊断其他 DB，只能显式传入 `DATABASE_URL=...`
 
 ## 2. 推荐日常流程
 
@@ -131,13 +135,42 @@ DATABASE_URL="file:/tmp/exchange_js_audit_evidence/dev.db" npm run wave1:repair
 
 ## 7. Governance 冒烟命令
 
-服务启动后，可直接跑这两条：
+服务启动后，可直接跑这三条：
 
 ```bash
 API_BASE_URL=http://localhost:3000 npm run governance:demo:seed
 API_BASE_URL=http://localhost:3000 npm run sla:demo:smoke
+API_BASE_URL=http://localhost:3000 npm run wave1:foundation:smoke
 ```
 
 它们分别覆盖：
 - `Approval / Change Ticket / Delete Request` 主治理链
 - `SLA Timer + Audit Log` 冒烟链
+- `Wave 1` 基座硬化链：
+  - onboarding case decision 只返回 `case`
+  - periodic review case decision 只返回 `case`
+  - audit export / case export 的 approval detail 追跳
+  - delete request 删除 `COMPLIANCE_CASE_EVIDENCE_PACKAGE`
+  - delete request 删除 `ADMIN_USER`
+  - 已软删 admin user 的登录 / 邀请 / 角色绑定 / 列表过滤
+
+## 8. Wave 1 基座回归顺序
+
+推荐在 fresh DB 上按以下顺序执行：
+
+```bash
+npm run dev:rebuild
+npm run runtime:diagnose
+npm run dev:start
+API_BASE_URL=http://localhost:3000 npm run governance:demo:seed
+API_BASE_URL=http://localhost:3000 npm run sla:demo:smoke
+API_BASE_URL=http://localhost:3000 npm run wave1:foundation:smoke
+```
+
+通过标准：
+- `runtime:diagnose` 结果中 `migration.driftDetected = false`
+- `wave1:foundation:smoke` 成功输出：
+  - onboarding / periodic review 的 case 编号
+  - audit evidence package 编号
+  - 已删除 case evidence package 编号
+  - 已删除 admin user 编号

@@ -3796,7 +3796,7 @@ export class ComplianceIncidentsService {
         currentStatus === ComplianceIncidentStatus.ASSIGNED ||
         currentStatus === ComplianceIncidentStatus.INVESTIGATING
       ) {
-        if (!currentAssigneeUserId || currentAssigneeUserId !== actor.actorId) {
+        if (currentAssigneeUserId && currentAssigneeUserId !== actor.actorId) {
           throw new ForbiddenException(
             `Only assignee ${currentAssigneeUserId} can reassign this case`,
           );
@@ -3821,7 +3821,7 @@ export class ComplianceIncidentsService {
         currentStatus,
       )
     ) {
-      if (!currentAssigneeUserId || currentAssigneeUserId !== actor.actorId) {
+      if (currentAssigneeUserId && currentAssigneeUserId !== actor.actorId) {
         throw new ForbiddenException(
           `Only assignee ${currentAssigneeUserId} can execute action ${dto.action}`,
         );

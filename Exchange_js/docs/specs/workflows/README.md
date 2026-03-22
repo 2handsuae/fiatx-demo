@@ -23,6 +23,16 @@ Source of Truth Level: specs-workflow
 - API / UI projection notes
 
 ## Current Workflow Specs
+- `docs/specs/workflows/audit-evidence-export-approval-workflow.md`
+  - Wave 1 approval-backed audit evidence export workflow.
+- `docs/specs/workflows/change-ticket-release-gate-workflow.md`
+  - Wave 1 governance change ticket and release gate lifecycle.
+- `docs/specs/workflows/delete-request-soft-delete-workflow.md`
+  - Wave 1 governed soft-delete and execution workflow.
+- `docs/specs/workflows/governance-sla-timer-workflow.md`
+  - Wave 1 governance SLA timer and notification-registry lifecycle.
+- `docs/specs/workflows/admin-member-auth-boundary-workflow.md`
+  - Wave 1 admin member invitation, activation, and auth-boundary workflow.
 - `docs/specs/workflows/onboarding-canonical-workflow.md`
   - Canonical onboarding state machine and review/final-approval paths.
 - `docs/specs/workflows/periodic-review-canonical-workflow.md`

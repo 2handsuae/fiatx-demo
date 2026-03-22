@@ -28,6 +28,7 @@
     "db:biz:reset": "ts-node scripts/reset-business-data.ts",
     "runtime:diagnose": "bash scripts/runtime-diagnose.sh",
     "wave1:repair": "ts-node scripts/wave1-repair.ts",
+    "wave1:foundation:smoke": "ts-node scripts/wave1-foundation-smoke.ts",
     "governance:demo:seed": "ts-node scripts/governance-demo-seed.ts",
     "internal:collection:backfill:dry": "ts-node scripts/backfill-internal-collections.ts --dry-run",
     "internal:collection:backfill:apply": "ts-node scripts/backfill-internal-collections.ts",

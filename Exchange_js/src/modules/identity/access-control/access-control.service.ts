@@ -209,8 +209,11 @@ export class AccessControlService {
     }
     this.validateHardMutex(normalizedRoleCodes);
 
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
+    const user = await this.prisma.user.findFirst({
+      where: {
+        id: userId,
+        deletedAt: null,
+      },
       select: { id: true, userNo: true, email: true },
     });
     if (!user) {

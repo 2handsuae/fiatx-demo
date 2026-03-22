@@ -58,8 +58,9 @@ type DeleteRequestRow = {
 };
 
 type ChangeTicketTargetRow = Record<string, any>;
-type ApprovalCaseTargetRow = Record<string, any>;
 type AuditEvidencePackageTargetRow = Record<string, any>;
+type ComplianceCaseEvidencePackageTargetRow = Record<string, any>;
+type AdminUserTargetRow = Record<string, any>;
 
 export type ResolvedDeleteTarget =
   | {
@@ -70,19 +71,27 @@ export type ResolvedDeleteTarget =
       approvalNo: string | null;
     }
   | {
-      targetType: typeof DeleteRequestTargetTypes.APPROVAL_CASE;
-      targetId: string;
-      targetNo: string;
-      row: ApprovalCaseTargetRow;
-      approvalNo: string | null;
-    }
-  | {
       targetType: typeof DeleteRequestTargetTypes.AUDIT_EVIDENCE_PACKAGE;
       targetId: string;
       targetNo: string;
       row: AuditEvidencePackageTargetRow;
       approvalNo: string | null;
       approvalStatus: string | null;
+    }
+  | {
+      targetType: typeof DeleteRequestTargetTypes.COMPLIANCE_CASE_EVIDENCE_PACKAGE;
+      targetId: string;
+      targetNo: string;
+      row: ComplianceCaseEvidencePackageTargetRow;
+      approvalNo: string | null;
+      approvalStatus: string | null;
+    }
+  | {
+      targetType: typeof DeleteRequestTargetTypes.ADMIN_USER;
+      targetId: string;
+      targetNo: string;
+      row: AdminUserTargetRow;
+      approvalNo: null;
     };
 
 interface DeleteRequestProjectionResult {
@@ -362,17 +371,15 @@ export class DeleteRequestsService {
       };
     }
 
-    if (target.targetType === DeleteRequestTargetTypes.APPROVAL_CASE) {
+    if (target.targetType === DeleteRequestTargetTypes.ADMIN_USER) {
       return {
         targetType: target.targetType,
         targetId: target.row.id,
-        targetNo: target.row.approvalNo,
-        actionType: target.row.actionType,
-        entityRef: target.row.entityRef,
+        targetNo: target.row.userNo,
+        email: target.row.email,
         status: target.row.status,
-        executionStatus: target.row.executionStatus,
-        traceId: target.row.traceId,
-        decidedAt: target.row.decidedAt,
+        role: target.row.role,
+        roles: (target.row.userRoles || []).map((item: any) => item.role?.code).filter(Boolean),
         createdAt: target.row.createdAt,
         updatedAt: target.row.updatedAt,
       };
@@ -459,44 +466,6 @@ export class DeleteRequestsService {
       };
     }
 
-    if (normalizedTargetType === DeleteRequestTargetTypes.APPROVAL_CASE) {
-      const row = await this.prisma.approvalCase.findFirst({
-        where: {
-          approvalNo: normalizedTargetNo,
-          deletedAt: null,
-        },
-        select: {
-          id: true,
-          approvalNo: true,
-          actionType: true,
-          entityRef: true,
-          status: true,
-          executionStatus: true,
-          traceId: true,
-          decidedAt: true,
-          createdAt: true,
-          updatedAt: true,
-          deletedAt: true,
-          deletedBy: true,
-          deleteRequestId: true,
-          deleteReason: true,
-        },
-      });
-      if (!row) {
-        throw new NotFoundException(`Approval case not found: ${normalizedTargetNo}`);
-      }
-      if (row.status === ApprovalStatuses.PENDING) {
-        throw new BadRequestException('PENDING approval case cannot be deleted');
-      }
-      return {
-        targetType: DeleteRequestTargetTypes.APPROVAL_CASE,
-        targetId: row.id,
-        targetNo: row.approvalNo,
-        row,
-        approvalNo: row.approvalNo,
-      };
-    }
-
     if (normalizedTargetType === DeleteRequestTargetTypes.AUDIT_EVIDENCE_PACKAGE) {
       const row = await this.prisma.auditEvidencePackage.findFirst({
         where: {
@@ -540,6 +509,99 @@ export class DeleteRequestsService {
         row,
         approvalNo: row.approvalCase?.approvalNo || null,
         approvalStatus: row.approvalCase?.status || null,
+      };
+    }
+
+    if (
+      normalizedTargetType ===
+      DeleteRequestTargetTypes.COMPLIANCE_CASE_EVIDENCE_PACKAGE
+    ) {
+      const row = await this.prisma.complianceCaseEvidencePackage.findFirst({
+        where: {
+          packageNo: normalizedTargetNo,
+          deletedAt: null,
+        },
+        select: {
+          id: true,
+          packageNo: true,
+          approvalCaseId: true,
+          status: true,
+          exportMode: true,
+          itemCount: true,
+          digest: true,
+          createdAt: true,
+          updatedAt: true,
+          deletedAt: true,
+          deletedBy: true,
+          deleteRequestId: true,
+          deleteReason: true,
+          approvalCase: {
+            select: {
+              approvalNo: true,
+              status: true,
+            },
+          },
+        },
+      });
+      if (!row) {
+        throw new NotFoundException(
+          `Case evidence export package not found: ${normalizedTargetNo}`,
+        );
+      }
+      if (row.approvalCase?.status === ApprovalStatuses.PENDING) {
+        throw new BadRequestException(
+          'Case evidence export package with pending approval cannot be deleted',
+        );
+      }
+      return {
+        targetType: DeleteRequestTargetTypes.COMPLIANCE_CASE_EVIDENCE_PACKAGE,
+        targetId: row.id,
+        targetNo: row.packageNo,
+        row,
+        approvalNo: row.approvalCase?.approvalNo || null,
+        approvalStatus: row.approvalCase?.status || null,
+      };
+    }
+
+    if (normalizedTargetType === DeleteRequestTargetTypes.ADMIN_USER) {
+      const row = await this.prisma.user.findFirst({
+        where: {
+          userNo: normalizedTargetNo,
+          deletedAt: null,
+        },
+        select: {
+          id: true,
+          userNo: true,
+          email: true,
+          status: true,
+          role: true,
+          createdAt: true,
+          updatedAt: true,
+          deletedAt: true,
+          deletedBy: true,
+          deleteRequestId: true,
+          deleteReason: true,
+          userRoles: {
+            select: {
+              role: {
+                select: {
+                  code: true,
+                  name: true,
+                },
+              },
+            },
+          },
+        },
+      });
+      if (!row) {
+        throw new NotFoundException(`Admin user not found: ${normalizedTargetNo}`);
+      }
+      return {
+        targetType: DeleteRequestTargetTypes.ADMIN_USER,
+        targetId: row.id,
+        targetNo: row.userNo,
+        row,
+        approvalNo: null,
       };
     }
 
@@ -590,41 +652,6 @@ export class DeleteRequestsService {
       };
     }
 
-    if (normalizedTargetType === DeleteRequestTargetTypes.APPROVAL_CASE) {
-      const row = await this.prisma.approvalCase.findUnique({
-        where: { id: normalizedTargetId },
-        select: {
-          id: true,
-          approvalNo: true,
-          actionType: true,
-          entityRef: true,
-          status: true,
-          executionStatus: true,
-          traceId: true,
-          decidedAt: true,
-          createdAt: true,
-          updatedAt: true,
-          deletedAt: true,
-          deletedBy: true,
-          deleteRequestId: true,
-          deleteReason: true,
-        },
-      });
-      if (!row || row.deletedAt) {
-        throw new NotFoundException(`Approval case not found: ${normalizedTargetId}`);
-      }
-      if (row.status === ApprovalStatuses.PENDING) {
-        throw new BadRequestException('PENDING approval case cannot be deleted');
-      }
-      return {
-        targetType: DeleteRequestTargetTypes.APPROVAL_CASE,
-        targetId: row.id,
-        targetNo: row.approvalNo,
-        row,
-        approvalNo: row.approvalNo,
-      };
-    }
-
     if (normalizedTargetType === DeleteRequestTargetTypes.AUDIT_EVIDENCE_PACKAGE) {
       const row = await this.prisma.auditEvidencePackage.findUnique({
         where: { id: normalizedTargetId },
@@ -665,6 +692,93 @@ export class DeleteRequestsService {
         row,
         approvalNo: row.approvalCase?.approvalNo || null,
         approvalStatus: row.approvalCase?.status || null,
+      };
+    }
+
+    if (
+      normalizedTargetType ===
+      DeleteRequestTargetTypes.COMPLIANCE_CASE_EVIDENCE_PACKAGE
+    ) {
+      const row = await this.prisma.complianceCaseEvidencePackage.findUnique({
+        where: { id: normalizedTargetId },
+        select: {
+          id: true,
+          packageNo: true,
+          approvalCaseId: true,
+          status: true,
+          exportMode: true,
+          itemCount: true,
+          digest: true,
+          createdAt: true,
+          updatedAt: true,
+          deletedAt: true,
+          deletedBy: true,
+          deleteRequestId: true,
+          deleteReason: true,
+          approvalCase: {
+            select: {
+              approvalNo: true,
+              status: true,
+            },
+          },
+        },
+      });
+      if (!row || row.deletedAt) {
+        throw new NotFoundException(
+          `Case evidence export package not found: ${normalizedTargetId}`,
+        );
+      }
+      if (row.approvalCase?.status === ApprovalStatuses.PENDING) {
+        throw new BadRequestException(
+          'Case evidence export package with pending approval cannot be deleted',
+        );
+      }
+      return {
+        targetType: DeleteRequestTargetTypes.COMPLIANCE_CASE_EVIDENCE_PACKAGE,
+        targetId: row.id,
+        targetNo: row.packageNo,
+        row,
+        approvalNo: row.approvalCase?.approvalNo || null,
+        approvalStatus: row.approvalCase?.status || null,
+      };
+    }
+
+    if (normalizedTargetType === DeleteRequestTargetTypes.ADMIN_USER) {
+      const row = await this.prisma.user.findUnique({
+        where: { id: normalizedTargetId },
+        select: {
+          id: true,
+          userNo: true,
+          email: true,
+          status: true,
+          role: true,
+          createdAt: true,
+          updatedAt: true,
+          deletedAt: true,
+          deletedBy: true,
+          deleteRequestId: true,
+          deleteReason: true,
+          userRoles: {
+            select: {
+              role: {
+                select: {
+                  code: true,
+                  name: true,
+                },
+              },
+            },
+          },
+        },
+      });
+      if (!row || row.deletedAt) {
+        throw new NotFoundException(`Admin user not found: ${normalizedTargetId}`);
+      }
+      return {
+        targetType: DeleteRequestTargetTypes.ADMIN_USER,
+        targetId: row.id,
+        targetNo: row.userNo,
+        row,
+        approvalNo: null,
       };
     }
 
@@ -1013,8 +1127,23 @@ export class DeleteRequestsService {
               deleteReason: current.deleteReason,
             },
           });
-        } else if (target.targetType === DeleteRequestTargetTypes.APPROVAL_CASE) {
-          await tx.approvalCase.update({
+        } else if (
+          target.targetType === DeleteRequestTargetTypes.AUDIT_EVIDENCE_PACKAGE
+        ) {
+          await tx.auditEvidencePackage.update({
+            where: { id: target.targetId },
+            data: {
+              deletedAt: now,
+              deletedBy: actor.userId,
+              deleteRequestId: current.id,
+              deleteReason: current.deleteReason,
+            },
+          });
+        } else if (
+          target.targetType ===
+          DeleteRequestTargetTypes.COMPLIANCE_CASE_EVIDENCE_PACKAGE
+        ) {
+          await tx.complianceCaseEvidencePackage.update({
             where: { id: target.targetId },
             data: {
               deletedAt: now,
@@ -1024,13 +1153,24 @@ export class DeleteRequestsService {
             },
           });
         } else {
-          await tx.auditEvidencePackage.update({
+          await tx.user.update({
             where: { id: target.targetId },
             data: {
               deletedAt: now,
               deletedBy: actor.userId,
               deleteRequestId: current.id,
               deleteReason: current.deleteReason,
+            },
+          });
+
+          await tx.adminUserInvitation.updateMany({
+            where: {
+              userId: target.targetId,
+              consumedAt: null,
+              revokedAt: null,
+            },
+            data: {
+              revokedAt: now,
             },
           });
         }

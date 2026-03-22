@@ -77,7 +77,7 @@ V1 当前只支持 `SELECTION` 模式，即从 `Audit Log` 页面勾选若干事
 核心流程：
 
 1. `Audit Log` 页面按勾选事件创建 evidence export request。
-2. 系统同步创建 `approval_case`，动作类型固定为 `SENSITIVE_EXPORT_APPROVAL`。
+2. 系统同步创建 `approval_case`，动作类型固定为 `AUDIT_EVIDENCE_EXPORT_APPROVAL`。
 3. 审批通过前，`audit_evidence_packages.status = PENDING_APPROVAL`，不可下载。
 4. 审批通过后，系统按稳定顺序组装 `manifest/records/snapshots` 并计算最终 `digest`。
 5. 落库最终包体到 `audit_evidence_packages.packageBody`，状态推进为 `READY`。
@@ -86,8 +86,9 @@ V1 当前只支持 `SELECTION` 模式，即从 `Audit Log` 页面勾选若干事
 ## 5. 管理接口（写入）
 
 - `POST /admin/audit-logs`：管理员手工补录/追记关键事件。
-
-后续建议：业务模块关键路径统一调用 `AuditLogsService.recordByActor()`，逐步替换散落的各业务审计表写入逻辑，最终汇聚到统一审计中心。
+- 所有新功能、所有新业务流程、所有关键状态迁移、所有自动阻断动作 MUST 接入 `AuditLogsService.recordByActor()` 或 `recordSystem()`。
+- 缺少 canonical audit logging 的功能不得视为完成态。
+- 业务模块 MUST NOT 直接写 `audit_log_events`，也 MUST NOT 绕过统一审计中心保留新的 ad-hoc 写入路径。
 
 ## 6. 当前管理入口
 

@@ -10,8 +10,8 @@ import {
 } from '../utils/adminFetch';
 import { useAdminSession } from '../contexts/AdminSessionContext';
 
-type IncidentSeverity = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
-type IncidentStatus =
+type CaseSeverity = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+type CaseStatus =
   | 'OPEN'
   | 'ASSIGNED'
   | 'INVESTIGATING'
@@ -27,15 +27,15 @@ type FilingStatus =
   | 'CLOSED';
 type CaseType = 'ONBOARDING' | 'PERIODIC_REVIEW' | 'TRANSACTION' | 'GENERIC';
 
-interface IncidentItem {
+interface CaseItem {
   id: string;
   caseNo?: string;
   workflow?: string | null;
   stage?: string | null;
   rule?: string | null;
   caseType?: CaseType;
-  status: IncidentStatus;
-  severity: IncidentSeverity;
+  status: CaseStatus;
+  severity: CaseSeverity;
   title: string;
   primaryAlertNo?: string | null;
   customerNo?: string | null;
@@ -48,17 +48,17 @@ interface IncidentItem {
   lastActionAt?: string | null;
 }
 
-interface IncidentListResponse {
+interface CaseListResponse {
   total: number;
   skip: number;
   take: number;
-  items: IncidentItem[];
+  items: CaseItem[];
 }
 
 interface FilterState {
   caseNo: string;
-  status: '' | IncidentStatus;
-  severity: '' | IncidentSeverity;
+  status: '' | CaseStatus;
+  severity: '' | CaseSeverity;
   customerNo: string;
   assigneeUserId: string;
   alertNo: string;
@@ -79,7 +79,7 @@ const DEFAULT_FILTERS: FilterState = {
   overdueOnly: false,
 };
 
-const CLOSED_STATUSES: IncidentStatus[] = ['CLOSED'];
+const CLOSED_STATUSES: CaseStatus[] = ['CLOSED'];
 
 const formatDateTime = (value?: string | null): string => {
   if (!value) return '-';
@@ -88,14 +88,14 @@ const formatDateTime = (value?: string | null): string => {
   return date.toLocaleString();
 };
 
-const getSeverityClass = (severity: IncidentSeverity) => {
+const getSeverityClass = (severity: CaseSeverity) => {
   if (severity === 'CRITICAL') return 'bg-red-100 text-red-800';
   if (severity === 'HIGH') return 'bg-orange-100 text-orange-800';
   if (severity === 'MEDIUM') return 'bg-yellow-100 text-yellow-800';
   return 'bg-gray-100 text-gray-700';
 };
 
-const getStatusClass = (status: IncidentStatus) => {
+const getStatusClass = (status: CaseStatus) => {
   if (status === 'OPEN') return 'bg-blue-100 text-blue-800';
   if (status === 'ASSIGNED') return 'bg-indigo-100 text-indigo-800';
   if (status === 'INVESTIGATING') return 'bg-sky-100 text-sky-800';
@@ -131,15 +131,15 @@ const normalizeFilingStatus = (value?: string | null): FilingStatus => {
   return 'NOT_REQUIRED';
 };
 
-const isOverdue = (item: IncidentItem) =>
+const isOverdue = (item: CaseItem) =>
   !CLOSED_STATUSES.includes(item.status) && new Date(item.dueAt).getTime() < Date.now();
 
-const ComplianceIncidentsPage = () => {
+const ComplianceCasesPage = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { hasPermission } = useAdminSession();
   const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
-  const [items, setItems] = useState<IncidentItem[]>([]);
+  const [items, setItems] = useState<CaseItem[]>([]);
   const [total, setTotal] = useState(0);
   const [currentPage, setCurrentPage] = useState(1);
   const [loading, setLoading] = useState(false);
@@ -161,7 +161,7 @@ const ComplianceIncidentsPage = () => {
     [filters],
   );
 
-  const fetchIncidents = async (
+  const fetchCases = async (
     targetPage: number,
     activeFilters: FilterState = filters,
   ) => {
@@ -186,7 +186,7 @@ const ComplianceIncidentsPage = () => {
       if (!response.ok) {
         throw new Error(await getApiErrorMessage(response, 'Failed to load cases.'));
       }
-      const data = (await response.json()) as IncidentListResponse;
+      const data = (await response.json()) as CaseListResponse;
       setItems(Array.isArray(data.items) ? data.items : []);
       setTotal(typeof data.total === 'number' ? data.total : 0);
       setCurrentPage(targetPage);
@@ -199,12 +199,12 @@ const ComplianceIncidentsPage = () => {
   };
 
   useEffect(() => {
-    void fetchIncidents(1);
+    void fetchCases(1);
   }, []);
 
   const resetFilters = async () => {
     setFilters(DEFAULT_FILTERS);
-    await fetchIncidents(1, DEFAULT_FILTERS);
+    await fetchCases(1, DEFAULT_FILTERS);
   };
 
   const openDetail = (id: string) => {
@@ -234,7 +234,7 @@ const ComplianceIncidentsPage = () => {
             </button>
           ) : null}
           <button
-            onClick={() => void fetchIncidents(currentPage)}
+            onClick={() => void fetchCases(currentPage)}
             className="p-2 text-gray-500 hover:text-brand-primary disabled:opacity-60"
             title="Refresh"
             disabled={loading}
@@ -322,7 +322,7 @@ const ComplianceIncidentsPage = () => {
         </div>
         <div className="flex items-center gap-2">
           <button
-            onClick={() => void fetchIncidents(1)}
+            onClick={() => void fetchCases(1)}
             className="inline-flex items-center gap-2 px-3 py-2 rounded bg-brand-primary text-white text-sm hover:opacity-90"
             disabled={loading}
           >
@@ -447,11 +447,11 @@ const ComplianceIncidentsPage = () => {
           currentPage={currentPage}
           totalItems={total}
           pageSize={PAGE_SIZE}
-          onPageChange={(page) => void fetchIncidents(page)}
+          onPageChange={(page) => void fetchCases(page)}
         />
       </div>
     </div>
   );
 };
 
-export default ComplianceIncidentsPage;
+export default ComplianceCasesPage;

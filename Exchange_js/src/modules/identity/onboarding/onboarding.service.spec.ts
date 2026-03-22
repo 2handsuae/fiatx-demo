@@ -4,6 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
+import { AuditTriggerType } from '../../risk-engine/audit-logs/dto/audit-log.dto';
 import { OnboardingService } from './onboarding.service';
 import { WORKFLOW_TRANSITION_CODES } from './onboarding-workflow-transition.service';
 
@@ -101,10 +102,13 @@ describe('OnboardingService', () => {
   };
 
   let service: OnboardingService;
+  let recordByActorSpy: jest.SpyInstance;
 
   beforeEach(() => {
     jest.clearAllMocks();
-    jest.spyOn(AuditLogsService.prototype, 'recordByActor').mockResolvedValue({} as any);
+    recordByActorSpy = jest
+      .spyOn(AuditLogsService.prototype, 'recordByActor')
+      .mockResolvedValue({} as any);
     prismaMock.$transaction.mockImplementation(async (callback: any) => callback(prismaMock));
     prismaMock.complianceAlertDispositionRecord.create.mockResolvedValue({
       id: 'alert-disp-1',
@@ -636,6 +640,13 @@ describe('OnboardingService', () => {
       expect.objectContaining({
         responseType: 'CDD',
       }),
+    );
+    expect(recordByActorSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'CDD_SESSION_CREATED',
+        triggerType: AuditTriggerType.DATA_CREATE,
+      }),
+      expect.anything(),
     );
   });
 

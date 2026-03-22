@@ -247,9 +247,8 @@ interface UserListItem {
   roles?: string[];
 }
 
-interface OnboardingIncidentDecisionResponse {
-  case?: IncidentDetail;
-  incident: IncidentDetail;
+interface OnboardingCaseDecisionResponse {
+  case: IncidentDetail;
 }
 
 const EMPTY_REPORT_DRAFT: ReportDraftState = {
@@ -826,8 +825,8 @@ const ComplianceCaseDetailPage = () => {
           ),
         );
       }
-      const data = (await response.json()) as OnboardingIncidentDecisionResponse;
-      setDetail(data.case || data.incident);
+      const data = (await response.json()) as OnboardingCaseDecisionResponse;
+      setDetail(data.case);
       setMessage(
         `${isPeriodicReview ? 'Periodic review' : 'Onboarding'} workflow proposal recorded. Final disposition will only take effect after MLRO approval.`,
       );

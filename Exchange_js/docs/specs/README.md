@@ -22,6 +22,11 @@ Source of Truth Level: specs
 
 ## Current Key Specs
 - Workflow specs:
+  - `docs/specs/workflows/audit-evidence-export-approval-workflow.md`
+  - `docs/specs/workflows/change-ticket-release-gate-workflow.md`
+  - `docs/specs/workflows/delete-request-soft-delete-workflow.md`
+  - `docs/specs/workflows/governance-sla-timer-workflow.md`
+  - `docs/specs/workflows/admin-member-auth-boundary-workflow.md`
   - `docs/specs/workflows/onboarding-canonical-workflow.md`
   - `docs/specs/workflows/periodic-review-canonical-workflow.md`
   - `docs/specs/workflows/alert-triage-and-case-escalation.md`
@@ -29,6 +34,11 @@ Source of Truth Level: specs
   - `docs/specs/workflows/case-final-lifecycle-and-external-filing.md`
   - `docs/specs/workflows/onboarding-periodic-review-audit-trace-contract.md`
 - Entity specs:
+  - `docs/specs/entities/audit-evidence-package-entity.md`
+  - `docs/specs/entities/change-ticket-entity.md`
+  - `docs/specs/entities/delete-request-entity.md`
+  - `docs/specs/entities/governance-sla-timer-entity.md`
+  - `docs/specs/entities/admin-user-entity.md`
   - `docs/specs/entities/compliance-alert-entity.md`
   - `docs/specs/entities/compliance-case-entity.md`
   - `docs/specs/entities/compliance-case-report-entity.md`
@@ -39,6 +49,8 @@ Source of Truth Level: specs
   - `docs/specs/entities/approval-case-entity.md`
   - `docs/specs/entities/risk-decision-record-entity.md`
 - Module specs:
+  - `docs/specs/modules/governance-control-foundation-module.md`
+  - `docs/specs/modules/rbac-member-management-module.md`
   - `docs/specs/modules/compliance-center-module.md`
   - `docs/specs/modules/risk-engine-module.md`
   - `docs/specs/modules/customer-onboarding-module.md`

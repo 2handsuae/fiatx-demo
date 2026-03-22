@@ -727,6 +727,65 @@ describe('ComplianceIncidentsService', () => {
     );
   });
 
+  it('should allow repair assignment when case is ASSIGNED but assignee is missing', async () => {
+    prismaMock.complianceIncident.findUnique.mockResolvedValue(
+      buildIncident({
+        status: ComplianceIncidentStatus.ASSIGNED,
+        ownerUserId: null,
+        ownerUserNo: null,
+      }),
+    );
+    prismaMock.user.findUnique.mockResolvedValue({
+      userNo: 'US0002',
+      role: 'MLRO',
+      status: 'ACTIVE',
+      userRoles: [{ role: { code: 'MLRO' } }],
+    });
+    prismaMock.complianceIncident.update.mockResolvedValue(
+      buildIncident({
+        status: ComplianceIncidentStatus.ASSIGNED,
+        ownerUserId: 'admin-2',
+        ownerUserNo: 'US0002',
+      }),
+    );
+    prismaMock.complianceIncidentEvent.create.mockResolvedValue({ id: 'evt-1' });
+
+    jest.spyOn(service, 'findOne').mockResolvedValue({
+      id: 'inc-1',
+      status: ComplianceIncidentStatus.ASSIGNED,
+      ownerUserId: 'admin-2',
+      ownerUserNo: 'US0002',
+      assigneeUserId: 'admin-2',
+      assigneeUserNo: 'US0002',
+      alerts: [],
+      events: [],
+    } as any);
+
+    const result = await service.applyAction(
+      'inc-1',
+      {
+        action: ComplianceIncidentAction.ASSIGN,
+        assigneeUserId: 'admin-2',
+      },
+      {
+        actorType: 'ADMIN',
+        actorId: 'admin-9',
+        actorNo: 'US0009',
+        actorRole: 'SUPER_ADMIN',
+      },
+    );
+
+    expect(result.status).toBe(ComplianceIncidentStatus.ASSIGNED);
+    expect(prismaMock.complianceIncident.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          ownerUserId: 'admin-2',
+          ownerUserNo: 'US0002',
+        }),
+      }),
+    );
+  });
+
   it('should reject CLOSE even before assignee ownership checks in Phase 12', async () => {
     prismaMock.complianceIncident.findUnique.mockResolvedValue(
       buildIncident({

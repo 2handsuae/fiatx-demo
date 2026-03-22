@@ -54,6 +54,11 @@ type ApprovalCaseRow = {
     packageNo: string;
     status: string;
   } | null;
+  caseEvidencePackage: {
+    id: string;
+    packageNo: string;
+    status: string;
+  } | null;
 };
 
 interface ApprovalRequirementInput {
@@ -322,6 +327,13 @@ export class ApprovalsService {
             status: true,
           },
         },
+        caseEvidencePackage: {
+          select: {
+            id: true,
+            packageNo: true,
+            status: true,
+          },
+        },
       },
     });
 
@@ -351,6 +363,13 @@ export class ApprovalsService {
         orderBy: { stepNo: 'asc' as const },
       },
       evidencePackage: {
+        select: {
+          id: true,
+          packageNo: true,
+          status: true,
+        },
+      },
+      caseEvidencePackage: {
         select: {
           id: true,
           packageNo: true,
@@ -450,6 +469,7 @@ export class ApprovalsService {
           }
         : null,
       evidencePackage: approval.evidencePackage,
+      caseEvidencePackage: approval.caseEvidencePackage,
       availableDecisionRoles,
       canApprove: canDecide,
       canReject: canDecide,
@@ -740,18 +760,7 @@ export class ApprovalsService {
           decisionReason: this.normalizeOptionalString(dto.reason),
           decidedAt: now,
         },
-        include: {
-          steps: {
-            orderBy: { stepNo: 'asc' },
-          },
-          evidencePackage: {
-            select: {
-              id: true,
-              packageNo: true,
-              status: true,
-            },
-          },
-        },
+        include: this.approvalInclude(),
       });
 
       return next as ApprovalCaseRow;
@@ -812,18 +821,7 @@ export class ApprovalsService {
           decisionReason: this.normalizeOptionalString(dto.reason),
           decidedAt: now,
         },
-        include: {
-          steps: {
-            orderBy: { stepNo: 'asc' },
-          },
-          evidencePackage: {
-            select: {
-              id: true,
-              packageNo: true,
-              status: true,
-            },
-          },
-        },
+        include: this.approvalInclude(),
       });
 
       return next as ApprovalCaseRow;
@@ -892,18 +890,7 @@ export class ApprovalsService {
           decisionReason: this.normalizeOptionalString(dto.reason),
           decidedAt: now,
         },
-        include: {
-          steps: {
-            orderBy: { stepNo: 'asc' },
-          },
-          evidencePackage: {
-            select: {
-              id: true,
-              packageNo: true,
-              status: true,
-            },
-          },
-        },
+        include: this.approvalInclude(),
       });
 
       return next as ApprovalCaseRow;
@@ -948,18 +935,7 @@ export class ApprovalsService {
             : ApprovalExecutionStatuses.EXECUTION_FAILED,
           executedAt: new Date(),
         },
-        include: {
-          steps: {
-            orderBy: { stepNo: 'asc' },
-          },
-          evidencePackage: {
-            select: {
-              id: true,
-              packageNo: true,
-              status: true,
-            },
-          },
-        },
+        include: this.approvalInclude(),
       });
 
       return next as ApprovalCaseRow;
@@ -988,18 +964,7 @@ export class ApprovalsService {
             entityRef: input.entityRef,
             deletedAt: null,
           },
-          include: {
-            steps: {
-              orderBy: { stepNo: 'asc' },
-            },
-            evidencePackage: {
-              select: {
-                id: true,
-                packageNo: true,
-                status: true,
-              },
-            },
-          },
+          include: this.approvalInclude(),
           orderBy: { createdAt: 'desc' },
         })) as ApprovalCaseRow | null);
 
@@ -1075,18 +1040,7 @@ export class ApprovalsService {
         where,
         skip,
         take,
-        include: {
-          steps: {
-            orderBy: { stepNo: 'asc' },
-          },
-          evidencePackage: {
-            select: {
-              id: true,
-              packageNo: true,
-              status: true,
-            },
-          },
-        },
+        include: this.approvalInclude(),
         orderBy: [{ createdAt: 'desc' }],
       }),
     ]);
@@ -1128,18 +1082,7 @@ export class ApprovalsService {
           decisionReason: 'Approval expired after timeout',
           decidedAt,
         },
-        include: {
-          steps: {
-            orderBy: { stepNo: 'asc' },
-          },
-          evidencePackage: {
-            select: {
-              id: true,
-              packageNo: true,
-              status: true,
-            },
-          },
-        },
+        include: this.approvalInclude(),
       });
 
       return next as ApprovalCaseRow;

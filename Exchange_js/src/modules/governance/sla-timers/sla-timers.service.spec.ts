@@ -113,7 +113,7 @@ describe('SlaTimersService', () => {
     prisma.approvalCase.findUnique.mockResolvedValue({
       id: 'approval-1',
       approvalNo: 'APR2603140001',
-      actionType: ApprovalActionTypes.SENSITIVE_EXPORT_APPROVAL,
+      actionType: ApprovalActionTypes.AUDIT_EVIDENCE_EXPORT_APPROVAL,
       entityRef: 'pkg-1',
       makerUserId: 'maker-1',
       status: ApprovalStatuses.PENDING,

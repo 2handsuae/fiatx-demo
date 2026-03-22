@@ -291,10 +291,13 @@ export class PeriodicReviewService {
       workflowId: input.workflowId,
       workflowNo: input.workflowNo,
     });
+    const triggerType = String(input.action || '').trim().toUpperCase().endsWith('_CREATED')
+      ? AuditTriggerType.DATA_CREATE
+      : AuditTriggerType.DATA_UPDATE;
 
     await this.auditLogsService.recordByActor(
       {
-        triggerType: AuditTriggerType.STATE_TRANSITION,
+        triggerType,
         action: input.action,
         module: AuditModules.ONBOARDING,
         entityType: AuditEntityTypes.ONBOARDING,
@@ -1562,19 +1565,19 @@ export class PeriodicReviewService {
       };
     });
 
-    const [alertDetail, incidentDetail] = await Promise.all([
+    const [alertDetail, caseDetail] = await Promise.all([
       this.complianceAlertsService.findOne(result.alertId),
       this.complianceIncidentsService.findOne(incidentId),
     ]);
 
     return {
       alert: alertDetail,
-      incident: incidentDetail,
+      case: caseDetail,
       customer: null,
       transition: null,
       proposal: {
         workflowDecision: result.proposedWorkflowDecision,
-        finalDispositionCode: incidentDetail?.proposedFinalDispositionCode ?? null,
+        finalDispositionCode: caseDetail?.proposedFinalDispositionCode ?? null,
       },
     };
   }

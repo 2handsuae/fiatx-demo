@@ -17,11 +17,16 @@ model User {
   failedLoginAttempts Int       @default(0)
   lockedUntil         DateTime?
   lastLoginAt         DateTime?
+  deletedAt           DateTime?
+  deletedBy           String?
+  deleteRequestId     String?
+  deleteReason        String?
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
   userRoles           UserRole[]
   adminInvitations    AdminUserInvitation[]
 
+  @@index([deletedAt])
   @@map("users")
 }
 
@@ -646,6 +651,10 @@ model ComplianceCaseEvidencePackage {
   digest                 String
   manifest               String
   packageBody            String?
+  deletedAt              DateTime?
+  deletedBy              String?
+  deleteRequestId        String?
+  deleteReason           String?
   createdAt              DateTime @default(now())
   updatedAt              DateTime @updatedAt
   approvalCase           ApprovalCase? @relation("ComplianceCaseEvidencePackageApprovalCase", fields: [approvalCaseId], references: [id], onDelete: SetNull)
@@ -654,6 +663,7 @@ model ComplianceCaseEvidencePackage {
   @@index([exportedByType, exportedById])
   @@index([status, createdAt])
   @@index([approvalCaseId])
+  @@index([deletedAt])
   @@map("compliance_case_evidence_packages")
 }
 

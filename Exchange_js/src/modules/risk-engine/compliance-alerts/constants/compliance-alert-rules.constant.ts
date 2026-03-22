@@ -63,6 +63,20 @@ export const COMPLIANCE_ALERT_RULES: Record<string, ComplianceAlertRuleDefinitio
     title: 'Onboarding EDD Review Required',
     defaultMessage: 'EDD review requires compliance handling.',
   },
+  PRR_CDD_REVIEW_REQUIRED: {
+    ruleCode: 'PRR_CDD_REVIEW_REQUIRED',
+    severity: ComplianceAlertSeverity.HIGH,
+    capCode: 'CAP-004',
+    title: 'Periodic Review CDD Review Required',
+    defaultMessage: 'Periodic review CDD requires compliance handling.',
+  },
+  PRR_EDD_REVIEW_REQUIRED: {
+    ruleCode: 'PRR_EDD_REVIEW_REQUIRED',
+    capCode: 'CAP-006',
+    severity: ComplianceAlertSeverity.HIGH,
+    title: 'Periodic Review EDD Review Required',
+    defaultMessage: 'Periodic review EDD requires compliance handling.',
+  },
   ONB_ONBOARDING_JOURNEY_REVIEW: {
     ruleCode: 'ONB_ONBOARDING_JOURNEY_REVIEW',
     capCode: 'CAP-004',

@@ -3,7 +3,12 @@ import { useNavigate } from 'react-router-dom';
 import { AlertCircle, ArrowLeft, Save } from 'lucide-react';
 import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/adminFetch';
 
-const TARGET_TYPE_OPTIONS = ['CHANGE_TICKET', 'APPROVAL_CASE', 'AUDIT_EVIDENCE_PACKAGE'];
+const TARGET_TYPE_OPTIONS = [
+  'CHANGE_TICKET',
+  'AUDIT_EVIDENCE_PACKAGE',
+  'COMPLIANCE_CASE_EVIDENCE_PACKAGE',
+  'ADMIN_USER',
+];
 
 const DeleteRequestCreatePage = () => {
   const navigate = useNavigate();
@@ -107,7 +112,7 @@ const DeleteRequestCreatePage = () => {
                 value={formData.targetNo}
                 onChange={(e) => setFormData((prev) => ({ ...prev, targetNo: e.target.value }))}
                 className="w-full rounded-lg border border-admin-border px-3 py-2 focus:border-brand-primary focus:outline-none focus:ring-1 focus:ring-brand-primary/20"
-                placeholder="e.g. CT2603140001 / APR2603140001 / EVP2603140001"
+                placeholder="e.g. CT2603140001 / EVP2603140001 / CEP2603140001 / ADM2603140001"
                 required
               />
             </div>

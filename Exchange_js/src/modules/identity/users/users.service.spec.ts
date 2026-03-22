@@ -18,6 +18,7 @@ describe('UsersService', () => {
       user: {
         findUnique: jest.fn(),
         findFirst: jest.fn(),
+        findMany: jest.fn(),
         create: jest.fn(),
         update: jest.fn(),
         delete: jest.fn(),
@@ -220,5 +221,38 @@ describe('UsersService', () => {
         }),
       }),
     );
+  });
+
+  it('should only list active users in member directory queries', async () => {
+    prisma.user.findMany.mockResolvedValue([{ id: 'user-1', userNo: 'ADM2602190001' }]);
+
+    const result = await service.findAll({
+      take: 10,
+      orderBy: { createdAt: 'desc' },
+    });
+
+    expect(prisma.user.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        take: 10,
+        where: expect.objectContaining({
+          deletedAt: null,
+        }),
+      }),
+    );
+    expect(result).toEqual([{ id: 'user-1', userNo: 'ADM2602190001' }]);
+  });
+
+  it('should only resolve undeleted users by id', async () => {
+    prisma.user.findFirst.mockResolvedValue(null);
+
+    const result = await service.findById('user-deleted');
+
+    expect(prisma.user.findFirst).toHaveBeenCalledWith({
+      where: {
+        id: 'user-deleted',
+        deletedAt: null,
+      },
+    });
+    expect(result).toBeNull();
   });
 });

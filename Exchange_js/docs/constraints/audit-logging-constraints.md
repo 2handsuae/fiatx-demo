@@ -12,6 +12,13 @@
 8. `orchestrators`
 - MUST keep canonical implementation under `/Users/songshengwei/Documents/codex/projects/重做版/Exchange_js/src/modules/risk-engine/audit-logs`.
 - MUST route all new audit writes through `AuditLogsService` (no ad-hoc table writes in feature modules).
+- MUST treat canonical audit logging as a feature-completion gate:
+1. every new feature
+2. every new workflow
+3. every key state transition
+4. every automatic block / deny action
+  MUST land canonical audit logging before it can be considered complete.
+- A feature or workflow without required canonical audit logging MUST be treated as incomplete even if its business action already works.
 - SHOULD keep module/action/entity dictionaries centralized in `constants/audit-actions.constant.ts`.
 
 ## Canonical Data Model Constraints
@@ -65,6 +72,7 @@
 ## Unified Write Path Constraints
 - MUST implement direct unified write mode: new business traffic writes only to `audit_log_events`.
 - MUST stop adding new writes to legacy domain audit tables; legacy tables MAY remain for historical read only.
+- Automatic control-gate block or deny actions MUST write canonical audit events; silent blocking without audit evidence is forbidden.
 - MUST cover P0 domains in unified write path:
 1. Auth login chain
 2. Transaction compliance
@@ -81,6 +89,8 @@
 - MUST compute record digests and package digest with SHA-256.
 - MUST persist one row in `audit_evidence_packages` per export execution.
 - MUST append one audit event with `triggerType=EVIDENCE_EXPORT` for the export action itself.
+- Audit evidence export MUST remain approval-backed and MUST use `AUDIT_EVIDENCE_EXPORT_APPROVAL`.
+- The legacy direct export bypass path in `AuditLogsService.exportEvidencePackage()` MUST NOT remain callable once approval-backed flow is active.
 - SHOULD keep `includeRecords` and `maxItems<=5000` contract stable.
 
 ## Masking, Digest, and Idempotency Constraints

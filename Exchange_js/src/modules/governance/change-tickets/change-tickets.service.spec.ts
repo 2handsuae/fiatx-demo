@@ -21,7 +21,7 @@ const buildTicket = (overrides: Record<string, unknown> = {}) => ({
   id: 'ticket-1',
   ticketNo: 'CT2603140001',
   status: ChangeTicketStatuses.DRAFT,
-  changeType: 'SYSTEM',
+  changeType: 'ADMIN_ACCESS_CHANGE',
   scopeSummary: 'Patch release',
   riskLevel: ChangeTicketRiskLevels.HIGH,
   testEvidenceRef: 'TEST-1',
@@ -105,7 +105,7 @@ describe('ChangeTicketsService', () => {
 
     const result = await service.create(
       {
-        changeType: 'SYSTEM',
+        changeType: 'ADMIN_ACCESS_CHANGE',
         scopeSummary: 'Patch release',
         testEvidenceRef: 'TEST-1',
         rollbackPlanRef: 'ROLLBACK-1',

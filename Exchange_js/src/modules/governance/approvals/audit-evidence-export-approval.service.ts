@@ -102,7 +102,7 @@ export class AuditEvidenceExportApprovalService {
 
     const approval = await this.approvalsService.create(
       {
-        actionType: ApprovalActionTypes.SENSITIVE_EXPORT_APPROVAL,
+        actionType: ApprovalActionTypes.AUDIT_EVIDENCE_EXPORT_APPROVAL,
         entityRef: evidencePackage.id,
         metadata: {
           packageId: evidencePackage.id,
@@ -143,11 +143,11 @@ export class AuditEvidenceExportApprovalService {
     }
 
     if (!found.approvalCaseId) {
-      return this.auditLogsService.downloadEvidencePackage(id);
+      throw new BadRequestException('Evidence export is missing approval binding');
     }
 
     await this.approvalsService.requireApproved({
-      actionType: ApprovalActionTypes.SENSITIVE_EXPORT_APPROVAL,
+      actionType: ApprovalActionTypes.AUDIT_EVIDENCE_EXPORT_APPROVAL,
       entityRef: id,
       approvalCaseId: found.approvalCaseId,
       actor,
@@ -166,7 +166,7 @@ export class AuditEvidenceExportApprovalService {
 
   @OnEvent(ApprovalEvents.APPROVED, { async: true })
   async handleApprovedApproval(event: ApprovalDecisionEvent) {
-    if (event.actionType !== ApprovalActionTypes.SENSITIVE_EXPORT_APPROVAL) {
+    if (event.actionType !== ApprovalActionTypes.AUDIT_EVIDENCE_EXPORT_APPROVAL) {
       return;
     }
 
@@ -295,7 +295,7 @@ export class AuditEvidenceExportApprovalService {
 
   @OnEvent(ApprovalEvents.REJECTED, { async: true })
   async handleRejectedApproval(event: ApprovalDecisionEvent) {
-    if (event.actionType !== ApprovalActionTypes.SENSITIVE_EXPORT_APPROVAL) {
+    if (event.actionType !== ApprovalActionTypes.AUDIT_EVIDENCE_EXPORT_APPROVAL) {
       return;
     }
 
@@ -312,7 +312,7 @@ export class AuditEvidenceExportApprovalService {
 
   @OnEvent(ApprovalEvents.CANCELLED, { async: true })
   async handleCancelledApproval(event: ApprovalDecisionEvent) {
-    if (event.actionType !== ApprovalActionTypes.SENSITIVE_EXPORT_APPROVAL) {
+    if (event.actionType !== ApprovalActionTypes.AUDIT_EVIDENCE_EXPORT_APPROVAL) {
       return;
     }
 
@@ -329,7 +329,7 @@ export class AuditEvidenceExportApprovalService {
 
   @OnEvent(ApprovalEvents.EXPIRED, { async: true })
   async handleExpiredApproval(event: ApprovalDecisionEvent) {
-    if (event.actionType !== ApprovalActionTypes.SENSITIVE_EXPORT_APPROVAL) {
+    if (event.actionType !== ApprovalActionTypes.AUDIT_EVIDENCE_EXPORT_APPROVAL) {
       return;
     }
 

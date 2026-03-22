@@ -56,6 +56,11 @@ interface ApprovalDetail {
     packageNo: string;
     status: string;
   } | null;
+  caseEvidencePackage?: {
+    id: string;
+    packageNo: string;
+    status: string;
+  } | null;
   availableDecisionRoles: string[];
   canApprove: boolean;
   canReject: boolean;
@@ -314,15 +319,28 @@ const ApprovalDetailPage = () => {
             <RefreshCw size={16} />
             Refresh
           </button>
-          {detail.actionType === 'SENSITIVE_EXPORT_APPROVAL' && detail.evidencePackage && (
+          {detail.evidencePackage ? (
             <button
-              onClick={() => navigate(`/dashboard/audit/evidence-exports/${detail.evidencePackage?.id}`)}
+              onClick={() => navigate(`/dashboard/audit/evidence-exports/${detail.evidencePackage!.id}`)}
               className="inline-flex items-center gap-2 rounded-lg border border-admin-border px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
             >
               <Link2 size={16} />
-              Open Evidence Export
+              Open Audit Evidence Export
             </button>
-          )}
+          ) : null}
+          {detail.caseEvidencePackage ? (
+            <button
+              onClick={() =>
+                navigate(
+                  `/dashboard/compliance/case-evidence-exports/${detail.caseEvidencePackage!.id}`,
+                )
+              }
+              className="inline-flex items-center gap-2 rounded-lg border border-admin-border px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+            >
+              <Link2 size={16} />
+              Open Case Evidence Export
+            </button>
+          ) : null}
         </div>
       </div>
 
@@ -383,10 +401,18 @@ const ApprovalDetailPage = () => {
       </DetailCard>
 
       {detail.evidencePackage && (
-        <DetailCard title="Linked Evidence Export" icon={<Link2 size={18} />}>
+        <DetailCard title="Linked Audit Evidence Export" icon={<Link2 size={18} />}>
           <InfoField label="Package ID" value={detail.evidencePackage.id} mono />
           <InfoField label="Package No" value={detail.evidencePackage.packageNo} />
           <InfoField label="Package Status" value={detail.evidencePackage.status} />
+        </DetailCard>
+      )}
+
+      {detail.caseEvidencePackage && (
+        <DetailCard title="Linked Case Evidence Export" icon={<Link2 size={18} />}>
+          <InfoField label="Package ID" value={detail.caseEvidencePackage.id} mono />
+          <InfoField label="Package No" value={detail.caseEvidencePackage.packageNo} />
+          <InfoField label="Package Status" value={detail.caseEvidencePackage.status} />
         </DetailCard>
       )}
 

@@ -27,6 +27,8 @@ Source of Truth Level: specs-module
 - `MUST call` / `MUST NOT call directly`
 
 ## Current Module Specs
+- `docs/specs/modules/governance-control-foundation-module.md`
+- `docs/specs/modules/rbac-member-management-module.md`
 - `docs/specs/modules/compliance-center-module.md`
 - `docs/specs/modules/risk-engine-module.md`
 - `docs/specs/modules/customer-onboarding-module.md`

@@ -40,15 +40,23 @@ usage_stack_name() {
 
 load_stack_config() {
   local stack="$1"
+  local current_branch
+  current_branch="$(git -C "${CURRENT_WT_DIR}" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "*")"
   case "$stack" in
     main)
       STACK="main"
-      WT_DIR="${ROOT_DIR}"
-      APP_DIR="${ROOT_DIR}/Exchange_js"
+      if [[ "${CURRENT_WT_DIR}" == "${ROOT_DIR}" ]]; then
+        WT_DIR="${ROOT_DIR}"
+        APP_DIR="${ROOT_DIR}/Exchange_js"
+        BRANCH_RULE="main"
+      else
+        WT_DIR="${CURRENT_WT_DIR}"
+        APP_DIR="${WT_DIR}/Exchange_js"
+        BRANCH_RULE="${current_branch}"
+      fi
       BACKEND_PORT="3000"
       ADMIN_PORT="3001"
       CLIENT_PORT="3002"
-      BRANCH_RULE="main"
       ;;
     codex)
       STACK="codex"

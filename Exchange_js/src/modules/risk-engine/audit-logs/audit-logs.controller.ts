@@ -132,7 +132,7 @@ export class AuditLogsController {
 
   @Post('export/evidence-package')
   @ApiOperation({ summary: 'Export audit evidence package with digest manifest' })
-  exportEvidencePackage(
+  createEvidencePackageExportRequest(
     @Req() req: any,
     @Body(new ValidationPipe({ transform: true })) body: ExportEvidencePackageDto,
   ) {

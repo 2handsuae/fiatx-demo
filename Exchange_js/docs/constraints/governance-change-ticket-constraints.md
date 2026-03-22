@@ -53,6 +53,14 @@
 4. `testEvidenceRef`
 5. `rollbackPlanRef`
 6. `latestApprovalStatus=APPROVED`
+- Canonical `changeType` taxonomy is limited to:
+1. `ADMIN_ACCESS_CHANGE`
+2. `RBAC_CATALOG_CHANGE`
+3. `GOVERNANCE_POLICY_CHANGE`
+4. `COMPLIANCE_WORKFLOW_CHANGE`
+5. `CUSTOMER_LIFECYCLE_WORKFLOW_CHANGE`
+6. `AUDIT_EVIDENCE_POLICY_CHANGE`
+- Generic or trading-oriented values such as `SYSTEM / SECURITY / ACCESS_CONTROL / CONFIG / HOTFIX / ACCOUNTING` MUST NOT remain in active runtime DTOs, constants, or admin create forms.
 - Deploy mark MUST require a matching passed gate run on the same `ticket + targetEnv + releaseVersion`.
 - Close MUST be allowed only from `DEPLOYED` or `DEPLOY_FAILED`.
 

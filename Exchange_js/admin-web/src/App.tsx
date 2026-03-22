@@ -73,7 +73,7 @@ const SlaTimersPage = lazy(() => import('./pages/SlaTimersPage'));
 const SlaTimerDetailPage = lazy(() => import('./pages/SlaTimerDetailPage'));
 const ComplianceAlertsPage = lazy(() => import('./pages/ComplianceAlertsPage'));
 const ComplianceAlertDetailPage = lazy(() => import('./pages/ComplianceAlertDetailPage'));
-const ComplianceIncidentsPage = lazy(() => import('./pages/ComplianceIncidentsPage'));
+const ComplianceCasesPage = lazy(() => import('./pages/ComplianceCasesPage'));
 const ComplianceCaseDetailPage = lazy(() => import('./pages/ComplianceCaseDetailPage'));
 const CaseEvidenceExportsPage = lazy(() => import('./pages/CaseEvidenceExportsPage'));
 const CaseEvidenceExportDetailPage = lazy(() => import('./pages/CaseEvidenceExportDetailPage'));
@@ -261,7 +261,7 @@ function App() {
             />
             <Route
               path="compliance/cases"
-              element={withPermission(<ComplianceIncidentsPage />, [PERMISSIONS.CASES_READ])}
+              element={withPermission(<ComplianceCasesPage />, [PERMISSIONS.CASES_READ])}
             />
             <Route
               path="compliance/cases/:id"

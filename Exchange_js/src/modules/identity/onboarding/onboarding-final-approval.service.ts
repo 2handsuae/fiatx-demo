@@ -231,7 +231,7 @@ export class OnboardingFinalApprovalService {
     const traceContext = this.buildTraceContext(input.journeyId);
     await this.auditLogsService.recordByActor(
       {
-        triggerType: AuditTriggerType.STATE_TRANSITION,
+        triggerType: AuditTriggerType.DATA_UPDATE,
         action: input.action,
         module: AuditModules.ONBOARDING,
         entityType: AuditEntityTypes.ONBOARDING,

@@ -73,6 +73,49 @@
 
 ## 5. 详细版本规划
 
+## 4.0 Wave 1 Completion Note
+
+- `Wave 1` 在当前官方范围下已经达到：
+  - implementation-complete
+  - documentation-complete
+- `Wave 1` 当前官方完成范围固定为：
+  - `WF-01`
+  - `WF-02`
+  - `WF-03`
+  - `WF-04`
+  - `WF-05`
+  - `WF-06`
+- `Wave 1` 的长期真相应优先读取：
+  - `docs/constraints/**`
+  - `docs/specs/workflows/**`
+  - `docs/specs/entities/**`
+  - `docs/specs/modules/**`
+  - `docs/acceptance/wave-1-foundation-final-acceptance.md`
+- `Wave 1` 的 durable reference 入口固定为：
+  - workflow:
+    - `docs/specs/workflows/audit-evidence-export-approval-workflow.md`
+    - `docs/specs/workflows/change-ticket-release-gate-workflow.md`
+    - `docs/specs/workflows/delete-request-soft-delete-workflow.md`
+    - `docs/specs/workflows/governance-sla-timer-workflow.md`
+    - `docs/specs/workflows/admin-member-auth-boundary-workflow.md`
+  - entity:
+    - `docs/specs/entities/audit-evidence-package-entity.md`
+    - `docs/specs/entities/change-ticket-entity.md`
+    - `docs/specs/entities/delete-request-entity.md`
+    - `docs/specs/entities/governance-sla-timer-entity.md`
+    - `docs/specs/entities/admin-user-entity.md`
+    - `docs/specs/entities/approval-case-entity.md`
+  - module:
+    - `docs/specs/modules/governance-control-foundation-module.md`
+    - `docs/specs/modules/rbac-member-management-module.md`
+    - `docs/specs/modules/approvals-module.md`
+    - `docs/specs/modules/audit-logging-module.md`
+- 以下 cleanup 文档继续保留，但只作为 Wave 1 收口历史：
+  - `docs/cleanup/wave-1-governance-audit-cleanup-master-plan.md`
+- `Wave 1` 的最终 acceptance 结论入口固定为：
+  - `docs/acceptance/wave-1-foundation-final-acceptance.md`
+- `WF-GOV-02` filing / receipt / effectiveness gate 不属于当前 `Wave 1` 完成范围。
+
 ## 4.1 Wave 2 / Wave 3 Completion Note
 
 - `Wave 2` 与 `Wave 3` 的主体能力和最终收口已完成。

@@ -169,16 +169,12 @@ export class OnboardingAdminController {
     @Body(new ValidationPipe({ transform: true })) body: ApplyOnboardingAlertDecisionDto,
   ) {
     const actor = this.getAdminActor(req);
-    const result = await this.onboardingService.applyOnboardingDecisionFromIncident(
+    return this.onboardingService.applyOnboardingDecisionFromIncident(
       id,
       actor.actorId,
       actor.actorRole,
       body,
     );
-    return {
-      ...result,
-      case: result.incident,
-    };
   }
 
   // Decision records are the canonical risk-execution read model. The legacy
