@@ -73,6 +73,45 @@
 
 ## 5. 详细版本规划
 
+## 4.1 Wave 2 / Wave 3 Completion Note
+
+- `Wave 2` 与 `Wave 3` 的主体能力和最终收口已完成。
+- 当前长期真相应优先读取：
+  - `docs/constraints/**`
+  - `docs/specs/workflows/**`
+  - `docs/specs/entities/**`
+  - `docs/specs/modules/**`
+  - `docs/acceptance/wave-2-wave-3-final-acceptance-checklist.md`
+- `Wave 2` / `Wave 3` 的 durable reference 入口固定为：
+  - workflow:
+    - `docs/specs/workflows/onboarding-canonical-workflow.md`
+    - `docs/specs/workflows/periodic-review-canonical-workflow.md`
+    - `docs/specs/workflows/alert-triage-and-case-escalation.md`
+    - `docs/specs/workflows/mlro-and-final-approval-governance.md`
+    - `docs/specs/workflows/case-final-lifecycle-and-external-filing.md`
+    - `docs/specs/workflows/onboarding-periodic-review-audit-trace-contract.md`
+  - entity:
+    - `docs/specs/entities/compliance-alert-entity.md`
+    - `docs/specs/entities/compliance-case-entity.md`
+    - `docs/specs/entities/compliance-case-report-entity.md`
+    - `docs/specs/entities/compliance-external-filing-entity.md`
+    - `docs/specs/entities/customer-entity.md`
+    - `docs/specs/entities/review-response-entity.md`
+    - `docs/specs/entities/periodic-review-cycle-entity.md`
+    - `docs/specs/entities/approval-case-entity.md`
+    - `docs/specs/entities/risk-decision-record-entity.md`
+  - module:
+    - `docs/specs/modules/compliance-center-module.md`
+    - `docs/specs/modules/risk-engine-module.md`
+    - `docs/specs/modules/customer-onboarding-module.md`
+    - `docs/specs/modules/periodic-review-module.md`
+    - `docs/specs/modules/approvals-module.md`
+    - `docs/specs/modules/audit-logging-module.md`
+- 以下 cleanup 文档继续保留，但只作为历史完成记录：
+  - `docs/cleanup/wave-2-wave-3-final-closure-plan.md`
+  - `docs/cleanup/wave-2-cleanup-master-plan.md`
+  - `docs/cleanup/wave-3-cleanup-master-plan.md`
+
 ### Wave 1：控制底座（Control Foundation）
 
 **目标**
@@ -155,6 +194,11 @@
 
 - 只要是业务，就会碰到风险决策、告警升级、冻结/解冻、事件升级与证据导出。
 - onboarding 是最早会接入 risk engine 的业务域，应该从这里开始统一。
+- `Wave 2` 的后半段需要继续完成 `Phase 10-13`：
+  - 先拆清 `alert action / workflow decision / case measures / MLRO gate`
+  - 再把 `report`、`final disposition` 与未来 `external filing` 彻底分层
+- `Wave 2` 当前剩余 compatibility / audit / filing / runtime debt 不再散落在 thread notes 中，统一以后续 cleanup master 管理：
+  - `docs/cleanup/wave-2-cleanup-master-plan.md`
 
 **P0 交付物**
 
@@ -178,6 +222,11 @@
   - 解冻
   - 上报
   - 结案
+- case 后期治理模型定型：
+  - case report
+  - MLRO review gate
+  - final disposition
+  - external filing 预留语义
 - 统一证据包导出支持按：
   - case type
   - status
@@ -192,6 +241,7 @@
 
 - risk engine、alert、incident 不再是 demo 模块，而是平台标准件。
 - onboarding review container 不再自带一套独立状态机，而是复用这套中台能力。
+- `REPORT` 与未来 `STR / SAR / VARA / FIU filing` 的边界已在文档层分清，外部报送被定义为独立后续维度。
 
 **代表性 UAT**
 

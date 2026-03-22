@@ -11,6 +11,27 @@
 - 当前运行时的 `alert / incident` 兼容约束以 `docs/constraints/compliance-alert-incident-constraints.md` 为准。
 - `Wave 2` 的核心目标是先把合规中台底座打牢，再决定业务域如何接入。
 - 当单个需求只完成部分能力时，以 `phase` 的 `DoD` 判断是否可交付，而不是以功能名字是否出现来判断。
+- `Wave 2` 主体交付后的 compat / audit / filing / runtime debt 已按 `docs/cleanup/wave-2-cleanup-master-plan.md` 与 final closure 文档完成历史收口。
+
+### 当前完成态说明
+
+- `Wave 2 Phase 1-13` 与后续 final closure 已完成。
+- 当前运行时长期真相以：
+  - `docs/constraints/compliance-alert-incident-constraints.md`
+  - `docs/specs/workflows/alert-triage-and-case-escalation.md`
+  - `docs/specs/workflows/mlro-and-final-approval-governance.md`
+  - `docs/specs/workflows/case-final-lifecycle-and-external-filing.md`
+  - `docs/specs/entities/compliance-alert-entity.md`
+  - `docs/specs/entities/compliance-case-entity.md`
+  - `docs/specs/entities/compliance-case-report-entity.md`
+  - `docs/specs/entities/compliance-external-filing-entity.md`
+  - `docs/specs/entities/risk-decision-record-entity.md`
+  - `docs/specs/modules/compliance-center-module.md`
+  - `docs/specs/modules/risk-engine-module.md`
+  - `docs/specs/modules/approvals-module.md`
+  - `docs/acceptance/wave-2-wave-3-final-acceptance-checklist.md`
+  为准。
+- 本文中较早 phase 对 `/admin/compliance/incidents/**`、compat mirror、阶段性过渡命名的描述，均属于历史 phase 语境，不代表当前 active runtime contract。
 
 ---
 
@@ -33,6 +54,7 @@
 - `Risk Decision -> Alert orchestration`
 - `Case investigation kernel`
 - `Workflow transition contract`
+- `Audit Center trace contract`
 
 从 `Phase 6` 开始，`alert / case` 的主组织语言固定为：
 
@@ -55,6 +77,25 @@
 
 - `Approval Trigger Contract` 明确后置，不纳入当前 `Wave 2` hardening 主线。
 - onboarding 仍然只是首个消费方，不决定后半段基座设计。
+- `Audit Center` 是 `Wave 2` 审计真相；凡是 workflow-bound `alert / case / approval / filing`，都必须继承上游 workflow 根 trace，而不是各对象自行生成随机 trace。
+
+### 2.1 审计与 Trace Contract
+
+`Wave 2` 起，统一审计与可追踪链固定为：
+
+- canonical audit store：
+  - `audit_log_events`
+- historical mirror：
+  - `onboarding_audit_logs`
+- workflow 根 trace 规则：
+  - onboarding：`traceId = ONBOARDING:<journeyId>`
+  - periodic review：`traceId = PERIODIC_REVIEW:<cycle.id>`
+
+约束：
+
+- workflow-bound `alert / case / approval / external filing` 不允许自行生成新的随机 trace。
+- `Audit Center` 查询、evidence export、跨对象取证回放，一律以 `audit_log_events` 为准。
+- `onboarding_audit_logs` 现在只保留历史/兼容说明价值，不再承担运行时真相或持续 mirror 写入职责。
 
 ---
 
@@ -146,10 +187,11 @@
 
 - `Phase 1-5`: `Foundation Build`
   - 解决“平台基座先跑起来”的问题
-- `Phase 6-12`: `Foundation Hardening`
+- `Phase 6-13`: `Foundation Hardening`
   - 解决“语义、编排、调查、工作流契约定型”的问题
   - `Phase 6-9` 先按 onboarding review 场景收口
-  - `Phase 10-12` 再把 onboarding / periodic review 与 transaction 共用的 `alert / case / workflow / report / MLRO` 分层补齐
+  - `Phase 10-12` 先把 onboarding / periodic review 与 transaction 共用的 `alert / case / workflow / report / MLRO` 分层补齐
+  - `Phase 13` 再把 case 后期 `final disposition / measures / external filing` 彻底拆开
 
 | Phase | 名称 | 目标 |
 | --- | --- | --- |
@@ -165,6 +207,7 @@
 | `Phase 10` | Alert Outcome And Workflow Decision Split | 把 alert triage outcome 与 workflow decision 正式拆层 |
 | `Phase 11` | Case State Machine And Interim Measures | 把 case 定义成正式调查对象，并单列临时处置措施 |
 | `Phase 12` | Report, MLRO Review And Final Disposition Gate | 把调查报告、MLRO 审核与最终结论生效链路定型 |
+| `Phase 13` | Case Final Lifecycle And External Filing Separation | 把 report、final disposition、measures 与 external filing 彻底分层 |
 
 建议执行顺序：
 
@@ -176,6 +219,33 @@
 6. `Phase 10`
 7. `Phase 11`
 8. `Phase 12`
+9. `Phase 13`
+
+### 5.1 Wave 2 Cleanup Follow-up
+
+`Phase 1-13` 定义的是 `Wave 2` 主体能力如何建立与定型，不负责承接所有后续 compat retirement 和 runtime debt cleanup。
+
+`Wave 2` 的 staged cleanup 与 final closure 已全部完成。
+
+历史 cleanup 记录保留在：
+
+- `docs/cleanup/wave-2-cleanup-master-plan.md`
+- `docs/cleanup/wave-2-wave-3-final-closure-plan.md`
+
+当前应优先阅读：
+
+- `docs/specs/workflows/alert-triage-and-case-escalation.md`
+- `docs/specs/workflows/mlro-and-final-approval-governance.md`
+- `docs/specs/workflows/case-final-lifecycle-and-external-filing.md`
+- `docs/specs/entities/compliance-alert-entity.md`
+- `docs/specs/entities/compliance-case-entity.md`
+- `docs/specs/entities/compliance-case-report-entity.md`
+- `docs/specs/entities/compliance-external-filing-entity.md`
+- `docs/specs/entities/risk-decision-record-entity.md`
+- `docs/specs/modules/compliance-center-module.md`
+- `docs/specs/modules/risk-engine-module.md`
+- `docs/specs/modules/approvals-module.md`
+- `docs/acceptance/wave-2-wave-3-final-acceptance-checklist.md`
 
 ---
 
@@ -386,16 +456,16 @@
 - `Case` 审计写入统一经 `AuditLogsService`
 - 兼容策略：
   - 先保留现有 `incident` 物理表
-  - 旧 `/admin/compliance/incidents/**` 和 `/dashboard/compliance/incidents` 保留兼容别名
   - UI / API 文案改为 `Case`
-  - DTO/service 层逐步收口
+  - 后续 cleanup 中逐步切断旧 alias surface，再进入物理清理
 
 ### Wave DoD
 
 - 合规调查对象统一叫 `Case`
 - `Alert` 只负责分诊，`Case` 负责调查
 - 一个 `Case` 可以聚合多个 `Alerts`
-- 主 UI / API 路径统一切到 `cases`，`incidents` 仅保留兼容访问能力
+- 主 UI / API 路径统一切到 `cases`
+- `incidents` 路由 / 权限 / 页面 alias 在最终收口波次中退役
 
 ### 明确不做
 
@@ -903,7 +973,79 @@
 
 ---
 
-## 18. 与现有代码的映射建议
+## 18. Phase 13：Case Final Lifecycle And External Filing Separation
+
+### 目标
+
+把 `Case` 后期流程里仍混写的 `Investigation Report`、`Workflow Decision`、`Final Disposition`、`Measures` 与 `External Filing` 正式拆开，并为后续真实 `FIU / VARA / 其他` 报送模型预留稳定语义。
+
+### 范围
+
+- `Investigation Report` 生命周期
+- `Workflow Decision`
+- `Final Disposition`
+- `Measures`
+- `External Filing`
+- workflow-bound case 与 transaction/generic case 的后期收口
+
+### P0 交付物
+
+- `Case final lifecycle` 状态与职责图
+- `Investigation Report / MLRO Review / Final Disposition / External Filing` 四层边界说明
+- workflow-bound case 与 transaction/generic case 两类路径的最终结论示例
+- 当前 runtime `reportStatus = NOT_REPORTED / REPORTED` 的兼容定位说明
+- `REPORT / REPORTED` 不再混写为“报告生命周期状态”的规范说明
+
+### 核心规则
+
+- `Investigation Report` 只负责调查报告生命周期：
+  - `draft`
+  - `finalize`
+  - `supersede`
+- `Workflow Decision` 只负责 workflow-bound case 的业务推进建议：
+  - `CLEAR`
+  - `REQUIRE_EDD`
+  - `REJECT`
+- `Final Disposition` 只负责 case 自身的最终结论，不再直接等同 workflow decision
+- `Measures` 只负责对客户施加或解除控制：
+  - `FREEZE`
+  - `UNFREEZE`
+  - `RESTRICT`
+  - `UNRESTRICT`
+- `External Filing` 独立于 report lifecycle：
+  - 回答是否需要向 `FIU / VARA / 其他` 报送
+  - 回答 filing status、external ref、feedback
+- `REPORT` 只是“需要进入外部报送维度”的内部结论占位，不等于 `STR / SAR / VARA / FIU` 已真实提交
+- `REPORTED` 不得再被解释为“报告已定稿”或“已送 MLRO”，它只能属于后续独立 external filing 维度
+- case 后期 `MLRO review -> final disposition -> external filing` 的整条治理链必须继续沿用上游 workflow trace：
+  - onboarding：`ONBOARDING:<journeyId>`
+  - periodic review：`PERIODIC_REVIEW:<cycle.id>`
+- `Audit Center` 必须能按同一 `traceId` 回放：
+  - response submit
+  - alert triage
+  - case investigation
+  - MLRO review
+  - final approval（如有）
+  - filing follow-up（如有）
+
+### Wave DoD
+
+- 文档中 `report / workflow decision / final disposition / measures / external filing` 五层语义不再混写
+- 实现者不再把 `CLEAR / REQUIRE_EDD / REJECT` 当成 disposition
+- 实现者不再把 `REPORT / REPORTED` 当成 case report 生命周期标签
+- onboarding 与 transaction 两条 case 后期路径都能从文档中直接读出
+- 实现者能明确知道 `Audit Center` 是唯一 canonical audit store，`onboarding_audit_logs` 只是 mirror
+- 实现者能明确知道 workflow-bound `alert / case / approval / filing` 必须共享同一条 workflow trace
+
+### 明确不做
+
+- 不在本 phase 直接落地真实 `FIU / VARA / STR / SAR` 外部接口
+- 不在本 phase 锁死所有 transaction final disposition 枚举
+- 不在本 phase 直接重构当前 runtime 字段或页面实现
+
+---
+
+## 19. 与现有代码的映射建议
 
 当前代码在 `Wave 2` 中建议按下面方式解释：
 
@@ -936,11 +1078,14 @@
   - 目标角色：后续映射到正式 `Case Report` 体系
 - 当前 alert / case 页面与服务实现
   - 当前角色：仍混有 `alert triage`、`workflow decision`、`interim measures`
-  - 目标角色：在 `Phase 10-12` 中完成职责拆分，而不是继续往 mixed model 里堆按钮
+  - 目标角色：在 `Phase 10-13` 中完成职责拆分，而不是继续往 mixed model 里堆按钮
+- 当前 `reportStatus = NOT_REPORTED / REPORTED`
+  - 当前角色：case runtime 的过渡实现字段
+  - 目标角色：后续映射到独立 `External Filing` 维度，而不是继续承担 report lifecycle 语义
 
 ---
 
-## 19. 本波关键约束
+## 20. 本波关键约束
 
 - 不允许再把 `KYT / Travel Rule / CDD / EDD` 容器定义成通用 `Case`
 - 不允许在 onboarding 内再长出一套独立 review 容器
@@ -957,11 +1102,13 @@
 - 不允许继续把 `False Positive / Escalate to Case` 和 `Clear / Require EDD / Reject` 当成同一类按钮
 - 不允许 `Case` 在无 finalized report、无 MLRO gate 时直接成为最终处置 owner
 - 不允许把 `REPORT` 继续同时表示“报告生命周期动作”和“最终处置结果”
+- 不允许把 `REPORTED` 继续解释成“报告已定稿”或“已送 MLRO”
+- 不允许把 `disposition` 继续直接等同 `workflow decision`
 - 不允许把“EDD review 需要更高治理”直接解释为“EDD 自动升级成 case”
 
 ---
 
-## 20. 建议的验收顺序
+## 21. 建议的验收顺序
 
 1. `Phase 1-5` 文档与基座建设段完成
 2. `Phase 6` disposition model 定型
@@ -971,10 +1118,11 @@
 6. `Phase 10` alert outcome 与 workflow decision 分层定型
 7. `Phase 11` case state machine 与 interim measures 定型
 8. `Phase 12` report / MLRO review / final disposition gate 定型
+9. `Phase 13` case final lifecycle 与 external filing 分层定型
 
 ---
 
-## 21. 后续维护规则
+## 22. 后续维护规则
 
 - 当 `Wave 2` 范围发生变化时，优先更新本文件，再更新更细的约束文档。
 - 如果某个需求跨多个 phase，必须明确：

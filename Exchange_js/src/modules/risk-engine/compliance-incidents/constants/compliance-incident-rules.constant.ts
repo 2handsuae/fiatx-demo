@@ -18,8 +18,18 @@ export enum ComplianceCaseFreezeStatus {
 }
 
 export enum ComplianceCaseReportStatus {
+  // Compatibility mirror only. Investigation report lifecycle is managed separately
+  // by ComplianceIncidentReportVersionStatus and external filing status.
   NOT_REPORTED = 'NOT_REPORTED',
   REPORTED = 'REPORTED',
+}
+
+export enum ComplianceCaseFilingStatus {
+  REQUIRED = 'REQUIRED',
+  SUBMITTED = 'SUBMITTED',
+  ACKNOWLEDGED = 'ACKNOWLEDGED',
+  RETURNED = 'RETURNED',
+  CLOSED = 'CLOSED',
 }
 
 export enum ComplianceIncidentReportVersionStatus {
@@ -31,6 +41,8 @@ export enum ComplianceIncidentReportVersionStatus {
 export enum ComplianceIncidentStatus {
   OPEN = 'OPEN',
   ASSIGNED = 'ASSIGNED',
+  INVESTIGATING = 'INVESTIGATING',
+  PENDING_MLRO_REVIEW = 'PENDING_MLRO_REVIEW',
   // Legacy value kept for read compatibility. New flow does not transition to RESOLVED.
   RESOLVED = 'RESOLVED',
   CLOSED = 'CLOSED',
@@ -43,7 +55,17 @@ export enum ComplianceIncidentAction {
   UNFREEZE = 'UNFREEZE',
   RESTRICT = 'RESTRICT',
   UNRESTRICT = 'UNRESTRICT',
-  REPORT = 'REPORT',
+}
+
+export enum ComplianceIncidentMlroAction {
+  RETURN_FOR_INVESTIGATION = 'RETURN_FOR_INVESTIGATION',
+  APPROVE_FINAL_DISPOSITION = 'APPROVE_FINAL_DISPOSITION',
+}
+
+export enum ComplianceIncidentExternalFilingAction {
+  SUBMIT = 'SUBMIT',
+  ACKNOWLEDGE = 'ACKNOWLEDGE',
+  RETURN = 'RETURN',
   CLOSE = 'CLOSE',
 }
 
@@ -53,11 +75,18 @@ export enum ComplianceIncidentEventType {
   ALERT_LINKED = 'ALERT_LINKED',
   REPORT_DRAFT_SAVED = 'REPORT_DRAFT_SAVED',
   REPORT_FINALIZED = 'REPORT_FINALIZED',
+  MLRO_SUBMITTED = 'MLRO_SUBMITTED',
+  MLRO_RETURNED = 'MLRO_RETURNED',
+  FINAL_DISPOSITION_APPROVED = 'FINAL_DISPOSITION_APPROVED',
+  FILING_REQUIRED = 'FILING_REQUIRED',
+  FILING_SUBMITTED = 'FILING_SUBMITTED',
+  FILING_ACKNOWLEDGED = 'FILING_ACKNOWLEDGED',
+  FILING_RETURNED = 'FILING_RETURNED',
+  FILING_CLOSED = 'FILING_CLOSED',
   FROZEN = 'FROZEN',
   UNFROZEN = 'UNFROZEN',
   RESTRICTED = 'RESTRICTED',
   UNRESTRICTED = 'UNRESTRICTED',
-  REPORTED = 'REPORTED',
   OVERDUE_MARKED = 'OVERDUE_MARKED',
   RESOLVED = 'RESOLVED',
   CLOSED = 'CLOSED',

@@ -230,7 +230,7 @@ export class ComplianceCaseEvidencePackagesService {
       const linkedCaseIds = Array.isArray(item.linkedCaseIds) ? item.linkedCaseIds : [];
       references.push({
         caseId: item.id,
-        caseNo: item.caseNo || item.incidentNo,
+        caseNo: item.caseNo,
         caseType: item.caseType,
         sourceType: item.sourceType || null,
         sourceId: item.entityId || item.sourceId || null,
@@ -417,7 +417,7 @@ export class ComplianceCaseEvidencePackagesService {
       },
       cases,
       caseIds,
-      caseNos: cases.map((item) => item.caseNo || item.incidentNo).filter(Boolean),
+      caseNos: cases.map((item) => item.caseNo).filter(Boolean),
       itemCount: cases.length,
       decisionRecords,
       providerArtifacts,

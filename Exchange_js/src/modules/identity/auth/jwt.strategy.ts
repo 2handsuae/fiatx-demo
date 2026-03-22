@@ -43,11 +43,20 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       }
     }
 
+    const roleCodes = Array.isArray(payload?.roleCodes)
+      ? payload.roleCodes.map((item: unknown) =>
+          String(item || '').trim().toUpperCase(),
+        )
+      : payload?.role
+        ? [String(payload.role).trim().toUpperCase()]
+        : [];
+
     return {
       userId: payload.sub,
       username: payload.username,
       userNo: payload.userNo,
       role: payload.role,
+      roleCodes,
       type: payload.type,
     };
   }

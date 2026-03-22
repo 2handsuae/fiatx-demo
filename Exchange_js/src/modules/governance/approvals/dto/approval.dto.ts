@@ -31,6 +31,18 @@ export class CreateApprovalDto {
 
   @IsOptional()
   @IsString()
+  workflowType?: string;
+
+  @IsOptional()
+  @IsString()
+  workflowId?: string;
+
+  @IsOptional()
+  @IsString()
+  workflowNo?: string;
+
+  @IsOptional()
+  @IsString()
   checkerRole?: string;
 }
 
@@ -42,6 +54,18 @@ export class SubmitApprovalDto {
   @IsOptional()
   @IsString()
   traceId?: string;
+
+  @IsOptional()
+  @IsString()
+  workflowType?: string;
+
+  @IsOptional()
+  @IsString()
+  workflowId?: string;
+
+  @IsOptional()
+  @IsString()
+  workflowNo?: string;
 }
 
 export class DecisionApprovalDto {
@@ -56,6 +80,18 @@ export class DecisionApprovalDto {
   @IsOptional()
   @IsString()
   traceId?: string;
+
+  @IsOptional()
+  @IsString()
+  workflowType?: string;
+
+  @IsOptional()
+  @IsString()
+  workflowId?: string;
+
+  @IsOptional()
+  @IsString()
+  workflowNo?: string;
 }
 
 export class CancelApprovalDto {
@@ -66,6 +102,18 @@ export class CancelApprovalDto {
   @IsOptional()
   @IsString()
   traceId?: string;
+
+  @IsOptional()
+  @IsString()
+  workflowType?: string;
+
+  @IsOptional()
+  @IsString()
+  workflowId?: string;
+
+  @IsOptional()
+  @IsString()
+  workflowNo?: string;
 }
 
 export class ApprovalQueryDto {

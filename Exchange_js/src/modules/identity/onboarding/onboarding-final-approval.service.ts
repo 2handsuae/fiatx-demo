@@ -8,6 +8,17 @@ import {
 import { OnEvent } from '@nestjs/event-emitter';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../core/prisma/prisma.service';
+import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
+import {
+  AuditEntityTypes,
+  AuditModules,
+  AuditWorkflowTypes,
+} from '../../risk-engine/audit-logs/constants/audit-actions.constant';
+import { AuditTriggerType } from '../../risk-engine/audit-logs/dto/audit-log.dto';
+import {
+  ONBOARDING_WORKFLOW,
+  buildComplianceWorkflowTraceContext,
+} from '../../risk-engine/constants/onboarding-compliance-workflow.constant';
 import { buildCustomerLifecyclePatch as buildCustomerLifecycleStatePatch } from '../customer-status.util';
 import { FinalReviewCustomerDto, SubmitFinalApprovalDto } from './dto/onboarding.dto';
 import { ApprovalsService } from '../../governance/approvals/approvals.service';
@@ -60,11 +71,14 @@ const FINAL_APPROVAL_CUSTOMER_SELECT = {
 @Injectable()
 export class OnboardingFinalApprovalService {
   private readonly logger = new Logger(OnboardingFinalApprovalService.name);
+  private readonly auditLogsService: AuditLogsService;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly approvalsService: ApprovalsService,
-  ) {}
+  ) {
+    this.auditLogsService = new AuditLogsService(prisma);
+  }
 
   private normalizeOptionalString(value: unknown): string | null {
     if (value === null || value === undefined) return null;
@@ -195,6 +209,58 @@ export class OnboardingFinalApprovalService {
     };
   }
 
+  private buildTraceContext(journeyId?: string | null) {
+    return buildComplianceWorkflowTraceContext({
+      workflow: ONBOARDING_WORKFLOW,
+      journeyId,
+    });
+  }
+
+  private async writeCanonicalAudit(input: {
+    customerId: string;
+    customerNo?: string | null;
+    action: string;
+    actorId: string;
+    actorRole: string;
+    detail: Record<string, unknown>;
+    reason?: string | null;
+    fromStage?: string | null;
+    toStage?: string | null;
+    journeyId?: string | null;
+  }) {
+    const traceContext = this.buildTraceContext(input.journeyId);
+    await this.auditLogsService.recordByActor(
+      {
+        triggerType: AuditTriggerType.STATE_TRANSITION,
+        action: input.action,
+        module: AuditModules.ONBOARDING,
+        entityType: AuditEntityTypes.ONBOARDING,
+        entityId: input.customerId,
+        entityNo: input.customerNo || undefined,
+        traceId: traceContext?.traceId || undefined,
+        workflowType: traceContext?.workflowType || AuditWorkflowTypes.ONBOARDING,
+        workflowId: traceContext?.workflowId || undefined,
+        workflowNo: traceContext?.workflowNo || undefined,
+        entityOwnerType: 'CUSTOMER',
+        entityOwnerId: input.customerId,
+        entityOwnerNo: input.customerNo || undefined,
+        statusFrom: input.fromStage || undefined,
+        statusTo: input.toStage || undefined,
+        reason: input.reason || undefined,
+        metadata: input.detail,
+        sourcePlatform: 'APPLICATION',
+      },
+      {
+        actorType:
+          String(input.actorRole || '').trim().toUpperCase() === 'CUSTOMER'
+            ? 'CUSTOMER'
+            : 'ADMIN',
+        actorId: input.actorId,
+        actorRole: input.actorRole,
+      },
+    );
+  }
+
   private async ensurePendingApproval(
     client: ApprovalWriteClient,
     customer: FinalApprovalCustomerRow,
@@ -248,6 +314,10 @@ export class OnboardingFinalApprovalService {
       {
         actionType: ApprovalActionTypes.ONBOARDING_FINAL_APPROVAL,
         entityRef: customer.id,
+        traceId: this.buildTraceContext(customer.activeJourneyId)?.traceId || undefined,
+        workflowType: ONBOARDING_WORKFLOW,
+        workflowId: customer.activeJourneyId || undefined,
+        workflowNo: customer.activeJourneyId || undefined,
         metadata: {
           source: 'WAVE3_PHASE4_ONBOARDING',
           customerId: customer.id,
@@ -326,22 +396,23 @@ export class OnboardingFinalApprovalService {
         select: { id: true },
       });
 
-      await tx.onboardingAuditLog.create({
-        data: {
-          customerId: customer.id,
-          caseType: 'EDD',
-          caseId: latestEddResponse?.id || null,
-          action: resolved.auditAction,
-          actorId,
-          actorRole,
-          fromStage: 'FINAL_APPROVAL',
-          toStage: 'FINAL_APPROVAL',
-          detail: JSON.stringify({
-            approvalId: resolved.approval.id,
-            approvalNo: resolved.approval.approvalNo,
-            status: resolved.approval.status,
-            reason,
-          }),
+
+      await this.writeCanonicalAudit({
+        customerId: customer.id,
+        customerNo: customer.customerNo || null,
+        action: resolved.auditAction,
+        actorId,
+        actorRole,
+        reason,
+        fromStage: 'FINAL_APPROVAL',
+        toStage: 'FINAL_APPROVAL',
+        journeyId: customer.activeJourneyId || null,
+        detail: {
+          approvalId: resolved.approval.id,
+          approvalNo: resolved.approval.approvalNo,
+          status: resolved.approval.status,
+          reason,
+          currentEddResponseId: latestEddResponse?.id || null,
         },
       });
 
@@ -453,28 +524,30 @@ export class OnboardingFinalApprovalService {
 
   private async writeProjectionAudit(
     customerId: string,
+    customerNo: string | null | undefined,
+    journeyId: string | null | undefined,
     action: string,
     actorId: string,
     actorRole: string,
     detail: Record<string, unknown>,
   ) {
-    await this.prisma.onboardingAuditLog.create({
-      data: {
-        customerId,
-        caseType: 'EDD',
-        caseId: null,
-        action,
-        actorId,
-        actorRole,
-        fromStage: 'FINAL_APPROVAL',
-        toStage:
-          action === 'FINAL_APPROVAL_APPROVED'
-            ? 'ACTIVE'
-            : action === 'FINAL_APPROVAL_REJECTED'
-              ? 'REJECTED'
-              : 'FINAL_APPROVAL',
-        detail: JSON.stringify(detail),
-      },
+    const traceContext = this.buildTraceContext(journeyId);
+    await this.writeCanonicalAudit({
+      customerId,
+      customerNo,
+      action,
+      actorId,
+      actorRole,
+      journeyId,
+      reason: this.normalizeOptionalString(detail.decisionReason),
+      fromStage: 'FINAL_APPROVAL',
+      toStage:
+        action === 'FINAL_APPROVAL_APPROVED'
+          ? 'APPROVED'
+          : action === 'FINAL_APPROVAL_REJECTED'
+            ? 'REJECTED'
+            : 'FINAL_APPROVAL',
+      detail,
     });
   }
 
@@ -513,12 +586,20 @@ export class OnboardingFinalApprovalService {
               ? 'FINAL_APPROVAL_CANCELLED'
               : 'FINAL_APPROVAL_EXPIRED';
 
-      await this.writeProjectionAudit(customer.id, auditAction, actor.userId, actor.role || 'SYSTEM', {
-        approvalId: event.approvalId,
-        approvalNo: event.approvalNo,
-        status: normalizedStatus,
-        decisionReason: this.normalizeOptionalString(event.decisionReason),
-      });
+      await this.writeProjectionAudit(
+        customer.id,
+        customer.customerNo || null,
+        customer.activeJourneyId || null,
+        auditAction,
+        actor.userId,
+        actor.role || 'SYSTEM',
+        {
+          approvalId: event.approvalId,
+          approvalNo: event.approvalNo,
+          status: normalizedStatus,
+          decisionReason: this.normalizeOptionalString(event.decisionReason),
+        },
+      );
 
       if (normalizedStatus === ApprovalStatuses.APPROVED) {
         await this.approvalsService.markExecutionResult(

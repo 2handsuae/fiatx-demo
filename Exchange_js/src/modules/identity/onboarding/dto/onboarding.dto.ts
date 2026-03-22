@@ -140,8 +140,8 @@ export class MockCompleteSessionDto {
 
 export class ReviewCddResponseDto {
   @IsString()
-  @IsIn(['APPROVE', 'REJECT', 'UPGRADE_EDD'])
-  decision!: 'APPROVE' | 'REJECT' | 'UPGRADE_EDD';
+  @IsIn(['CLEAR', 'REJECT', 'REQUIRE_EDD'])
+  decision!: 'CLEAR' | 'REJECT' | 'REQUIRE_EDD';
 
   @IsOptional()
   @IsString()
@@ -160,8 +160,8 @@ export class ReviewCddResponseDto {
 
 export class ReviewEddResponseDto {
   @IsString()
-  @IsIn(['APPROVE', 'REJECT'])
-  decision!: 'APPROVE' | 'REJECT';
+  @IsIn(['CLEAR', 'REJECT'])
+  decision!: 'CLEAR' | 'REJECT';
 
   @IsOptional()
   @IsString()
@@ -170,8 +170,13 @@ export class ReviewEddResponseDto {
 
 export class ApplyOnboardingAlertDecisionDto {
   @IsString()
-  @IsIn(['APPROVE', 'REJECT', 'REQUIRE_EDD'])
-  decision!: 'APPROVE' | 'REJECT' | 'REQUIRE_EDD';
+  @IsIn(['CLEAR', 'REJECT', 'REQUIRE_EDD'])
+  decision!: 'CLEAR' | 'REJECT' | 'REQUIRE_EDD';
+
+  @IsOptional()
+  @IsString()
+  @IsIn(['FALSE_POSITIVE'])
+  alertOutcome?: 'FALSE_POSITIVE';
 
   @IsOptional()
   @IsString()

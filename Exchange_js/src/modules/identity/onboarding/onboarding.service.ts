@@ -8,6 +8,13 @@ import {
 import { Prisma } from '@prisma/client';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 import { PrismaService } from '../../../core/prisma/prisma.service';
+import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
+import {
+  AuditEntityTypes,
+  AuditModules,
+  AuditWorkflowTypes,
+} from '../../risk-engine/audit-logs/constants/audit-actions.constant';
+import { AuditTriggerType } from '../../risk-engine/audit-logs/dto/audit-log.dto';
 import {
   buildCustomerLifecyclePatch as buildCustomerLifecycleStatePatch,
   canReinitiateCdd,
@@ -17,13 +24,11 @@ import {
   CustomerNextStepActionType,
   CustomerOnboardingStatus,
   CustomerOperatingStatus,
-  CustomerPublicStatus,
   CustomerReviewStage,
   CustomerRestrictionStatus,
   getCustomerBlockedReason,
   getCustomerNextStepActionTypes,
   getExpectedReviewStageFromCustomerState,
-  getLegacyPublicStatusFromCanonical,
   isCustomerApprovedAndActive,
   normalizeCustomerOnboardingStatus,
   resolveCustomerCanonicalState,
@@ -33,8 +38,10 @@ import { ComplianceIncidentsService } from '../../risk-engine/compliance-inciden
 import {
   ALERT_DISPOSITION_CODES,
   CASE_DISPOSITION_CODES,
+  normalizeWorkflowDecision,
 } from '../../risk-engine/constants/compliance-disposition.constant';
 import {
+  buildComplianceWorkflowTraceContext,
   getCanonicalOnboardingRuleForStage,
   ONBOARDING_REVIEW_STAGES,
   OnboardingReviewStage,
@@ -68,8 +75,6 @@ type TradeAction = 'SWAP' | 'WITHDRAW' | 'DEPOSIT';
 type CaseType = 'CDD' | 'EDD';
 type SubjectKind = 'INDIVIDUAL_CUSTOMER' | 'CORPORATE_ENTITY' | 'UBO_PERSON';
 type MockResult = 'PASS' | 'FAIL';
-export type { CustomerPublicStatus } from '../customer-status.util';
-
 export type OnboardingActionType = CustomerNextStepActionType;
 
 export interface OnboardingAction {
@@ -115,6 +120,7 @@ const tradingEligibilitySelect = {
 @Injectable()
 export class OnboardingService {
   private readonly logger = new Logger(OnboardingService.name);
+  private readonly auditLogsService: AuditLogsService;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -123,7 +129,9 @@ export class OnboardingService {
     private readonly workflowTransitionService: WorkflowTransitionService,
     private readonly complianceIncidentsService: ComplianceIncidentsService,
     private readonly onboardingFinalApprovalService: OnboardingFinalApprovalService,
-  ) {}
+  ) {
+    this.auditLogsService = new AuditLogsService(prisma);
+  }
 
   private parseJsonSafely(value?: string | null): Record<string, unknown> {
     if (!value) return {};
@@ -156,12 +164,12 @@ export class OnboardingService {
     return resolveCustomerCanonicalState(customer);
   }
 
-  private getCustomerPublicStatus(customer: {
+  private getCustomerOnboardingStatus(customer: {
     onboardingStatus?: string | null;
     operatingStatus?: string | null;
     restrictionStatus?: string | null;
-  }): CustomerPublicStatus {
-    return getLegacyPublicStatusFromCanonical(this.getCanonicalState(customer).onboardingStatus);
+  }): CustomerOnboardingStatus {
+    return this.getCanonicalState(customer).onboardingStatus;
   }
 
   private resolveEddRequiredForState(
@@ -456,20 +464,58 @@ export class OnboardingService {
     caseType?: string;
     caseId?: string;
     detail?: string | null;
+    journeyId?: string | null;
   }) {
-    await (this.prisma as any).onboardingAuditLog.create({
-      data: {
-        customerId: input.customerId,
-        caseType: input.caseType || null,
-        caseId: input.caseId || null,
-        action: input.action,
-        actorId: input.actorId,
-        actorRole: input.actorRole,
-        fromStage: input.fromStage || null,
-        toStage: input.toStage || null,
-        detail: input.detail || null,
+    const actorType = String(input.actorRole || '').trim().toUpperCase() === 'CUSTOMER'
+      ? 'CUSTOMER'
+      : 'ADMIN';
+    const customer = await this.prisma.customerMain.findUnique({
+      where: { id: input.customerId },
+      select: {
+        id: true,
+        customerNo: true,
+        activeJourneyId: true,
       },
     });
+
+    const workflowContext = buildComplianceWorkflowTraceContext({
+      workflow: ONBOARDING_WORKFLOW,
+      journeyId: input.journeyId || customer?.activeJourneyId || null,
+    });
+
+    await this.auditLogsService.recordByActor(
+      {
+        triggerType: AuditTriggerType.STATE_TRANSITION,
+        action: input.action,
+        module: AuditModules.ONBOARDING,
+        entityType: AuditEntityTypes.ONBOARDING,
+        entityId: input.customerId,
+        entityNo: customer?.customerNo || undefined,
+        traceId: workflowContext?.traceId || undefined,
+        workflowType: workflowContext?.workflowType || AuditWorkflowTypes.ONBOARDING,
+        workflowId: workflowContext?.workflowId || undefined,
+        workflowNo: workflowContext?.workflowNo || undefined,
+        entityOwnerType: 'CUSTOMER',
+        entityOwnerId: input.customerId,
+        entityOwnerNo: customer?.customerNo || undefined,
+        statusFrom: input.fromStage || undefined,
+        statusTo: input.toStage || undefined,
+        reason: input.detail || undefined,
+        metadata: {
+          caseType: input.caseType || null,
+          caseId: input.caseId || null,
+          detail: input.detail || null,
+          source: 'ONBOARDING_AUDIT_MIRROR',
+        },
+        sourcePlatform: 'APPLICATION',
+      },
+      {
+        actorType,
+        actorId: input.actorId,
+        actorRole: input.actorRole,
+      },
+    );
+
   }
 
   private async getCustomerOrThrow(customerId: string, includeEntity = false): Promise<any> {
@@ -551,19 +597,31 @@ export class OnboardingService {
     return null;
   }
 
-  private toResponsePayload<T extends { caseNo?: string | null; caseType?: string | null }>(
+  private projectResponseRecord<T extends { caseNo?: string | null }>(
     row: T,
-    responseType?: CaseType | null,
-  ): Omit<T, 'caseNo' | 'caseType'> & {
+    responseType: CaseType,
+  ): Omit<T, 'caseNo'> & {
     responseNo: string | null;
-    responseType: CaseType | null;
+    responseType: CaseType;
   } {
-    const { caseNo, caseType, ...rest } = row;
+    const { caseNo, ...rest } = row;
     return {
-      ...(rest as Omit<T, 'caseNo' | 'caseType'>),
+      ...(rest as Omit<T, 'caseNo'>),
       responseNo: caseNo || null,
-      responseType: responseType || this.normalizeResponseType(caseType) || null,
+      responseType,
     };
+  }
+
+  private getIncidentAssigneeUserId(incident: {
+    assigneeUserId?: string | null;
+    ownerUserId?: string | null;
+  }): string | null {
+    const assigneeUserId = String((incident as any).assigneeUserId || '').trim();
+    if (assigneeUserId) {
+      return assigneeUserId;
+    }
+    const legacyOwnerUserId = String((incident as any).ownerUserId || '').trim();
+    return legacyOwnerUserId || null;
   }
 
   private buildSessionResponse(session: any): SessionResponse {
@@ -820,20 +878,14 @@ export class OnboardingService {
 
     const items = [
       ...cddResponses.map((item) => ({
-        ...this.toResponsePayload({
-          ...item,
-          caseType: 'CDD' as const,
-        }, 'CDD'),
+        ...this.projectResponseRecord(item, 'CDD'),
         inputData: this.parseJsonSafely(item.inputData),
         latestSession: latestSessionMap.get(`CDD:${item.id}`)
           ? this.buildSessionResponse(latestSessionMap.get(`CDD:${item.id}`))
           : null,
       })),
       ...eddResponses.map((item) => ({
-        ...this.toResponsePayload({
-          ...item,
-          caseType: 'EDD' as const,
-        }, 'EDD'),
+        ...this.projectResponseRecord(item, 'EDD'),
         inputData: this.parseJsonSafely(item.inputData),
         latestSession: latestSessionMap.get(`EDD:${item.id}`)
           ? this.buildSessionResponse(latestSessionMap.get(`EDD:${item.id}`))
@@ -898,8 +950,8 @@ export class OnboardingService {
       action: 'ENTITY_UPSERT',
       actorId,
       actorRole: 'CUSTOMER',
-      fromStage: this.getCustomerPublicStatus(customer),
-      toStage: this.getCustomerPublicStatus(updated),
+      fromStage: this.getCustomerOnboardingStatus(customer),
+      toStage: this.getCustomerOnboardingStatus(updated),
       detail: 'Customer entity profile normalized to INDIVIDUAL only.',
     });
 
@@ -913,7 +965,7 @@ export class OnboardingService {
     const customer = await this.getCustomerOrThrow(customerId);
     this.ensureIndividualOnly(customer);
 
-    const currentStatus = this.getCustomerPublicStatus(customer);
+    const currentStatus = this.getCustomerOnboardingStatus(customer);
     if (!canStartCdd(customer)) {
       throw new BadRequestException(
         `Current status ${currentStatus} does not allow starting new CDD response.`,
@@ -980,7 +1032,7 @@ export class OnboardingService {
 
   async reinitiateCddResponses(customerId: string, actorId: string) {
     const customer = await this.getCustomerOrThrow(customerId);
-    const status = this.getCustomerPublicStatus(customer);
+    const status = this.getCustomerOnboardingStatus(customer);
 
     if (!canReinitiateCdd(customer)) {
       throw new BadRequestException('CDD re-initiation is only allowed after rejection/withdraw/expiry.');
@@ -1091,7 +1143,7 @@ export class OnboardingService {
       actorRole: 'CUSTOMER',
       caseType: 'EDD',
       caseId: eddResponse.id,
-      fromStage: this.getCustomerPublicStatus(customer),
+      fromStage: this.getCustomerOnboardingStatus(customer),
       toStage: 'PENDING_EDD',
       detail: 'EDD response re-initiated.',
     });
@@ -1354,8 +1406,8 @@ export class OnboardingService {
         actorRole: 'CUSTOMER',
         caseType: 'CDD',
         caseId: cddResponse.id,
-        fromStage: this.getCustomerPublicStatus(customer),
-        toStage: this.getCustomerPublicStatus(updatedCustomer),
+        fromStage: this.getCustomerOnboardingStatus(customer),
+        toStage: this.getCustomerOnboardingStatus(updatedCustomer),
         detail: `CDD decision=${isLowRiskAutoPass ? 'AUTO_APPROVE' : decision.decision} mockDataType=${effectiveMockDataType} reasonCodes=${decision.reasonCodes.join(',')}`,
       });
 
@@ -1435,8 +1487,8 @@ export class OnboardingService {
       actorRole: 'CUSTOMER',
       caseType: 'EDD',
       caseId: eddResponse.id,
-      fromStage: this.getCustomerPublicStatus(customer),
-      toStage: this.getCustomerPublicStatus(updatedCustomer),
+      fromStage: this.getCustomerOnboardingStatus(customer),
+      toStage: this.getCustomerOnboardingStatus(updatedCustomer),
       detail: `EDD decision=${decision.decision} reasonCodes=${decision.reasonCodes.join(',')}`,
     });
 
@@ -1507,7 +1559,7 @@ export class OnboardingService {
       total,
       skip,
       take,
-      items: items.map((item) => this.toResponsePayload({ ...item, caseType: 'CDD' }, 'CDD')),
+      items: items.map((item) => this.projectResponseRecord(item, 'CDD')),
     };
   }
 
@@ -1543,9 +1595,8 @@ export class OnboardingService {
 
     const latestReport = row.reports[0] || null;
 
-    return this.toResponsePayload({
+    return this.projectResponseRecord({
       ...row,
-      caseType: 'CDD',
       inputData: this.parseJsonSafely(row.inputData),
       customerSnapshot: row.customer,
       latestReport: latestReport
@@ -1615,7 +1666,7 @@ export class OnboardingService {
       total,
       skip,
       take,
-      items: items.map((item) => this.toResponsePayload({ ...item, caseType: 'EDD' }, 'EDD')),
+      items: items.map((item) => this.projectResponseRecord(item, 'EDD')),
     };
   }
 
@@ -1651,9 +1702,8 @@ export class OnboardingService {
 
     const latestReport = row.reports[0] || null;
 
-    return this.toResponsePayload({
+    return this.projectResponseRecord({
       ...row,
-      caseType: 'EDD',
       inputData: this.parseJsonSafely(row.inputData),
       customerSnapshot: row.customer,
       latestReport: latestReport
@@ -1697,33 +1747,48 @@ export class OnboardingService {
   }
 
   private mapOnboardingAlertDisposition(decision: string) {
-    switch (String(decision || '').trim().toUpperCase()) {
-      case 'APPROVE':
-        return ALERT_DISPOSITION_CODES.APPROVE_STAGE;
-      case 'REJECT':
-        return ALERT_DISPOSITION_CODES.REJECT_STAGE;
-      case 'REQUIRE_EDD':
-        return ALERT_DISPOSITION_CODES.REQUIRE_EDD;
-      default:
-        throw new BadRequestException(`Unsupported onboarding alert decision: ${decision}`);
+    const normalized = normalizeWorkflowDecision(decision);
+    if (normalized === 'CLEAR') {
+      return ALERT_DISPOSITION_CODES.RESOLVED_BY_WORKFLOW;
     }
+    if (normalized === 'REJECT') {
+      return ALERT_DISPOSITION_CODES.RESOLVED_BY_WORKFLOW;
+    }
+    if (normalized === 'REQUIRE_EDD') {
+      return ALERT_DISPOSITION_CODES.RESOLVED_BY_WORKFLOW;
+    }
+    throw new BadRequestException(`Unsupported onboarding alert decision: ${decision}`);
   }
 
-  private mapOnboardingCaseDisposition(decision: string) {
-    switch (String(decision || '').trim().toUpperCase()) {
-      case 'APPROVE':
-        return CASE_DISPOSITION_CODES.APPROVE_STAGE;
-      case 'REJECT':
-        return CASE_DISPOSITION_CODES.REJECT_STAGE;
-      case 'REQUIRE_EDD':
-        return CASE_DISPOSITION_CODES.REQUIRE_EDD;
-      default:
-        throw new BadRequestException(`Unsupported onboarding case decision: ${decision}`);
+  private mapOnboardingAlertOutcome(outcome?: string | null) {
+    const normalized = String(outcome || '').trim().toUpperCase();
+    if (!normalized) return null;
+    if (normalized === ALERT_DISPOSITION_CODES.FALSE_POSITIVE) {
+      return ALERT_DISPOSITION_CODES.FALSE_POSITIVE;
     }
+    throw new BadRequestException(`Unsupported onboarding alert outcome: ${outcome}`);
+  }
+
+  private mapOnboardingWorkflowDecision(decision: string) {
+    const normalized = normalizeWorkflowDecision(decision);
+    if (normalized === 'CLEAR' || normalized === 'REJECT' || normalized === 'REQUIRE_EDD') {
+      return normalized;
+    }
+    throw new BadRequestException(`Unsupported onboarding workflow decision: ${decision}`);
   }
 
   private mapOnboardingWorkflowDisposition(decision: string) {
-    return this.mapOnboardingAlertDisposition(decision);
+    const normalized = this.mapOnboardingWorkflowDecision(decision);
+    switch (normalized) {
+      case 'CLEAR':
+        return 'CLEAR';
+      case 'REJECT':
+        return 'REJECT';
+      case 'REQUIRE_EDD':
+        return 'REQUIRE_EDD';
+      default:
+        throw new BadRequestException(`Unsupported onboarding workflow decision: ${decision}`);
+    }
   }
 
   private dedupeStringList(values: Array<string | null | undefined>): string[] {
@@ -1783,6 +1848,7 @@ export class OnboardingService {
       actorId: string;
       actorRole: string;
       decision: string;
+      alertOutcome?: 'FALSE_POSITIVE' | null;
       reason: string;
       linkedCaseIds: string[];
       decisionRecordIds: string[];
@@ -1793,9 +1859,12 @@ export class OnboardingService {
   ) {
     const now = new Date();
     const metadata = this.parseJsonSafely(alert.metadata);
-    const dispositionCode = this.mapOnboardingAlertDisposition(input.decision);
+    const workflowDecision = this.mapOnboardingWorkflowDecision(input.decision);
+    const outcomeDispositionCode =
+      this.mapOnboardingAlertOutcome(input.alertOutcome) ||
+      this.mapOnboardingAlertDisposition(workflowDecision);
     const mergedMetadata = this.mergeDecisionMetadata(metadata, {
-      decision: input.decision,
+      decision: workflowDecision,
       reason: input.reason,
       linkedCaseIds: input.linkedCaseIds,
       decisionRecordIds: input.decisionRecordIds,
@@ -1806,7 +1875,7 @@ export class OnboardingService {
     const dispositionRecord = await tx.complianceAlertDispositionRecord.create({
       data: {
         alertId: alert.id,
-        dispositionCode,
+        dispositionCode: outcomeDispositionCode,
         reason: input.reason || null,
         isFinal: input.closeAlert !== false,
         supersedesRecordId: String(alert.currentDispositionRecordId || '').trim() || null,
@@ -1829,13 +1898,13 @@ export class OnboardingService {
         closeReason:
           input.closeAlert === false
             ? alert.closeReason
-            : input.reason || `Onboarding decision ${input.decision}.`,
-        decisionRecommendation: input.decision,
-        decision: input.decision,
+            : input.reason || `Onboarding decision ${workflowDecision}.`,
+        decisionRecommendation: workflowDecision,
+        decision: workflowDecision,
         linkedCaseIds: JSON.stringify(input.linkedCaseIds),
         decisionRecordIds: JSON.stringify(input.decisionRecordIds),
         metadata: JSON.stringify(mergedMetadata),
-        currentDispositionCode: dispositionCode,
+        currentDispositionCode: outcomeDispositionCode,
         currentDispositionReason: input.reason || null,
         currentDispositionAt: now,
         currentDispositionById: input.actorId,
@@ -1843,7 +1912,7 @@ export class OnboardingService {
         currentDispositionByRole: input.actorRole,
         currentDispositionRecordId: dispositionRecord.id,
         finalDispositionCode:
-          input.closeAlert === false ? alert.finalDispositionCode : dispositionCode,
+          input.closeAlert === false ? alert.finalDispositionCode : outcomeDispositionCode,
         finalDispositionReason:
           input.closeAlert === false ? alert.finalDispositionReason : input.reason || null,
         finalDispositionAt: input.closeAlert === false ? alert.finalDispositionAt : now,
@@ -1864,13 +1933,14 @@ export class OnboardingService {
         actorId: input.actorId,
         actorRole: input.actorRole,
         note:
-          input.reason || `Onboarding decision ${input.decision} from ${input.source}.`,
+          input.reason || `Onboarding decision ${workflowDecision} from ${input.source}.`,
         payload: JSON.stringify({
           action: 'ONBOARDING_DECISION',
           source: input.source,
           sourceRefId: input.sourceRefId,
-          decision: input.decision,
-          dispositionCode,
+          decision: workflowDecision,
+          alertOutcome: input.alertOutcome || null,
+          dispositionCode: outcomeDispositionCode,
           linkedCaseIds: input.linkedCaseIds,
           decisionRecordIds: input.decisionRecordIds,
         }),
@@ -1967,6 +2037,11 @@ export class OnboardingService {
   ) {
     const { alert, actorId, actorRole, dto } = input;
     const reason = String(dto.reason || '').trim();
+    const workflowDecision = this.mapOnboardingWorkflowDecision(dto.decision);
+    const alertOutcome = dto.alertOutcome || null;
+    if (alertOutcome === 'FALSE_POSITIVE' && workflowDecision !== 'CLEAR') {
+      throw new BadRequestException('FALSE_POSITIVE can only be paired with CLEAR.');
+    }
     const { customerId, journeyId: alertJourneyId } = this.resolveAlertBinding(alert);
     if (!customerId) {
       throw new BadRequestException('Onboarding alert is missing customer binding.');
@@ -1979,7 +2054,7 @@ export class OnboardingService {
       throw new NotFoundException(`Customer not found: ${customerId}`);
     }
 
-    const fromStatus = this.getCustomerPublicStatus(customer);
+    const fromStatus = this.getCustomerOnboardingStatus(customer);
     const expectedStage = this.getExpectedReviewStage(customer);
     const alertStage = this.normalizeOnboardingAlertStage(alert.stage) || expectedStage;
     if (!expectedStage) {
@@ -1999,7 +2074,7 @@ export class OnboardingService {
     const latestDecisionRecordId =
       alertDecisionRecordIds[0] || customer.latestDecisionRecordId || null;
 
-    if (expectedStage === 'REVIEW_EDD' && dto.decision === 'REQUIRE_EDD') {
+    if (expectedStage === 'REVIEW_EDD' && workflowDecision === 'REQUIRE_EDD') {
       throw new BadRequestException(
         'REQUIRE_EDD is not valid while customer is in REVIEW_EDD.',
       );
@@ -2008,7 +2083,8 @@ export class OnboardingService {
     const recordedAlert = await this.recordDecisionOnAlert(tx, alert, {
       actorId,
       actorRole,
-      decision: dto.decision,
+      decision: workflowDecision,
+      alertOutcome,
       reason,
       linkedCaseIds: alertLinkedCaseIds,
       decisionRecordIds: alertDecisionRecordIds,
@@ -2024,7 +2100,7 @@ export class OnboardingService {
       producerId: input.sourceRefId,
       customerId: customer.id,
       journeyId,
-      dispositionCode: this.mapOnboardingWorkflowDisposition(dto.decision),
+      dispositionCode: this.mapOnboardingWorkflowDisposition(workflowDecision),
       reason,
       actorId,
       actorRole,
@@ -2117,7 +2193,7 @@ export class OnboardingService {
         requiresEdd: nextStep.requiresEdd,
       },
       eddResponse: txResult.eddResponse
-        ? this.toResponsePayload({ ...txResult.eddResponse, caseType: 'EDD' }, 'EDD')
+        ? this.projectResponseRecord(txResult.eddResponse, 'EDD')
         : null,
       transition: txResult.transition,
     };
@@ -2136,12 +2212,12 @@ export class OnboardingService {
       if (!incident) {
         throw new NotFoundException(`Compliance case not found: ${incidentId}`);
       }
-      if (incident.status !== 'ASSIGNED') {
+      if (incident.status !== 'ASSIGNED' && incident.status !== 'INVESTIGATING') {
         throw new BadRequestException(
-          `Onboarding decision from case is only allowed when case is ASSIGNED, current=${incident.status}`,
+          `Onboarding decision from case is only allowed when case is ASSIGNED or INVESTIGATING, current=${incident.status}`,
         );
       }
-      if (String(incident.ownerUserId || '').trim() !== actorId) {
+      if (this.getIncidentAssigneeUserId(incident) !== actorId) {
         throw new ForbiddenException('Only case assignee can apply onboarding decision.');
       }
       if (!incident.primaryAlertId) {
@@ -2163,59 +2239,46 @@ export class OnboardingService {
           'Case onboarding decision requires onboarding journey alert.',
         );
       }
-
-      const decisionResult = await this.applyOnboardingDecisionByAlert(tx, {
-        alert,
-        actorId,
-        actorRole,
-        dto,
-        source: 'INCIDENT',
-        sourceRefId: incident.id,
-      });
+      if (dto.alertOutcome) {
+        throw new BadRequestException(
+          'Case onboarding proposal does not support alertOutcome. Use report proposal + MLRO review for FALSE_POSITIVE.',
+        );
+      }
 
       const incidentMetadata = this.parseJsonSafely(incident.metadata);
-      const incidentDispositionCode = this.mapOnboardingCaseDisposition(dto.decision);
+      const linkedCaseIds = this.parseJsonArraySafely<string>(incident.linkedCaseIds);
+      const decisionRecordIds = this.parseJsonArraySafely<string>(
+        alert.decisionRecordIds,
+      );
       const mergedIncidentMetadata = this.mergeDecisionMetadata(incidentMetadata, {
         decision: dto.decision,
         reason: String(dto.reason || '').trim(),
-        linkedCaseIds: decisionResult.linkedCaseIds,
-        decisionRecordIds: decisionResult.decisionRecordIds,
+        linkedCaseIds,
+        decisionRecordIds,
         source: 'INCIDENT',
         sourceRefId: incident.id,
       });
 
       const now = new Date();
-      const incidentDispositionRecord =
-        await tx.complianceIncidentDispositionRecord.create({
-          data: {
-            incidentId: incident.id,
-            dispositionCode: incidentDispositionCode,
-            reason: String(dto.reason || '').trim() || null,
-            isFinal: false,
-            supersedesRecordId:
-              String(incident.currentDispositionRecordId || '').trim() || null,
-            decisionRecordId: decisionResult.decisionRecordIds[0] || null,
-            source: 'INCIDENT_ONBOARDING_DECISION',
-            sourceRefId: incident.id,
-            actorType: 'ADMIN',
-            actorId,
-            actorNo: null,
-            actorRole,
-            createdAt: now,
-          },
-        });
       await tx.complianceIncident.update({
         where: { id: incident.id },
         data: {
-          decision: dto.decision,
+          status: 'INVESTIGATING',
+          proposedWorkflowDecision: dto.decision,
+          proposedWorkflowReason: String(dto.reason || '').trim() || null,
           metadata: JSON.stringify(mergedIncidentMetadata),
-          currentDispositionCode: incidentDispositionCode,
-          currentDispositionReason: String(dto.reason || '').trim() || null,
-          currentDispositionAt: now,
-          currentDispositionById: actorId,
-          currentDispositionByNo: null,
-          currentDispositionByRole: actorRole,
-          currentDispositionRecordId: incidentDispositionRecord.id,
+          decisionRecordIds: JSON.stringify(decisionRecordIds),
+          linkedCaseIds: JSON.stringify(linkedCaseIds),
+          submittedForMlroAt: null,
+          submittedForMlroById: null,
+          submittedForMlroByNo: null,
+          submittedForMlroByRole: null,
+          mlroReviewOutcome: null,
+          mlroReviewNote: null,
+          mlroReviewedAt: null,
+          mlroReviewedById: null,
+          mlroReviewedByNo: null,
+          mlroReviewedByRole: null,
           lastActionById: actorId,
           lastActionByRole: actorRole,
           lastActionAt: now,
@@ -2231,11 +2294,10 @@ export class OnboardingService {
           actorRole,
           note:
             String(dto.reason || '').trim() ||
-            `Onboarding decision ${dto.decision} from case.`,
+            `Onboarding workflow proposal ${dto.decision} from case.`,
           payload: JSON.stringify({
-            action: 'ONBOARDING_DECISION',
-            decision: dto.decision,
-            dispositionCode: incidentDispositionCode,
+            action: 'ONBOARDING_WORKFLOW_PROPOSAL',
+            proposedWorkflowDecision: dto.decision,
             alertId: alert.id,
           }),
           sourcePlatform: 'ADMIN_API',
@@ -2245,14 +2307,15 @@ export class OnboardingService {
       await this.syncDecisionLinksOnIncident(tx, incident, {
         decision: dto.decision,
         reason: String(dto.reason || '').trim(),
-        linkedCaseIds: decisionResult.linkedCaseIds,
-        decisionRecordIds: decisionResult.decisionRecordIds,
+        linkedCaseIds,
+        decisionRecordIds,
         sourceRefId: incident.id,
       });
 
       return {
-        ...decisionResult,
+        alertId: alert.id,
         incidentId: incident.id,
+        proposedWorkflowDecision: dto.decision,
       };
     });
 
@@ -2260,28 +2323,17 @@ export class OnboardingService {
       this.riskDecisionOrchestratorService.findAlertDetail(txResult.alertId),
       this.complianceIncidentsService.findOne(txResult.incidentId),
     ]);
-    await this.emitTransitionApprovalSideEffects(
-      txResult.transition,
-      actorId,
-      actorRole,
-      dto.reason,
-    );
-    const nextStep = await this.buildNextStep(txResult.updatedCustomer);
 
     return {
       alert: alertDetail,
       incident: incidentDetail,
-      customer: {
-        ...txResult.updatedCustomer,
-        actions: nextStep.actions,
-        blockedReason: nextStep.blockedReason,
-        activeCaseId: nextStep.activeCaseId,
-        requiresEdd: nextStep.requiresEdd,
+      customer: null,
+      eddResponse: null,
+      transition: null,
+      proposal: {
+        workflowDecision: txResult.proposedWorkflowDecision,
+        finalDispositionCode: incidentDetail?.proposedFinalDispositionCode ?? null,
       },
-      eddResponse: txResult.eddResponse
-        ? this.toResponsePayload({ ...txResult.eddResponse, caseType: 'EDD' }, 'EDD')
-        : null,
-      transition: txResult.transition,
     };
   }
 
@@ -2302,7 +2354,7 @@ export class OnboardingService {
   async simulateCustomerExpired(customerId: string, actorId: string, actorRole: string) {
     const customer = await this.getCustomerOrThrow(customerId);
     const expiredAt = new Date(Date.now() - 60 * 60 * 1000);
-    const currentStatus = this.getCustomerPublicStatus(customer);
+    const currentStatus = this.getCustomerOnboardingStatus(customer);
 
     await this.prisma.customerMain.update({
       where: { id: customerId },
@@ -2319,7 +2371,7 @@ export class OnboardingService {
       actorId,
       actorRole,
       fromStage: currentStatus,
-      toStage: this.getCustomerPublicStatus(updated),
+      toStage: this.getCustomerOnboardingStatus(updated),
       detail: 'CDD document expiry simulated.',
     });
 

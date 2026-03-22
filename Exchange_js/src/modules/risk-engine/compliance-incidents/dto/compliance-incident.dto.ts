@@ -45,10 +45,6 @@ export class ComplianceIncidentQueryDto {
 
   @IsOptional()
   @IsString()
-  ownerUserId?: string;
-
-  @IsOptional()
-  @IsString()
   assigneeUserId?: string;
 
   @IsOptional()
@@ -63,10 +59,6 @@ export class ComplianceIncidentQueryDto {
   @IsOptional()
   @IsString()
   keyword?: string;
-
-  @IsOptional()
-  @IsString()
-  incidentNo?: string;
 
   @IsOptional()
   @IsString()
@@ -186,5 +178,6 @@ export interface ComplianceIncidentActorContext {
   actorId: string;
   actorNo?: string;
   actorRole?: string;
+  roleCodes?: string[];
   sourcePlatform?: string;
 }

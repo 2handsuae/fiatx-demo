@@ -136,7 +136,7 @@ describe('RiskDecisionRecordsService', () => {
       outputDecision: 'REVIEW',
       recommendedActions: '[{"type":"UPSERT_ALERT"}]',
       outputs:
-        '{"decision":"REVIEW","orchestration":{"workflow":"ONBOARDING","stage":"REVIEW_EDD","rule":"ONB_EDD_REVIEW_REQUIRED","executedActions":[{"type":"UPSERT_ALERT"},{"type":"ONBOARDING_RECOMMEND_DECISIONS"}],"skippedActions":[],"alertId":"alt-1","alertNo":"ALT0001","alertUpserted":true,"recommendedDecisions":["APPROVE","REJECT"]},"workflowTransition":{"workflow":"ONBOARDING","stage":"REVIEW_EDD","dispositionCode":"APPROVE_STAGE","transitionCode":"EDD_APPROVE_TO_FINAL_APPROVAL","fromStatus":"REVIEW_EDD","toStatus":"FINAL_APPROVAL","executed":true}}',
+        '{"decision":"REVIEW","orchestration":{"workflow":"ONBOARDING","stage":"REVIEW_EDD","rule":"ONB_EDD_REVIEW_REQUIRED","executedActions":[{"type":"UPSERT_ALERT"},{"type":"ONBOARDING_RECOMMEND_DECISIONS"}],"skippedActions":[],"alertId":"alt-1","alertNo":"ALT0001","alertUpserted":true,"recommendedDecisions":["CLEAR","REJECT"]},"workflowTransition":{"workflow":"ONBOARDING","stage":"REVIEW_EDD","dispositionCode":"CLEAR","transitionCode":"EDD_APPROVE_TO_FINAL_APPROVAL","fromStatus":"REVIEW_EDD","toStatus":"FINAL_APPROVAL","executed":true}}',
       reasonCodes: '["HIGH_RISK_SCORE"]',
       errorMessage: null,
       createdAt: new Date('2026-02-20T00:00:00.000Z'),

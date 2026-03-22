@@ -1,4 +1,5 @@
 import { BadRequestException, ConflictException } from '@nestjs/common';
+import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
 import { OnboardingFinalApprovalService } from './onboarding-final-approval.service';
 import {
   ApprovalActionTypes,
@@ -28,6 +29,8 @@ describe('OnboardingFinalApprovalService', () => {
       },
       $transaction: jest.fn(async (callback: (tx: any) => unknown) => callback(prisma)),
     };
+
+    jest.spyOn(AuditLogsService.prototype, 'recordByActor').mockResolvedValue({} as any);
 
     approvalsService = {
       createAndSubmit: jest.fn(),
@@ -71,6 +74,10 @@ describe('OnboardingFinalApprovalService', () => {
       expect.objectContaining({
         actionType: ApprovalActionTypes.ONBOARDING_FINAL_APPROVAL,
         entityRef: 'c1',
+        traceId: 'ONBOARDING:ONB-1',
+        workflowType: 'ONBOARDING',
+        workflowId: 'ONB-1',
+        workflowNo: 'ONB-1',
         metadata: expect.objectContaining({
           customerNo: 'CU0001',
           journeyId: 'ONB-1',

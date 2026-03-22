@@ -35,7 +35,7 @@ describe('WorkflowTransitionService', () => {
       producerId: 'alert-1',
       customerId: 'c1',
       journeyId: 'ONB-1',
-      dispositionCode: 'APPROVE_STAGE',
+      dispositionCode: 'CLEAR',
       actorId: 'admin-1',
       actorRole: 'COMPLIANCE_LEAD',
     } as any);
@@ -66,7 +66,7 @@ describe('WorkflowTransitionService', () => {
       producerId: 'alert-1',
       customerId: 'c1',
       sourceId: 'prr-1',
-      dispositionCode: 'APPROVE_STAGE',
+      dispositionCode: 'CLEAR',
       actorId: 'admin-1',
       actorRole: 'COMPLIANCE_LEAD',
     } as any);
@@ -90,7 +90,7 @@ describe('WorkflowTransitionService', () => {
         producerId: 'alert-1',
         customerId: 'c1',
         journeyId: 'ONB-1',
-        dispositionCode: 'APPROVE_STAGE',
+        dispositionCode: 'CLEAR',
         actorId: 'admin-1',
         actorRole: 'COMPLIANCE_LEAD',
       } as any),

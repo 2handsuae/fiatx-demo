@@ -16,6 +16,7 @@ import {
   ALERT_DISPOSITION_CODES,
   mirrorLegacyDecisionFromDisposition,
   normalizeAlertDispositionCode,
+  normalizeWorkflowDecision,
 } from '../constants/compliance-disposition.constant';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
 import {
@@ -40,13 +41,14 @@ import {
   UpdateComplianceAlertActionDto,
 } from './dto/compliance-alert.dto';
 import {
-  ALERT_COMPLIANCE_ACTIONS,
-  ALERT_COMPLIANCE_ACTIONS_BY_STAGE,
+  ALERT_OUTCOME_ACTIONS_BY_STAGE,
   ALERT_WORK_ITEM_ACTIONS,
   LEGACY_ONBOARDING_REVIEW_RULE,
   ONBOARDING_REVIEW_STAGES,
   ONBOARDING_SOURCE_TYPE,
   PERIODIC_REVIEW_WORKFLOW,
+  WORKFLOW_DECISIONS_BY_STAGE,
+  buildComplianceWorkflowTraceContext,
   getCanonicalOnboardingRuleForStage,
   getCanonicalReviewRuleForStage,
   getWorkflowFromSourceType,
@@ -197,47 +199,103 @@ export class ComplianceAlertsService {
     };
   }
 
-  private getAvailableWorkItemActions(
+  private getAuditWorkflowContext(row: {
+    sourceType?: string | null;
+    sourceId?: string | null;
+    sourceNo?: string | null;
+    journeyId?: string | null;
+  }) {
+    return buildComplianceWorkflowTraceContext({
+      sourceType: row.sourceType,
+      sourceId: row.sourceId,
+      sourceNo: row.sourceNo,
+      journeyId: row.journeyId,
+    });
+  }
+
+  private getAvailableAlertActions(
     row: {
       status?: string | null;
-      assigneeUserId?: string | null;
+      sourceType?: string | null;
+      stage?: string | null;
     },
-    actorId?: string | null,
   ): string[] {
     const status = String(row.status || '').trim().toUpperCase();
-    const assigneeUserId = this.normalizeOptionalString(row.assigneeUserId);
-    const isCurrentAssignee = !!actorId && !!assigneeUserId && assigneeUserId === actorId;
+    const workflowBound = this.isWorkflowBoundAlert(row);
+
+    if (!workflowBound) {
+      if (status === ComplianceAlertStatus.OPEN) {
+        return [ALERT_WORK_ITEM_ACTIONS.ASSIGN];
+      }
+      if (status === ComplianceAlertStatus.ASSIGNED) {
+        return [ALERT_WORK_ITEM_ACTIONS.REASSIGN];
+      }
+      return [];
+    }
 
     if (status === ComplianceAlertStatus.OPEN) {
-      return [ALERT_WORK_ITEM_ACTIONS.ASSIGN];
+      return [
+        ALERT_WORK_ITEM_ACTIONS.ASSIGN,
+        ...ALERT_OUTCOME_ACTIONS_BY_STAGE[
+          normalizeComplianceReviewStage((row as any).stage) || ONBOARDING_REVIEW_STAGES.REVIEW_CDD
+        ],
+      ];
     }
-    if (status === ComplianceAlertStatus.ASSIGNED && isCurrentAssignee) {
-      return [ALERT_WORK_ITEM_ACTIONS.REASSIGN, ALERT_WORK_ITEM_ACTIONS.CLOSE];
-    }
-    if (status === ComplianceAlertStatus.ESCALATED && isCurrentAssignee) {
-      return [ALERT_WORK_ITEM_ACTIONS.CLOSE];
+    if (status === ComplianceAlertStatus.ASSIGNED) {
+      return [
+        ALERT_WORK_ITEM_ACTIONS.REASSIGN,
+        ...ALERT_OUTCOME_ACTIONS_BY_STAGE[
+          normalizeComplianceReviewStage((row as any).stage) || ONBOARDING_REVIEW_STAGES.REVIEW_CDD
+        ],
+      ];
     }
     return [];
   }
 
-  private getAvailableComplianceActions(
+  private getAvailableWorkflowActions(
     row: {
       status?: string | null;
-      assigneeUserId?: string | null;
+      sourceType?: string | null;
       stage?: string | null;
+      assigneeUserId?: string | null;
     },
-    actorId?: string | null,
+    actor?: ComplianceAlertActorContext | null,
   ): string[] {
     const status = String(row.status || '').trim().toUpperCase();
     const stage = normalizeComplianceReviewStage((row as any).stage);
-    const assigneeUserId = this.normalizeOptionalString(row.assigneeUserId);
-    const isCurrentAssignee = !!actorId && !!assigneeUserId && assigneeUserId === actorId;
+    const currentAssigneeUserId = this.normalizeOptionalString((row as any).assigneeUserId);
+    const actorId = this.normalizeOptionalString(actor?.actorId);
 
-    if (!stage || status !== ComplianceAlertStatus.ASSIGNED || !isCurrentAssignee) {
+    if (
+      !this.isWorkflowBoundAlert(row) ||
+      !stage ||
+      status !== ComplianceAlertStatus.ASSIGNED ||
+      !currentAssigneeUserId ||
+      !actorId ||
+      currentAssigneeUserId !== actorId
+    ) {
       return [];
     }
 
-    return [...ALERT_COMPLIANCE_ACTIONS_BY_STAGE[stage]];
+    return [...WORKFLOW_DECISIONS_BY_STAGE[stage]];
+  }
+
+  private isWorkflowBoundAlert(row: {
+    sourceType?: string | null;
+    stage?: string | null;
+  }): boolean {
+    return (
+      isSupportedReviewSourceType(row.sourceType) &&
+      !!normalizeComplianceReviewStage((row as any).stage)
+    );
+  }
+
+  private normalizeWorkflowAlertDispositionCode(value: unknown): string | null {
+    const normalized = normalizeAlertDispositionCode(value);
+    if (normalizeWorkflowDecision(normalized)) {
+      return ALERT_DISPOSITION_CODES.RESOLVED_BY_WORKFLOW;
+    }
+    return normalized;
   }
 
   private toRetainedUntil(occurredAt: Date): Date {
@@ -381,13 +439,16 @@ export class ComplianceAlertsService {
   }
 
   private mapDispositionRecord(row: ComplianceAlertDispositionRecord) {
-    const dispositionCode =
+    const normalized =
       normalizeAlertDispositionCode(row.dispositionCode) || row.dispositionCode;
+    const dispositionCode = this.normalizeWorkflowAlertDispositionCode(normalized) || normalized;
     return {
       ...row,
       dispositionCode,
       legacyDecision:
-        mirrorLegacyDecisionFromDisposition(dispositionCode) || dispositionCode,
+        normalizeWorkflowDecision(
+          mirrorLegacyDecisionFromDisposition(normalized) || row.dispositionCode,
+        ) || dispositionCode,
     };
   }
 
@@ -407,14 +468,8 @@ export class ComplianceAlertsService {
       dispositionHistory: dispositionRecords.map((record) =>
         this.mapDispositionRecord(record),
       ),
-      availableWorkItemActions: this.getAvailableWorkItemActions(
-        item,
-        actor?.actorId || null,
-      ),
-      availableComplianceActions: this.getAvailableComplianceActions(
-        item,
-        actor?.actorId || null,
-      ),
+      availableAlertActions: this.getAvailableAlertActions(item),
+      availableWorkflowActions: this.getAvailableWorkflowActions(item, actor),
     };
   }
 
@@ -459,12 +514,7 @@ export class ComplianceAlertsService {
   }
 
   private normalizeRecommendedDecision(value: unknown): string | null {
-    const normalized = String(value || '').trim().toUpperCase();
-    if (!normalized) return null;
-    if (normalized === 'APPROVE') return 'APPROVE';
-    if (normalized === 'REJECT') return 'REJECT';
-    if (normalized === 'REQUIRE_EDD') return 'REQUIRE_EDD';
-    return null;
+    return normalizeWorkflowDecision(value);
   }
 
   private dedupeRecommendedDecisions(decisions: unknown[]): string[] {
@@ -485,10 +535,10 @@ export class ComplianceAlertsService {
 
     const contextType = String(metadata.contextType || '').toUpperCase();
     if (contextType === 'ONBOARDING_CDD' || contextType === 'PERIODIC_REVIEW_CDD') {
-      return ['APPROVE', 'REJECT', 'REQUIRE_EDD'];
+      return ['CLEAR', 'REJECT', 'REQUIRE_EDD'];
     }
     if (contextType === 'ONBOARDING_EDD' || contextType === 'PERIODIC_REVIEW_EDD') {
-      return ['APPROVE', 'REJECT'];
+      return ['CLEAR', 'REJECT'];
     }
 
     const recommendation = this.normalizeRecommendedDecision(row.decisionRecommendation);
@@ -505,8 +555,20 @@ export class ComplianceAlertsService {
     const currentDisposition = this.getCurrentDispositionSnapshot(row);
     const finalDisposition = this.getFinalDispositionSnapshot(row, currentDisposition);
     const mirroredDecision =
-      mirrorLegacyDecisionFromDisposition(currentDisposition.currentDispositionCode) ||
+      normalizeWorkflowDecision(row.decision) ||
+      normalizeWorkflowDecision(
+        mirrorLegacyDecisionFromDisposition(currentDisposition.currentDispositionCode),
+      ) ||
       this.normalizeOptionalString(row.decision);
+    const decisionRecommendation = this.normalizeRecommendedDecision(
+      row.decisionRecommendation,
+    );
+    const currentDispositionCode = this.isWorkflowBoundAlert(row)
+      ? this.normalizeWorkflowAlertDispositionCode(currentDisposition.currentDispositionCode)
+      : currentDisposition.currentDispositionCode;
+    const finalDispositionCode = this.isWorkflowBoundAlert(row)
+      ? this.normalizeWorkflowAlertDispositionCode(finalDisposition.finalDispositionCode)
+      : finalDisposition.finalDispositionCode;
 
     return {
       ...row,
@@ -516,17 +578,18 @@ export class ComplianceAlertsService {
       ruleCode: ruleSnapshot.rule,
       metadata: metadata || {},
       reasonCodes: this.extractReasonCodes(normalizedMetadata),
-      currentDispositionCode: currentDisposition.currentDispositionCode,
+      currentDispositionCode,
       currentDispositionReason: currentDisposition.currentDispositionReason,
       currentDispositionAt: currentDisposition.currentDispositionAt,
       currentDispositionById: currentDisposition.currentDispositionById,
       currentDispositionByNo: currentDisposition.currentDispositionByNo,
       currentDispositionByRole: currentDisposition.currentDispositionByRole,
       currentDispositionRecordId: currentDisposition.currentDispositionRecordId,
-      finalDispositionCode: finalDisposition.finalDispositionCode,
+      finalDispositionCode,
       finalDispositionReason: finalDisposition.finalDispositionReason,
       finalDispositionAt: finalDisposition.finalDispositionAt,
       finalDispositionRecordId: finalDisposition.finalDispositionRecordId,
+      decisionRecommendation,
       decision: mirroredDecision,
       linkedCaseIds: this.parseJson(row.linkedCaseIds),
       decisionRecordIds: this.parseJson(row.decisionRecordIds),
@@ -934,6 +997,7 @@ export class ComplianceAlertsService {
         });
       }
 
+      const workflowContext = this.getAuditWorkflowContext(created);
       await this.auditLogsService.recordSystem(
         {
           triggerType: AuditTriggerType.DATA_UPDATE,
@@ -942,6 +1006,10 @@ export class ComplianceAlertsService {
           entityType: AuditEntityTypes.COMPLIANCE_ALERT,
           entityId: created.id,
           entityNo: created.alertNo,
+          traceId: workflowContext?.traceId || undefined,
+          workflowType: workflowContext?.workflowType || undefined,
+          workflowId: workflowContext?.workflowId || undefined,
+          workflowNo: workflowContext?.workflowNo || undefined,
           entityOwnerType: created.ownerType || undefined,
           entityOwnerId: created.ownerId || undefined,
           reason: `Alert triggered: ${rule.ruleCode}`,
@@ -1067,6 +1135,7 @@ export class ComplianceAlertsService {
         });
       }
 
+      const workflowContext = this.getAuditWorkflowContext(createdAfterClosed);
       await this.auditLogsService.recordSystem(
         {
           triggerType: AuditTriggerType.DATA_UPDATE,
@@ -1075,6 +1144,10 @@ export class ComplianceAlertsService {
           entityType: AuditEntityTypes.COMPLIANCE_ALERT,
           entityId: createdAfterClosed.id,
           entityNo: createdAfterClosed.alertNo,
+          traceId: workflowContext?.traceId || undefined,
+          workflowType: workflowContext?.workflowType || undefined,
+          workflowId: workflowContext?.workflowId || undefined,
+          workflowNo: workflowContext?.workflowNo || undefined,
           entityOwnerType: createdAfterClosed.ownerType || undefined,
           entityOwnerId: createdAfterClosed.ownerId || undefined,
           reason: `Alert triggered after terminal state: ${canonicalRule}`,
@@ -1182,6 +1255,7 @@ export class ComplianceAlertsService {
       sourcePlatform,
     });
 
+    const workflowContext = this.getAuditWorkflowContext(updated);
     await this.auditLogsService.recordSystem(
       {
         triggerType: AuditTriggerType.DATA_UPDATE,
@@ -1190,6 +1264,10 @@ export class ComplianceAlertsService {
         entityType: AuditEntityTypes.COMPLIANCE_ALERT,
         entityId: updated.id,
         entityNo: updated.alertNo,
+        traceId: workflowContext?.traceId || undefined,
+        workflowType: workflowContext?.workflowType || undefined,
+        workflowId: workflowContext?.workflowId || undefined,
+        workflowNo: workflowContext?.workflowNo || undefined,
         entityOwnerType: updated.ownerType || undefined,
         entityOwnerId: updated.ownerId || undefined,
         reason: `Alert re-triggered: ${canonicalRule}`,
@@ -1425,6 +1503,10 @@ export class ComplianceAlertsService {
         status: true,
         ownerType: true,
         ownerId: true,
+        sourceType: true,
+        sourceId: true,
+        sourceNo: true,
+        journeyId: true,
       },
       take: 200,
       orderBy: { dueAt: 'asc' },
@@ -1441,6 +1523,10 @@ export class ComplianceAlertsService {
             ownerType: true,
             ownerId: true,
             overdueMarkedAt: true,
+            sourceType: true,
+            sourceId: true,
+            sourceNo: true,
+            journeyId: true,
           },
         });
         if (!current || current.overdueMarkedAt || this.isClosedStatus(current.status)) {
@@ -1474,6 +1560,7 @@ export class ComplianceAlertsService {
           sourcePlatform: 'SYSTEM',
         });
 
+        const workflowContext = this.getAuditWorkflowContext(current);
         await this.auditLogsService.recordSystem(
           {
             triggerType: AuditTriggerType.SYSTEM_EVENT,
@@ -1482,6 +1569,10 @@ export class ComplianceAlertsService {
             entityType: AuditEntityTypes.COMPLIANCE_ALERT,
             entityId: current.id,
             entityNo: current.alertNo,
+            traceId: workflowContext?.traceId || undefined,
+            workflowType: workflowContext?.workflowType || undefined,
+            workflowId: workflowContext?.workflowId || undefined,
+            workflowNo: workflowContext?.workflowNo || undefined,
             entityOwnerType: current.ownerType || undefined,
             entityOwnerId: current.ownerId || undefined,
             reason: `Alert ${current.alertNo} marked overdue`,
@@ -1522,6 +1613,15 @@ export class ComplianceAlertsService {
 
     const currentStatus = current.status as ComplianceAlertStatus;
     this.assertActionAllowed(currentStatus, dto.action);
+
+    if (
+      this.isWorkflowBoundAlert(current) &&
+      dto.action === ComplianceAlertAction.CLOSE
+    ) {
+      throw new BadRequestException(
+        'Workflow-bound alerts must be resolved via FALSE_POSITIVE or dedicated workflow decision endpoints.',
+      );
+    }
 
     if (
       currentStatus === ComplianceAlertStatus.ASSIGNED &&
@@ -1717,6 +1817,7 @@ export class ComplianceAlertsService {
       sourcePlatform: actor.sourcePlatform || 'ADMIN_API',
     });
 
+    const workflowContext = this.getAuditWorkflowContext(updated);
     await this.auditLogsService.recordByActor(
       {
         triggerType: AuditTriggerType.DATA_UPDATE,
@@ -1725,6 +1826,10 @@ export class ComplianceAlertsService {
         entityType: AuditEntityTypes.COMPLIANCE_ALERT,
         entityId: updated.id,
         entityNo: updated.alertNo,
+        traceId: workflowContext?.traceId || undefined,
+        workflowType: workflowContext?.workflowType || undefined,
+        workflowId: workflowContext?.workflowId || undefined,
+        workflowNo: workflowContext?.workflowNo || undefined,
         entityOwnerType: updated.ownerType || undefined,
         entityOwnerId: updated.ownerId || undefined,
         statusFrom: resolution.statusChanged ? currentStatus : undefined,

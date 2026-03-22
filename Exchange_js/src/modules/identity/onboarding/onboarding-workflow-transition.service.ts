@@ -5,28 +5,35 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
+import { PrismaService } from '../../../core/prisma/prisma.service';
+import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
+import {
+  AuditEntityTypes,
+  AuditModules,
+  AuditWorkflowTypes,
+} from '../../risk-engine/audit-logs/constants/audit-actions.constant';
+import { AuditTriggerType } from '../../risk-engine/audit-logs/dto/audit-log.dto';
 import {
   buildCustomerLifecyclePatch as buildCustomerLifecycleStatePatch,
   CustomerOnboardingStatus,
   CustomerOperatingStatus,
-  CustomerPublicStatus,
   CustomerReviewStage,
   CustomerRestrictionStatus,
   getExpectedReviewStageFromCustomerState,
-  getLegacyPublicStatusFromCanonical,
   resolveCustomerCanonicalState,
 } from '../customer-status.util';
 import {
   ALERT_DISPOSITION_CODES,
   CASE_DISPOSITION_CODES,
+  normalizeWorkflowDecision,
 } from '../../risk-engine/constants/compliance-disposition.constant';
 import {
+  buildComplianceWorkflowTraceContext,
   ComplianceReviewStage,
   ComplianceWorkflow,
   ONBOARDING_REVIEW_STAGES,
   ONBOARDING_WORKFLOW,
 } from '../../risk-engine/constants/onboarding-compliance-workflow.constant';
-import { OnboardingFinalApprovalService } from './onboarding-final-approval.service';
 
 export type WorkflowTransitionProducerType = 'ALERT' | 'CASE';
 
@@ -69,8 +76,8 @@ export interface WorkflowTransitionOutput {
   stage: ComplianceReviewStage;
   dispositionCode: string;
   transitionCode: WorkflowTransitionCode;
-  fromStatus: CustomerPublicStatus;
-  toStatus: CustomerPublicStatus;
+  fromStatus: CustomerOnboardingStatus;
+  toStatus: CustomerOnboardingStatus;
   executed: boolean;
   updatedCustomer: any;
   eddResponse?: any | null;
@@ -83,25 +90,28 @@ export interface WorkflowTransitionOutput {
 
 @Injectable()
 export class OnboardingWorkflowTransitionService {
-  constructor(
-    private readonly onboardingFinalApprovalService: OnboardingFinalApprovalService,
-  ) {}
+  private readonly auditLogsService: AuditLogsService;
+
+  constructor(private readonly prisma: PrismaService) {
+    this.auditLogsService = new AuditLogsService(prisma);
+  }
 
   private readonly noTransitionDispositionCodes = new Set<string>([
     ALERT_DISPOSITION_CODES.ESCALATE_TO_CASE,
     ALERT_DISPOSITION_CODES.FALSE_POSITIVE,
-    ALERT_DISPOSITION_CODES.NO_ACTION,
-    CASE_DISPOSITION_CODES.RESTRICT,
-    CASE_DISPOSITION_CODES.REPORT,
+    ALERT_DISPOSITION_CODES.RESOLVED_BY_WORKFLOW,
+    'RESTRICT',
+    'REPORT',
     CASE_DISPOSITION_CODES.FALSE_POSITIVE,
+    CASE_DISPOSITION_CODES.RISK_CONFIRMED,
   ]);
 
-  private getCustomerPublicStatus(customer: {
+  private getCustomerOnboardingStatus(customer: {
     onboardingStatus?: string | null;
     operatingStatus?: string | null;
     restrictionStatus?: string | null;
-  }): CustomerPublicStatus {
-    return getLegacyPublicStatusFromCanonical(resolveCustomerCanonicalState(customer).onboardingStatus);
+  }): CustomerOnboardingStatus {
+    return resolveCustomerCanonicalState(customer).onboardingStatus;
   }
 
   private buildCustomerLifecyclePatch(
@@ -276,19 +286,94 @@ export class OnboardingWorkflowTransitionService {
     dispositionCode: string;
   }): string {
     const prefix = input.producerType === 'CASE' ? 'CASE' : 'ALERT';
-    switch (input.dispositionCode) {
-      case ALERT_DISPOSITION_CODES.APPROVE_STAGE:
-      case CASE_DISPOSITION_CODES.APPROVE_STAGE:
-        return `${prefix}_APPROVE`;
-      case ALERT_DISPOSITION_CODES.REJECT_STAGE:
-      case CASE_DISPOSITION_CODES.REJECT_STAGE:
+    const workflowDecision = this.getWorkflowDecision(input.dispositionCode);
+    switch (workflowDecision) {
+      case 'CLEAR':
+        return `${prefix}_CLEAR`;
+      case 'REJECT':
         return `${prefix}_REJECT`;
-      case ALERT_DISPOSITION_CODES.REQUIRE_EDD:
-      case CASE_DISPOSITION_CODES.REQUIRE_EDD:
+      case 'REQUIRE_EDD':
         return `${prefix}_REQUIRE_EDD`;
       default:
         return `${prefix}_${input.dispositionCode}`;
     }
+  }
+
+  private getWorkflowDecision(value: unknown): 'CLEAR' | 'REJECT' | 'REQUIRE_EDD' | null {
+    const normalized = normalizeWorkflowDecision(value);
+    if (normalized === 'CLEAR' || normalized === 'REJECT' || normalized === 'REQUIRE_EDD') {
+      return normalized;
+    }
+    if (String(value || '').trim().toUpperCase() === CASE_DISPOSITION_CODES.CLEAR) {
+      return 'CLEAR';
+    }
+    return null;
+  }
+
+  private getWorkflowAuditAction(dispositionCode: string): string {
+    const workflowDecision = this.getWorkflowDecision(dispositionCode);
+    if (workflowDecision === 'CLEAR') {
+      return 'ONBOARDING_WORKFLOW_CLEAR';
+    }
+    if (workflowDecision === 'REJECT') {
+      return 'ONBOARDING_WORKFLOW_REJECT';
+    }
+    if (workflowDecision === 'REQUIRE_EDD') {
+      return 'ONBOARDING_WORKFLOW_REQUIRE_EDD';
+    }
+    return `ONBOARDING_WORKFLOW_${String(dispositionCode || '').trim().toUpperCase()}`;
+  }
+
+  private async recordCanonicalWorkflowAudit(
+    tx: Prisma.TransactionClient,
+    customer: any,
+    input: WorkflowTransitionInput,
+    dispositionCode: string,
+    fromStatus: string,
+    toStatus: string,
+    caseType: string | null,
+    caseId: string | null,
+  ) {
+    const traceContext = buildComplianceWorkflowTraceContext({
+      workflow: ONBOARDING_WORKFLOW,
+      journeyId:
+        input.journeyId || customer.activeJourneyId || null,
+    });
+    await this.auditLogsService.recordByActor(
+      {
+        triggerType: AuditTriggerType.STATE_TRANSITION,
+        action: this.getWorkflowAuditAction(dispositionCode),
+        module: AuditModules.ONBOARDING,
+        entityType: AuditEntityTypes.ONBOARDING,
+        entityId: customer.id,
+        entityNo: customer.customerNo || undefined,
+        traceId: traceContext?.traceId || undefined,
+        workflowType: traceContext?.workflowType || AuditWorkflowTypes.ONBOARDING,
+        workflowId: traceContext?.workflowId || undefined,
+        workflowNo: traceContext?.workflowNo || undefined,
+        entityOwnerType: 'CUSTOMER',
+        entityOwnerId: customer.id,
+        entityOwnerNo: customer.customerNo || undefined,
+        statusFrom: fromStatus || undefined,
+        statusTo: toStatus || undefined,
+        reason: String(input.reason || '').trim() || dispositionCode,
+        metadata: {
+          producerType: input.producerType,
+          producerId: input.producerId,
+          stage: input.stage,
+          caseType,
+          caseId,
+          dispositionCode,
+        },
+        sourcePlatform: 'APPLICATION',
+      },
+      {
+        actorType: 'ADMIN',
+        actorId: input.actorId,
+        actorRole: input.actorRole,
+      },
+      tx,
+    );
   }
 
   private async writeWorkflowTransitionSnapshot(
@@ -363,7 +448,7 @@ export class OnboardingWorkflowTransitionService {
       throw new NotFoundException(`Customer not found: ${input.customerId}`);
     }
 
-    const fromStatus = this.getCustomerPublicStatus(customer);
+    const fromStatus = this.getCustomerOnboardingStatus(customer);
     const expectedStage = this.getExpectedReviewStage(customer);
     if (!expectedStage) {
       throw new BadRequestException(
@@ -377,6 +462,7 @@ export class OnboardingWorkflowTransitionService {
     }
 
     const dispositionCode = this.normalizeDispositionCode(input.dispositionCode);
+    const workflowDecision = this.getWorkflowDecision(dispositionCode);
     const linkedCaseIds = Array.from(
       new Set((input.linkedCaseIds || []).map((item) => String(item || '').trim()).filter(Boolean)),
     );
@@ -403,7 +489,7 @@ export class OnboardingWorkflowTransitionService {
     }
 
     const now = new Date();
-    let toStatus: CustomerPublicStatus = fromStatus;
+    let toStatus: CustomerOnboardingStatus = fromStatus;
     let transitionCode: WorkflowTransitionCode = WORKFLOW_TRANSITION_CODES.NO_TRANSITION;
     let eddResponse: any | null = null;
     let caseType: 'CDD' | 'EDD' | null = null;
@@ -419,9 +505,9 @@ export class OnboardingWorkflowTransitionService {
       caseType = 'CDD';
       caseId = cddResponse.id;
 
-      if (dispositionCode === ALERT_DISPOSITION_CODES.APPROVE_STAGE) {
+      if (workflowDecision === 'CLEAR') {
         transitionCode = WORKFLOW_TRANSITION_CODES.CDD_APPROVE_TO_ACTIVE;
-        toStatus = 'ACTIVE';
+        toStatus = 'APPROVED';
         customerUpdateData = {
           ...customerUpdateData,
           ...this.buildCustomerLifecyclePatch(customer, {
@@ -434,7 +520,7 @@ export class OnboardingWorkflowTransitionService {
           cddDocumentExpiresAt: this.addDays(now, 365),
           nextReviewAt: this.addDays(now, 365),
         };
-      } else if (dispositionCode === ALERT_DISPOSITION_CODES.REJECT_STAGE) {
+      } else if (workflowDecision === 'REJECT') {
         transitionCode = WORKFLOW_TRANSITION_CODES.CDD_REJECT_TO_REJECTED;
         toStatus = 'REJECTED';
         customerUpdateData = {
@@ -447,7 +533,7 @@ export class OnboardingWorkflowTransitionService {
           ...this.buildLatestFinalApprovalBindingPatch(null),
           latestFinalApprovalStatus: null,
         };
-      } else if (dispositionCode === ALERT_DISPOSITION_CODES.REQUIRE_EDD) {
+      } else if (workflowDecision === 'REQUIRE_EDD') {
         eddResponse = await this.createEddResponseIfNeeded(
           tx,
           customer.id,
@@ -455,7 +541,7 @@ export class OnboardingWorkflowTransitionService {
           cddResponse.id,
         );
         transitionCode = WORKFLOW_TRANSITION_CODES.CDD_REQUIRE_EDD_TO_PENDING_EDD;
-        toStatus = 'PENDING_EDD';
+        toStatus = 'PENDING_EDD_INPUT';
         customerUpdateData = {
           ...customerUpdateData,
           ...this.buildCustomerLifecyclePatch(customer, {
@@ -481,13 +567,13 @@ export class OnboardingWorkflowTransitionService {
           reviewerRole: input.actorRole,
           reviewedAt: now,
           reviewerDecision:
-            dispositionCode === ALERT_DISPOSITION_CODES.APPROVE_STAGE
+            workflowDecision === 'CLEAR'
               ? 'APPROVE'
-              : dispositionCode === ALERT_DISPOSITION_CODES.REJECT_STAGE
+              : workflowDecision === 'REJECT'
                 ? 'REJECT'
                 : 'REQUIRE_EDD',
           decisionReason: String(input.reason || '').trim() || dispositionCode,
-          requiresEdd: dispositionCode === ALERT_DISPOSITION_CODES.REQUIRE_EDD,
+          requiresEdd: workflowDecision === 'REQUIRE_EDD',
         },
       });
     } else {
@@ -496,17 +582,9 @@ export class OnboardingWorkflowTransitionService {
       caseId = reviewEddResponse.id;
       eddResponse = reviewEddResponse;
 
-      if (dispositionCode === ALERT_DISPOSITION_CODES.APPROVE_STAGE) {
+      if (workflowDecision === 'CLEAR') {
         transitionCode = WORKFLOW_TRANSITION_CODES.EDD_APPROVE_TO_FINAL_APPROVAL;
         toStatus = 'FINAL_APPROVAL';
-        const finalApproval =
-          await this.onboardingFinalApprovalService.ensurePendingApprovalInTransaction(tx, {
-            customer,
-            actorId: input.actorId,
-            actorRole: input.actorRole,
-            reason: String(input.reason || '').trim() || null,
-          });
-        createdFinalApprovalId = finalApproval.created ? finalApproval.approval.id : null;
         customerUpdateData = {
           ...customerUpdateData,
           ...this.buildCustomerLifecyclePatch(customer, {
@@ -514,10 +592,10 @@ export class OnboardingWorkflowTransitionService {
             operatingStatus: 'INACTIVE',
             eddRequired: true,
           }),
-          ...this.buildLatestFinalApprovalBindingPatch(finalApproval.approval.id),
-          latestFinalApprovalStatus: finalApproval.approval.status,
+          ...this.buildLatestFinalApprovalBindingPatch(null),
+          latestFinalApprovalStatus: null,
         };
-      } else if (dispositionCode === ALERT_DISPOSITION_CODES.REJECT_STAGE) {
+      } else if (workflowDecision === 'REJECT') {
         transitionCode = WORKFLOW_TRANSITION_CODES.EDD_REJECT_TO_REJECTED;
         toStatus = 'REJECTED';
         customerUpdateData = {
@@ -543,7 +621,7 @@ export class OnboardingWorkflowTransitionService {
           mlroReviewerId: input.actorId,
           mlroReviewedAt: now,
           mlroDecision:
-            dispositionCode === ALERT_DISPOSITION_CODES.APPROVE_STAGE ? 'APPROVE' : 'REJECT',
+            workflowDecision === 'CLEAR' ? 'APPROVE' : 'REJECT',
           decisionReason: String(input.reason || '').trim() || dispositionCode,
         },
       });
@@ -554,22 +632,16 @@ export class OnboardingWorkflowTransitionService {
       data: customerUpdateData,
     });
 
-    await (tx as any).onboardingAuditLog.create({
-      data: {
-        customerId: customer.id,
-        caseType,
-        caseId,
-        action: this.buildAuditAction({
-          producerType: input.producerType,
-          dispositionCode,
-        }),
-        actorId: input.actorId,
-        actorRole: input.actorRole,
-        fromStage: fromStatus,
-        toStage: toStatus,
-        detail: String(input.reason || '').trim() || null,
-      },
-    });
+    await this.recordCanonicalWorkflowAudit(
+      tx,
+      customer,
+      input,
+      dispositionCode,
+      fromStatus,
+      toStatus,
+      caseType,
+      caseId,
+    );
 
     const output: WorkflowTransitionOutput = {
       workflow: ONBOARDING_WORKFLOW,

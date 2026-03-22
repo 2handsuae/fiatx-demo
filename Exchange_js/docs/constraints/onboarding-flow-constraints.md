@@ -8,6 +8,20 @@
 - This document follows current implementation names.
 - Compliance `Case` domain semantics are defined by `docs/constraints/compliance-alert-case-foundation-constraints.md`.
 
+## 1.1) Related Canonical Docs
+- Workflow truth:
+1. `docs/specs/workflows/onboarding-canonical-workflow.md`
+2. `docs/specs/workflows/mlro-and-final-approval-governance.md`
+3. `docs/specs/workflows/onboarding-periodic-review-audit-trace-contract.md`
+- Entity truth:
+1. `docs/specs/entities/customer-entity.md`
+2. `docs/specs/entities/review-response-entity.md`
+3. `docs/specs/entities/approval-case-entity.md`
+- Module integration truth:
+1. `docs/specs/modules/customer-onboarding-module.md`
+2. `docs/specs/modules/compliance-center-module.md`
+3. `docs/specs/modules/approvals-module.md`
+
 ## 2) Canonical Identities
 - Onboarding domain MUST only use these identities:
 1. `customer`
@@ -15,13 +29,13 @@
 3. `eddResponse` (onboarding evidence container / provider response, not compliance `Case`)
 4. `workflowDecisionRecord`
 5. `alert`
-6. `incident` (current runtime implementation of compliance `Case` integration)
+6. `case` (compliance investigation object; some historical physical/service names may still contain `incident` in normalization or archived cleanup context)
 - Final approval MUST be approval-backed and projected back to customer lifecycle.
 - Approval runtime semantics are defined by the approvals module; onboarding MUST consume approval result projection instead of directly inventing a separate final-review entity.
 - Note:
 1. `cddResponse / eddResponse / workflowDecisionRecord` are current physical/runtime names
 2. operator-facing canonical naming is `CDD Response / EDD Response`
-3. physical rename is explicitly deferred and MUST NOT be assumed in ongoing implementation work
+3. active admin/runtime contract uses `Case`; historical `incident` names are archived implementation residue only and MUST NOT be reintroduced as new external surface
 
 ## 3) Next-Step Contract
 - `getNextStep` is the single source for onboarding guidance.
@@ -50,8 +64,9 @@
 - Customer terminal status MUST stay:
 1. `REJECTED`
 2. `WITHDRAWN`
-- CDD/EDD evidence-container lifecycle MUST stay:
-1. `CREATED -> RECEIVED -> FINAL`
+- Canonical response lifecycle projection MUST stay:
+1. `CREATED -> COMPLETED`
+- Historical physical/internal persistence MAY still retain intermediate names such as `RECEIVED / FINAL` in migration, normalization, or archived cleanup context, but new external contracts MUST NOT expose them as canonical response lifecycle truth.
 - DecisionRecord lifecycle MUST stay:
 1. `CREATED -> COMPLETED | FAILED`
 - State fields MUST express lifecycle progress only, not business decisions.
@@ -70,7 +85,8 @@
 
 ## 6) CDD/EDD Orchestration Constraints
 - Starting onboarding MUST create or reuse active CDD evidence container (`cddResponse`) in `CREATED`.
-- Session completion MUST move the onboarding evidence container to `RECEIVED`, store provider payload, then finalize it as `FINAL` after evaluation.
+- Session completion MUST store provider payload and complete the underlying onboarding evidence container evaluation.
+- Historical physical/internal state names such as `RECEIVED -> FINAL` MAY still exist inside implementation or migration context, but operator-facing/runtime contract MUST continue to project response lifecycle as `CREATED -> COMPLETED`.
 - CDD completion MUST evaluate risk and move customer to `CDD_UNDER_REVIEW` (container waiting for recommendation execution).
 - EDD completion MUST evaluate risk and move customer to `EDD_UNDER_REVIEW` (container waiting for recommendation execution).
 - CDD mock submission profile MUST support:
@@ -88,15 +104,15 @@
 - Alert/incident decision details MAY be written to filter fields (`decisionRecommendation`, `decision`) but MUST NOT change state-machine definition.
 - Recommendation options MUST come from risk-engine output (`recommendedDecisions`) and be projected to alert/incident detail.
 - Recommendation set contract MUST remain:
-1. CDD review: `APPROVE`, `REJECT`, `REQUIRE_EDD`
-2. EDD review: `APPROVE`, `REJECT`
+1. CDD review: `CLEAR`, `REJECT`, `REQUIRE_EDD`
+2. EDD review: `CLEAR`, `REJECT`
 - EDD-stage recommendation rendering MUST NOT show `REQUIRE_EDD` in alert or incident detail views.
 - `REVIEW_CDD` stage MAY be progressed by assigned onboarding journey alert decision action:
-1. `APPROVE` -> customer `APPROVED + ACTIVE`
+1. `CLEAR` -> customer `APPROVED + ACTIVE`
 2. `REJECT` -> customer `REJECTED`
 3. `REQUIRE_EDD` -> create/reuse EDD evidence container (`eddResponse`) and move customer to `PENDING_EDD_INPUT`
 - `REVIEW_EDD` stage MAY be progressed by assigned onboarding journey alert/incident decision action:
-1. `APPROVE` -> customer `FINAL_APPROVAL`
+1. `CLEAR` -> customer `FINAL_APPROVAL`
 2. `REJECT` -> customer `REJECTED`
 - Alert/case decision MUST first write producer-side disposition/event, then delegate workflow mutation to onboarding workflow transition consumer.
 - Onboarding workflow mutation MUST NOT be implemented as ad-hoc customer status updates scattered in alert/case handlers.
@@ -113,12 +129,29 @@
 - Reinitiation MUST only be available for rejected/withdrawn/expired scenarios.
 
 ## 9) Auditability (Mandatory)
-- Key onboarding actions MUST write onboarding audit logs with:
+- Canonical onboarding / periodic review audit store MUST be `audit_log_events`.
+- `onboarding_audit_logs` is historical compatibility residue only and MUST NOT be treated as:
+1. canonical source for trace queries
+2. canonical source for evidence export
+3. active runtime audit truth
+- Workflow-bound onboarding trace root MUST remain:
+1. `workflowType = ONBOARDING`
+2. `workflowId = journeyId`
+3. `workflowNo = journeyId`
+4. `traceId = ONBOARDING:<journeyId>`
+- Key onboarding actions MUST write canonical audit events with:
 1. actor id/role
 2. customer id
 3. evidence container type/id when applicable
 4. from/to stage when applicable
 5. detail payload
+- Canonical audit events for onboarding flow MUST also include:
+1. `traceId`
+2. `workflowType`
+3. `workflowId`
+4. `workflowNo`
+5. `entityOwnerType/entityOwnerId/entityOwnerNo`
+- `onboarding final approval` MUST inherit the same onboarding trace and MUST NOT generate a new random trace when created from onboarding flow.
 - Decision transition actions MUST keep reason fields for audit and replay.
 
 ## 10) Thread Delivery Checklist (Onboarding)
@@ -127,11 +160,15 @@
 - Risk Engine evaluate-to-record behavior validated.
 - Alert/incident linkage validated for onboarding journey rules.
 - Audit log records verified for critical actions.
+- `Audit Center` trace query verified for onboarding flow when work touches:
+1. response submit
+2. alert
+3. case
+4. final approval
 - Cross-module read-model stability verified for `GET /customers/:id` onboarding snapshot fields:
 1. canonical customer status fields
 2. `cddResponses`
 3. `eddResponses`
-4. `onboardingAuditLogs`
 
 ## 11) Client Verification Projection Rules
 - Client `/verification` UI MUST treat canonical customer fields as the primary onboarding state source.

@@ -72,7 +72,9 @@ const DeleteRequestDetailPage = lazy(() => import('./pages/DeleteRequestDetailPa
 const SlaTimersPage = lazy(() => import('./pages/SlaTimersPage'));
 const SlaTimerDetailPage = lazy(() => import('./pages/SlaTimerDetailPage'));
 const ComplianceAlertsPage = lazy(() => import('./pages/ComplianceAlertsPage'));
+const ComplianceAlertDetailPage = lazy(() => import('./pages/ComplianceAlertDetailPage'));
 const ComplianceIncidentsPage = lazy(() => import('./pages/ComplianceIncidentsPage'));
+const ComplianceCaseDetailPage = lazy(() => import('./pages/ComplianceCaseDetailPage'));
 const CaseEvidenceExportsPage = lazy(() => import('./pages/CaseEvidenceExportsPage'));
 const CaseEvidenceExportDetailPage = lazy(() => import('./pages/CaseEvidenceExportDetailPage'));
 const RiskPolicyExecutionsPage = lazy(() => import('./pages/RiskPolicyExecutionsPage'));
@@ -254,8 +256,16 @@ function App() {
               element={withPermission(<ComplianceAlertsPage />, [PERMISSIONS.ALERTS_READ])}
             />
             <Route
+              path="compliance/alerts/:id"
+              element={withPermission(<ComplianceAlertDetailPage />, [PERMISSIONS.ALERTS_READ])}
+            />
+            <Route
               path="compliance/cases"
               element={withPermission(<ComplianceIncidentsPage />, [PERMISSIONS.CASES_READ])}
+            />
+            <Route
+              path="compliance/cases/:id"
+              element={withPermission(<ComplianceCaseDetailPage />, [PERMISSIONS.CASES_READ])}
             />
             <Route
               path="compliance/case-evidence-exports"
@@ -268,13 +278,6 @@ function App() {
               element={withPermission(<CaseEvidenceExportDetailPage />, [
                 PERMISSIONS.CASE_EVIDENCE_EXPORT_DETAIL_READ,
               ])}
-            />
-            <Route
-              path="compliance/incidents"
-              element={withPermission(
-                <Navigate to="/dashboard/compliance/cases" replace />,
-                [PERMISSIONS.CASES_READ],
-              )}
             />
             <Route
               path="compliance/audit-logs"

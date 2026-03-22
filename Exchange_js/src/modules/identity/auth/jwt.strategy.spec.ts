@@ -27,6 +27,7 @@ describe('JwtStrategy', () => {
       username: 'admin@fiatx.com',
       userNo: 'ADMIN-001',
       role: 'SUPER_ADMIN',
+      roleCodes: ['SUPER_ADMIN', 'MLRO'],
       type: 'ADMIN',
     };
 
@@ -35,9 +36,29 @@ describe('JwtStrategy', () => {
       username: 'admin@fiatx.com',
       userNo: 'ADMIN-001',
       role: 'SUPER_ADMIN',
+      roleCodes: ['SUPER_ADMIN', 'MLRO'],
       type: 'ADMIN',
     });
     expect(prismaMock.customerMain.findUnique).not.toHaveBeenCalled();
+  });
+
+  it('should backfill roleCodes from role when token payload omits them', async () => {
+    await expect(
+      strategy.validate({
+        sub: 'admin-2',
+        username: 'mlro@fiatx.com',
+        userNo: 'ADMIN-MLRO',
+        role: 'MLRO',
+        type: 'ADMIN',
+      }),
+    ).resolves.toEqual({
+      userId: 'admin-2',
+      username: 'mlro@fiatx.com',
+      userNo: 'ADMIN-MLRO',
+      role: 'MLRO',
+      roleCodes: ['MLRO'],
+      type: 'ADMIN',
+    });
   });
 
   it('should reject customer token when compliance hold is frozen', async () => {
@@ -77,6 +98,7 @@ describe('JwtStrategy', () => {
       username: 'test@example.com',
       userNo: 'CU-1',
       role: 'CUSTOMER',
+      roleCodes: ['CUSTOMER'],
       type: 'CUSTOMER',
     });
   });
@@ -101,6 +123,7 @@ describe('JwtStrategy', () => {
       username: 'test@example.com',
       userNo: 'CU-1',
       role: 'CUSTOMER',
+      roleCodes: ['CUSTOMER'],
       type: 'CUSTOMER',
     });
   });

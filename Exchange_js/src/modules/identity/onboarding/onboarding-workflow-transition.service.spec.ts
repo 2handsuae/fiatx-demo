@@ -1,4 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
+import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
 import {
   OnboardingWorkflowTransitionService,
   WORKFLOW_TRANSITION_CODES,
@@ -30,17 +31,15 @@ describe('OnboardingWorkflowTransitionService', () => {
     },
   };
 
-  const onboardingFinalApprovalServiceMock: any = {
-    ensurePendingApprovalInTransaction: jest.fn(),
-  };
-
   let service: OnboardingWorkflowTransitionService;
 
   beforeEach(() => {
     jest.clearAllMocks();
-    service = new OnboardingWorkflowTransitionService(onboardingFinalApprovalServiceMock);
+    jest.spyOn(AuditLogsService.prototype, 'recordByActor').mockResolvedValue({} as any);
+    service = new OnboardingWorkflowTransitionService(txMock as any);
     txMock.customerMain.findUnique.mockResolvedValue({
       id: 'c1',
+      customerNo: 'CU0001',
       onboardingStatus: 'CDD_UNDER_REVIEW',
       operatingStatus: 'INACTIVE',
       restrictionStatus: 'CLEAR',
@@ -78,15 +77,6 @@ describe('OnboardingWorkflowTransitionService', () => {
       outputs: '{}',
     });
     txMock.workflowDecisionRecord.update.mockResolvedValue({ id: 'dr-1' });
-    onboardingFinalApprovalServiceMock.ensurePendingApprovalInTransaction.mockResolvedValue({
-      approval: {
-        id: 'approval-1',
-        approvalNo: 'APR2603180001',
-        status: 'PENDING',
-      },
-      created: true,
-      auditAction: 'FINAL_APPROVAL_SUBMITTED',
-    });
   });
 
   it('should transition REVIEW_CDD REQUIRE_EDD to PENDING_EDD and create EDD case', async () => {
@@ -126,7 +116,7 @@ describe('OnboardingWorkflowTransitionService', () => {
     expect(result.transitionCode).toBe(
       WORKFLOW_TRANSITION_CODES.CDD_REQUIRE_EDD_TO_PENDING_EDD,
     );
-    expect(result.toStatus).toBe('PENDING_EDD');
+    expect(result.toStatus).toBe('PENDING_EDD_INPUT');
   });
 
   it('should return NO_TRANSITION for report-like disposition', async () => {
@@ -149,7 +139,7 @@ describe('OnboardingWorkflowTransitionService', () => {
     expect(result.executed).toBe(false);
   });
 
-  it('should create pending final approval when REVIEW_EDD is approved', async () => {
+  it('should transition REVIEW_EDD clear to FINAL_APPROVAL without creating approval', async () => {
     txMock.customerMain.findUnique.mockResolvedValue({
       id: 'c1',
       onboardingStatus: 'EDD_UNDER_REVIEW',
@@ -168,8 +158,8 @@ describe('OnboardingWorkflowTransitionService', () => {
       onboardingStatus: 'FINAL_APPROVAL',
       operatingStatus: 'INACTIVE',
       restrictionStatus: 'CLEAR',
-      latestFinalApprovalId: 'approval-1',
-      latestFinalApprovalStatus: 'PENDING',
+      latestFinalApprovalId: null,
+      latestFinalApprovalStatus: null,
     });
 
     const result = await service.execute(txMock, {
@@ -179,34 +169,23 @@ describe('OnboardingWorkflowTransitionService', () => {
       producerId: 'case-1',
       customerId: 'c1',
       journeyId: 'ONB-1',
-      dispositionCode: 'APPROVE_STAGE',
+      dispositionCode: 'CLEAR',
       actorId: 'admin-1',
       actorRole: 'MLRO',
       latestDecisionRecordId: 'dr-1',
       linkedCaseIds: ['edd-1'],
     });
 
-    expect(onboardingFinalApprovalServiceMock.ensurePendingApprovalInTransaction).toHaveBeenCalledWith(
-      txMock,
-      expect.objectContaining({
-        customer: expect.objectContaining({
-          id: 'c1',
-          onboardingStatus: 'EDD_UNDER_REVIEW',
-        }),
-        actorId: 'admin-1',
-        actorRole: 'MLRO',
-      }),
-    );
     expect(txMock.customerMain.update).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
           onboardingStatus: 'FINAL_APPROVAL',
-          latestFinalApproval: { connect: { id: 'approval-1' } },
-          latestFinalApprovalStatus: 'PENDING',
+          latestFinalApproval: { disconnect: true },
+          latestFinalApprovalStatus: null,
         }),
       }),
     );
-    expect(result.createdFinalApprovalId).toBe('approval-1');
+    expect(result.createdFinalApprovalId).toBeNull();
     expect(result.toStatus).toBe('FINAL_APPROVAL');
   });
 
@@ -227,7 +206,7 @@ describe('OnboardingWorkflowTransitionService', () => {
         producerId: 'alert-1',
         customerId: 'c1',
         journeyId: 'ONB-1',
-        dispositionCode: 'APPROVE_STAGE',
+        dispositionCode: 'CLEAR',
         actorId: 'admin-1',
         actorRole: 'COMPLIANCE_LEAD',
       }),

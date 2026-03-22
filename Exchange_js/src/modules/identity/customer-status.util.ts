@@ -1,14 +1,3 @@
-export type CustomerPublicStatus =
-  | 'NONE'
-  | 'PENDING_CDD'
-  | 'REVIEW_CDD'
-  | 'PENDING_EDD'
-  | 'REVIEW_EDD'
-  | 'FINAL_APPROVAL'
-  | 'ACTIVE'
-  | 'REJECTED'
-  | 'WITHDRAWN';
-
 export type CustomerOnboardingStatus =
   | 'NONE'
   | 'PENDING_CDD_INPUT'
@@ -92,32 +81,6 @@ export function normalizeCustomerRestrictionStatus(
     return current as CustomerRestrictionStatus;
   }
   return 'CLEAR';
-}
-
-export function getLegacyPublicStatusFromCanonical(
-  value?: string | null,
-): CustomerPublicStatus {
-  switch (normalizeCustomerOnboardingStatus(value)) {
-    case 'PENDING_CDD_INPUT':
-      return 'PENDING_CDD';
-    case 'CDD_UNDER_REVIEW':
-      return 'REVIEW_CDD';
-    case 'PENDING_EDD_INPUT':
-      return 'PENDING_EDD';
-    case 'EDD_UNDER_REVIEW':
-      return 'REVIEW_EDD';
-    case 'FINAL_APPROVAL':
-      return 'FINAL_APPROVAL';
-    case 'APPROVED':
-      return 'ACTIVE';
-    case 'REJECTED':
-      return 'REJECTED';
-    case 'WITHDRAWN':
-      return 'WITHDRAWN';
-    case 'NONE':
-    default:
-      return 'NONE';
-  }
 }
 
 export function resolveCustomerCanonicalState(

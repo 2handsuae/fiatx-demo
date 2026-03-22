@@ -39,14 +39,13 @@ export const PERMISSIONS = {
   ALERTS_WRITE: 'api.patch.admin_compliance_alerts_id_action',
   CASES_READ: 'api.get.admin_compliance_cases',
   CASES_WRITE: 'api.patch.admin_compliance_cases_id_action',
+  CASE_MLRO_REVIEW_WRITE: 'api.post.admin_compliance_cases_id_mlro_review',
   CASE_EVIDENCE_EXPORTS_READ: 'api.get.admin_compliance_cases_evidence_packages',
   CASE_EVIDENCE_EXPORT_CREATE: 'api.post.admin_compliance_cases_export_evidence_package',
   CASE_EVIDENCE_EXPORT_DETAIL_READ:
     'api.get.admin_compliance_cases_evidence_packages_id',
   CASE_EVIDENCE_EXPORT_DOWNLOAD:
     'api.get.admin_compliance_cases_evidence_packages_id_download',
-  INCIDENTS_READ: 'api.get.admin_compliance_incidents',
-  INCIDENTS_WRITE: 'api.patch.admin_compliance_incidents_id_action',
   RISK_DECISION_RECORDS_READ: 'api.get.admin_risk_decision_records',
   RISK_DECISION_RECORD_DETAIL_READ: 'api.get.admin_risk_decision_records_id',
   AUDIT_LOGS_READ: 'api.get.admin_audit_logs',

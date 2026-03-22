@@ -117,4 +117,30 @@ describe('AuthService', () => {
       }),
     );
   });
+
+  it('should include roleCodes in admin login token payload and response user', async () => {
+    accessControlService.getUserRoleCodes.mockResolvedValue([
+      'SUPER_ADMIN',
+      'MLRO',
+    ]);
+    const jwtSign = (service as any).jwtService.sign as jest.Mock;
+    jwtSign.mockReturnValue('token');
+
+    const result = await service.login({
+      id: 'user-1',
+      userNo: 'ADMIN-001',
+      email: 'admin@fiatx.com',
+      role: 'SUPER_ADMIN',
+      lastLoginAt: new Date('2026-03-20T09:00:00.000Z'),
+    });
+
+    expect(jwtSign).toHaveBeenCalledWith(
+      expect.objectContaining({
+        role: 'SUPER_ADMIN',
+        roleCodes: ['SUPER_ADMIN', 'MLRO'],
+        type: 'ADMIN',
+      }),
+    );
+    expect(result.user.roles).toEqual(['SUPER_ADMIN', 'MLRO']);
+  });
 });

@@ -62,6 +62,9 @@ interface ApprovalRequirementInput {
   approvalCaseId?: string | null;
   actor?: ApprovalActorContext;
   traceId?: string | null;
+  workflowType?: string | null;
+  workflowId?: string | null;
+  workflowNo?: string | null;
 }
 
 @Injectable()
@@ -147,6 +150,65 @@ export class ApprovalsService {
     return !!actor && isSuperAdminRoleContext(actor.roleCodes);
   }
 
+  private normalizeWorkflowContext(input: {
+    workflowType?: unknown;
+    workflowId?: unknown;
+    workflowNo?: unknown;
+  }): { workflowType: string | null; workflowId: string | null; workflowNo: string | null } {
+    const workflowType = this.normalizeOptionalString(input.workflowType)?.toUpperCase() || null;
+    const workflowId = this.normalizeOptionalString(input.workflowId);
+    const workflowNo = this.normalizeOptionalString(input.workflowNo);
+    const providedCount = [workflowType, workflowId, workflowNo].filter(Boolean).length;
+
+    if (providedCount > 0 && providedCount < 3) {
+      throw new BadRequestException(
+        'workflowType, workflowId, and workflowNo must be provided together for workflow-bound approvals',
+      );
+    }
+
+    return {
+      workflowType,
+      workflowId,
+      workflowNo,
+    };
+  }
+
+  private assertWorkflowContextConsistency(
+    approval: ApprovalCaseRow | { workflowType?: string | null; workflowId?: string | null; workflowNo?: string | null },
+    input: { workflowType?: unknown; workflowId?: unknown; workflowNo?: unknown },
+  ) {
+    const existing = this.normalizeWorkflowContext({
+      workflowType: approval.workflowType,
+      workflowId: approval.workflowId,
+      workflowNo: approval.workflowNo,
+    });
+    const incoming = this.normalizeWorkflowContext(input);
+    const hasExisting =
+      !!existing.workflowType || !!existing.workflowId || !!existing.workflowNo;
+    const hasIncoming =
+      !!incoming.workflowType || !!incoming.workflowId || !!incoming.workflowNo;
+
+    if (!hasIncoming) {
+      return;
+    }
+
+    if (!hasExisting) {
+      throw new BadRequestException(
+        'workflowType/workflowId/workflowNo do not match the existing approval chain',
+      );
+    }
+
+    if (
+      existing.workflowType !== incoming.workflowType ||
+      existing.workflowId !== incoming.workflowId ||
+      existing.workflowNo !== incoming.workflowNo
+    ) {
+      throw new BadRequestException(
+        'workflowType/workflowId/workflowNo do not match the existing approval chain',
+      );
+    }
+  }
+
   private async recordAudit(
     action: string,
     approval: ApprovalCaseRow,
@@ -166,6 +228,9 @@ export class ApprovalsService {
         entityId: approval.id,
         entityNo: approval.approvalNo,
         traceId: approval.traceId,
+        workflowType: approval.workflowType || undefined,
+        workflowId: approval.workflowId || undefined,
+        workflowNo: approval.workflowNo || undefined,
         result,
         reason: reason || undefined,
         statusFrom: statusFrom || undefined,
@@ -191,6 +256,9 @@ export class ApprovalsService {
       actionType: approval.actionType,
       entityRef: approval.entityRef,
       traceId: approval.traceId,
+      workflowType: approval.workflowType,
+      workflowId: approval.workflowId,
+      workflowNo: approval.workflowNo,
       status: approval.status,
       decisionByUserId: approval.decisionByUserId,
       decisionByRole: approval.decisionByRole,
@@ -355,6 +423,9 @@ export class ApprovalsService {
       docRef: approval.docRef,
       metadata: this.parseMetadata(approval.metadataJson),
       traceId: approval.traceId,
+      workflowType: approval.workflowType,
+      workflowId: approval.workflowId,
+      workflowNo: approval.workflowNo,
       submittedAt: approval.submittedAt,
       timeoutAt: approval.timeoutAt,
       decidedAt: approval.decidedAt,
@@ -454,6 +525,8 @@ export class ApprovalsService {
       throw new BadRequestException('entityRef is required');
     }
 
+    const workflowContext = this.normalizeWorkflowContext(dto);
+
     const existingPending = await db.approvalCase.findFirst({
       where: {
         actionType,
@@ -466,6 +539,8 @@ export class ApprovalsService {
     });
 
     if (existingPending) {
+      this.assertTraceConsistency(existingPending.traceId, dto.traceId);
+      this.assertWorkflowContextConsistency(existingPending, dto);
       return existingPending as ApprovalCaseRow;
     }
 
@@ -497,6 +572,9 @@ export class ApprovalsService {
         docRef: this.normalizeOptionalString(dto.docRef),
         metadataJson: this.serializeMetadata(dto.metadata || {}),
         traceId: this.normalizeOptionalString(dto.traceId) || randomUUID(),
+        workflowType: workflowContext.workflowType,
+        workflowId: workflowContext.workflowId,
+        workflowNo: workflowContext.workflowNo,
         steps: {
           create: {
             stepNo: 1,
@@ -525,6 +603,7 @@ export class ApprovalsService {
     }
 
     this.assertTraceConsistency(approval.traceId, dto.traceId);
+    this.assertWorkflowContextConsistency(approval, dto);
 
     const policy = await this.approvalPolicyService.getPolicy(approval.actionType);
     const now = new Date();
@@ -631,6 +710,7 @@ export class ApprovalsService {
       }
 
       this.assertTraceConsistency(approval.traceId, dto.traceId);
+      this.assertWorkflowContextConsistency(approval, dto);
       const decisionRole = await this.resolveDecisionRole(approval, actor, dto.checkerRole);
       const now = new Date();
 
@@ -702,6 +782,7 @@ export class ApprovalsService {
       }
 
       this.assertTraceConsistency(approval.traceId, dto.traceId);
+      this.assertWorkflowContextConsistency(approval, dto);
       const decisionRole = await this.resolveDecisionRole(approval, actor, dto.checkerRole);
       const now = new Date();
 
@@ -784,6 +865,7 @@ export class ApprovalsService {
       }
 
       this.assertTraceConsistency(approval.traceId, dto.traceId);
+      this.assertWorkflowContextConsistency(approval, dto);
       previousStatus = approval.status;
       const now = new Date();
 
@@ -948,6 +1030,7 @@ export class ApprovalsService {
     if (input.traceId) {
       this.assertTraceConsistency(approval.traceId, input.traceId);
     }
+    this.assertWorkflowContextConsistency(approval, input);
     if (approval.status !== ApprovalStatuses.APPROVED) {
       throw new ForbiddenException(
         `Approval case ${approval.approvalNo} is ${approval.status} and cannot authorize this action`,

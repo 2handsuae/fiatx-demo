@@ -9,6 +9,13 @@ import {
 import { Prisma } from '@prisma/client';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 import { PrismaService } from '../../../core/prisma/prisma.service';
+import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
+import {
+  AuditEntityTypes,
+  AuditModules,
+  AuditWorkflowTypes,
+} from '../../risk-engine/audit-logs/constants/audit-actions.constant';
+import { AuditTriggerType } from '../../risk-engine/audit-logs/dto/audit-log.dto';
 import { CustomerNextStepActionType } from '../customer-status.util';
 import { ComplianceAlertsService } from '../../risk-engine/compliance-alerts/compliance-alerts.service';
 import { ComplianceIncidentsService } from '../../risk-engine/compliance-incidents/compliance-incidents.service';
@@ -18,11 +25,13 @@ import {
 import {
   ALERT_DISPOSITION_CODES,
   CASE_DISPOSITION_CODES,
+  normalizeWorkflowDecision,
 } from '../../risk-engine/constants/compliance-disposition.constant';
 import {
   ONBOARDING_REVIEW_STAGES,
   PERIODIC_REVIEW_SOURCE_TYPE,
   PERIODIC_REVIEW_WORKFLOW,
+  buildComplianceWorkflowTraceContext,
 } from '../../risk-engine/constants/onboarding-compliance-workflow.constant';
 import {
   RiskDecisionOrchestratorService,
@@ -76,6 +85,7 @@ interface SessionResponse {
 @Injectable()
 export class PeriodicReviewService {
   private readonly logger = new Logger(PeriodicReviewService.name);
+  private readonly auditLogsService: AuditLogsService;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -84,7 +94,9 @@ export class PeriodicReviewService {
     private readonly riskEngineService: RiskEngineService,
     private readonly riskDecisionOrchestratorService: RiskDecisionOrchestratorService,
     private readonly workflowTransitionService: WorkflowTransitionService,
-  ) {}
+  ) {
+    this.auditLogsService = new AuditLogsService(prisma);
+  }
 
   private parseJsonSafely(value?: string | null): Record<string, unknown> {
     if (!value) return {};
@@ -96,6 +108,24 @@ export class PeriodicReviewService {
     } catch {
       return {};
     }
+  }
+
+  private parseJsonStringList(value?: string | null): string[] {
+    if (!value) return [];
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed)
+        ? parsed.map((item) => String(item || '').trim()).filter(Boolean)
+        : [];
+    } catch {
+      return [];
+    }
+  }
+
+  private dedupeStringList(values: Array<string | null | undefined>): string[] {
+    return Array.from(
+      new Set(values.map((item) => String(item || '').trim()).filter(Boolean)),
+    );
   }
 
   private buildSeed(input: string): number {
@@ -124,19 +154,31 @@ export class PeriodicReviewService {
     return null;
   }
 
-  private toResponsePayload<T extends { caseNo?: string | null; caseType?: string | null }>(
+  private projectResponseRecord<T extends { caseNo?: string | null }>(
     row: T,
-    responseType?: CaseType | null,
-  ): Omit<T, 'caseNo' | 'caseType'> & {
+    responseType: CaseType,
+  ): Omit<T, 'caseNo'> & {
     responseNo: string | null;
-    responseType: CaseType | null;
+    responseType: CaseType;
   } {
-    const { caseNo, caseType, ...rest } = row;
+    const { caseNo, ...rest } = row;
     return {
-      ...(rest as Omit<T, 'caseNo' | 'caseType'>),
+      ...(rest as Omit<T, 'caseNo'>),
       responseNo: caseNo || null,
-      responseType: responseType || this.normalizeResponseType(caseType) || null,
+      responseType,
     };
+  }
+
+  private getIncidentAssigneeUserId(incident: {
+    assigneeUserId?: string | null;
+    ownerUserId?: string | null;
+  }): string | null {
+    const assigneeUserId = String((incident as any).assigneeUserId || '').trim();
+    if (assigneeUserId) {
+      return assigneeUserId;
+    }
+    const legacyOwnerUserId = String((incident as any).ownerUserId || '').trim();
+    return legacyOwnerUserId || null;
   }
 
   private buildSessionResponse(session: any): SessionResponse {
@@ -218,6 +260,72 @@ export class PeriodicReviewService {
         String(cycle?.status || '').trim().toUpperCase(),
       ),
     };
+  }
+
+  private async writeAudit(input: {
+    customerId: string;
+    action: string;
+    actorId: string;
+    actorRole: string;
+    fromStage?: string | null;
+    toStage?: string | null;
+    caseType?: string | null;
+    caseId?: string | null;
+    detail?: string | null;
+    workflowId?: string | null;
+    workflowNo?: string | null;
+  }) {
+    const actorType =
+      String(input.actorRole || '').trim().toUpperCase() === 'CUSTOMER'
+        ? 'CUSTOMER'
+        : 'ADMIN';
+    const customer = await this.prisma.customerMain.findUnique({
+      where: { id: input.customerId },
+      select: {
+        id: true,
+        customerNo: true,
+      },
+    });
+    const workflowContext = buildComplianceWorkflowTraceContext({
+      workflow: PERIODIC_REVIEW_WORKFLOW,
+      workflowId: input.workflowId,
+      workflowNo: input.workflowNo,
+    });
+
+    await this.auditLogsService.recordByActor(
+      {
+        triggerType: AuditTriggerType.STATE_TRANSITION,
+        action: input.action,
+        module: AuditModules.ONBOARDING,
+        entityType: AuditEntityTypes.ONBOARDING,
+        entityId: input.customerId,
+        entityNo: customer?.customerNo || undefined,
+        traceId: workflowContext?.traceId || undefined,
+        workflowType:
+          workflowContext?.workflowType || AuditWorkflowTypes.PERIODIC_REVIEW,
+        workflowId: workflowContext?.workflowId || undefined,
+        workflowNo: workflowContext?.workflowNo || undefined,
+        entityOwnerType: 'CUSTOMER',
+        entityOwnerId: input.customerId,
+        entityOwnerNo: customer?.customerNo || undefined,
+        statusFrom: input.fromStage || undefined,
+        statusTo: input.toStage || undefined,
+        reason: input.detail || undefined,
+        metadata: {
+          caseType: input.caseType || null,
+          caseId: input.caseId || null,
+          detail: input.detail || null,
+          source: 'ONBOARDING_AUDIT_MIRROR',
+        },
+        sourcePlatform: 'APPLICATION',
+      },
+      {
+        actorType,
+        actorId: input.actorId,
+        actorRole: input.actorRole,
+      },
+    );
+
   }
 
   private buildCddMockSignals(caseNo: string, mockDataType: OnboardingMockDataType) {
@@ -421,20 +529,14 @@ export class PeriodicReviewService {
 
     const items = [
       ...cddResponses.map((item) => ({
-        ...this.toResponsePayload({
-          ...item,
-          caseType: 'CDD' as const,
-        }, 'CDD'),
+        ...this.projectResponseRecord(item, 'CDD'),
         inputData: this.parseJsonSafely(item.inputData),
         latestSession: latestSessionMap.get(`CDD:${item.id}`)
           ? this.buildSessionResponse(latestSessionMap.get(`CDD:${item.id}`))
           : null,
       })),
       ...eddResponses.map((item) => ({
-        ...this.toResponsePayload({
-          ...item,
-          caseType: 'EDD' as const,
-        }, 'EDD'),
+        ...this.projectResponseRecord(item, 'EDD'),
         inputData: this.parseJsonSafely(item.inputData),
         latestSession: latestSessionMap.get(`EDD:${item.id}`)
           ? this.buildSessionResponse(latestSessionMap.get(`EDD:${item.id}`))
@@ -543,16 +645,16 @@ export class PeriodicReviewService {
       },
     });
 
-    await (this.prisma as any).onboardingAuditLog.create({
-      data: {
-        customerId,
-        caseType,
-        caseId,
-        action: `${caseType}_PERIODIC_REVIEW_SESSION_CREATED`,
-        actorId,
-        actorRole: 'CUSTOMER',
-        detail: `Session ${created.id} created for periodic review response ${caseId}.`,
-      },
+    await this.writeAudit({
+      customerId,
+      caseType,
+      caseId,
+      action: `${caseType}_PERIODIC_REVIEW_SESSION_CREATED`,
+      actorId,
+      actorRole: 'CUSTOMER',
+      detail: `Session ${created.id} created for periodic review response ${caseId}.`,
+      workflowId: (targetCase as any).periodicReviewCycleId || null,
+      workflowNo: (targetCase as any).journeyId || null,
     });
 
     return this.buildSessionResponse(created);
@@ -643,18 +745,18 @@ export class PeriodicReviewService {
       sourceModule: 'identity/periodic-review',
     });
 
-    await (this.prisma as any).onboardingAuditLog.create({
-      data: {
-        customerId: input.customer.id,
-        caseType: 'CDD',
-        caseId: input.cddResponse.id,
-        action: 'PERIODIC_REVIEW_CDD_SUBMITTED',
-        actorId: input.customer.id,
-        actorRole: 'CUSTOMER',
-        fromStage: 'PENDING_CDD_INPUT',
-        toStage: 'CDD_UNDER_REVIEW',
-        detail: `Periodic review CDD submitted at ${now.toISOString()}.`,
-      },
+    await this.writeAudit({
+      customerId: input.customer.id,
+      caseType: 'CDD',
+      caseId: input.cddResponse.id,
+      action: 'PERIODIC_REVIEW_CDD_SUBMITTED',
+      actorId: input.customer.id,
+      actorRole: 'CUSTOMER',
+      fromStage: 'PENDING_CDD_INPUT',
+      toStage: 'CDD_UNDER_REVIEW',
+      detail: `Periodic review CDD submitted at ${now.toISOString()}.`,
+      workflowId: input.cycle.id,
+      workflowNo: input.cycle.cycleNo,
     });
   }
 
@@ -692,18 +794,18 @@ export class PeriodicReviewService {
       sourceModule: 'identity/periodic-review',
     });
 
-    await (this.prisma as any).onboardingAuditLog.create({
-      data: {
-        customerId: input.customer.id,
-        caseType: 'EDD',
-        caseId: input.eddResponse.id,
-        action: 'PERIODIC_REVIEW_EDD_SUBMITTED',
-        actorId: input.customer.id,
-        actorRole: 'CUSTOMER',
-        fromStage: 'PENDING_EDD_INPUT',
-        toStage: 'EDD_UNDER_REVIEW',
-        detail: `Periodic review EDD submitted at ${now.toISOString()}.`,
-      },
+    await this.writeAudit({
+      customerId: input.customer.id,
+      caseType: 'EDD',
+      caseId: input.eddResponse.id,
+      action: 'PERIODIC_REVIEW_EDD_SUBMITTED',
+      actorId: input.customer.id,
+      actorRole: 'CUSTOMER',
+      fromStage: 'PENDING_EDD_INPUT',
+      toStage: 'EDD_UNDER_REVIEW',
+      detail: `Periodic review EDD submitted at ${now.toISOString()}.`,
+      workflowId: input.cycle.id,
+      workflowNo: input.cycle.cycleNo,
     });
   }
 
@@ -1037,7 +1139,8 @@ export class PeriodicReviewService {
         tx,
       );
 
-      const incident = await this.complianceIncidentsService.createFromAlert(
+      const incidentId = await this.complianceIncidentsService.createFromAlertInTransaction(
+        tx,
         alert.id,
         {
           reason: reason || 'Periodic review due',
@@ -1045,8 +1148,9 @@ export class PeriodicReviewService {
         this.getSystemActor(),
       );
 
-      await this.complianceIncidentsService.applyAction(
-        incident.id,
+      await this.complianceIncidentsService.applyActionInTransaction(
+        tx,
+        incidentId,
         {
           action: ComplianceIncidentAction.RESTRICT,
           reason: reason || 'Periodic review due',
@@ -1059,7 +1163,7 @@ export class PeriodicReviewService {
         data: {
           currentCddResponseId: cddResponse.id,
           primaryAlertId: alert.id,
-          primaryIncidentId: incident.id,
+          primaryIncidentId: incidentId,
         },
       });
 
@@ -1080,6 +1184,19 @@ export class PeriodicReviewService {
     const cycle = await (this.prisma as any).periodicReviewCycle.findUnique({
       where: { id: created.cycleId },
     });
+    if (cycle) {
+      await this.writeAudit({
+        customerId: customer.id,
+        action: 'PERIODIC_REVIEW_CYCLE_CREATED',
+        actorId: actor.actorId,
+        actorRole: actor.actorRole,
+        fromStage: null,
+        toStage: String(cycle.status || '').trim().toUpperCase() || null,
+        detail: reason || `Periodic review cycle ${cycle.cycleNo} created.`,
+        workflowId: cycle.id,
+        workflowNo: cycle.cycleNo,
+      });
+    }
     return {
       blocked: false,
       created: true,
@@ -1146,16 +1263,104 @@ export class PeriodicReviewService {
   }
 
   private mapDecisionToDisposition(decision: string) {
-    switch (String(decision || '').trim().toUpperCase()) {
-      case 'APPROVE':
-        return ALERT_DISPOSITION_CODES.APPROVE_STAGE;
-      case 'REJECT':
-        return ALERT_DISPOSITION_CODES.REJECT_STAGE;
-      case 'REQUIRE_EDD':
-        return ALERT_DISPOSITION_CODES.REQUIRE_EDD;
-      default:
-        throw new BadRequestException(`Unsupported periodic review decision: ${decision}`);
+    const normalized = normalizeWorkflowDecision(decision);
+    if (normalized === 'CLEAR' || normalized === 'REJECT' || normalized === 'REQUIRE_EDD') {
+      return normalized;
     }
+    throw new BadRequestException(`Unsupported periodic review decision: ${decision}`);
+  }
+
+  private mapAlertOutcome(outcome?: string | null) {
+    const normalized = String(outcome || '').trim().toUpperCase();
+    if (!normalized) return null;
+    if (normalized === ALERT_DISPOSITION_CODES.FALSE_POSITIVE) {
+      return ALERT_DISPOSITION_CODES.FALSE_POSITIVE;
+    }
+    throw new BadRequestException(`Unsupported periodic review alert outcome: ${outcome}`);
+  }
+
+  private async recordDecisionOnAlert(
+    tx: Prisma.TransactionClient,
+    alert: any,
+    input: {
+      actorId: string;
+      actorRole: string;
+      decision: 'CLEAR' | 'REJECT' | 'REQUIRE_EDD';
+      alertOutcome?: 'FALSE_POSITIVE' | null;
+      reason: string;
+      decisionRecordIds: string[];
+      linkedCaseIds: string[];
+      sourceRefId: string;
+    },
+  ) {
+    const now = new Date();
+    const dispositionCode =
+      this.mapAlertOutcome(input.alertOutcome) ||
+      ALERT_DISPOSITION_CODES.RESOLVED_BY_WORKFLOW;
+
+    await tx.complianceAlertDispositionRecord.create({
+      data: {
+        alertId: alert.id,
+        dispositionCode,
+        reason: input.reason || null,
+        isFinal: true,
+        supersedesRecordId: String(alert.currentDispositionRecordId || '').trim() || null,
+        decisionRecordId: input.decisionRecordIds[0] || null,
+        source: 'ALERT_PERIODIC_REVIEW_DECISION',
+        sourceRefId: input.sourceRefId,
+        actorType: 'ADMIN',
+        actorId: input.actorId,
+        actorNo: null,
+        actorRole: input.actorRole,
+        createdAt: now,
+      },
+    });
+
+    await tx.complianceAlert.update({
+      where: { id: alert.id },
+      data: {
+        status: 'CLOSED',
+        closedAt: now,
+        closeReason: input.reason || `Periodic review decision ${input.decision}.`,
+        decisionRecommendation: input.decision,
+        decision: input.decision,
+        linkedCaseIds: JSON.stringify(input.linkedCaseIds),
+        decisionRecordIds: JSON.stringify(input.decisionRecordIds),
+        currentDispositionCode: dispositionCode,
+        currentDispositionReason: input.reason || null,
+        currentDispositionAt: now,
+        currentDispositionById: input.actorId,
+        currentDispositionByNo: null,
+        currentDispositionByRole: input.actorRole,
+        finalDispositionCode: dispositionCode,
+        finalDispositionReason: input.reason || null,
+        finalDispositionAt: now,
+        lastActionById: input.actorId,
+        lastActionByRole: input.actorRole,
+        lastActionAt: now,
+      },
+    });
+
+    await tx.complianceAlertEvent.create({
+      data: {
+        alertId: alert.id,
+        eventType: 'CLOSED',
+        eventAt: now,
+        actorType: 'ADMIN',
+        actorId: input.actorId,
+        actorRole: input.actorRole,
+        note: input.reason || `Periodic review decision ${input.decision}.`,
+        payload: JSON.stringify({
+          action: 'PERIODIC_REVIEW_DECISION',
+          decision: input.decision,
+          alertOutcome: input.alertOutcome || null,
+          dispositionCode,
+          decisionRecordIds: input.decisionRecordIds,
+          linkedCaseIds: input.linkedCaseIds,
+        }),
+        sourcePlatform: 'ADMIN_API',
+      },
+    });
   }
 
   async applyDecisionFromAlert(
@@ -1186,37 +1391,47 @@ export class PeriodicReviewService {
         );
       }
 
-      const updatedAlert = await this.complianceAlertsService.applyAction(
-        alert.id,
-        {
-          action: 'CLOSE' as any,
-          reason: String(dto.reason || '').trim() || dto.decision,
-          note: String(dto.reason || '').trim() || dto.decision,
-          decision: dto.decision,
-        },
-        {
-          actorType: 'ADMIN',
-          actorId,
-          actorRole,
-          sourcePlatform: 'ADMIN_API',
-        },
-        tx,
-      );
+      const workflowDecision = this.mapDecisionToDisposition(dto.decision) as
+        | 'CLEAR'
+        | 'REJECT'
+        | 'REQUIRE_EDD';
+      if (dto.alertOutcome === 'FALSE_POSITIVE' && workflowDecision !== 'CLEAR') {
+        throw new BadRequestException('FALSE_POSITIVE can only be paired with CLEAR.');
+      }
+      const linkedCaseIds = this.parseJsonStringList(alert.linkedCaseIds);
+      const decisionRecordIds = this.parseJsonStringList(alert.decisionRecordIds);
+      const reason = String(dto.reason || '').trim() || workflowDecision;
+
+      if (String(alert.stage || '').trim().toUpperCase() === 'REVIEW_EDD' && workflowDecision === 'REQUIRE_EDD') {
+        throw new BadRequestException(
+          'REQUIRE_EDD is not valid while periodic review is in REVIEW_EDD.',
+        );
+      }
+
+      await this.recordDecisionOnAlert(tx, alert, {
+        actorId,
+        actorRole,
+        decision: workflowDecision,
+        alertOutcome: dto.alertOutcome || null,
+        reason,
+        decisionRecordIds,
+        linkedCaseIds,
+        sourceRefId: alert.id,
+      });
 
       const transition = await this.workflowTransitionService.transition(tx, {
         workflow: PERIODIC_REVIEW_WORKFLOW,
-        stage: String(updatedAlert.stage || '').trim().toUpperCase() as any,
+        stage: String(alert.stage || '').trim().toUpperCase() as any,
         producerType: 'ALERT',
-        producerId: updatedAlert.id,
-        customerId: updatedAlert.customerId || '',
-        sourceId: updatedAlert.sourceId,
-        dispositionCode: this.mapDecisionToDisposition(dto.decision),
-        reason: String(dto.reason || '').trim() || null,
+        producerId: alert.id,
+        customerId: alert.customerId || '',
+        sourceId: alert.sourceId,
+        dispositionCode: workflowDecision,
+        reason: reason || null,
         actorId,
         actorRole,
-        linkedCaseIds: Array.isArray(updatedAlert.linkedCaseIds)
-          ? (updatedAlert.linkedCaseIds as string[])
-          : [],
+        linkedCaseIds,
+        latestDecisionRecordId: decisionRecordIds[0] || null,
       });
 
       return {
@@ -1243,44 +1458,124 @@ export class PeriodicReviewService {
     actorRole: string,
     dto: ApplyOnboardingAlertDecisionDto,
   ) {
-    const incident = await this.prisma.complianceIncident.findUnique({
-      where: { id: incidentId },
+    const result = await this.prisma.$transaction(async (tx) => {
+      const incident = await tx.complianceIncident.findUnique({
+        where: { id: incidentId },
+      });
+      if (!incident) {
+        throw new NotFoundException(`Compliance case not found: ${incidentId}`);
+      }
+      if (incident.status !== 'ASSIGNED' && incident.status !== 'INVESTIGATING') {
+        throw new BadRequestException(
+          `Periodic review decision from case is only allowed when case is ASSIGNED or INVESTIGATING, current=${incident.status}`,
+        );
+      }
+      if (this.getIncidentAssigneeUserId(incident) !== actorId) {
+        throw new ForbiddenException(
+          'Only case assignee can apply periodic review decision.',
+        );
+      }
+      if (!incident.primaryAlertId) {
+        throw new BadRequestException(
+          'Case has no primary periodic review alert binding.',
+        );
+      }
+
+      const alert = await tx.complianceAlert.findUnique({
+        where: { id: incident.primaryAlertId },
+      });
+      if (!alert || alert.sourceType !== PERIODIC_REVIEW_SOURCE_TYPE) {
+        throw new BadRequestException(
+          'Case periodic review decision requires review alert.',
+        );
+      }
+      if (dto.alertOutcome) {
+        throw new BadRequestException(
+          'Case periodic review proposal does not support alertOutcome. Use report proposal + MLRO review for FALSE_POSITIVE.',
+        );
+      }
+
+      const workflowDecision = this.mapDecisionToDisposition(dto.decision) as
+        | 'CLEAR'
+        | 'REJECT'
+        | 'REQUIRE_EDD';
+      if (
+        String(alert.stage || '').trim().toUpperCase() === 'REVIEW_EDD' &&
+        workflowDecision === 'REQUIRE_EDD'
+      ) {
+        throw new BadRequestException(
+          'REQUIRE_EDD is not valid while periodic review is in REVIEW_EDD.',
+        );
+      }
+
+      const reason = String(dto.reason || '').trim() || workflowDecision;
+      const decisionRecordIds = this.parseJsonStringList(alert.decisionRecordIds);
+      const linkedCaseIds = this.parseJsonStringList(incident.linkedCaseIds);
+      const now = new Date();
+
+      await tx.complianceIncident.update({
+        where: { id: incident.id },
+        data: {
+          status: 'INVESTIGATING',
+          proposedWorkflowDecision: workflowDecision,
+          proposedWorkflowReason: reason || null,
+          decisionRecordIds: JSON.stringify(decisionRecordIds),
+          linkedCaseIds: JSON.stringify(linkedCaseIds),
+          submittedForMlroAt: null,
+          submittedForMlroById: null,
+          submittedForMlroByNo: null,
+          submittedForMlroByRole: null,
+          mlroReviewOutcome: null,
+          mlroReviewNote: null,
+          mlroReviewedAt: null,
+          mlroReviewedById: null,
+          mlroReviewedByNo: null,
+          mlroReviewedByRole: null,
+          lastActionById: actorId,
+          lastActionByRole: actorRole,
+          lastActionAt: now,
+        },
+      });
+
+      await tx.complianceIncidentEvent.create({
+        data: {
+          incidentId: incident.id,
+          eventType: 'UPDATED',
+          eventAt: now,
+          actorType: 'ADMIN',
+          actorId,
+          actorRole,
+          note: reason || `Periodic review workflow proposal ${workflowDecision}.`,
+          payload: JSON.stringify({
+            action: 'PERIODIC_REVIEW_WORKFLOW_PROPOSAL',
+            proposedWorkflowDecision: workflowDecision,
+            alertId: alert.id,
+          }),
+          sourcePlatform: 'ADMIN_API',
+        },
+      });
+
+      return {
+        alertId: alert.id,
+        incidentId: incident.id,
+        proposedWorkflowDecision: workflowDecision,
+      };
     });
-    if (!incident) {
-      throw new NotFoundException(`Compliance case not found: ${incidentId}`);
-    }
-    if (incident.status !== 'ASSIGNED') {
-      throw new BadRequestException(
-        `Periodic review decision from case is only allowed when case is ASSIGNED, current=${incident.status}`,
-      );
-    }
-    if (String(incident.ownerUserId || '').trim() !== actorId) {
-      throw new ForbiddenException('Only case assignee can apply periodic review decision.');
-    }
-    if (!incident.primaryAlertId) {
-      throw new BadRequestException('Case has no primary periodic review alert binding.');
-    }
 
-    const alert = await this.prisma.complianceAlert.findUnique({
-      where: { id: incident.primaryAlertId },
-    });
-    if (!alert || alert.sourceType !== PERIODIC_REVIEW_SOURCE_TYPE) {
-      throw new BadRequestException('Case periodic review decision requires review alert.');
-    }
+    const [alertDetail, incidentDetail] = await Promise.all([
+      this.complianceAlertsService.findOne(result.alertId),
+      this.complianceIncidentsService.findOne(incidentId),
+    ]);
 
-    const result = await this.applyDecisionFromAlert(
-      alert.id,
-      actorId,
-      actorRole,
-      dto,
-    );
-
-    const incidentDetail = await this.complianceIncidentsService.findOne(incidentId);
     return {
-      alert: result.alert,
+      alert: alertDetail,
       incident: incidentDetail,
-      transition: result.transition,
-      customer: await this.getCustomerOrThrow(result.transition.updatedCustomer.id),
+      customer: null,
+      transition: null,
+      proposal: {
+        workflowDecision: result.proposedWorkflowDecision,
+        finalDispositionCode: incidentDetail?.proposedFinalDispositionCode ?? null,
+      },
     };
   }
 }

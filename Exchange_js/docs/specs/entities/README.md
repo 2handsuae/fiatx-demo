@@ -2,7 +2,7 @@
 
 Status: active
 Owner: project-owner-and-agents
-Last Updated: 2026-03-19
+Last Updated: 2026-03-22
 Applies To: `Exchange_js`
 Supersedes: none
 Depends On: `docs/specs/README.md`
@@ -19,3 +19,23 @@ Source of Truth Level: specs-entity
 - mirror / compatibility fields
 - write owners
 - read-model outputs
+
+## Current Entity Specs
+- `docs/specs/entities/compliance-alert-entity.md`
+  - Alert triage entity semantics and assignment boundary.
+- `docs/specs/entities/compliance-case-entity.md`
+  - Canonical case identity, proposal/disposition boundary, and filing projection boundary.
+- `docs/specs/entities/compliance-case-report-entity.md`
+  - Investigation report as its own entity, not a loose set of case fields.
+- `docs/specs/entities/compliance-external-filing-entity.md`
+  - External filing as an independent follow-up entity, not `reportStatus` semantics.
+- `docs/specs/entities/customer-entity.md`
+  - Canonical customer lifecycle and eligibility fields.
+- `docs/specs/entities/review-response-entity.md`
+  - Canonical CDD / EDD response identity and evidence-container semantics.
+- `docs/specs/entities/periodic-review-cycle-entity.md`
+  - Periodic review cycle as its own workflow root.
+- `docs/specs/entities/approval-case-entity.md`
+  - Approval case as governance object with workflow-bound trace fields.
+- `docs/specs/entities/risk-decision-record-entity.md`
+  - Risk decision record as orchestration/audit/recommendation root record.

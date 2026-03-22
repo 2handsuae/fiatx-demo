@@ -2,7 +2,7 @@
 
 Status: active
 Owner: project-owner-and-agents
-Last Updated: 2026-03-19
+Last Updated: 2026-03-22
 Applies To: `Exchange_js`
 Supersedes: none
 Depends On: `docs/README.md`
@@ -10,6 +10,16 @@ Source of Truth Level: acceptance
 
 ## Purpose
 - Use this folder for runbooks, step-by-step validation, operator checklists, and demo acceptance.
+- This is the layer that teaches testers, operators, and demo owners how to validate current behavior in practice.
+- Do not move user/operator validation steps into workflow specs or module specs unless they are needed as semantic background only.
+
+## Current Key Acceptance Docs
+- `docs/acceptance/wave-2-wave-3-final-acceptance-checklist.md`
+  - Top-level final acceptance and operator runbook for Wave 2 case kernel and Wave 3 onboarding / periodic review runtime.
+- `docs/acceptance/onboarding-compliance-center-wave3-acceptance-checklist.md`
+  - Focused onboarding + compliance-center manual script.
+- `docs/acceptance/local-main-runtime-runbook.md`
+  - Local runtime repair and validation runbook.
 
 ## Update When
 - Validation flow changes.
@@ -19,3 +29,11 @@ Source of Truth Level: acceptance
 ## Do Not Use For
 - Permanent workflow truth.
 - Constraint ownership.
+
+## Wave Completion Rule
+- Every completed wave MUST leave at least one final acceptance or final runbook document in this folder.
+- That document MUST explain:
+1. who runs the validation
+2. which chain to execute
+3. what to expect
+4. how to confirm success

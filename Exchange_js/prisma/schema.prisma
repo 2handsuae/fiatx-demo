@@ -496,6 +496,10 @@ model OnboardingAuditLog {
   action     String
   actorId    String
   actorRole  String
+  traceId    String?
+  workflowType String?
+  workflowId String?
+  workflowNo String?
   fromStage  String?
   toStage    String?
   detail     String?
@@ -504,6 +508,8 @@ model OnboardingAuditLog {
   customer   CustomerMain @relation(fields: [customerId], references: [id])
 
   @@index([customerId, createdAt])
+  @@index([traceId, createdAt])
+  @@index([workflowType, workflowNo, createdAt])
   @@map("onboarding_audit_logs")
 }
 
@@ -667,6 +673,9 @@ model ApprovalCase {
   docRef             String?
   metadataJson       String               @default("{}")
   traceId            String
+  workflowType       String?
+  workflowId         String?
+  workflowNo         String?
   createdAt          DateTime             @default(now())
   updatedAt          DateTime             @updatedAt
   submittedAt        DateTime?
@@ -690,6 +699,7 @@ model ApprovalCase {
   @@index([actionType, entityRef, status])
   @@index([status, timeoutAt])
   @@index([traceId, createdAt])
+  @@index([workflowType, workflowNo, createdAt])
   @@index([deletedAt])
   @@map("approval_cases")
 }
@@ -1015,7 +1025,7 @@ model ComplianceIncident {
   id                String                    @id @default(uuid())
   incidentNo        String                    @unique @default("TEMP")
   caseType          String                    @default("GENERIC")
-  status            String                    @default("OPEN") // OPEN, ASSIGNED, RESOLVED, CLOSED
+  status            String                    @default("OPEN") // OPEN, ASSIGNED, INVESTIGATING, PENDING_MLRO_REVIEW, RESOLVED(legacy), CLOSED
   severity          String
   title             String
   summary           String
@@ -1045,6 +1055,23 @@ model ComplianceIncident {
   containmentSummary String?
   closureChecklist  String?
   decision          String?
+  proposedWorkflowDecision String?
+  proposedWorkflowReason   String?
+  proposedFinalDispositionCode String?
+  proposedFinalDispositionReason String?
+  proposedFilingRequired Boolean?
+  proposedFilingType String?
+  proposedFilingAuthority String?
+  submittedForMlroAt DateTime?
+  submittedForMlroById String?
+  submittedForMlroByNo String?
+  submittedForMlroByRole String?
+  mlroReviewOutcome  String?
+  mlroReviewNote     String?
+  mlroReviewedAt     DateTime?
+  mlroReviewedById   String?
+  mlroReviewedByNo   String?
+  mlroReviewedByRole String?
   currentDispositionCode   String?
   currentDispositionReason String?
   currentDispositionAt     DateTime?
@@ -1081,6 +1108,7 @@ model ComplianceIncident {
   events            ComplianceIncidentEvent[]
   dispositionRecords ComplianceIncidentDispositionRecord[]
   reports           ComplianceIncidentReport[]
+  filings           ComplianceIncidentExternalFiling[]
 
   @@index([status, lastActionAt])
   @@index([severity, status, dueAt])
@@ -1112,6 +1140,9 @@ model ComplianceIncidentReport {
   recommendedActions     String?
   finalDispositionCode   String?
   finalDispositionReason String?
+  filingRequired         Boolean?
+  filingType             String?
+  filingAuthority        String?
   linkedAlertSnapshot    String?
   decisionRecordSnapshot String?
   providerResponseSnapshot String?
@@ -1129,6 +1160,64 @@ model ComplianceIncidentReport {
   @@index([incidentId, isCurrent])
   @@index([incidentId, status, updatedAt])
   @@map("compliance_incident_reports")
+}
+
+model ComplianceIncidentExternalFiling {
+  id                   String                           @id @default(uuid())
+  filingNo             String                           @unique @default("TEMP")
+  incidentId           String                           @unique
+  filingType           String?
+  filingAuthority      String?
+  status               String
+  requiredAt           DateTime?
+  requiredById         String?
+  requiredByNo         String?
+  requiredByRole       String?
+  submittedAt          DateTime?
+  submittedById        String?
+  submittedByNo        String?
+  submittedByRole      String?
+  externalRefNo        String?
+  latestFeedback       String?
+  latestFeedbackAt     DateTime?
+  latestFeedbackById   String?
+  latestFeedbackByNo   String?
+  latestFeedbackByRole String?
+  closedAt             DateTime?
+  closedById           String?
+  closedByNo           String?
+  closedByRole         String?
+  metadata             String?
+  createdAt            DateTime                         @default(now())
+  updatedAt            DateTime                         @updatedAt
+  incident             ComplianceIncident               @relation(fields: [incidentId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  events               ComplianceIncidentExternalFilingEvent[]
+
+  @@index([status, updatedAt])
+  @@index([filingAuthority, status, updatedAt])
+  @@map("compliance_incident_external_filings")
+}
+
+model ComplianceIncidentExternalFilingEvent {
+  id             String                           @id @default(uuid())
+  filingId       String
+  eventType      String
+  eventAt        DateTime                         @default(now())
+  actorType      String
+  actorId        String
+  actorNo        String?
+  actorRole      String?
+  note           String?
+  statusFrom     String?
+  statusTo       String?
+  externalRefNo  String?
+  feedback       String?
+  sourcePlatform String?
+  createdAt      DateTime                         @default(now())
+  filing         ComplianceIncidentExternalFiling @relation(fields: [filingId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@index([filingId, eventAt])
+  @@map("compliance_incident_external_filing_events")
 }
 
 model ComplianceIncidentAlert {

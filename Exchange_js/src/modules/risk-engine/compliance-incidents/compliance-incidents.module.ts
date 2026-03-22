@@ -6,20 +6,26 @@ import { ComplianceCaseEvidencePackagesController } from './compliance-case-evid
 import { ComplianceCaseEvidencePackagesService } from './compliance-case-evidence-packages.service';
 import { ComplianceCasesAdminController } from './compliance-cases-admin.controller';
 import { ComplianceCaseSlaSweepService } from './compliance-case-sla-sweep.service';
-import { ComplianceIncidentsAdminController } from './compliance-incidents-admin.controller';
 import { ComplianceIncidentsService } from './compliance-incidents.service';
+import { WorkflowTransitionService } from '../../identity/onboarding/workflow-transition.service';
+import { OnboardingWorkflowTransitionService } from '../../identity/onboarding/onboarding-workflow-transition.service';
+import { PeriodicReviewWorkflowTransitionService } from '../../identity/periodic-review/periodic-review-workflow-transition.service';
+import { OnboardingFinalApprovalService } from '../../identity/onboarding/onboarding-final-approval.service';
 
 @Module({
   imports: [PrismaModule, ComplianceAlertsModule, ApprovalsModule],
   providers: [
     ComplianceIncidentsService,
+    WorkflowTransitionService,
+    OnboardingWorkflowTransitionService,
+    PeriodicReviewWorkflowTransitionService,
+    OnboardingFinalApprovalService,
     ComplianceCaseEvidencePackagesService,
     ComplianceCaseSlaSweepService,
   ],
   controllers: [
     ComplianceCaseEvidencePackagesController,
     ComplianceCasesAdminController,
-    ComplianceIncidentsAdminController,
   ],
   exports: [ComplianceIncidentsService, ComplianceCaseEvidencePackagesService],
 })

@@ -47,6 +47,8 @@
     "audit:backfill:nos:apply": "ts-node scripts/backfill-audit-log-nos.ts --apply",
     "audit:retention:dry": "ts-node scripts/audit-retention-job.ts --dry-run",
     "audit:retention:apply": "ts-node scripts/audit-retention-job.ts --apply",
+    "rbac:backfill:dry": "ts-node scripts/backfill-rbac-permissions.ts --dry-run",
+    "rbac:backfill:apply": "ts-node scripts/backfill-rbac-permissions.ts --apply",
     "prestart:debug": "npm run prisma:generate",
     "start:debug": "nest start --debug --watch",
     "start:prod": "node dist/main",

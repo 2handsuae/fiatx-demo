@@ -110,8 +110,10 @@ export class RiskDecisionOrchestratorService {
   private normalizeRecommendedDecision(value: unknown): string | null {
     const normalized = String(value || '').trim().toUpperCase();
     if (!normalized) return null;
-    if (normalized === 'APPROVE') return 'APPROVE';
-    if (normalized === 'REJECT') return 'REJECT';
+    if (normalized === 'APPROVE' || normalized === 'APPROVE_STAGE' || normalized === 'CLEAR') {
+      return 'CLEAR';
+    }
+    if (normalized === 'REJECT' || normalized === 'REJECT_STAGE') return 'REJECT';
     if (normalized === 'REQUIRE_EDD') return 'REQUIRE_EDD';
     return null;
   }
@@ -405,7 +407,7 @@ export class RiskDecisionOrchestratorService {
           action: 'CLOSE' as any,
           reason: input.reason,
           note: input.reason,
-          decision: 'APPROVE',
+          decision: 'CLEAR',
         },
         {
           actorType: 'SYSTEM',

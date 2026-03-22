@@ -12,10 +12,10 @@ describe('rbac.catalog', () => {
 
     expect(permissionCodes.has(buildPermissionCode('GET', '/admin/compliance/alerts'))).toBe(true);
     expect(permissionCodes.has(buildPermissionCode('PATCH', '/admin/compliance/alerts/:id/action'))).toBe(true);
-    expect(permissionCodes.has(buildPermissionCode('GET', '/admin/compliance/incidents'))).toBe(true);
+    expect(permissionCodes.has(buildPermissionCode('GET', '/admin/compliance/cases'))).toBe(true);
     expect(
       permissionCodes.has(
-        buildPermissionCode('POST', '/admin/compliance/incidents/from-alert/:alertId'),
+        buildPermissionCode('POST', '/admin/compliance/cases/from-alert/:alertId'),
       ),
     ).toBe(true);
   });
@@ -27,6 +27,16 @@ describe('rbac.catalog', () => {
 
     expect(permissionCodes.has(buildPermissionCode('GET', '/admin/compliance/cases'))).toBe(true);
     expect(permissionCodes.has(buildPermissionCode('PATCH', '/admin/compliance/cases/:id/action'))).toBe(true);
+    expect(
+      permissionCodes.has(
+        buildPermissionCode('POST', '/admin/compliance/cases/:id/report/submit-to-mlro'),
+      ),
+    ).toBe(true);
+    expect(
+      permissionCodes.has(
+        buildPermissionCode('POST', '/admin/compliance/cases/:id/mlro-review'),
+      ),
+    ).toBe(true);
     expect(
       permissionCodes.has(
         buildPermissionCode('POST', '/admin/compliance/cases/from-alert/:alertId'),
@@ -54,6 +64,17 @@ describe('rbac.catalog', () => {
     expect(permissionCodes.has(buildPermissionCode('POST', '/admin/compliance/cdd-cases/:id/review'))).toBe(false);
     expect(permissionCodes.has(buildPermissionCode('POST', '/admin/compliance/edd-cases/:id/mlro-review'))).toBe(false);
     expect(permissionCodes.has(buildPermissionCode('POST', '/admin/compliance/customers/:id/final-review'))).toBe(false);
+    expect(permissionCodes.has(buildPermissionCode('GET', '/admin/compliance/incidents'))).toBe(false);
+    expect(
+      permissionCodes.has(
+        buildPermissionCode('POST', '/admin/compliance/incidents/from-alert/:alertId'),
+      ),
+    ).toBe(false);
+    expect(
+      permissionCodes.has(
+        buildPermissionCode('POST', '/admin/compliance/incidents/:id/onboarding-decision'),
+      ),
+    ).toBe(false);
   });
 
   it('should retire case-named response read aliases after Stage 3B', () => {
@@ -88,17 +109,26 @@ describe('rbac.catalog', () => {
     const permissionMap = buildRolePermissionCodeMap();
     const caseReadCode = buildPermissionCode('GET', '/admin/compliance/cases');
     const caseWriteCode = buildPermissionCode('PATCH', '/admin/compliance/cases/:id/action');
+    const caseMlroReviewCode = buildPermissionCode(
+      'POST',
+      '/admin/compliance/cases/:id/mlro-review',
+    );
 
     expect(permissionMap.COMPLIANCE_LEAD).toContain(caseReadCode);
     expect(permissionMap.COMPLIANCE_LEAD).toContain(caseWriteCode);
+    expect(permissionMap.COMPLIANCE_LEAD).not.toContain(caseMlroReviewCode);
     expect(permissionMap.MLRO).toContain(caseReadCode);
     expect(permissionMap.MLRO).toContain(caseWriteCode);
+    expect(permissionMap.MLRO).toContain(caseMlroReviewCode);
     expect(permissionMap.RI).toContain(caseReadCode);
     expect(permissionMap.RI).not.toContain(caseWriteCode);
+    expect(permissionMap.RI).not.toContain(caseMlroReviewCode);
     expect(permissionMap.SM).toContain(caseReadCode);
     expect(permissionMap.SM).not.toContain(caseWriteCode);
+    expect(permissionMap.SM).not.toContain(caseMlroReviewCode);
     expect(permissionMap.CISO).toContain(caseReadCode);
     expect(permissionMap.CISO).not.toContain(caseWriteCode);
+    expect(permissionMap.CISO).not.toContain(caseMlroReviewCode);
   });
 
   it('should register case evidence export permissions and grant them to the expected roles', () => {

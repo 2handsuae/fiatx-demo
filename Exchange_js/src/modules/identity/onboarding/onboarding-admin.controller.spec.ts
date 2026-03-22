@@ -93,14 +93,14 @@ describe('OnboardingAdminController', () => {
         },
       },
       'inc-1',
-      { decision: 'APPROVE' } as any,
+      { decision: 'CLEAR' } as any,
     );
 
     expect(onboardingServiceMock.applyOnboardingDecisionFromIncident).toHaveBeenCalledWith(
       'inc-1',
       'admin-1',
       'MLRO',
-      { decision: 'APPROVE' },
+      { decision: 'CLEAR' },
     );
     expect(result.case).toEqual({ id: 'inc-1', caseNo: 'CAS2603010001' });
     expect(result.incident).toEqual({ id: 'inc-1', caseNo: 'CAS2603010001' });

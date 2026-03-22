@@ -270,15 +270,23 @@ export class AuthService {
   }
 
   async login(user: any) {
-    const roleCodes = this.accessControlService
+    const resolvedRoleCodes = this.accessControlService
       ? await this.accessControlService.getUserRoleCodes(user.id)
       : [];
+    const roleCodes = Array.from(
+      new Set(
+        [...resolvedRoleCodes, String(user.role || '').trim().toUpperCase()].filter(
+          Boolean,
+        ),
+      ),
+    );
     const primaryRole = getPrimaryRoleCode(roleCodes) || user.role || 'ADMIN';
     const payload = {
       username: user.email,
       sub: user.id,
       userNo: user.userNo,
       role: primaryRole,
+      roleCodes,
       type: 'ADMIN',
     };
     return {

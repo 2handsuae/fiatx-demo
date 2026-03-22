@@ -53,7 +53,7 @@ describe('RiskDecisionOrchestratorService', () => {
         },
         {
           type: 'ONBOARDING_RECOMMEND_DECISIONS',
-          payload: { decisions: ['APPROVE', 'REJECT', 'REQUIRE_EDD'] },
+          payload: { decisions: ['CLEAR', 'REJECT', 'REQUIRE_EDD'] },
         },
       ],
       contextType: 'ONBOARDING_CDD',
@@ -65,7 +65,7 @@ describe('RiskDecisionOrchestratorService', () => {
         stage: 'REVIEW_CDD',
         sourceType: 'ONBOARDING_JOURNEY',
         metadata: expect.objectContaining({
-          recommendedDecisions: ['APPROVE', 'REJECT', 'REQUIRE_EDD'],
+          recommendedDecisions: ['CLEAR', 'REJECT', 'REQUIRE_EDD'],
         }),
       }),
     );
@@ -131,7 +131,7 @@ describe('RiskDecisionOrchestratorService', () => {
       recommendedActions: [
         {
           type: 'ONBOARDING_RECOMMEND_DECISIONS',
-          payload: { decisions: ['APPROVE', 'REJECT', 'REQUIRE_EDD'] },
+          payload: { decisions: ['CLEAR', 'REJECT', 'REQUIRE_EDD'] },
         },
       ],
       contextType: 'ONBOARDING_CDD',
@@ -141,7 +141,7 @@ describe('RiskDecisionOrchestratorService', () => {
     expect(result).toEqual(
       expect.objectContaining({
         alertUpserted: false,
-        recommendedDecisions: ['APPROVE', 'REJECT', 'REQUIRE_EDD'],
+        recommendedDecisions: ['CLEAR', 'REJECT', 'REQUIRE_EDD'],
       }),
     );
   });

@@ -102,6 +102,7 @@ describe('ComplianceAlertsService', () => {
   });
 
   it('should create a new alert when dedupe key does not exist', async () => {
+    const recordSystemSpy = jest.spyOn(AuditLogsService.prototype, 'recordSystem');
     prismaMock.complianceAlert.findUnique.mockResolvedValue(null);
     prismaMock.customerMain.findUnique.mockResolvedValue({ customerNo: 'CU0001' });
     prismaMock.complianceAlert.create.mockResolvedValue(buildAlert());
@@ -119,6 +120,15 @@ describe('ComplianceAlertsService', () => {
 
     expect(prismaMock.complianceAlert.create).toHaveBeenCalledTimes(1);
     expect(prismaMock.complianceAlertEvent.create).toHaveBeenCalledTimes(1);
+    expect(recordSystemSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        traceId: 'ONBOARDING:journey-1',
+        workflowType: 'ONBOARDING',
+        workflowId: 'journey-1',
+        workflowNo: 'journey-1',
+      }),
+      undefined,
+    );
     expect(result.ruleCode).toBe('ONB_CDD_REVIEW_REQUIRED');
     expect(result.status).toBe(ComplianceAlertStatus.OPEN);
   });
@@ -381,7 +391,7 @@ describe('ComplianceAlertsService', () => {
     ).rejects.toThrow('Only assignee');
   });
 
-  it('should forbid CLOSE when actor is not current assignee in ASSIGNED status', async () => {
+  it('should reject generic CLOSE for workflow-bound alerts', async () => {
     prismaMock.complianceAlert.findUnique.mockResolvedValue(
       buildAlert({
         status: ComplianceAlertStatus.ASSIGNED,
@@ -401,7 +411,90 @@ describe('ComplianceAlertsService', () => {
           actorRole: 'ADMIN',
         },
       ),
-    ).rejects.toThrow('Only assignee');
+    ).rejects.toThrow('Workflow-bound alerts must be resolved');
+  });
+
+  it('should hide workflow actions for OPEN workflow-bound alert detail', async () => {
+    prismaMock.complianceAlert.findUnique.mockResolvedValue({
+      ...buildAlert({
+        status: ComplianceAlertStatus.OPEN,
+        assigneeUserId: null,
+        assigneeUserNo: null,
+      }),
+      events: [],
+      dispositionRecords: [],
+    });
+
+    const result = await service.findOne('alert-1', {
+      actorType: 'ADMIN',
+      actorId: 'admin-9',
+      actorNo: 'US0009',
+      actorRole: 'COMPLIANCE_LEAD',
+    });
+
+    expect(result).not.toHaveProperty('availableWorkItemActions');
+    expect(result.availableAlertActions).toEqual([
+      'ASSIGN',
+      'FALSE_POSITIVE',
+      'ESCALATE_TO_CASE',
+    ]);
+    expect(result.availableWorkflowActions).toEqual([]);
+  });
+
+  it('should hide workflow actions for ASSIGNED workflow-bound alert when actor is not assignee', async () => {
+    prismaMock.complianceAlert.findUnique.mockResolvedValue({
+      ...buildAlert({
+        status: ComplianceAlertStatus.ASSIGNED,
+        assigneeUserId: 'admin-1',
+        assigneeUserNo: 'US0001',
+      }),
+      events: [],
+      dispositionRecords: [],
+    });
+
+    const result = await service.findOne('alert-1', {
+      actorType: 'ADMIN',
+      actorId: 'admin-2',
+      actorNo: 'US0002',
+      actorRole: 'COMPLIANCE_LEAD',
+    });
+
+    expect(result.availableAlertActions).toEqual([
+      'REASSIGN',
+      'FALSE_POSITIVE',
+      'ESCALATE_TO_CASE',
+    ]);
+    expect(result.availableWorkflowActions).toEqual([]);
+  });
+
+  it('should expose workflow actions for ASSIGNED workflow-bound alert when actor is the assignee', async () => {
+    prismaMock.complianceAlert.findUnique.mockResolvedValue({
+      ...buildAlert({
+        status: ComplianceAlertStatus.ASSIGNED,
+        assigneeUserId: 'admin-1',
+        assigneeUserNo: 'US0001',
+      }),
+      events: [],
+      dispositionRecords: [],
+    });
+
+    const result = await service.findOne('alert-1', {
+      actorType: 'ADMIN',
+      actorId: 'admin-1',
+      actorNo: 'US0001',
+      actorRole: 'COMPLIANCE_LEAD',
+    });
+
+    expect(result.availableAlertActions).toEqual([
+      'REASSIGN',
+      'FALSE_POSITIVE',
+      'ESCALATE_TO_CASE',
+    ]);
+    expect(result.availableWorkflowActions).toEqual([
+      'CLEAR',
+      'REJECT',
+      'REQUIRE_EDD',
+    ]);
   });
 
   it('should allow assignee to ESCALATE from ASSIGNED status', async () => {
@@ -541,7 +634,7 @@ describe('ComplianceAlertsService', () => {
           status: ComplianceAlertStatus.ASSIGNED,
           assigneeUserId: 'admin-1',
           assigneeUserNo: 'US0001',
-          decision: 'APPROVE',
+          decision: 'CLEAR',
         }),
         events: [],
         dispositionRecords: [],
@@ -552,7 +645,7 @@ describe('ComplianceAlertsService', () => {
         status: ComplianceAlertStatus.ASSIGNED,
         assigneeUserId: 'admin-1',
         assigneeUserNo: 'US0001',
-        decision: 'APPROVE',
+        decision: 'CLEAR',
       }),
     );
 
@@ -561,7 +654,7 @@ describe('ComplianceAlertsService', () => {
       {
         action: ComplianceAlertAction.ASSIGN,
         assigneeUserId: 'admin-1',
-        decision: 'APPROVE',
+        decision: 'CLEAR',
         note: 'record decision only',
       },
       {
@@ -577,13 +670,14 @@ describe('ComplianceAlertsService', () => {
       expect.objectContaining({
         data: expect.objectContaining({
           status: ComplianceAlertStatus.ASSIGNED,
-          decision: 'APPROVE',
+          decision: 'RESOLVED_BY_WORKFLOW',
+          currentDispositionCode: 'RESOLVED_BY_WORKFLOW',
         }),
       }),
     );
   });
 
-  it('should reject CLOSE without reason', async () => {
+  it('should reject generic CLOSE for workflow-bound alerts before reason validation', async () => {
     prismaMock.complianceAlert.findUnique.mockResolvedValue(buildAlert({ status: 'OPEN' }));
 
     await expect(
@@ -595,7 +689,7 @@ describe('ComplianceAlertsService', () => {
           actorId: 'admin-1',
         },
       ),
-    ).rejects.toThrow('requires a reason');
+    ).rejects.toThrow('Workflow-bound alerts must be resolved');
   });
 
   it('should reject terminal status action', async () => {

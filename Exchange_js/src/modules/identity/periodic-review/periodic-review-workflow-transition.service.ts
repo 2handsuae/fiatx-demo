@@ -5,16 +5,25 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
+import { PrismaService } from '../../../core/prisma/prisma.service';
+import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
 import {
-  CustomerPublicStatus,
-  getLegacyPublicStatusFromCanonical,
+  AuditEntityTypes,
+  AuditModules,
+  AuditWorkflowTypes,
+} from '../../risk-engine/audit-logs/constants/audit-actions.constant';
+import { AuditTriggerType } from '../../risk-engine/audit-logs/dto/audit-log.dto';
+import {
+  CustomerOnboardingStatus,
   resolveCustomerCanonicalState,
 } from '../customer-status.util';
 import {
   ALERT_DISPOSITION_CODES,
   CASE_DISPOSITION_CODES,
+  normalizeWorkflowDecision,
 } from '../../risk-engine/constants/compliance-disposition.constant';
 import {
+  buildComplianceWorkflowTraceContext,
   ComplianceReviewStage,
   ONBOARDING_REVIEW_STAGES,
   PERIODIC_REVIEW_WORKFLOW,
@@ -29,23 +38,28 @@ import {
 
 @Injectable()
 export class PeriodicReviewWorkflowTransitionService {
+  private readonly auditLogsService: AuditLogsService;
+
+  constructor(private readonly prisma: PrismaService) {
+    this.auditLogsService = new AuditLogsService(prisma);
+  }
+
   private readonly noTransitionDispositionCodes = new Set<string>([
     ALERT_DISPOSITION_CODES.ESCALATE_TO_CASE,
     ALERT_DISPOSITION_CODES.FALSE_POSITIVE,
-    ALERT_DISPOSITION_CODES.NO_ACTION,
-    CASE_DISPOSITION_CODES.RESTRICT,
-    CASE_DISPOSITION_CODES.REPORT,
+    ALERT_DISPOSITION_CODES.RESOLVED_BY_WORKFLOW,
+    'RESTRICT',
+    'REPORT',
     CASE_DISPOSITION_CODES.FALSE_POSITIVE,
+    CASE_DISPOSITION_CODES.RISK_CONFIRMED,
   ]);
 
-  private getCustomerPublicStatus(customer: {
+  private getCustomerOnboardingStatus(customer: {
     onboardingStatus?: string | null;
     operatingStatus?: string | null;
     restrictionStatus?: string | null;
-  }): CustomerPublicStatus {
-    return getLegacyPublicStatusFromCanonical(
-      resolveCustomerCanonicalState(customer).onboardingStatus,
-    );
+  }): CustomerOnboardingStatus {
+    return resolveCustomerCanonicalState(customer).onboardingStatus;
   }
 
   private getCompatibilityFinalApprovalStatus(customer: {
@@ -84,19 +98,98 @@ export class PeriodicReviewWorkflowTransitionService {
     dispositionCode: string;
   }): string {
     const prefix = input.producerType === 'CASE' ? 'PERIODIC_CASE' : 'PERIODIC_ALERT';
-    switch (input.dispositionCode) {
-      case ALERT_DISPOSITION_CODES.APPROVE_STAGE:
-      case CASE_DISPOSITION_CODES.APPROVE_STAGE:
-        return `${prefix}_APPROVE`;
-      case ALERT_DISPOSITION_CODES.REJECT_STAGE:
-      case CASE_DISPOSITION_CODES.REJECT_STAGE:
+    const workflowDecision = this.getWorkflowDecision(input.dispositionCode);
+    switch (workflowDecision) {
+      case 'CLEAR':
+        return `${prefix}_CLEAR`;
+      case 'REJECT':
         return `${prefix}_REJECT`;
-      case ALERT_DISPOSITION_CODES.REQUIRE_EDD:
-      case CASE_DISPOSITION_CODES.REQUIRE_EDD:
+      case 'REQUIRE_EDD':
         return `${prefix}_REQUIRE_EDD`;
       default:
         return `${prefix}_${input.dispositionCode}`;
     }
+  }
+
+  private getWorkflowDecision(value: unknown): 'CLEAR' | 'REJECT' | 'REQUIRE_EDD' | null {
+    const normalized = normalizeWorkflowDecision(value);
+    if (normalized === 'CLEAR' || normalized === 'REJECT' || normalized === 'REQUIRE_EDD') {
+      return normalized;
+    }
+    if (String(value || '').trim().toUpperCase() === CASE_DISPOSITION_CODES.CLEAR) {
+      return 'CLEAR';
+    }
+    return null;
+  }
+
+  private getWorkflowAuditAction(dispositionCode: string): string {
+    const workflowDecision = this.getWorkflowDecision(dispositionCode);
+    if (workflowDecision === 'CLEAR') {
+      return 'PERIODIC_REVIEW_WORKFLOW_CLEAR';
+    }
+    if (workflowDecision === 'REJECT') {
+      return 'PERIODIC_REVIEW_WORKFLOW_REJECT';
+    }
+    if (workflowDecision === 'REQUIRE_EDD') {
+      return 'PERIODIC_REVIEW_WORKFLOW_REQUIRE_EDD';
+    }
+    return `PERIODIC_REVIEW_WORKFLOW_${String(dispositionCode || '').trim().toUpperCase()}`;
+  }
+
+  private async recordCanonicalWorkflowAudit(
+    tx: Prisma.TransactionClient,
+    customer: any,
+    cycle: any,
+    input: WorkflowTransitionInput,
+    dispositionCode: string,
+    fromStatus: string,
+    toStatus: string,
+    caseType: string | null,
+    caseId: string | null,
+  ) {
+    const traceContext = buildComplianceWorkflowTraceContext({
+      workflow: PERIODIC_REVIEW_WORKFLOW,
+      workflowId: cycle.id,
+      workflowNo: cycle.cycleNo,
+    });
+    await this.auditLogsService.recordByActor(
+      {
+        triggerType: AuditTriggerType.STATE_TRANSITION,
+        action: this.getWorkflowAuditAction(dispositionCode),
+        module: AuditModules.ONBOARDING,
+        entityType: AuditEntityTypes.ONBOARDING,
+        entityId: customer.id,
+        entityNo: customer.customerNo || undefined,
+        traceId: traceContext?.traceId || undefined,
+        workflowType:
+          traceContext?.workflowType || AuditWorkflowTypes.PERIODIC_REVIEW,
+        workflowId: traceContext?.workflowId || undefined,
+        workflowNo: traceContext?.workflowNo || undefined,
+        entityOwnerType: 'CUSTOMER',
+        entityOwnerId: customer.id,
+        entityOwnerNo: customer.customerNo || undefined,
+        statusFrom: fromStatus || undefined,
+        statusTo: toStatus || undefined,
+        reason: String(input.reason || '').trim() || dispositionCode,
+        metadata: {
+          producerType: input.producerType,
+          producerId: input.producerId,
+          stage: input.stage,
+          cycleId: cycle.id,
+          cycleNo: cycle.cycleNo,
+          caseType,
+          caseId,
+          dispositionCode,
+        },
+        sourcePlatform: 'APPLICATION',
+      },
+      {
+        actorType: 'ADMIN',
+        actorId: input.actorId,
+        actorRole: input.actorRole,
+      },
+      tx,
+    );
   }
 
   private addDays(base: Date, days: number): Date {
@@ -294,7 +387,7 @@ export class PeriodicReviewWorkflowTransitionService {
     }
 
     const cycle = await this.resolveCycle(tx, input, customer);
-    const fromStatus = this.getCustomerPublicStatus(customer);
+    const fromStatus = this.getCustomerOnboardingStatus(customer);
     const expectedStage = this.getExpectedStageFromCycleStatus(cycle.status);
     if (!expectedStage) {
       throw new BadRequestException(
@@ -310,6 +403,7 @@ export class PeriodicReviewWorkflowTransitionService {
     }
 
     const dispositionCode = this.normalizeDispositionCode(input.dispositionCode);
+    const workflowDecision = this.getWorkflowDecision(dispositionCode);
     if (this.noTransitionDispositionCodes.has(dispositionCode)) {
       const noTransition: WorkflowTransitionOutput = {
         workflow: PERIODIC_REVIEW_WORKFLOW,
@@ -333,7 +427,7 @@ export class PeriodicReviewWorkflowTransitionService {
 
     const now = new Date();
     let transitionCode: WorkflowTransitionCode = WORKFLOW_TRANSITION_CODES.NO_TRANSITION;
-    let toStatus: CustomerPublicStatus = fromStatus;
+    let toStatus: CustomerOnboardingStatus = fromStatus;
     let eddResponse: any | null = null;
     let caseType: 'CDD' | 'EDD' | null = null;
     let caseId: string | null = null;
@@ -368,7 +462,7 @@ export class PeriodicReviewWorkflowTransitionService {
       caseType = 'CDD';
       caseId = cddResponse.id;
 
-      if (dispositionCode === ALERT_DISPOSITION_CODES.APPROVE_STAGE) {
+      if (workflowDecision === 'CLEAR') {
         transitionCode =
           WORKFLOW_TRANSITION_CODES.PERIODIC_REVIEW_CDD_APPROVE_TO_CLEARED;
         cycleUpdateData.status = 'CLEARED';
@@ -384,7 +478,7 @@ export class PeriodicReviewWorkflowTransitionService {
             restrictionReleasedAt: now,
           });
         }
-      } else if (dispositionCode === ALERT_DISPOSITION_CODES.REJECT_STAGE) {
+      } else if (workflowDecision === 'REJECT') {
         transitionCode =
           WORKFLOW_TRANSITION_CODES.PERIODIC_REVIEW_CDD_REJECT_TO_REJECTED;
         cycleUpdateData.status = 'REJECTED';
@@ -393,7 +487,7 @@ export class PeriodicReviewWorkflowTransitionService {
         Object.assign(customerUpdateData, {
           nextReviewAt: null,
         });
-      } else if (dispositionCode === ALERT_DISPOSITION_CODES.REQUIRE_EDD) {
+      } else if (workflowDecision === 'REQUIRE_EDD') {
         eddResponse = await this.createEddResponseIfNeeded(tx, cycle, customer.id, cddResponse.id);
         transitionCode =
           WORKFLOW_TRANSITION_CODES.PERIODIC_REVIEW_CDD_REQUIRE_EDD_TO_PENDING_EDD;
@@ -414,13 +508,13 @@ export class PeriodicReviewWorkflowTransitionService {
           reviewerRole: input.actorRole,
           reviewedAt: now,
           reviewerDecision:
-            dispositionCode === ALERT_DISPOSITION_CODES.APPROVE_STAGE
+            workflowDecision === 'CLEAR'
               ? 'APPROVE'
-              : dispositionCode === ALERT_DISPOSITION_CODES.REJECT_STAGE
+              : workflowDecision === 'REJECT'
                 ? 'REJECT'
                 : 'REQUIRE_EDD',
           decisionReason: String(input.reason || '').trim() || dispositionCode,
-          requiresEdd: dispositionCode === ALERT_DISPOSITION_CODES.REQUIRE_EDD,
+          requiresEdd: workflowDecision === 'REQUIRE_EDD',
         },
       });
     } else {
@@ -439,7 +533,7 @@ export class PeriodicReviewWorkflowTransitionService {
       caseId = reviewEddResponse.id;
       eddResponse = reviewEddResponse;
 
-      if (dispositionCode === ALERT_DISPOSITION_CODES.APPROVE_STAGE) {
+      if (workflowDecision === 'CLEAR') {
         transitionCode =
           WORKFLOW_TRANSITION_CODES.PERIODIC_REVIEW_EDD_APPROVE_TO_CLEARED;
         cycleUpdateData.status = 'CLEARED';
@@ -455,7 +549,7 @@ export class PeriodicReviewWorkflowTransitionService {
             restrictionReleasedAt: now,
           });
         }
-      } else if (dispositionCode === ALERT_DISPOSITION_CODES.REJECT_STAGE) {
+      } else if (workflowDecision === 'REJECT') {
         transitionCode =
           WORKFLOW_TRANSITION_CODES.PERIODIC_REVIEW_EDD_REJECT_TO_REJECTED;
         cycleUpdateData.status = 'REJECTED';
@@ -477,7 +571,7 @@ export class PeriodicReviewWorkflowTransitionService {
           mlroReviewerId: input.actorId,
           mlroReviewedAt: now,
           mlroDecision:
-            dispositionCode === ALERT_DISPOSITION_CODES.APPROVE_STAGE
+            workflowDecision === 'CLEAR'
               ? 'APPROVE'
               : 'REJECT',
           decisionReason: String(input.reason || '').trim() || dispositionCode,
@@ -494,22 +588,17 @@ export class PeriodicReviewWorkflowTransitionService {
       data: cycleUpdateData,
     });
 
-    await (tx as any).onboardingAuditLog.create({
-      data: {
-        customerId: customer.id,
-        caseType,
-        caseId,
-        action: this.buildAuditAction({
-          producerType: input.producerType,
-          dispositionCode,
-        }),
-        actorId: input.actorId,
-        actorRole: input.actorRole,
-        fromStage: String(cycle.status || '').trim().toUpperCase(),
-        toStage: String(cycleUpdateData.status || cycle.status || '').trim().toUpperCase(),
-        detail: String(input.reason || '').trim() || null,
-      },
-    });
+    await this.recordCanonicalWorkflowAudit(
+      tx,
+      customer,
+      cycle,
+      input,
+      dispositionCode,
+      fromStatus,
+      toStatus,
+      caseType,
+      caseId,
+    );
 
     const output: WorkflowTransitionOutput = {
       workflow: PERIODIC_REVIEW_WORKFLOW,

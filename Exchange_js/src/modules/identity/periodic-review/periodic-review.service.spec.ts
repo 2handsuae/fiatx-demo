@@ -1,3 +1,4 @@
+import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
 import { PeriodicReviewService } from './periodic-review.service';
 
 describe('PeriodicReviewService', () => {
@@ -5,11 +6,29 @@ describe('PeriodicReviewService', () => {
     customerMain: {
       findUnique: jest.fn(),
       findMany: jest.fn(),
+      update: jest.fn(),
     },
+    periodicReviewCycle: {
+      findUnique: jest.fn(),
+      create: jest.fn(),
+      update: jest.fn(),
+    },
+    cddResponse: {
+      create: jest.fn(),
+    },
+    onboardingAuditLog: {
+      create: jest.fn(),
+    },
+    $transaction: jest.fn(),
   };
 
-  const complianceAlertsServiceMock: any = {};
-  const complianceIncidentsServiceMock: any = {};
+  const complianceAlertsServiceMock: any = {
+    triggerSystemAlert: jest.fn(),
+  };
+  const complianceIncidentsServiceMock: any = {
+    createFromAlertInTransaction: jest.fn(),
+    applyActionInTransaction: jest.fn(),
+  };
   const riskEngineServiceMock: any = {};
   const riskDecisionOrchestratorServiceMock: any = {};
   const workflowTransitionServiceMock: any = {};
@@ -18,6 +37,10 @@ describe('PeriodicReviewService', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    jest.spyOn(AuditLogsService.prototype, 'recordByActor').mockResolvedValue({} as any);
+    prismaMock.$transaction.mockImplementation(async (callback: (tx: any) => unknown) =>
+      callback(prismaMock),
+    );
     service = new PeriodicReviewService(
       prismaMock,
       complianceAlertsServiceMock,
@@ -69,5 +92,97 @@ describe('PeriodicReviewService', () => {
     );
     expect(createSpy).toHaveBeenCalledTimes(2);
     expect(result).toEqual({ createdCount: 1, blockedCount: 1 });
+  });
+
+  it('should create periodic review case and restriction inside the same transaction chain', async () => {
+    prismaMock.customerMain.findUnique.mockResolvedValue({
+      id: 'c1',
+      customerNo: 'CU0001',
+      onboardingStatus: 'APPROVED',
+      operatingStatus: 'ACTIVE',
+      restrictionStatus: 'CLEAR',
+      complianceHoldStatus: 'ACTIVE',
+      activePeriodicReviewCycleId: null,
+      nextReviewAt: new Date('2026-03-21T08:00:00.000Z'),
+      periodicReviewOverdueAt: null,
+      periodicReviewOverdueReason: null,
+    });
+    prismaMock.periodicReviewCycle.create.mockResolvedValue({
+      id: 'cycle-1',
+      cycleNo: 'PRR0001',
+      status: 'PENDING_CDD_INPUT',
+    });
+    prismaMock.cddResponse.create.mockResolvedValue({ id: 'cdd-1' });
+    complianceAlertsServiceMock.triggerSystemAlert.mockResolvedValue({ id: 'alert-1' });
+    complianceIncidentsServiceMock.createFromAlertInTransaction.mockResolvedValue('case-1');
+    complianceIncidentsServiceMock.applyActionInTransaction.mockResolvedValue('case-1');
+    prismaMock.periodicReviewCycle.findUnique.mockResolvedValue({
+      id: 'cycle-1',
+      cycleNo: 'PRR0001',
+      status: 'PENDING_CDD_INPUT',
+    });
+
+    const result = await service.triggerPeriodicReview('c1', 'admin-1', 'COMPLIANCE_LEAD', 'due');
+
+    expect(complianceIncidentsServiceMock.createFromAlertInTransaction).toHaveBeenCalledWith(
+      prismaMock,
+      'alert-1',
+      expect.objectContaining({ reason: 'due' }),
+      expect.objectContaining({ actorId: 'SYSTEM' }),
+    );
+    expect(complianceIncidentsServiceMock.applyActionInTransaction).toHaveBeenCalledWith(
+      prismaMock,
+      'case-1',
+      expect.objectContaining({ action: 'RESTRICT', reason: 'due' }),
+      expect.objectContaining({ actorId: 'SYSTEM' }),
+    );
+    expect(prismaMock.periodicReviewCycle.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          primaryAlertId: 'alert-1',
+          primaryIncidentId: 'case-1',
+        }),
+      }),
+    );
+    expect(result.created).toBe(true);
+  });
+
+  it('should abort the periodic review transaction when case creation fails', async () => {
+    prismaMock.customerMain.findUnique.mockResolvedValue({
+      id: 'c1',
+      customerNo: 'CU0001',
+      onboardingStatus: 'APPROVED',
+      operatingStatus: 'ACTIVE',
+      restrictionStatus: 'CLEAR',
+      complianceHoldStatus: 'ACTIVE',
+      activePeriodicReviewCycleId: null,
+      nextReviewAt: new Date('2026-03-21T08:00:00.000Z'),
+      periodicReviewOverdueAt: null,
+      periodicReviewOverdueReason: null,
+    });
+    prismaMock.periodicReviewCycle.create.mockResolvedValue({
+      id: 'cycle-1',
+      cycleNo: 'PRR0001',
+      status: 'PENDING_CDD_INPUT',
+    });
+    prismaMock.cddResponse.create.mockResolvedValue({ id: 'cdd-1' });
+    complianceAlertsServiceMock.triggerSystemAlert.mockResolvedValue({ id: 'alert-1' });
+    complianceIncidentsServiceMock.createFromAlertInTransaction.mockRejectedValue(
+      new Error('case create failed'),
+    );
+
+    await expect(
+      service.triggerPeriodicReview('c1', 'admin-1', 'COMPLIANCE_LEAD', 'due'),
+    ).rejects.toThrow('case create failed');
+
+    expect(complianceIncidentsServiceMock.applyActionInTransaction).not.toHaveBeenCalled();
+    expect(prismaMock.periodicReviewCycle.update).not.toHaveBeenCalled();
+    expect(prismaMock.customerMain.update).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          activePeriodicReviewCycleId: expect.anything(),
+        }),
+      }),
+    );
   });
 });

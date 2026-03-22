@@ -1,17 +1,23 @@
 # Wave 3 Cleanup Master Plan
 
-Status: active
+Status: archived
 Owner: project-owner-and-agents
-Last Updated: 2026-03-19
+Last Updated: 2026-03-22
 Applies To: `Wave 3` customer onboarding / customer management / periodic review
 Supersedes: none
 Depends On: `docs/roadmap/wave-3-customer-onboarding-phase-plan.md`, `docs/constraints/onboarding-flow-constraints.md`, `docs/constraints/compliance-alert-case-foundation-constraints.md`
 Source of Truth Level: cleanup-master
 
-## Current Debt
+## Historical Completion Note
 - Wave 3 cleanup 的 `Stage 1` 到 `Stage 8` 已全部完成。
-- `CustomerMain` legacy customer fields、compatibility contracts、physical rename、frontend bundling warning 已全部收口。
-- 当前在 Wave 3 范围内没有剩余的 planned cleanup debt；后续仅保留常规增量维护，不再作为 Wave 3 cleanup stage 管理。
+- 后续 final closure 也已完成。
+- 本文现在只保留 `Wave 3` staged cleanup 的历史记录与阶段边界。
+- 当前运行时真相请读：
+  - `docs/constraints/onboarding-flow-constraints.md`
+  - `docs/specs/entities/customer-entity.md`
+  - `docs/specs/entities/review-response-entity.md`
+  - `docs/specs/workflows/onboarding-periodic-review-audit-trace-contract.md`
+  - `docs/acceptance/wave-2-wave-3-final-acceptance-checklist.md`
 
 ## Target End State
 - onboarding、customer management、periodic review 全部以 canonical 状态和 canonical read-model 为主，不再依赖 legacy mirror 字段进行业务判断。
@@ -116,3 +122,8 @@ Stage 1 note:
 - 任何 physical rename 都不得早于 runtime dependency 清理。
 - 若某 legacy 字段仍被 client/admin 页面真实依赖，则只能标记为 `cleanup pending`，不得提前删除。
 - periodic review cycle 自身的 `currentCddResponseId / currentEddResponseId` 仍是有效周期字段，不得误归类为已删除的 customer legacy pointer。
+
+## Final Closure Handoff
+- `Wave 3` cleanup master 现在作为历史 stage 完成记录保留。
+- 对应 final closure 文档目前也已完成，并作为 archived completion record 保留：
+  - `docs/cleanup/wave-2-wave-3-final-closure-plan.md`

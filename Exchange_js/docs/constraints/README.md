@@ -2,7 +2,7 @@
 
 Status: active
 Owner: project-owner-and-agents
-Last Updated: 2026-03-19
+Last Updated: 2026-03-22
 Applies To: `Exchange_js`
 Supersedes: none
 Depends On: `AGENTS.md`, `docs/README.md`
@@ -28,6 +28,33 @@ This file is the constraints subtree index under the project-level documentation
 12. `docs/constraints/governance-sla-timer-constraints.md`
 13. `docs/constraints/compliance-alert-case-foundation-constraints.md`
 14. `docs/constraints/compliance-alert-incident-constraints.md`
+- When work touches `Wave 2` case final lifecycle, also read:
+1. `docs/specs/workflows/case-final-lifecycle-and-external-filing.md`
+2. `docs/specs/workflows/mlro-and-final-approval-governance.md`
+- When work touches `Wave 2` alert / case field semantics, also read:
+1. `docs/specs/entities/compliance-alert-entity.md`
+2. `docs/specs/entities/compliance-case-entity.md`
+3. `docs/specs/entities/compliance-case-report-entity.md`
+4. `docs/specs/entities/compliance-external-filing-entity.md`
+- When work touches compliance-center integration boundaries, also read:
+1. `docs/specs/modules/compliance-center-module.md`
+2. `docs/specs/modules/risk-engine-module.md`
+3. `docs/specs/modules/approvals-module.md`
+- When work touches `Wave 2` compatibility / audit / filing cleanup debt, also read:
+1. `docs/cleanup/wave-2-cleanup-master-plan.md`
+- When work touches onboarding / periodic review audit chain, also read:
+1. `docs/specs/workflows/onboarding-periodic-review-audit-trace-contract.md`
+- When work touches onboarding / customer / response entity semantics, also read:
+1. `docs/specs/entities/customer-entity.md`
+2. `docs/specs/entities/review-response-entity.md`
+3. `docs/specs/entities/periodic-review-cycle-entity.md`
+4. `docs/specs/entities/approval-case-entity.md`
+5. `docs/specs/entities/risk-decision-record-entity.md`
+- When work touches onboarding / periodic review module boundaries, also read:
+1. `docs/specs/modules/customer-onboarding-module.md`
+2. `docs/specs/modules/periodic-review-module.md`
+- When work touches final end-to-end validation for Wave 2 / Wave 3, also read:
+1. `docs/acceptance/wave-2-wave-3-final-acceptance-checklist.md`
 
 ## Scope
 - Frontend: `admin-web`, `client-web`
@@ -44,6 +71,8 @@ This file is the constraints subtree index under the project-level documentation
 - Domain flow: governance delete request and soft delete gate workflow
 - Domain flow: governance SLA timer workflow
 - Domain flow: `Wave 2` compliance alert / case foundation semantics
+- Domain flow: `Wave 2` case final lifecycle and external filing separation semantics
+- Domain flow: onboarding / periodic review unified audit chain and trace contract
 - Domain flow: admin member invitation activation lifecycle (`INACTIVE -> invite -> password setup -> ACTIVE`)
 
 ## Enforcement Level

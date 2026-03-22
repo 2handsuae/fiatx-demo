@@ -25,6 +25,9 @@ const buildApproval = (overrides: Record<string, unknown> = {}) => ({
   docRef: null,
   metadataJson: '{}',
   traceId: 'trace-1',
+  workflowType: null,
+  workflowId: null,
+  workflowNo: null,
   createdAt: baseDate,
   updatedAt: baseDate,
   submittedAt: null,
@@ -155,6 +158,41 @@ describe('ApprovalsService', () => {
     );
   });
 
+  it('creates workflow-bound approval with workflow tuple', async () => {
+    prisma.approvalCase.findFirst.mockResolvedValue(null);
+    prisma.approvalCase.create.mockResolvedValue(
+      buildApproval({
+        traceId: 'ONBOARDING:ONB-1',
+        workflowType: 'ONBOARDING',
+        workflowId: 'ONB-1',
+        workflowNo: 'ONB-1',
+      }),
+    );
+
+    await service.create(
+      {
+        actionType: ApprovalActionTypes.ONBOARDING_FINAL_APPROVAL,
+        entityRef: 'customer-1',
+        traceId: 'ONBOARDING:ONB-1',
+        workflowType: 'ONBOARDING',
+        workflowId: 'ONB-1',
+        workflowNo: 'ONB-1',
+      },
+      actor,
+    );
+
+    expect(prisma.approvalCase.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          traceId: 'ONBOARDING:ONB-1',
+          workflowType: 'ONBOARDING',
+          workflowId: 'ONB-1',
+          workflowNo: 'ONB-1',
+        }),
+      }),
+    );
+  });
+
   it('allows submit only from DRAFT', async () => {
     prisma.approvalCase.findUnique.mockResolvedValue(
       buildApproval({ status: ApprovalStatuses.APPROVED }),
@@ -200,6 +238,9 @@ describe('ApprovalsService', () => {
         status: ApprovalStatuses.PENDING,
         makerUserId: 'maker-1',
         checkerRoles: 'DPO',
+        workflowType: 'ONBOARDING',
+        workflowId: 'ONB-1',
+        workflowNo: 'ONB-1',
       }),
     );
     prisma.approvalCase.update.mockResolvedValue(
@@ -209,6 +250,9 @@ describe('ApprovalsService', () => {
         checkerRoles: 'DPO',
         decisionByUserId: actor.userId,
         decisionByRole: 'DPO',
+        workflowType: 'ONBOARDING',
+        workflowId: 'ONB-1',
+        workflowNo: 'ONB-1',
       }),
     );
 
@@ -238,9 +282,38 @@ describe('ApprovalsService', () => {
     expect(auditLogsService.recordByActor).toHaveBeenCalledWith(
       expect.objectContaining({
         entityNo: 'APR2603140001',
+        workflowType: 'ONBOARDING',
+        workflowId: 'ONB-1',
+        workflowNo: 'ONB-1',
       }),
       expect.anything(),
     );
+  });
+
+  it('rejects workflow-bound decisions when workflow tuple mismatches the chain', async () => {
+    prisma.approvalCase.findUnique.mockResolvedValue(
+      buildApproval({
+        status: ApprovalStatuses.PENDING,
+        makerUserId: 'maker-1',
+        checkerRoles: 'DPO',
+        workflowType: 'ONBOARDING',
+        workflowId: 'ONB-1',
+        workflowNo: 'ONB-1',
+      }),
+    );
+
+    await expect(
+      service.approve(
+        'approval-1',
+        {
+          reason: 'approve',
+          workflowType: 'ONBOARDING',
+          workflowId: 'ONB-2',
+          workflowNo: 'ONB-2',
+        },
+        actor,
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it('allows SUPER_ADMIN to bypass maker-checker SoD and records bypass metadata', async () => {

@@ -2,24 +2,30 @@
 
 Status: active
 Owner: project-owner-and-agents
-Last Updated: 2026-03-19
+Last Updated: 2026-03-22
 Applies To: `Exchange_js`
 Supersedes: none
 Depends On: `docs/README.md`
 Source of Truth Level: cleanup
 
 ## Purpose
-- Use this folder for staged legacy cleanup and compatibility removal plans.
-- Cleanup documents explain how the codebase converges from old semantics to target semantics.
+- Use this folder for staged legacy cleanup and compatibility removal history.
+- Cleanup documents explain how the codebase converged from old semantics to canonical runtime truth.
 
 ## Required Reading Order
-1. `docs/cleanup/wave-3-cleanup-master-plan.md`
-2. then the current active stage document
-3. then any later-stage documents only if the thread needs forward-looking context
+1. `docs/specs/entities/**` and `docs/specs/workflows/**` for current truth
+2. `docs/acceptance/wave-2-wave-3-final-acceptance-checklist.md` for final runtime validation
+3. `docs/cleanup/wave-2-wave-3-final-closure-plan.md` for final retirement history
+4. `docs/cleanup/wave-2-cleanup-master-plan.md` for historical Wave 2 stage context
+5. `docs/cleanup/wave-3-cleanup-master-plan.md` for historical Wave 3 stage context
 
-## Current Wave 3 Cleanup Documents
-- Master plan:
+## Current Cleanup Documents
+- Wave 2 master:
+  - `docs/cleanup/wave-2-cleanup-master-plan.md`
+- Wave 3 master:
   - `docs/cleanup/wave-3-cleanup-master-plan.md`
+- Final closure:
+  - `docs/cleanup/wave-2-wave-3-final-closure-plan.md`
 - Stage documents:
   - `docs/cleanup/stage-1-canonical-runtime-cutover.md`
   - `docs/cleanup/stage-2-response-naming-and-contract-convergence.md`
@@ -31,9 +37,11 @@ Source of Truth Level: cleanup
   - `docs/cleanup/stage-8-frontend-bundling-optimization.md`
 
 ## Current Status
-- Wave 3 cleanup is complete through `Stage 8`.
-- `Stage 1` to `Stage 8` are all completed.
-- Use `docs/cleanup/wave-3-cleanup-master-plan.md` as the canonical historical summary and completion record.
+- `Wave 2` 与 `Wave 3` 的 cleanup 文档都已退为历史完成记录。
+- 当前长期真相不在 cleanup 层，而在：
+  - `docs/constraints/**`
+  - `docs/specs/**`
+  - `docs/acceptance/**`
 
 ## Update When
 - A legacy alias is introduced or removed.

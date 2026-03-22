@@ -38,6 +38,14 @@ describe('ComplianceIncidentsService', () => {
       create: jest.fn(),
       update: jest.fn(),
     },
+    complianceIncidentExternalFiling: {
+      create: jest.fn(),
+      findUnique: jest.fn(),
+      update: jest.fn(),
+    },
+    complianceIncidentExternalFilingEvent: {
+      create: jest.fn(),
+    },
     complianceAlert: {
       findUnique: jest.fn(),
       findMany: jest.fn(),
@@ -49,6 +57,13 @@ describe('ComplianceIncidentsService', () => {
     user: {
       findUnique: jest.fn(),
     },
+  };
+  const workflowTransitionServiceMock: any = {
+    transition: jest.fn(),
+  };
+  const onboardingFinalApprovalServiceMock: any = {
+    ensurePendingApprovalInTransaction: jest.fn(),
+    emitSubmittedSideEffects: jest.fn(),
   };
 
   const buildIncident = (overrides: Record<string, unknown> = {}) => ({
@@ -92,6 +107,9 @@ describe('ComplianceIncidentsService', () => {
     reportReason: null,
     reportedByUserId: null,
     reportedByUserNo: null,
+    proposedFilingRequired: null,
+    proposedFilingType: null,
+    proposedFilingAuthority: null,
     overdueMarkedAt: null,
     closureChecklist: null,
     lastActionById: 'admin-1',
@@ -103,6 +121,7 @@ describe('ComplianceIncidentsService', () => {
     createdAt: new Date('2026-02-19T00:00:00.000Z'),
     updatedAt: new Date('2026-02-19T00:00:00.000Z'),
     reports: [],
+    filings: [],
     ...overrides,
   });
 
@@ -121,8 +140,11 @@ describe('ComplianceIncidentsService', () => {
     containmentSummary: 'containment',
     analystConclusion: 'conclusion',
     recommendedActions: JSON.stringify(['FREEZE']),
-    finalDispositionCode: 'RESTRICT',
+    finalDispositionCode: 'RISK_CONFIRMED',
     finalDispositionReason: 'high risk',
+    filingRequired: false,
+    filingType: null,
+    filingAuthority: null,
     linkedAlertSnapshot: '[]',
     decisionRecordSnapshot: '{}',
     providerResponseSnapshot: '{}',
@@ -170,6 +192,8 @@ describe('ComplianceIncidentsService', () => {
       dueAt: new Date('2026-02-20T00:00:00.000Z'),
       retainedUntil: new Date('2034-02-19T00:00:00.000Z'),
     } as any);
+    prismaMock.complianceAlert.findMany.mockResolvedValue([]);
+    prismaMock.complianceAlert.update.mockResolvedValue({ id: 'alert-1' });
     prismaMock.user.findUnique.mockResolvedValue({
       userNo: 'US0001',
       role: 'SUPER_ADMIN',
@@ -193,11 +217,38 @@ describe('ComplianceIncidentsService', () => {
     prismaMock.complianceIncidentDispositionRecord.create.mockResolvedValue({
       id: 'case-disp-1',
     });
+    prismaMock.complianceIncidentExternalFiling.findUnique.mockResolvedValue(null);
+    prismaMock.complianceIncidentExternalFiling.create.mockResolvedValue({
+      id: 'filing-1',
+    });
+    prismaMock.complianceIncidentExternalFiling.update.mockResolvedValue({
+      id: 'filing-1',
+    });
+    prismaMock.complianceIncidentExternalFilingEvent.create.mockResolvedValue({
+      id: 'filing-evt-1',
+    });
+    onboardingFinalApprovalServiceMock.ensurePendingApprovalInTransaction.mockResolvedValue({
+      approval: {
+        id: 'approval-1',
+        approvalNo: 'APR2602010001',
+        status: 'PENDING',
+      },
+      created: true,
+      auditAction: 'FINAL_APPROVAL_SUBMITTED',
+    });
+    onboardingFinalApprovalServiceMock.emitSubmittedSideEffects.mockResolvedValue(
+      undefined,
+    );
 
-    service = new ComplianceIncidentsService(prismaMock);
+    service = new ComplianceIncidentsService(
+      prismaMock,
+      workflowTransitionServiceMock,
+      onboardingFinalApprovalServiceMock,
+    );
   });
 
   it('should create incident from alert in one transaction', async () => {
+    const recordByActorSpy = jest.spyOn(AuditLogsService.prototype, 'recordByActor');
     prismaMock.complianceIncidentAlert.findUnique.mockResolvedValue(null);
     prismaMock.complianceIncident.create.mockResolvedValue(buildIncident());
     prismaMock.complianceIncidentAlert.create.mockResolvedValue({ id: 'link-1' });
@@ -230,6 +281,16 @@ describe('ComplianceIncidentsService', () => {
       expect.anything(),
     );
     expect(prismaMock.complianceIncident.create).toHaveBeenCalledTimes(1);
+    expect(recordByActorSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        traceId: 'ONBOARDING:ONB-1',
+        workflowType: 'ONBOARDING',
+        workflowId: 'ONB-1',
+        workflowNo: 'ONB-1',
+      }),
+      expect.anything(),
+      expect.anything(),
+    );
     expect(result.id).toBe('inc-1');
   });
 
@@ -328,7 +389,7 @@ describe('ComplianceIncidentsService', () => {
     prismaMock.complianceIncident.findUnique.mockResolvedValue({
       ...buildIncident({
         metadata: JSON.stringify({
-          recommendedDecisions: ['APPROVE', 'REJECT', 'REQUIRE_EDD'],
+          recommendedDecisions: ['CLEAR', 'REJECT', 'REQUIRE_EDD'],
         }),
       }),
       alerts: [
@@ -351,9 +412,9 @@ describe('ComplianceIncidentsService', () => {
             sourceType: 'ONBOARDING_JOURNEY',
             sourceId: 'c1:ONB-1',
             sourceNo: 'ONB-1',
-            decisionRecommendation: 'APPROVE',
+            decisionRecommendation: 'CLEAR',
             metadata: JSON.stringify({
-              recommendedDecisions: ['APPROVE', 'REJECT'],
+              recommendedDecisions: ['CLEAR', 'REJECT'],
             }),
             dueAt: new Date('2026-02-20T00:00:00.000Z'),
             lastOccurredAt: new Date('2026-02-19T01:00:00.000Z'),
@@ -365,11 +426,11 @@ describe('ComplianceIncidentsService', () => {
 
     const result = await service.findOne('inc-1');
 
-    expect(result.recommendedDecisions).toEqual(['APPROVE', 'REJECT']);
+    expect(result.recommendedDecisions).toEqual(['CLEAR', 'REJECT']);
     expect(result.recommendedDecisions).not.toContain('REQUIRE_EDD');
   });
 
-  it('should expose canonical case fields while keeping compatibility fields', async () => {
+  it('should expose canonical case fields only on the active read model', async () => {
     prismaMock.complianceIncident.findUnique.mockResolvedValue({
       ...buildIncident({
         incidentNo: 'CAS2602010001',
@@ -385,15 +446,69 @@ describe('ComplianceIncidentsService', () => {
     const result = await service.findOne('inc-1');
 
     expect(result.caseNo).toBe('CAS2602010001');
-    expect(result.incidentNo).toBe('CAS2602010001');
     expect(result.assigneeUserId).toBe('admin-1');
-    expect(result.ownerUserId).toBe('admin-1');
     expect(result.caseType).toBe(ComplianceCaseType.ONBOARDING);
     expect(result.linkedCaseIds).toEqual(['cdd-1']);
     expect(result.decisionRecordIds).toEqual(['dr-1']);
+    expect(result).not.toHaveProperty('incidentNo');
+    expect(result).not.toHaveProperty('ownerUserId');
   });
 
-  it('should require reason for CLOSE action', async () => {
+  it('should query cases by canonical caseNo and assigneeUserId fields', async () => {
+    prismaMock.complianceIncident.count.mockResolvedValue(0);
+    prismaMock.complianceIncident.findMany.mockResolvedValue([]);
+
+    await service.findAll({
+      caseNo: 'CAS2602010001',
+      assigneeUserId: 'admin-canonical',
+    });
+
+    expect(prismaMock.complianceIncident.count).toHaveBeenCalledWith({
+      where: expect.objectContaining({
+        incidentNo: { contains: 'CAS2602010001' },
+        ownerUserId: 'admin-canonical',
+      }),
+    });
+    expect(prismaMock.complianceIncident.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          incidentNo: { contains: 'CAS2602010001' },
+          ownerUserId: 'admin-canonical',
+        }),
+      }),
+    );
+  });
+
+  it('should expose Phase 11 case/interim/workflow action groups', async () => {
+    prismaMock.complianceIncident.findUnique.mockResolvedValue({
+      ...buildIncident({
+        status: ComplianceIncidentStatus.ASSIGNED,
+        ownerUserId: 'admin-1',
+        ownerUserNo: 'US0001',
+      }),
+      alerts: [],
+      events: [],
+      dispositionRecords: [],
+      reports: [],
+    });
+
+    const result = await service.findOne('inc-1');
+
+    expect(result.availableCaseActions).toEqual([
+      'REASSIGN',
+      'LINK_ALERT',
+    ]);
+    expect(result.availableInterimMeasures).toEqual(['RESTRICT', 'FREEZE']);
+    expect(result.availableWorkflowActions).toEqual([
+      'CLEAR',
+      'REJECT',
+      'REQUIRE_EDD',
+    ]);
+    expect((result as any).availableWorkItemActions).toBeUndefined();
+    expect((result as any).availableComplianceActions).toBeUndefined();
+  });
+
+  it('should reject generic CLOSE in Phase 12', async () => {
     prismaMock.complianceIncident.findUnique.mockResolvedValue(
       buildIncident({ status: ComplianceIncidentStatus.ASSIGNED }),
     );
@@ -402,14 +517,37 @@ describe('ComplianceIncidentsService', () => {
       service.applyAction(
         'inc-1',
         {
-          action: ComplianceIncidentAction.CLOSE,
+          action: 'CLOSE' as any,
+          reason: 'close',
         },
         {
           actorType: 'ADMIN',
           actorId: 'admin-1',
         },
       ),
-    ).rejects.toThrow('requires a reason');
+    ).rejects.toThrow('Generic CLOSE is no longer supported');
+  });
+
+  it('should reject CLOSE before action validation in Phase 12', async () => {
+    prismaMock.complianceIncident.findUnique.mockResolvedValue(
+      buildIncident({
+        status: ComplianceIncidentStatus.ASSIGNED,
+        caseType: ComplianceCaseType.GENERIC,
+      }),
+    );
+
+    await expect(
+      service.applyAction(
+        'inc-1',
+        {
+          action: 'CLOSE' as any,
+        },
+        {
+          actorType: 'ADMIN',
+          actorId: 'admin-1',
+        },
+      ),
+    ).rejects.toThrow('Generic CLOSE is no longer supported');
   });
 
   it('should reject terminal status actions', async () => {
@@ -589,10 +727,11 @@ describe('ComplianceIncidentsService', () => {
     );
   });
 
-  it('should reject close in ASSIGNED when actor is not current assignee', async () => {
+  it('should reject CLOSE even before assignee ownership checks in Phase 12', async () => {
     prismaMock.complianceIncident.findUnique.mockResolvedValue(
       buildIncident({
         status: ComplianceIncidentStatus.ASSIGNED,
+        caseType: ComplianceCaseType.GENERIC,
         ownerUserId: 'admin-1',
         ownerUserNo: 'US0001',
         reports: [
@@ -608,7 +747,7 @@ describe('ComplianceIncidentsService', () => {
       service.applyAction(
         'inc-1',
         {
-          action: ComplianceIncidentAction.CLOSE,
+          action: 'CLOSE' as any,
           reason: 'close',
         },
         {
@@ -618,60 +757,42 @@ describe('ComplianceIncidentsService', () => {
           actorRole: 'MLRO',
         },
       ),
-    ).rejects.toThrow('can execute action CLOSE');
+    ).rejects.toThrow('Generic CLOSE is no longer supported');
   });
 
-  it('should close linked alerts when closing incident', async () => {
-    prismaMock.complianceIncident.findUnique.mockResolvedValue(
-      buildIncident({
-        status: ComplianceIncidentStatus.ASSIGNED,
-        ownerUserId: 'admin-1',
-        reports: [
-          buildReport({
-            status: 'FINALIZED',
-            finalizedAt: new Date('2026-02-19T02:30:00.000Z'),
-            finalDispositionCode: 'REPORT',
-          }),
-        ],
-      }),
-    );
-    prismaMock.complianceIncident.update.mockResolvedValue(
-      buildIncident({
-        status: ComplianceIncidentStatus.CLOSED,
-        ownerUserId: 'admin-1',
-      }),
-    );
-    prismaMock.complianceAlert.findMany.mockResolvedValue([
-      { id: 'alert-1', status: 'ASSIGNED' },
-      { id: 'alert-2', status: 'ESCALATED' },
-    ]);
-    prismaMock.complianceAlert.update.mockResolvedValue({});
-    prismaMock.complianceAlertEvent.create.mockResolvedValue({});
-    prismaMock.complianceIncidentEvent.create.mockResolvedValue({ id: 'evt-1' });
+  it('should reject CLOSE direct path and require MLRO gate instead', async () => {
+    await expect(
+      service.applyAction(
+        'inc-1',
+        {
+          action: 'CLOSE' as any,
+          reason: 'investigation completed',
+        },
+        {
+          actorType: 'ADMIN',
+          actorId: 'admin-1',
+          actorRole: 'SUPER_ADMIN',
+        },
+      ),
+    ).rejects.toThrow('Generic CLOSE is no longer supported');
+  });
 
-    jest.spyOn(service, 'findOne').mockResolvedValue({
-      id: 'inc-1',
-      status: ComplianceIncidentStatus.CLOSED,
-      alerts: [],
-      events: [],
-    } as any);
-
-    const result = await service.applyAction(
-      'inc-1',
-      {
-        action: ComplianceIncidentAction.CLOSE,
-        reason: 'investigation completed',
-      },
-      {
-        actorType: 'ADMIN',
-        actorId: 'admin-1',
-        actorRole: 'SUPER_ADMIN',
-      },
-    );
-
-    expect(prismaMock.complianceAlert.findMany).toHaveBeenCalled();
-    expect(prismaMock.complianceAlert.update).toHaveBeenCalledTimes(2);
-    expect(result.status).toBe(ComplianceIncidentStatus.CLOSED);
+  it('should reject direct FALSE_POSITIVE case action in Phase 12', async () => {
+    await expect(
+      service.applyAction(
+        'inc-1',
+        {
+          action: 'FALSE_POSITIVE' as any,
+          reason: 'false positive hit',
+        },
+        {
+          actorType: 'ADMIN',
+          actorId: 'admin-1',
+          actorNo: 'US0001',
+          actorRole: 'SUPER_ADMIN',
+        },
+      ),
+    ).rejects.toThrow('FALSE_POSITIVE is no longer a direct case action');
   });
 
   it('should freeze customer when FREEZE action is applied', async () => {
@@ -684,7 +805,7 @@ describe('ComplianceIncidentsService', () => {
     );
     prismaMock.complianceIncident.update.mockResolvedValue(
       buildIncident({
-        status: ComplianceIncidentStatus.ASSIGNED,
+        status: ComplianceIncidentStatus.INVESTIGATING,
         ownerUserId: 'admin-1',
         ownerUserNo: 'US0001',
         freezeStatus: 'FROZEN',
@@ -696,7 +817,7 @@ describe('ComplianceIncidentsService', () => {
 
     jest.spyOn(service, 'findOne').mockResolvedValue({
       id: 'inc-1',
-      status: ComplianceIncidentStatus.ASSIGNED,
+      status: ComplianceIncidentStatus.INVESTIGATING,
       freezeStatus: 'FROZEN',
       alerts: [],
       events: [],
@@ -729,12 +850,14 @@ describe('ComplianceIncidentsService', () => {
     expect(prismaMock.complianceIncident.update).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
+          status: ComplianceIncidentStatus.INVESTIGATING,
           freezeStatus: 'FROZEN',
           freezeReason: 'compliance hold',
         }),
       }),
     );
     expect(result.freezeStatus).toBe('FROZEN');
+    expect(result.status).toBe(ComplianceIncidentStatus.INVESTIGATING);
   });
 
   it('should reject FREEZE when case has no customer binding', async () => {
@@ -765,6 +888,7 @@ describe('ComplianceIncidentsService', () => {
     prismaMock.complianceIncident.findUnique.mockResolvedValue(
       buildIncident({
         status: ComplianceIncidentStatus.ASSIGNED,
+        caseType: ComplianceCaseType.GENERIC,
         ownerUserId: 'admin-1',
         ownerUserNo: 'US0001',
         freezeStatus: 'FROZEN',
@@ -781,7 +905,7 @@ describe('ComplianceIncidentsService', () => {
     });
     prismaMock.complianceIncident.update.mockResolvedValue(
       buildIncident({
-        status: ComplianceIncidentStatus.ASSIGNED,
+        status: ComplianceIncidentStatus.INVESTIGATING,
         ownerUserId: 'admin-1',
         ownerUserNo: 'US0001',
         freezeStatus: 'ACTIVE',
@@ -793,7 +917,7 @@ describe('ComplianceIncidentsService', () => {
 
     jest.spyOn(service, 'findOne').mockResolvedValue({
       id: 'inc-1',
-      status: ComplianceIncidentStatus.ASSIGNED,
+      status: ComplianceIncidentStatus.INVESTIGATING,
       freezeStatus: 'ACTIVE',
       alerts: [],
       events: [],
@@ -823,6 +947,7 @@ describe('ComplianceIncidentsService', () => {
       }),
     );
     expect(result.freezeStatus).toBe('ACTIVE');
+    expect(result.status).toBe(ComplianceIncidentStatus.INVESTIGATING);
   });
 
   it('should restrict customer when RESTRICT action is applied', async () => {
@@ -835,7 +960,7 @@ describe('ComplianceIncidentsService', () => {
     );
     prismaMock.complianceIncident.update.mockResolvedValue(
       buildIncident({
-        status: ComplianceIncidentStatus.ASSIGNED,
+        status: ComplianceIncidentStatus.INVESTIGATING,
         ownerUserId: 'admin-1',
         ownerUserNo: 'US0001',
         currentDispositionCode: 'RESTRICT',
@@ -846,7 +971,7 @@ describe('ComplianceIncidentsService', () => {
 
     jest.spyOn(service, 'findOne').mockResolvedValue({
       id: 'inc-1',
-      status: ComplianceIncidentStatus.ASSIGNED,
+      status: ComplianceIncidentStatus.INVESTIGATING,
       currentDispositionCode: 'RESTRICT',
       alerts: [],
       events: [],
@@ -880,7 +1005,14 @@ describe('ComplianceIncidentsService', () => {
       expect.objectContaining({
         data: expect.objectContaining({
           incidentId: 'inc-1',
-          dispositionCode: 'RESTRICT',
+          dispositionCode: 'RISK_CONFIRMED',
+        }),
+      }),
+    );
+    expect(prismaMock.complianceIncident.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: ComplianceIncidentStatus.INVESTIGATING,
         }),
       }),
     );
@@ -909,7 +1041,7 @@ describe('ComplianceIncidentsService', () => {
     });
     prismaMock.complianceIncident.update.mockResolvedValue(
       buildIncident({
-        status: ComplianceIncidentStatus.ASSIGNED,
+        status: ComplianceIncidentStatus.INVESTIGATING,
         ownerUserId: 'admin-1',
         ownerUserNo: 'US0001',
         currentDispositionCode: 'RESTRICT',
@@ -919,7 +1051,7 @@ describe('ComplianceIncidentsService', () => {
 
     jest.spyOn(service, 'findOne').mockResolvedValue({
       id: 'inc-1',
-      status: ComplianceIncidentStatus.ASSIGNED,
+      status: ComplianceIncidentStatus.INVESTIGATING,
       currentDispositionCode: 'RESTRICT',
       alerts: [],
       events: [],
@@ -990,34 +1122,12 @@ describe('ComplianceIncidentsService', () => {
     ).rejects.toThrow('Customer customer-1 is restricted by another case inc-other');
   });
 
-  it('should reject CLOSE when current case still owns an active restriction', async () => {
-    prismaMock.complianceIncident.findUnique.mockResolvedValue(
-      buildIncident({
-        status: ComplianceIncidentStatus.ASSIGNED,
-        ownerUserId: 'admin-1',
-        ownerUserNo: 'US0001',
-        reports: [buildReport({ status: 'FINALIZED', finalizedAt: new Date('2026-02-19T02:30:00.000Z') })],
-      }),
-    );
-    prismaMock.customerMain.findUnique.mockResolvedValue({
-      id: 'customer-1',
-      restrictionStatus: 'RESTRICTED',
-      restrictionCaseId: 'inc-1',
-      restrictionReason: 'high risk customer restriction',
-      restrictionSetAt: new Date('2026-02-19T02:00:00.000Z'),
-      restrictionReleasedAt: null,
-      complianceHoldStatus: 'ACTIVE',
-      complianceHoldCaseId: null,
-      complianceHoldReason: null,
-      complianceHoldSetAt: null,
-      complianceHoldReleasedAt: null,
-    });
-
+  it('should reject CLOSE direct path before restriction ownership checks in Phase 12', async () => {
     await expect(
       service.applyAction(
         'inc-1',
         {
-          action: ComplianceIncidentAction.CLOSE,
+          action: 'CLOSE' as any,
           reason: 'investigation completed',
         },
         {
@@ -1027,68 +1137,25 @@ describe('ComplianceIncidentsService', () => {
           actorRole: 'SUPER_ADMIN',
         },
       ),
-    ).rejects.toThrow('Case inc-1 must be unrestricted before it can be closed');
+    ).rejects.toThrow('Generic CLOSE is no longer supported');
   });
 
-  it('should create report record when REPORT action is applied', async () => {
-    prismaMock.complianceIncident.findUnique.mockResolvedValue(
-      buildIncident({
-        status: ComplianceIncidentStatus.ASSIGNED,
-        ownerUserId: 'admin-1',
-        ownerUserNo: 'US0001',
-        reports: [buildReport({ status: 'FINALIZED', finalizedAt: new Date('2026-02-19T02:30:00.000Z') })],
-      }),
-    );
-    prismaMock.complianceIncident.update.mockResolvedValue(
-      buildIncident({
-        status: ComplianceIncidentStatus.ASSIGNED,
-        ownerUserId: 'admin-1',
-        ownerUserNo: 'US0001',
-        reportStatus: 'REPORTED',
-        reportRefNo: 'RPT2602010001',
-        reportReason: 'file internal report',
-        reportedByUserId: 'admin-1',
-        reportedByUserNo: 'US0001',
-        reportedAt: new Date('2026-02-19T03:00:00.000Z'),
-      }),
-    );
-    prismaMock.complianceIncidentEvent.create.mockResolvedValue({ id: 'evt-1' });
-
-    jest.spyOn(service, 'findOne').mockResolvedValue({
-      id: 'inc-1',
-      status: ComplianceIncidentStatus.ASSIGNED,
-      reportStatus: 'REPORTED',
-      reportRefNo: 'RPT2602010001',
-      alerts: [],
-      events: [],
-    } as any);
-
-    const result = await service.applyAction(
-      'inc-1',
-      {
-        action: ComplianceIncidentAction.REPORT,
-        reason: 'file internal report',
-      },
-      {
-        actorType: 'ADMIN',
-        actorId: 'admin-1',
-        actorNo: 'US0001',
-        actorRole: 'SUPER_ADMIN',
-      },
-    );
-
-    expect(prismaMock.complianceIncident.update).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          reportStatus: 'REPORTED',
-          reportReason: 'file internal report',
-          reportedByUserId: 'admin-1',
-          reportedByUserNo: 'US0001',
-          reportRefNo: expect.stringMatching(/^RPT/),
-        }),
-      }),
-    );
-    expect(result.reportStatus).toBe('REPORTED');
+  it('should reject direct REPORT case action in Phase 12', async () => {
+    await expect(
+      service.applyAction(
+        'inc-1',
+        {
+          action: 'REPORT' as any,
+          reason: 'file internal report',
+        },
+        {
+          actorType: 'ADMIN',
+          actorId: 'admin-1',
+          actorNo: 'US0001',
+          actorRole: 'SUPER_ADMIN',
+        },
+      ),
+    ).rejects.toThrow('REPORT is no longer a direct case action');
   });
 
   it('should create version 1 report draft for new case report', async () => {
@@ -1116,7 +1183,7 @@ describe('ComplianceIncidentsService', () => {
         evidenceSummary: 'evidence',
         analystConclusion: 'conclusion',
         recommendedActions: 'FREEZE',
-        finalDispositionCode: 'RESTRICT',
+        finalDispositionCode: 'RISK_CONFIRMED',
       },
       {
         actorType: 'ADMIN',
@@ -1187,8 +1254,11 @@ describe('ComplianceIncidentsService', () => {
         investigationScope: 'scope v2',
         evidenceSummary: 'evidence v2',
         analystConclusion: 'conclusion v2',
-        recommendedActions: 'REPORT',
-        finalDispositionCode: 'REPORT',
+        recommendedActions: 'ESCALATE',
+        finalDispositionCode: 'RISK_CONFIRMED',
+        filingRequired: true,
+        filingType: 'SUSPICIOUS_ACTIVITY',
+        filingAuthority: 'FIU',
       },
       {
         actorType: 'ADMIN',
@@ -1218,7 +1288,7 @@ describe('ComplianceIncidentsService', () => {
     );
   });
 
-  it('should finalize current draft report and sync current disposition', async () => {
+  it('should finalize current draft report without syncing effective disposition', async () => {
     prismaMock.complianceIncident.findUnique.mockResolvedValue(
       buildIncident({
         reports: [buildReport()],
@@ -1232,9 +1302,6 @@ describe('ComplianceIncidentsService', () => {
         finalizedByUserNo: 'US0001',
       }),
     );
-    prismaMock.complianceIncidentDispositionRecord.create.mockResolvedValue({
-      id: 'case-disp-finalized',
-    });
     prismaMock.complianceIncident.update.mockResolvedValue(buildIncident());
     prismaMock.complianceIncidentEvent.create.mockResolvedValue({ id: 'evt-report-finalized' });
     jest.spyOn(service, 'getReport').mockResolvedValue({
@@ -1255,41 +1322,24 @@ describe('ComplianceIncidentsService', () => {
       },
     );
 
-    expect(prismaMock.complianceIncidentDispositionRecord.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          dispositionCode: 'RESTRICT',
-          source: 'CASE_REPORT_FINALIZED',
-          sourceRefId: 'report-1',
-        }),
-      }),
-    );
+    expect(prismaMock.complianceIncidentDispositionRecord.create).not.toHaveBeenCalled();
     expect(prismaMock.complianceIncident.update).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
-          currentDispositionCode: 'RESTRICT',
-          decision: 'RESTRICT',
+          lastActionById: 'admin-1',
+          lastActionByNo: 'US0001',
         }),
       }),
     );
     expect(result.currentReport.status).toBe('FINALIZED');
   });
 
-  it('should reject REPORT without finalized current report', async () => {
-    prismaMock.complianceIncident.findUnique.mockResolvedValue(
-      buildIncident({
-        status: ComplianceIncidentStatus.ASSIGNED,
-        ownerUserId: 'admin-1',
-        ownerUserNo: 'US0001',
-        reports: [buildReport({ status: 'DRAFT' })],
-      }),
-    );
-
+  it('should reject REPORT direct action regardless of report state in Phase 12', async () => {
     await expect(
       service.applyAction(
         'inc-1',
         {
-          action: ComplianceIncidentAction.REPORT,
+          action: 'REPORT' as any,
           reason: 'file internal report',
         },
         {
@@ -1299,32 +1349,17 @@ describe('ComplianceIncidentsService', () => {
           actorRole: 'SUPER_ADMIN',
         },
       ),
-    ).rejects.toThrow('requires a finalized case report before REPORT');
+    ).rejects.toThrow('REPORT is no longer a direct case action');
   });
 
-  it('should reject CLOSE when explicit disposition conflicts with finalized report', async () => {
-    prismaMock.complianceIncident.findUnique.mockResolvedValue(
-      buildIncident({
-        status: ComplianceIncidentStatus.ASSIGNED,
-        ownerUserId: 'admin-1',
-        ownerUserNo: 'US0001',
-        reports: [
-          buildReport({
-            status: 'FINALIZED',
-            finalDispositionCode: 'REPORT',
-            finalizedAt: new Date('2026-02-19T02:30:00.000Z'),
-          }),
-        ],
-      }),
-    );
-
+  it('should reject CLOSE direct action even when explicit disposition is provided', async () => {
     await expect(
       service.applyAction(
         'inc-1',
         {
-          action: ComplianceIncidentAction.CLOSE,
+          action: 'CLOSE' as any,
           reason: 'close case',
-          dispositionCode: 'RESTRICT',
+          dispositionCode: 'RISK_CONFIRMED',
         },
         {
           actorType: 'ADMIN',
@@ -1333,30 +1368,15 @@ describe('ComplianceIncidentsService', () => {
           actorRole: 'SUPER_ADMIN',
         },
       ),
-    ).rejects.toThrow('does not match finalized report disposition');
+    ).rejects.toThrow('Generic CLOSE is no longer supported');
   });
 
-  it('should block CLOSE while case is frozen', async () => {
-    prismaMock.complianceIncident.findUnique.mockResolvedValue(
-      buildIncident({
-        status: ComplianceIncidentStatus.ASSIGNED,
-        ownerUserId: 'admin-1',
-        ownerUserNo: 'US0001',
-        freezeStatus: 'FROZEN',
-        reports: [
-          buildReport({
-            status: 'FINALIZED',
-            finalizedAt: new Date('2026-02-19T02:30:00.000Z'),
-          }),
-        ],
-      }),
-    );
-
+  it('should reject CLOSE direct action even while case is frozen', async () => {
     await expect(
       service.applyAction(
         'inc-1',
         {
-          action: ComplianceIncidentAction.CLOSE,
+          action: 'CLOSE' as any,
           reason: 'close after hold',
         },
         {
@@ -1365,7 +1385,7 @@ describe('ComplianceIncidentsService', () => {
           actorRole: 'SUPER_ADMIN',
         },
       ),
-    ).rejects.toThrow('must be unfrozen before it can be closed');
+    ).rejects.toThrow('Generic CLOSE is no longer supported');
   });
 
   it('should reject duplicate linked alert', async () => {
@@ -1386,5 +1406,577 @@ describe('ComplianceIncidentsService', () => {
         },
       ),
     ).rejects.toThrow(ConflictException);
+  });
+
+  it('should expose MLRO review actions when actor roleCodes include MLRO', async () => {
+    prismaMock.complianceIncident.findUnique.mockResolvedValue(
+      buildIncident({
+        status: ComplianceIncidentStatus.PENDING_MLRO_REVIEW,
+        alerts: [],
+        events: [],
+        dispositionRecords: [],
+        reports: [buildReport({ status: 'FINALIZED' })],
+      }),
+    );
+
+    const result = await service.findOne('inc-1', {
+      actorType: 'ADMIN',
+      actorId: 'admin-1',
+      actorNo: 'US0001',
+      actorRole: 'SUPER_ADMIN',
+      roleCodes: ['SUPER_ADMIN', 'MLRO'],
+    });
+
+    expect(result.availableMlroActions).toEqual([
+      'APPROVE_FINAL_DISPOSITION',
+      'RETURN_FOR_INVESTIGATION',
+    ]);
+  });
+
+  it('should expose MLRO review actions when actor roleCodes include SUPER_ADMIN', async () => {
+    prismaMock.complianceIncident.findUnique.mockResolvedValue({
+      ...buildIncident({
+        status: ComplianceIncidentStatus.PENDING_MLRO_REVIEW,
+        ownerUserId: 'admin-1',
+        ownerUserNo: 'ADMIN-001',
+      }),
+      alerts: [],
+      events: [],
+      dispositionRecords: [],
+      reports: [],
+      filings: [],
+    });
+
+    const result = await service.findOne('inc-1', {
+      actorType: 'ADMIN',
+      actorId: 'admin-1',
+      actorNo: 'ADMIN-001',
+      actorRole: 'SUPER_ADMIN',
+      roleCodes: ['SUPER_ADMIN'],
+    });
+
+    expect(result.availableMlroActions).toEqual([
+      'APPROVE_FINAL_DISPOSITION',
+      'RETURN_FOR_INVESTIGATION',
+    ]);
+  });
+
+  it('should allow SUPER_ADMIN actor fallback to execute MLRO review when roleCodes are missing', async () => {
+    prismaMock.complianceIncident.findUnique
+      .mockResolvedValueOnce({
+        ...buildIncident({
+          status: ComplianceIncidentStatus.PENDING_MLRO_REVIEW,
+          proposedWorkflowDecision: 'CLEAR',
+          proposedWorkflowReason: 'clear after review',
+          proposedFinalDispositionCode: 'CLEAR',
+          proposedFinalDispositionReason: 'clear after review',
+          ownerUserId: 'admin-1',
+          ownerUserNo: 'ADMIN-001',
+        }),
+        reports: [
+          buildReport({
+            status: 'FINALIZED',
+            isCurrent: true,
+            finalizedAt: new Date(),
+          }),
+        ],
+      })
+      .mockResolvedValueOnce({
+        ...buildIncident({
+          status: ComplianceIncidentStatus.CLOSED,
+          proposedWorkflowDecision: 'CLEAR',
+          proposedFinalDispositionCode: 'CLEAR',
+          finalDispositionCode: 'CLEAR',
+        }),
+        alerts: [],
+        events: [],
+        dispositionRecords: [],
+        reports: [],
+        filings: [],
+      });
+    prismaMock.complianceIncident.update.mockResolvedValue(buildIncident({
+      status: ComplianceIncidentStatus.CLOSED,
+      proposedWorkflowDecision: 'CLEAR',
+      proposedFinalDispositionCode: 'CLEAR',
+      finalDispositionCode: 'CLEAR',
+    }) as any);
+    workflowTransitionServiceMock.transition.mockResolvedValue({
+      customerStatus: 'ACTIVE',
+    });
+
+    await expect(
+      service.reviewByMlro(
+        'inc-1',
+        {
+          decision: 'APPROVE_FINAL_DISPOSITION',
+          note: 'approved by super admin',
+        },
+        {
+          actorType: 'ADMIN',
+          actorId: 'admin-1',
+          actorNo: 'ADMIN-001',
+          actorRole: 'SUPER_ADMIN',
+        },
+      ),
+    ).resolves.toBeDefined();
+  });
+
+  it('should create REQUIRED filing after MLRO approval when filing is required', async () => {
+    prismaMock.complianceIncident.findUnique.mockResolvedValue(
+      buildIncident({
+        caseType: ComplianceCaseType.TRANSACTION,
+        sourceType: 'DEPOSIT',
+        status: ComplianceIncidentStatus.PENDING_MLRO_REVIEW,
+        proposedFinalDispositionCode: 'RISK_CONFIRMED',
+        proposedFinalDispositionReason: 'Confirmed suspicious activity.',
+        proposedFilingRequired: true,
+        proposedFilingType: 'SUSPICIOUS_ACTIVITY',
+        proposedFilingAuthority: 'FIU',
+        reports: [
+          buildReport({
+            status: 'FINALIZED',
+            finalDispositionCode: 'RISK_CONFIRMED',
+            filingRequired: true,
+            filingType: 'SUSPICIOUS_ACTIVITY',
+            filingAuthority: 'FIU',
+          }),
+        ],
+      }),
+    );
+    prismaMock.complianceIncident.update.mockResolvedValue(buildIncident());
+    prismaMock.complianceIncidentEvent.create.mockResolvedValue({ id: 'evt-mlro-approved' });
+    prismaMock.complianceIncidentExternalFiling.create.mockResolvedValue({
+      id: 'filing-1',
+      incidentId: 'inc-1',
+      filingNo: 'FIL2602010001',
+      status: 'REQUIRED',
+      filingType: 'SUSPICIOUS_ACTIVITY',
+      filingAuthority: 'FIU',
+      requiredAt: new Date('2026-02-19T03:00:00.000Z'),
+      submittedAt: null,
+      submittedById: null,
+      submittedByNo: null,
+      events: [],
+    });
+    prismaMock.complianceIncidentExternalFilingEvent.create.mockResolvedValue({
+      id: 'filing-evt-1',
+    });
+    jest.spyOn(service, 'findOne').mockResolvedValue({
+      id: 'inc-1',
+      status: ComplianceIncidentStatus.CLOSED,
+      filingStatus: 'REQUIRED',
+      currentFiling: {
+        id: 'filing-1',
+        filingNo: 'FIL2602010001',
+        status: 'REQUIRED',
+      },
+      alerts: [],
+      events: [],
+    } as any);
+
+    const result = await service.reviewByMlro(
+      'inc-1',
+      {
+        decision: 'APPROVE_FINAL_DISPOSITION',
+      },
+      {
+        actorType: 'ADMIN',
+        actorId: 'admin-1',
+        actorNo: 'US0001',
+        actorRole: 'SUPER_ADMIN',
+        roleCodes: ['SUPER_ADMIN', 'MLRO'],
+      },
+    );
+
+    expect(prismaMock.complianceIncidentExternalFiling.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          incidentId: 'inc-1',
+          status: 'REQUIRED',
+          filingType: 'SUSPICIOUS_ACTIVITY',
+          filingAuthority: 'FIU',
+        }),
+      }),
+    );
+    expect(prismaMock.complianceIncident.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: ComplianceIncidentStatus.CLOSED,
+          reportStatus: 'NOT_REPORTED',
+        }),
+      }),
+    );
+    expect(result.currentFiling?.status).toBe('REQUIRED');
+  });
+
+  it('should mark compatibility report mirror as REPORTED after filing submission', async () => {
+    prismaMock.complianceIncident.findUnique.mockResolvedValue(
+      buildIncident({
+        status: ComplianceIncidentStatus.CLOSED,
+      }),
+    );
+    prismaMock.complianceIncidentExternalFiling.findUnique.mockResolvedValue({
+      id: 'filing-1',
+      incidentId: 'inc-1',
+      filingNo: 'FIL2602010001',
+      status: 'REQUIRED',
+      filingType: 'SUSPICIOUS_ACTIVITY',
+      filingAuthority: 'FIU',
+      externalRefNo: null,
+      submittedAt: null,
+      submittedById: null,
+      submittedByNo: null,
+      events: [],
+    });
+    prismaMock.complianceIncidentExternalFiling.update.mockResolvedValue({
+      id: 'filing-1',
+    });
+    prismaMock.complianceIncidentExternalFilingEvent.create.mockResolvedValue({
+      id: 'filing-evt-2',
+    });
+    prismaMock.complianceIncident.update.mockResolvedValue(buildIncident());
+    jest.spyOn(service, 'findOne').mockResolvedValue({
+      id: 'inc-1',
+      filingStatus: 'SUBMITTED',
+      reportStatus: 'REPORTED',
+      alerts: [],
+      events: [],
+    } as any);
+
+    const result = await service.submitExternalFiling(
+      'inc-1',
+      {
+        note: 'Submitted to FIU.',
+      },
+      {
+        actorType: 'ADMIN',
+        actorId: 'admin-1',
+        actorNo: 'US0001',
+        actorRole: 'MLRO',
+        roleCodes: ['MLRO'],
+      },
+    );
+
+    expect(prismaMock.complianceIncident.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          reportStatus: 'REPORTED',
+          reportRefNo: 'FIL2602010001',
+        }),
+      }),
+    );
+    expect(result.reportStatus).toBe('REPORTED');
+  });
+
+  it('should exclude compatibility-only legacy filing from canonical filing state', () => {
+    const residualLegacyFiling = {
+      id: 'filing-legacy-1',
+      incidentId: 'inc-1',
+      filingNo: 'FIL2602010999',
+      status: 'REQUIRED',
+      filingType: 'SUSPICIOUS_ACTIVITY',
+      filingAuthority: 'FIU',
+      requiredAt: new Date('2026-02-19T03:00:00.000Z'),
+      requiredById: 'admin-1',
+      requiredByNo: 'US0001',
+      requiredByRole: 'MLRO',
+      submittedAt: null,
+      submittedById: null,
+      submittedByNo: null,
+      submittedByRole: null,
+      externalRefNo: null,
+      latestFeedback: null,
+      latestFeedbackAt: null,
+      latestFeedbackById: null,
+      latestFeedbackByNo: null,
+      latestFeedbackByRole: null,
+      closedAt: null,
+      closedById: null,
+      closedByNo: null,
+      closedByRole: null,
+      metadata: JSON.stringify({
+        source: 'LEGACY_PHASE12_BACKFILL',
+        compatibilityOnly: true,
+        compatibilityReason: 'LEGACY_HEURISTIC_BACKFILL',
+      }),
+      createdAt: new Date('2026-02-19T03:00:00.000Z'),
+      updatedAt: new Date('2026-02-19T03:00:00.000Z'),
+      events: [],
+    };
+
+    const mapped = (service as any).mapIncident(
+      buildIncident({
+        reportStatus: 'REPORTED',
+        reportRefNo: 'FIL2602010999',
+        filings: [residualLegacyFiling],
+      }),
+    );
+
+    expect(mapped.currentFiling).toBeNull();
+    expect(mapped.filingStatus).toBe('NOT_REQUIRED');
+    expect(mapped.filingHistory).toEqual([]);
+    expect(
+      (service as any).getAvailableFilingActions({
+        status: ComplianceIncidentStatus.CLOSED,
+        filings: [residualLegacyFiling],
+      }),
+    ).toEqual([]);
+    expect(mapped.reportStatus).toBe('REPORTED');
+  });
+
+  it('should create onboarding final approval after MLRO approves onboarding EDD clear', async () => {
+    prismaMock.complianceIncident.findUnique
+      .mockResolvedValueOnce(
+        buildIncident({
+          status: ComplianceIncidentStatus.PENDING_MLRO_REVIEW,
+          stage: 'REVIEW_EDD',
+          sourceType: 'ONBOARDING_JOURNEY',
+          proposedWorkflowDecision: 'CLEAR',
+          proposedWorkflowReason: 'clear after EDD review',
+          proposedFinalDispositionCode: 'CLEAR',
+          proposedFinalDispositionReason: 'clear after EDD review',
+          reports: [
+            buildReport({
+              status: 'FINALIZED',
+              finalDispositionCode: 'CLEAR',
+              finalDispositionReason: 'clear after EDD review',
+            }),
+          ],
+        }),
+      )
+      .mockResolvedValueOnce({
+        ...buildIncident({
+          status: ComplianceIncidentStatus.CLOSED,
+          stage: 'REVIEW_EDD',
+          sourceType: 'ONBOARDING_JOURNEY',
+          proposedWorkflowDecision: 'CLEAR',
+          proposedFinalDispositionCode: 'CLEAR',
+          finalDispositionCode: 'CLEAR',
+        }),
+        alerts: [],
+        events: [],
+        dispositionRecords: [],
+        reports: [],
+        filings: [],
+      });
+    prismaMock.customerMain.findUnique.mockResolvedValue({
+      id: 'customer-1',
+      customerNo: 'CU0001',
+      onboardingStatus: 'FINAL_APPROVAL',
+      operatingStatus: 'INACTIVE',
+      restrictionStatus: 'CLEAR',
+      eddRequired: true,
+      activeJourneyId: 'journey-1',
+      latestFinalApprovalId: null,
+      latestFinalApprovalStatus: null,
+    });
+    prismaMock.complianceIncident.update.mockResolvedValue(
+      buildIncident({
+        status: ComplianceIncidentStatus.CLOSED,
+        stage: 'REVIEW_EDD',
+        sourceType: 'ONBOARDING_JOURNEY',
+        proposedWorkflowDecision: 'CLEAR',
+        proposedFinalDispositionCode: 'CLEAR',
+        finalDispositionCode: 'CLEAR',
+      }) as any,
+    );
+    workflowTransitionServiceMock.transition.mockResolvedValue({
+      transitionCode: 'EDD_APPROVE_TO_FINAL_APPROVAL',
+      toStatus: 'FINAL_APPROVAL',
+      createdFinalApprovalId: null,
+    });
+
+    await service.reviewByMlro(
+      'inc-1',
+      {
+        decision: 'APPROVE_FINAL_DISPOSITION',
+        note: 'approve onboarding edd clear',
+      },
+      {
+        actorType: 'ADMIN',
+        actorId: 'admin-1',
+        actorNo: 'ADMIN-001',
+        actorRole: 'MLRO',
+        roleCodes: ['MLRO'],
+      },
+    );
+
+    expect(
+      onboardingFinalApprovalServiceMock.ensurePendingApprovalInTransaction,
+    ).toHaveBeenCalledWith(
+      prismaMock,
+      expect.objectContaining({
+        customer: expect.objectContaining({
+          id: 'customer-1',
+          onboardingStatus: 'FINAL_APPROVAL',
+        }),
+        actorId: 'admin-1',
+        actorRole: 'MLRO',
+      }),
+    );
+    expect(
+      onboardingFinalApprovalServiceMock.emitSubmittedSideEffects,
+    ).toHaveBeenCalledWith(
+      'approval-1',
+      'admin-1',
+      'MLRO',
+      'approve onboarding edd clear',
+    );
+  });
+
+  it('should emit onboarding approval side effects only after MLRO transaction commits', async () => {
+    const callOrder: string[] = [];
+    prismaMock.$transaction.mockImplementationOnce(async (callback: any) => {
+      callOrder.push('tx:start');
+      const result = await callback(prismaMock);
+      callOrder.push('tx:end');
+      return result;
+    });
+    prismaMock.complianceIncident.findUnique
+      .mockResolvedValueOnce(
+        buildIncident({
+          status: ComplianceIncidentStatus.PENDING_MLRO_REVIEW,
+          stage: 'REVIEW_EDD',
+          sourceType: 'ONBOARDING_JOURNEY',
+          proposedWorkflowDecision: 'CLEAR',
+          proposedWorkflowReason: 'clear after EDD review',
+          proposedFinalDispositionCode: 'CLEAR',
+          proposedFinalDispositionReason: 'clear after EDD review',
+          reports: [
+            buildReport({
+              status: 'FINALIZED',
+              finalDispositionCode: 'CLEAR',
+              finalDispositionReason: 'clear after EDD review',
+            }),
+          ],
+        }),
+      )
+      .mockResolvedValueOnce({
+        ...buildIncident({
+          status: ComplianceIncidentStatus.CLOSED,
+          stage: 'REVIEW_EDD',
+          sourceType: 'ONBOARDING_JOURNEY',
+          proposedWorkflowDecision: 'CLEAR',
+          proposedFinalDispositionCode: 'CLEAR',
+          finalDispositionCode: 'CLEAR',
+        }),
+        alerts: [],
+        events: [],
+        dispositionRecords: [],
+        reports: [],
+        filings: [],
+      });
+    prismaMock.customerMain.findUnique.mockResolvedValue({
+      id: 'customer-1',
+      customerNo: 'CU0001',
+      onboardingStatus: 'FINAL_APPROVAL',
+      operatingStatus: 'INACTIVE',
+      restrictionStatus: 'CLEAR',
+      eddRequired: true,
+      activeJourneyId: 'journey-1',
+      latestFinalApprovalId: null,
+      latestFinalApprovalStatus: null,
+    });
+    workflowTransitionServiceMock.transition.mockResolvedValue({
+      transitionCode: 'EDD_APPROVE_TO_FINAL_APPROVAL',
+      toStatus: 'FINAL_APPROVAL',
+      createdFinalApprovalId: null,
+    });
+    onboardingFinalApprovalServiceMock.emitSubmittedSideEffects.mockImplementation(
+      async () => {
+        callOrder.push('emit');
+      },
+    );
+
+    await service.reviewByMlro(
+      'inc-1',
+      {
+        decision: 'APPROVE_FINAL_DISPOSITION',
+        note: 'approve onboarding edd clear',
+      },
+      {
+        actorType: 'ADMIN',
+        actorId: 'admin-1',
+        actorNo: 'ADMIN-001',
+        actorRole: 'MLRO',
+        roleCodes: ['MLRO'],
+      },
+    );
+
+    expect(callOrder).toEqual(['tx:start', 'tx:end', 'emit']);
+  });
+
+  it('should not create onboarding final approval after MLRO approves onboarding CDD clear', async () => {
+    prismaMock.complianceIncident.findUnique
+      .mockResolvedValueOnce(
+        buildIncident({
+          status: ComplianceIncidentStatus.PENDING_MLRO_REVIEW,
+          stage: 'REVIEW_CDD',
+          sourceType: 'ONBOARDING_JOURNEY',
+          proposedWorkflowDecision: 'CLEAR',
+          proposedWorkflowReason: 'clear after CDD review',
+          proposedFinalDispositionCode: 'CLEAR',
+          proposedFinalDispositionReason: 'clear after CDD review',
+          reports: [
+            buildReport({
+              status: 'FINALIZED',
+              finalDispositionCode: 'CLEAR',
+              finalDispositionReason: 'clear after CDD review',
+            }),
+          ],
+        }),
+      )
+      .mockResolvedValueOnce({
+        ...buildIncident({
+          status: ComplianceIncidentStatus.CLOSED,
+          stage: 'REVIEW_CDD',
+          sourceType: 'ONBOARDING_JOURNEY',
+          proposedWorkflowDecision: 'CLEAR',
+          proposedFinalDispositionCode: 'CLEAR',
+          finalDispositionCode: 'CLEAR',
+        }),
+        alerts: [],
+        events: [],
+        dispositionRecords: [],
+        reports: [],
+        filings: [],
+      });
+    prismaMock.complianceIncident.update.mockResolvedValue(
+      buildIncident({
+        status: ComplianceIncidentStatus.CLOSED,
+        stage: 'REVIEW_CDD',
+        sourceType: 'ONBOARDING_JOURNEY',
+        proposedWorkflowDecision: 'CLEAR',
+        proposedFinalDispositionCode: 'CLEAR',
+        finalDispositionCode: 'CLEAR',
+      }) as any,
+    );
+    workflowTransitionServiceMock.transition.mockResolvedValue({
+      transitionCode: 'CDD_APPROVE_TO_ACTIVE',
+      toStatus: 'ACTIVE',
+      createdFinalApprovalId: null,
+    });
+
+    await service.reviewByMlro(
+      'inc-1',
+      {
+        decision: 'APPROVE_FINAL_DISPOSITION',
+        note: 'approve onboarding cdd clear',
+      },
+      {
+        actorType: 'ADMIN',
+        actorId: 'admin-1',
+        actorNo: 'ADMIN-001',
+        actorRole: 'MLRO',
+        roleCodes: ['MLRO'],
+      },
+    );
+
+    expect(
+      onboardingFinalApprovalServiceMock.ensurePendingApprovalInTransaction,
+    ).not.toHaveBeenCalled();
+    expect(
+      onboardingFinalApprovalServiceMock.emitSubmittedSideEffects,
+    ).not.toHaveBeenCalled();
   });
 });

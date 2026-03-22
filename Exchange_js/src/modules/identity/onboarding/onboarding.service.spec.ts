@@ -3,6 +3,7 @@ import {
   ForbiddenException,
   NotFoundException,
 } from '@nestjs/common';
+import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
 import { OnboardingService } from './onboarding.service';
 import { WORKFLOW_TRANSITION_CODES } from './onboarding-workflow-transition.service';
 
@@ -103,6 +104,7 @@ describe('OnboardingService', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    jest.spyOn(AuditLogsService.prototype, 'recordByActor').mockResolvedValue({} as any);
     prismaMock.$transaction.mockImplementation(async (callback: any) => callback(prismaMock));
     prismaMock.complianceAlertDispositionRecord.create.mockResolvedValue({
       id: 'alert-disp-1',
@@ -168,7 +170,7 @@ describe('OnboardingService', () => {
       workflow: 'ONBOARDING',
       stage: 'REVIEW_CDD',
       rule: 'ONB_CDD_REVIEW_REQUIRED',
-      recommendedDecisions: ['APPROVE', 'REJECT', 'REQUIRE_EDD'],
+      recommendedDecisions: ['CLEAR', 'REJECT', 'REQUIRE_EDD'],
       executedActions: [{ type: 'UPSERT_ALERT' }],
       skippedActions: [],
       alertId: 'alert-1',
@@ -180,7 +182,7 @@ describe('OnboardingService', () => {
       id: 'alert-1',
       status: 'OPEN',
       sourceType: 'ONBOARDING_JOURNEY',
-      recommendedDecisions: ['APPROVE', 'REJECT', 'REQUIRE_EDD'],
+      recommendedDecisions: ['CLEAR', 'REJECT', 'REQUIRE_EDD'],
       linkedCaseIds: ['cdd-1'],
       decisionRecordIds: ['dr-low'],
       events: [],
@@ -233,7 +235,7 @@ describe('OnboardingService', () => {
     prismaMock.complianceAlert.findUnique.mockResolvedValue(alert);
     prismaMock.complianceAlert.update.mockResolvedValue({
       ...alert,
-      decision: 'APPROVE',
+      decision: 'CLEAR',
     });
     prismaMock.complianceAlertEvent.create.mockResolvedValue({ id: 'alevt-1' });
     prismaMock.customerMain.findUnique.mockResolvedValue(customer);
@@ -261,8 +263,8 @@ describe('OnboardingService', () => {
       status: 'ASSIGNED',
       sourceType: 'ONBOARDING_JOURNEY',
       assigneeUserId: 'admin-1',
-      decision: 'APPROVE',
-      recommendedDecisions: ['APPROVE', 'REJECT', 'REQUIRE_EDD'],
+      decision: 'CLEAR',
+      recommendedDecisions: ['CLEAR', 'REJECT', 'REQUIRE_EDD'],
       linkedCaseIds: ['cdd-1'],
       decisionRecordIds: ['dr-1'],
       events: [],
@@ -270,7 +272,7 @@ describe('OnboardingService', () => {
     workflowTransitionServiceMock.transition.mockResolvedValue({
       workflow: 'ONBOARDING',
       stage: 'REVIEW_CDD',
-      dispositionCode: 'APPROVE_STAGE',
+      dispositionCode: 'CLEAR',
       transitionCode: WORKFLOW_TRANSITION_CODES.CDD_APPROVE_TO_ACTIVE,
       fromStatus: 'REVIEW_CDD',
       toStatus: 'ACTIVE',
@@ -736,7 +738,7 @@ describe('OnboardingService', () => {
         'alert-onb-1',
         'admin-1',
         'COMPLIANCE_LEAD',
-        { decision: 'APPROVE' },
+        { decision: 'CLEAR' },
       ),
     ).rejects.toBeInstanceOf(BadRequestException);
   });
@@ -753,7 +755,7 @@ describe('OnboardingService', () => {
         'alert-onb-1',
         'admin-1',
         'COMPLIANCE_LEAD',
-        { decision: 'APPROVE' },
+        { decision: 'CLEAR' },
       ),
     ).rejects.toBeInstanceOf(ForbiddenException);
   });
@@ -792,13 +794,13 @@ describe('OnboardingService', () => {
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
-  it('should apply APPROVE decision and move onboarding to ACTIVE', async () => {
+  it('should apply CLEAR decision and move onboarding to ACTIVE', async () => {
     seedAlertDecisionFlow();
     const result = await service.applyOnboardingDecisionFromAlert(
       'alert-onb-1',
       'admin-1',
       'COMPLIANCE_LEAD',
-      { decision: 'APPROVE' },
+      { decision: 'CLEAR' },
     );
 
     expect(workflowTransitionServiceMock.transition).toHaveBeenCalledWith(
@@ -809,14 +811,14 @@ describe('OnboardingService', () => {
         workflow: 'ONBOARDING',
         stage: 'REVIEW_CDD',
         producerType: 'ALERT',
-        dispositionCode: 'APPROVE_STAGE',
+        dispositionCode: 'CLEAR',
       }),
     );
     expect(prismaMock.complianceAlert.update).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
-          decision: 'APPROVE',
-          decisionRecommendation: 'APPROVE',
+          decision: 'CLEAR',
+          decisionRecommendation: 'CLEAR',
         }),
       }),
     );
@@ -830,7 +832,7 @@ describe('OnboardingService', () => {
     workflowTransitionServiceMock.transition.mockResolvedValue({
       workflow: 'ONBOARDING',
       stage: 'REVIEW_CDD',
-      dispositionCode: 'REJECT_STAGE',
+      dispositionCode: 'REJECT',
       transitionCode: WORKFLOW_TRANSITION_CODES.CDD_REJECT_TO_REJECTED,
       fromStatus: 'REVIEW_CDD',
       toStatus: 'REJECTED',
@@ -850,14 +852,14 @@ describe('OnboardingService', () => {
     const result = await service.applyOnboardingDecisionFromAlert(
       'alert-onb-1',
       'admin-1',
-      'COMPLIANCE_LEAD',
-      { decision: 'REJECT', reason: 'risk not acceptable' },
+        'COMPLIANCE_LEAD',
+        { decision: 'REJECT', reason: 'risk not acceptable' },
     );
 
     expect(workflowTransitionServiceMock.transition).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({
-        dispositionCode: 'REJECT_STAGE',
+        dispositionCode: 'REJECT',
       }),
     );
     expect(result.customer.onboardingStatus).toBe('REJECTED');
@@ -930,7 +932,7 @@ describe('OnboardingService', () => {
         },
         {
           type: 'ONBOARDING_RECOMMEND_DECISIONS',
-          payload: { decisions: ['APPROVE', 'REJECT', 'REQUIRE_EDD'] },
+          payload: { decisions: ['CLEAR', 'REJECT', 'REQUIRE_EDD'] },
         },
       ],
     });
@@ -1009,7 +1011,7 @@ describe('OnboardingService', () => {
         },
         {
           type: 'ONBOARDING_RECOMMEND_DECISIONS',
-          payload: { decisions: ['APPROVE', 'REJECT', 'REQUIRE_EDD'] },
+          payload: { decisions: ['CLEAR', 'REJECT', 'REQUIRE_EDD'] },
         },
       ],
     });
@@ -1052,7 +1054,7 @@ describe('OnboardingService', () => {
         },
         {
           type: 'ONBOARDING_RECOMMEND_DECISIONS',
-          payload: { decisions: ['APPROVE', 'REJECT', 'REQUIRE_EDD'] },
+          payload: { decisions: ['CLEAR', 'REJECT', 'REQUIRE_EDD'] },
         },
       ],
     });
@@ -1100,7 +1102,7 @@ describe('OnboardingService', () => {
         },
         {
           type: 'ONBOARDING_RECOMMEND_DECISIONS',
-          payload: { decisions: ['APPROVE', 'REJECT', 'REQUIRE_EDD'] },
+          payload: { decisions: ['CLEAR', 'REJECT', 'REQUIRE_EDD'] },
         },
       ],
     });
@@ -1213,7 +1215,7 @@ describe('OnboardingService', () => {
       workflow: 'ONBOARDING',
       stage: 'REVIEW_EDD',
       rule: 'ONB_EDD_REVIEW_REQUIRED',
-      recommendedDecisions: ['APPROVE', 'REJECT'],
+      recommendedDecisions: ['CLEAR', 'REJECT'],
       executedActions: [{ type: 'UPSERT_ALERT' }],
       skippedActions: [],
       alertId: 'alert-edd-1',
@@ -1224,7 +1226,7 @@ describe('OnboardingService', () => {
       id: 'alert-edd-1',
       status: 'OPEN',
       sourceType: 'ONBOARDING_JOURNEY',
-      recommendedDecisions: ['APPROVE', 'REJECT'],
+      recommendedDecisions: ['CLEAR', 'REJECT'],
       linkedCaseIds: ['edd-1'],
       decisionRecordIds: ['dr-edd-1'],
       events: [],
@@ -1243,7 +1245,7 @@ describe('OnboardingService', () => {
         },
         {
           type: 'ONBOARDING_RECOMMEND_DECISIONS',
-          payload: { decisions: ['APPROVE', 'REJECT'] },
+          payload: { decisions: ['CLEAR', 'REJECT'] },
         },
       ],
     });

@@ -232,7 +232,7 @@ const RiskPolicyExecutionsPage = () => {
             onChange={(e) =>
               setFilters((prev) => ({ ...prev, outputDecision: e.target.value }))
             }
-            placeholder="Output Decision (APPROVE/REJECT/REQUIRE_EDD/REVIEW)"
+            placeholder="Output Decision (CLEAR/REJECT/REQUIRE_EDD/REVIEW)"
             className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
           />
           <input

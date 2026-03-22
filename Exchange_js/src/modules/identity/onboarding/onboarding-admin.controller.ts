@@ -181,23 +181,6 @@ export class OnboardingAdminController {
     };
   }
 
-  @Post('incidents/:id/onboarding-decision')
-  @RequirePermissions(buildPermissionCode('POST', '/admin/compliance/incidents/:id/onboarding-decision'))
-  @ApiOperation({ summary: 'Apply onboarding decision from assigned onboarding incident (compatibility alias)' })
-  applyOnboardingDecisionFromIncident(
-    @Req() req: any,
-    @Param('id') id: string,
-    @Body(new ValidationPipe({ transform: true })) body: ApplyOnboardingAlertDecisionDto,
-  ) {
-    const actor = this.getAdminActor(req);
-    return this.onboardingService.applyOnboardingDecisionFromIncident(
-      id,
-      actor.actorId,
-      actor.actorRole,
-      body,
-    );
-  }
-
   // Decision records are the canonical risk-execution read model. The legacy
   // /admin/compliance endpoints remain as compatibility aliases during Wave 2.
   @Get('decision-records')

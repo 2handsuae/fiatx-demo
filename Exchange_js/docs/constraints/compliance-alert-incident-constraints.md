@@ -18,8 +18,25 @@
 1. backend modules `src/modules/risk-engine/compliance-alerts/**`
 2. backend modules `src/modules/risk-engine/compliance-incidents/**`
 3. admin pages `/dashboard/compliance/alerts` and `/dashboard/compliance/cases`
-4. compatibility redirect `/dashboard/compliance/incidents`
+4. historical retired `/dashboard/compliance/incidents` redirect context when reading archived cleanup threads
 - MUST enforce admin-only operations for current alert and case admin APIs.
+
+## 1.1) Related Canonical Docs
+- Workflow truth:
+1. `docs/specs/workflows/alert-triage-and-case-escalation.md`
+2. `docs/specs/workflows/case-final-lifecycle-and-external-filing.md`
+3. `docs/specs/workflows/mlro-and-final-approval-governance.md`
+- Entity truth:
+1. `docs/specs/entities/compliance-alert-entity.md`
+2. `docs/specs/entities/compliance-case-entity.md`
+3. `docs/specs/entities/compliance-case-report-entity.md`
+4. `docs/specs/entities/compliance-external-filing-entity.md`
+5. `docs/specs/entities/approval-case-entity.md`
+6. `docs/specs/entities/risk-decision-record-entity.md`
+- Module integration truth:
+1. `docs/specs/modules/compliance-center-module.md`
+2. `docs/specs/modules/risk-engine-module.md`
+3. `docs/specs/modules/approvals-module.md`
 
 ## 2) Alert Lifecycle Constraints
 - Alert status machine MUST remain:
@@ -28,24 +45,27 @@
 3. `ESCALATED`
 4. `CLOSED`
 - Closed status MUST be terminal.
-- Alert action constraints MUST remain:
-1. `OPEN` -> `ASSIGN` / `ESCALATE` / `CLOSE`
-2. `ASSIGNED` -> `ASSIGN` / `UNASSIGN` / `ESCALATE` / `CLOSE`
-3. `ESCALATED` -> `ESCALATE` / `CLOSE`
-4. `CLOSED` -> no action
-- Required fields MUST be enforced:
-1. `ESCALATE`: `reason`
-2. `CLOSE`: `reason`
-- Assignee execution rule MUST be enforced for sensitive actions:
-1. when status is `ASSIGNED` or `ESCALATED`, `ESCALATE` and `CLOSE` MUST be executed by current `assigneeUserId`
-2. admin UI and backend service MUST apply the same restriction logic
-- Reassign guard MUST be enforced:
-1. when status is `ASSIGNED`, changing assignee (`ASSIGN` to a different user) MUST be performed by current `assigneeUserId`
-2. non-assignee reassign attempts MUST be rejected by backend with `403`
-- Recommendation execution rule for onboarding container flow MUST be:
-1. recommendation buttons are rendered from risk-engine output (`recommendedDecisions`)
-2. recommendation execution MAY be invoked multiple times in UI/API
-3. actual transition validity MUST be enforced by onboarding state-machine checks (illegal stage transition returns `400/409`)
+- Current runtime MUST distinguish:
+1. `Alert Actions`
+2. `Workflow Actions`
+- For workflow-bound alerts, `Alert Actions` MUST remain:
+1. `ASSIGN`
+2. `REASSIGN`
+3. `FALSE_POSITIVE`
+4. `ESCALATE_TO_CASE`
+- For workflow-bound alerts, `Workflow Actions` MUST remain:
+1. `CLEAR`
+2. `REJECT`
+3. `REQUIRE_EDD` (only for `REVIEW_CDD`)
+- `REVIEW_EDD` MUST NOT expose `REQUIRE_EDD`.
+- Generic `CLOSE` MUST NOT be exposed for workflow-bound alerts.
+- `NO_ACTION` MUST NOT be exposed for workflow-bound alerts.
+- `FALSE_POSITIVE` on workflow-bound alerts MUST auto-resolve through the workflow as `CLEAR`, while preserving distinct alert outcome semantics.
+- `ESCALATE_TO_CASE` MUST remain triage-only and MUST NOT advance onboarding workflow.
+- Alert workflow-action read model and UI visibility MUST align with backend executor guard.
+- Workflow actions for workflow-bound alerts MUST only be exposed when:
+1. status is `ASSIGNED`
+2. current actor is the current assignee
 - Case recommendation projection priority for onboarding flow MUST be:
 1. primary alert latest `metadata.recommendedDecisions`
 2. primary alert `decisionRecommendation` fallback
@@ -58,29 +78,63 @@
 - Canonical case status machine MUST remain:
 1. `OPEN`
 2. `ASSIGNED`
-3. `CLOSED`
+3. `INVESTIGATING`
+4. `PENDING_MLRO_REVIEW`
+5. `CLOSED`
 - Closed status MUST be terminal.
 - Legacy `RESOLVED` data MAY exist for read compatibility, but MUST NOT be produced by new workflow transitions.
-- Case action constraints MUST remain:
-1. `OPEN` -> `ASSIGN` / `LINK_ALERT`
-2. `ASSIGNED` -> `ASSIGN` / `CLOSE` / `LINK_ALERT`
-3. `CLOSED` -> no action
-- Required fields MUST be enforced:
-1. `CLOSE`: `reason`
+- Current runtime MUST distinguish:
+1. `Case Actions`
+2. `Interim Measures`
+3. `Workflow Proposal`
+4. `MLRO Review`
+- Current standard `Case Actions` MUST remain:
+1. `ASSIGN`
+2. `REASSIGN`
+3. `LINK_ALERT`
+- Current standard `Interim Measures` MUST remain:
+1. `FREEZE`
+2. `UNFREEZE`
+3. `RESTRICT`
+4. `UNRESTRICT`
+- Current standard `Workflow Proposal` MUST remain:
+1. `CLEAR`
+2. `REJECT`
+3. `REQUIRE_EDD`
+- Current standard `MLRO Review` MUST remain:
+1. `RETURN_FOR_INVESTIGATION`
+2. `APPROVE_FINAL_DISPOSITION`
+- Direct generic case actions MUST NOT be standard runtime paths for:
+1. `CLOSE`
+2. `FALSE_POSITIVE`
+3. `REPORT`
+- `FALSE_POSITIVE` and `REPORT` now belong to case proposal / final-disposition semantics and MUST pass through finalized report + MLRO review.
+- `INVESTIGATING -> PENDING_MLRO_REVIEW` MUST require:
+1. a finalized current report
+2. a proposed final disposition
+3. a proposed workflow decision for workflow-bound cases
+- `PENDING_MLRO_REVIEW -> CLOSED` MUST occur only through approved MLRO review.
+- `RETURN_FOR_INVESTIGATION` MUST move the case back to `INVESTIGATING`.
 - Case assignee role whitelist MUST be enforced:
 1. assign/reassign target MUST be `SUPER_ADMIN` or `COMPLIANCE_LEAD` or `MLRO`
-2. in `ASSIGNED`, reassign and close MUST be executed by current assignee
-- Case close MUST cascade close all linked alerts in `OPEN/ASSIGNED/ESCALATED`.
+2. investigator-side proposal and measure actions MUST be executed by current assignee
+- Workflow-bound case proposal endpoints MUST NOT execute workflow transition immediately; they only write proposal state.
+- MLRO approval is the point where:
+1. final disposition becomes effective
+2. workflow-bound transition executes
+3. case closes
+- Current runtime defines an independent external filing lifecycle and MUST treat it as the canonical filing model.
+- `reportStatus = NOT_REPORTED / REPORTED`, `reportRefNo`, `reportedAt`, and `reportReason` remain compatibility mirror fields only and MUST NOT be interpreted as report draft/finalize state or canonical filing truth.
+- Compatibility-only legacy filing rows MAY remain stored for historical explanation, but MUST NOT drive canonical `currentFiling`, `filingStatus`, or filing actions.
 - Current runtime persistence MUST include `caseType` with minimum taxonomy:
 1. `ONBOARDING`
+2. `PERIODIC_REVIEW`
 2. `TRANSACTION`
 3. `GENERIC`
 
 ## 4) Alert to Case Escalation Constraints
 - Canonical case creation MUST be manual from alert escalation:
 1. `POST /admin/compliance/cases/from-alert/:alertId`
-- Compatibility alias MAY remain available during `Wave 2`:
-1. `POST /admin/compliance/incidents/from-alert/:alertId`
 - Upstream modules MUST NOT auto-create case records outside the alert triage workflow.
 - Escalation MUST be transactional and atomic:
 1. alert transitions to `ESCALATED`
@@ -122,14 +176,12 @@
 4. `POST /admin/compliance/cases/from-alert/:alertId`
 5. `POST /admin/compliance/cases/:id/alerts`
 6. `POST /admin/compliance/cases/:id/onboarding-decision`
-- Compatibility alias incident APIs MAY remain:
-1. `GET /admin/compliance/incidents`
-2. `GET /admin/compliance/incidents/:id`
-3. `PATCH /admin/compliance/incidents/:id/action`
-4. `POST /admin/compliance/incidents/from-alert/:alertId`
-5. `POST /admin/compliance/incidents/:id/alerts`
-6. `POST /admin/compliance/incidents/:id/onboarding-decision`
-- Phase 4 compatibility rule means `/cases/**` is the canonical runtime source of truth, while `/incidents/**` is a compatibility alias over the same implementation.
+7. `POST /admin/compliance/cases/:id/periodic-review-decision`
+8. `PUT /admin/compliance/cases/:id/report/draft`
+9. `POST /admin/compliance/cases/:id/report/finalize`
+10. `POST /admin/compliance/cases/:id/report/submit-to-mlro`
+11. `POST /admin/compliance/cases/:id/mlro-review`
+- `Phase 2` final closure retires `/admin/compliance/incidents/**`; `/cases/**` is now the only active runtime surface.
 - List responses MUST stay machine-parsable `{ total, skip, take, items[] }`.
 - Detail responses MUST include timeline events, linked relation records, and risk recommendation projection (`recommendedDecisions` where applicable).
 - Case responses MUST expose canonical fields such as:
@@ -137,35 +189,68 @@
 2. `caseType`
 3. `assigneeUserId`
 4. `assigneeUserNo`
-- Compatibility fields MAY remain mirrored:
-1. `incidentNo`
-2. `ownerUserId`
-3. `ownerUserNo`
+- Canonical case list / detail primary presentation MUST default to:
+1. `caseNo`
+2. `assigneeUserId`
+3. `assigneeUserNo`
+4. `filingStatus`
+- Compatibility fields such as legacy `incidentNo / owner* / report*` MUST NOT remain in active case list/detail contract after final closure.
+- Canonical filing read-model fields such as `currentFiling`, `filingHistory`, and `availableFilingActions` MUST be derived only from canonical filing rows, not from compatibility-only legacy backfill residuals.
+- Current case detail responses MUST expose:
+1. `availableCaseActions`
+2. `availableInterimMeasures`
+3. `availableWorkflowActions`
+4. `availableMlroActions`
+5. proposal / MLRO review snapshots needed by the current admin page
 - Alert/case orchestration changes MUST NOT break customer-detail read model availability (`GET /customers/:id` MUST remain queryable without schema-invalid include/select).
 
 ## 8) Audit Logging Constraints (Alert/Case Runtime)
 - All alert/case writes MUST go through `AuditLogsService`.
+- `audit_log_events` MUST remain the canonical audit store for current alert/case runtime.
+- When alert/case is workflow-bound, alert/case writes MUST carry workflow trace context:
+1. `traceId`
+2. `workflowType`
+3. `workflowId`
+4. `workflowNo`
 - MUST use centralized constants in `audit-actions.constant.ts` for:
 1. module (`COMPLIANCE_ALERTS`, `COMPLIANCE_INCIDENTS`)
 2. entity type (`COMPLIANCE_ALERT`, `COMPLIANCE_INCIDENT`)
 3. action names (`ALERT_*`, `INCIDENT_*`)
 - Audit taxonomy MAY keep `INCIDENT_*` compatibility constants during `Wave 2`, even when UI/API semantics use `Case`.
+- Historical physical/service/module names MAY still include `incident` in storage, migrations, or archived cleanup context, but `/cases/**` is the only active runtime surface and new external integrations MUST use case semantics.
 - Trigger type contract MUST stay:
 1. create escalation case: `DATA_CREATE`
 2. status/action updates: `DATA_UPDATE`
 - Action names MUST stay `UPPER_SNAKE_CASE`.
+- Trace root for workflow-bound runtime MUST stay:
+1. onboarding: `ONBOARDING:<journeyId>`
+2. periodic review: `PERIODIC_REVIEW:<cycle.id>`
+- `ESCALATE_TO_CASE`, `MLRO_SUBMITTED`, `APPROVE_FINAL_DISPOSITION`, `FILING_SUBMITTED`, and downstream approval/filing follow-up MUST continue the same upstream workflow trace rather than minting a new random trace.
+- For onboarding `REVIEW_EDD -> CLEAR -> FINAL_APPROVAL`, the approval object MUST inherit the same onboarding trace used by the upstream alert/case chain.
 
 ## 9) Admin UI Constraints
 - Compliance Center menu MUST include:
 1. `Alerts`
 2. `Cases`
-- `/dashboard/compliance/incidents` MUST remain only as a compatibility redirect to `/dashboard/compliance/cases`.
+- `/dashboard/compliance/incidents` is retired from active runtime and MUST NOT be reintroduced as a production navigation surface.
+- Alert page MUST distinguish:
+1. `Alert Actions`
+2. `Workflow Actions`
+- Case page MUST distinguish:
+1. `Case Actions`
+2. `Interim Measures`
+3. `Workflow Proposal`
+4. `MLRO Review`
 - Action buttons MUST be status-aware and hidden/disabled for terminal states.
 - UI MUST prevent duplicate submissions while action request is in-flight.
 - Escalate action in alerts UI MUST create case (not only set alert status).
 - Alert triage permissions MUST remain separate from investigation permissions:
 1. `ALERT_READ / ALERT_WRITE`
 2. `CASE_READ / CASE_WRITE`
+- Current runtime UI MUST NOT interpret:
+1. `NOT_REPORTED` as “report still draft”
+2. `REPORTED` as “report merely finalized”
+3. `REPORT` as a direct investigator-side case action
 
 ## 10) Thread Delivery Checklist (Alert/Case Runtime)
 - Status/action matrix changed? -> backend + frontend + tests all updated.

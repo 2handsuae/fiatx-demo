@@ -19,10 +19,15 @@ import { buildPermissionCode } from '../../identity/access-control/permission-co
 import { RequirePermissions } from '../../identity/access-control/require-permissions.decorator';
 import { ComplianceIncidentsService } from './compliance-incidents.service';
 import {
+  CloseComplianceCaseExternalFilingDto,
   ComplianceCaseQueryDto,
   CreateCaseFromAlertDto,
   FinalizeComplianceCaseReportDto,
   LinkCaseAlertDto,
+  RecordComplianceCaseExternalFilingFeedbackDto,
+  ReviewComplianceCaseByMlroDto,
+  SubmitComplianceCaseExternalFilingDto,
+  SubmitComplianceCaseToMlroDto,
   UpsertComplianceCaseReportDraftDto,
   UpdateComplianceCaseActionDto,
 } from './dto/compliance-case.dto';
@@ -46,6 +51,7 @@ export class ComplianceCasesAdminController {
       actorId: req.user.userId,
       actorNo: req.user.userNo,
       actorRole: req.user.role,
+      roleCodes: Array.isArray(req.user.roleCodes) ? req.user.roleCodes : [],
       sourcePlatform: 'ADMIN_API',
     };
   }
@@ -113,6 +119,75 @@ export class ComplianceCasesAdminController {
   ) {
     const actor = this.ensureAdmin(req);
     return this.complianceIncidentsService.finalizeReport(id, body, actor);
+  }
+
+  @Post(':id/report/submit-to-mlro')
+  @RequirePermissions(buildPermissionCode('POST', '/admin/compliance/cases/:id/report/submit-to-mlro'))
+  @ApiOperation({ summary: 'Submit finalized case report and proposal to MLRO' })
+  submitToMlro(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Body(new ValidationPipe({ transform: true }))
+    body: SubmitComplianceCaseToMlroDto,
+  ) {
+    const actor = this.ensureAdmin(req);
+    return this.complianceIncidentsService.submitToMlro(id, body, actor);
+  }
+
+  @Post(':id/mlro-review')
+  @RequirePermissions(buildPermissionCode('POST', '/admin/compliance/cases/:id/mlro-review'))
+  @ApiOperation({ summary: 'Approve or return case final disposition as MLRO' })
+  reviewByMlro(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Body(new ValidationPipe({ transform: true }))
+    body: ReviewComplianceCaseByMlroDto,
+  ) {
+    const actor = this.ensureAdmin(req);
+    return this.complianceIncidentsService.reviewByMlro(id, body, actor);
+  }
+
+  @Post(':id/filing/submit')
+  @RequirePermissions(buildPermissionCode('POST', '/admin/compliance/cases/:id/filing/submit'))
+  @ApiOperation({ summary: 'Submit external filing for case' })
+  submitExternalFiling(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Body(new ValidationPipe({ transform: true }))
+    body: SubmitComplianceCaseExternalFilingDto,
+  ) {
+    const actor = this.ensureAdmin(req);
+    return this.complianceIncidentsService.submitExternalFiling(id, body, actor);
+  }
+
+  @Post(':id/filing/feedback')
+  @RequirePermissions(buildPermissionCode('POST', '/admin/compliance/cases/:id/filing/feedback'))
+  @ApiOperation({ summary: 'Record external filing feedback for case' })
+  recordExternalFilingFeedback(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Body(new ValidationPipe({ transform: true }))
+    body: RecordComplianceCaseExternalFilingFeedbackDto,
+  ) {
+    const actor = this.ensureAdmin(req);
+    return this.complianceIncidentsService.recordExternalFilingFeedback(
+      id,
+      body,
+      actor,
+    );
+  }
+
+  @Post(':id/filing/close')
+  @RequirePermissions(buildPermissionCode('POST', '/admin/compliance/cases/:id/filing/close'))
+  @ApiOperation({ summary: 'Close external filing follow-up for case' })
+  closeExternalFiling(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Body(new ValidationPipe({ transform: true }))
+    body: CloseComplianceCaseExternalFilingDto,
+  ) {
+    const actor = this.ensureAdmin(req);
+    return this.complianceIncidentsService.closeExternalFiling(id, body, actor);
   }
 
   @Patch(':id/action')

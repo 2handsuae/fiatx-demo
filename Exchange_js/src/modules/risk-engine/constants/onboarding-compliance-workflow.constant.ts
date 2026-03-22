@@ -11,6 +11,13 @@ export type ComplianceSourceType =
   | typeof ONBOARDING_SOURCE_TYPE
   | typeof PERIODIC_REVIEW_SOURCE_TYPE;
 
+export interface ComplianceWorkflowTraceContext {
+  traceId: string;
+  workflowType: ComplianceWorkflow;
+  workflowId: string;
+  workflowNo: string;
+}
+
 export const ONBOARDING_REVIEW_STAGES = {
   REVIEW_CDD: 'REVIEW_CDD',
   REVIEW_EDD: 'REVIEW_EDD',
@@ -98,84 +105,104 @@ export const ALERT_WORK_ITEM_ACTIONS = {
 export type AlertWorkItemAction =
   (typeof ALERT_WORK_ITEM_ACTIONS)[keyof typeof ALERT_WORK_ITEM_ACTIONS];
 
-export const ALERT_COMPLIANCE_ACTIONS = {
+export const ALERT_OUTCOME_ACTIONS = {
   ESCALATE_TO_CASE: 'ESCALATE_TO_CASE',
-  APPROVE_STAGE: 'APPROVE_STAGE',
-  REJECT_STAGE: 'REJECT_STAGE',
-  REQUIRE_EDD: 'REQUIRE_EDD',
   FALSE_POSITIVE: 'FALSE_POSITIVE',
-  NO_ACTION: 'NO_ACTION',
 } as const;
 
-export type AlertComplianceAction =
-  (typeof ALERT_COMPLIANCE_ACTIONS)[keyof typeof ALERT_COMPLIANCE_ACTIONS];
+export type AlertOutcomeAction =
+  (typeof ALERT_OUTCOME_ACTIONS)[keyof typeof ALERT_OUTCOME_ACTIONS];
+
+export const WORKFLOW_DECISIONS = {
+  CLEAR: 'CLEAR',
+  REJECT: 'REJECT',
+  REQUIRE_EDD: 'REQUIRE_EDD',
+} as const;
+
+export type WorkflowDecision =
+  (typeof WORKFLOW_DECISIONS)[keyof typeof WORKFLOW_DECISIONS];
 
 export const CASE_WORK_ITEM_ACTIONS = {
   ASSIGN: 'ASSIGN',
   REASSIGN: 'REASSIGN',
   LINK_ALERT: 'LINK_ALERT',
+  FALSE_POSITIVE: 'FALSE_POSITIVE',
   CLOSE: 'CLOSE',
 } as const;
 
 export type CaseWorkItemAction =
   (typeof CASE_WORK_ITEM_ACTIONS)[keyof typeof CASE_WORK_ITEM_ACTIONS];
 
-export const CASE_COMPLIANCE_ACTIONS = {
-  APPROVE_STAGE: 'APPROVE_STAGE',
-  REJECT_STAGE: 'REJECT_STAGE',
-  REQUIRE_EDD: 'REQUIRE_EDD',
+export const CASE_ACTIONS = {
+  ASSIGN: 'ASSIGN',
+  REASSIGN: 'REASSIGN',
+  LINK_ALERT: 'LINK_ALERT',
+  FALSE_POSITIVE: 'FALSE_POSITIVE',
+} as const;
+
+export type CaseAction =
+  (typeof CASE_ACTIONS)[keyof typeof CASE_ACTIONS];
+
+export const INTERIM_MEASURES = {
   FREEZE: 'FREEZE',
   UNFREEZE: 'UNFREEZE',
   RESTRICT: 'RESTRICT',
   UNRESTRICT: 'UNRESTRICT',
-  REPORT: 'REPORT',
-  FALSE_POSITIVE: 'FALSE_POSITIVE',
 } as const;
 
-export type CaseComplianceAction =
-  (typeof CASE_COMPLIANCE_ACTIONS)[keyof typeof CASE_COMPLIANCE_ACTIONS];
+export type InterimMeasure =
+  (typeof INTERIM_MEASURES)[keyof typeof INTERIM_MEASURES];
 
-export const ALERT_COMPLIANCE_ACTIONS_BY_STAGE: Record<
+export const CASE_WORKFLOW_ACTIONS = {
+  CLEAR: 'CLEAR',
+  REJECT: 'REJECT',
+  REQUIRE_EDD: 'REQUIRE_EDD',
+} as const;
+
+export type CaseWorkflowAction =
+  (typeof CASE_WORKFLOW_ACTIONS)[keyof typeof CASE_WORKFLOW_ACTIONS];
+
+export const ALERT_OUTCOME_ACTIONS_BY_STAGE: Record<
   OnboardingReviewStage,
-  AlertComplianceAction[]
+  AlertOutcomeAction[]
 > = {
   [ONBOARDING_REVIEW_STAGES.REVIEW_CDD]: [
-    ALERT_COMPLIANCE_ACTIONS.APPROVE_STAGE,
-    ALERT_COMPLIANCE_ACTIONS.REJECT_STAGE,
-    ALERT_COMPLIANCE_ACTIONS.REQUIRE_EDD,
-    ALERT_COMPLIANCE_ACTIONS.ESCALATE_TO_CASE,
-    ALERT_COMPLIANCE_ACTIONS.FALSE_POSITIVE,
-    ALERT_COMPLIANCE_ACTIONS.NO_ACTION,
+    ALERT_OUTCOME_ACTIONS.FALSE_POSITIVE,
+    ALERT_OUTCOME_ACTIONS.ESCALATE_TO_CASE,
   ],
   [ONBOARDING_REVIEW_STAGES.REVIEW_EDD]: [
-    ALERT_COMPLIANCE_ACTIONS.APPROVE_STAGE,
-    ALERT_COMPLIANCE_ACTIONS.REJECT_STAGE,
-    ALERT_COMPLIANCE_ACTIONS.ESCALATE_TO_CASE,
-    ALERT_COMPLIANCE_ACTIONS.FALSE_POSITIVE,
-    ALERT_COMPLIANCE_ACTIONS.NO_ACTION,
+    ALERT_OUTCOME_ACTIONS.FALSE_POSITIVE,
+    ALERT_OUTCOME_ACTIONS.ESCALATE_TO_CASE,
   ],
 };
 
-export const CASE_COMPLIANCE_ACTIONS_BY_STAGE: Record<
+export const WORKFLOW_DECISIONS_BY_STAGE: Record<
   OnboardingReviewStage,
-  CaseComplianceAction[]
+  WorkflowDecision[]
 > = {
   [ONBOARDING_REVIEW_STAGES.REVIEW_CDD]: [
-    CASE_COMPLIANCE_ACTIONS.APPROVE_STAGE,
-    CASE_COMPLIANCE_ACTIONS.REJECT_STAGE,
-    CASE_COMPLIANCE_ACTIONS.REQUIRE_EDD,
-    CASE_COMPLIANCE_ACTIONS.FREEZE,
-    CASE_COMPLIANCE_ACTIONS.UNFREEZE,
-    CASE_COMPLIANCE_ACTIONS.REPORT,
-    CASE_COMPLIANCE_ACTIONS.FALSE_POSITIVE,
+    WORKFLOW_DECISIONS.CLEAR,
+    WORKFLOW_DECISIONS.REJECT,
+    WORKFLOW_DECISIONS.REQUIRE_EDD,
   ],
   [ONBOARDING_REVIEW_STAGES.REVIEW_EDD]: [
-    CASE_COMPLIANCE_ACTIONS.APPROVE_STAGE,
-    CASE_COMPLIANCE_ACTIONS.REJECT_STAGE,
-    CASE_COMPLIANCE_ACTIONS.FREEZE,
-    CASE_COMPLIANCE_ACTIONS.UNFREEZE,
-    CASE_COMPLIANCE_ACTIONS.REPORT,
-    CASE_COMPLIANCE_ACTIONS.FALSE_POSITIVE,
+    WORKFLOW_DECISIONS.CLEAR,
+    WORKFLOW_DECISIONS.REJECT,
+  ],
+};
+
+export const CASE_WORKFLOW_ACTIONS_BY_STAGE: Record<
+  OnboardingReviewStage,
+  CaseWorkflowAction[]
+> = {
+  [ONBOARDING_REVIEW_STAGES.REVIEW_CDD]: [
+    CASE_WORKFLOW_ACTIONS.CLEAR,
+    CASE_WORKFLOW_ACTIONS.REJECT,
+    CASE_WORKFLOW_ACTIONS.REQUIRE_EDD,
+  ],
+  [ONBOARDING_REVIEW_STAGES.REVIEW_EDD]: [
+    CASE_WORKFLOW_ACTIONS.CLEAR,
+    CASE_WORKFLOW_ACTIONS.REJECT,
   ],
 };
 
@@ -343,4 +370,72 @@ export function getComplianceRuleDisplayLabel(ruleCode: unknown): string {
     return ONBOARDING_REVIEW_RULES.ONB_CDD_REVIEW_REQUIRED;
   }
   return normalized;
+}
+
+function normalizeTracePart(value: unknown): string | null {
+  const normalized = String(value || '').trim();
+  return normalized.length > 0 ? normalized : null;
+}
+
+function extractOnboardingJourneyIdFromSourceId(value: unknown): string | null {
+  const normalized = normalizeTracePart(value);
+  if (!normalized) return null;
+  const parts = normalized.split(':').map((item) => item.trim()).filter(Boolean);
+  if (parts.length >= 2) {
+    return parts[parts.length - 1] || null;
+  }
+  return normalized;
+}
+
+export function buildComplianceWorkflowTraceContext(input: {
+  workflow?: unknown;
+  sourceType?: unknown;
+  workflowId?: unknown;
+  workflowNo?: unknown;
+  sourceId?: unknown;
+  sourceNo?: unknown;
+  journeyId?: unknown;
+}): ComplianceWorkflowTraceContext | null {
+  const workflow =
+    normalizeComplianceWorkflow(input.workflow) ||
+    getWorkflowFromSourceType(input.sourceType) ||
+    null;
+
+  if (workflow === ONBOARDING_WORKFLOW) {
+    const journeyId =
+      normalizeTracePart(input.journeyId) ||
+      normalizeTracePart(input.workflowId) ||
+      normalizeTracePart(input.workflowNo) ||
+      normalizeTracePart(input.sourceNo) ||
+      extractOnboardingJourneyIdFromSourceId(input.sourceId);
+    if (!journeyId) {
+      return null;
+    }
+    return {
+      traceId: `${ONBOARDING_WORKFLOW}:${journeyId}`,
+      workflowType: ONBOARDING_WORKFLOW,
+      workflowId: journeyId,
+      workflowNo: journeyId,
+    };
+  }
+
+  if (workflow === PERIODIC_REVIEW_WORKFLOW) {
+    const cycleId =
+      normalizeTracePart(input.workflowId) ||
+      normalizeTracePart(input.sourceId);
+    const cycleNo =
+      normalizeTracePart(input.workflowNo) ||
+      normalizeTracePart(input.sourceNo);
+    if (!cycleId || !cycleNo) {
+      return null;
+    }
+    return {
+      traceId: `${PERIODIC_REVIEW_WORKFLOW}:${cycleId}`,
+      workflowType: PERIODIC_REVIEW_WORKFLOW,
+      workflowId: cycleId,
+      workflowNo: cycleNo,
+    };
+  }
+
+  return null;
 }

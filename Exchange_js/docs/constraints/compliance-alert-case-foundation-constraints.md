@@ -26,6 +26,11 @@
 - `Case`
   - Reserved for compliance investigation objects only.
   - It owns investigation lifecycle, alert aggregation, operator actions, closure, and evidence accumulation.
+  - From later `Wave 2` hardening phases onward, `Case` also owns a distinct post-investigation governance layer:
+1. investigation report
+2. final disposition
+3. measures
+4. external filing follow-up
 
 ## 3) Current Implementation Mapping
 - Current code objects MUST be interpreted as follows in all new planning and design threads:
@@ -79,13 +84,13 @@
 ## 7) Public Interface Compatibility Boundary
 - The following APIs MUST remain unchanged in Phase 1:
 1. `/admin/compliance/alerts/**`
-2. `/admin/compliance/incidents/**`
+2. `/admin/compliance/cases/**`
 - The following physical tables MUST remain unchanged in Phase 1:
 1. `compliance_alerts`
 2. `compliance_incidents`
 3. `compliance_incident_alerts`
 4. `compliance_incident_events`
-- Current DTO, service, and admin page names MUST remain unchanged until a later code-migration phase.
+- Later cleanup phases MAY retire `incident`-named controller/route aliases while retaining the physical `compliance_incidents` tables until a dedicated schema migration wave.
 - `Case` semantic meaning is frozen now, but concrete `caseType` taxonomy is intentionally deferred beyond Phase 1.
 
 ## 8) Transition Order Freeze

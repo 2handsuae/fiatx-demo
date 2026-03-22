@@ -7,7 +7,7 @@
 适用原则：
 
 - 本文是 `Wave 3` 的专项规划文档，不替代 `AGENTS.md` 与 `docs/constraints/**`。
-- `Wave 3` 的 legacy 收口与兼容删除计划以 `docs/cleanup/wave-3-cleanup-master-plan.md` 为准；本文件只负责功能范围与 phase 顺序，不承担 cleanup 真相。
+- `Wave 3` 的历史 cleanup 记录保留在 `docs/cleanup/wave-3-cleanup-master-plan.md`；本文件当前主要保留功能范围、phase 历史和完成态总结。
 - onboarding 当前运行时约束以 `docs/constraints/onboarding-flow-constraints.md` 为准。
 - onboarding 与 compliance center 的对接约束以 `docs/constraints/onboarding-alert-case-workflow-stage-rule-mapping.md` 为准。
 - `Wave 3` 只聚焦：
@@ -15,6 +15,27 @@
   - `customer management`
   - `periodic review`
 - 账务、钱包/银行账户、posting/config center、fee skeleton 统一后置到 `Wave 4`。
+
+### 当前完成态说明
+
+- `Wave 3` 主体能力与 final closure 已完成。
+- 当前运行时长期真相以：
+  - `docs/constraints/onboarding-flow-constraints.md`
+  - `docs/specs/workflows/onboarding-canonical-workflow.md`
+  - `docs/specs/workflows/periodic-review-canonical-workflow.md`
+  - `docs/specs/workflows/mlro-and-final-approval-governance.md`
+  - `docs/specs/entities/customer-entity.md`
+  - `docs/specs/entities/review-response-entity.md`
+  - `docs/specs/entities/periodic-review-cycle-entity.md`
+  - `docs/specs/entities/approval-case-entity.md`
+  - `docs/specs/workflows/onboarding-periodic-review-audit-trace-contract.md`
+  - `docs/specs/modules/customer-onboarding-module.md`
+  - `docs/specs/modules/periodic-review-module.md`
+  - `docs/specs/modules/approvals-module.md`
+  - `docs/specs/modules/compliance-center-module.md`
+  - `docs/acceptance/wave-2-wave-3-final-acceptance-checklist.md`
+  为准。
+- 本文中对早期 compatibility mirror、phase 内保留旧字段、cleanup stage 的描述，均属于历史 phase 语境。
 
 ---
 
@@ -38,6 +59,8 @@
 - final approval 接入 approval 单
 - periodic review 成为 customer 生命周期上的独立复审周期
 - customer 相关限制/冻结/解冻全部通过已有 compliance case 留痕
+- onboarding / periodic review 主链全部接入 `Audit Center`
+- 同一条 onboarding / periodic review 流程可通过统一 `traceId` 在 `Audit Center` 中完整回放
 
 ---
 
@@ -53,7 +76,7 @@
   - `FROZEN` 表示更强的合规冻结
 - `publicStatus / cddStatus / eddStatus / complianceStatus / finalApprovalStatus` 在 Wave 3 阶段曾作为兼容镜像字段保留。
 - 截至当前代码，以上 legacy customer 字段已从 `CustomerMain` 和 customer-facing/admin-facing payload 中删除。
-- 截至当前代码，Wave 3 customer/onboarding 对外兼容 contract 也已完成收口；剩余 cleanup 仅在内部物理命名和前端打包层面。
+- 截至当前代码，Wave 3 customer/onboarding 对外兼容 contract 与 final closure 均已完成；cleanup 文档只保留历史记录。
 
 ### 3.2 CDD / EDD 主体
 
@@ -111,6 +134,17 @@ customer onboarding 主链固定为：
   - `onboardingStatus = APPROVED`
   - `operatingStatus = ACTIVE`
 - `periodic review` 不改写 `onboardingStatus`。
+
+### 3.5 Unified Audit Center And Trace Contract
+
+- `Wave 3` 的 canonical audit store 固定为：
+  - `audit_log_events`
+- `onboarding_audit_logs` 现在只保留历史/兼容说明价值，不再承担运行时真相，也不再持续 mirror 写入。
+- `traceId` 根规则固定为：
+  - onboarding：`ONBOARDING:<journeyId>`
+  - periodic review：`PERIODIC_REVIEW:<cycle.id>`
+- `CDD/EDD Response -> alert -> case -> MLRO -> final approval` 必须共用同一条 workflow trace。
+- `onboarding final approval` 作为 approval 对象存在时，必须继承上游 onboarding trace，而不是自行生成新的随机 trace。
 
 ---
 
@@ -264,18 +298,11 @@ customer onboarding 主链固定为：
 
 ---
 
-## 9. Wave 3 Cleanup 当前状态补充
+## 9. Wave 3 Cleanup 历史记录补充
 
 - `Stage 1` 到 `Stage 8` 的 cleanup 已全部完成。
-- cleanup 后续正式按三段推进：
-  - `Stage 6`：compatibility contract cleanup
-  - `Stage 7`：physical rename
-  - `Stage 8`：frontend bundling optimization
-- 其中：
-  - `Stage 6` 已完成，主要完成 `/onboarding/next-step.publicStatus`、response payload `caseNo / caseType`、legacy helper / legacy 文案 / snapshot 残留清理
-  - `Stage 7` 已完成，主要完成 `CddResponse / EddResponse / WorkflowDecisionRecord` 及其直接耦合 runtime symbol 的 physical rename
-  - `Stage 8` 已完成，主要完成 `admin-web` 与 `client-web` 的前端打包优化，并消除了 Vite large chunk warning
-- 注意：这里的 `Stage 6/7/8` 是 cleanup 编号，不替代本 roadmap 内部的 phase 编号。
+- 这些 cleanup 文档现在只保留为历史记录，不再作为当前语义真相层。
+- 注意：这里的 `Stage 6/7/8` 是历史 cleanup 编号，不替代本 roadmap 内部的 phase 编号。
 - periodic review 复用：
   - `Response`
   - `Decision Record`
@@ -307,14 +334,18 @@ customer onboarding 主链固定为：
   - `EDD review -> REJECT`
   - `customer management restrict/freeze/unfreeze` 必须绑定 case
   - `periodic review due -> restrict -> review -> clear`
+- `Audit Center` trace 验收：
+  - onboarding 一条流程的 response / alert / case / MLRO / approval 能按 `traceId` 完整查出
+  - periodic review 一条流程的 cycle / response / alert / case / disposition 能按 `traceId` 完整查出
 - `Wave 3` 结束时：
-  - 旧字段仍保留兼容
-  - 所有新逻辑只写 canonical 字段
-  - 读模型允许同时返回旧字段与新字段
+  - 主运行时只使用 canonical contract
+  - 兼容字段只允许留在 migration / normalization / historical fixture / archived cleanup context
 
 **DoD**
 
 - Customer App、Admin Customer、Compliance Center、Approvals、Risk Policy Executions 五条链一致可回放
+- `Audit Center` 成为 onboarding / periodic review 的统一审计入口
+- `onboarding_audit_logs` 只保留历史兼容说明角色，不再承担运行时 trace 查询职责
 
 ---
 

@@ -2,7 +2,7 @@
 
 Status: active
 Owner: project-owner-and-agents
-Last Updated: 2026-03-19
+Last Updated: 2026-03-22
 Applies To: `Exchange_js`
 Supersedes: none
 Depends On: `AGENTS.md`, `docs/constraints/README.md`
@@ -18,9 +18,9 @@ Source of Truth Level: documentation-governance-index
 1. `docs/constraints/**`
 2. `docs/specs/**`
 3. `docs/adr/**`
-4. `docs/cleanup/**`
+4. `docs/acceptance/**`
 5. `docs/roadmap/**`
-6. `docs/acceptance/**`
+6. `docs/cleanup/**`
 - `docs/glossary/**` supports naming consistency but does not override higher-order documents.
 - Historical or migration-reference documents must explicitly say when they are not current implementation truth.
 
@@ -28,8 +28,11 @@ Source of Truth Level: documentation-governance-index
 1. `AGENTS.md`
 2. `docs/README.md`
 3. `docs/constraints/README.md`
-4. task-relevant files under `docs/constraints/**`
-5. then task-relevant files under `docs/specs/**`, `docs/roadmap/**`, `docs/cleanup/**`, `docs/adr/**`, and `docs/acceptance/**`
+4. task-relevant files under `docs/roadmap/**` when the thread is wave / phase / delivery scoped
+5. task-relevant files under `docs/constraints/**`
+6. task-relevant files under `docs/specs/workflows/**`, `docs/specs/entities/**`, and `docs/specs/modules/**`
+7. task-relevant files under `docs/acceptance/**` when validation, operator usage, or demo behavior matters
+8. archived cleanup files under `docs/cleanup/**` only when retirement history or historical compatibility context matters
 
 ## Thread Completion Rule
 - Every completed thread must perform a documentation impact check.
@@ -69,8 +72,8 @@ Source of Truth Level: documentation-governance-index
   - purpose: workflow states, transitions, actors, and contract meaning
   - update when: workflow lifecycle or routing meaning changes
 - `docs/specs/modules/`
-  - purpose: module-level behavior, subsystem design, and bounded-context implementation notes
-  - update when: a durable module contract or subsystem structure meaning changes
+  - purpose: module-level behavior, subsystem boundaries, canonical entrypoints, and historical alias handling
+  - update when: a durable module contract, integration entrypoint, or bounded-context meaning changes
 - `docs/adr/`
   - purpose: explain why major design decisions were made
   - update when: a major architecture or product decision is locked
@@ -143,22 +146,76 @@ Source of Truth Level: documentation-governance-index
 - Project planning reference:
   - `docs/roadmap/project-version-plan.md`
   - `docs/roadmap/wave-3-customer-onboarding-phase-plan.md`
-- Cleanup reference:
-  - `docs/cleanup/wave-3-cleanup-master-plan.md`
+  - `docs/roadmap/wave-2-compliance-foundation-phase-plan.md`
 - Constraints index:
   - `docs/constraints/README.md`
+- Workflow semantics reference:
+  - `docs/specs/workflows/onboarding-canonical-workflow.md`
+  - `docs/specs/workflows/periodic-review-canonical-workflow.md`
+  - `docs/specs/workflows/alert-triage-and-case-escalation.md`
+  - `docs/specs/workflows/mlro-and-final-approval-governance.md`
+  - `docs/specs/workflows/case-final-lifecycle-and-external-filing.md`
+  - `docs/specs/workflows/onboarding-periodic-review-audit-trace-contract.md`
+- Entity semantics reference:
+  - `docs/specs/entities/compliance-case-entity.md`
+  - `docs/specs/entities/compliance-alert-entity.md`
+  - `docs/specs/entities/compliance-case-report-entity.md`
+  - `docs/specs/entities/compliance-external-filing-entity.md`
+  - `docs/specs/entities/customer-entity.md`
+  - `docs/specs/entities/review-response-entity.md`
+  - `docs/specs/entities/periodic-review-cycle-entity.md`
+  - `docs/specs/entities/approval-case-entity.md`
+  - `docs/specs/entities/risk-decision-record-entity.md`
+- Module integration reference:
+  - `docs/specs/modules/compliance-center-module.md`
+  - `docs/specs/modules/risk-engine-module.md`
+  - `docs/specs/modules/customer-onboarding-module.md`
+  - `docs/specs/modules/periodic-review-module.md`
+  - `docs/specs/modules/approvals-module.md`
+  - `docs/specs/modules/audit-logging-module.md`
 - Runtime / validation examples:
+  - `docs/acceptance/wave-2-wave-3-final-acceptance-checklist.md`
   - `docs/acceptance/local-main-runtime-runbook.md`
   - `docs/acceptance/onboarding-compliance-center-wave3-acceptance-checklist.md`
+- Archived cleanup history:
+  - `docs/cleanup/wave-2-wave-3-final-closure-plan.md`
+  - `docs/cleanup/wave-2-cleanup-master-plan.md`
+  - `docs/cleanup/wave-3-cleanup-master-plan.md`
 
-## Current Wave 3 Follow-ups
-- Wave 3 cleanup `Stage 1` 到 `Stage 8` 已全部完成。
-- 当前没有剩余的 Wave 3 cleanup follow-up stages。
-- 如需查看完成态与历史分阶段记录，读：
-1. `docs/cleanup/wave-3-cleanup-master-plan.md`
-2. `docs/cleanup/stage-6-compatibility-contract-cleanup.md`
-3. `docs/cleanup/stage-7-physical-rename.md`
-4. `docs/cleanup/stage-8-frontend-bundling-optimization.md`
+## Wave 2 / Wave 3 Recommended Reading Order
+1. roadmap / phase context
+2. relevant constraints
+3. workflow specs
+4. entity specs
+5. module specs
+6. final acceptance checklist
+7. archived cleanup docs only if retirement history matters
+
+## Wave Completion Documentation Rule
+- A wave MUST NOT be treated as documentation-complete until all of the following exist and point to each other:
+1. roadmap completion note
+2. constraints final-state check
+3. workflow specs
+4. entity specs
+5. module specs
+6. acceptance or final runbook
+- `cleanup` documents record how compatibility and legacy runtime were retired.
+- `cleanup` documents MUST NOT remain the long-term source of truth after a wave is complete.
+- Durable post-wave truth MUST be migrated into:
+1. `docs/constraints/**`
+2. `docs/specs/**`
+3. `docs/acceptance/**`
+- If a wave closes without this documentation set, the wave is implementation-complete but not documentation-complete.
+
+## Completion Note
+- `Wave 2` 与 `Wave 3` 的主体能力和最终收口已经完成。
+- 当前长期真相层是：
+1. `docs/constraints/**`
+2. `docs/specs/workflows/**`
+3. `docs/specs/entities/**`
+4. `docs/specs/modules/**`
+5. `docs/acceptance/**`
+- `docs/cleanup/**` 现在只保留清理历史、退役边界和 archived context，不再承担永久语义真相。
 
 ## Migration Note
 - Existing documents do not need to be fully moved in one pass.

@@ -59,6 +59,9 @@ export interface ApprovalDecisionEvent {
   actionType: string;
   entityRef: string;
   traceId: string;
+  workflowType?: string | null;
+  workflowId?: string | null;
+  workflowNo?: string | null;
   status: string;
   decisionByUserId?: string | null;
   decisionByRole?: string | null;
@@ -106,7 +109,7 @@ export const DEFAULT_APPROVAL_POLICIES: Record<
   },
   [ApprovalActionTypes.ONBOARDING_FINAL_APPROVAL]: {
     riskLevel: ApprovalRiskLevels.HIGH,
-    checkerRoles: ['MLRO'],
+    checkerRoles: ['SM'],
     timeoutHours: 24,
     allowCancel: true,
     allowRetry: true,
