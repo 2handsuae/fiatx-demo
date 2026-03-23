@@ -24,6 +24,10 @@ import {
   AuditModules,
 } from '../../risk-engine/audit-logs/constants/audit-actions.constant';
 import { AuditResult, AuditTriggerType } from '../../risk-engine/audit-logs/dto/audit-log.dto';
+import {
+  classifyWalletSurface,
+  isProtectedPoolWalletRole,
+} from './system-wallet.util';
 
 @Injectable()
 export class WalletsService {
@@ -35,12 +39,35 @@ export class WalletsService {
     this.auditLogsService = new AuditLogsService(prisma);
   }
 
+  private static readonly walletBalanceSnapshotSelect = {
+    walletId: true,
+    availableBalance: true,
+    restrictedBalance: true,
+    updatedAt: true,
+  } satisfies Prisma.WalletBalanceSnapshotSelect;
+
+  private static readonly assetValuationRateSelect = {
+    assetId: true,
+    price: true,
+  } satisfies Prisma.AssetValuationRateSelect;
+
+  private static readonly walletBalanceSnapshotDetailSelect = {
+    availableBalance: true,
+    restrictedBalance: true,
+    updatedAt: true,
+  } satisfies Prisma.WalletBalanceSnapshotSelect;
+
+  private static readonly valuationRateDetailSelect = {
+    price: true,
+    status: true,
+    quoteAssetCode: true,
+    updatedAt: true,
+  } satisfies Prisma.AssetValuationRateSelect;
+
   private buildWalletBalanceView(
     wallet: {
       id: string;
       assetId: string;
-      balance: Prisma.Decimal | string | number;
-      lockedBalance: Prisma.Decimal | string | number;
     },
     snapshot?: {
       availableBalance: Prisma.Decimal | string | number;
@@ -48,14 +75,17 @@ export class WalletsService {
       updatedAt: Date;
     } | null,
   ) {
+    const hasSnapshot =
+      snapshot?.availableBalance !== undefined ||
+      snapshot?.restrictedBalance !== undefined;
     const availableBalance =
       snapshot?.availableBalance !== undefined
         ? new Prisma.Decimal(snapshot.availableBalance)
-        : new Prisma.Decimal(wallet.balance || 0);
+        : new Prisma.Decimal(0);
     const restrictedBalance =
       snapshot?.restrictedBalance !== undefined
         ? new Prisma.Decimal(snapshot.restrictedBalance)
-        : new Prisma.Decimal(wallet.lockedBalance || 0);
+        : new Prisma.Decimal(0);
     const totalBalance = availableBalance.plus(restrictedBalance);
 
     return {
@@ -63,46 +93,41 @@ export class WalletsService {
       restrictedBalance,
       totalBalance,
       balanceUpdatedAt: snapshot?.updatedAt ?? null,
+      balanceSource: hasSnapshot ? 'SNAPSHOT' : 'SNAPSHOT_MISSING',
+      snapshotMissing: !hasSnapshot,
     };
   }
 
   private async getWalletBalanceSnapshotMap(walletIds: string[]) {
-    if (!walletIds.length) return new Map<string, any>();
+    type WalletSnapshotRow = Prisma.WalletBalanceSnapshotGetPayload<{
+      select: typeof WalletsService.walletBalanceSnapshotSelect;
+    }>;
+    if (!walletIds.length) return new Map<string, WalletSnapshotRow>();
 
-    const snapshots = await (this.prisma as any).walletBalanceSnapshot.findMany(
-      {
-        where: {
-          walletId: { in: walletIds },
-        },
-        select: {
-          walletId: true,
-          availableBalance: true,
-          restrictedBalance: true,
-          updatedAt: true,
-        },
+    const snapshots = await this.prisma.walletBalanceSnapshot.findMany({
+      where: {
+        walletId: { in: walletIds },
       },
-    );
+      select: WalletsService.walletBalanceSnapshotSelect,
+    });
 
-    return new Map(snapshots.map((item: any) => [item.walletId, item]));
+    return new Map(snapshots.map((item) => [item.walletId, item]));
   }
 
   private async getAedRateByAssetMap(assetIds: string[]) {
     if (!assetIds.length) return new Map<string, Prisma.Decimal>();
 
-    const rates = await (this.prisma as any).assetValuationRate.findMany({
+    const rates = await this.prisma.assetValuationRate.findMany({
       where: {
         assetId: { in: assetIds },
         quoteAssetCode: 'AED',
         status: 'ACTIVE',
       },
-      select: {
-        assetId: true,
-        price: true,
-      },
+      select: WalletsService.assetValuationRateSelect,
     });
 
     return new Map(
-      rates.map((item: { assetId: string; price: Prisma.Decimal }) => [
+      rates.map((item) => [
         item.assetId,
         new Prisma.Decimal(item.price),
       ]),
@@ -150,8 +175,59 @@ export class WalletsService {
     return false;
   }
 
+  private resolveCreateWalletRole(data: CreateWalletDto): WalletRole {
+    if (
+      data.ownerType === OwnerType.CUSTOMER &&
+      data.direction === WalletDirection.INBOUND
+    ) {
+      return WalletRole.DEPOSIT;
+    }
+    return (data.walletRole as WalletRole | undefined) ?? WalletRole.GENERAL;
+  }
+
+  private assertManualCreateAllowed(
+    data: CreateWalletDto,
+    walletRole: WalletRole,
+  ) {
+    if (isProtectedPoolWalletRole(walletRole)) {
+      throw new BadRequestException(
+        `${walletRole} wallets are base-config only and cannot be created manually`,
+      );
+    }
+
+    if (data.ownerType !== OwnerType.CUSTOMER) {
+      return;
+    }
+
+    if (data.direction === WalletDirection.BIDIRECTIONAL) {
+      throw new BadRequestException(
+        'Customer wallets cannot be created with BIDIRECTIONAL direction',
+      );
+    }
+
+    if (
+      data.direction === WalletDirection.INBOUND &&
+      walletRole !== WalletRole.DEPOSIT
+    ) {
+      throw new BadRequestException(
+        'Customer inbound wallets must use DEPOSIT role',
+      );
+    }
+
+    if (
+      data.direction === WalletDirection.OUTBOUND &&
+      walletRole !== WalletRole.GENERAL
+    ) {
+      throw new BadRequestException(
+        'Customer outbound wallets must use GENERAL role',
+      );
+    }
+  }
+
   async create(data: CreateWalletDto) {
     this.logger.log(`Creating wallet for ${data.ownerType}`);
+    const walletRole = this.resolveCreateWalletRole(data);
+    this.assertManualCreateAllowed(data, walletRole);
 
     // Validate asset
     const asset = await this.prisma.asset.findUnique({
@@ -234,12 +310,6 @@ export class WalletsService {
       attempt <= WalletsService.MAX_WALLET_NO_RETRIES;
       attempt += 1
     ) {
-      const walletRole =
-        data.walletRole ??
-        (data.ownerType === OwnerType.CUSTOMER &&
-        data.direction === WalletDirection.INBOUND
-          ? WalletRole.DEPOSIT
-          : WalletRole.GENERAL);
       const walletNo = generateRandomWalletNo(walletRole);
       try {
         const result = await this.prisma.wallet.create({
@@ -439,6 +509,13 @@ export class WalletsService {
         ...item,
         ownerNo,
         ownerName,
+        surfaceCategory: classifyWalletSurface({
+          ownerType: item.ownerType,
+          ownerId: item.ownerId,
+          ownerNo,
+          direction: item.direction,
+          walletRole: item.walletRole,
+        }),
         ...balanceView,
         totalAedEquivalent,
       };
@@ -457,25 +534,23 @@ export class WalletsService {
     if (!item) throw new NotFoundException('Wallet not found');
 
     const [snapshot, valuationRate] = await Promise.all([
-      (this.prisma as any).walletBalanceSnapshot.findUnique({
+      this.prisma.walletBalanceSnapshot.findUnique({
         where: {
           walletId_assetId: {
             walletId: item.id,
             assetId: item.assetId,
           },
         },
+        select: WalletsService.walletBalanceSnapshotDetailSelect,
       }),
-      (this.prisma as any).assetValuationRate.findUnique({
+      this.prisma.assetValuationRate.findUnique({
         where: {
           assetId_quoteAssetCode: {
             assetId: item.assetId,
             quoteAssetCode: 'AED',
           },
         },
-        select: {
-          price: true,
-          status: true,
-        },
+        select: WalletsService.valuationRateDetailSelect,
       }),
     ]);
 
@@ -503,6 +578,13 @@ export class WalletsService {
     return {
       ...item,
       ownerNo,
+      surfaceCategory: classifyWalletSurface({
+        ownerType: item.ownerType,
+        ownerId: item.ownerId,
+        ownerNo,
+        direction: item.direction,
+        walletRole: item.walletRole,
+      }),
       ...balanceView,
       totalAedEquivalent,
     };
@@ -526,27 +608,23 @@ export class WalletsService {
     if (!wallet) throw new NotFoundException('Wallet not found');
 
     const [snapshot, valuationRate] = await Promise.all([
-      (this.prisma as any).walletBalanceSnapshot.findUnique({
+      this.prisma.walletBalanceSnapshot.findUnique({
         where: {
           walletId_assetId: {
             walletId: wallet.id,
             assetId: wallet.assetId,
           },
         },
+        select: WalletsService.walletBalanceSnapshotDetailSelect,
       }),
-      (this.prisma as any).assetValuationRate.findUnique({
+      this.prisma.assetValuationRate.findUnique({
         where: {
           assetId_quoteAssetCode: {
             assetId: wallet.assetId,
             quoteAssetCode: 'AED',
           },
         },
-        select: {
-          price: true,
-          quoteAssetCode: true,
-          status: true,
-          updatedAt: true,
-        },
+        select: WalletsService.valuationRateDetailSelect,
       }),
     ]);
 
@@ -580,6 +658,11 @@ export class WalletsService {
   async changeStatus(id: string, status: WalletStatus) {
     this.logger.log(`Changing status of wallet ${id} to ${status}`);
     const before = await this.findOne(id);
+    if (isProtectedPoolWalletRole(before.walletRole)) {
+      throw new BadRequestException(
+        `${before.walletRole} wallets are base-config only and cannot be manually disabled`,
+      );
+    }
     const result = await this.prisma.wallet.update({
       where: { id },
       data: { status },

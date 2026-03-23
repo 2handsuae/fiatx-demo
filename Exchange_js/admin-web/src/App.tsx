@@ -66,6 +66,7 @@ const ApprovalDetailPage = lazy(() => import('./pages/ApprovalDetailPage'));
 const ChangeTicketsPage = lazy(() => import('./pages/ChangeTicketsPage'));
 const ChangeTicketCreatePage = lazy(() => import('./pages/ChangeTicketCreatePage'));
 const ChangeTicketDetailPage = lazy(() => import('./pages/ChangeTicketDetailPage'));
+const BusinessConfigReleasesPage = lazy(() => import('./pages/BusinessConfigReleasesPage'));
 const DeleteRequestsPage = lazy(() => import('./pages/DeleteRequestsPage'));
 const DeleteRequestCreatePage = lazy(() => import('./pages/DeleteRequestCreatePage'));
 const DeleteRequestDetailPage = lazy(() => import('./pages/DeleteRequestDetailPage'));
@@ -228,6 +229,10 @@ function App() {
               element={withPermission(<SwapQuoteDetail />, [PERMISSIONS.SWAP_QUOTES_DETAIL_READ])}
             />
             <Route
+              path="pricing/quotes/:business/:id"
+              element={withPermission(<SwapQuoteDetail />, [PERMISSIONS.SWAP_QUOTES_DETAIL_READ])}
+            />
+            <Route
               path="reconciliation/outstanding-settlements"
               element={withPermission(<OutstandingSettlementList />, [PERMISSIONS.OUTSTANDING_SETTLEMENTS_READ])}
             />
@@ -309,6 +314,12 @@ function App() {
             <Route
               path="control-gates/change-tickets"
               element={withPermission(<ChangeTicketsPage />, [
+                PERMISSIONS.GOV_CHANGE_TICKETS_READ,
+              ])}
+            />
+            <Route
+              path="control-gates/business-config-releases"
+              element={withPermission(<BusinessConfigReleasesPage />, [
                 PERMISSIONS.GOV_CHANGE_TICKETS_READ,
               ])}
             />

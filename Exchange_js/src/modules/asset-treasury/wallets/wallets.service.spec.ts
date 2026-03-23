@@ -6,6 +6,8 @@ import {
   CreateWalletDto,
   OwnerType,
   WalletDirection,
+  WalletRole,
+  WalletStatus,
   WalletType,
 } from './dto/wallet.dto';
 
@@ -23,6 +25,7 @@ describe('WalletsService', () => {
       findMany: jest.fn(),
       count: jest.fn(),
       findUnique: jest.fn(),
+      update: jest.fn(),
     },
     walletBalanceSnapshot: { findMany: jest.fn(), findUnique: jest.fn() },
     assetValuationRate: { findMany: jest.fn(), findUnique: jest.fn() },
@@ -48,6 +51,9 @@ describe('WalletsService', () => {
     prisma = module.get<PrismaService>(PrismaService);
 
     jest.clearAllMocks();
+    (service as any).auditLogsService = {
+      recordSystem: jest.fn().mockResolvedValue(undefined),
+    };
     (prisma as any).asset.findUnique.mockResolvedValue({ id: 'asset-1' });
     (prisma as any).customerMain.findUnique.mockResolvedValue({ id: 'cust-1' });
     (prisma as any).customerMain.findMany.mockResolvedValue([]);
@@ -60,6 +66,7 @@ describe('WalletsService', () => {
     (prisma as any).wallet.findMany.mockResolvedValue([]);
     (prisma as any).wallet.count.mockResolvedValue(0);
     (prisma as any).wallet.findUnique.mockResolvedValue(null);
+    (prisma as any).wallet.update.mockResolvedValue({ id: 'wallet-1' });
     (prisma as any).walletBalanceSnapshot.findMany.mockResolvedValue([]);
     (prisma as any).walletBalanceSnapshot.findUnique.mockResolvedValue(null);
     (prisma as any).assetValuationRate.findMany.mockResolvedValue([]);
@@ -131,6 +138,49 @@ describe('WalletsService', () => {
           walletNo: expect.stringMatching(/^WA-DEP-\d{10}$/),
         }),
       }),
+    );
+  });
+
+  it('should default outbound customer wallet role to GENERAL', async () => {
+    await service.create({
+      ...customerInboundDto,
+      direction: WalletDirection.OUTBOUND,
+      type: WalletType.FIAT_BANK,
+    });
+
+    expect((prisma as any).wallet.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          walletRole: 'GENERAL',
+          walletNo: expect.stringMatching(/^WA-GEN-\d{10}$/),
+        }),
+      }),
+    );
+  });
+
+  it('should reject manual creation of protected pool wallet roles', async () => {
+    await expect(
+      service.create({
+        ...customerInboundDto,
+        ownerType: OwnerType.PLATFORM,
+        ownerId: undefined,
+        direction: WalletDirection.BIDIRECTIONAL,
+        walletRole: WalletRole.LIQ,
+      }),
+    ).rejects.toThrow(
+      'LIQ wallets are base-config only and cannot be created manually',
+    );
+  });
+
+  it('should reject customer outbound wallet with non-GENERAL role', async () => {
+    await expect(
+      service.create({
+        ...customerInboundDto,
+        direction: WalletDirection.OUTBOUND,
+        walletRole: WalletRole.DEPOSIT,
+      }),
+    ).rejects.toThrow(
+      'Customer outbound wallets must use GENERAL role',
     );
   });
 
@@ -313,8 +363,6 @@ describe('WalletsService', () => {
       ownerId: null,
       ownerNo: 'PLATFORM',
       assetId: 'asset-btc',
-      balance: '4',
-      lockedBalance: '0',
       asset: {
         id: 'asset-btc',
         code: 'BTC',
@@ -345,10 +393,114 @@ describe('WalletsService', () => {
         walletId: 'wallet-balance-1',
         walletNo: 'WA-LIQ-BTC-BITCOIN',
         quoteAssetCode: 'AED',
+        balanceSource: 'SNAPSHOT',
+        snapshotMissing: false,
       }),
     );
     expect(result.availableBalance.toString()).toBe('4');
     expect(result.totalAedEquivalent?.toString()).toBe('1000000');
     expect(result).not.toHaveProperty('inTransitBalance');
+  });
+
+  it('should return zero balances and snapshot-missing diagnostics when snapshot is missing', async () => {
+    (prisma as any).wallet.findUnique.mockResolvedValue({
+      id: 'wallet-balance-legacy',
+      walletNo: 'WA-GEN-2603230001',
+      ownerType: OwnerType.CUSTOMER,
+      ownerId: 'cust-1',
+      ownerNo: 'CUST-0001',
+      assetId: 'asset-usdt',
+      asset: {
+        id: 'asset-usdt',
+        code: 'USDT',
+        type: 'CRYPTO',
+        network: 'TRON',
+        decimals: 6,
+      },
+    });
+    (prisma as any).walletBalanceSnapshot.findUnique.mockResolvedValue(null);
+    (prisma as any).assetValuationRate.findUnique.mockResolvedValue(null);
+
+    const result = await service.findBalance('wallet-balance-legacy');
+
+    expect(result.balanceSource).toBe('SNAPSHOT_MISSING');
+    expect(result.snapshotMissing).toBe(true);
+    expect(result.availableBalance.toString()).toBe('0');
+    expect(result.restrictedBalance.toString()).toBe('0');
+  });
+
+  it('should classify customer pool wallets in list results', async () => {
+    (prisma as any).wallet.findMany.mockResolvedValue([
+      {
+        id: 'wallet-customer-pool',
+        walletRole: WalletRole.MASTER,
+        ownerType: OwnerType.CUSTOMER,
+        ownerId: null,
+        ownerNo: 'CUSTOMER_POOL',
+        type: WalletType.CRYPTO_ADDRESS,
+        direction: WalletDirection.BIDIRECTIONAL,
+        assetId: 'asset-1',
+        asset: { code: 'USDT', type: 'CRYPTO', decimals: 6, network: 'TRON' },
+      },
+    ]);
+    (prisma as any).wallet.count.mockResolvedValue(1);
+
+    const result = await service.findAll({});
+
+    expect(result.items[0]).toEqual(
+      expect.objectContaining({
+        surfaceCategory: 'CUSTOMER_POOL',
+      }),
+    );
+  });
+
+  it('should reject status changes for protected pool wallets', async () => {
+    jest.spyOn(service, 'findOne').mockResolvedValue({
+      id: 'wallet-protected',
+      walletNo: 'WA-MST-USDT-TRON',
+      walletRole: WalletRole.MASTER,
+      ownerType: OwnerType.CUSTOMER,
+      ownerId: null,
+      ownerNo: 'CUSTOMER_POOL',
+      assetId: 'asset-1',
+      type: WalletType.CRYPTO_ADDRESS,
+      direction: WalletDirection.BIDIRECTIONAL,
+      status: WalletStatus.ACTIVE,
+      address: null,
+      memo: null,
+      beneficiaryName: null,
+      counterpartyVasp: null,
+      bankName: null,
+      bankAccount: null,
+      bankCode: null,
+      accountName: null,
+      iban: null,
+      asset: {
+        id: 'asset-1',
+        code: 'USDT',
+        type: 'CRYPTO',
+        network: 'TRON',
+        decimals: 6,
+        status: 'ACTIVE',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        assetNo: 'AS_USDT_TRON',
+        description: 'Tether',
+      },
+      availableBalance: '0',
+      restrictedBalance: '0',
+      totalBalance: '0',
+      totalAedEquivalent: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      surfaceCategory: 'CUSTOMER_POOL',
+    } as any);
+
+    await expect(
+      service.changeStatus('wallet-protected', WalletStatus.DISABLED),
+    ).rejects.toThrow(
+      'MASTER wallets are base-config only and cannot be manually disabled',
+    );
+    expect((prisma as any).wallet.update).not.toHaveBeenCalled();
   });
 });

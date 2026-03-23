@@ -14,6 +14,7 @@ import { TransactionComplianceModule } from '../modules/risk-engine/transaction-
 import { InternalTransactionsModule } from '../modules/asset-treasury/internal-transactions/internal-transactions.module';
 import { InternalFundsModule } from '../modules/asset-treasury/internal-funds/internal-funds.module';
 import { InternalCollectionWorkflowOrchestrator } from './internal-collection-workflow.orchestrator';
+import { AccountingEventExecutionService } from './accounting-event-execution.service';
 
 @Module({
   imports: [
@@ -32,6 +33,7 @@ import { InternalCollectionWorkflowOrchestrator } from './internal-collection-wo
   providers: [
     DepositWorkflowService,
     SwapWorkflowService,
+    AccountingEventExecutionService,
     WithdrawWorkflowOrchestrator,
     InternalCollectionWorkflowOrchestrator,
   ],

@@ -2,7 +2,7 @@
 
 Status: active
 Owner: project-owner-and-agents
-Last Updated: 2026-03-22
+Last Updated: 2026-03-23
 Applies To: `Exchange_js`
 Supersedes: none
 Depends On: `docs/specs/README.md`
@@ -49,3 +49,9 @@ Source of Truth Level: specs-entity
   - Approval case as governance object with workflow-bound trace fields.
 - `docs/specs/entities/risk-decision-record-entity.md`
   - Risk decision record as orchestration/audit/recommendation root record.
+- `docs/specs/entities/wallet-entity.md`
+  - Wave 4 wallet/account carrier semantics and balance-boundary rules.
+- `docs/specs/entities/business-config-release-entity.md`
+  - Wave 4 subject release, item revision, and release-item history semantics.
+- `docs/specs/entities/pricing-quote-entity.md`
+  - Wave 4 pricing quote snapshot semantics for swap and withdraw consumers.

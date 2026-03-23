@@ -1,0 +1,812 @@
+import { BusinessConfigService } from './business-config.service';
+import { DEFAULT_COA } from '../../../config/manifests/coa.manifest';
+import { DEFAULT_JOURNAL_TEMPLATES } from '../../../config/manifests/journal-templates.manifest';
+import {
+  SWAP_POLICY_CODE,
+  WITHDRAWAL_POLICY_CODE,
+} from '../../trading/pricing-center/types/pricing.types';
+import { ChangeTicketStatuses } from '../change-tickets/constants/change-ticket.constants';
+import { ApprovalStatuses } from '../approvals/constants/approval.constants';
+import {
+  AuditActions,
+} from '../../risk-engine/audit-logs/constants/audit-actions.constant';
+import { AuditResult } from '../../risk-engine/audit-logs/dto/audit-log.dto';
+
+function createBusinessConfigPrismaMock() {
+  const prisma: any = {
+    businessConfigRevision: {
+      findMany: jest.fn(),
+      create: jest.fn(),
+      updateMany: jest.fn(),
+      count: jest.fn(),
+      findUnique: jest.fn(),
+    },
+    businessConfigRelease: {
+      findFirst: jest.fn(),
+      findMany: jest.fn(),
+      create: jest.fn(),
+      findUnique: jest.fn(),
+      update: jest.fn(),
+      updateMany: jest.fn(),
+      count: jest.fn(),
+    },
+    businessConfigReleaseItem: {
+      create: jest.fn(),
+    },
+    changeTicket: {
+      findFirst: jest.fn(),
+    },
+    coa: {
+      upsert: jest.fn(),
+      updateMany: jest.fn(),
+    },
+    acctEvent: {
+      findMany: jest.fn(),
+      upsert: jest.fn(),
+      updateMany: jest.fn(),
+    },
+    journalHeaderTemplate: {
+      findMany: jest.fn(),
+      upsert: jest.fn(),
+      updateMany: jest.fn(),
+      deleteMany: jest.fn(),
+    },
+    journalLineTemplate: {
+      create: jest.fn(),
+      deleteMany: jest.fn(),
+    },
+    clearingTemplate: {
+      findMany: jest.fn(),
+      upsert: jest.fn(),
+      updateMany: jest.fn(),
+    },
+    clearingLineTemplate: {
+      create: jest.fn(),
+      deleteMany: jest.fn(),
+    },
+    pricingPolicy: {
+      upsert: jest.fn(),
+    },
+    asset: {
+      findFirst: jest.fn(),
+      findMany: jest.fn(),
+    },
+    $transaction: jest.fn(),
+  };
+
+  prisma.$transaction.mockImplementation(async (callback: (tx: any) => Promise<any>) =>
+    callback(prisma),
+  );
+
+  return prisma;
+}
+
+function sortRows(rows: Array<Record<string, any>>, orderBy: Array<Record<string, 'asc' | 'desc'>>) {
+  return [...rows].sort((left, right) => {
+    for (const order of orderBy) {
+      const [field, direction] = Object.entries(order)[0];
+      const leftValue = left[field];
+      const rightValue = right[field];
+      if (leftValue === rightValue) continue;
+      if (leftValue == null) return direction === 'asc' ? -1 : 1;
+      if (rightValue == null) return direction === 'asc' ? 1 : -1;
+      if (leftValue < rightValue) return direction === 'asc' ? -1 : 1;
+      if (leftValue > rightValue) return direction === 'asc' ? 1 : -1;
+    }
+    return 0;
+  });
+}
+
+function attachInMemoryGovernanceStore(
+  prisma: any,
+  options?: {
+    revisions?: Array<Record<string, any>>;
+    releases?: Array<Record<string, any>>;
+    releaseItems?: Array<Record<string, any>>;
+    now?: Date;
+  },
+) {
+  const revisions = options?.revisions ? [...options.revisions] : [];
+  const releases = options?.releases ? [...options.releases] : [];
+  const releaseItems = options?.releaseItems ? [...options.releaseItems] : [];
+  const baseNow = options?.now ?? new Date('2026-03-23T10:00:00.000Z');
+
+  const withTimestamps = <T extends Record<string, any>>(row: T): T & { createdAt: Date; updatedAt: Date } => ({
+    createdAt: row.createdAt ?? baseNow,
+    updatedAt: row.updatedAt ?? baseNow,
+    ...row,
+  });
+
+  const listReleaseItems = (releaseId: string) =>
+    releaseItems
+      .filter((item) => item.releaseId === releaseId)
+      .sort((left, right) => {
+        if (left.sortOrder !== right.sortOrder) {
+          return left.sortOrder - right.sortOrder;
+        }
+        return String(left.businessKey).localeCompare(String(right.businessKey));
+      });
+
+  prisma.businessConfigRevision.findMany.mockImplementation(async ({ where, orderBy }: any = {}) => {
+    let rows = [...revisions];
+    if (where?.subjectType) {
+      rows = rows.filter((item) => item.subjectType === where.subjectType);
+    }
+    if (where?.businessKey) {
+      rows = rows.filter((item) => item.businessKey === where.businessKey);
+    }
+    if (orderBy) {
+      rows = sortRows(rows, orderBy);
+    }
+    return rows.map((row) => ({ ...row }));
+  });
+
+  prisma.businessConfigRevision.create.mockImplementation(async ({ data }: any) => {
+    const row = withTimestamps({
+      id: `revision-${revisions.length + 1}`,
+      ...data,
+    });
+    revisions.push(row);
+    return { ...row };
+  });
+
+  prisma.businessConfigRevision.updateMany.mockImplementation(async ({ where, data }: any) => {
+    let count = 0;
+    for (const row of revisions) {
+      const inIds = where?.id?.in;
+      if (Array.isArray(inIds) && !inIds.includes(row.id)) {
+        continue;
+      }
+      Object.assign(row, data, { updatedAt: baseNow });
+      count += 1;
+    }
+    return { count };
+  });
+
+  prisma.businessConfigRevision.count.mockImplementation(async ({ where }: any = {}) => {
+    return revisions.filter((row) => {
+      if (where?.subjectType && row.subjectType !== where.subjectType) return false;
+      if (where?.businessKey && row.businessKey !== where.businessKey) return false;
+      return true;
+    }).length;
+  });
+
+  prisma.businessConfigRevision.findUnique.mockImplementation(async ({ where }: any) => {
+    const found = revisions.find((row) => row.id === where.id);
+    return found ? { ...found } : null;
+  });
+
+  prisma.businessConfigRelease.findFirst.mockImplementation(async ({ where, orderBy }: any = {}) => {
+    let rows = [...releases];
+    if (where?.subjectType) {
+      rows = rows.filter((item) => item.subjectType === where.subjectType);
+    }
+    if (where?.status) {
+      rows = rows.filter((item) => item.status === where.status);
+    }
+    if (orderBy) {
+      rows = sortRows(rows, orderBy);
+    }
+    const found = rows[0];
+    return found ? { ...found } : null;
+  });
+
+  prisma.businessConfigRelease.findMany.mockImplementation(async ({ where, select, orderBy }: any = {}) => {
+    let rows = [...releases];
+    if (where?.subjectType) {
+      rows = rows.filter((item) => item.subjectType === where.subjectType);
+    }
+    if (where?.status) {
+      rows = rows.filter((item) => item.status === where.status);
+    }
+    if (orderBy) {
+      rows = sortRows(rows, orderBy);
+    }
+    if (select?.releaseNo) {
+      return rows.map((row) => ({ releaseNo: row.releaseNo }));
+    }
+    return rows.map((row) => ({ ...row }));
+  });
+
+  prisma.businessConfigRelease.create.mockImplementation(async ({ data }: any) => {
+    const row = withTimestamps({
+      id: `release-${releases.length + 1}`,
+      ...data,
+    });
+    releases.push(row);
+    return { ...row };
+  });
+
+  prisma.businessConfigRelease.findUnique.mockImplementation(async ({ where, include }: any) => {
+    const found = releases.find(
+      (row) => row.id === where.id || row.releaseNo === where.releaseNo,
+    );
+    if (!found) {
+      return null;
+    }
+    if (!include?.items) {
+      return { ...found };
+    }
+    return {
+      ...found,
+      items: listReleaseItems(found.id).map((item) => ({
+        ...item,
+        revision: revisions.find((revision) => revision.id === item.revisionId),
+      })),
+    };
+  });
+
+  prisma.businessConfigRelease.update.mockImplementation(async ({ where, data }: any) => {
+    const found = releases.find((row) => row.id === where.id || row.releaseNo === where.releaseNo);
+    if (!found) {
+      throw new Error(`Release not found for update: ${JSON.stringify(where)}`);
+    }
+    Object.assign(found, data, { updatedAt: baseNow });
+    return { ...found };
+  });
+
+  prisma.businessConfigRelease.updateMany.mockImplementation(async ({ where, data }: any) => {
+    let count = 0;
+    for (const row of releases) {
+      if (where?.subjectType && row.subjectType !== where.subjectType) continue;
+      if (where?.status && row.status !== where.status) continue;
+      if (where?.id?.not && row.id === where.id.not) continue;
+      Object.assign(row, data, { updatedAt: baseNow });
+      count += 1;
+    }
+    return { count };
+  });
+
+  prisma.businessConfigRelease.count.mockImplementation(async ({ where }: any = {}) => {
+    return releases.filter((row) => {
+      if (where?.subjectType && row.subjectType !== where.subjectType) return false;
+      if (where?.status && row.status !== where.status) return false;
+      return true;
+    }).length;
+  });
+
+  prisma.businessConfigReleaseItem.create.mockImplementation(async ({ data }: any) => {
+    const row = withTimestamps({
+      id: `release-item-${releaseItems.length + 1}`,
+      ...data,
+    });
+    releaseItems.push(row);
+    return { ...row };
+  });
+
+  return {
+    revisions,
+    releases,
+    releaseItems,
+  };
+}
+
+describe('BusinessConfigService', () => {
+  let prisma: any;
+  let pricingCenterService: any;
+  let auditLogsService: any;
+  let service: BusinessConfigService;
+
+  beforeEach(() => {
+    prisma = createBusinessConfigPrismaMock();
+    pricingCenterService = {
+      assertSwapPolicyConfig: jest.fn().mockResolvedValue(undefined),
+      assertWithdrawalPolicyConfig: jest.fn().mockResolvedValue(undefined),
+    };
+    auditLogsService = {
+      recordSystem: jest.fn().mockResolvedValue({ id: 'audit-1' }),
+    };
+    service = new BusinessConfigService(
+      prisma,
+      auditLogsService,
+      pricingCenterService,
+    );
+  });
+
+  it('stageRelease should create a full COA snapshot release', async () => {
+    const revisions: any[] = [];
+    const releases: any[] = [];
+    const releaseItems: any[] = [];
+    const now = new Date('2026-03-23T10:00:00.000Z');
+
+    prisma.businessConfigRevision.findMany.mockResolvedValue([]);
+    prisma.businessConfigRelease.findFirst.mockResolvedValue(null);
+    prisma.businessConfigRelease.findMany.mockResolvedValue([]);
+    prisma.businessConfigRelease.create.mockImplementation(async ({ data }: any) => {
+      const row = {
+        id: 'release-1',
+        createdAt: now,
+        updatedAt: now,
+        ...data,
+      };
+      releases.push(row);
+      return row;
+    });
+    prisma.businessConfigRevision.create.mockImplementation(async ({ data }: any) => {
+      const row = {
+        id: `revision-${revisions.length + 1}`,
+        createdAt: now,
+        updatedAt: now,
+        ...data,
+      };
+      revisions.push(row);
+      return row;
+    });
+    prisma.businessConfigReleaseItem.create.mockImplementation(async ({ data }: any) => {
+      const row = {
+        id: `release-item-${releaseItems.length + 1}`,
+        createdAt: now,
+        updatedAt: now,
+        ...data,
+      };
+      releaseItems.push(row);
+      return row;
+    });
+    prisma.businessConfigRelease.findUnique.mockImplementation(async ({ where }: any) => {
+      const release = releases.find(
+        (item) => item.id === where.id || item.releaseNo === where.releaseNo,
+      );
+      if (!release) {
+        return null;
+      }
+      return {
+        ...release,
+        items: releaseItems.map((item) => ({
+          ...item,
+          revision: revisions.find((revision) => revision.id === item.revisionId),
+        })),
+      };
+    });
+
+    const staged = await service.stageRelease('COA');
+
+    expect(staged.subjectType).toBe('COA');
+    expect(staged.releaseNo).toBe('COA-REL-001');
+    expect(staged.items).toHaveLength(DEFAULT_COA.length);
+    expect(prisma.businessConfigReleaseItem.create).toHaveBeenCalledTimes(DEFAULT_COA.length);
+    expect(
+      new Set(staged.items?.map((item: any) => item.businessKey)).size,
+    ).toBe(DEFAULT_COA.length);
+    expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: AuditActions.BUSINESS_CONFIG_RELEASE_STAGED,
+        entityNo: 'COA-REL-001',
+      }),
+      prisma,
+    );
+  });
+
+  it('validateRelease should fail pricing releases missing required policies', async () => {
+    const now = new Date('2026-03-23T10:00:00.000Z');
+    prisma.businessConfigRelease.findUnique.mockResolvedValue({
+      id: 'release-pricing-1',
+      subjectType: 'PRICING_POLICY',
+      releaseNo: 'PRICING_POLICY-REL-001',
+      status: 'DRAFT',
+      basedOnReleaseNo: null,
+      validationSummaryJson: '{}',
+      createdAt: now,
+      updatedAt: now,
+      items: [
+        {
+          id: 'release-item-1',
+          businessKey: SWAP_POLICY_CODE,
+          revisionId: 'revision-1',
+          sortOrder: 1,
+          revision: {
+            id: 'revision-1',
+            businessKey: SWAP_POLICY_CODE,
+            revisionNo: 1,
+            status: 'STAGED',
+            payloadJson: JSON.stringify({
+              policyCode: SWAP_POLICY_CODE,
+              config: { pairs: [] },
+            }),
+          },
+        },
+      ],
+    });
+    prisma.businessConfigRelease.update.mockResolvedValue({});
+
+    await expect(service.validateRelease('PRICING_POLICY-REL-001')).rejects.toThrow(
+      `PricingPolicy release must include both ${SWAP_POLICY_CODE} and ${WITHDRAWAL_POLICY_CODE}`,
+    );
+
+    expect(prisma.businessConfigRelease.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'release-pricing-1' },
+        data: expect.objectContaining({
+          status: 'DRAFT',
+        }),
+      }),
+    );
+    expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: AuditActions.BUSINESS_CONFIG_RELEASE_VALIDATION_FAILED,
+        result: AuditResult.FAILED,
+        entityNo: 'PRICING_POLICY-REL-001',
+      }),
+      prisma,
+    );
+  });
+
+  it('publishRelease should reject change tickets that are not ready for deploy', async () => {
+    const now = new Date('2026-03-23T10:00:00.000Z');
+    prisma.businessConfigRelease.findUnique.mockResolvedValue({
+      id: 'release-coa-1',
+      subjectType: 'COA',
+      releaseNo: 'COA-REL-001',
+      status: 'VALIDATED',
+      basedOnReleaseNo: null,
+      validationSummaryJson: '{}',
+      createdAt: now,
+      updatedAt: now,
+      items: [
+        {
+          id: 'release-item-1',
+          businessKey: 'ASSET_CUSTOMER',
+          revisionId: 'revision-1',
+          sortOrder: 1,
+          revision: {
+            id: 'revision-1',
+            businessKey: 'ASSET_CUSTOMER',
+            revisionNo: 1,
+            status: 'STAGED',
+            payloadJson: JSON.stringify({
+              code: 'ASSET_CUSTOMER',
+              type: 'ASSET',
+              name: 'Customer Asset',
+              status: 'ACTIVE',
+              requiredTags: [],
+            }),
+          },
+        },
+      ],
+    });
+    prisma.changeTicket.findFirst.mockResolvedValue({
+      id: 'ticket-1',
+      ticketNo: 'CT-001',
+      status: ChangeTicketStatuses.DRAFT,
+      latestApprovalId: 'approval-1',
+      latestApprovalStatus: ApprovalStatuses.APPROVED,
+    });
+
+    await expect(service.publishRelease('COA-REL-001', 'CT-001')).rejects.toThrow(
+      'Change ticket CT-001 must be READY_FOR_DEPLOY before publish',
+    );
+
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: AuditActions.BUSINESS_CONFIG_RELEASE_PUBLISH_BLOCKED,
+        result: AuditResult.REJECTED,
+        entityNo: 'COA-REL-001',
+      }),
+      undefined,
+    );
+  });
+
+  it('should complete a COA stage -> validate -> publish chain and supersede the prior active release', async () => {
+    const now = new Date('2026-03-23T10:00:00.000Z');
+    const firstCoa = DEFAULT_COA[0];
+    const store = attachInMemoryGovernanceStore(prisma, {
+      now,
+      revisions: [
+        {
+          id: 'revision-coa-legacy',
+          subjectType: 'COA',
+          businessKey: firstCoa.code,
+          revisionNo: 1,
+          payloadJson: JSON.stringify({
+            ...firstCoa,
+            requiredTags: [],
+          }),
+          contentHash: 'legacy-hash',
+          changeSummary: 'legacy',
+          status: 'PUBLISHED',
+        },
+      ],
+      releases: [
+        {
+          id: 'release-coa-legacy',
+          subjectType: 'COA',
+          releaseNo: 'COA-REL-001',
+          status: 'ACTIVE',
+          basedOnReleaseNo: null,
+          validationSummaryJson: '{}',
+          publishedAt: new Date('2026-03-22T10:00:00.000Z'),
+        },
+      ],
+      releaseItems: [
+        {
+          id: 'release-item-coa-legacy',
+          releaseId: 'release-coa-legacy',
+          revisionId: 'revision-coa-legacy',
+          subjectType: 'COA',
+          businessKey: firstCoa.code,
+          sortOrder: 1,
+        },
+      ],
+    });
+    const projectedCoa = new Map<string, Record<string, any>>();
+
+    prisma.changeTicket.findFirst.mockResolvedValue({
+      id: 'ticket-1',
+      ticketNo: 'CT-001',
+      status: ChangeTicketStatuses.READY_FOR_DEPLOY,
+      latestApprovalId: 'approval-1',
+      latestApprovalStatus: ApprovalStatuses.APPROVED,
+    });
+    prisma.coa.upsert.mockImplementation(async ({ where, create, update }: any) => {
+      const current = projectedCoa.get(where.code);
+      const next = current ? { ...current, ...update } : { ...create };
+      projectedCoa.set(where.code, next);
+      return next;
+    });
+    prisma.coa.updateMany.mockImplementation(async ({ where, data }: any) => {
+      let count = 0;
+      for (const [code, row] of projectedCoa.entries()) {
+        if (where?.code?.notIn?.includes(code)) {
+          continue;
+        }
+        if (where?.status?.not && row.status === where.status.not) {
+          continue;
+        }
+        projectedCoa.set(code, { ...row, ...data });
+        count += 1;
+      }
+      return { count };
+    });
+
+    const staged = await service.stageRelease('COA');
+    expect(staged.releaseNo).toBe('COA-REL-002');
+    expect(staged.items).toHaveLength(DEFAULT_COA.length);
+
+    const validated = await service.validateRelease(staged.releaseNo);
+    expect(validated.ok).toBe(true);
+
+    const published = await service.publishRelease(staged.releaseNo, 'CT-001');
+
+    expect(published.status).toBe('ACTIVE');
+    expect(published.changeTicketId).toBe('ticket-1');
+    expect(published.approvalCaseId).toBe('approval-1');
+    expect(store.releases.find((item) => item.releaseNo === 'COA-REL-001')?.status).toBe(
+      'SUPERSEDED',
+    );
+    expect(store.releases.find((item) => item.releaseNo === staged.releaseNo)?.status).toBe('ACTIVE');
+    expect(projectedCoa.size).toBe(DEFAULT_COA.length);
+    expect(projectedCoa.get(firstCoa.code)).toEqual(
+      expect.objectContaining({
+        code: firstCoa.code,
+        type: firstCoa.type,
+        name: firstCoa.name,
+      }),
+    );
+    expect(
+      store.revisions.filter((item) => item.status === 'PUBLISHED' && item.subjectType === 'COA')
+        .length,
+    ).toBeGreaterThan(0);
+    expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: AuditActions.BUSINESS_CONFIG_RELEASE_VALIDATED,
+        entityNo: staged.releaseNo,
+      }),
+      prisma,
+    );
+    expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: AuditActions.BUSINESS_CONFIG_RELEASE_PUBLISHED,
+        entityNo: staged.releaseNo,
+      }),
+      prisma,
+    );
+  });
+
+  it('should publish a journal template bundle and recreate header/line projection', async () => {
+    const now = new Date('2026-03-23T10:00:00.000Z');
+    const template = DEFAULT_JOURNAL_TEMPLATES[0];
+    const store = attachInMemoryGovernanceStore(prisma, {
+      now,
+      revisions: [
+        {
+          id: 'revision-journal-1',
+          subjectType: 'JOURNAL_TEMPLATE',
+          businessKey: template.header.templateCode,
+          revisionNo: 1,
+          payloadJson: JSON.stringify(template),
+          contentHash: 'journal-hash-1',
+          changeSummary: 'journal bundle',
+          status: 'STAGED',
+        },
+      ],
+      releases: [
+        {
+          id: 'release-journal-1',
+          subjectType: 'JOURNAL_TEMPLATE',
+          releaseNo: 'JOURNAL_TEMPLATE-REL-001',
+          status: 'VALIDATED',
+          basedOnReleaseNo: null,
+          validationSummaryJson: JSON.stringify({
+            ok: true,
+            issues: [],
+            warnings: [],
+            validatedAt: now.toISOString(),
+          }),
+        },
+      ],
+      releaseItems: [
+        {
+          id: 'release-item-journal-1',
+          releaseId: 'release-journal-1',
+          revisionId: 'revision-journal-1',
+          subjectType: 'JOURNAL_TEMPLATE',
+          businessKey: template.header.templateCode,
+          sortOrder: 1,
+        },
+      ],
+    });
+    const projectedHeaders = new Map<string, Record<string, any>>();
+    const projectedLines: Array<Record<string, any>> = [];
+
+    prisma.changeTicket.findFirst.mockResolvedValue({
+      id: 'ticket-2',
+      ticketNo: 'CT-002',
+      status: ChangeTicketStatuses.READY_FOR_DEPLOY,
+      latestApprovalId: 'approval-2',
+      latestApprovalStatus: ApprovalStatuses.APPROVED,
+    });
+    prisma.asset.findFirst.mockResolvedValue({ id: 'asset-aed' });
+    prisma.journalHeaderTemplate.upsert.mockImplementation(async ({ where, create, update }: any) => {
+      const current = projectedHeaders.get(where.templateCode);
+      const next = current
+        ? { ...current, ...update }
+        : { id: 'journal-header-1', ...create };
+      projectedHeaders.set(where.templateCode, next);
+      return next;
+    });
+    prisma.journalLineTemplate.deleteMany.mockImplementation(async ({ where }: any) => {
+      for (let index = projectedLines.length - 1; index >= 0; index -= 1) {
+        if (projectedLines[index].templateId === where.templateId) {
+          projectedLines.splice(index, 1);
+        }
+      }
+      return { count: 0 };
+    });
+    prisma.journalLineTemplate.create.mockImplementation(async ({ data }: any) => {
+      projectedLines.push({ ...data });
+      return data;
+    });
+    prisma.journalHeaderTemplate.updateMany.mockResolvedValue({ count: 0 });
+
+    const published = await service.publishRelease('JOURNAL_TEMPLATE-REL-001', 'CT-002');
+
+    expect(published.status).toBe('ACTIVE');
+    expect(projectedHeaders.get(template.header.templateCode)).toEqual(
+      expect.objectContaining({
+        templateCode: template.header.templateCode,
+        eventCode: template.header.eventCode,
+        baseAssetId: 'asset-aed',
+      }),
+    );
+    expect(projectedLines).toHaveLength(template.lines.length);
+    expect(projectedLines[0]).toEqual(
+      expect.objectContaining({
+        templateId: 'journal-header-1',
+        lineNo: template.lines[0].lineNo,
+        accountCode: template.lines[0].accountCode,
+      }),
+    );
+    expect(store.releases[0].status).toBe('ACTIVE');
+    expect(store.revisions[0].status).toBe('PUBLISHED');
+  });
+
+  it('should expose release diff and revision history read models', async () => {
+    attachInMemoryGovernanceStore(prisma, {
+      revisions: [
+        {
+          id: 'revision-asset-r1',
+          subjectType: 'COA',
+          businessKey: 'A.CUSTODY',
+          revisionNo: 1,
+          payloadJson: JSON.stringify({ code: 'A.CUSTODY', name: 'Custody v1' }),
+          contentHash: 'hash-r1',
+          changeSummary: 'v1',
+          status: 'PUBLISHED',
+        },
+        {
+          id: 'revision-asset-r2',
+          subjectType: 'COA',
+          businessKey: 'A.CUSTODY',
+          revisionNo: 2,
+          payloadJson: JSON.stringify({ code: 'A.CUSTODY', name: 'Custody v2' }),
+          contentHash: 'hash-r2',
+          changeSummary: 'v2',
+          status: 'PUBLISHED',
+        },
+        {
+          id: 'revision-liab-r1',
+          subjectType: 'COA',
+          businessKey: 'L.CLIENT',
+          revisionNo: 1,
+          payloadJson: JSON.stringify({ code: 'L.CLIENT', name: 'Client Liability' }),
+          contentHash: 'hash-liab',
+          changeSummary: 'v1',
+          status: 'PUBLISHED',
+        },
+      ],
+      releases: [
+        {
+          id: 'release-coa-1',
+          subjectType: 'COA',
+          releaseNo: 'COA-REL-001',
+          status: 'SUPERSEDED',
+          basedOnReleaseNo: null,
+          validationSummaryJson: '{}',
+        },
+        {
+          id: 'release-coa-2',
+          subjectType: 'COA',
+          releaseNo: 'COA-REL-002',
+          status: 'ACTIVE',
+          basedOnReleaseNo: 'COA-REL-001',
+          validationSummaryJson: '{}',
+        },
+      ],
+      releaseItems: [
+        {
+          id: 'release-item-1',
+          releaseId: 'release-coa-1',
+          revisionId: 'revision-asset-r1',
+          subjectType: 'COA',
+          businessKey: 'A.CUSTODY',
+          sortOrder: 1,
+        },
+        {
+          id: 'release-item-2',
+          releaseId: 'release-coa-2',
+          revisionId: 'revision-asset-r2',
+          subjectType: 'COA',
+          businessKey: 'A.CUSTODY',
+          sortOrder: 1,
+        },
+        {
+          id: 'release-item-3',
+          releaseId: 'release-coa-2',
+          revisionId: 'revision-liab-r1',
+          subjectType: 'COA',
+          businessKey: 'L.CLIENT',
+          sortOrder: 2,
+        },
+      ],
+    });
+
+    const diff = await service.getReleaseDiff('COA-REL-002');
+    const revisions = await service.listRevisions({
+      subjectType: 'COA',
+      businessKey: 'A.CUSTODY',
+    });
+
+    expect(diff.items).toEqual([
+      {
+        businessKey: 'A.CUSTODY',
+        action: 'CHANGED',
+        fromRevisionNo: 1,
+        toRevisionNo: 2,
+      },
+      {
+        businessKey: 'L.CLIENT',
+        action: 'ADDED',
+        fromRevisionNo: null,
+        toRevisionNo: 1,
+      },
+    ]);
+    expect(revisions.total).toBe(2);
+    expect(revisions.items.map((item: any) => item.revisionNo)).toEqual([2, 1]);
+    expect(revisions.items[0].payload).toEqual(
+      expect.objectContaining({
+        code: 'A.CUSTODY',
+        name: 'Custody v2',
+      }),
+    );
+  });
+});

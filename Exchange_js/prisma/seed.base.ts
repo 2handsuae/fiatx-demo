@@ -110,9 +110,6 @@ const DEFAULT_CRYPTO_AED_VALUATION_BY_CODE: Record<string, string> = {
   USDT: '3.6725',
   BTC: '250000',
 };
-const PLATFORM_LIQUIDITY_OPENING_AED = new Prisma.Decimal('1000000');
-const PLATFORM_LIQ_BANK_AED_OPENING = new Prisma.Decimal('1000000');
-const PLATFORM_LIQ_BANK_AED_WALLET_NO = 'WA-LBK-AED-NA';
 
 const DEPRECATED_DEPOSIT_REJECTED_EVENT_CODES = [
   'EVT_DEPOSIT_REJECTED__CRYPTO',
@@ -145,8 +142,8 @@ export async function seedBase(prisma: PrismaClient): Promise<void> {
   await seedBaseCustomers(prisma);
   await seedAssets(prisma);
   await seedSystemWallets(prisma);
+  await seedWalletBalanceSnapshotBaseline(prisma);
   await seedAssetValuationRates(prisma);
-  await seedLiquidityOpeningBalances(prisma);
   await seedCoa(prisma);
   await seedAcctEvents(prisma);
   await seedJournalTemplates(prisma);
@@ -651,8 +648,6 @@ async function seedSystemWallets(prisma: PrismaClient): Promise<void> {
           assetId: asset.id,
           address,
           status: 'ACTIVE',
-          balance: 0,
-          lockedBalance: 0,
         },
       });
     }
@@ -704,8 +699,6 @@ async function seedSystemWallets(prisma: PrismaClient): Promise<void> {
               ? 'Customer Asset Pool'
               : 'Platform Liquidity Pool',
           status: 'ACTIVE',
-          balance: 0,
-          lockedBalance: 0,
         },
       });
     }
@@ -744,163 +737,45 @@ async function seedAssetValuationRates(prisma: PrismaClient): Promise<void> {
   }
 }
 
-async function seedLiquidityOpeningBalances(
+async function seedWalletBalanceSnapshotBaseline(
   prisma: PrismaClient,
 ): Promise<void> {
-  const platformLiqWallets = await (prisma as any).wallet.findMany({
+  const canonicalPoolWallets = await (prisma as any).wallet.findMany({
     where: {
-      ownerType: 'PLATFORM',
-      ownerId: null,
       status: 'ACTIVE',
-      walletRole: 'LIQ',
-    },
-    include: {
-      asset: {
-        select: {
-          id: true,
-          type: true,
-          code: true,
-          decimals: true,
-        },
+      walletRole: {
+        in: ['MASTER', 'PAYOUT', 'LIQ', 'CUST_BANK', 'LIQ_BANK'],
       },
+    },
+    select: {
+      id: true,
+      assetId: true,
     },
   });
 
-  if (!platformLiqWallets.length) {
+  if (!canonicalPoolWallets.length) {
     return;
   }
 
-  const assetIds = Array.from(
-    new Set(
-      platformLiqWallets
-        .map((wallet: any) => wallet.assetId)
-        .filter(
-          (assetId: unknown): assetId is string => typeof assetId === 'string',
-        ),
-    ),
-  );
-  const valuationRates = await (prisma as any).assetValuationRate.findMany({
-    where: {
-      assetId: { in: assetIds },
-      quoteAssetCode: 'AED',
-      status: 'ACTIVE',
-    },
-    select: {
-      assetId: true,
-      price: true,
-    },
-  });
-  const valuationByAssetId = new Map<string, Prisma.Decimal>(
-    valuationRates.map((item: { assetId: string; price: Prisma.Decimal }) => [
-      item.assetId,
-      new Prisma.Decimal(item.price),
-    ]),
-  );
-
-  for (const wallet of platformLiqWallets) {
-    if (wallet.asset?.type !== 'CRYPTO') continue;
-    const valuation = valuationByAssetId.get(wallet.assetId);
-    if (!valuation || valuation.lte(0)) continue;
-
-    const decimals = Number(wallet.asset.decimals ?? 8);
-    const openingAmount = PLATFORM_LIQUIDITY_OPENING_AED.div(
-      valuation,
-    ).toDecimalPlaces(
-      Number.isFinite(decimals) ? decimals : 8,
-      Prisma.Decimal.ROUND_DOWN,
-    );
-
-    const existingSnapshot = await (
-      prisma as any
-    ).walletBalanceSnapshot.findUnique({
+  for (const wallet of canonicalPoolWallets) {
+    await (prisma as any).walletBalanceSnapshot.upsert({
       where: {
         walletId_assetId: {
           walletId: wallet.id,
           assetId: wallet.assetId,
         },
       },
-      select: { id: true },
-    });
-    if (existingSnapshot) continue;
-
-    await (prisma as any).wallet.update({
-      where: { id: wallet.id },
-      data: {
-        balance: openingAmount,
-        lockedBalance: new Prisma.Decimal(0),
-      },
-    });
-
-    await (prisma as any).walletBalanceSnapshot.create({
-      data: {
+      update: {},
+      create: {
         walletId: wallet.id,
         assetId: wallet.assetId,
-        availableBalance: openingAmount,
+        availableBalance: new Prisma.Decimal(0),
         restrictedBalance: new Prisma.Decimal(0),
         inTransitBalance: new Prisma.Decimal(0),
-        totalBalance: openingAmount,
+        totalBalance: new Prisma.Decimal(0),
       },
     });
   }
-
-  const fiatLiqBankWallet = await (prisma as any).wallet.findFirst({
-    where: {
-      walletNo: PLATFORM_LIQ_BANK_AED_WALLET_NO,
-      ownerType: 'PLATFORM',
-      ownerId: null,
-      status: 'ACTIVE',
-      walletRole: 'LIQ_BANK',
-    },
-    include: {
-      asset: {
-        select: {
-          id: true,
-          type: true,
-          code: true,
-        },
-      },
-    },
-  });
-
-  if (
-    !fiatLiqBankWallet ||
-    fiatLiqBankWallet.asset?.type !== 'FIAT' ||
-    fiatLiqBankWallet.asset?.code !== 'AED'
-  ) {
-    return;
-  }
-
-  const existingFiatSnapshot = await (
-    prisma as any
-  ).walletBalanceSnapshot.findUnique({
-    where: {
-      walletId_assetId: {
-        walletId: fiatLiqBankWallet.id,
-        assetId: fiatLiqBankWallet.assetId,
-      },
-    },
-    select: { id: true },
-  });
-  if (existingFiatSnapshot) return;
-
-  await (prisma as any).wallet.update({
-    where: { id: fiatLiqBankWallet.id },
-    data: {
-      balance: PLATFORM_LIQ_BANK_AED_OPENING,
-      lockedBalance: new Prisma.Decimal(0),
-    },
-  });
-
-  await (prisma as any).walletBalanceSnapshot.create({
-    data: {
-      walletId: fiatLiqBankWallet.id,
-      assetId: fiatLiqBankWallet.assetId,
-      availableBalance: PLATFORM_LIQ_BANK_AED_OPENING,
-      restrictedBalance: new Prisma.Decimal(0),
-      inTransitBalance: new Prisma.Decimal(0),
-      totalBalance: PLATFORM_LIQ_BANK_AED_OPENING,
-    },
-  });
 }
 
 async function seedCoa(prisma: PrismaClient): Promise<void> {
@@ -1282,7 +1157,14 @@ async function isBaseComplete(prisma: PrismaClient): Promise<boolean> {
   const fiatAssets = activeAssets.filter((asset) => asset.type === 'FIAT');
   const expectedWallets = new Map<
     string,
-    { assetId: string; ownerType: 'CUSTOMER' | 'PLATFORM'; walletRole: string }
+    {
+      assetId: string;
+      ownerType: 'CUSTOMER' | 'PLATFORM';
+      ownerNo: string;
+      walletRole: string;
+      type: 'CRYPTO_ADDRESS' | 'FIAT_BANK';
+      direction: 'BIDIRECTIONAL';
+    }
   >();
   for (const asset of cryptoAssets) {
     for (const kind of CRYPTO_SYSTEM_WALLET_KINDS) {
@@ -1294,7 +1176,10 @@ async function isBaseComplete(prisma: PrismaClient): Promise<boolean> {
       expectedWallets.set(walletNo, {
         assetId: asset.id,
         ownerType: CRYPTO_SYSTEM_WALLET_KIND_CONFIG[kind].ownerType,
+        ownerNo: CRYPTO_SYSTEM_WALLET_KIND_CONFIG[kind].ownerNo,
         walletRole: CRYPTO_SYSTEM_WALLET_KIND_CONFIG[kind].walletRole,
+        type: 'CRYPTO_ADDRESS',
+        direction: 'BIDIRECTIONAL',
       });
     }
   }
@@ -1304,7 +1189,10 @@ async function isBaseComplete(prisma: PrismaClient): Promise<boolean> {
       expectedWallets.set(walletNo, {
         assetId: asset.id,
         ownerType: FIAT_POOL_WALLET_KIND_CONFIG[kind].ownerType,
+        ownerNo: FIAT_POOL_WALLET_KIND_CONFIG[kind].ownerNo,
         walletRole: FIAT_POOL_WALLET_KIND_CONFIG[kind].walletRole,
+        type: 'FIAT_BANK',
+        direction: 'BIDIRECTIONAL',
       });
     }
   }
@@ -1321,6 +1209,9 @@ async function isBaseComplete(prisma: PrismaClient): Promise<boolean> {
         assetId: true,
         ownerType: true,
         ownerId: true,
+        ownerNo: true,
+        type: true,
+        direction: true,
         status: true,
         walletRole: true,
       },
@@ -1338,6 +1229,9 @@ async function isBaseComplete(prisma: PrismaClient): Promise<boolean> {
       if (
         wallet.assetId !== expected.assetId ||
         wallet.ownerType !== expected.ownerType ||
+        wallet.ownerNo !== expected.ownerNo ||
+        wallet.type !== expected.type ||
+        wallet.direction !== expected.direction ||
         wallet.walletRole !== expected.walletRole ||
         wallet.ownerId !== null ||
         wallet.status !== 'ACTIVE'
@@ -1396,66 +1290,27 @@ async function isBaseComplete(prisma: PrismaClient): Promise<boolean> {
     }
   }
 
-  const platformLiqWalletIds = (
+  const canonicalPoolWalletIds = (
     await (prisma as any).wallet.findMany({
       where: {
-        ownerType: 'PLATFORM',
-        ownerId: null,
         status: 'ACTIVE',
-        walletRole: 'LIQ',
+        walletRole: {
+          in: ['MASTER', 'PAYOUT', 'LIQ', 'CUST_BANK', 'LIQ_BANK'],
+        },
       },
       select: { id: true },
     })
   ).map((wallet: { id: string }) => wallet.id);
 
-  if (platformLiqWalletIds.length > 0) {
-    const openingSnapshotCount = await (
+  if (canonicalPoolWalletIds.length > 0) {
+    const snapshotCount = await (
       prisma as any
     ).walletBalanceSnapshot.count({
       where: {
-        walletId: { in: platformLiqWalletIds },
+        walletId: { in: canonicalPoolWalletIds },
       },
     });
-    if (openingSnapshotCount < platformLiqWalletIds.length) {
-      return false;
-    }
-  }
-
-  const platformLiqBankAedWallet = await (prisma as any).wallet.findFirst({
-    where: {
-      walletNo: PLATFORM_LIQ_BANK_AED_WALLET_NO,
-      ownerType: 'PLATFORM',
-      ownerId: null,
-      status: 'ACTIVE',
-      walletRole: 'LIQ_BANK',
-    },
-    include: {
-      asset: {
-        select: {
-          type: true,
-          code: true,
-        },
-      },
-    },
-  });
-
-  if (
-    platformLiqBankAedWallet &&
-    platformLiqBankAedWallet.asset?.type === 'FIAT' &&
-    platformLiqBankAedWallet.asset?.code === 'AED'
-  ) {
-    const fiatOpeningSnapshot = await (
-      prisma as any
-    ).walletBalanceSnapshot.findUnique({
-      where: {
-        walletId_assetId: {
-          walletId: platformLiqBankAedWallet.id,
-          assetId: platformLiqBankAedWallet.assetId,
-        },
-      },
-      select: { id: true },
-    });
-    if (!fiatOpeningSnapshot) {
+    if (snapshotCount < canonicalPoolWalletIds.length) {
       return false;
     }
   }

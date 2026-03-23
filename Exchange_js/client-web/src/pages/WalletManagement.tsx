@@ -5,6 +5,8 @@ import { useAuth } from '../context/AuthContext';
 interface WalletItem {
   id: string;
   type: string;
+  direction?: string;
+  walletRole?: string;
   asset: { code: string; type: string };
   address?: string;
   memo?: string;
@@ -51,15 +53,21 @@ const WalletManagement = () => {
     setLoading(true);
     try {
       const token = localStorage.getItem('customer_token');
-      // Fetch wallets and filter by direction='OUTBOUND'
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/wallets?ownerType=CUSTOMER&ownerId=${user?.id}`, {
+      const params = new URLSearchParams({
+        ownerType: 'CUSTOMER',
+        ownerId: user?.id || '',
+        direction: 'OUTBOUND',
+        walletRole: 'GENERAL',
+      });
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/wallets?${params.toString()}`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       
       if (response.ok) {
         const data = await response.json();
-        // Filter strictly for OUTBOUND wallets
-        const outboundWallets = (data.items || []).filter((w: any) => w.direction === 'OUTBOUND');
+        const outboundWallets = (data.items || []).filter(
+          (w: any) => w.direction === 'OUTBOUND' && (w.walletRole || 'GENERAL') === 'GENERAL',
+        );
         setWallets(outboundWallets);
       }
     } catch (error) {
@@ -158,7 +166,7 @@ const WalletManagement = () => {
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Wallets & Accounts</h1>
-          <p className="text-gray-500 dark:text-gray-400 mt-1">Manage your withdrawal addresses and bank accounts</p>
+          <p className="text-gray-500 dark:text-gray-400 mt-1">Manage your withdrawal target addresses and bank accounts</p>
         </div>
         <button 
           onClick={() => setShowCreateModal(true)}
@@ -209,7 +217,7 @@ const WalletManagement = () => {
             </div>
           ) : filteredWallets.length === 0 ? (
             <div className="text-center py-12 text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-900/50 rounded-lg border border-dashed border-gray-200 dark:border-gray-700">
-              <p>No {activeTab === 'crypto' ? 'wallet addresses' : 'bank accounts'} found for withdrawal.</p>
+              <p>No {activeTab === 'crypto' ? 'withdrawal target addresses' : 'withdrawal bank accounts'} found.</p>
             </div>
           ) : (
             <div className="grid gap-4">

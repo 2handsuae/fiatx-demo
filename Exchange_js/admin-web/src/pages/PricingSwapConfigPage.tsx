@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, Edit3, Plus, RefreshCw, Save, Trash2 } from 'lucide-react';
 import { adminFetch, getApiErrorMessage } from '../utils/adminFetch';
+import { buildBusinessConfigReadOnlyMessage } from '../utils/businessConfigReadOnly';
 
 type RoundingMode = 'ROUND' | 'FLOOR' | 'CEIL';
 
@@ -78,10 +79,6 @@ type SwapMarketSource = {
 
 const roundingModes: RoundingMode[] = ['ROUND', 'FLOOR', 'CEIL'];
 
-function makeId(prefix: string): string {
-  return `${prefix}-${Math.random().toString(36).slice(2, 10)}`;
-}
-
 function toInt(value: string, fallback: number): number {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? Math.trunc(parsed) : fallback;
@@ -101,8 +98,9 @@ const FieldBlock = ({ label, value }: { label: string; value: string }) => (
 );
 
 const PricingSwapConfigPage = () => {
+  const readOnlyMessage = buildBusinessConfigReadOnlyMessage('Swap pricing policy');
   const [loading, setLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
+  const saving = false;
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
@@ -297,14 +295,6 @@ const PricingSwapConfigPage = () => {
     setMessage(null);
   };
 
-  const beginEdit = () => {
-    if (!selectedPair) return;
-    setEditSnapshot(JSON.parse(JSON.stringify(selectedPair)) as SwapPair);
-    setDetailMode('edit');
-    setError(null);
-    setMessage(null);
-  };
-
   const cancelEdit = () => {
     if (!selectedPairId) return;
     if (editSnapshot) {
@@ -315,118 +305,15 @@ const PricingSwapConfigPage = () => {
     setMessage(null);
   };
 
-  const addPair = () => {
-    if (!swapPolicy || assets.length < 2) {
-      setError('At least two ACTIVE assets are required.');
-      return;
-    }
-
-    const occupied = new Set(swapPolicy.pairs.map((pair) => `${pair.assetAId}->${pair.assetBId}`));
-    let fromAsset: Asset | null = null;
-    let toAsset: Asset | null = null;
-
-    for (const from of assets) {
-      for (const to of assets) {
-        if (from.id === to.id) {
-          continue;
-        }
-        if (!occupied.has(`${from.id}->${to.id}`)) {
-          fromAsset = from;
-          toAsset = to;
-          break;
-        }
-      }
-      if (fromAsset && toAsset) {
-        break;
-      }
-    }
-
-    if (!fromAsset || !toAsset) {
-      setError('All possible directional pairs already exist.');
-      return;
-    }
-
-    const pairId = makeId('pair');
-
-    const newPair: SwapPair = {
-      id: pairId,
-      name: `${getAssetLabel(fromAsset.id)} -> ${getAssetLabel(toAsset.id)}`,
-      assetAId: fromAsset.id,
-      assetALabel: getAssetLabel(fromAsset.id),
-      assetBId: toAsset.id,
-      assetBLabel: getAssetLabel(toAsset.id),
-      enabled: true,
-      routing: {
-        provider: 'LP_A',
-        maxStalenessSec: 30,
-        quoteLockSeconds: 30,
-        rounding: {
-          dp: 8,
-          mode: 'ROUND',
-        },
-      },
-      tiers: [createDefaultTier(pairId)],
-    };
-
-    setSwapPolicy({
-      ...swapPolicy,
-      pairs: [...swapPolicy.pairs, newPair],
-    });
-
-    openPairDetail(newPair.id);
-  };
-
   const removePair = (pairId: string) => {
-    if (!swapPolicy) return;
-    if (!window.confirm('Delete this pair?')) return;
-
-    const pairs = swapPolicy.pairs.filter((pair) => pair.id !== pairId);
-    setSwapPolicy({ ...swapPolicy, pairs });
-
-    const next = pairs[0] || null;
-    setSelectedPairId(next?.id || null);
-    setDetailMode('preview');
-    setEditSnapshot(null);
-    setMarketSource(null);
-    setMarketSourceError(null);
-    if (!next) {
-      setViewMode('list');
-    }
+    void pairId;
+    setError(null);
+    setMessage(readOnlyMessage);
   };
 
   const savePolicy = async () => {
-    if (!swapPolicy) return;
-
-    const payload = normalizePolicy(swapPolicy);
-
-    setSaving(true);
     setError(null);
-    setMessage(null);
-    try {
-      const response = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/pricing/policies/swap`,
-        {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ config: payload }),
-        },
-      );
-
-      if (!response.ok) {
-        throw new Error(await getApiErrorMessage(response, 'Failed to save swap policy'));
-      }
-
-      const saved = (await response.json()) as SwapPolicy;
-      setSwapPolicy(normalizePolicy(saved));
-      setDetailMode('preview');
-      setEditSnapshot(null);
-      setMessage('Swap config saved.');
-      await loadSwapSummary();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setSaving(false);
-    }
+    setMessage(readOnlyMessage);
   };
 
   const renderTopBar = () => (
@@ -476,13 +363,14 @@ const PricingSwapConfigPage = () => {
         {error && <div className="rounded-lg bg-red-50 text-red-700 px-4 py-3 text-sm">{error}</div>}
         {message && <div className="rounded-lg bg-green-50 text-green-700 px-4 py-3 text-sm">{message}</div>}
 
+        <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
+          Swap pricing is now managed by config-as-code and Business Config Releases. This page is read-only and remains here for current-value inspection.
+        </div>
+
         <div className="flex justify-end">
-          <button
-            onClick={addPair}
-            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-brand-primary text-white hover:bg-brand-primary/90"
-          >
-            <Plus size={16} /> Add Pair
-          </button>
+          <div className="inline-flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+            <Plus size={16} /> Pair changes move through Config Releases
+          </div>
         </div>
 
         <div className="bg-white rounded-xl border border-admin-border shadow-sm overflow-hidden">
@@ -547,6 +435,10 @@ const PricingSwapConfigPage = () => {
       {error && <div className="rounded-lg bg-red-50 text-red-700 px-4 py-3 text-sm">{error}</div>}
       {message && <div className="rounded-lg bg-green-50 text-green-700 px-4 py-3 text-sm">{message}</div>}
 
+      <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
+        Pair details remain explorable here, but add, edit, delete, and publish actions are managed via Business Config Releases.
+      </div>
+
       <div className="bg-white rounded-xl border border-admin-border p-6 space-y-6">
         {!selectedPair && <div className="text-sm text-gray-500">No pair selected.</div>}
 
@@ -570,17 +462,14 @@ const PricingSwapConfigPage = () => {
                   >
                     <ArrowLeft size={14} /> Back
                   </button>
-                  <button
-                    onClick={beginEdit}
-                    className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-admin-border bg-white text-gray-700 hover:bg-gray-50"
-                  >
-                    <Edit3 size={14} /> Edit
-                  </button>
+                  <div className="inline-flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-sm text-amber-800">
+                    <Edit3 size={14} /> Read-only in Phase 2
+                  </div>
                   <button
                     onClick={() => removePair(selectedPair.id)}
                     className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-red-200 text-red-600 hover:bg-red-50"
                   >
-                    <Trash2 size={14} /> Delete
+                    <Trash2 size={14} /> Change via Releases
                   </button>
                 </div>
               ) : (

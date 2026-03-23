@@ -2,7 +2,7 @@
 
 Status: active
 Owner: project-owner-and-agents
-Last Updated: 2026-03-22
+Last Updated: 2026-03-23
 Applies To: `Exchange_js`
 Supersedes: none
 Depends On: `docs/README.md`, `docs/constraints/README.md`
@@ -33,6 +33,8 @@ Source of Truth Level: specs
   - `docs/specs/workflows/mlro-and-final-approval-governance.md`
   - `docs/specs/workflows/case-final-lifecycle-and-external-filing.md`
   - `docs/specs/workflows/onboarding-periodic-review-audit-trace-contract.md`
+  - `docs/specs/workflows/config-release-activation-workflow.md`
+  - `docs/specs/workflows/quote-event-clearing-journal-workflow.md`
 - Entity specs:
   - `docs/specs/entities/audit-evidence-package-entity.md`
   - `docs/specs/entities/change-ticket-entity.md`
@@ -48,6 +50,9 @@ Source of Truth Level: specs
   - `docs/specs/entities/periodic-review-cycle-entity.md`
   - `docs/specs/entities/approval-case-entity.md`
   - `docs/specs/entities/risk-decision-record-entity.md`
+  - `docs/specs/entities/wallet-entity.md`
+  - `docs/specs/entities/business-config-release-entity.md`
+  - `docs/specs/entities/pricing-quote-entity.md`
 - Module specs:
   - `docs/specs/modules/governance-control-foundation-module.md`
   - `docs/specs/modules/rbac-member-management-module.md`
@@ -57,6 +62,9 @@ Source of Truth Level: specs
   - `docs/specs/modules/periodic-review-module.md`
   - `docs/specs/modules/approvals-module.md`
   - `docs/specs/modules/audit-logging-module.md`
+  - `docs/specs/modules/accounting-ledger-module.md`
+  - `docs/specs/modules/pricing-center-module.md`
+  - `docs/specs/modules/asset-treasury-foundation-module.md`
 
 ## Practical Reading Rule
 - Use `workflows` to understand how things move.
@@ -69,3 +77,4 @@ Source of Truth Level: specs
 - A canonical source-of-truth model changes.
 - Case final lifecycle or external filing semantics change.
 - Workflow-bound audit trace or Audit Center replay semantics change.
+- Wave 4 ledger, wallet/account, pricing/quote, or config-release semantics change.

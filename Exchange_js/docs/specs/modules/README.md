@@ -2,7 +2,7 @@
 
 Status: active
 Owner: project-owner-and-agents
-Last Updated: 2026-03-22
+Last Updated: 2026-03-23
 Applies To: `Exchange_js`
 Supersedes: none
 Depends On: `docs/specs/README.md`, `docs/constraints/README.md`
@@ -37,6 +37,9 @@ Source of Truth Level: specs-module
 - `docs/specs/modules/audit-logging-module.md`
 - `docs/specs/modules/audit-logging-product-doc.md`
 - `docs/specs/modules/audit-logging-technical-doc.md`
+- `docs/specs/modules/accounting-ledger-module.md`
+- `docs/specs/modules/pricing-center-module.md`
+- `docs/specs/modules/asset-treasury-foundation-module.md`
 
 ## Update When
 - A subsystem contract changes.

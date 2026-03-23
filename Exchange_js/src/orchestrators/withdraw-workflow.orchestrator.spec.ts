@@ -1,9 +1,9 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { Prisma } from '@prisma/client';
 import { WithdrawWorkflowOrchestrator } from './withdraw-workflow.orchestrator';
+import { AccountingEventExecutionService } from './accounting-event-execution.service';
 import { WithdrawTransactionsService } from '../modules/trading/withdraw-transactions/withdraw-transactions.service';
 import { PayoutsService } from '../modules/asset-treasury/payouts/payouts.service';
-import { JournalsService } from '../modules/accounting/journals/journals.service';
 import { ClearingsService } from '../modules/clearing-settle/clearing/clearings.service';
 import { PrismaService } from '../core/prisma/prisma.service';
 import { TransactionComplianceService } from '../modules/risk-engine/transaction-compliance/transaction-compliance.service';
@@ -21,15 +21,15 @@ describe('WithdrawWorkflowOrchestrator', () => {
   let orchestrator: WithdrawWorkflowOrchestrator;
   let withdrawalService: any;
   let payoutsService: any;
-  let journalsService: any;
+  let accountingEventExecutionService: any;
   let clearingsService: any;
   let transactionComplianceService: any;
   let prisma: any;
 
   const mockPrisma: any = {
     $transaction: jest.fn((cb) => cb(mockPrisma)),
-    withdrawAuditLog: {
-      findFirst: jest.fn(),
+    auditLogEvent: {
+      findUnique: jest.fn(),
       create: jest.fn(),
     },
     withdrawTransaction: {
@@ -54,8 +54,8 @@ describe('WithdrawWorkflowOrchestrator', () => {
     updateStatus: jest.fn(),
   };
 
-  const mockJournalsService = {
-    triggerEvent: jest.fn(),
+  const mockAccountingEventExecutionService = {
+    execute: jest.fn(),
   };
 
   const mockClearingsService = {
@@ -95,7 +95,10 @@ describe('WithdrawWorkflowOrchestrator', () => {
           useValue: mockWithdrawalService,
         },
         { provide: PayoutsService, useValue: mockPayoutsService },
-        { provide: JournalsService, useValue: mockJournalsService },
+        {
+          provide: AccountingEventExecutionService,
+          useValue: mockAccountingEventExecutionService,
+        },
         { provide: ClearingsService, useValue: mockClearingsService },
         {
           provide: TransactionComplianceService,
@@ -112,7 +115,9 @@ describe('WithdrawWorkflowOrchestrator', () => {
       WithdrawTransactionsService,
     );
     payoutsService = module.get<PayoutsService>(PayoutsService);
-    journalsService = module.get<JournalsService>(JournalsService);
+    accountingEventExecutionService = module.get<AccountingEventExecutionService>(
+      AccountingEventExecutionService,
+    );
     clearingsService = module.get<ClearingsService>(ClearingsService);
     transactionComplianceService = module.get<TransactionComplianceService>(
       TransactionComplianceService,
@@ -123,7 +128,7 @@ describe('WithdrawWorkflowOrchestrator', () => {
   });
 
   it('should execute payout confirmed atomic path', async () => {
-    mockPrisma.withdrawAuditLog.findFirst.mockResolvedValue(null);
+    mockPrisma.auditLogEvent.findUnique.mockResolvedValue(null);
     mockWithdrawalService.findOne.mockResolvedValue({
       ...baseWithdrawal,
       type: 'crypto',
@@ -135,7 +140,9 @@ describe('WithdrawWorkflowOrchestrator', () => {
       type: 'crypto',
       asset: { type: 'CRYPTO' },
     });
-    mockJournalsService.triggerEvent.mockResolvedValue({ id: 'JE_1' });
+    mockAccountingEventExecutionService.execute.mockResolvedValue({
+      journalResult: { id: 'JE_1' },
+    });
     mockTransactionComplianceService.ensureWithdrawMainCasesOnPayoutConfirmed.mockResolvedValue(
       {},
     );
@@ -143,7 +150,7 @@ describe('WithdrawWorkflowOrchestrator', () => {
       id: 'PO_1',
       status: PayoutStatus.CLEAR,
     });
-    mockPrisma.withdrawAuditLog.create.mockResolvedValue({ id: 'LOG_1' });
+    mockPrisma.auditLogEvent.create.mockResolvedValue({ id: 'LOG_1' });
 
     const result = await orchestrator.onPayoutConfirmed({
       withdrawId: 'WD_1',
@@ -172,7 +179,7 @@ describe('WithdrawWorkflowOrchestrator', () => {
   });
 
   it('should skip payout confirmed when marker exists', async () => {
-    mockPrisma.withdrawAuditLog.findFirst.mockResolvedValue({
+    mockPrisma.auditLogEvent.findUnique.mockResolvedValue({
       id: 'LOG_EXIST',
     });
 
@@ -186,10 +193,13 @@ describe('WithdrawWorkflowOrchestrator', () => {
   });
 
   it('should process approved event without second approve status transition', async () => {
-    mockPrisma.withdrawAuditLog.findFirst.mockResolvedValue(null);
+    mockPrisma.auditLogEvent.findUnique.mockResolvedValue(null);
     mockWithdrawalService.findOne.mockResolvedValue(baseWithdrawal);
     mockPrisma.withdrawTransaction.findUnique.mockResolvedValue(baseWithdrawal);
-    mockJournalsService.triggerEvent.mockResolvedValue({ id: 'JE_APR' });
+    mockAccountingEventExecutionService.execute.mockResolvedValue({
+      journalResult: { id: 'JE_APR' },
+      clearingResult: { id: 'CL_APR' },
+    });
     mockPrisma.payout.findUnique.mockResolvedValue(null);
     mockPayoutsService.create.mockResolvedValue({
       id: 'PO_2',
@@ -200,13 +210,21 @@ describe('WithdrawWorkflowOrchestrator', () => {
       payoutId: 'PO_2',
       payoutNo: 'PO0002',
     });
-    mockPrisma.withdrawAuditLog.create.mockResolvedValue({ id: 'LOG_APR' });
+    mockPrisma.auditLogEvent.create.mockResolvedValue({ id: 'LOG_APR' });
 
     const result = await orchestrator.onWithdrawalApprovedFiat({
       withdrawId: 'WD_1',
     });
 
-    expect(clearingsService.triggerClearing).toHaveBeenCalled();
+    expect(accountingEventExecutionService.execute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        entityType: 'WITHDRAW',
+        toStatus: WithdrawTransactionStatus.PAYOUT_PENDING,
+        journalSourceType: 'WITHDRAW',
+        clearingSourceType: 'WITHDRAWAL',
+      }),
+      mockPrisma,
+    );
     expect(withdrawalService.updateStatus).not.toHaveBeenCalledWith(
       'WD_1',
       expect.objectContaining({ action: 'approve' }),
@@ -225,7 +243,7 @@ describe('WithdrawWorkflowOrchestrator', () => {
   });
 
   it('should resolve source wallet before approved accounting when fromWalletId is missing', async () => {
-    mockPrisma.withdrawAuditLog.findFirst.mockResolvedValue(null);
+    mockPrisma.auditLogEvent.findUnique.mockResolvedValue(null);
     mockWithdrawalService.findOne.mockResolvedValue({
       ...baseWithdrawal,
       fromWalletId: null,
@@ -262,13 +280,16 @@ describe('WithdrawWorkflowOrchestrator', () => {
         payoutId: 'PO_2',
         payoutNo: 'PO0002',
       });
-    mockJournalsService.triggerEvent.mockResolvedValue({ id: 'JE_APR2' });
+    mockAccountingEventExecutionService.execute.mockResolvedValue({
+      journalResult: { id: 'JE_APR2' },
+      clearingResult: { id: 'CL_APR2' },
+    });
     mockPrisma.payout.findUnique.mockResolvedValue(null);
     mockPayoutsService.create.mockResolvedValue({
       id: 'PO_2',
       payoutNo: 'PO0002',
     });
-    mockPrisma.withdrawAuditLog.create.mockResolvedValue({ id: 'LOG_APR2' });
+    mockPrisma.auditLogEvent.create.mockResolvedValue({ id: 'LOG_APR2' });
 
     await orchestrator.onWithdrawalApprovedFiat({
       withdrawId: 'WD_1',
@@ -294,7 +315,7 @@ describe('WithdrawWorkflowOrchestrator', () => {
   });
 
   it('should use asset.type when deriving payout type suffix', async () => {
-    mockPrisma.withdrawAuditLog.findFirst.mockResolvedValue(null);
+    mockPrisma.auditLogEvent.findUnique.mockResolvedValue(null);
     mockWithdrawalService.findOne.mockResolvedValue({
       ...baseWithdrawal,
       type: 'crypto',
@@ -304,7 +325,10 @@ describe('WithdrawWorkflowOrchestrator', () => {
       ...baseWithdrawal,
       asset: { type: 'FIAT' },
     });
-    mockJournalsService.triggerEvent.mockResolvedValue({ id: 'JE_ASSET' });
+    mockAccountingEventExecutionService.execute.mockResolvedValue({
+      journalResult: { id: 'JE_ASSET' },
+      clearingResult: { id: 'CL_ASSET' },
+    });
     mockPrisma.payout.findUnique.mockResolvedValue(null);
     mockPayoutsService.create.mockResolvedValue({
       id: 'PO_3',
@@ -315,7 +339,7 @@ describe('WithdrawWorkflowOrchestrator', () => {
       payoutId: 'PO_3',
       payoutNo: 'PO0003',
     });
-    mockPrisma.withdrawAuditLog.create.mockResolvedValue({ id: 'LOG_ASSET' });
+    mockPrisma.auditLogEvent.create.mockResolvedValue({ id: 'LOG_ASSET' });
 
     await orchestrator.onWithdrawalApprovedFiat({
       withdrawId: 'WD_1',
@@ -331,18 +355,17 @@ describe('WithdrawWorkflowOrchestrator', () => {
   });
 
   it('should process payout failed via config-driven triggerEvent and cancel clearing', async () => {
-    mockPrisma.withdrawAuditLog.findFirst.mockResolvedValue(null);
+    mockPrisma.auditLogEvent.findUnique.mockResolvedValue(null);
     mockWithdrawalService.findOne.mockResolvedValue(baseWithdrawal);
     mockWithdrawalService.updateStatus.mockResolvedValue({
       ...baseWithdrawal,
       status: WithdrawTransactionStatus.FAILED,
     });
-    mockJournalsService.triggerEvent.mockResolvedValue([
-      { id: 'REV_1' },
-      { id: 'REV_2' },
-    ]);
+    mockAccountingEventExecutionService.execute.mockResolvedValue({
+      journalResult: [{ id: 'REV_1' }, { id: 'REV_2' }],
+    });
     mockClearingsService.updateStatusBySource.mockResolvedValue({ count: 1 });
-    mockPrisma.withdrawAuditLog.create.mockResolvedValue({ id: 'LOG_FAIL' });
+    mockPrisma.auditLogEvent.create.mockResolvedValue({ id: 'LOG_FAIL' });
 
     const result = await orchestrator.onPayoutFailed({
       withdrawId: 'WD_1',
@@ -350,7 +373,7 @@ describe('WithdrawWorkflowOrchestrator', () => {
       status: PayoutStatus.FAILED,
     });
 
-    expect(journalsService.triggerEvent).toHaveBeenCalledWith(
+    expect(accountingEventExecutionService.execute).toHaveBeenCalledWith(
       expect.objectContaining({
         entityType: 'WITHDRAW',
         toStatus: WithdrawTransactionStatus.FAILED,
@@ -369,7 +392,7 @@ describe('WithdrawWorkflowOrchestrator', () => {
   });
 
   it('should skip repeated returned event when withdrawal is already RETURNED', async () => {
-    mockPrisma.withdrawAuditLog.findFirst.mockResolvedValue(null);
+    mockPrisma.auditLogEvent.findUnique.mockResolvedValue(null);
     mockWithdrawalService.findOne.mockResolvedValue({
       ...baseWithdrawal,
       status: WithdrawTransactionStatus.RETURNED,

@@ -11,8 +11,8 @@ import { SwapEvents } from './constants/swap-events.constant';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { JournalsService } from '../../accounting/journals/journals.service';
-import { SwapQuotesService } from './swap-quotes.service';
 import { OutstandingsService } from '../../clearing-settle/outstandings/outstandings.service';
+import { PricingCenterService } from '../pricing-center/pricing-center.service';
 
 describe('SwapWorkflowOrchestrator', () => {
   let orchestrator: SwapWorkflowOrchestrator;
@@ -59,7 +59,7 @@ describe('SwapWorkflowOrchestrator', () => {
     triggerEvent: jest.fn(),
   };
 
-  const mockSwapQuotesService = {
+  const mockPricingCenterService = {
     getActiveQuoteOrThrow: jest.fn(),
     consumeQuoteForSwap: jest.fn(),
   };
@@ -74,7 +74,13 @@ describe('SwapWorkflowOrchestrator', () => {
         SwapWorkflowOrchestrator,
         { provide: SwapTransactionsService, useValue: mockSwapService },
         { provide: JournalsService, useValue: mockJournalsService },
-        { provide: SwapQuotesService, useValue: mockSwapQuotesService },
+        {
+          provide: PricingCenterService,
+          useValue: {
+            getActiveSwapQuoteOrThrow: mockPricingCenterService.getActiveQuoteOrThrow,
+            consumeSwapQuoteForSwap: mockPricingCenterService.consumeQuoteForSwap,
+          },
+        },
         { provide: OutstandingsService, useValue: mockOutstandingsService },
         { provide: PrismaService, useValue: mockPrisma },
         { provide: EventEmitter2, useValue: mockEventEmitter },
@@ -89,6 +95,9 @@ describe('SwapWorkflowOrchestrator', () => {
     eventEmitter = module.get<EventEmitter2>(EventEmitter2);
 
     jest.clearAllMocks();
+    jest
+      .spyOn((orchestrator as any).auditLogsService, 'recordByActor')
+      .mockResolvedValue({ id: 'audit-log-1' });
   });
 
   describe('R0: CREATE', () => {
@@ -224,12 +233,12 @@ describe('SwapWorkflowOrchestrator', () => {
         status: SwapTransactionStatus.PENDING_COMPLIANCE,
       };
 
-      mockSwapQuotesService.getActiveQuoteOrThrow.mockResolvedValue(quote);
+      mockPricingCenterService.getActiveQuoteOrThrow.mockResolvedValue(quote);
       mockJournalsService.getCustomerLiabilityBalance.mockResolvedValue({
         availableBalance: new Prisma.Decimal(1000),
       });
       mockPrisma.swapTransaction.create.mockResolvedValue(mockTx);
-      mockSwapQuotesService.consumeQuoteForSwap.mockResolvedValue({
+      mockPricingCenterService.consumeQuoteForSwap.mockResolvedValue({
         ...quote,
         status: 'USED',
       });
@@ -241,8 +250,8 @@ describe('SwapWorkflowOrchestrator', () => {
       const result = await orchestrator.createSwapFromQuote('user-1', 'quote-1');
 
       expect(result.swap_status_after).toBe(SwapTransactionStatus.PENDING_COMPLIANCE);
-      expect(mockSwapQuotesService.getActiveQuoteOrThrow).toHaveBeenCalled();
-      expect(mockSwapQuotesService.consumeQuoteForSwap).toHaveBeenCalled();
+      expect(mockPricingCenterService.getActiveQuoteOrThrow).toHaveBeenCalled();
+      expect(mockPricingCenterService.consumeQuoteForSwap).toHaveBeenCalled();
       expect(mockPrisma.swapTransaction.create).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
@@ -255,7 +264,7 @@ describe('SwapWorkflowOrchestrator', () => {
     });
 
     it('should block create from quote when available balance is insufficient', async () => {
-      mockSwapQuotesService.getActiveQuoteOrThrow.mockResolvedValue({
+      mockPricingCenterService.getActiveQuoteOrThrow.mockResolvedValue({
         id: 'quote-2',
         quoteNo: 'QUO_0002',
         ownerNo: 'CU_0001',
@@ -276,7 +285,7 @@ describe('SwapWorkflowOrchestrator', () => {
       ).rejects.toThrow(BadRequestException);
 
       expect(mockPrisma.swapTransaction.create).not.toHaveBeenCalled();
-      expect(mockSwapQuotesService.consumeQuoteForSwap).not.toHaveBeenCalled();
+      expect(mockPricingCenterService.consumeQuoteForSwap).not.toHaveBeenCalled();
     });
   });
 
@@ -367,7 +376,7 @@ describe('SwapWorkflowOrchestrator', () => {
       );
     });
 
-    it('should be idempotent for events', async () => {
+    it('should still emit success event when legacy swap audit log rows exist', async () => {
       const swapId = 'swap-1';
       const mockTx = {
         id: swapId,
@@ -404,10 +413,10 @@ describe('SwapWorkflowOrchestrator', () => {
         'admin-1',
       );
 
-      expect(result.emitted_events).not.toContain(SwapEvents.EVT_SWAP_SUCCESS);
-      expect(eventEmitter.emit).not.toHaveBeenCalledWith(
+      expect(result.emitted_events).toContain(SwapEvents.EVT_SWAP_SUCCESS);
+      expect(eventEmitter.emit).toHaveBeenCalledWith(
         SwapEvents.EVT_SWAP_SUCCESS,
-        expect.anything(),
+        { swapId, oldStatus: SwapTransactionStatus.PENDING_COMPLIANCE },
       );
       expect(mockOutstandingsService.createForSwapSuccess).toHaveBeenCalledTimes(1);
     });

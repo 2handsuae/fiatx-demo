@@ -27,7 +27,8 @@ describe('WithdrawTransactionsService', () => {
       update: jest.fn(),
       findUnique: jest.fn(),
     },
-    withdrawAuditLog: {
+    auditLogEvent: {
+      findUnique: jest.fn(),
       create: jest.fn(),
     },
   };
@@ -43,6 +44,10 @@ describe('WithdrawTransactionsService', () => {
             asset: { findUnique: jest.fn() },
             customerMain: { findUnique: jest.fn() },
             withdrawTransaction: { findUnique: jest.fn() },
+            auditLogEvent: {
+              findUnique: jest.fn(),
+              create: jest.fn(),
+            },
           },
         },
         {
@@ -86,7 +91,9 @@ describe('WithdrawTransactionsService', () => {
     jest.clearAllMocks();
     mockTx.withdrawTransaction.findUnique.mockReset();
     mockTx.withdrawTransaction.update.mockReset();
-    mockTx.withdrawAuditLog.create.mockReset();
+    mockTx.auditLogEvent.findUnique.mockReset();
+    mockTx.auditLogEvent.create.mockReset();
+    mockTx.auditLogEvent.findUnique.mockResolvedValue(null);
     transactionComplianceService.getTransactionCaseAggregate.mockResolvedValue({
       preKytCase: null,
       mainKytCase: null,
@@ -146,7 +153,7 @@ describe('WithdrawTransactionsService', () => {
       toWalletId: null,
       toWalletNo: null,
     });
-    mockTx.withdrawAuditLog.create.mockResolvedValue({ id: 'audit-create-1' });
+    mockTx.auditLogEvent.create.mockResolvedValue({ id: 'audit-create-1' });
     journalsService.createJournal.mockResolvedValue({ id: 'je-create-1' });
     transactionComplianceService.ensureWithdrawPreKytCaseOnCreate.mockResolvedValue(
       {},
@@ -186,7 +193,7 @@ describe('WithdrawTransactionsService', () => {
       toWalletId: null,
       toWalletNo: null,
     });
-    mockTx.withdrawAuditLog.create.mockResolvedValue({ id: 'audit-create-2' });
+    mockTx.auditLogEvent.create.mockResolvedValue({ id: 'audit-create-2' });
     journalsService.createJournal.mockResolvedValue({ id: 'je-create-2' });
     transactionComplianceService.ensureWithdrawPreKytCaseOnCreate.mockResolvedValue(
       null,
@@ -283,7 +290,7 @@ describe('WithdrawTransactionsService', () => {
         type: 'CRYPTO',
       },
     });
-    mockTx.withdrawAuditLog.create.mockResolvedValue({ id: 'audit-2' });
+    mockTx.auditLogEvent.create.mockResolvedValue({ id: 'audit-2' });
 
     const result = await service.updateStatus('wd-2', {
       action: WithdrawTransactionAction.CHECK,
@@ -326,7 +333,7 @@ describe('WithdrawTransactionsService', () => {
       feeAmount: new Prisma.Decimal(0),
       withdrawNo: 'WD0003',
     });
-    mockTx.withdrawAuditLog.create.mockResolvedValue({ id: 'audit-3' });
+    mockTx.auditLogEvent.create.mockResolvedValue({ id: 'audit-3' });
 
     const result = await service.updateStatus(
       'wd-3',
@@ -363,7 +370,7 @@ describe('WithdrawTransactionsService', () => {
       id: 'wd-4',
       status: WithdrawTransactionStatus.PAYOUT_PENDING,
     });
-    mockTx.withdrawAuditLog.create.mockResolvedValue({ id: 'audit-4' });
+    mockTx.auditLogEvent.create.mockResolvedValue({ id: 'audit-4' });
 
     const result = await service.updateStatus('wd-4', {
       action: WithdrawTransactionAction.APPROVE,
@@ -399,7 +406,7 @@ describe('WithdrawTransactionsService', () => {
       id: 'wd-5',
       status: WithdrawTransactionStatus.FAILED,
     });
-    mockTx.withdrawAuditLog.create.mockResolvedValue({ id: 'audit-5' });
+    mockTx.auditLogEvent.create.mockResolvedValue({ id: 'audit-5' });
 
     const result = await service.updateStatus('wd-5', {
       action: WithdrawTransactionAction.FAIL,

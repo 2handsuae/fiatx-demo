@@ -8,6 +8,9 @@ describe('TreasuryService', () => {
     wallet: {
       findMany: jest.fn(),
     },
+    walletBalanceSnapshot: {
+      findMany: jest.fn(),
+    },
     journalLine: {
       groupBy: jest.fn(),
     },
@@ -40,8 +43,15 @@ describe('TreasuryService', () => {
       {
         id: 'wallet-btc',
         assetId: 'asset-btc',
-        balance: 10,
         asset: { id: 'asset-btc', code: 'BTC', type: 'CRYPTO' },
+      },
+    ]);
+    mockPrisma.walletBalanceSnapshot.findMany.mockResolvedValue([
+      {
+        walletId: 'wallet-btc',
+        availableBalance: '7',
+        restrictedBalance: '1.5',
+        updatedAt: new Date('2026-03-23T08:00:00.000Z'),
       },
     ]);
     mockPrisma.journalLine.groupBy.mockResolvedValue([
@@ -80,6 +90,14 @@ describe('TreasuryService', () => {
         assetCode: 'BTC',
         clientCredit: 100,
         walletId: 'wallet-btc',
+        walletBalance: 8.5,
+        walletBalanceSource: 'SNAPSHOT',
+      }),
+    );
+    expect(aed).toEqual(
+      expect.objectContaining({
+        walletBalance: null,
+        walletBalanceSource: null,
       }),
     );
   });

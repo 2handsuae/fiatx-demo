@@ -1,19 +1,57 @@
 import { PrismaClient } from '@prisma/client';
 import { seedBusiness } from '../prisma/seed.business';
+import {
+  buildCryptoSystemWalletNo,
+  buildFiatPoolWalletNo,
+} from '../src/modules/asset-treasury/wallets/system-wallet.util';
 
 const prisma = new PrismaClient({
   log: ['warn', 'error'],
 });
 
+async function getPreservedBaselineWalletNos(): Promise<string[]> {
+  const assets = await prisma.asset.findMany({
+    where: { status: 'ACTIVE' },
+    select: { type: true, code: true, network: true },
+    orderBy: [{ type: 'asc' }, { code: 'asc' }, { network: 'asc' }],
+  });
+
+  const walletNos: string[] = [];
+  for (const asset of assets) {
+    if (asset.type === 'CRYPTO') {
+      walletNos.push(
+        buildCryptoSystemWalletNo('MASTER', asset.code, asset.network),
+        buildCryptoSystemWalletNo('PAYOUT', asset.code, asset.network),
+        buildCryptoSystemWalletNo('LIQ', asset.code, asset.network),
+      );
+      continue;
+    }
+
+    if (asset.type === 'FIAT') {
+      walletNos.push(
+        buildFiatPoolWalletNo('CUST_BANK', asset.code),
+        buildFiatPoolWalletNo('LIQ_BANK', asset.code),
+      );
+    }
+  }
+
+  return walletNos;
+}
+
 async function resetBusinessData(): Promise<void> {
-  console.log('--- Resetting business data (base config will be preserved) ---');
+  console.log(
+    '--- Resetting business data (canonical baseline wallets will be preserved) ---',
+  );
 
   const deleted: Record<string, number> = {};
+  const preservedBaselineWalletNos = await getPreservedBaselineWalletNos();
 
   deleted.clearing_lines = (await prisma.clearingLine.deleteMany()).count;
   deleted.clearings = (await prisma.clearing.deleteMany()).count;
   deleted.journal_lines = (await prisma.journalLine.deleteMany()).count;
   deleted.journals = (await prisma.journal.deleteMany()).count;
+  deleted.wallet_balance_entries = (await (prisma as any).walletBalanceEntry.deleteMany()).count;
+  deleted.wallet_balance_snapshots = (await (prisma as any).walletBalanceSnapshot.deleteMany()).count;
 
   deleted.payin_audit_logs = (await prisma.payinAuditLog.deleteMany()).count;
   deleted.deposit_audit_logs = (await prisma.depositAuditLog.deleteMany()).count;
@@ -59,7 +97,18 @@ async function resetBusinessData(): Promise<void> {
 
   deleted.liquidity_configurations = (await prisma.liquidityConfiguration.deleteMany()).count;
   deleted.liquidity_provider = (await prisma.liquidityProvider.deleteMany()).count;
-  deleted.wallets = (await prisma.wallet.deleteMany()).count;
+  deleted.wallets = (
+    await prisma.wallet.deleteMany({
+      where: preservedBaselineWalletNos.length
+        ? {
+            OR: [
+              { walletNo: null },
+              { walletNo: { notIn: preservedBaselineWalletNos } },
+            ],
+          }
+        : undefined,
+    })
+  ).count;
   deleted.customer_main = (await prisma.customerMain.deleteMany()).count;
 
   for (const [table, count] of Object.entries(deleted)) {

@@ -53,16 +53,46 @@ export class WalletsController {
   @ApiOperation({ summary: 'Create a new wallet' })
   create(@Request() req: any, @Body() dto: CreateWalletDto) {
     this.ensureSupportedToken(req);
+    const payload: CreateWalletDto = { ...dto };
 
     if (req.user.type === 'CUSTOMER') {
-      if (dto.ownerType !== OwnerType.CUSTOMER || dto.ownerId !== req.user.userId) {
+      if (
+        payload.ownerType !== OwnerType.CUSTOMER ||
+        payload.ownerId !== req.user.userId
+      ) {
         throw new ForbiddenException(
           'Customer can only create CUSTOMER wallets for self',
         );
       }
+
+      if (payload.direction === WalletDirection.BIDIRECTIONAL) {
+        throw new ForbiddenException(
+          'Customer cannot create BIDIRECTIONAL wallets',
+        );
+      }
+
+      if (payload.direction === WalletDirection.INBOUND) {
+        if (payload.walletRole && payload.walletRole !== WalletRole.DEPOSIT) {
+          throw new ForbiddenException(
+            'Customer inbound wallets must use DEPOSIT role',
+          );
+        }
+        payload.walletRole = WalletRole.DEPOSIT;
+      } else if (payload.direction === WalletDirection.OUTBOUND) {
+        if (payload.walletRole && payload.walletRole !== WalletRole.GENERAL) {
+          throw new ForbiddenException(
+            'Customer outbound wallets must use GENERAL role',
+          );
+        }
+        payload.walletRole = WalletRole.GENERAL;
+      } else {
+        throw new ForbiddenException(
+          'Customer can only create INBOUND deposit wallets or OUTBOUND payout targets',
+        );
+      }
     }
 
-    return this.service.create(dto);
+    return this.service.create(payload);
   }
 
   @Get()

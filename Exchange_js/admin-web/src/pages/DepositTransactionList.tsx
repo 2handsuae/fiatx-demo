@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, RefreshCw, Eye, Download, Plus, ArrowRight, CheckCircle, ShieldCheck, Lock, Unlock, Copy } from 'lucide-react';
+import { Search, RefreshCw, Eye, Download, ArrowRight, CheckCircle, ShieldCheck, Lock, Unlock, Copy } from 'lucide-react';
 import { copyToClipboard } from '../utils/clipboard';
 import { formatAssetAmount } from '../utils/number-format';
 
@@ -129,26 +129,6 @@ const DepositTransactionList = () => {
       }
   };
 
-  const handleCreate = async () => {
-      try {
-          const token = localStorage.getItem('admin_token');
-          const response = await fetch(`${import.meta.env.VITE_API_URL}/deposit-transactions`, {
-              method: 'POST',
-              headers: {
-                  'Authorization': `Bearer ${token}`
-              }
-          });
-          if (response.ok) {
-              fetchItems();
-              alert('Successfully generated 10 random deposit transactions');
-          } else {
-              alert('Failed to generate records');
-          }
-      } catch (error) {
-          console.error('Generation failed', error);
-      }
-  };
-
   const handleAction = async (id: string, action: string, reason?: string) => {
       setProcessingId(id);
       try {
@@ -182,7 +162,7 @@ const DepositTransactionList = () => {
       const actions = [];
       switch (status) {
           case 'PAYIN_PENDING':
-              actions.push({ action: 'payin_confirmed', label: 'Confirm Payin', icon: <ArrowRight size={14} />, style: 'bg-blue-600 hover:bg-blue-700 text-white' });
+              actions.push({ action: 'payin_confirmed', label: 'Compensate Confirm', icon: <ArrowRight size={14} />, style: 'bg-blue-600 hover:bg-blue-700 text-white' });
               actions.push({ action: 'fail', label: 'Fail', icon: <RefreshCw size={14} />, style: 'bg-orange-600 hover:bg-orange-700 text-white' });
               break;
           case 'COMPLIANCE_PENDING':
@@ -219,13 +199,9 @@ const DepositTransactionList = () => {
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Deposit Transactions</h1>
-          <p className="text-sm text-gray-500 mt-1">Manage deposit requests and status</p>
+          <p className="text-sm text-gray-500 mt-1">Manage deposit requests, status, and compensation-only actions</p>
         </div>
         <div className="flex gap-3">
-          <button onClick={handleCreate} className="flex items-center gap-2 px-3 py-2 bg-brand-primary text-white rounded-lg hover:bg-brand-secondary transition-colors shadow-sm">
-             <Plus size={18} />
-             <span className="text-sm font-medium">Generate 10 Demo Records</span>
-          </button>
           <button onClick={handleExport} className="flex items-center gap-2 px-3 py-2 text-gray-600 hover:text-gray-800 bg-white border border-gray-200 rounded-lg transition-colors">
             <Download size={18} />
             <span className="text-sm font-medium">Export</span>

@@ -1,6 +1,10 @@
 import { useEffect, useState } from 'react';
-import { Search, RefreshCw, Plus, Edit2, Power, ChevronLeft, ChevronRight, ArrowUpDown, Settings } from 'lucide-react';
+import { Search, RefreshCw, Edit2, Power, ChevronLeft, ChevronRight, ArrowUpDown, Settings } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import {
+  BUSINESS_CONFIG_RELEASES_PATH,
+  showBusinessConfigReadOnlyAlert,
+} from '../utils/businessConfigReadOnly';
 
 interface AcctEventItem {
   id: string;
@@ -19,7 +23,6 @@ const AcctEventList = () => {
   const navigate = useNavigate();
   const [items, setItems] = useState<AcctEventItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [syncing, setSyncing] = useState(false);
   
   // Filters
   const [eventCodeSearch, setEventCodeSearch] = useState('');
@@ -74,56 +77,10 @@ const AcctEventList = () => {
       fetchItems();
   };
 
-  const handleSyncDefaults = async () => {
-      if (!window.confirm('This will synchronize all default accounting events and templates. Existing rules will be updated. Proceed?')) return;
-      
-      setSyncing(true);
-      try {
-          const token = localStorage.getItem('admin_token');
-          const response = await fetch(`${import.meta.env.VITE_API_URL}/acct-events/sync-defaults`, {
-              method: 'POST',
-              headers: {
-                  'Authorization': `Bearer ${token}`
-              }
-          });
-          
-          if (response.ok) {
-              alert('Accounting configuration synchronized successfully!');
-              fetchItems();
-          } else {
-              const err = await response.json();
-              alert(`Sync failed: ${err.message || 'Unknown error'}`);
-          }
-      } catch (error) {
-          console.error('Sync failed', error);
-          alert('Network error during synchronization');
-      } finally {
-          setSyncing(false);
-      }
-  };
-
   const handleToggleActive = async (eventCode: string, currentStatus: boolean) => {
-      if (!window.confirm(`Are you sure you want to ${currentStatus ? 'deactivate' : 'activate'} ${eventCode}?`)) return;
-      
-      try {
-          const token = localStorage.getItem('admin_token');
-          const response = await fetch(`${import.meta.env.VITE_API_URL}/acct-events/${eventCode}`, {
-              method: 'PATCH',
-              headers: {
-                  'Authorization': `Bearer ${token}`,
-                  'Content-Type': 'application/json'
-              },
-              body: JSON.stringify({ isActive: !currentStatus })
-          });
-          
-          if (response.ok) {
-              fetchItems();
-          } else {
-              alert('Failed to update status');
-          }
-      } catch (error) {
-          console.error('Update failed', error);
-      }
+      void eventCode;
+      void currentStatus;
+      showBusinessConfigReadOnlyAlert('Accounting events');
   };
 
   const handleSort = (field: string) => {
@@ -158,21 +115,17 @@ const AcctEventList = () => {
         </div>
         <div className="flex gap-2">
             <button 
-                onClick={handleSyncDefaults}
-                disabled={syncing}
-                className="flex items-center gap-2 px-4 py-2 bg-white text-gray-700 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50"
+                onClick={() => navigate(BUSINESS_CONFIG_RELEASES_PATH)}
+                className="flex items-center gap-2 px-4 py-2 bg-white text-gray-700 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
             >
-                <Settings size={20} className={syncing ? 'animate-spin' : ''} />
-                <span>{syncing ? 'Syncing...' : 'Sync Defaults'}</span>
-            </button>
-            <button 
-                onClick={() => navigate('/dashboard/system/acct-events/create')}
-                className="flex items-center gap-2 px-4 py-2 bg-brand-primary text-white rounded-lg hover:bg-brand-primary/90 transition-colors"
-            >
-                <Plus size={20} />
-                <span>Create Event Code</span>
+                <Settings size={20} />
+                <span>Open Release Center</span>
             </button>
         </div>
+      </div>
+
+      <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
+        Accounting events are now managed by config-as-code and Business Config Releases. This page remains read-only for current active rows.
       </div>
 
       <div className="bg-white rounded-xl shadow-sm border border-admin-border overflow-hidden">
@@ -252,16 +205,16 @@ const AcctEventList = () => {
                     <td className="px-4 py-4 text-right">
                       <div className="flex justify-end gap-2 items-center">
                         <button 
-                            className="p-1.5 text-gray-500 hover:text-brand-primary rounded hover:bg-gray-100 transition-colors"
-                            onClick={() => navigate(`/dashboard/system/acct-events/edit/${item.eventCode}`)}
-                            title="Edit"
+                            className="p-1.5 text-gray-300 rounded transition-colors cursor-not-allowed"
+                            onClick={() => showBusinessConfigReadOnlyAlert('Accounting events')}
+                            title="Read-only"
                         >
                             <Edit2 size={16} />
                         </button>
                         <button 
-                            className={`p-1.5 rounded hover:bg-gray-100 transition-colors ${item.isActive ? 'text-green-600 hover:text-red-600' : 'text-gray-400 hover:text-green-600'}`}
+                            className="p-1.5 rounded text-gray-300 transition-colors cursor-not-allowed"
                             onClick={() => handleToggleActive(item.eventCode, item.isActive)}
-                            title={item.isActive ? 'Deactivate' : 'Activate'}
+                            title="Read-only"
                         >
                             <Power size={16} />
                         </button>

@@ -4,9 +4,6 @@ import { ClearingsService } from './clearings.service';
 describe('ClearingsService', () => {
   it('should calculate clearing amounts from template expressions', async () => {
     const mockTx: any = {
-      withdrawTransaction: {
-        update: jest.fn().mockResolvedValue({}),
-      },
       clearing: {
         create: jest.fn().mockResolvedValue({ id: 'CL-1' }),
       },
@@ -78,10 +75,6 @@ describe('ClearingsService', () => {
       },
     });
 
-    const withdrawUpdateArgs = mockTx.withdrawTransaction.update.mock.calls[0][0];
-    expect(withdrawUpdateArgs.data.feeAmount.toString()).toBe('1');
-    expect(withdrawUpdateArgs.data.netAmount.toString()).toBe('99');
-
     const clearingCreateArgs = mockTx.clearing.create.mock.calls[0][0];
     expect(clearingCreateArgs.data.outAmount.toString()).toBe('100');
     expect(clearingCreateArgs.data.inAmount.toString()).toBe('99');
@@ -91,9 +84,6 @@ describe('ClearingsService', () => {
 
   it('should fail when template expression cannot be resolved', async () => {
     const mockTx: any = {
-      withdrawTransaction: {
-        update: jest.fn().mockResolvedValue({}),
-      },
       clearing: {
         create: jest.fn().mockResolvedValue({ id: 'CL-1' }),
       },

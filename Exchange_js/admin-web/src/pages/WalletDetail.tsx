@@ -18,6 +18,7 @@ interface WalletDetailData {
   id: string;
   walletNo: string;
   walletRole?: string;
+  surfaceCategory?: string;
   ownerType: string;
   ownerId: string | null;
   ownerNo: string | null;
@@ -130,6 +131,15 @@ const WalletDetail = () => {
   const isFiat = wallet.type === 'FIAT_BANK';
   const ownerLabel =
     wallet.ownerName || wallet.ownerNo || wallet.ownerId || '-';
+  const surfaceLabel =
+    {
+      CUSTOMER_POOL: '客户资金池',
+      PLATFORM_POOL: '公司资金池',
+      CUSTOMER_DEPOSIT: '客户充值载体',
+      CUSTOMER_PAYOUT_TARGET: '客户提现目标',
+      LIQUIDITY_PROVIDER_ACCOUNT: '流动性对手账户',
+      OTHER: '其他钱包',
+    }[wallet.surfaceCategory || 'OTHER'] || '其他钱包';
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto pb-12">
@@ -176,6 +186,7 @@ const WalletDetail = () => {
             value={`${wallet.asset.code}/${wallet.asset.network || 'NA'}`}
           />
           <QuickTag label="Role" value={wallet.walletRole || 'GENERAL'} />
+          <QuickTag label="Surface" value={surfaceLabel} />
           <QuickTag label="Type" value={wallet.type} />
           <QuickTag label="Owner" value={wallet.ownerType} />
         </div>
@@ -188,6 +199,7 @@ const WalletDetail = () => {
             label="Wallet Role"
             value={wallet.walletRole || 'GENERAL'}
           />
+          <InfoField label="Surface Category" value={surfaceLabel} />
           <InfoField
             label="Owner"
             value={ownerLabel}

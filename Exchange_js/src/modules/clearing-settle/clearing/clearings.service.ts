@@ -106,15 +106,65 @@ export class ClearingsService {
       return null;
     }
 
+    return this.executeResolvedEvent(
+      {
+        event,
+        sourceType,
+        sourceId,
+        context,
+      },
+      tx,
+    );
+  }
+
+  async executeResolvedEvent(
+    params: {
+      event: {
+        eventCode: string;
+        clearingMode?: string | null;
+        clearingTemplateCode?: string | null;
+      };
+      sourceType: string;
+      sourceId: string;
+      context: any;
+    },
+    tx?: Prisma.TransactionClient,
+  ) {
+    const { event, sourceType, sourceId, context } = params;
+    const client = tx || this.prisma;
+
+    const effectiveClearingMode =
+      event.clearingMode ||
+      (event.clearingTemplateCode ? 'TEMPLATE' : 'NONE');
+
+    if (effectiveClearingMode === 'NONE' || !event.clearingTemplateCode) {
+      return null;
+    }
+
+    if (effectiveClearingMode !== 'TEMPLATE') {
+      throw new BadRequestException({
+        code: 'UNSUPPORTED_CLEARING_MODE',
+        message: `Unsupported clearing mode ${effectiveClearingMode} for event ${event.eventCode}`,
+      });
+    }
+
+    const existing = await (client as any).clearing.findFirst({
+      where: { sourceType, sourceId, clearingType: event.eventCode },
+    });
+
+    if (existing) {
+      return existing;
+    }
+
     const template = await (client as any).clearingTemplate.findUnique({
-      where: { code: (event as any).clearingTemplateCode },
+      where: { code: event.clearingTemplateCode },
       include: { lineTemplates: true },
     });
 
     if (!template) {
       throw new BadRequestException({
         code: 'CLEARING_TEMPLATE_EVAL_FAILED',
-        message: `Clearing template "${(event as any).clearingTemplateCode}" not found`,
+        message: `Clearing template "${event.clearingTemplateCode}" not found`,
       });
     }
 
@@ -167,22 +217,11 @@ export class ClearingsService {
           )
         : null;
 
-      // 3. Update Withdrawal Record with template-derived amounts
-      if (sourceType === 'WITHDRAWAL') {
-        await (transactionClient as any).withdrawTransaction.update({
-          where: { id: sourceId },
-          data: {
-            feeAmount,
-            netAmount: inAmount,
-          }
-        });
-      }
-
-      // 4. Create Clearing Record
+      // 3. Create Clearing Record
       const clearing = await (transactionClient as any).clearing.create({
         data: {
           clearingNo: generateReferenceNo('CL'),
-          clearingType: eventCode,
+          clearingType: event.eventCode,
           sourceType,
           sourceId,
           outAssetId,
@@ -195,11 +234,11 @@ export class ClearingsService {
           outPayoutId,
           inPayinId,
           clearingStatus: 'CLEARED',
-          memo: template.memoTemplate || `Auto clearing for ${eventCode}`,
+          memo: template.memoTemplate || `Auto clearing for ${event.eventCode}`,
         },
       });
 
-      // 5. Create lines based on template expressions
+      // 4. Create lines based on template expressions
       for (const lt of template.lineTemplates) {
         const lineAmount = this.evalDecimal(
           lt.amountSource,

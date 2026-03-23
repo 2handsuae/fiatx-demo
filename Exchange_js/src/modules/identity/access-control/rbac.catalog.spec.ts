@@ -88,6 +88,15 @@ describe('rbac.catalog', () => {
     expect(permissionCodes.has(buildPermissionCode('GET', '/admin/compliance/edd-cases/:id'))).toBe(false);
   });
 
+  it('should remove Wave 4 demo shortcut routes from RBAC catalog', () => {
+    const permissionCodes = new Set(
+      RBAC_PERMISSION_DEFINITIONS.map((item) => item.code),
+    );
+
+    expect(permissionCodes.has(buildPermissionCode('POST', '/treasury/payins/simulate'))).toBe(false);
+    expect(permissionCodes.has(buildPermissionCode('POST', '/deposit-transactions'))).toBe(false);
+  });
+
   it('should grant alert read/write groups to the expected roles', () => {
     const permissionMap = buildRolePermissionCodeMap();
     const alertReadCode = buildPermissionCode('GET', '/admin/compliance/alerts');

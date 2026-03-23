@@ -1432,6 +1432,65 @@ model PricingPolicy {
   @@map("pricing_policies")
 }
 
+model BusinessConfigRevision {
+  id              String                      @id @default(uuid())
+  subjectType     String
+  businessKey     String
+  revisionNo      Int
+  payloadJson     String
+  contentHash     String
+  changeSummary   String?
+  status          String                      @default("STAGED")
+  sourceCommitSha String?
+  createdAt       DateTime                    @default(now())
+  updatedAt       DateTime                    @updatedAt
+  releaseItems    BusinessConfigReleaseItem[]
+
+  @@unique([subjectType, businessKey, revisionNo])
+  @@index([subjectType, businessKey, createdAt])
+  @@index([subjectType, contentHash])
+  @@map("business_config_revisions")
+}
+
+model BusinessConfigRelease {
+  id                    String                      @id @default(uuid())
+  subjectType           String
+  releaseNo             String                      @unique
+  status                String                      @default("DRAFT")
+  basedOnReleaseNo      String?
+  changeTicketId        String?
+  approvalCaseId        String?
+  effectiveFrom         DateTime?
+  publishedAt           DateTime?
+  publishedBy           String?
+  validationSummaryJson String                      @default("{}")
+  createdAt             DateTime                    @default(now())
+  updatedAt             DateTime                    @updatedAt
+  items                 BusinessConfigReleaseItem[]
+
+  @@index([subjectType, status, createdAt])
+  @@index([subjectType, createdAt])
+  @@map("business_config_releases")
+}
+
+model BusinessConfigReleaseItem {
+  id          String                @id @default(uuid())
+  releaseId   String
+  revisionId  String
+  subjectType String
+  businessKey String
+  sortOrder   Int                   @default(0)
+  createdAt   DateTime              @default(now())
+  release     BusinessConfigRelease @relation(fields: [releaseId], references: [id], onDelete: Cascade)
+  revision    BusinessConfigRevision @relation(fields: [revisionId], references: [id])
+
+  @@unique([releaseId, businessKey])
+  @@index([releaseId, sortOrder])
+  @@index([revisionId])
+  @@index([subjectType, businessKey])
+  @@map("business_config_release_items")
+}
+
 model WithdrawPricingQuote {
   id              String                @id @default(uuid())
   quoteNo         String                @unique
@@ -1474,8 +1533,6 @@ model Wallet {
   direction           String
   walletRole          String               @default("GENERAL")
   assetId             String
-  balance             Decimal              @default(0)
-  lockedBalance       Decimal              @default(0)
   address             String?
   memo                String?
   bankName            String?
@@ -1937,6 +1994,8 @@ model SwapQuote {
   feeTotal     Decimal          @default(0)
   feeCurrency  String
   feeBreakdown String?
+  totalsJson   String           @default("{}")
+  policyRef    String           @default("{}")
   expiresAt    DateTime
   usedAt       DateTime?
   cancelledAt  DateTime?
