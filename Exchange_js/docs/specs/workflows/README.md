@@ -2,7 +2,7 @@
 
 Status: active
 Owner: project-owner-and-agents
-Last Updated: 2026-03-22
+Last Updated: 2026-03-23
 Applies To: `Exchange_js`
 Supersedes: none
 Depends On: `docs/specs/README.md`
@@ -45,3 +45,7 @@ Source of Truth Level: specs-workflow
   - Case report, workflow proposal, final disposition, measure, and external filing separation.
 - `docs/specs/workflows/onboarding-periodic-review-audit-trace-contract.md`
   - Unified trace and Audit Center replay contract for onboarding and periodic review.
+- `docs/specs/workflows/config-release-activation-workflow.md`
+  - Wave 4 subject-scoped config release activation path.
+- `docs/specs/workflows/quote-event-clearing-journal-workflow.md`
+  - Wave 4 quote-to-event-to-clearing/journal orchestration contract.

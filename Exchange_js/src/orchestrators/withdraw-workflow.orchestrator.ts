@@ -1,9 +1,9 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../core/prisma/prisma.service';
 import { WithdrawTransactionsService } from '../modules/trading/withdraw-transactions/withdraw-transactions.service';
 import { PayoutsService } from '../modules/asset-treasury/payouts/payouts.service';
-import { JournalsService } from '../modules/accounting/journals/journals.service';
 import { ClearingsService } from '../modules/clearing-settle/clearing/clearings.service';
 import { WithdrawEvents } from '../modules/trading/withdraw-transactions/constants/withdraw-events.constant';
 import { PayoutEvents } from '../modules/asset-treasury/payouts/constants/payout-events.constant';
@@ -29,6 +29,7 @@ import {
   buildStateTransitionAction,
 } from '../modules/risk-engine/audit-logs/constants/audit-actions.constant';
 import { AuditTriggerType } from '../modules/risk-engine/audit-logs/dto/audit-log.dto';
+import { AccountingEventExecutionService } from './accounting-event-execution.service';
 
 export interface OrchestrationResult {
   updated_withdrawal_status?: string;
@@ -39,6 +40,50 @@ export interface OrchestrationResult {
   audit_log_id: string;
 }
 
+type WithdrawalAssetLike = {
+  id?: string;
+  code?: string;
+  network?: string | null;
+  type?: string | null;
+};
+
+type WithdrawalForOrchestration = {
+  id: string;
+  status: string;
+  ownerType: string;
+  ownerId: string;
+  assetId: string;
+  withdrawNo: string;
+  amount: Prisma.Decimal;
+  netAmount: Prisma.Decimal;
+  feeAmount: Prisma.Decimal;
+  fromWalletId?: string | null;
+  fromWalletNo?: string | null;
+  fromAddress?: string | null;
+  fromIban?: string | null;
+  toWalletId?: string | null;
+  toWalletNo?: string | null;
+  toAddress?: string | null;
+  toIban?: string | null;
+  payoutId?: string | null;
+  payoutNo?: string | null;
+  type?: string | null;
+  asset?: WithdrawalAssetLike | null;
+};
+
+type SourceWalletProjection = {
+  id: string;
+  walletNo: string | null;
+  address: string | null;
+  iban: string | null;
+};
+
+type JournalPostingResult =
+  | { id?: string | null }
+  | Array<{ id?: string | null }>
+  | null
+  | undefined;
+
 @Injectable()
 export class WithdrawWorkflowOrchestrator {
   private readonly logger = new Logger(WithdrawWorkflowOrchestrator.name);
@@ -48,7 +93,7 @@ export class WithdrawWorkflowOrchestrator {
     private prisma: PrismaService,
     private withdrawalService: WithdrawTransactionsService,
     private payoutsService: PayoutsService,
-    private journalsService: JournalsService,
+    private accountingEventExecutionService: AccountingEventExecutionService,
     private clearingsService: ClearingsService,
     private transactionComplianceService: TransactionComplianceService,
   ) {
@@ -153,15 +198,19 @@ export class WithdrawWorkflowOrchestrator {
     // 1) CREATED
     if (eventType === WithdrawEvents.EVT_WITHDRAWAL_CREATED) {
       if (isCustomer) {
-        const je = await this.journalsService.triggerEvent({
+        const execution = await this.accountingEventExecutionService.execute({
           entityType: 'WITHDRAW',
           triggerKey: 'status',
           toStatus: WithdrawTransactionStatus.CREATED,
           assetType: suffix,
-          context: this.createAccountingContext(withdrawal),
+          frozenContext: this.createAccountingContext(withdrawal),
           sourceId: withdrawal.id,
+          journalSourceType: 'WITHDRAW',
+          clearingSourceType: 'WITHDRAWAL',
         });
-        result.created_or_reversed_journal_entry_ids.push(...this.collectJournalIds(je));
+        result.created_or_reversed_journal_entry_ids.push(
+          ...this.collectJournalIds(execution.journalResult),
+        );
       }
       const log = await this.auditLogsService.recordSystem({
         triggerType: AuditTriggerType.SYSTEM_EVENT,
@@ -182,15 +231,19 @@ export class WithdrawWorkflowOrchestrator {
     // 2) CANCELLED / 3) REJECTED
     else if (eventType === WithdrawEvents.EVT_WITHDRAWAL_CANCELLED || eventType === WithdrawEvents.EVT_WITHDRAWAL_REJECTED) {
       if (isCustomer) {
-        const je = await this.journalsService.triggerEvent({
+        const execution = await this.accountingEventExecutionService.execute({
           entityType: 'WITHDRAW',
           triggerKey: 'status',
           toStatus: withdrawal.status,
           assetType: suffix,
-          context: this.createAccountingContext(withdrawal),
+          frozenContext: this.createAccountingContext(withdrawal),
           sourceId: withdrawal.id,
+          journalSourceType: 'WITHDRAW',
+          clearingSourceType: 'WITHDRAWAL',
         });
-        result.created_or_reversed_journal_entry_ids.push(...this.collectJournalIds(je));
+        result.created_or_reversed_journal_entry_ids.push(
+          ...this.collectJournalIds(execution.journalResult),
+        );
       }
       const log = await this.auditLogsService.recordSystem({
         triggerType: AuditTriggerType.SYSTEM_EVENT,
@@ -210,7 +263,7 @@ export class WithdrawWorkflowOrchestrator {
     }
     // 4) APPROVED (Entering PAYOUT_PENDING)
     else if (eventType === WithdrawEvents.EVT_WITHDRAWAL_APPROVED__CRYPTO || eventType === WithdrawEvents.EVT_WITHDRAWAL_APPROVED__FIAT) {
-      await (this.prisma as any).$transaction(async (tx: any) => {
+      await this.prisma.$transaction(async (tx) => {
         const withdrawalForPosting = await tx.withdrawTransaction.findUnique({
           where: { id: withdrawId },
           include: {
@@ -234,58 +287,36 @@ export class WithdrawWorkflowOrchestrator {
           suffix,
         );
 
-        await this.clearingsService.triggerClearing(
+        const execution = await this.accountingEventExecutionService.execute(
           {
-            sourceType: 'WITHDRAWAL',
+            entityType: 'WITHDRAW',
+            triggerKey: 'status',
+            toStatus: WithdrawTransactionStatus.PAYOUT_PENDING,
+            assetType: suffix,
+            frozenContext: this.createAccountingContext(withdrawWithSourceWallet),
             sourceId: withdrawWithSourceWallet.id,
-            eventCode: eventType,
-            context: this.createAccountingContext(withdrawWithSourceWallet),
+            journalSourceType: 'WITHDRAW',
+            clearingSourceType: 'WITHDRAWAL',
           },
           tx,
         );
-
-        const updatedAfterClearing = await tx.withdrawTransaction.findUnique({
-          where: { id: withdrawId },
-          include: {
-            asset: {
-              select: {
-                type: true,
-              },
-            },
-          },
-        });
-        if (!updatedAfterClearing) {
-          throw new Error(`Withdrawal ${withdrawId} not found after clearing`);
-        }
-
-        if (isCustomer) {
-          const je = await this.journalsService.triggerEvent(
-            {
-              entityType: 'WITHDRAW',
-              triggerKey: 'status',
-              toStatus: WithdrawTransactionStatus.PAYOUT_PENDING,
-              assetType: suffix,
-              context: this.createAccountingContext(updatedAfterClearing),
-              sourceId: updatedAfterClearing.id,
-            },
-            tx,
-          );
-          result.created_or_reversed_journal_entry_ids.push(...this.collectJournalIds(je));
-        }
+        result.created_or_reversed_journal_entry_ids.push(
+          ...this.collectJournalIds(execution.journalResult),
+        );
 
         let payout = await tx.payout.findUnique({
-          where: { withdrawId: updatedAfterClearing.id },
+          where: { withdrawId },
         });
         if (!payout) {
           payout = await this.payoutsService.create(
             {
-              withdrawId: updatedAfterClearing.id,
+              withdrawId: withdrawWithSourceWallet.id,
               type: suffix === 'CRYPTO' ? PayoutType.CRYPTO : PayoutType.FIAT,
-              amount: updatedAfterClearing.netAmount.toString(),
-              assetId: updatedAfterClearing.assetId,
-              toAddress: updatedAfterClearing.toAddress || undefined,
-              toIban: updatedAfterClearing.toIban || undefined,
-              toWalletId: updatedAfterClearing.toWalletId || undefined,
+              amount: Number(withdrawWithSourceWallet.netAmount),
+              assetId: withdrawWithSourceWallet.assetId,
+              toAddress: withdrawWithSourceWallet.toAddress || undefined,
+              toIban: withdrawWithSourceWallet.toIban || undefined,
+              toWalletId: withdrawWithSourceWallet.toWalletId || undefined,
             },
             'SYSTEM',
             tx,
@@ -294,16 +325,22 @@ export class WithdrawWorkflowOrchestrator {
         } else {
           result.payout_binding_status = 'bound';
         }
+        if (!payout) {
+          throw new BadRequestException(
+            `Failed to bind payout for withdrawal ${withdrawWithSourceWallet.id}`,
+          );
+        }
+        const boundPayout = payout;
 
         await tx.withdrawTransaction.update({
-          where: { id: updatedAfterClearing.id },
+          where: { id: withdrawWithSourceWallet.id },
           data: {
-            payoutId: payout.id,
-            payoutNo: payout.payoutNo,
+            payoutId: boundPayout.id,
+            payoutNo: boundPayout.payoutNo,
           },
         });
 
-        result.updated_withdrawal_status = updatedAfterClearing.status;
+        result.updated_withdrawal_status = withdrawWithSourceWallet.status;
 
         const log = await this.auditLogsService.recordSystem(
           {
@@ -312,14 +349,17 @@ export class WithdrawWorkflowOrchestrator {
             module: AuditModules.WITHDRAW_WORKFLOW,
             entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
             entityId: withdrawId,
-            entityNo: updatedAfterClearing.withdrawNo,
-            entityOwnerType: updatedAfterClearing.ownerType,
-            entityOwnerId: updatedAfterClearing.ownerId,
+            entityNo: withdrawWithSourceWallet.withdrawNo,
+            entityOwnerType: withdrawWithSourceWallet.ownerType,
+            entityOwnerId: withdrawWithSourceWallet.ownerId,
             statusFrom: withdrawal.status,
-            statusTo: updatedAfterClearing.status,
+            statusTo: withdrawWithSourceWallet.status,
             reason: marker,
             beforeData: { status: withdrawal.status },
-            afterData: { status: updatedAfterClearing.status, payoutId: payout.id },
+            afterData: {
+              status: withdrawWithSourceWallet.status,
+              payoutId: boundPayout.id,
+            },
             idempotencyKey: marker,
             sourcePlatform: 'SYSTEM',
           },
@@ -357,7 +397,7 @@ export class WithdrawWorkflowOrchestrator {
       audit_log_id: '',
     };
 
-    return await (this.prisma as any).$transaction(async (tx: any) => {
+    return await this.prisma.$transaction(async (tx) => {
       await this.transactionComplianceService.ensureWithdrawMainCasesOnPayoutConfirmed(
         withdrawId,
         payoutId,
@@ -398,15 +438,19 @@ export class WithdrawWorkflowOrchestrator {
       }
 
       if (isCustomer) {
-        const je = await this.journalsService.triggerEvent({
+        const execution = await this.accountingEventExecutionService.execute({
           entityType: 'WITHDRAW',
           triggerKey: 'status',
           toStatus: WithdrawTransactionStatus.SUCCESS,
           assetType: suffix,
-          context: this.createAccountingContext(postingWithdrawal),
+          frozenContext: this.createAccountingContext(postingWithdrawal),
           sourceId: postingWithdrawal.id,
+          journalSourceType: 'WITHDRAW',
+          clearingSourceType: 'WITHDRAWAL',
         }, tx);
-        result.created_or_reversed_journal_entry_ids.push(...this.collectJournalIds(je));
+        result.created_or_reversed_journal_entry_ids.push(
+          ...this.collectJournalIds(execution.journalResult),
+        );
       }
 
       const updatedPayout = await this.payoutsService.updateStatus(payoutId, {
@@ -492,7 +536,7 @@ export class WithdrawWorkflowOrchestrator {
     };
 
     const isReturn = status === PayoutStatus.RETURNED;
-    await (this.prisma as any).$transaction(async (tx: any) => {
+    await this.prisma.$transaction(async (tx) => {
       const updatedWithdrawal = await this.withdrawalService.updateStatus(
         withdrawId,
         {
@@ -506,19 +550,21 @@ export class WithdrawWorkflowOrchestrator {
       result.updated_withdrawal_status = updatedWithdrawal.status;
 
       if (isCustomer) {
-        const posting = await this.journalsService.triggerEvent(
+        const execution = await this.accountingEventExecutionService.execute(
           {
             entityType: 'WITHDRAW',
             triggerKey: 'status',
             toStatus: updatedWithdrawal.status,
             assetType: suffix,
-            context: this.createAccountingContext(updatedWithdrawal),
+            frozenContext: this.createAccountingContext(updatedWithdrawal),
             sourceId: updatedWithdrawal.id,
+            journalSourceType: 'WITHDRAW',
+            clearingSourceType: 'WITHDRAWAL',
           },
           tx,
         );
         result.created_or_reversed_journal_entry_ids.push(
-          ...this.collectJournalIds(posting),
+          ...this.collectJournalIds(execution.journalResult),
         );
       }
 
@@ -556,7 +602,7 @@ export class WithdrawWorkflowOrchestrator {
 
   // --- Helpers ---
 
-  private getSuffix(withdrawal: any): 'CRYPTO' | 'FIAT' {
+  private getSuffix(withdrawal: WithdrawalForOrchestration): 'CRYPTO' | 'FIAT' {
     if (withdrawal?.asset?.type === 'CRYPTO' || withdrawal?.asset?.type === 'FIAT') {
       return withdrawal.asset.type;
     }
@@ -590,15 +636,17 @@ export class WithdrawWorkflowOrchestrator {
     return `ORCH::WITHDRAW_PAYOUT_RESULT::${withdrawId}::${payoutId}::${status}::DONE`;
   }
 
-  private collectJournalIds(posting: any): string[] {
+  private collectJournalIds(posting: JournalPostingResult): string[] {
     if (!posting) return [];
     if (Array.isArray(posting)) {
-      return posting.filter(Boolean).map((item) => item.id);
+      return posting
+        .filter((item): item is { id?: string | null } => Boolean(item))
+        .flatMap((item) => (item.id ? [item.id] : []));
     }
     return posting.id ? [posting.id] : [];
   }
 
-  private createAccountingContext(withdrawal: any) {
+  private createAccountingContext(withdrawal: WithdrawalForOrchestration) {
     return {
       src: {
         ownerId: withdrawal.ownerId,
@@ -617,8 +665,8 @@ export class WithdrawWorkflowOrchestrator {
   }
 
   private async ensureSourceWalletBound(
-    tx: any,
-    withdrawal: any,
+    tx: Prisma.TransactionClient,
+    withdrawal: WithdrawalForOrchestration,
     suffix: 'CRYPTO' | 'FIAT',
   ) {
     if (withdrawal.fromWalletId) {
@@ -631,6 +679,11 @@ export class WithdrawWorkflowOrchestrator {
         `Asset is missing for withdrawal ${withdrawal.id}`,
       );
     }
+    if (!asset.code) {
+      throw new BadRequestException(
+        `Asset code is missing for withdrawal ${withdrawal.id}`,
+      );
+    }
 
     const walletNo =
       suffix === 'CRYPTO'
@@ -638,7 +691,7 @@ export class WithdrawWorkflowOrchestrator {
         : buildFiatPoolWalletNo('CUST_BANK', asset.code);
     const ownerType = 'CUSTOMER';
 
-    const sourceWallet = await tx.wallet.findFirst({
+    const sourceWallet = (await tx.wallet.findFirst({
       where: {
         walletNo,
         ownerType,
@@ -652,7 +705,7 @@ export class WithdrawWorkflowOrchestrator {
         address: true,
         iban: true,
       },
-    });
+    })) as SourceWalletProjection | null;
 
     if (!sourceWallet) {
       throw new BadRequestException(

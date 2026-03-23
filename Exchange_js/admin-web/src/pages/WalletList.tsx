@@ -7,6 +7,7 @@ interface WalletItem {
   id: string;
   walletNo: string | null;
   walletRole?: string;
+  surfaceCategory?: string;
   ownerType: string;
   ownerId: string | null;
   ownerNo: string | null;
@@ -159,6 +160,18 @@ const WalletList = () => {
         {label}
       </span>
     );
+  };
+
+  const renderSurfaceLabel = (surfaceCategory?: string) => {
+    const labels: Record<string, string> = {
+      CUSTOMER_POOL: '客户资金池',
+      PLATFORM_POOL: '公司资金池',
+      CUSTOMER_DEPOSIT: '客户充值载体',
+      CUSTOMER_PAYOUT_TARGET: '客户提现目标',
+      LIQUIDITY_PROVIDER_ACCOUNT: '流动性对手账户',
+      OTHER: '其他钱包',
+    };
+    return labels[surfaceCategory || 'OTHER'] || '其他钱包';
   };
 
   return (
@@ -324,7 +337,12 @@ const WalletList = () => {
                         </div>
                       </td>
                       <td className="px-6 py-4">
-                        {renderRoleBadge(wallet.walletRole)}
+                        <div className="space-y-1">
+                          {renderRoleBadge(wallet.walletRole)}
+                          <div className="text-[11px] text-gray-500">
+                            {renderSurfaceLabel(wallet.surfaceCategory)}
+                          </div>
+                        </div>
                       </td>
                       <td className="px-6 py-4">
                         <div className="text-gray-900 font-medium">

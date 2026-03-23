@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Param,
   Post,
   Req,
   UseGuards,
@@ -43,6 +44,22 @@ export class PricingCenterCustomerController {
       ownerId,
       ownerNo,
       dto,
+    );
+  }
+
+  @Post('quotes/:id/cancel')
+  @ApiOperation({ summary: 'Cancel an active withdrawal pricing quote' })
+  async cancelWithdrawQuote(@Req() req: any, @Param('id') id: string) {
+    const ownerType = String(req?.user?.type || 'CUSTOMER').toUpperCase();
+    const ownerId = String(req?.user?.userId || '');
+    if (!ownerId) {
+      throw new BadRequestException('Token userId missing');
+    }
+
+    return this.pricingCenterService.cancelWithdrawPricingQuote(
+      id,
+      ownerType,
+      ownerId,
     );
   }
 }

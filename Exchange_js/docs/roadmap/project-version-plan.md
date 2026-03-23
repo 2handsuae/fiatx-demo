@@ -367,7 +367,7 @@
 
 - 钱包/银行账户模型
 - posting/config center
-- splitting items + fee 骨架
+- clearing / fee 骨架
 - payin/deposit 实际入账链路
 - quote/swap 生命周期
 - payout/withdraw 链路
@@ -376,7 +376,11 @@
 
 **目标**
 
-完成账务底座、配置中心、钱包/账户模型和 fee/splitting skeleton，为充值链路、兑换链路和后续资产运营准备可复用底座。
+完成账务底座、配置中心、钱包/账户模型和 clearing / fee skeleton，为充值链路、兑换链路和后续资产运营准备可复用底座。
+
+详细 phase 规划见：
+
+- `docs/roadmap/wave-4-ledger-asset-structure-phase-plan.md`
 
 **本波 workflow**
 
@@ -391,20 +395,12 @@
 
 **P0 交付物**
 
-- `Assets / COA / AcctEvents / Templates` 配置中心可：
-  - 版本化
-  - 审批
-  - 回溯
-- Posting 引擎实现：
-  - 业务事件自动生成分录
-  - 借贷平衡强校验
-  - 源事件到分录到余额变化可追溯
-- `splitting items + fee` 最小骨架可用于：
-  - 交易场景
-  - 资金场景
-- 钱包/账户模型落地：
-  - 客户 `3` 钱包 + `1` 银行账户
-  - 平台 `1` 钱包 + `1` 银行账户
+- `Wave 4` 的细化交付由专项 phase plan 管理。
+- 本波总览级交付目标固定为：
+  - `Assets / Wallet / account model` 定型
+  - `COA / AcctEvents / Templates / PricingPolicy` 发布治理模型定型
+  - `AcctEvent -> clearing + journal -> wallet balance` 驱动链定型
+  - `quote snapshot + fee skeleton` 成为后续业务波次的共享合同
 
 **Wave DoD**
 
@@ -414,10 +410,9 @@
 **代表性 UAT**
 
 - 主流程：
-  - 配置资产、科目、模板
-  - 业务事件生成分录
-  - 钱包与银行账户模型可查询
-  - fee/splitting skeleton 可被后续业务引用
+  - `COA release` 历史回看
+  - `internal transaction success -> clearing + journal`
+  - `swap/withdraw quote -> transaction -> event`
 - 异常回滚流程：
   - 模板配置错误或借贷不平
   - 系统自动阻断过账
@@ -517,7 +512,7 @@
   - 禁用条件
   - 自动阻断与阻断日志
 - swap 失败场景可回滚且不留下账务悬挂。
-- fee/splitting items 在 swap 中闭环落地。
+- fee items 在 swap 中闭环落地。
 
 **Wave DoD**
 
@@ -635,7 +630,7 @@
   - `dryRun`
   - `onlyMissing`
   - 安全重放
-- splitting items/fee 扩展到 treasury/reconciliation 场景。
+- fee items 扩展到 treasury/reconciliation 场景。
 - 治理台账完整：
   - 股权
   - 任命

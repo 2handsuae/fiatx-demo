@@ -6,6 +6,7 @@ import {
   CreateWalletDto,
   OwnerType,
   WalletDirection,
+  WalletRole,
   WalletStatus,
   WalletType,
 } from './dto/wallet.dto';
@@ -57,6 +58,42 @@ describe('WalletsController', () => {
         ownerId: 'cust-2',
       }),
     ).toThrow(ForbiddenException);
+  });
+
+  it('should reject CUSTOMER creating BIDIRECTIONAL wallet', () => {
+    expect(() =>
+      controller.create(customerReq, {
+        ...createDto,
+        direction: WalletDirection.BIDIRECTIONAL,
+      }),
+    ).toThrow(ForbiddenException);
+  });
+
+  it('should normalize CUSTOMER inbound create to DEPOSIT role', async () => {
+    serviceMock.create.mockResolvedValue({ id: 'wallet-1' });
+
+    await controller.create(customerReq, createDto);
+
+    expect(serviceMock.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        walletRole: WalletRole.DEPOSIT,
+      }),
+    );
+  });
+
+  it('should normalize CUSTOMER outbound create to GENERAL role', async () => {
+    serviceMock.create.mockResolvedValue({ id: 'wallet-1' });
+
+    await controller.create(customerReq, {
+      ...createDto,
+      direction: WalletDirection.OUTBOUND,
+    });
+
+    expect(serviceMock.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        walletRole: WalletRole.GENERAL,
+      }),
+    );
   });
 
   it('should force CUSTOMER list query to self owner', async () => {

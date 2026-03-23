@@ -1,6 +1,10 @@
 import { useEffect, useState } from 'react';
 import { Search, RefreshCw, Plus, Edit2, Power, List, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import {
+  BUSINESS_CONFIG_RELEASES_PATH,
+  showBusinessConfigReadOnlyAlert,
+} from '../utils/businessConfigReadOnly';
 
 interface TemplateItem {
   id: string;
@@ -63,27 +67,9 @@ const ClearingHeaderTemplateList = () => {
   };
 
   const handleToggleStatus = async (id: string, currentEnabled: boolean) => {
-      if (!window.confirm(`Are you sure you want to ${currentEnabled ? 'deactivate' : 'activate'} this template?`)) return;
-      
-      try {
-          const token = localStorage.getItem('admin_token');
-          const response = await fetch(`${import.meta.env.VITE_API_URL}/clearing-templates/${id}`, {
-              method: 'PATCH',
-              headers: {
-                  'Authorization': `Bearer ${token}`,
-                  'Content-Type': 'application/json'
-              },
-              body: JSON.stringify({ isEnabled: !currentEnabled })
-          });
-          
-          if (response.ok) {
-              fetchItems();
-          } else {
-              alert('Failed to update status');
-          }
-      } catch (error) {
-          console.error('Update failed', error);
-      }
+      void id;
+      void currentEnabled;
+      showBusinessConfigReadOnlyAlert('Clearing templates');
   };
 
   const totalPages = Math.ceil(total / pageSize);
@@ -96,12 +82,16 @@ const ClearingHeaderTemplateList = () => {
           <p className="text-sm text-gray-500 mt-1">Manage rules and templates for clearing processes</p>
         </div>
         <button 
-            onClick={() => alert('Create functionality coming next...')}
-            className="flex items-center gap-2 px-4 py-2 bg-brand-primary text-white rounded-lg hover:bg-brand-primary/90 transition-colors"
+            onClick={() => navigate(BUSINESS_CONFIG_RELEASES_PATH)}
+            className="flex items-center gap-2 px-4 py-2 bg-white text-gray-700 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
         >
             <Plus size={20} />
-            <span>Create Template</span>
+            <span>Open Release Center</span>
         </button>
+      </div>
+
+      <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
+        Clearing header templates are now release-managed. This page remains read-only for current headers, while line inspection stays available.
       </div>
 
       <div className="bg-white rounded-xl shadow-sm border border-admin-border overflow-hidden">
@@ -195,16 +185,16 @@ const ClearingHeaderTemplateList = () => {
                             <List size={16} />
                         </button>
                         <button 
-                            className="p-1.5 text-gray-500 hover:text-brand-primary rounded hover:bg-gray-100 transition-colors"
-                            onClick={() => alert('Edit coming soon')}
-                            title="Edit"
+                            className="p-1.5 text-gray-300 rounded transition-colors cursor-not-allowed"
+                            onClick={() => showBusinessConfigReadOnlyAlert('Clearing templates')}
+                            title="Read-only"
                         >
                             <Edit2 size={16} />
                         </button>
                         <button 
-                            className={`p-1.5 rounded hover:bg-gray-100 transition-colors ${item.isEnabled ? 'text-green-600 hover:text-red-600' : 'text-gray-400 hover:text-green-600'}`}
+                            className="p-1.5 rounded text-gray-300 transition-colors cursor-not-allowed"
                             onClick={() => handleToggleStatus(item.id, item.isEnabled)}
-                            title={item.isEnabled ? 'Deactivate' : 'Activate'}
+                            title="Read-only"
                         >
                             <Power size={16} />
                         </button>

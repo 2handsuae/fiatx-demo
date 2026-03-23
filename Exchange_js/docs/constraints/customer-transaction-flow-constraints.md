@@ -4,7 +4,7 @@
 - MUST cover customer transaction workflows only: deposit, swap, and withdraw.
 - MUST apply to these modules and routes:
 1. Deposit: `/treasury/payins/*`, `/deposit-transactions/*`, `DepositWorkflowService`, `DepositTransactionsService`
-2. Swap: `/swap-transactions/*`, `SwapTransactionsService`, `SwapWorkflowOrchestrator`, `SwapQuotesService`, outstanding projection
+2. Swap: `/swap-transactions/*`, `SwapTransactionsService`, `SwapWorkflowOrchestrator`, `PricingCenterService`, outstanding projection
 3. Withdraw: `/withdraw-transactions/*`, `/payouts/*`, `WithdrawTransactionsService`, `WithdrawWorkflowOrchestrator`, `PayoutsService`
 4. Shared accounting/compliance: `JournalsService`, `TransactionComplianceService`
 - MUST NOT use this document for LP liquidity-only workflows.

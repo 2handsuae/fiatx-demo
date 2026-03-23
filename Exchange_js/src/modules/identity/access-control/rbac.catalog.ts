@@ -236,9 +236,7 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
     'Get swap pair market source',
     ['CUSTOMER_RATE_READ'],
   ),
-  route('PUT', '/admin/pricing/policies/swap', 'Update swap pricing policy', ['CUSTOMER_RATE_WRITE']),
-  route('PUT', '/admin/pricing/policies/withdrawal', 'Update withdrawal pricing policy', ['CUSTOMER_RATE_WRITE']),
-  route('POST', '/admin/pricing/simulator/swap', 'Simulate swap pricing', ['CUSTOMER_RATE_WRITE']),
+  route('POST', '/admin/pricing/simulator/swap', 'Simulate swap pricing', ['CUSTOMER_RATE_READ']),
   route('POST', '/withdraw-transactions/quotes', 'Create withdrawal pricing quote', ['TRADING_WITHDRAW_WRITE']),
 
   // Onboarding compliance
@@ -362,7 +360,6 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   // Deposit
   route('GET', '/deposit-transactions', 'List deposit transactions', ['TRADING_DEPOSIT_READ']),
   route('GET', '/deposit-transactions/:id', 'Get deposit transaction detail', ['TRADING_DEPOSIT_READ']),
-  route('POST', '/deposit-transactions', 'Create deposit transaction', ['TRADING_DEPOSIT_WRITE']),
   route('PATCH', '/deposit-transactions/:id/status', 'Update deposit transaction status', ['TRADING_DEPOSIT_WRITE']),
   route('GET', '/deposit-transactions/export', 'Export deposit transactions', ['TRADING_DEPOSIT_READ']),
 
@@ -382,7 +379,6 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('PATCH', '/admin/swap-transactions/:id/status', 'Update swap transaction status', ['TRADING_SWAP_WRITE']),
 
   // Payins
-  route('POST', '/treasury/payins/simulate', 'Simulate payin', ['PAYIN_WRITE']),
   route('GET', '/treasury/payins', 'List payins', ['PAYIN_READ']),
   route('GET', '/treasury/payins/:id', 'Get payin detail', ['PAYIN_READ']),
   route('PATCH', '/treasury/payins/:id/status', 'Update payin status', ['PAYIN_WRITE']),
@@ -437,36 +433,20 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('GET', '/journal-lines/:id', 'Get journal line detail', ['JOURNAL_READ']),
 
   // Accounting config
-  route('POST', '/coa', 'Create COA item', ['ACCOUNTING_CONFIG_WRITE']),
   route('GET', '/coa', 'List COA items', ['ACCOUNTING_CONFIG_READ']),
   route('GET', '/coa/:id', 'Get COA detail', ['ACCOUNTING_CONFIG_READ']),
-  route('PATCH', '/coa/:id', 'Update COA item', ['ACCOUNTING_CONFIG_WRITE']),
-  route('DELETE', '/coa/:id', 'Delete COA item', ['ACCOUNTING_CONFIG_WRITE']),
 
-  route('POST', '/acct-events/sync-defaults', 'Sync default account events', ['ACCOUNTING_CONFIG_WRITE']),
-  route('POST', '/acct-events', 'Create account event', ['ACCOUNTING_CONFIG_WRITE']),
   route('GET', '/acct-events', 'List account events', ['ACCOUNTING_CONFIG_READ']),
   route('GET', '/acct-events/:eventCode', 'Get account event detail', ['ACCOUNTING_CONFIG_READ']),
-  route('PATCH', '/acct-events/:eventCode', 'Update account event', ['ACCOUNTING_CONFIG_WRITE']),
-  route('DELETE', '/acct-events/:eventCode', 'Delete account event', ['ACCOUNTING_CONFIG_WRITE']),
 
-  route('POST', '/journal-header-templates', 'Create journal header template', ['ACCOUNTING_CONFIG_WRITE']),
   route('GET', '/journal-header-templates', 'List journal header templates', ['ACCOUNTING_CONFIG_READ']),
   route('GET', '/journal-header-templates/:id', 'Get journal header template detail', ['ACCOUNTING_CONFIG_READ']),
-  route('PATCH', '/journal-header-templates/:id', 'Update journal header template', ['ACCOUNTING_CONFIG_WRITE']),
-  route('DELETE', '/journal-header-templates/:id', 'Delete journal header template', ['ACCOUNTING_CONFIG_WRITE']),
 
-  route('POST', '/journal-line-templates', 'Create journal line template', ['ACCOUNTING_CONFIG_WRITE']),
   route('GET', '/journal-line-templates', 'List journal line templates', ['ACCOUNTING_CONFIG_READ']),
   route('GET', '/journal-line-templates/:id', 'Get journal line template detail', ['ACCOUNTING_CONFIG_READ']),
-  route('PATCH', '/journal-line-templates/:id', 'Update journal line template', ['ACCOUNTING_CONFIG_WRITE']),
-  route('DELETE', '/journal-line-templates/:id', 'Delete journal line template', ['ACCOUNTING_CONFIG_WRITE']),
 
-  route('POST', '/clearing-templates', 'Create clearing template', ['ACCOUNTING_CONFIG_WRITE']),
   route('GET', '/clearing-templates', 'List clearing templates', ['ACCOUNTING_CONFIG_READ']),
   route('GET', '/clearing-templates/:id', 'Get clearing template detail', ['ACCOUNTING_CONFIG_READ']),
-  route('PATCH', '/clearing-templates/:id', 'Update clearing template', ['ACCOUNTING_CONFIG_WRITE']),
-  route('DELETE', '/clearing-templates/:id', 'Delete clearing template', ['ACCOUNTING_CONFIG_WRITE']),
 
   // Assets
   route('POST', '/assets', 'Create asset', ['ASSET_CONFIG_WRITE']),

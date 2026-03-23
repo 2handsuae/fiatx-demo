@@ -5,10 +5,19 @@ import {
   InternalServerErrorException,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma, PricingPolicy, WithdrawPricingQuote } from '@prisma/client';
+import {
+  Prisma,
+  PricingPolicy,
+  SwapQuote,
+  WithdrawPricingQuote,
+} from '@prisma/client';
 import { randomUUID } from 'crypto';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 import { PrismaService } from '../../../core/prisma/prisma.service';
+import {
+  buildDefaultPricingPolicyManifest,
+  PricingPolicyManifestAsset,
+} from '../../../config/manifests/pricing-policies.manifest';
 import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
 import {
   AuditActions,
@@ -20,7 +29,9 @@ import {
   AuditTriggerType,
 } from '../../risk-engine/audit-logs/dto/audit-log.dto';
 import {
+  AdminPricingQuoteQueryDto,
   CreateWithdrawPricingQuoteDto,
+  PricingQuoteBusiness,
   SwapSimulatorDto,
   WithdrawalSimulatorDto,
 } from './dto/pricing-center.dto';
@@ -42,6 +53,14 @@ import {
   WithdrawalPricingPolicyConfig,
   WithdrawalPricingResult,
 } from './types/pricing.types';
+import {
+  AdminSwapQuoteQueryDto,
+  CreateSwapQuoteDto,
+  SwapAmountType,
+  SwapQuoteStatus,
+  SwapQuoteType,
+  SwapSide,
+} from '../swap-transactions/dto/swap-quote.dto';
 
 interface AuditActor {
   actorType: 'ADMIN' | 'CUSTOMER' | 'SYSTEM';
@@ -100,10 +119,50 @@ interface ResolvedWithdrawalQuote {
   expiresAt: Date;
 }
 
+export interface PricingQuoteListItem {
+  quoteId: string;
+  quoteNo: string | null;
+  business: PricingQuoteBusiness;
+  status: string;
+  ownerType: string;
+  ownerNo: string | null;
+  createdAt: Date;
+  expiresAt: Date;
+  usedAt: Date | null;
+  cancelledAt: Date | null;
+  primaryAssetCode: string;
+  secondaryAssetCode: string | null;
+  amountIn: string | null;
+  amountOut: string | null;
+  amount: string | null;
+  rateAllIn: string | null;
+  feeTotal: string;
+  feeCurrency: string;
+  linkedBusinessNo: string | null;
+}
+
+export interface PricingQuoteDetail {
+  quoteId: string;
+  quoteNo: string | null;
+  business: PricingQuoteBusiness;
+  status: string;
+  ownerType: string;
+  ownerNo: string | null;
+  createdAt: Date;
+  expiresAt: Date;
+  usedAt: Date | null;
+  cancelledAt: Date | null;
+  fees: unknown[];
+  totals: Record<string, string>;
+  policyRef: Record<string, unknown>;
+  swap?: Record<string, unknown>;
+  withdrawal?: Record<string, unknown>;
+}
+
 @Injectable()
 export class PricingCenterService {
   private readonly auditLogsService: AuditLogsService;
-  private static readonly WITHDRAW_QUOTE_FAR_EXPIRY = '2099-12-31T23:59:59.000Z';
+  private static readonly MAX_SWAP_QUOTE_NO_GENERATION_RETRIES = 10;
   private static readonly WITHDRAW_SERVICE_FEE_CODE: WithdrawalFeeItemCode =
     'WITHDRAW_SERVICE_FEE';
   private static readonly WITHDRAW_GAS_FEE_CODE: WithdrawalFeeItemCode =
@@ -138,10 +197,6 @@ export class PricingCenterService {
     } catch {
       return fallback;
     }
-  }
-
-  private getWithdrawalQuoteFarExpiry(): Date {
-    return new Date(PricingCenterService.WITHDRAW_QUOTE_FAR_EXPIRY);
   }
 
   private defaultWithdrawalFeeItem(
@@ -587,7 +642,7 @@ export class PricingCenterService {
       return { swap, withdrawal };
     }
 
-    const activeAssets = await this.prisma.asset.findMany({
+    const activeAssets = (await this.prisma.asset.findMany({
       where: { status: 'ACTIVE' },
       orderBy: [{ type: 'asc' }, { code: 'asc' }, { network: 'asc' }],
       select: {
@@ -597,56 +652,34 @@ export class PricingCenterService {
         network: true,
         decimals: true,
       },
-    });
+    })) as PricingPolicyManifestAsset[];
 
-    const swapConfig = this.buildDefaultSwapPolicyConfig(activeAssets);
-    const withdrawalConfig = this.buildDefaultWithdrawalPolicyConfig(activeAssets);
+    const manifestItems = buildDefaultPricingPolicyManifest(activeAssets);
 
-    await this.prisma.pricingPolicy.upsert({
-      where: { policyCode: SWAP_POLICY_CODE },
-      update: {
-        policyName: 'Swap Pricing',
-        business: 'SWAP',
-        channelOnline: true,
-        channelStoreSoon: true,
-        configJson: JSON.stringify(swapConfig),
-        updatedByUserId: 'SYSTEM',
-        updatedByUserNo: 'SYSTEM',
-      },
-      create: {
-        policyCode: SWAP_POLICY_CODE,
-        policyName: 'Swap Pricing',
-        business: 'SWAP',
-        channelOnline: true,
-        channelStoreSoon: true,
-        configJson: JSON.stringify(swapConfig),
-        updatedByUserId: 'SYSTEM',
-        updatedByUserNo: 'SYSTEM',
-      },
-    });
-
-    await this.prisma.pricingPolicy.upsert({
-      where: { policyCode: WITHDRAWAL_POLICY_CODE },
-      update: {
-        policyName: 'Withdrawal Pricing',
-        business: 'WITHDRAWAL',
-        channelOnline: true,
-        channelStoreSoon: true,
-        configJson: JSON.stringify(withdrawalConfig),
-        updatedByUserId: 'SYSTEM',
-        updatedByUserNo: 'SYSTEM',
-      },
-      create: {
-        policyCode: WITHDRAWAL_POLICY_CODE,
-        policyName: 'Withdrawal Pricing',
-        business: 'WITHDRAWAL',
-        channelOnline: true,
-        channelStoreSoon: true,
-        configJson: JSON.stringify(withdrawalConfig),
-        updatedByUserId: 'SYSTEM',
-        updatedByUserNo: 'SYSTEM',
-      },
-    });
+    for (const item of manifestItems) {
+      await this.prisma.pricingPolicy.upsert({
+        where: { policyCode: item.policyCode },
+        update: {
+          policyName: item.policyName,
+          business: item.business,
+          channelOnline: item.channelOnline,
+          channelStoreSoon: item.channelStoreSoon,
+          configJson: JSON.stringify(item.config),
+          updatedByUserId: 'SYSTEM',
+          updatedByUserNo: 'SYSTEM',
+        },
+        create: {
+          policyCode: item.policyCode,
+          policyName: item.policyName,
+          business: item.business,
+          channelOnline: item.channelOnline,
+          channelStoreSoon: item.channelStoreSoon,
+          configJson: JSON.stringify(item.config),
+          updatedByUserId: 'SYSTEM',
+          updatedByUserNo: 'SYSTEM',
+        },
+      });
+    }
 
     const [readySwap, readyWithdrawal] = await Promise.all([
       this.prisma.pricingPolicy.findUnique({ where: { policyCode: SWAP_POLICY_CODE } }),
@@ -946,6 +979,21 @@ export class PricingCenterService {
     });
   }
 
+  async assertSwapPolicyConfig(config: SwapPricingPolicyConfig): Promise<SwapPricingPolicyConfig> {
+    const normalized = this.normalizeSwapConfig(config);
+    this.validateSwapPolicy(normalized);
+    return normalized;
+  }
+
+  async assertWithdrawalPolicyConfig(
+    config: WithdrawalPricingPolicyConfig,
+  ): Promise<WithdrawalPricingPolicyConfig> {
+    const normalized = this.normalizeWithdrawalConfig(config);
+    this.validateWithdrawalPolicy(normalized);
+    const aligned = await this.alignWithdrawalPolicyWithActiveAssets(normalized);
+    return aligned.config;
+  }
+
   async updateSwapPolicy(config: SwapPricingPolicyConfig, actor?: AuditActor) {
     this.validateSwapPolicy(config);
     const normalizedConfig = this.normalizeSwapConfig(config);
@@ -1098,6 +1146,272 @@ export class PricingCenterService {
     }
 
     return null;
+  }
+
+  private buildQuoteActor(
+    ownerType: string,
+    ownerId: string,
+    ownerNo?: string | null,
+  ): AuditActor {
+    if (ownerType === 'CUSTOMER') {
+      return {
+        actorType: 'CUSTOMER',
+        actorId: ownerId,
+        actorNo: ownerNo || undefined,
+        actorRole: 'CUSTOMER',
+      };
+    }
+
+    if (ownerType === 'ADMIN') {
+      return {
+        actorType: 'ADMIN',
+        actorId: ownerId,
+        actorNo: ownerNo || undefined,
+        actorRole: 'ADMIN',
+      };
+    }
+
+    return {
+      actorType: 'SYSTEM',
+      actorId: ownerId || 'SYSTEM',
+      actorNo: ownerNo || undefined,
+      actorRole: ownerType || 'SYSTEM',
+    };
+  }
+
+  private parseJsonValue<T>(value: string | null | undefined, fallback: T): T {
+    if (!value) {
+      return fallback;
+    }
+    try {
+      return JSON.parse(value) as T;
+    } catch {
+      return fallback;
+    }
+  }
+
+  private getFirstSnapshot(quote: { feeBreakdown?: string | null }) {
+    const feeBreakdown = this.parseJsonValue<any[]>(
+      quote.feeBreakdown ?? null,
+      [],
+    );
+    const firstSnapshot =
+      Array.isArray(feeBreakdown) && feeBreakdown.length > 0 && feeBreakdown[0]
+        ? feeBreakdown[0]
+        : null;
+    return {
+      feeBreakdown,
+      firstSnapshot:
+        firstSnapshot && typeof firstSnapshot === 'object' ? firstSnapshot : null,
+    };
+  }
+
+  private getSwapQuoteSnapshots(quote: {
+    feeBreakdown?: string | null;
+    totalsJson?: string | null;
+    policyRef?: string | null;
+    rateSource?: string | null;
+    marketRate?: Prisma.Decimal | Prisma.Decimal.Value;
+    fetchedAt?: Date | null;
+  }) {
+    const { feeBreakdown, firstSnapshot } = this.getFirstSnapshot(quote);
+    const matched =
+      firstSnapshot && typeof firstSnapshot === 'object'
+        ? ((firstSnapshot as any).matched ?? null)
+        : null;
+    const fx =
+      firstSnapshot && typeof firstSnapshot === 'object'
+        ? ((firstSnapshot as any).fx ?? null)
+        : null;
+
+    const pricingSource =
+      fx && typeof fx === 'object'
+        ? {
+            provider: quote.rateSource || 'BINANCE',
+            endpoint: fx.endpoint || 'api/v3/ticker/bookTicker',
+            symbol: fx.symbol || null,
+            bid: fx.bid || null,
+            ask: fx.ask || null,
+            sideUsed: fx.sideUsed || null,
+            aedPegApplied: Boolean(fx.aedPegApplied),
+            aedPegRate: fx.aedPegRate || null,
+            formula: fx.formula || null,
+            effectiveBaseRate:
+              fx.effectiveBaseRate ||
+              fx.baseRate ||
+              (quote.marketRate ? new Prisma.Decimal(quote.marketRate).toString() : null),
+            fetchedAt:
+              fx.fetchedAt ||
+              (quote.fetchedAt ? new Date(quote.fetchedAt).toISOString() : null),
+          }
+        : null;
+
+    const parsedTotals = this.parseJsonValue<Record<string, string>>(
+      quote.totalsJson ?? null,
+      {},
+    );
+    const parsedPolicyRef = this.parseJsonValue<Record<string, unknown>>(
+      quote.policyRef ?? null,
+      {},
+    );
+
+    return {
+      feeBreakdown,
+      matched,
+      pricingSource,
+      totals: parsedTotals,
+      policyRef: parsedPolicyRef,
+    };
+  }
+
+  private getEffectiveWithdrawQuoteExpiry(quote: {
+    expiresAt: Date;
+  }): Date {
+    return quote.expiresAt;
+  }
+
+  private getWithdrawDisplayStatus(
+    quote: Pick<
+      WithdrawPricingQuote,
+      'status' | 'createdAt' | 'expiresAt' | 'usedAt' | 'cancelledAt'
+    >,
+    now: Date = new Date(),
+  ): string {
+    if (
+      quote.status === 'ACTIVE' &&
+      this.getEffectiveWithdrawQuoteExpiry(quote).getTime() <= now.getTime()
+    ) {
+      return 'EXPIRED';
+    }
+    return quote.status;
+  }
+
+  private toSwapQuoteResponse(quote: SwapQuote) {
+    const { feeBreakdown, matched, pricingSource, totals, policyRef } =
+      this.getSwapQuoteSnapshots(quote);
+
+    return {
+      quoteId: quote.id,
+      quoteNo: quote.quoteNo,
+      business: PricingQuoteBusiness.SWAP,
+      quoteType: quote.quoteType,
+      status: quote.status,
+      ownerType: quote.ownerType,
+      ownerNo: quote.ownerNo,
+      createdAt: quote.createdAt,
+      expiresAt: quote.expiresAt,
+      usedAt: quote.usedAt,
+      cancelledAt: quote.cancelledAt,
+      fees: feeBreakdown,
+      totals,
+      policyRef,
+      baseCurrency: quote.fromAssetCode,
+      quoteCurrency: quote.toAssetCode,
+      side: quote.side,
+      amountType: quote.amountType,
+      amountIn: new Prisma.Decimal(quote.amountIn).toNumber(),
+      currencyIn: quote.currencyIn,
+      amountOut: new Prisma.Decimal(quote.amountOut).toNumber(),
+      currencyOut: quote.currencyOut,
+      rateDisplay: new Prisma.Decimal(quote.rateDisplay).toNumber(),
+      rateAllIn: new Prisma.Decimal(quote.rateAllIn).toNumber(),
+      marketRate: new Prisma.Decimal(quote.marketRate).toNumber(),
+      spreadPercent: new Prisma.Decimal(quote.spreadPercent).toNumber(),
+      spreadBps: quote.spreadBps,
+      rateSource: quote.rateSource,
+      fetchedAt: quote.fetchedAt,
+      feeTotal: new Prisma.Decimal(quote.feeTotal).toNumber(),
+      feeCurrency: quote.feeCurrency,
+      feeBreakdown,
+      matched,
+      pricingSource,
+    };
+  }
+
+  private toWithdrawQuoteResponse(
+    quote: WithdrawPricingQuote,
+    now: Date = new Date(),
+  ) {
+    return {
+      quoteId: quote.id,
+      quoteNo: quote.quoteNo,
+      business: PricingQuoteBusiness.WITHDRAWAL,
+      status: this.getWithdrawDisplayStatus(quote, now),
+      ownerType: quote.ownerType,
+      ownerNo: quote.ownerNo,
+      createdAt: quote.createdAt,
+      expiresAt: this.getEffectiveWithdrawQuoteExpiry(quote),
+      usedAt: quote.usedAt,
+      cancelledAt: quote.cancelledAt,
+      fees: this.parseJsonValue<unknown[]>(quote.feeBreakdown, []),
+      totals: this.parseJsonValue<Record<string, string>>(quote.totalsJson, {}),
+      policyRef: this.parseJsonValue<Record<string, unknown>>(quote.policyRef, {}),
+      amount: new Prisma.Decimal(quote.amount).toNumber(),
+      matched: {
+        assetEntryId: quote.matchedAssetId,
+        tierId: quote.matchedTierId,
+        tierName: quote.matchedTierName,
+      },
+    };
+  }
+
+  private isSwapQuoteNoUniqueConflict(error: unknown): boolean {
+    const maybeError = error as {
+      code?: string;
+      meta?: { target?: string[] | string };
+    };
+    if (maybeError?.code !== 'P2002') return false;
+
+    const target = maybeError.meta?.target;
+    if (Array.isArray(target)) return target.includes('quoteNo');
+    if (typeof target === 'string') return target.includes('quoteNo');
+    return false;
+  }
+
+  private async createSwapQuoteWithUniqueNo(
+    data: Omit<Prisma.SwapQuoteUncheckedCreateInput, 'quoteNo'>,
+  ): Promise<SwapQuote> {
+    for (
+      let attempt = 1;
+      attempt <= PricingCenterService.MAX_SWAP_QUOTE_NO_GENERATION_RETRIES;
+      attempt += 1
+    ) {
+      const quoteNo = generateReferenceNo('QUO');
+      try {
+        return await this.prisma.swapQuote.create({
+          data: {
+            ...data,
+            quoteNo,
+          },
+        });
+      } catch (error) {
+        if (this.isSwapQuoteNoUniqueConflict(error)) {
+          continue;
+        }
+        throw error;
+      }
+    }
+
+    throw new InternalServerErrorException(
+      `Failed to generate unique quoteNo after ${PricingCenterService.MAX_SWAP_QUOTE_NO_GENERATION_RETRIES} attempts`,
+    );
+  }
+
+  private async markSwapQuoteExpired(
+    client: PrismaService | Prisma.TransactionClient,
+    quoteId: string,
+    now: Date,
+  ) {
+    await (client as any).swapQuote.updateMany({
+      where: {
+        id: quoteId,
+        status: SwapQuoteStatus.ACTIVE,
+      },
+      data: {
+        status: SwapQuoteStatus.EXPIRED,
+        updatedAt: now,
+      },
+    });
   }
 
   async resolveSwapQuoteForExecution(input: {
@@ -1307,6 +1621,274 @@ export class PricingCenterService {
     return quote;
   }
 
+  async createSwapQuote(
+    ownerType: string,
+    ownerId: string,
+    dto: CreateSwapQuoteDto,
+  ) {
+    const fromAmount = new Prisma.Decimal(dto.fromAmount);
+    if (fromAmount.lte(0)) {
+      throw new BadRequestException('fromAmount must be greater than 0');
+    }
+
+    const resolved = await this.resolveSwapQuoteForExecution({
+      fromAssetId: dto.fromAssetId,
+      toAssetId: dto.toAssetId,
+      amount: dto.fromAmount,
+    });
+
+    const ownerNo = await this.resolveOwnerNo(ownerType, ownerId);
+    const marketRate = resolved.baseRate;
+    const rateAllIn = resolved.quotedRate;
+    const spreadPercent = new Prisma.Decimal(resolved.markupBps).div(100);
+    const amountOut = fromAmount.mul(rateAllIn);
+    const feeTotal = new Prisma.Decimal(
+      resolved.totals[resolved.toAssetCode] || '0',
+    );
+    const feeBreakdown = JSON.stringify([
+      {
+        policyRef: resolved.policyRef,
+        matched: {
+          pairId: resolved.pairId,
+          pairName: resolved.pairName,
+          tierId: resolved.tierId,
+          tierName: resolved.tierName,
+        },
+        fx: {
+          baseProvider: resolved.baseProvider,
+          baseRate: marketRate.toString(),
+          quotedRate: rateAllIn.toString(),
+          markupBps: resolved.markupBps,
+          endpoint: resolved.pricingSource.endpoint,
+          symbol: resolved.pricingSource.symbol,
+          bid: resolved.pricingSource.bid,
+          ask: resolved.pricingSource.ask,
+          sideUsed: resolved.pricingSource.sideUsed,
+          aedPegApplied: resolved.pricingSource.aedPegApplied,
+          aedPegRate: resolved.pricingSource.aedPegRate,
+          formula: resolved.pricingSource.formula,
+          effectiveBaseRate: resolved.pricingSource.effectiveBaseRate,
+          fetchedAt: resolved.pricingSource.fetchedAt,
+        },
+        fees: resolved.fees,
+        totals: resolved.totals,
+      },
+    ]);
+
+    const created = await this.createSwapQuoteWithUniqueNo({
+      quoteType: SwapQuoteType.FIRM,
+      status: SwapQuoteStatus.ACTIVE,
+      ownerType,
+      ownerId,
+      ownerNo,
+      fromAssetId: resolved.fromAssetId,
+      fromAssetCode: resolved.fromAssetCode,
+      toAssetId: resolved.toAssetId,
+      toAssetCode: resolved.toAssetCode,
+      side: SwapSide.SELL_BASE,
+      amountType: SwapAmountType.EXACT_IN,
+      amountIn: fromAmount,
+      currencyIn: resolved.fromAssetCode,
+      amountOut,
+      currencyOut: resolved.toAssetCode,
+      rateDisplay: rateAllIn,
+      rateAllIn,
+      marketRate,
+      spreadPercent,
+      spreadBps: resolved.markupBps,
+      rateSource: resolved.baseProvider,
+      fetchedAt: resolved.fetchedAt,
+      feeTotal,
+      feeCurrency: resolved.toAssetCode,
+      feeBreakdown,
+      totalsJson: JSON.stringify(resolved.totals),
+      policyRef: JSON.stringify(resolved.policyRef),
+      expiresAt: resolved.expiresAt,
+    });
+
+    await this.auditLogsService.recordByActor(
+      {
+        triggerType: AuditTriggerType.DATA_CREATE,
+        action: AuditActions.SWAP_QUOTE_CREATED,
+        module: AuditModules.SWAP_QUOTES,
+        entityType: AuditEntityTypes.SWAP_QUOTE,
+        entityId: created.id,
+        entityNo: created.quoteNo || undefined,
+        entityOwnerType: created.ownerType,
+        entityOwnerId: created.ownerId,
+        entityOwnerNo: created.ownerNo || undefined,
+        result: AuditResult.SUCCESS,
+        reason: 'Swap quote created',
+        afterData: {
+          status: created.status,
+          fromAssetId: created.fromAssetId,
+          toAssetId: created.toAssetId,
+          amountIn: created.amountIn.toString(),
+          amountOut: created.amountOut.toString(),
+          expiresAt: created.expiresAt,
+        },
+        sourcePlatform: ownerType === 'CUSTOMER' ? 'CUSTOMER_API' : 'SYSTEM',
+      },
+      this.buildQuoteActor(ownerType, ownerId, created.ownerNo),
+    );
+
+    return this.toSwapQuoteResponse(created);
+  }
+
+  async getActiveSwapQuoteOrThrow(
+    quoteId: string,
+    ownerType: string,
+    ownerId: string,
+    now: Date = new Date(),
+    tx?: Prisma.TransactionClient,
+  ): Promise<SwapQuote> {
+    const client = tx ?? this.prisma;
+    const quote = await (client as any).swapQuote.findUnique({
+      where: { id: quoteId },
+    });
+
+    if (!quote) {
+      throw new BadRequestException('Quote not found');
+    }
+
+    if (quote.ownerType !== ownerType || quote.ownerId !== ownerId) {
+      throw new ForbiddenException('Quote owner mismatch');
+    }
+
+    if (quote.status !== SwapQuoteStatus.ACTIVE) {
+      throw new BadRequestException('Quote is not active');
+    }
+
+    if (quote.expiresAt.getTime() <= now.getTime()) {
+      await this.markSwapQuoteExpired(client as any, quoteId, now);
+      throw new BadRequestException('Quote expired');
+    }
+
+    return quote as SwapQuote;
+  }
+
+  async consumeSwapQuoteForSwap(
+    tx: Prisma.TransactionClient,
+    quoteId: string,
+    ownerType: string,
+    ownerId: string,
+    now: Date = new Date(),
+  ): Promise<SwapQuote> {
+    await this.getActiveSwapQuoteOrThrow(quoteId, ownerType, ownerId, now, tx);
+
+    const consumed = await (tx as any).swapQuote.updateMany({
+      where: {
+        id: quoteId,
+        ownerType,
+        ownerId,
+        status: SwapQuoteStatus.ACTIVE,
+        expiresAt: { gt: now },
+        usedAt: null,
+        cancelledAt: null,
+      },
+      data: {
+        status: SwapQuoteStatus.USED,
+        usedAt: now,
+      },
+    });
+
+    if (consumed.count !== 1) {
+      throw new BadRequestException('Quote is not active');
+    }
+
+    const updated = (await (tx as any).swapQuote.findUnique({
+      where: { id: quoteId },
+    })) as SwapQuote;
+
+    await this.auditLogsService.recordByActor(
+      {
+        triggerType: AuditTriggerType.DATA_UPDATE,
+        action: AuditActions.SWAP_QUOTE_USED,
+        module: AuditModules.SWAP_QUOTES,
+        entityType: AuditEntityTypes.SWAP_QUOTE,
+        entityId: updated.id,
+        entityNo: updated.quoteNo || undefined,
+        entityOwnerType: updated.ownerType,
+        entityOwnerId: updated.ownerId,
+        entityOwnerNo: updated.ownerNo || undefined,
+        result: AuditResult.SUCCESS,
+        reason: 'Swap quote consumed',
+        statusFrom: SwapQuoteStatus.ACTIVE,
+        statusTo: SwapQuoteStatus.USED,
+        beforeData: { status: SwapQuoteStatus.ACTIVE },
+        afterData: { status: SwapQuoteStatus.USED, usedAt: updated.usedAt },
+        sourcePlatform: ownerType === 'CUSTOMER' ? 'CUSTOMER_API' : 'SYSTEM',
+      },
+      this.buildQuoteActor(ownerType, ownerId, updated.ownerNo),
+      tx,
+    );
+
+    return updated;
+  }
+
+  async cancelSwapQuote(
+    quoteId: string,
+    ownerType: string,
+    ownerId: string,
+    now: Date = new Date(),
+  ) {
+    const quote = await this.prisma.swapQuote.findUnique({
+      where: { id: quoteId },
+    });
+
+    if (!quote) {
+      throw new BadRequestException('Quote not found');
+    }
+
+    if (quote.ownerType !== ownerType || quote.ownerId !== ownerId) {
+      throw new ForbiddenException('Quote owner mismatch');
+    }
+
+    if (quote.status !== SwapQuoteStatus.ACTIVE) {
+      throw new BadRequestException('Quote is not active');
+    }
+
+    if (quote.expiresAt.getTime() <= now.getTime()) {
+      await this.markSwapQuoteExpired(this.prisma, quoteId, now);
+      throw new BadRequestException('Quote expired');
+    }
+
+    const cancelled = await this.prisma.swapQuote.update({
+      where: { id: quoteId },
+      data: {
+        status: SwapQuoteStatus.CANCELLED,
+        cancelledAt: now,
+      },
+    });
+
+    await this.auditLogsService.recordByActor(
+      {
+        triggerType: AuditTriggerType.DATA_UPDATE,
+        action: AuditActions.SWAP_QUOTE_CANCELLED,
+        module: AuditModules.SWAP_QUOTES,
+        entityType: AuditEntityTypes.SWAP_QUOTE,
+        entityId: cancelled.id,
+        entityNo: cancelled.quoteNo || undefined,
+        entityOwnerType: cancelled.ownerType,
+        entityOwnerId: cancelled.ownerId,
+        entityOwnerNo: cancelled.ownerNo || undefined,
+        result: AuditResult.SUCCESS,
+        reason: 'Swap quote cancelled',
+        statusFrom: SwapQuoteStatus.ACTIVE,
+        statusTo: SwapQuoteStatus.CANCELLED,
+        beforeData: { status: SwapQuoteStatus.ACTIVE },
+        afterData: {
+          status: SwapQuoteStatus.CANCELLED,
+          cancelledAt: cancelled.cancelledAt,
+        },
+        sourcePlatform: ownerType === 'CUSTOMER' ? 'CUSTOMER_API' : 'SYSTEM',
+      },
+      this.buildQuoteActor(ownerType, ownerId, cancelled.ownerNo),
+    );
+
+    return this.toSwapQuoteResponse(cancelled);
+  }
+
   async resolveWithdrawalQuote(input: {
     assetId: string;
     amount: number | string | Prisma.Decimal;
@@ -1363,7 +1945,7 @@ export class PricingCenterService {
       totals: result.totals,
       policyRef: result.policyRef,
       createdAt: now,
-      expiresAt: this.getWithdrawalQuoteFarExpiry(),
+      expiresAt: new Date(result.expiresAt),
     };
   }
 
@@ -1441,7 +2023,7 @@ export class PricingCenterService {
         feeBreakdown: JSON.stringify(resolved.fees),
         totalsJson: JSON.stringify(resolved.totals),
         policyRef: JSON.stringify(resolved.policyRef),
-        expiresAt: this.getWithdrawalQuoteFarExpiry(),
+        expiresAt: resolved.expiresAt,
       },
     });
 
@@ -1474,18 +2056,12 @@ export class PricingCenterService {
     );
 
     return {
-      quoteId: created.id,
-      quoteNo: created.quoteNo,
-      createdAt: created.createdAt,
-      expiresAt: created.expiresAt,
+      ...this.toWithdrawQuoteResponse(created),
       matched: {
         assetEntryId: created.matchedAssetId,
         tierId: created.matchedTierId,
         tierName: created.matchedTierName,
       },
-      fees: JSON.parse(created.feeBreakdown),
-      totals: JSON.parse(created.totalsJson),
-      policyRef: JSON.parse(created.policyRef),
     };
   }
 
@@ -1530,7 +2106,7 @@ export class PricingCenterService {
       throw new BadRequestException('Withdrawal quote is not active');
     }
 
-    if (quote.expiresAt.getTime() <= now.getTime()) {
+    if (this.getEffectiveWithdrawQuoteExpiry(quote).getTime() <= now.getTime()) {
       await this.markWithdrawQuoteExpired(client as any, quoteId, now);
       throw new BadRequestException('Withdrawal quote expired');
     }
@@ -1553,7 +2129,6 @@ export class PricingCenterService {
         ownerType,
         ownerId,
         status: 'ACTIVE',
-        expiresAt: { gt: now },
         usedAt: null,
         cancelledAt: null,
       },
@@ -1571,6 +2146,386 @@ export class PricingCenterService {
       where: { id: quoteId },
     })) as WithdrawPricingQuote;
 
+    await this.auditLogsService.recordByActor(
+      {
+        triggerType: AuditTriggerType.DATA_UPDATE,
+        action: AuditActions.WITHDRAW_PRICING_QUOTE_USED,
+        module: AuditModules.PRICING_CENTER,
+        entityType: AuditEntityTypes.WITHDRAW_PRICING_QUOTE,
+        entityId: consumed.id,
+        entityNo: consumed.quoteNo,
+        entityOwnerType: consumed.ownerType,
+        entityOwnerId: consumed.ownerId,
+        entityOwnerNo: consumed.ownerNo || undefined,
+        result: AuditResult.SUCCESS,
+        reason: 'Withdrawal pricing quote consumed',
+        statusFrom: 'ACTIVE',
+        statusTo: 'USED',
+        beforeData: { status: 'ACTIVE' },
+        afterData: { status: 'USED', usedAt: consumed.usedAt },
+        sourcePlatform: ownerType === 'CUSTOMER' ? 'CUSTOMER_API' : 'ADMIN_API',
+      },
+      this.buildQuoteActor(ownerType, ownerId, consumed.ownerNo),
+      tx,
+    );
+
     return consumed;
+  }
+
+  async cancelWithdrawPricingQuote(
+    quoteId: string,
+    ownerType: string,
+    ownerId: string,
+    now: Date = new Date(),
+  ) {
+    const quote = await this.prisma.withdrawPricingQuote.findUnique({
+      where: { id: quoteId },
+    });
+
+    if (!quote) {
+      throw new BadRequestException('Withdrawal quote not found');
+    }
+
+    if (quote.ownerType !== ownerType || quote.ownerId !== ownerId) {
+      throw new ForbiddenException('Withdrawal quote owner mismatch');
+    }
+
+    if (quote.status !== 'ACTIVE') {
+      throw new BadRequestException('Withdrawal quote is not active');
+    }
+
+    if (this.getEffectiveWithdrawQuoteExpiry(quote).getTime() <= now.getTime()) {
+      await this.markWithdrawQuoteExpired(this.prisma, quoteId, now);
+      throw new BadRequestException('Withdrawal quote expired');
+    }
+
+    const cancelled = await this.prisma.withdrawPricingQuote.update({
+      where: { id: quoteId },
+      data: {
+        status: 'CANCELLED',
+        cancelledAt: now,
+      },
+    });
+
+    await this.auditLogsService.recordByActor(
+      {
+        triggerType: AuditTriggerType.DATA_UPDATE,
+        action: AuditActions.WITHDRAW_PRICING_QUOTE_CANCELLED,
+        module: AuditModules.PRICING_CENTER,
+        entityType: AuditEntityTypes.WITHDRAW_PRICING_QUOTE,
+        entityId: cancelled.id,
+        entityNo: cancelled.quoteNo,
+        entityOwnerType: cancelled.ownerType,
+        entityOwnerId: cancelled.ownerId,
+        entityOwnerNo: cancelled.ownerNo || undefined,
+        result: AuditResult.SUCCESS,
+        reason: 'Withdrawal pricing quote cancelled',
+        statusFrom: 'ACTIVE',
+        statusTo: 'CANCELLED',
+        beforeData: { status: 'ACTIVE' },
+        afterData: {
+          status: 'CANCELLED',
+          cancelledAt: cancelled.cancelledAt,
+        },
+        sourcePlatform: ownerType === 'CUSTOMER' ? 'CUSTOMER_API' : 'ADMIN_API',
+      },
+      this.buildQuoteActor(ownerType, ownerId, cancelled.ownerNo),
+    );
+
+    return this.toWithdrawQuoteResponse(cancelled, now);
+  }
+
+  private toSwapQuoteListItem(item: any): PricingQuoteListItem {
+    return {
+      quoteId: item.id,
+      quoteNo: item.quoteNo || null,
+      business: PricingQuoteBusiness.SWAP,
+      status: item.status,
+      ownerType: item.ownerType,
+      ownerNo: item.ownerNo || null,
+      createdAt: item.createdAt,
+      expiresAt: item.expiresAt,
+      usedAt: item.usedAt || null,
+      cancelledAt: item.cancelledAt || null,
+      primaryAssetCode: item.fromAssetCode,
+      secondaryAssetCode: item.toAssetCode,
+      amountIn: item.amountIn?.toString?.() || String(item.amountIn),
+      amountOut: item.amountOut?.toString?.() || String(item.amountOut),
+      amount: null,
+      rateAllIn: item.rateAllIn?.toString?.() || String(item.rateAllIn),
+      feeTotal: item.feeTotal?.toString?.() || String(item.feeTotal || '0'),
+      feeCurrency: item.feeCurrency,
+      linkedBusinessNo: item.swapTransaction?.swapNo || null,
+    };
+  }
+
+  private toWithdrawQuoteListItem(item: any, now: Date): PricingQuoteListItem {
+    const totals = this.parseJsonValue<Record<string, string>>(item.totalsJson, {});
+    const feeCurrency =
+      Object.keys(totals)[0] || item.assetCode || item.asset?.code || 'N/A';
+    const feeTotal = totals[feeCurrency] || '0';
+
+    return {
+      quoteId: item.id,
+      quoteNo: item.quoteNo || null,
+      business: PricingQuoteBusiness.WITHDRAWAL,
+      status: this.getWithdrawDisplayStatus(item, now),
+      ownerType: item.ownerType,
+      ownerNo: item.ownerNo || null,
+      createdAt: item.createdAt,
+      expiresAt: this.getEffectiveWithdrawQuoteExpiry(item),
+      usedAt: item.usedAt || null,
+      cancelledAt: item.cancelledAt || null,
+      primaryAssetCode: item.assetCode,
+      secondaryAssetCode: null,
+      amountIn: null,
+      amountOut: null,
+      amount: item.amount?.toString?.() || String(item.amount),
+      rateAllIn: null,
+      feeTotal,
+      feeCurrency,
+      linkedBusinessNo:
+        Array.isArray(item.withdrawals) && item.withdrawals.length > 0
+          ? item.withdrawals[0]?.withdrawNo || null
+          : null,
+    };
+  }
+
+  async listAdminPricingQuotes(query: AdminPricingQuoteQueryDto) {
+    const now = new Date();
+    const skip = query.skip ?? 0;
+    const take = query.take ?? 20;
+
+    const buildCreatedAtFilter = () => {
+      if (!query.startDate && !query.endDate) {
+        return undefined;
+      }
+      const createdAt: Prisma.DateTimeFilter = {};
+      if (query.startDate) createdAt.gte = new Date(query.startDate);
+      if (query.endDate) createdAt.lte = new Date(query.endDate);
+      return createdAt;
+    };
+
+    const createdAt = buildCreatedAtFilter();
+    const swapWhere: Prisma.SwapQuoteWhereInput = {};
+    const withdrawWhere: Prisma.WithdrawPricingQuoteWhereInput = {};
+
+    if (query.status) {
+      swapWhere.status = query.status;
+      withdrawWhere.status = query.status;
+    }
+    if (query.ownerId) {
+      swapWhere.ownerId = query.ownerId;
+      withdrawWhere.ownerId = query.ownerId;
+    }
+    if (query.ownerNo) {
+      swapWhere.ownerNo = { contains: query.ownerNo };
+      withdrawWhere.ownerNo = { contains: query.ownerNo };
+    }
+    if (query.quoteNo) {
+      swapWhere.quoteNo = { contains: query.quoteNo };
+      withdrawWhere.quoteNo = { contains: query.quoteNo };
+    }
+    if (query.fromAssetId) {
+      swapWhere.fromAssetId = query.fromAssetId;
+    }
+    if (query.toAssetId) {
+      swapWhere.toAssetId = query.toAssetId;
+    }
+    if (query.swapNo) {
+      swapWhere.swapTransaction = {
+        is: {
+          swapNo: { contains: query.swapNo },
+        },
+      };
+    }
+    if (createdAt) {
+      swapWhere.createdAt = createdAt;
+      withdrawWhere.createdAt = createdAt;
+    }
+
+    if (query.business === PricingQuoteBusiness.SWAP) {
+      const result = await this.prisma.swapQuote.findMany({
+        skip,
+        take,
+        where: swapWhere,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          swapTransaction: true,
+        },
+      });
+      const total = await this.prisma.swapQuote.count({ where: swapWhere });
+      return {
+        items: result.map((item) => this.toSwapQuoteListItem(item)),
+        total,
+      };
+    }
+
+    if (query.business === PricingQuoteBusiness.WITHDRAWAL) {
+      const result = await this.prisma.withdrawPricingQuote.findMany({
+        skip,
+        take,
+        where: withdrawWhere,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          withdrawals: {
+            orderBy: { createdAt: 'desc' },
+            take: 1,
+          },
+        },
+      });
+      const total = await this.prisma.withdrawPricingQuote.count({
+        where: withdrawWhere,
+      });
+      return {
+        items: result.map((item) => this.toWithdrawQuoteListItem(item, now)),
+        total,
+      };
+    }
+
+    const [swapItems, withdrawItems] = await Promise.all([
+      this.prisma.swapQuote.findMany({
+        where: swapWhere,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          swapTransaction: true,
+        },
+      }),
+      this.prisma.withdrawPricingQuote.findMany({
+        where: withdrawWhere,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          withdrawals: {
+            orderBy: { createdAt: 'desc' },
+            take: 1,
+          },
+        },
+      }),
+    ]);
+
+    const items = [
+      ...swapItems.map((item) => this.toSwapQuoteListItem(item)),
+      ...withdrawItems.map((item) => this.toWithdrawQuoteListItem(item, now)),
+    ]
+      .sort((left, right) => right.createdAt.getTime() - left.createdAt.getTime())
+      .slice(skip, skip + take);
+
+    return {
+      items,
+      total: swapItems.length + withdrawItems.length,
+    };
+  }
+
+  async getAdminPricingQuoteDetail(
+    business: PricingQuoteBusiness,
+    id: string,
+  ): Promise<PricingQuoteDetail> {
+    if (business === PricingQuoteBusiness.SWAP) {
+      const item = await this.prisma.swapQuote.findUnique({
+        where: { id },
+        include: {
+          fromAsset: true,
+          toAsset: true,
+          swapTransaction: true,
+        },
+      });
+
+      if (!item) {
+        throw new NotFoundException('Swap quote not found');
+      }
+
+      const snapshots = this.getSwapQuoteSnapshots(item);
+      return {
+        quoteId: item.id,
+        quoteNo: item.quoteNo || null,
+        business,
+        status: item.status,
+        ownerType: item.ownerType,
+        ownerNo: item.ownerNo || null,
+        createdAt: item.createdAt,
+        expiresAt: item.expiresAt,
+        usedAt: item.usedAt || null,
+        cancelledAt: item.cancelledAt || null,
+        fees: snapshots.feeBreakdown,
+        totals: snapshots.totals,
+        policyRef: snapshots.policyRef,
+        swap: {
+          quoteType: item.quoteType,
+          fromAssetCode: item.fromAssetCode,
+          toAssetCode: item.toAssetCode,
+          fromAsset: item.fromAsset,
+          toAsset: item.toAsset,
+          side: item.side,
+          amountType: item.amountType,
+          amountIn: item.amountIn.toString(),
+          currencyIn: item.currencyIn,
+          amountOut: item.amountOut.toString(),
+          currencyOut: item.currencyOut,
+          rateDisplay: item.rateDisplay.toString(),
+          rateAllIn: item.rateAllIn.toString(),
+          marketRate: item.marketRate.toString(),
+          spreadPercent: item.spreadPercent.toString(),
+          spreadBps: item.spreadBps,
+          rateSource: item.rateSource,
+          fetchedAt: item.fetchedAt,
+          pricingSource: snapshots.pricingSource,
+          matched: snapshots.matched,
+          linkedSwap: item.swapTransaction
+            ? {
+                swapNo: item.swapTransaction.swapNo,
+                quoteNo: item.swapTransaction.quoteNo,
+                status: item.swapTransaction.status,
+                createdAt: item.swapTransaction.createdAt,
+              }
+            : null,
+        },
+      };
+    }
+
+    const item = await this.prisma.withdrawPricingQuote.findUnique({
+      where: { id },
+      include: {
+        asset: true,
+        withdrawals: {
+          orderBy: { createdAt: 'desc' },
+        },
+      },
+    });
+
+    if (!item) {
+      throw new NotFoundException('Withdrawal quote not found');
+    }
+
+    return {
+      quoteId: item.id,
+      quoteNo: item.quoteNo,
+      business,
+      status: this.getWithdrawDisplayStatus(item),
+      ownerType: item.ownerType,
+      ownerNo: item.ownerNo || null,
+      createdAt: item.createdAt,
+      expiresAt: this.getEffectiveWithdrawQuoteExpiry(item),
+      usedAt: item.usedAt || null,
+      cancelledAt: item.cancelledAt || null,
+      fees: this.parseJsonValue<unknown[]>(item.feeBreakdown, []),
+      totals: this.parseJsonValue<Record<string, string>>(item.totalsJson, {}),
+      policyRef: this.parseJsonValue<Record<string, unknown>>(item.policyRef, {}),
+      withdrawal: {
+        assetId: item.assetId,
+        assetCode: item.assetCode,
+        asset: item.asset,
+        amount: item.amount.toString(),
+        segment: item.segment,
+        riskTier: item.riskTier,
+        matchedAssetEntryId: item.matchedAssetId,
+        matchedTierId: item.matchedTierId,
+        matchedTierName: item.matchedTierName,
+        linkedWithdrawals: item.withdrawals.map((withdrawal) => ({
+          withdrawNo: withdrawal.withdrawNo,
+          status: withdrawal.status,
+          createdAt: withdrawal.createdAt,
+        })),
+      },
+    };
   }
 }

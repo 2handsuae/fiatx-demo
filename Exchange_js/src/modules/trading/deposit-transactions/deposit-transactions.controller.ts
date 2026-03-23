@@ -1,7 +1,6 @@
 import {
   Controller,
   Get,
-  Post,
   Body,
   Param,
   Query,
@@ -19,7 +18,6 @@ import {
 import {
   ApiTags,
   ApiOperation,
-  ApiResponse,
   ApiBearerAuth,
 } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
@@ -51,12 +49,6 @@ export class DepositTransactionsController {
   @ApiOperation({ summary: 'Get deposit transaction details' })
   findOne(@Param('id') id: string) {
     return this.service.findOne(id);
-  }
-
-  @Post()
-  @ApiOperation({ summary: 'Create a random deposit transaction (Demo)' })
-  create() {
-    return this.service.createRandom();
   }
 
   @Patch(':id/status')

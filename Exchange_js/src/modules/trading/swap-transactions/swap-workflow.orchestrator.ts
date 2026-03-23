@@ -17,7 +17,6 @@ import {
 import { SwapTransactionsService } from './swap-transactions.service';
 import { Prisma } from '@prisma/client';
 import { JournalsService } from '../../accounting/journals/journals.service';
-import { SwapQuotesService } from './swap-quotes.service';
 import { OutstandingsService } from '../../clearing-settle/outstandings/outstandings.service';
 import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
 import {
@@ -27,6 +26,7 @@ import {
   buildStateTransitionAction,
 } from '../../risk-engine/audit-logs/constants/audit-actions.constant';
 import { AuditTriggerType } from '../../risk-engine/audit-logs/dto/audit-log.dto';
+import { PricingCenterService } from '../pricing-center/pricing-center.service';
 
 export interface SwapOrchestratorOutput {
   swap_status_after: SwapTransactionStatus;
@@ -45,7 +45,7 @@ export class SwapWorkflowOrchestrator {
     private eventEmitter: EventEmitter2,
     private swapService: SwapTransactionsService,
     private journalsService: JournalsService,
-    private swapQuotesService: SwapQuotesService,
+    private pricingCenterService: PricingCenterService,
     private outstandingsService: OutstandingsService,
   ) {
     this.auditLogsService = new AuditLogsService(prisma);
@@ -226,7 +226,7 @@ export class SwapWorkflowOrchestrator {
     const now = new Date();
 
     const result = await this.prisma.$transaction(async (tx: any) => {
-      const quote = await this.swapQuotesService.getActiveQuoteOrThrow(
+      const quote = await this.pricingCenterService.getActiveSwapQuoteOrThrow(
         quoteId,
         'CUSTOMER',
         ownerId,
@@ -278,7 +278,7 @@ export class SwapWorkflowOrchestrator {
         },
       });
 
-      await this.swapQuotesService.consumeQuoteForSwap(
+      await this.pricingCenterService.consumeSwapQuoteForSwap(
         tx,
         quote.id,
         'CUSTOMER',

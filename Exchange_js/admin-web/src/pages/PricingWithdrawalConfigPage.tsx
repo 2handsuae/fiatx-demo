@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, Edit3, RefreshCw, Save } from 'lucide-react';
 import { adminFetch, getApiErrorMessage } from '../utils/adminFetch';
+import { buildBusinessConfigReadOnlyMessage } from '../utils/businessConfigReadOnly';
 
 type Asset = {
   id: string;
@@ -83,8 +84,9 @@ function summarizeFee(item: FeeItem): string {
 }
 
 const PricingWithdrawalConfigPage = () => {
+  const readOnlyMessage = buildBusinessConfigReadOnlyMessage('Withdrawal pricing policy');
   const [loading, setLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
+  const saving = false;
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
@@ -341,14 +343,6 @@ const PricingWithdrawalConfigPage = () => {
     setMessage(null);
   };
 
-  const beginEdit = () => {
-    if (!selectedEntry) return;
-    setEditSnapshot(JSON.parse(JSON.stringify(selectedEntry)) as WithdrawalAssetEntry);
-    setDetailMode('edit');
-    setError(null);
-    setMessage(null);
-  };
-
   const cancelEdit = () => {
     if (!selectedAssetId || !editSnapshot) return;
     updateEntry(selectedAssetId, () => editSnapshot);
@@ -357,38 +351,8 @@ const PricingWithdrawalConfigPage = () => {
   };
 
   const savePolicy = async () => {
-    if (!policy) return;
-    const payload = normalizePolicy(policy, assets);
-
-    setSaving(true);
     setError(null);
-    setMessage(null);
-    try {
-      const response = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/pricing/policies/withdrawal`,
-        {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ config: payload }),
-        },
-      );
-      if (!response.ok) {
-        throw new Error(await getApiErrorMessage(response, 'Failed to save withdrawal policy'));
-      }
-
-      const saved = (await response.json()) as WithdrawalPolicy;
-      const normalized = normalizePolicy(saved, assets);
-      setPolicy(normalized);
-      setSelectedAssetId(normalized.assets[0]?.assetId || null);
-      setDetailMode('preview');
-      setEditSnapshot(null);
-      setMessage('Withdrawal config saved.');
-      await loadSummary();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setSaving(false);
-    }
+    setMessage(readOnlyMessage);
   };
 
   const renderTopBar = () => (
@@ -443,6 +407,10 @@ const PricingWithdrawalConfigPage = () => {
 
         {error && <div className="rounded-lg bg-red-50 text-red-700 px-4 py-3 text-sm">{error}</div>}
         {message && <div className="rounded-lg bg-green-50 text-green-700 px-4 py-3 text-sm">{message}</div>}
+
+        <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
+          Withdrawal pricing is now managed by config-as-code and Business Config Releases. This page is read-only for current policy inspection.
+        </div>
 
         <div className="bg-white rounded-xl border border-admin-border shadow-sm overflow-hidden">
           <table className="w-full text-sm">
@@ -510,6 +478,10 @@ const PricingWithdrawalConfigPage = () => {
       {error && <div className="rounded-lg bg-red-50 text-red-700 px-4 py-3 text-sm">{error}</div>}
       {message && <div className="rounded-lg bg-green-50 text-green-700 px-4 py-3 text-sm">{message}</div>}
 
+      <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
+        Asset fee details remain explorable here, but edits and publish actions now move through Business Config Releases.
+      </div>
+
       <div className="bg-white rounded-xl border border-admin-border p-6 space-y-6">
         {!selectedEntry && <div className="text-sm text-gray-500">No asset selected.</div>}
         {selectedEntry && tier && serviceFee && gasFee && (
@@ -520,12 +492,9 @@ const PricingWithdrawalConfigPage = () => {
                 <p className="text-sm text-gray-500 mt-1">Configure service and gas fee for this asset.</p>
               </div>
               {detailMode === 'preview' ? (
-                <button
-                  onClick={beginEdit}
-                  className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-admin-border bg-white text-gray-700 hover:bg-gray-50"
-                >
-                  <Edit3 size={14} /> Edit
-                </button>
+                <div className="inline-flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-sm text-amber-800">
+                  <Edit3 size={14} /> Read-only in Phase 2
+                </div>
               ) : (
                 <div className="flex items-center gap-2">
                   <button

@@ -87,12 +87,12 @@ load_stack_config() {
       ;;
     audit-evidence)
       STACK="audit-evidence"
-      WT_DIR="${ROOT_DIR}/.wt/audit-evidence"
+      WT_DIR="${ROOT_DIR}/.wt/codex/branch"
       APP_DIR="${WT_DIR}/Exchange_js"
       BACKEND_PORT="3500"
       ADMIN_PORT="3501"
       CLIENT_PORT="3502"
-      BRANCH_RULE="audit&evidence"
+      BRANCH_RULE="codex/branch"
       ;;
     *)
       usage_stack_name

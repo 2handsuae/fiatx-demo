@@ -23,7 +23,7 @@ import {
   CreateSwapFromQuoteDto,
   CreateSwapQuoteDto,
 } from './dto/swap-quote.dto';
-import { SwapQuotesService } from './swap-quotes.service';
+import { PricingCenterService } from '../pricing-center/pricing-center.service';
 
 @ApiTags('Customer - Swap Transactions')
 @Controller('swap-transactions')
@@ -32,24 +32,20 @@ import { SwapQuotesService } from './swap-quotes.service';
 export class SwapTransactionsCustomerController {
   constructor(
     private readonly swapTransactionsService: SwapTransactionsService,
-    private readonly swapQuotesService: SwapQuotesService,
+    private readonly pricingCenterService: PricingCenterService,
     private readonly orchestrator: SwapWorkflowOrchestrator,
     private readonly onboardingService: OnboardingService,
   ) {}
-
-  @Post('preview')
-  @ApiOperation({ summary: 'Preview swap rate and amount (deprecated for execution)' })
-  preview(
-    @Body() dto: { fromAssetId: string; fromAmount: number; toAssetId: string },
-  ) {
-    return this.swapTransactionsService.preview(dto);
-  }
 
   @Post('quotes')
   @ApiOperation({ summary: 'Create a firm quote for customer swap' })
   async createQuote(@Request() req: any, @Body() dto: CreateSwapQuoteDto) {
     await this.onboardingService.assertTradingEligibility(req.user.userId, 'SWAP');
-    return this.swapQuotesService.createFirmQuote('CUSTOMER', req.user.userId, dto);
+    return this.pricingCenterService.createSwapQuote(
+      'CUSTOMER',
+      req.user.userId,
+      dto,
+    );
   }
 
   @Post('quotes/:id/cancel')
@@ -59,7 +55,11 @@ export class SwapTransactionsCustomerController {
     @Param('id') id: string,
     @Body() _dto?: CancelSwapQuoteDto,
   ) {
-    return this.swapQuotesService.cancelQuote(id, 'CUSTOMER', req.user.userId);
+    return this.pricingCenterService.cancelSwapQuote(
+      id,
+      'CUSTOMER',
+      req.user.userId,
+    );
   }
 
   @Get('rate')

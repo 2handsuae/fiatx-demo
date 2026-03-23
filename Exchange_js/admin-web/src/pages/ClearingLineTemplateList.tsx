@@ -1,6 +1,10 @@
 import { useEffect, useState } from 'react';
 import { RefreshCw, Plus, Edit2, Trash2, ArrowLeft } from 'lucide-react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import {
+  BUSINESS_CONFIG_RELEASES_PATH,
+  showBusinessConfigReadOnlyAlert,
+} from '../utils/businessConfigReadOnly';
 
 interface ClearingLineTemplateItem {
   id: string;
@@ -50,8 +54,7 @@ const ClearingLineTemplateList = () => {
   }, [templateId]);
 
   const handleDelete = async (_id: string) => {
-      if (!window.confirm('Are you sure you want to delete this line?')) return;
-      alert('Delete logic not implemented in backend yet');
+      showBusinessConfigReadOnlyAlert('Clearing templates');
   };
 
   if (!templateId) {
@@ -81,12 +84,16 @@ const ClearingLineTemplateList = () => {
           <p className="text-sm text-gray-500 ml-8">Configure clearing distribution lines for template ID: {templateId}</p>
         </div>
         <button 
-            onClick={() => alert('Create functionality coming next...')} 
-            className="flex items-center gap-2 px-4 py-2 bg-brand-primary text-white rounded-lg hover:bg-brand-primary/90 transition-colors"
+            onClick={() => navigate(BUSINESS_CONFIG_RELEASES_PATH)}
+            className="flex items-center gap-2 px-4 py-2 bg-white text-gray-700 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
         >
             <Plus size={20} />
-            <span>Add Line Rule</span>
+            <span>Open Release Center</span>
         </button>
+      </div>
+
+      <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
+        Clearing line templates are bundled into release-managed header revisions. This page is read-only for line inspection.
       </div>
 
       <div className="bg-white rounded-xl shadow-sm border border-admin-border overflow-hidden">
@@ -154,16 +161,16 @@ const ClearingLineTemplateList = () => {
                     <td className="px-4 py-4 text-right">
                       <div className="flex justify-end gap-2 items-center">
                         <button 
-                            className="p-1.5 text-gray-500 hover:text-brand-primary rounded hover:bg-gray-100 transition-colors"
-                            onClick={() => alert('Edit coming soon')}
-                            title="Edit"
+                            className="p-1.5 text-gray-300 rounded transition-colors cursor-not-allowed"
+                            onClick={() => showBusinessConfigReadOnlyAlert('Clearing templates')}
+                            title="Read-only"
                         >
                             <Edit2 size={16} />
                         </button>
                         <button 
-                            className="p-1.5 text-gray-400 hover:text-red-600 rounded hover:bg-gray-100 transition-colors"
+                            className="p-1.5 text-gray-300 rounded transition-colors cursor-not-allowed"
                             onClick={() => handleDelete(item.id)}
-                            title="Delete"
+                            title="Read-only"
                         >
                             <Trash2 size={16} />
                         </button>

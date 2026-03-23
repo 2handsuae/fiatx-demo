@@ -3,44 +3,66 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, RefreshCw } from 'lucide-react';
 import { formatAssetAmount, formatRate8 } from '../utils/number-format';
 
-interface SwapQuoteDetailData {
-  id: string;
+type QuoteBusiness = 'SWAP' | 'WITHDRAWAL';
+
+interface PricingQuoteDetailData {
+  quoteId: string;
   quoteNo: string | null;
-  quoteType: string;
+  business: QuoteBusiness;
   status: string;
   ownerType: string;
   ownerNo: string | null;
-  fromAssetCode: string;
-  toAssetCode: string;
-  fromAsset?: { code: string; decimals?: number | null } | null;
-  toAsset?: { code: string; decimals?: number | null } | null;
-  side: string;
-  amountType: string;
-  amountIn: string;
-  currencyIn: string;
-  amountOut: string;
-  currencyOut: string;
-  rateDisplay: string;
-  rateAllIn: string;
-  marketRate: string;
-  spreadPercent: string;
-  spreadBps: number;
-  rateSource: string;
-  fetchedAt: string;
-  feeTotal: string;
-  feeCurrency: string;
-  feeBreakdown: string | null;
+  createdAt: string;
   expiresAt: string;
   usedAt: string | null;
   cancelledAt: string | null;
-  createdAt: string;
-  updatedAt: string;
-  swapTransaction?: {
-    swapNo: string | null;
-    quoteNo: string | null;
-    status: string;
-    createdAt: string;
-  } | null;
+  fees: Array<Record<string, unknown>>;
+  totals: Record<string, string>;
+  policyRef: Record<string, unknown>;
+  swap?: {
+    quoteType: string;
+    fromAssetCode: string;
+    toAssetCode: string;
+    fromAsset?: { code: string; decimals?: number | null } | null;
+    toAsset?: { code: string; decimals?: number | null } | null;
+    side: string;
+    amountType: string;
+    amountIn: string;
+    currencyIn: string;
+    amountOut: string;
+    currencyOut: string;
+    rateDisplay: string;
+    rateAllIn: string;
+    marketRate: string;
+    spreadPercent: string;
+    spreadBps: number;
+    rateSource: string;
+    fetchedAt: string;
+    pricingSource?: Record<string, unknown> | null;
+    matched?: Record<string, unknown> | null;
+    linkedSwap?: {
+      swapNo: string | null;
+      quoteNo: string | null;
+      status: string;
+      createdAt: string;
+    } | null;
+  };
+  withdrawal?: {
+    assetId: string;
+    assetCode: string;
+    asset?: { code: string; decimals?: number | null; network?: string | null } | null;
+    amount: string;
+    segment: string;
+    riskTier: string;
+    matchedAssetEntryId: string;
+    matchedTierId: string;
+    matchedTierName: string;
+    linkedWithdrawals: Array<{
+      withdrawNo: string | null;
+      status: string;
+      createdAt: string;
+    }>;
+  };
 }
 
 const Field = ({ label, value }: { label: string; value: string }) => (
@@ -51,19 +73,15 @@ const Field = ({ label, value }: { label: string; value: string }) => (
 );
 
 const SwapQuoteDetail = () => {
-  const { id } = useParams<{ id: string }>();
+  const { id, business } = useParams<{ id: string; business?: QuoteBusiness }>();
   const navigate = useNavigate();
+  const resolvedBusiness: QuoteBusiness = business === 'WITHDRAWAL' ? 'WITHDRAWAL' : 'SWAP';
   const [loading, setLoading] = useState(true);
-  const [data, setData] = useState<SwapQuoteDetailData | null>(null);
+  const [data, setData] = useState<PricingQuoteDetailData | null>(null);
 
-  const feeBreakdown = useMemo(() => {
-    if (!data?.feeBreakdown) return [];
-    try {
-      return JSON.parse(data.feeBreakdown);
-    } catch {
-      return [];
-    }
-  }, [data?.feeBreakdown]);
+  const fees = useMemo(() => data?.fees || [], [data?.fees]);
+  const totals = useMemo(() => data?.totals || {}, [data?.totals]);
+  const policyRef = useMemo(() => data?.policyRef || {}, [data?.policyRef]);
 
   const fetchDetail = async () => {
     if (!id) return;
@@ -71,7 +89,7 @@ const SwapQuoteDetail = () => {
     try {
       const token = localStorage.getItem('admin_token');
       const response = await fetch(
-        `${import.meta.env.VITE_API_URL}/admin/swap-transactions/quotes/${id}`,
+        `${import.meta.env.VITE_API_URL}/admin/pricing/quotes/${resolvedBusiness}/${id}`,
         {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -98,7 +116,7 @@ const SwapQuoteDetail = () => {
 
   useEffect(() => {
     fetchDetail();
-  }, [id]);
+  }, [id, resolvedBusiness]);
 
   if (loading) {
     return (
@@ -110,12 +128,9 @@ const SwapQuoteDetail = () => {
   }
 
   if (!data) return null;
-  const feeDecimals =
-    data.feeCurrency === data.fromAssetCode
-      ? data.fromAsset?.decimals
-      : data.feeCurrency === data.toAssetCode
-      ? data.toAsset?.decimals
-      : 8;
+
+  const swap = data.swap;
+  const withdrawal = data.withdrawal;
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto pb-12">
@@ -128,8 +143,10 @@ const SwapQuoteDetail = () => {
             <ArrowLeft size={20} />
           </button>
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Swap Quote Detail</h1>
-            <p className="text-sm text-gray-500 mt-1 font-mono">Quote No: {data.quoteNo || 'N/A'}</p>
+            <h1 className="text-2xl font-bold text-gray-900">Quote Detail</h1>
+            <p className="text-sm text-gray-500 mt-1 font-mono">
+              {data.business} · Quote No: {data.quoteNo || 'N/A'}
+            </p>
           </div>
         </div>
         <button
@@ -144,37 +161,78 @@ const SwapQuoteDetail = () => {
         <h3 className="text-sm font-bold text-gray-900 uppercase mb-4">Identification</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <Field label="Quote No" value={data.quoteNo || 'N/A'} />
-          <Field label="Quote Type" value={data.quoteType} />
+          <Field label="Business" value={data.business} />
           <Field label="Status" value={data.status} />
           <Field label="Owner Type" value={data.ownerType} />
           <Field label="Owner No" value={data.ownerNo || 'N/A'} />
         </div>
       </div>
 
+      {swap && (
+        <div className="bg-white rounded-xl border border-admin-border shadow-sm p-6">
+          <h3 className="text-sm font-bold text-gray-900 uppercase mb-4">Swap Terms</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <Field label="Pair" value={`${swap.fromAssetCode} -> ${swap.toAssetCode}`} />
+            <Field label="Side / Amount Type" value={`${swap.side} / ${swap.amountType}`} />
+            <Field label="Amount In" value={`${formatAssetAmount(swap.amountIn, swap.fromAsset?.decimals)} ${swap.currencyIn}`} />
+            <Field label="Amount Out" value={`${formatAssetAmount(swap.amountOut, swap.toAsset?.decimals)} ${swap.currencyOut}`} />
+            <Field label="Rate Display" value={formatRate8(swap.rateDisplay)} />
+            <Field label="Rate All-In" value={formatRate8(swap.rateAllIn)} />
+            <Field label="Market Rate" value={formatRate8(swap.marketRate)} />
+            <Field label="Spread" value={`${Number(swap.spreadPercent)}% (${swap.spreadBps} bps)`} />
+            <Field label="Rate Source" value={swap.rateSource} />
+            <Field label="Fetched At" value={new Date(swap.fetchedAt).toLocaleString('en-US')} />
+          </div>
+          <pre className="text-xs bg-gray-50 border border-gray-100 rounded-lg p-3 overflow-auto text-gray-700 mt-4">
+            {JSON.stringify(
+              {
+                matched: swap.matched,
+                pricingSource: swap.pricingSource,
+              },
+              null,
+              2,
+            )}
+          </pre>
+        </div>
+      )}
+
+      {withdrawal && (
+        <div className="bg-white rounded-xl border border-admin-border shadow-sm p-6">
+          <h3 className="text-sm font-bold text-gray-900 uppercase mb-4">Withdrawal Terms</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <Field label="Asset" value={withdrawal.assetCode} />
+            <Field label="Amount" value={`${formatAssetAmount(withdrawal.amount, withdrawal.asset?.decimals)} ${withdrawal.assetCode}`} />
+            <Field label="Segment / Risk Tier" value={`${withdrawal.segment} / ${withdrawal.riskTier}`} />
+            <Field label="Matched Asset Entry" value={withdrawal.matchedAssetEntryId} />
+            <Field label="Matched Tier" value={`${withdrawal.matchedTierId} / ${withdrawal.matchedTierName}`} />
+            <Field label="Linked Withdrawals" value={String(withdrawal.linkedWithdrawals.length)} />
+          </div>
+          <pre className="text-xs bg-gray-50 border border-gray-100 rounded-lg p-3 overflow-auto text-gray-700 mt-4">
+            {JSON.stringify(withdrawal.linkedWithdrawals, null, 2)}
+          </pre>
+        </div>
+      )}
+
       <div className="bg-white rounded-xl border border-admin-border shadow-sm p-6">
-        <h3 className="text-sm font-bold text-gray-900 uppercase mb-4">Trade Terms</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <Field label="Pair" value={`${data.fromAssetCode} -> ${data.toAssetCode}`} />
-          <Field label="Side / Amount Type" value={`${data.side} / ${data.amountType}`} />
-          <Field label="Amount In" value={`${formatAssetAmount(data.amountIn, data.fromAsset?.decimals)} ${data.currencyIn}`} />
-          <Field label="Amount Out" value={`${formatAssetAmount(data.amountOut, data.toAsset?.decimals)} ${data.currencyOut}`} />
-          <Field label="Rate Display" value={formatRate8(data.rateDisplay)} />
-          <Field label="Rate All-In" value={formatRate8(data.rateAllIn)} />
-          <Field label="Market Rate" value={formatRate8(data.marketRate)} />
-          <Field label="Spread" value={`${Number(data.spreadPercent)}% (${data.spreadBps} bps)`} />
-          <Field label="Rate Source" value={data.rateSource} />
-          <Field label="Fetched At" value={new Date(data.fetchedAt).toLocaleString('en-US')} />
+        <h3 className="text-sm font-bold text-gray-900 uppercase mb-4">Fee Snapshot</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-4">
+          <Field label="Fee Items" value={String(fees.length)} />
+          <Field label="Total Currencies" value={String(Object.keys(totals).length)} />
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-4">
+          <pre className="text-xs bg-gray-50 border border-gray-100 rounded-lg p-3 overflow-auto text-gray-700">
+            {JSON.stringify(fees, null, 2)}
+          </pre>
+          <pre className="text-xs bg-gray-50 border border-gray-100 rounded-lg p-3 overflow-auto text-gray-700">
+            {JSON.stringify(totals, null, 2)}
+          </pre>
         </div>
       </div>
 
       <div className="bg-white rounded-xl border border-admin-border shadow-sm p-6">
-        <h3 className="text-sm font-bold text-gray-900 uppercase mb-4">Fees</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-4">
-          <Field label="Fee Total" value={`${formatAssetAmount(data.feeTotal, feeDecimals)} ${data.feeCurrency}`} />
-          <Field label="Fee Breakdown Items" value={String(feeBreakdown.length)} />
-        </div>
+        <h3 className="text-sm font-bold text-gray-900 uppercase mb-4">Policy Reference</h3>
         <pre className="text-xs bg-gray-50 border border-gray-100 rounded-lg p-3 overflow-auto text-gray-700">
-          {JSON.stringify(feeBreakdown, null, 2)}
+          {JSON.stringify(policyRef, null, 2)}
         </pre>
       </div>
 
@@ -185,22 +243,7 @@ const SwapQuoteDetail = () => {
           <Field label="Expires At" value={new Date(data.expiresAt).toLocaleString('en-US')} />
           <Field label="Used At" value={data.usedAt ? new Date(data.usedAt).toLocaleString('en-US') : 'N/A'} />
           <Field label="Cancelled At" value={data.cancelledAt ? new Date(data.cancelledAt).toLocaleString('en-US') : 'N/A'} />
-          <Field label="Updated At" value={new Date(data.updatedAt).toLocaleString('en-US')} />
         </div>
-      </div>
-
-      <div className="bg-white rounded-xl border border-admin-border shadow-sm p-6">
-        <h3 className="text-sm font-bold text-gray-900 uppercase mb-4">Linked Swap</h3>
-        {data.swapTransaction ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <Field label="Swap No" value={data.swapTransaction.swapNo || 'N/A'} />
-            <Field label="Quote No Snapshot" value={data.swapTransaction.quoteNo || 'N/A'} />
-            <Field label="Swap Status" value={data.swapTransaction.status} />
-            <Field label="Swap Created At" value={new Date(data.swapTransaction.createdAt).toLocaleString('en-US')} />
-          </div>
-        ) : (
-          <div className="text-sm text-gray-500">No swap linked to this quote.</div>
-        )}
       </div>
     </div>
   );

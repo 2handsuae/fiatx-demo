@@ -736,7 +736,7 @@ export class JournalsService {
     assetType: 'FIAT' | 'CRYPTO' | 'ALL';
     context: any;
     sourceId: string;
-  }, tx?: Prisma.TransactionClient) {
+    }, tx?: Prisma.TransactionClient) {
     const {
       entityType,
       triggerKey,
@@ -773,9 +773,41 @@ export class JournalsService {
 
     this.logger.log(`Matched Accounting Event: ${event.eventCode}`);
 
-    if (event.postingMode === 'AUTO_REVERSAL') {
-      return this.reverseJournal({
+    return this.executeResolvedEvent(
+      {
+        event,
         sourceType: entityType,
+        sourceId,
+        context,
+      },
+      tx,
+    );
+  }
+
+  async executeResolvedEvent(
+    params: {
+      event: {
+        eventCode: string;
+        postingMode: string;
+        postingReversalOfEventCode?: string | null;
+      };
+      sourceType: string;
+      sourceId: string;
+      context: any;
+    },
+    tx?: Prisma.TransactionClient,
+  ) {
+    const { event, sourceType, sourceId, context } = params;
+
+    if (event.postingMode === 'AUTO_REVERSAL') {
+      if (!event.postingReversalOfEventCode) {
+        throw new BadRequestException({
+          code: 'POSTING_REVERSAL_TARGET_REQUIRED',
+          message: `postingReversalOfEventCode is required for event ${event.eventCode}`,
+        });
+      }
+      return this.reverseJournal({
+        sourceType,
         sourceId,
         reversalEventCode: event.eventCode,
         targetEventCode: event.postingReversalOfEventCode,
@@ -786,7 +818,7 @@ export class JournalsService {
     if (event.postingMode === 'BULK_REVERSAL_BY_SOURCE') {
       return this.reverseAllBySource(
         {
-          sourceType: entityType,
+          sourceType,
           sourceId,
           context,
         },
@@ -799,7 +831,7 @@ export class JournalsService {
     }
 
     return this.createJournal({
-      sourceType: entityType,
+      sourceType,
       sourceId,
       eventCode: event.eventCode,
       context,

@@ -147,6 +147,7 @@ const Withdraw = () => {
             ownerType: 'CUSTOMER',
             ownerId: user.id,
             direction: 'OUTBOUND',
+            walletRole: 'GENERAL',
             assetId: selectedAssetId
         });
         const response = await fetch(`${import.meta.env.VITE_API_URL}/wallets?${params.toString()}`, {

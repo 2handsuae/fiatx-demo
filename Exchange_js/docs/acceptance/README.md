@@ -2,7 +2,7 @@
 
 Status: active
 Owner: project-owner-and-agents
-Last Updated: 2026-03-22
+Last Updated: 2026-03-23
 Applies To: `Exchange_js`
 Supersedes: none
 Depends On: `docs/README.md`
@@ -22,6 +22,8 @@ Source of Truth Level: acceptance
   - Focused onboarding + compliance-center manual script.
 - `docs/acceptance/local-main-runtime-runbook.md`
   - Local runtime repair and validation runbook.
+- `docs/acceptance/wave-4-ledger-asset-structure-acceptance-checklist.md`
+  - Draft Wave 4 manual acceptance target for config release, quote, clearing, journal, and wallet-balance validation.
 
 ## Update When
 - Validation flow changes.

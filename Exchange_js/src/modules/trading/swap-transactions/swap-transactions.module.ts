@@ -6,14 +6,13 @@ import { SwapTransactionsCustomerController } from './swap-transactions-customer
 import { PrismaModule } from '../../../core/prisma/prisma.module';
 import { OnboardingModule } from '../../identity/onboarding/onboarding.module';
 import { JournalsModule } from '../../accounting/journals/journals.module';
-import { SwapQuotesService } from './swap-quotes.service';
 import { OutstandingsModule } from '../../clearing-settle/outstandings/outstandings.module';
 import { PricingCenterModule } from '../pricing-center/pricing-center.module';
 
 @Module({
   imports: [PrismaModule, OnboardingModule, JournalsModule, PricingCenterModule, OutstandingsModule],
   controllers: [SwapTransactionsController, SwapTransactionsCustomerController],
-  providers: [SwapTransactionsService, SwapWorkflowOrchestrator, SwapQuotesService],
-  exports: [SwapTransactionsService, SwapWorkflowOrchestrator, SwapQuotesService],
+  providers: [SwapTransactionsService, SwapWorkflowOrchestrator],
+  exports: [SwapTransactionsService, SwapWorkflowOrchestrator],
 })
 export class SwapTransactionsModule {}

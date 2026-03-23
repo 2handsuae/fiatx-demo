@@ -2,7 +2,7 @@
 
 Status: active
 Owner: project-owner-and-agents
-Last Updated: 2026-03-22
+Last Updated: 2026-03-23
 Applies To: `Exchange_js`
 Supersedes: none
 Depends On: `docs/README.md`
@@ -26,6 +26,10 @@ Source of Truth Level: cleanup
   - `docs/cleanup/wave-2-cleanup-master-plan.md`
 - Wave 3 master:
   - `docs/cleanup/wave-3-cleanup-master-plan.md`
+- Wave 4 master:
+  - `docs/cleanup/wave-4-cleanup-master-plan.md`
+- Wave 4 retirement inventory:
+  - `docs/cleanup/wave-4-field-retirement-inventory.md`
 - Final closure:
   - `docs/cleanup/wave-2-wave-3-final-closure-plan.md`
 - Stage documents:
@@ -41,6 +45,8 @@ Source of Truth Level: cleanup
 ## Current Status
 - `Wave 1` governance / audit cleanup master 已重新启用，作为当前 active staged cleanup 入口。
 - `Wave 2` 与 `Wave 3` 的 cleanup 文档都已退为历史完成记录。
+- `Wave 4` cleanup master 与 retirement inventory 已进入 round 3 schema retirement，作为当前 ledger / pricing / wallet shadow balance 退役入口。
+- `Wave 4` cleanup round 1-3 之后，又完成了 post-cleanup remediation，用于补齐 governance audit logging 与 core runtime type conformance。
 - 当前长期真相不在 cleanup 层，而在：
   - `docs/constraints/**`
   - `docs/specs/**`
@@ -49,7 +55,7 @@ Source of Truth Level: cleanup
 ## Update When
 - A legacy alias is introduced or removed.
 - A cleanup stage starts, advances, or completes.
-- A field or route changes from compatibility-only to removable.
+- A field or route changes from compatibility-only to physically deleted or migration-ready.
 
 ## Minimum Stage Structure
 - current debt

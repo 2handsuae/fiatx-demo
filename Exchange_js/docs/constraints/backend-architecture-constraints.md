@@ -35,7 +35,7 @@
 
 ## 5) Event/Template Configuration Discipline
 - MUST treat accounting events/templates/clearing templates as configuration data with idempotent sync.
-- MUST avoid startup side-effect writes unless explicitly gated by env (e.g. `ACCT_CONFIG_SYNC_ON_BOOT=true`).
+- MUST avoid startup side-effect writes; boot-time config checks may validate contracts, but runtime modules MUST NOT rely on startup sync or write side effects.
 
 ## 6) Dependency Rules
 - MUST NOT introduce cross-module circular dependencies.

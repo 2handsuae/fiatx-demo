@@ -14,7 +14,10 @@ interface Asset {
 
 interface WalletItem {
   id: string;
+  assetId: string;
   type: string;
+  direction: string;
+  walletRole?: string;
   asset: { code: string; type: string; decimals?: number };
   address?: string;
   memo?: string;
@@ -51,7 +54,6 @@ const Deposit = () => {
   const [depositWallet, setDepositWallet] = useState<WalletItem | null>(null);
   const [loading, setLoading] = useState(false);
   const [generating, setGenerating] = useState(false);
-  const [simulating, setSimulating] = useState(false);
   const [copied, setCopied] = useState(false);
 
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -91,7 +93,14 @@ const Deposit = () => {
       setLoading(true);
       try {
         const token = localStorage.getItem('customer_token');
-        const response = await fetch(`${import.meta.env.VITE_API_URL}/wallets?ownerType=CUSTOMER&ownerId=${user.id}`, {
+        const params = new URLSearchParams({
+          ownerType: 'CUSTOMER',
+          ownerId: user.id,
+          direction: 'INBOUND',
+          walletRole: 'DEPOSIT',
+          assetId: selectedAssetId,
+        });
+        const response = await fetch(`${import.meta.env.VITE_API_URL}/wallets?${params.toString()}`, {
             headers: { 'Authorization': `Bearer ${token}` }
         });
 
@@ -99,9 +108,10 @@ const Deposit = () => {
             const data = await response.json();
             const items: WalletItem[] = data.items || [];
             const found = items.find(w => 
-                w.asset.code === assets.find(a => a.id === selectedAssetId)?.code &&
+                w.assetId === selectedAssetId &&
                 (w.type === 'CRYPTO_ADDRESS' || w.type === 'FIAT_BANK') &&
-                (w as any).direction === 'INBOUND'
+                w.direction === 'INBOUND' &&
+                w.walletRole === 'DEPOSIT'
             );
             setDepositWallet(found || null);
         }
@@ -182,40 +192,6 @@ const Deposit = () => {
         alert('An unexpected error occurred');
     } finally {
         setGenerating(false);
-    }
-  };
-
-  const handleSimulatePayin = async () => {
-    if (!depositWallet || !user) return;
-    setSimulating(true);
-    try {
-        const token = localStorage.getItem('customer_token');
-        const payload = {
-            assetId: selectedAssetId,
-            toWalletId: depositWallet.id,
-            type: activeTab === 'crypto' ? 'crypto' : 'fiat'
-        };
-
-        const response = await fetch(`${import.meta.env.VITE_API_URL}/treasury/payins/simulate`, {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(payload)
-        });
-
-        if (response.ok) {
-            alert('Simulation successful! Payin created.');
-        } else {
-            const err = await response.json();
-            alert(`Simulation failed: ${err.message || 'Unknown error'}`);
-        }
-    } catch (error) {
-        console.error('Simulation failed', error);
-        alert('Simulation failed due to network error');
-    } finally {
-        setSimulating(false);
     }
   };
 
@@ -542,7 +518,7 @@ const Deposit = () => {
                     Select {activeTab === 'crypto' ? 'Asset' : 'Currency'}
                   </h3>
                   <p className="text-slate-500 dark:text-slate-400 mb-6 max-w-sm mx-auto">
-                    Choose an asset above to view {activeTab === 'crypto' ? 'deposit address' : 'bank details'}.
+                    Choose an asset above to view or generate your {activeTab === 'crypto' ? 'deposit address' : 'deposit vIBAN'}.
                   </p>
                 </div>
               ) : loading ? (
@@ -554,7 +530,7 @@ const Deposit = () => {
                 <div className="bg-slate-50 dark:bg-slate-800/50 rounded-2xl p-6 border border-slate-200 dark:border-slate-700">
                                 <div className="flex justify-between items-start mb-6">
                                         <h3 className="text-sm font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-                                            {activeTab === 'crypto' ? 'Deposit Address' : 'Bank Account'}
+                                            {activeTab === 'crypto' ? 'Deposit Address' : 'Deposit vIBAN'}
                                         </h3>
                                         <span className="bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300 text-xs px-3 py-1 rounded-full font-bold">
                                             Active
@@ -641,10 +617,10 @@ const Deposit = () => {
                                         {activeTab === 'crypto' ? <Wallet size={32} /> : <Building2 size={32} />}
                                     </div>
                                     <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-2">
-                                        No {activeTab === 'crypto' ? 'Address' : 'Account'} Generated
+                                        No {activeTab === 'crypto' ? 'Address' : 'vIBAN'} Generated
                                     </h3>
                                     <p className="text-slate-500 dark:text-slate-400 mb-6 max-w-sm mx-auto">
-                                        Generate a unique {activeTab === 'crypto' ? 'deposit address' : 'bank account'} to start funding.
+                                        Generate a dedicated {activeTab === 'crypto' ? 'deposit address' : 'deposit vIBAN'} whenever you need to fund your account.
                                     </p>
                                     <button
                                         onClick={handleGenerate}
@@ -652,25 +628,11 @@ const Deposit = () => {
                                         className="px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl font-bold hover:shadow-lg hover:shadow-blue-500/30 transition-all flex items-center gap-2 mx-auto"
                                     >
                                         {generating ? <RefreshCw className="animate-spin" size={20} /> : null}
-                                        {generating ? 'Generating...' : `Generate ${activeTab === 'crypto' ? 'Address' : 'Account'}`}
+                                        {generating ? 'Generating...' : `Generate ${activeTab === 'crypto' ? 'Address' : 'vIBAN'}`}
                                     </button>
                                 </div>
                             )}
                             
-                            {/* Simulate Button */}
-                            {depositWallet && (
-                                <div className="flex justify-end">
-                                    <button
-                                        onClick={handleSimulatePayin}
-                                        disabled={simulating}
-                                        className="px-5 py-2.5 bg-slate-800 dark:bg-slate-700 text-white rounded-xl font-medium text-sm hover:bg-slate-700 dark:hover:bg-slate-600 transition-all flex items-center gap-2"
-                                        title="Simulate a Payin for testing"
-                                    >
-                                        {simulating ? <RefreshCw className="animate-spin" size={16} /> : <RefreshCw size={16} />}
-                                        Simulate Payin
-                                    </button>
-                                </div>
-                            )}
                         </div>
 
                         {/* Right: Instructions */}

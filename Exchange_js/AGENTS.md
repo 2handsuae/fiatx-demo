@@ -25,9 +25,11 @@ Before any code change in `Exchange_js`, read:
 ## Planning Reference
 - For roadmap, milestone, wave-planning, or scope-sequencing requests, also read:
   - `docs/roadmap/project-version-plan.md`
+  - `docs/roadmap/wave-4-ledger-asset-structure-phase-plan.md`
   - `docs/roadmap/wave1-foundation-migration-from-exchange-java.md`
 - This planning reference does not override `docs/constraints/**`; constraints remain the behavioral source of truth.
 - `docs/roadmap/project-version-plan.md` is the current planning reference for wave scope and sequencing.
+- `docs/roadmap/wave-4-ledger-asset-structure-phase-plan.md` is the current planning reference for Wave 4 ledger, wallet/account, pricing, and config-release sequencing.
 - `docs/roadmap/wave1-foundation-migration-from-exchange-java.md` is a historical migration-reference document and MUST NOT be treated as the current implementation truth.
 
 ## Documentation Governance
@@ -47,6 +49,15 @@ Before any code change in `Exchange_js`, read:
 5. `docs/adr/`: architecture and product decision records
 6. `docs/acceptance/`: runbooks, demo flows, validation checklists
 7. `docs/glossary/`: shared terminology and naming definitions
+
+### Wave 4 Design Baseline
+- When work touches Wave 4 ledger / wallet / pricing / config-release behavior, also read:
+1. `docs/constraints/wallet-account-model-constraints.md`
+2. `docs/constraints/business-base-config-release-constraints.md`
+3. `docs/constraints/posting-clearing-balance-projection-constraints.md`
+4. `docs/constraints/pricing-and-quote-constraints.md`
+5. `docs/specs/workflows/config-release-activation-workflow.md`
+6. `docs/specs/workflows/quote-event-clearing-journal-workflow.md`
 
 ### Source Of Truth Order
 - If documents conflict, use this precedence:

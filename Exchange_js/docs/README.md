@@ -2,7 +2,7 @@
 
 Status: active
 Owner: project-owner-and-agents
-Last Updated: 2026-03-22
+Last Updated: 2026-03-23
 Applies To: `Exchange_js`
 Supersedes: none
 Depends On: `AGENTS.md`, `docs/constraints/README.md`
@@ -147,8 +147,19 @@ Source of Truth Level: documentation-governance-index
   - `docs/roadmap/project-version-plan.md`
   - `docs/roadmap/wave-3-customer-onboarding-phase-plan.md`
   - `docs/roadmap/wave-2-compliance-foundation-phase-plan.md`
+  - `docs/roadmap/wave-4-ledger-asset-structure-phase-plan.md`
+- Wave 4 design decision reference:
+  - `docs/adr/business-base-config-release-model.md`
+- Wave 4 cleanup reference:
+  - `docs/cleanup/wave-4-cleanup-master-plan.md`
+  - `docs/cleanup/wave-4-field-retirement-inventory.md`
 - Constraints index:
   - `docs/constraints/README.md`
+- Wave 4 runtime constraints:
+  - `docs/constraints/wallet-account-model-constraints.md`
+  - `docs/constraints/business-base-config-release-constraints.md`
+  - `docs/constraints/posting-clearing-balance-projection-constraints.md`
+  - `docs/constraints/pricing-and-quote-constraints.md`
 - Workflow semantics reference:
   - `docs/specs/workflows/audit-evidence-export-approval-workflow.md`
   - `docs/specs/workflows/change-ticket-release-gate-workflow.md`
@@ -161,6 +172,8 @@ Source of Truth Level: documentation-governance-index
   - `docs/specs/workflows/mlro-and-final-approval-governance.md`
   - `docs/specs/workflows/case-final-lifecycle-and-external-filing.md`
   - `docs/specs/workflows/onboarding-periodic-review-audit-trace-contract.md`
+  - `docs/specs/workflows/config-release-activation-workflow.md`
+  - `docs/specs/workflows/quote-event-clearing-journal-workflow.md`
 - Entity semantics reference:
   - `docs/specs/entities/audit-evidence-package-entity.md`
   - `docs/specs/entities/change-ticket-entity.md`
@@ -176,6 +189,9 @@ Source of Truth Level: documentation-governance-index
   - `docs/specs/entities/periodic-review-cycle-entity.md`
   - `docs/specs/entities/approval-case-entity.md`
   - `docs/specs/entities/risk-decision-record-entity.md`
+  - `docs/specs/entities/wallet-entity.md`
+  - `docs/specs/entities/business-config-release-entity.md`
+  - `docs/specs/entities/pricing-quote-entity.md`
 - Module integration reference:
   - `docs/specs/modules/governance-control-foundation-module.md`
   - `docs/specs/modules/rbac-member-management-module.md`
@@ -185,11 +201,15 @@ Source of Truth Level: documentation-governance-index
   - `docs/specs/modules/periodic-review-module.md`
   - `docs/specs/modules/approvals-module.md`
   - `docs/specs/modules/audit-logging-module.md`
+  - `docs/specs/modules/accounting-ledger-module.md`
+  - `docs/specs/modules/pricing-center-module.md`
+  - `docs/specs/modules/asset-treasury-foundation-module.md`
 - Runtime / validation examples:
   - `docs/acceptance/wave-1-foundation-final-acceptance.md`
   - `docs/acceptance/wave-2-wave-3-final-acceptance-checklist.md`
   - `docs/acceptance/local-main-runtime-runbook.md`
   - `docs/acceptance/onboarding-compliance-center-wave3-acceptance-checklist.md`
+  - `docs/acceptance/wave-4-ledger-asset-structure-acceptance-checklist.md`
 - Archived cleanup history:
   - `docs/cleanup/wave-1-governance-audit-cleanup-master-plan.md`
   - `docs/cleanup/wave-2-wave-3-final-closure-plan.md`
@@ -213,6 +233,20 @@ Source of Truth Level: documentation-governance-index
 5. Wave 1 module specs
 6. final acceptance
 7. archived cleanup docs only if retirement history matters
+
+## Wave 4 Recommended Reading Order
+1. roadmap / Wave 4 phase plan
+2. Wave 4 ADR
+3. Wave 4 runtime constraints
+4. Wave 4 workflow specs
+5. Wave 4 entity specs
+6. Wave 4 module specs
+7. Wave 4 acceptance and closeout evidence
+8. Wave 4 cleanup docs only if retirement history matters
+
+## Wave 4 Status Note
+- Wave 4 docs now describe implemented runtime slices, cleanup rounds, post-closeout remediation, and the remaining explicit gaps.
+- They are no longer just future-design baselines, but they still do not claim that every original Wave 4 blueprint item is complete.
 
 ## Wave Completion Documentation Rule
 - A wave MUST NOT be treated as documentation-complete until all of the following exist and point to each other:

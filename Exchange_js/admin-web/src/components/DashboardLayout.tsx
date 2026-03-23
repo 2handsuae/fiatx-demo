@@ -136,7 +136,7 @@ const DashboardLayout = () => {
         },
         {
           path: '/dashboard/pricing/quotes',
-          label: 'Swap Quotes',
+          label: 'Quote Center',
           icon: <FileText size={18} />,
           requiredPermissions: [PERMISSIONS.SWAP_QUOTES_READ],
         },
@@ -186,6 +186,12 @@ const DashboardLayout = () => {
           path: '/dashboard/control-gates/change-tickets',
           label: 'Change Tickets',
           icon: <Briefcase size={18} />,
+          requiredPermissions: [PERMISSIONS.GOV_CHANGE_TICKETS_READ],
+        },
+        {
+          path: '/dashboard/control-gates/business-config-releases',
+          label: 'Config Releases',
+          icon: <Layers size={18} />,
           requiredPermissions: [PERMISSIONS.GOV_CHANGE_TICKETS_READ],
         },
         {

@@ -2,7 +2,7 @@
 
 Status: active
 Owner: project-owner-and-agents
-Last Updated: 2026-03-22
+Last Updated: 2026-03-23
 Applies To: `Exchange_js`
 Supersedes: none
 Depends On: `AGENTS.md`, `docs/README.md`
@@ -55,6 +55,11 @@ This file is the constraints subtree index under the project-level documentation
 2. `docs/specs/modules/periodic-review-module.md`
 - When work touches final end-to-end validation for Wave 2 / Wave 3, also read:
 1. `docs/acceptance/wave-2-wave-3-final-acceptance-checklist.md`
+- When work touches Wave 4 ledger / wallet / pricing / config-release design or implementation, also read:
+1. `docs/constraints/wallet-account-model-constraints.md`
+2. `docs/constraints/business-base-config-release-constraints.md`
+3. `docs/constraints/posting-clearing-balance-projection-constraints.md`
+4. `docs/constraints/pricing-and-quote-constraints.md`
 
 ## Scope
 - Frontend: `admin-web`, `client-web`
@@ -74,6 +79,7 @@ This file is the constraints subtree index under the project-level documentation
 - Domain flow: `Wave 2` case final lifecycle and external filing separation semantics
 - Domain flow: onboarding / periodic review unified audit chain and trace contract
 - Domain flow: admin member invitation activation lifecycle (`INACTIVE -> invite -> password setup -> ACTIVE`)
+- Domain flow: Wave 4 wallet/account model, business-config release model, event-driven posting/clearing, and pricing/quote baseline
 
 ## Enforcement Level
 - `MUST`: mandatory constraint, no exception unless owner explicitly approves.
