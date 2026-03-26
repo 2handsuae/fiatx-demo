@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { X } from 'lucide-react';
 import { useAdminSession } from '../contexts/AdminSessionContext';
@@ -23,8 +23,24 @@ type AlertDispositionCode =
   | 'ESCALATE_TO_CASE'
   | 'FALSE_POSITIVE'
   | 'RESOLVED_BY_WORKFLOW';
-type AlertAction = 'ASSIGN' | 'REASSIGN' | 'ESCALATE_TO_CASE' | 'FALSE_POSITIVE';
-type WorkflowAction = RecommendedDecision;
+type AlertHandlingAction =
+  | 'ASSIGN'
+  | 'REASSIGN'
+  | 'FALSE_POSITIVE'
+  | 'DIRECT_DISPOSITION'
+  | 'ESCALATE_TO_CASE';
+type DirectProposalCode = 'REJECT' | 'REQUIRE_EDD' | 'FREEZE_TRANSACTION';
+type ResolutionAction = Extract<
+  AlertHandlingAction,
+  'FALSE_POSITIVE' | 'DIRECT_DISPOSITION' | 'ESCALATE_TO_CASE'
+>;
+
+const ASSIGNMENT_ACTIONS = new Set<AlertHandlingAction>(['ASSIGN', 'REASSIGN']);
+const RESOLUTION_ACTIONS = new Set<AlertHandlingAction>([
+  'FALSE_POSITIVE',
+  'DIRECT_DISPOSITION',
+  'ESCALATE_TO_CASE',
+]);
 
 interface AlertEvent {
   id: string;
@@ -48,6 +64,13 @@ interface DispositionRecord {
   source?: string | null;
   sourceRefId?: string | null;
   createdAt: string;
+}
+
+interface PrimaryObject {
+  type: 'ONBOARDING_JOURNEY' | 'PERIODIC_REVIEW_CYCLE' | 'DEPOSIT' | string;
+  id?: string | null;
+  no?: string | null;
+  label: string;
 }
 
 interface AlertDetail {
@@ -89,27 +112,10 @@ interface AlertDetail {
   linkedCaseIds?: string[] | null;
   decisionRecordIds?: string[] | null;
   dispositionHistory?: DispositionRecord[];
-  availableAlertActions?: AlertAction[];
-  availableWorkflowActions?: WorkflowAction[];
+  primaryObject?: PrimaryObject | null;
+  availableHandlingActions?: AlertHandlingAction[];
+  availableDirectProposals?: DirectProposalCode[];
   events: AlertEvent[];
-}
-
-interface CaseFromAlertResponse {
-  id: string;
-  caseNo?: string;
-}
-
-interface OnboardingAlertDecisionResponse {
-  alert: AlertDetail;
-  customer: {
-    id: string;
-    onboardingStatus?: string | null;
-    operatingStatus?: string | null;
-  };
-  eddResponse?: {
-    id: string;
-    responseNo?: string | null;
-  } | null;
 }
 
 interface UserListItem {
@@ -123,6 +129,12 @@ interface ProviderResponseLink {
   label: string;
   path: string;
   description: string;
+}
+
+interface ResolutionModalState {
+  action: ResolutionAction;
+  reason: string;
+  proposalCode: DirectProposalCode | '';
 }
 
 const formatDateTime = (value?: string | null): string => {
@@ -163,24 +175,6 @@ const getMetadataRecord = (value: unknown): Record<string, unknown> => {
   return {};
 };
 
-const getOnboardingDecisionSummary = (customer: {
-  onboardingStatus?: string | null;
-  operatingStatus?: string | null;
-}) => {
-  const onboardingStatus = String(customer.onboardingStatus || '').trim().toUpperCase();
-  const operatingStatus = String(customer.operatingStatus || '').trim().toUpperCase();
-
-  if (onboardingStatus === 'APPROVED' && operatingStatus === 'ACTIVE') return 'active onboarding';
-  if (onboardingStatus === 'FINAL_APPROVAL') return 'final approval';
-  if (onboardingStatus === 'PENDING_EDD_INPUT') return 'EDD input';
-  if (onboardingStatus === 'EDD_UNDER_REVIEW') return 'EDD review';
-  if (onboardingStatus === 'CDD_UNDER_REVIEW') return 'CDD review';
-  if (onboardingStatus === 'REJECTED') return 'rejected';
-  if (onboardingStatus === 'WITHDRAWN') return 'withdrawn';
-  if (onboardingStatus === 'PENDING_CDD_INPUT') return 'CDD input';
-  return onboardingStatus || 'updated onboarding state';
-};
-
 const getProviderResponseLink = (detail: AlertDetail): ProviderResponseLink | null => {
   const metadata = getMetadataRecord(detail.metadata);
   const contextType = String(metadata.contextType || '').trim().toUpperCase();
@@ -218,17 +212,53 @@ const getStatusClass = (status: AlertStatus) => {
   return 'bg-gray-200 text-gray-800';
 };
 
-const alertActionLabelMap: Record<AlertAction, string> = {
+const handlingActionLabelMap: Record<AlertHandlingAction, string> = {
   ASSIGN: 'Assign',
   REASSIGN: 'Reassign',
-  ESCALATE_TO_CASE: 'Escalate to Case',
   FALSE_POSITIVE: 'False Positive',
+  DIRECT_DISPOSITION: 'Direct Disposition',
+  ESCALATE_TO_CASE: 'Escalate to Case',
 };
 
-const workflowActionLabelMap: Record<WorkflowAction, string> = {
-  CLEAR: 'Clear',
-  REJECT: 'Reject',
-  REQUIRE_EDD: 'Require EDD',
+const getProposalLabel = (
+  detail: AlertDetail | null,
+  proposalCode: DirectProposalCode,
+): string => {
+  const primaryObjectType = String(detail?.primaryObject?.type || '').trim().toUpperCase();
+
+  if (proposalCode === 'REQUIRE_EDD') {
+    return 'Require EDD';
+  }
+
+  if (proposalCode === 'FREEZE_TRANSACTION') {
+    return 'Freeze Deposit';
+  }
+
+  if (primaryObjectType === 'ONBOARDING_JOURNEY') {
+    return 'Reject Journey';
+  }
+
+  if (primaryObjectType === 'PERIODIC_REVIEW_CYCLE') {
+    return 'Reject Review';
+  }
+
+  return 'Reject Deposit';
+};
+
+const getResolutionModalTitle = (action: ResolutionAction): string => {
+  if (action === 'FALSE_POSITIVE') return 'Mark as False Positive';
+  if (action === 'DIRECT_DISPOSITION') return 'Apply Direct Disposition';
+  return 'Escalate to Case';
+};
+
+const getResolutionModalDescription = (action: ResolutionAction): string => {
+  if (action === 'FALSE_POSITIVE') {
+    return 'This records the alert as a false positive and automatically lets the primary workflow continue.';
+  }
+  if (action === 'DIRECT_DISPOSITION') {
+    return 'Choose the fixed primary object proposal for this alert. Object selection is locked by alert type.';
+  }
+  return 'This hands the alert off to a compliance case for formal investigation.';
 };
 
 const ComplianceAlertDetailPage = () => {
@@ -247,12 +277,18 @@ const ComplianceAlertDetailPage = () => {
   const [assignCandidatesLoading, setAssignCandidatesLoading] = useState(false);
   const [assignCandidatesError, setAssignCandidatesError] = useState('');
   const [selectedAssigneeUserId, setSelectedAssigneeUserId] = useState('');
-  const [lastEscalatedCase, setLastEscalatedCase] = useState<CaseFromAlertResponse | null>(null);
+  const [resolutionModal, setResolutionModal] = useState<ResolutionModalState | null>(
+    null,
+  );
 
-  const canWriteAlerts = hasPermission(PERMISSIONS.ALERTS_WRITE);
+  const canManageAlertWorkItem = hasPermission(PERMISSIONS.ALERTS_WRITE);
+  const canResolveAlerts = hasPermission(PERMISSIONS.ALERTS_RESOLVE);
   const canWriteCases = hasPermission(PERMISSIONS.CASES_WRITE);
-  const canReadRiskDecisionRecords = hasPermission(PERMISSIONS.RISK_DECISION_RECORDS_READ);
-  const from = new URLSearchParams(location.search).get('from') || '/dashboard/compliance/alerts';
+  const canReadRiskDecisionRecords = hasPermission(
+    PERMISSIONS.RISK_DECISION_RECORDS_READ,
+  );
+  const from =
+    new URLSearchParams(location.search).get('from') || '/dashboard/compliance/alerts';
 
   const fetchDetail = async () => {
     if (!id) return;
@@ -299,7 +335,9 @@ const ComplianceAlertDetailPage = () => {
     try {
       const candidates = await fetchAssignCandidates();
       setAssignCandidates(candidates);
-      setSelectedAssigneeUserId(detail.assigneeUserId || session?.id || candidates[0]?.id || '');
+      setSelectedAssigneeUserId(
+        detail.assigneeUserId || session?.id || candidates[0]?.id || '',
+      );
     } catch (e: unknown) {
       if (e instanceof AdminSessionError) return;
       setAssignCandidatesError(
@@ -309,6 +347,11 @@ const ComplianceAlertDetailPage = () => {
     } finally {
       setAssignCandidatesLoading(false);
     }
+  };
+
+  const closeAssignModal = () => {
+    if (acting === 'ASSIGN') return;
+    setAssignModalOpen(false);
   };
 
   const submitAssign = async () => {
@@ -342,148 +385,136 @@ const ComplianceAlertDetailPage = () => {
     }
   };
 
-  const applyOnboardingDecision = async (
-    decision: RecommendedDecision,
-    options?: { alertOutcome?: 'FALSE_POSITIVE' },
-  ) => {
-    if (!detail) return;
-    if (!detail.assigneeUserId) {
-      setError('Current alert has no assignee.');
-      return;
-    }
-
-    const reasonInput =
-      decision === 'REJECT' || options?.alertOutcome === 'FALSE_POSITIVE'
-        ? window.prompt('Reason (optional)', '') || ''
-        : '';
-
-    setActing(decision);
-    setError('');
-    setMessage('');
-    setLastEscalatedCase(null);
-    try {
-      const isPeriodicReview =
-        String(detail.workflow || '').trim().toUpperCase() === 'PERIODIC_REVIEW';
-      const response = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/compliance/alerts/${detail.id}/${
-          isPeriodicReview ? 'periodic-review-decision' : 'onboarding-decision'
-        }`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            decision,
-            alertOutcome: options?.alertOutcome,
-            reason: reasonInput.trim() || undefined,
-          }),
-        },
-      );
-      if (!response.ok) {
-        throw new Error(
-          await getApiErrorMessage(
-            response,
-            isPeriodicReview
-              ? 'Failed to apply periodic review decision.'
-              : 'Failed to apply onboarding decision.',
-          ),
-        );
+  const handlingActions = useMemo(() => {
+    if (!detail) return [] as AlertHandlingAction[];
+    return normalizeActionList<AlertHandlingAction>(
+      detail.availableHandlingActions,
+    ).filter((action) => {
+      if (ASSIGNMENT_ACTIONS.has(action)) {
+        return canManageAlertWorkItem;
       }
-      const data = (await response.json()) as OnboardingAlertDecisionResponse;
-      setDetail(data.alert);
-      if (options?.alertOutcome === 'FALSE_POSITIVE') {
-        setMessage(
-          `False positive recorded. ${
-            isPeriodicReview ? 'Periodic review' : 'Onboarding'
-          } moved to ${getOnboardingDecisionSummary(data.customer)}.`,
-        );
-      } else if (decision === 'REQUIRE_EDD' && data.eddResponse?.responseNo) {
-        setMessage(
-          `Decision applied. ${
-            isPeriodicReview ? 'Periodic review' : 'Onboarding'
-          } moved to ${getOnboardingDecisionSummary(data.customer)}. EDD response ${data.eddResponse.responseNo} created.`,
-        );
-      } else {
-        setMessage(
-          `Decision applied. ${
-            isPeriodicReview ? 'Periodic review' : 'Onboarding'
-          } moved to ${getOnboardingDecisionSummary(data.customer)}.`,
-        );
+      if (!RESOLUTION_ACTIONS.has(action) || !canResolveAlerts) {
+        return false;
       }
-    } catch (e: unknown) {
-      if (e instanceof AdminSessionError) return;
-      setError(e instanceof Error ? e.message : 'Failed to apply onboarding decision.');
-    } finally {
-      setActing(null);
-    }
-  };
+      return action !== 'ESCALATE_TO_CASE' || canWriteCases;
+    });
+  }, [canManageAlertWorkItem, canResolveAlerts, canWriteCases, detail]);
 
-  const handleAlertAction = async (action: AlertAction) => {
-    if (!detail) return;
-    if (action === 'ASSIGN' || action === 'REASSIGN') {
-      await openAssignModal();
-      return;
-    }
-    if (action === 'ESCALATE_TO_CASE') {
-      setActing(action);
-      setError('');
-      setMessage('');
-      setLastEscalatedCase(null);
-      try {
-        const reason = window.prompt('Escalation reason', '') || '';
-        if (!reason.trim()) {
-          throw new Error('Escalation requires a reason.');
-        }
-        const response = await adminFetch(
-          `${import.meta.env.VITE_API_URL}/admin/compliance/cases/from-alert/${detail.id}`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ reason: reason.trim() }),
-          },
-        );
-        if (!response.ok) {
-          throw new Error(await getApiErrorMessage(response, 'Escalation failed.'));
-        }
-        const data = (await response.json()) as CaseFromAlertResponse;
-        setLastEscalatedCase(data);
-        setMessage(
-          data.caseNo
-            ? `Case ${data.caseNo} created. Continue investigation in the cases queue.`
-            : 'Case created. Continue investigation in the cases queue.',
-        );
-        await fetchDetail();
-      } catch (e: unknown) {
-        if (e instanceof AdminSessionError) return;
-        setError(e instanceof Error ? e.message : 'Escalation failed.');
-      } finally {
-        setActing(null);
-      }
-      return;
-    }
-    if (action === 'FALSE_POSITIVE') {
-      await applyOnboardingDecision('CLEAR', { alertOutcome: 'FALSE_POSITIVE' });
-    }
-  };
+  const directProposals = useMemo(
+    () => normalizeActionList<DirectProposalCode>(detail?.availableDirectProposals),
+    [detail?.availableDirectProposals],
+  );
 
-  const handleWorkflowAction = async (decision: WorkflowAction) => {
-    await applyOnboardingDecision(decision);
-  };
-
-  const alertActions =
-    detail && canWriteAlerts
-      ? normalizeActionList<AlertAction>(detail.availableAlertActions).filter(
-          (action) => action !== 'ESCALATE_TO_CASE' || canWriteCases,
-        )
-      : [];
-  const workflowActions =
-    detail && canWriteAlerts
-      ? normalizeActionList<WorkflowAction>(detail.availableWorkflowActions)
-      : [];
-  const recommendedDecisions = normalizeRecommendedDecisions(detail?.recommendedDecisions);
+  const recommendedDecisions = normalizeRecommendedDecisions(
+    detail?.recommendedDecisions,
+  );
   const providerResponseLink = detail ? getProviderResponseLink(detail) : null;
   const decisionRecordIds = normalizeStringList(detail?.decisionRecordIds);
   const linkedCaseIds = normalizeStringList(detail?.linkedCaseIds);
   const reasonCodes = normalizeStringList(detail?.reasonCodes);
+  const metadata = getMetadataRecord(detail?.metadata);
+  const riskBand = String(metadata.riskBand || metadata.simulationRiskLevel || '').trim();
+  const riskReason = String(
+    metadata.riskReason || metadata.simulationRiskReason || '',
+  ).trim();
+
+  const openResolutionModal = (action: ResolutionAction) => {
+    setError('');
+    setMessage('');
+    setResolutionModal({
+      action,
+      reason: '',
+      proposalCode:
+        action === 'DIRECT_DISPOSITION' ? directProposals[0] || '' : '',
+    });
+  };
+
+  const closeResolutionModal = () => {
+    if (acting) return;
+    setResolutionModal(null);
+  };
+
+  const handleHandlingAction = async (action: AlertHandlingAction) => {
+    if (action === 'ASSIGN' || action === 'REASSIGN') {
+      await openAssignModal();
+      return;
+    }
+
+    openResolutionModal(action);
+  };
+
+  const submitResolution = async () => {
+    if (!detail || !resolutionModal) return;
+
+    const trimmedReason = resolutionModal.reason.trim();
+    if (
+      (resolutionModal.action === 'DIRECT_DISPOSITION' ||
+        resolutionModal.action === 'ESCALATE_TO_CASE') &&
+      !trimmedReason
+    ) {
+      setError(
+        resolutionModal.action === 'DIRECT_DISPOSITION'
+          ? 'Direct disposition requires a reason.'
+          : 'Escalation requires a reason.',
+      );
+      return;
+    }
+
+    if (
+      resolutionModal.action === 'DIRECT_DISPOSITION' &&
+      !resolutionModal.proposalCode
+    ) {
+      setError('Direct disposition requires a proposal.');
+      return;
+    }
+
+    setActing(resolutionModal.action);
+    setError('');
+    setMessage('');
+
+    try {
+      const response = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/admin/compliance/alerts/${detail.id}/resolve`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            resolutionType: resolutionModal.action,
+            proposalCode:
+              resolutionModal.action === 'DIRECT_DISPOSITION'
+                ? resolutionModal.proposalCode
+                : undefined,
+            reason: trimmedReason || undefined,
+          }),
+        },
+      );
+      if (!response.ok) {
+        throw new Error(await getApiErrorMessage(response, 'Failed to resolve alert.'));
+      }
+
+      const updated = (await response.json()) as AlertDetail;
+      setDetail(updated);
+      setResolutionModal(null);
+
+      if (resolutionModal.action === 'FALSE_POSITIVE') {
+        setMessage('False positive recorded. The primary workflow can continue automatically.');
+      } else if (resolutionModal.action === 'DIRECT_DISPOSITION') {
+        setMessage(
+          `Direct disposition applied: ${getProposalLabel(
+            updated,
+            resolutionModal.proposalCode as DirectProposalCode,
+          )}.`,
+        );
+      } else {
+        setMessage('Alert escalated to case. Continue the investigation from the case queue.');
+      }
+    } catch (e: unknown) {
+      if (e instanceof AdminSessionError) return;
+      setError(e instanceof Error ? e.message : 'Failed to resolve alert.');
+    } finally {
+      setActing(null);
+    }
+  };
 
   if (loading) {
     return (
@@ -518,22 +549,7 @@ const ComplianceAlertDetailPage = () => {
         subtitle={detail.alertNo}
         onBack={() => navigate(from)}
         onRefresh={() => void fetchDetail()}
-      >
-        {lastEscalatedCase ? (
-          <button
-            onClick={() =>
-              navigate(
-                `/dashboard/compliance/cases/${lastEscalatedCase.id}?from=${encodeURIComponent(
-                  `${location.pathname}${location.search}`,
-                )}`,
-              )
-            }
-            className="inline-flex items-center gap-2 rounded-lg border border-admin-border bg-white px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
-          >
-            Open Case
-          </button>
-        ) : null}
-      </DetailPageHeader>
+      />
 
       {message ? (
         <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-700">
@@ -552,7 +568,11 @@ const ComplianceAlertDetailPage = () => {
         <div className="min-w-0">
           <div className="text-xs uppercase tracking-wide text-gray-500">Severity</div>
           <div className="mt-1">
-            <span className={`inline-flex px-2 py-1 rounded-full text-xs ${getSeverityClass(detail.severity)}`}>
+            <span
+              className={`inline-flex rounded-full px-2 py-1 text-xs ${getSeverityClass(
+                detail.severity,
+              )}`}
+            >
               {detail.severity}
             </span>
           </div>
@@ -560,7 +580,11 @@ const ComplianceAlertDetailPage = () => {
         <div className="min-w-0">
           <div className="text-xs uppercase tracking-wide text-gray-500">Status</div>
           <div className="mt-1">
-            <span className={`inline-flex px-2 py-1 rounded-full text-xs ${getStatusClass(detail.status)}`}>
+            <span
+              className={`inline-flex rounded-full px-2 py-1 text-xs ${getStatusClass(
+                detail.status,
+              )}`}
+            >
               {detail.status}
             </span>
           </div>
@@ -572,7 +596,7 @@ const ComplianceAlertDetailPage = () => {
         <InfoField label="Decision" value={detail.decision || '-'} />
       </DetailCard>
 
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
         <DetailCard title="Source Context" columns={2}>
           <InfoField label="Module" value={detail.sourceModule} />
           <InfoField label="Source Type" value={detail.sourceType} />
@@ -580,25 +604,50 @@ const ComplianceAlertDetailPage = () => {
           <InfoField label="Entity" value={detail.entityNo || detail.entityType || '-'} />
           <InfoField label="Customer" value={detail.customerNo || '-'} />
           <InfoField label="Reason Codes" value={reasonCodes.join(', ') || '-'} />
+          <InfoField label="Risk Band" value={riskBand || '-'} />
+          <InfoField label="Risk Reason" value={riskReason || '-'} />
           <InfoField label="Hit Count" value={detail.hitCount} />
           <InfoField label="Message" value={detail.message} />
         </DetailCard>
 
         <DetailCard title="Lifecycle" columns={2}>
           <InfoField label="Due" value={formatDateTime(detail.dueAt)} />
-          <InfoField label="Overdue Flagged At" value={formatDateTime(detail.overdueMarkedAt)} />
+          <InfoField
+            label="Overdue Flagged At"
+            value={formatDateTime(detail.overdueMarkedAt)}
+          />
           <InfoField label="Last Seen" value={formatDateTime(detail.lastOccurredAt)} />
           <InfoField label="Assignee" value={detail.assigneeUserNo || '-'} />
           <InfoField label="Closed At" value={formatDateTime(detail.closedAt)} />
-          <InfoField label="Recommended Decisions" value={recommendedDecisions.join(', ') || '-'} />
+          <InfoField
+            label="Recommended Decisions"
+            value={recommendedDecisions.join(', ') || '-'}
+          />
         </DetailCard>
       </div>
+
+      <DetailCard title="Primary Object" columns={2}>
+        <InfoField label="Label" value={detail.primaryObject?.label || '-'} />
+        <InfoField label="Type" value={detail.primaryObject?.type || '-'} />
+        <InfoField
+          label="Object"
+          value={detail.primaryObject?.no || detail.primaryObject?.id || '-'}
+          mono
+        />
+        <InfoField
+          label="Primary Object ID"
+          value={detail.primaryObject?.id || '-'}
+          mono
+        />
+      </DetailCard>
 
       <DetailCard title="Evidence & Linked Objects" columns={2}>
         <div className="min-w-0 space-y-3">
           <div>
-            <div className="text-xs uppercase tracking-wide text-gray-500">Provider Response</div>
-            <div className="mt-1 text-sm text-gray-900 font-medium">
+            <div className="text-xs uppercase tracking-wide text-gray-500">
+              Provider Response
+            </div>
+            <div className="mt-1 text-sm font-medium text-gray-900">
               {providerResponseLink?.label || 'No mapped provider response page'}
             </div>
             <div className="mt-1 text-sm text-gray-500">
@@ -618,8 +667,10 @@ const ComplianceAlertDetailPage = () => {
 
         <div className="min-w-0 space-y-3">
           <div>
-            <div className="text-xs uppercase tracking-wide text-gray-500">Risk Engine Trace</div>
-            <div className="mt-1 text-sm text-gray-900 font-medium">
+            <div className="text-xs uppercase tracking-wide text-gray-500">
+              Risk Engine Trace
+            </div>
+            <div className="mt-1 text-sm font-medium text-gray-900">
               {decisionRecordIds.join(', ') || 'No linked decision records'}
             </div>
             <div className="mt-1 text-sm text-gray-500">
@@ -675,49 +726,26 @@ const ComplianceAlertDetailPage = () => {
       </DetailCard>
 
       <ActionSection
-        title="Alert Actions"
-        description="Alert actions control alert state and triage outcome."
-        emptyText="No alert actions available in the current alert status."
+        title="Alert Handling"
+        description="Assign the alert or resolve it against its fixed primary object."
+        emptyText="No alert handling actions are available in the current status."
       >
-        {alertActions.length === 0 ? (
-          <div className="text-sm text-gray-500">No alert actions available in the current alert status.</div>
+        {handlingActions.length === 0 ? (
+          <div className="text-sm text-gray-500">
+            No alert handling actions are available in the current status.
+          </div>
         ) : (
           <div className="flex flex-wrap gap-2">
-            {alertActions.map((action) => (
+            {handlingActions.map((action) => (
               <button
                 key={action}
                 onClick={() => {
-                  void handleAlertAction(action);
+                  void handleHandlingAction(action);
                 }}
                 disabled={acting !== null || assignCandidatesLoading}
                 className="rounded-lg border border-admin-border bg-white px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-60"
               >
-                {acting === action ? 'Processing...' : alertActionLabelMap[action]}
-              </button>
-            ))}
-          </div>
-        )}
-      </ActionSection>
-
-      <ActionSection
-        title="Workflow Actions"
-        description="Workflow actions move the embedded review workflow forward."
-        emptyText="No workflow actions available in the current workflow stage."
-      >
-        {workflowActions.length === 0 ? (
-          <div className="text-sm text-gray-500">No workflow actions available in the current workflow stage.</div>
-        ) : (
-          <div className="flex flex-wrap gap-2">
-            {workflowActions.map((decision) => (
-              <button
-                key={decision}
-                onClick={() => {
-                  void handleWorkflowAction(decision);
-                }}
-                disabled={acting !== null}
-                className="rounded-lg border border-admin-border bg-white px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-60"
-              >
-                {acting === decision ? 'Processing...' : workflowActionLabelMap[decision]}
+                {acting === action ? 'Processing...' : handlingActionLabelMap[action]}
               </button>
             ))}
           </div>
@@ -733,9 +761,9 @@ const ComplianceAlertDetailPage = () => {
       </DetailCard>
 
       {assignModalOpen ? (
-        <div className="fixed inset-0 z-[60] bg-black/50 flex items-center justify-center p-4">
-          <div className="w-full max-w-xl bg-white rounded-xl shadow-xl border border-admin-border">
-            <div className="px-4 py-3 border-b border-admin-border flex items-center justify-between">
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-xl rounded-xl border border-admin-border bg-white shadow-xl">
+            <div className="flex items-center justify-between border-b border-admin-border px-4 py-3">
               <div>
                 <h4 className="text-base font-semibold text-gray-900">
                   {detail.status === 'ASSIGNED' ? 'Reassign Alert' : 'Assign Alert'}
@@ -743,7 +771,7 @@ const ComplianceAlertDetailPage = () => {
                 <p className="text-xs text-gray-500">{detail.alertNo}</p>
               </div>
               <button
-                onClick={() => setAssignModalOpen(false)}
+                onClick={closeAssignModal}
                 className="p-2 text-gray-500 hover:text-gray-700"
                 disabled={acting === 'ASSIGN'}
               >
@@ -751,16 +779,16 @@ const ComplianceAlertDetailPage = () => {
               </button>
             </div>
 
-            <div className="p-4 space-y-3">
+            <div className="space-y-3 p-4">
               {assignCandidatesLoading ? (
                 <div className="text-sm text-gray-500">Loading assignees...</div>
               ) : (
                 <>
                   <label className="block text-sm text-gray-700">Assignee</label>
                   <select
-                    className="w-full border border-admin-border rounded px-3 py-2 text-sm"
+                    className="w-full rounded border border-admin-border px-3 py-2 text-sm"
                     value={selectedAssigneeUserId}
-                    onChange={(e) => setSelectedAssigneeUserId(e.target.value)}
+                    onChange={(event) => setSelectedAssigneeUserId(event.target.value)}
                     disabled={acting === 'ASSIGN'}
                   >
                     <option value="">Select assignee</option>
@@ -778,10 +806,10 @@ const ComplianceAlertDetailPage = () => {
               ) : null}
             </div>
 
-            <div className="px-4 py-3 border-t border-admin-border flex justify-end gap-2">
+            <div className="flex justify-end gap-2 border-t border-admin-border px-4 py-3">
               <button
-                onClick={() => setAssignModalOpen(false)}
-                className="px-3 py-1.5 rounded border border-admin-border text-sm hover:bg-gray-50"
+                onClick={closeAssignModal}
+                className="rounded border border-admin-border px-3 py-1.5 text-sm hover:bg-gray-50"
                 disabled={acting === 'ASSIGN'}
               >
                 Cancel
@@ -790,10 +818,128 @@ const ComplianceAlertDetailPage = () => {
                 onClick={() => {
                   void submitAssign();
                 }}
-                className="px-3 py-1.5 rounded bg-brand-primary text-white text-sm hover:opacity-90 disabled:opacity-60"
-                disabled={acting === 'ASSIGN' || assignCandidatesLoading || !selectedAssigneeUserId}
+                className="rounded bg-brand-primary px-3 py-1.5 text-sm text-white hover:opacity-90 disabled:opacity-60"
+                disabled={
+                  acting === 'ASSIGN' ||
+                  assignCandidatesLoading ||
+                  !selectedAssigneeUserId
+                }
               >
                 {acting === 'ASSIGN' ? 'Processing...' : 'Confirm Assign'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {resolutionModal ? (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-2xl rounded-xl border border-admin-border bg-white shadow-xl">
+            <div className="flex items-center justify-between border-b border-admin-border px-4 py-3">
+              <div>
+                <h4 className="text-base font-semibold text-gray-900">
+                  {getResolutionModalTitle(resolutionModal.action)}
+                </h4>
+                <p className="text-xs text-gray-500">{detail.alertNo}</p>
+              </div>
+              <button
+                onClick={closeResolutionModal}
+                className="p-2 text-gray-500 hover:text-gray-700"
+                disabled={acting === resolutionModal.action}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="space-y-4 p-4">
+              <div className="rounded-lg border border-admin-border bg-gray-50 p-3">
+                <div className="text-xs uppercase tracking-wide text-gray-500">
+                  Primary Object
+                </div>
+                <div className="mt-1 text-sm font-medium text-gray-900">
+                  {detail.primaryObject?.label || '-'}
+                </div>
+                <div className="mt-1 text-sm text-gray-500">
+                  {detail.primaryObject?.no || detail.primaryObject?.id || '-'}
+                </div>
+              </div>
+
+              <p className="text-sm text-gray-600">
+                {getResolutionModalDescription(resolutionModal.action)}
+              </p>
+
+              {resolutionModal.action === 'DIRECT_DISPOSITION' ? (
+                <div className="space-y-2">
+                  <label className="block text-sm text-gray-700">Proposal</label>
+                  <select
+                    className="w-full rounded border border-admin-border px-3 py-2 text-sm"
+                    value={resolutionModal.proposalCode}
+                    onChange={(event) =>
+                      setResolutionModal((current) =>
+                        current
+                          ? {
+                              ...current,
+                              proposalCode: event.target.value as DirectProposalCode,
+                            }
+                          : current,
+                      )
+                    }
+                    disabled={acting === resolutionModal.action}
+                  >
+                    <option value="">Select proposal</option>
+                    {directProposals.map((proposalCode) => (
+                      <option key={proposalCode} value={proposalCode}>
+                        {getProposalLabel(detail, proposalCode)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : null}
+
+              <div className="space-y-2">
+                <label className="block text-sm text-gray-700">
+                  Reason
+                  {resolutionModal.action === 'FALSE_POSITIVE' ? ' (Optional)' : ''}
+                </label>
+                <textarea
+                  className="min-h-[120px] w-full rounded border border-admin-border px-3 py-2 text-sm"
+                  value={resolutionModal.reason}
+                  onChange={(event) =>
+                    setResolutionModal((current) =>
+                      current
+                        ? {
+                            ...current,
+                            reason: event.target.value,
+                          }
+                        : current,
+                    )
+                  }
+                  disabled={acting === resolutionModal.action}
+                  placeholder={
+                    resolutionModal.action === 'FALSE_POSITIVE'
+                      ? 'Optional audit note'
+                      : 'Required reason'
+                  }
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 border-t border-admin-border px-4 py-3">
+              <button
+                onClick={closeResolutionModal}
+                className="rounded border border-admin-border px-3 py-1.5 text-sm hover:bg-gray-50"
+                disabled={acting === resolutionModal.action}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  void submitResolution();
+                }}
+                className="rounded bg-brand-primary px-3 py-1.5 text-sm text-white hover:opacity-90 disabled:opacity-60"
+                disabled={acting === resolutionModal.action}
+              >
+                {acting === resolutionModal.action ? 'Processing...' : 'Confirm'}
               </button>
             </div>
           </div>

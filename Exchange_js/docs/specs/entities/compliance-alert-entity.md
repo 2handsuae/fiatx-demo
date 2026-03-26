@@ -1,6 +1,6 @@
 Status: active
 Owner: project-owner-and-agents
-Last Updated: 2026-03-22
+Last Updated: 2026-03-26
 Applies To: `Exchange_js`
 Supersedes: none
 Depends On: `docs/constraints/compliance-alert-incident-constraints.md`, `docs/constraints/onboarding-alert-case-workflow-stage-rule-mapping.md`
@@ -17,8 +17,8 @@ Source of Truth Level: specs-entity
 - It owns:
   - rule hit aggregation
   - assignment
-  - triage outcome
-  - workflow decision at alert level
+  - triage resolution
+  - single-object direct disposition at alert level
   - escalation into case
 - It is not the full investigation record.
 
@@ -42,8 +42,9 @@ Source of Truth Level: specs-entity
 - Triage conclusion:
   - `currentDispositionCode`
   - `finalDispositionCode`
-  - `availableAlertActions`
-  - `availableWorkflowActions`
+  - `primaryObject`
+  - `availableHandlingActions`
+  - `availableDirectProposals`
 - Trace:
   - `traceId`
   - `workflowType`
@@ -51,22 +52,27 @@ Source of Truth Level: specs-entity
   - `workflowNo`
 
 ## Canonical Outcome Model
-- Alert outcome is distinct from workflow decision.
+- Alert outcome is distinct from case-level proposal and MLRO approval.
 - Canonical alert outcomes are:
   - `FALSE_POSITIVE`
   - `ESCALATE_TO_CASE`
-  - `RESOLVED_BY_WORKFLOW`
-- Canonical workflow decisions for workflow-bound alerts are:
-  - `CLEAR`
-  - `REJECT`
-  - `REQUIRE_EDD`
+  - `DIRECT_DISPOSITION`
+- Canonical direct proposals for workflow-bound alerts are:
+  - onboarding / periodic review `REVIEW_CDD`: `REJECT`, `REQUIRE_EDD`
+  - onboarding / periodic review `REVIEW_EDD`: `REJECT`
+  - deposit review alerts: `REJECT`, `FREEZE_TRANSACTION`
 
 ## Assignment Rule
-- Workflow actions are visible and executable only when:
+- Resolution actions are visible and executable only when:
   - alert is workflow-bound
   - alert status is `ASSIGNED`
   - current actor is the assignee
-- `OPEN` alert may allow assignment actions, but not workflow decision actions.
+- `OPEN` alert may allow assignment actions, but not resolution actions.
+
+## Canonical Admin Contract
+- `PATCH /admin/compliance/alerts/:id/action` is the work-item-only public route.
+- `POST /admin/compliance/alerts/:id/resolve` is the only canonical alert resolution route.
+- Removed onboarding-specific and periodic-review-specific alert decision routes are not part of the active contract.
 
 ## Historical / Retired Semantics
 - `RESOLVED` is historical read compatibility only.

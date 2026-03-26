@@ -3,6 +3,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { Prisma, KytCase, TravelRuleCase } from '@prisma/client';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
@@ -32,6 +33,8 @@ import {
   AuditModules,
 } from '../audit-logs/constants/audit-actions.constant';
 import { AuditResult, AuditTriggerType } from '../audit-logs/dto/audit-log.dto';
+import { TransactionRiskBridgeService } from './transaction-risk-bridge.service';
+import { PayinSimulationMode } from '../../asset-treasury/payins/dto/payin.dto';
 
 type DbClient = Prisma.TransactionClient | PrismaService;
 
@@ -40,7 +43,11 @@ export class TransactionComplianceService {
   private readonly logger = new Logger(TransactionComplianceService.name);
   private readonly auditLogsService: AuditLogsService;
 
-  constructor(private readonly prisma: PrismaService) {
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional()
+    private readonly transactionRiskBridgeService?: TransactionRiskBridgeService,
+  ) {
     this.auditLogsService = new AuditLogsService(prisma);
   }
 
@@ -106,6 +113,134 @@ export class TransactionComplianceService {
       return current;
     }
     return required ? 'PENDING' : 'NOT_REQUIRED';
+  }
+
+  private normalizeSimulationRiskLevel(
+    value?: string | null,
+  ): 'LOW' | 'MEDIUM' | 'HIGH' {
+    const normalized = String(value || '').trim().toUpperCase();
+    if (normalized === 'MEDIUM' || normalized === 'HIGH') {
+      return normalized;
+    }
+    return 'LOW';
+  }
+
+  private normalizeSimulationRiskReason(value?: string | null): string | null {
+    const normalized = String(value || '').trim().toUpperCase();
+    if (
+      normalized === 'KYT_ISSUE' ||
+      normalized === 'TRAVEL_RULE_ISSUE' ||
+      normalized === 'LARGE_DEPOSIT_PROFILE_MISMATCH' ||
+      normalized === 'SANCTIONS_HIT'
+    ) {
+      return normalized;
+    }
+    return null;
+  }
+
+  private async resolveInboundSignalForPayin(
+    payinId: string,
+    tx?: Prisma.TransactionClient,
+  ) {
+    const client = this.getClient(tx) as any;
+    const payin = await client.payin.findUnique({
+      where: { id: payinId },
+      select: {
+        id: true,
+        providerTxnId: true,
+      },
+    });
+
+    if (!payin?.providerTxnId) {
+      return null;
+    }
+
+    return client.inboundTransferSignal.findUnique({
+      where: { id: payin.providerTxnId },
+      select: {
+        id: true,
+        signalNo: true,
+        simulationRiskLevel: true,
+        simulationRiskReason: true,
+      },
+    });
+  }
+
+  private buildDepositSimulationProfile(input: {
+    depositId: string;
+    payinId: string;
+    travelRuleRequired: boolean;
+    inboundSignal?: {
+      id?: string | null;
+      signalNo?: string | null;
+      simulationRiskLevel?: string | null;
+      simulationRiskReason?: string | null;
+    } | null;
+  }) {
+    const riskLevel = this.normalizeSimulationRiskLevel(
+      input.inboundSignal?.simulationRiskLevel,
+    );
+    const riskReason = this.normalizeSimulationRiskReason(
+      input.inboundSignal?.simulationRiskReason,
+    );
+    const effectiveTravelRuleRequired =
+      input.travelRuleRequired || riskReason === 'TRAVEL_RULE_ISSUE';
+
+    const base = {
+      riskLevel,
+      riskReason,
+      effectiveTravelRuleRequired,
+      simulationSignalId: input.inboundSignal?.id || null,
+      simulationSignalNo: input.inboundSignal?.signalNo || null,
+      providerCaseId: `MOCK-KYT-${input.payinId}`,
+      providerTransferId: `MOCK-TRV-${input.payinId}`,
+      checkedAt: new Date(),
+      counterpartyVasp:
+        riskReason === 'TRAVEL_RULE_ISSUE' ? 'MOCK-COUNTERPARTY-VASP' : null,
+    } as const;
+
+    if (riskLevel === 'HIGH') {
+      return {
+        ...base,
+        kytStatus: 'FAIL',
+        travelRuleStatus: effectiveTravelRuleRequired ? 'ACCEPTED' : 'NOT_REQUIRED',
+        riskScore: 92,
+      };
+    }
+
+    if (riskLevel === 'MEDIUM' && riskReason === 'TRAVEL_RULE_ISSUE') {
+      return {
+        ...base,
+        kytStatus: 'PASS',
+        travelRuleStatus: 'REJECTED',
+        riskScore: 66,
+      };
+    }
+
+    if (riskLevel === 'MEDIUM' && riskReason === 'KYT_ISSUE') {
+      return {
+        ...base,
+        kytStatus: 'REVIEW',
+        travelRuleStatus: effectiveTravelRuleRequired ? 'ACCEPTED' : 'NOT_REQUIRED',
+        riskScore: 61,
+      };
+    }
+
+    if (riskLevel === 'MEDIUM') {
+      return {
+        ...base,
+        kytStatus: 'PASS',
+        travelRuleStatus: effectiveTravelRuleRequired ? 'ACCEPTED' : 'NOT_REQUIRED',
+        riskScore: 58,
+      };
+    }
+
+    return {
+      ...base,
+      kytStatus: 'PASS',
+      travelRuleStatus: effectiveTravelRuleRequired ? 'ACCEPTED' : 'NOT_REQUIRED',
+      riskScore: 18,
+    };
   }
 
   private deriveWithdrawComplianceStatus(input: {
@@ -237,15 +372,50 @@ export class TransactionComplianceService {
       provider?: string;
       providerCaseId?: string | null;
       riskScore?: number | null;
+      reportDeduped?: boolean;
     },
     tx?: Prisma.TransactionClient,
   ) {
     const normalizedStatus = this.normalizeKytStatus(input.status);
-    if (normalizedStatus !== 'REVIEW' && normalizedStatus !== 'FAIL') {
+    if (!['PASS', 'REVIEW', 'FAIL'].includes(normalizedStatus)) {
       return;
     }
-    this.logger.debug(
-      `Skip legacy KYT alert for case ${input.caseId}: onboarding-only alert runtime active. status=${normalizedStatus} sourceType=${input.sourceType} sourceId=${input.sourceId}`,
+    if (input.reportDeduped) {
+      return;
+    }
+    if (!this.transactionRiskBridgeService) {
+      this.logger.debug(
+        `Transaction risk bridge unavailable for KYT case ${input.caseId}; skip tx alert bridge`,
+      );
+      return;
+    }
+    if (this.normalizeSourceType(input.sourceType) !== TxSourceType.DEPOSIT) {
+      return;
+    }
+
+    const aggregate = await this.getTransactionCaseAggregate(
+      input.sourceType,
+      input.sourceId,
+      {
+        includeReports: false,
+        includePayload: false,
+        limit: 1,
+        offset: 0,
+      },
+      tx,
+    );
+
+    await this.transactionRiskBridgeService.handleDepositFinalReviewIfReady(
+      {
+        depositId: input.sourceId,
+        sourceType: TxSourceType.DEPOSIT,
+        sourceId: input.sourceId,
+        aggregate,
+        triggerSource: 'KYT',
+        triggerStatus: normalizedStatus,
+        reportDeduped: input.reportDeduped,
+      },
+      tx,
     );
   }
 
@@ -263,6 +433,7 @@ export class TransactionComplianceService {
       provider?: string;
       providerTransferId?: string | null;
       counterpartyVasp?: string | null;
+      reportDeduped?: boolean;
     },
     tx?: Prisma.TransactionClient,
   ) {
@@ -270,10 +441,49 @@ export class TransactionComplianceService {
       input.status,
       input.required,
     );
-    if (!input.required) return;
-    if (normalizedStatus !== 'REJECTED' && normalizedStatus !== 'EXPIRED') return;
-    this.logger.debug(
-      `Skip legacy travel-rule alert for case ${input.caseId}: onboarding-only alert runtime active. status=${normalizedStatus} sourceType=${input.sourceType} sourceId=${input.sourceId}`,
+    if (
+      !['ACCEPTED', 'REJECTED', 'EXPIRED', 'NOT_REQUIRED'].includes(
+        normalizedStatus,
+      )
+    ) {
+      return;
+    }
+    if (input.reportDeduped) {
+      return;
+    }
+    if (!this.transactionRiskBridgeService) {
+      this.logger.debug(
+        `Transaction risk bridge unavailable for travel rule case ${input.caseId}; skip tx alert bridge`,
+      );
+      return;
+    }
+    if (this.normalizeSourceType(input.sourceType) !== TxSourceType.DEPOSIT) {
+      return;
+    }
+
+    const aggregate = await this.getTransactionCaseAggregate(
+      input.sourceType,
+      input.sourceId,
+      {
+        includeReports: false,
+        includePayload: false,
+        limit: 1,
+        offset: 0,
+      },
+      tx,
+    );
+
+    await this.transactionRiskBridgeService.handleDepositFinalReviewIfReady(
+      {
+        depositId: input.sourceId,
+        sourceType: TxSourceType.DEPOSIT,
+        sourceId: input.sourceId,
+        aggregate,
+        triggerSource: 'TRAVEL_RULE',
+        triggerStatus: normalizedStatus,
+        reportDeduped: input.reportDeduped,
+      },
+      tx,
     );
   }
 
@@ -393,6 +603,142 @@ export class TransactionComplianceService {
     };
   }
 
+  private buildKytReportSelect(includePayload: boolean) {
+    return includePayload
+      ? {
+          id: true,
+          sourceType: true,
+          sourceId: true,
+          screeningStage: true,
+          provider: true,
+          providerCaseId: true,
+          rawPayload: true,
+          normalizedPayload: true,
+          receivedAt: true,
+          createdAt: true,
+        }
+      : {
+          id: true,
+          sourceType: true,
+          sourceId: true,
+          screeningStage: true,
+          provider: true,
+          providerCaseId: true,
+          receivedAt: true,
+          createdAt: true,
+        };
+  }
+
+  private buildTravelReportSelect(includePayload: boolean) {
+    return includePayload
+      ? {
+          id: true,
+          sourceType: true,
+          sourceId: true,
+          provider: true,
+          providerTransferId: true,
+          required: true,
+          status: true,
+          counterpartyVasp: true,
+          rawPayload: true,
+          normalizedPayload: true,
+          receivedAt: true,
+          createdAt: true,
+        }
+      : {
+          id: true,
+          sourceType: true,
+          sourceId: true,
+          provider: true,
+          providerTransferId: true,
+          required: true,
+          status: true,
+          counterpartyVasp: true,
+          receivedAt: true,
+          createdAt: true,
+        };
+  }
+
+  private async getTransactionSourceSummary(
+    sourceType: TxSourceType,
+    sourceId: string,
+    tx?: Prisma.TransactionClient,
+  ) {
+    const client = this.getClient(tx) as any;
+
+    if (sourceType === TxSourceType.DEPOSIT) {
+      const deposit = await client.depositTransaction.findUnique({
+        where: { id: sourceId },
+        select: {
+          id: true,
+          depositNo: true,
+          ownerType: true,
+          ownerId: true,
+          customer: {
+            select: {
+              customerNo: true,
+            },
+          },
+        },
+      });
+      if (!deposit) {
+        throw new NotFoundException(`Deposit ${sourceId} not found`);
+      }
+      return {
+        sourceType,
+        sourceId: deposit.id,
+        sourceNo: deposit.depositNo,
+        ownerType: deposit.ownerType,
+        ownerId: deposit.ownerId,
+        ownerNo: deposit.customer?.customerNo || null,
+        customerId: deposit.ownerId,
+        customerNo: deposit.customer?.customerNo || null,
+      };
+    }
+
+    if (sourceType === TxSourceType.WITHDRAW) {
+      const withdraw = await client.withdrawTransaction.findUnique({
+        where: { id: sourceId },
+        select: {
+          id: true,
+          withdrawNo: true,
+          ownerType: true,
+          ownerId: true,
+          ownerNo: true,
+          customer: {
+            select: {
+              customerNo: true,
+            },
+          },
+        },
+      });
+      if (!withdraw) {
+        throw new NotFoundException(`Withdraw ${sourceId} not found`);
+      }
+      return {
+        sourceType,
+        sourceId: withdraw.id,
+        sourceNo: withdraw.withdrawNo,
+        ownerType: withdraw.ownerType,
+        ownerId: withdraw.ownerId,
+        ownerNo: withdraw.ownerNo || withdraw.customer?.customerNo || null,
+        customerId: withdraw.ownerId,
+        customerNo: withdraw.customer?.customerNo || null,
+      };
+    }
+
+    return {
+      sourceType,
+      sourceId,
+      sourceNo: sourceId,
+      ownerType: null,
+      ownerId: null,
+      ownerNo: null,
+      customerId: null,
+      customerNo: null,
+    };
+  }
+
   async listKytCases(query: TxCaseListQueryDto) {
     const where: Prisma.KytCaseWhereInput = {};
     if (query.sourceType) where.sourceType = query.sourceType;
@@ -438,6 +784,130 @@ export class TransactionComplianceService {
     ]);
 
     return { items, total };
+  }
+
+  async getKytCaseDetail(
+    id: string,
+    options?: {
+      includeReports?: boolean;
+      includePayload?: boolean;
+      limit?: number;
+      offset?: number;
+    },
+    tx?: Prisma.TransactionClient,
+  ) {
+    const includeReports = options?.includeReports !== false;
+    const includePayload = options?.includePayload === true;
+    const { limit, offset } = this.clampReportPagination({
+      limit: options?.limit,
+      offset: options?.offset,
+    });
+
+    const record = await (this.getClient(tx) as any).kytCase.findUnique({
+      where: { id },
+      include: includeReports
+        ? {
+            reports: {
+              orderBy: { receivedAt: 'desc' },
+              skip: offset,
+              take: limit,
+              select: this.buildKytReportSelect(includePayload),
+            },
+          }
+        : undefined,
+    });
+
+    if (!record) {
+      throw new NotFoundException(`KYT case not found: ${id}`);
+    }
+
+    const aggregate = await this.getTransactionCaseAggregate(
+      record.sourceType,
+      record.sourceId,
+      {
+        includeReports: false,
+        includePayload: false,
+        limit: 1,
+        offset: 0,
+      },
+      tx,
+    );
+    const sourceSummary = await this.getTransactionSourceSummary(
+      record.sourceType,
+      record.sourceId,
+      tx,
+    );
+
+    return {
+      ...record,
+      sourceSummary: {
+        ...sourceSummary,
+        derivedComplianceStatus: aggregate.derivedComplianceStatus,
+      },
+      derivedComplianceStatus: aggregate.derivedComplianceStatus,
+    };
+  }
+
+  async getTravelRuleCaseDetail(
+    id: string,
+    options?: {
+      includeReports?: boolean;
+      includePayload?: boolean;
+      limit?: number;
+      offset?: number;
+    },
+    tx?: Prisma.TransactionClient,
+  ) {
+    const includeReports = options?.includeReports !== false;
+    const includePayload = options?.includePayload === true;
+    const { limit, offset } = this.clampReportPagination({
+      limit: options?.limit,
+      offset: options?.offset,
+    });
+
+    const record = await (this.getClient(tx) as any).travelRuleCase.findUnique({
+      where: { id },
+      include: includeReports
+        ? {
+            reports: {
+              orderBy: { receivedAt: 'desc' },
+              skip: offset,
+              take: limit,
+              select: this.buildTravelReportSelect(includePayload),
+            },
+          }
+        : undefined,
+    });
+
+    if (!record) {
+      throw new NotFoundException(`Travel Rule case not found: ${id}`);
+    }
+
+    const aggregate = await this.getTransactionCaseAggregate(
+      record.sourceType,
+      record.sourceId,
+      {
+        includeReports: false,
+        includePayload: false,
+        limit: 1,
+        offset: 0,
+      },
+      tx,
+    );
+    const sourceSummary = await this.getTransactionSourceSummary(
+      record.sourceType,
+      record.sourceId,
+      tx,
+    );
+
+    return {
+      ...record,
+      sourceSummary: {
+        ...sourceSummary,
+        derivedComplianceStatus: aggregate.derivedComplianceStatus,
+      },
+      derivedComplianceStatus: aggregate.derivedComplianceStatus,
+    };
   }
 
   async callbackKytCase(
@@ -908,6 +1378,7 @@ export class TransactionComplianceService {
         provider: record.provider,
         providerCaseId: record.providerCaseId,
         riskScore: record.riskScore,
+        reportDeduped: !!dedupedReport,
       },
       tx,
     );
@@ -1071,6 +1542,7 @@ export class TransactionComplianceService {
         provider: record.provider,
         providerTransferId: record.providerTransferId,
         counterpartyVasp: record.counterpartyVasp,
+        reportDeduped: !!dedupedReport,
       },
       tx,
     );
@@ -1333,6 +1805,33 @@ export class TransactionComplianceService {
     payinId: string,
     tx?: Prisma.TransactionClient,
   ) {
+    return this.ensureDepositMainCasesOnPayinConfirmedByMode(
+      depositId,
+      payinId,
+      null,
+      tx,
+    );
+  }
+
+  async ensureInteractiveDepositMainCasesOnPayinConfirmed(
+    depositId: string,
+    payinId: string,
+    tx?: Prisma.TransactionClient,
+  ) {
+    return this.ensureDepositMainCasesOnPayinConfirmedByMode(
+      depositId,
+      payinId,
+      PayinSimulationMode.INTERACTIVE,
+      tx,
+    );
+  }
+
+  private async ensureDepositMainCasesOnPayinConfirmedByMode(
+    depositId: string,
+    payinId: string,
+    simulationMode: PayinSimulationMode | null,
+    tx?: Prisma.TransactionClient,
+  ) {
     const client = this.getClient(tx);
     const deposit = await client.depositTransaction.findUnique({
       where: { id: depositId },
@@ -1355,21 +1854,40 @@ export class TransactionComplianceService {
     }
 
     if (!this.isCryptoAssetType(deposit.asset?.type)) {
-      return null;
+      if (!this.transactionRiskBridgeService) {
+        this.logger.debug(
+          `Transaction risk bridge unavailable for fiat deposit ${deposit.id}; skip direct final review`,
+        );
+        return null;
+      }
+
+      return this.transactionRiskBridgeService.handleDirectDepositFinalReview(
+        {
+          depositId: deposit.id,
+          sourceType: TxSourceType.DEPOSIT,
+          sourceId: deposit.id,
+          triggerStatus: 'PAYIN_CONFIRMED',
+          kytStatus: 'PASS',
+          travelRuleRequired: false,
+          travelRuleStatus: 'NOT_REQUIRED',
+        },
+        tx,
+      );
     }
 
     const providerMode = this.getProviderMode();
     const provider = providerMode === 'MOCK' ? 'MOCK' : 'MANUAL';
+    const isInteractiveSimulation =
+      simulationMode === PayinSimulationMode.INTERACTIVE;
 
-    if (providerMode === 'MOCK') {
-      const providerCaseId = `MOCK-KYT-${Date.now()}-${Math.floor(
-        Math.random() * 10000,
-      )}`;
-      const providerTransferId = `MOCK-TRV-${Date.now()}-${Math.floor(
-        Math.random() * 10000,
-      )}`;
-      const riskScore = Math.floor(Math.random() * 30) + 1;
-      const checkedAt = new Date();
+    if (providerMode === 'MOCK' && !isInteractiveSimulation) {
+      const inboundSignal = await this.resolveInboundSignalForPayin(payinId, tx);
+      const simulation = this.buildDepositSimulationProfile({
+        depositId: deposit.id,
+        payinId,
+        travelRuleRequired: deposit.travelRuleRequired,
+        inboundSignal,
+      });
 
       await this.upsertKytCaseAndAppendReport(
         {
@@ -1380,35 +1898,42 @@ export class TransactionComplianceService {
           ownerId: deposit.ownerId,
           assetId: deposit.assetId,
           provider,
-          providerCaseId,
-          status: 'PASS',
-          riskScore,
-          checkedAt,
+          providerCaseId: simulation.providerCaseId,
+          status: simulation.kytStatus,
+          riskScore: simulation.riskScore,
+          checkedAt: simulation.checkedAt,
           rawPayload: {
             ...this.buildMockKytPayload({
               sourceType: TxSourceType.DEPOSIT,
               sourceId: deposit.id,
               stage: KytScreeningStage.MAIN,
-              status: 'PASS',
-              riskScore,
-              providerCaseId,
+              status: simulation.kytStatus,
+              riskScore: simulation.riskScore,
+              providerCaseId: simulation.providerCaseId,
             }),
             triggerEntityType: 'PAYIN',
             triggerEntityId: payinId,
             triggerStatus: 'CONFIRMED',
+            simulationRiskLevel: simulation.riskLevel,
+            simulationRiskReason: simulation.riskReason,
+            simulationSignalId: simulation.simulationSignalId,
+            simulationSignalNo: simulation.simulationSignalNo,
           },
           normalizedPayload: {
-            status: 'PASS',
-            riskScore,
+            status: simulation.kytStatus,
+            riskScore: simulation.riskScore,
             triggerEntityType: 'PAYIN',
             triggerEntityId: payinId,
             triggerStatus: 'CONFIRMED',
+            simulationRiskLevel: simulation.riskLevel,
+            simulationRiskReason: simulation.riskReason,
+            simulationSignalId: simulation.simulationSignalId,
+            simulationSignalNo: simulation.simulationSignalNo,
           },
         },
         tx,
       );
 
-      const travelStatus = deposit.travelRuleRequired ? 'ACCEPTED' : 'NOT_REQUIRED';
       await this.upsertTravelRuleCaseAndAppendReport(
         {
           sourceType: TxSourceType.DEPOSIT,
@@ -1417,28 +1942,38 @@ export class TransactionComplianceService {
           ownerId: deposit.ownerId,
           assetId: deposit.assetId,
           provider,
-          providerTransferId,
-          required: deposit.travelRuleRequired,
-          status: travelStatus,
-          checkedAt,
+          providerTransferId: simulation.providerTransferId,
+          required: simulation.effectiveTravelRuleRequired,
+          status: simulation.travelRuleStatus,
+          checkedAt: simulation.checkedAt,
           rawPayload: {
             ...this.buildMockTravelPayload({
               sourceType: TxSourceType.DEPOSIT,
               sourceId: deposit.id,
-              status: travelStatus,
-              required: deposit.travelRuleRequired,
-              providerTransferId,
+              status: simulation.travelRuleStatus,
+              required: simulation.effectiveTravelRuleRequired,
+              providerTransferId: simulation.providerTransferId,
+              counterpartyVasp: simulation.counterpartyVasp,
             }),
             triggerEntityType: 'PAYIN',
             triggerEntityId: payinId,
             triggerStatus: 'CONFIRMED',
+            simulationRiskLevel: simulation.riskLevel,
+            simulationRiskReason: simulation.riskReason,
+            simulationSignalId: simulation.simulationSignalId,
+            simulationSignalNo: simulation.simulationSignalNo,
           },
           normalizedPayload: {
-            required: deposit.travelRuleRequired,
-            status: travelStatus,
+            required: simulation.effectiveTravelRuleRequired,
+            status: simulation.travelRuleStatus,
             triggerEntityType: 'PAYIN',
             triggerEntityId: payinId,
             triggerStatus: 'CONFIRMED',
+            counterpartyVasp: simulation.counterpartyVasp,
+            simulationRiskLevel: simulation.riskLevel,
+            simulationRiskReason: simulation.riskReason,
+            simulationSignalId: simulation.simulationSignalId,
+            simulationSignalNo: simulation.simulationSignalNo,
           },
         },
         tx,

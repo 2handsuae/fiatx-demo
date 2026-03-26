@@ -1,8 +1,28 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, RefreshCw, Copy, Check, ExternalLink, Globe, FileText, Banknote, MapPin, Clock, Activity, User } from 'lucide-react';
+import {
+  ArrowLeft,
+  RefreshCw,
+  Copy,
+  Check,
+  ExternalLink,
+  Globe,
+  FileText,
+  Banknote,
+  MapPin,
+  Clock,
+  Activity,
+  User,
+  CircleDashed,
+  ShieldAlert,
+  CheckCircle2,
+  Waves,
+  Landmark,
+} from 'lucide-react';
 import { copyToClipboard } from '../utils/clipboard';
 import { formatAssetAmount } from '../utils/number-format';
+import { SimulationRail, type SimulationRailItem } from '../components/SimulationRail';
+import { useSimulationMode } from '../utils/simulationMode';
 
 interface PayinDetail {
   id: string;
@@ -68,6 +88,12 @@ interface PayinDetail {
   
   // Audit
   statusHistory: string | null;
+  simulationProfile?: {
+    signalId: string;
+    signalNo: string;
+    riskLevel: string;
+    riskReason: string | null;
+  } | null;
 }
 
 const PayinDetail = () => {
@@ -75,7 +101,9 @@ const PayinDetail = () => {
   const navigate = useNavigate();
   const [payin, setPayin] = useState<PayinDetail | null>(null);
   const [loading, setLoading] = useState(true);
+  const [railSubmitting, setRailSubmitting] = useState(false);
   const [copiedField, setCopiedField] = useState<string | null>(null);
+  const { enabled: simulationModeEnabled } = useSimulationMode();
 
   useEffect(() => {
     const fetchPayin = async () => {
@@ -114,21 +142,21 @@ const PayinDetail = () => {
     setTimeout(() => setCopiedField(null), 2000);
   };
 
-  const handleAction = async (action: string) => {
+  const handleMockEvent = async (event: string) => {
+    setRailSubmitting(true);
     try {
       const token = localStorage.getItem('admin_token');
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/treasury/payins/${id}/status`, {
-        method: 'PATCH',
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/admin/treasury/payins/${id}/mock-event`, {
+        method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ action })
+        body: JSON.stringify({ event })
       });
       
       if (response.ok) {
         const updated = await response.json();
-        // Preserve customer info if backend doesn't return it on update
         setPayin(prev => prev ? { ...prev, ...updated, customer: prev.customer || updated.customer } : updated);
       } else {
         const err = await response.json();
@@ -136,36 +164,9 @@ const PayinDetail = () => {
       }
     } catch (error) {
       console.error('Action failed', error);
+    } finally {
+      setRailSubmitting(false);
     }
-  };
-
-  const getAvailableActions = (status: string, type: string) => {
-    const actions = [];
-    if (type === 'fiat') {
-      switch (status) {
-        case 'DETECTED':
-          actions.push({ action: 'confirm', label: 'Confirm', color: 'bg-indigo-600 hover:bg-indigo-700' });
-          actions.push({ action: 'fail', label: 'Fail', color: 'bg-red-600 hover:bg-red-700' });
-          break;
-        case 'CONFIRMED':
-          actions.push({ action: 'clear', label: 'Clear', color: 'bg-green-600 hover:bg-green-700' });
-          break;
-      }
-    } else {
-      switch (status) {
-        case 'DETECTED':
-          actions.push({ action: 'block', label: 'Seen in Mempool', color: 'bg-blue-600 hover:bg-blue-700' });
-          break;
-        case 'CONFIRMING':
-          actions.push({ action: 'confirm', label: 'Confirm', color: 'bg-indigo-600 hover:bg-indigo-700' });
-          actions.push({ action: 'fail', label: 'Drop', color: 'bg-red-600 hover:bg-red-700' });
-          break;
-        case 'CONFIRMED':
-          actions.push({ action: 'clear', label: 'Clear', color: 'bg-green-600 hover:bg-green-700' });
-          break;
-      }
-    }
-    return actions;
   };
 
   const renderStatusBadge = (status: string) => {
@@ -183,6 +184,128 @@ const PayinDetail = () => {
     );
   };
 
+  const getPayinRailItems = (detail: PayinDetail): SimulationRailItem[] => {
+    const status = String(detail.status || '').toUpperCase();
+    const type = String(detail.type || '').toLowerCase();
+
+    if (type === 'fiat') {
+      return [
+        {
+          id: 'detected',
+          label: 'Detected',
+          icon: <CircleDashed size={14} />,
+          state:
+            status === 'DETECTED'
+              ? 'current'
+              : ['CONFIRMED', 'CLEARED', 'FAILED'].includes(status)
+                ? 'completed'
+                : 'readonly',
+          helperText: '监听到法币入账候选',
+        },
+        {
+          id: 'confirmed',
+          label: 'Fiat Confirmed',
+          icon: <Landmark size={14} />,
+          state:
+            status === 'CONFIRMED'
+              ? 'current'
+              : status === 'CLEARED'
+                ? 'completed'
+                : status === 'DETECTED'
+                  ? 'available'
+                  : 'readonly',
+          onClick: status === 'DETECTED' ? () => handleMockEvent('FIAT_CONFIRMED') : undefined,
+          disabled: railSubmitting,
+          helperText: '确认到账后进入 CONFIRMED',
+        },
+        {
+          id: 'cleared',
+          label: 'Cleared',
+          icon: <CheckCircle2 size={14} />,
+          state: status === 'CLEARED' ? 'current' : 'readonly',
+          tone: 'success',
+          helperText: 'confirmed 侧记账成功后自动出现',
+        },
+        {
+          id: 'failed',
+          label: 'Fail',
+          icon: <ShieldAlert size={14} />,
+          state: status === 'FAILED' ? 'current' : status === 'DETECTED' ? 'available' : 'readonly',
+          tone: 'danger',
+          onClick: status === 'DETECTED' ? () => handleMockEvent('FIAT_FAILED') : undefined,
+          disabled: railSubmitting,
+          helperText: '监听失败时进入 FAILED',
+        },
+      ];
+    }
+
+    return [
+      {
+        id: 'detected',
+        label: 'Detected',
+        icon: <CircleDashed size={14} />,
+        state:
+          status === 'DETECTED'
+            ? 'current'
+            : ['CONFIRMING', 'CONFIRMED', 'CLEARED', 'FAILED'].includes(status)
+              ? 'completed'
+              : 'readonly',
+        helperText: '监听到链上候选入账',
+      },
+      {
+        id: 'confirming',
+        label: 'Mempool Seen',
+        icon: <Waves size={14} />,
+        state:
+          status === 'CONFIRMING'
+            ? 'current'
+            : ['CONFIRMED', 'CLEARED', 'FAILED'].includes(status)
+              ? 'completed'
+              : status === 'DETECTED'
+                ? 'available'
+                : 'readonly',
+        onClick: status === 'DETECTED' ? () => handleMockEvent('MEMPOOL_SEEN') : undefined,
+        disabled: railSubmitting,
+        helperText: '模拟看到 mempool 后推进到 CONFIRMING',
+      },
+      {
+        id: 'confirmed',
+        label: 'Chain Confirmed',
+        icon: <CheckCircle2 size={14} />,
+        state:
+          status === 'CONFIRMED'
+            ? 'current'
+            : status === 'CLEARED'
+              ? 'completed'
+              : status === 'CONFIRMING'
+                ? 'available'
+                : 'readonly',
+        onClick:
+          status === 'CONFIRMING' ? () => handleMockEvent('CHAIN_CONFIRMED') : undefined,
+        disabled: railSubmitting,
+        helperText: '到达确认条件后进入 CONFIRMED',
+      },
+      {
+        id: 'cleared',
+        label: 'Cleared',
+        icon: <CheckCircle2 size={14} />,
+        state: status === 'CLEARED' ? 'current' : 'readonly',
+        tone: 'success',
+        helperText: '记账成功后自动出现，不提供模拟按钮',
+      },
+      {
+        id: 'failed',
+        label: 'Dropped',
+        icon: <ShieldAlert size={14} />,
+        state: status === 'FAILED' ? 'current' : status === 'CONFIRMING' ? 'available' : 'readonly',
+        tone: 'danger',
+        onClick: status === 'CONFIRMING' ? () => handleMockEvent('DROPPED') : undefined,
+        disabled: railSubmitting,
+        helperText: '当前模型中的掉链分支',
+      },
+    ];
+  };
+
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[400px]">
@@ -193,6 +316,9 @@ const PayinDetail = () => {
   }
 
   if (!payin) return null;
+
+  const payinRailItems = getPayinRailItems(payin);
+  const showAccountingBlockedHint = payin.status === 'CONFIRMED';
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto pb-12">
@@ -217,21 +343,32 @@ const PayinDetail = () => {
             </div>
           </div>
         </div>
-        
-        <div className="flex gap-2 items-center">
-            {getAvailableActions(payin.status, payin.type).map(act => (
-                <button
-                    key={act.action}
-                    onClick={() => handleAction(act.action)}
-                    className={`px-4 py-2 rounded-lg text-white text-sm font-medium shadow-sm transition-colors ${act.color}`}
-                >
-                    {act.label}
-                </button>
-            ))}
-        </div>
       </div>
 
+      {simulationModeEnabled ? (
+        <SimulationRail
+          title="Payin Simulation Rail"
+          description="Payin 属于监听/系统派生节点，这里用 icon rail 模拟链上或银行监听事件。CLEARED 只做结果回显。"
+          items={payinRailItems}
+        />
+      ) : null}
+
+      {showAccountingBlockedHint ? (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          Payin 目前停在 `CONFIRMED`。这通常表示 confirmed-side accounting 仍未把它自动清到 `CLEARED`。
+        </div>
+      ) : null}
+
       <div className="flex flex-col gap-6">
+        {payin.simulationProfile ? (
+          <DetailCard title="Simulation Profile" icon={<ShieldAlert size={18} />}>
+            <InfoField label="Signal No" value={payin.simulationProfile.signalNo} source="main" />
+            <InfoField label="Risk Level" value={payin.simulationProfile.riskLevel} highlight source="main" />
+            <InfoField label="Risk Reason" value={payin.simulationProfile.riskReason || 'LOW has no reason'} source="main" />
+            <InfoField label="Signal ID" value={payin.simulationProfile.signalId} source="main" />
+          </DetailCard>
+        ) : null}
+
         {/* 1. 基础识别 (Basic Identification) */}
         <DetailCard title="Basic Identification" icon={<FileText size={18}/>}>
             <InfoField label="ID" value={payin.id} highlight source="main" />

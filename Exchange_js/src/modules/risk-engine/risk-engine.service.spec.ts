@@ -233,6 +233,118 @@ describe('RiskEngineService', () => {
     expect(decisionAction?.payload?.decisions).not.toContain('REQUIRE_EDD');
   });
 
+  it('should approve terminal PASS for deposit KYT context without alert escalation', async () => {
+    const result = await service.evaluate(buildInput({
+      contextType: 'TX_DEPOSIT_KYT_MAIN',
+      subjectType: 'DEPOSIT',
+      subjectId: 'dep-1',
+      signals: {
+        status: 'PASS',
+        kytStatus: 'PASS',
+        riskScore: 18,
+      },
+    }));
+
+    expect(result.policyVersion).toBe('transaction-risk-policy/v1');
+    expect(result.decision).toBe('APPROVE');
+    expect(result.reasonCodes).toEqual(['TX_KYT_PASS']);
+    expect(result.recommendedActions).toEqual([]);
+  });
+
+  it('should reject travel rule REJECTED and recommend alert plus case escalation', async () => {
+    const result = await service.evaluate(buildInput({
+      contextType: 'TX_DEPOSIT_TRAVEL_RULE',
+      subjectType: 'DEPOSIT',
+      subjectId: 'dep-2',
+      signals: {
+        status: 'REJECTED',
+        travelRuleStatus: 'REJECTED',
+        required: true,
+      },
+    }));
+
+    expect(result.policyVersion).toBe('transaction-risk-policy/v1');
+    expect(result.decision).toBe('REJECT');
+    expect(result.reasonCodes).toEqual(['TX_TRAVEL_RULE_REJECTED']);
+    expect(result.recommendedActions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'UPSERT_ALERT',
+          payload: expect.objectContaining({
+            recommendation: 'REJECT',
+            severity: 'CRITICAL',
+          }),
+        }),
+        expect.objectContaining({
+          type: 'AUTO_ESCALATE_CASE',
+        }),
+      ]),
+    );
+  });
+
+  it('should create one final deposit decision for REVIEW when both KYT and Travel Rule are terminal', async () => {
+    const result = await service.evaluate(buildInput({
+      contextType: 'TX_DEPOSIT_FINAL',
+      subjectType: 'DEPOSIT',
+      subjectId: 'dep-3',
+      signals: {
+        kytStatus: 'REVIEW',
+        travelRuleStatus: 'ACCEPTED',
+        riskScore: 55,
+      },
+    }));
+
+    expect(result.policyVersion).toBe('transaction-risk-policy/v1');
+    expect(result.decision).toBe('REVIEW');
+    expect(result.reasonCodes).toEqual(
+      expect.arrayContaining(['TX_KYT_REVIEW', 'TX_TRAVEL_RULE_ACCEPTED']),
+    );
+    expect(result.recommendedActions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'UPSERT_ALERT',
+          payload: expect.objectContaining({
+            recommendation: 'REVIEW',
+          }),
+        }),
+      ]),
+    );
+  });
+
+  it('should include large-deposit profile mismatch reason code in final deposit review', async () => {
+    const result = await service.evaluate(buildInput({
+      contextType: 'TX_DEPOSIT_FINAL',
+      subjectType: 'DEPOSIT',
+      subjectId: 'dep-4',
+      signals: {
+        kytStatus: 'PASS',
+        travelRuleStatus: 'NOT_REQUIRED',
+        simulationRiskLevel: 'MEDIUM',
+        simulationRiskReason: 'LARGE_DEPOSIT_PROFILE_MISMATCH',
+      },
+    }));
+
+    expect(result.decision).toBe('REVIEW');
+    expect(result.reasonCodes).toEqual(
+      expect.arrayContaining([
+        'TX_SIM_LARGE_DEPOSIT_PROFILE_MISMATCH',
+        'TX_KYT_PASS',
+        'TX_TRAVEL_RULE_NOT_REQUIRED',
+      ]),
+    );
+    expect(result.recommendedActions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'UPSERT_ALERT',
+          payload: expect.objectContaining({
+            recommendation: 'REVIEW',
+            riskReason: 'LARGE_DEPOSIT_PROFILE_MISMATCH',
+          }),
+        }),
+      ]),
+    );
+  });
+
   it('should reject non-customer owner type during Phase 2 storage', async () => {
     await expect(
       service.evaluate(

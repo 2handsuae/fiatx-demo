@@ -143,23 +143,6 @@ export class OnboardingAdminController {
     return this.onboardingService.getEddResponseDetail(id);
   }
 
-  @Post('alerts/:id/onboarding-decision')
-  @RequirePermissions(buildPermissionCode('POST', '/admin/compliance/alerts/:id/onboarding-decision'))
-  @ApiOperation({ summary: 'Apply onboarding decision from assigned onboarding journey alert' })
-  applyOnboardingDecisionFromAlert(
-    @Req() req: any,
-    @Param('id') id: string,
-    @Body(new ValidationPipe({ transform: true })) body: ApplyOnboardingAlertDecisionDto,
-  ) {
-    const actor = this.getAdminActor(req);
-    return this.onboardingService.applyOnboardingDecisionFromAlert(
-      id,
-      actor.actorId,
-      actor.actorRole,
-      body,
-    );
-  }
-
   @Post('cases/:id/onboarding-decision')
   @RequirePermissions(buildPermissionCode('POST', '/admin/compliance/cases/:id/onboarding-decision'))
   @ApiOperation({ summary: 'Apply onboarding decision from assigned onboarding case' })

@@ -1,15 +1,19 @@
 export const ONBOARDING_WORKFLOW = 'ONBOARDING' as const;
 export const PERIODIC_REVIEW_WORKFLOW = 'PERIODIC_REVIEW' as const;
+export const TRANSACTION_WORKFLOW = 'TRANSACTION' as const;
 
 export const ONBOARDING_SOURCE_TYPE = 'ONBOARDING_JOURNEY' as const;
 export const PERIODIC_REVIEW_SOURCE_TYPE = 'PERIODIC_REVIEW_CYCLE' as const;
+export const TRANSACTION_DEPOSIT_SOURCE_TYPE = 'DEPOSIT' as const;
 
 export type ComplianceWorkflow =
   | typeof ONBOARDING_WORKFLOW
-  | typeof PERIODIC_REVIEW_WORKFLOW;
+  | typeof PERIODIC_REVIEW_WORKFLOW
+  | typeof TRANSACTION_WORKFLOW;
 export type ComplianceSourceType =
   | typeof ONBOARDING_SOURCE_TYPE
-  | typeof PERIODIC_REVIEW_SOURCE_TYPE;
+  | typeof PERIODIC_REVIEW_SOURCE_TYPE
+  | typeof TRANSACTION_DEPOSIT_SOURCE_TYPE;
 
 export interface ComplianceWorkflowTraceContext {
   traceId: string;
@@ -25,6 +29,15 @@ export const ONBOARDING_REVIEW_STAGES = {
 
 export type OnboardingReviewStage =
   (typeof ONBOARDING_REVIEW_STAGES)[keyof typeof ONBOARDING_REVIEW_STAGES];
+
+export const TRANSACTION_REVIEW_STAGES = {
+  REVIEW_KYT: 'REVIEW_KYT',
+  REVIEW_TRAVEL_RULE: 'REVIEW_TRAVEL_RULE',
+  REVIEW_DEPOSIT_FINAL: 'REVIEW_DEPOSIT_FINAL',
+} as const;
+
+export type TransactionReviewStage =
+  (typeof TRANSACTION_REVIEW_STAGES)[keyof typeof TRANSACTION_REVIEW_STAGES];
 
 export const ONBOARDING_REVIEW_RULES = {
   ONB_CDD_REVIEW_REQUIRED: 'ONB_CDD_REVIEW_REQUIRED',
@@ -42,8 +55,22 @@ export const PERIODIC_REVIEW_RULES = {
 export type PeriodicReviewRule =
   (typeof PERIODIC_REVIEW_RULES)[keyof typeof PERIODIC_REVIEW_RULES];
 
-export type ComplianceReviewStage = OnboardingReviewStage;
-export type ComplianceReviewRule = OnboardingReviewRule | PeriodicReviewRule;
+export const TRANSACTION_REVIEW_RULES = {
+  TX_KYT_REVIEW_REQUIRED: 'TX_KYT_REVIEW_REQUIRED',
+  TX_TRAVEL_RULE_REVIEW_REQUIRED: 'TX_TRAVEL_RULE_REVIEW_REQUIRED',
+  TX_DEPOSIT_FINAL_REVIEW_REQUIRED: 'TX_DEPOSIT_FINAL_REVIEW_REQUIRED',
+} as const;
+
+export type TransactionReviewRule =
+  (typeof TRANSACTION_REVIEW_RULES)[keyof typeof TRANSACTION_REVIEW_RULES];
+
+export type ComplianceReviewStage =
+  | OnboardingReviewStage
+  | TransactionReviewStage;
+export type ComplianceReviewRule =
+  | OnboardingReviewRule
+  | PeriodicReviewRule
+  | TransactionReviewRule;
 
 export const LEGACY_ONBOARDING_REVIEW_RULE =
   'ONB_ONBOARDING_JOURNEY_REVIEW' as const;
@@ -69,7 +96,7 @@ export const ONBOARDING_REVIEW_RULE_TO_STAGE: Record<
 };
 
 export const PERIODIC_REVIEW_STAGE_TO_RULE: Record<
-  ComplianceReviewStage,
+  OnboardingReviewStage,
   PeriodicReviewRule
 > = {
   [ONBOARDING_REVIEW_STAGES.REVIEW_CDD]:
@@ -80,7 +107,7 @@ export const PERIODIC_REVIEW_STAGE_TO_RULE: Record<
 
 export const PERIODIC_REVIEW_RULE_TO_STAGE: Record<
   PeriodicReviewRule,
-  ComplianceReviewStage
+  OnboardingReviewStage
 > = {
   [PERIODIC_REVIEW_RULES.PRR_CDD_REVIEW_REQUIRED]:
     ONBOARDING_REVIEW_STAGES.REVIEW_CDD,
@@ -88,12 +115,42 @@ export const PERIODIC_REVIEW_RULE_TO_STAGE: Record<
     ONBOARDING_REVIEW_STAGES.REVIEW_EDD,
 };
 
+export const TRANSACTION_REVIEW_STAGE_TO_RULE: Record<
+  TransactionReviewStage,
+  TransactionReviewRule
+> = {
+  [TRANSACTION_REVIEW_STAGES.REVIEW_KYT]:
+    TRANSACTION_REVIEW_RULES.TX_KYT_REVIEW_REQUIRED,
+  [TRANSACTION_REVIEW_STAGES.REVIEW_TRAVEL_RULE]:
+    TRANSACTION_REVIEW_RULES.TX_TRAVEL_RULE_REVIEW_REQUIRED,
+  [TRANSACTION_REVIEW_STAGES.REVIEW_DEPOSIT_FINAL]:
+    TRANSACTION_REVIEW_RULES.TX_DEPOSIT_FINAL_REVIEW_REQUIRED,
+};
+
+export const TRANSACTION_REVIEW_RULE_TO_STAGE: Record<
+  TransactionReviewRule,
+  TransactionReviewStage
+> = {
+  [TRANSACTION_REVIEW_RULES.TX_KYT_REVIEW_REQUIRED]:
+    TRANSACTION_REVIEW_STAGES.REVIEW_KYT,
+  [TRANSACTION_REVIEW_RULES.TX_TRAVEL_RULE_REVIEW_REQUIRED]:
+    TRANSACTION_REVIEW_STAGES.REVIEW_TRAVEL_RULE,
+  [TRANSACTION_REVIEW_RULES.TX_DEPOSIT_FINAL_REVIEW_REQUIRED]:
+    TRANSACTION_REVIEW_STAGES.REVIEW_DEPOSIT_FINAL,
+};
+
 const ONBOARDING_STAGE_SET = new Set<string>(
   Object.values(ONBOARDING_REVIEW_STAGES),
+);
+const TRANSACTION_STAGE_SET = new Set<string>(
+  Object.values(TRANSACTION_REVIEW_STAGES),
 );
 const ONBOARDING_RULE_SET = new Set<string>(Object.values(ONBOARDING_REVIEW_RULES));
 const PERIODIC_REVIEW_RULE_SET = new Set<string>(
   Object.values(PERIODIC_REVIEW_RULES),
+);
+const TRANSACTION_RULE_SET = new Set<string>(
+  Object.values(TRANSACTION_REVIEW_RULES),
 );
 
 export const ALERT_WORK_ITEM_ACTIONS = {
@@ -116,6 +173,7 @@ export type AlertOutcomeAction =
 export const WORKFLOW_DECISIONS = {
   CLEAR: 'CLEAR',
   REJECT: 'REJECT',
+  FREEZE_TRANSACTION: 'FREEZE_TRANSACTION',
   REQUIRE_EDD: 'REQUIRE_EDD',
 } as const;
 
@@ -156,6 +214,7 @@ export type InterimMeasure =
 export const CASE_WORKFLOW_ACTIONS = {
   CLEAR: 'CLEAR',
   REJECT: 'REJECT',
+  FREEZE_TRANSACTION: 'FREEZE_TRANSACTION',
   REQUIRE_EDD: 'REQUIRE_EDD',
 } as const;
 
@@ -163,7 +222,7 @@ export type CaseWorkflowAction =
   (typeof CASE_WORKFLOW_ACTIONS)[keyof typeof CASE_WORKFLOW_ACTIONS];
 
 export const ALERT_OUTCOME_ACTIONS_BY_STAGE: Record<
-  OnboardingReviewStage,
+  ComplianceReviewStage,
   AlertOutcomeAction[]
 > = {
   [ONBOARDING_REVIEW_STAGES.REVIEW_CDD]: [
@@ -174,10 +233,22 @@ export const ALERT_OUTCOME_ACTIONS_BY_STAGE: Record<
     ALERT_OUTCOME_ACTIONS.FALSE_POSITIVE,
     ALERT_OUTCOME_ACTIONS.ESCALATE_TO_CASE,
   ],
+  [TRANSACTION_REVIEW_STAGES.REVIEW_KYT]: [
+    ALERT_OUTCOME_ACTIONS.FALSE_POSITIVE,
+    ALERT_OUTCOME_ACTIONS.ESCALATE_TO_CASE,
+  ],
+  [TRANSACTION_REVIEW_STAGES.REVIEW_TRAVEL_RULE]: [
+    ALERT_OUTCOME_ACTIONS.FALSE_POSITIVE,
+    ALERT_OUTCOME_ACTIONS.ESCALATE_TO_CASE,
+  ],
+  [TRANSACTION_REVIEW_STAGES.REVIEW_DEPOSIT_FINAL]: [
+    ALERT_OUTCOME_ACTIONS.FALSE_POSITIVE,
+    ALERT_OUTCOME_ACTIONS.ESCALATE_TO_CASE,
+  ],
 };
 
 export const WORKFLOW_DECISIONS_BY_STAGE: Record<
-  OnboardingReviewStage,
+  ComplianceReviewStage,
   WorkflowDecision[]
 > = {
   [ONBOARDING_REVIEW_STAGES.REVIEW_CDD]: [
@@ -189,10 +260,22 @@ export const WORKFLOW_DECISIONS_BY_STAGE: Record<
     WORKFLOW_DECISIONS.CLEAR,
     WORKFLOW_DECISIONS.REJECT,
   ],
+  [TRANSACTION_REVIEW_STAGES.REVIEW_KYT]: [
+    WORKFLOW_DECISIONS.CLEAR,
+    WORKFLOW_DECISIONS.FREEZE_TRANSACTION,
+  ],
+  [TRANSACTION_REVIEW_STAGES.REVIEW_TRAVEL_RULE]: [
+    WORKFLOW_DECISIONS.CLEAR,
+    WORKFLOW_DECISIONS.FREEZE_TRANSACTION,
+  ],
+  [TRANSACTION_REVIEW_STAGES.REVIEW_DEPOSIT_FINAL]: [
+    WORKFLOW_DECISIONS.CLEAR,
+    WORKFLOW_DECISIONS.FREEZE_TRANSACTION,
+  ],
 };
 
 export const CASE_WORKFLOW_ACTIONS_BY_STAGE: Record<
-  OnboardingReviewStage,
+  ComplianceReviewStage,
   CaseWorkflowAction[]
 > = {
   [ONBOARDING_REVIEW_STAGES.REVIEW_CDD]: [
@@ -204,6 +287,18 @@ export const CASE_WORKFLOW_ACTIONS_BY_STAGE: Record<
     CASE_WORKFLOW_ACTIONS.CLEAR,
     CASE_WORKFLOW_ACTIONS.REJECT,
   ],
+  [TRANSACTION_REVIEW_STAGES.REVIEW_KYT]: [
+    CASE_WORKFLOW_ACTIONS.CLEAR,
+    CASE_WORKFLOW_ACTIONS.FREEZE_TRANSACTION,
+  ],
+  [TRANSACTION_REVIEW_STAGES.REVIEW_TRAVEL_RULE]: [
+    CASE_WORKFLOW_ACTIONS.CLEAR,
+    CASE_WORKFLOW_ACTIONS.FREEZE_TRANSACTION,
+  ],
+  [TRANSACTION_REVIEW_STAGES.REVIEW_DEPOSIT_FINAL]: [
+    CASE_WORKFLOW_ACTIONS.CLEAR,
+    CASE_WORKFLOW_ACTIONS.FREEZE_TRANSACTION,
+  ],
 };
 
 export function normalizeComplianceWorkflow(
@@ -213,6 +308,7 @@ export function normalizeComplianceWorkflow(
   if (!normalized) return null;
   if (normalized === ONBOARDING_WORKFLOW) return ONBOARDING_WORKFLOW;
   if (normalized === PERIODIC_REVIEW_WORKFLOW) return PERIODIC_REVIEW_WORKFLOW;
+  if (normalized === TRANSACTION_WORKFLOW) return TRANSACTION_WORKFLOW;
   return null;
 }
 
@@ -230,8 +326,19 @@ export function isPeriodicReviewSourceType(value: unknown): boolean {
   );
 }
 
+export function isTransactionSourceType(value: unknown): boolean {
+  return (
+    String(value || '').trim().toUpperCase() ===
+    TRANSACTION_DEPOSIT_SOURCE_TYPE.toUpperCase()
+  );
+}
+
 export function isSupportedReviewSourceType(value: unknown): boolean {
-  return isOnboardingSourceType(value) || isPeriodicReviewSourceType(value);
+  return (
+    isOnboardingSourceType(value) ||
+    isPeriodicReviewSourceType(value) ||
+    isTransactionSourceType(value)
+  );
 }
 
 export function getWorkflowFromSourceType(
@@ -239,6 +346,7 @@ export function getWorkflowFromSourceType(
 ): ComplianceWorkflow | null {
   if (isOnboardingSourceType(value)) return ONBOARDING_WORKFLOW;
   if (isPeriodicReviewSourceType(value)) return PERIODIC_REVIEW_WORKFLOW;
+  if (isTransactionSourceType(value)) return TRANSACTION_WORKFLOW;
   return null;
 }
 
@@ -254,7 +362,15 @@ export function normalizeOnboardingReviewStage(
 export function normalizeComplianceReviewStage(
   value: unknown,
 ): ComplianceReviewStage | null {
-  return normalizeOnboardingReviewStage(value);
+  const normalized = String(value || '').trim().toUpperCase();
+  if (!normalized) return null;
+  if (ONBOARDING_STAGE_SET.has(normalized)) {
+    return normalized as OnboardingReviewStage;
+  }
+  if (TRANSACTION_STAGE_SET.has(normalized)) {
+    return normalized as TransactionReviewStage;
+  }
+  return null;
 }
 
 export function getCanonicalOnboardingRuleForStage(
@@ -274,10 +390,20 @@ export function getCanonicalReviewRuleForStage(
   if (!normalizedStage || !normalizedWorkflow) return null;
 
   if (normalizedWorkflow === PERIODIC_REVIEW_WORKFLOW) {
-    return PERIODIC_REVIEW_STAGE_TO_RULE[normalizedStage];
+    return PERIODIC_REVIEW_STAGE_TO_RULE[
+      normalizedStage as OnboardingReviewStage
+    ];
   }
 
-  return ONBOARDING_REVIEW_STAGE_TO_RULE[normalizedStage];
+  if (normalizedWorkflow === TRANSACTION_WORKFLOW) {
+    return TRANSACTION_REVIEW_STAGE_TO_RULE[
+      normalizedStage as TransactionReviewStage
+    ];
+  }
+
+  return ONBOARDING_REVIEW_STAGE_TO_RULE[
+    normalizedStage as OnboardingReviewStage
+  ];
 }
 
 export function normalizeOnboardingRuleCode(
@@ -305,6 +431,37 @@ export function normalizeOnboardingRuleCode(
   return null;
 }
 
+export function normalizeTransactionReviewRuleCode(
+  ruleCode: unknown,
+  stage?: unknown,
+): TransactionReviewRule | null {
+  const normalizedRule = String(ruleCode || '').trim().toUpperCase();
+  const normalizedStage = normalizeComplianceReviewStage(stage);
+
+  if (
+    normalizedStage &&
+    TRANSACTION_STAGE_SET.has(String(normalizedStage).toUpperCase())
+  ) {
+    const canonicalForStage =
+      TRANSACTION_REVIEW_STAGE_TO_RULE[
+        normalizedStage as TransactionReviewStage
+      ];
+    if (!normalizedRule) {
+      return canonicalForStage;
+    }
+    if (normalizedRule === canonicalForStage) {
+      return canonicalForStage;
+    }
+    return null;
+  }
+
+  if (!normalizedRule) return null;
+  if (TRANSACTION_RULE_SET.has(normalizedRule)) {
+    return normalizedRule as TransactionReviewRule;
+  }
+  return null;
+}
+
 export function normalizePeriodicReviewRuleCode(
   ruleCode: unknown,
   stage?: unknown,
@@ -312,8 +469,14 @@ export function normalizePeriodicReviewRuleCode(
   const normalizedRule = String(ruleCode || '').trim().toUpperCase();
   const normalizedStage = normalizeComplianceReviewStage(stage);
 
-  if (normalizedStage) {
-    const canonicalForStage = PERIODIC_REVIEW_STAGE_TO_RULE[normalizedStage];
+  if (
+    normalizedStage &&
+    ONBOARDING_STAGE_SET.has(String(normalizedStage).toUpperCase())
+  ) {
+    const canonicalForStage =
+      PERIODIC_REVIEW_STAGE_TO_RULE[
+        normalizedStage as OnboardingReviewStage
+      ];
     if (!normalizedRule) {
       return canonicalForStage;
     }
@@ -348,9 +511,14 @@ export function normalizeComplianceRuleCode(
     return normalizeOnboardingRuleCode(ruleCode, stage);
   }
 
+  if (workflow === TRANSACTION_WORKFLOW) {
+    return normalizeTransactionReviewRuleCode(ruleCode, stage);
+  }
+
   return (
     normalizeOnboardingRuleCode(ruleCode, stage) ||
-    normalizePeriodicReviewRuleCode(ruleCode, stage)
+    normalizePeriodicReviewRuleCode(ruleCode, stage) ||
+    normalizeTransactionReviewRuleCode(ruleCode, stage)
   );
 }
 
@@ -434,6 +602,25 @@ export function buildComplianceWorkflowTraceContext(input: {
       workflowType: PERIODIC_REVIEW_WORKFLOW,
       workflowId: cycleId,
       workflowNo: cycleNo,
+    };
+  }
+
+  if (workflow === TRANSACTION_WORKFLOW) {
+    const txId =
+      normalizeTracePart(input.workflowId) ||
+      normalizeTracePart(input.sourceId);
+    const txNo =
+      normalizeTracePart(input.workflowNo) ||
+      normalizeTracePart(input.sourceNo) ||
+      txId;
+    if (!txId || !txNo) {
+      return null;
+    }
+    return {
+      traceId: `${TRANSACTION_WORKFLOW}:${txId}`,
+      workflowType: TRANSACTION_WORKFLOW,
+      workflowId: txId,
+      workflowNo: txNo,
     };
   }
 

@@ -1,4 +1,4 @@
-import { PayinStatus, PayinType } from '../dto/payin.dto';
+import { PayinSimulationMode, PayinStatus, PayinType } from '../dto/payin.dto';
 
 export class PayinStatusChangedEvent {
   constructor(
@@ -9,6 +9,7 @@ export class PayinStatusChangedEvent {
     public readonly depositId?: string | null,
     public readonly assetId?: string,
     public readonly amount?: string,
+    public readonly simulationMode?: PayinSimulationMode | null,
   ) {}
 }
 

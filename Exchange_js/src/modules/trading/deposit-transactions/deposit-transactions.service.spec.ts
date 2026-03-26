@@ -8,6 +8,7 @@ import {
 import { BadRequestException } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { TransactionComplianceService } from '../../risk-engine/transaction-compliance/transaction-compliance.service';
+import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
 
 describe('DepositTransactionsService', () => {
   let service: DepositTransactionsService;
@@ -15,6 +16,9 @@ describe('DepositTransactionsService', () => {
   let eventEmitter: EventEmitter2;
 
   beforeEach(async () => {
+    jest.clearAllMocks();
+    jest.spyOn(AuditLogsService.prototype, 'recordByActor').mockResolvedValue({} as any);
+    jest.spyOn(AuditLogsService.prototype, 'recordSystem').mockResolvedValue({} as any);
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         DepositTransactionsService,
@@ -87,6 +91,12 @@ describe('DepositTransactionsService', () => {
         travelRuleStatus: 'NOT_REQUIRED',
         asset: {
           type: 'CRYPTO',
+        },
+        customer: {
+          onboardingStatus: 'APPROVED',
+          operatingStatus: 'ACTIVE',
+          restrictionStatus: 'CLEAR',
+          complianceHoldStatus: 'ACTIVE',
         },
       };
       ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValue(mockRecord);
@@ -204,6 +214,12 @@ describe('DepositTransactionsService', () => {
         asset: {
           type: 'CRYPTO',
         },
+        customer: {
+          onboardingStatus: 'APPROVED',
+          operatingStatus: 'ACTIVE',
+          restrictionStatus: 'CLEAR',
+          complianceHoldStatus: 'ACTIVE',
+        },
       };
       ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValue(mockRecord);
 
@@ -228,6 +244,12 @@ describe('DepositTransactionsService', () => {
         travelRuleStatus: 'PENDING',
         asset: {
           type: 'FIAT',
+        },
+        customer: {
+          onboardingStatus: 'APPROVED',
+          operatingStatus: 'ACTIVE',
+          restrictionStatus: 'CLEAR',
+          complianceHoldStatus: 'ACTIVE',
         },
       };
       ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValue(
@@ -286,6 +308,39 @@ describe('DepositTransactionsService', () => {
           data: expect.objectContaining({ status: DepositTransactionStatus.FAILED }),
         }),
       );
+    });
+
+    it('should block SUCCESS when customer restriction or compliance hold is active', async () => {
+      const mockRecord = {
+        id: mockId,
+        status: DepositTransactionStatus.UNDER_REVIEW,
+        ownerType: 'CUSTOMER',
+        ownerId: 'U123',
+        assetId: 'A123',
+        amount: '100',
+        payinId: 'P123',
+        kytStatus: 'PASS',
+        travelRuleRequired: false,
+        travelRuleStatus: 'NOT_REQUIRED',
+        asset: {
+          type: 'FIAT',
+        },
+        customer: {
+          onboardingStatus: 'APPROVED',
+          operatingStatus: 'ACTIVE',
+          restrictionStatus: 'RESTRICTED',
+          complianceHoldStatus: 'FROZEN',
+        },
+      };
+      ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValue(
+        mockRecord,
+      );
+
+      await expect(
+        service.updateStatus(mockId, {
+          action: DepositTransactionAction.SUCCESS,
+        }),
+      ).rejects.toThrow(BadRequestException);
     });
   });
 });

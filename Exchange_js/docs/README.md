@@ -2,7 +2,7 @@
 
 Status: active
 Owner: project-owner-and-agents
-Last Updated: 2026-03-23
+Last Updated: 2026-03-26
 Applies To: `Exchange_js`
 Supersedes: none
 Depends On: `AGENTS.md`, `docs/constraints/README.md`
@@ -145,9 +145,21 @@ Source of Truth Level: documentation-governance-index
 ## Current Entry Documents
 - Project planning reference:
   - `docs/roadmap/project-version-plan.md`
+  - `docs/roadmap/wave-5-payin-deposit-phase-plan.md`
   - `docs/roadmap/wave-3-customer-onboarding-phase-plan.md`
   - `docs/roadmap/wave-2-compliance-foundation-phase-plan.md`
   - `docs/roadmap/wave-4-ledger-asset-structure-phase-plan.md`
+- Wave 5 cleanup / closeout closure record:
+  - `docs/cleanup/wave-5-cleanup-master-plan.md`
+- Wave 5 durable workflow / entity truth:
+  - `docs/specs/workflows/payin-deposit-canonical-workflow.md`
+  - `docs/specs/entities/inbound-transfer-signal-entity.md`
+  - `docs/specs/entities/payin-entity.md`
+  - `docs/specs/entities/deposit-transaction-entity.md`
+- Wave 5 acceptance / runbook:
+  - `docs/acceptance/wave-5-payin-deposit-final-acceptance-checklist.md`
+  - `docs/acceptance/wave-5-deposit-accounting-blocked-runbook.md`
+  - `docs/acceptance/wave-5-deposit-evidence-export-runbook.md`
 - Wave 4 design decision reference:
   - `docs/adr/business-base-config-release-model.md`
 - Wave 4 cleanup reference:
@@ -168,6 +180,7 @@ Source of Truth Level: documentation-governance-index
   - `docs/specs/workflows/admin-member-auth-boundary-workflow.md`
   - `docs/specs/workflows/onboarding-canonical-workflow.md`
   - `docs/specs/workflows/periodic-review-canonical-workflow.md`
+  - `docs/specs/workflows/payin-deposit-canonical-workflow.md`
   - `docs/specs/workflows/alert-triage-and-case-escalation.md`
   - `docs/specs/workflows/mlro-and-final-approval-governance.md`
   - `docs/specs/workflows/case-final-lifecycle-and-external-filing.md`
@@ -185,6 +198,9 @@ Source of Truth Level: documentation-governance-index
   - `docs/specs/entities/compliance-case-report-entity.md`
   - `docs/specs/entities/compliance-external-filing-entity.md`
   - `docs/specs/entities/customer-entity.md`
+  - `docs/specs/entities/inbound-transfer-signal-entity.md`
+  - `docs/specs/entities/payin-entity.md`
+  - `docs/specs/entities/deposit-transaction-entity.md`
   - `docs/specs/entities/review-response-entity.md`
   - `docs/specs/entities/periodic-review-cycle-entity.md`
   - `docs/specs/entities/approval-case-entity.md`
@@ -207,6 +223,9 @@ Source of Truth Level: documentation-governance-index
 - Runtime / validation examples:
   - `docs/acceptance/wave-1-foundation-final-acceptance.md`
   - `docs/acceptance/wave-2-wave-3-final-acceptance-checklist.md`
+  - `docs/acceptance/wave-5-payin-deposit-final-acceptance-checklist.md`
+  - `docs/acceptance/wave-5-deposit-accounting-blocked-runbook.md`
+  - `docs/acceptance/wave-5-deposit-evidence-export-runbook.md`
   - `docs/acceptance/local-main-runtime-runbook.md`
   - `docs/acceptance/onboarding-compliance-center-wave3-acceptance-checklist.md`
   - `docs/acceptance/wave-4-ledger-asset-structure-acceptance-checklist.md`
@@ -244,9 +263,28 @@ Source of Truth Level: documentation-governance-index
 7. Wave 4 acceptance and closeout evidence
 8. Wave 4 cleanup docs only if retirement history matters
 
+## Wave 5 Recommended Reading Order
+1. top-level version plan
+2. customer transaction constraints
+3. internal transaction constraints
+4. `docs/specs/workflows/payin-deposit-canonical-workflow.md`
+5. `docs/specs/entities/inbound-transfer-signal-entity.md`, `docs/specs/entities/payin-entity.md`, `docs/specs/entities/deposit-transaction-entity.md`
+6. risk / compliance / accounting / audit module specs
+7. Wave 5 final acceptance and runbooks
+8. roadmap / cleanup docs only as historical phase and closeout context
+
 ## Wave 4 Status Note
 - Wave 4 docs now describe implemented runtime slices, cleanup rounds, post-closeout remediation, and the remaining explicit gaps.
 - They are no longer just future-design baselines, but they still do not claim that every original Wave 4 blueprint item is complete.
+
+## Wave 5 Status Note
+- `Wave 5` runtime phase plan is currently implementation-complete through `Phase 4`.
+- Durable Wave 5 runtime truth now exists in:
+  - `docs/constraints/**`
+  - `docs/specs/**`
+  - `docs/acceptance/**`
+- `docs/roadmap/wave-5-payin-deposit-phase-plan.md` remains the phase-planning and sequencing reference.
+- `docs/cleanup/wave-5-cleanup-master-plan.md` is now mainly the closeout and delivery-hygiene reference.
 
 ## Wave Completion Documentation Rule
 - A wave MUST NOT be treated as documentation-complete until all of the following exist and point to each other:

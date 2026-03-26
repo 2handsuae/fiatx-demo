@@ -22,6 +22,18 @@ export enum PayinAction {
   BLOCK = 'block',
 }
 
+export enum PayinMockEvent {
+  MEMPOOL_SEEN = 'MEMPOOL_SEEN',
+  CHAIN_CONFIRMED = 'CHAIN_CONFIRMED',
+  DROPPED = 'DROPPED',
+  FIAT_CONFIRMED = 'FIAT_CONFIRMED',
+  FIAT_FAILED = 'FIAT_FAILED',
+}
+
+export enum PayinSimulationMode {
+  INTERACTIVE = 'INTERACTIVE',
+}
+
 export enum PayinType {
   CRYPTO = 'crypto',
   FIAT = 'fiat',
@@ -32,15 +44,9 @@ export class UpdatePayinStatusDto {
   action!: PayinAction;
 }
 
-export class SimulatePayinDto {
-  @IsUUID()
-  assetId!: string;
-
-  @IsUUID()
-  toWalletId!: string;
-
-  @IsEnum(PayinType)
-  type!: PayinType;
+export class MockPayinEventDto {
+  @IsEnum(PayinMockEvent)
+  event!: PayinMockEvent;
 }
 
 export class PayinQueryDto {

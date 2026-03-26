@@ -18,6 +18,7 @@ type DecisionRecordItem = {
   outputDecision?: string | null;
   reasonCodes?: string[];
   recommendedActions?: Array<Record<string, unknown>>;
+  outputs?: Record<string, unknown>;
   workflow?: string | null;
   stage?: string | null;
   rule?: string | null;
@@ -88,6 +89,46 @@ const getStatusClass = (status: string) => {
   if (status === 'COMPLETED') return 'bg-green-100 text-green-800';
   if (status === 'FAILED') return 'bg-red-100 text-red-800';
   return 'bg-yellow-100 text-yellow-800';
+};
+
+const getDecisionContextMeta = (contextType?: string | null) => {
+  const normalized = String(contextType || '').trim().toUpperCase();
+
+  if (normalized === 'TX_DEPOSIT_FINAL') {
+    return {
+      title: 'Deposit Final Decision',
+      badgeLabel: 'FINAL',
+      badgeClass: 'bg-emerald-100 text-emerald-800',
+      helperText: 'Unified final decision for one deposit after KYT and Travel Rule are both terminal.',
+    };
+  }
+
+  if (normalized === 'TX_DEPOSIT_KYT_MAIN') {
+    return {
+      title: 'Deposit KYT Stage Decision',
+      badgeLabel: 'LEGACY',
+      badgeClass: 'bg-amber-100 text-amber-800',
+      helperText:
+        'Legacy stage-level record kept for history. New deposit flow should no longer create this as the primary decision.',
+    };
+  }
+
+  if (normalized === 'TX_DEPOSIT_TRAVEL_RULE') {
+    return {
+      title: 'Deposit Travel Rule Stage Decision',
+      badgeLabel: 'LEGACY',
+      badgeClass: 'bg-amber-100 text-amber-800',
+      helperText:
+        'Legacy stage-level record kept for history. New deposit flow should no longer create this as the primary decision.',
+    };
+  }
+
+  return {
+    title: normalized || '-',
+    badgeLabel: '',
+    badgeClass: '',
+    helperText: '',
+  };
 };
 
 const RiskPolicyExecutionsPage = () => {
@@ -202,6 +243,13 @@ const RiskPolicyExecutionsPage = () => {
         </button>
       </div>
 
+      <div className="px-4 py-3 border border-blue-200 bg-blue-50 rounded-lg text-sm text-blue-800">
+        New deposit flow should produce one unified <span className="font-semibold">TX_DEPOSIT_FINAL</span>{' '}
+        execution record. Historical <span className="font-semibold">TX_DEPOSIT_KYT_MAIN</span> and{' '}
+        <span className="font-semibold">TX_DEPOSIT_TRAVEL_RULE</span> rows may still appear here as legacy
+        stage records.
+      </div>
+
       {message && (
         <div className="px-4 py-3 border border-green-200 bg-green-50 rounded-lg text-green-700 text-sm">
           {message}
@@ -307,60 +355,82 @@ const RiskPolicyExecutionsPage = () => {
                   </td>
                 </tr>
               ) : (
-                items.map((item) => (
-                  <tr key={item.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-3 text-gray-600">
-                      <div>{formatDateTime(item.createdAt)}</div>
-                      <div className="text-xs text-gray-400">
-                        Completed: {formatDateTime(item.completedAt)}
-                      </div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="font-semibold text-gray-900">{item.id.slice(0, 12)}...</div>
-                      <div className="text-xs text-gray-500">{item.id}</div>
-                    </td>
-                    <td className="px-4 py-3 text-gray-700">
-                      <div>{item.contextType}</div>
-                      <div className="text-xs text-gray-500">
-                        {item.workflow || '-'} / {item.stage || '-'}
-                      </div>
-                      <div className="text-xs text-gray-400">{item.rule || '-'}</div>
-                    </td>
-                    <td className="px-4 py-3 text-gray-700">
-                      <div>{item.ownerType}</div>
-                      <div className="text-xs text-gray-500">{item.ownerId}</div>
-                      {item.ownerType === 'CUSTOMER' && item.customer && (
+                items.map((item) => {
+                  const contextMeta = getDecisionContextMeta(item.contextType);
+                  const riskBand = String(item.outputs?.riskBand || '').trim();
+                  const riskReason = String(item.outputs?.riskReason || '').trim();
+
+                  return (
+                    <tr key={item.id} className="hover:bg-gray-50">
+                      <td className="px-4 py-3 text-gray-600">
+                        <div>{formatDateTime(item.createdAt)}</div>
                         <div className="text-xs text-gray-400">
-                          {item.customer.customerNo || item.customer.email || '-'}
+                          Completed: {formatDateTime(item.completedAt)}
                         </div>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-gray-700">
-                      <div>{item.subjectType}</div>
-                      <div className="text-xs text-gray-500">{item.subjectId}</div>
-                    </td>
-                    <td className="px-4 py-3 text-gray-700">{item.policyVersion}</td>
-                    <td className="px-4 py-3">
-                      <span className={`px-2 py-1 rounded-full text-xs ${getStatusClass(item.status)}`}>
-                        {item.status}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-gray-700">{item.outputDecision || '-'}</td>
-                    <td className="px-4 py-3 text-gray-600 max-w-[260px]">
-                      <div className="truncate" title={(item.reasonCodes || []).join(', ')}>
-                        {(item.reasonCodes || []).join(', ') || '-'}
-                      </div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <button
-                        onClick={() => void openDetail(item.id)}
-                        className="text-xs border border-gray-200 px-2 py-1 rounded hover:bg-gray-50"
-                      >
-                        View Detail
-                      </button>
-                    </td>
-                  </tr>
-                ))
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="font-semibold text-gray-900">{item.id.slice(0, 12)}...</div>
+                        <div className="text-xs text-gray-500">{item.id}</div>
+                      </td>
+                      <td className="px-4 py-3 text-gray-700">
+                        <div className="font-medium text-gray-900">{contextMeta.title}</div>
+                        <div className="text-xs text-gray-500">{item.contextType}</div>
+                        <div className="text-xs text-gray-500">
+                          {item.workflow || '-'} / {item.stage || '-'}
+                        </div>
+                        <div className="text-xs text-gray-400">{item.rule || '-'}</div>
+                        {contextMeta.badgeLabel && (
+                          <div className="mt-1">
+                            <span
+                              className={`inline-flex px-2 py-0.5 rounded-full text-[11px] font-semibold ${contextMeta.badgeClass}`}
+                            >
+                              {contextMeta.badgeLabel}
+                            </span>
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-gray-700">
+                        <div>{item.ownerType}</div>
+                        <div className="text-xs text-gray-500">{item.ownerId}</div>
+                        {item.ownerType === 'CUSTOMER' && item.customer && (
+                          <div className="text-xs text-gray-400">
+                            {item.customer.customerNo || item.customer.email || '-'}
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-gray-700">
+                        <div>{item.subjectType}</div>
+                        <div className="text-xs text-gray-500">{item.subjectId}</div>
+                      </td>
+                      <td className="px-4 py-3 text-gray-700">{item.policyVersion}</td>
+                      <td className="px-4 py-3">
+                        <span className={`px-2 py-1 rounded-full text-xs ${getStatusClass(item.status)}`}>
+                          {item.status}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-gray-700">{item.outputDecision || '-'}</td>
+                      <td className="px-4 py-3 text-gray-600 max-w-[260px]">
+                        <div className="truncate" title={(item.reasonCodes || []).join(', ')}>
+                          {(item.reasonCodes || []).join(', ') || '-'}
+                        </div>
+                        {riskBand || riskReason ? (
+                          <div className="mt-1 text-xs text-gray-500">
+                            {riskBand || 'UNKNOWN'}
+                            {riskReason ? ` / ${riskReason}` : ''}
+                          </div>
+                        ) : null}
+                      </td>
+                      <td className="px-4 py-3">
+                        <button
+                          onClick={() => void openDetail(item.id)}
+                          className="text-xs border border-gray-200 px-2 py-1 rounded hover:bg-gray-50"
+                        >
+                          View Detail
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
@@ -393,6 +463,33 @@ const RiskPolicyExecutionsPage = () => {
               <div className="p-6 text-sm text-gray-500">Loading detail...</div>
             ) : (
               <div className="p-4 space-y-4 text-sm">
+                {(() => {
+                  const contextMeta = getDecisionContextMeta(detail.contextType);
+                  return (
+                    <section className="border border-gray-200 rounded-lg overflow-hidden">
+                      <div className="px-3 py-2 bg-gray-50 border-b border-gray-200 text-xs font-semibold text-gray-600 uppercase">
+                        Context Interpretation
+                      </div>
+                      <div className="p-3 space-y-2">
+                        <div className="flex items-center gap-2">
+                          <span className="font-semibold text-gray-900">{contextMeta.title}</span>
+                          {contextMeta.badgeLabel && (
+                            <span
+                              className={`inline-flex px-2 py-0.5 rounded-full text-[11px] font-semibold ${contextMeta.badgeClass}`}
+                            >
+                              {contextMeta.badgeLabel}
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-xs text-gray-500">{detail.contextType}</div>
+                        <div className="text-sm text-gray-700">
+                          {contextMeta.helperText || 'No additional interpretation available.'}
+                        </div>
+                      </div>
+                    </section>
+                  );
+                })()}
+
                 <section className="border border-gray-200 rounded-lg overflow-hidden">
                   <div className="px-3 py-2 bg-gray-50 border-b border-gray-200 text-xs font-semibold text-gray-600 uppercase">
                     Summary
@@ -467,6 +564,18 @@ const RiskPolicyExecutionsPage = () => {
                     <div>
                       <div className="text-xs text-gray-500">Error Message</div>
                       <div className="text-gray-900 font-medium break-all">{detail.errorMessage || '-'}</div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-gray-500">Risk Band</div>
+                      <div className="text-gray-900 font-medium">
+                        {String(detail.outputs?.riskBand || '-')}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-gray-500">Risk Reason</div>
+                      <div className="text-gray-900 font-medium">
+                        {String(detail.outputs?.riskReason || '-')}
+                      </div>
                     </div>
                   </div>
                 </section>

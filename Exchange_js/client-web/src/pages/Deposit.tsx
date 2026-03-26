@@ -3,6 +3,7 @@ import { Copy, RefreshCw, Check, Wallet, Building2, Info, AlertTriangle, History
 import { QRCodeSVG } from 'qrcode.react';
 import { useAuth } from '../context/AuthContext';
 import { formatAssetAmount } from '../utils/number-format';
+import { useSimulationMode } from '../utils/simulationMode';
 
 interface Asset {
   id: string;
@@ -46,8 +47,78 @@ interface Transaction {
     fromIban: string | null;
 }
 
+interface ScanInboundSignalsResult {
+  scannedCount: number;
+  createdPayinCount: number;
+  reusedPayinCount: number;
+  blockedCount: number;
+  failedCount: number;
+  depositIds: string[];
+  records: Array<{
+    signalId: string;
+    signalNo: string;
+    payinId: string | null;
+    payinNo: string | null;
+    payinStatus: string | null;
+    depositId: string | null;
+    depositNo: string | null;
+    depositStatus: string | null;
+  }>;
+}
+
+interface SimulationFeedback {
+  kind: 'success' | 'error';
+  message: string;
+}
+
+interface SimulationResultSummary {
+  signalNo: string | null;
+  payinNo: string | null;
+  payinStatus: string | null;
+  depositNo: string | null;
+  depositStatus: string | null;
+  assetCode: string;
+  assetType: DepositAssetType;
+}
+
+interface CreatedInboundSignalResponse {
+  signalNo?: string | null;
+  payin?: {
+    payinNo?: string | null;
+    status?: string | null;
+    deposit?: {
+      depositNo?: string | null;
+      status?: string | null;
+    } | null;
+  } | null;
+}
+
+type SimulationRiskLevel = 'LOW' | 'MEDIUM' | 'HIGH';
+type SimulationRiskReason =
+  | 'KYT_ISSUE'
+  | 'TRAVEL_RULE_ISSUE'
+  | 'LARGE_DEPOSIT_PROFILE_MISMATCH'
+  | 'SANCTIONS_HIT';
+type DepositAssetType = 'CRYPTO' | 'FIAT';
+
+interface CreateInboundTransferSignalPayload {
+  walletId: string;
+  amount: string;
+  txHash?: string;
+  fromAddress?: string;
+  referenceNo?: string;
+  fromIban?: string;
+  simulationRiskLevel?: SimulationRiskLevel;
+  simulationRiskReason?: SimulationRiskReason;
+}
+
+const normalizeSimulationAssetType = (
+  assetType: string | null | undefined,
+): DepositAssetType => (assetType === 'FIAT' ? 'FIAT' : 'CRYPTO');
+
 const Deposit = () => {
   const { user } = useAuth();
+  const { enabled: simulationModeEnabled } = useSimulationMode();
   const [activeTab, setActiveTab] = useState<'crypto' | 'fiat' | 'history'>('crypto');
   const [assets, setAssets] = useState<Asset[]>([]);
   const [selectedAssetId, setSelectedAssetId] = useState('');
@@ -64,6 +135,13 @@ const Deposit = () => {
   
   const [historyStatus, setHistoryStatus] = useState('');
   const [historyAssetId, setHistoryAssetId] = useState('');
+  const [simulatingSignal, setSimulatingSignal] = useState(false);
+  const [showSimulateModal, setShowSimulateModal] = useState(false);
+  const [signalAmount, setSignalAmount] = useState('');
+  const [signalRiskLevel, setSignalRiskLevel] = useState<SimulationRiskLevel>('LOW');
+  const [signalRiskReason, setSignalRiskReason] = useState<SimulationRiskReason | ''>('');
+  const [signalFeedback, setSignalFeedback] = useState<SimulationFeedback | null>(null);
+  const [lastSimulationResult, setLastSimulationResult] = useState<SimulationResultSummary | null>(null);
 
   useEffect(() => {
     const fetchAssets = async () => {
@@ -130,6 +208,43 @@ const Deposit = () => {
           fetchHistory();
       }
   }, [activeTab, page, historyStatus, historyAssetId, user]);
+
+  useEffect(() => {
+    setSignalFeedback(null);
+    setLastSimulationResult(null);
+    setSignalAmount('');
+    setSignalRiskLevel('LOW');
+    setSignalRiskReason('');
+    setShowSimulateModal(false);
+  }, [selectedAssetId, activeTab, depositWallet?.id]);
+
+  useEffect(() => {
+    if (simulationModeEnabled) {
+      return;
+    }
+
+    setShowSimulateModal(false);
+    setSignalAmount('');
+    setSignalRiskLevel('LOW');
+    setSignalRiskReason('');
+    setLastSimulationResult(null);
+  }, [simulationModeEnabled]);
+
+  useEffect(() => {
+    const options = getRiskReasonOptions(
+      signalRiskLevel,
+      normalizeSimulationAssetType(
+        depositWallet?.asset.type || (activeTab === 'fiat' ? 'FIAT' : 'CRYPTO'),
+      ),
+    );
+    if (options.length === 0) {
+      setSignalRiskReason('');
+      return;
+    }
+    if (!options.some((item) => item.value === signalRiskReason)) {
+      setSignalRiskReason(options[0].value);
+    }
+  }, [signalRiskLevel, depositWallet?.asset.type, activeTab, signalRiskReason]);
 
   const fetchHistory = async () => {
       setHistoryLoading(true);
@@ -201,9 +316,62 @@ const Deposit = () => {
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const getRiskReasonOptions = (
+    riskLevel: SimulationRiskLevel,
+    assetType: 'CRYPTO' | 'FIAT',
+  ): Array<{ value: SimulationRiskReason; label: string }> => {
+    if (riskLevel === 'MEDIUM') {
+      if (assetType === 'FIAT') {
+        return [
+          {
+            value: 'LARGE_DEPOSIT_PROFILE_MISMATCH',
+            label: '大额充值，不符客户画像',
+          },
+        ];
+      }
+      return [
+        { value: 'KYT_ISSUE', label: 'KYT问题' },
+        { value: 'TRAVEL_RULE_ISSUE', label: 'TRAVEL RULE问题' },
+        {
+          value: 'LARGE_DEPOSIT_PROFILE_MISMATCH',
+          label: '大额充值，不符客户画像',
+        },
+      ];
+    }
+    if (riskLevel === 'HIGH') {
+      return [{ value: 'SANCTIONS_HIT', label: '制裁名单' }];
+    }
+    return [];
+  };
+
+  const applySignalRiskLevel = (
+    nextLevel: SimulationRiskLevel,
+    assetType: DepositAssetType,
+  ) => {
+    setSignalRiskLevel(nextLevel);
+    const options = getRiskReasonOptions(nextLevel, assetType);
+    setSignalRiskReason(options[0]?.value || '');
+  };
+
   const filteredAssets = assets.filter(a => 
     activeTab === 'crypto' ? a.type === 'CRYPTO' : a.type === 'FIAT'
   );
+  const showSimulationDepositFlow = simulationModeEnabled;
+
+  useEffect(() => {
+    if (activeTab === 'history') {
+      return;
+    }
+
+    if (
+      selectedAssetId &&
+      filteredAssets.some((asset) => asset.id === selectedAssetId)
+    ) {
+      return;
+    }
+
+    setSelectedAssetId(filteredAssets[0]?.id || '');
+  }, [activeTab, filteredAssets, selectedAssetId]);
 
   const renderStatusBadge = (status: string) => {
     const colors: Record<string, string> = {
@@ -211,8 +379,11 @@ const Deposit = () => {
       PAYIN_LINKED: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300',
       CONFIRMED: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300',
       COMPLIANCE_PENDING: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300',
+      UNDER_REVIEW: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
+      FROZEN: 'bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300',
       HELD: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300',
       SUCCESS: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300',
+      REJECTED: 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300',
       FAILED: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300',
     };
     return (
@@ -221,6 +392,284 @@ const Deposit = () => {
       </span>
     );
   };
+
+  const buildHexMockValue = (seed: string, length: number) => {
+    const sanitized = seed.toLowerCase().replace(/[^a-f0-9]/g, 'a') || 'abcd1234';
+    return sanitized.repeat(Math.ceil(length / sanitized.length)).slice(0, length);
+  };
+
+  const buildMockInboundSignalPayload = (
+    wallet: WalletItem,
+    amount: string,
+  ): CreateInboundTransferSignalPayload => {
+    const rawSeed = `${wallet.id}-${wallet.asset.code}-${Date.now().toString(16)}-${Math.random()
+      .toString(16)
+      .slice(2, 10)}`;
+    const compactSeed = rawSeed.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+
+    if (wallet.asset.type === 'CRYPTO') {
+      const txSeed = buildHexMockValue(rawSeed, 64);
+      const addressSeed = buildHexMockValue(`${rawSeed}-from`, 40);
+
+      return {
+        walletId: wallet.id,
+        amount,
+        txHash: `0x${txSeed}`,
+        fromAddress: `0x${addressSeed}`,
+      };
+    }
+
+    const ibanSeed = compactSeed.slice(-18).padStart(18, '7');
+    const referenceSuffix = compactSeed.slice(-10).padStart(10, '7');
+
+    return {
+      walletId: wallet.id,
+      amount,
+      referenceNo: `REF-${wallet.asset.code}-${referenceSuffix}`,
+      fromIban: `AE07MOCK${ibanSeed}`,
+    };
+  };
+
+  const scanInboundSignals = async (walletId: string, token: string) => {
+    const response = await fetch(
+      `${import.meta.env.VITE_API_URL}/deposit-transactions/my/inbound-signals/scan`,
+      {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ walletId, mode: 'INTERACTIVE' }),
+      },
+    );
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.message || 'Failed to scan inbound signals');
+    }
+
+    return response.json() as Promise<ScanInboundSignalsResult>;
+  };
+
+  const handleSubmitInboundSignal = async () => {
+    if (!depositWallet) return;
+
+    const amount = signalAmount.trim();
+    if (!amount) {
+      setSignalFeedback({
+        kind: 'error',
+        message: 'Please enter an amount to simulate.',
+      });
+      return;
+    }
+
+    const riskReasonOptions = getRiskReasonOptions(
+      signalRiskLevel,
+      normalizeSimulationAssetType(depositWallet.asset.type),
+    );
+    const normalizedRiskReason =
+      signalRiskLevel === 'LOW' ? '' : signalRiskReason.trim().toUpperCase();
+    if (
+      signalRiskLevel !== 'LOW' &&
+      !riskReasonOptions.some((item) => item.value === normalizedRiskReason)
+    ) {
+      setSignalFeedback({
+        kind: 'error',
+        message: 'Please choose a valid risk reason.',
+      });
+      return;
+    }
+
+    setSimulatingSignal(true);
+    setSignalFeedback(null);
+    setLastSimulationResult(null);
+    try {
+      const token = localStorage.getItem('customer_token');
+      if (!token) {
+        throw new Error('Customer session expired. Please log in again.');
+      }
+      const payload: CreateInboundTransferSignalPayload = {
+        ...buildMockInboundSignalPayload(depositWallet, amount),
+        simulationRiskLevel: signalRiskLevel,
+        simulationRiskReason:
+          signalRiskLevel === 'LOW'
+            ? undefined
+            : (normalizedRiskReason as SimulationRiskReason),
+      };
+      const createResponse = await fetch(
+        `${import.meta.env.VITE_API_URL}/deposit-transactions/my/inbound-signals`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(payload),
+        },
+      );
+
+      if (!createResponse.ok) {
+        const error = await createResponse.json();
+        throw new Error(error.message || 'Failed to submit inbound signal');
+      }
+
+      const createdSignal =
+        (await createResponse.json()) as CreatedInboundSignalResponse;
+      const result = await scanInboundSignals(depositWallet.id, token || '');
+      await fetchHistory();
+      const firstRecord = result.records?.[0];
+      const fallbackRecord = createdSignal?.payin
+        ? {
+            signalNo: createdSignal.signalNo || null,
+            payinNo: createdSignal.payin.payinNo || null,
+            payinStatus: createdSignal.payin.status || null,
+            depositNo: createdSignal.payin.deposit?.depositNo || null,
+            depositStatus: createdSignal.payin.deposit?.status || null,
+          }
+        : null;
+      const resolvedRecord = firstRecord || fallbackRecord;
+      if (!resolvedRecord) {
+        throw new Error(
+          `Inbound signal ${createdSignal?.signalNo || '-'} was created, but scan did not return a payin record.`,
+        );
+      }
+      setLastSimulationResult({
+        signalNo:
+          createdSignal?.signalNo || resolvedRecord.signalNo || null,
+        payinNo: resolvedRecord.payinNo || null,
+        payinStatus: resolvedRecord.payinStatus || 'DETECTED',
+        depositNo: resolvedRecord.depositNo || null,
+        depositStatus: resolvedRecord.depositStatus || 'PAYIN_PENDING',
+        assetCode: depositWallet.asset.code,
+        assetType: normalizeSimulationAssetType(depositWallet.asset.type),
+      });
+      setSignalAmount('');
+      applySignalRiskLevel(
+        'LOW',
+        normalizeSimulationAssetType(depositWallet.asset.type),
+      );
+      setShowSimulateModal(false);
+    } catch (error) {
+      console.error('Failed to simulate inbound signal', error);
+      setSignalFeedback({
+        kind: 'error',
+        message:
+          error instanceof Error
+            ? error.message
+            : 'Failed to simulate inbound signal',
+      });
+    } finally {
+      setSimulatingSignal(false);
+    }
+  };
+
+  const openHistoryWithReset = () => {
+    setHistoryStatus('');
+    setHistoryAssetId('');
+    setPage(1);
+    setActiveTab('history');
+  };
+
+  const renderSimulationFeedback = (feedback: SimulationFeedback) => {
+    const tone =
+      feedback.kind === 'error'
+        ? 'border-red-100 dark:border-red-900/40 bg-red-50 dark:bg-red-900/20 text-red-800 dark:text-red-200'
+        : 'border-emerald-100 dark:border-emerald-900/40 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-800 dark:text-emerald-200';
+
+    return (
+      <div className={`rounded-xl border px-4 py-3 text-sm ${tone}`}>
+        {feedback.message}
+      </div>
+    );
+  };
+
+  const renderSimulationResultSummary = (summary: SimulationResultSummary) => {
+    const nextStepText =
+      summary.assetType === 'FIAT'
+        ? '下一步去 Admin 的 Payin Detail，用 Payin rail 点 FIAT_CONFIRMED；之后系统会进入 Final review / Alert / Case。'
+        : '下一步去 Admin 的 Payin Detail，用 Payin rail 继续推进；随后再走 KYT / Travel Rule / Alert / Case。';
+
+    return (
+      <div className="rounded-2xl border border-emerald-100 dark:border-emerald-900/40 bg-emerald-50 dark:bg-emerald-900/20 p-4 space-y-4">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h4 className="text-sm font-bold text-emerald-900 dark:text-emerald-100">
+              Simulation Created
+            </h4>
+            <p className="mt-1 text-sm text-emerald-800 dark:text-emerald-200">
+              {summary.assetCode} 模拟充值已创建成功，下一步请去 Admin 继续推进。
+            </p>
+          </div>
+          <button
+            onClick={openHistoryWithReset}
+            className="shrink-0 rounded-lg border border-emerald-200 dark:border-emerald-800 px-3 py-1.5 text-xs font-semibold text-emerald-800 dark:text-emerald-200 hover:bg-emerald-100/70 dark:hover:bg-emerald-800/30 transition-colors"
+          >
+            查看历史
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="rounded-xl bg-white/70 dark:bg-slate-900/40 border border-emerald-100 dark:border-emerald-900/30 p-3">
+            <div className="text-[11px] uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
+              Signal
+            </div>
+            <div className="mt-1 font-mono text-sm text-slate-900 dark:text-white">
+              {summary.signalNo || '-'}
+            </div>
+          </div>
+          <div className="rounded-xl bg-white/70 dark:bg-slate-900/40 border border-emerald-100 dark:border-emerald-900/30 p-3">
+            <div className="text-[11px] uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
+              Payin
+            </div>
+            <div className="mt-1 font-mono text-sm text-slate-900 dark:text-white">
+              {summary.payinNo || '-'}
+            </div>
+            <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+              Status: {summary.payinStatus || '-'}
+            </div>
+          </div>
+          <div className="rounded-xl bg-white/70 dark:bg-slate-900/40 border border-emerald-100 dark:border-emerald-900/30 p-3 sm:col-span-2">
+            <div className="text-[11px] uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
+              Deposit
+            </div>
+            <div className="mt-1 font-mono text-sm text-slate-900 dark:text-white">
+              {summary.depositNo || '-'}
+            </div>
+            <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+              Status: {summary.depositStatus || '-'}
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-emerald-100 dark:border-emerald-900/30 bg-white/70 dark:bg-slate-900/40 px-4 py-3 text-sm text-emerald-900 dark:text-emerald-100">
+          {nextStepText}
+        </div>
+      </div>
+    );
+  };
+
+  const renderSimulationDepositFlow = () => (
+    <div className="pt-4 border-t border-slate-200 dark:border-slate-700 space-y-3">
+      <button
+        onClick={() => {
+          setSignalAmount('');
+          setSignalFeedback(null);
+          applySignalRiskLevel(
+            'LOW',
+            normalizeSimulationAssetType(depositWallet?.asset.type),
+          );
+          setShowSimulateModal(true);
+        }}
+        disabled={simulatingSignal}
+        className="px-4 py-2.5 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-xl font-semibold hover:opacity-90 disabled:opacity-60 transition-all flex items-center gap-2"
+      >
+        {simulatingSignal ? <RefreshCw size={16} className="animate-spin" /> : null}
+        {simulatingSignal ? 'Simulating...' : 'Simulate Deposit'}
+      </button>
+
+      {lastSimulationResult ? renderSimulationResultSummary(lastSimulationResult) : null}
+    </div>
+  );
 
   const renderInstructions = () => (
     <div className="bg-blue-50 dark:bg-blue-900/20 rounded-2xl p-6 border border-blue-100 dark:border-blue-900/30 h-full sticky top-6">
@@ -366,9 +815,13 @@ const Deposit = () => {
                           className="bg-transparent text-sm text-slate-700 dark:text-slate-200 focus:outline-none"
                         >
                             <option value="">All Status</option>
-                            <option value="CREATED">Created</option>
+                            <option value="PAYIN_PENDING">Payin Pending</option>
+                            <option value="COMPLIANCE_PENDING">Compliance Pending</option>
+                            <option value="UNDER_REVIEW">Under Review</option>
                             <option value="SUCCESS">Success</option>
-                            <option value="HELD">Held</option>
+                            <option value="FROZEN">Frozen</option>
+                            <option value="REJECTED">Rejected</option>
+                            <option value="FAILED">Failed</option>
                         </select>
                     </div>
                     <div className="flex items-center gap-2 bg-slate-50 dark:bg-slate-900/50 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700">
@@ -577,6 +1030,8 @@ const Deposit = () => {
                                                 </div>
                                             </div>
                                         )}
+
+                                        {showSimulationDepositFlow ? renderSimulationDepositFlow() : null}
                                     </div>
                                 ) : (
                                     <div className="space-y-4">
@@ -608,6 +1063,7 @@ const Deposit = () => {
                                                 </div>
                                             )}
                                         </div>
+                                        {showSimulationDepositFlow ? renderSimulationDepositFlow() : null}
                                     </div>
                                 )}
                                 </div>
@@ -643,6 +1099,123 @@ const Deposit = () => {
                 </div>
             )}
       </div>
+
+      {showSimulationDepositFlow && showSimulateModal && depositWallet && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl w-full max-w-md overflow-hidden border border-slate-200 dark:border-slate-700">
+            <div className="flex justify-between items-center p-5 border-b border-slate-200 dark:border-slate-700">
+              <div>
+                <h3 className="text-lg font-bold text-slate-900 dark:text-white">Simulate Deposit</h3>
+                <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
+                  Enter an amount for the mock {depositWallet.asset.type === 'CRYPTO' ? 'crypto' : 'fiat'} deposit.
+                </p>
+              </div>
+              <button
+                onClick={() => setShowSimulateModal(false)}
+                className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition-colors text-slate-400 dark:text-slate-500"
+                disabled={simulatingSignal}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4">
+              {signalFeedback ? renderSimulationFeedback(signalFeedback) : null}
+
+              <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50 p-4 space-y-2">
+                <div className="flex items-center justify-between gap-3 text-sm">
+                  <span className="text-slate-500 dark:text-slate-400">Asset</span>
+                  <span className="font-semibold text-slate-900 dark:text-white">{depositWallet.asset.code}</span>
+                </div>
+                <div className="flex items-center justify-between gap-3 text-sm">
+                  <span className="text-slate-500 dark:text-slate-400">Wallet</span>
+                  <span className="font-mono text-xs text-slate-900 dark:text-white text-right break-all">
+                    {depositWallet.asset.type === 'CRYPTO' ? depositWallet.address : depositWallet.iban}
+                  </span>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs text-slate-500 dark:text-slate-400 font-medium block mb-1">Amount</label>
+                <input
+                  value={signalAmount}
+                  onChange={(e) => setSignalAmount(e.target.value)}
+                  placeholder="100.00"
+                  autoFocus
+                  className="w-full px-3 py-2 border border-slate-200 dark:border-slate-600 rounded-xl bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
+                />
+              </div>
+
+              <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50 p-4 space-y-4">
+              <div>
+                <label className="text-xs text-slate-500 dark:text-slate-400 font-medium block mb-1">
+                  Risk Level
+                </label>
+                  <select
+                    value={signalRiskLevel}
+                    onChange={(e) =>
+                      applySignalRiskLevel(
+                        e.target.value as SimulationRiskLevel,
+                        normalizeSimulationAssetType(depositWallet.asset.type),
+                      )
+                    }
+                    className="w-full px-3 py-2 border border-slate-200 dark:border-slate-600 rounded-xl bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
+                  >
+                    <option value="LOW">低风险</option>
+                    <option value="MEDIUM">中风险</option>
+                    <option value="HIGH">高风险</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-xs text-slate-500 dark:text-slate-400 font-medium block mb-1">
+                    Risk Reason
+                  </label>
+                  <select
+                    value={signalRiskReason}
+                    onChange={(e) => setSignalRiskReason(e.target.value as SimulationRiskReason | '')}
+                    disabled={signalRiskLevel === 'LOW'}
+                    className="w-full px-3 py-2 border border-slate-200 dark:border-slate-600 rounded-xl bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 disabled:opacity-60"
+                  >
+                    {signalRiskLevel === 'LOW' ? (
+                      <option value="">低风险无需原因</option>
+                    ) : null}
+                    {getRiskReasonOptions(
+                      signalRiskLevel,
+                      normalizeSimulationAssetType(depositWallet.asset.type),
+                    ).map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-5 border-t border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50 flex gap-3">
+              <button
+                onClick={() => {
+                  setSignalAmount('');
+                  setShowSimulateModal(false);
+                }}
+                disabled={simulatingSignal}
+                className="flex-1 py-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 font-semibold rounded-xl hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors disabled:opacity-60"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSubmitInboundSignal}
+                disabled={simulatingSignal}
+                className="flex-1 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-semibold rounded-xl hover:shadow-lg hover:shadow-blue-500/20 transition-all disabled:opacity-60 flex items-center justify-center gap-2"
+              >
+                {simulatingSignal ? <RefreshCw size={16} className="animate-spin" /> : null}
+                {simulatingSignal ? 'Simulating...' : 'Confirm Simulation'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Transaction Details Modal */}
       {selectedTx && (

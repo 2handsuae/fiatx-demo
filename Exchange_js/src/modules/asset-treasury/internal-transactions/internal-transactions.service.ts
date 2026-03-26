@@ -147,6 +147,22 @@ export class InternalTransactionsService {
     };
   }
 
+  private buildDepositWorkflowAuditContext(source: {
+    sourceType?: string | null;
+    sourceId?: string | null;
+    sourceNo?: string | null;
+  }) {
+    if (String(source.sourceType || '').toUpperCase() !== 'DEPOSIT') {
+      return {};
+    }
+
+    return {
+      workflowType: 'DEPOSIT',
+      workflowId: source.sourceId || undefined,
+      workflowNo: source.sourceNo || undefined,
+    };
+  }
+
   private isInternalTxNoUniqueConflict(error: unknown): boolean {
     const maybe = error as {
       code?: string;
@@ -298,6 +314,7 @@ export class InternalTransactionsService {
               sourceId: created.sourceId,
               type: created.type,
             },
+            ...this.buildDepositWorkflowAuditContext(created),
             sourcePlatform: operatorId === 'SYSTEM' ? 'SYSTEM' : 'ADMIN_API',
           },
           {
@@ -711,6 +728,7 @@ export class InternalTransactionsService {
           reason: 'Aggregated from internal funds',
           beforeData: { status: current },
           afterData: { status: next },
+          ...this.buildDepositWorkflowAuditContext(updated),
           sourcePlatform: operatorId === 'SYSTEM' ? 'SYSTEM' : 'ADMIN_API',
         },
         {

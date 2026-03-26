@@ -14,6 +14,10 @@ describe('InternalFundsService', () => {
 
   beforeEach(() => {
     prisma = {
+      auditLogEvent: {
+        findUnique: jest.fn().mockResolvedValue(null),
+        create: jest.fn().mockImplementation(({ data }: any) => Promise.resolve(data)),
+      },
       internalFund: {
         findUnique: jest.fn(),
         findFirst: jest.fn(),
@@ -54,7 +58,12 @@ describe('InternalFundsService', () => {
       statusHistory: '[]',
       sentAt: null,
       confirmedAt: null,
-      internalTransaction: { id: 'itx-1' },
+      internalTransaction: {
+        id: 'itx-1',
+        sourceType: 'DEPOSIT',
+        sourceId: 'dep-1',
+        sourceNo: 'DEP001',
+      },
       asset: { type: 'CRYPTO' },
     });
     prisma.internalFund.update.mockResolvedValue({
@@ -76,11 +85,12 @@ describe('InternalFundsService', () => {
     );
 
     expect(result.status).toBe(InternalFundStatus.SIGNING);
-    expect(prisma.internalFundAuditLog.create).toHaveBeenCalledWith(
+    expect(prisma.auditLogEvent.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
-          oldStatus: InternalFundStatus.CREATED,
-          newStatus: InternalFundStatus.SIGNING,
+          action: 'INTERNAL_FUND_CREATED_TO_SIGNING',
+          statusFrom: InternalFundStatus.CREATED,
+          statusTo: InternalFundStatus.SIGNING,
         }),
       }),
     );
@@ -98,6 +108,15 @@ describe('InternalFundsService', () => {
         newStatus: InternalFundStatus.SIGNING,
       }),
     );
+    expect(prisma.auditLogEvent.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          workflowType: 'DEPOSIT',
+          workflowId: 'dep-1',
+          workflowNo: 'DEP001',
+        }),
+      }),
+    );
   });
 
   it('should reject invalid transition action', async () => {
@@ -107,7 +126,12 @@ describe('InternalFundsService', () => {
       statusHistory: '[]',
       sentAt: null,
       confirmedAt: null,
-      internalTransaction: { id: 'itx-2' },
+      internalTransaction: {
+        id: 'itx-2',
+        sourceType: 'DEPOSIT',
+        sourceId: 'dep-2',
+        sourceNo: 'DEP002',
+      },
       asset: { type: 'CRYPTO' },
     });
 
@@ -131,7 +155,12 @@ describe('InternalFundsService', () => {
       statusHistory: '[]',
       sentAt: new Date(),
       confirmedAt: null,
-      internalTransaction: { id: 'itx-success-1' },
+      internalTransaction: {
+        id: 'itx-success-1',
+        sourceType: 'DEPOSIT',
+        sourceId: 'dep-success-1',
+        sourceNo: 'DEP-S-1',
+      },
       asset: { type: 'CRYPTO' },
     });
     prisma.internalFund.update
@@ -172,11 +201,12 @@ describe('InternalFundsService', () => {
         },
       }),
     );
-    expect(prisma.internalFundAuditLog.create).toHaveBeenCalledWith(
+    expect(prisma.auditLogEvent.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
-          oldStatus: InternalFundStatus.CONFIRMED,
-          newStatus: InternalFundStatus.CLEAR,
+          action: 'INTERNAL_FUND_CONFIRMED_TO_CLEAR',
+          statusFrom: InternalFundStatus.CONFIRMED,
+          statusTo: InternalFundStatus.CLEAR,
         }),
       }),
     );
@@ -185,6 +215,9 @@ describe('InternalFundsService', () => {
   it('should return existing fund when createFromInternalTransaction is idempotent', async () => {
     prisma.internalTransaction.findUnique.mockResolvedValue({
       id: 'itx-3',
+      sourceType: 'DEPOSIT',
+      sourceId: 'dep-3',
+      sourceNo: 'DEP003',
       assetId: 'asset-1',
       amount: new Prisma.Decimal(2),
       netAmount: new Prisma.Decimal(2),

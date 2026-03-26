@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, RefreshCw, Eye, Download, ArrowRight, CheckCircle, ShieldCheck, Lock, Unlock, Copy } from 'lucide-react';
+import { Search, RefreshCw, Eye, Download, CheckCircle, Copy } from 'lucide-react';
 import { copyToClipboard } from '../utils/clipboard';
 import { formatAssetAmount } from '../utils/number-format';
 
@@ -33,11 +33,7 @@ const DepositTransactionList = () => {
   const navigate = useNavigate();
   const [items, setItems] = useState<DepositTransaction[]>([]);
   const [loading, setLoading] = useState(true);
-  const [processingId, setProcessingId] = useState<string | null>(null);
   const [copied] = useState<string | null>(null);
-  const [isRejectModalOpen, setIsRejectModalOpen] = useState(false);
-  const [rejectReason, setRejectReason] = useState('');
-  const [targetId, setTargetId] = useState<string | null>(null);
 
   // Filters
   const [depositNo, setDepositNo] = useState('');
@@ -129,55 +125,6 @@ const DepositTransactionList = () => {
       }
   };
 
-  const handleAction = async (id: string, action: string, reason?: string) => {
-      setProcessingId(id);
-      try {
-          const token = localStorage.getItem('admin_token');
-          const response = await fetch(`${import.meta.env.VITE_API_URL}/deposit-transactions/${id}/status`, {
-              method: 'PATCH',
-              headers: {
-                  'Authorization': `Bearer ${token}`,
-                  'Content-Type': 'application/json'
-              },
-              body: JSON.stringify({ action, reason })
-          });
-          
-          if (response.ok) {
-              fetchItems();
-              setIsRejectModalOpen(false);
-              setRejectReason('');
-              setTargetId(null);
-          } else {
-              const err = await response.json();
-              alert(`Action failed: ${err.message}`);
-          }
-      } catch (error) {
-          console.error('Action failed', error);
-      } finally {
-          setProcessingId(null);
-      }
-  };
-
-  const getAvailableActions = (status: string) => {
-      const actions = [];
-      switch (status) {
-          case 'PAYIN_PENDING':
-              actions.push({ action: 'payin_confirmed', label: 'Compensate Confirm', icon: <ArrowRight size={14} />, style: 'bg-blue-600 hover:bg-blue-700 text-white' });
-              actions.push({ action: 'fail', label: 'Fail', icon: <RefreshCw size={14} />, style: 'bg-orange-600 hover:bg-orange-700 text-white' });
-              break;
-          case 'COMPLIANCE_PENDING':
-              actions.push({ action: 'success', label: 'Pass', icon: <CheckCircle size={14} />, style: 'bg-green-600 hover:bg-green-700 text-white' });
-              actions.push({ action: 'flag', label: 'Under Review', icon: <Lock size={14} />, style: 'bg-yellow-600 hover:bg-yellow-700 text-white' });
-              actions.push({ action: 'reject', label: 'Reject', icon: <ShieldCheck size={14} />, style: 'bg-red-600 hover:bg-red-700 text-white' });
-              break;
-          case 'UNDER_REVIEW':
-              actions.push({ action: 'success', label: 'Release', icon: <Unlock size={14} />, style: 'bg-green-600 hover:bg-green-700 text-white' });
-              actions.push({ action: 'reject', label: 'Reject', icon: <ShieldCheck size={14} />, style: 'bg-red-600 hover:bg-red-700 text-white' });
-              break;
-      }
-      return actions;
-  };
-
   const renderStatusBadge = (status: string) => {
     const colors: Record<string, string> = {
       PAYIN_PENDING: 'bg-blue-100 text-blue-800',
@@ -199,7 +146,7 @@ const DepositTransactionList = () => {
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Deposit Transactions</h1>
-          <p className="text-sm text-gray-500 mt-1">Manage deposit requests, status, and compensation-only actions</p>
+          <p className="text-sm text-gray-500 mt-1">Read-only deposit list for search, export, and detail inspection</p>
         </div>
         <div className="flex gap-3">
           <button onClick={handleExport} className="flex items-center gap-2 px-3 py-2 text-gray-600 hover:text-gray-800 bg-white border border-gray-200 rounded-lg transition-colors">
@@ -270,7 +217,7 @@ const DepositTransactionList = () => {
                 <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Status</th>
                 <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Source</th>
                 <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Time</th>
-                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider text-right">Actions</th>
+                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider text-right">View</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-admin-border">
@@ -400,27 +347,6 @@ const DepositTransactionList = () => {
                     </td>
                     <td className="px-6 py-4 text-right">
                       <div className="flex justify-end gap-2 items-center">
-                          {getAvailableActions(item.status).map(action => (
-                              <button
-                                  key={action.action}
-                                  onClick={() => {
-                                      if (action.action === 'reject') {
-                                          setTargetId(item.id);
-                                          setIsRejectModalOpen(true);
-                                      } else {
-                                          handleAction(item.id, action.action);
-                                      }
-                                  }}
-                                  disabled={processingId === item.id}
-                                  className={`flex items-center gap-1 px-2 py-1 text-xs font-medium rounded shadow-sm transition-all ${action.style} ${processingId === item.id ? 'opacity-50 cursor-not-allowed' : ''}`}
-                              >
-                                  {action.icon}
-                                  {action.label}
-                              </button>
-                          ))}
-                          
-                          <div className="w-px h-4 bg-gray-200 mx-1"></div>
-                          
                           <button 
                             onClick={() => navigate(`/exchange/deposit-transactions/${item.id}`)}
                             className="p-1.5 text-blue-600 rounded hover:bg-blue-50 transition-colors" 
@@ -437,44 +363,6 @@ const DepositTransactionList = () => {
           </table>
         </div>
       </div>
-
-      {/* Reject Modal */}
-      {isRejectModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6">
-            <h3 className="text-lg font-bold text-gray-900 mb-2">Reject Transaction</h3>
-            <p className="text-sm text-gray-500 mb-4">
-              Please provide a reason for rejecting this transaction. This will be recorded in the audit logs.
-            </p>
-            <textarea
-              className="w-full border border-gray-200 rounded-lg p-3 text-sm focus:outline-none focus:ring-2 focus:ring-red-500/20 focus:border-red-500 transition-all mb-4"
-              rows={4}
-              placeholder="Enter rejection reason..."
-              value={rejectReason}
-              onChange={(e) => setRejectReason(e.target.value)}
-            />
-            <div className="flex justify-end gap-3">
-              <button
-                onClick={() => {
-                  setIsRejectModalOpen(false);
-                  setRejectReason('');
-                  setTargetId(null);
-                }}
-                className="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => targetId && handleAction(targetId, 'reject', rejectReason)}
-                disabled={!rejectReason.trim()}
-                className="px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg shadow-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                Confirm Reject
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

@@ -16,6 +16,8 @@ describe('TransactionComplianceAdminController', () => {
     mockBackfill: jest.fn(),
     listKytCases: jest.fn(),
     listTravelRuleCases: jest.fn(),
+    getKytCaseDetail: jest.fn(),
+    getTravelRuleCaseDetail: jest.fn(),
   };
 
   let controller: TransactionComplianceAdminController;
@@ -152,5 +154,53 @@ describe('TransactionComplianceAdminController', () => {
       sourceType: TxSourceType.WITHDRAW,
     });
     expect(result.total).toBe(0);
+  });
+
+  it('should return KYT response detail for admin', async () => {
+    serviceMock.getKytCaseDetail.mockResolvedValue({
+      id: 'kyt-1',
+      caseNo: 'KYT0001',
+    });
+
+    const result = await controller.getKytCaseDetail(
+      { user: { type: 'ADMIN' } },
+      'kyt-1',
+      'true',
+      'true',
+      '10',
+      '5',
+    );
+
+    expect(serviceMock.getKytCaseDetail).toHaveBeenCalledWith('kyt-1', {
+      includeReports: true,
+      includePayload: true,
+      limit: 10,
+      offset: 5,
+    });
+    expect(result.caseNo).toBe('KYT0001');
+  });
+
+  it('should return Travel Rule response detail for admin', async () => {
+    serviceMock.getTravelRuleCaseDetail.mockResolvedValue({
+      id: 'trv-1',
+      caseNo: 'TRV0001',
+    });
+
+    const result = await controller.getTravelRuleCaseDetail(
+      { user: { type: 'ADMIN' } },
+      'trv-1',
+      'true',
+      'false',
+      '20',
+      '0',
+    );
+
+    expect(serviceMock.getTravelRuleCaseDetail).toHaveBeenCalledWith('trv-1', {
+      includeReports: true,
+      includePayload: false,
+      limit: 20,
+      offset: 0,
+    });
+    expect(result.caseNo).toBe('TRV0001');
   });
 });

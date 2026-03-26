@@ -80,26 +80,10 @@ describe('InternalCollectionWorkflowOrchestrator', () => {
     expect(prisma.depositTransaction.findMany).not.toHaveBeenCalled();
   });
 
-  it('should retry on insufficient balance window and then create collection', async () => {
+  it('should not auto-create collection when deposit becomes SUCCESS', async () => {
     const reconcileSpy = jest
       .spyOn(orchestrator as any, 'reconcileMissingCollections')
-      .mockResolvedValueOnce({
-        scanned: 1,
-        created: 0,
-        idempotent: 0,
-        skipped: 0,
-        failed: 1,
-        items: [
-          {
-            depositId: 'dep-retry',
-            depositNo: 'DEP-RETRY',
-            action: 'FAILED',
-            reason:
-              'Insufficient available balance for wallet wallet-1 asset asset-1',
-          },
-        ],
-      })
-      .mockResolvedValueOnce({
+      .mockResolvedValue({
         scanned: 1,
         created: 1,
         idempotent: 0,
@@ -115,9 +99,6 @@ describe('InternalCollectionWorkflowOrchestrator', () => {
           },
         ],
       });
-    const sleepSpy = jest
-      .spyOn(orchestrator as any, 'sleep')
-      .mockResolvedValue(undefined);
 
     const result = await orchestrator.onDepositStatusChanged({
       depositId: 'dep-retry',
@@ -125,12 +106,14 @@ describe('InternalCollectionWorkflowOrchestrator', () => {
       newStatus: DepositTransactionStatus.SUCCESS,
     } as any);
 
-    expect(result).toEqual({
-      internalTransactionId: 'itx-retry',
-      internalFundId: 'ifd-retry',
-    });
-    expect(reconcileSpy).toHaveBeenCalledTimes(2);
-    expect(sleepSpy).toHaveBeenCalledTimes(1);
+    expect(result).toBeNull();
+    expect(reconcileSpy).not.toHaveBeenCalled();
+    expect(
+      internalTransactionsService.createFromDepositSuccess,
+    ).not.toHaveBeenCalled();
+    expect(
+      internalFundsService.createFromInternalTransaction,
+    ).not.toHaveBeenCalled();
   });
 
   it('should skip non-CRYPTO deposit in reconcile', async () => {
@@ -178,7 +161,7 @@ describe('InternalCollectionWorkflowOrchestrator', () => {
     ).not.toHaveBeenCalled();
   });
 
-  it('should create internal transaction and internal fund for crypto success deposit', async () => {
+  it('should create internal transaction and internal fund for crypto success deposit when reconciled explicitly', async () => {
     prisma.depositTransaction.findMany.mockResolvedValue([
       {
         id: 'dep-crypto',
@@ -217,12 +200,11 @@ describe('InternalCollectionWorkflowOrchestrator', () => {
       id: 'ifd-1',
     });
 
-    const result = await orchestrator.onDepositStatusChanged({
-      id: 'dep-crypto',
+    const result = await orchestrator.reconcileMissingCollections({
       depositId: 'dep-crypto',
-      oldStatus: DepositTransactionStatus.COMPLIANCE_PENDING,
-      newStatus: DepositTransactionStatus.SUCCESS,
-    } as any);
+      onlyMissing: false,
+      dryRun: false,
+    });
 
     expect(prisma.wallet.findFirst).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -252,10 +234,21 @@ describe('InternalCollectionWorkflowOrchestrator', () => {
       'SYSTEM',
       mockTxClient,
     );
-    expect(result).toEqual({
-      internalTransactionId: 'itx-1',
-      internalFundId: 'ifd-1',
-    });
+    expect(result).toEqual(
+      expect.objectContaining({
+        scanned: 1,
+        created: 1,
+        failed: 0,
+        items: [
+          expect.objectContaining({
+            depositId: 'dep-crypto',
+            action: 'CREATED',
+            internalTransactionId: 'itx-1',
+            internalFundId: 'ifd-1',
+          }),
+        ],
+      }),
+    );
   });
 
   it('should return idempotent when onlyMissing is true and internal transaction exists', async () => {

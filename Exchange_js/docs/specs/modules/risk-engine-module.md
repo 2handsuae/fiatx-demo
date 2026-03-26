@@ -1,6 +1,6 @@
 Status: active
 Owner: project-owner-and-agents
-Last Updated: 2026-03-22
+Last Updated: 2026-03-24
 Applies To: `Exchange_js`
 Supersedes: none
 Depends On: `docs/specs/entities/risk-decision-record-entity.md`
@@ -21,6 +21,7 @@ Source of Truth Level: specs-module
   - `GET /admin/risk/decision-records`
   - `GET /admin/risk/decision-records/:id`
 - Internal kernel services:
+  - `RiskEngineService`
   - `RiskDecisionRecordsService`
   - `RiskDecisionOrchestratorService`
 
@@ -31,6 +32,17 @@ Source of Truth Level: specs-module
   - orchestration outcome
   - recommendation projection
 - Workflow-bound trace and owner context must be propagated into downstream audit and orchestration.
+
+## Current Transaction Contexts
+- Current transaction-side contexts include:
+  - `TX_DEPOSIT_KYT_MAIN`
+  - `TX_DEPOSIT_TRAVEL_RULE`
+- Deposit-side transaction evaluation is fed by transaction compliance aggregate and derived screening status.
+- Decision record output is the explanation root before:
+  - alert upsert
+  - case escalation
+  - workflow-bound deposit callback
+- Risk engine remains upstream of those consumers and does not directly own deposit status writes.
 
 ## Historical Aliases / Retired Names
 - Current physical model name `WorkflowDecisionRecord` is historical implementation naming.

@@ -19,7 +19,8 @@ import { RequirePermissions } from '../../identity/access-control/require-permis
 import { ComplianceAlertsService } from './compliance-alerts.service';
 import {
   ComplianceAlertQueryDto,
-  UpdateComplianceAlertActionDto,
+  ResolveComplianceAlertDto,
+  UpdateComplianceAlertWorkItemDto,
 } from './dto/compliance-alert.dto';
 
 @ApiTags('Admin - Compliance Alerts')
@@ -72,11 +73,21 @@ export class ComplianceAlertsAdminController {
 
   @Patch(':id/action')
   @RequirePermissions(buildPermissionCode('PATCH', '/admin/compliance/alerts/:id/action'))
-  @ApiOperation({ summary: 'Apply action to compliance alert' })
+  @ApiOperation({
+    summary:
+      'Assign or reassign compliance alert work item.',
+  })
   applyAction(
     @Req() req: any,
     @Param('id') id: string,
-    @Body(new ValidationPipe({ transform: true })) body: UpdateComplianceAlertActionDto,
+    @Body(
+      new ValidationPipe({
+        transform: true,
+        whitelist: true,
+        forbidNonWhitelisted: true,
+      }),
+    )
+    body: UpdateComplianceAlertWorkItemDto,
   ) {
     const actor = this.ensureAdmin(req);
     const payload =
@@ -88,5 +99,17 @@ export class ComplianceAlertsAdminController {
         : body;
 
     return this.complianceAlertsService.applyAction(id, payload, actor);
+  }
+
+  @Post(':id/resolve')
+  @RequirePermissions(buildPermissionCode('POST', '/admin/compliance/alerts/:id/resolve'))
+  @ApiOperation({ summary: 'Resolve workflow-bound alert via canonical resolution path' })
+  resolve(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Body(new ValidationPipe({ transform: true })) body: ResolveComplianceAlertDto,
+  ) {
+    const actor = this.ensureAdmin(req);
+    return this.complianceAlertsService.resolveAlert(id, body, actor);
   }
 }

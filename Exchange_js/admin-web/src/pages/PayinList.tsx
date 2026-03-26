@@ -36,8 +36,6 @@ const PayinList = () => {
   const [payins, setPayins] = useState<PayinItem[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const [processingId, setProcessingId] = useState<string | null>(null);
-
   // Filters
   const [statusFilter, setStatusFilter] = useState('');
   const [txHashSearch, setTxHashSearch] = useState('');
@@ -75,70 +73,6 @@ const PayinList = () => {
     fetchPayins();
   }, [statusFilter]);
 
-  const handleAction = async (id: string, action: string) => {
-    // Determine button style for confirm message if needed
-    const isDangerous = ['drop', 'flag', 'hold'].includes(action);
-    if (isDangerous) {
-        if (!window.confirm(`Are you sure you want to ${action.toUpperCase()} this payin?`)) return;
-    }
-
-    setProcessingId(id);
-    try {
-        const token = localStorage.getItem('admin_token');
-        const response = await fetch(`${import.meta.env.VITE_API_URL}/treasury/payins/${id}/status`, {
-            method: 'PATCH',
-            headers: {
-                'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ action })
-        });
-
-        if (response.ok) {
-            fetchPayins();
-        } else {
-            const err = await response.json();
-            alert(`Action failed: ${err.message || 'Unknown error'}`);
-        }
-    } catch (error) {
-        console.error('Action failed', error);
-        alert('Action failed due to network error');
-    } finally {
-        setProcessingId(null);
-    }
-  };
-
-  // Define action configurations
-  const actionConfig: Record<string, { label: string, style: string }> = {
-      confirm: { label: 'Confirm', style: 'bg-green-600 text-white hover:bg-green-700' },
-      fail: { label: 'Fail', style: 'bg-red-600 text-white hover:bg-red-700' },
-      clear: { label: 'Clear', style: 'bg-green-600 text-white hover:bg-green-700' },
-      block: { label: 'Seen in Mempool', style: 'bg-blue-600 text-white hover:bg-blue-700' }
-  };
-
-  const getAvailableActions = (payin: PayinItem) => {
-      const { status, type } = payin;
-      const actions: string[] = [];
-
-      if (type === 'fiat') {
-          switch (status) {
-              case 'DETECTED': actions.push('confirm', 'fail'); break;
-              case 'CONFIRMED': actions.push('clear'); break;
-          }
-      } else {
-          switch (status) {
-              case 'DETECTED': actions.push('block'); break;
-              case 'CONFIRMING': actions.push('confirm', 'fail'); break;
-              case 'CONFIRMED': actions.push('clear'); break;
-          }
-      }
-      
-      return actions.map(action => ({
-          action,
-          ...actionConfig[action]
-      }));
-  };
-
   const renderStatusBadge = (status: string) => {
     const colors: Record<string, string> = {
       DETECTED: 'bg-blue-100 text-blue-800',
@@ -158,8 +92,8 @@ const PayinList = () => {
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Payin Management</h1>
-          <p className="text-sm text-gray-500 mt-1">Monitor and manage incoming funds</p>
+          <h1 className="text-2xl font-bold text-gray-900">Payin Monitor</h1>
+          <p className="text-sm text-gray-500 mt-1">Read-only monitoring for inbound payin records</p>
         </div>
         <div className="flex gap-3">
           <button onClick={fetchPayins} className="p-2 text-gray-500 hover:text-brand-primary transition-colors border border-gray-200 rounded-lg bg-white">
@@ -212,13 +146,13 @@ const PayinList = () => {
                 <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Asset / Amount</th>
                 <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Status</th>
                 <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Source / Hash</th>
-                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider text-right">Actions</th>
+                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider text-right">View</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-admin-border">
               {loading && payins.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-6 py-12 text-center text-gray-500">
+                  <td colSpan={7} className="px-6 py-12 text-center text-gray-500">
                     <div className="flex flex-col items-center justify-center">
                       <RefreshCw className="animate-spin mb-2 text-brand-primary" size={24} />
                       Loading payins...
@@ -227,7 +161,7 @@ const PayinList = () => {
                 </tr>
               ) : payins.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-6 py-12 text-center text-gray-500">
+                  <td colSpan={7} className="px-6 py-12 text-center text-gray-500">
                     No payins found
                   </td>
                 </tr>
@@ -305,21 +239,7 @@ const PayinList = () => {
                         </div>
                     </td>
                     <td className="px-6 py-4 text-right">
-                      <div className="flex justify-end gap-2 items-center">
-                        {/* Action Buttons */}
-                        {getAvailableActions(payin).map((btn) => (
-                            <button
-                                key={btn.action}
-                                onClick={() => handleAction(payin.id, btn.action)}
-                                disabled={processingId === payin.id}
-                                className={`px-2 py-1 text-xs font-medium rounded transition-colors shadow-sm ${btn.style} ${processingId === payin.id ? 'opacity-50 cursor-not-allowed' : ''}`}
-                            >
-                                {processingId === payin.id && btn.action === 'bank_post' ? '...' : btn.label}
-                            </button>
-                        ))}
-                        
-                        <div className="w-px h-4 bg-gray-200 mx-1"></div>
-
+                      <div className="flex justify-end items-center">
                         <button 
                           onClick={() => navigate(`/dashboard/treasury/payins/${payin.id}`)}
                           className="p-1.5 text-blue-600 rounded hover:bg-blue-50 transition-colors" 

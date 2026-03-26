@@ -426,6 +426,44 @@
 
 ### Wave 5：充值链路（PayIn -> Deposit）
 
+- 详细专项规划见：`docs/roadmap/wave-5-payin-deposit-phase-plan.md`
+- cleanup / closeout closure record 见：`docs/cleanup/wave-5-cleanup-master-plan.md`
+
+**当前状态**
+
+- `Wave 5` 的 runtime 主链已按 `Phase 0-4` 实现闭环。
+- `Wave 5` 现在已经拥有 durable references across constraints / specs / acceptance。
+- `Wave 5` cleanup / closeout 已完成；`4` 个 closeout delivery units 全部完成：
+  - `Runtime Core`
+  - `Simulation Surface`
+  - `Alert / Transaction Case Integration`
+  - `Docs / Index / Cleanup Meta`
+
+**当前 durable references**
+
+- constraints:
+  - `docs/constraints/customer-transaction-flow-constraints.md`
+  - `docs/constraints/internal-transaction-flow-constraints.md`
+- workflow:
+  - `docs/specs/workflows/payin-deposit-canonical-workflow.md`
+- entity:
+  - `docs/specs/entities/inbound-transfer-signal-entity.md`
+  - `docs/specs/entities/payin-entity.md`
+  - `docs/specs/entities/deposit-transaction-entity.md`
+  - `docs/specs/entities/risk-decision-record-entity.md`
+  - `docs/specs/entities/audit-evidence-package-entity.md`
+- module:
+  - `docs/specs/modules/risk-engine-module.md`
+  - `docs/specs/modules/compliance-center-module.md`
+  - `docs/specs/modules/accounting-ledger-module.md`
+- acceptance:
+  - `docs/acceptance/wave-5-payin-deposit-final-acceptance-checklist.md`
+  - `docs/acceptance/wave-5-deposit-accounting-blocked-runbook.md`
+  - `docs/acceptance/wave-5-deposit-evidence-export-runbook.md`
+- cleanup:
+  - `docs/cleanup/wave-5-cleanup-master-plan.md` only as closeout closure record
+  - 其中已记录 `4` 组 closeout delivery units、验证顺序与完成结论
+
 **目标**
 
 完成客户“资金进入系统”的第一条真实业务主链，包括 payin ingestion、deposit 状态机、充值合规接入与最小连接器。

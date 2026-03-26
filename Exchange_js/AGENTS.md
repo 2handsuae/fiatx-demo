@@ -25,12 +25,36 @@ Before any code change in `Exchange_js`, read:
 ## Planning Reference
 - For roadmap, milestone, wave-planning, or scope-sequencing requests, also read:
   - `docs/roadmap/project-version-plan.md`
+  - `docs/roadmap/wave-5-payin-deposit-phase-plan.md`
+  - `docs/cleanup/wave-5-cleanup-master-plan.md`
   - `docs/roadmap/wave-4-ledger-asset-structure-phase-plan.md`
   - `docs/roadmap/wave1-foundation-migration-from-exchange-java.md`
 - This planning reference does not override `docs/constraints/**`; constraints remain the behavioral source of truth.
 - `docs/roadmap/project-version-plan.md` is the current planning reference for wave scope and sequencing.
+- `docs/roadmap/wave-5-payin-deposit-phase-plan.md` is the current detailed planning reference for Wave 5 payin/deposit workflow closure, tx compliance bridge, transaction risk/case sequencing, and evidence-chain delivery scope.
+- `docs/cleanup/wave-5-cleanup-master-plan.md` is the current cleanup / closeout reference for Wave 5 resolved truth-hardening milestones and the remaining delivery hygiene backlog.
+- `Wave 5` runtime truth is no longer roadmap-only; use the runtime baseline below for durable semantics.
 - `docs/roadmap/wave-4-ledger-asset-structure-phase-plan.md` is the current planning reference for Wave 4 ledger, wallet/account, pricing, and config-release sequencing.
 - `docs/roadmap/wave1-foundation-migration-from-exchange-java.md` is a historical migration-reference document and MUST NOT be treated as the current implementation truth.
+
+### Wave 5 Runtime Baseline
+- When work touches `PayIn -> Deposit`, transaction compliance, transaction risk/case callback, deposit accounting, or deposit evidence export, also read:
+1. `docs/constraints/customer-transaction-flow-constraints.md`
+2. `docs/constraints/internal-transaction-flow-constraints.md`
+3. `docs/specs/workflows/payin-deposit-canonical-workflow.md`
+4. `docs/specs/entities/inbound-transfer-signal-entity.md`
+5. `docs/specs/entities/payin-entity.md`
+6. `docs/specs/entities/deposit-transaction-entity.md`
+7. `docs/specs/entities/risk-decision-record-entity.md`
+8. `docs/specs/entities/audit-evidence-package-entity.md`
+9. `docs/specs/modules/risk-engine-module.md`
+10. `docs/specs/modules/compliance-center-module.md`
+11. `docs/specs/modules/accounting-ledger-module.md`
+12. `docs/acceptance/wave-5-payin-deposit-final-acceptance-checklist.md`
+13. `docs/acceptance/wave-5-deposit-accounting-blocked-runbook.md`
+14. `docs/acceptance/wave-5-deposit-evidence-export-runbook.md`
+- `docs/roadmap/wave-5-payin-deposit-phase-plan.md` remains historical phase planning context.
+- `docs/cleanup/wave-5-cleanup-master-plan.md` remains closeout / delivery hygiene context.
 
 ## Documentation Governance
 - Documentation rules are mandatory for every future thread in `Exchange_js`.
@@ -64,9 +88,9 @@ Before any code change in `Exchange_js`, read:
 1. `docs/constraints/**`
 2. `docs/specs/**`
 3. `docs/adr/**`
-4. `docs/cleanup/**`
+4. `docs/acceptance/**`
 5. `docs/roadmap/**`
-6. `docs/acceptance/**`
+6. `docs/cleanup/**`
 - `roadmap` and `phase plan` documents define scope and sequencing only. They MUST NOT silently override active constraints or active specs.
 - Historical migration or phase documents MUST be explicitly marked when they are no longer current implementation truth.
 

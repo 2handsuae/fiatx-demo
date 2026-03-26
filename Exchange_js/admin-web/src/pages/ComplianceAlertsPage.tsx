@@ -12,6 +12,14 @@ import { useAdminSession } from '../contexts/AdminSessionContext';
 
 type AlertSeverity = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
 type AlertStatus = 'OPEN' | 'ASSIGNED' | 'ESCALATED' | 'CLOSED';
+type AlertSourceType = '' | 'ONBOARDING_JOURNEY' | 'PERIODIC_REVIEW_CYCLE' | 'DEPOSIT';
+type AlertStage =
+  | ''
+  | 'REVIEW_CDD'
+  | 'REVIEW_EDD'
+  | 'REVIEW_KYT'
+  | 'REVIEW_TRAVEL_RULE'
+  | 'REVIEW_DEPOSIT_FINAL';
 
 interface AlertItem {
   id: string;
@@ -49,7 +57,8 @@ interface SimulateAlertsResponse {
 interface FilterState {
   status: '' | AlertStatus;
   severity: '' | AlertSeverity;
-  stage: '' | 'REVIEW_CDD' | 'REVIEW_EDD';
+  sourceType: AlertSourceType;
+  stage: AlertStage;
   ruleCode: string;
   sourceId: string;
   customerNo: string;
@@ -63,6 +72,7 @@ const PAGE_SIZE = 20;
 const DEFAULT_FILTERS: FilterState = {
   status: '',
   severity: '',
+  sourceType: '',
   stage: '',
   ruleCode: '',
   sourceId: '',
@@ -122,6 +132,7 @@ const ComplianceAlertsPage = () => {
     () =>
       !!filters.status ||
       !!filters.severity ||
+      !!filters.sourceType ||
       !!filters.stage ||
       !!filters.ruleCode.trim() ||
       !!filters.sourceId.trim() ||
@@ -144,6 +155,7 @@ const ComplianceAlertsPage = () => {
       params.set('take', String(PAGE_SIZE));
       if (activeFilters.status) params.set('status', activeFilters.status);
       if (activeFilters.severity) params.set('severity', activeFilters.severity);
+      if (activeFilters.sourceType) params.set('sourceType', activeFilters.sourceType);
       if (activeFilters.stage) params.set('stage', activeFilters.stage);
       if (activeFilters.ruleCode.trim()) params.set('ruleCode', activeFilters.ruleCode.trim());
       if (activeFilters.sourceId.trim()) params.set('sourceId', activeFilters.sourceId.trim());
@@ -216,7 +228,7 @@ const ComplianceAlertsPage = () => {
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Compliance Center - Alerts</h1>
           <p className="text-sm text-gray-500 mt-1">
-            Triage onboarding review hits through a canonical workflow / stage / rule model.
+            Triage workflow-bound compliance alerts across onboarding, periodic review, and transaction flows.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -253,12 +265,12 @@ const ComplianceAlertsPage = () => {
 
       <div className="px-4 py-3 border border-amber-200 bg-amber-50 rounded-lg text-sm text-amber-900">
         {canWriteAlerts
-          ? 'Alert actions and workflow actions now live inside the detail page. Use the list for triage queue scanning, then open the alert for full evidence and action handling.'
-          : 'You currently have read-only triage access. Use the list for queue scanning, then open the alert detail page for full context.'}
+          ? 'Alert actions and workflow actions now live inside the detail page. Use this queue to triage onboarding, periodic review, and transaction alerts, then open the alert for full evidence and action handling.'
+          : 'You currently have read-only triage access. Use this queue to scan onboarding, periodic review, and transaction alerts, then open the alert detail page for full context.'}
       </div>
 
       <div className="bg-white rounded-xl shadow-sm border border-admin-border p-4 space-y-3">
-        <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-3">
+        <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-3">
           <input
             className="border border-admin-border rounded px-3 py-2 text-sm"
             placeholder="Rule code"
@@ -289,12 +301,27 @@ const ComplianceAlertsPage = () => {
           </select>
           <select
             className="border border-admin-border rounded px-3 py-2 text-sm"
+            value={filters.sourceType}
+            onChange={(e) =>
+              setFilters((prev) => ({ ...prev, sourceType: e.target.value as FilterState['sourceType'] }))
+            }
+          >
+            <option value="">All source types</option>
+            <option value="ONBOARDING_JOURNEY">ONBOARDING_JOURNEY</option>
+            <option value="PERIODIC_REVIEW_CYCLE">PERIODIC_REVIEW_CYCLE</option>
+            <option value="DEPOSIT">DEPOSIT</option>
+          </select>
+          <select
+            className="border border-admin-border rounded px-3 py-2 text-sm"
             value={filters.stage}
             onChange={(e) => setFilters((prev) => ({ ...prev, stage: e.target.value as FilterState['stage'] }))}
           >
             <option value="">All stage</option>
             <option value="REVIEW_CDD">REVIEW_CDD</option>
             <option value="REVIEW_EDD">REVIEW_EDD</option>
+            <option value="REVIEW_KYT">REVIEW_KYT</option>
+            <option value="REVIEW_TRAVEL_RULE">REVIEW_TRAVEL_RULE</option>
+            <option value="REVIEW_DEPOSIT_FINAL">REVIEW_DEPOSIT_FINAL</option>
           </select>
           <input
             className="border border-admin-border rounded px-3 py-2 text-sm"
@@ -386,7 +413,7 @@ const ComplianceAlertsPage = () => {
                       <div className="text-xs text-gray-500">{item.title}</div>
                     </td>
                     <td className="px-4 py-3">
-                      <div className="text-gray-900">{item.workflow || 'ONBOARDING'}</div>
+                      <div className="text-gray-900">{item.workflow || '-'}</div>
                       <div className="text-xs text-gray-500">{item.stage || '-'}</div>
                       <div className="text-xs text-gray-500">{item.rule || item.ruleCode}</div>
                     </td>

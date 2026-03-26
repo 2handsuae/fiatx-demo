@@ -6,14 +6,15 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import {
+  MockPayinEventDto,
+  PayinMockEvent,
   PayinQueryDto,
+  PayinSimulationMode,
   PayinStatus,
   PayinAction,
   PayinType,
-  SimulatePayinDto,
 } from './dto/payin.dto';
 import { Prisma } from '@prisma/client';
-import * as crypto from 'crypto';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import {
   PayinStatusChangedEvent,
@@ -29,6 +30,24 @@ import {
 } from '../../risk-engine/audit-logs/constants/audit-actions.constant';
 import { AuditTriggerType } from '../../risk-engine/audit-logs/dto/audit-log.dto';
 
+export interface CreateDetectedPayinInput {
+  assetId: string;
+  toWalletId: string;
+  type: PayinType;
+  amount: string;
+  txHash?: string;
+  fromAddress?: string;
+  fromIban?: string;
+  referenceNo?: string;
+  providerTxnId?: string;
+  receivedAt?: Date;
+  reason?: string;
+}
+
+interface UpdatePayinStatusOptions {
+  simulationMode?: PayinSimulationMode | null;
+}
+
 @Injectable()
 export class PayinsService {
   private readonly logger = new Logger(PayinsService.name);
@@ -41,81 +60,79 @@ export class PayinsService {
     this.auditLogsService = new AuditLogsService(prisma);
   }
 
-  async simulate(dto: SimulatePayinDto) {
-    const { assetId, toWalletId, type } = dto;
-    this.logger.log(`Simulating payin for wallet ${toWalletId} (Type: ${type})`);
+  private async emitPayinEvent(eventName: string, payload: unknown) {
+    if (typeof (this.eventEmitter as any).emitAsync === 'function') {
+      return (this.eventEmitter as any).emitAsync(eventName, payload);
+    }
 
-    // Verify wallet and asset
+    return this.eventEmitter.emit(eventName, payload);
+  }
+
+  async createDetected(input: CreateDetectedPayinInput) {
+    const {
+      assetId,
+      toWalletId,
+      type,
+      amount,
+      txHash,
+      fromAddress,
+      fromIban,
+      referenceNo,
+      providerTxnId,
+      receivedAt,
+      reason,
+    } = input;
     const wallet = await (this.prisma as any).wallet.findUnique({
       where: { id: toWalletId },
     });
     if (!wallet) throw new NotFoundException('Wallet not found');
-
-    // Validation for FIAT
-    if (type === PayinType.FIAT) {
-        // In a real scenario, these should be provided in the DTO. 
-        // For simulation, we generate them if missing, but strictly they are required for Fiat.
-        // We'll generate mock values here to satisfy the requirement for valid data in the system.
-        // If this were a real creation endpoint, we would throw BadRequestException if missing.
+    if (wallet.assetId !== assetId) {
+      throw new BadRequestException('Wallet asset does not match payin asset');
     }
 
-    // Create random amount
-    const amount = (Math.random() * 1000).toFixed(2);
     const initialStatus = PayinStatus.DETECTED;
+    const initialReason = reason || 'Inbound transfer detected';
     const initialHistory = [
-        {
-            status: initialStatus,
-            changedAt: new Date(),
-            reason: 'Initial simulation',
-            operatorId: 'SYSTEM'
-        }
+      {
+        status: initialStatus,
+        changedAt: new Date(),
+        reason: initialReason,
+        operatorId: 'SYSTEM',
+      },
     ];
 
-    // Create Payin
     const payin = await (this.prisma as any).payin.create({
       data: {
         payinNo: generateReferenceNo('PI'),
         type,
         status: initialStatus,
         amount: new Prisma.Decimal(amount),
-        assetId: assetId,
-        toWalletId: toWalletId,
+        assetId,
+        toWalletId,
         ownerId: wallet.ownerType === 'CUSTOMER' ? wallet.ownerId : undefined,
+        toAddress: wallet.address,
+        toIban: wallet.iban,
+        fromAddress,
+        fromIban,
+        txHash,
+        referenceNo,
+        providerTxnId,
+        receivedAt: receivedAt || new Date(),
         statusHistory: JSON.stringify(initialHistory),
-        // Mock data
-        txHash: type === PayinType.CRYPTO ? '0x' + crypto.randomBytes(32).toString('hex') : undefined,
-        fromAddress:
-          type === PayinType.CRYPTO
-            ? '0x' + crypto.randomBytes(20).toString('hex')
-            : undefined,
-        fromIban:
-          type === PayinType.FIAT
-            ? 'US' + crypto.randomInt(10000000, 99999999)
-            : undefined,
-        referenceNo: 
-          type === PayinType.FIAT
-            ? 'REF-' + crypto.randomInt(100000, 999999)
-            : undefined,
-        receivedAt: new Date(),
-        // Default values for others
       },
     });
 
-    this.logger.log(`Emitting payin.created event for ${payin.id}`);
-    console.log('PAYIN_SERVICE: Emitting payin.created for', payin.id);
-    const createdEvent = new PayinCreatedEvent(
-      payin.id,
-      payin.status as PayinStatus,
-      payin.type as PayinType,
-      payin.depositId,
-      payin.assetId,
-      payin.amount.toString(),
+    await this.emitPayinEvent(
+      'payin.created',
+      new PayinCreatedEvent(
+        payin.id,
+        payin.status as PayinStatus,
+        payin.type as PayinType,
+        payin.depositId,
+        payin.assetId,
+        payin.amount.toString(),
+      ),
     );
-    const emitted =
-      typeof (this.eventEmitter as any).emitAsync === 'function'
-        ? await (this.eventEmitter as any).emitAsync('payin.created', createdEvent)
-        : this.eventEmitter.emit('payin.created', createdEvent);
-    console.log('PAYIN_SERVICE: Emitted result:', emitted);
 
     await this.auditLogsService.recordSystem({
       triggerType: AuditTriggerType.DATA_CREATE,
@@ -127,13 +144,14 @@ export class PayinsService {
       entityOwnerType: wallet.ownerType,
       entityOwnerId: wallet.ownerId || undefined,
       workflowType: 'DEPOSIT',
-      reason: 'Initial simulation',
+      reason: initialReason,
       afterData: {
         status: payin.status,
         type: payin.type,
         amount: payin.amount?.toString?.(),
         assetId: payin.assetId,
         toWalletId: payin.toWalletId,
+        providerTxnId: payin.providerTxnId,
       },
       sourcePlatform: 'SYSTEM',
     });
@@ -209,6 +227,18 @@ export class PayinsService {
       },
     });
     if (!item) throw new NotFoundException('Payin not found');
+
+    const inboundSignal = item.providerTxnId
+      ? await (this.prisma as any).inboundTransferSignal.findUnique({
+          where: { id: item.providerTxnId },
+          select: {
+            id: true,
+            signalNo: true,
+            simulationRiskLevel: true,
+            simulationRiskReason: true,
+          },
+        })
+      : null;
     
     // Manually map ownerNo from relations if available
     // Use type assertion because Prisma types might not perfectly infer the include result for 'customer' in all contexts
@@ -229,12 +259,24 @@ export class PayinsService {
         transactionNo: payinWithCustomer.deposit?.depositNo,
         toWalletNo: payinWithCustomer.toWallet?.walletNo,
         fromWalletNo: payinWithCustomer.fromWallet?.walletNo,
+        simulationProfile: inboundSignal
+          ? {
+              signalId: inboundSignal.id,
+              signalNo: inboundSignal.signalNo,
+              riskLevel: inboundSignal.simulationRiskLevel || 'LOW',
+              riskReason: inboundSignal.simulationRiskReason || null,
+            }
+          : null,
     };
 
     return response;
   }
 
-  async updateStatus(id: string, action: PayinAction) {
+  async updateStatus(
+    id: string,
+    action: PayinAction,
+    options?: UpdatePayinStatusOptions,
+  ) {
     const payin = await this.findOne(id);
     const currentStatus = payin.status as PayinStatus;
     const type = payin.type as PayinType;
@@ -336,7 +378,7 @@ export class PayinsService {
       sourcePlatform: 'SYSTEM',
     });
 
-    this.eventEmitter.emit(
+    await this.emitPayinEvent(
       'payin.status.changed',
       new PayinStatusChangedEvent(
         updatedPayin.id,
@@ -346,10 +388,54 @@ export class PayinsService {
         updatedPayin.depositId,
         updatedPayin.assetId,
         updatedPayin.amount.toString(),
+        options?.simulationMode || null,
       ),
     );
 
     return updatedPayin;
+  }
+
+  async applyMockEvent(id: string, dto: MockPayinEventDto) {
+    const payin = await this.findOne(id);
+    const type = String(payin.type || '').toLowerCase() as PayinType;
+    const event = dto.event;
+
+    let action: PayinAction | null = null;
+    let simulationMode: PayinSimulationMode | null = null;
+
+    if (type === PayinType.CRYPTO) {
+      switch (event) {
+        case PayinMockEvent.MEMPOOL_SEEN:
+          action = PayinAction.BLOCK;
+          break;
+        case PayinMockEvent.CHAIN_CONFIRMED:
+          action = PayinAction.CONFIRM;
+          simulationMode = PayinSimulationMode.INTERACTIVE;
+          break;
+        case PayinMockEvent.DROPPED:
+          action = PayinAction.FAIL;
+          break;
+      }
+    } else if (type === PayinType.FIAT) {
+      switch (event) {
+        case PayinMockEvent.FIAT_CONFIRMED:
+          action = PayinAction.CONFIRM;
+          simulationMode = PayinSimulationMode.INTERACTIVE;
+          break;
+        case PayinMockEvent.FIAT_FAILED:
+          action = PayinAction.FAIL;
+          break;
+      }
+    }
+
+    if (!action) {
+      throw new BadRequestException(
+        `Mock event '${event}' is not supported for payin ${id} (type: ${type})`,
+      );
+    }
+
+    await this.updateStatus(id, action, { simulationMode });
+    return this.findOne(id);
   }
 
   async linkDeposit(id: string, depositId: string) {

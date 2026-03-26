@@ -1,7 +1,12 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { OnEvent, EventEmitter2 } from '@nestjs/event-emitter';
 import { PayinStatusChangedEvent, PayinCreatedEvent } from '../modules/asset-treasury/payins/events/payin.events';
-import { PayinStatus, PayinAction, PayinType } from '../modules/asset-treasury/payins/dto/payin.dto';
+import {
+  PayinStatus,
+  PayinAction,
+  PayinType,
+  PayinSimulationMode,
+} from '../modules/asset-treasury/payins/dto/payin.dto';
 import { DepositTransactionsService } from '../modules/trading/deposit-transactions/deposit-transactions.service';
 import { JournalsService } from '../modules/accounting/journals/journals.service';
 import {
@@ -20,7 +25,10 @@ import {
   AuditModules,
   buildStateTransitionAction,
 } from '../modules/risk-engine/audit-logs/constants/audit-actions.constant';
-import { AuditTriggerType } from '../modules/risk-engine/audit-logs/dto/audit-log.dto';
+import {
+  AuditResult,
+  AuditTriggerType,
+} from '../modules/risk-engine/audit-logs/dto/audit-log.dto';
 
 interface OrchestrationResult {
   updated_payin_status?: string;
@@ -28,6 +36,13 @@ interface OrchestrationResult {
   emitted_events: string[];
   created_or_reversed_journal_entry_ids: string[];
   audit_log_id?: string;
+}
+
+interface DepositAccountingOutcome {
+  eventCode: string | null;
+  journal: any | null;
+  journalId: string | null;
+  blockedReason: string | null;
 }
 
 @Injectable()
@@ -79,7 +94,10 @@ export class DepositWorkflowService implements OnModuleInit {
         result = await this.orchestratePayinFailed(payinId);
         break;
       case PayinStatus.CONFIRMED:
-        result = await this.orchestratePayinConfirmed(payinId);
+        result = await this.orchestratePayinConfirmed(
+          payinId,
+          event.simulationMode || null,
+        );
         break;
     }
     if (result) {
@@ -129,6 +147,7 @@ export class DepositWorkflowService implements OnModuleInit {
       // If deposit exists, ensure it is in PAYIN_PENDING status
       if (deposit.status !== DepositTransactionStatus.PAYIN_PENDING && 
           deposit.status !== DepositTransactionStatus.SUCCESS && 
+          deposit.status !== DepositTransactionStatus.FROZEN &&
           deposit.status !== DepositTransactionStatus.FAILED && 
           deposit.status !== DepositTransactionStatus.REJECTED) {
          this.logger.debug(`Deposit ${deposit.id} already in status ${deposit.status}. Skipping reset to PAYIN_PENDING.`);
@@ -142,7 +161,12 @@ export class DepositWorkflowService implements OnModuleInit {
     const result: OrchestrationResult = { emitted_events: [], created_or_reversed_journal_entry_ids: [] };
     const deposit = await this.findDepositByPayinId(payinId);
     
-    if (deposit && deposit.status !== DepositTransactionStatus.FAILED && deposit.status !== DepositTransactionStatus.REJECTED) {
+    if (
+      deposit &&
+      deposit.status !== DepositTransactionStatus.FAILED &&
+      deposit.status !== DepositTransactionStatus.FROZEN &&
+      deposit.status !== DepositTransactionStatus.REJECTED
+    ) {
       const updated = await this.depositService.updateStatus(deposit.id, {
         action: DepositTransactionAction.FAIL,
         reason: 'PayIn failed',
@@ -152,7 +176,10 @@ export class DepositWorkflowService implements OnModuleInit {
     return result;
   }
 
-  private async orchestratePayinConfirmed(payinId: string): Promise<OrchestrationResult> {
+  private async orchestratePayinConfirmed(
+    payinId: string,
+    simulationMode?: PayinSimulationMode | null,
+  ): Promise<OrchestrationResult> {
     const result: OrchestrationResult = { emitted_events: [], created_or_reversed_journal_entry_ids: [] };
     
     const deposit = await this.findDepositByPayinId(payinId);
@@ -185,10 +212,15 @@ export class DepositWorkflowService implements OnModuleInit {
 
     if (accountingToStatus === DepositTransactionStatus.COMPLIANCE_PENDING) {
       const syncResult =
-        await this.transactionComplianceService.ensureDepositMainCasesOnPayinConfirmed(
-        deposit.id,
-        payin.id,
-      );
+        simulationMode === PayinSimulationMode.INTERACTIVE
+          ? await this.transactionComplianceService.ensureInteractiveDepositMainCasesOnPayinConfirmed(
+              deposit.id,
+              payin.id,
+            )
+          : await this.transactionComplianceService.ensureDepositMainCasesOnPayinConfirmed(
+              deposit.id,
+              payin.id,
+            );
 
       await this.auditLogsService.recordSystem({
         triggerType: AuditTriggerType.DATA_UPDATE,
@@ -218,34 +250,38 @@ export class DepositWorkflowService implements OnModuleInit {
 
     // 3. Journal Entry
     if (accountingToStatus && deposit.ownerType === DepositOwnerType.CUSTOMER) {
-      const journal = await this.triggerDepositAccounting({
+      const outcome = await this.triggerDepositAccounting({
         deposit,
         assetType: suffix,
         fromStatus,
         toStatus: accountingToStatus,
       });
-      if (journal) {
-        result.created_or_reversed_journal_entry_ids.push(journal.id);
-        await this.auditLogsService.recordSystem({
-          triggerType: AuditTriggerType.DATA_UPDATE,
-          action: AuditActions.DEPOSIT_ACCOUNTING_POSTED,
-          module: AuditModules.DEPOSIT_TRANSACTIONS,
-          entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-          entityId: deposit.id,
-          entityNo: deposit.depositNo,
-          entityOwnerType: deposit.ownerType,
-          entityOwnerId: deposit.ownerId,
-          workflowType: 'DEPOSIT',
-          reason: 'Deposit accounting posted after payin confirmed',
-          metadata: {
-            journalId: journal.id,
-            fromStatus,
-            toStatus: accountingToStatus,
-            assetType: suffix,
-          },
-          sourcePlatform: 'SYSTEM',
+      if (outcome.blockedReason) {
+        await this.recordDepositAccountingBlocked({
+          deposit,
+          payin,
+          eventCode: outcome.eventCode,
+          fromStatus,
+          toStatus: accountingToStatus,
+          assetType: suffix,
+          blockedReason: outcome.blockedReason,
         });
+        return result;
       }
+
+      if (outcome.journalId) {
+        result.created_or_reversed_journal_entry_ids.push(outcome.journalId);
+      }
+      await this.recordDepositAccountingPosted({
+        deposit,
+        payin,
+        eventCode: outcome.eventCode,
+        journalId: outcome.journalId,
+        fromStatus,
+        toStatus: accountingToStatus,
+        assetType: suffix,
+        reason: 'Deposit accounting posted after payin confirmed',
+      });
     }
 
     // 4. Set PayIn to CLEARED (Only after Event and JE)
@@ -273,34 +309,39 @@ export class DepositWorkflowService implements OnModuleInit {
 
     // Journal Entry
     if (deposit.ownerType === DepositOwnerType.CUSTOMER) {
-      const journal = await this.triggerDepositAccounting({
+      const outcome = await this.triggerDepositAccounting({
         deposit,
         assetType: suffix,
         fromStatus: oldStatus ?? null,
         toStatus: DepositTransactionStatus.SUCCESS,
       });
-      if (journal) {
-        result.created_or_reversed_journal_entry_ids.push(journal.id);
-        await this.auditLogsService.recordSystem({
-          triggerType: AuditTriggerType.DATA_UPDATE,
-          action: AuditActions.DEPOSIT_ACCOUNTING_POSTED,
-          module: AuditModules.DEPOSIT_TRANSACTIONS,
-          entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-          entityId: deposit.id,
-          entityNo: deposit.depositNo,
-          entityOwnerType: deposit.ownerType,
-          entityOwnerId: deposit.ownerId,
-          workflowType: 'DEPOSIT',
-          reason: 'Deposit success accounting posted',
-          metadata: {
-            journalId: journal.id,
-            fromStatus: oldStatus ?? null,
-            toStatus: DepositTransactionStatus.SUCCESS,
-            assetType: suffix,
-          },
-          sourcePlatform: 'SYSTEM',
+      if (outcome.blockedReason) {
+        await this.recordDepositAccountingBlocked({
+          deposit,
+          payin,
+          eventCode: outcome.eventCode,
+          fromStatus: oldStatus ?? null,
+          toStatus: DepositTransactionStatus.SUCCESS,
+          assetType: suffix,
+          blockedReason: outcome.blockedReason,
         });
+        result.updated_deposit_status = deposit.status;
+        return result;
       }
+
+      if (outcome.journalId) {
+        result.created_or_reversed_journal_entry_ids.push(outcome.journalId);
+      }
+      await this.recordDepositAccountingPosted({
+        deposit,
+        payin,
+        eventCode: outcome.eventCode,
+        journalId: outcome.journalId,
+        fromStatus: oldStatus ?? null,
+        toStatus: DepositTransactionStatus.SUCCESS,
+        assetType: suffix,
+        reason: 'Deposit success accounting posted',
+      });
     }
 
     result.updated_deposit_status = deposit.status;
@@ -387,8 +428,23 @@ export class DepositWorkflowService implements OnModuleInit {
     fromStatus?: DepositTransactionStatus | null;
     toStatus: DepositTransactionStatus;
     tx?: any;
-  }) {
+  }): Promise<DepositAccountingOutcome> {
     const { deposit, assetType, fromStatus, toStatus, tx } = params;
+    const event = await this.resolveDepositAccountingEvent({
+      assetType,
+      fromStatus: fromStatus ?? null,
+      toStatus,
+      tx,
+    });
+    if (!event) {
+      return {
+        eventCode: null,
+        journal: null,
+        journalId: null,
+        blockedReason: `No active accounting event found for DEPOSIT ${fromStatus ?? 'NULL'} -> ${toStatus} (${assetType})`,
+      };
+    }
+
     const context = {
       src: {
         ownerId: deposit.ownerId,
@@ -401,18 +457,136 @@ export class DepositWorkflowService implements OnModuleInit {
       },
     };
 
-    return this.journalService.triggerEvent(
-      {
+    try {
+      const journal = await this.journalService.triggerEvent(
+        {
+          entityType: 'DEPOSIT',
+          triggerKey: 'status',
+          fromStatus: fromStatus ?? null,
+          toStatus,
+          assetType,
+          context,
+          sourceId: deposit.id,
+        },
+        tx,
+      );
+      if (!journal) {
+        return {
+          eventCode: event.eventCode,
+          journal: null,
+          journalId: null,
+          blockedReason: `Accounting execution returned no journal for ${event.eventCode}`,
+        };
+      }
+
+      return {
+        eventCode: event.eventCode,
+        journal,
+        journalId: journal.id || null,
+        blockedReason: null,
+      };
+    } catch (error: any) {
+      return {
+        eventCode: event.eventCode,
+        journal: null,
+        journalId: null,
+        blockedReason: error?.message || `Accounting execution failed for ${event.eventCode}`,
+      };
+    }
+  }
+
+  private async resolveDepositAccountingEvent(params: {
+    assetType: 'FIAT' | 'CRYPTO';
+    fromStatus?: DepositTransactionStatus | null;
+    toStatus: DepositTransactionStatus;
+    tx?: any;
+  }) {
+    const client = params.tx || this.prisma;
+    return (client as any).acctEvent?.findFirst?.({
+      where: {
         entityType: 'DEPOSIT',
+        triggerType: 'STATUS_TRANSITION',
         triggerKey: 'status',
-        fromStatus: fromStatus ?? null,
+        isActive: true,
+        OR: [
+          { fromStatus: params.fromStatus ?? null },
+          { fromStatus: null },
+        ],
+        toStatus: params.toStatus,
+        assetType: { in: [params.assetType, 'ALL'] },
+      },
+    });
+  }
+
+  private async recordDepositAccountingPosted(params: {
+    deposit: any;
+    payin?: any | null;
+    eventCode: string | null;
+    journalId: string | null;
+    fromStatus: DepositTransactionStatus | null;
+    toStatus: DepositTransactionStatus;
+    assetType: 'FIAT' | 'CRYPTO';
+    reason: string;
+  }) {
+    const { deposit, payin, eventCode, journalId, fromStatus, toStatus, assetType, reason } = params;
+    await this.auditLogsService.recordSystem({
+      triggerType: AuditTriggerType.DATA_UPDATE,
+      action: AuditActions.DEPOSIT_ACCOUNTING_POSTED,
+      module: AuditModules.DEPOSIT_TRANSACTIONS,
+      entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+      entityId: deposit.id,
+      entityNo: deposit.depositNo,
+      entityOwnerType: deposit.ownerType,
+      entityOwnerId: deposit.ownerId,
+      workflowType: 'DEPOSIT',
+      reason,
+      metadata: {
+        eventCode,
+        journalId,
+        fromStatus,
         toStatus,
         assetType,
-        context,
-        sourceId: deposit.id,
+        depositId: deposit.id,
+        payinId: payin?.id || deposit.payinId || null,
       },
-      tx,
-    );
+      sourcePlatform: 'SYSTEM',
+    });
+  }
+
+  private async recordDepositAccountingBlocked(params: {
+    deposit: any;
+    payin?: any | null;
+    eventCode: string | null;
+    fromStatus: DepositTransactionStatus | null;
+    toStatus: DepositTransactionStatus;
+    assetType: 'FIAT' | 'CRYPTO';
+    blockedReason: string;
+  }) {
+    const { deposit, payin, eventCode, fromStatus, toStatus, assetType, blockedReason } = params;
+    await this.auditLogsService.recordSystem({
+      triggerType: AuditTriggerType.DATA_UPDATE,
+      action: AuditActions.DEPOSIT_ACCOUNTING_BLOCKED,
+      module: AuditModules.DEPOSIT_TRANSACTIONS,
+      entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+      entityId: deposit.id,
+      entityNo: deposit.depositNo,
+      entityOwnerType: deposit.ownerType,
+      entityOwnerId: deposit.ownerId,
+      workflowType: 'DEPOSIT',
+      result: AuditResult.FAILED,
+      reason: blockedReason,
+      metadata: {
+        eventCode,
+        journalId: null,
+        fromStatus,
+        toStatus,
+        assetType,
+        depositId: deposit.id,
+        payinId: payin?.id || deposit.payinId || null,
+        blockedReason,
+      },
+      sourcePlatform: 'SYSTEM',
+    });
   }
 
   private getSuffix(payin: any): 'FIAT' | 'CRYPTO' {

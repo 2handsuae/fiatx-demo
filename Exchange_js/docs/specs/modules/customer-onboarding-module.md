@@ -1,6 +1,6 @@
 Status: active
 Owner: project-owner-and-agents
-Last Updated: 2026-03-22
+Last Updated: 2026-03-26
 Applies To: `Exchange_js`
 Supersedes: none
 Depends On: `docs/specs/workflows/onboarding-canonical-workflow.md`, `docs/specs/entities/customer-entity.md`, `docs/specs/entities/review-response-entity.md`
@@ -30,7 +30,7 @@ Source of Truth Level: specs-module
 - Admin-facing onboarding operations:
   - `GET /admin/compliance/cdd-responses*`
   - `GET /admin/compliance/edd-responses*`
-  - `POST /admin/compliance/alerts/:id/onboarding-decision`
+  - `POST /admin/compliance/alerts/:id/resolve`
   - `POST /admin/compliance/cases/:id/onboarding-decision`
   - `GET /admin/compliance/decision-records*`
   - `POST /admin/compliance/customers/:id/final-approval/submit`
@@ -40,6 +40,7 @@ Source of Truth Level: specs-module
   - response containers as evidence
   - compliance center for review-stage decisions
   - approvals module for final approval
+- Workflow-bound onboarding alerts are resolved through the unified alert resolution surface rather than onboarding-specific alert routes.
 - Canonical customer state is driven by customer fields, not by legacy public-status projections.
 
 ## Historical Aliases / Retired Names

@@ -45,25 +45,26 @@
 3. `ESCALATED`
 4. `CLOSED`
 - Closed status MUST be terminal.
-- Current runtime MUST distinguish:
-1. `Alert Actions`
-2. `Workflow Actions`
-- For workflow-bound alerts, `Alert Actions` MUST remain:
+- Current runtime MUST expose one canonical alert interaction surface:
+1. `Alert Handling`
+- For workflow-bound alerts, `Alert Handling` MUST remain:
 1. `ASSIGN`
 2. `REASSIGN`
 3. `FALSE_POSITIVE`
-4. `ESCALATE_TO_CASE`
-- For workflow-bound alerts, `Workflow Actions` MUST remain:
-1. `CLEAR`
-2. `REJECT`
-3. `REQUIRE_EDD` (only for `REVIEW_CDD`)
-- `REVIEW_EDD` MUST NOT expose `REQUIRE_EDD`.
+4. `DIRECT_DISPOSITION`
+5. `ESCALATE_TO_CASE`
+- `DIRECT_DISPOSITION` proposal sets MUST remain:
+1. onboarding / periodic review `REVIEW_CDD`: `REJECT`, `REQUIRE_EDD`
+2. onboarding / periodic review `REVIEW_EDD`: `REJECT`
+3. deposit review alerts: `REJECT`, `FREEZE_TRANSACTION`
 - Generic `CLOSE` MUST NOT be exposed for workflow-bound alerts.
 - `NO_ACTION` MUST NOT be exposed for workflow-bound alerts.
-- `FALSE_POSITIVE` on workflow-bound alerts MUST auto-resolve through the workflow as `CLEAR`, while preserving distinct alert outcome semantics.
+- `FALSE_POSITIVE` on workflow-bound alerts MUST auto-resolve through canonical workflow callback logic while preserving distinct alert outcome semantics.
+- `FALSE_POSITIVE` MUST NOT require analyst-side proposal selection.
+- `DIRECT_DISPOSITION` MUST apply only to the fixed primary object bound to the alert type.
 - `ESCALATE_TO_CASE` MUST remain triage-only and MUST NOT advance onboarding workflow.
-- Alert workflow-action read model and UI visibility MUST align with backend executor guard.
-- Workflow actions for workflow-bound alerts MUST only be exposed when:
+- Alert handling read model and UI visibility MUST align with backend executor guard.
+- Resolution actions for workflow-bound alerts MUST only be exposed when:
 1. status is `ASSIGNED`
 2. current actor is the current assignee
 - Case recommendation projection priority for onboarding flow MUST be:
@@ -168,7 +169,12 @@
 2. `GET /admin/compliance/alerts/:id`
 3. `PATCH /admin/compliance/alerts/:id/action`
 4. `POST /admin/compliance/alerts/simulate`
-5. `POST /admin/compliance/alerts/:id/onboarding-decision`
+5. `POST /admin/compliance/alerts/:id/resolve`
+- Public `PATCH /admin/compliance/alerts/:id/action` payload MUST stay work-item-only:
+1. `action`
+2. `assigneeUserId`
+3. optional `reason`
+- Public `PATCH /admin/compliance/alerts/:id/action` MUST NOT remain a public carrier for legacy workflow/disposition payload fields.
 - Canonical case admin APIs MUST remain:
 1. `GET /admin/compliance/cases`
 2. `GET /admin/compliance/cases/:id`
@@ -184,6 +190,10 @@
 - `Phase 2` final closure retires `/admin/compliance/incidents/**`; `/cases/**` is now the only active runtime surface.
 - List responses MUST stay machine-parsable `{ total, skip, take, items[] }`.
 - Detail responses MUST include timeline events, linked relation records, and risk recommendation projection (`recommendedDecisions` where applicable).
+- Current alert detail responses MUST expose:
+1. `primaryObject`
+2. `availableHandlingActions`
+3. `availableDirectProposals`
 - Case responses MUST expose canonical fields such as:
 1. `caseNo`
 2. `caseType`
@@ -199,7 +209,7 @@
 - Current case detail responses MUST expose:
 1. `availableCaseActions`
 2. `availableInterimMeasures`
-3. `availableWorkflowActions`
+3. workflow-proposal action set required by the current admin page
 4. `availableMlroActions`
 5. proposal / MLRO review snapshots needed by the current admin page
 - Alert/case orchestration changes MUST NOT break customer-detail read model availability (`GET /customers/:id` MUST remain queryable without schema-invalid include/select).
@@ -233,15 +243,18 @@
 1. `Alerts`
 2. `Cases`
 - `/dashboard/compliance/incidents` is retired from active runtime and MUST NOT be reintroduced as a production navigation surface.
-- Alert page MUST distinguish:
-1. `Alert Actions`
-2. `Workflow Actions`
+- Alert page MUST expose:
+1. a fixed `Primary Object` card
+2. a single `Alert Handling` section
 - Case page MUST distinguish:
 1. `Case Actions`
 2. `Interim Measures`
 3. `Workflow Proposal`
 4. `MLRO Review`
 - Action buttons MUST be status-aware and hidden/disabled for terminal states.
+- `OPEN` alert UI MUST expose only assignment handling.
+- `ASSIGNED` alert UI MUST expose resolution handling only to the current assignee.
+- Non-assignee viewers MUST see workflow-bound alert detail as read-only.
 - UI MUST prevent duplicate submissions while action request is in-flight.
 - Escalate action in alerts UI MUST create case (not only set alert status).
 - Alert triage permissions MUST remain separate from investigation permissions:

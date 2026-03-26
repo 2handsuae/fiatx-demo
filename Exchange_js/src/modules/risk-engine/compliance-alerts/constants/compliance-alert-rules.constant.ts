@@ -77,6 +77,28 @@ export const COMPLIANCE_ALERT_RULES: Record<string, ComplianceAlertRuleDefinitio
     title: 'Periodic Review EDD Review Required',
     defaultMessage: 'Periodic review EDD requires compliance handling.',
   },
+  TX_KYT_REVIEW_REQUIRED: {
+    ruleCode: 'TX_KYT_REVIEW_REQUIRED',
+    capCode: 'CAP-004',
+    severity: ComplianceAlertSeverity.HIGH,
+    title: 'Transaction KYT Review Required',
+    defaultMessage: 'Transaction KYT review requires compliance handling.',
+  },
+  TX_TRAVEL_RULE_REVIEW_REQUIRED: {
+    ruleCode: 'TX_TRAVEL_RULE_REVIEW_REQUIRED',
+    capCode: 'CAP-006',
+    severity: ComplianceAlertSeverity.HIGH,
+    title: 'Transaction Travel Rule Review Required',
+    defaultMessage: 'Transaction travel rule review requires compliance handling.',
+  },
+  TX_DEPOSIT_FINAL_REVIEW_REQUIRED: {
+    ruleCode: 'TX_DEPOSIT_FINAL_REVIEW_REQUIRED',
+    capCode: 'CAP-004',
+    severity: ComplianceAlertSeverity.HIGH,
+    title: 'Transaction Deposit Final Review Required',
+    defaultMessage:
+      'Transaction deposit final review requires compliance handling.',
+  },
   ONB_ONBOARDING_JOURNEY_REVIEW: {
     ruleCode: 'ONB_ONBOARDING_JOURNEY_REVIEW',
     capCode: 'CAP-004',

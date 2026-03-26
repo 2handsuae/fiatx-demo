@@ -2,7 +2,7 @@
 
 Status: active
 Owner: project-owner-and-agents
-Last Updated: 2026-03-23
+Last Updated: 2026-03-24
 Applies To: `Exchange_js`
 Supersedes: none
 Depends On: `docs/README.md`, `docs/constraints/README.md`
@@ -29,6 +29,7 @@ Source of Truth Level: specs
   - `docs/specs/workflows/admin-member-auth-boundary-workflow.md`
   - `docs/specs/workflows/onboarding-canonical-workflow.md`
   - `docs/specs/workflows/periodic-review-canonical-workflow.md`
+  - `docs/specs/workflows/payin-deposit-canonical-workflow.md`
   - `docs/specs/workflows/alert-triage-and-case-escalation.md`
   - `docs/specs/workflows/mlro-and-final-approval-governance.md`
   - `docs/specs/workflows/case-final-lifecycle-and-external-filing.md`
@@ -46,6 +47,9 @@ Source of Truth Level: specs
   - `docs/specs/entities/compliance-case-report-entity.md`
   - `docs/specs/entities/compliance-external-filing-entity.md`
   - `docs/specs/entities/customer-entity.md`
+  - `docs/specs/entities/inbound-transfer-signal-entity.md`
+  - `docs/specs/entities/payin-entity.md`
+  - `docs/specs/entities/deposit-transaction-entity.md`
   - `docs/specs/entities/review-response-entity.md`
   - `docs/specs/entities/periodic-review-cycle-entity.md`
   - `docs/specs/entities/approval-case-entity.md`

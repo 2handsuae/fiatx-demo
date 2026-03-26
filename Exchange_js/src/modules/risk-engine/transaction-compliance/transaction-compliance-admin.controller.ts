@@ -107,6 +107,54 @@ export class TransactionComplianceAdminController {
     );
   }
 
+  @Get('tx-kyt-cases/:id')
+  @UseGuards(AuthGuard('jwt'), AdminPermissionGuard)
+  @ApiOperation({ summary: 'Get transaction KYT response detail' })
+  getKytCaseDetail(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Query('includeReports') includeReportsRaw?: string,
+    @Query('includePayload') includePayloadRaw?: string,
+    @Query('limit') limitRaw?: string,
+    @Query('offset') offsetRaw?: string,
+  ) {
+    this.ensureAdmin(req);
+    const includeReports = includeReportsRaw !== 'false';
+    const includePayload = includePayloadRaw === 'true';
+    const limit = limitRaw ? Number(limitRaw) : 20;
+    const offset = offsetRaw ? Number(offsetRaw) : 0;
+    return this.transactionComplianceService.getKytCaseDetail(id, {
+      includeReports,
+      includePayload,
+      limit,
+      offset,
+    });
+  }
+
+  @Get('tx-travel-rule-cases/:id')
+  @UseGuards(AuthGuard('jwt'), AdminPermissionGuard)
+  @ApiOperation({ summary: 'Get transaction travel rule response detail' })
+  getTravelRuleCaseDetail(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Query('includeReports') includeReportsRaw?: string,
+    @Query('includePayload') includePayloadRaw?: string,
+    @Query('limit') limitRaw?: string,
+    @Query('offset') offsetRaw?: string,
+  ) {
+    this.ensureAdmin(req);
+    const includeReports = includeReportsRaw !== 'false';
+    const includePayload = includePayloadRaw === 'true';
+    const limit = limitRaw ? Number(limitRaw) : 20;
+    const offset = offsetRaw ? Number(offsetRaw) : 0;
+    return this.transactionComplianceService.getTravelRuleCaseDetail(id, {
+      includeReports,
+      includePayload,
+      limit,
+      offset,
+    });
+  }
+
   @Post('tx-kyt-cases/mock-complete')
   @UseGuards(AuthGuard('jwt'), AdminPermissionGuard)
   @ApiOperation({ summary: 'Mock complete a KYT transaction case' })

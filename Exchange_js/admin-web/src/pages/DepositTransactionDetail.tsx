@@ -1,8 +1,26 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, RefreshCw, Copy, Check, ExternalLink, FileText, User, CreditCard, Activity, Clock, Globe, MapPin, ShieldCheck, Scale } from 'lucide-react';
+import {
+  ArrowLeft,
+  RefreshCw,
+  Copy,
+  Check,
+  ExternalLink,
+  FileText,
+  User,
+  CreditCard,
+  Activity,
+  Clock,
+  Globe,
+  MapPin,
+  ShieldCheck,
+  Scale,
+  Workflow,
+  Compass,
+} from 'lucide-react';
 import { copyToClipboard } from '../utils/clipboard';
 import { formatAssetAmount } from '../utils/number-format';
+import { useSimulationMode } from '../utils/simulationMode';
 
 interface DepositTransactionDetail {
   id: string;
@@ -57,6 +75,8 @@ interface DepositTransactionDetail {
   // Relations
   payinId: string | null;
   payinNo: string | null;
+  payinStatus?: string | null;
+  payinType?: string | null;
   asset: {
     code: string;
     type: string;
@@ -80,6 +100,22 @@ interface DepositTransactionDetail {
     provider?: string;
     providerTransferId?: string | null;
   } | null;
+  finalAlert?: {
+    id: string;
+    alertNo: string;
+    status: string;
+  } | null;
+  finalCase?: {
+    id: string;
+    caseNo: string;
+    status: string;
+  } | null;
+  simulationProfile?: {
+    signalId: string;
+    signalNo: string;
+    riskLevel: string;
+    riskReason: string | null;
+  } | null;
   auditLogs?: Array<{
     id: string;
     oldStatus: string;
@@ -95,10 +131,8 @@ const DepositTransactionDetail = () => {
   const navigate = useNavigate();
   const [data, setData] = useState<DepositTransactionDetail | null>(null);
   const [loading, setLoading] = useState(true);
-  const [isRejectModalOpen, setIsRejectModalOpen] = useState(false);
-  const [rejectReason, setRejectReason] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const [copiedField, setCopiedField] = useState<string | null>(null);
+  const { enabled: simulationModeEnabled } = useSimulationMode();
 
   useEffect(() => {
     const fetchData = async () => {
@@ -137,63 +171,12 @@ const DepositTransactionDetail = () => {
     setTimeout(() => setCopiedField(null), 2000);
   };
 
-  const handleAction = async (action: string, reason?: string) => {
-    setIsSubmitting(true);
-    try {
-      const token = localStorage.getItem('admin_token');
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/deposit-transactions/${id}/status`, {
-        method: 'PATCH',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ action, reason })
-      });
-      
-      if (response.ok) {
-        const result = await response.json();
-        // Preserve mapped fields that might not be in the direct update response if backend doesn't re-map them
-        // Ideally backend returns full object. Assuming it does or we refetch.
-        // For now, let's just update state with result but keep existing relations if missing
-        setData(prev => prev ? { ...prev, ...result } : result);
-        setIsRejectModalOpen(false);
-        setRejectReason('');
-      } else {
-        const err = await response.json();
-        alert(`Action failed: ${err.message}`);
-      }
-    } catch (error) {
-      console.error('Action failed', error);
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  const getAvailableActions = (status: string) => {
-    const actions = [];
-    switch (status) {
-       case 'PAYIN_PENDING':
-         actions.push({ action: 'payin_confirmed', label: 'Mark Payin Confirmed', color: 'bg-indigo-600 hover:bg-indigo-700' });
-         actions.push({ action: 'fail', label: 'Fail Transaction', color: 'bg-orange-600 hover:bg-orange-700' });
-         break;
-      case 'COMPLIANCE_PENDING':
-        actions.push({ action: 'success', label: 'Approve', color: 'bg-green-600 hover:bg-green-700' });
-        actions.push({ action: 'flag', label: 'Move to Review', color: 'bg-yellow-600 hover:bg-yellow-700' });
-        actions.push({ action: 'reject', label: 'Reject', color: 'bg-red-600 hover:bg-red-700' });
-        break;
-      case 'UNDER_REVIEW':
-        actions.push({ action: 'success', label: 'Release', color: 'bg-green-600 hover:bg-green-700' });
-        actions.push({ action: 'reject', label: 'Reject', color: 'bg-red-600 hover:bg-red-700' });
-        break;
-    }
-    return actions;
-  };
-
   const renderStatusBadge = (status: string) => {
     const colors: Record<string, string> = {
       PAYIN_PENDING: 'bg-blue-100 text-blue-800',
       COMPLIANCE_PENDING: 'bg-purple-100 text-purple-800',
       UNDER_REVIEW: 'bg-yellow-100 text-yellow-800',
+      FROZEN: 'bg-sky-100 text-sky-800',
       SUCCESS: 'bg-green-100 text-green-800',
       REJECTED: 'bg-red-100 text-red-800',
       FAILED: 'bg-orange-100 text-orange-800',
@@ -203,6 +186,53 @@ const DepositTransactionDetail = () => {
         {status}
       </span>
     );
+  };
+
+  const getNextStepLabel = (detail: DepositTransactionDetail) => {
+    if (detail.status === 'PAYIN_PENDING') return 'Payin rail';
+    if (detail.status === 'FAILED') return 'Terminal: failed';
+    if (detail.status === 'SUCCESS') return 'Terminal: success';
+    if (detail.status === 'REJECTED') return 'Terminal: rejected';
+    if (detail.status === 'FROZEN') return 'Terminal: frozen';
+    if (detail.finalCase?.id) return 'Compliance Case';
+    if (detail.finalAlert?.id) return 'Compliance Alert';
+    if (detail.asset.type === 'FIAT' && detail.status === 'COMPLIANCE_PENDING') {
+      return 'Final review bridge';
+    }
+    if (['PENDING', '', null, undefined].includes(detail.kytStatus as any)) {
+      return detail.kytCase?.id ? 'KYT response' : 'Waiting for KYT case';
+    }
+    if (['PENDING', 'SENT', 'RECEIVED'].includes(detail.travelRuleStatus)) {
+      return detail.travelRuleCase?.id ? 'Travel Rule response' : 'Waiting for Travel Rule case';
+    }
+    if (detail.status === 'COMPLIANCE_PENDING') return 'Final review bridge';
+    if (detail.status === 'UNDER_REVIEW') return 'Alert or case resolution';
+    return 'No further step';
+  };
+
+  const getProjectedFinalStates = (detail: DepositTransactionDetail) => {
+    if (detail.status === 'FAILED') {
+      return { payin: detail.payinStatus || 'FAILED', deposit: 'FAILED' };
+    }
+    if (detail.status === 'SUCCESS') {
+      return { payin: detail.payinStatus || 'CLEARED', deposit: 'SUCCESS' };
+    }
+    if (detail.status === 'REJECTED') {
+      return { payin: detail.payinStatus || 'CLEARED', deposit: 'REJECTED' };
+    }
+    if (detail.status === 'FROZEN') {
+      return { payin: detail.payinStatus || 'CLEARED', deposit: 'FROZEN' };
+    }
+    if (detail.finalCase?.id) {
+      return { payin: detail.payinStatus || 'CLEARED', deposit: 'SUCCESS / REJECTED / FROZEN' };
+    }
+    if (detail.finalAlert?.id) {
+      return { payin: detail.payinStatus || 'CLEARED', deposit: 'SUCCESS or UNDER_REVIEW' };
+    }
+    return {
+      payin: detail.payinStatus || 'FAILED / CONFIRMED / CLEARED',
+      deposit: 'SUCCESS / REJECTED / FROZEN / FAILED',
+    };
   };
 
   if (loading) {
@@ -215,6 +245,9 @@ const DepositTransactionDetail = () => {
   }
 
   if (!data) return null;
+
+  const nextStepLabel = getNextStepLabel(data);
+  const projectedFinalStates = getProjectedFinalStates(data);
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto pb-12">
@@ -239,21 +272,79 @@ const DepositTransactionDetail = () => {
             </div>
           </div>
         </div>
-        <div className="flex gap-2 items-center">
-            {getAvailableActions(data.status).map(act => (
-                <button
-                    key={act.action}
-                    onClick={() => act.action === 'reject' ? setIsRejectModalOpen(true) : handleAction(act.action)}
-                    disabled={isSubmitting}
-                    className={`px-4 py-2 rounded-lg text-white text-sm font-medium shadow-sm transition-colors ${act.color} ${isSubmitting ? 'opacity-50 cursor-not-allowed' : ''}`}
-                >
-                    {act.label}
-                </button>
-            ))}
-        </div>
       </div>
 
       <div className="flex flex-col gap-6">
+        <DetailCard title="Workflow Summary" icon={<Workflow size={18} />}>
+            <InfoField label="Current Deposit Status" value={data.status} highlight source="main" />
+            <InfoField label="Current Payin Status" value={data.payinStatus || 'N/A'} highlight source="main" />
+            <InfoField label="Next Step" value={nextStepLabel} source="main" />
+            <InfoField label="Projected Payin Final" value={projectedFinalStates.payin} source="main" />
+            <InfoField label="Projected Deposit Final" value={projectedFinalStates.deposit} source="main" />
+            <InfoField label="Derived Compliance" value={data.derivedComplianceStatus || null} source="main" />
+            <div className="sm:col-span-2 rounded border border-gray-200 bg-gray-50 px-3 py-3 text-xs text-gray-600 space-y-2">
+              <div>
+                当前链路会从这里继续跳到对应主体详情页。Payin 的推进在 payin 详情里走 icon rail，Alert/Case 仍然保留正式文字按钮。
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {data.payinId ? (
+                  <button
+                    onClick={() => navigate(`/dashboard/treasury/payins/${data.payinId}`)}
+                    className="inline-flex items-center gap-1 text-brand-primary hover:underline"
+                  >
+                    Open Payin
+                    <ExternalLink size={12} />
+                  </button>
+                ) : null}
+                {data.kytCase?.id ? (
+                  <button
+                    onClick={() => navigate(`/dashboard/compliance/tx-kyt-responses/${data.kytCase?.id}`)}
+                    className="inline-flex items-center gap-1 text-brand-primary hover:underline"
+                  >
+                    Open KYT Response
+                    <ExternalLink size={12} />
+                  </button>
+                ) : null}
+                {data.travelRuleCase?.id ? (
+                  <button
+                    onClick={() => navigate(`/dashboard/compliance/tx-travel-rule-responses/${data.travelRuleCase?.id}`)}
+                    className="inline-flex items-center gap-1 text-brand-primary hover:underline"
+                  >
+                    Open Travel Rule Response
+                    <ExternalLink size={12} />
+                  </button>
+                ) : null}
+                {data.finalAlert?.id ? (
+                  <button
+                    onClick={() => navigate(`/dashboard/compliance/alerts/${data.finalAlert?.id}`)}
+                    className="inline-flex items-center gap-1 text-brand-primary hover:underline"
+                  >
+                    Open Final Alert
+                    <ExternalLink size={12} />
+                  </button>
+                ) : null}
+                {data.finalCase?.id ? (
+                  <button
+                    onClick={() => navigate(`/dashboard/compliance/cases/${data.finalCase?.id}`)}
+                    className="inline-flex items-center gap-1 text-brand-primary hover:underline"
+                  >
+                    Open Final Case
+                    <ExternalLink size={12} />
+                  </button>
+                ) : null}
+              </div>
+            </div>
+        </DetailCard>
+
+        {simulationModeEnabled && data.simulationProfile ? (
+          <DetailCard title="Simulation Seed" icon={<Compass size={18} />}>
+            <InfoField label="Signal No" value={data.simulationProfile.signalNo} source="main" />
+            <InfoField label="Risk Level" value={data.simulationProfile.riskLevel} highlight source="main" />
+            <InfoField label="Risk Reason" value={data.simulationProfile.riskReason || 'LOW has no reason'} source="main" />
+            <InfoField label="Signal ID" value={data.simulationProfile.signalId} source="main" />
+          </DetailCard>
+        ) : null}
+
         {/* 1. Basic Identification */}
         <DetailCard title="Basic Identification" icon={<FileText size={18} />}>
             <InfoField label="ID" value={data.id} source="main" />
@@ -314,8 +405,18 @@ const DepositTransactionDetail = () => {
             <InfoField label="Case No" value={data.kytCase?.caseNo} source="main" />
             <InfoField label="Provider Case ID" value={data.kytCase?.providerCaseId || null} source="main" />
             <InfoField label="Derived Compliance" value={data.derivedComplianceStatus || null} highlight source="main" />
-            <div className="sm:col-span-2 rounded border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-600">
-              Transaction-specific compliance evidence pages are no longer part of the active compliance runtime.
+            <div className="sm:col-span-2 rounded border border-gray-200 bg-gray-50 px-3 py-3 text-xs text-gray-600">
+              {data.kytCase?.id ? (
+                <button
+                  onClick={() => navigate(`/dashboard/compliance/tx-kyt-responses/${data.kytCase?.id}`)}
+                  className="inline-flex items-center gap-1 text-brand-primary hover:underline"
+                >
+                  Open KYT response detail
+                  <ExternalLink size={12} />
+                </button>
+              ) : (
+                <span>No KYT response detail available.</span>
+              )}
             </div>
         </DetailCard>
 
@@ -332,6 +433,21 @@ const DepositTransactionDetail = () => {
               value={data.travelRuleCase?.providerTransferId || null}
               source="main"
             />
+            <div className="sm:col-span-2 rounded border border-gray-200 bg-gray-50 px-3 py-3 text-xs text-gray-600">
+              {data.travelRuleCase?.id ? (
+                <button
+                  onClick={() =>
+                    navigate(`/dashboard/compliance/tx-travel-rule-responses/${data.travelRuleCase?.id}`)
+                  }
+                  className="inline-flex items-center gap-1 text-brand-primary hover:underline"
+                >
+                  Open Travel Rule response detail
+                  <ExternalLink size={12} />
+                </button>
+              ) : (
+                <span>No Travel Rule response detail available.</span>
+              )}
+            </div>
         </DetailCard>
 
         {/* 8. Status & Timings */}
@@ -342,50 +458,49 @@ const DepositTransactionDetail = () => {
             <InfoField label="Completed At" value={data.completedAt ? new Date(data.completedAt).toLocaleString() : 'N/A'} source="main" />
         </DetailCard>
 
+        <DetailCard title="Final Review Handling" icon={<ShieldCheck size={18} />}>
+            <InfoField label="Final Alert" value={data.finalAlert?.alertNo || null} source="main" />
+            <InfoField label="Final Alert Status" value={data.finalAlert?.status || null} source="main" />
+            <InfoField label="Final Case" value={data.finalCase?.caseNo || null} source="main" />
+            <InfoField label="Final Case Status" value={data.finalCase?.status || null} source="main" />
+            <div className="sm:col-span-2 rounded border border-gray-200 bg-gray-50 px-3 py-3 text-xs text-gray-600 space-y-2">
+              {data.status === 'COMPLIANCE_PENDING' || data.status === 'UNDER_REVIEW' ? (
+                <div>
+                  Deposit-side manual actions are disabled in final transaction review. Continue investigation from the linked alert or case.
+                </div>
+              ) : (
+                <div>
+                  Final transaction review is reflected here when applicable. Deposit status is driven by alert or case closure.
+                </div>
+              )}
+              <div className="flex flex-wrap gap-2">
+                {data.finalAlert?.id ? (
+                  <button
+                    onClick={() => navigate(`/dashboard/compliance/alerts/${data.finalAlert?.id}`)}
+                    className="inline-flex items-center gap-1 text-brand-primary hover:underline"
+                  >
+                    Open Final Alert
+                    <ExternalLink size={12} />
+                  </button>
+                ) : null}
+                {data.finalCase?.id ? (
+                  <button
+                    onClick={() => navigate(`/dashboard/compliance/cases/${data.finalCase?.id}`)}
+                    className="inline-flex items-center gap-1 text-brand-primary hover:underline"
+                  >
+                    Open Final Case
+                    <ExternalLink size={12} />
+                  </button>
+                ) : null}
+              </div>
+            </div>
+        </DetailCard>
+
         {/* 9. Audit & History */}
         <DetailCard title="Status History & Audit" icon={<Activity size={18} />} columns={1}>
              <StatusTimeline historyJson={data.statusHistory} />
         </DetailCard>
       </div>
-
-      {/* Reject Modal */}
-      {isRejectModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6 animate-in fade-in zoom-in duration-200">
-            <h3 className="text-lg font-bold text-gray-900 mb-2">Reject Transaction</h3>
-            <p className="text-sm text-gray-500 mb-4">
-              Please provide a reason for rejecting this transaction. This will be recorded in the audit logs.
-            </p>
-            <textarea
-              className="w-full border border-gray-200 rounded-lg p-3 text-sm focus:outline-none focus:ring-2 focus:ring-red-500/20 focus:border-red-500 transition-all mb-4"
-              rows={4}
-              placeholder="Enter rejection reason..."
-              value={rejectReason}
-              onChange={(e) => setRejectReason(e.target.value)}
-            />
-            <div className="flex justify-end gap-3">
-              <button
-                onClick={() => {
-                  setIsRejectModalOpen(false);
-                  setRejectReason('');
-                }}
-                disabled={isSubmitting}
-                className="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => handleAction('reject', rejectReason)}
-                disabled={isSubmitting || !rejectReason.trim()}
-                className="px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg shadow-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-              >
-                {isSubmitting && <RefreshCw size={14} className="animate-spin" />}
-                Confirm Reject
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };
@@ -517,6 +632,7 @@ const getStatusColor = (status: string) => {
         case 'REJECTED': return 'bg-red-500';
         case 'COMPLIANCE_PENDING': return 'bg-purple-500';
         case 'UNDER_REVIEW': return 'bg-yellow-500';
+        case 'FROZEN': return 'bg-sky-500';
         case 'PAYIN_PENDING': return 'bg-blue-500';
         default: return 'bg-gray-300';
     }
@@ -529,6 +645,7 @@ const getStatusBadgeStyle = (status: string) => {
         case 'REJECTED': return 'bg-red-50 text-red-700 border-red-200';
         case 'COMPLIANCE_PENDING': return 'bg-purple-50 text-purple-700 border-purple-200';
         case 'UNDER_REVIEW': return 'bg-yellow-50 text-yellow-700 border-yellow-200';
+        case 'FROZEN': return 'bg-sky-50 text-sky-700 border-sky-200';
         case 'PAYIN_PENDING': return 'bg-blue-50 text-blue-700 border-blue-200';
         default: return 'bg-gray-50 text-gray-700 border-gray-200';
     }

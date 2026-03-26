@@ -12,6 +12,7 @@ describe('rbac.catalog', () => {
 
     expect(permissionCodes.has(buildPermissionCode('GET', '/admin/compliance/alerts'))).toBe(true);
     expect(permissionCodes.has(buildPermissionCode('PATCH', '/admin/compliance/alerts/:id/action'))).toBe(true);
+    expect(permissionCodes.has(buildPermissionCode('POST', '/admin/compliance/alerts/:id/resolve'))).toBe(true);
     expect(permissionCodes.has(buildPermissionCode('GET', '/admin/compliance/cases'))).toBe(true);
     expect(
       permissionCodes.has(
@@ -75,6 +76,16 @@ describe('rbac.catalog', () => {
         buildPermissionCode('POST', '/admin/compliance/incidents/:id/onboarding-decision'),
       ),
     ).toBe(false);
+    expect(
+      permissionCodes.has(
+        buildPermissionCode('POST', '/admin/compliance/alerts/:id/onboarding-decision'),
+      ),
+    ).toBe(false);
+    expect(
+      permissionCodes.has(
+        buildPermissionCode('POST', '/admin/compliance/alerts/:id/periodic-review-decision'),
+      ),
+    ).toBe(false);
   });
 
   it('should retire case-named response read aliases after Stage 3B', () => {
@@ -97,21 +108,61 @@ describe('rbac.catalog', () => {
     expect(permissionCodes.has(buildPermissionCode('POST', '/deposit-transactions'))).toBe(false);
   });
 
+  it('should register payin simulation rail route in RBAC catalog', () => {
+    const permissionCodes = new Set(
+      RBAC_PERMISSION_DEFINITIONS.map((item) => item.code),
+    );
+
+    expect(
+      permissionCodes.has(
+        buildPermissionCode('POST', '/admin/treasury/payins/:id/mock-event'),
+      ),
+    ).toBe(true);
+  });
+
+  it('should include Phase 1 inbound signal routes in RBAC catalog', () => {
+    const permissionCodes = new Set(
+      RBAC_PERMISSION_DEFINITIONS.map((item) => item.code),
+    );
+
+    expect(
+      permissionCodes.has(
+        buildPermissionCode('GET', '/deposit-transactions/my/inbound-signals'),
+      ),
+    ).toBe(true);
+    expect(
+      permissionCodes.has(
+        buildPermissionCode('POST', '/deposit-transactions/my/inbound-signals'),
+      ),
+    ).toBe(true);
+    expect(
+      permissionCodes.has(
+        buildPermissionCode('POST', '/deposit-transactions/my/inbound-signals/scan'),
+      ),
+    ).toBe(true);
+  });
+
   it('should grant alert read/write groups to the expected roles', () => {
     const permissionMap = buildRolePermissionCodeMap();
     const alertReadCode = buildPermissionCode('GET', '/admin/compliance/alerts');
     const alertWriteCode = buildPermissionCode('PATCH', '/admin/compliance/alerts/:id/action');
+    const alertResolveCode = buildPermissionCode('POST', '/admin/compliance/alerts/:id/resolve');
 
     expect(permissionMap.COMPLIANCE_LEAD).toContain(alertReadCode);
     expect(permissionMap.COMPLIANCE_LEAD).toContain(alertWriteCode);
+    expect(permissionMap.COMPLIANCE_LEAD).toContain(alertResolveCode);
     expect(permissionMap.MLRO).toContain(alertReadCode);
     expect(permissionMap.MLRO).toContain(alertWriteCode);
+    expect(permissionMap.MLRO).toContain(alertResolveCode);
     expect(permissionMap.RI).toContain(alertReadCode);
     expect(permissionMap.RI).not.toContain(alertWriteCode);
+    expect(permissionMap.RI).not.toContain(alertResolveCode);
     expect(permissionMap.SM).toContain(alertReadCode);
     expect(permissionMap.SM).not.toContain(alertWriteCode);
+    expect(permissionMap.SM).not.toContain(alertResolveCode);
     expect(permissionMap.CISO).toContain(alertReadCode);
     expect(permissionMap.CISO).not.toContain(alertWriteCode);
+    expect(permissionMap.CISO).not.toContain(alertResolveCode);
   });
 
   it('should grant case read/write groups to the expected roles', () => {

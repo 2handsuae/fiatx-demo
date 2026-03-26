@@ -82,7 +82,17 @@
 证据包输出为单个 JSON 文件，结构固定为：
 - `manifest`：导出版本、时间、导出人、筛选条件、记录摘要列表。
 - `records`：脱敏后的审计记录。
-- `snapshots`：当前以 deposit 根对象快照为主，包含 `deposit / payin / KYT / Travel Rule` 摘要。
+- `snapshots`：当前以 deposit 根对象快照为主，包含：
+  - `deposits`
+  - `kytCases`
+  - `travelRuleCases`
+  - `riskDecisionRecords`
+  - `alerts`
+  - `cases`
+  - `journals`
+  - `internalTransactions`
+  - `internalFunds`
+  - `depositEvidenceChain`
 - `digest`：包级 SHA-256 摘要。
 
 导出动作本身会新增一条 `EVIDENCE_EXPORT` 审计事件，形成闭环留痕。用户下载的内容来自审批通过后持久化的包体，而不是临时重算。

@@ -65,13 +65,13 @@ const TransactionKytCasesPage = () => {
         `${import.meta.env.VITE_API_URL}/admin/compliance/tx-kyt-cases?${query.toString()}`,
       );
       if (!response.ok) {
-        throw new Error(await getApiErrorMessage(response, 'Failed to load KYT cases'));
+        throw new Error(await getApiErrorMessage(response, 'Failed to load KYT responses'));
       }
       const payload = await response.json();
       setItems((payload?.items || []) as KytCaseItem[]);
     } catch (error) {
       if (error instanceof AdminSessionError) return;
-      setErrorMessage(getErrorMessage(error, 'Failed to load KYT cases.'));
+      setErrorMessage(getErrorMessage(error, 'Failed to load KYT responses.'));
     } finally {
       setLoading(false);
     }
@@ -90,8 +90,8 @@ const TransactionKytCasesPage = () => {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">KYT Cases</h1>
-          <p className="text-sm text-gray-500 mt-1">Read-only external KYT evidence.</p>
+          <h1 className="text-2xl font-bold text-gray-900">KYT Responses</h1>
+          <p className="text-sm text-gray-500 mt-1">Read-only KYT provider responses and reports.</p>
         </div>
         <button
           onClick={fetchCases}
@@ -161,7 +161,7 @@ const TransactionKytCasesPage = () => {
         <table className="w-full text-left text-sm">
           <thead className="bg-admin-content-bg border-b border-admin-border">
             <tr>
-              <th className="px-4 py-3 text-xs uppercase text-gray-500">Case</th>
+              <th className="px-4 py-3 text-xs uppercase text-gray-500">Response</th>
               <th className="px-4 py-3 text-xs uppercase text-gray-500">Source</th>
               <th className="px-4 py-3 text-xs uppercase text-gray-500">Stage</th>
               <th className="px-4 py-3 text-xs uppercase text-gray-500">Status</th>
@@ -180,7 +180,7 @@ const TransactionKytCasesPage = () => {
             ) : items.length === 0 ? (
               <tr>
                 <td colSpan={7} className="px-4 py-8 text-center text-gray-500">
-                  No KYT cases found
+                  No KYT responses found
                 </td>
               </tr>
             ) : (
@@ -209,12 +209,10 @@ const TransactionKytCasesPage = () => {
                   </td>
                   <td className="px-4 py-3">
                     <button
-                      onClick={() =>
-                        navigate(`/dashboard/compliance/tx-evidence/${item.sourceType}/${item.sourceId}`)
-                      }
+                      onClick={() => navigate(`/dashboard/compliance/tx-kyt-responses/${item.id}`)}
                       className="text-xs border border-gray-200 px-2 py-1 rounded hover:bg-gray-50"
                     >
-                      View Bundle
+                      View Response
                     </button>
                   </td>
                 </tr>

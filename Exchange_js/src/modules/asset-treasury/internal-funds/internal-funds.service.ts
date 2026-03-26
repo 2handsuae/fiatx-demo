@@ -178,14 +178,35 @@ export class InternalFundsService {
     return false;
   }
 
+  private buildDepositWorkflowAuditContext(internalTx?: {
+    sourceType?: string | null;
+    sourceId?: string | null;
+    sourceNo?: string | null;
+  } | null) {
+    if (String(internalTx?.sourceType || '').toUpperCase() !== 'DEPOSIT') {
+      return {};
+    }
+
+    return {
+      workflowType: 'DEPOSIT',
+      workflowId: internalTx?.sourceId || undefined,
+      workflowNo: internalTx?.sourceNo || undefined,
+    };
+  }
+
   private async autoClearConfirmedFunds(
     client: TxClient,
-    internalTransactionId: string,
+    internalTransaction: {
+      id: string;
+      sourceType?: string | null;
+      sourceId?: string | null;
+      sourceNo?: string | null;
+    },
     operatorId: string,
   ) {
     const confirmedFunds = await (client as any).internalFund.findMany({
       where: {
-        internalTransactionId,
+        internalTransactionId: internalTransaction.id,
         status: InternalFundStatus.CONFIRMED,
       },
       select: {
@@ -228,6 +249,7 @@ export class InternalFundsService {
           reason,
           beforeData: { status: InternalFundStatus.CONFIRMED },
           afterData: { status: InternalFundStatus.CLEAR },
+          ...this.buildDepositWorkflowAuditContext(internalTransaction),
           sourcePlatform: 'SYSTEM',
         },
         {
@@ -316,6 +338,7 @@ export class InternalFundsService {
                 status: created.status,
                 internalTransactionId: created.internalTransactionId,
               },
+              ...this.buildDepositWorkflowAuditContext(created.internalTransaction),
               sourcePlatform: operatorId === 'SYSTEM' ? 'SYSTEM' : 'ADMIN_API',
             },
             {
@@ -372,7 +395,12 @@ export class InternalFundsService {
         include: {
           asset: true,
           internalTransaction: {
-            select: { id: true },
+            select: {
+              id: true,
+              sourceType: true,
+              sourceId: true,
+              sourceNo: true,
+            },
           },
         },
       });
@@ -449,6 +477,7 @@ export class InternalFundsService {
           reason: reason || `Action: ${action}`,
           beforeData: { status: currentStatus },
           afterData: { status: nextStatus },
+          ...this.buildDepositWorkflowAuditContext(item.internalTransaction),
           sourcePlatform: operatorId === 'SYSTEM' ? 'SYSTEM' : 'ADMIN_API',
         },
         {
@@ -472,7 +501,7 @@ export class InternalFundsService {
       ) {
         await this.autoClearConfirmedFunds(
           client,
-          item.internalTransaction.id,
+          item.internalTransaction,
           operatorId,
         );
       }

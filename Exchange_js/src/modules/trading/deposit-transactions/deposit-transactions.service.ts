@@ -27,6 +27,30 @@ import {
   buildStateTransitionAction,
 } from '../../risk-engine/audit-logs/constants/audit-actions.constant';
 import { AuditTriggerType } from '../../risk-engine/audit-logs/dto/audit-log.dto';
+
+type DepositWriteClient = Prisma.TransactionClient | PrismaService;
+
+export interface DepositStatusUpdateActorContext {
+  actorType: string;
+  actorId: string;
+  actorNo?: string;
+  actorRole?: string;
+  sourcePlatform?: string;
+}
+
+export interface DepositStatusUpdateOptions {
+  tx?: Prisma.TransactionClient;
+  actor?: DepositStatusUpdateActorContext;
+  traceId?: string;
+  workflowType?: string;
+  workflowId?: string;
+  workflowNo?: string;
+  reason?: string | null;
+  metadata?: Record<string, unknown>;
+  statusHistoryContext?: Record<string, unknown>;
+  sourcePlatform?: string;
+}
+
 @Injectable()
 export class DepositTransactionsService {
   private readonly logger = new Logger(DepositTransactionsService.name);
@@ -36,54 +60,174 @@ export class DepositTransactionsService {
     private prisma: PrismaService,
     private eventEmitter: EventEmitter2,
     private transactionComplianceService: TransactionComplianceService,
-  ) {
+    ) {
     this.auditLogsService = new AuditLogsService(prisma);
   }
 
-  private async triggerComplianceGateBlockedAlert(
-    item: any,
-    reason: string,
-    detail: Record<string, unknown>,
-  ) {
-    this.logger.debug(
-      `Skip legacy tx compliance alert for deposit ${item.id}: onboarding-only alert runtime active. reason=${reason} detail=${JSON.stringify(detail)}`,
-    );
+  private getDb(tx?: Prisma.TransactionClient): DepositWriteClient {
+    return tx ?? this.prisma;
   }
 
-  private async assertComplianceBeforeSuccess(item: any, nextStatus: DepositTransactionStatus) {
-    if (nextStatus !== DepositTransactionStatus.SUCCESS) return;
-    const assetType = String(item.asset?.type || '').toUpperCase();
-    if (assetType !== 'CRYPTO') return;
+  private normalizeOptionalString(value: unknown): string | null {
+    if (value === null || value === undefined) return null;
+    const normalized = String(value).trim();
+    return normalized.length > 0 ? normalized : null;
+  }
 
-    const reasons: string[] = [];
-    if (item.kytStatus !== 'PASS') {
-      reasons.push(`kytStatus=${item.kytStatus || 'UNKNOWN'} (expected PASS)`);
-    }
-
-    if (item.travelRuleRequired === true && item.travelRuleStatus !== 'ACCEPTED') {
-      reasons.push(
-        `travelRuleStatus=${item.travelRuleStatus || 'UNKNOWN'} (expected ACCEPTED when travelRuleRequired=true)`,
+  private async recordAuditEvent(
+    input: Record<string, unknown>,
+    options?: DepositStatusUpdateOptions,
+  ) {
+    if (options?.actor) {
+      return this.auditLogsService.recordByActor(
+        input as any,
+        {
+          actorType: options.actor.actorType,
+          actorId: options.actor.actorId,
+          actorNo: options.actor.actorNo,
+          actorRole: options.actor.actorRole,
+        },
+        options.tx,
       );
     }
 
+    return this.auditLogsService.recordSystem(input as any, options?.tx);
+  }
+
+  private async recordComplianceGateBlockedAudit(
+    item: any,
+    reason: string,
+    detail: Record<string, unknown>,
+    options?: DepositStatusUpdateOptions,
+  ) {
+    await this.recordAuditEvent(
+      {
+        triggerType: AuditTriggerType.DATA_UPDATE,
+        action: AuditActions.TX_DEPOSIT_RELEASE_BLOCKED,
+        module: AuditModules.DEPOSIT_TRANSACTIONS,
+        entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+        entityId: item.id,
+        entityNo: item.depositNo,
+        entityOwnerType: item.ownerType,
+        entityOwnerId: item.ownerId,
+        traceId: options?.traceId || `TRANSACTION:${item.id}`,
+        workflowType: options?.workflowType || 'TRANSACTION',
+        workflowId: options?.workflowId || item.id,
+        workflowNo: options?.workflowNo || item.depositNo || item.id,
+        reason,
+        metadata: {
+          depositId: item.id,
+          customerId: item.ownerId,
+          blockedReason: reason,
+          ...detail,
+          ...(options?.metadata || {}),
+        },
+        sourcePlatform: options?.sourcePlatform || options?.actor?.sourcePlatform || 'SYSTEM',
+      },
+      options,
+    );
+  }
+
+  private async assertComplianceBeforeSuccess(
+    item: any,
+    nextStatus: DepositTransactionStatus,
+    options?: DepositStatusUpdateOptions,
+  ) {
+    if (nextStatus !== DepositTransactionStatus.SUCCESS) return;
+
+    const reasons: string[] = [];
+    const customer = item.customer || {};
+    if (String(customer.onboardingStatus || '').toUpperCase() !== 'APPROVED') {
+      reasons.push(
+        `onboardingStatus=${customer.onboardingStatus || 'UNKNOWN'} (expected APPROVED)`,
+      );
+    }
+    if (String(customer.operatingStatus || '').toUpperCase() !== 'ACTIVE') {
+      reasons.push(
+        `operatingStatus=${customer.operatingStatus || 'UNKNOWN'} (expected ACTIVE)`,
+      );
+    }
+    if (String(customer.restrictionStatus || '').toUpperCase() !== 'CLEAR') {
+      reasons.push(
+        `restrictionStatus=${customer.restrictionStatus || 'UNKNOWN'} (expected CLEAR)`,
+      );
+    }
+    if (String(customer.complianceHoldStatus || '').toUpperCase() !== 'ACTIVE') {
+      reasons.push(
+        `complianceHoldStatus=${customer.complianceHoldStatus || 'UNKNOWN'} (expected ACTIVE)`,
+      );
+    }
+
+    const bypassTransactionComplianceChecks =
+      options?.metadata?.transactionWorkflowClearanceApproved === true;
+    const assetType = String(item.asset?.type || '').toUpperCase();
+    if (assetType === 'CRYPTO' && !bypassTransactionComplianceChecks) {
+      if (item.kytStatus !== 'PASS') {
+        reasons.push(`kytStatus=${item.kytStatus || 'UNKNOWN'} (expected PASS)`);
+      }
+
+      if (item.travelRuleRequired === true && item.travelRuleStatus !== 'ACCEPTED') {
+        reasons.push(
+          `travelRuleStatus=${item.travelRuleStatus || 'UNKNOWN'} (expected ACCEPTED when travelRuleRequired=true)`,
+        );
+      }
+    }
+
     if (reasons.length > 0) {
-      await this.triggerComplianceGateBlockedAlert(
+      const blockedReason = `Deposit ${item.id} release blocked: ${reasons.join('; ')}`;
+      await this.recordComplianceGateBlockedAudit(
         item,
-        `Deposit ${item.id} compliance not cleared: ${reasons.join('; ')}`,
+        blockedReason,
         {
           nextStatus,
           reasons,
+          onboardingStatus: customer.onboardingStatus || null,
+          operatingStatus: customer.operatingStatus || null,
+          restrictionStatus: customer.restrictionStatus || null,
+          complianceHoldStatus: customer.complianceHoldStatus || null,
           kytStatus: item.kytStatus || null,
           travelRuleRequired: item.travelRuleRequired ?? null,
           travelRuleStatus: item.travelRuleStatus || null,
         },
+        options,
       );
       throw new BadRequestException({
-        code: 'COMPLIANCE_NOT_CLEARED',
-        message: `Deposit ${item.id} compliance not cleared: ${reasons.join('; ')}`,
+        code: 'DEPOSIT_RELEASE_BLOCKED',
+        message: blockedReason,
         details: reasons,
+        blockedReason,
       });
     }
+  }
+
+  private async getDepositForStatusUpdate(
+    id: string,
+    tx?: Prisma.TransactionClient,
+  ) {
+    const item = await (this.getDb(tx) as any).depositTransaction.findUnique({
+      where: { id },
+      include: {
+        asset: true,
+        wallet: true,
+        fromWallet: true,
+        payin: true,
+        customer: {
+          select: {
+            customerNo: true,
+            firstName: true,
+            lastName: true,
+            email: true,
+            onboardingStatus: true,
+            operatingStatus: true,
+            restrictionStatus: true,
+            complianceHoldStatus: true,
+          },
+        },
+      },
+    });
+    if (!item) throw new NotFoundException('Deposit transaction not found');
+
+    return item;
   }
 
   async findAll(query: DepositTransactionQueryDto) {
@@ -129,6 +273,10 @@ export class DepositTransactionsService {
               firstName: true,
               lastName: true,
               email: true,
+              onboardingStatus: true,
+              operatingStatus: true,
+              restrictionStatus: true,
+              complianceHoldStatus: true,
             },
           },
         },
@@ -147,7 +295,18 @@ export class DepositTransactionsService {
         wallet: true, // toWallet
         fromWallet: true,
         payin: true,
-        customer: { select: { customerNo: true, firstName: true, lastName: true, email: true } },
+        customer: {
+          select: {
+            customerNo: true,
+            firstName: true,
+            lastName: true,
+            email: true,
+            onboardingStatus: true,
+            operatingStatus: true,
+            restrictionStatus: true,
+            complianceHoldStatus: true,
+          },
+        },
         auditLogs: {
           orderBy: { createdAt: 'desc' },
         },
@@ -157,6 +316,17 @@ export class DepositTransactionsService {
 
     // Manual mapping for fields not directly on the model or needing extraction
     const deposit = item as any;
+    const inboundSignal = deposit.payin?.providerTxnId
+      ? await (this.prisma as any).inboundTransferSignal.findUnique({
+          where: { id: deposit.payin.providerTxnId },
+          select: {
+            id: true,
+            signalNo: true,
+            simulationRiskLevel: true,
+            simulationRiskReason: true,
+          },
+        })
+      : null;
     
     // Map ownerNo
     let ownerNo = deposit.ownerNo;
@@ -173,33 +343,89 @@ export class DepositTransactionsService {
           includePayload: false,
         },
       );
+    const [finalAlert, finalCase] = await Promise.all([
+      (this.prisma as any).complianceAlert.findFirst({
+        where: {
+          sourceType: 'DEPOSIT',
+          sourceId: id,
+          stage: 'REVIEW_DEPOSIT_FINAL',
+        },
+        orderBy: { lastOccurredAt: 'desc' },
+        select: {
+          id: true,
+          alertNo: true,
+          status: true,
+        },
+      }),
+      (this.prisma as any).complianceIncident.findFirst({
+        where: {
+          sourceType: 'DEPOSIT',
+          entityId: id,
+          stage: 'REVIEW_DEPOSIT_FINAL',
+        },
+        orderBy: { lastActionAt: 'desc' },
+        select: {
+          id: true,
+          incidentNo: true,
+          status: true,
+        },
+      }),
+    ]);
 
     return {
         ...item,
         ownerNo,
         payinNo: deposit.payin?.payinNo,
+        payinStatus: deposit.payin?.status || null,
+        payinType: deposit.payin?.type || null,
         toWalletNo: deposit.wallet?.walletNo,
         fromWalletNo: deposit.fromWallet?.walletNo,
         kytCase: caseAggregate.mainKytCase,
         travelRuleCase: caseAggregate.travelRuleCase,
         derivedComplianceStatus: caseAggregate.derivedComplianceStatus,
+        simulationProfile: inboundSignal
+          ? {
+              signalId: inboundSignal.id,
+              signalNo: inboundSignal.signalNo,
+              riskLevel: inboundSignal.simulationRiskLevel || 'LOW',
+              riskReason: inboundSignal.simulationRiskReason || null,
+            }
+          : null,
+        finalAlert,
+        finalCase: finalCase
+          ? {
+              id: finalCase.id,
+              caseNo: finalCase.incidentNo,
+              status: finalCase.status,
+            }
+          : null,
     };
   }
 
-  async updateStatus(id: string, dto: UpdateDepositTransactionStatusDto) {
-    const transaction = await this.findOne(id);
+  async updateStatus(
+    id: string,
+    dto: UpdateDepositTransactionStatusDto,
+    options?: DepositStatusUpdateOptions,
+  ) {
+    const transaction = await this.getDepositForStatusUpdate(id, options?.tx);
     const currentStatus = transaction.status as DepositTransactionStatus;
     const action = dto.action;
 
     const nextStatus = this.getNextStatus(currentStatus, action);
-    await this.assertComplianceBeforeSuccess(transaction, nextStatus);
+    await this.assertComplianceBeforeSuccess(transaction, nextStatus, options);
 
     // Record status history
     const historyEntry = {
       status: nextStatus,
       timestamp: new Date().toISOString(),
-      operatorId: 'SYSTEM',
-      reason: dto.reason || action,
+      operatorId:
+        options?.actor?.actorId ||
+        this.normalizeOptionalString(options?.sourcePlatform) ||
+        'SYSTEM',
+      actorType: options?.actor?.actorType || 'SYSTEM',
+      actorRole: options?.actor?.actorRole || null,
+      reason: options?.reason || dto.reason || action,
+      context: options?.statusHistoryContext || null,
     };
 
     let currentHistory = [];
@@ -217,32 +443,42 @@ export class DepositTransactionsService {
       statusHistory: JSON.stringify(currentHistory),
     };
 
-    if (nextStatus === DepositTransactionStatus.SUCCESS) {
+    if (
+      nextStatus === DepositTransactionStatus.SUCCESS ||
+      nextStatus === DepositTransactionStatus.FROZEN
+    ) {
       updateData.completedAt = new Date();
     }
 
-    const updated = await (this.prisma as any).depositTransaction.update({
+    const updated = await (this.getDb(options?.tx) as any).depositTransaction.update({
       where: { id },
       data: updateData,
     });
 
-    await this.auditLogsService.recordSystem({
-      triggerType: AuditTriggerType.STATE_TRANSITION,
-      action: buildStateTransitionAction('DEPOSIT', currentStatus, nextStatus),
-      module: AuditModules.DEPOSIT_TRANSACTIONS,
-      entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-      entityId: updated.id,
-      entityNo: updated.depositNo,
-      entityOwnerType: updated.ownerType,
-      entityOwnerId: updated.ownerId,
-      workflowType: 'DEPOSIT',
-      statusFrom: currentStatus,
-      statusTo: nextStatus,
-      reason: dto.reason || `Action: ${action}`,
-      beforeData: { status: currentStatus },
-      afterData: { status: nextStatus },
-      sourcePlatform: 'SYSTEM',
-    });
+    await this.recordAuditEvent(
+      {
+        triggerType: AuditTriggerType.STATE_TRANSITION,
+        action: buildStateTransitionAction('DEPOSIT', currentStatus, nextStatus),
+        module: AuditModules.DEPOSIT_TRANSACTIONS,
+        entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+        entityId: updated.id,
+        entityNo: updated.depositNo,
+        entityOwnerType: updated.ownerType,
+        entityOwnerId: updated.ownerId,
+        traceId: options?.traceId || undefined,
+        workflowType: options?.workflowType || 'DEPOSIT',
+        workflowId: options?.workflowId || undefined,
+        workflowNo: options?.workflowNo || undefined,
+        statusFrom: currentStatus,
+        statusTo: nextStatus,
+        reason: options?.reason || dto.reason || `Action: ${action}`,
+        beforeData: { status: currentStatus },
+        afterData: { status: nextStatus },
+        metadata: options?.metadata || undefined,
+        sourcePlatform: options?.sourcePlatform || options?.actor?.sourcePlatform || 'SYSTEM',
+      },
+      options,
+    );
 
     this.eventEmitter.emit(
       'deposit.status.changed',
@@ -290,13 +526,23 @@ export class DepositTransactionsService {
       [DepositTransactionStatus.COMPLIANCE_PENDING]: {
         [DepositTransactionAction.SUCCESS]: DepositTransactionStatus.SUCCESS,
         [DepositTransactionAction.FLAG]: DepositTransactionStatus.UNDER_REVIEW,
+        [DepositTransactionAction.FREEZE]: DepositTransactionStatus.FROZEN,
         [DepositTransactionAction.REJECT]: DepositTransactionStatus.REJECTED,
         [DepositTransactionAction.FAIL]: DepositTransactionStatus.FAILED,
       },
       [DepositTransactionStatus.UNDER_REVIEW]: {
         [DepositTransactionAction.SUCCESS]: DepositTransactionStatus.SUCCESS,
+        [DepositTransactionAction.FREEZE]: DepositTransactionStatus.FROZEN,
         [DepositTransactionAction.REJECT]: DepositTransactionStatus.REJECTED,
         [DepositTransactionAction.FAIL]: DepositTransactionStatus.FAILED,
+      },
+      [DepositTransactionStatus.FROZEN]: {
+        [DepositTransactionAction.SUCCESS]: DepositTransactionStatus.FROZEN,
+        [DepositTransactionAction.REJECT]: DepositTransactionStatus.FROZEN,
+        [DepositTransactionAction.FAIL]: DepositTransactionStatus.FROZEN,
+        [DepositTransactionAction.FLAG]: DepositTransactionStatus.FROZEN,
+        [DepositTransactionAction.FREEZE]: DepositTransactionStatus.FROZEN,
+        [DepositTransactionAction.PAYIN_CONFIRMED]: DepositTransactionStatus.FROZEN,
       },
       [DepositTransactionStatus.FAILED]: {
         // Responds to any action by staying in FAILED (Terminal)
@@ -304,6 +550,7 @@ export class DepositTransactionsService {
         [DepositTransactionAction.REJECT]: DepositTransactionStatus.FAILED,
         [DepositTransactionAction.FAIL]: DepositTransactionStatus.FAILED,
         [DepositTransactionAction.FLAG]: DepositTransactionStatus.FAILED,
+        [DepositTransactionAction.FREEZE]: DepositTransactionStatus.FAILED,
         [DepositTransactionAction.PAYIN_CONFIRMED]: DepositTransactionStatus.FAILED,
       },
     };

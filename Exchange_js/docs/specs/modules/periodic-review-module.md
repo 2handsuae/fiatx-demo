@@ -1,6 +1,6 @@
 Status: active
 Owner: project-owner-and-agents
-Last Updated: 2026-03-22
+Last Updated: 2026-03-26
 Applies To: `Exchange_js`
 Supersedes: none
 Depends On: `docs/specs/workflows/periodic-review-canonical-workflow.md`, `docs/specs/entities/periodic-review-cycle-entity.md`
@@ -26,7 +26,7 @@ Source of Truth Level: specs-module
   - `POST /periodic-review/response-sessions/:sessionId/mock-complete`
 - Admin-facing:
   - `POST /admin/compliance/customers/:id/periodic-review/trigger`
-  - `POST /admin/compliance/alerts/:id/periodic-review-decision`
+  - `POST /admin/compliance/alerts/:id/resolve`
   - `POST /admin/compliance/cases/:id/periodic-review-decision`
 
 ## Integration Contract
@@ -34,6 +34,7 @@ Source of Truth Level: specs-module
   - response containers
   - compliance center review kernel
   - customer restriction state
+- Workflow-bound periodic-review alerts are resolved through the unified alert resolution surface rather than periodic-review-specific alert routes.
 - `PeriodicReviewCycle` is the workflow root.
 
 ## Historical Aliases / Retired Names

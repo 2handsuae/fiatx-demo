@@ -95,6 +95,9 @@ export function normalizeWorkflowDecision(value: unknown): string | null {
   if (normalized === 'APPROVE' || normalized === 'APPROVE_STAGE') return 'CLEAR';
   if (normalized === 'CLEAR' || normalized === 'RESOLVED_BY_WORKFLOW') return 'CLEAR';
   if (normalized === 'REJECT' || normalized === 'REJECT_STAGE') return 'REJECT';
+  if (normalized === 'FREEZE' || normalized === 'FREEZE_TRANSACTION') {
+    return 'FREEZE_TRANSACTION';
+  }
   if (normalized === 'REQUIRE_EDD') return 'REQUIRE_EDD';
   return null;
 }
