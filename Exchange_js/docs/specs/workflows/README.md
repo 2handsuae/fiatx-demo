@@ -2,7 +2,7 @@
 
 Status: active
 Owner: project-owner-and-agents
-Last Updated: 2026-03-23
+Last Updated: 2026-03-24
 Applies To: `Exchange_js`
 Supersedes: none
 Depends On: `docs/specs/README.md`
@@ -37,6 +37,8 @@ Source of Truth Level: specs-workflow
   - Canonical onboarding state machine and review/final-approval paths.
 - `docs/specs/workflows/periodic-review-canonical-workflow.md`
   - Canonical periodic review cycle, restriction, review, and clear/reject flow.
+- `docs/specs/workflows/payin-deposit-canonical-workflow.md`
+  - Canonical Wave 5 payin/deposit workflow, callback boundary, accounting ordering, and evidence replay contract.
 - `docs/specs/workflows/alert-triage-and-case-escalation.md`
   - Alert triage, assignment, false-positive, and case escalation semantics.
 - `docs/specs/workflows/mlro-and-final-approval-governance.md`

@@ -35,6 +35,14 @@ export class UpsertCaseReportDraftDto {
   finalDispositionReason?: string;
 
   @IsOptional()
+  @IsString()
+  proposedWorkflowDecision?: string;
+
+  @IsOptional()
+  @IsString()
+  proposedWorkflowReason?: string;
+
+  @IsOptional()
   @Type(() => Boolean)
   @IsBoolean()
   filingRequired?: boolean;

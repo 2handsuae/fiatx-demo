@@ -74,6 +74,7 @@ import {
   ONBOARDING_WORKFLOW,
   PERIODIC_REVIEW_SOURCE_TYPE,
   PERIODIC_REVIEW_WORKFLOW,
+  TRANSACTION_WORKFLOW,
   buildComplianceWorkflowTraceContext,
   getWorkflowFromSourceType,
   isSupportedReviewSourceType,
@@ -82,6 +83,7 @@ import {
 } from '../constants/onboarding-compliance-workflow.constant';
 import { WorkflowTransitionService } from '../../identity/onboarding/workflow-transition.service';
 import { OnboardingFinalApprovalService } from '../../identity/onboarding/onboarding-final-approval.service';
+import { WorkflowTransitionInput } from '../../identity/onboarding/onboarding-workflow-transition.service';
 
 type IncidentWriteClient = Prisma.TransactionClient | PrismaService;
 
@@ -683,11 +685,12 @@ export class ComplianceIncidentsService {
 
   private normalizeWorkflowProposal(
     value: unknown,
-  ): 'CLEAR' | 'REJECT' | 'REQUIRE_EDD' | null {
+  ): 'CLEAR' | 'REJECT' | 'REQUIRE_EDD' | 'FREEZE_TRANSACTION' | null {
     const normalized = normalizeWorkflowDecision(value);
     if (
       normalized === 'CLEAR' ||
       normalized === 'REJECT' ||
+      normalized === 'FREEZE_TRANSACTION' ||
       normalized === 'REQUIRE_EDD'
     ) {
       return normalized;
@@ -1621,6 +1624,7 @@ export class ComplianceIncidentsService {
     db: IncidentWriteClient,
     incidentId: string,
     report: ComplianceIncidentReport,
+    dto?: UpsertCaseReportDraftDto,
   ) {
     await db.complianceIncident.update({
       where: { id: incidentId },
@@ -1634,6 +1638,12 @@ export class ComplianceIncidentsService {
           this.normalizeOptionalString(report.finalDispositionCode),
         proposedFinalDispositionReason: this.normalizeOptionalString(
           report.finalDispositionReason,
+        ),
+        proposedWorkflowDecision:
+          this.normalizeWorkflowProposal(dto?.proposedWorkflowDecision) ||
+          this.normalizeOptionalString(dto?.proposedWorkflowDecision),
+        proposedWorkflowReason: this.normalizeOptionalString(
+          dto?.proposedWorkflowReason,
         ),
         proposedFilingRequired: this.normalizeBoolean((report as any).filingRequired),
         proposedFilingType: this.normalizeOptionalString((report as any).filingType),
@@ -1770,7 +1780,7 @@ export class ComplianceIncidentsService {
         now,
       );
 
-      await this.syncIncidentReportMirror(tx, incident.id, report);
+      await this.syncIncidentReportMirror(tx, incident.id, report, dto);
 
       await this.appendEvent(tx, {
         incidentId: incident.id,
@@ -2205,7 +2215,8 @@ export class ComplianceIncidentsService {
           ? String(primaryAlert?.sourceId || '').split(':')[1] || undefined
           : undefined,
       sourceId:
-        workflow === PERIODIC_REVIEW_WORKFLOW
+        workflow === PERIODIC_REVIEW_WORKFLOW ||
+        workflow === TRANSACTION_WORKFLOW
           ? this.normalizeOptionalString(primaryAlert?.sourceId || incident.entityId) ||
             undefined
           : undefined,
@@ -2410,7 +2421,10 @@ export class ComplianceIncidentsService {
       throw new ForbiddenException('MLRO role is required for case review.');
     }
 
-    const postCommit: { approvalIdToEmit: string | null } =
+    const postCommit: {
+      approvalIdToEmit: string | null;
+      transactionTransitionInput?: WorkflowTransitionInput | null;
+    } =
       await this.prisma.$transaction(async (tx) => {
         let approvalIdToEmit: string | null = null;
         const incident = await tx.complianceIncident.findUnique({
@@ -2511,7 +2525,7 @@ export class ComplianceIncidentsService {
           },
           tx,
         );
-        return { approvalIdToEmit };
+        return { approvalIdToEmit, transactionTransitionInput: null };
       }
 
       const proposedFinalDispositionCode = normalizeCaseDispositionCode(
@@ -2526,7 +2540,59 @@ export class ComplianceIncidentsService {
       let transition: Awaited<
         ReturnType<ComplianceIncidentsService['applyApprovedWorkflowTransition']>
       > | null = null;
-      if (this.isWorkflowBoundCase(incident)) {
+      let transactionTransitionInput: WorkflowTransitionInput | null = null;
+      const workflow = getWorkflowFromSourceType(incident.sourceType);
+      if (
+        this.isWorkflowBoundCase(incident) &&
+        workflow === TRANSACTION_WORKFLOW
+      ) {
+        const transactionStage = normalizeComplianceReviewStage(incident.stage);
+        const incidentMetadata =
+          incident.metadata && typeof incident.metadata === 'string'
+            ? ((this.parseJson(incident.metadata) as Record<string, unknown>) || {})
+            : {};
+        const sourceId =
+          this.normalizeOptionalString((incidentMetadata as any).sourceId) ||
+          this.normalizeOptionalString((incident as any).sourceId);
+        if (!sourceId || !incident.customerId || !transactionStage) {
+          throw new ConflictException(
+            `Transaction workflow case ${incident.id} is missing deposit source binding or stage.`,
+          );
+        }
+        transactionTransitionInput = {
+          workflow: TRANSACTION_WORKFLOW,
+          stage: transactionStage,
+          producerType: 'CASE',
+          producerId: incident.id,
+          customerId: incident.customerId,
+          sourceId,
+          dispositionCode:
+            this.normalizeWorkflowProposal(
+              (incident as any).proposedWorkflowDecision,
+            ) === 'FREEZE_TRANSACTION'
+              ? 'FREEZE_TRANSACTION'
+              : this.deriveProposedFinalDisposition({
+                  reportDispositionCode: proposedFinalDispositionCode,
+                }) || proposedFinalDispositionCode,
+          reason:
+            this.normalizeOptionalString(
+              (incident as any).proposedWorkflowReason,
+            ) ||
+            this.normalizeOptionalString(
+              (incident as any).proposedFinalDispositionReason,
+            ) ||
+            this.normalizeOptionalString(dto.note),
+          actorId: actor.actorId,
+          actorRole: actor.actorRole || 'ADMIN',
+          latestDecisionRecordId:
+            this.normalizeStringList(
+              this.parseJson((incident as any).decisionRecordIds),
+            )[0] || null,
+          linkedCaseIds: this.normalizeStringList(
+            this.parseJson((incident as any).linkedCaseIds),
+          ),
+        };
+      } else if (this.isWorkflowBoundCase(incident)) {
         transition = await this.applyApprovedWorkflowTransition(tx, incident, actor, now);
       }
 
@@ -2728,7 +2794,7 @@ export class ComplianceIncidentsService {
         tx,
       );
 
-      return { approvalIdToEmit };
+      return { approvalIdToEmit, transactionTransitionInput };
     });
 
     if (postCommit.approvalIdToEmit) {
@@ -2737,6 +2803,13 @@ export class ComplianceIncidentsService {
         actor.actorId,
         actor.actorRole || 'ADMIN',
         this.normalizeOptionalString(dto.note) || null,
+      );
+    }
+
+    if (postCommit.transactionTransitionInput) {
+      await this.workflowTransitionService.transition(
+        this.prisma as unknown as Prisma.TransactionClient,
+        postCommit.transactionTransitionInput,
       );
     }
 
@@ -3355,7 +3428,9 @@ export class ComplianceIncidentsService {
     const caseType =
       workflow === PERIODIC_REVIEW_WORKFLOW
         ? ComplianceCaseType.PERIODIC_REVIEW
-        : ComplianceCaseType.ONBOARDING;
+        : workflow === TRANSACTION_WORKFLOW
+          ? ComplianceCaseType.TRANSACTION
+          : ComplianceCaseType.ONBOARDING;
 
     const now = new Date();
     const incident = await tx.complianceIncident.create({

@@ -35,8 +35,12 @@ Notes:
 
 ## Action and Disposition Rules
 
-- `Alert Actions` control alert state and triage outcome.
-- `Workflow Actions` control onboarding workflow progression.
+- `Alert Handling` is the only canonical alert interaction surface.
+- `Alert Handling` combines:
+  - assignment ownership actions
+  - alert-level resolution actions
+- `Direct Disposition` is the only alert-level path that executes a single-object onboarding proposal.
+- onboarding alert `primaryObject` is fixed to `Onboarding Journey` and MUST NOT be user-selectable.
 - `Case Actions` control case ownership and relation management.
 - `Interim Measures` control customer restriction/freeze measures.
 - `Workflow Proposal` on case is proposal-only and does not immediately execute transition.
@@ -77,19 +81,19 @@ Notes:
 
 - valid rules
   - `ONB_CDD_REVIEW_REQUIRED`
-- alert actions
+- alert handling
   - `ASSIGN`
   - `REASSIGN`
   - `FALSE_POSITIVE`
+  - `DIRECT_DISPOSITION`
   - `ESCALATE_TO_CASE`
-- alert workflow actions
-  - `CLEAR`
+- alert direct disposition proposals
   - `REJECT`
   - `REQUIRE_EDD`
-- alert dispositions
+- alert resolution outcomes
   - `ESCALATE_TO_CASE`
   - `FALSE_POSITIVE`
-  - `RESOLVED_BY_WORKFLOW`
+  - `DIRECT_DISPOSITION`
 - case actions
   - `ASSIGN`
   - `REASSIGN`
@@ -117,18 +121,18 @@ Notes:
 
 - valid rules
   - `ONB_EDD_REVIEW_REQUIRED`
-- alert actions
+- alert handling
   - `ASSIGN`
   - `REASSIGN`
   - `FALSE_POSITIVE`
+  - `DIRECT_DISPOSITION`
   - `ESCALATE_TO_CASE`
-- alert workflow actions
-  - `CLEAR`
+- alert direct disposition proposals
   - `REJECT`
-- alert dispositions
+- alert resolution outcomes
   - `ESCALATE_TO_CASE`
   - `FALSE_POSITIVE`
-  - `RESOLVED_BY_WORKFLOW`
+  - `DIRECT_DISPOSITION`
 - case actions
   - `ASSIGN`
   - `REASSIGN`

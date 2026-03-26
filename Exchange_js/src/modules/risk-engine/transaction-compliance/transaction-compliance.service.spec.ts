@@ -3,6 +3,8 @@ import {
   KytScreeningStage,
   TxSourceType,
 } from './types/tx-compliance.types';
+import { TransactionRiskBridgeService } from './transaction-risk-bridge.service';
+import { AuditLogsService } from '../audit-logs/audit-logs.service';
 
 describe('TransactionComplianceService', () => {
   const prismaMock: any = {
@@ -27,6 +29,9 @@ describe('TransactionComplianceService', () => {
       update: jest.fn(),
       findMany: jest.fn(),
     },
+    inboundTransferSignal: {
+      findUnique: jest.fn(),
+    },
     withdrawTransaction: {
       findUnique: jest.fn(),
       update: jest.fn(),
@@ -35,9 +40,18 @@ describe('TransactionComplianceService', () => {
   };
 
   let service: TransactionComplianceService;
+  const buildBridgeMock = () =>
+    ({
+      handleDepositKytUpdate: jest.fn().mockResolvedValue({ skipped: false }),
+      handleDepositTravelRuleUpdate: jest.fn().mockResolvedValue({ skipped: false }),
+      handleDepositFinalReviewIfReady: jest.fn().mockResolvedValue({ skipped: false }),
+      handleDirectDepositFinalReview: jest.fn().mockResolvedValue({ skipped: false }),
+    }) as unknown as TransactionRiskBridgeService;
 
   beforeEach(() => {
     jest.clearAllMocks();
+    jest.spyOn(AuditLogsService.prototype, 'recordSystem').mockResolvedValue({} as any);
+    jest.spyOn(AuditLogsService.prototype, 'recordByActor').mockResolvedValue({} as any);
     service = new TransactionComplianceService(prismaMock);
   });
 
@@ -200,6 +214,106 @@ describe('TransactionComplianceService', () => {
     expect(syncSpy).toHaveBeenCalledWith('dep-1', undefined);
 
     modeSpy.mockRestore();
+  });
+
+  it('should keep deposit KYT and Travel in pending states for interactive payin confirm even when provider mode is MOCK', async () => {
+    prismaMock.depositTransaction.findUnique.mockResolvedValue({
+      id: 'dep-interactive-1',
+      ownerType: 'CUSTOMER',
+      ownerId: 'c-1',
+      assetId: 'asset-1',
+      travelRuleRequired: true,
+      asset: {
+        type: 'CRYPTO',
+      },
+    });
+
+    const modeSpy = jest
+      .spyOn(service as any, 'getProviderMode')
+      .mockReturnValue('MOCK');
+    const upsertKytSpy = jest
+      .spyOn(service, 'upsertKytCaseAndAppendReport')
+      .mockResolvedValue({} as any);
+    const upsertTravelSpy = jest
+      .spyOn(service, 'upsertTravelRuleCaseAndAppendReport')
+      .mockResolvedValue({} as any);
+    const syncSpy = jest
+      .spyOn(service, 'syncDepositSnapshotFromCases')
+      .mockResolvedValue({} as any);
+
+    await service.ensureInteractiveDepositMainCasesOnPayinConfirmed(
+      'dep-interactive-1',
+      'payin-interactive-1',
+    );
+
+    expect(upsertKytSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sourceType: TxSourceType.DEPOSIT,
+        sourceId: 'dep-interactive-1',
+        status: 'PENDING',
+      }),
+      undefined,
+    );
+    expect(upsertTravelSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sourceType: TxSourceType.DEPOSIT,
+        sourceId: 'dep-interactive-1',
+        status: 'PENDING',
+      }),
+      undefined,
+    );
+    expect(syncSpy).toHaveBeenCalledWith('dep-interactive-1', undefined);
+
+    modeSpy.mockRestore();
+  });
+
+  it('should route fiat payin confirmed into direct final review without creating KYT or Travel cases', async () => {
+    const bridgeMock = buildBridgeMock();
+    const serviceWithBridge = new TransactionComplianceService(
+      prismaMock,
+      bridgeMock,
+    );
+    prismaMock.depositTransaction.findUnique.mockResolvedValue({
+      id: 'dep-fiat-1',
+      ownerType: 'CUSTOMER',
+      ownerId: 'c-fiat-1',
+      assetId: 'asset-fiat-1',
+      travelRuleRequired: false,
+      asset: {
+        type: 'FIAT',
+      },
+    });
+    const upsertKytSpy = jest
+      .spyOn(serviceWithBridge, 'upsertKytCaseAndAppendReport')
+      .mockResolvedValue({} as any);
+    const upsertTravelSpy = jest
+      .spyOn(serviceWithBridge, 'upsertTravelRuleCaseAndAppendReport')
+      .mockResolvedValue({} as any);
+    const syncSpy = jest
+      .spyOn(serviceWithBridge, 'syncDepositSnapshotFromCases')
+      .mockResolvedValue({} as any);
+
+    const result = await serviceWithBridge.ensureDepositMainCasesOnPayinConfirmed(
+      'dep-fiat-1',
+      'payin-fiat-1',
+    );
+
+    expect(upsertKytSpy).not.toHaveBeenCalled();
+    expect(upsertTravelSpy).not.toHaveBeenCalled();
+    expect(syncSpy).not.toHaveBeenCalled();
+    expect((bridgeMock as any).handleDirectDepositFinalReview).toHaveBeenCalledWith(
+      expect.objectContaining({
+        depositId: 'dep-fiat-1',
+        sourceType: TxSourceType.DEPOSIT,
+        sourceId: 'dep-fiat-1',
+        triggerStatus: 'PAYIN_CONFIRMED',
+        kytStatus: 'PASS',
+        travelRuleRequired: false,
+        travelRuleStatus: 'NOT_REQUIRED',
+      }),
+      undefined,
+    );
+    expect(result).toEqual({ skipped: false });
   });
 
   it('should create MAIN KYT and Travel on payout confirmed for crypto withdraw', async () => {
@@ -393,5 +507,117 @@ describe('TransactionComplianceService', () => {
     expect(result.derivedComplianceStatus).toBe('CLEAR');
     expect(result.preKytCase?.screeningStage).toBe(KytScreeningStage.PRE_TXN);
     expect(result.mainKytCase?.screeningStage).toBe(KytScreeningStage.MAIN);
+  });
+
+  it('should bridge deposit KYT REVIEW into transaction risk workflow', async () => {
+    const bridgeMock = buildBridgeMock();
+    const serviceWithBridge = new TransactionComplianceService(
+      prismaMock,
+      bridgeMock,
+    );
+    prismaMock.kytCase.findUnique.mockResolvedValueOnce(null);
+    prismaMock.kytCase.upsert.mockResolvedValue({
+      id: 'kyt-bridge-1',
+      caseNo: 'KYT2603010001',
+      sourceType: TxSourceType.DEPOSIT,
+      sourceId: 'dep-bridge-1',
+      screeningStage: KytScreeningStage.MAIN,
+      ownerType: 'CUSTOMER',
+      ownerId: 'c-bridge-1',
+      provider: 'EXTERNAL',
+      providerCaseId: 'provider-kyt-1',
+      riskScore: 87,
+      status: 'REVIEW',
+    });
+    prismaMock.kytCaseReport.create.mockResolvedValue({ id: 'kyt-report-1' });
+    jest
+      .spyOn(serviceWithBridge, 'getTransactionCaseAggregate')
+      .mockResolvedValue({
+        sourceType: TxSourceType.DEPOSIT,
+        sourceId: 'dep-bridge-1',
+        preKytCase: null,
+        mainKytCase: {
+          id: 'kyt-bridge-1',
+          caseNo: 'KYT2603010001',
+          status: 'REVIEW',
+          provider: 'EXTERNAL',
+          providerCaseId: 'provider-kyt-1',
+          riskScore: 87,
+        },
+        travelRuleCase: null,
+        derivedComplianceStatus: 'HOLD',
+      } as any);
+
+    await serviceWithBridge.upsertKytCaseAndAppendReport({
+      sourceType: TxSourceType.DEPOSIT,
+      sourceId: 'dep-bridge-1',
+      screeningStage: KytScreeningStage.MAIN,
+      ownerType: 'CUSTOMER',
+      ownerId: 'c-bridge-1',
+      assetId: 'asset-bridge-1',
+      status: 'REVIEW',
+      provider: 'EXTERNAL',
+      providerCaseId: 'provider-kyt-1',
+      riskScore: 87,
+    });
+
+    expect((bridgeMock as any).handleDepositFinalReviewIfReady).toHaveBeenCalledWith(
+      expect.objectContaining({
+        depositId: 'dep-bridge-1',
+        sourceType: TxSourceType.DEPOSIT,
+        triggerSource: 'KYT',
+        triggerStatus: 'REVIEW',
+        reportDeduped: false,
+      }),
+      undefined,
+    );
+  });
+
+  it('should skip travel rule risk bridge when callback report is deduped', async () => {
+    const bridgeMock = buildBridgeMock();
+    const serviceWithBridge = new TransactionComplianceService(
+      prismaMock,
+      bridgeMock,
+    );
+    prismaMock.travelRuleCase.findUnique.mockResolvedValue({
+      id: 'trv-existing-1',
+      caseNo: 'TRV2603010001',
+      status: 'REJECTED',
+    });
+    prismaMock.travelRuleCase.upsert.mockResolvedValue({
+      id: 'trv-existing-1',
+      caseNo: 'TRV2603010001',
+      sourceType: TxSourceType.DEPOSIT,
+      sourceId: 'dep-bridge-2',
+      ownerType: 'CUSTOMER',
+      ownerId: 'c-bridge-2',
+      provider: 'EXTERNAL',
+      providerTransferId: 'transfer-1',
+      required: true,
+      status: 'REJECTED',
+      counterpartyVasp: 'VASP-X',
+    });
+    prismaMock.travelRuleCaseReport.findFirst.mockResolvedValue({
+      id: 'trv-report-1',
+    });
+
+    await serviceWithBridge.upsertTravelRuleCaseAndAppendReport(
+      {
+        sourceType: TxSourceType.DEPOSIT,
+        sourceId: 'dep-bridge-2',
+        ownerType: 'CUSTOMER',
+        ownerId: 'c-bridge-2',
+        assetId: 'asset-bridge-2',
+        provider: 'EXTERNAL',
+        providerTransferId: 'transfer-1',
+        required: true,
+        status: 'REJECTED',
+        counterpartyVasp: 'VASP-X',
+      },
+      undefined,
+      { dedupeReport: true },
+    );
+
+    expect((bridgeMock as any).handleDepositFinalReviewIfReady).not.toHaveBeenCalled();
   });
 });

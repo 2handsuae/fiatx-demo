@@ -105,6 +105,31 @@ export class RiskEngineService {
     return this.buildOnboardingDecisionActions(decisions);
   }
 
+  buildStoredInputPayload(input: EvaluateRiskInput) {
+    return {
+      contextType: input.contextType,
+      subjectType: input.subjectType,
+      subjectId: input.subjectId,
+      ownerType: input.ownerType,
+      ownerId: input.ownerId,
+      signals: this.maskSignals(input.signals || {}),
+    };
+  }
+
+  buildInputHash(input: EvaluateRiskInput): string {
+    return createHash('sha256')
+      .update(this.stableStringify(this.buildStoredInputPayload(input)))
+      .digest('hex');
+  }
+
+  private resolvePolicyVersion(input: EvaluateRiskInput): string {
+    if (input.policyVersion) return input.policyVersion;
+    if (String(input.contextType || '').trim().toUpperCase().startsWith('TX_')) {
+      return 'transaction-risk-policy/v1';
+    }
+    return 'onboarding-risk-policy/v1';
+  }
+
   private evaluateBySignals(input: EvaluateRiskInput): Omit<EvaluateRiskOutput, 'decisionRecordId' | 'policyVersion'> {
     const signals = input.signals || {};
     const riskScore = this.toNumber(signals.riskScore) ?? 0;
@@ -221,6 +246,177 @@ export class RiskEngineService {
       return { decision: 'REVIEW', reasonCodes, recommendedActions };
     }
 
+    if (input.contextType === 'TX_DEPOSIT_KYT_MAIN') {
+      const kytStatus = String(signals.kytStatus || signals.status || '').toUpperCase();
+
+      if (kytStatus === 'PASS') {
+        reasonCodes.push('TX_KYT_PASS');
+        return { decision: 'APPROVE', reasonCodes, recommendedActions };
+      }
+
+      if (kytStatus === 'REVIEW') {
+        reasonCodes.push('TX_KYT_REVIEW');
+        recommendedActions.push({
+          type: RISK_RECOMMENDED_ACTIONS.UPSERT_ALERT,
+          payload: {
+            severity: riskScore >= 80 ? 'CRITICAL' : 'HIGH',
+            recommendation: 'REVIEW',
+            reasonCodes,
+          },
+        });
+        return { decision: 'REVIEW', reasonCodes, recommendedActions };
+      }
+
+      if (kytStatus === 'FAIL') {
+        reasonCodes.push('TX_KYT_FAIL');
+        recommendedActions.push({
+          type: RISK_RECOMMENDED_ACTIONS.UPSERT_ALERT,
+          payload: {
+            severity: 'CRITICAL',
+            recommendation: 'REJECT',
+            reasonCodes,
+          },
+        });
+        recommendedActions.push({
+          type: RISK_RECOMMENDED_ACTIONS.AUTO_ESCALATE_CASE,
+          payload: {
+            reasonCodes,
+          },
+        });
+        return { decision: 'REJECT', reasonCodes, recommendedActions };
+      }
+    }
+
+    if (input.contextType === 'TX_DEPOSIT_TRAVEL_RULE') {
+      const travelStatus = String(
+        signals.travelRuleStatus || signals.status || '',
+      ).toUpperCase();
+
+      if (travelStatus === 'NOT_REQUIRED' || travelStatus === 'ACCEPTED') {
+        reasonCodes.push(
+          travelStatus === 'NOT_REQUIRED'
+            ? 'TX_TRAVEL_RULE_NOT_REQUIRED'
+            : 'TX_TRAVEL_RULE_ACCEPTED',
+        );
+        return { decision: 'APPROVE', reasonCodes, recommendedActions };
+      }
+
+      if (travelStatus === 'REJECTED' || travelStatus === 'EXPIRED') {
+        reasonCodes.push(
+          travelStatus === 'REJECTED'
+            ? 'TX_TRAVEL_RULE_REJECTED'
+            : 'TX_TRAVEL_RULE_EXPIRED',
+        );
+        recommendedActions.push({
+          type: RISK_RECOMMENDED_ACTIONS.UPSERT_ALERT,
+          payload: {
+            severity: 'CRITICAL',
+            recommendation: 'REJECT',
+            reasonCodes,
+          },
+        });
+        recommendedActions.push({
+          type: RISK_RECOMMENDED_ACTIONS.AUTO_ESCALATE_CASE,
+          payload: {
+            reasonCodes,
+          },
+        });
+        return { decision: 'REJECT', reasonCodes, recommendedActions };
+      }
+
+      if (travelStatus) {
+        reasonCodes.push(`TX_TRAVEL_RULE_${travelStatus}`);
+        return { decision: 'REVIEW', reasonCodes, recommendedActions };
+      }
+    }
+
+    if (input.contextType === 'TX_DEPOSIT_FINAL') {
+      const kytStatus = String(signals.kytStatus || '').toUpperCase();
+      const travelStatus = String(signals.travelRuleStatus || '').toUpperCase();
+      const simulationRiskLevel = String(signals.simulationRiskLevel || '').toUpperCase();
+      const simulationRiskReason = String(signals.simulationRiskReason || '').toUpperCase();
+      const riskBand =
+        simulationRiskLevel === 'HIGH'
+          ? 'HIGH'
+          : simulationRiskLevel === 'MEDIUM'
+            ? 'MEDIUM'
+            : 'LOW';
+
+      if (simulationRiskReason === 'KYT_ISSUE') {
+        reasonCodes.push('TX_SIM_KYT_ISSUE');
+      } else if (simulationRiskReason === 'TRAVEL_RULE_ISSUE') {
+        reasonCodes.push('TX_SIM_TRAVEL_RULE_ISSUE');
+      } else if (
+        simulationRiskReason === 'LARGE_DEPOSIT_PROFILE_MISMATCH'
+      ) {
+        reasonCodes.push('TX_SIM_LARGE_DEPOSIT_PROFILE_MISMATCH');
+      } else if (simulationRiskReason === 'SANCTIONS_HIT') {
+        reasonCodes.push('SANCTIONS_HIT');
+        reasonCodes.push('TX_SIM_SANCTIONS_HIT');
+      }
+
+      if (kytStatus === 'FAIL') {
+        reasonCodes.push('TX_KYT_FAIL');
+      } else if (kytStatus === 'REVIEW') {
+        reasonCodes.push('TX_KYT_REVIEW');
+      } else if (kytStatus === 'PASS') {
+        reasonCodes.push('TX_KYT_PASS');
+      }
+
+      if (travelStatus === 'REJECTED') {
+        reasonCodes.push('TX_TRAVEL_RULE_REJECTED');
+      } else if (travelStatus === 'EXPIRED') {
+        reasonCodes.push('TX_TRAVEL_RULE_EXPIRED');
+      } else if (travelStatus === 'ACCEPTED') {
+        reasonCodes.push('TX_TRAVEL_RULE_ACCEPTED');
+      } else if (travelStatus === 'NOT_REQUIRED') {
+        reasonCodes.push('TX_TRAVEL_RULE_NOT_REQUIRED');
+      }
+
+      if (riskBand === 'HIGH') {
+        recommendedActions.push({
+          type: RISK_RECOMMENDED_ACTIONS.UPSERT_ALERT,
+          payload: {
+            severity: 'CRITICAL',
+            recommendation: 'REVIEW',
+            reasonCodes,
+            riskBand,
+            riskReason: simulationRiskReason || null,
+          },
+        });
+        recommendedActions.push({
+          type: RISK_RECOMMENDED_ACTIONS.AUTO_ESCALATE_CASE,
+          payload: {
+            reasonCodes,
+            riskBand,
+            riskReason: simulationRiskReason || null,
+          },
+        });
+        return { decision: 'REVIEW', reasonCodes, recommendedActions };
+      }
+
+      if (riskBand === 'MEDIUM' || kytStatus === 'REVIEW') {
+        recommendedActions.push({
+          type: RISK_RECOMMENDED_ACTIONS.UPSERT_ALERT,
+          payload: {
+            severity: 'HIGH',
+            recommendation: 'REVIEW',
+            reasonCodes,
+            riskBand: riskBand === 'LOW' ? 'MEDIUM' : riskBand,
+            riskReason: simulationRiskReason || null,
+          },
+        });
+        return { decision: 'REVIEW', reasonCodes, recommendedActions };
+      }
+
+      if (
+        kytStatus === 'PASS' &&
+        (travelStatus === 'ACCEPTED' || travelStatus === 'NOT_REQUIRED')
+      ) {
+        return { decision: 'APPROVE', reasonCodes, recommendedActions };
+      }
+    }
+
     if (sanctionsHit) {
       reasonCodes.push('SANCTIONS_HIT');
       recommendedActions.push({
@@ -257,16 +453,9 @@ export class RiskEngineService {
       throw new BadRequestException(RiskEngineService.PHASE2_UNSUPPORTED_OWNER_TYPE);
     }
 
-    const policyVersion = input.policyVersion || 'onboarding-risk-policy/v1';
-    const maskedInput = {
-      contextType: input.contextType,
-      subjectType: input.subjectType,
-      subjectId: input.subjectId,
-      ownerType: input.ownerType,
-      ownerId: input.ownerId,
-      signals: this.maskSignals(input.signals || {}),
-    };
-    const inputHash = createHash('sha256').update(this.stableStringify(maskedInput)).digest('hex');
+    const policyVersion = this.resolvePolicyVersion(input);
+    const maskedInput = this.buildStoredInputPayload(input);
+    const inputHash = this.buildInputHash(input);
     const created = await (this.prisma as any).workflowDecisionRecord.create({
       data: {
         customerId: input.ownerId,
@@ -281,10 +470,19 @@ export class RiskEngineService {
 
     try {
       const evaluated = this.evaluateBySignals(input);
+      const signals = input.signals || {};
       const outputs = {
         decision: evaluated.decision,
         reasonCodes: evaluated.reasonCodes,
         recommendedActions: evaluated.recommendedActions,
+        ...(input.contextType === 'TX_DEPOSIT_FINAL'
+          ? {
+              riskBand:
+                String(signals.simulationRiskLevel || '').trim().toUpperCase() || 'LOW',
+              riskReason:
+                String(signals.simulationRiskReason || '').trim().toUpperCase() || null,
+            }
+          : {}),
       };
 
       await (this.prisma as any).workflowDecisionRecord.update({

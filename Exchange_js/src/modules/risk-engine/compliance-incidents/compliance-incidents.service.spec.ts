@@ -324,6 +324,85 @@ describe('ComplianceIncidentsService', () => {
     expect(createArgs.data.caseType).toBe(ComplianceCaseType.ONBOARDING);
   });
 
+  it('should create TRANSACTION case from transaction review alert', async () => {
+    (
+      ComplianceAlertsService.prototype.applyAction as jest.Mock
+    ).mockResolvedValueOnce({
+      id: 'alert-tx-1',
+      alertNo: 'ALT2603010009',
+      workflow: 'TRANSACTION',
+      stage: 'REVIEW_KYT',
+      rule: 'TX_KYT_REVIEW_REQUIRED',
+      ruleCode: 'TX_KYT_REVIEW_REQUIRED',
+      reasonCodes: ['TX_KYT_FAIL'],
+      severity: 'CRITICAL',
+      status: 'ESCALATED',
+      title: 'Transaction KYT Review Required',
+      sourceModule: 'risk-engine/transaction-compliance',
+      sourceType: 'DEPOSIT',
+      sourceId: 'dep-1',
+      sourceNo: 'DEP-1',
+      entityType: 'KYT_CASE',
+      entityId: 'kyt-1',
+      entityNo: 'KYT0001',
+      ownerType: 'CUSTOMER',
+      ownerId: 'customer-1',
+      customerId: 'customer-1',
+      customerNo: 'CU0001',
+      firstOccurredAt: new Date('2026-03-24T00:00:00.000Z'),
+      lastOccurredAt: new Date('2026-03-24T00:05:00.000Z'),
+      dueAt: new Date('2026-03-25T00:00:00.000Z'),
+      retainedUntil: new Date('2034-03-24T00:00:00.000Z'),
+      metadata: {
+        contextType: 'TX_DEPOSIT_KYT_MAIN',
+        recommendedActions: ['UPSERT_ALERT', 'AUTO_ESCALATE_CASE'],
+      },
+    });
+    prismaMock.complianceIncidentAlert.findUnique.mockResolvedValue(null);
+    prismaMock.complianceIncident.create.mockResolvedValue(
+      buildIncident({
+        caseType: ComplianceCaseType.TRANSACTION,
+        stage: 'REVIEW_KYT',
+        ruleCode: 'TX_KYT_REVIEW_REQUIRED',
+        sourceModule: 'risk-engine/transaction-compliance',
+        sourceType: 'DEPOSIT',
+        entityType: 'KYT_CASE',
+        entityId: 'kyt-1',
+        entityNo: 'KYT0001',
+      }),
+    );
+    prismaMock.complianceIncidentAlert.create.mockResolvedValue({ id: 'link-tx-1' });
+    prismaMock.complianceIncidentEvent.create.mockResolvedValue({ id: 'evt-tx-1' });
+
+    jest.spyOn(service, 'findOne').mockResolvedValue({
+      id: 'inc-tx-1',
+      incidentNo: 'CAS2603010001',
+      caseType: ComplianceCaseType.TRANSACTION,
+      alerts: [],
+      events: [],
+    } as any);
+
+    await service.createFromAlert(
+      'alert-tx-1',
+      { reason: 'System escalation for failed deposit KYT' },
+      {
+        actorType: 'SYSTEM',
+        actorId: 'SYSTEM',
+        actorNo: 'SYSTEM',
+        actorRole: 'SYSTEM',
+      },
+    );
+
+    const createArgs =
+      prismaMock.complianceIncident.create.mock.calls[
+        prismaMock.complianceIncident.create.mock.calls.length - 1
+      ][0];
+    expect(createArgs.data.caseType).toBe(ComplianceCaseType.TRANSACTION);
+    expect(createArgs.data.sourceType).toBe('DEPOSIT');
+    expect(createArgs.data.stage).toBe('REVIEW_KYT');
+    expect(createArgs.data.ruleCode).toBe('TX_KYT_REVIEW_REQUIRED');
+  });
+
   it('should persist decision and recommended action fields when creating incident from alert', async () => {
     prismaMock.complianceIncidentAlert.findUnique.mockResolvedValue(null);
     prismaMock.complianceIncident.create.mockResolvedValue(buildIncident());
@@ -1585,15 +1664,21 @@ describe('ComplianceIncidentsService', () => {
       buildIncident({
         caseType: ComplianceCaseType.TRANSACTION,
         sourceType: 'DEPOSIT',
+        stage: 'REVIEW_TRAVEL_RULE',
         status: ComplianceIncidentStatus.PENDING_MLRO_REVIEW,
+        proposedWorkflowDecision: 'REJECT',
         proposedFinalDispositionCode: 'RISK_CONFIRMED',
         proposedFinalDispositionReason: 'Confirmed suspicious activity.',
         proposedFilingRequired: true,
         proposedFilingType: 'SUSPICIOUS_ACTIVITY',
         proposedFilingAuthority: 'FIU',
+        metadata: JSON.stringify({ sourceId: 'dep-1' }),
         reports: [
           buildReport({
             status: 'FINALIZED',
+            workflow: 'TRANSACTION',
+            stage: 'REVIEW_TRAVEL_RULE',
+            ruleCode: 'TX_TRAVEL_RULE_REVIEW_REQUIRED',
             finalDispositionCode: 'RISK_CONFIRMED',
             filingRequired: true,
             filingType: 'SUSPICIOUS_ACTIVITY',
@@ -1619,6 +1704,10 @@ describe('ComplianceIncidentsService', () => {
     });
     prismaMock.complianceIncidentExternalFilingEvent.create.mockResolvedValue({
       id: 'filing-evt-1',
+    });
+    workflowTransitionServiceMock.transition.mockResolvedValue({
+      transitionCode: 'TX_DEPOSIT_REJECT_TO_REJECTED',
+      executed: true,
     });
     jest.spyOn(service, 'findOne').mockResolvedValue({
       id: 'inc-1',
@@ -1666,6 +1755,69 @@ describe('ComplianceIncidentsService', () => {
       }),
     );
     expect(result.currentFiling?.status).toBe('REQUIRED');
+  });
+
+  it('should execute transaction workflow transition after MLRO approves transaction clear', async () => {
+    prismaMock.complianceIncident.findUnique.mockResolvedValue(
+      buildIncident({
+        caseType: ComplianceCaseType.TRANSACTION,
+        sourceType: 'DEPOSIT',
+        stage: 'REVIEW_KYT',
+        status: ComplianceIncidentStatus.PENDING_MLRO_REVIEW,
+        proposedWorkflowDecision: 'CLEAR',
+        proposedFinalDispositionCode: 'FALSE_POSITIVE',
+        proposedFinalDispositionReason: 'False positive transaction hit.',
+        decisionRecordIds: JSON.stringify(['decision-1']),
+        metadata: JSON.stringify({ sourceId: 'dep-1' }),
+        reports: [
+          buildReport({
+            status: 'FINALIZED',
+            workflow: 'TRANSACTION',
+            stage: 'REVIEW_KYT',
+            ruleCode: 'TX_KYT_REVIEW_REQUIRED',
+            finalDispositionCode: 'FALSE_POSITIVE',
+            filingRequired: false,
+          }),
+        ],
+      }),
+    );
+    prismaMock.complianceIncident.update.mockResolvedValue(buildIncident());
+    prismaMock.complianceIncidentEvent.create.mockResolvedValue({ id: 'evt-mlro-approved' });
+    workflowTransitionServiceMock.transition.mockResolvedValue({
+      transitionCode: 'TX_DEPOSIT_CLEAR_TO_SUCCESS',
+      executed: true,
+    });
+    jest.spyOn(service, 'findOne').mockResolvedValue({
+      id: 'inc-1',
+      status: ComplianceIncidentStatus.CLOSED,
+      alerts: [],
+      events: [],
+    } as any);
+
+    await service.reviewByMlro(
+      'inc-1',
+      {
+        decision: 'APPROVE_FINAL_DISPOSITION',
+      },
+      {
+        actorType: 'ADMIN',
+        actorId: 'admin-1',
+        actorNo: 'US0001',
+        actorRole: 'MLRO',
+        roleCodes: ['MLRO'],
+      },
+    );
+
+    expect(workflowTransitionServiceMock.transition).toHaveBeenCalledWith(
+      prismaMock,
+      expect.objectContaining({
+        workflow: 'TRANSACTION',
+        producerType: 'CASE',
+        producerId: 'inc-1',
+        sourceId: 'dep-1',
+        dispositionCode: 'FALSE_POSITIVE',
+      }),
+    );
   });
 
   it('should mark compatibility report mirror as REPORTED after filing submission', async () => {

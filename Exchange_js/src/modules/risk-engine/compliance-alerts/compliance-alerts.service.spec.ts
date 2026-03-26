@@ -1,3 +1,4 @@
+import { ModuleRef } from '@nestjs/core';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
 import { ComplianceAlertsService } from './compliance-alerts.service';
 import {
@@ -27,6 +28,21 @@ describe('ComplianceAlertsService', () => {
     user: {
       findUnique: jest.fn(),
     },
+  };
+  const transactionDepositWorkflowServiceMock = {
+    execute: jest.fn(),
+  };
+  const onboardingServiceMock = {
+    applyOnboardingDecisionFromAlert: jest.fn(),
+  };
+  const periodicReviewServiceMock = {
+    applyDecisionFromAlert: jest.fn(),
+  };
+  const complianceIncidentsServiceMock = {
+    createFromAlert: jest.fn(),
+  };
+  const moduleRefMock = {
+    get: jest.fn(),
   };
 
   let service: ComplianceAlertsService;
@@ -93,12 +109,29 @@ describe('ComplianceAlertsService', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    moduleRefMock.get.mockImplementation((token: { name?: string }) => {
+      switch (token?.name) {
+        case 'TransactionDepositWorkflowService':
+          return transactionDepositWorkflowServiceMock;
+        case 'OnboardingService':
+          return onboardingServiceMock;
+        case 'PeriodicReviewService':
+          return periodicReviewServiceMock;
+        case 'ComplianceIncidentsService':
+          return complianceIncidentsServiceMock;
+        default:
+          return undefined;
+      }
+    });
     jest.spyOn(AuditLogsService.prototype, 'recordSystem').mockResolvedValue({} as any);
     jest.spyOn(AuditLogsService.prototype, 'recordByActor').mockResolvedValue({} as any);
     prismaMock.complianceAlertDispositionRecord.create.mockResolvedValue({
       id: 'alert-disp-1',
     });
-    service = new ComplianceAlertsService(prismaMock);
+    service = new ComplianceAlertsService(
+      prismaMock,
+      moduleRefMock as unknown as ModuleRef,
+    );
   });
 
   it('should create a new alert when dedupe key does not exist', async () => {
@@ -176,6 +209,106 @@ describe('ComplianceAlertsService', () => {
       undefined,
     );
     expect(result.ruleCode).toBe('PRR_CDD_REVIEW_REQUIRED');
+  });
+
+  it('should support transaction rule codes and trace context for deposit alerts', async () => {
+    const recordSystemSpy = jest.spyOn(AuditLogsService.prototype, 'recordSystem');
+    prismaMock.complianceAlert.findUnique.mockResolvedValue(null);
+    prismaMock.customerMain.findUnique.mockResolvedValue({ customerNo: 'CU0009' });
+    prismaMock.complianceAlert.create.mockResolvedValue(
+      buildAlert({
+        ruleCode: 'TX_KYT_REVIEW_REQUIRED',
+        sourceModule: 'risk-engine/transaction-compliance',
+        sourceType: 'DEPOSIT',
+        sourceId: 'dep-1',
+        sourceNo: 'DEP0001',
+        entityType: 'KYT_CASE',
+        entityId: 'kyt-1',
+        entityNo: 'KYT0001',
+        stage: 'REVIEW_KYT',
+        journeyId: null,
+        dedupeKey: 'TX_KYT_REVIEW_REQUIRED:DEPOSIT:dep-1:REVIEW_KYT',
+        title: 'Transaction KYT Review Required',
+      }),
+    );
+
+    const result = await service.triggerSystemAlert({
+      ruleCode: 'TX_KYT_REVIEW_REQUIRED',
+      sourceModule: 'risk-engine/transaction-compliance',
+      sourceType: 'DEPOSIT',
+      sourceId: 'dep-1',
+      sourceNo: 'DEP0001',
+      stage: 'REVIEW_KYT',
+      entityType: 'KYT_CASE',
+      entityId: 'kyt-1',
+      entityNo: 'KYT0001',
+      ownerType: 'CUSTOMER',
+      ownerId: 'customer-9',
+      customerId: 'customer-9',
+      metadata: { triggerStatus: 'REVIEW' },
+    });
+
+    expect(prismaMock.complianceAlert.create).toHaveBeenCalledTimes(1);
+    expect(recordSystemSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        traceId: 'TRANSACTION:dep-1',
+        workflowType: 'TRANSACTION',
+        workflowId: 'dep-1',
+        workflowNo: 'DEP0001',
+      }),
+      undefined,
+    );
+    expect(result.ruleCode).toBe('TX_KYT_REVIEW_REQUIRED');
+    expect(result.stage).toBe('REVIEW_KYT');
+  });
+
+  it('should include transaction workflow alerts in default findAll query', async () => {
+    prismaMock.complianceAlert.count.mockResolvedValue(1);
+    prismaMock.complianceAlert.findMany.mockResolvedValue([
+      buildAlert({
+        ruleCode: 'TX_DEPOSIT_FINAL_REVIEW_REQUIRED',
+        sourceModule: 'risk-engine/transaction-compliance',
+        sourceType: 'DEPOSIT',
+        sourceId: 'dep-1',
+        sourceNo: 'DEP0001',
+        entityType: 'DEPOSIT_TRANSACTION',
+        entityId: 'dep-1',
+        entityNo: 'DEP0001',
+        stage: 'REVIEW_DEPOSIT_FINAL',
+        journeyId: null,
+        dedupeKey: 'TX_DEPOSIT_FINAL_REVIEW_REQUIRED:DEPOSIT:dep-1:REVIEW_DEPOSIT_FINAL',
+        title: 'Transaction Deposit Final Review Required',
+      }),
+    ]);
+
+    const result = await service.findAll({});
+
+    expect(prismaMock.complianceAlert.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          sourceType: {
+            in: ['ONBOARDING_JOURNEY', 'PERIODIC_REVIEW_CYCLE', 'DEPOSIT'],
+          },
+          stage: {
+            in: expect.arrayContaining([
+              'REVIEW_CDD',
+              'REVIEW_EDD',
+              'REVIEW_KYT',
+              'REVIEW_TRAVEL_RULE',
+              'REVIEW_DEPOSIT_FINAL',
+            ]),
+          },
+        }),
+      }),
+    );
+    expect(result.items).toEqual([
+      expect.objectContaining({
+        sourceType: 'DEPOSIT',
+        workflow: 'TRANSACTION',
+        stage: 'REVIEW_DEPOSIT_FINAL',
+        ruleCode: 'TX_DEPOSIT_FINAL_REVIEW_REQUIRED',
+      }),
+    ]);
   });
 
   it('should update hitCount when existing open alert is triggered again', async () => {
@@ -459,7 +592,7 @@ describe('ComplianceAlertsService', () => {
     ).rejects.toThrow('Workflow-bound alerts must be resolved');
   });
 
-  it('should hide workflow actions for OPEN workflow-bound alert detail', async () => {
+  it('should expose canonical handling actions for OPEN workflow-bound alert detail', async () => {
     prismaMock.complianceAlert.findUnique.mockResolvedValue({
       ...buildAlert({
         status: ComplianceAlertStatus.OPEN,
@@ -477,16 +610,13 @@ describe('ComplianceAlertsService', () => {
       actorRole: 'COMPLIANCE_LEAD',
     });
 
-    expect(result).not.toHaveProperty('availableWorkItemActions');
-    expect(result.availableAlertActions).toEqual([
-      'ASSIGN',
-      'FALSE_POSITIVE',
-      'ESCALATE_TO_CASE',
-    ]);
-    expect(result.availableWorkflowActions).toEqual([]);
+    expect(result.availableHandlingActions).toEqual(['ASSIGN']);
+    expect(result.availableDirectProposals).toEqual([]);
+    expect(result).not.toHaveProperty('availableAlertActions');
+    expect(result).not.toHaveProperty('availableWorkflowActions');
   });
 
-  it('should hide workflow actions for ASSIGNED workflow-bound alert when actor is not assignee', async () => {
+  it('should keep canonical handling empty for non-assignee on ASSIGNED workflow-bound alert detail', async () => {
     prismaMock.complianceAlert.findUnique.mockResolvedValue({
       ...buildAlert({
         status: ComplianceAlertStatus.ASSIGNED,
@@ -504,15 +634,13 @@ describe('ComplianceAlertsService', () => {
       actorRole: 'COMPLIANCE_LEAD',
     });
 
-    expect(result.availableAlertActions).toEqual([
-      'REASSIGN',
-      'FALSE_POSITIVE',
-      'ESCALATE_TO_CASE',
-    ]);
-    expect(result.availableWorkflowActions).toEqual([]);
+    expect(result.availableHandlingActions).toEqual([]);
+    expect(result.availableDirectProposals).toEqual([]);
+    expect(result).not.toHaveProperty('availableAlertActions');
+    expect(result).not.toHaveProperty('availableWorkflowActions');
   });
 
-  it('should expose workflow actions for ASSIGNED workflow-bound alert when actor is the assignee', async () => {
+  it('should expose canonical direct proposals for assignee onboarding alert detail', async () => {
     prismaMock.complianceAlert.findUnique.mockResolvedValue({
       ...buildAlert({
         status: ComplianceAlertStatus.ASSIGNED,
@@ -530,16 +658,53 @@ describe('ComplianceAlertsService', () => {
       actorRole: 'COMPLIANCE_LEAD',
     });
 
-    expect(result.availableAlertActions).toEqual([
+    expect(result.availableHandlingActions).toEqual([
       'REASSIGN',
       'FALSE_POSITIVE',
+      'DIRECT_DISPOSITION',
       'ESCALATE_TO_CASE',
     ]);
-    expect(result.availableWorkflowActions).toEqual([
-      'CLEAR',
-      'REJECT',
-      'REQUIRE_EDD',
+    expect(result.availableDirectProposals).toEqual(['REJECT', 'REQUIRE_EDD']);
+    expect(result).not.toHaveProperty('availableAlertActions');
+    expect(result).not.toHaveProperty('availableWorkflowActions');
+  });
+
+  it('should expose canonical direct proposals for transaction alerts without legacy aliases', async () => {
+    prismaMock.complianceAlert.findUnique.mockResolvedValue({
+      ...buildAlert({
+        status: ComplianceAlertStatus.ASSIGNED,
+        sourceModule: 'risk-engine/transaction-compliance',
+        sourceType: 'DEPOSIT',
+        sourceId: 'dep-1',
+        sourceNo: 'DEP0001',
+        entityType: 'KYT_CASE',
+        entityId: 'kyt-1',
+        entityNo: 'KYT0001',
+        stage: 'REVIEW_KYT',
+        ruleCode: 'TX_KYT_REVIEW_REQUIRED',
+        assigneeUserId: 'admin-1',
+        assigneeUserNo: 'US0001',
+      }),
+      events: [],
+      dispositionRecords: [],
+    });
+
+    const result = await service.findOne('alert-1', {
+      actorType: 'ADMIN',
+      actorId: 'admin-1',
+      actorNo: 'US0001',
+      actorRole: 'COMPLIANCE_LEAD',
+    });
+
+    expect(result.availableHandlingActions).toEqual([
+      'REASSIGN',
+      'FALSE_POSITIVE',
+      'DIRECT_DISPOSITION',
+      'ESCALATE_TO_CASE',
     ]);
+    expect(result.availableDirectProposals).toEqual(['REJECT', 'FREEZE_TRANSACTION']);
+    expect(result).not.toHaveProperty('availableAlertActions');
+    expect(result).not.toHaveProperty('availableWorkflowActions');
   });
 
   it('should allow assignee to ESCALATE from ASSIGNED status', async () => {
@@ -737,6 +902,102 @@ describe('ComplianceAlertsService', () => {
     ).rejects.toThrow('Workflow-bound alerts must be resolved');
   });
 
+  it('should allow transaction false positive close and trigger deposit clear callback', async () => {
+    prismaMock.complianceAlert.findUnique
+      .mockResolvedValueOnce(
+        buildAlert({
+          status: ComplianceAlertStatus.ASSIGNED,
+          sourceModule: 'risk-engine/transaction-compliance',
+          sourceType: 'DEPOSIT',
+          sourceId: 'dep-1',
+          sourceNo: 'DEP0001',
+          entityType: 'KYT_CASE',
+          entityId: 'kyt-1',
+          entityNo: 'KYT0001',
+          stage: 'REVIEW_KYT',
+          ruleCode: 'TX_KYT_REVIEW_REQUIRED',
+          assigneeUserId: 'admin-1',
+          assigneeUserNo: 'US0001',
+        }),
+      )
+      .mockResolvedValueOnce({
+        ...buildAlert({
+          status: ComplianceAlertStatus.CLOSED,
+          sourceModule: 'risk-engine/transaction-compliance',
+          sourceType: 'DEPOSIT',
+          sourceId: 'dep-1',
+          sourceNo: 'DEP0001',
+          entityType: 'KYT_CASE',
+          entityId: 'kyt-1',
+          entityNo: 'KYT0001',
+          stage: 'REVIEW_KYT',
+          ruleCode: 'TX_KYT_REVIEW_REQUIRED',
+          assigneeUserId: 'admin-1',
+          assigneeUserNo: 'US0001',
+          currentDispositionCode: 'FALSE_POSITIVE',
+          finalDispositionCode: 'FALSE_POSITIVE',
+          decisionRecordIds: JSON.stringify(['decision-1']),
+        }),
+        events: [],
+        dispositionRecords: [],
+      });
+    prismaMock.complianceAlert.update.mockResolvedValue(
+      buildAlert({
+        status: ComplianceAlertStatus.CLOSED,
+        sourceModule: 'risk-engine/transaction-compliance',
+        sourceType: 'DEPOSIT',
+        sourceId: 'dep-1',
+        sourceNo: 'DEP0001',
+        entityType: 'KYT_CASE',
+        entityId: 'kyt-1',
+        entityNo: 'KYT0001',
+        stage: 'REVIEW_KYT',
+        ruleCode: 'TX_KYT_REVIEW_REQUIRED',
+        assigneeUserId: 'admin-1',
+        assigneeUserNo: 'US0001',
+        currentDispositionCode: 'FALSE_POSITIVE',
+        finalDispositionCode: 'FALSE_POSITIVE',
+        decisionRecordIds: JSON.stringify(['decision-1']),
+      }),
+    );
+    transactionDepositWorkflowServiceMock.execute.mockResolvedValue({
+      applied: true,
+      blocked: false,
+      transitionCode: 'TX_DEPOSIT_CLEAR_TO_SUCCESS',
+      depositStatusBefore: 'UNDER_REVIEW',
+      depositStatusAfter: 'SUCCESS',
+    });
+
+    const result = await service.applyAction(
+      'alert-1',
+      {
+        action: ComplianceAlertAction.CLOSE,
+        reason: 'false positive',
+        dispositionCode: 'FALSE_POSITIVE',
+        decision: 'CLEAR',
+        finalizeDisposition: true,
+      },
+      {
+        actorType: 'ADMIN',
+        actorId: 'admin-1',
+        actorNo: 'US0001',
+        actorRole: 'ADMIN',
+      },
+      prismaMock,
+    );
+
+    expect(result.status).toBe(ComplianceAlertStatus.CLOSED);
+    expect(transactionDepositWorkflowServiceMock.execute).toHaveBeenCalledWith(
+      prismaMock,
+      expect.objectContaining({
+        depositId: 'dep-1',
+        source: 'ALERT',
+        sourceId: 'alert-1',
+        workflowAction: 'CLEAR',
+      }),
+    );
+  });
+
   it('should reject terminal status action', async () => {
     prismaMock.complianceAlert.findUnique.mockResolvedValue(
       buildAlert({ status: ComplianceAlertStatus.CLOSED }),
@@ -805,5 +1066,502 @@ describe('ComplianceAlertsService', () => {
     ).toBe(true);
     expect(result.createdCount).toBe(10);
     expect(result.items).toHaveLength(10);
+  });
+
+  it('should expose primary object and assign-only handling for OPEN alert detail', async () => {
+    prismaMock.complianceAlert.findUnique.mockResolvedValue({
+      ...buildAlert({
+        status: ComplianceAlertStatus.OPEN,
+        assigneeUserId: null,
+        assigneeUserNo: null,
+      }),
+      events: [],
+      dispositionRecords: [],
+    });
+
+    const result = await service.findOne('alert-1', {
+      actorType: 'ADMIN',
+      actorId: 'admin-9',
+      actorNo: 'US0009',
+      actorRole: 'COMPLIANCE_LEAD',
+    });
+
+    expect(result.primaryObject).toEqual({
+      type: 'ONBOARDING_JOURNEY',
+      id: 'journey-1',
+      no: 'ONB0001',
+      label: 'Onboarding Journey',
+    });
+    expect(result.availableHandlingActions).toEqual(['ASSIGN']);
+    expect(result.availableDirectProposals).toEqual([]);
+  });
+
+  it('should hide handling actions for non-assignee on ASSIGNED alert detail', async () => {
+    prismaMock.complianceAlert.findUnique.mockResolvedValue({
+      ...buildAlert({
+        status: ComplianceAlertStatus.ASSIGNED,
+        assigneeUserId: 'admin-1',
+        assigneeUserNo: 'US0001',
+      }),
+      events: [],
+      dispositionRecords: [],
+    });
+
+    const result = await service.findOne('alert-1', {
+      actorType: 'ADMIN',
+      actorId: 'admin-2',
+      actorNo: 'US0002',
+      actorRole: 'COMPLIANCE_LEAD',
+    });
+
+    expect(result.availableHandlingActions).toEqual([]);
+    expect(result.availableDirectProposals).toEqual([]);
+  });
+
+  it('should expose direct disposition proposals for assignee on onboarding CDD alert', async () => {
+    prismaMock.complianceAlert.findUnique.mockResolvedValue({
+      ...buildAlert({
+        status: ComplianceAlertStatus.ASSIGNED,
+        assigneeUserId: 'admin-1',
+        assigneeUserNo: 'US0001',
+      }),
+      events: [],
+      dispositionRecords: [],
+    });
+
+    const result = await service.findOne('alert-1', {
+      actorType: 'ADMIN',
+      actorId: 'admin-1',
+      actorNo: 'US0001',
+      actorRole: 'COMPLIANCE_LEAD',
+    });
+
+    expect(result.availableHandlingActions).toEqual([
+      'REASSIGN',
+      'FALSE_POSITIVE',
+      'DIRECT_DISPOSITION',
+      'ESCALATE_TO_CASE',
+    ]);
+    expect(result.availableDirectProposals).toEqual(['REJECT', 'REQUIRE_EDD']);
+  });
+
+  it('should expose reject-only proposal for periodic review EDD alert', async () => {
+    prismaMock.complianceAlert.findUnique.mockResolvedValue({
+      ...buildAlert({
+        sourceModule: 'identity/periodic-review',
+        sourceType: 'PERIODIC_REVIEW_CYCLE',
+        sourceId: 'cycle-1',
+        sourceNo: 'PRR0001',
+        journeyId: null,
+        stage: 'REVIEW_EDD',
+        ruleCode: 'PRR_EDD_REVIEW_REQUIRED',
+        status: ComplianceAlertStatus.ASSIGNED,
+        assigneeUserId: 'admin-1',
+        assigneeUserNo: 'US0001',
+      }),
+      events: [],
+      dispositionRecords: [],
+    });
+
+    const result = await service.findOne('alert-1', {
+      actorType: 'ADMIN',
+      actorId: 'admin-1',
+      actorNo: 'US0001',
+      actorRole: 'COMPLIANCE_LEAD',
+    });
+
+    expect(result.primaryObject).toEqual({
+      type: 'PERIODIC_REVIEW_CYCLE',
+      id: 'cycle-1',
+      no: 'PRR0001',
+      label: 'Periodic Review Cycle',
+    });
+    expect(result.availableDirectProposals).toEqual(['REJECT']);
+  });
+
+  it('should expose reject and freeze proposals for deposit alert detail', async () => {
+    prismaMock.complianceAlert.findUnique.mockResolvedValue({
+      ...buildAlert({
+        sourceModule: 'risk-engine/transaction-compliance',
+        sourceType: 'DEPOSIT',
+        sourceId: 'dep-1',
+        sourceNo: 'DEP0001',
+        entityType: 'DEPOSIT_TRANSACTION',
+        entityId: 'dep-1',
+        entityNo: 'DEP0001',
+        journeyId: null,
+        stage: 'REVIEW_DEPOSIT_FINAL',
+        ruleCode: 'TX_DEPOSIT_FINAL_REVIEW_REQUIRED',
+        status: ComplianceAlertStatus.ASSIGNED,
+        assigneeUserId: 'admin-1',
+        assigneeUserNo: 'US0001',
+      }),
+      events: [],
+      dispositionRecords: [],
+    });
+
+    const result = await service.findOne('alert-1', {
+      actorType: 'ADMIN',
+      actorId: 'admin-1',
+      actorNo: 'US0001',
+      actorRole: 'COMPLIANCE_LEAD',
+    });
+
+    expect(result.primaryObject).toEqual({
+      type: 'DEPOSIT',
+      id: 'dep-1',
+      no: 'DEP0001',
+      label: 'Deposit',
+    });
+    expect(result.availableDirectProposals).toEqual(['REJECT', 'FREEZE_TRANSACTION']);
+  });
+
+  it('should delegate onboarding false positive resolution to onboarding service', async () => {
+    prismaMock.complianceAlert.findUnique.mockResolvedValue(
+      buildAlert({
+        status: ComplianceAlertStatus.ASSIGNED,
+        assigneeUserId: 'admin-1',
+        assigneeUserNo: 'US0001',
+      }),
+    );
+    onboardingServiceMock.applyOnboardingDecisionFromAlert.mockResolvedValue({
+      alert: { id: 'alert-1', status: 'CLOSED' },
+    });
+
+    const result = await service.resolveAlert(
+      'alert-1',
+      { resolutionType: 'FALSE_POSITIVE' as any },
+      {
+        actorType: 'ADMIN',
+        actorId: 'admin-1',
+        actorNo: 'US0001',
+        actorRole: 'COMPLIANCE_LEAD',
+      },
+    );
+
+    expect(onboardingServiceMock.applyOnboardingDecisionFromAlert).toHaveBeenCalledWith(
+      'alert-1',
+      'admin-1',
+      'COMPLIANCE_LEAD',
+      expect.objectContaining({
+        decision: 'CLEAR',
+        alertOutcome: 'FALSE_POSITIVE',
+      }),
+    );
+    expect(result).toEqual({ id: 'alert-1', status: 'CLOSED' });
+  });
+
+  it('should resolve deposit false positive via canonical resolution helper without routing through applyAction', async () => {
+    prismaMock.$transaction = jest.fn(async (callback: (tx: any) => unknown) => callback(prismaMock));
+    const applyActionSpy = jest.spyOn(service, 'applyAction');
+    prismaMock.complianceAlert.findUnique
+      .mockResolvedValueOnce(
+        buildAlert({
+          status: ComplianceAlertStatus.ASSIGNED,
+          sourceModule: 'risk-engine/transaction-compliance',
+          sourceType: 'DEPOSIT',
+          sourceId: 'dep-1',
+          sourceNo: 'DEP0001',
+          entityType: 'KYT_CASE',
+          entityId: 'kyt-1',
+          entityNo: 'KYT0001',
+          stage: 'REVIEW_KYT',
+          ruleCode: 'TX_KYT_REVIEW_REQUIRED',
+          assigneeUserId: 'admin-1',
+          assigneeUserNo: 'US0001',
+          decisionRecordIds: JSON.stringify(['decision-1']),
+        }),
+      )
+      .mockResolvedValueOnce(
+        buildAlert({
+          status: ComplianceAlertStatus.ASSIGNED,
+          sourceModule: 'risk-engine/transaction-compliance',
+          sourceType: 'DEPOSIT',
+          sourceId: 'dep-1',
+          sourceNo: 'DEP0001',
+          entityType: 'KYT_CASE',
+          entityId: 'kyt-1',
+          entityNo: 'KYT0001',
+          stage: 'REVIEW_KYT',
+          ruleCode: 'TX_KYT_REVIEW_REQUIRED',
+          assigneeUserId: 'admin-1',
+          assigneeUserNo: 'US0001',
+          decisionRecordIds: JSON.stringify(['decision-1']),
+        }),
+      )
+      .mockResolvedValueOnce({
+        ...buildAlert({
+          status: ComplianceAlertStatus.CLOSED,
+          sourceModule: 'risk-engine/transaction-compliance',
+          sourceType: 'DEPOSIT',
+          sourceId: 'dep-1',
+          sourceNo: 'DEP0001',
+          entityType: 'KYT_CASE',
+          entityId: 'kyt-1',
+          entityNo: 'KYT0001',
+          stage: 'REVIEW_KYT',
+          ruleCode: 'TX_KYT_REVIEW_REQUIRED',
+          assigneeUserId: 'admin-1',
+          assigneeUserNo: 'US0001',
+          currentDispositionCode: 'FALSE_POSITIVE',
+          finalDispositionCode: 'FALSE_POSITIVE',
+          decision: 'FALSE_POSITIVE',
+          decisionRecordIds: JSON.stringify(['decision-1']),
+        }),
+        events: [],
+        dispositionRecords: [],
+      });
+    prismaMock.complianceAlert.update.mockResolvedValue(
+      buildAlert({
+        status: ComplianceAlertStatus.CLOSED,
+        sourceModule: 'risk-engine/transaction-compliance',
+        sourceType: 'DEPOSIT',
+        sourceId: 'dep-1',
+        sourceNo: 'DEP0001',
+        entityType: 'KYT_CASE',
+        entityId: 'kyt-1',
+        entityNo: 'KYT0001',
+        stage: 'REVIEW_KYT',
+        ruleCode: 'TX_KYT_REVIEW_REQUIRED',
+        assigneeUserId: 'admin-1',
+        assigneeUserNo: 'US0001',
+        currentDispositionCode: 'FALSE_POSITIVE',
+        finalDispositionCode: 'FALSE_POSITIVE',
+        decision: 'FALSE_POSITIVE',
+        decisionRecordIds: JSON.stringify(['decision-1']),
+      }),
+    );
+    transactionDepositWorkflowServiceMock.execute.mockResolvedValue({
+      applied: true,
+      blocked: false,
+      transitionCode: 'TX_DEPOSIT_CLEAR_TO_SUCCESS',
+      depositStatusBefore: 'UNDER_REVIEW',
+      depositStatusAfter: 'SUCCESS',
+    });
+
+    const result = await service.resolveAlert(
+      'alert-1',
+      { resolutionType: 'FALSE_POSITIVE' as any },
+      {
+        actorType: 'ADMIN',
+        actorId: 'admin-1',
+        actorNo: 'US0001',
+        actorRole: 'COMPLIANCE_LEAD',
+      },
+    );
+
+    expect(applyActionSpy).not.toHaveBeenCalled();
+    expect(transactionDepositWorkflowServiceMock.execute).toHaveBeenCalledWith(
+      prismaMock,
+      expect.objectContaining({
+        depositId: 'dep-1',
+        workflowAction: 'CLEAR',
+        reasonCode: 'FALSE_POSITIVE',
+      }),
+    );
+    expect(result.status).toBe(ComplianceAlertStatus.CLOSED);
+  });
+
+  it('should reject direct disposition without reason', async () => {
+    prismaMock.complianceAlert.findUnique.mockResolvedValue(
+      buildAlert({
+        status: ComplianceAlertStatus.ASSIGNED,
+        assigneeUserId: 'admin-1',
+        assigneeUserNo: 'US0001',
+      }),
+    );
+
+    await expect(
+      service.resolveAlert(
+        'alert-1',
+        {
+          resolutionType: 'DIRECT_DISPOSITION' as any,
+          proposalCode: 'REJECT',
+        },
+        {
+          actorType: 'ADMIN',
+          actorId: 'admin-1',
+          actorNo: 'US0001',
+          actorRole: 'COMPLIANCE_LEAD',
+        },
+      ),
+    ).rejects.toThrow('requires a reason');
+  });
+
+  it('should resolve deposit alert by rejecting the deposit and closing the alert', async () => {
+    prismaMock.$transaction = jest.fn(async (callback: (tx: any) => unknown) => callback(prismaMock));
+    prismaMock.complianceAlert.findUnique
+      .mockResolvedValueOnce(
+        buildAlert({
+          sourceModule: 'risk-engine/transaction-compliance',
+          sourceType: 'DEPOSIT',
+          sourceId: 'dep-1',
+          sourceNo: 'DEP0001',
+          entityType: 'DEPOSIT_TRANSACTION',
+          entityId: 'dep-1',
+          entityNo: 'DEP0001',
+          journeyId: null,
+          stage: 'REVIEW_DEPOSIT_FINAL',
+          ruleCode: 'TX_DEPOSIT_FINAL_REVIEW_REQUIRED',
+          status: ComplianceAlertStatus.ASSIGNED,
+          assigneeUserId: 'admin-1',
+          assigneeUserNo: 'US0001',
+          decisionRecordIds: JSON.stringify(['decision-1']),
+        }),
+      )
+      .mockResolvedValueOnce(
+        buildAlert({
+          sourceModule: 'risk-engine/transaction-compliance',
+          sourceType: 'DEPOSIT',
+          sourceId: 'dep-1',
+          sourceNo: 'DEP0001',
+          entityType: 'DEPOSIT_TRANSACTION',
+          entityId: 'dep-1',
+          entityNo: 'DEP0001',
+          journeyId: null,
+          stage: 'REVIEW_DEPOSIT_FINAL',
+          ruleCode: 'TX_DEPOSIT_FINAL_REVIEW_REQUIRED',
+          status: ComplianceAlertStatus.ASSIGNED,
+          assigneeUserId: 'admin-1',
+          assigneeUserNo: 'US0001',
+          decisionRecordIds: JSON.stringify(['decision-1']),
+        }),
+      )
+      .mockResolvedValueOnce({
+        ...buildAlert({
+          sourceModule: 'risk-engine/transaction-compliance',
+          sourceType: 'DEPOSIT',
+          sourceId: 'dep-1',
+          sourceNo: 'DEP0001',
+          entityType: 'DEPOSIT_TRANSACTION',
+          entityId: 'dep-1',
+          entityNo: 'DEP0001',
+          journeyId: null,
+          stage: 'REVIEW_DEPOSIT_FINAL',
+          ruleCode: 'TX_DEPOSIT_FINAL_REVIEW_REQUIRED',
+          status: ComplianceAlertStatus.CLOSED,
+          assigneeUserId: 'admin-1',
+          assigneeUserNo: 'US0001',
+          decision: 'REJECT',
+          currentDispositionCode: 'RESOLVED_BY_WORKFLOW',
+          finalDispositionCode: 'RESOLVED_BY_WORKFLOW',
+          decisionRecordIds: JSON.stringify(['decision-1']),
+        }),
+        events: [],
+        dispositionRecords: [],
+      });
+    prismaMock.complianceAlert.update.mockResolvedValue(
+      buildAlert({
+        sourceModule: 'risk-engine/transaction-compliance',
+        sourceType: 'DEPOSIT',
+        sourceId: 'dep-1',
+        sourceNo: 'DEP0001',
+        entityType: 'DEPOSIT_TRANSACTION',
+        entityId: 'dep-1',
+        entityNo: 'DEP0001',
+        journeyId: null,
+        stage: 'REVIEW_DEPOSIT_FINAL',
+        ruleCode: 'TX_DEPOSIT_FINAL_REVIEW_REQUIRED',
+        status: ComplianceAlertStatus.CLOSED,
+        assigneeUserId: 'admin-1',
+        assigneeUserNo: 'US0001',
+        decision: 'REJECT',
+        currentDispositionCode: 'RESOLVED_BY_WORKFLOW',
+        finalDispositionCode: 'RESOLVED_BY_WORKFLOW',
+      }),
+    );
+    transactionDepositWorkflowServiceMock.execute.mockResolvedValue({
+      applied: true,
+      blocked: false,
+      blockedReason: null,
+      depositId: 'dep-1',
+      depositNo: 'DEP0001',
+      workflowAction: 'REJECT',
+      transitionCode: 'TX_DEPOSIT_REJECT_TO_REJECTED',
+      depositStatusBefore: 'UNDER_REVIEW',
+      depositStatusAfter: 'REJECTED',
+      auditMetadata: {},
+    });
+
+    const result = await service.resolveAlert(
+      'alert-1',
+      {
+        resolutionType: 'DIRECT_DISPOSITION' as any,
+        proposalCode: 'REJECT',
+        reason: 'risk confirmed',
+      },
+      {
+        actorType: 'ADMIN',
+        actorId: 'admin-1',
+        actorNo: 'US0001',
+        actorRole: 'COMPLIANCE_LEAD',
+      },
+    );
+
+    expect(prismaMock.complianceAlert.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: ComplianceAlertStatus.CLOSED,
+          decision: 'REJECT',
+          currentDispositionCode: 'RESOLVED_BY_WORKFLOW',
+        }),
+      }),
+    );
+    expect(transactionDepositWorkflowServiceMock.execute).toHaveBeenCalledWith(
+      prismaMock,
+      expect.objectContaining({
+        depositId: 'dep-1',
+        workflowAction: 'REJECT',
+        alertId: 'alert-1',
+      }),
+    );
+    expect(result.status).toBe(ComplianceAlertStatus.CLOSED);
+  });
+
+  it('should escalate alert to case through compliance incidents service', async () => {
+    prismaMock.complianceAlert.findUnique
+      .mockResolvedValueOnce(
+        buildAlert({
+          status: ComplianceAlertStatus.ASSIGNED,
+          assigneeUserId: 'admin-1',
+          assigneeUserNo: 'US0001',
+        }),
+      )
+      .mockResolvedValueOnce({
+        ...buildAlert({
+          status: ComplianceAlertStatus.ESCALATED,
+          assigneeUserId: 'admin-1',
+          assigneeUserNo: 'US0001',
+          linkedCaseIds: JSON.stringify(['case-1']),
+          currentDispositionCode: 'ESCALATE_TO_CASE',
+          finalDispositionCode: 'ESCALATE_TO_CASE',
+        }),
+        events: [],
+        dispositionRecords: [],
+      });
+    complianceIncidentsServiceMock.createFromAlert.mockResolvedValue({ id: 'case-1' });
+
+    const result = await service.resolveAlert(
+      'alert-1',
+      {
+        resolutionType: 'ESCALATE_TO_CASE' as any,
+        reason: 'needs formal investigation',
+      },
+      {
+        actorType: 'ADMIN',
+        actorId: 'admin-1',
+        actorNo: 'US0001',
+        actorRole: 'COMPLIANCE_LEAD',
+      },
+    );
+
+    expect(complianceIncidentsServiceMock.createFromAlert).toHaveBeenCalledWith(
+      'alert-1',
+      { reason: 'needs formal investigation' },
+      expect.objectContaining({
+        actorId: 'admin-1',
+      }),
+    );
+    expect(result.status).toBe(ComplianceAlertStatus.ESCALATED);
   });
 });

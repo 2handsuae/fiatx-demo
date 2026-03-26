@@ -1,5 +1,4 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { OnEvent } from '@nestjs/event-emitter';
 import { PrismaService } from '../core/prisma/prisma.service';
 import { InternalTransactionsService } from '../modules/asset-treasury/internal-transactions/internal-transactions.service';
 import { InternalFundsService } from '../modules/asset-treasury/internal-funds/internal-funds.service';
@@ -52,59 +51,10 @@ export class InternalCollectionWorkflowOrchestrator {
     private readonly internalFundsService: InternalFundsService,
   ) {}
 
-  @OnEvent('deposit.status.changed')
   async onDepositStatusChanged(event: DepositStatusChangedEvent) {
-    if (event.newStatus !== DepositTransactionStatus.SUCCESS) {
-      return null;
-    }
-
-    for (
-      let attempt = 1;
-      attempt <= InternalCollectionWorkflowOrchestrator.RETRYABLE_ATTEMPTS;
-      attempt += 1
-    ) {
-      const result = await this.reconcileMissingCollections({
-        depositId: event.depositId,
-        onlyMissing: false,
-        dryRun: false,
-        operatorId: 'SYSTEM',
-      });
-
-      const created = result.items.find((item) => item.action === 'CREATED');
-      if (created?.internalTransactionId && created.internalFundId) {
-        return {
-          internalTransactionId: created.internalTransactionId,
-          internalFundId: created.internalFundId,
-        };
-      }
-
-      const idempotent = result.items.find(
-        (item) =>
-          item.action === 'IDEMPOTENT' &&
-          item.internalTransactionId &&
-          item.internalFundId,
-      );
-      if (idempotent?.internalTransactionId && idempotent.internalFundId) {
-        return {
-          internalTransactionId: idempotent.internalTransactionId,
-          internalFundId: idempotent.internalFundId,
-        };
-      }
-
-      const failed = result.items.find((item) => item.action === 'FAILED');
-      const retryable = this.isRetryableInsufficientBalanceError(failed?.reason);
-      if (!retryable || attempt >= InternalCollectionWorkflowOrchestrator.RETRYABLE_ATTEMPTS) {
-        return null;
-      }
-
-      this.logger.warn(
-        `Internal collection retry scheduled for deposit ${event.depositId} after insufficient balance window (attempt ${attempt})`,
-      );
-      await this.sleep(
-        InternalCollectionWorkflowOrchestrator.RETRYABLE_DELAY_MS * attempt,
-      );
-    }
-
+    this.logger.debug(
+      `Automatic internal collection trigger disabled for deposit ${event.depositId} transition ${event.oldStatus} -> ${event.newStatus}`,
+    );
     return null;
   }
 

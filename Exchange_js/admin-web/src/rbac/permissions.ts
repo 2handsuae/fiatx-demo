@@ -36,7 +36,10 @@ export const PERMISSIONS = {
   CDD_RESPONSES_READ: 'api.get.admin_compliance_cdd_responses',
   EDD_RESPONSES_READ: 'api.get.admin_compliance_edd_responses',
   ALERTS_READ: 'api.get.admin_compliance_alerts',
+  // Canonical work-item permission for assign / reassign on alert detail.
   ALERTS_WRITE: 'api.patch.admin_compliance_alerts_id_action',
+  // Canonical resolution permission for false positive / direct disposition / escalation.
+  ALERTS_RESOLVE: 'api.post.admin_compliance_alerts_id_resolve',
   CASES_READ: 'api.get.admin_compliance_cases',
   CASES_WRITE: 'api.patch.admin_compliance_cases_id_action',
   CASE_MLRO_REVIEW_WRITE: 'api.post.admin_compliance_cases_id_mlro_review',
@@ -46,6 +49,16 @@ export const PERMISSIONS = {
     'api.get.admin_compliance_cases_evidence_packages_id',
   CASE_EVIDENCE_EXPORT_DOWNLOAD:
     'api.get.admin_compliance_cases_evidence_packages_id_download',
+  TX_KYT_RESPONSES_READ: 'api.get.admin_compliance_tx_kyt_cases',
+  TX_KYT_RESPONSE_DETAIL_READ: 'api.get.admin_compliance_tx_kyt_cases_id',
+  TX_TRAVEL_RULE_RESPONSES_READ:
+    'api.get.admin_compliance_tx_travel_rule_cases',
+  TX_TRAVEL_RULE_RESPONSE_DETAIL_READ:
+    'api.get.admin_compliance_tx_travel_rule_cases_id',
+  TX_COMPLIANCE_BUNDLE_READ:
+    'api.get.admin_compliance_tx_cases_sourceType_sourceId',
+  TX_COMPLIANCE_READ: 'api.get.admin_compliance_tx_kyt_cases',
+  TX_COMPLIANCE_WRITE: 'api.post.admin_compliance_tx_kyt_cases_mock_complete',
   RISK_DECISION_RECORDS_READ: 'api.get.admin_risk_decision_records',
   RISK_DECISION_RECORD_DETAIL_READ: 'api.get.admin_risk_decision_records_id',
   AUDIT_LOGS_READ: 'api.get.admin_audit_logs',

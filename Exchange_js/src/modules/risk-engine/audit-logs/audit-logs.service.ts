@@ -67,6 +67,34 @@ export interface BuiltEvidencePackageArtifacts {
   packageBody: Record<string, unknown>;
 }
 
+export interface DepositEvidenceChainItem {
+  depositId: string;
+  depositNo: string | null;
+  payinId: string | null;
+  payinNo: string | null;
+  decisionRecordIds: string[];
+  kytCaseIds: string[];
+  travelRuleCaseIds: string[];
+  alertIds: string[];
+  caseIds: string[];
+  journalIds: string[];
+  internalTransactionIds: string[];
+  internalFundIds: string[];
+}
+
+export interface DepositEvidenceSnapshots {
+  deposits: any[];
+  kytCases: any[];
+  travelRuleCases: any[];
+  riskDecisionRecords: any[];
+  alerts: any[];
+  cases: any[];
+  journals: any[];
+  internalTransactions: any[];
+  internalFunds: any[];
+  depositEvidenceChain: DepositEvidenceChainItem[];
+}
+
 interface DepositWorkflowContext {
   traceId: string | null;
   workflowType: string | null;
@@ -91,6 +119,16 @@ export class AuditLogsService {
     AuditActions.CDD_APPROVED,
     AuditActions.EDD_REJECTED,
     AuditActions.FINAL_APPROVED,
+    AuditActions.ALERT_ASSIGNED,
+    AuditActions.ALERT_ESCALATED,
+    AuditActions.ALERT_RESOLVED,
+    AuditActions.ALERT_FALSE_POSITIVE,
+    'ONBOARDING_WORKFLOW_CLEAR',
+    'ONBOARDING_WORKFLOW_REJECT',
+    'ONBOARDING_WORKFLOW_REQUIRE_EDD',
+    'PERIODIC_REVIEW_WORKFLOW_CLEAR',
+    'PERIODIC_REVIEW_WORKFLOW_REJECT',
+    'PERIODIC_REVIEW_WORKFLOW_REQUIRE_EDD',
   ]);
 
   constructor(
@@ -140,6 +178,22 @@ export class AuditLogsService {
     return String(input || '')
       .trim()
       .toUpperCase();
+  }
+
+  private toSortedUniqueStrings(values: Array<string | null | undefined>): string[] {
+    return Array.from(
+      new Set(
+        values
+          .map((value) => String(value || '').trim())
+          .filter(Boolean),
+      ),
+    ).sort();
+  }
+
+  private parseStringArray(value?: string | null): string[] {
+    const parsed = this.parseJson(value);
+    if (!Array.isArray(parsed)) return [];
+    return this.toSortedUniqueStrings(parsed.map((item) => String(item ?? '')));
   }
 
   private async resolveActorNo(
@@ -1286,7 +1340,95 @@ export class AuditLogsService {
     return this.mapEvent(found);
   }
 
-  private async buildDepositSnapshots(records: any[], db: any) {
+  private buildDepositEvidenceChain(params: {
+    deposits: any[];
+    riskDecisionRecords: any[];
+    kytCases: any[];
+    travelRuleCases: any[];
+    alerts: any[];
+    cases: any[];
+    journals: any[];
+    internalTransactions: any[];
+    internalFunds: any[];
+  }): DepositEvidenceChainItem[] {
+    const {
+      deposits,
+      riskDecisionRecords,
+      kytCases,
+      travelRuleCases,
+      alerts,
+      cases,
+      journals,
+      internalTransactions,
+      internalFunds,
+    } = params;
+
+    const fundsByInternalTxId = new Map<string, any[]>();
+    for (const fund of internalFunds) {
+      const current = fundsByInternalTxId.get(fund.internalTransactionId) || [];
+      current.push(fund);
+      fundsByInternalTxId.set(fund.internalTransactionId, current);
+    }
+
+    return deposits.map((deposit) => {
+      const depositId = String(deposit.id);
+      const depositDecisionRecords = riskDecisionRecords.filter(
+        (item) => String(item.subjectId) === depositId,
+      );
+      const depositKytCases = kytCases.filter(
+        (item) => String(item.sourceId) === depositId,
+      );
+      const depositTravelRuleCases = travelRuleCases.filter(
+        (item) => String(item.sourceId) === depositId,
+      );
+      const depositAlerts = alerts.filter(
+        (item) => String(item.sourceId) === depositId,
+      );
+      const depositCases = cases.filter(
+        (item) => String(item.sourceId) === depositId,
+      );
+      const depositJournals = journals.filter(
+        (item) => String(item.sourceId) === depositId,
+      );
+      const depositInternalTxs = internalTransactions.filter(
+        (item) => String(item.sourceId) === depositId,
+      );
+      const depositInternalFunds = depositInternalTxs.flatMap(
+        (item) => fundsByInternalTxId.get(String(item.id)) || [],
+      );
+
+      return {
+        depositId,
+        depositNo: deposit.depositNo || null,
+        payinId: deposit.payin?.id || null,
+        payinNo: deposit.payin?.payinNo || null,
+        decisionRecordIds: this.toSortedUniqueStrings([
+          ...depositDecisionRecords.map((item) => item.id),
+          ...depositAlerts.flatMap((item) => item.decisionRecordIds || []),
+          ...depositCases.flatMap((item) => item.decisionRecordIds || []),
+        ]),
+        kytCaseIds: this.toSortedUniqueStrings(
+          depositKytCases.map((item) => item.id),
+        ),
+        travelRuleCaseIds: this.toSortedUniqueStrings(
+          depositTravelRuleCases.map((item) => item.id),
+        ),
+        alertIds: this.toSortedUniqueStrings(depositAlerts.map((item) => item.id)),
+        caseIds: this.toSortedUniqueStrings(depositCases.map((item) => item.id)),
+        journalIds: this.toSortedUniqueStrings(
+          depositJournals.map((item) => item.id),
+        ),
+        internalTransactionIds: this.toSortedUniqueStrings(
+          depositInternalTxs.map((item) => item.id),
+        ),
+        internalFundIds: this.toSortedUniqueStrings(
+          depositInternalFunds.map((item) => item.id),
+        ),
+      };
+    });
+  }
+
+  private async buildDepositSnapshots(records: any[], db: any): Promise<DepositEvidenceSnapshots> {
     const workflowIds = Array.from(
       new Set(
         records
@@ -1301,10 +1443,17 @@ export class AuditLogsService {
         deposits: [],
         kytCases: [],
         travelRuleCases: [],
+        riskDecisionRecords: [],
+        alerts: [],
+        cases: [],
+        journals: [],
+        internalTransactions: [],
+        internalFunds: [],
+        depositEvidenceChain: [],
       };
     }
 
-    const [deposits, kytCases, travelRuleCases] = await Promise.all([
+    const [deposits, kytCases, travelRuleCases, riskDecisionRecords, alerts, cases, journals, internalTransactions] = await Promise.all([
       db.depositTransaction.findMany({
         where: { id: { in: workflowIds } },
         orderBy: { depositNo: 'asc' },
@@ -1382,12 +1531,228 @@ export class AuditLogsService {
             },
           })
         : Promise.resolve([]),
+      db.workflowDecisionRecord?.findMany
+        ? db.workflowDecisionRecord.findMany({
+            where: {
+              subjectId: { in: workflowIds },
+            },
+            orderBy: [{ subjectId: 'asc' }, { createdAt: 'asc' }],
+            select: {
+              id: true,
+              customerId: true,
+              contextType: true,
+              subjectId: true,
+              policyVersion: true,
+              status: true,
+              inputPayload: true,
+              inputHash: true,
+              outputDecision: true,
+              recommendedActions: true,
+              outputs: true,
+              reasonCodes: true,
+              errorMessage: true,
+              createdAt: true,
+              completedAt: true,
+              updatedAt: true,
+            },
+          })
+        : Promise.resolve([]),
+      db.complianceAlert?.findMany
+        ? db.complianceAlert.findMany({
+            where: {
+              sourceType: AuditWorkflowTypes.DEPOSIT,
+              sourceId: { in: workflowIds },
+            },
+            orderBy: [{ sourceId: 'asc' }, { firstOccurredAt: 'asc' }],
+            select: {
+              id: true,
+              alertNo: true,
+              sourceType: true,
+              sourceId: true,
+              sourceNo: true,
+              stage: true,
+              ruleCode: true,
+              severity: true,
+              status: true,
+              decisionRecommendation: true,
+              decision: true,
+              decisionRecordIds: true,
+              linkedCaseIds: true,
+              currentDispositionCode: true,
+              finalDispositionCode: true,
+              hitCount: true,
+              metadata: true,
+              firstOccurredAt: true,
+              lastOccurredAt: true,
+              createdAt: true,
+              updatedAt: true,
+            },
+          })
+        : Promise.resolve([]),
+      db.complianceIncident?.findMany
+        ? db.complianceIncident.findMany({
+            where: {
+              sourceType: AuditWorkflowTypes.DEPOSIT,
+              entityId: { in: workflowIds },
+            },
+            orderBy: [{ entityId: 'asc' }, { createdAt: 'asc' }],
+            select: {
+              id: true,
+              incidentNo: true,
+              caseType: true,
+              status: true,
+              severity: true,
+              primaryAlertId: true,
+              primaryAlertNo: true,
+              entityId: true,
+              entityNo: true,
+              sourceType: true,
+              stage: true,
+              ruleCode: true,
+              decision: true,
+              proposedWorkflowDecision: true,
+              mlroReviewOutcome: true,
+              currentDispositionCode: true,
+              finalDispositionCode: true,
+              decisionRecordIds: true,
+              linkedCaseIds: true,
+              metadata: true,
+              createdAt: true,
+              updatedAt: true,
+            },
+          })
+        : Promise.resolve([]),
+      db.journal?.findMany
+        ? db.journal.findMany({
+            where: {
+              sourceType: 'DEPOSIT',
+              sourceId: { in: workflowIds },
+            },
+            orderBy: [{ sourceId: 'asc' }, { createdAt: 'asc' }],
+            select: {
+              id: true,
+              journalNo: true,
+              sourceType: true,
+              sourceId: true,
+              sourceNo: true,
+              eventCode: true,
+              postingStatus: true,
+              postedAt: true,
+              reversalOfJournalId: true,
+              baseAssetId: true,
+              totalAmount: true,
+              description: true,
+              createdAt: true,
+              updatedAt: true,
+            },
+          })
+        : Promise.resolve([]),
+      db.internalTransaction?.findMany
+        ? db.internalTransaction.findMany({
+            where: {
+              sourceType: 'DEPOSIT',
+              sourceId: { in: workflowIds },
+              type: 'DEP_TO_MASTER',
+            },
+            orderBy: [{ sourceId: 'asc' }, { createdAt: 'asc' }],
+            select: {
+              id: true,
+              internalTxNo: true,
+              sourceType: true,
+              sourceId: true,
+              sourceNo: true,
+              type: true,
+              status: true,
+              approvalStatus: true,
+              assetId: true,
+              amount: true,
+              feeAmount: true,
+              netAmount: true,
+              fromWalletId: true,
+              toWalletId: true,
+              referenceNo: true,
+              createdAt: true,
+              updatedAt: true,
+              completedAt: true,
+            },
+          })
+        : Promise.resolve([]),
     ]);
+
+    const internalTransactionIds = this.toSortedUniqueStrings(
+      internalTransactions.map((item: any) => item.id),
+    );
+    const internalFunds = internalTransactionIds.length && db.internalFund?.findMany
+      ? await db.internalFund.findMany({
+          where: {
+            internalTransactionId: { in: internalTransactionIds },
+          },
+          orderBy: [{ internalTransactionId: 'asc' }, { createdAt: 'asc' }],
+          select: {
+            id: true,
+            internalFundNo: true,
+            internalTransactionId: true,
+            status: true,
+            assetId: true,
+            amount: true,
+            feeAmount: true,
+            netAmount: true,
+            fromWalletId: true,
+            toWalletId: true,
+            referenceNo: true,
+            txHash: true,
+            createdAt: true,
+            updatedAt: true,
+            confirmedAt: true,
+            completedAt: true,
+          },
+        })
+      : [];
+
+    const mappedRiskDecisionRecords = riskDecisionRecords.map((row: any) => ({
+      ...row,
+      inputPayload: this.parseJson(row.inputPayload),
+      recommendedActions: this.parseJson(row.recommendedActions),
+      outputs: this.parseJson(row.outputs),
+      reasonCodes: this.parseJson(row.reasonCodes),
+    }));
+    const mappedAlerts = alerts.map((row: any) => ({
+      ...row,
+      decisionRecordIds: this.parseStringArray(row.decisionRecordIds),
+      linkedCaseIds: this.parseStringArray(row.linkedCaseIds),
+      metadata: this.parseJson(row.metadata),
+    }));
+    const mappedCases = cases.map((row: any) => ({
+      ...row,
+      sourceId: row.entityId,
+      sourceNo: row.entityNo,
+      decisionRecordIds: this.parseStringArray(row.decisionRecordIds),
+      linkedCaseIds: this.parseStringArray(row.linkedCaseIds),
+      metadata: this.parseJson(row.metadata),
+    }));
+    const depositEvidenceChain = this.buildDepositEvidenceChain({
+      deposits,
+      riskDecisionRecords: mappedRiskDecisionRecords,
+      kytCases,
+      travelRuleCases,
+      alerts: mappedAlerts,
+      cases: mappedCases,
+      journals,
+      internalTransactions,
+      internalFunds,
+    });
 
     return {
       deposits,
       kytCases,
       travelRuleCases,
+      riskDecisionRecords: mappedRiskDecisionRecords,
+      alerts: mappedAlerts,
+      cases: mappedCases,
+      journals,
+      internalTransactions,
+      internalFunds,
+      depositEvidenceChain,
     };
   }
 

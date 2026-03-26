@@ -52,25 +52,6 @@ export class PeriodicReviewAdminController {
     );
   }
 
-  @Post('alerts/:id/periodic-review-decision')
-  @RequirePermissions(
-    buildPermissionCode('POST', '/admin/compliance/alerts/:id/periodic-review-decision'),
-  )
-  @ApiOperation({ summary: 'Apply periodic review decision from assigned review alert' })
-  applyPeriodicReviewDecisionFromAlert(
-    @Req() req: any,
-    @Param('id') id: string,
-    @Body(new ValidationPipe({ transform: true })) body: ApplyOnboardingAlertDecisionDto,
-  ) {
-    const actor = this.getAdminActor(req);
-    return this.periodicReviewService.applyDecisionFromAlert(
-      id,
-      actor.actorId,
-      actor.actorRole,
-      body,
-    );
-  }
-
   @Post('cases/:id/periodic-review-decision')
   @RequirePermissions(
     buildPermissionCode('POST', '/admin/compliance/cases/:id/periodic-review-decision'),

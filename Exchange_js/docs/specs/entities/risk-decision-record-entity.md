@@ -1,6 +1,6 @@
 Status: active
 Owner: project-owner-and-agents
-Last Updated: 2026-03-22
+Last Updated: 2026-03-24
 Applies To: `Exchange_js`
 Supersedes: none
 Depends On: `docs/specs/modules/risk-engine-module.md`
@@ -50,6 +50,16 @@ Source of Truth Level: specs-entity
   - alert orchestration
   - workflow transition projection
 - It is not itself an alert, case, or approval object.
+
+## Current Transaction Contexts
+- Deposit-side transaction contexts currently include:
+  - `TX_DEPOSIT_KYT_MAIN`
+  - `TX_DEPOSIT_TRAVEL_RULE`
+- For these contexts, the decision record remains the explanation root before:
+  - alert upsert
+  - case escalation
+  - workflow-bound deposit callback
+- The presence of transaction contexts does not change the rule that decision record is not the case or alert object itself.
 
 ## Historical / Retired Notes
 - Current physical model name remains `WorkflowDecisionRecord`.

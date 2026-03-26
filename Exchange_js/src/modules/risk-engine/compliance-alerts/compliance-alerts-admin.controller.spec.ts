@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException } from '@nestjs/common';
+import { ForbiddenException } from '@nestjs/common';
 import { ComplianceAlertsAdminController } from './compliance-alerts-admin.controller';
 import { ComplianceAlertsService } from './compliance-alerts.service';
 import { ComplianceAlertAction } from './constants/compliance-alert-rules.constant';
@@ -8,6 +8,7 @@ describe('ComplianceAlertsAdminController', () => {
     findAll: jest.fn(),
     findOne: jest.fn(),
     applyAction: jest.fn(),
+    resolveAlert: jest.fn(),
     simulateRandomAlerts: jest.fn(),
   };
 
@@ -36,6 +37,32 @@ describe('ComplianceAlertsAdminController', () => {
 
     expect(serviceMock.findAll).toHaveBeenCalledWith({ status: 'NEW' });
     expect(result.total).toBe(0);
+  });
+
+  it('should allow admin to load alert detail', async () => {
+    serviceMock.findOne.mockResolvedValue({ id: 'alert-1' });
+
+    const result = await controller.findOne(
+      {
+        user: {
+          type: 'ADMIN',
+          userId: 'admin-1',
+          userNo: 'US0001',
+          role: 'COMPLIANCE_LEAD',
+        },
+      },
+      'alert-1',
+    );
+
+    expect(serviceMock.findOne).toHaveBeenCalledWith(
+      'alert-1',
+      expect.objectContaining({
+        actorId: 'admin-1',
+        actorNo: 'US0001',
+        actorRole: 'COMPLIANCE_LEAD',
+      }),
+    );
+    expect(result).toEqual({ id: 'alert-1' });
   });
 
   it('should default assignee to actor on ASSIGN action', async () => {
@@ -88,26 +115,33 @@ describe('ComplianceAlertsAdminController', () => {
     expect(result.createdCount).toBe(10);
   });
 
-  it('should surface bad request when removed action is submitted', async () => {
-    serviceMock.applyAction.mockRejectedValue(
-      new BadRequestException('Unsupported action'),
+  it('should forward resolve requests with admin actor context', async () => {
+    serviceMock.resolveAlert.mockResolvedValue({ id: 'alert-1', status: 'CLOSED' });
+
+    const result = await controller.resolve(
+      {
+        user: {
+          type: 'ADMIN',
+          userId: 'admin-1',
+          userNo: 'US0001',
+          role: 'COMPLIANCE_LEAD',
+        },
+      },
+      'alert-1',
+      {
+        resolutionType: 'FALSE_POSITIVE' as any,
+      },
     );
 
-    await expect(
-      controller.applyAction(
-        {
-          user: {
-            type: 'ADMIN',
-            userId: 'admin-1',
-            userNo: 'US0001',
-            role: 'ADMIN',
-          },
-        },
-        'alert-1',
-        {
-          action: 'REOPEN' as any,
-        },
-      ),
-    ).rejects.toThrow('Unsupported action');
+    expect(serviceMock.resolveAlert).toHaveBeenCalledWith(
+      'alert-1',
+      { resolutionType: 'FALSE_POSITIVE' },
+      expect.objectContaining({
+        actorId: 'admin-1',
+        actorNo: 'US0001',
+        actorRole: 'COMPLIANCE_LEAD',
+      }),
+    );
+    expect(result).toEqual({ id: 'alert-1', status: 'CLOSED' });
   });
 });

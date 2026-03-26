@@ -37,6 +37,7 @@ import {
 import { Link, useLocation, useNavigate, Outlet } from 'react-router-dom';
 import { useAdminSession } from '../contexts/AdminSessionContext';
 import { PERMISSIONS } from '../rbac/permissions';
+import { useSimulationMode } from '../utils/simulationMode';
 
 interface MenuLink {
   path: string;
@@ -77,6 +78,8 @@ const DashboardLayout = () => {
   });
 
   const { session, clearSession, hasAnyPermission } = useAdminSession();
+  const { enabled: simulationModeEnabled, setEnabled: setSimulationModeEnabled } =
+    useSimulationMode();
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -229,6 +232,18 @@ const DashboardLayout = () => {
           label: 'EDD Responses',
           icon: <Shield size={18} />,
           requiredPermissions: [PERMISSIONS.EDD_RESPONSES_READ],
+        },
+        {
+          path: '/dashboard/compliance/tx-kyt-responses',
+          label: 'KYT Responses',
+          icon: <ShieldCheck size={18} />,
+          requiredPermissions: [PERMISSIONS.TX_KYT_RESPONSES_READ],
+        },
+        {
+          path: '/dashboard/compliance/tx-travel-rule-responses',
+          label: 'Travel Rule Responses',
+          icon: <Shield size={18} />,
+          requiredPermissions: [PERMISSIONS.TX_TRAVEL_RULE_RESPONSES_READ],
         },
         {
           path: '/dashboard/compliance/alerts',
@@ -541,6 +556,25 @@ const DashboardLayout = () => {
             <Menu size={24} />
           </button>
           <div className="flex items-center gap-4 ml-auto">
+            <label className="flex items-center gap-2 rounded-full border border-gray-200 px-3 py-1.5 text-xs font-semibold text-gray-600 dark:border-admin-sidebar-hover dark:text-gray-300">
+              <span>Simulation Mode</span>
+              <button
+                type="button"
+                onClick={() => setSimulationModeEnabled(!simulationModeEnabled)}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                  simulationModeEnabled
+                    ? 'bg-blue-600'
+                    : 'bg-gray-300 dark:bg-admin-sidebar-hover'
+                }`}
+                title={simulationModeEnabled ? 'Disable Simulation Mode' : 'Enable Simulation Mode'}
+              >
+                <span
+                  className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${
+                    simulationModeEnabled ? 'translate-x-5' : 'translate-x-1'
+                  }`}
+                />
+              </button>
+            </label>
             <button
               onClick={toggleTheme}
               className="p-2 rounded-lg text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-admin-sidebar-hover transition-colors"

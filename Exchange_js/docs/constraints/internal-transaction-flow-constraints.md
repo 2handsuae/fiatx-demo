@@ -201,3 +201,12 @@
 4. `outstanding_settlement_items`
 5. `customer_swap_rate_configurations`
 - Base config boundary MUST keep `asset_valuation_rates` in base scope (not business reset scope).
+
+## 14) Deposit Trace Coupling
+- `DEP_TO_MASTER` remains a downstream treasury side effect of `deposit SUCCESS`; it MUST NOT be promoted into the customer-visible deposit state machine.
+- When `internal_transaction.sourceType = DEPOSIT`, transaction and fund audit rows MUST carry:
+1. `workflowType = DEPOSIT`
+2. `workflowId = depositId`
+3. `workflowNo = depositNo`
+4. the same deposit-root `traceId`
+- Deposit-driven internal collection evidence MUST stay replayable from the deposit workflow root rather than from a treasury-only trace split.

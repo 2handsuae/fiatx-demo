@@ -190,4 +190,46 @@ describe('RiskDecisionRecordsService', () => {
       NotFoundException,
     );
   });
+
+  it('should map transaction decision records into transaction workflow metadata', async () => {
+    prismaMock.workflowDecisionRecord.count.mockResolvedValue(1);
+    prismaMock.workflowDecisionRecord.findMany.mockResolvedValue([
+      {
+        id: 'dr-tx-1',
+        customerId: 'c-tx-1',
+        contextType: 'TX_DEPOSIT_FINAL',
+        subjectId: 'dep-1',
+        policyVersion: 'transaction-risk-policy/v1',
+        status: 'COMPLETED',
+        inputHash: 'hash-tx-1',
+        inputPayload: '{"subjectType":"DEPOSIT"}',
+        outputDecision: 'REVIEW',
+        recommendedActions: '[{"type":"UPSERT_ALERT"}]',
+        outputs: '{}',
+        reasonCodes: '["TX_KYT_REVIEW"]',
+        errorMessage: null,
+        createdAt: new Date('2026-03-24T00:00:00.000Z'),
+        completedAt: new Date('2026-03-24T00:01:00.000Z'),
+        updatedAt: new Date('2026-03-24T00:01:00.000Z'),
+        customer: {
+          id: 'c-tx-1',
+          customerNo: 'CU-TX-1',
+          email: 'tx@test.local',
+        },
+      },
+    ]);
+
+    const result = await service.listDecisionRecords({
+      contextType: 'TX_DEPOSIT_FINAL',
+    });
+
+    expect(result.items[0]).toEqual(
+      expect.objectContaining({
+        subjectType: 'DEPOSIT',
+        workflow: 'TRANSACTION',
+        stage: 'REVIEW_DEPOSIT_FINAL',
+        rule: 'TX_DEPOSIT_FINAL_REVIEW_REQUIRED',
+      }),
+    );
+  });
 });

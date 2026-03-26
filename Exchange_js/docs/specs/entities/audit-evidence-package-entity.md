@@ -1,6 +1,6 @@
 Status: active
 Owner: project-owner-and-agents
-Last Updated: 2026-03-22
+Last Updated: 2026-03-24
 Applies To: `Exchange_js`
 Supersedes: none
 Depends On: `docs/specs/workflows/audit-evidence-export-approval-workflow.md`
@@ -49,6 +49,35 @@ Source of Truth Level: specs-entity
 - `filterSnapshot` and `selectedEventIdsSnapshot` preserve export intent at request time.
 - `manifest` and `packageBody` represent the persisted evidence package output.
 - Soft-deleted packages remain historically traceable through delete-request detail, but disappear from normal export list/detail/download flows.
+
+## Wave 5 Deposit Snapshot Extension
+- For deposit-root exports, `packageBody.snapshots` now extends beyond `deposit / payin / provider response` summary.
+- Deposit evidence snapshots MUST support these collections:
+  - `deposits`
+  - `kytCases`
+  - `travelRuleCases`
+  - `riskDecisionRecords`
+  - `alerts`
+  - `cases`
+  - `journals`
+  - `internalTransactions`
+  - `internalFunds`
+  - `depositEvidenceChain`
+- `depositEvidenceChain` is the replay-oriented aggregate keyed by deposit identity.
+- Each `depositEvidenceChain` item MAY include:
+  - `depositId`
+  - `depositNo`
+  - `payinId`
+  - `payinNo`
+  - `decisionRecordIds`
+  - `kytCaseIds`
+  - `travelRuleCaseIds`
+  - `alertIds`
+  - `caseIds`
+  - `journalIds`
+  - `internalTransactionIds`
+  - `internalFundIds`
+- Deposit evidence package semantics remain approval-backed and do not create a separate deposit-only export engine.
 
 ## Related / Parallel Objects
 - `Compliance Case Evidence Package` is a separate export object with aligned approval and soft-delete semantics.

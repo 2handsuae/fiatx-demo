@@ -2,7 +2,7 @@
 
 Status: active
 Owner: project-owner-and-agents
-Last Updated: 2026-03-23
+Last Updated: 2026-03-24
 Applies To: `Exchange_js`
 Supersedes: none
 Depends On: `docs/specs/README.md`
@@ -41,6 +41,12 @@ Source of Truth Level: specs-entity
   - External filing as an independent follow-up entity, not `reportStatus` semantics.
 - `docs/specs/entities/customer-entity.md`
   - Canonical customer lifecycle and eligibility fields.
+- `docs/specs/entities/inbound-transfer-signal-entity.md`
+  - Customer-side inbound detector source semantics, dedupe key, and signal-to-payin binding.
+- `docs/specs/entities/payin-entity.md`
+  - PayIn detection/confirmation entity semantics, dedupe boundary, and `CLEARED` lifecycle meaning.
+- `docs/specs/entities/deposit-transaction-entity.md`
+  - Deposit state machine, callback authority, release gate, accounting, and evidence-chain semantics.
 - `docs/specs/entities/review-response-entity.md`
   - Canonical CDD / EDD response identity and evidence-container semantics.
 - `docs/specs/entities/periodic-review-cycle-entity.md`

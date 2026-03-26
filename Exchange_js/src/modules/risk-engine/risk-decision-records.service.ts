@@ -8,7 +8,9 @@ import {
   ONBOARDING_REVIEW_STAGES,
   ONBOARDING_WORKFLOW,
   PERIODIC_REVIEW_WORKFLOW,
-  OnboardingReviewStage,
+  TRANSACTION_REVIEW_STAGES,
+  TRANSACTION_WORKFLOW,
+  ComplianceReviewStage,
 } from './constants/onboarding-compliance-workflow.constant';
 import { normalizeRiskRecommendedActionType } from './constants/risk-recommended-actions.constant';
 
@@ -78,12 +80,19 @@ export class RiskDecisionRecordsService {
       });
   }
 
-  private getStageFromContextType(contextType?: string | null): OnboardingReviewStage | null {
+  private getStageFromContextType(contextType?: string | null): ComplianceReviewStage | null {
     const normalized = String(contextType || '').trim().toUpperCase();
     if (normalized === 'ONBOARDING_CDD') return ONBOARDING_REVIEW_STAGES.REVIEW_CDD;
     if (normalized === 'ONBOARDING_EDD') return ONBOARDING_REVIEW_STAGES.REVIEW_EDD;
     if (normalized === 'PERIODIC_REVIEW_CDD') return ONBOARDING_REVIEW_STAGES.REVIEW_CDD;
     if (normalized === 'PERIODIC_REVIEW_EDD') return ONBOARDING_REVIEW_STAGES.REVIEW_EDD;
+    if (normalized === 'TX_DEPOSIT_KYT_MAIN') return TRANSACTION_REVIEW_STAGES.REVIEW_KYT;
+    if (normalized === 'TX_DEPOSIT_TRAVEL_RULE') {
+      return TRANSACTION_REVIEW_STAGES.REVIEW_TRAVEL_RULE;
+    }
+    if (normalized === 'TX_DEPOSIT_FINAL') {
+      return TRANSACTION_REVIEW_STAGES.REVIEW_DEPOSIT_FINAL;
+    }
     return null;
   }
 
@@ -94,6 +103,13 @@ export class RiskDecisionRecordsService {
     }
     if (normalized === 'ONBOARDING_CDD' || normalized === 'ONBOARDING_EDD') {
       return ONBOARDING_WORKFLOW;
+    }
+    if (
+      normalized === 'TX_DEPOSIT_KYT_MAIN' ||
+      normalized === 'TX_DEPOSIT_TRAVEL_RULE' ||
+      normalized === 'TX_DEPOSIT_FINAL'
+    ) {
+      return TRANSACTION_WORKFLOW;
     }
     return null;
   }
@@ -164,6 +180,7 @@ export class RiskDecisionRecordsService {
         this.parseJsonArraySafely(row.recommendedActions),
       ),
       reasonCodes: this.parseJsonArraySafely<string>(row.reasonCodes),
+      outputs,
       workflow: workflowSnapshot.workflow,
       stage: workflowSnapshot.stage,
       rule: workflowSnapshot.rule,

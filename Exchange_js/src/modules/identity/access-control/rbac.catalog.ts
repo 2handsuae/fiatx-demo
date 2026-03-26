@@ -257,13 +257,8 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('GET', '/admin/compliance/alerts', 'List compliance alerts', ['ALERT_READ']),
   route('GET', '/admin/compliance/alerts/:id', 'Get compliance alert detail', ['ALERT_READ']),
   route('PATCH', '/admin/compliance/alerts/:id/action', 'Apply compliance alert action', ['ALERT_WRITE']),
+  route('POST', '/admin/compliance/alerts/:id/resolve', 'Resolve compliance alert', ['ALERT_WRITE']),
   route('POST', '/admin/compliance/alerts/simulate', 'Simulate compliance alerts', ['ALERT_WRITE']),
-  route(
-    'POST',
-    '/admin/compliance/alerts/:id/onboarding-decision',
-    'Apply onboarding decision from alert',
-    ['ALERT_WRITE'],
-  ),
   route('GET', '/admin/compliance/cases', 'List compliance cases', ['CASE_READ']),
   route('GET', '/admin/compliance/cases/:id', 'Get compliance case detail', ['CASE_READ']),
   route(
@@ -355,11 +350,32 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('POST', '/admin/compliance/tx-travel-rule-cases/mock-complete', 'Mock complete travel-rule case', ['TX_COMPLIANCE_WRITE']),
   route('POST', '/admin/compliance/tx-cases/mock-backfill', 'Mock backfill tx cases', ['TX_COMPLIANCE_WRITE']),
   route('GET', '/admin/compliance/tx-kyt-cases', 'List KYT cases', ['TX_COMPLIANCE_READ']),
+  route('GET', '/admin/compliance/tx-kyt-cases/:id', 'Get KYT case detail', ['TX_COMPLIANCE_READ']),
   route('GET', '/admin/compliance/tx-travel-rule-cases', 'List travel-rule cases', ['TX_COMPLIANCE_READ']),
+  route('GET', '/admin/compliance/tx-travel-rule-cases/:id', 'Get travel-rule case detail', ['TX_COMPLIANCE_READ']),
+  route('GET', '/admin/compliance/tx-cases/:sourceType/:sourceId', 'Get tx evidence bundle', ['TX_COMPLIANCE_READ']),
 
   // Deposit
   route('GET', '/deposit-transactions', 'List deposit transactions', ['TRADING_DEPOSIT_READ']),
   route('GET', '/deposit-transactions/:id', 'Get deposit transaction detail', ['TRADING_DEPOSIT_READ']),
+  route(
+    'GET',
+    '/deposit-transactions/my/inbound-signals',
+    'List customer inbound transfer signals',
+    ['TRADING_DEPOSIT_READ'],
+  ),
+  route(
+    'POST',
+    '/deposit-transactions/my/inbound-signals',
+    'Create customer inbound transfer signal',
+    ['TRADING_DEPOSIT_WRITE'],
+  ),
+  route(
+    'POST',
+    '/deposit-transactions/my/inbound-signals/scan',
+    'Scan customer inbound transfer signals',
+    ['TRADING_DEPOSIT_WRITE'],
+  ),
   route('PATCH', '/deposit-transactions/:id/status', 'Update deposit transaction status', ['TRADING_DEPOSIT_WRITE']),
   route('GET', '/deposit-transactions/export', 'Export deposit transactions', ['TRADING_DEPOSIT_READ']),
 
@@ -382,6 +398,12 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('GET', '/treasury/payins', 'List payins', ['PAYIN_READ']),
   route('GET', '/treasury/payins/:id', 'Get payin detail', ['PAYIN_READ']),
   route('PATCH', '/treasury/payins/:id/status', 'Update payin status', ['PAYIN_WRITE']),
+  route(
+    'POST',
+    '/admin/treasury/payins/:id/mock-event',
+    'Apply payin simulation event',
+    ['PAYIN_WRITE'],
+  ),
 
   // Payouts
   route('GET', '/payouts', 'List payouts', ['PAYOUT_READ']),

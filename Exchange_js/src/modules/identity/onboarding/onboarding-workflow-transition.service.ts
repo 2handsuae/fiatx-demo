@@ -49,6 +49,11 @@ export const WORKFLOW_TRANSITION_CODES = {
     'PERIODIC_REVIEW_CDD_REQUIRE_EDD_TO_PENDING_EDD',
   PERIODIC_REVIEW_EDD_APPROVE_TO_CLEARED: 'PERIODIC_REVIEW_EDD_APPROVE_TO_CLEARED',
   PERIODIC_REVIEW_EDD_REJECT_TO_REJECTED: 'PERIODIC_REVIEW_EDD_REJECT_TO_REJECTED',
+  TX_DEPOSIT_FLAG_TO_UNDER_REVIEW: 'TX_DEPOSIT_FLAG_TO_UNDER_REVIEW',
+  TX_DEPOSIT_CLEAR_TO_SUCCESS: 'TX_DEPOSIT_CLEAR_TO_SUCCESS',
+  TX_DEPOSIT_FREEZE_TO_FROZEN: 'TX_DEPOSIT_FREEZE_TO_FROZEN',
+  TX_DEPOSIT_REJECT_TO_REJECTED: 'TX_DEPOSIT_REJECT_TO_REJECTED',
+  TX_DEPOSIT_RELEASE_BLOCKED: 'TX_DEPOSIT_RELEASE_BLOCKED',
   NO_TRANSITION: 'NO_TRANSITION',
 } as const;
 
@@ -76,8 +81,8 @@ export interface WorkflowTransitionOutput {
   stage: ComplianceReviewStage;
   dispositionCode: string;
   transitionCode: WorkflowTransitionCode;
-  fromStatus: CustomerOnboardingStatus;
-  toStatus: CustomerOnboardingStatus;
+  fromStatus: string;
+  toStatus: string;
   executed: boolean;
   updatedCustomer: any;
   eddResponse?: any | null;

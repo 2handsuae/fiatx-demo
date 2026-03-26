@@ -2,7 +2,7 @@
 
 Status: active
 Owner: project-owner-and-agents
-Last Updated: 2026-03-23
+Last Updated: 2026-03-26
 Applies To: `Exchange_js`
 Supersedes: none
 Depends On: `docs/README.md`
@@ -33,6 +33,9 @@ Source of Truth Level: roadmap
   - Completed Wave 3 phase breakdown and current durable references.
 - `docs/roadmap/wave-4-ledger-asset-structure-phase-plan.md`
   - Active Wave 4 phase plan for ledger, wallet/account model, config release model, and pricing/quote baseline.
+- `docs/roadmap/wave-5-payin-deposit-phase-plan.md`
+  - Completed Wave 5 phase breakdown and historical phase context through `Phase 4`.
+  - Durable runtime truth now lives in `docs/constraints/**`, `docs/specs/**`, and `docs/acceptance/**`; `docs/cleanup/wave-5-cleanup-master-plan.md` is retained as the completed closeout record.
 
 ## Do Not Use For
 - Hard behavioral constraints.

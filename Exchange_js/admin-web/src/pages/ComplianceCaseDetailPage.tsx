@@ -37,7 +37,7 @@ type RecommendedDecision = 'CLEAR' | 'REJECT' | 'REQUIRE_EDD';
 type CaseType = 'ONBOARDING' | 'PERIODIC_REVIEW' | 'TRANSACTION' | 'GENERIC';
 type CaseDispositionCode = 'CLEAR' | 'FALSE_POSITIVE' | 'RISK_CONFIRMED';
 type InterimMeasure = 'FREEZE' | 'UNFREEZE' | 'RESTRICT' | 'UNRESTRICT';
-type WorkflowAction = 'CLEAR' | 'REJECT' | 'REQUIRE_EDD';
+type WorkflowAction = 'CLEAR' | 'REJECT' | 'REQUIRE_EDD' | 'FREEZE_TRANSACTION';
 type MlroAction = 'RETURN_FOR_INVESTIGATION' | 'APPROVE_FINAL_DISPOSITION';
 type FilingAction = 'SUBMIT' | 'ACKNOWLEDGE' | 'RETURN' | 'CLOSE';
 
@@ -74,6 +74,8 @@ interface ReportDraftState {
   containmentSummary: string;
   analystConclusion: string;
   recommendedActions: string;
+  proposedWorkflowDecision: string;
+  proposedWorkflowReason: string;
   finalDispositionCode: string;
   finalDispositionReason: string;
   filingRequired: boolean;
@@ -247,10 +249,6 @@ interface UserListItem {
   roles?: string[];
 }
 
-interface OnboardingCaseDecisionResponse {
-  case: IncidentDetail;
-}
-
 const EMPTY_REPORT_DRAFT: ReportDraftState = {
   factsSummary: '',
   investigationScope: '',
@@ -258,6 +256,8 @@ const EMPTY_REPORT_DRAFT: ReportDraftState = {
   containmentSummary: '',
   analystConclusion: '',
   recommendedActions: '',
+  proposedWorkflowDecision: '',
+  proposedWorkflowReason: '',
   finalDispositionCode: '',
   finalDispositionReason: '',
   filingRequired: false,
@@ -291,7 +291,13 @@ const toTextAreaValue = (value: unknown): string => {
   }
 };
 
-const buildReportDraftState = (report?: IncidentReport | null): ReportDraftState => {
+const buildReportDraftState = (
+  report?: IncidentReport | null,
+  options?: {
+    proposedWorkflowDecision?: string | null;
+    proposedWorkflowReason?: string | null;
+  },
+): ReportDraftState => {
   if (!report) return { ...EMPTY_REPORT_DRAFT };
   return {
     factsSummary: report.factsSummary || '',
@@ -300,6 +306,8 @@ const buildReportDraftState = (report?: IncidentReport | null): ReportDraftState
     containmentSummary: report.containmentSummary || '',
     analystConclusion: report.analystConclusion || '',
     recommendedActions: toTextAreaValue(report.recommendedActions),
+    proposedWorkflowDecision: String(options?.proposedWorkflowDecision || '').trim(),
+    proposedWorkflowReason: options?.proposedWorkflowReason || '',
     finalDispositionCode: String(report.finalDispositionCode || '').trim(),
     finalDispositionReason: report.finalDispositionReason || '',
     filingRequired: report.filingRequired === true,
@@ -373,6 +381,7 @@ const workflowActionLabelMap: Record<WorkflowAction, string> = {
   CLEAR: 'Clear',
   REJECT: 'Reject',
   REQUIRE_EDD: 'Require EDD',
+  FREEZE_TRANSACTION: 'Freeze Transaction',
 };
 
 const mlroActionLabelMap: Record<MlroAction, string> = {
@@ -389,7 +398,12 @@ const filingActionLabelMap: Record<FilingAction, string> = {
 
 const normalizeWorkflowProposal = (value?: string | null): WorkflowAction | null => {
   const normalized = String(value || '').trim().toUpperCase();
-  if (normalized === 'CLEAR' || normalized === 'REJECT' || normalized === 'REQUIRE_EDD') {
+  if (
+    normalized === 'CLEAR' ||
+    normalized === 'REJECT' ||
+    normalized === 'REQUIRE_EDD' ||
+    normalized === 'FREEZE_TRANSACTION'
+  ) {
     return normalized as WorkflowAction;
   }
   return null;
@@ -458,7 +472,12 @@ const ComplianceCaseDetailPage = () => {
       }
       const data = (await response.json()) as IncidentDetail;
       setDetail(data);
-      setReportDraft(buildReportDraftState(data.currentReport));
+      setReportDraft(
+        buildReportDraftState(data.currentReport, {
+          proposedWorkflowDecision: data.proposedWorkflowDecision,
+          proposedWorkflowReason: data.proposedWorkflowReason,
+        }),
+      );
       setReportRevisionArmed(false);
     } catch (e: unknown) {
       if (e instanceof AdminSessionError) return;
@@ -473,7 +492,12 @@ const ComplianceCaseDetailPage = () => {
   }, [id]);
 
   useEffect(() => {
-    setReportDraft(buildReportDraftState(detail?.currentReport));
+    setReportDraft(
+      buildReportDraftState(detail?.currentReport, {
+        proposedWorkflowDecision: detail?.proposedWorkflowDecision,
+        proposedWorkflowReason: detail?.proposedWorkflowReason,
+      }),
+    );
     setReportRevisionArmed(false);
   }, [detail?.id, detail?.currentReport?.id, detail?.currentReport?.updatedAt]);
 
@@ -794,56 +818,6 @@ const ComplianceCaseDetailPage = () => {
     }
   };
 
-  const applyOnboardingDecision = async (decision: RecommendedDecision) => {
-    if (!detail) return;
-    const isPeriodicReview = String(detail.workflow || '').trim().toUpperCase() === 'PERIODIC_REVIEW';
-    const reasonInput = decision === 'REJECT' ? window.prompt('Reason (optional)', '') || '' : '';
-    setActing(decision);
-    setError('');
-    setMessage('');
-    try {
-      const response = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/compliance/cases/${detail.id}/${
-          isPeriodicReview ? 'periodic-review-decision' : 'onboarding-decision'
-        }`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            decision,
-            reason: reasonInput.trim() || undefined,
-          }),
-        },
-      );
-      if (!response.ok) {
-        throw new Error(
-          await getApiErrorMessage(
-            response,
-            isPeriodicReview
-              ? 'Failed to apply periodic review decision.'
-              : 'Failed to apply onboarding decision.',
-          ),
-        );
-      }
-      const data = (await response.json()) as OnboardingCaseDecisionResponse;
-      setDetail(data.case);
-      setMessage(
-        `${isPeriodicReview ? 'Periodic review' : 'Onboarding'} workflow proposal recorded. Final disposition will only take effect after MLRO approval.`,
-      );
-    } catch (e: unknown) {
-      if (e instanceof AdminSessionError) return;
-      setError(
-        e instanceof Error
-          ? e.message
-          : isPeriodicReview
-            ? 'Failed to apply periodic review decision.'
-            : 'Failed to apply onboarding decision.',
-      );
-    } finally {
-      setActing(null);
-    }
-  };
-
   const handleLinkAlert = async () => {
     if (!detail) return;
     setLinking(true);
@@ -887,10 +861,6 @@ const ComplianceCaseDetailPage = () => {
     if (action === 'LINK_ALERT') {
       await handleLinkAlert();
     }
-  };
-
-  const handleWorkflowAction = async (action: WorkflowAction) => {
-    await applyOnboardingDecision(action);
   };
 
   const handleInterimMeasure = async (action: InterimMeasure) => {
@@ -951,7 +921,9 @@ const ComplianceCaseDetailPage = () => {
   const workflowBoundCase =
     String(detail?.workflow || '').trim().toUpperCase() === 'ONBOARDING' ||
     String(detail?.workflow || '').trim().toUpperCase() === 'PERIODIC_REVIEW';
-  const proposedWorkflowDecision = normalizeWorkflowProposal(detail?.proposedWorkflowDecision || null);
+  const proposedWorkflowDecision = normalizeWorkflowProposal(
+    reportDraft.proposedWorkflowDecision || detail?.proposedWorkflowDecision || null,
+  );
   const reportFinalDisposition = normalizeCaseDisposition(reportDraft.finalDispositionCode);
   const filingRequired = reportDraft.filingRequired === true;
   const hasValidWorkflowProposal = !workflowBoundCase || !!proposedWorkflowDecision;
@@ -1170,27 +1142,12 @@ const ComplianceCaseDetailPage = () => {
 
       <ActionSection
         title="Workflow Proposal"
-        description="Workflow proposals are recorded first and only take effect after explicit MLRO approval."
-        emptyText="No workflow actions available."
+        description="Workflow proposal is now captured in the investigation report draft below and only takes effect after explicit MLRO approval."
+        emptyText="Workflow proposal is captured in the report draft."
       >
-        {workflowActions.length === 0 ? (
-          <div className="text-sm text-gray-500">No workflow actions available.</div>
-        ) : (
-          <div className="flex flex-wrap gap-2">
-            {workflowActions.map((action) => (
-              <button
-                key={action}
-                onClick={() => {
-                  void handleWorkflowAction(action);
-                }}
-                disabled={acting !== null}
-                className="rounded-lg border border-admin-border bg-white px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-60"
-              >
-                {acting === action ? 'Processing...' : workflowActionLabelMap[action]}
-              </button>
-            ))}
-          </div>
-        )}
+        <div className="text-sm text-gray-500">
+          Choose the final transaction action in the report draft below. Direct workflow buttons are disabled for transaction closeout.
+        </div>
       </ActionSection>
 
       <ActionSection
@@ -1310,6 +1267,38 @@ const ComplianceCaseDetailPage = () => {
           />
         </label>
         <label className="min-w-0">
+          <div className="text-xs uppercase tracking-wide text-gray-500">Workflow Proposal</div>
+          <select
+            value={reportDraft.proposedWorkflowDecision}
+            onChange={(e) =>
+              setReportDraft((prev) => ({
+                ...prev,
+                proposedWorkflowDecision: e.target.value,
+              }))
+            }
+            disabled={!canEditDraft || reportSaving || reportFinalizing || reportSubmittingToMlro}
+            className="mt-1 w-full rounded-lg border border-admin-border px-3 py-2 text-sm disabled:bg-gray-50"
+          >
+            <option value="">Select workflow proposal</option>
+            {workflowActions.map((action) => (
+              <option key={action} value={action}>
+                {workflowActionLabelMap[action]}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="min-w-0">
+          <div className="text-xs uppercase tracking-wide text-gray-500">Workflow Proposal Reason</div>
+          <textarea
+            value={reportDraft.proposedWorkflowReason}
+            onChange={(e) =>
+              setReportDraft((prev) => ({ ...prev, proposedWorkflowReason: e.target.value }))
+            }
+            disabled={!canEditDraft || reportSaving || reportFinalizing || reportSubmittingToMlro}
+            className="mt-1 w-full min-h-24 rounded-lg border border-admin-border px-3 py-2 text-sm disabled:bg-gray-50"
+          />
+        </label>
+        <label className="min-w-0">
           <div className="text-xs uppercase tracking-wide text-gray-500">Final Disposition</div>
           <select
             value={reportDraft.finalDispositionCode}
@@ -1402,7 +1391,7 @@ const ComplianceCaseDetailPage = () => {
         ) : null}
         {!hasValidDispositionForWorkflow ? (
           <div className="xl:col-span-2 text-sm text-amber-700">
-            Current workflow proposal and final disposition do not match. `CLEAR` can only pair with `CLEAR` or `FALSE_POSITIVE`; `REJECT / REQUIRE_EDD` must pair with `RISK_CONFIRMED`.
+            Current workflow proposal and final disposition do not match. `CLEAR` can only pair with `CLEAR` or `FALSE_POSITIVE`; `FREEZE_TRANSACTION / REJECT / REQUIRE_EDD` must pair with `RISK_CONFIRMED`.
           </div>
         ) : null}
         {!hasValidFilingProposal ? (

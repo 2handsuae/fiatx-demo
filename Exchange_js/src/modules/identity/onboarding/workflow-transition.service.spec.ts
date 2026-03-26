@@ -1,4 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
+import { ModuleRef } from '@nestjs/core';
 import { WorkflowTransitionService } from './workflow-transition.service';
 
 describe('WorkflowTransitionService', () => {
@@ -8,14 +9,25 @@ describe('WorkflowTransitionService', () => {
   const periodicReviewWorkflowTransitionServiceMock = {
     execute: jest.fn(),
   };
+  const transactionDepositWorkflowServiceMock = {
+    execute: jest.fn(),
+  };
+  const moduleRefMock = {
+    get: jest.fn(),
+  };
 
   let service: WorkflowTransitionService;
 
   beforeEach(() => {
     jest.clearAllMocks();
+    moduleRefMock.get.mockImplementation((token: unknown) => {
+      if (token) return transactionDepositWorkflowServiceMock;
+      return null;
+    });
     service = new WorkflowTransitionService(
       onboardingWorkflowTransitionServiceMock as any,
       periodicReviewWorkflowTransitionServiceMock as any,
+      moduleRefMock as unknown as ModuleRef,
     );
   });
 
@@ -95,5 +107,43 @@ describe('WorkflowTransitionService', () => {
         actorRole: 'COMPLIANCE_LEAD',
       } as any),
     ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('should dispatch TRANSACTION workflow to transaction deposit handler', async () => {
+    transactionDepositWorkflowServiceMock.execute.mockResolvedValue({
+      transitionCode: 'TX_DEPOSIT_CLEAR_TO_SUCCESS',
+      applied: true,
+      blocked: false,
+      blockedReason: null,
+      depositId: 'dep-1',
+      depositNo: 'DEP0001',
+      depositStatusBefore: 'UNDER_REVIEW',
+      depositStatusAfter: 'SUCCESS',
+    });
+
+    const tx = { depositTransaction: {} } as any;
+    const result = await service.transition(tx, {
+      workflow: 'TRANSACTION',
+      stage: 'REVIEW_KYT',
+      producerType: 'CASE',
+      producerId: 'case-1',
+      customerId: 'c1',
+      sourceId: 'dep-1',
+      dispositionCode: 'FALSE_POSITIVE',
+      actorId: 'mlro-1',
+      actorRole: 'MLRO',
+    } as any);
+
+    expect(transactionDepositWorkflowServiceMock.execute).toHaveBeenCalledWith(
+      tx,
+      expect.objectContaining({
+        depositId: 'dep-1',
+        source: 'CASE',
+        sourceId: 'case-1',
+        workflowAction: 'CLEAR',
+      }),
+    );
+    expect(result.transitionCode).toBe('TX_DEPOSIT_CLEAR_TO_SUCCESS');
+    expect(result.toStatus).toBe('SUCCESS');
   });
 });

@@ -13,6 +13,10 @@ describe('InternalTransactionsService', () => {
 
   beforeEach(() => {
     prisma = {
+      auditLogEvent: {
+        findUnique: jest.fn().mockResolvedValue(null),
+        create: jest.fn().mockImplementation(({ data }: any) => Promise.resolve(data)),
+      },
       internalTransaction: {
         findUnique: jest.fn(),
         create: jest.fn(),
@@ -136,6 +140,9 @@ describe('InternalTransactionsService', () => {
     prisma.internalTransaction.create.mockResolvedValue({
       id: 'itx-created',
       internalTxNo: 'ITX_NEW_1',
+      sourceType: 'DEPOSIT',
+      sourceId: 'dep-1',
+      sourceNo: 'DEP001',
       status: InternalTransactionStatus.INTERNAL_FUNDS_PENDING,
       ownerType: 'CUSTOMER',
       ownerId: 'cust-1',
@@ -185,6 +192,15 @@ describe('InternalTransactionsService', () => {
         sourceId: 'itx-created',
       }),
       prisma,
+    );
+    expect(prisma.auditLogEvent.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          workflowType: 'DEPOSIT',
+          workflowId: 'dep-1',
+          workflowNo: 'DEP001',
+        }),
+      }),
     );
   });
 

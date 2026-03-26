@@ -163,6 +163,7 @@ model CustomerMain {
   withdrawTransactions WithdrawTransaction[]
   payouts              Payout[]
   payins               Payin[]
+  inboundTransferSignals InboundTransferSignal[]
   cddResponses             CddResponse[]
   eddResponses             EddResponse[]
   corporateProfile     CorporateProfile?
@@ -1327,6 +1328,7 @@ model Asset {
   toConfigs              LiquidityConfiguration[] @relation("ToAsset")
   feeConfigs             LiquidityConfiguration[] @relation("FeeAsset")
   payins                 Payin[]
+  inboundTransferSignals InboundTransferSignal[]
   payouts                Payout[]
   swapFromTransactions   SwapTransaction[]        @relation("SwapFromAsset")
   swapToTransactions     SwapTransaction[]        @relation("SwapToAsset")
@@ -1378,6 +1380,7 @@ model Payin {
   fromWallet           Wallet?             @relation("PayinFromWallet", fields: [fromWalletId], references: [id])
   asset                Asset               @relation(fields: [assetId], references: [id])
   customer             CustomerMain?       @relation(fields: [ownerId], references: [id])
+  inboundTransferSignals InboundTransferSignal[]
 
   @@unique([txHash, assetId, toAddress])
   @@index([depositId])
@@ -1557,11 +1560,47 @@ model Wallet {
   balanceSnapshots    WalletBalanceSnapshot[]
   balanceEntries      WalletBalanceEntry[]
   asset               Asset                @relation(fields: [assetId], references: [id])
+  inboundTransferSignals InboundTransferSignal[]
 
   @@index([ownerType, ownerId])
   @@index([assetId])
   @@index([status])
   @@map("wallets")
+}
+
+model InboundTransferSignal {
+  id             String       @id @default(uuid())
+  signalNo       String       @unique @default("TEMP")
+  ownerId        String
+  walletId       String
+  assetId        String
+  channelType    String
+  amount         Decimal
+  txHash         String?
+  referenceNo    String?
+  fromAddress    String?
+  fromIban       String?
+  simulationRiskLevel  String?
+  simulationRiskReason String?
+  status         String       @default("PENDING_SCAN")
+  dedupeKey      String       @unique
+  linkedPayinId  String?
+  submittedAt    DateTime     @default(now())
+  lastScannedAt  DateTime?
+  scanResult     String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  customer       CustomerMain @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  wallet         Wallet       @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  asset          Asset        @relation(fields: [assetId], references: [id])
+  payin          Payin?       @relation(fields: [linkedPayinId], references: [id], onDelete: SetNull)
+
+  @@index([ownerId, walletId, status])
+  @@index([walletId, submittedAt])
+  @@index([linkedPayinId])
+  @@index([txHash])
+  @@index([referenceNo])
+  @@map("inbound_transfer_signals")
 }
 
 model DepositTransaction {

@@ -10,6 +10,10 @@
 - MUST NOT use this document for LP liquidity-only workflows.
 
 ## 2) Canonical Entry Paths
+- Deposit customer-side inbound detection MUST use:
+1. `GET /deposit-transactions/my/inbound-signals`
+2. `POST /deposit-transactions/my/inbound-signals`
+3. `POST /deposit-transactions/my/inbound-signals/scan`
 - Deposit canonical trigger MUST be `PATCH /treasury/payins/:id/status` with `action=confirm`.
 - Deposit `PATCH /deposit-transactions/:id/status` with `action=payin_confirmed` MUST be manual/compensation only.
 - Swap customer indicative price MUST use `GET /swap-transactions/rate`.
@@ -44,10 +48,22 @@
 
 ## 5) Orchestration Ordering MUST
 - Deposit confirmed orchestration MUST order:
-1. move deposit to `COMPLIANCE_PENDING`
-2. sync compliance case/snapshot
-3. post accounting event
-4. clear payin after upstream steps complete
+1. optional inbound signal scan may create or reuse `PayIn`
+2. canonical payin confirm moves deposit to `COMPLIANCE_PENDING`
+3. sync deposit-side `MAIN-KYT` / `TRAVEL_RULE` evidence containers and derived snapshot
+4. evaluate transaction risk only for eligible terminal screening states
+5. post required confirmed accounting event
+6. clear payin only after upstream steps complete and confirmed accounting succeeds
+- Deposit workflow callback MUST order:
+1. transaction hit creates or escalates alert/case first
+2. workflow-bound callback may drive deposit only through canonical deposit actions
+3. `FLAG` maps to deposit `flag`
+4. `CLEAR` maps to deposit `success`
+5. `REJECT` maps to deposit `reject`
+- Deposit callback idempotency MUST ensure:
+1. no duplicate `UNDER_REVIEW` write for repeated `FLAG`
+2. no duplicate release/reject for repeated alert/case outcome
+3. terminal `SUCCESS / REJECTED / FAILED` deposit ignores repeated callback writes
 - Swap execution MUST order:
 1. resolve executable rate
 2. generate firm quote snapshot
@@ -87,6 +103,22 @@
 - MUST treat missing event/template configuration as explicit failure, not success.
 - MUST keep compliance status/snapshot and transaction status transitions consistent.
 - MUST preserve owner scope coupling (`CUSTOMER` workflows use customer accounting contract).
+- Deposit required accounting points MUST remain:
+1. `payin.confirmed -> deposit COMPLIANCE_PENDING`
+2. `deposit.success -> deposit SUCCESS`
+- Required deposit accounting points MUST NOT silently skip when:
+1. event config is missing or inactive
+2. journal template is missing
+3. posting returns `null`
+4. posting throws
+- `DEPOSIT_ACCOUNTING_BLOCKED` MUST be the canonical block audit signal for the above failures.
+- `payin.confirmed` accounting block MUST keep:
+1. deposit at `COMPLIANCE_PENDING`
+2. payin not cleared to `CLEARED`
+- `deposit.success` accounting block MUST keep:
+1. deposit status unchanged from the already-applied success transition
+2. no fake `journalId` or fake accounting success audit
+- Deposit reject path MUST NOT create a dedicated reject posting or reversal contract in current runtime truth.
 
 ## 9) Failure and Return Reversal Contract
 - Withdraw `FAILED` and `RETURNED` MUST use source-level bulk reversal.
@@ -162,3 +194,44 @@
 1. aggregate one row per `sourceType + sourceId`
 2. show `preKytCase` / `mainKytCase` / `travelRuleCase` + `derivedComplianceStatus`
 3. provide navigation to provider response details only, without any approval action
+
+## 15) Deposit Transaction Risk And Callback Contract
+- Deposit-side transaction risk contexts MUST remain:
+1. `TX_DEPOSIT_KYT_MAIN`
+2. `TX_DEPOSIT_TRAVEL_RULE`
+- Deposit transaction risk MUST evaluate only on eligible terminal states:
+1. `KYT`: `PASS | REVIEW | FAIL`
+2. `TRAVEL_RULE`: `NOT_REQUIRED | ACCEPTED | REJECTED | EXPIRED`
+- `TRAVEL_RULE` states `PENDING | SENT | RECEIVED` MUST sync evidence container and snapshot only; they MUST NOT trigger risk evaluation yet.
+- Transaction recommendation output for deposit MUST drive workflow-bound triage only through:
+1. alert upsert
+2. optional case escalation
+3. canonical deposit callback action
+- Business modules and compliance modules MUST NOT write `deposit.status` directly outside canonical deposit action execution.
+
+## 16) Deposit Release Gate And Evidence Export Contract
+- Deposit release to `SUCCESS` MUST pass:
+1. `customer.onboardingStatus = APPROVED`
+2. `customer.operatingStatus = ACTIVE`
+3. `customer.restrictionStatus = CLEAR`
+4. `customer.complianceHoldStatus = ACTIVE`
+5. existing deposit compliance gate for `KYT / TRAVEL_RULE`
+- Gate failure on workflow `CLEAR` MUST:
+1. keep deposit in `COMPLIANCE_PENDING` or `UNDER_REVIEW`
+2. write canonical release-blocked audit
+3. avoid minting a fake success accounting outcome
+- Deposit evidence export MUST be able to replay:
+1. `InboundTransferSignal`
+2. `PayIn`
+3. `Deposit`
+4. `KYT / TRAVEL_RULE`
+5. `RiskDecisionRecord`
+6. `Alert / Case`
+7. `Journal`
+8. `Internal Collection`
+- Evidence export MUST preserve a chain that can resolve, at minimum:
+1. `payinId -> depositId`
+2. `depositId -> decisionRecordIds`
+3. `depositId -> alertIds / caseIds`
+4. `depositId -> journalIds`
+5. `depositId -> internalTransactionIds / internalFundIds`

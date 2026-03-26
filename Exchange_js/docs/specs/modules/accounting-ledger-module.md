@@ -1,6 +1,6 @@
 Status: draft
 Owner: project-owner-and-agents
-Last Updated: 2026-03-23
+Last Updated: 2026-03-24
 Applies To: `Exchange_js`
 Supersedes: none
 Depends On: `docs/constraints/posting-clearing-balance-projection-constraints.md`, `docs/specs/entities/business-config-release-entity.md`, `docs/specs/entities/wallet-entity.md`
@@ -35,6 +35,8 @@ Source of Truth Level: specs-module
 - `GET /journal-line-templates`
 - `GET /journals`
 - `withdraw quote -> withdrawal -> approved event -> clearing + journal`
+- `payin.confirmed -> EVT_DEPOSIT_CONFIRMED__CRYPTO|FIAT -> journal`
+- `deposit.success -> EVT_DEPOSIT_SUCCESS__CRYPTO|FIAT -> journal`
 - balance reads backed by `WalletBalanceSnapshot / WalletBalanceEntry`
 
 ## Canonical Responsibilities
@@ -57,10 +59,17 @@ Source of Truth Level: specs-module
 ## Historical / Transitional Notes
 - Release-governed config history is now the current accounting configuration control model.
 - Compatibility-era fake-write route and `/acct-events/sync-defaults` have been physically deleted.
-- `Withdraw` is the current unified event-execution slice; `Deposit / Swap / InternalTx` remain outside this module's implemented event-execution scope.
+- `Withdraw` remains a broad unified event-execution slice.
+- `Wave 5` adds required deposit accounting points for:
+  - `payin.confirmed`
+  - `deposit.success`
+- Deposit reject remains a compliance disposition result in current truth; it does not introduce a dedicated deposit reject posting or reversal contract.
+- Swap remains outside the current shared event-execution closeout described by this document.
 
 ## MUST / MUST NOT
 - MUST treat `AcctEvent` as the durable trigger contract for journal behavior.
 - MUST project wallet balances from journal lines rather than directly from business services.
 - MUST NOT bypass journal balance validation.
 - MUST NOT treat clearing records as the accounting book of record.
+- Required deposit accounting points MUST NOT silent-skip on missing event/template or failed posting.
+- `DEPOSIT_ACCOUNTING_BLOCKED` is the canonical audit signal when a required deposit accounting point cannot complete.

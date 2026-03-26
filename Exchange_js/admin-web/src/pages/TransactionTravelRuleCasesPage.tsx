@@ -66,14 +66,14 @@ const TransactionTravelRuleCasesPage = () => {
       );
       if (!response.ok) {
         throw new Error(
-          await getApiErrorMessage(response, 'Failed to load Travel Rule cases'),
+          await getApiErrorMessage(response, 'Failed to load Travel Rule responses'),
         );
       }
       const payload = await response.json();
       setItems((payload?.items || []) as TravelRuleCaseItem[]);
     } catch (error) {
       if (error instanceof AdminSessionError) return;
-      setErrorMessage(getErrorMessage(error, 'Failed to load Travel Rule cases.'));
+      setErrorMessage(getErrorMessage(error, 'Failed to load Travel Rule responses.'));
     } finally {
       setLoading(false);
     }
@@ -92,8 +92,8 @@ const TransactionTravelRuleCasesPage = () => {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Travel Rule Cases</h1>
-          <p className="text-sm text-gray-500 mt-1">Read-only external counterparty exchange evidence.</p>
+          <h1 className="text-2xl font-bold text-gray-900">Travel Rule Responses</h1>
+          <p className="text-sm text-gray-500 mt-1">Read-only Travel Rule provider responses and reports.</p>
         </div>
         <button
           onClick={fetchCases}
@@ -154,7 +154,7 @@ const TransactionTravelRuleCasesPage = () => {
         <table className="w-full text-left text-sm">
           <thead className="bg-admin-content-bg border-b border-admin-border">
             <tr>
-              <th className="px-4 py-3 text-xs uppercase text-gray-500">Case</th>
+              <th className="px-4 py-3 text-xs uppercase text-gray-500">Response</th>
               <th className="px-4 py-3 text-xs uppercase text-gray-500">Source</th>
               <th className="px-4 py-3 text-xs uppercase text-gray-500">Required</th>
               <th className="px-4 py-3 text-xs uppercase text-gray-500">Status</th>
@@ -173,7 +173,7 @@ const TransactionTravelRuleCasesPage = () => {
             ) : items.length === 0 ? (
               <tr>
                 <td colSpan={7} className="px-4 py-8 text-center text-gray-500">
-                  No Travel Rule cases found
+                  No Travel Rule responses found
                 </td>
               </tr>
             ) : (
@@ -203,11 +203,11 @@ const TransactionTravelRuleCasesPage = () => {
                   <td className="px-4 py-3">
                     <button
                       onClick={() =>
-                        navigate(`/dashboard/compliance/tx-evidence/${item.sourceType}/${item.sourceId}`)
+                        navigate(`/dashboard/compliance/tx-travel-rule-responses/${item.id}`)
                       }
                       className="text-xs border border-gray-200 px-2 py-1 rounded hover:bg-gray-50"
                     >
-                      View Bundle
+                      View Response
                     </button>
                   </td>
                 </tr>

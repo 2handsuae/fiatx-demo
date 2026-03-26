@@ -45,6 +45,24 @@ describe('AuditLogsService', () => {
       travelRuleCase: {
         findMany: jest.fn(),
       },
+      workflowDecisionRecord: {
+        findMany: jest.fn(),
+      },
+      complianceAlert: {
+        findMany: jest.fn(),
+      },
+      complianceIncident: {
+        findMany: jest.fn(),
+      },
+      journal: {
+        findMany: jest.fn(),
+      },
+      internalTransaction: {
+        findMany: jest.fn(),
+      },
+      internalFund: {
+        findMany: jest.fn(),
+      },
     };
 
     service = new AuditLogsService(prisma);
@@ -174,6 +192,56 @@ describe('AuditLogsService', () => {
 
     expect(result.triggerType).toBe(AuditTriggerType.STATE_TRANSITION);
     expect(result.action).toBe(AuditActions.CDD_APPROVED);
+  });
+
+  it('should allow alert resolution and canonical workflow actions in state-transition allowlist', async () => {
+    prisma.auditLogEvent.findUnique.mockResolvedValue(null);
+    prisma.auditLogEvent.create.mockImplementation(({ data }: any) =>
+      Promise.resolve({
+        id: 'a-alert-resolution',
+        auditNo: 'AUD2603250001',
+        ...data,
+      }),
+    );
+
+    const alertResult = await service.recordByActor(
+      {
+        triggerType: AuditTriggerType.STATE_TRANSITION,
+        action: AuditActions.ALERT_RESOLVED,
+        module: AuditModules.COMPLIANCE_ALERTS,
+        entityType: AuditEntityTypes.COMPLIANCE_ALERT,
+        entityId: 'alert-1',
+        statusFrom: 'ASSIGNED',
+        statusTo: 'CLOSED',
+      },
+      {
+        actorType: 'ADMIN',
+        actorId: 'admin-9',
+        actorRole: 'COMPLIANCE_LEAD',
+      },
+    );
+
+    const workflowResult = await service.recordByActor(
+      {
+        triggerType: AuditTriggerType.STATE_TRANSITION,
+        action: 'ONBOARDING_WORKFLOW_CLEAR',
+        module: AuditModules.ONBOARDING,
+        entityType: AuditEntityTypes.ONBOARDING,
+        entityId: 'customer-1',
+        statusFrom: 'CDD_UNDER_REVIEW',
+        statusTo: 'APPROVED',
+      },
+      {
+        actorType: 'ADMIN',
+        actorId: 'admin-9',
+        actorRole: 'COMPLIANCE_LEAD',
+      },
+    );
+
+    expect(alertResult.triggerType).toBe(AuditTriggerType.STATE_TRANSITION);
+    expect(alertResult.action).toBe(AuditActions.ALERT_RESOLVED);
+    expect(workflowResult.triggerType).toBe(AuditTriggerType.STATE_TRANSITION);
+    expect(workflowResult.action).toBe('ONBOARDING_WORKFLOW_CLEAR');
   });
 
   it('should derive deposit trace and workflow context for payin events', async () => {
@@ -626,5 +694,293 @@ describe('AuditLogsService', () => {
     ).rejects.toThrow(InternalServerErrorException);
 
     await expect(service.findAll({ take: 20 })).rejects.toThrow(InternalServerErrorException);
+  });
+
+  it('should build full deposit evidence snapshots and chain for export packages', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-03-24T09:00:00.000Z'));
+    prisma.auditLogEvent.findMany.mockResolvedValue([
+      {
+        id: 'audit-1',
+        auditNo: 'AUD2603240001',
+        triggerType: AuditTriggerType.DATA_UPDATE,
+        action: AuditActions.DEPOSIT_ACCOUNTING_POSTED,
+        module: AuditModules.DEPOSIT_TRANSACTIONS,
+        entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+        entityId: 'dep-1',
+        entityNo: 'DEP2603240001',
+        actorType: 'SYSTEM',
+        actorId: 'SYSTEM',
+        workflowType: 'DEPOSIT',
+        workflowId: 'dep-1',
+        workflowNo: 'DEP2603240001',
+        metadata: null,
+        beforeData: null,
+        afterData: null,
+        occurredAt: new Date('2026-03-24T08:00:00.000Z'),
+        subjectNos: [],
+      },
+    ]);
+    prisma.depositTransaction.findMany.mockResolvedValue([
+      {
+        id: 'dep-1',
+        depositNo: 'DEP2603240001',
+        payin: {
+          id: 'payin-1',
+          payinNo: 'PI2603240001',
+          status: 'CLEARED',
+          type: 'CRYPTO',
+          txHash: '0xabc',
+          referenceNo: null,
+          statusHistory: '[]',
+          receivedAt: new Date('2026-03-24T08:00:00.000Z'),
+          confirmedAt: new Date('2026-03-24T08:01:00.000Z'),
+        },
+        customer: {
+          id: 'cust-1',
+          customerNo: 'CU2603240001',
+          firstName: 'Ada',
+          lastName: 'Lovelace',
+          email: 'ada@example.com',
+        },
+        asset: {
+          id: 'asset-1',
+          code: 'BTC',
+          type: 'CRYPTO',
+          network: 'BTC',
+          decimals: 8,
+        },
+      },
+    ]);
+    prisma.kytCase.findMany.mockResolvedValue([
+      {
+        id: 'kyt-1',
+        caseNo: 'KYT2603240001',
+        sourceId: 'dep-1',
+        screeningStage: 'MAIN',
+        status: 'PASS',
+        provider: 'CHAINALYSIS',
+        providerCaseId: 'provider-kyt-1',
+        checkedAt: new Date('2026-03-24T08:02:00.000Z'),
+        riskScore: '10',
+      },
+    ]);
+    prisma.travelRuleCase.findMany.mockResolvedValue([
+      {
+        id: 'tr-1',
+        caseNo: 'TR2603240001',
+        sourceId: 'dep-1',
+        status: 'ACCEPTED',
+        required: true,
+        provider: 'NOTABENE',
+        providerTransferId: 'provider-tr-1',
+        checkedAt: new Date('2026-03-24T08:03:00.000Z'),
+        counterpartyVasp: 'VASP-A',
+      },
+    ]);
+    prisma.workflowDecisionRecord.findMany.mockResolvedValue([
+      {
+        id: 'dr-1',
+        customerId: 'cust-1',
+        contextType: 'TX_DEPOSIT_KYT_MAIN',
+        subjectId: 'dep-1',
+        policyVersion: 'transaction-risk-policy/v1',
+        status: 'COMPLETED',
+        inputPayload: JSON.stringify({ trigger: 'KYT' }),
+        inputHash: 'h1',
+        outputDecision: 'REVIEW',
+        recommendedActions: JSON.stringify(['UPSERT_ALERT']),
+        outputs: JSON.stringify({ severity: 'MEDIUM' }),
+        reasonCodes: JSON.stringify(['KYT_REVIEW']),
+        errorMessage: null,
+        createdAt: new Date('2026-03-24T08:02:00.000Z'),
+        completedAt: new Date('2026-03-24T08:02:10.000Z'),
+        updatedAt: new Date('2026-03-24T08:02:10.000Z'),
+      },
+    ]);
+    prisma.complianceAlert.findMany.mockResolvedValue([
+      {
+        id: 'alert-1',
+        alertNo: 'ALT2603240001',
+        sourceType: 'DEPOSIT',
+        sourceId: 'dep-1',
+        sourceNo: 'DEP2603240001',
+        stage: 'REVIEW_KYT',
+        ruleCode: 'TX_KYT_REVIEW_REQUIRED',
+        severity: 'MEDIUM',
+        status: 'CLOSED',
+        decisionRecommendation: 'ESCALATE_TO_CASE',
+        decision: 'FALSE_POSITIVE',
+        decisionRecordIds: JSON.stringify(['dr-1']),
+        linkedCaseIds: JSON.stringify(['case-1']),
+        currentDispositionCode: 'FALSE_POSITIVE',
+        finalDispositionCode: 'FALSE_POSITIVE',
+        hitCount: 1,
+        metadata: JSON.stringify({ reason: 'manual clear' }),
+        firstOccurredAt: new Date('2026-03-24T08:02:30.000Z'),
+        lastOccurredAt: new Date('2026-03-24T08:03:00.000Z'),
+        createdAt: new Date('2026-03-24T08:02:30.000Z'),
+        updatedAt: new Date('2026-03-24T08:04:00.000Z'),
+      },
+    ]);
+    prisma.complianceIncident.findMany.mockResolvedValue([
+      {
+        id: 'case-1',
+        incidentNo: 'INC2603240001',
+        caseType: 'TRANSACTION',
+        status: 'CLOSED',
+        severity: 'MEDIUM',
+        primaryAlertId: 'alert-1',
+        primaryAlertNo: 'ALT2603240001',
+        entityId: 'dep-1',
+        entityNo: 'DEP2603240001',
+        sourceType: 'DEPOSIT',
+        stage: 'REVIEW_KYT',
+        ruleCode: 'TX_KYT_REVIEW_REQUIRED',
+        decision: 'CLEAR',
+        proposedWorkflowDecision: 'CLEAR',
+        mlroReviewOutcome: 'APPROVED',
+        currentDispositionCode: 'CLEAR',
+        finalDispositionCode: 'CLEAR',
+        decisionRecordIds: JSON.stringify(['dr-1']),
+        linkedCaseIds: JSON.stringify([]),
+        metadata: JSON.stringify({ note: 'approved' }),
+        createdAt: new Date('2026-03-24T08:03:30.000Z'),
+        updatedAt: new Date('2026-03-24T08:05:00.000Z'),
+      },
+    ]);
+    prisma.journal.findMany.mockResolvedValue([
+      {
+        id: 'journal-1',
+        journalNo: 'JO2603240001',
+        sourceType: 'DEPOSIT',
+        sourceId: 'dep-1',
+        sourceNo: 'DEP2603240001',
+        eventCode: 'EVT_DEPOSIT_CONFIRMED__CRYPTO',
+        postingStatus: 'POSTED',
+        postedAt: new Date('2026-03-24T08:01:30.000Z'),
+        reversalOfJournalId: null,
+        baseAssetId: 'asset-1',
+        totalAmount: '100.00',
+        description: 'Deposit confirmed',
+        createdAt: new Date('2026-03-24T08:01:30.000Z'),
+        updatedAt: new Date('2026-03-24T08:01:30.000Z'),
+      },
+      {
+        id: 'journal-2',
+        journalNo: 'JO2603240002',
+        sourceType: 'DEPOSIT',
+        sourceId: 'dep-1',
+        sourceNo: 'DEP2603240001',
+        eventCode: 'EVT_DEPOSIT_SUCCESS__CRYPTO',
+        postingStatus: 'POSTED',
+        postedAt: new Date('2026-03-24T08:05:30.000Z'),
+        reversalOfJournalId: null,
+        baseAssetId: 'asset-1',
+        totalAmount: '100.00',
+        description: 'Deposit success',
+        createdAt: new Date('2026-03-24T08:05:30.000Z'),
+        updatedAt: new Date('2026-03-24T08:05:30.000Z'),
+      },
+    ]);
+    prisma.internalTransaction.findMany.mockResolvedValue([
+      {
+        id: 'itx-1',
+        internalTxNo: 'ITX2603240001',
+        sourceType: 'DEPOSIT',
+        sourceId: 'dep-1',
+        sourceNo: 'DEP2603240001',
+        type: 'DEP_TO_MASTER',
+        status: 'SUCCESS',
+        approvalStatus: 'APPROVED',
+        assetId: 'asset-1',
+        amount: '100.00',
+        feeAmount: '0',
+        netAmount: '100.00',
+        fromWalletId: 'wallet-dep',
+        toWalletId: 'wallet-master',
+        referenceNo: 'DEP2603240001',
+        createdAt: new Date('2026-03-24T08:06:00.000Z'),
+        updatedAt: new Date('2026-03-24T08:06:00.000Z'),
+        completedAt: new Date('2026-03-24T08:06:10.000Z'),
+      },
+    ]);
+    prisma.internalFund.findMany.mockResolvedValue([
+      {
+        id: 'ifd-1',
+        internalFundNo: 'IFD2603240001',
+        internalTransactionId: 'itx-1',
+        status: 'CLEAR',
+        assetId: 'asset-1',
+        amount: '100.00',
+        feeAmount: '0',
+        netAmount: '100.00',
+        fromWalletId: 'wallet-dep',
+        toWalletId: 'wallet-master',
+        referenceNo: 'DEP2603240001',
+        txHash: '0xinternal',
+        createdAt: new Date('2026-03-24T08:06:20.000Z'),
+        updatedAt: new Date('2026-03-24T08:06:20.000Z'),
+        confirmedAt: new Date('2026-03-24T08:06:15.000Z'),
+        completedAt: new Date('2026-03-24T08:06:20.000Z'),
+      },
+    ]);
+
+    try {
+      const artifacts = await service.buildEvidencePackageArtifacts(
+        {
+          selectedEventIds: ['8f89c12b-6c5a-4b8a-8b59-53f59d4b2a70'],
+          workflowType: 'DEPOSIT',
+        } as any,
+        {
+          actorType: 'ADMIN',
+          actorId: 'admin-1',
+          actorRole: 'OPS',
+        },
+      );
+      const snapshots = (artifacts.packageBody as any).snapshots;
+
+      expect(snapshots).toEqual(
+        expect.objectContaining({
+          deposits: expect.any(Array),
+          riskDecisionRecords: expect.any(Array),
+          alerts: expect.any(Array),
+          cases: expect.any(Array),
+          journals: expect.any(Array),
+          internalTransactions: expect.any(Array),
+          internalFunds: expect.any(Array),
+          depositEvidenceChain: expect.any(Array),
+        }),
+      );
+      expect(snapshots.depositEvidenceChain).toEqual([
+        expect.objectContaining({
+          depositId: 'dep-1',
+          payinId: 'payin-1',
+          decisionRecordIds: ['dr-1'],
+          kytCaseIds: ['kyt-1'],
+          travelRuleCaseIds: ['tr-1'],
+          alertIds: ['alert-1'],
+          caseIds: ['case-1'],
+          journalIds: ['journal-1', 'journal-2'],
+          internalTransactionIds: ['itx-1'],
+          internalFundIds: ['ifd-1'],
+        }),
+      ]);
+
+      const artifactsAgain = await service.buildEvidencePackageArtifacts(
+        {
+          selectedEventIds: ['8f89c12b-6c5a-4b8a-8b59-53f59d4b2a70'],
+          workflowType: 'DEPOSIT',
+        } as any,
+        {
+          actorType: 'ADMIN',
+          actorId: 'admin-1',
+          actorRole: 'OPS',
+        },
+      );
+
+      expect(artifacts.digest).toBe(artifactsAgain.digest);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });

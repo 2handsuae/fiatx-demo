@@ -10,6 +10,7 @@ import {
 } from '../modules/trading/deposit-transactions/dto/deposit-transaction.dto';
 import { PayinStatus } from '../modules/asset-treasury/payins/dto/payin.dto';
 import { TransactionComplianceService } from '../modules/risk-engine/transaction-compliance/transaction-compliance.service';
+import { AuditActions } from '../modules/risk-engine/audit-logs/constants/audit-actions.constant';
 
 describe('DepositWorkflowService', () => {
   const mockDepositService = {
@@ -36,9 +37,14 @@ describe('DepositWorkflowService', () => {
 
   const mockTransactionComplianceService = {
     ensureDepositMainCasesOnPayinConfirmed: jest.fn(),
+    ensureInteractiveDepositMainCasesOnPayinConfirmed: jest.fn(),
   };
 
   const mockTx = {
+    auditLogEvent: {
+      findUnique: jest.fn().mockResolvedValue(null),
+      create: jest.fn().mockImplementation(({ data }: any) => Promise.resolve(data)),
+    },
     depositTransaction: {
       findUnique: jest.fn(),
     },
@@ -52,6 +58,13 @@ describe('DepositWorkflowService', () => {
   };
 
   const mockPrisma = {
+    auditLogEvent: {
+      findUnique: jest.fn().mockResolvedValue(null),
+      create: jest.fn().mockImplementation(({ data }: any) => Promise.resolve(data)),
+    },
+    acctEvent: {
+      findFirst: jest.fn(),
+    },
     depositTransaction: {
       findUnique: jest.fn(),
     },
@@ -92,6 +105,9 @@ describe('DepositWorkflowService', () => {
     });
     mockDepositService.updateStatus.mockResolvedValue({
       status: DepositTransactionStatus.COMPLIANCE_PENDING,
+    });
+    mockPrisma.acctEvent.findFirst.mockResolvedValue({
+      eventCode: 'EVT_DEPOSIT_CONFIRMED__CRYPTO',
     });
     mockJournalsService.triggerEvent.mockResolvedValue({ id: 'je-1' });
     mockPayinsService.updateStatus.mockResolvedValue({ status: PayinStatus.CLEARED });
@@ -138,6 +154,9 @@ describe('DepositWorkflowService', () => {
     mockDepositService.updateStatus.mockResolvedValue({
       status: DepositTransactionStatus.COMPLIANCE_PENDING,
     });
+    mockPrisma.acctEvent.findFirst.mockResolvedValue({
+      eventCode: 'EVT_DEPOSIT_CONFIRMED__FIAT',
+    });
     mockJournalsService.triggerEvent.mockResolvedValue({ id: 'je-fiat-1' });
     mockPayinsService.updateStatus.mockResolvedValue({ status: PayinStatus.CLEARED });
     mockTransactionComplianceService.ensureDepositMainCasesOnPayinConfirmed.mockResolvedValue(
@@ -152,6 +171,49 @@ describe('DepositWorkflowService', () => {
     expect(
       mockTransactionComplianceService.ensureDepositMainCasesOnPayinConfirmed,
     ).toHaveBeenCalledWith('dep-fiat-1', 'payin-fiat-1');
+  });
+
+  it('interactive payin confirm should create pending compliance containers instead of auto-mock completion', async () => {
+    mockPrisma.depositTransaction.findUnique.mockResolvedValue({
+      id: 'dep-interactive-1',
+      status: DepositTransactionStatus.PAYIN_PENDING,
+      ownerType: DepositOwnerType.CUSTOMER,
+      ownerId: 'cust-1',
+      assetId: 'asset-1',
+      amount: { toString: () => '100.00' },
+      depositNo: 'DEP-INTERACTIVE-1',
+      toWalletId: 'wallet-1',
+    });
+    mockPayinsService.findOne.mockResolvedValue({
+      id: 'payin-interactive-1',
+      status: PayinStatus.CONFIRMED,
+      type: 'crypto',
+      payinNo: 'PI-INTERACTIVE-1',
+    });
+    mockDepositService.updateStatus.mockResolvedValue({
+      status: DepositTransactionStatus.COMPLIANCE_PENDING,
+    });
+    mockPrisma.acctEvent.findFirst.mockResolvedValue({
+      eventCode: 'EVT_DEPOSIT_CONFIRMED__CRYPTO',
+    });
+    mockJournalsService.triggerEvent.mockResolvedValue({ id: 'je-interactive-1' });
+    mockPayinsService.updateStatus.mockResolvedValue({ status: PayinStatus.CLEARED });
+    mockTransactionComplianceService.ensureInteractiveDepositMainCasesOnPayinConfirmed.mockResolvedValue(
+      null,
+    );
+
+    await service.handlePayinStatusChanged({
+      payinId: 'payin-interactive-1',
+      newStatus: PayinStatus.CONFIRMED,
+      simulationMode: 'INTERACTIVE',
+    } as any);
+
+    expect(
+      mockTransactionComplianceService.ensureInteractiveDepositMainCasesOnPayinConfirmed,
+    ).toHaveBeenCalledWith('dep-interactive-1', 'payin-interactive-1');
+    expect(
+      mockTransactionComplianceService.ensureDepositMainCasesOnPayinConfirmed,
+    ).not.toHaveBeenCalledWith('dep-interactive-1', 'payin-interactive-1');
   });
 
   it('deposit success should trigger DEPOSIT SUCCESS accounting via triggerEvent', async () => {
@@ -170,6 +232,9 @@ describe('DepositWorkflowService', () => {
       id: 'payin-2',
       type: 'fiat',
       status: PayinStatus.CLEARED,
+    });
+    mockPrisma.acctEvent.findFirst.mockResolvedValue({
+      eventCode: 'EVT_DEPOSIT_SUCCESS__FIAT',
     });
     mockJournalsService.triggerEvent.mockResolvedValue({ id: 'je-2' });
 
@@ -224,6 +289,89 @@ describe('DepositWorkflowService', () => {
       }),
     });
     expect(result?.updated_payin_status).toBe(PayinStatus.CLEARED);
+  });
+
+  it('payin confirmed should record accounting blocked and keep payin uncleared when config is missing', async () => {
+    mockPrisma.depositTransaction.findUnique.mockResolvedValue({
+      id: 'dep-block-1',
+      status: DepositTransactionStatus.PAYIN_PENDING,
+      ownerType: DepositOwnerType.CUSTOMER,
+      ownerId: 'cust-1',
+      assetId: 'asset-1',
+      amount: { toString: () => '10.00' },
+      depositNo: 'DEP-BLOCK-1',
+      toWalletId: 'wallet-1',
+    });
+    mockPayinsService.findOne.mockResolvedValue({
+      id: 'payin-block-1',
+      status: PayinStatus.CONFIRMED,
+      type: 'crypto',
+    });
+    mockDepositService.updateStatus.mockResolvedValue({
+      status: DepositTransactionStatus.COMPLIANCE_PENDING,
+    });
+    mockPrisma.acctEvent.findFirst.mockResolvedValue(null);
+
+    const result = await service.handlePayinStatusChanged({
+      payinId: 'payin-block-1',
+      newStatus: PayinStatus.CONFIRMED,
+    } as any);
+
+    expect(mockPayinsService.updateStatus).not.toHaveBeenCalledWith(
+      'payin-block-1',
+      expect.anything(),
+    );
+    expect(mockPrisma.auditLogEvent.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          action: AuditActions.DEPOSIT_ACCOUNTING_BLOCKED,
+        }),
+      }),
+    );
+    expect(result?.updated_deposit_status).toBe(
+      DepositTransactionStatus.COMPLIANCE_PENDING,
+    );
+    expect(result?.updated_payin_status).toBeUndefined();
+  });
+
+  it('deposit success should record accounting blocked when posting returns null', async () => {
+    mockDepositService.findOne.mockResolvedValue({
+      id: 'dep-success-block',
+      status: DepositTransactionStatus.SUCCESS,
+      ownerType: DepositOwnerType.CUSTOMER,
+      ownerId: 'cust-2',
+      assetId: 'asset-2',
+      amount: { toString: () => '55.50' },
+      depositNo: 'DEP-S-BLOCK',
+      toWalletId: 'wallet-2',
+      payinId: 'payin-success-block',
+    });
+    mockPayinsService.findOne.mockResolvedValue({
+      id: 'payin-success-block',
+      type: 'fiat',
+      status: PayinStatus.CLEARED,
+    });
+    mockPrisma.acctEvent.findFirst.mockResolvedValue({
+      eventCode: 'EVT_DEPOSIT_SUCCESS__FIAT',
+    });
+    mockJournalsService.triggerEvent.mockResolvedValue(null);
+
+    const result = await service.handleDepositStatusChanged({
+      depositId: 'dep-success-block',
+      oldStatus: DepositTransactionStatus.UNDER_REVIEW,
+      newStatus: DepositTransactionStatus.SUCCESS,
+      payinId: 'payin-success-block',
+    } as any);
+
+    expect(mockPrisma.auditLogEvent.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          action: AuditActions.DEPOSIT_ACCOUNTING_BLOCKED,
+        }),
+      }),
+    );
+    expect(result?.created_or_reversed_journal_entry_ids).toEqual([]);
+    expect(result?.updated_deposit_status).toBe(DepositTransactionStatus.SUCCESS);
   });
 
   it('non-customer deposit should not trigger accounting on payin confirmed', async () => {

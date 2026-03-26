@@ -6,6 +6,7 @@ export enum DepositTransactionStatus {
   COMPLIANCE_PENDING = 'COMPLIANCE_PENDING',
   SUCCESS = 'SUCCESS',
   UNDER_REVIEW = 'UNDER_REVIEW',
+  FROZEN = 'FROZEN',
   REJECTED = 'REJECTED',
   FAILED = 'FAILED',
 }
@@ -71,6 +72,7 @@ export enum DepositTransactionAction {
   PAYIN_CONFIRMED = 'payin_confirmed',
   SUCCESS = 'success',
   FLAG = 'flag',
+  FREEZE = 'freeze',
   REJECT = 'reject',
   FAIL = 'fail',
 }

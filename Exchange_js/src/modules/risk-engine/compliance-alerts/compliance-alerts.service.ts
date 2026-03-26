@@ -4,6 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { ModuleRef } from '@nestjs/core';
 import {
   ComplianceAlert,
   ComplianceAlertDispositionRecord,
@@ -37,17 +38,21 @@ import {
 } from './constants/compliance-alert-rules.constant';
 import {
   ComplianceAlertActorContext,
+  AlertResolutionType,
   ComplianceAlertQueryDto,
+  ResolveComplianceAlertDto,
   UpdateComplianceAlertActionDto,
 } from './dto/compliance-alert.dto';
 import {
-  ALERT_OUTCOME_ACTIONS_BY_STAGE,
-  ALERT_WORK_ITEM_ACTIONS,
   LEGACY_ONBOARDING_REVIEW_RULE,
+  ONBOARDING_WORKFLOW,
   ONBOARDING_REVIEW_STAGES,
   ONBOARDING_SOURCE_TYPE,
+  PERIODIC_REVIEW_SOURCE_TYPE,
   PERIODIC_REVIEW_WORKFLOW,
-  WORKFLOW_DECISIONS_BY_STAGE,
+  TRANSACTION_DEPOSIT_SOURCE_TYPE,
+  TRANSACTION_REVIEW_STAGES,
+  TRANSACTION_WORKFLOW,
   buildComplianceWorkflowTraceContext,
   getCanonicalOnboardingRuleForStage,
   getCanonicalReviewRuleForStage,
@@ -57,12 +62,30 @@ import {
   normalizeComplianceRuleCode,
   normalizeOnboardingReviewStage,
 } from '../constants/onboarding-compliance-workflow.constant';
+import { TransactionDepositWorkflowService } from '../../trading/deposit-transactions/transaction-deposit-workflow.service';
+import type { OnboardingService } from '../../identity/onboarding/onboarding.service';
+import type { PeriodicReviewService } from '../../identity/periodic-review/periodic-review.service';
+import type { ComplianceIncidentsService } from '../compliance-incidents/compliance-incidents.service';
 
 type AlertWriteClient = Prisma.TransactionClient | PrismaService;
 type AlertWithEvents = ComplianceAlert & {
   events: ComplianceAlertEvent[];
   dispositionRecords: ComplianceAlertDispositionRecord[];
 };
+export type AlertHandlingAction =
+  | 'ASSIGN'
+  | 'REASSIGN'
+  | 'FALSE_POSITIVE'
+  | 'DIRECT_DISPOSITION'
+  | 'ESCALATE_TO_CASE';
+export type AlertDirectProposal = 'REJECT' | 'REQUIRE_EDD' | 'FREEZE_TRANSACTION';
+
+export interface AlertPrimaryObject {
+  type: string;
+  id: string | null;
+  no: string | null;
+  label: string;
+}
 
 export interface TriggerComplianceAlertInput {
   ruleCode: string;
@@ -118,7 +141,10 @@ export class ComplianceAlertsService {
   private static readonly DEFAULT_TAKE = 20;
   private readonly auditLogsService: AuditLogsService;
 
-  constructor(private readonly prisma: PrismaService) {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly moduleRef?: ModuleRef,
+  ) {
     this.auditLogsService = new AuditLogsService(prisma);
   }
 
@@ -213,46 +239,125 @@ export class ComplianceAlertsService {
     });
   }
 
-  private getAvailableAlertActions(
+  private getTransactionWorkflowTransitionService() {
+    const service = this.moduleRef?.get(TransactionDepositWorkflowService, {
+      strict: false,
+    });
+    if (!service) return null;
+    return service;
+  }
+
+  private getOnboardingService() {
+    const { OnboardingService } = require('../../identity/onboarding/onboarding.service');
+    const service = this.moduleRef?.get(OnboardingService, {
+      strict: false,
+    });
+    if (!service) {
+      throw new BadRequestException('Onboarding service is unavailable.');
+    }
+    return service;
+  }
+
+  private getPeriodicReviewService() {
+    const { PeriodicReviewService } = require('../../identity/periodic-review/periodic-review.service');
+    const service = this.moduleRef?.get(PeriodicReviewService, {
+      strict: false,
+    });
+    if (!service) {
+      throw new BadRequestException('Periodic review service is unavailable.');
+    }
+    return service;
+  }
+
+  private getComplianceIncidentsService() {
+    const { ComplianceIncidentsService } = require('../compliance-incidents/compliance-incidents.service');
+    const service = this.moduleRef?.get(ComplianceIncidentsService, {
+      strict: false,
+    });
+    if (!service) {
+      throw new BadRequestException('Compliance incidents service is unavailable.');
+    }
+    return service;
+  }
+
+  private isCurrentAssignee(
     row: {
       status?: string | null;
+      assigneeUserId?: string | null;
+    },
+    actor?: ComplianceAlertActorContext | null,
+  ): boolean {
+    if (String(row.status || '').trim().toUpperCase() !== ComplianceAlertStatus.ASSIGNED) {
+      return false;
+    }
+    const currentAssigneeUserId = this.normalizeOptionalString((row as any).assigneeUserId);
+    const actorId = this.normalizeOptionalString(actor?.actorId);
+    return !!currentAssigneeUserId && !!actorId && currentAssigneeUserId === actorId;
+  }
+
+  private getPrimaryObject(
+    row: {
+      sourceType?: string | null;
+      sourceId?: string | null;
+      sourceNo?: string | null;
+      journeyId?: string | null;
+    },
+  ): AlertPrimaryObject {
+    const sourceType = this.normalizeOptionalString(row.sourceType) || 'UNKNOWN';
+
+    if (sourceType === ONBOARDING_SOURCE_TYPE) {
+      return {
+        type: ONBOARDING_SOURCE_TYPE,
+        id: this.normalizeOptionalString((row as any).journeyId) || this.normalizeOptionalString(row.sourceId),
+        no: this.normalizeOptionalString(row.sourceNo),
+        label: 'Onboarding Journey',
+      };
+    }
+
+    if (sourceType === PERIODIC_REVIEW_SOURCE_TYPE) {
+      return {
+        type: PERIODIC_REVIEW_SOURCE_TYPE,
+        id: this.normalizeOptionalString(row.sourceId),
+        no: this.normalizeOptionalString(row.sourceNo),
+        label: 'Periodic Review Cycle',
+      };
+    }
+
+    return {
+      type: TRANSACTION_DEPOSIT_SOURCE_TYPE,
+      id: this.normalizeOptionalString(row.sourceId),
+      no: this.normalizeOptionalString(row.sourceNo),
+      label: 'Deposit',
+    };
+  }
+
+  private getDirectProposalsForAlert(
+    row: {
       sourceType?: string | null;
       stage?: string | null;
     },
-  ): string[] {
-    const status = String(row.status || '').trim().toUpperCase();
-    const workflowBound = this.isWorkflowBoundAlert(row);
+  ): AlertDirectProposal[] {
+    const workflow = getWorkflowFromSourceType(row.sourceType);
+    const stage = normalizeComplianceReviewStage((row as any).stage);
 
-    if (!workflowBound) {
-      if (status === ComplianceAlertStatus.OPEN) {
-        return [ALERT_WORK_ITEM_ACTIONS.ASSIGN];
-      }
-      if (status === ComplianceAlertStatus.ASSIGNED) {
-        return [ALERT_WORK_ITEM_ACTIONS.REASSIGN];
-      }
-      return [];
+    if (!workflow || !stage) return [];
+
+    if (workflow === TRANSACTION_WORKFLOW) {
+      return ['REJECT', 'FREEZE_TRANSACTION'];
     }
 
-    if (status === ComplianceAlertStatus.OPEN) {
-      return [
-        ALERT_WORK_ITEM_ACTIONS.ASSIGN,
-        ...ALERT_OUTCOME_ACTIONS_BY_STAGE[
-          normalizeComplianceReviewStage((row as any).stage) || ONBOARDING_REVIEW_STAGES.REVIEW_CDD
-        ],
-      ];
+    if (stage === ONBOARDING_REVIEW_STAGES.REVIEW_CDD) {
+      return ['REJECT', 'REQUIRE_EDD'];
     }
-    if (status === ComplianceAlertStatus.ASSIGNED) {
-      return [
-        ALERT_WORK_ITEM_ACTIONS.REASSIGN,
-        ...ALERT_OUTCOME_ACTIONS_BY_STAGE[
-          normalizeComplianceReviewStage((row as any).stage) || ONBOARDING_REVIEW_STAGES.REVIEW_CDD
-        ],
-      ];
+
+    if (stage === ONBOARDING_REVIEW_STAGES.REVIEW_EDD) {
+      return ['REJECT'];
     }
+
     return [];
   }
 
-  private getAvailableWorkflowActions(
+  private getAvailableHandlingActions(
     row: {
       status?: string | null;
       sourceType?: string | null;
@@ -260,24 +365,31 @@ export class ComplianceAlertsService {
       assigneeUserId?: string | null;
     },
     actor?: ComplianceAlertActorContext | null,
-  ): string[] {
+  ): AlertHandlingAction[] {
     const status = String(row.status || '').trim().toUpperCase();
-    const stage = normalizeComplianceReviewStage((row as any).stage);
-    const currentAssigneeUserId = this.normalizeOptionalString((row as any).assigneeUserId);
-    const actorId = this.normalizeOptionalString(actor?.actorId);
 
-    if (
-      !this.isWorkflowBoundAlert(row) ||
-      !stage ||
-      status !== ComplianceAlertStatus.ASSIGNED ||
-      !currentAssigneeUserId ||
-      !actorId ||
-      currentAssigneeUserId !== actorId
-    ) {
+    if (!this.isWorkflowBoundAlert(row)) {
+      if (status === ComplianceAlertStatus.OPEN) return ['ASSIGN'];
+      if (status === ComplianceAlertStatus.ASSIGNED && this.isCurrentAssignee(row, actor)) {
+        return ['REASSIGN'];
+      }
       return [];
     }
 
-    return [...WORKFLOW_DECISIONS_BY_STAGE[stage]];
+    if (status === ComplianceAlertStatus.OPEN) {
+      return ['ASSIGN'];
+    }
+
+    if (status !== ComplianceAlertStatus.ASSIGNED || !this.isCurrentAssignee(row, actor)) {
+      return [];
+    }
+
+    const handling: AlertHandlingAction[] = ['REASSIGN', 'FALSE_POSITIVE'];
+    if (this.getDirectProposalsForAlert(row).length > 0) {
+      handling.push('DIRECT_DISPOSITION');
+    }
+    handling.push('ESCALATE_TO_CASE');
+    return handling;
   }
 
   private isWorkflowBoundAlert(row: {
@@ -461,6 +573,13 @@ export class ComplianceAlertsService {
     const dispositionRecords = Array.isArray(item.dispositionRecords)
       ? item.dispositionRecords
       : [];
+    const primaryObject = this.getPrimaryObject(item);
+    const availableHandlingActions = this.getAvailableHandlingActions(item, actor);
+    const availableDirectProposals =
+      this.isCurrentAssignee(item, actor) &&
+      String(item.status || '').trim().toUpperCase() === ComplianceAlertStatus.ASSIGNED
+        ? this.getDirectProposalsForAlert(item)
+        : [];
 
     return {
       ...mapped,
@@ -468,8 +587,9 @@ export class ComplianceAlertsService {
       dispositionHistory: dispositionRecords.map((record) =>
         this.mapDispositionRecord(record),
       ),
-      availableAlertActions: this.getAvailableAlertActions(item),
-      availableWorkflowActions: this.getAvailableWorkflowActions(item, actor),
+      primaryObject,
+      availableHandlingActions,
+      availableDirectProposals,
     };
   }
 
@@ -1341,7 +1461,11 @@ export class ComplianceAlertsService {
       where.sourceType = query.sourceType;
     } else {
       where.sourceType = {
-        in: [ONBOARDING_SOURCE_TYPE, 'PERIODIC_REVIEW_CYCLE'],
+        in: [
+          ONBOARDING_SOURCE_TYPE,
+          PERIODIC_REVIEW_SOURCE_TYPE,
+          TRANSACTION_DEPOSIT_SOURCE_TYPE,
+        ],
       };
     }
     if (query.sourceId) where.sourceId = query.sourceId;
@@ -1351,7 +1475,10 @@ export class ComplianceAlertsService {
       where.stage = normalizedStage;
     } else {
       where.stage = {
-        in: Object.values(ONBOARDING_REVIEW_STAGES),
+        in: [
+          ...Object.values(ONBOARDING_REVIEW_STAGES),
+          ...Object.values(TRANSACTION_REVIEW_STAGES),
+        ],
       };
     }
 
@@ -1589,12 +1716,429 @@ export class ComplianceAlertsService {
     return { markedCount: rows.length };
   }
 
+  private assertWorkflowBoundAlertForResolution(
+    current: ComplianceAlert,
+  ) {
+    if (
+      !isSupportedReviewSourceType(current.sourceType) ||
+      !normalizeComplianceReviewStage((current as any).stage)
+    ) {
+      throw new BadRequestException(
+        `Alert ${current.id} is outside supported review scope`,
+      );
+    }
+  }
+
+  private assertAssigneeCanResolve(
+    current: ComplianceAlert,
+    actor: ComplianceAlertActorContext,
+  ) {
+    if (current.status !== ComplianceAlertStatus.ASSIGNED) {
+      throw new BadRequestException(
+        `Alert ${current.id} must be ASSIGNED to resolve, current=${current.status}`,
+      );
+    }
+
+    const currentAssigneeUserId = this.normalizeOptionalString(current.assigneeUserId);
+    if (!currentAssigneeUserId || currentAssigneeUserId !== actor.actorId) {
+      throw new ForbiddenException(
+        `Only assignee ${currentAssigneeUserId || 'UNKNOWN'} can resolve this alert`,
+      );
+    }
+  }
+
+  private normalizeDirectProposalCode(value: unknown): AlertDirectProposal | null {
+    const normalized = normalizeWorkflowDecision(value);
+    if (
+      normalized === 'REJECT' ||
+      normalized === 'REQUIRE_EDD' ||
+      normalized === 'FREEZE_TRANSACTION'
+    ) {
+      return normalized;
+    }
+    return null;
+  }
+
+  private buildResolutionImpliedProposal(
+    sourceType: string | null | undefined,
+  ): string {
+    if (sourceType === ONBOARDING_SOURCE_TYPE) return 'Proceed Journey';
+    if (sourceType === PERIODIC_REVIEW_SOURCE_TYPE) return 'Proceed Periodic Review Cycle';
+    return 'Proceed Deposit';
+  }
+
+  private async resolveTransactionAlertViaWorkflow(
+    id: string,
+    input: {
+      resolutionType: AlertResolutionType.FALSE_POSITIVE | AlertResolutionType.DIRECT_DISPOSITION;
+      dispositionCode:
+        | typeof ALERT_DISPOSITION_CODES.FALSE_POSITIVE
+        | typeof ALERT_DISPOSITION_CODES.RESOLVED_BY_WORKFLOW;
+      decision: string;
+      decisionRecommendation?: string | null;
+      proposalCode?: Extract<AlertDirectProposal, 'REJECT' | 'FREEZE_TRANSACTION'>;
+      reason: string;
+      dispositionReason: string;
+      workflowAction: 'CLEAR' | 'REJECT' | 'FREEZE';
+      reasonCode: string;
+      impliedProposal?: string | null;
+    },
+    actor: ComplianceAlertActorContext,
+  ) {
+    return this.prisma.$transaction(async (tx) => {
+      const transactionAlert = await tx.complianceAlert.findUnique({
+        where: { id },
+      });
+      if (!transactionAlert) {
+        throw new NotFoundException(`Compliance alert not found: ${id}`);
+      }
+
+      this.assertWorkflowBoundAlertForResolution(transactionAlert);
+      this.assertAssigneeCanResolve(transactionAlert, actor);
+
+      const now = new Date();
+      const decisionRecordIds = this.normalizeStringList(
+        this.parseJson(transactionAlert.decisionRecordIds),
+      );
+      const primaryObject = this.getPrimaryObject(transactionAlert);
+      const dispositionRecord = await this.createDispositionRecord(tx, transactionAlert, {
+        dispositionCode: input.dispositionCode,
+        reason: input.dispositionReason,
+        isFinal: true,
+        decisionRecordId: decisionRecordIds[0] || null,
+        source: 'ALERT_RESOLUTION',
+        sourceRefId: id,
+        actorType: actor.actorType,
+        actorId: actor.actorId,
+        actorNo: actor.actorNo || null,
+        actorRole: actor.actorRole || null,
+        createdAt: now,
+      });
+
+      const updated = await tx.complianceAlert.update({
+        where: { id: transactionAlert.id },
+        data: {
+          status: ComplianceAlertStatus.CLOSED,
+          closedAt: now,
+          closeReason: input.reason,
+          decisionRecommendation: input.decisionRecommendation || undefined,
+          decision: input.decision,
+          currentDispositionCode: input.dispositionCode,
+          currentDispositionReason: input.dispositionReason,
+          currentDispositionAt: now,
+          currentDispositionById: actor.actorId,
+          currentDispositionByNo: actor.actorNo || null,
+          currentDispositionByRole: actor.actorRole || null,
+          currentDispositionRecordId: dispositionRecord.id,
+          finalDispositionCode: input.dispositionCode,
+          finalDispositionReason: input.dispositionReason,
+          finalDispositionAt: now,
+          finalDispositionRecordId: dispositionRecord.id,
+          lastActionById: actor.actorId,
+          lastActionByNo: actor.actorNo || null,
+          lastActionByRole: actor.actorRole || null,
+          lastActionAt: now,
+        },
+      });
+
+      await this.appendEvent(tx, {
+        alertId: updated.id,
+        eventType: ComplianceAlertEventType.CLOSED,
+        eventAt: now,
+        actorType: actor.actorType,
+        actorId: actor.actorId,
+        actorNo: actor.actorNo || null,
+        actorRole: actor.actorRole || null,
+        note: input.reason,
+        payload: {
+          action: 'ALERT_RESOLUTION',
+          resolutionType: input.resolutionType,
+          proposalCode: input.proposalCode || null,
+          impliedProposal: input.impliedProposal || null,
+          primaryObject,
+          statusFrom: transactionAlert.status,
+          statusTo: ComplianceAlertStatus.CLOSED,
+        },
+        sourcePlatform: actor.sourcePlatform || 'ADMIN_API',
+      });
+
+      const workflowContext = this.getAuditWorkflowContext(updated);
+      await this.auditLogsService.recordByActor(
+        {
+          triggerType: AuditTriggerType.DATA_UPDATE,
+          action: AuditActions.ALERT_RESOLVED,
+          module: AuditModules.COMPLIANCE_ALERTS,
+          entityType: AuditEntityTypes.COMPLIANCE_ALERT,
+          entityId: updated.id,
+          entityNo: updated.alertNo,
+          traceId: workflowContext?.traceId || undefined,
+          workflowType: workflowContext?.workflowType || undefined,
+          workflowId: workflowContext?.workflowId || undefined,
+          workflowNo: workflowContext?.workflowNo || undefined,
+          entityOwnerType: updated.ownerType || undefined,
+          entityOwnerId: updated.ownerId || undefined,
+          statusFrom: transactionAlert.status,
+          statusTo: updated.status,
+          reason: input.reason,
+          metadata: {
+            resolutionType: input.resolutionType,
+            proposalCode: input.proposalCode || null,
+            impliedProposal: input.impliedProposal || null,
+            primaryObject,
+            decisionRecordIds,
+          },
+          sourcePlatform: actor.sourcePlatform || 'ADMIN_API',
+        },
+        {
+          actorType: actor.actorType,
+          actorId: actor.actorId,
+          actorNo: actor.actorNo,
+          actorRole: actor.actorRole,
+        },
+        tx,
+      );
+
+      const transitionService = this.getTransactionWorkflowTransitionService();
+      if (!transitionService) {
+        throw new BadRequestException('Transaction deposit workflow service is unavailable.');
+      }
+
+      await transitionService.execute(tx, {
+        depositId: String(updated.sourceId),
+        source: 'ALERT',
+        sourceId: updated.id,
+        workflowAction: input.workflowAction,
+        reason: input.reason,
+        reasonCode: input.reasonCode,
+        actor: {
+          actorType: actor.actorType,
+          actorId: actor.actorId,
+          actorNo: actor.actorNo,
+          actorRole: actor.actorRole,
+          sourcePlatform: actor.sourcePlatform || 'ADMIN_API',
+        },
+        decisionRecordId: decisionRecordIds[0] || null,
+        alertId: updated.id,
+        triggerStage: this.normalizeOptionalString((updated as any).stage),
+      });
+
+      const detail = await tx.complianceAlert.findUnique({
+        where: { id: updated.id },
+        include: {
+          events: {
+            orderBy: { eventAt: 'desc' },
+          },
+          dispositionRecords: {
+            orderBy: [{ createdAt: 'desc' }],
+          },
+        },
+      });
+
+      if (!detail) {
+        throw new NotFoundException(`Compliance alert not found: ${updated.id}`);
+      }
+
+      return this.buildAlertDetailResponse(detail as AlertWithEvents, actor);
+    });
+  }
+
+  private async closeTransactionAlertAsFalsePositive(
+    id: string,
+    current: ComplianceAlert,
+    reason: string | null,
+    actor: ComplianceAlertActorContext,
+  ) {
+    const impliedProposal = this.buildResolutionImpliedProposal(current.sourceType);
+    const closeReason = reason || 'False positive';
+
+    return this.resolveTransactionAlertViaWorkflow(
+      id,
+      {
+        resolutionType: AlertResolutionType.FALSE_POSITIVE,
+        dispositionCode: ALERT_DISPOSITION_CODES.FALSE_POSITIVE,
+        decision: ALERT_DISPOSITION_CODES.FALSE_POSITIVE,
+        reason: closeReason,
+        dispositionReason: reason || impliedProposal,
+        workflowAction: 'CLEAR',
+        reasonCode: ALERT_DISPOSITION_CODES.FALSE_POSITIVE,
+        impliedProposal,
+      },
+      actor,
+    );
+  }
+
+  private async closeTransactionAlertWithWorkflowDecision(
+    id: string,
+    current: ComplianceAlert,
+    proposalCode: Extract<AlertDirectProposal, 'REJECT' | 'FREEZE_TRANSACTION'>,
+    reason: string,
+    actor: ComplianceAlertActorContext,
+  ) {
+    return this.resolveTransactionAlertViaWorkflow(
+      id,
+      {
+        resolutionType: AlertResolutionType.DIRECT_DISPOSITION,
+        dispositionCode: ALERT_DISPOSITION_CODES.RESOLVED_BY_WORKFLOW,
+        decision: proposalCode,
+        decisionRecommendation: proposalCode,
+        proposalCode,
+        reason,
+        dispositionReason: reason,
+        workflowAction: proposalCode === 'FREEZE_TRANSACTION' ? 'FREEZE' : 'REJECT',
+        reasonCode: proposalCode,
+      },
+      actor,
+    );
+  }
+
+  async resolveAlert(
+    id: string,
+    dto: ResolveComplianceAlertDto,
+    actor: ComplianceAlertActorContext,
+  ) {
+    const current = await this.prisma.complianceAlert.findUnique({
+      where: { id },
+    });
+    if (!current) {
+      throw new NotFoundException(`Compliance alert not found: ${id}`);
+    }
+
+    this.assertWorkflowBoundAlertForResolution(current);
+    this.assertAssigneeCanResolve(current, actor);
+
+    const reason = this.normalizeOptionalString(dto.reason);
+    const workflow = getWorkflowFromSourceType(current.sourceType);
+
+    if (dto.resolutionType === AlertResolutionType.FALSE_POSITIVE) {
+      if (this.normalizeOptionalString(dto.proposalCode)) {
+        throw new BadRequestException(
+          'FALSE_POSITIVE does not accept proposalCode.',
+        );
+      }
+
+      if (workflow === TRANSACTION_WORKFLOW) {
+        return this.closeTransactionAlertAsFalsePositive(id, current, reason, actor);
+      }
+
+      if (workflow === ONBOARDING_WORKFLOW) {
+        const result = await this.getOnboardingService().applyOnboardingDecisionFromAlert(
+          id,
+          actor.actorId,
+          actor.actorRole || 'ADMIN',
+          {
+            decision: 'CLEAR',
+            alertOutcome: 'FALSE_POSITIVE',
+            reason: reason || undefined,
+          },
+        );
+        return result.alert;
+      }
+
+      const result = await this.getPeriodicReviewService().applyDecisionFromAlert(
+        id,
+        actor.actorId,
+        actor.actorRole || 'ADMIN',
+        {
+          decision: 'CLEAR',
+          alertOutcome: 'FALSE_POSITIVE',
+          reason: reason || undefined,
+        },
+      );
+      return result.alert;
+    }
+
+    if (dto.resolutionType === AlertResolutionType.ESCALATE_TO_CASE) {
+      if (this.normalizeOptionalString(dto.proposalCode)) {
+        throw new BadRequestException(
+          'ESCALATE_TO_CASE does not accept proposalCode.',
+        );
+      }
+      if (!reason) {
+        throw new BadRequestException(
+          'ESCALATE_TO_CASE requires a reason.',
+        );
+      }
+
+      await this.getComplianceIncidentsService().createFromAlert(
+        id,
+        { reason },
+        {
+          actorType: actor.actorType,
+          actorId: actor.actorId,
+          actorNo: actor.actorNo,
+          actorRole: actor.actorRole,
+          sourcePlatform: actor.sourcePlatform,
+        },
+      );
+
+      return this.findOne(id, actor);
+    }
+
+    if (!reason) {
+      throw new BadRequestException(
+        'DIRECT_DISPOSITION requires a reason.',
+      );
+    }
+
+    const proposalCode = this.normalizeDirectProposalCode(dto.proposalCode);
+    if (!proposalCode) {
+      throw new BadRequestException(
+        `Unsupported proposalCode: ${String(dto.proposalCode || '')}`,
+      );
+    }
+
+    const allowedProposals = this.getDirectProposalsForAlert(current);
+    if (!allowedProposals.includes(proposalCode)) {
+      throw new BadRequestException(
+        `Proposal ${proposalCode} is not allowed for ${current.sourceType}/${current.stage}`,
+      );
+    }
+
+    if (workflow === TRANSACTION_WORKFLOW) {
+      const transactionProposal =
+        proposalCode === 'FREEZE_TRANSACTION' ? 'FREEZE_TRANSACTION' : 'REJECT';
+      return this.closeTransactionAlertWithWorkflowDecision(
+        id,
+        current,
+        transactionProposal,
+        reason,
+        actor,
+      );
+    }
+
+    if (workflow === ONBOARDING_WORKFLOW) {
+      const result = await this.getOnboardingService().applyOnboardingDecisionFromAlert(
+        id,
+        actor.actorId,
+        actor.actorRole || 'ADMIN',
+        {
+          decision: proposalCode as 'REJECT' | 'REQUIRE_EDD',
+          reason,
+        },
+      );
+      return result.alert;
+    }
+
+    const result = await this.getPeriodicReviewService().applyDecisionFromAlert(
+      id,
+      actor.actorId,
+      actor.actorRole || 'ADMIN',
+      {
+        decision: proposalCode as 'REJECT' | 'REQUIRE_EDD',
+        reason,
+      },
+    );
+    return result.alert;
+  }
+
   async applyAction(
     id: string,
     dto: UpdateComplianceAlertActionDto,
     actor: ComplianceAlertActorContext,
     tx?: Prisma.TransactionClient,
   ) {
+    // Compatibility action kernel. Canonical alert detail flows should only
+    // use ASSIGN/REASSIGN here and move all workflow resolution to resolveAlert().
     const db = this.getDb(tx);
     const current = await db.complianceAlert.findUnique({
       where: { id },
@@ -1613,10 +2157,20 @@ export class ComplianceAlertsService {
 
     const currentStatus = current.status as ComplianceAlertStatus;
     this.assertActionAllowed(currentStatus, dto.action);
+    const explicitDispositionCode = this.resolveExplicitDispositionCode({
+      dispositionCode: dto.dispositionCode,
+      decision: dto.decision,
+    });
+    const workflow = getWorkflowFromSourceType(current.sourceType);
+    const isTransactionFalsePositiveClose =
+      workflow === TRANSACTION_WORKFLOW &&
+      dto.action === ComplianceAlertAction.CLOSE &&
+      explicitDispositionCode === ALERT_DISPOSITION_CODES.FALSE_POSITIVE;
 
     if (
       this.isWorkflowBoundAlert(current) &&
-      dto.action === ComplianceAlertAction.CLOSE
+      dto.action === ComplianceAlertAction.CLOSE &&
+      !isTransactionFalsePositiveClose
     ) {
       throw new BadRequestException(
         'Workflow-bound alerts must be resolved via FALSE_POSITIVE or dedicated workflow decision endpoints.',
@@ -1664,10 +2218,6 @@ export class ComplianceAlertsService {
     const decision = this.normalizeOptionalString(dto.decision);
     const dispositionReason =
       this.normalizeOptionalString(dto.dispositionReason) || reason || note;
-    const explicitDispositionCode = this.resolveExplicitDispositionCode({
-      dispositionCode: dto.dispositionCode,
-      decision: dto.decision,
-    });
     const linkedCaseIds = this.serializeJson(dto.linkedCaseIds || null);
     const decisionRecordIds = this.serializeJson(dto.decisionRecordIds || null);
 
@@ -1875,6 +2425,39 @@ export class ComplianceAlertsService {
 
     if (!detail) {
       throw new NotFoundException(`Compliance alert not found: ${updated.id}`);
+    }
+
+    if (
+      isTransactionFalsePositiveClose &&
+      updated.sourceType === 'DEPOSIT' &&
+      this.normalizeOptionalString(updated.sourceId)
+    ) {
+      const transitionService = this.getTransactionWorkflowTransitionService();
+      if (transitionService) {
+        const detailResponse = this.buildAlertDetailResponse(detail as AlertWithEvents, actor);
+        const decisionRecordIds = Array.isArray(detailResponse.decisionRecordIds)
+          ? (detailResponse.decisionRecordIds as string[])
+          : [];
+        await transitionService.execute(tx, {
+          depositId: String(updated.sourceId),
+          source: 'ALERT',
+          sourceId: updated.id,
+          workflowAction: 'CLEAR',
+          reason: dispositionReason || reason || note || 'Transaction alert marked false positive',
+          reasonCode: ALERT_DISPOSITION_CODES.FALSE_POSITIVE,
+          actor: {
+            actorType: actor.actorType,
+            actorId: actor.actorId,
+            actorNo: actor.actorNo,
+            actorRole: actor.actorRole,
+            sourcePlatform: actor.sourcePlatform || 'ADMIN_API',
+          },
+          decisionRecordId: decisionRecordIds[0] || null,
+          alertId: updated.id,
+          triggerStage: this.normalizeOptionalString((detailResponse as any).stage),
+        });
+        return detailResponse;
+      }
     }
 
     return this.buildAlertDetailResponse(detail as AlertWithEvents, actor);
