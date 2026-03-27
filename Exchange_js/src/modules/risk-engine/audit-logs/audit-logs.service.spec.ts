@@ -26,22 +26,30 @@ describe('AuditLogsService', () => {
       auditLogSubjectNo: {
         findMany: jest.fn(),
       },
-      auditEvidencePackage: {
-        create: jest.fn(),
-        count: jest.fn(),
-        findMany: jest.fn(),
-        findUnique: jest.fn(),
+    auditEvidencePackage: {
+      create: jest.fn(),
+      count: jest.fn(),
+      findMany: jest.fn(),
+      findUnique: jest.fn(),
       },
       payin: {
         findUnique: jest.fn(),
       },
       depositTransaction: {
-        findUnique: jest.fn(),
-        findMany: jest.fn(),
-      },
-      kytCase: {
-        findMany: jest.fn(),
-      },
+      findUnique: jest.fn(),
+      findMany: jest.fn(),
+    },
+    swapTransaction: {
+      findUnique: jest.fn(),
+      findMany: jest.fn(),
+    },
+    swapQuote: {
+      findUnique: jest.fn(),
+      findMany: jest.fn(),
+    },
+    kytCase: {
+      findMany: jest.fn(),
+    },
       travelRuleCase: {
         findMany: jest.fn(),
       },
@@ -54,12 +62,15 @@ describe('AuditLogsService', () => {
       complianceIncident: {
         findMany: jest.fn(),
       },
-      journal: {
-        findMany: jest.fn(),
-      },
-      internalTransaction: {
-        findMany: jest.fn(),
-      },
+    journal: {
+      findMany: jest.fn(),
+    },
+    outstanding: {
+      findMany: jest.fn(),
+    },
+    internalTransaction: {
+      findMany: jest.fn(),
+    },
       internalFund: {
         findMany: jest.fn(),
       },
@@ -242,6 +253,30 @@ describe('AuditLogsService', () => {
     expect(alertResult.action).toBe(AuditActions.ALERT_RESOLVED);
     expect(workflowResult.triggerType).toBe(AuditTriggerType.STATE_TRANSITION);
     expect(workflowResult.action).toBe('ONBOARDING_WORKFLOW_CLEAR');
+  });
+
+  it('should allow canonical swap state-transition actions without allowlist entries', async () => {
+    prisma.auditLogEvent.findUnique.mockResolvedValue(null);
+    prisma.auditLogEvent.create.mockImplementation(({ data }: any) =>
+      Promise.resolve({
+        id: 'a-swap-transition',
+        auditNo: 'AUD2603260099',
+        ...data,
+      }),
+    );
+
+    const result = await service.recordSystem({
+      triggerType: AuditTriggerType.STATE_TRANSITION,
+      action: 'SWAP_PENDING_COMPLIANCE_TO_SUCCESS',
+      module: AuditModules.SWAP_TRANSACTIONS,
+      entityType: AuditEntityTypes.SWAP_TRANSACTION,
+      entityId: 'swap-1',
+      statusFrom: 'PENDING_COMPLIANCE',
+      statusTo: 'SUCCESS',
+    });
+
+    expect(result.triggerType).toBe(AuditTriggerType.STATE_TRANSITION);
+    expect(result.action).toBe('SWAP_PENDING_COMPLIANCE_TO_SUCCESS');
   });
 
   it('should derive deposit trace and workflow context for payin events', async () => {
@@ -502,14 +537,22 @@ describe('AuditLogsService', () => {
     });
 
     const where = prisma.auditLogEvent.count.mock.calls[0][0].where;
-    expect(where.archivedAt).toBeNull();
     expect(where.deletedAt).toBeUndefined();
-    expect(where.occurredAt.gte.toISOString()).toBe('2026-02-18T00:00:00.000Z');
-    expect(where.occurredAt.lte.toISOString()).toBe('2026-02-18T23:59:59.999Z');
-    expect(where.OR).toEqual(
+    expect(where.AND).toEqual(
       expect.arrayContaining([
-        { action: { contains: 'WITHDRAW' } },
-        { reason: { contains: 'WITHDRAW' } },
+        { archivedAt: null },
+        {
+          occurredAt: expect.objectContaining({
+            gte: new Date('2026-02-18T00:00:00.000Z'),
+            lte: new Date('2026-02-18T23:59:59.999Z'),
+          }),
+        },
+        {
+          OR: expect.arrayContaining([
+            { action: { contains: 'WITHDRAW' } },
+            { reason: { contains: 'WITHDRAW' } },
+          ]),
+        },
       ]),
     );
   });
@@ -527,14 +570,67 @@ describe('AuditLogsService', () => {
     });
 
     const where = prisma.auditLogEvent.count.mock.calls[0][0].where;
-    expect(where.actorNo).toBe('US2602180001');
-    expect(where.entityOwnerNo).toBe('CU2602180001');
-    expect(where.subjectNos).toEqual({
-      some: {
-        subjectNo: 'CU2602180001',
-        subjectType: 'CUSTOMER',
-      },
+    expect(where.AND).toEqual(
+      expect.arrayContaining([
+        { actorNo: 'US2602180001' },
+        { entityOwnerNo: 'CU2602180001' },
+        {
+          subjectNos: {
+            some: {
+              subjectNo: 'CU2602180001',
+              subjectType: 'CUSTOMER',
+            },
+          },
+        },
+      ]),
+    );
+  });
+
+  it('should expand swap workflowNo queries to include linked quote-root records', async () => {
+    prisma.swapTransaction.findMany
+      .mockResolvedValueOnce([
+        {
+          id: 'swap-1',
+          swapNo: 'SWP2603260001',
+          quoteId: 'quote-1',
+          quoteNo: 'QUO2603260001',
+        },
+      ])
+      .mockResolvedValueOnce([]);
+    prisma.swapQuote.findMany.mockResolvedValue([]);
+    prisma.auditLogEvent.count.mockResolvedValue(0);
+    prisma.auditLogEvent.findMany.mockResolvedValue([]);
+
+    await service.findAll({
+      workflowType: 'SWAP',
+      workflowNo: 'SWP2603260001',
+      take: 20,
     });
+
+    const where = prisma.auditLogEvent.count.mock.calls[0][0].where;
+    expect(where).toEqual(
+      expect.objectContaining({
+        AND: expect.arrayContaining([
+          { workflowType: 'SWAP' },
+          {
+            OR: expect.arrayContaining([
+              { workflowNo: { in: ['QUO2603260001', 'SWP2603260001'] } },
+              {
+                subjectNos: {
+                  some: {
+                    subjectNo: { in: ['QUO2603260001', 'SWP2603260001'] },
+                  },
+                },
+              },
+              {
+                traceId: { in: ['SWAP:quote-1', 'SWAP:swap-1'] },
+              },
+            ]),
+          },
+          { archivedAt: null },
+        ]),
+      }),
+    );
   });
 
   it('should map subjectNos from audit log records', async () => {
@@ -982,5 +1078,471 @@ describe('AuditLogsService', () => {
     } finally {
       jest.useRealTimers();
     }
+  });
+
+  it('should build full swap evidence snapshots and chain for export packages', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-03-26T12:00:00.000Z'));
+    prisma.auditLogEvent.findMany.mockResolvedValue([
+      {
+        id: 'audit-swap-1',
+        auditNo: 'AUD2603260001',
+        triggerType: AuditTriggerType.DATA_UPDATE,
+        action: AuditActions.SWAP_CREATED,
+        module: AuditModules.SWAP_TRANSACTIONS,
+        entityType: AuditEntityTypes.SWAP_TRANSACTION,
+        entityId: 'swap-1',
+        entityNo: 'SWP2603260001',
+        actorType: 'CUSTOMER',
+        actorId: 'customer-1',
+        workflowType: 'SWAP',
+        workflowId: 'quote-1',
+        workflowNo: 'QUO2603260001',
+        metadata: null,
+        beforeData: null,
+        afterData: null,
+        occurredAt: new Date('2026-03-26T11:00:00.000Z'),
+        subjectNos: [],
+      },
+      {
+        id: 'audit-swap-2',
+        auditNo: 'AUD2603260002',
+        triggerType: AuditTriggerType.DATA_UPDATE,
+        action: AuditActions.TX_SWAP_RELEASED,
+        module: AuditModules.SWAP_TRANSACTIONS,
+        entityType: AuditEntityTypes.SWAP_TRANSACTION,
+        entityId: 'swap-1',
+        entityNo: 'SWP2603260001',
+        actorType: 'SYSTEM',
+        actorId: 'SYSTEM',
+        workflowType: 'SWAP',
+        workflowId: 'swap-1',
+        workflowNo: 'SWP2603260001',
+        metadata: null,
+        beforeData: null,
+        afterData: null,
+        occurredAt: new Date('2026-03-26T11:02:00.000Z'),
+        subjectNos: [],
+      },
+    ]);
+    prisma.swapTransaction.findMany.mockResolvedValue([
+      {
+        id: 'swap-1',
+        swapNo: 'SWP2603260001',
+        quoteId: 'quote-1',
+        quoteSnapshotRef: 'quote-1',
+        quoteNo: 'QUO2603260001',
+        ownerType: 'CUSTOMER',
+        ownerId: 'cust-1',
+        ownerNo: 'CU2603260001',
+        status: 'SUCCESS',
+        fromAssetId: 'asset-usdt',
+        fromAssetCode: 'USDT',
+        fromAmount: '1000.00',
+        toAssetId: 'asset-btc',
+        toAssetCode: 'BTC',
+        toAmount: '0.01000000',
+        netToAmount: '0.00995000',
+        feeAmount: '0.00005000',
+        feeCurrency: 'BTC',
+        exchangeRate: '0.00001000',
+        fromAsset: {
+          id: 'asset-usdt',
+          code: 'USDT',
+          type: 'CRYPTO',
+          network: 'TRON',
+          decimals: 6,
+        },
+        toAsset: {
+          id: 'asset-btc',
+          code: 'BTC',
+          type: 'CRYPTO',
+          network: 'BTC',
+          decimals: 8,
+        },
+        customer: {
+          id: 'cust-1',
+          customerNo: 'CU2603260001',
+          firstName: 'Ada',
+          lastName: 'Lovelace',
+          email: 'ada@example.com',
+          amlRiskTier: 'LOW',
+          investorClassification: 'RETAIL',
+        },
+      },
+    ]);
+    prisma.swapQuote.findMany.mockResolvedValue([
+      {
+        id: 'quote-1',
+        quoteNo: 'QUO2603260001',
+        ownerType: 'CUSTOMER',
+        ownerId: 'cust-1',
+        ownerNo: 'CU2603260001',
+        status: 'USED',
+        quoteType: 'FIRM',
+        fromAssetId: 'asset-usdt',
+        fromAssetCode: 'USDT',
+        toAssetId: 'asset-btc',
+        toAssetCode: 'BTC',
+        side: 'SELL',
+        amountType: 'FROM',
+        amountIn: '1000.00',
+        currencyIn: 'USDT',
+        amountOut: '0.01000000',
+        currencyOut: 'BTC',
+        rateDisplay: '0.00001000',
+        rateAllIn: '0.00001000',
+        marketRate: '0.00001020',
+        spreadPercent: '0.20',
+        spreadBps: 20,
+        rateSource: 'BINANCE',
+        fetchedAt: new Date('2026-03-26T10:59:30.000Z'),
+        feeBreakdown: JSON.stringify([
+          { itemCode: 'SWAP_SERVICE_FEE', currency: 'BTC', value: '0.00005000' },
+        ]),
+        totalsJson: JSON.stringify({
+          BTC: '0.00005000',
+          amountOutGross: '0.01000000',
+          amountOutNet: '0.00995000',
+          feeTotal: '0.00005000',
+          feeCurrency: 'BTC',
+        }),
+        policyRef: JSON.stringify({
+          policyCode: 'SWAP_PRICING',
+          policyId: 'POL-SWAP-ONLINE',
+          business: 'SWAP',
+          channel: 'ONLINE',
+        }),
+        pricingSource: JSON.stringify({
+          provider: 'BINANCE',
+          symbol: 'BTCUSDT',
+        }),
+        matched: JSON.stringify({
+          pairId: 'BTC-USDT',
+          tierId: 'tier-1',
+        }),
+        fromAsset: {
+          id: 'asset-usdt',
+          code: 'USDT',
+          type: 'CRYPTO',
+          network: 'TRON',
+          decimals: 6,
+        },
+        toAsset: {
+          id: 'asset-btc',
+          code: 'BTC',
+          type: 'CRYPTO',
+          network: 'BTC',
+          decimals: 8,
+        },
+      },
+    ]);
+    prisma.workflowDecisionRecord.findMany.mockResolvedValue([
+      {
+        id: 'dr-swap-1',
+        customerId: 'cust-1',
+        contextType: 'TX_SWAP_FINAL',
+        subjectId: 'swap-1',
+        policyVersion: 'transaction-risk-policy/v1',
+        status: 'COMPLETED',
+        inputPayload: JSON.stringify({ trigger: 'TX_SWAP_FINAL' }),
+        inputHash: 'h-swap-1',
+        outputDecision: 'REVIEW',
+        recommendedActions: JSON.stringify(['UPSERT_ALERT']),
+        outputs: JSON.stringify({ severity: 'MEDIUM' }),
+        reasonCodes: JSON.stringify(['TX_SWAP_FINAL_REVIEW_REQUIRED']),
+        errorMessage: null,
+        createdAt: new Date('2026-03-26T11:00:30.000Z'),
+        completedAt: new Date('2026-03-26T11:00:40.000Z'),
+        updatedAt: new Date('2026-03-26T11:00:40.000Z'),
+      },
+    ]);
+    prisma.complianceAlert.findMany.mockResolvedValue([
+      {
+        id: 'alert-swap-1',
+        alertNo: 'ALT2603260001',
+        sourceType: 'SWAP',
+        sourceId: 'swap-1',
+        sourceNo: 'SWP2603260001',
+        stage: 'REVIEW_SWAP_FINAL',
+        ruleCode: 'TX_SWAP_FINAL_REVIEW_REQUIRED',
+        severity: 'MEDIUM',
+        status: 'CLOSED',
+        decisionRecommendation: 'REVIEW',
+        decision: 'FALSE_POSITIVE',
+        decisionRecordIds: JSON.stringify(['dr-swap-1']),
+        linkedCaseIds: JSON.stringify(['case-swap-1']),
+        currentDispositionCode: 'FALSE_POSITIVE',
+        finalDispositionCode: 'FALSE_POSITIVE',
+        hitCount: 1,
+        metadata: JSON.stringify({ sourceType: 'SWAP' }),
+        firstOccurredAt: new Date('2026-03-26T11:00:45.000Z'),
+        lastOccurredAt: new Date('2026-03-26T11:01:00.000Z'),
+        createdAt: new Date('2026-03-26T11:00:45.000Z'),
+        updatedAt: new Date('2026-03-26T11:03:00.000Z'),
+      },
+    ]);
+    prisma.complianceIncident.findMany.mockResolvedValue([
+      {
+        id: 'case-swap-1',
+        incidentNo: 'INC2603260001',
+        caseType: 'TRANSACTION',
+        status: 'CLOSED',
+        severity: 'MEDIUM',
+        primaryAlertId: 'alert-swap-1',
+        primaryAlertNo: 'ALT2603260001',
+        entityId: 'swap-1',
+        entityNo: 'SWP2603260001',
+        sourceType: 'SWAP',
+        stage: 'REVIEW_SWAP_FINAL',
+        ruleCode: 'TX_SWAP_FINAL_REVIEW_REQUIRED',
+        decision: 'CLEAR',
+        proposedWorkflowDecision: 'CLEAR',
+        mlroReviewOutcome: 'APPROVED',
+        currentDispositionCode: 'FALSE_POSITIVE',
+        finalDispositionCode: 'FALSE_POSITIVE',
+        decisionRecordIds: JSON.stringify(['dr-swap-1']),
+        linkedCaseIds: JSON.stringify([]),
+        metadata: JSON.stringify({ sourceType: 'SWAP' }),
+        createdAt: new Date('2026-03-26T11:01:10.000Z'),
+        updatedAt: new Date('2026-03-26T11:04:00.000Z'),
+      },
+    ]);
+    prisma.journal.findMany.mockResolvedValue([
+      {
+        id: 'journal-swap-1',
+        journalNo: 'JO2603260001',
+        sourceType: 'SWAP',
+        sourceId: 'swap-1',
+        sourceNo: 'SWP2603260001',
+        eventCode: 'EVT_SWAP_CREATED',
+        postingStatus: 'POSTED',
+        postedAt: new Date('2026-03-26T11:00:05.000Z'),
+        reversalOfJournalId: null,
+        baseAssetId: 'asset-usdt',
+        totalAmount: '1000.00',
+        description: 'Swap created',
+        createdAt: new Date('2026-03-26T11:00:05.000Z'),
+        updatedAt: new Date('2026-03-26T11:00:05.000Z'),
+      },
+      {
+        id: 'journal-swap-2',
+        journalNo: 'JO2603260002',
+        sourceType: 'SWAP',
+        sourceId: 'swap-1',
+        sourceNo: 'SWP2603260001',
+        eventCode: 'EVT_SWAP_SUCCESS',
+        postingStatus: 'POSTED',
+        postedAt: new Date('2026-03-26T11:02:10.000Z'),
+        reversalOfJournalId: null,
+        baseAssetId: 'asset-btc',
+        totalAmount: '0.00995000',
+        description: 'Swap success',
+        createdAt: new Date('2026-03-26T11:02:10.000Z'),
+        updatedAt: new Date('2026-03-26T11:02:10.000Z'),
+      },
+    ]);
+    prisma.outstanding.findMany.mockResolvedValue([
+      {
+        id: 'os-swap-1',
+        outstandingNo: 'OUT2603260001',
+        sourceType: 'SWAP',
+        sourceId: 'swap-1',
+        sourceNo: 'SWP2603260001',
+        direction: 'OUT',
+        assetId: 'asset-usdt',
+        assetCode: 'USDT',
+        amount: '1000.00',
+        status: 'OPEN',
+        createdAt: new Date('2026-03-26T11:02:15.000Z'),
+        updatedAt: new Date('2026-03-26T11:02:15.000Z'),
+        closedAt: null,
+      },
+      {
+        id: 'os-swap-2',
+        outstandingNo: 'OUT2603260002',
+        sourceType: 'SWAP',
+        sourceId: 'swap-1',
+        sourceNo: 'SWP2603260001',
+        direction: 'IN',
+        assetId: 'asset-btc',
+        assetCode: 'BTC',
+        amount: '0.00995000',
+        status: 'OPEN',
+        createdAt: new Date('2026-03-26T11:02:15.000Z'),
+        updatedAt: new Date('2026-03-26T11:02:15.000Z'),
+        closedAt: null,
+      },
+    ]);
+
+    try {
+      const artifacts = await service.buildEvidencePackageArtifacts(
+        {
+          selectedEventIds: ['audit-swap-1', 'audit-swap-2'],
+          workflowType: 'SWAP',
+        } as any,
+        {
+          actorType: 'ADMIN',
+          actorId: 'admin-1',
+          actorRole: 'OPS',
+        },
+      );
+      const snapshots = (artifacts.packageBody as any).snapshots;
+
+      expect(artifacts.manifest.workflowSummary).toEqual({
+        workflowType: 'SWAP',
+        workflowNos: ['SWP2603260001'],
+      });
+      expect(snapshots).toEqual(
+        expect.objectContaining({
+          swapTransactions: expect.any(Array),
+          swapQuotes: expect.any(Array),
+          swapRiskDecisionRecords: expect.any(Array),
+          swapAlerts: expect.any(Array),
+          swapCases: expect.any(Array),
+          swapJournals: expect.any(Array),
+          swapOutstandings: expect.any(Array),
+          swapEvidenceChain: expect.any(Array),
+        }),
+      );
+      expect(snapshots.swapEvidenceChain).toEqual([
+        expect.objectContaining({
+          swapId: 'swap-1',
+          quoteId: 'quote-1',
+          quoteNo: 'QUO2603260001',
+          decisionRecordIds: ['dr-swap-1'],
+          alertIds: ['alert-swap-1'],
+          caseIds: ['case-swap-1'],
+          journalIds: ['journal-swap-1', 'journal-swap-2'],
+          outstandingIds: ['os-swap-1', 'os-swap-2'],
+        }),
+      ]);
+      expect(snapshots.swapQuotes).toEqual([
+        expect.objectContaining({
+          id: 'quote-1',
+          quoteNo: 'QUO2603260001',
+        }),
+      ]);
+      expect(snapshots.swapTransactions).toEqual([
+        expect.objectContaining({
+          id: 'swap-1',
+          quoteId: 'quote-1',
+          feeAmount: '0.00005000',
+          feeCurrency: 'BTC',
+        }),
+      ]);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('should canonicalize swap export workflow summary and filter snapshot to swapNo when a linked swap is resolved', async () => {
+    prisma.swapTransaction.findMany
+      .mockResolvedValueOnce([
+        {
+          id: 'swap-1',
+          swapNo: 'SWP2603260001',
+          quoteId: 'quote-1',
+          quoteNo: 'QUO2603260001',
+        },
+      ])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          id: 'swap-1',
+          swapNo: 'SWP2603260001',
+          quoteId: 'quote-1',
+          quoteNo: 'QUO2603260001',
+          quoteSnapshotRef: 'quote-1',
+        },
+      ]);
+    prisma.swapQuote.findMany.mockResolvedValue([
+      {
+        id: 'quote-1',
+        quoteNo: 'QUO2603260001',
+      },
+    ]);
+    prisma.auditLogEvent.findMany.mockResolvedValue([
+      {
+        id: 'audit-swap-1',
+        auditNo: 'AUD2603260101',
+        triggerType: AuditTriggerType.DATA_UPDATE,
+        action: AuditActions.SWAP_CREATED,
+        module: AuditModules.SWAP_TRANSACTIONS,
+        entityType: AuditEntityTypes.SWAP_TRANSACTION,
+        entityId: 'swap-1',
+        entityNo: 'SWP2603260001',
+        actorType: 'CUSTOMER',
+        actorId: 'customer-1',
+        workflowType: 'SWAP',
+        workflowId: 'quote-1',
+        workflowNo: 'QUO2603260001',
+        metadata: null,
+        beforeData: null,
+        afterData: null,
+        occurredAt: new Date('2026-03-26T11:00:00.000Z'),
+        subjectNos: [],
+      },
+    ]);
+
+    const result = await service.prepareEvidenceExportSelection({
+      selectedEventIds: ['audit-swap-1'],
+      workflowType: 'SWAP',
+      workflowNo: 'QUO2603260001',
+    } as any);
+
+    expect(result.workflowSummary).toEqual({
+      workflowType: 'SWAP',
+      workflowNos: ['SWP2603260001'],
+    });
+    expect(result.normalizedCriteria.workflowNo).toBe('SWP2603260001');
+    expect(result.filterSnapshot.workflowNo).toBe('SWP2603260001');
+  });
+
+  it('should retain quoteNo workflow summary for quote-only swap export selection without a linked swap', async () => {
+    prisma.swapTransaction.findMany
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+    prisma.swapQuote.findMany.mockResolvedValue([
+      {
+        id: 'quote-1',
+        quoteNo: 'QUO2603260999',
+      },
+    ]);
+    prisma.auditLogEvent.findMany.mockResolvedValue([
+      {
+        id: 'audit-quote-1',
+        auditNo: 'AUD2603260999',
+        triggerType: AuditTriggerType.DATA_CREATE,
+        action: AuditActions.SWAP_QUOTE_CREATED,
+        module: AuditModules.SWAP_TRANSACTIONS,
+        entityType: AuditEntityTypes.SWAP_QUOTE,
+        entityId: 'quote-1',
+        entityNo: 'QUO2603260999',
+        actorType: 'CUSTOMER',
+        actorId: 'customer-1',
+        workflowType: 'SWAP',
+        workflowId: 'quote-1',
+        workflowNo: 'QUO2603260999',
+        metadata: null,
+        beforeData: null,
+        afterData: null,
+        occurredAt: new Date('2026-03-26T11:00:00.000Z'),
+        subjectNos: [],
+      },
+    ]);
+
+    const result = await service.prepareEvidenceExportSelection({
+      selectedEventIds: ['audit-quote-1'],
+      workflowType: 'SWAP',
+      workflowNo: 'QUO2603260999',
+    } as any);
+
+    expect(result.workflowSummary).toEqual({
+      workflowType: 'SWAP',
+      workflowNos: ['QUO2603260999'],
+    });
+    expect(result.normalizedCriteria.workflowNo).toBe('QUO2603260999');
+    expect(result.filterSnapshot.workflowNo).toBe('QUO2603260999');
   });
 });

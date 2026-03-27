@@ -33,7 +33,10 @@ import {
   AuditModules,
 } from '../audit-logs/constants/audit-actions.constant';
 import { AuditResult, AuditTriggerType } from '../audit-logs/dto/audit-log.dto';
-import { TransactionRiskBridgeService } from './transaction-risk-bridge.service';
+import {
+  BridgeExecutionResult,
+  TransactionRiskBridgeService,
+} from './transaction-risk-bridge.service';
 import { PayinSimulationMode } from '../../asset-treasury/payins/dto/payin.dto';
 
 type DbClient = Prisma.TransactionClient | PrismaService;
@@ -53,6 +56,24 @@ export class TransactionComplianceService {
 
   private getClient(tx?: Prisma.TransactionClient): DbClient {
     return tx ?? this.prisma;
+  }
+
+  async evaluateSwapFinalReview(
+    swapId: string,
+    tx?: Prisma.TransactionClient,
+  ): Promise<BridgeExecutionResult> {
+    if (!this.transactionRiskBridgeService) {
+      throw new NotFoundException('TransactionRiskBridgeService is unavailable');
+    }
+
+    return this.transactionRiskBridgeService.handleSwapFinalReview(
+      {
+        swapId,
+        sourceType: TxSourceType.SWAP,
+        sourceId: swapId,
+      },
+      tx,
+    );
   }
 
   private getProviderMode(): TxComplianceProviderMode {
@@ -183,8 +204,7 @@ export class TransactionComplianceService {
     const riskReason = this.normalizeSimulationRiskReason(
       input.inboundSignal?.simulationRiskReason,
     );
-    const effectiveTravelRuleRequired =
-      input.travelRuleRequired || riskReason === 'TRAVEL_RULE_ISSUE';
+    const effectiveTravelRuleRequired = input.travelRuleRequired;
 
     const base = {
       riskLevel,
@@ -195,51 +215,17 @@ export class TransactionComplianceService {
       providerCaseId: `MOCK-KYT-${input.payinId}`,
       providerTransferId: `MOCK-TRV-${input.payinId}`,
       checkedAt: new Date(),
-      counterpartyVasp:
-        riskReason === 'TRAVEL_RULE_ISSUE' ? 'MOCK-COUNTERPARTY-VASP' : null,
+      counterpartyVasp: effectiveTravelRuleRequired
+        ? 'AUTO-FILLED-COUNTERPARTY-VASP'
+        : null,
     } as const;
-
-    if (riskLevel === 'HIGH') {
-      return {
-        ...base,
-        kytStatus: 'FAIL',
-        travelRuleStatus: effectiveTravelRuleRequired ? 'ACCEPTED' : 'NOT_REQUIRED',
-        riskScore: 92,
-      };
-    }
-
-    if (riskLevel === 'MEDIUM' && riskReason === 'TRAVEL_RULE_ISSUE') {
-      return {
-        ...base,
-        kytStatus: 'PASS',
-        travelRuleStatus: 'REJECTED',
-        riskScore: 66,
-      };
-    }
-
-    if (riskLevel === 'MEDIUM' && riskReason === 'KYT_ISSUE') {
-      return {
-        ...base,
-        kytStatus: 'REVIEW',
-        travelRuleStatus: effectiveTravelRuleRequired ? 'ACCEPTED' : 'NOT_REQUIRED',
-        riskScore: 61,
-      };
-    }
-
-    if (riskLevel === 'MEDIUM') {
-      return {
-        ...base,
-        kytStatus: 'PASS',
-        travelRuleStatus: effectiveTravelRuleRequired ? 'ACCEPTED' : 'NOT_REQUIRED',
-        riskScore: 58,
-      };
-    }
 
     return {
       ...base,
       kytStatus: 'PASS',
       travelRuleStatus: effectiveTravelRuleRequired ? 'ACCEPTED' : 'NOT_REQUIRED',
-      riskScore: 18,
+      riskScore:
+        riskLevel === 'HIGH' ? 52 : riskLevel === 'MEDIUM' ? 34 : 18,
     };
   }
 
@@ -1877,163 +1863,107 @@ export class TransactionComplianceService {
 
     const providerMode = this.getProviderMode();
     const provider = providerMode === 'MOCK' ? 'MOCK' : 'MANUAL';
-    const isInteractiveSimulation =
-      simulationMode === PayinSimulationMode.INTERACTIVE;
+    const inboundSignal = await this.resolveInboundSignalForPayin(payinId, tx);
+    const simulation = this.buildDepositSimulationProfile({
+      depositId: deposit.id,
+      payinId,
+      travelRuleRequired: deposit.travelRuleRequired,
+      inboundSignal,
+    });
 
-    if (providerMode === 'MOCK' && !isInteractiveSimulation) {
-      const inboundSignal = await this.resolveInboundSignalForPayin(payinId, tx);
-      const simulation = this.buildDepositSimulationProfile({
-        depositId: deposit.id,
-        payinId,
-        travelRuleRequired: deposit.travelRuleRequired,
-        inboundSignal,
-      });
-
-      await this.upsertKytCaseAndAppendReport(
-        {
-          sourceType: TxSourceType.DEPOSIT,
-          sourceId: deposit.id,
-          screeningStage: KytScreeningStage.MAIN,
-          ownerType: deposit.ownerType,
-          ownerId: deposit.ownerId,
-          assetId: deposit.assetId,
-          provider,
-          providerCaseId: simulation.providerCaseId,
-          status: simulation.kytStatus,
-          riskScore: simulation.riskScore,
-          checkedAt: simulation.checkedAt,
-          rawPayload: {
-            ...this.buildMockKytPayload({
-              sourceType: TxSourceType.DEPOSIT,
-              sourceId: deposit.id,
-              stage: KytScreeningStage.MAIN,
-              status: simulation.kytStatus,
-              riskScore: simulation.riskScore,
-              providerCaseId: simulation.providerCaseId,
-            }),
-            triggerEntityType: 'PAYIN',
-            triggerEntityId: payinId,
-            triggerStatus: 'CONFIRMED',
-            simulationRiskLevel: simulation.riskLevel,
-            simulationRiskReason: simulation.riskReason,
-            simulationSignalId: simulation.simulationSignalId,
-            simulationSignalNo: simulation.simulationSignalNo,
-          },
-          normalizedPayload: {
+    await this.upsertKytCaseAndAppendReport(
+      {
+        sourceType: TxSourceType.DEPOSIT,
+        sourceId: deposit.id,
+        screeningStage: KytScreeningStage.MAIN,
+        ownerType: deposit.ownerType,
+        ownerId: deposit.ownerId,
+        assetId: deposit.assetId,
+        provider,
+        providerCaseId: simulation.providerCaseId,
+        status: simulation.kytStatus,
+        riskScore: simulation.riskScore,
+        checkedAt: simulation.checkedAt,
+        rawPayload: {
+          ...this.buildMockKytPayload({
+            sourceType: TxSourceType.DEPOSIT,
+            sourceId: deposit.id,
+            stage: KytScreeningStage.MAIN,
             status: simulation.kytStatus,
             riskScore: simulation.riskScore,
-            triggerEntityType: 'PAYIN',
-            triggerEntityId: payinId,
-            triggerStatus: 'CONFIRMED',
-            simulationRiskLevel: simulation.riskLevel,
-            simulationRiskReason: simulation.riskReason,
-            simulationSignalId: simulation.simulationSignalId,
-            simulationSignalNo: simulation.simulationSignalNo,
-          },
-        },
-        tx,
-      );
-
-      await this.upsertTravelRuleCaseAndAppendReport(
-        {
-          sourceType: TxSourceType.DEPOSIT,
-          sourceId: deposit.id,
-          ownerType: deposit.ownerType,
-          ownerId: deposit.ownerId,
-          assetId: deposit.assetId,
+            providerCaseId: simulation.providerCaseId,
+          }),
           provider,
-          providerTransferId: simulation.providerTransferId,
+          source: simulationMode === PayinSimulationMode.INTERACTIVE
+            ? 'interactive-auto-filled'
+            : 'confirmed-auto-filled',
+          triggerEntityType: 'PAYIN',
+          triggerEntityId: payinId,
+          triggerStatus: 'CONFIRMED',
+          simulationSignalId: simulation.simulationSignalId,
+          simulationSignalNo: simulation.simulationSignalNo,
+          finalRiskExecutionMode: 'MANUAL',
+        },
+        normalizedPayload: {
+          status: simulation.kytStatus,
+          riskScore: simulation.riskScore,
+          triggerEntityType: 'PAYIN',
+          triggerEntityId: payinId,
+          triggerStatus: 'CONFIRMED',
+          simulationSignalId: simulation.simulationSignalId,
+          simulationSignalNo: simulation.simulationSignalNo,
+          finalRiskExecutionMode: 'MANUAL',
+        },
+      },
+      tx,
+    );
+
+    await this.upsertTravelRuleCaseAndAppendReport(
+      {
+        sourceType: TxSourceType.DEPOSIT,
+        sourceId: deposit.id,
+        ownerType: deposit.ownerType,
+        ownerId: deposit.ownerId,
+        assetId: deposit.assetId,
+        provider,
+        providerTransferId: simulation.providerTransferId,
+        required: simulation.effectiveTravelRuleRequired,
+        status: simulation.travelRuleStatus,
+        checkedAt: simulation.checkedAt,
+        rawPayload: {
+          ...this.buildMockTravelPayload({
+            sourceType: TxSourceType.DEPOSIT,
+            sourceId: deposit.id,
+            status: simulation.travelRuleStatus,
+            required: simulation.effectiveTravelRuleRequired,
+            providerTransferId: simulation.providerTransferId,
+            counterpartyVasp: simulation.counterpartyVasp,
+          }),
+          provider,
+          source: simulationMode === PayinSimulationMode.INTERACTIVE
+            ? 'interactive-auto-filled'
+            : 'confirmed-auto-filled',
+          triggerEntityType: 'PAYIN',
+          triggerEntityId: payinId,
+          triggerStatus: 'CONFIRMED',
+          simulationSignalId: simulation.simulationSignalId,
+          simulationSignalNo: simulation.simulationSignalNo,
+          finalRiskExecutionMode: 'MANUAL',
+        },
+        normalizedPayload: {
           required: simulation.effectiveTravelRuleRequired,
           status: simulation.travelRuleStatus,
-          checkedAt: simulation.checkedAt,
-          rawPayload: {
-            ...this.buildMockTravelPayload({
-              sourceType: TxSourceType.DEPOSIT,
-              sourceId: deposit.id,
-              status: simulation.travelRuleStatus,
-              required: simulation.effectiveTravelRuleRequired,
-              providerTransferId: simulation.providerTransferId,
-              counterpartyVasp: simulation.counterpartyVasp,
-            }),
-            triggerEntityType: 'PAYIN',
-            triggerEntityId: payinId,
-            triggerStatus: 'CONFIRMED',
-            simulationRiskLevel: simulation.riskLevel,
-            simulationRiskReason: simulation.riskReason,
-            simulationSignalId: simulation.simulationSignalId,
-            simulationSignalNo: simulation.simulationSignalNo,
-          },
-          normalizedPayload: {
-            required: simulation.effectiveTravelRuleRequired,
-            status: simulation.travelRuleStatus,
-            triggerEntityType: 'PAYIN',
-            triggerEntityId: payinId,
-            triggerStatus: 'CONFIRMED',
-            counterpartyVasp: simulation.counterpartyVasp,
-            simulationRiskLevel: simulation.riskLevel,
-            simulationRiskReason: simulation.riskReason,
-            simulationSignalId: simulation.simulationSignalId,
-            simulationSignalNo: simulation.simulationSignalNo,
-          },
+          triggerEntityType: 'PAYIN',
+          triggerEntityId: payinId,
+          triggerStatus: 'CONFIRMED',
+          counterpartyVasp: simulation.counterpartyVasp,
+          simulationSignalId: simulation.simulationSignalId,
+          simulationSignalNo: simulation.simulationSignalNo,
+          finalRiskExecutionMode: 'MANUAL',
         },
-        tx,
-      );
-    } else {
-      await this.upsertKytCaseAndAppendReport(
-        {
-          sourceType: TxSourceType.DEPOSIT,
-          sourceId: deposit.id,
-          screeningStage: KytScreeningStage.MAIN,
-          ownerType: deposit.ownerType,
-          ownerId: deposit.ownerId,
-          assetId: deposit.assetId,
-          provider,
-          status: 'PENDING',
-          rawPayload: {
-            status: 'PENDING',
-            source: 'manual-placeholder',
-            triggerEntityType: 'PAYIN',
-            triggerEntityId: payinId,
-            triggerStatus: 'CONFIRMED',
-          },
-          normalizedPayload: {
-            status: 'PENDING',
-            triggerEntityType: 'PAYIN',
-            triggerEntityId: payinId,
-            triggerStatus: 'CONFIRMED',
-          },
-        },
-        tx,
-      );
-
-      await this.upsertTravelRuleCaseAndAppendReport(
-        {
-          sourceType: TxSourceType.DEPOSIT,
-          sourceId: deposit.id,
-          ownerType: deposit.ownerType,
-          ownerId: deposit.ownerId,
-          assetId: deposit.assetId,
-          provider,
-          required: deposit.travelRuleRequired,
-          status: deposit.travelRuleRequired ? 'PENDING' : 'NOT_REQUIRED',
-          rawPayload: {
-            status: deposit.travelRuleRequired ? 'PENDING' : 'NOT_REQUIRED',
-            source: 'manual-placeholder',
-            triggerEntityType: 'PAYIN',
-            triggerEntityId: payinId,
-            triggerStatus: 'CONFIRMED',
-          },
-          normalizedPayload: {
-            required: deposit.travelRuleRequired,
-            status: deposit.travelRuleRequired ? 'PENDING' : 'NOT_REQUIRED',
-            triggerEntityType: 'PAYIN',
-            triggerEntityId: payinId,
-            triggerStatus: 'CONFIRMED',
-          },
-        },
-        tx,
-      );
-    }
+      },
+      tx,
+    );
 
     return this.syncDepositSnapshotFromCases(deposit.id, tx);
   }

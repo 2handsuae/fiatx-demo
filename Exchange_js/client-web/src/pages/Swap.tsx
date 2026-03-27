@@ -33,6 +33,9 @@ interface SwapTransaction {
   fromAmount: string;
   toAsset: { code: string; decimals?: number | null };
   toAmount: string;
+  netToAmount?: string | null;
+  feeAmount?: string | null;
+  feeCurrency?: string | null;
   exchangeRate: string;
   createdAt: string;
   completedAt: string | null;
@@ -73,6 +76,7 @@ interface FirmQuoteResult {
   amountIn: number;
   currencyIn: string;
   amountOut: number;
+  netAmountOut: number;
   currencyOut: string;
   rateDisplay: number;
   rateAllIn: number;
@@ -82,7 +86,7 @@ interface FirmQuoteResult {
   rateSource: string;
   fetchedAt: string;
   feeTotal: number;
-  feeCurrency: string;
+  feeCurrency: string | null;
   feeBreakdown: Array<Record<string, unknown>>;
   matched?: SwapMatchedInfo | null;
   pricingSource?: SwapPricingSourceInfo | null;
@@ -98,6 +102,10 @@ interface LiveRateResult {
   executableRate: number;
   rateSource: 'BINANCE';
   fetchedAt: string;
+  grossAmountOut: number;
+  netAmountOut: number;
+  feeTotal: number;
+  feeCurrency: string | null;
   matched?: SwapMatchedInfo | null;
   pricingSource?: SwapPricingSourceInfo | null;
 }
@@ -134,6 +142,10 @@ const Swap = () => {
     spreadPercent: number;
     rateSource: string;
     fetchedAt: string;
+    grossAmountOut: number;
+    netAmountOut: number;
+    feeTotal: number;
+    feeCurrency: string | null;
     matched: SwapMatchedInfo | null;
     pricingSource: SwapPricingSourceInfo | null;
   } | null>(null);
@@ -242,6 +254,10 @@ const Swap = () => {
         spreadPercent: data.spreadPercent,
         rateSource: data.rateSource,
         fetchedAt: data.fetchedAt,
+        grossAmountOut: data.grossAmountOut,
+        netAmountOut: data.netAmountOut,
+        feeTotal: data.feeTotal,
+        feeCurrency: data.feeCurrency,
         matched: data.matched || null,
         pricingSource: data.pricingSource || null,
       });
@@ -588,10 +604,10 @@ const Swap = () => {
                         ))}
                       </select>
                     </div>
-                    <div className="flex items-center gap-4">
+                      <div className="flex items-center gap-4">
                       <div className="flex-1 text-4xl font-bold text-gray-900 dark:text-white overflow-hidden truncate">
-                        {liveRate && fromAmount
-                          ? formatAssetAmount(Number(fromAmount) * liveRate, toAssetDecimals)
+                        {rateMeta?.netAmountOut
+                          ? formatAssetAmount(rateMeta.netAmountOut, toAssetDecimals)
                           : formatAssetAmount(0, toAssetDecimals)}
                       </div>
                       <div className="text-xl font-bold text-gray-400 dark:text-gray-500">
@@ -646,6 +662,28 @@ const Swap = () => {
                             </div>
                           </>
                         )}
+                        {rateMeta && (
+                          <div className="mt-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white/60 dark:bg-slate-900/40 p-3 space-y-1">
+                            <div className="flex items-center justify-between text-gray-500 dark:text-gray-400">
+                              <span>Gross Receive</span>
+                              <span className="font-mono text-gray-900 dark:text-gray-200">
+                                {formatAssetAmount(rateMeta.grossAmountOut, toAssetDecimals)} {assets.find(a => a.id === toAssetId)?.code}
+                              </span>
+                            </div>
+                            <div className="flex items-center justify-between text-gray-500 dark:text-gray-400">
+                              <span>Fee</span>
+                              <span className="font-mono text-gray-900 dark:text-gray-200">
+                                {formatAssetAmount(rateMeta.feeTotal, getAssetDecimalsByCode(rateMeta.feeCurrency))} {rateMeta.feeCurrency || '-'}
+                              </span>
+                            </div>
+                            <div className="flex items-center justify-between text-gray-500 dark:text-gray-400">
+                              <span>Net Receive</span>
+                              <span className="font-mono text-emerald-600 dark:text-emerald-300">
+                                {formatAssetAmount(rateMeta.netAmountOut, toAssetDecimals)} {assets.find(a => a.id === toAssetId)?.code}
+                              </span>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     ) : null}
                   </div>
@@ -684,7 +722,7 @@ const Swap = () => {
                       <TrendingUp size={20} className="text-blue-600 dark:text-blue-400 shrink-0 mt-1" />
                       <div>
                         <h4 className="text-sm font-bold text-blue-900 dark:text-blue-100">Competitive Rates</h4>
-                        <p className="text-xs text-blue-800/80 dark:text-blue-200/80 mt-1">We source the best rates from multiple liquidity providers.</p>
+                        <p className="text-xs text-blue-800/80 dark:text-blue-200/80 mt-1">Quotes are executed under the active pricing policy and current market-source snapshot.</p>
                       </div>
                     </div>
 
@@ -777,11 +815,16 @@ const Swap = () => {
                           </td>
                           <td className="px-6 py-4">
                             <div className="font-bold text-gray-900 dark:text-white">
-                              {formatAssetAmount(tx.toAmount, tx.toAsset.decimals)} {tx.toAsset.code}
+                              {formatAssetAmount(tx.netToAmount || tx.toAmount, tx.toAsset.decimals)} {tx.toAsset.code}
                             </div>
                             <div className="text-[10px] text-slate-400 dark:text-slate-500">
                               From: {formatAssetAmount(tx.fromAmount, tx.fromAsset.decimals)} {tx.fromAsset.code}
                             </div>
+                            {tx.feeAmount && Number(tx.feeAmount) > 0 && (
+                              <div className="text-[10px] text-slate-400 dark:text-slate-500">
+                                Fee: {formatAssetAmount(tx.feeAmount, getAssetDecimalsByCode(tx.feeCurrency))} {tx.feeCurrency || ''}
+                              </div>
+                            )}
                           </td>
                           <td className="px-6 py-4">
                             {renderStatusBadge(tx.status)}
@@ -821,14 +864,32 @@ const Swap = () => {
                     <ArrowRight size={20} className="text-brand-primary" />
                   </div>
                   <div className="space-y-1 text-right">
-                    <p className="text-xs text-slate-500 dark:text-slate-400 uppercase font-bold tracking-wider">Buy</p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 uppercase font-bold tracking-wider">Net Receive</p>
                     <p className="text-lg font-bold text-brand-primary">
-                      {formatAssetAmount(firmQuote.amountOut, getAssetDecimalsByCode(firmQuote.currencyOut))} {firmQuote.currencyOut}
+                      {formatAssetAmount(firmQuote.netAmountOut, getAssetDecimalsByCode(firmQuote.currencyOut))} {firmQuote.currencyOut}
                     </p>
                   </div>
                 </div>
 
                 <div className="space-y-3 px-2">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-slate-500 dark:text-slate-400 font-medium">Gross Receive</span>
+                    <span className="font-mono text-gray-900 dark:text-gray-200">
+                      {formatAssetAmount(firmQuote.amountOut, getAssetDecimalsByCode(firmQuote.currencyOut))} {firmQuote.currencyOut}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-slate-500 dark:text-slate-400 font-medium">Fee</span>
+                    <span className="font-mono text-gray-900 dark:text-gray-200">
+                      {formatAssetAmount(firmQuote.feeTotal, getAssetDecimalsByCode(firmQuote.feeCurrency))} {firmQuote.feeCurrency || '-'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-slate-500 dark:text-slate-400 font-medium">Net Receive</span>
+                    <span className="font-mono text-emerald-600 dark:text-emerald-300">
+                      {formatAssetAmount(firmQuote.netAmountOut, getAssetDecimalsByCode(firmQuote.currencyOut))} {firmQuote.currencyOut}
+                    </span>
+                  </div>
                   <div className="flex justify-between text-sm">
                     <span className="text-slate-500 dark:text-slate-400 font-medium">Exchange Rate</span>
                     <span className="font-mono text-gray-900 dark:text-gray-200">1 {firmQuote.currencyIn} = {formatRate8(firmQuote.rateAllIn)} {firmQuote.currencyOut}</span>

@@ -8,11 +8,28 @@ import { OnboardingModule } from '../../identity/onboarding/onboarding.module';
 import { JournalsModule } from '../../accounting/journals/journals.module';
 import { OutstandingsModule } from '../../clearing-settle/outstandings/outstandings.module';
 import { PricingCenterModule } from '../pricing-center/pricing-center.module';
+import { TransactionComplianceModule } from '../../risk-engine/transaction-compliance/transaction-compliance.module';
+import { SwapTransactionWorkflowService } from './swap-transaction-workflow.service';
 
 @Module({
-  imports: [PrismaModule, OnboardingModule, JournalsModule, PricingCenterModule, OutstandingsModule],
+  imports: [
+    PrismaModule,
+    OnboardingModule,
+    JournalsModule,
+    PricingCenterModule,
+    OutstandingsModule,
+    TransactionComplianceModule,
+  ],
   controllers: [SwapTransactionsController, SwapTransactionsCustomerController],
-  providers: [SwapTransactionsService, SwapWorkflowOrchestrator],
-  exports: [SwapTransactionsService, SwapWorkflowOrchestrator],
+  providers: [
+    SwapTransactionsService,
+    SwapWorkflowOrchestrator,
+    SwapTransactionWorkflowService,
+  ],
+  exports: [
+    SwapTransactionsService,
+    SwapWorkflowOrchestrator,
+    SwapTransactionWorkflowService,
+  ],
 })
 export class SwapTransactionsModule {}

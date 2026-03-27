@@ -13,12 +13,14 @@ export enum SwapTransactionStatus {
   UNDER_REVIEW = 'UNDER_REVIEW',
   SUCCESS = 'SUCCESS',
   REJECTED = 'REJECTED',
+  FAILED = 'FAILED',
 }
 
 export enum SwapTransactionAction {
   SUCCESS = 'success',
   REJECT = 'reject',
   FLAG = 'flag',
+  FAIL = 'fail',
 }
 
 export class CreateSwapTransactionDto {

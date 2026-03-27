@@ -1,36 +1,28 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { SwapWorkflowOrchestrator } from './swap-workflow.orchestrator';
-import { SwapTransactionsService } from './swap-transactions.service';
-import { PrismaService } from '../../../core/prisma/prisma.service';
-import { EventEmitter2 } from '@nestjs/event-emitter';
-import {
-  SwapTransactionStatus,
-  SwapTransactionAction,
-} from './dto/swap-transaction.dto';
-import { SwapEvents } from './constants/swap-events.constant';
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { PrismaService } from '../../../core/prisma/prisma.service';
 import { JournalsService } from '../../accounting/journals/journals.service';
-import { OutstandingsService } from '../../clearing-settle/outstandings/outstandings.service';
+import { TransactionComplianceService } from '../../risk-engine/transaction-compliance/transaction-compliance.service';
 import { PricingCenterService } from '../pricing-center/pricing-center.service';
+import { SwapEvents } from './constants/swap-events.constant';
+import {
+  SwapTransactionAction,
+  SwapTransactionStatus,
+} from './dto/swap-transaction.dto';
+import { SwapTransactionsService } from './swap-transactions.service';
+import {
+  SwapTransactionWorkflowService,
+} from './swap-transaction-workflow.service';
+import { SwapWorkflowOrchestrator } from './swap-workflow.orchestrator';
 
 describe('SwapWorkflowOrchestrator', () => {
   let orchestrator: SwapWorkflowOrchestrator;
-  let service: SwapTransactionsService;
-  let prisma: PrismaService;
-  let eventEmitter: EventEmitter2;
 
   const mockPrisma: any = {
-    $transaction: jest.fn((cb) => cb(mockPrisma)),
+    $transaction: jest.fn(async (cb: any) => cb(mockPrisma)),
     swapTransaction: {
       create: jest.fn(),
-      findUnique: jest.fn(),
-      update: jest.fn(),
-      count: jest.fn(),
-    },
-    swapTransactionAuditLog: {
-      create: jest.fn(),
-      findFirst: jest.fn(),
     },
     asset: {
       findUnique: jest.fn(),
@@ -38,427 +30,398 @@ describe('SwapWorkflowOrchestrator', () => {
     customerMain: {
       findUnique: jest.fn(),
     },
-    swapQuote: {
-      findUnique: jest.fn(),
-      updateMany: jest.fn(),
-    },
-  };
-
-  const mockEventEmitter = {
-    emit: jest.fn(),
   };
 
   const mockSwapService = {
-    generateSwapNo: jest.fn(),
     getExecutableRate: jest.fn(),
+    findOne: jest.fn(),
   };
 
   const mockJournalsService = {
     getCustomerLiabilityBalance: jest.fn(),
-    createJournal: jest.fn(),
     triggerEvent: jest.fn(),
   };
 
   const mockPricingCenterService = {
-    getActiveQuoteOrThrow: jest.fn(),
-    consumeQuoteForSwap: jest.fn(),
+    getActiveSwapQuoteOrThrow: jest.fn(),
+    consumeSwapQuoteForSwap: jest.fn(),
+    assertSwapProductAllowedForOwner: jest.fn(),
   };
 
-  const mockOutstandingsService = {
-    createForSwapSuccess: jest.fn(),
+  const mockTransactionComplianceService = {
+    evaluateSwapFinalReview: jest.fn(),
+  };
+
+  const mockSwapWorkflowService = {
+    execute: jest.fn(),
   };
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         SwapWorkflowOrchestrator,
+        { provide: PrismaService, useValue: mockPrisma },
         { provide: SwapTransactionsService, useValue: mockSwapService },
         { provide: JournalsService, useValue: mockJournalsService },
+        { provide: PricingCenterService, useValue: mockPricingCenterService },
         {
-          provide: PricingCenterService,
-          useValue: {
-            getActiveSwapQuoteOrThrow: mockPricingCenterService.getActiveQuoteOrThrow,
-            consumeSwapQuoteForSwap: mockPricingCenterService.consumeQuoteForSwap,
-          },
+          provide: TransactionComplianceService,
+          useValue: mockTransactionComplianceService,
         },
-        { provide: OutstandingsService, useValue: mockOutstandingsService },
-        { provide: PrismaService, useValue: mockPrisma },
-        { provide: EventEmitter2, useValue: mockEventEmitter },
+        {
+          provide: SwapTransactionWorkflowService,
+          useValue: mockSwapWorkflowService,
+        },
       ],
     }).compile();
 
-    orchestrator = module.get<SwapWorkflowOrchestrator>(
-      SwapWorkflowOrchestrator,
-    );
-    service = module.get<SwapTransactionsService>(SwapTransactionsService);
-    prisma = module.get<PrismaService>(PrismaService);
-    eventEmitter = module.get<EventEmitter2>(EventEmitter2);
+    orchestrator = module.get<SwapWorkflowOrchestrator>(SwapWorkflowOrchestrator);
 
     jest.clearAllMocks();
     jest
       .spyOn((orchestrator as any).auditLogsService, 'recordByActor')
-      .mockResolvedValue({ id: 'audit-log-1' });
+      .mockResolvedValue({ id: 'audit-by-actor-1' });
+    jest
+      .spyOn((orchestrator as any).auditLogsService, 'recordSystem')
+      .mockResolvedValue({ id: 'audit-system-1' });
   });
 
-  describe('R0: CREATE', () => {
-    it('should create a swap and emit CREATED event', async () => {
-      const dto = {
+  it('creates swap from quote, posts created accounting, and auto-clears low-risk swaps', async () => {
+    const quote = {
+      id: 'quote-1',
+      quoteNo: 'QUO_0001',
+      ownerNo: 'CU_0001',
+      fromAssetId: 'asset-btc',
+      fromAssetCode: 'BTC',
+      toAssetId: 'asset-usdt',
+      toAssetCode: 'USDT',
+      amountIn: new Prisma.Decimal('1'),
+      amountOut: new Prisma.Decimal('100000'),
+      rateAllIn: new Prisma.Decimal('100000'),
+      feeTotal: new Prisma.Decimal('0'),
+      feeCurrency: 'USDT',
+      feeBreakdown: '[]',
+      totalsJson: JSON.stringify({
+        amountOutNet: '100000',
+      }),
+    };
+    const createdSwap = {
+      id: 'swap-1',
+      swapNo: 'SWP_0001',
+      quoteId: 'quote-1',
+      quoteNo: 'QUO_0001',
+      ownerType: 'CUSTOMER',
+      ownerId: 'customer-1',
+      ownerNo: 'CU_0001',
+      status: SwapTransactionStatus.PENDING_COMPLIANCE,
+      fromAssetId: 'asset-btc',
+      fromAssetCode: 'BTC',
+      fromAmount: new Prisma.Decimal('1'),
+      toAssetId: 'asset-usdt',
+      toAssetCode: 'USDT',
+      toAmount: new Prisma.Decimal('100000'),
+      netToAmount: new Prisma.Decimal('100000'),
+      feeAmount: new Prisma.Decimal('0'),
+      feeCurrency: 'USDT',
+      exchangeRate: new Prisma.Decimal('100000'),
+    };
+    const finalSwap = {
+      ...createdSwap,
+      status: SwapTransactionStatus.SUCCESS,
+      completedAt: new Date('2026-03-26T12:00:00.000Z'),
+    };
+
+    mockPricingCenterService.getActiveSwapQuoteOrThrow.mockResolvedValue(quote);
+    mockJournalsService.getCustomerLiabilityBalance.mockResolvedValue({
+      availableBalance: new Prisma.Decimal('10'),
+    });
+    mockPrisma.swapTransaction.create.mockResolvedValue(createdSwap);
+    mockTransactionComplianceService.evaluateSwapFinalReview.mockResolvedValue({
+      skipped: false,
+      decision: 'APPROVE',
+    });
+    mockSwapService.findOne.mockResolvedValue(finalSwap);
+
+    const result = await orchestrator.createSwapFromQuote(
+      'customer-1',
+      'quote-1',
+    );
+
+    expect(mockPricingCenterService.assertSwapProductAllowedForOwner).toHaveBeenCalledWith(
+      expect.objectContaining({
         ownerType: 'CUSTOMER',
-        ownerId: 'user-1',
-        fromAssetId: 'asset-1',
-        fromAmount: 100,
-        toAssetId: 'asset-2',
-        toAmount: 200,
-      };
+        ownerId: 'customer-1',
+        fromAssetId: 'asset-btc',
+        toAssetId: 'asset-usdt',
+      }),
+    );
+    expect(mockPricingCenterService.consumeSwapQuoteForSwap).toHaveBeenCalledWith(
+      mockPrisma,
+      'quote-1',
+      'CUSTOMER',
+      'customer-1',
+      expect.any(Date),
+    );
+    expect(mockJournalsService.triggerEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        entityType: 'SWAP',
+        fromStatus: null,
+        toStatus: SwapTransactionStatus.PENDING_COMPLIANCE,
+        sourceId: 'swap-1',
+      }),
+      mockPrisma,
+    );
+    expect(mockJournalsService.triggerEvent).toHaveBeenCalledTimes(1);
+    expect(mockTransactionComplianceService.evaluateSwapFinalReview).toHaveBeenCalledWith(
+      'swap-1',
+    );
+    expect((orchestrator as any).auditLogsService.recordByActor).toHaveBeenCalledWith(
+      expect.objectContaining({
+        entityId: 'swap-1',
+        entityNo: 'SWP_0001',
+        traceId: 'SWAP:swap-1',
+        workflowType: 'SWAP',
+        workflowId: 'swap-1',
+        workflowNo: 'SWP_0001',
+        metadata: expect.objectContaining({
+          quoteId: 'quote-1',
+          quoteNo: 'QUO_0001',
+        }),
+      }),
+      expect.any(Object),
+      mockPrisma,
+    );
+    expect(result.swap_status_after).toBe(SwapTransactionStatus.SUCCESS);
+    expect(result.emitted_events).toContain(SwapEvents.EVT_SWAP_SUCCESS);
+    expect(result.transaction).toEqual(finalSwap);
+  });
 
-      const mockTx = {
-        id: 'swap-1',
-        swapNo: 'SW_1',
-        ownerId: 'user-1',
-        ownerType: 'CUSTOMER',
-        fromAssetId: 'asset-1',
-        toAssetId: 'asset-2',
-        fromAmount: new Prisma.Decimal(100),
-        toAmount: new Prisma.Decimal(200),
-        exchangeRate: new Prisma.Decimal(2),
-        status: SwapTransactionStatus.PENDING_COMPLIANCE,
-      };
-      mockPrisma.asset.findUnique.mockResolvedValueOnce({
-        id: 'asset-1',
-        type: 'CRYPTO',
-        code: 'BTC',
-      });
-      mockPrisma.asset.findUnique.mockResolvedValueOnce({
-        id: 'asset-2',
-        type: 'CRYPTO',
-        code: 'ETH',
-      });
-      mockSwapService.generateSwapNo.mockResolvedValue('SW_123');
-      mockSwapService.getExecutableRate.mockResolvedValue({
-        executableRate: 2,
-      });
-      mockPrisma.customerMain.findUnique.mockResolvedValue({
-        customerNo: 'CU_0001',
-      });
-      mockJournalsService.getCustomerLiabilityBalance.mockResolvedValue({
-        availableBalance: new Prisma.Decimal(1000),
-      });
-      mockPrisma.swapTransaction.create.mockResolvedValue(mockTx);
-      mockPrisma.swapTransactionAuditLog.create.mockResolvedValue({
-        id: 'log-1',
-      });
-      mockJournalsService.createJournal.mockResolvedValue({ id: 'JO-1' });
+  it('marks swap as failed when post-create compliance evaluation throws', async () => {
+    const quote = {
+      id: 'quote-2',
+      quoteNo: 'QUO_0002',
+      ownerNo: 'CU_0001',
+      fromAssetId: 'asset-btc',
+      fromAssetCode: 'BTC',
+      toAssetId: 'asset-usdt',
+      toAssetCode: 'USDT',
+      amountIn: new Prisma.Decimal('1'),
+      amountOut: new Prisma.Decimal('100000'),
+      rateAllIn: new Prisma.Decimal('100000'),
+      feeTotal: new Prisma.Decimal('0'),
+      feeCurrency: 'USDT',
+      feeBreakdown: '[]',
+      totalsJson: JSON.stringify({
+        amountOutNet: '100000',
+      }),
+    };
+    const createdSwap = {
+      id: 'swap-2',
+      swapNo: 'SWP_0002',
+      quoteId: 'quote-2',
+      quoteNo: 'QUO_0002',
+      ownerType: 'CUSTOMER',
+      ownerId: 'customer-1',
+      ownerNo: 'CU_0001',
+      status: SwapTransactionStatus.PENDING_COMPLIANCE,
+      fromAssetId: 'asset-btc',
+      fromAssetCode: 'BTC',
+      fromAmount: new Prisma.Decimal('1'),
+      toAssetId: 'asset-usdt',
+      toAssetCode: 'USDT',
+      toAmount: new Prisma.Decimal('100000'),
+      netToAmount: new Prisma.Decimal('100000'),
+      feeAmount: new Prisma.Decimal('0'),
+      feeCurrency: 'USDT',
+      exchangeRate: new Prisma.Decimal('100000'),
+    };
+    const failedSwap = {
+      ...createdSwap,
+      status: SwapTransactionStatus.FAILED,
+      failureCode: 'TX_SWAP_FINAL_EVALUATION_FAILED',
+    };
 
-      const result = await orchestrator.createSwap(dto as any);
+    mockPricingCenterService.getActiveSwapQuoteOrThrow.mockResolvedValue(quote);
+    mockJournalsService.getCustomerLiabilityBalance.mockResolvedValue({
+      availableBalance: new Prisma.Decimal('10'),
+    });
+    mockPrisma.swapTransaction.create.mockResolvedValue(createdSwap);
+    mockTransactionComplianceService.evaluateSwapFinalReview.mockRejectedValue(
+      new Error('bridge failed'),
+    );
+    mockSwapWorkflowService.execute.mockResolvedValue({
+      applied: true,
+      swapId: 'swap-2',
+      swapStatusBefore: SwapTransactionStatus.PENDING_COMPLIANCE,
+      swapStatusAfter: SwapTransactionStatus.FAILED,
+      transitionCode: 'TX_SWAP_FAIL_TO_FAILED',
+    });
+    mockSwapService.findOne.mockResolvedValue(failedSwap);
 
-      expect(result.swap_status_after).toBe(SwapTransactionStatus.PENDING_COMPLIANCE);
-      expect(result.emitted_events).toContain(SwapEvents.EVT_SWAP_CREATED);
-      expect(eventEmitter.emit).toHaveBeenCalledWith(
-        SwapEvents.EVT_SWAP_CREATED,
-        { swapId: 'swap-1' },
-      );
-      expect(mockPrisma.swapTransaction.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({
-            fromAssetCode: 'BTC',
-            toAssetCode: 'ETH',
-          }),
+    const result = await orchestrator.createSwapFromQuote(
+      'customer-1',
+      'quote-2',
+    );
+
+    expect(mockSwapWorkflowService.execute).toHaveBeenCalledWith(
+      undefined,
+      expect.objectContaining({
+        swapId: 'swap-2',
+        workflowAction: 'FAIL',
+        failureCode: 'TX_SWAP_FINAL_EVALUATION_FAILED',
+      }),
+    );
+    expect(result.swap_status_after).toBe(SwapTransactionStatus.FAILED);
+    expect(result.emitted_events).toContain(SwapEvents.EVT_SWAP_FAILED);
+  });
+
+  it('blocks quote consumption when available balance is insufficient', async () => {
+    mockPricingCenterService.getActiveSwapQuoteOrThrow.mockResolvedValue({
+      id: 'quote-3',
+      quoteNo: 'QUO_0003',
+      ownerNo: 'CU_0001',
+      fromAssetId: 'asset-btc',
+      fromAssetCode: 'BTC',
+      toAssetId: 'asset-usdt',
+      toAssetCode: 'USDT',
+      amountIn: new Prisma.Decimal('2'),
+      amountOut: new Prisma.Decimal('200000'),
+      rateAllIn: new Prisma.Decimal('100000'),
+      feeTotal: new Prisma.Decimal('0'),
+      feeCurrency: 'USDT',
+      feeBreakdown: '[]',
+      totalsJson: JSON.stringify({
+        amountOutNet: '200000',
+      }),
+    });
+    mockJournalsService.getCustomerLiabilityBalance.mockResolvedValue({
+      availableBalance: new Prisma.Decimal('1'),
+    });
+
+    await expect(
+      orchestrator.createSwapFromQuote('customer-1', 'quote-3'),
+    ).rejects.toThrow(BadRequestException);
+
+    expect(mockPricingCenterService.consumeSwapQuoteForSwap).not.toHaveBeenCalled();
+    expect(mockPrisma.swapTransaction.create).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['PAIR_DISABLED'],
+    ['CHANNEL_ONLINE_DISABLED'],
+    ['TIER_DISABLED'],
+  ])(
+    'blocks swap creation from quote when restriction re-check returns %s',
+    async (restrictionCode) => {
+      mockPricingCenterService.getActiveSwapQuoteOrThrow.mockResolvedValue({
+        id: 'quote-restricted',
+        quoteNo: 'QUO_9001',
+        ownerNo: 'CU_0001',
+        fromAssetId: 'asset-btc',
+        fromAssetCode: 'BTC',
+        toAssetId: 'asset-usdt',
+        toAssetCode: 'USDT',
+        amountIn: new Prisma.Decimal('1'),
+        amountOut: new Prisma.Decimal('100000'),
+        rateAllIn: new Prisma.Decimal('100000'),
+        feeTotal: new Prisma.Decimal('0'),
+        feeCurrency: 'USDT',
+        feeBreakdown: '[]',
+        totalsJson: JSON.stringify({
+          amountOutNet: '100000',
+        }),
+      });
+      mockPricingCenterService.assertSwapProductAllowedForOwner.mockRejectedValue(
+        new ForbiddenException({
+          code: 'SWAP_PRODUCT_RESTRICTED',
+          restrictionCode,
+          message: `${restrictionCode} blocked`,
         }),
       );
-      expect(mockJournalsService.createJournal).toHaveBeenCalled();
-    });
 
-    it('should block create when available balance is insufficient', async () => {
-      const dto = {
-        ownerType: 'CUSTOMER',
-        ownerId: 'user-1',
-        fromAssetId: 'asset-1',
-        fromAmount: 100,
-        toAssetId: 'asset-2',
-        toAmount: 200,
-      };
-
-      mockPrisma.asset.findUnique.mockResolvedValueOnce({
-        id: 'asset-1',
-        type: 'CRYPTO',
-        code: 'BTC',
-      });
-      mockPrisma.asset.findUnique.mockResolvedValueOnce({
-        id: 'asset-2',
-        type: 'CRYPTO',
-        code: 'ETH',
-      });
-      mockSwapService.getExecutableRate.mockResolvedValue({
-        executableRate: 2,
-      });
-      mockPrisma.customerMain.findUnique.mockResolvedValue({
-        customerNo: 'CU_0001',
-      });
-      mockJournalsService.getCustomerLiabilityBalance.mockResolvedValue({
-        availableBalance: new Prisma.Decimal(10),
-      });
-
-      await expect(orchestrator.createSwap(dto as any)).rejects.toThrow(
-        BadRequestException,
-      );
-      expect(mockPrisma.swapTransaction.create).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('R0B: CREATE_FROM_QUOTE', () => {
-    it('should create swap from active quote and mark quote used', async () => {
-      const quote = {
-        id: 'quote-1',
-        quoteNo: 'QUO_0001',
-        ownerNo: 'CU_0001',
-        fromAssetId: 'asset-1',
-        fromAssetCode: 'BTC',
-        toAssetId: 'asset-2',
-        toAssetCode: 'ETH',
-        amountIn: new Prisma.Decimal(100),
-        amountOut: new Prisma.Decimal(200),
-        rateAllIn: new Prisma.Decimal(2),
-      };
-
-      const mockTx = {
-        id: 'swap-2',
-        swapNo: 'SW_2',
-        ownerId: 'user-1',
-        ownerType: 'CUSTOMER',
-        fromAssetId: 'asset-1',
-        toAssetId: 'asset-2',
-        fromAmount: new Prisma.Decimal(100),
-        toAmount: new Prisma.Decimal(200),
-        exchangeRate: new Prisma.Decimal(2),
-        status: SwapTransactionStatus.PENDING_COMPLIANCE,
-      };
-
-      mockPricingCenterService.getActiveQuoteOrThrow.mockResolvedValue(quote);
-      mockJournalsService.getCustomerLiabilityBalance.mockResolvedValue({
-        availableBalance: new Prisma.Decimal(1000),
-      });
-      mockPrisma.swapTransaction.create.mockResolvedValue(mockTx);
-      mockPricingCenterService.consumeQuoteForSwap.mockResolvedValue({
-        ...quote,
-        status: 'USED',
-      });
-      mockPrisma.swapTransactionAuditLog.create.mockResolvedValue({
-        id: 'log-q1',
-      });
-      mockJournalsService.createJournal.mockResolvedValue({ id: 'JO-Q1' });
-
-      const result = await orchestrator.createSwapFromQuote('user-1', 'quote-1');
-
-      expect(result.swap_status_after).toBe(SwapTransactionStatus.PENDING_COMPLIANCE);
-      expect(mockPricingCenterService.getActiveQuoteOrThrow).toHaveBeenCalled();
-      expect(mockPricingCenterService.consumeQuoteForSwap).toHaveBeenCalled();
-      expect(mockPrisma.swapTransaction.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({
-            quoteId: 'quote-1',
-            fromAssetCode: 'BTC',
-            toAssetCode: 'ETH',
-          }),
+      await expect(
+        orchestrator.createSwapFromQuote('customer-1', 'quote-restricted'),
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({
+          code: 'SWAP_PRODUCT_RESTRICTED',
+          restrictionCode,
         }),
-      );
-    });
-
-    it('should block create from quote when available balance is insufficient', async () => {
-      mockPricingCenterService.getActiveQuoteOrThrow.mockResolvedValue({
-        id: 'quote-2',
-        quoteNo: 'QUO_0002',
-        ownerNo: 'CU_0001',
-        fromAssetId: 'asset-1',
-        fromAssetCode: 'BTC',
-        toAssetId: 'asset-2',
-        toAssetCode: 'ETH',
-        amountIn: new Prisma.Decimal(100),
-        amountOut: new Prisma.Decimal(200),
-        rateAllIn: new Prisma.Decimal(2),
-      });
-      mockJournalsService.getCustomerLiabilityBalance.mockResolvedValue({
-        availableBalance: new Prisma.Decimal(10),
       });
 
-      await expect(
-        orchestrator.createSwapFromQuote('user-1', 'quote-2'),
-      ).rejects.toThrow(BadRequestException);
-
+      expect(mockPricingCenterService.consumeSwapQuoteForSwap).not.toHaveBeenCalled();
+      expect(mockJournalsService.getCustomerLiabilityBalance).not.toHaveBeenCalled();
       expect(mockPrisma.swapTransaction.create).not.toHaveBeenCalled();
-      expect(mockPricingCenterService.consumeQuoteForSwap).not.toHaveBeenCalled();
-    });
-  });
+      expect(mockJournalsService.triggerEvent).not.toHaveBeenCalled();
+    },
+  );
 
-  describe('R1: START_COMPLIANCE', () => {
-    it('should transition from CREATED to PENDING_COMPLIANCE', async () => {
-      const swapId = 'swap-1';
-      const mockTx = { id: swapId, status: SwapTransactionStatus.PENDING_COMPLIANCE };
-      mockPrisma.swapTransaction.findUnique.mockResolvedValue(mockTx);
-      mockPrisma.swapTransaction.update.mockResolvedValue({
-        ...mockTx,
-        status: SwapTransactionStatus.PENDING_COMPLIANCE,
+  it.each([
+    [
+      SwapTransactionAction.SUCCESS,
+      'CLEAR',
+      SwapTransactionStatus.SUCCESS,
+      'TX_SWAP_CLEAR_TO_SUCCESS',
+      SwapEvents.EVT_SWAP_SUCCESS,
+      'Cleared by admin',
+    ],
+    [
+      SwapTransactionAction.REJECT,
+      'REJECT',
+      SwapTransactionStatus.REJECTED,
+      'TX_SWAP_REJECT_TO_REJECTED',
+      SwapEvents.EVT_SWAP_REJECTED,
+      'Confirmed issue',
+    ],
+    [
+      SwapTransactionAction.FAIL,
+      'FAIL',
+      SwapTransactionStatus.FAILED,
+      'TX_SWAP_FAIL_TO_FAILED',
+      SwapEvents.EVT_SWAP_FAILED,
+      'Operator compensation failure',
+    ],
+  ])(
+    'delegates admin %s transition to swap workflow service',
+    async (
+      action,
+      workflowAction,
+      swapStatusAfter,
+      transitionCode,
+      emittedEvent,
+      reason,
+    ) => {
+      mockSwapWorkflowService.execute.mockResolvedValue({
+        applied: true,
+        swapId: 'swap-4',
+        swapStatusBefore: SwapTransactionStatus.UNDER_REVIEW,
+        swapStatusAfter,
+        transitionCode,
       });
-      mockPrisma.swapTransactionAuditLog.create.mockResolvedValue({
-        id: 'log-2',
+      mockSwapService.findOne.mockResolvedValue({
+        id: 'swap-4',
+        swapNo: 'SWP_0004',
+        status: swapStatusAfter,
       });
 
       const result = await orchestrator.handleStatusTransition(
-        swapId,
-        { action: SwapTransactionAction.FLAG },
-        'admin-1',
-      );
-
-      expect(result.swap_status_after).toBe(
-        SwapTransactionStatus.UNDER_REVIEW,
-      );
-    });
-
-    it('should throw if invalid transition', async () => {
-      const swapId = 'swap-1';
-      const mockTx = { id: swapId, status: SwapTransactionStatus.SUCCESS };
-      mockPrisma.swapTransaction.findUnique.mockResolvedValue(mockTx);
-
-      await expect(
-        orchestrator.handleStatusTransition(
-          swapId,
-          { action: SwapTransactionAction.FLAG },
-          'admin-1',
-        ),
-      ).rejects.toThrow(BadRequestException);
-    });
-  });
-
-  describe('R2: COMPLIANCE_PASS', () => {
-    it('should transition to SUCCESS and emit event', async () => {
-      const swapId = 'swap-1';
-      const mockTx = {
-        id: swapId,
-        status: SwapTransactionStatus.PENDING_COMPLIANCE,
-      };
-      mockPrisma.swapTransaction.findUnique.mockResolvedValue(mockTx);
-      mockPrisma.swapTransaction.update.mockResolvedValue({
-        ...mockTx,
-        status: SwapTransactionStatus.SUCCESS,
-        swapNo: 'SW_1',
-        ownerId: 'user-1',
-        ownerType: 'CUSTOMER',
-        fromAssetId: 'asset-1',
-        toAssetId: 'asset-2',
-        fromAmount: new Prisma.Decimal(100),
-        toAmount: new Prisma.Decimal(200),
-        exchangeRate: new Prisma.Decimal(2),
-      });
-      mockPrisma.swapTransactionAuditLog.create.mockResolvedValue({
-        id: 'log-3',
-      });
-      mockPrisma.swapTransactionAuditLog.findFirst.mockResolvedValue(null);
-      mockJournalsService.triggerEvent.mockResolvedValue({ id: 'JO-2' });
-      mockOutstandingsService.createForSwapSuccess.mockResolvedValue([
-        { id: 'os-out', direction: 'OUT' },
-        { id: 'os-in', direction: 'IN' },
-      ]);
-
-      const result = await orchestrator.handleStatusTransition(
-        swapId,
-        { action: SwapTransactionAction.SUCCESS },
-        'admin-1',
-      );
-
-      expect(result.swap_status_after).toBe(SwapTransactionStatus.SUCCESS);
-      expect(result.emitted_events).toContain(SwapEvents.EVT_SWAP_SUCCESS);
-      expect(eventEmitter.emit).toHaveBeenCalledWith(
-        SwapEvents.EVT_SWAP_SUCCESS,
-        { swapId, oldStatus: SwapTransactionStatus.PENDING_COMPLIANCE },
-      );
-      expect(mockOutstandingsService.createForSwapSuccess).toHaveBeenCalledWith(
-        mockPrisma,
-        expect.objectContaining({ id: swapId, status: SwapTransactionStatus.SUCCESS }),
-      );
-    });
-
-    it('should still emit success event when legacy swap audit log rows exist', async () => {
-      const swapId = 'swap-1';
-      const mockTx = {
-        id: swapId,
-        status: SwapTransactionStatus.PENDING_COMPLIANCE,
-      };
-      mockPrisma.swapTransaction.findUnique.mockResolvedValue(mockTx);
-      mockPrisma.swapTransaction.update.mockResolvedValue({
-        ...mockTx,
-        status: SwapTransactionStatus.SUCCESS,
-        swapNo: 'SW_1',
-        ownerId: 'user-1',
-        ownerType: 'CUSTOMER',
-        fromAssetId: 'asset-1',
-        toAssetId: 'asset-2',
-        fromAmount: new Prisma.Decimal(100),
-        toAmount: new Prisma.Decimal(200),
-        exchangeRate: new Prisma.Decimal(2),
-      });
-      mockPrisma.swapTransactionAuditLog.create.mockResolvedValue({
-        id: 'log-4',
-      });
-      mockPrisma.swapTransactionAuditLog.findFirst.mockResolvedValue({
-        id: 'log-prev',
-      });
-      mockJournalsService.triggerEvent.mockResolvedValue({ id: 'JO-3' });
-      mockOutstandingsService.createForSwapSuccess.mockResolvedValue([
-        { id: 'os-out', direction: 'OUT' },
-        { id: 'os-in', direction: 'IN' },
-      ]);
-
-      const result = await orchestrator.handleStatusTransition(
-        swapId,
-        { action: SwapTransactionAction.SUCCESS },
-        'admin-1',
-      );
-
-      expect(result.emitted_events).toContain(SwapEvents.EVT_SWAP_SUCCESS);
-      expect(eventEmitter.emit).toHaveBeenCalledWith(
-        SwapEvents.EVT_SWAP_SUCCESS,
-        { swapId, oldStatus: SwapTransactionStatus.PENDING_COMPLIANCE },
-      );
-      expect(mockOutstandingsService.createForSwapSuccess).toHaveBeenCalledTimes(1);
-    });
-  });
-
-  describe('R3: COMPLIANCE_REJECT', () => {
-    it('should transition to REJECTED and emit event', async () => {
-      const swapId = 'swap-1';
-      const mockTx = {
-        id: swapId,
-        status: SwapTransactionStatus.PENDING_COMPLIANCE,
-      };
-      mockPrisma.swapTransaction.findUnique.mockResolvedValue(mockTx);
-      mockPrisma.swapTransaction.update.mockResolvedValue({
-        ...mockTx,
-        status: SwapTransactionStatus.REJECTED,
-        swapNo: 'SW_1',
-        ownerId: 'user-1',
-        ownerType: 'CUSTOMER',
-        fromAssetId: 'asset-1',
-        toAssetId: 'asset-2',
-        fromAmount: new Prisma.Decimal(100),
-        toAmount: new Prisma.Decimal(200),
-        exchangeRate: new Prisma.Decimal(2),
-      });
-      mockPrisma.swapTransactionAuditLog.create.mockResolvedValue({
-        id: 'log-5',
-      });
-      mockPrisma.swapTransactionAuditLog.findFirst.mockResolvedValue(null);
-      mockJournalsService.triggerEvent.mockResolvedValue({ id: 'JO-4' });
-
-      const result = await orchestrator.handleStatusTransition(
-        swapId,
+        'swap-4',
         {
-          action: SwapTransactionAction.REJECT,
-          reason: 'KYC failed',
+          action,
+          reason,
         },
         'admin-1',
       );
 
-      expect(result.swap_status_after).toBe(SwapTransactionStatus.REJECTED);
-      expect(result.emitted_events).toContain(SwapEvents.EVT_SWAP_REJECTED);
-    });
-  });
+      expect(mockSwapWorkflowService.execute).toHaveBeenCalledWith(
+        undefined,
+        expect.objectContaining({
+          swapId: 'swap-4',
+          workflowAction,
+          reason,
+        }),
+      );
+      expect(result.swap_status_after).toBe(swapStatusAfter);
+      expect(result.emitted_events).toContain(emittedEvent);
+    },
+  );
 });

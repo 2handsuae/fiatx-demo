@@ -77,6 +77,8 @@ describe('OnboardingService', () => {
 
   const riskEngineMock: any = {
     evaluate: jest.fn(),
+    createPendingDecisionRecord: jest.fn(),
+    completeDecisionRecord: jest.fn(),
   };
 
   const orchestratorMock: any = {
@@ -924,60 +926,94 @@ describe('OnboardingService', () => {
     expect(prismaMock.complianceAlert.update).toHaveBeenCalledTimes(2);
   });
 
-  it('should auto-pass CDD LOW_RISK to ACTIVE without creating onboarding alert', async () => {
+  it('should create one pending CDD decision record and keep customer under review', async () => {
     seedCddMockFlow();
+    riskEngineMock.createPendingDecisionRecord.mockResolvedValue({
+      decisionRecordId: 'dr-pending',
+      status: 'CREATED',
+      decision: null,
+    });
+
+    const result = await service.mockCompleteSession('c1', 'c1', 'ses-1');
+
+    expect(riskEngineMock.createPendingDecisionRecord).toHaveBeenCalledWith(
+      expect.objectContaining({
+        contextType: 'ONBOARDING_CDD',
+        ownerType: 'CUSTOMER',
+        ownerId: 'c1',
+        signals: expect.objectContaining({
+          simulationMode: 'MANUAL_PENDING',
+          cddResponseId: 'cdd-1',
+        }),
+      }),
+    );
+    expect(riskEngineMock.evaluate).not.toHaveBeenCalled();
+    expect(prismaMock.customerMain.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          onboardingStatus: 'CDD_UNDER_REVIEW',
+          operatingStatus: 'INACTIVE',
+          latestDecisionRecordId: 'dr-pending',
+        }),
+      }),
+    );
+    expect(result.decision).toEqual({
+      decisionRecordId: 'dr-pending',
+      status: 'CREATED',
+      decision: null,
+    });
+  });
+
+  it('should auto-pass CDD when manual simulation is LOW', async () => {
+    seedCddMockFlow();
+    prismaMock.workflowDecisionRecord.findUnique.mockResolvedValue({
+      id: 'dr-low',
+      status: 'CREATED',
+      contextType: 'ONBOARDING_CDD',
+      customerId: 'c1',
+      subjectId: 'c1',
+      inputPayload: JSON.stringify({
+        signals: {
+          cddResponseId: 'cdd-1',
+          journeyId: 'ONB-1',
+        },
+      }),
+    });
+    prismaMock.customerMain.findUnique.mockResolvedValue({
+      id: 'c1',
+      customerNo: 'CU0001',
+      onboardingStatus: 'CDD_UNDER_REVIEW',
+      operatingStatus: 'INACTIVE',
+      restrictionStatus: 'CLEAR',
+      activeJourneyId: 'ONB-1',
+    });
     prismaMock.customerMain.update.mockResolvedValue({
       id: 'c1',
       onboardingStatus: 'APPROVED',
       operatingStatus: 'ACTIVE',
       restrictionStatus: 'CLEAR',
     });
-    riskEngineMock.evaluate.mockResolvedValue({
+    riskEngineMock.completeDecisionRecord.mockResolvedValue({
       decision: 'REVIEW',
       decisionRecordId: 'dr-low',
       reasonCodes: ['CDD_LOW_RISK_CLEAR'],
-      recommendedActions: [
-        {
-          type: 'UPSERT_ALERT',
-          payload: { recommendation: 'REVIEW', severity: 'LOW' },
-        },
-        {
-          type: 'ONBOARDING_RECOMMEND_DECISIONS',
-          payload: { decisions: ['CLEAR', 'REJECT', 'REQUIRE_EDD'] },
-        },
-      ],
+      recommendedActions: [],
     });
 
-    const result = await service.mockCompleteSession('c1', 'c1', 'ses-1', {
-      mockDataType: 'LOW_RISK',
+    const result = await service.completeManualCddDecision({
+      decisionRecordId: 'dr-low',
+      riskLevel: 'LOW',
+      reasonCode: 'CDD_LOW_RISK_CLEAR',
     });
 
-    const receivedUpdate = prismaMock.cddResponse.update.mock.calls[0][0];
-    expect(JSON.parse(receivedUpdate.data.inputData)).toEqual(
+    expect(riskEngineMock.completeDecisionRecord).toHaveBeenCalledWith(
+      'dr-low',
       expect.objectContaining({
-        mockDataType: 'LOW_RISK',
-        riskLevel: 'LOW',
-        pepHit: false,
-        sanctionsHit: false,
-      }),
-    );
-    expect(riskEngineMock.evaluate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        ownerType: 'CUSTOMER',
-        ownerId: 'c1',
-        subjectType: 'INDIVIDUAL_CUSTOMER',
+        contextType: 'ONBOARDING_CDD',
         signals: expect.objectContaining({
-          mockDataType: 'LOW_RISK',
-        }),
-      }),
-    );
-    const finalizedUpdate = prismaMock.cddResponse.update.mock.calls[1][0];
-    expect(finalizedUpdate).toEqual(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          reviewerDecision: 'APPROVE',
-          decisionReason: 'AUTO_LOW_RISK_PASS',
-          requiresEdd: false,
+          simulationMode: 'MANUAL',
+          simulationRiskLevel: 'LOW',
+          simulationRiskReason: 'CDD_LOW_RISK_CLEAR',
         }),
       }),
     );
@@ -986,49 +1022,52 @@ describe('OnboardingService', () => {
         data: expect.objectContaining({
           onboardingStatus: 'APPROVED',
           operatingStatus: 'ACTIVE',
-          restrictionStatus: 'CLEAR',
         }),
       }),
     );
-    expect(orchestratorMock.orchestrate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        workflow: 'ONBOARDING',
-        stage: 'REVIEW_CDD',
-        decisionRecordId: 'dr-low',
-      }),
-    );
-    expect(result.actions).toEqual([{ type: 'NONE' }]);
+    expect(result.customer.onboardingStatus).toBe('APPROVED');
   });
 
-  it('should create OPEN alert with recommendation for CDD MEDIUM_RISK', async () => {
+  it('should keep CDD under review when manual simulation is MEDIUM', async () => {
     seedCddMockFlow();
+    prismaMock.workflowDecisionRecord.findUnique.mockResolvedValue({
+      id: 'dr-medium',
+      status: 'CREATED',
+      contextType: 'ONBOARDING_CDD',
+      customerId: 'c1',
+      subjectId: 'c1',
+      inputPayload: JSON.stringify({
+        signals: {
+          cddResponseId: 'cdd-1',
+          journeyId: 'ONB-1',
+        },
+      }),
+    });
+    prismaMock.customerMain.findUnique.mockResolvedValue({
+      id: 'c1',
+      customerNo: 'CU0001',
+      onboardingStatus: 'CDD_UNDER_REVIEW',
+      operatingStatus: 'INACTIVE',
+      restrictionStatus: 'CLEAR',
+      activeJourneyId: 'ONB-1',
+    });
     prismaMock.customerMain.update.mockResolvedValue({
       id: 'c1',
       onboardingStatus: 'CDD_UNDER_REVIEW',
       operatingStatus: 'INACTIVE',
       restrictionStatus: 'CLEAR',
     });
-    riskEngineMock.evaluate.mockResolvedValue({
+    riskEngineMock.completeDecisionRecord.mockResolvedValue({
       decision: 'REVIEW',
       decisionRecordId: 'dr-medium',
-      reasonCodes: ['CDD_MEDIUM_RISK_REVIEW'],
-      recommendedActions: [
-        {
-          type: 'UPSERT_ALERT',
-          payload: {
-            severity: 'MEDIUM',
-            recommendation: 'REVIEW',
-          },
-        },
-        {
-          type: 'ONBOARDING_RECOMMEND_DECISIONS',
-          payload: { decisions: ['CLEAR', 'REJECT', 'REQUIRE_EDD'] },
-        },
-      ],
+      reasonCodes: ['CDD_PROFILE_INCONSISTENT'],
+      recommendedActions: [{ type: 'UPSERT_ALERT' }],
     });
 
-    const result = await service.mockCompleteSession('c1', 'c1', 'ses-1', {
-      mockDataType: 'MEDIUM_RISK',
+    const result = await service.completeManualCddDecision({
+      decisionRecordId: 'dr-medium',
+      riskLevel: 'MEDIUM',
+      reasonCode: 'CDD_PROFILE_INCONSISTENT',
     });
 
     expect(orchestratorMock.orchestrate).toHaveBeenCalledWith(
@@ -1036,149 +1075,73 @@ describe('OnboardingService', () => {
         workflow: 'ONBOARDING',
         stage: 'REVIEW_CDD',
         decisionRecordId: 'dr-medium',
-        contextType: 'ONBOARDING_CDD',
       }),
     );
     expect(complianceIncidentsMock.createFromAlert).not.toHaveBeenCalled();
-    expect(result.actions).toEqual([{ type: 'WAIT_REVIEW' }]);
+    expect(result.customer.onboardingStatus).toBe('CDD_UNDER_REVIEW');
   });
 
-  it('should keep high-risk CDD in REVIEW_CDD and not auto-create incident', async () => {
+  it('should create case from alert when manual simulation is HIGH', async () => {
     seedCddMockFlow();
+    prismaMock.workflowDecisionRecord.findUnique
+      .mockResolvedValueOnce({
+        id: 'dr-high',
+        status: 'CREATED',
+        contextType: 'ONBOARDING_CDD',
+        customerId: 'c1',
+        subjectId: 'c1',
+        inputPayload: JSON.stringify({
+          signals: {
+            cddResponseId: 'cdd-1',
+            journeyId: 'ONB-1',
+          },
+        }),
+      })
+      .mockResolvedValueOnce({
+        id: 'dr-high',
+        outputs: JSON.stringify({
+          orchestration: {
+            alertId: 'alert-1',
+          },
+        }),
+      });
+    prismaMock.customerMain.findUnique.mockResolvedValue({
+      id: 'c1',
+      customerNo: 'CU0001',
+      onboardingStatus: 'CDD_UNDER_REVIEW',
+      operatingStatus: 'INACTIVE',
+      restrictionStatus: 'CLEAR',
+      activeJourneyId: 'ONB-1',
+    });
     prismaMock.customerMain.update.mockResolvedValue({
       id: 'c1',
       onboardingStatus: 'CDD_UNDER_REVIEW',
       operatingStatus: 'INACTIVE',
       restrictionStatus: 'CLEAR',
     });
-    riskEngineMock.evaluate.mockResolvedValue({
+    riskEngineMock.completeDecisionRecord.mockResolvedValue({
       decision: 'REVIEW',
       decisionRecordId: 'dr-high',
-      reasonCodes: ['CDD_HIGH_RISK_OR_PEP', 'PEP_HIT'],
-      recommendedActions: [
-        {
-          type: 'UPSERT_ALERT',
-          payload: {
-            severity: 'HIGH',
-            recommendation: 'REVIEW',
-          },
-        },
-        {
-          type: 'ONBOARDING_RECOMMEND_DECISIONS',
-          payload: { decisions: ['CLEAR', 'REJECT', 'REQUIRE_EDD'] },
-        },
-      ],
+      reasonCodes: ['CDD_SANCTIONS_HIT'],
+      recommendedActions: [{ type: 'UPSERT_ALERT' }, { type: 'AUTO_ESCALATE_CASE' }],
     });
 
-    const result = await service.mockCompleteSession('c1', 'c1', 'ses-1', {
-      mockDataType: 'HIGH_RISK_OR_PEP',
+    const result = await service.completeManualCddDecision({
+      decisionRecordId: 'dr-high',
+      riskLevel: 'HIGH',
+      reasonCode: 'CDD_SANCTIONS_HIT',
     });
 
-    expect(orchestratorMock.orchestrate).toHaveBeenCalledWith(
+    expect(complianceIncidentsMock.createFromAlert).toHaveBeenCalledWith(
+      'alert-1',
       expect.objectContaining({
-        workflow: 'ONBOARDING',
-        stage: 'REVIEW_CDD',
-        decisionRecordId: 'dr-high',
+        reason: 'Auto-escalated onboarding CDD case for CDD2602010001',
+      }),
+      expect.objectContaining({
+        actorType: 'SYSTEM',
       }),
     );
-    expect(complianceIncidentsMock.createFromAlert).not.toHaveBeenCalled();
-    expect(result.actions).toEqual([{ type: 'WAIT_REVIEW' }]);
-  });
-
-  it('should keep SANCTION_AND_OTHER CDD mock in alert triage without auto-creating incident', async () => {
-    seedCddMockFlow();
-    prismaMock.customerMain.update.mockResolvedValue({
-      id: 'c1',
-      onboardingStatus: 'CDD_UNDER_REVIEW',
-      operatingStatus: 'INACTIVE',
-      restrictionStatus: 'CLEAR',
-    });
-    riskEngineMock.evaluate.mockResolvedValue({
-      decision: 'REVIEW',
-      decisionRecordId: 'dr-sanction',
-      reasonCodes: ['SANCTIONS_HIT', 'ADVERSE_MEDIA_HIT'],
-      recommendedActions: [
-        {
-          type: 'UPSERT_ALERT',
-          payload: {
-            severity: 'CRITICAL',
-            recommendation: 'REVIEW',
-          },
-        },
-        {
-          type: 'ESCALATE_INCIDENT',
-          payload: {
-            reasonCode: 'SANCTIONS_HIT',
-          },
-        },
-        {
-          type: 'ONBOARDING_RECOMMEND_DECISIONS',
-          payload: { decisions: ['CLEAR', 'REJECT', 'REQUIRE_EDD'] },
-        },
-      ],
-    });
-
-    const result = await service.mockCompleteSession('c1', 'c1', 'ses-1', {
-      mockDataType: 'SANCTION_AND_OTHER',
-    });
-
-    expect(orchestratorMock.orchestrate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        workflow: 'ONBOARDING',
-        stage: 'REVIEW_CDD',
-        decisionRecordId: 'dr-sanction',
-      }),
-    );
-    expect(complianceIncidentsMock.createFromAlert).not.toHaveBeenCalled();
-    expect(result.actions).toEqual([{ type: 'WAIT_REVIEW' }]);
-  });
-
-  it('should map legacy result=FAIL to SANCTION_AND_OTHER mock data type', async () => {
-    seedCddMockFlow();
-    riskEngineMock.evaluate.mockResolvedValue({
-      decision: 'APPROVE',
-      decisionRecordId: 'dr-legacy-fail',
-      reasonCodes: ['CDD_CLEAR'],
-      recommendedActions: [],
-    });
-
-    await service.mockCompleteSession('c1', 'c1', 'ses-1', {
-      result: 'FAIL',
-    });
-
-    expect(riskEngineMock.evaluate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        ownerType: 'CUSTOMER',
-        ownerId: 'c1',
-        subjectType: 'INDIVIDUAL_CUSTOMER',
-        signals: expect.objectContaining({
-          mockDataType: 'SANCTION_AND_OTHER',
-        }),
-      }),
-    );
-  });
-
-  it('should map legacy default result to LOW_RISK mock data type', async () => {
-    seedCddMockFlow();
-    riskEngineMock.evaluate.mockResolvedValue({
-      decision: 'APPROVE',
-      decisionRecordId: 'dr-legacy-pass',
-      reasonCodes: ['CDD_CLEAR'],
-      recommendedActions: [],
-    });
-
-    await service.mockCompleteSession('c1', 'c1', 'ses-1');
-
-    expect(riskEngineMock.evaluate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        ownerType: 'CUSTOMER',
-        ownerId: 'c1',
-        subjectType: 'INDIVIDUAL_CUSTOMER',
-        signals: expect.objectContaining({
-          mockDataType: 'LOW_RISK',
-        }),
-      }),
-    );
+    expect(result.customer.onboardingStatus).toBe('CDD_UNDER_REVIEW');
   });
 
   it('should pass canonical owner and subject mapping for EDD risk evaluation', async () => {

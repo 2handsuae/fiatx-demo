@@ -76,6 +76,9 @@ export function buildDefaultSwapPricingPolicyConfig(
         assetBId: right.id,
         assetBLabel: formatAssetLabel(right),
         enabled: true,
+        restrictions: {
+          blockedInvestorClassifications: [],
+        },
         routing: { ...DEFAULT_ROUTING },
         tiers: [
           {

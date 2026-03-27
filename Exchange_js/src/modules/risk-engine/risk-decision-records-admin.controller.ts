@@ -1,19 +1,30 @@
 import {
+  Body,
   Controller,
   ForbiddenException,
   Get,
   Param,
+  Post,
   Query,
   Req,
   UseGuards,
   ValidationPipe,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
-import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiBody,
+  ApiOperation,
+  ApiQuery,
+  ApiTags,
+} from '@nestjs/swagger';
 import { AdminPermissionGuard } from 'src/modules/identity/access-control/admin-permission.guard';
 import { RequirePermissions } from '../identity/access-control/require-permissions.decorator';
 import { buildPermissionCode } from '../identity/access-control/permission-code.util';
-import { RiskDecisionRecordQueryDto } from './dto/risk-decision-record.dto';
+import {
+  RiskDecisionRecordQueryDto,
+  SimulateRiskDecisionRecordDto,
+} from './dto/risk-decision-record.dto';
 import { RiskDecisionRecordsService } from './risk-decision-records.service';
 
 @ApiTags('Admin - Risk')
@@ -29,6 +40,14 @@ export class RiskDecisionRecordsAdminController {
     if (req.user?.type !== 'ADMIN') {
       throw new ForbiddenException('Admin token required');
     }
+
+    return {
+      actorType: req.user.type,
+      actorId: req.user.userId,
+      actorNo: req.user.userNo,
+      actorRole: req.user.role,
+      sourcePlatform: 'ADMIN_API',
+    };
   }
 
   @Get()
@@ -57,5 +76,17 @@ export class RiskDecisionRecordsAdminController {
     this.ensureAdmin(req);
     return this.riskDecisionRecordsService.getDecisionRecordDetail(id);
   }
-}
 
+  @Post(':id/simulate')
+  @RequirePermissions(buildPermissionCode('POST', '/admin/risk/decision-records/:id/simulate'))
+  @ApiOperation({ summary: 'Manually simulate one pending risk decision record' })
+  @ApiBody({ type: SimulateRiskDecisionRecordDto })
+  simulate(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Body(new ValidationPipe({ transform: true })) body: SimulateRiskDecisionRecordDto,
+  ) {
+    const actor = this.ensureAdmin(req);
+    return this.riskDecisionRecordsService.simulateDecisionRecord(id, body, actor);
+  }
+}

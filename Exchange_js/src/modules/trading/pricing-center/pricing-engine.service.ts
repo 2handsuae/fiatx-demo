@@ -203,8 +203,16 @@ export class PricingEngineService {
       input.roundingDp,
       input.roundingMode,
     );
-
-    const { lines, totals } = this.calculateFeeLines(input.amount, input.fees || []);
+    const grossAmountOut = this.roundDecimal(
+      input.amount.mul(quotedRate),
+      input.roundingDp,
+      input.roundingMode,
+    );
+    const { lines, totals } = this.calculateFeeLines(grossAmountOut, input.fees || []);
+    const feeCurrencies = Object.keys(totals);
+    const feeCurrency = feeCurrencies.length > 0 ? feeCurrencies[0] : null;
+    const feeTotal = feeCurrency ? this.toDecimal(totals[feeCurrency]) : new Prisma.Decimal(0);
+    const netAmountOut = grossAmountOut.minus(feeTotal);
 
     return {
       createdAt: input.createdAt.toISOString(),
@@ -222,7 +230,18 @@ export class PricingEngineService {
         markupBps: input.markupBps,
       },
       fees: lines,
-      totals,
+      totals: {
+        ...totals,
+        amountIn: input.amount.toString(),
+        amountOutGross: grossAmountOut.toString(),
+        amountOutNet: netAmountOut.toString(),
+        feeTotal: feeTotal.toString(),
+        feeCurrency: feeCurrency || '',
+      },
+      grossAmountOut: grossAmountOut.toString(),
+      netAmountOut: netAmountOut.toString(),
+      feeTotal: feeTotal.toString(),
+      feeCurrency,
       policyRef: {
         policyCode: input.policyCode,
         policyId: input.policyId,

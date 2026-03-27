@@ -36,6 +36,9 @@ Source of Truth Level: roadmap
 - `docs/roadmap/wave-5-payin-deposit-phase-plan.md`
   - Completed Wave 5 phase breakdown and historical phase context through `Phase 4`.
   - Durable runtime truth now lives in `docs/constraints/**`, `docs/specs/**`, and `docs/acceptance/**`; `docs/cleanup/wave-5-cleanup-master-plan.md` is retained as the completed closeout record.
+- `docs/roadmap/wave-6-pricing-quote-swap-phase-plan.md`
+  - Runtime-complete and cleanup-complete Wave 6 sequencing record for swap pricing, quote execution, manual risk simulation, fee closure, and evidence export.
+  - Completed cleanup history is retained in `docs/cleanup/wave-6-cleanup-master-plan.md`.
 
 ## Do Not Use For
 - Hard behavioral constraints.

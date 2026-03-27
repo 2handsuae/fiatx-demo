@@ -170,7 +170,7 @@ describe('PricingCenterService - Swap Phase 1 constraints', () => {
     );
   });
 
-  it('should reject policy when feeItems is not empty', async () => {
+  it('should allow supported swap feeItems', async () => {
     const config = buildBaseSwapPolicy();
     config.pairs[0].tiers[0].feeItems = [
       {
@@ -187,16 +187,52 @@ describe('PricingCenterService - Swap Phase 1 constraints', () => {
       },
     ];
 
-    await expect(service.updateSwapPolicy(config)).rejects.toThrow(
-      'feeItems must be empty',
-    );
+    const existingSwap = {
+      id: 'policy-swap-id',
+      policyCode: 'SWAP_PRICING',
+      business: 'SWAP',
+      configJson: JSON.stringify(buildBaseSwapPolicy()),
+      updatedAt: new Date(),
+      updatedByUserId: 'SYSTEM',
+      updatedByUserNo: 'SYSTEM',
+    };
+    const existingWithdrawal = {
+      id: 'policy-withdraw-id',
+      policyCode: 'WITHDRAWAL_PRICING',
+      business: 'WITHDRAWAL',
+      configJson: JSON.stringify({
+        policyId: 'POL-WITHDRAW-ONLINE',
+        policyName: 'Withdrawal Pricing',
+        business: 'WITHDRAWAL',
+        channel: { online: true, storeComingSoon: true },
+        assets: [],
+      }),
+      updatedAt: new Date(),
+      updatedByUserId: 'SYSTEM',
+      updatedByUserNo: 'SYSTEM',
+    };
+
+    mockPrisma.pricingPolicy.findUnique
+      .mockResolvedValueOnce(existingSwap)
+      .mockResolvedValueOnce(existingWithdrawal);
+    mockPrisma.pricingPolicy.update.mockImplementation(async ({ data }: { data: { configJson: string } }) => ({
+      ...existingSwap,
+      configJson: data.configJson,
+    }));
+
+    const saved = await service.updateSwapPolicy(config);
+
+    expect(saved.pairs[0].tiers[0].feeItems).toHaveLength(1);
+    expect(saved.pairs[0].tiers[0].feeItems[0].itemCode).toBe('SWAP_SERVICE_FEE');
   });
 
-  it('should force single-tier defaults on save regardless of tier input', async () => {
+  it('should preserve swap tier configuration and channel flags on save', async () => {
     const config = buildBaseSwapPolicy();
+    config.channel.online = false;
     config.pairs[0].tiers[0].enabled = false;
+    config.pairs[0].tiers[0].priority = 3;
     config.pairs[0].tiers[0].conditions.amountMin = '999';
-    config.pairs[0].tiers[0].conditions.amountMax = '100';
+    config.pairs[0].tiers[0].conditions.amountMax = '1000';
 
     const existingSwap = {
       id: 'policy-swap-id',
@@ -234,9 +270,11 @@ describe('PricingCenterService - Swap Phase 1 constraints', () => {
     const saved = await service.updateSwapPolicy(config);
     const tier = saved.pairs[0].tiers[0];
 
-    expect(tier.enabled).toBe(true);
-    expect(tier.conditions.amountMin).toBe('0');
-    expect(tier.conditions.amountMax).toBeNull();
+    expect(saved.channel.online).toBe(false);
+    expect(tier.priority).toBe(3);
+    expect(tier.enabled).toBe(false);
+    expect(tier.conditions.amountMin).toBe('999');
+    expect(tier.conditions.amountMax).toBe('1000');
   });
 
   it('should normalize legacy withdrawal fees into service+gas and auto-add ACTIVE assets', async () => {

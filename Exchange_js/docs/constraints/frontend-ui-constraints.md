@@ -57,14 +57,20 @@
 1. `GET /onboarding/me`
 2. `GET /onboarding/next-step`
 3. `GET /onboarding/responses`
+- `/verification` MUST use shared `Simulation Mode` to gate onboarding evidence collection and mock-complete actions.
+- When shared `Simulation Mode` is disabled, `/verification` MUST hide customer-side onboarding simulation controls for:
+1. bootstrap/start
+2. session regeneration
+3. CDD mock-complete
+4. EDD start / reinitiate
+5. EDD mock-complete
 - `/verification` MUST treat canonical customer fields from `GET /onboarding/me` as the primary onboarding state source.
 - `GET /onboarding/next-step` remains a guidance contract; frontend MAY consume `actions[]`, `blockedReason`, and `activeCaseId`, but MUST NOT treat it as the main state truth over canonical customer fields.
-- CDD mock-complete interaction MUST open a dialog with three options:
-1. `Low risk`
-2. `Medium risk / High risk or PEP`
-3. `Sanction & other`
+- `Risk Policy Executions` is the canonical risk simulation surface for `ONBOARDING_CDD`, `TX_DEPOSIT_FINAL`, and `TX_SWAP_FINAL`; frontend MUST NOT expose client-side risk-band selection controls for these contexts.
+- CDD mock-complete interaction MUST submit session completion without a client-side risk selection dialog.
 - EDD mock-complete interaction MUST remain direct submit (no risk-type dialog).
 - In `PENDING_EDD`, when no valid session link exists, UI MUST show an explicit `Start EDD` action to create link and MUST NOT auto-trigger EDD session creation.
+- Admin UI MUST NOT add a second onboarding `mock-complete` action surface outside customer `/verification`.
 - Verification completion UX MUST enforce redirect:
 1. `onboardingStatus = APPROVED` and `operatingStatus = ACTIVE` -> navigate to `/profile`
 - Session compatibility in verification UI MUST support both:

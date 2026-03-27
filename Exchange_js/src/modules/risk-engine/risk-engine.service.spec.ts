@@ -4,6 +4,7 @@ describe('RiskEngineService', () => {
   const prismaMock: any = {
     workflowDecisionRecord: {
       create: jest.fn(),
+      findUnique: jest.fn(),
       update: jest.fn(),
     },
   };
@@ -13,6 +14,11 @@ describe('RiskEngineService', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     prismaMock.workflowDecisionRecord.create.mockResolvedValue({ id: 'dr-1' });
+    prismaMock.workflowDecisionRecord.findUnique.mockResolvedValue({
+      id: 'dr-1',
+      policyVersion: 'onboarding-risk-policy/v1',
+      status: 'CREATED',
+    });
     prismaMock.workflowDecisionRecord.update.mockResolvedValue({ id: 'dr-1' });
     service = new RiskEngineService(prismaMock);
   });
@@ -68,6 +74,106 @@ describe('RiskEngineService', () => {
         ownerId: 'c1',
       }),
     );
+  });
+
+  it('should create pending decision record without completing it immediately', async () => {
+    const result = await service.createPendingDecisionRecord(buildInput({
+      contextType: 'TX_SWAP_FINAL',
+      subjectType: 'SWAP',
+      subjectId: 'swap-1',
+      signals: {
+        simulationMode: 'MANUAL_PENDING',
+      },
+    }));
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        decisionRecordId: 'dr-1',
+        policyVersion: 'transaction-risk-policy/v1',
+        inputHash: expect.any(String),
+      }),
+    );
+    expect(prismaMock.workflowDecisionRecord.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        customerId: 'c1',
+        contextType: 'TX_SWAP_FINAL',
+        subjectId: 'swap-1',
+        status: 'CREATED',
+      }),
+    });
+    expect(prismaMock.workflowDecisionRecord.update).not.toHaveBeenCalled();
+  });
+
+  it('should complete pending swap decision record with manual medium risk reason', async () => {
+    prismaMock.workflowDecisionRecord.findUnique.mockResolvedValue({
+      id: 'dr-swap-medium',
+      policyVersion: 'transaction-risk-policy/v1',
+      status: 'CREATED',
+    });
+
+    const result = await service.completeDecisionRecord(
+      'dr-swap-medium',
+      buildInput({
+        contextType: 'TX_SWAP_FINAL',
+        subjectType: 'SWAP',
+        subjectId: 'swap-1',
+        signals: {
+          simulationMode: 'MANUAL',
+          riskBand: 'MEDIUM',
+          riskReason: 'VELOCITY_SPIKE',
+          customerAmlRiskTier: 'LOW',
+        },
+      }),
+    );
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        decision: 'REVIEW',
+        reasonCodes: ['VELOCITY_SPIKE'],
+      }),
+    );
+    expect(prismaMock.workflowDecisionRecord.update).toHaveBeenCalledWith({
+      where: { id: 'dr-swap-medium' },
+      data: expect.objectContaining({
+        status: 'COMPLETED',
+        outputDecision: 'REVIEW',
+        outputs: expect.any(String),
+      }),
+    });
+    const updatePayload = prismaMock.workflowDecisionRecord.update.mock.calls[0][0].data;
+    expect(JSON.parse(updatePayload.outputs)).toEqual(
+      expect.objectContaining({
+        riskBand: 'MEDIUM',
+        riskReason: 'VELOCITY_SPIKE',
+        simulationMode: 'MANUAL',
+      }),
+    );
+  });
+
+  it('should return APPROVE for manual low-risk deposit simulation', async () => {
+    prismaMock.workflowDecisionRecord.findUnique.mockResolvedValue({
+      id: 'dr-dep-low',
+      policyVersion: 'transaction-risk-policy/v1',
+      status: 'CREATED',
+    });
+
+    const result = await service.completeDecisionRecord(
+      'dr-dep-low',
+      buildInput({
+        contextType: 'TX_DEPOSIT_FINAL',
+        subjectType: 'DEPOSIT',
+        subjectId: 'dep-1',
+        signals: {
+          simulationMode: 'MANUAL',
+          riskBand: 'LOW',
+          kytStatus: 'PASS',
+          travelRuleStatus: 'ACCEPTED',
+        },
+      }),
+    );
+
+    expect(result.decision).toBe('APPROVE');
+    expect(result.reasonCodes).toEqual(['TX_DEPOSIT_LOW_RISK_AUTO_CLEAR']);
   });
 
   it('should return REVIEW with UPSERT_ALERT for CDD MEDIUM_RISK mock input', async () => {
@@ -234,6 +340,11 @@ describe('RiskEngineService', () => {
   });
 
   it('should approve terminal PASS for deposit KYT context without alert escalation', async () => {
+    prismaMock.workflowDecisionRecord.findUnique.mockResolvedValueOnce({
+      id: 'dr-1',
+      policyVersion: 'transaction-risk-policy/v1',
+      status: 'CREATED',
+    });
     const result = await service.evaluate(buildInput({
       contextType: 'TX_DEPOSIT_KYT_MAIN',
       subjectType: 'DEPOSIT',
@@ -252,6 +363,11 @@ describe('RiskEngineService', () => {
   });
 
   it('should reject travel rule REJECTED and recommend alert plus case escalation', async () => {
+    prismaMock.workflowDecisionRecord.findUnique.mockResolvedValueOnce({
+      id: 'dr-1',
+      policyVersion: 'transaction-risk-policy/v1',
+      status: 'CREATED',
+    });
     const result = await service.evaluate(buildInput({
       contextType: 'TX_DEPOSIT_TRAVEL_RULE',
       subjectType: 'DEPOSIT',
@@ -283,6 +399,11 @@ describe('RiskEngineService', () => {
   });
 
   it('should create one final deposit decision for REVIEW when both KYT and Travel Rule are terminal', async () => {
+    prismaMock.workflowDecisionRecord.findUnique.mockResolvedValueOnce({
+      id: 'dr-1',
+      policyVersion: 'transaction-risk-policy/v1',
+      status: 'CREATED',
+    });
     const result = await service.evaluate(buildInput({
       contextType: 'TX_DEPOSIT_FINAL',
       subjectType: 'DEPOSIT',

@@ -2,7 +2,7 @@
 
 Status: active
 Owner: project-owner-and-agents
-Last Updated: 2026-03-24
+Last Updated: 2026-03-26
 Applies To: `Exchange_js`
 Supersedes: none
 Depends On: `docs/specs/README.md`
@@ -51,3 +51,5 @@ Source of Truth Level: specs-workflow
   - Wave 4 subject-scoped config release activation path.
 - `docs/specs/workflows/quote-event-clearing-journal-workflow.md`
   - Wave 4 quote-to-event-to-clearing/journal orchestration contract.
+- `docs/specs/workflows/swap-canonical-workflow.md`
+  - Wave 6 canonical swap workflow for quote consume, automatic risk routing, and terminal accounting behavior.

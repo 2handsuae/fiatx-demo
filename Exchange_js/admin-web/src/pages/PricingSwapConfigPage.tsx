@@ -166,13 +166,13 @@ const PricingSwapConfigPage = () => {
       tiers: [
         {
           ...tier,
-          priority: 1,
-          enabled: true,
+          priority: Math.max(1, Number(tier.priority || 1)),
+          enabled: tier.enabled !== false,
           conditions: {
-            amountMin: '0',
-            amountMax: null,
+            amountMin: tier.conditions?.amountMin ?? '0',
+            amountMax: tier.conditions?.amountMax ?? null,
           },
-          feeItems: [],
+          feeItems: Array.isArray(tier.feeItems) ? tier.feeItems : [],
         },
       ],
     };
@@ -497,6 +497,12 @@ const PricingSwapConfigPage = () => {
               <FieldBlock label="Provider" value="BINANCE" />
               <FieldBlock label="From Asset" value={selectedPair.assetALabel} />
               <FieldBlock label="To Asset" value={selectedPair.assetBLabel} />
+              <FieldBlock label="Tier ID" value={tier.id} />
+              <FieldBlock label="Tier Name" value={tier.name} />
+              <FieldBlock label="Tier Enabled" value={tier.enabled ? 'Enabled' : 'Disabled'} />
+              <FieldBlock label="Tier Priority" value={String(tier.priority)} />
+              <FieldBlock label="Amount Min" value={tier.conditions.amountMin ?? 'None'} />
+              <FieldBlock label="Amount Max" value={tier.conditions.amountMax ?? 'None'} />
 
               <div className="space-y-1">
                 <div className="text-xs text-gray-500 uppercase tracking-wide">Trading Status</div>
@@ -653,6 +659,24 @@ const PricingSwapConfigPage = () => {
                   </div>
                 )}
               </div>
+            </div>
+
+            <div className="rounded-xl border border-admin-border bg-gray-50/50 p-4 space-y-3">
+              <div>
+                <h3 className="text-sm font-semibold text-gray-900">Fee Snapshot (Read-only)</h3>
+                <p className="text-xs text-gray-500 mt-1">
+                  This section reflects the active runtime tier config, including disabled tiers, amount range, and fee items.
+                </p>
+              </div>
+              {tier.feeItems.length > 0 ? (
+                <pre className="text-xs bg-white border border-gray-200 rounded-lg p-3 overflow-auto text-gray-700">
+                  {JSON.stringify(tier.feeItems, null, 2)}
+                </pre>
+              ) : (
+                <div className="text-sm text-gray-600 bg-white border border-gray-200 rounded-lg px-3 py-2">
+                  No fee items configured for this tier.
+                </div>
+              )}
             </div>
 
             <div className="rounded-xl border border-admin-border bg-gray-50/50 p-4 space-y-3">

@@ -10,11 +10,13 @@ import {
   AuditActions,
   AuditEntityTypes,
   AuditModules,
+  AuditWorkflowTypes,
 } from '../audit-logs/constants/audit-actions.constant';
 import { AuditTriggerType } from '../audit-logs/dto/audit-log.dto';
 import {
   TRANSACTION_REVIEW_RULES,
   TRANSACTION_REVIEW_STAGES,
+  TRANSACTION_WORKFLOW,
 } from '../constants/onboarding-compliance-workflow.constant';
 import {
   normalizeRiskRecommendedActionType,
@@ -28,6 +30,8 @@ import {
 } from '../risk-engine.service';
 import { TxSourceType } from './types/tx-compliance.types';
 import { TransactionDepositWorkflowService } from '../../trading/deposit-transactions/transaction-deposit-workflow.service';
+import { SwapTransactionWorkflowService } from '../../trading/swap-transactions/swap-transaction-workflow.service';
+import { TRANSACTION_SWAP_SOURCE_TYPE } from '../constants/onboarding-compliance-workflow.constant';
 
 type DbClient = Prisma.TransactionClient | PrismaService;
 
@@ -98,6 +102,32 @@ interface DepositSimulationRiskProfile {
   signalId: string | null;
 }
 
+interface SwapFinalReviewInput {
+  swapId: string;
+  sourceType: TxSourceType;
+  sourceId: string;
+  reportDeduped?: boolean;
+}
+
+interface SwapSimulationRiskProfile {
+  riskLevel: 'LOW' | 'MEDIUM' | 'HIGH';
+  riskReason: string | null;
+}
+
+interface ManualRiskSimulationInput {
+  decisionRecordId: string;
+  riskLevel: 'LOW' | 'MEDIUM' | 'HIGH';
+  riskReason: string | null;
+}
+
+interface ResolvedDecisionResult {
+  decisionRecordId: string;
+  decision: RiskDecision;
+  recommendedActions: RiskRecommendedAction[];
+  reasonCodes: string[];
+  reused: boolean;
+}
+
 export interface BridgeExecutionResult {
   skipped: boolean;
   skipReason?: string;
@@ -136,9 +166,184 @@ export class TransactionRiskBridgeService {
     }
   }
 
+  private toRecordObject(value: unknown): Record<string, unknown> | null {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return null;
+    }
+    return value as Record<string, unknown>;
+  }
+
+  private normalizeTransactionWorkflowTransitionSnapshot(input: {
+    sourceType: 'DEPOSIT' | 'SWAP';
+    sourceId: string;
+    sourceNo?: string | null;
+    stage: string;
+    workflowTransition?: unknown;
+  }): Record<string, unknown> | null {
+    const workflowTransition = this.toRecordObject(input.workflowTransition);
+    if (!workflowTransition) {
+      return null;
+    }
+
+    const updatedSubjectCandidate = this.toRecordObject(
+      workflowTransition.updatedSubject,
+    );
+    const updatedCustomerCandidate = this.toRecordObject(
+      workflowTransition.updatedCustomer,
+    );
+    const legacyBeforeStatus =
+      input.sourceType === 'DEPOSIT'
+        ? workflowTransition.depositStatusBefore
+        : workflowTransition.swapStatusBefore;
+    const legacyAfterStatus =
+      input.sourceType === 'DEPOSIT'
+        ? workflowTransition.depositStatusAfter
+        : workflowTransition.swapStatusAfter;
+    const topLevelBlocked = workflowTransition.blocked;
+    const topLevelBlockedReason = workflowTransition.blockedReason;
+
+    const subjectId =
+      String(
+        updatedSubjectCandidate?.id ||
+          updatedCustomerCandidate?.id ||
+          input.sourceId ||
+          '',
+      ).trim() || input.sourceId;
+    const subjectNo =
+      String(
+        updatedSubjectCandidate?.subjectNo ||
+          updatedCustomerCandidate?.subjectNo ||
+          updatedCustomerCandidate?.depositNo ||
+          input.sourceNo ||
+          '',
+      ).trim() || null;
+    const blockedValue =
+      updatedSubjectCandidate?.blocked ??
+      updatedCustomerCandidate?.blocked ??
+      topLevelBlocked;
+    const blockedReasonValue =
+      updatedSubjectCandidate?.blockedReason ??
+      updatedCustomerCandidate?.blockedReason ??
+      topLevelBlockedReason;
+
+    return {
+      workflow: String(workflowTransition.workflow || TRANSACTION_WORKFLOW).trim() || null,
+      stage: String(workflowTransition.stage || input.stage || '').trim() || null,
+      dispositionCode:
+        String(
+          workflowTransition.dispositionCode || workflowTransition.workflowAction || '',
+        ).trim() || null,
+      transitionCode:
+        String(workflowTransition.transitionCode || '').trim() || null,
+      fromStatus:
+        String(workflowTransition.fromStatus || legacyBeforeStatus || '').trim() || null,
+      toStatus:
+        String(workflowTransition.toStatus || legacyAfterStatus || '').trim() || null,
+      executed:
+        typeof workflowTransition.executed === 'boolean'
+          ? workflowTransition.executed
+          : Boolean(workflowTransition.applied),
+      updatedSubject: {
+        id: subjectId,
+        sourceType: input.sourceType,
+        subjectNo,
+        blocked: Boolean(blockedValue),
+        blockedReason:
+          blockedReasonValue === null || blockedReasonValue === undefined
+            ? null
+            : String(blockedReasonValue),
+      },
+    };
+  }
+
+  private async writeDecisionRecordOutcomeSnapshot(
+    input: {
+      decisionRecordId: string;
+      sourceType: 'DEPOSIT' | 'SWAP';
+      sourceId: string;
+      sourceNo?: string | null;
+      stage: string;
+      rule: string;
+      decision: RiskDecision;
+      recommendedActions: string[];
+      reasonCodes: string[];
+      alertId?: string | null;
+      alertNo?: string | null;
+      caseId?: string | null;
+      caseNo?: string | null;
+      workflowTransition?: unknown;
+      reusedDecisionRecord: boolean;
+    },
+    tx?: Prisma.TransactionClient,
+  ) {
+    const db = this.getDb(tx) as any;
+    const current = await db.workflowDecisionRecord.findUnique({
+      where: { id: input.decisionRecordId },
+      select: { outputs: true },
+    });
+
+    if (!current) {
+      this.logger.warn(
+        `Decision record missing during transaction snapshot write: ${input.decisionRecordId}`,
+      );
+      return;
+    }
+
+    const outputs = this.parseJsonSafely<Record<string, unknown>>(
+      current.outputs,
+      {},
+    );
+    const workflowTransition = this.normalizeTransactionWorkflowTransitionSnapshot(
+      {
+        sourceType: input.sourceType,
+        sourceId: input.sourceId,
+        sourceNo: input.sourceNo,
+        stage: input.stage,
+        workflowTransition: input.workflowTransition,
+      },
+    );
+    const nextOutputs = {
+      ...outputs,
+      orchestration: {
+        workflow: TRANSACTION_WORKFLOW,
+        sourceType: input.sourceType,
+        sourceId: input.sourceId,
+        sourceNo: input.sourceNo || null,
+        stage: input.stage,
+        rule: input.rule,
+        decision: input.decision,
+        reasonCodes: input.reasonCodes,
+        executedActions: input.recommendedActions.map((type) => ({ type })),
+        alertId: input.alertId || null,
+        alertNo: input.alertNo || null,
+        alertUpserted: !!input.alertId,
+        caseId: input.caseId || null,
+        caseNo: input.caseNo || null,
+        caseEscalated: !!input.caseId,
+        reusedDecisionRecord: input.reusedDecisionRecord,
+      },
+      workflowTransition: workflowTransition,
+    };
+
+    await db.workflowDecisionRecord.update({
+      where: { id: input.decisionRecordId },
+      data: {
+        outputs: JSON.stringify(nextOutputs),
+      },
+    });
+  }
+
   private getTransactionWorkflowTransitionService() {
     return (
       this.moduleRef?.get(TransactionDepositWorkflowService, {
+        strict: false,
+      }) || null
+    );
+  }
+
+  private getSwapWorkflowTransitionService() {
+    return (
+      this.moduleRef?.get(SwapTransactionWorkflowService, {
         strict: false,
       }) || null
     );
@@ -272,92 +477,185 @@ export class TransactionRiskBridgeService {
     return deposit;
   }
 
-  private async resolveDepositSimulationRiskProfile(
-    deposit: {
-      payin?: { providerTxnId?: string | null } | null;
-      kytStatus?: string | null;
-      travelRuleStatus?: string | null;
-    },
+  private async resolveSwapContext(
+    swapId: string,
     tx?: Prisma.TransactionClient,
-  ): Promise<DepositSimulationRiskProfile> {
-    const providerTxnId = String(deposit.payin?.providerTxnId || '').trim();
-    if (!providerTxnId) {
-      return this.deriveFallbackRiskProfile({
-        kytStatus: deposit.kytStatus,
-        travelRuleStatus: deposit.travelRuleStatus,
-      });
-    }
-
-    const signal = await (this.getDb(tx) as any).inboundTransferSignal.findUnique({
-      where: { id: providerTxnId },
+  ) {
+    const swap = await (this.getDb(tx) as any).swapTransaction.findUnique({
+      where: { id: swapId },
       select: {
         id: true,
-        simulationRiskLevel: true,
-        simulationRiskReason: true,
+        swapNo: true,
+        quoteId: true,
+        quoteNo: true,
+        ownerType: true,
+        ownerId: true,
+        ownerNo: true,
+        status: true,
+        fromAssetId: true,
+        fromAssetCode: true,
+        fromAmount: true,
+        toAssetId: true,
+        toAssetCode: true,
+        toAmount: true,
+        netToAmount: true,
+        feeAmount: true,
+        feeCurrency: true,
+        exchangeRate: true,
+        customer: {
+          select: {
+            id: true,
+            customerNo: true,
+            amlRiskTier: true,
+            investorClassification: true,
+          },
+        },
       },
     });
 
-    const riskLevel = String(signal?.simulationRiskLevel || '').trim().toUpperCase();
-    if (riskLevel === 'MEDIUM' || riskLevel === 'HIGH') {
-      return {
-        riskLevel,
-        riskReason: this.normalizeOptionalString(signal?.simulationRiskReason),
-        signalId: signal?.id || null,
-      };
+    if (!swap) {
+      throw new NotFoundException(`Swap ${swapId} not found`);
     }
 
-    if (riskLevel === 'LOW') {
-      return {
-        riskLevel: 'LOW',
-        riskReason: null,
-        signalId: signal?.id || null,
-      };
-    }
+    return swap;
+  }
 
-    const fallback = this.deriveFallbackRiskProfile({
-      kytStatus: deposit.kytStatus,
-      travelRuleStatus: deposit.travelRuleStatus,
-    });
+  private buildPendingSwapFinalSignals(input: {
+    swap: {
+      id: string;
+      quoteId?: string | null;
+      quoteNo?: string | null;
+      ownerId?: string | null;
+      fromAssetId?: string | null;
+      fromAssetCode?: string | null;
+      fromAmount?: Prisma.Decimal | null;
+      toAssetId?: string | null;
+      toAssetCode?: string | null;
+      toAmount?: Prisma.Decimal | null;
+      netToAmount?: Prisma.Decimal | null;
+      feeAmount?: Prisma.Decimal | null;
+      feeCurrency?: string | null;
+      exchangeRate?: Prisma.Decimal | null;
+      customer?: {
+        amlRiskTier?: string | null;
+        investorClassification?: string | null;
+      } | null;
+    };
+  }): Record<string, unknown> {
     return {
-      ...fallback,
-      signalId: signal?.id || null,
+      swapId: input.swap.id,
+      quoteId: input.swap.quoteId || null,
+      quoteNo: input.swap.quoteNo || null,
+      customerId: input.swap.ownerId || null,
+      fromAssetId: input.swap.fromAssetId || null,
+      fromAssetCode: input.swap.fromAssetCode || null,
+      fromAmount: input.swap.fromAmount?.toString?.() || null,
+      toAssetId: input.swap.toAssetId || null,
+      toAssetCode: input.swap.toAssetCode || null,
+      toAmount: input.swap.toAmount?.toString?.() || null,
+      netToAmount:
+        input.swap.netToAmount?.toString?.() || input.swap.toAmount?.toString?.() || null,
+      feeAmount: input.swap.feeAmount?.toString?.() || '0',
+      feeCurrency: input.swap.feeCurrency || null,
+      exchangeRate: input.swap.exchangeRate?.toString?.() || null,
+      customerAmlRiskTier: input.swap.customer?.amlRiskTier || 'LOW',
+      investorClassification: input.swap.customer?.investorClassification || null,
+      triggerStage: TRANSACTION_REVIEW_STAGES.REVIEW_SWAP_FINAL,
+      simulationMode: 'MANUAL_PENDING',
     };
   }
 
-  private deriveFallbackRiskProfile(input: {
-    kytStatus?: string | null;
-    travelRuleStatus?: string | null;
-  }): DepositSimulationRiskProfile {
-    const kytStatus = this.normalizeKytStatus(input.kytStatus);
-    const travelRuleStatus = this.normalizeTravelRuleStatus(
-      input.travelRuleStatus,
-      true,
-    );
-    if (kytStatus === 'FAIL') {
-      return {
-        riskLevel: 'HIGH',
-        riskReason: 'SANCTIONS_HIT',
-        signalId: null,
-      };
-    }
-    if (travelRuleStatus === 'REJECTED' || travelRuleStatus === 'EXPIRED') {
-      return {
-        riskLevel: 'MEDIUM',
-        riskReason: 'TRAVEL_RULE_ISSUE',
-        signalId: null,
-      };
-    }
-    if (kytStatus === 'REVIEW') {
-      return {
-        riskLevel: 'MEDIUM',
-        riskReason: 'KYT_ISSUE',
-        signalId: null,
-      };
-    }
+  private buildSwapFinalSignals(input: {
+    swap: {
+      id: string;
+      quoteId?: string | null;
+      quoteNo?: string | null;
+      ownerId?: string | null;
+      fromAssetId?: string | null;
+      fromAssetCode?: string | null;
+      fromAmount?: Prisma.Decimal | null;
+      toAssetId?: string | null;
+      toAssetCode?: string | null;
+      toAmount?: Prisma.Decimal | null;
+      netToAmount?: Prisma.Decimal | null;
+      feeAmount?: Prisma.Decimal | null;
+      feeCurrency?: string | null;
+      exchangeRate?: Prisma.Decimal | null;
+      customer?: {
+        amlRiskTier?: string | null;
+        investorClassification?: string | null;
+      } | null;
+    };
+    riskProfile: SwapSimulationRiskProfile;
+  }): Record<string, unknown> {
     return {
-      riskLevel: 'LOW',
-      riskReason: null,
-      signalId: null,
+      swapId: input.swap.id,
+      quoteId: input.swap.quoteId || null,
+      quoteNo: input.swap.quoteNo || null,
+      customerId: input.swap.ownerId || null,
+      fromAssetId: input.swap.fromAssetId || null,
+      fromAssetCode: input.swap.fromAssetCode || null,
+      fromAmount: input.swap.fromAmount?.toString?.() || null,
+      toAssetId: input.swap.toAssetId || null,
+      toAssetCode: input.swap.toAssetCode || null,
+      toAmount: input.swap.toAmount?.toString?.() || null,
+      netToAmount: input.swap.netToAmount?.toString?.() || input.swap.toAmount?.toString?.() || null,
+      feeAmount: input.swap.feeAmount?.toString?.() || '0',
+      feeCurrency: input.swap.feeCurrency || null,
+      exchangeRate: input.swap.exchangeRate?.toString?.() || null,
+      customerAmlRiskTier: input.swap.customer?.amlRiskTier || 'LOW',
+      investorClassification:
+        input.swap.customer?.investorClassification || null,
+      triggerStage: TRANSACTION_REVIEW_STAGES.REVIEW_SWAP_FINAL,
+      riskBand: input.riskProfile.riskLevel,
+      riskReason: input.riskProfile.riskReason,
+      simulationMode: 'MANUAL',
+    };
+  }
+
+  private buildPendingDepositFinalSignals(input: {
+    deposit: {
+      id: string;
+      ownerId?: string | null;
+      assetId?: string | null;
+      travelRuleRequired?: boolean | null;
+    };
+    aggregate: TxAggregateSnapshot;
+    kytStatus: string;
+    travelRuleStatus: string;
+  }): Record<string, unknown> {
+    return {
+      depositId: input.deposit.id,
+      customerId: input.deposit.ownerId || null,
+      assetId: input.deposit.assetId || null,
+      triggerStage: TRANSACTION_REVIEW_STAGES.REVIEW_DEPOSIT_FINAL,
+      triggerStatus: 'PENDING_SIMULATION',
+      kytStatus: input.kytStatus,
+      travelRuleStatus: input.travelRuleStatus,
+      travelRuleRequired:
+        input.aggregate.travelRuleCase?.required ?? input.deposit.travelRuleRequired ?? false,
+      kytCaseId: input.aggregate.mainKytCase?.id || null,
+      kytCaseNo: input.aggregate.mainKytCase?.caseNo || null,
+      kytProvider: input.aggregate.mainKytCase?.provider || null,
+      kytProviderCaseId: input.aggregate.mainKytCase?.providerCaseId || null,
+      kytRiskScore: input.aggregate.mainKytCase?.riskScore ?? null,
+      travelRuleCaseId: input.aggregate.travelRuleCase?.id || null,
+      travelRuleCaseNo: input.aggregate.travelRuleCase?.caseNo || null,
+      travelRuleProvider: input.aggregate.travelRuleCase?.provider || null,
+      travelRuleProviderTransferId:
+        input.aggregate.travelRuleCase?.providerTransferId || null,
+      counterpartyVasp: input.aggregate.travelRuleCase?.counterpartyVasp || null,
+      simulationMode: 'MANUAL_PENDING',
+      finalComplianceSnapshot: {
+        kytStatus: input.kytStatus,
+        travelRuleStatus: input.travelRuleStatus,
+        travelRuleRequired:
+          input.aggregate.travelRuleCase?.required ??
+          input.deposit.travelRuleRequired ??
+          false,
+        kytCaseId: input.aggregate.mainKytCase?.id || null,
+        travelRuleCaseId: input.aggregate.travelRuleCase?.id || null,
+      },
     };
   }
 
@@ -393,9 +691,10 @@ export class TransactionRiskBridgeService {
       travelRuleProviderTransferId:
         input.aggregate.travelRuleCase?.providerTransferId || null,
       counterpartyVasp: input.aggregate.travelRuleCase?.counterpartyVasp || null,
-      simulationRiskLevel: input.riskProfile.riskLevel,
-      simulationRiskReason: input.riskProfile.riskReason,
+      riskBand: input.riskProfile.riskLevel,
+      riskReason: input.riskProfile.riskReason,
       simulationSignalId: input.riskProfile.signalId,
+      simulationMode: 'MANUAL',
       finalComplianceSnapshot: {
         kytStatus: input.kytStatus,
         travelRuleStatus: input.travelRuleStatus,
@@ -429,6 +728,7 @@ export class TransactionRiskBridgeService {
       travelRuleStatus: string;
       riskProfile: DepositSimulationRiskProfile;
       triggerStatus: string;
+      decisionResult?: ResolvedDecisionResult;
     },
     tx?: Prisma.TransactionClient,
   ): Promise<BridgeExecutionResult> {
@@ -448,10 +748,12 @@ export class TransactionRiskBridgeService {
       }),
     };
 
-    const decisionResult = await this.resolveDecision(riskInput, tx);
+    const decisionResult =
+      input.decisionResult || (await this.resolveDecision(riskInput, tx));
     const actionNames = this.normalizeActionNames(
       decisionResult.recommendedActions,
     );
+    let workflowTransition: Record<string, unknown> | null = null;
 
     let alert: { id: string; alertNo?: string | null } | null = null;
     if (
@@ -497,8 +799,6 @@ export class TransactionRiskBridgeService {
             customerId: input.deposit.ownerId,
             riskBand: input.riskProfile.riskLevel,
             riskReason: input.riskProfile.riskReason,
-            simulationRiskLevel: input.riskProfile.riskLevel,
-            simulationRiskReason: input.riskProfile.riskReason,
             kytStatus: input.kytStatus,
             travelRuleStatus: input.travelRuleStatus,
             kytCaseId: input.aggregate.mainKytCase?.id || null,
@@ -551,7 +851,8 @@ export class TransactionRiskBridgeService {
     }
 
     if (!decisionResult.reused && decisionResult.decision === 'APPROVE') {
-      await this.clearDepositIfApproved(
+      workflowTransition = this.toRecordObject(
+        await this.clearDepositIfApproved(
         {
           depositId: input.deposit.id,
           depositNo: input.deposit.depositNo,
@@ -562,9 +863,11 @@ export class TransactionRiskBridgeService {
           reason: `Deposit ${input.deposit.depositNo} auto-approved after final transaction decision`,
         },
         tx,
+      ),
       );
     } else if (!decisionResult.reused && alert && escalatedCase) {
-      await this.flagDepositIfNeeded(
+      workflowTransition = this.toRecordObject(
+        await this.flagDepositIfNeeded(
         {
           depositId: input.deposit.id,
           depositNo: input.deposit.depositNo,
@@ -580,9 +883,11 @@ export class TransactionRiskBridgeService {
           reason: `Deposit ${input.deposit.depositNo} moved under review after final transaction case escalation`,
         },
         tx,
+      ),
       );
     } else if (!decisionResult.reused && alert) {
-      await this.flagDepositIfNeeded(
+      workflowTransition = this.toRecordObject(
+        await this.flagDepositIfNeeded(
         {
           depositId: input.deposit.id,
           depositNo: input.deposit.depositNo,
@@ -597,6 +902,7 @@ export class TransactionRiskBridgeService {
           reason: `Deposit ${input.deposit.depositNo} moved under review after final transaction alert hit`,
         },
         tx,
+      ),
       );
     }
 
@@ -613,6 +919,26 @@ export class TransactionRiskBridgeService {
         reusedDecisionRecord: decisionResult.reused,
         alertId: alert?.id || null,
         caseId: escalatedCase?.id || null,
+      },
+      tx,
+    );
+    await this.writeDecisionRecordOutcomeSnapshot(
+      {
+        decisionRecordId: decisionResult.decisionRecordId,
+        sourceType: 'DEPOSIT',
+        sourceId: input.deposit.id,
+        sourceNo: input.deposit.depositNo,
+        stage: TRANSACTION_REVIEW_STAGES.REVIEW_DEPOSIT_FINAL,
+        rule: TRANSACTION_REVIEW_RULES.TX_DEPOSIT_FINAL_REVIEW_REQUIRED,
+        decision: decisionResult.decision,
+        recommendedActions: actionNames,
+        reasonCodes: decisionResult.reasonCodes,
+        alertId: alert?.id || null,
+        alertNo: alert?.alertNo || null,
+        caseId: escalatedCase?.id || null,
+        caseNo: escalatedCase?.incidentNo || null,
+        workflowTransition,
+        reusedDecisionRecord: decisionResult.reused,
       },
       tx,
     );
@@ -665,6 +991,98 @@ export class TransactionRiskBridgeService {
       decisionRecordId: input.decisionRecordId,
       triggerStage: TRANSACTION_REVIEW_STAGES.REVIEW_DEPOSIT_FINAL,
       triggerStatus: input.triggerStatus,
+    });
+  }
+
+  private async clearSwapIfApproved(
+    input: {
+      swapId: string;
+      swapNo?: string | null;
+      quoteId?: string | null;
+      quoteNo?: string | null;
+      customerId: string;
+      customerNo?: string | null;
+      decisionRecordId: string;
+      reasonCode: string;
+      reason: string;
+    },
+    tx?: Prisma.TransactionClient,
+  ) {
+    const transitionService = this.getSwapWorkflowTransitionService();
+    if (!transitionService) {
+      this.logger.debug(
+        `Swap workflow transition unavailable; skip CLEAR for swap ${input.swapId}`,
+      );
+      return null;
+    }
+
+    return transitionService.execute(tx, {
+      swapId: input.swapId,
+      source: 'SYSTEM',
+      sourceId: input.decisionRecordId,
+      workflowAction: 'CLEAR',
+      reason: input.reason,
+      reasonCode: input.reasonCode,
+      actor: {
+        actorType: 'SYSTEM',
+        actorId: 'SYSTEM',
+        actorNo: 'SYSTEM',
+        actorRole: 'SYSTEM',
+        sourcePlatform: tx ? 'SYSTEM_TX' : 'SYSTEM',
+      },
+      decisionRecordId: input.decisionRecordId,
+      riskDecisionRef: input.decisionRecordId,
+      triggerStage: TRANSACTION_REVIEW_STAGES.REVIEW_SWAP_FINAL,
+      triggerStatus: 'APPROVE',
+    });
+  }
+
+  private async flagSwapIfNeeded(
+    input: {
+      swapId: string;
+      swapNo?: string | null;
+      quoteId?: string | null;
+      quoteNo?: string | null;
+      customerId: string;
+      customerNo?: string | null;
+      source: 'ALERT' | 'CASE';
+      sourceId: string;
+      decisionRecordId: string;
+      alertId?: string | null;
+      caseId?: string | null;
+      reasonCode: string;
+      reason: string;
+    },
+    tx?: Prisma.TransactionClient,
+  ) {
+    const transitionService = this.getSwapWorkflowTransitionService();
+    if (!transitionService) {
+      this.logger.debug(
+        `Swap workflow transition unavailable; skip FLAG for swap ${input.swapId}`,
+      );
+      return null;
+    }
+
+    return transitionService.execute(tx, {
+      swapId: input.swapId,
+      source: input.source,
+      sourceId: input.sourceId,
+      workflowAction: 'FLAG',
+      reason: input.reason,
+      reasonCode: input.reasonCode,
+      actor: {
+        actorType: 'SYSTEM',
+        actorId: 'SYSTEM',
+        actorNo: 'SYSTEM',
+        actorRole: 'SYSTEM',
+        sourcePlatform: tx ? 'SYSTEM_TX' : 'SYSTEM',
+      },
+      decisionRecordId: input.decisionRecordId,
+      riskDecisionRef: input.decisionRecordId,
+      alertId: input.alertId || null,
+      caseId: input.caseId || null,
+      triggerStage: TRANSACTION_REVIEW_STAGES.REVIEW_SWAP_FINAL,
+      triggerStatus: 'REVIEW',
     });
   }
 
@@ -727,6 +1145,54 @@ export class TransactionRiskBridgeService {
     };
   }
 
+  private async loadLatestDecisionRecordForSubject(
+    input: Pick<EvaluateRiskInput, 'contextType' | 'subjectId' | 'ownerId'>,
+    tx?: Prisma.TransactionClient,
+  ) {
+    const db = this.getDb(tx) as any;
+    return db.workflowDecisionRecord.findFirst({
+      where: {
+        customerId: input.ownerId,
+        contextType: input.contextType,
+        subjectId: input.subjectId,
+        status: {
+          in: ['CREATED', 'COMPLETED'],
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        status: true,
+        outputDecision: true,
+      },
+    });
+  }
+
+  private async ensurePendingDecisionRecord(
+    input: EvaluateRiskInput,
+    tx?: Prisma.TransactionClient,
+  ) {
+    const existing = await this.loadLatestDecisionRecordForSubject(input, tx);
+    if (existing) {
+      return {
+        decisionRecordId: existing.id,
+        status: String(existing.status || '').trim().toUpperCase(),
+        decision:
+          (this.normalizeOptionalString(existing.outputDecision) as RiskDecision | null) ||
+          null,
+        created: false,
+      };
+    }
+
+    const created = await this.riskEngineService.createPendingDecisionRecord(input, tx);
+    return {
+      decisionRecordId: created.decisionRecordId,
+      status: 'CREATED',
+      decision: null,
+      created: true,
+    };
+  }
+
   private async recordRiskAudit(
     input: {
       depositId: string;
@@ -769,6 +1235,64 @@ export class TransactionRiskBridgeService {
           reusedDecisionRecord: input.reusedDecisionRecord,
           alertId: input.alertId || null,
           caseId: input.caseId || null,
+        },
+        sourcePlatform: tx ? 'SYSTEM_TX' : 'SYSTEM',
+      },
+      tx,
+    );
+  }
+
+  private async recordSwapRiskAudit(
+    input: {
+      swapId: string;
+      swapNo?: string | null;
+      quoteId?: string | null;
+      quoteNo?: string | null;
+      customerId: string;
+      customerNo?: string | null;
+      contextType: string;
+      decisionRecordId: string;
+      decision: string;
+      reusedDecisionRecord: boolean;
+      alertId?: string | null;
+      caseId?: string | null;
+    },
+    tx?: Prisma.TransactionClient,
+  ) {
+    const workflowId = this.normalizeOptionalString(input.quoteId) || input.swapId;
+    const workflowNo =
+      this.normalizeOptionalString(input.quoteNo) ||
+      this.normalizeOptionalString(input.swapNo) ||
+      workflowId;
+    await this.auditLogsService.recordSystem(
+      {
+        triggerType: AuditTriggerType.DATA_UPDATE,
+        action: AuditActions.TX_RISK_EVALUATED,
+        module: AuditModules.TRANSACTION_COMPLIANCE,
+        entityType: AuditEntityTypes.SWAP_TRANSACTION,
+        entityId: input.swapId,
+        entityNo: input.swapNo || undefined,
+        traceId: `SWAP:${workflowId}`,
+        workflowType: AuditWorkflowTypes.SWAP,
+        workflowId,
+        workflowNo,
+        entityOwnerType: 'CUSTOMER',
+        entityOwnerId: input.customerId,
+        entityOwnerNo: input.customerNo || undefined,
+        reason: 'Swap final transaction risk evaluated',
+        metadata: {
+          swapId: input.swapId,
+          quoteId: input.quoteId || null,
+          quoteNo: input.quoteNo || null,
+          customerId: input.customerId,
+          contextType: input.contextType,
+          triggerStage: TRANSACTION_REVIEW_STAGES.REVIEW_SWAP_FINAL,
+          decisionRecordId: input.decisionRecordId,
+          decision: input.decision,
+          reusedDecisionRecord: input.reusedDecisionRecord,
+          alertId: input.alertId || null,
+          caseId: input.caseId || null,
+          sourceType: TRANSACTION_SWAP_SOURCE_TYPE,
         },
         sourcePlatform: tx ? 'SYSTEM_TX' : 'SYSTEM',
       },
@@ -820,6 +1344,59 @@ export class TransactionRiskBridgeService {
     );
   }
 
+  private async recordSwapAlertAudit(
+    input: {
+      swapId: string;
+      swapNo?: string | null;
+      quoteId?: string | null;
+      quoteNo?: string | null;
+      customerId: string;
+      customerNo?: string | null;
+      contextType: string;
+      decisionRecordId: string;
+      alertId: string;
+      alertNo?: string | null;
+    },
+    tx?: Prisma.TransactionClient,
+  ) {
+    const workflowId = this.normalizeOptionalString(input.quoteId) || input.swapId;
+    const workflowNo =
+      this.normalizeOptionalString(input.quoteNo) ||
+      this.normalizeOptionalString(input.swapNo) ||
+      workflowId;
+    await this.auditLogsService.recordSystem(
+      {
+        triggerType: AuditTriggerType.DATA_UPDATE,
+        action: AuditActions.TX_ALERT_UPSERTED,
+        module: AuditModules.TRANSACTION_COMPLIANCE,
+        entityType: AuditEntityTypes.COMPLIANCE_ALERT,
+        entityId: input.alertId,
+        entityNo: input.alertNo || undefined,
+        traceId: `SWAP:${workflowId}`,
+        workflowType: AuditWorkflowTypes.SWAP,
+        workflowId,
+        workflowNo,
+        entityOwnerType: 'CUSTOMER',
+        entityOwnerId: input.customerId,
+        entityOwnerNo: input.customerNo || undefined,
+        reason: 'Swap final transaction alert upserted',
+        metadata: {
+          swapId: input.swapId,
+          quoteId: input.quoteId || null,
+          quoteNo: input.quoteNo || null,
+          customerId: input.customerId,
+          contextType: input.contextType,
+          triggerStage: TRANSACTION_REVIEW_STAGES.REVIEW_SWAP_FINAL,
+          decisionRecordId: input.decisionRecordId,
+          alertId: input.alertId,
+          sourceType: TRANSACTION_SWAP_SOURCE_TYPE,
+        },
+        sourcePlatform: tx ? 'SYSTEM_TX' : 'SYSTEM',
+      },
+      tx,
+    );
+  }
+
   private async recordCaseAudit(
     input: {
       depositId: string;
@@ -861,6 +1438,63 @@ export class TransactionRiskBridgeService {
           alertId: input.alertId,
           caseId: input.caseId,
           reusedCase: input.reusedCase,
+        },
+        sourcePlatform: tx ? 'SYSTEM_TX' : 'SYSTEM',
+      },
+      tx,
+    );
+  }
+
+  private async recordSwapCaseAudit(
+    input: {
+      swapId: string;
+      swapNo?: string | null;
+      quoteId?: string | null;
+      quoteNo?: string | null;
+      customerId: string;
+      customerNo?: string | null;
+      contextType: string;
+      decisionRecordId: string;
+      alertId: string;
+      caseId: string;
+      caseNo?: string | null;
+      reusedCase: boolean;
+    },
+    tx?: Prisma.TransactionClient,
+  ) {
+    const workflowId = this.normalizeOptionalString(input.quoteId) || input.swapId;
+    const workflowNo =
+      this.normalizeOptionalString(input.quoteNo) ||
+      this.normalizeOptionalString(input.swapNo) ||
+      workflowId;
+    await this.auditLogsService.recordSystem(
+      {
+        triggerType: AuditTriggerType.DATA_UPDATE,
+        action: AuditActions.TX_CASE_ESCALATED,
+        module: AuditModules.TRANSACTION_COMPLIANCE,
+        entityType: AuditEntityTypes.COMPLIANCE_INCIDENT,
+        entityId: input.caseId,
+        entityNo: input.caseNo || undefined,
+        traceId: `SWAP:${workflowId}`,
+        workflowType: AuditWorkflowTypes.SWAP,
+        workflowId,
+        workflowNo,
+        entityOwnerType: 'CUSTOMER',
+        entityOwnerId: input.customerId,
+        entityOwnerNo: input.customerNo || undefined,
+        reason: 'Swap final transaction case escalated',
+        metadata: {
+          swapId: input.swapId,
+          quoteId: input.quoteId || null,
+          quoteNo: input.quoteNo || null,
+          customerId: input.customerId,
+          contextType: input.contextType,
+          triggerStage: TRANSACTION_REVIEW_STAGES.REVIEW_SWAP_FINAL,
+          decisionRecordId: input.decisionRecordId,
+          alertId: input.alertId,
+          caseId: input.caseId,
+          reusedCase: input.reusedCase,
+          sourceType: TRANSACTION_SWAP_SOURCE_TYPE,
         },
         sourcePlatform: tx ? 'SYSTEM_TX' : 'SYSTEM',
       },
@@ -1052,6 +1686,194 @@ export class TransactionRiskBridgeService {
     }
   }
 
+  private async autoEscalateSwapCaseIfNeeded(
+    input: {
+      alertId: string;
+      swapId: string;
+      swapNo?: string | null;
+      quoteId?: string | null;
+      quoteNo?: string | null;
+      customerId: string;
+      customerNo?: string | null;
+      decisionRecordId: string;
+      decision: RiskDecision;
+      recommendedActions: string[];
+      reason: string;
+      contextType: string;
+    },
+    tx?: Prisma.TransactionClient,
+  ) {
+    const db = this.getDb(tx);
+    const existingLink = await db.complianceIncidentAlert.findUnique({
+      where: { alertId: input.alertId },
+      select: {
+        incidentId: true,
+      },
+    });
+
+    if (existingLink?.incidentId) {
+      const existingIncident = await db.complianceIncident.findUnique({
+        where: { id: existingLink.incidentId },
+        select: {
+          id: true,
+          incidentNo: true,
+        },
+      });
+
+      if (!existingIncident) {
+        throw new NotFoundException(
+          `Compliance case ${existingLink.incidentId} not found for alert ${input.alertId}`,
+        );
+      }
+
+      await this.recordSwapCaseAudit(
+        {
+          swapId: input.swapId,
+          swapNo: input.swapNo,
+          quoteId: input.quoteId,
+          quoteNo: input.quoteNo,
+          customerId: input.customerId,
+          customerNo: input.customerNo,
+          contextType: input.contextType,
+          decisionRecordId: input.decisionRecordId,
+          alertId: input.alertId,
+          caseId: existingIncident.id,
+          caseNo: existingIncident.incidentNo,
+          reusedCase: true,
+        },
+        tx,
+      );
+
+      return {
+        id: existingIncident.id,
+        incidentNo: existingIncident.incidentNo,
+      };
+    }
+
+    const actor = {
+      actorType: 'SYSTEM',
+      actorId: 'SYSTEM',
+      actorNo: 'SYSTEM',
+      actorRole: 'SYSTEM',
+      sourcePlatform: tx ? 'SYSTEM_TX' : 'SYSTEM',
+    };
+
+    try {
+      const created = tx
+        ? await (async () => {
+            const incidentId =
+              await this.getComplianceIncidentsService().createFromAlertInTransaction(
+                tx,
+                input.alertId,
+                {
+                  reason: input.reason,
+                  decision: input.decision,
+                  decisionRecordIds: [input.decisionRecordId],
+                  recommendedActions: input.recommendedActions,
+                },
+                actor,
+              );
+
+            const incident = await tx.complianceIncident.findUnique({
+              where: { id: incidentId },
+              select: {
+                id: true,
+                incidentNo: true,
+              },
+            });
+
+            if (!incident) {
+              throw new NotFoundException(
+                `Compliance case ${incidentId} not found after escalation`,
+              );
+            }
+
+            return incident;
+          })()
+        : await this.getComplianceIncidentsService().createFromAlert(
+            input.alertId,
+            {
+              reason: input.reason,
+              decision: input.decision,
+              decisionRecordIds: [input.decisionRecordId],
+              recommendedActions: input.recommendedActions,
+            },
+            actor,
+          );
+
+      await this.recordSwapCaseAudit(
+        {
+          swapId: input.swapId,
+          swapNo: input.swapNo,
+          quoteId: input.quoteId,
+          quoteNo: input.quoteNo,
+          customerId: input.customerId,
+          customerNo: input.customerNo,
+          contextType: input.contextType,
+          decisionRecordId: input.decisionRecordId,
+          alertId: input.alertId,
+          caseId: created.id,
+          caseNo: (created as any).incidentNo || null,
+          reusedCase: false,
+        },
+        tx,
+      );
+
+      return created;
+    } catch (error) {
+      if (!(error instanceof ConflictException)) {
+        throw error;
+      }
+
+      this.logger.warn(
+        `Swap transaction case auto-escalation raced for alert=${input.alertId}, resolving existing link`,
+      );
+
+      const linked = await db.complianceIncidentAlert.findUnique({
+        where: { alertId: input.alertId },
+        select: {
+          incidentId: true,
+        },
+      });
+
+      if (!linked?.incidentId) {
+        throw error;
+      }
+
+      const linkedIncident = await db.complianceIncident.findUnique({
+        where: { id: linked.incidentId },
+        select: {
+          id: true,
+          incidentNo: true,
+        },
+      });
+
+      if (!linkedIncident) {
+        throw error;
+      }
+
+      await this.recordSwapCaseAudit(
+        {
+          swapId: input.swapId,
+          swapNo: input.swapNo,
+          quoteId: input.quoteId,
+          quoteNo: input.quoteNo,
+          customerId: input.customerId,
+          customerNo: input.customerNo,
+          contextType: input.contextType,
+          decisionRecordId: input.decisionRecordId,
+          alertId: input.alertId,
+          caseId: linkedIncident.id,
+          caseNo: linkedIncident.incidentNo,
+          reusedCase: true,
+        },
+        tx,
+      );
+
+      return linkedIncident;
+    }
+  }
+
   private async flagDepositIfNeeded(
     input: {
       depositId: string;
@@ -1099,6 +1921,349 @@ export class TransactionRiskBridgeService {
     });
   }
 
+  private async executeSwapFinalReview(
+    input: {
+      swap: Awaited<ReturnType<TransactionRiskBridgeService['resolveSwapContext']>>;
+      riskProfile: SwapSimulationRiskProfile;
+      decisionResult: ResolvedDecisionResult;
+    },
+    tx?: Prisma.TransactionClient,
+  ): Promise<BridgeExecutionResult> {
+    const riskInput: EvaluateRiskInput = {
+      contextType: 'TX_SWAP_FINAL',
+      subjectType: 'SWAP',
+      subjectId: input.swap.id,
+      ownerType: 'CUSTOMER',
+      ownerId: input.swap.ownerId,
+      signals: this.buildSwapFinalSignals({
+        swap: input.swap,
+        riskProfile: input.riskProfile,
+      }),
+    };
+    const actionNames = this.normalizeActionNames(
+      input.decisionResult.recommendedActions,
+    );
+    let workflowTransition: Record<string, unknown> | null = null;
+
+    let alert: { id: string; alertNo?: string | null } | null = null;
+    if (
+      !input.decisionResult.reused &&
+      actionNames.includes(RISK_RECOMMENDED_ACTIONS.UPSERT_ALERT)
+    ) {
+      const alertAction = input.decisionResult.recommendedActions.find(
+        (item) =>
+          normalizeRiskRecommendedActionType(item.type) ===
+          RISK_RECOMMENDED_ACTIONS.UPSERT_ALERT,
+      );
+      alert = await this.getComplianceAlertsService().triggerSystemAlert(
+        {
+          ruleCode: TRANSACTION_REVIEW_RULES.TX_SWAP_FINAL_REVIEW_REQUIRED,
+          sourceModule: AuditModules.TRANSACTION_COMPLIANCE,
+          sourceType: TxSourceType.SWAP,
+          sourceId: input.swap.id,
+          sourceNo: input.swap.swapNo,
+          stage: TRANSACTION_REVIEW_STAGES.REVIEW_SWAP_FINAL,
+          entityType: AuditEntityTypes.SWAP_TRANSACTION,
+          entityId: input.swap.id,
+          entityNo: input.swap.swapNo,
+          ownerType: 'CUSTOMER',
+          ownerId: input.swap.ownerId,
+          ownerNo: input.swap.ownerNo || null,
+          customerId: input.swap.ownerId,
+          customerNo: input.swap.customer?.customerNo || null,
+          decisionRecommendation:
+            String(alertAction?.payload?.recommendation || input.decisionResult.decision),
+          decision: this.mapDecisionToAlertDisposition(input.decisionResult.decision),
+          decisionRecordIds: [input.decisionResult.decisionRecordId],
+          severity: this.normalizeSeverity(alertAction?.payload?.severity),
+          message:
+            input.riskProfile.riskLevel === 'HIGH'
+              ? `Swap ${input.swap.swapNo} requires high-risk final transaction review.`
+              : `Swap ${input.swap.swapNo} requires final transaction compliance review.`,
+          metadata: {
+            contextType: riskInput.contextType,
+            triggerStage: TRANSACTION_REVIEW_STAGES.REVIEW_SWAP_FINAL,
+            triggerStatus: input.decisionResult.decision,
+            reasonCodes: input.decisionResult.reasonCodes,
+            recommendedActions: actionNames,
+            decisionRecordId: input.decisionResult.decisionRecordId,
+            swapId: input.swap.id,
+            quoteId: input.swap.quoteId || null,
+            quoteNo: input.swap.quoteNo || null,
+            customerId: input.swap.ownerId,
+            customerNo: input.swap.customer?.customerNo || null,
+            riskBand: input.riskProfile.riskLevel,
+            riskReason: input.riskProfile.riskReason,
+            sourceType: TRANSACTION_SWAP_SOURCE_TYPE,
+          },
+          sourcePlatform: tx ? 'SYSTEM_TX' : 'SYSTEM',
+        },
+        tx,
+      );
+
+      await this.recordSwapAlertAudit(
+        {
+          swapId: input.swap.id,
+          swapNo: input.swap.swapNo,
+          quoteId: input.swap.quoteId || null,
+          quoteNo: input.swap.quoteNo || null,
+          customerId: input.swap.ownerId,
+          customerNo: input.swap.customer?.customerNo || null,
+          contextType: riskInput.contextType,
+          decisionRecordId: input.decisionResult.decisionRecordId,
+          alertId: alert.id,
+          alertNo: alert.alertNo || null,
+        },
+        tx,
+      );
+    }
+
+    let escalatedCase: { id: string; incidentNo?: string | null } | null = null;
+    if (
+      !input.decisionResult.reused &&
+      alert &&
+      actionNames.includes(RISK_RECOMMENDED_ACTIONS.AUTO_ESCALATE_CASE)
+    ) {
+      escalatedCase = await this.autoEscalateSwapCaseIfNeeded(
+        {
+          alertId: alert.id,
+          swapId: input.swap.id,
+          swapNo: input.swap.swapNo,
+          quoteId: input.swap.quoteId || null,
+          quoteNo: input.swap.quoteNo || null,
+          customerId: input.swap.ownerId,
+          customerNo: input.swap.customer?.customerNo || null,
+          decisionRecordId: input.decisionResult.decisionRecordId,
+          decision: input.decisionResult.decision,
+          recommendedActions: actionNames,
+          reason: `Auto-escalated final transaction case for swap ${input.swap.swapNo}`,
+          contextType: riskInput.contextType,
+        },
+        tx,
+      );
+    }
+
+    if (!input.decisionResult.reused && input.decisionResult.decision === 'APPROVE') {
+      workflowTransition = this.toRecordObject(
+        await this.clearSwapIfApproved(
+        {
+          swapId: input.swap.id,
+          swapNo: input.swap.swapNo,
+          quoteId: input.swap.quoteId || null,
+          quoteNo: input.swap.quoteNo || null,
+          customerId: input.swap.ownerId,
+          customerNo: input.swap.customer?.customerNo || null,
+          decisionRecordId: input.decisionResult.decisionRecordId,
+          reasonCode: TRANSACTION_REVIEW_RULES.TX_SWAP_FINAL_REVIEW_REQUIRED,
+          reason: `Swap ${input.swap.swapNo} auto-approved after final transaction decision`,
+        },
+        tx,
+      ),
+      );
+    } else if (!input.decisionResult.reused && alert && escalatedCase) {
+      workflowTransition = this.toRecordObject(
+        await this.flagSwapIfNeeded(
+        {
+          swapId: input.swap.id,
+          swapNo: input.swap.swapNo,
+          quoteId: input.swap.quoteId || null,
+          quoteNo: input.swap.quoteNo || null,
+          customerId: input.swap.ownerId,
+          customerNo: input.swap.customer?.customerNo || null,
+          source: 'CASE',
+          sourceId: escalatedCase.id,
+          decisionRecordId: input.decisionResult.decisionRecordId,
+          alertId: alert.id,
+          caseId: escalatedCase.id,
+          reasonCode: TRANSACTION_REVIEW_RULES.TX_SWAP_FINAL_REVIEW_REQUIRED,
+          reason: `Swap ${input.swap.swapNo} moved under review after final transaction case escalation`,
+        },
+        tx,
+      ),
+      );
+    } else if (!input.decisionResult.reused && alert) {
+      workflowTransition = this.toRecordObject(
+        await this.flagSwapIfNeeded(
+        {
+          swapId: input.swap.id,
+          swapNo: input.swap.swapNo,
+          quoteId: input.swap.quoteId || null,
+          quoteNo: input.swap.quoteNo || null,
+          customerId: input.swap.ownerId,
+          customerNo: input.swap.customer?.customerNo || null,
+          source: 'ALERT',
+          sourceId: alert.id,
+          decisionRecordId: input.decisionResult.decisionRecordId,
+          alertId: alert.id,
+          reasonCode: TRANSACTION_REVIEW_RULES.TX_SWAP_FINAL_REVIEW_REQUIRED,
+          reason: `Swap ${input.swap.swapNo} moved under review after final transaction alert hit`,
+        },
+        tx,
+      ),
+      );
+    }
+
+    await this.recordSwapRiskAudit(
+      {
+        swapId: input.swap.id,
+        swapNo: input.swap.swapNo,
+        quoteId: input.swap.quoteId || null,
+        quoteNo: input.swap.quoteNo || null,
+        customerId: input.swap.ownerId,
+        customerNo: input.swap.customer?.customerNo || null,
+        contextType: riskInput.contextType,
+        decisionRecordId: input.decisionResult.decisionRecordId,
+        decision: input.decisionResult.decision,
+        reusedDecisionRecord: input.decisionResult.reused,
+        alertId: alert?.id || null,
+        caseId: escalatedCase?.id || null,
+      },
+      tx,
+    );
+    await this.writeDecisionRecordOutcomeSnapshot(
+      {
+        decisionRecordId: input.decisionResult.decisionRecordId,
+        sourceType: 'SWAP',
+        sourceId: input.swap.id,
+        sourceNo: input.swap.swapNo,
+        stage: TRANSACTION_REVIEW_STAGES.REVIEW_SWAP_FINAL,
+        rule: TRANSACTION_REVIEW_RULES.TX_SWAP_FINAL_REVIEW_REQUIRED,
+        decision: input.decisionResult.decision,
+        recommendedActions: actionNames,
+        reasonCodes: input.decisionResult.reasonCodes,
+        alertId: alert?.id || null,
+        alertNo: alert?.alertNo || null,
+        caseId: escalatedCase?.id || null,
+        caseNo: escalatedCase?.incidentNo || null,
+        workflowTransition,
+        reusedDecisionRecord: input.decisionResult.reused,
+      },
+      tx,
+    );
+
+    return {
+      skipped: false,
+      decisionRecordId: input.decisionResult.decisionRecordId,
+      decision: input.decisionResult.decision,
+      alertId: alert?.id || null,
+      alertNo: alert?.alertNo || null,
+      caseId: escalatedCase?.id || null,
+      caseNo: escalatedCase?.incidentNo || null,
+    };
+  }
+
+  async handleSwapFinalReview(
+    input: SwapFinalReviewInput,
+    tx?: Prisma.TransactionClient,
+  ): Promise<BridgeExecutionResult> {
+    if (input.sourceType !== TxSourceType.SWAP) {
+      return { skipped: true, skipReason: 'UNSUPPORTED_SOURCE_TYPE' };
+    }
+    if (input.reportDeduped) {
+      return { skipped: true, skipReason: 'REPORT_DEDUPED' };
+    }
+
+    const swap = await this.resolveSwapContext(input.swapId, tx);
+    if (swap.ownerType !== 'CUSTOMER' || !swap.ownerId) {
+      return { skipped: true, skipReason: 'UNSUPPORTED_OWNER' };
+    }
+
+    const currentStatus = String(swap.status || '').trim().toUpperCase();
+    if (
+      currentStatus !== 'PENDING_COMPLIANCE' &&
+      currentStatus !== 'UNDER_REVIEW'
+    ) {
+      return { skipped: true, skipReason: 'STATUS_NOT_ELIGIBLE' };
+    }
+
+    const pending = await this.ensurePendingDecisionRecord(
+      {
+        contextType: 'TX_SWAP_FINAL',
+        subjectType: 'SWAP',
+        subjectId: input.swapId,
+        ownerType: 'CUSTOMER',
+        ownerId: swap.ownerId,
+        signals: this.buildPendingSwapFinalSignals({ swap }),
+      },
+      tx,
+    );
+
+    return {
+      skipped: false,
+      decisionRecordId: pending.decisionRecordId,
+      decision: pending.status === 'COMPLETED' ? pending.decision : null,
+    };
+  }
+
+  async simulateSwapFinalReview(
+    input: ManualRiskSimulationInput,
+    tx?: Prisma.TransactionClient,
+  ): Promise<BridgeExecutionResult> {
+    const db = this.getDb(tx) as any;
+    const decisionRecord = await db.workflowDecisionRecord.findUnique({
+      where: { id: input.decisionRecordId },
+      select: {
+        id: true,
+        status: true,
+        contextType: true,
+        subjectId: true,
+        customerId: true,
+      },
+    });
+
+    if (!decisionRecord) {
+      throw new NotFoundException(
+        `Risk decision record not found: ${input.decisionRecordId}`,
+      );
+    }
+    if (String(decisionRecord.contextType || '').trim().toUpperCase() !== 'TX_SWAP_FINAL') {
+      throw new ConflictException(
+        `Decision record ${input.decisionRecordId} is not bound to TX_SWAP_FINAL`,
+      );
+    }
+    if (String(decisionRecord.status || '').trim().toUpperCase() !== 'CREATED') {
+      throw new ConflictException(
+        `Decision record ${input.decisionRecordId} is not pending simulation`,
+      );
+    }
+
+    const swap = await this.resolveSwapContext(decisionRecord.subjectId, tx);
+    const riskProfile: SwapSimulationRiskProfile = {
+      riskLevel: input.riskLevel,
+      riskReason: input.riskReason,
+    };
+    const decisionResult = await this.riskEngineService.completeDecisionRecord(
+      input.decisionRecordId,
+      {
+        contextType: 'TX_SWAP_FINAL',
+        subjectType: 'SWAP',
+        subjectId: swap.id,
+        ownerType: 'CUSTOMER',
+        ownerId: swap.ownerId,
+        signals: this.buildSwapFinalSignals({
+          swap,
+          riskProfile,
+        }),
+      },
+      tx,
+    );
+
+    return this.executeSwapFinalReview(
+      {
+        swap,
+        riskProfile,
+        decisionResult: {
+          decisionRecordId: decisionResult.decisionRecordId,
+          decision: decisionResult.decision,
+          recommendedActions: decisionResult.recommendedActions,
+          reasonCodes: decisionResult.reasonCodes,
+          reused: false,
+        },
+      },
+      tx,
+    );
+  }
+
   async handleDepositFinalReviewIfReady(
     input: DepositFinalReviewInput,
     tx?: Prisma.TransactionClient,
@@ -1125,18 +2290,28 @@ export class TransactionRiskBridgeService {
       input.aggregate.travelRuleCase?.status || deposit.travelRuleStatus,
       input.aggregate.travelRuleCase?.required ?? deposit.travelRuleRequired,
     );
-    const riskProfile = await this.resolveDepositSimulationRiskProfile(deposit, tx);
-    return this.executeDepositFinalReview(
+    const pending = await this.ensurePendingDecisionRecord(
       {
-        deposit,
-        aggregate: input.aggregate,
-        kytStatus,
-        travelRuleStatus,
-        riskProfile,
-        triggerStatus: input.triggerStatus,
+        contextType: 'TX_DEPOSIT_FINAL',
+        subjectType: 'DEPOSIT',
+        subjectId: input.depositId,
+        ownerType: 'CUSTOMER',
+        ownerId: deposit.ownerId,
+        signals: this.buildPendingDepositFinalSignals({
+          deposit,
+          aggregate: input.aggregate,
+          kytStatus,
+          travelRuleStatus,
+        }),
       },
       tx,
     );
+
+    return {
+      skipped: false,
+      decisionRecordId: pending.decisionRecordId,
+      decision: pending.status === 'COMPLETED' ? pending.decision : null,
+    };
   }
 
   async handleDirectDepositFinalReview(
@@ -1168,19 +2343,131 @@ export class TransactionRiskBridgeService {
         required: input.travelRuleRequired,
       },
     };
-    const riskProfile = await this.resolveDepositSimulationRiskProfile(deposit, tx);
+    const kytStatus = this.normalizeKytStatus(input.kytStatus);
+    const travelRuleStatus = this.normalizeTravelRuleStatus(
+      input.travelRuleStatus,
+      input.travelRuleRequired,
+    );
+    const pending = await this.ensurePendingDecisionRecord(
+      {
+        contextType: 'TX_DEPOSIT_FINAL',
+        subjectType: 'DEPOSIT',
+        subjectId: input.depositId,
+        ownerType: 'CUSTOMER',
+        ownerId: deposit.ownerId,
+        signals: this.buildPendingDepositFinalSignals({
+          deposit,
+          aggregate,
+          kytStatus,
+          travelRuleStatus,
+        }),
+      },
+      tx,
+    );
+
+    return {
+      skipped: false,
+      decisionRecordId: pending.decisionRecordId,
+      decision: pending.status === 'COMPLETED' ? pending.decision : null,
+    };
+  }
+
+  async simulateDepositFinalReview(
+    input: ManualRiskSimulationInput,
+    tx?: Prisma.TransactionClient,
+  ): Promise<BridgeExecutionResult> {
+    const db = this.getDb(tx) as any;
+    const decisionRecord = await db.workflowDecisionRecord.findUnique({
+      where: { id: input.decisionRecordId },
+      select: {
+        id: true,
+        status: true,
+        contextType: true,
+        subjectId: true,
+      },
+    });
+
+    if (!decisionRecord) {
+      throw new NotFoundException(
+        `Risk decision record not found: ${input.decisionRecordId}`,
+      );
+    }
+    if (
+      String(decisionRecord.contextType || '').trim().toUpperCase() !==
+      'TX_DEPOSIT_FINAL'
+    ) {
+      throw new ConflictException(
+        `Decision record ${input.decisionRecordId} is not bound to TX_DEPOSIT_FINAL`,
+      );
+    }
+    if (String(decisionRecord.status || '').trim().toUpperCase() !== 'CREATED') {
+      throw new ConflictException(
+        `Decision record ${input.decisionRecordId} is not pending simulation`,
+      );
+    }
+
+    const deposit = await this.resolveDepositContext(decisionRecord.subjectId, tx);
+    if (deposit.ownerType !== 'CUSTOMER' || !deposit.ownerId) {
+      return { skipped: true, skipReason: 'UNSUPPORTED_OWNER' };
+    }
+
+    const aggregate: TxAggregateSnapshot = {
+      derivedComplianceStatus: 'CLEAR',
+      mainKytCase: {
+        status: this.normalizeKytStatus(deposit.kytStatus),
+      },
+      travelRuleCase: {
+        status: this.normalizeTravelRuleStatus(
+          deposit.travelRuleStatus,
+          !!deposit.travelRuleRequired,
+        ),
+        required: !!deposit.travelRuleRequired,
+      },
+    };
+    const kytStatus = this.normalizeKytStatus(deposit.kytStatus);
+    const travelRuleStatus = this.normalizeTravelRuleStatus(
+      deposit.travelRuleStatus,
+      !!deposit.travelRuleRequired,
+    );
+    const riskProfile: DepositSimulationRiskProfile = {
+      riskLevel: input.riskLevel,
+      riskReason: input.riskReason,
+      signalId: null,
+    };
+    const decisionResult = await this.riskEngineService.completeDecisionRecord(
+      input.decisionRecordId,
+      {
+        contextType: 'TX_DEPOSIT_FINAL',
+        subjectType: 'DEPOSIT',
+        subjectId: deposit.id,
+        ownerType: 'CUSTOMER',
+        ownerId: deposit.ownerId,
+        signals: this.buildDepositFinalSignals({
+          deposit,
+          aggregate,
+          kytStatus,
+          travelRuleStatus,
+          riskProfile,
+        }),
+      },
+      tx,
+    );
 
     return this.executeDepositFinalReview(
       {
         deposit,
         aggregate,
-        kytStatus: this.normalizeKytStatus(input.kytStatus),
-        travelRuleStatus: this.normalizeTravelRuleStatus(
-          input.travelRuleStatus,
-          input.travelRuleRequired,
-        ),
+        kytStatus,
+        travelRuleStatus,
         riskProfile,
-        triggerStatus: input.triggerStatus,
+        triggerStatus: 'MANUAL_SIMULATION',
+        decisionResult: {
+          decisionRecordId: decisionResult.decisionRecordId,
+          decision: decisionResult.decision,
+          recommendedActions: decisionResult.recommendedActions,
+          reasonCodes: decisionResult.reasonCodes,
+          reused: false,
+        },
       },
       tx,
     );

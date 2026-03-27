@@ -403,6 +403,90 @@ export class OnboardingService {
     };
   }
 
+  private buildPendingCddSignals(input: {
+    caseNo: string;
+    cddResponseId: string;
+    journeyId: string;
+  }) {
+    const seed = this.buildSeed(`CDD:PENDING:${input.caseNo}`);
+    return {
+      provider: 'MOCK',
+      caseType: 'CDD' as const,
+      referenceId: `MOCK-${seed.toString(16).toUpperCase()}`,
+      reviewedAt: new Date().toISOString(),
+      cddResponseId: input.cddResponseId,
+      journeyId: input.journeyId,
+      outcome: 'RECEIVED',
+      riskScore: null,
+      riskLevel: null,
+      pepHit: false,
+      sanctionsHit: false,
+      adverseMediaHit: false,
+      simulationMode: 'MANUAL_PENDING',
+    };
+  }
+
+  private buildManualCddSignals(input: {
+    caseNo: string;
+    cddResponseId: string;
+    journeyId: string;
+    riskLevel: 'LOW' | 'MEDIUM' | 'HIGH';
+    reasonCode: string;
+  }) {
+    const seed = this.buildSeed(`CDD:MANUAL:${input.caseNo}:${input.riskLevel}:${input.reasonCode}`);
+    const base = {
+      provider: 'MOCK',
+      caseType: 'CDD' as const,
+      referenceId: `MOCK-${seed.toString(16).toUpperCase()}`,
+      reviewedAt: new Date().toISOString(),
+      cddResponseId: input.cddResponseId,
+      journeyId: input.journeyId,
+      simulationMode: 'MANUAL',
+      simulationRiskLevel: input.riskLevel,
+      simulationRiskReason: input.reasonCode,
+    };
+
+    if (input.riskLevel === 'LOW') {
+      return {
+        ...base,
+        outcome: 'PASS',
+        mockDataType: 'LOW_RISK' as const,
+        riskScore: 18 + (seed % 12),
+        riskLevel: 'LOW',
+        pepHit: false,
+        sanctionsHit: false,
+        adverseMediaHit: false,
+      };
+    }
+
+    if (input.riskLevel === 'MEDIUM') {
+      return {
+        ...base,
+        outcome: 'FLAGGED',
+        mockDataType: 'MEDIUM_RISK' as const,
+        riskScore: 55 + (seed % 10),
+        riskLevel: 'MEDIUM',
+        pepHit: false,
+        sanctionsHit: false,
+        adverseMediaHit: input.reasonCode === 'CDD_ADVERSE_MEDIA_REVIEW',
+      };
+    }
+
+    return {
+      ...base,
+      outcome: 'FLAGGED',
+      mockDataType:
+        input.reasonCode === 'CDD_SANCTIONS_HIT'
+          ? ('SANCTION_AND_OTHER' as const)
+          : ('HIGH_RISK_OR_PEP' as const),
+      riskScore: 85 + (seed % 10),
+      riskLevel: 'HIGH',
+      pepHit: input.reasonCode === 'CDD_PEP_MATCH',
+      sanctionsHit: input.reasonCode === 'CDD_SANCTIONS_HIT',
+      adverseMediaHit: true,
+    };
+  }
+
   private addDays(base: Date, days: number): Date {
     return new Date(base.getTime() + days * 24 * 60 * 60 * 1000);
   }
@@ -806,6 +890,170 @@ export class OnboardingService {
     });
 
     return updated;
+  }
+
+  async completeManualCddDecision(input: {
+    decisionRecordId: string;
+    riskLevel: 'LOW' | 'MEDIUM' | 'HIGH';
+    reasonCode: string;
+  }) {
+    const decisionRecord = await (this.prisma as any).workflowDecisionRecord.findUnique({
+      where: { id: input.decisionRecordId },
+      select: {
+        id: true,
+        status: true,
+        contextType: true,
+        customerId: true,
+        subjectId: true,
+        inputPayload: true,
+      },
+    });
+
+    if (!decisionRecord) {
+      throw new NotFoundException(
+        `Risk decision record not found: ${input.decisionRecordId}`,
+      );
+    }
+    if (
+      String(decisionRecord.contextType || '').trim().toUpperCase() !==
+      'ONBOARDING_CDD'
+    ) {
+      throw new BadRequestException(
+        `Decision record ${input.decisionRecordId} is not bound to ONBOARDING_CDD`,
+      );
+    }
+    if (String(decisionRecord.status || '').trim().toUpperCase() !== 'CREATED') {
+      throw new BadRequestException(
+        `Decision record ${input.decisionRecordId} is not pending simulation`,
+      );
+    }
+
+    const storedInput = this.parseJsonSafely(decisionRecord.inputPayload);
+    const storedSignals = this.parseJsonSafely(
+      typeof storedInput.signals === 'object' && !Array.isArray(storedInput.signals)
+        ? JSON.stringify(storedInput.signals)
+        : undefined,
+    );
+    const cddResponseId = String(storedSignals.cddResponseId || '').trim();
+    if (!cddResponseId) {
+      throw new BadRequestException(
+        `Decision record ${input.decisionRecordId} missing cddResponseId`,
+      );
+    }
+
+    const cddResponse = await this.prisma.cddResponse.findUnique({
+      where: { id: cddResponseId },
+    });
+    if (!cddResponse) {
+      throw new NotFoundException(`CDD response not found: ${cddResponseId}`);
+    }
+    const customer = await this.prisma.customerMain.findUnique({
+      where: { id: cddResponse.customerId },
+    });
+    if (!customer) {
+      throw new NotFoundException(`Customer not found: ${cddResponse.customerId}`);
+    }
+
+    const journeyId =
+      cddResponse.journeyId || customer.activeJourneyId || generateReferenceNo('ONB');
+    const signals = this.buildManualCddSignals({
+      caseNo: cddResponse.caseNo,
+      cddResponseId: cddResponse.id,
+      journeyId,
+      riskLevel: input.riskLevel,
+      reasonCode: input.reasonCode,
+    });
+
+    const decision = await this.riskEngineService.completeDecisionRecord(
+      input.decisionRecordId,
+      {
+        contextType: 'ONBOARDING_CDD',
+        subjectType: cddResponse.subjectKind || 'UNKNOWN',
+        subjectId: cddResponse.subjectRefId || cddResponse.customerId,
+        ownerType: 'CUSTOMER',
+        ownerId: cddResponse.customerId,
+        signals,
+        policyVersion: 'onboarding-risk-policy/v1',
+      },
+    );
+
+    await this.prisma.cddResponse.update({
+      where: { id: cddResponse.id },
+      data: {
+        status: 'FINAL',
+        reviewedAt: new Date(),
+        inputData: JSON.stringify(signals),
+        reviewerDecision:
+          input.riskLevel === 'LOW' ? 'APPROVE' : decision.decision,
+        decisionReason:
+          input.riskLevel === 'LOW'
+            ? 'AUTO_LOW_RISK_PASS'
+            : decision.reasonCodes.join(',') || decision.decision,
+        requiresEdd: input.riskLevel === 'LOW' ? false : decision.decision === 'REQUIRE_EDD',
+        riskScore: Number(signals.riskScore),
+        riskLevel: String(signals.riskLevel),
+        pepHit: !!signals.pepHit,
+        sanctionsHit: !!signals.sanctionsHit,
+      },
+    });
+
+    const updatedCustomer = await this.handleCddDecision({
+      customer,
+      cddResponse,
+      decision: decision.decision,
+      decisionRecordId: decision.decisionRecordId,
+      reasonCodes: decision.reasonCodes,
+      recommendedActions: decision.recommendedActions,
+      mockDataType:
+        input.riskLevel === 'LOW'
+          ? 'LOW_RISK'
+          : input.riskLevel === 'MEDIUM'
+            ? 'MEDIUM_RISK'
+            : input.reasonCode === 'CDD_SANCTIONS_HIT'
+              ? 'SANCTION_AND_OTHER'
+              : 'HIGH_RISK_OR_PEP',
+    });
+
+    if (input.riskLevel === 'HIGH') {
+      const refreshedDecisionRecord = await (this.prisma as any).workflowDecisionRecord.findUnique({
+        where: { id: input.decisionRecordId },
+        select: {
+          outputs: true,
+        },
+      });
+      const outputs = this.parseJsonSafely(refreshedDecisionRecord?.outputs);
+      const orchestration =
+        outputs.orchestration &&
+        typeof outputs.orchestration === 'object' &&
+        !Array.isArray(outputs.orchestration)
+          ? (outputs.orchestration as Record<string, unknown>)
+          : {};
+      const alertId = String(orchestration.alertId || '').trim();
+      if (alertId) {
+        await this.complianceIncidentsService.createFromAlert(
+          alertId,
+          {
+            reason: `Auto-escalated onboarding CDD case for ${cddResponse.caseNo}`,
+            decision: 'REVIEW',
+            decisionRecordIds: [input.decisionRecordId],
+            recommendedActions: ['UPSERT_ALERT', 'AUTO_ESCALATE_CASE'],
+          },
+          {
+            actorType: 'SYSTEM',
+            actorId: 'SYSTEM',
+            actorNo: 'SYSTEM',
+            actorRole: 'SYSTEM',
+            sourcePlatform: 'SYSTEM',
+          },
+        );
+      }
+    }
+
+    return {
+      customer: updatedCustomer,
+      decisionRecordId: decision.decisionRecordId,
+      decision: decision.decision,
+    };
   }
 
   async getMyOnboarding(customerId: string) {
@@ -1308,7 +1556,7 @@ export class OnboardingService {
 
     const resolvedMock = this.resolveMockDataType(body);
     const result = resolvedMock.result;
-    const mockDataType = session.caseType === 'CDD' ? resolvedMock.mockDataType : null;
+    const mockDataType = session.caseType === 'CDD' ? null : resolvedMock.mockDataType;
 
     await this.prisma.complianceSession.update({
       where: { id: session.id },
@@ -1334,7 +1582,13 @@ export class OnboardingService {
       }
 
       const customer = await this.getCustomerOrThrow(customerId);
-      const signals = this.buildCddMockSignals(cddResponse.caseNo, mockDataType || 'LOW_RISK');
+      const journeyId =
+        cddResponse.journeyId || customer.activeJourneyId || generateReferenceNo('ONB');
+      const signals = this.buildPendingCddSignals({
+        caseNo: cddResponse.caseNo,
+        cddResponseId: cddResponse.id,
+        journeyId,
+      });
 
       await this.prisma.cddResponse.update({
         where: { id: cddResponse.id },
@@ -1342,8 +1596,8 @@ export class OnboardingService {
           status: 'RECEIVED',
           submittedAt: now,
           inputData: JSON.stringify(signals),
-          riskScore: Number(signals.riskScore),
-          riskLevel: String(signals.riskLevel),
+          riskScore: null,
+          riskLevel: null,
           pepHit: !!signals.pepHit,
           sanctionsHit: !!signals.sanctionsHit,
         },
@@ -1358,14 +1612,15 @@ export class OnboardingService {
           rawPayload: JSON.stringify({
             sessionId,
             result,
-            mockDataType: mockDataType || 'LOW_RISK',
+            mockDataType: null,
             signals,
           }),
           normalizedPayload: JSON.stringify(signals),
         },
       });
 
-      const decision = await this.riskEngineService.evaluate({
+      const pendingDecision =
+        await this.riskEngineService.createPendingDecisionRecord({
         contextType: 'ONBOARDING_CDD',
         subjectType: cddResponse.subjectKind || 'UNKNOWN',
         subjectId: cddResponse.subjectRefId || customerId,
@@ -1374,32 +1629,19 @@ export class OnboardingService {
         signals,
         policyVersion: 'onboarding-risk-policy/v1',
       });
-      const effectiveMockDataType = mockDataType || 'LOW_RISK';
-      const isLowRiskAutoPass = effectiveMockDataType === 'LOW_RISK';
-
-      await this.prisma.cddResponse.update({
-        where: { id: cddResponse.id },
+      const updatedCustomer = await this.prisma.customerMain.update({
+        where: { id: customer.id },
         data: {
-          status: 'FINAL',
-          reviewedAt: now,
-          reviewerDecision: isLowRiskAutoPass ? 'APPROVE' : decision.decision,
-          decisionReason: isLowRiskAutoPass
-            ? 'AUTO_LOW_RISK_PASS'
-            : decision.reasonCodes.join(',') || decision.decision,
-          requiresEdd: isLowRiskAutoPass ? false : decision.decision === 'REQUIRE_EDD',
-          riskScore: Number(signals.riskScore),
-          riskLevel: String(signals.riskLevel),
+          ...this.buildCustomerLifecyclePatch(customer, {
+            onboardingStatus: 'CDD_UNDER_REVIEW',
+            operatingStatus: 'INACTIVE',
+            eddRequired: false,
+          }),
+          latestDecisionRecordId: pendingDecision.decisionRecordId,
+          activeJourneyId: journeyId,
+          ...this.buildLatestFinalApprovalBindingPatch(null),
+          latestFinalApprovalStatus: null,
         },
-      });
-
-      const updatedCustomer = await this.handleCddDecision({
-        customer,
-        cddResponse,
-        decision: decision.decision,
-        decisionRecordId: decision.decisionRecordId,
-        reasonCodes: decision.reasonCodes,
-        recommendedActions: decision.recommendedActions,
-        mockDataType: effectiveMockDataType,
       });
 
       await this.writeAudit({
@@ -1411,12 +1653,16 @@ export class OnboardingService {
         caseId: cddResponse.id,
         fromStage: this.getCustomerOnboardingStatus(customer),
         toStage: this.getCustomerOnboardingStatus(updatedCustomer),
-        detail: `CDD decision=${isLowRiskAutoPass ? 'AUTO_APPROVE' : decision.decision} mockDataType=${effectiveMockDataType} reasonCodes=${decision.reasonCodes.join(',')}`,
+        detail: `CDD response received and queued for manual risk simulation decisionRecordId=${pendingDecision.decisionRecordId}`,
       });
 
       return {
         ...this.buildSessionResponse({ ...session, status: 'COMPLETED' }),
-        decision,
+        decision: {
+          decisionRecordId: pendingDecision.decisionRecordId,
+          status: 'CREATED',
+          decision: null,
+        },
         actions: this.mapActionsByStatus(updatedCustomer),
       };
     }

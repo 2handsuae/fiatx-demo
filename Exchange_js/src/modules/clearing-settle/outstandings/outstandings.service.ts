@@ -25,6 +25,7 @@ interface SwapSuccessPayload {
   toAssetId: string;
   toAssetCode: string | null;
   toAmount: Prisma.Decimal;
+  netToAmount?: Prisma.Decimal | null;
 }
 
 @Injectable()
@@ -140,7 +141,7 @@ export class OutstandingsService {
         direction: OutstandingDirection.IN,
         assetId: swap.toAssetId,
         assetCode: toAssetCode,
-        amount: new Prisma.Decimal(swap.toAmount),
+        amount: new Prisma.Decimal(swap.netToAmount ?? swap.toAmount),
       },
     ];
 

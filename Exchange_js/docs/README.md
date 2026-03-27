@@ -145,10 +145,22 @@ Source of Truth Level: documentation-governance-index
 ## Current Entry Documents
 - Project planning reference:
   - `docs/roadmap/project-version-plan.md`
+  - `docs/roadmap/wave-6-pricing-quote-swap-phase-plan.md`
   - `docs/roadmap/wave-5-payin-deposit-phase-plan.md`
   - `docs/roadmap/wave-3-customer-onboarding-phase-plan.md`
   - `docs/roadmap/wave-2-compliance-foundation-phase-plan.md`
   - `docs/roadmap/wave-4-ledger-asset-structure-phase-plan.md`
+- Wave 6 current status:
+  - `runtime complete`
+  - `cleanup complete`
+- Wave 6 cleanup / convergence closure record:
+  - `docs/cleanup/wave-6-cleanup-master-plan.md`
+- Wave 6 durable workflow / entity truth:
+  - `docs/specs/workflows/swap-canonical-workflow.md`
+  - `docs/specs/entities/swap-transaction-entity.md`
+- Wave 6 acceptance / runbook:
+  - `docs/acceptance/wave-6-swap-final-acceptance-checklist.md`
+  - `docs/acceptance/wave-6-best-execution-evidence-export-runbook.md`
 - Wave 5 cleanup / closeout closure record:
   - `docs/cleanup/wave-5-cleanup-master-plan.md`
 - Wave 5 durable workflow / entity truth:

@@ -131,6 +131,16 @@ const SwapQuoteDetail = () => {
 
   const swap = data.swap;
   const withdrawal = data.withdrawal;
+  const grossAmountOut = swap ? totals.amountOutGross || swap.amountOut : null;
+  const netAmountOut = swap ? totals.amountOutNet || swap.amountOut : null;
+  const feeTotal = swap ? totals.feeTotal || '0' : null;
+  const feeCurrency = swap ? totals.feeCurrency || swap.currencyOut : null;
+  const feeDecimals =
+    !swap || !feeCurrency
+      ? undefined
+      : feeCurrency === swap.fromAssetCode
+        ? swap.fromAsset?.decimals
+        : swap.toAsset?.decimals;
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto pb-12">
@@ -175,7 +185,9 @@ const SwapQuoteDetail = () => {
             <Field label="Pair" value={`${swap.fromAssetCode} -> ${swap.toAssetCode}`} />
             <Field label="Side / Amount Type" value={`${swap.side} / ${swap.amountType}`} />
             <Field label="Amount In" value={`${formatAssetAmount(swap.amountIn, swap.fromAsset?.decimals)} ${swap.currencyIn}`} />
-            <Field label="Amount Out" value={`${formatAssetAmount(swap.amountOut, swap.toAsset?.decimals)} ${swap.currencyOut}`} />
+            <Field label="Gross Receive" value={`${formatAssetAmount(grossAmountOut, swap.toAsset?.decimals)} ${swap.currencyOut}`} />
+            <Field label="Fee" value={`${formatAssetAmount(feeTotal, feeDecimals)} ${feeCurrency || swap.currencyOut}`} />
+            <Field label="Net Receive" value={`${formatAssetAmount(netAmountOut, swap.toAsset?.decimals)} ${swap.currencyOut}`} />
             <Field label="Rate Display" value={formatRate8(swap.rateDisplay)} />
             <Field label="Rate All-In" value={formatRate8(swap.rateAllIn)} />
             <Field label="Market Rate" value={formatRate8(swap.marketRate)} />

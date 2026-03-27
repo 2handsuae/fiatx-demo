@@ -12,14 +12,20 @@ import { useAdminSession } from '../contexts/AdminSessionContext';
 
 type AlertSeverity = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
 type AlertStatus = 'OPEN' | 'ASSIGNED' | 'ESCALATED' | 'CLOSED';
-type AlertSourceType = '' | 'ONBOARDING_JOURNEY' | 'PERIODIC_REVIEW_CYCLE' | 'DEPOSIT';
+type AlertSourceType =
+  | ''
+  | 'ONBOARDING_JOURNEY'
+  | 'PERIODIC_REVIEW_CYCLE'
+  | 'DEPOSIT'
+  | 'SWAP';
 type AlertStage =
   | ''
   | 'REVIEW_CDD'
   | 'REVIEW_EDD'
   | 'REVIEW_KYT'
   | 'REVIEW_TRAVEL_RULE'
-  | 'REVIEW_DEPOSIT_FINAL';
+  | 'REVIEW_DEPOSIT_FINAL'
+  | 'REVIEW_SWAP_FINAL';
 
 interface AlertItem {
   id: string;
@@ -310,6 +316,7 @@ const ComplianceAlertsPage = () => {
             <option value="ONBOARDING_JOURNEY">ONBOARDING_JOURNEY</option>
             <option value="PERIODIC_REVIEW_CYCLE">PERIODIC_REVIEW_CYCLE</option>
             <option value="DEPOSIT">DEPOSIT</option>
+            <option value="SWAP">SWAP</option>
           </select>
           <select
             className="border border-admin-border rounded px-3 py-2 text-sm"
@@ -322,6 +329,7 @@ const ComplianceAlertsPage = () => {
             <option value="REVIEW_KYT">REVIEW_KYT</option>
             <option value="REVIEW_TRAVEL_RULE">REVIEW_TRAVEL_RULE</option>
             <option value="REVIEW_DEPOSIT_FINAL">REVIEW_DEPOSIT_FINAL</option>
+            <option value="REVIEW_SWAP_FINAL">REVIEW_SWAP_FINAL</option>
           </select>
           <input
             className="border border-admin-border rounded px-3 py-2 text-sm"

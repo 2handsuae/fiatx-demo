@@ -337,6 +337,7 @@ export class ComplianceIncidentsService {
     }
     if (
       sourceType === 'DEPOSIT' ||
+      sourceType === 'SWAP' ||
       sourceType === 'WITHDRAW' ||
       (ruleCode && ruleCode.startsWith('TX_'))
     ) {
@@ -2220,6 +2221,10 @@ export class ComplianceIncidentsService {
           ? this.normalizeOptionalString(primaryAlert?.sourceId || incident.entityId) ||
             undefined
           : undefined,
+      sourceType:
+        workflow === TRANSACTION_WORKFLOW
+          ? this.normalizeOptionalString(incident.sourceType) || undefined
+          : undefined,
       dispositionCode: this.deriveProposedFinalDisposition({
         workflowDecision,
       }) || workflowDecision,
@@ -2566,6 +2571,7 @@ export class ComplianceIncidentsService {
           producerId: incident.id,
           customerId: incident.customerId,
           sourceId,
+          sourceType: incident.sourceType || undefined,
           dispositionCode:
             this.normalizeWorkflowProposal(
               (incident as any).proposedWorkflowDecision,

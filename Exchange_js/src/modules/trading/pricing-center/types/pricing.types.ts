@@ -33,6 +33,10 @@ export interface SwapTierConditions {
   amountMax: string | null;
 }
 
+export interface SwapProductRestrictions {
+  blockedInvestorClassifications: string[];
+}
+
 export interface WithdrawalTierConditions {
   amountMin: string | null;
   amountMax: string | null;
@@ -72,6 +76,7 @@ export interface SwapPairEntry {
   assetBId: string;
   assetBLabel: string;
   enabled: boolean;
+  restrictions?: SwapProductRestrictions;
   routing: SwapRoutingConfig;
   tiers: SwapTier[];
 }
@@ -169,6 +174,10 @@ export interface SwapPricingResult {
   };
   fees: CalculatedFeeLine[];
   totals: Record<string, string>;
+  grossAmountOut: string;
+  netAmountOut: string;
+  feeTotal: string;
+  feeCurrency: string | null;
   policyRef: {
     policyCode: string;
     policyId: string;

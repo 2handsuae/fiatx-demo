@@ -1,26 +1,11 @@
 import {
   Injectable,
-  Logger,
   NotFoundException,
   BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '../../../core/prisma/prisma.service';
-import {
-  SwapTransactionQueryDto,
-  SwapTransactionStatus,
-} from './dto/swap-transaction.dto';
+import { SwapTransactionQueryDto } from './dto/swap-transaction.dto';
 import { Prisma } from '@prisma/client';
-import { EventEmitter2 } from '@nestjs/event-emitter';
-import { SwapEvents } from './constants/swap-events.constant';
-import { generateReferenceNo } from '../../../common/utils/no-generator.util';
-import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
-import {
-  AuditActions,
-  AuditEntityTypes,
-  AuditModules,
-  buildStateTransitionAction,
-} from '../../risk-engine/audit-logs/constants/audit-actions.constant';
-import { AuditTriggerType } from '../../risk-engine/audit-logs/dto/audit-log.dto';
 import { PricingCenterService } from '../pricing-center/pricing-center.service';
 
 interface SwapMatchedInfo {
@@ -66,6 +51,10 @@ export interface SwapExecutableRateResult {
   pricingSource: SwapPricingSourceInfo;
   feeBreakdown: any[];
   feeTotals: Record<string, string>;
+  grossAmountOut: number;
+  netAmountOut: number;
+  feeTotal: number;
+  feeCurrency: string | null;
   policyRef: {
     policyCode: string;
     policyId: string;
@@ -85,174 +74,10 @@ export interface SwapQuoteComputationResult extends SwapExecutableRateResult {
 
 @Injectable()
 export class SwapTransactionsService {
-  private readonly logger = new Logger(SwapTransactionsService.name);
-  private readonly auditLogsService: AuditLogsService;
-
   constructor(
-    private prisma: PrismaService,
-    private eventEmitter: EventEmitter2,
-    private pricingCenterService: PricingCenterService,
-  ) {
-    this.auditLogsService = new AuditLogsService(prisma);
-  }
-
-  private resolveActor(operatorId: string) {
-    if (operatorId === 'SYSTEM') {
-      return { actorType: 'SYSTEM', actorId: 'SYSTEM', actorRole: 'SYSTEM' };
-    }
-    return { actorType: 'ADMIN', actorId: operatorId, actorRole: 'ADMIN' };
-  }
-
-  async create(dto: {
-    ownerType: string;
-    ownerId: string;
-    fromAssetId: string;
-    fromAmount: number;
-    toAssetId: string;
-    toAmount: number;
-    exchangeRate: number;
-  }) {
-    const swapNo = generateReferenceNo('SWP');
-
-    // Fetch related entities to populate denormalized fields
-    const fromAsset = await (this.prisma as any).asset.findUnique({ where: { id: dto.fromAssetId } });
-    const toAsset = await (this.prisma as any).asset.findUnique({ where: { id: dto.toAssetId } });
-    
-    let ownerNo = null;
-    if (dto.ownerType === 'CUSTOMER') {
-        const customer = await (this.prisma as any).customerMain.findUnique({ where: { id: dto.ownerId } });
-        if (customer) ownerNo = customer.customerNo;
-    }
-
-    const swap = await (this.prisma as any).swapTransaction.create({
-      data: {
-        swapNo,
-        ownerType: dto.ownerType,
-        ownerId: dto.ownerId,
-        ownerNo,
-        status: SwapTransactionStatus.PENDING_COMPLIANCE,
-        fromAssetId: dto.fromAssetId,
-        fromAssetCode: fromAsset?.code,
-        fromAmount: new Prisma.Decimal(dto.fromAmount),
-        toAssetId: dto.toAssetId,
-        toAssetCode: toAsset?.code,
-        toAmount: new Prisma.Decimal(dto.toAmount),
-        exchangeRate: new Prisma.Decimal(dto.exchangeRate),
-        statusHistory: JSON.stringify([{
-            status: SwapTransactionStatus.PENDING_COMPLIANCE,
-            timestamp: new Date().toISOString(),
-            operator: 'SYSTEM',
-            note: 'Swap created'
-        }]),
-      },
-    });
-
-    this.logger.log(`Swap created: ${swap.id} (${swap.swapNo})`);
-    await this.auditLogsService.recordSystem({
-      triggerType: AuditTriggerType.DATA_CREATE,
-      action: AuditActions.SWAP_CREATED,
-      module: AuditModules.SWAP_TRANSACTIONS,
-      entityType: AuditEntityTypes.SWAP_TRANSACTION,
-      entityId: swap.id,
-      entityNo: swap.swapNo || undefined,
-      entityOwnerType: swap.ownerType,
-      entityOwnerId: swap.ownerId,
-      afterData: {
-        status: swap.status,
-        fromAssetId: swap.fromAssetId,
-        toAssetId: swap.toAssetId,
-        fromAmount: swap.fromAmount?.toString?.(),
-        toAmount: swap.toAmount?.toString?.(),
-      },
-      sourcePlatform: 'SYSTEM',
-    });
-    this.eventEmitter.emit(SwapEvents.EVT_SWAP_CREATED, { swapId: swap.id });
-
-    return swap;
-  }
-
-  async updateStatus(
-    id: string,
-    newStatus: SwapTransactionStatus,
-    operatorId: string = 'SYSTEM',
-    reason?: string,
-  ) {
-    const swap = await this.findOne(id);
-    const oldStatus = swap.status as SwapTransactionStatus;
-
-    if (oldStatus === newStatus) return swap;
-
-    const updatedSwap = await this.prisma.$transaction(async (tx) => {
-        // Parse existing history
-        let history: any[] = [];
-        try {
-            if (swap.statusHistory) {
-                history = JSON.parse(swap.statusHistory);
-            }
-        } catch (e) {
-            // ignore parse error
-        }
-
-        // Add new entry
-        history.push({
-            status: newStatus,
-            timestamp: new Date().toISOString(),
-            operator: operatorId,
-            note: reason || `Status changed from ${oldStatus} to ${newStatus}`
-        });
-
-      const updated = await (tx as any).swapTransaction.update({
-        where: { id },
-        data: {
-          status: newStatus,
-          statusHistory: JSON.stringify(history),
-          completedAt:
-            newStatus === SwapTransactionStatus.SUCCESS ? new Date() : null,
-        },
-      });
-
-      await this.auditLogsService.recordByActor(
-        {
-          triggerType: AuditTriggerType.STATE_TRANSITION,
-          action: buildStateTransitionAction('SWAP', oldStatus, newStatus),
-          module: AuditModules.SWAP_TRANSACTIONS,
-          entityType: AuditEntityTypes.SWAP_TRANSACTION,
-          entityId: updated.id,
-          entityNo: updated.swapNo || undefined,
-          entityOwnerType: updated.ownerType,
-          entityOwnerId: updated.ownerId,
-          statusFrom: oldStatus,
-          statusTo: newStatus,
-          reason,
-          beforeData: { status: oldStatus },
-          afterData: { status: newStatus },
-          sourcePlatform: operatorId === 'SYSTEM' ? 'SYSTEM' : 'ADMIN_API',
-        },
-        this.resolveActor(operatorId),
-        tx as Prisma.TransactionClient,
-      );
-
-      return updated;
-    });
-
-    this.logger.log(`Swap ${id} status changed: ${oldStatus} -> ${newStatus}`);
-
-    // Emit Specific Events
-    if (newStatus === SwapTransactionStatus.SUCCESS) {
-      this.eventEmitter.emit(SwapEvents.EVT_SWAP_SUCCESS, {
-        swapId: id,
-        oldStatus,
-      });
-    } else if (newStatus === SwapTransactionStatus.REJECTED) {
-      this.eventEmitter.emit(SwapEvents.EVT_SWAP_REJECTED, {
-        swapId: id,
-        oldStatus,
-        reason,
-      });
-    }
-
-    return updatedSwap;
-  }
+    private readonly prisma: PrismaService,
+    private readonly pricingCenterService: PricingCenterService,
+  ) {}
 
   private async getSwapAssetsOrThrow(fromAssetId: string, toAssetId: string) {
     const [fromAsset, toAsset] = await Promise.all([
@@ -328,6 +153,10 @@ export class SwapTransactionsService {
       pricingSource: resolved.pricingSource,
       feeBreakdown: resolved.fees,
       feeTotals: resolved.totals,
+      grossAmountOut: resolved.grossAmountOut.toNumber(),
+      netAmountOut: resolved.netAmountOut.toNumber(),
+      feeTotal: resolved.feeTotal.toNumber(),
+      feeCurrency: resolved.feeCurrency,
       policyRef: resolved.policyRef,
     };
   }
@@ -350,7 +179,7 @@ export class SwapTransactionsService {
     );
     const fromAmount = new Prisma.Decimal(dto.fromAmount);
     const executableRate = new Prisma.Decimal(rateDetails.executableRate);
-    const toAmount = fromAmount.mul(executableRate);
+    const toAmount = new Prisma.Decimal(rateDetails.grossAmountOut);
     const createdAt = new Date();
     const expiresAt = new Date(
       createdAt.getTime() + rateDetails.quoteLockSeconds * 1000,
@@ -382,6 +211,10 @@ export class SwapTransactionsService {
       pricingSource: rateDetails.pricingSource,
       feeBreakdown: rateDetails.feeBreakdown,
       feeTotals: rateDetails.feeTotals,
+      grossAmountOut: rateDetails.grossAmountOut,
+      netAmountOut: rateDetails.netAmountOut,
+      feeTotal: rateDetails.feeTotal,
+      feeCurrency: rateDetails.feeCurrency,
       policyRef: rateDetails.policyRef,
       createdAt: createdAt.toISOString(),
       expiresAt: expiresAt.toISOString(),
@@ -437,9 +270,6 @@ export class SwapTransactionsService {
         fromAsset: true,
         toAsset: true,
         customer: true,
-        auditLogs: {
-          orderBy: { createdAt: 'desc' },
-        },
       },
     });
     if (!item) throw new NotFoundException('Swap transaction not found');

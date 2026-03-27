@@ -2055,6 +2055,7 @@ model SwapTransaction {
   swapNo       String?                   @unique
   quoteId      String?                   @unique @map("quote_id")
   quoteNo      String?
+  quoteSnapshotRef String?
   ownerType    String
   ownerId      String
   ownerNo      String?
@@ -2065,12 +2066,20 @@ model SwapTransaction {
   toAssetId    String
   toAssetCode   String?
   toAmount     Decimal
+  netToAmount  Decimal?
+  feeAmount    Decimal?
+  feeCurrency  String?
+  feeBreakdown String?
   exchangeRate Decimal
+  riskDecisionRef String?
+  alertId      String?
+  caseId       String?
+  failureCode  String?
+  failureReason String?
   statusHistory String?
   createdAt    DateTime                  @default(now())
   updatedAt    DateTime                  @updatedAt
   completedAt  DateTime?
-  auditLogs    SwapTransactionAuditLog[]
   fromAsset    Asset                     @relation("SwapFromAsset", fields: [fromAssetId], references: [id])
   toAsset      Asset                     @relation("SwapToAsset", fields: [toAssetId], references: [id])
   quote        SwapQuote?                @relation(fields: [quoteId], references: [id])
@@ -2181,19 +2190,6 @@ model OutstandingSettlementItem {
   @@index([internalTransactionId])
   @@index([status])
   @@map("outstanding_settlement_items")
-}
-
-model SwapTransactionAuditLog {
-  id                String          @id @default(uuid())
-  swapTransactionId String
-  operatorId        String
-  oldStatus         String
-  newStatus         String
-  reason            String?
-  createdAt         DateTime        @default(now())
-  swapTransaction   SwapTransaction @relation(fields: [swapTransactionId], references: [id])
-
-  @@map("swap_transaction_audit_logs")
 }
 
 model WithdrawTransaction {

@@ -191,6 +191,25 @@ describe('rbac.catalog', () => {
     expect(permissionMap.CISO).not.toContain(caseMlroReviewCode);
   });
 
+  it('should register risk decision simulation permission and grant it to operator roles', () => {
+    const permissionCodes = new Set(
+      RBAC_PERMISSION_DEFINITIONS.map((item) => item.code),
+    );
+    const permissionMap = buildRolePermissionCodeMap();
+    const simulateCode = buildPermissionCode(
+      'POST',
+      '/admin/risk/decision-records/:id/simulate',
+    );
+
+    expect(permissionCodes.has(simulateCode)).toBe(true);
+    expect(permissionMap.COMPLIANCE_LEAD).toContain(simulateCode);
+    expect(permissionMap.MLRO).toContain(simulateCode);
+    expect(permissionMap.TECH_ADMIN).toContain(simulateCode);
+    expect(permissionMap.RI).not.toContain(simulateCode);
+    expect(permissionMap.SM).not.toContain(simulateCode);
+    expect(permissionMap.CISO).not.toContain(simulateCode);
+  });
+
   it('should register case evidence export permissions and grant them to the expected roles', () => {
     const permissionCodes = new Set(
       RBAC_PERMISSION_DEFINITIONS.map((item) => item.code),

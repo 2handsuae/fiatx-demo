@@ -32,7 +32,9 @@ Source of Truth Level: specs-module
   - `GET /admin/compliance/edd-responses*`
   - `POST /admin/compliance/alerts/:id/resolve`
   - `POST /admin/compliance/cases/:id/onboarding-decision`
-  - `GET /admin/compliance/decision-records*`
+  - `GET /admin/risk/decision-records`
+  - `GET /admin/risk/decision-records/:id`
+  - `POST /admin/risk/decision-records/:id/simulate`
   - `POST /admin/compliance/customers/:id/final-approval/submit`
 
 ## Integration Contract
@@ -40,6 +42,9 @@ Source of Truth Level: specs-module
   - response containers as evidence
   - compliance center for review-stage decisions
   - approvals module for final approval
+- Customer `/verification` remains the evidence collection and mock-complete surface under shared `Simulation Mode`.
+- Final `ONBOARDING_CDD` risk simulation is executed from admin `Risk Policy Executions`, not from a client-side risk selection surface.
+- Admin `CDD Response / EDD Response` surfaces remain evidence-browse surfaces and MUST NOT duplicate customer-side onboarding mock-complete actions.
 - Workflow-bound onboarding alerts are resolved through the unified alert resolution surface rather than onboarding-specific alert routes.
 - Canonical customer state is driven by customer fields, not by legacy public-status projections.
 

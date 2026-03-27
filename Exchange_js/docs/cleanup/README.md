@@ -2,7 +2,7 @@
 
 Status: active
 Owner: project-owner-and-agents
-Last Updated: 2026-03-26
+Last Updated: 2026-03-27
 Applies To: `Exchange_js`
 Supersedes: none
 Depends On: `docs/README.md`
@@ -30,6 +30,8 @@ Source of Truth Level: cleanup
   - `docs/cleanup/wave-4-cleanup-master-plan.md`
 - Wave 5 master:
   - `docs/cleanup/wave-5-cleanup-master-plan.md`
+- Wave 6 master:
+  - `docs/cleanup/wave-6-cleanup-master-plan.md`
 - Wave 4 retirement inventory:
   - `docs/cleanup/wave-4-field-retirement-inventory.md`
 - Final closure:
@@ -55,6 +57,10 @@ Source of Truth Level: cleanup
   - `Alert / Transaction Case Integration`
   - `Docs / Index / Cleanup Meta`
 - `docs/cleanup/wave-5-cleanup-master-plan.md` 现在保留为 closure record，不再作为 active backlog。
+- `Wave 6` runtime 主链与 cleanup 已完成，当前处于 `runtime complete, cleanup complete` 状态；`docs/cleanup/wave-6-cleanup-master-plan.md` 现保留为 completed closure record：
+  - Stage 1-5 已完成 runtime / trace / compatibility shell / docs-index 收口
+  - Stage 6 已完成 manual-risk truth convergence 与 final closeout audit
+  - retained compatibility 仍需以 cleanup master 中的边界说明为准
 - 当前长期真相不在 cleanup 层，而在：
   - `docs/constraints/**`
   - `docs/specs/**`

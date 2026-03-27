@@ -2,6 +2,53 @@ import { Prisma } from '@prisma/client';
 import { PricingCenterService } from './pricing-center.service';
 import { PricingQuoteBusiness } from './dto/pricing-center.dto';
 
+const buildBaseSwapPolicy = () => ({
+  policyId: 'POL-SWAP-ONLINE',
+  policyName: 'Swap Pricing',
+  business: 'SWAP' as const,
+  channel: {
+    online: true,
+    storeComingSoon: true,
+  },
+  pairs: [
+    {
+      id: 'PAIR-0001',
+      name: 'BTC -> AED',
+      assetAId: 'asset-btc',
+      assetALabel: 'BTC',
+      assetBId: 'asset-aed',
+      assetBLabel: 'AED',
+      enabled: true,
+      restrictions: {
+        blockedInvestorClassifications: [] as string[],
+      },
+      routing: {
+        provider: 'LP_A' as const,
+        maxStalenessSec: 30,
+        quoteLockSeconds: 30,
+        rounding: {
+          dp: 8,
+          mode: 'ROUND' as const,
+        },
+      },
+      tiers: [
+        {
+          id: 'TIER-001',
+          name: 'Default Tier',
+          priority: 1,
+          enabled: true,
+          rateMarkupBps: 20,
+          conditions: {
+            amountMin: '0',
+            amountMax: null,
+          },
+          feeItems: [],
+        },
+      ],
+    },
+  ],
+});
+
 const mockPrisma = {
   swapQuote: {
     create: jest.fn(),
@@ -29,10 +76,35 @@ const mockPrisma = {
 
 describe('PricingCenterService - Quote lifecycle', () => {
   let service: PricingCenterService;
+  const mockPoliciesReady = (swapPolicy = buildBaseSwapPolicy()) => {
+    jest.spyOn(service as any, 'ensurePoliciesReady').mockResolvedValue({
+      swap: {
+        configJson: JSON.stringify(swapPolicy),
+      },
+      withdrawal: {
+        configJson: JSON.stringify({
+          policyId: 'POL-WITHDRAW-ONLINE',
+          policyName: 'Withdrawal Pricing',
+          business: 'WITHDRAWAL',
+          channel: {
+            online: true,
+            storeComingSoon: true,
+          },
+          assets: [],
+        }),
+      },
+    });
+  };
 
   beforeEach(() => {
     jest.clearAllMocks();
     service = new PricingCenterService(mockPrisma as any, {} as any, {} as any);
+    mockPrisma.customerMain.findUnique.mockResolvedValue({
+      id: 'customer-1',
+      customerNo: 'CU_0001',
+      investorClassification: 'RETAIL',
+    });
+    mockPoliciesReady();
     jest
       .spyOn((service as any).auditLogsService, 'recordByActor')
       .mockResolvedValue(undefined);
@@ -60,6 +132,10 @@ describe('PricingCenterService - Quote lifecycle', () => {
       tierName: 'Default Tier',
       fees: [],
       totals: { AED: '0' },
+      grossAmountOut: new Prisma.Decimal('100000'),
+      netAmountOut: new Prisma.Decimal('100000'),
+      feeTotal: new Prisma.Decimal('0'),
+      feeCurrency: 'AED',
       policyRef: {
         policyCode: 'SWAP_PRICING',
         policyId: 'POL-SWAP-ONLINE',
@@ -161,6 +237,136 @@ describe('PricingCenterService - Quote lifecycle', () => {
         }),
       }),
     );
+  });
+
+  it('blocks swap quote creation when pair is disabled and records restriction audit', async () => {
+    mockPoliciesReady({
+      ...buildBaseSwapPolicy(),
+      pairs: [
+        {
+          ...buildBaseSwapPolicy().pairs[0],
+          enabled: false,
+        },
+      ],
+    });
+    const resolveSpy = jest.spyOn(service, 'resolveSwapQuoteForExecution');
+    jest.spyOn(service, 'resolveOwnerNo').mockResolvedValue('CU_0001');
+
+    await expect(
+      service.createSwapQuote('CUSTOMER', 'customer-1', {
+        fromAssetId: 'asset-btc',
+        toAssetId: 'asset-aed',
+        fromAmount: 1,
+      }),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: 'SWAP_PRODUCT_RESTRICTED',
+        restrictionCode: 'PAIR_DISABLED',
+      }),
+    });
+
+    expect(resolveSpy).not.toHaveBeenCalled();
+    expect((service as any).auditLogsService.recordByActor).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'SWAP_PRODUCT_RESTRICTED',
+        metadata: expect.objectContaining({
+          restrictionCode: 'PAIR_DISABLED',
+        }),
+      }),
+      expect.anything(),
+    );
+  });
+
+  it('blocks swap quote creation when ONLINE channel is disabled', async () => {
+    mockPoliciesReady({
+      ...buildBaseSwapPolicy(),
+      channel: {
+        online: false,
+        storeComingSoon: true,
+      },
+    });
+    const resolveSpy = jest.spyOn(service, 'resolveSwapQuoteForExecution');
+    jest.spyOn(service, 'resolveOwnerNo').mockResolvedValue('CU_0001');
+
+    await expect(
+      service.createSwapQuote('CUSTOMER', 'customer-1', {
+        fromAssetId: 'asset-btc',
+        toAssetId: 'asset-aed',
+        fromAmount: 1,
+      }),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: 'SWAP_PRODUCT_RESTRICTED',
+        restrictionCode: 'CHANNEL_ONLINE_DISABLED',
+      }),
+    });
+
+    expect(resolveSpy).not.toHaveBeenCalled();
+  });
+
+  it('blocks swap quote creation when the matched tier is disabled', async () => {
+    mockPoliciesReady({
+      ...buildBaseSwapPolicy(),
+      pairs: [
+        {
+          ...buildBaseSwapPolicy().pairs[0],
+          tiers: [
+            {
+              ...buildBaseSwapPolicy().pairs[0].tiers[0],
+              enabled: false,
+            },
+          ],
+        },
+      ],
+    });
+    const resolveSpy = jest.spyOn(service, 'resolveSwapQuoteForExecution');
+    jest.spyOn(service, 'resolveOwnerNo').mockResolvedValue('CU_0001');
+
+    await expect(
+      service.createSwapQuote('CUSTOMER', 'customer-1', {
+        fromAssetId: 'asset-btc',
+        toAssetId: 'asset-aed',
+        fromAmount: 1,
+      }),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: 'SWAP_PRODUCT_RESTRICTED',
+        restrictionCode: 'TIER_DISABLED',
+      }),
+    });
+
+    expect(resolveSpy).not.toHaveBeenCalled();
+  });
+
+  it('blocks swap quote creation when investor classification is restricted', async () => {
+    mockPoliciesReady({
+      ...buildBaseSwapPolicy(),
+      pairs: [
+        {
+          ...buildBaseSwapPolicy().pairs[0],
+          restrictions: {
+            blockedInvestorClassifications: ['RETAIL'],
+          },
+        },
+      ],
+    });
+    const resolveSpy = jest.spyOn(service, 'resolveSwapQuoteForExecution');
+    jest.spyOn(service, 'resolveOwnerNo').mockResolvedValue('CU_0001');
+
+    await expect(
+      service.createSwapQuote('CUSTOMER', 'customer-1', {
+        fromAssetId: 'asset-btc',
+        toAssetId: 'asset-aed',
+        fromAmount: 1,
+      }),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: 'SWAP_PRODUCT_RESTRICTED',
+        restrictionCode: 'INVESTOR_CLASSIFICATION_BLOCKED',
+      }),
+    });
+
+    expect(resolveSpy).not.toHaveBeenCalled();
   });
 
   it('creates withdrawal quote with real TTL instead of far expiry', async () => {
@@ -332,5 +538,106 @@ describe('PricingCenterService - Quote lifecycle', () => {
 
     expect(result.totals).toEqual({});
     expect(result.policyRef).toEqual({});
+  });
+
+  it('rejects active quote retrieval on owner mismatch', async () => {
+    mockPrisma.swapQuote.findUnique.mockResolvedValue({
+      id: 'swap-quote-owner',
+      ownerType: 'CUSTOMER',
+      ownerId: 'other-customer',
+      status: 'ACTIVE',
+      expiresAt: new Date('2026-03-23T13:00:30.000Z'),
+    });
+
+    await expect(
+      service.getActiveSwapQuoteOrThrow(
+        'swap-quote-owner',
+        'CUSTOMER',
+        'customer-1',
+        new Date('2026-03-23T13:00:00.000Z'),
+      ),
+    ).rejects.toThrow('Quote owner mismatch');
+  });
+
+  it('marks expired quote and rejects consumption', async () => {
+    const now = new Date('2026-03-23T13:00:00.000Z');
+    mockPrisma.swapQuote.findUnique.mockResolvedValue({
+      id: 'swap-quote-expired',
+      ownerType: 'CUSTOMER',
+      ownerId: 'customer-1',
+      status: 'ACTIVE',
+      expiresAt: new Date('2026-03-23T12:59:59.000Z'),
+    });
+
+    await expect(
+      service.getActiveSwapQuoteOrThrow(
+        'swap-quote-expired',
+        'CUSTOMER',
+        'customer-1',
+        now,
+      ),
+    ).rejects.toThrow('Quote expired');
+
+    expect(mockPrisma.swapQuote.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          id: 'swap-quote-expired',
+          status: 'ACTIVE',
+        }),
+        data: expect.objectContaining({
+          status: 'EXPIRED',
+          updatedAt: now,
+        }),
+      }),
+    );
+  });
+
+  it.each([
+    ['USED', new Date('2026-03-23T13:00:00.000Z'), null],
+    ['CANCELLED', null, new Date('2026-03-23T13:00:00.000Z')],
+  ])(
+    'rejects swap quote consumption when status is %s',
+    async (status, usedAt, cancelledAt) => {
+      mockPrisma.swapQuote.findUnique.mockResolvedValue({
+        id: 'swap-quote-terminal',
+        ownerType: 'CUSTOMER',
+        ownerId: 'customer-1',
+        status,
+        expiresAt: new Date('2026-03-23T13:30:00.000Z'),
+        usedAt,
+        cancelledAt,
+      });
+
+      await expect(
+        service.consumeSwapQuoteForSwap(
+          mockPrisma as any,
+          'swap-quote-terminal',
+          'CUSTOMER',
+          'customer-1',
+          new Date('2026-03-23T13:00:00.000Z'),
+        ),
+      ).rejects.toThrow('Quote is not active');
+
+      expect(mockPrisma.swapQuote.updateMany).not.toHaveBeenCalled();
+    },
+  );
+
+  it('rejects quote cancellation on owner mismatch', async () => {
+    mockPrisma.swapQuote.findUnique.mockResolvedValue({
+      id: 'swap-quote-cancel-owner',
+      ownerType: 'CUSTOMER',
+      ownerId: 'other-customer',
+      status: 'ACTIVE',
+      expiresAt: new Date('2026-03-23T13:30:00.000Z'),
+    });
+
+    await expect(
+      service.cancelSwapQuote(
+        'swap-quote-cancel-owner',
+        'CUSTOMER',
+        'customer-1',
+        new Date('2026-03-23T13:00:00.000Z'),
+      ),
+    ).rejects.toThrow('Quote owner mismatch');
   });
 });
