@@ -18,6 +18,7 @@
 - Deposit `PATCH /deposit-transactions/:id/status` with `action=payin_confirmed` MUST be manual/compensation only.
 - Swap customer indicative price MUST use `GET /swap-transactions/rate`.
 - Swap order placement MUST use `POST /swap-transactions/quotes` then `POST /swap-transactions` with `quoteId`.
+- Swap `PATCH /admin/swap-transactions/:id/status` with `action=success|reject|flag|fail` MUST be operator fallback/manual-compensation only.
 - Withdraw customer request MUST use `POST /withdraw-transactions`; payout progression MUST use `PATCH /payouts/:id/status`.
 
 ## 3) Reset Baseline Preconditions
@@ -39,7 +40,11 @@
 1. rate polling (indicative)
 2. `quote ACTIVE` within TTL
 3. quote consume for swap create
-4. terminal progression (`SUCCESS` / `REJECTED` / `FAILED`)
+4. swap create enters `PENDING_COMPLIANCE`
+5. create pending `TX_SWAP_FINAL` decision record
+6. Admin `Risk Policy Executions` simulates `LOW / MEDIUM / HIGH`
+7. swap final review routes to `SUCCESS` or `UNDER_REVIEW`
+8. terminal progression (`SUCCESS` / `REJECTED` / `FAILED`)
 - Withdraw MUST follow:
 1. `CREATED`
 2. `PENDING_COMPLIANCE` or `UNDER_REVIEW`
@@ -51,9 +56,10 @@
 1. optional inbound signal scan may create or reuse `PayIn`
 2. canonical payin confirm moves deposit to `COMPLIANCE_PENDING`
 3. sync deposit-side `MAIN-KYT` / `TRAVEL_RULE` evidence containers and derived snapshot
-4. evaluate transaction risk only for eligible terminal screening states
-5. post required confirmed accounting event
-6. clear payin only after upstream steps complete and confirmed accounting succeeds
+4. when terminal screening states are ready, create pending `TX_DEPOSIT_FINAL` decision record
+5. Admin `Risk Policy Executions` simulates `LOW / MEDIUM / HIGH`
+6. post required confirmed accounting event
+7. clear payin only after upstream steps complete and confirmed accounting succeeds
 - Deposit workflow callback MUST order:
 1. transaction hit creates or escalates alert/case first
 2. workflow-bound callback may drive deposit only through canonical deposit actions
@@ -69,7 +75,15 @@
 2. generate firm quote snapshot
 3. consume quote exactly once
 4. create swap from quote snapshot
-5. on success create dual outstandings (`OUT` + `IN`)
+5. post `EVT_SWAP_CREATED`
+6. create pending `TX_SWAP_FINAL` decision record
+7. Admin `Risk Policy Executions` simulates `LOW / MEDIUM / HIGH`
+8. low risk clears to `SUCCESS`; medium/high enters `UNDER_REVIEW`
+9. on success create dual outstandings (`OUT` + `IN`)
+- Swap review resolution MUST order:
+1. normal alert/case outcomes SHOULD drive swap through workflow-bound callback first
+2. `PATCH /admin/swap-transactions/:id/status` is reserved for callback unavailable, repair, or operator compensation scenarios
+3. fallback admin actions MUST still execute canonical swap workflow transitions and unified event execution
 - Withdraw approved orchestration MUST order:
 1. trigger clearing
 2. post approved accounting
@@ -85,6 +99,12 @@
 1. transaction list/detail: `fromAsset.decimals`, `toAsset.decimals`
 2. quote list/detail: `fromAsset.decimals`, `toAsset.decimals`
 3. outstanding list/detail: `asset.decimals`
+- Swap transaction / quote read models SHOULD also expose:
+1. `quoteId`, `quoteNo`
+2. `netToAmount`
+3. `feeAmount`, `feeCurrency`
+4. `riskDecisionRef`, `alertId`, `caseId`
+5. `failureCode`, `failureReason`
 - Outstanding records MUST return `asset` relation for display (not only asset id/code).
 - Missing `asset` or missing decimals in swap/outstanding response is considered a contract violation.
 
@@ -119,6 +139,20 @@
 1. deposit status unchanged from the already-applied success transition
 2. no fake `journalId` or fake accounting success audit
 - Deposit reject path MUST NOT create a dedicated reject posting or reversal contract in current runtime truth.
+- Swap created / success / reject / fail MUST route through unified event execution. Direct journal creation plus a second replay path is forbidden.
+- Compliance modules MUST NOT write `swap.status` directly outside canonical swap workflow execution.
+- Swap fallback admin actions MUST NOT bypass canonical workflow execution and MUST NOT introduce direct journal shortcuts.
+
+## 8A) Swap Product Restriction And Evidence Contract
+- Swap product restriction MUST be re-evaluated at:
+1. quote creation
+2. quote consumption
+- Restriction failure MUST:
+1. return machine-readable `restrictionCode`
+2. write canonical audit log
+- Swap evidence export MUST support replay by:
+1. `swapId`
+2. `quoteId`
 
 ## 9) Failure and Return Reversal Contract
 - Withdraw `FAILED` and `RETURNED` MUST use source-level bulk reversal.

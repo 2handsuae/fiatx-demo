@@ -6,6 +6,7 @@ describe('RiskDecisionRecordsAdminController', () => {
   const serviceMock = {
     listDecisionRecords: jest.fn(),
     getDecisionRecordDetail: jest.fn(),
+    simulateDecisionRecord: jest.fn(),
   };
 
   let controller: RiskDecisionRecordsAdminController;
@@ -46,5 +47,26 @@ describe('RiskDecisionRecordsAdminController', () => {
     expect(serviceMock.getDecisionRecordDetail).toHaveBeenCalledWith('dr-1');
     expect(result).toEqual({ id: 'dr-1' });
   });
-});
 
+  it('should delegate manual simulation for admin token', async () => {
+    serviceMock.simulateDecisionRecord.mockResolvedValue({ id: 'dr-2', status: 'COMPLETED' });
+
+    const result = await controller.simulate(
+      { user: { type: 'ADMIN', userId: 'admin-1', userNo: 'ADM-1', role: 'MLRO' } },
+      'dr-2',
+      { riskLevel: 'HIGH' } as any,
+    );
+
+    expect(serviceMock.simulateDecisionRecord).toHaveBeenCalledWith(
+      'dr-2',
+      { riskLevel: 'HIGH' },
+      expect.objectContaining({
+        actorType: 'ADMIN',
+        actorId: 'admin-1',
+        actorNo: 'ADM-1',
+        actorRole: 'MLRO',
+      }),
+    );
+    expect(result).toEqual({ id: 'dr-2', status: 'COMPLETED' });
+  });
+});

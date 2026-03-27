@@ -6,6 +6,8 @@ import { formatAssetAmount, formatRate8 } from '../utils/number-format';
 interface SwapTransactionDetail {
   id: string;
   swapNo: string;
+  quoteId?: string | null;
+  quoteNo?: string | null;
   ownerType: string;
   ownerId: string;
   ownerNo: string | null;
@@ -26,6 +28,9 @@ interface SwapTransactionDetail {
   toAssetId: string;
   toAssetCode: string | null;
   toAmount: string;
+  netToAmount?: string | null;
+  feeAmount?: string | null;
+  feeCurrency?: string | null;
   toAsset: {
     code: string;
     type: string;
@@ -34,6 +39,11 @@ interface SwapTransactionDetail {
   };
 
   exchangeRate: string;
+  riskDecisionRef?: string | null;
+  alertId?: string | null;
+  caseId?: string | null;
+  failureCode?: string | null;
+  failureReason?: string | null;
 
   // Timings
   createdAt: string;
@@ -49,14 +59,6 @@ interface SwapTransactionDetail {
 
   // Audit
   statusHistory: string | null;
-  auditLogs?: Array<{
-    id: string;
-    oldStatus: string;
-    newStatus: string;
-    reason: string | null;
-    createdAt: string;
-    operatorId: string;
-  }>;
 }
 
 const SwapTransactionDetail = () => {
@@ -150,6 +152,7 @@ const SwapTransactionDetail = () => {
       UNDER_REVIEW: 'bg-yellow-100 text-yellow-800',
       SUCCESS: 'bg-green-100 text-green-800',
       REJECTED: 'bg-red-100 text-red-800',
+      FAILED: 'bg-red-100 text-red-800',
     };
     return (
       <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${colors[status] || 'bg-gray-100 text-gray-800'}`}>
@@ -194,17 +197,38 @@ const SwapTransactionDetail = () => {
             </div>
           </div>
         </div>
-        <div className="flex gap-2 items-center">
-            {getAvailableActions(data.status).map(act => (
+        <div className="flex flex-col items-end gap-2">
+            <div className="text-right text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+              Standard review path runs through Compliance Center.
+            </div>
+            <div className="flex gap-2 items-center">
+              <button
+                onClick={() => navigate(`/dashboard/compliance/alerts?sourceType=SWAP&sourceId=${data.id}`)}
+                className="px-4 py-2 rounded-lg text-sm font-medium border border-admin-border text-gray-700 hover:bg-gray-50"
+              >
+                Open Alerts
+              </button>
+              <button
+                onClick={() =>
+                  navigate(
+                    `/dashboard/audit/audit-logs?workflowType=SWAP&workflowNo=${encodeURIComponent(
+                      data.swapNo,
+                    )}`,
+                  )
+                }
+                className="px-4 py-2 rounded-lg text-sm font-medium border border-admin-border text-gray-700 hover:bg-gray-50"
+              >
+                Open Audit Trail
+              </button>
+              {data.caseId && (
                 <button
-                    key={act.action}
-                    onClick={() => act.action === 'reject' ? setIsRejectModalOpen(true) : handleAction(act.action)}
-                    disabled={isSubmitting}
-                    className={`px-4 py-2 rounded-lg text-white text-sm font-medium shadow-sm transition-colors ${act.color} ${isSubmitting ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  onClick={() => navigate(`/dashboard/compliance/cases/${data.caseId}`)}
+                  className="px-4 py-2 rounded-lg text-sm font-medium border border-admin-border text-gray-700 hover:bg-gray-50"
                 >
-                    {act.label}
+                  Open Case
                 </button>
-            ))}
+              )}
+            </div>
         </div>
       </div>
 
@@ -213,6 +237,8 @@ const SwapTransactionDetail = () => {
         <DetailCard title="Basic Identification" icon={<FileText size={18} />}>
             <InfoField label="ID" value={data.id} source="main" />
             <InfoField label="Swap No" value={data.swapNo} highlight source="main" />
+            <InfoField label="Quote ID" value={data.quoteId || 'N/A'} source="main" />
+            <InfoField label="Quote No" value={data.quoteNo || 'N/A'} source="main" />
             <InfoField label="Owner Type" value={data.ownerType} source="main" />
             <InfoField label="Owner ID" value={data.ownerId} icon={<User size={14}/>} source="main" />
             <InfoField label="Owner No" value={ownerNo} source="main" />
@@ -237,7 +263,9 @@ const SwapTransactionDetail = () => {
             <DetailCard title="Buy Asset (To)" icon={<ArrowRight size={18} className="-rotate-45 text-green-500" />} columns={1}>
                 <InfoField label="Asset Code" value={data.toAssetCode || data.toAsset.code} highlight source="main" />
                 <InfoField label="Asset Type" value={data.toAsset.type} source="main" />
-                <InfoField label="Amount" value={`${formatAssetAmount(data.toAmount, data.toAsset.decimals)} ${data.toAsset.code}`} highlight source="main" />
+                <InfoField label="Gross Amount" value={`${formatAssetAmount(data.toAmount, data.toAsset.decimals)} ${data.toAsset.code}`} source="main" />
+                <InfoField label="Fee" value={`${formatAssetAmount(data.feeAmount || '0', data.toAsset.decimals)} ${data.feeCurrency || data.toAsset.code}`} source="main" />
+                <InfoField label="Net Amount" value={`${formatAssetAmount(data.netToAmount || data.toAmount, data.toAsset.decimals)} ${data.toAsset.code}`} highlight source="main" />
                 <InfoField label="Asset ID" value={data.toAssetId} source="main" />
             </DetailCard>
         </div>
@@ -251,14 +279,42 @@ const SwapTransactionDetail = () => {
         {/* 4. Status & Timings */}
         <DetailCard title="Status & Timings" icon={<Clock size={18} />}>
             <InfoField label="Current Status" value={data.status} highlight source="main" />
+            <InfoField label="Risk Decision Ref" value={data.riskDecisionRef || 'N/A'} source="main" />
+            <InfoField label="Alert ID" value={data.alertId || 'N/A'} source="main" />
+            <InfoField label="Case ID" value={data.caseId || 'N/A'} source="main" />
+            <InfoField label="Failure Code" value={data.failureCode || 'N/A'} source="main" />
+            <InfoField label="Failure Reason" value={data.failureReason || 'N/A'} source="main" />
             <InfoField label="Created At" value={new Date(data.createdAt).toLocaleString()} source="main" />
             <InfoField label="Updated At" value={new Date(data.updatedAt).toLocaleString()} source="main" />
             <InfoField label="Completed At" value={data.completedAt ? new Date(data.completedAt).toLocaleString() : 'N/A'} source="main" />
         </DetailCard>
 
+        {getAvailableActions(data.status).length > 0 && (
+          <DetailCard title="Fallback Actions" icon={<Activity size={18} />} columns={1}>
+            <div className="flex flex-wrap gap-2">
+              {getAvailableActions(data.status).map(act => (
+                <button
+                  key={act.action}
+                  onClick={() => act.action === 'reject' ? setIsRejectModalOpen(true) : handleAction(act.action)}
+                  disabled={isSubmitting}
+                  className={`px-4 py-2 rounded-lg text-white text-sm font-medium shadow-sm transition-colors ${act.color} ${isSubmitting ? 'opacity-50 cursor-not-allowed' : ''}`}
+                >
+                  {act.label}
+                </button>
+              ))}
+            </div>
+            <p className="text-xs text-gray-500 mt-3">
+              These buttons are retained as operator fallback tools and are not the primary happy path for Wave 6 review.
+            </p>
+          </DetailCard>
+        )}
+
         {/* 5. Audit & History */}
-        <DetailCard title="Status History & Audit" icon={<Activity size={18} />} columns={1}>
+        <DetailCard title="Status History" icon={<Activity size={18} />} columns={1}>
              <StatusTimeline historyJson={data.statusHistory} />
+             <p className="text-xs text-gray-500 mt-3">
+               Canonical audit events are available in Audit Center for workflow type <span className="font-mono">SWAP</span> and workflow no <span className="font-mono">{data.swapNo}</span>.
+             </p>
         </DetailCard>
       </div>
 

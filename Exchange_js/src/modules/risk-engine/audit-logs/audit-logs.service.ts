@@ -95,7 +95,30 @@ export interface DepositEvidenceSnapshots {
   depositEvidenceChain: DepositEvidenceChainItem[];
 }
 
-interface DepositWorkflowContext {
+export interface SwapEvidenceChainItem {
+  swapId: string;
+  swapNo: string | null;
+  quoteId: string | null;
+  quoteNo: string | null;
+  decisionRecordIds: string[];
+  alertIds: string[];
+  caseIds: string[];
+  journalIds: string[];
+  outstandingIds: string[];
+}
+
+export interface SwapEvidenceSnapshots {
+  swapTransactions: any[];
+  swapQuotes: any[];
+  swapRiskDecisionRecords: any[];
+  swapAlerts: any[];
+  swapCases: any[];
+  swapJournals: any[];
+  swapOutstandings: any[];
+  swapEvidenceChain: SwapEvidenceChainItem[];
+}
+
+interface AuditWorkflowContext {
   traceId: string | null;
   workflowType: string | null;
   workflowId: string | null;
@@ -386,15 +409,19 @@ export class AuditLogsService {
     input: CreateAuditLogEventDto,
     entityOwnerNo: string | null,
     db: any,
-  ): Promise<DepositWorkflowContext> {
+  ): Promise<AuditWorkflowContext> {
     const explicitWorkflowType = this.normalizeEntityType(input.workflowType);
     const entityType = this.normalizeEntityType(input.entityType);
     const shouldResolveDeposit =
       explicitWorkflowType === AuditWorkflowTypes.DEPOSIT ||
       entityType === AuditEntityTypes.DEPOSIT_TRANSACTION ||
       entityType === AuditEntityTypes.PAYIN;
+    const shouldResolveSwap =
+      explicitWorkflowType === AuditWorkflowTypes.SWAP ||
+      entityType === AuditEntityTypes.SWAP_TRANSACTION ||
+      entityType === AuditEntityTypes.SWAP_QUOTE;
 
-    if (!shouldResolveDeposit) {
+    if (!shouldResolveDeposit && !shouldResolveSwap) {
       return {
         traceId: this.normalizeOptionalString(input.traceId),
         workflowType: this.normalizeOptionalString(input.workflowType),
@@ -402,6 +429,130 @@ export class AuditLogsService {
         workflowNo: this.normalizeOptionalString(input.workflowNo),
         entityOwnerNo,
         relatedSubjectNos: [],
+      };
+    }
+
+    if (shouldResolveSwap) {
+      let swap: any = null;
+      let quote: any = null;
+
+      if (
+        (entityType === AuditEntityTypes.SWAP_TRANSACTION ||
+          explicitWorkflowType === AuditWorkflowTypes.SWAP) &&
+        (input.workflowId || input.entityId) &&
+        db?.swapTransaction?.findUnique
+      ) {
+        swap = await db.swapTransaction.findUnique({
+          where: { id: input.workflowId || input.entityId },
+          select: {
+            id: true,
+            swapNo: true,
+            ownerId: true,
+            ownerNo: true,
+            quoteId: true,
+            quoteNo: true,
+            customer: {
+              select: {
+                customerNo: true,
+              },
+            },
+            quote: {
+              select: {
+                id: true,
+                quoteNo: true,
+                ownerNo: true,
+              },
+            },
+          },
+        });
+        if (!swap && input.entityId && input.entityId !== input.workflowId) {
+          swap = await db.swapTransaction.findUnique({
+            where: { id: input.entityId },
+            select: {
+              id: true,
+              swapNo: true,
+              ownerId: true,
+              ownerNo: true,
+              quoteId: true,
+              quoteNo: true,
+              customer: {
+                select: {
+                  customerNo: true,
+                },
+              },
+              quote: {
+                select: {
+                  id: true,
+                  quoteNo: true,
+                  ownerNo: true,
+                },
+              },
+            },
+          });
+        }
+        quote = swap?.quote || null;
+      }
+
+      if (
+        !quote &&
+        entityType === AuditEntityTypes.SWAP_QUOTE &&
+        input.entityId &&
+        db?.swapQuote?.findUnique
+      ) {
+        quote = await db.swapQuote.findUnique({
+          where: { id: input.entityId },
+          select: {
+            id: true,
+            quoteNo: true,
+            ownerId: true,
+            ownerNo: true,
+            swapTransaction: {
+              select: {
+                id: true,
+                swapNo: true,
+                ownerId: true,
+                ownerNo: true,
+              },
+            },
+          },
+        });
+        if (quote?.swapTransaction) {
+          swap = quote.swapTransaction;
+        }
+      }
+
+      const workflowId =
+        this.normalizeOptionalString(input.workflowId) ||
+        this.normalizeOptionalString(swap?.id) ||
+        this.normalizeOptionalString(quote?.id) ||
+        this.normalizeOptionalString(swap?.quoteId) ||
+        null;
+      const workflowNo =
+        this.normalizeOptionalString(input.workflowNo) ||
+        this.normalizeOptionalString(swap?.swapNo) ||
+        this.normalizeOptionalString(quote?.quoteNo) ||
+        this.normalizeOptionalString(swap?.quoteNo) ||
+        workflowId;
+      const resolvedEntityOwnerNo =
+        entityOwnerNo ||
+        swap?.ownerNo ||
+        swap?.customer?.customerNo ||
+        quote?.ownerNo ||
+        null;
+      const relatedSubjectNos = this.mergeSubjectNos(
+        this.buildRelatedSubjectNo('SWAP', swap?.id, swap?.swapNo),
+        this.buildRelatedSubjectNo('SWAP_QUOTE', quote?.id, quote?.quoteNo),
+      );
+
+      return {
+        traceId:
+          this.normalizeOptionalString(input.traceId) ||
+          (workflowId ? `${AuditWorkflowTypes.SWAP}:${workflowId}` : null),
+        workflowType: AuditWorkflowTypes.SWAP,
+        workflowId,
+        workflowNo,
+        entityOwnerNo: resolvedEntityOwnerNo,
+        relatedSubjectNos,
       };
     }
 
@@ -800,7 +951,215 @@ export class AuditLogsService {
     };
   }
 
-  private buildWhere(query: AuditLogQueryDto): any {
+  private async resolveSwapWorkflowSearchExpansion(
+    workflowNo: string,
+    db: any,
+  ): Promise<{
+    workflowNos: string[];
+    traceIds: string[];
+  }> {
+    const normalizedWorkflowNo = this.normalizeOptionalString(workflowNo);
+    if (!normalizedWorkflowNo) {
+      return {
+        workflowNos: [],
+        traceIds: [],
+      };
+    }
+
+    const directSwapMatches = db?.swapTransaction?.findMany
+      ? await db.swapTransaction.findMany({
+          where: {
+            OR: [
+              { swapNo: normalizedWorkflowNo },
+              { quoteNo: normalizedWorkflowNo },
+            ],
+          },
+          select: {
+            id: true,
+            swapNo: true,
+            quoteId: true,
+            quoteNo: true,
+          },
+        })
+      : [];
+
+    const quoteMatches = db?.swapQuote?.findMany
+      ? await db.swapQuote.findMany({
+          where: {
+            quoteNo: normalizedWorkflowNo,
+          },
+          select: {
+            id: true,
+            quoteNo: true,
+          },
+        })
+      : [];
+
+    const quoteIds = this.toSortedUniqueStrings([
+      ...directSwapMatches.map((item: any) => item.quoteId),
+      ...quoteMatches.map((item: any) => item.id),
+    ]);
+
+    const linkedSwapMatches =
+      quoteIds.length && db?.swapTransaction?.findMany
+        ? await db.swapTransaction.findMany({
+            where: {
+              OR: [
+                { quoteId: { in: quoteIds } },
+                { quoteSnapshotRef: { in: quoteIds } },
+              ],
+            },
+            select: {
+              id: true,
+              swapNo: true,
+              quoteId: true,
+              quoteNo: true,
+            },
+          })
+        : [];
+
+    const allSwaps = [...directSwapMatches, ...linkedSwapMatches];
+    return {
+      workflowNos: this.toSortedUniqueStrings([
+        normalizedWorkflowNo,
+        ...allSwaps.map((item: any) => item.swapNo),
+        ...allSwaps.map((item: any) => item.quoteNo),
+        ...quoteMatches.map((item: any) => item.quoteNo),
+      ]),
+      traceIds: this.toSortedUniqueStrings([
+        ...allSwaps.map((item: any) =>
+          item.id ? `${AuditWorkflowTypes.SWAP}:${item.id}` : null,
+        ),
+        ...quoteIds.map((item) => `${AuditWorkflowTypes.SWAP}:${item}`),
+      ]),
+    };
+  }
+
+  private async resolveSwapExportSelectionContext(
+    records: any[],
+    db: any,
+  ): Promise<{
+    swapIds: string[];
+    swapNos: string[];
+    quoteIds: string[];
+    quoteNos: string[];
+    swapTransactions: Array<{
+      id: string;
+      swapNo: string | null;
+      quoteId: string | null;
+      quoteNo: string | null;
+      quoteSnapshotRef?: string | null;
+    }>;
+    swapQuotes: Array<{
+      id: string;
+      quoteNo: string | null;
+    }>;
+  }> {
+    const workflowIds = this.toSortedUniqueStrings(
+      records
+        .filter((item) => item.workflowType === AuditWorkflowTypes.SWAP)
+        .map((item) => this.normalizeOptionalString(item.workflowId)) as Array<string | null>,
+    );
+    const workflowNos = this.toSortedUniqueStrings(
+      records
+        .filter((item) => item.workflowType === AuditWorkflowTypes.SWAP)
+        .map((item) => this.normalizeOptionalString(item.workflowNo)) as Array<string | null>,
+    );
+    const subjectNos = this.toSortedUniqueStrings(
+      records.flatMap((item) =>
+        Array.isArray(item.subjectNos)
+          ? item.subjectNos.map((subject: any) =>
+              this.normalizeOptionalString(subject?.subjectNo),
+            )
+          : [],
+      ) as Array<string | null>,
+    );
+
+    const candidateNos = this.toSortedUniqueStrings([
+      ...workflowNos,
+      ...subjectNos,
+    ]);
+
+    if (!workflowIds.length && !candidateNos.length) {
+      return {
+        swapIds: [],
+        swapNos: [],
+        quoteIds: [],
+        quoteNos: [],
+        swapTransactions: [],
+        swapQuotes: [],
+      };
+    }
+
+    const swapTransactions = db?.swapTransaction?.findMany
+      ? await db.swapTransaction.findMany({
+          where: {
+            OR: [
+              ...(workflowIds.length
+                ? [
+                    { id: { in: workflowIds } },
+                    { quoteId: { in: workflowIds } },
+                    { quoteSnapshotRef: { in: workflowIds } },
+                  ]
+                : []),
+              ...(candidateNos.length
+                ? [
+                    { swapNo: { in: candidateNos } },
+                    { quoteNo: { in: candidateNos } },
+                  ]
+                : []),
+            ],
+          },
+          select: {
+            id: true,
+            swapNo: true,
+            quoteId: true,
+            quoteNo: true,
+            quoteSnapshotRef: true,
+          },
+        })
+      : [];
+
+    const quoteIds = this.toSortedUniqueStrings([
+      ...workflowIds,
+      ...swapTransactions.map((item: any) => item.quoteId),
+      ...swapTransactions.map((item: any) => item.quoteSnapshotRef),
+    ]);
+
+    const swapQuotes = (quoteIds.length || candidateNos.length) && db?.swapQuote?.findMany
+      ? await db.swapQuote.findMany({
+          where: {
+            OR: [
+              { id: { in: quoteIds } },
+              { quoteNo: { in: candidateNos } },
+            ],
+          },
+          select: {
+            id: true,
+            quoteNo: true,
+          },
+        })
+      : [];
+
+    return {
+      swapIds: this.toSortedUniqueStrings(swapTransactions.map((item: any) => item.id)),
+      swapNos: this.toSortedUniqueStrings(
+        swapTransactions.map((item: any) => item.swapNo),
+      ),
+      quoteIds: this.toSortedUniqueStrings([
+        ...quoteIds,
+        ...swapQuotes.map((item: any) => item.id),
+      ]),
+      quoteNos: this.toSortedUniqueStrings([
+        ...swapTransactions.map((item: any) => item.quoteNo),
+        ...swapQuotes.map((item: any) => item.quoteNo),
+      ]),
+      swapTransactions,
+      swapQuotes,
+    };
+  }
+
+  private async buildWhere(query: AuditLogQueryDto, db?: any): Promise<any> {
     const startAt = this.toDate(query.startAt);
     const endAt = this.toDate(query.endAt);
 
@@ -809,59 +1168,102 @@ export class AuditLogsService {
     }
 
     const where: any = {};
-    if (query.triggerType) where.triggerType = query.triggerType;
-    if (query.module) where.module = query.module;
-    if (query.entityType) where.entityType = query.entityType;
-    if (query.entityId) where.entityId = query.entityId;
-    if (query.actorId) where.actorId = query.actorId;
-    if (query.actorNo) where.actorNo = query.actorNo;
-    if (query.entityOwnerNo) where.entityOwnerNo = query.entityOwnerNo;
-    if (query.traceId) where.traceId = query.traceId;
-    if (query.workflowType) where.workflowType = query.workflowType;
-    if (query.workflowNo) where.workflowNo = query.workflowNo;
-    if (query.result) where.result = query.result;
+    const andClauses: any[] = [];
+    if (query.triggerType) andClauses.push({ triggerType: query.triggerType });
+    if (query.module) andClauses.push({ module: query.module });
+    if (query.entityType) andClauses.push({ entityType: query.entityType });
+    if (query.entityId) andClauses.push({ entityId: query.entityId });
+    if (query.actorId) andClauses.push({ actorId: query.actorId });
+    if (query.actorNo) andClauses.push({ actorNo: query.actorNo });
+    if (query.entityOwnerNo) andClauses.push({ entityOwnerNo: query.entityOwnerNo });
+    if (query.traceId) andClauses.push({ traceId: query.traceId });
+    if (query.workflowType) andClauses.push({ workflowType: query.workflowType });
+    if (query.result) andClauses.push({ result: query.result });
+
+    const normalizedWorkflowType = this.normalizeEntityType(query.workflowType);
+    const normalizedWorkflowNo = this.normalizeOptionalString(query.workflowNo);
+    if (normalizedWorkflowNo) {
+      if (normalizedWorkflowType === AuditWorkflowTypes.SWAP && db) {
+        const expanded = await this.resolveSwapWorkflowSearchExpansion(
+          normalizedWorkflowNo,
+          db,
+        );
+        const workflowNos = expanded.workflowNos.length
+          ? expanded.workflowNos
+          : [normalizedWorkflowNo];
+        const orClauses: any[] = [
+          { workflowNo: { in: workflowNos } },
+          {
+            subjectNos: {
+              some: {
+                subjectNo: { in: workflowNos },
+              },
+            },
+          },
+        ];
+        if (expanded.traceIds.length) {
+          orClauses.push({
+            traceId: { in: expanded.traceIds },
+          });
+        }
+        andClauses.push({ OR: orClauses });
+      } else {
+        andClauses.push({ workflowNo: normalizedWorkflowNo });
+      }
+    }
 
     if (query.subjectNo || query.subjectType) {
-      where.subjectNos = {
-        some: {
-          ...(query.subjectNo ? { subjectNo: query.subjectNo } : {}),
-          ...(query.subjectType ? { subjectType: query.subjectType } : {}),
+      andClauses.push({
+        subjectNos: {
+          some: {
+            ...(query.subjectNo ? { subjectNo: query.subjectNo } : {}),
+            ...(query.subjectType ? { subjectType: query.subjectType } : {}),
+          },
         },
-      };
+      });
     }
 
     if (query.includeArchived !== true) {
-      where.archivedAt = null;
+      andClauses.push({ archivedAt: null });
     }
 
     if (startAt || endAt) {
-      where.occurredAt = {};
-      if (startAt) where.occurredAt.gte = startAt;
-      if (endAt) where.occurredAt.lte = endAt;
+      const occurredAt: any = {};
+      if (startAt) occurredAt.gte = startAt;
+      if (endAt) occurredAt.lte = endAt;
+      andClauses.push({ occurredAt });
     }
 
     if (query.keyword) {
-      where.OR = [
-        { action: { contains: query.keyword } },
-        { module: { contains: query.keyword } },
-        { entityType: { contains: query.keyword } },
-        { entityId: { contains: query.keyword } },
-        { entityNo: { contains: query.keyword } },
-        { actorNo: { contains: query.keyword } },
-        { entityOwnerNo: { contains: query.keyword } },
-        { traceId: { contains: query.keyword } },
-        { workflowNo: { contains: query.keyword } },
-        { reason: { contains: query.keyword } },
-        {
-          subjectNos: {
-            some: {
-              subjectNo: { contains: query.keyword },
+      andClauses.push({
+        OR: [
+          { action: { contains: query.keyword } },
+          { module: { contains: query.keyword } },
+          { entityType: { contains: query.keyword } },
+          { entityId: { contains: query.keyword } },
+          { entityNo: { contains: query.keyword } },
+          { actorNo: { contains: query.keyword } },
+          { entityOwnerNo: { contains: query.keyword } },
+          { traceId: { contains: query.keyword } },
+          { workflowNo: { contains: query.keyword } },
+          { reason: { contains: query.keyword } },
+          {
+            subjectNos: {
+              some: {
+                subjectNo: { contains: query.keyword },
+              },
             },
           },
-        },
-      ];
+        ],
+      });
     }
 
+    if (andClauses.length === 1) {
+      return andClauses[0];
+    }
+    if (andClauses.length > 1) {
+      where.AND = andClauses;
+    }
     return where;
   }
 
@@ -985,15 +1387,14 @@ export class AuditLogsService {
       throw new BadRequestException(`selectedEventIds exceeds export maxItems=${maxItems}`);
     }
 
-    const where = {
-      ...this.buildWhere(query),
-      id: { in: selectedEventIds },
-    };
-
     const db = this.getDb() as any;
     if (!this.canOperateAuditLogEvent(db)) {
       throw new BadRequestException('Audit log event model is unavailable');
     }
+    const where = {
+      ...(await this.buildWhere(query, db)),
+      id: { in: selectedEventIds },
+    };
 
     const includeSubjectNos = this.canOperateAuditLogSubjectNo(db)
       ? {
@@ -1028,6 +1429,32 @@ export class AuditLogsService {
     const workflowSummaryType =
       explicitWorkflowType ||
       (resolvedWorkflowTypes.length === 1 ? resolvedWorkflowTypes[0] : null);
+    const swapSelectionContext =
+      workflowSummaryType === AuditWorkflowTypes.SWAP
+        ? await this.resolveSwapExportSelectionContext(records, db)
+        : null;
+    const canonicalSwapWorkflowNo =
+      swapSelectionContext && swapSelectionContext.swapNos.length === 1
+        ? swapSelectionContext.swapNos[0]
+        : null;
+    const workflowSummaryNos =
+      workflowSummaryType === AuditWorkflowTypes.SWAP && swapSelectionContext
+        ? swapSelectionContext.swapNos.length
+          ? swapSelectionContext.swapNos
+          : swapSelectionContext.quoteNos.length
+            ? swapSelectionContext.quoteNos
+            : this.toSortedUniqueStrings(records.map((row: any) => row.workflowNo))
+        : (this.toSortedUniqueStrings(records.map((row: any) => row.workflowNo)) as string[]);
+
+    const normalizedCriteriaWorkflowNo =
+      workflowSummaryType === AuditWorkflowTypes.SWAP && canonicalSwapWorkflowNo
+        ? canonicalSwapWorkflowNo
+        : query.workflowNo || null;
+    const filterSnapshotWorkflowNo =
+      workflowSummaryType === AuditWorkflowTypes.SWAP && canonicalSwapWorkflowNo
+        ? canonicalSwapWorkflowNo
+        : query.workflowNo || null;
+
     return {
       normalizedCriteria: {
         mode: query.mode || AuditEvidenceExportMode.SELECTION,
@@ -1035,7 +1462,7 @@ export class AuditLogsService {
         maxItems,
         includeRecords: query.includeRecords !== false,
         workflowType: explicitWorkflowType,
-        workflowNo: query.workflowNo || null,
+        workflowNo: normalizedCriteriaWorkflowNo,
         traceId: query.traceId || null,
         subjectNo: query.subjectNo || null,
         subjectType: query.subjectType || null,
@@ -1046,15 +1473,14 @@ export class AuditLogsService {
         ...query,
         skip,
         maxItems,
+        workflowNo: filterSnapshotWorkflowNo,
       },
       selectedEventIds,
       records,
       itemCount: records.length,
       workflowSummary: {
         workflowType: workflowSummaryType,
-        workflowNos: Array.from(
-          new Set(records.map((row: any) => row.workflowNo).filter(Boolean)),
-        ).sort() as string[],
+        workflowNos: workflowSummaryNos,
       },
     };
   }
@@ -1072,7 +1498,14 @@ export class AuditLogsService {
   ): Promise<BuiltEvidencePackageArtifacts> {
     const selection = await this.prepareEvidenceExportSelection(query);
     const db = this.getDb() as any;
-    const snapshots = await this.buildDepositSnapshots(selection.records, db);
+    const [depositSnapshots, swapSnapshots] = await Promise.all([
+      this.buildDepositSnapshots(selection.records, db),
+      this.buildSwapSnapshots(selection.records, db),
+    ]);
+    const snapshots = {
+      ...depositSnapshots,
+      ...swapSnapshots,
+    };
     const recordDigests = selection.records.map((row: any) => ({
       id: row.id,
       auditNo: row.auditNo,
@@ -1279,12 +1712,12 @@ export class AuditLogsService {
   async findAll(query: AuditLogQueryDto) {
     const skip = this.normalizeSkip(query.skip);
     const take = this.normalizeTake(query.take);
-    const where = this.buildWhere(query);
 
     const db = this.getDb() as any;
     if (!this.canOperateAuditLogEvent(db)) {
       throw this.auditStorageUnavailable('Audit log event storage');
     }
+    const where = await this.buildWhere(query, db);
     const includeSubjectNos = this.canOperateAuditLogSubjectNo(db)
       ? {
           include: {
@@ -1423,6 +1856,72 @@ export class AuditLogsService {
         ),
         internalFundIds: this.toSortedUniqueStrings(
           depositInternalFunds.map((item) => item.id),
+        ),
+      };
+    });
+  }
+
+  private buildSwapEvidenceChain(params: {
+    swapTransactions: any[];
+    swapQuotes: any[];
+    riskDecisionRecords: any[];
+    alerts: any[];
+    cases: any[];
+    journals: any[];
+    outstandings: any[];
+  }): SwapEvidenceChainItem[] {
+    const {
+      swapTransactions,
+      swapQuotes,
+      riskDecisionRecords,
+      alerts,
+      cases,
+      journals,
+      outstandings,
+    } = params;
+
+    return swapTransactions.map((swap) => {
+      const swapId = String(swap.id);
+      const quoteId = this.normalizeOptionalString(swap.quoteId);
+      const linkedQuote = swapQuotes.find(
+        (item) => String(item.id) === quoteId,
+      );
+      const swapDecisionRecords = riskDecisionRecords.filter(
+        (item) => String(item.subjectId) === swapId,
+      );
+      const swapAlerts = alerts.filter(
+        (item) => String(item.sourceId) === swapId,
+      );
+      const swapCases = cases.filter(
+        (item) => String(item.sourceId) === swapId,
+      );
+      const swapJournals = journals.filter(
+        (item) => String(item.sourceId) === swapId,
+      );
+      const swapOutstandings = outstandings.filter(
+        (item) => String(item.sourceId) === swapId,
+      );
+
+      return {
+        swapId,
+        swapNo: swap.swapNo || null,
+        quoteId: quoteId || linkedQuote?.id || null,
+        quoteNo:
+          this.normalizeOptionalString(swap.quoteNo) ||
+          this.normalizeOptionalString(linkedQuote?.quoteNo) ||
+          null,
+        decisionRecordIds: this.toSortedUniqueStrings([
+          ...swapDecisionRecords.map((item) => item.id),
+          ...swapAlerts.flatMap((item) => item.decisionRecordIds || []),
+          ...swapCases.flatMap((item) => item.decisionRecordIds || []),
+        ]),
+        alertIds: this.toSortedUniqueStrings(swapAlerts.map((item) => item.id)),
+        caseIds: this.toSortedUniqueStrings(swapCases.map((item) => item.id)),
+        journalIds: this.toSortedUniqueStrings(
+          swapJournals.map((item) => item.id),
+        ),
+        outstandingIds: this.toSortedUniqueStrings(
+          swapOutstandings.map((item) => item.id),
         ),
       };
     });
@@ -1753,6 +2252,342 @@ export class AuditLogsService {
       internalTransactions,
       internalFunds,
       depositEvidenceChain,
+    };
+  }
+
+  private async buildSwapSnapshots(
+    records: any[],
+    db: any,
+  ): Promise<SwapEvidenceSnapshots> {
+    const selectionContext = await this.resolveSwapExportSelectionContext(records, db);
+    const workflowIds = this.toSortedUniqueStrings([
+      ...selectionContext.swapIds,
+      ...selectionContext.quoteIds,
+    ]);
+
+    if (
+      !workflowIds.length ||
+      !db?.swapTransaction?.findMany ||
+      !db?.swapQuote?.findMany
+    ) {
+      return {
+        swapTransactions: [],
+        swapQuotes: [],
+        swapRiskDecisionRecords: [],
+        swapAlerts: [],
+        swapCases: [],
+        swapJournals: [],
+        swapOutstandings: [],
+        swapEvidenceChain: [],
+      };
+    }
+
+    const initialQuotes = await db.swapQuote.findMany({
+      where: { id: { in: selectionContext.quoteIds } },
+      orderBy: { quoteNo: 'asc' },
+      include: {
+        fromAsset: {
+          select: {
+            id: true,
+            code: true,
+            type: true,
+            network: true,
+            decimals: true,
+          },
+        },
+        toAsset: {
+          select: {
+            id: true,
+            code: true,
+            type: true,
+            network: true,
+            decimals: true,
+          },
+        },
+      },
+    });
+
+    const swapTransactions = await db.swapTransaction.findMany({
+      where: {
+        OR: [
+          { id: { in: selectionContext.swapIds } },
+          { quoteId: { in: selectionContext.quoteIds } },
+          { quoteSnapshotRef: { in: selectionContext.quoteIds } },
+        ],
+      },
+      orderBy: { swapNo: 'asc' },
+      include: {
+        fromAsset: {
+          select: {
+            id: true,
+            code: true,
+            type: true,
+            network: true,
+            decimals: true,
+          },
+        },
+        toAsset: {
+          select: {
+            id: true,
+            code: true,
+            type: true,
+            network: true,
+            decimals: true,
+          },
+        },
+        customer: {
+          select: {
+            id: true,
+            customerNo: true,
+            firstName: true,
+            lastName: true,
+            email: true,
+            amlRiskTier: true,
+            investorClassification: true,
+          },
+        },
+      },
+    });
+
+    const quoteIds = this.toSortedUniqueStrings([
+      ...initialQuotes.map((item: any) => item.id),
+      ...swapTransactions.map((item: any) => item.quoteId),
+      ...swapTransactions.map((item: any) => item.quoteSnapshotRef),
+    ]);
+
+    const swapQuotes = quoteIds.length
+      ? await db.swapQuote.findMany({
+          where: { id: { in: quoteIds } },
+          orderBy: { quoteNo: 'asc' },
+          include: {
+            fromAsset: {
+              select: {
+                id: true,
+                code: true,
+                type: true,
+                network: true,
+                decimals: true,
+              },
+            },
+            toAsset: {
+              select: {
+                id: true,
+                code: true,
+                type: true,
+                network: true,
+                decimals: true,
+              },
+            },
+          },
+        })
+      : [];
+
+    const swapIds = this.toSortedUniqueStrings(
+      swapTransactions.map((item: any) => item.id),
+    );
+    if (!swapIds.length) {
+      return {
+        swapTransactions,
+        swapQuotes,
+        swapRiskDecisionRecords: [],
+        swapAlerts: [],
+        swapCases: [],
+        swapJournals: [],
+        swapOutstandings: [],
+        swapEvidenceChain: [],
+      };
+    }
+
+    const [
+      riskDecisionRecords,
+      alerts,
+      cases,
+      journals,
+      outstandings,
+    ] = await Promise.all([
+      db.workflowDecisionRecord?.findMany
+        ? db.workflowDecisionRecord.findMany({
+            where: {
+              subjectId: { in: swapIds },
+              contextType: 'TX_SWAP_FINAL',
+            },
+            orderBy: [{ subjectId: 'asc' }, { createdAt: 'asc' }],
+            select: {
+              id: true,
+              customerId: true,
+              contextType: true,
+              subjectId: true,
+              policyVersion: true,
+              status: true,
+              inputPayload: true,
+              inputHash: true,
+              outputDecision: true,
+              recommendedActions: true,
+              outputs: true,
+              reasonCodes: true,
+              errorMessage: true,
+              createdAt: true,
+              completedAt: true,
+              updatedAt: true,
+            },
+          })
+        : Promise.resolve([]),
+      db.complianceAlert?.findMany
+        ? db.complianceAlert.findMany({
+            where: {
+              sourceType: AuditWorkflowTypes.SWAP,
+              sourceId: { in: swapIds },
+            },
+            orderBy: [{ sourceId: 'asc' }, { firstOccurredAt: 'asc' }],
+            select: {
+              id: true,
+              alertNo: true,
+              sourceType: true,
+              sourceId: true,
+              sourceNo: true,
+              stage: true,
+              ruleCode: true,
+              severity: true,
+              status: true,
+              decisionRecommendation: true,
+              decision: true,
+              decisionRecordIds: true,
+              linkedCaseIds: true,
+              currentDispositionCode: true,
+              finalDispositionCode: true,
+              hitCount: true,
+              metadata: true,
+              firstOccurredAt: true,
+              lastOccurredAt: true,
+              createdAt: true,
+              updatedAt: true,
+            },
+          })
+        : Promise.resolve([]),
+      db.complianceIncident?.findMany
+        ? db.complianceIncident.findMany({
+            where: {
+              sourceType: AuditWorkflowTypes.SWAP,
+              entityId: { in: swapIds },
+            },
+            orderBy: [{ entityId: 'asc' }, { createdAt: 'asc' }],
+            select: {
+              id: true,
+              incidentNo: true,
+              caseType: true,
+              status: true,
+              severity: true,
+              primaryAlertId: true,
+              primaryAlertNo: true,
+              entityId: true,
+              entityNo: true,
+              sourceType: true,
+              stage: true,
+              ruleCode: true,
+              decision: true,
+              proposedWorkflowDecision: true,
+              mlroReviewOutcome: true,
+              currentDispositionCode: true,
+              finalDispositionCode: true,
+              decisionRecordIds: true,
+              linkedCaseIds: true,
+              metadata: true,
+              createdAt: true,
+              updatedAt: true,
+            },
+          })
+        : Promise.resolve([]),
+      db.journal?.findMany
+        ? db.journal.findMany({
+            where: {
+              sourceType: 'SWAP',
+              sourceId: { in: swapIds },
+            },
+            orderBy: [{ sourceId: 'asc' }, { createdAt: 'asc' }],
+            select: {
+              id: true,
+              journalNo: true,
+              sourceType: true,
+              sourceId: true,
+              sourceNo: true,
+              eventCode: true,
+              postingStatus: true,
+              postedAt: true,
+              reversalOfJournalId: true,
+              baseAssetId: true,
+              totalAmount: true,
+              description: true,
+              createdAt: true,
+              updatedAt: true,
+            },
+          })
+        : Promise.resolve([]),
+      db.outstanding?.findMany
+        ? db.outstanding.findMany({
+            where: {
+              sourceType: 'SWAP',
+              sourceId: { in: swapIds },
+            },
+            orderBy: [{ sourceId: 'asc' }, { direction: 'asc' }],
+            select: {
+              id: true,
+              outstandingNo: true,
+              sourceType: true,
+              sourceId: true,
+              sourceNo: true,
+              direction: true,
+              assetId: true,
+              assetCode: true,
+              amount: true,
+              status: true,
+              createdAt: true,
+              updatedAt: true,
+              closedAt: true,
+            },
+          })
+        : Promise.resolve([]),
+    ]);
+
+    const mappedRiskDecisionRecords = riskDecisionRecords.map((row: any) => ({
+      ...row,
+      inputPayload: this.parseJson(row.inputPayload),
+      recommendedActions: this.parseJson(row.recommendedActions),
+      outputs: this.parseJson(row.outputs),
+      reasonCodes: this.parseJson(row.reasonCodes),
+    }));
+    const mappedAlerts = alerts.map((row: any) => ({
+      ...row,
+      decisionRecordIds: this.parseStringArray(row.decisionRecordIds),
+      linkedCaseIds: this.parseStringArray(row.linkedCaseIds),
+      metadata: this.parseJson(row.metadata),
+    }));
+    const mappedCases = cases.map((row: any) => ({
+      ...row,
+      sourceId: row.entityId,
+      sourceNo: row.entityNo,
+      decisionRecordIds: this.parseStringArray(row.decisionRecordIds),
+      linkedCaseIds: this.parseStringArray(row.linkedCaseIds),
+      metadata: this.parseJson(row.metadata),
+    }));
+    const swapEvidenceChain = this.buildSwapEvidenceChain({
+      swapTransactions,
+      swapQuotes,
+      riskDecisionRecords: mappedRiskDecisionRecords,
+      alerts: mappedAlerts,
+      cases: mappedCases,
+      journals,
+      outstandings,
+    });
+
+    return {
+      swapTransactions,
+      swapQuotes,
+      swapRiskDecisionRecords: mappedRiskDecisionRecords,
+      swapAlerts: mappedAlerts,
+      swapCases: mappedCases,
+      swapJournals: journals,
+      swapOutstandings: outstandings,
+      swapEvidenceChain,
     };
   }
 

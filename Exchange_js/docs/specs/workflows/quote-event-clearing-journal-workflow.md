@@ -1,6 +1,6 @@
 Status: draft
 Owner: project-owner-and-agents
-Last Updated: 2026-03-23
+Last Updated: 2026-03-26
 Applies To: `Exchange_js`
 Supersedes: none
 Depends On: `docs/constraints/posting-clearing-balance-projection-constraints.md`, `docs/constraints/pricing-and-quote-constraints.md`, `docs/specs/entities/pricing-quote-entity.md`
@@ -22,8 +22,9 @@ Source of Truth Level: specs-workflow
   - `SWAP`
   - `WITHDRAWAL`
 - Does not define full lifecycle state machines for deposit, swap, or withdraw.
-- Current runtime implementation in `Phase 3` is limited to `WITHDRAWAL`.
-- `SWAP` remains a documented Wave 4 target consumer, but it is not yet routed through the unified event execution entry.
+- Current runtime implementation now covers:
+1. `WITHDRAWAL`
+2. `SWAP`
 
 ## Canonical Flow
 1. `Price Center` evaluates `PricingPolicy`
@@ -37,6 +38,7 @@ Source of Truth Level: specs-workflow
 
 ## Current Runtime Slice
 - `Withdraw` is the first runtime slice that implements this workflow end-to-end.
+- `Swap` now also consumes the unified event execution entry.
 - The current delivered path is:
 1. create withdrawal pricing quote
 2. create withdrawal with `quoteId`
@@ -44,6 +46,12 @@ Source of Truth Level: specs-workflow
 4. the same event drives both `ClearingTemplate` and `JournalTemplate`
 5. journal lines project wallet balance entries and snapshots
 - Subsequent withdraw status events (`SUCCESS`, `FAILED`, `RETURNED`, `CANCELLED`, `REJECTED`) remain event-governed through the same execution entry.
+- The current delivered swap path is:
+1. create swap pricing quote
+2. create swap with `quoteId`
+3. `EVT_SWAP_CREATED` posts held-balance accounting
+4. success / reject / fail remain event-governed through the same execution entry
+5. only `SUCCESS` creates outstandings
 
 ## Non-Negotiable Semantics
 - Quote locks commercial pricing conditions.
@@ -51,6 +59,7 @@ Source of Truth Level: specs-workflow
 - Clearing and journal consume the same source context; they do not derive from each other.
 - Wallet balance projection derives from journal lines only.
 - For `Withdraw`, that source context comes from the persisted withdrawal row, not from clearing side effects.
+- For `Swap`, that source context comes from the persisted swap row plus the consumed quote binding, not from price recalculation.
 
 ## Failure Paths
 - expired or already-used quote blocks transaction creation

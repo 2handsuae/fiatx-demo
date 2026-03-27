@@ -42,10 +42,12 @@ import {
   LpCode,
   PricingPolicyListItem,
   ProviderRateQuote,
+  SwapFeeItemCode,
   SWAP_POLICY_CODE,
   SwapPairEntry,
   SwapPricingPolicyConfig,
   SwapPricingResult,
+  SwapProductRestrictions,
   WITHDRAWAL_POLICY_CODE,
   WITHDRAW_QUOTE_TTL_SECONDS,
   WithdrawalFeeItemCode,
@@ -89,6 +91,10 @@ interface ResolvedSwapExecutionQuote {
   tierName: string;
   fees: SwapPricingResult['fees'];
   totals: Record<string, string>;
+  grossAmountOut: Prisma.Decimal;
+  netAmountOut: Prisma.Decimal;
+  feeTotal: Prisma.Decimal;
+  feeCurrency: string | null;
   policyRef: SwapPricingResult['policyRef'];
   pricingSource: {
     provider: 'BINANCE';
@@ -103,6 +109,12 @@ interface ResolvedSwapExecutionQuote {
     effectiveBaseRate: string;
     fetchedAt: string;
   };
+}
+
+interface SwapProductRestrictionResult {
+  restrictionCode: string;
+  reason: string;
+  metadata?: Record<string, unknown>;
 }
 
 interface ResolvedWithdrawalQuote {
@@ -253,6 +265,47 @@ export class PricingCenterService {
     };
   }
 
+  private normalizeSwapFeeItem(
+    raw: unknown,
+    fallbackId: string,
+  ): FeeItem | null {
+    if (!raw || typeof raw !== 'object') {
+      return null;
+    }
+
+    const asItem = raw as Partial<FeeItem>;
+    const normalizedCode = String(asItem.itemCode || '').trim().toUpperCase();
+    if (
+      normalizedCode !== 'SWAP_SERVICE_FEE' &&
+      normalizedCode !== 'COMPLIANCE_FEE'
+    ) {
+      return null;
+    }
+
+    const calcType = asItem.calcType === 'PERCENT' ? 'PERCENT' : 'FLAT';
+    return {
+      id: asItem.id || fallbackId,
+      itemCode: normalizedCode as SwapFeeItemCode,
+      calcType,
+      value: this.toNonNegativeDecimalString(asItem.value, '0'),
+      currency: String(asItem.currency || '').trim().toUpperCase(),
+      min:
+        asItem.min === null || asItem.min === undefined || asItem.min === ''
+          ? null
+          : this.toNonNegativeDecimalString(asItem.min, '0'),
+      cap:
+        asItem.cap === null || asItem.cap === undefined || asItem.cap === ''
+          ? null
+          : this.toNonNegativeDecimalString(asItem.cap, '0'),
+      roundingDp: Math.max(0, Number(asItem.roundingDp ?? 8)),
+      roundingMode:
+        asItem.roundingMode === 'FLOOR' || asItem.roundingMode === 'CEIL'
+          ? asItem.roundingMode
+          : 'ROUND',
+      adjustable: Boolean(asItem.adjustable),
+    };
+  }
+
   private normalizeWithdrawalEntryForActiveAsset(
     entry: WithdrawalAssetEntry | undefined,
     asset: {
@@ -371,6 +424,17 @@ export class PricingCenterService {
         assetBId: pair.assetBId,
         assetBLabel: pair.assetBLabel,
         enabled: Boolean(pair.enabled),
+        restrictions: {
+          blockedInvestorClassifications: Array.from(
+            new Set(
+              (((pair as any)?.restrictions as SwapProductRestrictions | undefined)
+                ?.blockedInvestorClassifications || []
+              )
+                .map((item) => String(item || '').trim().toUpperCase())
+                .filter(Boolean),
+            ),
+          ),
+        },
         routing: {
           provider: 'LP_A',
           maxStalenessSec: Math.max(1, Number((pair as any)?.routing?.maxStalenessSec || 30)),
@@ -386,15 +450,27 @@ export class PricingCenterService {
             return {
               id: tier?.id || `${pair.id}-TIER-001`,
               name: tier?.name || 'Default Tier',
-              priority: 1,
-              enabled: true,
+              priority: Math.max(1, Number((tier as any)?.priority || 1)),
+              enabled: tier?.enabled ?? true,
               rateMarkupBps: Number((tier as any)?.rateMarkupBps || 0),
               conditions: {
-                amountMin: '0',
-                amountMax: null,
+                amountMin:
+                  tier?.conditions?.amountMin === undefined
+                    ? '0'
+                    : tier.conditions.amountMin,
+                amountMax:
+                  tier?.conditions?.amountMax === undefined
+                    ? null
+                    : tier.conditions.amountMax,
               },
-              // Phase 1: swap pricing is rate-only, fee lines are fixed empty.
-              feeItems: [],
+              feeItems: ((tier as any)?.feeItems || [])
+                .map((item: unknown, index: number) =>
+                  this.normalizeSwapFeeItem(
+                    item,
+                    `${tier?.id || `${pair.id}-TIER-001`}-FEE-${String(index + 1).padStart(3, '0')}`,
+                  ),
+                )
+                .filter((item: FeeItem | null): item is FeeItem => !!item),
             };
           })(),
         ],
@@ -523,6 +599,9 @@ export class PricingCenterService {
           assetBId: right.id,
           assetBLabel: this.formatAssetLabel(right),
           enabled: true,
+          restrictions: {
+            blockedInvestorClassifications: [],
+          },
           routing: {
             provider: 'LP_A',
             maxStalenessSec: 30,
@@ -840,10 +919,63 @@ export class PricingCenterService {
         throw new BadRequestException(`Swap pair ${pair.id} must contain exactly one tier`);
       }
 
-      const tier = pair.tiers[0];
-      if ((tier.feeItems || []).length > 0) {
-        throw new BadRequestException(`Swap pair ${pair.id} ${tier.id} feeItems must be empty`);
+      const blockedInvestorClassifications = (
+        pair.restrictions?.blockedInvestorClassifications || []
+      ).map((item) => String(item || '').trim().toUpperCase());
+      const invalidClassifications = blockedInvestorClassifications.filter(
+        (item) =>
+          item !== 'RETAIL' && item !== 'QUALIFIED' && item !== 'INSTITUTIONAL',
+      );
+      if (invalidClassifications.length > 0) {
+        throw new BadRequestException(
+          `Swap pair ${pair.id} has unsupported blockedInvestorClassification values: ${invalidClassifications.join(', ')}`,
+        );
       }
+
+      const tier = pair.tiers[0];
+      const seenFeeCodes = new Set<string>();
+      (tier.feeItems || []).forEach((item) => {
+        const code = String(item.itemCode || '').trim().toUpperCase();
+        if (code !== 'SWAP_SERVICE_FEE' && code !== 'COMPLIANCE_FEE') {
+          throw new BadRequestException(
+            `Swap pair ${pair.id} ${tier.id} has unsupported fee itemCode: ${item.itemCode}`,
+          );
+        }
+        if (seenFeeCodes.has(code)) {
+          throw new BadRequestException(
+            `Swap pair ${pair.id} ${tier.id} has duplicated fee itemCode: ${item.itemCode}`,
+          );
+        }
+        seenFeeCodes.add(code);
+
+        if (!String(item.currency || '').trim()) {
+          throw new BadRequestException(
+            `Swap pair ${pair.id} ${tier.id} ${item.itemCode} currency is required`,
+          );
+        }
+
+        if (item.calcType !== 'PERCENT' && item.calcType !== 'FLAT') {
+          throw new BadRequestException(
+            `Swap pair ${pair.id} ${tier.id} ${item.itemCode} calcType must be PERCENT or FLAT`,
+          );
+        }
+
+        try {
+          const value = new Prisma.Decimal(item.value);
+          if (value.lt(0)) {
+            throw new BadRequestException(
+              `Swap pair ${pair.id} ${tier.id} ${item.itemCode} value must be >= 0`,
+            );
+          }
+        } catch (error) {
+          if (error instanceof BadRequestException) {
+            throw error;
+          }
+          throw new BadRequestException(
+            `Swap pair ${pair.id} ${tier.id} ${item.itemCode} value is invalid`,
+          );
+        }
+      });
     });
   }
 
@@ -1128,6 +1260,231 @@ export class PricingCenterService {
     return candidate;
   }
 
+  private findSwapDirectionOrThrow(
+    pairs: SwapPairEntry[],
+    fromAssetId: string,
+    toAssetId: string,
+  ): SwapPairEntry {
+    const candidate = pairs.find(
+      (pair) => pair.assetAId === fromAssetId && pair.assetBId === toAssetId,
+    );
+
+    if (!candidate) {
+      throw new BadRequestException(
+        `No pricing pair configured for direction ${fromAssetId} -> ${toAssetId}`,
+      );
+    }
+
+    return candidate;
+  }
+
+  private buildSwapPolicyRef(swapConfig: SwapPricingPolicyConfig): SwapPricingResult['policyRef'] {
+    return {
+      policyCode: SWAP_POLICY_CODE,
+      policyId: swapConfig.policyId,
+      business: 'SWAP',
+      channel: 'ONLINE',
+    };
+  }
+
+  private async resolveSwapProductRestriction(
+    ownerType: string,
+    ownerId: string,
+    pair: SwapPairEntry,
+    policyRef: Record<string, unknown>,
+    channelOnline: boolean,
+  ): Promise<SwapProductRestrictionResult | null> {
+    const tier = pair.tiers[0] || null;
+
+    if (!pair.enabled) {
+      return {
+        restrictionCode: 'PAIR_DISABLED',
+        reason: `Swap pair ${pair.id} is disabled`,
+        metadata: {
+          policyRef,
+          pairId: pair.id,
+          pairName: pair.name,
+        },
+      };
+    }
+
+    if (!channelOnline) {
+      return {
+        restrictionCode: 'CHANNEL_ONLINE_DISABLED',
+        reason: 'Swap pricing policy is disabled for ONLINE channel',
+        metadata: {
+          policyRef,
+          pairId: pair.id,
+          pairName: pair.name,
+          channel: 'ONLINE',
+        },
+      };
+    }
+
+    if (tier && !tier.enabled) {
+      return {
+        restrictionCode: 'TIER_DISABLED',
+        reason: `Swap tier ${tier.id} is disabled for pair ${pair.id}`,
+        metadata: {
+          policyRef,
+          pairId: pair.id,
+          pairName: pair.name,
+          tierId: tier.id,
+          tierName: tier.name,
+        },
+      };
+    }
+
+    if (ownerType !== 'CUSTOMER') {
+      return null;
+    }
+
+    const customer = await (this.prisma as any).customerMain.findUnique({
+      where: { id: ownerId },
+      select: {
+        id: true,
+        customerNo: true,
+        investorClassification: true,
+      },
+    });
+
+    if (!customer) {
+      throw new NotFoundException(`Customer not found: ${ownerId}`);
+    }
+
+    const blockedInvestorClassifications = (
+      pair.restrictions?.blockedInvestorClassifications || []
+    ).map((item) => String(item || '').trim().toUpperCase());
+    const investorClassification = String(
+      customer.investorClassification || '',
+    )
+      .trim()
+      .toUpperCase();
+
+    if (
+      blockedInvestorClassifications.length > 0 &&
+      blockedInvestorClassifications.includes(investorClassification)
+    ) {
+      return {
+        restrictionCode: 'INVESTOR_CLASSIFICATION_BLOCKED',
+        reason: `Investor classification ${investorClassification} is blocked for this swap pair`,
+        metadata: {
+          policyRef,
+          pairId: pair.id,
+          pairName: pair.name,
+          investorClassification,
+          blockedInvestorClassifications,
+          customerId: customer.id,
+          customerNo: customer.customerNo,
+        },
+      };
+    }
+
+    return null;
+  }
+
+  private async recordSwapProductRestrictionAudit(input: {
+    ownerType: string;
+    ownerId: string;
+    ownerNo?: string | null;
+    fromAssetId: string;
+    toAssetId: string;
+    restriction: SwapProductRestrictionResult;
+    sourcePlatform: 'CUSTOMER_API' | 'SYSTEM';
+  }) {
+    await this.auditLogsService.recordByActor(
+      {
+        triggerType: AuditTriggerType.DATA_UPDATE,
+        action: AuditActions.SWAP_PRODUCT_RESTRICTED,
+        module: AuditModules.PRICING_CENTER,
+        entityType: AuditEntityTypes.SWAP_QUOTE,
+        entityId: `RESTRICTION:${input.ownerId}:${input.fromAssetId}:${input.toAssetId}`,
+        entityOwnerType: input.ownerType,
+        entityOwnerId: input.ownerId,
+        entityOwnerNo: input.ownerNo || undefined,
+        result: AuditResult.REJECTED,
+        reason: input.restriction.reason,
+        metadata: {
+          fromAssetId: input.fromAssetId,
+          toAssetId: input.toAssetId,
+          restrictionCode: input.restriction.restrictionCode,
+          ...(input.restriction.metadata || {}),
+        },
+        sourcePlatform: input.sourcePlatform,
+      },
+      this.buildQuoteActor(input.ownerType, input.ownerId, input.ownerNo),
+    );
+  }
+
+  private async assertSwapProductAllowed(input: {
+    ownerType: string;
+    ownerId: string;
+    ownerNo?: string | null;
+    fromAssetId: string;
+    toAssetId: string;
+    pair: SwapPairEntry;
+    policyRef: Record<string, unknown>;
+    channelOnline: boolean;
+    sourcePlatform: 'CUSTOMER_API' | 'SYSTEM';
+  }) {
+    const restriction = await this.resolveSwapProductRestriction(
+      input.ownerType,
+      input.ownerId,
+      input.pair,
+      input.policyRef,
+      input.channelOnline,
+    );
+    if (!restriction) {
+      return;
+    }
+
+    await this.recordSwapProductRestrictionAudit({
+      ownerType: input.ownerType,
+      ownerId: input.ownerId,
+      ownerNo: input.ownerNo || null,
+      fromAssetId: input.fromAssetId,
+      toAssetId: input.toAssetId,
+      restriction,
+      sourcePlatform: input.sourcePlatform,
+    });
+
+    throw new ForbiddenException({
+      code: 'SWAP_PRODUCT_RESTRICTED',
+      restrictionCode: restriction.restrictionCode,
+      message: restriction.reason,
+      metadata: restriction.metadata || {},
+    });
+  }
+
+  async assertSwapProductAllowedForOwner(input: {
+    ownerType: string;
+    ownerId: string;
+    ownerNo?: string | null;
+    fromAssetId: string;
+    toAssetId: string;
+    sourcePlatform?: 'CUSTOMER_API' | 'SYSTEM';
+  }) {
+    const { swap } = await this.ensurePoliciesReady();
+    const swapConfig = this.parseSwapConfig(swap);
+    const pair = this.findSwapDirectionOrThrow(
+      swapConfig.pairs,
+      input.fromAssetId,
+      input.toAssetId,
+    );
+
+    await this.assertSwapProductAllowed({
+      ownerType: input.ownerType,
+      ownerId: input.ownerId,
+      ownerNo: input.ownerNo || null,
+      fromAssetId: input.fromAssetId,
+      toAssetId: input.toAssetId,
+      pair,
+      policyRef: this.buildSwapPolicyRef(swapConfig),
+      channelOnline: swapConfig.channel.online,
+      sourcePlatform: input.sourcePlatform || 'SYSTEM',
+    });
+  }
+
   async resolveOwnerNo(ownerType: string, ownerId: string): Promise<string | null> {
     if (ownerType === 'CUSTOMER') {
       const customer = await (this.prisma as any).customerMain.findUnique({
@@ -1312,6 +1669,7 @@ export class PricingCenterService {
       amountIn: new Prisma.Decimal(quote.amountIn).toNumber(),
       currencyIn: quote.currencyIn,
       amountOut: new Prisma.Decimal(quote.amountOut).toNumber(),
+      netAmountOut: Number(totals.amountOutNet || quote.amountOut.toString()),
       currencyOut: quote.currencyOut,
       rateDisplay: new Prisma.Decimal(quote.rateDisplay).toNumber(),
       rateAllIn: new Prisma.Decimal(quote.rateAllIn).toNumber(),
@@ -1475,6 +1833,25 @@ export class PricingCenterService {
       policyId: swapConfig.policyId,
     });
 
+    if (
+      pricingResult.feeCurrency &&
+      pricingResult.feeCurrency !== fromAsset.code &&
+      pricingResult.feeCurrency !== toAsset.code
+    ) {
+      throw new BadRequestException(
+        `Swap pricing fee currency must match swap asset codes for pair ${pair.id}`,
+      );
+    }
+
+    if (
+      pricingResult.feeCurrency &&
+      pricingResult.feeCurrency !== toAsset.code
+    ) {
+      throw new BadRequestException(
+        `Swap pricing currently only supports receive-asset fees for pair ${pair.id}`,
+      );
+    }
+
     return {
       fromAssetId: fromAsset.id,
       toAssetId: toAsset.id,
@@ -1495,6 +1872,10 @@ export class PricingCenterService {
       tierName: tier.name,
       fees: pricingResult.fees,
       totals: pricingResult.totals,
+      grossAmountOut: new Prisma.Decimal(pricingResult.grossAmountOut),
+      netAmountOut: new Prisma.Decimal(pricingResult.netAmountOut),
+      feeTotal: new Prisma.Decimal(pricingResult.feeTotal),
+      feeCurrency: pricingResult.feeCurrency,
       policyRef: pricingResult.policyRef,
       pricingSource: {
         provider: 'BINANCE',
@@ -1631,20 +2012,27 @@ export class PricingCenterService {
       throw new BadRequestException('fromAmount must be greater than 0');
     }
 
+    const ownerNo = await this.resolveOwnerNo(ownerType, ownerId);
+    await this.assertSwapProductAllowedForOwner({
+      ownerType,
+      ownerId,
+      ownerNo,
+      fromAssetId: dto.fromAssetId,
+      toAssetId: dto.toAssetId,
+      sourcePlatform: ownerType === 'CUSTOMER' ? 'CUSTOMER_API' : 'SYSTEM',
+    });
+
     const resolved = await this.resolveSwapQuoteForExecution({
       fromAssetId: dto.fromAssetId,
       toAssetId: dto.toAssetId,
       amount: dto.fromAmount,
     });
 
-    const ownerNo = await this.resolveOwnerNo(ownerType, ownerId);
     const marketRate = resolved.baseRate;
     const rateAllIn = resolved.quotedRate;
     const spreadPercent = new Prisma.Decimal(resolved.markupBps).div(100);
-    const amountOut = fromAmount.mul(rateAllIn);
-    const feeTotal = new Prisma.Decimal(
-      resolved.totals[resolved.toAssetCode] || '0',
-    );
+    const amountOut = resolved.grossAmountOut;
+    const feeTotal = resolved.feeTotal;
     const feeBreakdown = JSON.stringify([
       {
         policyRef: resolved.policyRef,
@@ -1699,7 +2087,7 @@ export class PricingCenterService {
       rateSource: resolved.baseProvider,
       fetchedAt: resolved.fetchedAt,
       feeTotal,
-      feeCurrency: resolved.toAssetCode,
+      feeCurrency: resolved.feeCurrency || resolved.toAssetCode,
       feeBreakdown,
       totalsJson: JSON.stringify(resolved.totals),
       policyRef: JSON.stringify(resolved.policyRef),

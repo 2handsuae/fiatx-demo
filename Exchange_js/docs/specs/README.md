@@ -2,7 +2,7 @@
 
 Status: active
 Owner: project-owner-and-agents
-Last Updated: 2026-03-24
+Last Updated: 2026-03-26
 Applies To: `Exchange_js`
 Supersedes: none
 Depends On: `docs/README.md`, `docs/constraints/README.md`
@@ -36,6 +36,7 @@ Source of Truth Level: specs
   - `docs/specs/workflows/onboarding-periodic-review-audit-trace-contract.md`
   - `docs/specs/workflows/config-release-activation-workflow.md`
   - `docs/specs/workflows/quote-event-clearing-journal-workflow.md`
+  - `docs/specs/workflows/swap-canonical-workflow.md`
 - Entity specs:
   - `docs/specs/entities/audit-evidence-package-entity.md`
   - `docs/specs/entities/change-ticket-entity.md`
@@ -57,6 +58,7 @@ Source of Truth Level: specs
   - `docs/specs/entities/wallet-entity.md`
   - `docs/specs/entities/business-config-release-entity.md`
   - `docs/specs/entities/pricing-quote-entity.md`
+  - `docs/specs/entities/swap-transaction-entity.md`
 - Module specs:
   - `docs/specs/modules/governance-control-foundation-module.md`
   - `docs/specs/modules/rbac-member-management-module.md`

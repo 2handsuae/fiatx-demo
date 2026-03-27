@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, RefreshCw, Eye, CheckCircle, XCircle, ShieldCheck } from 'lucide-react';
+import { Search, RefreshCw, Eye } from 'lucide-react';
 import { formatAssetAmount, formatRate8 } from '../utils/number-format';
 
 interface SwapTransaction {
@@ -27,7 +27,6 @@ const SwapTransactionList = () => {
   const navigate = useNavigate();
   const [items, setItems] = useState<SwapTransaction[]>([]);
   const [loading, setLoading] = useState(true);
-  const [processingId, setProcessingId] = useState<string | null>(null);
 
   // Filters
   const [swapNo, setSwapNo] = useState('');
@@ -68,32 +67,6 @@ const SwapTransactionList = () => {
     fetchItems();
   }, [statusFilter]);
 
-  const handleAction = async (id: string, action: string) => {
-    setProcessingId(id);
-    try {
-      const token = localStorage.getItem('admin_token');
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/admin/swap-transactions/${id}/status`, {
-        method: 'PATCH',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ action })
-      });
-      
-      if (response.ok) {
-        fetchItems();
-      } else {
-        const err = await response.json();
-        alert(`Action failed: ${err.message}`);
-      }
-    } catch (error) {
-      console.error('Action failed', error);
-    } finally {
-      setProcessingId(null);
-    }
-  };
-
   const renderStatusBadge = (status: string) => {
     const colors: Record<string, string> = {
       PENDING_COMPLIANCE: 'bg-blue-100 text-blue-800',
@@ -108,28 +81,12 @@ const SwapTransactionList = () => {
     );
   };
 
-  const getAvailableActions = (status: string) => {
-    const actions = [];
-    switch (status) {
-      case 'PENDING_COMPLIANCE':
-        actions.push({ action: 'success', label: 'Approve', icon: <CheckCircle size={14} />, style: 'bg-green-600 hover:bg-green-700 text-white' });
-        actions.push({ action: 'reject', label: 'Reject', icon: <XCircle size={14} />, style: 'bg-red-600 hover:bg-red-700 text-white' });
-        actions.push({ action: 'flag', label: 'Review', icon: <ShieldCheck size={14} />, style: 'bg-yellow-600 hover:bg-yellow-700 text-white' });
-        break;
-      case 'UNDER_REVIEW':
-        actions.push({ action: 'success', label: 'Approve', icon: <CheckCircle size={14} />, style: 'bg-green-600 hover:bg-green-700 text-white' });
-        actions.push({ action: 'reject', label: 'Reject', icon: <XCircle size={14} />, style: 'bg-red-600 hover:bg-red-700 text-white' });
-        break;
-    }
-    return actions;
-  };
-
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Swap Transactions</h1>
-          <p className="text-sm text-gray-500 mt-1">Manage currency exchange transactions and compliance flow</p>
+          <p className="text-sm text-gray-500 mt-1">Review swap lifecycle and monitor Risk Execution / Alert / Case progress</p>
         </div>
         <div className="flex gap-3">
           <button onClick={fetchItems} className="p-2 text-gray-500 hover:text-brand-primary transition-colors border border-gray-200 rounded-lg bg-white">
@@ -254,18 +211,6 @@ const SwapTransactionList = () => {
                     </td>
                     <td className="px-6 py-4 text-right">
                       <div className="flex justify-end gap-2 items-center">
-                          {getAvailableActions(item.status).map(act => (
-                              <button
-                                key={act.action}
-                                onClick={() => handleAction(item.id, act.action)}
-                                disabled={processingId === item.id}
-                                className={`flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded shadow-sm transition-all ${act.style} ${processingId === item.id ? 'opacity-50 cursor-not-allowed' : ''}`}
-                              >
-                                {act.icon}
-                                {act.label}
-                              </button>
-                          ))}
-                          
                           <button 
                             onClick={() => navigate(`/exchange/swap-transactions/${item.id}`)}
                             className="p-1.5 text-blue-600 rounded hover:bg-blue-50 transition-colors" 

@@ -93,12 +93,6 @@ interface CreatedInboundSignalResponse {
   } | null;
 }
 
-type SimulationRiskLevel = 'LOW' | 'MEDIUM' | 'HIGH';
-type SimulationRiskReason =
-  | 'KYT_ISSUE'
-  | 'TRAVEL_RULE_ISSUE'
-  | 'LARGE_DEPOSIT_PROFILE_MISMATCH'
-  | 'SANCTIONS_HIT';
 type DepositAssetType = 'CRYPTO' | 'FIAT';
 
 interface CreateInboundTransferSignalPayload {
@@ -108,8 +102,6 @@ interface CreateInboundTransferSignalPayload {
   fromAddress?: string;
   referenceNo?: string;
   fromIban?: string;
-  simulationRiskLevel?: SimulationRiskLevel;
-  simulationRiskReason?: SimulationRiskReason;
 }
 
 const normalizeSimulationAssetType = (
@@ -138,8 +130,6 @@ const Deposit = () => {
   const [simulatingSignal, setSimulatingSignal] = useState(false);
   const [showSimulateModal, setShowSimulateModal] = useState(false);
   const [signalAmount, setSignalAmount] = useState('');
-  const [signalRiskLevel, setSignalRiskLevel] = useState<SimulationRiskLevel>('LOW');
-  const [signalRiskReason, setSignalRiskReason] = useState<SimulationRiskReason | ''>('');
   const [signalFeedback, setSignalFeedback] = useState<SimulationFeedback | null>(null);
   const [lastSimulationResult, setLastSimulationResult] = useState<SimulationResultSummary | null>(null);
 
@@ -213,8 +203,6 @@ const Deposit = () => {
     setSignalFeedback(null);
     setLastSimulationResult(null);
     setSignalAmount('');
-    setSignalRiskLevel('LOW');
-    setSignalRiskReason('');
     setShowSimulateModal(false);
   }, [selectedAssetId, activeTab, depositWallet?.id]);
 
@@ -225,26 +213,8 @@ const Deposit = () => {
 
     setShowSimulateModal(false);
     setSignalAmount('');
-    setSignalRiskLevel('LOW');
-    setSignalRiskReason('');
     setLastSimulationResult(null);
   }, [simulationModeEnabled]);
-
-  useEffect(() => {
-    const options = getRiskReasonOptions(
-      signalRiskLevel,
-      normalizeSimulationAssetType(
-        depositWallet?.asset.type || (activeTab === 'fiat' ? 'FIAT' : 'CRYPTO'),
-      ),
-    );
-    if (options.length === 0) {
-      setSignalRiskReason('');
-      return;
-    }
-    if (!options.some((item) => item.value === signalRiskReason)) {
-      setSignalRiskReason(options[0].value);
-    }
-  }, [signalRiskLevel, depositWallet?.asset.type, activeTab, signalRiskReason]);
 
   const fetchHistory = async () => {
       setHistoryLoading(true);
@@ -314,43 +284,6 @@ const Deposit = () => {
     navigator.clipboard.writeText(text);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
-  };
-
-  const getRiskReasonOptions = (
-    riskLevel: SimulationRiskLevel,
-    assetType: 'CRYPTO' | 'FIAT',
-  ): Array<{ value: SimulationRiskReason; label: string }> => {
-    if (riskLevel === 'MEDIUM') {
-      if (assetType === 'FIAT') {
-        return [
-          {
-            value: 'LARGE_DEPOSIT_PROFILE_MISMATCH',
-            label: '大额充值，不符客户画像',
-          },
-        ];
-      }
-      return [
-        { value: 'KYT_ISSUE', label: 'KYT问题' },
-        { value: 'TRAVEL_RULE_ISSUE', label: 'TRAVEL RULE问题' },
-        {
-          value: 'LARGE_DEPOSIT_PROFILE_MISMATCH',
-          label: '大额充值，不符客户画像',
-        },
-      ];
-    }
-    if (riskLevel === 'HIGH') {
-      return [{ value: 'SANCTIONS_HIT', label: '制裁名单' }];
-    }
-    return [];
-  };
-
-  const applySignalRiskLevel = (
-    nextLevel: SimulationRiskLevel,
-    assetType: DepositAssetType,
-  ) => {
-    setSignalRiskLevel(nextLevel);
-    const options = getRiskReasonOptions(nextLevel, assetType);
-    setSignalRiskReason(options[0]?.value || '');
   };
 
   const filteredAssets = assets.filter(a => 
@@ -463,23 +396,6 @@ const Deposit = () => {
       return;
     }
 
-    const riskReasonOptions = getRiskReasonOptions(
-      signalRiskLevel,
-      normalizeSimulationAssetType(depositWallet.asset.type),
-    );
-    const normalizedRiskReason =
-      signalRiskLevel === 'LOW' ? '' : signalRiskReason.trim().toUpperCase();
-    if (
-      signalRiskLevel !== 'LOW' &&
-      !riskReasonOptions.some((item) => item.value === normalizedRiskReason)
-    ) {
-      setSignalFeedback({
-        kind: 'error',
-        message: 'Please choose a valid risk reason.',
-      });
-      return;
-    }
-
     setSimulatingSignal(true);
     setSignalFeedback(null);
     setLastSimulationResult(null);
@@ -490,11 +406,6 @@ const Deposit = () => {
       }
       const payload: CreateInboundTransferSignalPayload = {
         ...buildMockInboundSignalPayload(depositWallet, amount),
-        simulationRiskLevel: signalRiskLevel,
-        simulationRiskReason:
-          signalRiskLevel === 'LOW'
-            ? undefined
-            : (normalizedRiskReason as SimulationRiskReason),
       };
       const createResponse = await fetch(
         `${import.meta.env.VITE_API_URL}/deposit-transactions/my/inbound-signals`,
@@ -544,10 +455,6 @@ const Deposit = () => {
         assetType: normalizeSimulationAssetType(depositWallet.asset.type),
       });
       setSignalAmount('');
-      applySignalRiskLevel(
-        'LOW',
-        normalizeSimulationAssetType(depositWallet.asset.type),
-      );
       setShowSimulateModal(false);
     } catch (error) {
       console.error('Failed to simulate inbound signal', error);
@@ -654,10 +561,6 @@ const Deposit = () => {
         onClick={() => {
           setSignalAmount('');
           setSignalFeedback(null);
-          applySignalRiskLevel(
-            'LOW',
-            normalizeSimulationAssetType(depositWallet?.asset.type),
-          );
           setShowSimulateModal(true);
         }}
         disabled={simulatingSignal}
@@ -1107,7 +1010,7 @@ const Deposit = () => {
               <div>
                 <h3 className="text-lg font-bold text-slate-900 dark:text-white">Simulate Deposit</h3>
                 <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-                  Enter an amount for the mock {depositWallet.asset.type === 'CRYPTO' ? 'crypto' : 'fiat'} deposit.
+                  Enter an amount for the mock {depositWallet.asset.type === 'CRYPTO' ? 'crypto' : 'fiat'} deposit. Final risk simulation now happens in Admin Risk Policy Executions.
                 </p>
               </div>
               <button
@@ -1146,50 +1049,8 @@ const Deposit = () => {
                 />
               </div>
 
-              <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50 p-4 space-y-4">
-              <div>
-                <label className="text-xs text-slate-500 dark:text-slate-400 font-medium block mb-1">
-                  Risk Level
-                </label>
-                  <select
-                    value={signalRiskLevel}
-                    onChange={(e) =>
-                      applySignalRiskLevel(
-                        e.target.value as SimulationRiskLevel,
-                        normalizeSimulationAssetType(depositWallet.asset.type),
-                      )
-                    }
-                    className="w-full px-3 py-2 border border-slate-200 dark:border-slate-600 rounded-xl bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
-                  >
-                    <option value="LOW">低风险</option>
-                    <option value="MEDIUM">中风险</option>
-                    <option value="HIGH">高风险</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="text-xs text-slate-500 dark:text-slate-400 font-medium block mb-1">
-                    Risk Reason
-                  </label>
-                  <select
-                    value={signalRiskReason}
-                    onChange={(e) => setSignalRiskReason(e.target.value as SimulationRiskReason | '')}
-                    disabled={signalRiskLevel === 'LOW'}
-                    className="w-full px-3 py-2 border border-slate-200 dark:border-slate-600 rounded-xl bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 disabled:opacity-60"
-                  >
-                    {signalRiskLevel === 'LOW' ? (
-                      <option value="">低风险无需原因</option>
-                    ) : null}
-                    {getRiskReasonOptions(
-                      signalRiskLevel,
-                      normalizeSimulationAssetType(depositWallet.asset.type),
-                    ).map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+              <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50 p-4 text-sm text-slate-600 dark:text-slate-300">
+                This step only submits the mock inbound signal. After the payin/deposit is created, use Admin Risk Policy Executions to simulate Low, Medium, or High risk.
               </div>
             </div>
 

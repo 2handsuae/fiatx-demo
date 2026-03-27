@@ -108,6 +108,71 @@ describe('AuditEvidenceExportApprovalService', () => {
     });
   });
 
+  it('creates swap export request and preserves swap workflow summary in approval metadata', async () => {
+    auditLogsService.prepareEvidenceExportSelection.mockResolvedValue({
+      normalizedCriteria: {
+        mode: 'SELECTION',
+        workflowType: 'SWAP',
+      },
+      filterSnapshot: {
+        workflowType: 'SWAP',
+      },
+      selectedEventIds: ['log-swap-1'],
+      records: [],
+      itemCount: 1,
+      workflowSummary: {
+        workflowType: 'SWAP',
+        workflowNos: ['SWP2603260001'],
+      },
+    });
+    auditLogsService.createEvidencePackageRecord.mockResolvedValue({
+      id: 'pkg-swap-1',
+      packageNo: 'EVP-SWAP-1',
+      exportMode: 'SELECTION',
+    });
+    approvalsService.create.mockResolvedValue({
+      id: 'approval-swap-1',
+      approvalNo: 'APR2603260001',
+      status: 'DRAFT',
+      traceId: 'trace-swap-1',
+    });
+    approvalsService.submit.mockResolvedValue({
+      id: 'approval-swap-1',
+      approvalNo: 'APR2603260001',
+      status: 'PENDING',
+      traceId: 'trace-swap-1',
+    });
+    auditLogsService.findEvidencePackage.mockResolvedValue({
+      id: 'pkg-swap-1',
+      packageNo: 'EVP-SWAP-1',
+      status: 'PENDING_APPROVAL',
+      approvalCaseId: 'approval-swap-1',
+    });
+
+    await service.createExportRequest(
+      {
+        selectedEventIds: ['log-swap-1'],
+        workflowType: 'SWAP',
+      } as any,
+      actor,
+    );
+
+    expect(approvalsService.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actionType: 'AUDIT_EVIDENCE_EXPORT_APPROVAL',
+        entityRef: 'pkg-swap-1',
+        metadata: expect.objectContaining({
+          packageNo: 'EVP-SWAP-1',
+          workflowSummary: {
+            workflowType: 'SWAP',
+            workflowNos: ['SWP2603260001'],
+          },
+        }),
+      }),
+      actor,
+    );
+  });
+
   it('finalizes approved export successfully and marks approval execution success', async () => {
     prisma.auditEvidencePackage.findFirst.mockResolvedValue({
       id: 'pkg-1',
@@ -160,6 +225,77 @@ describe('AuditEvidenceExportApprovalService', () => {
         userId: 'checker-1',
       }),
       'Evidence export package generated successfully',
+    );
+  });
+
+  it('finalizes approved swap export and preserves swap workflow summary in package manifest', async () => {
+    prisma.auditEvidencePackage.findFirst.mockResolvedValue({
+      id: 'pkg-swap-1',
+      packageNo: 'EVP-SWAP-1',
+      status: 'PENDING_APPROVAL',
+      exportMode: 'SELECTION',
+      selectedEventIdsSnapshot: JSON.stringify(['log-swap-1']),
+      filterSnapshot: JSON.stringify({ workflowType: 'SWAP', includeRecords: true }),
+      exportedById: 'admin-1',
+      exportedByRole: 'COMPLIANCE_LEAD',
+    });
+    auditLogsService.buildEvidencePackageArtifacts.mockResolvedValue({
+      generatedAt: '2026-03-26T10:00:00.000Z',
+      itemCount: 1,
+      manifest: {
+        version: '1.0',
+        workflowSummary: {
+          workflowType: 'SWAP',
+          workflowNos: ['SWP2603260001'],
+        },
+      },
+      digest: 'e'.repeat(64),
+      packageBody: {
+        manifest: {
+          version: '1.0',
+          workflowSummary: {
+            workflowType: 'SWAP',
+            workflowNos: ['SWP2603260001'],
+          },
+        },
+        records: [],
+        snapshots: {
+          swapEvidenceChain: [{ swapId: 'swap-1', quoteId: 'quote-1' }],
+        },
+        digest: 'e'.repeat(64),
+      },
+    });
+
+    await service.handleApprovedApproval({
+      approvalId: 'approval-swap-1',
+      approvalNo: 'APR2603260001',
+      actionType: 'AUDIT_EVIDENCE_EXPORT_APPROVAL',
+      entityRef: 'pkg-swap-1',
+      traceId: 'trace-swap-1',
+      status: 'APPROVED',
+      decisionByUserId: 'checker-1',
+      decisionByRole: 'DPO',
+      decidedAt: '2026-03-26T10:00:00.000Z',
+    });
+
+    expect(auditLogsService.buildEvidencePackageArtifacts).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workflowType: 'SWAP',
+      }),
+      expect.any(Object),
+      expect.objectContaining({
+        approvalStatus: 'APPROVED',
+      }),
+    );
+    expect(prisma.auditEvidencePackage.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'pkg-swap-1' },
+        data: expect.objectContaining({
+          status: 'READY',
+          digest: 'e'.repeat(64),
+          manifest: expect.stringContaining('"workflowType":"SWAP"'),
+        }),
+      }),
     );
   });
 

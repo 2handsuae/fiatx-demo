@@ -337,11 +337,16 @@ const DepositTransactionDetail = () => {
         </DetailCard>
 
         {simulationModeEnabled && data.simulationProfile ? (
-          <DetailCard title="Simulation Seed" icon={<Compass size={18} />}>
+          <DetailCard title="Compatibility Signal Profile" icon={<Compass size={18} />}>
             <InfoField label="Signal No" value={data.simulationProfile.signalNo} source="main" />
-            <InfoField label="Risk Level" value={data.simulationProfile.riskLevel} highlight source="main" />
-            <InfoField label="Risk Reason" value={data.simulationProfile.riskReason || 'LOW has no reason'} source="main" />
+            <InfoField label="Signal Risk Level" value={data.simulationProfile.riskLevel} highlight source="main" />
+            <InfoField label="Signal Risk Reason" value={data.simulationProfile.riskReason || 'LOW has no reason'} source="main" />
             <InfoField label="Signal ID" value={data.simulationProfile.signalId} source="main" />
+            <InfoField
+              label="Interpretation"
+              value="Signal-level compatibility evidence only. Final deposit risk outcome is decided in Risk Policy Executions."
+              source="main"
+            />
           </DetailCard>
         ) : null}
 

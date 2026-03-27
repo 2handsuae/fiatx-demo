@@ -2,7 +2,7 @@
 
 Status: active
 Owner: project-owner-and-agents
-Last Updated: 2026-03-24
+Last Updated: 2026-03-26
 Applies To: `Exchange_js`
 Supersedes: none
 Depends On: `docs/README.md`
@@ -24,6 +24,10 @@ Source of Truth Level: acceptance
   - Operator runbook for `DEPOSIT_ACCOUNTING_BLOCKED` diagnosis, compensation boundary, and Audit Center triage.
 - `docs/acceptance/wave-5-deposit-evidence-export-runbook.md`
   - Audit Center export walkthrough for deposit evidence package interpretation and replay.
+- `docs/acceptance/wave-6-swap-final-acceptance-checklist.md`
+  - Wave 6 final acceptance checklist for quote lifecycle, automated risk routing, fee paths, and rollback validation.
+- `docs/acceptance/wave-6-best-execution-evidence-export-runbook.md`
+  - Audit Center walkthrough for swap best execution evidence under the current single-LP proof standard.
 - `docs/acceptance/onboarding-compliance-center-wave3-acceptance-checklist.md`
   - Focused onboarding + compliance-center manual script.
 - `docs/acceptance/local-main-runtime-runbook.md`

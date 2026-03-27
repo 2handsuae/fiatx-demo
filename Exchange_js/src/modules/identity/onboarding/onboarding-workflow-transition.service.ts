@@ -60,6 +60,14 @@ export const WORKFLOW_TRANSITION_CODES = {
 export type WorkflowTransitionCode =
   (typeof WORKFLOW_TRANSITION_CODES)[keyof typeof WORKFLOW_TRANSITION_CODES];
 
+export interface WorkflowTransitionUpdatedSubject {
+  id: string;
+  sourceType: 'DEPOSIT' | 'SWAP';
+  subjectNo: string | null;
+  blocked: boolean;
+  blockedReason: string | null;
+}
+
 export interface WorkflowTransitionInput {
   workflow: ComplianceWorkflow;
   stage: ComplianceReviewStage;
@@ -68,6 +76,7 @@ export interface WorkflowTransitionInput {
   customerId: string;
   journeyId?: string;
   sourceId?: string;
+  sourceType?: string;
   dispositionCode: string;
   reason?: string | null;
   actorId: string;
@@ -85,6 +94,7 @@ export interface WorkflowTransitionOutput {
   toStatus: string;
   executed: boolean;
   updatedCustomer: any;
+  updatedSubject?: WorkflowTransitionUpdatedSubject | null;
   eddResponse?: any | null;
   activeCaseId?: string | null;
   finalApprovalStatus?: string | null;

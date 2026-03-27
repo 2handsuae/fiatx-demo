@@ -1820,6 +1820,144 @@ describe('ComplianceIncidentsService', () => {
     );
   });
 
+  it('should execute swap transaction workflow transition after MLRO approves false positive disposition', async () => {
+    prismaMock.complianceIncident.findUnique.mockResolvedValue(
+      buildIncident({
+        caseType: ComplianceCaseType.TRANSACTION,
+        sourceType: 'SWAP',
+        stage: 'REVIEW_SWAP_FINAL',
+        status: ComplianceIncidentStatus.PENDING_MLRO_REVIEW,
+        entityType: 'SWAP_TRANSACTION',
+        entityId: 'swap-1',
+        entityNo: 'SWP0001',
+        proposedWorkflowDecision: 'CLEAR',
+        proposedFinalDispositionCode: 'FALSE_POSITIVE',
+        proposedFinalDispositionReason: 'False positive swap hit.',
+        decisionRecordIds: JSON.stringify(['decision-swap-1']),
+        metadata: JSON.stringify({ sourceId: 'swap-1' }),
+        reports: [
+          buildReport({
+            status: 'FINALIZED',
+            workflow: 'TRANSACTION',
+            stage: 'REVIEW_SWAP_FINAL',
+            ruleCode: 'TX_SWAP_FINAL_REVIEW_REQUIRED',
+            finalDispositionCode: 'FALSE_POSITIVE',
+            filingRequired: false,
+          }),
+        ],
+      }),
+    );
+    prismaMock.complianceIncident.update.mockResolvedValue(buildIncident());
+    prismaMock.complianceIncidentEvent.create.mockResolvedValue({ id: 'evt-swap-mlro-clear' });
+    workflowTransitionServiceMock.transition.mockResolvedValue({
+      transitionCode: 'TX_SWAP_CLEAR_TO_SUCCESS',
+      executed: true,
+    });
+    jest.spyOn(service, 'findOne').mockResolvedValue({
+      id: 'inc-1',
+      status: ComplianceIncidentStatus.CLOSED,
+      alerts: [],
+      events: [],
+    } as any);
+
+    await service.reviewByMlro(
+      'inc-1',
+      {
+        decision: 'APPROVE_FINAL_DISPOSITION',
+      },
+      {
+        actorType: 'ADMIN',
+        actorId: 'admin-1',
+        actorNo: 'US0001',
+        actorRole: 'MLRO',
+        roleCodes: ['MLRO'],
+      },
+    );
+
+    expect(workflowTransitionServiceMock.transition).toHaveBeenCalledWith(
+      prismaMock,
+      expect.objectContaining({
+        workflow: 'TRANSACTION',
+        stage: 'REVIEW_SWAP_FINAL',
+        producerType: 'CASE',
+        producerId: 'inc-1',
+        sourceId: 'swap-1',
+        sourceType: 'SWAP',
+        dispositionCode: 'FALSE_POSITIVE',
+        latestDecisionRecordId: 'decision-swap-1',
+      }),
+    );
+  });
+
+  it('should execute swap transaction workflow transition after MLRO approves reject disposition', async () => {
+    prismaMock.complianceIncident.findUnique.mockResolvedValue(
+      buildIncident({
+        caseType: ComplianceCaseType.TRANSACTION,
+        sourceType: 'SWAP',
+        stage: 'REVIEW_SWAP_FINAL',
+        status: ComplianceIncidentStatus.PENDING_MLRO_REVIEW,
+        entityType: 'SWAP_TRANSACTION',
+        entityId: 'swap-1',
+        entityNo: 'SWP0001',
+        proposedWorkflowDecision: 'REJECT',
+        proposedFinalDispositionCode: 'RISK_CONFIRMED',
+        proposedFinalDispositionReason: 'Confirmed suspicious swap activity.',
+        decisionRecordIds: JSON.stringify(['decision-swap-2']),
+        metadata: JSON.stringify({ sourceId: 'swap-1' }),
+        reports: [
+          buildReport({
+            status: 'FINALIZED',
+            workflow: 'TRANSACTION',
+            stage: 'REVIEW_SWAP_FINAL',
+            ruleCode: 'TX_SWAP_FINAL_REVIEW_REQUIRED',
+            finalDispositionCode: 'RISK_CONFIRMED',
+            filingRequired: false,
+          }),
+        ],
+      }),
+    );
+    prismaMock.complianceIncident.update.mockResolvedValue(buildIncident());
+    prismaMock.complianceIncidentEvent.create.mockResolvedValue({ id: 'evt-swap-mlro-reject' });
+    workflowTransitionServiceMock.transition.mockResolvedValue({
+      transitionCode: 'TX_SWAP_REJECT_TO_REJECTED',
+      executed: true,
+    });
+    jest.spyOn(service, 'findOne').mockResolvedValue({
+      id: 'inc-1',
+      status: ComplianceIncidentStatus.CLOSED,
+      alerts: [],
+      events: [],
+    } as any);
+
+    await service.reviewByMlro(
+      'inc-1',
+      {
+        decision: 'APPROVE_FINAL_DISPOSITION',
+      },
+      {
+        actorType: 'ADMIN',
+        actorId: 'admin-1',
+        actorNo: 'US0001',
+        actorRole: 'MLRO',
+        roleCodes: ['MLRO'],
+      },
+    );
+
+    expect(workflowTransitionServiceMock.transition).toHaveBeenCalledWith(
+      prismaMock,
+      expect.objectContaining({
+        workflow: 'TRANSACTION',
+        stage: 'REVIEW_SWAP_FINAL',
+        producerType: 'CASE',
+        producerId: 'inc-1',
+        sourceId: 'swap-1',
+        sourceType: 'SWAP',
+        dispositionCode: 'RISK_CONFIRMED',
+        latestDecisionRecordId: 'decision-swap-2',
+      }),
+    );
+  });
+
   it('should mark compatibility report mirror as REPORTED after filing submission', async () => {
     prismaMock.complianceIncident.findUnique.mockResolvedValue(
       buildIncident({

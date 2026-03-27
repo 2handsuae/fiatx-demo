@@ -1,6 +1,6 @@
 Status: active
 Owner: project-owner-and-agents
-Last Updated: 2026-03-22
+Last Updated: 2026-03-27
 Applies To: `Exchange_js`
 Supersedes: none
 Depends On: `docs/constraints/onboarding-flow-constraints.md`, `docs/constraints/onboarding-alert-case-workflow-stage-rule-mapping.md`
@@ -29,8 +29,13 @@ Source of Truth Level: specs-workflow
 - `WITHDRAWN`
 
 ## Main Paths
-- `LOW_RISK CDD`
+- `CDD evidence submitted`
   - customer completes CDD response
+  - system creates a pending `workflowDecisionRecord`
+  - customer moves to `CDD_UNDER_REVIEW`
+- `ONBOARDING_CDD -> LOW`
+  - operator opens `Risk Policy Executions`
+  - operator simulates `LOW`
   - no review alert is created
   - customer moves directly to `APPROVED`
 - `REVIEW_CDD -> REQUIRE_EDD`
@@ -48,6 +53,28 @@ Source of Truth Level: specs-workflow
   - customer becomes `APPROVED`
 - `REVIEW_CDD / REVIEW_EDD -> REJECT`
   - customer moves to `REJECTED`
+
+## Simulation Operation Chain
+- Customer evidence collection stays on client `/verification`:
+  - `Bootstrap CDD`
+  - `Regenerate Session`
+  - `Mock Complete CDD`
+  - `Start EDD`
+  - `Reinitiate CDD / EDD`
+  - `Mock Complete EDD`
+- Customer-side mock-complete actions are visible only when shared `Simulation Mode` is enabled.
+- `Mock Complete CDD` no longer selects a risk result on the client; it only completes evidence intake and queues a pending `ONBOARDING_CDD` decision record.
+- Admin `Risk Policy Executions` becomes the canonical operator surface for final onboarding CDD risk simulation:
+  - `Simulate Low`
+  - `Simulate Medium`
+  - `Simulate High`
+- Admin surfaces after evidence collection continue as:
+  - `Risk Policy Executions`
+  - `Alert Handling`
+  - `Case / MLRO`
+  - `Final Approval`
+  - `Simulate Expired`
+- Admin `CDD Response / EDD Response` pages remain evidence-browse surfaces and do not introduce a second onboarding mock-complete entry.
 
 ## Response / Alert / Case Binding
 - `CDD Response` and `EDD Response` are evidence containers.

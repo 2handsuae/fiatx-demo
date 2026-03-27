@@ -1,32 +1,33 @@
 import {
+  BadRequestException,
   Injectable,
   Logger,
-  NotFoundException,
-  BadRequestException,
 } from '@nestjs/common';
-import { PrismaService } from '../../../core/prisma/prisma.service';
-import { EventEmitter2 } from '@nestjs/event-emitter';
-import { SwapEvents } from './constants/swap-events.constant';
-import { generateReferenceNo } from '../../../common/utils/no-generator.util';
-import {
-  SwapTransactionStatus,
-  SwapTransactionAction,
-  CreateSwapTransactionDto,
-  UpdateSwapTransactionStatusDto,
-} from './dto/swap-transaction.dto';
-import { SwapTransactionsService } from './swap-transactions.service';
 import { Prisma } from '@prisma/client';
+import { PrismaService } from '../../../core/prisma/prisma.service';
+import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 import { JournalsService } from '../../accounting/journals/journals.service';
-import { OutstandingsService } from '../../clearing-settle/outstandings/outstandings.service';
 import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
 import {
   AuditActions,
   AuditEntityTypes,
   AuditModules,
-  buildStateTransitionAction,
+  AuditWorkflowTypes,
 } from '../../risk-engine/audit-logs/constants/audit-actions.constant';
 import { AuditTriggerType } from '../../risk-engine/audit-logs/dto/audit-log.dto';
+import { TransactionComplianceService } from '../../risk-engine/transaction-compliance/transaction-compliance.service';
 import { PricingCenterService } from '../pricing-center/pricing-center.service';
+import { SwapEvents } from './constants/swap-events.constant';
+import {
+  SwapTransactionAction,
+  SwapTransactionStatus,
+  UpdateSwapTransactionStatusDto,
+} from './dto/swap-transaction.dto';
+import { SwapTransactionsService } from './swap-transactions.service';
+import {
+  SwapTransactionWorkflowService,
+  SwapWorkflowAction,
+} from './swap-transaction-workflow.service';
 
 export interface SwapOrchestratorOutput {
   swap_status_after: SwapTransactionStatus;
@@ -41,31 +42,47 @@ export class SwapWorkflowOrchestrator {
   private readonly auditLogsService: AuditLogsService;
 
   constructor(
-    private prisma: PrismaService,
-    private eventEmitter: EventEmitter2,
-    private swapService: SwapTransactionsService,
-    private journalsService: JournalsService,
-    private pricingCenterService: PricingCenterService,
-    private outstandingsService: OutstandingsService,
+    private readonly prisma: PrismaService,
+    private readonly swapService: SwapTransactionsService,
+    private readonly journalsService: JournalsService,
+    private readonly pricingCenterService: PricingCenterService,
+    private readonly transactionComplianceService: TransactionComplianceService,
+    private readonly swapTransactionWorkflowService: SwapTransactionWorkflowService,
   ) {
     this.auditLogsService = new AuditLogsService(prisma);
+  }
+
+  private parseJson<T>(value: string | null | undefined, fallback: T): T {
+    if (!value) return fallback;
+    try {
+      return JSON.parse(value) as T;
+    } catch {
+      return fallback;
+    }
   }
 
   private createAccountingContext(swap: {
     id: string;
     swapNo: string | null;
+    quoteId?: string | null;
+    quoteNo?: string | null;
     ownerId: string;
     ownerType: string;
     fromAssetId: string;
     toAssetId: string;
     fromAmount: Prisma.Decimal;
     toAmount: Prisma.Decimal;
+    netToAmount?: Prisma.Decimal | null;
+    feeAmount?: Prisma.Decimal | null;
+    feeCurrency?: string | null;
     exchangeRate: Prisma.Decimal;
   }) {
     return {
       src: {
         id: swap.id,
         swapNo: swap.swapNo,
+        quoteId: swap.quoteId || null,
+        quoteNo: swap.quoteNo || null,
         ownerId: swap.ownerId,
         ownerType: swap.ownerType,
         fromAssetId: swap.fromAssetId,
@@ -73,150 +90,89 @@ export class SwapWorkflowOrchestrator {
         amount: swap.fromAmount.toString(),
         fromAmount: swap.fromAmount.toString(),
         toAmount: swap.toAmount.toString(),
+        netAmount: (swap.netToAmount || swap.toAmount).toString(),
+        feeAmount: (swap.feeAmount || new Prisma.Decimal(0)).toString(),
+        feeAssetId: swap.toAssetId,
+        feeCurrency: swap.feeCurrency || null,
         exchangeRate: swap.exchangeRate.toString(),
       },
     };
   }
 
-  /**
-   * R0. On action CREATE
-   */
-  async createSwap(
-    dto: CreateSwapTransactionDto,
-  ): Promise<SwapOrchestratorOutput> {
-    const result = await this.prisma.$transaction(async (tx: any) => {
-      const swapNo = dto.swapNo || generateReferenceNo('SWP');
+  private buildInitialStatusHistory(input: {
+    status: SwapTransactionStatus;
+    operator: string;
+    source: string;
+    note: string;
+    quoteId?: string | null;
+    quoteNo?: string | null;
+  }) {
+    return JSON.stringify([
+      {
+        status: input.status,
+        timestamp: new Date().toISOString(),
+        operator: input.operator,
+        source: input.source,
+        note: input.note,
+        quoteId: input.quoteId || null,
+        quoteNo: input.quoteNo || null,
+      },
+    ]);
+  }
 
-      const fromAsset = await tx.asset.findUnique({
-        where: { id: dto.fromAssetId },
-      });
-      const toAsset = await tx.asset.findUnique({
-        where: { id: dto.toAssetId },
-      });
+  private mapAdminAction(action: SwapTransactionAction): SwapWorkflowAction {
+    if (action === SwapTransactionAction.SUCCESS) return 'CLEAR';
+    if (action === SwapTransactionAction.FLAG) return 'FLAG';
+    if (action === SwapTransactionAction.FAIL) return 'FAIL';
+    return 'REJECT';
+  }
 
-      if (!fromAsset || !toAsset)
-        throw new NotFoundException('Asset not found');
-      if (fromAsset.type === 'FIAT' && toAsset.type === 'FIAT') {
-        throw new BadRequestException('Fiat to Fiat swap is not supported');
-      }
+  private resolveEmittedEventsForStatus(status: string): string[] {
+    if (status === SwapTransactionStatus.SUCCESS) {
+      return [SwapEvents.EVT_SWAP_SUCCESS];
+    }
+    if (status === SwapTransactionStatus.REJECTED) {
+      return [SwapEvents.EVT_SWAP_REJECTED];
+    }
+    if (status === SwapTransactionStatus.FAILED) {
+      return [SwapEvents.EVT_SWAP_FAILED];
+    }
+    if (status === SwapTransactionStatus.UNDER_REVIEW) {
+      return [];
+    }
+    return [SwapEvents.EVT_SWAP_CREATED];
+  }
 
-      const rateDetails = await this.swapService.getExecutableRate(
-        fromAsset.id,
-        toAsset.id,
-        { amount: dto.fromAmount },
+  private async finalizeSwapCompliance(swapId: string) {
+    try {
+      await this.transactionComplianceService.evaluateSwapFinalReview(swapId);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : String(error || 'UNKNOWN_ERROR');
+      this.logger.error(
+        `Swap final compliance evaluation failed for ${swapId}: ${message}`,
+        error instanceof Error ? error.stack : undefined,
       );
-      const rate = new Prisma.Decimal(rateDetails.executableRate);
-      const fromAmount = new Prisma.Decimal(dto.fromAmount);
-      const toAmount = fromAmount.mul(rate);
-
-      const balances = await this.journalsService.getCustomerLiabilityBalance(
-        {
-          ownerId: dto.ownerId,
-          ownerType: dto.ownerType,
-          assetId: dto.fromAssetId,
-        },
-        tx,
-      );
-
-      if (balances.availableBalance.lt(fromAmount)) {
-        throw new BadRequestException({
-          code: 'INSUFFICIENT_AVAILABLE_BALANCE',
-          message: `Insufficient available balance for swap asset ${dto.fromAssetId}`,
-        });
-      }
-
-      let ownerNo: string | null = null;
-      if (dto.ownerType === 'CUSTOMER') {
-        const owner = await tx.customerMain.findUnique({
-          where: { id: dto.ownerId },
-          select: { customerNo: true },
-        });
-        ownerNo = owner?.customerNo || null;
-      }
-
-      // Create Swap record
-      const transaction = await tx.swapTransaction.create({
-        data: {
-          swapNo,
-          ownerType: dto.ownerType,
-          ownerId: dto.ownerId,
-          ownerNo,
-          status: SwapTransactionStatus.PENDING_COMPLIANCE,
-          fromAssetId: dto.fromAssetId,
-          fromAssetCode: fromAsset.code,
-          fromAmount,
-          toAssetId: dto.toAssetId,
-          toAssetCode: toAsset.code,
-          toAmount,
-          exchangeRate: rate,
-        },
-        include: {
-          fromAsset: true,
-          toAsset: true,
-        },
-      });
-
-      const auditLog = await this.auditLogsService.recordByActor(
-        {
-          triggerType: AuditTriggerType.DATA_CREATE,
-          action: AuditActions.SWAP_CREATED,
-          module: AuditModules.SWAP_TRANSACTIONS,
-          entityType: AuditEntityTypes.SWAP_TRANSACTION,
-          entityId: transaction.id,
-          entityNo: transaction.swapNo || undefined,
-          entityOwnerType: transaction.ownerType,
-          entityOwnerId: transaction.ownerId,
-          reason: 'Initial creation',
-          afterData: {
-            status: transaction.status,
-            fromAssetId: transaction.fromAssetId,
-            toAssetId: transaction.toAssetId,
-            fromAmount: transaction.fromAmount?.toString?.(),
-            toAmount: transaction.toAmount?.toString?.(),
-          },
+      await this.swapTransactionWorkflowService.execute(undefined, {
+        swapId,
+        source: 'SYSTEM',
+        sourceId: 'SYSTEM',
+        workflowAction: 'FAIL',
+        reason: `Swap final compliance evaluation failed: ${message}`,
+        reasonCode: 'TX_SWAP_FINAL_EVALUATION_FAILED',
+        failureCode: 'TX_SWAP_FINAL_EVALUATION_FAILED',
+        failureReason: message,
+        actor: {
+          actorType: 'SYSTEM',
+          actorId: 'SYSTEM',
+          actorNo: 'SYSTEM',
+          actorRole: 'SYSTEM',
           sourcePlatform: 'SYSTEM',
         },
-        {
-          actorType: dto.ownerType === 'CUSTOMER' ? 'CUSTOMER' : 'ADMIN',
-          actorId: dto.ownerId,
-          actorRole: dto.ownerType,
-        },
-        tx,
-      );
-
-      await this.journalsService.createJournal(
-        {
-          sourceType: 'SWAP',
-          sourceId: transaction.id,
-          eventCode: SwapEvents.EVT_SWAP_CREATED,
-          context: this.createAccountingContext(transaction),
-        },
-        tx,
-      );
-
-      // Emit EVT_SWAP_CREATED (moved outside or using hook)
-      // For now, we return it and the caller or a post-transaction hook handles it.
-      // But in NestJS transaction, we should emit after the $transaction block resolves.
-
-      return {
-        swap_status_after: SwapTransactionStatus.PENDING_COMPLIANCE,
-        emitted_events: [SwapEvents.EVT_SWAP_CREATED],
-        audit_log_id: auditLog.id,
-        transaction,
-      };
-    });
-
-    // R0. Emit event AFTER transaction commit
-    if (result.emitted_events.includes(SwapEvents.EVT_SWAP_CREATED)) {
-      this.logger.log(
-        `Emitting ${SwapEvents.EVT_SWAP_CREATED} for ${result.transaction.id}`,
-      );
-      this.eventEmitter.emit(SwapEvents.EVT_SWAP_CREATED, {
-        swapId: result.transaction.id,
+        triggerStage: 'REVIEW_SWAP_FINAL',
+        triggerStatus: 'FAILED',
       });
     }
-
-    return result;
   }
 
   async createSwapFromQuote(
@@ -225,7 +181,7 @@ export class SwapWorkflowOrchestrator {
   ): Promise<SwapOrchestratorOutput> {
     const now = new Date();
 
-    const result = await this.prisma.$transaction(async (tx: any) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       const quote = await this.pricingCenterService.getActiveSwapQuoteOrThrow(
         quoteId,
         'CUSTOMER',
@@ -234,8 +190,22 @@ export class SwapWorkflowOrchestrator {
         tx,
       );
 
+      await this.pricingCenterService.assertSwapProductAllowedForOwner({
+        ownerType: 'CUSTOMER',
+        ownerId,
+        ownerNo: quote.ownerNo,
+        fromAssetId: quote.fromAssetId,
+        toAssetId: quote.toAssetId,
+        sourcePlatform: 'CUSTOMER_API',
+      });
+
       const fromAmount = new Prisma.Decimal(quote.amountIn);
       const toAmount = new Prisma.Decimal(quote.amountOut);
+      const totals = this.parseJson<Record<string, string>>(quote.totalsJson, {});
+      const netToAmount = new Prisma.Decimal(
+        totals.amountOutNet || quote.amountOut.toString(),
+      );
+      const feeAmount = new Prisma.Decimal(quote.feeTotal || 0);
       const rate = new Prisma.Decimal(quote.rateAllIn);
       const swapNo = generateReferenceNo('SWP');
 
@@ -255,11 +225,20 @@ export class SwapWorkflowOrchestrator {
         });
       }
 
+      await this.pricingCenterService.consumeSwapQuoteForSwap(
+        tx,
+        quote.id,
+        'CUSTOMER',
+        ownerId,
+        now,
+      );
+
       const transaction = await tx.swapTransaction.create({
         data: {
           swapNo,
           quoteId: quote.id,
           quoteNo: quote.quoteNo,
+          quoteSnapshotRef: quote.id,
           ownerType: 'CUSTOMER',
           ownerId,
           ownerNo: quote.ownerNo,
@@ -270,21 +249,25 @@ export class SwapWorkflowOrchestrator {
           toAssetId: quote.toAssetId,
           toAssetCode: quote.toAssetCode,
           toAmount,
+          netToAmount,
+          feeAmount,
+          feeCurrency: quote.feeCurrency || quote.toAssetCode,
+          feeBreakdown: quote.feeBreakdown,
           exchangeRate: rate,
+          statusHistory: this.buildInitialStatusHistory({
+            status: SwapTransactionStatus.PENDING_COMPLIANCE,
+            operator: ownerId,
+            source: 'CUSTOMER',
+            note: `Swap created from quote ${quote.quoteNo || quote.id}`,
+            quoteId: quote.id,
+            quoteNo: quote.quoteNo,
+          }),
         },
         include: {
           fromAsset: true,
           toAsset: true,
         },
       });
-
-      await this.pricingCenterService.consumeSwapQuoteForSwap(
-        tx,
-        quote.id,
-        'CUSTOMER',
-        ownerId,
-        now,
-      );
 
       const auditLog = await this.auditLogsService.recordByActor(
         {
@@ -294,206 +277,96 @@ export class SwapWorkflowOrchestrator {
           entityType: AuditEntityTypes.SWAP_TRANSACTION,
           entityId: transaction.id,
           entityNo: transaction.swapNo || undefined,
+          traceId: `SWAP:${transaction.id}`,
+          workflowType: AuditWorkflowTypes.SWAP,
+          workflowId: transaction.id,
+          workflowNo: transaction.swapNo || quote.quoteNo || transaction.id,
           entityOwnerType: transaction.ownerType,
           entityOwnerId: transaction.ownerId,
+          entityOwnerNo: transaction.ownerNo || undefined,
           reason: `Created from quote ${quote.id}`,
           metadata: {
             quoteId: quote.id,
             quoteNo: quote.quoteNo,
+            quoteSnapshotRef: quote.id,
           },
           afterData: {
             status: transaction.status,
             fromAssetId: transaction.fromAssetId,
             toAssetId: transaction.toAssetId,
-            fromAmount: transaction.fromAmount?.toString?.(),
-            toAmount: transaction.toAmount?.toString?.(),
+            fromAmount: transaction.fromAmount.toString(),
+            toAmount: transaction.toAmount.toString(),
+            netToAmount: transaction.netToAmount?.toString?.() || null,
+            feeAmount: transaction.feeAmount?.toString?.() || null,
+            feeCurrency: transaction.feeCurrency || null,
           },
           sourcePlatform: 'CUSTOMER_API',
         },
         {
           actorType: 'CUSTOMER',
           actorId: ownerId,
+          actorNo: quote.ownerNo || undefined,
           actorRole: 'CUSTOMER',
         },
         tx,
       );
 
-      await this.journalsService.createJournal(
+      await this.journalsService.triggerEvent(
         {
-          sourceType: 'SWAP',
-          sourceId: transaction.id,
-          eventCode: SwapEvents.EVT_SWAP_CREATED,
+          entityType: 'SWAP',
+          triggerKey: 'status',
+          fromStatus: null,
+          toStatus: SwapTransactionStatus.PENDING_COMPLIANCE,
+          assetType: 'ALL',
           context: this.createAccountingContext(transaction),
+          sourceId: transaction.id,
         },
         tx,
       );
 
       return {
-        swap_status_after: SwapTransactionStatus.PENDING_COMPLIANCE,
-        emitted_events: [SwapEvents.EVT_SWAP_CREATED],
         audit_log_id: auditLog.id,
         transaction,
       };
     });
 
-    if (result.emitted_events.includes(SwapEvents.EVT_SWAP_CREATED)) {
-      this.logger.log(
-        `Emitting ${SwapEvents.EVT_SWAP_CREATED} for ${result.transaction.id}`,
-      );
-      this.eventEmitter.emit(SwapEvents.EVT_SWAP_CREATED, {
-        swapId: result.transaction.id,
-      });
-    }
+    await this.finalizeSwapCompliance(result.transaction.id);
+    const refreshed = await this.swapService.findOne(result.transaction.id);
 
-    return result;
+    return {
+      swap_status_after: refreshed.status,
+      emitted_events: this.resolveEmittedEventsForStatus(refreshed.status),
+      audit_log_id: result.audit_log_id,
+      transaction: refreshed,
+    };
   }
 
-  /**
-   * R1-R4. Status Transitions
-   */
   async handleStatusTransition(
     id: string,
     dto: UpdateSwapTransactionStatusDto,
     operatorId: string,
   ): Promise<SwapOrchestratorOutput> {
-    const { currentStatus, result } = await this.prisma.$transaction(async (tx: any) => {
-      const transaction = await tx.swapTransaction.findUnique({
-        where: { id },
-      });
-      if (!transaction)
-        throw new NotFoundException('Swap transaction not found');
-
-      const currentStatus = transaction.status as SwapTransactionStatus;
-      const action = dto.action;
-      const nextStatus = this.getNextStatus(currentStatus, action);
-
-      const updateData: any = {
-        status: nextStatus,
-      };
-
-      if (
-        nextStatus === SwapTransactionStatus.SUCCESS ||
-        nextStatus === SwapTransactionStatus.REJECTED
-      ) {
-        updateData.completedAt = new Date();
-      }
-
-      // 1. Update Transaction
-      const updated = await tx.swapTransaction.update({
-        where: { id },
-        data: updateData,
-        include: {
-          fromAsset: true,
-          toAsset: true,
-        },
-      });
-
-      if (action === SwapTransactionAction.SUCCESS) {
-        await this.outstandingsService.createForSwapSuccess(tx, updated);
-      }
-
-      const auditLog = await this.auditLogsService.recordByActor(
-        {
-          triggerType: AuditTriggerType.STATE_TRANSITION,
-          action: buildStateTransitionAction('SWAP', currentStatus, nextStatus),
-          module: AuditModules.SWAP_TRANSACTIONS,
-          entityType: AuditEntityTypes.SWAP_TRANSACTION,
-          entityId: updated.id,
-          entityNo: updated.swapNo || undefined,
-          entityOwnerType: updated.ownerType,
-          entityOwnerId: updated.ownerId,
-          statusFrom: currentStatus,
-          statusTo: nextStatus,
-          reason: dto.reason || `Action: ${action}`,
-          beforeData: { status: currentStatus },
-          afterData: { status: nextStatus },
-          sourcePlatform: operatorId === 'SYSTEM' ? 'SYSTEM' : 'ADMIN_API',
-        },
-        {
-          actorType: operatorId === 'SYSTEM' ? 'SYSTEM' : 'ADMIN',
-          actorId: operatorId,
-          actorRole: operatorId === 'SYSTEM' ? 'SYSTEM' : 'ADMIN',
-        },
-        tx,
-      );
-
-      if (
-        action === SwapTransactionAction.SUCCESS ||
-        action === SwapTransactionAction.REJECT
-      ) {
-        await this.journalsService.triggerEvent(
-          {
-            entityType: 'SWAP',
-            triggerKey: 'status',
-            fromStatus: currentStatus,
-            toStatus: nextStatus,
-            assetType: 'ALL',
-            context: this.createAccountingContext(updated),
-            sourceId: id,
-          },
-          tx,
-        );
-      }
-
-      const emitted_events: string[] = [];
-
-      if (action === SwapTransactionAction.SUCCESS) {
-        emitted_events.push(SwapEvents.EVT_SWAP_SUCCESS);
-      } else if (action === SwapTransactionAction.REJECT) {
-        emitted_events.push(SwapEvents.EVT_SWAP_REJECTED);
-      }
-
-      return {
-        currentStatus,
-        result: {
-          swap_status_after: nextStatus,
-          emitted_events,
-          audit_log_id: auditLog.id,
-          transaction: updated,
-        }
-      };
+    const result = await this.swapTransactionWorkflowService.execute(undefined, {
+      swapId: id,
+      source: 'ADMIN',
+      sourceId: operatorId,
+      workflowAction: this.mapAdminAction(dto.action),
+      reason: dto.reason || null,
+      actor: {
+        actorType: 'ADMIN',
+        actorId: operatorId,
+        actorRole: 'ADMIN',
+        sourcePlatform: 'ADMIN_API',
+      },
+      triggerStage: 'REVIEW_SWAP_FINAL',
     });
 
-    // R1-R4. Emit events AFTER transaction commit
-    for (const event of result.emitted_events) {
-      const payload =
-        event === SwapEvents.EVT_SWAP_REJECTED
-          ? { swapId: id, oldStatus: currentStatus, reason: dto.reason }
-          : { swapId: id, oldStatus: currentStatus };
-      this.logger.log(`Emitting ${event} for ${id}`);
-      this.eventEmitter.emit(event, payload);
-    }
-
-    return result;
-  }
-
-  private getNextStatus(
-    current: SwapTransactionStatus,
-    action: SwapTransactionAction,
-  ): SwapTransactionStatus {
-    const transitions: Record<
-      string,
-      Partial<Record<SwapTransactionAction, SwapTransactionStatus>>
-    > = {
-      [SwapTransactionStatus.PENDING_COMPLIANCE]: {
-        [SwapTransactionAction.SUCCESS]: SwapTransactionStatus.SUCCESS,
-        [SwapTransactionAction.REJECT]: SwapTransactionStatus.REJECTED,
-        [SwapTransactionAction.FLAG]: SwapTransactionStatus.UNDER_REVIEW,
-      },
-      [SwapTransactionStatus.UNDER_REVIEW]: {
-        [SwapTransactionAction.SUCCESS]: SwapTransactionStatus.SUCCESS,
-        [SwapTransactionAction.REJECT]: SwapTransactionStatus.REJECTED,
-      },
+    const transaction = await this.swapService.findOne(id);
+    return {
+      swap_status_after: result.swapStatusAfter as SwapTransactionStatus,
+      emitted_events: this.resolveEmittedEventsForStatus(result.swapStatusAfter),
+      audit_log_id: `${result.transitionCode}:${id}`,
+      transaction,
     };
-
-    const nextStatus = transitions[current]?.[action];
-
-    if (!nextStatus) {
-      throw new BadRequestException(
-        `Invalid action '${action}' for status '${current}'`,
-      );
-    }
-
-    return nextStatus;
   }
 }

@@ -51,6 +51,7 @@ import {
   PERIODIC_REVIEW_SOURCE_TYPE,
   PERIODIC_REVIEW_WORKFLOW,
   TRANSACTION_DEPOSIT_SOURCE_TYPE,
+  TRANSACTION_SWAP_SOURCE_TYPE,
   TRANSACTION_REVIEW_STAGES,
   TRANSACTION_WORKFLOW,
   buildComplianceWorkflowTraceContext,
@@ -62,7 +63,7 @@ import {
   normalizeComplianceRuleCode,
   normalizeOnboardingReviewStage,
 } from '../constants/onboarding-compliance-workflow.constant';
-import { TransactionDepositWorkflowService } from '../../trading/deposit-transactions/transaction-deposit-workflow.service';
+import { WorkflowTransitionService } from '../../identity/onboarding/workflow-transition.service';
 import type { OnboardingService } from '../../identity/onboarding/onboarding.service';
 import type { PeriodicReviewService } from '../../identity/periodic-review/periodic-review.service';
 import type { ComplianceIncidentsService } from '../compliance-incidents/compliance-incidents.service';
@@ -239,11 +240,13 @@ export class ComplianceAlertsService {
     });
   }
 
-  private getTransactionWorkflowTransitionService() {
-    const service = this.moduleRef?.get(TransactionDepositWorkflowService, {
+  private getWorkflowTransitionService() {
+    const service = this.moduleRef?.get(WorkflowTransitionService, {
       strict: false,
     });
-    if (!service) return null;
+    if (!service) {
+      throw new BadRequestException('WorkflowTransitionService is unavailable.');
+    }
     return service;
   }
 
@@ -323,6 +326,15 @@ export class ComplianceAlertsService {
       };
     }
 
+    if (sourceType === TRANSACTION_SWAP_SOURCE_TYPE) {
+      return {
+        type: TRANSACTION_SWAP_SOURCE_TYPE,
+        id: this.normalizeOptionalString(row.sourceId),
+        no: this.normalizeOptionalString(row.sourceNo),
+        label: 'Swap',
+      };
+    }
+
     return {
       type: TRANSACTION_DEPOSIT_SOURCE_TYPE,
       id: this.normalizeOptionalString(row.sourceId),
@@ -343,6 +355,9 @@ export class ComplianceAlertsService {
     if (!workflow || !stage) return [];
 
     if (workflow === TRANSACTION_WORKFLOW) {
+      if (stage === TRANSACTION_REVIEW_STAGES.REVIEW_SWAP_FINAL) {
+        return ['REJECT'];
+      }
       return ['REJECT', 'FREEZE_TRANSACTION'];
     }
 
@@ -1465,6 +1480,7 @@ export class ComplianceAlertsService {
           ONBOARDING_SOURCE_TYPE,
           PERIODIC_REVIEW_SOURCE_TYPE,
           TRANSACTION_DEPOSIT_SOURCE_TYPE,
+          TRANSACTION_SWAP_SOURCE_TYPE,
         ],
       };
     }
@@ -1764,6 +1780,7 @@ export class ComplianceAlertsService {
   ): string {
     if (sourceType === ONBOARDING_SOURCE_TYPE) return 'Proceed Journey';
     if (sourceType === PERIODIC_REVIEW_SOURCE_TYPE) return 'Proceed Periodic Review Cycle';
+    if (sourceType === TRANSACTION_SWAP_SOURCE_TYPE) return 'Proceed Swap';
     return 'Proceed Deposit';
   }
 
@@ -1898,28 +1915,22 @@ export class ComplianceAlertsService {
         tx,
       );
 
-      const transitionService = this.getTransactionWorkflowTransitionService();
-      if (!transitionService) {
-        throw new BadRequestException('Transaction deposit workflow service is unavailable.');
-      }
-
-      await transitionService.execute(tx, {
-        depositId: String(updated.sourceId),
-        source: 'ALERT',
-        sourceId: updated.id,
-        workflowAction: input.workflowAction,
+      await this.getWorkflowTransitionService().transition(tx, {
+        workflow: TRANSACTION_WORKFLOW,
+        stage:
+          normalizeComplianceReviewStage((updated as any).stage) ||
+          TRANSACTION_REVIEW_STAGES.REVIEW_DEPOSIT_FINAL,
+        producerType: 'ALERT',
+        producerId: updated.id,
+        customerId: updated.customerId || updated.ownerId || '',
+        sourceId: String(updated.sourceId),
+        sourceType: updated.sourceType || TRANSACTION_DEPOSIT_SOURCE_TYPE,
+        dispositionCode:
+          input.workflowAction === 'FREEZE' ? 'FREEZE_TRANSACTION' : input.workflowAction,
         reason: input.reason,
-        reasonCode: input.reasonCode,
-        actor: {
-          actorType: actor.actorType,
-          actorId: actor.actorId,
-          actorNo: actor.actorNo,
-          actorRole: actor.actorRole,
-          sourcePlatform: actor.sourcePlatform || 'ADMIN_API',
-        },
-        decisionRecordId: decisionRecordIds[0] || null,
-        alertId: updated.id,
-        triggerStage: this.normalizeOptionalString((updated as any).stage),
+        actorId: actor.actorId,
+        actorRole: actor.actorRole || 'ADMIN',
+        latestDecisionRecordId: decisionRecordIds[0] || null,
       });
 
       const detail = await tx.complianceAlert.findUnique({
@@ -2429,35 +2440,39 @@ export class ComplianceAlertsService {
 
     if (
       isTransactionFalsePositiveClose &&
-      updated.sourceType === 'DEPOSIT' &&
       this.normalizeOptionalString(updated.sourceId)
     ) {
-      const transitionService = this.getTransactionWorkflowTransitionService();
-      if (transitionService) {
-        const detailResponse = this.buildAlertDetailResponse(detail as AlertWithEvents, actor);
-        const decisionRecordIds = Array.isArray(detailResponse.decisionRecordIds)
-          ? (detailResponse.decisionRecordIds as string[])
-          : [];
-        await transitionService.execute(tx, {
-          depositId: String(updated.sourceId),
-          source: 'ALERT',
-          sourceId: updated.id,
-          workflowAction: 'CLEAR',
-          reason: dispositionReason || reason || note || 'Transaction alert marked false positive',
-          reasonCode: ALERT_DISPOSITION_CODES.FALSE_POSITIVE,
-          actor: {
-            actorType: actor.actorType,
-            actorId: actor.actorId,
-            actorNo: actor.actorNo,
-            actorRole: actor.actorRole,
-            sourcePlatform: actor.sourcePlatform || 'ADMIN_API',
-          },
-          decisionRecordId: decisionRecordIds[0] || null,
-          alertId: updated.id,
-          triggerStage: this.normalizeOptionalString((detailResponse as any).stage),
-        });
-        return detailResponse;
-      }
+      const detailResponse = this.buildAlertDetailResponse(
+        detail as AlertWithEvents,
+        actor,
+      );
+      const decisionRecordIds = Array.isArray(detailResponse.decisionRecordIds)
+        ? (detailResponse.decisionRecordIds as string[])
+        : [];
+      await this.getWorkflowTransitionService().transition(
+        (tx || (this.prisma as unknown as Prisma.TransactionClient)),
+        {
+        workflow: TRANSACTION_WORKFLOW,
+        stage:
+          normalizeComplianceReviewStage((detailResponse as any).stage) ||
+          TRANSACTION_REVIEW_STAGES.REVIEW_DEPOSIT_FINAL,
+        producerType: 'ALERT',
+        producerId: updated.id,
+        customerId: updated.customerId || updated.ownerId || '',
+        sourceId: String(updated.sourceId),
+        sourceType: updated.sourceType || TRANSACTION_DEPOSIT_SOURCE_TYPE,
+        dispositionCode: 'CLEAR',
+        reason:
+          dispositionReason ||
+          reason ||
+          note ||
+          'Transaction alert marked false positive',
+        actorId: actor.actorId,
+        actorRole: actor.actorRole || 'ADMIN',
+        latestDecisionRecordId: decisionRecordIds[0] || null,
+        },
+      );
+      return detailResponse;
     }
 
     return this.buildAlertDetailResponse(detail as AlertWithEvents, actor);

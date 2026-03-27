@@ -4,6 +4,7 @@ import Pagination from '../components/common/Pagination';
 import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/adminFetch';
 
 type DecisionRecordStatus = 'CREATED' | 'COMPLETED' | 'FAILED';
+type ManualRiskLevel = 'LOW' | 'MEDIUM' | 'HIGH';
 
 type DecisionRecordItem = {
   id: string;
@@ -46,6 +47,17 @@ interface DecisionRecordListResponse {
   skip: number;
   take: number;
   items: DecisionRecordItem[];
+}
+
+interface FetchRecordsOptions {
+  silent?: boolean;
+  preserveMessage?: boolean;
+  preserveError?: boolean;
+}
+
+interface LoadDecisionDetailOptions {
+  silent?: boolean;
+  preserveError?: boolean;
 }
 
 interface FilterState {
@@ -91,15 +103,54 @@ const getStatusClass = (status: string) => {
   return 'bg-yellow-100 text-yellow-800';
 };
 
+const getUpdatedSubjectSnapshot = (
+  workflowTransition?: Record<string, unknown> | null,
+): { sourceType: string; subjectNo: string; subjectId: string } => {
+  const updatedSubject =
+    workflowTransition &&
+    workflowTransition.updatedSubject &&
+    typeof workflowTransition.updatedSubject === 'object' &&
+    !Array.isArray(workflowTransition.updatedSubject)
+      ? (workflowTransition.updatedSubject as Record<string, unknown>)
+      : {};
+
+  return {
+    sourceType: String(updatedSubject.sourceType || '-'),
+    subjectNo: String(updatedSubject.subjectNo || '-'),
+    subjectId: String(updatedSubject.id || '-'),
+  };
+};
+
 const getDecisionContextMeta = (contextType?: string | null) => {
   const normalized = String(contextType || '').trim().toUpperCase();
+
+  if (normalized === 'ONBOARDING_CDD') {
+    return {
+      title: 'Onboarding CDD Decision',
+      badgeLabel: 'MANUAL',
+      badgeClass: 'bg-blue-100 text-blue-800',
+      helperText:
+        'CDD now creates a pending risk execution record first. Complete the final simulated outcome here from the decision detail.',
+    };
+  }
 
   if (normalized === 'TX_DEPOSIT_FINAL') {
     return {
       title: 'Deposit Final Decision',
-      badgeLabel: 'FINAL',
+      badgeLabel: 'MANUAL',
       badgeClass: 'bg-emerald-100 text-emerald-800',
-      helperText: 'Unified final decision for one deposit after KYT and Travel Rule are both terminal.',
+      helperText:
+        'Deposit now creates one pending final risk execution record. Complete the final simulated outcome here after the payin/deposit chain is ready.',
+    };
+  }
+
+  if (normalized === 'TX_SWAP_FINAL') {
+    return {
+      title: 'Swap Final Decision',
+      badgeLabel: 'MANUAL',
+      badgeClass: 'bg-violet-100 text-violet-800',
+      helperText:
+        'Swap creation now stops at pending compliance until you simulate the final risk outcome here.',
     };
   }
 
@@ -131,6 +182,37 @@ const getDecisionContextMeta = (contextType?: string | null) => {
   };
 };
 
+const mergeDecisionRecordIntoList = (
+  items: DecisionRecordItem[],
+  detail: DecisionRecordDetail,
+): DecisionRecordItem[] =>
+  items.map((item) =>
+    item.id === detail.id
+      ? {
+          ...item,
+          status: detail.status,
+          outputDecision: detail.outputDecision,
+          reasonCodes: detail.reasonCodes,
+          recommendedActions: detail.recommendedActions,
+          outputs: detail.outputs,
+          workflow: detail.workflow,
+          stage: detail.stage,
+          rule: detail.rule,
+          orchestration: detail.orchestration,
+          workflowTransition: detail.workflowTransition,
+          errorMessage: detail.errorMessage,
+          completedAt: detail.completedAt,
+          customer: detail.customer
+            ? {
+                id: detail.customer.id,
+                customerNo: detail.customer.customerNo || null,
+                email: detail.customer.email || null,
+              }
+            : item.customer,
+        }
+      : item,
+  );
+
 const RiskPolicyExecutionsPage = () => {
   const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
   const [items, setItems] = useState<DecisionRecordItem[]>([]);
@@ -141,14 +223,29 @@ const RiskPolicyExecutionsPage = () => {
   const [message, setMessage] = useState('');
   const [detail, setDetail] = useState<DecisionRecordDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [simulateLoading, setSimulateLoading] = useState<ManualRiskLevel | null>(null);
+
+  const canSimulate = (record?: DecisionRecordDetail | null) => {
+    if (!record) return false;
+    if (String(record.status || '').trim().toUpperCase() !== 'CREATED') return false;
+    const contextType = String(record.contextType || '').trim().toUpperCase();
+    return ['ONBOARDING_CDD', 'TX_DEPOSIT_FINAL', 'TX_SWAP_FINAL'].includes(contextType);
+  };
 
   const fetchRecords = async (
     targetPage: number,
     activeFilters: FilterState = filters,
+    options: FetchRecordsOptions = {},
   ) => {
-    setLoading(true);
-    setError('');
-    setMessage('');
+    if (!options.silent) {
+      setLoading(true);
+    }
+    if (!options.preserveError) {
+      setError('');
+    }
+    if (!options.preserveMessage) {
+      setMessage('');
+    }
     try {
       const params = new URLSearchParams();
       params.set('skip', String((targetPage - 1) * PAGE_SIZE));
@@ -187,13 +284,37 @@ const RiskPolicyExecutionsPage = () => {
       if (e instanceof AdminSessionError) return;
       setError(e instanceof Error ? e.message : 'Failed to load decision records.');
     } finally {
-      setLoading(false);
+      if (!options.silent) {
+        setLoading(false);
+      }
     }
   };
 
   useEffect(() => {
     void fetchRecords(1, DEFAULT_FILTERS);
   }, []);
+
+  const loadDecisionDetail = async (
+    id: string,
+    options: LoadDecisionDetailOptions = {},
+  ): Promise<DecisionRecordDetail> => {
+    if (!options.silent) {
+      setDetailLoading(true);
+    }
+    if (!options.preserveError) {
+      setError('');
+    }
+    const response = await adminFetch(
+      `${import.meta.env.VITE_API_URL}/admin/risk/decision-records/${id}`,
+    );
+    if (!response.ok) {
+      throw new Error(await getApiErrorMessage(response, 'Failed to load decision record detail.'));
+    }
+    const data = (await response.json()) as DecisionRecordDetail;
+    setDetail(data);
+    setItems((prev) => mergeDecisionRecordIntoList(prev, data));
+    return data;
+  };
 
   const handleSearch = async () => {
     await fetchRecords(1, filters);
@@ -206,22 +327,56 @@ const RiskPolicyExecutionsPage = () => {
   };
 
   const openDetail = async (id: string) => {
-    setDetailLoading(true);
-    setError('');
     try {
-      const response = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/risk/decision-records/${id}`,
-      );
-      if (!response.ok) {
-        throw new Error(await getApiErrorMessage(response, 'Failed to load decision record detail.'));
-      }
-      const data = (await response.json()) as DecisionRecordDetail;
-      setDetail(data);
+      await loadDecisionDetail(id);
     } catch (e: unknown) {
       if (e instanceof AdminSessionError) return;
       setError(e instanceof Error ? e.message : 'Failed to load decision record detail.');
     } finally {
       setDetailLoading(false);
+    }
+  };
+
+  const simulateDecision = async (riskLevel: ManualRiskLevel) => {
+    if (!detail) return;
+    setSimulateLoading(riskLevel);
+    setError('');
+    setMessage('');
+    try {
+      const response = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/admin/risk/decision-records/${detail.id}/simulate`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ riskLevel }),
+        },
+      );
+
+      if (!response.ok) {
+        throw new Error(await getApiErrorMessage(response, 'Failed to simulate risk decision.'));
+      }
+
+      const data = (await response.json()) as DecisionRecordDetail;
+      setDetail(data);
+      setItems((prev) => mergeDecisionRecordIntoList(prev, data));
+      setMessage(`Manual ${riskLevel} simulation applied.`);
+      try {
+        await loadDecisionDetail(data.id, { silent: true, preserveError: true });
+      } catch (refreshError: unknown) {
+        if (refreshError instanceof AdminSessionError) return;
+      }
+      void fetchRecords(currentPage, filters, {
+        silent: true,
+        preserveMessage: true,
+        preserveError: true,
+      });
+    } catch (e: unknown) {
+      if (e instanceof AdminSessionError) return;
+      setError(e instanceof Error ? e.message : 'Failed to simulate risk decision.');
+    } finally {
+      setSimulateLoading(null);
     }
   };
 
@@ -231,7 +386,7 @@ const RiskPolicyExecutionsPage = () => {
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Risk Management - Risk Policy Executions</h1>
           <p className="text-sm text-gray-500 mt-1">
-            Review Risk Engine execution and decision records one by one.
+            Review pending risk decision records and manually complete the final simulation outcome when required.
           </p>
         </div>
         <button
@@ -244,10 +399,11 @@ const RiskPolicyExecutionsPage = () => {
       </div>
 
       <div className="px-4 py-3 border border-blue-200 bg-blue-50 rounded-lg text-sm text-blue-800">
-        New deposit flow should produce one unified <span className="font-semibold">TX_DEPOSIT_FINAL</span>{' '}
-        execution record. Historical <span className="font-semibold">TX_DEPOSIT_KYT_MAIN</span> and{' '}
+        Supported manual simulation contexts are <span className="font-semibold">ONBOARDING_CDD</span>,{' '}
+        <span className="font-semibold">TX_DEPOSIT_FINAL</span>, and <span className="font-semibold">TX_SWAP_FINAL</span>.
+        Historical <span className="font-semibold">TX_DEPOSIT_KYT_MAIN</span> and{' '}
         <span className="font-semibold">TX_DEPOSIT_TRAVEL_RULE</span> rows may still appear here as legacy
-        stage records.
+        stage records, but they are not the new operator simulation surface.
       </div>
 
       {message && (
@@ -464,6 +620,29 @@ const RiskPolicyExecutionsPage = () => {
             ) : (
               <div className="p-4 space-y-4 text-sm">
                 {(() => {
+                  const orchestrationSnapshot =
+                    detail.orchestration || detail.outputs?.orchestration || {};
+                  const workflowTransitionSnapshot =
+                    detail.workflowTransition || detail.outputs?.workflowTransition || {};
+                  const alertRef = String(
+                    (orchestrationSnapshot as Record<string, unknown>).alertNo ||
+                      (orchestrationSnapshot as Record<string, unknown>).alertId ||
+                      '-',
+                  );
+                  const caseRef = String(
+                    (orchestrationSnapshot as Record<string, unknown>).caseNo ||
+                      (orchestrationSnapshot as Record<string, unknown>).caseId ||
+                      '-',
+                  );
+                  const transitionCode = String(
+                    (workflowTransitionSnapshot as Record<string, unknown>).transitionCode || '-',
+                  );
+                  const updatedSubject = getUpdatedSubjectSnapshot(
+                    workflowTransitionSnapshot as Record<string, unknown>,
+                  );
+                  return (
+                    <>
+                {(() => {
                   const contextMeta = getDecisionContextMeta(detail.contextType);
                   return (
                     <section className="border border-gray-200 rounded-lg overflow-hidden">
@@ -577,8 +756,70 @@ const RiskPolicyExecutionsPage = () => {
                         {String(detail.outputs?.riskReason || '-')}
                       </div>
                     </div>
+                    <div>
+                      <div className="text-xs text-gray-500">Simulation Mode</div>
+                      <div className="text-gray-900 font-medium">
+                        {String(detail.outputs?.simulationMode || '-')}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-gray-500">Updated Subject Type</div>
+                      <div className="text-gray-900 font-medium">{updatedSubject.sourceType}</div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-gray-500">Updated Subject No</div>
+                      <div className="text-gray-900 font-medium break-all">{updatedSubject.subjectNo}</div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-gray-500">Updated Subject ID</div>
+                      <div className="text-gray-900 font-medium break-all">{updatedSubject.subjectId}</div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-gray-500">Alert</div>
+                      <div className="text-gray-900 font-medium break-all">{alertRef}</div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-gray-500">Case</div>
+                      <div className="text-gray-900 font-medium break-all">{caseRef}</div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-gray-500">Transition Code</div>
+                      <div className="text-gray-900 font-medium break-all">{transitionCode}</div>
+                    </div>
                   </div>
                 </section>
+
+                {canSimulate(detail) ? (
+                  <section className="border border-indigo-200 rounded-lg overflow-hidden">
+                    <div className="px-3 py-2 bg-indigo-50 border-b border-indigo-200 text-xs font-semibold text-indigo-700 uppercase">
+                      Manual Simulation
+                    </div>
+                    <div className="p-3 space-y-3">
+                      <p className="text-sm text-gray-700">
+                        Choose the final manual risk result for this pending execution record. Low will auto-clear
+                        the workflow. Medium creates one workflow-bound alert. High creates one alert and auto-escalates to a case.
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        {(['LOW', 'MEDIUM', 'HIGH'] as ManualRiskLevel[]).map((riskLevel) => (
+                          <button
+                            key={riskLevel}
+                            onClick={() => void simulateDecision(riskLevel)}
+                            disabled={simulateLoading !== null}
+                            className={`px-4 py-2 rounded-lg text-sm font-semibold transition ${
+                              riskLevel === 'LOW'
+                                ? 'bg-emerald-600 text-white hover:bg-emerald-700'
+                                : riskLevel === 'MEDIUM'
+                                  ? 'bg-amber-500 text-white hover:bg-amber-600'
+                                  : 'bg-rose-600 text-white hover:bg-rose-700'
+                            } disabled:opacity-60`}
+                          >
+                            {simulateLoading === riskLevel ? `Simulating ${riskLevel}...` : `Simulate ${riskLevel}`}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </section>
+                ) : null}
 
                 <section className="border border-gray-200 rounded-lg overflow-hidden">
                   <div className="px-3 py-2 bg-gray-50 border-b border-gray-200 text-xs font-semibold text-gray-600 uppercase">
@@ -590,7 +831,9 @@ const RiskPolicyExecutionsPage = () => {
                     </pre>
                   </div>
                 </section>
-
+                    </>
+                  );
+                })()}
                 <section className="border border-gray-200 rounded-lg overflow-hidden">
                   <div className="px-3 py-2 bg-gray-50 border-b border-gray-200 text-xs font-semibold text-gray-600 uppercase">
                     Recommended Actions

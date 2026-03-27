@@ -1,6 +1,6 @@
-Status: draft
+Status: active
 Owner: project-owner-and-agents
-Last Updated: 2026-03-23
+Last Updated: 2026-03-26
 Applies To: `Exchange_js`
 Supersedes: none
 Depends On: `docs/roadmap/wave-4-ledger-asset-structure-phase-plan.md`, `docs/constraints/customer-transaction-flow-constraints.md`, `docs/specs/entities/pricing-quote-entity.md`, `docs/specs/modules/pricing-center-module.md`
@@ -70,13 +70,43 @@ Source of Truth Level: constraints
 3. admin unified read-only `Quote Center`
 4. real TTL for new `withdraw` quotes
 5. swap runtime no longer relies on `feeBreakdown -> totals/policyRef` fallback
+6. `swap` rate preview remains display-only and does NOT emit restriction audit or transaction side effects
 - Current runtime consumes release-governed active pricing policy projections without redefining pricing as a transaction workflow engine.
+- Wave 6 extends swap pricing with:
+1. product restriction gate at quote create and quote consume
+2. swap fee capability while allowing empty or zero-fee business config
+3. quote snapshot fields for `grossAmountOut`, `netAmountOut`, and `feeCurrency`
+4. best execution evidence export based on the frozen quote snapshot
+
+## 8A) Swap Fee Capability Contract
+- Swap fee configuration is supported by the pricing contract.
+- Business config MAY leave swap fee arrays empty.
+- Wave 6 V1 supports receive-asset fee deduction only.
+- Quote snapshot MUST freeze both gross and net receive amounts when fee is present.
+
+## 8B) Swap Product Restriction Contract
+- Swap product restriction gate MUST run at:
+1. quote create
+2. quote consume before swap creation
+- Product restriction `restrictionCode` is limited to pricing/product gates only:
+1. `PAIR_DISABLED`
+2. `TIER_DISABLED`
+3. `CHANNEL_ONLINE_DISABLED`
+4. `INVESTOR_CLASSIFICATION_BLOCKED`
+- `customer trading gate` remains an onboarding eligibility gate and MUST NOT be folded into pricing `restrictionCode`.
+- `swapConfig.channel.online` MUST be treated as a runtime gate, not metadata-only display state.
+- Current single-tier `SWAP` runtime MUST preserve and honor:
+1. `tier.enabled`
+2. `tier.conditions.amountMin`
+3. `tier.conditions.amountMax`
+- Tier amount mismatch MAY still fail through the pricing match path instead of emitting `TIER_DISABLED`; `TIER_DISABLED` is reserved for explicitly disabled tier configuration.
 
 ## 9) Forbidden Patterns
 - MUST NOT let pricing policy directly create clearing or journals.
 - MUST NOT use quote as a substitute for `AcctEvent`.
 - MUST NOT fold `DEPOSIT` into the first Wave 4 quote baseline.
 - MUST NOT bypass pricing policy history once the release-governed model is implemented.
+- MUST NOT hardcode swap tier defaults in a way that discards persisted `tier.enabled` or amount-range values at runtime.
 
 ## 10) Change Protocol
 - Any change to this baseline MUST include:

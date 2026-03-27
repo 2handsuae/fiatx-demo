@@ -90,6 +90,22 @@ export const DEFAULT_ACCT_EVENTS = [
     isActive: true,
     description: '兑换拒绝：释放锁定（HELD → CREDIT）',
   },
+  // 7A. Swap Failed
+  {
+    eventCode: 'EVT_SWAP_FAILED',
+    entityType: 'SWAP',
+    ownerScope: 'CUSTOMER',
+    assetType: 'ALL',
+    triggerType: 'STATUS_TRANSITION',
+    triggerKey: 'status',
+    fromStatus: null,
+    toStatus: 'FAILED',
+    postingMode: 'AUTO_REVERSAL',
+    postingReversalOfEventCode: 'EVT_SWAP_CREATED',
+    clearingMode: 'NONE',
+    isActive: true,
+    description: '兑换失败：释放锁定（HELD → CREDIT）并终止交易',
+  },
   // 7. Swap Success
   {
     eventCode: 'EVT_SWAP_SUCCESS',

@@ -20,6 +20,7 @@ export type PermissionGroup =
   | 'INVESTOR_OVERRIDE_WRITE'
   | 'SIMULATE_EXPIRED_WRITE'
   | 'RISK_DECISION_RECORD_READ'
+  | 'RISK_DECISION_RECORD_WRITE'
   | 'ALERT_READ'
   | 'ALERT_WRITE'
   | 'CASE_READ'
@@ -252,6 +253,7 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   // Risk decision records
   route('GET', '/admin/risk/decision-records', 'List risk decision records', ['RISK_DECISION_RECORD_READ']),
   route('GET', '/admin/risk/decision-records/:id', 'Get risk decision record detail', ['RISK_DECISION_RECORD_READ']),
+  route('POST', '/admin/risk/decision-records/:id/simulate', 'Simulate risk decision record', ['RISK_DECISION_RECORD_WRITE']),
 
   // Alert triage center
   route('GET', '/admin/compliance/alerts', 'List compliance alerts', ['ALERT_READ']),
@@ -618,6 +620,7 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'AUDIT_READ',
     'AUDIT_EXPORT_READ',
     'RISK_DECISION_RECORD_READ',
+    'RISK_DECISION_RECORD_WRITE',
     'GOV_APPROVAL_READ',
     'GOV_APPROVAL_DECIDE',
     'GOV_CHANGE_TICKET_READ',
@@ -657,6 +660,7 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'AUDIT_EXPORT_CREATE',
     'AUDIT_EXPORT_READ',
     'RISK_DECISION_RECORD_READ',
+    'RISK_DECISION_RECORD_WRITE',
     'ALERT_READ',
     'ALERT_WRITE',
     'CASE_READ',
@@ -679,6 +683,7 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'AUDIT_EXPORT_CREATE',
     'AUDIT_EXPORT_READ',
     'RISK_DECISION_RECORD_READ',
+    'RISK_DECISION_RECORD_WRITE',
     'MLRO_REVIEW_WRITE',
     'ALERT_READ',
     'ALERT_WRITE',

@@ -99,6 +99,14 @@ export const COMPLIANCE_ALERT_RULES: Record<string, ComplianceAlertRuleDefinitio
     defaultMessage:
       'Transaction deposit final review requires compliance handling.',
   },
+  TX_SWAP_FINAL_REVIEW_REQUIRED: {
+    ruleCode: 'TX_SWAP_FINAL_REVIEW_REQUIRED',
+    capCode: 'CAP-004',
+    severity: ComplianceAlertSeverity.HIGH,
+    title: 'Transaction Swap Final Review Required',
+    defaultMessage:
+      'Transaction swap final review requires compliance handling.',
+  },
   ONB_ONBOARDING_JOURNEY_REVIEW: {
     ruleCode: 'ONB_ONBOARDING_JOURNEY_REVIEW',
     capCode: 'CAP-004',

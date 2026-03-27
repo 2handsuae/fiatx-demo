@@ -361,11 +361,16 @@ const PayinDetail = () => {
 
       <div className="flex flex-col gap-6">
         {payin.simulationProfile ? (
-          <DetailCard title="Simulation Profile" icon={<ShieldAlert size={18} />}>
+          <DetailCard title="Inbound Signal Profile" icon={<ShieldAlert size={18} />}>
             <InfoField label="Signal No" value={payin.simulationProfile.signalNo} source="main" />
-            <InfoField label="Risk Level" value={payin.simulationProfile.riskLevel} highlight source="main" />
-            <InfoField label="Risk Reason" value={payin.simulationProfile.riskReason || 'LOW has no reason'} source="main" />
+            <InfoField label="Signal Risk Level" value={payin.simulationProfile.riskLevel} highlight source="main" />
+            <InfoField label="Signal Risk Reason" value={payin.simulationProfile.riskReason || 'LOW has no reason'} source="main" />
             <InfoField label="Signal ID" value={payin.simulationProfile.signalId} source="main" />
+            <InfoField
+              label="Interpretation"
+              value="Compatibility signal only. Final TX_DEPOSIT_FINAL outcome is decided in Risk Policy Executions."
+              source="main"
+            />
           </DetailCard>
         ) : null}
 

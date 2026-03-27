@@ -1,6 +1,5 @@
 import { Module } from '@nestjs/common';
 import { DepositWorkflowService } from './deposit-workflow.service';
-import { SwapWorkflowService } from './swap-workflow.service';
 import { WithdrawWorkflowOrchestrator } from './withdraw-workflow.orchestrator';
 import { PayinsModule } from '../modules/asset-treasury/payins/payins.module';
 import { DepositTransactionsModule } from '../modules/trading/deposit-transactions/deposit-transactions.module';
@@ -32,14 +31,12 @@ import { AccountingEventExecutionService } from './accounting-event-execution.se
   ],
   providers: [
     DepositWorkflowService,
-    SwapWorkflowService,
     AccountingEventExecutionService,
     WithdrawWorkflowOrchestrator,
     InternalCollectionWorkflowOrchestrator,
   ],
   exports: [
     DepositWorkflowService,
-    SwapWorkflowService,
     WithdrawWorkflowOrchestrator,
     InternalCollectionWorkflowOrchestrator,
   ],

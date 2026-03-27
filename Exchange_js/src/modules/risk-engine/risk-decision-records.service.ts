@@ -1,6 +1,23 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { ModuleRef } from '@nestjs/core';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../core/prisma/prisma.service';
+import { OnboardingService } from '../identity/onboarding/onboarding.service';
+import { AuditLogsService } from './audit-logs/audit-logs.service';
+import {
+  AuditActions,
+  AuditEntityTypes,
+  AuditModules,
+  AuditWorkflowTypes,
+} from './audit-logs/constants/audit-actions.constant';
+import {
+  AuditActorContext,
+  AuditTriggerType,
+} from './audit-logs/dto/audit-log.dto';
 import {
   getCanonicalReviewRuleForStage,
   getWorkflowFromSourceType,
@@ -13,6 +30,8 @@ import {
   ComplianceReviewStage,
 } from './constants/onboarding-compliance-workflow.constant';
 import { normalizeRiskRecommendedActionType } from './constants/risk-recommended-actions.constant';
+import { SimulateRiskDecisionRecordDto } from './dto/risk-decision-record.dto';
+import { TransactionRiskBridgeService } from './transaction-compliance/transaction-risk-bridge.service';
 
 type DecisionRecordListQuery = {
   status?: string;
@@ -27,7 +46,109 @@ type DecisionRecordListQuery = {
 
 @Injectable()
 export class RiskDecisionRecordsService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly auditLogsService: AuditLogsService;
+  private onboardingService?: OnboardingService | null;
+  private transactionRiskBridgeService?: TransactionRiskBridgeService | null;
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly moduleRef?: ModuleRef,
+  ) {
+    this.auditLogsService = new AuditLogsService(prisma);
+  }
+
+  private getOnboardingService(): OnboardingService {
+    if (this.onboardingService) {
+      return this.onboardingService;
+    }
+    const resolved = this.moduleRef?.get(OnboardingService, { strict: false }) || null;
+    if (!resolved) {
+      throw new NotFoundException('OnboardingService is unavailable');
+    }
+    this.onboardingService = resolved;
+    return resolved;
+  }
+
+  private getTransactionRiskBridgeService(): TransactionRiskBridgeService {
+    if (this.transactionRiskBridgeService) {
+      return this.transactionRiskBridgeService;
+    }
+    const resolved =
+      this.moduleRef?.get(TransactionRiskBridgeService, { strict: false }) || null;
+    if (!resolved) {
+      throw new NotFoundException('TransactionRiskBridgeService is unavailable');
+    }
+    this.transactionRiskBridgeService = resolved;
+    return resolved;
+  }
+
+  private pickRandomReasonCode(options: string[]): string {
+    if (!Array.isArray(options) || options.length === 0) {
+      throw new BadRequestException('Risk reason pool is empty');
+    }
+    const index = Math.floor(Math.random() * options.length);
+    return options[index] || options[0];
+  }
+
+  private getManualReasonCode(input: {
+    contextType?: string | null;
+    riskLevel: 'LOW' | 'MEDIUM' | 'HIGH';
+  }): string {
+    const contextType = String(input.contextType || '').trim().toUpperCase();
+
+    if (input.riskLevel === 'LOW') {
+      if (contextType === 'ONBOARDING_CDD') return 'CDD_LOW_RISK_CLEAR';
+      if (contextType === 'TX_DEPOSIT_FINAL') return 'TX_DEPOSIT_LOW_RISK_AUTO_CLEAR';
+      if (contextType === 'TX_SWAP_FINAL') return 'TX_SWAP_LOW_RISK_AUTO_CLEAR';
+      throw new BadRequestException(`Unsupported decision record contextType: ${contextType}`);
+    }
+
+    const reasonPools: Record<string, Record<'MEDIUM' | 'HIGH', string[]>> = {
+      ONBOARDING_CDD: {
+        MEDIUM: [
+          'CDD_PROFILE_INCONSISTENT',
+          'CDD_ADVERSE_MEDIA_REVIEW',
+          'CDD_SOURCE_OF_FUNDS_REVIEW',
+        ],
+        HIGH: [
+          'CDD_PEP_MATCH',
+          'CDD_SANCTIONS_HIT',
+          'CDD_HIGH_RISK_JURISDICTION',
+        ],
+      },
+      TX_DEPOSIT_FINAL: {
+        MEDIUM: [
+          'KYT_ISSUE',
+          'TRAVEL_RULE_ISSUE',
+          'LARGE_DEPOSIT_PROFILE_MISMATCH',
+        ],
+        HIGH: [
+          'SANCTIONS_HIT',
+          'KYT_SEVERE_EXPOSURE',
+          'TRAVEL_RULE_COUNTERPARTY_BLOCKED',
+        ],
+      },
+      TX_SWAP_FINAL: {
+        MEDIUM: [
+          'PROFILE_MISMATCH',
+          'VELOCITY_SPIKE',
+          'BEHAVIOR_REVIEW_REQUIRED',
+        ],
+        HIGH: [
+          'SANCTIONS_HIT',
+          'LAYERING_PATTERN',
+          'HIGH_RISK_EXPOSURE',
+        ],
+      },
+    };
+
+    const contextPools = reasonPools[contextType];
+    if (!contextPools) {
+      throw new BadRequestException(`Unsupported decision record contextType: ${contextType}`);
+    }
+
+    return this.pickRandomReasonCode(contextPools[input.riskLevel]);
+  }
 
   private normalizeTake(take?: number): number {
     if (!take || Number.isNaN(take)) return 20;
@@ -80,6 +201,23 @@ export class RiskDecisionRecordsService {
       });
   }
 
+  private async resolveSwapWorkflowAuditContext(swapId: string) {
+    const swap = await (this.prisma as any).swapTransaction?.findUnique?.({
+      where: { id: swapId },
+      select: {
+        id: true,
+        swapNo: true,
+      },
+    });
+
+    return {
+      traceId: swap?.id ? `${AuditWorkflowTypes.SWAP}:${swap.id}` : undefined,
+      workflowType: AuditWorkflowTypes.SWAP,
+      workflowId: swap?.id || swapId,
+      workflowNo: swap?.swapNo || undefined,
+    };
+  }
+
   private getStageFromContextType(contextType?: string | null): ComplianceReviewStage | null {
     const normalized = String(contextType || '').trim().toUpperCase();
     if (normalized === 'ONBOARDING_CDD') return ONBOARDING_REVIEW_STAGES.REVIEW_CDD;
@@ -92,6 +230,9 @@ export class RiskDecisionRecordsService {
     }
     if (normalized === 'TX_DEPOSIT_FINAL') {
       return TRANSACTION_REVIEW_STAGES.REVIEW_DEPOSIT_FINAL;
+    }
+    if (normalized === 'TX_SWAP_FINAL') {
+      return TRANSACTION_REVIEW_STAGES.REVIEW_SWAP_FINAL;
     }
     return null;
   }
@@ -107,7 +248,8 @@ export class RiskDecisionRecordsService {
     if (
       normalized === 'TX_DEPOSIT_KYT_MAIN' ||
       normalized === 'TX_DEPOSIT_TRAVEL_RULE' ||
-      normalized === 'TX_DEPOSIT_FINAL'
+      normalized === 'TX_DEPOSIT_FINAL' ||
+      normalized === 'TX_SWAP_FINAL'
     ) {
       return TRANSACTION_WORKFLOW;
     }
@@ -306,5 +448,104 @@ export class RiskDecisionRecordsService {
       workflowTransition: workflowSnapshot.workflowTransition,
       customer: row.customer,
     };
+  }
+
+  async simulateDecisionRecord(
+    id: string,
+    body: SimulateRiskDecisionRecordDto,
+    actor: AuditActorContext & { sourcePlatform?: string },
+  ) {
+    const decisionRecordRepo = (this.prisma as any).workflowDecisionRecord;
+    const record = await decisionRecordRepo.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        status: true,
+        contextType: true,
+        customerId: true,
+        subjectId: true,
+      },
+    });
+
+    if (!record) {
+      throw new NotFoundException(`Decision record not found: ${id}`);
+    }
+
+    const contextType = String(record.contextType || '').trim().toUpperCase();
+    const status = String(record.status || '').trim().toUpperCase();
+    if (status !== 'CREATED') {
+      throw new BadRequestException(`Decision record ${id} is not pending simulation`);
+    }
+
+    const generatedReasonCode = this.getManualReasonCode({
+      contextType,
+      riskLevel: body.riskLevel,
+    });
+
+    if (contextType === 'ONBOARDING_CDD') {
+      await this.getOnboardingService().completeManualCddDecision({
+        decisionRecordId: id,
+        riskLevel: body.riskLevel,
+        reasonCode: generatedReasonCode,
+      });
+    } else if (contextType === 'TX_DEPOSIT_FINAL') {
+      await this.getTransactionRiskBridgeService().simulateDepositFinalReview({
+        decisionRecordId: id,
+        riskLevel: body.riskLevel,
+        riskReason: generatedReasonCode,
+      });
+    } else if (contextType === 'TX_SWAP_FINAL') {
+      await this.getTransactionRiskBridgeService().simulateSwapFinalReview({
+        decisionRecordId: id,
+        riskLevel: body.riskLevel,
+        riskReason: generatedReasonCode,
+      });
+    } else {
+      throw new BadRequestException(
+        `Decision record ${id} does not support manual simulation`,
+      );
+    }
+
+    const auditWorkflowContext =
+      contextType === 'TX_SWAP_FINAL' && record.subjectId
+        ? await this.resolveSwapWorkflowAuditContext(record.subjectId)
+        : {
+            traceId: undefined,
+            workflowType:
+              contextType === 'ONBOARDING_CDD'
+                ? AuditWorkflowTypes.ONBOARDING
+                : AuditWorkflowTypes.TRANSACTION,
+            workflowId: record.subjectId || undefined,
+            workflowNo: undefined,
+          };
+
+    await this.auditLogsService.recordByActor(
+      {
+        triggerType: AuditTriggerType.MANUAL_OVERRIDE,
+        action: AuditActions.RISK_DECISION_MANUAL_SIMULATED,
+        module: AuditModules.RISK_DECISION_RECORDS,
+        entityType: AuditEntityTypes.RISK_DECISION_RECORD,
+        entityId: id,
+        entityOwnerType: 'CUSTOMER',
+        entityOwnerId: record.customerId || undefined,
+        traceId: auditWorkflowContext.traceId,
+        workflowType: auditWorkflowContext.workflowType,
+        workflowId: auditWorkflowContext.workflowId,
+        workflowNo: auditWorkflowContext.workflowNo,
+        reason: `Manual ${body.riskLevel} simulation applied to ${contextType}`,
+        metadata: {
+          decisionRecordId: id,
+          contextType,
+          subjectId: record.subjectId,
+          selectedRiskLevel: body.riskLevel,
+          generatedReasonCode,
+          simulationMode: 'MANUAL',
+        },
+        sourcePlatform: actor.sourcePlatform || 'ADMIN_API',
+      },
+      actor,
+    );
+
+    return this.getDecisionRecordDetail(id);
   }
 }

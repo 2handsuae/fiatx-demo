@@ -1,5 +1,11 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { createHash } from 'crypto';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../core/prisma/prisma.service';
 import { RISK_RECOMMENDED_ACTIONS } from './constants/risk-recommended-actions.constant';
 
@@ -28,6 +34,12 @@ export interface EvaluateRiskOutput {
   decisionRecordId: string;
 }
 
+export interface PendingRiskDecisionRecordOutput {
+  decisionRecordId: string;
+  policyVersion: string;
+  inputHash: string;
+}
+
 @Injectable()
 export class RiskEngineService {
   static readonly PHASE2_UNSUPPORTED_OWNER_TYPE = 'Phase 2 storage unsupported owner type';
@@ -35,6 +47,10 @@ export class RiskEngineService {
   private readonly logger = new Logger(RiskEngineService.name);
 
   constructor(private readonly prisma: PrismaService) {}
+
+  private getDb(tx?: Prisma.TransactionClient) {
+    return tx ?? this.prisma;
+  }
 
   private stableStringify(value: unknown): string {
     if (value === null || value === undefined) return 'null';
@@ -135,6 +151,19 @@ export class RiskEngineService {
     const riskScore = this.toNumber(signals.riskScore) ?? 0;
     const riskLevel = String(signals.riskLevel || '').toUpperCase();
     const mockDataType = String(signals.mockDataType || '').toUpperCase();
+    const simulationMode = String(signals.simulationMode || '').toUpperCase();
+    const simulationRiskLevel = String(
+      signals.simulationRiskLevel || '',
+    ).toUpperCase();
+    const simulationRiskReason = String(
+      signals.simulationRiskReason || '',
+    ).toUpperCase();
+    const canonicalTransactionRiskBand = String(
+      signals.riskBand || signals.simulationRiskLevel || '',
+    ).toUpperCase();
+    const canonicalTransactionRiskReason = String(
+      signals.riskReason || signals.simulationRiskReason || '',
+    ).toUpperCase();
     const sanctionsHit = this.toBoolean(signals.sanctionsHit);
     const pepHit = this.toBoolean(signals.pepHit);
     const adverseMediaHit = this.toBoolean(signals.adverseMediaHit);
@@ -146,6 +175,65 @@ export class RiskEngineService {
     if (input.contextType === 'ONBOARDING_CDD' || input.contextType === 'PERIODIC_REVIEW_CDD') {
       const isPeriodicReview = input.contextType === 'PERIODIC_REVIEW_CDD';
       let severity: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL' = 'MEDIUM';
+
+      if (!isPeriodicReview && simulationMode === 'MANUAL') {
+        const riskBand =
+          simulationRiskLevel === 'HIGH'
+            ? 'HIGH'
+            : simulationRiskLevel === 'MEDIUM'
+              ? 'MEDIUM'
+              : 'LOW';
+
+        if (riskBand === 'HIGH') {
+          reasonCodes.push(simulationRiskReason || 'CDD_HIGH_RISK_JURISDICTION');
+          recommendedActions.push({
+            type: RISK_RECOMMENDED_ACTIONS.UPSERT_ALERT,
+            payload: {
+              severity: 'CRITICAL',
+              recommendation: 'REVIEW',
+              reasonCodes,
+              riskBand,
+              riskReason: simulationRiskReason || null,
+            },
+          });
+          recommendedActions.push({
+            type: RISK_RECOMMENDED_ACTIONS.AUTO_ESCALATE_CASE,
+            payload: {
+              reasonCodes,
+              riskBand,
+              riskReason: simulationRiskReason || null,
+            },
+          });
+          recommendedActions.push(
+            ...this.buildOnboardingDecisionActions(['APPROVE', 'REJECT', 'REQUIRE_EDD']),
+          );
+          return { decision: 'REVIEW', reasonCodes, recommendedActions };
+        }
+
+        if (riskBand === 'MEDIUM') {
+          reasonCodes.push(simulationRiskReason || 'CDD_PROFILE_INCONSISTENT');
+          recommendedActions.push({
+            type: RISK_RECOMMENDED_ACTIONS.UPSERT_ALERT,
+            payload: {
+              severity: 'MEDIUM',
+              recommendation: 'REVIEW',
+              reasonCodes,
+              riskBand,
+              riskReason: simulationRiskReason || null,
+            },
+          });
+          recommendedActions.push(
+            ...this.buildOnboardingDecisionActions(['APPROVE', 'REJECT', 'REQUIRE_EDD']),
+          );
+          return { decision: 'REVIEW', reasonCodes, recommendedActions };
+        }
+
+        reasonCodes.push('CDD_LOW_RISK_CLEAR');
+        recommendedActions.push(
+          ...this.buildOnboardingDecisionActions(['APPROVE', 'REJECT', 'REQUIRE_EDD']),
+        );
+        return { decision: 'REVIEW', reasonCodes, recommendedActions };
+      }
 
       if (mockDataType === 'SANCTION_AND_OTHER') {
         reasonCodes.push('SANCTIONS_HIT');
@@ -333,24 +421,67 @@ export class RiskEngineService {
     if (input.contextType === 'TX_DEPOSIT_FINAL') {
       const kytStatus = String(signals.kytStatus || '').toUpperCase();
       const travelStatus = String(signals.travelRuleStatus || '').toUpperCase();
-      const simulationRiskLevel = String(signals.simulationRiskLevel || '').toUpperCase();
-      const simulationRiskReason = String(signals.simulationRiskReason || '').toUpperCase();
       const riskBand =
-        simulationRiskLevel === 'HIGH'
+        canonicalTransactionRiskBand === 'HIGH'
           ? 'HIGH'
-          : simulationRiskLevel === 'MEDIUM'
+          : canonicalTransactionRiskBand === 'MEDIUM'
             ? 'MEDIUM'
             : 'LOW';
 
-      if (simulationRiskReason === 'KYT_ISSUE') {
+      if (simulationMode === 'MANUAL') {
+        if (riskBand === 'HIGH') {
+          reasonCodes.push(canonicalTransactionRiskReason || 'SANCTIONS_HIT');
+          recommendedActions.push({
+            type: RISK_RECOMMENDED_ACTIONS.UPSERT_ALERT,
+            payload: {
+              severity: 'CRITICAL',
+              recommendation: 'REVIEW',
+              reasonCodes,
+              riskBand,
+              riskReason: canonicalTransactionRiskReason || null,
+            },
+          });
+          recommendedActions.push({
+            type: RISK_RECOMMENDED_ACTIONS.AUTO_ESCALATE_CASE,
+            payload: {
+              reasonCodes,
+              riskBand,
+              riskReason: canonicalTransactionRiskReason || null,
+            },
+          });
+          return { decision: 'REVIEW', reasonCodes, recommendedActions };
+        }
+
+        if (riskBand === 'MEDIUM') {
+          reasonCodes.push(
+            canonicalTransactionRiskReason || 'LARGE_DEPOSIT_PROFILE_MISMATCH',
+          );
+          recommendedActions.push({
+            type: RISK_RECOMMENDED_ACTIONS.UPSERT_ALERT,
+            payload: {
+              severity: 'HIGH',
+              recommendation: 'REVIEW',
+              reasonCodes,
+              riskBand,
+              riskReason: canonicalTransactionRiskReason || null,
+            },
+          });
+          return { decision: 'REVIEW', reasonCodes, recommendedActions };
+        }
+
+        reasonCodes.push('TX_DEPOSIT_LOW_RISK_AUTO_CLEAR');
+        return { decision: 'APPROVE', reasonCodes, recommendedActions };
+      }
+
+      if (canonicalTransactionRiskReason === 'KYT_ISSUE') {
         reasonCodes.push('TX_SIM_KYT_ISSUE');
-      } else if (simulationRiskReason === 'TRAVEL_RULE_ISSUE') {
+      } else if (canonicalTransactionRiskReason === 'TRAVEL_RULE_ISSUE') {
         reasonCodes.push('TX_SIM_TRAVEL_RULE_ISSUE');
       } else if (
-        simulationRiskReason === 'LARGE_DEPOSIT_PROFILE_MISMATCH'
+        canonicalTransactionRiskReason === 'LARGE_DEPOSIT_PROFILE_MISMATCH'
       ) {
         reasonCodes.push('TX_SIM_LARGE_DEPOSIT_PROFILE_MISMATCH');
-      } else if (simulationRiskReason === 'SANCTIONS_HIT') {
+      } else if (canonicalTransactionRiskReason === 'SANCTIONS_HIT') {
         reasonCodes.push('SANCTIONS_HIT');
         reasonCodes.push('TX_SIM_SANCTIONS_HIT');
       }
@@ -381,7 +512,7 @@ export class RiskEngineService {
             recommendation: 'REVIEW',
             reasonCodes,
             riskBand,
-            riskReason: simulationRiskReason || null,
+            riskReason: canonicalTransactionRiskReason || null,
           },
         });
         recommendedActions.push({
@@ -389,7 +520,7 @@ export class RiskEngineService {
           payload: {
             reasonCodes,
             riskBand,
-            riskReason: simulationRiskReason || null,
+            riskReason: canonicalTransactionRiskReason || null,
           },
         });
         return { decision: 'REVIEW', reasonCodes, recommendedActions };
@@ -403,7 +534,7 @@ export class RiskEngineService {
             recommendation: 'REVIEW',
             reasonCodes,
             riskBand: riskBand === 'LOW' ? 'MEDIUM' : riskBand,
-            riskReason: simulationRiskReason || null,
+            riskReason: canonicalTransactionRiskReason || null,
           },
         });
         return { decision: 'REVIEW', reasonCodes, recommendedActions };
@@ -415,6 +546,121 @@ export class RiskEngineService {
       ) {
         return { decision: 'APPROVE', reasonCodes, recommendedActions };
       }
+    }
+
+    if (input.contextType === 'TX_SWAP_FINAL') {
+      const customerAmlRiskTier = String(
+        signals.customerAmlRiskTier || '',
+      ).toUpperCase();
+      const riskBand =
+        simulationMode === 'MANUAL'
+          ? canonicalTransactionRiskBand === 'HIGH'
+            ? 'HIGH'
+            : canonicalTransactionRiskBand === 'MEDIUM'
+              ? 'MEDIUM'
+              : 'LOW'
+          : canonicalTransactionRiskBand === 'HIGH' || customerAmlRiskTier === 'HIGH'
+            ? 'HIGH'
+            : canonicalTransactionRiskBand === 'MEDIUM' ||
+                customerAmlRiskTier === 'MEDIUM'
+              ? 'MEDIUM'
+              : 'LOW';
+
+      if (simulationMode === 'MANUAL') {
+        if (riskBand === 'HIGH') {
+          reasonCodes.push(canonicalTransactionRiskReason || 'HIGH_RISK_EXPOSURE');
+          recommendedActions.push({
+            type: RISK_RECOMMENDED_ACTIONS.UPSERT_ALERT,
+            payload: {
+              severity: 'CRITICAL',
+              recommendation: 'REVIEW',
+              reasonCodes,
+              riskBand,
+              riskReason: canonicalTransactionRiskReason || null,
+            },
+          });
+          recommendedActions.push({
+            type: RISK_RECOMMENDED_ACTIONS.AUTO_ESCALATE_CASE,
+            payload: {
+              reasonCodes,
+              riskBand,
+              riskReason: canonicalTransactionRiskReason || null,
+            },
+          });
+          return { decision: 'REVIEW', reasonCodes, recommendedActions };
+        }
+
+        if (riskBand === 'MEDIUM') {
+          reasonCodes.push(canonicalTransactionRiskReason || 'PROFILE_MISMATCH');
+          recommendedActions.push({
+            type: RISK_RECOMMENDED_ACTIONS.UPSERT_ALERT,
+            payload: {
+              severity: 'HIGH',
+              recommendation: 'REVIEW',
+              reasonCodes,
+              riskBand,
+              riskReason: canonicalTransactionRiskReason || null,
+            },
+          });
+          return { decision: 'REVIEW', reasonCodes, recommendedActions };
+        }
+
+        reasonCodes.push('TX_SWAP_LOW_RISK_AUTO_CLEAR');
+        return { decision: 'APPROVE', reasonCodes, recommendedActions };
+      }
+
+      if (canonicalTransactionRiskReason === 'SANCTIONS_HIT') {
+        reasonCodes.push('SANCTIONS_HIT');
+      } else if (canonicalTransactionRiskReason) {
+        reasonCodes.push(`TX_SWAP_${canonicalTransactionRiskReason}`);
+      }
+
+      if (customerAmlRiskTier === 'HIGH') {
+        reasonCodes.push('CUSTOMER_AML_RISK_HIGH');
+      } else if (customerAmlRiskTier === 'MEDIUM') {
+        reasonCodes.push('CUSTOMER_AML_RISK_MEDIUM');
+      } else {
+        reasonCodes.push('CUSTOMER_AML_RISK_LOW');
+      }
+
+      if (riskBand === 'HIGH') {
+        recommendedActions.push({
+          type: RISK_RECOMMENDED_ACTIONS.UPSERT_ALERT,
+          payload: {
+            severity: 'CRITICAL',
+            recommendation: 'REVIEW',
+            reasonCodes,
+            riskBand,
+            riskReason: canonicalTransactionRiskReason || null,
+          },
+        });
+        recommendedActions.push({
+          type: RISK_RECOMMENDED_ACTIONS.AUTO_ESCALATE_CASE,
+          payload: {
+            reasonCodes,
+            riskBand,
+            riskReason: canonicalTransactionRiskReason || null,
+          },
+        });
+        return { decision: 'REVIEW', reasonCodes, recommendedActions };
+      }
+
+      if (riskBand === 'MEDIUM') {
+        recommendedActions.push({
+          type: RISK_RECOMMENDED_ACTIONS.UPSERT_ALERT,
+          payload: {
+            severity: 'HIGH',
+            recommendation: 'REVIEW',
+            reasonCodes,
+            riskBand,
+            riskReason: canonicalTransactionRiskReason || null,
+          },
+        });
+        return { decision: 'REVIEW', reasonCodes, recommendedActions };
+      }
+
+      reasonCodes.push('TX_SWAP_LOW_RISK_AUTO_CLEAR');
+      return { decision: 'APPROVE', reasonCodes, recommendedActions };
     }
 
     if (sanctionsHit) {
@@ -448,7 +694,63 @@ export class RiskEngineService {
     return { decision: 'REVIEW', reasonCodes, recommendedActions };
   }
 
-  async evaluate(input: EvaluateRiskInput): Promise<EvaluateRiskOutput> {
+  private buildOutputs(
+    input: EvaluateRiskInput,
+    evaluated: Omit<EvaluateRiskOutput, 'decisionRecordId' | 'policyVersion'>,
+  ) {
+    const signals = input.signals || {};
+    const normalizedSimulationMode = String(
+      signals.simulationMode || '',
+    ).trim().toUpperCase();
+    const normalizedSimulationRiskBand = String(
+      signals.simulationRiskLevel || signals.riskLevel || '',
+    )
+      .trim()
+      .toUpperCase();
+    const normalizedSimulationRiskReason = String(
+      signals.simulationRiskReason || '',
+    )
+      .trim()
+      .toUpperCase();
+    const normalizedTransactionRiskBand = String(
+      signals.riskBand || signals.simulationRiskLevel || signals.riskLevel || '',
+    )
+      .trim()
+      .toUpperCase();
+    const normalizedTransactionRiskReason = String(
+      signals.riskReason || signals.simulationRiskReason || '',
+    )
+      .trim()
+      .toUpperCase();
+
+    const outputs: Record<string, unknown> = {
+      decision: evaluated.decision,
+      reasonCodes: evaluated.reasonCodes,
+      recommendedActions: evaluated.recommendedActions,
+    };
+
+    if (input.contextType === 'ONBOARDING_CDD') {
+      outputs.riskBand = normalizedSimulationRiskBand || null;
+      outputs.riskReason = normalizedSimulationRiskReason || null;
+      outputs.simulationMode = normalizedSimulationMode || null;
+    }
+
+    if (
+      input.contextType === 'TX_DEPOSIT_FINAL' ||
+      input.contextType === 'TX_SWAP_FINAL'
+    ) {
+      outputs.riskBand = normalizedTransactionRiskBand || null;
+      outputs.riskReason = normalizedTransactionRiskReason || null;
+      outputs.simulationMode = normalizedSimulationMode || null;
+    }
+
+    return outputs;
+  }
+
+  async createPendingDecisionRecord(
+    input: EvaluateRiskInput,
+    tx?: Prisma.TransactionClient,
+  ): Promise<PendingRiskDecisionRecordOutput> {
     if (input.ownerType !== 'CUSTOMER') {
       throw new BadRequestException(RiskEngineService.PHASE2_UNSUPPORTED_OWNER_TYPE);
     }
@@ -456,7 +758,7 @@ export class RiskEngineService {
     const policyVersion = this.resolvePolicyVersion(input);
     const maskedInput = this.buildStoredInputPayload(input);
     const inputHash = this.buildInputHash(input);
-    const created = await (this.prisma as any).workflowDecisionRecord.create({
+    const created = await (this.getDb(tx) as any).workflowDecisionRecord.create({
       data: {
         customerId: input.ownerId,
         contextType: input.contextType,
@@ -468,27 +770,56 @@ export class RiskEngineService {
       },
     });
 
+    return {
+      decisionRecordId: created.id,
+      policyVersion,
+      inputHash,
+    };
+  }
+
+  async completeDecisionRecord(
+    decisionRecordId: string,
+    input: EvaluateRiskInput,
+    tx?: Prisma.TransactionClient,
+  ): Promise<EvaluateRiskOutput> {
+    if (input.ownerType !== 'CUSTOMER') {
+      throw new BadRequestException(RiskEngineService.PHASE2_UNSUPPORTED_OWNER_TYPE);
+    }
+
+    const db = this.getDb(tx) as any;
+    const current = await db.workflowDecisionRecord.findUnique({
+      where: { id: decisionRecordId },
+      select: {
+        id: true,
+        policyVersion: true,
+        status: true,
+      },
+    });
+
+    if (!current) {
+      throw new NotFoundException(`Risk decision record not found: ${decisionRecordId}`);
+    }
+    if (String(current.status || '').trim().toUpperCase() !== 'CREATED') {
+      throw new BadRequestException(
+        `Risk decision record ${decisionRecordId} is not pending simulation`,
+      );
+    }
+
     try {
       const evaluated = this.evaluateBySignals(input);
-      const signals = input.signals || {};
-      const outputs = {
-        decision: evaluated.decision,
-        reasonCodes: evaluated.reasonCodes,
-        recommendedActions: evaluated.recommendedActions,
-        ...(input.contextType === 'TX_DEPOSIT_FINAL'
-          ? {
-              riskBand:
-                String(signals.simulationRiskLevel || '').trim().toUpperCase() || 'LOW',
-              riskReason:
-                String(signals.simulationRiskReason || '').trim().toUpperCase() || null,
-            }
-          : {}),
-      };
+      const maskedInput = this.buildStoredInputPayload(input);
+      const inputHash = this.buildInputHash(input);
+      const outputs = this.buildOutputs(input, evaluated);
 
-      await (this.prisma as any).workflowDecisionRecord.update({
-        where: { id: created.id },
+      await db.workflowDecisionRecord.update({
+        where: { id: decisionRecordId },
         data: {
+          customerId: input.ownerId,
+          contextType: input.contextType,
+          subjectId: input.subjectId,
           status: 'COMPLETED',
+          inputPayload: JSON.stringify(maskedInput),
+          inputHash,
           outputDecision: evaluated.decision,
           recommendedActions: JSON.stringify(evaluated.recommendedActions),
           outputs: JSON.stringify(outputs),
@@ -501,14 +832,18 @@ export class RiskEngineService {
         decision: evaluated.decision,
         reasonCodes: evaluated.reasonCodes,
         recommendedActions: evaluated.recommendedActions,
-        policyVersion,
-        decisionRecordId: created.id,
+        policyVersion: current.policyVersion || this.resolvePolicyVersion(input),
+        decisionRecordId,
       };
     } catch (error) {
-      await (this.prisma as any).workflowDecisionRecord.update({
-        where: { id: created.id },
+      await db.workflowDecisionRecord.update({
+        where: { id: decisionRecordId },
         data: {
           status: 'FAILED',
+          outputDecision: null,
+          recommendedActions: null,
+          outputs: null,
+          reasonCodes: null,
           errorMessage: error instanceof Error ? error.message : String(error),
           completedAt: new Date(),
         },
@@ -519,5 +854,13 @@ export class RiskEngineService {
       );
       throw error;
     }
+  }
+
+  async evaluate(
+    input: EvaluateRiskInput,
+    tx?: Prisma.TransactionClient,
+  ): Promise<EvaluateRiskOutput> {
+    const pending = await this.createPendingDecisionRecord(input, tx);
+    return this.completeDecisionRecord(pending.decisionRecordId, input, tx);
   }
 }

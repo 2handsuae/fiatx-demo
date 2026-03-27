@@ -16,6 +16,7 @@ import {
   normalizeCanonicalOnboardingStatus,
   normalizeCanonicalOperatingStatus,
 } from '../utils/customerOnboarding';
+import { useSimulationMode } from '../utils/simulationMode';
 
 interface UboItem {
   id: string;
@@ -135,37 +136,6 @@ interface VerificationStepState {
   requiresEdd: boolean;
   actions: OnboardingAction[];
 }
-
-type CddMockDataType =
-  | 'LOW_RISK'
-  | 'MEDIUM_RISK'
-  | 'HIGH_RISK_OR_PEP'
-  | 'SANCTION_AND_OTHER';
-type CddMockDialogOption = 'LOW_RISK' | 'MEDIUM_HIGH_MIX' | 'SANCTION_AND_OTHER';
-
-const CDD_MOCK_OPTIONS: Array<{
-  value: CddMockDialogOption;
-  label: string;
-  description: string;
-}> = [
-  {
-    value: 'LOW_RISK',
-    label: 'Low risk',
-    description: 'Auto pass onboarding without creating any alert.',
-  },
-  {
-    value: 'MEDIUM_HIGH_MIX',
-    label: 'Medium risk / High risk or PEP',
-    description:
-      'Randomly submit MEDIUM_RISK or HIGH_RISK_OR_PEP. Alert only, no auto escalation.',
-  },
-  {
-    value: 'SANCTION_AND_OTHER',
-    label: 'Sanction & other',
-    description:
-      'Create alert, auto-escalate to ESCALATED, and auto-create incident.',
-  },
-];
 
 const getErrorMessage = (error: unknown, fallback: string) =>
   error instanceof Error ? error.message : fallback;
@@ -404,9 +374,16 @@ const secondaryButtonClass =
 const cardClass =
   'relative w-full overflow-hidden rounded-[2rem] border border-white/60 bg-white/80 px-12 py-16 shadow-[0_20px_40px_-12px_rgba(0,0,0,0.1)] backdrop-blur-xl';
 
+const SimulationModeNotice = ({ message }: { message: string }) => (
+  <div className="mt-6 rounded-2xl border border-amber-200 bg-amber-50/80 px-4 py-3 text-sm text-amber-800">
+    {message}
+  </div>
+);
+
 const Verification = () => {
   const { profile, loading, error, refreshProfile } = useCustomerProfile();
   const navigate = useNavigate();
+  const { enabled: simulationModeEnabled } = useSimulationMode();
 
   const [onboarding, setOnboarding] = useState<OnboardingSnapshot | null>(null);
   const [periodicReview, setPeriodicReview] = useState<PeriodicReviewSnapshot | null>(null);
@@ -418,9 +395,6 @@ const Verification = () => {
   const [message, setMessage] = useState('');
   const [saving, setSaving] = useState(false);
   const [casesLoading, setCasesLoading] = useState(false);
-  const [mockDialogSessionId, setMockDialogSessionId] = useState<string | null>(null);
-  const [selectedMockDataType, setSelectedMockDataType] =
-    useState<CddMockDialogOption>('LOW_RISK');
 
   useEffect(() => {
     const style = document.createElement('style');
@@ -692,47 +666,6 @@ const Verification = () => {
         : 'EDD mock callback simulated.',
     );
 
-  const openCddMockDialog = (sessionId: string) => {
-    setSelectedMockDataType('LOW_RISK');
-    setMockDialogSessionId(sessionId);
-  };
-
-  const closeCddMockDialog = () => {
-    if (saving) return;
-    setMockDialogSessionId(null);
-  };
-
-  const resolveDialogMockDataType = (value: CddMockDialogOption): CddMockDataType => {
-    if (value === 'MEDIUM_HIGH_MIX') {
-      return Math.random() < 0.5 ? 'MEDIUM_RISK' : 'HIGH_RISK_OR_PEP';
-    }
-    return value;
-  };
-
-  const submitCddMockComplete = async () => {
-    if (!mockDialogSessionId) return;
-
-    const selectedOption = selectedMockDataType;
-    const pickedType = resolveDialogMockDataType(selectedOption);
-    const ok = await runAction(
-      () =>
-        withAuth(
-          `${import.meta.env.VITE_API_URL}/${
-            verificationMode === 'PERIODIC_REVIEW' ? 'periodic-review' : 'onboarding'
-          }/response-sessions/${mockDialogSessionId}/mock-complete`,
-          {
-            method: 'POST',
-            body: JSON.stringify({ mockDataType: pickedType }),
-          },
-        ),
-      `CDD mock callback simulated (${selectedOption} -> ${pickedType}).`,
-    );
-
-    if (ok) {
-      setMockDialogSessionId(null);
-    }
-  };
-
   const handleMockComplete = async (session: ResponseSession, responseType: 'CDD' | 'EDD') => {
     const sessionId = resolveSessionId(session);
     if (!sessionId) {
@@ -741,8 +674,21 @@ const Verification = () => {
     }
 
     if (responseType === 'CDD') {
-      openCddMockDialog(sessionId);
-      return true;
+      return runAction(
+        () =>
+          withAuth(
+            `${import.meta.env.VITE_API_URL}/${
+              verificationMode === 'PERIODIC_REVIEW' ? 'periodic-review' : 'onboarding'
+            }/response-sessions/${sessionId}/mock-complete`,
+            {
+              method: 'POST',
+              body: JSON.stringify({}),
+            },
+          ),
+        verificationMode === 'PERIODIC_REVIEW'
+          ? 'Periodic review CDD mock callback simulated. Continue the manual risk simulation from Admin.'
+          : 'CDD mock callback simulated. Continue the manual risk simulation from Admin.',
+      );
     }
 
     return mockCompleteEdd(sessionId);
@@ -772,6 +718,10 @@ const Verification = () => {
     currentStep.step === 'CDD' &&
     currentStep.action === 'START_CDD' &&
     introStage !== 'FLOW';
+  const simulationModeNotice =
+    verificationMode === 'PERIODIC_REVIEW'
+      ? 'Simulation Mode is off. Enable it from admin to run periodic review demo actions on this page.'
+      : 'Simulation Mode is off. Enable it from admin to run onboarding demo actions on this page.';
 
   const currentResponseType: 'CDD' | 'EDD' = currentStep.step === 'EDD' ? 'EDD' : 'CDD';
   const currentResponseCandidates = useMemo(
@@ -971,17 +921,21 @@ const Verification = () => {
                     ))}
                   </div>
 
-                  <button
-                    onClick={async () => {
-                      const ok = await bootstrapCdd();
-                      if (ok) setIntroStage('FLOW');
-                    }}
-                    disabled={saving}
-                    className={`${primaryButtonClass} mt-10`}
-                  >
-                    {saving ? 'Initializing...' : 'Continue to Scan'}
-                    {!saving && <ChevronRight size={16} />}
-                  </button>
+                  {simulationModeEnabled ? (
+                    <button
+                      onClick={async () => {
+                        const ok = await bootstrapCdd();
+                        if (ok) setIntroStage('FLOW');
+                      }}
+                      disabled={saving}
+                      className={`${primaryButtonClass} mt-10`}
+                    >
+                      {saving ? 'Initializing...' : 'Continue to Scan'}
+                      {!saving && <ChevronRight size={16} />}
+                    </button>
+                  ) : (
+                    <SimulationModeNotice message={simulationModeNotice} />
+                  )}
                 </div>
               </motion.section>
             )}
@@ -1003,6 +957,8 @@ const Verification = () => {
                   onCreateSession={createSession}
                   onMockComplete={handleMockComplete}
                   onStart={bootstrapCdd}
+                  simulationModeEnabled={simulationModeEnabled}
+                  simulationModeMessage={simulationModeNotice}
                 />
               </motion.div>
             )}
@@ -1035,26 +991,32 @@ const Verification = () => {
                         Your EDD response is ready. Generate your verification link first, then scan QR
                         to continue.
                       </p>
-                      <button
-                        onClick={() => startEdd().catch(() => undefined)}
-                        disabled={saving}
-                        className={`${primaryButtonClass} mt-8`}
-                      >
-                        <QrCode size={18} />
-                        Start EDD
-                      </button>
+                      {simulationModeEnabled ? (
+                        <button
+                          onClick={() => startEdd().catch(() => undefined)}
+                          disabled={saving}
+                          className={`${primaryButtonClass} mt-8`}
+                        >
+                          <QrCode size={18} />
+                          Start EDD
+                        </button>
+                      ) : (
+                        <SimulationModeNotice message={simulationModeNotice} />
+                      )}
                     </div>
                   </motion.section>
                 ) : (
                   <JourneyResponsePanel
                     title="Additional Check"
                     subtitle="Please complete this additional verification step."
-                  item={activeResponse}
+                    item={activeResponse}
                     loading={casesLoading}
                     saving={saving}
                     onCreateSession={createSession}
                     onMockComplete={handleMockComplete}
                     onStart={startEdd}
+                    simulationModeEnabled={simulationModeEnabled}
+                    simulationModeMessage={simulationModeNotice}
                   />
                 )}
               </motion.div>
@@ -1110,18 +1072,22 @@ const Verification = () => {
                     Please try again. Ensure your documents are clear and details match.
                   </p>
 
-                  <button
-                    onClick={() =>
-                      currentStep.action === 'REINITIATE_EDD'
-                        ? reinitiateEdd().catch(() => undefined)
-                        : reinitiateCdd().catch(() => undefined)
-                    }
-                    disabled={saving}
-                    className={`${primaryButtonClass} mt-8 bg-gradient-to-r from-red-500 to-orange-600 shadow-red-500/30 hover:shadow-red-500/50`}
-                  >
-                    <RefreshCw size={18} />
-                    {currentStep.action === 'REINITIATE_EDD' ? 'Retry EDD' : 'Retry Verification'}
-                  </button>
+                  {simulationModeEnabled ? (
+                    <button
+                      onClick={() =>
+                        currentStep.action === 'REINITIATE_EDD'
+                          ? reinitiateEdd().catch(() => undefined)
+                          : reinitiateCdd().catch(() => undefined)
+                      }
+                      disabled={saving}
+                      className={`${primaryButtonClass} mt-8 bg-gradient-to-r from-red-500 to-orange-600 shadow-red-500/30 hover:shadow-red-500/50`}
+                    >
+                      <RefreshCw size={18} />
+                      {currentStep.action === 'REINITIATE_EDD' ? 'Retry EDD' : 'Retry Verification'}
+                    </button>
+                  ) : (
+                    <SimulationModeNotice message={simulationModeNotice} />
+                  )}
                 </div>
               </motion.section>
             )}
@@ -1149,61 +1115,6 @@ const Verification = () => {
         )}
       </div>
 
-      {mockDialogSessionId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
-          <div className="absolute inset-0 bg-slate-900/45" onClick={closeCddMockDialog} aria-hidden="true" />
-          <div className="relative z-10 w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl">
-            <h3 className="text-lg font-semibold text-slate-900">Select CDD Mock Data Type</h3>
-            <p className="mt-1 text-sm text-slate-500">
-              Choose the risk package before submitting mock completion.
-            </p>
-
-            <div className="mt-4 space-y-3">
-              {CDD_MOCK_OPTIONS.map((option) => (
-                <label
-                  key={option.value}
-                  className={`flex cursor-pointer items-start gap-3 rounded-xl border px-3 py-3 ${
-                    selectedMockDataType === option.value
-                      ? 'border-indigo-500 bg-indigo-50'
-                      : 'border-slate-200 bg-white hover:border-slate-300'
-                  }`}
-                >
-                  <input
-                    type="radio"
-                    name="cdd-mock-data-type"
-                    value={option.value}
-                    checked={selectedMockDataType === option.value}
-                    onChange={() => setSelectedMockDataType(option.value)}
-                    className="mt-1 h-4 w-4 border-slate-300 text-indigo-600 focus:ring-indigo-500"
-                    disabled={saving}
-                  />
-                  <div>
-                    <div className="text-sm font-semibold text-slate-900">{option.label}</div>
-                    <div className="text-xs text-slate-600">{option.description}</div>
-                  </div>
-                </label>
-              ))}
-            </div>
-
-            <div className="mt-6 flex items-center justify-end gap-2">
-              <button
-                onClick={closeCddMockDialog}
-                disabled={saving}
-                className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-60"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => submitCddMockComplete()}
-                disabled={saving}
-                className="inline-flex items-center justify-center gap-2 rounded-xl bg-green-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-green-700 disabled:opacity-60"
-              >
-                {saving ? 'Submitting...' : 'Confirm Mock Complete'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };
@@ -1217,6 +1128,8 @@ const JourneyResponsePanel = ({
   onCreateSession,
   onMockComplete,
   onStart,
+  simulationModeEnabled,
+  simulationModeMessage,
 }: {
   title: string;
   subtitle: string;
@@ -1226,6 +1139,8 @@ const JourneyResponsePanel = ({
   onCreateSession: (item: ResponseItem) => Promise<boolean>;
   onMockComplete: (session: ResponseSession, responseType: 'CDD' | 'EDD') => Promise<boolean>;
   onStart: () => Promise<boolean>;
+  simulationModeEnabled: boolean;
+  simulationModeMessage: string;
 }) => {
   if (loading) {
     return (
@@ -1247,13 +1162,17 @@ const JourneyResponsePanel = ({
           </div>
           <h2 className="text-2xl font-bold text-slate-900">{title}</h2>
           <p className="mt-3 text-slate-500 leading-relaxed max-w-xs">{subtitle}</p>
-          <button
-            onClick={() => onStart().catch(() => undefined)}
-            disabled={saving}
-            className={`${primaryButtonClass} mt-8`}
-          >
-            Start Now
-          </button>
+          {simulationModeEnabled ? (
+            <button
+              onClick={() => onStart().catch(() => undefined)}
+              disabled={saving}
+              className={`${primaryButtonClass} mt-8`}
+            >
+              Start Now
+            </button>
+          ) : (
+            <SimulationModeNotice message={simulationModeMessage} />
+          )}
         </div>
       </section>
     );
@@ -1309,7 +1228,7 @@ const JourneyResponsePanel = ({
         )}
 
         <div className="mt-8 w-full max-w-xs space-y-3">
-          {!hasUsableSession && (
+          {!hasUsableSession && simulationModeEnabled && (
             <button
               onClick={() => onCreateSession(item).catch(() => undefined)}
               disabled={saving}
@@ -1320,7 +1239,11 @@ const JourneyResponsePanel = ({
             </button>
           )}
 
-          {item.latestSession?.status === 'PENDING' && (
+          {!hasUsableSession && !simulationModeEnabled && (
+            <SimulationModeNotice message={simulationModeMessage} />
+          )}
+
+          {item.latestSession?.status === 'PENDING' && simulationModeEnabled && (
             <button
               onClick={() => {
                 if (!item.latestSession || !sessionId) {

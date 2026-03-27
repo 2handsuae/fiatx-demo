@@ -413,10 +413,17 @@ const ComplianceAlertDetailPage = () => {
   const linkedCaseIds = normalizeStringList(detail?.linkedCaseIds);
   const reasonCodes = normalizeStringList(detail?.reasonCodes);
   const metadata = getMetadataRecord(detail?.metadata);
-  const riskBand = String(metadata.riskBand || metadata.simulationRiskLevel || '').trim();
-  const riskReason = String(
-    metadata.riskReason || metadata.simulationRiskReason || '',
-  ).trim();
+  const canonicalRiskBand = String(metadata.riskBand || '').trim();
+  const canonicalRiskReason = String(metadata.riskReason || '').trim();
+  const compatibilityRiskBand = String(metadata.simulationRiskLevel || '').trim();
+  const compatibilityRiskReason = String(metadata.simulationRiskReason || '').trim();
+  const riskBand = canonicalRiskBand || compatibilityRiskBand;
+  const riskReason = canonicalRiskReason || compatibilityRiskReason;
+  const riskSnapshotSource = canonicalRiskBand || canonicalRiskReason
+    ? 'Canonical alert metadata'
+    : compatibilityRiskBand || compatibilityRiskReason
+      ? 'Compatibility fallback from historical simulation metadata'
+      : '-';
 
   const openResolutionModal = (action: ResolutionAction) => {
     setError('');
@@ -606,6 +613,7 @@ const ComplianceAlertDetailPage = () => {
           <InfoField label="Reason Codes" value={reasonCodes.join(', ') || '-'} />
           <InfoField label="Risk Band" value={riskBand || '-'} />
           <InfoField label="Risk Reason" value={riskReason || '-'} />
+          <InfoField label="Risk Snapshot Source" value={riskSnapshotSource} />
           <InfoField label="Hit Count" value={detail.hitCount} />
           <InfoField label="Message" value={detail.message} />
         </DetailCard>

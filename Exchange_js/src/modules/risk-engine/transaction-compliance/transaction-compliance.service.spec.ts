@@ -29,6 +29,9 @@ describe('TransactionComplianceService', () => {
       update: jest.fn(),
       findMany: jest.fn(),
     },
+    payin: {
+      findUnique: jest.fn(),
+    },
     inboundTransferSignal: {
       findUnique: jest.fn(),
     },
@@ -52,6 +55,8 @@ describe('TransactionComplianceService', () => {
     jest.clearAllMocks();
     jest.spyOn(AuditLogsService.prototype, 'recordSystem').mockResolvedValue({} as any);
     jest.spyOn(AuditLogsService.prototype, 'recordByActor').mockResolvedValue({} as any);
+    prismaMock.payin.findUnique.mockResolvedValue(null);
+    prismaMock.inboundTransferSignal.findUnique.mockResolvedValue(null);
     service = new TransactionComplianceService(prismaMock);
   });
 
@@ -200,7 +205,7 @@ describe('TransactionComplianceService', () => {
         sourceType: TxSourceType.DEPOSIT,
         sourceId: 'dep-1',
         screeningStage: KytScreeningStage.MAIN,
-        status: 'PENDING',
+        status: 'PASS',
       }),
     );
     expect(upsertTravelSpy).toHaveBeenCalledTimes(1);
@@ -208,7 +213,7 @@ describe('TransactionComplianceService', () => {
       expect.objectContaining({
         sourceType: TxSourceType.DEPOSIT,
         sourceId: 'dep-1',
-        status: 'PENDING',
+        status: 'ACCEPTED',
       }),
     );
     expect(syncSpy).toHaveBeenCalledWith('dep-1', undefined);
@@ -216,7 +221,7 @@ describe('TransactionComplianceService', () => {
     modeSpy.mockRestore();
   });
 
-  it('should keep deposit KYT and Travel in pending states for interactive payin confirm even when provider mode is MOCK', async () => {
+  it('should auto-fill terminal KYT and Travel responses for interactive payin confirm even when provider mode is MOCK', async () => {
     prismaMock.depositTransaction.findUnique.mockResolvedValue({
       id: 'dep-interactive-1',
       ownerType: 'CUSTOMER',
@@ -246,11 +251,12 @@ describe('TransactionComplianceService', () => {
       'payin-interactive-1',
     );
 
+    const kytPayload = upsertKytSpy.mock.calls[0][0];
     expect(upsertKytSpy).toHaveBeenCalledWith(
       expect.objectContaining({
         sourceType: TxSourceType.DEPOSIT,
         sourceId: 'dep-interactive-1',
-        status: 'PENDING',
+        status: 'PASS',
       }),
       undefined,
     );
@@ -258,10 +264,19 @@ describe('TransactionComplianceService', () => {
       expect.objectContaining({
         sourceType: TxSourceType.DEPOSIT,
         sourceId: 'dep-interactive-1',
-        status: 'PENDING',
+        status: 'ACCEPTED',
       }),
       undefined,
     );
+    expect(kytPayload.rawPayload).not.toHaveProperty('simulationRiskLevel');
+    expect(kytPayload.rawPayload).not.toHaveProperty('simulationRiskReason');
+    expect(kytPayload.normalizedPayload).not.toHaveProperty('simulationRiskLevel');
+    expect(kytPayload.normalizedPayload).not.toHaveProperty('simulationRiskReason');
+    const travelPayload = upsertTravelSpy.mock.calls[0][0];
+    expect(travelPayload.rawPayload).not.toHaveProperty('simulationRiskLevel');
+    expect(travelPayload.rawPayload).not.toHaveProperty('simulationRiskReason');
+    expect(travelPayload.normalizedPayload).not.toHaveProperty('simulationRiskLevel');
+    expect(travelPayload.normalizedPayload).not.toHaveProperty('simulationRiskReason');
     expect(syncSpy).toHaveBeenCalledWith('dep-interactive-1', undefined);
 
     modeSpy.mockRestore();

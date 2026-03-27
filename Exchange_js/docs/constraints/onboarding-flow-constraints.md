@@ -88,8 +88,9 @@
 - Session completion MUST store provider payload and complete the underlying onboarding evidence container evaluation.
 - Historical physical/internal state names such as `RECEIVED -> FINAL` MAY still exist inside implementation or migration context, but operator-facing/runtime contract MUST continue to project response lifecycle as `CREATED -> COMPLETED`.
 - CDD completion MUST evaluate risk and move customer to `CDD_UNDER_REVIEW` (container waiting for recommendation execution).
+- CDD completion MUST create a pending `workflowDecisionRecord` and queue final CDD risk simulation for Admin `Risk Policy Executions`.
 - EDD completion MUST evaluate risk and move customer to `EDD_UNDER_REVIEW` (container waiting for recommendation execution).
-- CDD mock submission profile MUST support:
+- Historical CDD `mockDataType` compatibility MAY remain in runtime internals, but it MUST NOT be treated as the active client UI contract:
 1. `LOW_RISK` -> auto-pass onboarding to `APPROVED + ACTIVE` without creating/updating onboarding journey alert
 2. `MEDIUM_RISK` / `HIGH_RISK_OR_PEP` -> create/update onboarding journey alert only
 3. `SANCTION_AND_OTHER` -> create/update onboarding journey alert only
@@ -173,6 +174,16 @@
 ## 11) Client Verification Projection Rules
 - Client `/verification` UI MUST treat canonical customer fields as the primary onboarding state source.
 - `getNextStep` MAY still be consumed for action guidance, `blockedReason`, and `activeCaseId`, but MUST NOT be treated as the primary onboarding state source.
+- Client `/verification` MUST remain the customer-side evidence collection and mock-complete surface.
+- Shared `Simulation Mode` MUST gate customer-side evidence collection and mock-complete actions on `/verification`.
+- When shared `Simulation Mode` is disabled, `/verification` MUST NOT expose these customer-side simulation actions:
+1. `Bootstrap CDD`
+2. `Regenerate Session`
+3. `Mock Complete CDD`
+4. `Start EDD`
+5. `Reinitiate CDD / EDD`
+6. `Mock Complete EDD`
+- Admin `CDD Response / EDD Response` pages MAY browse evidence detail, but MUST NOT introduce a second onboarding provider mock-complete surface.
 - Projection baseline MUST keep these canonical mappings:
 1. `onboardingStatus = NONE` -> `CDD` / `START_CDD`
 2. `onboardingStatus = PENDING_CDD_INPUT` -> `CDD` / `COMPLETE_CDD`
@@ -181,5 +192,7 @@
 5. `onboardingStatus = FINAL_APPROVAL` -> `WAIT_REVIEW` / `WAIT`
 6. `onboardingStatus = REJECTED | WITHDRAWN` -> `REINITIATE` / `REINITIATE_CDD`
 7. `onboardingStatus = APPROVED` and `operatingStatus = ACTIVE` -> terminal completion and client redirect
-- CDD mock-complete in client MUST use dialog selection and post `mockDataType`; EDD mock-complete MUST keep direct `{ result: 'PASS' }`.
+- Final `ONBOARDING_CDD` risk simulation MUST be executed from Admin `Risk Policy Executions`, not from a client-side risk selection dialog.
+- CDD mock-complete in client MUST submit session completion without client-side risk selection; `mockDataType` is retained compatibility only and is not the active UI contract.
+- EDD mock-complete MUST keep direct `{ result: 'PASS' }`.
 - In `PENDING_EDD`, client MUST require explicit `Start EDD` action to create session link when no valid QR link exists; client MUST NOT auto-start EDD session implicitly.

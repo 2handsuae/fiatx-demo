@@ -1,4 +1,5 @@
 import { ModuleRef } from '@nestjs/core';
+import { WorkflowTransitionService } from '../../identity/onboarding/workflow-transition.service';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
 import { ComplianceAlertsService } from './compliance-alerts.service';
 import {
@@ -29,8 +30,8 @@ describe('ComplianceAlertsService', () => {
       findUnique: jest.fn(),
     },
   };
-  const transactionDepositWorkflowServiceMock = {
-    execute: jest.fn(),
+  const workflowTransitionServiceMock = {
+    transition: jest.fn(),
   };
   const onboardingServiceMock = {
     applyOnboardingDecisionFromAlert: jest.fn(),
@@ -108,11 +109,11 @@ describe('ComplianceAlertsService', () => {
   });
 
   beforeEach(() => {
-    jest.clearAllMocks();
+    jest.resetAllMocks();
     moduleRefMock.get.mockImplementation((token: { name?: string }) => {
       switch (token?.name) {
-        case 'TransactionDepositWorkflowService':
-          return transactionDepositWorkflowServiceMock;
+        case WorkflowTransitionService.name:
+          return workflowTransitionServiceMock;
         case 'OnboardingService':
           return onboardingServiceMock;
         case 'PeriodicReviewService':
@@ -262,6 +263,57 @@ describe('ComplianceAlertsService', () => {
     expect(result.stage).toBe('REVIEW_KYT');
   });
 
+  it('should support transaction rule codes and trace context for swap alerts', async () => {
+    const recordSystemSpy = jest.spyOn(AuditLogsService.prototype, 'recordSystem');
+    prismaMock.complianceAlert.findUnique.mockResolvedValue(null);
+    prismaMock.customerMain.findUnique.mockResolvedValue({ customerNo: 'CU0010' });
+    prismaMock.complianceAlert.create.mockResolvedValue(
+      buildAlert({
+        ruleCode: 'TX_SWAP_FINAL_REVIEW_REQUIRED',
+        sourceModule: 'risk-engine/transaction-compliance',
+        sourceType: 'SWAP',
+        sourceId: 'swap-1',
+        sourceNo: 'SWP0001',
+        entityType: 'SWAP_TRANSACTION',
+        entityId: 'swap-1',
+        entityNo: 'SWP0001',
+        stage: 'REVIEW_SWAP_FINAL',
+        journeyId: null,
+        dedupeKey: 'TX_SWAP_FINAL_REVIEW_REQUIRED:SWAP:swap-1:REVIEW_SWAP_FINAL',
+        title: 'Transaction Swap Final Review Required',
+      }),
+    );
+
+    const result = await service.triggerSystemAlert({
+      ruleCode: 'TX_SWAP_FINAL_REVIEW_REQUIRED',
+      sourceModule: 'risk-engine/transaction-compliance',
+      sourceType: 'SWAP',
+      sourceId: 'swap-1',
+      sourceNo: 'SWP0001',
+      stage: 'REVIEW_SWAP_FINAL',
+      entityType: 'SWAP_TRANSACTION',
+      entityId: 'swap-1',
+      entityNo: 'SWP0001',
+      ownerType: 'CUSTOMER',
+      ownerId: 'customer-10',
+      customerId: 'customer-10',
+      metadata: { triggerStatus: 'REVIEW' },
+    });
+
+    expect(prismaMock.complianceAlert.create).toHaveBeenCalledTimes(1);
+    expect(recordSystemSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        traceId: 'TRANSACTION:swap-1',
+        workflowType: 'TRANSACTION',
+        workflowId: 'swap-1',
+        workflowNo: 'SWP0001',
+      }),
+      undefined,
+    );
+    expect(result.ruleCode).toBe('TX_SWAP_FINAL_REVIEW_REQUIRED');
+    expect(result.stage).toBe('REVIEW_SWAP_FINAL');
+  });
+
   it('should include transaction workflow alerts in default findAll query', async () => {
     prismaMock.complianceAlert.count.mockResolvedValue(1);
     prismaMock.complianceAlert.findMany.mockResolvedValue([
@@ -287,7 +339,7 @@ describe('ComplianceAlertsService', () => {
       expect.objectContaining({
         where: expect.objectContaining({
           sourceType: {
-            in: ['ONBOARDING_JOURNEY', 'PERIODIC_REVIEW_CYCLE', 'DEPOSIT'],
+            in: ['ONBOARDING_JOURNEY', 'PERIODIC_REVIEW_CYCLE', 'DEPOSIT', 'SWAP'],
           },
           stage: {
             in: expect.arrayContaining([
@@ -960,12 +1012,9 @@ describe('ComplianceAlertsService', () => {
         decisionRecordIds: JSON.stringify(['decision-1']),
       }),
     );
-    transactionDepositWorkflowServiceMock.execute.mockResolvedValue({
-      applied: true,
-      blocked: false,
+    workflowTransitionServiceMock.transition.mockResolvedValue({
       transitionCode: 'TX_DEPOSIT_CLEAR_TO_SUCCESS',
-      depositStatusBefore: 'UNDER_REVIEW',
-      depositStatusAfter: 'SUCCESS',
+      executed: true,
     });
 
     const result = await service.applyAction(
@@ -987,13 +1036,15 @@ describe('ComplianceAlertsService', () => {
     );
 
     expect(result.status).toBe(ComplianceAlertStatus.CLOSED);
-    expect(transactionDepositWorkflowServiceMock.execute).toHaveBeenCalledWith(
+    expect(workflowTransitionServiceMock.transition).toHaveBeenCalledWith(
       prismaMock,
       expect.objectContaining({
-        depositId: 'dep-1',
-        source: 'ALERT',
-        sourceId: 'alert-1',
-        workflowAction: 'CLEAR',
+        workflow: 'TRANSACTION',
+        producerType: 'ALERT',
+        producerId: 'alert-1',
+        sourceId: 'dep-1',
+        sourceType: 'DEPOSIT',
+        dispositionCode: 'CLEAR',
       }),
     );
   });
@@ -1331,12 +1382,9 @@ describe('ComplianceAlertsService', () => {
         decisionRecordIds: JSON.stringify(['decision-1']),
       }),
     );
-    transactionDepositWorkflowServiceMock.execute.mockResolvedValue({
-      applied: true,
-      blocked: false,
+    workflowTransitionServiceMock.transition.mockResolvedValue({
       transitionCode: 'TX_DEPOSIT_CLEAR_TO_SUCCESS',
-      depositStatusBefore: 'UNDER_REVIEW',
-      depositStatusAfter: 'SUCCESS',
+      executed: true,
     });
 
     const result = await service.resolveAlert(
@@ -1351,12 +1399,14 @@ describe('ComplianceAlertsService', () => {
     );
 
     expect(applyActionSpy).not.toHaveBeenCalled();
-    expect(transactionDepositWorkflowServiceMock.execute).toHaveBeenCalledWith(
+    expect(workflowTransitionServiceMock.transition).toHaveBeenCalledWith(
       prismaMock,
       expect.objectContaining({
-        depositId: 'dep-1',
-        workflowAction: 'CLEAR',
-        reasonCode: 'FALSE_POSITIVE',
+        workflow: 'TRANSACTION',
+        sourceId: 'dep-1',
+        sourceType: 'DEPOSIT',
+        dispositionCode: 'CLEAR',
+        latestDecisionRecordId: 'decision-1',
       }),
     );
     expect(result.status).toBe(ComplianceAlertStatus.CLOSED);
@@ -1470,17 +1520,9 @@ describe('ComplianceAlertsService', () => {
         finalDispositionCode: 'RESOLVED_BY_WORKFLOW',
       }),
     );
-    transactionDepositWorkflowServiceMock.execute.mockResolvedValue({
-      applied: true,
-      blocked: false,
-      blockedReason: null,
-      depositId: 'dep-1',
-      depositNo: 'DEP0001',
-      workflowAction: 'REJECT',
+    workflowTransitionServiceMock.transition.mockResolvedValue({
       transitionCode: 'TX_DEPOSIT_REJECT_TO_REJECTED',
-      depositStatusBefore: 'UNDER_REVIEW',
-      depositStatusAfter: 'REJECTED',
-      auditMetadata: {},
+      executed: true,
     });
 
     const result = await service.resolveAlert(
@@ -1507,12 +1549,249 @@ describe('ComplianceAlertsService', () => {
         }),
       }),
     );
-    expect(transactionDepositWorkflowServiceMock.execute).toHaveBeenCalledWith(
+    expect(workflowTransitionServiceMock.transition).toHaveBeenCalledWith(
       prismaMock,
       expect.objectContaining({
-        depositId: 'dep-1',
-        workflowAction: 'REJECT',
-        alertId: 'alert-1',
+        workflow: 'TRANSACTION',
+        producerType: 'ALERT',
+        producerId: 'alert-1',
+        sourceId: 'dep-1',
+        sourceType: 'DEPOSIT',
+        dispositionCode: 'REJECT',
+      }),
+    );
+    expect(result.status).toBe(ComplianceAlertStatus.CLOSED);
+  });
+
+  it('should resolve swap false positive via workflow transition service', async () => {
+    prismaMock.$transaction = jest.fn(async (callback: (tx: any) => unknown) => callback(prismaMock));
+    prismaMock.complianceAlert.findUnique
+      .mockResolvedValueOnce(
+        buildAlert({
+          status: ComplianceAlertStatus.ASSIGNED,
+          sourceModule: 'risk-engine/transaction-compliance',
+          sourceType: 'SWAP',
+          sourceId: 'swap-1',
+          sourceNo: 'SWP0001',
+          entityType: 'SWAP_TRANSACTION',
+          entityId: 'swap-1',
+          entityNo: 'SWP0001',
+          journeyId: null,
+          stage: 'REVIEW_SWAP_FINAL',
+          ruleCode: 'TX_SWAP_FINAL_REVIEW_REQUIRED',
+          assigneeUserId: 'admin-1',
+          assigneeUserNo: 'US0001',
+          decisionRecordIds: JSON.stringify(['decision-swap-1']),
+        }),
+      )
+      .mockResolvedValueOnce(
+        buildAlert({
+          status: ComplianceAlertStatus.ASSIGNED,
+          sourceModule: 'risk-engine/transaction-compliance',
+          sourceType: 'SWAP',
+          sourceId: 'swap-1',
+          sourceNo: 'SWP0001',
+          entityType: 'SWAP_TRANSACTION',
+          entityId: 'swap-1',
+          entityNo: 'SWP0001',
+          journeyId: null,
+          stage: 'REVIEW_SWAP_FINAL',
+          ruleCode: 'TX_SWAP_FINAL_REVIEW_REQUIRED',
+          assigneeUserId: 'admin-1',
+          assigneeUserNo: 'US0001',
+          decisionRecordIds: JSON.stringify(['decision-swap-1']),
+        }),
+      )
+      .mockResolvedValueOnce({
+        ...buildAlert({
+          status: ComplianceAlertStatus.CLOSED,
+          sourceModule: 'risk-engine/transaction-compliance',
+          sourceType: 'SWAP',
+          sourceId: 'swap-1',
+          sourceNo: 'SWP0001',
+          entityType: 'SWAP_TRANSACTION',
+          entityId: 'swap-1',
+          entityNo: 'SWP0001',
+          journeyId: null,
+          stage: 'REVIEW_SWAP_FINAL',
+          ruleCode: 'TX_SWAP_FINAL_REVIEW_REQUIRED',
+          assigneeUserId: 'admin-1',
+          assigneeUserNo: 'US0001',
+          currentDispositionCode: 'FALSE_POSITIVE',
+          finalDispositionCode: 'FALSE_POSITIVE',
+          decision: 'FALSE_POSITIVE',
+          decisionRecordIds: JSON.stringify(['decision-swap-1']),
+        }),
+        events: [],
+        dispositionRecords: [],
+      });
+    prismaMock.complianceAlert.update.mockResolvedValue(
+      buildAlert({
+        status: ComplianceAlertStatus.CLOSED,
+        sourceModule: 'risk-engine/transaction-compliance',
+        sourceType: 'SWAP',
+        sourceId: 'swap-1',
+        sourceNo: 'SWP0001',
+        entityType: 'SWAP_TRANSACTION',
+        entityId: 'swap-1',
+        entityNo: 'SWP0001',
+        journeyId: null,
+        stage: 'REVIEW_SWAP_FINAL',
+        ruleCode: 'TX_SWAP_FINAL_REVIEW_REQUIRED',
+        assigneeUserId: 'admin-1',
+        assigneeUserNo: 'US0001',
+        currentDispositionCode: 'FALSE_POSITIVE',
+        finalDispositionCode: 'FALSE_POSITIVE',
+        decision: 'FALSE_POSITIVE',
+        decisionRecordIds: JSON.stringify(['decision-swap-1']),
+      }),
+    );
+    workflowTransitionServiceMock.transition.mockResolvedValue({
+      transitionCode: 'TX_SWAP_CLEAR_TO_SUCCESS',
+      executed: true,
+    });
+
+    const result = await service.resolveAlert(
+      'alert-1',
+      { resolutionType: 'FALSE_POSITIVE' as any },
+      {
+        actorType: 'ADMIN',
+        actorId: 'admin-1',
+        actorNo: 'US0001',
+        actorRole: 'COMPLIANCE_LEAD',
+      },
+    );
+
+    expect(workflowTransitionServiceMock.transition).toHaveBeenCalledWith(
+      prismaMock,
+      expect.objectContaining({
+        workflow: 'TRANSACTION',
+        stage: 'REVIEW_SWAP_FINAL',
+        producerType: 'ALERT',
+        producerId: 'alert-1',
+        sourceId: 'swap-1',
+        sourceType: 'SWAP',
+        dispositionCode: 'CLEAR',
+        latestDecisionRecordId: 'decision-swap-1',
+      }),
+    );
+    expect(result.status).toBe(ComplianceAlertStatus.CLOSED);
+  });
+
+  it('should resolve swap alert by rejecting swap through workflow transition service', async () => {
+    prismaMock.$transaction = jest.fn(async (callback: (tx: any) => unknown) => callback(prismaMock));
+    prismaMock.complianceAlert.findUnique
+      .mockResolvedValueOnce(
+        buildAlert({
+          sourceModule: 'risk-engine/transaction-compliance',
+          sourceType: 'SWAP',
+          sourceId: 'swap-1',
+          sourceNo: 'SWP0001',
+          entityType: 'SWAP_TRANSACTION',
+          entityId: 'swap-1',
+          entityNo: 'SWP0001',
+          journeyId: null,
+          stage: 'REVIEW_SWAP_FINAL',
+          ruleCode: 'TX_SWAP_FINAL_REVIEW_REQUIRED',
+          status: ComplianceAlertStatus.ASSIGNED,
+          assigneeUserId: 'admin-1',
+          assigneeUserNo: 'US0001',
+          decisionRecordIds: JSON.stringify(['decision-swap-2']),
+        }),
+      )
+      .mockResolvedValueOnce(
+        buildAlert({
+          sourceModule: 'risk-engine/transaction-compliance',
+          sourceType: 'SWAP',
+          sourceId: 'swap-1',
+          sourceNo: 'SWP0001',
+          entityType: 'SWAP_TRANSACTION',
+          entityId: 'swap-1',
+          entityNo: 'SWP0001',
+          journeyId: null,
+          stage: 'REVIEW_SWAP_FINAL',
+          ruleCode: 'TX_SWAP_FINAL_REVIEW_REQUIRED',
+          status: ComplianceAlertStatus.ASSIGNED,
+          assigneeUserId: 'admin-1',
+          assigneeUserNo: 'US0001',
+          decisionRecordIds: JSON.stringify(['decision-swap-2']),
+        }),
+      )
+      .mockResolvedValueOnce({
+        ...buildAlert({
+          sourceModule: 'risk-engine/transaction-compliance',
+          sourceType: 'SWAP',
+          sourceId: 'swap-1',
+          sourceNo: 'SWP0001',
+          entityType: 'SWAP_TRANSACTION',
+          entityId: 'swap-1',
+          entityNo: 'SWP0001',
+          journeyId: null,
+          stage: 'REVIEW_SWAP_FINAL',
+          ruleCode: 'TX_SWAP_FINAL_REVIEW_REQUIRED',
+          status: ComplianceAlertStatus.CLOSED,
+          assigneeUserId: 'admin-1',
+          assigneeUserNo: 'US0001',
+          decision: 'REJECT',
+          currentDispositionCode: 'RESOLVED_BY_WORKFLOW',
+          finalDispositionCode: 'RESOLVED_BY_WORKFLOW',
+          decisionRecordIds: JSON.stringify(['decision-swap-2']),
+        }),
+        events: [],
+        dispositionRecords: [],
+      });
+    prismaMock.complianceAlert.update.mockResolvedValue(
+      buildAlert({
+        sourceModule: 'risk-engine/transaction-compliance',
+        sourceType: 'SWAP',
+        sourceId: 'swap-1',
+        sourceNo: 'SWP0001',
+        entityType: 'SWAP_TRANSACTION',
+        entityId: 'swap-1',
+        entityNo: 'SWP0001',
+        journeyId: null,
+        stage: 'REVIEW_SWAP_FINAL',
+        ruleCode: 'TX_SWAP_FINAL_REVIEW_REQUIRED',
+        status: ComplianceAlertStatus.CLOSED,
+        assigneeUserId: 'admin-1',
+        assigneeUserNo: 'US0001',
+        decision: 'REJECT',
+        currentDispositionCode: 'RESOLVED_BY_WORKFLOW',
+        finalDispositionCode: 'RESOLVED_BY_WORKFLOW',
+        decisionRecordIds: JSON.stringify(['decision-swap-2']),
+      }),
+    );
+    workflowTransitionServiceMock.transition.mockResolvedValue({
+      transitionCode: 'TX_SWAP_REJECT_TO_REJECTED',
+      executed: true,
+    });
+
+    const result = await service.resolveAlert(
+      'alert-1',
+      {
+        resolutionType: 'DIRECT_DISPOSITION' as any,
+        proposalCode: 'REJECT',
+        reason: 'risk confirmed',
+      },
+      {
+        actorType: 'ADMIN',
+        actorId: 'admin-1',
+        actorNo: 'US0001',
+        actorRole: 'COMPLIANCE_LEAD',
+      },
+    );
+
+    expect(workflowTransitionServiceMock.transition).toHaveBeenCalledWith(
+      prismaMock,
+      expect.objectContaining({
+        workflow: 'TRANSACTION',
+        stage: 'REVIEW_SWAP_FINAL',
+        producerType: 'ALERT',
+        producerId: 'alert-1',
+        sourceId: 'swap-1',
+        sourceType: 'SWAP',
+        dispositionCode: 'REJECT',
+        latestDecisionRecordId: 'decision-swap-2',
       }),
     );
     expect(result.status).toBe(ComplianceAlertStatus.CLOSED);

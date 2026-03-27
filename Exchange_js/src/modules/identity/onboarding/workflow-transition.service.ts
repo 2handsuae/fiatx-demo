@@ -4,6 +4,8 @@ import { Prisma } from '@prisma/client';
 import {
   ONBOARDING_WORKFLOW,
   PERIODIC_REVIEW_WORKFLOW,
+  TRANSACTION_DEPOSIT_SOURCE_TYPE,
+  TRANSACTION_SWAP_SOURCE_TYPE,
   TRANSACTION_WORKFLOW,
   OnboardingReviewStage,
 } from '../../risk-engine/constants/onboarding-compliance-workflow.constant';
@@ -14,6 +16,7 @@ import {
 } from './onboarding-workflow-transition.service';
 import { PeriodicReviewWorkflowTransitionService } from '../periodic-review/periodic-review-workflow-transition.service';
 import { TransactionDepositWorkflowService } from '../../trading/deposit-transactions/transaction-deposit-workflow.service';
+import { SwapTransactionWorkflowService } from '../../trading/swap-transactions/swap-transaction-workflow.service';
 
 @Injectable()
 export class WorkflowTransitionService {
@@ -23,12 +26,22 @@ export class WorkflowTransitionService {
     private readonly moduleRef?: ModuleRef,
   ) {}
 
-  private getTransactionWorkflowTransitionService() {
+  private getTransactionDepositWorkflowTransitionService() {
     const service = this.moduleRef?.get(TransactionDepositWorkflowService, {
       strict: false,
     });
     if (!service) {
-      throw new BadRequestException('Transaction workflow transition service is unavailable');
+      throw new BadRequestException('Deposit transaction workflow transition service is unavailable');
+    }
+    return service;
+  }
+
+  private getTransactionSwapWorkflowTransitionService() {
+    const service = this.moduleRef?.get(SwapTransactionWorkflowService, {
+      strict: false,
+    });
+    if (!service) {
+      throw new BadRequestException('Swap transaction workflow transition service is unavailable');
     }
     return service;
   }
@@ -84,16 +97,70 @@ export class WorkflowTransitionService {
     }
 
     if (workflow === TRANSACTION_WORKFLOW) {
-      const depositId = String(input.sourceId || '').trim();
-      if (!depositId) {
-        throw new BadRequestException('Transaction workflow transition requires sourceId=depositId');
+      const sourceId = String(input.sourceId || '').trim();
+      if (!sourceId) {
+        throw new BadRequestException('Transaction workflow transition requires sourceId');
       }
-      const service = this.getTransactionWorkflowTransitionService();
+      const sourceType = String(
+        input.sourceType || TRANSACTION_DEPOSIT_SOURCE_TYPE,
+      )
+        .trim()
+        .toUpperCase();
+      const workflowAction = this.resolveTransactionWorkflowAction(
+        input.dispositionCode,
+      );
+
+      if (sourceType === TRANSACTION_SWAP_SOURCE_TYPE) {
+        if (workflowAction === 'FREEZE') {
+          throw new BadRequestException(
+            'Swap transaction workflow does not support FREEZE transitions',
+          );
+        }
+        const service = this.getTransactionSwapWorkflowTransitionService();
+        const result = await service.execute(tx, {
+          swapId: sourceId,
+          source: input.producerType,
+          sourceId: input.producerId,
+          workflowAction:
+            workflowAction === 'CLEAR' ? 'CLEAR' : workflowAction === 'REJECT' ? 'REJECT' : 'FLAG',
+          reason: input.reason || null,
+          actor: {
+            actorType: 'ADMIN',
+            actorId: input.actorId,
+            actorRole: input.actorRole,
+            sourcePlatform: 'ADMIN_API',
+          },
+          decisionRecordId: input.latestDecisionRecordId || null,
+          caseId: input.producerType === 'CASE' ? input.producerId : null,
+          alertId: input.producerType === 'ALERT' ? input.producerId : null,
+          triggerStage: input.stage,
+        });
+
+        return {
+          workflow: TRANSACTION_WORKFLOW,
+          stage: input.stage,
+          dispositionCode: String(input.dispositionCode || '').trim().toUpperCase(),
+          transitionCode: result.transitionCode as any,
+          fromStatus: result.swapStatusBefore,
+          toStatus: result.swapStatusAfter,
+          executed: result.applied,
+          updatedCustomer: null,
+          updatedSubject: {
+            id: result.swapId,
+            sourceType: TRANSACTION_SWAP_SOURCE_TYPE,
+            subjectNo: result.swapNo,
+            blocked: result.blocked,
+            blockedReason: result.blockedReason,
+          },
+        };
+      }
+
+      const service = this.getTransactionDepositWorkflowTransitionService();
       const result = await service.execute(tx, {
-        depositId,
+        depositId: sourceId,
         source: input.producerType,
         sourceId: input.producerId,
-        workflowAction: this.resolveTransactionWorkflowAction(input.dispositionCode),
+        workflowAction,
         reason: input.reason || null,
         actor: {
           actorType: 'ADMIN',
@@ -111,9 +178,11 @@ export class WorkflowTransitionService {
         fromStatus: result.depositStatusBefore,
         toStatus: result.depositStatusAfter,
         executed: result.applied,
-        updatedCustomer: {
+        updatedCustomer: null,
+        updatedSubject: {
           id: result.depositId,
-          depositNo: result.depositNo,
+          sourceType: TRANSACTION_DEPOSIT_SOURCE_TYPE,
+          subjectNo: result.depositNo,
           blocked: result.blocked,
           blockedReason: result.blockedReason,
         },
