@@ -1,6 +1,6 @@
 Status: active
 Owner: project-owner-and-agents
-Last Updated: 2026-03-27
+Last Updated: 2026-03-28
 Applies To: `Exchange_js`
 Supersedes: none
 Depends On: `docs/constraints/customer-transaction-flow-constraints.md`, `docs/constraints/internal-transaction-flow-constraints.md`, `docs/constraints/audit-logging-constraints.md`
@@ -27,6 +27,8 @@ Source of Truth Level: specs-workflow
 
 ## Canonical State Model
 ### WithdrawTransaction
+- New customer-created withdraws start at `PENDING_COMPLIANCE`.
+- `CREATED` is retained for historical compatibility records only.
 - `CREATED`
 - `PENDING_COMPLIANCE`
 - `UNDER_REVIEW`
@@ -69,6 +71,7 @@ Source of Truth Level: specs-workflow
     - `flag`
     - `reject`
     - `cancel`
+  - `check` remains a compatibility/manual surface and is not part of the canonical new-withdraw happy path
   - direct admin `approve` is non-canonical for new withdraws and must not be used as the happy-path progression surface
   - terminal `success / fail / return` remain internal workflow/system actions only
 - Payout execution path:
@@ -101,11 +104,15 @@ Source of Truth Level: specs-workflow
   - `RECEIVED`
   - `FINAL`
 - System-generated containers in the canonical withdraw flow are auto-filled directly to `FINAL`.
+- Historical response values such as `PASS / ACCEPTED / NOT_REQUIRED / REVIEW / FAIL` are compatibility-only and should be normalized to lifecycle display, not treated as current truth.
 
 ### 3. Single-Stage Risk Review
 - New withdraws create exactly one active risk execution root:
   - `TX_WITHDRAW_FINAL`
 - `TX_WITHDRAW_PRECHECK` remains legacy/historical compatibility only and is not the canonical new-withdraw path.
+- Historical `TX_WITHDRAW_PRECHECK / REVIEW_WITHDRAW_PRECHECK` records are read-only evidence:
+  - they may still appear in audit, evidence, and historical detail views
+  - they are no longer valid manual simulation or workflow resolution targets
 - Manual simulation of the final risk execution drives the business outcome:
   - `LOW`
     - no alert / case
@@ -190,6 +197,12 @@ Source of Truth Level: specs-workflow
 
 ## Audit And Evidence
 - Withdraw-root trace uses `WITHDRAW:<withdrawId>`.
+- Admin rail read model for `payout` uses:
+  - raw `status` as rail truth
+  - `displayStatus` as display-layer truth
+  - uppercase `type = CRYPTO | FIAT`
+  - canonical `audit_log_events` as the detail audit source
+- `CLEAR` remains the runtime closeout state, while `CLEARED` is the mirrored admin display label.
 - Exportable Wave 7 evidence is expected to replay:
   - quote create and quote consume
   - withdraw request

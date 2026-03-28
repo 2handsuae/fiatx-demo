@@ -35,6 +35,7 @@ export enum PayinSimulationMode {
 }
 
 export enum PayinType {
+  // Raw query/update contract stays lowercase for backward compatibility.
   CRYPTO = 'crypto',
   FIAT = 'fiat',
 }

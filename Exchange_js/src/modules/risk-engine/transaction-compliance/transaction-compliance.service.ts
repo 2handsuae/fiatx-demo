@@ -17,7 +17,12 @@ import {
   TxCaseListQueryDto,
 } from './dto/tx-compliance.dto';
 import {
+  KYT_FINAL_COMPATIBILITY_STATUSES,
   KytScreeningStage,
+  normalizeKytResponseLifecycleStatus,
+  normalizeTravelRuleResponseLifecycleStatus,
+  TRAVEL_RULE_FINAL_COMPATIBILITY_STATUSES,
+  TxResponseLifecycleStatusOrEmpty,
   TxComplianceProviderMode,
   TxSourceContext,
   TxSourceType,
@@ -116,29 +121,194 @@ export class TransactionComplianceService {
     return generateReferenceNo(prefix);
   }
 
+  public normalizeKytLifecycleStatus(
+    status?: string | null,
+    options?: { allowEmpty?: boolean },
+  ): TxResponseLifecycleStatusOrEmpty {
+    return normalizeKytResponseLifecycleStatus(status, options);
+  }
+
+  public normalizeTravelRuleLifecycleStatus(
+    status?: string | null,
+    required?: boolean,
+    options?: { allowEmpty?: boolean },
+  ): TxResponseLifecycleStatusOrEmpty {
+    return normalizeTravelRuleResponseLifecycleStatus(status, required, options);
+  }
+
   private normalizeKytStatus(status?: string | null): string {
-    const current = String(status || '').trim().toUpperCase();
-    if (['CREATED', 'RECEIVED', 'FINAL'].includes(current)) {
-      return current;
-    }
-    if (!current) {
-      return 'CREATED';
-    }
-    return 'FINAL';
+    return this.normalizeKytLifecycleStatus(status);
   }
 
   private normalizeTravelRuleStatus(
     status?: string | null,
     required?: boolean,
   ): string {
+    return this.normalizeTravelRuleLifecycleStatus(status, required);
+  }
+
+  private expandLifecycleStatusFilter(
+    status: string | null | undefined,
+    kind: 'KYT' | 'TRAVEL_RULE',
+  ): string[] | null {
     const current = String(status || '').trim().toUpperCase();
-    if (['CREATED', 'RECEIVED', 'FINAL'].includes(current)) {
-      return current;
-    }
     if (!current) {
-      return required ? 'CREATED' : '';
+      return null;
     }
-    return 'FINAL';
+
+    const normalized =
+      kind === 'KYT'
+        ? this.normalizeKytLifecycleStatus(current, { allowEmpty: true })
+        : this.normalizeTravelRuleLifecycleStatus(current, true, {
+            allowEmpty: true,
+          });
+
+    if (normalized === 'CREATED') {
+      return ['CREATED'];
+    }
+
+    if (normalized === 'RECEIVED') {
+      return ['RECEIVED', 'SENT', 'PENDING'];
+    }
+
+    return kind === 'KYT'
+      ? [...KYT_FINAL_COMPATIBILITY_STATUSES]
+      : [...TRAVEL_RULE_FINAL_COMPATIBILITY_STATUSES];
+  }
+
+  private normalizePayloadLifecycleValue(
+    value: unknown,
+    kind: 'KYT' | 'TRAVEL_RULE',
+    required?: boolean,
+  ): unknown {
+    if (Array.isArray(value)) {
+      return value.map((item) =>
+        this.normalizePayloadLifecycleValue(item, kind, required),
+      );
+    }
+
+    if (!value || typeof value !== 'object') {
+      return value;
+    }
+
+    const current = value as Record<string, unknown>;
+    const payloadRequired =
+      kind === 'TRAVEL_RULE' && typeof current.required === 'boolean'
+        ? current.required
+        : required;
+    const normalized: Record<string, unknown> = {};
+
+    for (const [key, entry] of Object.entries(current)) {
+      if (key === 'status' || key === 'lifecycle') {
+        normalized[key] =
+          kind === 'KYT'
+            ? this.normalizeKytLifecycleStatus(String(entry || ''), {
+                allowEmpty: true,
+              })
+            : this.normalizeTravelRuleLifecycleStatus(
+                String(entry || ''),
+                Boolean(payloadRequired),
+                { allowEmpty: true },
+              );
+        continue;
+      }
+
+      normalized[key] = this.normalizePayloadLifecycleValue(
+        entry,
+        kind,
+        Boolean(payloadRequired),
+      );
+    }
+
+    return normalized;
+  }
+
+  private normalizeSerializedPayloadLifecycle(
+    payload: string | null | undefined,
+    kind: 'KYT' | 'TRAVEL_RULE',
+    required?: boolean,
+  ): string | null | undefined {
+    if (!payload) {
+      return payload;
+    }
+
+    try {
+      const parsed = JSON.parse(payload);
+      return JSON.stringify(
+        this.normalizePayloadLifecycleValue(parsed, kind, required),
+      );
+    } catch {
+      return payload;
+    }
+  }
+
+  private normalizeKytCaseForRead<T extends Record<string, any> | null>(
+    record: T,
+  ): T {
+    if (!record) {
+      return record;
+    }
+
+    const normalizedReports = Array.isArray(record.reports)
+      ? record.reports.map((report: Record<string, any>) => ({
+          ...report,
+          normalizedPayload: this.normalizeSerializedPayloadLifecycle(
+            report.normalizedPayload,
+            'KYT',
+          ),
+        }))
+      : record.reports;
+
+    return {
+      ...record,
+      status: this.normalizeKytLifecycleStatus(record.status, {
+        allowEmpty: true,
+      }),
+      latestNormalizedPayload: this.normalizeSerializedPayloadLifecycle(
+        record.latestNormalizedPayload,
+        'KYT',
+      ),
+      reports: normalizedReports,
+    } as T;
+  }
+
+  private normalizeTravelRuleCaseForRead<
+    T extends Record<string, any> | null,
+  >(record: T): T {
+    if (!record) {
+      return record;
+    }
+
+    const normalizedReports = Array.isArray(record.reports)
+      ? record.reports.map((report: Record<string, any>) => ({
+          ...report,
+          status: this.normalizeTravelRuleLifecycleStatus(
+            report.status,
+            report.required,
+            { allowEmpty: true },
+          ),
+          normalizedPayload: this.normalizeSerializedPayloadLifecycle(
+            report.normalizedPayload,
+            'TRAVEL_RULE',
+            report.required,
+          ),
+        }))
+      : record.reports;
+
+    return {
+      ...record,
+      status: this.normalizeTravelRuleLifecycleStatus(
+        record.status,
+        record.required,
+        { allowEmpty: true },
+      ),
+      latestNormalizedPayload: this.normalizeSerializedPayloadLifecycle(
+        record.latestNormalizedPayload,
+        'TRAVEL_RULE',
+        record.required,
+      ),
+      reports: normalizedReports,
+    } as T;
   }
 
   private normalizeSimulationRiskLevel(
@@ -232,102 +402,6 @@ export class TransactionComplianceService {
       riskScore:
         riskLevel === 'HIGH' ? 52 : riskLevel === 'MEDIUM' ? 34 : 18,
     };
-  }
-
-  private deriveWithdrawComplianceStatus(input: {
-    preKytStatus: string;
-    mainKytStatus: string;
-    travelRuleStatus: string;
-    travelRuleRequired: boolean;
-    hasPre: boolean;
-    hasMain: boolean;
-    hasTravel: boolean;
-  }): 'PENDING' | 'CLEAR' | 'HOLD' | 'REJECT' {
-    const {
-      preKytStatus,
-      mainKytStatus,
-      travelRuleStatus,
-      travelRuleRequired,
-      hasMain,
-      hasPre,
-      hasTravel,
-    } = input;
-
-    if (!hasPre || !hasMain || !hasTravel) {
-      return 'PENDING';
-    }
-
-    if (preKytStatus === 'FAIL' || mainKytStatus === 'FAIL') {
-      return 'REJECT';
-    }
-
-    if (travelRuleRequired && travelRuleStatus === 'REJECTED') {
-      return 'REJECT';
-    }
-
-    if (preKytStatus === 'REVIEW' || mainKytStatus === 'REVIEW') {
-      return 'HOLD';
-    }
-
-    if (
-      travelRuleRequired &&
-      ['PENDING', 'SENT', 'RECEIVED', 'EXPIRED'].includes(travelRuleStatus)
-    ) {
-      return 'HOLD';
-    }
-
-    if (
-      preKytStatus === 'PASS' &&
-      mainKytStatus === 'PASS' &&
-      (!travelRuleRequired || travelRuleStatus === 'ACCEPTED')
-    ) {
-      return 'CLEAR';
-    }
-
-    return 'PENDING';
-  }
-
-  private deriveSingleStageComplianceStatus(input: {
-    kytStatus: string;
-    travelRuleStatus: string;
-    travelRuleRequired: boolean;
-    hasKyt: boolean;
-    hasTravel: boolean;
-  }): 'PENDING' | 'CLEAR' | 'HOLD' | 'REJECT' {
-    const { kytStatus, travelRuleStatus, travelRuleRequired, hasKyt, hasTravel } =
-      input;
-
-    if (!hasKyt || !hasTravel) {
-      return 'PENDING';
-    }
-
-    if (kytStatus === 'FAIL') {
-      return 'REJECT';
-    }
-
-    if (travelRuleRequired && travelRuleStatus === 'REJECTED') {
-      return 'REJECT';
-    }
-
-    if (kytStatus === 'REVIEW') {
-      return 'HOLD';
-    }
-
-    if (
-      travelRuleRequired &&
-      ['PENDING', 'SENT', 'RECEIVED', 'EXPIRED'].includes(travelRuleStatus)
-    ) {
-      return 'HOLD';
-    }
-
-    if (
-      kytStatus === 'PASS' &&
-      (!travelRuleRequired || travelRuleStatus === 'ACCEPTED')
-    ) {
-      return 'CLEAR';
-    }
-
-    return 'PENDING';
   }
 
   private deriveWithdrawComplianceStatusFromTransactionStatus(
@@ -822,7 +896,15 @@ export class TransactionComplianceService {
     const where: Prisma.KytCaseWhereInput = {};
     if (query.sourceType) where.sourceType = query.sourceType;
     if (query.sourceId) where.sourceId = query.sourceId;
-    if (query.status) where.status = query.status;
+    if (query.status) {
+      const statusFilter = this.expandLifecycleStatusFilter(
+        query.status,
+        'KYT',
+      );
+      if (statusFilter) {
+        where.status = { in: statusFilter };
+      }
+    }
     if (query.provider) where.provider = query.provider;
     if (query.screeningStage) where.screeningStage = query.screeningStage;
 
@@ -839,14 +921,25 @@ export class TransactionComplianceService {
       this.prisma.kytCase.count({ where }),
     ]);
 
-    return { items, total };
+    return {
+      items: items.map((item) => this.normalizeKytCaseForRead(item)),
+      total,
+    };
   }
 
   async listTravelRuleCases(query: TxCaseListQueryDto) {
     const where: Prisma.TravelRuleCaseWhereInput = {};
     if (query.sourceType) where.sourceType = query.sourceType;
     if (query.sourceId) where.sourceId = query.sourceId;
-    if (query.status) where.status = query.status;
+    if (query.status) {
+      const statusFilter = this.expandLifecycleStatusFilter(
+        query.status,
+        'TRAVEL_RULE',
+      );
+      if (statusFilter) {
+        where.status = { in: statusFilter };
+      }
+    }
     if (query.provider) where.provider = query.provider;
 
     const skip = query.skip ?? 0;
@@ -862,7 +955,10 @@ export class TransactionComplianceService {
       this.prisma.travelRuleCase.count({ where }),
     ]);
 
-    return { items, total };
+    return {
+      items: items.map((item) => this.normalizeTravelRuleCaseForRead(item)),
+      total,
+    };
   }
 
   async getKytCaseDetail(
@@ -917,8 +1013,10 @@ export class TransactionComplianceService {
       tx,
     );
 
+    const normalizedRecord = this.normalizeKytCaseForRead(record);
+
     return {
-      ...record,
+      ...normalizedRecord,
       sourceSummary: {
         ...sourceSummary,
         derivedComplianceStatus: aggregate.derivedComplianceStatus,
@@ -979,8 +1077,10 @@ export class TransactionComplianceService {
       tx,
     );
 
+    const normalizedRecord = this.normalizeTravelRuleCaseForRead(record);
+
     return {
-      ...record,
+      ...normalizedRecord,
       sourceSummary: {
         ...sourceSummary,
         derivedComplianceStatus: aggregate.derivedComplianceStatus,
@@ -1286,13 +1386,10 @@ export class TransactionComplianceService {
         : Promise.resolve(null),
     ]);
 
-    const preStatus = this.normalizeKytStatus(preKytCase?.status);
-    const mainStatus = this.normalizeKytStatus(mainKytCase?.status);
-    const travelRequired = travelRuleCase?.required ?? false;
-    const travelStatus = this.normalizeTravelRuleStatus(
-      travelRuleCase?.status,
-      travelRequired,
-    );
+    const normalizedPreKytCase = this.normalizeKytCaseForRead(preKytCase);
+    const normalizedMainKytCase = this.normalizeKytCaseForRead(mainKytCase);
+    const normalizedTravelRuleCase =
+      this.normalizeTravelRuleCaseForRead(travelRuleCase);
 
     const derivedComplianceStatus =
       sourceType === TxSourceType.WITHDRAW
@@ -1306,9 +1403,9 @@ export class TransactionComplianceService {
     return {
       sourceType,
       sourceId,
-      preKytCase: preKytCase || null,
-      mainKytCase: mainKytCase || null,
-      travelRuleCase: travelRuleCase || null,
+      preKytCase: normalizedPreKytCase || null,
+      mainKytCase: normalizedMainKytCase || null,
+      travelRuleCase: normalizedTravelRuleCase || null,
       derivedComplianceStatus,
     };
   }
@@ -2187,7 +2284,7 @@ export class TransactionComplianceService {
     const stage = dto.screeningStage ?? KytScreeningStage.MAIN;
     const provider = dto.provider || 'MOCK';
     const providerCaseId = dto.providerCaseId || `MOCK-KYT-${Date.now()}`;
-    const status = this.normalizeKytStatus(dto.status || 'PASS');
+    const status = this.normalizeKytStatus(dto.status || 'FINAL');
     const riskScore = dto.riskScore ?? Math.floor(Math.random() * 30) + 1;
     const checkedAt = new Date();
 
@@ -2239,10 +2336,7 @@ export class TransactionComplianceService {
 
     const provider = dto.provider || 'MOCK';
     const required = dto.required ?? false;
-    const status = this.normalizeTravelRuleStatus(
-      dto.status || (required ? 'ACCEPTED' : 'NOT_REQUIRED'),
-      required,
-    );
+    const status = this.normalizeTravelRuleStatus(dto.status || 'FINAL', required);
     const providerTransferId =
       dto.providerTransferId || `MOCK-TRV-${Date.now()}`;
     const checkedAt = new Date();

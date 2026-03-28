@@ -68,6 +68,24 @@ describe('WithdrawTransactionsService', () => {
             ensureWithdrawPreKytCaseOnCreate: jest.fn(),
             initializeWithdrawFinalDecisionRecord: jest.fn(),
             getTransactionCaseAggregate: jest.fn(),
+            normalizeKytLifecycleStatus: jest.fn((status?: string | null, options?: { allowEmpty?: boolean }) => {
+              const normalized = String(status || '').trim().toUpperCase();
+              if (!normalized) return options?.allowEmpty ? '' : 'CREATED';
+              if (normalized === 'CREATED') return 'CREATED';
+              if (['RECEIVED', 'SENT', 'PENDING'].includes(normalized)) return 'RECEIVED';
+              return 'FINAL';
+            }),
+            normalizeTravelRuleLifecycleStatus: jest.fn((
+              status?: string | null,
+              required?: boolean,
+              options?: { allowEmpty?: boolean },
+            ) => {
+              const normalized = String(status || '').trim().toUpperCase();
+              if (!normalized) return options?.allowEmpty ? '' : required ? 'CREATED' : '';
+              if (normalized === 'CREATED') return 'CREATED';
+              if (['RECEIVED', 'SENT', 'PENDING'].includes(normalized)) return 'RECEIVED';
+              return 'FINAL';
+            }),
           },
         },
         {
@@ -559,6 +577,10 @@ describe('WithdrawTransactionsService', () => {
       id: 'wd-detail-1',
       withdrawNo: 'WDDET1',
       status: WithdrawTransactionStatus.SUCCESS,
+      preKytStatus: 'PASS',
+      kytStatus: 'PENDING',
+      travelRuleRequired: true,
+      travelRuleStatus: 'ACCEPTED',
       asset: { type: 'CRYPTO', code: 'BTC', network: 'BITCOIN' },
       customer: null,
       payout: null,
@@ -596,6 +618,9 @@ describe('WithdrawTransactionsService', () => {
       }),
     ]);
     expect(result.derivedComplianceStatus).toBe('CLEAR');
+    expect(result.preKytStatus).toBe('FINAL');
+    expect(result.kytStatus).toBe('RECEIVED');
+    expect(result.travelRuleStatus).toBe('FINAL');
   });
 
   it('should emit unified failed event when payout fails', async () => {

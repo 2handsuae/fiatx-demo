@@ -2,6 +2,11 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Search, RefreshCw, Eye } from 'lucide-react';
 import { formatAssetAmount } from '../utils/number-format';
+import {
+  formatRailStatusLabel,
+  formatTransactionTypeLabel,
+  normalizeRailDisplayStatus,
+} from '../utils/transactionRootDisplay';
 
 interface PayoutItem {
   id: string;
@@ -9,6 +14,11 @@ interface PayoutItem {
   withdrawId: string;
   type: string;
   status: string;
+  displayStatus?: string | null;
+  ownerNo?: string | null;
+  transactionType?: string | null;
+  transactionId?: string | null;
+  transactionNo?: string | null;
   amount: string;
   assetId: string;
   asset: { code: string; type: string; network: string | null; decimals?: number };
@@ -98,21 +108,24 @@ const PayoutList = () => {
     }
   };
 
-  const renderStatusBadge = (status: string) => {
+  const renderStatusBadge = (status: string, displayStatus?: string | null) => {
+    const normalizedDisplayStatus = normalizeRailDisplayStatus(
+      displayStatus || status,
+    );
     const colors: Record<string, string> = {
       CREATED: 'bg-gray-100 text-gray-800',
       SIGNING: 'bg-indigo-100 text-indigo-800',
       BROADCASTED: 'bg-blue-100 text-blue-800',
       CONFIRMING: 'bg-yellow-100 text-yellow-800',
       CONFIRMED: 'bg-green-100 text-green-800',
-      CLEAR: 'bg-emerald-100 text-emerald-800',
+      CLEARED: 'bg-emerald-100 text-emerald-800',
       FAILED: 'bg-red-100 text-red-800',
       TIMEOUT: 'bg-orange-100 text-orange-800',
       RETURNED: 'bg-purple-100 text-purple-800',
     };
     return (
-      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${colors[status] || 'bg-gray-100 text-gray-800'}`}>
-        {status}
+      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${colors[normalizedDisplayStatus] || 'bg-gray-100 text-gray-800'}`}>
+        {formatRailStatusLabel(normalizedDisplayStatus)}
       </span>
     );
   };
@@ -168,7 +181,7 @@ const PayoutList = () => {
             <option value="BROADCASTED">Broadcasted</option>
             <option value="CONFIRMING">Confirming</option>
             <option value="CONFIRMED">Confirmed</option>
-            <option value="CLEAR">Clear</option>
+            <option value="CLEAR">Cleared</option>
             <option value="FAILED">Failed</option>
             <option value="TIMEOUT">Timeout</option>
             <option value="RETURNED">Returned</option>
@@ -180,11 +193,11 @@ const PayoutList = () => {
             <thead className="bg-admin-content-bg border-b border-admin-border">
               <tr>
                 <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Payout No / Time</th>
-                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Transaction Info</th>
+                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Linked Transaction</th>
                 <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Owner</th>
-                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Asset / Amount</th>
-                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Destination</th>
+                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Type / Asset / Amount</th>
+                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Rail Status</th>
+                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Settlement Evidence</th>
                 <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider text-right">View</th>
               </tr>
             </thead>
@@ -203,7 +216,10 @@ const PayoutList = () => {
                   <td colSpan={7} className="px-6 py-12 text-center text-gray-500">No payouts found</td>
                 </tr>
               ) : (
-                payouts.map((payout) => (
+                payouts.map((payout) => {
+                  const displayType = formatTransactionTypeLabel(payout.type);
+
+                  return (
                   <tr key={payout.id} className="hover:bg-gray-50 transition-colors group">
                     <td className="px-6 py-4">
                       <div 
@@ -219,11 +235,14 @@ const PayoutList = () => {
                     </td>
                     <td className="px-6 py-4">
                       <div className="flex flex-col gap-1">
-                          <span className={`inline-flex w-fit items-center px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${payout.type === 'CRYPTO' ? 'bg-indigo-100 text-indigo-700' : 'bg-emerald-100 text-emerald-700'}`}>
-                              {payout.type}
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-gray-500">
+                              {payout.transactionType || 'WITHDRAW'}
                           </span>
                           <div className="text-xs text-gray-500 font-mono" title="Withdraw No">
-                              {payout.withdraw.withdrawNo}
+                              {payout.transactionNo || payout.withdraw.withdrawNo}
+                          </div>
+                          <div className="text-[10px] text-gray-400 font-mono" title="Linked Transaction ID">
+                              {payout.transactionId || payout.withdrawId || '-'}
                           </div>
                       </div>
                     </td>
@@ -242,13 +261,16 @@ const PayoutList = () => {
                       )}
                     </td>
                     <td className="px-6 py-4">
-                      <div className="font-medium text-gray-900">{formatAssetAmount(payout.amount, payout.asset.decimals)} {payout.asset.code}</div>
-                      <div className="text-xs text-gray-500">{payout.asset.network}</div>
+                      <div className={`inline-flex w-fit items-center px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${displayType === 'FIAT' ? 'bg-emerald-100 text-emerald-700' : 'bg-indigo-100 text-indigo-700'}`}>
+                        {displayType}
+                      </div>
+                      <div className="mt-1 font-medium text-gray-900">{formatAssetAmount(payout.amount, payout.asset.decimals)} {payout.asset.code}</div>
+                      <div className="text-xs text-gray-500">{payout.asset.network || 'N/A'}</div>
                     </td>
-                    <td className="px-6 py-4">{renderStatusBadge(payout.status)}</td>
+                    <td className="px-6 py-4">{renderStatusBadge(payout.status, payout.displayStatus)}</td>
                     <td className="px-6 py-4">
                         <div className="flex flex-col gap-1">
-                            {payout.type === 'FIAT' ? (
+                            {displayType === 'FIAT' ? (
                                 <div className="text-xs font-mono text-gray-600 truncate max-w-[150px]" title={`IBAN: ${payout.toIban || 'N/A'}`}>
                                     {payout.toIban || 'N/A'}
                                 </div>
@@ -278,7 +300,8 @@ const PayoutList = () => {
                       </div>
                     </td>
                   </tr>
-                ))
+                  );
+                })
               )}
             </tbody>
           </table>

@@ -85,6 +85,22 @@ export class PayoutsService {
     return normalized.length > 0 ? normalized : null;
   }
 
+  private normalizeAdminPayoutType(type?: string | null): string | null {
+    const normalized = String(type || '').trim().toUpperCase();
+    if (!normalized) return null;
+    if (normalized === 'CRYPTO' || normalized === 'FIAT') {
+      return normalized;
+    }
+    return normalized;
+  }
+
+  private normalizeRailDisplayStatus(status?: string | null): string | null {
+    const normalized = String(status || '').trim().toUpperCase();
+    if (!normalized) return null;
+    if (normalized === 'CLEAR') return 'CLEARED';
+    return normalized;
+  }
+
   private mapCanonicalAuditLogs(events: any[]) {
     return events.map((event: any) => ({
       id: event.id,
@@ -178,7 +194,20 @@ export class PayoutsService {
       (this.prisma as any).payout.count({ where }),
     ]);
 
-    return { items, total };
+    const mappedItems = items.map((item: any) => ({
+      ...item,
+      ownerNo:
+        item.customer?.customerNo ||
+        this.normalizeOptionalString(item.withdraw?.ownerNo) ||
+        null,
+      transactionType: 'WITHDRAW',
+      transactionId: item.withdrawId,
+      transactionNo: item.withdraw?.withdrawNo || null,
+      type: this.normalizeAdminPayoutType(item.type),
+      displayStatus: this.normalizeRailDisplayStatus(item.status),
+    }));
+
+    return { items: mappedItems, total };
   }
 
   async findOne(id: string) {
@@ -203,6 +232,15 @@ export class PayoutsService {
     );
     return {
       ...item,
+      ownerNo:
+        item.customer?.customerNo ||
+        this.normalizeOptionalString(item.withdraw?.ownerNo) ||
+        null,
+      transactionType: 'WITHDRAW',
+      transactionId: item.withdrawId,
+      transactionNo: item.withdraw?.withdrawNo || null,
+      type: this.normalizeAdminPayoutType(item.type),
+      displayStatus: this.normalizeRailDisplayStatus(item.status),
       auditLogs,
     };
   }

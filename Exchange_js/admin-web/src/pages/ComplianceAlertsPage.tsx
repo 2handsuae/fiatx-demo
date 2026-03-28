@@ -352,7 +352,7 @@ const ComplianceAlertsPage = () => {
             <option value="REVIEW_KYT">REVIEW_KYT</option>
             <option value="REVIEW_TRAVEL_RULE">REVIEW_TRAVEL_RULE</option>
             <option value="REVIEW_DEPOSIT_FINAL">REVIEW_DEPOSIT_FINAL</option>
-            <option value="REVIEW_WITHDRAW_PRECHECK">REVIEW_WITHDRAW_PRECHECK</option>
+            <option value="REVIEW_WITHDRAW_PRECHECK">REVIEW_WITHDRAW_PRECHECK (Legacy)</option>
             <option value="REVIEW_WITHDRAW_FINAL">REVIEW_WITHDRAW_FINAL</option>
             <option value="REVIEW_WITHDRAW_RECONCILIATION">REVIEW_WITHDRAW_RECONCILIATION</option>
             <option value="REVIEW_SWAP_FINAL">REVIEW_SWAP_FINAL</option>

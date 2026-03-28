@@ -1,6 +1,6 @@
 Status: active
 Owner: project-owner-and-agents
-Last Updated: 2026-03-27
+Last Updated: 2026-03-28
 Applies To: `Exchange_js`
 Supersedes: none
 Depends On: `docs/specs/workflows/withdraw-payout-canonical-workflow.md`
@@ -27,6 +27,11 @@ Source of Truth Level: acceptance
 - verify no admin action writes withdraw `PAYOUT_PENDING` directly
 - verify no admin action writes withdraw `SUCCESS` directly
 - verify no admin action writes payout `CLEAR` directly
+- repeat one fiat happy path and verify:
+  - quote-confirm path is the same
+  - withdraw creates no response container at create time
+  - exactly one `TX_WITHDRAW_FINAL` decision record exists
+  - payout `CONFIRM` writes `referenceNo` and final closeout still ends at `withdraw SUCCESS / payout CLEAR`
 
 ### Risk Review
 - simulate `MEDIUM` risk on `TX_WITHDRAW_FINAL`
@@ -104,6 +109,7 @@ Source of Truth Level: acceptance
 - payout confirmation does not create missing compliance cases
 - withdraw / payout linkage is visible in detail pages
 - response containers are evidence-only and do not provide a risk simulation surface
+- fiat branches may legitimately have no response containers while still using the same final-review truth
 - extreme-volatility gate blocks quote create / withdraw create / payout dispatch start and always writes canonical audit
 - withdraw case `REPORT / STR` remains evidence/governance trace only
 - fail / return replay does not leave orphan journal or non-cancelled withdraw clearing

@@ -2,7 +2,7 @@
 
 Status: active
 Owner: project-owner-and-agents
-Last Updated: 2026-03-27
+Last Updated: 2026-03-28
 Applies To: `Exchange_js`
 Supersedes: none
 Depends On: `docs/specs/README.md`
@@ -44,9 +44,9 @@ Source of Truth Level: specs-entity
 - `docs/specs/entities/inbound-transfer-signal-entity.md`
   - Customer-side inbound detector source semantics, dedupe key, and signal-to-payin binding.
 - `docs/specs/entities/payin-entity.md`
-  - PayIn detection/confirmation entity semantics, dedupe boundary, and `CLEARED` lifecycle meaning.
+  - PayIn detection/confirmation entity semantics, inbound monitoring rail meaning, settlement evidence fields, and admin read-model projection.
 - `docs/specs/entities/deposit-transaction-entity.md`
-  - Deposit state machine, callback authority, release gate, accounting, and evidence-chain semantics.
+  - Deposit state machine, derived compliance truth, lifecycle snapshot mirrors, accounting, and evidence-chain semantics.
 - `docs/specs/entities/review-response-entity.md`
   - Canonical CDD / EDD response identity and evidence-container semantics.
 - `docs/specs/entities/periodic-review-cycle-entity.md`
@@ -62,8 +62,8 @@ Source of Truth Level: specs-entity
 - `docs/specs/entities/pricing-quote-entity.md`
   - Wave 4 pricing quote snapshot semantics for swap and withdraw consumers.
 - `docs/specs/entities/withdraw-transaction-entity.md`
-  - Wave 7 withdraw transaction semantics, payout linkage, and dispatch-gate mirror fields.
+  - Wave 7 withdraw transaction semantics, quote-confirm entry, final-review truth, payout linkage, and compatibility-shell fields.
 - `docs/specs/entities/payout-entity.md`
-  - Wave 7 payout execution / receipt semantics.
+  - Wave 7 payout execution / receipt semantics, mirrored admin read-model fields, and repair boundary.
 - `docs/specs/entities/reconciliation-break-entity.md`
   - Active Wave 7 daily-diff break register semantics and handling ownership.

@@ -46,16 +46,16 @@
 7. swap final review routes to `SUCCESS` or `UNDER_REVIEW`
 8. terminal progression (`SUCCESS` / `REJECTED` / `FAILED`)
 - Withdraw MUST follow:
-1. `CREATED`
-2. `PENDING_COMPLIANCE` or `UNDER_REVIEW`
-3. `PAYOUT_PENDING`
+1. quote create + second confirmation
+2. withdraw create enters `PENDING_COMPLIANCE`
+3. final-review driven progression to `UNDER_REVIEW` or `PAYOUT_PENDING`
 4. terminal progression (`SUCCESS` / `FAILED` / `RETURNED` / `REJECTED` / `CANCELLED`)
 
 ## 5) Orchestration Ordering MUST
 - Deposit confirmed orchestration MUST order:
 1. optional inbound signal scan may create or reuse `PayIn`
 2. canonical payin confirm moves deposit to `COMPLIANCE_PENDING`
-3. sync deposit-side `MAIN-KYT` / `TRAVEL_RULE` evidence containers and derived snapshot
+3. for crypto payin, sync deposit-side `KYT` / `TRAVEL_RULE` evidence containers and derived lifecycle snapshot
 4. when terminal screening states are ready, create pending `TX_DEPOSIT_FINAL` decision record
 5. Admin `Risk Policy Executions` simulates `LOW / MEDIUM / HIGH`
 6. post required confirmed accounting event
@@ -217,10 +217,10 @@
 1. withdraw/deposit/swap approve or reject actions
 2. provider response records are read-only evidence from provider callbacks
 - Auto-record creation timing MUST follow:
-1. `WITHDRAW` + `CRYPTO`: create `PRE-KYT` (`screeningStage=PRE_TXN`) immediately on withdraw `CREATED`
-2. `DEPOSIT` + `CRYPTO`: create `MAIN-KYT` + `TRAVEL_RULE` on `payin CONFIRMED`
-3. `WITHDRAW` + `CRYPTO`: ensure `MAIN-KYT` + `TRAVEL_RULE` before payout dispatch start (`SIGN` / `SUBMIT`)
-4. `FIAT` deposit/withdraw MUST NOT auto-create PRE-KYT
+1. `WITHDRAW` + `CRYPTO`: create `PRE-KYT` + `TRAVEL_RULE` on withdraw create
+2. `DEPOSIT` + `CRYPTO`: create `KYT` + `TRAVEL_RULE` on `payin CONFIRMED`
+3. `WITHDRAW` + `CRYPTO`: create `KYT` on payout `CONFIRM`
+4. `FIAT` deposit/withdraw MUST NOT auto-create response containers
 - Provider response-to-transaction binding MUST remain on transaction identity (`sourceType=DEPOSIT|WITHDRAW`, `sourceId=<transactionId>`), while trigger origin (`payinId` / `payoutId` / `withdrawId`) is stored in report payload.
 - The following callback upsert endpoints are the canonical production ingestion path:
 1. `POST /admin/compliance/tx-kyt-cases/callback`
@@ -232,16 +232,17 @@
 1. `GET /admin/compliance/tx-cases/:sourceType/:sourceId`
 2. response includes `preKytCase`, `mainKytCase`, `travelRuleCase`, `derivedComplianceStatus`
 - Withdraw release gate contract MUST follow:
-1. `CRYPTO` withdraw release to `PAYOUT_PENDING` requires `preKytStatus=PASS`
-2. payout dispatch start for `CRYPTO` withdraw requires `complianceStatus=CLEAR`, `kytStatus=PASS`, and required `travelRuleStatus=ACCEPTED`
-3. `FIAT` withdraw does not auto-create PRE-KYT, but final dispatch still follows policy-driven main gate semantics
+1. new withdraw flow is final-review driven; `TX_WITHDRAW_FINAL` is the only active withdraw risk context
+2. `CRYPTO` withdraw creates `Pre-KYT + Travel Rule` response containers at create time and `KYT` at `payout CONFIRM`, but these are evidence containers only and MUST NOT be treated as workflow truth
+3. `FIAT` withdraw does not auto-create response containers and relies on the same final-review-driven business release path
 4. withdraw quote create / withdraw create / payout dispatch start MUST all honor the shared extreme-volatility restriction gate when it is enabled in `WITHDRAWAL_PRICING`
 5. extreme-volatility gate MUST NOT roll back already `CONFIRMED` payouts
 - Withdraw workflow-bound callback contract MUST follow:
-1. `CLEAR` is the only workflow disposition that may release withdraw precheck or final review
+1. `CLEAR` is the only workflow disposition that may release active withdraw final review
 2. `REJECT` may move withdraw into `REJECTED`
 3. `FREEZE_TRANSACTION` may move withdraw into `UNDER_REVIEW`
 4. `REPORT` / `STR` follow-up is evidence and governance trace only; it MUST NOT directly mutate withdraw status
+5. historical `TX_WITHDRAW_PRECHECK / REVIEW_WITHDRAW_PRECHECK` records may remain visible in audit / evidence / historical detail, but MUST NOT be used for new manual simulation or workflow resolution
 - Manual override of provider response decision at the read-model API level is forbidden in current phase.
 - Admin Compliance Center MUST expose read-only pages:
 1. `Tx Evidence Bundles`
@@ -253,13 +254,13 @@
 3. provide navigation to provider response details only, without any approval action
 
 ## 15) Deposit Transaction Risk And Callback Contract
-- Deposit-side transaction risk contexts MUST remain:
-1. `TX_DEPOSIT_KYT_MAIN`
-2. `TX_DEPOSIT_TRAVEL_RULE`
-- Deposit transaction risk MUST evaluate only on eligible terminal states:
-1. `KYT`: `PASS | REVIEW | FAIL`
-2. `TRAVEL_RULE`: `NOT_REQUIRED | ACCEPTED | REJECTED | EXPIRED`
-- `TRAVEL_RULE` states `PENDING | SENT | RECEIVED` MUST sync evidence container and snapshot only; they MUST NOT trigger risk evaluation yet.
+- `TX_DEPOSIT_FINAL` is the active deposit transaction risk context.
+- Historical provider callback handlers may still ingest deposit-bound `KYT / TRAVEL_RULE` evidence updates, but they are compatibility ingestion paths, not the primary operator decision surface.
+- Deposit transaction risk readiness MUST follow response lifecycle truth:
+1. `KYT`: `CREATED | RECEIVED | FINAL`
+2. `TRAVEL_RULE`: `CREATED | RECEIVED | FINAL`
+3. only lifecycle `FINAL` is terminal-ready for final-review creation
+- `KYT / TRAVEL_RULE` states `CREATED | RECEIVED` MUST sync evidence container and snapshot only; they MUST NOT be treated as final risk disposition.
 - Transaction recommendation output for deposit MUST drive workflow-bound triage only through:
 1. alert upsert
 2. optional case escalation

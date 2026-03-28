@@ -330,6 +330,34 @@ describe('RiskDecisionRecordsService', () => {
     );
   });
 
+  it('should reject manual simulation for legacy withdraw precheck records', async () => {
+    prismaMock.workflowDecisionRecord.findUnique.mockResolvedValue({
+      id: 'dr-wd-pre-legacy-1',
+      status: 'CREATED',
+      contextType: 'TX_WITHDRAW_PRECHECK',
+      customerId: 'c1',
+      subjectId: 'wd-legacy-1',
+    });
+
+    await expect(
+      service.simulateDecisionRecord(
+        'dr-wd-pre-legacy-1',
+        { riskLevel: 'MEDIUM' },
+        {
+          actorType: 'ADMIN',
+          actorId: 'admin-1',
+          actorNo: 'ADM-1',
+          actorRole: 'COMPLIANCE_LEAD',
+          sourcePlatform: 'ADMIN_API',
+        },
+      ),
+    ).rejects.toThrow('historical read-only');
+
+    expect(
+      transactionRiskBridgeServiceMock.simulateWithdrawPrecheckReview,
+    ).not.toHaveBeenCalled();
+  });
+
   it('should delegate CDD manual simulation and return refreshed detail', async () => {
     prismaMock.workflowDecisionRecord.findUnique
       .mockResolvedValueOnce({

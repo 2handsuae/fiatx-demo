@@ -939,4 +939,33 @@ describe('TransactionRiskBridgeService', () => {
     });
     expect(riskEngineServiceMock.createPendingDecisionRecord).not.toHaveBeenCalled();
   });
+
+  it('should keep historical withdraw precheck handler as read-only skip', async () => {
+    const result = await service.handleWithdrawPrecheckReview({
+      withdrawId: 'wd-legacy-1',
+      sourceType: TxSourceType.WITHDRAW,
+      sourceId: 'wd-legacy-1',
+      triggerSource: 'PRE_KYT',
+      triggerStatus: 'FINAL',
+      aggregate: {
+        derivedComplianceStatus: 'PENDING',
+        preKytCase: { id: 'pre-1', caseNo: 'KYT-PRE-1', status: 'FINAL' },
+      },
+    } as any);
+
+    expect(result).toEqual({
+      skipped: true,
+      skipReason: 'LEGACY_PRECHECK_READ_ONLY',
+    });
+  });
+
+  it('should reject manual simulation for historical withdraw precheck review', async () => {
+    await expect(
+      service.simulateWithdrawPrecheckReview({
+        decisionRecordId: 'decision-pre-1',
+        riskLevel: 'LOW',
+        riskReason: 'LEGACY_PRECHECK_READ_ONLY',
+      }),
+    ).rejects.toThrow('historical read-only');
+  });
 });

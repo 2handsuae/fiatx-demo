@@ -60,6 +60,7 @@ export class WithdrawTransactionsService {
 
   // Define state machine transitions
   private readonly transitions: Record<WithdrawTransactionStatus, Partial<Record<WithdrawTransactionAction, WithdrawTransactionStatus>>> = {
+    // Legacy compatibility branch: retained for historical replay/query readability only.
     [WithdrawTransactionStatus.CREATED]: {
       [WithdrawTransactionAction.CHECK]: WithdrawTransactionStatus.PENDING_COMPLIANCE,
       [WithdrawTransactionAction.CANCEL]: WithdrawTransactionStatus.CANCELLED,
@@ -76,7 +77,7 @@ export class WithdrawTransactionsService {
       [WithdrawTransactionAction.CANCEL]: WithdrawTransactionStatus.CANCELLED,
     },
     [WithdrawTransactionStatus.APPROVED]: {
-      // Legacy transition, adding for compatibility if needed, though approve now goes to PAYOUT_PENDING
+      // Legacy compatibility transition. New withdraw flows should not settle here.
       [WithdrawTransactionAction.APPROVE]: WithdrawTransactionStatus.PAYOUT_PENDING,
     },
     [WithdrawTransactionStatus.PAYOUT_PENDING]: {
@@ -96,6 +97,7 @@ export class WithdrawTransactionsService {
     [WithdrawTransactionStatus.REJECTED]: {},
     [WithdrawTransactionStatus.CANCELLED]: {},
     [WithdrawTransactionStatus.RETURNED]: {},
+    // Legacy compatibility state only.
     [WithdrawTransactionStatus.HELD]: {},
   };
 
@@ -406,10 +408,32 @@ export class WithdrawTransactionsService {
       item.id,
       item.withdrawNo,
     );
+    const normalizedPreKytStatus = caseAggregate.preKytCase?.status
+      ? caseAggregate.preKytCase.status
+      : this.transactionComplianceService.normalizeKytLifecycleStatus(
+          item.preKytStatus,
+          { allowEmpty: true },
+        );
+    const normalizedKytStatus = caseAggregate.mainKytCase?.status
+      ? caseAggregate.mainKytCase.status
+      : this.transactionComplianceService.normalizeKytLifecycleStatus(
+          item.kytStatus,
+          { allowEmpty: true },
+        );
+    const normalizedTravelRuleStatus = caseAggregate.travelRuleCase?.status
+      ? caseAggregate.travelRuleCase.status
+      : this.transactionComplianceService.normalizeTravelRuleLifecycleStatus(
+          item.travelRuleStatus,
+          item.travelRuleRequired,
+          { allowEmpty: true },
+        );
 
     return {
       ...item,
       type: this.deriveWithdrawType(item.asset?.type),
+      preKytStatus: normalizedPreKytStatus,
+      kytStatus: normalizedKytStatus,
+      travelRuleStatus: normalizedTravelRuleStatus,
       preKytCase: caseAggregate.preKytCase,
       kytCase: caseAggregate.mainKytCase,
       travelRuleCase: caseAggregate.travelRuleCase,

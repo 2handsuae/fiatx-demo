@@ -27,6 +27,7 @@ describe('DepositTransactionsService', () => {
           useValue: {
             depositTransaction: {
               findUnique: jest.fn(),
+              findMany: jest.fn(),
               update: jest.fn(),
               create: jest.fn(),
               count: jest.fn(),
@@ -42,6 +43,12 @@ describe('DepositTransactionsService', () => {
               findUnique: jest.fn(),
               findFirst: jest.fn(),
               create: jest.fn(),
+            },
+            complianceAlert: {
+              findFirst: jest.fn(),
+            },
+            complianceIncident: {
+              findFirst: jest.fn(),
             },
           },
         },
@@ -59,6 +66,24 @@ describe('DepositTransactionsService', () => {
               travelRuleCase: null,
               derivedComplianceStatus: 'PENDING',
             }),
+            normalizeKytLifecycleStatus: jest.fn((status?: string | null, options?: { allowEmpty?: boolean }) => {
+              const normalized = String(status || '').trim().toUpperCase();
+              if (!normalized) return options?.allowEmpty ? '' : 'CREATED';
+              if (normalized === 'CREATED') return 'CREATED';
+              if (['RECEIVED', 'SENT', 'PENDING'].includes(normalized)) return 'RECEIVED';
+              return 'FINAL';
+            }),
+            normalizeTravelRuleLifecycleStatus: jest.fn((
+              status?: string | null,
+              required?: boolean,
+              options?: { allowEmpty?: boolean },
+            ) => {
+              const normalized = String(status || '').trim().toUpperCase();
+              if (!normalized) return options?.allowEmpty ? '' : required ? 'CREATED' : '';
+              if (normalized === 'CREATED') return 'CREATED';
+              if (['RECEIVED', 'SENT', 'PENDING'].includes(normalized)) return 'RECEIVED';
+              return 'FINAL';
+            }),
           },
         },
       ],
@@ -69,10 +94,133 @@ describe('DepositTransactionsService', () => {
     );
     prisma = module.get<PrismaService>(PrismaService);
     eventEmitter = module.get<EventEmitter2>(EventEmitter2);
+    ((prisma as any).complianceAlert.findFirst as jest.Mock).mockResolvedValue(null);
+    ((prisma as any).complianceIncident.findFirst as jest.Mock).mockResolvedValue(null);
   });
 
   it('should be defined', () => {
     expect(service).toBeDefined();
+  });
+
+  describe('findAll', () => {
+    it('should enrich deposit list items with ownerNo, type, and derivedComplianceStatus', async () => {
+      ((prisma as any).depositTransaction.findMany as jest.Mock).mockResolvedValue([
+        {
+          id: 'dep-1',
+          depositNo: 'DP001',
+          ownerType: 'CUSTOMER',
+          ownerId: 'cust-1',
+          status: DepositTransactionStatus.COMPLIANCE_PENDING,
+          amount: '100.00',
+          netAmount: '99.00',
+          feeAmount: '1.00',
+          toWalletId: 'wallet-1',
+          fromAddress: null,
+          fromIban: null,
+          txHash: null,
+          referenceNo: null,
+          createdAt: new Date('2026-03-28T10:00:00.000Z'),
+          updatedAt: new Date('2026-03-28T10:00:00.000Z'),
+          completedAt: null,
+          asset: {
+            code: 'USDT',
+            type: 'CRYPTO',
+            network: 'TRON',
+            decimals: 6,
+          },
+          customer: {
+            customerNo: 'CU001',
+            firstName: 'Ada',
+            lastName: 'Lovelace',
+            email: 'ada@example.com',
+            onboardingStatus: 'APPROVED',
+            operatingStatus: 'ACTIVE',
+            restrictionStatus: 'CLEAR',
+            complianceHoldStatus: 'ACTIVE',
+          },
+        },
+      ]);
+      ((prisma as any).depositTransaction.count as jest.Mock).mockResolvedValue(1);
+
+      const result = await service.findAll({});
+
+      expect(result.total).toBe(1);
+      expect(result.items).toHaveLength(1);
+      expect(result.items[0]).toMatchObject({
+        ownerNo: 'CU001',
+        type: 'crypto',
+        derivedComplianceStatus: 'PENDING',
+      });
+    });
+  });
+
+  describe('findOne', () => {
+    it('should normalize deposit response snapshots to lifecycle values', async () => {
+      ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValue({
+        id: 'dep-detail-1',
+        depositNo: 'DP-DETAIL-1',
+        ownerType: 'CUSTOMER',
+        ownerId: 'cust-1',
+        ownerNo: 'CU001',
+        status: DepositTransactionStatus.COMPLIANCE_PENDING,
+        assetId: 'asset-1',
+        amount: '100',
+        netAmount: '100',
+        feeAmount: '0',
+        toWalletId: 'wallet-1',
+        toWalletNo: 'WA001',
+        toAddress: null,
+        toIban: null,
+        fromWalletId: null,
+        fromWalletNo: null,
+        fromAddress: null,
+        fromIban: null,
+        txHash: null,
+        confirmations: 0,
+        referenceNo: null,
+        kytStatus: 'PASS',
+        kytScreeningId: null,
+        kytRiskScore: null,
+        kytCheckedAt: null,
+        travelRuleRequired: true,
+        travelRuleStatus: 'SENT',
+        travelRuleTransferId: null,
+        counterpartyVasp: null,
+        travelRuleCheckedAt: null,
+        createdAt: new Date('2026-03-28T10:00:00.000Z'),
+        updatedAt: new Date('2026-03-28T10:00:00.000Z'),
+        completedAt: null,
+        payinId: null,
+        payinNo: null,
+        payinStatus: null,
+        payinType: null,
+        asset: {
+          code: 'USDT',
+          type: 'CRYPTO',
+          network: 'TRON',
+          decimals: 6,
+        },
+        wallet: { walletNo: 'WA001' },
+        fromWallet: null,
+        payin: null,
+        customer: {
+          customerNo: 'CU001',
+          firstName: 'Ada',
+          lastName: 'Lovelace',
+          email: 'ada@example.com',
+          onboardingStatus: 'APPROVED',
+          operatingStatus: 'ACTIVE',
+          restrictionStatus: 'CLEAR',
+          complianceHoldStatus: 'ACTIVE',
+        },
+        auditLogs: [],
+      });
+
+      const result = await service.findOne('dep-detail-1');
+
+      expect(result.kytStatus).toBe('FINAL');
+      expect(result.travelRuleStatus).toBe('RECEIVED');
+    });
   });
 
   describe('updateStatus (State Machine)', () => {

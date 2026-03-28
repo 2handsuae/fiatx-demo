@@ -99,9 +99,6 @@ export class RiskDecisionRecordsService {
     if (input.riskLevel === 'LOW') {
       if (contextType === 'ONBOARDING_CDD') return 'CDD_LOW_RISK_CLEAR';
       if (contextType === 'TX_DEPOSIT_FINAL') return 'TX_DEPOSIT_LOW_RISK_AUTO_CLEAR';
-      if (contextType === 'TX_WITHDRAW_PRECHECK') {
-        return 'TX_WITHDRAW_PRECHECK_LOW_RISK_CLEAR';
-      }
       if (contextType === 'TX_WITHDRAW_FINAL') {
         return 'TX_WITHDRAW_FINAL_LOW_RISK_CLEAR';
       }
@@ -132,18 +129,6 @@ export class RiskDecisionRecordsService {
           'SANCTIONS_HIT',
           'KYT_SEVERE_EXPOSURE',
           'TRAVEL_RULE_COUNTERPARTY_BLOCKED',
-        ],
-      },
-      TX_WITHDRAW_PRECHECK: {
-        MEDIUM: [
-          'PRE_KYT_REVIEW_REQUIRED',
-          'BEHAVIOR_REVIEW_REQUIRED',
-          'PROFILE_MISMATCH',
-        ],
-        HIGH: [
-          'TX_WITHDRAW_PRE_KYT_FAIL',
-          'SANCTIONS_HIT',
-          'HIGH_RISK_EXPOSURE',
         ],
       },
       TX_WITHDRAW_FINAL: {
@@ -514,6 +499,11 @@ export class RiskDecisionRecordsService {
     if (status !== 'CREATED') {
       throw new BadRequestException(`Decision record ${id} is not pending simulation`);
     }
+    if (contextType === 'TX_WITHDRAW_PRECHECK') {
+      throw new BadRequestException(
+        `Decision record ${id} is historical read-only and no longer supports manual simulation`,
+      );
+    }
 
     const generatedReasonCode = this.getManualReasonCode({
       contextType,
@@ -528,12 +518,6 @@ export class RiskDecisionRecordsService {
       });
     } else if (contextType === 'TX_DEPOSIT_FINAL') {
       await this.getTransactionRiskBridgeService().simulateDepositFinalReview({
-        decisionRecordId: id,
-        riskLevel: body.riskLevel,
-        riskReason: generatedReasonCode,
-      });
-    } else if (contextType === 'TX_WITHDRAW_PRECHECK') {
-      await this.getTransactionRiskBridgeService().simulateWithdrawPrecheckReview({
         decisionRecordId: id,
         riskLevel: body.riskLevel,
         riskReason: generatedReasonCode,
@@ -562,15 +546,13 @@ export class RiskDecisionRecordsService {
         : {
             traceId:
               record.subjectId &&
-              (contextType === 'TX_WITHDRAW_PRECHECK' ||
-                contextType === 'TX_WITHDRAW_FINAL')
+              contextType === 'TX_WITHDRAW_FINAL'
                 ? `${AuditWorkflowTypes.WITHDRAW}:${record.subjectId}`
                 : undefined,
             workflowType:
               contextType === 'ONBOARDING_CDD'
                 ? AuditWorkflowTypes.ONBOARDING
-                : contextType === 'TX_WITHDRAW_PRECHECK' ||
-                    contextType === 'TX_WITHDRAW_FINAL'
+                : contextType === 'TX_WITHDRAW_FINAL'
                   ? AuditWorkflowTypes.WITHDRAW
                 : AuditWorkflowTypes.TRANSACTION,
             workflowId: record.subjectId || undefined,

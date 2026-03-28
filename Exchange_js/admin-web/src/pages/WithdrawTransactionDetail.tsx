@@ -6,6 +6,13 @@ import {
 } from 'lucide-react';
 import { copyToClipboard } from '../utils/clipboard';
 import { formatAssetAmount } from '../utils/number-format';
+import {
+  formatDerivedComplianceStatusLabel,
+  isLegacyWithdrawStatus,
+  formatResponseLifecycleLabel,
+  formatStatusLabel,
+  formatTransactionTypeLabel,
+} from '../utils/transactionRootDisplay';
 
 interface WithdrawTransactionDetail {
   id: string;
@@ -191,6 +198,7 @@ const WithdrawTransactionDetail = () => {
   };
 
   const renderStatusBadge = (status: string) => {
+    const legacy = isLegacyWithdrawStatus(status);
     const colors: Record<string, string> = {
       CREATED: 'bg-gray-100 text-gray-800',
       PENDING_COMPLIANCE: 'bg-blue-100 text-blue-800',
@@ -204,9 +212,16 @@ const WithdrawTransactionDetail = () => {
       RETURNED: 'bg-purple-100 text-purple-800',
     };
     return (
-      <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${colors[status] || 'bg-gray-100 text-gray-800'}`}>
-        {status}
-      </span>
+      <div className="inline-flex items-center gap-2">
+        <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${colors[status] || 'bg-gray-100 text-gray-800'}`}>
+          {formatStatusLabel(status)}
+        </span>
+        {legacy ? (
+          <span className="inline-flex items-center rounded border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-amber-700">
+            Legacy
+          </span>
+        ) : null}
+      </div>
     );
   };
 
@@ -222,9 +237,24 @@ const WithdrawTransactionDetail = () => {
   if (!data) return null;
 
   const ownerNo = data.ownerNo || data.customer?.customerNo || 'N/A';
+  const isLegacyStatus = isLegacyWithdrawStatus(data.status);
   const payoutNo = data.payoutNo || data.payout?.payoutNo || 'N/A';
   const payoutDetailPath = data.payoutId ? `/dashboard/treasury/payouts/${data.payoutId}` : null;
   const relatedAlertsPath = `/dashboard/compliance/alerts?sourceType=WITHDRAW&sourceId=${data.id}&stage=REVIEW_WITHDRAW_FINAL`;
+  const isFiatFlow = String(data.type || data.asset?.type || '')
+    .toUpperCase() === 'FIAT';
+  const preKytLifecycleDisplay =
+    isFiatFlow && !data.preKytCase?.id
+      ? 'Not created for fiat flow'
+      : formatResponseLifecycleLabel(data.preKytStatus);
+  const kytLifecycleDisplay =
+    isFiatFlow && !data.kytCase?.id
+      ? 'Not created for fiat flow'
+      : formatResponseLifecycleLabel(data.kytStatus);
+  const travelRuleLifecycleDisplay =
+    isFiatFlow && !data.travelRuleCase?.id
+      ? 'Not created for fiat flow'
+      : formatResponseLifecycleLabel(data.travelRuleStatus);
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto pb-12">
@@ -293,12 +323,10 @@ const WithdrawTransactionDetail = () => {
         <DetailCard title="Basic Identification" icon={<FileText size={18} />}>
             <InfoField label="ID" value={data.id} source="main" />
             <InfoField label="Withdraw No" value={data.withdrawNo} highlight source="main" />
-            <InfoField label="Payout ID" value={data.payoutId} source="main" />
-            <InfoField label="Payout No" value={payoutNo} source="main" />
+            <InfoField label="Type" value={formatTransactionTypeLabel(data.type)} source="main" />
             <InfoField label="Owner Type" value={data.ownerType} source="main" />
             <InfoField label="Owner ID" value={data.ownerId} icon={<User size={14}/>} source="main" />
             <InfoField label="Owner No" value={ownerNo} source="main" />
-            <InfoField label="Type" value={data.type} source="main" />
         </DetailCard>
 
         {/* 2. Assets & Amount */}
@@ -311,8 +339,8 @@ const WithdrawTransactionDetail = () => {
             <InfoField label="Net Amount" value={formatAssetAmount(data.netAmount, data.asset.decimals)} highlight source="main" />
         </DetailCard>
 
-        {/* 3. Destination Info */}
-        <DetailCard title="Destination Info" icon={<MapPin size={18} />}>
+        {/* 3. Endpoint / Destination */}
+        <DetailCard title="Endpoint / Destination" icon={<MapPin size={18} />}>
             <InfoField label="To Wallet ID" value={data.toWalletId} source="main" />
             <InfoField label="To Wallet No" value={data.toWalletNo} source="main" />
             <InfoField 
@@ -333,8 +361,8 @@ const WithdrawTransactionDetail = () => {
             />
         </DetailCard>
 
-        {/* 4. Source Info */}
-        <DetailCard title="Source Info" icon={<Server size={18} />}>
+        {/* 4. Source / Origin */}
+        <DetailCard title="Source / Origin" icon={<Server size={18} />}>
             <InfoField label="From Wallet ID" value={data.fromWalletId} source="main" />
             <InfoField label="From Wallet No" value={data.fromWalletNo} source="main" />
             <InfoField 
@@ -373,7 +401,7 @@ const WithdrawTransactionDetail = () => {
 
         {/* 6. Response Container (Pre-KYT) */}
         <DetailCard title="Response Container (Pre-KYT)" icon={<Shield size={18} />}>
-            <InfoField label="Lifecycle" value={data.preKytStatus} highlight source="main" />
+            <InfoField label="Lifecycle" value={preKytLifecycleDisplay} highlight source="main" />
             <InfoField label="Pre-KYT ID" value={data.preKytId} source="main" />
             <InfoField label="Risk Score" value={data.preKytRiskScore?.toString()} source="main" />
             <InfoField label="Checked At" value={data.preKytCheckedAt ? new Date(data.preKytCheckedAt).toLocaleString() : 'N/A'} source="main" />
@@ -390,7 +418,7 @@ const WithdrawTransactionDetail = () => {
 
         {/* 7. Response Container (KYT) */}
         <DetailCard title="Response Container (KYT)" icon={<Shield size={18} />}>
-            <InfoField label="Lifecycle" value={data.kytStatus} highlight source="main" />
+            <InfoField label="Lifecycle" value={kytLifecycleDisplay} highlight source="main" />
             <InfoField label="Screening ID" value={data.kytScreeningId} source="main" />
             <InfoField label="Risk Score" value={data.kytRiskScore?.toString()} source="main" />
             <InfoField label="Checked At" value={data.kytCheckedAt ? new Date(data.kytCheckedAt).toLocaleString() : 'N/A'} source="main" />
@@ -405,7 +433,7 @@ const WithdrawTransactionDetail = () => {
         {/* 8. Response Container (Travel Rule) */}
         <DetailCard title="Response Container (Travel Rule)" icon={<Scale size={18} />}>
             <InfoField label="Travel Rule Required" value={data.travelRuleRequired ? 'Yes' : 'No'} source="main" />
-            <InfoField label="Lifecycle" value={data.travelRuleStatus} highlight source="main" />
+            <InfoField label="Lifecycle" value={travelRuleLifecycleDisplay} highlight source="main" />
             <InfoField label="Counterparty VASP" value={data.counterpartyVasp} source="main" />
             <InfoField label="Transfer ID" value={data.travelRuleTransferId} source="main" />
             <InfoField label="Checked At" value={data.travelRuleCheckedAt ? new Date(data.travelRuleCheckedAt).toLocaleString() : 'N/A'} source="main" />
@@ -417,22 +445,49 @@ const WithdrawTransactionDetail = () => {
             />
         </DetailCard>
 
-        {/* 9. Status & Timings */}
-        <DetailCard title="Status & Timings" icon={<Clock size={18} />}>
-             <InfoField label="Current Status" value={data.status} highlight source="main" />
-             <InfoField label="Derived Compliance" value={data.derivedComplianceStatus || null} source="main" />
+        {/* 9. Derived Compliance & Timings */}
+        <DetailCard title="Derived Compliance & Timings" icon={<Clock size={18} />}>
+             <InfoField label="Current Status" value={formatStatusLabel(data.status)} highlight source="main" />
+             <InfoField label="Derived Compliance" value={data.derivedComplianceStatus ? formatDerivedComplianceStatusLabel(data.derivedComplianceStatus) : null} highlight source="main" />
              <InfoField label="Created At" value={new Date(data.createdAt).toLocaleString()} source="main" />
              <InfoField label="Approved At" value={data.approvedAt ? new Date(data.approvedAt).toLocaleString() : 'N/A'} source="main" />
              <InfoField label="Payout Requested At" value={data.payoutRequestedAt ? new Date(data.payoutRequestedAt).toLocaleString() : 'N/A'} source="main" />
              <InfoField label="Completed At" value={data.completedAt ? new Date(data.completedAt).toLocaleString() : 'N/A'} source="main" />
              <InfoField label="Updated At" value={new Date(data.updatedAt).toLocaleString()} source="main" />
+             <div className="sm:col-span-2 rounded border border-gray-200 bg-gray-50 px-3 py-3 text-xs text-gray-600">
+               Compatibility Snapshot: raw `complianceStatus = {data.complianceStatus || 'N/A'}`. Withdraw UI should continue to treat `derivedComplianceStatus` as the primary truth.
+             </div>
+             {isLegacyStatus ? (
+               <div className="sm:col-span-2 rounded border border-amber-200 bg-amber-50 px-3 py-3 text-xs text-amber-800">
+                 Current withdraw status is a legacy compatibility value kept for historical query and audit readability. New withdraw flows should not settle into this state.
+               </div>
+             ) : null}
+        </DetailCard>
+
+        <DetailCard title="Linked Rail" icon={<CreditCard size={18} />}>
+             <InfoField label="Payout ID" value={data.payoutId} source="main" />
+             <InfoField label="Payout No" value={payoutNo} source="main" />
+             <InfoField label="Payout Status" value={data.payout?.status ? formatStatusLabel(data.payout.status) : null} source="main" />
+             <InfoField label="Payout Surface" value={data.payoutId ? 'Linked payout detail' : 'Pending payout binding'} source="main" />
+             <div className="sm:col-span-2 rounded border border-gray-200 bg-gray-50 px-3 py-3 text-xs text-gray-600">
+               Payout remains the only execution surface. This card mirrors the deposit-side payin reference without reintroducing withdraw-side action buttons.
+               {payoutDetailPath ? (
+                 <button
+                   onClick={() => navigate(payoutDetailPath)}
+                   className="ml-2 inline-flex items-center gap-1 text-brand-primary hover:underline"
+                 >
+                   Open Linked Payout
+                   <ExternalLink size={12} />
+                 </button>
+               ) : null}
+             </div>
         </DetailCard>
 
         {/* 10. Clearing & Settlement Info - HIDDEN */}
         {/* Clearing section removed as per requirement */}
 
         {/* 11. Audit & History */}
-        <DetailCard title="Status History & Audit" icon={<Activity size={18} />} columns={1}>
+        <DetailCard title="Audit Trail" icon={<Activity size={18} />} columns={1}>
              <StatusTimeline historyJson={data.statusHistory} />
              <AuditEventList events={data.auditLogs || []} />
         </DetailCard>
@@ -538,7 +593,7 @@ const StatusTimeline = ({ historyJson }: { historyJson: string | null }) => {
                         <div className="flex-1 space-y-2">
                             <div className="flex items-center gap-2">
                                 <span className={`px-2 py-0.5 rounded text-xs font-bold border ${getStatusBadgeStyle(item.status)}`}>
-                                    {item.status}
+                                    {formatStatusLabel(item.status)}
                                 </span>
                             </div>
                             <p className="text-sm text-gray-600 leading-relaxed">{item.note || item.reason || 'No reason provided'}</p>

@@ -2,15 +2,24 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Search, RefreshCw, Eye } from 'lucide-react';
 import { formatAssetAmount } from '../utils/number-format';
+import {
+  formatRailStatusLabel,
+  formatTransactionTypeLabel,
+  normalizeRailDisplayStatus,
+} from '../utils/transactionRootDisplay';
 
 interface PayinItem {
   id: string;
   payinNo: string;
   depositId: string | null;
   status: string;
+  displayStatus?: string | null;
   asset: { code: string; type: string; network: string | null; decimals?: number };
   type: string;
   amount: string;
+  transactionType?: string | null;
+  transactionId?: string | null;
+  transactionNo?: string | null;
   toWallet: { ownerType: string; ownerId: string | null; address: string | null; accountName: string | null } | null;
   fromAddress: string | null;
   fromIban: string | null;
@@ -73,7 +82,8 @@ const PayinList = () => {
     fetchPayins();
   }, [statusFilter]);
 
-  const renderStatusBadge = (status: string) => {
+  const renderStatusBadge = (status: string, displayStatus?: string | null) => {
+    const normalizedDisplayStatus = normalizeRailDisplayStatus(displayStatus || status);
     const colors: Record<string, string> = {
       DETECTED: 'bg-blue-100 text-blue-800',
       CONFIRMING: 'bg-yellow-100 text-yellow-800',
@@ -82,8 +92,8 @@ const PayinList = () => {
       FAILED: 'bg-red-100 text-red-800',
     };
     return (
-      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${colors[status] || 'bg-gray-100 text-gray-800'}`}>
-        {status}
+      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${colors[normalizedDisplayStatus] || 'bg-gray-100 text-gray-800'}`}>
+        {formatRailStatusLabel(normalizedDisplayStatus)}
       </span>
     );
   };
@@ -141,11 +151,11 @@ const PayinList = () => {
             <thead className="bg-admin-content-bg border-b border-admin-border">
               <tr>
                 <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Payin No / Time</th>
-                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Transaction Info</th>
+                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Linked Transaction</th>
                 <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Owner</th>
-                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Asset / Amount</th>
-                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Source / Hash</th>
+                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Type / Asset / Amount</th>
+                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Rail Status</th>
+                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Settlement Evidence</th>
                 <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider text-right">View</th>
               </tr>
             </thead>
@@ -166,7 +176,10 @@ const PayinList = () => {
                   </td>
                 </tr>
               ) : (
-                payins.map((payin) => (
+                payins.map((payin) => {
+                  const displayType = formatTransactionTypeLabel(payin.type);
+
+                  return (
                   <tr key={payin.id} className="hover:bg-gray-50 transition-colors group">
                     <td className="px-6 py-4">
                       <div 
@@ -182,11 +195,14 @@ const PayinList = () => {
                     </td>
                     <td className="px-6 py-4">
                       <div className="flex flex-col gap-1">
-                          <span className={`inline-flex w-fit items-center px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${payin.type === 'fiat' ? 'bg-green-100 text-green-700' : 'bg-purple-100 text-purple-700'}`}>
-                              {payin.type}
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-gray-500">
+                              {payin.transactionType || 'DEPOSIT'}
                           </span>
                           <div className="text-xs text-gray-500 font-mono" title="Transaction No (Deposit No)">
-                              {payin.deposit?.depositNo || '-'}
+                              {payin.transactionNo || payin.deposit?.depositNo || '-'}
+                          </div>
+                          <div className="text-[10px] text-gray-400 font-mono" title="Linked Transaction ID">
+                              {payin.transactionId || payin.depositId || '-'}
                           </div>
                       </div>
                     </td>
@@ -205,15 +221,18 @@ const PayinList = () => {
                       )}
                     </td>
                     <td className="px-6 py-4">
-                      <div className="font-medium text-gray-900">{formatAssetAmount(payin.amount, payin.asset.decimals)} {payin.asset.code}</div>
-                      <div className="text-xs text-gray-500">{payin.asset.network}</div>
+                      <div className={`inline-flex w-fit items-center px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${displayType === 'FIAT' ? 'bg-green-100 text-green-700' : 'bg-purple-100 text-purple-700'}`}>
+                        {displayType}
+                      </div>
+                      <div className="mt-1 font-medium text-gray-900">{formatAssetAmount(payin.amount, payin.asset.decimals)} {payin.asset.code}</div>
+                      <div className="text-xs text-gray-500">{payin.asset.network || 'N/A'}</div>
                     </td>
                     <td className="px-6 py-4">
-                      {renderStatusBadge(payin.status)}
+                      {renderStatusBadge(payin.status, payin.displayStatus)}
                     </td>
                     <td className="px-6 py-4">
                         <div className="flex flex-col gap-1">
-                            {payin.type === 'fiat' ? (
+                            {displayType === 'FIAT' ? (
                                 <>
                                     <div className="text-xs font-mono text-gray-600 truncate max-w-[150px]" title={`From IBAN: ${payin.fromIban || 'N/A'}`}>
                                         {payin.fromIban || 'N/A'}
@@ -250,7 +269,8 @@ const PayinList = () => {
                       </div>
                     </td>
                   </tr>
-                ))
+                  );
+                })
               )}
             </tbody>
           </table>

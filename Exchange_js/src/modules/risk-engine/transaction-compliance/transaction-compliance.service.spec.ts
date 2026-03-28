@@ -11,6 +11,8 @@ describe('TransactionComplianceService', () => {
     kytCase: {
       upsert: jest.fn(),
       findUnique: jest.fn(),
+      findMany: jest.fn(),
+      count: jest.fn(),
     },
     kytCaseReport: {
       create: jest.fn(),
@@ -19,6 +21,8 @@ describe('TransactionComplianceService', () => {
     travelRuleCase: {
       upsert: jest.fn(),
       findUnique: jest.fn(),
+      findMany: jest.fn(),
+      count: jest.fn(),
     },
     travelRuleCaseReport: {
       create: jest.fn(),
@@ -651,6 +655,139 @@ describe('TransactionComplianceService', () => {
     expect(result.derivedComplianceStatus).toBe('CLEAR');
     expect(result.preKytCase?.screeningStage).toBe(KytScreeningStage.PRE_TXN);
     expect(result.mainKytCase?.screeningStage).toBe(KytScreeningStage.MAIN);
+    expect(result.preKytCase?.status).toBe('FINAL');
+    expect(result.mainKytCase?.status).toBe('FINAL');
+  });
+
+  it('should normalize legacy lifecycle statuses in response list APIs', async () => {
+    prismaMock.kytCase.findMany.mockResolvedValue([
+      {
+        id: 'kyt-list-1',
+        caseNo: 'KYT-LIST-1',
+        sourceType: TxSourceType.WITHDRAW,
+        sourceId: 'wd-list-1',
+        screeningStage: KytScreeningStage.PRE_TXN,
+        provider: 'MOCK',
+        status: 'PASS',
+        updatedAt: new Date('2026-03-28T10:00:00.000Z'),
+      },
+      {
+        id: 'kyt-list-2',
+        caseNo: 'KYT-LIST-2',
+        sourceType: TxSourceType.WITHDRAW,
+        sourceId: 'wd-list-2',
+        screeningStage: KytScreeningStage.MAIN,
+        provider: 'MOCK',
+        status: 'PENDING',
+        updatedAt: new Date('2026-03-28T10:05:00.000Z'),
+      },
+    ]);
+    prismaMock.kytCase.count.mockResolvedValue(2);
+    prismaMock.travelRuleCase.findMany.mockResolvedValue([
+      {
+        id: 'trv-list-1',
+        caseNo: 'TRV-LIST-1',
+        sourceType: TxSourceType.DEPOSIT,
+        sourceId: 'dep-list-1',
+        provider: 'MOCK',
+        required: true,
+        status: 'ACCEPTED',
+        updatedAt: new Date('2026-03-28T10:10:00.000Z'),
+      },
+      {
+        id: 'trv-list-2',
+        caseNo: 'TRV-LIST-2',
+        sourceType: TxSourceType.DEPOSIT,
+        sourceId: 'dep-list-2',
+        provider: 'MOCK',
+        required: true,
+        status: 'SENT',
+        updatedAt: new Date('2026-03-28T10:15:00.000Z'),
+      },
+    ]);
+    prismaMock.travelRuleCase.count.mockResolvedValue(2);
+
+    const kytResult = await service.listKytCases({ status: 'FINAL' } as any);
+    const travelResult = await service.listTravelRuleCases({
+      status: 'FINAL',
+    } as any);
+
+    expect(kytResult.items.map((item: any) => item.status)).toEqual([
+      'FINAL',
+      'RECEIVED',
+    ]);
+    expect(travelResult.items.map((item: any) => item.status)).toEqual([
+      'FINAL',
+      'RECEIVED',
+    ]);
+    expect(prismaMock.kytCase.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          status: expect.objectContaining({
+            in: expect.arrayContaining(['FINAL', 'PASS']),
+          }),
+        }),
+      }),
+    );
+    expect(prismaMock.travelRuleCase.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          status: expect.objectContaining({
+            in: expect.arrayContaining(['FINAL', 'ACCEPTED', 'NOT_REQUIRED']),
+          }),
+        }),
+      }),
+    );
+  });
+
+  it('should default mock-complete response containers to FINAL lifecycle', async () => {
+    prismaMock.withdrawTransaction.findUnique.mockResolvedValue({
+      id: 'wd-mock-1',
+      withdrawNo: 'WD-MOCK-1',
+      ownerType: 'CUSTOMER',
+      ownerId: 'c-1',
+      ownerNo: 'CU-1',
+      assetId: 'asset-1',
+      customer: {
+        customerNo: 'CU-1',
+      },
+    });
+
+    const upsertKytSpy = jest
+      .spyOn(service, 'upsertKytCaseAndAppendReport')
+      .mockResolvedValue({} as any);
+    const upsertTravelSpy = jest
+      .spyOn(service, 'upsertTravelRuleCaseAndAppendReport')
+      .mockResolvedValue({} as any);
+    const syncSpy = jest
+      .spyOn(service, 'syncWithdrawSnapshotFromCases')
+      .mockResolvedValue({} as any);
+
+    await service.mockCompleteKytCase({
+      sourceType: TxSourceType.WITHDRAW,
+      sourceId: 'wd-mock-1',
+      assetId: 'asset-1',
+    } as any);
+    await service.mockCompleteTravelRuleCase({
+      sourceType: TxSourceType.WITHDRAW,
+      sourceId: 'wd-mock-1',
+      assetId: 'asset-1',
+      required: true,
+    } as any);
+
+    expect(upsertKytSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: 'FINAL',
+      }),
+      undefined,
+    );
+    expect(upsertTravelSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: 'FINAL',
+      }),
+      undefined,
+    );
+    expect(syncSpy).toHaveBeenCalledWith('wd-mock-1', undefined);
   });
 
   it('should bridge deposit KYT REVIEW into transaction risk workflow', async () => {

@@ -6,6 +6,10 @@ import {
   adminFetch,
   getApiErrorMessage,
 } from '../utils/adminFetch';
+import {
+  formatResponseLifecycleLabel,
+  getResponseLifecycleBadgeClass,
+} from '../utils/transactionRootDisplay';
 
 type KytCaseItem = {
   id: string;
@@ -44,27 +48,6 @@ type BundleRow = {
 
 const getErrorMessage = (error: unknown, fallback: string) =>
   error instanceof Error ? error.message : fallback;
-
-const statusClass = (current: string) => {
-  switch (current) {
-    case 'PASS':
-    case 'ACCEPTED':
-    case 'NOT_REQUIRED':
-      return 'bg-green-100 text-green-800';
-    case 'FAIL':
-    case 'REJECTED':
-      return 'bg-red-100 text-red-800';
-    case 'REVIEW':
-    case 'PENDING':
-    case 'SENT':
-    case 'RECEIVED':
-    case 'EXPIRED':
-    case 'MISSING':
-      return 'bg-yellow-100 text-yellow-800';
-    default:
-      return 'bg-gray-100 text-gray-700';
-  }
-};
 
 const maxIso = (a: string, b: string) => {
   if (!a) return b;
@@ -132,9 +115,9 @@ const TransactionComplianceCasesPage = () => {
             sourceType: sType,
             sourceId: sId,
             providers: new Set<string>(),
-            preKytStatus: 'MISSING',
-            mainKytStatus: 'MISSING',
-            travelRuleStatus: 'MISSING',
+            preKytStatus: '',
+            mainKytStatus: '',
+            travelRuleStatus: '',
             hasPre: false,
             hasMain: false,
             hasTravel: false,
@@ -295,18 +278,30 @@ const TransactionComplianceCasesPage = () => {
                     <div className="text-xs text-gray-500">{item.sourceId}</div>
                   </td>
                   <td className="px-4 py-3">
-                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${statusClass(item.preKytStatus)}`}>
-                      {item.preKytStatus}
+                    <span
+                      className={`px-2 py-1 rounded-full text-xs font-medium ${getResponseLifecycleBadgeClass(item.preKytStatus)}`}
+                    >
+                      {formatResponseLifecycleLabel(item.preKytStatus, {
+                        missingLabel: item.hasPre ? 'N/A' : 'Not created',
+                      })}
                     </span>
                   </td>
                   <td className="px-4 py-3">
-                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${statusClass(item.mainKytStatus)}`}>
-                      {item.mainKytStatus}
+                    <span
+                      className={`px-2 py-1 rounded-full text-xs font-medium ${getResponseLifecycleBadgeClass(item.mainKytStatus)}`}
+                    >
+                      {formatResponseLifecycleLabel(item.mainKytStatus, {
+                        missingLabel: item.hasMain ? 'N/A' : 'Not created',
+                      })}
                     </span>
                   </td>
                   <td className="px-4 py-3">
-                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${statusClass(item.travelRuleStatus)}`}>
-                      {item.travelRuleStatus}
+                    <span
+                      className={`px-2 py-1 rounded-full text-xs font-medium ${getResponseLifecycleBadgeClass(item.travelRuleStatus)}`}
+                    >
+                      {formatResponseLifecycleLabel(item.travelRuleStatus, {
+                        missingLabel: item.hasTravel ? 'N/A' : 'Not created',
+                      })}
                     </span>
                   </td>
                   <td className="px-4 py-3 text-gray-700">{Array.from(item.providers).join(', ') || '-'}</td>

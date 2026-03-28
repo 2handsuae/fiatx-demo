@@ -11,6 +11,7 @@ import {
 } from '../../risk-engine/audit-logs/constants/audit-actions.constant';
 import { AuditTriggerType } from '../../risk-engine/audit-logs/dto/audit-log.dto';
 import {
+  isLegacyReadOnlyReviewStage,
   normalizeComplianceReviewStage,
   TRANSACTION_REVIEW_STAGES,
 } from '../../risk-engine/constants/onboarding-compliance-workflow.constant';
@@ -116,16 +117,11 @@ export class WithdrawTransactionWorkflowService {
   }
 
   private resolveStage(
-    currentStatus: string,
     requestedStage?: string | null,
   ): string {
     const normalizedStage = normalizeComplianceReviewStage(requestedStage);
     if (normalizedStage) {
       return normalizedStage;
-    }
-    const current = String(currentStatus || '').trim().toUpperCase();
-    if (current === WithdrawTransactionStatus.CREATED) {
-      return TRANSACTION_REVIEW_STAGES.REVIEW_WITHDRAW_PRECHECK;
     }
     return TRANSACTION_REVIEW_STAGES.REVIEW_WITHDRAW_FINAL;
   }
@@ -176,14 +172,6 @@ export class WithdrawTransactionWorkflowService {
 
     if (
       workflowAction === 'CLEAR' &&
-      stage === TRANSACTION_REVIEW_STAGES.REVIEW_WITHDRAW_PRECHECK &&
-      current === WithdrawTransactionStatus.PENDING_COMPLIANCE
-    ) {
-      return true;
-    }
-
-    if (
-      workflowAction === 'CLEAR' &&
       stage === TRANSACTION_REVIEW_STAGES.REVIEW_WITHDRAW_FINAL &&
       current === WithdrawTransactionStatus.PAYOUT_PENDING
     ) {
@@ -194,20 +182,13 @@ export class WithdrawTransactionWorkflowService {
   }
 
   private assertActionAllowed(currentStatus: string, stage: string) {
-    const current = String(currentStatus || '').trim().toUpperCase();
-
-    if (stage === TRANSACTION_REVIEW_STAGES.REVIEW_WITHDRAW_PRECHECK) {
-      if (
-        current !== WithdrawTransactionStatus.CREATED &&
-        current !== WithdrawTransactionStatus.PENDING_COMPLIANCE &&
-        current !== WithdrawTransactionStatus.UNDER_REVIEW
-      ) {
-        throw new BadRequestException(
-          `Withdraw precheck workflow is not allowed from ${currentStatus}`,
-        );
-      }
-      return;
+    if (isLegacyReadOnlyReviewStage(stage)) {
+      throw new BadRequestException(
+        `Withdraw legacy review stage is read-only: ${stage}`,
+      );
     }
+
+    const current = String(currentStatus || '').trim().toUpperCase();
 
     if (
       current !== WithdrawTransactionStatus.PENDING_COMPLIANCE &&
@@ -239,9 +220,6 @@ export class WithdrawTransactionWorkflowService {
     }
     if (workflowAction === 'REJECT') {
       return 'TX_WITHDRAW_REJECT_TO_REJECTED';
-    }
-    if (stage === TRANSACTION_REVIEW_STAGES.REVIEW_WITHDRAW_PRECHECK) {
-      return 'TX_WITHDRAW_CLEAR_TO_PENDING_COMPLIANCE';
     }
     return 'TX_WITHDRAW_CLEAR_TO_PAYOUT_PENDING';
   }
@@ -427,7 +405,7 @@ export class WithdrawTransactionWorkflowService {
   ): Promise<WithdrawWorkflowTransitionResult> {
     const withdraw = await this.getWithdraw(input.withdrawId, tx);
     const beforeStatus = String(withdraw.status || '');
-    const stage = this.resolveStage(beforeStatus, input.triggerStage);
+    const stage = this.resolveStage(input.triggerStage);
     const auditMetadata = this.buildAuditMetadata(input, withdraw, stage);
 
     if (this.shouldSkip(beforeStatus, input.workflowAction, stage)) {
@@ -448,42 +426,9 @@ export class WithdrawTransactionWorkflowService {
     this.assertActionAllowed(beforeStatus, stage);
 
     let updatedStatus = beforeStatus;
-    if (
-      input.workflowAction === 'CLEAR' &&
-      stage === TRANSACTION_REVIEW_STAGES.REVIEW_WITHDRAW_PRECHECK &&
-      beforeStatus === WithdrawTransactionStatus.UNDER_REVIEW
-    ) {
-      const updated = await this.transitionDirectToPendingCompliance(
-        tx,
-        withdraw,
-        input,
-        stage,
-      );
-      updatedStatus = String(updated.status || beforeStatus);
-      return {
-        applied: true,
-        blocked: false,
-        blockedReason: null,
-        withdrawId: updated.id,
-        withdrawNo: updated.withdrawNo || null,
-        workflowAction: input.workflowAction,
-        transitionCode: this.mapTransitionCode(stage, input.workflowAction),
-        withdrawStatusBefore: beforeStatus,
-        withdrawStatusAfter: updatedStatus,
-        auditMetadata: this.buildAuditMetadata(input, withdraw, stage, {
-          withdrawStatusBefore: beforeStatus,
-          withdrawStatusAfter: updatedStatus,
-        }),
-      };
-    }
-
     const action =
       input.workflowAction === 'FLAG' || input.workflowAction === 'FREEZE'
         ? WithdrawTransactionAction.FLAG
-        : input.workflowAction === 'CLEAR' &&
-            stage === TRANSACTION_REVIEW_STAGES.REVIEW_WITHDRAW_PRECHECK &&
-            beforeStatus === WithdrawTransactionStatus.CREATED
-          ? WithdrawTransactionAction.CHECK
         : input.workflowAction === 'CLEAR'
           ? WithdrawTransactionAction.APPROVE
           : WithdrawTransactionAction.REJECT;

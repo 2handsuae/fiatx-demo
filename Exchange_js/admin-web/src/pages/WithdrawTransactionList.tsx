@@ -3,6 +3,12 @@ import { useNavigate } from 'react-router-dom';
 import { Search, RefreshCw, Eye, Download, CheckCircle, Copy, Plus } from 'lucide-react';
 import { copyToClipboard } from '../utils/clipboard';
 import { formatAssetAmount } from '../utils/number-format';
+import {
+  formatDerivedComplianceStatusLabel,
+  isLegacyWithdrawStatus,
+  formatStatusLabel,
+  formatTransactionTypeLabel,
+} from '../utils/transactionRootDisplay';
 
 interface WithdrawTransaction {
   id: string;
@@ -146,6 +152,7 @@ const WithdrawTransactionList = () => {
   };
 
   const renderStatusBadge = (status: string) => {
+    const legacy = isLegacyWithdrawStatus(status);
     const colors: Record<string, string> = {
       CREATED: 'bg-gray-100 text-gray-800',
       PENDING_COMPLIANCE: 'bg-blue-100 text-blue-800',
@@ -159,9 +166,16 @@ const WithdrawTransactionList = () => {
       RETURNED: 'bg-purple-100 text-purple-800',
     };
     return (
-      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${colors[status] || 'bg-gray-100 text-gray-800'}`}>
-        {status}
-      </span>
+      <div className="inline-flex items-center gap-1">
+        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${colors[status] || 'bg-gray-100 text-gray-800'}`}>
+          {formatStatusLabel(status)}
+        </span>
+        {legacy ? (
+          <span className="inline-flex items-center rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-700">
+            Legacy
+          </span>
+        ) : null}
+      </div>
     );
   };
 
@@ -175,9 +189,9 @@ const WithdrawTransactionList = () => {
     const normalized = String(status || 'PENDING').toUpperCase();
     return (
       <span
-        className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${colors[normalized] || colors.PENDING}`}
+        className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold tracking-wider ${colors[normalized] || colors.PENDING}`}
       >
-        {normalized}
+        {formatDerivedComplianceStatusLabel(normalized)}
       </span>
     );
   };
@@ -314,16 +328,17 @@ const WithdrawTransactionList = () => {
               className="px-3 py-2 border border-admin-border rounded-lg bg-white text-sm text-gray-600 focus:outline-none focus:border-brand-primary"
             >
               <option value="">All Status</option>
-              <option value="CREATED">Created</option>
+              <option value="CREATED">Created (Legacy)</option>
               <option value="PENDING_COMPLIANCE">Pending Compliance</option>
               <option value="UNDER_REVIEW">Under Review</option>
+              <option value="APPROVED">Approved (Legacy)</option>
               <option value="PAYOUT_PENDING">Payout Pending</option>
               <option value="SUCCESS">Success</option>
               <option value="FAILED">Failed</option>
               <option value="REJECTED">Rejected</option>
               <option value="CANCELLED">Cancelled</option>
               <option value="RETURNED">Returned</option>
-              <option value="HELD">Held</option>
+              <option value="HELD">Held (Legacy)</option>
             </select>
           </div>
         </div>
@@ -367,7 +382,7 @@ const WithdrawTransactionList = () => {
                       {item.type && (
                           <div className="mt-1">
                               <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${item.type === 'fiat' ? 'bg-indigo-50 text-indigo-600 border border-indigo-100' : 'bg-orange-50 text-orange-600 border border-orange-100'}`}>
-                                  {item.type === 'fiat' ? 'FIAT' : 'CRYPTO'}
+                                  {formatTransactionTypeLabel(item.type)}
                               </span>
                           </div>
                       )}
@@ -378,7 +393,7 @@ const WithdrawTransactionList = () => {
                           <span className="text-sm font-medium text-gray-900">
                             {item.customer.firstName} {item.customer.lastName}
                           </span>
-                          <span className="text-xs text-gray-500 font-mono">{item.customer.customerNo}</span>
+                          <span className="text-xs text-gray-500 font-mono">{item.ownerNo || item.customer.customerNo}</span>
                         </div>
                       ) : (
                         <div className="flex flex-col">

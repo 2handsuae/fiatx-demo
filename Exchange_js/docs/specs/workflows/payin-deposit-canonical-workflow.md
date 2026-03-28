@@ -1,6 +1,6 @@
 Status: active
 Owner: project-owner-and-agents
-Last Updated: 2026-03-24
+Last Updated: 2026-03-28
 Applies To: `Exchange_js`
 Supersedes: none
 Depends On: `docs/constraints/customer-transaction-flow-constraints.md`, `docs/constraints/internal-transaction-flow-constraints.md`, `docs/constraints/audit-logging-constraints.md`
@@ -84,6 +84,7 @@ Source of Truth Level: specs-workflow
   - `KYT`
   - `Travel Rule`
 - System-generated response containers are evidence holders only and are auto-filled directly to `FINAL`.
+- Historical response values such as `PASS / ACCEPTED / NOT_REQUIRED` are compatibility-only and should be normalized to lifecycle display, not treated as current truth.
 - Confirmed accounting point is required at this step.
 - Payin is cleared only after upstream confirmed-side steps complete.
 
@@ -114,8 +115,8 @@ Source of Truth Level: specs-workflow
 - Deposit still reaches `SUCCESS` only through canonical deposit success action.
 
 ### 6. Hit / Review / Case Path
-- `KYT REVIEW` produces alert-driven review handling.
-- `KYT FAIL` and `Travel Rule REJECTED|EXPIRED` produce alert and case handling.
+- Response container lifecycle does not decide review, reject, or release.
+- Review / reject handling is driven by the deposit-side decision record, alert, and case callback path.
 - Review-hit paths move deposit to `UNDER_REVIEW` through canonical `flag`.
 - Alert `FALSE_POSITIVE` maps to transaction workflow `CLEAR`.
 - Case MLRO-approved `CLEAR` maps to transaction workflow `CLEAR`.
@@ -145,6 +146,12 @@ Source of Truth Level: specs-workflow
 - Deposit-root audit replay normalizes to:
   - `workflowType = DEPOSIT`
   - `workflowNo = depositNo`
+- Admin rail read model for `payin` uses:
+  - raw `status` as rail truth
+  - `displayStatus` as display-layer truth
+  - uppercase `type = CRYPTO | FIAT`
+  - canonical `audit_log_events` as the detail audit source
+- `CLEARED` is the canonical display label for inbound rail completion; this is a display/read-model convention and does not redefine the underlying payin state machine.
 - The exportable evidence chain is expected to replay:
   - inbound signal
   - payin

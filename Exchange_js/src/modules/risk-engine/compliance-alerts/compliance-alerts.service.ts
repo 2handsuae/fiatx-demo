@@ -59,6 +59,7 @@ import {
   getCanonicalOnboardingRuleForStage,
   getCanonicalReviewRuleForStage,
   getWorkflowFromSourceType,
+  isLegacyReadOnlyReviewStage,
   isSupportedReviewSourceType,
   isWorkflowBoundReviewStage,
   normalizeComplianceReviewStage,
@@ -361,6 +362,10 @@ export class ComplianceAlertsService {
       stage?: string | null;
     },
   ): AlertDirectProposal[] {
+    if (isLegacyReadOnlyReviewStage((row as any).stage)) {
+      return [];
+    }
+
     const workflow = getWorkflowFromSourceType(row.sourceType);
     const stage = normalizeComplianceReviewStage((row as any).stage);
 
@@ -398,6 +403,10 @@ export class ComplianceAlertsService {
   ): AlertHandlingAction[] {
     const status = String(row.status || '').trim().toUpperCase();
 
+    if (isLegacyReadOnlyReviewStage((row as any).stage)) {
+      return [];
+    }
+
     if (!this.isWorkflowBoundAlert(row)) {
       if (status === ComplianceAlertStatus.OPEN) return ['ASSIGN'];
       if (status === ComplianceAlertStatus.ASSIGNED && this.isCurrentAssignee(row, actor)) {
@@ -429,6 +438,16 @@ export class ComplianceAlertsService {
     return (
       isSupportedReviewSourceType(row.sourceType) &&
       isWorkflowBoundReviewStage((row as any).stage)
+    );
+  }
+
+  private isLegacyReadOnlyAlert(row: {
+    sourceType?: string | null;
+    stage?: string | null;
+  }): boolean {
+    return (
+      isSupportedReviewSourceType(row.sourceType) &&
+      isLegacyReadOnlyReviewStage((row as any).stage)
     );
   }
 
@@ -1751,6 +1770,11 @@ export class ComplianceAlertsService {
   private assertWorkflowBoundAlertForResolution(
     current: ComplianceAlert,
   ) {
+    if (this.isLegacyReadOnlyAlert(current)) {
+      throw new BadRequestException(
+        `Alert ${current.id} is historical read-only and can no longer be resolved through workflow actions`,
+      );
+    }
     if (
       !isSupportedReviewSourceType(current.sourceType) ||
       !isWorkflowBoundReviewStage((current as any).stage)
@@ -2113,6 +2137,11 @@ export class ComplianceAlertsService {
         `Alert ${current.id} is outside supported review scope`,
       );
     }
+    if (this.isLegacyReadOnlyAlert(current)) {
+      throw new BadRequestException(
+        `Alert ${current.id} is historical read-only and cannot be resolved`,
+      );
+    }
 
     this.assertAssigneeCanResolve(current, actor);
 
@@ -2268,6 +2297,11 @@ export class ComplianceAlertsService {
     ) {
       throw new BadRequestException(
         `Alert ${id} is outside supported review scope`,
+      );
+    }
+    if (this.isLegacyReadOnlyAlert(current)) {
+      throw new BadRequestException(
+        `Alert ${id} is historical read-only and cannot be updated`,
       );
     }
 

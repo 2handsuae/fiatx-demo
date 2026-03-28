@@ -9,6 +9,7 @@ import {
   adminFetch,
   getApiErrorMessage,
 } from '../utils/adminFetch';
+import { formatResponseLifecycleLabel } from '../utils/transactionRootDisplay';
 
 type TravelRuleReport = {
   id: string;
@@ -174,7 +175,10 @@ const TransactionTravelRuleResponseDetailPage = () => {
                 { label: 'Source Type', value: data.sourceType },
                 { label: 'Source ID', value: data.sourceId },
                 { label: 'Required', value: data.required },
-                { label: 'Status', value: data.status },
+                {
+                  label: 'Lifecycle',
+                  value: formatResponseLifecycleLabel(data.status),
+                },
                 { label: 'Provider', value: data.provider },
                 { label: 'Provider Transfer ID', value: data.providerTransferId },
                 { label: 'Counterparty VASP', value: data.counterpartyVasp },
@@ -240,7 +244,10 @@ const TransactionTravelRuleResponseDetailPage = () => {
                         { label: 'Provider', value: report.provider },
                         { label: 'Provider Transfer ID', value: report.providerTransferId },
                         { label: 'Required', value: report.required },
-                        { label: 'Status', value: report.status },
+                        {
+                          label: 'Lifecycle',
+                          value: formatResponseLifecycleLabel(report.status),
+                        },
                         { label: 'Counterparty VASP', value: report.counterpartyVasp },
                         {
                           label: 'Received At',

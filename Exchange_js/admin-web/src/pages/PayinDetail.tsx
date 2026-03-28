@@ -23,6 +23,11 @@ import { copyToClipboard } from '../utils/clipboard';
 import { formatAssetAmount } from '../utils/number-format';
 import { SimulationRail, type SimulationRailItem } from '../components/SimulationRail';
 import { useSimulationMode } from '../utils/simulationMode';
+import {
+  formatRailStatusLabel,
+  formatTransactionTypeLabel,
+  normalizeRailDisplayStatus,
+} from '../utils/transactionRootDisplay';
 
 interface PayinDetail {
   id: string;
@@ -47,6 +52,7 @@ interface PayinDetail {
 
   type: string; // CRYPTO / FIAT
   status: string;
+  displayStatus?: string | null;
   
   // Asset & Amount
   assetId: string;
@@ -88,6 +94,22 @@ interface PayinDetail {
   
   // Audit
   statusHistory: string | null;
+  auditLogs?: Array<{
+    id: string;
+    action?: string | null;
+    operatorId?: string | null;
+    actorId?: string | null;
+    actorType?: string | null;
+    oldStatus?: string | null;
+    newStatus?: string | null;
+    statusFrom?: string | null;
+    statusTo?: string | null;
+    reason?: string | null;
+    createdAt?: string | null;
+    occurredAt?: string | null;
+    module?: string | null;
+    result?: string | null;
+  }>;
   simulationProfile?: {
     signalId: string;
     signalNo: string;
@@ -169,7 +191,13 @@ const PayinDetail = () => {
     }
   };
 
-  const renderStatusBadge = (status: string) => {
+  const renderStatusBadge = (
+    status: string,
+    displayStatus?: string | null,
+  ) => {
+    const normalizedDisplayStatus = normalizeRailDisplayStatus(
+      displayStatus || status,
+    );
     const colors: Record<string, string> = {
       DETECTED: 'bg-blue-100 text-blue-800',
       CONFIRMING: 'bg-yellow-100 text-yellow-800',
@@ -178,17 +206,17 @@ const PayinDetail = () => {
       FAILED: 'bg-red-100 text-red-800',
     };
     return (
-      <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${colors[status] || 'bg-gray-100 text-gray-800'}`}>
-        {status}
+      <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${colors[normalizedDisplayStatus] || 'bg-gray-100 text-gray-800'}`}>
+        {formatRailStatusLabel(normalizedDisplayStatus)}
       </span>
     );
   };
 
   const getPayinRailItems = (detail: PayinDetail): SimulationRailItem[] => {
     const status = String(detail.status || '').toUpperCase();
-    const type = String(detail.type || '').toLowerCase();
+    const type = formatTransactionTypeLabel(detail.type);
 
-    if (type === 'fiat') {
+    if (type === 'FIAT') {
       return [
         {
           id: 'detected',
@@ -334,7 +362,7 @@ const PayinDetail = () => {
           <div>
             <div className="flex items-center gap-3">
               <h1 className="text-2xl font-bold text-gray-900">Payin Details</h1>
-              {renderStatusBadge(payin.status)}
+              {renderStatusBadge(payin.status, payin.displayStatus)}
             </div>
             <div className="flex items-center gap-4 mt-1 text-sm text-gray-500 font-mono">
               <span className="text-brand-primary font-bold">No: {payin.payinNo || '-'}</span>
@@ -347,15 +375,15 @@ const PayinDetail = () => {
 
       {simulationModeEnabled ? (
         <SimulationRail
-          title="Payin Simulation Rail"
-          description="Payin 属于监听/系统派生节点，这里用 icon rail 模拟链上或银行监听事件。CLEARED 只做结果回显。"
+          title="Payin Monitoring Rail"
+          description="Payin 是 inbound monitoring rail。这里模拟链上或银行监听事件，Cleared 只做结果回显。"
           items={payinRailItems}
         />
       ) : null}
 
       {showAccountingBlockedHint ? (
         <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-          Payin 目前停在 `CONFIRMED`。这通常表示 confirmed-side accounting 仍未把它自动清到 `CLEARED`。
+          Payin 目前停在 `CONFIRMED`。这通常表示 confirmed-side accounting 仍未把它自动清到 `Cleared`。
         </div>
       ) : null}
 
@@ -376,7 +404,7 @@ const PayinDetail = () => {
 
         {/* 1. 基础识别 (Basic Identification) */}
         <DetailCard title="Basic Identification" icon={<FileText size={18}/>}>
-            <InfoField label="ID" value={payin.id} highlight source="main" />
+            <InfoField label="Payin ID" value={payin.id} highlight source="main" />
             <InfoField label="Payin No" value={payin.payinNo} highlight source="main" />
             
             <InfoField label="Owner Type" value={payin.ownerType} source="main" />
@@ -393,7 +421,7 @@ const PayinDetail = () => {
             <InfoField label="Transaction Type" value={payin.transactionType} source="main" />
             <InfoField label="Transaction ID" value={payin.transactionId} source="main" />
             <InfoField label="Transaction No" value={payin.transactionNo} source="main" />
-            <InfoField label="Type" value={payin.type} source="main" />
+            <InfoField label="Type" value={formatTransactionTypeLabel(payin.type)} source="main" />
         </DetailCard>
 
         {/* 2. 资产与金额 (Assets & Amount) */}
@@ -404,24 +432,20 @@ const PayinDetail = () => {
             <InfoField label="Decimals" value={payin.asset.decimals.toString()} source="main" />
         </DetailCard>
 
-        {/* 3. 目的地信息 (Destination Info) */}
-        <DetailCard title="Destination Info" icon={<MapPin size={18}/>}>
+        {/* 3. Settlement Endpoint / Path */}
+        <DetailCard title="Settlement Endpoint / Path" icon={<MapPin size={18}/>}>
             <InfoField label="To Wallet ID" value={payin.toWalletId} source="main" />
             <InfoField label="To Wallet No" value={payin.toWalletNo} source="main" />
             <InfoField label="To Address" value={payin.toAddress || 'N/A'} copyable onCopy={(v) => handleCopy(v, 'toAddress')} isCopied={copiedField === 'toAddress'} source="main" />
             <InfoField label="To IBAN" value={payin.toIban || 'N/A'} copyable onCopy={(v) => handleCopy(v, 'toIban')} isCopied={copiedField === 'toIban'} source="main" />
-        </DetailCard>
-
-        {/* 4. 始发地信息 (Source Info) */}
-        <DetailCard title="Source Info" icon={<Activity size={18}/>}>
             <InfoField label="From Wallet ID" value={payin.fromWalletId} source="main" />
             <InfoField label="From Wallet No" value={payin.fromWalletNo} source="main" />
             <InfoField label="From Address" value={payin.fromAddress || 'N/A'} copyable onCopy={(v) => handleCopy(v, 'fromAddress')} isCopied={copiedField === 'fromAddress'} source="main" />
             <InfoField label="From IBAN" value={payin.fromIban || 'N/A'} copyable onCopy={(v) => handleCopy(v, 'fromIban')} isCopied={copiedField === 'fromIban'} source="main" />
         </DetailCard>
 
-        {/* 5. 外部交易号 (External Transaction Info) */}
-        <DetailCard title="External Transaction Info" icon={<Globe size={18}/>}>
+        {/* 4. Settlement Evidence */}
+        <DetailCard title="Settlement Evidence" icon={<Globe size={18}/>}>
             <InfoField 
                 label="Tx Hash" 
                 value={payin.txHash || 'N/A'} 
@@ -433,20 +457,22 @@ const PayinDetail = () => {
             />
             <InfoField label="Confirmations" value={payin.confirmations.toString()} source="main" />
             <InfoField label="Reference No" value={payin.referenceNo || 'N/A'} copyable onCopy={(v) => handleCopy(v, 'refNo')} isCopied={copiedField === 'refNo'} source="main" />
+            <InfoField label="Provider Txn ID" value={payin.providerTxnId || 'N/A'} source="main" />
         </DetailCard>
 
-        {/* 6. 状态与时效 (Status & Timings) */}
+        {/* 5. Status & Timings */}
         <DetailCard title="Status & Timings" icon={<Clock size={18}/>}>
-            <InfoField label="Current Status" value={payin.status} highlight source="main" />
+            <InfoField label="Current Status" value={formatRailStatusLabel(payin.displayStatus || payin.status)} highlight source="main" />
             <InfoField label="Created At" value={formatDate(payin.createdAt)} source="main" />
             <InfoField label="Updated At" value={formatDate(payin.updatedAt)} source="main" />
             <InfoField label="Received At" value={formatDate(payin.receivedAt)} source="main" />
             <InfoField label="Confirmed At" value={formatDate(payin.confirmedAt)} source="main" />
         </DetailCard>
 
-        {/* 6. 审计与历史 (Audit & History) */}
+        {/* 6. Status History & Audit */}
         <DetailCard title="Status History & Audit" icon={<Activity size={18}/>} columns={1}>
              <StatusTimeline historyJson={payin.statusHistory} />
+             <AuditEventList events={payin.auditLogs || []} />
         </DetailCard>
       </div>
     </div>
@@ -563,7 +589,7 @@ const StatusTimeline = ({ historyJson }: { historyJson: string | null }) => {
                         <div className="flex-1 space-y-2">
                             <div className="flex items-center gap-2">
                                 <span className={`px-2 py-0.5 rounded text-xs font-bold border ${getStatusBadgeStyle(item.status)}`}>
-                                    {item.status}
+                                    {formatRailStatusLabel(item.status)}
                                 </span>
                             </div>
                             <p className="text-sm text-gray-600 leading-relaxed">{item.reason || 'No reason provided'}</p>
@@ -606,6 +632,74 @@ const getStatusBadgeStyle = (status: string) => {
         case 'DETECTED': return 'bg-blue-50 text-blue-700 border-blue-200';
         default: return 'bg-gray-50 text-gray-700 border-gray-200';
     }
+};
+
+const AuditEventList = ({
+  events,
+}: {
+  events: Array<{
+    id: string;
+    action?: string | null;
+    operatorId?: string | null;
+    actorId?: string | null;
+    actorType?: string | null;
+    oldStatus?: string | null;
+    newStatus?: string | null;
+    statusFrom?: string | null;
+    statusTo?: string | null;
+    reason?: string | null;
+    createdAt?: string | null;
+    occurredAt?: string | null;
+    module?: string | null;
+    result?: string | null;
+  }>;
+}) => {
+  if (events.length === 0) {
+    return (
+      <div className="mt-4 rounded-lg border border-dashed border-gray-200 px-4 py-3 text-sm text-gray-400">
+        No canonical audit events found.
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-4 space-y-3">
+      <div className="text-xs font-semibold uppercase tracking-wider text-gray-500">
+        Canonical Audit Trail
+      </div>
+      {events.map((event) => (
+        <div key={event.id} className="rounded-lg border border-gray-100 bg-gray-50/70 p-4 text-sm">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+            <div className="space-y-1">
+              <div className="font-semibold text-gray-900">
+                {event.action || formatRailStatusLabel(event.newStatus) || 'AUDIT_EVENT'}
+              </div>
+              <div className="text-xs text-gray-500">
+                {event.statusFrom || event.oldStatus
+                  ? `From: ${formatRailStatusLabel(event.statusFrom || event.oldStatus)}`
+                  : 'From: N/A'}
+                {'  '}
+                {event.statusTo || event.newStatus
+                  ? `To: ${formatRailStatusLabel(event.statusTo || event.newStatus)}`
+                  : 'To: N/A'}
+              </div>
+              <div className="text-sm text-gray-600">
+                {event.reason || 'No reason provided'}
+              </div>
+              <div className="text-xs text-gray-400">
+                {(event.actorType || 'SYSTEM')}: {event.actorId || event.operatorId || 'SYSTEM'}
+                {event.module ? ` · ${event.module}` : ''}
+                {event.result ? ` · ${event.result}` : ''}
+              </div>
+            </div>
+            <time className="text-xs font-mono text-gray-500">
+              {new Date(event.occurredAt || event.createdAt || '').toLocaleString()}
+            </time>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
 };
 
 export default PayinDetail;

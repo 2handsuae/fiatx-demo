@@ -2,6 +2,7 @@ import { IsOptional, IsString, IsEnum, IsNumber } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export enum WithdrawTransactionStatus {
+  // Legacy compatibility values remain readable for historical records only.
   CREATED = 'CREATED',
   PENDING_COMPLIANCE = 'PENDING_COMPLIANCE',
   UNDER_REVIEW = 'UNDER_REVIEW',
@@ -16,6 +17,7 @@ export enum WithdrawTransactionStatus {
 }
 
 export enum WithdrawTransactionAction {
+  // Legacy action names are retained for historical audit/query compatibility.
   CHECK = 'check',
   FLAG = 'flag',
   REJECT = 'reject',
@@ -27,6 +29,7 @@ export enum WithdrawTransactionAction {
 }
 
 export enum AdminWithdrawTransactionAction {
+  // Admin surface keeps only the residual historical compatibility actions.
   CHECK = 'check',
   FLAG = 'flag',
   REJECT = 'reject',
@@ -89,6 +92,7 @@ export enum WithdrawOwnerType {
 }
 
 export enum ComplianceStatus {
+  // Compatibility snapshot only. Withdraw UI should prefer derivedComplianceStatus.
   PENDING = 'PENDING',
   CLEAR = 'CLEAR',
   HOLD = 'HOLD',

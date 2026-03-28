@@ -28,7 +28,12 @@ import {
   RiskEngineService,
   RiskRecommendedAction,
 } from '../risk-engine.service';
-import { TxSourceType } from './types/tx-compliance.types';
+import {
+  normalizeKytResponseLifecycleStatus,
+  normalizeTravelRuleResponseLifecycleStatus,
+  TxResponseLifecycleStatusOrEmpty,
+  TxSourceType,
+} from './types/tx-compliance.types';
 import { TransactionDepositWorkflowService } from '../../trading/deposit-transactions/transaction-deposit-workflow.service';
 import { SwapTransactionWorkflowService } from '../../trading/swap-transactions/swap-transaction-workflow.service';
 import { WithdrawTransactionWorkflowService } from '../../trading/withdraw-transactions/withdraw-transaction-workflow.service';
@@ -464,31 +469,19 @@ export class TransactionRiskBridgeService {
     );
   }
 
-  private normalizeKytStatus(value: unknown): string {
-    const normalized = String(value || '').trim().toUpperCase();
-    if (normalized === 'FINAL') {
-      return 'PASS';
-    }
-    if (normalized === 'CREATED' || normalized === 'RECEIVED') {
-      return 'PENDING';
-    }
-    if (normalized === 'CLEAR') return 'PASS';
-    if (normalized === 'HOLD') return 'REVIEW';
-    if (normalized === 'REJECT') return 'FAIL';
-    return normalized;
+  private normalizeKytLifecycleStatus(
+    value: unknown,
+    options?: { allowEmpty?: boolean },
+  ): TxResponseLifecycleStatusOrEmpty {
+    return normalizeKytResponseLifecycleStatus(value, options);
   }
 
-  private normalizeTravelRuleStatus(value: unknown, required?: boolean | null): string {
-    const normalized = String(value || '').trim().toUpperCase();
-    if (normalized === 'FINAL') {
-      return required ? 'ACCEPTED' : 'NOT_REQUIRED';
-    }
-    if (normalized === 'CREATED' || normalized === 'RECEIVED') {
-      return required ? 'PENDING' : 'NOT_REQUIRED';
-    }
-    if (!required && !normalized) return 'NOT_REQUIRED';
-    if (!required && normalized === 'PENDING') return 'NOT_REQUIRED';
-    return normalized;
+  private normalizeTravelRuleLifecycleStatus(
+    value: unknown,
+    required?: boolean | null,
+    options?: { allowEmpty?: boolean },
+  ): TxResponseLifecycleStatusOrEmpty {
+    return normalizeTravelRuleResponseLifecycleStatus(value, required, options);
   }
 
   private deriveWithdrawComplianceStatusFromTransactionStatus(
@@ -508,17 +501,16 @@ export class TransactionRiskBridgeService {
       return false;
     }
 
-    const kytStatus = this.normalizeKytStatus(aggregate.mainKytCase?.status);
+    const kytLifecycle = this.normalizeKytLifecycleStatus(
+      aggregate.mainKytCase?.status,
+    );
     const required = aggregate.travelRuleCase?.required ?? false;
-    const travelRuleStatus = this.normalizeTravelRuleStatus(
+    const travelRuleLifecycle = this.normalizeTravelRuleLifecycleStatus(
       aggregate.travelRuleCase?.status,
       required,
     );
 
-    return (
-      ['PASS', 'REVIEW', 'FAIL'].includes(kytStatus) &&
-      ['ACCEPTED', 'REJECTED', 'EXPIRED', 'NOT_REQUIRED'].includes(travelRuleStatus)
-    );
+    return kytLifecycle === 'FINAL' && travelRuleLifecycle === 'FINAL';
   }
 
   private isWithdrawFinalReviewReady(aggregate: TxAggregateSnapshot): boolean {
@@ -526,17 +518,16 @@ export class TransactionRiskBridgeService {
       return false;
     }
 
-    const kytStatus = this.normalizeKytStatus(aggregate.mainKytCase?.status);
+    const kytLifecycle = this.normalizeKytLifecycleStatus(
+      aggregate.mainKytCase?.status,
+    );
     const required = aggregate.travelRuleCase?.required ?? false;
-    const travelRuleStatus = this.normalizeTravelRuleStatus(
+    const travelRuleLifecycle = this.normalizeTravelRuleLifecycleStatus(
       aggregate.travelRuleCase?.status,
       required,
     );
 
-    return (
-      ['PASS', 'REVIEW', 'FAIL'].includes(kytStatus) &&
-      ['ACCEPTED', 'REJECTED', 'EXPIRED', 'NOT_REQUIRED'].includes(travelRuleStatus)
-    );
+    return kytLifecycle === 'FINAL' && travelRuleLifecycle === 'FINAL';
   }
 
   private async resolveDepositContext(
@@ -691,67 +682,6 @@ export class TransactionRiskBridgeService {
       investorClassification: input.swap.customer?.investorClassification || null,
       triggerStage: TRANSACTION_REVIEW_STAGES.REVIEW_SWAP_FINAL,
       simulationMode: 'MANUAL_PENDING',
-    };
-  }
-
-  private buildPendingWithdrawPrecheckSignals(input: {
-    withdraw: {
-      id: string;
-      ownerId?: string | null;
-      assetId?: string | null;
-      amount?: Prisma.Decimal | null;
-      netAmount?: Prisma.Decimal | null;
-      feeAmount?: Prisma.Decimal | null;
-    };
-    aggregate: TxAggregateSnapshot;
-    preKytStatus: string;
-  }): Record<string, unknown> {
-    return {
-      withdrawId: input.withdraw.id,
-      customerId: input.withdraw.ownerId || null,
-      assetId: input.withdraw.assetId || null,
-      amount: input.withdraw.amount?.toString?.() || null,
-      netAmount: input.withdraw.netAmount?.toString?.() || null,
-      feeAmount: input.withdraw.feeAmount?.toString?.() || '0',
-      preKytStatus: input.preKytStatus,
-      preKytCaseId: input.aggregate.preKytCase?.id || null,
-      preKytCaseNo: input.aggregate.preKytCase?.caseNo || null,
-      triggerStage: TRANSACTION_REVIEW_STAGES.REVIEW_WITHDRAW_PRECHECK,
-      simulationMode: 'MANUAL_PENDING',
-    };
-  }
-
-  private buildWithdrawPrecheckSignals(input: {
-    withdraw: {
-      id: string;
-      ownerId?: string | null;
-      assetId?: string | null;
-      amount?: Prisma.Decimal | null;
-      netAmount?: Prisma.Decimal | null;
-      feeAmount?: Prisma.Decimal | null;
-    };
-    aggregate: TxAggregateSnapshot;
-    preKytStatus: string;
-    riskProfile: WithdrawSimulationRiskProfile;
-  }): Record<string, unknown> {
-    return {
-      withdrawId: input.withdraw.id,
-      customerId: input.withdraw.ownerId || null,
-      assetId: input.withdraw.assetId || null,
-      amount: input.withdraw.amount?.toString?.() || null,
-      netAmount: input.withdraw.netAmount?.toString?.() || null,
-      feeAmount: input.withdraw.feeAmount?.toString?.() || '0',
-      preKytStatus: input.preKytStatus,
-      preKytCaseId: input.aggregate.preKytCase?.id || null,
-      preKytCaseNo: input.aggregate.preKytCase?.caseNo || null,
-      preKytProvider: input.aggregate.preKytCase?.provider || null,
-      preKytProviderCaseId: input.aggregate.preKytCase?.providerCaseId || null,
-      preKytRiskScore: input.aggregate.preKytCase?.riskScore ?? null,
-      triggerStage: TRANSACTION_REVIEW_STAGES.REVIEW_WITHDRAW_PRECHECK,
-      riskBand: input.riskProfile.riskLevel,
-      riskReason: input.riskProfile.riskReason,
-      simulationSignalId: input.riskProfile.signalId,
-      simulationMode: 'MANUAL',
     };
   }
 
@@ -3093,266 +3023,6 @@ export class TransactionRiskBridgeService {
     );
   }
 
-  private async executeWithdrawPrecheckReview(
-    input: {
-      withdraw: Awaited<ReturnType<TransactionRiskBridgeService['resolveWithdrawContext']>>;
-      aggregate: TxAggregateSnapshot;
-      preKytStatus: string;
-      riskProfile: WithdrawSimulationRiskProfile;
-      triggerStatus: string;
-      decisionResult?: ResolvedDecisionResult;
-    },
-    tx?: Prisma.TransactionClient,
-  ): Promise<BridgeExecutionResult> {
-    const triggerStatus = String(input.triggerStatus || '').trim().toUpperCase();
-    const riskInput: EvaluateRiskInput = {
-      contextType: 'TX_WITHDRAW_PRECHECK',
-      subjectType: 'WITHDRAW',
-      subjectId: input.withdraw.id,
-      ownerType: 'CUSTOMER',
-      ownerId: input.withdraw.ownerId as string,
-      signals: input.decisionResult
-        ? this.buildWithdrawPrecheckSignals({
-            withdraw: input.withdraw,
-            aggregate: input.aggregate,
-            preKytStatus: input.preKytStatus,
-            riskProfile: input.riskProfile,
-          })
-        : this.buildPendingWithdrawPrecheckSignals({
-            withdraw: input.withdraw,
-            aggregate: input.aggregate,
-            preKytStatus: input.preKytStatus,
-          }),
-    };
-
-    const decisionResult =
-      input.decisionResult || (await this.resolveDecision(riskInput, tx));
-    const actionNames = this.normalizeActionNames(
-      decisionResult.recommendedActions,
-    );
-    let workflowTransition: Record<string, unknown> | null = null;
-
-    let alert: { id: string; alertNo?: string | null } | null = null;
-    if (
-      !decisionResult.reused &&
-      actionNames.includes(RISK_RECOMMENDED_ACTIONS.UPSERT_ALERT)
-    ) {
-      const alertAction = decisionResult.recommendedActions.find(
-        (item) =>
-          normalizeRiskRecommendedActionType(item.type) ===
-          RISK_RECOMMENDED_ACTIONS.UPSERT_ALERT,
-      );
-      alert = await this.getComplianceAlertsService().triggerSystemAlert(
-        {
-          ruleCode: TRANSACTION_REVIEW_RULES.TX_WITHDRAW_PRECHECK_REVIEW_REQUIRED,
-          sourceModule: AuditModules.TRANSACTION_COMPLIANCE,
-          sourceType: TxSourceType.WITHDRAW,
-          sourceId: input.withdraw.id,
-          sourceNo: input.withdraw.withdrawNo,
-          stage: TRANSACTION_REVIEW_STAGES.REVIEW_WITHDRAW_PRECHECK,
-          entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
-          entityId: input.withdraw.id,
-          entityNo: input.withdraw.withdrawNo,
-          ownerType: 'CUSTOMER',
-          ownerId: input.withdraw.ownerId,
-          ownerNo: input.withdraw.ownerNo || null,
-          customerId: input.withdraw.ownerId,
-          customerNo: input.withdraw.ownerNo || null,
-          decisionRecommendation:
-            String(alertAction?.payload?.recommendation || decisionResult.decision),
-          decision: this.mapDecisionToAlertDisposition(decisionResult.decision),
-          decisionRecordIds: [decisionResult.decisionRecordId],
-          severity: this.normalizeSeverity(alertAction?.payload?.severity),
-          message:
-            input.riskProfile.riskLevel === 'HIGH'
-              ? `Withdraw ${input.withdraw.withdrawNo} requires high-risk precheck review.`
-              : `Withdraw ${input.withdraw.withdrawNo} requires precheck review.`,
-          metadata: {
-            contextType: riskInput.contextType,
-            triggerStage: TRANSACTION_REVIEW_STAGES.REVIEW_WITHDRAW_PRECHECK,
-            triggerStatus,
-            reasonCodes: decisionResult.reasonCodes,
-            recommendedActions: actionNames,
-            decisionRecordId: decisionResult.decisionRecordId,
-            withdrawId: input.withdraw.id,
-            customerId: input.withdraw.ownerId,
-            riskBand: input.riskProfile.riskLevel,
-            riskReason: input.riskProfile.riskReason,
-            preKytStatus: input.preKytStatus,
-            preKytCaseId: input.aggregate.preKytCase?.id || null,
-          },
-          sourcePlatform: tx ? 'SYSTEM_TX' : 'SYSTEM',
-        },
-        tx,
-      );
-
-      await this.recordWithdrawAlertAudit(
-        {
-          withdrawId: input.withdraw.id,
-          withdrawNo: input.withdraw.withdrawNo,
-          payoutId: input.withdraw.payoutId || null,
-          payoutNo: input.withdraw.payoutNo || null,
-          customerId: input.withdraw.ownerId as string,
-          customerNo: input.withdraw.ownerNo || null,
-          contextType: riskInput.contextType,
-          triggerStage: TRANSACTION_REVIEW_STAGES.REVIEW_WITHDRAW_PRECHECK,
-          triggerStatus,
-          decisionRecordId: decisionResult.decisionRecordId,
-          alertId: alert.id,
-          alertNo: alert.alertNo || null,
-        },
-        tx,
-      );
-    }
-
-    let escalatedCase: { id: string; incidentNo?: string | null } | null = null;
-    if (
-      !decisionResult.reused &&
-      alert &&
-      actionNames.includes(RISK_RECOMMENDED_ACTIONS.AUTO_ESCALATE_CASE)
-    ) {
-      escalatedCase = await this.autoEscalateWithdrawCaseIfNeeded(
-        {
-          alertId: alert.id,
-          withdrawId: input.withdraw.id,
-          withdrawNo: input.withdraw.withdrawNo,
-          payoutId: input.withdraw.payoutId || null,
-          payoutNo: input.withdraw.payoutNo || null,
-          customerId: input.withdraw.ownerId as string,
-          customerNo: input.withdraw.ownerNo || null,
-          decisionRecordId: decisionResult.decisionRecordId,
-          decision: decisionResult.decision,
-          recommendedActions: actionNames,
-          reason: `Auto-escalated withdraw precheck case for ${input.withdraw.withdrawNo}`,
-          contextType: riskInput.contextType,
-          triggerStage: TRANSACTION_REVIEW_STAGES.REVIEW_WITHDRAW_PRECHECK,
-          triggerStatus,
-        },
-        tx,
-      );
-    }
-
-    if (!decisionResult.reused && decisionResult.decision === 'APPROVE') {
-      workflowTransition = this.toRecordObject(
-        await this.clearWithdrawIfApproved(
-          {
-            withdrawId: input.withdraw.id,
-            withdrawNo: input.withdraw.withdrawNo,
-            payoutId: input.withdraw.payoutId || null,
-            payoutNo: input.withdraw.payoutNo || null,
-            customerId: input.withdraw.ownerId as string,
-            customerNo: input.withdraw.ownerNo || null,
-            decisionRecordId: decisionResult.decisionRecordId,
-            reasonCode:
-              TRANSACTION_REVIEW_RULES.TX_WITHDRAW_PRECHECK_REVIEW_REQUIRED,
-            reason: `Withdraw ${input.withdraw.withdrawNo} auto-cleared after precheck decision`,
-            triggerStage: TRANSACTION_REVIEW_STAGES.REVIEW_WITHDRAW_PRECHECK,
-            triggerStatus,
-          },
-          tx,
-        ),
-      );
-    } else if (!decisionResult.reused && alert && escalatedCase) {
-      workflowTransition = this.toRecordObject(
-        await this.flagWithdrawIfNeeded(
-          {
-            withdrawId: input.withdraw.id,
-            withdrawNo: input.withdraw.withdrawNo,
-            payoutId: input.withdraw.payoutId || null,
-            payoutNo: input.withdraw.payoutNo || null,
-            customerId: input.withdraw.ownerId as string,
-            customerNo: input.withdraw.ownerNo || null,
-            source: 'CASE',
-            sourceId: escalatedCase.id,
-            decisionRecordId: decisionResult.decisionRecordId,
-            alertId: alert.id,
-            caseId: escalatedCase.id,
-            reasonCode:
-              TRANSACTION_REVIEW_RULES.TX_WITHDRAW_PRECHECK_REVIEW_REQUIRED,
-            triggerStage: TRANSACTION_REVIEW_STAGES.REVIEW_WITHDRAW_PRECHECK,
-            triggerStatus,
-            reason: `Withdraw ${input.withdraw.withdrawNo} moved under review after precheck case escalation`,
-          },
-          tx,
-        ),
-      );
-    } else if (!decisionResult.reused && alert) {
-      workflowTransition = this.toRecordObject(
-        await this.flagWithdrawIfNeeded(
-          {
-            withdrawId: input.withdraw.id,
-            withdrawNo: input.withdraw.withdrawNo,
-            payoutId: input.withdraw.payoutId || null,
-            payoutNo: input.withdraw.payoutNo || null,
-            customerId: input.withdraw.ownerId as string,
-            customerNo: input.withdraw.ownerNo || null,
-            source: 'ALERT',
-            sourceId: alert.id,
-            decisionRecordId: decisionResult.decisionRecordId,
-            alertId: alert.id,
-            reasonCode:
-              TRANSACTION_REVIEW_RULES.TX_WITHDRAW_PRECHECK_REVIEW_REQUIRED,
-            triggerStage: TRANSACTION_REVIEW_STAGES.REVIEW_WITHDRAW_PRECHECK,
-            triggerStatus,
-            reason: `Withdraw ${input.withdraw.withdrawNo} moved under review after precheck alert hit`,
-          },
-          tx,
-        ),
-      );
-    }
-
-    await this.recordWithdrawRiskAudit(
-      {
-        withdrawId: input.withdraw.id,
-        withdrawNo: input.withdraw.withdrawNo,
-        payoutId: input.withdraw.payoutId || null,
-        payoutNo: input.withdraw.payoutNo || null,
-        customerId: input.withdraw.ownerId as string,
-        customerNo: input.withdraw.ownerNo || null,
-        contextType: riskInput.contextType,
-        triggerStage: TRANSACTION_REVIEW_STAGES.REVIEW_WITHDRAW_PRECHECK,
-        triggerStatus,
-        decisionRecordId: decisionResult.decisionRecordId,
-        decision: decisionResult.decision,
-        reusedDecisionRecord: decisionResult.reused,
-        alertId: alert?.id || null,
-        caseId: escalatedCase?.id || null,
-      },
-      tx,
-    );
-
-    await this.writeDecisionRecordOutcomeSnapshot(
-      {
-        decisionRecordId: decisionResult.decisionRecordId,
-        sourceType: 'WITHDRAW',
-        sourceId: input.withdraw.id,
-        sourceNo: input.withdraw.withdrawNo,
-        stage: TRANSACTION_REVIEW_STAGES.REVIEW_WITHDRAW_PRECHECK,
-        rule: TRANSACTION_REVIEW_RULES.TX_WITHDRAW_PRECHECK_REVIEW_REQUIRED,
-        decision: decisionResult.decision,
-        recommendedActions: actionNames,
-        reasonCodes: decisionResult.reasonCodes,
-        alertId: alert?.id || null,
-        alertNo: alert?.alertNo || null,
-        caseId: escalatedCase?.id || null,
-        caseNo: escalatedCase?.incidentNo || null,
-        workflowTransition,
-        reusedDecisionRecord: decisionResult.reused,
-      },
-      tx,
-    );
-
-    return {
-      skipped: false,
-      decisionRecordId: decisionResult.decisionRecordId,
-      decision: decisionResult.decision,
-      alertId: alert?.id || null,
-      alertNo: alert?.alertNo || null,
-      caseId: escalatedCase?.id || null,
-      caseNo: escalatedCase?.incidentNo || null,
-    };
-  }
-
   private async executeWithdrawFinalReview(
     input: {
       withdraw: Awaited<ReturnType<TransactionRiskBridgeService['resolveWithdrawContext']>>;
@@ -3626,134 +3296,15 @@ export class TransactionRiskBridgeService {
     if (input.sourceType !== TxSourceType.WITHDRAW) {
       return { skipped: true, skipReason: 'UNSUPPORTED_SOURCE_TYPE' };
     }
-    if (input.reportDeduped) {
-      return { skipped: true, skipReason: 'REPORT_DEDUPED' };
-    }
-
-    const status = String(input.status || '').trim().toUpperCase();
-    if (!['PASS', 'REVIEW', 'FAIL'].includes(status)) {
-      return { skipped: true, skipReason: 'STATUS_NOT_ELIGIBLE' };
-    }
-
-    const withdraw = await this.resolveWithdrawContext(input.withdrawId, tx);
-    if (withdraw.ownerType !== 'CUSTOMER' || !withdraw.ownerId) {
-      return { skipped: true, skipReason: 'UNSUPPORTED_OWNER' };
-    }
-
-    const riskProfile: WithdrawSimulationRiskProfile = {
-      riskLevel:
-        status === 'FAIL'
-          ? 'HIGH'
-          : status === 'REVIEW'
-            ? 'MEDIUM'
-            : 'LOW',
-      riskReason:
-        status === 'FAIL'
-          ? 'TX_WITHDRAW_PRE_KYT_FAIL'
-          : status === 'REVIEW'
-            ? 'TX_WITHDRAW_PRE_KYT_REVIEW'
-            : 'TX_WITHDRAW_PRE_KYT_PASS',
-      signalId: null,
-    };
-
-    return this.executeWithdrawPrecheckReview(
-      {
-        withdraw,
-        aggregate: input.aggregate,
-        preKytStatus: status,
-        riskProfile,
-        triggerStatus: status,
-      },
-      tx,
-    );
+    return { skipped: true, skipReason: 'LEGACY_PRECHECK_READ_ONLY' };
   }
 
   async simulateWithdrawPrecheckReview(
     input: ManualRiskSimulationInput,
     tx?: Prisma.TransactionClient,
   ): Promise<BridgeExecutionResult> {
-    const db = this.getDb(tx) as any;
-    const decisionRecord = await db.workflowDecisionRecord.findUnique({
-      where: { id: input.decisionRecordId },
-      select: {
-        id: true,
-        status: true,
-        contextType: true,
-        subjectId: true,
-      },
-    });
-
-    if (!decisionRecord) {
-      throw new NotFoundException(
-        `Risk decision record not found: ${input.decisionRecordId}`,
-      );
-    }
-    if (
-      String(decisionRecord.contextType || '').trim().toUpperCase() !==
-      'TX_WITHDRAW_PRECHECK'
-    ) {
-      throw new ConflictException(
-        `Decision record ${input.decisionRecordId} is not bound to TX_WITHDRAW_PRECHECK`,
-      );
-    }
-    if (String(decisionRecord.status || '').trim().toUpperCase() !== 'CREATED') {
-      throw new ConflictException(
-        `Decision record ${input.decisionRecordId} is not pending simulation`,
-      );
-    }
-
-    const withdraw = await this.resolveWithdrawContext(decisionRecord.subjectId, tx);
-    if (withdraw.ownerType !== 'CUSTOMER' || !withdraw.ownerId) {
-      return { skipped: true, skipReason: 'UNSUPPORTED_OWNER' };
-    }
-
-    const aggregate: TxAggregateSnapshot = {
-      derivedComplianceStatus: String(withdraw.complianceStatus || 'PENDING'),
-      preKytCase: {
-        status: this.normalizeKytStatus(withdraw.preKytStatus),
-        riskScore: withdraw.preKytRiskScore ?? null,
-      },
-    };
-    const preKytStatus = this.normalizeKytStatus(withdraw.preKytStatus);
-    const riskProfile: WithdrawSimulationRiskProfile = {
-      riskLevel: input.riskLevel,
-      riskReason: input.riskReason,
-      signalId: null,
-    };
-    const decisionResult = await this.riskEngineService.completeDecisionRecord(
-      input.decisionRecordId,
-      {
-        contextType: 'TX_WITHDRAW_PRECHECK',
-        subjectType: 'WITHDRAW',
-        subjectId: withdraw.id,
-        ownerType: 'CUSTOMER',
-        ownerId: withdraw.ownerId,
-        signals: this.buildWithdrawPrecheckSignals({
-          withdraw,
-          aggregate,
-          preKytStatus,
-          riskProfile,
-        }),
-      },
-      tx,
-    );
-
-    return this.executeWithdrawPrecheckReview(
-      {
-        withdraw,
-        aggregate,
-        preKytStatus,
-        riskProfile,
-        triggerStatus: 'MANUAL_SIMULATION',
-        decisionResult: {
-          decisionRecordId: decisionResult.decisionRecordId,
-          decision: decisionResult.decision,
-          recommendedActions: decisionResult.recommendedActions,
-          reasonCodes: decisionResult.reasonCodes,
-          reused: false,
-        },
-      },
-      tx,
+    throw new ConflictException(
+      `Decision record ${input.decisionRecordId} is historical read-only and no longer supports manual simulation`,
     );
   }
 
@@ -3784,31 +3335,22 @@ export class TransactionRiskBridgeService {
       return { skipped: true, skipReason: 'STATUS_NOT_ELIGIBLE' };
     }
 
-    const kytStatus = this.normalizeKytStatus(
+    const kytStatus = this.normalizeKytLifecycleStatus(
       input.aggregate.mainKytCase?.status || withdraw.kytStatus,
     );
-    const travelRuleStatus = this.normalizeTravelRuleStatus(
+    const travelRuleStatus = this.normalizeTravelRuleLifecycleStatus(
       input.aggregate.travelRuleCase?.status || withdraw.travelRuleStatus,
       input.aggregate.travelRuleCase?.required ?? withdraw.travelRuleRequired,
     );
     const riskProfile: WithdrawSimulationRiskProfile = {
       riskLevel:
-        kytStatus === 'FAIL' || travelRuleStatus === 'REJECTED'
-          ? 'HIGH'
-          : kytStatus === 'REVIEW' ||
-              ['PENDING', 'SENT', 'RECEIVED', 'EXPIRED'].includes(travelRuleStatus)
-            ? 'MEDIUM'
-            : 'LOW',
+        kytStatus === 'FINAL' && travelRuleStatus === 'FINAL'
+          ? 'LOW'
+          : 'MEDIUM',
       riskReason:
-        kytStatus === 'FAIL'
-          ? 'TX_WITHDRAW_MAIN_KYT_FAIL'
-          : travelRuleStatus === 'REJECTED'
-            ? 'TX_WITHDRAW_TRAVEL_RULE_REJECTED'
-            : kytStatus === 'REVIEW'
-              ? 'TX_WITHDRAW_MAIN_KYT_REVIEW'
-              : travelRuleStatus === 'EXPIRED'
-                ? 'TX_WITHDRAW_TRAVEL_RULE_EXPIRED'
-                : 'TX_WITHDRAW_MAIN_KYT_PASS',
+        kytStatus === 'FINAL' && travelRuleStatus === 'FINAL'
+          ? 'TX_WITHDRAW_RESPONSE_CONTAINERS_FINAL'
+          : 'TX_WITHDRAW_RESPONSE_CONTAINERS_PENDING',
       signalId: null,
     };
 
@@ -3868,19 +3410,19 @@ export class TransactionRiskBridgeService {
       derivedComplianceStatus:
         this.deriveWithdrawComplianceStatusFromTransactionStatus(withdraw.status),
       mainKytCase: {
-        status: this.normalizeKytStatus(withdraw.kytStatus),
+        status: this.normalizeKytLifecycleStatus(withdraw.kytStatus),
         riskScore: withdraw.kytRiskScore ?? null,
       },
       travelRuleCase: {
-        status: this.normalizeTravelRuleStatus(
+        status: this.normalizeTravelRuleLifecycleStatus(
           withdraw.travelRuleStatus,
           !!withdraw.travelRuleRequired,
         ),
         required: !!withdraw.travelRuleRequired,
       },
     };
-    const kytStatus = this.normalizeKytStatus(withdraw.kytStatus);
-    const travelRuleStatus = this.normalizeTravelRuleStatus(
+    const kytStatus = this.normalizeKytLifecycleStatus(withdraw.kytStatus);
+    const travelRuleStatus = this.normalizeTravelRuleLifecycleStatus(
       withdraw.travelRuleStatus,
       !!withdraw.travelRuleRequired,
     );
@@ -3947,10 +3489,10 @@ export class TransactionRiskBridgeService {
       return { skipped: true, skipReason: 'UNSUPPORTED_OWNER' };
     }
 
-    const kytStatus = this.normalizeKytStatus(
+    const kytStatus = this.normalizeKytLifecycleStatus(
       input.aggregate.mainKytCase?.status || deposit.kytStatus,
     );
-    const travelRuleStatus = this.normalizeTravelRuleStatus(
+    const travelRuleStatus = this.normalizeTravelRuleLifecycleStatus(
       input.aggregate.travelRuleCase?.status || deposit.travelRuleStatus,
       input.aggregate.travelRuleCase?.required ?? deposit.travelRuleRequired,
     );
@@ -3997,18 +3539,18 @@ export class TransactionRiskBridgeService {
     const aggregate: TxAggregateSnapshot = {
       derivedComplianceStatus: 'CLEAR',
       mainKytCase: {
-        status: this.normalizeKytStatus(input.kytStatus),
+        status: this.normalizeKytLifecycleStatus(input.kytStatus),
       },
       travelRuleCase: {
-        status: this.normalizeTravelRuleStatus(
+        status: this.normalizeTravelRuleLifecycleStatus(
           input.travelRuleStatus,
           input.travelRuleRequired,
         ),
         required: input.travelRuleRequired,
       },
     };
-    const kytStatus = this.normalizeKytStatus(input.kytStatus);
-    const travelRuleStatus = this.normalizeTravelRuleStatus(
+    const kytStatus = this.normalizeKytLifecycleStatus(input.kytStatus);
+    const travelRuleStatus = this.normalizeTravelRuleLifecycleStatus(
       input.travelRuleStatus,
       input.travelRuleRequired,
     );
@@ -4078,18 +3620,18 @@ export class TransactionRiskBridgeService {
     const aggregate: TxAggregateSnapshot = {
       derivedComplianceStatus: 'CLEAR',
       mainKytCase: {
-        status: this.normalizeKytStatus(deposit.kytStatus),
+        status: this.normalizeKytLifecycleStatus(deposit.kytStatus),
       },
       travelRuleCase: {
-        status: this.normalizeTravelRuleStatus(
+        status: this.normalizeTravelRuleLifecycleStatus(
           deposit.travelRuleStatus,
           !!deposit.travelRuleRequired,
         ),
         required: !!deposit.travelRuleRequired,
       },
     };
-    const kytStatus = this.normalizeKytStatus(deposit.kytStatus);
-    const travelRuleStatus = this.normalizeTravelRuleStatus(
+    const kytStatus = this.normalizeKytLifecycleStatus(deposit.kytStatus);
+    const travelRuleStatus = this.normalizeTravelRuleLifecycleStatus(
       deposit.travelRuleStatus,
       !!deposit.travelRuleRequired,
     );
@@ -4141,6 +3683,8 @@ export class TransactionRiskBridgeService {
     input: DepositKytRiskInput,
     tx?: Prisma.TransactionClient,
   ): Promise<BridgeExecutionResult> {
+    // Historical provider-result ingestion path only. Current deposit routing
+    // should converge on lifecycle snapshots plus TX_DEPOSIT_FINAL.
     if (input.sourceType !== TxSourceType.DEPOSIT) {
       return { skipped: true, skipReason: 'UNSUPPORTED_SOURCE_TYPE' };
     }
@@ -4344,6 +3888,8 @@ export class TransactionRiskBridgeService {
     input: DepositTravelRuleRiskInput,
     tx?: Prisma.TransactionClient,
   ): Promise<BridgeExecutionResult> {
+    // Historical provider-result ingestion path only. Current deposit routing
+    // should converge on lifecycle snapshots plus TX_DEPOSIT_FINAL.
     if (input.sourceType !== TxSourceType.DEPOSIT) {
       return { skipped: true, skipReason: 'UNSUPPORTED_SOURCE_TYPE' };
     }

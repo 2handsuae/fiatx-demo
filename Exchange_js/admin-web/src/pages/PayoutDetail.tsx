@@ -11,7 +11,6 @@ import {
   CreditCard,
   Activity,
   Clock,
-  Server,
   MapPin,
   CircleDashed,
   CheckCircle2,
@@ -23,13 +22,23 @@ import { copyToClipboard } from '../utils/clipboard';
 import { formatAssetAmount } from '../utils/number-format';
 import { SimulationRail, type SimulationRailItem } from '../components/SimulationRail';
 import { useSimulationMode } from '../utils/simulationMode';
+import {
+  formatRailStatusLabel,
+  formatTransactionTypeLabel,
+  normalizeRailDisplayStatus,
+} from '../utils/transactionRootDisplay';
 
 interface PayoutDetail {
   id: string;
   payoutNo: string;
   withdrawId: string;
+  ownerNo?: string | null;
+  transactionType?: string | null;
+  transactionId?: string | null;
+  transactionNo?: string | null;
   type: string;
   status: string;
+  displayStatus?: string | null;
   amount: string;
   assetId: string;
   asset: { code: string; type: string; network: string | null; decimals?: number };
@@ -220,8 +229,9 @@ const PayoutDetail = () => {
   const getPayoutRailItems = (payout: PayoutDetail): SimulationRailItem[] => {
     const { status, type } = payout;
     const normalized = String(status || '').toUpperCase();
+    const normalizedType = formatTransactionTypeLabel(type);
 
-    if (type === 'CRYPTO') {
+    if (normalizedType === 'CRYPTO') {
       return [
         {
           id: 'sign',
@@ -415,21 +425,27 @@ const PayoutDetail = () => {
     ];
   };
 
-  const renderStatusBadge = (status: string) => {
+  const renderStatusBadge = (
+    status: string,
+    displayStatus?: string | null,
+  ) => {
+    const normalizedDisplayStatus = normalizeRailDisplayStatus(
+      displayStatus || status,
+    );
     const colors: Record<string, string> = {
       CREATED: 'bg-gray-100 text-gray-800',
       SIGNING: 'bg-indigo-100 text-indigo-800',
       BROADCASTED: 'bg-blue-100 text-blue-800',
       CONFIRMING: 'bg-yellow-100 text-yellow-800',
       CONFIRMED: 'bg-green-100 text-green-800',
-      CLEAR: 'bg-emerald-100 text-emerald-800',
+      CLEARED: 'bg-emerald-100 text-emerald-800',
       FAILED: 'bg-red-100 text-red-800',
       TIMEOUT: 'bg-orange-100 text-orange-800',
       RETURNED: 'bg-purple-100 text-purple-800',
     };
     return (
-      <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${colors[status] || 'bg-gray-100 text-gray-800'}`}>
-        {status}
+      <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${colors[normalizedDisplayStatus] || 'bg-gray-100 text-gray-800'}`}>
+        {formatRailStatusLabel(normalizedDisplayStatus)}
       </span>
     );
   };
@@ -446,7 +462,7 @@ const PayoutDetail = () => {
   if (!data) return null;
 
   const ownerName = data.customer ? `${data.customer.firstName || ''} ${data.customer.lastName || ''}`.trim() || data.customer.customerNo : 'N/A';
-  const ownerNo = data.customer?.customerNo || 'N/A';
+  const ownerNo = data.ownerNo || data.customer?.customerNo || 'N/A';
   const canRepairCloseout =
     data.status === 'CONFIRMED' && data.withdraw?.status === 'PAYOUT_PENDING';
   const canRepairCompensation =
@@ -469,7 +485,7 @@ const PayoutDetail = () => {
           <div>
             <div className="flex items-center gap-3">
               <h1 className="text-2xl font-bold text-gray-900">Payout Details</h1>
-              {renderStatusBadge(data.status)}
+              {renderStatusBadge(data.status, data.displayStatus)}
             </div>
             <div className="flex items-center gap-4 mt-1 text-sm text-gray-500 font-mono">
               <span className="text-brand-primary font-bold">No: {data.payoutNo || data.id}</span>
@@ -529,11 +545,11 @@ const PayoutDetail = () => {
 
       {simulationModeEnabled ? (
         <div className="space-y-3">
-          {data.type === 'FIAT' ? (
+          {formatTransactionTypeLabel(data.type) === 'FIAT' ? (
             <div className="rounded-xl border border-admin-border bg-white p-4">
               <div className="text-sm font-semibold text-gray-900">FIAT Receipt Reference</div>
               <p className="mt-1 text-xs text-gray-500">
-                `SUBMIT` 可预填，`CONFIRM` 必须带有效 `Reference No`。
+                `SUBMIT` 可预填；若留空，系统会在 `CONFIRM` 时自动生成 `Reference No`。
               </p>
               <div className="mt-3">
                 <input
@@ -547,8 +563,8 @@ const PayoutDetail = () => {
             </div>
           ) : null}
           <SimulationRail
-            title="Payout Simulation Rail"
-            description="Payout 是唯一执行面。参考 Payin 的 rail 逐步推进，CLEAR 只做结果回显。"
+            title="Payout Execution Rail"
+            description="Payout 是 outbound execution rail。参考 Payin 的 rail 逐步推进，Cleared 只做结果回显。"
             items={payoutRailItems}
           />
         </div>
@@ -559,13 +575,15 @@ const PayoutDetail = () => {
         <DetailCard title="Basic Identification" icon={<FileText size={18} />}>
             <InfoField label="Payout ID" value={data.id} source="main" />
             <InfoField label="Payout No" value={data.payoutNo} highlight source="main" />
-            <InfoField label="Withdraw No" value={data.withdraw.withdrawNo} 
-                       link={`/exchange/withdraw-transactions/${data.withdrawId}`} 
+            <InfoField label="Transaction Type" value={data.transactionType || 'WITHDRAW'} source="main" />
+            <InfoField label="Transaction ID" value={data.transactionId || data.withdrawId} source="main" />
+            <InfoField label="Transaction No" value={data.transactionNo || data.withdraw.withdrawNo}
+                       link={`/exchange/withdraw-transactions/${data.withdrawId}`}
                        source="main" />
             <InfoField label="Owner ID" value={data.withdraw.ownerId} icon={<User size={14}/>} source="main" />
             <InfoField label="Owner Name" value={ownerName} source="main" />
             <InfoField label="Owner No" value={ownerNo} source="main" />
-            <InfoField label="Type" value={data.type} source="main" />
+            <InfoField label="Type" value={formatTransactionTypeLabel(data.type)} source="main" />
         </DetailCard>
 
         {/* 2. Assets & Amount */}
@@ -576,8 +594,8 @@ const PayoutDetail = () => {
             <InfoField label="Amount" value={formatAssetAmount(data.amount, data.asset?.decimals)} highlight source="main" />
         </DetailCard>
 
-        {/* 3. Destination Info */}
-        <DetailCard title="Destination Info" icon={<MapPin size={18} />}>
+        {/* 3. Settlement Endpoint / Path */}
+        <DetailCard title="Settlement Endpoint / Path" icon={<MapPin size={18} />}>
             <InfoField label="To Wallet ID" value={data.toWalletId} source="main" />
             <InfoField 
                 label="To Address" 
@@ -595,10 +613,6 @@ const PayoutDetail = () => {
                 isCopied={copiedField === 'toIban'} 
                 source="main" 
             />
-        </DetailCard>
-
-        {/* 4. Source Info */}
-        <DetailCard title="Source Info" icon={<Server size={18} />}>
             <InfoField 
                 label="From Address" 
                 value={data.fromAddress || 'N/A'} 
@@ -617,8 +631,8 @@ const PayoutDetail = () => {
             />
         </DetailCard>
 
-        {/* 5. External Transaction Info */}
-        <DetailCard title="External Transaction Info" icon={<Activity size={18} />}>
+        {/* 4. Settlement Evidence */}
+        <DetailCard title="Settlement Evidence" icon={<Activity size={18} />}>
             <InfoField 
                 label="Tx Hash" 
                 value={data.txHash || 'N/A'} 
@@ -633,9 +647,9 @@ const PayoutDetail = () => {
             <InfoField label="Provider Txn ID" value={data.providerTxnId} source="main" />
         </DetailCard>
 
-        {/* 6. Status & Timings */}
+        {/* 5. Status & Timings */}
         <DetailCard title="Status & Timings" icon={<Clock size={18} />}>
-             <InfoField label="Current Status" value={data.status} highlight source="main" />
+             <InfoField label="Current Status" value={formatRailStatusLabel(data.displayStatus || data.status)} highlight source="main" />
              <InfoField label="Created At" value={new Date(data.createdAt).toLocaleString()} source="main" />
              <InfoField label="Sent At" value={data.sentAt ? new Date(data.sentAt).toLocaleString() : 'N/A'} source="main" />
              <InfoField label="Completed At" value={data.completedAt ? new Date(data.completedAt).toLocaleString() : 'N/A'} source="main" />
@@ -645,7 +659,7 @@ const PayoutDetail = () => {
         {/* 7. Clearing & Settlement Info - HIDDEN */}
         {/* Clearing section removed as per requirement */}
 
-        {/* 8. Audit & History */}
+        {/* 6. Status History & Audit */}
         <DetailCard title="Status History & Audit" icon={<Activity size={18} />} columns={1}>
              {data.statusHistory ? <StatusTimeline historyJson={data.statusHistory} /> : null}
              <AuditEventList events={data.auditLogs} />
@@ -747,7 +761,7 @@ const StatusTimeline = ({ historyJson }: { historyJson: string | null }) => {
                         <div className="flex-1 space-y-2">
                             <div className="flex items-center gap-2">
                                 <span className={`px-2 py-0.5 rounded text-xs font-bold border ${getStatusBadgeStyle(item.status)}`}>
-                                    {item.status}
+                                    {formatRailStatusLabel(item.status)}
                                 </span>
                             </div>
                             <p className="text-sm text-gray-600 leading-relaxed">{item.note || item.reason || 'No reason provided'}</p>
@@ -806,12 +820,12 @@ const AuditEventList = ({
           <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
             <div className="space-y-1">
               <div className="font-semibold text-gray-900">
-                {event.action || event.newStatus || 'AUDIT_EVENT'}
+                {event.action || formatRailStatusLabel(event.newStatus) || 'AUDIT_EVENT'}
               </div>
               <div className="text-xs text-gray-500">
-                {event.statusFrom || event.oldStatus ? `From: ${event.statusFrom || event.oldStatus}` : 'From: N/A'}
+                {event.statusFrom || event.oldStatus ? `From: ${formatRailStatusLabel(event.statusFrom || event.oldStatus)}` : 'From: N/A'}
                 {'  '}
-                {event.statusTo || event.newStatus ? `To: ${event.statusTo || event.newStatus}` : 'To: N/A'}
+                {event.statusTo || event.newStatus ? `To: ${formatRailStatusLabel(event.statusTo || event.newStatus)}` : 'To: N/A'}
               </div>
               <div className="text-sm text-gray-600">
                 {event.reason || 'No reason provided'}

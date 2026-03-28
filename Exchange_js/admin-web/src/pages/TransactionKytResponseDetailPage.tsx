@@ -6,6 +6,7 @@ import {
   adminFetch,
   getApiErrorMessage,
 } from '../utils/adminFetch';
+import { formatResponseLifecycleLabel } from '../utils/transactionRootDisplay';
 
 type KytReport = {
   id: string;
@@ -165,7 +166,10 @@ const TransactionKytResponseDetailPage = () => {
                 { label: 'Source Type', value: data.sourceType },
                 { label: 'Source ID', value: data.sourceId },
                 { label: 'Screening Stage', value: data.screeningStage },
-                { label: 'Status', value: data.status },
+                {
+                  label: 'Lifecycle',
+                  value: formatResponseLifecycleLabel(data.status),
+                },
                 { label: 'Provider', value: data.provider },
                 { label: 'Provider Case ID', value: data.providerCaseId },
                 { label: 'Risk Score', value: data.riskScore },

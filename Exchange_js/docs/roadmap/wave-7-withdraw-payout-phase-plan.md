@@ -111,12 +111,12 @@ Source of Truth Level: roadmap
 
 | 主体 | 当前状态机 / 生命周期 | 当前职责 | 主要驱动者 | 会反向影响 |
 | --- | --- | --- | --- | --- |
-| `Withdraw` | `CREATED -> PENDING_COMPLIANCE -> UNDER_REVIEW -> PAYOUT_PENDING -> SUCCESS / FAILED / REJECTED / CANCELLED / RETURNED` | 客户提现业务交易主体 | customer、withdraw service、workflow callback | 驱动 payout、transaction compliance、accounting、evidence |
+| `Withdraw` | `PENDING_COMPLIANCE -> UNDER_REVIEW -> PAYOUT_PENDING -> SUCCESS / FAILED / REJECTED / CANCELLED / RETURNED` | 客户提现业务交易主体 | customer、withdraw service、workflow callback | 驱动 payout、transaction compliance、accounting、evidence |
 | `Payout` | `CRYPTO: CREATED -> SIGNING -> BROADCASTED -> CONFIRMING -> CONFIRMED -> CLEAR / FAILED / TIMEOUT`；`FIAT: CREATED -> CONFIRMING -> CONFIRMED -> CLEAR / FAILED / TIMEOUT / RETURNED` | 承载资金离开系统的执行与回执根 | treasury operator、payout service、未来 provider callback | 回驱 withdraw 终态、写 receipt trace、驱动补偿 |
-| `PRE-KYT Response` | 容器生命周期以 upsert + append report 为主；状态归一到 `PENDING / PASS / REVIEW / FAIL` | 承载提现创建后的 pre-transaction screening response | transaction-compliance service、provider callback/mock | 更新 withdraw snapshot；驱动 precheck risk / alert / case |
-| `MAIN KYT Response` | 容器生命周期以 upsert + append report 为主；状态归一到 `PENDING / PASS / REVIEW / FAIL` | 承载 dispatch 前最终交易筛查 response | transaction-compliance service、provider callback/mock | 更新 final gate snapshot；驱动 final transaction risk |
-| `Travel Rule Response` | 容器生命周期以 upsert + append report 为主；状态归一到 `NOT_REQUIRED / PENDING / SENT / RECEIVED / ACCEPTED / REJECTED / EXPIRED` | 承载 counterparty information exchange response | transaction-compliance service、provider callback/mock | 更新 withdraw snapshot；参与 final dispatch gate |
-| `Risk Decision Record` | `CREATED -> COMPLETED / FAILED` | 作为 `TX_WITHDRAW_PRECHECK / TX_WITHDRAW_FINAL` 的 risk explanation root | risk engine、transaction compliance | 解释 alert / case 编排，不直接等同于交易终态 |
+| `PRE-KYT Response` | 证据容器生命周期统一为 `CREATED -> RECEIVED -> FINAL` | 承载 crypto withdraw create 时自动补齐的 pre-screening evidence | transaction-compliance service、provider callback/mock | 更新 withdraw snapshot；不再直接驱动 active workflow |
+| `KYT Response` | 证据容器生命周期统一为 `CREATED -> RECEIVED -> FINAL` | 承载 crypto payout confirmed 时补齐的最终交易筛查 evidence | transaction-compliance service、provider callback/mock | 更新 withdraw snapshot；为 final review/evidence 提供材料 |
+| `Travel Rule Response` | 证据容器生命周期统一为 `CREATED -> RECEIVED -> FINAL` | 承载 crypto withdraw create / crypto payin confirm 的信息交换 evidence | transaction-compliance service、provider callback/mock | 更新 withdraw snapshot；不再直接等同于放行结论 |
+| `Risk Decision Record` | `CREATED -> COMPLETED / FAILED` | 作为 `TX_WITHDRAW_FINAL` 的 active risk explanation root；`TX_WITHDRAW_PRECHECK` 仅保留历史只读 | risk engine、transaction compliance | 解释 alert / case 编排，不直接等同于交易终态 |
 | `Alert` | `OPEN -> ASSIGNED -> ESCALATED -> CLOSED` | triage kernel，承接中高风险提现推荐动作 | compliance alerts service、operator | 触发 `UNDER_REVIEW` 或升级 `case` |
 | `Case` | `OPEN -> ASSIGNED -> INVESTIGATING -> PENDING_MLRO_REVIEW -> CLOSED` | investigation kernel，承接 escalation、measure、proposal 与最终结论 | investigator、MLRO、cases service | 回驱 withdraw workflow；写 customer control state |
 | `Customer control state` | 组合字段：`operatingStatus`、`restrictionStatus`、`complianceHoldStatus` | 表达客户是否可操作、是否受限、是否被冻结 | compliance case measures | 阻断提现推进、阻断交易放行 |
@@ -128,32 +128,26 @@ Source of Truth Level: roadmap
 
 ```mermaid
 flowchart TD
-  A["1. Customer creates withdraw"] --> B["2. Create / update PRE-KYT response container"]
-  B --> C["3. Sync withdraw precheck snapshot"]
-  C --> D["4. Evaluate TX_WITHDRAW_PRECHECK"]
-  D --> E{"5. Precheck result"}
-  E -->|Clear| F["6A. Withdraw -> PENDING_COMPLIANCE"]
+  A["1. Customer creates withdraw"] --> B["2. Create / update Pre-KYT + Travel Rule response containers"]
+  B --> C["3. Sync withdraw response snapshot"]
+  C --> D["4. Initialize TX_WITHDRAW_FINAL"]
+  D --> E{"5. Final risk result"}
+  E -->|Clear| F["6A. Withdraw -> PAYOUT_PENDING"]
   E -->|Review / hit| G["6B. Alert upsert -> optional Case escalation -> UNDER_REVIEW"]
   G --> H["7. Workflow callback / MLRO clear or reject"]
   H --> F
-  F --> I["8. Approve withdraw -> PAYOUT_PENDING"]
-  I --> J["9. Bind or reuse payout"]
-  J --> K["10. Create / update MAIN KYT + Travel Rule response before dispatch"]
-  K --> L["11. Sync final compliance snapshot"]
-  L --> M["12. Evaluate TX_WITHDRAW_FINAL"]
-  M --> N{"13. Final dispatch gate"}
-  N -->|Clear| O["14A. PATCH /payouts/:id/status starts dispatch"]
-  N -->|Review / hit| P["14B. Alert / Case / workflow callback blocks dispatch"]
-  P --> Q["15. Clear / reject / freeze through canonical withdraw workflow"]
-  O --> R["16. Payout receipt confirmed"]
-  R --> S["17. Withdraw SUCCESS + payout CLEAR"]
-  O --> T["18. Payout FAILED / TIMEOUT"]
-  T --> U["19. Withdraw FAILED + reversal / compensation"]
-  R --> V["20. Payout RETURNED"]
-  V --> W["21. Withdraw RETURNED + reversal / compensation"]
-  S --> X["22. Daily diff / reconciliation break / evidence export"]
-  U --> X
-  W --> X
+  F --> I["8. Bind or reuse payout"]
+  I --> J["9. PATCH /payouts/:id/status starts dispatch"]
+  J --> K["10. Payout receipt confirmed"]
+  K --> L["11. Create KYT response container"]
+  L --> M["12. Withdraw SUCCESS + payout CLEAR"]
+  J --> N["13. Payout FAILED / TIMEOUT"]
+  N --> O["14. Withdraw FAILED + reversal / compensation"]
+  K --> P["15. Payout RETURNED"]
+  P --> Q["16. Withdraw RETURNED + reversal / compensation"]
+  M --> X["17. Daily diff / reconciliation break / evidence export"]
+  O --> X
+  Q --> X
 ```
 
 ### 4.3 步骤影响矩阵
@@ -162,10 +156,10 @@ flowchart TD
 | --- | --- | --- | --- | --- | --- |
 | `Withdraw create` | `POST /withdraw-transactions` | `withdraw` | withdraw create audit | create path 需要 owner / quote / eligibility 合同 | 部分已有 |
 | `PRE-KYT sync` | withdraw create | `kytCase`、`withdraw snapshot` | `KYT_CASE_*` audit | callback / mock append-report 需要幂等 | 部分已有 |
-| `TX_WITHDRAW_PRECHECK` | precheck snapshot ready | `riskDecisionRecord`、必要时 `alert / case` | risk trace / alert / case audit | 必须可重放；不得直接写业务终态 | 已具备 |
-| `Withdraw approve -> payout bind` | canonical withdraw action | `withdraw`、`payout` | withdraw / payout binding audit | 不得绕过 canonical withdraw workflow | 部分已有 |
-| `MAIN KYT / Travel Rule sync` | payout dispatch 前 | response containers、`withdraw snapshot` | tx compliance audit | dispatch 前必须具备 final gate snapshot | 已具备 |
-| `TX_WITHDRAW_FINAL` | final snapshot ready | `riskDecisionRecord`、必要时 `alert / case` | risk trace / alert / case audit | 未 clear 不得 dispatch | 已具备 |
+| `TX_WITHDRAW_FINAL` 初始化 | withdraw create / response snapshot ready | `riskDecisionRecord` | risk trace audit | 新单只允许一条 active final context | 已具备 |
+| `Withdraw clear -> payout bind` | canonical withdraw action | `withdraw`、`payout` | withdraw / payout binding audit | 不得绕过 canonical withdraw workflow | 部分已有 |
+| `KYT response sync` | payout confirmed | response container、`withdraw snapshot` | tx compliance audit | 仅作为 evidence 容器，不回填旧 precheck path | 已具备 |
+| `TX_WITHDRAW_FINAL` | response snapshot ready / manual simulation | `riskDecisionRecord`、必要时 `alert / case` | risk trace / alert / case audit | 未 clear 不得进入 payout pending | 已具备 |
 | `Payout dispatch` | `PATCH /payouts/:id/status` | `payout` | payout dispatch audit | receipt replay、callback replay 必须幂等 | 已具备 |
 | `Payout receipt -> success` | payout confirmed | `withdraw`、`payout`、accounting outputs | withdraw / payout / accounting audit | `payout CLEAR` 不得先于 withdraw success posting | 部分已有 |
 | `Failed / returned compensation` | payout fail / timeout / return | `withdraw`、journals、clearings、wallet balances | reversal / compensation audit | 重复回调不得重复冲正 | 部分已有 |
@@ -196,12 +190,12 @@ flowchart TD
 - `payout` 已具备独立状态机、回执字段与执行视图锚点。
 - `transaction-compliance` 已经具备：
   - `withdraw` 侧 `PRE-KYT`
-  - `withdraw` 侧 `MAIN KYT`
-  - `Travel Rule response` 容器与 snapshot 同步能力
+  - `withdraw` 侧 `KYT`
+  - `Travel Rule response` 容器与 lifecycle snapshot 同步能力
 - `withdraw` 已经具备：
-  - `TX_WITHDRAW_PRECHECK`
   - `TX_WITHDRAW_FINAL`
-  - `REVIEW_WITHDRAW_PRECHECK / REVIEW_WITHDRAW_FINAL`
+  - `REVIEW_WITHDRAW_FINAL`
+  - historical read-only `TX_WITHDRAW_PRECHECK / REVIEW_WITHDRAW_PRECHECK`
   - `alert / case -> canonical workflow callback`
   - dispatch-start final gate
 - `risk engine`、`alert`、`case`、`workflow callback` 的平台基础能力已经在 onboarding、deposit、swap 场景中存在可复用模式。
@@ -238,7 +232,7 @@ flowchart TD
 ### 6.1 Canonical path
 
 - `Wave 7` 的 canonical path 固定为：
-  - `withdraw create -> precheck -> pending compliance -> payout pending -> payout dispatch -> payout receipt -> withdraw closeout`
+  - `withdraw quote create -> quote confirm -> pending compliance -> final review -> payout pending -> payout dispatch -> payout receipt -> withdraw closeout`
 - 不再采用“直接把 withdraw 打成 success/fail”作为 happy path。
 
 ### 6.2 Public interfaces
@@ -256,20 +250,24 @@ flowchart TD
 
 ### 6.3 Dispatch gate timing
 
-- `MAIN-KYT / Travel Rule` gate 固定在 payout dispatch 前。
+- `TX_WITHDRAW_FINAL` 是 payout pending 前的唯一主动放行 gate。
+- crypto withdraw 的 `Pre-KYT / Travel Rule` 在 create 时生成并留档，`KYT` 在 `payout CONFIRM` 时补建并留档。
+- response container 是 evidence container，不是 dispatch gate。
 - `payout CONFIRMED` 只负责：
   - receipt 留痕
+  - crypto `KYT` evidence 留档
   - success closeout
-- `payout CONFIRMED` 不负责补 main compliance evidence。
+- `payout CONFIRMED` 不负责回补旧 PRECHECK 或旧 main compliance 心智。
 
 ### 6.4 Workflow-bound risk naming
 
-- 交易风控上下文固定为：
-  - `TX_WITHDRAW_PRECHECK`
+- active 交易风控上下文固定为：
   - `TX_WITHDRAW_FINAL`
-- workflow review stage 固定为：
-  - `REVIEW_WITHDRAW_PRECHECK`
+- active workflow review stage 固定为：
   - `REVIEW_WITHDRAW_FINAL`
+- historical read-only compatibility：
+  - `TX_WITHDRAW_PRECHECK`
+  - `REVIEW_WITHDRAW_PRECHECK`
 
 ### 6.5 Deposit boundary
 
@@ -301,14 +299,15 @@ flowchart TD
 
 2. Payout dispatch gate
    - 定义 dispatch 前必须具备：
-     - `MAIN-KYT`
-     - `Travel Rule`
      - final transaction risk gate
+   - 定义 response container 与 final risk gate 的边界：
+     - response container 负责 evidence 留档
+     - final transaction risk gate 决定是否进入 `PAYOUT_PENDING`
    - 定义未 clear 时的阻断返回、阻断审计与重试边界。
 
 3. Tx compliance / risk / alert / case
-   - 定义 `PRE-KYT / MAIN-KYT / Travel Rule` 容器创建 / 更新节点。
-   - 定义 `TX_WITHDRAW_PRECHECK / TX_WITHDRAW_FINAL` 的 decision record 合同。
+   - 定义 `PRE-KYT / KYT / Travel Rule` 容器创建 / 更新节点。
+   - 定义 `TX_WITHDRAW_FINAL` 的 active decision record 合同，并把 `TX_WITHDRAW_PRECHECK` 明确降为历史兼容只读。
    - 定义 risk recommendation 如何 upsert `alert`，以及哪些场景需要 escalate 到 `case` 或进入 `STR` 处置。
 
 4. Workflow callback + customer control
@@ -364,7 +363,7 @@ flowchart TD
 | `Phase 0` | 语义冻结与 Gap 锁定 | 冻结 Wave 7 主体、状态机、入口、边界与缺口口径 | 主体全景图、状态机、入口路径、gap inventory | 后续线程不再重新讨论“谁是主体、谁驱动谁、哪些是当前真相” |
 | `Phase 1` | Withdraw / Payout Canonical Workflow | 先把提现主线自身走通，固定 payout 是执行根、withdraw 是业务根 | 主线入口、payout bind、dispatch vs receipt authority | 提现 happy path 不再依赖 direct withdraw terminal action |
 | `Phase 2` | Canonical Accounting / Reversal / Compensation | 把 success / failed / returned 的账务顺序、冲正合同与 replay 行为锁死 | payout clear ordering、reversal idempotency、no orphan contract | `SUCCESS / FAILED / RETURNED` 都有稳定账务结果 |
-| `Phase 3` | Transaction Compliance Full Rollout | 把 withdraw 接到交易风控、alert/case 与 workflow callback 主链 | `TX_WITHDRAW_PRECHECK / FINAL`、`REVIEW_WITHDRAW_*`、dispatch gate | 提现不再以“先 payout 再补案”作为主线 |
+| `Phase 3` | Transaction Compliance Full Rollout | 把 withdraw 接到交易风控、alert/case 与 workflow callback 主链 | `TX_WITHDRAW_FINAL`、`REVIEW_WITHDRAW_FINAL`、dispatch gate | 提现不再以“先 payout 再补案”作为主线 |
 | `Phase 4` | Minimum Daily Reconciliation + Evidence + Acceptance Closeout | 补齐最小日对账、证据包与 acceptance closeout | daily diff、break register、evidence package、runbook | Wave 7 可稳定演示并满足 roadmap 的 P0/DoD |
 
 建议执行顺序：
@@ -393,7 +392,7 @@ flowchart TD
 - 固定 `Wave 7` 主体全景：
   - `withdraw`
   - `payout`
-  - `PRE-KYT / MAIN-KYT / Travel Rule response`
+  - `Pre-KYT / KYT / Travel Rule response`
   - `risk decision record`
   - `alert`
   - `case`
@@ -425,8 +424,8 @@ flowchart TD
 
 **P0 交付物 / 目标任务**
 
-- 定义 `withdraw create -> precheck -> pending compliance -> payout pending` 主链。
-- 定义 `payout bind` 是 approve 后的 canonical side effect。
+- 定义 `withdraw quote -> confirm -> pending compliance -> final review -> payout pending` 主链。
+- 定义 `payout bind` 是 final review clear 后的 canonical side effect。
 - 定义 dispatch-start action：
   - crypto `SIGN`
   - fiat `SUBMIT`
@@ -465,16 +464,11 @@ flowchart TD
 
 **P0 交付物 / 目标任务**
 
-- 定义 `TX_WITHDRAW_PRECHECK`：
-  - 输入快照
-  - `policyVersion`
-  - `reasonCodes`
-  - `recommendedActions`
 - 定义 `TX_WITHDRAW_FINAL`：
   - final compliance snapshot
   - dispatch gate contract
   - alert / case escalation contract
-- 定义 `REVIEW_WITHDRAW_PRECHECK` 和 `REVIEW_WITHDRAW_FINAL`。
+- 定义 `REVIEW_WITHDRAW_FINAL`，并把 `REVIEW_WITHDRAW_PRECHECK` 明确为历史兼容只读 stage。
 - 定义 `alert / case / MLRO` 只能通过 canonical withdraw workflow callback 回驱，不得直接写交易终态。
 - 定义极端波动策略的最小边界：
   - 阻断新 withdraw quote create、withdraw create 和 payout dispatch start
@@ -519,9 +513,9 @@ flowchart TD
 `Wave 7` 达到完成态，至少需要满足：
 
 1. `Withdraw` 与 `Payout` 状态机正式收口，主线与手工补偿路径明确分离。
-2. `PRE-KYT / MAIN-KYT / Travel Rule` response 创建 / 更新 / callback idempotency 明确。
-3. `TX_WITHDRAW_PRECHECK / TX_WITHDRAW_FINAL` 正式接入 `risk decision record -> alert / case -> workflow callback` 主链。
-4. `payout dispatch` 在 final gate 前阻断，`payout CONFIRMED` 不再承担补 main compliance evidence 的职责。
+2. `PRE-KYT / KYT / Travel Rule` response 创建 / 更新 / callback idempotency 明确。
+3. `TX_WITHDRAW_FINAL` 正式接入 `risk decision record -> alert / case -> workflow callback` 主链；`TX_WITHDRAW_PRECHECK` 仅保留历史可读。
+4. `payout dispatch` 在 final gate 前阻断，`payout CONFIRMED` 只负责补 `KYT` evidence container，不再承担旧 precheck 心智。
 5. `FAILED / RETURNED` 的 reversal / compensation 合同明确，不出现重复冲正与 orphan object。
 6. `WF-16 Phase A` 的最小日对账可运行、可追踪、可留痕。
 7. 极端波动策略可一键限制相关提现能力并留痕。
@@ -532,18 +526,21 @@ flowchart TD
 **主流程**
 
 - 客户创建 crypto withdraw
-- 经过 `PRE-KYT`
+- 完成 quote 二次确认
+- 进入 `PENDING_COMPLIANCE`
+- 创建 `Pre-KYT / Travel Rule` evidence container
+- 经过 `TX_WITHDRAW_FINAL`
 - 进入 `PAYOUT_PENDING`
-- dispatch 前通过 final transaction gate
 - 获取 payout receipt
+- `payout CONFIRM` 自动补 `KYT` evidence container
 - withdraw 成功出账并能导出完整 evidence package
 
 **阻断流程**
 
-- 客户提现进入 final gate 但 `MAIN-KYT / Travel Rule` 未 clear
-- 系统阻断 payout dispatch
+- 客户提现在 `TX_WITHDRAW_FINAL` 命中 `MEDIUM / HIGH`
+- 系统保持 `UNDER_REVIEW`
 - 提现保持非终态
-- 产生可追踪的 gate-block 审计
+- 产生可追踪的 alert / case / audit 轨迹
 
 **异常回滚流程**
 

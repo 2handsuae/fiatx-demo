@@ -26,6 +26,8 @@ describe('PayoutsService', () => {
       },
       payout: {
         findUnique: jest.fn(),
+        findMany: jest.fn(),
+        count: jest.fn(),
         create: jest.fn(),
         update: jest.fn(),
       },
@@ -358,6 +360,58 @@ describe('PayoutsService', () => {
         operatorId: 'SYSTEM',
       }),
     ]);
+    expect(result).toEqual(
+      expect.objectContaining({
+        ownerNo: null,
+        transactionType: 'WITHDRAW',
+        transactionId: 'WD_detail_1',
+        transactionNo: 'WDDET1',
+        type: 'FIAT',
+        displayStatus: 'CLEARED',
+      }),
+    );
+  });
+
+  it('should return normalized admin fields in payout list', async () => {
+    prisma.payout.findMany.mockResolvedValue([
+      {
+        id: 'PO_list_1',
+        payoutNo: 'POLIST1',
+        withdrawId: 'WD_list_1',
+        type: PayoutType.CRYPTO,
+        status: PayoutStatus.CLEAR,
+        amount: '10.50',
+        assetId: 'asset-usdt',
+        asset: { code: 'USDT', type: 'CRYPTO', network: 'TRON', decimals: 6 },
+        toAddress: 'Tdest',
+        toIban: null,
+        txHash: '0xhash',
+        referenceNo: null,
+        providerTxnId: null,
+        createdAt: '2026-03-28T12:00:00.000Z',
+        sentAt: null,
+        completedAt: null,
+        withdraw: {
+          withdrawNo: 'WDLIST1',
+          ownerNo: 'CU0003',
+        },
+        customer: null,
+      },
+    ]);
+    prisma.payout.count.mockResolvedValue(1);
+
+    const result = await service.findAll({});
+
+    expect(result.items[0]).toEqual(
+      expect.objectContaining({
+        ownerNo: 'CU0003',
+        transactionType: 'WITHDRAW',
+        transactionId: 'WD_list_1',
+        transactionNo: 'WDLIST1',
+        type: 'CRYPTO',
+        displayStatus: 'CLEARED',
+      }),
+    );
   });
 
   it('should not emit payout events when external tx is provided', async () => {

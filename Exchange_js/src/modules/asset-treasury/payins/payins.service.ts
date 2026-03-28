@@ -26,6 +26,7 @@ import {
   AuditActions,
   AuditEntityTypes,
   AuditModules,
+  AuditWorkflowTypes,
   buildStateTransitionAction,
 } from '../../risk-engine/audit-logs/constants/audit-actions.constant';
 import { AuditTriggerType } from '../../risk-engine/audit-logs/dto/audit-log.dto';
@@ -58,6 +59,90 @@ export class PayinsService {
     private eventEmitter: EventEmitter2,
   ) {
     this.auditLogsService = new AuditLogsService(prisma);
+  }
+
+  private normalizeOptionalString(value?: string | null): string | null {
+    const normalized = String(value || '').trim();
+    return normalized.length > 0 ? normalized : null;
+  }
+
+  private normalizeAdminPayinType(type?: string | null): string | null {
+    const normalized = String(type || '').trim().toUpperCase();
+    if (!normalized) return null;
+    if (normalized === 'CRYPTO' || normalized === 'FIAT') {
+      return normalized;
+    }
+    return normalized;
+  }
+
+  private normalizeRailDisplayStatus(status?: string | null): string | null {
+    const normalized = String(status || '').trim().toUpperCase();
+    if (!normalized) return null;
+    if (normalized === 'CLEAR') return 'CLEARED';
+    return normalized;
+  }
+
+  private mapCanonicalAuditLogs(events: any[]) {
+    return events.map((event: any) => ({
+      id: event.id,
+      action: event.action || null,
+      statusFrom: event.statusFrom || null,
+      statusTo: event.statusTo || null,
+      actorType: event.actorType || null,
+      actorId: event.actorId || null,
+      actorNo: event.actorNo || null,
+      reason: event.reason || null,
+      occurredAt: event.occurredAt || event.createdAt || null,
+      module: event.module || null,
+      result: event.result || null,
+      oldStatus: event.statusFrom || null,
+      newStatus: event.statusTo || null,
+      operatorId: event.actorId || null,
+      createdAt: event.occurredAt || event.createdAt || null,
+    }));
+  }
+
+  private async getCanonicalPayinAuditLogs(
+    payinId: string,
+    payinNo?: string | null,
+    depositId?: string | null,
+    depositNo?: string | null,
+  ) {
+    const normalizedPayinNo = this.normalizeOptionalString(payinNo);
+    const normalizedDepositId = this.normalizeOptionalString(depositId);
+    const normalizedDepositNo = this.normalizeOptionalString(depositNo);
+    const events = await (this.prisma as any).auditLogEvent.findMany({
+      where: {
+        OR: [
+          {
+            entityType: AuditEntityTypes.PAYIN,
+            entityId: payinId,
+          },
+          normalizedPayinNo
+            ? {
+                entityType: AuditEntityTypes.PAYIN,
+                entityNo: normalizedPayinNo,
+              }
+            : undefined,
+          normalizedDepositId
+            ? {
+                workflowType: AuditWorkflowTypes.DEPOSIT,
+                workflowId: normalizedDepositId,
+              }
+            : undefined,
+          normalizedDepositNo
+            ? {
+                workflowType: AuditWorkflowTypes.DEPOSIT,
+                workflowNo: normalizedDepositNo,
+              }
+            : undefined,
+        ].filter(Boolean),
+      },
+      orderBy: [{ occurredAt: 'desc' }, { createdAt: 'desc' }],
+      take: 100,
+    });
+
+    return this.mapCanonicalAuditLogs(events);
   }
 
   private async emitPayinEvent(eventName: string, payload: unknown) {
@@ -212,7 +297,17 @@ export class PayinsService {
       (this.prisma as any).payin.count({ where }),
     ]);
 
-    return { items, total };
+    const mappedItems = items.map((item: any) => ({
+      ...item,
+      ownerNo: item.customer?.customerNo || item.ownerNo || null,
+      transactionType: 'DEPOSIT',
+      transactionId: item.depositId || null,
+      transactionNo: item.deposit?.depositNo || null,
+      type: this.normalizeAdminPayinType(item.type),
+      displayStatus: this.normalizeRailDisplayStatus(item.status),
+    }));
+
+    return { items: mappedItems, total };
   }
 
   async findOne(id: string) {
@@ -250,6 +345,13 @@ export class PayinsService {
     }
 
     // Map fields to match the requested API response format
+    const auditLogs = await this.getCanonicalPayinAuditLogs(
+      item.id,
+      item.payinNo,
+      item.depositId,
+      payinWithCustomer.deposit?.depositNo || null,
+    );
+
     const response = {
         ...item,
         ownerNo,
@@ -257,6 +359,8 @@ export class PayinsService {
         transactionType: 'DEPOSIT',
         transactionId: item.depositId,
         transactionNo: payinWithCustomer.deposit?.depositNo,
+        displayStatus: this.normalizeRailDisplayStatus(item.status),
+        type: this.normalizeAdminPayinType(item.type),
         toWalletNo: payinWithCustomer.toWallet?.walletNo,
         fromWalletNo: payinWithCustomer.fromWallet?.walletNo,
         simulationProfile: inboundSignal
@@ -267,6 +371,7 @@ export class PayinsService {
               riskReason: inboundSignal.simulationRiskReason || null,
             }
           : null,
+        auditLogs,
     };
 
     return response;
@@ -279,7 +384,7 @@ export class PayinsService {
   ) {
     const payin = await this.findOne(id);
     const currentStatus = payin.status as PayinStatus;
-    const type = payin.type as PayinType;
+    const type = String(payin.type || '').toLowerCase() as PayinType;
 
     let nextStatus: PayinStatus | null = null;
 

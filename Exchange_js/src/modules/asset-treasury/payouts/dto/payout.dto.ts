@@ -41,6 +41,7 @@ export enum AdminPayoutAction {
 }
 
 export enum PayoutType {
+  // Raw query/update contract stays uppercase; admin read-model normalizes payin/payout display.
   CRYPTO = 'CRYPTO',
   FIAT = 'FIAT',
 }

@@ -1,6 +1,6 @@
 Status: active
 Owner: project-owner-and-agents
-Last Updated: 2026-03-24
+Last Updated: 2026-03-28
 Applies To: `Exchange_js`
 Supersedes: none
 Depends On: `docs/specs/workflows/payin-deposit-canonical-workflow.md`, `docs/constraints/customer-transaction-flow-constraints.md`
@@ -19,10 +19,12 @@ Source of Truth Level: specs-entity
 - Ownership:
   - `ownerType`
   - `ownerId`
+  - `ownerNo`
   - `assetId`
   - `toWalletId`
   - `fromWalletId`
   - `payinId`
+  - `type`
 - Amount / transfer identity:
   - `amount`
   - `netAmount`
@@ -34,6 +36,7 @@ Source of Truth Level: specs-entity
   - `toAddress`
   - `toIban`
 - Compliance snapshot:
+  - `derivedComplianceStatus`
   - `kytStatus`
   - `kytScreeningId`
   - `kytRiskScore`
@@ -67,6 +70,8 @@ Source of Truth Level: specs-entity
   - workflow-bound alert/case
   - accounting output
   - downstream internal collection
+- `derivedComplianceStatus` is the primary admin/client compliance read-model truth.
+- `kytStatus` and `travelRuleStatus` are retained response lifecycle mirrors and MUST NOT be interpreted as risk disposition fields.
 
 ## Workflow Authority
 - Current canonical deposit state actions are:
@@ -78,15 +83,24 @@ Source of Truth Level: specs-entity
 - `payin_confirmed` is compensation-only on the deposit surface.
 - Release/hold/reject authority stays on deposit state actions, not on provider response containers or case rows directly.
 
+## Compatibility And Read-Model Fields
+- `ownerNo` and `type` are mirrored list/detail projection fields and should align with withdraw read-model naming.
+- `derivedComplianceStatus` is active truth for operator display.
+- `kytStatus` and `travelRuleStatus` remain compatibility snapshots only:
+  - they use response lifecycle semantics
+  - they may be empty for fiat flow
+  - they must be normalized to `CREATED / RECEIVED / FINAL` for display
+
 ## Customer Gate And Compliance Gate
 - `Deposit.SUCCESS` is gated by customer canonical control fields:
   - `onboardingStatus`
   - `operatingStatus`
   - `restrictionStatus`
   - `complianceHoldStatus`
-- `Deposit.SUCCESS` for crypto also depends on transaction compliance snapshot:
-  - `kytStatus = PASS`
-  - `travelRuleStatus = ACCEPTED` when required
+- `Deposit.SUCCESS` for crypto also depends on transaction compliance truth:
+  - `derivedComplianceStatus = CLEAR`
+  - `TX_DEPOSIT_FINAL` remains the active transaction risk context
+  - `kytStatus` / `travelRuleStatus` are evidence-container lifecycle snapshots, not risk disposition fields
 
 ## Accounting And Evidence Semantics
 - Required accounting points exist at:
@@ -106,6 +120,7 @@ Source of Truth Level: specs-entity
   - `workflowType = DEPOSIT`
   - `workflowNo = depositNo`
 - Transaction alert/case callbacks still normalize back to the same deposit-root replay surface in Audit Center.
+- Deposit detail and linked payin detail are expected to read canonical `audit_log_events`, not legacy relation-only audit rows.
 
 ## Write Owners
 - Deposit transactions service owns deposit state truth.

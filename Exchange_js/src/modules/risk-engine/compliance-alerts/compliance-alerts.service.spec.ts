@@ -1880,6 +1880,40 @@ describe('ComplianceAlertsService', () => {
     expect(result.status).toBe(ComplianceAlertStatus.CLOSED);
   });
 
+  it('should reject resolving legacy withdraw precheck alerts', async () => {
+    prismaMock.complianceAlert.findUnique.mockResolvedValue(
+      buildAlert({
+        status: ComplianceAlertStatus.ASSIGNED,
+        sourceModule: 'risk-engine/transaction-compliance',
+        sourceType: 'WITHDRAW',
+        sourceId: 'wd-legacy-1',
+        sourceNo: 'WD-LEGACY-1',
+        entityType: 'WITHDRAW_TRANSACTION',
+        entityId: 'wd-legacy-1',
+        entityNo: 'WD-LEGACY-1',
+        stage: 'REVIEW_WITHDRAW_PRECHECK',
+        ruleCode: 'TX_WITHDRAW_PRECHECK_REVIEW_REQUIRED',
+        assigneeUserId: 'admin-1',
+        assigneeUserNo: 'US0001',
+      }),
+    );
+
+    await expect(
+      service.resolveAlert(
+        'alert-legacy-1',
+        { resolutionType: 'FALSE_POSITIVE' as any },
+        {
+          actorType: 'ADMIN',
+          actorId: 'admin-1',
+          actorNo: 'US0001',
+          actorRole: 'COMPLIANCE_LEAD',
+        },
+      ),
+    ).rejects.toThrow('historical read-only');
+
+    expect(workflowTransitionServiceMock.transition).not.toHaveBeenCalled();
+  });
+
   it('should resolve swap alert by rejecting swap through workflow transition service', async () => {
     prismaMock.$transaction = jest.fn(async (callback: (tx: any) => unknown) => callback(prismaMock));
     prismaMock.complianceAlert.findUnique

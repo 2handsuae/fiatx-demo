@@ -1,6 +1,6 @@
 Status: active
 Owner: project-owner-and-agents
-Last Updated: 2026-03-27
+Last Updated: 2026-03-28
 Applies To: `Exchange_js`
 Supersedes: none
 Depends On: `docs/specs/workflows/withdraw-payout-canonical-workflow.md`, `docs/specs/entities/audit-evidence-package-entity.md`
@@ -36,6 +36,7 @@ Source of Truth Level: acceptance
    - `clearings`
    - `reconciliationBreaks`
    - `withdrawEvidenceChain`
+   - note that fiat roots may have empty `preKytCases`, `mainKytCases`, or `travelRuleCases` sections when no response container is created by the canonical branch
 8. Open `withdrawEvidenceChain` and confirm the selected root resolves:
    - `withdrawId -> payoutId`
    - `withdrawId -> decisionRecordIds`
@@ -56,3 +57,4 @@ Source of Truth Level: acceptance
 - no second export API is required for withdraw evidence
 - `WITHDRAW` packages include payout, risk, accounting, and reconciliation snapshots in one manifest
 - evidence package detail renders withdraw-specific sections instead of falling back to generic raw-only output
+- crypto roots show response-container evidence; fiat roots may legitimately show those sections as empty while still replaying the same withdraw/payout/risk/accounting chain

@@ -1,6 +1,6 @@
 Status: active
 Owner: project-owner-and-agents
-Last Updated: 2026-03-24
+Last Updated: 2026-03-28
 Applies To: `Exchange_js`
 Supersedes: none
 Depends On: `docs/specs/entities/audit-evidence-package-entity.md`, `docs/specs/workflows/payin-deposit-canonical-workflow.md`, `docs/constraints/audit-logging-constraints.md`
@@ -40,7 +40,7 @@ Source of Truth Level: acceptance
 - `packageBody.snapshots.deposits`
   - root deposit rows with linked payin, customer, and asset snapshot
 - `packageBody.snapshots.kytCases`
-  - deposit-bound `MAIN-KYT` evidence containers
+  - deposit-bound `KYT` evidence containers
 - `packageBody.snapshots.travelRuleCases`
   - deposit-bound `TRAVEL_RULE` evidence containers
 - `packageBody.snapshots.riskDecisionRecords`
@@ -66,6 +66,8 @@ Source of Truth Level: acceptance
     - `journalIds`
     - `internalTransactionIds`
     - `internalFundIds`
+- Fiat deposit roots may export empty `kytCases`, `travelRuleCases`, `internalTransactions`, or `internalFunds` sections when those objects are not part of the canonical branch.
+- Crypto deposit roots are expected to populate `kytCases`, `travelRuleCases`, and downstream internal collection sections when the root succeeds.
 
 ## How To Replay The Four Wave 5 Paths
 
