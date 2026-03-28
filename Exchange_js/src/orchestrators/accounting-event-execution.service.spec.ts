@@ -172,4 +172,36 @@ describe('AccountingEventExecutionService', () => {
     expect(result.journalResult).toEqual([{ id: 'REV_1' }]);
     expect(result.clearingResult).toBeNull();
   });
+
+  it('should route single-sided withdrawal returned event to journal execution only', async () => {
+    mockPrisma.acctEvent.findFirst.mockResolvedValue({
+      eventCode: 'EVT_WITHDRAWAL_RETURNED__FIAT',
+      postingMode: 'BULK_REVERSAL_BY_SOURCE',
+      clearingMode: 'NONE',
+      clearingTemplateCode: null,
+    });
+    mockJournalsService.executeResolvedEvent.mockResolvedValue([{ id: 'REV_RET_1' }]);
+
+    const service = new AccountingEventExecutionService(
+      mockPrisma,
+      mockJournalsService as any,
+      mockClearingsService as any,
+    );
+
+    const result = await service.execute({
+      entityType: 'WITHDRAW',
+      triggerKey: 'status',
+      toStatus: 'RETURNED',
+      assetType: 'FIAT',
+      sourceId: 'WD_5',
+      frozenContext: { src: { amount: '100' } },
+      journalSourceType: 'WITHDRAW',
+      clearingSourceType: 'WITHDRAWAL',
+    });
+
+    expect(mockJournalsService.executeResolvedEvent).toHaveBeenCalled();
+    expect(mockClearingsService.executeResolvedEvent).not.toHaveBeenCalled();
+    expect(result.journalResult).toEqual([{ id: 'REV_RET_1' }]);
+    expect(result.clearingResult).toBeNull();
+  });
 });

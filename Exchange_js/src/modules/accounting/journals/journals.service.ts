@@ -950,9 +950,35 @@ export class JournalsService {
       },
       orderBy: { createdAt: 'asc' },
     });
+    const originalJournalIds = originalJournals.map((journal: any) => journal.id);
+    const existingReversals = originalJournalIds.length
+      ? await (client as any).journal.findMany({
+          where: {
+            sourceType,
+            sourceId,
+            reversalOfJournalId: {
+              in: originalJournalIds,
+            },
+          },
+          select: {
+            reversalOfJournalId: true,
+          },
+        })
+      : [];
+    const reversedSourceIds = new Set(
+      existingReversals
+        .map((journal: { reversalOfJournalId?: string | null }) => journal.reversalOfJournalId)
+        .filter(
+          (value: string | null | undefined): value is string =>
+            typeof value === 'string' && value.length > 0,
+        ),
+    );
 
     const reversals: any[] = [];
     for (const journal of originalJournals) {
+      if (reversedSourceIds.has(journal.id)) {
+        continue;
+      }
       const reversal = await this.reverseJournal(
         {
           sourceType,

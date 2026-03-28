@@ -548,6 +548,251 @@ export class RiskEngineService {
       }
     }
 
+    if (input.contextType === 'TX_WITHDRAW_PRECHECK') {
+      const preKytStatus = String(
+        signals.preKytStatus || signals.kytStatus || signals.status || '',
+      ).toUpperCase();
+      const riskBand =
+        canonicalTransactionRiskBand === 'HIGH'
+          ? 'HIGH'
+          : canonicalTransactionRiskBand === 'MEDIUM'
+            ? 'MEDIUM'
+            : 'LOW';
+
+      if (simulationMode === 'MANUAL') {
+        if (riskBand === 'HIGH') {
+          reasonCodes.push(canonicalTransactionRiskReason || 'SANCTIONS_HIT');
+          recommendedActions.push({
+            type: RISK_RECOMMENDED_ACTIONS.UPSERT_ALERT,
+            payload: {
+              severity: 'CRITICAL',
+              recommendation: 'REVIEW',
+              reasonCodes,
+              riskBand,
+              riskReason: canonicalTransactionRiskReason || null,
+            },
+          });
+          recommendedActions.push({
+            type: RISK_RECOMMENDED_ACTIONS.AUTO_ESCALATE_CASE,
+            payload: {
+              reasonCodes,
+              riskBand,
+              riskReason: canonicalTransactionRiskReason || null,
+            },
+          });
+          return { decision: 'REVIEW', reasonCodes, recommendedActions };
+        }
+
+        if (riskBand === 'MEDIUM') {
+          reasonCodes.push(canonicalTransactionRiskReason || 'PRE_KYT_REVIEW_REQUIRED');
+          recommendedActions.push({
+            type: RISK_RECOMMENDED_ACTIONS.UPSERT_ALERT,
+            payload: {
+              severity: 'HIGH',
+              recommendation: 'REVIEW',
+              reasonCodes,
+              riskBand,
+              riskReason: canonicalTransactionRiskReason || null,
+            },
+          });
+          return { decision: 'REVIEW', reasonCodes, recommendedActions };
+        }
+
+        reasonCodes.push('TX_WITHDRAW_PRECHECK_LOW_RISK_CLEAR');
+        return { decision: 'APPROVE', reasonCodes, recommendedActions };
+      }
+
+      if (preKytStatus === 'FAIL') {
+        reasonCodes.push('TX_WITHDRAW_PRE_KYT_FAIL');
+        recommendedActions.push({
+          type: RISK_RECOMMENDED_ACTIONS.UPSERT_ALERT,
+          payload: {
+            severity: 'CRITICAL',
+            recommendation: 'REVIEW',
+            reasonCodes,
+            riskBand: 'HIGH',
+          },
+        });
+        recommendedActions.push({
+          type: RISK_RECOMMENDED_ACTIONS.AUTO_ESCALATE_CASE,
+          payload: {
+            reasonCodes,
+            riskBand: 'HIGH',
+          },
+        });
+        return { decision: 'REJECT', reasonCodes, recommendedActions };
+      }
+
+      if (preKytStatus === 'REVIEW' || riskBand === 'HIGH') {
+        reasonCodes.push(
+          preKytStatus === 'REVIEW' ? 'TX_WITHDRAW_PRE_KYT_REVIEW' : 'TX_WITHDRAW_PRECHECK_HIGH_RISK',
+        );
+        recommendedActions.push({
+          type: RISK_RECOMMENDED_ACTIONS.UPSERT_ALERT,
+          payload: {
+            severity: 'HIGH',
+            recommendation: 'REVIEW',
+            reasonCodes,
+            riskBand: riskBand === 'LOW' ? 'MEDIUM' : riskBand,
+            riskReason: canonicalTransactionRiskReason || null,
+          },
+        });
+        if (riskBand === 'HIGH') {
+          recommendedActions.push({
+            type: RISK_RECOMMENDED_ACTIONS.AUTO_ESCALATE_CASE,
+            payload: {
+              reasonCodes,
+              riskBand,
+              riskReason: canonicalTransactionRiskReason || null,
+            },
+          });
+        }
+        return { decision: 'REVIEW', reasonCodes, recommendedActions };
+      }
+
+      if (preKytStatus === 'PASS') {
+        reasonCodes.push('TX_WITHDRAW_PRE_KYT_PASS');
+        return { decision: 'APPROVE', reasonCodes, recommendedActions };
+      }
+    }
+
+    if (input.contextType === 'TX_WITHDRAW_FINAL') {
+      const mainKytStatus = String(signals.mainKytStatus || signals.kytStatus || '').toUpperCase();
+      const travelStatus = String(signals.travelRuleStatus || '').toUpperCase();
+      const travelRuleRequired = this.toBoolean(signals.travelRuleRequired);
+      const riskBand =
+        canonicalTransactionRiskBand === 'HIGH'
+          ? 'HIGH'
+          : canonicalTransactionRiskBand === 'MEDIUM'
+            ? 'MEDIUM'
+            : 'LOW';
+
+      if (simulationMode === 'MANUAL') {
+        if (riskBand === 'HIGH') {
+          reasonCodes.push(canonicalTransactionRiskReason || 'HIGH_RISK_EXPOSURE');
+          recommendedActions.push({
+            type: RISK_RECOMMENDED_ACTIONS.UPSERT_ALERT,
+            payload: {
+              severity: 'CRITICAL',
+              recommendation: 'REVIEW',
+              reasonCodes,
+              riskBand,
+              riskReason: canonicalTransactionRiskReason || null,
+            },
+          });
+          recommendedActions.push({
+            type: RISK_RECOMMENDED_ACTIONS.AUTO_ESCALATE_CASE,
+            payload: {
+              reasonCodes,
+              riskBand,
+              riskReason: canonicalTransactionRiskReason || null,
+            },
+          });
+          return { decision: 'REVIEW', reasonCodes, recommendedActions };
+        }
+
+        if (riskBand === 'MEDIUM') {
+          reasonCodes.push(canonicalTransactionRiskReason || 'TRAVEL_RULE_ISSUE');
+          recommendedActions.push({
+            type: RISK_RECOMMENDED_ACTIONS.UPSERT_ALERT,
+            payload: {
+              severity: 'HIGH',
+              recommendation: 'REVIEW',
+              reasonCodes,
+              riskBand,
+              riskReason: canonicalTransactionRiskReason || null,
+            },
+          });
+          return { decision: 'REVIEW', reasonCodes, recommendedActions };
+        }
+
+        reasonCodes.push('TX_WITHDRAW_FINAL_LOW_RISK_CLEAR');
+        return { decision: 'APPROVE', reasonCodes, recommendedActions };
+      }
+
+      if (mainKytStatus === 'FAIL') {
+        reasonCodes.push('TX_WITHDRAW_MAIN_KYT_FAIL');
+      } else if (mainKytStatus === 'REVIEW') {
+        reasonCodes.push('TX_WITHDRAW_MAIN_KYT_REVIEW');
+      } else if (mainKytStatus === 'PASS') {
+        reasonCodes.push('TX_WITHDRAW_MAIN_KYT_PASS');
+      }
+
+      if (travelStatus === 'REJECTED') {
+        reasonCodes.push('TX_WITHDRAW_TRAVEL_RULE_REJECTED');
+      } else if (travelStatus === 'EXPIRED') {
+        reasonCodes.push('TX_WITHDRAW_TRAVEL_RULE_EXPIRED');
+      } else if (travelStatus === 'ACCEPTED') {
+        reasonCodes.push('TX_WITHDRAW_TRAVEL_RULE_ACCEPTED');
+      } else if (travelStatus === 'NOT_REQUIRED') {
+        reasonCodes.push('TX_WITHDRAW_TRAVEL_RULE_NOT_REQUIRED');
+      }
+
+      if (
+        mainKytStatus === 'FAIL' ||
+        (travelRuleRequired && travelStatus === 'REJECTED')
+      ) {
+        recommendedActions.push({
+          type: RISK_RECOMMENDED_ACTIONS.UPSERT_ALERT,
+          payload: {
+            severity: 'CRITICAL',
+            recommendation: 'REVIEW',
+            reasonCodes,
+            riskBand: 'HIGH',
+            riskReason: canonicalTransactionRiskReason || null,
+          },
+        });
+        recommendedActions.push({
+          type: RISK_RECOMMENDED_ACTIONS.AUTO_ESCALATE_CASE,
+          payload: {
+            reasonCodes,
+            riskBand: 'HIGH',
+            riskReason: canonicalTransactionRiskReason || null,
+          },
+        });
+        return { decision: 'REJECT', reasonCodes, recommendedActions };
+      }
+
+      if (
+        riskBand === 'HIGH' ||
+        riskBand === 'MEDIUM' ||
+        mainKytStatus === 'REVIEW' ||
+        (travelRuleRequired &&
+          ['PENDING', 'SENT', 'RECEIVED', 'EXPIRED'].includes(travelStatus))
+      ) {
+        recommendedActions.push({
+          type: RISK_RECOMMENDED_ACTIONS.UPSERT_ALERT,
+          payload: {
+            severity: riskBand === 'HIGH' ? 'CRITICAL' : 'HIGH',
+            recommendation: 'REVIEW',
+            reasonCodes,
+            riskBand: riskBand === 'LOW' ? 'MEDIUM' : riskBand,
+            riskReason: canonicalTransactionRiskReason || null,
+          },
+        });
+        if (riskBand === 'HIGH') {
+          recommendedActions.push({
+            type: RISK_RECOMMENDED_ACTIONS.AUTO_ESCALATE_CASE,
+            payload: {
+              reasonCodes,
+              riskBand,
+              riskReason: canonicalTransactionRiskReason || null,
+            },
+          });
+        }
+        return { decision: 'REVIEW', reasonCodes, recommendedActions };
+      }
+
+      if (
+        mainKytStatus === 'PASS' &&
+        (!travelRuleRequired ||
+          travelStatus === 'ACCEPTED' ||
+          travelStatus === 'NOT_REQUIRED')
+      ) {
+        return { decision: 'APPROVE', reasonCodes, recommendedActions };
+      }
+    }
+
     if (input.contextType === 'TX_SWAP_FINAL') {
       const customerAmlRiskTier = String(
         signals.customerAmlRiskTier || '',
@@ -737,6 +982,8 @@ export class RiskEngineService {
 
     if (
       input.contextType === 'TX_DEPOSIT_FINAL' ||
+      input.contextType === 'TX_WITHDRAW_PRECHECK' ||
+      input.contextType === 'TX_WITHDRAW_FINAL' ||
       input.contextType === 'TX_SWAP_FINAL'
     ) {
       outputs.riskBand = normalizedTransactionRiskBand || null;

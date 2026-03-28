@@ -42,6 +42,12 @@ describe('WithdrawWorkflowOrchestrator', () => {
     payout: {
       findUnique: jest.fn(),
     },
+    journal: {
+      findMany: jest.fn(),
+    },
+    clearing: {
+      findMany: jest.fn(),
+    },
   };
 
   const mockWithdrawalService = {
@@ -129,6 +135,11 @@ describe('WithdrawWorkflowOrchestrator', () => {
 
   it('should execute payout confirmed atomic path', async () => {
     mockPrisma.auditLogEvent.findUnique.mockResolvedValue(null);
+    mockPrisma.payout.findUnique.mockResolvedValue({
+      id: 'PO_1',
+      withdrawId: 'WD_1',
+      status: PayoutStatus.CONFIRMED,
+    });
     mockWithdrawalService.findOne.mockResolvedValue({
       ...baseWithdrawal,
       type: 'crypto',
@@ -161,11 +172,15 @@ describe('WithdrawWorkflowOrchestrator', () => {
     expect(withdrawalService.updateStatus).toHaveBeenCalledWith(
       'WD_1',
       expect.objectContaining({ action: 'success' }),
+      expect.objectContaining({
+        source: 'SYSTEM',
+        actorId: 'SYSTEM',
+      }),
       mockPrisma,
     );
     expect(
       transactionComplianceService.ensureWithdrawMainCasesOnPayoutConfirmed,
-    ).toHaveBeenCalledWith('WD_1', 'PO_1', mockPrisma);
+    ).not.toHaveBeenCalled();
     expect(payoutsService.updateStatus).toHaveBeenCalledWith(
       'PO_1',
       expect.objectContaining({ action: 'CLEAR' }),
@@ -179,6 +194,11 @@ describe('WithdrawWorkflowOrchestrator', () => {
   });
 
   it('should skip payout confirmed when marker exists', async () => {
+    mockPrisma.payout.findUnique.mockResolvedValue({
+      id: 'PO_1',
+      withdrawId: 'WD_1',
+      status: PayoutStatus.CONFIRMED,
+    });
     mockPrisma.auditLogEvent.findUnique.mockResolvedValue({
       id: 'LOG_EXIST',
     });
@@ -356,7 +376,13 @@ describe('WithdrawWorkflowOrchestrator', () => {
 
   it('should process payout failed via config-driven triggerEvent and cancel clearing', async () => {
     mockPrisma.auditLogEvent.findUnique.mockResolvedValue(null);
+    mockPrisma.payout.findUnique.mockResolvedValue({
+      id: 'PO_1',
+      withdrawId: 'WD_1',
+      status: PayoutStatus.FAILED,
+    });
     mockWithdrawalService.findOne.mockResolvedValue(baseWithdrawal);
+    mockPrisma.withdrawTransaction.findUnique.mockResolvedValue(baseWithdrawal);
     mockWithdrawalService.updateStatus.mockResolvedValue({
       ...baseWithdrawal,
       status: WithdrawTransactionStatus.FAILED,
@@ -381,6 +407,7 @@ describe('WithdrawWorkflowOrchestrator', () => {
       mockPrisma,
     );
     expect(clearingsService.updateStatusBySource).toHaveBeenCalledWith(
+      'WITHDRAWAL',
       'WD_1',
       'CANCELLED',
       mockPrisma,
@@ -391,12 +418,230 @@ describe('WithdrawWorkflowOrchestrator', () => {
     ]);
   });
 
-  it('should skip repeated returned event when withdrawal is already RETURNED', async () => {
+  it('should replay compensation when marker exists but compensation artifacts are incomplete', async () => {
+    mockPrisma.payout.findUnique.mockResolvedValue({
+      id: 'PO_1',
+      withdrawId: 'WD_1',
+      status: PayoutStatus.FAILED,
+    });
+    mockPrisma.auditLogEvent.findUnique.mockResolvedValue({ id: 'LOG_EXIST' });
+    mockWithdrawalService.findOne.mockResolvedValue({
+      ...baseWithdrawal,
+      status: WithdrawTransactionStatus.FAILED,
+    });
+    mockPrisma.journal.findMany.mockResolvedValueOnce([
+      { id: 'JO_SRC_1' },
+    ]).mockResolvedValueOnce([
+      { reversalOfJournalId: 'JO_SRC_1' },
+    ]);
+    mockPrisma.clearing.findMany.mockResolvedValue([
+      { clearingStatus: 'CLEARED' },
+    ]);
+    mockPrisma.withdrawTransaction.findUnique.mockResolvedValue({
+      ...baseWithdrawal,
+      status: WithdrawTransactionStatus.FAILED,
+    });
+    mockAccountingEventExecutionService.execute.mockResolvedValue({
+      journalResult: [{ id: 'REV_EXISTING_1' }],
+    });
+    mockClearingsService.updateStatusBySource.mockResolvedValue({ count: 1 });
+    mockPrisma.auditLogEvent.create.mockResolvedValue({ id: 'LOG_EXIST' });
+
+    const result = await orchestrator.onPayoutFailed({
+      withdrawId: 'WD_1',
+      payoutId: 'PO_1',
+      status: PayoutStatus.FAILED,
+    });
+
+    expect(accountingEventExecutionService.execute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        entityType: 'WITHDRAW',
+        toStatus: WithdrawTransactionStatus.FAILED,
+      }),
+      mockPrisma,
+    );
+    expect(clearingsService.updateStatusBySource).toHaveBeenCalledWith(
+      'WITHDRAWAL',
+      'WD_1',
+      'CANCELLED',
+      mockPrisma,
+    );
+    expect(result?.updated_withdrawal_status).toBe(WithdrawTransactionStatus.FAILED);
+  });
+
+  it('should re-run canonical closeout from payout detail repair endpoint flow', async () => {
+    mockPrisma.payout.findUnique
+      .mockResolvedValueOnce({
+        id: 'PO_1',
+        withdrawId: 'WD_1',
+        status: PayoutStatus.CONFIRMED,
+      })
+      .mockResolvedValueOnce({
+        id: 'PO_1',
+        withdrawId: 'WD_1',
+        status: PayoutStatus.CONFIRMED,
+      });
     mockPrisma.auditLogEvent.findUnique.mockResolvedValue(null);
+    mockWithdrawalService.findOne.mockResolvedValue({
+      ...baseWithdrawal,
+      status: WithdrawTransactionStatus.PAYOUT_PENDING,
+    });
+    mockWithdrawalService.updateStatus.mockResolvedValue({
+      ...baseWithdrawal,
+      status: WithdrawTransactionStatus.SUCCESS,
+    });
+    mockAccountingEventExecutionService.execute.mockResolvedValue({
+      journalResult: { id: 'JE_REPAIR_1' },
+    });
+    mockPayoutsService.updateStatus.mockResolvedValue({
+      id: 'PO_1',
+      status: PayoutStatus.CLEAR,
+    });
+    mockPrisma.auditLogEvent.create.mockResolvedValue({ id: 'LOG_REPAIR' });
+
+    const result = await orchestrator.reCloseoutPayout('PO_1');
+
+    expect(result.repairApplied).toBe(true);
+    expect(result.updated_withdrawal_status).toBe(WithdrawTransactionStatus.SUCCESS);
+    expect(result.updated_payout_status).toBe(PayoutStatus.CLEAR);
+  });
+
+  it('should return no-op result when re-closeout is repeated after success', async () => {
+    mockPrisma.payout.findUnique.mockResolvedValue({
+      id: 'PO_1',
+      withdrawId: 'WD_1',
+      status: PayoutStatus.CLEAR,
+    });
+    mockWithdrawalService.findOne.mockResolvedValue({
+      ...baseWithdrawal,
+      status: WithdrawTransactionStatus.SUCCESS,
+    });
+
+    const result = await orchestrator.reCloseoutPayout('PO_1');
+
+    expect(result.repairApplied).toBe(false);
+    expect(result.updated_withdrawal_status).toBe(WithdrawTransactionStatus.SUCCESS);
+    expect(result.updated_payout_status).toBe(PayoutStatus.CLEAR);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('should re-run failed compensation from payout detail repair endpoint flow', async () => {
+    mockPrisma.payout.findUnique.mockResolvedValue({
+      id: 'PO_1',
+      withdrawId: 'WD_1',
+      status: PayoutStatus.FAILED,
+    });
+    mockWithdrawalService.findOne.mockResolvedValue({
+      ...baseWithdrawal,
+      status: WithdrawTransactionStatus.PAYOUT_PENDING,
+    });
+    mockPrisma.auditLogEvent.findUnique.mockResolvedValue(null);
+    mockPrisma.withdrawTransaction.findUnique.mockResolvedValue({
+      ...baseWithdrawal,
+      status: WithdrawTransactionStatus.PAYOUT_PENDING,
+    });
+    mockWithdrawalService.updateStatus.mockResolvedValue({
+      ...baseWithdrawal,
+      status: WithdrawTransactionStatus.FAILED,
+    });
+    mockAccountingEventExecutionService.execute.mockResolvedValue({
+      journalResult: [{ id: 'REV_FAIL_1' }, { id: 'REV_FAIL_2' }],
+    });
+    mockClearingsService.updateStatusBySource.mockResolvedValue({ count: 1 });
+    mockPrisma.auditLogEvent.create.mockResolvedValue({ id: 'LOG_RECOMP_FAIL' });
+
+    const result = await orchestrator.reCompensatePayout('PO_1');
+
+    expect(result.repairApplied).toBe(true);
+    expect(result.updated_withdrawal_status).toBe(WithdrawTransactionStatus.FAILED);
+    expect(result.updated_payout_status).toBe(PayoutStatus.FAILED);
+    expect(clearingsService.updateStatusBySource).toHaveBeenCalledWith(
+      'WITHDRAWAL',
+      'WD_1',
+      'CANCELLED',
+      mockPrisma,
+    );
+  });
+
+  it('should re-run returned compensation from payout detail repair endpoint flow', async () => {
+    mockPrisma.payout.findUnique.mockResolvedValue({
+      id: 'PO_1',
+      withdrawId: 'WD_1',
+      status: PayoutStatus.RETURNED,
+    });
+    mockWithdrawalService.findOne.mockResolvedValue({
+      ...baseWithdrawal,
+      status: WithdrawTransactionStatus.SUCCESS,
+    });
+    mockPrisma.auditLogEvent.findUnique.mockResolvedValue(null);
+    mockPrisma.withdrawTransaction.findUnique.mockResolvedValue({
+      ...baseWithdrawal,
+      status: WithdrawTransactionStatus.SUCCESS,
+    });
+    mockWithdrawalService.updateStatus.mockResolvedValue({
+      ...baseWithdrawal,
+      status: WithdrawTransactionStatus.RETURNED,
+    });
+    mockAccountingEventExecutionService.execute.mockResolvedValue({
+      journalResult: [{ id: 'REV_RET_1' }],
+    });
+    mockClearingsService.updateStatusBySource.mockResolvedValue({ count: 1 });
+    mockPrisma.auditLogEvent.create.mockResolvedValue({ id: 'LOG_RECOMP_RET' });
+
+    const result = await orchestrator.reCompensatePayout('PO_1');
+
+    expect(result.repairApplied).toBe(true);
+    expect(result.updated_withdrawal_status).toBe(WithdrawTransactionStatus.RETURNED);
+    expect(result.updated_payout_status).toBe(PayoutStatus.RETURNED);
+  });
+
+  it('should return no-op result when re-compensate is repeated after compensation is fully settled', async () => {
+    mockPrisma.payout.findUnique.mockResolvedValue({
+      id: 'PO_1',
+      withdrawId: 'WD_1',
+      status: PayoutStatus.FAILED,
+    });
+    mockWithdrawalService.findOne.mockResolvedValue({
+      ...baseWithdrawal,
+      status: WithdrawTransactionStatus.FAILED,
+    });
+    mockPrisma.journal.findMany
+      .mockResolvedValueOnce([{ id: 'JO_1' }, { id: 'JO_2' }])
+      .mockResolvedValueOnce([
+        { reversalOfJournalId: 'JO_1' },
+        { reversalOfJournalId: 'JO_2' },
+      ]);
+    mockPrisma.clearing.findMany.mockResolvedValue([
+      { clearingStatus: 'CANCELLED' },
+    ]);
+
+    const result = await orchestrator.reCompensatePayout('PO_1');
+
+    expect(result.repairApplied).toBe(false);
+    expect(result.updated_withdrawal_status).toBe(WithdrawTransactionStatus.FAILED);
+    expect(result.updated_payout_status).toBe(PayoutStatus.FAILED);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('should skip repeated returned event when marker exists and compensation is already settled', async () => {
+    mockPrisma.payout.findUnique.mockResolvedValue({
+      id: 'PO_1',
+      withdrawId: 'WD_1',
+      status: PayoutStatus.RETURNED,
+    });
+    mockPrisma.auditLogEvent.findUnique.mockResolvedValue({
+      id: 'LOG_EXIST',
+    });
     mockWithdrawalService.findOne.mockResolvedValue({
       ...baseWithdrawal,
       status: WithdrawTransactionStatus.RETURNED,
     });
+    mockPrisma.journal.findMany
+      .mockResolvedValueOnce([{ id: 'JO_1' }])
+      .mockResolvedValueOnce([{ reversalOfJournalId: 'JO_1' }]);
+    mockPrisma.clearing.findMany.mockResolvedValue([
+      { clearingStatus: 'CANCELLED' },
+    ]);
 
     const result = await orchestrator.onPayoutReturned({
       withdrawId: 'WD_1',

@@ -2,7 +2,7 @@
 
 Status: active
 Owner: project-owner-and-agents
-Last Updated: 2026-03-24
+Last Updated: 2026-03-27
 Applies To: `Exchange_js`
 Supersedes: none
 Depends On: `docs/specs/README.md`
@@ -61,3 +61,9 @@ Source of Truth Level: specs-entity
   - Wave 4 subject release, item revision, and release-item history semantics.
 - `docs/specs/entities/pricing-quote-entity.md`
   - Wave 4 pricing quote snapshot semantics for swap and withdraw consumers.
+- `docs/specs/entities/withdraw-transaction-entity.md`
+  - Wave 7 withdraw transaction semantics, payout linkage, and dispatch-gate mirror fields.
+- `docs/specs/entities/payout-entity.md`
+  - Wave 7 payout execution / receipt semantics.
+- `docs/specs/entities/reconciliation-break-entity.md`
+  - Active Wave 7 daily-diff break register semantics and handling ownership.

@@ -47,6 +47,8 @@ export type PermissionGroup =
   | 'INTERNAL_FUND_READ'
   | 'INTERNAL_FUND_WRITE'
   | 'RECON_OUTSTANDING_READ'
+  | 'RECON_BREAK_READ'
+  | 'RECON_BREAK_WRITE'
   | 'SETTLEMENT_READ'
   | 'SETTLEMENT_WRITE'
   | 'CLEARING_READ'
@@ -436,6 +438,30 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   // Reconciliation
   route('GET', '/admin/reconciliation/outstandings', 'List outstandings', ['RECON_OUTSTANDING_READ']),
   route('GET', '/admin/reconciliation/outstandings/:id', 'Get outstanding detail', ['RECON_OUTSTANDING_READ']),
+  route(
+    'GET',
+    '/admin/reconciliation/safeguarding-breaks',
+    'List safeguarding reconciliation breaks',
+    ['RECON_BREAK_READ'],
+  ),
+  route(
+    'GET',
+    '/admin/reconciliation/safeguarding-breaks/:id',
+    'Get safeguarding reconciliation break detail',
+    ['RECON_BREAK_READ'],
+  ),
+  route(
+    'POST',
+    '/admin/reconciliation/safeguarding-breaks/generate-daily-diff',
+    'Generate safeguarding daily diff',
+    ['RECON_BREAK_WRITE'],
+  ),
+  route(
+    'PATCH',
+    '/admin/reconciliation/safeguarding-breaks/:id/status',
+    'Update safeguarding reconciliation break status',
+    ['RECON_BREAK_WRITE'],
+  ),
 
   route('POST', '/admin/reconciliation/outstanding-settlements', 'Create outstanding settlement', ['SETTLEMENT_WRITE']),
   route('GET', '/admin/reconciliation/outstanding-settlements', 'List outstanding settlements', ['SETTLEMENT_READ']),
@@ -596,6 +622,7 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'ALERT_READ',
     'CASE_READ',
     'CASE_EXPORT_READ',
+    'RECON_BREAK_READ',
     'GOV_APPROVAL_READ',
     'GOV_CHANGE_TICKET_READ',
     'GOV_DELETE_REQUEST_READ',
@@ -609,6 +636,7 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'ALERT_READ',
     'CASE_READ',
     'CASE_EXPORT_READ',
+    'RECON_BREAK_READ',
     'GOV_APPROVAL_READ',
     'GOV_CHANGE_TICKET_READ',
     'GOV_DELETE_REQUEST_READ',
@@ -621,6 +649,8 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'AUDIT_EXPORT_READ',
     'RISK_DECISION_RECORD_READ',
     'RISK_DECISION_RECORD_WRITE',
+    'RECON_BREAK_READ',
+    'RECON_BREAK_WRITE',
     'GOV_APPROVAL_READ',
     'GOV_APPROVAL_DECIDE',
     'GOV_CHANGE_TICKET_READ',
@@ -637,6 +667,8 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'BASE_ACCESS',
     'IAM_READ',
     'AUDIT_READ',
+    'RECON_BREAK_READ',
+    'RECON_BREAK_WRITE',
     'GOV_APPROVAL_READ',
     'GOV_CHANGE_TICKET_READ',
     'GOV_CHANGE_TICKET_WRITE',
@@ -647,6 +679,8 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'BASE_ACCESS',
     'IAM_READ',
     'AUDIT_READ',
+    'RECON_BREAK_READ',
+    'RECON_BREAK_WRITE',
     'GOV_APPROVAL_READ',
     'GOV_CHANGE_TICKET_READ',
     'GOV_CHANGE_TICKET_WRITE',
@@ -667,6 +701,8 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'CASE_WRITE',
     'CASE_EXPORT_READ',
     'CASE_EXPORT_WRITE',
+    'RECON_BREAK_READ',
+    'RECON_BREAK_WRITE',
     'GOV_APPROVAL_READ',
     'GOV_APPROVAL_WRITE',
     'GOV_CHANGE_TICKET_READ',
@@ -691,6 +727,8 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'CASE_WRITE',
     'CASE_EXPORT_READ',
     'CASE_EXPORT_WRITE',
+    'RECON_BREAK_READ',
+    'RECON_BREAK_WRITE',
     'GOV_APPROVAL_READ',
     'GOV_APPROVAL_WRITE',
     'GOV_APPROVAL_DECIDE',
@@ -722,6 +760,7 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'ALERT_READ',
     'CASE_READ',
     'CASE_EXPORT_READ',
+    'RECON_BREAK_READ',
     'GOV_APPROVAL_READ',
     'GOV_APPROVAL_DECIDE',
     'GOV_CHANGE_TICKET_READ',

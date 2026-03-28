@@ -93,6 +93,12 @@
 1. withdraw -> `SUCCESS`
 2. success accounting posting
 3. payout -> `CLEAR`
+- Withdraw terminal compensation MUST order canonically:
+1. payout terminal status is already recorded on `Payout`
+2. withdraw moves to target terminal business status if still missing
+3. terminal accounting executes on `sourceType=WITHDRAW`
+4. linked clearings close on `sourceType=WITHDRAWAL` with `clearingStatus=CANCELLED`
+- `POST /payouts/:id/re-compensate` is the payout-root manual repair surface for terminal compensation replay only.
 
 ## 6) Swap Data Contract (UI + API)
 - Swap API responses used by UI MUST include asset decimals for amount rendering:
@@ -161,6 +167,15 @@
 2. skip already reversed journals
 3. reverse each original event idempotently
 - MUST ensure repeated fail/return events do not create duplicate reversals.
+- Terminal withdraw accounting source pairing is fixed:
+1. journal source = `WITHDRAW`
+2. clearing source = `WITHDRAWAL`
+- Canonical no-op for repeated fail/return replay requires all of the following:
+1. payout already holds the same terminal outcome
+2. withdraw already holds the mapped terminal business status
+3. all original `WITHDRAW` journals already have reversal journals
+4. all linked `WITHDRAWAL` clearings are already `CANCELLED`
+- If any of the above is missing, replay MUST continue instead of silently skipping.
 
 ## 10) Asynchronous Consistency and UI Contract
 - Frontend MUST treat confirm/execute responses as intermediate when orchestration is async.
@@ -204,7 +219,7 @@
 - Auto-record creation timing MUST follow:
 1. `WITHDRAW` + `CRYPTO`: create `PRE-KYT` (`screeningStage=PRE_TXN`) immediately on withdraw `CREATED`
 2. `DEPOSIT` + `CRYPTO`: create `MAIN-KYT` + `TRAVEL_RULE` on `payin CONFIRMED`
-3. `WITHDRAW` + `CRYPTO`: create `MAIN-KYT` + `TRAVEL_RULE` on `payout CONFIRMED`
+3. `WITHDRAW` + `CRYPTO`: ensure `MAIN-KYT` + `TRAVEL_RULE` before payout dispatch start (`SIGN` / `SUBMIT`)
 4. `FIAT` deposit/withdraw MUST NOT auto-create PRE-KYT
 - Provider response-to-transaction binding MUST remain on transaction identity (`sourceType=DEPOSIT|WITHDRAW`, `sourceId=<transactionId>`), while trigger origin (`payinId` / `payoutId` / `withdrawId`) is stored in report payload.
 - The following callback upsert endpoints are the canonical production ingestion path:
@@ -216,9 +231,17 @@
 - Compliance detail retrieval MUST support aggregated source-level read model:
 1. `GET /admin/compliance/tx-cases/:sourceType/:sourceId`
 2. response includes `preKytCase`, `mainKytCase`, `travelRuleCase`, `derivedComplianceStatus`
-- Withdraw approval gate contract MUST follow:
-1. `CRYPTO` withdraw approve/success only checks `preKytStatus=PASS`
-2. `FIAT` withdraw approve/success does not enforce PRE-KYT gate
+- Withdraw release gate contract MUST follow:
+1. `CRYPTO` withdraw release to `PAYOUT_PENDING` requires `preKytStatus=PASS`
+2. payout dispatch start for `CRYPTO` withdraw requires `complianceStatus=CLEAR`, `kytStatus=PASS`, and required `travelRuleStatus=ACCEPTED`
+3. `FIAT` withdraw does not auto-create PRE-KYT, but final dispatch still follows policy-driven main gate semantics
+4. withdraw quote create / withdraw create / payout dispatch start MUST all honor the shared extreme-volatility restriction gate when it is enabled in `WITHDRAWAL_PRICING`
+5. extreme-volatility gate MUST NOT roll back already `CONFIRMED` payouts
+- Withdraw workflow-bound callback contract MUST follow:
+1. `CLEAR` is the only workflow disposition that may release withdraw precheck or final review
+2. `REJECT` may move withdraw into `REJECTED`
+3. `FREEZE_TRANSACTION` may move withdraw into `UNDER_REVIEW`
+4. `REPORT` / `STR` follow-up is evidence and governance trace only; it MUST NOT directly mutate withdraw status
 - Manual override of provider response decision at the read-model API level is forbidden in current phase.
 - Admin Compliance Center MUST expose read-only pages:
 1. `Tx Evidence Bundles`

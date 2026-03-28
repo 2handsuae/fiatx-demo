@@ -162,13 +162,20 @@ export class DepositTransactionsService {
       options?.metadata?.transactionWorkflowClearanceApproved === true;
     const assetType = String(item.asset?.type || '').toUpperCase();
     if (assetType === 'CRYPTO' && !bypassTransactionComplianceChecks) {
-      if (item.kytStatus !== 'PASS') {
-        reasons.push(`kytStatus=${item.kytStatus || 'UNKNOWN'} (expected PASS)`);
+      if (!['PASS', 'FINAL'].includes(String(item.kytStatus || '').toUpperCase())) {
+        reasons.push(
+          `kytStatus=${item.kytStatus || 'UNKNOWN'} (expected FINAL-compatible lifecycle)`,
+        );
       }
 
-      if (item.travelRuleRequired === true && item.travelRuleStatus !== 'ACCEPTED') {
+      if (
+        item.travelRuleRequired === true &&
+        !['ACCEPTED', 'FINAL'].includes(
+          String(item.travelRuleStatus || '').toUpperCase(),
+        )
+      ) {
         reasons.push(
-          `travelRuleStatus=${item.travelRuleStatus || 'UNKNOWN'} (expected ACCEPTED when travelRuleRequired=true)`,
+          `travelRuleStatus=${item.travelRuleStatus || 'UNKNOWN'} (expected FINAL-compatible lifecycle when travelRuleRequired=true)`,
         );
       }
     }

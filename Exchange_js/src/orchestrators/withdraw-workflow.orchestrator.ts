@@ -38,6 +38,7 @@ export interface OrchestrationResult {
   emitted_events: string[];
   created_or_reversed_journal_entry_ids: string[];
   audit_log_id: string;
+  repairApplied?: boolean;
 }
 
 type WithdrawalAssetLike = {
@@ -376,6 +377,27 @@ export class WithdrawWorkflowOrchestrator {
   private async orchestrateSuccessPath(withdrawId: string, payoutId: string): Promise<OrchestrationResult | null> {
     this.logger.log(`Orchestrating Atomic Success Path for Withdrawal ${withdrawId} and Payout ${payoutId}`);
 
+    const payout = await this.prisma.payout.findUnique({
+      where: { id: payoutId },
+      select: {
+        id: true,
+        withdrawId: true,
+        status: true,
+      },
+    });
+    if (!payout) {
+      throw new BadRequestException(`Payout ${payoutId} not found`);
+    }
+    if (payout.withdrawId !== withdrawId) {
+      throw new BadRequestException(
+        `Payout ${payoutId} is not linked to withdrawal ${withdrawId}`,
+      );
+    }
+    if (payout.status !== PayoutStatus.CONFIRMED) {
+      this.logger.warn(`Payout ${payoutId} is not in CONFIRMED. Skipping success path.`);
+      return null;
+    }
+
     const marker = this.markerForSuccessPath(withdrawId, payoutId);
     if (await this.checkIdempotency(withdrawId, marker)) {
       this.logger.warn(`Success path for withdrawal ${withdrawId} already processed.`);
@@ -398,16 +420,21 @@ export class WithdrawWorkflowOrchestrator {
     };
 
     return await this.prisma.$transaction(async (tx) => {
-      await this.transactionComplianceService.ensureWithdrawMainCasesOnPayoutConfirmed(
+      const updatedWithdrawal = await this.withdrawalService.updateStatus(
         withdrawId,
-        payoutId,
+        {
+          action: WithdrawTransactionAction.SUCCESS,
+          reason: `[${marker}] Payout confirmed. Setting withdrawal to SUCCESS.`,
+        },
+        {
+          source: 'SYSTEM',
+          actorType: 'SYSTEM',
+          actorId: 'SYSTEM',
+          actorRole: 'SYSTEM',
+          sourcePlatform: 'SYSTEM',
+        },
         tx,
       );
-
-      const updatedWithdrawal = await this.withdrawalService.updateStatus(withdrawId, {
-        action: WithdrawTransactionAction.SUCCESS,
-        reason: `[${marker}] Payout confirmed. Setting withdrawal to SUCCESS.`,
-      }, tx);
       result.updated_withdrawal_status = updatedWithdrawal.status;
 
       let postingWithdrawal = updatedWithdrawal;
@@ -502,102 +529,186 @@ export class WithdrawWorkflowOrchestrator {
       return null;
     }
 
-    const marker = this.markerForPayoutResult(withdrawId, payoutId, status);
-    if (await this.checkIdempotency(withdrawId, marker)) {
-      this.logger.warn(`Payout result ${status} for ${withdrawId} already processed.`);
-      return null;
-    }
-
-    const withdrawal = await this.withdrawalService.findOne(withdrawId);
-    if (status !== PayoutStatus.RETURNED && withdrawal.status !== WithdrawTransactionStatus.PAYOUT_PENDING) {
-      this.logger.warn(`Withdrawal ${withdrawId} is not in PAYOUT_PENDING. Skipping back-propagation.`);
-      return null;
-    }
-    if (
-      status === PayoutStatus.RETURNED &&
-      withdrawal.status !== WithdrawTransactionStatus.SUCCESS &&
-      withdrawal.status !== WithdrawTransactionStatus.RETURNED
-    ) {
-      this.logger.warn(`Withdrawal ${withdrawId} is not in SUCCESS/RETURNED for returned flow.`);
-      return null;
-    }
-    if (status === PayoutStatus.RETURNED && withdrawal.status === WithdrawTransactionStatus.RETURNED) {
-      this.logger.warn(`Withdrawal ${withdrawId} already RETURNED. Skip repeated return event.`);
-      return null;
-    }
-
-    const isCustomer = withdrawal.ownerType === 'CUSTOMER';
-    const suffix = this.getSuffix(withdrawal);
-    const result: OrchestrationResult = {
-      payout_binding_status: 'unchanged',
-      emitted_events: [status],
-      created_or_reversed_journal_entry_ids: [],
-      audit_log_id: '',
-    };
-
-    const isReturn = status === PayoutStatus.RETURNED;
-    await this.prisma.$transaction(async (tx) => {
-      const updatedWithdrawal = await this.withdrawalService.updateStatus(
-        withdrawId,
-        {
-          action: isReturn
-            ? WithdrawTransactionAction.RETURN
-            : WithdrawTransactionAction.FAIL,
-          reason: `[${marker}] Payout ${payoutId} ${status.toLowerCase()}.`,
-        },
-        tx,
-      );
-      result.updated_withdrawal_status = updatedWithdrawal.status;
-
-      if (isCustomer) {
-        const execution = await this.accountingEventExecutionService.execute(
-          {
-            entityType: 'WITHDRAW',
-            triggerKey: 'status',
-            toStatus: updatedWithdrawal.status,
-            assetType: suffix,
-            frozenContext: this.createAccountingContext(updatedWithdrawal),
-            sourceId: updatedWithdrawal.id,
-            journalSourceType: 'WITHDRAW',
-            clearingSourceType: 'WITHDRAWAL',
-          },
-          tx,
-        );
-        result.created_or_reversed_journal_entry_ids.push(
-          ...this.collectJournalIds(execution.journalResult),
-        );
-      }
-
-      await this.clearingsService.updateStatusBySource(withdrawId, 'CANCELLED', tx);
-      const log = await this.auditLogsService.recordSystem(
-        {
-          triggerType: AuditTriggerType.STATE_TRANSITION,
-          action: buildStateTransitionAction(
-            'WITHDRAW',
-            withdrawal.status,
-            updatedWithdrawal.status,
-          ),
-          module: AuditModules.WITHDRAW_WORKFLOW,
-          entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
-          entityId: withdrawId,
-          entityNo: updatedWithdrawal.withdrawNo,
-          entityOwnerType: updatedWithdrawal.ownerType,
-          entityOwnerId: updatedWithdrawal.ownerId,
-          statusFrom: withdrawal.status,
-          statusTo: updatedWithdrawal.status,
-          reason: marker,
-          beforeData: { status: withdrawal.status },
-          afterData: { status: updatedWithdrawal.status, payoutStatus: status },
-          idempotencyKey: marker,
-          sourcePlatform: 'SYSTEM',
-        },
-        tx,
-      );
-      result.audit_log_id = log.id;
+    const payout = await this.prisma.payout.findUnique({
+      where: { id: payoutId },
+      select: {
+        id: true,
+        withdrawId: true,
+        status: true,
+      },
     });
+    if (!payout) {
+      throw new BadRequestException(`Payout ${payoutId} not found`);
+    }
+    if (payout.withdrawId !== withdrawId) {
+      throw new BadRequestException(
+        `Payout ${payoutId} is not linked to withdrawal ${withdrawId}`,
+      );
+    }
+    if (payout.status !== status) {
+      this.logger.warn(
+        `Payout ${payoutId} current status ${payout.status} does not match expected orchestration status ${status}. Skipping.`,
+      );
+      return null;
+    }
+
+    const result = await this.executeCompensationPath(withdrawId, payoutId, status);
+    if (!result) return null;
 
     this.logger.log(`Orchestration Result: ${JSON.stringify(result)}`);
     return result;
+  }
+
+  async reCloseoutPayout(payoutId: string): Promise<OrchestrationResult> {
+    const payout = await this.prisma.payout.findUnique({
+      where: { id: payoutId },
+      select: {
+        id: true,
+        withdrawId: true,
+        status: true,
+      },
+    });
+    if (!payout) {
+      throw new BadRequestException(`Payout ${payoutId} not found`);
+    }
+
+    const withdrawal = await this.withdrawalService.findOne(payout.withdrawId);
+    if (
+      payout.status === PayoutStatus.CLEAR &&
+      withdrawal.status === WithdrawTransactionStatus.SUCCESS
+    ) {
+      return this.buildNoopCloseoutResult(withdrawal.status, payout.status);
+    }
+
+    if (
+      payout.status !== PayoutStatus.CONFIRMED ||
+      withdrawal.status !== WithdrawTransactionStatus.PAYOUT_PENDING
+    ) {
+      throw new BadRequestException({
+        code: 'PAYOUT_RECLOSEOUT_NOT_APPLICABLE',
+        message:
+          'Re-closeout is only available for CONFIRMED payout linked to PAYOUT_PENDING withdraw.',
+        details: {
+          payoutId,
+          payoutStatus: payout.status,
+          withdrawId: payout.withdrawId,
+          withdrawStatus: withdrawal.status,
+        },
+      });
+    }
+
+    const result = await this.orchestrateSuccessPath(payout.withdrawId, payout.id);
+    if (result) {
+      return {
+        ...result,
+        repairApplied: true,
+      };
+    }
+
+    const refreshedPayout = await this.prisma.payout.findUnique({
+      where: { id: payoutId },
+      select: {
+        status: true,
+      },
+    });
+    const refreshedWithdrawal = await this.withdrawalService.findOne(payout.withdrawId);
+    if (
+      refreshedPayout?.status === PayoutStatus.CLEAR &&
+      refreshedWithdrawal.status === WithdrawTransactionStatus.SUCCESS
+    ) {
+      return this.buildNoopCloseoutResult(
+        refreshedWithdrawal.status,
+        refreshedPayout.status,
+      );
+    }
+
+    throw new BadRequestException({
+      code: 'PAYOUT_RECLOSEOUT_FAILED',
+      message: `Unable to re-run canonical closeout for payout ${payoutId}`,
+    });
+  }
+
+  async reCompensatePayout(payoutId: string): Promise<OrchestrationResult> {
+    const payout = await this.prisma.payout.findUnique({
+      where: { id: payoutId },
+      select: {
+        id: true,
+        withdrawId: true,
+        status: true,
+      },
+    });
+    if (!payout) {
+      throw new BadRequestException(`Payout ${payoutId} not found`);
+    }
+    if (!this.isCompensationPayoutStatus(payout.status as PayoutStatus)) {
+      throw new BadRequestException({
+        code: 'PAYOUT_RECOMPENSATE_NOT_APPLICABLE',
+        message:
+          'Re-compensate is only available for FAILED, TIMEOUT, or RETURNED payout.',
+        details: {
+          payoutId,
+          payoutStatus: payout.status,
+        },
+      });
+    }
+
+    const withdrawal = await this.withdrawalService.findOne(payout.withdrawId);
+    const payoutStatus = payout.status as PayoutStatus;
+    if (await this.isCompensationSettled(withdrawal, payoutStatus)) {
+      return this.buildNoopCompensationResult(withdrawal.status, payout.status);
+    }
+
+    if (!this.isCompensationRepairApplicable(withdrawal.status, payoutStatus)) {
+      throw new BadRequestException({
+        code: 'PAYOUT_RECOMPENSATE_NOT_APPLICABLE',
+        message:
+          'Re-compensate is only available when payout is terminal and withdraw still needs terminal compensation closeout.',
+        details: {
+          payoutId,
+          payoutStatus: payout.status,
+          withdrawId: payout.withdrawId,
+          withdrawStatus: withdrawal.status,
+        },
+      });
+    }
+
+    const result = await this.executeCompensationPath(
+      payout.withdrawId,
+      payout.id,
+      payoutStatus,
+    );
+    if (result) {
+      return {
+        ...result,
+        repairApplied: true,
+      };
+    }
+
+    const refreshedPayout = await this.prisma.payout.findUnique({
+      where: { id: payoutId },
+      select: {
+        status: true,
+      },
+    });
+    const refreshedWithdrawal = await this.withdrawalService.findOne(payout.withdrawId);
+    if (
+      refreshedPayout &&
+      this.isCompensationPayoutStatus(refreshedPayout.status as PayoutStatus) &&
+      (await this.isCompensationSettled(
+        refreshedWithdrawal,
+        refreshedPayout.status as PayoutStatus,
+      ))
+    ) {
+      return this.buildNoopCompensationResult(
+        refreshedWithdrawal.status,
+        refreshedPayout.status,
+      );
+    }
+
+    throw new BadRequestException({
+      code: 'PAYOUT_RECOMPENSATE_FAILED',
+      message: `Unable to re-run canonical compensation for payout ${payoutId}`,
+    });
   }
 
   // --- Helpers ---
@@ -634,6 +745,283 @@ export class WithdrawWorkflowOrchestrator {
     status: PayoutStatus,
   ) {
     return `ORCH::WITHDRAW_PAYOUT_RESULT::${withdrawId}::${payoutId}::${status}::DONE`;
+  }
+
+  private isCompensationPayoutStatus(status: PayoutStatus): boolean {
+    return (
+      status === PayoutStatus.FAILED ||
+      status === PayoutStatus.TIMEOUT ||
+      status === PayoutStatus.RETURNED
+    );
+  }
+
+  private mapCompensationWithdrawStatus(status: PayoutStatus): WithdrawTransactionStatus {
+    return status === PayoutStatus.RETURNED
+      ? WithdrawTransactionStatus.RETURNED
+      : WithdrawTransactionStatus.FAILED;
+  }
+
+  private mapCompensationWithdrawAction(status: PayoutStatus): WithdrawTransactionAction {
+    return status === PayoutStatus.RETURNED
+      ? WithdrawTransactionAction.RETURN
+      : WithdrawTransactionAction.FAIL;
+  }
+
+  private isCompensationRepairApplicable(
+    withdrawStatus: string,
+    payoutStatus: PayoutStatus,
+  ): boolean {
+    if (payoutStatus === PayoutStatus.RETURNED) {
+      return (
+        withdrawStatus === WithdrawTransactionStatus.SUCCESS ||
+        withdrawStatus === WithdrawTransactionStatus.RETURNED
+      );
+    }
+    return (
+      withdrawStatus === WithdrawTransactionStatus.PAYOUT_PENDING ||
+      withdrawStatus === WithdrawTransactionStatus.FAILED
+    );
+  }
+
+  private async isCompensationSettled(
+    withdrawal: WithdrawalForOrchestration,
+    payoutStatus: PayoutStatus,
+  ): Promise<boolean> {
+    if (
+      !this.isCompensationPayoutStatus(payoutStatus) ||
+      withdrawal.status !== this.mapCompensationWithdrawStatus(payoutStatus)
+    ) {
+      return false;
+    }
+
+    if (withdrawal.ownerType !== 'CUSTOMER') {
+      return true;
+    }
+
+    const originalJournals = await (this.prisma as any).journal.findMany({
+      where: {
+        sourceType: 'WITHDRAW',
+        sourceId: withdrawal.id,
+        reversalOfJournalId: null,
+      },
+      select: {
+        id: true,
+      },
+    });
+    if (!originalJournals.length) {
+      return false;
+    }
+
+    const reversals = await (this.prisma as any).journal.findMany({
+      where: {
+        sourceType: 'WITHDRAW',
+        sourceId: withdrawal.id,
+        reversalOfJournalId: {
+          in: originalJournals.map((journal: { id: string }) => journal.id),
+        },
+      },
+      select: {
+        reversalOfJournalId: true,
+      },
+    });
+    const reversedSourceIds = new Set(
+      reversals
+        .map((journal: { reversalOfJournalId?: string | null }) => journal.reversalOfJournalId)
+        .filter(
+          (value: string | null | undefined): value is string =>
+            typeof value === 'string' && value.length > 0,
+        ),
+    );
+    if (originalJournals.some((journal: { id: string }) => !reversedSourceIds.has(journal.id))) {
+      return false;
+    }
+
+    const clearings = await (this.prisma as any).clearing.findMany({
+      where: {
+        sourceType: 'WITHDRAWAL',
+        sourceId: withdrawal.id,
+      },
+      select: {
+        clearingStatus: true,
+      },
+    });
+    if (!clearings.length) {
+      return false;
+    }
+
+    return clearings.every(
+      (clearing: { clearingStatus?: string | null }) =>
+        clearing.clearingStatus === 'CANCELLED',
+    );
+  }
+
+  private async executeCompensationPath(
+    withdrawId: string,
+    payoutId: string,
+    payoutStatus: PayoutStatus,
+  ): Promise<OrchestrationResult | null> {
+    const marker = this.markerForPayoutResult(withdrawId, payoutId, payoutStatus);
+    const withdrawal = await this.withdrawalService.findOne(withdrawId);
+
+    if (await this.checkIdempotency(withdrawId, marker)) {
+      if (await this.isCompensationSettled(withdrawal, payoutStatus)) {
+        this.logger.warn(
+          `Payout result ${payoutStatus} for ${withdrawId} already processed with settled compensation.`,
+        );
+        return null;
+      }
+      this.logger.warn(
+        `Payout result ${payoutStatus} for ${withdrawId} already has marker but compensation artifacts are incomplete. Replaying compensation path.`,
+      );
+    }
+
+    if (!this.isCompensationRepairApplicable(withdrawal.status, payoutStatus)) {
+      this.logger.warn(
+        `Withdrawal ${withdrawId} status ${withdrawal.status} is not eligible for payout compensation replay on ${payoutStatus}.`,
+      );
+      return null;
+    }
+
+    const isCustomer = withdrawal.ownerType === 'CUSTOMER';
+    const suffix = this.getSuffix(withdrawal);
+    const targetWithdrawStatus = this.mapCompensationWithdrawStatus(payoutStatus);
+    const result: OrchestrationResult = {
+      payout_binding_status: 'unchanged',
+      emitted_events: [payoutStatus],
+      created_or_reversed_journal_entry_ids: [],
+      audit_log_id: '',
+      updated_payout_status: payoutStatus,
+    };
+
+    return this.prisma.$transaction(async (tx) => {
+      const currentWithdrawal = await tx.withdrawTransaction.findUnique({
+        where: { id: withdrawId },
+        include: {
+          asset: {
+            select: {
+              id: true,
+              code: true,
+              network: true,
+              type: true,
+            },
+          },
+        },
+      });
+      if (!currentWithdrawal) {
+        throw new BadRequestException(`Withdrawal ${withdrawId} not found`);
+      }
+
+      let accountingWithdrawal = currentWithdrawal;
+      if (currentWithdrawal.status !== targetWithdrawStatus) {
+        accountingWithdrawal = await this.withdrawalService.updateStatus(
+          withdrawId,
+          {
+            action: this.mapCompensationWithdrawAction(payoutStatus),
+            reason: `[${marker}] Payout ${payoutId} ${payoutStatus.toLowerCase()}.`,
+          },
+          {
+            source: 'SYSTEM',
+            actorType: 'SYSTEM',
+            actorId: 'SYSTEM',
+            actorRole: 'SYSTEM',
+            sourcePlatform: 'SYSTEM',
+          },
+          tx,
+        );
+      }
+      result.updated_withdrawal_status = accountingWithdrawal.status;
+
+      if (isCustomer) {
+        const execution = await this.accountingEventExecutionService.execute(
+          {
+            entityType: 'WITHDRAW',
+            triggerKey: 'status',
+            toStatus: targetWithdrawStatus,
+            assetType: suffix,
+            frozenContext: this.createAccountingContext(accountingWithdrawal),
+            sourceId: accountingWithdrawal.id,
+            journalSourceType: 'WITHDRAW',
+            clearingSourceType: 'WITHDRAWAL',
+          },
+          tx,
+        );
+        result.created_or_reversed_journal_entry_ids.push(
+          ...this.collectJournalIds(execution.journalResult),
+        );
+      }
+
+      await this.clearingsService.updateStatusBySource(
+        'WITHDRAWAL',
+        withdrawId,
+        'CANCELLED',
+        tx,
+      );
+
+      const log = await this.auditLogsService.recordSystem(
+        {
+          triggerType: AuditTriggerType.SYSTEM_EVENT,
+          action: AuditActions.SYSTEM_WITHDRAW_TERMINAL_ORCHESTRATED,
+          module: AuditModules.WITHDRAW_WORKFLOW,
+          entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+          entityId: withdrawId,
+          entityNo: accountingWithdrawal.withdrawNo,
+          entityOwnerType: accountingWithdrawal.ownerType,
+          entityOwnerId: accountingWithdrawal.ownerId,
+          statusFrom: currentWithdrawal.status,
+          statusTo: accountingWithdrawal.status,
+          reason: marker,
+          beforeData: { status: currentWithdrawal.status },
+          afterData: {
+            status: accountingWithdrawal.status,
+            payoutStatus,
+            payoutId,
+            compensationTargetStatus: targetWithdrawStatus,
+          },
+          metadata: {
+            payoutId,
+            payoutStatus,
+            compensationTargetStatus: targetWithdrawStatus,
+            repairReplay: currentWithdrawal.status === targetWithdrawStatus,
+          },
+          idempotencyKey: marker,
+          sourcePlatform: 'SYSTEM',
+        },
+        tx,
+      );
+      result.audit_log_id = log.id;
+
+      return result;
+    });
+  }
+
+  private buildNoopCloseoutResult(
+    withdrawStatus?: string,
+    payoutStatus?: string,
+  ): OrchestrationResult {
+    return {
+      updated_withdrawal_status: withdrawStatus,
+      updated_payout_status: payoutStatus,
+      payout_binding_status: 'unchanged',
+      emitted_events: [],
+      created_or_reversed_journal_entry_ids: [],
+      audit_log_id: '',
+      repairApplied: false,
+    };
+  }
+
+  private buildNoopCompensationResult(
+    withdrawStatus?: string,
+    payoutStatus?: string,
+  ): OrchestrationResult {
+    return {
+      updated_withdrawal_status: withdrawStatus,
+      updated_payout_status: payoutStatus,
+      payout_binding_status: 'unchanged',
+      emitted_events: [],
+      created_or_reversed_journal_entry_ids: [],
+      audit_log_id: '',
+      repairApplied: false,
+    };
   }
 
   private collectJournalIds(posting: JournalPostingResult): string[] {

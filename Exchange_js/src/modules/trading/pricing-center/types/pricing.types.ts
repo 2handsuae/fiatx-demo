@@ -90,6 +90,11 @@ export interface WithdrawalAssetEntry {
   tiers: WithdrawalTier[];
 }
 
+export interface WithdrawalPolicyRestrictions {
+  extremeVolatilityBlocked: boolean;
+  reason: string | null;
+}
+
 export interface SwapPricingPolicyConfig {
   policyId: string;
   policyName: string;
@@ -109,6 +114,7 @@ export interface WithdrawalPricingPolicyConfig {
     online: boolean;
     storeComingSoon: boolean;
   };
+  restrictions?: WithdrawalPolicyRestrictions;
   assets: WithdrawalAssetEntry[];
 }
 

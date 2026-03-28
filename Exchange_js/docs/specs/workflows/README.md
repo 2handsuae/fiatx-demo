@@ -2,7 +2,7 @@
 
 Status: active
 Owner: project-owner-and-agents
-Last Updated: 2026-03-26
+Last Updated: 2026-03-27
 Applies To: `Exchange_js`
 Supersedes: none
 Depends On: `docs/specs/README.md`
@@ -53,3 +53,7 @@ Source of Truth Level: specs-workflow
   - Wave 4 quote-to-event-to-clearing/journal orchestration contract.
 - `docs/specs/workflows/swap-canonical-workflow.md`
   - Wave 6 canonical swap workflow for quote consume, automatic risk routing, and terminal accounting behavior.
+- `docs/specs/workflows/withdraw-payout-canonical-workflow.md`
+  - Wave 7 canonical withdraw / payout workflow for precheck, dispatch gate, payout receipt, and fail / return propagation.
+- `docs/specs/workflows/safeguarding-reconciliation-workflow.md`
+  - Active Wave 7 minimum daily reconciliation workflow for break-based customer-funds handling.

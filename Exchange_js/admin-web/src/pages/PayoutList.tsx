@@ -35,7 +35,6 @@ const PayoutList = () => {
   const navigate = useNavigate();
   const [payouts, setPayouts] = useState<PayoutItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [processingId, setProcessingId] = useState<string | null>(null);
 
   // Filters
   const [statusFilter, setStatusFilter] = useState('');
@@ -74,33 +73,6 @@ const PayoutList = () => {
     fetchPayouts();
   }, [statusFilter]);
 
-  const handleUpdateAction = async (id: string, action: string) => {
-    setProcessingId(id);
-    try {
-        const token = localStorage.getItem('admin_token');
-        const response = await fetch(`${import.meta.env.VITE_API_URL}/payouts/${id}/status`, {
-            method: 'PATCH',
-            headers: {
-                'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ action })
-        });
-
-        if (response.ok) {
-            fetchPayouts();
-        } else {
-            const err = await response.json();
-            alert(`Action failed: ${err.message || 'Unknown error'}`);
-        }
-    } catch (error) {
-        console.error('Action failed', error);
-        alert('Action failed due to network error');
-    } finally {
-        setProcessingId(null);
-    }
-  };
-
   const handleCreateMock = async () => {
     setLoading(true);
     try {
@@ -124,53 +96,6 @@ const PayoutList = () => {
     } finally {
         setLoading(false);
     }
-  };
-
-  const getPayoutActions = (payout: PayoutItem) => {
-    const { status, type } = payout;
-    const actions: { action: string; label: string; color: string }[] = [];
-
-    if (type === 'CRYPTO') {
-      switch (status) {
-        case 'CREATED':
-          actions.push({ action: 'SIGN', label: 'Sign', color: 'bg-blue-600 text-white hover:bg-blue-700' });
-          break;
-        case 'SIGNING':
-          actions.push({ action: 'BROADCAST', label: 'Broadcast', color: 'bg-indigo-600 text-white hover:bg-indigo-700' });
-          actions.push({ action: 'SIGN_FAIL', label: 'Fail', color: 'bg-red-600 text-white hover:bg-red-700' });
-          break;
-        case 'BROADCASTED':
-          actions.push({ action: 'SEEN_IN_MEMPOOL', label: 'Seen', color: 'bg-blue-600 text-white hover:bg-blue-700' });
-          actions.push({ action: 'DROP', label: 'Drop', color: 'bg-orange-600 text-white hover:bg-orange-700' });
-          break;
-        case 'CONFIRMING':
-          actions.push({ action: 'CONFIRM', label: 'Confirm', color: 'bg-green-600 text-white hover:bg-green-700' });
-          actions.push({ action: 'FAIL', label: 'Fail', color: 'bg-red-600 text-white hover:bg-red-700' });
-          break;
-        case 'CONFIRMED':
-          actions.push({ action: 'CLEAR', label: 'Clear', color: 'bg-emerald-600 text-white hover:bg-emerald-700' });
-          break;
-      }
-    } else if (type === 'FIAT') {
-      switch (status) {
-        case 'CREATED':
-          actions.push({ action: 'SUBMIT', label: 'Submit', color: 'bg-blue-600 text-white hover:bg-blue-700' });
-          break;
-        case 'CONFIRMING':
-          actions.push({ action: 'CONFIRM', label: 'Confirm', color: 'bg-green-600 text-white hover:bg-green-700' });
-          actions.push({ action: 'FAIL', label: 'Fail', color: 'bg-red-600 text-white hover:bg-red-700' });
-          break;
-        case 'CONFIRMED':
-          actions.push({ action: 'CLEAR', label: 'Clear', color: 'bg-emerald-600 text-white hover:bg-emerald-700' });
-          actions.push({ action: 'RETURN', label: 'Return', color: 'bg-orange-600 text-white hover:bg-orange-700' });
-          break;
-        case 'CLEAR':
-          actions.push({ action: 'RETURN', label: 'Return', color: 'bg-orange-600 text-white hover:bg-orange-700' });
-          break;
-      }
-    }
-
-    return actions;
   };
 
   const renderStatusBadge = (status: string) => {
@@ -260,7 +185,7 @@ const PayoutList = () => {
                 <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Asset / Amount</th>
                 <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Status</th>
                 <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Destination</th>
-                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider text-right">Actions</th>
+                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider text-right">View</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-admin-border">
@@ -343,17 +268,6 @@ const PayoutList = () => {
                     </td>
                     <td className="px-6 py-4 text-right">
                       <div className="flex justify-end gap-2 items-center">
-                        {getPayoutActions(payout).map((item) => (
-                          <button 
-                            key={item.action}
-                            onClick={() => handleUpdateAction(payout.id, item.action)}
-                            className={`px-2 py-1 text-xs font-medium rounded transition-colors shadow-sm ${item.color} ${processingId === payout.id ? 'opacity-50 cursor-not-allowed' : ''}`}
-                            disabled={processingId === payout.id}
-                          >
-                            {item.label}
-                          </button>
-                        ))}
-                        <div className="w-px h-4 bg-gray-200 mx-1"></div>
                         <button 
                           onClick={() => navigate(`/dashboard/treasury/payouts/${payout.id}`)}
                           className="p-1.5 text-blue-600 rounded hover:bg-blue-50 transition-colors"

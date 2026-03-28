@@ -2,12 +2,6 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   ArrowLeft,
   RefreshCw,
-  CircleDashed,
-  Send,
-  Inbox,
-  CheckCircle2,
-  ShieldAlert,
-  Ban,
 } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
@@ -15,8 +9,6 @@ import {
   adminFetch,
   getApiErrorMessage,
 } from '../utils/adminFetch';
-import { SimulationRail } from '../components/SimulationRail';
-import { useSimulationMode } from '../utils/simulationMode';
 
 type TravelRuleReport = {
   id: string;
@@ -106,10 +98,8 @@ const TransactionTravelRuleResponseDetailPage = () => {
   const navigate = useNavigate();
   const { id = '' } = useParams<{ id: string }>();
   const [loading, setLoading] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [data, setData] = useState<TravelRuleResponseDetail | null>(null);
-  const { enabled: simulationModeEnabled } = useSimulationMode();
 
   const fetchDetail = useCallback(async () => {
     setLoading(true);
@@ -135,48 +125,6 @@ const TransactionTravelRuleResponseDetailPage = () => {
   useEffect(() => {
     fetchDetail();
   }, [fetchDetail]);
-
-  const handleMockComplete = useCallback(
-    async (status: string) => {
-      if (!data) return;
-      setSubmitting(true);
-      setErrorMessage('');
-      try {
-        const response = await adminFetch(
-          `${import.meta.env.VITE_API_URL}/admin/compliance/tx-travel-rule-cases/mock-complete`,
-          {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              sourceType: data.sourceType,
-              sourceId: data.sourceId,
-              required: data.required,
-              status,
-            }),
-          },
-        );
-        if (!response.ok) {
-          throw new Error(
-            await getApiErrorMessage(
-              response,
-              'Failed to mock-complete Travel Rule response.',
-            ),
-          );
-        }
-        await fetchDetail();
-      } catch (error) {
-        if (error instanceof AdminSessionError) return;
-        setErrorMessage(
-          getErrorMessage(error, 'Failed to mock-complete Travel Rule response.'),
-        );
-      } finally {
-        setSubmitting(false);
-      }
-    },
-    [data, fetchDetail],
-  );
 
   return (
     <div className="space-y-6">
@@ -210,115 +158,13 @@ const TransactionTravelRuleResponseDetailPage = () => {
 
       {data && (
         <>
-          {simulationModeEnabled ? (
-            <SimulationRail
-              title="Travel Rule Simulation Rail"
-              description="Travel Rule 也是自动判断节点，这里通过 icon rail 推进 provider 返回。"
-              items={[
-                {
-                  id: 'pending',
-                  label: 'Pending',
-                  icon: <CircleDashed size={14} />,
-                  state:
-                    data.status === 'PENDING'
-                      ? 'current'
-                      : ['SENT', 'RECEIVED', 'ACCEPTED', 'REJECTED', 'EXPIRED', 'NOT_REQUIRED'].includes(
-                            data.status,
-                          )
-                        ? 'completed'
-                        : 'readonly',
-                  helperText: '等待 Travel Rule 结果',
-                },
-                {
-                  id: 'sent',
-                  label: 'Sent',
-                  icon: <Send size={14} />,
-                  state: data.status === 'PENDING' ? 'available' : data.status === 'SENT' ? 'current' : 'readonly',
-                  onClick: ['PENDING', 'RECEIVED'].includes(data.status) ? () => handleMockComplete('SENT') : undefined,
-                  disabled: submitting,
-                  helperText: '已发送给对手方',
-                },
-                {
-                  id: 'received',
-                  label: 'Received',
-                  icon: <Inbox size={14} />,
-                  state: data.status === 'RECEIVED' ? 'current' : ['PENDING', 'SENT'].includes(data.status) ? 'available' : 'readonly',
-                  onClick: ['PENDING', 'SENT'].includes(data.status) ? () => handleMockComplete('RECEIVED') : undefined,
-                  disabled: submitting,
-                  helperText: '收到对手方资料',
-                },
-                {
-                  id: 'accepted',
-                  label: 'Accepted',
-                  icon: <CheckCircle2 size={14} />,
-                  state:
-                    data.status === 'ACCEPTED'
-                      ? 'current'
-                      : ['PENDING', 'SENT', 'RECEIVED'].includes(data.status)
-                        ? 'available'
-                        : 'readonly',
-                  tone: 'success',
-                  onClick:
-                    ['PENDING', 'SENT', 'RECEIVED'].includes(data.status)
-                      ? () => handleMockComplete('ACCEPTED')
-                      : undefined,
-                  disabled: submitting,
-                  helperText: 'Travel Rule 放行',
-                },
-                {
-                  id: 'rejected',
-                  label: 'Rejected',
-                  icon: <ShieldAlert size={14} />,
-                  state:
-                    data.status === 'REJECTED'
-                      ? 'current'
-                      : ['PENDING', 'SENT', 'RECEIVED'].includes(data.status)
-                        ? 'available'
-                        : 'readonly',
-                  tone: 'danger',
-                  onClick:
-                    ['PENDING', 'SENT', 'RECEIVED'].includes(data.status)
-                      ? () => handleMockComplete('REJECTED')
-                      : undefined,
-                  disabled: submitting,
-                  helperText: 'Travel Rule 拒绝',
-                },
-                {
-                  id: 'expired',
-                  label: 'Expired',
-                  icon: <Ban size={14} />,
-                  state:
-                    data.status === 'EXPIRED'
-                      ? 'current'
-                      : ['PENDING', 'SENT', 'RECEIVED'].includes(data.status)
-                        ? 'available'
-                        : 'readonly',
-                  tone: 'warning',
-                  onClick:
-                    ['PENDING', 'SENT', 'RECEIVED'].includes(data.status)
-                      ? () => handleMockComplete('EXPIRED')
-                      : undefined,
-                  disabled: submitting,
-                  helperText: '超时未完成',
-                },
-                {
-                  id: 'not-required',
-                  label: 'Not Required',
-                  icon: <CheckCircle2 size={14} />,
-                  state:
-                    data.status === 'NOT_REQUIRED'
-                      ? 'current'
-                      : data.status === 'PENDING'
-                        ? 'available'
-                        : 'readonly',
-                  tone: 'success',
-                  onClick: data.status === 'PENDING' ? () => handleMockComplete('NOT_REQUIRED') : undefined,
-                  disabled: submitting,
-                  helperText: '该笔无需 Travel Rule',
-                },
-              ]}
-            />
-          ) : null}
+          <section className="bg-blue-50 border border-blue-200 rounded-xl p-4 text-sm text-blue-900 space-y-1">
+            <div className="font-semibold">Response Container Only</div>
+            <p>
+              Travel Rule response 在提现流程里只承载对手方与 payload 证据，不承担风险判定或交易推进。
+              真实处置仍然由 risk execution、alert 与 case callback 决定。
+            </p>
+          </section>
 
           <section className="bg-white border border-admin-border rounded-xl p-4 space-y-4">
             <h2 className="text-sm font-semibold text-gray-900">Response Summary</h2>
@@ -332,6 +178,10 @@ const TransactionTravelRuleResponseDetailPage = () => {
                 { label: 'Provider', value: data.provider },
                 { label: 'Provider Transfer ID', value: data.providerTransferId },
                 { label: 'Counterparty VASP', value: data.counterpartyVasp },
+                {
+                  label: 'Lifecycle Meaning',
+                  value: 'CREATED / RECEIVED / FINAL',
+                },
                 {
                   label: 'Checked At',
                   value: data.checkedAt ? new Date(data.checkedAt).toLocaleString() : '-',

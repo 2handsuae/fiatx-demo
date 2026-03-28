@@ -49,6 +49,9 @@ describe('TransactionComplianceService', () => {
       handleDepositTravelRuleUpdate: jest.fn().mockResolvedValue({ skipped: false }),
       handleDepositFinalReviewIfReady: jest.fn().mockResolvedValue({ skipped: false }),
       handleDirectDepositFinalReview: jest.fn().mockResolvedValue({ skipped: false }),
+      handleWithdrawPrecheckReview: jest.fn().mockResolvedValue({ skipped: false }),
+      handleWithdrawFinalReviewIfReady: jest.fn().mockResolvedValue({ skipped: false }),
+      initializeWithdrawFinalReview: jest.fn().mockResolvedValue({ skipped: false }),
     }) as unknown as TransactionRiskBridgeService;
 
   beforeEach(() => {
@@ -57,7 +60,7 @@ describe('TransactionComplianceService', () => {
     jest.spyOn(AuditLogsService.prototype, 'recordByActor').mockResolvedValue({} as any);
     prismaMock.payin.findUnique.mockResolvedValue(null);
     prismaMock.inboundTransferSignal.findUnique.mockResolvedValue(null);
-    service = new TransactionComplianceService(prismaMock);
+    service = new TransactionComplianceService(prismaMock, buildBridgeMock() as any);
   });
 
   it('should upsert KYT case idempotently and append reports', async () => {
@@ -111,20 +114,22 @@ describe('TransactionComplianceService', () => {
     });
   });
 
-  it('should create PRE-KYT on withdraw create for crypto', async () => {
+  it('should create FINAL pre-KYT and Travel Rule response containers for crypto withdraw', async () => {
     prismaMock.withdrawTransaction.findUnique.mockResolvedValue({
       id: 'wd-1',
       ownerType: 'CUSTOMER',
       ownerId: 'c-1',
       assetId: 'asset-1',
+      travelRuleRequired: true,
+      toAddress: 'TTEST0001',
+      toIban: null,
       asset: {
         type: 'CRYPTO',
+        code: 'USDT',
+        network: 'TRON',
       },
     });
 
-    const modeSpy = jest
-      .spyOn(service as any, 'getProviderMode')
-      .mockReturnValue('MOCK');
     const upsertKytSpy = jest
       .spyOn(service, 'upsertKytCaseAndAppendReport')
       .mockResolvedValue({} as any);
@@ -143,36 +148,152 @@ describe('TransactionComplianceService', () => {
         sourceType: TxSourceType.WITHDRAW,
         sourceId: 'wd-1',
         screeningStage: KytScreeningStage.PRE_TXN,
+        status: 'FINAL',
+        provider: 'SYSTEM',
       }),
     );
-    expect(upsertTravelSpy).not.toHaveBeenCalled();
+    expect(upsertTravelSpy).toHaveBeenCalledTimes(1);
+    expect(upsertTravelSpy.mock.calls[0][0]).toEqual(
+      expect.objectContaining({
+        sourceType: TxSourceType.WITHDRAW,
+        sourceId: 'wd-1',
+        status: 'FINAL',
+        required: true,
+        provider: 'SYSTEM',
+      }),
+    );
     expect(syncSpy).toHaveBeenCalledWith('wd-1', undefined);
-
-    modeSpy.mockRestore();
   });
 
-  it('should skip PRE-KYT creation on withdraw create for fiat', async () => {
+  it('should not create response containers for fiat withdraw', async () => {
     prismaMock.withdrawTransaction.findUnique.mockResolvedValue({
       id: 'wd-fiat-1',
       ownerType: 'CUSTOMER',
       ownerId: 'c-1',
       assetId: 'asset-fiat-1',
+      travelRuleRequired: false,
+      toAddress: null,
+      toIban: 'AE1000000001',
       asset: {
         type: 'FIAT',
+        code: 'USD',
+        network: null,
       },
     });
 
     const upsertKytSpy = jest
       .spyOn(service, 'upsertKytCaseAndAppendReport')
       .mockResolvedValue({} as any);
+    const upsertTravelSpy = jest
+      .spyOn(service, 'upsertTravelRuleCaseAndAppendReport')
+      .mockResolvedValue({} as any);
+    const syncSpy = jest
+      .spyOn(service, 'syncWithdrawSnapshotFromCases')
+      .mockResolvedValue({} as any);
 
-    const result = await service.ensureWithdrawPreKytCaseOnCreate('wd-fiat-1');
+    await service.ensureWithdrawPreKytCaseOnCreate('wd-fiat-1');
 
     expect(upsertKytSpy).not.toHaveBeenCalled();
-    expect(result).toBeNull();
+    expect(upsertTravelSpy).not.toHaveBeenCalled();
+    expect(syncSpy).not.toHaveBeenCalled();
   });
 
-  it('should create MAIN KYT and Travel on payin confirmed for crypto deposit', async () => {
+  it('should delegate withdraw final review initialization to the risk bridge', async () => {
+    const bridgeMock = buildBridgeMock();
+    const complianceService = new TransactionComplianceService(
+      prismaMock,
+      bridgeMock as any,
+    );
+
+    await complianceService.initializeWithdrawFinalDecisionRecord('wd-init-1');
+
+    expect(bridgeMock.initializeWithdrawFinalReview).toHaveBeenCalledWith(
+      'wd-init-1',
+      undefined,
+    );
+  });
+
+  it('should not auto-trigger withdraw risk bridge from KYT response containers', async () => {
+    const bridgeMock = buildBridgeMock();
+    const complianceService = new TransactionComplianceService(
+      prismaMock,
+      bridgeMock as any,
+    );
+
+    prismaMock.kytCase.upsert.mockResolvedValue({
+      id: 'kyt-wd-1',
+      caseNo: 'KYT-WD-1',
+      sourceType: TxSourceType.WITHDRAW,
+      sourceId: 'wd-bridge-1',
+      screeningStage: KytScreeningStage.PRE_TXN,
+      ownerType: 'CUSTOMER',
+      ownerId: 'c-1',
+      provider: 'MOCK',
+      providerCaseId: 'MOCK-KYT-WD-1',
+      riskScore: 80,
+      status: 'PASS',
+    });
+    prismaMock.kytCaseReport.create.mockResolvedValue({ id: 'kyt-report-wd-1' });
+
+    await complianceService.upsertKytCaseAndAppendReport({
+      sourceType: TxSourceType.WITHDRAW,
+      sourceId: 'wd-bridge-1',
+      screeningStage: KytScreeningStage.PRE_TXN,
+      ownerType: 'CUSTOMER',
+      ownerId: 'c-1',
+      assetId: 'asset-1',
+      provider: 'MOCK',
+      providerCaseId: 'MOCK-KYT-WD-1',
+      status: 'PASS',
+      riskScore: 80,
+    });
+
+    expect(bridgeMock.handleWithdrawPrecheckReview).not.toHaveBeenCalled();
+    expect(bridgeMock.handleWithdrawFinalReviewIfReady).not.toHaveBeenCalled();
+    expect(bridgeMock.handleDepositFinalReviewIfReady).not.toHaveBeenCalled();
+  });
+
+  it('should not auto-trigger withdraw risk bridge from Travel Rule response containers', async () => {
+    const bridgeMock = buildBridgeMock();
+    const complianceService = new TransactionComplianceService(
+      prismaMock,
+      bridgeMock as any,
+    );
+
+    prismaMock.travelRuleCase.upsert.mockResolvedValue({
+      id: 'trv-wd-1',
+      caseNo: 'TRV-WD-1',
+      sourceType: TxSourceType.WITHDRAW,
+      sourceId: 'wd-bridge-1',
+      ownerType: 'CUSTOMER',
+      ownerId: 'c-1',
+      provider: 'MOCK',
+      providerTransferId: 'MOCK-TRV-WD-1',
+      required: true,
+      status: 'FINAL',
+      counterpartyVasp: null,
+    });
+    prismaMock.travelRuleCaseReport.create.mockResolvedValue({
+      id: 'trv-report-wd-1',
+    });
+
+    await complianceService.upsertTravelRuleCaseAndAppendReport({
+      sourceType: TxSourceType.WITHDRAW,
+      sourceId: 'wd-bridge-1',
+      ownerType: 'CUSTOMER',
+      ownerId: 'c-1',
+      assetId: 'asset-1',
+      provider: 'MOCK',
+      providerTransferId: 'MOCK-TRV-WD-1',
+      required: true,
+      status: 'FINAL',
+    });
+
+    expect(bridgeMock.handleWithdrawFinalReviewIfReady).not.toHaveBeenCalled();
+    expect(bridgeMock.handleDepositFinalReviewIfReady).not.toHaveBeenCalled();
+  });
+
+  it('should create KYT and Travel on payin confirmed for crypto deposit', async () => {
     prismaMock.depositTransaction.findUnique.mockResolvedValue({
       id: 'dep-1',
       ownerType: 'CUSTOMER',
@@ -205,7 +326,7 @@ describe('TransactionComplianceService', () => {
         sourceType: TxSourceType.DEPOSIT,
         sourceId: 'dep-1',
         screeningStage: KytScreeningStage.MAIN,
-        status: 'PASS',
+        status: 'FINAL',
       }),
     );
     expect(upsertTravelSpy).toHaveBeenCalledTimes(1);
@@ -213,7 +334,7 @@ describe('TransactionComplianceService', () => {
       expect.objectContaining({
         sourceType: TxSourceType.DEPOSIT,
         sourceId: 'dep-1',
-        status: 'ACCEPTED',
+        status: 'FINAL',
       }),
     );
     expect(syncSpy).toHaveBeenCalledWith('dep-1', undefined);
@@ -256,7 +377,7 @@ describe('TransactionComplianceService', () => {
       expect.objectContaining({
         sourceType: TxSourceType.DEPOSIT,
         sourceId: 'dep-interactive-1',
-        status: 'PASS',
+        status: 'FINAL',
       }),
       undefined,
     );
@@ -264,7 +385,7 @@ describe('TransactionComplianceService', () => {
       expect.objectContaining({
         sourceType: TxSourceType.DEPOSIT,
         sourceId: 'dep-interactive-1',
-        status: 'ACCEPTED',
+        status: 'FINAL',
       }),
       undefined,
     );
@@ -322,16 +443,16 @@ describe('TransactionComplianceService', () => {
         sourceType: TxSourceType.DEPOSIT,
         sourceId: 'dep-fiat-1',
         triggerStatus: 'PAYIN_CONFIRMED',
-        kytStatus: 'PASS',
+        kytStatus: 'FINAL',
         travelRuleRequired: false,
-        travelRuleStatus: 'NOT_REQUIRED',
+        travelRuleStatus: 'FINAL',
       }),
       undefined,
     );
     expect(result).toEqual({ skipped: false });
   });
 
-  it('should create MAIN KYT and Travel on payout confirmed for crypto withdraw', async () => {
+  it('should create terminal KYT response on crypto payout confirmed', async () => {
     prismaMock.withdrawTransaction.findUnique.mockResolvedValue({
       id: 'wd-2',
       ownerType: 'CUSTOMER',
@@ -343,9 +464,6 @@ describe('TransactionComplianceService', () => {
       },
     });
 
-    const modeSpy = jest
-      .spyOn(service as any, 'getProviderMode')
-      .mockReturnValue('MANUAL');
     const upsertKytSpy = jest
       .spyOn(service, 'upsertKytCaseAndAppendReport')
       .mockResolvedValue({} as any);
@@ -359,43 +477,34 @@ describe('TransactionComplianceService', () => {
     await service.ensureWithdrawMainCasesOnPayoutConfirmed('wd-2', 'payout-2');
 
     expect(upsertKytSpy).toHaveBeenCalledTimes(1);
-    expect(upsertKytSpy.mock.calls[0][0]).toEqual(
+    expect(upsertKytSpy).toHaveBeenCalledWith(
       expect.objectContaining({
         sourceType: TxSourceType.WITHDRAW,
         sourceId: 'wd-2',
         screeningStage: KytScreeningStage.MAIN,
-        status: 'PENDING',
+        status: 'FINAL',
+        provider: 'SYSTEM',
       }),
+      undefined,
     );
-    expect(upsertTravelSpy).toHaveBeenCalledTimes(1);
-    expect(upsertTravelSpy.mock.calls[0][0]).toEqual(
-      expect.objectContaining({
-        sourceType: TxSourceType.WITHDRAW,
-        sourceId: 'wd-2',
-        status: 'PENDING',
-      }),
-    );
+    expect(upsertTravelSpy).not.toHaveBeenCalled();
     expect(syncSpy).toHaveBeenCalledWith('wd-2', undefined);
-
-    modeSpy.mockRestore();
   });
 
-  it('should derive withdraw compliance status CLEAR when all case checks pass', async () => {
+  it('should sync withdraw response snapshots without persisting compliance disposition', async () => {
+    prismaMock.withdrawTransaction.findUnique.mockResolvedValue({
+      status: 'PAYOUT_PENDING',
+    });
     prismaMock.kytCase.findUnique
       .mockResolvedValueOnce({
-        status: 'PASS',
+        status: 'FINAL',
         providerCaseId: 'pre-1',
         riskScore: 10,
         checkedAt: new Date('2026-02-14T10:00:00.000Z'),
       })
-      .mockResolvedValueOnce({
-        status: 'PASS',
-        providerCaseId: 'main-1',
-        riskScore: 20,
-        checkedAt: new Date('2026-02-14T10:01:00.000Z'),
-      });
+      .mockResolvedValueOnce(null);
     prismaMock.travelRuleCase.findUnique.mockResolvedValue({
-      status: 'NOT_REQUIRED',
+      status: 'FINAL',
       required: false,
       providerTransferId: 'trv-1',
       counterpartyVasp: null,
@@ -408,10 +517,10 @@ describe('TransactionComplianceService', () => {
     expect(prismaMock.withdrawTransaction.update).toHaveBeenCalledWith({
       where: { id: 'wd-2' },
       data: expect.objectContaining({
-        preKytStatus: 'PASS',
-        kytStatus: 'PASS',
+        preKytStatus: 'FINAL',
+        kytStatus: '',
         travelRuleRequired: false,
-        travelRuleStatus: 'NOT_REQUIRED',
+        travelRuleStatus: 'FINAL',
         complianceStatus: 'CLEAR',
       }),
     });
@@ -484,6 +593,26 @@ describe('TransactionComplianceService', () => {
   });
 
   it('should aggregate withdraw compliance status to CLEAR', async () => {
+    prismaMock.withdrawTransaction.findUnique.mockResolvedValue({
+      id: 'wd-9',
+      withdrawNo: 'WD0009',
+      status: 'PAYOUT_PENDING',
+      ownerType: 'CUSTOMER',
+      ownerId: 'c-9',
+      ownerNo: 'CU0009',
+      payoutId: null,
+      payoutNo: null,
+      assetId: 'asset-1',
+      amount: null,
+      netAmount: null,
+      feeAmount: null,
+      preKytStatus: 'FINAL',
+      kytStatus: null,
+      travelRuleStatus: 'FINAL',
+      travelRuleRequired: true,
+      preKytRiskScore: null,
+      kytRiskScore: null,
+    });
     prismaMock.kytCase.findUnique
       .mockResolvedValueOnce({
         id: 'kyt-pre',
@@ -505,7 +634,7 @@ describe('TransactionComplianceService', () => {
       id: 'trv-main',
       sourceType: TxSourceType.WITHDRAW,
       sourceId: 'wd-9',
-      status: 'ACCEPTED',
+      status: 'FINAL',
       required: true,
       reports: [],
     });
@@ -581,7 +710,7 @@ describe('TransactionComplianceService', () => {
         depositId: 'dep-bridge-1',
         sourceType: TxSourceType.DEPOSIT,
         triggerSource: 'KYT',
-        triggerStatus: 'REVIEW',
+        triggerStatus: 'FINAL',
         reportDeduped: false,
       }),
       undefined,

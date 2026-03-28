@@ -281,8 +281,9 @@ const AuditLogsPage = () => {
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Audit Center - Audit Log</h1>
           <p className="mt-1 text-sm text-gray-500">
-            Default view focuses on the DEPOSIT workflow. Select audit records here, then
-            submit an evidence export request and track approval in Evidence Export.
+            Select audit records here, then submit an evidence export request and track approval
+            in Evidence Export. `WITHDRAW` exports will include payout, compliance, accounting,
+            and reconciliation snapshots.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -371,7 +372,7 @@ const AuditLogsPage = () => {
           <input
             value={filters.workflowNo}
             onChange={(e) => setFilters((prev) => ({ ...prev, workflowNo: e.target.value }))}
-            placeholder="Workflow No (depositNo)"
+            placeholder="Workflow No"
             className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
           />
           <select
@@ -379,8 +380,10 @@ const AuditLogsPage = () => {
             onChange={(e) => setFilters((prev) => ({ ...prev, workflowType: e.target.value }))}
             className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
           >
-            <option value="DEPOSIT">DEPOSIT</option>
             <option value="">All Workflows</option>
+            <option value="DEPOSIT">DEPOSIT</option>
+            <option value="WITHDRAW">WITHDRAW</option>
+            <option value="SWAP">SWAP</option>
           </select>
           <select
             value={filters.triggerType}

@@ -1,13 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ArrowLeft, RefreshCw, CircleDashed, CheckCircle2, ShieldAlert } from 'lucide-react';
+import { ArrowLeft, RefreshCw } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   AdminSessionError,
   adminFetch,
   getApiErrorMessage,
 } from '../utils/adminFetch';
-import { SimulationRail } from '../components/SimulationRail';
-import { useSimulationMode } from '../utils/simulationMode';
 
 type KytReport = {
   id: string;
@@ -93,10 +91,8 @@ const TransactionKytResponseDetailPage = () => {
   const navigate = useNavigate();
   const { id = '' } = useParams<{ id: string }>();
   const [loading, setLoading] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [data, setData] = useState<KytResponseDetail | null>(null);
-  const { enabled: simulationModeEnabled } = useSimulationMode();
 
   const fetchDetail = useCallback(async () => {
     setLoading(true);
@@ -120,43 +116,6 @@ const TransactionKytResponseDetailPage = () => {
   useEffect(() => {
     fetchDetail();
   }, [fetchDetail]);
-
-  const handleMockComplete = useCallback(
-    async (status: string) => {
-      if (!data) return;
-      setSubmitting(true);
-      setErrorMessage('');
-      try {
-        const response = await adminFetch(
-          `${import.meta.env.VITE_API_URL}/admin/compliance/tx-kyt-cases/mock-complete`,
-          {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              sourceType: data.sourceType,
-              sourceId: data.sourceId,
-              screeningStage: data.screeningStage,
-              status,
-            }),
-          },
-        );
-        if (!response.ok) {
-          throw new Error(
-            await getApiErrorMessage(response, 'Failed to mock-complete KYT response.'),
-          );
-        }
-        await fetchDetail();
-      } catch (error) {
-        if (error instanceof AdminSessionError) return;
-        setErrorMessage(getErrorMessage(error, 'Failed to mock-complete KYT response.'));
-      } finally {
-        setSubmitting(false);
-      }
-    },
-    [data, fetchDetail],
-  );
 
   return (
     <div className="space-y-6">
@@ -190,71 +149,13 @@ const TransactionKytResponseDetailPage = () => {
 
       {data && (
         <>
-          {simulationModeEnabled ? (
-            <SimulationRail
-              title="KYT Simulation Rail"
-              description="KYT 属于自动判断节点，这里只用 icon rail 推进 PASS / REVIEW / FAIL。"
-              items={[
-                {
-                  id: 'pending',
-                  label: 'Pending',
-                  icon: <CircleDashed size={14} />,
-                  state:
-                    data.status === 'PENDING'
-                      ? 'current'
-                      : ['PASS', 'REVIEW', 'FAIL'].includes(data.status)
-                        ? 'completed'
-                        : 'readonly',
-                  helperText: '证据容器等待结果',
-                },
-                {
-                  id: 'pass',
-                  label: 'Pass',
-                  icon: <CheckCircle2 size={14} />,
-                  state:
-                    data.status === 'PASS'
-                      ? 'current'
-                      : data.status === 'PENDING'
-                        ? 'available'
-                        : 'readonly',
-                  tone: 'success',
-                  onClick: data.status === 'PENDING' ? () => handleMockComplete('PASS') : undefined,
-                  disabled: submitting,
-                  helperText: 'KYT 正常通过',
-                },
-                {
-                  id: 'review',
-                  label: 'Review',
-                  icon: <ShieldAlert size={14} />,
-                  state:
-                    data.status === 'REVIEW'
-                      ? 'current'
-                      : data.status === 'PENDING'
-                        ? 'available'
-                        : 'readonly',
-                  tone: 'warning',
-                  onClick: data.status === 'PENDING' ? () => handleMockComplete('REVIEW') : undefined,
-                  disabled: submitting,
-                  helperText: '中风险命中，后续可能起 alert',
-                },
-                {
-                  id: 'fail',
-                  label: 'Fail',
-                  icon: <ShieldAlert size={14} />,
-                  state:
-                    data.status === 'FAIL'
-                      ? 'current'
-                      : data.status === 'PENDING'
-                        ? 'available'
-                        : 'readonly',
-                  tone: 'danger',
-                  onClick: data.status === 'PENDING' ? () => handleMockComplete('FAIL') : undefined,
-                  disabled: submitting,
-                  helperText: '高风险或拒绝路径',
-                },
-              ]}
-            />
-          ) : null}
+          <section className="bg-blue-50 border border-blue-200 rounded-xl p-4 text-sm text-blue-900 space-y-1">
+            <div className="font-semibold">Response Container Only</div>
+            <p>
+              KYT response 在提现流程里只作为证据容器承载 provider payload。风险判断和交易推进只看
+              risk execution、alert 与 case callback，不在这里手工模拟。
+            </p>
+          </section>
 
           <section className="bg-white border border-admin-border rounded-xl p-4 space-y-4">
             <h2 className="text-sm font-semibold text-gray-900">Response Summary</h2>
@@ -268,6 +169,10 @@ const TransactionKytResponseDetailPage = () => {
                 { label: 'Provider', value: data.provider },
                 { label: 'Provider Case ID', value: data.providerCaseId },
                 { label: 'Risk Score', value: data.riskScore },
+                {
+                  label: 'Lifecycle Meaning',
+                  value: 'CREATED / RECEIVED / FINAL',
+                },
                 {
                   label: 'Checked At',
                   value: data.checkedAt ? new Date(data.checkedAt).toLocaleString() : '-',

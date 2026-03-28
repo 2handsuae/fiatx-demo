@@ -363,6 +363,127 @@ describe('PricingCenterService - Swap Phase 1 constraints', () => {
       'WITHDRAW_SERVICE_FEE',
       'NETWORK_FEE_EST',
     ]);
+    expect(result.restrictions).toEqual({
+      extremeVolatilityBlocked: false,
+      reason: null,
+    });
+  });
+
+  it('should preserve withdrawal restrictions on save', async () => {
+    const config = buildBaseWithdrawalPolicy();
+    config.restrictions = {
+      extremeVolatilityBlocked: true,
+      reason: 'Extreme volatility mode enabled',
+    };
+
+    const existingSwap = {
+      id: 'policy-swap-id',
+      policyCode: 'SWAP_PRICING',
+      business: 'SWAP',
+      configJson: JSON.stringify(buildBaseSwapPolicy()),
+      updatedAt: new Date(),
+      updatedByUserId: 'SYSTEM',
+      updatedByUserNo: 'SYSTEM',
+    };
+    const existingWithdrawal = {
+      id: 'policy-withdraw-id',
+      policyCode: 'WITHDRAWAL_PRICING',
+      business: 'WITHDRAWAL',
+      configJson: JSON.stringify(buildBaseWithdrawalPolicy()),
+      updatedAt: new Date(),
+      updatedByUserId: 'SYSTEM',
+      updatedByUserNo: 'SYSTEM',
+    };
+
+    mockPrisma.pricingPolicy.findUnique
+      .mockResolvedValueOnce(existingSwap)
+      .mockResolvedValueOnce(existingWithdrawal);
+    mockPrisma.asset.findMany.mockResolvedValue([
+      { id: 'asset-btc', code: 'BTC', network: 'BTC', decimals: 8 },
+    ]);
+    mockPrisma.pricingPolicy.update.mockImplementation(async ({ data }: { data: { configJson: string } }) => ({
+      ...existingWithdrawal,
+      configJson: data.configJson,
+    }));
+
+    const saved = await service.updateWithdrawalPolicy(config);
+
+    expect(saved.restrictions).toEqual({
+      extremeVolatilityBlocked: true,
+      reason: 'Extreme volatility mode enabled',
+    });
+  });
+
+  it('should not persist aligned withdrawal policy during volatility gate checks', async () => {
+    const swap = {
+      id: 'policy-swap-id',
+      policyCode: 'SWAP_PRICING',
+      business: 'SWAP',
+      configJson: JSON.stringify(buildBaseSwapPolicy()),
+      updatedAt: new Date(),
+      updatedByUserId: 'SYSTEM',
+      updatedByUserNo: 'SYSTEM',
+    };
+    const withdrawal = {
+      id: 'policy-withdraw-id',
+      policyCode: 'WITHDRAWAL_PRICING',
+      business: 'WITHDRAWAL',
+      configJson: JSON.stringify({
+        policyId: 'POL-WITHDRAW-ONLINE',
+        policyName: 'Withdrawal Pricing',
+        business: 'WITHDRAWAL',
+        channel: { online: true, storeComingSoon: true },
+        restrictions: {
+          extremeVolatilityBlocked: true,
+          reason: 'Volatility gate enabled',
+        },
+        assets: [],
+      }),
+      updatedAt: new Date(),
+      updatedByUserId: 'SYSTEM',
+      updatedByUserNo: 'SYSTEM',
+      policyName: 'Withdrawal Pricing',
+      channelOnline: true,
+      channelStoreSoon: true,
+    };
+
+    mockPrisma.pricingPolicy.findUnique
+      .mockResolvedValueOnce(swap)
+      .mockResolvedValueOnce(withdrawal);
+    mockPrisma.asset.findMany.mockResolvedValue([
+      { id: 'asset-btc', code: 'BTC', network: 'BTC', decimals: 8 },
+    ]);
+
+    const auditLogsService = {
+      recordByActor: jest.fn().mockResolvedValue(undefined),
+    };
+    (service as any).auditLogsService = auditLogsService;
+
+    await expect(
+      service.assertWithdrawExtremeVolatilityNotBlocked({
+        ownerType: 'CUSTOMER',
+        ownerId: 'owner-1',
+        ownerNo: 'CUS-001',
+        assetId: 'asset-btc',
+        module: 'PRICING_CENTER',
+        entityType: 'WITHDRAW_PRICING_QUOTE',
+        entityId: 'WITHDRAW_QUOTE_RESTRICTION:owner-1:asset-btc',
+        entityNo: 'WQO-001',
+        sourcePlatform: 'CUSTOMER_API',
+        auditActor: {
+          actorType: 'CUSTOMER',
+          actorId: 'owner-1',
+          actorRole: 'CUSTOMER',
+        },
+        surface: 'PAYOUT_DISPATCH',
+        action: 'SIGN',
+        withdrawId: 'withdraw-1',
+        payoutId: 'payout-1',
+      }),
+    ).rejects.toThrow('Volatility gate enabled');
+
+    expect(mockPrisma.pricingPolicy.update).not.toHaveBeenCalled();
+    expect(auditLogsService.recordByActor).toHaveBeenCalled();
   });
 
   it('should reject withdrawal policy when percent fee misses minimum', async () => {

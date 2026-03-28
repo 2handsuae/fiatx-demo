@@ -2,7 +2,7 @@
 
 Status: active
 Owner: project-owner-and-agents
-Last Updated: 2026-03-26
+Last Updated: 2026-03-27
 Applies To: `Exchange_js`
 Supersedes: none
 Depends On: `docs/README.md`
@@ -39,6 +39,8 @@ Source of Truth Level: roadmap
 - `docs/roadmap/wave-6-pricing-quote-swap-phase-plan.md`
   - Runtime-complete and cleanup-complete Wave 6 sequencing record for swap pricing, quote execution, manual risk simulation, fee closure, and evidence export.
   - Completed cleanup history is retained in `docs/cleanup/wave-6-cleanup-master-plan.md`.
+- `docs/roadmap/wave-7-withdraw-payout-phase-plan.md`
+  - Active Wave 7 sequencing record for withdraw / payout canonical runtime, transaction-risk rollout, minimum reconciliation closeout, and Wave 8 boundary handoff.
 
 ## Do Not Use For
 - Hard behavioral constraints.

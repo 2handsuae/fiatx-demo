@@ -1,3 +1,4 @@
+import { BadRequestException } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PayoutsService } from './payouts.service';
 import {
@@ -15,9 +16,14 @@ describe('PayoutsService', () => {
   let service: PayoutsService;
   let prisma: any;
   let eventEmitter: { emit: jest.Mock };
+  let transactionComplianceService: any;
+  let pricingCenterService: any;
 
   beforeEach(() => {
     prisma = {
+      auditLogEvent: {
+        findMany: jest.fn(),
+      },
       payout: {
         findUnique: jest.fn(),
         create: jest.fn(),
@@ -34,8 +40,27 @@ describe('PayoutsService', () => {
     eventEmitter = {
       emit: jest.fn(),
     };
-    service = new PayoutsService(prisma, eventEmitter as unknown as EventEmitter2);
+    transactionComplianceService = {
+      ensureWithdrawMainCasesBeforePayoutDispatch: jest.fn(),
+    };
+    pricingCenterService = {
+      assertWithdrawExtremeVolatilityNotBlocked: jest.fn(),
+    };
+    service = new PayoutsService(
+      prisma,
+      eventEmitter as unknown as EventEmitter2,
+      transactionComplianceService,
+      pricingCenterService,
+    );
+    (service as any).auditLogsService = {
+      recordByActor: jest.fn().mockResolvedValue({ id: 'audit-log-1' }),
+      recordSystem: jest.fn().mockResolvedValue({ id: 'audit-log-1' }),
+    };
     jest.clearAllMocks();
+    pricingCenterService.assertWithdrawExtremeVolatilityNotBlocked.mockResolvedValue(
+      undefined,
+    );
+    prisma.auditLogEvent.findMany.mockResolvedValue([]);
   });
 
   it('should emit payout failed event after commit', async () => {
@@ -68,6 +93,271 @@ describe('PayoutsService', () => {
         status: PayoutStatus.FAILED,
       }),
     );
+  });
+
+  it('should allow crypto payout dispatch without legacy withdraw final gate blocking', async () => {
+    prisma.payout.findUnique.mockResolvedValue({
+      id: 'PO_gate_1',
+      payoutNo: 'POGATE1',
+      ownerId: 'CUST_1',
+      withdrawId: 'WD_gate_1',
+      type: PayoutType.CRYPTO,
+      status: PayoutStatus.CREATED,
+      statusHistory: '[]',
+      sentAt: null,
+      withdraw: {
+        id: 'WD_gate_1',
+        ownerId: 'CUST_1',
+        ownerNo: 'CU_0001',
+        asset: {
+          type: 'CRYPTO',
+        },
+      },
+    });
+    prisma.payout.update.mockResolvedValue({
+      id: 'PO_gate_1',
+      status: PayoutStatus.SIGNING,
+    });
+    prisma.payoutAuditLog.create.mockResolvedValue({ id: 'audit-gate-1' });
+
+    const updated = await service.updateStatus(
+      'PO_gate_1',
+      { action: PayoutAction.SIGN },
+      'SYSTEM',
+    );
+
+    expect(updated.status).toBe(PayoutStatus.SIGNING);
+    expect(
+      transactionComplianceService.ensureWithdrawMainCasesBeforePayoutDispatch,
+    ).not.toHaveBeenCalled();
+    expect(prisma.payout.update).toHaveBeenCalled();
+  });
+
+  it('should block payout dispatch when extreme volatility restriction is enabled', async () => {
+    prisma.payout.findUnique.mockResolvedValue({
+      id: 'PO_gate_2',
+      payoutNo: 'POGATE2',
+      ownerId: 'CUST_1',
+      assetId: 'asset-btc',
+      withdrawId: 'WD_gate_2',
+      type: PayoutType.CRYPTO,
+      status: PayoutStatus.CREATED,
+      statusHistory: '[]',
+      sentAt: null,
+      withdraw: {
+        id: 'WD_gate_2',
+        ownerId: 'CUST_1',
+        ownerNo: 'CU_0001',
+        asset: {
+          type: 'CRYPTO',
+        },
+      },
+    });
+    pricingCenterService.assertWithdrawExtremeVolatilityNotBlocked.mockRejectedValue(
+      new BadRequestException({
+        code: 'WITHDRAW_EXTREME_VOLATILITY_BLOCKED',
+      }),
+    );
+
+    await expect(
+      service.updateStatus(
+        'PO_gate_2',
+        { action: PayoutAction.SIGN },
+        'SYSTEM',
+      ),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: 'WITHDRAW_EXTREME_VOLATILITY_BLOCKED',
+      }),
+    });
+
+    expect(
+      transactionComplianceService.ensureWithdrawMainCasesBeforePayoutDispatch,
+    ).not.toHaveBeenCalled();
+    expect(prisma.payout.update).not.toHaveBeenCalled();
+  });
+
+  it('should block admin direct CLEAR action', async () => {
+    await expect(
+      service.updateStatus(
+        'PO_clear_1',
+        { action: PayoutAction.CLEAR },
+        'admin-1',
+      ),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: 'PAYOUT_CLEAR_SYSTEM_ONLY',
+      }),
+    });
+  });
+
+  it('should run payout status updates with extended transaction timeout', async () => {
+    prisma.payout.findUnique.mockResolvedValue({
+      id: 'PO_timeout_1',
+      payoutNo: 'POTIMEOUT1',
+      ownerId: 'CUST_1',
+      assetId: 'asset-btc',
+      withdrawId: 'WD_timeout_1',
+      type: PayoutType.CRYPTO,
+      status: PayoutStatus.CREATED,
+      statusHistory: '[]',
+      sentAt: null,
+      withdraw: {
+        id: 'WD_timeout_1',
+        ownerId: 'CUST_1',
+        ownerNo: 'CU_0001',
+        asset: {
+          type: 'CRYPTO',
+        },
+      },
+    });
+    prisma.payout.update.mockResolvedValue({
+      id: 'PO_timeout_1',
+      status: PayoutStatus.SIGNING,
+    });
+
+    await service.updateStatus(
+      'PO_timeout_1',
+      { action: PayoutAction.SIGN },
+      'SYSTEM',
+    );
+
+    expect(prisma.$transaction).toHaveBeenCalledWith(
+      expect.any(Function),
+      expect.objectContaining({
+        timeout: 15000,
+      }),
+    );
+  });
+
+  it('should allow system CLEAR action', async () => {
+    prisma.payout.findUnique.mockResolvedValue({
+      id: 'PO_clear_2',
+      withdrawId: 'WD_2',
+      type: PayoutType.FIAT,
+      status: PayoutStatus.CONFIRMED,
+      statusHistory: '[]',
+      sentAt: new Date(),
+    });
+    prisma.payout.update.mockResolvedValue({
+      id: 'PO_clear_2',
+      status: PayoutStatus.CLEAR,
+    });
+
+    const updated = await service.updateStatus(
+      'PO_clear_2',
+      { action: PayoutAction.CLEAR },
+      'SYSTEM',
+    );
+
+    expect(updated.status).toBe(PayoutStatus.CLEAR);
+  });
+
+  it('should auto-generate referenceNo when confirming fiat payout without one', async () => {
+    prisma.payout.findUnique.mockResolvedValue({
+      id: 'PO_fiat_confirm_1',
+      payoutNo: 'POFIAT1',
+      withdrawId: 'WD_fiat_confirm_1',
+      type: PayoutType.FIAT,
+      status: PayoutStatus.CONFIRMING,
+      statusHistory: '[]',
+      sentAt: new Date(),
+      referenceNo: null,
+    });
+
+    prisma.payout.update.mockResolvedValue({
+      id: 'PO_fiat_confirm_1',
+      status: PayoutStatus.CONFIRMED,
+      referenceNo: 'BANK-POFIAT1',
+    });
+
+    const updated = await service.updateStatus(
+      'PO_fiat_confirm_1',
+      { action: PayoutAction.CONFIRM },
+      'SYSTEM',
+    );
+
+    expect(updated.status).toBe(PayoutStatus.CONFIRMED);
+    expect(prisma.payout.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          referenceNo: 'BANK-POFIAT1',
+        }),
+      }),
+    );
+  });
+
+  it('should allow fiat confirm when referenceNo is already stored', async () => {
+    prisma.payout.findUnique.mockResolvedValue({
+      id: 'PO_fiat_confirm_2',
+      payoutNo: 'POFIAT2',
+      withdrawId: 'WD_fiat_confirm_2',
+      type: PayoutType.FIAT,
+      status: PayoutStatus.CONFIRMING,
+      statusHistory: '[]',
+      sentAt: new Date(),
+      referenceNo: 'BANK-REF-001',
+    });
+    prisma.payout.update.mockResolvedValue({
+      id: 'PO_fiat_confirm_2',
+      status: PayoutStatus.CONFIRMED,
+      referenceNo: 'BANK-REF-001',
+    });
+
+    const updated = await service.updateStatus(
+      'PO_fiat_confirm_2',
+      { action: PayoutAction.CONFIRM },
+      'SYSTEM',
+    );
+
+    expect(updated.status).toBe(PayoutStatus.CONFIRMED);
+    expect(prisma.payout.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          referenceNo: 'BANK-REF-001',
+        }),
+      }),
+    );
+  });
+
+  it('should return canonical audit logs in payout detail payload', async () => {
+    prisma.payout.findUnique.mockResolvedValue({
+      id: 'PO_detail_1',
+      payoutNo: 'PODET1',
+      withdrawId: 'WD_detail_1',
+      type: PayoutType.FIAT,
+      status: PayoutStatus.CLEAR,
+      asset: { code: 'AED', type: 'FIAT', network: null },
+      withdraw: { withdrawNo: 'WDDET1', ownerId: 'CUST_1', status: 'SUCCESS' },
+      customer: null,
+      clearings: [],
+    });
+    prisma.auditLogEvent.findMany.mockResolvedValue([
+      {
+        id: 'audit-payout-1',
+        action: 'PAYOUT_CONFIRMED_TO_CLEAR',
+        statusFrom: 'CONFIRMED',
+        statusTo: 'CLEAR',
+        actorType: 'SYSTEM',
+        actorId: 'SYSTEM',
+        reason: 'closeout',
+        occurredAt: '2026-03-28T11:00:00.000Z',
+        module: 'asset-treasury/payouts',
+        result: 'SUCCESS',
+      },
+    ]);
+
+    const result = await service.findOne('PO_detail_1');
+
+    expect(result.auditLogs).toEqual([
+      expect.objectContaining({
+        id: 'audit-payout-1',
+        action: 'PAYOUT_CONFIRMED_TO_CLEAR',
+        oldStatus: 'CONFIRMED',
+        newStatus: 'CLEAR',
+        operatorId: 'SYSTEM',
+      }),
+    ]);
   });
 
   it('should not emit payout events when external tx is provided', async () => {

@@ -1,6 +1,6 @@
 Status: draft
 Owner: project-owner-and-agents
-Last Updated: 2026-03-23
+Last Updated: 2026-03-27
 Applies To: `Exchange_js`
 Supersedes: none
 Depends On: `docs/roadmap/wave-4-ledger-asset-structure-phase-plan.md`, `docs/constraints/customer-transaction-flow-constraints.md`, `docs/constraints/internal-transaction-flow-constraints.md`, `docs/specs/workflows/quote-event-clearing-journal-workflow.md`
@@ -79,6 +79,8 @@ Source of Truth Level: constraints
 - Repeated triggering of the same source event MUST NOT duplicate clearing, journal, or balance projection records.
 - Reversal paths MUST remain source-aware and replay-safe.
 - Bulk reversal-by-source remains the baseline for source-level terminal compensation paths where already defined.
+- `reverseAllBySource` replay MUST skip journals that already have reversal journals and only create missing reversals.
+- Repeated reversal replay MUST NOT create a second `WalletBalanceEntry` set for already-reversed journal lines.
 
 ## 10) Current Runtime Compatibility Note
 - Current customer/internal transaction constraints already define concrete event ordering for delivered flows.
@@ -90,6 +92,22 @@ Source of Truth Level: constraints
 1. journal uses `sourceType=WITHDRAW`
 2. clearing uses `sourceType=WITHDRAWAL`
 3. clearing no longer mutates the withdraw row to backfill fee/net amounts
+4. terminal compensation closes existing `WITHDRAWAL` clearings by status update; it does not mint a second clearing object
+
+## 10A) Withdraw Phase 2 Compensation Contract
+- `Withdraw SUCCESS` keeps the required order:
+1. withdraw business status changes to `SUCCESS`
+2. success posting executes on `sourceType=WITHDRAW`
+3. payout closes to `CLEAR`
+- `Withdraw FAILED / RETURNED` keeps the required order:
+1. payout terminal result is already persisted
+2. withdraw business status changes to target terminal state if needed
+3. terminal reversal executes on `sourceType=WITHDRAW`
+4. linked `WITHDRAWAL` clearings close to `CANCELLED`
+- Canonical withdraw terminal no-orphan state requires:
+1. no unreversed original journal remains on `sourceType=WITHDRAW, sourceId=<withdrawId>`
+2. no linked `WITHDRAWAL` clearing remains non-`CANCELLED`
+3. no wallet balance projection delta is introduced twice by replay
 
 ## 11) Forbidden Patterns
 - MUST NOT let `Price Center` directly create clearing or journals.

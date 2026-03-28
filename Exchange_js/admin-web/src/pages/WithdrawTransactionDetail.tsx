@@ -130,11 +130,19 @@ interface WithdrawTransactionDetail {
   };
   auditLogs?: Array<{
     id: string;
-    oldStatus: string;
-    newStatus: string;
+    action?: string | null;
+    oldStatus?: string | null;
+    newStatus?: string | null;
+    statusFrom?: string | null;
+    statusTo?: string | null;
     reason: string | null;
-    createdAt: string;
-    operatorId: string;
+    createdAt?: string | null;
+    occurredAt?: string | null;
+    operatorId?: string | null;
+    actorId?: string | null;
+    actorType?: string | null;
+    module?: string | null;
+    result?: string | null;
   }>;
 }
 
@@ -202,61 +210,6 @@ const WithdrawTransactionDetail = () => {
     );
   };
 
-  const handleAction = async (action: string) => {
-    if (!data) return;
-    if (!window.confirm(`Are you sure you want to perform action: ${action.toUpperCase()}?`)) return;
-
-    try {
-      const token = localStorage.getItem('admin_token');
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/withdraw-transactions/${id}/status`, {
-        method: 'PATCH',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ action })
-      });
-      
-      if (response.ok) {
-        window.location.reload();
-      } else {
-        const err = await response.json();
-        alert(`Action failed: ${err.message}`);
-      }
-    } catch (error) {
-      console.error('Action failed', error);
-    }
-  };
-
-  const getAvailableActions = (status: string) => {
-    const actions = [];
-    switch (status) {
-      case 'CREATED':
-        actions.push({ action: 'check', label: 'Submit to Compliance', style: 'bg-blue-600 hover:bg-blue-700 text-white' });
-        actions.push({ action: 'cancel', label: 'Cancel', style: 'bg-gray-600 hover:bg-gray-700 text-white' });
-        break;
-      case 'PENDING_COMPLIANCE':
-        actions.push({ action: 'flag', label: 'Flag for Review', style: 'bg-orange-600 hover:bg-orange-700 text-white' });
-        actions.push({ action: 'reject', label: 'Reject', style: 'bg-red-600 hover:bg-red-700 text-white' });
-        actions.push({ action: 'approve', label: 'Approve', style: 'bg-green-600 hover:bg-green-700 text-white' });
-        actions.push({ action: 'cancel', label: 'Cancel', style: 'bg-gray-600 hover:bg-gray-700 text-white' });
-        break;
-      case 'UNDER_REVIEW':
-        actions.push({ action: 'approve', label: 'Approve', style: 'bg-green-600 hover:bg-green-700 text-white' });
-        actions.push({ action: 'reject', label: 'Reject', style: 'bg-red-600 hover:bg-red-700 text-white' });
-        actions.push({ action: 'cancel', label: 'Cancel', style: 'bg-gray-600 hover:bg-gray-700 text-white' });
-        break;
-      case 'PAYOUT_PENDING':
-        actions.push({ action: 'success', label: 'Mark Success', style: 'bg-green-600 hover:bg-green-700 text-white' });
-        actions.push({ action: 'fail', label: 'Mark Fail', style: 'bg-red-600 hover:bg-red-700 text-white' });
-        break;
-      case 'SUCCESS':
-        actions.push({ action: 'return', label: 'Return Funds', style: 'bg-orange-600 hover:bg-orange-700 text-white' });
-        break;
-    }
-    return actions;
-  };
-
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[400px]">
@@ -270,6 +223,8 @@ const WithdrawTransactionDetail = () => {
 
   const ownerNo = data.ownerNo || data.customer?.customerNo || 'N/A';
   const payoutNo = data.payoutNo || data.payout?.payoutNo || 'N/A';
+  const payoutDetailPath = data.payoutId ? `/dashboard/treasury/payouts/${data.payoutId}` : null;
+  const relatedAlertsPath = `/dashboard/compliance/alerts?sourceType=WITHDRAW&sourceId=${data.id}&stage=REVIEW_WITHDRAW_FINAL`;
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto pb-12">
@@ -294,18 +249,44 @@ const WithdrawTransactionDetail = () => {
             </div>
           </div>
         </div>
-        <div className="flex gap-2 items-center">
-            {getAvailableActions(data.status).map(action => (
-                <button
-                    key={action.action}
-                    onClick={() => handleAction(action.action)}
-                    className={`px-4 py-2 rounded-lg text-white text-sm font-medium shadow-sm transition-colors ${action.style}`}
-                >
-                    {action.label}
-                </button>
-            ))}
+        <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+          Withdraw progression is now driven by risk execution and linked payout simulation. No direct action buttons are exposed on the withdraw surface.
         </div>
       </div>
+
+      {data.status === 'PAYOUT_PENDING' ? (
+        <div className="rounded-xl border border-indigo-200 bg-indigo-50 px-5 py-4 text-sm text-indigo-900">
+          <div className="font-semibold">Execution has moved to payout</div>
+          <div className="mt-1">
+            This withdraw is now waiting on the linked payout execution and system closeout. Continue operational actions from the payout detail instead of changing withdraw terminal status directly.
+          </div>
+          {payoutDetailPath ? (
+            <button
+              onClick={() => navigate(payoutDetailPath)}
+              className="mt-3 inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-700"
+            >
+              Open Linked Payout
+              <ExternalLink size={14} />
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+
+      {(data.status === 'PENDING_COMPLIANCE' || data.status === 'UNDER_REVIEW') ? (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-900">
+          <div className="font-semibold">Compliance review visibility</div>
+          <div className="mt-1">
+            Withdraw alerts are triaged from the Compliance Alerts queue. Open the filtered alert list for this withdraw to review or continue handling.
+          </div>
+          <button
+            onClick={() => navigate(relatedAlertsPath)}
+            className="mt-3 inline-flex items-center gap-2 rounded-lg bg-amber-600 px-3 py-2 text-sm font-medium text-white hover:bg-amber-700"
+          >
+            Open Related Alerts
+            <ExternalLink size={14} />
+          </button>
+        </div>
+      ) : null}
 
       <div className="flex flex-col gap-6">
         {/* 1. Basic Identification */}
@@ -390,9 +371,9 @@ const WithdrawTransactionDetail = () => {
             <InfoField label="Provider Txn ID" value={data.providerTxnId} source="main" />
         </DetailCard>
 
-        {/* 6. Compliance (Pre-KYT) */}
-        <DetailCard title="Compliance (Pre-KYT)" icon={<Shield size={18} />}>
-            <InfoField label="Pre-KYT Status" value={data.preKytStatus} highlight source="main" />
+        {/* 6. Response Container (Pre-KYT) */}
+        <DetailCard title="Response Container (Pre-KYT)" icon={<Shield size={18} />}>
+            <InfoField label="Lifecycle" value={data.preKytStatus} highlight source="main" />
             <InfoField label="Pre-KYT ID" value={data.preKytId} source="main" />
             <InfoField label="Risk Score" value={data.preKytRiskScore?.toString()} source="main" />
             <InfoField label="Checked At" value={data.preKytCheckedAt ? new Date(data.preKytCheckedAt).toLocaleString() : 'N/A'} source="main" />
@@ -403,13 +384,13 @@ const WithdrawTransactionDetail = () => {
               source="main"
             />
             <div className="sm:col-span-2 rounded border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-600">
-              Transaction-specific compliance evidence pages are no longer part of the active compliance runtime.
+              Response containers are evidence holders only. Risk disposition is decided from the linked transaction risk execution, alert, and case callback.
             </div>
         </DetailCard>
 
-        {/* 7. Compliance (KYT) */}
-        <DetailCard title="Compliance (KYT)" icon={<Shield size={18} />}>
-            <InfoField label="KYT Status" value={data.kytStatus} highlight source="main" />
+        {/* 7. Response Container (KYT) */}
+        <DetailCard title="Response Container (KYT)" icon={<Shield size={18} />}>
+            <InfoField label="Lifecycle" value={data.kytStatus} highlight source="main" />
             <InfoField label="Screening ID" value={data.kytScreeningId} source="main" />
             <InfoField label="Risk Score" value={data.kytRiskScore?.toString()} source="main" />
             <InfoField label="Checked At" value={data.kytCheckedAt ? new Date(data.kytCheckedAt).toLocaleString() : 'N/A'} source="main" />
@@ -421,10 +402,10 @@ const WithdrawTransactionDetail = () => {
             />
         </DetailCard>
 
-        {/* 8. Regulation (Travel Rule) */}
-        <DetailCard title="Regulation (Travel Rule)" icon={<Scale size={18} />}>
+        {/* 8. Response Container (Travel Rule) */}
+        <DetailCard title="Response Container (Travel Rule)" icon={<Scale size={18} />}>
             <InfoField label="Travel Rule Required" value={data.travelRuleRequired ? 'Yes' : 'No'} source="main" />
-            <InfoField label="Status" value={data.travelRuleStatus} highlight source="main" />
+            <InfoField label="Lifecycle" value={data.travelRuleStatus} highlight source="main" />
             <InfoField label="Counterparty VASP" value={data.counterpartyVasp} source="main" />
             <InfoField label="Transfer ID" value={data.travelRuleTransferId} source="main" />
             <InfoField label="Checked At" value={data.travelRuleCheckedAt ? new Date(data.travelRuleCheckedAt).toLocaleString() : 'N/A'} source="main" />
@@ -439,7 +420,6 @@ const WithdrawTransactionDetail = () => {
         {/* 9. Status & Timings */}
         <DetailCard title="Status & Timings" icon={<Clock size={18} />}>
              <InfoField label="Current Status" value={data.status} highlight source="main" />
-             <InfoField label="Compliance Status" value={data.complianceStatus} source="main" />
              <InfoField label="Derived Compliance" value={data.derivedComplianceStatus || null} source="main" />
              <InfoField label="Created At" value={new Date(data.createdAt).toLocaleString()} source="main" />
              <InfoField label="Approved At" value={data.approvedAt ? new Date(data.approvedAt).toLocaleString() : 'N/A'} source="main" />
@@ -454,6 +434,7 @@ const WithdrawTransactionDetail = () => {
         {/* 11. Audit & History */}
         <DetailCard title="Status History & Audit" icon={<Activity size={18} />} columns={1}>
              <StatusTimeline historyJson={data.statusHistory} />
+             <AuditEventList events={data.auditLogs || []} />
         </DetailCard>
       </div>
     </div>
@@ -578,6 +559,70 @@ const StatusTimeline = ({ historyJson }: { historyJson: string | null }) => {
             ))}
         </div>
     );
+};
+
+const AuditEventList = ({
+  events,
+}: {
+  events: Array<{
+    id: string;
+    action?: string | null;
+    oldStatus?: string | null;
+    newStatus?: string | null;
+    statusFrom?: string | null;
+    statusTo?: string | null;
+    reason?: string | null;
+    createdAt?: string | null;
+    occurredAt?: string | null;
+    operatorId?: string | null;
+    actorId?: string | null;
+    actorType?: string | null;
+    module?: string | null;
+    result?: string | null;
+  }>;
+}) => {
+  if (events.length === 0) {
+    return (
+      <div className="mt-4 rounded-lg border border-dashed border-gray-200 px-4 py-3 text-sm text-gray-400">
+        No canonical audit events found.
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-4 space-y-3">
+      <div className="text-xs font-semibold uppercase tracking-wider text-gray-500">
+        Canonical Audit Trail
+      </div>
+      {events.map((event) => (
+        <div key={event.id} className="rounded-lg border border-gray-100 bg-gray-50/70 p-4 text-sm">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+            <div className="space-y-1">
+              <div className="font-semibold text-gray-900">
+                {event.action || event.newStatus || 'AUDIT_EVENT'}
+              </div>
+              <div className="text-xs text-gray-500">
+                {event.statusFrom || event.oldStatus ? `From: ${event.statusFrom || event.oldStatus}` : 'From: N/A'}
+                {'  '}
+                {event.statusTo || event.newStatus ? `To: ${event.statusTo || event.newStatus}` : 'To: N/A'}
+              </div>
+              <div className="text-sm text-gray-600">
+                {event.reason || 'No reason provided'}
+              </div>
+              <div className="text-xs text-gray-400">
+                {(event.actorType || 'SYSTEM')}: {event.actorId || event.operatorId || 'SYSTEM'}
+                {event.module ? ` · ${event.module}` : ''}
+                {event.result ? ` · ${event.result}` : ''}
+              </div>
+            </div>
+            <time className="text-xs font-mono text-gray-500">
+              {new Date(event.occurredAt || event.createdAt || '').toLocaleString()}
+            </time>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
 };
 
 const getStatusColor = (status: string) => {

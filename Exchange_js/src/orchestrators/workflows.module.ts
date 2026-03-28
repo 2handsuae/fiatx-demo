@@ -14,6 +14,7 @@ import { InternalTransactionsModule } from '../modules/asset-treasury/internal-t
 import { InternalFundsModule } from '../modules/asset-treasury/internal-funds/internal-funds.module';
 import { InternalCollectionWorkflowOrchestrator } from './internal-collection-workflow.orchestrator';
 import { AccountingEventExecutionService } from './accounting-event-execution.service';
+import { PayoutCloseoutRepairController } from './payout-closeout-repair.controller';
 
 @Module({
   imports: [
@@ -29,6 +30,7 @@ import { AccountingEventExecutionService } from './accounting-event-execution.se
     InternalTransactionsModule,
     InternalFundsModule,
   ],
+  controllers: [PayoutCloseoutRepairController],
   providers: [
     DepositWorkflowService,
     AccountingEventExecutionService,

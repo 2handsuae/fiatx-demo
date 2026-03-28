@@ -171,6 +171,10 @@ export function buildDefaultWithdrawalPricingPolicyConfig(
       online: true,
       storeComingSoon: true,
     },
+    restrictions: {
+      extremeVolatilityBlocked: false,
+      reason: null,
+    },
     assets,
   };
 }

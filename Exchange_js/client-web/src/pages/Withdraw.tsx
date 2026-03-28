@@ -87,6 +87,7 @@ const Withdraw = () => {
   const [submitting, setSubmitting] = useState(false);
   const [quoteError, setQuoteError] = useState<string | null>(null);
   const [quote, setQuote] = useState<WithdrawQuoteResult | null>(null);
+  const [confirmModalOpen, setConfirmModalOpen] = useState(false);
   
   // History State
   const [transactions, setTransactions] = useState<WithdrawTransaction[]>([]);
@@ -219,20 +220,41 @@ const Withdraw = () => {
   const clearQuoteState = () => {
     setQuote(null);
     setQuoteError(null);
+    setConfirmModalOpen(false);
   };
 
-  const handlePreviewQuote = async () => {
+  const validateWithdrawRequest = (): string | null => {
+    if (!selectedAssetId || !amount || Number(amount) <= 0) {
+      return 'Please input a valid amount before continuing.';
+    }
+
+    if (!destinationReady) {
+      return 'Please fill in all required fields';
+    }
+
+    if (isManualInput && !manualAddress) {
+      return 'Please enter a destination address';
+    }
+
+    if (parseFloat(amount) > availableBalance) {
+      return 'Insufficient balance';
+    }
+
+    return null;
+  };
+
+  const handlePreviewQuote = async (): Promise<WithdrawQuoteResult | null> => {
     if (!selectedAssetId || !amount || Number(amount) <= 0) {
       setQuoteError('Please input a valid amount before preview.');
       setQuote(null);
-      return;
+      return null;
     }
 
     const withdrawAmount = parseFloat(amount);
     if (withdrawAmount > availableBalance) {
       setQuoteError('Insufficient balance');
       setQuote(null);
-      return;
+      return null;
     }
 
     setQuoteLoading(true);
@@ -261,10 +283,12 @@ const Withdraw = () => {
 
       const data = (await response.json()) as WithdrawQuoteResult;
       setQuote(data);
+      return data;
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to generate withdrawal quote';
       setQuoteError(message);
       setQuote(null);
+      return null;
     } finally {
       setQuoteLoading(false);
     }
@@ -272,26 +296,26 @@ const Withdraw = () => {
 
   const handleWithdraw = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedAssetId || !amount || (!selectedWalletId && !isManualInput && activeTab !== 'history')) {
-        alert('Please fill in all required fields');
+    const validationError = validateWithdrawRequest();
+    if (validationError) {
+        alert(validationError);
         return;
     }
 
-    if (isManualInput && !manualAddress) {
-        alert('Please enter a destination address');
-        return;
+    const generatedQuote = await handlePreviewQuote();
+    if (generatedQuote?.quoteId) {
+      setConfirmModalOpen(true);
+    }
+  };
+
+  const handleConfirmWithdraw = async () => {
+    if (!quote?.quoteId) {
+      alert('Quote expired. Please submit again to refresh the fee summary.');
+      clearQuoteState();
+      return;
     }
 
     const withdrawAmount = parseFloat(amount);
-    if (withdrawAmount > availableBalance) {
-        alert('Insufficient balance');
-        return;
-    }
-    if (!quote?.quoteId) {
-        alert('Please preview fee to generate a quote first.');
-        return;
-    }
-
     setSubmitting(true);
     try {
       const token = localStorage.getItem('customer_token');
@@ -321,6 +345,7 @@ const Withdraw = () => {
             setActiveTab('history');
             setAmount('');
             setSelectedWalletId('');
+            setManualAddress('');
             clearQuoteState();
             // Refresh balances
             const balancesResponse = await fetch(`${import.meta.env.VITE_API_URL}/treasury/customer/${user?.id}/assets`, {
@@ -332,7 +357,11 @@ const Withdraw = () => {
             }
         } else {
             const err = await response.json();
-            alert(getErrorMessage(err?.message, 'Failed to submit withdrawal request'));
+            const message = getErrorMessage(err?.message, 'Failed to submit withdrawal request');
+            alert(message);
+            if (message.toLowerCase().includes('quote')) {
+              clearQuoteState();
+            }
         }
     } catch (error) {
         console.error('Withdrawal failed', error);
@@ -354,7 +383,7 @@ const Withdraw = () => {
   useEffect(() => {
     clearQuoteState();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedAssetId, amount]);
+  }, [selectedAssetId, amount, selectedWalletId, manualAddress, isManualInput]);
 
   const renderStatusBadge = (status: string) => {
     const colors: Record<string, string> = {
@@ -703,16 +732,12 @@ const Withdraw = () => {
 
                             <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900/30 p-4 space-y-3">
                                 <div className="flex items-center justify-between">
-                                    <h4 className="text-sm font-bold text-gray-900 dark:text-white">Fee Preview</h4>
-                                    <button
-                                        type="button"
-                                        onClick={handlePreviewQuote}
-                                        disabled={quoteLoading || !selectedAssetId || !amount || Number(amount) <= 0}
-                                        className="px-3 py-1.5 text-xs rounded-lg bg-brand-primary text-white hover:bg-brand-primary/90 disabled:opacity-50 inline-flex items-center gap-1"
-                                    >
-                                        {quoteLoading ? <RefreshCw size={12} className="animate-spin" /> : null}
-                                        Preview Fee
-                                    </button>
+                                    <h4 className="text-sm font-bold text-gray-900 dark:text-white">Fee Summary</h4>
+                                    {quote ? (
+                                        <span className="text-[11px] font-mono text-slate-500 dark:text-slate-400">
+                                            {quote.quoteNo}
+                                        </span>
+                                    ) : null}
                                 </div>
 
                                 {quoteError && (
@@ -723,7 +748,7 @@ const Withdraw = () => {
 
                                 {!quote && !quoteError && (
                                     <div className="text-xs text-slate-500 dark:text-slate-400">
-                                        Generate a quote to preview service fee, gas fee, total fee and net amount.
+                                        Click submit once to generate a quote and review the fee breakdown in the confirmation modal.
                                     </div>
                                 )}
 
@@ -779,30 +804,34 @@ const Withdraw = () => {
                                 type="submit"
                                 disabled={
                                     submitting ||
+                                    quoteLoading ||
                                     !selectedAssetId ||
                                     !destinationReady ||
-                                    !quote?.quoteId ||
-                                    !!quoteLoading
+                                    !amount ||
+                                    Number(amount) <= 0
                                 }
                                 className="w-full py-4 bg-gradient-to-r from-brand-primary to-brand-primary/80 text-white rounded-xl hover:from-brand-primary/90 hover:to-brand-primary/70 transition-all disabled:opacity-50 font-bold shadow-lg shadow-brand-primary/20 flex items-center justify-center gap-2"
                             >
-                                {submitting ? (
+                                {quoteLoading ? (
+                                    <>
+                                        <RefreshCw className="animate-spin" size={20} />
+                                        Generating Quote...
+                                    </>
+                                ) : submitting ? (
                                     <>
                                         <RefreshCw className="animate-spin" size={20} />
                                         Processing...
                                     </>
                                 ) : (
                                     <>
-                                        Confirm Withdraw
+                                        Review Withdrawal
                                         <ArrowRight size={20} />
                                     </>
                                 )}
                             </button>
-                            {!quote?.quoteId && (
-                                <p className="text-xs text-slate-500 dark:text-slate-400 mt-2">
-                                    Please generate fee preview before submitting.
-                                </p>
-                            )}
+                            <p className="text-xs text-slate-500 dark:text-slate-400 mt-2">
+                                Submit once to review fees. The withdrawal is created only after the second confirmation.
+                            </p>
                         </div>
                         </>
                     )}
@@ -908,6 +937,106 @@ const Withdraw = () => {
           )}
         </div>
       </div>
+
+      {confirmModalOpen && quote ? (
+          <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/55 backdrop-blur-sm">
+              <div className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-800">
+                  <div className="flex items-center justify-between border-b border-slate-200 px-6 py-5 dark:border-slate-700">
+                      <div>
+                          <h3 className="text-lg font-bold text-gray-900 dark:text-white">Confirm Withdrawal</h3>
+                          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                              Review all fees before consuming quote `{quote.quoteNo}`.
+                          </p>
+                      </div>
+                      <button
+                          onClick={clearQuoteState}
+                          className="rounded-full p-2 text-slate-500 transition-colors hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-700"
+                      >
+                          <X size={18} />
+                      </button>
+                  </div>
+
+                  <div className="space-y-5 px-6 py-5">
+                      <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-900/40">
+                          <div className="flex justify-between text-sm">
+                              <span className="text-slate-500 dark:text-slate-400">Amount</span>
+                              <span className="font-semibold text-gray-900 dark:text-white">
+                                  {formatAssetAmount(amount, selectedAsset?.decimals)} {selectedAsset?.code}
+                              </span>
+                          </div>
+                          <div className="mt-2 flex justify-between text-sm">
+                              <span className="text-slate-500 dark:text-slate-400">Destination</span>
+                              <span className="max-w-[240px] truncate text-right font-medium text-gray-900 dark:text-white" title={manualAddress || selectedWalletId}>
+                                  {isManualInput ? manualAddress : wallets.find((wallet) => wallet.id === selectedWalletId)?.address || wallets.find((wallet) => wallet.id === selectedWalletId)?.iban || 'Saved destination'}
+                              </span>
+                          </div>
+                          <div className="mt-2 flex justify-between text-sm">
+                              <span className="text-slate-500 dark:text-slate-400">Expires At</span>
+                              <span className="font-medium text-gray-900 dark:text-white">
+                                  {new Date(quote.expiresAt).toLocaleString()}
+                              </span>
+                          </div>
+                      </div>
+
+                      <div className="space-y-3 text-sm">
+                          <div className="flex justify-between">
+                              <span className="text-slate-500 dark:text-slate-400">Service Fee</span>
+                              <span className="font-medium text-gray-900 dark:text-white">
+                                  {formatAssetAmount(
+                                      quote.fees.find((item) => item.itemCode === 'WITHDRAW_SERVICE_FEE')?.amount || 0,
+                                      selectedAsset?.decimals,
+                                  )} {selectedAsset?.code}
+                              </span>
+                          </div>
+                          <div className="flex justify-between">
+                              <span className="text-slate-500 dark:text-slate-400">Network Fee</span>
+                              <span className="font-medium text-gray-900 dark:text-white">
+                                  {formatAssetAmount(
+                                      quote.fees.find((item) => item.itemCode === 'NETWORK_FEE_EST')?.amount || 0,
+                                      selectedAsset?.decimals,
+                                  )} {selectedAsset?.code}
+                              </span>
+                          </div>
+                          <div className="flex justify-between border-t border-slate-200 pt-3 dark:border-slate-700">
+                              <span className="text-slate-500 dark:text-slate-400">Total Fee</span>
+                              <span className="font-semibold text-gray-900 dark:text-white">
+                                  {formatAssetAmount(
+                                      quote.totals[selectedAsset?.code || ''] || 0,
+                                      selectedAsset?.decimals,
+                                  )} {selectedAsset?.code}
+                              </span>
+                          </div>
+                          <div className="flex justify-between">
+                              <span className="text-slate-500 dark:text-slate-400">Net Amount</span>
+                              <span className="font-bold text-gray-900 dark:text-white">
+                                  {formatAssetAmount(
+                                      Number(amount || 0) - Number(quote.totals[selectedAsset?.code || ''] || 0),
+                                      selectedAsset?.decimals,
+                                  )} {selectedAsset?.code}
+                              </span>
+                          </div>
+                      </div>
+                  </div>
+
+                  <div className="flex items-center justify-end gap-3 border-t border-slate-200 px-6 py-5 dark:border-slate-700">
+                      <button
+                          onClick={clearQuoteState}
+                          className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-700"
+                      >
+                          Cancel
+                      </button>
+                      <button
+                          onClick={handleConfirmWithdraw}
+                          disabled={submitting}
+                          className="inline-flex items-center gap-2 rounded-xl bg-brand-primary px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-brand-primary/90 disabled:opacity-50"
+                      >
+                          {submitting ? <RefreshCw size={16} className="animate-spin" /> : <ArrowRight size={16} />}
+                          Confirm and Submit
+                      </button>
+                  </div>
+              </div>
+          </div>
+      ) : null}
 
       {/* Detail Modal (Simplified) */}
       {selectedTx && (

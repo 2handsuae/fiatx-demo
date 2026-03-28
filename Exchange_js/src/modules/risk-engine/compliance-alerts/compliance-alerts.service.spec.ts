@@ -314,6 +314,58 @@ describe('ComplianceAlertsService', () => {
     expect(result.stage).toBe('REVIEW_SWAP_FINAL');
   });
 
+  it('should support transaction rule codes and trace context for withdraw final alerts', async () => {
+    const recordSystemSpy = jest.spyOn(AuditLogsService.prototype, 'recordSystem');
+    prismaMock.complianceAlert.findUnique.mockResolvedValue(null);
+    prismaMock.customerMain.findUnique.mockResolvedValue({ customerNo: 'CU0011' });
+    prismaMock.complianceAlert.create.mockResolvedValue(
+      buildAlert({
+        ruleCode: 'TX_WITHDRAW_FINAL_REVIEW_REQUIRED',
+        sourceModule: 'risk-engine/transaction-compliance',
+        sourceType: 'WITHDRAW',
+        sourceId: 'wd-1',
+        sourceNo: 'WD0001',
+        entityType: 'WITHDRAW_TRANSACTION',
+        entityId: 'wd-1',
+        entityNo: 'WD0001',
+        stage: 'REVIEW_WITHDRAW_FINAL',
+        journeyId: null,
+        dedupeKey:
+          'TX_WITHDRAW_FINAL_REVIEW_REQUIRED:WITHDRAW:wd-1:REVIEW_WITHDRAW_FINAL',
+        title: 'Transaction Withdraw Final Review Required',
+      }),
+    );
+
+    const result = await service.triggerSystemAlert({
+      ruleCode: 'TX_WITHDRAW_FINAL_REVIEW_REQUIRED',
+      sourceModule: 'risk-engine/transaction-compliance',
+      sourceType: 'WITHDRAW',
+      sourceId: 'wd-1',
+      sourceNo: 'WD0001',
+      stage: 'REVIEW_WITHDRAW_FINAL',
+      entityType: 'WITHDRAW_TRANSACTION',
+      entityId: 'wd-1',
+      entityNo: 'WD0001',
+      ownerType: 'CUSTOMER',
+      ownerId: 'customer-11',
+      customerId: 'customer-11',
+      metadata: { triggerStatus: 'MANUAL_SIMULATION' },
+    });
+
+    expect(prismaMock.complianceAlert.create).toHaveBeenCalledTimes(1);
+    expect(recordSystemSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        traceId: 'TRANSACTION:wd-1',
+        workflowType: 'TRANSACTION',
+        workflowId: 'wd-1',
+        workflowNo: 'WD0001',
+      }),
+      undefined,
+    );
+    expect(result.ruleCode).toBe('TX_WITHDRAW_FINAL_REVIEW_REQUIRED');
+    expect(result.stage).toBe('REVIEW_WITHDRAW_FINAL');
+  });
+
   it('should include transaction workflow alerts in default findAll query', async () => {
     prismaMock.complianceAlert.count.mockResolvedValue(1);
     prismaMock.complianceAlert.findMany.mockResolvedValue([
@@ -339,7 +391,7 @@ describe('ComplianceAlertsService', () => {
       expect.objectContaining({
         where: expect.objectContaining({
           sourceType: {
-            in: ['ONBOARDING_JOURNEY', 'PERIODIC_REVIEW_CYCLE', 'DEPOSIT', 'SWAP'],
+            in: ['ONBOARDING_JOURNEY', 'PERIODIC_REVIEW_CYCLE', 'DEPOSIT', 'WITHDRAW', 'SWAP'],
           },
           stage: {
             in: expect.arrayContaining([
@@ -348,6 +400,7 @@ describe('ComplianceAlertsService', () => {
               'REVIEW_KYT',
               'REVIEW_TRAVEL_RULE',
               'REVIEW_DEPOSIT_FINAL',
+              'REVIEW_WITHDRAW_FINAL',
             ]),
           },
         }),
@@ -1673,6 +1726,155 @@ describe('ComplianceAlertsService', () => {
         sourceType: 'SWAP',
         dispositionCode: 'CLEAR',
         latestDecisionRecordId: 'decision-swap-1',
+      }),
+    );
+    expect(result.status).toBe(ComplianceAlertStatus.CLOSED);
+  });
+
+  it('should defer withdraw false positive workflow transition until after transaction commit', async () => {
+    let inTransaction = false;
+    prismaMock.$transaction = jest.fn(async (callback: (tx: any) => unknown) => {
+      inTransaction = true;
+      const result = await callback(prismaMock);
+      inTransaction = false;
+      return result;
+    });
+    prismaMock.complianceAlert.findUnique
+      .mockResolvedValueOnce(
+        buildAlert({
+          status: ComplianceAlertStatus.ASSIGNED,
+          sourceModule: 'risk-engine/transaction-compliance',
+          sourceType: 'WITHDRAW',
+          sourceId: 'wd-1',
+          sourceNo: 'WD0001',
+          entityType: 'WITHDRAW_TRANSACTION',
+          entityId: 'wd-1',
+          entityNo: 'WD0001',
+          journeyId: null,
+          stage: 'REVIEW_WITHDRAW_FINAL',
+          ruleCode: 'TX_WITHDRAW_FINAL_REVIEW_REQUIRED',
+          assigneeUserId: 'admin-1',
+          assigneeUserNo: 'US0001',
+          decisionRecordIds: JSON.stringify(['decision-wd-1']),
+        }),
+      )
+      .mockResolvedValueOnce(
+        buildAlert({
+          status: ComplianceAlertStatus.ASSIGNED,
+          sourceModule: 'risk-engine/transaction-compliance',
+          sourceType: 'WITHDRAW',
+          sourceId: 'wd-1',
+          sourceNo: 'WD0001',
+          entityType: 'WITHDRAW_TRANSACTION',
+          entityId: 'wd-1',
+          entityNo: 'WD0001',
+          journeyId: null,
+          stage: 'REVIEW_WITHDRAW_FINAL',
+          ruleCode: 'TX_WITHDRAW_FINAL_REVIEW_REQUIRED',
+          assigneeUserId: 'admin-1',
+          assigneeUserNo: 'US0001',
+          decisionRecordIds: JSON.stringify(['decision-wd-1']),
+        }),
+      )
+      .mockResolvedValueOnce({
+        ...buildAlert({
+          status: ComplianceAlertStatus.CLOSED,
+          sourceModule: 'risk-engine/transaction-compliance',
+          sourceType: 'WITHDRAW',
+          sourceId: 'wd-1',
+          sourceNo: 'WD0001',
+          entityType: 'WITHDRAW_TRANSACTION',
+          entityId: 'wd-1',
+          entityNo: 'WD0001',
+          journeyId: null,
+          stage: 'REVIEW_WITHDRAW_FINAL',
+          ruleCode: 'TX_WITHDRAW_FINAL_REVIEW_REQUIRED',
+          assigneeUserId: 'admin-1',
+          assigneeUserNo: 'US0001',
+          currentDispositionCode: 'FALSE_POSITIVE',
+          finalDispositionCode: 'FALSE_POSITIVE',
+          decision: 'FALSE_POSITIVE',
+          decisionRecordIds: JSON.stringify(['decision-wd-1']),
+        }),
+        events: [],
+        dispositionRecords: [],
+      })
+      .mockResolvedValueOnce({
+        ...buildAlert({
+          status: ComplianceAlertStatus.CLOSED,
+          sourceModule: 'risk-engine/transaction-compliance',
+          sourceType: 'WITHDRAW',
+          sourceId: 'wd-1',
+          sourceNo: 'WD0001',
+          entityType: 'WITHDRAW_TRANSACTION',
+          entityId: 'wd-1',
+          entityNo: 'WD0001',
+          journeyId: null,
+          stage: 'REVIEW_WITHDRAW_FINAL',
+          ruleCode: 'TX_WITHDRAW_FINAL_REVIEW_REQUIRED',
+          assigneeUserId: 'admin-1',
+          assigneeUserNo: 'US0001',
+          currentDispositionCode: 'FALSE_POSITIVE',
+          finalDispositionCode: 'FALSE_POSITIVE',
+          decision: 'FALSE_POSITIVE',
+          decisionRecordIds: JSON.stringify(['decision-wd-1']),
+        }),
+        events: [],
+        dispositionRecords: [],
+      });
+    prismaMock.complianceAlert.update.mockResolvedValue(
+      buildAlert({
+        status: ComplianceAlertStatus.CLOSED,
+        sourceModule: 'risk-engine/transaction-compliance',
+        sourceType: 'WITHDRAW',
+        sourceId: 'wd-1',
+        sourceNo: 'WD0001',
+        entityType: 'WITHDRAW_TRANSACTION',
+        entityId: 'wd-1',
+        entityNo: 'WD0001',
+        journeyId: null,
+        stage: 'REVIEW_WITHDRAW_FINAL',
+        ruleCode: 'TX_WITHDRAW_FINAL_REVIEW_REQUIRED',
+        assigneeUserId: 'admin-1',
+        assigneeUserNo: 'US0001',
+        currentDispositionCode: 'FALSE_POSITIVE',
+        finalDispositionCode: 'FALSE_POSITIVE',
+        decision: 'FALSE_POSITIVE',
+        decisionRecordIds: JSON.stringify(['decision-wd-1']),
+      }),
+    );
+    const transitionCallStates: boolean[] = [];
+    workflowTransitionServiceMock.transition.mockImplementation(async () => {
+      transitionCallStates.push(inTransaction);
+      return {
+        transitionCode: 'TX_WITHDRAW_CLEAR_TO_PAYOUT_PENDING',
+        executed: true,
+      };
+    });
+
+    const result = await service.resolveAlert(
+      'alert-1',
+      { resolutionType: 'FALSE_POSITIVE' as any },
+      {
+        actorType: 'ADMIN',
+        actorId: 'admin-1',
+        actorNo: 'US0001',
+        actorRole: 'COMPLIANCE_LEAD',
+      },
+    );
+
+    expect(transitionCallStates).toEqual([false]);
+    expect(workflowTransitionServiceMock.transition).toHaveBeenCalledWith(
+      prismaMock,
+      expect.objectContaining({
+        workflow: 'TRANSACTION',
+        stage: 'REVIEW_WITHDRAW_FINAL',
+        producerType: 'ALERT',
+        producerId: 'alert-1',
+        sourceId: 'wd-1',
+        sourceType: 'WITHDRAW',
+        dispositionCode: 'CLEAR',
+        latestDecisionRecordId: 'decision-wd-1',
       }),
     );
     expect(result.status).toBe(ComplianceAlertStatus.CLOSED);

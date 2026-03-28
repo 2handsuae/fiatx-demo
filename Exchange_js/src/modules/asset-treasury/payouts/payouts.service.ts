@@ -58,17 +58,96 @@ import {
   AuditActions,
   AuditEntityTypes,
   AuditModules,
+  AuditWorkflowTypes,
   buildStateTransitionAction,
 } from '../../risk-engine/audit-logs/constants/audit-actions.constant';
 import { AuditTriggerType } from '../../risk-engine/audit-logs/dto/audit-log.dto';
+import { TransactionComplianceService } from '../../risk-engine/transaction-compliance/transaction-compliance.service';
+import { PricingCenterService } from '../../trading/pricing-center/pricing-center.service';
 
 @Injectable()
 export class PayoutsService {
+  private static readonly UPDATE_STATUS_TX_TIMEOUT_MS = 15_000;
   private readonly logger = new Logger(PayoutsService.name);
   private readonly auditLogsService: AuditLogsService;
 
-  constructor(private prisma: PrismaService, private eventEmitter: EventEmitter2) {
+  constructor(
+    private prisma: PrismaService,
+    private eventEmitter: EventEmitter2,
+    private readonly transactionComplianceService: TransactionComplianceService,
+    private readonly pricingCenterService: PricingCenterService,
+  ) {
     this.auditLogsService = new AuditLogsService(prisma);
+  }
+
+  private normalizeOptionalString(value?: string | null): string | null {
+    const normalized = String(value || '').trim();
+    return normalized.length > 0 ? normalized : null;
+  }
+
+  private mapCanonicalAuditLogs(events: any[]) {
+    return events.map((event: any) => ({
+      id: event.id,
+      action: event.action || null,
+      statusFrom: event.statusFrom || null,
+      statusTo: event.statusTo || null,
+      actorType: event.actorType || null,
+      actorId: event.actorId || null,
+      actorNo: event.actorNo || null,
+      reason: event.reason || null,
+      occurredAt: event.occurredAt || event.createdAt || null,
+      module: event.module || null,
+      result: event.result || null,
+      oldStatus: event.statusFrom || null,
+      newStatus: event.statusTo || null,
+      operatorId: event.actorId || null,
+      createdAt: event.occurredAt || event.createdAt || null,
+    }));
+  }
+
+  private async getCanonicalPayoutAuditLogs(
+    payoutId: string,
+    payoutNo?: string | null,
+    withdrawId?: string | null,
+  ) {
+    const normalizedPayoutNo = this.normalizeOptionalString(payoutNo);
+    const normalizedWithdrawId = this.normalizeOptionalString(withdrawId);
+    const events = await (this.prisma as any).auditLogEvent.findMany({
+      where: {
+        OR: [
+          {
+            entityType: AuditEntityTypes.PAYOUT,
+            entityId: payoutId,
+          },
+          normalizedPayoutNo
+            ? {
+                entityType: AuditEntityTypes.PAYOUT,
+                entityNo: normalizedPayoutNo,
+              }
+            : undefined,
+          normalizedWithdrawId
+            ? {
+                workflowType: AuditWorkflowTypes.WITHDRAW,
+                workflowId: normalizedWithdrawId,
+                action: {
+                  in: [
+                    buildStateTransitionAction(
+                      'WITHDRAW',
+                      'PAYOUT_PENDING',
+                      'SUCCESS',
+                    ),
+                    AuditActions.SYSTEM_WITHDRAW_TERMINAL_ORCHESTRATED,
+                  ],
+                },
+              }
+            : undefined,
+        ].filter(Boolean),
+      },
+      orderBy: [{ occurredAt: 'desc' }, { createdAt: 'desc' }],
+      take: 100,
+    });
+
+    return this.mapCanonicalAuditLogs(events);
   }
 
   private generatePayoutId(): string {
@@ -114,13 +193,18 @@ export class PayoutsService {
             lines: true
           }
         },
-        auditLogs: {
-          orderBy: { createdAt: 'desc' },
-        },
       },
     });
     if (!item) throw new NotFoundException('Payout not found');
-    return item;
+    const auditLogs = await this.getCanonicalPayoutAuditLogs(
+      item.id,
+      item.payoutNo,
+      item.withdrawId,
+    );
+    return {
+      ...item,
+      auditLogs,
+    };
   }
 
   async create(dto: CreatePayoutDto, operatorId: string, tx?: Prisma.TransactionClient) {
@@ -210,9 +294,31 @@ export class PayoutsService {
   async updateStatus(id: string, dto: UpdatePayoutStatusDto, operatorId: string, tx?: Prisma.TransactionClient) {
     const { action, txHash, referenceNo, reason } = dto;
 
+    if (action === PayoutAction.CLEAR && operatorId !== 'SYSTEM') {
+      throw new BadRequestException({
+        code: 'PAYOUT_CLEAR_SYSTEM_ONLY',
+        message: 'Payout CLEAR is reserved for system closeout only.',
+        details: {
+          action,
+          operatorId,
+        },
+      });
+    }
+
     const executeUpdate = async (client: Prisma.TransactionClient) => {
       const item = await (client as any).payout.findUnique({
         where: { id },
+        include: {
+          withdraw: {
+            include: {
+              asset: {
+                select: {
+                  type: true,
+                },
+              },
+            },
+          },
+        },
       });
       if (!item) {
         throw new NotFoundException('Payout not found');
@@ -230,6 +336,40 @@ export class PayoutsService {
         );
       }
 
+      if (type === PayoutType.FIAT && action === PayoutAction.CONFIRM) {
+        const effectiveReferenceNo =
+          this.normalizeOptionalString(referenceNo) ||
+          this.normalizeOptionalString(item.referenceNo) ||
+          `BANK-${item.payoutNo || item.id}`;
+        dto.referenceNo = effectiveReferenceNo;
+      }
+
+      const isDispatchStart =
+        (type === PayoutType.CRYPTO && action === PayoutAction.SIGN) ||
+        (type === PayoutType.FIAT && action === PayoutAction.SUBMIT);
+      if (isDispatchStart && item.withdrawId) {
+        await this.pricingCenterService.assertWithdrawExtremeVolatilityNotBlocked({
+          ownerType: 'CUSTOMER',
+          ownerId: item.ownerId || item.withdraw?.ownerId || 'UNKNOWN_OWNER',
+          ownerNo: item.withdraw?.ownerNo || null,
+          assetId: item.assetId,
+          module: AuditModules.PAYOUTS,
+          entityType: AuditEntityTypes.PAYOUT,
+          entityId: item.id,
+          entityNo: item.payoutNo || null,
+          sourcePlatform: operatorId === 'SYSTEM' ? 'SYSTEM' : 'ADMIN_API',
+          auditActor: {
+            actorType: operatorId === 'SYSTEM' ? 'SYSTEM' : 'ADMIN',
+            actorId: operatorId,
+            actorRole: operatorId === 'SYSTEM' ? 'SYSTEM' : 'ADMIN',
+          },
+          surface: 'PAYOUT_DISPATCH',
+          action,
+          withdrawId: item.withdrawId,
+          payoutId: item.id,
+        });
+      }
+
       const updateData: any = { status: nextStatus };
 
       // Update timestamps based on status
@@ -244,7 +384,10 @@ export class PayoutsService {
       }
 
       if (txHash) updateData.txHash = txHash;
-      if (referenceNo) updateData.referenceNo = referenceNo;
+      const normalizedReferenceNo = this.normalizeOptionalString(dto.referenceNo);
+      if (normalizedReferenceNo) {
+        updateData.referenceNo = normalizedReferenceNo;
+      }
 
       // Update status history
       let history: any[] = [];
@@ -337,6 +480,7 @@ export class PayoutsService {
 
     const result = await (this.prisma as any).$transaction(
       async (client: Prisma.TransactionClient) => executeUpdate(client),
+      { timeout: PayoutsService.UPDATE_STATUS_TX_TIMEOUT_MS },
     );
     for (const event of result.postCommitEvents) {
       this.eventEmitter.emit(event.eventName, event.payload);

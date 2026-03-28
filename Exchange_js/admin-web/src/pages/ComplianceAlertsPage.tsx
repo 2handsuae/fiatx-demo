@@ -17,6 +17,7 @@ type AlertSourceType =
   | 'ONBOARDING_JOURNEY'
   | 'PERIODIC_REVIEW_CYCLE'
   | 'DEPOSIT'
+  | 'WITHDRAW'
   | 'SWAP';
 type AlertStage =
   | ''
@@ -25,6 +26,9 @@ type AlertStage =
   | 'REVIEW_KYT'
   | 'REVIEW_TRAVEL_RULE'
   | 'REVIEW_DEPOSIT_FINAL'
+  | 'REVIEW_WITHDRAW_PRECHECK'
+  | 'REVIEW_WITHDRAW_FINAL'
+  | 'REVIEW_WITHDRAW_RECONCILIATION'
   | 'REVIEW_SWAP_FINAL';
 
 interface AlertItem {
@@ -86,6 +90,22 @@ const DEFAULT_FILTERS: FilterState = {
   assigneeUserId: '',
   keyword: '',
   overdueOnly: false,
+};
+
+const buildFiltersFromSearch = (search: string): FilterState => {
+  const params = new URLSearchParams(search);
+  return {
+    status: (params.get('status') || '') as FilterState['status'],
+    severity: (params.get('severity') || '') as FilterState['severity'],
+    sourceType: (params.get('sourceType') || '') as FilterState['sourceType'],
+    stage: (params.get('stage') || '') as FilterState['stage'],
+    ruleCode: params.get('ruleCode') || '',
+    sourceId: params.get('sourceId') || '',
+    customerNo: params.get('customerNo') || '',
+    assigneeUserId: params.get('assigneeUserId') || '',
+    keyword: params.get('keyword') || '',
+    overdueOnly: (params.get('overdueOnly') || '').toLowerCase() === 'true',
+  };
 };
 
 const CLOSED_STATUSES: AlertStatus[] = ['CLOSED'];
@@ -189,8 +209,10 @@ const ComplianceAlertsPage = () => {
   };
 
   useEffect(() => {
-    void fetchAlerts(1);
-  }, []);
+    const nextFilters = buildFiltersFromSearch(location.search);
+    setFilters(nextFilters);
+    void fetchAlerts(1, nextFilters);
+  }, [location.search]);
 
   const resetFilters = async () => {
     setFilters(DEFAULT_FILTERS);
@@ -316,6 +338,7 @@ const ComplianceAlertsPage = () => {
             <option value="ONBOARDING_JOURNEY">ONBOARDING_JOURNEY</option>
             <option value="PERIODIC_REVIEW_CYCLE">PERIODIC_REVIEW_CYCLE</option>
             <option value="DEPOSIT">DEPOSIT</option>
+            <option value="WITHDRAW">WITHDRAW</option>
             <option value="SWAP">SWAP</option>
           </select>
           <select
@@ -329,6 +352,9 @@ const ComplianceAlertsPage = () => {
             <option value="REVIEW_KYT">REVIEW_KYT</option>
             <option value="REVIEW_TRAVEL_RULE">REVIEW_TRAVEL_RULE</option>
             <option value="REVIEW_DEPOSIT_FINAL">REVIEW_DEPOSIT_FINAL</option>
+            <option value="REVIEW_WITHDRAW_PRECHECK">REVIEW_WITHDRAW_PRECHECK</option>
+            <option value="REVIEW_WITHDRAW_FINAL">REVIEW_WITHDRAW_FINAL</option>
+            <option value="REVIEW_WITHDRAW_RECONCILIATION">REVIEW_WITHDRAW_RECONCILIATION</option>
             <option value="REVIEW_SWAP_FINAL">REVIEW_SWAP_FINAL</option>
           </select>
           <input

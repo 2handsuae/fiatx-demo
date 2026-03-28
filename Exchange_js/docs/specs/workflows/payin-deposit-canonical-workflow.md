@@ -79,21 +79,19 @@ Source of Truth Level: specs-workflow
 
 ### 2. PayIn Confirmed -> Compliance Pending
 - `payin.confirmed` moves deposit to `COMPLIANCE_PENDING`.
-- Deposit compliance synchronization creates or updates:
-  - `MAIN-KYT`
-  - `TRAVEL_RULE`
+- Fiat payin creates no response container at this step.
+- Crypto payin creates:
+  - `KYT`
+  - `Travel Rule`
+- System-generated response containers are evidence holders only and are auto-filled directly to `FINAL`.
 - Confirmed accounting point is required at this step.
 - Payin is cleared only after upstream confirmed-side steps complete.
 
 ### 3. Compliance Evidence -> Risk -> Alert / Case
 - Transaction compliance evidence containers remain provider-response objects, not platform cases.
-- Terminal deposit-side transaction risk contexts are:
-  - `TX_DEPOSIT_KYT_MAIN`
-  - `TX_DEPOSIT_TRAVEL_RULE`
-- Current eligible trigger statuses are:
-  - KYT: `PASS`, `REVIEW`, `FAIL`
-  - Travel Rule: `NOT_REQUIRED`, `ACCEPTED`, `REJECTED`, `EXPIRED`
-- `PENDING`, `SENT`, and `RECEIVED` do not trigger transaction risk evaluation.
+- Deposit transaction risk is workflow-bound through the decision record path, not through response lifecycle.
+- Canonical deposit-side transaction risk context is:
+  - `TX_DEPOSIT_FINAL`
 - Risk output may:
   - create no workflow-bound object
   - upsert alert
@@ -110,9 +108,8 @@ Source of Truth Level: specs-workflow
 - Transaction workflow callback delegates through canonical deposit actions only.
 
 ### 5. No-Hit Release Path
-- For no-hit deposit compliance result:
-  - `KYT = PASS`
-  - `Travel Rule = ACCEPTED` or `NOT_REQUIRED`
+- For crypto deposit, no-hit evidence means `KYT` and `Travel Rule` containers exist in `FINAL`.
+- For fiat deposit, there are no response containers; only the decision record path is evaluated.
 - No alert/case is required by the current runtime contract.
 - Deposit still reaches `SUCCESS` only through canonical deposit success action.
 
@@ -131,8 +128,8 @@ Source of Truth Level: specs-workflow
   - `restrictionStatus = CLEAR`
   - `complianceHoldStatus = ACTIVE`
 - Crypto deposit success also requires transaction compliance gate to pass:
-  - `kytStatus = PASS`
-  - `travelRuleStatus = ACCEPTED` when `travelRuleRequired = true`
+  - response snapshots are lifecycle-only and should be `FINAL` when present
+  - business release authority remains the transaction workflow clear path
 - Gate failure does not silently release the deposit.
 
 ## Accounting And Internal Collection

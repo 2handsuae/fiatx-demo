@@ -26,9 +26,25 @@ export enum WithdrawTransactionAction {
   RETURN = 'return',
 }
 
+export enum AdminWithdrawTransactionAction {
+  CHECK = 'check',
+  FLAG = 'flag',
+  REJECT = 'reject',
+  CANCEL = 'cancel',
+}
+
 export class UpdateWithdrawTransactionStatusDto {
   @IsEnum(WithdrawTransactionAction)
   action!: WithdrawTransactionAction;
+
+  @IsOptional()
+  @IsString()
+  reason?: string;
+}
+
+export class AdminUpdateWithdrawTransactionStatusDto {
+  @IsEnum(AdminWithdrawTransactionAction)
+  action!: AdminWithdrawTransactionAction;
 
   @IsOptional()
   @IsString()
@@ -80,20 +96,15 @@ export enum ComplianceStatus {
 }
 
 export enum KytStatus {
-  PENDING = 'PENDING',
-  PASS = 'PASS',
-  REVIEW = 'REVIEW',
-  FAIL = 'FAIL',
+  CREATED = 'CREATED',
+  RECEIVED = 'RECEIVED',
+  FINAL = 'FINAL',
 }
 
 export enum TravelRuleStatus {
-  NOT_REQUIRED = 'NOT_REQUIRED',
-  PENDING = 'PENDING',
-  SENT = 'SENT',
+  CREATED = 'CREATED',
   RECEIVED = 'RECEIVED',
-  ACCEPTED = 'ACCEPTED',
-  REJECTED = 'REJECTED',
-  EXPIRED = 'EXPIRED',
+  FINAL = 'FINAL',
 }
 
 export class WithdrawTransactionQueryDto {

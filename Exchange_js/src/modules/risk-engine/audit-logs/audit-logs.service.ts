@@ -118,6 +118,37 @@ export interface SwapEvidenceSnapshots {
   swapEvidenceChain: SwapEvidenceChainItem[];
 }
 
+export interface WithdrawEvidenceChainItem {
+  withdrawId: string;
+  withdrawNo: string | null;
+  payoutId: string | null;
+  payoutNo: string | null;
+  decisionRecordIds: string[];
+  preKytCaseIds: string[];
+  mainKytCaseIds: string[];
+  travelRuleCaseIds: string[];
+  alertIds: string[];
+  caseIds: string[];
+  journalIds: string[];
+  clearingIds: string[];
+  reconciliationBreakIds: string[];
+}
+
+export interface WithdrawEvidenceSnapshots {
+  withdrawTransactions: any[];
+  payouts: any[];
+  preKytCases: any[];
+  mainKytCases: any[];
+  travelRuleCases: any[];
+  riskDecisionRecords: any[];
+  alerts: any[];
+  cases: any[];
+  journals: any[];
+  clearings: any[];
+  reconciliationBreaks: any[];
+  withdrawEvidenceChain: WithdrawEvidenceChainItem[];
+}
+
 interface AuditWorkflowContext {
   traceId: string | null;
   workflowType: string | null;
@@ -316,6 +347,7 @@ export class AuditLogsService {
       AUDIT_EVIDENCE_PACKAGE: { model: 'auditEvidencePackage', field: 'packageNo' },
       DELETE_REQUEST: { model: 'deleteRequest', field: 'requestNo' },
       SLA_TIMER: { model: 'slaTimer', field: 'timerNo' },
+      RECONCILIATION_BREAK: { model: 'reconciliationBreak', field: 'breakNo' },
     };
 
     const target = lookupConfig[normalizedType];
@@ -412,6 +444,11 @@ export class AuditLogsService {
   ): Promise<AuditWorkflowContext> {
     const explicitWorkflowType = this.normalizeEntityType(input.workflowType);
     const entityType = this.normalizeEntityType(input.entityType);
+    const shouldResolveWithdraw =
+      explicitWorkflowType === AuditWorkflowTypes.WITHDRAW ||
+      entityType === AuditEntityTypes.WITHDRAW_TRANSACTION ||
+      entityType === AuditEntityTypes.PAYOUT ||
+      entityType === AuditEntityTypes.RECONCILIATION_BREAK;
     const shouldResolveDeposit =
       explicitWorkflowType === AuditWorkflowTypes.DEPOSIT ||
       entityType === AuditEntityTypes.DEPOSIT_TRANSACTION ||
@@ -421,7 +458,7 @@ export class AuditLogsService {
       entityType === AuditEntityTypes.SWAP_TRANSACTION ||
       entityType === AuditEntityTypes.SWAP_QUOTE;
 
-    if (!shouldResolveDeposit && !shouldResolveSwap) {
+    if (!shouldResolveWithdraw && !shouldResolveDeposit && !shouldResolveSwap) {
       return {
         traceId: this.normalizeOptionalString(input.traceId),
         workflowType: this.normalizeOptionalString(input.workflowType),
@@ -429,6 +466,157 @@ export class AuditLogsService {
         workflowNo: this.normalizeOptionalString(input.workflowNo),
         entityOwnerNo,
         relatedSubjectNos: [],
+      };
+    }
+
+    if (shouldResolveWithdraw) {
+      let withdraw: any = null;
+      let payout: any = null;
+
+      if (
+        (entityType === AuditEntityTypes.WITHDRAW_TRANSACTION ||
+          explicitWorkflowType === AuditWorkflowTypes.WITHDRAW ||
+          entityType === AuditEntityTypes.RECONCILIATION_BREAK) &&
+        (input.workflowId || input.entityId) &&
+        db?.withdrawTransaction?.findUnique
+      ) {
+        withdraw = await db.withdrawTransaction.findUnique({
+          where: { id: input.workflowId || input.entityId },
+          select: {
+            id: true,
+            withdrawNo: true,
+            ownerId: true,
+            payoutId: true,
+            payoutNo: true,
+            customer: {
+              select: {
+                customerNo: true,
+              },
+            },
+            payout: {
+              select: {
+                id: true,
+                payoutNo: true,
+                ownerId: true,
+              },
+            },
+          },
+        });
+      }
+
+      if (
+        !withdraw &&
+        entityType === AuditEntityTypes.RECONCILIATION_BREAK &&
+        input.entityId &&
+        db?.reconciliationBreak?.findUnique
+      ) {
+        const breakRow = await db.reconciliationBreak.findUnique({
+          where: { id: input.entityId },
+          select: {
+            withdrawId: true,
+            payoutId: true,
+            withdrawNo: true,
+            payoutNo: true,
+          },
+        });
+        if (breakRow?.withdrawId && db?.withdrawTransaction?.findUnique) {
+          withdraw = await db.withdrawTransaction.findUnique({
+            where: { id: breakRow.withdrawId },
+            select: {
+              id: true,
+              withdrawNo: true,
+              ownerId: true,
+              payoutId: true,
+              payoutNo: true,
+              customer: {
+                select: {
+                  customerNo: true,
+                },
+              },
+            },
+          });
+        }
+        if (breakRow?.payoutId && db?.payout?.findUnique) {
+          payout = await db.payout.findUnique({
+            where: { id: breakRow.payoutId },
+            select: {
+              id: true,
+              payoutNo: true,
+              ownerId: true,
+            },
+          });
+        }
+      }
+
+      if (
+        !payout &&
+        entityType === AuditEntityTypes.PAYOUT &&
+        input.entityId &&
+        db?.payout?.findUnique
+      ) {
+        payout = await db.payout.findUnique({
+          where: { id: input.entityId },
+          select: {
+            id: true,
+            payoutNo: true,
+            ownerId: true,
+            withdraw: {
+              select: {
+                id: true,
+                withdrawNo: true,
+                ownerId: true,
+                customer: {
+                  select: {
+                    customerNo: true,
+                  },
+                },
+              },
+            },
+          },
+        });
+        if (payout?.withdraw) {
+          withdraw = payout.withdraw;
+        }
+      }
+
+      const workflowId =
+        this.normalizeOptionalString(input.workflowId) ||
+        this.normalizeOptionalString(withdraw?.id) ||
+        this.normalizeOptionalString(payout?.withdraw?.id) ||
+        this.normalizeOptionalString(payout?.id) ||
+        null;
+      const workflowNo =
+        this.normalizeOptionalString(input.workflowNo) ||
+        this.normalizeOptionalString(withdraw?.withdrawNo) ||
+        this.normalizeOptionalString(payout?.withdraw?.withdrawNo) ||
+        workflowId;
+      const resolvedEntityOwnerNo =
+        entityOwnerNo ||
+        withdraw?.customer?.customerNo ||
+        payout?.withdraw?.customer?.customerNo ||
+        null;
+      const relatedSubjectNos = this.mergeSubjectNos(
+        this.buildRelatedSubjectNo(
+          'WITHDRAW',
+          withdraw?.id || payout?.withdraw?.id,
+          withdraw?.withdrawNo || payout?.withdraw?.withdrawNo,
+        ),
+        this.buildRelatedSubjectNo(
+          'PAYOUT',
+          payout?.id || withdraw?.payout?.id,
+          payout?.payoutNo || withdraw?.payout?.payoutNo,
+        ),
+      );
+
+      return {
+        traceId:
+          this.normalizeOptionalString(input.traceId) ||
+          (workflowId ? `${AuditWorkflowTypes.WITHDRAW}:${workflowId}` : null),
+        workflowType: AuditWorkflowTypes.WITHDRAW,
+        workflowId,
+        workflowNo,
+        entityOwnerNo: resolvedEntityOwnerNo,
+        relatedSubjectNos,
       };
     }
 
@@ -1498,12 +1686,14 @@ export class AuditLogsService {
   ): Promise<BuiltEvidencePackageArtifacts> {
     const selection = await this.prepareEvidenceExportSelection(query);
     const db = this.getDb() as any;
-    const [depositSnapshots, swapSnapshots] = await Promise.all([
+    const [depositSnapshots, withdrawSnapshots, swapSnapshots] = await Promise.all([
       this.buildDepositSnapshots(selection.records, db),
+      this.buildWithdrawSnapshots(selection.records, db),
       this.buildSwapSnapshots(selection.records, db),
     ]);
     const snapshots = {
       ...depositSnapshots,
+      ...withdrawSnapshots,
       ...swapSnapshots,
     };
     const recordDigests = selection.records.map((row: any) => ({
@@ -1927,6 +2117,105 @@ export class AuditLogsService {
     });
   }
 
+  private buildWithdrawEvidenceChain(params: {
+    withdrawTransactions: any[];
+    payouts: any[];
+    preKytCases: any[];
+    mainKytCases: any[];
+    travelRuleCases: any[];
+    riskDecisionRecords: any[];
+    alerts: any[];
+    cases: any[];
+    journals: any[];
+    clearings: any[];
+    reconciliationBreaks: any[];
+  }): WithdrawEvidenceChainItem[] {
+    const {
+      withdrawTransactions,
+      payouts,
+      preKytCases,
+      mainKytCases,
+      travelRuleCases,
+      riskDecisionRecords,
+      alerts,
+      cases,
+      journals,
+      clearings,
+      reconciliationBreaks,
+    } = params;
+
+    return withdrawTransactions.map((withdraw) => {
+      const withdrawId = String(withdraw.id);
+      const payoutId = this.normalizeOptionalString(withdraw.payoutId);
+      const linkedPayout = payouts.find((item) => String(item.id) === payoutId);
+      const withdrawDecisionRecords = riskDecisionRecords.filter(
+        (item) => String(item.subjectId) === withdrawId,
+      );
+      const withdrawAlerts = alerts.filter(
+        (item) => String(item.sourceId) === withdrawId,
+      );
+      const withdrawCases = cases.filter(
+        (item) => String(item.sourceId) === withdrawId,
+      );
+      const withdrawJournals = journals.filter(
+        (item) => String(item.sourceId) === withdrawId,
+      );
+      const withdrawClearings = clearings.filter(
+        (item) => String(item.sourceId) === withdrawId,
+      );
+      const withdrawBreaks = reconciliationBreaks.filter(
+        (item) =>
+          String(item.withdrawId) === withdrawId ||
+          (payoutId && String(item.payoutId) === payoutId),
+      );
+
+      return {
+        withdrawId,
+        withdrawNo: withdraw.withdrawNo || null,
+        payoutId: payoutId || linkedPayout?.id || null,
+        payoutNo:
+          this.normalizeOptionalString(withdraw.payoutNo) ||
+          this.normalizeOptionalString(linkedPayout?.payoutNo) ||
+          null,
+        decisionRecordIds: this.toSortedUniqueStrings([
+          ...withdrawDecisionRecords.map((item) => item.id),
+          ...withdrawAlerts.flatMap((item) => item.decisionRecordIds || []),
+          ...withdrawCases.flatMap((item) => item.decisionRecordIds || []),
+        ]),
+        preKytCaseIds: this.toSortedUniqueStrings(
+          preKytCases
+            .filter((item) => String(item.sourceId) === withdrawId)
+            .map((item) => item.id),
+        ),
+        mainKytCaseIds: this.toSortedUniqueStrings(
+          mainKytCases
+            .filter((item) => String(item.sourceId) === withdrawId)
+            .map((item) => item.id),
+        ),
+        travelRuleCaseIds: this.toSortedUniqueStrings(
+          travelRuleCases
+            .filter((item) => String(item.sourceId) === withdrawId)
+            .map((item) => item.id),
+        ),
+        alertIds: this.toSortedUniqueStrings(
+          withdrawAlerts.map((item) => item.id),
+        ),
+        caseIds: this.toSortedUniqueStrings(
+          withdrawCases.map((item) => item.id),
+        ),
+        journalIds: this.toSortedUniqueStrings(
+          withdrawJournals.map((item) => item.id),
+        ),
+        clearingIds: this.toSortedUniqueStrings(
+          withdrawClearings.map((item) => item.id),
+        ),
+        reconciliationBreakIds: this.toSortedUniqueStrings(
+          withdrawBreaks.map((item) => item.id),
+        ),
+      };
+    });
+  }
+
   private async buildDepositSnapshots(records: any[], db: any): Promise<DepositEvidenceSnapshots> {
     const workflowIds = Array.from(
       new Set(
@@ -2252,6 +2541,372 @@ export class AuditLogsService {
       internalTransactions,
       internalFunds,
       depositEvidenceChain,
+    };
+  }
+
+  private async buildWithdrawSnapshots(
+    records: any[],
+    db: any,
+  ): Promise<WithdrawEvidenceSnapshots> {
+    const workflowIds = Array.from(
+      new Set(
+        records
+          .filter((item) => item.workflowType === AuditWorkflowTypes.WITHDRAW)
+          .map((item) => this.normalizeOptionalString(item.workflowId))
+          .filter(Boolean) as string[],
+      ),
+    );
+
+    if (!workflowIds.length || !db?.withdrawTransaction?.findMany) {
+      return {
+        withdrawTransactions: [],
+        payouts: [],
+        preKytCases: [],
+        mainKytCases: [],
+        travelRuleCases: [],
+        riskDecisionRecords: [],
+        alerts: [],
+        cases: [],
+        journals: [],
+        clearings: [],
+        reconciliationBreaks: [],
+        withdrawEvidenceChain: [],
+      };
+    }
+
+    const withdrawTransactions = await db.withdrawTransaction.findMany({
+      where: { id: { in: workflowIds } },
+      orderBy: { withdrawNo: 'asc' },
+      include: {
+        asset: {
+          select: {
+            id: true,
+            code: true,
+            type: true,
+            network: true,
+            decimals: true,
+          },
+        },
+        customer: {
+          select: {
+            id: true,
+            customerNo: true,
+            firstName: true,
+            lastName: true,
+            email: true,
+            amlRiskTier: true,
+          },
+        },
+        payout: {
+          include: {
+            asset: {
+              select: {
+                id: true,
+                code: true,
+                type: true,
+                network: true,
+                decimals: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    const payoutIds = this.toSortedUniqueStrings(
+      withdrawTransactions.map((item: any) => item.payoutId),
+    );
+    const withdrawIds = this.toSortedUniqueStrings(
+      withdrawTransactions.map((item: any) => item.id),
+    );
+
+    const [
+      payouts,
+      kytCases,
+      travelRuleCases,
+      riskDecisionRecords,
+      alerts,
+      cases,
+      journals,
+      clearings,
+      reconciliationBreaks,
+    ] = await Promise.all([
+      payoutIds.length && db?.payout?.findMany
+        ? db.payout.findMany({
+            where: { id: { in: payoutIds } },
+            orderBy: { payoutNo: 'asc' },
+            include: {
+              asset: {
+                select: {
+                  id: true,
+                  code: true,
+                  type: true,
+                  network: true,
+                  decimals: true,
+                },
+              },
+            },
+          })
+        : Promise.resolve([]),
+      db.kytCase?.findMany
+        ? db.kytCase.findMany({
+            where: {
+              sourceType: AuditWorkflowTypes.WITHDRAW,
+              sourceId: { in: withdrawIds },
+            },
+            orderBy: [{ sourceId: 'asc' }, { screeningStage: 'asc' }],
+            select: {
+              id: true,
+              caseNo: true,
+              sourceId: true,
+              screeningStage: true,
+              status: true,
+              provider: true,
+              providerCaseId: true,
+              checkedAt: true,
+              riskScore: true,
+            },
+          })
+        : Promise.resolve([]),
+      db.travelRuleCase?.findMany
+        ? db.travelRuleCase.findMany({
+            where: {
+              sourceType: AuditWorkflowTypes.WITHDRAW,
+              sourceId: { in: withdrawIds },
+            },
+            orderBy: [{ sourceId: 'asc' }, { caseNo: 'asc' }],
+            select: {
+              id: true,
+              caseNo: true,
+              sourceId: true,
+              status: true,
+              required: true,
+              provider: true,
+              providerTransferId: true,
+              checkedAt: true,
+              counterpartyVasp: true,
+            },
+          })
+        : Promise.resolve([]),
+      db.workflowDecisionRecord?.findMany
+        ? db.workflowDecisionRecord.findMany({
+            where: {
+              subjectId: { in: withdrawIds },
+              contextType: { in: ['TX_WITHDRAW_PRECHECK', 'TX_WITHDRAW_FINAL'] },
+            },
+            orderBy: [{ subjectId: 'asc' }, { createdAt: 'asc' }],
+            select: {
+              id: true,
+              customerId: true,
+              contextType: true,
+              subjectId: true,
+              policyVersion: true,
+              status: true,
+              inputPayload: true,
+              inputHash: true,
+              outputDecision: true,
+              recommendedActions: true,
+              outputs: true,
+              reasonCodes: true,
+              errorMessage: true,
+              createdAt: true,
+              completedAt: true,
+              updatedAt: true,
+            },
+          })
+        : Promise.resolve([]),
+      db.complianceAlert?.findMany
+        ? db.complianceAlert.findMany({
+            where: {
+              sourceType: AuditWorkflowTypes.WITHDRAW,
+              sourceId: { in: withdrawIds },
+            },
+            orderBy: [{ sourceId: 'asc' }, { firstOccurredAt: 'asc' }],
+            select: {
+              id: true,
+              alertNo: true,
+              sourceType: true,
+              sourceId: true,
+              sourceNo: true,
+              stage: true,
+              ruleCode: true,
+              severity: true,
+              status: true,
+              decisionRecommendation: true,
+              decision: true,
+              decisionRecordIds: true,
+              linkedCaseIds: true,
+              currentDispositionCode: true,
+              finalDispositionCode: true,
+              hitCount: true,
+              metadata: true,
+              firstOccurredAt: true,
+              lastOccurredAt: true,
+              createdAt: true,
+              updatedAt: true,
+            },
+          })
+        : Promise.resolve([]),
+      db.complianceIncident?.findMany
+        ? db.complianceIncident.findMany({
+            where: {
+              sourceType: AuditWorkflowTypes.WITHDRAW,
+              entityId: { in: withdrawIds },
+            },
+            orderBy: [{ entityId: 'asc' }, { createdAt: 'asc' }],
+            select: {
+              id: true,
+              incidentNo: true,
+              caseType: true,
+              status: true,
+              severity: true,
+              primaryAlertId: true,
+              primaryAlertNo: true,
+              entityId: true,
+              entityNo: true,
+              sourceType: true,
+              stage: true,
+              ruleCode: true,
+              decision: true,
+              proposedWorkflowDecision: true,
+              mlroReviewOutcome: true,
+              currentDispositionCode: true,
+              finalDispositionCode: true,
+              decisionRecordIds: true,
+              linkedCaseIds: true,
+              metadata: true,
+              createdAt: true,
+              updatedAt: true,
+            },
+          })
+        : Promise.resolve([]),
+      db.journal?.findMany
+        ? db.journal.findMany({
+            where: {
+              sourceType: 'WITHDRAW',
+              sourceId: { in: withdrawIds },
+            },
+            orderBy: [{ sourceId: 'asc' }, { createdAt: 'asc' }],
+            select: {
+              id: true,
+              journalNo: true,
+              sourceType: true,
+              sourceId: true,
+              sourceNo: true,
+              eventCode: true,
+              postingStatus: true,
+              postedAt: true,
+              reversalOfJournalId: true,
+              baseAssetId: true,
+              totalAmount: true,
+              description: true,
+              createdAt: true,
+              updatedAt: true,
+            },
+          })
+        : Promise.resolve([]),
+      db.clearing?.findMany
+        ? db.clearing.findMany({
+            where: {
+              sourceType: 'WITHDRAWAL',
+              sourceId: { in: withdrawIds },
+            },
+            orderBy: [{ sourceId: 'asc' }, { createdAt: 'asc' }],
+            select: {
+              id: true,
+              clearingNo: true,
+              sourceType: true,
+              sourceId: true,
+              outAssetId: true,
+              outAmount: true,
+              inAssetId: true,
+              inAmount: true,
+              feeAssetId: true,
+              feeAmount: true,
+              feeMethod: true,
+              outPayoutId: true,
+              clearingStatus: true,
+              memo: true,
+              createdAt: true,
+              updatedAt: true,
+            },
+          })
+        : Promise.resolve([]),
+      db.reconciliationBreak?.findMany
+        ? db.reconciliationBreak.findMany({
+            where: {
+              OR: [
+                { withdrawId: { in: withdrawIds } },
+                payoutIds.length ? { payoutId: { in: payoutIds } } : undefined,
+              ].filter(Boolean),
+            },
+            orderBy: [{ businessDate: 'desc' }, { detectedAt: 'desc' }],
+          })
+        : Promise.resolve([]),
+    ]);
+
+    const preKytCases = kytCases.filter(
+      (item: any) => String(item.screeningStage || '').trim().toUpperCase() === 'PRE_TXN',
+    );
+    const mainKytCases = kytCases.filter(
+      (item: any) => String(item.screeningStage || '').trim().toUpperCase() !== 'PRE_TXN',
+    );
+    const mappedRiskDecisionRecords = riskDecisionRecords.map((row: any) => ({
+      ...row,
+      inputPayload: this.parseJson(row.inputPayload),
+      recommendedActions: this.parseJson(row.recommendedActions),
+      outputs: this.parseJson(row.outputs),
+      reasonCodes: this.parseJson(row.reasonCodes),
+    }));
+    const mappedAlerts = alerts.map((row: any) => ({
+      ...row,
+      decisionRecordIds: this.parseStringArray(row.decisionRecordIds),
+      linkedCaseIds: this.parseStringArray(row.linkedCaseIds),
+      metadata: this.parseJson(row.metadata),
+    }));
+    const mappedCases = cases.map((row: any) => ({
+      ...row,
+      sourceId: row.entityId,
+      sourceNo: row.entityNo,
+      decisionRecordIds: this.parseStringArray(row.decisionRecordIds),
+      linkedCaseIds: this.parseStringArray(row.linkedCaseIds),
+      metadata: this.parseJson(row.metadata),
+    }));
+    const mappedReconciliationBreaks = reconciliationBreaks.map((row: any) => ({
+      ...row,
+      expectedNetDelta: row.expectedNetDelta?.toString?.() ?? '0',
+      observedNetDelta: row.observedNetDelta?.toString?.() ?? '0',
+      deltaAmount: row.deltaAmount?.toString?.() ?? '0',
+      detailsJson: this.parseJson(row.detailsJson),
+    }));
+
+    const withdrawEvidenceChain = this.buildWithdrawEvidenceChain({
+      withdrawTransactions,
+      payouts,
+      preKytCases,
+      mainKytCases,
+      travelRuleCases,
+      riskDecisionRecords: mappedRiskDecisionRecords,
+      alerts: mappedAlerts,
+      cases: mappedCases,
+      journals,
+      clearings,
+      reconciliationBreaks: mappedReconciliationBreaks,
+    });
+
+    return {
+      withdrawTransactions,
+      payouts,
+      preKytCases,
+      mainKytCases,
+      travelRuleCases,
+      riskDecisionRecords: mappedRiskDecisionRecords,
+      alerts: mappedAlerts,
+      cases: mappedCases,
+      journals,
+      clearings,
+      reconciliationBreaks: mappedReconciliationBreaks,
+      withdrawEvidenceChain,
     };
   }
 

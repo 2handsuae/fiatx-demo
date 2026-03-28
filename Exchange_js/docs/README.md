@@ -2,7 +2,7 @@
 
 Status: active
 Owner: project-owner-and-agents
-Last Updated: 2026-03-26
+Last Updated: 2026-03-27
 Applies To: `Exchange_js`
 Supersedes: none
 Depends On: `AGENTS.md`, `docs/constraints/README.md`
@@ -145,6 +145,7 @@ Source of Truth Level: documentation-governance-index
 ## Current Entry Documents
 - Project planning reference:
   - `docs/roadmap/project-version-plan.md`
+  - `docs/roadmap/wave-7-withdraw-payout-phase-plan.md`
   - `docs/roadmap/wave-6-pricing-quote-swap-phase-plan.md`
   - `docs/roadmap/wave-5-payin-deposit-phase-plan.md`
   - `docs/roadmap/wave-3-customer-onboarding-phase-plan.md`
@@ -153,6 +154,23 @@ Source of Truth Level: documentation-governance-index
 - Wave 6 current status:
   - `runtime complete`
   - `cleanup complete`
+- Wave 7 current status:
+  - `phases 0-4 runtime landed on the current branch`
+  - `minimum reconciliation and withdraw evidence export are now active Wave 7 truth`
+- Wave 7 durable workflow / entity truth:
+  - `docs/specs/workflows/withdraw-payout-canonical-workflow.md`
+  - `docs/specs/entities/withdraw-transaction-entity.md`
+  - `docs/specs/entities/payout-entity.md`
+- Wave 7 reconciliation truth:
+  - `docs/specs/workflows/safeguarding-reconciliation-workflow.md`
+  - `docs/specs/entities/reconciliation-break-entity.md`
+- Wave 7 acceptance / runbook:
+  - `docs/acceptance/wave-7-withdraw-payout-final-acceptance-checklist.md`
+  - `docs/acceptance/wave-7-withdraw-accounting-blocked-runbook.md`
+  - `docs/acceptance/wave-7-withdraw-evidence-export-runbook.md`
+  - `docs/acceptance/wave-7-minimum-daily-reconciliation-runbook.md`
+- Wave 7 cleanup / closeout closure record:
+  - `docs/cleanup/wave-7-cleanup-master-plan.md`
 - Wave 6 cleanup / convergence closure record:
   - `docs/cleanup/wave-6-cleanup-master-plan.md`
 - Wave 6 durable workflow / entity truth:

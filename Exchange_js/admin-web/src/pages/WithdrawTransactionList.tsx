@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, RefreshCw, Eye, Download, CheckCircle, Copy, Plus, ShieldCheck, ArrowRight, XCircle } from 'lucide-react';
+import { Search, RefreshCw, Eye, Download, CheckCircle, Copy, Plus } from 'lucide-react';
 import { copyToClipboard } from '../utils/clipboard';
 import { formatAssetAmount } from '../utils/number-format';
 
@@ -11,6 +11,7 @@ interface WithdrawTransaction {
   ownerId: string;
   ownerNo?: string;
   status: string;
+  derivedComplianceStatus?: string;
   type: string;
   asset: { code: string; type: string; network: string | null; decimals?: number };
   amount: string;
@@ -35,11 +36,7 @@ const WithdrawTransactionList = () => {
   const navigate = useNavigate();
   const [items, setItems] = useState<WithdrawTransaction[]>([]);
   const [loading, setLoading] = useState(true);
-  const [processingId, setProcessingId] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
-  const [isRejectModalOpen, setIsRejectModalOpen] = useState(false);
-  const [rejectReason, setRejectReason] = useState('');
-  const [targetId, setTargetId] = useState<string | null>(null);
 
   // Filters
   const [withdrawNo, setWithdrawNo] = useState('');
@@ -98,61 +95,6 @@ const WithdrawTransactionList = () => {
     } catch (error) {
       console.error('Seed mock failed', error);
     }
-  };
-
-  const handleAction = async (id: string, action: string, reason?: string) => {
-    setProcessingId(id);
-    try {
-      const token = localStorage.getItem('admin_token');
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/withdraw-transactions/${id}/status`, {
-        method: 'PATCH',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ action, reason })
-      });
-      
-      if (response.ok) {
-        fetchItems();
-        setIsRejectModalOpen(false);
-        setRejectReason('');
-        setTargetId(null);
-      } else {
-        const err = await response.json();
-        alert(`Action failed: ${err.message}`);
-      }
-    } catch (error) {
-      console.error('Action failed', error);
-    } finally {
-      setProcessingId(null);
-    }
-  };
-
-  const getAvailableActions = (status: string) => {
-    const actions = [];
-    switch (status) {
-      case 'CREATED':
-        actions.push({ action: 'check', label: 'Check', icon: <ArrowRight size={14} />, style: 'bg-blue-600 hover:bg-blue-700 text-white' });
-        actions.push({ action: 'cancel', label: 'Cancel', icon: <XCircle size={14} />, style: 'bg-gray-600 hover:bg-gray-700 text-white' });
-        break;
-      case 'PENDING_COMPLIANCE':
-        actions.push({ action: 'flag', label: 'Flag', icon: <ShieldCheck size={14} />, style: 'bg-orange-600 hover:bg-orange-700 text-white' });
-        actions.push({ action: 'reject', label: 'Reject', icon: <XCircle size={14} />, style: 'bg-red-600 hover:bg-red-700 text-white' });
-        actions.push({ action: 'approve', label: 'Approve', icon: <CheckCircle size={14} />, style: 'bg-green-600 hover:bg-green-700 text-white' });
-        actions.push({ action: 'cancel', label: 'Cancel', icon: <XCircle size={14} />, style: 'bg-gray-600 hover:bg-gray-700 text-white' });
-        break;
-      case 'UNDER_REVIEW':
-        actions.push({ action: 'approve', label: 'Approve', icon: <CheckCircle size={14} />, style: 'bg-green-600 hover:bg-green-700 text-white' });
-        actions.push({ action: 'reject', label: 'Reject', icon: <XCircle size={14} />, style: 'bg-red-600 hover:bg-red-700 text-white' });
-        actions.push({ action: 'cancel', label: 'Cancel', icon: <XCircle size={14} />, style: 'bg-gray-600 hover:bg-gray-700 text-white' });
-        break;
-      case 'PAYOUT_PENDING':
-        actions.push({ action: 'success', label: 'Success', icon: <CheckCircle size={14} />, style: 'bg-green-600 hover:bg-green-700 text-white' });
-        actions.push({ action: 'fail', label: 'Fail', icon: <XCircle size={14} />, style: 'bg-red-600 hover:bg-red-700 text-white' });
-        break;
-    }
-    return actions;
   };
 
   const handleExport = async () => {
@@ -219,6 +161,23 @@ const WithdrawTransactionList = () => {
     return (
       <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${colors[status] || 'bg-gray-100 text-gray-800'}`}>
         {status}
+      </span>
+    );
+  };
+
+  const renderComplianceBadge = (status?: string) => {
+    const colors: Record<string, string> = {
+      CLEAR: 'bg-emerald-50 text-emerald-700 border border-emerald-200',
+      HOLD: 'bg-amber-50 text-amber-700 border border-amber-200',
+      REJECT: 'bg-rose-50 text-rose-700 border border-rose-200',
+      PENDING: 'bg-slate-50 text-slate-700 border border-slate-200',
+    };
+    const normalized = String(status || 'PENDING').toUpperCase();
+    return (
+      <span
+        className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${colors[normalized] || colors.PENDING}`}
+      >
+        {normalized}
       </span>
     );
   };
@@ -358,7 +317,6 @@ const WithdrawTransactionList = () => {
               <option value="CREATED">Created</option>
               <option value="PENDING_COMPLIANCE">Pending Compliance</option>
               <option value="UNDER_REVIEW">Under Review</option>
-              <option value="APPROVED">Approved</option>
               <option value="PAYOUT_PENDING">Payout Pending</option>
               <option value="SUCCESS">Success</option>
               <option value="FAILED">Failed</option>
@@ -380,7 +338,7 @@ const WithdrawTransactionList = () => {
                 <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Status</th>
                 <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Destination</th>
                 <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Time</th>
-                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider text-right">Actions</th>
+                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider text-right">View</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-admin-border">
@@ -437,7 +395,10 @@ const WithdrawTransactionList = () => {
                       </div>
                     </td>
                     <td className="px-6 py-4">
-                      {renderStatusBadge(item.status)}
+                      <div className="flex flex-col gap-1">
+                        {renderStatusBadge(item.status)}
+                        {renderComplianceBadge(item.derivedComplianceStatus)}
+                      </div>
                     </td>
                     <td className="px-6 py-4">
                         {renderDestination(item)}
@@ -448,25 +409,6 @@ const WithdrawTransactionList = () => {
                     </td>
                     <td className="px-6 py-4 text-right">
                       <div className="flex justify-end gap-2 items-center">
-                          {getAvailableActions(item.status).map(action => (
-                              <button
-                                  key={action.action}
-                                  onClick={() => {
-                                      if (action.action === 'reject') {
-                                          setTargetId(item.id);
-                                          setIsRejectModalOpen(true);
-                                      } else {
-                                          handleAction(item.id, action.action);
-                                      }
-                                  }}
-                                  disabled={processingId === item.id}
-                                  className={`flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded shadow-sm transition-all ${action.style} ${processingId === item.id ? 'opacity-50 cursor-not-allowed' : ''}`}
-                              >
-                                  {action.icon}
-                                  {action.label}
-                              </button>
-                          ))}
-                          
                           <button 
                             onClick={() => navigate(`/exchange/withdraw-transactions/${item.id}`)}
                             className="p-1.5 text-blue-600 rounded hover:bg-blue-50 transition-colors" 
@@ -484,43 +426,6 @@ const WithdrawTransactionList = () => {
         </div>
       </div>
 
-      {/* Reject Modal */}
-      {isRejectModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6 animate-in fade-in zoom-in duration-200">
-            <h3 className="text-lg font-bold text-gray-900 mb-2">Reject Transaction</h3>
-            <p className="text-sm text-gray-500 mb-4">
-              Please provide a reason for rejecting this transaction. This will be recorded in the audit logs.
-            </p>
-            <textarea
-              className="w-full border border-gray-200 rounded-lg p-3 text-sm focus:outline-none focus:ring-2 focus:ring-red-500/20 focus:border-red-500 transition-all mb-4"
-              rows={4}
-              placeholder="Enter rejection reason..."
-              value={rejectReason}
-              onChange={(e) => setRejectReason(e.target.value)}
-            />
-            <div className="flex justify-end gap-3">
-              <button
-                onClick={() => {
-                  setIsRejectModalOpen(false);
-                  setRejectReason('');
-                  setTargetId(null);
-                }}
-                className="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => targetId && handleAction(targetId, 'reject', rejectReason)}
-                disabled={!rejectReason.trim()}
-                className="px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg shadow-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                Confirm Reject
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

@@ -229,7 +229,7 @@ const RiskPolicyExecutionsPage = () => {
     if (!record) return false;
     if (String(record.status || '').trim().toUpperCase() !== 'CREATED') return false;
     const contextType = String(record.contextType || '').trim().toUpperCase();
-    return ['ONBOARDING_CDD', 'TX_DEPOSIT_FINAL', 'TX_SWAP_FINAL'].includes(contextType);
+    return ['ONBOARDING_CDD', 'TX_DEPOSIT_FINAL', 'TX_WITHDRAW_FINAL', 'TX_SWAP_FINAL'].includes(contextType);
   };
 
   const fetchRecords = async (

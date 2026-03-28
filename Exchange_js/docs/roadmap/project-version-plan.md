@@ -610,7 +610,7 @@
 - 极端波动策略可一键限制相关提现能力并留痕。
 - 最小日对账上线：
   - 每日产出差异清单
-  - 差异自动建案
+  - 差异自动建 Alert，必要时人工升 Case
   - 可追踪处理状态
 - withdraw / payout 失败或 returned 时，自动冲正或补偿，不得留下账务悬挂。
 
@@ -631,6 +631,12 @@
   - 系统自动冲正/补偿
   - 不出现重复冲正
   - 差异与处理轨迹可导出
+
+**当前阶段文档**
+
+- `docs/roadmap/wave-7-withdraw-payout-phase-plan.md`
+- `docs/specs/workflows/withdraw-payout-canonical-workflow.md`
+- `docs/acceptance/wave-7-withdraw-payout-final-acceptance-checklist.md`
 
 **明确不做**
 

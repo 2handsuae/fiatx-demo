@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException, Inject, forwardRef } from '@nestjs/common';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { 
   WithdrawTransactionQueryDto, 
@@ -21,18 +21,33 @@ import {
   AuditActions,
   AuditEntityTypes,
   AuditModules,
+  AuditWorkflowTypes,
   buildStateTransitionAction,
 } from '../../risk-engine/audit-logs/constants/audit-actions.constant';
 import { AuditTriggerType } from '../../risk-engine/audit-logs/dto/audit-log.dto';
 import { PricingCenterService } from '../pricing-center/pricing-center.service';
 
+export type WithdrawStatusUpdateSource = 'ADMIN_API' | 'WORKFLOW' | 'SYSTEM';
+
+export interface WithdrawStatusUpdateContext {
+  source: WithdrawStatusUpdateSource;
+  actorType?: string;
+  actorId?: string;
+  actorRole?: string;
+  sourcePlatform?: string;
+}
+
 @Injectable()
 export class WithdrawTransactionsService {
   private readonly logger = new Logger(WithdrawTransactionsService.name);
   private readonly auditLogsService: AuditLogsService;
-
-  private readonly txEventDisabledHint =
-    'Transactional status update completed without emitting domain events';
+  private readonly systemStatusUpdateContext: WithdrawStatusUpdateContext = {
+    source: 'SYSTEM',
+    actorType: 'SYSTEM',
+    actorId: 'SYSTEM',
+    actorRole: 'SYSTEM',
+    sourcePlatform: 'SYSTEM',
+  };
 
   private deriveWithdrawType(assetType?: string | null): 'crypto' | 'fiat' {
     return String(assetType || '').toUpperCase() === 'FIAT' ? 'fiat' : 'crypto';
@@ -65,6 +80,8 @@ export class WithdrawTransactionsService {
       [WithdrawTransactionAction.APPROVE]: WithdrawTransactionStatus.PAYOUT_PENDING,
     },
     [WithdrawTransactionStatus.PAYOUT_PENDING]: {
+      [WithdrawTransactionAction.FLAG]: WithdrawTransactionStatus.UNDER_REVIEW,
+      [WithdrawTransactionAction.REJECT]: WithdrawTransactionStatus.REJECTED,
       [WithdrawTransactionAction.SUCCESS]: WithdrawTransactionStatus.SUCCESS,
       [WithdrawTransactionAction.FAIL]: WithdrawTransactionStatus.FAILED,
       [WithdrawTransactionAction.APPROVE]: WithdrawTransactionStatus.PAYOUT_PENDING, // Allow re-approval for logging
@@ -86,6 +103,7 @@ export class WithdrawTransactionsService {
     private prisma: PrismaService,
     private eventEmitter: EventEmitter2,
     private journalsService: JournalsService,
+    @Inject(forwardRef(() => TransactionComplianceService))
     private transactionComplianceService: TransactionComplianceService,
     private pricingCenterService: PricingCenterService,
   ) {
@@ -133,39 +151,173 @@ export class WithdrawTransactionsService {
   }
 
   private async assertComplianceGate(item: any, nextStatus: WithdrawTransactionStatus) {
+    void item;
+    void nextStatus;
+    return;
+  }
+
+  private normalizeStatusUpdateContext(
+    context?: WithdrawStatusUpdateContext,
+  ): Required<WithdrawStatusUpdateContext> {
+    const normalized = context ?? this.systemStatusUpdateContext;
+    const source = normalized.source || 'SYSTEM';
+    if (source === 'ADMIN_API') {
+      return {
+        source,
+        actorType: normalized.actorType || 'ADMIN',
+        actorId: normalized.actorId || 'ADMIN_SYSTEM',
+        actorRole: normalized.actorRole || 'ADMIN',
+        sourcePlatform: normalized.sourcePlatform || 'ADMIN_API',
+      };
+    }
+    return {
+      source,
+      actorType: normalized.actorType || 'SYSTEM',
+      actorId: normalized.actorId || 'SYSTEM',
+      actorRole: normalized.actorRole || 'SYSTEM',
+      sourcePlatform: normalized.sourcePlatform || 'SYSTEM',
+    };
+  }
+
+  private deriveWithdrawComplianceSnapshotFromStatus(
+    status?: string | null,
+  ): 'PENDING' | 'CLEAR' | 'UNDER_REVIEW' | 'REJECTED' {
+    const current = String(status || '').trim().toUpperCase();
+
+    if (current === WithdrawTransactionStatus.UNDER_REVIEW) {
+      return 'UNDER_REVIEW';
+    }
+
+    if (current === WithdrawTransactionStatus.REJECTED) {
+      return 'REJECTED';
+    }
+
     if (
-      ![
-        WithdrawTransactionStatus.PAYOUT_PENDING,
+      current === WithdrawTransactionStatus.PAYOUT_PENDING ||
+      current === WithdrawTransactionStatus.SUCCESS ||
+      current === WithdrawTransactionStatus.FAILED ||
+      current === WithdrawTransactionStatus.RETURNED
+    ) {
+      return 'CLEAR';
+    }
+
+    return 'PENDING';
+  }
+
+  private deriveWithdrawComplianceStatusFromStatus(
+    status?: string | null,
+  ): 'PENDING' | 'CLEAR' | 'HOLD' | 'REJECT' {
+    const current = String(status || '').trim().toUpperCase();
+
+    if (current === WithdrawTransactionStatus.UNDER_REVIEW) {
+      return 'HOLD';
+    }
+
+    if (current === WithdrawTransactionStatus.REJECTED) {
+      return 'REJECT';
+    }
+
+    if (
+      current === WithdrawTransactionStatus.PAYOUT_PENDING ||
+      current === WithdrawTransactionStatus.SUCCESS ||
+      current === WithdrawTransactionStatus.FAILED ||
+      current === WithdrawTransactionStatus.RETURNED
+    ) {
+      return 'CLEAR';
+    }
+
+    return 'PENDING';
+  }
+
+  private mapCanonicalAuditLogs(events: any[]) {
+    return events.map((event: any) => ({
+      id: event.id,
+      action: event.action || null,
+      statusFrom: event.statusFrom || null,
+      statusTo: event.statusTo || null,
+      actorType: event.actorType || null,
+      actorId: event.actorId || null,
+      actorNo: event.actorNo || null,
+      reason: event.reason || null,
+      occurredAt: event.occurredAt || event.createdAt || null,
+      module: event.module || null,
+      result: event.result || null,
+      oldStatus: event.statusFrom || null,
+      newStatus: event.statusTo || null,
+      operatorId: event.actorId || null,
+      createdAt: event.occurredAt || event.createdAt || null,
+    }));
+  }
+
+  private async getCanonicalWithdrawAuditLogs(
+    withdrawId: string,
+    withdrawNo?: string | null,
+  ) {
+    const workflowNo = withdrawNo || null;
+    const events = await (this.prisma as any).auditLogEvent.findMany({
+      where: {
+        OR: [
+          {
+            entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+            entityId: withdrawId,
+          },
+          workflowNo
+            ? {
+                workflowType: AuditWorkflowTypes.WITHDRAW,
+                workflowNo,
+              }
+            : undefined,
+          {
+            workflowType: AuditWorkflowTypes.WITHDRAW,
+            workflowId: withdrawId,
+          },
+          {
+            traceId: `${AuditWorkflowTypes.WITHDRAW}:${withdrawId}`,
+          },
+        ].filter(Boolean),
+      },
+      orderBy: [{ occurredAt: 'desc' }, { createdAt: 'desc' }],
+      take: 100,
+    });
+
+    return this.mapCanonicalAuditLogs(events);
+  }
+
+  private assertStatusUpdateSourceAllowed(
+    nextStatus: WithdrawTransactionStatus,
+    context: Required<WithdrawStatusUpdateContext>,
+  ) {
+    if (
+      context.source === 'ADMIN_API' &&
+      nextStatus === WithdrawTransactionStatus.PAYOUT_PENDING
+    ) {
+      throw new BadRequestException({
+        code: 'WITHDRAW_APPROVE_WORKFLOW_ONLY',
+        message:
+          'Withdraw progression to payout pending is driven by risk workflow callback, not direct admin approval.',
+        details: {
+          source: context.source,
+          nextStatus,
+        },
+      });
+    }
+
+    if (
+      context.source === 'ADMIN_API' &&
+      [
         WithdrawTransactionStatus.SUCCESS,
+        WithdrawTransactionStatus.FAILED,
+        WithdrawTransactionStatus.RETURNED,
       ].includes(nextStatus)
     ) {
-      return;
-    }
-
-    const reasons: string[] = [];
-    const assetType = String(item.asset?.type || '').toUpperCase();
-    if (assetType === 'CRYPTO' && item.preKytStatus !== 'PASS') {
-      reasons.push(`preKytStatus=${item.preKytStatus || 'UNKNOWN'} (expected PASS)`);
-    }
-
-    if (reasons.length > 0) {
-      await this.triggerComplianceGateBlockedAlert(
-        item,
-        `Withdrawal ${item.id} compliance not cleared for status ${nextStatus}: ${reasons.join('; ')}`,
-        {
-          nextStatus,
-          reasons,
-          complianceStatus: item.complianceStatus || null,
-          preKytStatus: item.preKytStatus || null,
-          kytStatus: item.kytStatus || null,
-          travelRuleRequired: item.travelRuleRequired ?? null,
-          travelRuleStatus: item.travelRuleStatus || null,
-        },
-      );
       throw new BadRequestException({
-        code: 'COMPLIANCE_NOT_CLEARED',
-        message: `Withdrawal ${item.id} compliance not cleared for status ${nextStatus}: ${reasons.join('; ')}`,
-        details: reasons,
+        code: 'WITHDRAW_TERMINAL_ACTION_SYSTEM_ONLY',
+        message:
+          'Direct withdraw terminal actions are reserved for workflow/system execution.',
+        details: {
+          source: context.source,
+          nextStatus,
+        },
       });
     }
   }
@@ -214,6 +366,9 @@ export class WithdrawTransactionsService {
       items: items.map((item: any) => ({
         ...item,
         type: this.deriveWithdrawType(item.asset?.type),
+        derivedComplianceStatus: this.deriveWithdrawComplianceStatusFromStatus(
+          item.status,
+        ),
       })),
       total,
     };
@@ -234,9 +389,6 @@ export class WithdrawTransactionsService {
             }
           }
         },
-        auditLogs: {
-          orderBy: { createdAt: 'desc' },
-        },
       },
     });
     if (!item) throw new NotFoundException('Withdraw transaction not found');
@@ -250,6 +402,10 @@ export class WithdrawTransactionsService {
           includePayload: false,
         },
       );
+    const auditLogs = await this.getCanonicalWithdrawAuditLogs(
+      item.id,
+      item.withdrawNo,
+    );
 
     return {
       ...item,
@@ -258,6 +414,7 @@ export class WithdrawTransactionsService {
       kytCase: caseAggregate.mainKytCase,
       travelRuleCase: caseAggregate.travelRuleCase,
       derivedComplianceStatus: caseAggregate.derivedComplianceStatus,
+      auditLogs,
     };
   }
 
@@ -281,141 +438,173 @@ export class WithdrawTransactionsService {
     
     // Fetch owner info if needed
     const ownerNo = await this.pricingCenterService.resolveOwnerNo(ownerType, userId);
+    await this.pricingCenterService.assertWithdrawExtremeVolatilityNotBlocked({
+      ownerType,
+      ownerId: userId,
+      ownerNo,
+      assetId,
+      module: AuditModules.WITHDRAW_TRANSACTIONS,
+      entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+      entityId: `WITHDRAW_CREATE_RESTRICTION:${userId}:${assetId}`,
+      sourcePlatform: ownerType === 'CUSTOMER' ? 'CUSTOMER_API' : 'ADMIN_API',
+      auditActor: {
+        actorType: ownerType === 'CUSTOMER' ? 'CUSTOMER' : 'ADMIN',
+        actorId: userId,
+        actorRole: ownerType,
+      },
+      surface: 'WITHDRAW_CREATE',
+      action: 'WITHDRAW_CREATE',
+    });
 
     const amountDecimal = new Prisma.Decimal(amount);
     if (!quoteId) {
       throw new BadRequestException('quoteId is required for withdrawal');
     }
 
-    const created = await (this.prisma as any).$transaction(async (tx: any) => {
-      const balances = await this.journalsService.getCustomerLiabilityBalance(
-        {
-          ownerId: userId,
-          ownerType,
-          assetId,
-        },
-        tx,
-      );
-
-      if (balances.availableBalance.lt(amountDecimal)) {
-        throw new BadRequestException({
-          code: 'INSUFFICIENT_AVAILABLE_BALANCE',
-          message: `Insufficient available balance for asset ${assetId}`,
-        });
-      }
-
-      let quoteFeeAmount = new Prisma.Decimal(0);
-      let consumedQuoteId: string | null = null;
-      const now = new Date();
-      const activeQuote = await this.pricingCenterService.getActiveWithdrawQuoteOrThrow(
-        quoteId,
-        ownerType,
-        userId,
-        now,
-        tx,
-      );
-
-      if (activeQuote.assetId !== assetId) {
-        throw new BadRequestException('Withdrawal quote asset mismatch');
-      }
-      if (!new Prisma.Decimal(activeQuote.amount).eq(amountDecimal)) {
-        throw new BadRequestException('Withdrawal quote amount mismatch');
-      }
-
-      const totals = activeQuote.totalsJson
-        ? (JSON.parse(activeQuote.totalsJson) as Record<string, string>)
-        : {};
-      quoteFeeAmount = new Prisma.Decimal(totals[asset.code] || '0');
-      consumedQuoteId = activeQuote.id;
-      await this.pricingCenterService.consumeWithdrawQuoteForWithdraw(
-        tx,
-        quoteId,
-        ownerType,
-        userId,
-        now,
-      );
-
-      const netAmount = amountDecimal.sub(quoteFeeAmount);
-      if (netAmount.lt(0)) {
-        throw new BadRequestException('Net amount must not be negative');
-      }
-
-      const record = await tx.withdrawTransaction.create({
-        data: {
-          withdrawNo,
-          ownerType,
-          ownerId: userId,
-          ownerNo,
-          status: WithdrawTransactionStatus.CREATED,
-          assetId,
-          amount: amountDecimal,
-          netAmount,
-          feeAmount: quoteFeeAmount,
-          toWalletId,
-          toAddress,
-          toIban,
-          parentType,
-          parentId,
-          pricingQuoteId: consumedQuoteId,
-          statusHistory: JSON.stringify([{
-            status: WithdrawTransactionStatus.CREATED,
-            timestamp: new Date().toISOString(),
-            operator: 'SYSTEM',
-            note: 'Withdrawal created'
-          }]),
-        },
-      });
-
-      await this.auditLogsService.recordByActor(
-        {
-          triggerType: AuditTriggerType.DATA_CREATE,
-          action: AuditActions.WITHDRAW_CREATED,
-          module: AuditModules.WITHDRAW_TRANSACTIONS,
-          entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
-          entityId: record.id,
-          entityNo: record.withdrawNo,
-          entityOwnerType: record.ownerType,
-          entityOwnerId: record.ownerId,
-          reason: 'Customer initiated withdrawal',
-          afterData: {
-            status: record.status,
-            amount: record.amount?.toString?.(),
-            assetId: record.assetId,
-            feeAmount: record.feeAmount?.toString?.(),
-            pricingQuoteId: record.pricingQuoteId || null,
+    const created = await (this.prisma as any).$transaction(
+      async (tx: any) => {
+        const balances = await this.journalsService.getCustomerLiabilityBalance(
+          {
+            ownerId: userId,
+            ownerType,
+            assetId,
           },
-          sourcePlatform: ownerType === 'CUSTOMER' ? 'CUSTOMER_API' : 'ADMIN_API',
-        },
-        {
-          actorType: ownerType,
-          actorId: userId,
-          actorRole: ownerType,
-        },
-        tx,
-      );
+          tx,
+        );
 
-      await this.journalsService.createJournal(
-        {
-          sourceType: 'WITHDRAW',
-          sourceId: record.id,
-          eventCode: WithdrawEvents.EVT_WITHDRAWAL_CREATED,
-          context: this.createAccountingContext(record),
-        },
-        tx,
-      );
+        if (balances.availableBalance.lt(amountDecimal)) {
+          throw new BadRequestException({
+            code: 'INSUFFICIENT_AVAILABLE_BALANCE',
+            message: `Insufficient available balance for asset ${assetId}`,
+          });
+        }
 
-      await this.transactionComplianceService.ensureWithdrawPreKytCaseOnCreate(
-        record.id,
-        tx,
-      );
+        let quoteFeeAmount = new Prisma.Decimal(0);
+        let consumedQuoteId: string | null = null;
+        const now = new Date();
+        const activeQuote = await this.pricingCenterService.getActiveWithdrawQuoteOrThrow(
+          quoteId,
+          ownerType,
+          userId,
+          now,
+          tx,
+        );
 
-      return record;
-    });
+        if (activeQuote.assetId !== assetId) {
+          throw new BadRequestException('Withdrawal quote asset mismatch');
+        }
+        if (!new Prisma.Decimal(activeQuote.amount).eq(amountDecimal)) {
+          throw new BadRequestException('Withdrawal quote amount mismatch');
+        }
+
+        const totals = activeQuote.totalsJson
+          ? (JSON.parse(activeQuote.totalsJson) as Record<string, string>)
+          : {};
+        quoteFeeAmount = new Prisma.Decimal(totals[asset.code] || '0');
+        consumedQuoteId = activeQuote.id;
+        await this.pricingCenterService.consumeWithdrawQuoteForWithdraw(
+          tx,
+          quoteId,
+          ownerType,
+          userId,
+          now,
+        );
+
+        const netAmount = amountDecimal.sub(quoteFeeAmount);
+        if (netAmount.lt(0)) {
+          throw new BadRequestException('Net amount must not be negative');
+        }
+
+        const isCryptoWithdraw = this.deriveWithdrawType(asset.type) === 'crypto';
+
+        const record = await tx.withdrawTransaction.create({
+          data: {
+            withdrawNo,
+            ownerType,
+            ownerId: userId,
+            ownerNo,
+            status: WithdrawTransactionStatus.PENDING_COMPLIANCE,
+            assetId,
+            amount: amountDecimal,
+            netAmount,
+            feeAmount: quoteFeeAmount,
+            toWalletId,
+            toAddress,
+            toIban,
+            preKytStatus: isCryptoWithdraw ? 'FINAL' : '',
+            kytStatus: '',
+            travelRuleRequired: isCryptoWithdraw,
+            travelRuleStatus: isCryptoWithdraw ? 'FINAL' : '',
+            complianceStatus: 'PENDING',
+            parentType,
+            parentId,
+            pricingQuoteId: consumedQuoteId,
+            statusHistory: JSON.stringify([{
+              status: WithdrawTransactionStatus.PENDING_COMPLIANCE,
+              timestamp: new Date().toISOString(),
+              operator: 'SYSTEM',
+              note: 'Withdrawal created and moved to compliance pending'
+            }]),
+          },
+        });
+
+        await this.auditLogsService.recordByActor(
+          {
+            triggerType: AuditTriggerType.DATA_CREATE,
+            action: AuditActions.WITHDRAW_CREATED,
+            module: AuditModules.WITHDRAW_TRANSACTIONS,
+            entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+            entityId: record.id,
+            entityNo: record.withdrawNo,
+            entityOwnerType: record.ownerType,
+            entityOwnerId: record.ownerId,
+            reason: 'Customer initiated withdrawal',
+            afterData: {
+              status: record.status,
+              amount: record.amount?.toString?.(),
+              assetId: record.assetId,
+              feeAmount: record.feeAmount?.toString?.(),
+              pricingQuoteId: record.pricingQuoteId || null,
+            },
+            sourcePlatform: ownerType === 'CUSTOMER' ? 'CUSTOMER_API' : 'ADMIN_API',
+          },
+          {
+            actorType: ownerType,
+            actorId: userId,
+            actorRole: ownerType,
+          },
+          tx,
+        );
+
+        await this.journalsService.createJournal(
+          {
+            sourceType: 'WITHDRAW',
+            sourceId: record.id,
+            eventCode: WithdrawEvents.EVT_WITHDRAWAL_CREATED,
+            context: this.createAccountingContext(record),
+          },
+          tx,
+        );
+
+        return record;
+      },
+      {
+        maxWait: 5000,
+        timeout: 20000,
+      },
+    );
 
     // Notification/observation only
     this.eventEmitter.emit(WithdrawEvents.EVT_WITHDRAWAL_CREATED, {
       withdrawId: created.id,
     });
+
+    await this.transactionComplianceService.ensureWithdrawPreKytCaseOnCreate(
+      created.id,
+    );
+    await this.transactionComplianceService.initializeWithdrawFinalDecisionRecord(
+      created.id,
+    );
 
     return {
       ...created,
@@ -426,9 +615,11 @@ export class WithdrawTransactionsService {
   async updateStatus(
     id: string,
     dto: UpdateWithdrawTransactionStatusDto,
+    context?: WithdrawStatusUpdateContext,
     tx?: Prisma.TransactionClient,
   ) {
     const { action, reason } = dto;
+    const statusContext = this.normalizeStatusUpdateContext(context);
 
     const executeUpdate = async (client: Prisma.TransactionClient) => {
       const item = await (client as any).withdrawTransaction.findUnique({
@@ -455,6 +646,7 @@ export class WithdrawTransactionsService {
         );
       }
 
+      this.assertStatusUpdateSourceAllowed(nextStatus, statusContext);
       await this.assertComplianceGate(item, nextStatus);
 
       let history: any[] = [];
@@ -469,7 +661,7 @@ export class WithdrawTransactionsService {
       history.push({
         status: nextStatus,
         timestamp: new Date().toISOString(),
-        operator: 'SYSTEM',
+        operator: statusContext.actorId,
         note: reason || `Status changed from ${currentStatus} to ${nextStatus}`,
       });
 
@@ -477,6 +669,8 @@ export class WithdrawTransactionsService {
         where: { id },
         data: {
           status: nextStatus,
+          complianceStatus:
+            this.deriveWithdrawComplianceSnapshotFromStatus(nextStatus),
           approvedAt:
             (nextStatus === WithdrawTransactionStatus.APPROVED ||
               nextStatus === WithdrawTransactionStatus.PAYOUT_PENDING) &&
@@ -502,7 +696,7 @@ export class WithdrawTransactionsService {
 
       const eventSource = updated;
 
-      await this.auditLogsService.recordSystem(
+      await this.auditLogsService.recordByActor(
         {
           triggerType: AuditTriggerType.STATE_TRANSITION,
           action: buildStateTransitionAction('WITHDRAW', currentStatus, nextStatus),
@@ -517,7 +711,12 @@ export class WithdrawTransactionsService {
           reason: reason || `Action: ${action}`,
           beforeData: { status: currentStatus },
           afterData: { status: nextStatus },
-          sourcePlatform: 'SYSTEM',
+          sourcePlatform: statusContext.sourcePlatform,
+        },
+        {
+          actorType: statusContext.actorType,
+          actorId: statusContext.actorId,
+          actorRole: statusContext.actorRole,
         },
         client,
       );
@@ -584,18 +783,22 @@ export class WithdrawTransactionsService {
       };
     };
 
+    const emitEvents = (events: Array<{ eventName: string; payload: any }>) => {
+      for (const event of events) {
+        this.eventEmitter.emit(event.eventName, event.payload);
+      }
+    };
+
     if (tx) {
       const result = await executeUpdate(tx);
-      this.logger.debug(this.txEventDisabledHint);
+      emitEvents(result.postCommitEvents);
       return result.updated;
     }
 
     const result = await (this.prisma as any).$transaction(
       async (client: Prisma.TransactionClient) => executeUpdate(client),
     );
-    for (const event of result.postCommitEvents) {
-      this.eventEmitter.emit(event.eventName, event.payload);
-    }
+    emitEvents(result.postCommitEvents);
     return result.updated;
   }
 

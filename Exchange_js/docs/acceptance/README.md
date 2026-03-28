@@ -2,7 +2,7 @@
 
 Status: active
 Owner: project-owner-and-agents
-Last Updated: 2026-03-26
+Last Updated: 2026-03-27
 Applies To: `Exchange_js`
 Supersedes: none
 Depends On: `docs/README.md`
@@ -28,6 +28,14 @@ Source of Truth Level: acceptance
   - Wave 6 final acceptance checklist for quote lifecycle, automated risk routing, fee paths, and rollback validation.
 - `docs/acceptance/wave-6-best-execution-evidence-export-runbook.md`
   - Audit Center walkthrough for swap best execution evidence under the current single-LP proof standard.
+- `docs/acceptance/wave-7-withdraw-payout-final-acceptance-checklist.md`
+  - Active Wave 7 final checklist for withdraw / payout happy path, blocked path, fail / return validation, minimum reconciliation, and evidence export.
+- `docs/acceptance/wave-7-withdraw-accounting-blocked-runbook.md`
+  - Active operator runbook for choosing `re-closeout` vs `re-compensate` and validating terminal compensation closeout.
+- `docs/acceptance/wave-7-withdraw-evidence-export-runbook.md`
+  - Active operator walkthrough for withdraw evidence export expectations and reconciliation snapshot replay.
+- `docs/acceptance/wave-7-minimum-daily-reconciliation-runbook.md`
+  - Active Phase 4 manual runbook for break-based daily reconciliation validation.
 - `docs/acceptance/onboarding-compliance-center-wave3-acceptance-checklist.md`
   - Focused onboarding + compliance-center manual script.
 - `docs/acceptance/local-main-runtime-runbook.md`

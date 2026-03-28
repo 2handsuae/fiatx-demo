@@ -99,6 +99,14 @@ export const COMPLIANCE_ALERT_RULES: Record<string, ComplianceAlertRuleDefinitio
     defaultMessage:
       'Transaction deposit final review requires compliance handling.',
   },
+  TX_WITHDRAW_FINAL_REVIEW_REQUIRED: {
+    ruleCode: 'TX_WITHDRAW_FINAL_REVIEW_REQUIRED',
+    capCode: 'CAP-004',
+    severity: ComplianceAlertSeverity.HIGH,
+    title: 'Transaction Withdraw Final Review Required',
+    defaultMessage:
+      'Transaction withdraw final review requires compliance handling.',
+  },
   TX_SWAP_FINAL_REVIEW_REQUIRED: {
     ruleCode: 'TX_SWAP_FINAL_REVIEW_REQUIRED',
     capCode: 'CAP-004',
@@ -106,6 +114,14 @@ export const COMPLIANCE_ALERT_RULES: Record<string, ComplianceAlertRuleDefinitio
     title: 'Transaction Swap Final Review Required',
     defaultMessage:
       'Transaction swap final review requires compliance handling.',
+  },
+  TX_RECONCILIATION_BREAK_DETECTED: {
+    ruleCode: 'TX_RECONCILIATION_BREAK_DETECTED',
+    capCode: 'CAP-016',
+    severity: ComplianceAlertSeverity.HIGH,
+    title: 'Withdraw Reconciliation Break Detected',
+    defaultMessage:
+      'Withdraw safeguarding reconciliation detected a break that requires investigation.',
   },
   ONB_ONBOARDING_JOURNEY_REVIEW: {
     ruleCode: 'ONB_ONBOARDING_JOURNEY_REVIEW',
