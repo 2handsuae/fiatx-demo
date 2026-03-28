@@ -51,6 +51,7 @@ import {
   PERIODIC_REVIEW_SOURCE_TYPE,
   PERIODIC_REVIEW_WORKFLOW,
   TRANSACTION_DEPOSIT_SOURCE_TYPE,
+  TRANSACTION_WITHDRAW_SOURCE_TYPE,
   TRANSACTION_SWAP_SOURCE_TYPE,
   TRANSACTION_REVIEW_STAGES,
   TRANSACTION_WORKFLOW,
@@ -58,12 +59,15 @@ import {
   getCanonicalOnboardingRuleForStage,
   getCanonicalReviewRuleForStage,
   getWorkflowFromSourceType,
+  isLegacyReadOnlyReviewStage,
   isSupportedReviewSourceType,
+  isWorkflowBoundReviewStage,
   normalizeComplianceReviewStage,
   normalizeComplianceRuleCode,
   normalizeOnboardingReviewStage,
 } from '../constants/onboarding-compliance-workflow.constant';
 import { WorkflowTransitionService } from '../../identity/onboarding/workflow-transition.service';
+import type { WorkflowTransitionInput } from '../../identity/onboarding/onboarding-workflow-transition.service';
 import type { OnboardingService } from '../../identity/onboarding/onboarding.service';
 import type { PeriodicReviewService } from '../../identity/periodic-review/periodic-review.service';
 import type { ComplianceIncidentsService } from '../compliance-incidents/compliance-incidents.service';
@@ -335,6 +339,15 @@ export class ComplianceAlertsService {
       };
     }
 
+    if (sourceType === TRANSACTION_WITHDRAW_SOURCE_TYPE) {
+      return {
+        type: TRANSACTION_WITHDRAW_SOURCE_TYPE,
+        id: this.normalizeOptionalString(row.sourceId),
+        no: this.normalizeOptionalString(row.sourceNo),
+        label: 'Withdraw',
+      };
+    }
+
     return {
       type: TRANSACTION_DEPOSIT_SOURCE_TYPE,
       id: this.normalizeOptionalString(row.sourceId),
@@ -349,6 +362,10 @@ export class ComplianceAlertsService {
       stage?: string | null;
     },
   ): AlertDirectProposal[] {
+    if (isLegacyReadOnlyReviewStage((row as any).stage)) {
+      return [];
+    }
+
     const workflow = getWorkflowFromSourceType(row.sourceType);
     const stage = normalizeComplianceReviewStage((row as any).stage);
 
@@ -357,6 +374,9 @@ export class ComplianceAlertsService {
     if (workflow === TRANSACTION_WORKFLOW) {
       if (stage === TRANSACTION_REVIEW_STAGES.REVIEW_SWAP_FINAL) {
         return ['REJECT'];
+      }
+      if (stage === TRANSACTION_REVIEW_STAGES.REVIEW_WITHDRAW_FINAL) {
+        return ['REJECT', 'FREEZE_TRANSACTION'];
       }
       return ['REJECT', 'FREEZE_TRANSACTION'];
     }
@@ -383,10 +403,14 @@ export class ComplianceAlertsService {
   ): AlertHandlingAction[] {
     const status = String(row.status || '').trim().toUpperCase();
 
+    if (isLegacyReadOnlyReviewStage((row as any).stage)) {
+      return [];
+    }
+
     if (!this.isWorkflowBoundAlert(row)) {
       if (status === ComplianceAlertStatus.OPEN) return ['ASSIGN'];
       if (status === ComplianceAlertStatus.ASSIGNED && this.isCurrentAssignee(row, actor)) {
-        return ['REASSIGN'];
+        return ['REASSIGN', 'FALSE_POSITIVE', 'ESCALATE_TO_CASE'];
       }
       return [];
     }
@@ -413,7 +437,17 @@ export class ComplianceAlertsService {
   }): boolean {
     return (
       isSupportedReviewSourceType(row.sourceType) &&
-      !!normalizeComplianceReviewStage((row as any).stage)
+      isWorkflowBoundReviewStage((row as any).stage)
+    );
+  }
+
+  private isLegacyReadOnlyAlert(row: {
+    sourceType?: string | null;
+    stage?: string | null;
+  }): boolean {
+    return (
+      isSupportedReviewSourceType(row.sourceType) &&
+      isLegacyReadOnlyReviewStage((row as any).stage)
     );
   }
 
@@ -1480,6 +1514,7 @@ export class ComplianceAlertsService {
           ONBOARDING_SOURCE_TYPE,
           PERIODIC_REVIEW_SOURCE_TYPE,
           TRANSACTION_DEPOSIT_SOURCE_TYPE,
+          TRANSACTION_WITHDRAW_SOURCE_TYPE,
           TRANSACTION_SWAP_SOURCE_TYPE,
         ],
       };
@@ -1735,14 +1770,70 @@ export class ComplianceAlertsService {
   private assertWorkflowBoundAlertForResolution(
     current: ComplianceAlert,
   ) {
+    if (this.isLegacyReadOnlyAlert(current)) {
+      throw new BadRequestException(
+        `Alert ${current.id} is historical read-only and can no longer be resolved through workflow actions`,
+      );
+    }
     if (
       !isSupportedReviewSourceType(current.sourceType) ||
-      !normalizeComplianceReviewStage((current as any).stage)
+      !isWorkflowBoundReviewStage((current as any).stage)
     ) {
       throw new BadRequestException(
         `Alert ${current.id} is outside supported review scope`,
       );
     }
+  }
+
+  private async resolveNonWorkflowBoundAlert(
+    id: string,
+    current: ComplianceAlert,
+    dto: ResolveComplianceAlertDto,
+    actor: ComplianceAlertActorContext,
+  ) {
+    const reason = this.normalizeOptionalString(dto.reason);
+
+    if (dto.resolutionType === AlertResolutionType.DIRECT_DISPOSITION) {
+      throw new BadRequestException(
+        'DIRECT_DISPOSITION is not supported for non-workflow-bound alerts.',
+      );
+    }
+
+    if (dto.resolutionType === AlertResolutionType.FALSE_POSITIVE) {
+      const closeReason = reason || 'False positive';
+      await this.applyAction(
+        id,
+        {
+          action: ComplianceAlertAction.CLOSE,
+          reason: closeReason,
+          dispositionCode: ALERT_DISPOSITION_CODES.FALSE_POSITIVE,
+          dispositionReason: closeReason,
+          finalizeDisposition: true,
+        },
+        actor,
+      );
+      return this.findOne(id, actor);
+    }
+
+    if (!reason) {
+      throw new BadRequestException(
+        'ESCALATE_TO_CASE requires a reason.',
+      );
+    }
+
+    await this.getComplianceIncidentsService().createFromAlert(
+      id,
+      { reason },
+      {
+        actorType: actor.actorType,
+        actorId: actor.actorId,
+        actorNo: actor.actorNo,
+        actorRole: actor.actorRole,
+        sourcePlatform: actor.sourcePlatform,
+      },
+    );
+
+    return this.findOne(id, actor);
   }
 
   private assertAssigneeCanResolve(
@@ -1781,6 +1872,7 @@ export class ComplianceAlertsService {
     if (sourceType === ONBOARDING_SOURCE_TYPE) return 'Proceed Journey';
     if (sourceType === PERIODIC_REVIEW_SOURCE_TYPE) return 'Proceed Periodic Review Cycle';
     if (sourceType === TRANSACTION_SWAP_SOURCE_TYPE) return 'Proceed Swap';
+    if (sourceType === TRANSACTION_WITHDRAW_SOURCE_TYPE) return 'Proceed Withdraw';
     return 'Proceed Deposit';
   }
 
@@ -1802,7 +1894,7 @@ export class ComplianceAlertsService {
     },
     actor: ComplianceAlertActorContext,
   ) {
-    return this.prisma.$transaction(async (tx) => {
+    const postCommit = await this.prisma.$transaction(async (tx) => {
       const transactionAlert = await tx.complianceAlert.findUnique({
         where: { id },
       });
@@ -1818,6 +1910,7 @@ export class ComplianceAlertsService {
         this.parseJson(transactionAlert.decisionRecordIds),
       );
       const primaryObject = this.getPrimaryObject(transactionAlert);
+      let transactionTransitionInput: WorkflowTransitionInput | null = null;
       const dispositionRecord = await this.createDispositionRecord(tx, transactionAlert, {
         dispositionCode: input.dispositionCode,
         reason: input.dispositionReason,
@@ -1915,12 +2008,12 @@ export class ComplianceAlertsService {
         tx,
       );
 
-      await this.getWorkflowTransitionService().transition(tx, {
+      const workflowTransitionInput: WorkflowTransitionInput = {
         workflow: TRANSACTION_WORKFLOW,
         stage:
           normalizeComplianceReviewStage((updated as any).stage) ||
           TRANSACTION_REVIEW_STAGES.REVIEW_DEPOSIT_FINAL,
-        producerType: 'ALERT',
+        producerType: 'ALERT' as const,
         producerId: updated.id,
         customerId: updated.customerId || updated.ownerId || '',
         sourceId: String(updated.sourceId),
@@ -1931,7 +2024,16 @@ export class ComplianceAlertsService {
         actorId: actor.actorId,
         actorRole: actor.actorRole || 'ADMIN',
         latestDecisionRecordId: decisionRecordIds[0] || null,
-      });
+      };
+
+      if (updated.sourceType === TRANSACTION_WITHDRAW_SOURCE_TYPE) {
+        transactionTransitionInput = workflowTransitionInput;
+      } else {
+        await this.getWorkflowTransitionService().transition(
+          tx,
+          workflowTransitionInput,
+        );
+      }
 
       const detail = await tx.complianceAlert.findUnique({
         where: { id: updated.id },
@@ -1949,8 +2051,21 @@ export class ComplianceAlertsService {
         throw new NotFoundException(`Compliance alert not found: ${updated.id}`);
       }
 
-      return this.buildAlertDetailResponse(detail as AlertWithEvents, actor);
+      return {
+        detail: this.buildAlertDetailResponse(detail as AlertWithEvents, actor),
+        transactionTransitionInput,
+      };
     });
+
+    if (postCommit.transactionTransitionInput) {
+      await this.getWorkflowTransitionService().transition(
+        this.prisma as unknown as Prisma.TransactionClient,
+        postCommit.transactionTransitionInput,
+      );
+      return this.findOne(id, actor);
+    }
+
+    return postCommit.detail;
   }
 
   private async closeTransactionAlertAsFalsePositive(
@@ -2014,8 +2129,27 @@ export class ComplianceAlertsService {
       throw new NotFoundException(`Compliance alert not found: ${id}`);
     }
 
-    this.assertWorkflowBoundAlertForResolution(current);
+    if (
+      !isSupportedReviewSourceType(current.sourceType) ||
+      !normalizeComplianceReviewStage((current as any).stage)
+    ) {
+      throw new BadRequestException(
+        `Alert ${current.id} is outside supported review scope`,
+      );
+    }
+    if (this.isLegacyReadOnlyAlert(current)) {
+      throw new BadRequestException(
+        `Alert ${current.id} is historical read-only and cannot be resolved`,
+      );
+    }
+
     this.assertAssigneeCanResolve(current, actor);
+
+    if (!this.isWorkflowBoundAlert(current)) {
+      return this.resolveNonWorkflowBoundAlert(id, current, dto, actor);
+    }
+
+    this.assertWorkflowBoundAlertForResolution(current);
 
     const reason = this.normalizeOptionalString(dto.reason);
     const workflow = getWorkflowFromSourceType(current.sourceType);
@@ -2163,6 +2297,11 @@ export class ComplianceAlertsService {
     ) {
       throw new BadRequestException(
         `Alert ${id} is outside supported review scope`,
+      );
+    }
+    if (this.isLegacyReadOnlyAlert(current)) {
+      throw new BadRequestException(
+        `Alert ${id} is historical read-only and cannot be updated`,
       );
     }
 

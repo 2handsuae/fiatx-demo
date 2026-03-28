@@ -398,7 +398,7 @@ describe('RiskEngineService', () => {
     );
   });
 
-  it('should create one final deposit decision for REVIEW when both KYT and Travel Rule are terminal', async () => {
+  it('should approve final deposit review when KYT and Travel Rule containers are FINAL', async () => {
     prismaMock.workflowDecisionRecord.findUnique.mockResolvedValueOnce({
       id: 'dr-1',
       policyVersion: 'transaction-risk-policy/v1',
@@ -409,27 +409,18 @@ describe('RiskEngineService', () => {
       subjectType: 'DEPOSIT',
       subjectId: 'dep-3',
       signals: {
-        kytStatus: 'REVIEW',
-        travelRuleStatus: 'ACCEPTED',
+        kytStatus: 'FINAL',
+        travelRuleStatus: 'FINAL',
         riskScore: 55,
       },
     }));
 
     expect(result.policyVersion).toBe('transaction-risk-policy/v1');
-    expect(result.decision).toBe('REVIEW');
+    expect(result.decision).toBe('APPROVE');
     expect(result.reasonCodes).toEqual(
-      expect.arrayContaining(['TX_KYT_REVIEW', 'TX_TRAVEL_RULE_ACCEPTED']),
+      expect.arrayContaining(['TX_KYT_FINAL', 'TX_TRAVEL_RULE_FINAL']),
     );
-    expect(result.recommendedActions).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          type: 'UPSERT_ALERT',
-          payload: expect.objectContaining({
-            recommendation: 'REVIEW',
-          }),
-        }),
-      ]),
-    );
+    expect(result.recommendedActions).toEqual([]);
   });
 
   it('should include large-deposit profile mismatch reason code in final deposit review', async () => {
@@ -438,8 +429,8 @@ describe('RiskEngineService', () => {
       subjectType: 'DEPOSIT',
       subjectId: 'dep-4',
       signals: {
-        kytStatus: 'PASS',
-        travelRuleStatus: 'NOT_REQUIRED',
+        kytStatus: 'FINAL',
+        travelRuleStatus: 'FINAL',
         simulationRiskLevel: 'MEDIUM',
         simulationRiskReason: 'LARGE_DEPOSIT_PROFILE_MISMATCH',
       },
@@ -449,8 +440,8 @@ describe('RiskEngineService', () => {
     expect(result.reasonCodes).toEqual(
       expect.arrayContaining([
         'TX_SIM_LARGE_DEPOSIT_PROFILE_MISMATCH',
-        'TX_KYT_PASS',
-        'TX_TRAVEL_RULE_NOT_REQUIRED',
+        'TX_KYT_FINAL',
+        'TX_TRAVEL_RULE_FINAL',
       ]),
     );
     expect(result.recommendedActions).toEqual(
@@ -464,6 +455,21 @@ describe('RiskEngineService', () => {
         }),
       ]),
     );
+  });
+
+  it('should reject live evaluation for historical withdraw precheck context', async () => {
+    await expect(
+      service.evaluate(
+        buildInput({
+          contextType: 'TX_WITHDRAW_PRECHECK',
+          subjectType: 'WITHDRAW',
+          subjectId: 'wd-legacy-1',
+          signals: {
+            preKytStatus: 'FINAL',
+          },
+        }),
+      ),
+    ).rejects.toThrow('historical read-only');
   });
 
   it('should reject non-customer owner type during Phase 2 storage', async () => {

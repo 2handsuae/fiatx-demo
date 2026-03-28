@@ -2,6 +2,7 @@ import { IsOptional, IsString, IsEnum, IsNumber } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export enum WithdrawTransactionStatus {
+  // Legacy compatibility values remain readable for historical records only.
   CREATED = 'CREATED',
   PENDING_COMPLIANCE = 'PENDING_COMPLIANCE',
   UNDER_REVIEW = 'UNDER_REVIEW',
@@ -16,6 +17,7 @@ export enum WithdrawTransactionStatus {
 }
 
 export enum WithdrawTransactionAction {
+  // Legacy action names are retained for historical audit/query compatibility.
   CHECK = 'check',
   FLAG = 'flag',
   REJECT = 'reject',
@@ -26,9 +28,26 @@ export enum WithdrawTransactionAction {
   RETURN = 'return',
 }
 
+export enum AdminWithdrawTransactionAction {
+  // Admin surface keeps only the residual historical compatibility actions.
+  CHECK = 'check',
+  FLAG = 'flag',
+  REJECT = 'reject',
+  CANCEL = 'cancel',
+}
+
 export class UpdateWithdrawTransactionStatusDto {
   @IsEnum(WithdrawTransactionAction)
   action!: WithdrawTransactionAction;
+
+  @IsOptional()
+  @IsString()
+  reason?: string;
+}
+
+export class AdminUpdateWithdrawTransactionStatusDto {
+  @IsEnum(AdminWithdrawTransactionAction)
+  action!: AdminWithdrawTransactionAction;
 
   @IsOptional()
   @IsString()
@@ -73,6 +92,7 @@ export enum WithdrawOwnerType {
 }
 
 export enum ComplianceStatus {
+  // Compatibility snapshot only. Withdraw UI should prefer derivedComplianceStatus.
   PENDING = 'PENDING',
   CLEAR = 'CLEAR',
   HOLD = 'HOLD',
@@ -80,20 +100,15 @@ export enum ComplianceStatus {
 }
 
 export enum KytStatus {
-  PENDING = 'PENDING',
-  PASS = 'PASS',
-  REVIEW = 'REVIEW',
-  FAIL = 'FAIL',
+  CREATED = 'CREATED',
+  RECEIVED = 'RECEIVED',
+  FINAL = 'FINAL',
 }
 
 export enum TravelRuleStatus {
-  NOT_REQUIRED = 'NOT_REQUIRED',
-  PENDING = 'PENDING',
-  SENT = 'SENT',
+  CREATED = 'CREATED',
   RECEIVED = 'RECEIVED',
-  ACCEPTED = 'ACCEPTED',
-  REJECTED = 'REJECTED',
-  EXPIRED = 'EXPIRED',
+  FINAL = 'FINAL',
 }
 
 export class WithdrawTransactionQueryDto {

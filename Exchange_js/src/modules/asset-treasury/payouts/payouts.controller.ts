@@ -13,8 +13,9 @@ import {
 } from '@nestjs/common';
 import { PayoutsService } from './payouts.service';
 import { 
-  PayoutQueryDto,
-  UpdatePayoutStatusDto,
+  PayoutQueryDto, 
+  AdminUpdatePayoutStatusDto,
+  PayoutAction,
   CreatePayoutDto 
 } from './dto/payout.dto';
 import {
@@ -64,9 +65,18 @@ export class PayoutsController {
   updateStatus(
     @Req() req: any,
     @Param('id') id: string,
-    @Body() dto: UpdatePayoutStatusDto,
+    @Body() dto: AdminUpdatePayoutStatusDto,
   ) {
     const operatorId = req.user.userId || 'SYSTEM';
-    return this.service.updateStatus(id, dto, operatorId);
+    return this.service.updateStatus(
+      id,
+      {
+        action: dto.action as unknown as PayoutAction,
+        txHash: dto.txHash,
+        referenceNo: dto.referenceNo,
+        reason: dto.reason,
+      },
+      operatorId,
+    );
   }
 }

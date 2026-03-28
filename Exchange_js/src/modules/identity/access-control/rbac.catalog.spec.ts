@@ -237,4 +237,76 @@ describe('rbac.catalog', () => {
     expect(permissionMap.CISO).toContain(caseExportReadCode);
     expect(permissionMap.CISO).not.toContain(caseExportWriteCode);
   });
+
+  it('should register safeguarding break routes in RBAC catalog', () => {
+    const permissionCodes = new Set(
+      RBAC_PERMISSION_DEFINITIONS.map((item) => item.code),
+    );
+
+    expect(
+      permissionCodes.has(
+        buildPermissionCode(
+          'POST',
+          '/admin/reconciliation/safeguarding-breaks/generate-daily-diff',
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      permissionCodes.has(
+        buildPermissionCode('GET', '/admin/reconciliation/safeguarding-breaks'),
+      ),
+    ).toBe(true);
+    expect(
+      permissionCodes.has(
+        buildPermissionCode('GET', '/admin/reconciliation/safeguarding-breaks/:id'),
+      ),
+    ).toBe(true);
+    expect(
+      permissionCodes.has(
+        buildPermissionCode(
+          'PATCH',
+          '/admin/reconciliation/safeguarding-breaks/:id/status',
+        ),
+      ),
+    ).toBe(true);
+  });
+
+  it('should grant safeguarding break read/write groups to the expected roles', () => {
+    const permissionMap = buildRolePermissionCodeMap();
+    const readCode = buildPermissionCode(
+      'GET',
+      '/admin/reconciliation/safeguarding-breaks',
+    );
+    const detailCode = buildPermissionCode(
+      'GET',
+      '/admin/reconciliation/safeguarding-breaks/:id',
+    );
+    const generateCode = buildPermissionCode(
+      'POST',
+      '/admin/reconciliation/safeguarding-breaks/generate-daily-diff',
+    );
+    const writeCode = buildPermissionCode(
+      'PATCH',
+      '/admin/reconciliation/safeguarding-breaks/:id/status',
+    );
+
+    expect(permissionMap.OPS_TREASURY).toContain(readCode);
+    expect(permissionMap.OPS_TREASURY).toContain(detailCode);
+    expect(permissionMap.OPS_TREASURY).toContain(generateCode);
+    expect(permissionMap.OPS_TREASURY).toContain(writeCode);
+    expect(permissionMap.FINANCE).toContain(readCode);
+    expect(permissionMap.FINANCE).toContain(writeCode);
+    expect(permissionMap.COMPLIANCE_LEAD).toContain(readCode);
+    expect(permissionMap.COMPLIANCE_LEAD).toContain(writeCode);
+    expect(permissionMap.MLRO).toContain(readCode);
+    expect(permissionMap.MLRO).toContain(writeCode);
+    expect(permissionMap.RI).toContain(readCode);
+    expect(permissionMap.RI).toContain(detailCode);
+    expect(permissionMap.RI).not.toContain(generateCode);
+    expect(permissionMap.RI).not.toContain(writeCode);
+    expect(permissionMap.SM).toContain(readCode);
+    expect(permissionMap.SM).not.toContain(writeCode);
+    expect(permissionMap.CISO).toContain(readCode);
+    expect(permissionMap.CISO).not.toContain(writeCode);
+  });
 });

@@ -77,6 +77,7 @@ import {
   TRANSACTION_WORKFLOW,
   buildComplianceWorkflowTraceContext,
   getWorkflowFromSourceType,
+  isLegacyReadOnlyReviewStage,
   isSupportedReviewSourceType,
   normalizeComplianceReviewStage,
   normalizeComplianceRuleCode,
@@ -830,6 +831,9 @@ export class ComplianceIncidentsService {
     if (!isSupportedReviewSourceType(row.sourceType)) {
       return [];
     }
+    if (isLegacyReadOnlyReviewStage(row.stage)) {
+      return [];
+    }
 
     const stage = normalizeComplianceReviewStage(row.stage);
     if (!stage) {
@@ -845,8 +849,31 @@ export class ComplianceIncidentsService {
   }) {
     return (
       isSupportedReviewSourceType(row.sourceType) &&
-      !!normalizeComplianceReviewStage(row.stage)
+      !!normalizeComplianceReviewStage(row.stage) &&
+      !isLegacyReadOnlyReviewStage(row.stage)
     );
+  }
+
+  private isLegacyReadOnlyCase(row: {
+    sourceType?: string | null;
+    stage?: string | null;
+  }) {
+    return (
+      isSupportedReviewSourceType(row.sourceType) &&
+      isLegacyReadOnlyReviewStage(row.stage)
+    );
+  }
+
+  private assertCaseIsMutable(row: {
+    id: string;
+    sourceType?: string | null;
+    stage?: string | null;
+  }) {
+    if (this.isLegacyReadOnlyCase(row)) {
+      throw new BadRequestException(
+        `Case ${row.id} is historical read-only and can no longer be updated`,
+      );
+    }
   }
 
   private getAvailableComplianceActions(
@@ -865,6 +892,9 @@ export class ComplianceIncidentsService {
       reports?: ComplianceIncidentReport[] | null;
     },
   ): string[] {
+    if (this.isLegacyReadOnlyCase(row)) {
+      return [];
+    }
     return [
       ...this.getAvailableInterimMeasures(row),
       ...this.getAvailableWorkflowActions(row),
@@ -873,10 +903,15 @@ export class ComplianceIncidentsService {
 
   private getAvailableMlroActions(
     row: {
+      sourceType?: string | null;
+      stage?: string | null;
       status?: string | null;
     },
     actor?: ComplianceIncidentActorContext | null,
   ): string[] {
+    if (this.isLegacyReadOnlyCase(row)) {
+      return [];
+    }
     const status = String(row.status || '').trim().toUpperCase();
     const isMlro = this.isMlroActor(actor);
     if (
@@ -1770,6 +1805,7 @@ export class ComplianceIncidentsService {
   ) {
     await this.prisma.$transaction(async (tx) => {
       const incident = await this.getIncidentForReportWrite(tx, id);
+      this.assertCaseIsMutable(incident);
       this.assertReportEditable(incident);
 
       const now = new Date();
@@ -1841,6 +1877,7 @@ export class ComplianceIncidentsService {
   ) {
     await this.prisma.$transaction(async (tx) => {
       const incident = await this.getIncidentForReportWrite(tx, id);
+      this.assertCaseIsMutable(incident);
       this.assertReportEditable(incident);
       const currentReport = this.getCurrentReport(incident.reports);
 
@@ -2272,6 +2309,7 @@ export class ComplianceIncidentsService {
   ) {
     await this.prisma.$transaction(async (tx) => {
       const incident = await this.getIncidentForReportWrite(tx, id);
+      this.assertCaseIsMutable(incident);
       const status = String(incident.status || '').trim().toUpperCase();
       if (
         status !== ComplianceIncidentStatus.ASSIGNED &&
@@ -2443,6 +2481,7 @@ export class ComplianceIncidentsService {
       if (!incident) {
         throw new NotFoundException(`Compliance case not found: ${id}`);
       }
+      this.assertCaseIsMutable(incident);
       if (
         String(incident.status || '').trim().toUpperCase() !==
         ComplianceIncidentStatus.PENDING_MLRO_REVIEW
@@ -3809,6 +3848,7 @@ export class ComplianceIncidentsService {
     if (!current) {
       throw new NotFoundException(`Compliance case not found: ${id}`);
     }
+    this.assertCaseIsMutable(current);
 
     const currentStatus = current.status as ComplianceIncidentStatus;
     this.assertActionAllowed(currentStatus, dto.action);

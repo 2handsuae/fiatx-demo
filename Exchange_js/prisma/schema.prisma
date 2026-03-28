@@ -2323,6 +2323,43 @@ model WithdrawAuditLog {
   @@map("withdraw_audit_logs")
 }
 
+model ReconciliationBreak {
+  id               String   @id @default(uuid())
+  breakNo          String   @unique @default("TEMP")
+  businessDate     String
+  sourceType       String   @default("WITHDRAW")
+  sourceId         String
+  sourceNo         String?
+  withdrawId       String
+  withdrawNo       String?
+  payoutId         String?
+  payoutNo         String?
+  assetId          String
+  assetCode        String?
+  expectedNetDelta Decimal  @default(0)
+  observedNetDelta Decimal  @default(0)
+  deltaAmount      Decimal  @default(0)
+  reasonCode       String
+  status           String   @default("OPEN")
+  linkedAlertId    String?
+  linkedCaseId     String?
+  detailsJson      String?
+  detectedAt       DateTime @default(now())
+  resolvedAt       DateTime?
+  reopenedAt       DateTime?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@unique([businessDate, sourceType, sourceId])
+  @@index([businessDate, status])
+  @@index([sourceType, sourceId])
+  @@index([withdrawId])
+  @@index([payoutId])
+  @@index([linkedAlertId])
+  @@index([linkedCaseId])
+  @@map("reconciliation_breaks")
+}
+
 model ClearingTemplate {
   id                String                 @id @default(uuid())
   code              String                 @unique

@@ -50,6 +50,12 @@ const buildBaseSwapPolicy = () => ({
 });
 
 const mockPrisma = {
+  pricingPolicy: {
+    update: jest.fn(),
+  },
+  asset: {
+    findMany: jest.fn(),
+  },
   swapQuote: {
     create: jest.fn(),
     findMany: jest.fn(),
@@ -99,6 +105,8 @@ describe('PricingCenterService - Quote lifecycle', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     service = new PricingCenterService(mockPrisma as any, {} as any, {} as any);
+    mockPrisma.asset.findMany.mockResolvedValue([]);
+    mockPrisma.pricingPolicy.update.mockResolvedValue({});
     mockPrisma.customerMain.findUnique.mockResolvedValue({
       id: 'customer-1',
       customerNo: 'CU_0001',
@@ -434,6 +442,85 @@ describe('PricingCenterService - Quote lifecycle', () => {
           expiresAt,
         }),
       }),
+    );
+  });
+
+  it('blocks withdrawal quote creation when extreme volatility restriction is enabled', async () => {
+    mockPoliciesReady(
+      buildBaseSwapPolicy(),
+    );
+    jest.spyOn(service, 'getWithdrawalPolicy').mockResolvedValue({
+      policyId: 'POL-WITHDRAW-ONLINE',
+      policyName: 'Withdrawal Pricing',
+      business: 'WITHDRAWAL',
+      channel: {
+        online: true,
+        storeComingSoon: true,
+      },
+      restrictions: {
+        extremeVolatilityBlocked: true,
+        reason: 'Extreme volatility mode enabled',
+      },
+      assets: [],
+    });
+    const resolveSpy = jest.spyOn(service, 'resolveWithdrawalQuote');
+
+    await expect(
+      service.createWithdrawPricingQuote('CUSTOMER', 'customer-1', 'CU_0001', {
+        assetId: 'asset-btc',
+        amount: 0.5,
+      }),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: 'WITHDRAW_EXTREME_VOLATILITY_BLOCKED',
+      }),
+    });
+
+    expect(resolveSpy).not.toHaveBeenCalled();
+    expect((service as any).auditLogsService.recordByActor).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'WITHDRAW_EXTREME_VOLATILITY_BLOCKED',
+        metadata: expect.objectContaining({
+          surface: 'QUOTE_CREATE',
+          restrictionReason: 'Extreme volatility mode enabled',
+          assetId: 'asset-btc',
+        }),
+      }),
+      expect.anything(),
+    );
+  });
+
+  it('keeps withdrawal simulator available when extreme volatility restriction is enabled', async () => {
+    jest.spyOn(service, 'resolveWithdrawalQuote').mockResolvedValue({
+      assetId: 'asset-btc',
+      assetCode: 'BTC',
+      amount: new Prisma.Decimal('0.5'),
+      matchedAssetEntryId: 'ASSET-0001',
+      tierId: 'TIER-001',
+      tierName: 'Default Tier',
+      fees: [],
+      totals: { BTC: '0.0002' },
+      policyRef: {
+        policyCode: 'WITHDRAWAL_PRICING',
+        policyId: 'POL-WITHDRAW-ONLINE',
+        business: 'WITHDRAWAL',
+        channel: 'ONLINE',
+      },
+      createdAt: new Date('2026-03-23T11:00:00.000Z'),
+      expiresAt: new Date('2026-03-23T11:00:30.000Z'),
+    });
+
+    const result = await service.simulateWithdrawal({
+      assetId: 'asset-btc',
+      amount: 0.5,
+    });
+
+    expect(result.matched.assetId).toBe('asset-btc');
+    expect((service as any).auditLogsService.recordByActor).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'WITHDRAW_EXTREME_VOLATILITY_BLOCKED',
+      }),
+      expect.anything(),
     );
   });
 

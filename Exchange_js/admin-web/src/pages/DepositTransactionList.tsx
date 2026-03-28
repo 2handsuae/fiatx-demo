@@ -3,13 +3,21 @@ import { useNavigate } from 'react-router-dom';
 import { Search, RefreshCw, Eye, Download, CheckCircle, Copy } from 'lucide-react';
 import { copyToClipboard } from '../utils/clipboard';
 import { formatAssetAmount } from '../utils/number-format';
+import {
+  formatDerivedComplianceStatusLabel,
+  formatStatusLabel,
+  formatTransactionTypeLabel,
+} from '../utils/transactionRootDisplay';
 
 interface DepositTransaction {
   id: string;
   depositNo: string;
   ownerType: string;
   ownerId: string;
+  ownerNo?: string | null;
   status: string;
+  derivedComplianceStatus?: string;
+  type?: string;
   asset: { code: string; type: string; network: string | null; decimals?: number };
   amount: string;
   netAmount: string;
@@ -136,7 +144,24 @@ const DepositTransactionList = () => {
     };
     return (
       <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${colors[status] || 'bg-gray-100 text-gray-800'}`}>
-        {status}
+        {formatStatusLabel(status)}
+      </span>
+    );
+  };
+
+  const renderComplianceBadge = (status?: string) => {
+    const colors: Record<string, string> = {
+      CLEAR: 'bg-emerald-50 text-emerald-700 border border-emerald-200',
+      HOLD: 'bg-amber-50 text-amber-700 border border-amber-200',
+      REJECT: 'bg-rose-50 text-rose-700 border border-rose-200',
+      PENDING: 'bg-slate-50 text-slate-700 border border-slate-200',
+    };
+    const normalized = String(status || 'PENDING').toUpperCase();
+    return (
+      <span
+        className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold tracking-wider ${colors[normalized] || colors.PENDING}`}
+      >
+        {formatDerivedComplianceStatusLabel(normalized)}
       </span>
     );
   };
@@ -244,8 +269,8 @@ const DepositTransactionList = () => {
                         {item.depositNo}
                       </div>
                       <div className="mt-1">
-                          <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${item.asset.type === 'FIAT' ? 'bg-green-100 text-green-700' : 'bg-purple-100 text-purple-700'}`}>
-                              {item.asset.type}
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${(item.type || '').toLowerCase() === 'fiat' ? 'bg-green-100 text-green-700' : 'bg-purple-100 text-purple-700'}`}>
+                              {formatTransactionTypeLabel(item.type || item.asset.type)}
                           </span>
                       </div>
                     </td>
@@ -255,12 +280,12 @@ const DepositTransactionList = () => {
                               <span className="text-sm font-medium text-gray-900">
                                   {item.customer.firstName} {item.customer.lastName}
                               </span>
-                              <span className="text-xs text-gray-500 font-mono">{item.customer.customerNo}</span>
+                              <span className="text-xs text-gray-500 font-mono">{item.ownerNo || item.customer.customerNo}</span>
                           </div>
                       ) : (
                           <div className="flex flex-col">
                               <span className="text-sm text-gray-900">{item.ownerType}</span>
-                              <span className="text-xs text-gray-500 font-mono">{item.ownerId}</span>
+                              <span className="text-xs text-gray-500 font-mono">{item.ownerNo || item.ownerId}</span>
                           </div>
                       )}
                     </td>
@@ -268,7 +293,10 @@ const DepositTransactionList = () => {
                       <div className="font-medium text-gray-900">{formatAssetAmount(item.amount, item.asset.decimals)} {item.asset.code}</div>
                     </td>
                     <td className="px-6 py-4">
-                      {renderStatusBadge(item.status)}
+                      <div className="flex flex-col gap-1">
+                        {renderStatusBadge(item.status)}
+                        {renderComplianceBadge(item.derivedComplianceStatus)}
+                      </div>
                     </td>
                     <td className="px-6 py-4">
                         <div className="flex flex-col gap-1.5 min-w-[160px]">

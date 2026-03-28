@@ -1,6 +1,6 @@
 Status: active
 Owner: project-owner-and-agents
-Last Updated: 2026-03-22
+Last Updated: 2026-03-28
 Applies To: `Exchange_js`
 Supersedes: none
 Depends On: `docs/constraints/audit-logging-constraints.md`, `docs/constraints/governance-approval-constraints.md`, `docs/specs/entities/audit-evidence-package-entity.md`, `docs/specs/entities/approval-case-entity.md`
@@ -51,6 +51,18 @@ Source of Truth Level: specs-workflow
   - `Audit Center -> Audit Log`
   - `Audit Center -> Evidence Export`
   - `Control Gates Center -> Approvals`
+
+## Wave 5 / Wave 7 Transaction-Root Coverage
+- The same approval-backed export workflow is the canonical evidence path for:
+  - `DEPOSIT`
+  - `WITHDRAW`
+- Wave 5 deposit exports and Wave 7 withdraw exports MUST reuse the same API and approval contract.
+- The export workflow may assemble root-specific snapshot sections, but it MUST NOT fork into:
+  - a second deposit-only export engine
+  - a second withdraw-only export engine
+- Root-specific expectations are:
+  - deposit packages replay `signal -> payin -> deposit -> decision -> alert/case -> journal -> internal collection`
+  - withdraw packages replay `quote -> withdraw -> payout -> decision -> alert/case -> journal/clearing -> reconciliation break`
 
 ## MUST / MUST NOT
 - MUST use `AUDIT_EVIDENCE_EXPORT_APPROVAL`.

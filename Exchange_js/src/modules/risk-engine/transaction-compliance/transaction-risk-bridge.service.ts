@@ -28,15 +28,32 @@ import {
   RiskEngineService,
   RiskRecommendedAction,
 } from '../risk-engine.service';
-import { TxSourceType } from './types/tx-compliance.types';
+import {
+  normalizeKytResponseLifecycleStatus,
+  normalizeTravelRuleResponseLifecycleStatus,
+  TxResponseLifecycleStatusOrEmpty,
+  TxSourceType,
+} from './types/tx-compliance.types';
 import { TransactionDepositWorkflowService } from '../../trading/deposit-transactions/transaction-deposit-workflow.service';
 import { SwapTransactionWorkflowService } from '../../trading/swap-transactions/swap-transaction-workflow.service';
-import { TRANSACTION_SWAP_SOURCE_TYPE } from '../constants/onboarding-compliance-workflow.constant';
+import { WithdrawTransactionWorkflowService } from '../../trading/withdraw-transactions/withdraw-transaction-workflow.service';
+import {
+  TRANSACTION_SWAP_SOURCE_TYPE,
+  TRANSACTION_WITHDRAW_SOURCE_TYPE,
+} from '../constants/onboarding-compliance-workflow.constant';
 
 type DbClient = Prisma.TransactionClient | PrismaService;
 
 interface TxAggregateSnapshot {
   derivedComplianceStatus: string;
+  preKytCase?: {
+    id?: string;
+    caseNo?: string;
+    status?: string | null;
+    provider?: string | null;
+    providerCaseId?: string | null;
+    riskScore?: number | null;
+  } | null;
   mainKytCase?: {
     id?: string;
     caseNo?: string;
@@ -97,6 +114,33 @@ interface DirectDepositFinalReviewInput {
 }
 
 interface DepositSimulationRiskProfile {
+  riskLevel: 'LOW' | 'MEDIUM' | 'HIGH';
+  riskReason: string | null;
+  signalId: string | null;
+}
+
+interface WithdrawRiskBaseInput {
+  withdrawId: string;
+  sourceType: TxSourceType;
+  sourceId: string;
+  aggregate: TxAggregateSnapshot;
+  reportDeduped?: boolean;
+}
+
+interface WithdrawPrecheckReviewInput extends WithdrawRiskBaseInput {
+  status: string;
+  screeningStage: string;
+  provider?: string | null;
+  providerCaseId?: string | null;
+  riskScore?: number | null;
+}
+
+interface WithdrawFinalReviewInput extends WithdrawRiskBaseInput {
+  triggerSource: 'KYT' | 'TRAVEL_RULE' | 'PAYOUT_DISPATCH';
+  triggerStatus: string;
+}
+
+interface WithdrawSimulationRiskProfile {
   riskLevel: 'LOW' | 'MEDIUM' | 'HIGH';
   riskReason: string | null;
   signalId: string | null;
@@ -174,7 +218,7 @@ export class TransactionRiskBridgeService {
   }
 
   private normalizeTransactionWorkflowTransitionSnapshot(input: {
-    sourceType: 'DEPOSIT' | 'SWAP';
+    sourceType: 'DEPOSIT' | 'SWAP' | 'WITHDRAW';
     sourceId: string;
     sourceNo?: string | null;
     stage: string;
@@ -194,11 +238,15 @@ export class TransactionRiskBridgeService {
     const legacyBeforeStatus =
       input.sourceType === 'DEPOSIT'
         ? workflowTransition.depositStatusBefore
-        : workflowTransition.swapStatusBefore;
+        : input.sourceType === 'SWAP'
+          ? workflowTransition.swapStatusBefore
+          : workflowTransition.withdrawStatusBefore;
     const legacyAfterStatus =
       input.sourceType === 'DEPOSIT'
         ? workflowTransition.depositStatusAfter
-        : workflowTransition.swapStatusAfter;
+        : input.sourceType === 'SWAP'
+          ? workflowTransition.swapStatusAfter
+          : workflowTransition.withdrawStatusAfter;
     const topLevelBlocked = workflowTransition.blocked;
     const topLevelBlockedReason = workflowTransition.blockedReason;
 
@@ -259,7 +307,7 @@ export class TransactionRiskBridgeService {
   private async writeDecisionRecordOutcomeSnapshot(
     input: {
       decisionRecordId: string;
-      sourceType: 'DEPOSIT' | 'SWAP';
+      sourceType: 'DEPOSIT' | 'SWAP' | 'WITHDRAW';
       sourceId: string;
       sourceNo?: string | null;
       stage: string;
@@ -349,6 +397,14 @@ export class TransactionRiskBridgeService {
     );
   }
 
+  private getWithdrawWorkflowTransitionService() {
+    return (
+      this.moduleRef?.get(WithdrawTransactionWorkflowService, {
+        strict: false,
+      }) || null
+    );
+  }
+
   private getComplianceAlertsService() {
     const service =
       this.moduleRef?.get(ComplianceAlertsService, {
@@ -413,19 +469,31 @@ export class TransactionRiskBridgeService {
     );
   }
 
-  private normalizeKytStatus(value: unknown): string {
-    const normalized = String(value || '').trim().toUpperCase();
-    if (normalized === 'CLEAR') return 'PASS';
-    if (normalized === 'HOLD') return 'REVIEW';
-    if (normalized === 'REJECT') return 'FAIL';
-    return normalized;
+  private normalizeKytLifecycleStatus(
+    value: unknown,
+    options?: { allowEmpty?: boolean },
+  ): TxResponseLifecycleStatusOrEmpty {
+    return normalizeKytResponseLifecycleStatus(value, options);
   }
 
-  private normalizeTravelRuleStatus(value: unknown, required?: boolean | null): string {
-    const normalized = String(value || '').trim().toUpperCase();
-    if (!required && !normalized) return 'NOT_REQUIRED';
-    if (!required && normalized === 'PENDING') return 'NOT_REQUIRED';
-    return normalized;
+  private normalizeTravelRuleLifecycleStatus(
+    value: unknown,
+    required?: boolean | null,
+    options?: { allowEmpty?: boolean },
+  ): TxResponseLifecycleStatusOrEmpty {
+    return normalizeTravelRuleResponseLifecycleStatus(value, required, options);
+  }
+
+  private deriveWithdrawComplianceStatusFromTransactionStatus(
+    status?: string | null,
+  ): string {
+    const current = String(status || '').trim().toUpperCase();
+    if (current === 'UNDER_REVIEW') return 'HOLD';
+    if (current === 'REJECTED') return 'REJECT';
+    if (['PAYOUT_PENDING', 'SUCCESS', 'FAILED', 'RETURNED'].includes(current)) {
+      return 'CLEAR';
+    }
+    return 'PENDING';
   }
 
   private isDepositFinalReviewReady(aggregate: TxAggregateSnapshot): boolean {
@@ -433,17 +501,33 @@ export class TransactionRiskBridgeService {
       return false;
     }
 
-    const kytStatus = this.normalizeKytStatus(aggregate.mainKytCase?.status);
+    const kytLifecycle = this.normalizeKytLifecycleStatus(
+      aggregate.mainKytCase?.status,
+    );
     const required = aggregate.travelRuleCase?.required ?? false;
-    const travelRuleStatus = this.normalizeTravelRuleStatus(
+    const travelRuleLifecycle = this.normalizeTravelRuleLifecycleStatus(
       aggregate.travelRuleCase?.status,
       required,
     );
 
-    return (
-      ['PASS', 'REVIEW', 'FAIL'].includes(kytStatus) &&
-      ['ACCEPTED', 'REJECTED', 'EXPIRED', 'NOT_REQUIRED'].includes(travelRuleStatus)
+    return kytLifecycle === 'FINAL' && travelRuleLifecycle === 'FINAL';
+  }
+
+  private isWithdrawFinalReviewReady(aggregate: TxAggregateSnapshot): boolean {
+    if (!aggregate.mainKytCase || !aggregate.travelRuleCase) {
+      return false;
+    }
+
+    const kytLifecycle = this.normalizeKytLifecycleStatus(
+      aggregate.mainKytCase?.status,
     );
+    const required = aggregate.travelRuleCase?.required ?? false;
+    const travelRuleLifecycle = this.normalizeTravelRuleLifecycleStatus(
+      aggregate.travelRuleCase?.status,
+      required,
+    );
+
+    return kytLifecycle === 'FINAL' && travelRuleLifecycle === 'FINAL';
   }
 
   private async resolveDepositContext(
@@ -520,6 +604,42 @@ export class TransactionRiskBridgeService {
     return swap;
   }
 
+  private async resolveWithdrawContext(
+    withdrawId: string,
+    tx?: Prisma.TransactionClient,
+  ) {
+    const withdraw = await (this.getDb(tx) as any).withdrawTransaction.findUnique({
+      where: { id: withdrawId },
+      select: {
+        id: true,
+        withdrawNo: true,
+        ownerType: true,
+        ownerId: true,
+        ownerNo: true,
+        status: true,
+        assetId: true,
+        amount: true,
+        netAmount: true,
+        feeAmount: true,
+        payoutId: true,
+        payoutNo: true,
+        preKytStatus: true,
+        preKytRiskScore: true,
+        kytStatus: true,
+        kytRiskScore: true,
+        travelRuleRequired: true,
+        travelRuleStatus: true,
+        complianceStatus: true,
+      },
+    });
+
+    if (!withdraw) {
+      throw new NotFoundException(`Withdraw ${withdrawId} not found`);
+    }
+
+    return withdraw;
+  }
+
   private buildPendingSwapFinalSignals(input: {
     swap: {
       id: string;
@@ -562,6 +682,119 @@ export class TransactionRiskBridgeService {
       investorClassification: input.swap.customer?.investorClassification || null,
       triggerStage: TRANSACTION_REVIEW_STAGES.REVIEW_SWAP_FINAL,
       simulationMode: 'MANUAL_PENDING',
+    };
+  }
+
+  private buildPendingWithdrawFinalSignals(input: {
+    withdraw: {
+      id: string;
+      ownerId?: string | null;
+      assetId?: string | null;
+      amount?: Prisma.Decimal | null;
+      netAmount?: Prisma.Decimal | null;
+      feeAmount?: Prisma.Decimal | null;
+      payoutId?: string | null;
+      payoutNo?: string | null;
+      travelRuleRequired?: boolean | null;
+    };
+    aggregate: TxAggregateSnapshot;
+    kytStatus: string;
+    travelRuleStatus: string;
+  }): Record<string, unknown> {
+    return {
+      withdrawId: input.withdraw.id,
+      payoutId: input.withdraw.payoutId || null,
+      payoutNo: input.withdraw.payoutNo || null,
+      customerId: input.withdraw.ownerId || null,
+      assetId: input.withdraw.assetId || null,
+      amount: input.withdraw.amount?.toString?.() || null,
+      netAmount: input.withdraw.netAmount?.toString?.() || null,
+      feeAmount: input.withdraw.feeAmount?.toString?.() || '0',
+      kytStatus: input.kytStatus,
+      mainKytStatus: input.kytStatus,
+      travelRuleStatus: input.travelRuleStatus,
+      travelRuleRequired:
+        input.aggregate.travelRuleCase?.required ??
+        input.withdraw.travelRuleRequired ??
+        false,
+      kytCaseId: input.aggregate.mainKytCase?.id || null,
+      kytCaseNo: input.aggregate.mainKytCase?.caseNo || null,
+      travelRuleCaseId: input.aggregate.travelRuleCase?.id || null,
+      travelRuleCaseNo: input.aggregate.travelRuleCase?.caseNo || null,
+      triggerStage: TRANSACTION_REVIEW_STAGES.REVIEW_WITHDRAW_FINAL,
+      simulationMode: 'MANUAL_PENDING',
+      finalComplianceSnapshot: {
+        kytStatus: input.kytStatus,
+        travelRuleStatus: input.travelRuleStatus,
+        travelRuleRequired:
+          input.aggregate.travelRuleCase?.required ??
+          input.withdraw.travelRuleRequired ??
+          false,
+        kytCaseId: input.aggregate.mainKytCase?.id || null,
+        travelRuleCaseId: input.aggregate.travelRuleCase?.id || null,
+      },
+    };
+  }
+
+  private buildWithdrawFinalSignals(input: {
+    withdraw: {
+      id: string;
+      ownerId?: string | null;
+      assetId?: string | null;
+      amount?: Prisma.Decimal | null;
+      netAmount?: Prisma.Decimal | null;
+      feeAmount?: Prisma.Decimal | null;
+      payoutId?: string | null;
+      payoutNo?: string | null;
+      travelRuleRequired?: boolean | null;
+    };
+    aggregate: TxAggregateSnapshot;
+    kytStatus: string;
+    travelRuleStatus: string;
+    riskProfile: WithdrawSimulationRiskProfile;
+  }): Record<string, unknown> {
+    return {
+      withdrawId: input.withdraw.id,
+      payoutId: input.withdraw.payoutId || null,
+      payoutNo: input.withdraw.payoutNo || null,
+      customerId: input.withdraw.ownerId || null,
+      assetId: input.withdraw.assetId || null,
+      amount: input.withdraw.amount?.toString?.() || null,
+      netAmount: input.withdraw.netAmount?.toString?.() || null,
+      feeAmount: input.withdraw.feeAmount?.toString?.() || '0',
+      kytStatus: input.kytStatus,
+      mainKytStatus: input.kytStatus,
+      travelRuleStatus: input.travelRuleStatus,
+      travelRuleRequired:
+        input.aggregate.travelRuleCase?.required ??
+        input.withdraw.travelRuleRequired ??
+        false,
+      kytCaseId: input.aggregate.mainKytCase?.id || null,
+      kytCaseNo: input.aggregate.mainKytCase?.caseNo || null,
+      kytProvider: input.aggregate.mainKytCase?.provider || null,
+      kytProviderCaseId: input.aggregate.mainKytCase?.providerCaseId || null,
+      kytRiskScore: input.aggregate.mainKytCase?.riskScore ?? null,
+      travelRuleCaseId: input.aggregate.travelRuleCase?.id || null,
+      travelRuleCaseNo: input.aggregate.travelRuleCase?.caseNo || null,
+      travelRuleProvider: input.aggregate.travelRuleCase?.provider || null,
+      travelRuleProviderTransferId:
+        input.aggregate.travelRuleCase?.providerTransferId || null,
+      counterpartyVasp: input.aggregate.travelRuleCase?.counterpartyVasp || null,
+      triggerStage: TRANSACTION_REVIEW_STAGES.REVIEW_WITHDRAW_FINAL,
+      riskBand: input.riskProfile.riskLevel,
+      riskReason: input.riskProfile.riskReason,
+      simulationSignalId: input.riskProfile.signalId,
+      simulationMode: 'MANUAL',
+      finalComplianceSnapshot: {
+        kytStatus: input.kytStatus,
+        travelRuleStatus: input.travelRuleStatus,
+        travelRuleRequired:
+          input.aggregate.travelRuleCase?.required ??
+          input.withdraw.travelRuleRequired ??
+          false,
+        kytCaseId: input.aggregate.mainKytCase?.id || null,
+        travelRuleCaseId: input.aggregate.travelRuleCase?.id || null,
+      },
     };
   }
 
@@ -1037,6 +1270,50 @@ export class TransactionRiskBridgeService {
     });
   }
 
+  private async clearWithdrawIfApproved(
+    input: {
+      withdrawId: string;
+      withdrawNo?: string | null;
+      payoutId?: string | null;
+      payoutNo?: string | null;
+      customerId: string;
+      customerNo?: string | null;
+      decisionRecordId: string;
+      reasonCode: string;
+      reason: string;
+      triggerStage: string;
+      triggerStatus: string;
+    },
+    tx?: Prisma.TransactionClient,
+  ) {
+    const transitionService = this.getWithdrawWorkflowTransitionService();
+    if (!transitionService) {
+      this.logger.debug(
+        `Withdraw workflow transition unavailable; skip CLEAR for withdraw ${input.withdrawId}`,
+      );
+      return null;
+    }
+
+    return transitionService.execute(tx, {
+      withdrawId: input.withdrawId,
+      source: 'SYSTEM',
+      sourceId: input.decisionRecordId,
+      workflowAction: 'CLEAR',
+      reason: input.reason,
+      reasonCode: input.reasonCode,
+      actor: {
+        actorType: 'SYSTEM',
+        actorId: 'SYSTEM',
+        actorNo: 'SYSTEM',
+        actorRole: 'SYSTEM',
+        sourcePlatform: tx ? 'SYSTEM_TX' : 'SYSTEM',
+      },
+      decisionRecordId: input.decisionRecordId,
+      triggerStage: input.triggerStage,
+      triggerStatus: input.triggerStatus,
+    });
+  }
+
   private async flagSwapIfNeeded(
     input: {
       swapId: string;
@@ -1083,6 +1360,56 @@ export class TransactionRiskBridgeService {
       caseId: input.caseId || null,
       triggerStage: TRANSACTION_REVIEW_STAGES.REVIEW_SWAP_FINAL,
       triggerStatus: 'REVIEW',
+    });
+  }
+
+  private async flagWithdrawIfNeeded(
+    input: {
+      withdrawId: string;
+      withdrawNo?: string | null;
+      payoutId?: string | null;
+      payoutNo?: string | null;
+      customerId: string;
+      customerNo?: string | null;
+      source: 'ALERT' | 'CASE';
+      sourceId: string;
+      decisionRecordId: string;
+      alertId?: string | null;
+      caseId?: string | null;
+      reasonCode: string;
+      triggerStage: string;
+      triggerStatus: string;
+      reason: string;
+    },
+    tx?: Prisma.TransactionClient,
+  ) {
+    const transitionService = this.getWithdrawWorkflowTransitionService();
+    if (!transitionService) {
+      this.logger.debug(
+        `Withdraw workflow transition unavailable; skip FLAG for withdraw ${input.withdrawId}`,
+      );
+      return null;
+    }
+
+    return transitionService.execute(tx, {
+      withdrawId: input.withdrawId,
+      source: input.source,
+      sourceId: input.sourceId,
+      workflowAction: 'FLAG',
+      reason: input.reason,
+      reasonCode: input.reasonCode,
+      actor: {
+        actorType: 'SYSTEM',
+        actorId: 'SYSTEM',
+        actorNo: 'SYSTEM',
+        actorRole: 'SYSTEM',
+        sourcePlatform: tx ? 'SYSTEM_TX' : 'SYSTEM',
+      },
+      decisionRecordId: input.decisionRecordId,
+      alertId: input.alertId || null,
+      caseId: input.caseId || null,
+      triggerStage: input.triggerStage,
+      triggerStatus: input.triggerStatus,
     });
   }
 
@@ -1500,6 +1827,351 @@ export class TransactionRiskBridgeService {
       },
       tx,
     );
+  }
+
+  private async recordWithdrawRiskAudit(
+    input: {
+      withdrawId: string;
+      withdrawNo?: string | null;
+      payoutId?: string | null;
+      payoutNo?: string | null;
+      customerId: string;
+      customerNo?: string | null;
+      contextType: string;
+      triggerStage: string;
+      triggerStatus: string;
+      decisionRecordId: string;
+      decision: string;
+      reusedDecisionRecord: boolean;
+      alertId?: string | null;
+      caseId?: string | null;
+    },
+    tx?: Prisma.TransactionClient,
+  ) {
+    await this.auditLogsService.recordSystem(
+      {
+        triggerType: AuditTriggerType.DATA_UPDATE,
+        action: AuditActions.TX_RISK_EVALUATED,
+        module: AuditModules.TRANSACTION_COMPLIANCE,
+        entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+        entityId: input.withdrawId,
+        entityNo: input.withdrawNo || undefined,
+        traceId: `${AuditWorkflowTypes.WITHDRAW}:${input.withdrawId}`,
+        workflowType: AuditWorkflowTypes.WITHDRAW,
+        workflowId: input.withdrawId,
+        workflowNo: input.withdrawNo || input.withdrawId,
+        entityOwnerType: 'CUSTOMER',
+        entityOwnerId: input.customerId,
+        entityOwnerNo: input.customerNo || undefined,
+        reason: `Withdraw transaction risk evaluated for ${input.triggerStage}`,
+        metadata: {
+          withdrawId: input.withdrawId,
+          payoutId: input.payoutId || null,
+          payoutNo: input.payoutNo || null,
+          customerId: input.customerId,
+          contextType: input.contextType,
+          triggerStage: input.triggerStage,
+          triggerStatus: input.triggerStatus,
+          decisionRecordId: input.decisionRecordId,
+          decision: input.decision,
+          reusedDecisionRecord: input.reusedDecisionRecord,
+          alertId: input.alertId || null,
+          caseId: input.caseId || null,
+          sourceType: TRANSACTION_WITHDRAW_SOURCE_TYPE,
+        },
+        sourcePlatform: tx ? 'SYSTEM_TX' : 'SYSTEM',
+      },
+      tx,
+    );
+  }
+
+  private async recordWithdrawAlertAudit(
+    input: {
+      withdrawId: string;
+      withdrawNo?: string | null;
+      payoutId?: string | null;
+      payoutNo?: string | null;
+      customerId: string;
+      customerNo?: string | null;
+      contextType: string;
+      triggerStage: string;
+      triggerStatus: string;
+      decisionRecordId: string;
+      alertId: string;
+      alertNo?: string | null;
+    },
+    tx?: Prisma.TransactionClient,
+  ) {
+    await this.auditLogsService.recordSystem(
+      {
+        triggerType: AuditTriggerType.DATA_UPDATE,
+        action: AuditActions.TX_ALERT_UPSERTED,
+        module: AuditModules.TRANSACTION_COMPLIANCE,
+        entityType: AuditEntityTypes.COMPLIANCE_ALERT,
+        entityId: input.alertId,
+        entityNo: input.alertNo || undefined,
+        traceId: `${AuditWorkflowTypes.WITHDRAW}:${input.withdrawId}`,
+        workflowType: AuditWorkflowTypes.WITHDRAW,
+        workflowId: input.withdrawId,
+        workflowNo: input.withdrawNo || input.withdrawId,
+        entityOwnerType: 'CUSTOMER',
+        entityOwnerId: input.customerId,
+        entityOwnerNo: input.customerNo || undefined,
+        reason: `Withdraw transaction alert upserted for ${input.triggerStage}`,
+        metadata: {
+          withdrawId: input.withdrawId,
+          payoutId: input.payoutId || null,
+          payoutNo: input.payoutNo || null,
+          customerId: input.customerId,
+          contextType: input.contextType,
+          triggerStage: input.triggerStage,
+          triggerStatus: input.triggerStatus,
+          decisionRecordId: input.decisionRecordId,
+          alertId: input.alertId,
+          sourceType: TRANSACTION_WITHDRAW_SOURCE_TYPE,
+        },
+        sourcePlatform: tx ? 'SYSTEM_TX' : 'SYSTEM',
+      },
+      tx,
+    );
+  }
+
+  private async recordWithdrawCaseAudit(
+    input: {
+      withdrawId: string;
+      withdrawNo?: string | null;
+      payoutId?: string | null;
+      payoutNo?: string | null;
+      customerId: string;
+      customerNo?: string | null;
+      contextType: string;
+      triggerStage: string;
+      triggerStatus: string;
+      decisionRecordId: string;
+      alertId: string;
+      caseId: string;
+      caseNo?: string | null;
+      reusedCase: boolean;
+    },
+    tx?: Prisma.TransactionClient,
+  ) {
+    await this.auditLogsService.recordSystem(
+      {
+        triggerType: AuditTriggerType.DATA_UPDATE,
+        action: AuditActions.TX_CASE_ESCALATED,
+        module: AuditModules.TRANSACTION_COMPLIANCE,
+        entityType: AuditEntityTypes.COMPLIANCE_INCIDENT,
+        entityId: input.caseId,
+        entityNo: input.caseNo || undefined,
+        traceId: `${AuditWorkflowTypes.WITHDRAW}:${input.withdrawId}`,
+        workflowType: AuditWorkflowTypes.WITHDRAW,
+        workflowId: input.withdrawId,
+        workflowNo: input.withdrawNo || input.withdrawId,
+        entityOwnerType: 'CUSTOMER',
+        entityOwnerId: input.customerId,
+        entityOwnerNo: input.customerNo || undefined,
+        reason: `Withdraw transaction case escalated for ${input.triggerStage}`,
+        metadata: {
+          withdrawId: input.withdrawId,
+          payoutId: input.payoutId || null,
+          payoutNo: input.payoutNo || null,
+          customerId: input.customerId,
+          contextType: input.contextType,
+          triggerStage: input.triggerStage,
+          triggerStatus: input.triggerStatus,
+          decisionRecordId: input.decisionRecordId,
+          alertId: input.alertId,
+          caseId: input.caseId,
+          reusedCase: input.reusedCase,
+          sourceType: TRANSACTION_WITHDRAW_SOURCE_TYPE,
+        },
+        sourcePlatform: tx ? 'SYSTEM_TX' : 'SYSTEM',
+      },
+      tx,
+    );
+  }
+
+  private async autoEscalateWithdrawCaseIfNeeded(
+    input: {
+      alertId: string;
+      withdrawId: string;
+      withdrawNo?: string | null;
+      payoutId?: string | null;
+      payoutNo?: string | null;
+      customerId: string;
+      customerNo?: string | null;
+      decisionRecordId: string;
+      decision: RiskDecision;
+      recommendedActions: string[];
+      reason: string;
+      contextType: string;
+      triggerStage: string;
+      triggerStatus: string;
+    },
+    tx?: Prisma.TransactionClient,
+  ) {
+    const db = this.getDb(tx);
+    const existingLink = await db.complianceIncidentAlert.findUnique({
+      where: { alertId: input.alertId },
+      select: { incidentId: true },
+    });
+
+    if (existingLink?.incidentId) {
+      const existingIncident = await db.complianceIncident.findUnique({
+        where: { id: existingLink.incidentId },
+        select: { id: true, incidentNo: true },
+      });
+
+      if (!existingIncident) {
+        throw new NotFoundException(
+          `Compliance case ${existingLink.incidentId} not found for alert ${input.alertId}`,
+        );
+      }
+
+      await this.recordWithdrawCaseAudit(
+        {
+          withdrawId: input.withdrawId,
+          withdrawNo: input.withdrawNo,
+          payoutId: input.payoutId,
+          payoutNo: input.payoutNo,
+          customerId: input.customerId,
+          customerNo: input.customerNo,
+          contextType: input.contextType,
+          triggerStage: input.triggerStage,
+          triggerStatus: input.triggerStatus,
+          decisionRecordId: input.decisionRecordId,
+          alertId: input.alertId,
+          caseId: existingIncident.id,
+          caseNo: existingIncident.incidentNo,
+          reusedCase: true,
+        },
+        tx,
+      );
+
+      return {
+        id: existingIncident.id,
+        incidentNo: existingIncident.incidentNo,
+      };
+    }
+
+    const actor = {
+      actorType: 'SYSTEM',
+      actorId: 'SYSTEM',
+      actorNo: 'SYSTEM',
+      actorRole: 'SYSTEM',
+      sourcePlatform: tx ? 'SYSTEM_TX' : 'SYSTEM',
+    };
+
+    try {
+      const created = tx
+        ? await (async () => {
+            const incidentId =
+              await this.getComplianceIncidentsService().createFromAlertInTransaction(
+                tx,
+                input.alertId,
+                {
+                  reason: input.reason,
+                  decision: input.decision,
+                  decisionRecordIds: [input.decisionRecordId],
+                  recommendedActions: input.recommendedActions,
+                },
+                actor,
+              );
+
+            const incident = await tx.complianceIncident.findUnique({
+              where: { id: incidentId },
+              select: { id: true, incidentNo: true },
+            });
+
+            if (!incident) {
+              throw new NotFoundException(
+                `Compliance case ${incidentId} not found after escalation`,
+              );
+            }
+
+            return incident;
+          })()
+        : await this.getComplianceIncidentsService().createFromAlert(
+            input.alertId,
+            {
+              reason: input.reason,
+              decision: input.decision,
+              decisionRecordIds: [input.decisionRecordId],
+              recommendedActions: input.recommendedActions,
+            },
+            actor,
+          );
+
+      await this.recordWithdrawCaseAudit(
+        {
+          withdrawId: input.withdrawId,
+          withdrawNo: input.withdrawNo,
+          payoutId: input.payoutId,
+          payoutNo: input.payoutNo,
+          customerId: input.customerId,
+          customerNo: input.customerNo,
+          contextType: input.contextType,
+          triggerStage: input.triggerStage,
+          triggerStatus: input.triggerStatus,
+          decisionRecordId: input.decisionRecordId,
+          alertId: input.alertId,
+          caseId: created.id,
+          caseNo: (created as any).incidentNo || null,
+          reusedCase: false,
+        },
+        tx,
+      );
+
+      return created;
+    } catch (error) {
+      if (!(error instanceof ConflictException)) {
+        throw error;
+      }
+
+      this.logger.warn(
+        `Withdraw transaction case auto-escalation raced for alert=${input.alertId}, resolving existing link`,
+      );
+
+      const linked = await db.complianceIncidentAlert.findUnique({
+        where: { alertId: input.alertId },
+        select: { incidentId: true },
+      });
+
+      if (!linked?.incidentId) {
+        throw error;
+      }
+
+      const linkedIncident = await db.complianceIncident.findUnique({
+        where: { id: linked.incidentId },
+        select: { id: true, incidentNo: true },
+      });
+
+      if (!linkedIncident) {
+        throw error;
+      }
+
+      await this.recordWithdrawCaseAudit(
+        {
+          withdrawId: input.withdrawId,
+          withdrawNo: input.withdrawNo,
+          payoutId: input.payoutId,
+          payoutNo: input.payoutNo,
+          customerId: input.customerId,
+          customerNo: input.customerNo,
+          contextType: input.contextType,
+          triggerStage: input.triggerStage,
+          triggerStatus: input.triggerStatus,
+          decisionRecordId: input.decisionRecordId,
+          alertId: input.alertId,
+          caseId: linkedIncident.id,
+          caseNo: linkedIncident.incidentNo,
+          reusedCase: true,
+        },
+        tx,
+      );
+
+      return linkedIncident;
+    }
   }
 
   private async autoEscalateCaseIfNeeded(
@@ -2195,6 +2867,93 @@ export class TransactionRiskBridgeService {
     };
   }
 
+  async initializeWithdrawFinalReview(
+    withdrawId: string,
+    tx?: Prisma.TransactionClient,
+  ): Promise<BridgeExecutionResult> {
+    const withdraw = await this.resolveWithdrawContext(withdrawId, tx);
+    if (withdraw.ownerType !== 'CUSTOMER' || !withdraw.ownerId) {
+      return { skipped: true, skipReason: 'UNSUPPORTED_OWNER' };
+    }
+
+    const currentStatus = String(withdraw.status || '').trim().toUpperCase();
+    if (
+      currentStatus !== 'PENDING_COMPLIANCE' &&
+      currentStatus !== 'UNDER_REVIEW'
+    ) {
+      return { skipped: true, skipReason: 'STATUS_NOT_ELIGIBLE' };
+    }
+
+    const db = this.getDb(tx) as any;
+    const [preKytCase, travelRuleCase] = await Promise.all([
+      db.kytCase.findUnique({
+        where: {
+          sourceType_sourceId_screeningStage: {
+            sourceType: TxSourceType.WITHDRAW,
+            sourceId: withdraw.id,
+            screeningStage: 'PRE_TXN',
+          },
+        },
+        select: {
+          id: true,
+          caseNo: true,
+          status: true,
+          provider: true,
+          providerCaseId: true,
+          riskScore: true,
+        },
+      }),
+      db.travelRuleCase.findUnique({
+        where: {
+          sourceType_sourceId: {
+            sourceType: TxSourceType.WITHDRAW,
+            sourceId: withdraw.id,
+          },
+        },
+        select: {
+          id: true,
+          caseNo: true,
+          status: true,
+          required: true,
+          provider: true,
+          providerTransferId: true,
+          counterpartyVasp: true,
+        },
+      }),
+    ]);
+
+    const aggregate: TxAggregateSnapshot = {
+      derivedComplianceStatus:
+        this.deriveWithdrawComplianceStatusFromTransactionStatus(withdraw.status),
+      preKytCase,
+      mainKytCase: null,
+      travelRuleCase,
+    };
+
+    const pending = await this.ensurePendingDecisionRecord(
+      {
+        contextType: 'TX_WITHDRAW_FINAL',
+        subjectType: 'WITHDRAW',
+        subjectId: withdraw.id,
+        ownerType: 'CUSTOMER',
+        ownerId: withdraw.ownerId,
+        signals: this.buildPendingWithdrawFinalSignals({
+          withdraw,
+          aggregate,
+          kytStatus: 'FINAL',
+          travelRuleStatus: travelRuleCase?.status || 'FINAL',
+        }),
+      },
+      tx,
+    );
+
+    return {
+      skipped: false,
+      decisionRecordId: pending.decisionRecordId,
+      decision: pending.status === 'COMPLETED' ? pending.decision : null,
+    };
+  }
+
   async simulateSwapFinalReview(
     input: ManualRiskSimulationInput,
     tx?: Prisma.TransactionClient,
@@ -2264,6 +3023,453 @@ export class TransactionRiskBridgeService {
     );
   }
 
+  private async executeWithdrawFinalReview(
+    input: {
+      withdraw: Awaited<ReturnType<TransactionRiskBridgeService['resolveWithdrawContext']>>;
+      aggregate: TxAggregateSnapshot;
+      kytStatus: string;
+      travelRuleStatus: string;
+      riskProfile: WithdrawSimulationRiskProfile;
+      triggerStatus: string;
+      decisionResult?: ResolvedDecisionResult;
+    },
+    tx?: Prisma.TransactionClient,
+  ): Promise<BridgeExecutionResult> {
+    const triggerStatus = String(input.triggerStatus || '').trim().toUpperCase();
+    const riskInput: EvaluateRiskInput = {
+      contextType: 'TX_WITHDRAW_FINAL',
+      subjectType: 'WITHDRAW',
+      subjectId: input.withdraw.id,
+      ownerType: 'CUSTOMER',
+      ownerId: input.withdraw.ownerId as string,
+      signals: input.decisionResult
+        ? this.buildWithdrawFinalSignals({
+            withdraw: input.withdraw,
+            aggregate: input.aggregate,
+            kytStatus: input.kytStatus,
+            travelRuleStatus: input.travelRuleStatus,
+            riskProfile: input.riskProfile,
+          })
+        : this.buildPendingWithdrawFinalSignals({
+            withdraw: input.withdraw,
+            aggregate: input.aggregate,
+            kytStatus: input.kytStatus,
+            travelRuleStatus: input.travelRuleStatus,
+          }),
+    };
+
+    const decisionResult =
+      input.decisionResult || (await this.resolveDecision(riskInput, tx));
+    const actionNames = this.normalizeActionNames(
+      decisionResult.recommendedActions,
+    );
+    let workflowTransition: Record<string, unknown> | null = null;
+
+    let alert: { id: string; alertNo?: string | null } | null = null;
+    if (
+      !decisionResult.reused &&
+      actionNames.includes(RISK_RECOMMENDED_ACTIONS.UPSERT_ALERT)
+    ) {
+      const alertAction = decisionResult.recommendedActions.find(
+        (item) =>
+          normalizeRiskRecommendedActionType(item.type) ===
+          RISK_RECOMMENDED_ACTIONS.UPSERT_ALERT,
+      );
+      alert = await this.getComplianceAlertsService().triggerSystemAlert(
+        {
+          ruleCode: TRANSACTION_REVIEW_RULES.TX_WITHDRAW_FINAL_REVIEW_REQUIRED,
+          sourceModule: AuditModules.TRANSACTION_COMPLIANCE,
+          sourceType: TxSourceType.WITHDRAW,
+          sourceId: input.withdraw.id,
+          sourceNo: input.withdraw.withdrawNo,
+          stage: TRANSACTION_REVIEW_STAGES.REVIEW_WITHDRAW_FINAL,
+          entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+          entityId: input.withdraw.id,
+          entityNo: input.withdraw.withdrawNo,
+          ownerType: 'CUSTOMER',
+          ownerId: input.withdraw.ownerId,
+          ownerNo: input.withdraw.ownerNo || null,
+          customerId: input.withdraw.ownerId,
+          customerNo: input.withdraw.ownerNo || null,
+          decisionRecommendation:
+            String(alertAction?.payload?.recommendation || decisionResult.decision),
+          decision: this.mapDecisionToAlertDisposition(decisionResult.decision),
+          decisionRecordIds: [decisionResult.decisionRecordId],
+          severity: this.normalizeSeverity(alertAction?.payload?.severity),
+          message:
+            input.riskProfile.riskLevel === 'HIGH'
+              ? `Withdraw ${input.withdraw.withdrawNo} requires high-risk final transaction review.`
+              : `Withdraw ${input.withdraw.withdrawNo} requires final transaction compliance review.`,
+          metadata: {
+            contextType: riskInput.contextType,
+            triggerStage: TRANSACTION_REVIEW_STAGES.REVIEW_WITHDRAW_FINAL,
+            triggerStatus,
+            reasonCodes: decisionResult.reasonCodes,
+            recommendedActions: actionNames,
+            decisionRecordId: decisionResult.decisionRecordId,
+            withdrawId: input.withdraw.id,
+            payoutId: input.withdraw.payoutId || null,
+            customerId: input.withdraw.ownerId,
+            riskBand: input.riskProfile.riskLevel,
+            riskReason: input.riskProfile.riskReason,
+            kytStatus: input.kytStatus,
+            travelRuleStatus: input.travelRuleStatus,
+            kytCaseId: input.aggregate.mainKytCase?.id || null,
+            travelRuleCaseId: input.aggregate.travelRuleCase?.id || null,
+          },
+          sourcePlatform: tx ? 'SYSTEM_TX' : 'SYSTEM',
+        },
+        tx,
+      );
+
+      await this.recordWithdrawAlertAudit(
+        {
+          withdrawId: input.withdraw.id,
+          withdrawNo: input.withdraw.withdrawNo,
+          payoutId: input.withdraw.payoutId || null,
+          payoutNo: input.withdraw.payoutNo || null,
+          customerId: input.withdraw.ownerId as string,
+          customerNo: input.withdraw.ownerNo || null,
+          contextType: riskInput.contextType,
+          triggerStage: TRANSACTION_REVIEW_STAGES.REVIEW_WITHDRAW_FINAL,
+          triggerStatus,
+          decisionRecordId: decisionResult.decisionRecordId,
+          alertId: alert.id,
+          alertNo: alert.alertNo || null,
+        },
+        tx,
+      );
+    }
+
+    let escalatedCase: { id: string; incidentNo?: string | null } | null = null;
+    if (
+      !decisionResult.reused &&
+      alert &&
+      actionNames.includes(RISK_RECOMMENDED_ACTIONS.AUTO_ESCALATE_CASE)
+    ) {
+      escalatedCase = await this.autoEscalateWithdrawCaseIfNeeded(
+        {
+          alertId: alert.id,
+          withdrawId: input.withdraw.id,
+          withdrawNo: input.withdraw.withdrawNo,
+          payoutId: input.withdraw.payoutId || null,
+          payoutNo: input.withdraw.payoutNo || null,
+          customerId: input.withdraw.ownerId as string,
+          customerNo: input.withdraw.ownerNo || null,
+          decisionRecordId: decisionResult.decisionRecordId,
+          decision: decisionResult.decision,
+          recommendedActions: actionNames,
+          reason: `Auto-escalated withdraw final transaction case for ${input.withdraw.withdrawNo}`,
+          contextType: riskInput.contextType,
+          triggerStage: TRANSACTION_REVIEW_STAGES.REVIEW_WITHDRAW_FINAL,
+          triggerStatus,
+        },
+        tx,
+      );
+    }
+
+    if (!decisionResult.reused && decisionResult.decision === 'APPROVE') {
+      workflowTransition = this.toRecordObject(
+        await this.clearWithdrawIfApproved(
+          {
+            withdrawId: input.withdraw.id,
+            withdrawNo: input.withdraw.withdrawNo,
+            payoutId: input.withdraw.payoutId || null,
+            payoutNo: input.withdraw.payoutNo || null,
+            customerId: input.withdraw.ownerId as string,
+            customerNo: input.withdraw.ownerNo || null,
+            decisionRecordId: decisionResult.decisionRecordId,
+            reasonCode:
+              TRANSACTION_REVIEW_RULES.TX_WITHDRAW_FINAL_REVIEW_REQUIRED,
+            reason: `Withdraw ${input.withdraw.withdrawNo} auto-cleared after final transaction decision`,
+            triggerStage: TRANSACTION_REVIEW_STAGES.REVIEW_WITHDRAW_FINAL,
+            triggerStatus,
+          },
+          tx,
+        ),
+      );
+    } else if (!decisionResult.reused && alert && escalatedCase) {
+      workflowTransition = this.toRecordObject(
+        await this.flagWithdrawIfNeeded(
+          {
+            withdrawId: input.withdraw.id,
+            withdrawNo: input.withdraw.withdrawNo,
+            payoutId: input.withdraw.payoutId || null,
+            payoutNo: input.withdraw.payoutNo || null,
+            customerId: input.withdraw.ownerId as string,
+            customerNo: input.withdraw.ownerNo || null,
+            source: 'CASE',
+            sourceId: escalatedCase.id,
+            decisionRecordId: decisionResult.decisionRecordId,
+            alertId: alert.id,
+            caseId: escalatedCase.id,
+            reasonCode:
+              TRANSACTION_REVIEW_RULES.TX_WITHDRAW_FINAL_REVIEW_REQUIRED,
+            triggerStage: TRANSACTION_REVIEW_STAGES.REVIEW_WITHDRAW_FINAL,
+            triggerStatus,
+            reason: `Withdraw ${input.withdraw.withdrawNo} moved under review after final transaction case escalation`,
+          },
+          tx,
+        ),
+      );
+    } else if (!decisionResult.reused && alert) {
+      workflowTransition = this.toRecordObject(
+        await this.flagWithdrawIfNeeded(
+          {
+            withdrawId: input.withdraw.id,
+            withdrawNo: input.withdraw.withdrawNo,
+            payoutId: input.withdraw.payoutId || null,
+            payoutNo: input.withdraw.payoutNo || null,
+            customerId: input.withdraw.ownerId as string,
+            customerNo: input.withdraw.ownerNo || null,
+            source: 'ALERT',
+            sourceId: alert.id,
+            decisionRecordId: decisionResult.decisionRecordId,
+            alertId: alert.id,
+            reasonCode:
+              TRANSACTION_REVIEW_RULES.TX_WITHDRAW_FINAL_REVIEW_REQUIRED,
+            triggerStage: TRANSACTION_REVIEW_STAGES.REVIEW_WITHDRAW_FINAL,
+            triggerStatus,
+            reason: `Withdraw ${input.withdraw.withdrawNo} moved under review after final transaction alert hit`,
+          },
+          tx,
+        ),
+      );
+    }
+
+    await this.recordWithdrawRiskAudit(
+      {
+        withdrawId: input.withdraw.id,
+        withdrawNo: input.withdraw.withdrawNo,
+        payoutId: input.withdraw.payoutId || null,
+        payoutNo: input.withdraw.payoutNo || null,
+        customerId: input.withdraw.ownerId as string,
+        customerNo: input.withdraw.ownerNo || null,
+        contextType: riskInput.contextType,
+        triggerStage: TRANSACTION_REVIEW_STAGES.REVIEW_WITHDRAW_FINAL,
+        triggerStatus,
+        decisionRecordId: decisionResult.decisionRecordId,
+        decision: decisionResult.decision,
+        reusedDecisionRecord: decisionResult.reused,
+        alertId: alert?.id || null,
+        caseId: escalatedCase?.id || null,
+      },
+      tx,
+    );
+
+    await this.writeDecisionRecordOutcomeSnapshot(
+      {
+        decisionRecordId: decisionResult.decisionRecordId,
+        sourceType: 'WITHDRAW',
+        sourceId: input.withdraw.id,
+        sourceNo: input.withdraw.withdrawNo,
+        stage: TRANSACTION_REVIEW_STAGES.REVIEW_WITHDRAW_FINAL,
+        rule: TRANSACTION_REVIEW_RULES.TX_WITHDRAW_FINAL_REVIEW_REQUIRED,
+        decision: decisionResult.decision,
+        recommendedActions: actionNames,
+        reasonCodes: decisionResult.reasonCodes,
+        alertId: alert?.id || null,
+        alertNo: alert?.alertNo || null,
+        caseId: escalatedCase?.id || null,
+        caseNo: escalatedCase?.incidentNo || null,
+        workflowTransition,
+        reusedDecisionRecord: decisionResult.reused,
+      },
+      tx,
+    );
+
+    return {
+      skipped: false,
+      decisionRecordId: decisionResult.decisionRecordId,
+      decision: decisionResult.decision,
+      alertId: alert?.id || null,
+      alertNo: alert?.alertNo || null,
+      caseId: escalatedCase?.id || null,
+      caseNo: escalatedCase?.incidentNo || null,
+    };
+  }
+
+  async handleWithdrawPrecheckReview(
+    input: WithdrawPrecheckReviewInput,
+    tx?: Prisma.TransactionClient,
+  ): Promise<BridgeExecutionResult> {
+    if (input.sourceType !== TxSourceType.WITHDRAW) {
+      return { skipped: true, skipReason: 'UNSUPPORTED_SOURCE_TYPE' };
+    }
+    return { skipped: true, skipReason: 'LEGACY_PRECHECK_READ_ONLY' };
+  }
+
+  async simulateWithdrawPrecheckReview(
+    input: ManualRiskSimulationInput,
+    tx?: Prisma.TransactionClient,
+  ): Promise<BridgeExecutionResult> {
+    throw new ConflictException(
+      `Decision record ${input.decisionRecordId} is historical read-only and no longer supports manual simulation`,
+    );
+  }
+
+  async handleWithdrawFinalReviewIfReady(
+    input: WithdrawFinalReviewInput,
+    tx?: Prisma.TransactionClient,
+  ): Promise<BridgeExecutionResult> {
+    if (input.sourceType !== TxSourceType.WITHDRAW) {
+      return { skipped: true, skipReason: 'UNSUPPORTED_SOURCE_TYPE' };
+    }
+    if (input.reportDeduped) {
+      return { skipped: true, skipReason: 'REPORT_DEDUPED' };
+    }
+    if (!this.isWithdrawFinalReviewReady(input.aggregate)) {
+      return { skipped: true, skipReason: 'FINAL_REVIEW_NOT_READY' };
+    }
+
+    const withdraw = await this.resolveWithdrawContext(input.withdrawId, tx);
+    if (withdraw.ownerType !== 'CUSTOMER' || !withdraw.ownerId) {
+      return { skipped: true, skipReason: 'UNSUPPORTED_OWNER' };
+    }
+
+    const currentStatus = String(withdraw.status || '').trim().toUpperCase();
+    if (
+      currentStatus !== 'PAYOUT_PENDING' &&
+      currentStatus !== 'UNDER_REVIEW'
+    ) {
+      return { skipped: true, skipReason: 'STATUS_NOT_ELIGIBLE' };
+    }
+
+    const kytStatus = this.normalizeKytLifecycleStatus(
+      input.aggregate.mainKytCase?.status || withdraw.kytStatus,
+    );
+    const travelRuleStatus = this.normalizeTravelRuleLifecycleStatus(
+      input.aggregate.travelRuleCase?.status || withdraw.travelRuleStatus,
+      input.aggregate.travelRuleCase?.required ?? withdraw.travelRuleRequired,
+    );
+    const riskProfile: WithdrawSimulationRiskProfile = {
+      riskLevel:
+        kytStatus === 'FINAL' && travelRuleStatus === 'FINAL'
+          ? 'LOW'
+          : 'MEDIUM',
+      riskReason:
+        kytStatus === 'FINAL' && travelRuleStatus === 'FINAL'
+          ? 'TX_WITHDRAW_RESPONSE_CONTAINERS_FINAL'
+          : 'TX_WITHDRAW_RESPONSE_CONTAINERS_PENDING',
+      signalId: null,
+    };
+
+    return this.executeWithdrawFinalReview(
+      {
+        withdraw,
+        aggregate: input.aggregate,
+        kytStatus,
+        travelRuleStatus,
+        riskProfile,
+        triggerStatus: input.triggerStatus,
+      },
+      tx,
+    );
+  }
+
+  async simulateWithdrawFinalReview(
+    input: ManualRiskSimulationInput,
+    tx?: Prisma.TransactionClient,
+  ): Promise<BridgeExecutionResult> {
+    const db = this.getDb(tx) as any;
+    const decisionRecord = await db.workflowDecisionRecord.findUnique({
+      where: { id: input.decisionRecordId },
+      select: {
+        id: true,
+        status: true,
+        contextType: true,
+        subjectId: true,
+      },
+    });
+
+    if (!decisionRecord) {
+      throw new NotFoundException(
+        `Risk decision record not found: ${input.decisionRecordId}`,
+      );
+    }
+    if (
+      String(decisionRecord.contextType || '').trim().toUpperCase() !==
+      'TX_WITHDRAW_FINAL'
+    ) {
+      throw new ConflictException(
+        `Decision record ${input.decisionRecordId} is not bound to TX_WITHDRAW_FINAL`,
+      );
+    }
+    if (String(decisionRecord.status || '').trim().toUpperCase() !== 'CREATED') {
+      throw new ConflictException(
+        `Decision record ${input.decisionRecordId} is not pending simulation`,
+      );
+    }
+
+    const withdraw = await this.resolveWithdrawContext(decisionRecord.subjectId, tx);
+    if (withdraw.ownerType !== 'CUSTOMER' || !withdraw.ownerId) {
+      return { skipped: true, skipReason: 'UNSUPPORTED_OWNER' };
+    }
+
+    const aggregate: TxAggregateSnapshot = {
+      derivedComplianceStatus:
+        this.deriveWithdrawComplianceStatusFromTransactionStatus(withdraw.status),
+      mainKytCase: {
+        status: this.normalizeKytLifecycleStatus(withdraw.kytStatus),
+        riskScore: withdraw.kytRiskScore ?? null,
+      },
+      travelRuleCase: {
+        status: this.normalizeTravelRuleLifecycleStatus(
+          withdraw.travelRuleStatus,
+          !!withdraw.travelRuleRequired,
+        ),
+        required: !!withdraw.travelRuleRequired,
+      },
+    };
+    const kytStatus = this.normalizeKytLifecycleStatus(withdraw.kytStatus);
+    const travelRuleStatus = this.normalizeTravelRuleLifecycleStatus(
+      withdraw.travelRuleStatus,
+      !!withdraw.travelRuleRequired,
+    );
+    const riskProfile: WithdrawSimulationRiskProfile = {
+      riskLevel: input.riskLevel,
+      riskReason: input.riskReason,
+      signalId: null,
+    };
+    const decisionResult = await this.riskEngineService.completeDecisionRecord(
+      input.decisionRecordId,
+      {
+        contextType: 'TX_WITHDRAW_FINAL',
+        subjectType: 'WITHDRAW',
+        subjectId: withdraw.id,
+        ownerType: 'CUSTOMER',
+        ownerId: withdraw.ownerId,
+        signals: this.buildWithdrawFinalSignals({
+          withdraw,
+          aggregate,
+          kytStatus,
+          travelRuleStatus,
+          riskProfile,
+        }),
+      },
+      tx,
+    );
+
+    return this.executeWithdrawFinalReview(
+      {
+        withdraw,
+        aggregate,
+        kytStatus,
+        travelRuleStatus,
+        riskProfile,
+        triggerStatus: 'MANUAL_SIMULATION',
+        decisionResult: {
+          decisionRecordId: decisionResult.decisionRecordId,
+          decision: decisionResult.decision,
+          recommendedActions: decisionResult.recommendedActions,
+          reasonCodes: decisionResult.reasonCodes,
+          reused: false,
+        },
+      },
+      tx,
+    );
+  }
+
   async handleDepositFinalReviewIfReady(
     input: DepositFinalReviewInput,
     tx?: Prisma.TransactionClient,
@@ -2283,10 +3489,10 @@ export class TransactionRiskBridgeService {
       return { skipped: true, skipReason: 'UNSUPPORTED_OWNER' };
     }
 
-    const kytStatus = this.normalizeKytStatus(
+    const kytStatus = this.normalizeKytLifecycleStatus(
       input.aggregate.mainKytCase?.status || deposit.kytStatus,
     );
-    const travelRuleStatus = this.normalizeTravelRuleStatus(
+    const travelRuleStatus = this.normalizeTravelRuleLifecycleStatus(
       input.aggregate.travelRuleCase?.status || deposit.travelRuleStatus,
       input.aggregate.travelRuleCase?.required ?? deposit.travelRuleRequired,
     );
@@ -2333,18 +3539,18 @@ export class TransactionRiskBridgeService {
     const aggregate: TxAggregateSnapshot = {
       derivedComplianceStatus: 'CLEAR',
       mainKytCase: {
-        status: this.normalizeKytStatus(input.kytStatus),
+        status: this.normalizeKytLifecycleStatus(input.kytStatus),
       },
       travelRuleCase: {
-        status: this.normalizeTravelRuleStatus(
+        status: this.normalizeTravelRuleLifecycleStatus(
           input.travelRuleStatus,
           input.travelRuleRequired,
         ),
         required: input.travelRuleRequired,
       },
     };
-    const kytStatus = this.normalizeKytStatus(input.kytStatus);
-    const travelRuleStatus = this.normalizeTravelRuleStatus(
+    const kytStatus = this.normalizeKytLifecycleStatus(input.kytStatus);
+    const travelRuleStatus = this.normalizeTravelRuleLifecycleStatus(
       input.travelRuleStatus,
       input.travelRuleRequired,
     );
@@ -2414,18 +3620,18 @@ export class TransactionRiskBridgeService {
     const aggregate: TxAggregateSnapshot = {
       derivedComplianceStatus: 'CLEAR',
       mainKytCase: {
-        status: this.normalizeKytStatus(deposit.kytStatus),
+        status: this.normalizeKytLifecycleStatus(deposit.kytStatus),
       },
       travelRuleCase: {
-        status: this.normalizeTravelRuleStatus(
+        status: this.normalizeTravelRuleLifecycleStatus(
           deposit.travelRuleStatus,
           !!deposit.travelRuleRequired,
         ),
         required: !!deposit.travelRuleRequired,
       },
     };
-    const kytStatus = this.normalizeKytStatus(deposit.kytStatus);
-    const travelRuleStatus = this.normalizeTravelRuleStatus(
+    const kytStatus = this.normalizeKytLifecycleStatus(deposit.kytStatus);
+    const travelRuleStatus = this.normalizeTravelRuleLifecycleStatus(
       deposit.travelRuleStatus,
       !!deposit.travelRuleRequired,
     );
@@ -2477,6 +3683,8 @@ export class TransactionRiskBridgeService {
     input: DepositKytRiskInput,
     tx?: Prisma.TransactionClient,
   ): Promise<BridgeExecutionResult> {
+    // Historical provider-result ingestion path only. Current deposit routing
+    // should converge on lifecycle snapshots plus TX_DEPOSIT_FINAL.
     if (input.sourceType !== TxSourceType.DEPOSIT) {
       return { skipped: true, skipReason: 'UNSUPPORTED_SOURCE_TYPE' };
     }
@@ -2680,6 +3888,8 @@ export class TransactionRiskBridgeService {
     input: DepositTravelRuleRiskInput,
     tx?: Prisma.TransactionClient,
   ): Promise<BridgeExecutionResult> {
+    // Historical provider-result ingestion path only. Current deposit routing
+    // should converge on lifecycle snapshots plus TX_DEPOSIT_FINAL.
     if (input.sourceType !== TxSourceType.DEPOSIT) {
       return { skipped: true, skipReason: 'UNSUPPORTED_SOURCE_TYPE' };
     }

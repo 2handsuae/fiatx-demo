@@ -1,6 +1,6 @@
 Status: active
 Owner: project-owner-and-agents
-Last Updated: 2026-03-24
+Last Updated: 2026-03-28
 Applies To: `Exchange_js`
 Supersedes: none
 Depends On: `docs/constraints/customer-transaction-flow-constraints.md`, `docs/constraints/internal-transaction-flow-constraints.md`, `docs/specs/workflows/payin-deposit-canonical-workflow.md`, `docs/specs/entities/inbound-transfer-signal-entity.md`, `docs/specs/entities/payin-entity.md`, `docs/specs/entities/deposit-transaction-entity.md`, `docs/specs/entities/audit-evidence-package-entity.md`, `docs/specs/modules/risk-engine-module.md`, `docs/specs/modules/compliance-center-module.md`, `docs/specs/modules/accounting-ledger-module.md`, `docs/acceptance/wave-5-deposit-accounting-blocked-runbook.md`, `docs/acceptance/wave-5-deposit-evidence-export-runbook.md`
@@ -52,12 +52,14 @@ Source of Truth Level: acceptance
 
 ## Core Chains
 1. `happy path`
-   - `signal -> payin -> deposit -> COMPLIANCE_PENDING -> provider clear -> canonical deposit success -> internal collection -> evidence export`
+   - `signal -> payin -> deposit -> COMPLIANCE_PENDING -> pending TX_DEPOSIT_FINAL -> LOW simulation -> canonical deposit success -> evidence export`
+   - crypto branch adds `KYT / Travel Rule` containers in `FINAL` plus downstream `DEP_TO_MASTER`
+   - fiat branch creates no response container and has no downstream crypto collection leg
 2. `review-clear path`
-   - `KYT REVIEW -> alert -> FALSE_POSITIVE`
-   - or `KYT FAIL / Travel Rule REJECTED|EXPIRED -> case -> MLRO CLEAR`
+   - `TX_DEPOSIT_FINAL MEDIUM -> alert -> FALSE_POSITIVE`
+   - or `TX_DEPOSIT_FINAL HIGH -> case -> MLRO CLEAR`
 3. `reject path`
-   - `KYT FAIL / Travel Rule REJECTED|EXPIRED -> case -> MLRO REJECT`
+   - `TX_DEPOSIT_FINAL HIGH -> case -> MLRO REJECT`
 4. `accounting-block path`
    - `payin.confirmed` or `deposit.success` accounting point emits `DEPOSIT_ACCOUNTING_BLOCKED`
 
@@ -72,10 +74,10 @@ Source of Truth Level: acceptance
   - one `PayIn` is created or reused
   - one `Deposit` is created or reused
   - deposit reaches `COMPLIANCE_PENDING`
-  - crypto deposit has `MAIN-KYT` and `TRAVEL_RULE` evidence containers
-- Drive provider-side response aggregate to a no-hit state:
-  - `KYT = PASS`
-  - `Travel Rule = ACCEPTED` or `NOT_REQUIRED`
+  - crypto deposit has `KYT` and `TRAVEL_RULE` evidence containers and both are already `FINAL`
+  - fiat deposit creates no response container at this step
+  - exactly one `TX_DEPOSIT_FINAL` decision record exists
+- Simulate `LOW` risk on `TX_DEPOSIT_FINAL`.
 - Confirm:
   - no workflow-bound alert/case is required for the no-hit path
   - deposit can be released only through canonical deposit success action
@@ -84,20 +86,19 @@ Source of Truth Level: acceptance
   - deposit reaches `SUCCESS`
   - `EVT_DEPOSIT_SUCCESS__*` accounting is posted
   - crypto deposit triggers one downstream `DEP_TO_MASTER`
+  - fiat deposit completes without crypto-only downstream collection artifacts
   - audit replay can reach payin, deposit, journal, internal transaction, and internal fund
 
 ### 2. Review-Clear Path
 - Start from a crypto deposit in `COMPLIANCE_PENDING`.
-- Drive one of these hit paths:
-  - `KYT = REVIEW`
-  - `KYT = FAIL`
-  - `Travel Rule = REJECTED`
-  - `Travel Rule = EXPIRED`
+- Simulate one of these final-review paths:
+  - `MEDIUM`
+  - `HIGH`
 - Confirm:
   - deposit is moved to `UNDER_REVIEW` through canonical deposit action
   - transaction decision record exists
   - alert exists
-  - case exists when auto-escalation or manual escalation is required
+  - case exists when `HIGH` or manual escalation is required
 - For alert-only clear path:
   - resolve the workflow-bound alert with `FALSE_POSITIVE`
 - For case clear path:
@@ -112,7 +113,7 @@ Source of Truth Level: acceptance
 
 ### 3. Reject Path
 - Start from a crypto deposit in `COMPLIANCE_PENDING`.
-- Drive `KYT = FAIL` or `Travel Rule = REJECTED|EXPIRED`.
+- Simulate `HIGH` on `TX_DEPOSIT_FINAL`.
 - Confirm:
   - alert exists
   - case exists

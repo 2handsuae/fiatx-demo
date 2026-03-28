@@ -1,6 +1,6 @@
 Status: active
 Owner: project-owner-and-agents
-Last Updated: 2026-03-24
+Last Updated: 2026-03-28
 Applies To: `Exchange_js`
 Supersedes: none
 Depends On: `docs/specs/workflows/audit-evidence-export-approval-workflow.md`
@@ -78,6 +78,38 @@ Source of Truth Level: specs-entity
   - `internalTransactionIds`
   - `internalFundIds`
 - Deposit evidence package semantics remain approval-backed and do not create a separate deposit-only export engine.
+
+## Wave 7 Withdraw Snapshot Extension
+- For withdraw-root exports, `packageBody.snapshots` extends to the outbound business root and execution root together.
+- Withdraw evidence snapshots MUST support these collections:
+  - `withdrawTransactions`
+  - `payouts`
+  - `preKytCases`
+  - `mainKytCases`
+  - `travelRuleCases`
+  - `riskDecisionRecords`
+  - `alerts`
+  - `cases`
+  - `journals`
+  - `clearings`
+  - `reconciliationBreaks`
+  - `withdrawEvidenceChain`
+- `withdrawEvidenceChain` is the replay-oriented aggregate keyed by withdraw identity.
+- Each `withdrawEvidenceChain` item MAY include:
+  - `withdrawId`
+  - `withdrawNo`
+  - `payoutId`
+  - `payoutNo`
+  - `decisionRecordIds`
+  - `preKytCaseIds`
+  - `mainKytCaseIds`
+  - `travelRuleCaseIds`
+  - `alertIds`
+  - `caseIds`
+  - `journalIds`
+  - `clearingIds`
+  - `reconciliationBreakIds`
+- Withdraw evidence export remains approval-backed and does not create a second withdraw-only export API.
 
 ## Related / Parallel Objects
 - `Compliance Case Evidence Package` is a separate export object with aligned approval and soft-delete semantics.

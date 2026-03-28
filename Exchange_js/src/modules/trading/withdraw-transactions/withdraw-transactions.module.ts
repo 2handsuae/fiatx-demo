@@ -6,6 +6,7 @@ import { OnboardingModule } from '../../identity/onboarding/onboarding.module';
 import { JournalsModule } from '../../accounting/journals/journals.module';
 import { TransactionComplianceModule } from '../../risk-engine/transaction-compliance/transaction-compliance.module';
 import { PricingCenterModule } from '../pricing-center/pricing-center.module';
+import { WithdrawTransactionWorkflowService } from './withdraw-transaction-workflow.service';
 
 @Module({
   imports: [
@@ -16,7 +17,7 @@ import { PricingCenterModule } from '../pricing-center/pricing-center.module';
     PricingCenterModule,
   ],
   controllers: [WithdrawTransactionsController],
-  providers: [WithdrawTransactionsService],
-  exports: [WithdrawTransactionsService],
+  providers: [WithdrawTransactionsService, WithdrawTransactionWorkflowService],
+  exports: [WithdrawTransactionsService, WithdrawTransactionWorkflowService],
 })
 export class WithdrawTransactionsModule {}

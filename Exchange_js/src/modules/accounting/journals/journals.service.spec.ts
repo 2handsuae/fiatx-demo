@@ -131,10 +131,13 @@ describe('JournalsService', () => {
   it('should reverse all original journals by source', async () => {
     const mockClient: any = {
       journal: {
-        findMany: jest.fn().mockResolvedValue([
-          { eventCode: 'EVT_WITHDRAWAL_CREATED' },
-          { eventCode: 'EVT_WITHDRAWAL_SUCCESS__FIAT' },
-        ]),
+        findMany: jest
+          .fn()
+          .mockResolvedValueOnce([
+            { id: 'JO_CREATED', eventCode: 'EVT_WITHDRAWAL_CREATED' },
+            { id: 'JO_SUCCESS', eventCode: 'EVT_WITHDRAWAL_SUCCESS__FIAT' },
+          ])
+          .mockResolvedValueOnce([]),
       },
     };
 
@@ -174,6 +177,84 @@ describe('JournalsService', () => {
       mockClient,
     );
     expect(result).toEqual([{ id: 'REV_A' }]);
+  });
+
+  it('should skip journals that already have reversals during partial reverseAllBySource replay', async () => {
+    const mockClient: any = {
+      journal: {
+        findMany: jest
+          .fn()
+          .mockResolvedValueOnce([
+            { id: 'JO_CREATED', eventCode: 'EVT_WITHDRAWAL_CREATED' },
+            { id: 'JO_APPROVED', eventCode: 'EVT_WITHDRAWAL_APPROVED__FIAT' },
+          ])
+          .mockResolvedValueOnce([
+            { reversalOfJournalId: 'JO_CREATED' },
+          ]),
+      },
+    };
+
+    const service = new JournalsService({} as any);
+    const reverseSpy = jest
+      .spyOn(service as any, 'reverseJournal')
+      .mockResolvedValue({ id: 'REV_APPROVED' });
+
+    const result = await (service as any).reverseAllBySource(
+      {
+        sourceType: 'WITHDRAW',
+        sourceId: 'WD_3',
+        context: { src: { withdrawNo: 'WD003' } },
+      },
+      mockClient,
+    );
+
+    expect(reverseSpy).toHaveBeenCalledTimes(1);
+    expect(reverseSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sourceType: 'WITHDRAW',
+        sourceId: 'WD_3',
+        targetEventCode: 'EVT_WITHDRAWAL_APPROVED__FIAT',
+        reversalEventCode: 'REV_EVT_WITHDRAWAL_APPROVED__FIAT',
+      }),
+      mockClient,
+    );
+    expect(result).toEqual([{ id: 'REV_APPROVED' }]);
+  });
+
+  it('should return existing reversal journal without creating duplicate projection side effects', async () => {
+    const mockClient: any = {
+      journal: {
+        findFirst: jest.fn().mockResolvedValue({ id: 'REV_EXISTING' }),
+        create: jest.fn(),
+      },
+      journalLine: {
+        createMany: jest.fn(),
+      },
+      walletBalanceEntry: {
+        create: jest.fn(),
+      },
+      walletBalanceSnapshot: {
+        upsert: jest.fn(),
+      },
+    };
+
+    const service = new JournalsService({} as any);
+    const result = await service.reverseJournal(
+      {
+        sourceType: 'WITHDRAW',
+        sourceId: 'WD_4',
+        reversalEventCode: 'REV_EVT_WITHDRAWAL_CREATED',
+        targetEventCode: 'EVT_WITHDRAWAL_CREATED',
+        context: { src: { withdrawNo: 'WD004' } },
+      },
+      mockClient,
+    );
+
+    expect(result).toEqual({ id: 'REV_EXISTING' });
+    expect(mockClient.journal.create).not.toHaveBeenCalled();
+    expect(mockClient.journalLine.createMany).not.toHaveBeenCalled();
+    expect(mockClient.walletBalanceEntry.create).not.toHaveBeenCalled();
+    expect(mockClient.walletBalanceSnapshot.upsert).not.toHaveBeenCalled();
   });
 
   it('should set walletId on asset lines, align ownerType from wallet, and project wallet balance', async () => {

@@ -150,6 +150,12 @@ const DashboardLayout = () => {
       icon: <Activity size={20} />,
       children: [
         {
+          path: '/dashboard/reconciliation/safeguarding-breaks',
+          label: 'Safeguarding Breaks',
+          icon: <ClipboardList size={18} />,
+          requiredPermissions: [PERMISSIONS.SAFEGUARDING_BREAKS_READ],
+        },
+        {
           path: '/dashboard/reconciliation/outstanding-settlements',
           label: 'Outstanding Settlements',
           icon: <ClipboardList size={18} />,

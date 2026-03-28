@@ -107,8 +107,8 @@ Source of Truth Level: roadmap
 | --- | --- | --- | --- | --- |
 | `PayIn` | `FIAT: DETECTED -> CONFIRMED -> CLEARED / FAILED`；`CRYPTO: DETECTED -> CONFIRMING -> CONFIRMED -> CLEARED / FAILED` | 承载外部到账检测、回执登记、与 `Deposit` 的绑定根 | payin service、operator、未来 provider callback | 创建或复用 `Deposit`；写 audit；推进充值 workflow 根触发 |
 | `Deposit` | `PAYIN_PENDING -> COMPLIANCE_PENDING -> SUCCESS / UNDER_REVIEW / REJECTED / FAILED` | 客户充值业务交易主体 | deposit service、deposit workflow、后续 case 回驱 | 驱动 tx compliance snapshot、accounting、internal collection、admin/client read model |
-| `KYT Response` | 容器生命周期以 upsert + append report 为主；状态归一到 `PENDING / PASS / REVIEW / FAIL` | 承载 deposit 侧 transaction screening provider response | transaction-compliance service、provider callback/mock | 更新 deposit compliance snapshot；后续应驱动 risk / alert / case |
-| `Travel Rule Response` | 容器生命周期以 upsert + append report 为主；状态归一到 `NOT_REQUIRED / PENDING / SENT / RECEIVED / ACCEPTED / REJECTED / EXPIRED` | 承载 counterparty information exchange response | transaction-compliance service、provider callback/mock | 更新 deposit compliance snapshot；后续应驱动 risk / alert / case |
+| `KYT Response` | 证据容器生命周期统一为 `CREATED -> RECEIVED -> FINAL` | 承载 deposit 侧 transaction screening evidence container | transaction-compliance service、provider callback/mock | 更新 deposit snapshot；风险判断由 decision record / alert / case callback 承担 |
+| `Travel Rule Response` | 证据容器生命周期统一为 `CREATED -> RECEIVED -> FINAL` | 承载 counterparty information exchange evidence container | transaction-compliance service、provider callback/mock | 更新 deposit snapshot；不再直接等同于风险放行结论 |
 | `Risk Decision Record` | `CREATED -> COMPLETED / FAILED` | 作为 risk explanation root，沉淀 decision、reasonCodes、recommendedActions | risk engine evaluate | 上游解释 `alert / case` 编排，不直接等同于 `Alert` 或 `Case` |
 | `Alert` | `OPEN -> ASSIGNED -> ESCALATED -> CLOSED` | triage kernel，承接 risk recommendation 并决定是 workflow clear 还是 escalate | compliance alerts service、operator | 触发 case escalation；后续应回驱 deposit workflow |
 | `Case` | `OPEN -> ASSIGNED -> INVESTIGATING -> PENDING_MLRO_REVIEW -> CLOSED` | investigation kernel，承接 escalation、measure、proposal、MLRO review、filing follow-up | compliance cases service、investigator、MLRO | 可写 customer control state；后续应回驱 deposit workflow |
@@ -128,7 +128,7 @@ Source of Truth Level: roadmap
 flowchart TD
   A["1. PayIn detected / registered (current)"] --> B["2. Confirm PayIn via PATCH /treasury/payins/:id/status?action=confirm (current)"]
   B --> C["3. Create or reuse Deposit; PAYIN_PENDING -> COMPLIANCE_PENDING (current)"]
-  C --> D["4. Create / update MAIN KYT Response (current)"]
+  C --> D["4. Create / update KYT Response (current)"]
   C --> E["5. Create / update Travel Rule Response (current)"]
   D --> F["6. Sync Deposit compliance snapshot (current)"]
   E --> F
@@ -187,7 +187,7 @@ flowchart TD
 
 > 注：本节记录的是本 phase plan 初次落档时的 planning baseline。当前 active truth 以本文前述 durable references 与 `constraints/specs/acceptance` 为准。
 
-- `transaction-compliance` 已能在 `payin confirmed` 时创建 / 更新 deposit 侧 `MAIN KYT` 和 `Travel Rule` response 容器，并同步 `deposit` 快照字段。
+- `transaction-compliance` 已能在 `payin confirmed` 时创建 / 更新 deposit 侧 `KYT` 和 `Travel Rule` response 容器，并同步 `deposit` lifecycle snapshot 字段。
 - 当前 `maybeTriggerKytAlert()` 与 `maybeTriggerTravelRuleAlert()` 明确仍是 no-op，交易侧并没有真正接上 `Alert / Case` 闭环。
 - `risk-engine` 当前 `contextType` 和 orchestrator 主要服务 onboarding / periodic review；交易场景 `decision record` 不是现成闭环。
 - `compliance case` 已支持 `TRANSACTION` 类型，也支持 `FREEZE / UNFREEZE / RESTRICT / UNRESTRICT`，并能写 customer canonical control fields。

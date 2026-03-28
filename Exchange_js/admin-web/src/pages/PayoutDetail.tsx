@@ -1,15 +1,44 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, RefreshCw, Copy, Check, ExternalLink, FileText, User, CreditCard, Activity, Clock, Server, MapPin } from 'lucide-react';
+import {
+  ArrowLeft,
+  RefreshCw,
+  Copy,
+  Check,
+  ExternalLink,
+  FileText,
+  User,
+  CreditCard,
+  Activity,
+  Clock,
+  MapPin,
+  CircleDashed,
+  CheckCircle2,
+  Waves,
+  Landmark,
+  ShieldAlert,
+} from 'lucide-react';
 import { copyToClipboard } from '../utils/clipboard';
 import { formatAssetAmount } from '../utils/number-format';
+import { SimulationRail, type SimulationRailItem } from '../components/SimulationRail';
+import { useSimulationMode } from '../utils/simulationMode';
+import {
+  formatRailStatusLabel,
+  formatTransactionTypeLabel,
+  normalizeRailDisplayStatus,
+} from '../utils/transactionRootDisplay';
 
 interface PayoutDetail {
   id: string;
   payoutNo: string;
   withdrawId: string;
+  ownerNo?: string | null;
+  transactionType?: string | null;
+  transactionId?: string | null;
+  transactionNo?: string | null;
   type: string;
   status: string;
+  displayStatus?: string | null;
   amount: string;
   assetId: string;
   asset: { code: string; type: string; network: string | null; decimals?: number };
@@ -30,6 +59,7 @@ interface PayoutDetail {
   withdraw: {
     withdrawNo: string;
     ownerId: string;
+    status: string;
   };
   customer?: {
     firstName: string | null;
@@ -52,11 +82,19 @@ interface PayoutDetail {
   }>;
   auditLogs: Array<{
     id: string;
-    operatorId: string;
-    oldStatus: string;
-    newStatus: string;
+    action?: string | null;
+    operatorId?: string | null;
+    actorId?: string | null;
+    actorType?: string | null;
+    oldStatus?: string | null;
+    newStatus?: string | null;
+    statusFrom?: string | null;
+    statusTo?: string | null;
     reason: string | null;
-    createdAt: string;
+    createdAt?: string | null;
+    occurredAt?: string | null;
+    module?: string | null;
+    result?: string | null;
   }>;
 }
 
@@ -67,6 +105,8 @@ const PayoutDetail = () => {
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState(false);
   const [copiedField, setCopiedField] = useState<string | null>(null);
+  const [referenceNoDraft, setReferenceNoDraft] = useState('');
+  const { enabled: simulationModeEnabled } = useSimulationMode();
 
   const fetchPayout = async () => {
     setLoading(true);
@@ -80,6 +120,7 @@ const PayoutDetail = () => {
       if (response.ok) {
         const result = await response.json();
         setData(result);
+        setReferenceNoDraft(result.referenceNo || '');
       } else {
         alert('Failed to fetch payout details');
         navigate('/dashboard/treasury/payouts');
@@ -96,7 +137,10 @@ const PayoutDetail = () => {
     fetchPayout();
   }, [id]);
 
-  const handleUpdateAction = async (action: string) => {
+  const handleUpdateAction = async (
+    action: string,
+    extraPayload?: Record<string, unknown>,
+  ) => {
     setUpdating(true);
     try {
       const token = localStorage.getItem('admin_token');
@@ -106,7 +150,7 @@ const PayoutDetail = () => {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ action })
+        body: JSON.stringify({ action, ...extraPayload })
       });
 
       if (response.ok) {
@@ -123,76 +167,285 @@ const PayoutDetail = () => {
     }
   };
 
+  const handleReCloseout = async () => {
+    setUpdating(true);
+    try {
+      const token = localStorage.getItem('admin_token');
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/payouts/${id}/re-closeout`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (response.ok) {
+        fetchPayout();
+      } else {
+        const err = await response.json();
+        alert(`Re-run closeout failed: ${err.message || 'Unknown error'}`);
+      }
+    } catch (error) {
+      console.error('Re-run closeout failed', error);
+      alert('Re-run closeout failed due to network error');
+    } finally {
+      setUpdating(false);
+    }
+  };
+
+  const handleReCompensate = async () => {
+    setUpdating(true);
+    try {
+      const token = localStorage.getItem('admin_token');
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/payouts/${id}/re-compensate`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (response.ok) {
+        fetchPayout();
+      } else {
+        const err = await response.json();
+        alert(`Re-run compensation failed: ${err.message || 'Unknown error'}`);
+      }
+    } catch (error) {
+      console.error('Re-run compensation failed', error);
+      alert('Re-run compensation failed due to network error');
+    } finally {
+      setUpdating(false);
+    }
+  };
+
   const handleCopy = (text: string, field: string) => {
     copyToClipboard(text);
     setCopiedField(field);
     setTimeout(() => setCopiedField(null), 2000);
   };
 
-  const getPayoutActions = (payout: PayoutDetail) => {
-    const { status, type } = payout;
-    const actions: { action: string; label: string; color: string }[] = [];
+  const effectiveFiatReferenceNo =
+    referenceNoDraft.trim() || data?.referenceNo || '';
 
-    if (type === 'CRYPTO') {
-      switch (status) {
-        case 'CREATED':
-          actions.push({ action: 'SIGN', label: 'Sign', color: 'bg-blue-600 hover:bg-blue-700 text-white' });
-          break;
-        case 'SIGNING':
-          actions.push({ action: 'BROADCAST', label: 'Broadcast', color: 'bg-indigo-600 hover:bg-indigo-700 text-white' });
-          actions.push({ action: 'SIGN_FAIL', label: 'Sign Fail', color: 'bg-red-600 hover:bg-red-700 text-white' });
-          break;
-        case 'BROADCASTED':
-          actions.push({ action: 'SEEN_IN_MEMPOOL', label: 'Seen in Mempool', color: 'bg-blue-600 hover:bg-blue-700 text-white' });
-          actions.push({ action: 'DROP', label: 'Drop', color: 'bg-orange-600 hover:bg-orange-700 text-white' });
-          actions.push({ action: 'TIMEOUT', label: 'Timeout', color: 'bg-gray-600 hover:bg-gray-700 text-white' });
-          break;
-        case 'CONFIRMING':
-          actions.push({ action: 'CONFIRM', label: 'Confirm', color: 'bg-green-600 hover:bg-green-700 text-white' });
-          actions.push({ action: 'FAIL', label: 'Fail', color: 'bg-red-600 hover:bg-red-700 text-white' });
-          actions.push({ action: 'TIMEOUT', label: 'Timeout', color: 'bg-gray-600 hover:bg-gray-700 text-white' });
-          break;
-        case 'CONFIRMED':
-          actions.push({ action: 'CLEAR', label: 'Clear', color: 'bg-emerald-600 hover:bg-emerald-700 text-white' });
-          break;
-      }
-    } else if (type === 'FIAT') {
-      switch (status) {
-        case 'CREATED':
-          actions.push({ action: 'SUBMIT', label: 'Submit', color: 'bg-blue-600 hover:bg-blue-700 text-white' });
-          break;
-        case 'CONFIRMING':
-          actions.push({ action: 'CONFIRM', label: 'Confirm', color: 'bg-green-600 hover:bg-green-700 text-white' });
-          actions.push({ action: 'FAIL', label: 'Fail', color: 'bg-red-600 hover:bg-red-700 text-white' });
-          actions.push({ action: 'TIMEOUT', label: 'Timeout', color: 'bg-gray-600 hover:bg-gray-700 text-white' });
-          break;
-        case 'CONFIRMED':
-          actions.push({ action: 'CLEAR', label: 'Clear', color: 'bg-emerald-600 hover:bg-emerald-700 text-white' });
-          actions.push({ action: 'RETURN', label: 'Return', color: 'bg-orange-600 hover:bg-orange-700 text-white' });
-          break;
-        case 'CLEAR':
-          actions.push({ action: 'RETURN', label: 'Return', color: 'bg-orange-600 hover:bg-orange-700 text-white' });
-          break;
-      }
+  const getPayoutRailItems = (payout: PayoutDetail): SimulationRailItem[] => {
+    const { status, type } = payout;
+    const normalized = String(status || '').toUpperCase();
+    const normalizedType = formatTransactionTypeLabel(type);
+
+    if (normalizedType === 'CRYPTO') {
+      return [
+        {
+          id: 'sign',
+          label: 'Sign',
+          icon: <CircleDashed size={14} />,
+          state:
+            normalized === 'SIGNING'
+              ? 'current'
+              : ['BROADCASTED', 'CONFIRMING', 'CONFIRMED', 'CLEAR', 'FAILED', 'TIMEOUT'].includes(normalized)
+                ? 'completed'
+                : normalized === 'CREATED'
+                  ? 'available'
+                  : 'readonly',
+          onClick: normalized === 'CREATED' ? () => handleUpdateAction('SIGN') : undefined,
+          disabled: updating,
+          helperText: '生成签名后进入 SIGNING',
+        },
+        {
+          id: 'broadcast',
+          label: 'Broadcast',
+          icon: <Waves size={14} />,
+          state:
+            normalized === 'BROADCASTED'
+              ? 'current'
+              : ['CONFIRMING', 'CONFIRMED', 'CLEAR', 'FAILED', 'TIMEOUT'].includes(normalized)
+                ? 'completed'
+                : normalized === 'SIGNING'
+                  ? 'available'
+                  : 'readonly',
+          onClick: normalized === 'SIGNING' ? () => handleUpdateAction('BROADCAST') : undefined,
+          disabled: updating,
+          helperText: '广播后进入 BROADCASTED',
+        },
+        {
+          id: 'mempool',
+          label: 'Seen in Mempool',
+          icon: <Activity size={14} />,
+          state:
+            normalized === 'CONFIRMING'
+              ? 'current'
+              : ['CONFIRMED', 'CLEAR', 'FAILED', 'TIMEOUT'].includes(normalized)
+                ? 'completed'
+                : normalized === 'BROADCASTED'
+                  ? 'available'
+                  : 'readonly',
+          onClick:
+            normalized === 'BROADCASTED'
+              ? () => handleUpdateAction('SEEN_IN_MEMPOOL')
+              : undefined,
+          disabled: updating,
+          helperText: '看到 mempool 后进入 CONFIRMING',
+        },
+        {
+          id: 'confirmed',
+          label: 'Confirm',
+          icon: <CheckCircle2 size={14} />,
+          state:
+            normalized === 'CONFIRMED'
+              ? 'current'
+              : normalized === 'CLEAR'
+                ? 'completed'
+                : normalized === 'CONFIRMING'
+                  ? 'available'
+                  : 'readonly',
+          onClick: normalized === 'CONFIRMING' ? () => handleUpdateAction('CONFIRM') : undefined,
+          disabled: updating,
+          helperText: '确认后进入 CONFIRMED，随后系统自动写 CLEAR',
+        },
+        {
+          id: 'cleared',
+          label: 'Cleared',
+          icon: <CheckCircle2 size={14} />,
+          state: normalized === 'CLEAR' ? 'current' : 'readonly',
+          tone: 'success',
+          helperText: 'closeout 记账成功后自动出现',
+        },
+        {
+          id: 'failed',
+          label: 'Fail / Timeout',
+          icon: <ShieldAlert size={14} />,
+          state: ['FAILED', 'TIMEOUT'].includes(normalized)
+            ? 'current'
+            : ['CREATED', 'SIGNING', 'BROADCASTED', 'CONFIRMING'].includes(normalized)
+              ? 'available'
+              : 'readonly',
+          tone: 'danger',
+          onClick:
+            normalized === 'CREATED' ||
+            normalized === 'SIGNING' ||
+            normalized === 'BROADCASTED' ||
+            normalized === 'CONFIRMING'
+              ? () =>
+                  handleUpdateAction(
+                    normalized === 'CONFIRMING' ? 'TIMEOUT' : 'FAIL',
+                  )
+              : undefined,
+          disabled: updating,
+          helperText: '异常路径继续走 canonical compensation',
+        },
+      ];
     }
-    return actions;
+
+    return [
+      {
+        id: 'submit',
+        label: 'Submit',
+        icon: <Landmark size={14} />,
+        state:
+          normalized === 'CONFIRMING'
+            ? 'current'
+            : ['CONFIRMED', 'CLEAR', 'FAILED', 'TIMEOUT', 'RETURNED'].includes(normalized)
+              ? 'completed'
+              : normalized === 'CREATED'
+                ? 'available'
+                : 'readonly',
+        onClick:
+          normalized === 'CREATED'
+            ? () =>
+                handleUpdateAction('SUBMIT', {
+                  referenceNo: referenceNoDraft.trim() || undefined,
+                })
+            : undefined,
+        disabled: updating,
+        helperText: '提交后进入 CONFIRMING',
+      },
+      {
+        id: 'confirm',
+        label: 'Confirm',
+        icon: <CheckCircle2 size={14} />,
+        state:
+          normalized === 'CONFIRMED'
+            ? 'current'
+            : normalized === 'CLEAR'
+              ? 'completed'
+              : normalized === 'CONFIRMING'
+                ? 'available'
+                : 'readonly',
+        onClick:
+          normalized === 'CONFIRMING'
+            ? () =>
+                handleUpdateAction('CONFIRM', {
+                  referenceNo: referenceNoDraft.trim() || undefined,
+                })
+            : undefined,
+        disabled: updating,
+        helperText: effectiveFiatReferenceNo
+          ? '确认后进入 CONFIRMED，随后系统自动写 CLEAR'
+          : '确认时若未填写，系统会自动生成 Reference No',
+      },
+      {
+        id: 'cleared',
+        label: 'Cleared',
+        icon: <CheckCircle2 size={14} />,
+        state: normalized === 'CLEAR' ? 'current' : 'readonly',
+        tone: 'success',
+        helperText: 'closeout 记账成功后自动出现',
+      },
+      {
+        id: 'fail',
+        label: 'Fail',
+        icon: <ShieldAlert size={14} />,
+        state:
+          normalized === 'FAILED'
+            ? 'current'
+            : ['CREATED', 'CONFIRMING'].includes(normalized)
+              ? 'available'
+              : 'readonly',
+        tone: 'danger',
+        onClick:
+          ['CREATED', 'CONFIRMING'].includes(normalized)
+            ? () => handleUpdateAction('FAIL')
+            : undefined,
+        disabled: updating,
+        helperText: '失败后走 canonical compensation',
+      },
+      {
+        id: 'return',
+        label: 'Return',
+        icon: <Activity size={14} />,
+        state:
+          normalized === 'RETURNED'
+            ? 'current'
+            : normalized === 'CONFIRMED'
+              ? 'available'
+              : 'readonly',
+        tone: 'warning',
+        onClick: normalized === 'CONFIRMED' ? () => handleUpdateAction('RETURN') : undefined,
+        disabled: updating,
+        helperText: '退回后走 canonical compensation',
+      },
+    ];
   };
 
-  const renderStatusBadge = (status: string) => {
+  const renderStatusBadge = (
+    status: string,
+    displayStatus?: string | null,
+  ) => {
+    const normalizedDisplayStatus = normalizeRailDisplayStatus(
+      displayStatus || status,
+    );
     const colors: Record<string, string> = {
       CREATED: 'bg-gray-100 text-gray-800',
       SIGNING: 'bg-indigo-100 text-indigo-800',
       BROADCASTED: 'bg-blue-100 text-blue-800',
       CONFIRMING: 'bg-yellow-100 text-yellow-800',
       CONFIRMED: 'bg-green-100 text-green-800',
-      CLEAR: 'bg-emerald-100 text-emerald-800',
+      CLEARED: 'bg-emerald-100 text-emerald-800',
       FAILED: 'bg-red-100 text-red-800',
       TIMEOUT: 'bg-orange-100 text-orange-800',
       RETURNED: 'bg-purple-100 text-purple-800',
     };
     return (
-      <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${colors[status] || 'bg-gray-100 text-gray-800'}`}>
-        {status}
+      <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${colors[normalizedDisplayStatus] || 'bg-gray-100 text-gray-800'}`}>
+        {formatRailStatusLabel(normalizedDisplayStatus)}
       </span>
     );
   };
@@ -209,7 +462,14 @@ const PayoutDetail = () => {
   if (!data) return null;
 
   const ownerName = data.customer ? `${data.customer.firstName || ''} ${data.customer.lastName || ''}`.trim() || data.customer.customerNo : 'N/A';
-  const ownerNo = data.customer?.customerNo || 'N/A';
+  const ownerNo = data.ownerNo || data.customer?.customerNo || 'N/A';
+  const canRepairCloseout =
+    data.status === 'CONFIRMED' && data.withdraw?.status === 'PAYOUT_PENDING';
+  const canRepairCompensation =
+    ((data.status === 'FAILED' || data.status === 'TIMEOUT') &&
+      data.withdraw?.status === 'PAYOUT_PENDING') ||
+    (data.status === 'RETURNED' && data.withdraw?.status === 'SUCCESS');
+  const payoutRailItems = getPayoutRailItems(data);
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto pb-12">
@@ -225,7 +485,7 @@ const PayoutDetail = () => {
           <div>
             <div className="flex items-center gap-3">
               <h1 className="text-2xl font-bold text-gray-900">Payout Details</h1>
-              {renderStatusBadge(data.status)}
+              {renderStatusBadge(data.status, data.displayStatus)}
             </div>
             <div className="flex items-center gap-4 mt-1 text-sm text-gray-500 font-mono">
               <span className="text-brand-primary font-bold">No: {data.payoutNo || data.id}</span>
@@ -234,31 +494,96 @@ const PayoutDetail = () => {
           </div>
         </div>
         <div className="flex gap-2 items-center">
-           {getPayoutActions(data).map((item) => (
-            <button 
-              key={item.action}
-              onClick={() => handleUpdateAction(item.action)}
+          {canRepairCloseout ? (
+            <button
+              onClick={handleReCloseout}
               disabled={updating}
-              className={`px-4 py-2 rounded-lg text-sm font-medium shadow-sm transition-colors disabled:opacity-50 ${item.color}`}
+              className="px-4 py-2 rounded-lg text-sm font-medium shadow-sm transition-colors disabled:opacity-50 bg-slate-900 hover:bg-slate-800 text-white"
             >
-              {item.label}
+              Re-run Closeout
             </button>
-          ))}
+          ) : null}
+          {canRepairCompensation ? (
+            <button
+              onClick={handleReCompensate}
+              disabled={updating}
+              className="px-4 py-2 rounded-lg text-sm font-medium shadow-sm transition-colors disabled:opacity-50 bg-red-700 hover:bg-red-800 text-white"
+            >
+              Re-run Compensation
+            </button>
+          ) : null}
         </div>
       </div>
+
+      {data.status === 'CONFIRMED' ? (
+        <div className="rounded-xl border border-blue-200 bg-blue-50 px-5 py-4 text-sm text-blue-900">
+          <div className="font-semibold">Receipt recorded</div>
+          <div className="mt-1">
+            This payout has already reached `CONFIRMED`. `CLEAR` must be written by system canonical closeout after withdraw success posting.
+          </div>
+          {canRepairCloseout ? (
+            <div className="mt-1 text-blue-800">
+              The linked withdraw is still `PAYOUT_PENDING`. Use `Re-run Closeout` only to retry the canonical closeout path.
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      {(data.status === 'FAILED' || data.status === 'TIMEOUT' || data.status === 'RETURNED') ? (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-5 py-4 text-sm text-red-900">
+          <div className="font-semibold">Terminal payout compensation</div>
+          <div className="mt-1">
+            Terminal payout outcomes must back-propagate through canonical withdraw compensation. Do not manually mutate withdraw terminal status from admin surfaces.
+          </div>
+          {canRepairCompensation ? (
+            <div className="mt-1 text-red-800">
+              The linked withdraw is still waiting for canonical compensation closeout. Use `Re-run Compensation` only to retry the system compensation path.
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      {simulationModeEnabled ? (
+        <div className="space-y-3">
+          {formatTransactionTypeLabel(data.type) === 'FIAT' ? (
+            <div className="rounded-xl border border-admin-border bg-white p-4">
+              <div className="text-sm font-semibold text-gray-900">FIAT Receipt Reference</div>
+              <p className="mt-1 text-xs text-gray-500">
+                `SUBMIT` 可预填；若留空，系统会在 `CONFIRM` 时自动生成 `Reference No`。
+              </p>
+              <div className="mt-3">
+                <input
+                  type="text"
+                  value={referenceNoDraft}
+                  onChange={(event) => setReferenceNoDraft(event.target.value)}
+                  placeholder="Enter bank reference no"
+                  className="w-full rounded-lg border border-admin-border px-3 py-2 text-sm focus:outline-none focus:border-brand-primary"
+                />
+              </div>
+            </div>
+          ) : null}
+          <SimulationRail
+            title="Payout Execution Rail"
+            description="Payout 是 outbound execution rail。参考 Payin 的 rail 逐步推进，Cleared 只做结果回显。"
+            items={payoutRailItems}
+          />
+        </div>
+      ) : null}
 
       <div className="flex flex-col gap-6">
         {/* 1. Basic Identification */}
         <DetailCard title="Basic Identification" icon={<FileText size={18} />}>
             <InfoField label="Payout ID" value={data.id} source="main" />
             <InfoField label="Payout No" value={data.payoutNo} highlight source="main" />
-            <InfoField label="Withdraw No" value={data.withdraw.withdrawNo} 
-                       link={`/exchange/withdraw-transactions/${data.withdrawId}`} 
+            <InfoField label="Transaction Type" value={data.transactionType || 'WITHDRAW'} source="main" />
+            <InfoField label="Transaction ID" value={data.transactionId || data.withdrawId} source="main" />
+            <InfoField label="Transaction No" value={data.transactionNo || data.withdraw.withdrawNo}
+                       link={`/exchange/withdraw-transactions/${data.withdrawId}`}
                        source="main" />
             <InfoField label="Owner ID" value={data.withdraw.ownerId} icon={<User size={14}/>} source="main" />
             <InfoField label="Owner Name" value={ownerName} source="main" />
             <InfoField label="Owner No" value={ownerNo} source="main" />
-            <InfoField label="Type" value={data.type} source="main" />
+            <InfoField label="Type" value={formatTransactionTypeLabel(data.type)} source="main" />
         </DetailCard>
 
         {/* 2. Assets & Amount */}
@@ -269,8 +594,8 @@ const PayoutDetail = () => {
             <InfoField label="Amount" value={formatAssetAmount(data.amount, data.asset?.decimals)} highlight source="main" />
         </DetailCard>
 
-        {/* 3. Destination Info */}
-        <DetailCard title="Destination Info" icon={<MapPin size={18} />}>
+        {/* 3. Settlement Endpoint / Path */}
+        <DetailCard title="Settlement Endpoint / Path" icon={<MapPin size={18} />}>
             <InfoField label="To Wallet ID" value={data.toWalletId} source="main" />
             <InfoField 
                 label="To Address" 
@@ -288,10 +613,6 @@ const PayoutDetail = () => {
                 isCopied={copiedField === 'toIban'} 
                 source="main" 
             />
-        </DetailCard>
-
-        {/* 4. Source Info */}
-        <DetailCard title="Source Info" icon={<Server size={18} />}>
             <InfoField 
                 label="From Address" 
                 value={data.fromAddress || 'N/A'} 
@@ -310,8 +631,8 @@ const PayoutDetail = () => {
             />
         </DetailCard>
 
-        {/* 5. External Transaction Info */}
-        <DetailCard title="External Transaction Info" icon={<Activity size={18} />}>
+        {/* 4. Settlement Evidence */}
+        <DetailCard title="Settlement Evidence" icon={<Activity size={18} />}>
             <InfoField 
                 label="Tx Hash" 
                 value={data.txHash || 'N/A'} 
@@ -326,9 +647,9 @@ const PayoutDetail = () => {
             <InfoField label="Provider Txn ID" value={data.providerTxnId} source="main" />
         </DetailCard>
 
-        {/* 6. Status & Timings */}
+        {/* 5. Status & Timings */}
         <DetailCard title="Status & Timings" icon={<Clock size={18} />}>
-             <InfoField label="Current Status" value={data.status} highlight source="main" />
+             <InfoField label="Current Status" value={formatRailStatusLabel(data.displayStatus || data.status)} highlight source="main" />
              <InfoField label="Created At" value={new Date(data.createdAt).toLocaleString()} source="main" />
              <InfoField label="Sent At" value={data.sentAt ? new Date(data.sentAt).toLocaleString() : 'N/A'} source="main" />
              <InfoField label="Completed At" value={data.completedAt ? new Date(data.completedAt).toLocaleString() : 'N/A'} source="main" />
@@ -338,28 +659,10 @@ const PayoutDetail = () => {
         {/* 7. Clearing & Settlement Info - HIDDEN */}
         {/* Clearing section removed as per requirement */}
 
-        {/* 8. Audit & History */}
+        {/* 6. Status History & Audit */}
         <DetailCard title="Status History & Audit" icon={<Activity size={18} />} columns={1}>
-             {data.statusHistory ? (
-                <StatusTimeline historyJson={data.statusHistory} />
-             ) : (
-                <div className="space-y-4">
-                     {data.auditLogs.map((log) => (
-                         <div key={log.id} className="flex gap-4 p-4 bg-gray-50 rounded-lg text-sm">
-                            <div className="flex-1">
-                                <span className="font-bold text-gray-900">{log.newStatus}</span>
-                                <span className="text-gray-500 mx-2">from</span>
-                                <span className="font-mono text-gray-600">{log.oldStatus}</span>
-                                <p className="text-gray-600 mt-1">{log.reason}</p>
-                            </div>
-                            <div className="text-right text-gray-500 text-xs">
-                                <div>{new Date(log.createdAt).toLocaleString()}</div>
-                                <div className="mt-1 font-mono">By: {log.operatorId}</div>
-                            </div>
-                         </div>
-                     ))}
-                </div>
-             )}
+             {data.statusHistory ? <StatusTimeline historyJson={data.statusHistory} /> : null}
+             <AuditEventList events={data.auditLogs} />
         </DetailCard>
       </div>
     </div>
@@ -458,7 +761,7 @@ const StatusTimeline = ({ historyJson }: { historyJson: string | null }) => {
                         <div className="flex-1 space-y-2">
                             <div className="flex items-center gap-2">
                                 <span className={`px-2 py-0.5 rounded text-xs font-bold border ${getStatusBadgeStyle(item.status)}`}>
-                                    {item.status}
+                                    {formatRailStatusLabel(item.status)}
                                 </span>
                             </div>
                             <p className="text-sm text-gray-600 leading-relaxed">{item.note || item.reason || 'No reason provided'}</p>
@@ -477,6 +780,70 @@ const StatusTimeline = ({ historyJson }: { historyJson: string | null }) => {
             ))}
         </div>
     );
+};
+
+const AuditEventList = ({
+  events,
+}: {
+  events: Array<{
+    id: string;
+    action?: string | null;
+    operatorId?: string | null;
+    actorId?: string | null;
+    actorType?: string | null;
+    oldStatus?: string | null;
+    newStatus?: string | null;
+    statusFrom?: string | null;
+    statusTo?: string | null;
+    reason?: string | null;
+    createdAt?: string | null;
+    occurredAt?: string | null;
+    module?: string | null;
+    result?: string | null;
+  }>;
+}) => {
+  if (events.length === 0) {
+    return (
+      <div className="mt-4 rounded-lg border border-dashed border-gray-200 px-4 py-3 text-sm text-gray-400">
+        No canonical audit events found.
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-4 space-y-3">
+      <div className="text-xs font-semibold uppercase tracking-wider text-gray-500">
+        Canonical Audit Trail
+      </div>
+      {events.map((event) => (
+        <div key={event.id} className="rounded-lg border border-gray-100 bg-gray-50/70 p-4 text-sm">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+            <div className="space-y-1">
+              <div className="font-semibold text-gray-900">
+                {event.action || formatRailStatusLabel(event.newStatus) || 'AUDIT_EVENT'}
+              </div>
+              <div className="text-xs text-gray-500">
+                {event.statusFrom || event.oldStatus ? `From: ${formatRailStatusLabel(event.statusFrom || event.oldStatus)}` : 'From: N/A'}
+                {'  '}
+                {event.statusTo || event.newStatus ? `To: ${formatRailStatusLabel(event.statusTo || event.newStatus)}` : 'To: N/A'}
+              </div>
+              <div className="text-sm text-gray-600">
+                {event.reason || 'No reason provided'}
+              </div>
+              <div className="text-xs text-gray-400">
+                {(event.actorType || 'SYSTEM')}: {event.actorId || event.operatorId || 'SYSTEM'}
+                {event.module ? ` · ${event.module}` : ''}
+                {event.result ? ` · ${event.result}` : ''}
+              </div>
+            </div>
+            <time className="text-xs font-mono text-gray-500">
+              {new Date(event.occurredAt || event.createdAt || '').toLocaleString()}
+            </time>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
 };
 
 const getStatusColor = (status: string) => {

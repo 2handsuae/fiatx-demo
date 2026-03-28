@@ -32,6 +32,7 @@ import { InternalTransactionWorkflowModule } from './modules/asset-treasury/inte
 import { ClearingModule } from './modules/clearing-settle/clearing/clearing.module';
 import { OutstandingsModule } from './modules/clearing-settle/outstandings/outstandings.module';
 import { OutstandingSettlementsModule } from './modules/clearing-settle/outstanding-settlements/outstanding-settlements.module';
+import { SafeguardingReconciliationModule } from './modules/clearing-settle/safeguarding-reconciliation/safeguarding-reconciliation.module';
 import { RiskEngineModule } from './modules/risk-engine/risk-engine.module';
 import { OnboardingModule } from './modules/identity/onboarding/onboarding.module';
 import { TransactionComplianceModule } from './modules/risk-engine/transaction-compliance/transaction-compliance.module';
@@ -91,6 +92,7 @@ import { GovernanceModule } from './modules/governance/governance.module';
     ClearingModule,
     OutstandingsModule,
     OutstandingSettlementsModule,
+    SafeguardingReconciliationModule,
     RiskEngineModule,
     TransactionComplianceModule,
     AuditLogsModule,

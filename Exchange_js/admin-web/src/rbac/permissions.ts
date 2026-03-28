@@ -32,6 +32,13 @@ export const PERMISSIONS = {
     'api.get.admin_reconciliation_outstanding_settlements_id',
   OUTSTANDINGS_READ: 'api.get.admin_reconciliation_outstandings',
   OUTSTANDING_DETAIL_READ: 'api.get.admin_reconciliation_outstandings_id',
+  SAFEGUARDING_BREAKS_READ: 'api.get.admin_reconciliation_safeguarding_breaks',
+  SAFEGUARDING_BREAK_DETAIL_READ:
+    'api.get.admin_reconciliation_safeguarding_breaks_id',
+  SAFEGUARDING_BREAKS_GENERATE:
+    'api.post.admin_reconciliation_safeguarding_breaks_generate_daily_diff',
+  SAFEGUARDING_BREAKS_WRITE:
+    'api.patch.admin_reconciliation_safeguarding_breaks_id_status',
 
   CDD_RESPONSES_READ: 'api.get.admin_compliance_cdd_responses',
   EDD_RESPONSES_READ: 'api.get.admin_compliance_edd_responses',

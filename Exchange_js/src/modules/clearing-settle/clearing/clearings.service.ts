@@ -566,10 +566,15 @@ export class ClearingsService {
     });
   }
 
-  async updateStatusBySource(sourceId: string, status: string, tx?: Prisma.TransactionClient) {
+  async updateStatusBySource(
+    sourceType: string,
+    sourceId: string,
+    status: string,
+    tx?: Prisma.TransactionClient,
+  ) {
     const client = tx || this.prisma;
     return (client as any).clearing.updateMany({
-      where: { sourceId },
+      where: { sourceType, sourceId },
       data: { clearingStatus: status, updatedAt: new Date() },
     });
   }

@@ -6,6 +6,10 @@ import {
   adminFetch,
   getApiErrorMessage,
 } from '../utils/adminFetch';
+import {
+  formatResponseLifecycleLabel,
+  getResponseLifecycleBadgeClass,
+} from '../utils/transactionRootDisplay';
 
 type TravelRuleCaseItem = {
   id: string;
@@ -22,23 +26,6 @@ type TravelRuleCaseItem = {
 
 const getErrorMessage = (error: unknown, fallback: string) =>
   error instanceof Error ? error.message : fallback;
-
-const statusClass = (current: string) => {
-  switch (current) {
-    case 'ACCEPTED':
-    case 'NOT_REQUIRED':
-      return 'bg-green-100 text-green-800';
-    case 'REJECTED':
-      return 'bg-red-100 text-red-800';
-    case 'PENDING':
-    case 'SENT':
-    case 'RECEIVED':
-    case 'EXPIRED':
-      return 'bg-yellow-100 text-yellow-800';
-    default:
-      return 'bg-gray-100 text-gray-700';
-  }
-};
 
 const TransactionTravelRuleCasesPage = () => {
   const navigate = useNavigate();
@@ -189,8 +176,10 @@ const TransactionTravelRuleCasesPage = () => {
                   </td>
                   <td className="px-4 py-3 text-gray-700">{item.required ? 'YES' : 'NO'}</td>
                   <td className="px-4 py-3">
-                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${statusClass(item.status)}`}>
-                      {item.status}
+                    <span
+                      className={`px-2 py-1 rounded-full text-xs font-medium ${getResponseLifecycleBadgeClass(item.status)}`}
+                    >
+                      {formatResponseLifecycleLabel(item.status)}
                     </span>
                   </td>
                   <td className="px-4 py-3 text-gray-700">

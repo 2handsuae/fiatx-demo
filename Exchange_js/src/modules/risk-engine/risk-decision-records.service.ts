@@ -99,6 +99,9 @@ export class RiskDecisionRecordsService {
     if (input.riskLevel === 'LOW') {
       if (contextType === 'ONBOARDING_CDD') return 'CDD_LOW_RISK_CLEAR';
       if (contextType === 'TX_DEPOSIT_FINAL') return 'TX_DEPOSIT_LOW_RISK_AUTO_CLEAR';
+      if (contextType === 'TX_WITHDRAW_FINAL') {
+        return 'TX_WITHDRAW_FINAL_LOW_RISK_CLEAR';
+      }
       if (contextType === 'TX_SWAP_FINAL') return 'TX_SWAP_LOW_RISK_AUTO_CLEAR';
       throw new BadRequestException(`Unsupported decision record contextType: ${contextType}`);
     }
@@ -126,6 +129,18 @@ export class RiskDecisionRecordsService {
           'SANCTIONS_HIT',
           'KYT_SEVERE_EXPOSURE',
           'TRAVEL_RULE_COUNTERPARTY_BLOCKED',
+        ],
+      },
+      TX_WITHDRAW_FINAL: {
+        MEDIUM: [
+          'TRAVEL_RULE_ISSUE',
+          'PROFILE_MISMATCH',
+          'BEHAVIOR_REVIEW_REQUIRED',
+        ],
+        HIGH: [
+          'TX_WITHDRAW_MAIN_KYT_FAIL',
+          'TX_WITHDRAW_TRAVEL_RULE_REJECTED',
+          'HIGH_RISK_EXPOSURE',
         ],
       },
       TX_SWAP_FINAL: {
@@ -231,6 +246,12 @@ export class RiskDecisionRecordsService {
     if (normalized === 'TX_DEPOSIT_FINAL') {
       return TRANSACTION_REVIEW_STAGES.REVIEW_DEPOSIT_FINAL;
     }
+    if (normalized === 'TX_WITHDRAW_PRECHECK') {
+      return TRANSACTION_REVIEW_STAGES.REVIEW_WITHDRAW_PRECHECK;
+    }
+    if (normalized === 'TX_WITHDRAW_FINAL') {
+      return TRANSACTION_REVIEW_STAGES.REVIEW_WITHDRAW_FINAL;
+    }
     if (normalized === 'TX_SWAP_FINAL') {
       return TRANSACTION_REVIEW_STAGES.REVIEW_SWAP_FINAL;
     }
@@ -249,6 +270,8 @@ export class RiskDecisionRecordsService {
       normalized === 'TX_DEPOSIT_KYT_MAIN' ||
       normalized === 'TX_DEPOSIT_TRAVEL_RULE' ||
       normalized === 'TX_DEPOSIT_FINAL' ||
+      normalized === 'TX_WITHDRAW_PRECHECK' ||
+      normalized === 'TX_WITHDRAW_FINAL' ||
       normalized === 'TX_SWAP_FINAL'
     ) {
       return TRANSACTION_WORKFLOW;
@@ -476,6 +499,11 @@ export class RiskDecisionRecordsService {
     if (status !== 'CREATED') {
       throw new BadRequestException(`Decision record ${id} is not pending simulation`);
     }
+    if (contextType === 'TX_WITHDRAW_PRECHECK') {
+      throw new BadRequestException(
+        `Decision record ${id} is historical read-only and no longer supports manual simulation`,
+      );
+    }
 
     const generatedReasonCode = this.getManualReasonCode({
       contextType,
@@ -490,6 +518,12 @@ export class RiskDecisionRecordsService {
       });
     } else if (contextType === 'TX_DEPOSIT_FINAL') {
       await this.getTransactionRiskBridgeService().simulateDepositFinalReview({
+        decisionRecordId: id,
+        riskLevel: body.riskLevel,
+        riskReason: generatedReasonCode,
+      });
+    } else if (contextType === 'TX_WITHDRAW_FINAL') {
+      await this.getTransactionRiskBridgeService().simulateWithdrawFinalReview({
         decisionRecordId: id,
         riskLevel: body.riskLevel,
         riskReason: generatedReasonCode,
@@ -510,10 +544,16 @@ export class RiskDecisionRecordsService {
       contextType === 'TX_SWAP_FINAL' && record.subjectId
         ? await this.resolveSwapWorkflowAuditContext(record.subjectId)
         : {
-            traceId: undefined,
+            traceId:
+              record.subjectId &&
+              contextType === 'TX_WITHDRAW_FINAL'
+                ? `${AuditWorkflowTypes.WITHDRAW}:${record.subjectId}`
+                : undefined,
             workflowType:
               contextType === 'ONBOARDING_CDD'
                 ? AuditWorkflowTypes.ONBOARDING
+                : contextType === 'TX_WITHDRAW_FINAL'
+                  ? AuditWorkflowTypes.WITHDRAW
                 : AuditWorkflowTypes.TRANSACTION,
             workflowId: record.subjectId || undefined,
             workflowNo: undefined,

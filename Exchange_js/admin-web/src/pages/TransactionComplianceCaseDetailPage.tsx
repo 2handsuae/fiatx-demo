@@ -6,6 +6,10 @@ import {
   adminFetch,
   getApiErrorMessage,
 } from '../utils/adminFetch';
+import {
+  formatResponseLifecycleLabel,
+  getResponseLifecycleBadgeClass,
+} from '../utils/transactionRootDisplay';
 
 type KytReport = {
   id: string;
@@ -102,8 +106,10 @@ const CaseSummaryCard = ({
     <div className="border border-gray-200 rounded-lg p-4">
       <div className="flex items-center justify-between mb-2">
         <h3 className="text-sm font-semibold text-gray-900">{title}</h3>
-        <span className="text-xs px-2 py-1 rounded bg-gray-100 text-gray-700">
-          {payload.status}
+        <span
+          className={`text-xs px-2 py-1 rounded ${getResponseLifecycleBadgeClass(payload.status)}`}
+        >
+          {formatResponseLifecycleLabel(payload.status)}
         </span>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">

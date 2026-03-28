@@ -33,6 +33,7 @@ describe('PayinsService', () => {
             },
             auditLogEvent: {
               findUnique: jest.fn().mockResolvedValue(null),
+              findMany: jest.fn().mockResolvedValue([]),
               create: jest.fn().mockImplementation(({ data }: any) => Promise.resolve(data)),
             },
             wallet: {
@@ -244,6 +245,124 @@ describe('PayinsService', () => {
         }),
       );
       expect(result.id).toBe('payin-1');
+    });
+  });
+
+  describe('read models', () => {
+    it('should return normalized admin fields in payin list', async () => {
+      ((prisma as any).payin.findMany as jest.Mock).mockResolvedValue([
+        {
+          id: 'payin-list-1',
+          payinNo: 'PI0001',
+          depositId: 'dep-1',
+          status: PayinStatus.CLEARED,
+          type: 'crypto',
+          amount: '10.00',
+          asset: { code: 'USDT', type: 'CRYPTO', network: 'TRON', decimals: 6 },
+          toWallet: null,
+          fromAddress: 'Tfrom',
+          fromIban: null,
+          txHash: '0xtx',
+          referenceNo: null,
+          deposit: {
+            kytStatus: 'FINAL',
+            travelRuleStatus: 'FINAL',
+            depositNo: 'DP0001',
+          },
+          customer: {
+            customerNo: 'CU0001',
+            firstName: 'Shawn',
+            lastName: 'Song',
+          },
+          receivedAt: null,
+          confirmedAt: null,
+        },
+      ]);
+      ((prisma as any).payin.count as jest.Mock).mockResolvedValue(1);
+
+      const result = await service.findAll({});
+
+      expect(result.items[0]).toEqual(
+        expect.objectContaining({
+          ownerNo: 'CU0001',
+          transactionType: 'DEPOSIT',
+          transactionId: 'dep-1',
+          transactionNo: 'DP0001',
+          type: 'CRYPTO',
+          displayStatus: 'CLEARED',
+        }),
+      );
+    });
+
+    it('should return canonical audit logs and normalized admin fields in payin detail', async () => {
+      ((prisma as any).payin.findUnique as jest.Mock).mockResolvedValue({
+        id: 'payin-detail-1',
+        payinNo: 'PI0002',
+        depositId: 'dep-2',
+        type: 'fiat',
+        status: PayinStatus.CONFIRMED,
+        providerTxnId: null,
+        asset: {
+          code: 'AED',
+          type: 'FIAT',
+          network: null,
+          decimals: 2,
+          description: 'UAE Dirham',
+        },
+        toWallet: {
+          ownerType: 'CUSTOMER',
+          ownerId: 'cust-2',
+          walletNo: 'WA0002',
+          address: null,
+          accountName: 'Cust Wallet',
+        },
+        fromWallet: null,
+        deposit: {
+          depositNo: 'DP0002',
+        },
+        customer: {
+          customerNo: 'CU0002',
+          firstName: 'Ada',
+          lastName: 'Lovelace',
+          email: 'ada@example.com',
+        },
+      });
+      ((prisma as any).auditLogEvent.findMany as jest.Mock).mockResolvedValue([
+        {
+          id: 'audit-payin-1',
+          action: 'PAYIN_PENDING_TO_CONFIRMED',
+          statusFrom: 'CONFIRMING',
+          statusTo: 'CONFIRMED',
+          actorType: 'SYSTEM',
+          actorId: 'SYSTEM',
+          reason: 'payin confirmed',
+          occurredAt: '2026-03-28T12:00:00.000Z',
+          module: 'asset-treasury/payins',
+          result: 'SUCCESS',
+        },
+      ]);
+
+      const result = await service.findOne('payin-detail-1');
+
+      expect(result).toEqual(
+        expect.objectContaining({
+          ownerNo: 'CU0002',
+          transactionType: 'DEPOSIT',
+          transactionId: 'dep-2',
+          transactionNo: 'DP0002',
+          type: 'FIAT',
+          displayStatus: 'CONFIRMED',
+          auditLogs: [
+            expect.objectContaining({
+              id: 'audit-payin-1',
+              action: 'PAYIN_PENDING_TO_CONFIRMED',
+              oldStatus: 'CONFIRMING',
+              newStatus: 'CONFIRMED',
+              operatorId: 'SYSTEM',
+            }),
+          ],
+        }),
+      );
     });
   });
 });

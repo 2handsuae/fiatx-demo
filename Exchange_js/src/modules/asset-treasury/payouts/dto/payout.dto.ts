@@ -27,7 +27,21 @@ export enum PayoutAction {
   RETURN = 'RETURN',
 }
 
+export enum AdminPayoutAction {
+  SIGN = 'SIGN',
+  BROADCAST = 'BROADCAST',
+  SIGN_FAIL = 'SIGN_FAIL',
+  SEEN_IN_MEMPOOL = 'SEEN_IN_MEMPOOL',
+  DROP = 'DROP',
+  TIMEOUT = 'TIMEOUT',
+  CONFIRM = 'CONFIRM',
+  FAIL = 'FAIL',
+  SUBMIT = 'SUBMIT',
+  RETURN = 'RETURN',
+}
+
 export enum PayoutType {
+  // Raw query/update contract stays uppercase; admin read-model normalizes payin/payout display.
   CRYPTO = 'CRYPTO',
   FIAT = 'FIAT',
 }
@@ -90,6 +104,23 @@ export class CreatePayoutDto {
 export class UpdatePayoutStatusDto {
   @IsEnum(PayoutAction)
   action!: PayoutAction;
+
+  @IsOptional()
+  @IsString()
+  txHash?: string;
+
+  @IsOptional()
+  @IsString()
+  referenceNo?: string;
+
+  @IsOptional()
+  @IsString()
+  reason?: string;
+}
+
+export class AdminUpdatePayoutStatusDto {
+  @IsEnum(AdminPayoutAction)
+  action!: AdminPayoutAction;
 
   @IsOptional()
   @IsString()

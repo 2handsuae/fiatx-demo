@@ -174,6 +174,26 @@ const getDecisionContextMeta = (contextType?: string | null) => {
     };
   }
 
+  if (normalized === 'TX_WITHDRAW_PRECHECK') {
+    return {
+      title: 'Withdraw Pre-KYT Stage Decision',
+      badgeLabel: 'LEGACY / READ-ONLY',
+      badgeClass: 'bg-amber-100 text-amber-800',
+      helperText:
+        'Historical precheck record kept for evidence only. New withdraw flow no longer allows simulation or workflow actions on this context.',
+    };
+  }
+
+  if (normalized === 'TX_WITHDRAW_FINAL') {
+    return {
+      title: 'Withdraw Final Decision',
+      badgeLabel: 'MANUAL',
+      badgeClass: 'bg-rose-100 text-rose-800',
+      helperText:
+        'Withdraw now creates one pending final risk execution record. Complete the final simulated outcome here before the payout path continues.',
+    };
+  }
+
   return {
     title: normalized || '-',
     badgeLabel: '',
@@ -229,7 +249,7 @@ const RiskPolicyExecutionsPage = () => {
     if (!record) return false;
     if (String(record.status || '').trim().toUpperCase() !== 'CREATED') return false;
     const contextType = String(record.contextType || '').trim().toUpperCase();
-    return ['ONBOARDING_CDD', 'TX_DEPOSIT_FINAL', 'TX_SWAP_FINAL'].includes(contextType);
+    return ['ONBOARDING_CDD', 'TX_DEPOSIT_FINAL', 'TX_WITHDRAW_FINAL', 'TX_SWAP_FINAL'].includes(contextType);
   };
 
   const fetchRecords = async (

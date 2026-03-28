@@ -2,6 +2,7 @@ import { BadRequestException } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
 import { TransactionDepositWorkflowService } from '../../trading/deposit-transactions/transaction-deposit-workflow.service';
 import { SwapTransactionWorkflowService } from '../../trading/swap-transactions/swap-transaction-workflow.service';
+import { WithdrawTransactionWorkflowService } from '../../trading/withdraw-transactions/withdraw-transaction-workflow.service';
 import { WorkflowTransitionService } from './workflow-transition.service';
 
 describe('WorkflowTransitionService', () => {
@@ -15,6 +16,9 @@ describe('WorkflowTransitionService', () => {
     execute: jest.fn(),
   };
   const swapTransactionWorkflowServiceMock = {
+    execute: jest.fn(),
+  };
+  const withdrawTransactionWorkflowServiceMock = {
     execute: jest.fn(),
   };
   const moduleRefMock = {
@@ -31,6 +35,9 @@ describe('WorkflowTransitionService', () => {
       }
       if (token === SwapTransactionWorkflowService) {
         return swapTransactionWorkflowServiceMock;
+      }
+      if (token === WithdrawTransactionWorkflowService) {
+        return withdrawTransactionWorkflowServiceMock;
       }
       return null;
     });
@@ -277,5 +284,96 @@ describe('WorkflowTransitionService', () => {
         actorRole: 'COMPLIANCE_LEAD',
       } as any),
     ).rejects.toThrow('Swap transaction workflow does not support FREEZE transitions');
+  });
+
+  it('should dispatch TRANSACTION workflow to withdraw handler for false positive resolution', async () => {
+    withdrawTransactionWorkflowServiceMock.execute.mockResolvedValue({
+      transitionCode: 'TX_WITHDRAW_CLEAR_TO_PAYOUT_PENDING',
+      applied: true,
+      blocked: false,
+      blockedReason: null,
+      withdrawId: 'wd-1',
+      withdrawNo: 'WD0001',
+      withdrawStatusBefore: 'UNDER_REVIEW',
+      withdrawStatusAfter: 'PAYOUT_PENDING',
+    });
+
+    const tx = { withdrawTransaction: {} } as any;
+    const result = await service.transition(tx, {
+      workflow: 'TRANSACTION',
+      stage: 'REVIEW_WITHDRAW_FINAL',
+      producerType: 'CASE',
+      producerId: 'case-1',
+      customerId: 'c1',
+      sourceId: 'wd-1',
+      sourceType: 'WITHDRAW',
+      dispositionCode: 'FALSE_POSITIVE',
+      actorId: 'mlro-1',
+      actorRole: 'MLRO',
+      latestDecisionRecordId: 'decision-wd-1',
+    } as any);
+
+    expect(withdrawTransactionWorkflowServiceMock.execute).toHaveBeenCalledWith(
+      tx,
+      expect.objectContaining({
+        withdrawId: 'wd-1',
+        source: 'CASE',
+        sourceId: 'case-1',
+        workflowAction: 'CLEAR',
+        decisionRecordId: 'decision-wd-1',
+        triggerStage: 'REVIEW_WITHDRAW_FINAL',
+      }),
+    );
+    expect(result.transitionCode).toBe('TX_WITHDRAW_CLEAR_TO_PAYOUT_PENDING');
+    expect(result.toStatus).toBe('PAYOUT_PENDING');
+    expect(result.updatedSubject).toEqual(
+      expect.objectContaining({
+        id: 'wd-1',
+        sourceType: 'WITHDRAW',
+        subjectNo: 'WD0001',
+      }),
+    );
+  });
+
+  it('should dispatch TRANSACTION workflow to withdraw handler for freeze resolution', async () => {
+    withdrawTransactionWorkflowServiceMock.execute.mockResolvedValue({
+      transitionCode: 'TX_WITHDRAW_FREEZE_TO_UNDER_REVIEW',
+      applied: true,
+      blocked: true,
+      blockedReason: 'TX_REVIEW_REQUIRED',
+      withdrawId: 'wd-2',
+      withdrawNo: 'WD0002',
+      withdrawStatusBefore: 'PAYOUT_PENDING',
+      withdrawStatusAfter: 'UNDER_REVIEW',
+    });
+
+    const tx = { withdrawTransaction: {} } as any;
+    const result = await service.transition(tx, {
+      workflow: 'TRANSACTION',
+      stage: 'REVIEW_WITHDRAW_FINAL',
+      producerType: 'ALERT',
+      producerId: 'alert-1',
+      customerId: 'c1',
+      sourceId: 'wd-2',
+      sourceType: 'WITHDRAW',
+      dispositionCode: 'FREEZE_TRANSACTION',
+      actorId: 'admin-1',
+      actorRole: 'COMPLIANCE_LEAD',
+      latestDecisionRecordId: 'decision-wd-2',
+    } as any);
+
+    expect(withdrawTransactionWorkflowServiceMock.execute).toHaveBeenCalledWith(
+      tx,
+      expect.objectContaining({
+        withdrawId: 'wd-2',
+        source: 'ALERT',
+        sourceId: 'alert-1',
+        workflowAction: 'FREEZE',
+        alertId: 'alert-1',
+        decisionRecordId: 'decision-wd-2',
+      }),
+    );
+    expect(result.transitionCode).toBe('TX_WITHDRAW_FREEZE_TO_UNDER_REVIEW');
+    expect(result.toStatus).toBe('UNDER_REVIEW');
   });
 });

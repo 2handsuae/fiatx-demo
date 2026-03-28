@@ -14,6 +14,8 @@ const SwapQuoteList = lazy(() => import('./pages/SwapQuoteList'));
 const SwapQuoteDetail = lazy(() => import('./pages/SwapQuoteDetail'));
 const SwapOutstandingList = lazy(() => import('./pages/SwapOutstandingList'));
 const SwapOutstandingDetail = lazy(() => import('./pages/SwapOutstandingDetail'));
+const SafeguardingBreakList = lazy(() => import('./pages/SafeguardingBreakList'));
+const SafeguardingBreakDetail = lazy(() => import('./pages/SafeguardingBreakDetail'));
 const OutstandingSettlementList = lazy(() => import('./pages/OutstandingSettlementList'));
 const OutstandingSettlementDetail = lazy(() => import('./pages/OutstandingSettlementDetail'));
 const CustomerDetail = lazy(() => import('./pages/CustomerDetail'));
@@ -247,6 +249,18 @@ function App() {
             <Route
               path="pricing/quotes/:business/:id"
               element={withPermission(<SwapQuoteDetail />, [PERMISSIONS.SWAP_QUOTES_DETAIL_READ])}
+            />
+            <Route
+              path="reconciliation/safeguarding-breaks"
+              element={withPermission(<SafeguardingBreakList />, [
+                PERMISSIONS.SAFEGUARDING_BREAKS_READ,
+              ])}
+            />
+            <Route
+              path="reconciliation/safeguarding-breaks/:id"
+              element={withPermission(<SafeguardingBreakDetail />, [
+                PERMISSIONS.SAFEGUARDING_BREAK_DETAIL_READ,
+              ])}
             />
             <Route
               path="reconciliation/outstanding-settlements"

@@ -21,6 +21,13 @@ import {
 import { copyToClipboard } from '../utils/clipboard';
 import { formatAssetAmount } from '../utils/number-format';
 import { useSimulationMode } from '../utils/simulationMode';
+import {
+  formatDerivedComplianceStatusLabel,
+  formatResponseLifecycleLabel,
+  formatStatusLabel,
+  formatTransactionTypeLabel,
+  normalizeResponseLifecycle,
+} from '../utils/transactionRootDisplay';
 
 interface DepositTransactionDetail {
   id: string;
@@ -28,6 +35,7 @@ interface DepositTransactionDetail {
   ownerType: string;
   ownerId: string;
   ownerNo: string | null;
+  type?: string | null;
   status: string;
   assetId: string;
   
@@ -183,7 +191,7 @@ const DepositTransactionDetail = () => {
     };
     return (
       <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${colors[status] || 'bg-gray-100 text-gray-800'}`}>
-        {status}
+        {formatStatusLabel(status)}
       </span>
     );
   };
@@ -199,10 +207,15 @@ const DepositTransactionDetail = () => {
     if (detail.asset.type === 'FIAT' && detail.status === 'COMPLIANCE_PENDING') {
       return 'Final review bridge';
     }
-    if (['PENDING', '', null, undefined].includes(detail.kytStatus as any)) {
+    const kytLifecycle = normalizeResponseLifecycle(detail.kytStatus);
+    const travelLifecycle = normalizeResponseLifecycle(detail.travelRuleStatus);
+    if (!kytLifecycle) {
       return detail.kytCase?.id ? 'KYT response' : 'Waiting for KYT case';
     }
-    if (['PENDING', 'SENT', 'RECEIVED'].includes(detail.travelRuleStatus)) {
+    if (['CREATED', 'RECEIVED'].includes(kytLifecycle)) {
+      return detail.kytCase?.id ? 'KYT response' : 'Waiting for KYT case';
+    }
+    if (['CREATED', 'RECEIVED'].includes(travelLifecycle)) {
       return detail.travelRuleCase?.id ? 'Travel Rule response' : 'Waiting for Travel Rule case';
     }
     if (detail.status === 'COMPLIANCE_PENDING') return 'Final review bridge';
@@ -248,6 +261,15 @@ const DepositTransactionDetail = () => {
 
   const nextStepLabel = getNextStepLabel(data);
   const projectedFinalStates = getProjectedFinalStates(data);
+  const isFiatFlow = String(data.asset.type || '').toUpperCase() === 'FIAT';
+  const kytLifecycleDisplay =
+    isFiatFlow && !data.kytCase?.id
+      ? 'Not created for fiat flow'
+      : formatResponseLifecycleLabel(data.kytStatus);
+  const travelRuleLifecycleDisplay =
+    isFiatFlow && !data.travelRuleCase?.id
+      ? 'Not created for fiat flow'
+      : formatResponseLifecycleLabel(data.travelRuleStatus);
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto pb-12">
@@ -276,12 +298,12 @@ const DepositTransactionDetail = () => {
 
       <div className="flex flex-col gap-6">
         <DetailCard title="Workflow Summary" icon={<Workflow size={18} />}>
-            <InfoField label="Current Deposit Status" value={data.status} highlight source="main" />
-            <InfoField label="Current Payin Status" value={data.payinStatus || 'N/A'} highlight source="main" />
+            <InfoField label="Current Deposit Status" value={formatStatusLabel(data.status)} highlight source="main" />
+            <InfoField label="Current Payin Status" value={data.payinStatus ? formatStatusLabel(data.payinStatus) : 'N/A'} highlight source="main" />
             <InfoField label="Next Step" value={nextStepLabel} source="main" />
-            <InfoField label="Projected Payin Final" value={projectedFinalStates.payin} source="main" />
-            <InfoField label="Projected Deposit Final" value={projectedFinalStates.deposit} source="main" />
-            <InfoField label="Derived Compliance" value={data.derivedComplianceStatus || null} source="main" />
+            <InfoField label="Projected Payin Final" value={formatStatusLabel(projectedFinalStates.payin)} source="main" />
+            <InfoField label="Projected Deposit Final" value={formatStatusLabel(projectedFinalStates.deposit)} source="main" />
+            <InfoField label="Derived Compliance" value={data.derivedComplianceStatus ? formatDerivedComplianceStatusLabel(data.derivedComplianceStatus) : null} source="main" />
             <div className="sm:col-span-2 rounded border border-gray-200 bg-gray-50 px-3 py-3 text-xs text-gray-600 space-y-2">
               <div>
                 当前链路会从这里继续跳到对应主体详情页。Payin 的推进在 payin 详情里走 icon rail，Alert/Case 仍然保留正式文字按钮。
@@ -354,32 +376,32 @@ const DepositTransactionDetail = () => {
         <DetailCard title="Basic Identification" icon={<FileText size={18} />}>
             <InfoField label="ID" value={data.id} source="main" />
             <InfoField label="Deposit No" value={data.depositNo} highlight source="main" />
+            <InfoField label="Type" value={formatTransactionTypeLabel(data.type || data.asset.type)} source="main" />
             <InfoField label="Owner Type" value={data.ownerType} source="main" />
             <InfoField label="Owner ID" value={data.ownerId} icon={<User size={14}/>} source="main" />
             <InfoField label="Owner No" value={data.ownerNo} source="main" />
-            <InfoField label="Payin ID" value={data.payinId} source="main" />
-            <InfoField label="Payin No" value={data.payinNo} source="main" />
         </DetailCard>
 
         {/* 2. Assets & Amount */}
         <DetailCard title="Assets & Amount" icon={<CreditCard size={18} />}>
-            <InfoField label="Asset ID" value={data.asset.code} source="main" />
-            <InfoField label="Asset Name" value={`${data.asset.code} (${data.asset.network})`} source="main" />
+            <InfoField label="Asset ID" value={data.assetId} source="main" />
+            <InfoField label="Asset Code" value={data.asset.code} source="main" />
+            <InfoField label="Asset Network" value={data.asset.network} source="main" />
             <InfoField label="Amount" value={formatAssetAmount(data.amount, data.asset.decimals)} highlight source="main" />
             <InfoField label="Fee Amount" value={formatAssetAmount(data.feeAmount, data.asset.decimals)} source="main" />
             <InfoField label="Net Amount" value={formatAssetAmount(data.netAmount, data.asset.decimals)} highlight source="main" />
         </DetailCard>
 
-        {/* 3. Destination Info */}
-        <DetailCard title="Destination Info" icon={<MapPin size={18} />}>
+        {/* 3. Endpoint / Destination */}
+        <DetailCard title="Endpoint / Destination" icon={<MapPin size={18} />}>
             <InfoField label="To Wallet ID" value={data.toWalletId} source="main" />
             <InfoField label="To Wallet No" value={data.toWalletNo} source="main" />
             <InfoField label="To Address" value={data.toAddress || 'N/A'} copyable onCopy={(v) => handleCopy(v, 'toAddress')} isCopied={copiedField === 'toAddress'} source="main" />
             <InfoField label="To IBAN" value={data.toIban || 'N/A'} copyable onCopy={(v) => handleCopy(v, 'toIban')} isCopied={copiedField === 'toIban'} source="main" />
         </DetailCard>
 
-        {/* 4. Source Info */}
-        <DetailCard title="Source Info" icon={<Activity size={18} />}>
+        {/* 4. Source / Origin */}
+        <DetailCard title="Source / Origin" icon={<Activity size={18} />}>
             <InfoField label="From Wallet ID" value={data.fromWalletId} source="main" />
             <InfoField label="From Wallet No" value={data.fromWalletNo} source="main" />
             <InfoField label="From Address" value={data.fromAddress || 'N/A'} copyable onCopy={(v) => handleCopy(v, 'fromAddress')} isCopied={copiedField === 'fromAddress'} source="main" />
@@ -401,15 +423,14 @@ const DepositTransactionDetail = () => {
             <InfoField label="Reference No" value={data.referenceNo || 'N/A'} copyable onCopy={(v) => handleCopy(v, 'refNo')} isCopied={copiedField === 'refNo'} source="main" />
         </DetailCard>
 
-        {/* 6. Compliance & Risk (KYT) */}
-        <DetailCard title="Compliance & Risk (KYT)" icon={<ShieldCheck size={18} />}>
-            <InfoField label="KYT Status" value={data.kytStatus} highlight source="main" />
+        {/* 6. Response Container (KYT) */}
+        <DetailCard title="Response Container (KYT)" icon={<ShieldCheck size={18} />}>
+            <InfoField label="Lifecycle" value={kytLifecycleDisplay} highlight source="main" />
             <InfoField label="Screening ID" value={data.kytScreeningId} source="main" />
             <InfoField label="Risk Score" value={data.kytRiskScore?.toString()} source="main" />
             <InfoField label="Checked At" value={data.kytCheckedAt ? new Date(data.kytCheckedAt).toLocaleString() : 'N/A'} source="main" />
             <InfoField label="Case No" value={data.kytCase?.caseNo} source="main" />
             <InfoField label="Provider Case ID" value={data.kytCase?.providerCaseId || null} source="main" />
-            <InfoField label="Derived Compliance" value={data.derivedComplianceStatus || null} highlight source="main" />
             <div className="sm:col-span-2 rounded border border-gray-200 bg-gray-50 px-3 py-3 text-xs text-gray-600">
               {data.kytCase?.id ? (
                 <button
@@ -420,15 +441,19 @@ const DepositTransactionDetail = () => {
                   <ExternalLink size={12} />
                 </button>
               ) : (
-                <span>No KYT response detail available.</span>
+                <span>
+                  {isFiatFlow
+                    ? 'Not created for fiat flow.'
+                    : 'No KYT response detail available.'}
+                </span>
               )}
             </div>
         </DetailCard>
 
-        {/* 7. Regulation (Travel Rule) */}
-        <DetailCard title="Regulation (Travel Rule)" icon={<Scale size={18} />}>
+        {/* 7. Response Container (Travel Rule) */}
+        <DetailCard title="Response Container (Travel Rule)" icon={<Scale size={18} />}>
             <InfoField label="Travel Rule Required" value={data.travelRuleRequired ? 'Yes' : 'No'} source="main" />
-            <InfoField label="Status" value={data.travelRuleStatus} highlight source="main" />
+            <InfoField label="Lifecycle" value={travelRuleLifecycleDisplay} highlight source="main" />
             <InfoField label="Transfer ID" value={data.travelRuleTransferId} source="main" />
             <InfoField label="Counterparty VASP" value={data.counterpartyVasp} source="main" />
             <InfoField label="Checked At" value={data.travelRuleCheckedAt ? new Date(data.travelRuleCheckedAt).toLocaleString() : 'N/A'} source="main" />
@@ -450,20 +475,29 @@ const DepositTransactionDetail = () => {
                   <ExternalLink size={12} />
                 </button>
               ) : (
-                <span>No Travel Rule response detail available.</span>
+                <span>
+                  {isFiatFlow
+                    ? 'Not created for fiat flow.'
+                    : 'No Travel Rule response detail available.'}
+                </span>
               )}
             </div>
         </DetailCard>
 
-        {/* 8. Status & Timings */}
-        <DetailCard title="Status & Timings" icon={<Clock size={18} />}>
-            <InfoField label="Current Status" value={data.status} highlight source="main" />
+        {/* 8. Derived Compliance & Timings */}
+        <DetailCard title="Derived Compliance & Timings" icon={<Clock size={18} />}>
+            <InfoField label="Current Status" value={formatStatusLabel(data.status)} highlight source="main" />
+            <InfoField label="Derived Compliance" value={data.derivedComplianceStatus ? formatDerivedComplianceStatusLabel(data.derivedComplianceStatus) : null} highlight source="main" />
             <InfoField label="Created At" value={new Date(data.createdAt).toLocaleString()} source="main" />
             <InfoField label="Updated At" value={new Date(data.updatedAt).toLocaleString()} source="main" />
             <InfoField label="Completed At" value={data.completedAt ? new Date(data.completedAt).toLocaleString() : 'N/A'} source="main" />
         </DetailCard>
 
-        <DetailCard title="Final Review Handling" icon={<ShieldCheck size={18} />}>
+        <DetailCard title="Linked Rail" icon={<Workflow size={18} />}>
+            <InfoField label="Payin ID" value={data.payinId} source="main" />
+            <InfoField label="Payin No" value={data.payinNo} source="main" />
+            <InfoField label="Payin Status" value={data.payinStatus ? formatStatusLabel(data.payinStatus) : null} source="main" />
+            <InfoField label="Payin Type" value={data.payinType ? formatTransactionTypeLabel(data.payinType) : null} source="main" />
             <InfoField label="Final Alert" value={data.finalAlert?.alertNo || null} source="main" />
             <InfoField label="Final Alert Status" value={data.finalAlert?.status || null} source="main" />
             <InfoField label="Final Case" value={data.finalCase?.caseNo || null} source="main" />
@@ -502,7 +536,7 @@ const DepositTransactionDetail = () => {
         </DetailCard>
 
         {/* 9. Audit & History */}
-        <DetailCard title="Status History & Audit" icon={<Activity size={18} />} columns={1}>
+        <DetailCard title="Audit Trail" icon={<Activity size={18} />} columns={1}>
              <StatusTimeline historyJson={data.statusHistory} />
         </DetailCard>
       </div>
@@ -607,7 +641,7 @@ const StatusTimeline = ({ historyJson }: { historyJson: string | null }) => {
                         <div className="flex-1 space-y-2">
                             <div className="flex items-center gap-2">
                                 <span className={`px-2 py-0.5 rounded text-xs font-bold border ${getStatusBadgeStyle(item.status)}`}>
-                                    {item.status}
+                                    {formatStatusLabel(item.status)}
                                 </span>
                             </div>
                             <p className="text-sm text-gray-600 leading-relaxed">{item.reason || 'No reason provided'}</p>

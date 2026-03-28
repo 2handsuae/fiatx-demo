@@ -933,6 +933,40 @@ describe('ComplianceIncidentsService', () => {
     ).rejects.toThrow('FALSE_POSITIVE is no longer a direct case action');
   });
 
+  it('should reject actions on legacy withdraw precheck cases', async () => {
+    prismaMock.complianceIncident.findUnique.mockResolvedValue(
+      buildIncident({
+        id: 'inc-wd-pre-1',
+        caseType: ComplianceCaseType.TRANSACTION,
+        sourceModule: 'risk-engine/transaction-compliance',
+        sourceType: 'WITHDRAW',
+        entityType: 'WITHDRAW_TRANSACTION',
+        entityId: 'wd-legacy-1',
+        entityNo: 'WD-LEGACY-1',
+        stage: 'REVIEW_WITHDRAW_PRECHECK',
+        ruleCode: 'TX_WITHDRAW_PRECHECK_REVIEW_REQUIRED',
+        status: ComplianceIncidentStatus.OPEN,
+      }),
+    );
+
+    await expect(
+      service.applyAction(
+        'inc-wd-pre-1',
+        {
+          action: ComplianceIncidentAction.ASSIGN,
+          assigneeUserId: 'admin-1',
+        } as any,
+        {
+          actorType: 'ADMIN',
+          actorId: 'admin-1',
+          actorNo: 'US0001',
+          actorRole: 'COMPLIANCE_LEAD',
+          sourcePlatform: 'ADMIN_API',
+        },
+      ),
+    ).rejects.toThrow('historical read-only');
+  });
+
   it('should freeze customer when FREEZE action is applied', async () => {
     prismaMock.complianceIncident.findUnique.mockResolvedValue(
       buildIncident({

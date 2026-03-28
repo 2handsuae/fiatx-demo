@@ -22,6 +22,8 @@ describe('RiskDecisionRecordsService', () => {
   const transactionRiskBridgeServiceMock = {
     simulateDepositFinalReview: jest.fn(),
     simulateSwapFinalReview: jest.fn(),
+    simulateWithdrawPrecheckReview: jest.fn(),
+    simulateWithdrawFinalReview: jest.fn(),
   };
   const moduleRefMock = {
     get: jest.fn(),
@@ -274,6 +276,88 @@ describe('RiskDecisionRecordsService', () => {
     );
   });
 
+  it('should map withdraw precheck decision records into withdraw review metadata', async () => {
+    prismaMock.workflowDecisionRecord.count.mockResolvedValue(1);
+    prismaMock.workflowDecisionRecord.findMany.mockResolvedValue([
+      {
+        id: 'dr-wd-pre-1',
+        customerId: 'c-wd-1',
+        contextType: 'TX_WITHDRAW_PRECHECK',
+        subjectId: 'wd-1',
+        policyVersion: 'transaction-risk-policy/v1',
+        status: 'COMPLETED',
+        inputHash: 'hash-wd-pre-1',
+        inputPayload: '{"subjectType":"WITHDRAW"}',
+        outputDecision: 'REVIEW',
+        recommendedActions: '[{"type":"UPSERT_ALERT"}]',
+        outputs:
+          '{"orchestration":{"workflow":"TRANSACTION","stage":"REVIEW_WITHDRAW_PRECHECK","rule":"TX_WITHDRAW_PRECHECK_REVIEW_REQUIRED","alertId":"alt-wd-pre-1","alertNo":"ALT-WD-PRE-1"},"workflowTransition":{"workflow":"TRANSACTION","stage":"REVIEW_WITHDRAW_PRECHECK","dispositionCode":"CLEAR","transitionCode":"TX_WITHDRAW_CLEAR_TO_PENDING_COMPLIANCE","fromStatus":"CREATED","toStatus":"PENDING_COMPLIANCE","executed":true,"updatedSubject":{"id":"wd-1","sourceType":"WITHDRAW","subjectNo":"WD0001","blocked":false,"blockedReason":null}}}',
+        reasonCodes: '["TX_WITHDRAW_PRE_KYT_REVIEW"]',
+        errorMessage: null,
+        createdAt: new Date('2026-03-27T00:00:00.000Z'),
+        completedAt: new Date('2026-03-27T00:01:00.000Z'),
+        updatedAt: new Date('2026-03-27T00:01:00.000Z'),
+        customer: {
+          id: 'c-wd-1',
+          customerNo: 'CU-WD-1',
+          email: 'withdraw@test.local',
+        },
+      },
+    ]);
+
+    const result = await service.listDecisionRecords({
+      contextType: 'TX_WITHDRAW_PRECHECK',
+    });
+
+    expect(result.items[0]).toEqual(
+      expect.objectContaining({
+        subjectType: 'WITHDRAW',
+        workflow: 'TRANSACTION',
+        stage: 'REVIEW_WITHDRAW_PRECHECK',
+        rule: 'TX_WITHDRAW_PRECHECK_REVIEW_REQUIRED',
+        orchestration: expect.objectContaining({
+          alertId: 'alt-wd-pre-1',
+        }),
+        workflowTransition: expect.objectContaining({
+          transitionCode: 'TX_WITHDRAW_CLEAR_TO_PENDING_COMPLIANCE',
+          updatedSubject: expect.objectContaining({
+            id: 'wd-1',
+            sourceType: 'WITHDRAW',
+            subjectNo: 'WD0001',
+          }),
+        }),
+      }),
+    );
+  });
+
+  it('should reject manual simulation for legacy withdraw precheck records', async () => {
+    prismaMock.workflowDecisionRecord.findUnique.mockResolvedValue({
+      id: 'dr-wd-pre-legacy-1',
+      status: 'CREATED',
+      contextType: 'TX_WITHDRAW_PRECHECK',
+      customerId: 'c1',
+      subjectId: 'wd-legacy-1',
+    });
+
+    await expect(
+      service.simulateDecisionRecord(
+        'dr-wd-pre-legacy-1',
+        { riskLevel: 'MEDIUM' },
+        {
+          actorType: 'ADMIN',
+          actorId: 'admin-1',
+          actorNo: 'ADM-1',
+          actorRole: 'COMPLIANCE_LEAD',
+          sourcePlatform: 'ADMIN_API',
+        },
+      ),
+    ).rejects.toThrow('historical read-only');
+
+    expect(
+      transactionRiskBridgeServiceMock.simulateWithdrawPrecheckReview,
+    ).not.toHaveBeenCalled();
+  });
+
   it('should delegate CDD manual simulation and return refreshed detail', async () => {
     prismaMock.workflowDecisionRecord.findUnique
       .mockResolvedValueOnce({
@@ -432,7 +516,7 @@ describe('RiskDecisionRecordsService', () => {
     });
     expect(recordByActorSpy).toHaveBeenCalledWith(
       expect.objectContaining({
-        action: 'RISK_DECISION_MANUAL_SIMULATED',
+        action: 'MANUAL_RISK_DECISION_SIMULATED',
         entityType: 'RISK_DECISION_RECORD',
         entityId: 'dr-swap-1',
         traceId: 'SWAP:swap-1',
@@ -451,6 +535,56 @@ describe('RiskDecisionRecordsService', () => {
         actorId: 'admin-1',
       }),
     );
+  });
+
+  it('should delegate withdraw final manual simulation to transaction risk bridge', async () => {
+    prismaMock.workflowDecisionRecord.findUnique
+      .mockResolvedValueOnce({
+        id: 'dr-wd-final-1',
+        status: 'CREATED',
+        contextType: 'TX_WITHDRAW_FINAL',
+        customerId: 'c1',
+        subjectId: 'wd-1',
+      })
+      .mockResolvedValueOnce({
+        id: 'dr-wd-final-1',
+        customerId: 'c1',
+        contextType: 'TX_WITHDRAW_FINAL',
+        subjectId: 'wd-1',
+        policyVersion: 'transaction-risk-policy/v1',
+        status: 'COMPLETED',
+        inputHash: 'hash-wd-final-1',
+        inputPayload: '{"subjectType":"WITHDRAW"}',
+        outputDecision: 'APPROVE',
+        recommendedActions: '[]',
+        outputs: '{"riskBand":"LOW","riskReason":"TX_WITHDRAW_FINAL_LOW_RISK_CLEAR","simulationMode":"MANUAL"}',
+        reasonCodes: '["TX_WITHDRAW_FINAL_LOW_RISK_CLEAR"]',
+        errorMessage: null,
+        createdAt: new Date('2026-03-27T00:00:00.000Z'),
+        completedAt: new Date('2026-03-27T00:01:00.000Z'),
+        updatedAt: new Date('2026-03-27T00:01:00.000Z'),
+        customer: null,
+      });
+
+    await service.simulateDecisionRecord(
+      'dr-wd-final-1',
+      { riskLevel: 'LOW' },
+      {
+        actorType: 'ADMIN',
+        actorId: 'admin-1',
+        actorNo: 'ADM-1',
+        actorRole: 'COMPLIANCE_LEAD',
+        sourcePlatform: 'ADMIN_API',
+      },
+    );
+
+    expect(
+      transactionRiskBridgeServiceMock.simulateWithdrawFinalReview,
+    ).toHaveBeenCalledWith({
+      decisionRecordId: 'dr-wd-final-1',
+      riskLevel: 'LOW',
+      riskReason: 'TX_WITHDRAW_FINAL_LOW_RISK_CLEAR',
+    });
   });
 
   it('should reject manual simulation for completed records', async () => {

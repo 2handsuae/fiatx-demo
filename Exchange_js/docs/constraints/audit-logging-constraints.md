@@ -73,6 +73,7 @@
 - MUST implement direct unified write mode: new business traffic writes only to `audit_log_events`.
 - MUST stop adding new writes to legacy domain audit tables; legacy tables MAY remain for historical read only.
 - Automatic control-gate block or deny actions MUST write canonical audit events; silent blocking without audit evidence is forbidden.
+- Withdraw extreme-volatility runtime block MUST write canonical audit action `WITHDRAW_EXTREME_VOLATILITY_BLOCKED` on the blocking surface (`Pricing Center`, `Withdraw`, or `Payout`).
 - MUST cover P0 domains in unified write path:
 1. Auth login chain
 2. Transaction compliance

@@ -2,7 +2,7 @@
 
 Status: active
 Owner: project-owner-and-agents
-Last Updated: 2026-03-26
+Last Updated: 2026-03-28
 Applies To: `Exchange_js`
 Supersedes: none
 Depends On: `docs/specs/README.md`
@@ -38,7 +38,7 @@ Source of Truth Level: specs-workflow
 - `docs/specs/workflows/periodic-review-canonical-workflow.md`
   - Canonical periodic review cycle, restriction, review, and clear/reject flow.
 - `docs/specs/workflows/payin-deposit-canonical-workflow.md`
-  - Canonical Wave 5 payin/deposit workflow, callback boundary, accounting ordering, and evidence replay contract.
+  - Canonical Wave 5 payin/deposit workflow, lifecycle-only response containers, final-review routing, accounting ordering, and evidence replay contract.
 - `docs/specs/workflows/alert-triage-and-case-escalation.md`
   - Alert triage, assignment, false-positive, and case escalation semantics.
 - `docs/specs/workflows/mlro-and-final-approval-governance.md`
@@ -53,3 +53,7 @@ Source of Truth Level: specs-workflow
   - Wave 4 quote-to-event-to-clearing/journal orchestration contract.
 - `docs/specs/workflows/swap-canonical-workflow.md`
   - Wave 6 canonical swap workflow for quote consume, automatic risk routing, and terminal accounting behavior.
+- `docs/specs/workflows/withdraw-payout-canonical-workflow.md`
+  - Wave 7 canonical withdraw / payout workflow for quote-confirm entry, single-stage final review, payout receipt, repair, and fail / return propagation.
+- `docs/specs/workflows/safeguarding-reconciliation-workflow.md`
+  - Active Wave 7 minimum daily reconciliation workflow for break-based customer-funds handling.

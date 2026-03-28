@@ -15,7 +15,8 @@ import { WithdrawTransactionsService } from './withdraw-transactions.service';
 import { OnboardingService } from '../../identity/onboarding/onboarding.service';
 import { 
   WithdrawTransactionQueryDto,
-  UpdateWithdrawTransactionStatusDto,
+  AdminUpdateWithdrawTransactionStatusDto,
+  WithdrawTransactionAction,
   CreateWithdrawTransactionDto 
 } from './dto/withdraw-transaction.dto';
 import {
@@ -74,9 +75,23 @@ export class WithdrawTransactionsController {
   @Patch(':id/status')
   @ApiOperation({ summary: 'Update withdraw transaction status' })
   updateStatus(
+    @Req() req: any,
     @Param('id') id: string,
-    @Body() dto: UpdateWithdrawTransactionStatusDto,
+    @Body() dto: AdminUpdateWithdrawTransactionStatusDto,
   ) {
-    return this.service.updateStatus(id, dto);
+    return this.service.updateStatus(
+      id,
+      {
+        action: dto.action as unknown as WithdrawTransactionAction,
+        reason: dto.reason,
+      },
+      {
+        source: 'ADMIN_API',
+        actorType: 'ADMIN',
+        actorId: req.user?.userId || 'ADMIN_SYSTEM',
+        actorRole: req.user?.role || 'ADMIN',
+        sourcePlatform: 'ADMIN_API',
+      },
+    );
   }
 }

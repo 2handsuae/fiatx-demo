@@ -1,6 +1,6 @@
 Status: active
 Owner: project-owner-and-agents
-Last Updated: 2026-03-24
+Last Updated: 2026-03-28
 Applies To: `Exchange_js`
 Supersedes: none
 Depends On: `docs/specs/workflows/payin-deposit-canonical-workflow.md`, `docs/constraints/customer-transaction-flow-constraints.md`
@@ -19,11 +19,13 @@ Source of Truth Level: specs-entity
 - Binding:
   - `depositId`
   - `ownerId`
+  - `ownerNo`
   - `toWalletId`
   - `fromWalletId`
   - `assetId`
 - Transfer fingerprint:
   - `type`
+  - `displayStatus`
   - `amount`
   - `txHash`
   - `referenceNo`
@@ -49,6 +51,7 @@ Source of Truth Level: specs-entity
 - `FIAT` does not require a mandatory `CONFIRMING` phase in the current runtime path.
 - `CRYPTO` may pass through `CONFIRMING` before `CONFIRMED`.
 - `CLEARED` means the upstream payin root has completed its required confirmed-side steps and no longer needs to hold the deposit chain open.
+- Admin read-models may expose `displayStatus = CLEARED` while the raw payin status machine remains the execution truth.
 
 ## Canonical Meaning
 - `PayIn` is not the customer-visible success state.
@@ -57,6 +60,11 @@ Source of Truth Level: specs-entity
   - carries upstream confirmation identity
   - emits the canonical payin-to-deposit trigger
 - `providerTxnId` is the reusable upstream provider/detector reference field in the current phase.
+- Admin list/detail read-models should also mirror:
+  - `transactionType = DEPOSIT`
+  - `transactionId = depositId`
+  - `transactionNo = depositNo`
+  - uppercase `type = CRYPTO | FIAT` in display payloads
 
 ## Deposit Binding
 - One payin may be linked to one deposit.
@@ -68,6 +76,13 @@ Source of Truth Level: specs-entity
 - Payin service owns payin lifecycle progression.
 - Detector or provider ingestion may create or reuse payin.
 - Deposit workflow consumes payin events, but does not become the owner of payin state truth.
+
+## Read-Model Expectations
+- Payin detail should surface:
+  - canonical settlement evidence fields
+  - linked deposit identity
+  - canonical audit trail from `audit_log_events`
+- Raw type casing may remain lowercase internally for compatibility, but admin read-models should normalize display to uppercase.
 
 ## Dedupe / Reuse Notes
 - Current runtime may reuse payin through:

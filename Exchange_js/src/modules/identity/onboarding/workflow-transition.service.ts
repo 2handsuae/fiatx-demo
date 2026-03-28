@@ -5,6 +5,7 @@ import {
   ONBOARDING_WORKFLOW,
   PERIODIC_REVIEW_WORKFLOW,
   TRANSACTION_DEPOSIT_SOURCE_TYPE,
+  TRANSACTION_WITHDRAW_SOURCE_TYPE,
   TRANSACTION_SWAP_SOURCE_TYPE,
   TRANSACTION_WORKFLOW,
   OnboardingReviewStage,
@@ -17,6 +18,7 @@ import {
 import { PeriodicReviewWorkflowTransitionService } from '../periodic-review/periodic-review-workflow-transition.service';
 import { TransactionDepositWorkflowService } from '../../trading/deposit-transactions/transaction-deposit-workflow.service';
 import { SwapTransactionWorkflowService } from '../../trading/swap-transactions/swap-transaction-workflow.service';
+import { WithdrawTransactionWorkflowService } from '../../trading/withdraw-transactions/withdraw-transaction-workflow.service';
 
 @Injectable()
 export class WorkflowTransitionService {
@@ -42,6 +44,18 @@ export class WorkflowTransitionService {
     });
     if (!service) {
       throw new BadRequestException('Swap transaction workflow transition service is unavailable');
+    }
+    return service;
+  }
+
+  private getTransactionWithdrawWorkflowTransitionService() {
+    const service = this.moduleRef?.get(WithdrawTransactionWorkflowService, {
+      strict: false,
+    });
+    if (!service) {
+      throw new BadRequestException(
+        'Withdraw transaction workflow transition service is unavailable',
+      );
     }
     return service;
   }
@@ -149,6 +163,45 @@ export class WorkflowTransitionService {
             id: result.swapId,
             sourceType: TRANSACTION_SWAP_SOURCE_TYPE,
             subjectNo: result.swapNo,
+            blocked: result.blocked,
+            blockedReason: result.blockedReason,
+          },
+        };
+      }
+
+      if (sourceType === TRANSACTION_WITHDRAW_SOURCE_TYPE) {
+        const service = this.getTransactionWithdrawWorkflowTransitionService();
+        const result = await service.execute(tx, {
+          withdrawId: sourceId,
+          source: input.producerType,
+          sourceId: input.producerId,
+          workflowAction,
+          reason: input.reason || null,
+          actor: {
+            actorType: 'ADMIN',
+            actorId: input.actorId,
+            actorRole: input.actorRole,
+            sourcePlatform: 'ADMIN_API',
+          },
+          decisionRecordId: input.latestDecisionRecordId || null,
+          caseId: input.producerType === 'CASE' ? input.producerId : null,
+          alertId: input.producerType === 'ALERT' ? input.producerId : null,
+          triggerStage: input.stage,
+        });
+
+        return {
+          workflow: TRANSACTION_WORKFLOW,
+          stage: input.stage,
+          dispositionCode: String(input.dispositionCode || '').trim().toUpperCase(),
+          transitionCode: result.transitionCode as any,
+          fromStatus: result.withdrawStatusBefore,
+          toStatus: result.withdrawStatusAfter,
+          executed: result.applied,
+          updatedCustomer: null,
+          updatedSubject: {
+            id: result.withdrawId,
+            sourceType: TRANSACTION_WITHDRAW_SOURCE_TYPE,
+            subjectNo: result.withdrawNo,
             blocked: result.blocked,
             blockedReason: result.blockedReason,
           },

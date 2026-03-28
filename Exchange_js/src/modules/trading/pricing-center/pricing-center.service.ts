@@ -52,6 +52,7 @@ import {
   WITHDRAW_QUOTE_TTL_SECONDS,
   WithdrawalFeeItemCode,
   WithdrawalAssetEntry,
+  WithdrawalPolicyRestrictions,
   WithdrawalPricingPolicyConfig,
   WithdrawalPricingResult,
 } from './types/pricing.types';
@@ -115,6 +116,12 @@ interface SwapProductRestrictionResult {
   restrictionCode: string;
   reason: string;
   metadata?: Record<string, unknown>;
+}
+
+interface WithdrawVolatilityRestrictionResult {
+  restrictionCode: 'EXTREME_VOLATILITY_BLOCKED';
+  reason: string;
+  metadata: Record<string, unknown>;
 }
 
 interface ResolvedWithdrawalQuote {
@@ -369,6 +376,24 @@ export class PricingCenterService {
     };
   }
 
+  private normalizeWithdrawalRestrictions(
+    raw: unknown,
+  ): WithdrawalPolicyRestrictions {
+    if (!raw || typeof raw !== 'object') {
+      return {
+        extremeVolatilityBlocked: false,
+        reason: null,
+      };
+    }
+
+    const value = raw as Partial<WithdrawalPolicyRestrictions>;
+    const reason = String(value.reason || '').trim();
+    return {
+      extremeVolatilityBlocked: Boolean(value.extremeVolatilityBlocked),
+      reason: reason || null,
+    };
+  }
+
   private async alignWithdrawalPolicyWithActiveAssets(
     config: WithdrawalPricingPolicyConfig,
   ): Promise<{ config: WithdrawalPricingPolicyConfig; changed: boolean }> {
@@ -398,6 +423,7 @@ export class PricingCenterService {
 
     const normalized: WithdrawalPricingPolicyConfig = {
       ...config,
+      restrictions: this.normalizeWithdrawalRestrictions(config.restrictions),
       assets: alignedAssets,
     };
 
@@ -489,6 +515,7 @@ export class PricingCenterService {
         online: raw.channel?.online ?? true,
         storeComingSoon: raw.channel?.storeComingSoon ?? true,
       },
+      restrictions: this.normalizeWithdrawalRestrictions(raw.restrictions),
       assets: (raw.assets || []).map((entry) => ({
         id: entry.id,
         assetId: entry.assetId,
@@ -707,6 +734,10 @@ export class PricingCenterService {
         online: true,
         storeComingSoon: true,
       },
+      restrictions: {
+        extremeVolatilityBlocked: false,
+        reason: null,
+      },
       assets: entries,
     };
   }
@@ -810,14 +841,16 @@ export class PricingCenterService {
     return this.parseSwapConfig(swap);
   }
 
-  async getWithdrawalPolicy(): Promise<WithdrawalPricingPolicyConfig> {
+  async getWithdrawalPolicy(options?: {
+    persistAlignedConfig?: boolean;
+  }): Promise<WithdrawalPricingPolicyConfig> {
     const { withdrawal } = await this.ensurePoliciesReady();
     const parsed = this.parseWithdrawalConfig(withdrawal);
     const { config, changed } = await this.alignWithdrawalPolicyWithActiveAssets(
       parsed,
     );
 
-    if (changed) {
+    if (changed && options?.persistAlignedConfig !== false) {
       await this.prisma.pricingPolicy.update({
         where: { policyCode: WITHDRAWAL_POLICY_CODE },
         data: {
@@ -985,6 +1018,16 @@ export class PricingCenterService {
     }
     if (!Array.isArray(config.assets)) {
       throw new BadRequestException('Withdrawal policy assets must be an array');
+    }
+    if (
+      config.restrictions &&
+      typeof config.restrictions.reason !== 'undefined' &&
+      config.restrictions.reason !== null &&
+      typeof config.restrictions.reason !== 'string'
+    ) {
+      throw new BadRequestException(
+        'Withdrawal policy restrictions.reason must be a string or null',
+      );
     }
 
     const allowedFeeCodes = new Set<WithdrawalFeeItemCode>([
@@ -1534,6 +1577,106 @@ export class PricingCenterService {
       actorNo: ownerNo || undefined,
       actorRole: ownerType || 'SYSTEM',
     };
+  }
+
+  private buildWithdrawalPolicyRef(
+    config: WithdrawalPricingPolicyConfig,
+  ): WithdrawalPricingResult['policyRef'] {
+    return {
+      policyCode: WITHDRAWAL_POLICY_CODE,
+      policyId: config.policyId,
+      business: 'WITHDRAWAL',
+      channel: 'ONLINE',
+    };
+  }
+
+  private buildWithdrawVolatilityRestriction(
+    config: WithdrawalPricingPolicyConfig,
+    assetId: string,
+  ): WithdrawVolatilityRestrictionResult | null {
+    const restrictions = this.normalizeWithdrawalRestrictions(config.restrictions);
+    if (!restrictions.extremeVolatilityBlocked) {
+      return null;
+    }
+
+    const reason =
+      restrictions.reason ||
+      'Extreme volatility restriction is enabled for withdrawal flows';
+
+    return {
+      restrictionCode: 'EXTREME_VOLATILITY_BLOCKED',
+      reason,
+      metadata: {
+        assetId,
+        restrictionReason: reason,
+        policyRef: this.buildWithdrawalPolicyRef(config),
+      },
+    };
+  }
+
+  async assertWithdrawExtremeVolatilityNotBlocked(input: {
+    ownerType: string;
+    ownerId: string;
+    ownerNo?: string | null;
+    assetId: string;
+    module: string;
+    entityType: string;
+    entityId: string;
+    entityNo?: string | null;
+    sourcePlatform: 'CUSTOMER_API' | 'ADMIN_API' | 'SYSTEM';
+    auditActor: AuditActor;
+    surface: 'QUOTE_CREATE' | 'WITHDRAW_CREATE' | 'PAYOUT_DISPATCH';
+    action?: string | null;
+    withdrawId?: string | null;
+    payoutId?: string | null;
+  }) {
+    const config = await this.getWithdrawalPolicy({
+      persistAlignedConfig: false,
+    });
+    const restriction = this.buildWithdrawVolatilityRestriction(
+      config,
+      input.assetId,
+    );
+    if (!restriction) {
+      return;
+    }
+
+    await this.auditLogsService.recordByActor(
+      {
+        triggerType: AuditTriggerType.DATA_UPDATE,
+        action: AuditActions.WITHDRAW_EXTREME_VOLATILITY_BLOCKED,
+        module: input.module,
+        entityType: input.entityType,
+        entityId: input.entityId,
+        entityNo: input.entityNo || undefined,
+        entityOwnerType: input.ownerType,
+        entityOwnerId: input.ownerId,
+        entityOwnerNo: input.ownerNo || undefined,
+        result: AuditResult.REJECTED,
+        reason: restriction.reason,
+        metadata: {
+          ...restriction.metadata,
+          surface: input.surface,
+          action: input.action || null,
+          withdrawId: input.withdrawId || null,
+          payoutId: input.payoutId || null,
+        },
+        sourcePlatform: input.sourcePlatform,
+      },
+      input.auditActor,
+    );
+
+    throw new ForbiddenException({
+      code: 'WITHDRAW_EXTREME_VOLATILITY_BLOCKED',
+      message: restriction.reason,
+      metadata: {
+        ...restriction.metadata,
+        surface: input.surface,
+        action: input.action || null,
+        withdrawId: input.withdrawId || null,
+        payoutId: input.payoutId || null,
+      },
+    });
   }
 
   private parseJsonValue<T>(value: string | null | undefined, fallback: T): T {
@@ -2388,6 +2531,20 @@ export class PricingCenterService {
     ownerNo: string | null,
     dto: CreateWithdrawPricingQuoteDto,
   ) {
+    await this.assertWithdrawExtremeVolatilityNotBlocked({
+      ownerType,
+      ownerId,
+      ownerNo,
+      assetId: dto.assetId,
+      module: AuditModules.PRICING_CENTER,
+      entityType: AuditEntityTypes.WITHDRAW_PRICING_QUOTE,
+      entityId: `WITHDRAW_QUOTE_RESTRICTION:${ownerId}:${dto.assetId}`,
+      sourcePlatform: ownerType === 'CUSTOMER' ? 'CUSTOMER_API' : 'ADMIN_API',
+      auditActor: this.buildQuoteActor(ownerType, ownerId, ownerNo),
+      surface: 'QUOTE_CREATE',
+      action: 'QUOTE_CREATE',
+    });
+
     const resolved = await this.resolveWithdrawalQuote({
       assetId: dto.assetId,
       amount: dto.amount,

@@ -74,6 +74,29 @@ export class DepositTransactionsService {
     return normalized.length > 0 ? normalized : null;
   }
 
+  private deriveDepositType(assetType?: string | null): 'crypto' | 'fiat' {
+    return String(assetType || '').toUpperCase() === 'CRYPTO' ? 'crypto' : 'fiat';
+  }
+
+  private deriveDepositComplianceStatusFromStatus(
+    status?: string | null,
+  ): 'PENDING' | 'HOLD' | 'CLEAR' | 'REJECT' {
+    const normalized = String(status || '').toUpperCase();
+    if (normalized === DepositTransactionStatus.SUCCESS) {
+      return 'CLEAR';
+    }
+    if (
+      normalized === DepositTransactionStatus.UNDER_REVIEW ||
+      normalized === DepositTransactionStatus.FROZEN
+    ) {
+      return 'HOLD';
+    }
+    if (normalized === DepositTransactionStatus.REJECTED) {
+      return 'REJECT';
+    }
+    return 'PENDING';
+  }
+
   private async recordAuditEvent(
     input: Record<string, unknown>,
     options?: DepositStatusUpdateOptions,
@@ -162,13 +185,28 @@ export class DepositTransactionsService {
       options?.metadata?.transactionWorkflowClearanceApproved === true;
     const assetType = String(item.asset?.type || '').toUpperCase();
     if (assetType === 'CRYPTO' && !bypassTransactionComplianceChecks) {
-      if (item.kytStatus !== 'PASS') {
-        reasons.push(`kytStatus=${item.kytStatus || 'UNKNOWN'} (expected PASS)`);
+      if (
+        this.transactionComplianceService.normalizeKytLifecycleStatus(
+          item.kytStatus,
+          { allowEmpty: true },
+        ) !== 'FINAL'
+      ) {
+        reasons.push(
+          `kytStatus=${item.kytStatus || 'UNKNOWN'} (expected FINAL-compatible lifecycle)`,
+        );
       }
 
-      if (item.travelRuleRequired === true && item.travelRuleStatus !== 'ACCEPTED') {
+      if (
+        item.travelRuleRequired === true &&
+        this.transactionComplianceService.normalizeTravelRuleLifecycleStatus(
+          item.travelRuleStatus,
+          true,
+          { allowEmpty: true },
+        )
+          !== 'FINAL'
+      ) {
         reasons.push(
-          `travelRuleStatus=${item.travelRuleStatus || 'UNKNOWN'} (expected ACCEPTED when travelRuleRequired=true)`,
+          `travelRuleStatus=${item.travelRuleStatus || 'UNKNOWN'} (expected FINAL-compatible lifecycle when travelRuleRequired=true)`,
         );
       }
     }
@@ -284,7 +322,19 @@ export class DepositTransactionsService {
       (this.prisma as any).depositTransaction.count({ where }),
     ]);
 
-    return { items, total };
+    return {
+      items: items.map((item: any) => ({
+        ...item,
+        ownerNo:
+          item.ownerNo ||
+          (item.ownerType === 'CUSTOMER' ? item.customer?.customerNo || null : null),
+        type: this.deriveDepositType(item.asset?.type),
+        derivedComplianceStatus: this.deriveDepositComplianceStatusFromStatus(
+          item.status,
+        ),
+      })),
+      total,
+    };
   }
 
   async findOne(id: string) {
@@ -372,9 +422,26 @@ export class DepositTransactionsService {
       }),
     ]);
 
+    const normalizedKytStatus = caseAggregate.mainKytCase?.status
+      ? caseAggregate.mainKytCase.status
+      : this.transactionComplianceService.normalizeKytLifecycleStatus(
+          deposit.kytStatus,
+          { allowEmpty: true },
+        );
+    const normalizedTravelRuleStatus = caseAggregate.travelRuleCase?.status
+      ? caseAggregate.travelRuleCase.status
+      : this.transactionComplianceService.normalizeTravelRuleLifecycleStatus(
+          deposit.travelRuleStatus,
+          deposit.travelRuleRequired,
+          { allowEmpty: true },
+        );
+
     return {
         ...item,
         ownerNo,
+        type: this.deriveDepositType(deposit.asset?.type),
+        kytStatus: normalizedKytStatus,
+        travelRuleStatus: normalizedTravelRuleStatus,
         payinNo: deposit.payin?.payinNo,
         payinStatus: deposit.payin?.status || null,
         payinType: deposit.payin?.type || null,

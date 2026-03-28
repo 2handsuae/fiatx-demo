@@ -1,6 +1,6 @@
 Status: active
 Owner: project-owner-and-agents
-Last Updated: 2026-03-26
+Last Updated: 2026-03-27
 Applies To: `Exchange_js`
 Supersedes: none
 Depends On: `docs/roadmap/wave-4-ledger-asset-structure-phase-plan.md`, `docs/constraints/customer-transaction-flow-constraints.md`, `docs/specs/entities/pricing-quote-entity.md`, `docs/specs/modules/pricing-center-module.md`
@@ -100,6 +100,20 @@ Source of Truth Level: constraints
 2. `tier.conditions.amountMin`
 3. `tier.conditions.amountMax`
 - Tier amount mismatch MAY still fail through the pricing match path instead of emitting `TIER_DISABLED`; `TIER_DISABLED` is reserved for explicitly disabled tier configuration.
+
+## 8C) Withdrawal Runtime Restriction Contract
+- Withdrawal pricing policy MAY carry runtime restrictions under `restrictions`.
+- Phase 3 runtime restriction contract is limited to:
+1. `extremeVolatilityBlocked`
+2. `reason`
+- `extremeVolatilityBlocked` MUST act as a shared runtime gate for:
+1. withdraw quote create
+2. withdraw create
+3. payout dispatch start
+- The restriction gate MUST emit canonical audit with action `WITHDRAW_EXTREME_VOLATILITY_BLOCKED`.
+- The restriction gate MUST return machine-readable block payload with code `WITHDRAW_EXTREME_VOLATILITY_BLOCKED`.
+- Admin withdrawal simulator remains read-only tooling and MUST NOT be blocked by this runtime restriction.
+- Withdrawal runtime restriction MUST remain a pricing / operational gate only and MUST NOT directly mutate withdraw / payout terminal state.
 
 ## 9) Forbidden Patterns
 - MUST NOT let pricing policy directly create clearing or journals.
