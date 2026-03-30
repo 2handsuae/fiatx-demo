@@ -27,7 +27,7 @@ Source of Truth Level: acceptance
 ## Compensation Boundary
 - If payout is `CONFIRMED` and withdraw is still `PAYOUT_PENDING`:
   - use `POST /payouts/:id/re-closeout`
-  - do not mutate payout `CLEAR` directly
+  - do not mutate payout `CLEARED` directly
 - If payout is `FAILED` or `TIMEOUT` and withdraw is still `PAYOUT_PENDING`:
   - use `POST /payouts/:id/re-compensate`
   - do not write withdraw `FAILED` manually
@@ -40,7 +40,7 @@ Source of Truth Level: acceptance
 
 ## Do Not
 - Do not call direct withdraw terminal actions from admin UI or scripts for normal payout recovery.
-- Do not set payout `CLEAR` manually.
+- Do not set payout `CLEARED` manually.
 - Do not create ad hoc reversal journals outside canonical reversal-by-source.
 - Do not leave `WITHDRAWAL` clearings non-`CANCELLED` after fail / return compensation is complete.
 

@@ -98,7 +98,7 @@ Source of Truth Level: constraints
 - `Withdraw SUCCESS` keeps the required order:
 1. withdraw business status changes to `SUCCESS`
 2. success posting executes on `sourceType=WITHDRAW`
-3. payout closes to `CLEAR`
+3. payout closes to `CLEARED`
 - `Withdraw FAILED / RETURNED` keeps the required order:
 1. payout terminal result is already persisted
 2. withdraw business status changes to target terminal state if needed

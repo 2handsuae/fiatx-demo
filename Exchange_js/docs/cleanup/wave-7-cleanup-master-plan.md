@@ -2,30 +2,14 @@
 
 Status: active
 Owner: project-owner-and-agents
-Last Updated: 2026-03-28
+Last Updated: 2026-03-30
 Applies To: `Exchange_js`
 Supersedes: none
-Depends On:
-- `docs/roadmap/wave-7-withdraw-payout-phase-plan.md`
-- `docs/roadmap/project-version-plan.md`
-- `docs/constraints/customer-transaction-flow-constraints.md`
-- `docs/constraints/posting-clearing-balance-projection-constraints.md`
-- `docs/constraints/safeguarding-reconciliation-constraints.md`
-- `docs/constraints/audit-logging-constraints.md`
-- `docs/specs/workflows/withdraw-payout-canonical-workflow.md`
-- `docs/specs/workflows/payin-deposit-canonical-workflow.md`
-- `docs/specs/workflows/safeguarding-reconciliation-workflow.md`
-- `docs/specs/entities/withdraw-transaction-entity.md`
-- `docs/specs/entities/payout-entity.md`
-- `docs/specs/entities/reconciliation-break-entity.md`
-- `docs/acceptance/wave-7-withdraw-payout-final-acceptance-checklist.md`
-- `docs/acceptance/wave-7-withdraw-accounting-blocked-runbook.md`
-- `docs/acceptance/wave-7-withdraw-evidence-export-runbook.md`
-- `docs/acceptance/wave-7-minimum-daily-reconciliation-runbook.md`
+Depends On: `docs/roadmap/wave-7-withdraw-payout-phase-plan.md`, `docs/specs/workflows/withdraw-payout-canonical-workflow.md`, `docs/acceptance/wave-7-withdraw-payout-final-acceptance-checklist.md`
 Source of Truth Level: cleanup
 
 ## Current Position
-- 以 `2026-03-28` 当前仓库状态看，`Wave 7` 的客户主流程已可运行并已完成主链验收：
+- 以 `2026-03-30` 当前仓库状态看，`Wave 7` 的客户主流程与 cleanup closeout 已完成当前目标范围内的收口验证：
   - `fiat payin -> deposit`
   - `crypto payin -> deposit`
   - `fiat withdraw -> payout`
@@ -39,9 +23,9 @@ Source of Truth Level: cleanup
   - `docs/specs/**`
   - `docs/acceptance/**`
 - cleanup 层当前不再负责定义新的 `Wave 7` runtime feature；本文件只用于记录：
-  - `deposit/withdraw` 与 `payin/payout` 的对称性收口计划
-  - response container、risk adapter、read model 的兼容壳整理顺序
-  - 高频分支验收与 evidence closeout 的补齐范围
+  - `Wave 7` cleanup 如何从 active plan 退成 closure record
+  - 已完成的 operator-surface / compatibility-shell closeout
+  - 当前仍保留的 residual compatibility inventory
   - `Wave 8` 的明确 handoff 边界
 - 当前判断基线不是“主流程还能不能跑”，而是：
   - 相似主体是否使用了尽可能一致的语言与字段表达
@@ -49,19 +33,19 @@ Source of Truth Level: cleanup
   - canonical audit trail / evidence read model 是否已经镜像收口
   - 高频分支是否已进入正式 acceptance baseline
 
-## Current Debt
-- 当前 `Wave 7` 的主要 debt 不是新功能缺口，而是以下 4 类 cleanup debt：
-  - transaction root 命名、字段和状态词不对称
-  - response container 语义已部分收口，但旧语义 adapter 仍广泛存在
-  - payin/payout rail vocabulary 与详情审计读取不对称
-  - 高频分支验收、evidence closeout 与 closure record 尚未补齐
-- 当前 debt 的典型表现包括：
-  - `COMPLIANCE_PENDING` 与 `PENDING_COMPLIANCE` 并存
-  - `CLEAR` 与 `CLEARED` 并存
-  - `PayinType=crypto/fiat` 与 `PayoutType=CRYPTO/FIAT` 并存
-  - response lifecycle 已转向 `CREATED / RECEIVED / FINAL`，但 bridge / mock helper / snapshot 仍保留 `PASS / ACCEPTED / NOT_REQUIRED`
-  - `withdraw` 已切到 canonical audit trail，而 `deposit/payin` 详情仍依赖 legacy audit relation
-  - `TX_WITHDRAW_PRECHECK / REVIEW_WITHDRAW_PRECHECK` 仍存在于 workflow 与 risk bridge 的兼容壳中
+## Residual Compatibility After Closeout
+- 当前 `Wave 7` 已不再保留 active operator-surface debt；剩余问题已经降为 explicit frozen historical compatibility only：
+  - old persisted/raw payin type values normalized to canonical `CRYPTO / FIAT`
+  - old persisted/raw payout terminal status `CLEAR` normalized to canonical `CLEARED`
+  - historical `TX_WITHDRAW_PRECHECK / REVIEW_WITHDRAW_PRECHECK` read-only support in audit / evidence / query paths
+  - legacy response statuses such as `PASS / ACCEPTED / NOT_REQUIRED / REVIEW / FAIL` in raw payload / adapter boundaries
+- `2026-03-30` closeout confirmation on the current branch:
+  - active alert stage filter no longer advertises `REVIEW_WITHDRAW_PRECHECK`
+  - alert detail no longer treats `simulationRisk*` as current alert truth
+  - `PayinList` / `PayoutList` now share `adminFetch`, `ownerNo-first`, and canonical display-status display
+  - Wave 7 closeout spec packs and admin build both pass on the current branch
+- 当前审查补充说明：
+  - `payin/payout` detail 已经切到 canonical audit trail；剩余 residual 主要停留在历史数据读取与 raw-payload compatibility 层
 
 ## Target End State
 - `deposit/withdraw` 作为 transaction root，使用尽可能一致的字段语义、状态词、派生读模型和 compatibility inventory 表达。
@@ -215,7 +199,7 @@ Source of Truth Level: cleanup
     - `displayStatus`
   - admin payload 的 `type` 已统一为 `CRYPTO / FIAT`
   - `payin` 与 `payout` detail 都已读取 canonical audit trail
-  - `CLEAR` 与 `CLEARED` 的差异已降到 display/read-model 层，不再作为 rail 语义分歧
+  - payout terminal truth 已统一为 `CLEARED`；旧 `CLEAR` 只保留在历史读取兼容层
 - 目标：
   - 对齐 `payin` 与 `payout` 的 rail vocabulary、type casing、receipt 语义、detail read model、canonical audit trail
 - 主要任务：
@@ -230,8 +214,8 @@ Source of Truth Level: cleanup
     - inbound 与 outbound 的业务步骤天然不同
     - crypto inbound 与 crypto outbound 不应被强行压成同一 rail
   - 明确哪些差异属于 cleanup debt：
-    - `crypto/fiat` casing 不统一
-    - `CLEAR` vs `CLEARED`
+    - historical lowercase type values still exist in old persisted/raw inputs
+    - historical payout `CLEAR` still exists in old persisted/raw inputs
     - payin 详情仍读 legacy audit，而 payout 已读 canonical audit
     - `BLOCK` 等旧 rail naming 是否仍需保留
   - 固定 payin/payout detail、audit panel、evidence summary 的镜像原则：
@@ -239,7 +223,7 @@ Source of Truth Level: cleanup
     - 相似证据要用相似入口
     - 相似 rail 状态要用相似视觉语法
   - 固定当前已实现的 Stage 4 真相：
-    - raw `status` 保持 rail truth
+    - canonical `status` 保持 rail truth
     - `displayStatus` 作为 admin 展示真相
     - raw `type` 查询兼容旧枚举，admin payload 统一输出大写
     - `payin` 无 repair surface，`payout` 保留 `re-closeout / re-compensate`
@@ -249,8 +233,8 @@ Source of Truth Level: cleanup
 
 ### Stage 5: Branch Acceptance / Evidence / Final Closeout
 - 当前状态：
-  - `Wave 7` 目前主流程已经过验收
-  - 高频分支、evidence export 对称性、canonical audit trail 完整性尚未形成 closeout baseline
+  - `Wave 7` 主流程与高频分支 closeout baseline 已完成当前目标范围内的冻结
+  - 本 stage 现保留为 closure record，而不是 active backlog
 - `2026-03-28` 执行说明：
   - Stage 5 按“先修真问题，再清审美 debt”的顺序推进：
     1. `5A Current UX / Read-model Defects`
@@ -259,11 +243,11 @@ Source of Truth Level: cleanup
     4. `5D Response Adapter Semantic Convergence`
     5. `5E Vocabulary / Enum / Branch Acceptance / Closeout`
   - 当前已固定的 Stage 5 收口结论：
-    - `PayinList` 等 admin surface 不再依赖旧 `fiat/crypto` casing 判断 Stage 4 读模型
+    - `PayinList` / `PayoutList` admin surface 不再依赖页面内 token/localStorage 分支，且不再以 raw type/status 作为 operator display truth
     - entity / constraints / acceptance 文档已回到当前 lifecycle truth
     - `TX_WITHDRAW_PRECHECK` 进一步退为 historical compatibility only，不再保留深层 live execution
     - response lifecycle 继续以 `CREATED / RECEIVED / FINAL` 为唯一 active truth
-    - raw `PayinType/PayoutType` 与 `CLEAR/CLEARED` 差异被明确冻结在 compatibility/public-contract 边界，不再作为 admin display truth
+    - canonical public contract 已统一；旧 rail values 被明确冻结在 read-boundary compatibility 边界，不再作为 admin display truth
     - closeout baseline 固定在 `docs/acceptance/wave-7-cleanup-closeout-baseline.md`
 - 目标：
   - 把当前只验过主流程的状态，扩成覆盖高频分支的 `Wave 7` closeout baseline
@@ -305,8 +289,8 @@ Source of Truth Level: cleanup
 | --- | --- | --- | --- | --- |
 | `DepositTransaction` | canonical inbound transaction root | status 词汇、compat 字段、detail audit 与 withdraw 不完全对齐 | stage 1 owner | 与 `WithdrawTransaction` 形成镜像字段与读模型 |
 | `WithdrawTransaction` | canonical outbound transaction root | `CREATED / APPROVED / HELD`、`complianceStatus`、precheck shell 仍然存在 | stage 1 + stage 3 owner | 只保留当前真相 + 明确兼容壳 |
-| `Payin` | canonical inbound rail root | raw `type/action` 仍是小写 public contract，但 admin read model 已收口；与 payout 的 raw enum 仍不对称 | stage 4 + stage 5 owner | 与 `Payout` 在 vocabulary 与 read model 上镜像对齐，raw enum 差异只留在兼容边界 |
-| `Payout` | canonical outbound rail root | raw `CLEAR` vs `CLEARED`、uppercase type/action 仍存在 public-contract asymmetry | stage 4 + stage 5 owner | 与 `Payin` 使用尽可能一致的 rail language，raw 差异不再渗透到 admin surface |
+| `Payin` | canonical inbound rail root | historical lowercase type values remain readable through normalization only | stage 4 + stage 5 owner | 与 `Payout` 在 vocabulary 与 read model 上镜像对齐，旧值只留在历史兼容边界 |
+| `Payout` | canonical outbound rail root | historical `CLEAR` and old raw inputs remain readable through normalization only | stage 4 + stage 5 owner | 与 `Payin` 使用尽可能一致的 rail language，旧值不再渗透到 active contract 或 admin surface |
 | `Response Containers` | 已回到 evidence container 语义 | bridge/mock/snapshot 中旧 `PASS / ACCEPTED / NOT_REQUIRED` 仍存在 | stage 2 owner | 只认 `CREATED / RECEIVED / FINAL` |
 | `Risk / Alert / Case Adapter` | `TX_DEPOSIT_FINAL / TX_WITHDRAW_FINAL` 已是当前真相 | `TX_WITHDRAW_PRECHECK` 与旧 trigger stage 仍留在 compatibility shell | stage 3 owner | 只保留单阶段 active truth，旧 context 降为兼容 |
 | `Audit / Evidence / Reconciliation` | withdraw/payout 已接 canonical audit 与 evidence export | deposit/payin 详情与 evidence 叙事仍未完全镜像收口 | stage 4 + stage 5 owner | 审计与 evidence 以 root 对称方式暴露 |
@@ -316,10 +300,10 @@ Source of Truth Level: cleanup
   - 主流程已验收
   - withdraw evidence export 已进入 Wave 7 主链
   - minimum daily reconciliation 已形成 runtime 面
-- cleanup 视角下仍待补齐的 baseline：
-  - 高频分支 acceptance 尚未形成完整 bucket
-  - canonical audit trail 尚未在四类主体上完全统一
-  - evidence package 仍需按 `deposit/withdraw` 与 `payin/payout` 的镜像方式验收
+- `2026-03-30` closeout verification snapshot：
+  - `admin-web` build passed on the current branch
+  - Wave 7 alert / PRECHECK / rail / audit / reconciliation spec packs passed on the current branch
+  - high-frequency branch buckets are now frozen in `docs/acceptance/wave-7-cleanup-closeout-baseline.md`
 - 后续 cleanup 验收矩阵至少要覆盖：
   - transaction root symmetry
   - response contract symmetry
@@ -335,6 +319,9 @@ Source of Truth Level: cleanup
   - `payin/payout` 在 vocabulary、type casing、receipt 语义、detail audit 上达到镜像收口
   - 主流程之外的高频分支已进入 acceptance baseline
   - `Wave 7` 与 `Wave 8` 的边界已稳定，cleanup master 可以退为 closure record
+- `2026-03-30` 当前分支判断：
+  - 上述 closeout 条件已满足
+  - 后续 `Wave 7` 线程应改读 residual inventory，而不是继续把本文件当 active cleanup plan
 
 ## Rollback / Compatibility Note
 - 本计划是 cleanup backlog，不是新的产品波次。

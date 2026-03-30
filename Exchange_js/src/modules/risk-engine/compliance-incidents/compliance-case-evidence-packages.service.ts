@@ -30,6 +30,7 @@ import {
 } from '../audit-logs/dto/audit-log.dto';
 import { sha256Hex } from '../audit-logs/utils/audit-digest.util';
 import { ComplianceIncidentsService } from './compliance-incidents.service';
+import { buildCanonicalIncidentAssigneeWhere } from './compliance-incident-compat.util';
 import {
   ComplianceCaseEvidencePackageQueryDto,
   ExportComplianceCaseEvidencePackageDto,
@@ -147,7 +148,9 @@ export class ComplianceCaseEvidencePackagesService {
     const andConditions: any[] = [];
 
     if (query.status) where.status = query.status;
-    if (query.assigneeUserId) where.ownerUserId = query.assigneeUserId;
+    if (query.assigneeUserId) {
+      Object.assign(where, buildCanonicalIncidentAssigneeWhere(query.assigneeUserId));
+    }
 
     const selectedCaseIds = Array.from(
       new Set((query.selectedCaseIds || []).map((item) => String(item || '').trim()).filter(Boolean)),

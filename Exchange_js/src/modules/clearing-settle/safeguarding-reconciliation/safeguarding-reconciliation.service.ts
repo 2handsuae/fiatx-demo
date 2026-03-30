@@ -125,7 +125,7 @@ export class SafeguardingReconciliationService {
     'REJECTED',
     'CANCELLED',
   ]);
-  private static readonly SUCCESS_PAYOUT_STATUSES = new Set(['CONFIRMED', 'CLEAR']);
+  private static readonly SUCCESS_PAYOUT_STATUSES = new Set(['CONFIRMED', 'CLEARED']);
   private static readonly COMPENSATION_PAYOUT_STATUSES = new Set([
     'FAILED',
     'TIMEOUT',
@@ -142,6 +142,12 @@ export class SafeguardingReconciliationService {
     if (value === null || value === undefined) return null;
     const normalized = String(value).trim();
     return normalized.length ? normalized : null;
+  }
+
+  private normalizePayoutStatus(value: unknown): string {
+    const normalized = String(value || '').trim().toUpperCase();
+    if (normalized === 'CLEAR') return 'CLEARED';
+    return normalized;
   }
 
   private normalizeBusinessDate(value: string): string {
@@ -295,7 +301,7 @@ export class SafeguardingReconciliationService {
 
   private computeBreakForWithdraw(candidate: CandidateWithdraw): ComputedBreak {
     const withdrawStatus = String(candidate.status || '').trim().toUpperCase();
-    const payoutStatus = String(candidate.payout?.status || '').trim().toUpperCase();
+    const payoutStatus = this.normalizePayoutStatus(candidate.payout?.status);
     const clearings = Array.isArray(candidate.payout?.clearings)
       ? candidate.payout!.clearings
       : [];
@@ -342,7 +348,7 @@ export class SafeguardingReconciliationService {
     const deltaAmount = observedNetDelta.minus(expectedNetDelta);
     let reasonCode: ReconciliationBreakReasonCode | null = null;
 
-    if (withdrawStatus === 'SUCCESS' && payoutStatus !== 'CLEAR') {
+    if (withdrawStatus === 'SUCCESS' && payoutStatus !== 'CLEARED') {
       reasonCode = ReconciliationBreakReasonCodes.SUCCESS_CLOSEOUT_INCOMPLETE;
     } else if (
       SafeguardingReconciliationService.ZERO_EXPECTED_WITHDRAW_STATUSES.has(

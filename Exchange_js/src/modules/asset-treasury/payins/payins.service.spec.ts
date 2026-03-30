@@ -249,6 +249,23 @@ describe('PayinsService', () => {
   });
 
   describe('read models', () => {
+    it('should expand canonical payin type filter to match legacy lowercase rows', async () => {
+      ((prisma as any).payin.findMany as jest.Mock).mockResolvedValue([]);
+      ((prisma as any).payin.count as jest.Mock).mockResolvedValue(0);
+
+      await service.findAll({ type: PayinType.CRYPTO });
+
+      expect((prisma as any).payin.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            type: expect.objectContaining({
+              in: [PayinType.CRYPTO, 'crypto'],
+            }),
+          }),
+        }),
+      );
+    });
+
     it('should return normalized admin fields in payin list', async () => {
       ((prisma as any).payin.findMany as jest.Mock).mockResolvedValue([
         {

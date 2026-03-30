@@ -19,6 +19,7 @@ import { PeriodicReviewWorkflowTransitionService } from '../periodic-review/peri
 import { TransactionDepositWorkflowService } from '../../trading/deposit-transactions/transaction-deposit-workflow.service';
 import { SwapTransactionWorkflowService } from '../../trading/swap-transactions/swap-transaction-workflow.service';
 import { WithdrawTransactionWorkflowService } from '../../trading/withdraw-transactions/withdraw-transaction-workflow.service';
+import { normalizeWorkflowDecision } from '../../risk-engine/constants/compliance-disposition.constant';
 
 @Injectable()
 export class WorkflowTransitionService {
@@ -64,12 +65,8 @@ export class WorkflowTransitionService {
     dispositionCode: unknown,
   ): 'FLAG' | 'CLEAR' | 'REJECT' | 'FREEZE' {
     const normalized = String(dispositionCode || '').trim().toUpperCase();
-    if (
-      normalized === 'CLEAR' ||
-      normalized === 'APPROVE' ||
-      normalized === 'APPROVE_STAGE' ||
-      normalized === 'FALSE_POSITIVE'
-    ) {
+    const workflowDecision = normalizeWorkflowDecision(normalized);
+    if (workflowDecision === 'CLEAR' || normalized === 'FALSE_POSITIVE') {
       return 'CLEAR';
     }
     if (
@@ -79,8 +76,7 @@ export class WorkflowTransitionService {
       return 'FREEZE';
     }
     if (
-      normalized === 'REJECT' ||
-      normalized === 'REJECT_STAGE' ||
+      workflowDecision === 'REJECT' ||
       normalized === 'RISK_CONFIRMED'
     ) {
       return 'REJECT';

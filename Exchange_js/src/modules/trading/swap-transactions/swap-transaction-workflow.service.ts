@@ -116,7 +116,6 @@ export class SwapTransactionWorkflowService {
     const workflowId = swap.id;
     const workflowNo =
       this.normalizeOptionalString(swap.swapNo) ||
-      this.normalizeOptionalString(swap.quoteNo) ||
       workflowId;
     return {
       traceId: `SWAP:${workflowId}`,

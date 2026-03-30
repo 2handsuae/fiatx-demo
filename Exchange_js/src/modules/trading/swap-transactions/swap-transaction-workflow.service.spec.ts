@@ -290,6 +290,38 @@ describe('SwapTransactionWorkflowService', () => {
     expect(result.swapStatusAfter).toBe(SwapTransactionStatus.FAILED);
   });
 
+  it('falls back to swapId instead of quoteNo when swapNo is missing', async () => {
+    prismaMock.swapTransaction.findUnique.mockResolvedValue({
+      ...buildSwap(SwapTransactionStatus.PENDING_COMPLIANCE),
+      swapNo: null,
+    });
+    prismaMock.swapTransaction.update.mockResolvedValue({
+      ...buildSwap(SwapTransactionStatus.PENDING_COMPLIANCE),
+      swapNo: null,
+      status: SwapTransactionStatus.UNDER_REVIEW,
+    });
+
+    await service.execute(undefined, {
+      swapId: 'swap-1',
+      source: 'ALERT',
+      sourceId: 'alert-1',
+      workflowAction: 'FLAG',
+      reasonCode: 'TX_SWAP_REVIEW_REQUIRED',
+    });
+
+    expect(recordSystemSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workflowType: 'SWAP',
+        workflowId: 'swap-1',
+        workflowNo: 'swap-1',
+        metadata: expect.objectContaining({
+          quoteNo: 'QUO_0001',
+        }),
+      }),
+      prismaMock,
+    );
+  });
+
   it('returns NO_TRANSITION for repeated FLAG on UNDER_REVIEW', async () => {
     prismaMock.swapTransaction.findUnique.mockResolvedValue(
       buildSwap(SwapTransactionStatus.UNDER_REVIEW),

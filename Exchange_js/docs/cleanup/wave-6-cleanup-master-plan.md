@@ -2,7 +2,7 @@
 
 Status: completed
 Owner: project-owner-and-agents
-Last Updated: 2026-03-27
+Last Updated: 2026-03-30
 Applies To: `Exchange_js`
 Supersedes: none
 Depends On:
@@ -30,6 +30,10 @@ Source of Truth Level: cleanup
   - `docs/constraints/**`
   - `docs/specs/**`
   - `docs/acceptance/**`
+- `2026-03-30` closeout 进一步确认：
+  - `SWAP` active trace root 已固定为 `swapId / swapNo`
+  - quote-root audit / evidence selection expansion 已退休
+  - quote-only swap export summary baseline 已退休
 - cleanup 层当前不再负责定义 `Wave 6` 行为真相；本文件只用于记录：
   - 当前剩余 cleanup debt
   - 推荐的 stage 切分
@@ -48,6 +52,7 @@ Source of Truth Level: cleanup
   - `InboundTransferSignal.simulationRiskLevel`
   - `InboundTransferSignal.simulationRiskReason`
   - historical alert metadata fallback on `simulationRisk*`
+- `quoteId / quoteNo` 现在只保留为 linked evidence，不再是 `SWAP` 的 active workflow root 或 export root。
 - 这些字段仍允许存在于 schema、旧 DTO、历史数据读取 fallback 中，但不再构成 Wave 6 runtime truth、主 UI 叙事或 acceptance 基线。
 
 ## Target End State

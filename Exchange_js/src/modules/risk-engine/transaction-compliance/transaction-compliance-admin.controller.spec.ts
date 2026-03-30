@@ -13,7 +13,6 @@ describe('TransactionComplianceAdminController', () => {
     getTransactionCaseAggregate: jest.fn(),
     mockCompleteKytCase: jest.fn(),
     mockCompleteTravelRuleCase: jest.fn(),
-    mockBackfill: jest.fn(),
     listKytCases: jest.fn(),
     listTravelRuleCases: jest.fn(),
     getKytCaseDetail: jest.fn(),
@@ -135,9 +134,7 @@ describe('TransactionComplianceAdminController', () => {
   });
 
   it('should reject customer token for mock backfill', async () => {
-    expect(() =>
-      controller.mockBackfill({ user: { type: 'CUSTOMER' } }, {}),
-    ).toThrow(ForbiddenException);
+    expect((controller as any).mockBackfill).toBeUndefined();
   });
 
   it('should allow admin to list travel rule cases', async () => {

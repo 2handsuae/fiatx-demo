@@ -1586,11 +1586,10 @@ export class TransactionRiskBridgeService {
     },
     tx?: Prisma.TransactionClient,
   ) {
-    const workflowId = this.normalizeOptionalString(input.quoteId) || input.swapId;
-    const workflowNo =
-      this.normalizeOptionalString(input.quoteNo) ||
-      this.normalizeOptionalString(input.swapNo) ||
-      workflowId;
+    const { traceId, workflowId, workflowNo } = this.buildSwapAuditWorkflowContext({
+      swapId: input.swapId,
+      swapNo: input.swapNo,
+    });
     await this.auditLogsService.recordSystem(
       {
         triggerType: AuditTriggerType.DATA_UPDATE,
@@ -1599,7 +1598,7 @@ export class TransactionRiskBridgeService {
         entityType: AuditEntityTypes.SWAP_TRANSACTION,
         entityId: input.swapId,
         entityNo: input.swapNo || undefined,
-        traceId: `SWAP:${workflowId}`,
+        traceId,
         workflowType: AuditWorkflowTypes.SWAP,
         workflowId,
         workflowNo,
@@ -1686,11 +1685,10 @@ export class TransactionRiskBridgeService {
     },
     tx?: Prisma.TransactionClient,
   ) {
-    const workflowId = this.normalizeOptionalString(input.quoteId) || input.swapId;
-    const workflowNo =
-      this.normalizeOptionalString(input.quoteNo) ||
-      this.normalizeOptionalString(input.swapNo) ||
-      workflowId;
+    const { traceId, workflowId, workflowNo } = this.buildSwapAuditWorkflowContext({
+      swapId: input.swapId,
+      swapNo: input.swapNo,
+    });
     await this.auditLogsService.recordSystem(
       {
         triggerType: AuditTriggerType.DATA_UPDATE,
@@ -1699,7 +1697,7 @@ export class TransactionRiskBridgeService {
         entityType: AuditEntityTypes.COMPLIANCE_ALERT,
         entityId: input.alertId,
         entityNo: input.alertNo || undefined,
-        traceId: `SWAP:${workflowId}`,
+        traceId,
         workflowType: AuditWorkflowTypes.SWAP,
         workflowId,
         workflowNo,
@@ -1789,11 +1787,10 @@ export class TransactionRiskBridgeService {
     },
     tx?: Prisma.TransactionClient,
   ) {
-    const workflowId = this.normalizeOptionalString(input.quoteId) || input.swapId;
-    const workflowNo =
-      this.normalizeOptionalString(input.quoteNo) ||
-      this.normalizeOptionalString(input.swapNo) ||
-      workflowId;
+    const { traceId, workflowId, workflowNo } = this.buildSwapAuditWorkflowContext({
+      swapId: input.swapId,
+      swapNo: input.swapNo,
+    });
     await this.auditLogsService.recordSystem(
       {
         triggerType: AuditTriggerType.DATA_UPDATE,
@@ -1802,7 +1799,7 @@ export class TransactionRiskBridgeService {
         entityType: AuditEntityTypes.COMPLIANCE_INCIDENT,
         entityId: input.caseId,
         entityNo: input.caseNo || undefined,
-        traceId: `SWAP:${workflowId}`,
+        traceId,
         workflowType: AuditWorkflowTypes.SWAP,
         workflowId,
         workflowNo,
@@ -1827,6 +1824,21 @@ export class TransactionRiskBridgeService {
       },
       tx,
     );
+  }
+
+  private buildSwapAuditWorkflowContext(input: {
+    swapId: string;
+    swapNo?: string | null;
+  }) {
+    const workflowId = input.swapId;
+    const workflowNo =
+      this.normalizeOptionalString(input.swapNo) ||
+      workflowId;
+    return {
+      traceId: `SWAP:${workflowId}`,
+      workflowId,
+      workflowNo,
+    };
   }
 
   private async recordWithdrawRiskAudit(

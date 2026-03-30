@@ -1,6 +1,6 @@
 Status: active
 Owner: project-owner-and-agents
-Last Updated: 2026-03-22
+Last Updated: 2026-03-30
 Applies To: `Exchange_js`
 Supersedes: none
 Depends On: `docs/constraints/onboarding-flow-constraints.md`, `docs/specs/workflows/onboarding-periodic-review-audit-trace-contract.md`
@@ -47,6 +47,8 @@ Source of Truth Level: specs-workflow
 - `CDD Response` and `EDD Response` remain evidence containers.
 - `PeriodicReviewCycle` is the workflow root entity.
 - Alert and case handling reuse the shared Wave 2 kernel.
+- Periodic review read-models and transition outputs use canonical response identity only.
+- Compatibility `finalApprovalStatus` is not part of the active periodic-review workflow output; customer final-approval truth remains `latestFinalApproval*` plus canonical customer state.
 
 ## Audit And Trace
 - One periodic review cycle must replay in Audit Center as:

@@ -22,6 +22,7 @@ import {
   RISK_RECOMMENDED_ACTIONS,
   RiskRecommendedActionType,
 } from './constants/risk-recommended-actions.constant';
+import { normalizeWorkflowDecision } from './constants/compliance-disposition.constant';
 import { RiskDecision, RiskRecommendedAction } from './risk-engine.service';
 
 const AUTO_ESCALATE_DISABLED_REASON = 'PHASE7_AUTO_ESCALATE_NOT_ENABLED';
@@ -108,13 +109,10 @@ export class RiskDecisionOrchestratorService {
   }
 
   private normalizeRecommendedDecision(value: unknown): string | null {
-    const normalized = String(value || '').trim().toUpperCase();
-    if (!normalized) return null;
-    if (normalized === 'APPROVE' || normalized === 'APPROVE_STAGE' || normalized === 'CLEAR') {
-      return 'CLEAR';
+    const normalized = normalizeWorkflowDecision(value);
+    if (normalized === 'CLEAR' || normalized === 'REJECT' || normalized === 'REQUIRE_EDD') {
+      return normalized;
     }
-    if (normalized === 'REJECT' || normalized === 'REJECT_STAGE') return 'REJECT';
-    if (normalized === 'REQUIRE_EDD') return 'REQUIRE_EDD';
     return null;
   }
 

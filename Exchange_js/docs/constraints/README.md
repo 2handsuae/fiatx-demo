@@ -2,7 +2,7 @@
 
 Status: active
 Owner: project-owner-and-agents
-Last Updated: 2026-03-23
+Last Updated: 2026-03-30
 Applies To: `Exchange_js`
 Supersedes: none
 Depends On: `AGENTS.md`, `docs/README.md`
@@ -13,58 +13,102 @@ These documents define non-negotiable engineering constraints for all future thr
 Any agent/thread must read this folder before proposing or implementing changes that touch constrained behavior.
 This file is the constraints subtree index under the project-level documentation governance in `docs/README.md`.
 
+## Constraint Architecture
+- Frontend constraints are now organized in two groups:
+1. `平台共享硬规则`
+   - `docs/constraints/frontend-platform-constraints.md`
+2. `应用专属规则`
+   - `docs/constraints/frontend-admin-ui-constraints.md`
+   - `docs/constraints/frontend-client-ui-constraints.md`
+- Backend constraints are organized in two groups:
+1. `横向规则`
+   - cross-domain backend rules shared by every domain
+2. `纵向业务域规则`
+   - domain constraints for onboarding, compliance, governance, transactions, ledger, wallet/account, and reconciliation
+- `runtime-config-constraints.md` remains an adjacent runtime/stack rule set.
+- `docs/constraints/frontend-ui-constraints.md` is deprecated and remains only as a redirect note.
+
 ## Required Reading Order
-1. `docs/constraints/frontend-ui-constraints.md`
-2. `docs/constraints/backend-architecture-constraints.md`
-3. `docs/constraints/runtime-config-constraints.md`
-4. `docs/constraints/onboarding-flow-constraints.md`
-5. `docs/constraints/customer-transaction-flow-constraints.md`
-6. `docs/constraints/internal-transaction-flow-constraints.md`
-7. `docs/constraints/audit-logging-constraints.md`
-8. `docs/constraints/rbac-member-management-constraints.md`
-9. `docs/constraints/governance-approval-constraints.md`
-10. `docs/constraints/governance-change-ticket-constraints.md`
-11. `docs/constraints/governance-delete-request-constraints.md`
-12. `docs/constraints/governance-sla-timer-constraints.md`
-13. `docs/constraints/compliance-alert-case-foundation-constraints.md`
-14. `docs/constraints/compliance-alert-incident-constraints.md`
-- When work touches `Wave 2` case final lifecycle, also read:
-1. `docs/specs/workflows/case-final-lifecycle-and-external-filing.md`
-2. `docs/specs/workflows/mlro-and-final-approval-governance.md`
-- When work touches `Wave 2` alert / case field semantics, also read:
-1. `docs/specs/entities/compliance-alert-entity.md`
-2. `docs/specs/entities/compliance-case-entity.md`
-3. `docs/specs/entities/compliance-case-report-entity.md`
-4. `docs/specs/entities/compliance-external-filing-entity.md`
-- When work touches compliance-center integration boundaries, also read:
-1. `docs/specs/modules/compliance-center-module.md`
-2. `docs/specs/modules/risk-engine-module.md`
-3. `docs/specs/modules/approvals-module.md`
-- When work touches `Wave 2` compatibility / audit / filing cleanup debt, also read:
-1. `docs/cleanup/wave-2-cleanup-master-plan.md`
-- When work touches onboarding / periodic review audit chain, also read:
-1. `docs/specs/workflows/onboarding-periodic-review-audit-trace-contract.md`
-- When work touches onboarding / customer / response entity semantics, also read:
-1. `docs/specs/entities/customer-entity.md`
-2. `docs/specs/entities/review-response-entity.md`
-3. `docs/specs/entities/periodic-review-cycle-entity.md`
-4. `docs/specs/entities/approval-case-entity.md`
-5. `docs/specs/entities/risk-decision-record-entity.md`
-- When work touches onboarding / periodic review module boundaries, also read:
-1. `docs/specs/modules/customer-onboarding-module.md`
-2. `docs/specs/modules/periodic-review-module.md`
-- When work touches final end-to-end validation for Wave 2 / Wave 3, also read:
-1. `docs/acceptance/wave-2-wave-3-final-acceptance-checklist.md`
-- When work touches Wave 4 ledger / wallet / pricing / config-release design or implementation, also read:
-1. `docs/constraints/wallet-account-model-constraints.md`
-2. `docs/constraints/business-base-config-release-constraints.md`
-3. `docs/constraints/posting-clearing-balance-projection-constraints.md`
-4. `docs/constraints/pricing-and-quote-constraints.md`
+- For documentation-architecture or filing questions:
+1. `docs/constraints/documentation-filing-and-adr-constraints.md`
+- For frontend-only work:
+1. `docs/constraints/frontend-platform-constraints.md`
+2. `docs/constraints/frontend-admin-ui-constraints.md` or `docs/constraints/frontend-client-ui-constraints.md`
+3. `docs/constraints/runtime-config-constraints.md` when env/runtime wiring matters
+4. relevant backend/domain constraints only when the page contract depends on backend truth
+- For backend or full-stack work:
+1. `docs/constraints/backend-platform-constraints.md`
+2. `docs/constraints/backend-domain-model-constraints.md`
+3. `docs/constraints/backend-identity-and-operator-key-constraints.md`
+4. `docs/constraints/backend-architecture-constraints.md`
+5. `docs/constraints/backend-api-contract-constraints.md`
+6. `docs/constraints/backend-read-model-constraints.md`
+7. `docs/constraints/backend-workflow-state-machine-constraints.md`
+8. `docs/constraints/backend-async-idempotency-repair-constraints.md`
+9. `docs/constraints/backend-data-lifecycle-constraints.md`
+10. `docs/constraints/backend-provider-integration-constraints.md`
+11. `docs/constraints/backend-auth-and-authorization-constraints.md`
+12. `docs/constraints/backend-testing-and-delivery-constraints.md`
+13. `docs/constraints/runtime-config-constraints.md`
+- Then read the relevant vertical domain package:
+1. `Identity & Access`
+   - `docs/constraints/rbac-member-management-constraints.md`
+2. `Customer Lifecycle`
+   - `docs/constraints/onboarding-flow-constraints.md`
+3. `Risk & Compliance`
+   - `docs/constraints/compliance-alert-case-foundation-constraints.md`
+   - `docs/constraints/compliance-alert-incident-constraints.md`
+4. `Governance Control Gates`
+   - `docs/constraints/governance-approval-constraints.md`
+   - `docs/constraints/governance-change-ticket-constraints.md`
+   - `docs/constraints/governance-delete-request-constraints.md`
+   - `docs/constraints/governance-sla-timer-constraints.md`
+5. `Audit & Evidence`
+   - `docs/constraints/audit-logging-constraints.md`
+6. `Asset & Treasury Foundation`
+   - `docs/constraints/wallet-account-model-constraints.md`
+   - `docs/constraints/internal-transaction-flow-constraints.md`
+7. `Pricing & Config Release`
+   - `docs/constraints/pricing-and-quote-constraints.md`
+   - `docs/constraints/business-base-config-release-constraints.md`
+8. `Customer Transactions`
+   - `docs/constraints/customer-transaction-flow-constraints.md`
+9. `Accounting Ledger`
+   - `docs/constraints/posting-clearing-balance-projection-constraints.md`
+10. `Clearing & Reconciliation`
+   - `docs/constraints/safeguarding-reconciliation-constraints.md`
+- When work touches domain truth in detail, also read the domain package under `docs/specs/entities/**`, `docs/specs/workflows/**`, and `docs/specs/modules/**`.
+- When work touches completed wave validation or historical retirement context, also read the relevant files in `docs/acceptance/**`, `docs/roadmap/**`, or `docs/cleanup/**`.
 
 ## Scope
+- Documentation filing and ADR policy:
+  - where new truth belongs
+  - when ADR is required
+  - when ADR should stay sparse
 - Frontend: `admin-web`, `client-web`
+- Frontend shared rules:
+  - route/app boundary
+  - request/session handling
+  - action semantics
+  - state surfaces
+  - canonical naming
+  - accessibility/responsive baseline
+- Frontend app-specific rules:
+  - admin operator-console structure and visual grammar
+  - client advanced-fintech mood, journey, and CTA rules
 - Backend: `src/**`, `prisma/**`, `scripts/**`
 - Runtime: local dev scripts, envs, startup/reset workflow
+- Horizontal backend governance:
+  - subject model
+  - identity and operator keys
+  - API contracts
+  - read-model contracts
+  - workflow ownership and state machines
+  - async/replay/repair rules
+  - data lifecycle rules
+  - provider integration rules
+  - auth and authorization rules
+  - testing and delivery rules
 - Domain flow: onboarding and compliance lifecycle
 - Domain flow: current V1 compliance alert and incident implementation lifecycle
 - Domain flow: customer transaction workflow (deposit/swap/withdraw)

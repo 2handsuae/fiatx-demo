@@ -228,7 +228,7 @@ const PayoutDetail = () => {
 
   const getPayoutRailItems = (payout: PayoutDetail): SimulationRailItem[] => {
     const { status, type } = payout;
-    const normalized = String(status || '').toUpperCase();
+    const normalized = normalizeRailDisplayStatus(status);
     const normalizedType = formatTransactionTypeLabel(type);
 
     if (normalizedType === 'CRYPTO') {
@@ -240,7 +240,7 @@ const PayoutDetail = () => {
           state:
             normalized === 'SIGNING'
               ? 'current'
-              : ['BROADCASTED', 'CONFIRMING', 'CONFIRMED', 'CLEAR', 'FAILED', 'TIMEOUT'].includes(normalized)
+              : ['BROADCASTED', 'CONFIRMING', 'CONFIRMED', 'CLEARED', 'FAILED', 'TIMEOUT'].includes(normalized)
                 ? 'completed'
                 : normalized === 'CREATED'
                   ? 'available'
@@ -256,7 +256,7 @@ const PayoutDetail = () => {
           state:
             normalized === 'BROADCASTED'
               ? 'current'
-              : ['CONFIRMING', 'CONFIRMED', 'CLEAR', 'FAILED', 'TIMEOUT'].includes(normalized)
+              : ['CONFIRMING', 'CONFIRMED', 'CLEARED', 'FAILED', 'TIMEOUT'].includes(normalized)
                 ? 'completed'
                 : normalized === 'SIGNING'
                   ? 'available'
@@ -272,7 +272,7 @@ const PayoutDetail = () => {
           state:
             normalized === 'CONFIRMING'
               ? 'current'
-              : ['CONFIRMED', 'CLEAR', 'FAILED', 'TIMEOUT'].includes(normalized)
+              : ['CONFIRMED', 'CLEARED', 'FAILED', 'TIMEOUT'].includes(normalized)
                 ? 'completed'
                 : normalized === 'BROADCASTED'
                   ? 'available'
@@ -291,20 +291,20 @@ const PayoutDetail = () => {
           state:
             normalized === 'CONFIRMED'
               ? 'current'
-              : normalized === 'CLEAR'
+              : normalized === 'CLEARED'
                 ? 'completed'
                 : normalized === 'CONFIRMING'
                   ? 'available'
                   : 'readonly',
           onClick: normalized === 'CONFIRMING' ? () => handleUpdateAction('CONFIRM') : undefined,
           disabled: updating,
-          helperText: '确认后进入 CONFIRMED，随后系统自动写 CLEAR',
+          helperText: '确认后进入 CONFIRMED，随后系统自动写 CLEARED',
         },
         {
           id: 'cleared',
           label: 'Cleared',
           icon: <CheckCircle2 size={14} />,
-          state: normalized === 'CLEAR' ? 'current' : 'readonly',
+          state: normalized === 'CLEARED' ? 'current' : 'readonly',
           tone: 'success',
           helperText: 'closeout 记账成功后自动出现',
         },
@@ -342,7 +342,7 @@ const PayoutDetail = () => {
         state:
           normalized === 'CONFIRMING'
             ? 'current'
-            : ['CONFIRMED', 'CLEAR', 'FAILED', 'TIMEOUT', 'RETURNED'].includes(normalized)
+            : ['CONFIRMED', 'CLEARED', 'FAILED', 'TIMEOUT', 'RETURNED'].includes(normalized)
               ? 'completed'
               : normalized === 'CREATED'
                 ? 'available'
@@ -364,7 +364,7 @@ const PayoutDetail = () => {
         state:
           normalized === 'CONFIRMED'
             ? 'current'
-            : normalized === 'CLEAR'
+            : normalized === 'CLEARED'
               ? 'completed'
               : normalized === 'CONFIRMING'
                 ? 'available'
@@ -378,14 +378,14 @@ const PayoutDetail = () => {
             : undefined,
         disabled: updating,
         helperText: effectiveFiatReferenceNo
-          ? '确认后进入 CONFIRMED，随后系统自动写 CLEAR'
+          ? '确认后进入 CONFIRMED，随后系统自动写 CLEARED'
           : '确认时若未填写，系统会自动生成 Reference No',
       },
       {
         id: 'cleared',
         label: 'Cleared',
         icon: <CheckCircle2 size={14} />,
-        state: normalized === 'CLEAR' ? 'current' : 'readonly',
+        state: normalized === 'CLEARED' ? 'current' : 'readonly',
         tone: 'success',
         helperText: 'closeout 记账成功后自动出现',
       },
@@ -519,7 +519,7 @@ const PayoutDetail = () => {
         <div className="rounded-xl border border-blue-200 bg-blue-50 px-5 py-4 text-sm text-blue-900">
           <div className="font-semibold">Receipt recorded</div>
           <div className="mt-1">
-            This payout has already reached `CONFIRMED`. `CLEAR` must be written by system canonical closeout after withdraw success posting.
+            This payout has already reached `CONFIRMED`. `CLEARED` must be written by system canonical closeout after withdraw success posting.
           </div>
           {canRepairCloseout ? (
             <div className="mt-1 text-blue-800">
@@ -847,18 +847,20 @@ const AuditEventList = ({
 };
 
 const getStatusColor = (status: string) => {
-    if (['CONFIRMED', 'CLEAR', 'SUCCESS'].includes(status)) return 'bg-green-500';
-    if (['FAILED', 'TIMEOUT', 'RETURNED'].includes(status)) return 'bg-red-500';
-    if (['CREATED', 'PENDING'].includes(status)) return 'bg-gray-300';
-    if (['SIGNING', 'BROADCASTED', 'CONFIRMING'].includes(status)) return 'bg-blue-500';
+    const normalized = normalizeRailDisplayStatus(status);
+    if (['CONFIRMED', 'CLEARED', 'SUCCESS'].includes(normalized)) return 'bg-green-500';
+    if (['FAILED', 'TIMEOUT', 'RETURNED'].includes(normalized)) return 'bg-red-500';
+    if (['CREATED', 'PENDING'].includes(normalized)) return 'bg-gray-300';
+    if (['SIGNING', 'BROADCASTED', 'CONFIRMING'].includes(normalized)) return 'bg-blue-500';
     return 'bg-yellow-500';
 };
 
 const getStatusBadgeStyle = (status: string) => {
-    if (['CONFIRMED', 'CLEAR', 'SUCCESS'].includes(status)) return 'bg-green-50 text-green-700 border-green-200';
-    if (['FAILED', 'TIMEOUT', 'RETURNED'].includes(status)) return 'bg-red-50 text-red-700 border-red-200';
-    if (['CREATED', 'PENDING'].includes(status)) return 'bg-gray-50 text-gray-700 border-gray-200';
-    if (['SIGNING', 'BROADCASTED', 'CONFIRMING'].includes(status)) return 'bg-blue-50 text-blue-700 border-blue-200';
+    const normalized = normalizeRailDisplayStatus(status);
+    if (['CONFIRMED', 'CLEARED', 'SUCCESS'].includes(normalized)) return 'bg-green-50 text-green-700 border-green-200';
+    if (['FAILED', 'TIMEOUT', 'RETURNED'].includes(normalized)) return 'bg-red-50 text-red-700 border-red-200';
+    if (['CREATED', 'PENDING'].includes(normalized)) return 'bg-gray-50 text-gray-700 border-gray-200';
+    if (['SIGNING', 'BROADCASTED', 'CONFIRMING'].includes(normalized)) return 'bg-blue-50 text-blue-700 border-blue-200';
     return 'bg-yellow-50 text-yellow-700 border-yellow-200';
 };
 

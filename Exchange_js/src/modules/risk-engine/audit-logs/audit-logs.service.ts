@@ -1157,10 +1157,7 @@ export class AuditLogsService {
     const directSwapMatches = db?.swapTransaction?.findMany
       ? await db.swapTransaction.findMany({
           where: {
-            OR: [
-              { swapNo: normalizedWorkflowNo },
-              { quoteNo: normalizedWorkflowNo },
-            ],
+            swapNo: normalizedWorkflowNo,
           },
           select: {
             id: true,
@@ -1209,16 +1206,12 @@ export class AuditLogsService {
     const allSwaps = [...directSwapMatches, ...linkedSwapMatches];
     return {
       workflowNos: this.toSortedUniqueStrings([
-        normalizedWorkflowNo,
         ...allSwaps.map((item: any) => item.swapNo),
-        ...allSwaps.map((item: any) => item.quoteNo),
-        ...quoteMatches.map((item: any) => item.quoteNo),
       ]),
       traceIds: this.toSortedUniqueStrings([
         ...allSwaps.map((item: any) =>
           item.id ? `${AuditWorkflowTypes.SWAP}:${item.id}` : null,
         ),
-        ...quoteIds.map((item) => `${AuditWorkflowTypes.SWAP}:${item}`),
       ]),
     };
   }
@@ -1376,25 +1369,28 @@ export class AuditLogsService {
           normalizedWorkflowNo,
           db,
         );
-        const workflowNos = expanded.workflowNos.length
-          ? expanded.workflowNos
-          : [normalizedWorkflowNo];
-        const orClauses: any[] = [
-          { workflowNo: { in: workflowNos } },
-          {
+        const workflowNos = expanded.workflowNos;
+        const orClauses: any[] = [];
+        if (workflowNos.length) {
+          orClauses.push({ workflowNo: { in: workflowNos } });
+          orClauses.push({
             subjectNos: {
               some: {
                 subjectNo: { in: workflowNos },
               },
             },
-          },
-        ];
+          });
+        }
         if (expanded.traceIds.length) {
           orClauses.push({
             traceId: { in: expanded.traceIds },
           });
         }
-        andClauses.push({ OR: orClauses });
+        if (orClauses.length) {
+          andClauses.push({ OR: orClauses });
+        } else {
+          andClauses.push({ id: '__NO_MATCH__' });
+        }
       } else {
         andClauses.push({ workflowNo: normalizedWorkflowNo });
       }
@@ -1629,9 +1625,7 @@ export class AuditLogsService {
       workflowSummaryType === AuditWorkflowTypes.SWAP && swapSelectionContext
         ? swapSelectionContext.swapNos.length
           ? swapSelectionContext.swapNos
-          : swapSelectionContext.quoteNos.length
-            ? swapSelectionContext.quoteNos
-            : this.toSortedUniqueStrings(records.map((row: any) => row.workflowNo))
+          : []
         : (this.toSortedUniqueStrings(records.map((row: any) => row.workflowNo)) as string[]);
 
     const normalizedCriteriaWorkflowNo =
@@ -1642,6 +1636,16 @@ export class AuditLogsService {
       workflowSummaryType === AuditWorkflowTypes.SWAP && canonicalSwapWorkflowNo
         ? canonicalSwapWorkflowNo
         : query.workflowNo || null;
+
+    if (
+      workflowSummaryType === AuditWorkflowTypes.SWAP &&
+      swapSelectionContext &&
+      swapSelectionContext.swapNos.length === 0
+    ) {
+      throw new BadRequestException(
+        'SWAP evidence export selection requires linked swap transaction records',
+      );
+    }
 
     return {
       normalizedCriteria: {

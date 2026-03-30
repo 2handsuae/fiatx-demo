@@ -39,7 +39,7 @@ async function main() {
     },
     orderBy: { createdAt: 'asc' },
   });
-  const walletSnapshots = await (prisma as any).walletBalanceSnapshot.findMany({
+  const walletSnapshots = await prisma.walletBalanceSnapshot.findMany({
     select: {
       walletId: true,
     },

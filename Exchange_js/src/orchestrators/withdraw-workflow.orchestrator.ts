@@ -574,7 +574,7 @@ export class WithdrawWorkflowOrchestrator {
 
     const withdrawal = await this.withdrawalService.findOne(payout.withdrawId);
     if (
-      payout.status === PayoutStatus.CLEAR &&
+      payout.status === PayoutStatus.CLEARED &&
       withdrawal.status === WithdrawTransactionStatus.SUCCESS
     ) {
       return this.buildNoopCloseoutResult(withdrawal.status, payout.status);
@@ -613,7 +613,7 @@ export class WithdrawWorkflowOrchestrator {
     });
     const refreshedWithdrawal = await this.withdrawalService.findOne(payout.withdrawId);
     if (
-      refreshedPayout?.status === PayoutStatus.CLEAR &&
+      refreshedPayout?.status === PayoutStatus.CLEARED &&
       refreshedWithdrawal.status === WithdrawTransactionStatus.SUCCESS
     ) {
       return this.buildNoopCloseoutResult(

@@ -1,8 +1,8 @@
 # Wave 4 Cleanup Master Plan
 
-Status: active-post-round-3
+Status: active
 Owner: project-owner-and-agents
-Last Updated: 2026-03-23
+Last Updated: 2026-03-30
 Applies To: `Exchange_js`
 Supersedes: none
 Depends On:
@@ -13,9 +13,35 @@ Depends On:
 Source of Truth Level: cleanup
 
 ## Current Debt
-- round 3 已完成 wallet shadow balance schema retirement，当前剩余债务主要是历史 migration SQL 和历史文档痕迹。
-- resettable-data 前提已经成立，因此历史交易数据兼容不再是 Wave 4 cleanup blocker。
-- 当前 cleanup 重点已从 runtime/schema 收口，转为为后续历史痕迹整理保留证据和边界。
+- round 3 已完成 wallet shadow balance schema retirement。
+- `2026-03-30` closeout branch 已完成最后一组 active debt 收口：
+  - pricing config admin 页面不再保留 read-only edit shell
+  - `PricingCenterService.updateSwapPolicy / updateWithdrawalPolicy` 已物理删除
+  - `docs/acceptance/wave-4-ledger-asset-structure-acceptance-checklist.md` 已从 `draft` 升为 active closeout baseline
+- 当前剩余内容只包括：
+  - 历史 migration SQL 痕迹
+  - 历史 cleanup 记录
+  - 后续如需继续处理时的 residual-only memory 边界
+
+## Current Review Judgment
+- `Wave 4` 的 round 1-3 cleanup 结论仍成立。
+- `Wave 4` 的 post-closeout remediation 也仍成立。
+- 截至 `2026-03-30`，`Wave 4` 的 active cleanup closeout 已完成。
+- 当前更准确的理解是：
+  - implemented scope landed
+  - cleanup round 1-3 landed
+  - post-closeout remediation landed
+  - closeout baseline active
+  - future work is residual-only
+- 本文件现在保留为 `Wave 4` cleanup 的 closure record；后续若仍处理 `Wave 4`，应只围绕 residual historical traces 开线程。
+
+## Closed Post-Closeout Findings From Current Review
+| Finding | Files | Classification | Current Judgment |
+| --- | --- | --- | --- |
+| pricing config admin pages previously retained `detailMode = 'edit'`, editable controls, and `Save` no-op shell | `admin-web/src/pages/PricingSwapConfigPage.tsx`, `admin-web/src/pages/PricingWithdrawalConfigPage.tsx` | frontend read-only edit shell residue | closed on `2026-03-30`; pages are now pure read-only viewers |
+| `PricingCenterService` previously kept `updateSwapPolicy` and `updateWithdrawalPolicy`, while no active controller route called them | `src/modules/trading/pricing-center/pricing-center.service.ts`, `src/modules/trading/pricing-center/pricing-center.service.spec.ts` | service-level write residual | closed on `2026-03-30`; write residual physically retired |
+| `wave4-cleanup-inventory.ts` used typed escape hatch `(prisma as any)` for `walletBalanceSnapshot` access | `scripts/wave4-cleanup-inventory.ts` | post-closeout type-conformance residue | closed on `2026-03-30`; typed access now used directly |
+| Wave 4 acceptance previously remained draft and carried explicit non-closure language | `docs/acceptance/wave-4-ledger-asset-structure-acceptance-checklist.md` | documentation closeout gap | closed on `2026-03-30`; acceptance is now active and aligned to implemented-scope closeout |
 
 ## Target End State
 - 余额运行时真相只认 `wallet_balance_snapshot / wallet_balance_entry`；缺 snapshot 只返回零值和诊断状态，不再 fallback 到 wallet 行余额。
@@ -84,6 +110,12 @@ Source of Truth Level: cleanup
 - reset 后 canonical pool wallet 自动拥有零值 snapshot baseline。
 - `Wallet.balance / lockedBalance` 已不再出现在当前 schema、seed/reset、inventory、runtime、测试夹具中。
 - cleanup inventory 可稳定输出 round-3 之后的字段退役状态。
+- pricing config pages no longer preserve misleading edit/save shells once they are declared read-only.
+- service-level pricing policy write residual is either physically retired or explicitly justified as a still-supported internal capability.
+- Wave 4 acceptance status and wording match the actual closeout claim.
+- `2026-03-30` current branch judgment:
+  - the above exit criteria are satisfied
+  - `Wave 4` should no longer remain in the active cleanup-closeout tier
 
 ## Rollback / Compatibility Note
 - 本轮基于“交易数据可初始化”前提执行物理删除，不再为单条历史 quote 或旧 walletNo 保留长期 runtime fallback。

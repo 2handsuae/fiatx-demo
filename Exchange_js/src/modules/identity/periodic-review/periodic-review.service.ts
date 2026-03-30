@@ -46,6 +46,10 @@ import {
   OnboardingMockDataType,
 } from '../onboarding/dto/onboarding.dto';
 import { WorkflowTransitionService } from '../onboarding/workflow-transition.service';
+import {
+  projectResponseRecord,
+  resolveLegacyIncidentAssigneeUserId,
+} from '../review-response-compat.util';
 
 type CaseType = 'CDD' | 'EDD';
 type MockResult = 'PASS' | 'FAIL';
@@ -161,24 +165,14 @@ export class PeriodicReviewService {
     responseNo: string | null;
     responseType: CaseType;
   } {
-    const { caseNo, ...rest } = row;
-    return {
-      ...(rest as Omit<T, 'caseNo'>),
-      responseNo: caseNo || null,
-      responseType,
-    };
+    return projectResponseRecord(row, responseType);
   }
 
   private getIncidentAssigneeUserId(incident: {
     assigneeUserId?: string | null;
     ownerUserId?: string | null;
   }): string | null {
-    const assigneeUserId = String((incident as any).assigneeUserId || '').trim();
-    if (assigneeUserId) {
-      return assigneeUserId;
-    }
-    const legacyOwnerUserId = String((incident as any).ownerUserId || '').trim();
-    return legacyOwnerUserId || null;
+    return resolveLegacyIncidentAssigneeUserId(incident);
   }
 
   private buildSessionResponse(session: any): SessionResponse {

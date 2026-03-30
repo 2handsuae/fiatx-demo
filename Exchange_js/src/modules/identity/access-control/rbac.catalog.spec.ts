@@ -120,6 +120,18 @@ describe('rbac.catalog', () => {
     ).toBe(true);
   });
 
+  it('should retire tx mock-backfill route from RBAC catalog', () => {
+    const permissionCodes = new Set(
+      RBAC_PERMISSION_DEFINITIONS.map((item) => item.code),
+    );
+
+    expect(
+      permissionCodes.has(
+        buildPermissionCode('POST', '/admin/compliance/tx-cases/mock-backfill'),
+      ),
+    ).toBe(false);
+  });
+
   it('should include Phase 1 inbound signal routes in RBAC catalog', () => {
     const permissionCodes = new Set(
       RBAC_PERMISSION_DEFINITIONS.map((item) => item.code),

@@ -1,6 +1,6 @@
 Status: active
 Owner: project-owner-and-agents
-Last Updated: 2026-03-28
+Last Updated: 2026-03-30
 Applies To: `Exchange_js`
 Supersedes: none
 Depends On: `docs/acceptance/wave-5-payin-deposit-final-acceptance-checklist.md`, `docs/acceptance/wave-5-deposit-evidence-export-runbook.md`, `docs/acceptance/wave-7-withdraw-payout-final-acceptance-checklist.md`, `docs/acceptance/wave-7-withdraw-evidence-export-runbook.md`, `docs/specs/workflows/payin-deposit-canonical-workflow.md`, `docs/specs/workflows/withdraw-payout-canonical-workflow.md`, `docs/cleanup/wave-7-cleanup-master-plan.md`
@@ -29,9 +29,25 @@ Source of Truth Level: acceptance
    - expand acceptance baseline to high-frequency branches
    - freeze evidence / canonical audit symmetry
 
+## Closeout Verification Snapshot
+- Verified on `2026-03-30`.
+- Admin operator surfaces:
+  - `npm --prefix /Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js/admin-web run build`
+- Wave 7 closeout specs:
+  - `npm --prefix /Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js test -- --runInBand src/modules/risk-engine/compliance-alerts/compliance-alerts.service.spec.ts src/modules/risk-engine/risk-decision-records.service.spec.ts src/modules/risk-engine/transaction-compliance/transaction-risk-bridge.service.spec.ts src/modules/trading/withdraw-transactions/withdraw-transaction-workflow.service.spec.ts`
+  - `npm --prefix /Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js test -- --runInBand src/modules/asset-treasury/payins/payins.service.spec.ts src/modules/asset-treasury/payouts/payouts.service.spec.ts src/modules/risk-engine/audit-logs/audit-logs.service.spec.ts src/modules/clearing-settle/safeguarding-reconciliation/safeguarding-reconciliation.service.spec.ts`
+- Operator-facing cleanup confirmed by current branch review:
+  - active alert stage filter no longer advertises `REVIEW_WITHDRAW_PRECHECK`
+  - alert detail treats canonical `riskBand / riskReason` as primary truth
+  - payin/payout list pages now use `adminFetch` and `ownerNo-first` display
+
 ## Current Runtime Truth
 - `deposit` and `withdraw` are the transaction roots.
 - `payin` and `payout` are the rail roots.
+- Active rail contract truth is:
+  - `type = CRYPTO / FIAT`
+  - terminal payout/payin status = `CLEARED`
+- Old stored/raw values may still be read and normalized, but they are no longer valid active operator-facing contract values.
 - Response containers are evidence only:
   - `fiat payin` / `fiat withdraw` do not auto-create response containers
   - `crypto payin`: `KYT + Travel Rule` on `payin CONFIRM`
@@ -61,7 +77,7 @@ Source of Truth Level: acceptance
   - `FALSE_POSITIVE` or clear callback returns to canonical success path
 - `HIGH`
   - alert + case
-  - `CLEAR` returns to canonical success path
+  - `CLEAR` callback returns to canonical success path
   - `REJECT` terminates as `REJECTED`
 - `FREEZE`
   - remains under compliance control and must not fake terminal accounting
@@ -79,7 +95,7 @@ Source of Truth Level: acceptance
   - `FALSE_POSITIVE` or clear callback resumes to `PAYOUT_PENDING`
 - `HIGH`
   - alert + case
-  - `CLEAR` resumes to `PAYOUT_PENDING`
+  - `CLEAR` callback resumes to `PAYOUT_PENDING`
   - `REJECT` terminates as `REJECTED`
 - `PAYOUT_FAIL / TIMEOUT / RETURNED`
   - handled through payout terminal callbacks plus canonical compensation semantics
@@ -138,9 +154,11 @@ Source of Truth Level: acceptance
   - `TX_WITHDRAW_PRECHECK`
   - `REVIEW_WITHDRAW_PRECHECK`
   - legacy response status payloads such as `PASS / ACCEPTED / NOT_REQUIRED / REVIEW / FAIL`
-- Still tolerated as raw public-contract asymmetry, but not as admin display truth:
-  - `PayinType = crypto / fiat` while `PayoutType = CRYPTO / FIAT`
-  - `PayinStatus.CLEARED` while `PayoutStatus.CLEAR`
+- Still tolerated as frozen historical-input compatibility only, not as active operator wording:
+  - historical simulation metadata such as `simulationRiskLevel / simulationRiskReason`
+- Still tolerated as frozen historical-input compatibility only:
+  - old stored/raw payin type values that normalize to `CRYPTO / FIAT`
+  - old stored/raw payout status `CLEAR` that normalizes to `CLEARED`
   - `WithdrawTransactionStatus.CREATED / APPROVED / HELD` as historical compatibility values
 - Not tolerated as active truth:
   - live PRECHECK simulation

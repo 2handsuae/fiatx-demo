@@ -417,13 +417,12 @@ const ComplianceAlertDetailPage = () => {
   const canonicalRiskReason = String(metadata.riskReason || '').trim();
   const compatibilityRiskBand = String(metadata.simulationRiskLevel || '').trim();
   const compatibilityRiskReason = String(metadata.simulationRiskReason || '').trim();
-  const riskBand = canonicalRiskBand || compatibilityRiskBand;
-  const riskReason = canonicalRiskReason || compatibilityRiskReason;
-  const riskSnapshotSource = canonicalRiskBand || canonicalRiskReason
-    ? 'Canonical alert metadata'
-    : compatibilityRiskBand || compatibilityRiskReason
-      ? 'Compatibility fallback from historical simulation metadata'
-      : '-';
+  const riskBand = canonicalRiskBand;
+  const riskReason = canonicalRiskReason;
+  const hasHistoricalRiskCompatibility =
+    Boolean(compatibilityRiskBand) || Boolean(compatibilityRiskReason);
+  const riskSnapshotSource =
+    canonicalRiskBand || canonicalRiskReason ? 'Canonical alert metadata' : '-';
 
   const openResolutionModal = (action: ResolutionAction) => {
     setError('');
@@ -617,6 +616,24 @@ const ComplianceAlertDetailPage = () => {
           <InfoField label="Hit Count" value={detail.hitCount} />
           <InfoField label="Message" value={detail.message} />
         </DetailCard>
+
+        {hasHistoricalRiskCompatibility ? (
+          <DetailCard title="Historical Compatibility" columns={2}>
+            <InfoField
+              label="Simulation Risk Level"
+              value={compatibilityRiskBand || '-'}
+            />
+            <InfoField
+              label="Simulation Risk Reason"
+              value={compatibilityRiskReason || '-'}
+            />
+            <div className="xl:col-span-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-800">
+              Historical simulation metadata is retained for read-only traceability.
+              Current alert truth should be interpreted from canonical risk metadata,
+              decision records, alerts, and case callbacks.
+            </div>
+          </DetailCard>
+        ) : null}
 
         <DetailCard title="Lifecycle" columns={2}>
           <InfoField label="Due" value={formatDateTime(detail.dueAt)} />

@@ -1,3 +1,11 @@
+Status: active
+Owner: project-owner-and-agents
+Last Updated: 2026-03-30
+Applies To: `Exchange_js`
+Supersedes: none
+Depends On: `docs/constraints/backend-platform-constraints.md`
+Source of Truth Level: constraints
+
 # Backend Architecture Constraints (`src/**`)
 
 ## 1) Module Boundary

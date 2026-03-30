@@ -9,7 +9,6 @@ import { Prisma, KytCase, TravelRuleCase } from '@prisma/client';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import {
-  MockBackfillDto,
   MockKytCaseCompleteDto,
   MockTravelRuleCaseCompleteDto,
   TxKytCaseCallbackDto,
@@ -2378,119 +2377,6 @@ export class TransactionComplianceService {
     }
 
     return upserted;
-  }
-
-  async mockBackfill(dto: MockBackfillDto) {
-    const providerMode = this.getProviderMode();
-    const limit = dto.limit ?? 100;
-    const dryRun = dto.dryRun ?? false;
-    const sourceTypes = dto.sourceType
-      ? [dto.sourceType]
-      : [TxSourceType.DEPOSIT, TxSourceType.WITHDRAW];
-
-    let scanned = 0;
-    let processed = 0;
-
-    const summary = {
-      deposit: { scanned: 0, processed: 0 },
-      withdraw: { scanned: 0, processed: 0 },
-    };
-
-    if (sourceTypes.includes(TxSourceType.DEPOSIT)) {
-      const where: Prisma.DepositTransactionWhereInput = {};
-      if (dto.sourceStatus) {
-        where.status = dto.sourceStatus;
-      } else {
-        where.status = {
-          in: [
-            DepositTransactionStatus.COMPLIANCE_PENDING,
-            DepositTransactionStatus.UNDER_REVIEW,
-          ],
-        };
-      }
-
-      const rows = await this.prisma.depositTransaction.findMany({
-        where,
-        take: limit,
-        orderBy: { createdAt: 'desc' },
-        select: { id: true },
-      });
-
-      summary.deposit.scanned = rows.length;
-      scanned += rows.length;
-
-      if (!dryRun) {
-        for (const row of rows) {
-          await this.ensureDepositComplianceCases(row.id);
-          summary.deposit.processed += 1;
-          processed += 1;
-        }
-      }
-    }
-
-    if (sourceTypes.includes(TxSourceType.WITHDRAW)) {
-      const where: Prisma.WithdrawTransactionWhereInput = {};
-      if (dto.sourceStatus) {
-        where.status = dto.sourceStatus;
-      } else {
-        where.status = {
-          in: [
-            WithdrawTransactionStatus.PENDING_COMPLIANCE,
-            WithdrawTransactionStatus.UNDER_REVIEW,
-            WithdrawTransactionStatus.PAYOUT_PENDING,
-          ],
-        };
-      }
-
-      const rows = await this.prisma.withdrawTransaction.findMany({
-        where,
-        take: limit,
-        orderBy: { createdAt: 'desc' },
-        select: { id: true },
-      });
-
-      summary.withdraw.scanned = rows.length;
-      scanned += rows.length;
-
-      if (!dryRun) {
-        for (const row of rows) {
-          await this.ensureWithdrawComplianceCases(row.id);
-          summary.withdraw.processed += 1;
-          processed += 1;
-        }
-      }
-    }
-
-    this.logger.log(
-      `tx compliance mock-backfill finished: mode=${providerMode}, dryRun=${dryRun}, scanned=${scanned}, processed=${processed}`,
-    );
-
-    await this.auditLogsService.recordSystem({
-      triggerType: AuditTriggerType.SYSTEM_EVENT,
-      action: AuditActions.SYSTEM_TX_COMPLIANCE_BACKFILL_EXECUTED,
-      module: AuditModules.TRANSACTION_COMPLIANCE,
-      entityType: AuditEntityTypes.KYT_CASE,
-      result: AuditResult.SUCCESS,
-      reason: dryRun
-        ? 'Transaction compliance backfill dry-run executed'
-        : 'Transaction compliance backfill executed',
-      metadata: {
-        mode: providerMode,
-        dryRun,
-        scanned,
-        processed,
-        summary,
-      },
-      sourcePlatform: 'SYSTEM',
-    });
-
-    return {
-      mode: providerMode,
-      dryRun,
-      scanned,
-      processed,
-      summary,
-    };
   }
 
   async getCaseSummaries(

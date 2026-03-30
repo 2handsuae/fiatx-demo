@@ -166,11 +166,11 @@ const getDecisionContextMeta = (contextType?: string | null) => {
 
   if (normalized === 'TX_DEPOSIT_TRAVEL_RULE') {
     return {
-      title: 'Deposit Travel Rule Stage Decision',
-      badgeLabel: 'LEGACY',
-      badgeClass: 'bg-amber-100 text-amber-800',
+      title: 'Deposit Travel Rule Historical Decision',
+      badgeLabel: 'HISTORICAL / READ-ONLY',
+      badgeClass: 'bg-slate-100 text-slate-700',
       helperText:
-        'Legacy stage-level record kept for history. New deposit flow should no longer create this as the primary decision.',
+        'Historical provider-ingestion record kept for replay only. Active deposit operator decisions should rely on TX_DEPOSIT_FINAL.',
     };
   }
 
@@ -421,9 +421,8 @@ const RiskPolicyExecutionsPage = () => {
       <div className="px-4 py-3 border border-blue-200 bg-blue-50 rounded-lg text-sm text-blue-800">
         Supported manual simulation contexts are <span className="font-semibold">ONBOARDING_CDD</span>,{' '}
         <span className="font-semibold">TX_DEPOSIT_FINAL</span>, and <span className="font-semibold">TX_SWAP_FINAL</span>.
-        Historical <span className="font-semibold">TX_DEPOSIT_KYT_MAIN</span> and{' '}
-        <span className="font-semibold">TX_DEPOSIT_TRAVEL_RULE</span> rows may still appear here as legacy
-        stage records, but they are not the new operator simulation surface.
+        Historical <span className="font-semibold">TX_DEPOSIT_KYT_MAIN</span> rows may still appear here as legacy
+        stage records, but they are not part of the active operator simulation surface.
       </div>
 
       {message && (

@@ -600,7 +600,7 @@ describe('AuditLogsService', () => {
     );
   });
 
-  it('should expand swap workflowNo queries to include linked quote-root records', async () => {
+  it('should keep swap workflowNo queries canonicalized to linked swap records only', async () => {
     prisma.swapTransaction.findMany
       .mockResolvedValueOnce([
         {
@@ -628,16 +628,16 @@ describe('AuditLogsService', () => {
           { workflowType: 'SWAP' },
           {
             OR: expect.arrayContaining([
-              { workflowNo: { in: ['QUO2603260001', 'SWP2603260001'] } },
+              { workflowNo: { in: ['SWP2603260001'] } },
               {
                 subjectNos: {
                   some: {
-                    subjectNo: { in: ['QUO2603260001', 'SWP2603260001'] },
+                    subjectNo: { in: ['SWP2603260001'] },
                   },
                 },
               },
               {
-                traceId: { in: ['SWAP:quote-1', 'SWAP:swap-1'] },
+                traceId: { in: ['SWAP:swap-1'] },
               },
             ]),
           },
@@ -1903,7 +1903,7 @@ describe('AuditLogsService', () => {
     expect(result.filterSnapshot.workflowNo).toBe('SWP2603260001');
   });
 
-  it('should retain quoteNo workflow summary for quote-only swap export selection without a linked swap', async () => {
+  it('should reject quote-only swap export selection without a linked swap', async () => {
     prisma.swapTransaction.findMany
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
@@ -1937,17 +1937,12 @@ describe('AuditLogsService', () => {
       },
     ]);
 
-    const result = await service.prepareEvidenceExportSelection({
-      selectedEventIds: ['audit-quote-1'],
-      workflowType: 'SWAP',
-      workflowNo: 'QUO2603260999',
-    } as any);
-
-    expect(result.workflowSummary).toEqual({
-      workflowType: 'SWAP',
-      workflowNos: ['QUO2603260999'],
-    });
-    expect(result.normalizedCriteria.workflowNo).toBe('QUO2603260999');
-    expect(result.filterSnapshot.workflowNo).toBe('QUO2603260999');
+    await expect(
+      service.prepareEvidenceExportSelection({
+        selectedEventIds: ['audit-quote-1'],
+        workflowType: 'SWAP',
+        workflowNo: 'QUO2603260999',
+      } as any),
+    ).rejects.toThrow('linked swap');
   });
 });

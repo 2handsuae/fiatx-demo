@@ -61,8 +61,8 @@ Source of Truth Level: acceptance
 4. UI shows gross / fee / net
 - Evidence export:
 1. export by `swapId`
-2. export by `quoteId`
-3. package contains quote, risk, alert/case, journal, outstanding chain
+2. package manifest and workflow summary resolve to `swapNo`
+3. package contains linked quote, risk, alert/case, journal, outstanding chain
 
 ## Acceptance Result
 - Wave 6 is acceptable only when all checklist items pass without manual DB repair.

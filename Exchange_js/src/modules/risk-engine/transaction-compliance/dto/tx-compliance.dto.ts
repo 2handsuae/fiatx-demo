@@ -107,28 +107,6 @@ export class MockTravelRuleCaseCompleteDto {
   assetId?: string;
 }
 
-export class MockBackfillDto {
-  @IsOptional()
-  @IsEnum(TxSourceType)
-  sourceType?: TxSourceType;
-
-  @IsOptional()
-  @IsString()
-  sourceStatus?: string;
-
-  @IsOptional()
-  @Type(() => Boolean)
-  @IsBoolean()
-  dryRun?: boolean;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  @Max(1000)
-  limit?: number;
-}
-
 export class TxCaseListQueryDto {
   @IsOptional()
   @Type(() => Number)

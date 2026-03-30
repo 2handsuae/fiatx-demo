@@ -45,10 +45,11 @@ Source of Truth Level: roadmap
   - `docs/specs/entities/withdraw-transaction-entity.md`
   - `docs/specs/entities/payout-entity.md`
   - `docs/acceptance/wave-7-withdraw-payout-final-acceptance-checklist.md`
-- 但与 `Wave 5/6` 不同，当前 `Wave 7` 仍应视为：
-  - `active / in progress`
-  - 尚未完成像 `Wave 5/6` 那样的 durable runtime truth 全量下沉
-  - 尚未完成最小日对账与提现证据导出层面的完整 closeout
+- 当前 `Wave 7` 应视为：
+  - 主链 runtime 已落地
+  - durable runtime truth 已进入 `constraints / specs / acceptance`
+  - minimum daily reconciliation 与 withdraw evidence export 已进入 active truth
+  - cleanup closeout 已完成，当前 posture 已从 active cleanup 降为 residual-only
 - 当前 `Wave 7` roadmap 的职责仍然是：
   - 固定正式目标闭环
   - 固定 phase 顺序
@@ -57,7 +58,8 @@ Source of Truth Level: roadmap
 
 需要特别说明的是：
 
-- 当前 `Wave 7` 相关 workflow / entity / acceptance 文档可以作为专项推进参考，但不能自动等同于 `Wave 5/6` 那种“已经完全固化的完成态 truth”。
+- 当前 `Wave 7` 相关 workflow / entity / acceptance 文档已经是 active truth 入口。
+- 当前仍需记忆的主要是 residual compatibility inventory 与 `Wave 8` handoff 边界，而不是主链 feature 是否存在。
 - 本文下方的 `历史 Gap 清单` 主要用于解释为什么 `Wave 7` 要按当前顺序拆 phase，它不是当前 active backlog 的替代品。
 
 ## 3. Wave 7 总目标
@@ -112,7 +114,7 @@ Source of Truth Level: roadmap
 | 主体 | 当前状态机 / 生命周期 | 当前职责 | 主要驱动者 | 会反向影响 |
 | --- | --- | --- | --- | --- |
 | `Withdraw` | `PENDING_COMPLIANCE -> UNDER_REVIEW -> PAYOUT_PENDING -> SUCCESS / FAILED / REJECTED / CANCELLED / RETURNED` | 客户提现业务交易主体 | customer、withdraw service、workflow callback | 驱动 payout、transaction compliance、accounting、evidence |
-| `Payout` | `CRYPTO: CREATED -> SIGNING -> BROADCASTED -> CONFIRMING -> CONFIRMED -> CLEAR / FAILED / TIMEOUT`；`FIAT: CREATED -> CONFIRMING -> CONFIRMED -> CLEAR / FAILED / TIMEOUT / RETURNED` | 承载资金离开系统的执行与回执根 | treasury operator、payout service、未来 provider callback | 回驱 withdraw 终态、写 receipt trace、驱动补偿 |
+| `Payout` | `CRYPTO: CREATED -> SIGNING -> BROADCASTED -> CONFIRMING -> CONFIRMED -> CLEARED / FAILED / TIMEOUT`；`FIAT: CREATED -> CONFIRMING -> CONFIRMED -> CLEARED / FAILED / TIMEOUT / RETURNED` | 承载资金离开系统的执行与回执根 | treasury operator、payout service、未来 provider callback | 回驱 withdraw 终态、写 receipt trace、驱动补偿 |
 | `PRE-KYT Response` | 证据容器生命周期统一为 `CREATED -> RECEIVED -> FINAL` | 承载 crypto withdraw create 时自动补齐的 pre-screening evidence | transaction-compliance service、provider callback/mock | 更新 withdraw snapshot；不再直接驱动 active workflow |
 | `KYT Response` | 证据容器生命周期统一为 `CREATED -> RECEIVED -> FINAL` | 承载 crypto payout confirmed 时补齐的最终交易筛查 evidence | transaction-compliance service、provider callback/mock | 更新 withdraw snapshot；为 final review/evidence 提供材料 |
 | `Travel Rule Response` | 证据容器生命周期统一为 `CREATED -> RECEIVED -> FINAL` | 承载 crypto withdraw create / crypto payin confirm 的信息交换 evidence | transaction-compliance service、provider callback/mock | 更新 withdraw snapshot；不再直接等同于放行结论 |
@@ -140,7 +142,7 @@ flowchart TD
   I --> J["9. PATCH /payouts/:id/status starts dispatch"]
   J --> K["10. Payout receipt confirmed"]
   K --> L["11. Create KYT response container"]
-  L --> M["12. Withdraw SUCCESS + payout CLEAR"]
+  L --> M["12. Withdraw SUCCESS + payout CLEARED"]
   J --> N["13. Payout FAILED / TIMEOUT"]
   N --> O["14. Withdraw FAILED + reversal / compensation"]
   K --> P["15. Payout RETURNED"]
@@ -161,7 +163,7 @@ flowchart TD
 | `KYT response sync` | payout confirmed | response container、`withdraw snapshot` | tx compliance audit | 仅作为 evidence 容器，不回填旧 precheck path | 已具备 |
 | `TX_WITHDRAW_FINAL` | response snapshot ready / manual simulation | `riskDecisionRecord`、必要时 `alert / case` | risk trace / alert / case audit | 未 clear 不得进入 payout pending | 已具备 |
 | `Payout dispatch` | `PATCH /payouts/:id/status` | `payout` | payout dispatch audit | receipt replay、callback replay 必须幂等 | 已具备 |
-| `Payout receipt -> success` | payout confirmed | `withdraw`、`payout`、accounting outputs | withdraw / payout / accounting audit | `payout CLEAR` 不得先于 withdraw success posting | 部分已有 |
+| `Payout receipt -> success` | payout confirmed | `withdraw`、`payout`、accounting outputs | withdraw / payout / accounting audit | `payout CLEARED` 不得先于 withdraw success posting | 部分已有 |
 | `Failed / returned compensation` | payout fail / timeout / return | `withdraw`、journals、clearings、wallet balances | reversal / compensation audit | 重复回调不得重复冲正 | 部分已有 |
 | `Daily reconciliation` | business date closeout | `reconciliation break`、必要时 linked case | reconciliation audit / diff evidence | break 不得直接改交易状态 | 缺失 |
 | `Evidence export` | operator 发起导出并审批 | `evidence package` | export audit + manifest | 必须支持 `withdrawId / payoutId` 回放 | 缺失 |
@@ -446,7 +448,7 @@ flowchart TD
 **P0 交付物 / 目标任务**
 
 - 定义 `withdraw SUCCESS` 的 posting 顺序。
-- 定义 `payout CLEAR` 必须依赖 withdraw success posting 完成。
+- 定义 `payout CLEARED` 必须依赖 withdraw success posting 完成。
 - 定义 `FAILED / RETURNED` 的 reversal / compensation 合同。
 - 定义 repeated callback / retry / replay 的幂等边界。
 - 定义 `no orphan journal / clearing / wallet projection` 规则。

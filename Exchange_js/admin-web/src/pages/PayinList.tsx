@@ -3,6 +3,11 @@ import { useNavigate } from 'react-router-dom';
 import { Search, RefreshCw, Eye } from 'lucide-react';
 import { formatAssetAmount } from '../utils/number-format';
 import {
+  AdminSessionError,
+  adminFetch,
+  getApiErrorMessage,
+} from '../utils/adminFetch';
+import {
   formatRailStatusLabel,
   formatTransactionTypeLabel,
   normalizeRailDisplayStatus,
@@ -44,6 +49,7 @@ const PayinList = () => {
   const navigate = useNavigate();
   const [payins, setPayins] = useState<PayinItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
   // Filters
   const [statusFilter, setStatusFilter] = useState('');
@@ -51,28 +57,22 @@ const PayinList = () => {
 
   const fetchPayins = async () => {
     setLoading(true);
+    setError('');
     try {
-      const token = localStorage.getItem('admin_token');
       const params = new URLSearchParams();
       if (statusFilter) params.append('status', statusFilter);
       if (txHashSearch) params.append('txHash', txHashSearch);
-      
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/treasury/payins?${params.toString()}`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
-      if (response.ok) {
-        const result = await response.json();
-        setPayins(result.items || []);
-      } else {
-        if (response.status === 401) {
-            localStorage.removeItem('admin_token');
-            navigate('/admin/login');
-        }
+      const response = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/treasury/payins?${params.toString()}`,
+      );
+      if (!response.ok) {
+        throw new Error(await getApiErrorMessage(response, 'Failed to load payins.'));
       }
+      const result = await response.json();
+      setPayins(result.items || []);
     } catch (error) {
-      console.error('Failed to fetch payins', error);
+      if (error instanceof AdminSessionError) return;
+      setError(error instanceof Error ? error.message : 'Failed to load payins.');
     } finally {
       setLoading(false);
     }
@@ -111,6 +111,12 @@ const PayinList = () => {
           </button>
         </div>
       </div>
+
+      {error ? (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error}
+        </div>
+      ) : null}
 
       <div className="bg-white rounded-xl shadow-sm border border-admin-border overflow-hidden">
         <div className="p-4 border-b border-admin-border flex flex-col md:flex-row gap-4 justify-between">
@@ -216,7 +222,7 @@ const PayinList = () => {
                           </div>
                       ) : (
                           <div className="text-xs text-gray-400 font-mono">
-                              {payin.toWallet?.ownerId || '-'}
+                              {payin.ownerNo || payin.toWallet?.ownerId || '-'}
                           </div>
                       )}
                     </td>

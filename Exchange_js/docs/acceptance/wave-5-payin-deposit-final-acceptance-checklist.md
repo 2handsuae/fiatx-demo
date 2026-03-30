@@ -1,6 +1,6 @@
 Status: active
 Owner: project-owner-and-agents
-Last Updated: 2026-03-28
+Last Updated: 2026-03-30
 Applies To: `Exchange_js`
 Supersedes: none
 Depends On: `docs/constraints/customer-transaction-flow-constraints.md`, `docs/constraints/internal-transaction-flow-constraints.md`, `docs/specs/workflows/payin-deposit-canonical-workflow.md`, `docs/specs/entities/inbound-transfer-signal-entity.md`, `docs/specs/entities/payin-entity.md`, `docs/specs/entities/deposit-transaction-entity.md`, `docs/specs/entities/audit-evidence-package-entity.md`, `docs/specs/modules/risk-engine-module.md`, `docs/specs/modules/compliance-center-module.md`, `docs/specs/modules/accounting-ledger-module.md`, `docs/acceptance/wave-5-deposit-accounting-blocked-runbook.md`, `docs/acceptance/wave-5-deposit-evidence-export-runbook.md`
@@ -155,6 +155,8 @@ Source of Truth Level: acceptance
 - Provider response containers remain evidence containers, not platform cases.
 - Transaction hits enter `Alert / Case` only through risk-driven bridge semantics.
 - Workflow callback authority stays in canonical deposit state actions.
+- Active operator-facing lifecycle meaning for transaction compliance remains limited to canonical `CREATED / RECEIVED / FINAL`.
+- Historical travel-rule ingestion context and legacy provider lifecycle words remain compatibility-only and do not define current operator truth.
 - Evidence export can replay:
   - payin
   - deposit
@@ -170,3 +172,4 @@ Source of Truth Level: acceptance
   2. the linked workflow/entity/module docs
   3. the two Wave 5 runbooks
 - They do not need the phase-plan gap inventory or archived cleanup history to understand current runtime truth.
+- They also do not need `tx-cases/mock-backfill`; historical repair is no longer an active admin runtime surface.

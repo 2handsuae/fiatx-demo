@@ -1,6 +1,6 @@
-Status: draft
+Status: active
 Owner: project-owner-and-agents
-Last Updated: 2026-03-23
+Last Updated: 2026-03-30
 Applies To: `Exchange_js`
 Supersedes: none
 Depends On: `docs/roadmap/wave-4-ledger-asset-structure-phase-plan.md`, `docs/constraints/wallet-account-model-constraints.md`, `docs/constraints/business-base-config-release-constraints.md`, `docs/constraints/posting-clearing-balance-projection-constraints.md`, `docs/constraints/pricing-and-quote-constraints.md`
@@ -27,6 +27,11 @@ It verifies that Wave 4 has reached a usable platform-foundation baseline for:
 - `Phase 3` current runtime slice is implemented for `Withdraw` only.
 - `Phase 4-5` implemented-scope closeout evidence is already recorded below.
 - Post-closeout remediation evidence is also recorded below for the latest governance-audit and type-conformance fixes.
+- As of `2026-03-30`, Wave 4 should be read as:
+  - implemented-scope closeout complete
+  - pricing admin pages are explicitly read-only
+  - internal fake-write pricing policy methods are retired
+  - only historical migration / cleanup traces remain
 
 ## Environment Baseline
 
@@ -146,7 +151,7 @@ Recommended command sequence:
 3. `npm run db:base:sync`
 4. `npm run dev:reset`
 5. `npm run dev:start`
-6. `npm test -- --runInBand src/modules/trading/pricing-center/pricing-center.service.spec.ts src/modules/trading/pricing-center/pricing-center.quote-lifecycle.spec.ts src/modules/trading/swap-transactions/swap-quotes.service.spec.ts src/modules/trading/withdraw-transactions/withdraw-transactions.service.spec.ts`
+6. `npm test -- --runInBand src/modules/trading/pricing-center/pricing-center.service.spec.ts src/modules/trading/pricing-center/pricing-center.quote-lifecycle.spec.ts src/modules/trading/withdraw-transactions/withdraw-transactions.service.spec.ts`
 7. `npx tsc --pretty false --noEmit`
 8. `cd admin-web && npm run build`
 9. `npm run wave4:pricing:quote:smoke`
@@ -154,10 +159,41 @@ Recommended command sequence:
 Minimum pass criteria for this closeout:
 
 - local `main` DB migrates to latest schema without checksum drift or manual DB patching
-- `swap` quote create / cancel / admin read works through both unified and legacy wrapper paths
+- `swap` quote create / cancel / admin read works through both unified quote center and legacy admin alias paths
 - `withdraw` quote create / cancel / consume works with real TTL instead of far-expiry
 - admin unified `Quote Center` can read both `SWAP` and `WITHDRAWAL`
 - local evidence is recorded with quote IDs, quote numbers, withdraw number, and command chain
+
+## Closeout Verification Snapshot
+
+Verified on `2026-03-30` against the standard local `main` stack:
+
+1. `npm run runtime:diagnose`
+2. `npm run dev:start`
+3. `npm test -- --runInBand src/modules/trading/pricing-center/pricing-center.service.spec.ts src/modules/trading/pricing-center/pricing-center.quote-lifecycle.spec.ts src/modules/trading/withdraw-transactions/withdraw-transactions.service.spec.ts`
+4. `npm test -- --runInBand src/modules/governance/business-config/business-config.service.spec.ts src/modules/asset-treasury/wallets/wallets.service.spec.ts src/modules/asset-treasury/treasury/treasury.service.spec.ts src/orchestrators/withdraw-workflow.orchestrator.spec.ts`
+5. `npx tsc --pretty false --noEmit`
+6. `cd admin-web && npm run build`
+7. `npm run wave4:cleanup:inventory`
+8. `npm run wave4:pricing:quote:smoke`
+
+Recorded closeout confirmation on `2026-03-30`:
+
+- `runtime:diagnose` reported:
+  - `dbFile = /tmp/exchange_js_main/dev.db`
+  - `migration.driftDetected = false`
+- pricing admin pages are now read-only viewers:
+  - no misleading edit/save shell remains
+- `PricingCenterService.updateSwapPolicy / updateWithdrawalPolicy` are no longer present in runtime code
+- `wave4:cleanup:inventory` reported:
+  - `walletsMissingSnapshot = 0`
+  - `legacySysWalletNos = 0`
+  - `swapQuoteFallbackCandidates = 0`
+  - `withdrawFarExpiryCandidates = 0`
+- `wave4:pricing:quote:smoke` completed successfully with:
+  - customer `CUST-MIN-0003`
+  - swap quote create/cancel path working through unified admin read and legacy admin alias
+  - withdraw quote cancel/use path producing a new withdraw number
 
 Recorded local closeout evidence on `2026-03-23`:
 
@@ -217,6 +253,12 @@ Recorded remediation evidence on `2026-03-23`:
 - functional conclusion:
   - `business config release` lifecycle actions now have canonical audit evidence
   - `BusinessConfigService`, `TreasuryService`, `WalletsService`, and `WithdrawWorkflowOrchestrator` no longer rely on runtime `as any`
+
+## Practical Conclusion
+
+- `Wave 4` acceptance is no longer `draft`.
+- `Wave 4` now has an active implemented-scope closeout baseline.
+- Future Wave 4 work should be treated as residual historical cleanup, not active closeout.
 
 ## Phase 3 Runtime Evidence
 

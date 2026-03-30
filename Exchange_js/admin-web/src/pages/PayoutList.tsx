@@ -3,6 +3,11 @@ import { useNavigate } from 'react-router-dom';
 import { Search, RefreshCw, Eye } from 'lucide-react';
 import { formatAssetAmount } from '../utils/number-format';
 import {
+  AdminSessionError,
+  adminFetch,
+  getApiErrorMessage,
+} from '../utils/adminFetch';
+import {
   formatRailStatusLabel,
   formatTransactionTypeLabel,
   normalizeRailDisplayStatus,
@@ -45,6 +50,8 @@ const PayoutList = () => {
   const navigate = useNavigate();
   const [payouts, setPayouts] = useState<PayoutItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [message, setMessage] = useState('');
 
   // Filters
   const [statusFilter, setStatusFilter] = useState('');
@@ -52,28 +59,23 @@ const PayoutList = () => {
 
   const fetchPayouts = async () => {
     setLoading(true);
+    setError('');
     try {
-      const token = localStorage.getItem('admin_token');
       const params = new URLSearchParams();
       if (statusFilter) params.append('status', statusFilter);
       if (searchQuery) params.append('withdrawId', searchQuery); // Simplified search
-      
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/payouts?${params.toString()}`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
-      if (response.ok) {
-        const result = await response.json();
-        setPayouts(result.items || []);
-      } else {
-        if (response.status === 401) {
-            localStorage.removeItem('admin_token');
-            navigate('/admin/login');
-        }
+
+      const response = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/payouts?${params.toString()}`,
+      );
+      if (!response.ok) {
+        throw new Error(await getApiErrorMessage(response, 'Failed to load payouts.'));
       }
+      const result = await response.json();
+      setPayouts(result.items || []);
     } catch (error) {
-      console.error('Failed to fetch payouts', error);
+      if (error instanceof AdminSessionError) return;
+      setError(error instanceof Error ? error.message : 'Failed to load payouts.');
     } finally {
       setLoading(false);
     }
@@ -85,24 +87,21 @@ const PayoutList = () => {
 
   const handleCreateMock = async () => {
     setLoading(true);
+    setError('');
+    setMessage('');
     try {
-        const token = localStorage.getItem('admin_token');
-        const response = await fetch(`${import.meta.env.VITE_API_URL}/payouts/mock`, {
+        const response = await adminFetch(`${import.meta.env.VITE_API_URL}/payouts/mock`, {
             method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${token}`
-            }
         });
 
-        if (response.ok) {
-            fetchPayouts();
-        } else {
-            const err = await response.json();
-            alert(`Failed to create mock payouts: ${err.message || 'Unknown error'}`);
+        if (!response.ok) {
+            throw new Error(await getApiErrorMessage(response, 'Failed to create mock payouts.'));
         }
+        setMessage('Mock payouts created.');
+        await fetchPayouts();
     } catch (error) {
-        console.error('Failed to create mock payouts', error);
-        alert('Failed to create mock payouts due to network error');
+        if (error instanceof AdminSessionError) return;
+        setError(error instanceof Error ? error.message : 'Failed to create mock payouts.');
     } finally {
         setLoading(false);
     }
@@ -152,6 +151,17 @@ const PayoutList = () => {
         </div>
       </div>
 
+      {message ? (
+        <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-700">
+          {message}
+        </div>
+      ) : null}
+      {error ? (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error}
+        </div>
+      ) : null}
+
       <div className="bg-white rounded-xl shadow-sm border border-admin-border overflow-hidden">
         <div className="p-4 border-b border-admin-border flex flex-col md:flex-row gap-4 justify-between">
           <div className="relative flex-1 max-w-md flex gap-2">
@@ -181,7 +191,7 @@ const PayoutList = () => {
             <option value="BROADCASTED">Broadcasted</option>
             <option value="CONFIRMING">Confirming</option>
             <option value="CONFIRMED">Confirmed</option>
-            <option value="CLEAR">Cleared</option>
+            <option value="CLEARED">Cleared</option>
             <option value="FAILED">Failed</option>
             <option value="TIMEOUT">Timeout</option>
             <option value="RETURNED">Returned</option>
@@ -256,7 +266,7 @@ const PayoutList = () => {
                           </div>
                       ) : (
                           <div className="text-xs text-gray-400 font-mono">
-                              {payout.ownerId || '-'}
+                              {payout.ownerNo || payout.ownerId || '-'}
                           </div>
                       )}
                     </td>

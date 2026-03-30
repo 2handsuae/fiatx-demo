@@ -118,7 +118,8 @@ Source of Truth Level: specs-workflow
 
 ## Best Execution Evidence Contract
 - Current runtime proves `policy-consistent execution evidence`, not “best market execution across all venues”.
-- The swap evidence package MUST be reconstructable from `swapId` or `quoteId`.
+- The swap evidence package MUST be initiated from `swapId` or `swapNo`.
+- `quoteId / quoteNo` remain linked evidence inside the package and MUST NOT be treated as the active swap export root.
 
 ## Non-Goals
 - This workflow does not define a multi-LP smart order router.

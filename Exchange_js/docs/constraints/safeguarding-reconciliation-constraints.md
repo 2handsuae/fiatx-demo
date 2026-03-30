@@ -38,7 +38,7 @@ Source of Truth Level: constraints
   - `withdraw.status in FAILED | RETURNED | REJECTED | CANCELLED` => `0`
 - `observedNetDelta` contract is fixed:
   - prefer active `WITHDRAWAL` clearings summed by `inAmount`
-  - else `payout.amount` when payout is `CONFIRMED | CLEAR`
+  - else `payout.amount` when payout is `CONFIRMED | CLEARED`
   - else `0` when payout is `FAILED | TIMEOUT | RETURNED` and all linked clearings are `CANCELLED`
 - Allowed `reasonCode` values are fixed:
   - `DELTA_MISMATCH`

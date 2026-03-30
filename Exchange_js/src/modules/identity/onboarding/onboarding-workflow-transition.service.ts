@@ -106,7 +106,6 @@ export interface WorkflowTransitionOutput {
   updatedSubject?: WorkflowTransitionUpdatedSubject | null;
   eddResponse?: any | null;
   activeCaseId?: string | null;
-  finalApprovalStatus?: string | null;
   latestFinalApprovalId?: string | null;
   latestFinalApprovalStatus?: string | null;
   createdFinalApprovalId?: string | null;
@@ -188,19 +187,6 @@ export class OnboardingWorkflowTransitionService {
     restrictionStatus?: string | null;
   }): CustomerReviewStage | null {
     return getExpectedReviewStageFromCustomerState(customer);
-  }
-
-  private getCompatibilityFinalApprovalStatus(customer: {
-    latestFinalApprovalStatus?: string | null;
-    onboardingStatus?: string | null;
-  }): string | null {
-    const latest = String(customer.latestFinalApprovalStatus || '').trim().toUpperCase();
-    if (latest === 'APPROVED' || latest === 'REJECTED' || latest === 'PENDING') {
-      return latest;
-    }
-    return String(customer.onboardingStatus || '').trim().toUpperCase() === 'FINAL_APPROVAL'
-      ? 'PENDING'
-      : null;
   }
 
   private async createEddResponseIfNeeded(
@@ -503,7 +489,6 @@ export class OnboardingWorkflowTransitionService {
         updatedCustomer: customer,
         eddResponse: null,
         activeCaseId: linkedCaseIds[0] || null,
-        finalApprovalStatus: this.getCompatibilityFinalApprovalStatus(customer),
         latestFinalApprovalId: customer.latestFinalApprovalId || null,
         latestFinalApprovalStatus: customer.latestFinalApprovalStatus || null,
         createdFinalApprovalId: null,
@@ -678,7 +663,6 @@ export class OnboardingWorkflowTransitionService {
       updatedCustomer,
       eddResponse,
       activeCaseId: eddResponse?.id || null,
-      finalApprovalStatus: this.getCompatibilityFinalApprovalStatus(updatedCustomer),
       latestFinalApprovalId: updatedCustomer.latestFinalApprovalId || null,
       latestFinalApprovalStatus: updatedCustomer.latestFinalApprovalStatus || null,
       createdFinalApprovalId,

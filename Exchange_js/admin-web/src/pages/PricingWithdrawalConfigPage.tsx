@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, Edit3, RefreshCw, Save } from 'lucide-react';
+import { ArrowLeft, RefreshCw } from 'lucide-react';
 import { adminFetch, getApiErrorMessage } from '../utils/adminFetch';
 import { buildBusinessConfigReadOnlyMessage } from '../utils/businessConfigReadOnly';
 
@@ -83,10 +83,18 @@ function summarizeFee(item: FeeItem): string {
   return `Fixed ${item.value}`;
 }
 
+const FieldBlock = ({ label, value }: { label: string; value: string }) => (
+  <div className="space-y-1">
+    <div className="text-xs text-gray-500 uppercase tracking-wide">{label}</div>
+    <div className="px-3 py-2 rounded-lg border border-admin-border bg-gray-50 text-sm text-gray-800">
+      {value}
+    </div>
+  </div>
+);
+
 const PricingWithdrawalConfigPage = () => {
   const readOnlyMessage = buildBusinessConfigReadOnlyMessage('Withdrawal pricing policy');
   const [loading, setLoading] = useState(false);
-  const saving = false;
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
@@ -95,15 +103,7 @@ const PricingWithdrawalConfigPage = () => {
   const [summary, setSummary] = useState<PolicySummary | null>(null);
 
   const [viewMode, setViewMode] = useState<'list' | 'detail'>('list');
-  const [detailMode, setDetailMode] = useState<'preview' | 'edit'>('preview');
   const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
-  const [editSnapshot, setEditSnapshot] = useState<WithdrawalAssetEntry | null>(null);
-
-  const assetMap = useMemo(() => {
-    const map = new Map<string, Asset>();
-    assets.forEach((asset) => map.set(asset.id, asset));
-    return map;
-  }, [assets]);
 
   const selectedEntry = useMemo(() => {
     if (!policy || !selectedAssetId) return null;
@@ -203,75 +203,6 @@ const PricingWithdrawalConfigPage = () => {
     };
   };
 
-  const updateEntry = (
-    assetId: string,
-    updater: (entry: WithdrawalAssetEntry) => WithdrawalAssetEntry,
-  ) => {
-    if (!policy) return;
-    setPolicy({
-      ...policy,
-      assets: policy.assets.map((entry, index) => {
-        if (entry.assetId !== assetId) return entry;
-        const asset = assetMap.get(assetId);
-        if (!asset) return entry;
-        return normalizeEntry(updater(entry), asset, index);
-      }),
-    });
-  };
-
-  const updateFeeMode = (
-    assetId: string,
-    itemCode: FeeItem['itemCode'],
-    mode: FeeMode,
-  ) => {
-    updateEntry(assetId, (entry) => {
-      const tier = entry.tiers[0];
-      const nextItems = tier.feeItems.map((item) => {
-        if (item.itemCode !== itemCode) return item;
-        if (mode === 'PERCENT_WITH_MIN') {
-          return {
-            ...item,
-            calcType: 'PERCENT' as const,
-            value: toNumberString(item.value, '0'),
-            min: toNumberString(item.min, '0'),
-          };
-        }
-        return {
-          ...item,
-          calcType: 'FLAT' as const,
-          value: toNumberString(item.value, '0'),
-          min: null,
-        };
-      });
-      return {
-        ...entry,
-        tiers: [{ ...tier, feeItems: nextItems }],
-      };
-    });
-  };
-
-  const updateFeeField = (
-    assetId: string,
-    itemCode: FeeItem['itemCode'],
-    field: 'value' | 'min',
-    rawValue: string,
-  ) => {
-    updateEntry(assetId, (entry) => {
-      const tier = entry.tiers[0];
-      const nextItems = tier.feeItems.map((item) => {
-        if (item.itemCode !== itemCode) return item;
-        if (field === 'min') {
-          return { ...item, min: rawValue };
-        }
-        return { ...item, value: rawValue };
-      });
-      return {
-        ...entry,
-        tiers: [{ ...tier, feeItems: nextItems }],
-      };
-    });
-  };
-
   const loadAssets = async () => {
     const response = await adminFetch(
       `${import.meta.env.VITE_API_URL}/assets?status=ACTIVE&take=200`,
@@ -320,8 +251,6 @@ const PricingWithdrawalConfigPage = () => {
     try {
       const loadedAssets = await loadAssets();
       await Promise.all([loadPolicy(loadedAssets), loadSummary()]);
-      setDetailMode('preview');
-      setEditSnapshot(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -337,22 +266,8 @@ const PricingWithdrawalConfigPage = () => {
   const openDetail = (assetId: string) => {
     setSelectedAssetId(assetId);
     setViewMode('detail');
-    setDetailMode('preview');
-    setEditSnapshot(null);
     setError(null);
     setMessage(null);
-  };
-
-  const cancelEdit = () => {
-    if (!selectedAssetId || !editSnapshot) return;
-    updateEntry(selectedAssetId, () => editSnapshot);
-    setDetailMode('preview');
-    setEditSnapshot(null);
-  };
-
-  const savePolicy = async () => {
-    setError(null);
-    setMessage(readOnlyMessage);
   };
 
   const renderTopBar = () => (
@@ -364,12 +279,10 @@ const PricingWithdrawalConfigPage = () => {
         </p>
       </div>
       <div className="flex items-center gap-2">
-        {viewMode === 'detail' && detailMode === 'preview' && (
+        {viewMode === 'detail' && (
           <button
             onClick={() => {
               setViewMode('list');
-              setDetailMode('preview');
-              setEditSnapshot(null);
             }}
             className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-admin-border bg-white text-gray-700 hover:bg-gray-50"
           >
@@ -489,73 +402,28 @@ const PricingWithdrawalConfigPage = () => {
             <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
               <div>
                 <h2 className="text-lg font-semibold text-gray-900">Asset Fee Details</h2>
-                <p className="text-sm text-gray-500 mt-1">Configure service and gas fee for this asset.</p>
+                <p className="text-sm text-gray-500 mt-1">Current service and gas fee for this asset.</p>
               </div>
-              {detailMode === 'preview' ? (
-                <div className="inline-flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-sm text-amber-800">
-                  <Edit3 size={14} /> Read-only in Phase 2
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    setViewMode('list');
+                  }}
+                  className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-admin-border bg-white text-gray-700 hover:bg-gray-50"
+                >
+                  <ArrowLeft size={14} /> Back
+                </button>
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-sm text-amber-800">
+                  {readOnlyMessage}
                 </div>
-              ) : (
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={cancelEdit}
-                    disabled={saving}
-                    className="px-3 py-1.5 rounded-lg border border-admin-border bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-60"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={savePolicy}
-                    disabled={saving}
-                    className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-brand-primary text-white hover:bg-brand-primary/90 disabled:opacity-60"
-                  >
-                    <Save size={14} /> Save
-                  </button>
-                </div>
-              )}
+              </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-              <div className="space-y-1">
-                <div className="text-xs text-gray-500 uppercase tracking-wide">Asset</div>
-                <div className="px-3 py-2 rounded-lg border border-admin-border bg-gray-50 text-gray-800">
-                  {selectedEntry.assetCode}
-                </div>
-              </div>
-              <div className="space-y-1">
-                <div className="text-xs text-gray-500 uppercase tracking-wide">Network</div>
-                <div className="px-3 py-2 rounded-lg border border-admin-border bg-gray-50 text-gray-800">
-                  {selectedEntry.network || '-'}
-                </div>
-              </div>
-              <div className="space-y-1">
-                <div className="text-xs text-gray-500 uppercase tracking-wide">Asset ID</div>
-                <div className="px-3 py-2 rounded-lg border border-admin-border bg-gray-50 text-gray-800 font-mono text-xs">
-                  {selectedEntry.assetId}
-                </div>
-              </div>
-              <div className="space-y-1">
-                <div className="text-xs text-gray-500 uppercase tracking-wide">Enabled</div>
-                {detailMode === 'edit' ? (
-                  <select
-                    value={selectedEntry.enabled ? 'true' : 'false'}
-                    onChange={(e) =>
-                      updateEntry(selectedEntry.assetId, (entry) => ({
-                        ...entry,
-                        enabled: e.target.value === 'true',
-                      }))
-                    }
-                    className="w-full px-3 py-2 rounded-lg border border-admin-border"
-                  >
-                    <option value="true">Enabled</option>
-                    <option value="false">Disabled</option>
-                  </select>
-                ) : (
-                  <div className="px-3 py-2 rounded-lg border border-admin-border bg-gray-50 text-gray-800">
-                    {selectedEntry.enabled ? 'Enabled' : 'Disabled'}
-                  </div>
-                )}
-              </div>
+              <FieldBlock label="Asset" value={selectedEntry.assetCode} />
+              <FieldBlock label="Network" value={selectedEntry.network || '-'} />
+              <FieldBlock label="Asset ID" value={selectedEntry.assetId} />
+              <FieldBlock label="Enabled" value={selectedEntry.enabled ? 'Enabled' : 'Disabled'} />
             </div>
 
             {[serviceFee, gasFee].map((fee) => {
@@ -568,109 +436,25 @@ const PricingWithdrawalConfigPage = () => {
                 <div key={fee.itemCode} className="rounded-xl border border-admin-border p-4 space-y-3">
                   <h3 className="text-sm font-semibold text-gray-900">{title}</h3>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                    <div className="space-y-1">
-                      <div className="text-xs text-gray-500 uppercase tracking-wide">Mode</div>
-                      {detailMode === 'edit' ? (
-                        <select
-                          value={mode}
-                          onChange={(e) =>
-                            updateFeeMode(
-                              selectedEntry.assetId,
-                              fee.itemCode,
-                              e.target.value as FeeMode,
-                            )
-                          }
-                          className="w-full px-3 py-2 rounded-lg border border-admin-border"
-                        >
-                          <option value="PERCENT_WITH_MIN">Percent + Minimum</option>
-                          <option value="FLAT">Fixed</option>
-                        </select>
-                      ) : (
-                        <div className="px-3 py-2 rounded-lg border border-admin-border bg-gray-50 text-gray-800">
-                          {mode === 'PERCENT_WITH_MIN' ? 'Percent + Minimum' : 'Fixed'}
-                        </div>
-                      )}
-                    </div>
+                    <FieldBlock
+                      label="Mode"
+                      value={mode === 'PERCENT_WITH_MIN' ? 'Percent + Minimum' : 'Fixed'}
+                    />
 
                     {mode === 'PERCENT_WITH_MIN' ? (
                       <>
-                        <div className="space-y-1">
-                          <div className="text-xs text-gray-500 uppercase tracking-wide">Percent (%)</div>
-                          {detailMode === 'edit' ? (
-                            <input
-                              type="number"
-                              min="0"
-                              step="any"
-                              value={fee.value}
-                              onChange={(e) =>
-                                updateFeeField(
-                                  selectedEntry.assetId,
-                                  fee.itemCode,
-                                  'value',
-                                  e.target.value,
-                                )
-                              }
-                              className="w-full px-3 py-2 rounded-lg border border-admin-border"
-                            />
-                          ) : (
-                            <div className="px-3 py-2 rounded-lg border border-admin-border bg-gray-50 text-gray-800">
-                              {fee.value}
-                            </div>
-                          )}
-                        </div>
-                        <div className="space-y-1">
-                          <div className="text-xs text-gray-500 uppercase tracking-wide">
-                            Minimum ({selectedEntry.assetCode})
-                          </div>
-                          {detailMode === 'edit' ? (
-                            <input
-                              type="number"
-                              min="0"
-                              step="any"
-                              value={fee.min || '0'}
-                              onChange={(e) =>
-                                updateFeeField(
-                                  selectedEntry.assetId,
-                                  fee.itemCode,
-                                  'min',
-                                  e.target.value,
-                                )
-                              }
-                              className="w-full px-3 py-2 rounded-lg border border-admin-border"
-                            />
-                          ) : (
-                            <div className="px-3 py-2 rounded-lg border border-admin-border bg-gray-50 text-gray-800">
-                              {fee.min || '0'}
-                            </div>
-                          )}
-                        </div>
+                        <FieldBlock label="Percent (%)" value={fee.value} />
+                        <FieldBlock
+                          label={`Minimum (${selectedEntry.assetCode})`}
+                          value={fee.min || '0'}
+                        />
                       </>
                     ) : (
-                      <div className="space-y-1 md:col-span-2">
-                        <div className="text-xs text-gray-500 uppercase tracking-wide">
-                          Fixed ({selectedEntry.assetCode})
-                        </div>
-                        {detailMode === 'edit' ? (
-                          <input
-                            type="number"
-                            min="0"
-                            step="any"
-                            value={fee.value}
-                            onChange={(e) =>
-                              updateFeeField(
-                                selectedEntry.assetId,
-                                fee.itemCode,
-                                'value',
-                                e.target.value,
-                              )
-                            }
-                            className="w-full px-3 py-2 rounded-lg border border-admin-border"
-                          />
-                        ) : (
-                          <div className="px-3 py-2 rounded-lg border border-admin-border bg-gray-50 text-gray-800">
-                            {fee.value}
-                          </div>
-                        )}
+                      <div className="md:col-span-2">
+                        <FieldBlock
+                          label={`Fixed (${selectedEntry.assetCode})`}
+                          value={fee.value}
+                        />
                       </div>
                     )}
                   </div>

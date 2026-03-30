@@ -352,7 +352,6 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   // Transaction compliance
   route('POST', '/admin/compliance/tx-kyt-cases/mock-complete', 'Mock complete KYT case', ['TX_COMPLIANCE_WRITE']),
   route('POST', '/admin/compliance/tx-travel-rule-cases/mock-complete', 'Mock complete travel-rule case', ['TX_COMPLIANCE_WRITE']),
-  route('POST', '/admin/compliance/tx-cases/mock-backfill', 'Mock backfill tx cases', ['TX_COMPLIANCE_WRITE']),
   route('GET', '/admin/compliance/tx-kyt-cases', 'List KYT cases', ['TX_COMPLIANCE_READ']),
   route('GET', '/admin/compliance/tx-kyt-cases/:id', 'Get KYT case detail', ['TX_COMPLIANCE_READ']),
   route('GET', '/admin/compliance/tx-travel-rule-cases', 'List travel-rule cases', ['TX_COMPLIANCE_READ']),

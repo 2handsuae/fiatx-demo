@@ -347,12 +347,16 @@ const ComplianceAlertsPage = () => {
             onChange={(e) => setFilters((prev) => ({ ...prev, stage: e.target.value as FilterState['stage'] }))}
           >
             <option value="">All stage</option>
+            {filters.stage === 'REVIEW_WITHDRAW_PRECHECK' ? (
+              <option value="REVIEW_WITHDRAW_PRECHECK">
+                REVIEW_WITHDRAW_PRECHECK (Historical Read-only)
+              </option>
+            ) : null}
             <option value="REVIEW_CDD">REVIEW_CDD</option>
             <option value="REVIEW_EDD">REVIEW_EDD</option>
             <option value="REVIEW_KYT">REVIEW_KYT</option>
             <option value="REVIEW_TRAVEL_RULE">REVIEW_TRAVEL_RULE</option>
             <option value="REVIEW_DEPOSIT_FINAL">REVIEW_DEPOSIT_FINAL</option>
-            <option value="REVIEW_WITHDRAW_PRECHECK">REVIEW_WITHDRAW_PRECHECK (Legacy)</option>
             <option value="REVIEW_WITHDRAW_FINAL">REVIEW_WITHDRAW_FINAL</option>
             <option value="REVIEW_WITHDRAW_RECONCILIATION">REVIEW_WITHDRAW_RECONCILIATION</option>
             <option value="REVIEW_SWAP_FINAL">REVIEW_SWAP_FINAL</option>

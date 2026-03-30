@@ -62,19 +62,6 @@ export class PeriodicReviewWorkflowTransitionService {
     return resolveCustomerCanonicalState(customer).onboardingStatus;
   }
 
-  private getCompatibilityFinalApprovalStatus(customer: {
-    latestFinalApprovalStatus?: string | null;
-    onboardingStatus?: string | null;
-  }): string | null {
-    const latest = String(customer.latestFinalApprovalStatus || '').trim().toUpperCase();
-    if (latest === 'APPROVED' || latest === 'REJECTED' || latest === 'PENDING') {
-      return latest;
-    }
-    return String(customer.onboardingStatus || '').trim().toUpperCase() === 'FINAL_APPROVAL'
-      ? 'PENDING'
-      : null;
-  }
-
   private buildActiveCycleBindingPatch(
     cycleId?: string | null,
   ): Prisma.CustomerMainUpdateInput {
@@ -416,7 +403,6 @@ export class PeriodicReviewWorkflowTransitionService {
         updatedCustomer: customer,
         eddResponse: null,
         activeCaseId: cycle.currentEddResponseId || cycle.currentCddResponseId || null,
-        finalApprovalStatus: this.getCompatibilityFinalApprovalStatus(customer),
         latestFinalApprovalId: customer.latestFinalApprovalId || null,
         latestFinalApprovalStatus: customer.latestFinalApprovalStatus || null,
         createdFinalApprovalId: null,
@@ -615,7 +601,6 @@ export class PeriodicReviewWorkflowTransitionService {
           ? String((cycleUpdateData.currentEddResponseId as string | undefined) || '')
               .trim() || null
           : cycle.currentEddResponseId || null,
-      finalApprovalStatus: this.getCompatibilityFinalApprovalStatus(updatedCustomer),
       latestFinalApprovalId: updatedCustomer.latestFinalApprovalId || null,
       latestFinalApprovalStatus: updatedCustomer.latestFinalApprovalStatus || null,
       createdFinalApprovalId: null,

@@ -1,6 +1,6 @@
 Status: active
 Owner: project-owner-and-agents
-Last Updated: 2026-03-22
+Last Updated: 2026-03-30
 Applies To: `Exchange_js`
 Supersedes: none
 Depends On: `docs/specs/workflows/case-final-lifecycle-and-external-filing.md`, `docs/specs/workflows/onboarding-periodic-review-audit-trace-contract.md`, `docs/specs/entities/compliance-case-entity.md`, `docs/specs/entities/customer-entity.md`
@@ -11,6 +11,8 @@ Source of Truth Level: acceptance
 ## Purpose
 - This document is the final cross-wave operator runbook for Wave 2 compliance center kernel and Wave 3 onboarding / periodic review runtime.
 - It teaches testers, operators, and demo owners how to validate the current finished runtime without relying on archived cleanup context.
+- This acceptance validates the canonical core runtime only.
+- Later-wave transaction / reconciliation linked-case projections remain outside this checklist.
 
 ## Audience
 - QA / UAT operator
@@ -98,6 +100,7 @@ Source of Truth Level: acceptance
 - Confirm:
   - customer moves to `APPROVED`
   - customer `operatingStatus = ACTIVE`
+  - active workflow and customer-detail summaries rely on `latestFinalApproval*` plus canonical customer status, not compatibility `finalApprovalStatus`
   - approval status is terminal and auditable
 
 ### 5. Onboarding Reject Paths
@@ -152,6 +155,7 @@ Source of Truth Level: acceptance
 ## Minimum Verification
 - Wave 2 alert / case / MLRO / filing uses canonical contract only.
 - Wave 3 onboarding / periodic review uses canonical response identity and canonical customer status only.
+- Active onboarding / periodic-review workflow transition surfaces do not rely on compatibility `finalApprovalStatus`.
 - `/cases/**` is the only active runtime case surface.
 - `Audit Center` can replay:
   - onboarding `response -> alert -> case -> MLRO -> approval`
@@ -162,10 +166,12 @@ Source of Truth Level: acceptance
 - `Case Report` is treated as independent investigation record.
 - `External Filing` is treated as independent follow-up object.
 - `Approvals` only govern final approval or other explicit governance objects; they do not replace customer lifecycle itself.
-- Historical aliases such as `incidentNo`, `ownerUserId`, `publicStatus`, `caseNo/caseType` response aliases, and `onboarding_audit_logs` are not needed to complete runtime validation.
+- Historical aliases such as `incidentNo`, `ownerUserId`, `publicStatus`, and `caseNo/caseType` response aliases do not drive active runtime meaning.
+- If `onboarding_audit_logs` is surfaced on `Customer Detail`, it is archived / historical context only; canonical audit truth lives in `Audit Center`.
 
 ## Pass Criteria
 - Historical mirrors may still exist in storage or archived docs, but they do not drive active runtime meaning.
+- Later-wave transaction / reconciliation linked-case projections remain a separate downstream residual thread and are not required for this acceptance.
 - A new engineer or tester can validate the full flow by reading:
 1. this acceptance document
 2. the referenced workflow/entity/module docs

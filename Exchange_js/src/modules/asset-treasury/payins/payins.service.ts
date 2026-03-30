@@ -82,6 +82,20 @@ export class PayinsService {
     return normalized;
   }
 
+  private normalizeStoredPayinType(type?: string | null): PayinType | null {
+    const normalized = this.normalizeAdminPayinType(type);
+    if (normalized === PayinType.CRYPTO || normalized === PayinType.FIAT) {
+      return normalized as PayinType;
+    }
+    return null;
+  }
+
+  private expandPayinTypeFilter(type?: PayinType | null): { in: string[] } | undefined {
+    if (!type) return undefined;
+    const legacyLowercase = String(type).toLowerCase();
+    return { in: Array.from(new Set([type, legacyLowercase])) };
+  }
+
   private mapCanonicalAuditLogs(events: any[]) {
     return events.map((event: any) => ({
       id: event.id,
@@ -249,7 +263,7 @@ export class PayinsService {
     const where: Prisma.PayinWhereInput = {};
 
     if (status) where.status = status;
-    if (type) where.type = type;
+    if (type) where.type = this.expandPayinTypeFilter(type);
     if (assetId) where.assetId = assetId;
     if (txHash) where.txHash = { contains: txHash };
     if (depositId) where.depositId = depositId;
@@ -303,7 +317,7 @@ export class PayinsService {
       transactionType: 'DEPOSIT',
       transactionId: item.depositId || null,
       transactionNo: item.deposit?.depositNo || null,
-      type: this.normalizeAdminPayinType(item.type),
+      type: this.normalizeStoredPayinType(item.type),
       displayStatus: this.normalizeRailDisplayStatus(item.status),
     }));
 
@@ -360,7 +374,7 @@ export class PayinsService {
         transactionId: item.depositId,
         transactionNo: payinWithCustomer.deposit?.depositNo,
         displayStatus: this.normalizeRailDisplayStatus(item.status),
-        type: this.normalizeAdminPayinType(item.type),
+        type: this.normalizeStoredPayinType(item.type),
         toWalletNo: payinWithCustomer.toWallet?.walletNo,
         fromWalletNo: payinWithCustomer.fromWallet?.walletNo,
         simulationProfile: inboundSignal
@@ -384,7 +398,13 @@ export class PayinsService {
   ) {
     const payin = await this.findOne(id);
     const currentStatus = payin.status as PayinStatus;
-    const type = String(payin.type || '').toLowerCase() as PayinType;
+    const type = this.normalizeStoredPayinType(payin.type);
+
+    if (!type) {
+      throw new BadRequestException(
+        `Unsupported payin type for ${id}: ${String(payin.type || '').trim() || 'UNKNOWN'}`,
+      );
+    }
 
     let nextStatus: PayinStatus | null = null;
 
@@ -502,8 +522,14 @@ export class PayinsService {
 
   async applyMockEvent(id: string, dto: MockPayinEventDto) {
     const payin = await this.findOne(id);
-    const type = String(payin.type || '').toLowerCase() as PayinType;
+    const type = this.normalizeStoredPayinType(payin.type);
     const event = dto.event;
+
+    if (!type) {
+      throw new BadRequestException(
+        `Unsupported payin type for ${id}: ${String(payin.type || '').trim() || 'UNKNOWN'}`,
+      );
+    }
 
     let action: PayinAction | null = null;
     let simulationMode: PayinSimulationMode | null = null;

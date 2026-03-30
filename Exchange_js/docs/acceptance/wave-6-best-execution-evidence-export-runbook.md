@@ -30,7 +30,7 @@ Source of Truth Level: acceptance
 
 ## How To Read The Package
 1. Start from `manifest.workflowSummary`.
-2. For `workflowType=SWAP`, treat `workflowSummary.workflowNos` as the primary `swapNo` reference when a linked swap exists.
+2. For `workflowType=SWAP`, treat `workflowSummary.workflowNos` as the canonical `swapNo` reference.
 3. Open the swap evidence chain row for the target `swapId`.
 4. Confirm the linked `quoteId` and `quoteNo`.
 5. Verify `policyRef`, market source, formula, and TTL in the quote snapshot.
@@ -44,7 +44,7 @@ Source of Truth Level: acceptance
 
 ## Interpretation Rule
 - If quote, swap, risk, and accounting ids line up across the package, the runtime has proven that the trade executed consistently with the active pricing policy and the frozen quote snapshot.
-- `quoteNo` remains required evidence, but it should be confirmed from `swapEvidenceChain` or the quote snapshot rather than treated as the primary workflow summary reference for swap export.
+- `quoteNo` remains required linked evidence, but it must be confirmed from `swapEvidenceChain` or the quote snapshot rather than treated as an active workflow summary or export root.
 
 ## Future Extension Point
 - If multi-LP execution is added later, the evidence package should append candidate LP comparison and route-selection rationale rather than replacing the current quote snapshot chain.

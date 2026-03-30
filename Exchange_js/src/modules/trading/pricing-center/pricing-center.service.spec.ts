@@ -143,7 +143,7 @@ describe('PricingCenterService - Swap Phase 1 constraints', () => {
       id: 'PAIR-001-TIER-002',
     });
 
-    await expect(service.updateSwapPolicy(config)).rejects.toThrow(
+    await expect(service.assertSwapPolicyConfig(config)).rejects.toThrow(
       'must contain exactly one tier',
     );
     expect(mockPrisma.pricingPolicy.update).not.toHaveBeenCalled();
@@ -156,7 +156,7 @@ describe('PricingCenterService - Swap Phase 1 constraints', () => {
       id: 'PAIR-002',
     });
 
-    await expect(service.updateSwapPolicy(config)).rejects.toThrow(
+    await expect(service.assertSwapPolicyConfig(config)).rejects.toThrow(
       'Duplicate swap direction is not allowed',
     );
   });
@@ -165,7 +165,7 @@ describe('PricingCenterService - Swap Phase 1 constraints', () => {
     const config = buildBaseSwapPolicy();
     config.pairs[0].assetBId = config.pairs[0].assetAId;
 
-    await expect(service.updateSwapPolicy(config)).rejects.toThrow(
+    await expect(service.assertSwapPolicyConfig(config)).rejects.toThrow(
       'cannot use the same asset on both sides',
     );
   });
@@ -187,43 +187,11 @@ describe('PricingCenterService - Swap Phase 1 constraints', () => {
       },
     ];
 
-    const existingSwap = {
-      id: 'policy-swap-id',
-      policyCode: 'SWAP_PRICING',
-      business: 'SWAP',
-      configJson: JSON.stringify(buildBaseSwapPolicy()),
-      updatedAt: new Date(),
-      updatedByUserId: 'SYSTEM',
-      updatedByUserNo: 'SYSTEM',
-    };
-    const existingWithdrawal = {
-      id: 'policy-withdraw-id',
-      policyCode: 'WITHDRAWAL_PRICING',
-      business: 'WITHDRAWAL',
-      configJson: JSON.stringify({
-        policyId: 'POL-WITHDRAW-ONLINE',
-        policyName: 'Withdrawal Pricing',
-        business: 'WITHDRAWAL',
-        channel: { online: true, storeComingSoon: true },
-        assets: [],
-      }),
-      updatedAt: new Date(),
-      updatedByUserId: 'SYSTEM',
-      updatedByUserNo: 'SYSTEM',
-    };
-
-    mockPrisma.pricingPolicy.findUnique
-      .mockResolvedValueOnce(existingSwap)
-      .mockResolvedValueOnce(existingWithdrawal);
-    mockPrisma.pricingPolicy.update.mockImplementation(async ({ data }: { data: { configJson: string } }) => ({
-      ...existingSwap,
-      configJson: data.configJson,
-    }));
-
-    const saved = await service.updateSwapPolicy(config);
+    const saved = await service.assertSwapPolicyConfig(config);
 
     expect(saved.pairs[0].tiers[0].feeItems).toHaveLength(1);
     expect(saved.pairs[0].tiers[0].feeItems[0].itemCode).toBe('SWAP_SERVICE_FEE');
+    expect(mockPrisma.pricingPolicy.update).not.toHaveBeenCalled();
   });
 
   it('should preserve swap tier configuration and channel flags on save', async () => {
@@ -234,40 +202,7 @@ describe('PricingCenterService - Swap Phase 1 constraints', () => {
     config.pairs[0].tiers[0].conditions.amountMin = '999';
     config.pairs[0].tiers[0].conditions.amountMax = '1000';
 
-    const existingSwap = {
-      id: 'policy-swap-id',
-      policyCode: 'SWAP_PRICING',
-      business: 'SWAP',
-      configJson: JSON.stringify(buildBaseSwapPolicy()),
-      updatedAt: new Date(),
-      updatedByUserId: 'SYSTEM',
-      updatedByUserNo: 'SYSTEM',
-    };
-    const existingWithdrawal = {
-      id: 'policy-withdraw-id',
-      policyCode: 'WITHDRAWAL_PRICING',
-      business: 'WITHDRAWAL',
-      configJson: JSON.stringify({
-        policyId: 'POL-WITHDRAW-ONLINE',
-        policyName: 'Withdrawal Pricing',
-        business: 'WITHDRAWAL',
-        channel: { online: true, storeComingSoon: true },
-        assets: [],
-      }),
-      updatedAt: new Date(),
-      updatedByUserId: 'SYSTEM',
-      updatedByUserNo: 'SYSTEM',
-    };
-
-    mockPrisma.pricingPolicy.findUnique
-      .mockResolvedValueOnce(existingSwap)
-      .mockResolvedValueOnce(existingWithdrawal);
-    mockPrisma.pricingPolicy.update.mockImplementation(async ({ data }: { data: { configJson: string } }) => ({
-      ...existingSwap,
-      configJson: data.configJson,
-    }));
-
-    const saved = await service.updateSwapPolicy(config);
+    const saved = await service.assertSwapPolicyConfig(config);
     const tier = saved.pairs[0].tiers[0];
 
     expect(saved.channel.online).toBe(false);
@@ -275,6 +210,7 @@ describe('PricingCenterService - Swap Phase 1 constraints', () => {
     expect(tier.enabled).toBe(false);
     expect(tier.conditions.amountMin).toBe('999');
     expect(tier.conditions.amountMax).toBe('1000');
+    expect(mockPrisma.pricingPolicy.update).not.toHaveBeenCalled();
   });
 
   it('should normalize legacy withdrawal fees into service+gas and auto-add ACTIVE assets', async () => {
@@ -369,49 +305,23 @@ describe('PricingCenterService - Swap Phase 1 constraints', () => {
     });
   });
 
-  it('should preserve withdrawal restrictions on save', async () => {
+  it('should preserve withdrawal restrictions on assert', async () => {
     const config = buildBaseWithdrawalPolicy();
     config.restrictions = {
       extremeVolatilityBlocked: true,
       reason: 'Extreme volatility mode enabled',
     };
-
-    const existingSwap = {
-      id: 'policy-swap-id',
-      policyCode: 'SWAP_PRICING',
-      business: 'SWAP',
-      configJson: JSON.stringify(buildBaseSwapPolicy()),
-      updatedAt: new Date(),
-      updatedByUserId: 'SYSTEM',
-      updatedByUserNo: 'SYSTEM',
-    };
-    const existingWithdrawal = {
-      id: 'policy-withdraw-id',
-      policyCode: 'WITHDRAWAL_PRICING',
-      business: 'WITHDRAWAL',
-      configJson: JSON.stringify(buildBaseWithdrawalPolicy()),
-      updatedAt: new Date(),
-      updatedByUserId: 'SYSTEM',
-      updatedByUserNo: 'SYSTEM',
-    };
-
-    mockPrisma.pricingPolicy.findUnique
-      .mockResolvedValueOnce(existingSwap)
-      .mockResolvedValueOnce(existingWithdrawal);
     mockPrisma.asset.findMany.mockResolvedValue([
       { id: 'asset-btc', code: 'BTC', network: 'BTC', decimals: 8 },
     ]);
-    mockPrisma.pricingPolicy.update.mockImplementation(async ({ data }: { data: { configJson: string } }) => ({
-      ...existingWithdrawal,
-      configJson: data.configJson,
-    }));
 
-    const saved = await service.updateWithdrawalPolicy(config);
+    const saved = await service.assertWithdrawalPolicyConfig(config);
 
     expect(saved.restrictions).toEqual({
       extremeVolatilityBlocked: true,
       reason: 'Extreme volatility mode enabled',
     });
+    expect(mockPrisma.pricingPolicy.update).not.toHaveBeenCalled();
   });
 
   it('should not persist aligned withdrawal policy during volatility gate checks', async () => {
@@ -494,7 +404,7 @@ describe('PricingCenterService - Swap Phase 1 constraints', () => {
       min: null,
     };
 
-    await expect(service.updateWithdrawalPolicy(invalid)).rejects.toThrow(
+    await expect(service.assertWithdrawalPolicyConfig(invalid)).rejects.toThrow(
       'requires minimum when calcType=PERCENT',
     );
     expect(mockPrisma.pricingPolicy.update).not.toHaveBeenCalled();

@@ -20,7 +20,6 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import {
-  MockBackfillDto,
   MockKytCaseCompleteDto,
   MockTravelRuleCaseCompleteDto,
   TxKytCaseCallbackDto,
@@ -175,17 +174,6 @@ export class TransactionComplianceAdminController {
   ) {
     this.ensureAdmin(req);
     return this.transactionComplianceService.mockCompleteTravelRuleCase(body);
-  }
-
-  @Post('tx-cases/mock-backfill')
-  @UseGuards(AuthGuard('jwt'), AdminPermissionGuard)
-  @ApiOperation({ summary: 'Mock backfill pending transaction compliance cases' })
-  mockBackfill(
-    @Req() req: any,
-    @Body(new ValidationPipe({ transform: true })) body: MockBackfillDto,
-  ) {
-    this.ensureAdmin(req);
-    return this.transactionComplianceService.mockBackfill(body);
   }
 
   // KYT/Travel Rule/Tx Evidence endpoints expose provider responses and

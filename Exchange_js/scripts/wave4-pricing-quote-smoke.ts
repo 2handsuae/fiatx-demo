@@ -534,12 +534,15 @@ async function runSwapQuoteSmoke(customerToken: string, adminToken: string, btcA
   );
   assert(cancelled.status === 'CANCELLED', 'SWAP quote should become CANCELLED');
 
-  const legacyDetail = await authed<any>(
+  const legacyDetail = await authed<PricingQuoteDetail>(
     adminToken,
     'get',
     `/admin/swap-transactions/quotes/${created.quoteId}`,
   );
-  assert(legacyDetail.id === created.quoteId, 'Legacy swap admin wrapper failed');
+  assert(
+    legacyDetail.quoteId === created.quoteId && legacyDetail.business === 'SWAP',
+    'Legacy swap admin wrapper failed',
+  );
 
   return {
     created: {

@@ -113,6 +113,7 @@ describe('OnboardingWorkflowTransitionService', () => {
         }),
       }),
     );
+    expect(result).not.toHaveProperty('finalApprovalStatus');
     expect(result.transitionCode).toBe(
       WORKFLOW_TRANSITION_CODES.CDD_REQUIRE_EDD_TO_PENDING_EDD,
     );
@@ -185,6 +186,7 @@ describe('OnboardingWorkflowTransitionService', () => {
         }),
       }),
     );
+    expect(result).not.toHaveProperty('finalApprovalStatus');
     expect(result.createdFinalApprovalId).toBeNull();
     expect(result.toStatus).toBe('FINAL_APPROVAL');
   });

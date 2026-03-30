@@ -23,21 +23,21 @@ Source of Truth Level: acceptance
 - verify withdraw moves into `PAYOUT_PENDING`
 - start payout dispatch through `PATCH /payouts/:id/status`
 - confirm payout receipt
-- verify withdraw `SUCCESS` and payout `CLEAR`
+- verify withdraw `SUCCESS` and payout `CLEARED`
 - verify no admin action writes withdraw `PAYOUT_PENDING` directly
 - verify no admin action writes withdraw `SUCCESS` directly
-- verify no admin action writes payout `CLEAR` directly
+- verify no admin action writes payout `CLEARED` directly
 - repeat one fiat happy path and verify:
   - quote-confirm path is the same
   - withdraw creates no response container at create time
   - exactly one `TX_WITHDRAW_FINAL` decision record exists
-  - payout `CONFIRM` writes `referenceNo` and final closeout still ends at `withdraw SUCCESS / payout CLEAR`
+  - payout `CONFIRM` writes `referenceNo` and final closeout still ends at `withdraw SUCCESS / payout CLEARED`
 
 ### Risk Review
 - simulate `MEDIUM` risk on `TX_WITHDRAW_FINAL`
 - verify an alert is created and withdraw moves to `UNDER_REVIEW`
 - resolve the alert through existing alert operations
-- verify only `CLEAR / REJECT / FREEZE_TRANSACTION` can drive withdraw workflow outcome
+- verify only `CLEAR / REJECT / FREEZE_TRANSACTION` callbacks can drive withdraw workflow outcome
 - verify `FALSE_POSITIVE` or clear callback continues to `PAYOUT_PENDING`
 - simulate `HIGH` risk on `TX_WITHDRAW_FINAL`
 - verify alert is created and automatically escalated to case
@@ -69,7 +69,7 @@ Source of Truth Level: acceptance
 - call `POST /payouts/:id/re-closeout`
 - verify the same canonical success closeout runs:
   - withdraw becomes `SUCCESS`
-  - payout becomes `CLEAR`
+  - payout becomes `CLEARED`
   - response reports `repairApplied = true`
 - repeat the same call after success closeout
 - verify response is a no-op and does not create duplicate postings
@@ -105,7 +105,8 @@ Source of Truth Level: acceptance
 
 ## Expected Results
 - no happy path uses direct withdraw approve or direct withdraw success action
-- no admin path uses direct payout `CLEAR` action
+- no admin path uses direct payout terminal state mutation
+- active response lifecycle semantics stay limited to `CREATED / RECEIVED / FINAL`
 - payout confirmation does not create missing compliance cases
 - withdraw / payout linkage is visible in detail pages
 - response containers are evidence-only and do not provide a risk simulation surface

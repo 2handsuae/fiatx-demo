@@ -2,7 +2,7 @@
 
 Status: active
 Owner: project-owner-and-agents
-Last Updated: 2026-03-26
+Last Updated: 2026-03-30
 Applies To: `Exchange_js`
 Supersedes: none
 Depends On: `docs/README.md`, `docs/constraints/README.md`
@@ -15,10 +15,58 @@ Source of Truth Level: specs
 3. state and field definitions
 4. read/write ownership boundaries
 
+## Backend Domain Package Rule
+- Backend specs should be read as `纵向业务域包`.
+- A domain package combines:
+1. relevant `constraints`
+2. relevant `entities`
+3. relevant `workflows`
+4. relevant `modules`
+- Completed wave documents may point into these packages, but they do not replace them as long-term truth.
+
 ## Subfolders
 - `entities/`: field-level and model-level semantics
 - `workflows/`: actor/state/transition semantics
 - `modules/`: bounded module behavior and subsystem design notes
+
+## Domain Packages
+- `Identity & Access`
+  - `admin-user-entity`, `role-entity`, `permission-entity`
+  - `admin-member-auth-boundary-workflow`
+  - `rbac-member-management-module`
+- `Customer Lifecycle`
+  - `customer-entity`, `review-response-entity`, `periodic-review-cycle-entity`
+  - `onboarding-canonical-workflow`, `periodic-review-canonical-workflow`
+  - `customer-onboarding-module`, `periodic-review-module`
+- `Risk & Compliance`
+  - `compliance-alert-entity`, `compliance-case-entity`, `compliance-case-report-entity`, `compliance-external-filing-entity`
+  - `alert-triage-and-case-escalation`, `mlro-and-final-approval-governance`, `case-final-lifecycle-and-external-filing`
+  - `compliance-center-module`, `risk-engine-module`
+- `Governance Control Gates`
+  - `approval-case-entity`, `change-ticket-entity`, `delete-request-entity`, `governance-sla-timer-entity`
+  - `audit-evidence-export-approval-workflow`, `change-ticket-release-gate-workflow`, `delete-request-soft-delete-workflow`, `governance-sla-timer-workflow`
+  - `governance-control-foundation-module`, `approvals-module`
+- `Audit & Evidence`
+  - `audit-log-event-entity`, `audit-evidence-package-entity`
+  - `onboarding-periodic-review-audit-trace-contract`
+  - `audit-logging-module`, `audit-logging-product-doc`, `audit-logging-technical-doc`
+- `Asset & Treasury Foundation`
+  - `asset-entity`, `wallet-entity`, `liquidity-provider-entity`, `inbound-transfer-signal-entity`, `payin-entity`, `internal-transaction-entity`, `internal-fund-entity`
+  - `asset-treasury-foundation-module`
+- `Pricing & Config Release`
+  - `pricing-policy-entity`, `pricing-quote-entity`, `business-config-release-entity`
+  - `config-release-activation-workflow`
+  - `pricing-center-module`
+- `Customer Transactions`
+  - `deposit-transaction-entity`, `swap-transaction-entity`, `withdraw-transaction-entity`, `payout-entity`
+  - `payin-deposit-canonical-workflow`, `swap-canonical-workflow`, `withdraw-payout-canonical-workflow`
+- `Accounting Ledger`
+  - `coa-entity`, `acct-event-entity`, `journal-entity`
+  - `quote-event-clearing-journal-workflow`
+  - `accounting-ledger-module`
+- `Clearing & Reconciliation`
+  - `outstanding-entity`, `outstanding-settlement-entity`, `clearing-entity`, `reconciliation-break-entity`
+  - `safeguarding-reconciliation-workflow`
 
 ## Current Key Specs
 - Workflow specs:
@@ -76,6 +124,7 @@ Source of Truth Level: specs
 - Use `workflows` to understand how things move.
 - Use `entities` to understand what each durable object means.
 - Use `modules` to understand which entrypoints are canonical, which historical names still exist, and which surfaces new work MUST or MUST NOT call.
+- For backend work, prefer reading by domain package rather than by folder alone.
 
 ## Update When
 - A workflow meaning changes.

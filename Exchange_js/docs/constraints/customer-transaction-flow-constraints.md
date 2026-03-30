@@ -92,7 +92,7 @@
 - Withdraw success path MUST order atomically:
 1. withdraw -> `SUCCESS`
 2. success accounting posting
-3. payout -> `CLEAR`
+3. payout -> `CLEARED`
 - Withdraw terminal compensation MUST order canonically:
 1. payout terminal status is already recorded on `Payout`
 2. withdraw moves to target terminal business status if still missing

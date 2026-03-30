@@ -1,8 +1,8 @@
 # Wave 4 Field Retirement Inventory
 
-Status: active-post-round-3
+Status: active
 Owner: project-owner-and-agents
-Last Updated: 2026-03-23
+Last Updated: 2026-03-30
 Applies To: `Exchange_js`
 Supersedes: none
 Depends On:
@@ -25,6 +25,8 @@ Source of Truth Level: cleanup
 | withdraw far-expiry compatibility | removed from runtime in cleanup round 2 when inventory reached `0` | Historical far-expiry rows are no longer a supported runtime case | rely on resettable-data assumption; no compatibility reintroduction |
 | demo payin / deposit / swap preview shortcuts | removed from runtime/UI in cleanup round 2 | Smoke may still need similar fixture setup | keep fixture logic in `scripts/**`, not in product routes |
 | `/acct-events/sync-defaults` and `ACCT_CONFIG_SYNC_ON_BOOT` | removed from runtime in cleanup round 2 | Old operator memory may still mention them | update runbooks/operator docs; do not restore compatibility-only shell |
+| `PricingCenterService.updateSwapPolicy / updateWithdrawalPolicy` | retired from `src/modules/trading/pricing-center/pricing-center.service.ts` on `2026-03-30`; validation coverage moved to assert-based spec paths | historical fake-write semantics survived as service-level residual after route retirement | closed; keep only as retirement history |
+| pricing config page edit/save shell | retired from `admin-web/src/pages/PricingSwapConfigPage.tsx`, `admin-web/src/pages/PricingWithdrawalConfigPage.tsx` on `2026-03-30` | read-only convergence left UI edit skeleton behind | closed; pages are now read-only viewers |
 
 ## Current Cleanup Evidence Sources
 - Runtime / type / build checks:
@@ -44,3 +46,4 @@ Source of Truth Level: cleanup
 - `wallets.service` and `treasury.service` now treat snapshot/ledger as canonical truth.
 - wallet shadow balances are no longer part of the current Prisma schema.
 - cleanup round 3 之后，Wave 4 还补齐了 governance release audit logging 和 core runtime type hardening；这些属于 post-cleanup remediation，不新增 retirement candidate。
+- `Wave 4` 的 active closeout debt 已在 `2026-03-30` 收口；当前文档仅保留 retirement history 和 residual-memory 边界。

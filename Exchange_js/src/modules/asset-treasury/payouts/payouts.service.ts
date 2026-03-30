@@ -25,10 +25,10 @@ const CRYPTO_TRANSITIONS: Record<string, Partial<Record<PayoutAction, PayoutStat
     [PayoutAction.TIMEOUT]: PayoutStatus.TIMEOUT,
     [PayoutAction.FAIL]: PayoutStatus.FAILED
   },
-  [PayoutStatus.CONFIRMED]: { [PayoutAction.CLEAR]: PayoutStatus.CLEAR },
+  [PayoutStatus.CONFIRMED]: { [PayoutAction.CLEAR]: PayoutStatus.CLEARED },
   [PayoutStatus.FAILED]: {},
   [PayoutStatus.TIMEOUT]: {},
-  [PayoutStatus.CLEAR]: {},
+  [PayoutStatus.CLEARED]: {},
   [PayoutStatus.RETURNED]: {},
 };
 
@@ -40,10 +40,10 @@ const FIAT_TRANSITIONS: Record<string, Partial<Record<PayoutAction, PayoutStatus
     [PayoutAction.TIMEOUT]: PayoutStatus.TIMEOUT
   },
   [PayoutStatus.CONFIRMED]: { 
-    [PayoutAction.CLEAR]: PayoutStatus.CLEAR,
+    [PayoutAction.CLEAR]: PayoutStatus.CLEARED,
     [PayoutAction.RETURN]: PayoutStatus.RETURNED
   },
-  [PayoutStatus.CLEAR]: { [PayoutAction.RETURN]: PayoutStatus.RETURNED },
+  [PayoutStatus.CLEARED]: { [PayoutAction.RETURN]: PayoutStatus.RETURNED },
   [PayoutStatus.FAILED]: {},
   [PayoutStatus.TIMEOUT]: {},
   [PayoutStatus.RETURNED]: {},
@@ -101,12 +101,46 @@ export class PayoutsService {
     return normalized;
   }
 
+  private normalizeStoredPayoutStatus(
+    status?: string | null,
+  ): PayoutStatus | null {
+    const normalized = this.normalizeRailDisplayStatus(status);
+    if (
+      normalized &&
+      Object.values(PayoutStatus).includes(normalized as PayoutStatus)
+    ) {
+      return normalized as PayoutStatus;
+    }
+    return null;
+  }
+
+  private expandPayoutStatusFilter(
+    status?: PayoutStatus | null,
+  ): { in: string[] } | undefined {
+    if (!status) return undefined;
+    if (status === PayoutStatus.CLEARED) {
+      return { in: [PayoutStatus.CLEARED, 'CLEAR'] };
+    }
+    return { in: [status] };
+  }
+
+  private expandPayoutTypeFilter(
+    type?: PayoutType | null,
+  ): { in: string[] } | undefined {
+    if (!type) return undefined;
+    return { in: [type] };
+  }
+
+  private normalizeAuditStatus(status?: string | null): string | null {
+    return this.normalizeRailDisplayStatus(status);
+  }
+
   private mapCanonicalAuditLogs(events: any[]) {
     return events.map((event: any) => ({
       id: event.id,
       action: event.action || null,
-      statusFrom: event.statusFrom || null,
-      statusTo: event.statusTo || null,
+      statusFrom: this.normalizeAuditStatus(event.statusFrom),
+      statusTo: this.normalizeAuditStatus(event.statusTo),
       actorType: event.actorType || null,
       actorId: event.actorId || null,
       actorNo: event.actorNo || null,
@@ -114,8 +148,8 @@ export class PayoutsService {
       occurredAt: event.occurredAt || event.createdAt || null,
       module: event.module || null,
       result: event.result || null,
-      oldStatus: event.statusFrom || null,
-      newStatus: event.statusTo || null,
+      oldStatus: this.normalizeAuditStatus(event.statusFrom),
+      newStatus: this.normalizeAuditStatus(event.statusTo),
       operatorId: event.actorId || null,
       createdAt: event.occurredAt || event.createdAt || null,
     }));
@@ -175,8 +209,8 @@ export class PayoutsService {
     const where: any = {};
 
     if (withdrawId) where.withdrawId = withdrawId;
-    if (status) where.status = status;
-    if (type) where.type = type;
+    if (status) where.status = this.expandPayoutStatusFilter(status);
+    if (type) where.type = this.expandPayoutTypeFilter(type);
     if (assetId) where.assetId = assetId;
 
     const [items, total] = await Promise.all([
@@ -204,6 +238,7 @@ export class PayoutsService {
       transactionId: item.withdrawId,
       transactionNo: item.withdraw?.withdrawNo || null,
       type: this.normalizeAdminPayoutType(item.type),
+      status: this.normalizeStoredPayoutStatus(item.status),
       displayStatus: this.normalizeRailDisplayStatus(item.status),
     }));
 
@@ -240,6 +275,7 @@ export class PayoutsService {
       transactionId: item.withdrawId,
       transactionNo: item.withdraw?.withdrawNo || null,
       type: this.normalizeAdminPayoutType(item.type),
+      status: this.normalizeStoredPayoutStatus(item.status),
       displayStatus: this.normalizeRailDisplayStatus(item.status),
       auditLogs,
     };
@@ -362,8 +398,13 @@ export class PayoutsService {
         throw new NotFoundException('Payout not found');
       }
 
-      const oldStatus = item.status as PayoutStatus;
+      const oldStatus = this.normalizeStoredPayoutStatus(item.status);
       const type = item.type as PayoutType;
+      if (!oldStatus) {
+        throw new BadRequestException(
+          `Unsupported payout status ${String(item.status || '').trim() || 'UNKNOWN'}`,
+        );
+      }
       const transitions =
         type === PayoutType.CRYPTO ? CRYPTO_TRANSITIONS : FIAT_TRANSITIONS;
       const nextStatus = transitions[oldStatus]?.[action] as PayoutStatus;
@@ -417,7 +458,7 @@ export class PayoutsService {
         }
       }
 
-      if ([PayoutStatus.CLEAR, PayoutStatus.FAILED, PayoutStatus.TIMEOUT, PayoutStatus.RETURNED].includes(nextStatus)) {
+      if ([PayoutStatus.CLEARED, PayoutStatus.FAILED, PayoutStatus.TIMEOUT, PayoutStatus.RETURNED].includes(nextStatus)) {
         updateData.completedAt = new Date();
       }
 

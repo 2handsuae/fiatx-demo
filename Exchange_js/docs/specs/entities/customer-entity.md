@@ -1,6 +1,6 @@
 Status: active
 Owner: project-owner-and-agents
-Last Updated: 2026-03-22
+Last Updated: 2026-03-30
 Applies To: `Exchange_js`
 Supersedes: none
 Depends On: `docs/constraints/onboarding-flow-constraints.md`, `docs/roadmap/wave-3-customer-onboarding-phase-plan.md`
@@ -45,6 +45,18 @@ Source of Truth Level: specs-entity
   - `finalApprovalStatus`
   - `accountStatus`
 - They may remain only in migrations, historical fixtures, and archived cleanup context.
+
+## Canonical Final Approval Summary
+- Active customer and workflow surfaces MUST derive final-approval truth from:
+  - `latestFinalApprovalId`
+  - `latestFinalApprovalStatus`
+  - canonical customer status fields
+- Compatibility `finalApprovalStatus` is retired and MUST NOT be treated as active workflow or customer-detail truth.
+
+## Archived Audit Mirror
+- `onboardingAuditLogs` MAY still appear on admin `Customer Detail`.
+- When shown there, it is archived / historical context only.
+- Canonical audit truth lives in `Audit Center`, not in the customer read-model mirror.
 
 ## Workflow Relationship
 - `CDD Response` and `EDD Response` are evidence containers, not customer lifecycle fields.

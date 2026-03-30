@@ -1155,6 +1155,7 @@ export class PricingCenterService {
   }
 
   async assertSwapPolicyConfig(config: SwapPricingPolicyConfig): Promise<SwapPricingPolicyConfig> {
+    this.validateSwapPolicy(config);
     const normalized = this.normalizeSwapConfig(config);
     this.validateSwapPolicy(normalized);
     return normalized;
@@ -1167,93 +1168,6 @@ export class PricingCenterService {
     this.validateWithdrawalPolicy(normalized);
     const aligned = await this.alignWithdrawalPolicyWithActiveAssets(normalized);
     return aligned.config;
-  }
-
-  async updateSwapPolicy(config: SwapPricingPolicyConfig, actor?: AuditActor) {
-    this.validateSwapPolicy(config);
-    const normalizedConfig = this.normalizeSwapConfig(config);
-    await this.ensurePoliciesReady();
-
-    const updated = await this.prisma.pricingPolicy.update({
-      where: { policyCode: SWAP_POLICY_CODE },
-      data: {
-        policyName: normalizedConfig.policyName || 'Swap Pricing',
-        business: 'SWAP',
-        channelOnline: true,
-        channelStoreSoon: true,
-        configJson: JSON.stringify(normalizedConfig),
-        updatedByUserId: actor?.actorId || 'SYSTEM',
-        updatedByUserNo: actor?.actorNo || actor?.actorId || 'SYSTEM',
-      },
-    });
-
-    if (actor) {
-      await this.auditLogsService.recordByActor(
-        {
-          triggerType: AuditTriggerType.CONFIG_CHANGE,
-          action: AuditActions.PRICING_POLICY_UPDATED,
-          module: AuditModules.PRICING_CENTER,
-          entityType: AuditEntityTypes.PRICING_POLICY,
-          entityId: updated.id,
-          entityNo: updated.policyCode,
-          result: AuditResult.SUCCESS,
-          reason: 'Swap pricing policy updated',
-          afterData: {
-            policyCode: updated.policyCode,
-            business: updated.business,
-          },
-          sourcePlatform: 'ADMIN_API',
-        },
-        actor,
-      );
-    }
-
-    return this.parseSwapConfig(updated);
-  }
-
-  async updateWithdrawalPolicy(config: WithdrawalPricingPolicyConfig, actor?: AuditActor) {
-    const normalizedConfig = this.normalizeWithdrawalConfig(config);
-    this.validateWithdrawalPolicy(normalizedConfig);
-    const aligned = await this.alignWithdrawalPolicyWithActiveAssets(
-      normalizedConfig,
-    );
-    await this.ensurePoliciesReady();
-
-    const updated = await this.prisma.pricingPolicy.update({
-      where: { policyCode: WITHDRAWAL_POLICY_CODE },
-      data: {
-        policyName: aligned.config.policyName || 'Withdrawal Pricing',
-        business: 'WITHDRAWAL',
-        channelOnline: true,
-        channelStoreSoon: true,
-        configJson: JSON.stringify(aligned.config),
-        updatedByUserId: actor?.actorId || 'SYSTEM',
-        updatedByUserNo: actor?.actorNo || actor?.actorId || 'SYSTEM',
-      },
-    });
-
-    if (actor) {
-      await this.auditLogsService.recordByActor(
-        {
-          triggerType: AuditTriggerType.CONFIG_CHANGE,
-          action: AuditActions.PRICING_POLICY_UPDATED,
-          module: AuditModules.PRICING_CENTER,
-          entityType: AuditEntityTypes.PRICING_POLICY,
-          entityId: updated.id,
-          entityNo: updated.policyCode,
-          result: AuditResult.SUCCESS,
-          reason: 'Withdrawal pricing policy updated',
-          afterData: {
-            policyCode: updated.policyCode,
-            business: updated.business,
-          },
-          sourcePlatform: 'ADMIN_API',
-        },
-        actor,
-      );
-    }
-
-    return this.parseWithdrawalConfig(updated);
   }
 
   private async fetchProviderQuote(

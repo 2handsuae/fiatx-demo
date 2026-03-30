@@ -11,6 +11,9 @@ import { ComplianceCaseEvidencePackagesService } from './compliance-case-evidenc
 
 describe('ComplianceCaseEvidencePackagesService', () => {
   const prismaMock: any = {
+    complianceIncident: {
+      findMany: jest.fn(),
+    },
     complianceCaseEvidencePackage: {
       create: jest.fn(),
       update: jest.fn(),
@@ -45,6 +48,23 @@ describe('ComplianceCaseEvidencePackagesService', () => {
       approvalsServiceMock as unknown as ApprovalsService,
       auditLogsServiceMock as unknown as AuditLogsService,
       complianceIncidentsServiceMock as unknown as ComplianceIncidentsService,
+    );
+  });
+
+  it('should build export filters with canonical assignee semantics', () => {
+    const result = (service as any).buildWhere({
+      caseType: 'ONBOARDING',
+      assigneeUserId: 'admin-canonical',
+    });
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          sourceType: 'ONBOARDING_JOURNEY',
+          caseType: 'ONBOARDING',
+          ownerUserId: 'admin-canonical',
+        }),
+      }),
     );
   });
 

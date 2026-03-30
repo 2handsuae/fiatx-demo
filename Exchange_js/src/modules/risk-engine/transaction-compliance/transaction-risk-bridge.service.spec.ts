@@ -51,10 +51,13 @@ describe('TransactionRiskBridgeService', () => {
   };
 
   let service: TransactionRiskBridgeService;
+  let recordSystemSpy: jest.SpiedFunction<typeof AuditLogsService.prototype.recordSystem>;
 
   beforeEach(() => {
     jest.clearAllMocks();
-    jest.spyOn(AuditLogsService.prototype, 'recordSystem').mockResolvedValue({} as any);
+    recordSystemSpy = jest
+      .spyOn(AuditLogsService.prototype, 'recordSystem')
+      .mockResolvedValue({} as any);
     prismaMock.workflowDecisionRecord.findFirst.mockResolvedValue(null);
     prismaMock.workflowDecisionRecord.findUnique.mockResolvedValue(null);
     prismaMock.complianceIncidentAlert.findUnique.mockResolvedValue(null);
@@ -671,6 +674,19 @@ describe('TransactionRiskBridgeService', () => {
         caseId: null,
       }),
     );
+    expect(recordSystemSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workflowType: 'SWAP',
+        workflowId: 'swap-1',
+        workflowNo: 'SWP0001',
+        traceId: 'SWAP:swap-1',
+        metadata: expect.objectContaining({
+          quoteId: 'quote-1',
+          quoteNo: 'QTE0001',
+        }),
+      }),
+      undefined,
+    );
   });
 
   it('should create swap alert and flag under review when manual simulation is MEDIUM', async () => {
@@ -768,6 +784,15 @@ describe('TransactionRiskBridgeService', () => {
           ),
         }),
       }),
+    );
+    expect(recordSystemSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workflowType: 'SWAP',
+        workflowId: 'swap-1',
+        workflowNo: 'SWP0001',
+        traceId: 'SWAP:swap-1',
+      }),
+      undefined,
     );
   });
 
@@ -872,6 +897,15 @@ describe('TransactionRiskBridgeService', () => {
           ),
         }),
       }),
+    );
+    expect(recordSystemSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workflowType: 'SWAP',
+        workflowId: 'swap-1',
+        workflowNo: 'SWP0001',
+        traceId: 'SWAP:swap-1',
+      }),
+      undefined,
     );
   });
 

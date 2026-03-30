@@ -2,7 +2,7 @@
 
 Status: active
 Owner: project-owner-and-agents
-Last Updated: 2026-03-27
+Last Updated: 2026-03-30
 Applies To: `Exchange_js`
 Supersedes: none
 Depends On: `AGENTS.md`, `docs/constraints/README.md`
@@ -23,6 +23,27 @@ Source of Truth Level: documentation-governance-index
 6. `docs/cleanup/**`
 - `docs/glossary/**` supports naming consistency but does not override higher-order documents.
 - Historical or migration-reference documents must explicitly say when they are not current implementation truth.
+
+## Documentation Architecture
+- The frontend documentation system is organized as:
+1. `平台共享硬规则`
+   - `docs/constraints/frontend-platform-constraints.md`
+2. `应用专属规则`
+   - `docs/constraints/frontend-admin-ui-constraints.md`
+   - `docs/constraints/frontend-client-ui-constraints.md`
+3. `历史重定向层`
+   - deprecated frontend rule files kept only as redirect notes
+- The backend documentation system is organized as:
+1. `总法`
+   - one platform-level backend constitution under `docs/constraints/backend-platform-constraints.md`
+2. `横向分则`
+   - cross-domain backend constraints under `docs/constraints/backend-*.md`
+3. `纵向分则`
+   - domain constraints plus `docs/specs/entities/**`, `docs/specs/workflows/**`, and `docs/specs/modules/**`
+4. `wave 历史层`
+   - `docs/roadmap/**`, `docs/acceptance/**`, `docs/cleanup/**`
+- Long-term frontend and backend truth MUST remain in `docs/constraints/**` and `docs/specs/**` when specs apply.
+- Wave documents MAY explain planning, validation, and retirement context, but MUST NOT become the only durable source for frontend or backend behavior.
 
 ## Required Reading Order
 1. `AGENTS.md`
@@ -121,6 +142,11 @@ Source of Truth Level: documentation-governance-index
 - invariants
 - forbidden patterns
 - change protocol
+- Backend constraints SHOULD distinguish:
+1. `横向规则`
+   - cross-domain rules such as identity, API, read-model, lifecycle, repair, and delivery
+2. `纵向业务域规则`
+   - domain constraints such as onboarding, governance, audit, trading, wallet/account, and reconciliation
 
 ### Specs
 - purpose
@@ -129,6 +155,10 @@ Source of Truth Level: documentation-governance-index
 - transitions
 - read / write owners
 - API / read-model mapping
+- Backend specs SHOULD be read as domain packages:
+1. `entities`
+2. `workflows`
+3. `modules`
 
 ### ADR
 - context
@@ -143,6 +173,24 @@ Source of Truth Level: documentation-governance-index
 - known caveats
 
 ## Current Entry Documents
+- Documentation filing rule:
+  - `docs/constraints/documentation-filing-and-adr-constraints.md`
+- Frontend platform constitution:
+  - `docs/constraints/frontend-platform-constraints.md`
+  - `docs/constraints/frontend-admin-ui-constraints.md`
+  - `docs/constraints/frontend-client-ui-constraints.md`
+- Backend platform constitution:
+  - `docs/constraints/backend-platform-constraints.md`
+  - `docs/constraints/backend-domain-model-constraints.md`
+  - `docs/constraints/backend-identity-and-operator-key-constraints.md`
+  - `docs/constraints/backend-api-contract-constraints.md`
+  - `docs/constraints/backend-read-model-constraints.md`
+  - `docs/constraints/backend-workflow-state-machine-constraints.md`
+  - `docs/constraints/backend-async-idempotency-repair-constraints.md`
+  - `docs/constraints/backend-data-lifecycle-constraints.md`
+  - `docs/constraints/backend-provider-integration-constraints.md`
+  - `docs/constraints/backend-auth-and-authorization-constraints.md`
+  - `docs/constraints/backend-testing-and-delivery-constraints.md`
 - Project planning reference:
   - `docs/roadmap/project-version-plan.md`
   - `docs/roadmap/wave-7-withdraw-payout-phase-plan.md`
@@ -157,6 +205,7 @@ Source of Truth Level: documentation-governance-index
 - Wave 7 current status:
   - `phases 0-4 runtime landed on the current branch`
   - `minimum reconciliation and withdraw evidence export are now active Wave 7 truth`
+  - `cleanup closeout complete; residual compatibility inventory remains`
 - Wave 7 durable workflow / entity truth:
   - `docs/specs/workflows/withdraw-payout-canonical-workflow.md`
   - `docs/specs/entities/withdraw-transaction-entity.md`
@@ -169,10 +218,16 @@ Source of Truth Level: documentation-governance-index
   - `docs/acceptance/wave-7-withdraw-accounting-blocked-runbook.md`
   - `docs/acceptance/wave-7-withdraw-evidence-export-runbook.md`
   - `docs/acceptance/wave-7-minimum-daily-reconciliation-runbook.md`
-- Wave 7 cleanup / closeout closure record:
+- Wave 7 cleanup / closeout master:
   - `docs/cleanup/wave-7-cleanup-master-plan.md`
+- Wave 7 residual cleanup inventory:
+  - `docs/cleanup/wave-7-residual-cleanup-inventory.md`
+- Cross-wave cleanup priority summary:
+  - `docs/cleanup/cross-wave-cleanup-priority-summary.md`
 - Wave 6 cleanup / convergence closure record:
   - `docs/cleanup/wave-6-cleanup-master-plan.md`
+- Wave 6 residual cleanup inventory:
+  - `docs/cleanup/wave-6-residual-cleanup-inventory.md`
 - Wave 6 durable workflow / entity truth:
   - `docs/specs/workflows/swap-canonical-workflow.md`
   - `docs/specs/entities/swap-transaction-entity.md`
@@ -264,6 +319,12 @@ Source of Truth Level: documentation-governance-index
   - `docs/cleanup/wave-2-wave-3-final-closure-plan.md`
   - `docs/cleanup/wave-2-cleanup-master-plan.md`
   - `docs/cleanup/wave-3-cleanup-master-plan.md`
+- Wave 1 residual cleanup inventory:
+  - `docs/cleanup/wave-1-residual-cleanup-inventory.md`
+- Wave 2 residual cleanup inventory:
+  - `docs/cleanup/wave-2-residual-cleanup-inventory.md`
+- Wave 3 residual cleanup inventory:
+  - `docs/cleanup/wave-3-residual-cleanup-inventory.md`
 
 ## Wave 2 / Wave 3 Recommended Reading Order
 1. roadmap / phase context
@@ -272,7 +333,9 @@ Source of Truth Level: documentation-governance-index
 4. entity specs
 5. module specs
 6. final acceptance checklist
-7. archived cleanup docs only if retirement history matters
+7. Wave 2 residual cleanup inventory when reviewing `incidentNo / owner* / report* / shared legacy decision compatibility edge` residue
+8. Wave 3 residual cleanup inventory when reviewing `caseNo / caseType / archived onboardingAuditLogs / ownerUserId fallback` residue
+9. archived cleanup docs only if retirement history matters
 
 ## Wave 1 Recommended Reading Order
 1. roadmap / Wave 1 completion note
@@ -281,7 +344,8 @@ Source of Truth Level: documentation-governance-index
 4. Wave 1 entity specs
 5. Wave 1 module specs
 6. final acceptance
-7. archived cleanup docs only if retirement history matters
+7. residual cleanup inventory only when a physical/doc/dead-code Wave 1 cleanup thread is in scope
+8. archived cleanup docs only if retirement history matters
 
 ## Wave 4 Recommended Reading Order
 1. roadmap / Wave 4 phase plan
@@ -291,7 +355,7 @@ Source of Truth Level: documentation-governance-index
 5. Wave 4 entity specs
 6. Wave 4 module specs
 7. Wave 4 acceptance and closeout evidence
-8. Wave 4 cleanup docs only if retirement history matters
+8. Wave 4 cleanup docs only if retirement history or residual historical trace matters
 
 ## Wave 5 Recommended Reading Order
 1. top-level version plan
@@ -301,11 +365,41 @@ Source of Truth Level: documentation-governance-index
 5. `docs/specs/entities/inbound-transfer-signal-entity.md`, `docs/specs/entities/payin-entity.md`, `docs/specs/entities/deposit-transaction-entity.md`
 6. risk / compliance / accounting / audit module specs
 7. Wave 5 final acceptance and runbooks
+8. Wave 5 residual cleanup inventory when reviewing `TX_DEPOSIT_TRAVEL_RULE / tx response lifecycle normalization` historical boundaries
+9. roadmap / cleanup docs only as historical phase and closeout context
+
+## Wave 6 Recommended Reading Order
+1. top-level version plan
+2. pricing / quote / customer transaction constraints
+3. `docs/specs/workflows/swap-canonical-workflow.md`
+4. `docs/specs/entities/pricing-quote-entity.md`, `docs/specs/entities/swap-transaction-entity.md`
+5. pricing / trading / audit module specs
+6. Wave 6 final acceptance and evidence-export runbook
+7. Wave 6 residual cleanup inventory when reviewing the frozen shared manual-risk compatibility shell
 8. roadmap / cleanup docs only as historical phase and closeout context
+
+## Wave 7 Recommended Reading Order
+1. top-level version plan
+2. customer transaction / internal transaction / reconciliation constraints
+3. `docs/specs/workflows/withdraw-payout-canonical-workflow.md`
+4. `docs/specs/entities/withdraw-transaction-entity.md`, `docs/specs/entities/payout-entity.md`, `docs/specs/entities/reconciliation-break-entity.md`
+5. transaction / payout / audit / reconciliation module and workflow references
+6. Wave 7 final acceptance, evidence-export runbook, and cleanup closeout baseline
+7. `docs/cleanup/wave-7-cleanup-master-plan.md` when reviewing compatibility shell, symmetry debt, or Wave 8 handoff
+8. roadmap docs only as historical phase / sequencing context
 
 ## Wave 4 Status Note
 - Wave 4 docs now describe implemented runtime slices, cleanup rounds, post-closeout remediation, and the remaining explicit gaps.
-- They are no longer just future-design baselines, but they still do not claim that every original Wave 4 blueprint item is complete.
+- They are no longer just future-design baselines, and the implemented-scope closeout is now active.
+- As of the current review, `Wave 4` should still be read as:
+  - implemented-scope landed
+  - cleanup round 1-3 landed
+  - post-closeout remediation landed
+  - cleanup closeout complete
+  - residual-only posture for historical Wave 4 traces
+- Current remembered residuals include:
+  - historical migration SQL traces
+  - historical cleanup records kept for retirement context
 
 ## Wave 5 Status Note
 - `Wave 5` runtime phase plan is currently implementation-complete through `Phase 4`.
@@ -315,6 +409,58 @@ Source of Truth Level: documentation-governance-index
   - `docs/acceptance/**`
 - `docs/roadmap/wave-5-payin-deposit-phase-plan.md` remains the phase-planning and sequencing reference.
 - `docs/cleanup/wave-5-cleanup-master-plan.md` is now mainly the closeout and delivery-hygiene reference.
+- As of the current review, `Wave 5` should also be read as:
+  - semantic closure complete
+  - cleanup closeout complete
+  - active route and operator-surface residual retirement complete
+  - residual historical / compatibility trace still exists
+- Current remembered residuals include:
+  - `TX_DEPOSIT_TRAVEL_RULE` historical replay / ingestion boundary
+  - tx response lifecycle compatibility normalization edge
+
+## Wave 6 Status Note
+- `Wave 6` runtime phase plan is currently `runtime complete` and `cleanup complete`.
+- Durable Wave 6 runtime truth now exists in:
+  - `docs/constraints/**`
+  - `docs/specs/**`
+  - `docs/acceptance/**`
+- `docs/roadmap/wave-6-pricing-quote-swap-phase-plan.md` remains the phase-planning and sequencing reference.
+- `docs/cleanup/wave-6-cleanup-master-plan.md` is now mainly the closeout and convergence reference.
+- As of the current review, `Wave 6` should also be read as:
+  - semantic closure complete
+  - cleanup closeout complete
+  - active operator / audit / evidence-root retirement complete
+- Current remembered residuals include:
+  - frozen shared manual-risk compatibility shell only
+
+## Wave 7 Status Note
+- `Wave 7` runtime main chain is already landed on the current branch.
+- Durable Wave 7 runtime truth now exists in:
+  - `docs/constraints/**`
+  - `docs/specs/**`
+  - `docs/acceptance/**`
+- `docs/roadmap/wave-7-withdraw-payout-phase-plan.md` remains the phase-planning and sequencing reference.
+- `docs/cleanup/wave-7-cleanup-master-plan.md` is now the closure record for Wave 7 cleanup closeout.
+- `docs/cleanup/wave-7-residual-cleanup-inventory.md` is now the closure record for frozen historical / compatibility traces.
+- As of the current review, `Wave 7` should be read as:
+  - runtime main chain landed
+  - minimum reconciliation and withdraw evidence export active
+  - cleanup closeout complete
+  - active residual retirement complete
+  - only frozen historical / compatibility traces remain documented
+- Current remembered frozen traces include:
+  - legacy persisted payout `CLEAR` and old raw lifecycle inputs normalized at read boundaries
+  - historical `TX_WITHDRAW_PRECHECK / REVIEW_WITHDRAW_PRECHECK` replay support
+  - legacy response lifecycle input support in compatibility adapters
+
+## Cross-Wave Cleanup Note
+- For broad cleanup planning across multiple waves, use:
+  - `docs/cleanup/cross-wave-cleanup-priority-summary.md`
+- The current recommended sequence is:
+  1. explicit-target-only `Wave 1`
+  2. downstream `Wave 2/3` only if later-wave readers are explicitly in scope
+  3. `Wave 6` historical compatibility review only if shared manual-risk retirement becomes in scope
+  4. `Wave 4` / `Wave 5` historical-only review only if archival policy changes
 
 ## Wave Completion Documentation Rule
 - A wave MUST NOT be treated as documentation-complete until all of the following exist and point to each other:
@@ -352,6 +498,8 @@ Source of Truth Level: documentation-governance-index
   - `docs/specs/modules/rbac-member-management-module.md`
   - `docs/acceptance/wave-1-foundation-final-acceptance.md`
 - `Wave 2` 与 `Wave 3` 的主体能力和最终收口已经完成。
+- `Wave 2` 与 `Wave 3` 的 core convergence 已于 `2026-03-30` 完成。
+- 它们的 residual inventory 继续保留 downstream / physical runtime residue 记忆，但不改变它们已 closure 的语义结论。
 - 当前长期真相层是：
 1. `docs/constraints/**`
 2. `docs/specs/workflows/**`

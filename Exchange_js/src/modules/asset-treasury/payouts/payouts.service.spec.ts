@@ -243,7 +243,7 @@ describe('PayoutsService', () => {
     });
     prisma.payout.update.mockResolvedValue({
       id: 'PO_clear_2',
-      status: PayoutStatus.CLEAR,
+      status: PayoutStatus.CLEARED,
     });
 
     const updated = await service.updateStatus(
@@ -252,7 +252,7 @@ describe('PayoutsService', () => {
       'SYSTEM',
     );
 
-    expect(updated.status).toBe(PayoutStatus.CLEAR);
+    expect(updated.status).toBe(PayoutStatus.CLEARED);
   });
 
   it('should auto-generate referenceNo when confirming fiat payout without one', async () => {
@@ -328,7 +328,7 @@ describe('PayoutsService', () => {
       payoutNo: 'PODET1',
       withdrawId: 'WD_detail_1',
       type: PayoutType.FIAT,
-      status: PayoutStatus.CLEAR,
+      status: 'CLEAR',
       asset: { code: 'AED', type: 'FIAT', network: null },
       withdraw: { withdrawNo: 'WDDET1', ownerId: 'CUST_1', status: 'SUCCESS' },
       customer: null,
@@ -356,7 +356,7 @@ describe('PayoutsService', () => {
         id: 'audit-payout-1',
         action: 'PAYOUT_CONFIRMED_TO_CLEAR',
         oldStatus: 'CONFIRMED',
-        newStatus: 'CLEAR',
+        newStatus: 'CLEARED',
         operatorId: 'SYSTEM',
       }),
     ]);
@@ -367,7 +367,25 @@ describe('PayoutsService', () => {
         transactionId: 'WD_detail_1',
         transactionNo: 'WDDET1',
         type: 'FIAT',
+        status: 'CLEARED',
         displayStatus: 'CLEARED',
+      }),
+    );
+  });
+
+  it('should expand canonical CLEARED filter to match legacy CLEAR rows', async () => {
+    prisma.payout.findMany.mockResolvedValue([]);
+    prisma.payout.count.mockResolvedValue(0);
+
+    await service.findAll({ status: PayoutStatus.CLEARED });
+
+    expect(prisma.payout.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          status: expect.objectContaining({
+            in: [PayoutStatus.CLEARED, 'CLEAR'],
+          }),
+        }),
       }),
     );
   });
@@ -379,7 +397,7 @@ describe('PayoutsService', () => {
         payoutNo: 'POLIST1',
         withdrawId: 'WD_list_1',
         type: PayoutType.CRYPTO,
-        status: PayoutStatus.CLEAR,
+        status: 'CLEAR',
         amount: '10.50',
         assetId: 'asset-usdt',
         asset: { code: 'USDT', type: 'CRYPTO', network: 'TRON', decimals: 6 },
@@ -409,6 +427,7 @@ describe('PayoutsService', () => {
         transactionId: 'WD_list_1',
         transactionNo: 'WDLIST1',
         type: 'CRYPTO',
+        status: 'CLEARED',
         displayStatus: 'CLEARED',
       }),
     );

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, Edit3, Plus, RefreshCw, Save, Trash2 } from 'lucide-react';
+import { ArrowLeft, RefreshCw } from 'lucide-react';
 import { adminFetch, getApiErrorMessage } from '../utils/adminFetch';
 import { buildBusinessConfigReadOnlyMessage } from '../utils/businessConfigReadOnly';
 
@@ -77,13 +77,6 @@ type SwapMarketSource = {
   fetchedAt: string;
 };
 
-const roundingModes: RoundingMode[] = ['ROUND', 'FLOOR', 'CEIL'];
-
-function toInt(value: string, fallback: number): number {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? Math.trunc(parsed) : fallback;
-}
-
 function formatPairDirection(pair: SwapPair): string {
   return `${pair.assetALabel} → ${pair.assetBLabel}`;
 }
@@ -100,7 +93,6 @@ const FieldBlock = ({ label, value }: { label: string; value: string }) => (
 const PricingSwapConfigPage = () => {
   const readOnlyMessage = buildBusinessConfigReadOnlyMessage('Swap pricing policy');
   const [loading, setLoading] = useState(false);
-  const saving = false;
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
@@ -109,9 +101,7 @@ const PricingSwapConfigPage = () => {
   const [swapSummary, setSwapSummary] = useState<PolicySummary | null>(null);
 
   const [viewMode, setViewMode] = useState<'list' | 'detail'>('list');
-  const [detailMode, setDetailMode] = useState<'preview' | 'edit'>('preview');
   const [selectedPairId, setSelectedPairId] = useState<string | null>(null);
-  const [editSnapshot, setEditSnapshot] = useState<SwapPair | null>(null);
   const [marketSource, setMarketSource] = useState<SwapMarketSource | null>(null);
   const [marketSourceLoading, setMarketSourceLoading] = useState(false);
   const [marketSourceError, setMarketSourceError] = useState<string | null>(null);
@@ -242,8 +232,6 @@ const PricingSwapConfigPage = () => {
     setMessage(null);
     try {
       await Promise.all([loadAssets(), loadSwapPolicy(), loadSwapSummary()]);
-      setDetailMode('preview');
-      setEditSnapshot(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -276,44 +264,13 @@ const PricingSwapConfigPage = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewMode, selectedPairId]);
 
-  const updatePair = (pairId: string, updater: (pair: SwapPair) => SwapPair) => {
-    if (!swapPolicy) return;
-    setSwapPolicy({
-      ...swapPolicy,
-      pairs: swapPolicy.pairs.map((pair) => (pair.id === pairId ? normalizePair(updater(pair)) : pair)),
-    });
-  };
-
   const openPairDetail = (pairId: string) => {
     setSelectedPairId(pairId);
     setViewMode('detail');
-    setDetailMode('preview');
-    setEditSnapshot(null);
     setMarketSource(null);
     setMarketSourceError(null);
     setError(null);
     setMessage(null);
-  };
-
-  const cancelEdit = () => {
-    if (!selectedPairId) return;
-    if (editSnapshot) {
-      updatePair(selectedPairId, () => editSnapshot);
-    }
-    setDetailMode('preview');
-    setEditSnapshot(null);
-    setMessage(null);
-  };
-
-  const removePair = (pairId: string) => {
-    void pairId;
-    setError(null);
-    setMessage(readOnlyMessage);
-  };
-
-  const savePolicy = async () => {
-    setError(null);
-    setMessage(readOnlyMessage);
   };
 
   const renderTopBar = () => (
@@ -323,12 +280,10 @@ const PricingSwapConfigPage = () => {
         <p className="text-sm text-gray-500 mt-1">Directional pairs, Binance only, single tier</p>
       </div>
       <div className="flex items-center gap-2">
-        {viewMode === 'detail' && detailMode === 'preview' && (
+        {viewMode === 'detail' && (
           <button
             onClick={() => {
               setViewMode('list');
-              setDetailMode('preview');
-              setEditSnapshot(null);
             }}
             className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-admin-border bg-white text-gray-700 hover:bg-gray-50"
           >
@@ -368,8 +323,8 @@ const PricingSwapConfigPage = () => {
         </div>
 
         <div className="flex justify-end">
-          <div className="inline-flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-            <Plus size={16} /> Pair changes move through Config Releases
+          <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+            Pair changes move through Config Releases.
           </div>
         </div>
 
@@ -447,49 +402,21 @@ const PricingSwapConfigPage = () => {
             <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
               <div>
                 <h2 className="text-lg font-semibold text-gray-900">Pair Details</h2>
-                <p className="text-sm text-gray-500 mt-1">Manage exchange-rate parameters for this direction.</p>
+                <p className="text-sm text-gray-500 mt-1">Current exchange-rate parameters for this direction.</p>
               </div>
-
-              {detailMode === 'preview' ? (
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => {
-                      setViewMode('list');
-                      setDetailMode('preview');
-                      setEditSnapshot(null);
-                    }}
-                    className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-admin-border bg-white text-gray-700 hover:bg-gray-50"
-                  >
-                    <ArrowLeft size={14} /> Back
-                  </button>
-                  <div className="inline-flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-sm text-amber-800">
-                    <Edit3 size={14} /> Read-only in Phase 2
-                  </div>
-                  <button
-                    onClick={() => removePair(selectedPair.id)}
-                    className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-red-200 text-red-600 hover:bg-red-50"
-                  >
-                    <Trash2 size={14} /> Change via Releases
-                  </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    setViewMode('list');
+                  }}
+                  className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-admin-border bg-white text-gray-700 hover:bg-gray-50"
+                >
+                  <ArrowLeft size={14} /> Back
+                </button>
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-sm text-amber-800">
+                  {readOnlyMessage}
                 </div>
-              ) : (
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={cancelEdit}
-                    disabled={saving}
-                    className="px-3 py-1.5 rounded-lg border border-admin-border bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-60"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={savePolicy}
-                    disabled={saving}
-                    className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-brand-primary text-white hover:bg-brand-primary/90 disabled:opacity-60"
-                  >
-                    <Save size={14} /> Save
-                  </button>
-                </div>
-              )}
+              </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
@@ -504,161 +431,12 @@ const PricingSwapConfigPage = () => {
               <FieldBlock label="Amount Min" value={tier.conditions.amountMin ?? 'None'} />
               <FieldBlock label="Amount Max" value={tier.conditions.amountMax ?? 'None'} />
 
-              <div className="space-y-1">
-                <div className="text-xs text-gray-500 uppercase tracking-wide">Trading Status</div>
-                {detailMode === 'edit' ? (
-                  <select
-                    value={selectedPair.enabled ? 'true' : 'false'}
-                    onChange={(e) =>
-                      updatePair(selectedPair.id, (pair) => ({
-                        ...pair,
-                        enabled: e.target.value === 'true',
-                      }))
-                    }
-                    className="w-full px-3 py-2 rounded-lg border border-admin-border"
-                  >
-                    <option value="true">Enabled</option>
-                    <option value="false">Disabled</option>
-                  </select>
-                ) : (
-                  <div className="px-3 py-2 rounded-lg border border-admin-border bg-gray-50 text-gray-800">
-                    {selectedPair.enabled ? 'Enabled' : 'Disabled'}
-                  </div>
-                )}
-              </div>
-
-              <div className="space-y-1">
-                <div className="text-xs text-gray-500 uppercase tracking-wide">Markup (bps)</div>
-                {detailMode === 'edit' ? (
-                  <input
-                    type="number"
-                    value={tier.rateMarkupBps}
-                    onChange={(e) =>
-                      updatePair(selectedPair.id, (pair) => ({
-                        ...pair,
-                        tiers: [
-                          {
-                            ...pair.tiers[0],
-                            rateMarkupBps: toInt(e.target.value, 0),
-                          },
-                        ],
-                      }))
-                    }
-                    className="w-full px-3 py-2 rounded-lg border border-admin-border"
-                  />
-                ) : (
-                  <div className="px-3 py-2 rounded-lg border border-admin-border bg-gray-50 text-gray-800">
-                    {tier.rateMarkupBps}
-                  </div>
-                )}
-              </div>
-
-              <div className="space-y-1">
-                <div className="text-xs text-gray-500 uppercase tracking-wide">Max Staleness (sec)</div>
-                {detailMode === 'edit' ? (
-                  <input
-                    type="number"
-                    value={selectedPair.routing.maxStalenessSec}
-                    onChange={(e) =>
-                      updatePair(selectedPair.id, (pair) => ({
-                        ...pair,
-                        routing: {
-                          ...pair.routing,
-                          maxStalenessSec: Math.max(1, toInt(e.target.value, 30)),
-                        },
-                      }))
-                    }
-                    className="w-full px-3 py-2 rounded-lg border border-admin-border"
-                  />
-                ) : (
-                  <div className="px-3 py-2 rounded-lg border border-admin-border bg-gray-50 text-gray-800">
-                    {selectedPair.routing.maxStalenessSec}
-                  </div>
-                )}
-              </div>
-
-              <div className="space-y-1">
-                <div className="text-xs text-gray-500 uppercase tracking-wide">Quote TTL (sec)</div>
-                {detailMode === 'edit' ? (
-                  <input
-                    type="number"
-                    value={selectedPair.routing.quoteLockSeconds}
-                    onChange={(e) =>
-                      updatePair(selectedPair.id, (pair) => ({
-                        ...pair,
-                        routing: {
-                          ...pair.routing,
-                          quoteLockSeconds: Math.max(1, toInt(e.target.value, 30)),
-                        },
-                      }))
-                    }
-                    className="w-full px-3 py-2 rounded-lg border border-admin-border"
-                  />
-                ) : (
-                  <div className="px-3 py-2 rounded-lg border border-admin-border bg-gray-50 text-gray-800">
-                    {selectedPair.routing.quoteLockSeconds}
-                  </div>
-                )}
-              </div>
-
-              <div className="space-y-1">
-                <div className="text-xs text-gray-500 uppercase tracking-wide">Rounding Precision (dp)</div>
-                {detailMode === 'edit' ? (
-                  <input
-                    type="number"
-                    value={selectedPair.routing.rounding.dp}
-                    onChange={(e) =>
-                      updatePair(selectedPair.id, (pair) => ({
-                        ...pair,
-                        routing: {
-                          ...pair.routing,
-                          rounding: {
-                            ...pair.routing.rounding,
-                            dp: Math.max(0, toInt(e.target.value, 8)),
-                          },
-                        },
-                      }))
-                    }
-                    className="w-full px-3 py-2 rounded-lg border border-admin-border"
-                  />
-                ) : (
-                  <div className="px-3 py-2 rounded-lg border border-admin-border bg-gray-50 text-gray-800">
-                    {selectedPair.routing.rounding.dp}
-                  </div>
-                )}
-              </div>
-
-              <div className="space-y-1">
-                <div className="text-xs text-gray-500 uppercase tracking-wide">Rounding Mode</div>
-                {detailMode === 'edit' ? (
-                  <select
-                    value={selectedPair.routing.rounding.mode}
-                    onChange={(e) =>
-                      updatePair(selectedPair.id, (pair) => ({
-                        ...pair,
-                        routing: {
-                          ...pair.routing,
-                          rounding: {
-                            ...pair.routing.rounding,
-                            mode: e.target.value as RoundingMode,
-                          },
-                        },
-                      }))
-                    }
-                    className="w-full px-3 py-2 rounded-lg border border-admin-border"
-                  >
-                    {roundingModes.map((mode) => (
-                      <option key={mode} value={mode}>
-                        {mode}
-                      </option>
-                    ))}
-                  </select>
-                ) : (
-                  <div className="px-3 py-2 rounded-lg border border-admin-border bg-gray-50 text-gray-800">
-                    {selectedPair.routing.rounding.mode}
-                  </div>
-                )}
-              </div>
+              <FieldBlock label="Trading Status" value={selectedPair.enabled ? 'Enabled' : 'Disabled'} />
+              <FieldBlock label="Markup (bps)" value={String(tier.rateMarkupBps)} />
+              <FieldBlock label="Max Staleness (sec)" value={String(selectedPair.routing.maxStalenessSec)} />
+              <FieldBlock label="Quote TTL (sec)" value={String(selectedPair.routing.quoteLockSeconds)} />
+              <FieldBlock label="Rounding Precision (dp)" value={String(selectedPair.routing.rounding.dp)} />
+              <FieldBlock label="Rounding Mode" value={selectedPair.routing.rounding.mode} />
             </div>
 
             <div className="rounded-xl border border-admin-border bg-gray-50/50 p-4 space-y-3">

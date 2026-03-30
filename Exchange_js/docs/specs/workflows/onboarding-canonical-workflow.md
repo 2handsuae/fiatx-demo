@@ -1,6 +1,6 @@
 Status: active
 Owner: project-owner-and-agents
-Last Updated: 2026-03-27
+Last Updated: 2026-03-30
 Applies To: `Exchange_js`
 Supersedes: none
 Depends On: `docs/constraints/onboarding-flow-constraints.md`, `docs/constraints/onboarding-alert-case-workflow-stage-rule-mapping.md`
@@ -80,6 +80,8 @@ Source of Truth Level: specs-workflow
 - `CDD Response` and `EDD Response` are evidence containers.
 - Review-stage workflow decisions are executed through workflow-bound alert or case handling.
 - `FINAL_APPROVAL` is a workflow state, not an alert/case stage.
+- Active workflow output and customer summary use canonical customer status plus `latestFinalApproval*`.
+- Compatibility `finalApprovalStatus` is not part of the active onboarding workflow output.
 
 ## Audit And Trace
 - One onboarding journey uses one trace root:

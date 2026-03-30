@@ -15,7 +15,7 @@ Source of Truth Level: specs-entity
 - `status`
   - execution lifecycle truth
 - `displayStatus`
-  - admin display/read-model truth that mirrors `CLEAR` as `CLEARED`
+  - admin display/read-model truth aligned with canonical payout status
 - `withdrawId`
   - parent withdraw root
 - `ownerNo`
@@ -31,14 +31,14 @@ Source of Truth Level: specs-entity
 
 ## Field Semantics
 - `CONFIRMED` means external receipt observed.
-- `CLEAR` means internal success closeout completed after withdraw success posting.
+- `CLEARED` means internal success closeout completed after withdraw success posting.
 - `FAILED`, `TIMEOUT`, and `RETURNED` remain payout execution outcomes that back-propagate into withdraw business outcomes.
-- Admin display may use `Cleared` while raw payout status stays `CLEAR`.
-- Raw type casing may remain uppercase internally; admin read-models should still normalize to `CRYPTO | FIAT`.
+- Old persisted/raw `CLEAR` may still be read and normalized to canonical `CLEARED`.
+- Canonical active type contract is `CRYPTO | FIAT`.
 
 ## Write Owners
 - Payout service owns payout state transitions.
-- Withdraw orchestrator owns the success-close boundary that moves payout from `CONFIRMED` to `CLEAR`.
+- Withdraw orchestrator owns the success-close boundary that moves payout from `CONFIRMED` to `CLEARED`.
 
 ## Read-Model Expectations
 - Payout detail must surface execution receipt evidence and linked withdraw identity.

@@ -59,6 +59,11 @@ import {
   UpdateComplianceIncidentActionDto,
 } from './dto/compliance-incident.dto';
 import {
+  buildCanonicalIncidentAssigneeWhere,
+  getCanonicalIncidentAssigneeUserId,
+  getCanonicalIncidentAssigneeUserNo,
+} from './compliance-incident-compat.util';
+import {
   CloseCaseExternalFilingDto,
   FinalizeCaseReportDto,
   RecordCaseExternalFilingFeedbackDto,
@@ -165,20 +170,14 @@ export class ComplianceIncidentsService {
     assigneeUserId?: string | null;
     ownerUserId?: string | null;
   }): string | null {
-    return (
-      this.normalizeOptionalString((row as any).assigneeUserId) ||
-      this.normalizeOptionalString((row as any).ownerUserId)
-    );
+    return getCanonicalIncidentAssigneeUserId(row);
   }
 
   private getIncidentAssigneeUserNo(row: {
     assigneeUserNo?: string | null;
     ownerUserNo?: string | null;
   }): string | null {
-    return (
-      this.normalizeOptionalString((row as any).assigneeUserNo) ||
-      this.normalizeOptionalString((row as any).ownerUserNo)
-    );
+    return getCanonicalIncidentAssigneeUserNo(row);
   }
 
   private normalizeStringList(value: unknown): string[] {
@@ -256,13 +255,10 @@ export class ComplianceIncidentsService {
   }
 
   private normalizeRecommendedDecision(value: unknown): string | null {
-    const normalized = String(value || '').trim().toUpperCase();
-    if (!normalized) return null;
-    if (normalized === 'APPROVE' || normalized === 'APPROVE_STAGE' || normalized === 'CLEAR') {
-      return 'CLEAR';
+    const normalized = normalizeWorkflowDecision(value);
+    if (normalized === 'CLEAR' || normalized === 'REJECT' || normalized === 'REQUIRE_EDD') {
+      return normalized;
     }
-    if (normalized === 'REJECT' || normalized === 'REJECT_STAGE') return 'REJECT';
-    if (normalized === 'REQUIRE_EDD') return 'REQUIRE_EDD';
     return null;
   }
 
@@ -1705,7 +1701,7 @@ export class ComplianceIncidentsService {
 
     const assigneeUserId = this.normalizeOptionalString(query.assigneeUserId);
     if (assigneeUserId) {
-      where.ownerUserId = assigneeUserId;
+      Object.assign(where, buildCanonicalIncidentAssigneeWhere(assigneeUserId));
     }
 
     if (query.caseType) {

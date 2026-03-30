@@ -159,7 +159,7 @@ describe('WithdrawWorkflowOrchestrator', () => {
     );
     mockPayoutsService.updateStatus.mockResolvedValue({
       id: 'PO_1',
-      status: PayoutStatus.CLEAR,
+      status: PayoutStatus.CLEARED,
     });
     mockPrisma.auditLogEvent.create.mockResolvedValue({ id: 'LOG_1' });
 
@@ -190,7 +190,7 @@ describe('WithdrawWorkflowOrchestrator', () => {
     expect(result?.updated_withdrawal_status).toBe(
       WithdrawTransactionStatus.SUCCESS,
     );
-    expect(result?.updated_payout_status).toBe(PayoutStatus.CLEAR);
+    expect(result?.updated_payout_status).toBe(PayoutStatus.CLEARED);
   });
 
   it('should skip payout confirmed when marker exists', async () => {
@@ -495,7 +495,7 @@ describe('WithdrawWorkflowOrchestrator', () => {
     });
     mockPayoutsService.updateStatus.mockResolvedValue({
       id: 'PO_1',
-      status: PayoutStatus.CLEAR,
+      status: PayoutStatus.CLEARED,
     });
     mockPrisma.auditLogEvent.create.mockResolvedValue({ id: 'LOG_REPAIR' });
 
@@ -503,14 +503,14 @@ describe('WithdrawWorkflowOrchestrator', () => {
 
     expect(result.repairApplied).toBe(true);
     expect(result.updated_withdrawal_status).toBe(WithdrawTransactionStatus.SUCCESS);
-    expect(result.updated_payout_status).toBe(PayoutStatus.CLEAR);
+    expect(result.updated_payout_status).toBe(PayoutStatus.CLEARED);
   });
 
   it('should return no-op result when re-closeout is repeated after success', async () => {
     mockPrisma.payout.findUnique.mockResolvedValue({
       id: 'PO_1',
       withdrawId: 'WD_1',
-      status: PayoutStatus.CLEAR,
+      status: PayoutStatus.CLEARED,
     });
     mockWithdrawalService.findOne.mockResolvedValue({
       ...baseWithdrawal,
@@ -521,7 +521,7 @@ describe('WithdrawWorkflowOrchestrator', () => {
 
     expect(result.repairApplied).toBe(false);
     expect(result.updated_withdrawal_status).toBe(WithdrawTransactionStatus.SUCCESS);
-    expect(result.updated_payout_status).toBe(PayoutStatus.CLEAR);
+    expect(result.updated_payout_status).toBe(PayoutStatus.CLEARED);
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 

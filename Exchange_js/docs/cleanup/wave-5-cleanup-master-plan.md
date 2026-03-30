@@ -220,16 +220,16 @@ Source of Truth Level: cleanup
   - 无公开入口
   - 无 UI 调用
   - 无文档契约依赖
-- `POST /admin/compliance/tx-cases/mock-backfill` 继续视为待分类 surface：
-  - 本轮不删除
-  - 本轮不重命名
-  - 若未来要退役，必须先补 operator decision 与 boundary review
+- `POST /admin/compliance/tx-cases/mock-backfill` 已在 `2026-03-30` 的 residual-retirement 线程中退休：
+  - 已从 active controller / service / DTO / RBAC route catalog 删除
+  - 若未来仍需历史修复，必须改走 dedicated script 或 one-off remediation 线程
 
 ## Residual Inventory
 
 | Item | Current Anchor | Status | Cleanup Position |
 | --- | --- | --- | --- |
 | Wave 5 主链完成判定 | acceptance + focused tests + build baseline | done | treat as implementation-complete |
+| historical tx-case admin backfill route | `tx-cases/mock-backfill` | retired on `2026-03-30` | do not restore without a new remediation decision |
 | simulation / compensation surface | payin mock-event, tx mock-complete, simulation UI, `payin_confirmed` compensation path | retained | keep, document boundary, do not retire in cleanup |
 | orphan / dead helper | `PayinsService.simulate()` / `SimulatePayinDto` | done in cleanup batch 1 | retired after reference audit; future orphan helpers require the same rule |
 | historical planning wording | roadmap / cleanup wording that still sounds like open feature gap | done in cleanup batch 6 | normalized to closeout-complete wording in roadmap / cleanup / docs indexes |

@@ -629,7 +629,10 @@ const CustomerDetail = () => {
         <CaseTable items={customer.eddResponses || []} />
       </Card>
 
-      <Card title="Onboarding Audit Logs" icon={<Clock size={16} />}>
+      <Card title="Archived Onboarding Audit Logs" icon={<Clock size={16} />}>
+        <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+          Historical mirror only. Canonical audit truth lives in Audit Center.
+        </div>
         <table className="w-full text-left text-sm">
           <thead>
             <tr className="text-xs text-gray-500 uppercase border-b border-gray-200">

@@ -46,14 +46,14 @@ Source of Truth Level: specs-workflow
   - `BROADCASTED`
   - `CONFIRMING`
   - `CONFIRMED`
-  - `CLEAR`
+  - `CLEARED`
   - `FAILED`
   - `TIMEOUT`
 - Fiat:
   - `CREATED`
   - `CONFIRMING`
   - `CONFIRMED`
-  - `CLEAR`
+  - `CLEARED`
   - `FAILED`
   - `TIMEOUT`
   - `RETURNED`
@@ -80,7 +80,7 @@ Source of Truth Level: specs-workflow
   - `CLEAR` is reserved for system closeout
 - Repair path:
   - `POST /payouts/:id/re-closeout`
-  - only retries the canonical `CONFIRMED -> withdraw SUCCESS posting -> payout CLEAR` closeout
+  - only retries the canonical `CONFIRMED -> withdraw SUCCESS posting -> payout CLEARED` closeout
   - `POST /payouts/:id/re-compensate`
   - only retries the canonical terminal compensation path for `FAILED / TIMEOUT / RETURNED`
 
@@ -145,9 +145,9 @@ Source of Truth Level: specs-workflow
 - Success path is:
   - payout receipt recorded
   - withdraw success posting executed
-  - payout transitions to `CLEAR`
+  - payout transitions to `CLEARED`
 - Withdraw success is the customer-visible final outbound completion state.
-- Admin operators must not write `CLEAR` directly from payout detail or payout list.
+- Admin operators must not write `CLEARED` directly from payout detail or payout list.
 - If receipt exists but closeout is stuck, operator fallback is `POST /payouts/:id/re-closeout`, not direct status mutation.
 
 ### 6. Fail / Return
@@ -192,17 +192,18 @@ Source of Truth Level: specs-workflow
 - Receipt fields such as `txHash` and `referenceNo` belong to payout execution, not withdraw authority.
 - Direct admin happy-path success / fail actions on withdraw are non-canonical and must not be used for normal payout completion.
 - Direct admin approve on withdraw is non-canonical for the normal flow and must not be used for payout progression.
-- Direct admin `CLEAR` on payout is non-canonical and must not be used for normal closeout completion.
+- Direct admin terminal payout mutation is non-canonical and must not be used for normal closeout completion.
 - Terminal payout compensation repair stays payout-rooted; there is no withdraw-root repair entry for normal Phase 2 compensation replay.
 
 ## Audit And Evidence
 - Withdraw-root trace uses `WITHDRAW:<withdrawId>`.
 - Admin rail read model for `payout` uses:
-  - raw `status` as rail truth
+  - canonical `status` as rail truth
   - `displayStatus` as display-layer truth
   - uppercase `type = CRYPTO | FIAT`
   - canonical `audit_log_events` as the detail audit source
-- `CLEAR` remains the runtime closeout state, while `CLEARED` is the mirrored admin display label.
+- Canonical payout closeout state is `CLEARED`.
+- Historical persisted/raw `CLEAR` remains readable only through read-boundary normalization.
 - Exportable Wave 7 evidence is expected to replay:
   - quote create and quote consume
   - withdraw request
