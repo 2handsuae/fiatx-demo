@@ -2581,13 +2581,12 @@ model PoolSettlementBatchItemSource {
   createdAt     DateTime                 @default(now())
   updatedAt     DateTime                 @updatedAt
   batch         PoolSettlementBatch      @relation("PoolSettlementBatchItemSourceBatch", fields: [batchId], references: [id], onDelete: Cascade)
-  batchItem     PoolSettlementBatchItem? @relation("PoolSettlementBatchItemSourceItem", fields: [batchItemId, batchId], references: [id, batchId], onDelete: Cascade)
+  batchItem     PoolSettlementBatchItem? @relation("PoolSettlementBatchItemSourceItem", fields: [batchItemId], references: [id], onDelete: SetNull)
   asset         Asset                    @relation(fields: [assetId], references: [id])
   fromWallet    Wallet                   @relation("PoolSettlementBatchItemSourceFromWallet", fields: [fromWalletId], references: [id])
   toWallet      Wallet                   @relation("PoolSettlementBatchItemSourceToWallet", fields: [toWalletId], references: [id])
 
   @@unique([batchId, sourceFamily, sourceId])
-  @@unique([id, batchId])
   @@index([batchId])
   @@index([batchItemId])
   @@index([sourceFamily, sourceId])

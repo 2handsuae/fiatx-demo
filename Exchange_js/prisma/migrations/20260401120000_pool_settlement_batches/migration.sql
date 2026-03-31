@@ -59,11 +59,10 @@ CREATE TABLE "pool_settlement_batch_item_sources" (
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" DATETIME NOT NULL,
     CONSTRAINT "pool_settlement_batch_item_sources_batchId_fkey" FOREIGN KEY ("batchId") REFERENCES "pool_settlement_batches" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
-    CONSTRAINT "pool_settlement_batch_item_sources_batchItemId_batchId_fkey" FOREIGN KEY ("batchItemId", "batchId") REFERENCES "pool_settlement_batch_items" ("id", "batchId") ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT "pool_settlement_batch_item_sources_batchItemId_fkey" FOREIGN KEY ("batchItemId") REFERENCES "pool_settlement_batch_items" ("id") ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT "pool_settlement_batch_item_sources_assetId_fkey" FOREIGN KEY ("assetId") REFERENCES "assets" ("id") ON DELETE RESTRICT ON UPDATE CASCADE,
     CONSTRAINT "pool_settlement_batch_item_sources_fromWalletId_fkey" FOREIGN KEY ("fromWalletId") REFERENCES "wallets" ("id") ON DELETE RESTRICT ON UPDATE CASCADE,
     CONSTRAINT "pool_settlement_batch_item_sources_toWalletId_fkey" FOREIGN KEY ("toWalletId") REFERENCES "wallets" ("id") ON DELETE RESTRICT ON UPDATE CASCADE,
-    CONSTRAINT "pool_settlement_batch_item_sources_id_batchId_key" UNIQUE ("id", "batchId"),
     CONSTRAINT "pool_settlement_batch_item_sources_batchId_sourceFamily_sourceId_key" UNIQUE ("batchId", "sourceFamily", "sourceId")
 );
 
@@ -102,6 +101,36 @@ CREATE INDEX "pool_settlement_batch_item_sources_sourceFamily_sourceId_idx" ON "
 
 -- CreateIndex
 CREATE INDEX "pool_settlement_batch_item_sources_assetId_fromWalletId_toWalletId_idx" ON "pool_settlement_batch_item_sources"("assetId", "fromWalletId", "toWalletId");
+
+-- CreateTrigger
+CREATE TRIGGER "pool_settlement_batch_item_sources_validate_batchItem_batch_match_insert"
+BEFORE INSERT ON "pool_settlement_batch_item_sources"
+FOR EACH ROW
+WHEN NEW."batchItemId" IS NOT NULL
+BEGIN
+    SELECT RAISE(ABORT, 'pool_settlement_batch_item_sources batchItemId must reference an item in the same batch')
+    WHERE EXISTS (
+        SELECT 1
+        FROM "pool_settlement_batch_items"
+        WHERE "id" = NEW."batchItemId"
+          AND "batchId" <> NEW."batchId"
+    );
+END;
+
+-- CreateTrigger
+CREATE TRIGGER "pool_settlement_batch_item_sources_validate_batchItem_batch_match_update"
+BEFORE UPDATE OF "batchId", "batchItemId" ON "pool_settlement_batch_item_sources"
+FOR EACH ROW
+WHEN NEW."batchItemId" IS NOT NULL
+BEGIN
+    SELECT RAISE(ABORT, 'pool_settlement_batch_item_sources batchItemId must reference an item in the same batch')
+    WHERE EXISTS (
+        SELECT 1
+        FROM "pool_settlement_batch_items"
+        WHERE "id" = NEW."batchItemId"
+          AND "batchId" <> NEW."batchId"
+    );
+END;
 
 -- AlterTable
 ALTER TABLE "outstandings" ADD COLUMN "lockedByPoolSettlementBatchId" TEXT REFERENCES "pool_settlement_batches" ("id") ON DELETE SET NULL ON UPDATE CASCADE;
