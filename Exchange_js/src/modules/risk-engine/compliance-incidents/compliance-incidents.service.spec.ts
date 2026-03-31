@@ -2142,17 +2142,6 @@ describe('ComplianceIncidentsService', () => {
         reports: [],
         filings: [],
       });
-    prismaMock.customerMain.findUnique.mockResolvedValue({
-      id: 'customer-1',
-      customerNo: 'CU0001',
-      onboardingStatus: 'FINAL_APPROVAL',
-      operatingStatus: 'INACTIVE',
-      restrictionStatus: 'CLEAR',
-      eddRequired: true,
-      activeJourneyId: 'journey-1',
-      latestFinalApprovalId: null,
-      latestFinalApprovalStatus: null,
-    });
     prismaMock.complianceIncident.update.mockResolvedValue(
       buildIncident({
         status: ComplianceIncidentStatus.CLOSED,
@@ -2166,7 +2155,7 @@ describe('ComplianceIncidentsService', () => {
     workflowTransitionServiceMock.transition.mockResolvedValue({
       transitionCode: 'EDD_APPROVE_TO_FINAL_APPROVAL',
       toStatus: 'FINAL_APPROVAL',
-      createdFinalApprovalId: null,
+      createdFinalApprovalId: 'approval-1',
     });
 
     await service.reviewByMlro(
@@ -2186,17 +2175,7 @@ describe('ComplianceIncidentsService', () => {
 
     expect(
       onboardingFinalApprovalServiceMock.ensurePendingApprovalInTransaction,
-    ).toHaveBeenCalledWith(
-      prismaMock,
-      expect.objectContaining({
-        customer: expect.objectContaining({
-          id: 'customer-1',
-          onboardingStatus: 'FINAL_APPROVAL',
-        }),
-        actorId: 'admin-1',
-        actorRole: 'MLRO',
-      }),
-    );
+    ).not.toHaveBeenCalled();
     expect(
       onboardingFinalApprovalServiceMock.emitSubmittedSideEffects,
     ).toHaveBeenCalledWith(
@@ -2249,21 +2228,10 @@ describe('ComplianceIncidentsService', () => {
         reports: [],
         filings: [],
       });
-    prismaMock.customerMain.findUnique.mockResolvedValue({
-      id: 'customer-1',
-      customerNo: 'CU0001',
-      onboardingStatus: 'FINAL_APPROVAL',
-      operatingStatus: 'INACTIVE',
-      restrictionStatus: 'CLEAR',
-      eddRequired: true,
-      activeJourneyId: 'journey-1',
-      latestFinalApprovalId: null,
-      latestFinalApprovalStatus: null,
-    });
     workflowTransitionServiceMock.transition.mockResolvedValue({
       transitionCode: 'EDD_APPROVE_TO_FINAL_APPROVAL',
       toStatus: 'FINAL_APPROVAL',
-      createdFinalApprovalId: null,
+      createdFinalApprovalId: 'approval-1',
     });
     onboardingFinalApprovalServiceMock.emitSubmittedSideEffects.mockImplementation(
       async () => {
@@ -2287,6 +2255,9 @@ describe('ComplianceIncidentsService', () => {
     );
 
     expect(callOrder).toEqual(['tx:start', 'tx:end', 'emit']);
+    expect(
+      onboardingFinalApprovalServiceMock.ensurePendingApprovalInTransaction,
+    ).not.toHaveBeenCalled();
   });
 
   it('should not create onboarding final approval after MLRO approves onboarding CDD clear', async () => {
@@ -2360,6 +2331,89 @@ describe('ComplianceIncidentsService', () => {
     ).not.toHaveBeenCalled();
     expect(
       onboardingFinalApprovalServiceMock.emitSubmittedSideEffects,
+    ).not.toHaveBeenCalled();
+  });
+
+  it('should transition onboarding CDD case to REJECTED after MLRO approves reject proposal', async () => {
+    prismaMock.complianceIncident.findUnique
+      .mockResolvedValueOnce(
+        buildIncident({
+          status: ComplianceIncidentStatus.PENDING_MLRO_REVIEW,
+          stage: 'REVIEW_CDD',
+          sourceType: 'ONBOARDING_JOURNEY',
+          proposedWorkflowDecision: 'REJECT',
+          proposedWorkflowReason: 'confirmed sanctions exposure',
+          proposedFinalDispositionCode: 'RISK_CONFIRMED',
+          proposedFinalDispositionReason: 'confirmed sanctions exposure',
+          decisionRecordIds: JSON.stringify(['decision-onb-1']),
+          reports: [
+            buildReport({
+              status: 'FINALIZED',
+              finalDispositionCode: 'RISK_CONFIRMED',
+              finalDispositionReason: 'confirmed sanctions exposure',
+            }),
+          ],
+        }),
+      )
+      .mockResolvedValueOnce({
+        ...buildIncident({
+          status: ComplianceIncidentStatus.CLOSED,
+          stage: 'REVIEW_CDD',
+          sourceType: 'ONBOARDING_JOURNEY',
+          proposedWorkflowDecision: 'REJECT',
+          proposedFinalDispositionCode: 'RISK_CONFIRMED',
+          finalDispositionCode: 'RISK_CONFIRMED',
+        }),
+        alerts: [],
+        events: [],
+        dispositionRecords: [],
+        reports: [],
+        filings: [],
+      });
+    prismaMock.complianceIncident.update.mockResolvedValue(
+      buildIncident({
+        status: ComplianceIncidentStatus.CLOSED,
+        stage: 'REVIEW_CDD',
+        sourceType: 'ONBOARDING_JOURNEY',
+        proposedWorkflowDecision: 'REJECT',
+        proposedFinalDispositionCode: 'RISK_CONFIRMED',
+        finalDispositionCode: 'RISK_CONFIRMED',
+      }) as any,
+    );
+    workflowTransitionServiceMock.transition.mockResolvedValue({
+      transitionCode: 'CDD_REJECT_TO_REJECTED',
+      toStatus: 'REJECTED',
+      createdFinalApprovalId: null,
+    });
+
+    await service.reviewByMlro(
+      'inc-1',
+      {
+        decision: 'APPROVE_FINAL_DISPOSITION',
+        note: 'approve onboarding cdd reject',
+      },
+      {
+        actorType: 'ADMIN',
+        actorId: 'admin-1',
+        actorNo: 'ADMIN-001',
+        actorRole: 'MLRO',
+        roleCodes: ['MLRO'],
+      },
+    );
+
+    expect(workflowTransitionServiceMock.transition).toHaveBeenCalledWith(
+      prismaMock,
+      expect.objectContaining({
+        workflow: 'ONBOARDING',
+        stage: 'REVIEW_CDD',
+        producerType: 'CASE',
+        producerId: 'inc-1',
+        dispositionCode: 'REJECT',
+        latestDecisionRecordId: 'decision-onb-1',
+      }),
+    );
+    expect(
+      onboardingFinalApprovalServiceMock.ensurePendingApprovalInTransaction,
     ).not.toHaveBeenCalled();
   });
 });

@@ -296,9 +296,19 @@ const buildReportDraftState = (
   options?: {
     proposedWorkflowDecision?: string | null;
     proposedWorkflowReason?: string | null;
+    proposedFinalDispositionCode?: string | null;
+    proposedFinalDispositionReason?: string | null;
   },
 ): ReportDraftState => {
-  if (!report) return { ...EMPTY_REPORT_DRAFT };
+  if (!report) {
+    return {
+      ...EMPTY_REPORT_DRAFT,
+      proposedWorkflowDecision: String(options?.proposedWorkflowDecision || '').trim(),
+      proposedWorkflowReason: options?.proposedWorkflowReason || '',
+      finalDispositionCode: String(options?.proposedFinalDispositionCode || '').trim(),
+      finalDispositionReason: options?.proposedFinalDispositionReason || '',
+    };
+  }
   return {
     factsSummary: report.factsSummary || '',
     investigationScope: report.investigationScope || '',
@@ -308,8 +318,11 @@ const buildReportDraftState = (
     recommendedActions: toTextAreaValue(report.recommendedActions),
     proposedWorkflowDecision: String(options?.proposedWorkflowDecision || '').trim(),
     proposedWorkflowReason: options?.proposedWorkflowReason || '',
-    finalDispositionCode: String(report.finalDispositionCode || '').trim(),
-    finalDispositionReason: report.finalDispositionReason || '',
+    finalDispositionCode: String(
+      report.finalDispositionCode || options?.proposedFinalDispositionCode || '',
+    ).trim(),
+    finalDispositionReason:
+      report.finalDispositionReason || options?.proposedFinalDispositionReason || '',
     filingRequired: report.filingRequired === true,
     filingType: report.filingType || '',
     filingAuthority: report.filingAuthority || '',
@@ -378,10 +391,10 @@ const interimMeasureLabelMap: Record<InterimMeasure, string> = {
 };
 
 const workflowActionLabelMap: Record<WorkflowAction, string> = {
-  CLEAR: 'Clear',
-  REJECT: 'Reject',
-  REQUIRE_EDD: 'Require EDD',
-  FREEZE_TRANSACTION: 'Freeze Transaction',
+  CLEAR: 'Propose Clear',
+  REJECT: 'Propose Reject',
+  REQUIRE_EDD: 'Propose Require EDD',
+  FREEZE_TRANSACTION: 'Propose Freeze Transaction',
 };
 
 const mlroActionLabelMap: Record<MlroAction, string> = {
@@ -476,6 +489,8 @@ const ComplianceCaseDetailPage = () => {
         buildReportDraftState(data.currentReport, {
           proposedWorkflowDecision: data.proposedWorkflowDecision,
           proposedWorkflowReason: data.proposedWorkflowReason,
+          proposedFinalDispositionCode: data.proposedFinalDispositionCode,
+          proposedFinalDispositionReason: data.proposedFinalDispositionReason,
         }),
       );
       setReportRevisionArmed(false);
@@ -496,10 +511,20 @@ const ComplianceCaseDetailPage = () => {
       buildReportDraftState(detail?.currentReport, {
         proposedWorkflowDecision: detail?.proposedWorkflowDecision,
         proposedWorkflowReason: detail?.proposedWorkflowReason,
+        proposedFinalDispositionCode: detail?.proposedFinalDispositionCode,
+        proposedFinalDispositionReason: detail?.proposedFinalDispositionReason,
       }),
     );
     setReportRevisionArmed(false);
-  }, [detail?.id, detail?.currentReport?.id, detail?.currentReport?.updatedAt]);
+  }, [
+    detail?.id,
+    detail?.currentReport?.id,
+    detail?.currentReport?.updatedAt,
+    detail?.proposedWorkflowDecision,
+    detail?.proposedWorkflowReason,
+    detail?.proposedFinalDispositionCode,
+    detail?.proposedFinalDispositionReason,
+  ]);
 
   const fetchAssignCandidates = async (): Promise<UserListItem[]> => {
     const response = await adminFetch(`${import.meta.env.VITE_API_URL}/users?take=200`);
@@ -1142,11 +1167,11 @@ const ComplianceCaseDetailPage = () => {
 
       <ActionSection
         title="Workflow Proposal"
-        description="Workflow proposal is now captured in the investigation report draft below and only takes effect after explicit MLRO approval."
+        description="Workflow proposal is captured below as a case proposal and only takes effect after explicit MLRO approval."
         emptyText="Workflow proposal is captured in the report draft."
       >
         <div className="text-sm text-gray-500">
-          Choose the final transaction action in the report draft below. Direct workflow buttons are disabled for transaction closeout.
+          Choose the proposal code and final disposition in the report draft below. The case page records a proposal first; it does not directly execute the customer outcome.
         </div>
       </ActionSection>
 
@@ -1182,9 +1207,12 @@ const ComplianceCaseDetailPage = () => {
         <InfoField label="Final Disposition" value={detail.finalDispositionCode || '-'} />
         <InfoField label="Final Reason" value={detail.finalDispositionReason || '-'} />
         <InfoField label="Final At" value={formatDateTime(detail.finalDispositionAt)} />
-        <InfoField label="Proposed Workflow" value={detail.proposedWorkflowDecision || '-'} />
-        <InfoField label="Workflow Reason" value={detail.proposedWorkflowReason || '-'} />
-        <InfoField label="Proposed Disposition" value={detail.proposedFinalDispositionCode || '-'} />
+        <InfoField label="Proposal Code" value={detail.proposedWorkflowDecision || '-'} />
+        <InfoField label="Proposal Reason" value={detail.proposedWorkflowReason || '-'} />
+        <InfoField
+          label="Proposed Final Disposition"
+          value={detail.proposedFinalDispositionCode || '-'}
+        />
         <InfoField label="Disposition Reason" value={detail.proposedFinalDispositionReason || '-'} />
         <InfoField label="Filing Required" value={detail.proposedFilingRequired === true ? 'YES' : 'NO'} />
         <InfoField label="Filing Type" value={detail.proposedFilingType || '-'} />
@@ -1267,7 +1295,7 @@ const ComplianceCaseDetailPage = () => {
           />
         </label>
         <label className="min-w-0">
-          <div className="text-xs uppercase tracking-wide text-gray-500">Workflow Proposal</div>
+          <div className="text-xs uppercase tracking-wide text-gray-500">Proposal Code</div>
           <select
             value={reportDraft.proposedWorkflowDecision}
             onChange={(e) =>
@@ -1279,7 +1307,7 @@ const ComplianceCaseDetailPage = () => {
             disabled={!canEditDraft || reportSaving || reportFinalizing || reportSubmittingToMlro}
             className="mt-1 w-full rounded-lg border border-admin-border px-3 py-2 text-sm disabled:bg-gray-50"
           >
-            <option value="">Select workflow proposal</option>
+            <option value="">Select proposal code</option>
             {workflowActions.map((action) => (
               <option key={action} value={action}>
                 {workflowActionLabelMap[action]}
@@ -1288,7 +1316,7 @@ const ComplianceCaseDetailPage = () => {
           </select>
         </label>
         <label className="min-w-0">
-          <div className="text-xs uppercase tracking-wide text-gray-500">Workflow Proposal Reason</div>
+          <div className="text-xs uppercase tracking-wide text-gray-500">Proposal Reason</div>
           <textarea
             value={reportDraft.proposedWorkflowReason}
             onChange={(e) =>

@@ -54,12 +54,12 @@ describe('RiskDecisionRecordsAdminController', () => {
     const result = await controller.simulate(
       { user: { type: 'ADMIN', userId: 'admin-1', userNo: 'ADM-1', role: 'MLRO' } },
       'dr-2',
-      { riskLevel: 'HIGH' } as any,
+      { riskLevel: 'HIGH', reasonCode: 'CDD_SANCTIONS_HIT' } as any,
     );
 
     expect(serviceMock.simulateDecisionRecord).toHaveBeenCalledWith(
       'dr-2',
-      { riskLevel: 'HIGH' },
+      { riskLevel: 'HIGH', reasonCode: 'CDD_SANCTIONS_HIT' },
       expect.objectContaining({
         actorType: 'ADMIN',
         actorId: 'admin-1',

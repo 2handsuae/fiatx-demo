@@ -1,6 +1,6 @@
 Status: active
 Owner: project-owner-and-agents
-Last Updated: 2026-03-26
+Last Updated: 2026-03-31
 Applies To: `Exchange_js`
 Supersedes: none
 Depends On: `docs/specs/workflows/onboarding-canonical-workflow.md`, `docs/specs/entities/customer-entity.md`, `docs/specs/entities/review-response-entity.md`
@@ -13,7 +13,7 @@ Source of Truth Level: specs-module
   - customer onboarding status progression
   - CDD / EDD response intake
   - onboarding-specific workflow decisions
-  - final approval request submission
+  - automatic final approval creation when EDD clear transitions a customer into `FINAL_APPROVAL`
 
 ## Canonical Entrypoints
 - Customer-facing:
@@ -35,7 +35,6 @@ Source of Truth Level: specs-module
   - `GET /admin/risk/decision-records`
   - `GET /admin/risk/decision-records/:id`
   - `POST /admin/risk/decision-records/:id/simulate`
-  - `POST /admin/compliance/customers/:id/final-approval/submit`
 
 ## Integration Contract
 - Customer onboarding consumes:
@@ -43,9 +42,11 @@ Source of Truth Level: specs-module
   - compliance center for review-stage decisions
   - approvals module for final approval
 - Customer `/verification` remains the evidence collection and mock-complete surface under shared `Simulation Mode`.
-- Final `ONBOARDING_CDD` risk simulation is executed from admin `Risk Policy Executions`, not from a client-side risk selection surface.
+- Final `ONBOARDING_CDD` and `ONBOARDING_EDD` risk simulation is executed from admin `Risk Policy Executions`, not from a client-side risk selection surface.
 - Admin `CDD Response / EDD Response` surfaces remain evidence-browse surfaces and MUST NOT duplicate customer-side onboarding mock-complete actions.
 - Workflow-bound onboarding alerts are resolved through the unified alert resolution surface rather than onboarding-specific alert routes.
+- Onboarding `REVIEW_EDD -> CLEAR -> FINAL_APPROVAL` MUST auto-create a pending `ONBOARDING_FINAL_APPROVAL`; operators MUST NOT manually submit it from customer screens.
+- `ONBOARDING_EDD` low-risk simulation with canonical reason `EDD_CLEAR` MUST bypass alert/case creation and move directly into `FINAL_APPROVAL`.
 - Canonical customer state is driven by customer fields, not by legacy public-status projections.
 
 ## Historical Aliases / Retired Names

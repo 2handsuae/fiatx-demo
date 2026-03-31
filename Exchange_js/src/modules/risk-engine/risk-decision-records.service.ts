@@ -7,6 +7,7 @@ import { ModuleRef } from '@nestjs/core';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../core/prisma/prisma.service';
 import { OnboardingService } from '../identity/onboarding/onboarding.service';
+import { PeriodicReviewService } from '../identity/periodic-review/periodic-review.service';
 import { AuditLogsService } from './audit-logs/audit-logs.service';
 import {
   AuditActions,
@@ -48,6 +49,7 @@ type DecisionRecordListQuery = {
 export class RiskDecisionRecordsService {
   private readonly auditLogsService: AuditLogsService;
   private onboardingService?: OnboardingService | null;
+  private periodicReviewService?: PeriodicReviewService | null;
   private transactionRiskBridgeService?: TransactionRiskBridgeService | null;
 
   constructor(
@@ -82,32 +84,27 @@ export class RiskDecisionRecordsService {
     return resolved;
   }
 
-  private pickRandomReasonCode(options: string[]): string {
-    if (!Array.isArray(options) || options.length === 0) {
-      throw new BadRequestException('Risk reason pool is empty');
+  private getPeriodicReviewService(): PeriodicReviewService {
+    if (this.periodicReviewService) {
+      return this.periodicReviewService;
     }
-    const index = Math.floor(Math.random() * options.length);
-    return options[index] || options[0];
+    const resolved =
+      this.moduleRef?.get(PeriodicReviewService, { strict: false }) || null;
+    if (!resolved) {
+      throw new NotFoundException('PeriodicReviewService is unavailable');
+    }
+    this.periodicReviewService = resolved;
+    return resolved;
   }
 
-  private getManualReasonCode(input: {
+  private getManualReasonPools(input: {
     contextType?: string | null;
-    riskLevel: 'LOW' | 'MEDIUM' | 'HIGH';
-  }): string {
+  }): Record<'LOW' | 'MEDIUM' | 'HIGH', string[]> {
     const contextType = String(input.contextType || '').trim().toUpperCase();
 
-    if (input.riskLevel === 'LOW') {
-      if (contextType === 'ONBOARDING_CDD') return 'CDD_LOW_RISK_CLEAR';
-      if (contextType === 'TX_DEPOSIT_FINAL') return 'TX_DEPOSIT_LOW_RISK_AUTO_CLEAR';
-      if (contextType === 'TX_WITHDRAW_FINAL') {
-        return 'TX_WITHDRAW_FINAL_LOW_RISK_CLEAR';
-      }
-      if (contextType === 'TX_SWAP_FINAL') return 'TX_SWAP_LOW_RISK_AUTO_CLEAR';
-      throw new BadRequestException(`Unsupported decision record contextType: ${contextType}`);
-    }
-
-    const reasonPools: Record<string, Record<'MEDIUM' | 'HIGH', string[]>> = {
+    const reasonPools: Record<string, Record<'LOW' | 'MEDIUM' | 'HIGH', string[]>> = {
       ONBOARDING_CDD: {
+        LOW: ['CDD_LOW_RISK_CLEAR'],
         MEDIUM: [
           'CDD_PROFILE_INCONSISTENT',
           'CDD_ADVERSE_MEDIA_REVIEW',
@@ -119,7 +116,23 @@ export class RiskDecisionRecordsService {
           'CDD_HIGH_RISK_JURISDICTION',
         ],
       },
+      ONBOARDING_EDD: {
+        LOW: ['EDD_CLEAR'],
+        MEDIUM: ['ADVERSE_MEDIA_HIT'],
+        HIGH: ['PEP_HIT', 'SANCTIONS_HIT', 'HIGH_RISK_SCORE'],
+      },
+      PERIODIC_REVIEW_CDD: {
+        LOW: ['PRR_CDD_LOW_RISK_REVIEW'],
+        MEDIUM: ['CDD_MEDIUM_RISK_REVIEW'],
+        HIGH: ['CDD_HIGH_RISK_OR_PEP', 'SANCTIONS_HIT'],
+      },
+      PERIODIC_REVIEW_EDD: {
+        LOW: ['EDD_CLEAR'],
+        MEDIUM: ['ADVERSE_MEDIA_HIT'],
+        HIGH: ['PEP_HIT', 'SANCTIONS_HIT', 'HIGH_RISK_SCORE'],
+      },
       TX_DEPOSIT_FINAL: {
+        LOW: ['TX_DEPOSIT_LOW_RISK_AUTO_CLEAR'],
         MEDIUM: [
           'KYT_ISSUE',
           'TRAVEL_RULE_ISSUE',
@@ -132,6 +145,7 @@ export class RiskDecisionRecordsService {
         ],
       },
       TX_WITHDRAW_FINAL: {
+        LOW: ['TX_WITHDRAW_FINAL_LOW_RISK_CLEAR'],
         MEDIUM: [
           'TRAVEL_RULE_ISSUE',
           'PROFILE_MISMATCH',
@@ -144,6 +158,7 @@ export class RiskDecisionRecordsService {
         ],
       },
       TX_SWAP_FINAL: {
+        LOW: ['TX_SWAP_LOW_RISK_AUTO_CLEAR'],
         MEDIUM: [
           'PROFILE_MISMATCH',
           'VELOCITY_SPIKE',
@@ -162,7 +177,38 @@ export class RiskDecisionRecordsService {
       throw new BadRequestException(`Unsupported decision record contextType: ${contextType}`);
     }
 
-    return this.pickRandomReasonCode(contextPools[input.riskLevel]);
+    return contextPools;
+  }
+
+  private resolveManualReasonCode(input: {
+    contextType?: string | null;
+    riskLevel: 'LOW' | 'MEDIUM' | 'HIGH';
+    reasonCode?: string | null;
+  }): string {
+    const contextType = String(input.contextType || '').trim().toUpperCase();
+    const riskLevel = String(input.riskLevel || '').trim().toUpperCase() as
+      | 'LOW'
+      | 'MEDIUM'
+      | 'HIGH';
+    const allowedReasonCodes = this.getManualReasonPools({ contextType })[riskLevel];
+    const requestedReasonCode = String(input.reasonCode || '').trim().toUpperCase();
+
+    if (!requestedReasonCode) {
+      if (riskLevel === 'LOW') {
+        return allowedReasonCodes[0] || '';
+      }
+      throw new BadRequestException(
+        `reasonCode is required for ${contextType}/${riskLevel} manual simulation`,
+      );
+    }
+
+    if (!allowedReasonCodes.includes(requestedReasonCode)) {
+      throw new BadRequestException(
+        `Unsupported reasonCode ${requestedReasonCode} for ${contextType}/${riskLevel}`,
+      );
+    }
+
+    return requestedReasonCode;
   }
 
   private normalizeTake(take?: number): number {
@@ -505,34 +551,55 @@ export class RiskDecisionRecordsService {
       );
     }
 
-    const generatedReasonCode = this.getManualReasonCode({
+    const selectedReasonCode = this.resolveManualReasonCode({
       contextType,
       riskLevel: body.riskLevel,
+      reasonCode: body.reasonCode,
     });
 
     if (contextType === 'ONBOARDING_CDD') {
       await this.getOnboardingService().completeManualCddDecision({
         decisionRecordId: id,
         riskLevel: body.riskLevel,
-        reasonCode: generatedReasonCode,
+        reasonCode: selectedReasonCode,
+      });
+    } else if (contextType === 'ONBOARDING_EDD') {
+      await this.getOnboardingService().completeManualEddDecision({
+        decisionRecordId: id,
+        riskLevel: body.riskLevel,
+        reasonCode: selectedReasonCode,
+        actorId: actor.actorId,
+        actorRole: actor.actorRole || 'ADMIN',
+      });
+    } else if (contextType === 'PERIODIC_REVIEW_CDD') {
+      await this.getPeriodicReviewService().completeManualCddDecision({
+        decisionRecordId: id,
+        riskLevel: body.riskLevel,
+        reasonCode: selectedReasonCode,
+      });
+    } else if (contextType === 'PERIODIC_REVIEW_EDD') {
+      await this.getPeriodicReviewService().completeManualEddDecision({
+        decisionRecordId: id,
+        riskLevel: body.riskLevel,
+        reasonCode: selectedReasonCode,
       });
     } else if (contextType === 'TX_DEPOSIT_FINAL') {
       await this.getTransactionRiskBridgeService().simulateDepositFinalReview({
         decisionRecordId: id,
         riskLevel: body.riskLevel,
-        riskReason: generatedReasonCode,
+        riskReason: selectedReasonCode,
       });
     } else if (contextType === 'TX_WITHDRAW_FINAL') {
       await this.getTransactionRiskBridgeService().simulateWithdrawFinalReview({
         decisionRecordId: id,
         riskLevel: body.riskLevel,
-        riskReason: generatedReasonCode,
+        riskReason: selectedReasonCode,
       });
     } else if (contextType === 'TX_SWAP_FINAL') {
       await this.getTransactionRiskBridgeService().simulateSwapFinalReview({
         decisionRecordId: id,
         riskLevel: body.riskLevel,
-        riskReason: generatedReasonCode,
+        riskReason: selectedReasonCode,
       });
     } else {
       throw new BadRequestException(
@@ -550,8 +617,11 @@ export class RiskDecisionRecordsService {
                 ? `${AuditWorkflowTypes.WITHDRAW}:${record.subjectId}`
                 : undefined,
             workflowType:
-              contextType === 'ONBOARDING_CDD'
+              contextType === 'ONBOARDING_CDD' || contextType === 'ONBOARDING_EDD'
                 ? AuditWorkflowTypes.ONBOARDING
+                : contextType === 'PERIODIC_REVIEW_CDD' ||
+                    contextType === 'PERIODIC_REVIEW_EDD'
+                  ? AuditWorkflowTypes.PERIODIC_REVIEW
                 : contextType === 'TX_WITHDRAW_FINAL'
                   ? AuditWorkflowTypes.WITHDRAW
                 : AuditWorkflowTypes.TRANSACTION,
@@ -578,7 +648,7 @@ export class RiskDecisionRecordsService {
           contextType,
           subjectId: record.subjectId,
           selectedRiskLevel: body.riskLevel,
-          generatedReasonCode,
+          selectedReasonCode,
           simulationMode: 'MANUAL',
         },
         sourcePlatform: actor.sourcePlatform || 'ADMIN_API',

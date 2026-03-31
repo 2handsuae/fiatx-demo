@@ -84,7 +84,12 @@ export class PeriodicReviewWorkflowTransitionService {
     producerType: WorkflowTransitionProducerType;
     dispositionCode: string;
   }): string {
-    const prefix = input.producerType === 'CASE' ? 'PERIODIC_CASE' : 'PERIODIC_ALERT';
+    const prefix =
+      input.producerType === 'CASE'
+        ? 'PERIODIC_CASE'
+        : input.producerType === 'DECISION_RECORD'
+          ? 'PERIODIC_DECISION_RECORD'
+          : 'PERIODIC_ALERT';
     const workflowDecision = this.getWorkflowDecision(input.dispositionCode);
     switch (workflowDecision) {
       case 'CLEAR':

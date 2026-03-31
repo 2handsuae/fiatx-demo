@@ -9,6 +9,7 @@ import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/admi
 
 type DecisionRecordStatus = 'CREATED' | 'COMPLETED' | 'FAILED';
 type ManualRiskLevel = 'LOW' | 'MEDIUM' | 'HIGH';
+type ManualRiskReasonLevel = Exclude<ManualRiskLevel, 'LOW'>;
 
 type DecisionRecordItem = {
   id: string;
@@ -74,6 +75,75 @@ interface FilterState {
 }
 
 const PAGE_SIZE = 20;
+const SUPPORTED_MANUAL_SIMULATION_CONTEXTS = [
+  'ONBOARDING_CDD',
+  'ONBOARDING_EDD',
+  'PERIODIC_REVIEW_CDD',
+  'PERIODIC_REVIEW_EDD',
+  'TX_DEPOSIT_FINAL',
+  'TX_WITHDRAW_FINAL',
+  'TX_SWAP_FINAL',
+] as const;
+
+const MANUAL_REASON_OPTIONS: Record<
+  string,
+  Record<ManualRiskReasonLevel, string[]>
+> = {
+  ONBOARDING_CDD: {
+    MEDIUM: [
+      'CDD_PROFILE_INCONSISTENT',
+      'CDD_ADVERSE_MEDIA_REVIEW',
+      'CDD_SOURCE_OF_FUNDS_REVIEW',
+    ],
+    HIGH: ['CDD_PEP_MATCH', 'CDD_SANCTIONS_HIT', 'CDD_HIGH_RISK_JURISDICTION'],
+  },
+  ONBOARDING_EDD: {
+    MEDIUM: ['ADVERSE_MEDIA_HIT'],
+    HIGH: ['PEP_HIT', 'SANCTIONS_HIT', 'HIGH_RISK_SCORE'],
+  },
+  PERIODIC_REVIEW_CDD: {
+    MEDIUM: ['CDD_MEDIUM_RISK_REVIEW'],
+    HIGH: ['CDD_HIGH_RISK_OR_PEP', 'SANCTIONS_HIT'],
+  },
+  PERIODIC_REVIEW_EDD: {
+    MEDIUM: ['ADVERSE_MEDIA_HIT'],
+    HIGH: ['PEP_HIT', 'SANCTIONS_HIT', 'HIGH_RISK_SCORE'],
+  },
+  TX_DEPOSIT_FINAL: {
+    MEDIUM: ['KYT_ISSUE', 'TRAVEL_RULE_ISSUE', 'LARGE_DEPOSIT_PROFILE_MISMATCH'],
+    HIGH: ['SANCTIONS_HIT', 'KYT_SEVERE_EXPOSURE', 'TRAVEL_RULE_COUNTERPARTY_BLOCKED'],
+  },
+  TX_WITHDRAW_FINAL: {
+    MEDIUM: ['TRAVEL_RULE_ISSUE', 'PROFILE_MISMATCH', 'BEHAVIOR_REVIEW_REQUIRED'],
+    HIGH: ['TX_WITHDRAW_MAIN_KYT_FAIL', 'TX_WITHDRAW_TRAVEL_RULE_REJECTED', 'HIGH_RISK_EXPOSURE'],
+  },
+  TX_SWAP_FINAL: {
+    MEDIUM: ['PROFILE_MISMATCH', 'VELOCITY_SPIKE', 'BEHAVIOR_REVIEW_REQUIRED'],
+    HIGH: ['SANCTIONS_HIT', 'LAYERING_PATTERN', 'HIGH_RISK_EXPOSURE'],
+  },
+};
+
+const MANUAL_REASON_DEFAULTS: Record<
+  string,
+  Partial<Record<ManualRiskReasonLevel, string>>
+> = {
+  ONBOARDING_CDD: {
+    MEDIUM: 'CDD_SOURCE_OF_FUNDS_REVIEW',
+    HIGH: 'CDD_PEP_MATCH',
+  },
+  ONBOARDING_EDD: {
+    MEDIUM: 'ADVERSE_MEDIA_HIT',
+    HIGH: 'PEP_HIT',
+  },
+  PERIODIC_REVIEW_CDD: {
+    MEDIUM: 'CDD_MEDIUM_RISK_REVIEW',
+    HIGH: 'CDD_HIGH_RISK_OR_PEP',
+  },
+  PERIODIC_REVIEW_EDD: {
+    MEDIUM: 'ADVERSE_MEDIA_HIT',
+    HIGH: 'PEP_HIT',
+  },
+};
 
 const DEFAULT_FILTERS: FilterState = {
   status: '',
@@ -135,6 +205,36 @@ const getDecisionContextMeta = (contextType?: string | null) => {
       badgeClass: 'bg-blue-100 text-blue-800',
       helperText:
         'CDD now creates a pending risk execution record first. Complete the final simulated outcome here from the decision detail.',
+    };
+  }
+
+  if (normalized === 'ONBOARDING_EDD') {
+    return {
+      title: 'Onboarding EDD Decision',
+      badgeLabel: 'MANUAL',
+      badgeClass: 'bg-cyan-100 text-cyan-800',
+      helperText:
+        'EDD now queues a pending risk execution first. LOW with EDD_CLEAR moves directly to final approval; MEDIUM/HIGH continue into alert and case review.',
+    };
+  }
+
+  if (normalized === 'PERIODIC_REVIEW_CDD') {
+    return {
+      title: 'Periodic Review CDD Decision',
+      badgeLabel: 'MANUAL',
+      badgeClass: 'bg-indigo-100 text-indigo-800',
+      helperText:
+        'Periodic review CDD now stops at a pending risk execution record. Simulate here before any alert or case is generated.',
+    };
+  }
+
+  if (normalized === 'PERIODIC_REVIEW_EDD') {
+    return {
+      title: 'Periodic Review EDD Decision',
+      badgeLabel: 'MANUAL',
+      badgeClass: 'bg-sky-100 text-sky-800',
+      helperText:
+        'Periodic review EDD now waits for an explicit manual simulation outcome here before review orchestration continues.',
     };
   }
 
@@ -206,6 +306,29 @@ const getDecisionContextMeta = (contextType?: string | null) => {
   };
 };
 
+const getManualReasonOptions = (
+  contextType?: string | null,
+  riskLevel?: ManualRiskReasonLevel,
+): string[] => {
+  if (!riskLevel) return [];
+  const normalizedContextType = String(contextType || '').trim().toUpperCase();
+  return MANUAL_REASON_OPTIONS[normalizedContextType]?.[riskLevel] || [];
+};
+
+const getDefaultManualReasonCode = (
+  contextType?: string | null,
+  riskLevel?: ManualRiskReasonLevel,
+): string => {
+  if (!riskLevel) return '';
+  const normalizedContextType = String(contextType || '').trim().toUpperCase();
+  const options = getManualReasonOptions(normalizedContextType, riskLevel);
+  const recommended = MANUAL_REASON_DEFAULTS[normalizedContextType]?.[riskLevel];
+  if (recommended && options.includes(recommended)) {
+    return recommended;
+  }
+  return options[0] || '';
+};
+
 const mergeDecisionRecordIntoList = (
   items: DecisionRecordItem[],
   detail: DecisionRecordDetail,
@@ -248,13 +371,36 @@ const RiskPolicyExecutionsPage = () => {
   const [detail, setDetail] = useState<DecisionRecordDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [simulateLoading, setSimulateLoading] = useState<ManualRiskLevel | null>(null);
+  const [reasonSelections, setReasonSelections] = useState<
+    Record<ManualRiskReasonLevel, string>
+  >({
+    MEDIUM: '',
+    HIGH: '',
+  });
 
   const canSimulate = (record?: DecisionRecordDetail | null) => {
     if (!record) return false;
     if (String(record.status || '').trim().toUpperCase() !== 'CREATED') return false;
     const contextType = String(record.contextType || '').trim().toUpperCase();
-    return ['ONBOARDING_CDD', 'TX_DEPOSIT_FINAL', 'TX_WITHDRAW_FINAL', 'TX_SWAP_FINAL'].includes(contextType);
+    return SUPPORTED_MANUAL_SIMULATION_CONTEXTS.includes(
+      contextType as (typeof SUPPORTED_MANUAL_SIMULATION_CONTEXTS)[number],
+    );
   };
+
+  useEffect(() => {
+    if (!detail) {
+      setReasonSelections({
+        MEDIUM: '',
+        HIGH: '',
+      });
+      return;
+    }
+
+    setReasonSelections({
+      MEDIUM: getDefaultManualReasonCode(detail.contextType, 'MEDIUM'),
+      HIGH: getDefaultManualReasonCode(detail.contextType, 'HIGH'),
+    });
+  }, [detail?.id, detail?.contextType]);
 
   const fetchRecords = async (
     targetPage: number,
@@ -363,6 +509,14 @@ const RiskPolicyExecutionsPage = () => {
 
   const simulateDecision = async (riskLevel: ManualRiskLevel) => {
     if (!detail) return;
+    const reasonCode =
+      riskLevel === 'LOW'
+        ? undefined
+        : reasonSelections[riskLevel as ManualRiskReasonLevel] || '';
+    if (riskLevel !== 'LOW' && !reasonCode) {
+      setError(`Select a reason code before simulating ${riskLevel}.`);
+      return;
+    }
     setSimulateLoading(riskLevel);
     setError('');
     setMessage('');
@@ -374,7 +528,10 @@ const RiskPolicyExecutionsPage = () => {
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({ riskLevel }),
+          body: JSON.stringify({
+            riskLevel,
+            ...(reasonCode ? { reasonCode } : {}),
+          }),
         },
       );
 
@@ -385,7 +542,11 @@ const RiskPolicyExecutionsPage = () => {
       const data = (await response.json()) as DecisionRecordDetail;
       setDetail(data);
       setItems((prev) => mergeDecisionRecordIntoList(prev, data));
-      setMessage(`Manual ${riskLevel} simulation applied.`);
+      setMessage(
+        reasonCode
+          ? `Manual ${riskLevel} simulation applied with ${reasonCode}.`
+          : `Manual ${riskLevel} simulation applied.`,
+      );
       try {
         await loadDecisionDetail(data.id, { silent: true, preserveError: true });
       } catch (refreshError: unknown) {
@@ -424,9 +585,14 @@ const RiskPolicyExecutionsPage = () => {
 
       <div className="px-4 py-3 border border-blue-200 bg-blue-50 rounded-lg text-sm text-blue-800">
         Supported manual simulation contexts are <span className="font-semibold">ONBOARDING_CDD</span>,{' '}
-        <span className="font-semibold">TX_DEPOSIT_FINAL</span>, and <span className="font-semibold">TX_SWAP_FINAL</span>.
-        Historical <span className="font-semibold">TX_DEPOSIT_KYT_MAIN</span> rows may still appear here as legacy
-        stage records, but they are not part of the active operator simulation surface.
+        <span className="font-semibold">ONBOARDING_EDD</span>,{' '}
+        <span className="font-semibold">PERIODIC_REVIEW_CDD</span>,{' '}
+        <span className="font-semibold">PERIODIC_REVIEW_EDD</span>,{' '}
+        <span className="font-semibold">TX_DEPOSIT_FINAL</span>,{' '}
+        <span className="font-semibold">TX_WITHDRAW_FINAL</span>, and{' '}
+        <span className="font-semibold">TX_SWAP_FINAL</span>. Historical{' '}
+        <span className="font-semibold">TX_DEPOSIT_KYT_MAIN</span> rows may still appear here as legacy stage
+        records, but they are not part of the active operator simulation surface.
       </div>
 
       {message && (
@@ -826,26 +992,73 @@ const RiskPolicyExecutionsPage = () => {
                     </div>
                     <div className="p-3 space-y-3">
                       <p className="text-sm text-gray-700">
-                        Choose the final manual risk result for this pending execution record. Low will auto-clear
-                        the workflow. Medium creates one workflow-bound alert. High creates one alert and auto-escalates to a case.
+                        Choose the final manual risk result for this pending execution record. Low remains one-click.
+                        Medium and High require an explicit reason code so onboarding and sanctions scenarios can be
+                        replayed deterministically.
                       </p>
                       <div className="flex flex-wrap gap-2">
-                        {(['LOW', 'MEDIUM', 'HIGH'] as ManualRiskLevel[]).map((riskLevel) => (
-                          <button
-                            key={riskLevel}
-                            onClick={() => void simulateDecision(riskLevel)}
-                            disabled={simulateLoading !== null}
-                            className={`px-4 py-2 rounded-lg text-sm font-semibold transition ${
-                              riskLevel === 'LOW'
-                                ? 'bg-emerald-600 text-white hover:bg-emerald-700'
-                                : riskLevel === 'MEDIUM'
-                                  ? 'bg-amber-500 text-white hover:bg-amber-600'
-                                  : 'bg-rose-600 text-white hover:bg-rose-700'
-                            } disabled:opacity-60`}
-                          >
-                            {simulateLoading === riskLevel ? `Simulating ${riskLevel}...` : `Simulate ${riskLevel}`}
-                          </button>
-                        ))}
+                        <button
+                          onClick={() => void simulateDecision('LOW')}
+                          disabled={simulateLoading !== null}
+                          className="px-4 py-2 rounded-lg text-sm font-semibold transition bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-60"
+                        >
+                          {simulateLoading === 'LOW' ? 'Simulating LOW...' : 'Simulate LOW'}
+                        </button>
+                      </div>
+                      <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
+                        {(['MEDIUM', 'HIGH'] as ManualRiskReasonLevel[]).map((riskLevel) => {
+                          const reasonOptions = getManualReasonOptions(detail.contextType, riskLevel);
+                          return (
+                            <div
+                              key={riskLevel}
+                              className="rounded-lg border border-indigo-100 bg-white p-3"
+                            >
+                              <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
+                                <label className="min-w-0 flex-1">
+                                  <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                                    {riskLevel} Reason Code
+                                  </div>
+                                  <select
+                                    value={reasonSelections[riskLevel] || ''}
+                                    onChange={(event) =>
+                                      setReasonSelections((prev) => ({
+                                        ...prev,
+                                        [riskLevel]: event.target.value,
+                                      }))
+                                    }
+                                    disabled={simulateLoading !== null}
+                                    className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm disabled:bg-gray-50"
+                                  >
+                                    <option value="">Select reason code</option>
+                                    {reasonOptions.map((reasonCode) => (
+                                      <option key={reasonCode} value={reasonCode}>
+                                        {reasonCode}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </label>
+                                <button
+                                  onClick={() => void simulateDecision(riskLevel)}
+                                  disabled={simulateLoading !== null || !reasonSelections[riskLevel]}
+                                  className={`px-4 py-2 rounded-lg text-sm font-semibold transition ${
+                                    riskLevel === 'MEDIUM'
+                                      ? 'bg-amber-500 text-white hover:bg-amber-600'
+                                      : 'bg-rose-600 text-white hover:bg-rose-700'
+                                  } disabled:opacity-60`}
+                                >
+                                  {simulateLoading === riskLevel
+                                    ? `Simulating ${riskLevel}...`
+                                    : `Simulate ${riskLevel}`}
+                                </button>
+                              </div>
+                              <div className="mt-2 text-xs text-gray-500">
+                                {riskLevel === 'HIGH'
+                                  ? 'High risk can be replayed deterministically, including CDD_SANCTIONS_HIT for onboarding sanctions cases.'
+                                  : 'Medium risk requires an explicit review reason so downstream workflow transitions stay reproducible.'}
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
                   </section>

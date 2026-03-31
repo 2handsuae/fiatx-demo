@@ -2,6 +2,7 @@ import { NotFoundException } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
 import { AuditLogsService } from './audit-logs/audit-logs.service';
 import { OnboardingService } from '../identity/onboarding/onboarding.service';
+import { PeriodicReviewService } from '../identity/periodic-review/periodic-review.service';
 import { RiskDecisionRecordsService } from './risk-decision-records.service';
 import { TransactionRiskBridgeService } from './transaction-compliance/transaction-risk-bridge.service';
 
@@ -18,6 +19,11 @@ describe('RiskDecisionRecordsService', () => {
   };
   const onboardingServiceMock = {
     completeManualCddDecision: jest.fn(),
+    completeManualEddDecision: jest.fn(),
+  };
+  const periodicReviewServiceMock = {
+    completeManualCddDecision: jest.fn(),
+    completeManualEddDecision: jest.fn(),
   };
   const transactionRiskBridgeServiceMock = {
     simulateDepositFinalReview: jest.fn(),
@@ -33,12 +39,13 @@ describe('RiskDecisionRecordsService', () => {
   let recordByActorSpy: jest.SpiedFunction<typeof AuditLogsService.prototype.recordByActor>;
 
   beforeEach(() => {
-    jest.clearAllMocks();
+    jest.resetAllMocks();
     recordByActorSpy = jest
       .spyOn(AuditLogsService.prototype, 'recordByActor')
       .mockResolvedValue({} as any);
     moduleRefMock.get.mockImplementation((token: unknown) => {
       if (token === OnboardingService) return onboardingServiceMock;
+      if (token === PeriodicReviewService) return periodicReviewServiceMock;
       if (token === TransactionRiskBridgeService) return transactionRiskBridgeServiceMock;
       return null;
     });
@@ -389,7 +396,7 @@ describe('RiskDecisionRecordsService', () => {
 
     const result = await service.simulateDecisionRecord(
       'dr-cdd-1',
-      { riskLevel: 'MEDIUM' },
+      { riskLevel: 'MEDIUM', reasonCode: 'CDD_SOURCE_OF_FUNDS_REVIEW' },
       {
         actorType: 'ADMIN',
         actorId: 'admin-1',
@@ -402,9 +409,7 @@ describe('RiskDecisionRecordsService', () => {
     expect(onboardingServiceMock.completeManualCddDecision).toHaveBeenCalledWith({
       decisionRecordId: 'dr-cdd-1',
       riskLevel: 'MEDIUM',
-      reasonCode: expect.stringMatching(
-        /CDD_PROFILE_INCONSISTENT|CDD_ADVERSE_MEDIA_REVIEW|CDD_SOURCE_OF_FUNDS_REVIEW/,
-      ),
+      reasonCode: 'CDD_SOURCE_OF_FUNDS_REVIEW',
     });
     expect(result.outputs).toEqual(
       expect.objectContaining({
@@ -412,6 +417,204 @@ describe('RiskDecisionRecordsService', () => {
         simulationMode: 'MANUAL',
       }),
     );
+  });
+
+  it('should require reasonCode for MEDIUM/HIGH manual simulation', async () => {
+    prismaMock.workflowDecisionRecord.findUnique.mockResolvedValue({
+      id: 'dr-cdd-2',
+      status: 'CREATED',
+      contextType: 'ONBOARDING_CDD',
+      customerId: 'c1',
+      subjectId: 'c1',
+    });
+
+    await expect(
+      service.simulateDecisionRecord(
+        'dr-cdd-2',
+        { riskLevel: 'HIGH' },
+        {
+          actorType: 'ADMIN',
+          actorId: 'admin-1',
+          actorNo: 'ADM-1',
+          actorRole: 'COMPLIANCE_LEAD',
+          sourcePlatform: 'ADMIN_API',
+        },
+      ),
+    ).rejects.toThrow('reasonCode is required');
+
+    expect(onboardingServiceMock.completeManualCddDecision).not.toHaveBeenCalled();
+  });
+
+  it('should delegate onboarding EDD manual simulation with canonical low-risk reason', async () => {
+    prismaMock.workflowDecisionRecord.findUnique
+      .mockResolvedValueOnce({
+        id: 'dr-edd-1',
+        status: 'CREATED',
+        contextType: 'ONBOARDING_EDD',
+        customerId: 'c1',
+        subjectId: 'c1',
+      })
+      .mockResolvedValueOnce({
+        id: 'dr-edd-1',
+        customerId: 'c1',
+        contextType: 'ONBOARDING_EDD',
+        subjectId: 'c1',
+        policyVersion: 'onboarding-risk-policy/v1',
+        status: 'COMPLETED',
+        inputHash: 'hash-edd-1',
+        inputPayload: '{"subjectType":"INDIVIDUAL_CUSTOMER"}',
+        outputDecision: 'CLEAR',
+        recommendedActions: '[]',
+        outputs: '{"riskBand":"LOW","riskReason":"EDD_CLEAR","simulationMode":"MANUAL"}',
+        reasonCodes: '["EDD_CLEAR"]',
+        errorMessage: null,
+        createdAt: new Date('2026-03-31T00:00:00.000Z'),
+        completedAt: new Date('2026-03-31T00:01:00.000Z'),
+        updatedAt: new Date('2026-03-31T00:01:00.000Z'),
+        customer: null,
+      });
+
+    await service.simulateDecisionRecord(
+      'dr-edd-1',
+      { riskLevel: 'LOW' },
+      {
+        actorType: 'ADMIN',
+        actorId: 'admin-1',
+        actorNo: 'ADM-1',
+        actorRole: 'COMPLIANCE_LEAD',
+        sourcePlatform: 'ADMIN_API',
+      },
+    );
+
+    expect(onboardingServiceMock.completeManualEddDecision).toHaveBeenCalledWith({
+      decisionRecordId: 'dr-edd-1',
+      riskLevel: 'LOW',
+      reasonCode: 'EDD_CLEAR',
+      actorId: 'admin-1',
+      actorRole: 'COMPLIANCE_LEAD',
+    });
+  });
+
+  it('should require reasonCode for onboarding EDD medium/high manual simulation', async () => {
+    prismaMock.workflowDecisionRecord.findUnique.mockResolvedValue({
+      id: 'dr-edd-2',
+      status: 'CREATED',
+      contextType: 'ONBOARDING_EDD',
+      customerId: 'c1',
+      subjectId: 'c1',
+    });
+
+    await expect(
+      service.simulateDecisionRecord(
+        'dr-edd-2',
+        { riskLevel: 'HIGH' },
+        {
+          actorType: 'ADMIN',
+          actorId: 'admin-1',
+          actorNo: 'ADM-1',
+          actorRole: 'COMPLIANCE_LEAD',
+          sourcePlatform: 'ADMIN_API',
+        },
+      ),
+    ).rejects.toThrow('reasonCode is required');
+
+    expect(onboardingServiceMock.completeManualEddDecision).not.toHaveBeenCalled();
+  });
+
+  it('should delegate periodic review CDD manual simulation', async () => {
+    prismaMock.workflowDecisionRecord.findUnique
+      .mockResolvedValueOnce({
+        id: 'dr-prr-cdd-1',
+        status: 'CREATED',
+        contextType: 'PERIODIC_REVIEW_CDD',
+        customerId: 'c1',
+        subjectId: 'c1',
+      })
+      .mockResolvedValueOnce({
+        id: 'dr-prr-cdd-1',
+        customerId: 'c1',
+        contextType: 'PERIODIC_REVIEW_CDD',
+        subjectId: 'c1',
+        policyVersion: 'periodic-review-risk-policy/v1',
+        status: 'COMPLETED',
+        inputHash: 'hash-prr-cdd-1',
+        inputPayload: '{"subjectType":"INDIVIDUAL_CUSTOMER"}',
+        outputDecision: 'REVIEW',
+        recommendedActions: '[]',
+        outputs: '{"riskBand":"MEDIUM","riskReason":"CDD_MEDIUM_RISK_REVIEW","simulationMode":"MANUAL"}',
+        reasonCodes: '["CDD_MEDIUM_RISK_REVIEW"]',
+        errorMessage: null,
+        createdAt: new Date('2026-03-31T00:00:00.000Z'),
+        completedAt: new Date('2026-03-31T00:01:00.000Z'),
+        updatedAt: new Date('2026-03-31T00:01:00.000Z'),
+        customer: null,
+      });
+
+    await service.simulateDecisionRecord(
+      'dr-prr-cdd-1',
+      { riskLevel: 'MEDIUM', reasonCode: 'CDD_MEDIUM_RISK_REVIEW' },
+      {
+        actorType: 'ADMIN',
+        actorId: 'admin-1',
+        actorNo: 'ADM-1',
+        actorRole: 'COMPLIANCE_LEAD',
+        sourcePlatform: 'ADMIN_API',
+      },
+    );
+
+    expect(periodicReviewServiceMock.completeManualCddDecision).toHaveBeenCalledWith({
+      decisionRecordId: 'dr-prr-cdd-1',
+      riskLevel: 'MEDIUM',
+      reasonCode: 'CDD_MEDIUM_RISK_REVIEW',
+    });
+  });
+
+  it('should delegate periodic review EDD manual simulation', async () => {
+    prismaMock.workflowDecisionRecord.findUnique
+      .mockResolvedValueOnce({
+        id: 'dr-prr-edd-1',
+        status: 'CREATED',
+        contextType: 'PERIODIC_REVIEW_EDD',
+        customerId: 'c1',
+        subjectId: 'c1',
+      })
+      .mockResolvedValueOnce({
+        id: 'dr-prr-edd-1',
+        customerId: 'c1',
+        contextType: 'PERIODIC_REVIEW_EDD',
+        subjectId: 'c1',
+        policyVersion: 'periodic-review-risk-policy/v1',
+        status: 'COMPLETED',
+        inputHash: 'hash-prr-edd-1',
+        inputPayload: '{"subjectType":"INDIVIDUAL_CUSTOMER"}',
+        outputDecision: 'REVIEW',
+        recommendedActions: '[]',
+        outputs: '{"riskBand":"HIGH","riskReason":"SANCTIONS_HIT","simulationMode":"MANUAL"}',
+        reasonCodes: '["SANCTIONS_HIT"]',
+        errorMessage: null,
+        createdAt: new Date('2026-03-31T00:00:00.000Z'),
+        completedAt: new Date('2026-03-31T00:01:00.000Z'),
+        updatedAt: new Date('2026-03-31T00:01:00.000Z'),
+        customer: null,
+      });
+
+    await service.simulateDecisionRecord(
+      'dr-prr-edd-1',
+      { riskLevel: 'HIGH', reasonCode: 'SANCTIONS_HIT' },
+      {
+        actorType: 'ADMIN',
+        actorId: 'admin-1',
+        actorNo: 'ADM-1',
+        actorRole: 'COMPLIANCE_LEAD',
+        sourcePlatform: 'ADMIN_API',
+      },
+    );
+
+    expect(periodicReviewServiceMock.completeManualEddDecision).toHaveBeenCalledWith({
+      decisionRecordId: 'dr-prr-edd-1',
+      riskLevel: 'HIGH',
+      reasonCode: 'SANCTIONS_HIT',
+    });
   });
 
   it('should delegate deposit manual simulation to transaction risk bridge', async () => {
@@ -497,7 +700,7 @@ describe('RiskDecisionRecordsService', () => {
 
     await service.simulateDecisionRecord(
       'dr-swap-1',
-      { riskLevel: 'MEDIUM' },
+      { riskLevel: 'MEDIUM', reasonCode: 'VELOCITY_SPIKE' },
       {
         actorType: 'ADMIN',
         actorId: 'admin-1',
@@ -510,9 +713,7 @@ describe('RiskDecisionRecordsService', () => {
     expect(transactionRiskBridgeServiceMock.simulateSwapFinalReview).toHaveBeenCalledWith({
       decisionRecordId: 'dr-swap-1',
       riskLevel: 'MEDIUM',
-      riskReason: expect.stringMatching(
-        /PROFILE_MISMATCH|VELOCITY_SPIKE|BEHAVIOR_REVIEW_REQUIRED/,
-      ),
+      riskReason: 'VELOCITY_SPIKE',
     });
     expect(recordByActorSpy).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -528,6 +729,7 @@ describe('RiskDecisionRecordsService', () => {
           contextType: 'TX_SWAP_FINAL',
           subjectId: 'swap-1',
           selectedRiskLevel: 'MEDIUM',
+          selectedReasonCode: 'VELOCITY_SPIKE',
           simulationMode: 'MANUAL',
         }),
       }),

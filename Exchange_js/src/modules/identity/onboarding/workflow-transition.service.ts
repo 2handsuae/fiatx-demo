@@ -86,6 +86,17 @@ export class WorkflowTransitionService {
     );
   }
 
+  private resolveTransactionProducerType(
+    producerType: WorkflowTransitionInput['producerType'],
+  ): 'ALERT' | 'CASE' {
+    if (producerType === 'ALERT' || producerType === 'CASE') {
+      return producerType;
+    }
+    throw new BadRequestException(
+      'Transaction workflow does not support DECISION_RECORD as a producer source',
+    );
+  }
+
   async transition(
     tx: Prisma.TransactionClient,
     input: WorkflowTransitionInput,
@@ -116,6 +127,9 @@ export class WorkflowTransitionService {
       )
         .trim()
         .toUpperCase();
+      const transactionProducerType = this.resolveTransactionProducerType(
+        input.producerType,
+      );
       const workflowAction = this.resolveTransactionWorkflowAction(
         input.dispositionCode,
       );
@@ -129,7 +143,7 @@ export class WorkflowTransitionService {
         const service = this.getTransactionSwapWorkflowTransitionService();
         const result = await service.execute(tx, {
           swapId: sourceId,
-          source: input.producerType,
+          source: transactionProducerType,
           sourceId: input.producerId,
           workflowAction:
             workflowAction === 'CLEAR' ? 'CLEAR' : workflowAction === 'REJECT' ? 'REJECT' : 'FLAG',
@@ -169,7 +183,7 @@ export class WorkflowTransitionService {
         const service = this.getTransactionWithdrawWorkflowTransitionService();
         const result = await service.execute(tx, {
           withdrawId: sourceId,
-          source: input.producerType,
+          source: transactionProducerType,
           sourceId: input.producerId,
           workflowAction,
           reason: input.reason || null,
@@ -207,7 +221,7 @@ export class WorkflowTransitionService {
       const service = this.getTransactionDepositWorkflowTransitionService();
       const result = await service.execute(tx, {
         depositId: sourceId,
-        source: input.producerType,
+        source: transactionProducerType,
         sourceId: input.producerId,
         workflowAction,
         reason: input.reason || null,

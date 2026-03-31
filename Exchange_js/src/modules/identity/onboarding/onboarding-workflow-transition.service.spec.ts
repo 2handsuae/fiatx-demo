@@ -30,13 +30,19 @@ describe('OnboardingWorkflowTransitionService', () => {
       update: jest.fn(),
     },
   };
+  const onboardingFinalApprovalServiceMock = {
+    ensurePendingApprovalInTransaction: jest.fn(),
+  };
 
   let service: OnboardingWorkflowTransitionService;
 
   beforeEach(() => {
     jest.clearAllMocks();
     jest.spyOn(AuditLogsService.prototype, 'recordByActor').mockResolvedValue({} as any);
-    service = new OnboardingWorkflowTransitionService(txMock as any);
+    service = new OnboardingWorkflowTransitionService(
+      txMock as any,
+      onboardingFinalApprovalServiceMock as any,
+    );
     txMock.customerMain.findUnique.mockResolvedValue({
       id: 'c1',
       customerNo: 'CU0001',
@@ -77,6 +83,13 @@ describe('OnboardingWorkflowTransitionService', () => {
       outputs: '{}',
     });
     txMock.workflowDecisionRecord.update.mockResolvedValue({ id: 'dr-1' });
+    onboardingFinalApprovalServiceMock.ensurePendingApprovalInTransaction.mockResolvedValue({
+      approval: {
+        id: 'approval-1',
+        status: 'PENDING',
+      },
+      created: true,
+    });
   });
 
   it('should transition REVIEW_CDD REQUIRE_EDD to PENDING_EDD and create EDD case', async () => {
@@ -140,14 +153,17 @@ describe('OnboardingWorkflowTransitionService', () => {
     expect(result.executed).toBe(false);
   });
 
-  it('should transition REVIEW_EDD clear to FINAL_APPROVAL without creating approval', async () => {
+  it('should transition REVIEW_EDD clear to FINAL_APPROVAL and auto-create approval', async () => {
     txMock.customerMain.findUnique.mockResolvedValue({
       id: 'c1',
+      customerNo: 'CU0001',
       onboardingStatus: 'EDD_UNDER_REVIEW',
       operatingStatus: 'INACTIVE',
       restrictionStatus: 'CLEAR',
+      eddRequired: true,
       activeJourneyId: 'ONB-1',
       latestDecisionRecordId: 'dr-1',
+      latestFinalApprovalId: null,
       latestFinalApprovalStatus: null,
     });
     txMock.eddResponse.findFirst.mockResolvedValue({
@@ -159,8 +175,8 @@ describe('OnboardingWorkflowTransitionService', () => {
       onboardingStatus: 'FINAL_APPROVAL',
       operatingStatus: 'INACTIVE',
       restrictionStatus: 'CLEAR',
-      latestFinalApprovalId: null,
-      latestFinalApprovalStatus: null,
+      latestFinalApprovalId: 'approval-1',
+      latestFinalApprovalStatus: 'PENDING',
     });
 
     const result = await service.execute(txMock, {
@@ -177,17 +193,34 @@ describe('OnboardingWorkflowTransitionService', () => {
       linkedCaseIds: ['edd-1'],
     });
 
+    expect(
+      onboardingFinalApprovalServiceMock.ensurePendingApprovalInTransaction,
+    ).toHaveBeenCalledWith(
+      txMock,
+      expect.objectContaining({
+        customer: expect.objectContaining({
+          id: 'c1',
+          customerNo: 'CU0001',
+          onboardingStatus: 'FINAL_APPROVAL',
+          activeJourneyId: 'ONB-1',
+        }),
+        actorId: 'admin-1',
+        actorRole: 'MLRO',
+      }),
+    );
     expect(txMock.customerMain.update).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
           onboardingStatus: 'FINAL_APPROVAL',
-          latestFinalApproval: { disconnect: true },
-          latestFinalApprovalStatus: null,
+          latestFinalApproval: { connect: { id: 'approval-1' } },
+          latestFinalApprovalStatus: 'PENDING',
         }),
       }),
     );
     expect(result).not.toHaveProperty('finalApprovalStatus');
-    expect(result.createdFinalApprovalId).toBeNull();
+    expect(result.createdFinalApprovalId).toBe('approval-1');
+    expect(result.latestFinalApprovalId).toBe('approval-1');
+    expect(result.latestFinalApprovalStatus).toBe('PENDING');
     expect(result.toStatus).toBe('FINAL_APPROVAL');
   });
 

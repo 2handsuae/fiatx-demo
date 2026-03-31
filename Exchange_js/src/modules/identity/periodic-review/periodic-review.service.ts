@@ -407,6 +407,175 @@ export class PeriodicReviewService {
     };
   }
 
+  private buildPendingCddSignals(input: {
+    caseNo: string;
+    cddResponseId: string;
+    cycleNo: string;
+  }) {
+    const seed = this.buildSeed(`PRR:CDD:PENDING:${input.caseNo}`);
+    return {
+      provider: 'MOCK',
+      caseType: 'CDD' as const,
+      referenceId: `MOCK-${seed.toString(16).toUpperCase()}`,
+      reviewedAt: new Date().toISOString(),
+      cddResponseId: input.cddResponseId,
+      cycleNo: input.cycleNo,
+      outcome: 'RECEIVED',
+      riskScore: null,
+      riskLevel: null,
+      pepHit: false,
+      sanctionsHit: false,
+      adverseMediaHit: false,
+      simulationMode: 'MANUAL_PENDING',
+    };
+  }
+
+  private buildManualCddSignals(input: {
+    caseNo: string;
+    cddResponseId: string;
+    cycleNo: string;
+    riskLevel: 'LOW' | 'MEDIUM' | 'HIGH';
+    reasonCode: string;
+  }) {
+    const seed = this.buildSeed(`PRR:CDD:MANUAL:${input.caseNo}:${input.riskLevel}:${input.reasonCode}`);
+    const base = {
+      provider: 'MOCK',
+      caseType: 'CDD' as const,
+      referenceId: `MOCK-${seed.toString(16).toUpperCase()}`,
+      reviewedAt: new Date().toISOString(),
+      cddResponseId: input.cddResponseId,
+      cycleNo: input.cycleNo,
+      simulationMode: 'MANUAL',
+      simulationRiskLevel: input.riskLevel,
+      simulationRiskReason: input.reasonCode,
+    };
+
+    if (input.riskLevel === 'LOW') {
+      return {
+        ...base,
+        outcome: 'PASS',
+        mockDataType: 'LOW_RISK' as const,
+        riskScore: 20 + (seed % 10),
+        riskLevel: 'LOW',
+        pepHit: false,
+        sanctionsHit: false,
+        adverseMediaHit: false,
+      };
+    }
+
+    if (input.riskLevel === 'MEDIUM') {
+      return {
+        ...base,
+        outcome: 'FLAGGED',
+        mockDataType: 'MEDIUM_RISK' as const,
+        riskScore: 54 + (seed % 10),
+        riskLevel: 'MEDIUM',
+        pepHit: false,
+        sanctionsHit: false,
+        adverseMediaHit: false,
+      };
+    }
+
+    return {
+      ...base,
+      outcome: 'FLAGGED',
+      mockDataType:
+        input.reasonCode === 'SANCTIONS_HIT'
+          ? ('SANCTION_AND_OTHER' as const)
+          : ('HIGH_RISK_OR_PEP' as const),
+      riskScore: 85 + (seed % 10),
+      riskLevel: 'HIGH',
+      pepHit: input.reasonCode === 'CDD_HIGH_RISK_OR_PEP',
+      sanctionsHit: input.reasonCode === 'SANCTIONS_HIT',
+      adverseMediaHit: input.reasonCode !== 'SANCTIONS_HIT',
+    };
+  }
+
+  private buildPendingEddSignals(input: {
+    caseNo: string;
+    eddResponseId: string;
+    cycleNo: string;
+  }) {
+    const seed = this.buildSeed(`PRR:EDD:PENDING:${input.caseNo}`);
+    return {
+      provider: 'MOCK',
+      caseType: 'EDD' as const,
+      referenceId: `MOCK-${seed.toString(16).toUpperCase()}`,
+      reviewedAt: new Date().toISOString(),
+      eddResponseId: input.eddResponseId,
+      cycleNo: input.cycleNo,
+      outcome: 'RECEIVED',
+      riskScore: null,
+      riskLevel: null,
+      pepHit: false,
+      sanctionsHit: false,
+      adverseMediaHit: false,
+      eddSubmitted: true,
+      simulationMode: 'MANUAL_PENDING',
+    };
+  }
+
+  private buildManualEddSignals(input: {
+    caseNo: string;
+    eddResponseId: string;
+    cycleNo: string;
+    riskLevel: 'LOW' | 'MEDIUM' | 'HIGH';
+    reasonCode: string;
+  }) {
+    const seed = this.buildSeed(`PRR:EDD:MANUAL:${input.caseNo}:${input.riskLevel}:${input.reasonCode}`);
+    const base = {
+      provider: 'MOCK',
+      caseType: 'EDD' as const,
+      referenceId: `MOCK-${seed.toString(16).toUpperCase()}`,
+      reviewedAt: new Date().toISOString(),
+      eddResponseId: input.eddResponseId,
+      cycleNo: input.cycleNo,
+      eddSubmitted: true,
+      simulationMode: 'MANUAL',
+      simulationRiskLevel: input.riskLevel,
+      simulationRiskReason: input.reasonCode,
+    };
+
+    if (input.riskLevel === 'LOW') {
+      return {
+        ...base,
+        outcome: 'PASS',
+        riskScore: 26 + (seed % 8),
+        riskLevel: 'LOW',
+        pepHit: false,
+        sanctionsHit: false,
+        adverseMediaHit: false,
+      };
+    }
+
+    if (input.riskLevel === 'MEDIUM') {
+      return {
+        ...base,
+        outcome: 'FLAGGED',
+        riskScore: 58 + (seed % 8),
+        riskLevel: 'MEDIUM',
+        pepHit: false,
+        sanctionsHit: false,
+        adverseMediaHit: true,
+      };
+    }
+
+    return {
+      ...base,
+      outcome: 'FLAGGED',
+      riskScore:
+        input.reasonCode === 'SANCTIONS_HIT'
+          ? 95 + (seed % 4)
+          : input.reasonCode === 'PEP_HIT'
+            ? 84 + (seed % 8)
+            : 79 + (seed % 10),
+      riskLevel: 'HIGH',
+      pepHit: input.reasonCode === 'PEP_HIT',
+      sanctionsHit: input.reasonCode === 'SANCTIONS_HIT',
+      adverseMediaHit: input.reasonCode !== 'HIGH_RISK_SCORE',
+    };
+  }
+
   private resolveMockDataType(body: MockCompleteSessionDto): {
     result: MockResult;
     mockDataType: OnboardingMockDataType;
@@ -715,7 +884,7 @@ export class PeriodicReviewService {
     decisionRecordId: string;
     reasonCodes: string[];
     recommendedActions: any[];
-  }) {
+  }, options: { skipAudit?: boolean } = {}) {
     const now = new Date();
     await (this.prisma as any).periodicReviewCycle.update({
       where: { id: input.cycle.id },
@@ -742,19 +911,21 @@ export class PeriodicReviewService {
       sourceModule: 'identity/periodic-review',
     });
 
-    await this.writeAudit({
-      customerId: input.customer.id,
-      caseType: 'CDD',
-      caseId: input.cddResponse.id,
-      action: 'PERIODIC_REVIEW_CDD_SUBMITTED',
-      actorId: input.customer.id,
-      actorRole: 'CUSTOMER',
-      fromStage: 'PENDING_CDD_INPUT',
-      toStage: 'CDD_UNDER_REVIEW',
-      detail: `Periodic review CDD submitted at ${now.toISOString()}.`,
-      workflowId: input.cycle.id,
-      workflowNo: input.cycle.cycleNo,
-    });
+    if (!options.skipAudit) {
+      await this.writeAudit({
+        customerId: input.customer.id,
+        caseType: 'CDD',
+        caseId: input.cddResponse.id,
+        action: 'PERIODIC_REVIEW_CDD_SUBMITTED',
+        actorId: input.customer.id,
+        actorRole: 'CUSTOMER',
+        fromStage: 'PENDING_CDD_INPUT',
+        toStage: 'CDD_UNDER_REVIEW',
+        detail: `Periodic review CDD submitted at ${now.toISOString()}.`,
+        workflowId: input.cycle.id,
+        workflowNo: input.cycle.cycleNo,
+      });
+    }
   }
 
   private async handleEddSubmission(input: {
@@ -764,7 +935,7 @@ export class PeriodicReviewService {
     decisionRecordId: string;
     reasonCodes: string[];
     recommendedActions: any[];
-  }) {
+  }, options: { skipAudit?: boolean } = {}) {
     const now = new Date();
     await (this.prisma as any).periodicReviewCycle.update({
       where: { id: input.cycle.id },
@@ -791,19 +962,262 @@ export class PeriodicReviewService {
       sourceModule: 'identity/periodic-review',
     });
 
-    await this.writeAudit({
-      customerId: input.customer.id,
-      caseType: 'EDD',
-      caseId: input.eddResponse.id,
-      action: 'PERIODIC_REVIEW_EDD_SUBMITTED',
-      actorId: input.customer.id,
-      actorRole: 'CUSTOMER',
-      fromStage: 'PENDING_EDD_INPUT',
-      toStage: 'EDD_UNDER_REVIEW',
-      detail: `Periodic review EDD submitted at ${now.toISOString()}.`,
-      workflowId: input.cycle.id,
-      workflowNo: input.cycle.cycleNo,
+    if (!options.skipAudit) {
+      await this.writeAudit({
+        customerId: input.customer.id,
+        caseType: 'EDD',
+        caseId: input.eddResponse.id,
+        action: 'PERIODIC_REVIEW_EDD_SUBMITTED',
+        actorId: input.customer.id,
+        actorRole: 'CUSTOMER',
+        fromStage: 'PENDING_EDD_INPUT',
+        toStage: 'EDD_UNDER_REVIEW',
+        detail: `Periodic review EDD submitted at ${now.toISOString()}.`,
+        workflowId: input.cycle.id,
+        workflowNo: input.cycle.cycleNo,
+      });
+    }
+  }
+
+  async completeManualCddDecision(input: {
+    decisionRecordId: string;
+    riskLevel: 'LOW' | 'MEDIUM' | 'HIGH';
+    reasonCode: string;
+  }) {
+    const decisionRecord = await (this.prisma as any).workflowDecisionRecord.findUnique({
+      where: { id: input.decisionRecordId },
+      select: {
+        id: true,
+        status: true,
+        contextType: true,
+        inputPayload: true,
+      },
     });
+
+    if (!decisionRecord) {
+      throw new NotFoundException(
+        `Risk decision record not found: ${input.decisionRecordId}`,
+      );
+    }
+    if (
+      String(decisionRecord.contextType || '').trim().toUpperCase() !==
+      'PERIODIC_REVIEW_CDD'
+    ) {
+      throw new BadRequestException(
+        `Decision record ${input.decisionRecordId} is not bound to PERIODIC_REVIEW_CDD`,
+      );
+    }
+    if (String(decisionRecord.status || '').trim().toUpperCase() !== 'CREATED') {
+      throw new BadRequestException(
+        `Decision record ${input.decisionRecordId} is not pending simulation`,
+      );
+    }
+
+    const storedInput = this.parseJsonSafely(decisionRecord.inputPayload);
+    const storedSignals = this.parseJsonSafely(
+      typeof storedInput.signals === 'object' && !Array.isArray(storedInput.signals)
+        ? JSON.stringify(storedInput.signals)
+        : undefined,
+    );
+    const cddResponseId = String(storedSignals.cddResponseId || '').trim();
+    if (!cddResponseId) {
+      throw new BadRequestException(
+        `Decision record ${input.decisionRecordId} missing cddResponseId`,
+      );
+    }
+
+    const cddResponse = await this.prisma.cddResponse.findUnique({
+      where: { id: cddResponseId },
+    });
+    if (!cddResponse) {
+      throw new NotFoundException(`Periodic review CDD response not found: ${cddResponseId}`);
+    }
+    const customer = await this.getCustomerOrThrow(cddResponse.customerId);
+    const cycle =
+      customer.activePeriodicReviewCycle &&
+      customer.activePeriodicReviewCycle.id === cddResponse.periodicReviewCycleId
+        ? customer.activePeriodicReviewCycle
+        : await (this.prisma as any).periodicReviewCycle.findUnique({
+            where: { id: cddResponse.periodicReviewCycleId },
+          });
+    if (!cycle) {
+      throw new NotFoundException(
+        `Periodic review cycle not found: ${cddResponse.periodicReviewCycleId}`,
+      );
+    }
+
+    const signals = this.buildManualCddSignals({
+      caseNo: cddResponse.caseNo,
+      cddResponseId: cddResponse.id,
+      cycleNo: cycle.cycleNo,
+      riskLevel: input.riskLevel,
+      reasonCode: input.reasonCode,
+    });
+
+    const decision = await this.riskEngineService.completeDecisionRecord(
+      input.decisionRecordId,
+      {
+        contextType: 'PERIODIC_REVIEW_CDD',
+        subjectType: cddResponse.subjectKind || 'UNKNOWN',
+        subjectId: cddResponse.subjectRefId || cddResponse.customerId,
+        ownerType: 'CUSTOMER',
+        ownerId: cddResponse.customerId,
+        signals,
+        policyVersion: 'periodic-review-risk-policy/v1',
+      },
+    );
+
+    await this.prisma.cddResponse.update({
+      where: { id: cddResponse.id },
+      data: {
+        status: 'FINAL',
+        reviewedAt: new Date(),
+        reviewerDecision: decision.decision,
+        decisionReason: decision.reasonCodes.join(',') || decision.decision,
+        requiresEdd: decision.reasonCodes.includes('CDD_MEDIUM_RISK_REVIEW')
+          ? false
+          : decision.decision === 'REQUIRE_EDD',
+        inputData: JSON.stringify(signals),
+        riskScore: Number(signals.riskScore),
+        riskLevel: String(signals.riskLevel),
+        pepHit: !!signals.pepHit,
+        sanctionsHit: !!signals.sanctionsHit,
+      },
+    });
+
+    await this.handleCddSubmission(
+      {
+        customer,
+        cycle,
+        cddResponse,
+        decisionRecordId: decision.decisionRecordId,
+        reasonCodes: decision.reasonCodes,
+        recommendedActions: decision.recommendedActions,
+      },
+      { skipAudit: true },
+    );
+
+    return {
+      decisionRecordId: decision.decisionRecordId,
+      decision: decision.decision,
+    };
+  }
+
+  async completeManualEddDecision(input: {
+    decisionRecordId: string;
+    riskLevel: 'LOW' | 'MEDIUM' | 'HIGH';
+    reasonCode: string;
+  }) {
+    const decisionRecord = await (this.prisma as any).workflowDecisionRecord.findUnique({
+      where: { id: input.decisionRecordId },
+      select: {
+        id: true,
+        status: true,
+        contextType: true,
+        inputPayload: true,
+      },
+    });
+
+    if (!decisionRecord) {
+      throw new NotFoundException(
+        `Risk decision record not found: ${input.decisionRecordId}`,
+      );
+    }
+    if (
+      String(decisionRecord.contextType || '').trim().toUpperCase() !==
+      'PERIODIC_REVIEW_EDD'
+    ) {
+      throw new BadRequestException(
+        `Decision record ${input.decisionRecordId} is not bound to PERIODIC_REVIEW_EDD`,
+      );
+    }
+    if (String(decisionRecord.status || '').trim().toUpperCase() !== 'CREATED') {
+      throw new BadRequestException(
+        `Decision record ${input.decisionRecordId} is not pending simulation`,
+      );
+    }
+
+    const storedInput = this.parseJsonSafely(decisionRecord.inputPayload);
+    const storedSignals = this.parseJsonSafely(
+      typeof storedInput.signals === 'object' && !Array.isArray(storedInput.signals)
+        ? JSON.stringify(storedInput.signals)
+        : undefined,
+    );
+    const eddResponseId = String(storedSignals.eddResponseId || '').trim();
+    if (!eddResponseId) {
+      throw new BadRequestException(
+        `Decision record ${input.decisionRecordId} missing eddResponseId`,
+      );
+    }
+
+    const eddResponse = await this.prisma.eddResponse.findUnique({
+      where: { id: eddResponseId },
+    });
+    if (!eddResponse) {
+      throw new NotFoundException(`Periodic review EDD response not found: ${eddResponseId}`);
+    }
+    const customer = await this.getCustomerOrThrow(eddResponse.customerId);
+    const cycle =
+      customer.activePeriodicReviewCycle &&
+      customer.activePeriodicReviewCycle.id === eddResponse.periodicReviewCycleId
+        ? customer.activePeriodicReviewCycle
+        : await (this.prisma as any).periodicReviewCycle.findUnique({
+            where: { id: eddResponse.periodicReviewCycleId },
+          });
+    if (!cycle) {
+      throw new NotFoundException(
+        `Periodic review cycle not found: ${eddResponse.periodicReviewCycleId}`,
+      );
+    }
+
+    const signals = this.buildManualEddSignals({
+      caseNo: eddResponse.caseNo,
+      eddResponseId: eddResponse.id,
+      cycleNo: cycle.cycleNo,
+      riskLevel: input.riskLevel,
+      reasonCode: input.reasonCode,
+    });
+
+    const decision = await this.riskEngineService.completeDecisionRecord(
+      input.decisionRecordId,
+      {
+        contextType: 'PERIODIC_REVIEW_EDD',
+        subjectType: eddResponse.subjectKind || 'UNKNOWN',
+        subjectId: eddResponse.subjectRefId || eddResponse.customerId,
+        ownerType: 'CUSTOMER',
+        ownerId: eddResponse.customerId,
+        signals,
+        policyVersion: 'periodic-review-risk-policy/v1',
+      },
+    );
+
+    await this.prisma.eddResponse.update({
+      where: { id: eddResponse.id },
+      data: {
+        status: 'FINAL',
+        mlroReviewedAt: new Date(),
+        mlroDecision: decision.decision,
+        decisionReason: decision.reasonCodes.join(',') || decision.decision,
+        inputData: JSON.stringify(signals),
+      },
+    });
+
+    await this.handleEddSubmission(
+      {
+        customer,
+        cycle,
+        eddResponse,
+        decisionRecordId: decision.decisionRecordId,
+        reasonCodes: decision.reasonCodes,
+        recommendedActions: decision.recommendedActions,
+      },
+      { skipAudit: true },
+    );
+
+    return {
+      decisionRecordId: decision.decisionRecordId,
+      decision: decision.decision,
+    };
   }
 
   async mockCompleteSession(
@@ -870,15 +1284,19 @@ export class PeriodicReviewService {
         throw new NotFoundException(`Periodic review CDD response not found: ${session.caseId}`);
       }
 
-      const signals = this.buildCddMockSignals(cddResponse.caseNo, mockDataType || 'LOW_RISK');
+      const signals = this.buildPendingCddSignals({
+        caseNo: cddResponse.caseNo,
+        cddResponseId: cddResponse.id,
+        cycleNo: cycle.cycleNo,
+      });
       await this.prisma.cddResponse.update({
         where: { id: cddResponse.id },
         data: {
           status: 'RECEIVED',
           submittedAt: now,
           inputData: JSON.stringify(signals),
-          riskScore: Number(signals.riskScore),
-          riskLevel: String(signals.riskLevel),
+          riskScore: null,
+          riskLevel: null,
           pepHit: !!signals.pepHit,
           sanctionsHit: !!signals.sanctionsHit,
         },
@@ -899,7 +1317,7 @@ export class PeriodicReviewService {
         },
       });
 
-      const decision = await this.riskEngineService.evaluate({
+      const pendingDecision = await this.riskEngineService.createPendingDecisionRecord({
         contextType: 'PERIODIC_REVIEW_CDD',
         subjectType: cddResponse.subjectKind || 'UNKNOWN',
         subjectId: cddResponse.subjectRefId || customerId,
@@ -908,36 +1326,37 @@ export class PeriodicReviewService {
         signals,
         policyVersion: 'periodic-review-risk-policy/v1',
       });
-
-      await this.prisma.cddResponse.update({
-        where: { id: cddResponse.id },
+      const updatedCycle = await (this.prisma as any).periodicReviewCycle.update({
+        where: { id: cycle.id },
         data: {
-          status: 'FINAL',
-          reviewedAt: now,
-          reviewerDecision: decision.decision,
-          decisionReason: decision.reasonCodes.join(',') || decision.decision,
-          requiresEdd: decision.decision === 'REQUIRE_EDD',
-          riskScore: Number(signals.riskScore),
-          riskLevel: String(signals.riskLevel),
+          status: 'CDD_UNDER_REVIEW',
+          latestDecisionRecordId: pendingDecision.decisionRecordId,
+          currentCddResponseId: cddResponse.id,
         },
       });
 
-      await this.handleCddSubmission({
-        customer,
-        cycle,
-        cddResponse,
-        decisionRecordId: decision.decisionRecordId,
-        reasonCodes: decision.reasonCodes,
-        recommendedActions: decision.recommendedActions,
+      await this.writeAudit({
+        customerId: customer.id,
+        caseType: 'CDD',
+        caseId: cddResponse.id,
+        action: 'PERIODIC_REVIEW_CDD_SUBMITTED',
+        actorId,
+        actorRole: 'CUSTOMER',
+        fromStage: 'PENDING_CDD_INPUT',
+        toStage: 'CDD_UNDER_REVIEW',
+        detail: `Periodic review CDD queued for manual risk simulation decisionRecordId=${pendingDecision.decisionRecordId}.`,
+        workflowId: cycle.id,
+        workflowNo: cycle.cycleNo,
       });
 
       return {
         ...this.buildSessionResponse({ ...session, status: 'COMPLETED' }),
-        decision,
-        ...this.buildNextStep({
-          ...cycle,
-          status: 'CDD_UNDER_REVIEW',
-        }),
+        decision: {
+          decisionRecordId: pendingDecision.decisionRecordId,
+          status: 'CREATED',
+          decision: null,
+        },
+        ...this.buildNextStep(updatedCycle),
       };
     }
 
@@ -952,10 +1371,11 @@ export class PeriodicReviewService {
       throw new NotFoundException(`Periodic review EDD response not found: ${session.caseId}`);
     }
 
-    const signals = {
-      ...this.buildEddMockSignals(eddResponse.caseNo, result),
-      eddSubmitted: true,
-    };
+    const signals = this.buildPendingEddSignals({
+      caseNo: eddResponse.caseNo,
+      eddResponseId: eddResponse.id,
+      cycleNo: cycle.cycleNo,
+    });
     await this.prisma.eddResponse.update({
       where: { id: eddResponse.id },
       data: {
@@ -975,7 +1395,7 @@ export class PeriodicReviewService {
       },
     });
 
-    const decision = await this.riskEngineService.evaluate({
+    const pendingDecision = await this.riskEngineService.createPendingDecisionRecord({
       contextType: 'PERIODIC_REVIEW_EDD',
       subjectType: eddResponse.subjectKind || 'UNKNOWN',
       subjectId: eddResponse.subjectRefId || customerId,
@@ -984,32 +1404,37 @@ export class PeriodicReviewService {
       signals,
       policyVersion: 'periodic-review-risk-policy/v1',
     });
-    await this.prisma.eddResponse.update({
-      where: { id: eddResponse.id },
+    const updatedCycle = await (this.prisma as any).periodicReviewCycle.update({
+      where: { id: cycle.id },
       data: {
-        status: 'FINAL',
-        mlroReviewedAt: now,
-        mlroDecision: decision.decision,
-        decisionReason: decision.reasonCodes.join(',') || decision.decision,
+        status: 'EDD_UNDER_REVIEW',
+        latestDecisionRecordId: pendingDecision.decisionRecordId,
+        currentEddResponseId: eddResponse.id,
       },
     });
 
-    await this.handleEddSubmission({
-      customer,
-      cycle,
-      eddResponse,
-      decisionRecordId: decision.decisionRecordId,
-      reasonCodes: decision.reasonCodes,
-      recommendedActions: decision.recommendedActions,
+    await this.writeAudit({
+      customerId: customer.id,
+      caseType: 'EDD',
+      caseId: eddResponse.id,
+      action: 'PERIODIC_REVIEW_EDD_SUBMITTED',
+      actorId,
+      actorRole: 'CUSTOMER',
+      fromStage: 'PENDING_EDD_INPUT',
+      toStage: 'EDD_UNDER_REVIEW',
+      detail: `Periodic review EDD queued for manual risk simulation decisionRecordId=${pendingDecision.decisionRecordId}.`,
+      workflowId: cycle.id,
+      workflowNo: cycle.cycleNo,
     });
 
     return {
       ...this.buildSessionResponse({ ...session, status: 'COMPLETED' }),
-      decision,
-      ...this.buildNextStep({
-        ...cycle,
-        status: 'EDD_UNDER_REVIEW',
-      }),
+      decision: {
+        decisionRecordId: pendingDecision.decisionRecordId,
+        status: 'CREATED',
+        decision: null,
+      },
+      ...this.buildNextStep(updatedCycle),
     };
   }
 

@@ -20,8 +20,8 @@ import { OnboardingService } from './onboarding.service';
 import { RiskDecisionRecordsService } from '../../risk-engine/risk-decision-records.service';
 import {
   ApplyOnboardingAlertDecisionDto,
+  ApplyOnboardingCaseProposalDto,
   DecisionRecordQueryDto,
-  SubmitFinalApprovalDto,
   UpdateInvestorClassificationDto,
 } from './dto/onboarding.dto';
 
@@ -149,7 +149,7 @@ export class OnboardingAdminController {
   async applyOnboardingDecisionFromCase(
     @Req() req: any,
     @Param('id') id: string,
-    @Body(new ValidationPipe({ transform: true })) body: ApplyOnboardingAlertDecisionDto,
+    @Body(new ValidationPipe({ transform: true })) body: ApplyOnboardingCaseProposalDto,
   ) {
     const actor = this.getAdminActor(req);
     return this.onboardingService.applyOnboardingDecisionFromIncident(
@@ -197,23 +197,6 @@ export class OnboardingAdminController {
   getDecisionRecordDetail(@Req() req: any, @Param('id') id: string) {
     this.getAdminActor(req);
     return this.riskDecisionRecordsService.getDecisionRecordDetail(id);
-  }
-
-  @Post('customers/:id/final-approval/submit')
-  @RequirePermissions(buildPermissionCode('POST', '/admin/control-gates/approvals'))
-  @ApiOperation({ summary: 'Create or resubmit onboarding final approval and return approval detail' })
-  submitCustomerFinalApproval(
-    @Req() req: any,
-    @Param('id') id: string,
-    @Body(new ValidationPipe({ transform: true })) body: SubmitFinalApprovalDto,
-  ) {
-    const actor = this.getAdminActor(req);
-    return this.onboardingService.submitCustomerFinalApproval(
-      id,
-      actor.actorId,
-      actor.actorRole,
-      body,
-    );
   }
 
   @Post('customers/:id/simulate-expired')

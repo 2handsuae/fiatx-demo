@@ -51,4 +51,8 @@ export class SimulateRiskDecisionRecordDto {
   @IsString()
   @IsIn(['LOW', 'MEDIUM', 'HIGH'])
   riskLevel!: 'LOW' | 'MEDIUM' | 'HIGH';
+
+  @IsOptional()
+  @IsString()
+  reasonCode?: string;
 }

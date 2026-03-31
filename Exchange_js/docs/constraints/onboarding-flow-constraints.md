@@ -85,11 +85,12 @@
 
 ## 6) CDD/EDD Orchestration Constraints
 - Starting onboarding MUST create or reuse active CDD evidence container (`cddResponse`) in `CREATED`.
-- Session completion MUST store provider payload and complete the underlying onboarding evidence container evaluation.
+- Session completion MUST store provider payload and complete the underlying onboarding evidence container evidence intake.
 - Historical physical/internal state names such as `RECEIVED -> FINAL` MAY still exist inside implementation or migration context, but operator-facing/runtime contract MUST continue to project response lifecycle as `CREATED -> COMPLETED`.
-- CDD completion MUST evaluate risk and move customer to `CDD_UNDER_REVIEW` (container waiting for recommendation execution).
 - CDD completion MUST create a pending `workflowDecisionRecord` and queue final CDD risk simulation for Admin `Risk Policy Executions`.
-- EDD completion MUST evaluate risk and move customer to `EDD_UNDER_REVIEW` (container waiting for recommendation execution).
+- CDD completion MUST move customer to `CDD_UNDER_REVIEW` while waiting for Admin `Risk Policy Executions` to simulate the final risk outcome.
+- EDD completion MUST create a pending `workflowDecisionRecord` and queue final EDD risk simulation for Admin `Risk Policy Executions`.
+- EDD completion MUST move customer to `EDD_UNDER_REVIEW` while waiting for Admin `Risk Policy Executions` to simulate the final risk outcome.
 - Historical CDD `mockDataType` compatibility MAY remain in runtime internals, but it MUST NOT be treated as the active client UI contract:
 1. `LOW_RISK` -> auto-pass onboarding to `APPROVED + ACTIVE` without creating/updating onboarding journey alert
 2. `MEDIUM_RISK` / `HIGH_RISK_OR_PEP` -> create/update onboarding journey alert only
@@ -193,6 +194,8 @@
 6. `onboardingStatus = REJECTED | WITHDRAWN` -> `REINITIATE` / `REINITIATE_CDD`
 7. `onboardingStatus = APPROVED` and `operatingStatus = ACTIVE` -> terminal completion and client redirect
 - Final `ONBOARDING_CDD` risk simulation MUST be executed from Admin `Risk Policy Executions`, not from a client-side risk selection dialog.
+- Final `ONBOARDING_EDD` risk simulation MUST be executed from Admin `Risk Policy Executions`, not from a client-side risk selection dialog.
+- `ONBOARDING_EDD + LOW + EDD_CLEAR` simulation MUST bypass alert/case creation and move customer directly to `FINAL_APPROVAL`.
 - CDD mock-complete in client MUST submit session completion without client-side risk selection; `mockDataType` is retained compatibility only and is not the active UI contract.
 - EDD mock-complete MUST keep direct `{ result: 'PASS' }`.
 - In `PENDING_EDD`, client MUST require explicit `Start EDD` action to create session link when no valid QR link exists; client MUST NOT auto-start EDD session implicitly.

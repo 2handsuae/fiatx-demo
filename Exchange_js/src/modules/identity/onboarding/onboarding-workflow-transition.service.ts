@@ -34,8 +34,9 @@ import {
   ONBOARDING_REVIEW_STAGES,
   ONBOARDING_WORKFLOW,
 } from '../../risk-engine/constants/onboarding-compliance-workflow.constant';
+import { OnboardingFinalApprovalService } from './onboarding-final-approval.service';
 
-export type WorkflowTransitionProducerType = 'ALERT' | 'CASE';
+export type WorkflowTransitionProducerType = 'ALERT' | 'CASE' | 'DECISION_RECORD';
 
 export const WORKFLOW_TRANSITION_CODES = {
   CDD_APPROVE_TO_ACTIVE: 'CDD_APPROVE_TO_ACTIVE',
@@ -115,7 +116,10 @@ export interface WorkflowTransitionOutput {
 export class OnboardingWorkflowTransitionService {
   private readonly auditLogsService: AuditLogsService;
 
-  constructor(private readonly prisma: PrismaService) {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly onboardingFinalApprovalService: OnboardingFinalApprovalService,
+  ) {
     this.auditLogsService = new AuditLogsService(prisma);
   }
 
@@ -295,7 +299,12 @@ export class OnboardingWorkflowTransitionService {
     producerType: WorkflowTransitionProducerType;
     dispositionCode: string;
   }): string {
-    const prefix = input.producerType === 'CASE' ? 'CASE' : 'ALERT';
+    const prefix =
+      input.producerType === 'CASE'
+        ? 'CASE'
+        : input.producerType === 'DECISION_RECORD'
+          ? 'DECISION_RECORD'
+          : 'ALERT';
     const workflowDecision = this.getWorkflowDecision(input.dispositionCode);
     switch (workflowDecision) {
       case 'CLEAR':
@@ -594,6 +603,22 @@ export class OnboardingWorkflowTransitionService {
       if (workflowDecision === 'CLEAR') {
         transitionCode = WORKFLOW_TRANSITION_CODES.EDD_APPROVE_TO_FINAL_APPROVAL;
         toStatus = 'FINAL_APPROVAL';
+        const pendingFinalApproval =
+          await this.onboardingFinalApprovalService.ensurePendingApprovalInTransaction(tx, {
+            customer: {
+              ...customer,
+              activeJourneyId: input.journeyId || customer.activeJourneyId || null,
+              onboardingStatus: 'FINAL_APPROVAL',
+              operatingStatus: 'INACTIVE',
+              eddRequired: true,
+            },
+            actorId: input.actorId,
+            actorRole: input.actorRole,
+            reason: String(input.reason || '').trim() || dispositionCode,
+          });
+        createdFinalApprovalId = pendingFinalApproval.created
+          ? pendingFinalApproval.approval.id
+          : null;
         customerUpdateData = {
           ...customerUpdateData,
           ...this.buildCustomerLifecyclePatch(customer, {
@@ -601,8 +626,10 @@ export class OnboardingWorkflowTransitionService {
             operatingStatus: 'INACTIVE',
             eddRequired: true,
           }),
-          ...this.buildLatestFinalApprovalBindingPatch(null),
-          latestFinalApprovalStatus: null,
+          ...this.buildLatestFinalApprovalBindingPatch(
+            pendingFinalApproval.approval.id,
+          ),
+          latestFinalApprovalStatus: pendingFinalApproval.approval.status || 'PENDING',
         };
       } else if (workflowDecision === 'REJECT') {
         transitionCode = WORKFLOW_TRANSITION_CODES.EDD_REJECT_TO_REJECTED;

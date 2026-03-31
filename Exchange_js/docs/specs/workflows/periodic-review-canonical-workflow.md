@@ -1,6 +1,6 @@
 Status: active
 Owner: project-owner-and-agents
-Last Updated: 2026-03-30
+Last Updated: 2026-03-31
 Applies To: `Exchange_js`
 Supersedes: none
 Depends On: `docs/constraints/onboarding-flow-constraints.md`, `docs/specs/workflows/onboarding-periodic-review-audit-trace-contract.md`
@@ -29,12 +29,16 @@ Source of Truth Level: specs-workflow
 1. due customer triggers `PeriodicReviewCycle`
 2. cycle is created and customer becomes `RESTRICTED`
 3. customer completes `CDD Response`
-4. if risk review is required, workflow-bound alert/case is created
-5. if `REQUIRE_EDD`, customer moves to `PENDING_EDD_INPUT`
-6. customer completes `EDD Response`
-7. compliance review proceeds through alert/case and MLRO
-8. `CLEAR` removes restriction and marks cycle `CLEARED`
-9. `REJECT` keeps restriction and marks cycle `REJECTED`
+4. system creates a pending `PERIODIC_REVIEW_CDD` decision record and moves cycle to `CDD_UNDER_REVIEW`
+5. operator completes manual simulation in `Risk Policy Executions`
+6. workflow-bound alert/case is created from the simulated result
+7. if `REQUIRE_EDD`, customer moves to `PENDING_EDD_INPUT`
+8. customer completes `EDD Response`
+9. system creates a pending `PERIODIC_REVIEW_EDD` decision record and moves cycle to `EDD_UNDER_REVIEW`
+10. operator completes manual simulation in `Risk Policy Executions`
+11. compliance review proceeds through alert/case and MLRO
+12. `CLEAR` removes restriction and marks cycle `CLEARED`
+13. `REJECT` keeps restriction and marks cycle `REJECTED`
 
 ## Non-Negotiables
 - Periodic review is not an extension of onboarding status.
@@ -47,6 +51,9 @@ Source of Truth Level: specs-workflow
 - `CDD Response` and `EDD Response` remain evidence containers.
 - `PeriodicReviewCycle` is the workflow root entity.
 - Alert and case handling reuse the shared Wave 2 kernel.
+- Periodic review risk simulation is manual for active customer flow:
+  - `PERIODIC_REVIEW_CDD`
+  - `PERIODIC_REVIEW_EDD`
 - Periodic review read-models and transition outputs use canonical response identity only.
 - Compatibility `finalApprovalStatus` is not part of the active periodic-review workflow output; customer final-approval truth remains `latestFinalApproval*` plus canonical customer state.
 

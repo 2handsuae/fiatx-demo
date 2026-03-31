@@ -183,6 +183,22 @@ export class ApplyOnboardingAlertDecisionDto {
   reason?: string;
 }
 
+export class ApplyOnboardingCaseProposalDto {
+  @IsOptional()
+  @IsString()
+  @IsIn(['CLEAR', 'REJECT', 'REQUIRE_EDD'])
+  decision?: 'CLEAR' | 'REJECT' | 'REQUIRE_EDD';
+
+  @IsOptional()
+  @IsString()
+  @IsIn(['CLEAR', 'REJECT', 'REQUIRE_EDD'])
+  proposalCode?: 'CLEAR' | 'REJECT' | 'REQUIRE_EDD';
+
+  @IsOptional()
+  @IsString()
+  reason?: string;
+}
+
 export class FinalReviewCustomerDto {
   @IsString()
   @IsIn(['APPROVE', 'REJECT'])

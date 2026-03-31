@@ -153,7 +153,6 @@ const CustomerManagement = () => {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [message, setMessage] = useState('');
-  const [submittingFinalApprovalId, setSubmittingFinalApprovalId] = useState<string | null>(null);
   const [cddResponseByCustomer, setCddResponseByCustomer] = useState<Record<string, CaseMapItem>>({});
   const [eddResponseByCustomer, setEddResponseByCustomer] = useState<Record<string, CaseMapItem>>({});
   const [controlTarget, setControlTarget] = useState<{
@@ -270,51 +269,6 @@ const CustomerManagement = () => {
     setControlTarget(null);
   };
 
-  const submitFinalApproval = async (customer: Customer) => {
-    const isResubmit =
-      !!customer.latestFinalApprovalId &&
-      ['CANCELLED', 'EXPIRED'].includes(customer.latestFinalApprovalStatus || '');
-
-    try {
-      setSubmittingFinalApprovalId(customer.id);
-      setMessage('');
-      const res = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/compliance/customers/${customer.id}/final-approval/submit`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({}),
-        },
-      );
-
-      if (!res.ok) {
-        throw new Error(await getApiErrorMessage(res, 'Final approval submit failed.'));
-      }
-
-      const data = (await res.json()) as {
-        id?: string;
-        approvalNo?: string;
-      };
-      setMessage(
-        `${isResubmit ? 'Final approval resubmitted' : 'Final approval created'}${data.approvalNo ? `: ${data.approvalNo}` : '.'}`,
-      );
-      await fetchCustomers();
-      if (data.id) {
-        navigate(`/dashboard/control-gates/approvals/${data.id}`);
-      }
-    } catch (error) {
-      if (error instanceof AdminSessionError) {
-        return;
-      }
-      console.error('Failed to submit final approval', error);
-      setMessage('Final approval submit failed.');
-    } finally {
-      setSubmittingFinalApprovalId(null);
-    }
-  };
-
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
@@ -418,10 +372,6 @@ const CustomerManagement = () => {
                   const customerStatus = getPrimaryCustomerStatus(customer);
                   const latestApprovalStatus =
                     customer.latestFinalApprovalStatus || customer.latestFinalApproval?.status || '-';
-                  const canSubmitFinalApproval =
-                    customer.onboardingStatus === 'FINAL_APPROVAL' &&
-                    (!customer.latestFinalApprovalId ||
-                      ['CANCELLED', 'EXPIRED'].includes(latestApprovalStatus));
                   const canOpenFinalApproval = !!customer.latestFinalApprovalId;
 
                   return (
@@ -559,20 +509,6 @@ const CustomerManagement = () => {
                           >
                             View
                           </Link>
-                          {canSubmitFinalApproval && (
-                            <button
-                              type="button"
-                              onClick={() => void submitFinalApproval(customer)}
-                              disabled={submittingFinalApprovalId === customer.id}
-                              className={adminButtonClass('rowSecondaryUtility')}
-                            >
-                              {submittingFinalApprovalId === customer.id
-                                ? 'Submitting approval...'
-                                : customer.latestFinalApprovalId
-                                  ? 'Resubmit approval'
-                                  : 'Create approval'}
-                            </button>
-                          )}
                           {canOpenFinalApproval && (
                             <button
                               type="button"

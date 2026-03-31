@@ -11,7 +11,6 @@ describe('OnboardingAdminController', () => {
     getEddResponseDetail: jest.fn(),
     applyOnboardingDecisionFromAlert: jest.fn(),
     applyOnboardingDecisionFromIncident: jest.fn(),
-    submitCustomerFinalApproval: jest.fn(),
     simulateCustomerExpired: jest.fn(),
     updateInvestorClassification: jest.fn(),
   };
@@ -77,7 +76,7 @@ describe('OnboardingAdminController', () => {
     expect(result).toEqual({ id: 'dr-1' });
   });
 
-  it('should expose canonical case onboarding-decision route with case-only payload', async () => {
+  it('should expose canonical case onboarding-decision route with proposalCode payload', async () => {
     onboardingServiceMock.applyOnboardingDecisionFromIncident.mockResolvedValue({
       case: { id: 'inc-1', caseNo: 'CAS2603010001' },
       alert: { id: 'alert-1' },
@@ -93,44 +92,43 @@ describe('OnboardingAdminController', () => {
         },
       },
       'inc-1',
-      { decision: 'CLEAR' } as any,
+      { proposalCode: 'CLEAR' } as any,
     );
 
     expect(onboardingServiceMock.applyOnboardingDecisionFromIncident).toHaveBeenCalledWith(
       'inc-1',
       'admin-1',
       'MLRO',
-      { decision: 'CLEAR' },
+      { proposalCode: 'CLEAR' },
     );
     expect(result.case).toEqual({ id: 'inc-1', caseNo: 'CAS2603010001' });
     expect(result).not.toHaveProperty('incident');
   });
 
-  it('should submit customer final approval through onboarding service', async () => {
-    onboardingServiceMock.submitCustomerFinalApproval.mockResolvedValue({
-      id: 'approval-1',
-      approvalNo: 'APR2603180001',
-      status: 'PENDING',
+  it('should keep legacy decision payload compatibility on case onboarding-decision route', async () => {
+    onboardingServiceMock.applyOnboardingDecisionFromIncident.mockResolvedValue({
+      case: { id: 'inc-1', caseNo: 'CAS2603010001' },
+      alert: { id: 'alert-1' },
+      proposal: { workflowDecision: 'REJECT', finalDispositionCode: 'RISK_CONFIRMED' },
     });
 
-    const result = await controller.submitCustomerFinalApproval(
+    await controller.applyOnboardingDecisionFromCase(
       {
         user: {
           type: 'ADMIN',
           userId: 'admin-1',
-          role: 'COMPLIANCE_LEAD',
+          role: 'MLRO',
         },
       },
-      'c1',
-      { reason: 'submit' } as any,
+      'inc-1',
+      { decision: 'REJECT', reason: 'legacy client' } as any,
     );
 
-    expect(onboardingServiceMock.submitCustomerFinalApproval).toHaveBeenCalledWith(
-      'c1',
+    expect(onboardingServiceMock.applyOnboardingDecisionFromIncident).toHaveBeenCalledWith(
+      'inc-1',
       'admin-1',
-      'COMPLIANCE_LEAD',
-      { reason: 'submit' },
+      'MLRO',
+      { decision: 'REJECT', reason: 'legacy client' },
     );
-    expect(result.approvalNo).toBe('APR2603180001');
   });
 });

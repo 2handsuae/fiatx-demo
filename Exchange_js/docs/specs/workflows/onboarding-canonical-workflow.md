@@ -1,6 +1,6 @@
 Status: active
 Owner: project-owner-and-agents
-Last Updated: 2026-03-30
+Last Updated: 2026-03-31
 Applies To: `Exchange_js`
 Supersedes: none
 Depends On: `docs/constraints/onboarding-flow-constraints.md`, `docs/constraints/onboarding-alert-case-workflow-stage-rule-mapping.md`
@@ -33,11 +33,21 @@ Source of Truth Level: specs-workflow
   - customer completes CDD response
   - system creates a pending `workflowDecisionRecord`
   - customer moves to `CDD_UNDER_REVIEW`
+- `EDD evidence submitted`
+  - customer completes EDD response
+  - system creates a pending `workflowDecisionRecord`
+  - customer moves to `EDD_UNDER_REVIEW`
 - `ONBOARDING_CDD -> LOW`
   - operator opens `Risk Policy Executions`
   - operator simulates `LOW`
   - no review alert is created
   - customer moves directly to `APPROVED`
+- `ONBOARDING_EDD -> LOW + EDD_CLEAR`
+  - operator opens `Risk Policy Executions`
+  - operator simulates `LOW` with canonical reason `EDD_CLEAR`
+  - no review alert or case is created
+  - customer moves directly to `FINAL_APPROVAL`
+  - `ONBOARDING_FINAL_APPROVAL` is created automatically
 - `REVIEW_CDD -> REQUIRE_EDD`
   - workflow-bound alert or case records `REQUIRE_EDD`
   - customer moves to `PENDING_EDD_INPUT`
@@ -64,7 +74,8 @@ Source of Truth Level: specs-workflow
   - `Mock Complete EDD`
 - Customer-side mock-complete actions are visible only when shared `Simulation Mode` is enabled.
 - `Mock Complete CDD` no longer selects a risk result on the client; it only completes evidence intake and queues a pending `ONBOARDING_CDD` decision record.
-- Admin `Risk Policy Executions` becomes the canonical operator surface for final onboarding CDD risk simulation:
+- `Mock Complete EDD` no longer auto-evaluates risk on submit; it only completes evidence intake and queues a pending `ONBOARDING_EDD` decision record.
+- Admin `Risk Policy Executions` becomes the canonical operator surface for final onboarding CDD/EDD risk simulation:
   - `Simulate Low`
   - `Simulate Medium`
   - `Simulate High`

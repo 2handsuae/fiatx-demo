@@ -16,15 +16,24 @@ describe('PeriodicReviewService', () => {
     },
     complianceSession: {
       findFirst: jest.fn(),
+      update: jest.fn(),
       updateMany: jest.fn(),
       create: jest.fn(),
     },
     cddResponse: {
       create: jest.fn(),
       findUnique: jest.fn(),
+      update: jest.fn(),
     },
     eddResponse: {
       findUnique: jest.fn(),
+      update: jest.fn(),
+    },
+    cddResponseReport: {
+      create: jest.fn(),
+    },
+    eddResponseReport: {
+      create: jest.fn(),
     },
     onboardingAuditLog: {
       create: jest.fn(),
@@ -39,8 +48,14 @@ describe('PeriodicReviewService', () => {
     createFromAlertInTransaction: jest.fn(),
     applyActionInTransaction: jest.fn(),
   };
-  const riskEngineServiceMock: any = {};
-  const riskDecisionOrchestratorServiceMock: any = {};
+  const riskEngineServiceMock: any = {
+    evaluate: jest.fn(),
+    createPendingDecisionRecord: jest.fn(),
+    completeDecisionRecord: jest.fn(),
+  };
+  const riskDecisionOrchestratorServiceMock: any = {
+    orchestrate: jest.fn(),
+  };
   const workflowTransitionServiceMock: any = {};
 
   let service: PeriodicReviewService;
@@ -238,5 +253,173 @@ describe('PeriodicReviewService', () => {
         }),
       }),
     );
+  });
+
+  it('should queue periodic review CDD response for manual simulation instead of evaluating immediately', async () => {
+    const now = new Date(Date.now() + 10 * 60 * 1000);
+    prismaMock.complianceSession.findFirst.mockResolvedValue({
+      id: 'ses-cdd-1',
+      customerId: 'c1',
+      caseType: 'CDD',
+      caseId: 'cdd-1',
+      provider: 'MOCK',
+      providerSessionId: 'SES2603310001',
+      status: 'PENDING',
+      expiresAt: now,
+    });
+    prismaMock.customerMain.findUnique.mockResolvedValue({
+      id: 'c1',
+      customerNo: 'CU0001',
+      activePeriodicReviewCycleId: 'cycle-1',
+      activePeriodicReviewCycle: {
+        id: 'cycle-1',
+        cycleNo: 'PRR0001',
+        status: 'PENDING_CDD_INPUT',
+        currentCddResponseId: 'cdd-1',
+        currentEddResponseId: null,
+      },
+    });
+    prismaMock.cddResponse.findUnique.mockResolvedValue({
+      id: 'cdd-1',
+      customerId: 'c1',
+      caseNo: 'CDD2603310001',
+      workflow: 'PERIODIC_REVIEW',
+      subjectKind: 'INDIVIDUAL_CUSTOMER',
+      subjectRefId: 'c1',
+      periodicReviewCycleId: 'cycle-1',
+      journeyId: 'PRR0001',
+    });
+    riskEngineServiceMock.createPendingDecisionRecord.mockResolvedValue({
+      decisionRecordId: 'dr-prr-cdd-1',
+      status: 'CREATED',
+    });
+    prismaMock.periodicReviewCycle.update.mockResolvedValue({
+      id: 'cycle-1',
+      cycleNo: 'PRR0001',
+      status: 'CDD_UNDER_REVIEW',
+      currentCddResponseId: 'cdd-1',
+      currentEddResponseId: null,
+    });
+
+    const result = await service.mockCompleteSession('c1', 'c1', 'ses-cdd-1', {
+      mockDataType: 'MEDIUM_RISK',
+    });
+
+    expect(riskEngineServiceMock.createPendingDecisionRecord).toHaveBeenCalledWith(
+      expect.objectContaining({
+        contextType: 'PERIODIC_REVIEW_CDD',
+        ownerId: 'c1',
+        policyVersion: 'periodic-review-risk-policy/v1',
+      }),
+    );
+    expect(riskEngineServiceMock.evaluate).not.toHaveBeenCalled();
+    expect(riskDecisionOrchestratorServiceMock.orchestrate).not.toHaveBeenCalled();
+    expect(prismaMock.cddResponse.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'cdd-1' },
+        data: expect.objectContaining({
+          status: 'RECEIVED',
+        }),
+      }),
+    );
+    expect(prismaMock.periodicReviewCycle.update).toHaveBeenCalledWith({
+      where: { id: 'cycle-1' },
+      data: {
+        status: 'CDD_UNDER_REVIEW',
+        latestDecisionRecordId: 'dr-prr-cdd-1',
+        currentCddResponseId: 'cdd-1',
+      },
+    });
+    expect(result.decision).toEqual({
+      decisionRecordId: 'dr-prr-cdd-1',
+      status: 'CREATED',
+      decision: null,
+    });
+    expect(result.status).toBe('CDD_UNDER_REVIEW');
+    expect(result.actions).toEqual([{ type: 'WAIT_REVIEW' }]);
+  });
+
+  it('should queue periodic review EDD response for manual simulation instead of evaluating immediately', async () => {
+    const now = new Date(Date.now() + 10 * 60 * 1000);
+    prismaMock.complianceSession.findFirst.mockResolvedValue({
+      id: 'ses-edd-1',
+      customerId: 'c1',
+      caseType: 'EDD',
+      caseId: 'edd-1',
+      provider: 'MOCK',
+      providerSessionId: 'SES2603310002',
+      status: 'PENDING',
+      expiresAt: now,
+    });
+    prismaMock.customerMain.findUnique.mockResolvedValue({
+      id: 'c1',
+      customerNo: 'CU0001',
+      activePeriodicReviewCycleId: 'cycle-1',
+      activePeriodicReviewCycle: {
+        id: 'cycle-1',
+        cycleNo: 'PRR0001',
+        status: 'PENDING_EDD_INPUT',
+        currentCddResponseId: 'cdd-1',
+        currentEddResponseId: 'edd-1',
+      },
+    });
+    prismaMock.eddResponse.findUnique.mockResolvedValue({
+      id: 'edd-1',
+      customerId: 'c1',
+      caseNo: 'EDD2603310001',
+      workflow: 'PERIODIC_REVIEW',
+      subjectKind: 'INDIVIDUAL_CUSTOMER',
+      subjectRefId: 'c1',
+      periodicReviewCycleId: 'cycle-1',
+      journeyId: 'PRR0001',
+    });
+    riskEngineServiceMock.createPendingDecisionRecord.mockResolvedValue({
+      decisionRecordId: 'dr-prr-edd-1',
+      status: 'CREATED',
+    });
+    prismaMock.periodicReviewCycle.update.mockResolvedValue({
+      id: 'cycle-1',
+      cycleNo: 'PRR0001',
+      status: 'EDD_UNDER_REVIEW',
+      currentCddResponseId: 'cdd-1',
+      currentEddResponseId: 'edd-1',
+    });
+
+    const result = await service.mockCompleteSession('c1', 'c1', 'ses-edd-1', {
+      result: 'FAIL',
+    });
+
+    expect(riskEngineServiceMock.createPendingDecisionRecord).toHaveBeenCalledWith(
+      expect.objectContaining({
+        contextType: 'PERIODIC_REVIEW_EDD',
+        ownerId: 'c1',
+        policyVersion: 'periodic-review-risk-policy/v1',
+      }),
+    );
+    expect(riskEngineServiceMock.evaluate).not.toHaveBeenCalled();
+    expect(riskDecisionOrchestratorServiceMock.orchestrate).not.toHaveBeenCalled();
+    expect(prismaMock.eddResponse.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'edd-1' },
+        data: expect.objectContaining({
+          status: 'RECEIVED',
+        }),
+      }),
+    );
+    expect(prismaMock.periodicReviewCycle.update).toHaveBeenCalledWith({
+      where: { id: 'cycle-1' },
+      data: {
+        status: 'EDD_UNDER_REVIEW',
+        latestDecisionRecordId: 'dr-prr-edd-1',
+        currentEddResponseId: 'edd-1',
+      },
+    });
+    expect(result.decision).toEqual({
+      decisionRecordId: 'dr-prr-edd-1',
+      status: 'CREATED',
+      decision: null,
+    });
+    expect(result.status).toBe('EDD_UNDER_REVIEW');
+    expect(result.actions).toEqual([{ type: 'WAIT_REVIEW' }]);
   });
 });

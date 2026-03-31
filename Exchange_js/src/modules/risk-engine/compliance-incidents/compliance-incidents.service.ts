@@ -2273,31 +2273,6 @@ export class ComplianceIncidentsService {
 
     return transition;
   }
-
-  private shouldCreateOnboardingFinalApprovalAfterCaseMlro(
-    incident: {
-      sourceType?: string | null;
-      stage?: string | null;
-      proposedWorkflowDecision?: string | null;
-      proposedFinalDispositionCode?: string | null;
-    },
-  ) {
-    if (getWorkflowFromSourceType(incident.sourceType) !== ONBOARDING_WORKFLOW) {
-      return false;
-    }
-
-    if (normalizeComplianceReviewStage(incident.stage) !== 'REVIEW_EDD') {
-      return false;
-    }
-
-    return (
-      this.normalizeWorkflowProposal((incident as any).proposedWorkflowDecision) ===
-        'CLEAR' &&
-      normalizeCaseDispositionCode((incident as any).proposedFinalDispositionCode) ===
-        CASE_DISPOSITION_CODES.CLEAR
-    );
-  }
-
   async submitToMlro(
     id: string,
     dto: SubmitCaseToMlroDto,
@@ -2635,47 +2610,7 @@ export class ComplianceIncidentsService {
         };
       } else if (this.isWorkflowBoundCase(incident)) {
         transition = await this.applyApprovedWorkflowTransition(tx, incident, actor, now);
-      }
-
-      if (this.shouldCreateOnboardingFinalApprovalAfterCaseMlro(incident)) {
-        if (!incident.customerId) {
-          throw new ConflictException(
-            `Onboarding final approval requires customerId for case ${incident.id}.`,
-          );
-        }
-
-        const customer = await tx.customerMain.findUnique({
-          where: { id: incident.customerId },
-          select: {
-            id: true,
-            customerNo: true,
-            onboardingStatus: true,
-            operatingStatus: true,
-            restrictionStatus: true,
-            eddRequired: true,
-            activeJourneyId: true,
-            latestFinalApprovalId: true,
-            latestFinalApprovalStatus: true,
-          },
-        });
-
-        if (!customer) {
-          throw new NotFoundException(
-            `Customer not found for onboarding final approval: ${incident.customerId}`,
-          );
-        }
-
-        const finalApproval =
-          await this.onboardingFinalApprovalService.ensurePendingApprovalInTransaction(tx, {
-            customer,
-            actorId: actor.actorId,
-            actorRole: actor.actorRole || 'ADMIN',
-            reason:
-              this.normalizeOptionalString(
-                (incident as any).proposedFinalDispositionReason,
-              ) || this.normalizeOptionalString(dto.note),
-          });
-        approvalIdToEmit = finalApproval.approval.id;
+        approvalIdToEmit = String(transition?.createdFinalApprovalId || '').trim() || null;
       }
 
       const dispositionRecord = await this.createDispositionRecord(tx, incident, {

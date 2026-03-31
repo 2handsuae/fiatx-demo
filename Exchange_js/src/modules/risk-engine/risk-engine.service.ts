@@ -893,7 +893,12 @@ export class RiskEngineService {
       recommendedActions: evaluated.recommendedActions,
     };
 
-    if (input.contextType === 'ONBOARDING_CDD') {
+    if (
+      input.contextType === 'ONBOARDING_CDD' ||
+      input.contextType === 'ONBOARDING_EDD' ||
+      input.contextType === 'PERIODIC_REVIEW_CDD' ||
+      input.contextType === 'PERIODIC_REVIEW_EDD'
+    ) {
       outputs.riskBand = normalizedSimulationRiskBand || null;
       outputs.riskReason = normalizedSimulationRiskReason || null;
       outputs.simulationMode = normalizedSimulationMode || null;

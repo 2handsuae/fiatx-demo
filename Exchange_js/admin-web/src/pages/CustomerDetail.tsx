@@ -133,7 +133,6 @@ const CustomerDetail = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [updatingClassification, setUpdatingClassification] = useState(false);
-  const [submittingFinalApproval, setSubmittingFinalApproval] = useState(false);
   const [simulatingExpired, setSimulatingExpired] = useState(false);
   const [triggeringPeriodicReview, setTriggeringPeriodicReview] = useState(false);
   const [controlAction, setControlAction] = useState<CustomerControlAction | null>(null);
@@ -244,43 +243,6 @@ const CustomerDetail = () => {
     }
   };
 
-  const submitFinalApproval = async () => {
-    if (!customer) return;
-
-    try {
-      setSubmittingFinalApproval(true);
-      const response = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/compliance/customers/${customer.id}/final-approval/submit`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({}),
-        },
-      );
-
-      if (!response.ok) {
-        throw new Error(await getApiErrorMessage(response, 'Failed to submit final approval'));
-      }
-
-      const data = (await response.json()) as { id?: string };
-      if (data.id) {
-        navigate(`/dashboard/control-gates/approvals/${data.id}`);
-        return;
-      }
-
-      await fetchCustomer();
-    } catch (e) {
-      if (e instanceof AdminSessionError) {
-        return;
-      }
-      alert(getErrorMessage(e, 'Failed to submit final approval'));
-    } finally {
-      setSubmittingFinalApproval(false);
-    }
-  };
-
   const triggerPeriodicReview = async () => {
     if (!customer) return;
 
@@ -337,10 +299,6 @@ const CustomerDetail = () => {
 
   const latestApprovalStatus =
     customer.latestFinalApprovalStatus || customer.latestFinalApproval?.status || '-';
-  const canSubmitFinalApproval =
-    customer.onboardingStatus === 'FINAL_APPROVAL' &&
-    (!customer.latestFinalApprovalId ||
-      ['CANCELLED', 'EXPIRED'].includes(latestApprovalStatus));
   const canTriggerPeriodicReview =
     customer.onboardingStatus === 'APPROVED' && customer.operatingStatus === 'ACTIVE';
 
@@ -411,7 +369,8 @@ const CustomerDetail = () => {
 
       <DetailCard title="Final Approval" icon={<ShieldCheck size={16} />} columns={1}>
         <p className="mb-4 text-xs text-gray-500">
-          Approval workflow summary below is canonical.
+          Approval workflow summary below is canonical. When EDD clears a customer into
+          <span className="font-medium text-gray-700"> FINAL_APPROVAL</span>, the approval is created automatically.
         </p>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
           <KeyValue label="Approval No" value={customer.latestFinalApproval?.approvalNo || '-'} />
@@ -503,19 +462,6 @@ const CustomerDetail = () => {
         emptyText="No workflow actions available for the current customer state."
       >
         <div className="flex flex-wrap gap-3">
-          {canSubmitFinalApproval ? (
-            <button
-              onClick={() => void submitFinalApproval()}
-              disabled={submittingFinalApproval}
-              className={adminButtonClass('workflowPrimary')}
-            >
-              {submittingFinalApproval
-                ? 'Submitting...'
-                : customer.latestFinalApprovalId
-                  ? 'Resubmit Final Approval'
-                  : 'Create Final Approval'}
-            </button>
-          ) : null}
           {customer.latestFinalApprovalId ? (
             <button
               onClick={() =>
