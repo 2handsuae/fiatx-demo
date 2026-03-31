@@ -34,6 +34,7 @@ import { ReimbursementObligationsModule } from './modules/asset-treasury/reimbur
 import { ClearingModule } from './modules/clearing-settle/clearing/clearing.module';
 import { OutstandingsModule } from './modules/clearing-settle/outstandings/outstandings.module';
 import { OutstandingSettlementsModule } from './modules/clearing-settle/outstanding-settlements/outstanding-settlements.module';
+import { PoolSettlementBatchesModule } from './modules/clearing-settle/pool-settlement-batches/pool-settlement-batches.module';
 import { SafeguardingReconciliationModule } from './modules/clearing-settle/safeguarding-reconciliation/safeguarding-reconciliation.module';
 import { RiskEngineModule } from './modules/risk-engine/risk-engine.module';
 import { OnboardingModule } from './modules/identity/onboarding/onboarding.module';
@@ -96,6 +97,7 @@ import { GovernanceModule } from './modules/governance/governance.module';
     ClearingModule,
     OutstandingsModule,
     OutstandingSettlementsModule,
+    PoolSettlementBatchesModule,
     SafeguardingReconciliationModule,
     RiskEngineModule,
     TransactionComplianceModule,
