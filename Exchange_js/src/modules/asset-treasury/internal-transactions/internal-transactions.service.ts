@@ -22,6 +22,8 @@ import {
   InternalTransactionApprovalStatus,
   InternalTransactionStatus,
   InternalTransactionType,
+  TreasuryTransferInitiationMode,
+  TreasuryTransferPurpose,
 } from './dto/internal-transaction.dto';
 
 type TxClient = Prisma.TransactionClient;
@@ -46,10 +48,14 @@ interface CreateFromDepositSuccessInput {
     address?: string | null;
     iban?: string | null;
   };
+  purpose?: TreasuryTransferPurpose;
+  initiationMode?: TreasuryTransferInitiationMode;
 }
 
 interface CreateStandaloneInput {
   type: InternalTransactionType;
+  purpose?: TreasuryTransferPurpose | null;
+  initiationMode?: TreasuryTransferInitiationMode | null;
   sourceType: string;
   sourceId: string;
   sourceNo?: string | null;
@@ -69,6 +75,7 @@ interface CreateStandaloneInput {
   referenceNo?: string | null;
   status?: InternalTransactionStatus;
   approvalStatus?: InternalTransactionApprovalStatus;
+  approvalCaseId?: string | null;
   makerUserId?: string | null;
   checkerUserId?: string | null;
   checkedAt?: Date | null;
@@ -83,6 +90,7 @@ export class InternalTransactionsService {
     InternalTransactionStatus.FAILED,
     InternalTransactionStatus.CANCELLED,
     InternalTransactionStatus.REJECTED,
+    InternalTransactionStatus.EXPIRED,
   ]);
 
   constructor(
@@ -252,8 +260,11 @@ export class InternalTransactionsService {
           data: {
             internalTxNo,
             type: input.type,
+            purpose: input.purpose ?? null,
+            initiationMode: input.initiationMode ?? null,
             status,
             approvalStatus,
+            approvalCaseId: input.approvalCaseId ?? null,
             makerUserId: input.makerUserId ?? null,
             checkerUserId: input.checkerUserId ?? null,
             checkedAt: input.checkedAt ?? null,
@@ -313,6 +324,9 @@ export class InternalTransactionsService {
               sourceType: created.sourceType,
               sourceId: created.sourceId,
               type: created.type,
+              purpose: created.purpose,
+              initiationMode: created.initiationMode,
+              approvalCaseId: created.approvalCaseId,
             },
             ...this.buildDepositWorkflowAuditContext(created),
             sourcePlatform: operatorId === 'SYSTEM' ? 'SYSTEM' : 'ADMIN_API',
@@ -378,6 +392,10 @@ export class InternalTransactionsService {
           client,
           {
             type: InternalTransactionType.DEP_TO_MASTER,
+            purpose:
+              input.purpose ?? TreasuryTransferPurpose.DEPOSIT_COLLECTION,
+            initiationMode:
+              input.initiationMode ?? TreasuryTransferInitiationMode.AUTOMATED,
             sourceType: 'DEPOSIT',
             sourceId: input.deposit.id,
             sourceNo: input.deposit.depositNo,
@@ -426,6 +444,14 @@ export class InternalTransactionsService {
         where: { id: internalTransactionId },
         include: {
           asset: true,
+          approvalCase: {
+            select: {
+              id: true,
+              approvalNo: true,
+              status: true,
+              actionType: true,
+            },
+          },
           fromWallet: {
             select: {
               id: true,
@@ -462,6 +488,14 @@ export class InternalTransactionsService {
         },
         include: {
           asset: true,
+          approvalCase: {
+            select: {
+              id: true,
+              approvalNo: true,
+              status: true,
+              actionType: true,
+            },
+          },
           fromWallet: {
             select: {
               id: true,
@@ -771,6 +805,8 @@ export class InternalTransactionsService {
       take = 20,
       status,
       type,
+      purpose,
+      initiationMode,
       approvalStatus,
       sourceType,
       sourceId,
@@ -786,6 +822,8 @@ export class InternalTransactionsService {
     const where: any = {};
     if (status) where.status = status;
     if (type) where.type = type;
+    if (purpose) where.purpose = purpose;
+    if (initiationMode) where.initiationMode = initiationMode;
     if (approvalStatus) where.approvalStatus = approvalStatus;
     if (sourceType) where.sourceType = sourceType;
     if (sourceId) where.sourceId = { contains: sourceId };
@@ -808,6 +846,14 @@ export class InternalTransactionsService {
         orderBy: { createdAt: 'desc' },
         include: {
           asset: true,
+          approvalCase: {
+            select: {
+              id: true,
+              approvalNo: true,
+              status: true,
+              actionType: true,
+            },
+          },
           fromWallet: true,
           toWallet: true,
           funds: {
@@ -830,6 +876,18 @@ export class InternalTransactionsService {
       where: { id },
       include: {
         asset: true,
+        approvalCase: {
+          select: {
+            id: true,
+            approvalNo: true,
+            status: true,
+            actionType: true,
+            decisionByUserId: true,
+            decisionByRole: true,
+            decisionReason: true,
+            traceId: true,
+          },
+        },
         fromWallet: true,
         toWallet: true,
         funds: {
@@ -849,5 +907,123 @@ export class InternalTransactionsService {
       throw new NotFoundException('Internal transaction not found');
     }
     return item;
+  }
+
+  async syncApprovalProjection(
+    internalTransactionId: string,
+    projection: {
+      approvalCaseId: string;
+      approvalStatus: InternalTransactionApprovalStatus;
+      txStatus?: InternalTransactionStatus;
+      checkerUserId?: string | null;
+      checkedAt?: Date | null;
+      reviewReason?: string | null;
+    },
+    operatorId = 'SYSTEM',
+    tx?: TxClient,
+  ) {
+    const execute = async (client: TxClient) => {
+      const item = await (client as any).internalTransaction.findUnique({
+        where: { id: internalTransactionId },
+        include: {
+          asset: true,
+          approvalCase: {
+            select: {
+              id: true,
+              approvalNo: true,
+              status: true,
+              actionType: true,
+            },
+          },
+          fromWallet: {
+            select: {
+              id: true,
+              ownerType: true,
+            },
+          },
+          toWallet: {
+            select: {
+              id: true,
+              ownerType: true,
+            },
+          },
+        },
+      });
+      if (!item) {
+        throw new NotFoundException('Internal transaction not found');
+      }
+
+      const currentStatus = item.status as InternalTransactionStatus;
+      const nextStatus = projection.txStatus ?? currentStatus;
+      const statusChanged = nextStatus !== currentStatus;
+
+      const updated = await (client as any).internalTransaction.update({
+        where: { id: internalTransactionId },
+        data: {
+          approvalCaseId: projection.approvalCaseId,
+          approvalStatus: projection.approvalStatus,
+          checkerUserId: projection.checkerUserId ?? item.checkerUserId ?? null,
+          checkedAt: projection.checkedAt ?? item.checkedAt ?? null,
+          reviewReason: projection.reviewReason ?? item.reviewReason ?? null,
+          status: nextStatus,
+          statusHistory: statusChanged
+            ? this.appendStatusHistory(
+                item.statusHistory,
+                nextStatus,
+                operatorId,
+                projection.reviewReason?.trim() || 'Approval projection updated',
+              )
+            : item.statusHistory,
+          completedAt:
+            statusChanged && InternalTransactionsService.TERMINAL_STATUSES.has(nextStatus)
+              ? new Date()
+              : item.completedAt,
+        },
+        include: {
+          asset: true,
+          approvalCase: {
+            select: {
+              id: true,
+              approvalNo: true,
+              status: true,
+              actionType: true,
+            },
+          },
+          fromWallet: {
+            select: {
+              id: true,
+              ownerType: true,
+            },
+          },
+          toWallet: {
+            select: {
+              id: true,
+              ownerType: true,
+            },
+          },
+        },
+      });
+
+      await (client as any).internalTransactionAuditLog.create({
+        data: {
+          internalTransactionId,
+          operatorId,
+          oldStatus: currentStatus,
+          newStatus: nextStatus,
+          reason:
+            projection.reviewReason?.trim() ||
+            `Approval projection ${projection.approvalStatus}`,
+        },
+      });
+
+      if (statusChanged) {
+        await this.triggerStatusEvent(client, updated, currentStatus, nextStatus);
+      }
+
+      return updated;
+    };
+
+    if (tx) return execute(tx);
+    return (this.prisma as any).$transaction((client: TxClient) => execute(client));
   }
 }

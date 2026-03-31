@@ -14,18 +14,35 @@ export enum InternalTransactionType {
   LIQ_BANK_TO_CLIENT_BANK = 'LIQ_BANK_TO_CLIENT_BANK',
 }
 
+export enum TreasuryTransferPurpose {
+  DEPOSIT_COLLECTION = 'DEPOSIT_COLLECTION',
+  PAYOUT_FUNDING = 'PAYOUT_FUNDING',
+  PAYOUT_RETURN = 'PAYOUT_RETURN',
+  LIQUIDITY_TOPUP = 'LIQUIDITY_TOPUP',
+  LIQUIDITY_RETURN = 'LIQUIDITY_RETURN',
+  POOL_REBALANCING = 'POOL_REBALANCING',
+}
+
+export enum TreasuryTransferInitiationMode {
+  MANUAL = 'MANUAL',
+  AUTOMATED = 'AUTOMATED',
+}
+
 export enum InternalTransactionStatus {
   INTERNAL_FUNDS_PENDING = 'INTERNAL_FUNDS_PENDING',
   SUCCESS = 'SUCCESS',
   FAILED = 'FAILED',
   CANCELLED = 'CANCELLED',
   REJECTED = 'REJECTED',
+  EXPIRED = 'EXPIRED',
 }
 
 export enum InternalTransactionApprovalStatus {
   PENDING = 'PENDING',
   APPROVED = 'APPROVED',
   REJECTED = 'REJECTED',
+  CANCELLED = 'CANCELLED',
+  EXPIRED = 'EXPIRED',
 }
 
 export class InternalTransactionQueryDto {
@@ -48,6 +65,16 @@ export class InternalTransactionQueryDto {
   @IsOptional()
   @IsEnum(InternalTransactionType)
   type?: InternalTransactionType;
+
+  @ApiPropertyOptional({ enum: TreasuryTransferPurpose })
+  @IsOptional()
+  @IsEnum(TreasuryTransferPurpose)
+  purpose?: TreasuryTransferPurpose;
+
+  @ApiPropertyOptional({ enum: TreasuryTransferInitiationMode })
+  @IsOptional()
+  @IsEnum(TreasuryTransferInitiationMode)
+  initiationMode?: TreasuryTransferInitiationMode;
 
   @ApiPropertyOptional({ enum: InternalTransactionApprovalStatus })
   @IsOptional()

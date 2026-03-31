@@ -269,6 +269,102 @@ describe('rbac.catalog', () => {
         ),
       ),
     ).toBe(true);
+    expect(
+      permissionCodes.has(
+        buildPermissionCode('GET', '/admin/reconciliation/safeguarding-warnings'),
+      ),
+    ).toBe(true);
+    expect(
+      permissionCodes.has(
+        buildPermissionCode(
+          'GET',
+          '/admin/reconciliation/safeguarding-warnings/:id',
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      permissionCodes.has(
+        buildPermissionCode(
+          'PATCH',
+          '/admin/reconciliation/safeguarding-warnings/:id/status',
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      permissionCodes.has(
+        buildPermissionCode('GET', '/admin/reconciliation/safeguarding-runs'),
+      ),
+    ).toBe(true);
+    expect(
+      permissionCodes.has(
+        buildPermissionCode('GET', '/admin/reconciliation/safeguarding-runs/:id'),
+      ),
+    ).toBe(true);
+    expect(
+      permissionCodes.has(
+        buildPermissionCode(
+          'POST',
+          '/admin/reconciliation/safeguarding-fiat-statements/imports',
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      permissionCodes.has(
+        buildPermissionCode(
+          'GET',
+          '/admin/reconciliation/safeguarding-fiat-statements/imports',
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      permissionCodes.has(
+        buildPermissionCode(
+          'GET',
+          '/admin/reconciliation/safeguarding-fiat-statements/imports/:id',
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      permissionCodes.has(
+        buildPermissionCode(
+          'POST',
+          '/admin/reconciliation/safeguarding-runs/:id/export-evidence-package',
+        ),
+      ),
+    ).toBe(true);
+  });
+
+  it('should register regulatory gate routes in RBAC catalog', () => {
+    const permissionCodes = new Set(
+      RBAC_PERMISSION_DEFINITIONS.map((item) => item.code),
+    );
+
+    expect(
+      permissionCodes.has(
+        buildPermissionCode('GET', '/admin/governance/regulatory-gates'),
+      ),
+    ).toBe(true);
+    expect(
+      permissionCodes.has(
+        buildPermissionCode('POST', '/admin/governance/regulatory-gates'),
+      ),
+    ).toBe(true);
+    expect(
+      permissionCodes.has(
+        buildPermissionCode(
+          'POST',
+          '/admin/governance/regulatory-gates/:id/mark-effective',
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      permissionCodes.has(
+        buildPermissionCode(
+          'POST',
+          '/admin/governance/regulatory-gates/:id/revoke',
+        ),
+      ),
+    ).toBe(true);
   });
 
   it('should grant safeguarding break read/write groups to the expected roles', () => {
@@ -289,24 +385,145 @@ describe('rbac.catalog', () => {
       'PATCH',
       '/admin/reconciliation/safeguarding-breaks/:id/status',
     );
+    const warningReadCode = buildPermissionCode(
+      'GET',
+      '/admin/reconciliation/safeguarding-warnings',
+    );
+    const warningWriteCode = buildPermissionCode(
+      'PATCH',
+      '/admin/reconciliation/safeguarding-warnings/:id/status',
+    );
+    const runReadCode = buildPermissionCode(
+      'GET',
+      '/admin/reconciliation/safeguarding-runs',
+    );
+    const statementImportWriteCode = buildPermissionCode(
+      'POST',
+      '/admin/reconciliation/safeguarding-fiat-statements/imports',
+    );
+    const runExportWriteCode = buildPermissionCode(
+      'POST',
+      '/admin/reconciliation/safeguarding-runs/:id/export-evidence-package',
+    );
 
     expect(permissionMap.OPS_TREASURY).toContain(readCode);
     expect(permissionMap.OPS_TREASURY).toContain(detailCode);
     expect(permissionMap.OPS_TREASURY).toContain(generateCode);
     expect(permissionMap.OPS_TREASURY).toContain(writeCode);
+    expect(permissionMap.OPS_TREASURY).toContain(warningReadCode);
+    expect(permissionMap.OPS_TREASURY).toContain(warningWriteCode);
+    expect(permissionMap.OPS_TREASURY).toContain(runReadCode);
+    expect(permissionMap.OPS_TREASURY).toContain(statementImportWriteCode);
+    expect(permissionMap.OPS_TREASURY).toContain(runExportWriteCode);
     expect(permissionMap.FINANCE).toContain(readCode);
     expect(permissionMap.FINANCE).toContain(writeCode);
+    expect(permissionMap.FINANCE).toContain(warningReadCode);
+    expect(permissionMap.FINANCE).toContain(runReadCode);
+    expect(permissionMap.FINANCE).toContain(statementImportWriteCode);
+    expect(permissionMap.FINANCE).toContain(runExportWriteCode);
     expect(permissionMap.COMPLIANCE_LEAD).toContain(readCode);
     expect(permissionMap.COMPLIANCE_LEAD).toContain(writeCode);
+    expect(permissionMap.COMPLIANCE_LEAD).toContain(warningReadCode);
+    expect(permissionMap.COMPLIANCE_LEAD).toContain(warningWriteCode);
+    expect(permissionMap.COMPLIANCE_LEAD).toContain(runReadCode);
     expect(permissionMap.MLRO).toContain(readCode);
     expect(permissionMap.MLRO).toContain(writeCode);
+    expect(permissionMap.MLRO).toContain(warningReadCode);
+    expect(permissionMap.MLRO).toContain(warningWriteCode);
+    expect(permissionMap.MLRO).toContain(runReadCode);
     expect(permissionMap.RI).toContain(readCode);
     expect(permissionMap.RI).toContain(detailCode);
+    expect(permissionMap.RI).toContain(warningReadCode);
+    expect(permissionMap.RI).toContain(runReadCode);
     expect(permissionMap.RI).not.toContain(generateCode);
     expect(permissionMap.RI).not.toContain(writeCode);
     expect(permissionMap.SM).toContain(readCode);
+    expect(permissionMap.SM).toContain(warningReadCode);
+    expect(permissionMap.SM).toContain(runReadCode);
     expect(permissionMap.SM).not.toContain(writeCode);
     expect(permissionMap.CISO).toContain(readCode);
+    expect(permissionMap.CISO).toContain(warningReadCode);
+    expect(permissionMap.CISO).toContain(runReadCode);
     expect(permissionMap.CISO).not.toContain(writeCode);
+  });
+
+  it('should register governance registry routes in RBAC catalog', () => {
+    const permissionCodes = new Set(
+      RBAC_PERMISSION_DEFINITIONS.map((item) => item.code),
+    );
+
+    expect(
+      permissionCodes.has(
+        buildPermissionCode(
+          'GET',
+          '/admin/governance/registries/shareholding-versions',
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      permissionCodes.has(
+        buildPermissionCode(
+          'POST',
+          '/admin/governance/registries/shareholding-versions',
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      permissionCodes.has(
+        buildPermissionCode(
+          'GET',
+          '/admin/governance/registries/appointments',
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      permissionCodes.has(
+        buildPermissionCode(
+          'POST',
+          '/admin/governance/registries/trainings',
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      permissionCodes.has(
+        buildPermissionCode(
+          'PATCH',
+          '/admin/governance/registries/conflicts/:id',
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      permissionCodes.has(
+        buildPermissionCode(
+          'GET',
+          '/admin/governance/registries/wind-down-materials/:id',
+        ),
+      ),
+    ).toBe(true);
+  });
+
+  it('should grant governance registry read/write groups to the expected roles', () => {
+    const permissionMap = buildRolePermissionCodeMap();
+    const readCode = buildPermissionCode(
+      'GET',
+      '/admin/governance/registries/shareholding-versions',
+    );
+    const writeCode = buildPermissionCode(
+      'POST',
+      '/admin/governance/registries/shareholding-versions',
+    );
+
+    expect(permissionMap.RI).toContain(readCode);
+    expect(permissionMap.RI).not.toContain(writeCode);
+    expect(permissionMap.SM).toContain(readCode);
+    expect(permissionMap.SM).not.toContain(writeCode);
+    expect(permissionMap.FINANCE).toContain(readCode);
+    expect(permissionMap.FINANCE).not.toContain(writeCode);
+    expect(permissionMap.COMPLIANCE_LEAD).toContain(readCode);
+    expect(permissionMap.COMPLIANCE_LEAD).toContain(writeCode);
+    expect(permissionMap.TECH_ADMIN).toContain(readCode);
+    expect(permissionMap.TECH_ADMIN).toContain(writeCode);
+    expect(permissionMap.CISO).toContain(readCode);
+    expect(permissionMap.CISO).toContain(writeCode);
   });
 });

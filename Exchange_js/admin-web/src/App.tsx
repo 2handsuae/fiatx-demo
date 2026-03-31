@@ -74,6 +74,21 @@ const DeleteRequestCreatePage = lazy(() => import('./pages/DeleteRequestCreatePa
 const DeleteRequestDetailPage = lazy(() => import('./pages/DeleteRequestDetailPage'));
 const SlaTimersPage = lazy(() => import('./pages/SlaTimersPage'));
 const SlaTimerDetailPage = lazy(() => import('./pages/SlaTimerDetailPage'));
+const GovernanceRegistryListPage = lazy(() => import('./pages/GovernanceRegistryListPage'));
+const GovernanceRegistryDetailPage = lazy(() => import('./pages/GovernanceRegistryDetailPage'));
+const GovernanceRegistryCreatePage = lazy(() => import('./pages/GovernanceRegistryCreatePage'));
+const GovernanceRegistryEditPage = lazy(() => import('./pages/GovernanceRegistryEditPage'));
+const RegulatoryGateListPage = lazy(() => import('./pages/RegulatoryGateListPage'));
+const RegulatoryGateDetailPage = lazy(() => import('./pages/RegulatoryGateDetailPage'));
+const RegulatoryGateCreatePage = lazy(() => import('./pages/RegulatoryGateCreatePage'));
+const Wave8OpsDashboardPage = lazy(() => import('./pages/Wave8OpsDashboardPage'));
+const TreasuryResourcePage = lazy(() => import('./pages/TreasuryResourcePage'));
+const TreasuryResourceDetailPage = lazy(() => import('./pages/TreasuryResourceDetailPage'));
+const InternalCollectionsPage = lazy(() => import('./pages/InternalCollectionsPage'));
+const ReconciliationResourcePage = lazy(() => import('./pages/ReconciliationResourcePage'));
+const ReconciliationResourceDetailPage = lazy(
+  () => import('./pages/ReconciliationResourceDetailPage'),
+);
 const ComplianceAlertsPage = lazy(() => import('./pages/ComplianceAlertsPage'));
 const ComplianceAlertDetailPage = lazy(() => import('./pages/ComplianceAlertDetailPage'));
 const ComplianceCasesPage = lazy(() => import('./pages/ComplianceCasesPage'));
@@ -209,10 +224,7 @@ function App() {
           <Route path="/dashboard">
             <Route
               index
-              element={withPermission(
-                <div className="p-8 text-gray-500">Welcome to Admin Dashboard</div>,
-                [PERMISSIONS.BASE_ACCESS],
-              )}
+              element={withPermission(<Wave8OpsDashboardPage />, [PERMISSIONS.BASE_ACCESS])}
             />
             <Route
               path="members"
@@ -261,6 +273,48 @@ function App() {
               element={withPermission(<SafeguardingBreakDetail />, [
                 PERMISSIONS.SAFEGUARDING_BREAK_DETAIL_READ,
               ])}
+            />
+            <Route
+              path="reconciliation/safeguarding-warnings"
+              element={withPermission(
+                <ReconciliationResourcePage resourceType="warnings" />,
+                [PERMISSIONS.SAFEGUARDING_WARNINGS_READ],
+              )}
+            />
+            <Route
+              path="reconciliation/safeguarding-warnings/:id"
+              element={withPermission(
+                <ReconciliationResourceDetailPage resourceType="warnings" />,
+                [PERMISSIONS.SAFEGUARDING_WARNING_DETAIL_READ],
+              )}
+            />
+            <Route
+              path="reconciliation/safeguarding-runs"
+              element={withPermission(
+                <ReconciliationResourcePage resourceType="runs" />,
+                [PERMISSIONS.SAFEGUARDING_RUNS_READ],
+              )}
+            />
+            <Route
+              path="reconciliation/safeguarding-runs/:id"
+              element={withPermission(
+                <ReconciliationResourceDetailPage resourceType="runs" />,
+                [PERMISSIONS.SAFEGUARDING_RUN_DETAIL_READ],
+              )}
+            />
+            <Route
+              path="reconciliation/safeguarding-fiat-statements"
+              element={withPermission(
+                <ReconciliationResourcePage resourceType="fiat-statements" />,
+                [PERMISSIONS.SAFEGUARDING_FIAT_IMPORTS_READ],
+              )}
+            />
+            <Route
+              path="reconciliation/safeguarding-fiat-statements/:id"
+              element={withPermission(
+                <ReconciliationResourceDetailPage resourceType="fiat-statements" />,
+                [PERMISSIONS.SAFEGUARDING_FIAT_IMPORT_DETAIL_READ],
+              )}
             />
             <Route
               path="reconciliation/outstanding-settlements"
@@ -447,6 +501,164 @@ function App() {
               ])}
             />
             <Route
+              path="governance/registries/shareholding-versions"
+              element={withPermission(
+                <GovernanceRegistryListPage registryType="shareholding-versions" />,
+                [PERMISSIONS.GOV_SHAREHOLDING_REGISTRY_READ],
+              )}
+            />
+            <Route
+              path="governance/registries/shareholding-versions/create"
+              element={withPermission(
+                <GovernanceRegistryCreatePage registryType="shareholding-versions" />,
+                [PERMISSIONS.GOV_SHAREHOLDING_REGISTRY_CREATE],
+              )}
+            />
+            <Route
+              path="governance/registries/shareholding-versions/edit/:id"
+              element={withPermission(
+                <GovernanceRegistryEditPage registryType="shareholding-versions" />,
+                [PERMISSIONS.GOV_SHAREHOLDING_REGISTRY_UPDATE],
+              )}
+            />
+            <Route
+              path="governance/registries/shareholding-versions/:id"
+              element={withPermission(
+                <GovernanceRegistryDetailPage registryType="shareholding-versions" />,
+                [PERMISSIONS.GOV_SHAREHOLDING_REGISTRY_DETAIL_READ],
+              )}
+            />
+            <Route
+              path="governance/registries/appointments"
+              element={withPermission(
+                <GovernanceRegistryListPage registryType="appointments" />,
+                [PERMISSIONS.GOV_APPOINTMENTS_READ],
+              )}
+            />
+            <Route
+              path="governance/registries/appointments/create"
+              element={withPermission(
+                <GovernanceRegistryCreatePage registryType="appointments" />,
+                [PERMISSIONS.GOV_APPOINTMENT_CREATE],
+              )}
+            />
+            <Route
+              path="governance/registries/appointments/edit/:id"
+              element={withPermission(
+                <GovernanceRegistryEditPage registryType="appointments" />,
+                [PERMISSIONS.GOV_APPOINTMENT_UPDATE],
+              )}
+            />
+            <Route
+              path="governance/registries/appointments/:id"
+              element={withPermission(
+                <GovernanceRegistryDetailPage registryType="appointments" />,
+                [PERMISSIONS.GOV_APPOINTMENT_DETAIL_READ],
+              )}
+            />
+            <Route
+              path="governance/registries/trainings"
+              element={withPermission(
+                <GovernanceRegistryListPage registryType="trainings" />,
+                [PERMISSIONS.GOV_TRAININGS_READ],
+              )}
+            />
+            <Route
+              path="governance/registries/trainings/create"
+              element={withPermission(
+                <GovernanceRegistryCreatePage registryType="trainings" />,
+                [PERMISSIONS.GOV_TRAINING_CREATE],
+              )}
+            />
+            <Route
+              path="governance/registries/trainings/edit/:id"
+              element={withPermission(
+                <GovernanceRegistryEditPage registryType="trainings" />,
+                [PERMISSIONS.GOV_TRAINING_UPDATE],
+              )}
+            />
+            <Route
+              path="governance/registries/trainings/:id"
+              element={withPermission(
+                <GovernanceRegistryDetailPage registryType="trainings" />,
+                [PERMISSIONS.GOV_TRAINING_DETAIL_READ],
+              )}
+            />
+            <Route
+              path="governance/registries/conflicts"
+              element={withPermission(
+                <GovernanceRegistryListPage registryType="conflicts" />,
+                [PERMISSIONS.GOV_CONFLICTS_READ],
+              )}
+            />
+            <Route
+              path="governance/registries/conflicts/create"
+              element={withPermission(
+                <GovernanceRegistryCreatePage registryType="conflicts" />,
+                [PERMISSIONS.GOV_CONFLICT_CREATE],
+              )}
+            />
+            <Route
+              path="governance/registries/conflicts/edit/:id"
+              element={withPermission(
+                <GovernanceRegistryEditPage registryType="conflicts" />,
+                [PERMISSIONS.GOV_CONFLICT_UPDATE],
+              )}
+            />
+            <Route
+              path="governance/registries/conflicts/:id"
+              element={withPermission(
+                <GovernanceRegistryDetailPage registryType="conflicts" />,
+                [PERMISSIONS.GOV_CONFLICT_DETAIL_READ],
+              )}
+            />
+            <Route
+              path="governance/registries/wind-down-materials"
+              element={withPermission(
+                <GovernanceRegistryListPage registryType="wind-down-materials" />,
+                [PERMISSIONS.GOV_WIND_DOWN_MATERIALS_READ],
+              )}
+            />
+            <Route
+              path="governance/registries/wind-down-materials/create"
+              element={withPermission(
+                <GovernanceRegistryCreatePage registryType="wind-down-materials" />,
+                [PERMISSIONS.GOV_WIND_DOWN_MATERIAL_CREATE],
+              )}
+            />
+            <Route
+              path="governance/registries/wind-down-materials/edit/:id"
+              element={withPermission(
+                <GovernanceRegistryEditPage registryType="wind-down-materials" />,
+                [PERMISSIONS.GOV_WIND_DOWN_MATERIAL_UPDATE],
+              )}
+            />
+            <Route
+              path="governance/registries/wind-down-materials/:id"
+              element={withPermission(
+                <GovernanceRegistryDetailPage registryType="wind-down-materials" />,
+                [PERMISSIONS.GOV_WIND_DOWN_MATERIAL_DETAIL_READ],
+              )}
+            />
+            <Route
+              path="governance/regulatory-gates"
+              element={withPermission(<RegulatoryGateListPage />, [
+                PERMISSIONS.GOV_REGULATORY_GATES_READ,
+              ])}
+            />
+            <Route
+              path="governance/regulatory-gates/create"
+              element={withPermission(<RegulatoryGateCreatePage />, [
+                PERMISSIONS.GOV_REGULATORY_GATE_CREATE,
+              ])}
+            />
+            <Route
+              path="governance/regulatory-gates/:id"
+              element={withPermission(<RegulatoryGateDetailPage />, [
+                PERMISSIONS.GOV_REGULATORY_GATE_DETAIL_READ,
+              ])}
+            />
+            <Route
               path="risk/policy-executions"
               element={withPermission(<RiskPolicyExecutionsPage />, [PERMISSIONS.RISK_DECISION_RECORDS_READ])}
             />
@@ -485,6 +697,44 @@ function App() {
             <Route
               path="treasury/internal-funds/:id"
               element={withPermission(<InternalFundDetail />, [PERMISSIONS.INTERNAL_FUND_DETAIL_READ])}
+            />
+            <Route
+              path="treasury/fee-occurrences"
+              element={withPermission(
+                <TreasuryResourcePage resourceType="fee-occurrences" />,
+                [PERMISSIONS.FEE_OCCURRENCES_READ],
+              )}
+            />
+            <Route
+              path="treasury/fee-occurrences/:id"
+              element={withPermission(
+                <TreasuryResourceDetailPage resourceType="fee-occurrences" />,
+                [PERMISSIONS.FEE_OCCURRENCE_DETAIL_READ],
+              )}
+            />
+            <Route
+              path="treasury/reimbursement-obligations"
+              element={withPermission(
+                <TreasuryResourcePage resourceType="reimbursement-obligations" />,
+                [PERMISSIONS.REIMBURSEMENT_OBLIGATIONS_READ],
+              )}
+            />
+            <Route
+              path="treasury/reimbursement-obligations/:id"
+              element={withPermission(
+                <TreasuryResourceDetailPage resourceType="reimbursement-obligations" />,
+                [PERMISSIONS.REIMBURSEMENT_OBLIGATION_DETAIL_READ],
+              )}
+            />
+            <Route
+              path="treasury/deposit-wallet-monitor"
+              element={withPermission(<InternalCollectionsPage />, [
+                PERMISSIONS.INTERNAL_COLLECTIONS_RECONCILE,
+              ])}
+            />
+            <Route
+              path="treasury/internal-collections"
+              element={<Navigate to="/dashboard/treasury/deposit-wallet-monitor" replace />}
             />
             <Route
               path="system/liquidity-providers"

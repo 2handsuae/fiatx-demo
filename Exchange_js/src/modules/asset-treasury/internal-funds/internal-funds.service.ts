@@ -15,6 +15,7 @@ import {
   UpdateInternalFundStatusDto,
 } from './dto/internal-fund.dto';
 import { InternalTransactionsService } from '../internal-transactions/internal-transactions.service';
+import { FeeOccurrencesService } from '../fee-occurrences/fee-occurrences.service';
 import {
   InternalTransactionStatus,
   InternalTransactionType,
@@ -130,6 +131,7 @@ export class InternalFundsService {
     private readonly prisma: PrismaService,
     private readonly internalTransactionsService: InternalTransactionsService,
     private readonly eventEmitter: EventEmitter2,
+    private readonly feeOccurrencesService: FeeOccurrencesService,
   ) {
     this.auditLogsService = new AuditLogsService(prisma);
   }
@@ -270,7 +272,10 @@ export class InternalFundsService {
     const execute = async (client: TxClient) => {
       const internalTx = await (client as any).internalTransaction.findUnique({
         where: { id: input.internalTransactionId },
-        include: { asset: true },
+        include: {
+          asset: true,
+          fromWallet: true,
+        },
       });
       if (!internalTx) {
         throw new NotFoundException('Internal transaction not found');
@@ -321,7 +326,16 @@ export class InternalFundsService {
             },
             include: {
               asset: true,
-              internalTransaction: true,
+              fromWallet: true,
+              internalTransaction: {
+                select: {
+                  id: true,
+                  internalTxNo: true,
+                  sourceType: true,
+                  sourceId: true,
+                  sourceNo: true,
+                },
+              },
             },
           });
 
@@ -346,6 +360,12 @@ export class InternalFundsService {
               actorId: operatorId,
               actorRole: operatorId === 'SYSTEM' ? 'SYSTEM' : 'ADMIN',
             },
+            client,
+          );
+
+          await this.feeOccurrencesService.captureFromInternalFund(
+            created,
+            operatorId,
             client,
           );
 
@@ -394,9 +414,11 @@ export class InternalFundsService {
         where: { id },
         include: {
           asset: true,
+          fromWallet: true,
           internalTransaction: {
             select: {
               id: true,
+              internalTxNo: true,
               sourceType: true,
               sourceId: true,
               sourceNo: true,
@@ -505,6 +527,15 @@ export class InternalFundsService {
           operatorId,
         );
       }
+
+      await this.feeOccurrencesService.captureFromInternalFund(
+        {
+          ...item,
+          ...updated,
+        },
+        operatorId,
+        client,
+      );
 
       return {
         updated,

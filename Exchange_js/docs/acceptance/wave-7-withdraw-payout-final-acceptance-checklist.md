@@ -118,3 +118,4 @@ Source of Truth Level: acceptance
 
 ## Known Caveats
 - Wave 8 remains responsible for full safeguarding threshold / escalation and broader treasury coverage
+- Governance registries and filing / receipt / effectiveness operations are now Wave 9 scope

@@ -1,5 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
-import { RefreshCw } from 'lucide-react';
+import { Link2, Plus, RefreshCw } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { StatusBadge } from '../components/governance/GovernanceUi';
+import { useAdminSession } from '../contexts/AdminSessionContext';
+import { PERMISSIONS } from '../rbac/permissions';
 import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/adminFetch';
 
 type ReleaseItem = {
@@ -28,6 +32,15 @@ type ReleaseSummary = {
 type ReleaseDetail = ReleaseSummary & {
   validationSummary: Record<string, unknown>;
   items: ReleaseItem[];
+  regulatoryGateSummary?: {
+    gateId: string;
+    gateNo: string;
+    gateType: string;
+    gateResult: string;
+    filingStatus: string;
+    receiptStatus: string;
+    effectivenessStatus: string;
+  } | null;
 };
 
 type DiffItem = {
@@ -70,6 +83,8 @@ const formatDateTime = (value?: string | null) => {
 const prettyJson = (value: unknown) => JSON.stringify(value, null, 2);
 
 const BusinessConfigReleasesPage = () => {
+  const navigate = useNavigate();
+  const { hasAnyPermission } = useAdminSession();
   const [subjectType, setSubjectType] = useState('');
   const [status, setStatus] = useState('');
   const [loading, setLoading] = useState(false);
@@ -86,6 +101,8 @@ const BusinessConfigReleasesPage = () => {
     () => releases.find((item) => item.status === 'ACTIVE')?.releaseNo || null,
     [releases],
   );
+  const canReadGate = hasAnyPermission([PERMISSIONS.GOV_REGULATORY_GATE_DETAIL_READ]);
+  const canCreateGate = hasAnyPermission([PERMISSIONS.GOV_REGULATORY_GATE_CREATE]);
 
   const fetchReleases = async () => {
     setLoading(true);
@@ -374,6 +391,67 @@ const BusinessConfigReleasesPage = () => {
                     </div>
                   </div>
                 </div>
+                {releaseDetail.regulatoryGateSummary ? (
+                  <div className="mt-4 rounded-xl border border-admin-border bg-gray-50 p-4">
+                    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                      <div className="space-y-1">
+                        <div className="text-xs uppercase tracking-wide text-gray-500">Regulatory Gate</div>
+                        <div className="font-mono text-xs text-brand-primary">
+                          {releaseDetail.regulatoryGateSummary.gateNo}
+                        </div>
+                        <div className="text-sm text-gray-700">
+                          {releaseDetail.regulatoryGateSummary.gateType}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <StatusBadge value={releaseDetail.regulatoryGateSummary.gateResult} />
+                        {canReadGate ? (
+                          <button
+                            onClick={() =>
+                              navigate(
+                                `/dashboard/governance/regulatory-gates/${releaseDetail.regulatoryGateSummary?.gateId}`,
+                              )
+                            }
+                            className="inline-flex items-center gap-2 rounded-lg border border-admin-border bg-white px-3 py-2 text-sm text-brand-primary hover:bg-gray-50"
+                          >
+                            <Link2 size={16} />
+                            View Gate
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
+                  </div>
+                ) : canCreateGate ? (
+                  <div className="mt-4 rounded-xl border border-dashed border-admin-border bg-gray-50 p-4">
+                    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                      <div>
+                        <div className="text-sm font-semibold text-gray-900">
+                          No regulatory gate linked
+                        </div>
+                        <div className="mt-1 text-xs text-gray-500">
+                          Create a `LICENSE_SCOPE_CHANGE` gate before publish/activation when required.
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => {
+                          const params = new URLSearchParams({
+                            gateType: 'LICENSE_SCOPE_CHANGE',
+                            subjectType: 'BUSINESS_CONFIG_RELEASE',
+                            subjectId: releaseDetail.id,
+                            subjectNo: releaseDetail.releaseNo,
+                          });
+                          navigate(
+                            `/dashboard/governance/regulatory-gates/create?${params.toString()}`,
+                          );
+                        }}
+                        className="inline-flex items-center gap-2 rounded-lg bg-brand-primary px-4 py-2 text-sm font-medium text-white hover:bg-brand-primary/90"
+                      >
+                        <Plus size={16} />
+                        Create Regulatory Gate
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
               </div>
 
               <div className="grid grid-cols-1 gap-4 2xl:grid-cols-[minmax(0,1fr)_360px]">

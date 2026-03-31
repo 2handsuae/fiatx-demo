@@ -29,6 +29,8 @@ import { PayoutsModule } from './modules/asset-treasury/payouts/payouts.module';
 import { InternalTransactionsModule } from './modules/asset-treasury/internal-transactions/internal-transactions.module';
 import { InternalFundsModule } from './modules/asset-treasury/internal-funds/internal-funds.module';
 import { InternalTransactionWorkflowModule } from './modules/asset-treasury/internal-transaction-workflow/internal-transaction-workflow.module';
+import { FeeOccurrencesModule } from './modules/asset-treasury/fee-occurrences/fee-occurrences.module';
+import { ReimbursementObligationsModule } from './modules/asset-treasury/reimbursement-obligations/reimbursement-obligations.module';
 import { ClearingModule } from './modules/clearing-settle/clearing/clearing.module';
 import { OutstandingsModule } from './modules/clearing-settle/outstandings/outstandings.module';
 import { OutstandingSettlementsModule } from './modules/clearing-settle/outstanding-settlements/outstanding-settlements.module';
@@ -89,6 +91,8 @@ import { GovernanceModule } from './modules/governance/governance.module';
     InternalTransactionsModule,
     InternalFundsModule,
     InternalTransactionWorkflowModule,
+    FeeOccurrencesModule,
+    ReimbursementObligationsModule,
     ClearingModule,
     OutstandingsModule,
     OutstandingSettlementsModule,

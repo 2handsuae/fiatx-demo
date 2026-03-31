@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, RefreshCw } from 'lucide-react';
+import { ArrowLeft, Link2, RefreshCw } from 'lucide-react';
 import { formatAssetAmount } from '../utils/number-format';
+import { SimulationRail, type SimulationRailItem } from '../components/SimulationRail';
 
 type AuditLog = {
   id: string;
@@ -119,6 +120,22 @@ function getActions(data: InternalFundDetailData): ActionItem[] {
   return actions;
 }
 
+function getRailItems(
+  data: InternalFundDetailData,
+  updating: boolean,
+  onAction: (action: string) => void,
+): SimulationRailItem[] {
+  return getActions(data).map((action) => ({
+    id: action.action,
+    label: action.label,
+    icon: <RefreshCw size={14} />,
+    state: 'available',
+    onClick: () => onAction(action.action),
+    disabled: updating,
+    helperText: `${data.status} -> ${action.label}`,
+  }));
+}
+
 const InternalFundDetail = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -192,6 +209,11 @@ const InternalFundDetail = () => {
     }
   }, [data?.statusHistory]);
 
+  const railItems = useMemo(
+    () => (data ? getRailItems(data, updating, handleStatusAction) : []),
+    [data, updating],
+  );
+
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[300px]">
@@ -225,19 +247,27 @@ const InternalFundDetail = () => {
               </span>
             </div>
             <div className="mt-2 text-sm text-gray-500 font-mono">{data.internalFundNo}</div>
+            <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-gray-500">
+              <span>
+                Linked Tx: {data.internalTransaction?.internalTxNo || '-'}
+              </span>
+              <span>
+                Asset: {data.asset?.code || '-'}
+                {data.asset?.network ? ` / ${data.asset.network}` : ''}
+              </span>
+            </div>
           </div>
         </div>
         <div className="flex gap-2 flex-wrap justify-end">
-          {getActions(data).map((action) => (
+          {data.internalTransaction?.id ? (
             <button
-              key={action.action}
-              onClick={() => handleStatusAction(action.action)}
-              disabled={updating}
-              className={`px-3 py-2 rounded-lg text-sm font-medium disabled:opacity-50 ${action.color}`}
+              onClick={() => navigate(`/exchange/internal-transactions/${data.internalTransaction?.id}`)}
+              className="inline-flex items-center gap-2 rounded-lg border border-admin-border bg-white px-3 py-2 text-sm text-brand-primary hover:bg-gray-50"
             >
-              {action.label}
+              <Link2 size={16} />
+              View Internal Tx
             </button>
-          ))}
+          ) : null}
           <button
             onClick={fetchDetail}
             className="p-2 text-gray-500 hover:text-brand-primary transition-colors border border-gray-200 rounded-lg bg-white"
@@ -246,6 +276,12 @@ const InternalFundDetail = () => {
           </button>
         </div>
       </div>
+
+      <SimulationRail
+        title="Execution Rail"
+        description="Advance the internal fund across simulated execution states, similar to payout rails."
+        items={railItems}
+      />
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <InfoCard label="Internal Tx" value={data.internalTransaction?.internalTxNo || '-'} />

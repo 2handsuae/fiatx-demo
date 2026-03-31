@@ -31,6 +31,12 @@ type InternalTransactionDetailData = {
   checkerUserId?: string | null;
   checkedAt?: string | null;
   reviewReason?: string | null;
+  approvalCase?: {
+    id: string;
+    approvalNo?: string | null;
+    status?: string | null;
+    actionType?: string | null;
+  } | null;
   sourceType: string;
   sourceId: string;
   sourceNo?: string | null;
@@ -120,7 +126,8 @@ const InternalTransactionDetail = () => {
   const canReview =
     data?.sourceType === 'INTERNAL_MANUAL' &&
     data?.status === 'INTERNAL_FUNDS_PENDING' &&
-    (data?.approvalStatus || 'APPROVED') === 'PENDING';
+    (data?.approvalStatus || 'APPROVED') === 'PENDING' &&
+    !data?.approvalCase?.id;
 
   const handleReview = async (action: 'APPROVE' | 'REJECT') => {
     if (!id) return;
@@ -254,6 +261,7 @@ const InternalTransactionDetail = () => {
         <InfoCard label="To" value={data.toAddress || data.toIban || '-'} />
         <InfoCard label="Maker" value={data.makerUserId || '-'} />
         <InfoCard label="Checker" value={data.checkerUserId || '-'} />
+        <InfoCard label="Approval Case" value={data.approvalCase?.approvalNo || '-'} />
         <InfoCard
           label="Checked At"
           value={data.checkedAt ? new Date(data.checkedAt).toLocaleString() : '-'}

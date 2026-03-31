@@ -154,6 +154,40 @@ export class WalletsService {
     return email || null;
   }
 
+  private async findRegulatoryGateSummary(walletId: string) {
+    const gate = await this.prisma.regulatoryGateItem.findFirst({
+      where: {
+        subjectType: 'WALLET',
+        subjectId: walletId,
+        revokedAt: null,
+      },
+      orderBy: [{ createdAt: 'desc' }],
+      select: {
+        id: true,
+        gateNo: true,
+        gateType: true,
+        gateResult: true,
+        filingStatus: true,
+        receiptStatus: true,
+        effectivenessStatus: true,
+      },
+    });
+
+    if (!gate) {
+      return null;
+    }
+
+    return {
+      gateId: gate.id,
+      gateNo: gate.gateNo,
+      gateType: gate.gateType,
+      gateResult: gate.gateResult,
+      filingStatus: gate.filingStatus,
+      receiptStatus: gate.receiptStatus,
+      effectivenessStatus: gate.effectivenessStatus,
+    };
+  }
+
   private isUniqueConstraintError(error: unknown): boolean {
     return (
       typeof error === 'object' &&
@@ -533,7 +567,7 @@ export class WalletsService {
     });
     if (!item) throw new NotFoundException('Wallet not found');
 
-    const [snapshot, valuationRate] = await Promise.all([
+    const [snapshot, valuationRate, regulatoryGateSummary] = await Promise.all([
       this.prisma.walletBalanceSnapshot.findUnique({
         where: {
           walletId_assetId: {
@@ -552,6 +586,7 @@ export class WalletsService {
         },
         select: WalletsService.valuationRateDetailSelect,
       }),
+      this.findRegulatoryGateSummary(item.id),
     ]);
 
     let ownerNo: string | null = item.ownerNo;
@@ -585,6 +620,7 @@ export class WalletsService {
         direction: item.direction,
         walletRole: item.walletRole,
       }),
+      regulatoryGateSummary,
       ...balanceView,
       totalAedEquivalent,
     };

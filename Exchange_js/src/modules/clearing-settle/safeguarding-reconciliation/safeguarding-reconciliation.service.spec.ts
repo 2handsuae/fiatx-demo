@@ -1,13 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { SafeguardingReconciliationService } from './safeguarding-reconciliation.service';
-import {
-  ReconciliationBreakReasonCodes,
-  ReconciliationBreakStatuses,
-} from './constants/safeguarding-reconciliation.constant';
-import {
-  TRANSACTION_REVIEW_RULES,
-  TRANSACTION_REVIEW_STAGES,
-} from '../../risk-engine/constants/onboarding-compliance-workflow.constant';
+import { ReconciliationBreakStatuses } from './constants/safeguarding-reconciliation.constant';
 
 describe('SafeguardingReconciliationService', () => {
   let service: SafeguardingReconciliationService;
@@ -15,72 +8,138 @@ describe('SafeguardingReconciliationService', () => {
   let complianceAlertsService: { triggerSystemAlert: jest.Mock };
   let auditLogsService: { recordByActor: jest.Mock };
 
-  const buildCandidate = (overrides: Partial<any> = {}) => ({
-    id: 'withdraw-1',
-    withdrawNo: 'WD2603270001',
+  const assetRows = [
+    { id: 'asset-btc', code: 'BTC', type: 'CRYPTO', decimals: 8 },
+    { id: 'asset-aed', code: 'AED', type: 'FIAT', decimals: 2 },
+  ];
+
+  const buildWallet = (overrides: Partial<any> = {}) => ({
+    id: 'wallet-1',
+    walletNo: 'WA-DEP-BTC-1',
     ownerType: 'CUSTOMER',
     ownerId: 'customer-1',
-    status: 'SUCCESS',
-    netAmount: new Prisma.Decimal('100.00'),
+    ownerNo: 'CU260001',
+    type: 'CRYPTO_ADDRESS',
+    direction: 'INBOUND',
+    walletRole: 'DEPOSIT',
     assetId: 'asset-btc',
-    completedAt: new Date('2026-03-27T10:00:00.000Z'),
-    payoutId: 'payout-1',
-    payoutNo: 'PO2603270001',
-    asset: {
-      id: 'asset-btc',
-      code: 'BTC',
-      type: 'CRYPTO',
-    },
-    payout: {
-      id: 'payout-1',
-      payoutNo: 'PO2603270001',
-      status: 'CLEAR',
-      amount: new Prisma.Decimal('100.00'),
-      completedAt: new Date('2026-03-27T10:01:00.000Z'),
-      clearings: [],
-    },
+    status: 'ACTIVE',
+    address: '0xabc',
+    iban: null,
     ...overrides,
   });
 
-  const buildBreakRow = (overrides: Partial<any> = {}) => ({
+  const buildWalletSnapshot = (overrides: Partial<any> = {}) => ({
+    id: 'wbs-1',
+    walletId: 'wallet-1',
+    assetId: 'asset-btc',
+    totalBalance: new Prisma.Decimal('2'),
+    availableBalance: new Prisma.Decimal('2'),
+    restrictedBalance: new Prisma.Decimal('0'),
+    updatedAt: new Date('2026-03-30T00:00:00.000Z'),
+    ...overrides,
+  });
+
+  const buildRun = (overrides: Partial<any> = {}) => ({
+    id: 'run-1',
+    runNo: 'SRN2603300001',
+    businessDate: '2026-03-30',
+    status: 'COMPLETED',
+    breakCount: 0,
+    warningCount: 0,
+    traceId: 'SAFEGUARDING:2026-03-30',
+    startedAt: new Date('2026-03-30T12:00:00.000Z'),
+    finishedAt: new Date('2026-03-30T12:00:05.000Z'),
+    createdAt: new Date('2026-03-30T12:00:00.000Z'),
+    updatedAt: new Date('2026-03-30T12:00:05.000Z'),
+    ...overrides,
+  });
+
+  const buildBreak = (overrides: Partial<any> = {}) => ({
     id: 'break-1',
-    breakNo: 'RBR2603270001',
-    businessDate: '2026-03-27',
-    sourceType: 'WITHDRAW',
-    sourceId: 'withdraw-1',
-    sourceNo: 'WD2603270001',
-    withdrawId: 'withdraw-1',
-    withdrawNo: 'WD2603270001',
-    payoutId: 'payout-1',
-    payoutNo: 'PO2603270001',
+    breakNo: 'RBR2603300001',
+    runId: 'run-1',
+    businessDate: '2026-03-30',
+    sourceType: 'SAFEGUARDING_ASSET',
+    sourceId: 'asset-btc',
+    sourceNo: 'BTC',
+    withdrawId: null,
+    withdrawNo: null,
+    payoutId: null,
+    payoutNo: null,
     assetId: 'asset-btc',
     assetCode: 'BTC',
-    expectedNetDelta: new Prisma.Decimal('100.00'),
-    observedNetDelta: new Prisma.Decimal('110.00'),
-    deltaAmount: new Prisma.Decimal('10.00'),
-    reasonCode: ReconciliationBreakReasonCodes.DELTA_MISMATCH,
+    expectedNetDelta: new Prisma.Decimal('0'),
+    observedNetDelta: new Prisma.Decimal('0'),
+    deltaAmount: new Prisma.Decimal('2'),
+    reasonCode: 'COVERAGE_BREAK',
+    breakType: 'COVERAGE_BREAK',
+    liabilityAmount: new Prisma.Decimal('7'),
+    poolAmount: new Prisma.Decimal('5'),
+    externalAmount: null,
     status: ReconciliationBreakStatuses.OPEN,
     linkedAlertId: null,
     linkedCaseId: null,
-    detailsJson: JSON.stringify({ observedSource: 'PAYOUT' }),
-    detectedAt: new Date('2026-03-27T12:00:00.000Z'),
+    detailsJson: JSON.stringify({ liabilityAmount: '7', poolAmount: '5' }),
+    detectedAt: new Date('2026-03-30T12:00:00.000Z'),
     resolvedAt: null,
     reopenedAt: null,
-    createdAt: new Date('2026-03-27T12:00:00.000Z'),
-    updatedAt: new Date('2026-03-27T12:00:00.000Z'),
+    createdAt: new Date('2026-03-30T12:00:00.000Z'),
+    updatedAt: new Date('2026-03-30T12:00:00.000Z'),
+    ...overrides,
+  });
+
+  const buildWarning = (overrides: Partial<any> = {}) => ({
+    id: 'warning-1',
+    warningNo: 'RWN2603300001',
+    runId: 'run-1',
+    businessDate: '2026-03-30',
+    assetId: 'asset-btc',
+    assetCode: 'BTC',
+    warningType: 'DEPOSIT_COLLECTION_OVER_AMOUNT',
+    poolRole: 'DEPOSIT',
+    walletId: 'wallet-deposit',
+    accountRef: null,
+    observedValue: new Prisma.Decimal('2'),
+    thresholdValue: new Prisma.Decimal('1'),
+    status: 'OPEN',
+    detailsJson: JSON.stringify({ ageMinutes: 180 }),
+    detectedAt: new Date('2026-03-30T12:00:00.000Z'),
+    acknowledgedAt: null,
+    resolvedAt: null,
+    acceptedAt: null,
+    createdAt: new Date('2026-03-30T12:00:00.000Z'),
+    updatedAt: new Date('2026-03-30T12:00:00.000Z'),
     ...overrides,
   });
 
   beforeEach(() => {
     prisma = {
-      $transaction: jest.fn(async (callback: (tx: any) => unknown) => callback(prisma)),
-      withdrawTransaction: {
+      $transaction: jest.fn(async (callback: (tx: any) => unknown) =>
+        callback(prisma),
+      ),
+      safeguardingRun: {
+        create: jest.fn(),
+        update: jest.fn(),
         findMany: jest.fn(),
         findUnique: jest.fn(),
-        update: jest.fn(),
       },
-      payout: {
+      safeguardingPolicy: {
         findMany: jest.fn(),
+      },
+      liabilitySnapshot: {
+        createMany: jest.fn(),
+        findMany: jest.fn(),
+      },
+      safeguardingPoolSnapshot: {
+        createMany: jest.fn(),
+        findMany: jest.fn(),
+      },
+      reconciliationWarning: {
+        create: jest.fn(),
+        createMany: jest.fn(),
+        findMany: jest.fn(),
+        findUnique: jest.fn(),
         update: jest.fn(),
       },
       reconciliationBreak: {
@@ -90,6 +149,40 @@ describe('SafeguardingReconciliationService', () => {
         findMany: jest.fn(),
         count: jest.fn(),
       },
+      fiatStatementImport: {
+        create: jest.fn(),
+        update: jest.fn(),
+        updateMany: jest.fn(),
+        findFirst: jest.fn(),
+        findMany: jest.fn(),
+        findUnique: jest.fn(),
+      },
+      fiatStatementEntry: {
+        createMany: jest.fn(),
+        findMany: jest.fn(),
+      },
+      customerMain: {
+        findMany: jest.fn(),
+      },
+      journalLine: {
+        findMany: jest.fn(),
+      },
+      wallet: {
+        findMany: jest.fn(),
+        findUnique: jest.fn(),
+        update: jest.fn(),
+      },
+      walletBalanceSnapshot: {
+        findMany: jest.fn(),
+      },
+      payout: {
+        findMany: jest.fn(),
+        update: jest.fn(),
+      },
+      asset: {
+        findMany: jest.fn(),
+        findUnique: jest.fn(),
+      },
       complianceAlert: {
         findUnique: jest.fn(),
         findMany: jest.fn(),
@@ -98,13 +191,24 @@ describe('SafeguardingReconciliationService', () => {
         findMany: jest.fn(),
       },
     };
+    prisma.fiatStatementImport.findMany.mockResolvedValue([]);
+    prisma.fiatStatementImport.updateMany.mockResolvedValue({ count: 0 });
+    prisma.customerMain.findMany.mockResolvedValue([
+      { id: 'customer-1', customerNo: 'CU260001' },
+    ]);
+    prisma.reconciliationWarning.create.mockImplementation(
+      async ({ data }: any) => ({
+        ...buildWarning(),
+        ...data,
+        id: 'warning-1',
+      }),
+    );
     complianceAlertsService = {
       triggerSystemAlert: jest.fn(),
     };
     auditLogsService = {
       recordByActor: jest.fn().mockResolvedValue(undefined),
     };
-
     service = new SafeguardingReconciliationService(
       prisma,
       complianceAlertsService as any,
@@ -112,229 +216,409 @@ describe('SafeguardingReconciliationService', () => {
     );
   });
 
-  it('should skip reconciled successful withdraws without creating breaks', async () => {
-    prisma.withdrawTransaction.findMany.mockResolvedValue([
-      buildCandidate(),
+  it('creates deposit warning without formal break when crypto liability equals safeguarded pool total', async () => {
+    prisma.safeguardingRun.create.mockResolvedValue(buildRun({ status: 'RUNNING' }));
+    prisma.safeguardingRun.update.mockResolvedValue(
+      buildRun({ breakCount: 0, warningCount: 1 }),
+    );
+    prisma.asset.findMany.mockResolvedValue([assetRows[0]]);
+    prisma.journalLine.findMany.mockResolvedValue([
+      {
+        assetId: 'asset-btc',
+        ownerId: 'customer-1',
+        accountCode: 'L.CLIENT_CREDIT',
+        drCr: 'CR',
+        amount: new Prisma.Decimal('7'),
+      },
     ]);
+    prisma.wallet.findMany.mockResolvedValue([
+      buildWallet({
+        id: 'wallet-deposit',
+        walletNo: 'WA-DEP-BTC-CU1',
+        walletRole: 'DEPOSIT',
+        direction: 'INBOUND',
+        ownerType: 'CUSTOMER',
+        ownerId: 'customer-1',
+        ownerNo: 'CU260001',
+      }),
+      buildWallet({
+        id: 'wallet-master',
+        walletNo: 'WA-MST-BTC-NA',
+        walletRole: 'MASTER',
+        direction: 'BIDIRECTIONAL',
+        ownerType: 'CUSTOMER',
+        ownerId: null,
+        ownerNo: 'CUSTOMER_POOL',
+      }),
+    ]);
+    prisma.walletBalanceSnapshot.findMany.mockResolvedValue([
+      buildWalletSnapshot({
+        walletId: 'wallet-deposit',
+        totalBalance: new Prisma.Decimal('2'),
+        availableBalance: new Prisma.Decimal('2'),
+        updatedAt: new Date('2026-03-29T20:00:00.000Z'),
+      }),
+      buildWalletSnapshot({
+        walletId: 'wallet-master',
+        totalBalance: new Prisma.Decimal('5'),
+        availableBalance: new Prisma.Decimal('5'),
+        updatedAt: new Date('2026-03-30T11:55:00.000Z'),
+      }),
+    ]);
+    prisma.safeguardingPolicy.findMany.mockResolvedValue([
+      {
+        id: 'policy-1',
+        assetId: 'asset-btc',
+        poolRole: 'DEPOSIT',
+        collectionAmountThreshold: new Prisma.Decimal('1'),
+        collectionMaxAgeMinutes: 60,
+        targetMinBalance: null,
+        targetMaxBalance: null,
+        status: 'ACTIVE',
+      },
+    ]);
+    prisma.payout.findMany.mockResolvedValue([]);
+    prisma.reconciliationWarning.createMany.mockResolvedValue({ count: 1 });
+    prisma.reconciliationWarning.findMany.mockResolvedValue([buildWarning()]);
+    prisma.reconciliationBreak.findUnique.mockResolvedValue(null);
 
-    const result = await service.generateDailyDiff(
-      { businessDate: '2026-03-27' },
+    const result: any = await service.generateDailyDiff(
+      { businessDate: '2026-03-30' },
       'admin-1',
     );
 
     expect(result.breakCount).toBe(0);
-    expect(result.items).toEqual([]);
-    expect(prisma.reconciliationBreak.create).not.toHaveBeenCalled();
+    expect(result.warningCount).toBe(1);
+    expect(result.summaryByAsset).toEqual([
+      expect.objectContaining({
+        assetId: 'asset-btc',
+        assetCode: 'BTC',
+        liabilityAmount: '7',
+        poolAmount: '7',
+      }),
+    ]);
     expect(complianceAlertsService.triggerSystemAlert).not.toHaveBeenCalled();
   });
 
-  it('should create an OPEN delta-mismatch break and linked alert', async () => {
-    prisma.withdrawTransaction.findMany.mockResolvedValue([
-      buildCandidate({
-        payout: {
-          id: 'payout-1',
-          payoutNo: 'PO2603270001',
-          status: 'CLEAR',
-          amount: new Prisma.Decimal('110.00'),
-          completedAt: new Date('2026-03-27T10:01:00.000Z'),
-          clearings: [],
-        },
+  it('creates coverage break and safeguarding alert when crypto liability does not match pool total', async () => {
+    prisma.safeguardingRun.create.mockResolvedValue(buildRun({ status: 'RUNNING' }));
+    prisma.safeguardingRun.update.mockResolvedValue(
+      buildRun({ breakCount: 1, warningCount: 0 }),
+    );
+    prisma.asset.findMany.mockResolvedValue([assetRows[0]]);
+    prisma.journalLine.findMany.mockResolvedValue([
+      {
+        assetId: 'asset-btc',
+        ownerId: 'customer-1',
+        accountCode: 'L.CLIENT_CREDIT',
+        drCr: 'CR',
+        amount: new Prisma.Decimal('7'),
+      },
+    ]);
+    prisma.wallet.findMany.mockResolvedValue([
+      buildWallet({
+        id: 'wallet-master',
+        walletNo: 'WA-MST-BTC-NA',
+        walletRole: 'MASTER',
+        direction: 'BIDIRECTIONAL',
+        ownerType: 'CUSTOMER',
+        ownerId: null,
+        ownerNo: 'CUSTOMER_POOL',
       }),
     ]);
-    prisma.reconciliationBreak.findUnique
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce(null);
-    prisma.reconciliationBreak.create.mockResolvedValue(
-      buildBreakRow({
-        linkedAlertId: null,
+    prisma.walletBalanceSnapshot.findMany.mockResolvedValue([
+      buildWalletSnapshot({
+        walletId: 'wallet-master',
+        totalBalance: new Prisma.Decimal('5'),
+        availableBalance: new Prisma.Decimal('5'),
       }),
-    );
+    ]);
+    prisma.safeguardingPolicy.findMany.mockResolvedValue([]);
+    prisma.payout.findMany.mockResolvedValue([]);
+    prisma.reconciliationWarning.createMany.mockResolvedValue({ count: 0 });
+    prisma.reconciliationWarning.findMany.mockResolvedValue([]);
+    prisma.reconciliationBreak.findUnique.mockResolvedValueOnce(null);
+    prisma.reconciliationBreak.create.mockResolvedValue(buildBreak());
     complianceAlertsService.triggerSystemAlert.mockResolvedValue({
       id: 'alert-1',
       linkedCaseIds: [],
     });
     prisma.reconciliationBreak.update.mockResolvedValue(
-      buildBreakRow({
-        linkedAlertId: 'alert-1',
-      }),
+      buildBreak({ linkedAlertId: 'alert-1' }),
     );
-    prisma.complianceAlert.findUnique.mockResolvedValue(null);
 
-    const result = await service.generateDailyDiff(
-      { businessDate: '2026-03-27' },
+    const result: any = await service.generateDailyDiff(
+      { businessDate: '2026-03-30' },
       'admin-1',
     );
 
     expect(result.breakCount).toBe(1);
-    expect(result.items).toEqual([
+    expect(result.summaryByAsset).toEqual([
       expect.objectContaining({
-        withdrawId: 'withdraw-1',
-        breakId: 'break-1',
-        reasonCode: ReconciliationBreakReasonCodes.DELTA_MISMATCH,
-        created: true,
+        assetId: 'asset-btc',
+        breakType: 'COVERAGE_BREAK',
+        deltaAmount: '2',
       }),
     ]);
     expect(complianceAlertsService.triggerSystemAlert).toHaveBeenCalledWith(
       expect.objectContaining({
-        ruleCode: TRANSACTION_REVIEW_RULES.TX_RECONCILIATION_BREAK_DETECTED,
-        stage: TRANSACTION_REVIEW_STAGES.REVIEW_WITHDRAW_RECONCILIATION,
-        sourceType: 'WITHDRAW',
-        sourceId: 'withdraw-1',
+        ruleCode: 'TX_SAFEGUARDING_BREAK_DETECTED',
+        stage: 'REVIEW_SAFEGUARDING_RECONCILIATION',
+        sourceType: 'SAFEGUARDING_ASSET',
+        sourceId: 'asset-btc',
       }),
       prisma,
     );
-    expect(prisma.reconciliationBreak.create).toHaveBeenCalledTimes(1);
   });
 
-  it('should reopen a resolved break when the same mismatch persists on rerun', async () => {
-    prisma.withdrawTransaction.findMany.mockResolvedValue([
-      buildCandidate({
-        status: 'FAILED',
-        netAmount: new Prisma.Decimal('100.00'),
-        payout: {
-          id: 'payout-1',
-          payoutNo: 'PO2603270001',
-          status: 'FAILED',
-          amount: new Prisma.Decimal('100.00'),
-          completedAt: new Date('2026-03-27T10:01:00.000Z'),
-          clearings: [
-            {
-              id: 'clr-1',
-              clearingNo: 'CLR2603270001',
-              sourceType: 'WITHDRAWAL',
-              sourceId: 'withdraw-1',
-              inAmount: new Prisma.Decimal('100.00'),
-              outAmount: new Prisma.Decimal('100.00'),
-              clearingStatus: 'OPEN',
-              outPayoutId: 'payout-1',
-              createdAt: new Date('2026-03-27T10:00:30.000Z'),
-              updatedAt: new Date('2026-03-27T10:00:30.000Z'),
-            },
-          ],
-        },
+  it('creates external-proof break when fiat pool total matches liability but statement balance differs', async () => {
+    prisma.safeguardingRun.create.mockResolvedValue(buildRun({ status: 'RUNNING' }));
+    prisma.safeguardingRun.update.mockResolvedValue(
+      buildRun({ breakCount: 1, warningCount: 0 }),
+    );
+    prisma.asset.findMany.mockResolvedValue([assetRows[1]]);
+    prisma.journalLine.findMany.mockResolvedValue([
+      {
+        assetId: 'asset-aed',
+        ownerId: 'customer-1',
+        accountCode: 'L.CLIENT_CREDIT',
+        drCr: 'CR',
+        amount: new Prisma.Decimal('100'),
+      },
+    ]);
+    prisma.wallet.findMany.mockResolvedValue([
+      buildWallet({
+        id: 'wallet-bank',
+        walletNo: 'WA-CBK-AED-NA',
+        walletRole: 'CUST_BANK',
+        type: 'FIAT_BANK',
+        direction: 'BIDIRECTIONAL',
+        assetId: 'asset-aed',
+        ownerType: 'CUSTOMER',
+        ownerId: null,
+        ownerNo: 'CUSTOMER_POOL',
+        iban: 'AE00-CUST',
       }),
     ]);
-    prisma.reconciliationBreak.findUnique
-      .mockResolvedValueOnce({ id: 'break-1' })
-      .mockResolvedValueOnce(
-        buildBreakRow({
-          expectedNetDelta: new Prisma.Decimal('0'),
-          observedNetDelta: new Prisma.Decimal('100.00'),
-          deltaAmount: new Prisma.Decimal('100.00'),
-          reasonCode: ReconciliationBreakReasonCodes.COMPENSATION_INCOMPLETE,
-          status: ReconciliationBreakStatuses.RESOLVED,
-          resolvedAt: new Date('2026-03-27T12:30:00.000Z'),
-        }),
-      );
+    prisma.walletBalanceSnapshot.findMany.mockResolvedValue([
+      buildWalletSnapshot({
+        walletId: 'wallet-bank',
+        assetId: 'asset-aed',
+        totalBalance: new Prisma.Decimal('100'),
+        availableBalance: new Prisma.Decimal('100'),
+      }),
+    ]);
+    prisma.safeguardingPolicy.findMany.mockResolvedValue([]);
+    prisma.payout.findMany.mockResolvedValue([]);
+    prisma.fiatStatementImport.findMany.mockResolvedValue([
+      {
+      id: 'stmt-1',
+      importNo: 'STI2603300001',
+      businessDate: '2026-03-30',
+      assetId: 'asset-aed',
+      walletId: 'wallet-bank',
+      status: 'READY',
+      closingBalance: new Prisma.Decimal('95'),
+      asset: { code: 'AED' },
+      entries: [],
+      },
+    ]);
+    prisma.reconciliationWarning.createMany.mockResolvedValue({ count: 0 });
+    prisma.reconciliationWarning.findMany.mockResolvedValue([]);
+    prisma.reconciliationBreak.findUnique.mockResolvedValueOnce(null);
+    prisma.reconciliationBreak.create.mockResolvedValue(
+      buildBreak({
+        assetId: 'asset-aed',
+        assetCode: 'AED',
+        sourceId: 'asset-aed',
+        sourceNo: 'AED',
+        reasonCode: 'EXTERNAL_PROOF_BREAK',
+        breakType: 'EXTERNAL_PROOF_BREAK',
+        liabilityAmount: new Prisma.Decimal('100'),
+        poolAmount: new Prisma.Decimal('100'),
+        externalAmount: new Prisma.Decimal('95'),
+        deltaAmount: new Prisma.Decimal('5'),
+      }),
+    );
     complianceAlertsService.triggerSystemAlert.mockResolvedValue({
-      id: 'alert-1',
+      id: 'alert-2',
       linkedCaseIds: [],
     });
-    prisma.reconciliationBreak.update
-      .mockResolvedValueOnce(
-        buildBreakRow({
-          expectedNetDelta: new Prisma.Decimal('0'),
-          observedNetDelta: new Prisma.Decimal('100.00'),
-          deltaAmount: new Prisma.Decimal('100.00'),
-          reasonCode: ReconciliationBreakReasonCodes.COMPENSATION_INCOMPLETE,
-          status: ReconciliationBreakStatuses.OPEN,
-          resolvedAt: null,
-          reopenedAt: new Date('2026-03-27T13:00:00.000Z'),
-        }),
-      )
-      .mockResolvedValueOnce(
-        buildBreakRow({
-          expectedNetDelta: new Prisma.Decimal('0'),
-          observedNetDelta: new Prisma.Decimal('100.00'),
-          deltaAmount: new Prisma.Decimal('100.00'),
-          reasonCode: ReconciliationBreakReasonCodes.COMPENSATION_INCOMPLETE,
-          status: ReconciliationBreakStatuses.OPEN,
-          linkedAlertId: 'alert-1',
-          resolvedAt: null,
-          reopenedAt: new Date('2026-03-27T13:00:00.000Z'),
-        }),
-      );
-    prisma.complianceAlert.findUnique.mockResolvedValue(null);
+    prisma.reconciliationBreak.update.mockResolvedValue(
+      buildBreak({
+        assetId: 'asset-aed',
+        assetCode: 'AED',
+        sourceId: 'asset-aed',
+        sourceNo: 'AED',
+        reasonCode: 'EXTERNAL_PROOF_BREAK',
+        breakType: 'EXTERNAL_PROOF_BREAK',
+        liabilityAmount: new Prisma.Decimal('100'),
+        poolAmount: new Prisma.Decimal('100'),
+        externalAmount: new Prisma.Decimal('95'),
+        deltaAmount: new Prisma.Decimal('5'),
+        linkedAlertId: 'alert-2',
+      }),
+    );
 
-    const result = await service.generateDailyDiff(
-      { businessDate: '2026-03-27' },
+    const result: any = await service.generateDailyDiff(
+      { businessDate: '2026-03-30' },
       'admin-1',
     );
 
-    expect(result.items).toEqual([
+    expect(result.breakCount).toBe(1);
+    expect(result.summaryByAsset).toEqual([
       expect.objectContaining({
-        withdrawId: 'withdraw-1',
-        reasonCode: ReconciliationBreakReasonCodes.COMPENSATION_INCOMPLETE,
-        created: false,
+        assetId: 'asset-aed',
+        breakType: 'EXTERNAL_PROOF_BREAK',
+        liabilityAmount: '100',
+        poolAmount: '100',
+        externalAmount: '95',
       }),
     ]);
-    expect(prisma.reconciliationBreak.update).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          status: ReconciliationBreakStatuses.OPEN,
-          resolvedAt: null,
-          reopenedAt: expect.any(Date),
-        }),
+  });
+
+  it('imports fiat statement csv and derives closing balance from normalized entries', async () => {
+    prisma.asset.findUnique.mockResolvedValue(assetRows[1]);
+    prisma.wallet.findUnique.mockResolvedValue(
+      buildWallet({
+        id: 'wallet-bank',
+        walletNo: 'WA-CBK-AED-NA',
+        walletRole: 'CUST_BANK',
+        type: 'FIAT_BANK',
+        direction: 'BIDIRECTIONAL',
+        assetId: 'asset-aed',
+        ownerType: 'CUSTOMER',
+        ownerId: null,
+        ownerNo: 'CUSTOMER_POOL',
+        iban: 'AE00-CUST',
+        regulatoryEnablementStatus: 'EFFECTIVE',
       }),
     );
-    expect(auditLogsService.recordByActor).toHaveBeenCalledWith(
+    prisma.fiatStatementImport.create.mockResolvedValue({
+      id: 'stmt-1',
+      importNo: 'STI2603300001',
+      businessDate: '2026-03-30',
+      assetId: 'asset-aed',
+      walletId: 'wallet-bank',
+      fileName: 'statement.csv',
+      status: 'READY',
+      closingBalance: new Prisma.Decimal('95'),
+      traceId: 'SAFEGUARDING:2026-03-30:AED',
+    });
+    prisma.fiatStatementEntry.createMany.mockResolvedValue({ count: 2 });
+    prisma.fiatStatementImport.update.mockResolvedValue({
+      id: 'stmt-1',
+      importNo: 'STI2603300001',
+      businessDate: '2026-03-30',
+      assetId: 'asset-aed',
+      walletId: 'wallet-bank',
+      fileName: 'statement.csv',
+      status: 'READY',
+      closingBalance: new Prisma.Decimal('95'),
+      traceId: 'SAFEGUARDING:2026-03-30:AED',
+    });
+
+    const result = await (service as any).importFiatStatement(
+      {
+        businessDate: '2026-03-30',
+        assetId: 'asset-aed',
+        walletId: 'wallet-bank',
+      },
+      {
+        originalname: 'statement.csv',
+        buffer: Buffer.from(
+          [
+            'referenceNo,valueDate,amount,balance,description',
+            'REF-1,2026-03-30,100.00,100.00,credit',
+            'REF-2,2026-03-30,-5.00,95.00,fee',
+          ].join('\n'),
+        ),
+      },
+      'admin-1',
+    );
+
+    expect(result.status).toBe('READY');
+    expect(String(result.closingBalance)).toBe('95');
+    expect(prisma.fiatStatementEntry.createMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        action: expect.stringContaining('TX_RECONCILIATION_BREAK_DETECTED'),
+        data: expect.arrayContaining([
+          expect.objectContaining({
+            referenceNo: 'REF-1',
+            amount: new Prisma.Decimal('100'),
+            balance: new Prisma.Decimal('100'),
+          }),
+        ]),
       }),
-      expect.any(Object),
-      prisma,
     );
   });
 
-  it('should update break status without mutating withdraw or payout business states', async () => {
-    prisma.reconciliationBreak.findUnique.mockResolvedValue(
-      buildBreakRow({
-        status: ReconciliationBreakStatuses.OPEN,
+  it('rejects fiat statement import when CUST_BANK wallet enablement is not effective', async () => {
+    prisma.asset.findUnique.mockResolvedValue(assetRows[1]);
+    prisma.wallet.findUnique.mockResolvedValue(
+      buildWallet({
+        id: 'wallet-bank',
+        walletNo: 'WA-CBK-AED-NA',
+        walletRole: 'CUST_BANK',
+        type: 'FIAT_BANK',
+        direction: 'BIDIRECTIONAL',
+        assetId: 'asset-aed',
+        ownerType: 'CUSTOMER',
+        ownerId: null,
+        ownerNo: 'CUSTOMER_POOL',
+        iban: 'AE00-CUST',
+        regulatoryEnablementStatus: 'PENDING',
       }),
+    );
+
+    await expect(
+      (service as any).importFiatStatement(
+        {
+          businessDate: '2026-03-30',
+          assetId: 'asset-aed',
+          walletId: 'wallet-bank',
+        },
+        {
+          originalname: 'statement.csv',
+          buffer: Buffer.from(
+            [
+              'referenceNo,valueDate,amount,balance,description',
+              'REF-1,2026-03-30,100.00,100.00,credit',
+            ].join('\n'),
+          ),
+        },
+        'admin-1',
+      ),
+    ).rejects.toThrow('CUST_BANK wallet must be regulator-enabled before statement import');
+  });
+
+  it('updates break status without mutating payout or withdraw business states', async () => {
+    prisma.reconciliationBreak.findUnique.mockResolvedValue(
+      buildBreak({ status: ReconciliationBreakStatuses.OPEN }),
     );
     prisma.reconciliationBreak.update.mockResolvedValue(
-      buildBreakRow({
+      buildBreak({
         status: ReconciliationBreakStatuses.RESOLVED,
-        resolvedAt: new Date('2026-03-27T14:00:00.000Z'),
+        resolvedAt: new Date('2026-03-30T13:00:00.000Z'),
       }),
     );
-    prisma.withdrawTransaction.findUnique.mockResolvedValue(buildCandidate());
     prisma.complianceAlert.findMany.mockResolvedValue([]);
     prisma.complianceIncident.findMany.mockResolvedValue([]);
-    prisma.withdrawTransaction.findMany.mockResolvedValue([
-      {
-        id: 'withdraw-1',
-        withdrawNo: 'WD2603270001',
-        status: 'SUCCESS',
-        netAmount: new Prisma.Decimal('100.00'),
-        completedAt: new Date('2026-03-27T10:00:00.000Z'),
-      },
-    ]);
-    prisma.payout.findMany.mockResolvedValue([
-      {
-        id: 'payout-1',
-        payoutNo: 'PO2603270001',
-        status: 'CLEAR',
-        amount: new Prisma.Decimal('100.00'),
-        completedAt: new Date('2026-03-27T10:01:00.000Z'),
-      },
-    ]);
 
     const result = await service.updateStatus(
       'break-1',
       {
         status: ReconciliationBreakStatuses.RESOLVED,
-        note: 'operator verified',
+        note: 'verified by operator',
       },
       'admin-1',
     );
 
     expect(result.status).toBe(ReconciliationBreakStatuses.RESOLVED);
-    expect(prisma.withdrawTransaction.update).not.toHaveBeenCalled();
+    expect(prisma.wallet.update).not.toHaveBeenCalled();
     expect(prisma.payout.update).not.toHaveBeenCalled();
     expect(auditLogsService.recordByActor).toHaveBeenCalledWith(
       expect.objectContaining({
-        action: expect.stringContaining('TX_RECONCILIATION_BREAK_RESOLVED'),
+        entityType: 'RECONCILIATION_BREAK',
       }),
       expect.any(Object),
       prisma,

@@ -2,6 +2,9 @@ import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft,
+  Link2,
+  Plus,
+  Repeat,
   Wallet,
   User,
   Banknote,
@@ -13,6 +16,9 @@ import {
 } from 'lucide-react';
 import { copyToClipboard } from '../utils/clipboard';
 import { formatAssetAmount } from '../utils/number-format';
+import { useAdminSession } from '../contexts/AdminSessionContext';
+import { PERMISSIONS } from '../rbac/permissions';
+import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/adminFetch';
 
 interface WalletDetailData {
   id: string;
@@ -45,6 +51,17 @@ interface WalletDetailData {
   iban: string | null;
 
   status: string;
+  regulatoryEnablementStatus?: string | null;
+  regulatoryEnabledAt?: string | null;
+  regulatoryGateSummary?: {
+    gateId: string;
+    gateNo: string;
+    gateType: string;
+    gateResult: string;
+    filingStatus: string;
+    receiptStatus: string;
+    effectivenessStatus: string;
+  } | null;
 
   createdAt: string;
   updatedAt: string;
@@ -57,40 +74,40 @@ interface WalletDetailData {
   };
 }
 
+interface CollectionActionResult {
+  action?: string;
+  reason?: string;
+  internalTransactionId?: string;
+  internalFundId?: string;
+  existingPendingAmount?: string;
+  expectedCollectionAmount?: string;
+}
+
 const WalletDetail = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { hasAnyPermission } = useAdminSession();
   const [wallet, setWallet] = useState<WalletDetailData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [copiedField, setCopiedField] = useState<string | null>(null);
+  const [collectionSubmitting, setCollectionSubmitting] = useState(false);
+  const [collectionResult, setCollectionResult] = useState<CollectionActionResult | null>(null);
 
   useEffect(() => {
     const fetchWallet = async () => {
       try {
-        const token = localStorage.getItem('admin_token');
-        if (!token) {
-          navigate('/admin/login');
-          return;
-        }
-
-        const response = await fetch(
-          `${import.meta.env.VITE_API_URL}/wallets/${id}`,
-          {
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          },
-        );
+        const response = await adminFetch(`${import.meta.env.VITE_API_URL}/wallets/${id}`);
 
         if (response.ok) {
           const data = await response.json();
           setWallet(data);
         } else {
-          setError('Failed to fetch wallet details');
+          setError(await getApiErrorMessage(response, 'Failed to fetch wallet details'));
         }
-      } catch {
-        setError('Network error');
+      } catch (e: unknown) {
+        if (e instanceof AdminSessionError) return;
+        setError(e instanceof Error ? e.message : 'Network error');
       } finally {
         setLoading(false);
       }
@@ -129,6 +146,11 @@ const WalletDetail = () => {
 
   const isCrypto = wallet.type === 'CRYPTO_ADDRESS';
   const isFiat = wallet.type === 'FIAT_BANK';
+  const isCustBank = wallet.walletRole === 'CUST_BANK';
+  const isDepositWallet = wallet.walletRole === 'DEPOSIT';
+  const canReadGate = hasAnyPermission([PERMISSIONS.GOV_REGULATORY_GATE_DETAIL_READ]);
+  const canCreateGate = hasAnyPermission([PERMISSIONS.GOV_REGULATORY_GATE_CREATE]);
+  const canCreateCollection = hasAnyPermission([PERMISSIONS.INTERNAL_COLLECTIONS_RECONCILE]);
   const ownerLabel =
     wallet.ownerName || wallet.ownerNo || wallet.ownerId || '-';
   const surfaceLabel =
@@ -140,6 +162,48 @@ const WalletDetail = () => {
       LIQUIDITY_PROVIDER_ACCOUNT: '流动性对手账户',
       OTHER: '其他钱包',
     }[wallet.surfaceCategory || 'OTHER'] || '其他钱包';
+
+  const handleCreateCollection = async () => {
+    setCollectionSubmitting(true);
+    setCollectionResult(null);
+    try {
+      const response = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/admin/internal-transactions/collection-wallets/${wallet.id}/reconcile`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ dryRun: false }),
+        },
+      );
+
+      if (!response.ok) {
+        const message = await getApiErrorMessage(
+          response,
+          'Failed to create wallet-driven collection.',
+        );
+        alert(message);
+        return;
+      }
+
+      const payload = (await response.json()) as CollectionActionResult;
+      setCollectionResult(payload);
+      if (
+        payload.internalTransactionId &&
+        (payload.action === 'CREATED' || payload.action === 'IDEMPOTENT')
+      ) {
+        navigate(`/exchange/internal-transactions/${payload.internalTransactionId}`);
+        return;
+      }
+      alert(payload.reason || payload.action || 'Collection request completed.');
+    } catch (e: unknown) {
+      if (e instanceof AdminSessionError) return;
+      alert(e instanceof Error ? e.message : 'Failed to create wallet-driven collection.');
+    } finally {
+      setCollectionSubmitting(false);
+    }
+  };
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto pb-12">
@@ -295,8 +359,127 @@ const WalletDetail = () => {
           />
           <InfoField label="Created At" value={formatDate(wallet.createdAt)} />
           <InfoField label="Updated At" value={formatDate(wallet.updatedAt)} />
+          <InfoField
+            label="Regulatory Enablement"
+            value={wallet.regulatoryEnablementStatus || 'N/A'}
+          />
+          <InfoField
+            label="Regulatory Enabled At"
+            value={wallet.regulatoryEnabledAt ? formatDate(wallet.regulatoryEnabledAt) : 'N/A'}
+          />
           <InfoField label="Wallet ID" value={wallet.id} />
         </DetailCard>
+
+        {isDepositWallet ? (
+          <DetailCard title="Deposit Collection" icon={<Repeat size={18} />}>
+            <InfoField
+              label="Collection Amount"
+              value={`${formatAssetAmount(wallet.availableBalance ?? '0', wallet.asset.decimals)} ${wallet.asset.code}`}
+              highlight
+            />
+            <InfoField
+              label="Execution Rule"
+              value="Create full-balance DEPOSIT_COLLECTION when triggered from wallet detail"
+            />
+            {collectionResult ? (
+              <div className="col-span-full rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                <div className="font-semibold">
+                  Collection result: {collectionResult.action || 'UNKNOWN'}
+                </div>
+                <div className="mt-1">
+                  {collectionResult.reason || 'Collection request completed.'}
+                </div>
+                {collectionResult.expectedCollectionAmount ? (
+                  <div className="mt-1 text-xs">
+                    Expected amount: {collectionResult.expectedCollectionAmount} {wallet.asset.code}
+                  </div>
+                ) : null}
+                {collectionResult.existingPendingAmount ? (
+                  <div className="mt-1 text-xs">
+                    Existing pending amount: {collectionResult.existingPendingAmount} {wallet.asset.code}
+                  </div>
+                ) : null}
+                {collectionResult.internalTransactionId ? (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      navigate(`/exchange/internal-transactions/${collectionResult.internalTransactionId}`)
+                    }
+                    className="mt-3 inline-flex items-center gap-2 rounded-lg border border-amber-300 bg-white px-3 py-2 text-xs font-medium text-amber-900 hover:bg-amber-100"
+                  >
+                    <Link2 size={14} />
+                    View Existing Collection
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
+            <div className="col-span-full">
+              {canCreateCollection ? (
+                <button
+                  onClick={() => void handleCreateCollection()}
+                  disabled={collectionSubmitting}
+                  className="inline-flex items-center gap-2 rounded-lg bg-brand-primary px-4 py-2 text-sm font-medium text-white hover:bg-brand-primary/90 disabled:opacity-60"
+                >
+                  <Repeat size={16} />
+                  {collectionSubmitting ? 'Creating...' : 'Create Collection'}
+                </button>
+              ) : (
+                <div className="text-sm text-gray-500">
+                  You do not have permission to trigger wallet-driven collection.
+                </div>
+              )}
+            </div>
+          </DetailCard>
+        ) : null}
+
+        {isCustBank ? (
+          <DetailCard title="Regulatory Gate" icon={<Link2 size={18} />}>
+            <InfoField
+              label="Gate No"
+              value={wallet.regulatoryGateSummary?.gateNo || 'N/A'}
+            />
+            <InfoField
+              label="Gate Type"
+              value={wallet.regulatoryGateSummary?.gateType || 'N/A'}
+            />
+            <InfoField
+              label="Gate Result"
+              value={wallet.regulatoryGateSummary?.gateResult || 'N/A'}
+            />
+            <div className="col-span-full flex flex-wrap gap-3">
+              {wallet.regulatoryGateSummary && canReadGate ? (
+                <button
+                  onClick={() =>
+                    navigate(
+                      `/dashboard/governance/regulatory-gates/${wallet.regulatoryGateSummary?.gateId}`,
+                    )
+                  }
+                  className="inline-flex items-center gap-2 rounded-lg border border-admin-border bg-white px-4 py-2 text-sm text-brand-primary hover:bg-gray-50"
+                >
+                  <Link2 size={16} />
+                  View Gate
+                </button>
+              ) : null}
+              {!wallet.regulatoryGateSummary && canCreateGate ? (
+                <button
+                  onClick={() => {
+                    const params = new URLSearchParams({
+                      gateType: 'CLIENT_BANK_ACCOUNT_ENABLEMENT',
+                      subjectType: 'WALLET',
+                      subjectId: wallet.id,
+                      subjectNo: wallet.walletNo,
+                    });
+                    navigate(`/dashboard/governance/regulatory-gates/create?${params.toString()}`);
+                  }}
+                  className="inline-flex items-center gap-2 rounded-lg bg-brand-primary px-4 py-2 text-sm font-medium text-white hover:bg-brand-primary/90"
+                >
+                  <Plus size={16} />
+                  Create Regulatory Gate
+                </button>
+              ) : null}
+            </div>
+          </DetailCard>
+        ) : null}
       </div>
     </div>
   );
