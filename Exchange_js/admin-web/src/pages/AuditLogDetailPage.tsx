@@ -1,7 +1,6 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
-  ArrowLeft,
   Clock3,
   FileJson,
   FileText,
@@ -11,6 +10,13 @@ import {
   User,
 } from 'lucide-react';
 import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/adminFetch';
+import {
+  DetailCard,
+  DetailPageHeader,
+  InfoField,
+  JsonBlock,
+} from '../components/compliance/DetailPageComponents';
+import { adminButtonClass } from '../components/common/adminButtonStyles';
 
 type TriggerType =
   | 'EVIDENCE_EXPORT'
@@ -82,21 +88,6 @@ const formatDateTime = (value?: string | null): string => {
   return date.toLocaleString();
 };
 
-const toPrettyJson = (value: unknown): string => {
-  if (value === null || value === undefined) return '-';
-  if (typeof value === 'string') return value;
-  try {
-    return JSON.stringify(value, null, 2);
-  } catch {
-    return String(value);
-  }
-};
-
-const formatValue = (value?: string | null): string => {
-  if (value === null || value === undefined || String(value).trim() === '') return '-';
-  return String(value);
-};
-
 const getStatusClassName = (result: AuditResult) => {
   switch (result) {
     case 'SUCCESS':
@@ -109,61 +100,6 @@ const getStatusClassName = (result: AuditResult) => {
       return 'bg-gray-100 text-gray-700';
   }
 };
-
-const DetailCard = ({
-  title,
-  icon,
-  children,
-  columns = 3,
-}: {
-  title: string;
-  icon: ReactNode;
-  children: ReactNode;
-  columns?: 1 | 2 | 3;
-}) => {
-  const gridClassName =
-    columns === 1
-      ? 'grid grid-cols-1 gap-4'
-      : columns === 2
-        ? 'grid grid-cols-1 gap-4 md:grid-cols-2'
-        : 'grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3';
-
-  return (
-    <div className="rounded-xl border border-admin-border bg-white p-6 shadow-sm">
-      <div className="mb-4 flex items-center gap-2">
-        <div className="text-brand-primary">{icon}</div>
-        <h2 className="text-lg font-bold text-gray-900">{title}</h2>
-      </div>
-      <div className={gridClassName}>{children}</div>
-    </div>
-  );
-};
-
-const InfoField = ({
-  label,
-  value,
-  mono = false,
-}: {
-  label: string;
-  value?: string | null;
-  mono?: boolean;
-}) => (
-  <div className="min-w-0">
-    <div className="text-xs uppercase tracking-wide text-gray-500">{label}</div>
-    <div className={`mt-1 break-all text-sm text-gray-900 ${mono ? 'font-mono' : ''}`}>
-      {formatValue(value)}
-    </div>
-  </div>
-);
-
-const JsonBlock = ({ title, value }: { title: string; value: unknown }) => (
-  <div className="min-w-0">
-    <div className="mb-2 text-xs uppercase tracking-wide text-gray-500">{title}</div>
-    <pre className="max-h-96 overflow-auto rounded-lg bg-gray-900 p-3 text-xs text-gray-100">
-      {toPrettyJson(value)}
-    </pre>
-  </div>
-);
 
 const AuditLogDetailPage = () => {
   const { id } = useParams<{ id: string }>();
@@ -216,14 +152,13 @@ const AuditLogDetailPage = () => {
         <div className="flex items-center gap-3">
           <button
             onClick={() => navigate('/dashboard/audit/audit-logs')}
-            className="inline-flex items-center gap-2 rounded-lg border border-admin-border bg-white px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+            className={adminButtonClass('detailUtility')}
           >
-            <ArrowLeft size={16} />
             Back to Audit Log
           </button>
           <button
             onClick={() => void fetchDetail()}
-            className="inline-flex items-center gap-2 rounded-lg border border-admin-border bg-white px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+            className={adminButtonClass('detailUtility')}
           >
             <RefreshCw size={16} />
             Retry
@@ -241,9 +176,8 @@ const AuditLogDetailPage = () => {
       <div className="space-y-6">
         <button
           onClick={() => navigate('/dashboard/audit/audit-logs')}
-          className="inline-flex items-center gap-2 rounded-lg border border-admin-border bg-white px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+          className={adminButtonClass('detailUtility')}
         >
-          <ArrowLeft size={16} />
           Back to Audit Log
         </button>
         <div className="rounded-xl border border-admin-border bg-white px-6 py-10 text-center text-sm text-gray-500 shadow-sm">
@@ -255,41 +189,23 @@ const AuditLogDetailPage = () => {
 
   return (
     <div className="space-y-6 pb-12">
-      <div className="flex flex-col gap-4 rounded-xl border border-admin-border bg-white p-6 shadow-sm md:flex-row md:items-start md:justify-between">
-        <div className="flex items-start gap-4">
-          <button
-            onClick={() => navigate('/dashboard/audit/audit-logs')}
-            className="mt-1 inline-flex items-center justify-center rounded-lg border border-admin-border p-2 text-gray-700 hover:bg-gray-50"
-          >
-            <ArrowLeft size={18} />
-          </button>
-          <div>
-            <div className="flex flex-wrap items-center gap-3">
-              <h1 className="text-2xl font-bold text-gray-900">Audit Log Detail</h1>
-              <span
-                className={`rounded-full px-3 py-1 text-xs font-medium ${getStatusClassName(detail.result)}`}
-              >
-                {detail.result}
-              </span>
-              <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-700">
-                {detail.triggerType}
-              </span>
-            </div>
-            <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-gray-500">
-              <span className="font-mono text-brand-primary">{detail.auditNo}</span>
-              <span>{detail.action}</span>
-              <span>{formatDateTime(detail.occurredAt)}</span>
-            </div>
-          </div>
-        </div>
-        <button
-          onClick={() => void fetchDetail()}
-          className="inline-flex items-center gap-2 rounded-lg border border-admin-border px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+      <DetailPageHeader
+        title="Audit Log Detail"
+        subtitle={detail.auditNo}
+        onBack={() => navigate('/dashboard/audit/audit-logs')}
+        onRefresh={() => void fetchDetail()}
+        refreshing={loading}
+        backLabel="Back to Audit Logs"
+      >
+        <span
+          className={`rounded-full px-3 py-1 text-xs font-medium ${getStatusClassName(detail.result)}`}
         >
-          <RefreshCw size={16} />
-          Refresh
-        </button>
-      </div>
+          {detail.result}
+        </span>
+        <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-700">
+          {detail.triggerType}
+        </span>
+      </DetailPageHeader>
 
       <DetailCard title="Event Identity" icon={<FileText size={18} />}>
         <InfoField label="Audit No" value={detail.auditNo} mono />

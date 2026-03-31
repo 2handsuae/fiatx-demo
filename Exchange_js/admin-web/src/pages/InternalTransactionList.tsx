@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, RefreshCw, Search, X } from 'lucide-react';
 import { formatAssetAmount } from '../utils/number-format';
+import { adminFetch, getApiErrorMessage } from '../utils/adminFetch';
+import { adminButtonClass, adminIconButtonClass } from '../components/common/adminButtonStyles';
 
 type InternalTransactionItem = {
   id: string;
@@ -156,6 +158,7 @@ const InternalTransactionList = () => {
   const [fromWallets, setFromWallets] = useState<WalletItem[]>([]);
   const [toWallets, setToWallets] = useState<WalletItem[]>([]);
   const [form, setForm] = useState<CreateFormState>(INITIAL_FORM_STATE);
+  const [error, setError] = useState('');
 
   const route = TYPE_ROLE_ROUTE[form.type];
 
@@ -168,32 +171,32 @@ const InternalTransactionList = () => {
     [assets],
   );
 
+  const hasFilters = useMemo(
+    () => Boolean(statusFilter || approvalFilter || searchNo.trim()),
+    [approvalFilter, searchNo, statusFilter],
+  );
+
   const fetchItems = async () => {
     setLoading(true);
+    setError('');
     try {
-      const token = localStorage.getItem('admin_token');
       const params = new URLSearchParams();
       if (statusFilter) params.append('status', statusFilter);
       if (approvalFilter) params.append('approvalStatus', approvalFilter);
       if (searchNo) params.append('internalTxNo', searchNo);
 
-      const response = await fetch(
+      const response = await adminFetch(
         `${import.meta.env.VITE_API_URL}/admin/internal-transactions?${params.toString()}`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        },
       );
       if (response.ok) {
         const result = await response.json();
         setItems(result.items || []);
-      } else if (response.status === 401) {
-        localStorage.removeItem('admin_token');
-        navigate('/admin/login');
+        return;
       }
+      setError(await getApiErrorMessage(response, 'Failed to fetch internal transactions.'));
     } catch (error) {
       console.error('Failed to fetch internal transactions', error);
+      setError('Failed to fetch internal transactions.');
     } finally {
       setLoading(false);
     }
@@ -202,14 +205,8 @@ const InternalTransactionList = () => {
   const fetchAssetsByType = async (assetType: 'CRYPTO' | 'FIAT') => {
     setAssetsLoading(true);
     try {
-      const token = localStorage.getItem('admin_token');
-      const response = await fetch(
+      const response = await adminFetch(
         `${import.meta.env.VITE_API_URL}/assets?type=${assetType}&status=ACTIVE&take=200`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        },
       );
 
       if (response.ok) {
@@ -228,16 +225,12 @@ const InternalTransactionList = () => {
             assetId: '',
           }));
         }
-      } else if (response.status === 401) {
-        localStorage.removeItem('admin_token');
-        navigate('/admin/login');
       } else {
-        const err = await response.json();
-        alert(`Load assets failed: ${err.message || 'Unknown error'}`);
+        setError(await getApiErrorMessage(response, 'Load assets failed.'));
       }
     } catch (error) {
       console.error(`Failed to fetch ${assetType} assets`, error);
-      alert('Load assets failed');
+      setError('Load assets failed.');
     } finally {
       setAssetsLoading(false);
     }
@@ -252,35 +245,21 @@ const InternalTransactionList = () => {
 
     setWalletsLoading(true);
     try {
-      const token = localStorage.getItem('admin_token');
-      const headers = {
-        Authorization: `Bearer ${token}`,
-      };
       const [fromRes, toRes] = await Promise.all([
-        fetch(
+        adminFetch(
           `${import.meta.env.VITE_API_URL}/wallets?assetId=${form.assetId}&status=ACTIVE&walletRole=${route.fromRole}&take=200`,
-          { headers },
         ),
-        fetch(
+        adminFetch(
           `${import.meta.env.VITE_API_URL}/wallets?assetId=${form.assetId}&status=ACTIVE&walletRole=${route.toRole}&take=200`,
-          { headers },
         ),
       ]);
 
-      if (fromRes.status === 401 || toRes.status === 401) {
-        localStorage.removeItem('admin_token');
-        navigate('/admin/login');
-        return;
-      }
-
       if (!fromRes.ok || !toRes.ok) {
-        const fromErr = fromRes.ok ? null : await fromRes.json();
-        const toErr = toRes.ok ? null : await toRes.json();
         const message =
-          fromErr?.message ||
-          toErr?.message ||
-          'Failed to load wallets';
-        alert(message);
+          (!fromRes.ok && (await getApiErrorMessage(fromRes, 'Failed to load wallets.'))) ||
+          (!toRes.ok && (await getApiErrorMessage(toRes, 'Failed to load wallets.'))) ||
+          'Failed to load wallets.';
+        setError(message);
         return;
       }
 
@@ -308,7 +287,7 @@ const InternalTransactionList = () => {
       });
     } catch (error) {
       console.error('Failed to fetch route wallets', error);
-      alert('Load wallets failed');
+      setError('Load wallets failed.');
     } finally {
       setWalletsLoading(false);
     }
@@ -316,7 +295,7 @@ const InternalTransactionList = () => {
 
   useEffect(() => {
     fetchItems();
-  }, [statusFilter, approvalFilter]);
+  }, []);
 
   useEffect(() => {
     if (!showCreateModal) return;
@@ -352,12 +331,11 @@ const InternalTransactionList = () => {
     }
 
     setCreateSubmitting(true);
+    setError('');
     try {
-      const token = localStorage.getItem('admin_token');
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/admin/internal-transactions`, {
+      const response = await adminFetch(`${import.meta.env.VITE_API_URL}/admin/internal-transactions`, {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
@@ -373,8 +351,7 @@ const InternalTransactionList = () => {
       });
 
       if (!response.ok) {
-        const err = await response.json();
-        alert(`Create failed: ${err.message || 'Unknown error'}`);
+        setError(await getApiErrorMessage(response, 'Create failed.'));
         return;
       }
 
@@ -389,10 +366,35 @@ const InternalTransactionList = () => {
       }
     } catch (error) {
       console.error('Failed to create internal transaction', error);
-      alert('Create failed');
+      setError('Create failed.');
     } finally {
       setCreateSubmitting(false);
     }
+  };
+
+  const handleReset = () => {
+    setStatusFilter('');
+    setApprovalFilter('');
+    setSearchNo('');
+    setItems([]);
+    setError('');
+    setLoading(true);
+    void (async () => {
+      try {
+        const response = await adminFetch(`${import.meta.env.VITE_API_URL}/admin/internal-transactions`);
+        if (response.ok) {
+          const result = await response.json();
+          setItems(result.items || []);
+          return;
+        }
+        setError(await getApiErrorMessage(response, 'Failed to fetch internal transactions.'));
+      } catch (resetError) {
+        console.error('Failed to reset internal transaction filters', resetError);
+        setError('Failed to fetch internal transactions.');
+      } finally {
+        setLoading(false);
+      }
+    })();
   };
 
   const renderWalletLabel = (wallet: WalletItem) => {
@@ -411,14 +413,14 @@ const InternalTransactionList = () => {
           <div className="flex items-center gap-2">
             <button
               onClick={openCreateModal}
-              className="px-4 py-2 bg-brand-primary text-white rounded-lg hover:bg-brand-primary/90 text-sm flex items-center gap-2"
+              className={adminButtonClass('listPrimary')}
             >
               <Plus size={16} />
               Create Internal Transaction
             </button>
             <button
               onClick={fetchItems}
-              className="p-2 text-gray-500 hover:text-brand-primary transition-colors border border-gray-200 rounded-lg bg-white"
+              className={adminIconButtonClass()}
             >
               <RefreshCw size={18} className={loading ? 'animate-spin' : ''} />
             </button>
@@ -441,9 +443,16 @@ const InternalTransactionList = () => {
               </div>
               <button
                 onClick={fetchItems}
-                className="px-3 py-2 bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200"
+                className={adminButtonClass('listPrimary')}
               >
                 Search
+              </button>
+              <button
+                onClick={handleReset}
+                className={adminButtonClass('listSecondary')}
+                disabled={!hasFilters && !error}
+              >
+                Reset
               </button>
             </div>
 
@@ -479,30 +488,38 @@ const InternalTransactionList = () => {
               <thead className="bg-admin-content-bg border-b border-admin-border">
                 <tr>
                   <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Internal Tx</th>
-                  <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Type / Source</th>
-                  <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Asset / Amount</th>
-                  <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">From / To</th>
-                  <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-admin-border">
-                {loading && items.length === 0 ? (
+                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Type / Source</th>
+                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Asset / Amount</th>
+                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">From / To</th>
+                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider text-right">Action</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-admin-border">
+                {error ? (
                   <tr>
-                    <td colSpan={5} className="px-6 py-12 text-center text-gray-500">
+                    <td colSpan={6} className="px-6 py-12 text-center text-rose-600">
+                      {error}
+                    </td>
+                  </tr>
+                ) : null}
+                {!error && loading && items.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="px-6 py-12 text-center text-gray-500">
                       <RefreshCw className="animate-spin mx-auto mb-2 text-brand-primary" size={20} />
                       Loading internal transactions...
                     </td>
                   </tr>
-                ) : items.length === 0 ? (
+                ) : !error && items.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="px-6 py-12 text-center text-gray-500">No internal transactions found</td>
+                    <td colSpan={6} className="px-6 py-12 text-center text-gray-500">No internal transactions found</td>
                   </tr>
                 ) : (
                   items.map((item) => (
                     <tr key={item.id} className="hover:bg-gray-50 transition-colors">
                       <td className="px-6 py-4">
                         <button
-                          className="font-mono text-xs text-brand-primary font-bold hover:text-blue-800"
+                          className={adminButtonClass('rowKeyLink')}
                           onClick={() => navigate(`/exchange/internal-transactions/${item.id}`)}
                         >
                           {item.internalTxNo}
@@ -556,6 +573,15 @@ const InternalTransactionList = () => {
                             {(item.approvalStatus || 'APPROVED') as string}
                           </span>
                         </div>
+                      </td>
+                      <td className="px-6 py-4 text-right">
+                        <button
+                          type="button"
+                          onClick={() => navigate(`/exchange/internal-transactions/${item.id}`)}
+                          className={adminButtonClass('rowLink')}
+                        >
+                          View
+                        </button>
                       </td>
                     </tr>
                   ))
@@ -723,7 +749,7 @@ const InternalTransactionList = () => {
               <button
                 onClick={closeCreateModal}
                 disabled={createSubmitting}
-                className="px-4 py-2 border border-admin-border rounded-lg text-sm text-gray-700 hover:bg-gray-50"
+                className={adminButtonClass('modalCancel')}
               >
                 Cancel
               </button>
@@ -737,7 +763,7 @@ const InternalTransactionList = () => {
                   fromWallets.length === 0 ||
                   toWallets.length === 0
                 }
-                className="px-4 py-2 bg-brand-primary text-white rounded-lg text-sm hover:bg-brand-primary/90 disabled:opacity-60"
+                className={adminButtonClass('modalConfirm')}
               >
                 {createSubmitting ? 'Submitting...' : 'Submit'}
               </button>

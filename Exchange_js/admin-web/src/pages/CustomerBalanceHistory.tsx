@@ -12,8 +12,9 @@ import {
   ArrowDownLeft,
   History
 } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
 import { formatAssetAmount } from '../utils/number-format';
+import { adminButtonClass, adminIconButtonClass } from '../components/common/adminButtonStyles';
+import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/adminFetch';
 
 interface BalanceHistoryItem {
   id: string;
@@ -45,10 +46,11 @@ interface Asset {
 }
 
 const CustomerBalanceHistory = () => {
-  const navigate = useNavigate();
   const [items, setItems] = useState<BalanceHistoryItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [assets, setAssets] = useState<Asset[]>([]);
+  const [error, setError] = useState('');
+  const [hasSearched, setHasSearched] = useState(false);
   
   // Filters
   const [customerId, setCustomerId] = useState('');
@@ -63,69 +65,95 @@ const CustomerBalanceHistory = () => {
 
   const fetchAssets = useCallback(async () => {
     try {
-      const token = localStorage.getItem('admin_token');
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/assets?take=100`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
+      const response = await adminFetch(`${import.meta.env.VITE_API_URL}/assets?take=100`);
       if (response.ok) {
         const data = await response.json();
         setAssets(data.items || []);
+      } else {
+        setError(await getApiErrorMessage(response, 'Failed to fetch assets.'));
       }
     } catch (error) {
+      if (error instanceof AdminSessionError) return;
       console.error('Failed to fetch assets', error);
+      setError(error instanceof Error ? error.message : 'Failed to fetch assets.');
     }
   }, []);
 
-  const fetchItems = useCallback(async () => {
+  const fetchItems = useCallback(async (targetPage = page) => {
     if (!customerId || !assetId) return;
 
     setLoading(true);
+    setError('');
     try {
-      const token = localStorage.getItem('admin_token');
       const params = new URLSearchParams();
       params.append('customerId', customerId);
       params.append('assetId', assetId);
-      params.append('skip', ((page - 1) * pageSize).toString());
+      params.append('skip', ((targetPage - 1) * pageSize).toString());
       params.append('take', pageSize.toString());
       if (startDate) params.append('startDate', new Date(startDate).toISOString());
       if (endDate) params.append('endDate', new Date(endDate).toISOString());
-      
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/journal-lines/customer-balance-history?${params.toString()}`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
+
+      const response = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/journal-lines/customer-balance-history?${params.toString()}`,
+      );
       
       if (response.ok) {
         const result = await response.json();
         setItems(result.items || []);
         setTotal(result.total || 0);
-      } else if (response.status === 401) {
-        navigate('/admin/login');
+      } else {
+        setError(await getApiErrorMessage(response, 'Failed to fetch balance history.'));
       }
     } catch (error) {
+      if (error instanceof AdminSessionError) return;
       console.error('Failed to fetch balance history', error);
+      setError(error instanceof Error ? error.message : 'Failed to fetch balance history.');
     } finally {
       setLoading(false);
     }
-  }, [customerId, assetId, page, pageSize, startDate, endDate, navigate]);
+  }, [customerId, assetId, page, pageSize, startDate, endDate]);
 
   useEffect(() => {
     fetchAssets();
   }, [fetchAssets]);
 
   useEffect(() => {
-    if (customerId && assetId) {
-        fetchItems();
-    } else {
-        setItems([]);
-        setTotal(0);
+    if (!hasSearched) {
+      setItems([]);
+      setTotal(0);
+      return;
     }
-  }, [customerId, assetId, page, fetchItems]);
+    if (customerId && assetId) {
+      void fetchItems(page);
+    }
+  }, [customerId, assetId, page, fetchItems, hasSearched]);
+
+  const resetResults = () => {
+    setHasSearched(false);
+    setItems([]);
+    setTotal(0);
+    setError('');
+  };
+
+  const handleSearch = async () => {
+    setPage(1);
+    setHasSearched(true);
+    await fetchItems(1);
+  };
+
+  const handleReset = () => {
+    setCustomerId('');
+    setAssetId('');
+    setStartDate('');
+    setEndDate('');
+    setPage(1);
+    resetResults();
+  };
 
   const handleExport = async () => {
     if (!customerId || !assetId) return;
     
     try {
-      const token = localStorage.getItem('admin_token');
       const params = new URLSearchParams();
       params.append('customerId', customerId);
       params.append('assetId', assetId);
@@ -133,10 +161,10 @@ const CustomerBalanceHistory = () => {
       params.append('take', '10000'); // Export up to 10k records
       if (startDate) params.append('startDate', new Date(startDate).toISOString());
       if (endDate) params.append('endDate', new Date(endDate).toISOString());
-      
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/journal-lines/customer-balance-history?${params.toString()}`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
+
+      const response = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/journal-lines/customer-balance-history?${params.toString()}`,
+      );
       
       if (response.ok) {
         const result = await response.json();
@@ -162,9 +190,13 @@ const CustomerBalanceHistory = () => {
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
+      } else {
+        setError(await getApiErrorMessage(response, 'Export failed.'));
       }
     } catch (error) {
+      if (error instanceof AdminSessionError) return;
       console.error('Export failed', error);
+      setError(error instanceof Error ? error.message : 'Export failed.');
     }
   };
 
@@ -180,14 +212,25 @@ const CustomerBalanceHistory = () => {
           <h1 className="text-2xl font-bold text-gray-900">Customer Balance History</h1>
           <p className="text-sm text-gray-500 mt-1">Track available balance changes for specific customer and asset</p>
         </div>
+        <div className="flex items-center gap-2">
+        <button
+          onClick={() => {
+            if (hasSearched) void fetchItems(page);
+          }}
+          disabled={!hasSearched}
+          className={adminIconButtonClass()}
+        >
+          <RefreshCw size={18} className={loading ? 'animate-spin' : ''} />
+        </button>
         <button 
           onClick={handleExport}
           disabled={!customerId || !assetId || items.length === 0}
-          className="flex items-center gap-2 px-4 py-2 bg-admin-sidebar-bg text-white rounded-lg hover:bg-black transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+          className={adminButtonClass('listSecondary')}
         >
           <Download size={18} />
           Export CSV
         </button>
+        </div>
       </div>
 
       {/* Filters */}
@@ -200,7 +243,11 @@ const CustomerBalanceHistory = () => {
             <input 
               type="text"
               value={customerId}
-              onChange={(e) => { setCustomerId(e.target.value); setPage(1); }}
+              onChange={(e) => {
+                setCustomerId(e.target.value);
+                setPage(1);
+                resetResults();
+              }}
               placeholder="Enter Customer ID"
               className="w-full px-4 py-2 bg-admin-content-bg border border-admin-border rounded-lg focus:outline-none focus:border-brand-primary focus:ring-1 focus:ring-brand-primary/20"
             />
@@ -212,7 +259,11 @@ const CustomerBalanceHistory = () => {
             </label>
             <select 
               value={assetId}
-              onChange={(e) => { setAssetId(e.target.value); setPage(1); }}
+              onChange={(e) => {
+                setAssetId(e.target.value);
+                setPage(1);
+                resetResults();
+              }}
               className="w-full px-4 py-2 bg-admin-content-bg border border-admin-border rounded-lg focus:outline-none focus:border-brand-primary focus:ring-1 focus:ring-brand-primary/20"
             >
               <option value="">Select Asset</option>
@@ -229,7 +280,11 @@ const CustomerBalanceHistory = () => {
             <input 
               type="date"
               value={startDate}
-              onChange={(e) => { setStartDate(e.target.value); setPage(1); }}
+              onChange={(e) => {
+                setStartDate(e.target.value);
+                setPage(1);
+                resetResults();
+              }}
               className="w-full px-4 py-2 bg-admin-content-bg border border-admin-border rounded-lg focus:outline-none focus:border-brand-primary focus:ring-1 focus:ring-brand-primary/20"
             />
           </div>
@@ -241,12 +296,30 @@ const CustomerBalanceHistory = () => {
             <input 
               type="date"
               value={endDate}
-              onChange={(e) => { setEndDate(e.target.value); setPage(1); }}
+              onChange={(e) => {
+                setEndDate(e.target.value);
+                setPage(1);
+                resetResults();
+              }}
               className="w-full px-4 py-2 bg-admin-content-bg border border-admin-border rounded-lg focus:outline-none focus:border-brand-primary focus:ring-1 focus:ring-brand-primary/20"
             />
           </div>
         </div>
+        <div className="mt-4 flex items-center justify-end gap-3">
+          <button onClick={handleSearch} className={adminButtonClass('listPrimary')}>
+            Search
+          </button>
+          <button onClick={handleReset} className={adminButtonClass('listSecondary')}>
+            Reset
+          </button>
+        </div>
       </div>
+
+      {error ? (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error}
+        </div>
+      ) : null}
 
       <div className="bg-white rounded-xl shadow-sm border border-admin-border overflow-hidden">
         <div className="overflow-x-auto">
@@ -270,12 +343,12 @@ const CustomerBalanceHistory = () => {
                     </div>
                   </td>
                 </tr>
-              ) : !customerId || !assetId ? (
+              ) : !hasSearched ? (
                 <tr>
                   <td colSpan={5} className="px-6 py-12 text-center text-gray-500">
                     <div className="flex flex-col items-center justify-center opacity-40">
                       <Search size={48} className="mb-2" />
-                      Please select Customer and Asset to view history
+                      Select filters and run Search to view history
                     </div>
                   </td>
                 </tr>

@@ -1,6 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, RefreshCw, Eye } from 'lucide-react';
+import { Search, RefreshCw } from 'lucide-react';
+import {
+  adminButtonClass,
+  adminIconButtonClass,
+} from '../components/common/adminButtonStyles';
 import { formatAssetAmount } from '../utils/number-format';
 import {
   AdminSessionError,
@@ -57,13 +61,30 @@ const PayoutList = () => {
   const [statusFilter, setStatusFilter] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
 
-  const fetchPayouts = async () => {
+  type PayoutFilters = {
+    statusFilter: string;
+    searchQuery: string;
+  };
+
+  const hasFilters = useMemo(
+    () => !!statusFilter || !!searchQuery.trim(),
+    [searchQuery, statusFilter],
+  );
+
+  const fetchPayouts = async (
+    overrides?: Partial<PayoutFilters>,
+  ) => {
     setLoading(true);
     setError('');
     try {
+      const nextFilters: PayoutFilters = {
+        statusFilter,
+        searchQuery,
+        ...overrides,
+      };
       const params = new URLSearchParams();
-      if (statusFilter) params.append('status', statusFilter);
-      if (searchQuery) params.append('withdrawId', searchQuery); // Simplified search
+      if (nextFilters.statusFilter) params.append('status', nextFilters.statusFilter);
+      if (nextFilters.searchQuery) params.append('withdrawId', nextFilters.searchQuery); // Simplified search
 
       const response = await adminFetch(
         `${import.meta.env.VITE_API_URL}/payouts?${params.toString()}`,
@@ -82,8 +103,17 @@ const PayoutList = () => {
   };
 
   useEffect(() => {
-    fetchPayouts();
-  }, [statusFilter]);
+    void fetchPayouts();
+  }, []);
+
+  const resetFilters = async () => {
+    setStatusFilter('');
+    setSearchQuery('');
+    await fetchPayouts({
+      statusFilter: '',
+      searchQuery: '',
+    });
+  };
 
   const handleCreateMock = async () => {
     setLoading(true);
@@ -137,15 +167,7 @@ const PayoutList = () => {
           <p className="text-sm text-gray-500 mt-1">Manage and monitor outbound fund transfers</p>
         </div>
         <div className="flex gap-2">
-          <button 
-            onClick={handleCreateMock} 
-            disabled={loading}
-            className="flex items-center gap-2 px-4 py-2 bg-brand-primary text-white rounded-lg hover:bg-brand-primary/90 transition-colors disabled:opacity-50 text-sm"
-          >
-            <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
-            Create Mock Payouts
-          </button>
-          <button onClick={fetchPayouts} className="p-2 text-gray-500 hover:text-brand-primary transition-colors border border-gray-200 rounded-lg bg-white">
+          <button onClick={() => void fetchPayouts()} className={adminIconButtonClass()}>
             <RefreshCw size={20} className={loading ? 'animate-spin' : ''} />
           </button>
         </div>
@@ -162,6 +184,24 @@ const PayoutList = () => {
         </div>
       ) : null}
 
+      <div className="rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-4">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h2 className="text-sm font-semibold text-indigo-900">Manual Simulation</h2>
+            <p className="mt-1 text-sm text-indigo-700">
+              Mock payout generation is demo-only support tooling. It stays outside the list utility bar and outside payout workflow actions.
+            </p>
+          </div>
+          <button
+            onClick={handleCreateMock}
+            disabled={loading}
+            className={adminButtonClass('simulationAction')}
+          >
+            Create Mock Payouts
+          </button>
+        </div>
+      </div>
+
       <div className="bg-white rounded-xl shadow-sm border border-admin-border overflow-hidden">
         <div className="p-4 border-b border-admin-border flex flex-col md:flex-row gap-4 justify-between">
           <div className="relative flex-1 max-w-md flex gap-2">
@@ -176,8 +216,15 @@ const PayoutList = () => {
                 className="w-full pl-10 pr-4 py-2 bg-admin-content-bg border border-admin-border rounded-lg focus:outline-none focus:border-brand-primary transition-all"
                 />
             </div>
-            <button onClick={fetchPayouts} className="px-3 py-2 bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200">
+            <button onClick={() => void fetchPayouts()} className={adminButtonClass('listPrimary')}>
                 Search
+            </button>
+            <button
+              onClick={() => void resetFilters()}
+              className={adminButtonClass('listSecondary')}
+              disabled={!hasFilters || loading}
+            >
+              Reset
             </button>
           </div>
           <select 
@@ -208,7 +255,7 @@ const PayoutList = () => {
                 <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Type / Asset / Amount</th>
                 <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Rail Status</th>
                 <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Settlement Evidence</th>
-                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider text-right">View</th>
+                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider text-right">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-admin-border">
@@ -232,13 +279,14 @@ const PayoutList = () => {
                   return (
                   <tr key={payout.id} className="hover:bg-gray-50 transition-colors group">
                     <td className="px-6 py-4">
-                      <div 
-                        className="font-mono text-xs text-brand-primary font-bold hover:text-blue-800 cursor-pointer truncate max-w-[150px]"
+                      <button
+                        type="button"
+                        className={adminButtonClass('rowKeyLink')}
                         title={payout.payoutNo}
                         onClick={() => navigate(`/dashboard/treasury/payouts/${payout.id}`)}
                       >
                         {payout.payoutNo || '-'}
-                      </div>
+                      </button>
                       <div className="text-[10px] text-gray-500 mt-1">
                         {new Date(payout.createdAt).toLocaleDateString()}
                       </div>
@@ -302,10 +350,10 @@ const PayoutList = () => {
                       <div className="flex justify-end gap-2 items-center">
                         <button 
                           onClick={() => navigate(`/dashboard/treasury/payouts/${payout.id}`)}
-                          className="p-1.5 text-blue-600 rounded hover:bg-blue-50 transition-colors"
-                          title="View Details"
+                          className={adminButtonClass('rowLink')}
+                          title="View"
                         >
-                          <Eye size={18} />
+                          View
                         </button>
                       </div>
                     </td>

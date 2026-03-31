@@ -1,6 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { RefreshCw, Search, X } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
+import {
+  adminButtonClass,
+  adminIconButtonClass,
+} from '../components/common/adminButtonStyles';
 import Pagination from '../components/common/Pagination';
 import { PERMISSIONS } from '../rbac/permissions';
 import {
@@ -228,14 +232,14 @@ const ComplianceCasesPage = () => {
           {canReadCaseExports ? (
             <button
               onClick={() => navigate('/dashboard/compliance/case-evidence-exports')}
-              className="px-3 py-2 rounded border border-admin-border text-sm hover:bg-gray-50"
+              className={adminButtonClass('listSecondary')}
             >
               Case Evidence Exports
             </button>
           ) : null}
           <button
             onClick={() => void fetchCases(currentPage)}
-            className="p-2 text-gray-500 hover:text-brand-primary disabled:opacity-60"
+            className={adminIconButtonClass()}
             title="Refresh"
             disabled={loading}
           >
@@ -323,18 +327,16 @@ const ComplianceCasesPage = () => {
         <div className="flex items-center gap-2">
           <button
             onClick={() => void fetchCases(1)}
-            className="inline-flex items-center gap-2 px-3 py-2 rounded bg-brand-primary text-white text-sm hover:opacity-90"
+            className={adminButtonClass('listPrimary')}
             disabled={loading}
           >
-            <Search size={14} />
             Search
           </button>
           <button
             onClick={() => void resetFilters()}
-            className="inline-flex items-center gap-2 px-3 py-2 rounded border border-admin-border text-sm hover:bg-gray-50"
+            className={adminButtonClass('listSecondary')}
             disabled={loading || !hasFilters}
           >
-            <X size={14} />
             Reset
           </button>
         </div>
@@ -376,7 +378,14 @@ const ComplianceCasesPage = () => {
                 items.map((item) => (
                   <tr key={item.id} className="hover:bg-gray-50">
                     <td className="px-4 py-3">
-                      <div className="font-semibold text-gray-900">{item.caseNo || '-'}</div>
+                      <button
+                        type="button"
+                        className={adminButtonClass('rowKeyLink')}
+                        onClick={() => openDetail(item.id)}
+                        title={item.caseNo || '-'}
+                      >
+                        {item.caseNo || '-'}
+                      </button>
                       <div className="text-xs text-gray-500">{item.title}</div>
                     </td>
                     <td className="px-4 py-3">
@@ -431,10 +440,10 @@ const ComplianceCasesPage = () => {
                     <td className="px-4 py-3 text-gray-700">{formatDateTime(item.lastActionAt)}</td>
                     <td className="px-4 py-3">
                       <button
-                        className="text-xs border border-gray-200 px-2 py-1 rounded hover:bg-gray-50"
+                        className={adminButtonClass('rowLink')}
                         onClick={() => openDetail(item.id)}
                       >
-                        View Detail
+                        View
                       </button>
                     </td>
                   </tr>

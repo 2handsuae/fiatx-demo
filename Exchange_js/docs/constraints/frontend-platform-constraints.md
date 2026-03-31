@@ -83,6 +83,18 @@ Source of Truth Level: constraints
 - In-flight actions MUST block duplicate submission.
 - Action labels MUST describe business intent, not low-level HTTP mechanics.
 
+## 8A) Admin Button Classification
+- Before styling or placing an admin button, the page MUST classify it as one of:
+1. `List Utility`
+2. `List Row Action`
+3. `Detail Utility`
+4. `Detail Workflow Action`
+5. `Detail Repair Action`
+6. `Simulation Action`
+7. `Modal Confirm`
+- `Detail Workflow Action`, `Detail Repair Action`, and `Simulation Action` are different systems and MUST NOT be visually or structurally conflated.
+- Admin list rows SHOULD default to `View/Open` as the only persistent row action unless a separate admin rule explicitly allows more.
+
 ## 9) Request, Session, and Error Handling
 - All frontend API calls MUST use `import.meta.env.VITE_API_URL` as the host source.
 - Page code MUST NOT hardcode API hosts.

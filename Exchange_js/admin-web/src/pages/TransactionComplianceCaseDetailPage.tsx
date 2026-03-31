@@ -1,11 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, RefreshCw } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   AdminSessionError,
   adminFetch,
   getApiErrorMessage,
 } from '../utils/adminFetch';
+import {
+  DetailCard,
+  DetailPageHeader,
+  JsonBlock,
+} from '../components/compliance/DetailPageComponents';
 import {
   formatResponseLifecycleLabel,
   getResponseLifecycleBadgeClass,
@@ -75,17 +79,6 @@ const tryParsePayload = (raw?: string) => {
     return raw;
   }
 };
-
-const JsonBlock = ({ title, value }: { title: string; value: unknown }) => (
-  <div className="border border-gray-200 rounded-lg overflow-hidden">
-    <div className="px-3 py-2 bg-gray-50 border-b border-gray-200 text-xs font-semibold text-gray-600 uppercase">
-      {title}
-    </div>
-    <pre className="text-xs bg-gray-950 text-gray-100 p-3 overflow-auto">
-      {JSON.stringify(value ?? {}, null, 2)}
-    </pre>
-  </div>
-);
 
 const CaseSummaryCard = ({
   title,
@@ -181,29 +174,14 @@ const TransactionComplianceCaseDetailPage = () => {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => navigate('/dashboard/compliance/tx-evidence')}
-            className="p-2 border border-gray-200 rounded hover:bg-gray-50 text-gray-600"
-          >
-            <ArrowLeft size={16} />
-          </button>
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">Tx Evidence Bundle</h1>
-            <p className="text-sm text-gray-500 mt-1">
-              {String(sourceType).toUpperCase()} / {sourceId}
-            </p>
-          </div>
-        </div>
-        <button
-          onClick={fetchDetail}
-          className="p-2 text-gray-500 hover:text-brand-primary"
-          title="Refresh"
-        >
-          <RefreshCw size={20} className={loading ? 'animate-spin' : ''} />
-        </button>
-      </div>
+      <DetailPageHeader
+        title="Transaction Evidence Bundle"
+        subtitle={`${String(sourceType).toUpperCase()} / ${sourceId}`}
+        onBack={() => navigate('/dashboard/compliance/tx-evidence')}
+        onRefresh={() => void fetchDetail()}
+        refreshing={loading}
+        backLabel="Back to Tx Evidence"
+      />
 
       {errorMessage && (
         <div className="px-4 py-3 border border-red-200 bg-red-50 rounded-lg text-red-700 text-sm">
@@ -213,7 +191,7 @@ const TransactionComplianceCaseDetailPage = () => {
 
       {data && (
         <>
-          <div className="bg-white border border-admin-border rounded-xl p-4 grid grid-cols-1 md:grid-cols-4 gap-3 text-sm">
+          <DetailCard title="Bundle Summary">
             <div>
               <span className="text-gray-500 text-xs block">Source Type</span>
               <span className="text-gray-900">{data.sourceType}</span>
@@ -230,7 +208,7 @@ const TransactionComplianceCaseDetailPage = () => {
               <span className="text-gray-500 text-xs block">Approval Policy</span>
               <span className="text-gray-900">Transaction-only approval</span>
             </div>
-          </div>
+          </DetailCard>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <CaseSummaryCard title="Pre-KYT" payload={data.preKytCase} />
@@ -240,8 +218,7 @@ const TransactionComplianceCaseDetailPage = () => {
 
           <div className="space-y-4">
             {reportGroups.map((group) => (
-              <section key={group.label} className="bg-white border border-admin-border rounded-xl p-4">
-                <h2 className="text-sm font-semibold text-gray-900 mb-3">{group.label}</h2>
+              <DetailCard key={group.label} title={group.label} columns={1}>
                 {group.items.length === 0 ? (
                   <div className="text-sm text-gray-500">No reports</div>
                 ) : (
@@ -280,7 +257,7 @@ const TransactionComplianceCaseDetailPage = () => {
                     ))}
                   </div>
                 )}
-              </section>
+              </DetailCard>
             ))}
           </div>
         </>

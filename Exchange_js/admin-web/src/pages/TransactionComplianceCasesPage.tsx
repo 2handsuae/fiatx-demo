@@ -2,6 +2,10 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { RefreshCw, Search } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import {
+  adminButtonClass,
+  adminIconButtonClass,
+} from '../components/common/adminButtonStyles';
+import {
   AdminSessionError,
   adminFetch,
   getApiErrorMessage,
@@ -64,6 +68,10 @@ const TransactionComplianceCasesPage = () => {
   const [status, setStatus] = useState('');
   const [provider, setProvider] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
+  const hasFilters = useMemo(
+    () => !!sourceType || !!sourceId || !!status || !!provider,
+    [provider, sourceId, sourceType, status],
+  );
 
   const fetchBundles = useCallback(async () => {
     setLoading(true);
@@ -190,7 +198,7 @@ const TransactionComplianceCasesPage = () => {
         </div>
         <button
           onClick={fetchBundles}
-          className="p-2 text-gray-500 hover:text-brand-primary"
+          className={adminIconButtonClass()}
           title="Refresh"
         >
           <RefreshCw size={20} className={loading ? 'animate-spin' : ''} />
@@ -230,10 +238,23 @@ const TransactionComplianceCasesPage = () => {
           <span>Partial: {coverage.partial}</span>
           <button
             onClick={fetchBundles}
-            className="inline-flex items-center gap-1 px-2 py-1 rounded border border-gray-200 hover:bg-gray-50 text-gray-700"
+            className={adminButtonClass('listPrimary')}
           >
-            <Search size={12} />
+            <Search size={16} />
             Search
+          </button>
+          <button
+            onClick={() => {
+              setSourceType('');
+              setSourceId('');
+              setStatus('');
+              setProvider('');
+              void fetchBundles();
+            }}
+            disabled={!hasFilters}
+            className={adminButtonClass('listSecondary')}
+          >
+            Reset
           </button>
         </div>
       </div>
@@ -274,7 +295,14 @@ const TransactionComplianceCasesPage = () => {
               rows.map((item) => (
                 <tr key={`${item.sourceType}:${item.sourceId}`} className="hover:bg-gray-50">
                   <td className="px-4 py-3 text-gray-700">
-                    <div>{item.sourceType}</div>
+                    <button
+                      onClick={() =>
+                        navigate(`/dashboard/compliance/tx-evidence/${item.sourceType}/${item.sourceId}`)
+                      }
+                      className={adminButtonClass('rowKeyLink')}
+                    >
+                      {item.sourceType}
+                    </button>
                     <div className="text-xs text-gray-500">{item.sourceId}</div>
                   </td>
                   <td className="px-4 py-3">
@@ -313,9 +341,9 @@ const TransactionComplianceCasesPage = () => {
                       onClick={() =>
                         navigate(`/dashboard/compliance/tx-evidence/${item.sourceType}/${item.sourceId}`)
                       }
-                      className="text-xs border border-gray-200 px-2 py-1 rounded hover:bg-gray-50"
+                      className={adminButtonClass('rowLink')}
                     >
-                      View Bundle
+                      View
                     </button>
                   </td>
                 </tr>

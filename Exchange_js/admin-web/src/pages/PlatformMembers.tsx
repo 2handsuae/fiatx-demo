@@ -1,6 +1,10 @@
 import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from 'react';
 import { Plus, RefreshCw, Search, X } from 'lucide-react';
 import {
+  adminButtonClass,
+  adminIconButtonClass,
+} from '../components/common/adminButtonStyles';
+import {
   AdminPermissionError,
   adminFetch,
   getApiErrorMessage,
@@ -51,7 +55,8 @@ const PlatformMembers = () => {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [invitePayload, setInvitePayload] = useState<InvitePayload | null>(null);
-  const [searchTerm, setSearchTerm] = useState('');
+  const [searchInput, setSearchInput] = useState('');
+  const [appliedSearch, setAppliedSearch] = useState('');
 
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [createEmail, setCreateEmail] = useState('');
@@ -110,7 +115,7 @@ const PlatformMembers = () => {
       await Promise.all([fetchMembers(), fetchRoleCatalog()]);
     } catch (err) {
       if (err instanceof AdminPermissionError) {
-        setError('权限不足，无法查看该资源。');
+        setError('Permission denied. You cannot view this resource.');
       } else {
         setError(err instanceof Error ? err.message : 'Failed to load platform members.');
       }
@@ -124,7 +129,7 @@ const PlatformMembers = () => {
   }, [canReadRoleCatalog, canAssignRoles, canCreateMember]);
 
   const filteredMembers = useMemo(() => {
-    const keyword = searchTerm.trim().toLowerCase();
+    const keyword = appliedSearch.trim().toLowerCase();
     if (!keyword) {
       return members;
     }
@@ -134,7 +139,9 @@ const PlatformMembers = () => {
       const byUserNo = member.userNo?.toLowerCase().includes(keyword);
       return byEmail || byUserNo;
     });
-  }, [members, searchTerm]);
+  }, [appliedSearch, members]);
+
+  const hasSearch = !!searchInput.trim() || !!appliedSearch.trim();
 
   const activeRoles = useMemo(
     () => rolesCatalog.filter((role) => role.status === 'ACTIVE'),
@@ -171,12 +178,12 @@ const PlatformMembers = () => {
     const normalizedEmail = createEmail.trim().toLowerCase();
 
     if (!normalizedEmail) {
-      setCreateError('邮箱不能为空。');
+      setCreateError('Email is required.');
       return;
     }
 
     if (createRoleCodes.length === 0) {
-      setCreateError('请至少选择一个角色。');
+      setCreateError('Select at least one role.');
       return;
     }
 
@@ -204,7 +211,9 @@ const PlatformMembers = () => {
       });
 
       closeCreateModal();
-      setNotice(`已创建成员 ${normalizedEmail}，状态为 INACTIVE，请发送邀请链接完成激活。`);
+      setNotice(
+        `Member ${normalizedEmail} was created with INACTIVE status. Send the invitation link to complete activation.`,
+      );
       setInvitePayload({
         email: payload.email,
         inviteLink: payload.inviteLink,
@@ -214,7 +223,7 @@ const PlatformMembers = () => {
       await fetchMembers();
     } catch (err) {
       if (err instanceof AdminPermissionError) {
-        setCreateError('权限不足，无法创建成员。');
+        setCreateError('Permission denied. You cannot create members.');
       } else {
         setCreateError(err instanceof Error ? err.message : 'Failed to create member.');
       }
@@ -226,9 +235,9 @@ const PlatformMembers = () => {
   const copyInviteLink = async (link: string) => {
     try {
       await navigator.clipboard.writeText(link);
-      setNotice('邀请链接已复制。');
+      setNotice('Invitation link copied.');
     } catch {
-      setError('复制失败，请手动复制邀请链接。');
+      setError('Copy failed. Please copy the invitation link manually.');
     }
   };
 
@@ -248,7 +257,7 @@ const PlatformMembers = () => {
         method: 'POST',
       });
 
-      setNotice(`已为 ${member.email} 重发邀请链接。`);
+      setNotice(`Invitation link resent for ${member.email}.`);
       setInvitePayload({
         email: payload.email,
         inviteLink: payload.inviteLink,
@@ -257,7 +266,7 @@ const PlatformMembers = () => {
       });
     } catch (err) {
       if (err instanceof AdminPermissionError) {
-        setError('权限不足，无法重发邀请。');
+        setError('Permission denied. You cannot resend invitations.');
       } else {
         setError(err instanceof Error ? err.message : 'Failed to resend invitation.');
       }
@@ -283,7 +292,7 @@ const PlatformMembers = () => {
 
     try {
       if (!canReadUserRoles) {
-        throw new Error('当前账号没有读取用户角色的权限。');
+        throw new Error('The current account cannot read user role bindings.');
       }
 
       const payload = await fetchJson<{
@@ -294,7 +303,7 @@ const PlatformMembers = () => {
       setSelectedRoleCodes(payload.roles.map((item) => item.code));
     } catch (err) {
       if (err instanceof AdminPermissionError) {
-        setModalError('权限不足，无法读取该用户角色。');
+        setModalError('Permission denied. You cannot read this user role binding.');
       } else {
         setModalError(err instanceof Error ? err.message : 'Failed to load user roles.');
       }
@@ -323,14 +332,14 @@ const PlatformMembers = () => {
       );
 
       closeRoleModal();
-      setNotice(`已更新 ${selectedMember.email} 的角色绑定。`);
+      setNotice(`Role bindings updated for ${selectedMember.email}.`);
       if (payload.warnings && payload.warnings.length > 0) {
         setModalWarnings(payload.warnings);
       }
       await fetchMembers();
     } catch (err) {
       if (err instanceof AdminPermissionError) {
-        setModalError('权限不足，无法更新角色。');
+        setModalError('Permission denied. You cannot update role bindings.');
       } else {
         setModalError(err instanceof Error ? err.message : 'Failed to update roles.');
       }
@@ -339,13 +348,22 @@ const PlatformMembers = () => {
     }
   };
 
+  const handleSearch = () => {
+    setAppliedSearch(searchInput.trim());
+  };
+
+  const handleReset = () => {
+    setSearchInput('');
+    setAppliedSearch('');
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Platform Members</h1>
           <p className="text-sm text-gray-500 mt-1">
-            成员管理页：创建成员、查看成员、多角色绑定。
+            Manage admin members, invitations, and multi-role assignments.
           </p>
         </div>
 
@@ -353,7 +371,7 @@ const PlatformMembers = () => {
           {canCreateMember && (
             <button
               onClick={openCreateModal}
-              className="inline-flex items-center gap-2 px-3 py-2 rounded-md bg-gray-900 text-white text-sm hover:bg-black transition-colors"
+              className={adminButtonClass('listPrimary')}
             >
               <Plus size={16} />
               Create Member
@@ -363,7 +381,7 @@ const PlatformMembers = () => {
             onClick={() => {
               void refreshData();
             }}
-            className="p-2 text-gray-500 hover:text-brand-primary transition-colors"
+            className={adminIconButtonClass()}
           >
             <RefreshCw size={20} className={loading ? 'animate-spin' : ''} />
           </button>
@@ -385,9 +403,9 @@ const PlatformMembers = () => {
       {invitePayload && (
         <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800 space-y-2">
           <div>
-            邀请对象：{invitePayload.email} | 状态：{invitePayload.inviteStatus}
+            Invitee: {invitePayload.email} | Status: {invitePayload.inviteStatus}
           </div>
-          <div>过期时间：{new Date(invitePayload.inviteExpiresAt).toLocaleString()}</div>
+          <div>Expires At: {new Date(invitePayload.inviteExpiresAt).toLocaleString()}</div>
           <div className="break-all font-mono text-xs bg-white border border-blue-100 rounded px-2 py-1">
             {invitePayload.inviteLink}
           </div>
@@ -412,15 +430,33 @@ const PlatformMembers = () => {
 
       <div className="bg-white rounded-xl shadow-sm border border-admin-border overflow-hidden">
         <div className="p-4 border-b border-admin-border flex gap-4">
-          <div className="relative flex-1 max-w-md">
-            <Search className="absolute left-3 top-2.5 text-gray-400 w-5 h-5" />
-            <input
-              type="text"
-              value={searchTerm}
-              onChange={(event) => setSearchTerm(event.target.value)}
-              placeholder="Search by email or userNo..."
-              className="w-full pl-10 pr-4 py-2 bg-admin-content-bg border border-admin-border rounded-lg focus:outline-none focus:border-brand-primary focus:ring-1 focus:ring-brand-primary/20 transition-all duration-200"
-            />
+          <div className="relative flex-1 max-w-md flex gap-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-2.5 text-gray-400 w-5 h-5" />
+              <input
+                type="text"
+                value={searchInput}
+                onChange={(event) => setSearchInput(event.target.value)}
+                onKeyDown={(event) => event.key === 'Enter' && handleSearch()}
+                placeholder="Search by email or userNo..."
+                className="w-full pl-10 pr-4 py-2 bg-admin-content-bg border border-admin-border rounded-lg focus:outline-none focus:border-brand-primary focus:ring-1 focus:ring-brand-primary/20 transition-all duration-200"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={handleSearch}
+              className={adminButtonClass('listPrimary')}
+            >
+              Search
+            </button>
+            <button
+              type="button"
+              onClick={handleReset}
+              className={adminButtonClass('listSecondary')}
+              disabled={!hasSearch}
+            >
+              Reset
+            </button>
           </div>
         </div>
 
@@ -499,7 +535,7 @@ const PlatformMembers = () => {
                               onClick={() => {
                                 void openRoleModal(member);
                               }}
-                              className="text-xs px-3 py-1.5 rounded-md border border-admin-border hover:bg-admin-content-bg"
+                              className={adminButtonClass('rowSecondaryUtility')}
                             >
                               Assign Roles
                             </button>
@@ -510,7 +546,7 @@ const PlatformMembers = () => {
                                 void submitResendInvite(member);
                               }}
                               disabled={resendingMemberId === member.id}
-                              className="text-xs px-3 py-1.5 rounded-md border border-admin-border hover:bg-admin-content-bg disabled:opacity-60"
+                              className={adminButtonClass('rowSecondaryUtility')}
                             >
                               {resendingMemberId === member.id ? 'Resending...' : 'Resend Invite'}
                             </button>
@@ -539,7 +575,9 @@ const PlatformMembers = () => {
             <div className="px-5 py-4 border-b border-admin-border flex items-center justify-between">
               <div>
                 <h3 className="font-semibold text-gray-900">Create Member</h3>
-                <p className="text-xs text-gray-500 mt-1">成员创建后为 INACTIVE，需通过邀请链接设密激活</p>
+                <p className="text-xs text-gray-500 mt-1">
+                  New members start as INACTIVE and must set a password through the invitation link.
+                </p>
               </div>
               <button onClick={closeCreateModal} className="text-gray-400 hover:text-gray-600">
                 <X size={18} />
@@ -602,7 +640,7 @@ const PlatformMembers = () => {
             <div className="px-5 py-4 border-t border-admin-border flex justify-end gap-2">
               <button
                 onClick={closeCreateModal}
-                className="px-4 py-2 text-sm border border-admin-border rounded-md hover:bg-admin-content-bg"
+                className={adminButtonClass('modalCancel')}
               >
                 Cancel
               </button>
@@ -611,7 +649,7 @@ const PlatformMembers = () => {
                   void submitCreateMember();
                 }}
                 disabled={creatingMember}
-                className="px-4 py-2 text-sm rounded-md bg-gray-900 text-white hover:bg-black disabled:opacity-60"
+                className={adminButtonClass('modalConfirm')}
               >
                 {creatingMember ? 'Creating...' : 'Create'}
               </button>
@@ -668,7 +706,7 @@ const PlatformMembers = () => {
             <div className="px-5 py-4 border-t border-admin-border flex justify-end gap-2">
               <button
                 onClick={closeRoleModal}
-                className="px-4 py-2 text-sm border border-admin-border rounded-md hover:bg-admin-content-bg"
+                className={adminButtonClass('modalCancel')}
               >
                 Cancel
               </button>
@@ -677,7 +715,7 @@ const PlatformMembers = () => {
                   void submitRoleChanges();
                 }}
                 disabled={savingRoles || !canAssignRoles || modalLoading}
-                className="px-4 py-2 text-sm rounded-md bg-gray-900 text-white hover:bg-black disabled:opacity-60"
+                className={adminButtonClass('modalConfirm')}
               >
                 {savingRoles ? 'Saving...' : 'Save Roles'}
               </button>

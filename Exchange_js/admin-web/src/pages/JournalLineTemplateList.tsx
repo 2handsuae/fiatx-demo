@@ -2,8 +2,6 @@ import { useEffect, useState } from 'react';
 import { 
   RefreshCw, 
   Plus, 
-  Edit2, 
-  Trash2, 
   ArrowLeft
 } from 'lucide-react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -11,6 +9,8 @@ import {
   BUSINESS_CONFIG_RELEASES_PATH,
   showBusinessConfigReadOnlyAlert,
 } from '../utils/businessConfigReadOnly';
+import { adminFetch } from '../utils/adminFetch';
+import { adminButtonClass, adminIconButtonClass } from '../components/common/adminButtonStyles';
 
 interface LineTemplateItem {
   id: string;
@@ -38,12 +38,7 @@ const JournalLineTemplateList = () => {
     if (!templateId) return;
     setLoading(true);
     try {
-      const token = localStorage.getItem('admin_token');
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/journal-line-templates?templateId=${templateId}`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
+      const response = await adminFetch(`${import.meta.env.VITE_API_URL}/journal-line-templates?templateId=${templateId}`);
       if (response.ok) {
         const result = await response.json();
         setItems(result || []);
@@ -59,18 +54,13 @@ const JournalLineTemplateList = () => {
     fetchItems();
   }, [templateId]);
 
-  const handleDelete = async (id: string) => {
-      void id;
-      showBusinessConfigReadOnlyAlert('Journal templates');
-  };
-
   if (!templateId) {
       return (
           <div className="p-8 text-center">
               <p className="text-gray-500 mb-4">Please select a Journal Header Template first.</p>
               <button 
                 onClick={() => navigate('/dashboard/system/journal-header-templates')}
-                className="px-4 py-2 bg-brand-primary text-white rounded-lg hover:bg-brand-primary/90 transition-colors"
+                className={adminButtonClass('listPrimary')}
               >
                   Go to Header Templates
               </button>
@@ -92,7 +82,7 @@ const JournalLineTemplateList = () => {
         </div>
         <button 
             onClick={() => navigate(BUSINESS_CONFIG_RELEASES_PATH)}
-            className="flex items-center gap-2 px-4 py-2 bg-white text-gray-700 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+            className={adminButtonClass('listSecondary')}
         >
             <Plus size={20} />
             <span>Open Release Center</span>
@@ -105,7 +95,7 @@ const JournalLineTemplateList = () => {
 
       <div className="bg-white rounded-xl shadow-sm border border-admin-border overflow-hidden">
         <div className="p-4 border-b border-admin-border flex justify-end">
-            <button onClick={fetchItems} className="p-2 text-gray-500 hover:text-brand-primary transition-colors border border-gray-200 rounded-lg bg-white">
+            <button onClick={fetchItems} className={adminIconButtonClass()}>
                 <RefreshCw size={20} className={loading ? 'animate-spin' : ''} />
             </button>
         </div>
@@ -121,7 +111,7 @@ const JournalLineTemplateList = () => {
                 <th className="px-4 py-3 font-medium text-gray-500 uppercase tracking-wider">Asset Src</th>
                 <th className="px-4 py-3 font-medium text-gray-500 uppercase tracking-wider">Condition</th>
                 <th className="px-4 py-3 font-medium text-gray-500 uppercase tracking-wider">Description</th>
-                <th className="px-4 py-3 font-medium text-gray-500 uppercase tracking-wider text-right">Actions</th>
+                <th className="px-4 py-3 font-medium text-gray-500 uppercase tracking-wider text-right">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-admin-border">
@@ -158,20 +148,12 @@ const JournalLineTemplateList = () => {
                     <td className="px-4 py-4 text-xs font-mono text-gray-500 truncate max-w-[150px]">{item.conditionExpr || '-'}</td>
                     <td className="px-4 py-4 text-xs text-gray-500 truncate max-w-[150px]">{item.description}</td>
                     <td className="px-4 py-4 text-right">
-                      <div className="flex justify-end gap-2 items-center">
+                      <div className="flex justify-end gap-3 items-center">
                         <button 
-                            className="p-1.5 text-gray-300 rounded transition-colors cursor-not-allowed"
+                            className={adminButtonClass('rowSecondaryUtility')}
                             onClick={() => showBusinessConfigReadOnlyAlert('Journal templates')}
-                            title="Read-only"
                         >
-                            <Edit2 size={16} />
-                        </button>
-                        <button 
-                            className="p-1.5 text-gray-300 rounded transition-colors cursor-not-allowed"
-                            onClick={() => handleDelete(item.id)}
-                            title="Read-only"
-                        >
-                            <Trash2 size={16} />
+                            Read-only
                         </button>
                       </div>
                     </td>

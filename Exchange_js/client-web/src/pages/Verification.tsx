@@ -17,6 +17,7 @@ import {
   normalizeCanonicalOperatingStatus,
 } from '../utils/customerOnboarding';
 import { useSimulationMode } from '../utils/simulationMode';
+import { customerFetch } from '../utils/customerFetch';
 
 interface UboItem {
   id: string;
@@ -412,40 +413,26 @@ const Verification = () => {
     };
   }, []);
 
-  const token = localStorage.getItem('customer_token');
   const verificationMode =
     profile?.activePeriodicReviewCycleId || profile?.periodicReviewOverdueAt
       ? 'PERIODIC_REVIEW'
       : 'ONBOARDING';
 
-  const withAuth = async (url: string, init?: RequestInit) => {
-    if (!token) throw new Error('No auth token');
-    return fetch(url, {
-      ...init,
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-        ...(init?.headers || {}),
-      },
-    });
-  };
+  const withAuth = async (url: string, init?: RequestInit) => customerFetch(url, init);
 
   const loadOnboarding = async () => {
-    if (!token) return;
     const response = await withAuth(`${import.meta.env.VITE_API_URL}/onboarding/me`);
     if (!response.ok) throw new Error('Failed to load onboarding profile');
     setOnboarding((await response.json()) as OnboardingSnapshot);
   };
 
   const loadPeriodicReview = async () => {
-    if (!token) return;
     const response = await withAuth(`${import.meta.env.VITE_API_URL}/periodic-review/me`);
     if (!response.ok) throw new Error('Failed to load periodic review profile');
     setPeriodicReview((await response.json()) as PeriodicReviewSnapshot);
   };
 
   const loadNextStep = async () => {
-    if (!token) return;
     if (verificationMode === 'PERIODIC_REVIEW') {
       const response = await withAuth(
         `${import.meta.env.VITE_API_URL}/periodic-review/next-step`,
@@ -477,7 +464,6 @@ const Verification = () => {
   };
 
   const loadResponses = async () => {
-    if (!token) return;
     setCasesLoading(true);
     try {
       const response = await withAuth(
@@ -541,7 +527,7 @@ const Verification = () => {
   };
 
   useEffect(() => {
-    if (profile && token) {
+    if (profile) {
       refreshAll().catch(() => undefined);
     }
   }, [profile?.id, profile?.activePeriodicReviewCycleId, profile?.periodicReviewOverdueAt]);

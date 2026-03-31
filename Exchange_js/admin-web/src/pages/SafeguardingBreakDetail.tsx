@@ -1,7 +1,13 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, RefreshCw } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
 import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/adminFetch';
+import { adminButtonClass } from '../components/common/adminButtonStyles';
+import {
+  ActionSection,
+  DetailCard,
+  DetailPageHeader,
+} from '../components/compliance/DetailPageComponents';
 
 type SafeguardingBreakDetailData = {
   id: string;
@@ -125,10 +131,9 @@ const SafeguardingBreakDetail = () => {
       <div className="space-y-4">
         <button
           onClick={() => navigate('/dashboard/reconciliation/safeguarding-breaks')}
-          className="inline-flex items-center gap-2 rounded-lg border border-admin-border bg-white px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+          className={adminButtonClass('detailUtility')}
         >
-          <ArrowLeft size={16} />
-          Back
+          Back to Safeguarding Breaks
         </button>
         <div className="rounded-xl border border-admin-border bg-white px-6 py-10 text-center text-sm text-gray-500 shadow-sm">
           Safeguarding break not found.
@@ -139,63 +144,21 @@ const SafeguardingBreakDetail = () => {
 
   return (
     <div className="space-y-6 pb-12">
-      <div className="flex flex-col gap-4 rounded-xl border border-admin-border bg-white p-6 shadow-sm md:flex-row md:items-start md:justify-between">
-        <div className="flex items-start gap-4">
-          <button
-            onClick={() => navigate('/dashboard/reconciliation/safeguarding-breaks')}
-            className="mt-1 inline-flex items-center justify-center rounded-lg border border-admin-border p-2 text-gray-700 hover:bg-gray-50"
-          >
-            <ArrowLeft size={18} />
-          </button>
-          <div>
-            <div className="flex flex-wrap items-center gap-3">
-              <h1 className="text-2xl font-bold text-gray-900">Safeguarding Break</h1>
-              <span
-                className={`rounded-full px-3 py-1 text-xs font-medium ${STATUS_COLORS[data.status] || 'bg-gray-100 text-gray-700'}`}
-              >
-                {data.status}
-              </span>
-            </div>
-            <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-gray-500">
-              <span className="font-mono text-brand-primary">{data.breakNo}</span>
-              <span>{data.businessDate}</span>
-              <span>{data.reasonCode}</span>
-            </div>
-          </div>
-        </div>
-        <div className="flex flex-wrap gap-3">
-          <button
-            onClick={() => void fetchDetail()}
-            className="inline-flex items-center gap-2 rounded-lg border border-admin-border px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
-          >
-            <RefreshCw size={16} />
-            Refresh
-          </button>
-          <button
-            onClick={() => void updateStatus('UNDER_REVIEW')}
-            disabled={updating !== null}
-            className="rounded-lg border border-amber-200 px-4 py-2 text-sm text-amber-700 hover:bg-amber-50 disabled:opacity-50"
-          >
-            {updating === 'UNDER_REVIEW' ? 'Updating...' : 'Mark Under Review'}
-          </button>
-          <button
-            onClick={() => void updateStatus('RESOLVED')}
-            disabled={updating !== null}
-            className="rounded-lg border border-emerald-200 px-4 py-2 text-sm text-emerald-700 hover:bg-emerald-50 disabled:opacity-50"
-          >
-            {updating === 'RESOLVED' ? 'Updating...' : 'Resolve'}
-          </button>
-          <button
-            onClick={() => void updateStatus('ACCEPTED_DIFFERENCE')}
-            disabled={updating !== null}
-            className="rounded-lg border border-blue-200 px-4 py-2 text-sm text-blue-700 hover:bg-blue-50 disabled:opacity-50"
-          >
-            {updating === 'ACCEPTED_DIFFERENCE'
-              ? 'Updating...'
-              : 'Accept Difference'}
-          </button>
-        </div>
-      </div>
+      <DetailPageHeader
+        title="Safeguarding Break"
+        subtitle={`${data.breakNo} · ${data.businessDate} · ${data.reasonCode}`}
+        onBack={() => navigate('/dashboard/reconciliation/safeguarding-breaks')}
+        onRefresh={() => void fetchDetail()}
+        backLabel="Back to Safeguarding Breaks"
+      >
+        <span
+          className={`inline-flex items-center rounded-full px-3 py-1 text-sm font-medium ${
+            STATUS_COLORS[data.status] || 'bg-gray-100 text-gray-700'
+          }`}
+        >
+          {data.status}
+        </span>
+      </DetailPageHeader>
 
       {error && (
         <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
@@ -203,8 +166,36 @@ const SafeguardingBreakDetail = () => {
         </div>
       )}
 
-      <div className="rounded-xl border border-admin-border bg-white p-6 shadow-sm">
-        <h2 className="mb-4 text-sm font-bold uppercase text-gray-900">Break Snapshot</h2>
+      <ActionSection
+        title="Workflow Actions"
+        description="Break resolution actions are separated from the snapshot and linked object context."
+      >
+        <div className="flex flex-wrap gap-3">
+          <button
+            onClick={() => void updateStatus('UNDER_REVIEW')}
+            disabled={updating !== null}
+            className={adminButtonClass('workflowSecondary')}
+          >
+            {updating === 'UNDER_REVIEW' ? 'Updating...' : 'Mark Under Review'}
+          </button>
+          <button
+            onClick={() => void updateStatus('RESOLVED')}
+            disabled={updating !== null}
+            className={adminButtonClass('workflowPrimary')}
+          >
+            {updating === 'RESOLVED' ? 'Updating...' : 'Resolve'}
+          </button>
+          <button
+            onClick={() => void updateStatus('ACCEPTED_DIFFERENCE')}
+            disabled={updating !== null}
+            className={adminButtonClass('workflowSecondary')}
+          >
+            {updating === 'ACCEPTED_DIFFERENCE' ? 'Updating...' : 'Accept Difference'}
+          </button>
+        </div>
+      </ActionSection>
+
+      <DetailCard title="Break Snapshot" columns={1}>
         <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
           <Field label="Business Date" value={data.businessDate} />
           <Field label="Reason Code" value={data.reasonCode} />
@@ -218,11 +209,10 @@ const SafeguardingBreakDetail = () => {
           <Field label="Observed Net Delta" value={data.observedNetDelta} />
           <Field label="Delta Amount" value={data.deltaAmount} />
         </div>
-      </div>
+      </DetailCard>
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-        <div className="rounded-xl border border-admin-border bg-white p-6 shadow-sm">
-          <h2 className="mb-4 text-sm font-bold uppercase text-gray-900">Linked Objects</h2>
+        <DetailCard title="Linked Objects" columns={1}>
           <div className="space-y-4">
             <div className="rounded-lg border border-admin-border p-4">
               <div className="text-xs uppercase tracking-wide text-gray-500">Alert</div>
@@ -259,10 +249,9 @@ const SafeguardingBreakDetail = () => {
               )}
             </div>
           </div>
-        </div>
+        </DetailCard>
 
-        <div className="rounded-xl border border-admin-border bg-white p-6 shadow-sm">
-          <h2 className="mb-4 text-sm font-bold uppercase text-gray-900">Workflow Snapshot</h2>
+        <DetailCard title="Workflow Snapshot" columns={1}>
           <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
             <Field label="Withdraw Status" value={data.withdraw?.status} />
             <Field label="Withdraw Net Amount" value={data.withdraw?.netAmount} />
@@ -285,15 +274,14 @@ const SafeguardingBreakDetail = () => {
               }
             />
           </div>
-        </div>
+        </DetailCard>
       </div>
 
-      <div className="rounded-xl border border-admin-border bg-white p-6 shadow-sm">
-        <h2 className="mb-4 text-sm font-bold uppercase text-gray-900">Break Details JSON</h2>
+      <DetailCard title="Break Details JSON" columns={1}>
         <pre className="max-h-[420px] overflow-auto rounded-lg bg-gray-900 p-4 text-xs text-gray-100">
           {JSON.stringify(data.details || {}, null, 2)}
         </pre>
-      </div>
+      </DetailCard>
     </div>
   );
 };

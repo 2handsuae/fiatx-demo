@@ -1,9 +1,19 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, RefreshCw, Plus, CheckCircle, XCircle } from 'lucide-react';
+import { Search, RefreshCw, Plus } from 'lucide-react';
+import {
+  adminButtonClass,
+  adminIconButtonClass,
+} from '../components/common/adminButtonStyles';
+import {
+  AdminSessionError,
+  adminFetch,
+  getApiErrorMessage,
+} from '../utils/adminFetch';
 
 interface Asset {
   id: string;
+  assetNo?: string | null;
   type: 'FIAT' | 'CRYPTO';
   code: string;
   network: string | null;
@@ -18,61 +28,88 @@ const AssetList = () => {
   const navigate = useNavigate();
   const [assets, setAssets] = useState<Asset[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
 
-  const fetchAssets = async () => {
-    setLoading(true);
-    try {
-      const token = localStorage.getItem('admin_token');
-      const params = new URLSearchParams();
-      if (search) params.append('code', search);
-      if (typeFilter) params.append('type', typeFilter);
-      if (statusFilter) params.append('status', statusFilter);
+  const hasFilters = !!search.trim() || !!typeFilter || !!statusFilter;
 
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/assets?${params.toString()}`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
+  type AssetFilters = {
+    search: string;
+    typeFilter: string;
+    statusFilter: string;
+  };
+
+  const fetchAssets = async (overrides?: Partial<AssetFilters>) => {
+    setLoading(true);
+    setError('');
+    try {
+      const nextFilters: AssetFilters = {
+        search,
+        typeFilter,
+        statusFilter,
+        ...overrides,
+      };
+      const params = new URLSearchParams();
+      if (nextFilters.search.trim()) params.append('code', nextFilters.search.trim());
+      if (nextFilters.typeFilter) params.append('type', nextFilters.typeFilter);
+      if (nextFilters.statusFilter) params.append('status', nextFilters.statusFilter);
+
+      const response = await adminFetch(`${import.meta.env.VITE_API_URL}/assets?${params.toString()}`);
       if (response.ok) {
         const result = await response.json();
         setAssets(result.items || []);
+      } else {
+        throw new Error(await getApiErrorMessage(response, 'Failed to fetch assets.'));
       }
     } catch (error) {
+      if (error instanceof AdminSessionError) return;
       console.error('Failed to fetch assets', error);
+      setError(error instanceof Error ? error.message : 'Failed to fetch assets.');
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchAssets();
-  }, [search, typeFilter, statusFilter]);
+    void fetchAssets();
+  }, []);
+
+  const resetFilters = async () => {
+    setSearch('');
+    setTypeFilter('');
+    setStatusFilter('');
+    await fetchAssets({
+      search: '',
+      typeFilter: '',
+      statusFilter: '',
+    });
+  };
 
   const handleStatusChange = async (id: string, currentStatus: string) => {
     const newStatus = currentStatus === 'ACTIVE' ? 'DISABLED' : 'ACTIVE';
     if (!window.confirm(`Are you sure you want to ${newStatus === 'DISABLED' ? 'disable' : 'activate'} this asset?`)) return;
 
     try {
-      const token = localStorage.getItem('admin_token');
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/assets/${id}/status`, {
+      setError('');
+      const response = await adminFetch(`${import.meta.env.VITE_API_URL}/assets/${id}/status`, {
         method: 'PATCH',
         headers: {
-          'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({ status: newStatus })
       });
       
       if (response.ok) {
-        fetchAssets();
+        await fetchAssets();
       } else {
-        alert('Failed to update status');
+        setError(await getApiErrorMessage(response, 'Failed to update asset status.'));
       }
     } catch (error) {
+      if (error instanceof AdminSessionError) return;
       console.error('Failed to update status', error);
+      setError(error instanceof Error ? error.message : 'Failed to update asset status.');
     }
   };
 
@@ -92,29 +129,53 @@ const AssetList = () => {
           <p className="text-sm text-gray-500 mt-1">Manage system assets and tokens</p>
         </div>
         <div className="flex gap-3">
-          <button onClick={fetchAssets} className="p-2 text-gray-500 hover:text-brand-primary transition-colors border border-gray-200 rounded-lg bg-white">
+          <button onClick={() => void fetchAssets()} className={adminIconButtonClass()}>
             <RefreshCw size={20} className={loading ? 'animate-spin' : ''} />
           </button>
           <button 
             onClick={() => navigate('/dashboard/system/assets/create')}
-            className="flex items-center gap-2 px-4 py-2 bg-brand-primary text-white rounded-lg hover:bg-brand-primary/90 transition-colors shadow-sm"
+            className={adminButtonClass('listPrimary')}
           >
             <Plus size={20} /> New Asset
           </button>
         </div>
       </div>
 
+      {error ? (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error}
+        </div>
+      ) : null}
+
       <div className="bg-white rounded-xl shadow-sm border border-admin-border overflow-hidden">
         <div className="p-4 border-b border-admin-border flex flex-col md:flex-row gap-4 justify-between">
-          <div className="relative flex-1 max-w-md">
-            <Search className="absolute left-3 top-2.5 text-gray-400 w-5 h-5" />
-            <input 
-              type="text" 
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search by asset code..." 
-              className="w-full pl-10 pr-4 py-2 bg-admin-content-bg border border-admin-border rounded-lg focus:outline-none focus:border-brand-primary focus:ring-1 focus:ring-brand-primary/20 transition-all duration-200"
-            />
+          <div className="relative flex-1 max-w-md flex gap-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-2.5 text-gray-400 w-5 h-5" />
+              <input 
+                type="text" 
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && void fetchAssets()}
+                placeholder="Search by asset code..." 
+                className="w-full pl-10 pr-4 py-2 bg-admin-content-bg border border-admin-border rounded-lg focus:outline-none focus:border-brand-primary focus:ring-1 focus:ring-brand-primary/20 transition-all duration-200"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={() => void fetchAssets()}
+              className={adminButtonClass('listPrimary')}
+            >
+              Search
+            </button>
+            <button
+              type="button"
+              onClick={() => void resetFilters()}
+              className={adminButtonClass('listSecondary')}
+              disabled={!hasFilters || loading}
+            >
+              Reset
+            </button>
           </div>
           <div className="flex gap-2">
             <select 
@@ -148,7 +209,7 @@ const AssetList = () => {
                 <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Decimals</th>
                 <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Description</th>
                 <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider text-right">Actions</th>
+                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider text-right">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-admin-border">
@@ -176,7 +237,15 @@ const AssetList = () => {
                       </span>
                     </td>
                     <td className="px-6 py-4 font-medium text-gray-900">
-                      {asset.code}
+                      <button
+                        type="button"
+                        onClick={() => navigate(`/dashboard/system/assets/${asset.id}`)}
+                        className={adminButtonClass('rowKeyLink')}
+                        title={asset.assetNo || asset.code}
+                      >
+                        {asset.assetNo || asset.code}
+                      </button>
+                      <div className="text-xs text-gray-500">{asset.code}</div>
                     </td>
                     <td className="px-6 py-4 text-gray-500">
                       {asset.network || '-'}
@@ -191,13 +260,18 @@ const AssetList = () => {
                       {renderStatusBadge(asset.status)}
                     </td>
                     <td className="px-6 py-4 text-right">
-                      <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <div className="flex justify-end opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button
+                          onClick={() => navigate(`/dashboard/system/assets/${asset.id}`)}
+                          className={adminButtonClass('rowLink')}
+                        >
+                          View
+                        </button>
                         <button 
                           onClick={() => handleStatusChange(asset.id, asset.status)}
-                          className={`p-1.5 rounded hover:bg-gray-100 transition-colors ${asset.status === 'ACTIVE' ? 'text-red-500' : 'text-green-500'}`}
-                          title={asset.status === 'ACTIVE' ? 'Disable' : 'Activate'}
+                          className={adminButtonClass('rowSecondaryUtility')}
                         >
-                          {asset.status === 'ACTIVE' ? <XCircle size={18} /> : <CheckCircle size={18} />}
+                          {asset.status === 'ACTIVE' ? 'Disable' : 'Enable'}
                         </button>
                       </div>
                     </td>

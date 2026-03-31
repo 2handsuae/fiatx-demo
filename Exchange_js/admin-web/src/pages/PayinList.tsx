@@ -1,6 +1,10 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, RefreshCw, Eye } from 'lucide-react';
+import { Search, RefreshCw } from 'lucide-react';
+import {
+  adminButtonClass,
+  adminIconButtonClass,
+} from '../components/common/adminButtonStyles';
 import { formatAssetAmount } from '../utils/number-format';
 import {
   AdminSessionError,
@@ -106,7 +110,7 @@ const PayinList = () => {
           <p className="text-sm text-gray-500 mt-1">Read-only monitoring for inbound payin records</p>
         </div>
         <div className="flex gap-3">
-          <button onClick={fetchPayins} className="p-2 text-gray-500 hover:text-brand-primary transition-colors border border-gray-200 rounded-lg bg-white">
+          <button onClick={fetchPayins} className={adminIconButtonClass()}>
             <RefreshCw size={20} className={loading ? 'animate-spin' : ''} />
           </button>
         </div>
@@ -132,7 +136,7 @@ const PayinList = () => {
                     className="w-full pl-10 pr-4 py-2 bg-admin-content-bg border border-admin-border rounded-lg focus:outline-none focus:border-brand-primary focus:ring-1 focus:ring-brand-primary/20 transition-all duration-200"
                     />
                 </div>
-                <button onClick={fetchPayins} className="px-3 py-2 bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200">
+                <button onClick={fetchPayins} className={adminButtonClass('listPrimary')}>
                     Search
                 </button>
             </div>
@@ -162,7 +166,7 @@ const PayinList = () => {
                 <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Type / Asset / Amount</th>
                 <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Rail Status</th>
                 <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Settlement Evidence</th>
-                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider text-right">View</th>
+                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider text-right">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-admin-border">
@@ -189,7 +193,7 @@ const PayinList = () => {
                   <tr key={payin.id} className="hover:bg-gray-50 transition-colors group">
                     <td className="px-6 py-4">
                       <div 
-                        className="font-mono text-xs text-brand-primary font-bold hover:text-blue-800 cursor-pointer truncate max-w-[150px]" 
+                        className={adminButtonClass('rowKeyLink')}
                         title={payin.payinNo}
                         onClick={() => navigate(`/dashboard/treasury/payins/${payin.id}`)}
                       >
@@ -265,12 +269,12 @@ const PayinList = () => {
                     </td>
                     <td className="px-6 py-4 text-right">
                       <div className="flex justify-end items-center">
-                        <button 
+                        <button
                           onClick={() => navigate(`/dashboard/treasury/payins/${payin.id}`)}
-                          className="p-1.5 text-blue-600 rounded hover:bg-blue-50 transition-colors" 
-                          title="View Details"
+                          className={adminButtonClass('rowLink')}
+                          title="View"
                         >
-                            <Eye size={18} />
+                            View
                         </button>
                       </div>
                     </td>

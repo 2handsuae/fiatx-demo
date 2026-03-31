@@ -3,6 +3,11 @@ import { Wallet, Building2, History, RefreshCw, Info, AlertTriangle, ArrowRight,
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { formatAssetAmount } from '../utils/number-format';
+import {
+  CustomerSessionError,
+  customerFetch,
+  getCustomerApiErrorMessage,
+} from '../utils/customerFetch';
 
 interface Asset {
   id: string;
@@ -104,26 +109,27 @@ const Withdraw = () => {
       if (!user) return;
       setBalanceLoading(true);
       try {
-        const token = localStorage.getItem('customer_token');
-        
         // Fetch Assets
-        const assetsResponse = await fetch(`${import.meta.env.VITE_API_URL}/assets?status=ACTIVE`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
+        const assetsResponse = await customerFetch(
+          `${import.meta.env.VITE_API_URL}/assets?status=ACTIVE`,
+        );
         if (assetsResponse.ok) {
           const data = await assetsResponse.json();
           setAssets(data.items || []);
         }
 
         // Fetch Balances
-        const balancesResponse = await fetch(`${import.meta.env.VITE_API_URL}/treasury/customer/${user.id}/assets`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
+        const balancesResponse = await customerFetch(
+          `${import.meta.env.VITE_API_URL}/treasury/customer/${user.id}/assets`,
+        );
         if (balancesResponse.ok) {
           const data = await balancesResponse.json();
           setBalances(data);
         }
-      } catch (error) {
+      } catch (error: unknown) {
+        if (error instanceof CustomerSessionError) {
+          return;
+        }
         console.error('Failed to fetch data', error);
       } finally {
         setBalanceLoading(false);
@@ -142,7 +148,6 @@ const Withdraw = () => {
     const fetchWallets = async () => {
       setLoading(true);
       try {
-        const token = localStorage.getItem('customer_token');
         // Following requirement: direction=OUTBOUND & assetId=...
         const params = new URLSearchParams({
             ownerType: 'CUSTOMER',
@@ -151,15 +156,18 @@ const Withdraw = () => {
             walletRole: 'GENERAL',
             assetId: selectedAssetId
         });
-        const response = await fetch(`${import.meta.env.VITE_API_URL}/wallets?${params.toString()}`, {
-            headers: { 'Authorization': `Bearer ${token}` }
-        });
+        const response = await customerFetch(
+          `${import.meta.env.VITE_API_URL}/wallets?${params.toString()}`,
+        );
 
         if (response.ok) {
             const data = await response.json();
             setWallets(data.items || []);
         }
-      } catch (error) {
+      } catch (error: unknown) {
+        if (error instanceof CustomerSessionError) {
+          return;
+        }
         console.error('Failed to fetch wallets', error);
       } finally {
         setLoading(false);
@@ -179,7 +187,6 @@ const Withdraw = () => {
   const fetchHistory = async () => {
       setHistoryLoading(true);
       try {
-          const token = localStorage.getItem('customer_token');
           const params = new URLSearchParams({
               skip: ((page - 1) * 10).toString(),
               take: '10',
@@ -187,16 +194,19 @@ const Withdraw = () => {
           if (historyStatus) params.append('status', historyStatus);
           if (historyAssetId) params.append('assetId', historyAssetId);
 
-          const response = await fetch(`${import.meta.env.VITE_API_URL}/withdraw-transactions/my?${params.toString()}`, {
-              headers: { 'Authorization': `Bearer ${token}` }
-          });
+          const response = await customerFetch(
+            `${import.meta.env.VITE_API_URL}/withdraw-transactions/my?${params.toString()}`,
+          );
 
           if (response.ok) {
               const data = await response.json();
               setTransactions(data.items || []);
               setTotal(data.total || 0);
           }
-      } catch (error) {
+      } catch (error: unknown) {
+          if (error instanceof CustomerSessionError) {
+            return;
+          }
           console.error('Failed to fetch history', error);
       } finally {
           setHistoryLoading(false);
@@ -206,16 +216,6 @@ const Withdraw = () => {
   const selectedBalance = balances.find(b => b.assetId === selectedAssetId);
   const availableBalance = selectedBalance ? selectedBalance.clientCredit : 0;
   const selectedAsset = assets.find((a) => a.id === selectedAssetId);
-
-  const getErrorMessage = (message: unknown, fallback: string) => {
-    if (Array.isArray(message)) {
-      return message.join(', ');
-    }
-    if (typeof message === 'string' && message.trim()) {
-      return message;
-    }
-    return fallback;
-  };
 
   const clearQuoteState = () => {
     setQuote(null);
@@ -260,15 +260,10 @@ const Withdraw = () => {
     setQuoteLoading(true);
     setQuoteError(null);
     try {
-      const token = localStorage.getItem('customer_token');
-      const response = await fetch(
+      const response = await customerFetch(
         `${import.meta.env.VITE_API_URL}/withdraw-transactions/quotes`,
         {
           method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
           body: JSON.stringify({
             assetId: selectedAssetId,
             amount: withdrawAmount,
@@ -277,14 +272,18 @@ const Withdraw = () => {
       );
 
       if (!response.ok) {
-        const err = await response.json();
-        throw new Error(getErrorMessage(err?.message, 'Failed to generate withdrawal quote'));
+        throw new Error(
+          await getCustomerApiErrorMessage(response, 'Failed to generate withdrawal quote'),
+        );
       }
 
       const data = (await response.json()) as WithdrawQuoteResult;
       setQuote(data);
       return data;
-    } catch (error) {
+    } catch (error: unknown) {
+      if (error instanceof CustomerSessionError) {
+        return null;
+      }
       const message = error instanceof Error ? error.message : 'Failed to generate withdrawal quote';
       setQuoteError(message);
       setQuote(null);
@@ -318,7 +317,6 @@ const Withdraw = () => {
     const withdrawAmount = parseFloat(amount);
     setSubmitting(true);
     try {
-      const token = localStorage.getItem('customer_token');
       const wallet = wallets.find(w => w.id === selectedWalletId);
       const asset = selectedAsset;
 
@@ -331,12 +329,8 @@ const Withdraw = () => {
           quoteId: quote.quoteId,
       };
 
-        const response = await fetch(`${import.meta.env.VITE_API_URL}/withdraw-transactions`, {
+        const response = await customerFetch(`${import.meta.env.VITE_API_URL}/withdraw-transactions`, {
             method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/json'
-            },
             body: JSON.stringify(payload)
         });
 
@@ -348,22 +342,27 @@ const Withdraw = () => {
             setManualAddress('');
             clearQuoteState();
             // Refresh balances
-            const balancesResponse = await fetch(`${import.meta.env.VITE_API_URL}/treasury/customer/${user?.id}/assets`, {
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
+            const balancesResponse = await customerFetch(
+              `${import.meta.env.VITE_API_URL}/treasury/customer/${user?.id}/assets`,
+            );
             if (balancesResponse.ok) {
                 const data = await balancesResponse.json();
                 setBalances(data);
             }
         } else {
-            const err = await response.json();
-            const message = getErrorMessage(err?.message, 'Failed to submit withdrawal request');
+            const message = await getCustomerApiErrorMessage(
+              response,
+              'Failed to submit withdrawal request',
+            );
             alert(message);
             if (message.toLowerCase().includes('quote')) {
               clearQuoteState();
             }
         }
-    } catch (error) {
+    } catch (error: unknown) {
+        if (error instanceof CustomerSessionError) {
+          return;
+        }
         console.error('Withdrawal failed', error);
         alert('An unexpected error occurred');
     } finally {
@@ -407,10 +406,45 @@ const Withdraw = () => {
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Withdraw</h1>
-          <p className="text-gray-500 dark:text-gray-400 mt-1">Withdraw Crypto or Fiat from your account</p>
+      <div className="relative overflow-hidden rounded-[2rem] border border-slate-200 bg-[linear-gradient(135deg,rgba(15,23,42,1),rgba(15,23,42,0.92),rgba(30,41,59,0.98))] p-7 text-white shadow-[0_24px_60px_rgba(15,23,42,0.18)]">
+        <div className="pointer-events-none absolute inset-0 opacity-[0.14] [background-image:linear-gradient(rgba(148,163,184,0.38)_1px,transparent_1px),linear-gradient(90deg,rgba(148,163,184,0.38)_1px,transparent_1px)] [background-size:28px_28px]" />
+        <div className="pointer-events-none absolute -right-16 top-0 h-48 w-48 rounded-full bg-brand-accent/20 blur-3xl" />
+        <div className="pointer-events-none absolute bottom-0 left-0 h-48 w-48 rounded-full bg-brand-primary/20 blur-3xl" />
+        <div className="relative z-10 flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+          <div className="max-w-3xl space-y-4">
+            <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/10 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.24em] text-cyan-100">
+              <ShieldCheck size={14} />
+              Guided Funding Out
+            </div>
+            <div>
+              <h1 className="text-4xl font-black tracking-[-0.04em] text-white sm:text-5xl">
+                Withdraw with rail clarity,
+                <span className="block text-cyan-200">quote review, and history in one surface.</span>
+              </h1>
+              <p className="mt-4 max-w-2xl text-sm leading-7 text-slate-300 sm:text-base">
+                This page keeps the journey simple: choose the rail, preview the quote, confirm
+                the payout path, then review the lifecycle in history without dropping into raw
+                technical detail.
+              </p>
+            </div>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-3 lg:min-w-[420px]">
+            <div className="rounded-2xl border border-white/10 bg-white/10 px-4 py-4">
+              <div className="text-[11px] uppercase tracking-[0.22em] text-slate-400">Surface</div>
+              <div className="mt-2 text-lg font-bold text-white">
+                {activeTab === 'history' ? 'History' : activeTab === 'crypto' ? 'Crypto Rail' : 'Fiat Rail'}
+              </div>
+            </div>
+            <div className="rounded-2xl border border-white/10 bg-white/10 px-4 py-4">
+              <div className="text-[11px] uppercase tracking-[0.22em] text-slate-400">Quote State</div>
+              <div className="mt-2 text-lg font-bold text-white">{quote ? 'Ready' : 'Preview First'}</div>
+            </div>
+            <div className="rounded-2xl border border-white/10 bg-white/10 px-4 py-4">
+              <div className="text-[11px] uppercase tracking-[0.22em] text-slate-400">Lifecycle</div>
+              <div className="mt-2 text-lg font-bold text-white">Operator Reviewed</div>
+            </div>
+          </div>
         </div>
       </div>
 

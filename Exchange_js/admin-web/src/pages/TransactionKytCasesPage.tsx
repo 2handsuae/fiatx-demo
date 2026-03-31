@@ -2,6 +2,10 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { RefreshCw, Search } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import {
+  adminButtonClass,
+  adminIconButtonClass,
+} from '../components/common/adminButtonStyles';
+import {
   AdminSessionError,
   adminFetch,
   getApiErrorMessage,
@@ -38,6 +42,10 @@ const TransactionKytCasesPage = () => {
   const [provider, setProvider] = useState('');
   const [screeningStage, setScreeningStage] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
+  const hasFilters = useMemo(
+    () => !!sourceType || !!sourceId || !!status || !!provider || !!screeningStage,
+    [provider, screeningStage, sourceId, sourceType, status],
+  );
 
   const fetchCases = useCallback(async () => {
     setLoading(true);
@@ -85,7 +93,7 @@ const TransactionKytCasesPage = () => {
         </div>
         <button
           onClick={fetchCases}
-          className="p-2 text-gray-500 hover:text-brand-primary"
+          className={adminIconButtonClass()}
           title="Refresh"
         >
           <RefreshCw size={20} className={loading ? 'animate-spin' : ''} />
@@ -133,10 +141,24 @@ const TransactionKytCasesPage = () => {
           <span>Transactions: {txCount}</span>
           <button
             onClick={fetchCases}
-            className="inline-flex items-center gap-1 px-2 py-1 rounded border border-gray-200 hover:bg-gray-50 text-gray-700"
+            className={adminButtonClass('listPrimary')}
           >
-            <Search size={12} />
+            <Search size={16} />
             Search
+          </button>
+          <button
+            onClick={() => {
+              setSourceType('');
+              setSourceId('');
+              setStatus('');
+              setProvider('');
+              setScreeningStage('');
+              void fetchCases();
+            }}
+            disabled={!hasFilters}
+            className={adminButtonClass('listSecondary')}
+          >
+            Reset
           </button>
         </div>
       </div>
@@ -177,7 +199,12 @@ const TransactionKytCasesPage = () => {
               items.map((item) => (
                 <tr key={item.id} className="hover:bg-gray-50">
                   <td className="px-4 py-3">
-                    <div className="font-semibold text-gray-900">{item.caseNo}</div>
+                    <button
+                      onClick={() => navigate(`/dashboard/compliance/tx-kyt-responses/${item.id}`)}
+                      className={adminButtonClass('rowKeyLink')}
+                    >
+                      {item.caseNo}
+                    </button>
                     <div className="text-xs text-gray-400">{item.id}</div>
                   </td>
                   <td className="px-4 py-3 text-gray-700">
@@ -202,9 +229,9 @@ const TransactionKytCasesPage = () => {
                   <td className="px-4 py-3">
                     <button
                       onClick={() => navigate(`/dashboard/compliance/tx-kyt-responses/${item.id}`)}
-                      className="text-xs border border-gray-200 px-2 py-1 rounded hover:bg-gray-50"
+                      className={adminButtonClass('rowLink')}
                     >
-                      View Response
+                      View
                     </button>
                   </td>
                 </tr>

@@ -40,7 +40,7 @@ const RoleManagement = () => {
       setExpandedRoleCodes(payload.map((role) => role.code));
     } catch (err) {
       if (err instanceof AdminPermissionError) {
-        setError('权限不足，无法查看角色目录。');
+        setError('Permission denied. You cannot view the role catalog.');
       } else {
         setError(err instanceof Error ? err.message : 'Failed to load roles.');
       }
@@ -76,7 +76,7 @@ const RoleManagement = () => {
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Role Management</h1>
           <p className="text-sm text-gray-500 mt-1">
-            展示系统固定角色与对应接口权限说明（只读）。
+            Read-only catalog of fixed system roles and their bound API permissions.
           </p>
         </div>
         <button

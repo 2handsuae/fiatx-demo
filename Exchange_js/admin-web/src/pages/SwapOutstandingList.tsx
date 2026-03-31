@@ -1,7 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Eye, RefreshCw, Search } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
 import { formatAssetAmount } from '../utils/number-format';
+import { adminFetch, getApiErrorMessage } from '../utils/adminFetch';
+import { adminButtonClass, adminIconButtonClass } from '../components/common/adminButtonStyles';
 
 interface SwapOutstandingListItem {
   id: string;
@@ -30,11 +32,27 @@ const SwapOutstandingList = () => {
   const [assetId, setAssetId] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
+  const [error, setError] = useState('');
+
+  const hasFilters = useMemo(
+    () =>
+      Boolean(
+        status ||
+          direction ||
+          outstandingNo.trim() ||
+          ownerNo.trim() ||
+          sourceNo.trim() ||
+          assetId.trim() ||
+          startDate ||
+          endDate,
+      ),
+    [assetId, direction, endDate, outstandingNo, ownerNo, sourceNo, startDate, status],
+  );
 
   const fetchItems = async () => {
     setLoading(true);
+    setError('');
     try {
-      const token = localStorage.getItem('admin_token');
       const params = new URLSearchParams();
       params.set('sourceType', 'SWAP');
       if (status) params.set('status', status);
@@ -46,24 +64,19 @@ const SwapOutstandingList = () => {
       if (startDate) params.set('startDate', new Date(startDate).toISOString());
       if (endDate) params.set('endDate', new Date(endDate).toISOString());
 
-      const response = await fetch(
+      const response = await adminFetch(
         `${import.meta.env.VITE_API_URL}/admin/reconciliation/outstandings?${params.toString()}`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        },
       );
 
       if (response.ok) {
         const result = await response.json();
         setItems(result.items || []);
-      } else if (response.status === 401) {
-        localStorage.removeItem('admin_token');
-        navigate('/admin/login');
+        return;
       }
+      setError(await getApiErrorMessage(response, 'Failed to load swap outstandings.'));
     } catch (error) {
       console.error('Failed to fetch swap outstandings', error);
+      setError('Failed to load swap outstandings.');
     } finally {
       setLoading(false);
     }
@@ -71,7 +84,39 @@ const SwapOutstandingList = () => {
 
   useEffect(() => {
     fetchItems();
-  }, [status, direction]);
+  }, []);
+
+  const handleReset = () => {
+    setStatus('');
+    setDirection('');
+    setOutstandingNo('');
+    setOwnerNo('');
+    setSourceNo('');
+    setAssetId('');
+    setStartDate('');
+    setEndDate('');
+    setItems([]);
+    setError('');
+    setLoading(true);
+    void (async () => {
+      try {
+        const response = await adminFetch(
+          `${import.meta.env.VITE_API_URL}/admin/reconciliation/outstandings?sourceType=SWAP`,
+        );
+        if (response.ok) {
+          const result = await response.json();
+          setItems(result.items || []);
+          return;
+        }
+        setError(await getApiErrorMessage(response, 'Failed to load swap outstandings.'));
+      } catch (resetError) {
+        console.error('Failed to reset swap outstandings', resetError);
+        setError('Failed to load swap outstandings.');
+      } finally {
+        setLoading(false);
+      }
+    })();
+  };
 
   const renderDirection = (value: string) => {
     const classNameMap: Record<string, string> = {
@@ -100,7 +145,7 @@ const SwapOutstandingList = () => {
         </div>
         <button
           onClick={fetchItems}
-          className="p-2 text-gray-500 hover:text-brand-primary transition-colors border border-gray-200 rounded-lg bg-white"
+          className={adminIconButtonClass()}
         >
           <RefreshCw size={20} className={loading ? 'animate-spin' : ''} />
         </button>
@@ -168,10 +213,16 @@ const SwapOutstandingList = () => {
           <div>
             <button
               onClick={fetchItems}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 text-sm font-medium transition-colors"
+              className={adminButtonClass('listPrimary')}
             >
-              <Search size={16} />
               Search
+            </button>
+            <button
+              onClick={handleReset}
+              className={adminButtonClass('listSecondary', 'ml-2')}
+              disabled={!hasFilters && !error}
+            >
+              Reset
             </button>
           </div>
         </div>
@@ -187,18 +238,25 @@ const SwapOutstandingList = () => {
                 <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Source No (Swap)</th>
                 <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Asset / Amount</th>
                 <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Created At</th>
-                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider text-right">Actions</th>
+                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider text-right">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-admin-border">
-              {loading && items.length === 0 ? (
+              {error ? (
+                <tr>
+                  <td colSpan={8} className="px-6 py-12 text-center text-rose-600">
+                    {error}
+                  </td>
+                </tr>
+              ) : null}
+              {!error && loading && items.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="px-6 py-12 text-center text-gray-500">
                     <RefreshCw className="animate-spin mx-auto mb-2 text-brand-primary" size={22} />
                     Loading outstandings...
                   </td>
                 </tr>
-              ) : items.length === 0 ? (
+              ) : !error && items.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="px-6 py-12 text-center text-gray-500">
                     No outstandings found
@@ -207,7 +265,19 @@ const SwapOutstandingList = () => {
               ) : (
                 items.map((item) => (
                   <tr key={item.id} className="hover:bg-gray-50 transition-colors">
-                    <td className="px-6 py-4 font-mono text-xs text-gray-700">{item.outstandingNo || 'N/A'}</td>
+                    <td className="px-6 py-4">
+                      {item.outstandingNo ? (
+                        <button
+                          type="button"
+                          onClick={() => navigate(`/dashboard/reconciliation/outstandings/${item.id}`)}
+                          className={adminButtonClass('rowKeyLink')}
+                        >
+                          {item.outstandingNo}
+                        </button>
+                      ) : (
+                        <span className="font-mono text-xs text-gray-700">N/A</span>
+                      )}
+                    </td>
                     <td className="px-6 py-4">{renderDirection(item.direction)}</td>
                     <td className="px-6 py-4">
                       <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
@@ -227,11 +297,11 @@ const SwapOutstandingList = () => {
                     </td>
                     <td className="px-6 py-4 text-right">
                       <button
+                        type="button"
                         onClick={() => navigate(`/dashboard/reconciliation/outstandings/${item.id}`)}
-                        className="p-1.5 text-blue-600 rounded hover:bg-blue-50 transition-colors"
-                        title="View Details"
+                        className={adminButtonClass('rowLink')}
                       >
-                        <Eye size={18} />
+                        View
                       </button>
                     </td>
                   </tr>

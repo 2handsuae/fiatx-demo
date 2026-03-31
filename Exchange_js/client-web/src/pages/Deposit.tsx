@@ -4,6 +4,11 @@ import { QRCodeSVG } from 'qrcode.react';
 import { useAuth } from '../context/AuthContext';
 import { formatAssetAmount } from '../utils/number-format';
 import { useSimulationMode } from '../utils/simulationMode';
+import {
+  CustomerSessionError,
+  customerFetch,
+  getCustomerApiErrorMessage,
+} from '../utils/customerFetch';
 
 interface Asset {
   id: string;
@@ -136,15 +141,13 @@ const Deposit = () => {
   useEffect(() => {
     const fetchAssets = async () => {
       try {
-        const token = localStorage.getItem('customer_token');
-        const response = await fetch(`${import.meta.env.VITE_API_URL}/assets?status=ACTIVE`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
+        const response = await customerFetch(`${import.meta.env.VITE_API_URL}/assets?status=ACTIVE`);
         if (response.ok) {
           const data = await response.json();
           setAssets(data.items || []);
         }
       } catch (error) {
+        if (error instanceof CustomerSessionError) return;
         console.error('Failed to fetch assets', error);
       }
     };
@@ -160,7 +163,6 @@ const Deposit = () => {
     const fetchWallet = async () => {
       setLoading(true);
       try {
-        const token = localStorage.getItem('customer_token');
         const params = new URLSearchParams({
           ownerType: 'CUSTOMER',
           ownerId: user.id,
@@ -168,9 +170,9 @@ const Deposit = () => {
           walletRole: 'DEPOSIT',
           assetId: selectedAssetId,
         });
-        const response = await fetch(`${import.meta.env.VITE_API_URL}/wallets?${params.toString()}`, {
-            headers: { 'Authorization': `Bearer ${token}` }
-        });
+        const response = await customerFetch(
+          `${import.meta.env.VITE_API_URL}/wallets?${params.toString()}`,
+        );
 
         if (response.ok) {
             const data = await response.json();
@@ -184,6 +186,7 @@ const Deposit = () => {
             setDepositWallet(found || null);
         }
       } catch (error) {
+        if (error instanceof CustomerSessionError) return;
         console.error('Failed to fetch wallet', error);
       } finally {
         setLoading(false);
@@ -219,7 +222,6 @@ const Deposit = () => {
   const fetchHistory = async () => {
       setHistoryLoading(true);
       try {
-          const token = localStorage.getItem('customer_token');
           const params = new URLSearchParams({
               skip: ((page - 1) * 10).toString(),
               take: '10',
@@ -227,9 +229,9 @@ const Deposit = () => {
           if (historyStatus) params.append('status', historyStatus);
           if (historyAssetId) params.append('assetId', historyAssetId);
 
-          const response = await fetch(`${import.meta.env.VITE_API_URL}/deposit-transactions/my?${params.toString()}`, {
-              headers: { 'Authorization': `Bearer ${token}` }
-          });
+          const response = await customerFetch(
+            `${import.meta.env.VITE_API_URL}/deposit-transactions/my?${params.toString()}`,
+          );
 
           if (response.ok) {
               const data = await response.json();
@@ -237,6 +239,7 @@ const Deposit = () => {
               setTotal(data.total || 0);
           }
       } catch (error) {
+          if (error instanceof CustomerSessionError) return;
           console.error('Failed to fetch history', error);
       } finally {
           setHistoryLoading(false);
@@ -247,7 +250,6 @@ const Deposit = () => {
     if (!selectedAssetId || !user) return;
     setGenerating(true);
     try {
-        const token = localStorage.getItem('customer_token');
         const payload = {
             ownerType: 'CUSTOMER',
             ownerId: user.id,
@@ -256,12 +258,8 @@ const Deposit = () => {
             assetId: selectedAssetId,
         };
 
-        const response = await fetch(`${import.meta.env.VITE_API_URL}/wallets`, {
+        const response = await customerFetch(`${import.meta.env.VITE_API_URL}/wallets`, {
             method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/json'
-            },
             body: JSON.stringify(payload)
         });
 
@@ -269,10 +267,10 @@ const Deposit = () => {
             const newWallet = await response.json();
             setDepositWallet(newWallet);
         } else {
-            const err = await response.json();
-            alert(err.message || 'Failed to generate address');
+            alert(await getCustomerApiErrorMessage(response, 'Failed to generate address'));
         }
     } catch (error) {
+        if (error instanceof CustomerSessionError) return;
         console.error('Generation failed', error);
         alert('An unexpected error occurred');
     } finally {
@@ -363,22 +361,17 @@ const Deposit = () => {
     };
   };
 
-  const scanInboundSignals = async (walletId: string, token: string) => {
-    const response = await fetch(
+  const scanInboundSignals = async (walletId: string) => {
+    const response = await customerFetch(
       `${import.meta.env.VITE_API_URL}/deposit-transactions/my/inbound-signals/scan`,
       {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
         body: JSON.stringify({ walletId, mode: 'INTERACTIVE' }),
       },
     );
 
     if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.message || 'Failed to scan inbound signals');
+      throw new Error(await getCustomerApiErrorMessage(response, 'Failed to scan inbound signals'));
     }
 
     return response.json() as Promise<ScanInboundSignalsResult>;
@@ -400,33 +393,26 @@ const Deposit = () => {
     setSignalFeedback(null);
     setLastSimulationResult(null);
     try {
-      const token = localStorage.getItem('customer_token');
-      if (!token) {
-        throw new Error('Customer session expired. Please log in again.');
-      }
       const payload: CreateInboundTransferSignalPayload = {
         ...buildMockInboundSignalPayload(depositWallet, amount),
       };
-      const createResponse = await fetch(
+      const createResponse = await customerFetch(
         `${import.meta.env.VITE_API_URL}/deposit-transactions/my/inbound-signals`,
         {
           method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
           body: JSON.stringify(payload),
         },
       );
 
       if (!createResponse.ok) {
-        const error = await createResponse.json();
-        throw new Error(error.message || 'Failed to submit inbound signal');
+        throw new Error(
+          await getCustomerApiErrorMessage(createResponse, 'Failed to submit inbound signal'),
+        );
       }
 
       const createdSignal =
         (await createResponse.json()) as CreatedInboundSignalResponse;
-      const result = await scanInboundSignals(depositWallet.id, token || '');
+      const result = await scanInboundSignals(depositWallet.id);
       await fetchHistory();
       const firstRecord = result.records?.[0];
       const fallbackRecord = createdSignal?.payin
@@ -457,6 +443,7 @@ const Deposit = () => {
       setSignalAmount('');
       setShowSimulateModal(false);
     } catch (error) {
+      if (error instanceof CustomerSessionError) return;
       console.error('Failed to simulate inbound signal', error);
       setSignalFeedback({
         kind: 'error',

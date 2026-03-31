@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
-import { ArrowLeft, RefreshCw } from 'lucide-react';
+import { ArrowLeft, Check, Copy, ExternalLink, RefreshCw } from 'lucide-react';
+import { adminButtonClass } from '../common/adminButtonStyles';
 
 const formatValue = (value: unknown): string => {
   if (value === null || value === undefined) return '-';
@@ -30,14 +31,14 @@ export const DetailPageHeader = ({
         <div className="flex items-center gap-3">
           <button
             onClick={onBack}
-            className="inline-flex items-center gap-2 rounded-lg border border-admin-border bg-white px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+            className={adminButtonClass('detailUtility')}
           >
             <ArrowLeft size={16} />
             {backLabel}
           </button>
           <button
             onClick={onRefresh}
-            className="inline-flex items-center gap-2 rounded-lg border border-admin-border bg-white px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+            className={adminButtonClass('detailUtility')}
           >
             <RefreshCw size={16} className={refreshing ? 'animate-spin' : ''} />
             Refresh
@@ -55,10 +56,14 @@ export const DetailPageHeader = ({
 
 export const DetailCard = ({
   title,
+  icon,
+  description,
   children,
   columns = 3,
 }: {
   title: string;
+  icon?: ReactNode;
+  description?: string;
   children: ReactNode;
   columns?: 1 | 2 | 3;
 }) => {
@@ -72,8 +77,10 @@ export const DetailCard = ({
   return (
     <div className="rounded-xl border border-admin-border bg-white p-6 shadow-sm">
       <div className="mb-4 flex items-center gap-2">
+        {icon ? <div className="text-brand-primary">{icon}</div> : null}
         <h2 className="text-lg font-bold text-gray-900">{title}</h2>
       </div>
+      {description ? <p className="mb-4 text-sm text-gray-500">{description}</p> : null}
       <div className={gridClassName}>{children}</div>
     </div>
   );
@@ -83,18 +90,71 @@ export const InfoField = ({
   label,
   value,
   mono = false,
+  accent = false,
+  highlight = false,
+  emptyLabel = '-',
+  copyable = false,
+  copied = false,
+  isCopied = false,
+  onCopy,
+  link,
+  source: _source,
+  icon,
 }: {
   label: string;
   value: unknown;
   mono?: boolean;
-}) => (
-  <div className="min-w-0">
-    <div className="text-xs uppercase tracking-wide text-gray-500">{label}</div>
-    <div className={`mt-1 break-all text-sm text-gray-900 ${mono ? 'font-mono' : ''}`}>
-      {formatValue(value)}
+  accent?: boolean;
+  highlight?: boolean;
+  emptyLabel?: string;
+  copyable?: boolean;
+  copied?: boolean;
+  isCopied?: boolean;
+  onCopy?: (value: string) => void;
+  link?: string;
+  source?: 'main' | 'kyc' | 'edd';
+  icon?: ReactNode;
+}) => {
+  const normalized = formatValue(value);
+  const hasValue = normalized !== '-';
+  const displayValue = hasValue ? normalized : emptyLabel;
+  const showCopied = copied || isCopied;
+
+  return (
+    <div className="min-w-0">
+      <div className="text-xs uppercase tracking-wide text-gray-500">{label}</div>
+      <div
+        className={`mt-1 flex items-center gap-2 break-all text-sm ${
+          accent || highlight ? 'font-semibold text-brand-primary' : 'text-gray-900'
+        } ${mono ? 'font-mono' : ''}`}
+      >
+        {icon ? <span className="text-gray-400">{icon}</span> : null}
+        {link && hasValue ? (
+          <a
+            href={link}
+            target={link.startsWith('/') ? undefined : '_blank'}
+            rel={link.startsWith('/') ? undefined : 'noopener noreferrer'}
+            className="inline-flex items-center gap-1 hover:text-blue-600"
+          >
+            {displayValue}
+            <ExternalLink size={12} />
+          </a>
+        ) : (
+          <span>{displayValue}</span>
+        )}
+        {copyable && hasValue && onCopy ? (
+          <button
+            onClick={() => onCopy(normalized)}
+            className="shrink-0 rounded p-1 text-gray-400 transition-colors hover:bg-gray-100 hover:text-brand-primary"
+            title="Copy to clipboard"
+          >
+            {showCopied ? <Check size={14} className="text-green-600" /> : <Copy size={14} />}
+          </button>
+        ) : null}
+      </div>
     </div>
-  </div>
-);
+  );
+};
 
 export const JsonBlock = ({
   title,

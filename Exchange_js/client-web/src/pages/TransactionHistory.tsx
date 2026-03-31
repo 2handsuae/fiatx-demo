@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { 
+import {
   ArrowLeft, 
   RefreshCw, 
   ChevronLeft, 
@@ -14,6 +14,11 @@ import {
   AlertCircle
 } from 'lucide-react';
 import { formatAssetAmount } from '../utils/number-format';
+import {
+  CustomerSessionError,
+  customerFetch,
+  getCustomerApiErrorMessage,
+} from '../utils/customerFetch';
 
 interface TransactionItem {
   id: string;
@@ -67,15 +72,13 @@ const TransactionHistory = () => {
   const fetchAssetInfo = useCallback(async () => {
     if (!assetId) return;
     try {
-      const token = localStorage.getItem('customer_token');
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/assets/${assetId}`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
+      const response = await customerFetch(`${import.meta.env.VITE_API_URL}/assets/${assetId}`);
       if (response.ok) {
         const data = await response.json();
         setAssetInfo(data);
       }
     } catch (err) {
+      if (err instanceof CustomerSessionError) return;
       console.error('Failed to fetch asset info', err);
     }
   }, [assetId]);
@@ -86,7 +89,6 @@ const TransactionHistory = () => {
     setLoading(true);
     setError('');
     try {
-      const token = localStorage.getItem('customer_token');
       const params = new URLSearchParams();
       params.append('customerId', user.id);
       params.append('assetId', assetId);
@@ -96,22 +98,19 @@ const TransactionHistory = () => {
       if (startDate) params.append('startDate', new Date(startDate).toISOString());
       if (endDate) params.append('endDate', new Date(endDate).toISOString());
       
-      // Using the same endpoint as admin but with customer token
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/journal-lines/customer-balance-history?${params.toString()}`, {
-        headers: { 
-          'Authorization': `Bearer ${token}` 
-        }
-      });
+      const response = await customerFetch(
+        `${import.meta.env.VITE_API_URL}/journal-lines/customer-balance-history?${params.toString()}`,
+      );
       
       if (response.ok) {
         const result = await response.json();
         setItems(result.items || []);
         setTotal(result.total || 0);
       } else {
-        const errData = await response.json();
-        setError(errData.message || 'Failed to fetch transaction history');
+        setError(await getCustomerApiErrorMessage(response, 'Failed to fetch transaction history'));
       }
     } catch (err) {
+      if (err instanceof CustomerSessionError) return;
       console.error('Failed to fetch transactions', err);
       setError('Network connection error');
     } finally {

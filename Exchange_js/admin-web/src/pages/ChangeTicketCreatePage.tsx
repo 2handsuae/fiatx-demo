@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AlertCircle, ArrowLeft, Save } from 'lucide-react';
 import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/adminFetch';
+import { adminButtonClass } from '../components/common/adminButtonStyles';
 
 const CHANGE_TYPE_OPTIONS = [
   'ADMIN_ACCESS_CHANGE',
@@ -83,9 +84,10 @@ const ChangeTicketCreatePage = () => {
       <div className="flex items-center gap-4">
         <button
           onClick={() => navigate('/dashboard/control-gates/change-tickets')}
-          className="rounded-full p-2 text-gray-500 transition-colors hover:bg-gray-100"
+          className={adminButtonClass('detailUtility')}
         >
           <ArrowLeft size={20} />
+          Back
         </button>
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Create Change Ticket</h1>
@@ -227,14 +229,14 @@ const ChangeTicketCreatePage = () => {
             <button
               type="button"
               onClick={() => navigate('/dashboard/control-gates/change-tickets')}
-              className="rounded-lg border border-admin-border bg-white px-4 py-2 text-gray-700 hover:bg-gray-50"
+              className={adminButtonClass('modalCancel')}
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={loading}
-              className="inline-flex items-center gap-2 rounded-lg bg-brand-primary px-6 py-2 text-white hover:bg-brand-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+              className={adminButtonClass('modalConfirm')}
             >
               {loading ? (
                 <div className="h-5 w-5 animate-spin rounded-full border-2 border-white/30 border-t-white" />

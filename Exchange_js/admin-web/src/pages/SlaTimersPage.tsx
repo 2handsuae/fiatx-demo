@@ -2,6 +2,10 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { RefreshCw, Search } from 'lucide-react';
 import Pagination from '../components/common/Pagination';
+import {
+  adminButtonClass,
+  adminIconButtonClass,
+} from '../components/common/adminButtonStyles';
 import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/adminFetch';
 
 interface SlaTimerItem {
@@ -133,10 +137,10 @@ const SlaTimersPage = () => {
         </div>
         <button
           onClick={() => void fetchItems(currentPage)}
-          className="inline-flex items-center gap-2 self-start rounded-lg border border-admin-border bg-white px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+          className={adminIconButtonClass('self-start')}
+          title="Refresh"
         >
-          <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
-          Refresh
+          <RefreshCw size={20} className={loading ? 'animate-spin' : ''} />
         </button>
       </div>
 
@@ -213,7 +217,7 @@ const SlaTimersPage = () => {
         <div className="flex flex-wrap items-center gap-3">
           <button
             onClick={() => void fetchItems(1)}
-            className="inline-flex items-center gap-2 rounded-lg bg-brand-primary px-4 py-2 text-sm font-medium text-white hover:bg-brand-primary/90"
+            className={adminButtonClass('listPrimary')}
           >
             <Search size={16} />
             Search
@@ -223,7 +227,7 @@ const SlaTimersPage = () => {
               setFilters(DEFAULT_FILTERS);
               void fetchItems(1, DEFAULT_FILTERS);
             }}
-            className="rounded-lg border border-gray-200 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+            className={adminButtonClass('listSecondary')}
           >
             Reset
           </button>
@@ -244,7 +248,7 @@ const SlaTimersPage = () => {
                 <th className="px-4 py-3 text-xs uppercase text-gray-500">Due At</th>
                 <th className="px-4 py-3 text-xs uppercase text-gray-500">Notifications</th>
                 <th className="px-4 py-3 text-xs uppercase text-gray-500">Trace ID</th>
-                <th className="px-4 py-3 text-xs uppercase text-gray-500">Operation</th>
+                <th className="px-4 py-3 text-xs uppercase text-gray-500">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-admin-border">
@@ -266,7 +270,7 @@ const SlaTimersPage = () => {
                     <td className="px-4 py-3 font-mono text-brand-primary">
                       <Link
                         to={`/dashboard/control-gates/sla-timers/${item.id}`}
-                        className="hover:underline"
+                        className={adminButtonClass('rowKeyLink')}
                       >
                         {item.timerNo}
                       </Link>
@@ -294,7 +298,7 @@ const SlaTimersPage = () => {
                     <td className="px-4 py-3">
                       <Link
                         to={`/dashboard/control-gates/sla-timers/${item.id}`}
-                        className="text-sm font-medium text-brand-primary hover:underline"
+                        className={adminButtonClass('rowLink')}
                       >
                         View
                       </Link>

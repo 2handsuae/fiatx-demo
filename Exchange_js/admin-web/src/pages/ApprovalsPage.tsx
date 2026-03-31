@@ -2,6 +2,10 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { RefreshCw, Search } from 'lucide-react';
 import Pagination from '../components/common/Pagination';
+import {
+  adminButtonClass,
+  adminIconButtonClass,
+} from '../components/common/adminButtonStyles';
 import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/adminFetch';
 
 interface ApprovalItem {
@@ -116,7 +120,7 @@ const ApprovalsPage = () => {
         </div>
         <button
           onClick={() => void fetchApprovals(currentPage)}
-          className="p-2 text-gray-500 hover:text-brand-primary"
+          className={adminIconButtonClass()}
           title="Refresh"
         >
           <RefreshCw size={20} className={loading ? 'animate-spin' : ''} />
@@ -172,7 +176,7 @@ const ApprovalsPage = () => {
         <div className="flex flex-wrap items-center gap-3">
           <button
             onClick={() => void fetchApprovals(1)}
-            className="inline-flex items-center gap-2 rounded-lg bg-brand-primary px-4 py-2 text-sm font-medium text-white hover:bg-brand-primary/90"
+            className={adminButtonClass('listPrimary')}
           >
             <Search size={16} />
             Search
@@ -182,7 +186,7 @@ const ApprovalsPage = () => {
               setFilters(DEFAULT_FILTERS);
               void fetchApprovals(1, DEFAULT_FILTERS);
             }}
-            className="rounded-lg border border-gray-200 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+            className={adminButtonClass('listSecondary')}
           >
             Reset
           </button>
@@ -201,7 +205,7 @@ const ApprovalsPage = () => {
                 <th className="px-4 py-3 text-xs uppercase text-gray-500">Status</th>
                 <th className="px-4 py-3 text-xs uppercase text-gray-500">Execution</th>
                 <th className="px-4 py-3 text-xs uppercase text-gray-500">Decided At</th>
-                <th className="px-4 py-3 text-xs uppercase text-gray-500">Operation</th>
+                <th className="px-4 py-3 text-xs uppercase text-gray-500">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-admin-border">
@@ -223,7 +227,7 @@ const ApprovalsPage = () => {
                     <td className="px-4 py-3">
                       <button
                         onClick={() => navigate(`/dashboard/control-gates/approvals/${item.id}`)}
-                        className="font-mono text-xs text-brand-primary hover:underline"
+                        className={adminButtonClass('rowKeyLink')}
                       >
                         {item.approvalNo}
                       </button>
@@ -244,7 +248,7 @@ const ApprovalsPage = () => {
                     <td className="px-4 py-3">
                       <button
                         onClick={() => navigate(`/dashboard/control-gates/approvals/${item.id}`)}
-                        className="text-sm font-medium text-brand-primary hover:underline"
+                        className={adminButtonClass('rowLink')}
                       >
                         View
                       </button>

@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -13,6 +13,14 @@ import {
 import { useAdminSession } from '../contexts/AdminSessionContext';
 import { PERMISSIONS } from '../rbac/permissions';
 import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/adminFetch';
+import {
+  ActionSection,
+  DetailCard,
+  DetailPageHeader,
+  InfoField,
+  JsonBlock,
+} from '../components/compliance/DetailPageComponents';
+import { adminButtonClass } from '../components/common/adminButtonStyles';
 
 interface DeleteRequestDetail {
   id: string;
@@ -43,58 +51,6 @@ const formatDateTime = (value?: string | null): string => {
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleString();
 };
-
-const formatValue = (value: unknown): string => {
-  if (value === null || value === undefined) return '-';
-  const text = String(value).trim();
-  return text === '' ? '-' : text;
-};
-
-const DetailCard = ({
-  title,
-  icon,
-  children,
-  columns = 3,
-}: {
-  title: string;
-  icon: ReactNode;
-  children: ReactNode;
-  columns?: 1 | 2 | 3;
-}) => {
-  const gridClassName =
-    columns === 1
-      ? 'grid grid-cols-1 gap-4'
-      : columns === 2
-        ? 'grid grid-cols-1 gap-4 md:grid-cols-2'
-        : 'grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3';
-
-  return (
-    <div className="rounded-xl border border-admin-border bg-white p-6 shadow-sm">
-      <div className="mb-4 flex items-center gap-2">
-        <div className="text-brand-primary">{icon}</div>
-        <h2 className="text-lg font-bold text-gray-900">{title}</h2>
-      </div>
-      <div className={gridClassName}>{children}</div>
-    </div>
-  );
-};
-
-const InfoField = ({
-  label,
-  value,
-  mono = false,
-}: {
-  label: string;
-  value: unknown;
-  mono?: boolean;
-}) => (
-  <div className="min-w-0">
-    <div className="text-xs uppercase tracking-wide text-gray-500">{label}</div>
-    <div className={`mt-1 break-all text-sm text-gray-900 ${mono ? 'font-mono' : ''}`}>
-      {formatValue(value)}
-    </div>
-  </div>
-);
 
 const DeleteRequestDetailPage = () => {
   const { id } = useParams<{ id: string }>();
@@ -192,14 +148,14 @@ const DeleteRequestDetailPage = () => {
         <div className="flex items-center gap-3">
           <button
             onClick={() => navigate('/dashboard/control-gates/delete-requests')}
-            className="inline-flex items-center gap-2 rounded-lg border border-admin-border bg-white px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+            className={adminButtonClass('detailUtility')}
           >
             <ArrowLeft size={16} />
             Back to Delete Requests
           </button>
           <button
             onClick={() => void fetchDetail()}
-            className="inline-flex items-center gap-2 rounded-lg border border-admin-border bg-white px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+            className={adminButtonClass('detailUtility')}
           >
             <RefreshCw size={16} />
             Retry
@@ -218,106 +174,38 @@ const DeleteRequestDetailPage = () => {
 
   return (
     <div className="space-y-6">
-      <div className="rounded-xl border border-admin-border bg-white p-6 shadow-sm">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-          <div className="space-y-2">
-            <div className="flex items-center gap-3">
-              <button
-                onClick={() => navigate('/dashboard/control-gates/delete-requests')}
-                className="inline-flex items-center gap-2 rounded-lg border border-admin-border bg-white px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
-              >
-                <ArrowLeft size={16} />
-                Back to Delete Requests
-              </button>
-              <button
-                onClick={() => void fetchDetail()}
-                className="inline-flex items-center gap-2 rounded-lg border border-admin-border bg-white px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
-              >
-                <RefreshCw size={16} />
-                Refresh
-              </button>
-            </div>
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">Delete Request Detail</h1>
-              <p className="mt-1 font-mono text-sm text-gray-500">{detail.requestNo}</p>
-            </div>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2">
-            {detail.latestApprovalId && canViewApproval && (
-              <button
-                onClick={() => navigate(`/dashboard/control-gates/approvals/${detail.latestApprovalId}`)}
-                className="inline-flex items-center gap-2 rounded-lg border border-admin-border bg-white px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
-              >
-                <Link2 size={16} />
-                View Approval
-              </button>
-            )}
-            {canSubmit && isMaker && detail.status === 'DRAFT' && (
-              <button
-                onClick={() =>
-                  void submitSimpleAction(
-                    'submit',
-                    `Delete request ${detail.requestNo} submitted successfully.`,
-                  )
-                }
-                disabled={submittingAction !== null}
-                className="inline-flex items-center gap-2 rounded-lg bg-brand-primary px-4 py-2 text-sm font-medium text-white hover:bg-brand-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <CheckCircle2 size={16} />
-                Submit
-              </button>
-            )}
-            {canCancel &&
-              isMaker &&
-              ['DRAFT', 'SUBMITTED', 'APPROVAL_PENDING'].includes(detail.status) && (
-                <button
-                  onClick={() =>
-                    void submitSimpleAction(
-                      'cancel',
-                      `Delete request ${detail.requestNo} cancelled successfully.`,
-                    )
-                  }
-                  disabled={submittingAction !== null}
-                  className="inline-flex items-center gap-2 rounded-lg border border-admin-border bg-white px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <XCircle size={16} />
-                  Cancel
-                </button>
-              )}
-            {canExecute && detail.status === 'READY_TO_EXECUTE' && (
-              <button
-                onClick={() =>
-                  void submitSimpleAction(
-                    'execute',
-                    `Delete request ${detail.requestNo} executed successfully.`,
-                  )
-                }
-                disabled={submittingAction !== null}
-                className="inline-flex items-center gap-2 rounded-lg bg-brand-primary px-4 py-2 text-sm font-medium text-white hover:bg-brand-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <PlayCircle size={16} />
-                Execute
-              </button>
-            )}
-          </div>
-        </div>
-
-        {(error || message) && (
-          <div className="mt-4 space-y-2">
-            {message && (
-              <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
-                {message}
-              </div>
-            )}
-            {error && (
-              <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-                {error}
-              </div>
-            )}
-          </div>
+      <DetailPageHeader
+        title="Delete Request Detail"
+        subtitle={detail.requestNo}
+        onBack={() => navigate('/dashboard/control-gates/delete-requests')}
+        onRefresh={() => void fetchDetail()}
+        backLabel="Back to Delete Requests"
+      >
+        {detail.latestApprovalId && canViewApproval && (
+          <button
+            onClick={() => navigate(`/dashboard/control-gates/approvals/${detail.latestApprovalId}`)}
+            className={adminButtonClass('detailUtility')}
+          >
+            <Link2 size={16} />
+            View Approval
+          </button>
         )}
-      </div>
+      </DetailPageHeader>
+
+      {(error || message) && (
+        <div className="space-y-2">
+          {message && (
+            <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
+              {message}
+            </div>
+          )}
+          {error && (
+            <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+              {error}
+            </div>
+          )}
+        </div>
+      )}
 
       <DetailCard title="Request Summary" icon={<ShieldCheck size={18} />} columns={3}>
         <InfoField label="Request No" value={detail.requestNo} mono />
@@ -342,13 +230,60 @@ const DeleteRequestDetailPage = () => {
         <InfoField label="Approval Id" value={detail.latestApprovalId} mono />
       </DetailCard>
 
-      <div className="rounded-xl border border-admin-border bg-white p-6 shadow-sm">
-        <div className="mb-4 flex items-center gap-2">
-          <div className="text-brand-primary">
-            <PlayCircle size={18} />
+      <ActionSection
+        title="Workflow Actions"
+        description="Delete request workflow actions live here. Utility buttons stay in the header and execution actions stay in this dedicated surface."
+      >
+        <div className="space-y-4">
+          <div className="flex flex-wrap items-center gap-3">
+            {canSubmit && isMaker && detail.status === 'DRAFT' && (
+              <button
+                onClick={() =>
+                  void submitSimpleAction(
+                    'submit',
+                    `Delete request ${detail.requestNo} submitted successfully.`,
+                  )
+                }
+                disabled={submittingAction !== null}
+                className={adminButtonClass('workflowPrimary')}
+              >
+                <CheckCircle2 size={16} />
+                Submit
+              </button>
+            )}
+            {canCancel &&
+              isMaker &&
+              ['DRAFT', 'SUBMITTED', 'APPROVAL_PENDING'].includes(detail.status) && (
+                <button
+                  onClick={() =>
+                    void submitSimpleAction(
+                      'cancel',
+                      `Delete request ${detail.requestNo} cancelled successfully.`,
+                    )
+                  }
+                  disabled={submittingAction !== null}
+                  className={adminButtonClass('workflowNegative')}
+                >
+                  <XCircle size={16} />
+                  Cancel
+                </button>
+              )}
+            {canExecute && detail.status === 'READY_TO_EXECUTE' && (
+              <button
+                onClick={() =>
+                  void submitSimpleAction(
+                    'execute',
+                    `Delete request ${detail.requestNo} executed successfully.`,
+                  )
+                }
+                disabled={submittingAction !== null}
+                className={adminButtonClass('workflowPrimary')}
+              >
+                <PlayCircle size={16} />
+                Execute
+              </button>
+            )}
           </div>
-          <h2 className="text-lg font-bold text-gray-900">Execution Gate</h2>
-        </div>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
           <InfoField label="Current Status" value={detail.status} />
           <InfoField label="Approval Status" value={detail.latestApprovalStatus} />
@@ -366,19 +301,12 @@ const DeleteRequestDetailPage = () => {
             placeholder="Optional operator note"
           />
         </div>
-      </div>
-
-      <div className="rounded-xl border border-admin-border bg-white p-6 shadow-sm">
-        <div className="mb-4 flex items-center gap-2">
-          <div className="text-brand-primary">
-            <ClipboardList size={18} />
-          </div>
-          <h2 className="text-lg font-bold text-gray-900">Target Snapshot</h2>
         </div>
-        <pre className="overflow-x-auto rounded-lg bg-admin-content-bg p-4 text-xs text-gray-700">
-          {JSON.stringify(detail.targetSnapshotJson || {}, null, 2)}
-        </pre>
-      </div>
+      </ActionSection>
+
+      <DetailCard title="Target Snapshot" icon={<ClipboardList size={18} />} columns={1}>
+        <JsonBlock title="Target Snapshot JSON" value={detail.targetSnapshotJson || {}} compact />
+      </DetailCard>
 
       <DetailCard title="Lifecycle" icon={<ClipboardList size={18} />} columns={3}>
         <InfoField label="Created At" value={formatDateTime(detail.createdAt)} />

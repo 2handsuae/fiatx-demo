@@ -35,6 +35,7 @@ const InternalTransactionDetail = lazy(() => import('./pages/InternalTransaction
 const InternalFundList = lazy(() => import('./pages/InternalFundList'));
 const InternalFundDetail = lazy(() => import('./pages/InternalFundDetail'));
 const AssetList = lazy(() => import('./pages/AssetList'));
+const AssetDetail = lazy(() => import('./pages/AssetDetail'));
 const AssetCreate = lazy(() => import('./pages/AssetCreate'));
 const DepositTransactionList = lazy(() => import('./pages/DepositTransactionList'));
 const DepositTransactionDetail = lazy(() => import('./pages/DepositTransactionDetail'));
@@ -509,6 +510,10 @@ function App() {
             <Route
               path="system/assets"
               element={withPermission(<AssetList />, [PERMISSIONS.ASSETS_READ])}
+            />
+            <Route
+              path="system/assets/:id"
+              element={withPermission(<AssetDetail />, [PERMISSIONS.ASSETS_READ])}
             />
             <Route
               path="system/assets/create"

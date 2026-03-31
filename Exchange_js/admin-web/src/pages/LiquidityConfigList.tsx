@@ -1,6 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { RefreshCw, Plus, Edit, CheckCircle, XCircle, ArrowRightLeft } from 'lucide-react';
+import { RefreshCw, Plus, ArrowRightLeft } from 'lucide-react';
+import { adminFetch, getApiErrorMessage } from '../utils/adminFetch';
+import { adminButtonClass, adminIconButtonClass } from '../components/common/adminButtonStyles';
 
 interface LiquidityConfig {
   id: string;
@@ -20,25 +22,28 @@ const LiquidityConfigList = () => {
   const [configs, setConfigs] = useState<LiquidityConfig[]>([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState('');
+  const [error, setError] = useState('');
+
+  const hasFilters = useMemo(() => Boolean(statusFilter), [statusFilter]);
 
   const fetchConfigs = async () => {
     setLoading(true);
+    setError('');
     try {
-      const token = localStorage.getItem('admin_token');
       const params = new URLSearchParams();
       if (statusFilter) params.append('status', statusFilter);
 
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/liquidity-configurations?${params.toString()}`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
+      const response = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/liquidity-configurations?${params.toString()}`,
+      );
       if (response.ok) {
         const result = await response.json();
         setConfigs(result.items || []);
+        return;
       }
     } catch (error) {
       console.error('Failed to fetch liquidity configurations', error);
+      setError('Failed to fetch liquidity configurations.');
     } finally {
       setLoading(false);
     }
@@ -46,18 +51,16 @@ const LiquidityConfigList = () => {
 
   useEffect(() => {
     fetchConfigs();
-  }, [statusFilter]);
+  }, []);
 
   const handleStatusChange = async (id: string, currentStatus: string) => {
     const newStatus = currentStatus === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
     if (!window.confirm(`Are you sure you want to ${newStatus === 'INACTIVE' ? 'deactivate' : 'activate'} this configuration?`)) return;
 
     try {
-      const token = localStorage.getItem('admin_token');
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/liquidity-configurations/${id}/status`, {
+      const response = await adminFetch(`${import.meta.env.VITE_API_URL}/liquidity-configurations/${id}/status`, {
         method: 'PATCH',
         headers: {
-          'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({ status: newStatus })
@@ -66,11 +69,35 @@ const LiquidityConfigList = () => {
       if (response.ok) {
         fetchConfigs();
       } else {
-        alert('Failed to update status');
+        setError(await getApiErrorMessage(response, 'Failed to update status.'));
       }
     } catch (error) {
       console.error('Failed to update status', error);
+      setError('Failed to update status.');
     }
+  };
+
+  const handleReset = () => {
+    setStatusFilter('');
+    setError('');
+    setConfigs([]);
+    setLoading(true);
+    void (async () => {
+      try {
+        const response = await adminFetch(`${import.meta.env.VITE_API_URL}/liquidity-configurations`);
+        if (response.ok) {
+          const result = await response.json();
+          setConfigs(result.items || []);
+          return;
+        }
+        setError(await getApiErrorMessage(response, 'Failed to fetch liquidity configurations.'));
+      } catch (resetError) {
+        console.error('Failed to reset liquidity configuration filters', resetError);
+        setError('Failed to fetch liquidity configurations.');
+      } finally {
+        setLoading(false);
+      }
+    })();
   };
 
   const renderStatusBadge = (status: string) => {
@@ -89,12 +116,12 @@ const LiquidityConfigList = () => {
           <p className="text-sm text-gray-500 mt-1">LP routing config only (not used for customer-platform swap pricing)</p>
         </div>
         <div className="flex gap-3">
-          <button onClick={fetchConfigs} className="p-2 text-gray-500 hover:text-brand-primary transition-colors border border-gray-200 rounded-lg bg-white">
+          <button onClick={fetchConfigs} className={adminIconButtonClass()}>
             <RefreshCw size={20} className={loading ? 'animate-spin' : ''} />
           </button>
           <button 
             onClick={() => navigate('/dashboard/system/liquidity-config/create')}
-            className="flex items-center gap-2 px-4 py-2 bg-brand-primary text-white rounded-lg hover:bg-brand-primary/90 transition-colors shadow-sm"
+            className={adminButtonClass('listPrimary')}
           >
             <Plus size={20} /> New Config
           </button>
@@ -102,7 +129,7 @@ const LiquidityConfigList = () => {
       </div>
 
       <div className="bg-white rounded-xl shadow-sm border border-admin-border overflow-hidden">
-        <div className="p-4 border-b border-admin-border flex justify-end">
+        <div className="p-4 border-b border-admin-border flex justify-end gap-2">
           <div className="flex gap-2">
             <select 
               value={statusFilter} 
@@ -113,6 +140,16 @@ const LiquidityConfigList = () => {
               <option value="ACTIVE">Active</option>
               <option value="INACTIVE">Inactive</option>
             </select>
+            <button onClick={fetchConfigs} className={adminButtonClass('listPrimary')}>
+              Search
+            </button>
+            <button
+              onClick={handleReset}
+              className={adminButtonClass('listSecondary')}
+              disabled={!hasFilters && !error}
+            >
+              Reset
+            </button>
           </div>
         </div>
 
@@ -126,11 +163,18 @@ const LiquidityConfigList = () => {
                 <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Spread</th>
                 <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Fee</th>
                 <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider text-right">Actions</th>
+                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider text-right">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-admin-border">
-              {loading && configs.length === 0 ? (
+              {error ? (
+                <tr>
+                  <td colSpan={7} className="px-6 py-12 text-center text-rose-600">
+                    {error}
+                  </td>
+                </tr>
+              ) : null}
+              {!error && loading && configs.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="px-6 py-12 text-center text-gray-500">
                     <div className="flex flex-col items-center justify-center">
@@ -139,7 +183,7 @@ const LiquidityConfigList = () => {
                     </div>
                   </td>
                 </tr>
-              ) : configs.length === 0 ? (
+              ) : !error && configs.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="px-6 py-12 text-center text-gray-500">
                     No configurations found
@@ -173,21 +217,20 @@ const LiquidityConfigList = () => {
                       {renderStatusBadge(config.status)}
                     </td>
                     <td className="px-6 py-4 text-right">
-                      <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <div className="flex justify-end gap-3">
                         <button 
+                          type="button"
                           onClick={() => handleStatusChange(config.id, config.status)}
-                          className={`p-1.5 rounded hover:bg-gray-100 transition-colors ${config.status === 'ACTIVE' ? 'text-red-500' : 'text-green-500'}`}
-                          title={config.status === 'ACTIVE' ? 'Deactivate' : 'Activate'}
+                          className={adminButtonClass('rowSecondaryUtility')}
                         >
-                          {config.status === 'ACTIVE' ? <XCircle size={18} /> : <CheckCircle size={18} />}
+                          {config.status === 'ACTIVE' ? 'Deactivate' : 'Activate'}
                         </button>
                         {config.status === 'INACTIVE' && (
                           <button 
                             onClick={() => navigate(`/dashboard/system/liquidity-config/edit/${config.id}`)}
-                            className="p-1.5 text-blue-600 rounded hover:bg-blue-50 transition-colors" 
-                            title="Edit"
+                            className={adminButtonClass('rowSecondaryUtility')}
                           >
-                            <Edit size={18} />
+                            Edit
                           </button>
                         )}
                       </div>

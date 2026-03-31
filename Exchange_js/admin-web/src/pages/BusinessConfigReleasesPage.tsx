@@ -236,7 +236,8 @@ const BusinessConfigReleasesPage = () => {
       </div>
 
       <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
-        这里是 Phase 2 的只读治理视图。配置 authoring 与发布通过 repo + `config:release:*` 命令完成，不再通过后台直接修改。
+        This is the Phase 2 read-only governance view. Config authoring and release operations run
+        through the repo and `config:release:*` commands instead of direct admin edits.
       </div>
 
       {error && (

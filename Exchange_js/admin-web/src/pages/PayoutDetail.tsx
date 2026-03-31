@@ -1,11 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
-  ArrowLeft,
   RefreshCw,
-  Copy,
-  Check,
-  ExternalLink,
   FileText,
   User,
   CreditCard,
@@ -18,7 +14,19 @@ import {
   Landmark,
   ShieldAlert,
 } from 'lucide-react';
+import {
+  ActionSection,
+  DetailCard,
+  DetailPageHeader,
+  InfoField,
+} from '../components/compliance/DetailPageComponents';
+import { adminButtonClass } from '../components/common/adminButtonStyles';
 import { copyToClipboard } from '../utils/clipboard';
+import {
+  AdminSessionError,
+  adminFetch,
+  getApiErrorMessage,
+} from '../utils/adminFetch';
 import { formatAssetAmount } from '../utils/number-format';
 import { SimulationRail, type SimulationRailItem } from '../components/SimulationRail';
 import { useSimulationMode } from '../utils/simulationMode';
@@ -111,21 +119,17 @@ const PayoutDetail = () => {
   const fetchPayout = async () => {
     setLoading(true);
     try {
-      const token = localStorage.getItem('admin_token');
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/payouts/${id}`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
+      const response = await adminFetch(`${import.meta.env.VITE_API_URL}/payouts/${id}`);
       if (response.ok) {
         const result = await response.json();
         setData(result);
         setReferenceNoDraft(result.referenceNo || '');
       } else {
-        alert('Failed to fetch payout details');
+        alert(await getApiErrorMessage(response, 'Failed to fetch payout details'));
         navigate('/dashboard/treasury/payouts');
       }
     } catch (error) {
+      if (error instanceof AdminSessionError) return;
       console.error('Failed to fetch payout', error);
       alert('Network error');
     } finally {
@@ -143,23 +147,18 @@ const PayoutDetail = () => {
   ) => {
     setUpdating(true);
     try {
-      const token = localStorage.getItem('admin_token');
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/payouts/${id}/status`, {
+      const response = await adminFetch(`${import.meta.env.VITE_API_URL}/payouts/${id}/status`, {
         method: 'PATCH',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
         body: JSON.stringify({ action, ...extraPayload })
       });
 
       if (response.ok) {
         fetchPayout();
       } else {
-        const err = await response.json();
-        alert(`Update failed: ${err.message || 'Unknown error'}`);
+        alert(`Update failed: ${await getApiErrorMessage(response, 'Unknown error')}`);
       }
     } catch (error) {
+      if (error instanceof AdminSessionError) return;
       console.error('Update failed', error);
       alert('Update failed due to network error');
     } finally {
@@ -170,21 +169,17 @@ const PayoutDetail = () => {
   const handleReCloseout = async () => {
     setUpdating(true);
     try {
-      const token = localStorage.getItem('admin_token');
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/payouts/${id}/re-closeout`, {
+      const response = await adminFetch(`${import.meta.env.VITE_API_URL}/payouts/${id}/re-closeout`, {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
       });
 
       if (response.ok) {
         fetchPayout();
       } else {
-        const err = await response.json();
-        alert(`Re-run closeout failed: ${err.message || 'Unknown error'}`);
+        alert(`Re-run closeout failed: ${await getApiErrorMessage(response, 'Unknown error')}`);
       }
     } catch (error) {
+      if (error instanceof AdminSessionError) return;
       console.error('Re-run closeout failed', error);
       alert('Re-run closeout failed due to network error');
     } finally {
@@ -195,21 +190,17 @@ const PayoutDetail = () => {
   const handleReCompensate = async () => {
     setUpdating(true);
     try {
-      const token = localStorage.getItem('admin_token');
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/payouts/${id}/re-compensate`, {
+      const response = await adminFetch(`${import.meta.env.VITE_API_URL}/payouts/${id}/re-compensate`, {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
       });
 
       if (response.ok) {
         fetchPayout();
       } else {
-        const err = await response.json();
-        alert(`Re-run compensation failed: ${err.message || 'Unknown error'}`);
+        alert(`Re-run compensation failed: ${await getApiErrorMessage(response, 'Unknown error')}`);
       }
     } catch (error) {
+      if (error instanceof AdminSessionError) return;
       console.error('Re-run compensation failed', error);
       alert('Re-run compensation failed due to network error');
     } finally {
@@ -247,7 +238,7 @@ const PayoutDetail = () => {
                   : 'readonly',
           onClick: normalized === 'CREATED' ? () => handleUpdateAction('SIGN') : undefined,
           disabled: updating,
-          helperText: '生成签名后进入 SIGNING',
+          helperText: 'Advance to SIGNING after the signature is generated.',
         },
         {
           id: 'broadcast',
@@ -263,7 +254,7 @@ const PayoutDetail = () => {
                   : 'readonly',
           onClick: normalized === 'SIGNING' ? () => handleUpdateAction('BROADCAST') : undefined,
           disabled: updating,
-          helperText: '广播后进入 BROADCASTED',
+          helperText: 'Advance to BROADCASTED after submission to the network.',
         },
         {
           id: 'mempool',
@@ -282,7 +273,7 @@ const PayoutDetail = () => {
               ? () => handleUpdateAction('SEEN_IN_MEMPOOL')
               : undefined,
           disabled: updating,
-          helperText: '看到 mempool 后进入 CONFIRMING',
+          helperText: 'Advance to CONFIRMING after the mempool signal is observed.',
         },
         {
           id: 'confirmed',
@@ -298,7 +289,7 @@ const PayoutDetail = () => {
                   : 'readonly',
           onClick: normalized === 'CONFIRMING' ? () => handleUpdateAction('CONFIRM') : undefined,
           disabled: updating,
-          helperText: '确认后进入 CONFIRMED，随后系统自动写 CLEARED',
+          helperText: 'Advance to CONFIRMED, then let the system write CLEARED automatically.',
         },
         {
           id: 'cleared',
@@ -306,7 +297,7 @@ const PayoutDetail = () => {
           icon: <CheckCircle2 size={14} />,
           state: normalized === 'CLEARED' ? 'current' : 'readonly',
           tone: 'success',
-          helperText: 'closeout 记账成功后自动出现',
+          helperText: 'Shown automatically after closeout accounting succeeds.',
         },
         {
           id: 'failed',
@@ -329,7 +320,7 @@ const PayoutDetail = () => {
                   )
               : undefined,
           disabled: updating,
-          helperText: '异常路径继续走 canonical compensation',
+          helperText: 'Terminal exceptions continue through canonical compensation.',
         },
       ];
     }
@@ -355,7 +346,7 @@ const PayoutDetail = () => {
                 })
             : undefined,
         disabled: updating,
-        helperText: '提交后进入 CONFIRMING',
+        helperText: 'Advance to CONFIRMING after the bank submission is recorded.',
       },
       {
         id: 'confirm',
@@ -378,8 +369,8 @@ const PayoutDetail = () => {
             : undefined,
         disabled: updating,
         helperText: effectiveFiatReferenceNo
-          ? '确认后进入 CONFIRMED，随后系统自动写 CLEARED'
-          : '确认时若未填写，系统会自动生成 Reference No',
+          ? 'Advance to CONFIRMED, then let the system write CLEARED automatically.'
+          : 'If Reference No is blank, the system generates it during CONFIRM.',
       },
       {
         id: 'cleared',
@@ -387,7 +378,7 @@ const PayoutDetail = () => {
         icon: <CheckCircle2 size={14} />,
         state: normalized === 'CLEARED' ? 'current' : 'readonly',
         tone: 'success',
-        helperText: 'closeout 记账成功后自动出现',
+        helperText: 'Shown automatically after closeout accounting succeeds.',
       },
       {
         id: 'fail',
@@ -405,7 +396,7 @@ const PayoutDetail = () => {
             ? () => handleUpdateAction('FAIL')
             : undefined,
         disabled: updating,
-        helperText: '失败后走 canonical compensation',
+        helperText: 'Failed payouts continue through canonical compensation.',
       },
       {
         id: 'return',
@@ -420,7 +411,7 @@ const PayoutDetail = () => {
         tone: 'warning',
         onClick: normalized === 'CONFIRMED' ? () => handleUpdateAction('RETURN') : undefined,
         disabled: updating,
-        helperText: '退回后走 canonical compensation',
+        helperText: 'Returned payouts continue through canonical compensation.',
       },
     ];
   };
@@ -473,47 +464,16 @@ const PayoutDetail = () => {
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto pb-12">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-xl border border-admin-border shadow-sm">
-        <div className="flex items-center gap-4">
-          <button 
-            onClick={() => navigate('/dashboard/treasury/payouts')}
-            className="p-2 hover:bg-gray-100 rounded-lg border border-admin-border transition-colors text-gray-600"
-          >
-            <ArrowLeft size={20} />
-          </button>
-          <div>
-            <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-bold text-gray-900">Payout Details</h1>
-              {renderStatusBadge(data.status, data.displayStatus)}
-            </div>
-            <div className="flex items-center gap-4 mt-1 text-sm text-gray-500 font-mono">
-              <span className="text-brand-primary font-bold">No: {data.payoutNo || data.id}</span>
-              <span className="flex items-center gap-1"><Clock size={14}/> Created: {new Date(data.createdAt).toLocaleString()}</span>
-            </div>
-          </div>
-        </div>
-        <div className="flex gap-2 items-center">
-          {canRepairCloseout ? (
-            <button
-              onClick={handleReCloseout}
-              disabled={updating}
-              className="px-4 py-2 rounded-lg text-sm font-medium shadow-sm transition-colors disabled:opacity-50 bg-slate-900 hover:bg-slate-800 text-white"
-            >
-              Re-run Closeout
-            </button>
-          ) : null}
-          {canRepairCompensation ? (
-            <button
-              onClick={handleReCompensate}
-              disabled={updating}
-              className="px-4 py-2 rounded-lg text-sm font-medium shadow-sm transition-colors disabled:opacity-50 bg-red-700 hover:bg-red-800 text-white"
-            >
-              Re-run Compensation
-            </button>
-          ) : null}
-        </div>
-      </div>
+      <DetailPageHeader
+        title="Payout Details"
+        subtitle={`No: ${data.payoutNo || data.id} · Created: ${new Date(data.createdAt).toLocaleString()}`}
+        onBack={() => navigate('/dashboard/treasury/payouts')}
+        onRefresh={fetchPayout}
+        refreshing={loading || updating}
+        backLabel="Back to Payouts"
+      >
+        {renderStatusBadge(data.status, data.displayStatus)}
+      </DetailPageHeader>
 
       {data.status === 'CONFIRMED' ? (
         <div className="rounded-xl border border-blue-200 bg-blue-50 px-5 py-4 text-sm text-blue-900">
@@ -543,13 +503,43 @@ const PayoutDetail = () => {
         </div>
       ) : null}
 
+      <ActionSection
+        title="Repair Actions"
+        description="Repair actions retry canonical payout closeout or compensation paths. They are not business workflow actions and do not replace the simulation rail."
+        emptyText="No repair actions are currently available."
+      >
+        {canRepairCloseout || canRepairCompensation ? (
+          <div className="flex flex-wrap gap-3">
+            {canRepairCloseout ? (
+              <button
+                onClick={handleReCloseout}
+                disabled={updating}
+                className={adminButtonClass('repair')}
+              >
+                Re-run Closeout
+              </button>
+            ) : null}
+            {canRepairCompensation ? (
+              <button
+                onClick={handleReCompensate}
+                disabled={updating}
+                className={adminButtonClass('repair')}
+              >
+                Re-run Compensation
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+      </ActionSection>
+
       {simulationModeEnabled ? (
         <div className="space-y-3">
           {formatTransactionTypeLabel(data.type) === 'FIAT' ? (
             <div className="rounded-xl border border-admin-border bg-white p-4">
               <div className="text-sm font-semibold text-gray-900">FIAT Receipt Reference</div>
               <p className="mt-1 text-xs text-gray-500">
-                `SUBMIT` 可预填；若留空，系统会在 `CONFIRM` 时自动生成 `Reference No`。
+                `SUBMIT` can prefill Reference No. If left blank, the system generates it during
+                `CONFIRM`.
               </p>
               <div className="mt-3">
                 <input
@@ -564,7 +554,7 @@ const PayoutDetail = () => {
           ) : null}
           <SimulationRail
             title="Payout Execution Rail"
-            description="Payout 是 outbound execution rail。参考 Payin 的 rail 逐步推进，Cleared 只做结果回显。"
+            description="Payout is the outbound execution rail. Advance it step by step like Payin; Cleared is read-only output."
             items={payoutRailItems}
           />
         </div>
@@ -572,7 +562,7 @@ const PayoutDetail = () => {
 
       <div className="flex flex-col gap-6">
         {/* 1. Basic Identification */}
-        <DetailCard title="Basic Identification" icon={<FileText size={18} />}>
+        <DetailCard title="Basic Identification" icon={<FileText size={18} />} columns={2}>
             <InfoField label="Payout ID" value={data.id} source="main" />
             <InfoField label="Payout No" value={data.payoutNo} highlight source="main" />
             <InfoField label="Transaction Type" value={data.transactionType || 'WITHDRAW'} source="main" />
@@ -587,7 +577,7 @@ const PayoutDetail = () => {
         </DetailCard>
 
         {/* 2. Assets & Amount */}
-        <DetailCard title="Assets & Amount" icon={<CreditCard size={18} />}>
+        <DetailCard title="Assets & Amount" icon={<CreditCard size={18} />} columns={2}>
             <InfoField label="Asset ID" value={data.assetId} source="main" />
             <InfoField label="Asset Code" value={data.asset.code} highlight source="main" />
             <InfoField label="Asset Network" value={data.asset.network} source="main" />
@@ -595,7 +585,7 @@ const PayoutDetail = () => {
         </DetailCard>
 
         {/* 3. Settlement Endpoint / Path */}
-        <DetailCard title="Settlement Endpoint / Path" icon={<MapPin size={18} />}>
+        <DetailCard title="Settlement Endpoint / Path" icon={<MapPin size={18} />} columns={2}>
             <InfoField label="To Wallet ID" value={data.toWalletId} source="main" />
             <InfoField 
                 label="To Address" 
@@ -632,7 +622,7 @@ const PayoutDetail = () => {
         </DetailCard>
 
         {/* 4. Settlement Evidence */}
-        <DetailCard title="Settlement Evidence" icon={<Activity size={18} />}>
+        <DetailCard title="Settlement Evidence" icon={<Activity size={18} />} columns={2}>
             <InfoField 
                 label="Tx Hash" 
                 value={data.txHash || 'N/A'} 
@@ -648,7 +638,7 @@ const PayoutDetail = () => {
         </DetailCard>
 
         {/* 5. Status & Timings */}
-        <DetailCard title="Status & Timings" icon={<Clock size={18} />}>
+        <DetailCard title="Status & Timings" icon={<Clock size={18} />} columns={2}>
              <InfoField label="Current Status" value={formatRailStatusLabel(data.displayStatus || data.status)} highlight source="main" />
              <InfoField label="Created At" value={new Date(data.createdAt).toLocaleString()} source="main" />
              <InfoField label="Sent At" value={data.sentAt ? new Date(data.sentAt).toLocaleString() : 'N/A'} source="main" />
@@ -667,74 +657,6 @@ const PayoutDetail = () => {
       </div>
     </div>
   );
-};
-
-// --- Reusable Components ---
-
-const DetailCard = ({ title, icon, children, columns = 2 }: { title: string, icon: React.ReactNode, children: React.ReactNode, columns?: number }) => (
-  <div className="bg-white rounded-xl shadow-sm border border-admin-border overflow-hidden transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md">
-     <div className="px-6 py-4 border-b border-admin-border flex items-center gap-3 bg-gray-50/50">
-        <div className="p-1.5 bg-white rounded-md text-gray-500 border border-admin-border shadow-sm">
-           {icon}
-        </div>
-        <h3 className="text-sm font-bold text-gray-900 uppercase tracking-tight">{title}</h3>
-     </div>
-     <div className="p-6">
-        <div className={`grid grid-cols-1 ${columns === 2 ? 'sm:grid-cols-2' : ''} gap-x-8 gap-y-6`}>
-           {children}
-        </div>
-     </div>
-  </div>
-);
-
-const InfoField = ({ 
-  label, 
-  value, 
-  highlight = false, 
-  icon, 
-  source = 'main',
-  copyable = false,
-  isCopied = false,
-  onCopy,
-  link
-}: { 
-  label: string, 
-  value: string | null | undefined, 
-  highlight?: boolean, 
-  icon?: React.ReactNode,
-  source?: 'main' | 'kyc' | 'edd',
-  copyable?: boolean,
-  isCopied?: boolean,
-  onCopy?: (val: string) => void,
-  link?: string
-}) => {
-    const placeholder = source === 'kyc' ? 'KYC no data' : source === 'edd' ? 'EDD no data' : 'N/A';
-    const displayValue = value || placeholder;
-    
-    return (
-        <div className="flex flex-col gap-1.5">
-            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">{label}</span>
-            <div className={`text-sm font-medium break-all flex items-center gap-2 ${highlight ? 'text-brand-primary' : 'text-gray-900'}`}>
-                {icon && <span className="text-gray-400">{icon}</span>}
-                {link ? (
-                    <a href={link} target={link.startsWith('/') ? undefined : "_blank"} rel={link.startsWith('/') ? undefined : "noopener noreferrer"} className="text-blue-600 hover:underline flex items-center gap-1">
-                        {displayValue} <ExternalLink size={12}/>
-                    </a>
-                ) : (
-                    <span>{displayValue}</span>
-                )}
-                {copyable && value && (
-                    <button 
-                        onClick={() => onCopy && onCopy(value)}
-                        className="text-gray-400 hover:text-brand-primary p-1 transition-colors"
-                        title="Copy to clipboard"
-                    >
-                        {isCopied ? <Check size={14} className="text-green-500" /> : <Copy size={14} />}
-                    </button>
-                )}
-            </div>
-        </div>
-    );
 };
 
 const StatusTimeline = ({ historyJson }: { historyJson: string | null }) => {

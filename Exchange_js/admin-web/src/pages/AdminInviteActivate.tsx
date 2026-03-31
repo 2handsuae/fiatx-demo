@@ -19,7 +19,7 @@ const AdminInviteActivate = () => {
   useEffect(() => {
     const run = async () => {
       if (!token) {
-        setError('邀请链接无效：缺少 token。');
+        setError('Invalid invitation link: missing token.');
         setLoading(false);
         return;
       }
@@ -33,14 +33,14 @@ const AdminInviteActivate = () => {
         );
         const payload = await response.json();
         if (!response.ok) {
-          throw new Error(payload?.message || '邀请链接不可用。');
+          throw new Error(payload?.message || 'Invitation link is unavailable.');
         }
 
         setEmail(payload.email || '');
         setUserNo(payload.userNo || '');
         setExpiresAt(payload.expiresAt || '');
       } catch (err) {
-        setError(err instanceof Error ? err.message : '邀请链接不可用。');
+        setError(err instanceof Error ? err.message : 'Invitation link is unavailable.');
       } finally {
         setLoading(false);
       }
@@ -53,15 +53,15 @@ const AdminInviteActivate = () => {
     event.preventDefault();
 
     if (!token) {
-      setError('邀请链接无效：缺少 token。');
+      setError('Invalid invitation link: missing token.');
       return;
     }
     if (password.length < 6) {
-      setError('密码至少 6 位。');
+      setError('Password must be at least 6 characters.');
       return;
     }
     if (password !== confirmPassword) {
-      setError('两次输入密码不一致。');
+      setError('Passwords do not match.');
       return;
     }
 
@@ -76,15 +76,15 @@ const AdminInviteActivate = () => {
       });
       const payload = await response.json();
       if (!response.ok) {
-        throw new Error(payload?.message || '激活失败。');
+        throw new Error(payload?.message || 'Activation failed.');
       }
 
-      setSuccess('激活成功，正在跳转到登录页...');
+      setSuccess('Activation succeeded. Redirecting to sign-in...');
       setTimeout(() => {
         navigate('/admin/login');
       }, 1200);
     } catch (err) {
-      setError(err instanceof Error ? err.message : '激活失败。');
+      setError(err instanceof Error ? err.message : 'Activation failed.');
     } finally {
       setSubmitting(false);
     }
@@ -96,7 +96,7 @@ const AdminInviteActivate = () => {
         <div>
           <h1 className="text-xl font-bold text-gray-900">Admin Invitation Activation</h1>
           <p className="text-sm text-gray-500 mt-1">
-            通过邀请链接设置密码并激活后台账号。
+            Set your password and activate the admin account from this invitation.
           </p>
         </div>
 

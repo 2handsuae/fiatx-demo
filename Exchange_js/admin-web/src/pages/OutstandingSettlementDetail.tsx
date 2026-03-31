@@ -1,7 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, RefreshCw } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
 import { formatAssetAmount } from '../utils/number-format';
+import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/adminFetch';
+import { adminButtonClass } from '../components/common/adminButtonStyles';
+import {
+  ActionSection,
+  DetailCard,
+  DetailPageHeader,
+} from '../components/compliance/DetailPageComponents';
 
 type SettlementFund = {
   id: string;
@@ -95,34 +102,27 @@ const OutstandingSettlementDetail = () => {
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [data, setData] = useState<OutstandingSettlementDetailData | null>(null);
+  const [error, setError] = useState('');
 
   const fetchDetail = async () => {
     if (!id) return;
     setLoading(true);
+    setError('');
     try {
-      const token = localStorage.getItem('admin_token');
-      const response = await fetch(
+      const response = await adminFetch(
         `${import.meta.env.VITE_API_URL}/admin/reconciliation/outstanding-settlements/${id}`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        },
       );
 
       if (response.ok) {
         const result = await response.json();
         setData(result);
-      } else if (response.status === 401) {
-        localStorage.removeItem('admin_token');
-        navigate('/admin/login');
       } else {
-        alert('Failed to load settlement detail');
-        navigate('/dashboard/reconciliation/outstanding-settlements');
+        throw new Error(await getApiErrorMessage(response, 'Failed to load settlement detail.'));
       }
     } catch (error) {
+      if (error instanceof AdminSessionError) return;
       console.error('Failed to fetch settlement detail', error);
-      alert('Failed to load settlement detail');
+      setError(error instanceof Error ? error.message : 'Failed to load settlement detail.');
     } finally {
       setLoading(false);
     }
@@ -135,27 +135,23 @@ const OutstandingSettlementDetail = () => {
   const handleSync = async () => {
     if (!id) return;
     setSyncing(true);
+    setError('');
     try {
-      const token = localStorage.getItem('admin_token');
-      const response = await fetch(
+      const response = await adminFetch(
         `${import.meta.env.VITE_API_URL}/admin/reconciliation/outstanding-settlements/${id}/sync`,
         {
           method: 'POST',
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
         },
       );
       if (!response.ok) {
-        const err = await response.json();
-        alert(err.message || 'Sync failed');
-        return;
+        throw new Error(await getApiErrorMessage(response, 'Sync failed.'));
       }
       const result = await response.json();
       setData(result);
     } catch (error) {
+      if (error instanceof AdminSessionError) return;
       console.error('Failed to sync settlement', error);
-      alert('Sync failed');
+      setError(error instanceof Error ? error.message : 'Sync failed.');
     } finally {
       setSyncing(false);
     }
@@ -175,53 +171,70 @@ const OutstandingSettlementDetail = () => {
     );
   }
 
+  if (error && !data) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => navigate('/dashboard/reconciliation/outstanding-settlements')}
+            className={adminButtonClass('detailUtility')}
+          >
+            Back to Outstanding Settlements
+          </button>
+          <button onClick={() => void fetchDetail()} className={adminButtonClass('detailUtility')}>
+            <RefreshCw size={16} />
+            Retry
+          </button>
+        </div>
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error}
+        </div>
+      </div>
+    );
+  }
+
   if (!data) return null;
 
   return (
     <div className="space-y-6 max-w-6xl mx-auto pb-12">
-      <div className="flex items-center justify-between bg-white p-6 rounded-xl border border-admin-border shadow-sm">
-        <div className="flex items-center gap-4">
-          <button
-            onClick={() => navigate('/dashboard/reconciliation/outstanding-settlements')}
-            className="p-2 hover:bg-gray-100 rounded-lg border border-admin-border transition-colors text-gray-600"
-          >
-            <ArrowLeft size={20} />
-          </button>
-          <div>
-            <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-bold text-gray-900">Outstanding Settlement</h1>
-              <span
-                className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${
-                  STATUS_COLORS[data.status] || 'bg-gray-100 text-gray-700'
-                }`}
-              >
-                {data.status}
-              </span>
-            </div>
-            <p className="text-sm text-gray-500 mt-1 font-mono">
-              {data.settlementNo} · {progressText}
-            </p>
-          </div>
+      <DetailPageHeader
+        title="Outstanding Settlement"
+        subtitle={`${data.settlementNo} · ${progressText}`}
+        onBack={() => navigate('/dashboard/reconciliation/outstanding-settlements')}
+        onRefresh={() => void fetchDetail()}
+        backLabel="Back to Outstanding Settlements"
+      >
+        <span
+          className={`inline-flex items-center rounded-full px-3 py-1 text-sm font-medium ${
+            STATUS_COLORS[data.status] || 'bg-gray-100 text-gray-700'
+          }`}
+        >
+          {data.status}
+        </span>
+      </DetailPageHeader>
+
+      {error ? (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error}
         </div>
-        <div className="flex items-center gap-2">
+      ) : null}
+
+      <ActionSection
+        title="Workflow Actions"
+        description="Settlement workflow actions stay separate from the snapshot cards."
+      >
+        <div className="flex flex-wrap gap-3">
           <button
             onClick={handleSync}
             disabled={syncing}
-            className="px-3 py-2 rounded-lg text-sm font-medium bg-brand-primary text-white hover:bg-brand-primary/90 disabled:opacity-60"
+            className={adminButtonClass('workflowPrimary')}
           >
             {syncing ? 'Syncing...' : 'Sync'}
           </button>
-          <button
-            onClick={fetchDetail}
-            className="p-2 text-gray-500 hover:text-brand-primary transition-colors border border-gray-200 rounded-lg bg-white"
-          >
-            <RefreshCw size={18} />
-          </button>
         </div>
-      </div>
+      </ActionSection>
 
-      <div className="bg-white rounded-xl border border-admin-border shadow-sm p-6">
-        <h3 className="text-sm font-bold text-gray-900 uppercase mb-4">Settlement Snapshot</h3>
+      <DetailCard title="Settlement Snapshot" columns={1}>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <Field label="Settlement No" value={data.settlementNo} />
           <Field label="Status" value={data.status} />
@@ -251,12 +264,9 @@ const OutstandingSettlementDetail = () => {
             value={`OPEN ${data.outstandingSnapshot?.open || 0} · LOCKED ${data.outstandingSnapshot?.locked || 0} · CLOSED ${data.outstandingSnapshot?.closed || 0}`}
           />
         </div>
-      </div>
+      </DetailCard>
 
-      <div className="bg-white rounded-xl border border-admin-border shadow-sm overflow-hidden">
-        <div className="px-5 py-4 border-b border-admin-border">
-          <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wider">Settlement Items</h2>
-        </div>
+      <DetailCard title="Settlement Items" columns={1}>
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
             <thead className="bg-admin-content-bg border-b border-admin-border">
@@ -341,7 +351,7 @@ const OutstandingSettlementDetail = () => {
             </tbody>
           </table>
         </div>
-      </div>
+      </DetailCard>
     </div>
   );
 };

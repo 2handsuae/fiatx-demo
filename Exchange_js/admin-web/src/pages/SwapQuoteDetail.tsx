@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, RefreshCw } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
 import { formatAssetAmount, formatRate8 } from '../utils/number-format';
+import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/adminFetch';
+import { adminButtonClass } from '../components/common/adminButtonStyles';
+import { DetailCard, DetailPageHeader } from '../components/compliance/DetailPageComponents';
 
 type QuoteBusiness = 'SWAP' | 'WITHDRAWAL';
 
@@ -78,6 +81,7 @@ const SwapQuoteDetail = () => {
   const resolvedBusiness: QuoteBusiness = business === 'WITHDRAWAL' ? 'WITHDRAWAL' : 'SWAP';
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<PricingQuoteDetailData | null>(null);
+  const [error, setError] = useState('');
 
   const fees = useMemo(() => data?.fees || [], [data?.fees]);
   const totals = useMemo(() => data?.totals || {}, [data?.totals]);
@@ -86,29 +90,22 @@ const SwapQuoteDetail = () => {
   const fetchDetail = async () => {
     if (!id) return;
     setLoading(true);
+    setError('');
     try {
-      const token = localStorage.getItem('admin_token');
-      const response = await fetch(
+      const response = await adminFetch(
         `${import.meta.env.VITE_API_URL}/admin/pricing/quotes/${resolvedBusiness}/${id}`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        },
       );
 
       if (response.ok) {
         const result = await response.json();
         setData(result);
-      } else if (response.status === 401) {
-        localStorage.removeItem('admin_token');
-        navigate('/admin/login');
       } else {
-        alert('Failed to load quote detail');
-        navigate('/dashboard/pricing/quotes');
+        throw new Error(await getApiErrorMessage(response, 'Failed to load quote detail.'));
       }
     } catch (error) {
+      if (error instanceof AdminSessionError) return;
       console.error('Failed to fetch quote detail', error);
+      setError(error instanceof Error ? error.message : 'Failed to load quote detail.');
     } finally {
       setLoading(false);
     }
@@ -123,6 +120,28 @@ const SwapQuoteDetail = () => {
       <div className="flex flex-col items-center justify-center min-h-[360px] text-gray-500">
         <RefreshCw className="animate-spin mb-2 text-brand-primary" size={26} />
         Loading quote detail...
+      </div>
+    );
+  }
+
+  if (error && !data) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => navigate('/dashboard/pricing/quotes')}
+            className={adminButtonClass('detailUtility')}
+          >
+            Back to Quotes
+          </button>
+          <button onClick={() => void fetchDetail()} className={adminButtonClass('detailUtility')}>
+            <RefreshCw size={16} />
+            Retry
+          </button>
+        </div>
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error}
+        </div>
       </div>
     );
   }
@@ -144,31 +163,25 @@ const SwapQuoteDetail = () => {
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto pb-12">
-      <div className="flex items-center justify-between bg-white p-6 rounded-xl border border-admin-border shadow-sm">
-        <div className="flex items-center gap-4">
-          <button
-            onClick={() => navigate('/dashboard/pricing/quotes')}
-            className="p-2 hover:bg-gray-100 rounded-lg border border-admin-border transition-colors text-gray-600"
-          >
-            <ArrowLeft size={20} />
-          </button>
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">Quote Detail</h1>
-            <p className="text-sm text-gray-500 mt-1 font-mono">
-              {data.business} · Quote No: {data.quoteNo || 'N/A'}
-            </p>
-          </div>
-        </div>
-        <button
-          onClick={fetchDetail}
-          className="p-2 text-gray-500 hover:text-brand-primary transition-colors border border-gray-200 rounded-lg bg-white"
-        >
-          <RefreshCw size={18} />
-        </button>
-      </div>
+      <DetailPageHeader
+        title="Quote Detail"
+        subtitle={`${data.business} · ${data.quoteNo || 'N/A'}`}
+        onBack={() => navigate('/dashboard/pricing/quotes')}
+        onRefresh={() => void fetchDetail()}
+        backLabel="Back to Quotes"
+      >
+        <span className="inline-flex items-center rounded-full bg-blue-50 px-3 py-1 text-sm font-medium text-blue-700">
+          {data.status}
+        </span>
+      </DetailPageHeader>
 
-      <div className="bg-white rounded-xl border border-admin-border shadow-sm p-6">
-        <h3 className="text-sm font-bold text-gray-900 uppercase mb-4">Identification</h3>
+      {error ? (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error}
+        </div>
+      ) : null}
+
+      <DetailCard title="Identification" columns={1}>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <Field label="Quote No" value={data.quoteNo || 'N/A'} />
           <Field label="Business" value={data.business} />
@@ -176,11 +189,10 @@ const SwapQuoteDetail = () => {
           <Field label="Owner Type" value={data.ownerType} />
           <Field label="Owner No" value={data.ownerNo || 'N/A'} />
         </div>
-      </div>
+      </DetailCard>
 
       {swap && (
-        <div className="bg-white rounded-xl border border-admin-border shadow-sm p-6">
-          <h3 className="text-sm font-bold text-gray-900 uppercase mb-4">Swap Terms</h3>
+        <DetailCard title="Swap Terms" columns={1}>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <Field label="Pair" value={`${swap.fromAssetCode} -> ${swap.toAssetCode}`} />
             <Field label="Side / Amount Type" value={`${swap.side} / ${swap.amountType}`} />
@@ -205,12 +217,11 @@ const SwapQuoteDetail = () => {
               2,
             )}
           </pre>
-        </div>
+        </DetailCard>
       )}
 
       {withdrawal && (
-        <div className="bg-white rounded-xl border border-admin-border shadow-sm p-6">
-          <h3 className="text-sm font-bold text-gray-900 uppercase mb-4">Withdrawal Terms</h3>
+        <DetailCard title="Withdrawal Terms" columns={1}>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <Field label="Asset" value={withdrawal.assetCode} />
             <Field label="Amount" value={`${formatAssetAmount(withdrawal.amount, withdrawal.asset?.decimals)} ${withdrawal.assetCode}`} />
@@ -222,11 +233,10 @@ const SwapQuoteDetail = () => {
           <pre className="text-xs bg-gray-50 border border-gray-100 rounded-lg p-3 overflow-auto text-gray-700 mt-4">
             {JSON.stringify(withdrawal.linkedWithdrawals, null, 2)}
           </pre>
-        </div>
+        </DetailCard>
       )}
 
-      <div className="bg-white rounded-xl border border-admin-border shadow-sm p-6">
-        <h3 className="text-sm font-bold text-gray-900 uppercase mb-4">Fee Snapshot</h3>
+      <DetailCard title="Fee Snapshot" columns={1}>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-4">
           <Field label="Fee Items" value={String(fees.length)} />
           <Field label="Total Currencies" value={String(Object.keys(totals).length)} />
@@ -239,24 +249,22 @@ const SwapQuoteDetail = () => {
             {JSON.stringify(totals, null, 2)}
           </pre>
         </div>
-      </div>
+      </DetailCard>
 
-      <div className="bg-white rounded-xl border border-admin-border shadow-sm p-6">
-        <h3 className="text-sm font-bold text-gray-900 uppercase mb-4">Policy Reference</h3>
+      <DetailCard title="Policy Reference" columns={1}>
         <pre className="text-xs bg-gray-50 border border-gray-100 rounded-lg p-3 overflow-auto text-gray-700">
           {JSON.stringify(policyRef, null, 2)}
         </pre>
-      </div>
+      </DetailCard>
 
-      <div className="bg-white rounded-xl border border-admin-border shadow-sm p-6">
-        <h3 className="text-sm font-bold text-gray-900 uppercase mb-4">Lifecycle</h3>
+      <DetailCard title="Lifecycle" columns={1}>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <Field label="Created At" value={new Date(data.createdAt).toLocaleString('en-US')} />
           <Field label="Expires At" value={new Date(data.expiresAt).toLocaleString('en-US')} />
           <Field label="Used At" value={data.usedAt ? new Date(data.usedAt).toLocaleString('en-US') : 'N/A'} />
           <Field label="Cancelled At" value={data.cancelledAt ? new Date(data.cancelledAt).toLocaleString('en-US') : 'N/A'} />
         </div>
-      </div>
+      </DetailCard>
     </div>
   );
 };

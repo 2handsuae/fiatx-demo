@@ -16,6 +16,11 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { formatAssetAmount, formatRate8, normalizeDecimals } from '../utils/number-format';
+import {
+  CustomerSessionError,
+  customerFetch,
+  getCustomerApiErrorMessage,
+} from '../utils/customerFetch';
 
 interface Asset {
   id: string;
@@ -165,30 +170,28 @@ const Swap = () => {
   const fetchBalances = async () => {
     if (!user) return;
     try {
-      const token = localStorage.getItem('customer_token');
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/treasury/customer/${user.id}/assets`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
+      const response = await customerFetch(
+        `${import.meta.env.VITE_API_URL}/treasury/customer/${user.id}/assets`,
+      );
       if (response.ok) {
         const data = await response.json();
         setBalances(data);
       }
     } catch (error) {
+      if (error instanceof CustomerSessionError) return;
       console.error('Failed to fetch balances', error);
     }
   };
 
   const fetchAssets = async () => {
     try {
-      const token = localStorage.getItem('customer_token');
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/assets?status=ACTIVE`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
+      const response = await customerFetch(`${import.meta.env.VITE_API_URL}/assets?status=ACTIVE`);
       if (response.ok) {
         const data = await response.json();
         setAssets(data.items || []);
       }
     } catch (error) {
+      if (error instanceof CustomerSessionError) return;
       console.error('Failed to fetch assets', error);
     }
   };
@@ -196,18 +199,18 @@ const Swap = () => {
   const fetchHistory = async () => {
     setHistoryLoading(true);
     try {
-      const token = localStorage.getItem('customer_token');
       const params = new URLSearchParams();
       if (historyStatus) params.append('status', historyStatus);
       
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/swap-transactions/my?${params.toString()}`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
+      const response = await customerFetch(
+        `${import.meta.env.VITE_API_URL}/swap-transactions/my?${params.toString()}`,
+      );
       if (response.ok) {
         const data = await response.json();
         setHistory(data.items || []);
       }
     } catch (error) {
+      if (error instanceof CustomerSessionError) return;
       console.error('Failed to fetch history', error);
     } finally {
       setHistoryLoading(false);
@@ -231,21 +234,18 @@ const Swap = () => {
     }
     setRateError(null);
     try {
-      const token = localStorage.getItem('customer_token');
       const params = new URLSearchParams({
         fromAssetId: currentFromAssetId,
         toAssetId: currentToAssetId,
         amount: String(amount),
       });
-      const response = await fetch(
+      const response = await customerFetch(
         `${import.meta.env.VITE_API_URL}/swap-transactions/rate?${params.toString()}`,
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        },
       );
       if (!response.ok) {
-        const err = await response.json();
-        throw new Error(err.message || 'Failed to fetch real-time rate');
+        throw new Error(
+          await getCustomerApiErrorMessage(response, 'Failed to fetch real-time rate'),
+        );
       }
       const data: LiveRateResult = await response.json();
       setLiveRate(data.executableRate);
@@ -262,6 +262,7 @@ const Swap = () => {
         pricingSource: data.pricingSource || null,
       });
     } catch (error: any) {
+      if (error instanceof CustomerSessionError) return;
       setRateError(error.message || 'Failed to fetch real-time rate');
       setLiveRate(null);
       setRateMeta(null);
@@ -315,16 +316,6 @@ const Swap = () => {
   const getAssetDecimalsByCode = (code?: string | null) =>
     normalizeDecimals(assets.find((a) => a.code === code)?.decimals, 8);
 
-  const getErrorMessage = (message: unknown, fallback: string) => {
-    if (Array.isArray(message)) {
-      return message.join(', ');
-    }
-    if (typeof message === 'string' && message.trim()) {
-      return message;
-    }
-    return fallback;
-  };
-
   const handleFromAmountChange = (value: string) => {
     if (value === '') {
       setFromAmount('');
@@ -356,13 +347,8 @@ const Swap = () => {
     if (!fromAssetId || !toAssetId || !fromAmount || Number(fromAmount) <= 0) return;
     setLoading(true);
     try {
-      const token = localStorage.getItem('customer_token');
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/swap-transactions/quotes`, {
+      const response = await customerFetch(`${import.meta.env.VITE_API_URL}/swap-transactions/quotes`, {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
         body: JSON.stringify({
           fromAssetId,
           toAssetId,
@@ -379,10 +365,10 @@ const Swap = () => {
         setQuoteExpiresIn(expiresInSec);
         setShowConfirm(true);
       } else {
-        const err = await response.json();
-        alert(getErrorMessage(err?.message, 'Failed to get quote'));
+        alert(await getCustomerApiErrorMessage(response, 'Failed to get quote'));
       }
     } catch (error) {
+      if (error instanceof CustomerSessionError) return;
       console.error('Quote creation failed', error);
     } finally {
       setLoading(false);
@@ -392,16 +378,12 @@ const Swap = () => {
   const handleCloseConfirm = async () => {
     if (firmQuote && quoteExpiresIn > 0 && firmQuote.status === 'ACTIVE') {
       try {
-        const token = localStorage.getItem('customer_token');
-        await fetch(`${import.meta.env.VITE_API_URL}/swap-transactions/quotes/${firmQuote.quoteId}/cancel`, {
+        await customerFetch(`${import.meta.env.VITE_API_URL}/swap-transactions/quotes/${firmQuote.quoteId}/cancel`, {
           method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
-          },
           body: JSON.stringify({})
         });
       } catch (error) {
+        if (error instanceof CustomerSessionError) return;
         console.error('Quote cancel failed', error);
       }
     }
@@ -420,13 +402,8 @@ const Swap = () => {
 
     setSwapping(true);
     try {
-      const token = localStorage.getItem('customer_token');
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/swap-transactions`, {
+      const response = await customerFetch(`${import.meta.env.VITE_API_URL}/swap-transactions`, {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
         body: JSON.stringify({
           quoteId: firmQuote.quoteId,
         })
@@ -440,8 +417,7 @@ const Swap = () => {
         setActiveTab('history');
         fetchBalances(); // Refresh balances after swap
       } else {
-        const err = await response.json();
-        const message = getErrorMessage(err?.message, 'Swap failed');
+        const message = await getCustomerApiErrorMessage(response, 'Swap failed');
         alert(message);
 
         if (message.includes('Quote')) {
@@ -451,6 +427,7 @@ const Swap = () => {
         }
       }
     } catch (error) {
+      if (error instanceof CustomerSessionError) return;
       console.error('Swap failed', error);
     } finally {
       setSwapping(false);

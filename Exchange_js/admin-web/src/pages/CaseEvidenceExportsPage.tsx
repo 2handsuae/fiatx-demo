@@ -2,6 +2,10 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Download, RefreshCw } from 'lucide-react';
 import Pagination from '../components/common/Pagination';
+import {
+  adminButtonClass,
+  adminIconButtonClass,
+} from '../components/common/adminButtonStyles';
 import { useAdminSession } from '../contexts/AdminSessionContext';
 import { PERMISSIONS } from '../rbac/permissions';
 import {
@@ -234,7 +238,7 @@ const CaseEvidenceExportsPage = () => {
         </div>
         <button
           onClick={() => void fetchExports(currentPage)}
-          className="p-2 text-gray-500 hover:text-brand-primary"
+          className={adminIconButtonClass()}
           title="Refresh"
         >
           <RefreshCw size={20} className={loading ? 'animate-spin' : ''} />
@@ -312,14 +316,14 @@ const CaseEvidenceExportsPage = () => {
             <button
               onClick={() => void handleCreate()}
               disabled={creating || !hasFilters}
-              className="px-3 py-2 rounded bg-brand-primary text-white text-sm hover:opacity-90 disabled:opacity-60"
+              className={adminButtonClass('listPrimary')}
             >
               {creating ? 'Submitting...' : 'Create Export Request'}
             </button>
             <button
               onClick={() => setForm(DEFAULT_FORM)}
               disabled={creating || !hasFilters}
-              className="px-3 py-2 rounded border border-admin-border text-sm hover:bg-gray-50 disabled:opacity-60"
+              className={adminButtonClass('listSecondary')}
             >
               Reset
             </button>
@@ -350,7 +354,7 @@ const CaseEvidenceExportsPage = () => {
                 <th className="px-4 py-3 text-xs uppercase text-gray-500">Exporter</th>
                 <th className="px-4 py-3 text-xs uppercase text-gray-500">Items</th>
                 <th className="px-4 py-3 text-xs uppercase text-gray-500">Digest</th>
-                <th className="px-4 py-3 text-xs uppercase text-gray-500">Operation</th>
+                <th className="px-4 py-3 text-xs uppercase text-gray-500">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-admin-border">
@@ -374,7 +378,7 @@ const CaseEvidenceExportsPage = () => {
                         onClick={() =>
                           navigate(`/dashboard/compliance/case-evidence-exports/${item.id}`)
                         }
-                        className="font-mono text-xs text-brand-primary hover:underline"
+                        className={adminButtonClass('rowKeyLink')}
                       >
                         {item.packageNo}
                       </button>
@@ -403,14 +407,17 @@ const CaseEvidenceExportsPage = () => {
                           onClick={() =>
                             navigate(`/dashboard/compliance/case-evidence-exports/${item.id}`)
                           }
-                          className="text-sm font-medium text-brand-primary hover:underline"
+                          className={adminButtonClass('rowLink')}
                         >
                           View
                         </button>
                         <button
                           onClick={() => void downloadPackage(item.id)}
                           disabled={item.status !== 'READY' || downloading === item.id}
-                          className="inline-flex items-center gap-1 text-sm font-medium text-blue-700 hover:underline disabled:opacity-60"
+                          className={adminButtonClass(
+                            'rowSecondaryUtility',
+                            'inline-flex items-center gap-1 disabled:no-underline',
+                          )}
                         >
                           <Download size={14} />
                           {downloading === item.id

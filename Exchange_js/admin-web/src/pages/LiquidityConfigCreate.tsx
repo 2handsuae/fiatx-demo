@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Save, AlertCircle } from 'lucide-react';
+import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/adminFetch';
+import { adminButtonClass } from '../components/common/adminButtonStyles';
 
 interface Asset {
   id: string;
@@ -36,12 +38,9 @@ const LiquidityConfigCreate = () => {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const token = localStorage.getItem('admin_token');
-        const headers = { 'Authorization': `Bearer ${token}` };
-
         const [assetsRes, providersRes] = await Promise.all([
-          fetch(`${import.meta.env.VITE_API_URL}/assets?status=ACTIVE`, { headers }),
-          fetch(`${import.meta.env.VITE_API_URL}/liquidity-providers?status=ACTIVE`, { headers })
+          adminFetch(`${import.meta.env.VITE_API_URL}/assets?status=ACTIVE`),
+          adminFetch(`${import.meta.env.VITE_API_URL}/liquidity-providers?status=ACTIVE`)
         ]);
 
         if (assetsRes.ok) {
@@ -53,6 +52,7 @@ const LiquidityConfigCreate = () => {
           setProviders(data.items || []);
         }
       } catch (err) {
+        if (err instanceof AdminSessionError) return;
         console.error('Failed to fetch initial data', err);
       }
     };
@@ -81,11 +81,9 @@ const LiquidityConfigCreate = () => {
     }
 
     try {
-      const token = localStorage.getItem('admin_token');
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/liquidity-configurations`, {
+      const response = await adminFetch(`${import.meta.env.VITE_API_URL}/liquidity-configurations`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify(formData)
@@ -94,10 +92,10 @@ const LiquidityConfigCreate = () => {
       if (response.ok) {
         navigate('/dashboard/system/liquidity-config');
       } else {
-        const data = await response.json();
-        setError(data.message || 'Failed to create configuration');
+        setError(await getApiErrorMessage(response, 'Failed to create configuration'));
       }
     } catch (err) {
+      if (err instanceof AdminSessionError) return;
       console.error('Failed to create configuration', err);
       setError('An unexpected error occurred');
     } finally {
@@ -110,7 +108,7 @@ const LiquidityConfigCreate = () => {
       <div className="flex items-center gap-4">
         <button 
           onClick={() => navigate('/dashboard/system/liquidity-config')}
-          className="p-2 hover:bg-gray-100 rounded-full transition-colors text-gray-500"
+          className={adminButtonClass('detailUtility', 'px-2')}
         >
           <ArrowLeft size={20} />
         </button>
@@ -263,14 +261,14 @@ const LiquidityConfigCreate = () => {
             <button
               type="button"
               onClick={() => navigate('/dashboard/system/liquidity-config')}
-              className="px-4 py-2 text-gray-700 bg-white border border-admin-border rounded-lg hover:bg-gray-50 transition-colors"
+              className={adminButtonClass('modalCancel')}
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={loading}
-              className="flex items-center gap-2 px-6 py-2 bg-brand-primary text-white rounded-lg hover:bg-brand-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              className={adminButtonClass('modalConfirm')}
             >
               {loading ? (
                 <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />

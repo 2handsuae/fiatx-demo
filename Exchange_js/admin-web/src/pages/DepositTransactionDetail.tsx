@@ -1,10 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
-  ArrowLeft,
   RefreshCw,
-  Copy,
-  Check,
   ExternalLink,
   FileText,
   User,
@@ -18,7 +15,17 @@ import {
   Workflow,
   Compass,
 } from 'lucide-react';
+import {
+  DetailCard,
+  DetailPageHeader,
+  InfoField,
+} from '../components/compliance/DetailPageComponents';
 import { copyToClipboard } from '../utils/clipboard';
+import {
+  AdminSessionError,
+  adminFetch,
+  getApiErrorMessage,
+} from '../utils/adminFetch';
 import { formatAssetAmount } from '../utils/number-format';
 import { useSimulationMode } from '../utils/simulationMode';
 import {
@@ -142,34 +149,27 @@ const DepositTransactionDetail = () => {
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const { enabled: simulationModeEnabled } = useSimulationMode();
 
-  useEffect(() => {
-    const fetchData = async () => {
-      setLoading(true);
-      try {
-        const token = localStorage.getItem('admin_token');
-        const response = await fetch(`${import.meta.env.VITE_API_URL}/deposit-transactions/${id}`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-        
-        if (response.ok) {
-          const result = await response.json();
-          setData(result);
-        } else {
-           if (response.status === 401) {
-             localStorage.removeItem('admin_token');
-             navigate('/admin/login');
-           } else {
-             alert('Failed to load detail');
-             navigate('/exchange/deposit-transactions');
-           }
-        }
-      } catch (error) {
-        console.error('Failed to fetch detail', error);
-      } finally {
-        setLoading(false);
-      }
-    };
+  const fetchData = async () => {
+    setLoading(true);
+    try {
+      const response = await adminFetch(`${import.meta.env.VITE_API_URL}/deposit-transactions/${id}`);
 
+      if (response.ok) {
+        const result = await response.json();
+        setData(result);
+      } else {
+        alert(await getApiErrorMessage(response, 'Failed to load detail'));
+        navigate('/exchange/deposit-transactions');
+      }
+    } catch (error) {
+      if (error instanceof AdminSessionError) return;
+      console.error('Failed to fetch detail', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
     if (id) fetchData();
   }, [id, navigate]);
 
@@ -273,31 +273,19 @@ const DepositTransactionDetail = () => {
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto pb-12">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-xl border border-admin-border shadow-sm">
-        <div className="flex items-center gap-4">
-          <button 
-            onClick={() => navigate('/exchange/deposit-transactions')}
-            className="p-2 hover:bg-gray-100 rounded-lg border border-admin-border transition-colors text-gray-600"
-          >
-            <ArrowLeft size={20} />
-          </button>
-          <div>
-            <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-bold text-gray-900">Deposit Details</h1>
-              {renderStatusBadge(data.status)}
-            </div>
-            <div className="flex items-center gap-4 mt-1 text-sm text-gray-500 font-mono">
-              <span className="text-brand-primary font-bold">No: {data.depositNo}</span>
-              <span>ID: {data.id}</span>
-              <span className="flex items-center gap-1"><Clock size={14}/> Created: {new Date(data.createdAt).toLocaleString()}</span>
-            </div>
-          </div>
-        </div>
-      </div>
+      <DetailPageHeader
+        title="Deposit Details"
+        subtitle={`No: ${data.depositNo} · ID: ${data.id} · Created: ${new Date(data.createdAt).toLocaleString()}`}
+        onBack={() => navigate('/exchange/deposit-transactions')}
+        onRefresh={fetchData}
+        refreshing={loading}
+        backLabel="Back to Deposits"
+      >
+        {renderStatusBadge(data.status)}
+      </DetailPageHeader>
 
       <div className="flex flex-col gap-6">
-        <DetailCard title="Workflow Summary" icon={<Workflow size={18} />}>
+        <DetailCard title="Workflow Summary" icon={<Workflow size={18} />} columns={2}>
             <InfoField label="Current Deposit Status" value={formatStatusLabel(data.status)} highlight source="main" />
             <InfoField label="Current Payin Status" value={data.payinStatus ? formatStatusLabel(data.payinStatus) : 'N/A'} highlight source="main" />
             <InfoField label="Next Step" value={nextStepLabel} source="main" />
@@ -306,7 +294,9 @@ const DepositTransactionDetail = () => {
             <InfoField label="Derived Compliance" value={data.derivedComplianceStatus ? formatDerivedComplianceStatusLabel(data.derivedComplianceStatus) : null} source="main" />
             <div className="sm:col-span-2 rounded border border-gray-200 bg-gray-50 px-3 py-3 text-xs text-gray-600 space-y-2">
               <div>
-                当前链路会从这里继续跳到对应主体详情页。Payin 的推进在 payin 详情里走 icon rail，Alert/Case 仍然保留正式文字按钮。
+                This chain continues into the linked subject detail pages. Payin progression stays
+                inside the payin icon rail, while alert and case handling remains in the formal
+                text-action surfaces.
               </div>
               <div className="flex flex-wrap gap-2">
                 {data.payinId ? (
@@ -359,7 +349,7 @@ const DepositTransactionDetail = () => {
         </DetailCard>
 
         {simulationModeEnabled && data.simulationProfile ? (
-          <DetailCard title="Compatibility Signal Profile" icon={<Compass size={18} />}>
+          <DetailCard title="Compatibility Signal Profile" icon={<Compass size={18} />} columns={2}>
             <InfoField label="Signal No" value={data.simulationProfile.signalNo} source="main" />
             <InfoField label="Signal Risk Level" value={data.simulationProfile.riskLevel} highlight source="main" />
             <InfoField label="Signal Risk Reason" value={data.simulationProfile.riskReason || 'LOW has no reason'} source="main" />
@@ -373,7 +363,7 @@ const DepositTransactionDetail = () => {
         ) : null}
 
         {/* 1. Basic Identification */}
-        <DetailCard title="Basic Identification" icon={<FileText size={18} />}>
+        <DetailCard title="Basic Identification" icon={<FileText size={18} />} columns={2}>
             <InfoField label="ID" value={data.id} source="main" />
             <InfoField label="Deposit No" value={data.depositNo} highlight source="main" />
             <InfoField label="Type" value={formatTransactionTypeLabel(data.type || data.asset.type)} source="main" />
@@ -383,7 +373,7 @@ const DepositTransactionDetail = () => {
         </DetailCard>
 
         {/* 2. Assets & Amount */}
-        <DetailCard title="Assets & Amount" icon={<CreditCard size={18} />}>
+        <DetailCard title="Assets & Amount" icon={<CreditCard size={18} />} columns={2}>
             <InfoField label="Asset ID" value={data.assetId} source="main" />
             <InfoField label="Asset Code" value={data.asset.code} source="main" />
             <InfoField label="Asset Network" value={data.asset.network} source="main" />
@@ -393,7 +383,7 @@ const DepositTransactionDetail = () => {
         </DetailCard>
 
         {/* 3. Endpoint / Destination */}
-        <DetailCard title="Endpoint / Destination" icon={<MapPin size={18} />}>
+        <DetailCard title="Endpoint / Destination" icon={<MapPin size={18} />} columns={2}>
             <InfoField label="To Wallet ID" value={data.toWalletId} source="main" />
             <InfoField label="To Wallet No" value={data.toWalletNo} source="main" />
             <InfoField label="To Address" value={data.toAddress || 'N/A'} copyable onCopy={(v) => handleCopy(v, 'toAddress')} isCopied={copiedField === 'toAddress'} source="main" />
@@ -401,7 +391,7 @@ const DepositTransactionDetail = () => {
         </DetailCard>
 
         {/* 4. Source / Origin */}
-        <DetailCard title="Source / Origin" icon={<Activity size={18} />}>
+        <DetailCard title="Source / Origin" icon={<Activity size={18} />} columns={2}>
             <InfoField label="From Wallet ID" value={data.fromWalletId} source="main" />
             <InfoField label="From Wallet No" value={data.fromWalletNo} source="main" />
             <InfoField label="From Address" value={data.fromAddress || 'N/A'} copyable onCopy={(v) => handleCopy(v, 'fromAddress')} isCopied={copiedField === 'fromAddress'} source="main" />
@@ -409,7 +399,7 @@ const DepositTransactionDetail = () => {
         </DetailCard>
 
         {/* 5. External Transaction */}
-        <DetailCard title="External Transaction Info" icon={<Globe size={18} />}>
+        <DetailCard title="External Transaction Info" icon={<Globe size={18} />} columns={2}>
             <InfoField 
                 label="Tx Hash" 
                 value={data.txHash || 'N/A'} 
@@ -424,7 +414,7 @@ const DepositTransactionDetail = () => {
         </DetailCard>
 
         {/* 6. Response Container (KYT) */}
-        <DetailCard title="Response Container (KYT)" icon={<ShieldCheck size={18} />}>
+        <DetailCard title="Response Container (KYT)" icon={<ShieldCheck size={18} />} columns={2}>
             <InfoField label="Lifecycle" value={kytLifecycleDisplay} highlight source="main" />
             <InfoField label="Screening ID" value={data.kytScreeningId} source="main" />
             <InfoField label="Risk Score" value={data.kytRiskScore?.toString()} source="main" />
@@ -451,7 +441,7 @@ const DepositTransactionDetail = () => {
         </DetailCard>
 
         {/* 7. Response Container (Travel Rule) */}
-        <DetailCard title="Response Container (Travel Rule)" icon={<Scale size={18} />}>
+        <DetailCard title="Response Container (Travel Rule)" icon={<Scale size={18} />} columns={2}>
             <InfoField label="Travel Rule Required" value={data.travelRuleRequired ? 'Yes' : 'No'} source="main" />
             <InfoField label="Lifecycle" value={travelRuleLifecycleDisplay} highlight source="main" />
             <InfoField label="Transfer ID" value={data.travelRuleTransferId} source="main" />
@@ -485,7 +475,7 @@ const DepositTransactionDetail = () => {
         </DetailCard>
 
         {/* 8. Derived Compliance & Timings */}
-        <DetailCard title="Derived Compliance & Timings" icon={<Clock size={18} />}>
+        <DetailCard title="Derived Compliance & Timings" icon={<Clock size={18} />} columns={2}>
             <InfoField label="Current Status" value={formatStatusLabel(data.status)} highlight source="main" />
             <InfoField label="Derived Compliance" value={data.derivedComplianceStatus ? formatDerivedComplianceStatusLabel(data.derivedComplianceStatus) : null} highlight source="main" />
             <InfoField label="Created At" value={new Date(data.createdAt).toLocaleString()} source="main" />
@@ -493,7 +483,7 @@ const DepositTransactionDetail = () => {
             <InfoField label="Completed At" value={data.completedAt ? new Date(data.completedAt).toLocaleString() : 'N/A'} source="main" />
         </DetailCard>
 
-        <DetailCard title="Linked Rail" icon={<Workflow size={18} />}>
+        <DetailCard title="Linked Rail" icon={<Workflow size={18} />} columns={2}>
             <InfoField label="Payin ID" value={data.payinId} source="main" />
             <InfoField label="Payin No" value={data.payinNo} source="main" />
             <InfoField label="Payin Status" value={data.payinStatus ? formatStatusLabel(data.payinStatus) : null} source="main" />
@@ -542,74 +532,6 @@ const DepositTransactionDetail = () => {
       </div>
     </div>
   );
-};
-
-// --- Reusable Components (Same as PayinDetail) ---
-
-const DetailCard = ({ title, icon, children, columns = 2 }: { title: string, icon: React.ReactNode, children: React.ReactNode, columns?: number }) => (
-  <div className="bg-white rounded-xl shadow-sm border border-admin-border overflow-hidden transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md">
-     <div className="px-6 py-4 border-b border-admin-border flex items-center gap-3 bg-gray-50/50">
-        <div className="p-1.5 bg-white rounded-md text-gray-500 border border-admin-border shadow-sm">
-           {icon}
-        </div>
-        <h3 className="text-sm font-bold text-gray-900 uppercase tracking-tight">{title}</h3>
-     </div>
-     <div className="p-6">
-        <div className={`grid grid-cols-1 ${columns === 2 ? 'sm:grid-cols-2' : ''} gap-x-8 gap-y-6`}>
-           {children}
-        </div>
-     </div>
-  </div>
-);
-
-const InfoField = ({ 
-  label, 
-  value, 
-  highlight = false, 
-  icon, 
-  source = 'main',
-  copyable = false,
-  isCopied = false,
-  onCopy,
-  link
-}: { 
-  label: string, 
-  value: string | null | undefined, 
-  highlight?: boolean, 
-  icon?: React.ReactNode,
-  source?: 'main' | 'kyc' | 'edd',
-  copyable?: boolean,
-  isCopied?: boolean,
-  onCopy?: (val: string) => void,
-  link?: string
-}) => {
-    const placeholder = source === 'kyc' ? 'KYC no data' : source === 'edd' ? 'EDD no data' : 'N/A';
-    const displayValue = value || placeholder;
-    
-    return (
-        <div className="flex flex-col gap-1.5">
-            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">{label}</span>
-            <div className={`text-sm font-medium break-all flex items-center gap-2 ${highlight ? 'text-brand-primary' : 'text-gray-900'}`}>
-                {icon && <span className="text-gray-400">{icon}</span>}
-                {link ? (
-                    <a href={link} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline flex items-center gap-1">
-                        {displayValue} <ExternalLink size={12}/>
-                    </a>
-                ) : (
-                    <span>{displayValue}</span>
-                )}
-                {copyable && value && (
-                    <button 
-                        onClick={() => onCopy && onCopy(value)}
-                        className="text-gray-400 hover:text-brand-primary p-1 transition-colors"
-                        title="Copy to clipboard"
-                    >
-                        {isCopied ? <Check size={14} className="text-green-500" /> : <Copy size={14} />}
-                    </button>
-                )}
-            </div>
-        </div>
-    );
 };
 
 // --- Timeline Component ---

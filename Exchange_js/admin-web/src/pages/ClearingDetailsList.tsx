@@ -1,7 +1,9 @@
-import { useEffect, useState } from 'react';
-import { Search, RefreshCw, ChevronLeft, ChevronRight, ExternalLink, Eye, ArrowUpDown, X } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { Search, RefreshCw, ChevronLeft, ChevronRight, ExternalLink, ArrowUpDown } from 'lucide-react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { formatAssetAmount } from '../utils/number-format';
+import { adminFetch, getApiErrorMessage } from '../utils/adminFetch';
+import { adminButtonClass, adminIconButtonClass } from '../components/common/adminButtonStyles';
 
 interface ClearingLineItem {
   id: string;
@@ -40,11 +42,14 @@ const ClearingDetailsList = () => {
   const [total, setTotal] = useState(0);
   const [sortBy, setSortBy] = useState('createdAt');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+  const [error, setError] = useState('');
+
+  const hasFilters = useMemo(() => Boolean(clearingId.trim()), [clearingId]);
 
   const fetchItems = async () => {
     setLoading(true);
+    setError('');
     try {
-      const token = localStorage.getItem('admin_token');
       const params = new URLSearchParams();
       params.append('skip', ((page - 1) * pageSize).toString());
       params.append('take', pageSize.toString());
@@ -53,25 +58,17 @@ const ClearingDetailsList = () => {
 
       if (clearingId) params.append('clearingId', clearingId);
       
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/clearings/lines?${params.toString()}`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
+      const response = await adminFetch(`${import.meta.env.VITE_API_URL}/clearings/lines?${params.toString()}`);
       if (response.ok) {
         const result = await response.json();
-        // Backend returns { items: [], total: 0 }
-        // The previous code might have expected a different structure or the backend was returning null items
         setItems(result.items || []);
         setTotal(result.total || 0);
-      } else {
-        if (response.status === 401) {
-          localStorage.removeItem('admin_token');
-          navigate('/admin/login');
-        }
+        return;
       }
+      setError(await getApiErrorMessage(response, 'Failed to fetch clearing lines.'));
     } catch (error) {
       console.error('Failed to fetch clearing lines', error);
+      setError('Failed to fetch clearing lines.');
     } finally {
       setLoading(false);
     }
@@ -90,6 +87,28 @@ const ClearingDetailsList = () => {
     setClearingId('');
     setSearchParams({});
     setPage(1);
+    setItems([]);
+    setError('');
+    setLoading(true);
+    void (async () => {
+      try {
+        const response = await adminFetch(
+          `${import.meta.env.VITE_API_URL}/clearings/lines?skip=0&take=${pageSize}&sortBy=${sortBy}&sortOrder=${sortOrder}`,
+        );
+        if (response.ok) {
+          const result = await response.json();
+          setItems(result.items || []);
+          setTotal(result.total || 0);
+          return;
+        }
+        setError(await getApiErrorMessage(response, 'Failed to fetch clearing lines.'));
+      } catch (resetError) {
+        console.error('Failed to reset clearing line filters', resetError);
+        setError('Failed to fetch clearing lines.');
+      } finally {
+        setLoading(false);
+      }
+    })();
   };
 
   const handleSort = (field: string) => {
@@ -150,11 +169,18 @@ const ClearingDetailsList = () => {
                     className="w-full pl-10 pr-4 py-2 bg-admin-content-bg border border-admin-border rounded-lg focus:outline-none focus:border-brand-primary focus:ring-1 focus:ring-brand-primary/20 transition-all duration-200"
                     />
                 </div>
-                <button onClick={handleSearch} className="px-6 py-2 bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200 transition-colors">
+                <button onClick={handleSearch} className={adminButtonClass('listPrimary')}>
                     Search
                 </button>
+                <button
+                  onClick={clearClearingFilter}
+                  className={adminButtonClass('listSecondary')}
+                  disabled={!hasFilters && !error}
+                >
+                  Reset
+                </button>
             </div>
-            <button onClick={fetchItems} className="p-2 text-gray-500 hover:text-brand-primary transition-colors border border-gray-200 rounded-lg bg-white self-start md:self-auto">
+            <button onClick={fetchItems} className={adminIconButtonClass('self-start md:self-auto')}>
                 <RefreshCw size={20} className={loading ? 'animate-spin' : ''} />
             </button>
         </div>
@@ -165,12 +191,12 @@ const ClearingDetailsList = () => {
                     <span className="font-semibold">Filtering by Clearing:</span>
                     <span className="font-mono bg-white px-2 py-0.5 rounded border border-blue-200 text-xs">{clearingIdFromQuery}</span>
                 </div>
-                <button 
+                <button
                     onClick={clearClearingFilter}
-                    className="p-1 hover:bg-blue-100 rounded text-blue-600 transition-colors"
-                    title="Clear Filter"
+                    className={adminButtonClass('rowSecondaryUtility')}
+                    title="Reset Filter"
                 >
-                    <X size={16} />
+                    Reset
                 </button>
             </div>
         )}
@@ -185,11 +211,18 @@ const ClearingDetailsList = () => {
                 <SortableHeader field="amount" label="Amount" />
                 <SortableHeader field="refType" label="Reference" />
                 <SortableHeader field="createdAt" label="Created At" />
-                <th className="px-4 py-3 font-medium text-gray-500 uppercase tracking-wider text-right">Actions</th>
+                <th className="px-4 py-3 font-medium text-gray-500 uppercase tracking-wider text-right">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-admin-border">
-              {loading && items.length === 0 ? (
+              {error ? (
+                <tr>
+                  <td colSpan={7} className="px-4 py-12 text-center text-rose-600">
+                    {error}
+                  </td>
+                </tr>
+              ) : null}
+              {!error && loading && items.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="px-4 py-12 text-center text-gray-500">
                     <div className="flex flex-col items-center justify-center">
@@ -198,7 +231,7 @@ const ClearingDetailsList = () => {
                     </div>
                   </td>
                 </tr>
-              ) : items.length === 0 ? (
+              ) : !error && items.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="px-4 py-12 text-center text-gray-500">
                     No clearing lines found
@@ -244,12 +277,12 @@ const ClearingDetailsList = () => {
                         {formatDateTime(item.createdAt)}
                     </td>
                     <td className="px-4 py-4 text-right">
-                        <button 
-                            className="p-1.5 text-gray-500 hover:text-brand-primary rounded hover:bg-gray-100 transition-colors"
+                        <button
+                            type="button"
+                            className={adminButtonClass('rowLink')}
                             onClick={() => navigate(`/clearing/lines/${item.id}`)}
-                            title="View Details"
                         >
-                            <Eye size={16} />
+                            View
                         </button>
                     </td>
                   </tr>

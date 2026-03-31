@@ -1,8 +1,17 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, RefreshCw, Eye, Download, CheckCircle, Copy, Plus } from 'lucide-react';
+import { Search, RefreshCw, Download, CheckCircle, Copy, Plus } from 'lucide-react';
+import {
+  adminButtonClass,
+  adminIconButtonClass,
+} from '../components/common/adminButtonStyles';
 import { copyToClipboard } from '../utils/clipboard';
 import { formatAssetAmount } from '../utils/number-format';
+import {
+  AdminSessionError,
+  adminFetch,
+  getApiErrorMessage,
+} from '../utils/adminFetch';
 import {
   formatDerivedComplianceStatusLabel,
   isLegacyWithdrawStatus,
@@ -42,6 +51,7 @@ const WithdrawTransactionList = () => {
   const navigate = useNavigate();
   const [items, setItems] = useState<WithdrawTransaction[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [copied, setCopied] = useState<string | null>(null);
 
   // Filters
@@ -49,71 +59,101 @@ const WithdrawTransactionList = () => {
   const [ownerId, setOwnerId] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
 
-  const fetchItems = async () => {
+  type WithdrawFilters = {
+    withdrawNo: string;
+    ownerId: string;
+    statusFilter: string;
+  };
+
+  const hasFilters = useMemo(
+    () => !!withdrawNo.trim() || !!ownerId.trim() || !!statusFilter,
+    [ownerId, statusFilter, withdrawNo],
+  );
+
+  const fetchItems = async (
+    overrides?: Partial<WithdrawFilters>,
+  ) => {
     setLoading(true);
+    setError('');
     try {
-      const token = localStorage.getItem('admin_token');
+      const nextFilters: WithdrawFilters = {
+        withdrawNo,
+        ownerId,
+        statusFilter,
+        ...overrides,
+      };
       const params = new URLSearchParams();
-      if (withdrawNo) params.append('withdrawNo', withdrawNo);
-      if (ownerId) params.append('ownerId', ownerId);
-      if (statusFilter) params.append('status', statusFilter);
+      if (nextFilters.withdrawNo) params.append('withdrawNo', nextFilters.withdrawNo);
+      if (nextFilters.ownerId) params.append('ownerId', nextFilters.ownerId);
+      if (nextFilters.statusFilter) params.append('status', nextFilters.statusFilter);
       
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/withdraw-transactions?${params.toString()}`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
+      const response = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/withdraw-transactions?${params.toString()}`,
+      );
       if (response.ok) {
         const result = await response.json();
         setItems(result.items || []);
       } else {
-        if (response.status === 401) {
-            localStorage.removeItem('admin_token');
-            navigate('/admin/login');
-        }
+        throw new Error(
+          await getApiErrorMessage(response, 'Failed to fetch withdraw transactions.'),
+        );
       }
     } catch (error) {
+      if (error instanceof AdminSessionError) return;
       console.error('Failed to fetch withdraw transactions', error);
+      setError(
+        error instanceof Error
+          ? error.message
+          : 'Failed to fetch withdraw transactions.',
+      );
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchItems();
-  }, [statusFilter]);
+    void fetchItems();
+  }, []);
+
+  const resetFilters = async () => {
+    setWithdrawNo('');
+    setOwnerId('');
+    setStatusFilter('');
+    await fetchItems({
+      withdrawNo: '',
+      ownerId: '',
+      statusFilter: '',
+    });
+  };
 
   const handleSeedMock = async () => {
     try {
-      const token = localStorage.getItem('admin_token');
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/withdraw-transactions/mock`, {
+      const response = await adminFetch(`${import.meta.env.VITE_API_URL}/withdraw-transactions/mock`, {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
       });
       if (response.ok) {
         alert('Successfully created 10 mock withdraw transactions');
-        fetchItems();
+        await fetchItems();
       } else {
-        alert('Failed to create mock data');
+        throw new Error(await getApiErrorMessage(response, 'Failed to create mock data.'));
       }
     } catch (error) {
+      if (error instanceof AdminSessionError) return;
       console.error('Seed mock failed', error);
+      setError(error instanceof Error ? error.message : 'Seed mock failed.');
     }
   };
 
   const handleExport = async () => {
       try {
-        const token = localStorage.getItem('admin_token');
         const params = new URLSearchParams();
         if (withdrawNo) params.append('withdrawNo', withdrawNo);
         if (ownerId) params.append('ownerId', ownerId);
         if (statusFilter) params.append('status', statusFilter);
         
-        const response = await fetch(`${import.meta.env.VITE_API_URL}/withdraw-transactions?${params.toString()}&take=10000`, {
-            headers: { 'Authorization': `Bearer ${token}` }
-        });
+        const response = await adminFetch(
+          `${import.meta.env.VITE_API_URL}/withdraw-transactions?${params.toString()}&take=10000`,
+        );
         
         if (response.ok) {
             const data = await response.json();
@@ -145,9 +185,13 @@ const WithdrawTransactionList = () => {
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
+        } else {
+            throw new Error(await getApiErrorMessage(response, 'Export failed.'));
         }
       } catch (error) {
+          if (error instanceof AdminSessionError) return;
           console.error('Export failed', error);
+          setError(error instanceof Error ? error.message : 'Export failed.');
       }
   };
 
@@ -283,19 +327,25 @@ const WithdrawTransactionList = () => {
           <p className="text-sm text-gray-500 mt-1">Manage withdrawal requests and status</p>
         </div>
         <div className="flex gap-3">
-          <button onClick={handleSeedMock} className="flex items-center gap-2 px-3 py-2 bg-brand-primary text-white rounded-lg hover:bg-brand-secondary transition-colors shadow-sm">
+          <button onClick={() => void handleSeedMock()} className={adminButtonClass('listPrimary')}>
              <Plus size={18} />
              <span className="text-sm font-medium">Seed 10 Mock Records</span>
           </button>
-          <button onClick={handleExport} className="flex items-center gap-2 px-3 py-2 text-gray-600 hover:text-gray-800 bg-white border border-gray-200 rounded-lg transition-colors">
+          <button onClick={() => void handleExport()} className={adminButtonClass('listSecondary')}>
             <Download size={18} />
             <span className="text-sm font-medium">Export</span>
           </button>
-          <button onClick={fetchItems} className="p-2 text-gray-500 hover:text-brand-primary transition-colors border border-gray-200 rounded-lg bg-white">
+          <button onClick={() => void fetchItems()} className={adminIconButtonClass()}>
             <RefreshCw size={20} className={loading ? 'animate-spin' : ''} />
           </button>
         </div>
       </div>
+
+      {error ? (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error}
+        </div>
+      ) : null}
 
       <div className="bg-white rounded-xl shadow-sm border border-admin-border overflow-hidden">
         <div className="p-4 border-b border-admin-border flex flex-col md:flex-row gap-4 justify-between">
@@ -314,11 +364,18 @@ const WithdrawTransactionList = () => {
                     type="text" 
                     value={ownerId}
                     onChange={(e) => setOwnerId(e.target.value)}
-                    placeholder="Search Owner ID..." 
+                    placeholder="Search Owner No or ID..." 
                     className="px-3 py-2 bg-admin-content-bg border border-admin-border rounded-lg text-sm focus:outline-none focus:border-brand-primary w-48"
                 />
-                <button onClick={fetchItems} className="px-4 py-2 bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200 text-sm font-medium transition-colors">
+                <button onClick={() => void fetchItems()} className={adminButtonClass('listPrimary')}>
                     Search
+                </button>
+                <button
+                  onClick={() => void resetFilters()}
+                  className={adminButtonClass('listSecondary')}
+                  disabled={!hasFilters || loading}
+                >
+                  Reset
                 </button>
             </div>
           <div className="flex gap-2">
@@ -353,7 +410,7 @@ const WithdrawTransactionList = () => {
                 <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Status</th>
                 <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Destination</th>
                 <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Time</th>
-                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider text-right">View</th>
+                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider text-right">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-admin-border">
@@ -376,9 +433,14 @@ const WithdrawTransactionList = () => {
                 items.map((item) => (
                   <tr key={item.id} className="hover:bg-gray-50 transition-colors">
                     <td className="px-6 py-4">
-                      <div className="font-mono text-sm font-medium text-gray-900 hover:text-blue-600 cursor-pointer" onClick={() => navigate(`/exchange/withdraw-transactions/${item.id}`)}>
+                      <button
+                        type="button"
+                        className={adminButtonClass('rowKeyLink')}
+                        onClick={() => navigate(`/exchange/withdraw-transactions/${item.id}`)}
+                        title={item.withdrawNo}
+                      >
                         {item.withdrawNo}
-                      </div>
+                      </button>
                       {item.type && (
                           <div className="mt-1">
                               <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${item.type === 'fiat' ? 'bg-indigo-50 text-indigo-600 border border-indigo-100' : 'bg-orange-50 text-orange-600 border border-orange-100'}`}>
@@ -426,10 +488,10 @@ const WithdrawTransactionList = () => {
                       <div className="flex justify-end gap-2 items-center">
                           <button 
                             onClick={() => navigate(`/exchange/withdraw-transactions/${item.id}`)}
-                            className="p-1.5 text-blue-600 rounded hover:bg-blue-50 transition-colors" 
-                            title="View Details"
+                            className={adminButtonClass('rowLink')}
+                            title="View"
                           >
-                              <Eye size={18} />
+                              View
                           </button>
                       </div>
                     </td>

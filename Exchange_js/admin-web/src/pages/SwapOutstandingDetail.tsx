@@ -1,7 +1,10 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, RefreshCw } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
 import { formatAssetAmount, formatRate8 } from '../utils/number-format';
+import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/adminFetch';
+import { adminButtonClass } from '../components/common/adminButtonStyles';
+import { DetailCard, DetailPageHeader } from '../components/compliance/DetailPageComponents';
 
 interface SwapOutstandingDetailData {
   id: string;
@@ -41,33 +44,27 @@ const SwapOutstandingDetail = () => {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<SwapOutstandingDetailData | null>(null);
+  const [error, setError] = useState('');
 
   const fetchDetail = async () => {
     if (!id) return;
     setLoading(true);
+    setError('');
     try {
-      const token = localStorage.getItem('admin_token');
-      const response = await fetch(
+      const response = await adminFetch(
         `${import.meta.env.VITE_API_URL}/admin/reconciliation/outstandings/${id}`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        },
       );
 
       if (response.ok) {
         const result = await response.json();
         setData(result);
-      } else if (response.status === 401) {
-        localStorage.removeItem('admin_token');
-        navigate('/admin/login');
       } else {
-        alert('Failed to load outstanding detail');
-        navigate('/dashboard/reconciliation/outstandings');
+        throw new Error(await getApiErrorMessage(response, 'Failed to load outstanding detail.'));
       }
     } catch (error) {
+      if (error instanceof AdminSessionError) return;
       console.error('Failed to fetch outstanding detail', error);
+      setError(error instanceof Error ? error.message : 'Failed to load outstanding detail.');
     } finally {
       setLoading(false);
     }
@@ -86,35 +83,51 @@ const SwapOutstandingDetail = () => {
     );
   }
 
+  if (error && !data) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => navigate('/dashboard/reconciliation/outstandings')}
+            className={adminButtonClass('detailUtility')}
+          >
+            Back to Outstandings
+          </button>
+          <button onClick={() => void fetchDetail()} className={adminButtonClass('detailUtility')}>
+            <RefreshCw size={16} />
+            Retry
+          </button>
+        </div>
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error}
+        </div>
+      </div>
+    );
+  }
+
   if (!data) return null;
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto pb-12">
-      <div className="flex items-center justify-between bg-white p-6 rounded-xl border border-admin-border shadow-sm">
-        <div className="flex items-center gap-4">
-          <button
-            onClick={() => navigate('/dashboard/reconciliation/outstandings')}
-            className="p-2 hover:bg-gray-100 rounded-lg border border-admin-border transition-colors text-gray-600"
-          >
-            <ArrowLeft size={20} />
-          </button>
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">Swap Outstanding Detail</h1>
-            <p className="text-sm text-gray-500 mt-1 font-mono">
-              Outstanding No: {data.outstandingNo || 'N/A'}
-            </p>
-          </div>
-        </div>
-        <button
-          onClick={fetchDetail}
-          className="p-2 text-gray-500 hover:text-brand-primary transition-colors border border-gray-200 rounded-lg bg-white"
-        >
-          <RefreshCw size={18} />
-        </button>
-      </div>
+      <DetailPageHeader
+        title="Swap Outstanding"
+        subtitle={`${data.outstandingNo || 'N/A'} · ${data.sourceType} / ${data.sourceNo || 'N/A'}`}
+        onBack={() => navigate('/dashboard/reconciliation/outstandings')}
+        onRefresh={() => void fetchDetail()}
+        backLabel="Back to Outstandings"
+      >
+        <span className="inline-flex items-center rounded-full bg-blue-50 px-3 py-1 text-sm font-medium text-blue-700">
+          {data.status}
+        </span>
+      </DetailPageHeader>
 
-      <div className="bg-white rounded-xl border border-admin-border shadow-sm p-6">
-        <h3 className="text-sm font-bold text-gray-900 uppercase mb-4">Outstanding Snapshot</h3>
+      {error ? (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error}
+        </div>
+      ) : null}
+
+      <DetailCard title="Outstanding Snapshot" columns={1}>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <Field label="Outstanding No" value={data.outstandingNo || 'N/A'} />
           <Field label="Status" value={data.status} />
@@ -126,10 +139,9 @@ const SwapOutstandingDetail = () => {
           <Field label="Created At" value={new Date(data.createdAt).toLocaleString('en-US')} />
           <Field label="Updated At" value={new Date(data.updatedAt).toLocaleString('en-US')} />
         </div>
-      </div>
+      </DetailCard>
 
-      <div className="bg-white rounded-xl border border-admin-border shadow-sm p-6">
-        <h3 className="text-sm font-bold text-gray-900 uppercase mb-4">Linked Swap</h3>
+      <DetailCard title="Linked Swap" columns={1}>
         {data.swapTransaction ? (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <Field label="Swap No" value={data.swapTransaction.swapNo || 'N/A'} />
@@ -148,7 +160,7 @@ const SwapOutstandingDetail = () => {
         ) : (
           <div className="text-sm text-gray-500">No swap linked to this outstanding.</div>
         )}
-      </div>
+      </DetailCard>
     </div>
   );
 };

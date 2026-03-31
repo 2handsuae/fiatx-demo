@@ -1,4 +1,9 @@
 import { useEffect, useState } from 'react';
+import {
+  CustomerSessionError,
+  customerFetch,
+  getCustomerApiErrorMessage,
+} from '../utils/customerFetch';
 
 export interface CustomerProfileData {
   id: string;
@@ -45,19 +50,15 @@ export const useCustomerProfile = () => {
   const [error, setError] = useState('');
 
   const fetchProfile = async () => {
+    setLoading(true);
+    setError('');
     try {
-      const token = localStorage.getItem('customer_token');
-      if (!token) {
+      if (!localStorage.getItem('customer_token')) {
         setProfile(null);
-        setLoading(false);
         return;
       }
 
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/onboarding/me`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
+      const response = await customerFetch(`${import.meta.env.VITE_API_URL}/onboarding/me`);
 
       if (response.ok) {
         const data = await response.json();
@@ -80,39 +81,16 @@ export const useCustomerProfile = () => {
           investorClassification: data.investorClassification || 'RETAIL',
         });
       } else {
-        let payload: any = {};
-        try {
-          payload = await response.json();
-        } catch {
-          payload = {};
-        }
-
-        if (response.status === 401 || response.status === 403) {
-          localStorage.removeItem('customer_token');
-          setProfile(null);
-
-          const code = String(payload?.code || '').trim().toUpperCase();
-          const message = String(payload?.message || '').trim();
-          if (code === 'CUSTOMER_ACCOUNT_FROZEN') {
-            const noticeMessage =
-              message || '账号已冻结，禁止登录。请联系 WhatsApp 客服处理。';
-            sessionStorage.setItem(
-              'customer_login_notice',
-              JSON.stringify({
-                code,
-                message: noticeMessage,
-              }),
-            );
-          }
-
-          setError('');
-          return;
-        }
-
-        setError(String(payload?.message || 'Failed to load profile'));
+        setError(await getCustomerApiErrorMessage(response, 'Failed to load profile'));
       }
-    } catch {
-      setError('Network error');
+    } catch (error: unknown) {
+      if (error instanceof CustomerSessionError) {
+        setProfile(null);
+        setError('');
+        return;
+      }
+
+      setError(error instanceof Error ? error.message : 'Network error');
     } finally {
       setLoading(false);
     }

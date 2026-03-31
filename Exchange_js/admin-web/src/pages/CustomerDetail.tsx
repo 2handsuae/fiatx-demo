@@ -1,9 +1,15 @@
-import { type ReactNode, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Building2, Clock, ShieldCheck, User } from 'lucide-react';
+import { Building2, Clock, ShieldCheck, User } from 'lucide-react';
 import CaseBoundCustomerControlModal, {
   type CustomerControlAction,
 } from '../components/CaseBoundCustomerControlModal';
+import {
+  ActionSection,
+  DetailCard,
+  DetailPageHeader,
+} from '../components/compliance/DetailPageComponents';
+import { adminButtonClass } from '../components/common/adminButtonStyles';
 import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/adminFetch';
 
 interface CorporateProfile {
@@ -340,42 +346,31 @@ const CustomerDetail = () => {
 
   return (
     <div className="space-y-6 max-w-6xl mx-auto pb-12">
-      <div className="bg-white p-6 rounded-xl border border-admin-border shadow-sm flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-        <div className="flex items-center gap-4">
-          <button
-            onClick={() => navigate(-1)}
-            className="p-2 hover:bg-gray-100 rounded-lg border border-admin-border transition-colors"
-          >
-            <ArrowLeft size={20} className="text-gray-600" />
-          </button>
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">{fullName}</h1>
-            <div className="text-sm text-gray-500 mt-1 flex flex-wrap gap-3">
-              <span className="font-mono text-brand-primary">{customer.customerNo}</span>
-              <span>{customer.customerType}</span>
-              <span>{customer.email || '-'}</span>
-            </div>
-          </div>
-        </div>
-
+      <DetailPageHeader
+        title={fullName}
+        subtitle={`${customer.customerNo} · ${customer.customerType} · ${customer.email || 'No email'}`}
+        onBack={() => navigate(-1)}
+        onRefresh={() => void fetchCustomer()}
+        backLabel="Back"
+      >
         <div className="flex flex-wrap gap-3">
           <StatusBadge label="Onboarding" value={customer.onboardingStatus || 'NONE'} />
           <StatusBadge label="Operating" value={customer.operatingStatus || 'INACTIVE'} />
           <StatusBadge label="Restriction" value={customer.restrictionStatus || 'CLEAR'} />
           <StatusBadge label="Hold" value={customer.complianceHoldStatus || 'ACTIVE'} />
         </div>
-      </div>
+      </DetailPageHeader>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <Card title="Subject" icon={<User size={16} />}>
+        <DetailCard title="Subject" icon={<User size={16} />} columns={1}>
           <KeyValue label="Customer Type" value={customer.customerType} />
           <KeyValue label="Company Name" value={customer.companyName || customer.corporateProfile?.companyName || '-'} />
           <KeyValue label="First Name" value={customer.firstName || '-'} />
           <KeyValue label="Last Name" value={customer.lastName || '-'} />
           <KeyValue label="Created At" value={new Date(customer.createdAt).toLocaleString()} />
-        </Card>
+        </DetailCard>
 
-        <Card title="Compliance Snapshot" icon={<ShieldCheck size={16} />}>
+        <DetailCard title="Compliance Snapshot" icon={<ShieldCheck size={16} />} columns={1}>
           <p className="mb-4 text-xs text-gray-500">
             Canonical statuses and workflow summaries below are the runtime source of truth.
           </p>
@@ -402,56 +397,19 @@ const CustomerDetail = () => {
           <KeyValue label="CDD Doc Expires At" value={formatMaybeTime(customer.cddDocumentExpiresAt)} />
           <KeyValue label="Next Review" value={formatMaybeTime(customer.nextReviewAt)} />
           <KeyValue label="Last Updated" value={new Date(customer.updatedAt).toLocaleString()} />
-          <div className="mt-3 flex flex-wrap gap-2">
-            <button
-              onClick={simulateExpired}
-              disabled={simulatingExpired}
-              className="px-3 py-2 text-xs rounded-lg bg-red-600 text-white hover:bg-red-700 disabled:opacity-60"
-            >
-              {simulatingExpired ? 'Mocking...' : 'Mock Auto Expire'}
-            </button>
-            <button
-              onClick={() => setControlAction('RESTRICT')}
-              disabled={customer.restrictionStatus === 'RESTRICTED'}
-              className="px-3 py-2 text-xs rounded-lg bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-60"
-            >
-              Restrict
-            </button>
-            <button
-              onClick={() => setControlAction('UNRESTRICT')}
-              disabled={customer.restrictionStatus !== 'RESTRICTED'}
-              className="px-3 py-2 text-xs rounded-lg bg-lime-600 text-white hover:bg-lime-700 disabled:opacity-60"
-            >
-              Unrestrict
-            </button>
-            <button
-              onClick={() => setControlAction('FREEZE')}
-              disabled={customer.complianceHoldStatus === 'FROZEN'}
-              className="px-3 py-2 text-xs rounded-lg bg-rose-600 text-white hover:bg-rose-700 disabled:opacity-60"
-            >
-              Freeze
-            </button>
-            <button
-              onClick={() => setControlAction('UNFREEZE')}
-              disabled={customer.complianceHoldStatus !== 'FROZEN'}
-              className="px-3 py-2 text-xs rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-60"
-            >
-              Unfreeze
-            </button>
-          </div>
-        </Card>
+        </DetailCard>
       </div>
 
-      <Card title="Compatibility Snapshot" icon={<ShieldCheck size={16} />}>
+      <DetailCard title="Compatibility Snapshot" icon={<ShieldCheck size={16} />} columns={1}>
         <p className="mb-4 text-xs text-gray-500">
           Legacy compatibility fields have been retired from the customer payload. Remaining workflow summaries are shown in the canonical cards above and below.
         </p>
         <div className="text-sm text-gray-600">
           Stage 5 removed legacy customer status, account, final-approval mirror, and pointer fields from the customer read-model.
         </div>
-      </Card>
+      </DetailCard>
 
-      <Card title="Final Approval" icon={<ShieldCheck size={16} />}>
+      <DetailCard title="Final Approval" icon={<ShieldCheck size={16} />} columns={1}>
         <p className="mb-4 text-xs text-gray-500">
           Approval workflow summary below is canonical.
         </p>
@@ -464,38 +422,9 @@ const CustomerDetail = () => {
             value={formatMaybeTime(customer.latestFinalApproval?.decidedAt)}
           />
         </div>
-        {(canSubmitFinalApproval || customer.latestFinalApprovalId) && (
-          <div className="mt-3 flex flex-wrap gap-2">
-            {canSubmitFinalApproval && (
-              <button
-                onClick={() => void submitFinalApproval()}
-                disabled={submittingFinalApproval}
-                className="px-3 py-2 text-xs rounded-lg bg-brand-primary text-white hover:bg-brand-primary/90 disabled:opacity-60"
-              >
-                {submittingFinalApproval
-                  ? 'Submitting...'
-                  : customer.latestFinalApprovalId
-                    ? 'Resubmit Final Approval'
-                    : 'Create Final Approval'}
-              </button>
-            )}
-            {customer.latestFinalApprovalId && (
-              <button
-                onClick={() =>
-                  navigate(
-                    `/dashboard/control-gates/approvals/${customer.latestFinalApprovalId}`,
-                  )
-                }
-                className="px-3 py-2 text-xs rounded-lg border border-admin-border text-gray-700 hover:bg-gray-50"
-              >
-                Open Final Approval
-              </button>
-            )}
-          </div>
-        )}
-      </Card>
+      </DetailCard>
 
-      <Card title="Periodic Review" icon={<Clock size={16} />}>
+      <DetailCard title="Periodic Review" icon={<Clock size={16} />} columns={1}>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
           <KeyValue
             label="Active Cycle"
@@ -555,18 +484,9 @@ const CustomerDetail = () => {
             value={formatMaybeTime(customer.activePeriodicReviewCycle?.dueAt)}
           />
         </div>
-        <div className="mt-3 flex flex-wrap gap-2">
-          <button
-            onClick={() => void triggerPeriodicReview()}
-            disabled={!canTriggerPeriodicReview || triggeringPeriodicReview}
-            className="px-3 py-2 text-xs rounded-lg bg-brand-primary text-white hover:bg-brand-primary/90 disabled:opacity-60"
-          >
-            {triggeringPeriodicReview ? 'Triggering...' : 'Trigger Periodic Review'}
-          </button>
-        </div>
-      </Card>
+      </DetailCard>
 
-      <Card title="Investor Classification" icon={<ShieldCheck size={16} />}>
+      <DetailCard title="Investor Classification" icon={<ShieldCheck size={16} />} columns={1}>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
           <KeyValue label="Classification" value={customer.investorClassification || 'RETAIL'} />
           <KeyValue label="Source" value={customer.investorClassificationSource || 'CDD'} />
@@ -575,27 +495,115 @@ const CustomerDetail = () => {
             value={formatMaybeTime(customer.investorClassificationUpdatedAt)}
           />
         </div>
-        <div className="mt-3">
+      </DetailCard>
+
+      <ActionSection
+        title="Workflow Actions"
+        description="Runtime workflow actions live here. Status cards above remain read-only summaries."
+        emptyText="No workflow actions available for the current customer state."
+      >
+        <div className="flex flex-wrap gap-3">
+          {canSubmitFinalApproval ? (
+            <button
+              onClick={() => void submitFinalApproval()}
+              disabled={submittingFinalApproval}
+              className={adminButtonClass('workflowPrimary')}
+            >
+              {submittingFinalApproval
+                ? 'Submitting...'
+                : customer.latestFinalApprovalId
+                  ? 'Resubmit Final Approval'
+                  : 'Create Final Approval'}
+            </button>
+          ) : null}
+          {customer.latestFinalApprovalId ? (
+            <button
+              onClick={() =>
+                navigate(`/dashboard/control-gates/approvals/${customer.latestFinalApprovalId}`)
+              }
+              className={adminButtonClass('workflowSecondary')}
+            >
+              Open Final Approval
+            </button>
+          ) : null}
+          <button
+            onClick={() => void triggerPeriodicReview()}
+            disabled={!canTriggerPeriodicReview || triggeringPeriodicReview}
+            className={adminButtonClass('workflowSecondary')}
+          >
+            {triggeringPeriodicReview ? 'Triggering...' : 'Trigger Periodic Review'}
+          </button>
           <button
             onClick={updateInvestorClassification}
             disabled={updatingClassification}
-            className="px-3 py-2 text-xs rounded-lg bg-brand-primary text-white hover:bg-blue-700 disabled:opacity-60"
+            className={adminButtonClass('workflowSecondary')}
           >
             {updatingClassification ? 'Updating...' : 'Override Classification'}
           </button>
         </div>
-      </Card>
+      </ActionSection>
+
+      <ActionSection
+        title="Control Actions"
+        description="Restriction and compliance hold controls are operator actions, not simulation shortcuts."
+      >
+        <div className="flex flex-wrap gap-3">
+          <button
+            onClick={() => setControlAction('RESTRICT')}
+            disabled={customer.restrictionStatus === 'RESTRICTED'}
+            className={adminButtonClass('workflowNegative')}
+          >
+            Restrict
+          </button>
+          <button
+            onClick={() => setControlAction('UNRESTRICT')}
+            disabled={customer.restrictionStatus !== 'RESTRICTED'}
+            className={adminButtonClass('workflowSecondary')}
+          >
+            Unrestrict
+          </button>
+          <button
+            onClick={() => setControlAction('FREEZE')}
+            disabled={customer.complianceHoldStatus === 'FROZEN'}
+            className={adminButtonClass('workflowNegative')}
+          >
+            Freeze
+          </button>
+          <button
+            onClick={() => setControlAction('UNFREEZE')}
+            disabled={customer.complianceHoldStatus !== 'FROZEN'}
+            className={adminButtonClass('workflowSecondary')}
+          >
+            Unfreeze
+          </button>
+        </div>
+      </ActionSection>
+
+      <ActionSection
+        title="Manual Simulation"
+        description="Simulation stays isolated from runtime workflow and control actions."
+      >
+        <div className="flex flex-wrap gap-3">
+          <button
+            onClick={simulateExpired}
+            disabled={simulatingExpired}
+            className={adminButtonClass('simulationAction')}
+          >
+            {simulatingExpired ? 'Mocking...' : 'Mock Auto Expire'}
+          </button>
+        </div>
+      </ActionSection>
 
       {customer.customerType === 'CORPORATE' && (
-        <Card title="Corporate Profile" icon={<Building2 size={16} />}>
+        <DetailCard title="Corporate Profile" icon={<Building2 size={16} />} columns={1}>
           <pre className="text-xs bg-gray-950 text-gray-100 rounded-lg p-3 overflow-auto">
             {JSON.stringify(customer.corporateProfile || {}, null, 2)}
           </pre>
-        </Card>
+        </DetailCard>
       )}
 
       {Array.isArray(customer.uboProfiles) && customer.uboProfiles.length > 0 && (
-        <Card title="UBO List" icon={<User size={16} />}>
+        <DetailCard title="UBO List" icon={<User size={16} />} columns={1}>
           <table className="w-full text-left text-sm">
             <thead>
               <tr className="text-xs text-gray-500 uppercase border-b border-gray-200">
@@ -618,18 +626,18 @@ const CustomerDetail = () => {
               ))}
             </tbody>
           </table>
-        </Card>
+        </DetailCard>
       )}
 
-      <Card title="CDD Responses" icon={<Clock size={16} />}>
+      <DetailCard title="CDD Responses" icon={<Clock size={16} />} columns={1}>
         <CaseTable items={customer.cddResponses || []} showRequiresEdd />
-      </Card>
+      </DetailCard>
 
-      <Card title="EDD Responses" icon={<Clock size={16} />}>
+      <DetailCard title="EDD Responses" icon={<Clock size={16} />} columns={1}>
         <CaseTable items={customer.eddResponses || []} />
-      </Card>
+      </DetailCard>
 
-      <Card title="Archived Onboarding Audit Logs" icon={<Clock size={16} />}>
+      <DetailCard title="Archived Onboarding Audit Logs" icon={<Clock size={16} />} columns={1}>
         <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
           Historical mirror only. Canonical audit truth lives in Audit Center.
         </div>
@@ -662,7 +670,7 @@ const CustomerDetail = () => {
             )}
           </tbody>
         </table>
-      </Card>
+      </DetailCard>
 
       <CaseBoundCustomerControlModal
         open={!!controlAction}
@@ -728,24 +736,6 @@ const CaseTable = ({
     </table>
   );
 };
-
-const Card = ({
-  title,
-  icon,
-  children,
-}: {
-  title: string;
-  icon: ReactNode;
-  children: ReactNode;
-}) => (
-  <section className="bg-white rounded-xl border border-admin-border shadow-sm overflow-hidden">
-    <div className="px-4 py-3 border-b border-admin-border bg-gray-50 flex items-center gap-2 text-sm font-semibold text-gray-700">
-      {icon}
-      {title}
-    </div>
-    <div className="p-4">{children}</div>
-  </section>
-);
 
 const StatusBadge = ({
   label,

@@ -1,10 +1,12 @@
-import { useEffect, useState } from 'react';
-import { Search, RefreshCw, Edit2, Power, ChevronLeft, ChevronRight, ArrowUpDown, Settings } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { Search, RefreshCw, ChevronLeft, ChevronRight, ArrowUpDown, Settings } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import {
   BUSINESS_CONFIG_RELEASES_PATH,
   showBusinessConfigReadOnlyAlert,
 } from '../utils/businessConfigReadOnly';
+import { adminFetch, getApiErrorMessage } from '../utils/adminFetch';
+import { adminButtonClass, adminIconButtonClass } from '../components/common/adminButtonStyles';
 
 interface AcctEventItem {
   id: string;
@@ -33,11 +35,14 @@ const AcctEventList = () => {
   const [total, setTotal] = useState(0);
   const [sortBy, setSortBy] = useState('createdAt');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+  const [error, setError] = useState('');
+
+  const hasFilters = useMemo(() => Boolean(eventCodeSearch.trim()), [eventCodeSearch]);
 
   const fetchItems = async () => {
     setLoading(true);
+    setError('');
     try {
-      const token = localStorage.getItem('admin_token');
       const params = new URLSearchParams();
       params.append('skip', ((page - 1) * pageSize).toString());
       params.append('take', pageSize.toString());
@@ -46,23 +51,16 @@ const AcctEventList = () => {
 
       if (eventCodeSearch) params.append('eventCode', eventCodeSearch);
       
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/acct-events?${params.toString()}`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
+      const response = await adminFetch(`${import.meta.env.VITE_API_URL}/acct-events?${params.toString()}`);
       if (response.ok) {
         const result = await response.json();
         setItems(result.items || []);
         setTotal(result.total || 0);
-      } else {
-        if (response.status === 401) {
-            localStorage.removeItem('admin_token');
-            navigate('/admin/login');
-        }
+        return;
       }
     } catch (error) {
       console.error('Failed to fetch Acct Events', error);
+      setError('Failed to fetch accounting events.');
     } finally {
       setLoading(false);
     }
@@ -77,10 +75,31 @@ const AcctEventList = () => {
       fetchItems();
   };
 
-  const handleToggleActive = async (eventCode: string, currentStatus: boolean) => {
-      void eventCode;
-      void currentStatus;
-      showBusinessConfigReadOnlyAlert('Accounting events');
+  const handleReset = () => {
+    setEventCodeSearch('');
+    setPage(1);
+    setItems([]);
+    setError('');
+    setLoading(true);
+    void (async () => {
+      try {
+        const response = await adminFetch(
+          `${import.meta.env.VITE_API_URL}/acct-events?skip=0&take=${pageSize}&sortBy=${sortBy}&sortOrder=${sortOrder}`,
+        );
+        if (response.ok) {
+          const result = await response.json();
+          setItems(result.items || []);
+          setTotal(result.total || 0);
+          return;
+        }
+        setError(await getApiErrorMessage(response, 'Failed to fetch accounting events.'));
+      } catch (resetError) {
+        console.error('Failed to reset accounting event filters', resetError);
+        setError('Failed to fetch accounting events.');
+      } finally {
+        setLoading(false);
+      }
+    })();
   };
 
   const handleSort = (field: string) => {
@@ -116,7 +135,7 @@ const AcctEventList = () => {
         <div className="flex gap-2">
             <button 
                 onClick={() => navigate(BUSINESS_CONFIG_RELEASES_PATH)}
-                className="flex items-center gap-2 px-4 py-2 bg-white text-gray-700 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+                className={adminButtonClass('listSecondary')}
             >
                 <Settings size={20} />
                 <span>Open Release Center</span>
@@ -142,11 +161,18 @@ const AcctEventList = () => {
                     className="w-full pl-10 pr-4 py-2 bg-admin-content-bg border border-admin-border rounded-lg focus:outline-none focus:border-brand-primary focus:ring-1 focus:ring-brand-primary/20 transition-all duration-200"
                     />
                 </div>
-                <button onClick={handleSearch} className="px-3 py-2 bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200 transition-colors">
+                <button onClick={handleSearch} className={adminButtonClass('listPrimary')}>
                     Search
                 </button>
+                <button
+                  onClick={handleReset}
+                  className={adminButtonClass('listSecondary')}
+                  disabled={!hasFilters && !error}
+                >
+                  Reset
+                </button>
             </div>
-            <button onClick={fetchItems} className="p-2 text-gray-500 hover:text-brand-primary transition-colors border border-gray-200 rounded-lg bg-white self-start md:self-auto">
+            <button onClick={fetchItems} className={adminIconButtonClass('self-start md:self-auto')}>
                 <RefreshCw size={20} className={loading ? 'animate-spin' : ''} />
             </button>
         </div>
@@ -163,11 +189,18 @@ const AcctEventList = () => {
                 <th className="px-4 py-3 font-medium text-gray-500 uppercase tracking-wider">Posting</th>
                 <th className="px-4 py-3 font-medium text-gray-500 uppercase tracking-wider">Clearing</th>
                 <SortableHeader field="isActive" label="Status" />
-                <th className="px-4 py-3 font-medium text-gray-500 uppercase tracking-wider text-right">Actions</th>
+                <th className="px-4 py-3 font-medium text-gray-500 uppercase tracking-wider text-right">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-admin-border">
-              {loading && items.length === 0 ? (
+              {error ? (
+                <tr>
+                  <td colSpan={9} className="px-4 py-12 text-center text-rose-600">
+                    {error}
+                  </td>
+                </tr>
+              ) : null}
+              {!error && loading && items.length === 0 ? (
                 <tr>
                   <td colSpan={9} className="px-4 py-12 text-center text-gray-500">
                     <div className="flex flex-col items-center justify-center">
@@ -176,7 +209,7 @@ const AcctEventList = () => {
                     </div>
                   </td>
                 </tr>
-              ) : items.length === 0 ? (
+              ) : !error && items.length === 0 ? (
                 <tr>
                   <td colSpan={9} className="px-4 py-12 text-center text-gray-500">
                     No event codes found
@@ -203,20 +236,12 @@ const AcctEventList = () => {
                         </span>
                     </td>
                     <td className="px-4 py-4 text-right">
-                      <div className="flex justify-end gap-2 items-center">
+                      <div className="flex justify-end gap-3 items-center">
                         <button 
-                            className="p-1.5 text-gray-300 rounded transition-colors cursor-not-allowed"
+                            className={adminButtonClass('rowSecondaryUtility')}
                             onClick={() => showBusinessConfigReadOnlyAlert('Accounting events')}
-                            title="Read-only"
                         >
-                            <Edit2 size={16} />
-                        </button>
-                        <button 
-                            className="p-1.5 rounded text-gray-300 transition-colors cursor-not-allowed"
-                            onClick={() => handleToggleActive(item.eventCode, item.isActive)}
-                            title="Read-only"
-                        >
-                            <Power size={16} />
+                            Read-only
                         </button>
                       </div>
                     </td>

@@ -1,6 +1,11 @@
 import { useEffect, useState } from 'react';
-import { Search, RefreshCw, Eye, Play, ChevronLeft, ChevronRight, ArrowUpDown, Calendar } from 'lucide-react';
+import { Search, RefreshCw, ChevronLeft, ChevronRight, ArrowUpDown, Calendar } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import {
+  adminButtonClass,
+  adminIconButtonClass,
+} from '../components/common/adminButtonStyles';
+import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/adminFetch';
 
 interface ClearingItem {
   id: string;
@@ -20,6 +25,7 @@ const ClearingManagementList = () => {
   const navigate = useNavigate();
   const [items, setItems] = useState<ClearingItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   
   // Filters
   const [search, setSearch] = useState('');
@@ -34,8 +40,8 @@ const ClearingManagementList = () => {
 
   const fetchItems = async () => {
     setLoading(true);
+    setError('');
     try {
-      const token = localStorage.getItem('admin_token');
       const params = new URLSearchParams();
       params.append('skip', ((page - 1) * pageSize).toString());
       params.append('take', pageSize.toString());
@@ -44,24 +50,19 @@ const ClearingManagementList = () => {
 
       if (search) params.append('sourceId', search);
       if (status) params.append('clearingStatus', status);
-      
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/clearings?${params.toString()}`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
+
+      const response = await adminFetch(`${import.meta.env.VITE_API_URL}/clearings?${params.toString()}`);
       if (response.ok) {
         const result = await response.json();
         setItems(result.items || []);
         setTotal(result.total || 0);
       } else {
-        if (response.status === 401) {
-          localStorage.removeItem('admin_token');
-          navigate('/admin/login');
-        }
+        setError(await getApiErrorMessage(response, 'Failed to fetch clearing records.'));
       }
     } catch (error) {
+      if (error instanceof AdminSessionError) return;
       console.error('Failed to fetch clearings', error);
+      setError(error instanceof Error ? error.message : 'Failed to fetch clearing records.');
     } finally {
       setLoading(false);
     }
@@ -72,8 +73,15 @@ const ClearingManagementList = () => {
   }, [page, pageSize, status, sortBy, sortOrder]);
 
   const handleSearch = () => {
-      setPage(1);
-      fetchItems();
+    setPage(1);
+    void fetchItems();
+  };
+
+  const handleReset = () => {
+    setSearch('');
+    setStatus('');
+    setPage(1);
+    setError('');
   };
 
   const handleSort = (field: string) => {
@@ -107,29 +115,6 @@ const ClearingManagementList = () => {
           second: '2-digit',
           hour12: false
       });
-  };
-
-  const handleReClear = async (id: string) => {
-      if (!window.confirm('Are you sure you want to re-run the clearing process for this item?')) return;
-      
-      try {
-          const token = localStorage.getItem('admin_token');
-          const response = await fetch(`${import.meta.env.VITE_API_URL}/clearings/${id}/re-clear`, {
-              method: 'POST',
-              headers: {
-                  'Authorization': `Bearer ${token}`
-              }
-          });
-          
-          if (response.ok) {
-              alert('Re-clearing triggered successfully');
-              fetchItems();
-          } else {
-              alert('Failed to trigger re-clearing');
-          }
-      } catch (error) {
-          console.error('Re-clear failed', error);
-      }
   };
 
   const totalPages = Math.ceil(total / pageSize);
@@ -168,14 +153,23 @@ const ClearingManagementList = () => {
                     <option value="SETTLED">Settled</option>
                     <option value="CANCELLED">Cancelled</option>
                 </select>
-                <button onClick={handleSearch} className="px-6 py-2 bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200 transition-colors">
+                <button onClick={handleSearch} className={adminButtonClass('listPrimary')}>
                     Search
                 </button>
+                <button onClick={handleReset} className={adminButtonClass('listSecondary')}>
+                    Reset
+                </button>
             </div>
-            <button onClick={fetchItems} className="p-2 text-gray-500 hover:text-brand-primary transition-colors border border-gray-200 rounded-lg bg-white self-start md:self-auto">
+            <button onClick={fetchItems} className={adminIconButtonClass('self-start md:self-auto')}>
                 <RefreshCw size={20} className={loading ? 'animate-spin' : ''} />
             </button>
         </div>
+
+        {error ? (
+          <div className="border-b border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            {error}
+          </div>
+        ) : null}
 
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
@@ -186,7 +180,7 @@ const ClearingManagementList = () => {
                 <SortableHeader field="outAmount" label="Amount" />
                 <SortableHeader field="clearingStatus" label="Status" />
                 <SortableHeader field="createdAt" label="Clearing Time" />
-                <th className="px-4 py-3 font-medium text-gray-500 uppercase tracking-wider text-right">Actions</th>
+                <th className="px-4 py-3 font-medium text-gray-500 uppercase tracking-wider text-right">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-admin-border">
@@ -209,9 +203,14 @@ const ClearingManagementList = () => {
                 items.map((item) => (
                   <tr key={item.id} className="hover:bg-gray-50 transition-colors">
                     <td className="px-4 py-4">
-                        <div className="font-mono font-bold text-brand-primary text-xs truncate max-w-[120px]" title={item.clearingNo}>
+                        <button
+                            type="button"
+                            onClick={() => navigate(`/clearing/management/${item.id}`)}
+                            className={adminButtonClass('rowKeyLink')}
+                            title={item.clearingNo || '-'}
+                        >
                             {item.clearingNo || '-'}
-                        </div>
+                        </button>
                         <div className="text-[10px] text-gray-500">{item.clearingType}</div>
                     </td>
                     <td className="px-4 py-4">
@@ -241,22 +240,13 @@ const ClearingManagementList = () => {
                         </div>
                     </td>
                     <td className="px-4 py-4 text-right">
-                      <div className="flex justify-end gap-2 items-center">
-                        <button 
-                            className="p-1.5 text-gray-500 hover:text-brand-primary rounded hover:bg-gray-100 transition-colors"
-                            onClick={() => navigate(`/clearing/management/${item.id}`)}
-                            title="View Details"
-                        >
-                            <Eye size={16} />
-                        </button>
-                        <button 
-                            className="p-1.5 text-gray-500 hover:text-brand-primary rounded hover:bg-gray-100 transition-colors"
-                            onClick={() => handleReClear(item.id)}
-                            title="Re-Clear"
-                        >
-                            <Play size={16} />
-                        </button>
-                      </div>
+                      <button
+                        className={adminButtonClass('rowLink')}
+                        onClick={() => navigate(`/clearing/management/${item.id}`)}
+                        title="View Details"
+                      >
+                        View
+                      </button>
                     </td>
                   </tr>
                 ))

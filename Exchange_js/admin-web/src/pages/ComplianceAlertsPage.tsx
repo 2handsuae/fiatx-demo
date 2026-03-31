@@ -1,6 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { RefreshCw, Search, X } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
+import {
+  adminButtonClass,
+  adminIconButtonClass,
+} from '../components/common/adminButtonStyles';
 import Pagination from '../components/common/Pagination';
 import { PERMISSIONS } from '../rbac/permissions';
 import {
@@ -260,18 +264,9 @@ const ComplianceAlertsPage = () => {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {canWriteAlerts ? (
-            <button
-              onClick={() => void handleSimulate()}
-              className="inline-flex items-center gap-2 px-3 py-2 rounded bg-indigo-600 text-white text-sm hover:bg-indigo-700 disabled:opacity-60"
-              disabled={simulating || loading}
-            >
-              {simulating ? 'Simulating...' : 'Simulate 10 Alerts'}
-            </button>
-          ) : null}
           <button
             onClick={() => void fetchAlerts(currentPage)}
-            className="p-2 text-gray-500 hover:text-brand-primary disabled:opacity-60"
+            className={adminIconButtonClass()}
             title="Refresh"
             disabled={loading || simulating}
           >
@@ -296,6 +291,26 @@ const ComplianceAlertsPage = () => {
           ? 'Alert actions and workflow actions now live inside the detail page. Use this queue to triage onboarding, periodic review, and transaction alerts, then open the alert for full evidence and action handling.'
           : 'You currently have read-only triage access. Use this queue to scan onboarding, periodic review, and transaction alerts, then open the alert detail page for full context.'}
       </div>
+
+      {canWriteAlerts ? (
+        <div className="rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-4">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div>
+              <h2 className="text-sm font-semibold text-indigo-900">Manual Simulation</h2>
+              <p className="mt-1 text-sm text-indigo-700">
+                Demo-only alert generation stays outside the header utility bar and outside the alert triage action flow.
+              </p>
+            </div>
+            <button
+              onClick={() => void handleSimulate()}
+              className={adminButtonClass('simulationAction')}
+              disabled={simulating || loading}
+            >
+              {simulating ? 'Simulating...' : 'Simulate 10 Alerts'}
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       <div className="bg-white rounded-xl shadow-sm border border-admin-border p-4 space-y-3">
         <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-3">
@@ -397,18 +412,16 @@ const ComplianceAlertsPage = () => {
         <div className="flex items-center gap-2">
           <button
             onClick={() => void fetchAlerts(1)}
-            className="inline-flex items-center gap-2 px-3 py-2 rounded bg-brand-primary text-white text-sm hover:opacity-90"
+            className={adminButtonClass('listPrimary')}
             disabled={loading || simulating}
           >
-            <Search size={14} />
             Search
           </button>
           <button
             onClick={() => void resetFilters()}
-            className="inline-flex items-center gap-2 px-3 py-2 rounded border border-admin-border text-sm hover:bg-gray-50"
+            className={adminButtonClass('listSecondary')}
             disabled={loading || simulating || !hasFilters}
           >
-            <X size={14} />
             Reset
           </button>
         </div>
@@ -447,7 +460,14 @@ const ComplianceAlertsPage = () => {
                 items.map((item) => (
                   <tr key={item.id} className="hover:bg-gray-50">
                     <td className="px-4 py-3">
-                      <div className="font-semibold text-gray-900">{item.alertNo}</div>
+                      <button
+                        type="button"
+                        className={adminButtonClass('rowKeyLink')}
+                        onClick={() => openDetail(item.id)}
+                        title={item.alertNo}
+                      >
+                        {item.alertNo}
+                      </button>
                       <div className="text-xs text-gray-500">{item.title}</div>
                     </td>
                     <td className="px-4 py-3">
@@ -487,10 +507,10 @@ const ComplianceAlertsPage = () => {
                     <td className="px-4 py-3 text-gray-700">{item.assigneeUserNo || '-'}</td>
                     <td className="px-4 py-3">
                       <button
-                        className="text-xs border border-gray-200 px-2 py-1 rounded hover:bg-gray-50"
+                        className={adminButtonClass('rowLink')}
                         onClick={() => openDetail(item.id)}
                       >
-                        View Detail
+                        View
                       </button>
                     </td>
                   </tr>

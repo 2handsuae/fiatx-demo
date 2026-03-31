@@ -1,9 +1,25 @@
-import { useEffect, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, RefreshCw, Copy, Check, ExternalLink, FileText, User, Activity, Clock, Coins, ArrowRight } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
+import {
+  Activity,
+  ArrowRight,
+  Clock,
+  Coins,
+  FileText,
+  RefreshCw,
+  User,
+} from 'lucide-react';
 import { formatAssetAmount, formatRate8 } from '../utils/number-format';
+import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/adminFetch';
+import { adminButtonClass } from '../components/common/adminButtonStyles';
+import {
+  ActionSection,
+  DetailCard,
+  DetailPageHeader,
+  InfoField,
+} from '../components/compliance/DetailPageComponents';
 
-interface SwapTransactionDetail {
+interface SwapTransactionDetailData {
   id: string;
   swapNo: string;
   quoteId?: string | null;
@@ -12,8 +28,6 @@ interface SwapTransactionDetail {
   ownerId: string;
   ownerNo: string | null;
   status: string;
-  
-  // Sell (From)
   fromAssetId: string;
   fromAssetCode: string | null;
   fromAmount: string;
@@ -23,8 +37,6 @@ interface SwapTransactionDetail {
     network: string | null;
     decimals: number;
   };
-
-  // Buy (To)
   toAssetId: string;
   toAssetCode: string | null;
   toAmount: string;
@@ -37,469 +49,470 @@ interface SwapTransactionDetail {
     network: string | null;
     decimals: number;
   };
-
   exchangeRate: string;
   riskDecisionRef?: string | null;
   alertId?: string | null;
   caseId?: string | null;
   failureCode?: string | null;
   failureReason?: string | null;
-
-  // Timings
   createdAt: string;
   updatedAt: string;
   completedAt: string | null;
-
-  // Relations
   customer?: {
     firstName: string | null;
     lastName: string | null;
     customerNo: string;
   };
-
-  // Audit
   statusHistory: string | null;
 }
+
+type WorkflowAction = {
+  action: string;
+  label: string;
+  variant: 'workflowPrimary' | 'workflowSecondary' | 'workflowNegative';
+};
 
 const SwapTransactionDetail = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const [data, setData] = useState<SwapTransactionDetail | null>(null);
+  const [data, setData] = useState<SwapTransactionDetailData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [isRejectModalOpen, setIsRejectModalOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  useEffect(() => {
-    const fetchData = async () => {
-      setLoading(true);
-      try {
-        const token = localStorage.getItem('admin_token');
-        const response = await fetch(`${import.meta.env.VITE_API_URL}/admin/swap-transactions/${id}`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-        
-        if (response.ok) {
-          const result = await response.json();
-          setData(result);
-        } else {
-           if (response.status === 401) {
-             localStorage.removeItem('admin_token');
-             navigate('/admin/login');
-           } else {
-             alert('Failed to load detail');
-             navigate('/exchange/swap-transactions');
-           }
-        }
-      } catch (error) {
-        console.error('Failed to fetch detail', error);
-      } finally {
-        setLoading(false);
-      }
-    };
+  const fetchData = async () => {
+    if (!id) return;
 
-    if (id) fetchData();
-  }, [id, navigate]);
+    setLoading(true);
+    setError('');
+    try {
+      const response = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/admin/swap-transactions/${id}`,
+      );
+
+      if (!response.ok) {
+        throw new Error(await getApiErrorMessage(response, 'Failed to load swap detail.'));
+      }
+
+      const result = await response.json();
+      setData(result);
+    } catch (error) {
+      if (error instanceof AdminSessionError) return;
+      console.error('Failed to fetch swap detail', error);
+      setError(error instanceof Error ? error.message : 'Failed to load swap detail.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void fetchData();
+  }, [id]);
 
   const handleAction = async (action: string, reason?: string) => {
+    if (!id) return;
+
     setIsSubmitting(true);
+    setError('');
     try {
-      const token = localStorage.getItem('admin_token');
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/admin/swap-transactions/${id}/status`, {
-        method: 'PATCH',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
+      const response = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/admin/swap-transactions/${id}/status`,
+        {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ action, reason }),
         },
-        body: JSON.stringify({ action, reason })
-      });
-      
-      if (response.ok) {
-        const result = await response.json();
-        setData(prev => prev ? { ...prev, ...result } : result);
-        setIsRejectModalOpen(false);
-        setRejectReason('');
-      } else {
-        const err = await response.json();
-        alert(`Action failed: ${err.message}`);
+      );
+
+      if (!response.ok) {
+        setError(await getApiErrorMessage(response, 'Action failed.'));
+        return;
       }
+
+      const result = await response.json();
+      setData((prev) => (prev ? { ...prev, ...result } : result));
+      setIsRejectModalOpen(false);
+      setRejectReason('');
     } catch (error) {
-      console.error('Action failed', error);
+      if (error instanceof AdminSessionError) return;
+      console.error('Swap action failed', error);
+      setError(error instanceof Error ? error.message : 'Action failed.');
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const getAvailableActions = (status: string) => {
-    const actions = [];
-    switch (status) {
-      case 'PENDING_COMPLIANCE':
-        actions.push({ action: 'success', label: 'Approve Transaction', color: 'bg-green-600 hover:bg-green-700' });
-        actions.push({ action: 'reject', label: 'Reject Transaction', color: 'bg-red-600 hover:bg-red-700' });
-        actions.push({ action: 'flag', label: 'Flag for Review', color: 'bg-yellow-600 hover:bg-yellow-700' });
-        break;
-      case 'UNDER_REVIEW':
-        actions.push({ action: 'success', label: 'Approve Transaction', color: 'bg-green-600 hover:bg-green-700' });
-        actions.push({ action: 'reject', label: 'Reject Transaction', color: 'bg-red-600 hover:bg-red-700' });
-        break;
-    }
-    return actions;
-  };
+  const availableActions = useMemo<WorkflowAction[]>(() => {
+    if (!data) return [];
 
-  const renderStatusBadge = (status: string) => {
-    const colors: Record<string, string> = {
-      PENDING_COMPLIANCE: 'bg-blue-100 text-blue-800',
-      UNDER_REVIEW: 'bg-yellow-100 text-yellow-800',
-      SUCCESS: 'bg-green-100 text-green-800',
-      REJECTED: 'bg-red-100 text-red-800',
-      FAILED: 'bg-red-100 text-red-800',
-    };
-    return (
-      <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${colors[status] || 'bg-gray-100 text-gray-800'}`}>
-        {status}
-      </span>
-    );
-  };
+    switch (data.status) {
+      case 'PENDING_COMPLIANCE':
+        return [
+          { action: 'success', label: 'Approve Transaction', variant: 'workflowPrimary' },
+          { action: 'flag', label: 'Flag for Review', variant: 'workflowSecondary' },
+          { action: 'reject', label: 'Reject Transaction', variant: 'workflowNegative' },
+        ];
+      case 'UNDER_REVIEW':
+        return [
+          { action: 'success', label: 'Approve Transaction', variant: 'workflowPrimary' },
+          { action: 'reject', label: 'Reject Transaction', variant: 'workflowNegative' },
+        ];
+      default:
+        return [];
+    }
+  }, [data]);
+
+  const parsedHistory = useMemo(() => {
+    if (!data?.statusHistory) return [] as Array<Record<string, string>>;
+    try {
+      const parsed = JSON.parse(data.statusHistory);
+      if (!Array.isArray(parsed)) return [];
+      return [...parsed].sort(
+        (a, b) =>
+          new Date(b.timestamp || b.changedAt || 0).getTime() -
+          new Date(a.timestamp || a.changedAt || 0).getTime(),
+      );
+    } catch {
+      return [];
+    }
+  }, [data?.statusHistory]);
 
   if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-[400px]">
-        <RefreshCw className="animate-spin mb-4 text-brand-primary" size={32} />
-        <p className="text-gray-500">Loading details...</p>
+      <div className="flex min-h-[400px] flex-col items-center justify-center">
+        <RefreshCw className="mb-4 animate-spin text-brand-primary" size={32} />
+        <p className="text-gray-500">Loading swap detail...</p>
+      </div>
+    );
+  }
+
+  if (error && !data) {
+    return (
+      <div className="space-y-4 rounded-xl border border-red-200 bg-white p-8 text-center shadow-sm">
+        <div className="text-sm text-red-700">{error}</div>
+        <div className="flex items-center justify-center gap-3">
+          <button
+            onClick={() => navigate('/exchange/swap-transactions')}
+            className={adminButtonClass('detailUtility')}
+          >
+            Back to Swaps
+          </button>
+          <button onClick={() => void fetchData()} className={adminButtonClass('detailUtility')}>
+            Retry
+          </button>
+        </div>
       </div>
     );
   }
 
   if (!data) return null;
 
-  const ownerNo = data.ownerNo || (data.customer?.customerNo) || 'N/A';
+  const ownerNo = data.ownerNo || data.customer?.customerNo || 'N/A';
+  const customerName =
+    data.customer?.firstName || data.customer?.lastName
+      ? `${data.customer?.firstName || ''} ${data.customer?.lastName || ''}`.trim()
+      : '-';
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto pb-12">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-xl border border-admin-border shadow-sm">
-        <div className="flex items-center gap-4">
-          <button 
-            onClick={() => navigate('/exchange/swap-transactions')}
-            className="p-2 hover:bg-gray-100 rounded-lg border border-admin-border transition-colors text-gray-600"
+      <DetailPageHeader
+        title="Swap Transaction"
+        subtitle={`${data.swapNo} · Owner ${ownerNo}`}
+        onBack={() => navigate('/exchange/swap-transactions')}
+        onRefresh={() => void fetchData()}
+        refreshing={loading}
+      >
+        {renderStatusBadge(data.status)}
+        <button
+          onClick={() =>
+            navigate(`/dashboard/compliance/alerts?sourceType=SWAP&sourceId=${data.id}`)
+          }
+          className={adminButtonClass('detailUtility')}
+        >
+          Open Alerts
+        </button>
+        <button
+          onClick={() =>
+            navigate(
+              `/dashboard/audit/audit-logs?workflowType=SWAP&workflowNo=${encodeURIComponent(
+                data.swapNo,
+              )}`,
+            )
+          }
+          className={adminButtonClass('detailUtility')}
+        >
+          Open Audit Trail
+        </button>
+        {data.caseId ? (
+          <button
+            onClick={() => navigate(`/dashboard/compliance/cases/${data.caseId}`)}
+            className={adminButtonClass('detailUtility')}
           >
-            <ArrowLeft size={20} />
+            Open Case
           </button>
-          <div>
-            <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-bold text-gray-900">Swap Details</h1>
-              {renderStatusBadge(data.status)}
-            </div>
-            <div className="flex items-center gap-4 mt-1 text-sm text-gray-500 font-mono">
-              <span className="text-brand-primary font-bold">No: {data.swapNo}</span>
-              <span>ID: {data.id}</span>
-              <span className="flex items-center gap-1"><Clock size={14}/> Created: {new Date(data.createdAt).toLocaleString()}</span>
-            </div>
-          </div>
+        ) : null}
+      </DetailPageHeader>
+
+      {error ? (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error}
         </div>
-        <div className="flex flex-col items-end gap-2">
-            <div className="text-right text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-              Standard review path runs through Compliance Center.
-            </div>
-            <div className="flex gap-2 items-center">
+      ) : null}
+
+      <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+        Standard review path runs through Compliance Center. The actions below are retained as
+        operator fallback tools.
+      </div>
+
+      <DetailCard title="Summary" icon={<FileText size={18} />}>
+        <InfoField label="Swap No" value={data.swapNo} mono accent />
+        <InfoField label="Owner No" value={ownerNo} mono accent />
+        <InfoField label="Customer Name" value={customerName} icon={<User size={14} />} />
+        <InfoField label="Pair" value={`${data.fromAsset.code} -> ${data.toAsset.code}`} />
+        <InfoField label="Created At" value={new Date(data.createdAt).toLocaleString()} />
+        <InfoField label="Completed At" value={data.completedAt ? new Date(data.completedAt).toLocaleString() : '-'} />
+      </DetailCard>
+
+      <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+        <DetailCard
+          title="Sell Asset"
+          icon={<ArrowRight size={18} className="rotate-45 text-red-500" />}
+          columns={1}
+        >
+          <InfoField label="Asset Code" value={data.fromAssetCode || data.fromAsset.code} accent />
+          <InfoField label="Asset Type" value={data.fromAsset.type} />
+          <InfoField
+            label="Amount"
+            value={`${formatAssetAmount(data.fromAmount, data.fromAsset.decimals)} ${data.fromAsset.code}`}
+            highlight
+          />
+          <InfoField label="Asset ID" value={data.fromAssetId} mono />
+        </DetailCard>
+
+        <DetailCard
+          title="Buy Asset"
+          icon={<ArrowRight size={18} className="-rotate-45 text-green-500" />}
+          columns={1}
+        >
+          <InfoField label="Asset Code" value={data.toAssetCode || data.toAsset.code} accent />
+          <InfoField label="Asset Type" value={data.toAsset.type} />
+          <InfoField
+            label="Gross Amount"
+            value={`${formatAssetAmount(data.toAmount, data.toAsset.decimals)} ${data.toAsset.code}`}
+          />
+          <InfoField
+            label="Fee"
+            value={`${formatAssetAmount(data.feeAmount || '0', data.toAsset.decimals)} ${data.feeCurrency || data.toAsset.code}`}
+          />
+          <InfoField
+            label="Net Amount"
+            value={`${formatAssetAmount(data.netToAmount || data.toAmount, data.toAsset.decimals)} ${data.toAsset.code}`}
+            highlight
+          />
+          <InfoField label="Asset ID" value={data.toAssetId} mono />
+        </DetailCard>
+      </div>
+
+      <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+        <DetailCard title="Pricing" icon={<Coins size={18} />} columns={1}>
+          <InfoField label="Exchange Rate" value={formatRate8(data.exchangeRate)} highlight />
+          <InfoField label="Quote No" value={data.quoteNo || '-'} mono />
+          <InfoField label="Quote ID" value={data.quoteId || '-'} mono />
+        </DetailCard>
+
+        <DetailCard title="Risk & Trace" icon={<Activity size={18} />} columns={1}>
+          <InfoField label="Risk Decision Ref" value={data.riskDecisionRef || '-'} mono />
+          <InfoField label="Alert ID" value={data.alertId || '-'} mono />
+          <InfoField label="Case ID" value={data.caseId || '-'} mono />
+          <InfoField label="Failure Code" value={data.failureCode || '-'} mono />
+          <InfoField label="Failure Reason" value={data.failureReason || '-'} />
+          <InfoField label="Swap ID" value={data.id} mono />
+        </DetailCard>
+      </div>
+
+      <DetailCard title="Status & Timings" icon={<Clock size={18} />}>
+        <InfoField label="Current Status" value={data.status} highlight />
+        <InfoField label="Owner Type" value={data.ownerType} />
+        <InfoField label="Owner ID" value={data.ownerId} mono />
+        <InfoField label="Updated At" value={new Date(data.updatedAt).toLocaleString()} />
+      </DetailCard>
+
+      {availableActions.length > 0 ? (
+        <ActionSection
+          title="Workflow Actions"
+          description="These fallback actions remain available, but they do not replace the primary Compliance Center review path."
+        >
+          <div className="flex flex-wrap gap-3">
+            {availableActions.map((actionItem) => (
               <button
-                onClick={() => navigate(`/dashboard/compliance/alerts?sourceType=SWAP&sourceId=${data.id}`)}
-                className="px-4 py-2 rounded-lg text-sm font-medium border border-admin-border text-gray-700 hover:bg-gray-50"
-              >
-                Open Alerts
-              </button>
-              <button
+                key={actionItem.action}
+                type="button"
                 onClick={() =>
-                  navigate(
-                    `/dashboard/audit/audit-logs?workflowType=SWAP&workflowNo=${encodeURIComponent(
-                      data.swapNo,
-                    )}`,
-                  )
+                  actionItem.action === 'reject'
+                    ? setIsRejectModalOpen(true)
+                    : void handleAction(actionItem.action)
                 }
-                className="px-4 py-2 rounded-lg text-sm font-medium border border-admin-border text-gray-700 hover:bg-gray-50"
+                disabled={isSubmitting}
+                className={adminButtonClass(actionItem.variant)}
               >
-                Open Audit Trail
+                {actionItem.label}
               </button>
-              {data.caseId && (
-                <button
-                  onClick={() => navigate(`/dashboard/compliance/cases/${data.caseId}`)}
-                  className="px-4 py-2 rounded-lg text-sm font-medium border border-admin-border text-gray-700 hover:bg-gray-50"
-                >
-                  Open Case
-                </button>
-              )}
-            </div>
-        </div>
-      </div>
+            ))}
+          </div>
+        </ActionSection>
+      ) : null}
 
-      <div className="flex flex-col gap-6">
-        {/* 1. Basic Identification */}
-        <DetailCard title="Basic Identification" icon={<FileText size={18} />}>
-            <InfoField label="ID" value={data.id} source="main" />
-            <InfoField label="Swap No" value={data.swapNo} highlight source="main" />
-            <InfoField label="Quote ID" value={data.quoteId || 'N/A'} source="main" />
-            <InfoField label="Quote No" value={data.quoteNo || 'N/A'} source="main" />
-            <InfoField label="Owner Type" value={data.ownerType} source="main" />
-            <InfoField label="Owner ID" value={data.ownerId} icon={<User size={14}/>} source="main" />
-            <InfoField label="Owner No" value={ownerNo} source="main" />
-            {data.customer && (
-                <InfoField 
-                    label="Customer Name" 
-                    value={`${data.customer.firstName || ''} ${data.customer.lastName || ''}`} 
-                    source="main" 
-                />
-            )}
-        </DetailCard>
+      <DetailCard title="Status History" icon={<Activity size={18} />} columns={1}>
+        <StatusTimeline history={parsedHistory} />
+        <p className="mt-3 text-xs text-gray-500">
+          Canonical audit events are available in Audit Center for workflow type{' '}
+          <span className="font-mono">SWAP</span> and workflow no{' '}
+          <span className="font-mono">{data.swapNo}</span>.
+        </p>
+      </DetailCard>
 
-        {/* 2. Assets & Amount */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <DetailCard title="Sell Asset (From)" icon={<ArrowRight size={18} className="rotate-45 text-red-500" />} columns={1}>
-                <InfoField label="Asset Code" value={data.fromAssetCode || data.fromAsset.code} highlight source="main" />
-                <InfoField label="Asset Type" value={data.fromAsset.type} source="main" />
-                <InfoField label="Amount" value={`${formatAssetAmount(data.fromAmount, data.fromAsset.decimals)} ${data.fromAsset.code}`} highlight source="main" />
-                <InfoField label="Asset ID" value={data.fromAssetId} source="main" />
-            </DetailCard>
-
-            <DetailCard title="Buy Asset (To)" icon={<ArrowRight size={18} className="-rotate-45 text-green-500" />} columns={1}>
-                <InfoField label="Asset Code" value={data.toAssetCode || data.toAsset.code} highlight source="main" />
-                <InfoField label="Asset Type" value={data.toAsset.type} source="main" />
-                <InfoField label="Gross Amount" value={`${formatAssetAmount(data.toAmount, data.toAsset.decimals)} ${data.toAsset.code}`} source="main" />
-                <InfoField label="Fee" value={`${formatAssetAmount(data.feeAmount || '0', data.toAsset.decimals)} ${data.feeCurrency || data.toAsset.code}`} source="main" />
-                <InfoField label="Net Amount" value={`${formatAssetAmount(data.netToAmount || data.toAmount, data.toAsset.decimals)} ${data.toAsset.code}`} highlight source="main" />
-                <InfoField label="Asset ID" value={data.toAssetId} source="main" />
-            </DetailCard>
-        </div>
-
-        {/* 3. Pricing */}
-        <DetailCard title="Price & Rate" icon={<Coins size={18} />}>
-            <InfoField label="Exchange Rate" value={formatRate8(data.exchangeRate)} highlight source="main" />
-            <InfoField label="Pair" value={`${data.fromAsset.code} -> ${data.toAsset.code}`} source="main" />
-        </DetailCard>
-
-        {/* 4. Status & Timings */}
-        <DetailCard title="Status & Timings" icon={<Clock size={18} />}>
-            <InfoField label="Current Status" value={data.status} highlight source="main" />
-            <InfoField label="Risk Decision Ref" value={data.riskDecisionRef || 'N/A'} source="main" />
-            <InfoField label="Alert ID" value={data.alertId || 'N/A'} source="main" />
-            <InfoField label="Case ID" value={data.caseId || 'N/A'} source="main" />
-            <InfoField label="Failure Code" value={data.failureCode || 'N/A'} source="main" />
-            <InfoField label="Failure Reason" value={data.failureReason || 'N/A'} source="main" />
-            <InfoField label="Created At" value={new Date(data.createdAt).toLocaleString()} source="main" />
-            <InfoField label="Updated At" value={new Date(data.updatedAt).toLocaleString()} source="main" />
-            <InfoField label="Completed At" value={data.completedAt ? new Date(data.completedAt).toLocaleString() : 'N/A'} source="main" />
-        </DetailCard>
-
-        {getAvailableActions(data.status).length > 0 && (
-          <DetailCard title="Fallback Actions" icon={<Activity size={18} />} columns={1}>
-            <div className="flex flex-wrap gap-2">
-              {getAvailableActions(data.status).map(act => (
-                <button
-                  key={act.action}
-                  onClick={() => act.action === 'reject' ? setIsRejectModalOpen(true) : handleAction(act.action)}
-                  disabled={isSubmitting}
-                  className={`px-4 py-2 rounded-lg text-white text-sm font-medium shadow-sm transition-colors ${act.color} ${isSubmitting ? 'opacity-50 cursor-not-allowed' : ''}`}
-                >
-                  {act.label}
-                </button>
-              ))}
-            </div>
-            <p className="text-xs text-gray-500 mt-3">
-              These buttons are retained as operator fallback tools and are not the primary happy path for Wave 6 review.
-            </p>
-          </DetailCard>
-        )}
-
-        {/* 5. Audit & History */}
-        <DetailCard title="Status History" icon={<Activity size={18} />} columns={1}>
-             <StatusTimeline historyJson={data.statusHistory} />
-             <p className="text-xs text-gray-500 mt-3">
-               Canonical audit events are available in Audit Center for workflow type <span className="font-mono">SWAP</span> and workflow no <span className="font-mono">{data.swapNo}</span>.
-             </p>
-        </DetailCard>
-      </div>
-
-      {/* Reject Modal */}
-      {isRejectModalOpen && (
+      {isRejectModalOpen ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6 animate-in fade-in zoom-in duration-200">
-            <h3 className="text-lg font-bold text-gray-900 mb-2">Reject Transaction</h3>
-            <p className="text-sm text-gray-500 mb-4">
-              Please provide a reason for rejecting this transaction. This will be recorded in the audit logs.
+          <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl">
+            <h3 className="text-lg font-bold text-gray-900">Reject Transaction</h3>
+            <p className="mt-2 text-sm text-gray-500">
+              Provide a reason for rejecting this transaction. The note will be recorded in the
+              audit trail.
             </p>
             <textarea
-              className="w-full border border-gray-200 rounded-lg p-3 text-sm focus:outline-none focus:ring-2 focus:ring-red-500/20 focus:border-red-500 transition-all mb-4"
+              className="mt-4 w-full rounded-lg border border-gray-200 p-3 text-sm focus:border-red-500 focus:outline-none focus:ring-2 focus:ring-red-500/20"
               rows={4}
               placeholder="Enter rejection reason..."
               value={rejectReason}
-              onChange={(e) => setRejectReason(e.target.value)}
+              onChange={(event) => setRejectReason(event.target.value)}
             />
-            <div className="flex justify-end gap-3">
+            <div className="mt-4 flex justify-end gap-3">
               <button
+                type="button"
                 onClick={() => {
                   setIsRejectModalOpen(false);
                   setRejectReason('');
                 }}
                 disabled={isSubmitting}
-                className="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+                className={adminButtonClass('modalCancel')}
               >
                 Cancel
               </button>
               <button
-                onClick={() => handleAction('reject', rejectReason)}
+                type="button"
+                onClick={() => void handleAction('reject', rejectReason)}
                 disabled={isSubmitting || !rejectReason.trim()}
-                className="px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg shadow-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                className={adminButtonClass('workflowNegative')}
               >
-                {isSubmitting && <RefreshCw size={14} className="animate-spin" />}
                 Confirm Reject
               </button>
             </div>
           </div>
         </div>
-      )}
+      ) : null}
     </div>
   );
 };
 
-// --- Reusable Components (Same as PayinDetail) ---
+const StatusTimeline = ({ history }: { history: Array<Record<string, string>> }) => {
+  if (history.length === 0) {
+    return <div className="p-4 text-center text-sm italic text-gray-400">No history available</div>;
+  }
 
-const DetailCard = ({ title, icon, children, columns = 2 }: { title: string, icon: React.ReactNode, children: React.ReactNode, columns?: number }) => (
-  <div className="bg-white rounded-xl shadow-sm border border-admin-border overflow-hidden transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md">
-     <div className="px-6 py-4 border-b border-admin-border flex items-center gap-3 bg-gray-50/50">
-        <div className="p-1.5 bg-white rounded-md text-gray-500 border border-admin-border shadow-sm">
-           {icon}
-        </div>
-        <h3 className="text-sm font-bold text-gray-900 uppercase tracking-tight">{title}</h3>
-     </div>
-     <div className="p-6">
-        <div className={`grid grid-cols-1 ${columns === 2 ? 'sm:grid-cols-2' : ''} gap-x-8 gap-y-6`}>
-           {children}
-        </div>
-     </div>
-  </div>
-);
+  return (
+    <div className="relative my-2 ml-4 space-y-8 border-l-2 border-gray-100">
+      {history.map((item, index) => (
+        <div key={`${item.timestamp || item.changedAt || index}`} className="relative ml-8">
+          <span className="absolute -left-[44px] top-0 flex h-6 w-6 items-center justify-center rounded-full bg-white ring-4 ring-white">
+            <div className={`h-3 w-3 rounded-full ${getStatusColor(item.status || '')} shadow-sm`} />
+          </span>
 
-const InfoField = ({ 
-  label, 
-  value, 
-  highlight = false, 
-  icon, 
-  source = 'main',
-  copyable = false,
-  isCopied = false,
-  onCopy,
-  link
-}: { 
-  label: string, 
-  value: string | null | undefined, 
-  highlight?: boolean, 
-  icon?: React.ReactNode,
-  source?: 'main' | 'kyc' | 'edd',
-  copyable?: boolean,
-  isCopied?: boolean,
-  onCopy?: (val: string) => void,
-  link?: string
-}) => {
-    const placeholder = source === 'kyc' ? 'KYC no data' : source === 'edd' ? 'EDD no data' : 'N/A';
-    const displayValue = value || placeholder;
-    
-    return (
-        <div className="flex flex-col gap-1.5">
-            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">{label}</span>
-            <div className={`text-sm font-medium break-all flex items-center gap-2 ${highlight ? 'text-brand-primary' : 'text-gray-900'}`}>
-                {icon && <span className="text-gray-400">{icon}</span>}
-                {link ? (
-                    <a href={link} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline flex items-center gap-1">
-                        {displayValue} <ExternalLink size={12}/>
-                    </a>
-                ) : (
-                    <span>{displayValue}</span>
-                )}
-                {copyable && value && (
-                    <button 
-                        onClick={() => onCopy && onCopy(value)}
-                        className="text-gray-400 hover:text-brand-primary p-1 transition-colors"
-                        title="Copy to clipboard"
-                    >
-                        {isCopied ? <Check size={14} className="text-green-500" /> : <Copy size={14} />}
-                    </button>
-                )}
+          <div className="flex flex-col rounded-lg border border-gray-100 bg-gray-50/50 p-4 transition-all duration-200 hover:bg-white hover:shadow-sm sm:flex-row sm:items-start sm:justify-between">
+            <div className="flex-1 space-y-2">
+              <div className="flex items-center gap-2">
+                <span
+                  className={`rounded border px-2 py-0.5 text-xs font-bold ${getStatusBadgeStyle(
+                    item.status || '',
+                  )}`}
+                >
+                  {item.status || 'UNKNOWN'}
+                </span>
+              </div>
+              <p className="text-sm leading-relaxed text-gray-600">
+                {item.note || item.reason || 'No reason provided'}
+              </p>
+              <div className="flex items-center gap-2 pt-1 text-xs text-gray-400">
+                <User size={12} />
+                <span className="font-mono">{item.operator || item.operatorId || 'SYSTEM'}</span>
+              </div>
             </div>
+
+            <div className="mt-3 shrink-0 text-right sm:ml-4 sm:mt-0">
+              <time className="block rounded border border-gray-100 bg-white px-2 py-1 font-mono text-xs text-gray-500">
+                {new Date(item.timestamp || item.changedAt || 0).toLocaleString()}
+              </time>
+            </div>
+          </div>
         </div>
-    );
+      ))}
+    </div>
+  );
 };
 
-// --- Timeline Component ---
-const StatusTimeline = ({ historyJson }: { historyJson: string | null }) => {
-    if (!historyJson) return <div className="text-gray-400 text-sm italic p-4 text-center">No history available</div>;
+const renderStatusBadge = (status: string) => {
+  const colors: Record<string, string> = {
+    PENDING_COMPLIANCE: 'bg-blue-100 text-blue-800',
+    UNDER_REVIEW: 'bg-yellow-100 text-yellow-800',
+    SUCCESS: 'bg-green-100 text-green-800',
+    REJECTED: 'bg-red-100 text-red-800',
+    FAILED: 'bg-red-100 text-red-800',
+  };
 
-    let history: any[] = [];
-    try {
-        history = JSON.parse(historyJson);
-        // Ensure sorted by date descending (newest first)
-        history.sort((a, b) => new Date(b.timestamp || b.changedAt).getTime() - new Date(a.timestamp || a.changedAt).getTime());
-    } catch (e) {
-        return <div className="text-red-400 text-sm p-4">Error parsing history data</div>;
-    }
-
-    if (history.length === 0) return <div className="text-gray-400 text-sm italic p-4 text-center">No history events</div>;
-
-    return (
-        <div className="relative border-l-2 border-gray-100 ml-4 space-y-8 my-2">
-            {history.map((item, idx) => (
-                <div key={idx} className="ml-8 relative">
-                    {/* Dot on the line */}
-                    <span className="absolute flex items-center justify-center w-6 h-6 bg-white rounded-full -left-[44px] top-0 ring-4 ring-white">
-                        <div className={`w-3 h-3 rounded-full ${getStatusColor(item.status)} shadow-sm`}></div>
-                    </span>
-                    
-                    {/* Content Card */}
-                    <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start bg-gray-50/50 p-4 rounded-lg border border-gray-100 hover:bg-white hover:shadow-sm transition-all duration-200">
-                        <div className="flex-1 space-y-2">
-                            <div className="flex items-center gap-2">
-                                <span className={`px-2 py-0.5 rounded text-xs font-bold border ${getStatusBadgeStyle(item.status)}`}>
-                                    {item.status}
-                                </span>
-                            </div>
-                            <p className="text-sm text-gray-600 leading-relaxed">{item.note || item.reason || 'No reason provided'}</p>
-                            
-                            <div className="flex items-center gap-2 text-xs text-gray-400 pt-1">
-                                <User size={12} />
-                                <span className="font-mono">{item.operator || item.operatorId || 'SYSTEM'}</span>
-                            </div>
-                        </div>
-                        
-                        <div className="mt-3 sm:mt-0 sm:ml-4 text-right shrink-0">
-                            <time className="block text-xs font-mono text-gray-500 bg-white px-2 py-1 rounded border border-gray-100">
-                                {new Date(item.timestamp || item.changedAt).toLocaleString()}
-                            </time>
-                        </div>
-                    </div>
-                </div>
-            ))}
-        </div>
-    );
+  return (
+    <span
+      className={`inline-flex items-center rounded-full px-3 py-1 text-sm font-medium ${
+        colors[status] || 'bg-gray-100 text-gray-800'
+      }`}
+    >
+      {status}
+    </span>
+  );
 };
 
 const getStatusColor = (status: string) => {
-    switch (status) {
-        case 'SUCCESS': return 'bg-green-500';
-        case 'FAILED': 
-        case 'REJECTED': return 'bg-red-500';
-        case 'PENDING_COMPLIANCE': return 'bg-blue-500';
-        case 'UNDER_REVIEW': return 'bg-yellow-500';
-        default: return 'bg-gray-300';
-    }
+  switch (status) {
+    case 'SUCCESS':
+      return 'bg-green-500';
+    case 'FAILED':
+    case 'REJECTED':
+      return 'bg-red-500';
+    case 'PENDING_COMPLIANCE':
+      return 'bg-blue-500';
+    case 'UNDER_REVIEW':
+      return 'bg-yellow-500';
+    default:
+      return 'bg-gray-300';
+  }
 };
 
 const getStatusBadgeStyle = (status: string) => {
-    switch (status) {
-        case 'SUCCESS': return 'bg-green-50 text-green-700 border-green-200';
-        case 'FAILED': return 'bg-red-50 text-red-700 border-red-200';
-        case 'REJECTED': return 'bg-red-50 text-red-700 border-red-200';
-        case 'PENDING_COMPLIANCE': return 'bg-blue-50 text-blue-700 border-blue-200';
-        case 'UNDER_REVIEW': return 'bg-yellow-50 text-yellow-700 border-yellow-200';
-        default: return 'bg-gray-50 text-gray-700 border-gray-200';
-    }
+  switch (status) {
+    case 'SUCCESS':
+      return 'bg-green-50 border-green-200 text-green-700';
+    case 'FAILED':
+    case 'REJECTED':
+      return 'bg-red-50 border-red-200 text-red-700';
+    case 'PENDING_COMPLIANCE':
+      return 'bg-blue-50 border-blue-200 text-blue-700';
+    case 'UNDER_REVIEW':
+      return 'bg-yellow-50 border-yellow-200 text-yellow-700';
+    default:
+      return 'bg-gray-50 border-gray-200 text-gray-700';
+  }
 };
 
 export default SwapTransactionDetail;

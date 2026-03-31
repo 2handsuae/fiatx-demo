@@ -1,7 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, RefreshCw } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
 import { formatAssetAmount } from '../utils/number-format';
+import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/adminFetch';
+import { adminButtonClass } from '../components/common/adminButtonStyles';
+import {
+  ActionSection,
+  DetailCard,
+  DetailPageHeader,
+} from '../components/compliance/DetailPageComponents';
 
 type InternalFundBrief = {
   id: string;
@@ -77,27 +84,30 @@ const InternalTransactionDetail = () => {
   const [loading, setLoading] = useState(true);
   const [reviewing, setReviewing] = useState(false);
   const [data, setData] = useState<InternalTransactionDetailData | null>(null);
+  const [error, setError] = useState('');
 
   const fetchDetail = async () => {
     setLoading(true);
+    setError('');
     try {
-      const token = localStorage.getItem('admin_token');
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/admin/internal-transactions/${id}`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
+      const response = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/admin/internal-transactions/${id}`,
+      );
 
       if (response.ok) {
         const result = await response.json();
         setData(result);
       } else {
-        alert('Failed to load internal transaction detail');
-        navigate('/exchange/internal-transactions');
+        throw new Error(
+          await getApiErrorMessage(response, 'Failed to load internal transaction detail.'),
+        );
       }
     } catch (error) {
+      if (error instanceof AdminSessionError) return;
       console.error('Failed to fetch internal transaction detail', error);
-      alert('Network error');
+      setError(
+        error instanceof Error ? error.message : 'Failed to load internal transaction detail.',
+      );
     } finally {
       setLoading(false);
     }
@@ -139,26 +149,24 @@ const InternalTransactionDetail = () => {
 
     setReviewing(true);
     try {
-      const token = localStorage.getItem('admin_token');
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/admin/internal-transactions/${id}/review`, {
+      const response = await adminFetch(`${import.meta.env.VITE_API_URL}/admin/internal-transactions/${id}/review`, {
         method: 'PATCH',
         headers: {
-          Authorization: `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ action, reason }),
       });
 
       if (!response.ok) {
-        const err = await response.json();
-        alert(`Review failed: ${err.message || 'Unknown error'}`);
+        setError(await getApiErrorMessage(response, 'Review failed.'));
         return;
       }
 
       await fetchDetail();
     } catch (error) {
+      if (error instanceof AdminSessionError) return;
       console.error('Failed to review internal transaction', error);
-      alert('Network error');
+      setError(error instanceof Error ? error.message : 'Review failed.');
     } finally {
       setReviewing(false);
     }
@@ -173,98 +181,113 @@ const InternalTransactionDetail = () => {
     );
   }
 
+  if (error && !data) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => navigate('/exchange/internal-transactions')}
+            className={adminButtonClass('detailUtility')}
+          >
+            Back to Internal Transactions
+          </button>
+          <button onClick={() => void fetchDetail()} className={adminButtonClass('detailUtility')}>
+            <RefreshCw size={16} />
+            Retry
+          </button>
+        </div>
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error}
+        </div>
+      </div>
+    );
+  }
+
   if (!data) return null;
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto pb-12">
-      <div className="flex items-start justify-between gap-4 bg-white p-6 rounded-xl border border-admin-border shadow-sm">
-        <div className="flex items-start gap-4">
-          <button
-            onClick={() => navigate('/exchange/internal-transactions')}
-            className="p-2 hover:bg-gray-100 rounded-lg border border-admin-border transition-colors text-gray-600"
-          >
-            <ArrowLeft size={18} />
-          </button>
-          <div>
-            <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-bold text-gray-900">Internal Transaction</h1>
-              <span
-                className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${
-                  STATUS_COLORS[data.status] || 'bg-gray-100 text-gray-800'
-                }`}
-              >
-                {data.status}
-              </span>
-              <span
-                className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${
-                  APPROVAL_COLORS[data.approvalStatus || 'APPROVED'] ||
-                  'bg-gray-100 text-gray-800'
-                }`}
-              >
-                {data.approvalStatus || 'APPROVED'}
-              </span>
-            </div>
-            <div className="mt-2 text-sm text-gray-500 font-mono">
-              {data.internalTxNo} · {data.type}
-            </div>
+      <DetailPageHeader
+        title="Internal Transaction"
+        subtitle={`${data.internalTxNo} · ${data.type}`}
+        onBack={() => navigate('/exchange/internal-transactions')}
+        onRefresh={() => void fetchDetail()}
+        backLabel="Back to Internal Transactions"
+      >
+        <span
+          className={`inline-flex items-center rounded-full px-3 py-1 text-sm font-medium ${
+            STATUS_COLORS[data.status] || 'bg-gray-100 text-gray-800'
+          }`}
+        >
+          {data.status}
+        </span>
+        <span
+          className={`inline-flex items-center rounded-full px-3 py-1 text-sm font-medium ${
+            APPROVAL_COLORS[data.approvalStatus || 'APPROVED'] || 'bg-gray-100 text-gray-800'
+          }`}
+        >
+          {data.approvalStatus || 'APPROVED'}
+        </span>
+      </DetailPageHeader>
+
+      {error ? (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error}
+        </div>
+      ) : null}
+
+      <ActionSection
+        title="Workflow Actions"
+        description="Manual approval remains separate from the transaction snapshot."
+        emptyText="No workflow actions are available for the current transaction state."
+      >
+        {canReview ? (
+          <div className="flex flex-wrap gap-3">
+            <button
+              onClick={() => handleReview('APPROVE')}
+              disabled={reviewing}
+              className={adminButtonClass('workflowPrimary')}
+            >
+              Approve
+            </button>
+            <button
+              onClick={() => handleReview('REJECT')}
+              disabled={reviewing}
+              className={adminButtonClass('workflowNegative')}
+            >
+              Reject
+            </button>
           </div>
-        </div>
-        <div className="flex items-center gap-2">
-          {canReview ? (
-            <>
-              <button
-                onClick={() => handleReview('APPROVE')}
-                disabled={reviewing}
-                className="px-3 py-2 rounded-lg text-sm font-medium bg-emerald-600 hover:bg-emerald-700 text-white disabled:opacity-60"
-              >
-                Approve
-              </button>
-              <button
-                onClick={() => handleReview('REJECT')}
-                disabled={reviewing}
-                className="px-3 py-2 rounded-lg text-sm font-medium bg-rose-600 hover:bg-rose-700 text-white disabled:opacity-60"
-              >
-                Reject
-              </button>
-            </>
-          ) : null}
-          <button
-            onClick={fetchDetail}
-            className="p-2 text-gray-500 hover:text-brand-primary transition-colors border border-gray-200 rounded-lg bg-white"
-          >
-            <RefreshCw size={18} />
-          </button>
-        </div>
-      </div>
+        ) : null}
+      </ActionSection>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <InfoCard label="Source" value={`${data.sourceType} / ${data.sourceNo || data.sourceId}`} />
-        <InfoCard label="Owner" value={`${data.ownerType} / ${data.ownerNo || data.ownerId}`} />
-        <InfoCard
-          label="Asset"
-          value={`${data.asset?.code || '-'} ${data.asset?.network ? `(${data.asset.network})` : ''}`}
-        />
-        <InfoCard
-          label="Amount"
-          value={formatAssetAmount(data.amount, data.asset?.decimals)}
-        />
-        <InfoCard label="Fee" value={formatAssetAmount(data.feeAmount, data.asset?.decimals)} />
-        <InfoCard label="Net" value={formatAssetAmount(data.netAmount, data.asset?.decimals)} />
-        <InfoCard label="From" value={data.fromAddress || data.fromIban || '-'} />
-        <InfoCard label="To" value={data.toAddress || data.toIban || '-'} />
-        <InfoCard label="Maker" value={data.makerUserId || '-'} />
-        <InfoCard label="Checker" value={data.checkerUserId || '-'} />
-        <InfoCard
-          label="Checked At"
-          value={data.checkedAt ? new Date(data.checkedAt).toLocaleString() : '-'}
-        />
-        <InfoCard label="Review Reason" value={data.reviewReason || '-'} />
-      </div>
-
-      <section className="bg-white rounded-xl border border-admin-border shadow-sm overflow-hidden">
-        <div className="px-5 py-4 border-b border-admin-border">
-          <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wider">Internal Funds</h2>
+      <DetailCard title="Transaction Snapshot" columns={1}>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <InfoCard label="Source" value={`${data.sourceType} / ${data.sourceNo || data.sourceId}`} />
+          <InfoCard label="Owner" value={`${data.ownerType} / ${data.ownerNo || data.ownerId}`} />
+          <InfoCard
+            label="Asset"
+            value={`${data.asset?.code || '-'} ${data.asset?.network ? `(${data.asset.network})` : ''}`}
+          />
+          <InfoCard
+            label="Amount"
+            value={formatAssetAmount(data.amount, data.asset?.decimals)}
+          />
+          <InfoCard label="Fee" value={formatAssetAmount(data.feeAmount, data.asset?.decimals)} />
+          <InfoCard label="Net" value={formatAssetAmount(data.netAmount, data.asset?.decimals)} />
+          <InfoCard label="From" value={data.fromAddress || data.fromIban || '-'} />
+          <InfoCard label="To" value={data.toAddress || data.toIban || '-'} />
+          <InfoCard label="Maker" value={data.makerUserId || '-'} />
+          <InfoCard label="Checker" value={data.checkerUserId || '-'} />
+          <InfoCard
+            label="Checked At"
+            value={data.checkedAt ? new Date(data.checkedAt).toLocaleString() : '-'}
+          />
+          <InfoCard label="Review Reason" value={data.reviewReason || '-'} />
         </div>
+      </DetailCard>
+
+      <DetailCard title="Internal Funds" columns={1}>
         <div className="divide-y divide-admin-border">
           {data.funds.length === 0 ? (
             <div className="px-5 py-6 text-sm text-gray-500">No internal funds</div>
@@ -291,12 +314,9 @@ const InternalTransactionDetail = () => {
             ))
           )}
         </div>
-      </section>
+      </DetailCard>
 
-      <section className="bg-white rounded-xl border border-admin-border shadow-sm overflow-hidden">
-        <div className="px-5 py-4 border-b border-admin-border">
-          <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wider">Status History</h2>
-        </div>
+      <DetailCard title="Status History" columns={1}>
         <div className="divide-y divide-admin-border">
           {parsedHistory.length === 0 ? (
             <div className="px-5 py-6 text-sm text-gray-500">No status history</div>
@@ -312,12 +332,9 @@ const InternalTransactionDetail = () => {
             ))
           )}
         </div>
-      </section>
+      </DetailCard>
 
-      <section className="bg-white rounded-xl border border-admin-border shadow-sm overflow-hidden">
-        <div className="px-5 py-4 border-b border-admin-border">
-          <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wider">Audit Logs</h2>
-        </div>
+      <DetailCard title="Audit Logs" columns={1}>
         <div className="divide-y divide-admin-border">
           {data.auditLogs.length === 0 ? (
             <div className="px-5 py-6 text-sm text-gray-500">No audit logs</div>
@@ -335,7 +352,7 @@ const InternalTransactionDetail = () => {
             ))
           )}
         </div>
-      </section>
+      </DetailCard>
     </div>
   );
 };

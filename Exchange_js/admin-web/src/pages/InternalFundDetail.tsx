@@ -1,7 +1,15 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, RefreshCw } from 'lucide-react';
+import { Activity, Clock, RefreshCw } from 'lucide-react';
 import { formatAssetAmount } from '../utils/number-format';
+import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/adminFetch';
+import { adminButtonClass } from '../components/common/adminButtonStyles';
+import {
+  ActionSection,
+  DetailCard,
+  DetailPageHeader,
+  InfoField,
+} from '../components/compliance/DetailPageComponents';
 
 type AuditLog = {
   id: string;
@@ -56,7 +64,7 @@ type InternalFundDetailData = {
 type ActionItem = {
   action: string;
   label: string;
-  color: string;
+  variant: 'workflowPrimary' | 'workflowSecondary' | 'workflowNegative';
 };
 
 const STATUS_COLORS: Record<string, string> = {
@@ -72,52 +80,71 @@ const STATUS_COLORS: Record<string, string> = {
   CANCELLED: 'bg-slate-100 text-slate-800',
 };
 
-function getActions(data: InternalFundDetailData): ActionItem[] {
+const getActions = (data: InternalFundDetailData): ActionItem[] => {
   const status = data.status;
   const isFiat = data.asset?.type === 'FIAT';
-  const actions: ActionItem[] = [];
 
   if (!isFiat) {
     if (status === 'CREATED') {
-      actions.push({ action: 'SIGN', label: 'Sign', color: 'bg-blue-600 hover:bg-blue-700 text-white' });
-      actions.push({ action: 'CANCEL', label: 'Cancel', color: 'bg-slate-600 hover:bg-slate-700 text-white' });
-    } else if (status === 'SIGNING') {
-      actions.push({ action: 'BROADCAST', label: 'Broadcast', color: 'bg-indigo-600 hover:bg-indigo-700 text-white' });
-      actions.push({ action: 'SIGN_FAIL', label: 'Sign Fail', color: 'bg-red-600 hover:bg-red-700 text-white' });
-      actions.push({ action: 'CANCEL', label: 'Cancel', color: 'bg-slate-600 hover:bg-slate-700 text-white' });
-    } else if (status === 'BROADCASTED') {
-      actions.push({ action: 'SEEN_IN_MEMPOOL', label: 'Seen', color: 'bg-blue-600 hover:bg-blue-700 text-white' });
-      actions.push({ action: 'DROP', label: 'Drop', color: 'bg-red-600 hover:bg-red-700 text-white' });
-      actions.push({ action: 'TIMEOUT', label: 'Timeout', color: 'bg-orange-600 hover:bg-orange-700 text-white' });
-      actions.push({ action: 'CANCEL', label: 'Cancel', color: 'bg-slate-600 hover:bg-slate-700 text-white' });
-    } else if (status === 'CONFIRMING') {
-      actions.push({ action: 'CONFIRM', label: 'Confirm', color: 'bg-green-600 hover:bg-green-700 text-white' });
-      actions.push({ action: 'FAIL', label: 'Fail', color: 'bg-red-600 hover:bg-red-700 text-white' });
-      actions.push({ action: 'TIMEOUT', label: 'Timeout', color: 'bg-orange-600 hover:bg-orange-700 text-white' });
-      actions.push({ action: 'CANCEL', label: 'Cancel', color: 'bg-slate-600 hover:bg-slate-700 text-white' });
-    } else if (status === 'CONFIRMED') {
-      actions.push({ action: 'CLEAR', label: 'Clear', color: 'bg-emerald-600 hover:bg-emerald-700 text-white' });
+      return [
+        { action: 'SIGN', label: 'Sign', variant: 'workflowPrimary' },
+        { action: 'CANCEL', label: 'Cancel', variant: 'workflowNegative' },
+      ];
     }
-    return actions;
+    if (status === 'SIGNING') {
+      return [
+        { action: 'BROADCAST', label: 'Broadcast', variant: 'workflowPrimary' },
+        { action: 'SIGN_FAIL', label: 'Sign Fail', variant: 'workflowNegative' },
+        { action: 'CANCEL', label: 'Cancel', variant: 'workflowNegative' },
+      ];
+    }
+    if (status === 'BROADCASTED') {
+      return [
+        { action: 'SEEN_IN_MEMPOOL', label: 'Seen', variant: 'workflowSecondary' },
+        { action: 'DROP', label: 'Drop', variant: 'workflowNegative' },
+        { action: 'TIMEOUT', label: 'Timeout', variant: 'workflowNegative' },
+        { action: 'CANCEL', label: 'Cancel', variant: 'workflowNegative' },
+      ];
+    }
+    if (status === 'CONFIRMING') {
+      return [
+        { action: 'CONFIRM', label: 'Confirm', variant: 'workflowPrimary' },
+        { action: 'FAIL', label: 'Fail', variant: 'workflowNegative' },
+        { action: 'TIMEOUT', label: 'Timeout', variant: 'workflowNegative' },
+        { action: 'CANCEL', label: 'Cancel', variant: 'workflowNegative' },
+      ];
+    }
+    if (status === 'CONFIRMED') {
+      return [{ action: 'CLEAR', label: 'Clear', variant: 'workflowPrimary' }];
+    }
+    return [];
   }
 
   if (status === 'CREATED') {
-    actions.push({ action: 'SUBMIT', label: 'Submit', color: 'bg-blue-600 hover:bg-blue-700 text-white' });
-    actions.push({ action: 'CANCEL', label: 'Cancel', color: 'bg-slate-600 hover:bg-slate-700 text-white' });
-  } else if (status === 'CONFIRMING') {
-    actions.push({ action: 'CONFIRM', label: 'Confirm', color: 'bg-green-600 hover:bg-green-700 text-white' });
-    actions.push({ action: 'FAIL', label: 'Fail', color: 'bg-red-600 hover:bg-red-700 text-white' });
-    actions.push({ action: 'TIMEOUT', label: 'Timeout', color: 'bg-orange-600 hover:bg-orange-700 text-white' });
-    actions.push({ action: 'CANCEL', label: 'Cancel', color: 'bg-slate-600 hover:bg-slate-700 text-white' });
-  } else if (status === 'CONFIRMED') {
-    actions.push({ action: 'CLEAR', label: 'Clear', color: 'bg-emerald-600 hover:bg-emerald-700 text-white' });
-    actions.push({ action: 'RETURN', label: 'Return', color: 'bg-purple-600 hover:bg-purple-700 text-white' });
-  } else if (status === 'CLEAR') {
-    actions.push({ action: 'RETURN', label: 'Return', color: 'bg-purple-600 hover:bg-purple-700 text-white' });
+    return [
+      { action: 'SUBMIT', label: 'Submit', variant: 'workflowPrimary' },
+      { action: 'CANCEL', label: 'Cancel', variant: 'workflowNegative' },
+    ];
   }
-
-  return actions;
-}
+  if (status === 'CONFIRMING') {
+    return [
+      { action: 'CONFIRM', label: 'Confirm', variant: 'workflowPrimary' },
+      { action: 'FAIL', label: 'Fail', variant: 'workflowNegative' },
+      { action: 'TIMEOUT', label: 'Timeout', variant: 'workflowNegative' },
+      { action: 'CANCEL', label: 'Cancel', variant: 'workflowNegative' },
+    ];
+  }
+  if (status === 'CONFIRMED') {
+    return [
+      { action: 'CLEAR', label: 'Clear', variant: 'workflowPrimary' },
+      { action: 'RETURN', label: 'Return', variant: 'workflowSecondary' },
+    ];
+  }
+  if (status === 'CLEAR') {
+    return [{ action: 'RETURN', label: 'Return', variant: 'workflowSecondary' }];
+  }
+  return [];
+};
 
 const InternalFundDetail = () => {
   const { id } = useParams<{ id: string }>();
@@ -125,58 +152,64 @@ const InternalFundDetail = () => {
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState(false);
   const [data, setData] = useState<InternalFundDetailData | null>(null);
+  const [error, setError] = useState('');
 
   const fetchDetail = async () => {
-    setLoading(true);
-    try {
-      const token = localStorage.getItem('admin_token');
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/admin/internal-funds/${id}`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
+    if (!id) return;
 
-      if (response.ok) {
-        const result = await response.json();
-        setData(result);
-      } else {
-        alert('Failed to load internal fund detail');
-        navigate('/dashboard/treasury/internal-funds');
+    setLoading(true);
+    setError('');
+    try {
+      const response = await adminFetch(`${import.meta.env.VITE_API_URL}/admin/internal-funds/${id}`);
+
+      if (!response.ok) {
+        throw new Error(await getApiErrorMessage(response, 'Failed to load internal fund detail.'));
       }
+
+      const result = await response.json();
+      setData(result);
     } catch (error) {
+      if (error instanceof AdminSessionError) return;
       console.error('Failed to fetch internal fund detail', error);
-      alert('Network error');
+      setError(
+        error instanceof Error ? error.message : 'Failed to load internal fund detail.',
+      );
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchDetail();
+    void fetchDetail();
   }, [id]);
 
   const handleStatusAction = async (action: string) => {
-    setUpdating(true);
-    try {
-      const token = localStorage.getItem('admin_token');
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/admin/internal-funds/${id}/status`, {
-        method: 'PATCH',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ action }),
-      });
+    if (!id) return;
 
-      if (response.ok) {
-        await fetchDetail();
-      } else {
-        const err = await response.json();
-        alert(`Update failed: ${err.message || 'Unknown error'}`);
+    setUpdating(true);
+    setError('');
+    try {
+      const response = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/admin/internal-funds/${id}/status`,
+        {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ action }),
+        },
+      );
+
+      if (!response.ok) {
+        setError(await getApiErrorMessage(response, 'Update failed.'));
+        return;
       }
+
+      await fetchDetail();
     } catch (error) {
+      if (error instanceof AdminSessionError) return;
       console.error('Failed to update internal fund status', error);
-      alert('Network error');
+      setError(error instanceof Error ? error.message : 'Update failed.');
     } finally {
       setUpdating(false);
     }
@@ -194,9 +227,28 @@ const InternalFundDetail = () => {
 
   if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-[300px]">
-        <RefreshCw className="animate-spin text-brand-primary mb-3" size={26} />
+      <div className="flex min-h-[300px] flex-col items-center justify-center">
+        <RefreshCw className="mb-3 animate-spin text-brand-primary" size={26} />
         <p className="text-gray-500">Loading internal fund...</p>
+      </div>
+    );
+  }
+
+  if (error && !data) {
+    return (
+      <div className="space-y-4 rounded-xl border border-red-200 bg-white p-8 text-center shadow-sm">
+        <div className="text-sm text-red-700">{error}</div>
+        <div className="flex items-center justify-center gap-3">
+          <button
+            onClick={() => navigate('/dashboard/treasury/internal-funds')}
+            className={adminButtonClass('detailUtility')}
+          >
+            Back to Internal Funds
+          </button>
+          <button onClick={() => void fetchDetail()} className={adminButtonClass('detailUtility')}>
+            Retry
+          </button>
+        </div>
       </div>
     );
   }
@@ -205,125 +257,144 @@ const InternalFundDetail = () => {
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto pb-12">
-      <div className="flex items-start justify-between gap-4 bg-white p-6 rounded-xl border border-admin-border shadow-sm">
-        <div className="flex items-start gap-4">
+      <DetailPageHeader
+        title="Internal Fund"
+        subtitle={`${data.internalFundNo} · ${data.asset?.code || '-'} ${data.asset?.network ? `(${data.asset.network})` : ''}`}
+        onBack={() => navigate('/dashboard/treasury/internal-funds')}
+        onRefresh={() => void fetchDetail()}
+        refreshing={loading}
+      >
+        <span
+          className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${
+            STATUS_COLORS[data.status] || 'bg-gray-100 text-gray-800'
+          }`}
+        >
+          {data.status}
+        </span>
+        {data.internalTransaction?.id ? (
           <button
-            onClick={() => navigate('/dashboard/treasury/internal-funds')}
-            className="p-2 hover:bg-gray-100 rounded-lg border border-admin-border transition-colors text-gray-600"
+            onClick={() => navigate(`/exchange/internal-transactions/${data.internalTransaction?.id}`)}
+            className={adminButtonClass('detailUtility')}
           >
-            <ArrowLeft size={18} />
+            Open Internal Transaction
           </button>
-          <div>
-            <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-bold text-gray-900">Internal Fund</h1>
-              <span
-                className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${
-                  STATUS_COLORS[data.status] || 'bg-gray-100 text-gray-800'
-                }`}
-              >
-                {data.status}
-              </span>
-            </div>
-            <div className="mt-2 text-sm text-gray-500 font-mono">{data.internalFundNo}</div>
-          </div>
-        </div>
-        <div className="flex gap-2 flex-wrap justify-end">
-          {getActions(data).map((action) => (
-            <button
-              key={action.action}
-              onClick={() => handleStatusAction(action.action)}
-              disabled={updating}
-              className={`px-3 py-2 rounded-lg text-sm font-medium disabled:opacity-50 ${action.color}`}
-            >
-              {action.label}
-            </button>
-          ))}
-          <button
-            onClick={fetchDetail}
-            className="p-2 text-gray-500 hover:text-brand-primary transition-colors border border-gray-200 rounded-lg bg-white"
-          >
-            <RefreshCw size={18} />
-          </button>
-        </div>
-      </div>
+        ) : null}
+      </DetailPageHeader>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <InfoCard label="Internal Tx" value={data.internalTransaction?.internalTxNo || '-'} />
-        <InfoCard label="Tx Type" value={data.internalTransaction?.type || '-'} />
-        <InfoCard
-          label="Asset"
-          value={`${data.asset?.code || '-'} ${data.asset?.network ? `(${data.asset.network})` : ''}`}
-        />
-        <InfoCard
+      {error ? (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error}
+        </div>
+      ) : null}
+
+      <DetailCard title="Summary" icon={<Activity size={18} />}>
+        <InfoField label="Internal Fund No" value={data.internalFundNo} mono accent />
+        <InfoField label="Internal Tx No" value={data.internalTransaction?.internalTxNo || '-'} mono />
+        <InfoField label="Tx Type" value={data.internalTransaction?.type || '-'} />
+        <InfoField label="Asset" value={data.asset?.code || '-'} accent />
+        <InfoField label="Network" value={data.asset?.network || '-'} />
+        <InfoField label="Status" value={data.status} highlight />
+        <InfoField
           label="Amount"
           value={formatAssetAmount(data.amount, data.asset?.decimals)}
+          highlight
         />
-        <InfoCard label="Fee" value={formatAssetAmount(data.feeAmount, data.asset?.decimals)} />
-        <InfoCard label="Net" value={formatAssetAmount(data.netAmount, data.asset?.decimals)} />
-        <InfoCard label="From" value={data.fromAddress || data.fromIban || '-'} />
-        <InfoCard label="To" value={data.toAddress || data.toIban || '-'} />
-        <InfoCard label="Tx Hash" value={data.txHash || '-'} />
-        <InfoCard label="Confirmations" value={String(data.confirmations || 0)} />
-        <InfoCard label="Nonce" value={data.nonce || '-'} />
-        <InfoCard label="Block No" value={data.blockNo || '-'} />
-        <InfoCard label="Gas Used" value={data.gasUsed || '-'} />
-        <InfoCard label="Effective Gas Price" value={data.effectiveGasPrice || '-'} />
+        <InfoField label="Fee" value={formatAssetAmount(data.feeAmount, data.asset?.decimals)} />
+        <InfoField label="Net Amount" value={formatAssetAmount(data.netAmount, data.asset?.decimals)} />
+      </DetailCard>
+
+      <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+        <DetailCard title="Transfer Path" icon={<Clock size={18} />}>
+          <InfoField label="From" value={data.fromAddress || data.fromIban || '-'} mono />
+          <InfoField label="To" value={data.toAddress || data.toIban || '-'} mono />
+          <InfoField label="Reference No" value={data.referenceNo || '-'} mono />
+          <InfoField label="Provider Txn ID" value={data.providerTxnId || '-'} mono />
+          <InfoField label="Tx Hash" value={data.txHash || '-'} mono />
+          <InfoField label="Confirmations" value={String(data.confirmations || 0)} />
+        </DetailCard>
+
+        <DetailCard title="Chain / Timing" icon={<Clock size={18} />}>
+          <InfoField label="Nonce" value={data.nonce || '-'} mono />
+          <InfoField label="Block No" value={data.blockNo || '-'} mono />
+          <InfoField label="Gas Used" value={data.gasUsed || '-'} mono />
+          <InfoField label="Effective Gas Price" value={data.effectiveGasPrice || '-'} mono />
+          <InfoField label="Sent At" value={data.sentAt ? new Date(data.sentAt).toLocaleString() : '-'} />
+          <InfoField
+            label="Confirmed At"
+            value={data.confirmedAt ? new Date(data.confirmedAt).toLocaleString() : '-'}
+          />
+          <InfoField
+            label="Completed At"
+            value={data.completedAt ? new Date(data.completedAt).toLocaleString() : '-'}
+          />
+          <InfoField label="Updated At" value={new Date(data.updatedAt).toLocaleString()} />
+        </DetailCard>
       </div>
 
-      <section className="bg-white rounded-xl border border-admin-border shadow-sm overflow-hidden">
-        <div className="px-5 py-4 border-b border-admin-border">
-          <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wider">Status History</h2>
-        </div>
-        <div className="divide-y divide-admin-border">
-          {parsedHistory.length === 0 ? (
-            <div className="px-5 py-6 text-sm text-gray-500">No status history</div>
-          ) : (
-            parsedHistory.map((entry, idx) => (
-              <div key={`${entry.timestamp}-${idx}`} className="px-5 py-4 text-sm">
+      <ActionSection
+        title="Workflow Actions"
+        description="These operator actions advance or resolve the internal fund lifecycle."
+        emptyText="No available workflow actions"
+      >
+        {getActions(data).length ? (
+          <div className="flex flex-wrap gap-3">
+            {getActions(data).map((action) => (
+              <button
+                key={action.action}
+                type="button"
+                onClick={() => void handleStatusAction(action.action)}
+                disabled={updating}
+                className={adminButtonClass(action.variant)}
+              >
+                {action.label}
+              </button>
+            ))}
+          </div>
+        ) : null}
+      </ActionSection>
+
+      <DetailCard title="Status History" icon={<Clock size={18} />} columns={1}>
+        {parsedHistory.length === 0 ? (
+          <div className="text-sm text-gray-500">No status history</div>
+        ) : (
+          <div className="space-y-3">
+            {parsedHistory.map((entry, index) => (
+              <div
+                key={`${entry.timestamp}-${index}`}
+                className="rounded-lg border border-admin-border px-4 py-3"
+              >
                 <div className="font-medium text-gray-900">{entry.status}</div>
-                <div className="text-xs text-gray-500 mt-1">
+                <div className="mt-1 text-xs text-gray-500">
                   {entry.timestamp ? new Date(entry.timestamp).toLocaleString() : '-'}
                 </div>
-                {entry.note ? <div className="text-xs text-gray-500 mt-1">{entry.note}</div> : null}
+                {entry.note ? <div className="mt-1 text-xs text-gray-500">{entry.note}</div> : null}
               </div>
-            ))
-          )}
-        </div>
-      </section>
+            ))}
+          </div>
+        )}
+      </DetailCard>
 
-      <section className="bg-white rounded-xl border border-admin-border shadow-sm overflow-hidden">
-        <div className="px-5 py-4 border-b border-admin-border">
-          <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wider">Audit Logs</h2>
-        </div>
-        <div className="divide-y divide-admin-border">
-          {data.auditLogs.length === 0 ? (
-            <div className="px-5 py-6 text-sm text-gray-500">No audit logs</div>
-          ) : (
-            data.auditLogs.map((log) => (
-              <div key={log.id} className="px-5 py-4 text-sm">
+      <DetailCard title="Audit Logs" icon={<Activity size={18} />} columns={1}>
+        {data.auditLogs.length === 0 ? (
+          <div className="text-sm text-gray-500">No audit logs</div>
+        ) : (
+          <div className="space-y-3">
+            {data.auditLogs.map((log) => (
+              <div key={log.id} className="rounded-lg border border-admin-border px-4 py-3">
                 <div className="font-medium text-gray-900">
-                  {log.oldStatus} → {log.newStatus}
+                  {log.oldStatus} -&gt; {log.newStatus}
                 </div>
-                <div className="text-xs text-gray-500 mt-1">
+                <div className="mt-1 text-xs text-gray-500">
                   {new Date(log.createdAt).toLocaleString()} · {log.operatorId}
                 </div>
-                {log.reason ? <div className="text-xs text-gray-500 mt-1">{log.reason}</div> : null}
+                {log.reason ? <div className="mt-1 text-xs text-gray-500">{log.reason}</div> : null}
               </div>
-            ))
-          )}
-        </div>
-      </section>
+            ))}
+          </div>
+        )}
+      </DetailCard>
     </div>
   );
 };
-
-function InfoCard({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="bg-white rounded-xl border border-admin-border p-4">
-      <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider">{label}</div>
-      <div className="text-sm text-gray-900 mt-2 break-all">{value || '-'}</div>
-    </div>
-  );
-}
 
 export default InternalFundDetail;

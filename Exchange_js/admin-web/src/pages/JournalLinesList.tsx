@@ -1,7 +1,9 @@
-import { useEffect, useState } from 'react';
-import { Search, RefreshCw, ChevronLeft, ChevronRight, ArrowUpDown, X, Eye } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { Search, RefreshCw, ChevronLeft, ChevronRight, ArrowUpDown } from 'lucide-react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { formatAssetAmount } from '../utils/number-format';
+import { adminFetch, getApiErrorMessage } from '../utils/adminFetch';
+import { adminButtonClass, adminIconButtonClass } from '../components/common/adminButtonStyles';
 
 interface JournalLineItem {
   id: string;
@@ -37,6 +39,12 @@ const JournalLinesList = () => {
   const [total, setTotal] = useState(0);
   const [sortBy, setSortBy] = useState('createdAt');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+  const [error, setError] = useState('');
+
+  const hasFilters = useMemo(
+    () => Boolean(journalNoSearch.trim() || journalIdFilter),
+    [journalIdFilter, journalNoSearch],
+  );
 
   useEffect(() => {
     const journalId = searchParams.get('journalId');
@@ -47,8 +55,8 @@ const JournalLinesList = () => {
 
   const fetchItems = async () => {
     setLoading(true);
+    setError('');
     try {
-      const token = localStorage.getItem('admin_token');
       const params = new URLSearchParams();
       params.append('skip', ((page - 1) * pageSize).toString());
       params.append('take', pageSize.toString());
@@ -58,23 +66,17 @@ const JournalLinesList = () => {
       if (journalNoSearch) params.append('journalNo', journalNoSearch);
       if (journalIdFilter) params.append('journalId', journalIdFilter);
       
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/journal-lines?${params.toString()}`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
+      const response = await adminFetch(`${import.meta.env.VITE_API_URL}/journal-lines?${params.toString()}`);
       if (response.ok) {
         const result = await response.json();
         setItems(result.items || []);
         setTotal(result.total || 0);
-      } else {
-        if (response.status === 401) {
-            localStorage.removeItem('admin_token');
-            navigate('/admin/login');
-        }
+        return;
       }
+      setError(await getApiErrorMessage(response, 'Failed to fetch journal lines.'));
     } catch (error) {
       console.error('Failed to fetch Journal Lines', error);
+      setError('Failed to fetch journal lines.');
     } finally {
       setLoading(false);
     }
@@ -90,9 +92,32 @@ const JournalLinesList = () => {
   };
 
   const clearJournalFilter = () => {
+    setJournalNoSearch('');
     setJournalIdFilter(null);
     setSearchParams({});
     setPage(1);
+    setItems([]);
+    setError('');
+    setLoading(true);
+    void (async () => {
+      try {
+        const response = await adminFetch(
+          `${import.meta.env.VITE_API_URL}/journal-lines?skip=0&take=${pageSize}&sortBy=${sortBy}&sortOrder=${sortOrder}`,
+        );
+        if (response.ok) {
+          const result = await response.json();
+          setItems(result.items || []);
+          setTotal(result.total || 0);
+          return;
+        }
+        setError(await getApiErrorMessage(response, 'Failed to fetch journal lines.'));
+      } catch (resetError) {
+        console.error('Failed to reset journal line filters', resetError);
+        setError('Failed to fetch journal lines.');
+      } finally {
+        setLoading(false);
+      }
+    })();
   };
 
   const handleSort = (field: string) => {
@@ -162,11 +187,18 @@ const JournalLinesList = () => {
                     className="w-full pl-10 pr-4 py-2 bg-admin-content-bg border border-admin-border rounded-lg focus:outline-none focus:border-brand-primary focus:ring-1 focus:ring-brand-primary/20 transition-all duration-200"
                     />
                 </div>
-                <button onClick={handleSearch} className="px-3 py-2 bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200 transition-colors">
+                <button onClick={handleSearch} className={adminButtonClass('listPrimary')}>
                     Search
                 </button>
+                <button
+                  onClick={clearJournalFilter}
+                  className={adminButtonClass('listSecondary')}
+                  disabled={!hasFilters && !error}
+                >
+                  Reset
+                </button>
             </div>
-            <button onClick={fetchItems} className="p-2 text-gray-500 hover:text-brand-primary transition-colors border border-gray-200 rounded-lg bg-white self-start md:self-auto">
+            <button onClick={fetchItems} className={adminIconButtonClass('self-start md:self-auto')}>
                 <RefreshCw size={20} className={loading ? 'animate-spin' : ''} />
             </button>
         </div>
@@ -179,10 +211,10 @@ const JournalLinesList = () => {
                 </div>
                 <button 
                     onClick={clearJournalFilter}
-                    className="p-1 hover:bg-blue-100 rounded text-blue-600 transition-colors"
-                    title="Clear Filter"
+                    className={adminButtonClass('rowSecondaryUtility')}
+                    title="Reset Filter"
                 >
-                    <X size={16} />
+                    Reset
                 </button>
             </div>
         )}
@@ -200,11 +232,18 @@ const JournalLinesList = () => {
                 <th className="px-4 py-3 font-medium text-gray-500 uppercase tracking-wider">Base Amount</th>
                 <th className="px-4 py-3 font-medium text-gray-500 uppercase tracking-wider">Rate</th>
                 <SortableHeader field="createdAt" label="Time" />
-                <th className="px-4 py-3 font-medium text-gray-500 uppercase tracking-wider text-right">Actions</th>
+                <th className="px-4 py-3 font-medium text-gray-500 uppercase tracking-wider text-right">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-admin-border">
-              {loading && items.length === 0 ? (
+              {error ? (
+                <tr>
+                  <td colSpan={10} className="px-4 py-12 text-center text-rose-600">
+                    {error}
+                  </td>
+                </tr>
+              ) : null}
+              {!error && loading && items.length === 0 ? (
                 <tr>
                   <td colSpan={10} className="px-4 py-12 text-center text-gray-500">
                     <div className="flex flex-col items-center justify-center">
@@ -213,7 +252,7 @@ const JournalLinesList = () => {
                     </div>
                   </td>
                 </tr>
-              ) : items.length === 0 ? (
+              ) : !error && items.length === 0 ? (
                 <tr>
                   <td colSpan={10} className="px-4 py-12 text-center text-gray-500">
                     No records found
@@ -223,13 +262,14 @@ const JournalLinesList = () => {
                 items.map((item) => (
                   <tr key={item.id} className="hover:bg-gray-50 transition-colors">
                     <td className="px-4 py-4">
-                        <div 
-                            className="font-mono text-xs text-gray-900 cursor-pointer hover:text-brand-primary font-bold" 
+                        <button
+                            type="button"
+                            className={adminButtonClass('rowKeyLink')}
                             title={item.journalId}
                             onClick={() => navigate(`/ledger/journals/${item.journalId}`)}
                         >
                             {item.journal.journalNo || '-'}
-                        </div>
+                        </button>
                         <div className="text-[10px] text-gray-400 mt-0.5">{item.journal.eventCode}</div>
                     </td>
                     <td className="px-4 py-4 font-medium text-gray-900">{item.lineNo}</td>
@@ -260,11 +300,11 @@ const JournalLinesList = () => {
                     </td>
                     <td className="px-4 py-4 text-right">
                         <button 
+                            type="button"
                             onClick={() => navigate(`/ledger/journal-lines/${item.id}`)}
-                            className="p-1.5 text-blue-600 rounded hover:bg-blue-50 transition-colors" 
-                            title="View Details"
+                            className={adminButtonClass('rowLink')}
                         >
-                            <Eye size={16} />
+                            View
                         </button>
                     </td>
                   </tr>

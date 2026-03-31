@@ -1,5 +1,9 @@
 import { useEffect, useState } from 'react';
 import { RefreshCw, Search, X } from 'lucide-react';
+import {
+  adminButtonClass,
+  adminIconButtonClass,
+} from '../components/common/adminButtonStyles';
 import Pagination from '../components/common/Pagination';
 import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/adminFetch';
 
@@ -411,7 +415,7 @@ const RiskPolicyExecutionsPage = () => {
         </div>
         <button
           onClick={() => void fetchRecords(currentPage, filters)}
-          className="p-2 text-gray-500 hover:text-brand-primary"
+          className={adminIconButtonClass()}
           title="Refresh"
         >
           <RefreshCw size={20} className={loading ? 'animate-spin' : ''} />
@@ -482,7 +486,7 @@ const RiskPolicyExecutionsPage = () => {
           <button
             onClick={() => void handleSearch()}
             disabled={loading}
-            className="px-4 py-2 text-sm bg-brand-primary text-white rounded-lg hover:opacity-90 disabled:opacity-60"
+            className={adminButtonClass('listPrimary')}
           >
             <span className="inline-flex items-center gap-2">
               <Search size={16} />
@@ -492,7 +496,7 @@ const RiskPolicyExecutionsPage = () => {
           <button
             onClick={() => void handleReset()}
             disabled={loading}
-            className="px-4 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-60"
+            className={adminButtonClass('listSecondary')}
           >
             Reset
           </button>
@@ -513,7 +517,7 @@ const RiskPolicyExecutionsPage = () => {
                 <th className="px-4 py-3 text-xs uppercase text-gray-500">Status</th>
                 <th className="px-4 py-3 text-xs uppercase text-gray-500">Decision</th>
                 <th className="px-4 py-3 text-xs uppercase text-gray-500">Reason Codes</th>
-                <th className="px-4 py-3 text-xs uppercase text-gray-500">Actions</th>
+                <th className="px-4 py-3 text-xs uppercase text-gray-500">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-admin-border">
@@ -544,7 +548,13 @@ const RiskPolicyExecutionsPage = () => {
                         </div>
                       </td>
                       <td className="px-4 py-3">
-                        <div className="font-semibold text-gray-900">{item.id.slice(0, 12)}...</div>
+                        <button
+                          type="button"
+                          onClick={() => void openDetail(item.id)}
+                          className={adminButtonClass('rowKeyLink')}
+                        >
+                          {item.id.slice(0, 12)}...
+                        </button>
                         <div className="text-xs text-gray-500">{item.id}</div>
                       </td>
                       <td className="px-4 py-3 text-gray-700">
@@ -597,10 +607,11 @@ const RiskPolicyExecutionsPage = () => {
                       </td>
                       <td className="px-4 py-3">
                         <button
+                          type="button"
                           onClick={() => void openDetail(item.id)}
-                          className="text-xs border border-gray-200 px-2 py-1 rounded hover:bg-gray-50"
+                          className={adminButtonClass('rowLink')}
                         >
-                          View Detail
+                          View
                         </button>
                       </td>
                     </tr>

@@ -2,6 +2,10 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { CheckSquare, FileUp, RefreshCw, Search, Square, X } from 'lucide-react';
 import Pagination from '../components/common/Pagination';
+import {
+  adminButtonClass,
+  adminIconButtonClass,
+} from '../components/common/adminButtonStyles';
 import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/adminFetch';
 
 type TriggerType =
@@ -289,14 +293,14 @@ const AuditLogsPage = () => {
         <div className="flex items-center gap-2">
           <button
             onClick={() => void fetchLogs(currentPage, filters)}
-            className="p-2 text-gray-500 hover:text-brand-primary"
+            className={adminIconButtonClass()}
             title="Refresh"
           >
             <RefreshCw size={20} className={loading ? 'animate-spin' : ''} />
           </button>
           <button
             onClick={() => navigate('/dashboard/audit/evidence-exports')}
-            className="rounded-lg border border-blue-200 px-4 py-2 text-sm text-blue-700 hover:bg-blue-50"
+            className={adminButtonClass('listSecondary')}
           >
             Open Evidence Export
           </button>
@@ -309,7 +313,7 @@ const AuditLogsPage = () => {
           {lastExportId && (
             <button
               onClick={() => navigate('/dashboard/audit/evidence-exports')}
-              className="mt-2 text-sm font-medium underline"
+              className={adminButtonClass('rowLink', 'mt-2')}
             >
               View export record
             </button>
@@ -449,21 +453,21 @@ const AuditLogsPage = () => {
         <div className="flex flex-wrap items-center gap-2">
           <button
             onClick={() => void fetchLogs(1, filters)}
-            className="inline-flex items-center gap-2 rounded-lg bg-brand-primary px-4 py-2 text-sm text-white hover:opacity-90"
+            className={adminButtonClass('listPrimary')}
           >
             <Search size={16} />
             Search
           </button>
           <button
             onClick={() => void handleReset()}
-            className="rounded-lg border border-gray-200 px-4 py-2 text-sm hover:bg-gray-50"
+            className={adminButtonClass('listSecondary')}
           >
             Reset
           </button>
           <button
             onClick={() => void handleExportSelected()}
             disabled={exporting || selectedIds.length === 0}
-            className="inline-flex items-center gap-2 rounded-lg border border-blue-200 px-4 py-2 text-sm text-blue-700 hover:bg-blue-50 disabled:opacity-50"
+            className={adminButtonClass('listPrimary')}
           >
             <FileUp size={16} />
             {exporting ? 'Exporting...' : `Export Selected (${selectedIds.length})`}
@@ -471,7 +475,7 @@ const AuditLogsPage = () => {
           <button
             onClick={() => setSelectedIds([])}
             disabled={selectedIds.length === 0}
-            className="inline-flex items-center gap-2 rounded-lg border border-gray-200 px-4 py-2 text-sm hover:bg-gray-50 disabled:opacity-50"
+            className={adminButtonClass('listSecondary')}
           >
             <X size={16} />
             Clear Selection
@@ -501,7 +505,7 @@ const AuditLogsPage = () => {
                 <th className="px-4 py-3 text-xs uppercase text-gray-500">Entity</th>
                 <th className="px-4 py-3 text-xs uppercase text-gray-500">Actor</th>
                 <th className="px-4 py-3 text-xs uppercase text-gray-500">Result</th>
-                <th className="px-4 py-3 text-xs uppercase text-gray-500">Operation</th>
+                <th className="px-4 py-3 text-xs uppercase text-gray-500">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-admin-border">
@@ -535,7 +539,7 @@ const AuditLogsPage = () => {
                     <td className="px-4 py-3">
                       <button
                         onClick={() => navigate(`/dashboard/audit/audit-logs/${item.id}`)}
-                        className="font-mono text-xs text-brand-primary hover:underline"
+                        className={adminButtonClass('rowKeyLink')}
                       >
                         {item.auditNo}
                       </button>
@@ -573,9 +577,9 @@ const AuditLogsPage = () => {
                     <td className="px-4 py-3">
                       <button
                         onClick={() => navigate(`/dashboard/audit/audit-logs/${item.id}`)}
-                        className="text-sm font-medium text-brand-primary hover:underline"
+                        className={adminButtonClass('rowLink')}
                       >
-                        View Detail
+                        View
                       </button>
                     </td>
                   </tr>

@@ -1,7 +1,16 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Search, RefreshCw, Plus } from 'lucide-react';
+import {
+  adminButtonClass,
+  adminIconButtonClass,
+} from '../components/common/adminButtonStyles';
 import { formatAssetAmount } from '../utils/number-format';
+import {
+  AdminSessionError,
+  adminFetch,
+  getApiErrorMessage,
+} from '../utils/adminFetch';
 
 interface WalletItem {
   id: string;
@@ -27,6 +36,7 @@ const WalletList = () => {
   const navigate = useNavigate();
   const [wallets, setWallets] = useState<WalletItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
   const [ownerTypeFilter, setOwnerTypeFilter] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
@@ -50,46 +60,72 @@ const WalletList = () => {
     formatAssetAmount(value ?? '0', decimals);
 
   const getStatusActionLabel = (status: string) => {
-    if (status === 'ACTIVE') return '停用';
-    if (status === 'DISABLED') return '启用';
+    if (status === 'ACTIVE') return 'Disable';
+    if (status === 'DISABLED') return 'Enable';
     return null;
   };
 
-  const fetchWallets = async () => {
-    setLoading(true);
-    try {
-      const token = localStorage.getItem('admin_token');
-      const params = new URLSearchParams();
-      if (ownerTypeFilter) params.append('ownerType', ownerTypeFilter);
-      if (typeFilter) params.append('type', typeFilter);
-      if (statusFilter) params.append('status', statusFilter);
-      if (ownerIdSearch) params.append('ownerId', ownerIdSearch);
+  const hasFilters =
+    !!ownerTypeFilter || !!typeFilter || !!statusFilter || !!ownerIdSearch.trim();
 
-      const response = await fetch(
+  type WalletFilters = {
+    ownerTypeFilter: string;
+    typeFilter: string;
+    statusFilter: string;
+    ownerIdSearch: string;
+  };
+
+  const fetchWallets = async (overrides?: Partial<WalletFilters>) => {
+    setLoading(true);
+    setError('');
+    try {
+      const nextFilters: WalletFilters = {
+        ownerTypeFilter,
+        typeFilter,
+        statusFilter,
+        ownerIdSearch,
+        ...overrides,
+      };
+      const params = new URLSearchParams();
+      if (nextFilters.ownerTypeFilter) params.append('ownerType', nextFilters.ownerTypeFilter);
+      if (nextFilters.typeFilter) params.append('type', nextFilters.typeFilter);
+      if (nextFilters.statusFilter) params.append('status', nextFilters.statusFilter);
+      if (nextFilters.ownerIdSearch.trim()) params.append('ownerId', nextFilters.ownerIdSearch.trim());
+
+      const response = await adminFetch(
         `${import.meta.env.VITE_API_URL}/wallets?${params.toString()}`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        },
       );
       if (response.ok) {
         const result = await response.json();
         setWallets(result.items || []);
-      } else if (response.status === 401) {
-        localStorage.removeItem('admin_token');
-        navigate('/admin/login');
+      } else {
+        throw new Error(await getApiErrorMessage(response, 'Failed to fetch wallets.'));
       }
     } catch (error) {
+      if (error instanceof AdminSessionError) return;
       console.error('Failed to fetch wallets', error);
+      setError(error instanceof Error ? error.message : 'Failed to fetch wallets.');
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchWallets();
-  }, [ownerTypeFilter, typeFilter, statusFilter]);
+    void fetchWallets();
+  }, []);
+
+  const resetFilters = async () => {
+    setOwnerTypeFilter('');
+    setTypeFilter('');
+    setStatusFilter('');
+    setOwnerIdSearch('');
+    await fetchWallets({
+      ownerTypeFilter: '',
+      typeFilter: '',
+      statusFilter: '',
+      ownerIdSearch: '',
+    });
+  };
 
   const handleStatusChange = async (id: string, currentStatus: string) => {
     if (currentStatus === 'FROZEN') return;
@@ -104,13 +140,12 @@ const WalletList = () => {
     }
 
     try {
-      const token = localStorage.getItem('admin_token');
-      const response = await fetch(
+      setError('');
+      const response = await adminFetch(
         `${import.meta.env.VITE_API_URL}/wallets/${id}/status`,
         {
           method: 'PATCH',
           headers: {
-            Authorization: `Bearer ${token}`,
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({ status: newStatus }),
@@ -118,12 +153,14 @@ const WalletList = () => {
       );
 
       if (response.ok) {
-        fetchWallets();
+        await fetchWallets();
       } else {
-        alert('Failed to update status');
+        setError(await getApiErrorMessage(response, 'Failed to update wallet status.'));
       }
     } catch (error) {
+      if (error instanceof AdminSessionError) return;
       console.error('Failed to update status', error);
+      setError(error instanceof Error ? error.message : 'Failed to update wallet status.');
     }
   };
 
@@ -164,14 +201,14 @@ const WalletList = () => {
 
   const renderSurfaceLabel = (surfaceCategory?: string) => {
     const labels: Record<string, string> = {
-      CUSTOMER_POOL: '客户资金池',
-      PLATFORM_POOL: '公司资金池',
-      CUSTOMER_DEPOSIT: '客户充值载体',
-      CUSTOMER_PAYOUT_TARGET: '客户提现目标',
-      LIQUIDITY_PROVIDER_ACCOUNT: '流动性对手账户',
-      OTHER: '其他钱包',
+      CUSTOMER_POOL: 'Customer Pool',
+      PLATFORM_POOL: 'Platform Pool',
+      CUSTOMER_DEPOSIT: 'Customer Deposit Surface',
+      CUSTOMER_PAYOUT_TARGET: 'Customer Payout Target',
+      LIQUIDITY_PROVIDER_ACCOUNT: 'Liquidity Provider Account',
+      OTHER: 'Other Wallet',
     };
-    return labels[surfaceCategory || 'OTHER'] || '其他钱包';
+    return labels[surfaceCategory || 'OTHER'] || 'Other Wallet';
   };
 
   return (
@@ -182,24 +219,30 @@ const WalletList = () => {
             Wallet / Account Management
           </h1>
           <p className="text-sm text-gray-500 mt-1">
-            列表展示关键运营信息，详情页查看完整字段
+            Read-only wallet list for treasury search, monitoring, and detail inspection
           </p>
         </div>
         <div className="flex gap-3">
           <button
-            onClick={fetchWallets}
-            className="p-2 text-gray-500 hover:text-brand-primary transition-colors border border-gray-200 rounded-lg bg-white"
+            onClick={() => void fetchWallets()}
+            className={adminIconButtonClass()}
           >
             <RefreshCw size={20} className={loading ? 'animate-spin' : ''} />
           </button>
           <button
             onClick={() => navigate('/dashboard/treasury/wallets/create')}
-            className="flex items-center gap-2 px-4 py-2 bg-brand-primary text-white rounded-lg hover:bg-brand-primary/90 transition-colors shadow-sm"
+            className={adminButtonClass('listPrimary')}
           >
             <Plus size={20} /> New Wallet
           </button>
         </div>
       </div>
+
+      {error ? (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error}
+        </div>
+      ) : null}
 
       <div className="bg-white rounded-xl shadow-sm border border-admin-border overflow-hidden">
         <div className="p-4 border-b border-admin-border flex flex-col md:flex-row gap-4 justify-between">
@@ -210,16 +253,23 @@ const WalletList = () => {
                 type="text"
                 value={ownerIdSearch}
                 onChange={(e) => setOwnerIdSearch(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && fetchWallets()}
-                placeholder="Search by Owner ID..."
+                onKeyDown={(e) => e.key === 'Enter' && void fetchWallets()}
+                placeholder="Search by Owner ID or No..."
                 className="w-full pl-10 pr-4 py-2 bg-admin-content-bg border border-admin-border rounded-lg focus:outline-none focus:border-brand-primary focus:ring-1 focus:ring-brand-primary/20 transition-all duration-200"
               />
             </div>
             <button
-              onClick={fetchWallets}
-              className="px-3 py-2 bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200"
+              onClick={() => void fetchWallets()}
+              className={adminButtonClass('listPrimary')}
             >
               Search
+            </button>
+            <button
+              onClick={() => void resetFilters()}
+              className={adminButtonClass('listSecondary')}
+              disabled={!hasFilters || loading}
+            >
+              Reset
             </button>
           </div>
           <div className="flex gap-2">
@@ -329,9 +379,17 @@ const WalletList = () => {
                       className="hover:bg-gray-50 transition-colors"
                     >
                       <td className="px-6 py-4">
-                        <div className="font-mono text-xs text-brand-primary font-bold">
-                          {wallet.walletNo || '-'}
-                        </div>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            navigate(
+                              `/dashboard/treasury/wallets/${wallet.id}`,
+                            )
+                          }
+                          className={adminButtonClass('rowKeyLink')}
+                        >
+                          {wallet.walletNo || wallet.id.slice(0, 8)}
+                        </button>
                         <div className="text-[11px] text-gray-400 mt-1">
                           {wallet.type}
                         </div>
@@ -385,29 +443,28 @@ const WalletList = () => {
                         {formatDateTime(updatedAt)}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="flex items-center gap-2 text-sm">
+                        <div className="flex items-center gap-3 text-sm">
                           {statusActionLabel ? (
-                            <>
-                              <button
-                                onClick={() =>
-                                  handleStatusChange(wallet.id, wallet.status)
-                                }
-                                className="text-brand-primary hover:underline"
-                              >
-                                {statusActionLabel}
-                              </button>
-                              <span className="text-gray-300">|</span>
-                            </>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                void handleStatusChange(wallet.id, wallet.status)
+                              }
+                              className={adminButtonClass('rowSecondaryUtility')}
+                            >
+                              {statusActionLabel}
+                            </button>
                           ) : null}
                           <button
+                            type="button"
                             onClick={() =>
                               navigate(
                                 `/dashboard/treasury/wallets/${wallet.id}`,
                               )
                             }
-                            className="text-brand-primary hover:underline"
+                            className={adminButtonClass('rowLink')}
                           >
-                            查看
+                            View
                           </button>
                         </div>
                       </td>

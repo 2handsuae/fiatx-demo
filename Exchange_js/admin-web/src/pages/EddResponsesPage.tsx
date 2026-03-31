@@ -1,5 +1,9 @@
-import { type ReactNode, useEffect, useState } from 'react';
+import { type ReactNode, useEffect, useMemo, useState } from 'react';
 import { RefreshCw, X } from 'lucide-react';
+import {
+  adminButtonClass,
+  adminIconButtonClass,
+} from '../components/common/adminButtonStyles';
 import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/adminFetch';
 
 interface EddResponseItem {
@@ -63,15 +67,17 @@ const EddResponsesPage = () => {
   const [workflowFilter, setWorkflowFilter] = useState<'ALL' | 'ONBOARDING' | 'PERIODIC_REVIEW'>(
     'ALL',
   );
+  const hasFilters = useMemo(() => workflowFilter !== 'ALL', [workflowFilter]);
 
-  const fetchResponses = async () => {
+  const fetchResponses = async (workflowOverride?: 'ALL' | 'ONBOARDING' | 'PERIODIC_REVIEW') => {
     setLoading(true);
     setMessage('');
     try {
+      const nextWorkflowFilter = workflowOverride ?? workflowFilter;
       const params = new URLSearchParams();
       params.set('take', '200');
-      if (workflowFilter !== 'ALL') {
-        params.set('workflow', workflowFilter);
+      if (nextWorkflowFilter !== 'ALL') {
+        params.set('workflow', nextWorkflowFilter);
       }
       const response = await adminFetch(
         `${import.meta.env.VITE_API_URL}/admin/compliance/edd-responses?${params.toString()}`,
@@ -94,8 +100,8 @@ const EddResponsesPage = () => {
   };
 
   useEffect(() => {
-    fetchResponses();
-  }, [workflowFilter]);
+    void fetchResponses('ALL');
+  }, []);
 
   const openResponseDetail = async (id: string) => {
     setDetailLoading(true);
@@ -140,8 +146,24 @@ const EddResponsesPage = () => {
             <option value="PERIODIC_REVIEW">Periodic review</option>
           </select>
           <button
-            onClick={fetchResponses}
-            className="p-2 text-gray-500 hover:text-brand-primary"
+            onClick={() => void fetchResponses()}
+            className={adminButtonClass('listPrimary')}
+          >
+            Search
+          </button>
+          <button
+            onClick={() => {
+              setWorkflowFilter('ALL');
+              void fetchResponses('ALL');
+            }}
+            disabled={!hasFilters}
+            className={adminButtonClass('listSecondary')}
+          >
+            Reset
+          </button>
+          <button
+            onClick={() => void fetchResponses()}
+            className={adminIconButtonClass()}
             title="Refresh"
           >
             <RefreshCw size={20} className={loading ? 'animate-spin' : ''} />
@@ -164,7 +186,7 @@ const EddResponsesPage = () => {
               <th className="px-4 py-3 text-xs uppercase text-gray-500">Subject</th>
               <th className="px-4 py-3 text-xs uppercase text-gray-500">Workflow</th>
               <th className="px-4 py-3 text-xs uppercase text-gray-500">Status</th>
-              <th className="px-4 py-3 text-xs uppercase text-gray-500">Actions</th>
+              <th className="px-4 py-3 text-xs uppercase text-gray-500">Action</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-admin-border">
@@ -184,7 +206,12 @@ const EddResponsesPage = () => {
               items.map((item) => (
                 <tr key={item.id} className="hover:bg-gray-50">
                   <td className="px-4 py-3">
-                    <div className="font-semibold text-gray-900">{item.responseNo}</div>
+                    <button
+                      onClick={() => openResponseDetail(item.id)}
+                      className={adminButtonClass('rowKeyLink')}
+                    >
+                      {item.responseNo}
+                    </button>
                     <div className="text-xs text-gray-400">{item.id.slice(0, 8)}...</div>
                   </td>
                   <td className="px-4 py-3 text-gray-700">
@@ -206,15 +233,13 @@ const EddResponsesPage = () => {
                       {item.status}
                     </span>
                   </td>
-                  <td className="px-4 py-3 space-y-1">
+                  <td className="px-4 py-3">
                     <button
                       onClick={() => openResponseDetail(item.id)}
-                      className="text-xs border border-gray-200 px-2 py-1 rounded hover:bg-gray-50"
+                      className={adminButtonClass('rowLink')}
                     >
-                      View Detail
+                      View
                     </button>
-
-                    <span className="text-xs text-gray-500">Read-only evidence</span>
                   </td>
                 </tr>
               ))

@@ -4,6 +4,11 @@ import { Wallet, TrendingUp, TrendingDown, Lock, RefreshCw, DollarSign, ShieldCh
 import { useNavigate } from 'react-router-dom';
 import { Decimal } from 'decimal.js';
 import { formatAssetAmount } from '../utils/number-format';
+import {
+  CustomerSessionError,
+  customerFetch,
+  getCustomerApiErrorMessage,
+} from '../utils/customerFetch';
 
 interface AssetData {
   assetId: string;
@@ -62,23 +67,19 @@ const DashboardOverview = () => {
     setLoading(true);
     setError('');
     try {
-      const token = localStorage.getItem('customer_token');
-      
       // Fetch platform assets (all active assets)
-      const platformResponse = await fetch(`${import.meta.env.VITE_API_URL}/assets?status=ACTIVE`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
+      const platformResponse = await customerFetch(
+        `${import.meta.env.VITE_API_URL}/assets?status=ACTIVE`,
+      );
       if (platformResponse.ok) {
         const platformData = await platformResponse.json();
         setPlatformAssets(platformData.items || []);
       }
 
       // Fetch user balances
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/treasury/customer/${user.id}/assets`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
+      const response = await customerFetch(
+        `${import.meta.env.VITE_API_URL}/treasury/customer/${user.id}/assets`,
+      );
 
       if (response.ok) {
         const data = await response.json();
@@ -86,11 +87,14 @@ const DashboardOverview = () => {
         // After fetching assets, fetch their market rates
         fetchMarketRates(data);
       } else {
-        setError('Failed to load asset data');
+        setError(await getCustomerApiErrorMessage(response, 'Failed to load asset data'));
       }
-    } catch (err) {
-      console.error(err);
-      setError('Network connection error');
+    } catch (error: unknown) {
+      if (error instanceof CustomerSessionError) {
+        return;
+      }
+      console.error(error);
+      setError(error instanceof Error ? error.message : 'Network connection error');
     } finally {
       setLoading(false);
     }
@@ -189,34 +193,46 @@ const DashboardOverview = () => {
   return (
     <div className="space-y-8 pb-20">
       {/* Header */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-        <div>
-            <h1 className="text-3xl font-black text-slate-900 tracking-tight">Market <span className="text-blue-600">Overview</span></h1>
-            <p className="text-slate-500 font-medium mt-1 flex items-center gap-2">
-              <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></span>
-              Real-time market data active
-            </p>
-        </div>
-        <div className="flex items-center gap-3 bg-white p-2 rounded-2xl border border-slate-200 shadow-sm">
-            {ratesLoading && (
-              <div className="flex items-center gap-2 px-3 py-1.5 text-xs font-bold text-blue-600 animate-pulse">
-                <RefreshCw size={14} className="animate-spin" />
-                Updating...
-              </div>
-            )}
-            {ratesError && (
-              <div className="flex items-center gap-2 px-3 py-1.5 text-xs font-bold text-red-500 bg-red-50 rounded-xl">
-                <AlertCircle size={14} />
-                <span>Error</span>
-              </div>
-            )}
-            <button 
-              onClick={fetchAssets} 
-              className="p-2.5 text-slate-400 hover:text-blue-600 hover:bg-slate-100 rounded-xl transition-all"
-              title="Refresh"
-            >
-                <RefreshCw size={20} />
-            </button>
+      <div className="relative overflow-hidden rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,_rgba(34,211,238,0.12),_transparent_28%),radial-gradient(circle_at_bottom_left,_rgba(59,130,246,0.12),_transparent_26%)]" />
+        <div className="relative z-10 flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+          <div className="space-y-3">
+            <div className="inline-flex items-center gap-2 rounded-full border border-blue-100 bg-blue-50 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.24em] text-blue-700">
+              <TrendingUp size={14} />
+              Portfolio Command
+            </div>
+            <div>
+              <h1 className="text-4xl font-black tracking-[-0.04em] text-slate-900">
+                Asset overview,
+                <span className="block text-blue-600">priced and monitored in real time.</span>
+              </h1>
+              <p className="mt-3 flex items-center gap-2 text-sm font-medium text-slate-500">
+                <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                Real-time market signal is active for your dashboard view.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50/80 p-2 shadow-sm">
+              {ratesLoading && (
+                <div className="flex items-center gap-2 px-3 py-1.5 text-xs font-bold text-blue-600 animate-pulse">
+                  <RefreshCw size={14} className="animate-spin" />
+                  Updating...
+                </div>
+              )}
+              {ratesError && (
+                <div className="flex items-center gap-2 rounded-xl bg-red-50 px-3 py-1.5 text-xs font-bold text-red-500">
+                  <AlertCircle size={14} />
+                  <span>Error</span>
+                </div>
+              )}
+              <button
+                onClick={fetchAssets}
+                className="rounded-xl p-2.5 text-slate-400 transition-all hover:bg-white hover:text-blue-600"
+                title="Refresh"
+              >
+                  <RefreshCw size={20} />
+              </button>
+          </div>
         </div>
       </div>
 

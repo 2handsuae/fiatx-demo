@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   AlertTriangle,
@@ -14,6 +14,13 @@ import {
 import { useAdminSession } from '../contexts/AdminSessionContext';
 import { PERMISSIONS } from '../rbac/permissions';
 import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/adminFetch';
+import {
+  ActionSection,
+  DetailCard,
+  DetailPageHeader,
+  InfoField,
+} from '../components/compliance/DetailPageComponents';
+import { adminButtonClass } from '../components/common/adminButtonStyles';
 
 interface ChangeTicketDetail {
   id: string;
@@ -65,58 +72,6 @@ const formatDateTime = (value?: string | null): string => {
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleString();
 };
-
-const formatValue = (value: unknown): string => {
-  if (value === null || value === undefined) return '-';
-  const text = String(value).trim();
-  return text === '' ? '-' : text;
-};
-
-const DetailCard = ({
-  title,
-  icon,
-  children,
-  columns = 3,
-}: {
-  title: string;
-  icon: ReactNode;
-  children: ReactNode;
-  columns?: 1 | 2 | 3;
-}) => {
-  const gridClassName =
-    columns === 1
-      ? 'grid grid-cols-1 gap-4'
-      : columns === 2
-        ? 'grid grid-cols-1 gap-4 md:grid-cols-2'
-        : 'grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3';
-
-  return (
-    <div className="rounded-xl border border-admin-border bg-white p-6 shadow-sm">
-      <div className="mb-4 flex items-center gap-2">
-        <div className="text-brand-primary">{icon}</div>
-        <h2 className="text-lg font-bold text-gray-900">{title}</h2>
-      </div>
-      <div className={gridClassName}>{children}</div>
-    </div>
-  );
-};
-
-const InfoField = ({
-  label,
-  value,
-  mono = false,
-}: {
-  label: string;
-  value: unknown;
-  mono?: boolean;
-}) => (
-  <div className="min-w-0">
-    <div className="text-xs uppercase tracking-wide text-gray-500">{label}</div>
-    <div className={`mt-1 break-all text-sm text-gray-900 ${mono ? 'font-mono' : ''}`}>
-      {formatValue(value)}
-    </div>
-  </div>
-);
 
 const ChangeTicketDetailPage = () => {
   const { id } = useParams<{ id: string }>();
@@ -301,14 +256,14 @@ const ChangeTicketDetailPage = () => {
         <div className="flex items-center gap-3">
           <button
             onClick={() => navigate('/dashboard/control-gates/change-tickets')}
-            className="inline-flex items-center gap-2 rounded-lg border border-admin-border bg-white px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+            className={adminButtonClass('detailUtility')}
           >
             <ArrowLeft size={16} />
             Back to Change Tickets
           </button>
           <button
             onClick={() => void fetchDetail()}
-            className="inline-flex items-center gap-2 rounded-lg border border-admin-border bg-white px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+            className={adminButtonClass('detailUtility')}
           >
             <RefreshCw size={16} />
             Retry
@@ -330,104 +285,38 @@ const ChangeTicketDetailPage = () => {
 
   return (
     <div className="space-y-6">
-      <div className="rounded-xl border border-admin-border bg-white p-6 shadow-sm">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-          <div className="space-y-2">
-            <div className="flex items-center gap-3">
-              <button
-                onClick={() => navigate('/dashboard/control-gates/change-tickets')}
-                className="inline-flex items-center gap-2 rounded-lg border border-admin-border bg-white px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
-              >
-                <ArrowLeft size={16} />
-                Back to Change Tickets
-              </button>
-              <button
-                onClick={() => void fetchDetail()}
-                className="inline-flex items-center gap-2 rounded-lg border border-admin-border bg-white px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
-              >
-                <RefreshCw size={16} />
-                Refresh
-              </button>
-            </div>
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">Change Ticket Detail</h1>
-              <p className="mt-1 font-mono text-sm text-gray-500">{detail.ticketNo}</p>
-            </div>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2">
-            {detail.latestApprovalId && canViewApproval && (
-              <button
-                onClick={() => navigate(`/dashboard/control-gates/approvals/${detail.latestApprovalId}`)}
-                className="inline-flex items-center gap-2 rounded-lg border border-admin-border bg-white px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
-              >
-                <Link2 size={16} />
-                View Approval
-              </button>
-            )}
-            {canSubmit && detail.status === 'DRAFT' && (
-              <button
-                onClick={() =>
-                  void submitSimpleAction(
-                    'submit',
-                    `Change ticket ${detail.ticketNo} submitted successfully.`,
-                  )
-                }
-                disabled={submittingAction !== null}
-                className="inline-flex items-center gap-2 rounded-lg bg-brand-primary px-4 py-2 text-sm font-medium text-white hover:bg-brand-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <CheckCircle2 size={16} />
-                Submit
-              </button>
-            )}
-            {canResubmit && detail.status === 'REJECTED' && (
-              <button
-                onClick={() =>
-                  void submitSimpleAction(
-                    'resubmit',
-                    `Change ticket ${detail.ticketNo} resubmitted successfully.`,
-                  )
-                }
-                disabled={submittingAction !== null}
-                className="inline-flex items-center gap-2 rounded-lg bg-brand-primary px-4 py-2 text-sm font-medium text-white hover:bg-brand-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <CheckCircle2 size={16} />
-                Resubmit
-              </button>
-            )}
-            {canClose && ['DEPLOYED', 'DEPLOY_FAILED'].includes(detail.status) && (
-              <button
-                onClick={() =>
-                  void submitSimpleAction(
-                    'close',
-                    `Change ticket ${detail.ticketNo} closed successfully.`,
-                  )
-                }
-                disabled={submittingAction !== null}
-                className="inline-flex items-center gap-2 rounded-lg border border-admin-border bg-white px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <ClipboardList size={16} />
-                Close
-              </button>
-            )}
-          </div>
-        </div>
-
-        {(error || message) && (
-          <div className="mt-4 space-y-2">
-            {message && (
-              <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
-                {message}
-              </div>
-            )}
-            {error && (
-              <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-                {error}
-              </div>
-            )}
-          </div>
+      <DetailPageHeader
+        title="Change Ticket Detail"
+        subtitle={detail.ticketNo}
+        onBack={() => navigate('/dashboard/control-gates/change-tickets')}
+        onRefresh={() => void fetchDetail()}
+        backLabel="Back to Change Tickets"
+      >
+        {detail.latestApprovalId && canViewApproval && (
+          <button
+            onClick={() => navigate(`/dashboard/control-gates/approvals/${detail.latestApprovalId}`)}
+            className={adminButtonClass('detailUtility')}
+          >
+            <Link2 size={16} />
+            View Approval
+          </button>
         )}
-      </div>
+      </DetailPageHeader>
+
+      {(error || message) && (
+        <div className="space-y-2">
+          {message && (
+            <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
+              {message}
+            </div>
+          )}
+          {error && (
+            <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+              {error}
+            </div>
+          )}
+        </div>
+      )}
 
       <DetailCard title="Ticket Summary" icon={<ShieldCheck size={18} />} columns={3}>
         <InfoField label="Ticket No" value={detail.ticketNo} mono />
@@ -461,14 +350,58 @@ const ChangeTicketDetailPage = () => {
         <InfoField label="Deployed At" value={formatDateTime(detail.deployedAt)} />
       </DetailCard>
 
-      <div className="rounded-xl border border-admin-border bg-white p-6 shadow-sm">
-        <div className="mb-4 flex items-center gap-2">
-          <div className="text-brand-primary">
-            <Rocket size={18} />
+      <ActionSection
+        title="Workflow Actions"
+        description="Change ticket workflow actions live here. Utility buttons stay in the header; gate and deploy controls stay in the workflow surface."
+      >
+        <div className="space-y-4">
+          <div className="flex flex-wrap items-center gap-3">
+            {canSubmit && detail.status === 'DRAFT' && (
+              <button
+                onClick={() =>
+                  void submitSimpleAction(
+                    'submit',
+                    `Change ticket ${detail.ticketNo} submitted successfully.`,
+                  )
+                }
+                disabled={submittingAction !== null}
+                className={adminButtonClass('workflowPrimary')}
+              >
+                <CheckCircle2 size={16} />
+                Submit
+              </button>
+            )}
+            {canResubmit && detail.status === 'REJECTED' && (
+              <button
+                onClick={() =>
+                  void submitSimpleAction(
+                    'resubmit',
+                    `Change ticket ${detail.ticketNo} resubmitted successfully.`,
+                  )
+                }
+                disabled={submittingAction !== null}
+                className={adminButtonClass('workflowPrimary')}
+              >
+                <CheckCircle2 size={16} />
+                Resubmit
+              </button>
+            )}
+            {canClose && ['DEPLOYED', 'DEPLOY_FAILED'].includes(detail.status) && (
+              <button
+                onClick={() =>
+                  void submitSimpleAction(
+                    'close',
+                    `Change ticket ${detail.ticketNo} closed successfully.`,
+                  )
+                }
+                disabled={submittingAction !== null}
+                className={adminButtonClass('workflowSecondary')}
+              >
+                <ClipboardList size={16} />
+                Close
+              </button>
+            )}
           </div>
-          <h2 className="text-lg font-bold text-gray-900">Gate & Deploy Actions</h2>
-        </div>
-
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
           <div className="space-y-2">
             <label className="block text-xs uppercase tracking-wide text-gray-500">Target Env</label>
@@ -511,7 +444,7 @@ const ChangeTicketDetailPage = () => {
             <button
               onClick={() => void runGateCheck()}
               disabled={!canRunGate || submittingAction !== null}
-              className="inline-flex items-center gap-2 rounded-lg bg-brand-primary px-4 py-2 text-sm font-medium text-white hover:bg-brand-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+              className={adminButtonClass('workflowPrimary')}
             >
               <ShieldCheck size={16} />
               Run Gate Check
@@ -522,7 +455,7 @@ const ChangeTicketDetailPage = () => {
               <button
                 onClick={() => void markDeployStatus('DEPLOYED')}
                 disabled={!canMarkDeploy || submittingAction !== null}
-                className="inline-flex items-center gap-2 rounded-lg border border-admin-border bg-white px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+                className={adminButtonClass('workflowSecondary')}
               >
                 <Rocket size={16} />
                 Mark Deployed
@@ -530,7 +463,7 @@ const ChangeTicketDetailPage = () => {
               <button
                 onClick={() => void markDeployStatus('DEPLOY_FAILED')}
                 disabled={!canMarkDeploy || submittingAction !== null}
-                className="inline-flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50"
+                className={adminButtonClass('workflowNegative')}
               >
                 <XCircle size={16} />
                 Mark Deploy Failed
@@ -538,7 +471,8 @@ const ChangeTicketDetailPage = () => {
             </>
           )}
         </div>
-      </div>
+        </div>
+      </ActionSection>
 
       <div className="rounded-xl border border-admin-border bg-white p-6 shadow-sm">
         <div className="mb-4 flex items-center gap-2">

@@ -1,14 +1,15 @@
 import { useCallback, useEffect, useState } from 'react';
-import {
-  ArrowLeft,
-  RefreshCw,
-} from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   AdminSessionError,
   adminFetch,
   getApiErrorMessage,
 } from '../utils/adminFetch';
+import {
+  DetailCard,
+  DetailPageHeader,
+  JsonBlock,
+} from '../components/compliance/DetailPageComponents';
 import { formatResponseLifecycleLabel } from '../utils/transactionRootDisplay';
 
 type TravelRuleReport = {
@@ -67,17 +68,6 @@ const tryParsePayload = (raw?: string | null) => {
 const getErrorMessage = (error: unknown, fallback: string) =>
   error instanceof Error ? error.message : fallback;
 
-const JsonBlock = ({ title, value }: { title: string; value: unknown }) => (
-  <div className="border border-gray-200 rounded-lg overflow-hidden">
-    <div className="px-3 py-2 bg-gray-50 border-b border-gray-200 text-xs font-semibold text-gray-600 uppercase">
-      {title}
-    </div>
-    <pre className="text-xs bg-gray-950 text-gray-100 p-3 overflow-auto">
-      {JSON.stringify(value ?? {}, null, 2)}
-    </pre>
-  </div>
-);
-
 const InfoGrid = ({
   items,
 }: {
@@ -129,27 +119,14 @@ const TransactionTravelRuleResponseDetailPage = () => {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => navigate('/dashboard/compliance/tx-travel-rule-responses')}
-            className="p-2 border border-gray-200 rounded hover:bg-gray-50 text-gray-600"
-          >
-            <ArrowLeft size={16} />
-          </button>
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">Travel Rule Response Detail</h1>
-            <p className="text-sm text-gray-500 mt-1">{id}</p>
-          </div>
-        </div>
-        <button
-          onClick={fetchDetail}
-          className="p-2 text-gray-500 hover:text-brand-primary"
-          title="Refresh"
-        >
-          <RefreshCw size={20} className={loading ? 'animate-spin' : ''} />
-        </button>
-      </div>
+      <DetailPageHeader
+        title="Travel Rule Response Detail"
+        subtitle={data?.caseNo || id}
+        onBack={() => navigate('/dashboard/compliance/tx-travel-rule-responses')}
+        onRefresh={() => void fetchDetail()}
+        refreshing={loading}
+        backLabel="Back to Travel Rule Responses"
+      />
 
       {errorMessage && (
         <div className="px-4 py-3 border border-red-200 bg-red-50 rounded-lg text-red-700 text-sm">
@@ -162,13 +139,13 @@ const TransactionTravelRuleResponseDetailPage = () => {
           <section className="bg-blue-50 border border-blue-200 rounded-xl p-4 text-sm text-blue-900 space-y-1">
             <div className="font-semibold">Response Container Only</div>
             <p>
-              Travel Rule response 在提现流程里只承载对手方与 payload 证据，不承担风险判定或交易推进。
-              真实处置仍然由 risk execution、alert 与 case callback 决定。
+              Travel Rule responses only retain counterparty and payload evidence for the withdraw
+              flow. Risk decisions and transaction progression are still driven by risk execution,
+              alerts, and case callbacks.
             </p>
           </section>
 
-          <section className="bg-white border border-admin-border rounded-xl p-4 space-y-4">
-            <h2 className="text-sm font-semibold text-gray-900">Response Summary</h2>
+          <DetailCard title="Response Summary" columns={1}>
             <InfoGrid
               items={[
                 { label: 'Response No', value: data.caseNo },
@@ -196,10 +173,9 @@ const TransactionTravelRuleResponseDetailPage = () => {
                 },
               ]}
             />
-          </section>
+          </DetailCard>
 
-          <section className="bg-white border border-admin-border rounded-xl p-4 space-y-4">
-            <h2 className="text-sm font-semibold text-gray-900">Source Summary</h2>
+          <DetailCard title="Source Summary" columns={1}>
             <InfoGrid
               items={[
                 { label: 'Transaction No', value: data.sourceSummary.sourceNo },
@@ -214,10 +190,9 @@ const TransactionTravelRuleResponseDetailPage = () => {
                 },
               ]}
             />
-          </section>
+          </DetailCard>
 
-          <section className="bg-white border border-admin-border rounded-xl p-4 space-y-4">
-            <h2 className="text-sm font-semibold text-gray-900">Latest Payload Snapshot</h2>
+          <DetailCard title="Latest Payload Snapshot" columns={1}>
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
               <JsonBlock
                 title="Latest Raw Payload"
@@ -228,10 +203,9 @@ const TransactionTravelRuleResponseDetailPage = () => {
                 value={tryParsePayload(data.latestNormalizedPayload)}
               />
             </div>
-          </section>
+          </DetailCard>
 
-          <section className="bg-white border border-admin-border rounded-xl p-4 space-y-4">
-            <h2 className="text-sm font-semibold text-gray-900">Provider Reports</h2>
+          <DetailCard title="Provider Reports" columns={1}>
             {(data.reports || []).length === 0 ? (
               <div className="text-sm text-gray-500">No reports</div>
             ) : (
@@ -277,7 +251,7 @@ const TransactionTravelRuleResponseDetailPage = () => {
                 ))}
               </div>
             )}
-          </section>
+          </DetailCard>
         </>
       )}
     </div>

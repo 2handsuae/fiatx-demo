@@ -1,7 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { RefreshCw, Search } from 'lucide-react';
 import { formatAssetAmount } from '../utils/number-format';
+import { adminFetch, getApiErrorMessage } from '../utils/adminFetch';
+import { adminButtonClass, adminIconButtonClass } from '../components/common/adminButtonStyles';
 
 type InternalFundItem = {
   id: string;
@@ -28,12 +30,6 @@ type InternalFundItem = {
   };
 };
 
-type ActionItem = {
-  action: string;
-  label: string;
-  color: string;
-};
-
 const STATUS_COLORS: Record<string, string> = {
   CREATED: 'bg-gray-100 text-gray-800',
   SIGNING: 'bg-indigo-100 text-indigo-800',
@@ -47,85 +43,40 @@ const STATUS_COLORS: Record<string, string> = {
   CANCELLED: 'bg-slate-100 text-slate-800',
 };
 
-function getActions(item: InternalFundItem): ActionItem[] {
-  const status = item.status;
-  const isFiat = item.asset?.type === 'FIAT';
-  const actions: ActionItem[] = [];
-
-  if (!isFiat) {
-    if (status === 'CREATED') {
-      actions.push({ action: 'SIGN', label: 'Sign', color: 'bg-blue-600 text-white hover:bg-blue-700' });
-      actions.push({ action: 'CANCEL', label: 'Cancel', color: 'bg-slate-600 text-white hover:bg-slate-700' });
-    } else if (status === 'SIGNING') {
-      actions.push({ action: 'BROADCAST', label: 'Broadcast', color: 'bg-indigo-600 text-white hover:bg-indigo-700' });
-      actions.push({ action: 'SIGN_FAIL', label: 'Sign Fail', color: 'bg-red-600 text-white hover:bg-red-700' });
-      actions.push({ action: 'CANCEL', label: 'Cancel', color: 'bg-slate-600 text-white hover:bg-slate-700' });
-    } else if (status === 'BROADCASTED') {
-      actions.push({ action: 'SEEN_IN_MEMPOOL', label: 'Seen', color: 'bg-blue-600 text-white hover:bg-blue-700' });
-      actions.push({ action: 'DROP', label: 'Drop', color: 'bg-red-600 text-white hover:bg-red-700' });
-      actions.push({ action: 'TIMEOUT', label: 'Timeout', color: 'bg-orange-600 text-white hover:bg-orange-700' });
-      actions.push({ action: 'CANCEL', label: 'Cancel', color: 'bg-slate-600 text-white hover:bg-slate-700' });
-    } else if (status === 'CONFIRMING') {
-      actions.push({ action: 'CONFIRM', label: 'Confirm', color: 'bg-green-600 text-white hover:bg-green-700' });
-      actions.push({ action: 'FAIL', label: 'Fail', color: 'bg-red-600 text-white hover:bg-red-700' });
-      actions.push({ action: 'TIMEOUT', label: 'Timeout', color: 'bg-orange-600 text-white hover:bg-orange-700' });
-      actions.push({ action: 'CANCEL', label: 'Cancel', color: 'bg-slate-600 text-white hover:bg-slate-700' });
-    } else if (status === 'CONFIRMED') {
-      actions.push({ action: 'CLEAR', label: 'Clear', color: 'bg-emerald-600 text-white hover:bg-emerald-700' });
-    }
-
-    return actions;
-  }
-
-  if (status === 'CREATED') {
-    actions.push({ action: 'SUBMIT', label: 'Submit', color: 'bg-blue-600 text-white hover:bg-blue-700' });
-    actions.push({ action: 'CANCEL', label: 'Cancel', color: 'bg-slate-600 text-white hover:bg-slate-700' });
-  } else if (status === 'CONFIRMING') {
-    actions.push({ action: 'CONFIRM', label: 'Confirm', color: 'bg-green-600 text-white hover:bg-green-700' });
-    actions.push({ action: 'FAIL', label: 'Fail', color: 'bg-red-600 text-white hover:bg-red-700' });
-    actions.push({ action: 'TIMEOUT', label: 'Timeout', color: 'bg-orange-600 text-white hover:bg-orange-700' });
-    actions.push({ action: 'CANCEL', label: 'Cancel', color: 'bg-slate-600 text-white hover:bg-slate-700' });
-  } else if (status === 'CONFIRMED') {
-    actions.push({ action: 'CLEAR', label: 'Clear', color: 'bg-emerald-600 text-white hover:bg-emerald-700' });
-    actions.push({ action: 'RETURN', label: 'Return', color: 'bg-purple-600 text-white hover:bg-purple-700' });
-  } else if (status === 'CLEAR') {
-    actions.push({ action: 'RETURN', label: 'Return', color: 'bg-purple-600 text-white hover:bg-purple-700' });
-  }
-
-  return actions;
-}
-
 const InternalFundList = () => {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
-  const [processingId, setProcessingId] = useState<string | null>(null);
   const [items, setItems] = useState<InternalFundItem[]>([]);
   const [statusFilter, setStatusFilter] = useState('');
   const [searchNo, setSearchNo] = useState('');
+  const [error, setError] = useState('');
+
+  const hasFilters = useMemo(
+    () => Boolean(statusFilter || searchNo.trim()),
+    [searchNo, statusFilter],
+  );
 
   const fetchItems = async () => {
     setLoading(true);
+    setError('');
     try {
-      const token = localStorage.getItem('admin_token');
       const params = new URLSearchParams();
       if (statusFilter) params.append('status', statusFilter);
       if (searchNo) params.append('internalFundNo', searchNo);
 
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/admin/internal-funds?${params.toString()}`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
+      const response = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/admin/internal-funds?${params.toString()}`,
+      );
 
       if (response.ok) {
         const result = await response.json();
         setItems(result.items || []);
-      } else if (response.status === 401) {
-        localStorage.removeItem('admin_token');
-        navigate('/admin/login');
+        return;
       }
+      setError(await getApiErrorMessage(response, 'Failed to load internal funds.'));
     } catch (error) {
       console.error('Failed to fetch internal funds', error);
+      setError('Failed to load internal funds.');
     } finally {
       setLoading(false);
     }
@@ -133,57 +84,50 @@ const InternalFundList = () => {
 
   useEffect(() => {
     fetchItems();
-  }, [statusFilter]);
-
-  const handleStatusAction = async (id: string, action: string) => {
-    setProcessingId(id);
-    try {
-      const token = localStorage.getItem('admin_token');
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/admin/internal-funds/${id}/status`, {
-        method: 'PATCH',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ action }),
-      });
-
-      if (!response.ok) {
-        const err = await response.json();
-        alert(`Action failed: ${err.message || 'Unknown error'}`);
-      } else {
-        await fetchItems();
-      }
-    } catch (error) {
-      console.error('Failed to update internal fund', error);
-      alert('Network error');
-    } finally {
-      setProcessingId(null);
-    }
-  };
+  }, []);
 
   const handleCreateMock = async () => {
     setLoading(true);
+    setError('');
     try {
-      const token = localStorage.getItem('admin_token');
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/admin/internal-funds/mock`, {
+      const response = await adminFetch(`${import.meta.env.VITE_API_URL}/admin/internal-funds/mock`, {
         method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
       });
 
       if (!response.ok) {
-        const err = await response.json();
-        alert(`Create mock failed: ${err.message || 'Unknown error'}`);
+        setError(await getApiErrorMessage(response, 'Create mock internal fund failed.'));
       }
       await fetchItems();
     } catch (error) {
       console.error('Failed to create mock internal fund', error);
-      alert('Network error');
+      setError('Create mock internal fund failed.');
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleReset = () => {
+    setStatusFilter('');
+    setSearchNo('');
+    setItems([]);
+    setError('');
+    setLoading(true);
+    void (async () => {
+      try {
+        const response = await adminFetch(`${import.meta.env.VITE_API_URL}/admin/internal-funds`);
+        if (response.ok) {
+          const result = await response.json();
+          setItems(result.items || []);
+          return;
+        }
+        setError(await getApiErrorMessage(response, 'Failed to load internal funds.'));
+      } catch (resetError) {
+        console.error('Failed to reset internal fund filters', resetError);
+        setError('Failed to load internal funds.');
+      } finally {
+        setLoading(false);
+      }
+    })();
   };
 
   return (
@@ -191,20 +135,28 @@ const InternalFundList = () => {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Internal Funds</h1>
-          <p className="text-sm text-gray-500 mt-1">Atomic transfer facts with simulation actions</p>
+          <p className="text-sm text-gray-500 mt-1">Atomic transfer facts with workflow status controls</p>
         </div>
         <div className="flex gap-2">
           <button
-            onClick={handleCreateMock}
-            className="px-4 py-2 bg-brand-primary text-white rounded-lg hover:bg-brand-primary/90 text-sm"
-          >
-            Create Mock Internal Fund
-          </button>
-          <button
             onClick={fetchItems}
-            className="p-2 text-gray-500 hover:text-brand-primary transition-colors border border-gray-200 rounded-lg bg-white"
+            className={adminIconButtonClass()}
           >
             <RefreshCw size={18} className={loading ? 'animate-spin' : ''} />
+          </button>
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-indigo-200 bg-indigo-50/80 p-4">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h2 className="text-sm font-semibold text-indigo-900">Manual Simulation</h2>
+            <p className="text-sm text-indigo-700">
+              Demo-only entry point for creating mock internal fund records.
+            </p>
+          </div>
+          <button onClick={handleCreateMock} className={adminButtonClass('simulationAction')}>
+            Create Mock Internal Fund
           </button>
         </div>
       </div>
@@ -225,9 +177,16 @@ const InternalFundList = () => {
             </div>
             <button
               onClick={fetchItems}
-              className="px-3 py-2 bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200"
+              className={adminButtonClass('listPrimary')}
             >
               Search
+            </button>
+            <button
+              onClick={handleReset}
+              className={adminButtonClass('listSecondary')}
+              disabled={!hasFilters && !error}
+            >
+              Reset
             </button>
           </div>
 
@@ -259,18 +218,25 @@ const InternalFundList = () => {
                 <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Asset / Amount</th>
                 <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">From / To</th>
                 <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider text-right">Actions</th>
+                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider text-right">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-admin-border">
-              {loading && items.length === 0 ? (
+              {error ? (
+                <tr>
+                  <td colSpan={6} className="px-6 py-12 text-center text-rose-600">
+                    {error}
+                  </td>
+                </tr>
+              ) : null}
+              {!error && loading && items.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="px-6 py-12 text-center text-gray-500">
                     <RefreshCw className="animate-spin mx-auto mb-2 text-brand-primary" size={20} />
                     Loading internal funds...
                   </td>
                 </tr>
-              ) : items.length === 0 ? (
+              ) : !error && items.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="px-6 py-12 text-center text-gray-500">No internal funds found</td>
                 </tr>
@@ -279,7 +245,7 @@ const InternalFundList = () => {
                   <tr key={item.id} className="hover:bg-gray-50 transition-colors">
                     <td className="px-6 py-4">
                       <button
-                        className="font-mono text-xs text-brand-primary font-bold hover:text-blue-800"
+                        className={adminButtonClass('rowKeyLink')}
                         onClick={() => navigate(`/dashboard/treasury/internal-funds/${item.id}`)}
                       >
                         {item.internalFundNo}
@@ -289,7 +255,7 @@ const InternalFundList = () => {
                     </td>
                     <td className="px-6 py-4">
                       <button
-                        className="font-mono text-xs text-brand-primary hover:text-blue-800"
+                        className={adminButtonClass('rowSecondaryUtility')}
                         onClick={() =>
                           item.internalTransaction?.id &&
                           navigate(`/exchange/internal-transactions/${item.internalTransaction.id}`)
@@ -326,17 +292,14 @@ const InternalFundList = () => {
                       </span>
                     </td>
                     <td className="px-6 py-4">
-                      <div className="flex justify-end gap-2 flex-wrap">
-                        {getActions(item).map((action) => (
-                          <button
-                            key={`${item.id}-${action.action}`}
-                            disabled={processingId === item.id}
-                            onClick={() => handleStatusAction(item.id, action.action)}
-                            className={`px-2.5 py-1 rounded text-xs font-medium disabled:opacity-50 ${action.color}`}
-                          >
-                            {action.label}
-                          </button>
-                        ))}
+                      <div className="flex justify-end gap-2 flex-wrap items-center">
+                        <button
+                          type="button"
+                          onClick={() => navigate(`/dashboard/treasury/internal-funds/${item.id}`)}
+                          className={adminButtonClass('rowLink')}
+                        >
+                          View
+                        </button>
                       </div>
                     </td>
                   </tr>

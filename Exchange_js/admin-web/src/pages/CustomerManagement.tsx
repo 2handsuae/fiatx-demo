@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { RefreshCw, Search } from 'lucide-react';
+import {
+  adminButtonClass,
+  adminIconButtonClass,
+} from '../components/common/adminButtonStyles';
 import CaseBoundCustomerControlModal, {
   type CustomerControlAction,
 } from '../components/CaseBoundCustomerControlModal';
@@ -157,13 +161,14 @@ const CustomerManagement = () => {
     action: CustomerControlAction;
   } | null>(null);
 
-  const fetchCustomers = useCallback(async () => {
+  const fetchCustomers = useCallback(async (searchOverride?: string) => {
     setLoading(true);
     setMessage('');
 
     try {
+      const nextSearch = searchOverride ?? search;
       const params = new URLSearchParams();
-      if (search) params.append('search', search);
+      if (nextSearch) params.append('search', nextSearch);
 
       const customerRes = await adminFetch(
         `${import.meta.env.VITE_API_URL}/customers?${params.toString()}`,
@@ -255,6 +260,7 @@ const CustomerManagement = () => {
     ).length;
     return { none, pending, review, finalApproval, active, rejected };
   }, [customers]);
+  const hasFilters = useMemo(() => !!search.trim(), [search]);
 
   const openControlModal = (customer: Customer, action: CustomerControlAction) => {
     setControlTarget({ customer, action });
@@ -320,7 +326,8 @@ const CustomerManagement = () => {
           </div>
         <button
           onClick={() => void fetchCustomers()}
-          className="p-2 text-gray-500 hover:text-brand-primary transition-colors"
+          className={adminIconButtonClass()}
+          title="Refresh"
         >
           <RefreshCw size={20} className={loading ? 'animate-spin' : ''} />
         </button>
@@ -333,16 +340,44 @@ const CustomerManagement = () => {
       )}
 
       <div className="bg-white rounded-xl shadow-sm border border-admin-border overflow-hidden">
-        <div className="p-4 border-b border-admin-border flex gap-4">
-          <div className="relative flex-1 max-w-md">
-            <Search className="absolute left-3 top-2.5 text-gray-400 w-5 h-5" />
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search by name, email, or phone..."
-              className="w-full pl-10 pr-4 py-2 bg-admin-content-bg border border-admin-border rounded-lg focus:outline-none focus:border-brand-primary focus:ring-1 focus:ring-brand-primary/20 transition-all duration-200"
-            />
+        <div className="p-4 border-b border-admin-border">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center">
+            <div className="relative flex-1 max-w-md">
+              <Search className="absolute left-3 top-2.5 text-gray-400 w-5 h-5" />
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    void fetchCustomers();
+                  }
+                }}
+                placeholder="Search by name, email, or phone..."
+                className="w-full pl-10 pr-4 py-2 bg-admin-content-bg border border-admin-border rounded-lg focus:outline-none focus:border-brand-primary focus:ring-1 focus:ring-brand-primary/20 transition-all duration-200"
+              />
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                onClick={() => void fetchCustomers()}
+                className={adminButtonClass('listPrimary')}
+              >
+                <Search size={16} />
+                Search
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setSearch('');
+                  void fetchCustomers('');
+                }}
+                disabled={!hasFilters}
+                className={adminButtonClass('listSecondary')}
+              >
+                Reset
+              </button>
+            </div>
           </div>
         </div>
 
@@ -392,16 +427,16 @@ const CustomerManagement = () => {
                   return (
                     <tr key={customer.id} className="hover:bg-gray-50 transition-colors">
                       <td className="px-6 py-4 text-xs font-bold text-brand-primary font-mono">
-                        {customer.customerNo || '-'}
+                        <Link
+                          to={`/dashboard/customer/${customer.id}`}
+                          className={adminButtonClass('rowKeyLink')}
+                        >
+                          {customer.customerNo || '-'}
+                        </Link>
                       </td>
                       <td className="px-6 py-4">
                         <div className="font-medium text-gray-900">
-                          <Link
-                            to={`/dashboard/customer/${customer.id}`}
-                            className="hover:text-brand-primary hover:underline"
-                          >
-                            {getCustomerDisplayName(customer)}
-                          </Link>
+                          <span>{getCustomerDisplayName(customer)}</span>
                         </div>
                         <div className="text-xs text-gray-400 font-mono">{customer.id.slice(0, 8)}...</div>
                       </td>
@@ -520,22 +555,22 @@ const CustomerManagement = () => {
                         <div className="flex flex-col items-start gap-2">
                           <Link
                             to={`/dashboard/customer/${customer.id}`}
-                            className="text-brand-primary hover:underline"
+                            className={adminButtonClass('rowLink')}
                           >
-                            view
+                            View
                           </Link>
                           {canSubmitFinalApproval && (
                             <button
                               type="button"
                               onClick={() => void submitFinalApproval(customer)}
                               disabled={submittingFinalApprovalId === customer.id}
-                              className="text-brand-primary hover:underline disabled:text-gray-400 disabled:no-underline"
+                              className={adminButtonClass('rowSecondaryUtility')}
                             >
                               {submittingFinalApprovalId === customer.id
-                                ? 'submitting final approval...'
+                                ? 'Submitting approval...'
                                 : customer.latestFinalApprovalId
-                                  ? 'resubmit final approval'
-                                  : 'create final approval'}
+                                  ? 'Resubmit approval'
+                                  : 'Create approval'}
                             </button>
                           )}
                           {canOpenFinalApproval && (
@@ -546,42 +581,42 @@ const CustomerManagement = () => {
                                   `/dashboard/control-gates/approvals/${customer.latestFinalApprovalId}`,
                                 )
                               }
-                              className="text-brand-primary hover:underline"
+                              className={adminButtonClass('rowSecondaryUtility')}
                             >
-                              open final approval
+                              Approval
                             </button>
                           )}
                           <button
                             type="button"
                             onClick={() => openControlModal(customer, 'RESTRICT')}
                             disabled={customer.restrictionStatus === 'RESTRICTED'}
-                            className="text-brand-primary hover:underline disabled:text-gray-400 disabled:no-underline"
+                            className={adminButtonClass('rowSecondaryUtility')}
                           >
-                            restrict
+                            Restrict
                           </button>
                           <button
                             type="button"
                             onClick={() => openControlModal(customer, 'UNRESTRICT')}
                             disabled={customer.restrictionStatus !== 'RESTRICTED'}
-                            className="text-brand-primary hover:underline disabled:text-gray-400 disabled:no-underline"
+                            className={adminButtonClass('rowSecondaryUtility')}
                           >
-                            unrestrict
+                            Unrestrict
                           </button>
                           <button
                             type="button"
                             onClick={() => openControlModal(customer, 'FREEZE')}
                             disabled={customer.complianceHoldStatus === 'FROZEN'}
-                            className="text-brand-primary hover:underline disabled:text-gray-400 disabled:no-underline"
+                            className={adminButtonClass('rowSecondaryUtility')}
                           >
-                            freeze
+                            Freeze
                           </button>
                           <button
                             type="button"
                             onClick={() => openControlModal(customer, 'UNFREEZE')}
                             disabled={customer.complianceHoldStatus !== 'FROZEN'}
-                            className="text-brand-primary hover:underline disabled:text-gray-400 disabled:no-underline"
+                            className={adminButtonClass('rowSecondaryUtility')}
                           >
-                            unfreeze
+                            Unfreeze
                           </button>
                         </div>
                       </td>

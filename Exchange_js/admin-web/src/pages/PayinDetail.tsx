@@ -1,11 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
-  ArrowLeft,
   RefreshCw,
-  Copy,
-  Check,
-  ExternalLink,
   Globe,
   FileText,
   Banknote,
@@ -19,7 +15,17 @@ import {
   Waves,
   Landmark,
 } from 'lucide-react';
+import {
+  DetailCard,
+  DetailPageHeader,
+  InfoField,
+} from '../components/compliance/DetailPageComponents';
 import { copyToClipboard } from '../utils/clipboard';
+import {
+  AdminSessionError,
+  adminFetch,
+  getApiErrorMessage,
+} from '../utils/adminFetch';
 import { formatAssetAmount } from '../utils/number-format';
 import { SimulationRail, type SimulationRailItem } from '../components/SimulationRail';
 import { useSimulationMode } from '../utils/simulationMode';
@@ -127,34 +133,27 @@ const PayinDetail = () => {
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const { enabled: simulationModeEnabled } = useSimulationMode();
 
-  useEffect(() => {
-    const fetchPayin = async () => {
-      setLoading(true);
-      try {
-        const token = localStorage.getItem('admin_token');
-        const response = await fetch(`${import.meta.env.VITE_API_URL}/treasury/payins/${id}`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-        
-        if (response.ok) {
-          const data = await response.json();
-          setPayin(data);
-        } else {
-          if (response.status === 401) {
-             localStorage.removeItem('admin_token');
-             navigate('/admin/login');
-          } else {
-             alert('Failed to load payin details');
-             navigate('/dashboard/treasury/payins');
-          }
-        }
-      } catch (error) {
-        console.error('Failed to fetch payin', error);
-      } finally {
-        setLoading(false);
-      }
-    };
+  const fetchPayin = async () => {
+    setLoading(true);
+    try {
+      const response = await adminFetch(`${import.meta.env.VITE_API_URL}/treasury/payins/${id}`);
 
+      if (response.ok) {
+        const data = await response.json();
+        setPayin(data);
+      } else {
+        alert(await getApiErrorMessage(response, 'Failed to load payin details'));
+        navigate('/dashboard/treasury/payins');
+      }
+    } catch (error) {
+      if (error instanceof AdminSessionError) return;
+      console.error('Failed to fetch payin', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
     if (id) fetchPayin();
   }, [id, navigate]);
 
@@ -167,13 +166,8 @@ const PayinDetail = () => {
   const handleMockEvent = async (event: string) => {
     setRailSubmitting(true);
     try {
-      const token = localStorage.getItem('admin_token');
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/admin/treasury/payins/${id}/mock-event`, {
+      const response = await adminFetch(`${import.meta.env.VITE_API_URL}/admin/treasury/payins/${id}/mock-event`, {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
         body: JSON.stringify({ event })
       });
       
@@ -181,10 +175,10 @@ const PayinDetail = () => {
         const updated = await response.json();
         setPayin(prev => prev ? { ...prev, ...updated, customer: prev.customer || updated.customer } : updated);
       } else {
-        const err = await response.json();
-        alert(`Action failed: ${err.message}`);
+        alert(`Action failed: ${await getApiErrorMessage(response, 'Request failed')}`);
       }
     } catch (error) {
+      if (error instanceof AdminSessionError) return;
       console.error('Action failed', error);
     } finally {
       setRailSubmitting(false);
@@ -228,7 +222,7 @@ const PayinDetail = () => {
               : ['CONFIRMED', 'CLEARED', 'FAILED'].includes(status)
                 ? 'completed'
                 : 'readonly',
-          helperText: '监听到法币入账候选',
+          helperText: 'Inbound fiat signal detected.',
         },
         {
           id: 'confirmed',
@@ -244,7 +238,7 @@ const PayinDetail = () => {
                   : 'readonly',
           onClick: status === 'DETECTED' ? () => handleMockEvent('FIAT_CONFIRMED') : undefined,
           disabled: railSubmitting,
-          helperText: '确认到账后进入 CONFIRMED',
+          helperText: 'Move to CONFIRMED after receipt is verified.',
         },
         {
           id: 'cleared',
@@ -252,7 +246,7 @@ const PayinDetail = () => {
           icon: <CheckCircle2 size={14} />,
           state: status === 'CLEARED' ? 'current' : 'readonly',
           tone: 'success',
-          helperText: 'confirmed 侧记账成功后自动出现',
+          helperText: 'Shown automatically after confirmed-side accounting succeeds.',
         },
         {
           id: 'failed',
@@ -262,7 +256,7 @@ const PayinDetail = () => {
           tone: 'danger',
           onClick: status === 'DETECTED' ? () => handleMockEvent('FIAT_FAILED') : undefined,
           disabled: railSubmitting,
-          helperText: '监听失败时进入 FAILED',
+          helperText: 'Move to FAILED when inbound monitoring fails.',
         },
       ];
     }
@@ -278,7 +272,7 @@ const PayinDetail = () => {
             : ['CONFIRMING', 'CONFIRMED', 'CLEARED', 'FAILED'].includes(status)
               ? 'completed'
               : 'readonly',
-        helperText: '监听到链上候选入账',
+        helperText: 'Inbound on-chain signal detected.',
       },
       {
         id: 'confirming',
@@ -294,7 +288,7 @@ const PayinDetail = () => {
                 : 'readonly',
         onClick: status === 'DETECTED' ? () => handleMockEvent('MEMPOOL_SEEN') : undefined,
         disabled: railSubmitting,
-        helperText: '模拟看到 mempool 后推进到 CONFIRMING',
+        helperText: 'Advance to CONFIRMING after the mempool signal is observed.',
       },
       {
         id: 'confirmed',
@@ -311,7 +305,7 @@ const PayinDetail = () => {
         onClick:
           status === 'CONFIRMING' ? () => handleMockEvent('CHAIN_CONFIRMED') : undefined,
         disabled: railSubmitting,
-        helperText: '到达确认条件后进入 CONFIRMED',
+        helperText: 'Advance to CONFIRMED once confirmation conditions are met.',
       },
       {
         id: 'cleared',
@@ -319,7 +313,7 @@ const PayinDetail = () => {
         icon: <CheckCircle2 size={14} />,
         state: status === 'CLEARED' ? 'current' : 'readonly',
         tone: 'success',
-        helperText: '记账成功后自动出现，不提供模拟按钮',
+        helperText: 'Shown automatically after accounting succeeds. No simulation action is exposed.',
       },
       {
         id: 'failed',
@@ -329,7 +323,7 @@ const PayinDetail = () => {
         tone: 'danger',
         onClick: status === 'CONFIRMING' ? () => handleMockEvent('DROPPED') : undefined,
         disabled: railSubmitting,
-        helperText: '当前模型中的掉链分支',
+        helperText: 'Drop / fail branch retained by the current model.',
       },
     ];
   };
@@ -350,46 +344,35 @@ const PayinDetail = () => {
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto pb-12">
-      {/* Header Panel */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-xl border border-admin-border shadow-sm">
-        <div className="flex items-center gap-4">
-          <button 
-            onClick={() => navigate('/dashboard/treasury/payins')}
-            className="p-2 hover:bg-gray-100 rounded-lg border border-admin-border transition-colors text-gray-600"
-          >
-            <ArrowLeft size={20} />
-          </button>
-          <div>
-            <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-bold text-gray-900">Payin Details</h1>
-              {renderStatusBadge(payin.status, payin.displayStatus)}
-            </div>
-            <div className="flex items-center gap-4 mt-1 text-sm text-gray-500 font-mono">
-              <span className="text-brand-primary font-bold">No: {payin.payinNo || '-'}</span>
-              <span>ID: {payin.id}</span>
-              <span className="flex items-center gap-1"><Clock size={14}/> Created: {formatDate(payin.createdAt)}</span>
-            </div>
-          </div>
-        </div>
-      </div>
+      <DetailPageHeader
+        title="Payin Details"
+        subtitle={`No: ${payin.payinNo || '-'} · ID: ${payin.id} · Created: ${formatDate(payin.createdAt)}`}
+        onBack={() => navigate('/dashboard/treasury/payins')}
+        onRefresh={fetchPayin}
+        refreshing={loading}
+        backLabel="Back to Payins"
+      >
+        {renderStatusBadge(payin.status, payin.displayStatus)}
+      </DetailPageHeader>
 
       {simulationModeEnabled ? (
         <SimulationRail
           title="Payin Monitoring Rail"
-          description="Payin 是 inbound monitoring rail。这里模拟链上或银行监听事件，Cleared 只做结果回显。"
+          description="Payin is the inbound monitoring rail. Simulate bank or chain observation events here; Cleared is read-only output."
           items={payinRailItems}
         />
       ) : null}
 
       {showAccountingBlockedHint ? (
         <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-          Payin 目前停在 `CONFIRMED`。这通常表示 confirmed-side accounting 仍未把它自动清到 `Cleared`。
+          Payin is currently stuck at `CONFIRMED`. This usually means confirmed-side accounting has
+          not yet advanced it to `Cleared`.
         </div>
       ) : null}
 
       <div className="flex flex-col gap-6">
         {payin.simulationProfile ? (
-          <DetailCard title="Inbound Signal Profile" icon={<ShieldAlert size={18} />}>
+          <DetailCard title="Inbound Signal Profile" icon={<ShieldAlert size={18} />} columns={2}>
             <InfoField label="Signal No" value={payin.simulationProfile.signalNo} source="main" />
             <InfoField label="Signal Risk Level" value={payin.simulationProfile.riskLevel} highlight source="main" />
             <InfoField label="Signal Risk Reason" value={payin.simulationProfile.riskReason || 'LOW has no reason'} source="main" />
@@ -402,8 +385,8 @@ const PayinDetail = () => {
           </DetailCard>
         ) : null}
 
-        {/* 1. 基础识别 (Basic Identification) */}
-        <DetailCard title="Basic Identification" icon={<FileText size={18}/>}>
+        {/* Basic Identification */}
+        <DetailCard title="Basic Identification" icon={<FileText size={18}/>} columns={2}>
             <InfoField label="Payin ID" value={payin.id} highlight source="main" />
             <InfoField label="Payin No" value={payin.payinNo} highlight source="main" />
             
@@ -424,8 +407,8 @@ const PayinDetail = () => {
             <InfoField label="Type" value={formatTransactionTypeLabel(payin.type)} source="main" />
         </DetailCard>
 
-        {/* 2. 资产与金额 (Assets & Amount) */}
-        <DetailCard title="Assets & Amount" icon={<Banknote size={18}/>}>
+        {/* Assets & Amount */}
+        <DetailCard title="Assets & Amount" icon={<Banknote size={18}/>} columns={2}>
             <InfoField label="Asset ID (Symbol)" value={payin.asset.code} source="main" />
             <InfoField label="Asset Name" value={payin.asset.description || payin.asset.code} source="main" />
             <InfoField label="Amount" value={formatAssetAmount(payin.amount, payin.asset.decimals)} highlight source="main" />
@@ -433,7 +416,7 @@ const PayinDetail = () => {
         </DetailCard>
 
         {/* 3. Settlement Endpoint / Path */}
-        <DetailCard title="Settlement Endpoint / Path" icon={<MapPin size={18}/>}>
+        <DetailCard title="Settlement Endpoint / Path" icon={<MapPin size={18}/>} columns={2}>
             <InfoField label="To Wallet ID" value={payin.toWalletId} source="main" />
             <InfoField label="To Wallet No" value={payin.toWalletNo} source="main" />
             <InfoField label="To Address" value={payin.toAddress || 'N/A'} copyable onCopy={(v) => handleCopy(v, 'toAddress')} isCopied={copiedField === 'toAddress'} source="main" />
@@ -445,7 +428,7 @@ const PayinDetail = () => {
         </DetailCard>
 
         {/* 4. Settlement Evidence */}
-        <DetailCard title="Settlement Evidence" icon={<Globe size={18}/>}>
+        <DetailCard title="Settlement Evidence" icon={<Globe size={18}/>} columns={2}>
             <InfoField 
                 label="Tx Hash" 
                 value={payin.txHash || 'N/A'} 
@@ -461,7 +444,7 @@ const PayinDetail = () => {
         </DetailCard>
 
         {/* 5. Status & Timings */}
-        <DetailCard title="Status & Timings" icon={<Clock size={18}/>}>
+        <DetailCard title="Status & Timings" icon={<Clock size={18}/>} columns={2}>
             <InfoField label="Current Status" value={formatRailStatusLabel(payin.displayStatus || payin.status)} highlight source="main" />
             <InfoField label="Created At" value={formatDate(payin.createdAt)} source="main" />
             <InfoField label="Updated At" value={formatDate(payin.updatedAt)} source="main" />
@@ -477,74 +460,6 @@ const PayinDetail = () => {
       </div>
     </div>
   );
-};
-
-// --- Reused Components ---
-
-const DetailCard = ({ title, icon, children, columns = 2 }: { title: string, icon: React.ReactNode, children: React.ReactNode, columns?: number }) => (
-  <div className="bg-white rounded-xl shadow-sm border border-admin-border overflow-hidden transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md">
-     <div className="px-6 py-4 border-b border-admin-border flex items-center gap-3 bg-gray-50/50">
-        <div className="p-1.5 bg-white rounded-md text-gray-500 border border-admin-border shadow-sm">
-           {icon}
-        </div>
-        <h3 className="text-sm font-bold text-gray-900 uppercase tracking-tight">{title}</h3>
-     </div>
-     <div className="p-6">
-        <div className={`grid grid-cols-1 ${columns === 2 ? 'sm:grid-cols-2' : ''} gap-x-8 gap-y-6`}>
-           {children}
-        </div>
-     </div>
-  </div>
-);
-
-const InfoField = ({ 
-  label, 
-  value, 
-  highlight = false, 
-  icon, 
-  source = 'main',
-  copyable = false,
-  isCopied = false,
-  onCopy,
-  link
-}: { 
-  label: string, 
-  value: string | null | undefined, 
-  highlight?: boolean, 
-  icon?: React.ReactNode,
-  source?: 'main' | 'kyc' | 'edd',
-  copyable?: boolean,
-  isCopied?: boolean,
-  onCopy?: (val: string) => void,
-  link?: string
-}) => {
-    const placeholder = source === 'kyc' ? 'KYC no data' : source === 'edd' ? 'EDD no data' : 'N/A';
-    const displayValue = value || placeholder;
-    
-    return (
-        <div className="flex flex-col gap-1.5">
-            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">{label}</span>
-            <div className={`text-sm font-medium break-all flex items-center gap-2 ${highlight ? 'text-brand-primary' : 'text-gray-900'}`}>
-                {icon && <span className="text-gray-400">{icon}</span>}
-                {link ? (
-                    <a href={link} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline flex items-center gap-1">
-                        {displayValue} <ExternalLink size={12}/>
-                    </a>
-                ) : (
-                    <span>{displayValue}</span>
-                )}
-                {copyable && value && (
-                    <button 
-                        onClick={() => onCopy && onCopy(value)}
-                        className="text-gray-400 hover:text-brand-primary p-1 transition-colors"
-                        title="Copy to clipboard"
-                    >
-                        {isCopied ? <Check size={14} className="text-green-500" /> : <Copy size={14} />}
-                    </button>
-                )}
-            </div>
-        </div>
-    );
 };
 
 const formatDate = (dateString: string | null | undefined) => {

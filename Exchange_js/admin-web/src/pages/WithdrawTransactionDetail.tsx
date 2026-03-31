@@ -1,9 +1,14 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { 
-  ArrowLeft, RefreshCw, Copy, Check, ExternalLink, 
+  RefreshCw, ExternalLink, 
   FileText, User, CreditCard, Activity, Clock, Server, Shield, Scale, MapPin
 } from 'lucide-react';
+import {
+  DetailCard,
+  DetailPageHeader,
+  InfoField,
+} from '../components/compliance/DetailPageComponents';
 import { copyToClipboard } from '../utils/clipboard';
 import { formatAssetAmount } from '../utils/number-format';
 import {
@@ -13,6 +18,7 @@ import {
   formatStatusLabel,
   formatTransactionTypeLabel,
 } from '../utils/transactionRootDisplay';
+import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/adminFetch';
 
 interface WithdrawTransactionDetail {
   id: string;
@@ -160,35 +166,33 @@ const WithdrawTransactionDetail = () => {
   const [loading, setLoading] = useState(true);
   const [copiedField, setCopiedField] = useState<string | null>(null);
 
-  useEffect(() => {
-    const fetchData = async () => {
-      setLoading(true);
-      try {
-        const token = localStorage.getItem('admin_token');
-        const response = await fetch(`${import.meta.env.VITE_API_URL}/withdraw-transactions/${id}`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-        
-        if (response.ok) {
-          const result = await response.json();
-          setData(result);
-        } else {
-           if (response.status === 401) {
-             localStorage.removeItem('admin_token');
-             navigate('/admin/login');
-           } else {
-             alert('Failed to load detail');
-             navigate('/exchange/withdraw-transactions');
-           }
-        }
-      } catch (error) {
-        console.error('Failed to fetch detail', error);
-      } finally {
-        setLoading(false);
-      }
-    };
+  const fetchDetail = async () => {
+    if (!id) return;
+    setLoading(true);
+    try {
+      const response = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/withdraw-transactions/${id}`,
+      );
 
-    if (id) fetchData();
+      if (response.ok) {
+        const result = await response.json();
+        setData(result);
+      } else {
+        alert(await getApiErrorMessage(response, 'Failed to load detail'));
+        navigate('/exchange/withdraw-transactions');
+      }
+    } catch (error: unknown) {
+      if (error instanceof AdminSessionError) {
+        return;
+      }
+      console.error('Failed to fetch detail', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void fetchDetail();
   }, [id, navigate]);
 
   const handleCopy = (text: string, field: string) => {
@@ -258,30 +262,18 @@ const WithdrawTransactionDetail = () => {
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto pb-12">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-xl border border-admin-border shadow-sm">
-        <div className="flex items-center gap-4">
-          <button 
-            onClick={() => navigate('/exchange/withdraw-transactions')}
-            className="p-2 hover:bg-gray-100 rounded-lg border border-admin-border transition-colors text-gray-600"
-          >
-            <ArrowLeft size={20} />
-          </button>
-          <div>
-            <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-bold text-gray-900">Withdraw Details</h1>
-              {renderStatusBadge(data.status)}
-            </div>
-            <div className="flex items-center gap-4 mt-1 text-sm text-gray-500 font-mono">
-              <span className="text-brand-primary font-bold">No: {data.withdrawNo || '-'}</span>
-              <span>ID: {data.id}</span>
-              <span className="flex items-center gap-1"><Clock size={14}/> Created: {new Date(data.createdAt).toLocaleString()}</span>
-            </div>
-          </div>
-        </div>
-        <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
-          Withdraw progression is now driven by risk execution and linked payout simulation. No direct action buttons are exposed on the withdraw surface.
-        </div>
+      <DetailPageHeader
+        title="Withdraw Details"
+        subtitle={`${data.withdrawNo || data.id} · ${new Date(data.createdAt).toLocaleString()}`}
+        onBack={() => navigate('/exchange/withdraw-transactions')}
+        onRefresh={() => void fetchDetail()}
+        backLabel="Back to Withdraws"
+      >
+        {renderStatusBadge(data.status)}
+      </DetailPageHeader>
+
+      <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+        Withdraw progression is now driven by risk execution and linked payout simulation. No direct action buttons are exposed on the withdraw surface.
       </div>
 
       {data.status === 'PAYOUT_PENDING' ? (
@@ -320,7 +312,7 @@ const WithdrawTransactionDetail = () => {
 
       <div className="flex flex-col gap-6">
         {/* 1. Basic Identification */}
-        <DetailCard title="Basic Identification" icon={<FileText size={18} />}>
+        <DetailCard title="Basic Identification" icon={<FileText size={18} />} columns={2}>
             <InfoField label="ID" value={data.id} source="main" />
             <InfoField label="Withdraw No" value={data.withdrawNo} highlight source="main" />
             <InfoField label="Type" value={formatTransactionTypeLabel(data.type)} source="main" />
@@ -330,7 +322,7 @@ const WithdrawTransactionDetail = () => {
         </DetailCard>
 
         {/* 2. Assets & Amount */}
-        <DetailCard title="Assets & Amount" icon={<CreditCard size={18} />}>
+        <DetailCard title="Assets & Amount" icon={<CreditCard size={18} />} columns={2}>
             <InfoField label="Asset ID" value={data.assetId} source="main" />
             <InfoField label="Asset Code" value={data.asset.code} highlight source="main" />
             <InfoField label="Asset Network" value={data.asset.network} source="main" />
@@ -340,7 +332,7 @@ const WithdrawTransactionDetail = () => {
         </DetailCard>
 
         {/* 3. Endpoint / Destination */}
-        <DetailCard title="Endpoint / Destination" icon={<MapPin size={18} />}>
+        <DetailCard title="Endpoint / Destination" icon={<MapPin size={18} />} columns={2}>
             <InfoField label="To Wallet ID" value={data.toWalletId} source="main" />
             <InfoField label="To Wallet No" value={data.toWalletNo} source="main" />
             <InfoField 
@@ -348,7 +340,7 @@ const WithdrawTransactionDetail = () => {
                 value={data.toAddress || 'N/A'} 
                 copyable 
                 onCopy={(v) => handleCopy(v, 'toAddress')} 
-                isCopied={copiedField === 'toAddress'} 
+                copied={copiedField === 'toAddress'} 
                 source="main" 
             />
             <InfoField 
@@ -356,13 +348,13 @@ const WithdrawTransactionDetail = () => {
                 value={data.toIban || 'N/A'} 
                 copyable 
                 onCopy={(v) => handleCopy(v, 'toIban')} 
-                isCopied={copiedField === 'toIban'} 
+                copied={copiedField === 'toIban'} 
                 source="main" 
             />
         </DetailCard>
 
         {/* 4. Source / Origin */}
-        <DetailCard title="Source / Origin" icon={<Server size={18} />}>
+        <DetailCard title="Source / Origin" icon={<Server size={18} />} columns={2}>
             <InfoField label="From Wallet ID" value={data.fromWalletId} source="main" />
             <InfoField label="From Wallet No" value={data.fromWalletNo} source="main" />
             <InfoField 
@@ -370,7 +362,7 @@ const WithdrawTransactionDetail = () => {
                 value={data.fromAddress || 'N/A'} 
                 copyable 
                 onCopy={(v) => handleCopy(v, 'fromAddress')} 
-                isCopied={copiedField === 'fromAddress'} 
+                copied={copiedField === 'fromAddress'} 
                 source="main" 
             />
             <InfoField 
@@ -378,29 +370,29 @@ const WithdrawTransactionDetail = () => {
                 value={data.fromIban || 'N/A'} 
                 copyable 
                 onCopy={(v) => handleCopy(v, 'fromIban')} 
-                isCopied={copiedField === 'fromIban'} 
+                copied={copiedField === 'fromIban'} 
                 source="main" 
             />
         </DetailCard>
 
         {/* 5. External Transaction Info */}
-        <DetailCard title="External Transaction Info" icon={<Activity size={18} />}>
+        <DetailCard title="External Transaction Info" icon={<Activity size={18} />} columns={2}>
             <InfoField 
                 label="Tx Hash" 
                 value={data.txHash || 'N/A'} 
                 copyable 
                 onCopy={(v) => handleCopy(v, 'txHash')} 
-                isCopied={copiedField === 'txHash'}
+                copied={copiedField === 'txHash'}
                 link={data.txHash ? `https://etherscan.io/tx/${data.txHash}` : undefined}
                 source="main" 
             />
             <InfoField label="Confirmations" value={data.confirmations?.toString() || '0'} source="main" />
-            <InfoField label="Reference No" value={data.referenceNo || 'N/A'} copyable onCopy={(v) => handleCopy(v, 'refNo')} isCopied={copiedField === 'refNo'} source="main" />
+            <InfoField label="Reference No" value={data.referenceNo || 'N/A'} copyable onCopy={(v) => handleCopy(v, 'refNo')} copied={copiedField === 'refNo'} source="main" />
             <InfoField label="Provider Txn ID" value={data.providerTxnId} source="main" />
         </DetailCard>
 
         {/* 6. Response Container (Pre-KYT) */}
-        <DetailCard title="Response Container (Pre-KYT)" icon={<Shield size={18} />}>
+        <DetailCard title="Response Container (Pre-KYT)" icon={<Shield size={18} />} columns={2}>
             <InfoField label="Lifecycle" value={preKytLifecycleDisplay} highlight source="main" />
             <InfoField label="Pre-KYT ID" value={data.preKytId} source="main" />
             <InfoField label="Risk Score" value={data.preKytRiskScore?.toString()} source="main" />
@@ -417,7 +409,7 @@ const WithdrawTransactionDetail = () => {
         </DetailCard>
 
         {/* 7. Response Container (KYT) */}
-        <DetailCard title="Response Container (KYT)" icon={<Shield size={18} />}>
+        <DetailCard title="Response Container (KYT)" icon={<Shield size={18} />} columns={2}>
             <InfoField label="Lifecycle" value={kytLifecycleDisplay} highlight source="main" />
             <InfoField label="Screening ID" value={data.kytScreeningId} source="main" />
             <InfoField label="Risk Score" value={data.kytRiskScore?.toString()} source="main" />
@@ -431,7 +423,7 @@ const WithdrawTransactionDetail = () => {
         </DetailCard>
 
         {/* 8. Response Container (Travel Rule) */}
-        <DetailCard title="Response Container (Travel Rule)" icon={<Scale size={18} />}>
+        <DetailCard title="Response Container (Travel Rule)" icon={<Scale size={18} />} columns={2}>
             <InfoField label="Travel Rule Required" value={data.travelRuleRequired ? 'Yes' : 'No'} source="main" />
             <InfoField label="Lifecycle" value={travelRuleLifecycleDisplay} highlight source="main" />
             <InfoField label="Counterparty VASP" value={data.counterpartyVasp} source="main" />
@@ -446,7 +438,7 @@ const WithdrawTransactionDetail = () => {
         </DetailCard>
 
         {/* 9. Derived Compliance & Timings */}
-        <DetailCard title="Derived Compliance & Timings" icon={<Clock size={18} />}>
+        <DetailCard title="Derived Compliance & Timings" icon={<Clock size={18} />} columns={2}>
              <InfoField label="Current Status" value={formatStatusLabel(data.status)} highlight source="main" />
              <InfoField label="Derived Compliance" value={data.derivedComplianceStatus ? formatDerivedComplianceStatusLabel(data.derivedComplianceStatus) : null} highlight source="main" />
              <InfoField label="Created At" value={new Date(data.createdAt).toLocaleString()} source="main" />
@@ -464,7 +456,7 @@ const WithdrawTransactionDetail = () => {
              ) : null}
         </DetailCard>
 
-        <DetailCard title="Linked Rail" icon={<CreditCard size={18} />}>
+        <DetailCard title="Linked Rail" icon={<CreditCard size={18} />} columns={2}>
              <InfoField label="Payout ID" value={data.payoutId} source="main" />
              <InfoField label="Payout No" value={payoutNo} source="main" />
              <InfoField label="Payout Status" value={data.payout?.status ? formatStatusLabel(data.payout.status) : null} source="main" />
@@ -494,74 +486,6 @@ const WithdrawTransactionDetail = () => {
       </div>
     </div>
   );
-};
-
-// --- Reusable Components (Same as PayinDetail) ---
-
-const DetailCard = ({ title, icon, children, columns = 2 }: { title: string, icon: React.ReactNode, children: React.ReactNode, columns?: number }) => (
-  <div className="bg-white rounded-xl shadow-sm border border-admin-border overflow-hidden transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md">
-     <div className="px-6 py-4 border-b border-admin-border flex items-center gap-3 bg-gray-50/50">
-        <div className="p-1.5 bg-white rounded-md text-gray-500 border border-admin-border shadow-sm">
-           {icon}
-        </div>
-        <h3 className="text-sm font-bold text-gray-900 uppercase tracking-tight">{title}</h3>
-     </div>
-     <div className="p-6">
-        <div className={`grid grid-cols-1 ${columns === 2 ? 'sm:grid-cols-2' : ''} gap-x-8 gap-y-6`}>
-           {children}
-        </div>
-     </div>
-  </div>
-);
-
-const InfoField = ({ 
-  label, 
-  value, 
-  highlight = false, 
-  icon, 
-  source = 'main',
-  copyable = false,
-  isCopied = false,
-  onCopy,
-  link
-}: { 
-  label: string, 
-  value: string | null | undefined, 
-  highlight?: boolean, 
-  icon?: React.ReactNode,
-  source?: 'main' | 'kyc' | 'edd',
-  copyable?: boolean,
-  isCopied?: boolean,
-  onCopy?: (val: string) => void,
-  link?: string
-}) => {
-    const placeholder = source === 'kyc' ? 'KYC no data' : source === 'edd' ? 'EDD no data' : 'N/A';
-    const displayValue = value || placeholder;
-    
-    return (
-        <div className="flex flex-col gap-1.5">
-            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">{label}</span>
-            <div className={`text-sm font-medium break-all flex items-center gap-2 ${highlight ? 'text-brand-primary' : 'text-gray-900'}`}>
-                {icon && <span className="text-gray-400">{icon}</span>}
-                {link ? (
-                    <a href={link} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline flex items-center gap-1">
-                        {displayValue} <ExternalLink size={12}/>
-                    </a>
-                ) : (
-                    <span>{displayValue}</span>
-                )}
-                {copyable && value && (
-                    <button 
-                        onClick={() => onCopy && onCopy(value)}
-                        className="text-gray-400 hover:text-brand-primary p-1 transition-colors"
-                        title="Copy to clipboard"
-                    >
-                        {isCopied ? <Check size={14} className="text-green-500" /> : <Copy size={14} />}
-                    </button>
-                )}
-            </div>
-        </div>
-    );
 };
 
 // --- Timeline Component ---

@@ -1,10 +1,12 @@
-import { useEffect, useState } from 'react';
-import { Search, RefreshCw, Plus, Edit2, Power, List, ChevronLeft, ChevronRight } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { Search, RefreshCw, Plus, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import {
   BUSINESS_CONFIG_RELEASES_PATH,
   showBusinessConfigReadOnlyAlert,
 } from '../utils/businessConfigReadOnly';
+import { adminFetch, getApiErrorMessage } from '../utils/adminFetch';
+import { adminButtonClass, adminIconButtonClass } from '../components/common/adminButtonStyles';
 
 interface TemplateItem {
   id: string;
@@ -29,29 +31,30 @@ const ClearingHeaderTemplateList = () => {
   const [page, setPage] = useState(1);
   const [pageSize] = useState(10);
   const [total, setTotal] = useState(0);
+  const [error, setError] = useState('');
+
+  const hasFilters = useMemo(() => Boolean(search.trim() || status), [search, status]);
 
   const fetchItems = async () => {
     setLoading(true);
+    setError('');
     try {
-      const token = localStorage.getItem('admin_token');
       const params = new URLSearchParams();
       params.append('skip', ((page - 1) * pageSize).toString());
       params.append('take', pageSize.toString());
       if (search) params.append('code', search);
       if (status) params.append('status', status);
       
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/clearing-templates?${params.toString()}`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
+      const response = await adminFetch(`${import.meta.env.VITE_API_URL}/clearing-templates?${params.toString()}`);
       if (response.ok) {
         const result = await response.json();
         setItems(result.items || []);
         setTotal(result.total || 0);
+        return;
       }
     } catch (error) {
       console.error('Failed to fetch templates', error);
+      setError('Failed to fetch clearing templates.');
     } finally {
       setLoading(false);
     }
@@ -66,10 +69,32 @@ const ClearingHeaderTemplateList = () => {
       fetchItems();
   };
 
-  const handleToggleStatus = async (id: string, currentEnabled: boolean) => {
-      void id;
-      void currentEnabled;
-      showBusinessConfigReadOnlyAlert('Clearing templates');
+  const handleReset = () => {
+    setSearch('');
+    setStatus('');
+    setPage(1);
+    setItems([]);
+    setError('');
+    setLoading(true);
+    void (async () => {
+      try {
+        const response = await adminFetch(
+          `${import.meta.env.VITE_API_URL}/clearing-templates?skip=0&take=${pageSize}`,
+        );
+        if (response.ok) {
+          const result = await response.json();
+          setItems(result.items || []);
+          setTotal(result.total || 0);
+          return;
+        }
+        setError(await getApiErrorMessage(response, 'Failed to fetch clearing templates.'));
+      } catch (resetError) {
+        console.error('Failed to reset clearing template filters', resetError);
+        setError('Failed to fetch clearing templates.');
+      } finally {
+        setLoading(false);
+      }
+    })();
   };
 
   const totalPages = Math.ceil(total / pageSize);
@@ -83,7 +108,7 @@ const ClearingHeaderTemplateList = () => {
         </div>
         <button 
             onClick={() => navigate(BUSINESS_CONFIG_RELEASES_PATH)}
-            className="flex items-center gap-2 px-4 py-2 bg-white text-gray-700 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+            className={adminButtonClass('listSecondary')}
         >
             <Plus size={20} />
             <span>Open Release Center</span>
@@ -117,11 +142,18 @@ const ClearingHeaderTemplateList = () => {
                     <option value="ACTIVE">Active</option>
                     <option value="INACTIVE">Inactive</option>
                 </select>
-                <button onClick={handleSearch} className="px-6 py-2 bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200 transition-colors">
+                <button onClick={handleSearch} className={adminButtonClass('listPrimary')}>
                     Search
                 </button>
+                <button
+                  onClick={handleReset}
+                  className={adminButtonClass('listSecondary')}
+                  disabled={!hasFilters && !error}
+                >
+                  Reset
+                </button>
             </div>
-            <button onClick={fetchItems} className="p-2 text-gray-500 hover:text-brand-primary transition-colors border border-gray-200 rounded-lg bg-white self-start md:self-auto">
+            <button onClick={fetchItems} className={adminIconButtonClass('self-start md:self-auto')}>
                 <RefreshCw size={20} className={loading ? 'animate-spin' : ''} />
             </button>
         </div>
@@ -135,11 +167,18 @@ const ClearingHeaderTemplateList = () => {
                 <th className="px-4 py-3 font-medium text-gray-500 uppercase tracking-wider">Source Type</th>
                 <th className="px-4 py-3 font-medium text-gray-500 uppercase tracking-wider">Status</th>
                 <th className="px-4 py-3 font-medium text-gray-500 uppercase tracking-wider">Created At</th>
-                <th className="px-4 py-3 font-medium text-gray-500 uppercase tracking-wider text-right">Actions</th>
+                <th className="px-4 py-3 font-medium text-gray-500 uppercase tracking-wider text-right">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-admin-border">
-              {loading && items.length === 0 ? (
+              {error ? (
+                <tr>
+                  <td colSpan={6} className="px-4 py-12 text-center text-rose-600">
+                    {error}
+                  </td>
+                </tr>
+              ) : null}
+              {!error && loading && items.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="px-4 py-12 text-center text-gray-500">
                     <div className="flex flex-col items-center justify-center">
@@ -148,7 +187,7 @@ const ClearingHeaderTemplateList = () => {
                     </div>
                   </td>
                 </tr>
-              ) : items.length === 0 ? (
+              ) : !error && items.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="px-4 py-12 text-center text-gray-500">
                     No templates found
@@ -176,27 +215,18 @@ const ClearingHeaderTemplateList = () => {
                         {new Date(item.updatedAt).toLocaleString()}
                     </td>
                     <td className="px-4 py-4 text-right">
-                      <div className="flex justify-end gap-2 items-center">
+                      <div className="flex justify-end gap-3 items-center">
                         <button 
-                            className="p-1.5 text-gray-500 hover:text-brand-primary rounded hover:bg-gray-100 transition-colors"
+                            className={adminButtonClass('rowSecondaryUtility')}
                             onClick={() => navigate(`/dashboard/system/clearing-line-templates?templateId=${item.id}`)}
-                            title="Manage Lines"
                         >
-                            <List size={16} />
+                            Lines
                         </button>
                         <button 
-                            className="p-1.5 text-gray-300 rounded transition-colors cursor-not-allowed"
+                            className={adminButtonClass('rowSecondaryUtility')}
                             onClick={() => showBusinessConfigReadOnlyAlert('Clearing templates')}
-                            title="Read-only"
                         >
-                            <Edit2 size={16} />
-                        </button>
-                        <button 
-                            className="p-1.5 rounded text-gray-300 transition-colors cursor-not-allowed"
-                            onClick={() => handleToggleStatus(item.id, item.isEnabled)}
-                            title="Read-only"
-                        >
-                            <Power size={16} />
+                            Read-only
                         </button>
                       </div>
                     </td>

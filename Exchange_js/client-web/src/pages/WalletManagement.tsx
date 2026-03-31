@@ -1,6 +1,11 @@
 import { useState, useEffect } from 'react';
 import { Plus, Wallet, Building2, RefreshCw } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import {
+  CustomerSessionError,
+  customerFetch,
+  getCustomerApiErrorMessage,
+} from '../utils/customerFetch';
 
 interface WalletItem {
   id: string;
@@ -52,16 +57,15 @@ const WalletManagement = () => {
   const fetchWallets = async () => {
     setLoading(true);
     try {
-      const token = localStorage.getItem('customer_token');
       const params = new URLSearchParams({
         ownerType: 'CUSTOMER',
         ownerId: user?.id || '',
         direction: 'OUTBOUND',
         walletRole: 'GENERAL',
       });
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/wallets?${params.toString()}`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
+      const response = await customerFetch(
+        `${import.meta.env.VITE_API_URL}/wallets?${params.toString()}`,
+      );
       
       if (response.ok) {
         const data = await response.json();
@@ -71,6 +75,7 @@ const WalletManagement = () => {
         setWallets(outboundWallets);
       }
     } catch (error) {
+      if (error instanceof CustomerSessionError) return;
       console.error('Failed to fetch wallets', error);
     } finally {
       setLoading(false);
@@ -79,15 +84,13 @@ const WalletManagement = () => {
 
   const fetchAssets = async () => {
     try {
-      const token = localStorage.getItem('customer_token');
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/assets?status=ACTIVE`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
+      const response = await customerFetch(`${import.meta.env.VITE_API_URL}/assets?status=ACTIVE`);
       if (response.ok) {
         const data = await response.json();
         setAssets(data.items || []);
       }
     } catch (error) {
+      if (error instanceof CustomerSessionError) return;
       console.error('Failed to fetch assets', error);
     }
   };
@@ -104,7 +107,6 @@ const WalletManagement = () => {
     setCreating(true);
 
     try {
-      const token = localStorage.getItem('customer_token');
       const payload = {
         ownerType: 'CUSTOMER',
         ownerId: user?.id,
@@ -125,12 +127,8 @@ const WalletManagement = () => {
         })
       };
 
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/wallets`, {
+      const response = await customerFetch(`${import.meta.env.VITE_API_URL}/wallets`, {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
         body: JSON.stringify(payload)
       });
 
@@ -142,10 +140,10 @@ const WalletManagement = () => {
         });
         fetchWallets();
       } else {
-        const err = await response.json();
-        alert(err.message || 'Failed to create wallet');
+        alert(await getCustomerApiErrorMessage(response, 'Failed to create wallet'));
       }
     } catch (error) {
+      if (error instanceof CustomerSessionError) return;
       console.error('Failed to create wallet', error);
       alert('An unexpected error occurred');
     } finally {

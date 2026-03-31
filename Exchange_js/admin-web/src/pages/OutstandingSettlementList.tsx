@@ -1,6 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Eye, Plus, RefreshCw, Search, X } from 'lucide-react';
+import { Plus, RefreshCw, X } from 'lucide-react';
+import { adminFetch, getApiErrorMessage } from '../utils/adminFetch';
+import { adminButtonClass, adminIconButtonClass } from '../components/common/adminButtonStyles';
 
 type OutstandingSettlementListItem = {
   id: string;
@@ -36,38 +38,35 @@ const OutstandingSettlementList = () => {
   const [rangeStartAt, setRangeStartAt] = useState('');
   const [createRequestId, setCreateRequestId] = useState('');
   const [note, setNote] = useState('');
+  const [error, setError] = useState('');
+
+  const hasFilters = useMemo(
+    () => Boolean(status || settlementNo.trim() || requestId.trim()),
+    [requestId, settlementNo, status],
+  );
 
   const fetchItems = async () => {
     setLoading(true);
+    setError('');
     try {
-      const token = localStorage.getItem('admin_token');
       const params = new URLSearchParams();
       if (status) params.set('status', status);
       if (settlementNo) params.set('settlementNo', settlementNo);
       if (requestId) params.set('requestId', requestId);
 
-      const response = await fetch(
+      const response = await adminFetch(
         `${import.meta.env.VITE_API_URL}/admin/reconciliation/outstanding-settlements?${params.toString()}`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        },
       );
 
       if (response.ok) {
         const result = await response.json();
         setItems(result.items || []);
-      } else if (response.status === 401) {
-        localStorage.removeItem('admin_token');
-        navigate('/admin/login');
-      } else {
-        const err = await response.json();
-        alert(err.message || 'Failed to load outstanding settlements');
+        return;
       }
+      setError(await getApiErrorMessage(response, 'Failed to load outstanding settlements.'));
     } catch (error) {
       console.error('Failed to fetch outstanding settlements', error);
-      alert('Failed to load outstanding settlements');
+      setError('Failed to load outstanding settlements.');
     } finally {
       setLoading(false);
     }
@@ -75,12 +74,43 @@ const OutstandingSettlementList = () => {
 
   useEffect(() => {
     fetchItems();
-  }, [status]);
+  }, []);
+
+  const handleSearch = () => {
+    fetchItems();
+  };
+
+  const handleReset = () => {
+    setStatus('');
+    setSettlementNo('');
+    setRequestId('');
+    setItems([]);
+    setError('');
+    setLoading(true);
+    void (async () => {
+      try {
+        const response = await adminFetch(
+          `${import.meta.env.VITE_API_URL}/admin/reconciliation/outstanding-settlements`,
+        );
+        if (response.ok) {
+          const result = await response.json();
+          setItems(result.items || []);
+          return;
+        }
+        setError(await getApiErrorMessage(response, 'Failed to load outstanding settlements.'));
+      } catch (resetError) {
+        console.error('Failed to reset outstanding settlement filters', resetError);
+        setError('Failed to load outstanding settlements.');
+      } finally {
+        setLoading(false);
+      }
+    })();
+  };
 
   const handleCreate = async () => {
     setCreateSubmitting(true);
+    setError('');
     try {
-      const token = localStorage.getItem('admin_token');
       const body: Record<string, string> = {
         sourceType: 'SWAP',
       };
@@ -94,12 +124,11 @@ const OutstandingSettlementList = () => {
         body.note = note.trim();
       }
 
-      const response = await fetch(
+      const response = await adminFetch(
         `${import.meta.env.VITE_API_URL}/admin/reconciliation/outstanding-settlements`,
         {
           method: 'POST',
           headers: {
-            Authorization: `Bearer ${token}`,
             'Content-Type': 'application/json',
           },
           body: JSON.stringify(body),
@@ -107,8 +136,7 @@ const OutstandingSettlementList = () => {
       );
 
       if (!response.ok) {
-        const err = await response.json();
-        alert(err.message || 'Create failed');
+        setError(await getApiErrorMessage(response, 'Create failed.'));
         return;
       }
 
@@ -124,7 +152,7 @@ const OutstandingSettlementList = () => {
       }
     } catch (error) {
       console.error('Failed to create outstanding settlement', error);
-      alert('Create failed');
+      setError('Create failed.');
     } finally {
       setCreateSubmitting(false);
     }
@@ -143,14 +171,14 @@ const OutstandingSettlementList = () => {
           <div className="flex items-center gap-2">
             <button
               onClick={() => setShowCreateModal(true)}
-              className="px-4 py-2 bg-brand-primary text-white rounded-lg hover:bg-brand-primary/90 text-sm flex items-center gap-2"
+              className={adminButtonClass('listPrimary')}
             >
               <Plus size={16} />
               Create Settlement
             </button>
             <button
               onClick={fetchItems}
-              className="p-2 text-gray-500 hover:text-brand-primary transition-colors border border-gray-200 rounded-lg bg-white"
+              className={adminIconButtonClass()}
             >
               <RefreshCw size={20} className={loading ? 'animate-spin' : ''} />
             </button>
@@ -180,15 +208,21 @@ const OutstandingSettlementList = () => {
               <input
                 value={requestId}
                 onChange={(e) => setRequestId(e.target.value)}
-                placeholder="Request Id"
+                placeholder="Request ID"
                 className="px-3 py-2 border border-admin-border rounded-lg text-sm focus:outline-none focus:border-brand-primary"
               />
               <button
-                onClick={fetchItems}
-                className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 text-sm font-medium transition-colors"
+                onClick={handleSearch}
+                className={adminButtonClass('listPrimary')}
               >
-                <Search size={16} />
                 Search
+              </button>
+              <button
+                onClick={handleReset}
+                className={adminButtonClass('listSecondary')}
+                disabled={!hasFilters && !error}
+              >
+                Reset
               </button>
             </div>
           </div>
@@ -202,18 +236,25 @@ const OutstandingSettlementList = () => {
                   <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Progress</th>
                   <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Source / Cutoff</th>
                   <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Created At</th>
-                  <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider text-right">Actions</th>
+                  <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider text-right">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-admin-border">
-                {loading && items.length === 0 ? (
+                {error ? (
+                  <tr>
+                    <td colSpan={6} className="px-6 py-12 text-center text-rose-600">
+                      {error}
+                    </td>
+                  </tr>
+                ) : null}
+                {!error && loading && items.length === 0 ? (
                   <tr>
                     <td colSpan={6} className="px-6 py-12 text-center text-gray-500">
                       <RefreshCw className="animate-spin mx-auto mb-2 text-brand-primary" size={22} />
                       Loading outstanding settlements...
                     </td>
                   </tr>
-                ) : items.length === 0 ? (
+                ) : !error && items.length === 0 ? (
                   <tr>
                     <td colSpan={6} className="px-6 py-12 text-center text-gray-500">
                       No outstanding settlements found
@@ -223,7 +264,15 @@ const OutstandingSettlementList = () => {
                   items.map((item) => (
                     <tr key={item.id} className="hover:bg-gray-50 transition-colors">
                       <td className="px-6 py-4">
-                        <div className="font-mono text-xs text-gray-800">{item.settlementNo}</div>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            navigate(`/dashboard/reconciliation/outstanding-settlements/${item.id}`)
+                          }
+                          className={adminButtonClass('rowKeyLink')}
+                        >
+                          {item.settlementNo}
+                        </button>
                         <div className="text-xs text-gray-500 mt-1">{item.requestId || '-'}</div>
                       </td>
                       <td className="px-6 py-4">
@@ -254,11 +303,11 @@ const OutstandingSettlementList = () => {
                       </td>
                       <td className="px-6 py-4 text-right">
                         <button
+                          type="button"
                           onClick={() => navigate(`/dashboard/reconciliation/outstanding-settlements/${item.id}`)}
-                          className="p-1.5 text-blue-600 rounded hover:bg-blue-50 transition-colors"
-                          title="View Details"
+                          className={adminButtonClass('rowLink')}
                         >
-                          <Eye size={18} />
+                          View
                         </button>
                       </td>
                     </tr>
@@ -328,7 +377,7 @@ const OutstandingSettlementList = () => {
             <div className="px-5 py-4 border-t border-admin-border flex justify-end gap-2">
               <button
                 onClick={() => setShowCreateModal(false)}
-                className="px-4 py-2 text-sm rounded-lg border border-admin-border text-gray-600 hover:bg-gray-50"
+                className={adminButtonClass('modalCancel')}
                 disabled={createSubmitting}
               >
                 Cancel
@@ -336,7 +385,7 @@ const OutstandingSettlementList = () => {
               <button
                 onClick={handleCreate}
                 disabled={createSubmitting}
-                className="px-4 py-2 text-sm rounded-lg bg-brand-primary text-white hover:bg-brand-primary/90 disabled:opacity-60"
+                className={adminButtonClass('modalConfirm')}
               >
                 {createSubmitting ? 'Creating...' : 'Create'}
               </button>

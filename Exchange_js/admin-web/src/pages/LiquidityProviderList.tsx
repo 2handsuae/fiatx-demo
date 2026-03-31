@@ -1,6 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, RefreshCw, Plus, Edit, CheckCircle, XCircle } from 'lucide-react';
+import { Search, RefreshCw, Plus } from 'lucide-react';
+import { adminFetch, getApiErrorMessage } from '../utils/adminFetch';
+import { adminButtonClass, adminIconButtonClass } from '../components/common/adminButtonStyles';
 
 interface LiquidityProvider {
   id: string;
@@ -18,26 +20,32 @@ const LiquidityProviderList = () => {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [error, setError] = useState('');
+
+  const hasFilters = useMemo(
+    () => Boolean(search.trim() || statusFilter),
+    [search, statusFilter],
+  );
 
   const fetchProviders = async () => {
     setLoading(true);
+    setError('');
     try {
-      const token = localStorage.getItem('admin_token');
       const params = new URLSearchParams();
       if (search) params.append('search', search);
       if (statusFilter) params.append('status', statusFilter);
 
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/liquidity-providers?${params.toString()}`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
+      const response = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/liquidity-providers?${params.toString()}`,
+      );
       if (response.ok) {
         const result = await response.json();
         setProviders(result.items || []);
+        return;
       }
     } catch (error) {
       console.error('Failed to fetch liquidity providers', error);
+      setError('Failed to fetch liquidity providers.');
     } finally {
       setLoading(false);
     }
@@ -45,18 +53,16 @@ const LiquidityProviderList = () => {
 
   useEffect(() => {
     fetchProviders();
-  }, [search, statusFilter]);
+  }, []);
 
   const handleStatusChange = async (id: string, currentStatus: string) => {
     const newStatus = currentStatus === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
     if (!window.confirm(`Are you sure you want to ${newStatus === 'INACTIVE' ? 'deactivate' : 'activate'} this provider?`)) return;
 
     try {
-      const token = localStorage.getItem('admin_token');
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/liquidity-providers/${id}/status`, {
+      const response = await adminFetch(`${import.meta.env.VITE_API_URL}/liquidity-providers/${id}/status`, {
         method: 'PATCH',
         headers: {
-          'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({ status: newStatus })
@@ -65,11 +71,36 @@ const LiquidityProviderList = () => {
       if (response.ok) {
         fetchProviders();
       } else {
-        alert('Failed to update status');
+        setError(await getApiErrorMessage(response, 'Failed to update status.'));
       }
     } catch (error) {
       console.error('Failed to update status', error);
+      setError('Failed to update status.');
     }
+  };
+
+  const handleReset = () => {
+    setSearch('');
+    setStatusFilter('');
+    setError('');
+    setProviders([]);
+    setLoading(true);
+    void (async () => {
+      try {
+        const response = await adminFetch(`${import.meta.env.VITE_API_URL}/liquidity-providers`);
+        if (response.ok) {
+          const result = await response.json();
+          setProviders(result.items || []);
+          return;
+        }
+        setError(await getApiErrorMessage(response, 'Failed to fetch liquidity providers.'));
+      } catch (resetError) {
+        console.error('Failed to reset liquidity provider filters', resetError);
+        setError('Failed to fetch liquidity providers.');
+      } finally {
+        setLoading(false);
+      }
+    })();
   };
 
   const formatRelativeTime = (dateString: string) => {
@@ -134,15 +165,16 @@ const LiquidityProviderList = () => {
           <p className="text-sm text-gray-500 mt-1">Manage external liquidity sources and their configurations</p>
         </div>
         <div className="flex gap-3">
-          <button onClick={fetchProviders} className="p-2 text-gray-500 hover:text-brand-primary transition-colors border border-gray-200 rounded-lg bg-white">
+          <button onClick={fetchProviders} className={adminIconButtonClass()}>
             <RefreshCw size={20} className={loading ? 'animate-spin' : ''} />
           </button>
-          <button onClick={downloadCSV} className="p-2 text-gray-500 hover:text-brand-primary transition-colors border border-gray-200 rounded-lg bg-white" title="Export CSV">
+          <button onClick={downloadCSV} className={adminButtonClass('listSecondary')} title="Export CSV">
             <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-download"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>
+            Export CSV
           </button>
           <button 
             onClick={() => navigate('/dashboard/system/liquidity-providers/create')}
-            className="flex items-center gap-2 px-4 py-2 bg-brand-primary text-white rounded-lg hover:bg-brand-primary/90 transition-colors shadow-sm"
+            className={adminButtonClass('listPrimary')}
           >
             <Plus size={20} /> New Provider
           </button>
@@ -171,6 +203,16 @@ const LiquidityProviderList = () => {
               <option value="ACTIVE">Active</option>
               <option value="INACTIVE">Inactive</option>
             </select>
+            <button onClick={fetchProviders} className={adminButtonClass('listPrimary')}>
+              Search
+            </button>
+            <button
+              onClick={handleReset}
+              className={adminButtonClass('listSecondary')}
+              disabled={!hasFilters && !error}
+            >
+              Reset
+            </button>
           </div>
         </div>
 
@@ -182,11 +224,18 @@ const LiquidityProviderList = () => {
                 <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Name / Contact</th>
                 <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Status</th>
                 <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Created At</th>
-                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider text-right">Actions</th>
+                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider text-right">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-admin-border">
-              {loading && providers.length === 0 ? (
+              {error ? (
+                <tr>
+                  <td colSpan={5} className="px-6 py-12 text-center text-rose-600">
+                    {error}
+                  </td>
+                </tr>
+              ) : null}
+              {!error && loading && providers.length === 0 ? (
                 <tr>
                   <td colSpan={5} className="px-6 py-12 text-center text-gray-500">
                     <div className="flex flex-col items-center justify-center">
@@ -195,7 +244,7 @@ const LiquidityProviderList = () => {
                     </div>
                   </td>
                 </tr>
-              ) : providers.length === 0 ? (
+              ) : !error && providers.length === 0 ? (
                 <tr>
                   <td colSpan={5} className="px-6 py-12 text-center text-gray-500">
                     No liquidity providers found
@@ -226,17 +275,17 @@ const LiquidityProviderList = () => {
                       </div>
                     </td>
                     <td className="px-6 py-4 text-right">
-                      <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <div className="flex justify-end gap-3">
                         <button 
+                          type="button"
                           onClick={() => handleStatusChange(provider.id, provider.status)}
-                          className={`p-1.5 rounded hover:bg-gray-100 transition-colors ${provider.status === 'ACTIVE' ? 'text-red-500' : 'text-green-500'}`}
-                          title={provider.status === 'ACTIVE' ? 'Deactivate' : 'Activate'}
+                          className={adminButtonClass('rowSecondaryUtility')}
                         >
-                          {provider.status === 'ACTIVE' ? <XCircle size={18} /> : <CheckCircle size={18} />}
+                          {provider.status === 'ACTIVE' ? 'Deactivate' : 'Activate'}
                         </button>
-                        <button className="p-1.5 text-blue-600 rounded hover:bg-blue-50 transition-colors" title="Edit">
-                          <Edit size={18} />
-                        </button>
+                        <span className={adminButtonClass('rowSecondaryUtility', 'cursor-not-allowed text-slate-400 no-underline hover:text-slate-400')}>
+                          Create/Edit Only
+                        </span>
                       </div>
                     </td>
                   </tr>

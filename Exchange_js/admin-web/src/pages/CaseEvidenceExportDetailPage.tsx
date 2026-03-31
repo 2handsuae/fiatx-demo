@@ -1,7 +1,6 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
-  ArrowLeft,
   Download,
   FileJson,
   FileText,
@@ -14,6 +13,14 @@ import {
   adminFetch,
   getApiErrorMessage,
 } from '../utils/adminFetch';
+import {
+  ActionSection,
+  DetailCard,
+  DetailPageHeader,
+  InfoField,
+  JsonBlock,
+} from '../components/compliance/DetailPageComponents';
+import { adminButtonClass } from '../components/common/adminButtonStyles';
 
 interface CaseEvidenceExportDetail {
   id: string;
@@ -64,22 +71,6 @@ const formatDateTime = (value?: string | null): string => {
   return date.toLocaleString();
 };
 
-const formatValue = (value: unknown): string => {
-  if (value === null || value === undefined) return '-';
-  const text = String(value).trim();
-  return text === '' ? '-' : text;
-};
-
-const toPrettyJson = (value: unknown): string => {
-  if (value === null || value === undefined) return '-';
-  if (typeof value === 'string') return value;
-  try {
-    return JSON.stringify(value, null, 2);
-  } catch {
-    return String(value);
-  }
-};
-
 const downloadPackage = async (id: string): Promise<string> => {
   const response = await adminFetch(
     `${import.meta.env.VITE_API_URL}/admin/compliance/cases/evidence-packages/${id}/download`,
@@ -104,61 +95,6 @@ const downloadPackage = async (id: string): Promise<string> => {
 
   return `Downloaded ${data.packageNo}. Digest: ${data.digest}`;
 };
-
-const DetailCard = ({
-  title,
-  icon,
-  children,
-  columns = 3,
-}: {
-  title: string;
-  icon: ReactNode;
-  children: ReactNode;
-  columns?: 1 | 2 | 3;
-}) => {
-  const gridClassName =
-    columns === 1
-      ? 'grid grid-cols-1 gap-4'
-      : columns === 2
-        ? 'grid grid-cols-1 gap-4 md:grid-cols-2'
-        : 'grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3';
-
-  return (
-    <div className="rounded-xl border border-admin-border bg-white p-6 shadow-sm">
-      <div className="mb-4 flex items-center gap-2">
-        <div className="text-brand-primary">{icon}</div>
-        <h2 className="text-lg font-bold text-gray-900">{title}</h2>
-      </div>
-      <div className={gridClassName}>{children}</div>
-    </div>
-  );
-};
-
-const InfoField = ({
-  label,
-  value,
-  mono = false,
-}: {
-  label: string;
-  value: unknown;
-  mono?: boolean;
-}) => (
-  <div className="min-w-0">
-    <div className="text-xs uppercase tracking-wide text-gray-500">{label}</div>
-    <div className={`mt-1 break-all text-sm text-gray-900 ${mono ? 'font-mono' : ''}`}>
-      {formatValue(value)}
-    </div>
-  </div>
-);
-
-const JsonBlock = ({ title, value }: { title: string; value: unknown }) => (
-  <div className="min-w-0">
-    <div className="mb-2 text-xs uppercase tracking-wide text-gray-500">{title}</div>
-    <pre className="max-h-96 overflow-auto rounded-lg bg-gray-900 p-3 text-xs text-gray-100">
-      {toPrettyJson(value)}
-    </pre>
-  </div>
-);
 
 const CaseEvidenceExportDetailPage = () => {
   const { id } = useParams<{ id: string }>();
@@ -235,14 +171,13 @@ const CaseEvidenceExportDetailPage = () => {
         <div className="flex items-center gap-3">
           <button
             onClick={() => navigate('/dashboard/compliance/case-evidence-exports')}
-            className="inline-flex items-center gap-2 rounded-lg border border-admin-border bg-white px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+            className={adminButtonClass('detailUtility')}
           >
-            <ArrowLeft size={16} />
             Back to Case Evidence Exports
           </button>
           <button
             onClick={() => void fetchDetail()}
-            className="inline-flex items-center gap-2 rounded-lg border border-admin-border bg-white px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+            className={adminButtonClass('detailUtility')}
           >
             <RefreshCw size={16} />
             Retry
@@ -259,40 +194,14 @@ const CaseEvidenceExportDetailPage = () => {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">
-            Case Evidence Export - {detail.packageNo}
-          </h1>
-          <p className="mt-1 text-sm text-gray-500">
-            Approval-gated case evidence package with manifest, package body, and download trace.
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => navigate('/dashboard/compliance/case-evidence-exports')}
-            className="inline-flex items-center gap-2 rounded-lg border border-admin-border bg-white px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
-          >
-            <ArrowLeft size={16} />
-            Back
-          </button>
-          <button
-            onClick={() => void fetchDetail()}
-            className="inline-flex items-center gap-2 rounded-lg border border-admin-border bg-white px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
-          >
-            <RefreshCw size={16} />
-            Refresh
-          </button>
-          <button
-            onClick={() => void handleDownload()}
-            disabled={detail.status !== 'READY' || downloading}
-            className="inline-flex items-center gap-2 rounded-lg bg-brand-primary px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-60"
-          >
-            <Download size={16} />
-            {downloading ? 'Downloading...' : 'Download'}
-          </button>
-        </div>
-      </div>
+      <DetailPageHeader
+        title="Case Evidence Export Detail"
+        subtitle={detail.packageNo}
+        onBack={() => navigate('/dashboard/compliance/case-evidence-exports')}
+        onRefresh={() => void fetchDetail()}
+        refreshing={loading}
+        backLabel="Back to Case Evidence Exports"
+      />
 
       {message && (
         <div className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
@@ -304,6 +213,22 @@ const CaseEvidenceExportDetailPage = () => {
           {error}
         </div>
       )}
+
+      <ActionSection
+        title="Export Actions"
+        description="Approval-gated case evidence packages use the same dedicated download block."
+      >
+        <button
+          onClick={() => void handleDownload()}
+          disabled={detail.status !== 'READY' || downloading}
+          className={adminButtonClass(
+            detail.status === 'READY' ? 'workflowPrimary' : 'workflowSecondary',
+          )}
+        >
+          <Download size={16} />
+          {downloading ? 'Downloading...' : 'Download Package'}
+        </button>
+      </ActionSection>
 
       <DetailCard title="Package Summary" icon={<FileText size={18} />} columns={3}>
         <InfoField label="Package No" value={detail.packageNo} mono />

@@ -1,6 +1,15 @@
-import { useEffect, useState } from 'react';
-import { Search, RefreshCw, Eye, ChevronLeft, ChevronRight, ArrowUpDown, List } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { Search, RefreshCw, ChevronLeft, ChevronRight, ArrowUpDown } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import {
+  adminButtonClass,
+  adminIconButtonClass,
+} from '../components/common/adminButtonStyles';
+import {
+  AdminSessionError,
+  adminFetch,
+  getApiErrorMessage,
+} from '../utils/adminFetch';
 
 interface JournalItem {
   id: string;
@@ -23,6 +32,7 @@ const JournalList = () => {
   const navigate = useNavigate();
   const [items, setItems] = useState<JournalItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   
   // Filters
   const [journalNoSearch, setJournalNoSearch] = useState('');
@@ -34,47 +44,59 @@ const JournalList = () => {
   const [sortBy, setSortBy] = useState('createdAt');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
 
-  const fetchItems = async () => {
+  interface FetchOverrides {
+    journalNoSearch?: string;
+    page?: number;
+  }
+
+  const hasFilters = useMemo(() => !!journalNoSearch.trim(), [journalNoSearch]);
+
+  const fetchItems = async (overrides: FetchOverrides = {}) => {
     setLoading(true);
+    setError('');
     try {
-      const token = localStorage.getItem('admin_token');
+      const nextJournalNoSearch = overrides.journalNoSearch ?? journalNoSearch;
+      const nextPage = overrides.page ?? page;
       const params = new URLSearchParams();
-      params.append('skip', ((page - 1) * pageSize).toString());
+      params.append('skip', ((nextPage - 1) * pageSize).toString());
       params.append('take', pageSize.toString());
       params.append('sortBy', sortBy);
       params.append('sortOrder', sortOrder);
 
-      if (journalNoSearch) params.append('journalNo', journalNoSearch);
+      if (nextJournalNoSearch) params.append('journalNo', nextJournalNoSearch);
       
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/journals?${params.toString()}`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
+      const response = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/journals?${params.toString()}`,
+      );
       if (response.ok) {
         const result = await response.json();
         setItems(result.items || []);
         setTotal(result.total || 0);
       } else {
-        if (response.status === 401) {
-            localStorage.removeItem('admin_token');
-            navigate('/admin/login');
-        }
+        throw new Error(await getApiErrorMessage(response, 'Failed to fetch journals.'));
       }
     } catch (error) {
+      if (error instanceof AdminSessionError) return;
       console.error('Failed to fetch Journals', error);
+      setError(error instanceof Error ? error.message : 'Failed to fetch journals.');
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchItems();
+    void fetchItems();
   }, [page, pageSize, sortBy, sortOrder]);
 
   const handleSearch = () => {
       setPage(1);
-      fetchItems();
+      void fetchItems({ page: 1 });
+  };
+
+  const resetFilters = async () => {
+    setJournalNoSearch('');
+    setPage(1);
+    await fetchItems({ journalNoSearch: '', page: 1 });
   };
 
   const handleSort = (field: string) => {
@@ -131,6 +153,12 @@ const JournalList = () => {
         </div>
       </div>
 
+      {error ? (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error}
+        </div>
+      ) : null}
+
       <div className="bg-white rounded-xl shadow-sm border border-admin-border overflow-hidden">
         <div className="p-4 border-b border-admin-border flex flex-col md:flex-row gap-4 justify-between">
             <div className="relative flex-1 max-w-md flex gap-2">
@@ -145,11 +173,18 @@ const JournalList = () => {
                     className="w-full pl-10 pr-4 py-2 bg-admin-content-bg border border-admin-border rounded-lg focus:outline-none focus:border-brand-primary focus:ring-1 focus:ring-brand-primary/20 transition-all duration-200"
                     />
                 </div>
-                <button onClick={handleSearch} className="px-3 py-2 bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200 transition-colors">
+                <button onClick={handleSearch} className={adminButtonClass('listPrimary')}>
                     Search
                 </button>
+                <button
+                  onClick={() => void resetFilters()}
+                  className={adminButtonClass('listSecondary')}
+                  disabled={!hasFilters || loading}
+                >
+                  Reset
+                </button>
             </div>
-            <button onClick={fetchItems} className="p-2 text-gray-500 hover:text-brand-primary transition-colors border border-gray-200 rounded-lg bg-white self-start md:self-auto">
+            <button onClick={() => void fetchItems()} className={adminIconButtonClass('self-start md:self-auto')}>
                 <RefreshCw size={20} className={loading ? 'animate-spin' : ''} />
             </button>
         </div>
@@ -165,7 +200,7 @@ const JournalList = () => {
                 <SortableHeader field="postedAt" label="Posted At" />
                 <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Description</th>
                 <SortableHeader field="createdAt" label="Created At" />
-                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider text-right">Actions</th>
+                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider text-right">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-admin-border">
@@ -188,9 +223,14 @@ const JournalList = () => {
                 items.map((item) => (
                   <tr key={item.id} className="hover:bg-gray-50 transition-colors group">
                     <td className="px-6 py-4">
-                        <div className="font-mono text-sm text-brand-primary font-bold truncate max-w-[150px]" title={item.journalNo}>
+                        <button
+                            type="button"
+                            className={adminButtonClass('rowKeyLink')}
+                            onClick={() => navigate(`/ledger/journals/${item.id}`)}
+                            title={item.journalNo}
+                        >
                             {item.journalNo || '-'}
-                        </div>
+                        </button>
                         {item.reversalOfJournalId && (
                             <div className="text-[10px] text-red-500 mt-1 flex items-center gap-1">
                                 <RefreshCw size={10} />
@@ -214,18 +254,18 @@ const JournalList = () => {
                     <td className="px-6 py-4 text-right">
                       <div className="flex justify-end gap-2 items-center">
                         <button 
-                          onClick={() => navigate(`/ledger/journal-lines?journalId=${item.id}`)}
-                          className="p-1.5 text-gray-500 rounded hover:bg-gray-100 hover:text-brand-primary transition-colors" 
-                          title="View Lines"
+                          onClick={() => navigate(`/ledger/journals/${item.id}`)}
+                          className={adminButtonClass('rowLink')}
+                          title="View"
                         >
-                            <List size={18} />
+                            View
                         </button>
                         <button 
-                          onClick={() => navigate(`/ledger/journals/${item.id}`)}
-                          className="p-1.5 text-blue-600 rounded hover:bg-blue-50 transition-colors" 
-                          title="View Details"
+                          onClick={() => navigate(`/ledger/journal-lines?journalId=${item.id}`)}
+                          className={adminButtonClass('rowSecondaryUtility')}
+                          title="Lines"
                         >
-                            <Eye size={18} />
+                            Lines
                         </button>
                       </div>
                     </td>
