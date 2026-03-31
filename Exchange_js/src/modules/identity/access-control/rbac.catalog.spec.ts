@@ -21,6 +21,33 @@ describe('rbac.catalog', () => {
     ).toBe(true);
   });
 
+  it('should register pool settlement batch permissions in RBAC catalog', () => {
+    const permissionCodes = new Set(
+      RBAC_PERMISSION_DEFINITIONS.map((item) => item.code),
+    );
+
+    expect(
+      permissionCodes.has(
+        buildPermissionCode('GET', '/admin/pool-settlement-batches'),
+      ),
+    ).toBe(true);
+    expect(
+      permissionCodes.has(
+        buildPermissionCode('GET', '/admin/pool-settlement-batches/:id'),
+      ),
+    ).toBe(true);
+    expect(
+      permissionCodes.has(
+        buildPermissionCode('POST', '/admin/pool-settlement-batches'),
+      ),
+    ).toBe(true);
+    expect(
+      permissionCodes.has(
+        buildPermissionCode('POST', '/admin/pool-settlement-batches/:id/submit'),
+      ),
+    ).toBe(true);
+  });
+
   it('should register case kernel permissions in RBAC catalog', () => {
     const permissionCodes = new Set(
       RBAC_PERMISSION_DEFINITIONS.map((item) => item.code),

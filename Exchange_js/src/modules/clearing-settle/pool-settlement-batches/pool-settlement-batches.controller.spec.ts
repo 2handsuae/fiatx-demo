@@ -56,7 +56,7 @@ describe('PoolSettlementBatchesController', () => {
     });
 
     await controller.create(
-      { user: { id: 'admin-1' } } as any,
+      { user: { userId: 'admin-1' } } as any,
       {
         autoCreated: true,
         metadataJson: { source: 'test' },
@@ -72,16 +72,16 @@ describe('PoolSettlementBatchesController', () => {
     );
   });
 
-  it('delegates submit with SYSTEM fallback when request has no user', async () => {
+  it('delegates submit with the request user id', async () => {
     poolSettlementBatchesService.submitBatch.mockResolvedValue({
       id: 'batch-1',
     });
 
-    await controller.submit({} as any, 'batch-1');
+    await controller.submit({ user: { userId: 'admin-2' } } as any, 'batch-1');
 
     expect(poolSettlementBatchesService.submitBatch).toHaveBeenCalledWith(
       'batch-1',
-      'SYSTEM',
+      'admin-2',
     );
   });
 });

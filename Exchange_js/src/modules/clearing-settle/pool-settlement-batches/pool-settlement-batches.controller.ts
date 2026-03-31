@@ -45,15 +45,14 @@ export class PoolSettlementBatchesController {
   @ApiOperation({ summary: 'Create pool settlement batch' })
   @UsePipes(new ValidationPipe({ transform: true }))
   create(@Req() req: any, @Body() dto: CreatePoolSettlementBatchDto) {
-    const operatorId = req.user?.id || 'SYSTEM';
+    const operatorId = req.user?.userId || 'SYSTEM';
     return this.poolSettlementBatchesService.createBatch(dto, operatorId);
   }
 
   @Post(':id/submit')
   @ApiOperation({ summary: 'Submit pool settlement batch' })
   submit(@Req() req: any, @Param('id') id: string) {
-    const operatorId = req.user?.id || 'SYSTEM';
+    const operatorId = req.user?.userId || 'SYSTEM';
     return this.poolSettlementBatchesService.submitBatch(id, operatorId);
   }
 }
-
