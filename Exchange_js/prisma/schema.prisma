@@ -1921,7 +1921,7 @@ model InternalTransaction {
   ownerId                    String
   ownerNo                    String?
   assetId                    String
-  poolSettlementBatchItemId  String?
+  poolSettlementBatchItemId  String?                       @unique
   amount                     Decimal
   feeAmount                  Decimal                       @default(0)
   netAmount                  Decimal
@@ -1945,13 +1945,11 @@ model InternalTransaction {
   auditLogs                  InternalTransactionAuditLog[]
   outstandingSettlementItems OutstandingSettlementItem[]
   reimbursementSettlements   ReimbursementObligation[]     @relation("ReimbursementObligationSettlementTx")
-  poolSettlementBatchItems   PoolSettlementBatchItem[]     @relation("PoolSettlementBatchItemInternalTransaction")
 
   @@unique([sourceType, sourceId, type])
   @@index([status])
   @@index([approvalStatus])
   @@index([approvalCaseId])
-  @@index([poolSettlementBatchItemId])
   @@index([createdAt])
   @@index([assetId])
   @@map("internal_transactions")
@@ -2024,6 +2022,7 @@ model ReimbursementObligation {
   asset                           Asset                @relation(fields: [assetId], references: [id])
   sourceWallet                    Wallet?              @relation("ReimbursementObligationSourceWallet", fields: [sourceWalletId], references: [id])
   settlementInternalTransaction   InternalTransaction? @relation("ReimbursementObligationSettlementTx", fields: [settlementInternalTransactionId], references: [id])
+  lockedByPoolSettlementBatch     PoolSettlementBatch? @relation("ReimbursementObligationLockedByPoolSettlementBatch", fields: [lockedByPoolSettlementBatchId], references: [id], onDelete: SetNull)
 
   @@index([status])
   @@index([assetId, createdAt])
@@ -2436,6 +2435,7 @@ model Outstanding {
   settlement                    OutstandingSettlement?     @relation(fields: [settlementId], references: [id], onDelete: SetNull)
   settlementItem                OutstandingSettlementItem? @relation(fields: [settlementItemId], references: [id], onDelete: SetNull)
   closedByInternalFund          InternalFund?              @relation(fields: [closedByInternalFundId], references: [id], onDelete: SetNull)
+  lockedByPoolSettlementBatch   PoolSettlementBatch?       @relation("OutstandingLockedByPoolSettlementBatch", fields: [lockedByPoolSettlementBatchId], references: [id], onDelete: SetNull)
 
   @@unique([sourceType, sourceId, direction])
   @@index([status])
@@ -2507,22 +2507,24 @@ model OutstandingSettlementItem {
 }
 
 model PoolSettlementBatch {
-  id              String                          @id @default(uuid())
-  batchNo         String                          @unique
-  status          String
-  cutoffAt        DateTime
-  submittedAt     DateTime?
-  approvedAt      DateTime?
-  closedAt        DateTime?
-  approvalCaseId  String?
-  createdByUserId String
-  autoCreated     Boolean                         @default(false)
-  summaryJson     String                          @default("{}")
-  metadataJson    String                          @default("{}")
-  createdAt       DateTime                        @default(now())
-  updatedAt       DateTime                        @updatedAt
-  items           PoolSettlementBatchItem[]
-  itemSources     PoolSettlementBatchItemSource[]
+  id                             String                          @id @default(uuid())
+  batchNo                        String                          @unique
+  status                         String
+  cutoffAt                       DateTime
+  submittedAt                    DateTime?
+  approvedAt                     DateTime?
+  closedAt                       DateTime?
+  approvalCaseId                 String?
+  createdByUserId                String
+  autoCreated                    Boolean                         @default(false)
+  summaryJson                    String                          @default("{}")
+  metadataJson                   String                          @default("{}")
+  createdAt                      DateTime                        @default(now())
+  updatedAt                      DateTime                        @updatedAt
+  items                          PoolSettlementBatchItem[]
+  itemSources                    PoolSettlementBatchItemSource[] @relation("PoolSettlementBatchItemSourceBatch")
+  lockedOutstandings             Outstanding[]                   @relation("OutstandingLockedByPoolSettlementBatch")
+  lockedReimbursementObligations ReimbursementObligation[]       @relation("ReimbursementObligationLockedByPoolSettlementBatch")
 
   @@index([status])
   @@index([cutoffAt])
@@ -2532,33 +2534,32 @@ model PoolSettlementBatch {
 }
 
 model PoolSettlementBatchItem {
-  id                    String                          @id @default(uuid())
-  batchId               String
-  status                String
-  assetId               String
-  walletPairKey         String
-  walletAId             String
-  walletBId             String
-  netDirection          String
-  netAmount             Decimal
-  submittedAmount       Decimal                         @default(0)
-  settledAmount         Decimal                         @default(0)
-  failedReason          String?
-  internalTransactionId String?
-  createdAt             DateTime                        @default(now())
-  updatedAt             DateTime                        @updatedAt
-  batch                 PoolSettlementBatch             @relation(fields: [batchId], references: [id], onDelete: Cascade)
-  asset                 Asset                           @relation(fields: [assetId], references: [id])
-  walletA               Wallet                          @relation("PoolSettlementBatchItemWalletA", fields: [walletAId], references: [id])
-  walletB               Wallet                          @relation("PoolSettlementBatchItemWalletB", fields: [walletBId], references: [id])
-  internalTransaction   InternalTransaction?            @relation("PoolSettlementBatchItemInternalTransaction", fields: [internalTransactionId], references: [id], onDelete: SetNull)
-  internalTransactions  InternalTransaction[]           @relation("InternalTransactionPoolSettlementBatchItem")
-  itemSources           PoolSettlementBatchItemSource[]
+  id                  String                          @id @default(uuid())
+  batchId             String
+  status              String
+  assetId             String
+  walletPairKey       String
+  walletAId           String
+  walletBId           String
+  netDirection        String
+  netAmount           Decimal
+  submittedAmount     Decimal                         @default(0)
+  settledAmount       Decimal                         @default(0)
+  failedReason        String?
+  createdAt           DateTime                        @default(now())
+  updatedAt           DateTime                        @updatedAt
+  batch               PoolSettlementBatch             @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  asset               Asset                           @relation(fields: [assetId], references: [id])
+  walletA             Wallet                          @relation("PoolSettlementBatchItemWalletA", fields: [walletAId], references: [id])
+  walletB             Wallet                          @relation("PoolSettlementBatchItemWalletB", fields: [walletBId], references: [id])
+  internalTransaction InternalTransaction?            @relation("InternalTransactionPoolSettlementBatchItem")
+  itemSources         PoolSettlementBatchItemSource[] @relation("PoolSettlementBatchItemSourceItem")
 
+  @@unique([batchId, assetId, walletPairKey])
+  @@unique([id, batchId])
   @@index([batchId])
   @@index([status])
   @@index([assetId, walletPairKey])
-  @@index([internalTransactionId])
   @@map("pool_settlement_batch_items")
 }
 
@@ -2579,12 +2580,14 @@ model PoolSettlementBatchItemSource {
   closeReason   String?
   createdAt     DateTime                 @default(now())
   updatedAt     DateTime                 @updatedAt
-  batch         PoolSettlementBatch      @relation(fields: [batchId], references: [id], onDelete: Cascade)
-  batchItem     PoolSettlementBatchItem? @relation(fields: [batchItemId], references: [id], onDelete: SetNull)
+  batch         PoolSettlementBatch      @relation("PoolSettlementBatchItemSourceBatch", fields: [batchId], references: [id], onDelete: Cascade)
+  batchItem     PoolSettlementBatchItem? @relation("PoolSettlementBatchItemSourceItem", fields: [batchItemId, batchId], references: [id, batchId], onDelete: Cascade)
   asset         Asset                    @relation(fields: [assetId], references: [id])
   fromWallet    Wallet                   @relation("PoolSettlementBatchItemSourceFromWallet", fields: [fromWalletId], references: [id])
   toWallet      Wallet                   @relation("PoolSettlementBatchItemSourceToWallet", fields: [toWalletId], references: [id])
 
+  @@unique([batchId, sourceFamily, sourceId])
+  @@unique([id, batchId])
   @@index([batchId])
   @@index([batchItemId])
   @@index([sourceFamily, sourceId])
