@@ -205,7 +205,22 @@ export class InternalFundsService {
       sourceNo?: string | null;
     },
     operatorId: string,
-  ) {
+  ): Promise<
+    Array<{
+      internalFundId: string;
+      internalTransactionId: string;
+      oldStatus: string;
+      newStatus: string;
+      operatorId: string;
+    }>
+  > {
+    const eventPayloads: Array<{
+      internalFundId: string;
+      internalTransactionId: string;
+      oldStatus: string;
+      newStatus: string;
+      operatorId: string;
+    }> = [];
     const confirmedFunds = await (client as any).internalFund.findMany({
       where: {
         internalTransactionId: internalTransaction.id,
@@ -217,7 +232,7 @@ export class InternalFundsService {
       },
     });
 
-    if (!confirmedFunds.length) return;
+    if (!confirmedFunds.length) return eventPayloads;
 
     for (const fund of confirmedFunds) {
       const reason = 'Auto clear after internal transaction success';
@@ -261,7 +276,17 @@ export class InternalFundsService {
         },
         client,
       );
+
+      eventPayloads.push({
+        internalFundId: fund.id,
+        internalTransactionId: internalTransaction.id,
+        oldStatus: InternalFundStatus.CONFIRMED,
+        newStatus: InternalFundStatus.CLEAR,
+        operatorId,
+      });
     }
+
+    return eventPayloads;
   }
 
   async createFromInternalTransaction(
@@ -410,6 +435,13 @@ export class InternalFundsService {
     } = dto;
 
     const execute = async (client: TxClient) => {
+      const eventPayloads: Array<{
+        internalFundId: string;
+        internalTransactionId: string;
+        oldStatus: string;
+        newStatus: string;
+        operatorId: string;
+      }> = [];
       const item = await (client as any).internalFund.findUnique({
         where: { id },
         include: {
@@ -516,15 +548,24 @@ export class InternalFundsService {
           operatorId,
           client,
         );
+      eventPayloads.push({
+        internalFundId: item.id,
+        internalTransactionId: item.internalTransaction.id,
+        oldStatus: currentStatus,
+        newStatus: nextStatus,
+        operatorId,
+      });
 
       if (
         nextStatus === InternalFundStatus.CONFIRMED &&
         txStatus?.status === InternalTransactionStatus.SUCCESS
       ) {
-        await this.autoClearConfirmedFunds(
-          client,
-          item.internalTransaction,
-          operatorId,
+        eventPayloads.push(
+          ...(await this.autoClearConfirmedFunds(
+            client,
+            item.internalTransaction,
+            operatorId,
+          )),
         );
       }
 
@@ -539,13 +580,7 @@ export class InternalFundsService {
 
       return {
         updated,
-        eventPayload: {
-          internalFundId: item.id,
-          internalTransactionId: item.internalTransaction.id,
-          oldStatus: currentStatus,
-          newStatus: nextStatus,
-          operatorId,
-        },
+        eventPayloads,
       };
     };
 
@@ -558,8 +593,10 @@ export class InternalFundsService {
       (client: TxClient) => execute(client),
     );
 
-    if (result?.eventPayload) {
-      this.eventEmitter.emit('internal-fund.status.changed', result.eventPayload);
+    if (result?.eventPayloads?.length) {
+      for (const eventPayload of result.eventPayloads) {
+        this.eventEmitter.emit('internal-fund.status.changed', eventPayload);
+      }
     }
 
     return result.updated;

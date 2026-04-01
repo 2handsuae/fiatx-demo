@@ -342,7 +342,7 @@ export class PoolSettlementBatchCloseoutService {
         const transition = await (client as any).poolSettlementBatchItem.updateMany({
           where: {
             id: item.id,
-            status: 'PROCESSING',
+            status: 'EXECUTING',
           },
           data: {
             status: nextItemStatus,

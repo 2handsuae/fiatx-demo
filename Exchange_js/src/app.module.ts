@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { LoggerModule } from 'nestjs-pino';
 import { ConfigModule } from '@nestjs/config';
 import { EventEmitterModule } from '@nestjs/event-emitter';
+import { ScheduleModule } from '@nestjs/schedule';
 import { UsersModule } from './modules/identity/users/users.module';
 import { AuthModule } from './modules/identity/auth/auth.module';
 import { AccessControlModule } from './modules/identity/access-control/access-control.module';
@@ -52,6 +53,7 @@ import { GovernanceModule } from './modules/governance/governance.module';
     EventEmitterModule.forRoot({
       global: true,
     }),
+    ScheduleModule.forRoot(),
     LoggerModule.forRoot({
       pinoHttp: {
         transport:

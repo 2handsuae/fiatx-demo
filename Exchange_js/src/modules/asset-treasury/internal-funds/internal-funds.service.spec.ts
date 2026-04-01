@@ -216,6 +216,26 @@ describe('InternalFundsService', () => {
         }),
       }),
     );
+    expect(eventEmitter.emit).toHaveBeenNthCalledWith(
+      1,
+      'internal-fund.status.changed',
+      expect.objectContaining({
+        internalFundId: 'ifd-confirm-1',
+        internalTransactionId: 'itx-success-1',
+        oldStatus: InternalFundStatus.CONFIRMING,
+        newStatus: InternalFundStatus.CONFIRMED,
+      }),
+    );
+    expect(eventEmitter.emit).toHaveBeenNthCalledWith(
+      2,
+      'internal-fund.status.changed',
+      expect.objectContaining({
+        internalFundId: 'ifd-confirm-1',
+        internalTransactionId: 'itx-success-1',
+        oldStatus: InternalFundStatus.CONFIRMED,
+        newStatus: InternalFundStatus.CLEAR,
+      }),
+    );
   });
 
   it('should return existing fund when createFromInternalTransaction is idempotent', async () => {

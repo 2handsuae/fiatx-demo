@@ -337,13 +337,13 @@ describe('PoolSettlementBatchApprovalProjectionService', () => {
     expect(prisma.poolSettlementBatchItem.update).toHaveBeenNthCalledWith(1, {
       where: { id: 'item-1' },
       data: {
-        status: 'PROCESSING',
+        status: 'EXECUTING',
       },
     });
     expect(prisma.poolSettlementBatchItem.update).toHaveBeenNthCalledWith(2, {
       where: { id: 'item-2' },
       data: {
-        status: 'PROCESSING',
+        status: 'EXECUTING',
       },
     });
     expect(prisma.internalTransaction.update).toHaveBeenNthCalledWith(1, {

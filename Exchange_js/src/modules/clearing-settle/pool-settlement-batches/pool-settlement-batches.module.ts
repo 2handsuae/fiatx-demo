@@ -4,6 +4,7 @@ import { ApprovalsModule } from '../../governance/approvals/approvals.module';
 import { PoolSettlementBatchesController } from './pool-settlement-batches.controller';
 import { PoolSettlementBatchApprovalProjectionService } from './pool-settlement-batch-approval-projection.service';
 import { PoolSettlementBatchCloseoutService } from './pool-settlement-batch-closeout.service';
+import { PoolSettlementBatchSchedulerService } from './pool-settlement-batch-scheduler.service';
 import { PoolSettlementBatchesService } from './pool-settlement-batches.service';
 
 @Module({
@@ -13,6 +14,7 @@ import { PoolSettlementBatchesService } from './pool-settlement-batches.service'
     PoolSettlementBatchesService,
     PoolSettlementBatchApprovalProjectionService,
     PoolSettlementBatchCloseoutService,
+    PoolSettlementBatchSchedulerService,
   ],
   exports: [PoolSettlementBatchesService],
 })

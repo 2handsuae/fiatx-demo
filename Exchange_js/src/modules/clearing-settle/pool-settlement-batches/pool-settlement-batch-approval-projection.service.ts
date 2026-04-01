@@ -379,7 +379,7 @@ export class PoolSettlementBatchApprovalProjectionService {
         await tx.poolSettlementBatchItem.update({
           where: { id: item.id },
           data: {
-            status: 'PROCESSING',
+            status: 'EXECUTING',
           },
         });
       }

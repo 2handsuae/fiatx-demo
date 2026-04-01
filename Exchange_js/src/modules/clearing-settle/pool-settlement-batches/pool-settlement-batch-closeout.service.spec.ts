@@ -50,11 +50,11 @@ describe('PoolSettlementBatchCloseoutService', () => {
     prisma.poolSettlementBatchItem.findUnique.mockResolvedValue({
       id: 'item-1',
       batchId: 'batch-1',
-      status: 'PROCESSING',
+      status: 'EXECUTING',
     });
     prisma.poolSettlementBatchItem.findMany.mockResolvedValue([
       { id: 'item-1', status: 'SUCCESS' },
-      { id: 'item-2', status: 'PROCESSING' },
+      { id: 'item-2', status: 'EXECUTING' },
     ]);
     prisma.poolSettlementBatchItemSource.findMany.mockResolvedValue([
       {
@@ -73,7 +73,7 @@ describe('PoolSettlementBatchCloseoutService', () => {
     expect(prisma.poolSettlementBatchItem.updateMany).toHaveBeenCalledWith({
       where: {
         id: 'item-1',
-        status: 'PROCESSING',
+        status: 'EXECUTING',
       },
       data: {
         status: 'SUCCESS',
@@ -124,11 +124,11 @@ describe('PoolSettlementBatchCloseoutService', () => {
     prisma.poolSettlementBatchItem.findUnique.mockResolvedValue({
       id: 'item-1',
       batchId: 'batch-1',
-      status: 'PROCESSING',
+      status: 'EXECUTING',
     });
     prisma.poolSettlementBatchItem.findMany.mockResolvedValue([
       { id: 'item-1', status: 'SUCCESS' },
-      { id: 'item-2', status: 'PROCESSING' },
+      { id: 'item-2', status: 'EXECUTING' },
     ]);
     prisma.poolSettlementBatchItemSource.findMany.mockResolvedValue([
       {
@@ -179,11 +179,11 @@ describe('PoolSettlementBatchCloseoutService', () => {
       prisma.poolSettlementBatchItem.findUnique.mockResolvedValue({
         id: 'item-1',
         batchId: 'batch-1',
-        status: 'PROCESSING',
+        status: 'EXECUTING',
       });
       prisma.poolSettlementBatchItem.findMany.mockResolvedValue([
         { id: 'item-1', status: 'FAILED' },
-        { id: 'item-2', status: 'PROCESSING' },
+        { id: 'item-2', status: 'EXECUTING' },
       ]);
 
       const service = new PoolSettlementBatchCloseoutService(prisma);
@@ -193,7 +193,7 @@ describe('PoolSettlementBatchCloseoutService', () => {
       expect(prisma.poolSettlementBatchItem.updateMany).toHaveBeenCalledWith({
         where: {
           id: 'item-1',
-          status: 'PROCESSING',
+          status: 'EXECUTING',
         },
         data: {
           status: 'FAILED',
@@ -217,7 +217,7 @@ describe('PoolSettlementBatchCloseoutService', () => {
     prisma.poolSettlementBatchItem.findUnique.mockResolvedValue({
       id: 'item-success',
       batchId: 'batch-1',
-      status: 'PROCESSING',
+      status: 'EXECUTING',
     });
     prisma.poolSettlementBatchItem.findMany.mockResolvedValue([
       { id: 'item-failed', status: 'FAILED' },
@@ -345,7 +345,7 @@ describe('PoolSettlementBatchCloseoutService', () => {
     prisma.poolSettlementBatchItem.findUnique.mockResolvedValue({
       id: 'item-2',
       batchId: 'batch-1',
-      status: 'PROCESSING',
+      status: 'EXECUTING',
     });
     prisma.poolSettlementBatchItem.findMany.mockResolvedValue([
       { id: 'item-1', status: 'SUCCESS' },
@@ -377,7 +377,7 @@ describe('PoolSettlementBatchCloseoutService', () => {
     prisma.poolSettlementBatchItem.findUnique.mockResolvedValue({
       id: 'item-2',
       batchId: 'batch-1',
-      status: 'PROCESSING',
+      status: 'EXECUTING',
     });
     prisma.poolSettlementBatchItem.findMany.mockResolvedValue([
       { id: 'item-1', status: 'FAILED' },

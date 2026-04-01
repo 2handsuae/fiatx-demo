@@ -99,8 +99,12 @@ describe('PoolSettlementBatchesService', () => {
 
   const createService = () => {
     const prisma = makePrisma();
-    const service = new PoolSettlementBatchesService(prisma);
-    return { prisma, service };
+    const approvalsService = {
+      createAndSubmit: jest.fn(),
+      emitSubmittedSideEffects: jest.fn(),
+    } as any;
+    const service = new PoolSettlementBatchesService(prisma, approvalsService);
+    return { prisma, service, approvalsService };
   };
 
   const registerWallets = (prisma: any, wallets: Record<string, any>) => {
