@@ -445,6 +445,12 @@ const DashboardLayout = () => {
           requiredPermissions: [PERMISSIONS.INTERNAL_FUNDS_READ],
         },
         {
+          path: '/dashboard/treasury/pool-settlement-batches',
+          label: 'Pool Settlement Batches',
+          icon: <Layers size={18} />,
+          requiredPermissions: [PERMISSIONS.POOL_SETTLEMENT_BATCH_READ],
+        },
+        {
           path: '/dashboard/treasury/fee-occurrences',
           label: 'Fee Occurrences',
           icon: <Coins size={18} />,

@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 import { PrismaService } from '../../../core/prisma/prisma.service';
@@ -76,12 +76,115 @@ export class PoolSettlementBatchesService {
     };
   }
 
-  async findAllForAdmin(_query: PoolSettlementBatchQueryDto) {
-    throw new Error('PoolSettlementBatchesService.findAllForAdmin is not implemented yet');
+  private parseJsonField(value: unknown) {
+    if (typeof value !== 'string') {
+      return value ?? {};
+    }
+
+    try {
+      return JSON.parse(value);
+    } catch {
+      return {};
+    }
   }
 
-  async findDetailForAdmin(_id: string) {
-    throw new Error('PoolSettlementBatchesService.findDetailForAdmin is not implemented yet');
+  async findAllForAdmin(query: PoolSettlementBatchQueryDto) {
+    const { skip = 0, take = 20, status, autoCreated } = query;
+    const where: Prisma.PoolSettlementBatchWhereInput = {};
+    if (status) where.status = status;
+    if (typeof autoCreated === 'boolean') where.autoCreated = autoCreated;
+
+    const [items, total] = await Promise.all([
+      (this.prisma as any).poolSettlementBatch.findMany({
+        where,
+        skip: Number(skip),
+        take: Number(take),
+        orderBy: { createdAt: 'desc' },
+        select: {
+          id: true,
+          batchNo: true,
+          status: true,
+          cutoffAt: true,
+          submittedAt: true,
+          approvedAt: true,
+          closedAt: true,
+          approvalCaseId: true,
+          autoCreated: true,
+          createdAt: true,
+          createdByUserId: true,
+          summaryJson: true,
+        },
+      }),
+      (this.prisma as any).poolSettlementBatch.count({ where }),
+    ]);
+
+    return {
+      items: items.map((item: any) => ({
+        ...item,
+        summaryJson: this.parseJsonField(item.summaryJson),
+      })),
+      total,
+      skip: Number(skip),
+      take: Number(take),
+    };
+  }
+
+  async findDetailForAdmin(id: string) {
+    const batch = await (this.prisma as any).poolSettlementBatch.findUnique({
+      where: { id },
+      include: {
+        items: {
+          include: {
+            asset: true,
+            walletA: true,
+            walletB: true,
+            internalTransaction: {
+              select: {
+                id: true,
+                internalTxNo: true,
+                status: true,
+              },
+            },
+          },
+          orderBy: { createdAt: 'asc' },
+        },
+        itemSources: {
+          include: {
+            asset: true,
+            fromWallet: true,
+            toWallet: true,
+          },
+          orderBy: { createdAt: 'asc' },
+        },
+      },
+    });
+
+    if (!batch) {
+      throw new NotFoundException('Pool settlement batch not found');
+    }
+
+    const items = (batch.items || []).map((item: any) => ({
+      ...item,
+      internalTransactionId: item.internalTransaction?.id ?? null,
+    }));
+    const itemSources = (batch.itemSources || []).map((itemSource: any) => ({
+      ...itemSource,
+    }));
+    const internalTransactions = items
+      .filter((item: any) => item.internalTransaction)
+      .map((item: any) => ({
+        ...item.internalTransaction,
+        batchItemId: item.id,
+      }));
+
+    return {
+      ...batch,
+      summaryJson: this.parseJsonField(batch.summaryJson),
+      metadataJson: this.parseJsonField(batch.metadataJson),
+      items,
+      itemSources,
+      internalTransactions,
+    };
   }
 
   private ensureRegulatorEnabledCustBankWallet(wallet: {

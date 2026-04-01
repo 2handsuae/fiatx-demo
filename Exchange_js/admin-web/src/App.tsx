@@ -84,6 +84,12 @@ const RegulatoryGateCreatePage = lazy(() => import('./pages/RegulatoryGateCreate
 const Wave8OpsDashboardPage = lazy(() => import('./pages/Wave8OpsDashboardPage'));
 const TreasuryResourcePage = lazy(() => import('./pages/TreasuryResourcePage'));
 const TreasuryResourceDetailPage = lazy(() => import('./pages/TreasuryResourceDetailPage'));
+const PoolSettlementBatchListPage = lazy(
+  () => import('./pages/PoolSettlementBatchListPage'),
+);
+const PoolSettlementBatchDetailPage = lazy(
+  () => import('./pages/PoolSettlementBatchDetailPage'),
+);
 const InternalCollectionsPage = lazy(() => import('./pages/InternalCollectionsPage'));
 const ReconciliationResourcePage = lazy(() => import('./pages/ReconciliationResourcePage'));
 const ReconciliationResourceDetailPage = lazy(
@@ -697,6 +703,18 @@ function App() {
             <Route
               path="treasury/internal-funds/:id"
               element={withPermission(<InternalFundDetail />, [PERMISSIONS.INTERNAL_FUND_DETAIL_READ])}
+            />
+            <Route
+              path="treasury/pool-settlement-batches"
+              element={withPermission(<PoolSettlementBatchListPage />, [
+                PERMISSIONS.POOL_SETTLEMENT_BATCH_READ,
+              ])}
+            />
+            <Route
+              path="treasury/pool-settlement-batches/:id"
+              element={withPermission(<PoolSettlementBatchDetailPage />, [
+                PERMISSIONS.POOL_SETTLEMENT_BATCH_DETAIL,
+              ])}
             />
             <Route
               path="treasury/fee-occurrences"

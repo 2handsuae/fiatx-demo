@@ -1,4 +1,4 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PoolSettlementBatchesService } from './pool-settlement-batches.service';
 
@@ -67,6 +67,9 @@ describe('PoolSettlementBatchesService', () => {
       },
       poolSettlementBatch: {
         create: jest.fn(),
+        findMany: jest.fn(),
+        findUnique: jest.fn(),
+        count: jest.fn(),
         update: jest.fn((args: any) =>
           Promise.resolve({
             id: args.where.id,
@@ -962,6 +965,256 @@ describe('PoolSettlementBatchesService', () => {
           toWalletId: 'wallet-btc-master',
         }),
       }),
+    );
+  });
+
+  it('lists admin batches with supported filters and parsed summary json', async () => {
+    const { prisma, service } = createService();
+    const cutoffAt = new Date('2026-04-01T10:00:00.000Z');
+    const createdAt = new Date('2026-04-01T09:00:00.000Z');
+
+    prisma.poolSettlementBatch.findMany.mockResolvedValue([
+      {
+        id: 'batch-1',
+        batchNo: 'PSB-0001',
+        status: 'CREATED',
+        cutoffAt,
+        submittedAt: null,
+        approvedAt: null,
+        closedAt: null,
+        approvalCaseId: null,
+        autoCreated: false,
+        createdAt,
+        createdByUserId: 'admin-1',
+        summaryJson: '{"routableSourceCount":2,"skippedSourceCount":1}',
+      },
+    ]);
+    prisma.poolSettlementBatch.count.mockResolvedValue(1);
+
+    const result = await service.findAllForAdmin({
+      status: 'CREATED' as any,
+      autoCreated: false,
+      skip: 5,
+      take: 10,
+    });
+
+    expect(prisma.poolSettlementBatch.findMany).toHaveBeenCalledWith({
+      where: {
+        status: 'CREATED',
+        autoCreated: false,
+      },
+      skip: 5,
+      take: 10,
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        batchNo: true,
+        status: true,
+        cutoffAt: true,
+        submittedAt: true,
+        approvedAt: true,
+        closedAt: true,
+        approvalCaseId: true,
+        autoCreated: true,
+        createdAt: true,
+        createdByUserId: true,
+        summaryJson: true,
+      },
+    });
+    expect(result).toEqual({
+      items: [
+        expect.objectContaining({
+          id: 'batch-1',
+          batchNo: 'PSB-0001',
+          summaryJson: {
+            routableSourceCount: 2,
+            skippedSourceCount: 1,
+          },
+        }),
+      ],
+      total: 1,
+      skip: 5,
+      take: 10,
+    });
+  });
+
+  it('returns batch detail with parsed json, linked items and null-item sources', async () => {
+    const { prisma, service } = createService();
+
+    prisma.poolSettlementBatch.findUnique.mockResolvedValue({
+      id: 'batch-1',
+      batchNo: 'PSB-0001',
+      status: 'CREATED',
+      cutoffAt: new Date('2026-04-01T10:00:00.000Z'),
+      submittedAt: null,
+      approvedAt: null,
+      closedAt: null,
+      approvalCaseId: 'approval-1',
+      createdByUserId: 'admin-1',
+      autoCreated: false,
+      summaryJson: '{"skippedSourcesByReason":{"LOCK_MISS":1}}',
+      metadataJson: '{"source":"manual"}',
+      createdAt: new Date('2026-04-01T09:00:00.000Z'),
+      updatedAt: new Date('2026-04-01T09:30:00.000Z'),
+      items: [
+        {
+          id: 'item-1',
+          batchId: 'batch-1',
+          status: 'READY',
+          assetId: 'asset-btc',
+          walletPairKey: 'wallet-a::wallet-b',
+          walletAId: 'wallet-a',
+          walletBId: 'wallet-b',
+          netDirection: 'A_TO_B',
+          netAmount: decimal(3),
+          submittedAmount: decimal(1),
+          settledAmount: decimal(0),
+          failedReason: null,
+          createdAt: new Date('2026-04-01T09:05:00.000Z'),
+          updatedAt: new Date('2026-04-01T09:05:00.000Z'),
+          asset: buildAsset('asset-btc', 'BTC', 'CRYPTO', 'BITCOIN'),
+          walletA: buildWallet({
+            id: 'wallet-a',
+            walletNo: 'WA-MST-BTC-BITCOIN',
+            walletRole: 'MASTER',
+          }),
+          walletB: buildWallet({
+            id: 'wallet-b',
+            walletNo: 'WA-LIQ-BTC-BITCOIN',
+            walletRole: 'LIQ',
+          }),
+          internalTransaction: {
+            id: 'internal-tx-1',
+            internalTxNo: 'ITX-1',
+            status: 'PENDING',
+          },
+        },
+      ],
+      itemSources: [
+        {
+          id: 'source-1',
+          batchId: 'batch-1',
+          batchItemId: 'item-1',
+          sourceFamily: 'OUTSTANDING',
+          sourceId: 'outstanding-1',
+          assetId: 'asset-btc',
+          fromWalletId: 'wallet-a',
+          toWalletId: 'wallet-b',
+          direction: 'A_TO_B',
+          sourceAmount: decimal(3),
+          nettedAmount: decimal(0),
+          settledAmount: decimal(0),
+          status: 'LINKED',
+          closeReason: null,
+          createdAt: new Date('2026-04-01T09:05:00.000Z'),
+          updatedAt: new Date('2026-04-01T09:05:00.000Z'),
+          asset: buildAsset('asset-btc', 'BTC', 'CRYPTO', 'BITCOIN'),
+          fromWallet: buildWallet({
+            id: 'wallet-a',
+            walletNo: 'WA-MST-BTC-BITCOIN',
+            walletRole: 'MASTER',
+          }),
+          toWallet: buildWallet({
+            id: 'wallet-b',
+            walletNo: 'WA-LIQ-BTC-BITCOIN',
+            walletRole: 'LIQ',
+          }),
+        },
+        {
+          id: 'source-2',
+          batchId: 'batch-1',
+          batchItemId: null,
+          sourceFamily: 'REIMBURSEMENT_OBLIGATION',
+          sourceId: 'reimbursement-1',
+          assetId: 'asset-btc',
+          fromWalletId: 'wallet-b',
+          toWalletId: 'wallet-a',
+          direction: 'B_TO_A',
+          sourceAmount: decimal(1),
+          nettedAmount: decimal(1),
+          settledAmount: decimal(0),
+          status: 'NETTED',
+          closeReason: 'NETTED',
+          createdAt: new Date('2026-04-01T09:06:00.000Z'),
+          updatedAt: new Date('2026-04-01T09:06:00.000Z'),
+          asset: buildAsset('asset-btc', 'BTC', 'CRYPTO', 'BITCOIN'),
+          fromWallet: buildWallet({
+            id: 'wallet-b',
+            walletNo: 'WA-LIQ-BTC-BITCOIN',
+            walletRole: 'LIQ',
+          }),
+          toWallet: buildWallet({
+            id: 'wallet-a',
+            walletNo: 'WA-MST-BTC-BITCOIN',
+            walletRole: 'MASTER',
+          }),
+        },
+      ],
+    });
+
+    const result = await service.findDetailForAdmin('batch-1');
+
+    expect(prisma.poolSettlementBatch.findUnique).toHaveBeenCalledWith({
+      where: { id: 'batch-1' },
+      include: {
+        items: {
+          include: {
+            asset: true,
+            walletA: true,
+            walletB: true,
+            internalTransaction: {
+              select: {
+                id: true,
+                internalTxNo: true,
+                status: true,
+              },
+            },
+          },
+          orderBy: { createdAt: 'asc' },
+        },
+        itemSources: {
+          include: {
+            asset: true,
+            fromWallet: true,
+            toWallet: true,
+          },
+          orderBy: { createdAt: 'asc' },
+        },
+      },
+    });
+    expect(result).toEqual(
+      expect.objectContaining({
+        id: 'batch-1',
+        summaryJson: { skippedSourcesByReason: { LOCK_MISS: 1 } },
+        metadataJson: { source: 'manual' },
+        items: [
+          expect.objectContaining({
+            id: 'item-1',
+            internalTransactionId: 'internal-tx-1',
+          }),
+        ],
+        itemSources: [
+          expect.objectContaining({ id: 'source-1', batchItemId: 'item-1' }),
+          expect.objectContaining({ id: 'source-2', batchItemId: null }),
+        ],
+        internalTransactions: [
+          {
+            id: 'internal-tx-1',
+            internalTxNo: 'ITX-1',
+            status: 'PENDING',
+            batchItemId: 'item-1',
+          },
+        ],
+      }),
+    );
+  });
+
+  it('throws not found when detail batch is missing', async () => {
+    const { prisma, service } = createService();
+    prisma.poolSettlementBatch.findUnique.mockResolvedValue(null);
+
+    await expect(service.findDetailForAdmin('missing-batch')).rejects.toBeInstanceOf(
+      NotFoundException,
     );
   });
 });
