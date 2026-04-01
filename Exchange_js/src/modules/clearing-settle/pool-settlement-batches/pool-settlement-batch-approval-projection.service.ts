@@ -210,8 +210,26 @@ export class PoolSettlementBatchApprovalProjectionService {
   private async releaseHeldSources(
     batchId: string,
     terminalStatus: PoolSettlementBatchStatus,
+    approvalId?: string,
   ) {
     await (this.prisma as any).$transaction(async (tx: any) => {
+      const transition = await tx.poolSettlementBatch.updateMany({
+        where: {
+          id: batchId,
+          status: PoolSettlementBatchStatus.APPROVAL_PENDING,
+          OR: approvalId
+            ? [{ approvalCaseId: null }, { approvalCaseId: approvalId }]
+            : [{ approvalCaseId: null }],
+        },
+        data: {
+          status: terminalStatus,
+        },
+      });
+
+      if (!transition?.count) {
+        return;
+      }
+
       await Promise.all([
         tx.outstanding.updateMany({
           where: {
@@ -244,13 +262,6 @@ export class PoolSettlementBatchApprovalProjectionService {
           },
         }),
       ]);
-
-      await tx.poolSettlementBatch.update({
-        where: { id: batchId },
-        data: {
-          status: terminalStatus,
-        },
-      });
     });
   }
 
@@ -386,7 +397,11 @@ export class PoolSettlementBatchApprovalProjectionService {
     const batch = await this.findBatchForProjection(event);
     if (!batch) return;
 
-    await this.releaseHeldSources(batch.id, PoolSettlementBatchStatus.FAILED);
+    await this.releaseHeldSources(
+      batch.id,
+      PoolSettlementBatchStatus.FAILED,
+      event.approvalId,
+    );
   }
 
   @OnEvent(ApprovalEvents.CANCELLED, { async: true })
@@ -396,7 +411,11 @@ export class PoolSettlementBatchApprovalProjectionService {
     const batch = await this.findBatchForProjection(event);
     if (!batch) return;
 
-    await this.releaseHeldSources(batch.id, PoolSettlementBatchStatus.CANCELLED);
+    await this.releaseHeldSources(
+      batch.id,
+      PoolSettlementBatchStatus.CANCELLED,
+      event.approvalId,
+    );
   }
 
   @OnEvent(ApprovalEvents.EXPIRED, { async: true })
@@ -406,6 +425,10 @@ export class PoolSettlementBatchApprovalProjectionService {
     const batch = await this.findBatchForProjection(event);
     if (!batch) return;
 
-    await this.releaseHeldSources(batch.id, PoolSettlementBatchStatus.FAILED);
+    await this.releaseHeldSources(
+      batch.id,
+      PoolSettlementBatchStatus.FAILED,
+      event.approvalId,
+    );
   }
 }

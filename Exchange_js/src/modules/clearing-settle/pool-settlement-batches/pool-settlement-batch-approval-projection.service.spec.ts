@@ -478,6 +478,19 @@ describe('PoolSettlementBatchApprovalProjectionService', () => {
       status: 'REJECTED',
     } as any);
 
+    expect(prisma.poolSettlementBatch.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: 'batch-1',
+        status: PoolSettlementBatchStatus.APPROVAL_PENDING,
+        OR: [
+          { approvalCaseId: null },
+          { approvalCaseId: 'approval-1' },
+        ],
+      },
+      data: {
+        status: PoolSettlementBatchStatus.FAILED,
+      },
+    });
     expect(prisma.outstanding.updateMany).toHaveBeenCalledWith({
       where: {
         status: 'OPEN',
@@ -508,12 +521,7 @@ describe('PoolSettlementBatchApprovalProjectionService', () => {
         closeReason: 'BATCH_RELEASED',
       },
     });
-    expect(prisma.poolSettlementBatch.update).toHaveBeenCalledWith({
-      where: { id: 'batch-1' },
-      data: {
-        status: PoolSettlementBatchStatus.FAILED,
-      },
-    });
+    expect(prisma.poolSettlementBatch.update).not.toHaveBeenCalled();
   });
 
   it('releases held sources and marks batch CANCELLED on approval cancelled', async () => {
@@ -538,8 +546,15 @@ describe('PoolSettlementBatchApprovalProjectionService', () => {
       status: 'CANCELLED',
     } as any);
 
-    expect(prisma.poolSettlementBatch.update).toHaveBeenCalledWith({
-      where: { id: 'batch-2' },
+    expect(prisma.poolSettlementBatch.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: 'batch-2',
+        status: PoolSettlementBatchStatus.APPROVAL_PENDING,
+        OR: [
+          { approvalCaseId: null },
+          { approvalCaseId: 'approval-2' },
+        ],
+      },
       data: {
         status: PoolSettlementBatchStatus.CANCELLED,
       },
@@ -580,8 +595,15 @@ describe('PoolSettlementBatchApprovalProjectionService', () => {
       status: 'EXPIRED',
     } as any);
 
-    expect(prisma.poolSettlementBatch.update).toHaveBeenCalledWith({
-      where: { id: 'batch-3' },
+    expect(prisma.poolSettlementBatch.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: 'batch-3',
+        status: PoolSettlementBatchStatus.APPROVAL_PENDING,
+        OR: [
+          { approvalCaseId: null },
+          { approvalCaseId: 'approval-3' },
+        ],
+      },
       data: {
         status: PoolSettlementBatchStatus.FAILED,
       },
@@ -589,6 +611,55 @@ describe('PoolSettlementBatchApprovalProjectionService', () => {
     expect(prisma.outstanding.updateMany).toHaveBeenCalled();
     expect(prisma.reimbursementObligation.updateMany).toHaveBeenCalled();
   });
+
+  it.each([
+    ['handleRejected', 'REJECTED', PoolSettlementBatchStatus.FAILED],
+    ['handleCancelled', 'CANCELLED', PoolSettlementBatchStatus.CANCELLED],
+    ['handleExpired', 'EXPIRED', PoolSettlementBatchStatus.FAILED],
+  ] as const)(
+    'does nothing for %s when transactional terminal transition loses the race',
+    async (handlerName, approvalStatus, terminalStatus) => {
+      const prisma = makePrisma();
+      prisma.poolSettlementBatch.findUnique.mockResolvedValue({
+        id: 'batch-stale-terminal-1',
+        approvalCaseId: 'approval-stale-terminal-1',
+        status: PoolSettlementBatchStatus.APPROVAL_PENDING,
+      });
+      prisma.poolSettlementBatch.updateMany.mockResolvedValue({ count: 0 });
+      const { moduleRef } = makeModuleRef();
+
+      const service = new PoolSettlementBatchApprovalProjectionService(
+        prisma,
+        moduleRef as any,
+      );
+
+      await (service as any)[handlerName]({
+        actionType: ApprovalActionTypes.POOL_SETTLEMENT_BATCH_APPROVAL,
+        entityRef: 'batch-stale-terminal-1',
+        approvalId: 'approval-stale-terminal-1',
+        approvalNo: 'APR-STALE-001',
+        status: approvalStatus,
+      });
+
+      expect(prisma.poolSettlementBatch.updateMany).toHaveBeenCalledWith({
+        where: {
+          id: 'batch-stale-terminal-1',
+          status: PoolSettlementBatchStatus.APPROVAL_PENDING,
+          OR: [
+            { approvalCaseId: null },
+            { approvalCaseId: 'approval-stale-terminal-1' },
+          ],
+        },
+        data: {
+          status: terminalStatus,
+        },
+      });
+      expect(prisma.outstanding.updateMany).not.toHaveBeenCalled();
+      expect(prisma.reimbursementObligation.updateMany).not.toHaveBeenCalled();
+      expect(prisma.poolSettlementBatchItemSource.updateMany).not.toHaveBeenCalled();
+      expect(prisma.poolSettlementBatch.update).not.toHaveBeenCalled();
+    },
+  );
 
   it.each([
     ['handleRejected', 'REJECTED'],
