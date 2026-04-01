@@ -1,13 +1,61 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
+import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 import { PrismaService } from '../../../core/prisma/prisma.service';
+import { ReimbursementObligationsService } from '../../asset-treasury/reimbursement-obligations/reimbursement-obligations.service';
+import { OutstandingsService } from '../outstandings/outstandings.service';
+import {
+  buildCryptoSystemWalletNo,
+  buildFiatPoolWalletNo,
+} from '../../asset-treasury/wallets/system-wallet.util';
 import {
   CreatePoolSettlementBatchDto,
   PoolSettlementBatchQueryDto,
+  PoolSettlementBatchStatus,
 } from './dto/pool-settlement-batch.dto';
+
+type TxClient = Prisma.TransactionClient;
+type SourceFamily = 'OUTSTANDING' | 'REIMBURSEMENT_OBLIGATION';
+type WalletRole = 'MASTER' | 'LIQ' | 'CUST_BANK' | 'LIQ_BANK';
+type NetDirection = 'A_TO_B' | 'B_TO_A';
+
+interface NormalizedSource {
+  sourceFamily: SourceFamily;
+  sourceId: string;
+  sourceNo: string | null;
+  assetId: string;
+  assetCode: string;
+  assetType: string;
+  assetNetwork: string | null;
+  fromWalletId: string;
+  toWalletId: string;
+  walletAId: string;
+  walletBId: string;
+  walletPairKey: string;
+  direction: NetDirection;
+  amount: Prisma.Decimal;
+}
+
+interface Bucket {
+  assetId: string;
+  walletAId: string;
+  walletBId: string;
+  walletPairKey: string;
+  sources: NormalizedSource[];
+  netAmount: Prisma.Decimal;
+}
 
 @Injectable()
 export class PoolSettlementBatchesService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly outstandingsService: OutstandingsService;
+  private readonly reimbursementObligationsService: ReimbursementObligationsService;
+
+  constructor(private readonly prisma: PrismaService) {
+    this.outstandingsService = new OutstandingsService(prisma);
+    this.reimbursementObligationsService = new ReimbursementObligationsService(
+      prisma,
+    );
+  }
 
   async findAllForAdmin(_query: PoolSettlementBatchQueryDto) {
     throw new Error('PoolSettlementBatchesService.findAllForAdmin is not implemented yet');
@@ -17,12 +65,479 @@ export class PoolSettlementBatchesService {
     throw new Error('PoolSettlementBatchesService.findDetailForAdmin is not implemented yet');
   }
 
-  async createBatch(_dto: CreatePoolSettlementBatchDto, _operatorId: string) {
-    throw new Error('PoolSettlementBatchesService.createBatch is not implemented yet');
+  private ensureRegulatorEnabledCustBankWallet(wallet: {
+    walletRole?: string | null;
+    walletNo?: string | null;
+    regulatoryEnablementStatus?: string | null;
+  }) {
+    if (String(wallet.walletRole || '').trim().toUpperCase() !== 'CUST_BANK') {
+      return;
+    }
+
+    if (
+      String(wallet.regulatoryEnablementStatus || '')
+        .trim()
+        .toUpperCase() !== 'EFFECTIVE'
+    ) {
+      throw new BadRequestException(
+        `CUST_BANK wallet ${wallet.walletNo || 'UNKNOWN'} is not regulator-enabled`,
+      );
+    }
+  }
+
+  private buildWalletPairKey(walletAId: string, walletBId: string) {
+    return [walletAId, walletBId].sort().join('::');
+  }
+
+  private normalizeDirection(walletAId: string, walletBId: string, fromWalletId: string): NetDirection {
+    return fromWalletId === walletAId ? 'A_TO_B' : 'B_TO_A';
+  }
+
+  private resolveOutstandingRoute(assetType: string, direction: string): {
+    fromRole: WalletRole;
+    toRole: WalletRole;
+  } {
+    const normalizedAssetType = String(assetType || '').trim().toUpperCase();
+    const normalizedDirection = String(direction || '').trim().toUpperCase();
+
+    if (normalizedAssetType === 'FIAT') {
+      if (normalizedDirection === 'IN') {
+        return { fromRole: 'LIQ_BANK', toRole: 'CUST_BANK' };
+      }
+      if (normalizedDirection === 'OUT') {
+        return { fromRole: 'CUST_BANK', toRole: 'LIQ_BANK' };
+      }
+      throw new BadRequestException(
+        `Unsupported outstanding direction ${direction} for FIAT asset`,
+      );
+    }
+
+    if (normalizedAssetType === 'CRYPTO') {
+      if (normalizedDirection === 'IN') {
+        return { fromRole: 'LIQ', toRole: 'MASTER' };
+      }
+      if (normalizedDirection === 'OUT') {
+        return { fromRole: 'MASTER', toRole: 'LIQ' };
+      }
+      throw new BadRequestException(
+        `Unsupported outstanding direction ${direction} for CRYPTO asset`,
+      );
+    }
+
+    throw new BadRequestException(
+      `Unsupported asset type for outstanding routing: ${assetType}`,
+    );
+  }
+
+  private resolveReimbursementRoute(assetType: string): {
+    fromRole: WalletRole;
+    toRole: WalletRole;
+  } {
+    const normalizedAssetType = String(assetType || '').trim().toUpperCase();
+
+    if (normalizedAssetType === 'FIAT') {
+      return { fromRole: 'LIQ_BANK', toRole: 'CUST_BANK' };
+    }
+
+    if (normalizedAssetType === 'CRYPTO') {
+      return { fromRole: 'LIQ', toRole: 'MASTER' };
+    }
+
+    throw new BadRequestException(
+      `Unsupported asset type for reimbursement routing: ${assetType}`,
+    );
+  }
+
+  private async resolveSystemWallet(
+    tx: TxClient,
+    input: {
+      assetId: string;
+      assetCode: string;
+      assetType: string;
+      assetNetwork?: string | null;
+      walletRole: WalletRole;
+    },
+  ) {
+    const normalizedAssetType = String(input.assetType || '').trim().toUpperCase();
+    let deterministicWalletNo: string;
+
+    if (normalizedAssetType === 'CRYPTO') {
+      deterministicWalletNo = buildCryptoSystemWalletNo(
+        input.walletRole as 'MASTER' | 'PAYOUT' | 'LIQ',
+        input.assetCode,
+        input.assetNetwork || 'NA',
+      );
+    } else if (normalizedAssetType === 'FIAT') {
+      deterministicWalletNo = buildFiatPoolWalletNo(
+        input.walletRole as 'CUST_BANK' | 'LIQ_BANK',
+        input.assetCode,
+      );
+    } else {
+      throw new BadRequestException(
+        `Unsupported asset type for wallet resolution: ${input.assetType}`,
+      );
+    }
+
+    const byWalletNo = await (tx as any).wallet.findFirst({
+      where: {
+        assetId: input.assetId,
+        status: 'ACTIVE',
+        walletNo: deterministicWalletNo,
+      },
+    });
+    if (byWalletNo) {
+      this.ensureRegulatorEnabledCustBankWallet(byWalletNo);
+      return byWalletNo;
+    }
+
+    const byRole = await (tx as any).wallet.findFirst({
+      where: {
+        assetId: input.assetId,
+        status: 'ACTIVE',
+        walletRole: input.walletRole,
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    if (!byRole) {
+      throw new BadRequestException(
+        `No ACTIVE ${input.walletRole} wallet found for asset ${input.assetCode}`,
+      );
+    }
+
+    this.ensureRegulatorEnabledCustBankWallet(byRole);
+    return byRole;
+  }
+
+  private async normalizeOutstandingSource(
+    tx: TxClient,
+    source: {
+      id: string;
+      outstandingNo?: string | null;
+      direction: string;
+      amount: Prisma.Decimal | string | number;
+      assetId: string;
+      asset: {
+        id: string;
+        code: string;
+        type: string;
+        network?: string | null;
+      };
+    },
+  ): Promise<NormalizedSource> {
+    const route = this.resolveOutstandingRoute(source.asset.type, source.direction);
+    const [fromWallet, toWallet] = await Promise.all([
+      this.resolveSystemWallet(tx, {
+        assetId: source.assetId,
+        assetCode: source.asset.code,
+        assetType: source.asset.type,
+        assetNetwork: source.asset.network || null,
+        walletRole: route.fromRole,
+      }),
+      this.resolveSystemWallet(tx, {
+        assetId: source.assetId,
+        assetCode: source.asset.code,
+        assetType: source.asset.type,
+        assetNetwork: source.asset.network || null,
+        walletRole: route.toRole,
+      }),
+    ]);
+
+    const walletAId = String(fromWallet.id) < String(toWallet.id) ? fromWallet.id : toWallet.id;
+    const walletBId = String(fromWallet.id) < String(toWallet.id) ? toWallet.id : fromWallet.id;
+
+    return {
+      sourceFamily: 'OUTSTANDING',
+      sourceId: source.id,
+      sourceNo: source.outstandingNo || null,
+      assetId: source.assetId,
+      assetCode: source.asset.code,
+      assetType: source.asset.type,
+      assetNetwork: source.asset.network || null,
+      fromWalletId: fromWallet.id,
+      toWalletId: toWallet.id,
+      walletAId,
+      walletBId,
+      walletPairKey: this.buildWalletPairKey(walletAId, walletBId),
+      direction: this.normalizeDirection(walletAId, walletBId, fromWallet.id),
+      amount: new Prisma.Decimal(source.amount),
+    };
+  }
+
+  private async normalizeReimbursementSource(
+    tx: TxClient,
+    source: {
+      id: string;
+      obligationNo?: string | null;
+      amount: Prisma.Decimal | string | number;
+      assetId: string;
+      asset: {
+        id: string;
+        code: string;
+        type: string;
+        network?: string | null;
+      };
+    },
+  ): Promise<NormalizedSource> {
+    const route = this.resolveReimbursementRoute(source.asset.type);
+    const [fromWallet, toWallet] = await Promise.all([
+      this.resolveSystemWallet(tx, {
+        assetId: source.assetId,
+        assetCode: source.asset.code,
+        assetType: source.asset.type,
+        assetNetwork: source.asset.network || null,
+        walletRole: route.fromRole,
+      }),
+      this.resolveSystemWallet(tx, {
+        assetId: source.assetId,
+        assetCode: source.asset.code,
+        assetType: source.asset.type,
+        assetNetwork: source.asset.network || null,
+        walletRole: route.toRole,
+      }),
+    ]);
+
+    const walletAId = String(fromWallet.id) < String(toWallet.id) ? fromWallet.id : toWallet.id;
+    const walletBId = String(fromWallet.id) < String(toWallet.id) ? toWallet.id : fromWallet.id;
+
+    return {
+      sourceFamily: 'REIMBURSEMENT_OBLIGATION',
+      sourceId: source.id,
+      sourceNo: source.obligationNo || null,
+      assetId: source.assetId,
+      assetCode: source.asset.code,
+      assetType: source.asset.type,
+      assetNetwork: source.asset.network || null,
+      fromWalletId: fromWallet.id,
+      toWalletId: toWallet.id,
+      walletAId,
+      walletBId,
+      walletPairKey: this.buildWalletPairKey(walletAId, walletBId),
+      direction: this.normalizeDirection(walletAId, walletBId, fromWallet.id),
+      amount: new Prisma.Decimal(source.amount),
+    };
+  }
+
+  private bucketSources(sources: NormalizedSource[]) {
+    const buckets = new Map<string, Bucket>();
+
+    for (const source of sources) {
+      const key = `${source.assetId}::${source.walletPairKey}`;
+      if (!buckets.has(key)) {
+        buckets.set(key, {
+          assetId: source.assetId,
+          walletAId: source.walletAId,
+          walletBId: source.walletBId,
+          walletPairKey: source.walletPairKey,
+          sources: [],
+          netAmount: new Prisma.Decimal(0),
+        });
+      }
+
+      const bucket = buckets.get(key)!;
+      bucket.sources.push(source);
+      const contribution =
+        source.direction === 'A_TO_B'
+          ? new Prisma.Decimal(source.amount)
+          : new Prisma.Decimal(source.amount).negated();
+      bucket.netAmount = bucket.netAmount.plus(contribution);
+    }
+
+    return Array.from(buckets.values());
+  }
+
+  private buildSummary(input: {
+    scannedSourceCount: number;
+    routableSourceCount: number;
+    skippedSourcesByReason: Record<string, number>;
+    buckets: Bucket[];
+  }) {
+    const zeroNetBucketCount = input.buckets.filter((bucket) =>
+      bucket.netAmount.eq(0),
+    ).length;
+    const zeroNetSourceCount = input.buckets
+      .filter((bucket) => bucket.netAmount.eq(0))
+      .reduce((sum, bucket) => sum + bucket.sources.length, 0);
+
+    return {
+      scannedSourceCount: input.scannedSourceCount,
+      routableSourceCount: input.routableSourceCount,
+      skippedSourceCount:
+        input.scannedSourceCount - input.routableSourceCount,
+      skippedSourcesByReason: input.skippedSourcesByReason,
+      bucketCount: input.buckets.length,
+      itemCount: input.buckets.length - zeroNetBucketCount,
+      zeroNetBucketCount,
+      zeroNetSourceCount,
+    };
+  }
+
+  async createBatch(dto: CreatePoolSettlementBatchDto, operatorId: string) {
+    return (this.prisma as any).$transaction(async (tx: TxClient) => {
+      const [openOutstandings, openReimbursements] = await Promise.all([
+        this.outstandingsService.findOpenForPoolSettlementBatch(tx),
+        this.reimbursementObligationsService.findOpenForPoolSettlementBatch(tx),
+      ]);
+
+      const skippedSourcesByReason: Record<string, number> = {};
+      const routableSources: NormalizedSource[] = [];
+
+      for (const source of openOutstandings as any[]) {
+        try {
+          routableSources.push(await this.normalizeOutstandingSource(tx, source));
+        } catch (error) {
+          const reason =
+            error instanceof Error ? error.message : 'Unknown routing failure';
+          skippedSourcesByReason[reason] =
+            (skippedSourcesByReason[reason] || 0) + 1;
+        }
+      }
+
+      for (const source of openReimbursements as any[]) {
+        try {
+          routableSources.push(await this.normalizeReimbursementSource(tx, source));
+        } catch (error) {
+          const reason =
+            error instanceof Error ? error.message : 'Unknown routing failure';
+          skippedSourcesByReason[reason] =
+            (skippedSourcesByReason[reason] || 0) + 1;
+        }
+      }
+
+      if (!routableSources.length) {
+        throw new BadRequestException(
+          'No eligible routable source found for pool settlement batch',
+        );
+      }
+
+      const buckets = this.bucketSources(routableSources);
+      const summary = this.buildSummary({
+        scannedSourceCount: openOutstandings.length + openReimbursements.length,
+        routableSourceCount: routableSources.length,
+        skippedSourcesByReason,
+        buckets,
+      });
+
+      const batch = await (tx as any).poolSettlementBatch.create({
+        data: {
+          batchNo: generateReferenceNo('PSB'),
+          status: PoolSettlementBatchStatus.CREATED,
+          cutoffAt: new Date(),
+          createdByUserId: operatorId,
+          autoCreated: Boolean(dto.autoCreated),
+          summaryJson: JSON.stringify(summary),
+          metadataJson: JSON.stringify(dto.metadataJson ?? {}),
+        },
+      });
+
+      const routableSourceIds = routableSources.map((source) => source.sourceId);
+      await Promise.all([
+        this.outstandingsService.lockForPoolSettlementBatch(
+          routableSourceIds.filter((sourceId) =>
+            routableSources.some(
+              (source) => source.sourceId === sourceId && source.sourceFamily === 'OUTSTANDING',
+            ),
+          ),
+          batch.id,
+          tx,
+        ),
+        this.reimbursementObligationsService.lockForPoolSettlementBatch(
+          routableSourceIds.filter((sourceId) =>
+            routableSources.some(
+              (source) =>
+                source.sourceId === sourceId &&
+                source.sourceFamily === 'REIMBURSEMENT_OBLIGATION',
+            ),
+          ),
+          batch.id,
+          tx,
+        ),
+      ]);
+
+      const createdItems: any[] = [];
+      const createdItemSources: any[] = [];
+
+      for (const bucket of buckets) {
+        if (bucket.netAmount.eq(0)) {
+          for (const source of bucket.sources) {
+            const itemSource = await (tx as any).poolSettlementBatchItemSource.create(
+              {
+                data: {
+                  batchId: batch.id,
+                  batchItemId: null,
+                  sourceFamily: source.sourceFamily,
+                  sourceId: source.sourceId,
+                  assetId: source.assetId,
+                  fromWalletId: source.fromWalletId,
+                  toWalletId: source.toWalletId,
+                  direction: source.direction,
+                  sourceAmount: new Prisma.Decimal(source.amount),
+                  nettedAmount: new Prisma.Decimal(source.amount),
+                  settledAmount: new Prisma.Decimal(0),
+                  status: 'NETTED',
+                  closeReason: 'NETTED',
+                },
+              },
+            );
+            createdItemSources.push(itemSource);
+          }
+          continue;
+        }
+
+        const netDirection: NetDirection = bucket.netAmount.gt(0)
+          ? 'A_TO_B'
+          : 'B_TO_A';
+        const item = await (tx as any).poolSettlementBatchItem.create({
+          data: {
+            batchId: batch.id,
+            status: 'READY',
+            assetId: bucket.assetId,
+            walletPairKey: bucket.walletPairKey,
+            walletAId: bucket.walletAId,
+            walletBId: bucket.walletBId,
+            netDirection,
+            netAmount: bucket.netAmount.abs(),
+            submittedAmount: new Prisma.Decimal(0),
+            settledAmount: new Prisma.Decimal(0),
+          },
+        });
+        createdItems.push(item);
+
+        for (const source of bucket.sources) {
+          const itemSource = await (tx as any).poolSettlementBatchItemSource.create(
+            {
+              data: {
+                batchId: batch.id,
+                batchItemId: item.id,
+                sourceFamily: source.sourceFamily,
+                sourceId: source.sourceId,
+                assetId: source.assetId,
+                fromWalletId: source.fromWalletId,
+                toWalletId: source.toWalletId,
+                direction: source.direction,
+                sourceAmount: new Prisma.Decimal(source.amount),
+                nettedAmount: new Prisma.Decimal(0),
+                settledAmount: new Prisma.Decimal(0),
+                status: 'LINKED',
+                closeReason: null,
+              },
+            },
+          );
+          createdItemSources.push(itemSource);
+        }
+      }
+
+      return {
+        ...batch,
+        metadataJson: dto.metadataJson ?? {},
+        summary,
+        items: createdItems,
+        itemSources: createdItemSources,
+      };
+    });
   }
 
   async submitBatch(_id: string, _operatorId: string) {
     throw new Error('PoolSettlementBatchesService.submitBatch is not implemented yet');
   }
 }
-

@@ -27,6 +27,55 @@ export class ReimbursementObligationsService {
     this.auditLogsService = new AuditLogsService(prisma);
   }
 
+  async findOpenForPoolSettlementBatch(tx?: any) {
+    const db = tx || this.prisma;
+    const rows = await (db as any).reimbursementObligation.findMany({
+      where: {
+        status: 'OPEN',
+        lockedByPoolSettlementBatchId: null,
+      },
+      select: {
+        id: true,
+        obligationNo: true,
+        amount: true,
+        assetId: true,
+        poolRole: true,
+        sourceWalletId: true,
+        asset: {
+          select: {
+            id: true,
+            code: true,
+            type: true,
+            network: true,
+          },
+        },
+      },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    });
+
+    return rows.filter((row: any) => !row.lockedByPoolSettlementBatchId);
+  }
+
+  async lockForPoolSettlementBatch(
+    reimbursementIds: string[],
+    batchId: string,
+    tx?: any,
+  ) {
+    if (!reimbursementIds.length) return { count: 0 };
+
+    const db = tx || this.prisma;
+    return (db as any).reimbursementObligation.updateMany({
+      where: {
+        id: { in: reimbursementIds },
+        status: 'OPEN',
+        lockedByPoolSettlementBatchId: null,
+      },
+      data: {
+        lockedByPoolSettlementBatchId: batchId,
+      },
+    });
+  }
+
   async syncForOccurrence(item: any, operatorId = 'SYSTEM', tx?: any) {
     if (String(item?.reimbursementImpact || '').toUpperCase() !== 'SAFEGUARDED_POOL') {
       return null;
