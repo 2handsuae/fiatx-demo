@@ -101,7 +101,12 @@ describe('PoolSettlementBatchApprovalProjectionService', () => {
       },
     });
     expect(prisma.poolSettlementBatchItemSource.updateMany).toHaveBeenCalledWith({
-      where: { batchId: 'batch-1' },
+      where: {
+        batchId: 'batch-1',
+        status: {
+          in: ['LINKED', 'NETTED'],
+        },
+      },
       data: {
         status: 'RELEASED',
         closeReason: 'BATCH_RELEASED',
@@ -140,7 +145,12 @@ describe('PoolSettlementBatchApprovalProjectionService', () => {
       },
     });
     expect(prisma.poolSettlementBatchItemSource.updateMany).toHaveBeenCalledWith({
-      where: { batchId: 'batch-2' },
+      where: {
+        batchId: 'batch-2',
+        status: {
+          in: ['LINKED', 'NETTED'],
+        },
+      },
       data: {
         status: 'RELEASED',
         closeReason: 'BATCH_RELEASED',
@@ -175,6 +185,59 @@ describe('PoolSettlementBatchApprovalProjectionService', () => {
     expect(prisma.outstanding.updateMany).toHaveBeenCalled();
     expect(prisma.reimbursementObligation.updateMany).toHaveBeenCalled();
   });
+
+  it.each([
+    ['handleRejected', 'REJECTED'],
+    ['handleCancelled', 'CANCELLED'],
+    ['handleExpired', 'EXPIRED'],
+  ] as const)(
+    'does nothing for %s when batch is no longer APPROVAL_PENDING',
+    async (handlerName, approvalStatus) => {
+      const prisma = makePrisma();
+      prisma.poolSettlementBatch.findUnique.mockResolvedValue({
+        id: 'batch-late-1',
+        approvalCaseId: 'approval-late-1',
+        status: PoolSettlementBatchStatus.APPROVED,
+      });
+
+      const service = new PoolSettlementBatchApprovalProjectionService(prisma);
+
+      await (service as any)[handlerName]({
+        actionType: ApprovalActionTypes.POOL_SETTLEMENT_BATCH_APPROVAL,
+        entityRef: 'batch-late-1',
+        approvalId: 'approval-late-1',
+        approvalNo: 'APR-LATE-001',
+        status: approvalStatus,
+      });
+
+      expect(prisma.outstanding.updateMany).not.toHaveBeenCalled();
+      expect(prisma.reimbursementObligation.updateMany).not.toHaveBeenCalled();
+      expect(prisma.poolSettlementBatchItemSource.updateMany).not.toHaveBeenCalled();
+      expect(prisma.poolSettlementBatch.update).not.toHaveBeenCalled();
+    },
+  );
+
+  it('does nothing for repeated APPROVED after batch is already APPROVED', async () => {
+    const prisma = makePrisma();
+    prisma.poolSettlementBatch.findUnique.mockResolvedValue({
+      id: 'batch-approved-1',
+      approvalCaseId: 'approval-approved-1',
+      status: PoolSettlementBatchStatus.APPROVED,
+    });
+
+    const service = new PoolSettlementBatchApprovalProjectionService(prisma);
+
+    await service.handleApproved({
+      actionType: ApprovalActionTypes.POOL_SETTLEMENT_BATCH_APPROVAL,
+      entityRef: 'batch-approved-1',
+      approvalId: 'approval-approved-1',
+      approvalNo: 'APR-APPROVED-001',
+      status: 'APPROVED',
+      decidedAt,
+    } as any);
+
+    expect(prisma.poolSettlementBatch.update).not.toHaveBeenCalled();
+  });
 });
 
 describe('PoolSettlementBatchesService submitBatch', () => {
@@ -185,6 +248,7 @@ describe('PoolSettlementBatchesService submitBatch', () => {
         findUniqueOrThrow: jest.fn(),
         update: jest.fn(),
       },
+      $queryRaw: jest.fn(),
       $transaction: jest.fn((cb: any) => cb(prisma)),
     };
 
@@ -292,5 +356,63 @@ describe('PoolSettlementBatchesService submitBatch', () => {
         submittedAt: expect.any(Date),
       }),
     );
+  });
+
+  it('serializes duplicate submits under a batch lock and prevents a second approval case', async () => {
+    const lifecycle: string[] = [];
+    const batchState = {
+      id: 'batch-serial-1',
+      batchNo: 'PSB-SERIAL-001',
+      status: PoolSettlementBatchStatus.CREATED,
+      approvalCaseId: null as string | null,
+      submittedAt: null as Date | null,
+    };
+
+    const prisma = makePrisma();
+    const approvalsService = makeApprovalsService();
+    prisma.$queryRaw.mockImplementation(() => {
+      lifecycle.push('lock');
+      return Promise.resolve([{ id: batchState.id }]);
+    });
+    prisma.poolSettlementBatch.findUniqueOrThrow.mockImplementation(() => {
+      lifecycle.push(`read:${batchState.status}`);
+      return Promise.resolve({ ...batchState });
+    });
+    approvalsService.createAndSubmit.mockImplementation(() => {
+      lifecycle.push('createApproval');
+      return Promise.resolve({
+        id: 'approval-serial-1',
+        approvalNo: 'APR-SERIAL-001',
+        status: 'PENDING',
+      });
+    });
+    prisma.poolSettlementBatch.update.mockImplementation(({ data }: any) => {
+      lifecycle.push('updateBatch');
+      Object.assign(batchState, data);
+      return Promise.resolve({
+        ...batchState,
+      });
+    });
+
+    const service = new PoolSettlementBatchesService(
+      prisma,
+      approvalsService as any,
+    );
+
+    await service.submitBatch('batch-serial-1', 'admin-1');
+    await expect(
+      service.submitBatch('batch-serial-1', 'admin-2'),
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(prisma.$queryRaw).toHaveBeenCalledTimes(2);
+    expect(approvalsService.createAndSubmit).toHaveBeenCalledTimes(1);
+    expect(lifecycle).toEqual([
+      'lock',
+      'read:CREATED',
+      'createApproval',
+      'updateBatch',
+      'lock',
+      'read:APPROVAL_PENDING',
+    ]);
   });
 });

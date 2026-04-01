@@ -641,6 +641,15 @@ export class PoolSettlementBatchesService {
     const actor = this.buildApprovalActorContext(actorUserId);
     const transactionResult = await (this.prisma as any).$transaction(
       async (tx: TxClient) => {
+        await (tx as any).$queryRaw(
+          Prisma.sql`
+            SELECT "id"
+            FROM "pool_settlement_batches"
+            WHERE "id" = ${id}
+            FOR UPDATE
+          `,
+        );
+
         const batch = await (tx as any).poolSettlementBatch.findUniqueOrThrow({
           where: { id },
         });

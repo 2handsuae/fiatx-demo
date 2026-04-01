@@ -48,6 +48,10 @@ export class PoolSettlementBatchApprovalProjectionService {
       return null;
     }
 
+    if (batch.status !== PoolSettlementBatchStatus.APPROVAL_PENDING) {
+      return null;
+    }
+
     return batch;
   }
 
@@ -76,7 +80,12 @@ export class PoolSettlementBatchApprovalProjectionService {
           },
         }),
         tx.poolSettlementBatchItemSource.updateMany({
-          where: { batchId },
+          where: {
+            batchId,
+            status: {
+              in: ['LINKED', 'NETTED'],
+            },
+          },
           data: {
             status: 'RELEASED',
             closeReason: 'BATCH_RELEASED',
