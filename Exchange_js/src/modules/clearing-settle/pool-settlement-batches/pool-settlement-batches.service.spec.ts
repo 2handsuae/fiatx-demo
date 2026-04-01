@@ -67,6 +67,13 @@ describe('PoolSettlementBatchesService', () => {
       },
       poolSettlementBatch: {
         create: jest.fn(),
+        update: jest.fn((args: any) =>
+          Promise.resolve({
+            id: args.where.id,
+            status: 'CREATED',
+            ...args.data,
+          }),
+        ),
       },
       poolSettlementBatchItem: {
         create: jest.fn((args: any) =>
@@ -476,6 +483,153 @@ describe('PoolSettlementBatchesService', () => {
         }),
       }),
     );
+  });
+
+  it('only includes sources actually locked by the current batch', async () => {
+    const { prisma, service } = createService();
+
+    const openRows = [
+      buildOutstanding({
+        id: 'outstanding-1',
+        direction: 'OUT',
+        amount: decimal(5),
+        assetId: 'asset-btc',
+        asset: buildAsset('asset-btc', 'BTC', 'CRYPTO', 'BITCOIN'),
+      }),
+      buildOutstanding({
+        id: 'outstanding-2',
+        direction: 'OUT',
+        amount: decimal(4),
+        assetId: 'asset-eth',
+        asset: buildAsset('asset-eth', 'ETH', 'CRYPTO', 'ETHEREUM'),
+      }),
+    ];
+
+    prisma.outstanding.findMany.mockImplementation(({ where }: any) => {
+      if (where?.lockedByPoolSettlementBatchId) {
+        return Promise.resolve([openRows[0]]);
+      }
+      return Promise.resolve(openRows);
+    });
+    prisma.reimbursementObligation.findMany.mockImplementation(({ where }: any) => {
+      if (where?.lockedByPoolSettlementBatchId) {
+        return Promise.resolve([]);
+      }
+      return Promise.resolve([]);
+    });
+    prisma.outstanding.updateMany.mockResolvedValue({ count: 1 });
+
+    registerWallets(prisma, {
+      'WA-MST-BTC-BITCOIN': buildWallet({
+        id: 'wallet-btc-master',
+        walletRole: 'MASTER',
+        walletNo: 'WA-MST-BTC-BITCOIN',
+        assetId: 'asset-btc',
+      }),
+      'WA-LIQ-BTC-BITCOIN': buildWallet({
+        id: 'wallet-btc-liq',
+        walletRole: 'LIQ',
+        walletNo: 'WA-LIQ-BTC-BITCOIN',
+        assetId: 'asset-btc',
+      }),
+      'WA-MST-ETH-ETHEREUM': buildWallet({
+        id: 'wallet-eth-master',
+        walletRole: 'MASTER',
+        walletNo: 'WA-MST-ETH-ETHEREUM',
+        assetId: 'asset-eth',
+      }),
+      'WA-LIQ-ETH-ETHEREUM': buildWallet({
+        id: 'wallet-eth-liq',
+        walletRole: 'LIQ',
+        walletNo: 'WA-LIQ-ETH-ETHEREUM',
+        assetId: 'asset-eth',
+      }),
+    });
+
+    prisma.poolSettlementBatch.create.mockImplementation(({ data }: any) =>
+      Promise.resolve({
+        id: 'batch-lock-1',
+        batchNo: data.batchNo,
+        status: data.status,
+        cutoffAt: data.cutoffAt,
+        createdByUserId: data.createdByUserId,
+        autoCreated: data.autoCreated,
+        summaryJson: data.summaryJson,
+        metadataJson: data.metadataJson,
+      }),
+    );
+
+    const result: any = await (service as any).createBatch({}, 'admin-1');
+
+    expect(prisma.outstanding.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          id: { in: ['outstanding-1', 'outstanding-2'] },
+        }),
+      }),
+    );
+    expect(prisma.poolSettlementBatchItem.create).toHaveBeenCalledTimes(1);
+    expect(result.items).toHaveLength(1);
+    expect(result.itemSources).toHaveLength(1);
+  });
+
+  it('fails when no sources are actually locked by the batch', async () => {
+    const { prisma, service } = createService();
+
+    prisma.outstanding.findMany.mockImplementation(({ where }: any) => {
+      if (where?.lockedByPoolSettlementBatchId) {
+        return Promise.resolve([]);
+      }
+      return Promise.resolve([
+        buildOutstanding({
+          id: 'outstanding-1',
+          direction: 'OUT',
+          amount: decimal(5),
+          assetId: 'asset-btc',
+          asset: buildAsset('asset-btc', 'BTC', 'CRYPTO', 'BITCOIN'),
+        }),
+      ]);
+    });
+    prisma.reimbursementObligation.findMany.mockImplementation(({ where }: any) => {
+      if (where?.lockedByPoolSettlementBatchId) {
+        return Promise.resolve([]);
+      }
+      return Promise.resolve([]);
+    });
+    prisma.outstanding.updateMany.mockResolvedValue({ count: 0 });
+
+    registerWallets(prisma, {
+      'WA-MST-BTC-BITCOIN': buildWallet({
+        id: 'wallet-btc-master',
+        walletRole: 'MASTER',
+        walletNo: 'WA-MST-BTC-BITCOIN',
+        assetId: 'asset-btc',
+      }),
+      'WA-LIQ-BTC-BITCOIN': buildWallet({
+        id: 'wallet-btc-liq',
+        walletRole: 'LIQ',
+        walletNo: 'WA-LIQ-BTC-BITCOIN',
+        assetId: 'asset-btc',
+      }),
+    });
+
+    prisma.poolSettlementBatch.create.mockImplementation(({ data }: any) =>
+      Promise.resolve({
+        id: 'batch-lock-2',
+        batchNo: data.batchNo,
+        status: data.status,
+        cutoffAt: data.cutoffAt,
+        createdByUserId: data.createdByUserId,
+        autoCreated: data.autoCreated,
+        summaryJson: data.summaryJson,
+        metadataJson: data.metadataJson,
+      }),
+    );
+
+    await expect((service as any).createBatch({}, 'admin-1')).rejects.toThrow(
+      'No sources were locked for pool settlement batch',
+    );
+    expect(prisma.poolSettlementBatchItem.create).not.toHaveBeenCalled();
   });
 
   it('nets across outstanding and reimbursement sources in one bucket', async () => {

@@ -63,6 +63,36 @@ export class OutstandingsService {
     return rows.filter((row: any) => !row.lockedByPoolSettlementBatchId);
   }
 
+  async findLockedForPoolSettlementBatch(
+    batchId: string,
+    tx?: Prisma.TransactionClient,
+  ) {
+    const db = tx || this.prisma;
+    return (db as any).outstanding.findMany({
+      where: {
+        status: 'OPEN',
+        lockedByPoolSettlementBatchId: batchId,
+      },
+      select: {
+        id: true,
+        outstandingNo: true,
+        direction: true,
+        amount: true,
+        lockedByPoolSettlementBatchId: true,
+        assetId: true,
+        asset: {
+          select: {
+            id: true,
+            code: true,
+            type: true,
+            network: true,
+          },
+        },
+      },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    });
+  }
+
   async lockForPoolSettlementBatch(
     outstandingIds: string[],
     batchId: string,

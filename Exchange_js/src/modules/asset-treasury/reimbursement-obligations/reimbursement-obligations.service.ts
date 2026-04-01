@@ -56,6 +56,33 @@ export class ReimbursementObligationsService {
     return rows.filter((row: any) => !row.lockedByPoolSettlementBatchId);
   }
 
+  async findLockedForPoolSettlementBatch(batchId: string, tx?: any) {
+    const db = tx || this.prisma;
+    return (db as any).reimbursementObligation.findMany({
+      where: {
+        status: 'OPEN',
+        lockedByPoolSettlementBatchId: batchId,
+      },
+      select: {
+        id: true,
+        obligationNo: true,
+        amount: true,
+        assetId: true,
+        poolRole: true,
+        sourceWalletId: true,
+        asset: {
+          select: {
+            id: true,
+            code: true,
+            type: true,
+            network: true,
+          },
+        },
+      },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    });
+  }
+
   async lockForPoolSettlementBatch(
     reimbursementIds: string[],
     batchId: string,

@@ -410,14 +410,6 @@ export class PoolSettlementBatchesService {
         );
       }
 
-      const buckets = this.bucketSources(routableSources);
-      const summary = this.buildSummary({
-        scannedSourceCount: openOutstandings.length + openReimbursements.length,
-        routableSourceCount: routableSources.length,
-        skippedSourcesByReason,
-        buckets,
-      });
-
       const batch = await (tx as any).poolSettlementBatch.create({
         data: {
           batchNo: generateReferenceNo('PSB'),
@@ -425,34 +417,65 @@ export class PoolSettlementBatchesService {
           cutoffAt: new Date(),
           createdByUserId: operatorId,
           autoCreated: Boolean(dto.autoCreated),
-          summaryJson: JSON.stringify(summary),
+          summaryJson: JSON.stringify({}),
           metadataJson: JSON.stringify(dto.metadataJson ?? {}),
         },
       });
 
-      const routableSourceIds = routableSources.map((source) => source.sourceId);
       await Promise.all([
         this.outstandingsService.lockForPoolSettlementBatch(
-          routableSourceIds.filter((sourceId) =>
-            routableSources.some(
-              (source) => source.sourceId === sourceId && source.sourceFamily === 'OUTSTANDING',
-            ),
-          ),
+          routableSources
+            .filter((source) => source.sourceFamily === 'OUTSTANDING')
+            .map((source) => source.sourceId),
           batch.id,
           tx,
         ),
         this.reimbursementObligationsService.lockForPoolSettlementBatch(
-          routableSourceIds.filter((sourceId) =>
-            routableSources.some(
-              (source) =>
-                source.sourceId === sourceId &&
-                source.sourceFamily === 'REIMBURSEMENT_OBLIGATION',
-            ),
-          ),
+          routableSources
+            .filter((source) => source.sourceFamily === 'REIMBURSEMENT_OBLIGATION')
+            .map((source) => source.sourceId),
           batch.id,
           tx,
         ),
       ]);
+
+      const [lockedOutstandings, lockedReimbursements] = await Promise.all([
+        this.outstandingsService.findLockedForPoolSettlementBatch(batch.id, tx),
+        this.reimbursementObligationsService.findLockedForPoolSettlementBatch(
+          batch.id,
+          tx,
+        ),
+      ]);
+
+      const lockedSourceKeys = new Set<string>();
+      for (const source of lockedOutstandings as any[]) {
+        lockedSourceKeys.add(`OUTSTANDING:${source.id}`);
+      }
+      for (const source of lockedReimbursements as any[]) {
+        lockedSourceKeys.add(`REIMBURSEMENT_OBLIGATION:${source.id}`);
+      }
+
+      const lockedSources = routableSources.filter((source) =>
+        lockedSourceKeys.has(`${source.sourceFamily}:${source.sourceId}`),
+      );
+
+      if (!lockedSources.length) {
+        throw new BadRequestException(
+          'No sources were locked for pool settlement batch',
+        );
+      }
+
+      const buckets = this.bucketSources(lockedSources);
+      const summary = this.buildSummary({
+        scannedSourceCount: openOutstandings.length + openReimbursements.length,
+        routableSourceCount: lockedSources.length,
+        skippedSourcesByReason,
+        buckets,
+      });
+      const batchWithSummary = await (tx as any).poolSettlementBatch.update({
+        where: { id: batch.id },
+        data: { summaryJson: JSON.stringify(summary) },
+      });
 
       const createdItems: any[] = [];
       const createdItemSources: any[] = [];
@@ -528,7 +551,7 @@ export class PoolSettlementBatchesService {
       }
 
       return {
-        ...batch,
+        ...batchWithSummary,
         metadataJson: dto.metadataJson ?? {},
         summary,
         items: createdItems,
