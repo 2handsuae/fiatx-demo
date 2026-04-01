@@ -45,6 +45,11 @@ interface Bucket {
   netAmount: Prisma.Decimal;
 }
 
+interface ScannedSource {
+  sourceFamily: SourceFamily;
+  sourceId: string;
+}
+
 @Injectable()
 export class PoolSettlementBatchesService {
   private readonly outstandingsService: OutstandingsService;
@@ -372,6 +377,46 @@ export class PoolSettlementBatchesService {
     };
   }
 
+  private addSkipReason(
+    skippedSourcesByReason: Record<string, number>,
+    reason: string,
+    count = 1,
+  ) {
+    skippedSourcesByReason[reason] =
+      (skippedSourcesByReason[reason] || 0) + count;
+  }
+
+  private async normalizeFreshLockedSources(
+    tx: TxClient,
+    lockedOutstandings: any[],
+    lockedReimbursements: any[],
+    skippedSourcesByReason: Record<string, number>,
+  ) {
+    const normalizedSources: NormalizedSource[] = [];
+
+    for (const source of lockedOutstandings) {
+      try {
+        normalizedSources.push(await this.normalizeOutstandingSource(tx, source));
+      } catch (error) {
+        const reason =
+          error instanceof Error ? error.message : 'Unknown routing failure';
+        this.addSkipReason(skippedSourcesByReason, reason);
+      }
+    }
+
+    for (const source of lockedReimbursements) {
+      try {
+        normalizedSources.push(await this.normalizeReimbursementSource(tx, source));
+      } catch (error) {
+        const reason =
+          error instanceof Error ? error.message : 'Unknown routing failure';
+        this.addSkipReason(skippedSourcesByReason, reason);
+      }
+    }
+
+    return normalizedSources;
+  }
+
   async createBatch(dto: CreatePoolSettlementBatchDto, operatorId: string) {
     return (this.prisma as any).$transaction(async (tx: TxClient) => {
       const [openOutstandings, openReimbursements] = await Promise.all([
@@ -380,31 +425,37 @@ export class PoolSettlementBatchesService {
       ]);
 
       const skippedSourcesByReason: Record<string, number> = {};
-      const routableSources: NormalizedSource[] = [];
+      const routableCandidates: ScannedSource[] = [];
 
       for (const source of openOutstandings as any[]) {
         try {
-          routableSources.push(await this.normalizeOutstandingSource(tx, source));
+          await this.normalizeOutstandingSource(tx, source);
+          routableCandidates.push({
+            sourceFamily: 'OUTSTANDING',
+            sourceId: source.id,
+          });
         } catch (error) {
           const reason =
             error instanceof Error ? error.message : 'Unknown routing failure';
-          skippedSourcesByReason[reason] =
-            (skippedSourcesByReason[reason] || 0) + 1;
+          this.addSkipReason(skippedSourcesByReason, reason);
         }
       }
 
       for (const source of openReimbursements as any[]) {
         try {
-          routableSources.push(await this.normalizeReimbursementSource(tx, source));
+          await this.normalizeReimbursementSource(tx, source);
+          routableCandidates.push({
+            sourceFamily: 'REIMBURSEMENT_OBLIGATION',
+            sourceId: source.id,
+          });
         } catch (error) {
           const reason =
             error instanceof Error ? error.message : 'Unknown routing failure';
-          skippedSourcesByReason[reason] =
-            (skippedSourcesByReason[reason] || 0) + 1;
+          this.addSkipReason(skippedSourcesByReason, reason);
         }
       }
 
-      if (!routableSources.length) {
+      if (!routableCandidates.length) {
         throw new BadRequestException(
           'No eligible routable source found for pool settlement batch',
         );
@@ -424,14 +475,14 @@ export class PoolSettlementBatchesService {
 
       await Promise.all([
         this.outstandingsService.lockForPoolSettlementBatch(
-          routableSources
+          routableCandidates
             .filter((source) => source.sourceFamily === 'OUTSTANDING')
             .map((source) => source.sourceId),
           batch.id,
           tx,
         ),
         this.reimbursementObligationsService.lockForPoolSettlementBatch(
-          routableSources
+          routableCandidates
             .filter((source) => source.sourceFamily === 'REIMBURSEMENT_OBLIGATION')
             .map((source) => source.sourceId),
           batch.id,
@@ -455,8 +506,18 @@ export class PoolSettlementBatchesService {
         lockedSourceKeys.add(`REIMBURSEMENT_OBLIGATION:${source.id}`);
       }
 
-      const lockedSources = routableSources.filter((source) =>
-        lockedSourceKeys.has(`${source.sourceFamily}:${source.sourceId}`),
+      const lockMissCount = routableCandidates.filter(
+        (source) => !lockedSourceKeys.has(`${source.sourceFamily}:${source.sourceId}`),
+      ).length;
+      if (lockMissCount > 0) {
+        this.addSkipReason(skippedSourcesByReason, 'LOCK_MISS', lockMissCount);
+      }
+
+      const lockedSources = await this.normalizeFreshLockedSources(
+        tx,
+        lockedOutstandings,
+        lockedReimbursements,
+        skippedSourcesByReason,
       );
 
       if (!lockedSources.length) {
