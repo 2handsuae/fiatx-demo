@@ -4,6 +4,8 @@ import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { ReimbursementObligationsService } from '../../asset-treasury/reimbursement-obligations/reimbursement-obligations.service';
 import { OutstandingsService } from '../outstandings/outstandings.service';
+import { ApprovalsService } from '../../governance/approvals/approvals.service';
+import { ApprovalActionTypes } from '../../governance/approvals/constants/approval.constants';
 import {
   buildCryptoSystemWalletNo,
   buildFiatPoolWalletNo,
@@ -55,11 +57,23 @@ export class PoolSettlementBatchesService {
   private readonly outstandingsService: OutstandingsService;
   private readonly reimbursementObligationsService: ReimbursementObligationsService;
 
-  constructor(private readonly prisma: PrismaService) {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly approvalsService: ApprovalsService,
+  ) {
     this.outstandingsService = new OutstandingsService(prisma);
     this.reimbursementObligationsService = new ReimbursementObligationsService(
       prisma,
     );
+  }
+
+  private buildApprovalActorContext(actorUserId: string) {
+    return {
+      actorType: 'ADMIN' as const,
+      userId: actorUserId,
+      role: 'ADMIN',
+      roleCodes: ['ADMIN'],
+    };
   }
 
   async findAllForAdmin(_query: PoolSettlementBatchQueryDto) {
@@ -623,7 +637,67 @@ export class PoolSettlementBatchesService {
     });
   }
 
-  async submitBatch(_id: string, _operatorId: string) {
-    throw new Error('PoolSettlementBatchesService.submitBatch is not implemented yet');
+  async submitBatch(id: string, actorUserId: string) {
+    const actor = this.buildApprovalActorContext(actorUserId);
+    const transactionResult = await (this.prisma as any).$transaction(
+      async (tx: TxClient) => {
+        const batch = await (tx as any).poolSettlementBatch.findUniqueOrThrow({
+          where: { id },
+        });
+
+        if (batch.status !== PoolSettlementBatchStatus.CREATED) {
+          throw new BadRequestException('Only CREATED batch can be submitted');
+        }
+
+        const traceId = `POOL-SETTLEMENT:${batch.batchNo}`;
+        const approval = await this.approvalsService.createAndSubmit(
+          {
+            actionType: ApprovalActionTypes.POOL_SETTLEMENT_BATCH_APPROVAL,
+            entityRef: batch.id,
+            traceId,
+            workflowType: 'POOL_SETTLEMENT_BATCH',
+            workflowId: batch.id,
+            workflowNo: batch.batchNo,
+            metadata: {
+              batchId: batch.id,
+              batchNo: batch.batchNo,
+            },
+            docRef: batch.batchNo,
+          },
+          {
+            reason: 'Pool settlement batch submitted',
+            traceId,
+            workflowType: 'POOL_SETTLEMENT_BATCH',
+            workflowId: batch.id,
+            workflowNo: batch.batchNo,
+          },
+          actor,
+          tx,
+          { emitSideEffects: false },
+        );
+
+        const updatedBatch = await (tx as any).poolSettlementBatch.update({
+          where: { id: batch.id },
+          data: {
+            status: PoolSettlementBatchStatus.APPROVAL_PENDING,
+            approvalCaseId: approval.id,
+            submittedAt: new Date(),
+          },
+        });
+
+        return {
+          batch: updatedBatch,
+          approvalId: approval.id,
+        };
+      },
+    );
+
+    await this.approvalsService.emitSubmittedSideEffects(
+      transactionResult.approvalId,
+      actor,
+      'Pool settlement batch submitted',
+    );
+
+    return transactionResult.batch;
   }
 }

@@ -4,6 +4,7 @@ export const ApprovalActionTypes = {
   CHANGE_TICKET_APPROVAL: 'CHANGE_TICKET_APPROVAL',
   DELETE_REQUEST_APPROVAL: 'DELETE_REQUEST_APPROVAL',
   ONBOARDING_FINAL_APPROVAL: 'ONBOARDING_FINAL_APPROVAL',
+  POOL_SETTLEMENT_BATCH_APPROVAL: 'POOL_SETTLEMENT_BATCH_APPROVAL',
   TREASURY_CROSS_POOL_TRANSFER_APPROVAL: 'TREASURY_CROSS_POOL_TRANSFER_APPROVAL',
 } as const;
 
@@ -111,6 +112,13 @@ export const DEFAULT_APPROVAL_POLICIES: Record<
   [ApprovalActionTypes.ONBOARDING_FINAL_APPROVAL]: {
     riskLevel: ApprovalRiskLevels.HIGH,
     checkerRoles: ['SM'],
+    timeoutHours: 24,
+    allowCancel: true,
+    allowRetry: true,
+  },
+  [ApprovalActionTypes.POOL_SETTLEMENT_BATCH_APPROVAL]: {
+    riskLevel: ApprovalRiskLevels.HIGH,
+    checkerRoles: ['SM', 'TECH_ADMIN'],
     timeoutHours: 24,
     allowCancel: true,
     allowRetry: true,
