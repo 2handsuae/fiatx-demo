@@ -148,6 +148,12 @@ export class PoolSettlementBatchApprovalProjectionService {
   }
 
   private resolveItemDirection(item: PoolSettlementBatchDispatchItem) {
+    if (item.netDirection !== 'A_TO_B' && item.netDirection !== 'B_TO_A') {
+      throw new InternalServerErrorException(
+        `Unsupported pool settlement netDirection: ${String(item.netDirection || '')}`,
+      );
+    }
+
     const fromWallet = item.netDirection === 'A_TO_B' ? item.walletA : item.walletB;
     const toWallet = item.netDirection === 'A_TO_B' ? item.walletB : item.walletA;
     const fromRole = this.resolveWalletRole(fromWallet);
@@ -252,19 +258,41 @@ export class PoolSettlementBatchApprovalProjectionService {
   async handleApproved(event: ApprovalDecisionEvent) {
     if (!this.isPoolSettlementBatchApproval(event)) return;
 
-    const batch = await this.findBatchForProjection(event);
-    if (!batch) return;
-
     const approvedAt = this.parseDecisionTime(event.decidedAt) || new Date();
+    let approvedBatchLabel = event.entityRef;
+    let transitioned = false;
 
     await (this.prisma as any).$transaction(async (tx: any) => {
-      await tx.poolSettlementBatch.update({
-        where: { id: batch.id },
+      const approvalTransition = await tx.poolSettlementBatch.updateMany({
+        where: {
+          id: event.entityRef,
+          status: PoolSettlementBatchStatus.APPROVAL_PENDING,
+          OR: event.approvalId
+            ? [{ approvalCaseId: null }, { approvalCaseId: event.approvalId }]
+            : [{ approvalCaseId: null }],
+        },
         data: {
           status: PoolSettlementBatchStatus.APPROVED,
           approvedAt,
         },
       });
+
+      if (!approvalTransition?.count) {
+        return;
+      }
+      transitioned = true;
+
+      const batch = await tx.poolSettlementBatch.findUnique({
+        where: { id: event.entityRef },
+        select: {
+          id: true,
+          batchNo: true,
+          approvalCaseId: true,
+          status: true,
+        },
+      });
+      if (!batch) return;
+      approvedBatchLabel = batch.batchNo || batch.id;
 
       const items = await tx.poolSettlementBatchItem.findMany(
         this.getNonZeroItemQuery(batch.id),
@@ -346,7 +374,9 @@ export class PoolSettlementBatchApprovalProjectionService {
       }
     });
 
-    this.logger.log(`Pool settlement batch approved: ${batch.batchNo || batch.id}`);
+    if (transitioned) {
+      this.logger.log(`Pool settlement batch approved: ${approvedBatchLabel}`);
+    }
   }
 
   @OnEvent(ApprovalEvents.REJECTED, { async: true })

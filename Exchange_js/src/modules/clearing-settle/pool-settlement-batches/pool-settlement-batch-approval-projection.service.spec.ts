@@ -1,4 +1,7 @@
-import { BadRequestException } from '@nestjs/common';
+import {
+  BadRequestException,
+  InternalServerErrorException,
+} from '@nestjs/common';
 import { InternalFundStatus } from '../../asset-treasury/internal-funds/dto/internal-fund.dto';
 import {
   InternalTransactionApprovalStatus,
@@ -20,6 +23,7 @@ describe('PoolSettlementBatchApprovalProjectionService', () => {
     const prisma: any = {
       poolSettlementBatch: {
         findUnique: jest.fn(),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
         update: jest.fn(),
       },
       poolSettlementBatchItem: {
@@ -100,8 +104,15 @@ describe('PoolSettlementBatchApprovalProjectionService', () => {
       decidedAt,
     } as any);
 
-    expect(prisma.poolSettlementBatch.update).toHaveBeenCalledWith({
-      where: { id: 'batch-1' },
+    expect(prisma.poolSettlementBatch.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: 'batch-1',
+        status: PoolSettlementBatchStatus.APPROVAL_PENDING,
+        OR: [
+          { approvalCaseId: null },
+          { approvalCaseId: 'approval-1' },
+        ],
+      },
       data: {
         status: PoolSettlementBatchStatus.APPROVED,
         approvedAt: new Date(decidedAt),
@@ -349,6 +360,102 @@ describe('PoolSettlementBatchApprovalProjectionService', () => {
     });
   });
 
+  it('does not dispatch when transactional APPROVED transition loses the race', async () => {
+    const prisma = makePrisma();
+    prisma.poolSettlementBatch.updateMany.mockResolvedValue({ count: 0 });
+    const { moduleRef, internalTransactionsService, internalFundsService } =
+      makeModuleRef();
+
+    const service = new PoolSettlementBatchApprovalProjectionService(
+      prisma,
+      moduleRef as any,
+    );
+
+    await service.handleApproved({
+      actionType: ApprovalActionTypes.POOL_SETTLEMENT_BATCH_APPROVAL,
+      entityRef: 'batch-race-1',
+      approvalId: 'approval-race-1',
+      approvalNo: 'APR-RACE-001',
+      status: 'APPROVED',
+      decidedAt,
+    } as any);
+
+    expect(prisma.poolSettlementBatch.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: 'batch-race-1',
+        status: PoolSettlementBatchStatus.APPROVAL_PENDING,
+        OR: [
+          { approvalCaseId: null },
+          { approvalCaseId: 'approval-race-1' },
+        ],
+      },
+      data: {
+        status: PoolSettlementBatchStatus.APPROVED,
+        approvedAt: new Date(decidedAt),
+      },
+    });
+    expect(prisma.poolSettlementBatch.findUnique).not.toHaveBeenCalled();
+    expect(prisma.poolSettlementBatchItem.findMany).not.toHaveBeenCalled();
+    expect(internalTransactionsService.createStandaloneTransaction).not.toHaveBeenCalled();
+    expect(internalFundsService.createFromInternalTransaction).not.toHaveBeenCalled();
+  });
+
+  it('fails fast when item netDirection is invalid', async () => {
+    const prisma = makePrisma();
+    prisma.poolSettlementBatch.findUnique.mockResolvedValue({
+      id: 'batch-invalid-direction-1',
+      batchNo: 'PSB-INVALID-001',
+      approvalCaseId: 'approval-invalid-direction-1',
+    });
+    prisma.poolSettlementBatchItem.findMany.mockResolvedValue([
+      {
+        id: 'item-invalid-direction-1',
+        batchId: 'batch-invalid-direction-1',
+        status: 'READY',
+        assetId: 'asset-fiat',
+        netAmount: 100,
+        netDirection: 'SIDEWAYS',
+        walletAId: 'wallet-cust-bank',
+        walletBId: 'wallet-liq-bank',
+        asset: { id: 'asset-fiat', type: 'FIAT' },
+        walletA: {
+          id: 'wallet-cust-bank',
+          walletRole: 'CUST_BANK',
+          address: null,
+          iban: 'AE11',
+        },
+        walletB: {
+          id: 'wallet-liq-bank',
+          walletRole: 'LIQ_BANK',
+          address: null,
+          iban: 'AE22',
+        },
+        internalTransaction: null,
+      },
+    ]);
+    const { moduleRef, internalTransactionsService, internalFundsService } =
+      makeModuleRef();
+
+    const service = new PoolSettlementBatchApprovalProjectionService(
+      prisma,
+      moduleRef as any,
+    );
+
+    await expect(
+      service.handleApproved({
+        actionType: ApprovalActionTypes.POOL_SETTLEMENT_BATCH_APPROVAL,
+        entityRef: 'batch-invalid-direction-1',
+        approvalId: 'approval-invalid-direction-1',
+        approvalNo: 'APR-INVALID-DIRECTION-001',
+        status: 'APPROVED',
+        decidedAt,
+      } as any),
+    ).rejects.toBeInstanceOf(InternalServerErrorException);
+
+    expect(internalTransactionsService.createStandaloneTransaction).not.toHaveBeenCalled();
+    expect(internalFundsService.createFromInternalTransaction).not.toHaveBeenCalled();
+  });
+
   it('releases held sources and marks batch FAILED on approval rejected', async () => {
     const prisma = makePrisma();
     prisma.poolSettlementBatch.findUnique.mockResolvedValue({
@@ -520,11 +627,7 @@ describe('PoolSettlementBatchApprovalProjectionService', () => {
 
   it('does nothing for repeated APPROVED after batch is already APPROVED', async () => {
     const prisma = makePrisma();
-    prisma.poolSettlementBatch.findUnique.mockResolvedValue({
-      id: 'batch-approved-1',
-      approvalCaseId: 'approval-approved-1',
-      status: PoolSettlementBatchStatus.APPROVED,
-    });
+    prisma.poolSettlementBatch.updateMany.mockResolvedValue({ count: 0 });
 
     const { moduleRef, internalTransactionsService, internalFundsService } =
       makeModuleRef();
@@ -542,6 +645,7 @@ describe('PoolSettlementBatchApprovalProjectionService', () => {
       decidedAt,
     } as any);
 
+    expect(prisma.poolSettlementBatch.findUnique).not.toHaveBeenCalled();
     expect(prisma.poolSettlementBatch.update).not.toHaveBeenCalled();
     expect(internalTransactionsService.createStandaloneTransaction).not.toHaveBeenCalled();
     expect(internalFundsService.createFromInternalTransaction).not.toHaveBeenCalled();
