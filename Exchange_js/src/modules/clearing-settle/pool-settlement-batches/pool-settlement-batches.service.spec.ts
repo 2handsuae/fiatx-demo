@@ -616,6 +616,80 @@ describe('PoolSettlementBatchesService', () => {
     expect(String(result.itemSources[0].sourceAmount)).toBe('7');
   });
 
+  it('fails when a locked source can no longer normalize after lock', async () => {
+    const { prisma, service } = createService();
+
+    prisma.outstanding.findMany.mockImplementation(({ where }: any) => {
+      if (where?.lockedByPoolSettlementBatchId) {
+        return Promise.resolve([
+          buildOutstanding({
+            id: 'outstanding-1',
+            direction: 'OUT',
+            amount: decimal(7),
+            assetId: 'asset-unknown',
+            asset: {
+              id: 'asset-unknown',
+              code: 'BTC',
+              type: 'OTHER',
+              network: null,
+            },
+          }),
+        ]);
+      }
+
+      return Promise.resolve([
+        buildOutstanding({
+          id: 'outstanding-1',
+          direction: 'OUT',
+          amount: decimal(3),
+          assetId: 'asset-btc',
+          asset: buildAsset('asset-btc', 'BTC', 'CRYPTO', 'BITCOIN'),
+        }),
+      ]);
+    });
+    prisma.reimbursementObligation.findMany.mockImplementation(({ where }: any) => {
+      if (where?.lockedByPoolSettlementBatchId) {
+        return Promise.resolve([]);
+      }
+      return Promise.resolve([]);
+    });
+
+    registerWallets(prisma, {
+      'WA-MST-BTC-BITCOIN': buildWallet({
+        id: 'wallet-btc-master',
+        walletRole: 'MASTER',
+        walletNo: 'WA-MST-BTC-BITCOIN',
+        assetId: 'asset-btc',
+      }),
+      'WA-LIQ-BTC-BITCOIN': buildWallet({
+        id: 'wallet-btc-liq',
+        walletRole: 'LIQ',
+        walletNo: 'WA-LIQ-BTC-BITCOIN',
+        assetId: 'asset-btc',
+      }),
+    });
+
+    prisma.poolSettlementBatch.create.mockImplementation(({ data }: any) =>
+      Promise.resolve({
+        id: 'batch-fresh-fail',
+        batchNo: data.batchNo,
+        status: data.status,
+        cutoffAt: data.cutoffAt,
+        createdByUserId: data.createdByUserId,
+        autoCreated: data.autoCreated,
+        summaryJson: data.summaryJson,
+        metadataJson: data.metadataJson,
+      }),
+    );
+
+    await expect((service as any).createBatch({}, 'admin-1')).rejects.toThrow(
+      'Locked outstanding source outstanding-1 failed to normalize after lock',
+    );
+    expect(prisma.poolSettlementBatchItem.create).not.toHaveBeenCalled();
+    expect(prisma.poolSettlementBatchItemSource.create).not.toHaveBeenCalled();
+    expect(prisma.poolSettlementBatch.update).not.toHaveBeenCalled();
+  });
+
   it('only includes sources actually locked by the current batch', async () => {
     const { prisma, service } = createService();
 

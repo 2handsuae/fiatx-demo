@@ -390,7 +390,6 @@ export class PoolSettlementBatchesService {
     tx: TxClient,
     lockedOutstandings: any[],
     lockedReimbursements: any[],
-    skippedSourcesByReason: Record<string, number>,
   ) {
     const normalizedSources: NormalizedSource[] = [];
 
@@ -400,7 +399,9 @@ export class PoolSettlementBatchesService {
       } catch (error) {
         const reason =
           error instanceof Error ? error.message : 'Unknown routing failure';
-        this.addSkipReason(skippedSourcesByReason, reason);
+        throw new BadRequestException(
+          `Locked outstanding source ${source.id} failed to normalize after lock: ${reason}`,
+        );
       }
     }
 
@@ -410,7 +411,9 @@ export class PoolSettlementBatchesService {
       } catch (error) {
         const reason =
           error instanceof Error ? error.message : 'Unknown routing failure';
-        this.addSkipReason(skippedSourcesByReason, reason);
+        throw new BadRequestException(
+          `Locked reimbursement source ${source.id} failed to normalize after lock: ${reason}`,
+        );
       }
     }
 
@@ -517,7 +520,6 @@ export class PoolSettlementBatchesService {
         tx,
         lockedOutstandings,
         lockedReimbursements,
-        skippedSourcesByReason,
       );
 
       if (!lockedSources.length) {
