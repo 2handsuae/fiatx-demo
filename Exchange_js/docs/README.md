@@ -2,7 +2,7 @@
 
 Status: active
 Owner: project-owner-and-agents
-Last Updated: 2026-03-30
+Last Updated: 2026-04-01
 Applies To: `Exchange_js`
 Supersedes: none
 Depends On: `AGENTS.md`, `docs/constraints/README.md`
@@ -22,9 +22,13 @@ Source of Truth Level: documentation-governance-index
 5. `docs/roadmap/**`
 6. `docs/cleanup/**`
 - `docs/glossary/**` supports naming consistency but does not override higher-order documents.
+- `docs/PRD/**` supports product walkthroughs, teaching notes, and requirement narration, but does not override any source-of-truth layer above.
 - Historical or migration-reference documents must explicitly say when they are not current implementation truth.
 
 ## Documentation Architecture
+- The product communication layer is organized as:
+1. `产品叙事层`
+   - `docs/PRD/**`
 - The frontend documentation system is organized as:
 1. `平台共享硬规则`
    - `docs/constraints/frontend-platform-constraints.md`
@@ -44,6 +48,7 @@ Source of Truth Level: documentation-governance-index
    - `docs/roadmap/**`, `docs/acceptance/**`, `docs/cleanup/**`
 - Long-term frontend and backend truth MUST remain in `docs/constraints/**` and `docs/specs/**` when specs apply.
 - Wave documents MAY explain planning, validation, and retirement context, but MUST NOT become the only durable source for frontend or backend behavior.
+- `docs/PRD/**` MAY explain product framing, cross-wave storytelling, and stakeholder talk tracks, but MUST cite active constraints/specs when describing runtime truth.
 
 ## Required Reading Order
 1. `AGENTS.md`
@@ -74,6 +79,10 @@ Source of Truth Level: documentation-governance-index
 2. `Documentation update not needed: ...`
 
 ## Standard Documentation Structure
+- `docs/PRD/`
+  - purpose: product-facing walkthroughs, PRD narratives, cross-wave teaching notes, and talk tracks
+  - update when: explanation scripts or stakeholder-facing requirement narration changes
+  - do not use for: canonical constraints, workflow truth, or final API semantics
 - `docs/roadmap/`
   - purpose: project, wave, and phase planning
   - update when: scope, sequencing, or delivery milestones change
@@ -173,6 +182,11 @@ Source of Truth Level: documentation-governance-index
 - known caveats
 
 ## Current Entry Documents
+- Product narrative reference:
+  - `docs/PRD/wave-1-control-foundation-talk-track.md`
+  - `docs/PRD/wave-1-control-foundation-table-structure-talk-track.md`
+  - `docs/PRD/wave-2-compliance-foundation-talk-track.md`
+  - `docs/PRD/wave-3-customer-lifecycle-talk-track.md`
 - Documentation filing rule:
   - `docs/constraints/documentation-filing-and-adr-constraints.md`
 - Frontend platform constitution:
