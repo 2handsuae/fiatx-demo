@@ -40,12 +40,16 @@ type WalletItem = {
   walletNo?: string | null;
   walletRole: string;
   ownerType: string;
+  availableBalance?: string | null;
+  asset?: {
+    code?: string | null;
+  };
   address?: string | null;
   iban?: string | null;
 };
 
 type CreateFormState = {
-  type: string;
+  purpose: string;
   assetId: string;
   fromWalletId: string;
   toWalletId: string;
@@ -55,61 +59,52 @@ type CreateFormState = {
   requestId: string;
 };
 
-const MANUAL_TYPE_OPTIONS = [
+const MANUAL_PURPOSE_OPTIONS = [
   {
-    value: 'MASTER_TO_LIQ',
+    value: 'LIQUIDITY_TOPUP',
     assetType: 'CRYPTO',
     fromRole: 'MASTER',
     toRole: 'LIQ',
   },
   {
-    value: 'LIQ_TO_MASTER',
+    value: 'LIQUIDITY_RETURN',
     assetType: 'CRYPTO',
     fromRole: 'LIQ',
     toRole: 'MASTER',
   },
   {
-    value: 'MASTER_TO_PAYOUT',
+    value: 'PAYOUT_FUNDING',
     assetType: 'CRYPTO',
     fromRole: 'MASTER',
     toRole: 'PAYOUT',
   },
   {
-    value: 'PAYOUT_TO_MASTER',
+    value: 'PAYOUT_RETURN',
     assetType: 'CRYPTO',
     fromRole: 'PAYOUT',
     toRole: 'MASTER',
   },
   {
-    value: 'LIQ_TO_PAYOUT',
-    assetType: 'CRYPTO',
-    fromRole: 'LIQ',
-    toRole: 'PAYOUT',
-  },
-  {
-    value: 'PAYOUT_TO_LIQ',
-    assetType: 'CRYPTO',
-    fromRole: 'PAYOUT',
-    toRole: 'LIQ',
-  },
-  {
-    value: 'CLIENT_BANK_TO_LIQ_BANK',
+    value: 'POOL_REBALANCING',
     assetType: 'FIAT',
     fromRole: 'CUST_BANK',
     toRole: 'LIQ_BANK',
+    label: 'POOL_REBALANCING (CUST_BANK -> LIQ_BANK)',
   },
   {
-    value: 'LIQ_BANK_TO_CLIENT_BANK',
+    value: 'POOL_REBALANCING',
     assetType: 'FIAT',
     fromRole: 'LIQ_BANK',
     toRole: 'CUST_BANK',
+    label: 'POOL_REBALANCING (LIQ_BANK -> CUST_BANK)',
   },
 ] as const;
 
-const TYPE_ROLE_ROUTE = MANUAL_TYPE_OPTIONS.reduce<
+const PURPOSE_ROLE_ROUTE = MANUAL_PURPOSE_OPTIONS.reduce<
   Record<string, { fromRole: string; toRole: string; assetType: 'CRYPTO' | 'FIAT' }>
 >((acc, item) => {
-  acc[item.value] = {
+  const routeKey = `${item.value}:${item.fromRole}:${item.toRole}`;
+  acc[routeKey] = {
     fromRole: item.fromRole,
     toRole: item.toRole,
     assetType: item.assetType,
@@ -118,7 +113,7 @@ const TYPE_ROLE_ROUTE = MANUAL_TYPE_OPTIONS.reduce<
 }, {});
 
 const INITIAL_FORM_STATE: CreateFormState = {
-  type: MANUAL_TYPE_OPTIONS[0].value,
+  purpose: `${MANUAL_PURPOSE_OPTIONS[0].value}:${MANUAL_PURPOSE_OPTIONS[0].fromRole}:${MANUAL_PURPOSE_OPTIONS[0].toRole}`,
   assetId: '',
   fromWalletId: '',
   toWalletId: '',
@@ -160,7 +155,11 @@ const InternalTransactionList = () => {
   const [form, setForm] = useState<CreateFormState>(INITIAL_FORM_STATE);
   const [error, setError] = useState('');
 
-  const route = TYPE_ROLE_ROUTE[form.type];
+  const route = PURPOSE_ROLE_ROUTE[form.purpose];
+  const selectedPurpose =
+    MANUAL_PURPOSE_OPTIONS.find(
+      (item) => `${item.value}:${item.fromRole}:${item.toRole}` === form.purpose,
+    )?.value || '';
 
   const assetOptions = useMemo(
     () =>
@@ -174,6 +173,11 @@ const InternalTransactionList = () => {
   const hasFilters = useMemo(
     () => Boolean(statusFilter || approvalFilter || searchNo.trim()),
     [approvalFilter, searchNo, statusFilter],
+  );
+
+  const selectedFromWallet = useMemo(
+    () => fromWallets.find((wallet) => wallet.id === form.fromWalletId) || null,
+    [form.fromWalletId, fromWallets],
   );
 
   const fetchItems = async () => {
@@ -300,12 +304,12 @@ const InternalTransactionList = () => {
   useEffect(() => {
     if (!showCreateModal) return;
     fetchRoleWallets();
-  }, [showCreateModal, form.assetId, form.type]);
+  }, [showCreateModal, form.assetId, form.purpose]);
 
   useEffect(() => {
     if (!showCreateModal || !route) return;
     fetchAssetsByType(route.assetType);
-  }, [showCreateModal, form.type]);
+  }, [showCreateModal, form.purpose]);
 
   const openCreateModal = () => {
     setShowCreateModal(true);
@@ -339,7 +343,7 @@ const InternalTransactionList = () => {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          type: form.type,
+          purpose: selectedPurpose,
           assetId: form.assetId,
           fromWalletId: form.fromWalletId,
           toWalletId: form.toWalletId,
@@ -609,16 +613,16 @@ const InternalTransactionList = () => {
             <div className="p-5 space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm text-gray-600 mb-1">Type</label>
+                  <label className="block text-sm text-gray-600 mb-1">Purpose</label>
                   <select
-                    value={form.type}
+                    value={form.purpose}
                     onChange={(e) => {
                       setAssets([]);
                       setFromWallets([]);
                       setToWallets([]);
                       setForm((prev) => ({
                         ...prev,
-                        type: e.target.value,
+                        purpose: e.target.value,
                         assetId: '',
                         fromWalletId: '',
                         toWalletId: '',
@@ -626,11 +630,14 @@ const InternalTransactionList = () => {
                     }}
                     className="w-full px-3 py-2 border border-admin-border rounded-lg text-sm"
                   >
-                    {MANUAL_TYPE_OPTIONS.map((item) => (
-                      <option key={item.value} value={item.value}>
-                        {item.value}
-                      </option>
-                    ))}
+                    {MANUAL_PURPOSE_OPTIONS.map((item) => {
+                      const routeKey = `${item.value}:${item.fromRole}:${item.toRole}`;
+                      return (
+                        <option key={routeKey} value={routeKey}>
+                          {'label' in item ? item.label : item.value}
+                        </option>
+                      );
+                    })}
                   </select>
                 </div>
 
@@ -700,6 +707,24 @@ const InternalTransactionList = () => {
                   </select>
                 </div>
               </div>
+
+              {selectedFromWallet ? (
+                <div className="rounded-lg border border-admin-border bg-gray-50 px-4 py-3 text-sm text-gray-700">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                    From Wallet Balance
+                  </div>
+                  <div className="mt-2 font-mono text-sm text-gray-900">
+                    {selectedFromWallet.walletNo || selectedFromWallet.id}
+                  </div>
+                  <div className="mt-1">
+                    Available Balance:{' '}
+                    <span className="font-semibold text-brand-primary">
+                      {selectedFromWallet.availableBalance || '0'}{' '}
+                      {assets.find((asset) => asset.id === form.assetId)?.code || ''}
+                    </span>
+                  </div>
+                </div>
+              ) : null}
 
               <div>
                 <label className="block text-sm text-gray-600 mb-1">Amount</label>

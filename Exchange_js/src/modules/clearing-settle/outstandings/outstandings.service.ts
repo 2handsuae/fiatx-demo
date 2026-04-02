@@ -34,6 +34,85 @@ export class OutstandingsService {
 
   constructor(private readonly prisma: PrismaService) {}
 
+  async findOpenForPoolSettlementBatch(tx?: Prisma.TransactionClient) {
+    const db = tx || this.prisma;
+    const rows = await (db as any).outstanding.findMany({
+      where: {
+        status: 'OPEN',
+        lockedByPoolSettlementBatchId: null,
+      },
+      select: {
+        id: true,
+        outstandingNo: true,
+        direction: true,
+        amount: true,
+        lockedByPoolSettlementBatchId: true,
+        assetId: true,
+        asset: {
+          select: {
+            id: true,
+            code: true,
+            type: true,
+            network: true,
+          },
+        },
+      },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    });
+
+    return rows.filter((row: any) => !row.lockedByPoolSettlementBatchId);
+  }
+
+  async findLockedForPoolSettlementBatch(
+    batchId: string,
+    tx?: Prisma.TransactionClient,
+  ) {
+    const db = tx || this.prisma;
+    return (db as any).outstanding.findMany({
+      where: {
+        status: 'OPEN',
+        lockedByPoolSettlementBatchId: batchId,
+      },
+      select: {
+        id: true,
+        outstandingNo: true,
+        direction: true,
+        amount: true,
+        lockedByPoolSettlementBatchId: true,
+        assetId: true,
+        asset: {
+          select: {
+            id: true,
+            code: true,
+            type: true,
+            network: true,
+          },
+        },
+      },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    });
+  }
+
+  async lockForPoolSettlementBatch(
+    outstandingIds: string[],
+    batchId: string,
+    tx?: Prisma.TransactionClient,
+  ) {
+    if (!outstandingIds.length) return { count: 0 };
+
+    const db = tx || this.prisma;
+    return (db as any).outstanding.updateMany({
+      where: {
+        id: { in: outstandingIds },
+        status: 'OPEN',
+        lockedByPoolSettlementBatchId: null,
+      },
+      data: {
+        lockedByPoolSettlementBatchId: batchId,
+      },
+    });
+  }
+
   private async resolveOwnerNo(
     tx: Prisma.TransactionClient,
     swap: SwapSuccessPayload,

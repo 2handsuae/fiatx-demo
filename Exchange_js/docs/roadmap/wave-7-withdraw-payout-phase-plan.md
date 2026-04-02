@@ -353,8 +353,8 @@ flowchart TD
 
 - full safeguarding threshold / threshold escalation
 - internal treasury 全量运营工具
-- governance registries
-- filing receipt effectiveness 与 governance registry 运营化联动
+- governance registries（后移到 `Wave 9`）
+- filing receipt effectiveness 与 governance registry 运营化联动（后移到 `Wave 9`）
 - complaints / disputes / refunds
 - regulatory calendar / policy attestation / security privacy evidence
 

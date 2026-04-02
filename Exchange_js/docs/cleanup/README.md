@@ -102,7 +102,8 @@ Source of Truth Level: cleanup
 - `Wave 6` 截至 `2026-03-30` 已完成 active operator / audit / evidence-root residual retirement；当前只剩冻结的 shared manual-risk compatibility memory。后续若重新触碰这类边界，应先读：
   - `docs/cleanup/wave-6-residual-cleanup-inventory.md`
   - 这类工作不应被误判为“需要重新打开 Wave 6 cleanup 主线程”
-- `Wave 7` Phase 0-4 runtime、minimum reconciliation、withdraw evidence export、以及 Stage 1-5 cleanup convergence 已落地。
+- `Wave 7` Phase 0-4 runtime、minimum reconciliation、withdraw evidence export、以及 Stage 1-5 cleanup convergence 已落地，`docs/cleanup/wave-7-cleanup-master-plan.md` 作为 closeout 入口保留：
+  - 当前文档职责是记录 retained compatibility / source inventory / post-Wave 7 handoff / final doc-index closure
 - `Wave 7` 截至当前审查已完成 cleanup closeout；`docs/cleanup/wave-7-cleanup-master-plan.md` 现保留为 closure record：
   - active operator-surface debt 已收口
   - active residual retirement 也已完成

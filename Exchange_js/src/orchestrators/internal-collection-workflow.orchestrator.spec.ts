@@ -1,19 +1,31 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { InternalCollectionWorkflowOrchestrator } from './internal-collection-workflow.orchestrator';
 import { PrismaService } from '../core/prisma/prisma.service';
-import { InternalTransactionsService } from '../modules/asset-treasury/internal-transactions/internal-transactions.service';
 import { InternalFundsService } from '../modules/asset-treasury/internal-funds/internal-funds.service';
+import { InternalFundStatus } from '../modules/asset-treasury/internal-funds/dto/internal-fund.dto';
+import { InternalTransactionsService } from '../modules/asset-treasury/internal-transactions/internal-transactions.service';
+import {
+  InternalTransactionApprovalStatus,
+  InternalTransactionStatus,
+  TreasuryTransferInitiationMode,
+  TreasuryTransferPurpose,
+} from '../modules/asset-treasury/internal-transactions/dto/internal-transaction.dto';
+import { WalletsService } from '../modules/asset-treasury/wallets/wallets.service';
 import { DepositTransactionStatus } from '../modules/trading/deposit-transactions/dto/deposit-transaction.dto';
+import { InternalCollectionWorkflowOrchestrator } from './internal-collection-workflow.orchestrator';
 
 describe('InternalCollectionWorkflowOrchestrator', () => {
   let orchestrator: InternalCollectionWorkflowOrchestrator;
   let prisma: any;
   let internalTransactionsService: any;
   let internalFundsService: any;
+  let walletsService: any;
 
   const mockTxClient: any = {};
 
   const mockPrisma = {
+    safeguardingPolicy: {
+      findUnique: jest.fn(),
+    },
     depositTransaction: {
       findMany: jest.fn(),
     },
@@ -22,6 +34,7 @@ describe('InternalCollectionWorkflowOrchestrator', () => {
     },
     internalTransaction: {
       findUnique: jest.fn(),
+      findFirst: jest.fn(),
     },
     internalFund: {
       findFirst: jest.fn(),
@@ -31,10 +44,36 @@ describe('InternalCollectionWorkflowOrchestrator', () => {
 
   const mockInternalTransactionsService = {
     createFromDepositSuccess: jest.fn(),
+    createStandaloneTransaction: jest.fn(),
   };
 
   const mockInternalFundsService = {
     createFromInternalTransaction: jest.fn(),
+  };
+
+  const mockWalletsService = {
+    findAll: jest.fn(),
+    findOne: jest.fn(),
+  };
+
+  const depositWallet = {
+    id: 'wallet-deposit',
+    walletNo: 'WA-DEP-BTC-DEMO',
+    walletRole: 'DEPOSIT',
+    ownerType: 'CUSTOMER',
+    ownerId: 'customer-1',
+    ownerNo: 'CUST-001',
+    ownerName: 'Demo Customer',
+    assetId: 'asset-btc',
+    availableBalance: '2.50000000',
+    address: 'bc1qdeposit',
+    iban: null,
+    status: 'ACTIVE',
+    asset: {
+      code: 'BTC',
+      type: 'CRYPTO',
+      network: 'BITCOIN',
+    },
   };
 
   beforeEach(async () => {
@@ -53,6 +92,10 @@ describe('InternalCollectionWorkflowOrchestrator', () => {
           provide: InternalFundsService,
           useValue: mockInternalFundsService,
         },
+        {
+          provide: WalletsService,
+          useValue: mockWalletsService,
+        },
       ],
     }).compile();
 
@@ -63,42 +106,14 @@ describe('InternalCollectionWorkflowOrchestrator', () => {
     internalTransactionsService = module.get<InternalTransactionsService>(
       InternalTransactionsService,
     );
-    internalFundsService =
-      module.get<InternalFundsService>(InternalFundsService);
+    internalFundsService = module.get<InternalFundsService>(InternalFundsService);
+    walletsService = module.get<WalletsService>(WalletsService);
 
     jest.clearAllMocks();
   });
 
-  it('should skip when deposit status is not SUCCESS', async () => {
-    const result = await orchestrator.onDepositStatusChanged({
-      depositId: 'dep-1',
-      oldStatus: DepositTransactionStatus.COMPLIANCE_PENDING,
-      newStatus: DepositTransactionStatus.UNDER_REVIEW,
-    } as any);
-
-    expect(result).toBeNull();
-    expect(prisma.depositTransaction.findMany).not.toHaveBeenCalled();
-  });
-
-  it('should not auto-create collection when deposit becomes SUCCESS', async () => {
-    const reconcileSpy = jest
-      .spyOn(orchestrator as any, 'reconcileMissingCollections')
-      .mockResolvedValue({
-        scanned: 1,
-        created: 1,
-        idempotent: 0,
-        skipped: 0,
-        failed: 0,
-        items: [
-          {
-            depositId: 'dep-retry',
-            depositNo: 'DEP-RETRY',
-            action: 'CREATED',
-            internalTransactionId: 'itx-retry',
-            internalFundId: 'ifd-retry',
-          },
-        ],
-      });
+  it('does not auto-create collection when deposit becomes SUCCESS', async () => {
+    const reconcileSpy = jest.spyOn(orchestrator as any, 'reconcileMissingCollections');
 
     const result = await orchestrator.onDepositStatusChanged({
       depositId: 'dep-retry',
@@ -108,202 +123,255 @@ describe('InternalCollectionWorkflowOrchestrator', () => {
 
     expect(result).toBeNull();
     expect(reconcileSpy).not.toHaveBeenCalled();
-    expect(
-      internalTransactionsService.createFromDepositSuccess,
-    ).not.toHaveBeenCalled();
-    expect(
-      internalFundsService.createFromInternalTransaction,
-    ).not.toHaveBeenCalled();
+    expect(internalTransactionsService.createFromDepositSuccess).not.toHaveBeenCalled();
+    expect(internalFundsService.createFromInternalTransaction).not.toHaveBeenCalled();
   });
 
-  it('should skip non-CRYPTO deposit in reconcile', async () => {
+  it('lists deposit wallets with collection thresholds and shouldCollect flag', async () => {
+    walletsService.findAll.mockResolvedValue({
+      items: [depositWallet],
+      total: 1,
+    });
+    walletsService.findOne.mockResolvedValue(depositWallet);
+    prisma.safeguardingPolicy.findUnique.mockResolvedValue({
+      collectionAmountThreshold: '1.00000000',
+      collectionMaxAgeMinutes: 60,
+    });
+    prisma.internalTransaction.findFirst
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null);
     prisma.depositTransaction.findMany.mockResolvedValue([
       {
-        id: 'dep-fiat',
-        depositNo: 'DEP-FIAT',
-        ownerType: 'CUSTOMER',
-        ownerId: 'cust-fiat',
-        assetId: 'asset-usd',
-        amount: '100',
-        netAmount: '100',
-        feeAmount: '0',
-        toWalletId: 'wallet-fiat',
-        toAddress: null,
-        toIban: 'IBAN001',
-        asset: {
-          type: 'FIAT',
-          code: 'USD',
-          network: null,
-        },
-        customer: {
-          customerNo: 'CF001',
-        },
+        id: 'dep-1',
+        depositNo: 'DEP-001',
+        createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000),
       },
     ]);
 
-    const result = await orchestrator.reconcileMissingCollections({
-      depositId: 'dep-fiat',
-      onlyMissing: false,
-      dryRun: false,
+    const result = await orchestrator.listCollectionWallets({
+      take: 20,
     });
 
-    expect(result.skipped).toBe(1);
-    expect(result.created).toBe(0);
-    expect(result.items[0]).toEqual(
-      expect.objectContaining({
-        depositId: 'dep-fiat',
-        action: 'SKIPPED',
-      }),
-    );
-    expect(prisma.internalTransaction.findUnique).not.toHaveBeenCalled();
-    expect(
-      internalTransactionsService.createFromDepositSuccess,
-    ).not.toHaveBeenCalled();
-  });
-
-  it('should create internal transaction and internal fund for crypto success deposit when reconciled explicitly', async () => {
-    prisma.depositTransaction.findMany.mockResolvedValue([
-      {
-        id: 'dep-crypto',
-        depositNo: 'DEP-2',
-        ownerType: 'CUSTOMER',
-        ownerId: 'cust-2',
-        assetId: 'asset-btc',
-        amount: '0.5',
-        netAmount: '0.5',
-        feeAmount: '0',
-        toWalletId: 'wallet-deposit',
-        toAddress: '0xdeposit',
-        toIban: null,
-        asset: {
-          type: 'CRYPTO',
-          code: 'BTC',
-          network: 'BTC',
-        },
-        customer: {
-          customerNo: 'C002',
-        },
-      },
-    ]);
-    prisma.internalTransaction.findUnique.mockResolvedValue(null);
-    prisma.internalFund.findFirst.mockResolvedValue(null);
-    prisma.wallet.findFirst.mockResolvedValue({
-      id: 'wallet-master',
-      walletNo: 'WA-MST-BTC-BTC',
-      address: '0xmaster',
-      iban: null,
-    });
-    internalTransactionsService.createFromDepositSuccess.mockResolvedValue({
-      id: 'itx-1',
-    });
-    internalFundsService.createFromInternalTransaction.mockResolvedValue({
-      id: 'ifd-1',
-    });
-
-    const result = await orchestrator.reconcileMissingCollections({
-      depositId: 'dep-crypto',
-      onlyMissing: false,
-      dryRun: false,
-    });
-
-    expect(prisma.wallet.findFirst).toHaveBeenCalledWith(
+    expect(walletsService.findAll).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
-          walletNo: 'WA-MST-BTC-BTC',
-          ownerType: 'CUSTOMER',
-          ownerId: null,
-          assetId: 'asset-btc',
+          walletRole: 'DEPOSIT',
+          status: 'ACTIVE',
         }),
       }),
     );
-    expect(
-      internalTransactionsService.createFromDepositSuccess,
-    ).toHaveBeenCalledWith(
+    expect(result.total).toBe(1);
+    expect(result.items[0]).toEqual(
       expect.objectContaining({
-        deposit: expect.objectContaining({ id: 'dep-crypto' }),
+        walletId: 'wallet-deposit',
+        walletNo: 'WA-DEP-BTC-DEMO',
+        assetCode: 'BTC',
+        shouldCollect: true,
+        collectionAmountThreshold: '1',
+        collectionMaxAgeMinutes: 60,
       }),
-      'SYSTEM',
+    );
+  });
+
+  it('returns dry-run WOULD_CREATE for eligible deposit wallet collection', async () => {
+    walletsService.findOne.mockResolvedValue(depositWallet);
+    prisma.safeguardingPolicy.findUnique.mockResolvedValue({
+      collectionAmountThreshold: '1.00000000',
+      collectionMaxAgeMinutes: 60,
+    });
+    prisma.internalTransaction.findFirst
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null);
+    prisma.depositTransaction.findMany.mockResolvedValue([
+      {
+        id: 'dep-1',
+        depositNo: 'DEP-001',
+        createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000),
+      },
+    ]);
+    prisma.wallet.findFirst.mockResolvedValue({
+      id: 'wallet-master',
+      walletNo: 'WA-MST-BTC-BITCOIN',
+      address: 'bc1qmaster',
+      iban: null,
+    });
+
+    const result = await orchestrator.reconcileCollectionWallet({
+      walletId: 'wallet-deposit',
+      dryRun: true,
+      operatorId: 'admin-1',
+    });
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        walletId: 'wallet-deposit',
+        action: 'WOULD_CREATE',
+        shouldCollect: true,
+        availableBalance: '2.5',
+      }),
+    );
+    expect(internalTransactionsService.createStandaloneTransaction).not.toHaveBeenCalled();
+  });
+
+  it('returns IDEMPOTENT when a pending collection already exists for the wallet', async () => {
+    walletsService.findOne.mockResolvedValue(depositWallet);
+    prisma.safeguardingPolicy.findUnique.mockResolvedValue({
+      collectionAmountThreshold: '1.00000000',
+      collectionMaxAgeMinutes: 60,
+    });
+    prisma.internalTransaction.findFirst
+      .mockResolvedValueOnce({
+        id: 'itx-pending',
+        sourceType: 'DEPOSIT_WALLET',
+        amount: '2.50000000',
+        funds: [{ id: 'ifd-pending' }],
+      })
+      .mockResolvedValueOnce({
+        id: 'itx-pending',
+        internalTxNo: 'ITX-PENDING',
+        status: 'INTERNAL_FUNDS_PENDING',
+        createdAt: new Date('2026-03-31T00:00:00Z'),
+        completedAt: null,
+      })
+      .mockResolvedValueOnce(null);
+    prisma.depositTransaction.findMany.mockResolvedValue([]);
+
+    const result = await orchestrator.reconcileCollectionWallet({
+      walletId: 'wallet-deposit',
+      dryRun: false,
+      operatorId: 'admin-1',
+    });
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        walletId: 'wallet-deposit',
+        action: 'IDEMPOTENT',
+        internalTransactionId: 'itx-pending',
+        internalFundId: 'ifd-pending',
+      }),
+    );
+  });
+
+  it('does not reuse a legacy pending collection when amount does not match current wallet balance', async () => {
+    walletsService.findOne.mockResolvedValue(depositWallet);
+    prisma.safeguardingPolicy.findUnique.mockResolvedValue({
+      collectionAmountThreshold: '1.00000000',
+      collectionMaxAgeMinutes: 60,
+    });
+    prisma.internalTransaction.findFirst
+      .mockResolvedValueOnce({
+        id: 'itx-legacy',
+        sourceType: 'DEPOSIT',
+        amount: '0.25000000',
+        funds: [{ id: 'ifd-legacy' }],
+      })
+      .mockResolvedValueOnce({
+        id: 'itx-legacy',
+        internalTxNo: 'ITX-LEGACY',
+        status: 'INTERNAL_FUNDS_PENDING',
+        createdAt: new Date('2026-03-31T00:00:00Z'),
+        completedAt: null,
+      })
+      .mockResolvedValueOnce(null);
+    prisma.depositTransaction.findMany.mockResolvedValue([
+      {
+        id: 'dep-1',
+        depositNo: 'DEP-001',
+        createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000),
+      },
+    ]);
+
+    const result = await orchestrator.reconcileCollectionWallet({
+      walletId: 'wallet-deposit',
+      dryRun: false,
+      operatorId: 'admin-1',
+    });
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        walletId: 'wallet-deposit',
+        action: 'FAILED',
+        reason: expect.stringContaining('Pending collection amount mismatch'),
+        internalTransactionId: 'itx-legacy',
+        internalFundId: 'ifd-legacy',
+        existingPendingAmount: '0.25',
+        expectedCollectionAmount: '2.5',
+      }),
+    );
+    expect(internalTransactionsService.createStandaloneTransaction).not.toHaveBeenCalled();
+  });
+
+  it('creates wallet-driven collection transaction and first internal fund', async () => {
+    walletsService.findOne.mockResolvedValue(depositWallet);
+    prisma.safeguardingPolicy.findUnique.mockResolvedValue({
+      collectionAmountThreshold: '1.00000000',
+      collectionMaxAgeMinutes: 60,
+    });
+    prisma.internalTransaction.findFirst
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null);
+    prisma.depositTransaction.findMany.mockResolvedValue([
+      {
+        id: 'dep-1',
+        depositNo: 'DEP-001',
+        createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000),
+      },
+    ]);
+    prisma.wallet.findFirst.mockResolvedValue({
+      id: 'wallet-master',
+      walletNo: 'WA-MST-BTC-BITCOIN',
+      address: 'bc1qmaster',
+      iban: null,
+    });
+    internalTransactionsService.createStandaloneTransaction.mockResolvedValue({
+      id: 'itx-created',
+      internalTxNo: 'ITX-COLL-001',
+    });
+    internalFundsService.createFromInternalTransaction.mockResolvedValue({
+      id: 'ifd-created',
+      status: InternalFundStatus.CREATED,
+    });
+
+    const result = await orchestrator.reconcileCollectionWallet({
+      walletId: 'wallet-deposit',
+      dryRun: false,
+      operatorId: 'admin-1',
+    });
+
+    expect(internalTransactionsService.createStandaloneTransaction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        purpose: TreasuryTransferPurpose.DEPOSIT_COLLECTION,
+        initiationMode: TreasuryTransferInitiationMode.AUTOMATED,
+        approvalStatus: InternalTransactionApprovalStatus.APPROVED,
+        status: InternalTransactionStatus.INTERNAL_FUNDS_PENDING,
+        fromWalletId: 'wallet-deposit',
+        toWalletId: 'wallet-master',
+      }),
+      'admin-1',
       mockTxClient,
     );
-    expect(
-      internalFundsService.createFromInternalTransaction,
-    ).toHaveBeenCalledWith(
+    expect(internalFundsService.createFromInternalTransaction).toHaveBeenCalledWith(
       {
-        internalTransactionId: 'itx-1',
+        internalTransactionId: 'itx-created',
+        status: InternalFundStatus.CREATED,
+        referenceNo: 'COLL-WA-DEP-BTC-DEMO',
       },
-      'SYSTEM',
+      'admin-1',
       mockTxClient,
     );
     expect(result).toEqual(
       expect.objectContaining({
-        scanned: 1,
-        created: 1,
-        failed: 0,
-        items: [
-          expect.objectContaining({
-            depositId: 'dep-crypto',
-            action: 'CREATED',
-            internalTransactionId: 'itx-1',
-            internalFundId: 'ifd-1',
-          }),
-        ],
+        action: 'CREATED',
+        internalTransactionId: 'itx-created',
+        internalFundId: 'ifd-created',
       }),
     );
   });
 
-  it('should return idempotent when onlyMissing is true and internal transaction exists', async () => {
-    prisma.depositTransaction.findMany.mockResolvedValue([
-      {
-        id: 'dep-existing',
-        depositNo: 'DEP-EXIST',
-        ownerType: 'CUSTOMER',
-        ownerId: 'cust-3',
-        assetId: 'asset-btc',
-        amount: '1',
-        netAmount: '1',
-        feeAmount: '0',
-        toWalletId: 'wallet-deposit',
-        toAddress: '0xdeposit',
-        toIban: null,
-        asset: {
-          type: 'CRYPTO',
-          code: 'BTC',
-          network: 'BTC',
-        },
-        customer: {
-          customerNo: 'C003',
-        },
-      },
-    ]);
-    prisma.internalTransaction.findUnique.mockResolvedValue({
-      id: 'itx-existing',
-    });
-    prisma.internalFund.findFirst.mockResolvedValue({
-      id: 'ifd-existing',
-    });
-
-    const result = await orchestrator.reconcileMissingCollections({
-      onlyMissing: true,
-    });
-
-    expect(result.idempotent).toBe(1);
-    expect(result.created).toBe(0);
-    expect(result.items[0]).toEqual(
-      expect.objectContaining({
-        depositId: 'dep-existing',
-        action: 'IDEMPOTENT',
-        internalTransactionId: 'itx-existing',
-      }),
-    );
-    expect(
-      internalTransactionsService.createFromDepositSuccess,
-    ).not.toHaveBeenCalled();
-    expect(
-      internalFundsService.createFromInternalTransaction,
-    ).not.toHaveBeenCalled();
-  });
-
-  it('should support dry-run for missing collections', async () => {
+  it('supports legacy deposit-driven dry-run reconciliation', async () => {
     prisma.depositTransaction.findMany.mockResolvedValue([
       {
         id: 'dep-dry-run',
@@ -348,11 +416,7 @@ describe('InternalCollectionWorkflowOrchestrator', () => {
         action: 'WOULD_CREATE',
       }),
     );
-    expect(
-      internalTransactionsService.createFromDepositSuccess,
-    ).not.toHaveBeenCalled();
-    expect(
-      internalFundsService.createFromInternalTransaction,
-    ).not.toHaveBeenCalled();
+    expect(internalTransactionsService.createFromDepositSuccess).not.toHaveBeenCalled();
+    expect(internalFundsService.createFromInternalTransaction).not.toHaveBeenCalled();
   });
 });

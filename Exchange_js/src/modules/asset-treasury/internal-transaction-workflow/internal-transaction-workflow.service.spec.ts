@@ -1,4 +1,9 @@
 import { Prisma } from '@prisma/client';
+import { ApprovalsService } from '../../governance/approvals/approvals.service';
+import {
+  ApprovalActionTypes,
+  type ApprovalActorContext,
+} from '../../governance/approvals/constants/approval.constants';
 import { InternalFundsService } from '../internal-funds/internal-funds.service';
 import { InternalFundStatus } from '../internal-funds/dto/internal-fund.dto';
 import { InternalTransactionsService } from '../internal-transactions/internal-transactions.service';
@@ -6,6 +11,8 @@ import {
   InternalTransactionApprovalStatus,
   InternalTransactionStatus,
   InternalTransactionType,
+  TreasuryTransferInitiationMode,
+  TreasuryTransferPurpose,
 } from '../internal-transactions/dto/internal-transaction.dto';
 import { InternalTransactionWorkflowService } from './internal-transaction-workflow.service';
 import { ManualInternalTransactionReviewAction } from './dto/review-manual-internal-transaction.dto';
@@ -18,6 +25,15 @@ describe('InternalTransactionWorkflowService', () => {
   let txClient: any;
   let internalTransactionsService: any;
   let internalFundsService: any;
+  let approvalsService: any;
+
+  const adminActor: ApprovalActorContext = {
+    actorType: 'ADMIN',
+    userId: 'admin-1',
+    userNo: 'ADM-001',
+    role: 'SUPER_ADMIN',
+    roleCodes: ['SUPER_ADMIN'],
+  };
 
   beforeEach(() => {
     process.env.INTERNAL_TX_ALLOW_SELF_APPROVAL = 'true';
@@ -43,6 +59,7 @@ describe('InternalTransactionWorkflowService', () => {
 
     internalTransactionsService = {
       createStandaloneTransaction: jest.fn(),
+      syncApprovalProjection: jest.fn(),
       approveManualReview: jest.fn(),
       rejectManualReview: jest.fn(),
     };
@@ -51,10 +68,16 @@ describe('InternalTransactionWorkflowService', () => {
       createFromInternalTransaction: jest.fn(),
     };
 
+    approvalsService = {
+      createAndSubmit: jest.fn(),
+      emitSubmittedSideEffects: jest.fn(),
+    };
+
     service = new InternalTransactionWorkflowService(
       prisma,
       internalTransactionsService as unknown as InternalTransactionsService,
       internalFundsService as unknown as InternalFundsService,
+      approvalsService as unknown as ApprovalsService,
     );
     jest.clearAllMocks();
   });
@@ -63,7 +86,7 @@ describe('InternalTransactionWorkflowService', () => {
     process.env.INTERNAL_TX_ALLOW_SELF_APPROVAL = originalSelfApproval;
   });
 
-  it('creates pending manual transaction without creating initial fund', async () => {
+  it('creates direct-execution manual transaction and first fund for in-pool routes', async () => {
     txClient.internalTransaction.findUnique.mockResolvedValue(null);
     txClient.asset.findUnique.mockResolvedValue({
       id: 'asset-btc',
@@ -85,62 +108,74 @@ describe('InternalTransactionWorkflowService', () => {
         iban: null,
       })
       .mockResolvedValueOnce({
-        id: 'wallet-liq',
-        walletRole: 'LIQ',
-        ownerType: 'PLATFORM',
+        id: 'wallet-payout',
+        walletRole: 'PAYOUT',
+        ownerType: 'CUSTOMER',
         ownerId: null,
-        ownerNo: 'PLATFORM',
+        ownerNo: 'CUSTOMER_POOL',
         assetId: 'asset-btc',
         status: 'ACTIVE',
-        address: 'bc1qliqxxx',
+        address: 'bc1qpayoutxxx',
         iban: null,
       });
     internalTransactionsService.createStandaloneTransaction.mockResolvedValue({
       id: 'itx-1',
+      internalTxNo: 'ITX-001',
+      referenceNo: 'REF-1',
+    });
+    internalFundsService.createFromInternalTransaction.mockResolvedValue({
+      id: 'ifd-1',
+      status: InternalFundStatus.CREATED,
     });
 
     const result = await service.createManualTransaction(
       {
-        type: InternalTransactionType.MASTER_TO_LIQ,
+        purpose: TreasuryTransferPurpose.PAYOUT_FUNDING,
         assetId: 'asset-btc',
         fromWalletId: 'wallet-master',
-        toWalletId: 'wallet-liq',
+        toWalletId: 'wallet-payout',
         amount: '1.25',
         referenceNo: 'REF-1',
-        reason: 'Treasury rebalance',
+        reason: 'Prefund payout hot wallet',
       },
-      'admin-1',
+      adminActor,
     );
 
     expect(internalTransactionsService.createStandaloneTransaction).toHaveBeenCalledWith(
       expect.objectContaining({
-        type: InternalTransactionType.MASTER_TO_LIQ,
-        sourceType: 'INTERNAL_MANUAL',
+        type: InternalTransactionType.MASTER_TO_PAYOUT,
+        purpose: TreasuryTransferPurpose.PAYOUT_FUNDING,
+        initiationMode: TreasuryTransferInitiationMode.MANUAL,
         status: InternalTransactionStatus.INTERNAL_FUNDS_PENDING,
-        approvalStatus: InternalTransactionApprovalStatus.PENDING,
+        approvalStatus: InternalTransactionApprovalStatus.APPROVED,
         makerUserId: 'admin-1',
-        ownerType: 'CUSTOMER',
-        ownerId: 'CUSTOMER_POOL',
-        reviewReason: 'Treasury rebalance',
+        sourceType: 'INTERNAL_MANUAL',
         amount: expect.any(Prisma.Decimal),
       }),
       'admin-1',
       txClient,
     );
-    const createdTxInput =
-      internalTransactionsService.createStandaloneTransaction.mock.calls[0][0];
-    expect(createdTxInput.amount.toString()).toBe('1.25');
-    expect(internalFundsService.createFromInternalTransaction).not.toHaveBeenCalled();
+    expect(internalFundsService.createFromInternalTransaction).toHaveBeenCalledWith(
+      {
+        internalTransactionId: 'itx-1',
+        status: InternalFundStatus.CREATED,
+        referenceNo: 'REF-1',
+      },
+      'admin-1',
+      txClient,
+    );
+    expect(approvalsService.createAndSubmit).not.toHaveBeenCalled();
     expect(result).toEqual(
       expect.objectContaining({
         idempotent: false,
-        internalTransaction: { id: 'itx-1' },
-        internalFund: null,
+        internalTransaction: expect.objectContaining({ id: 'itx-1' }),
+        internalFund: expect.objectContaining({ id: 'ifd-1' }),
+        approvalCase: null,
       }),
     );
   });
 
-  it('creates pending manual FIAT transaction for bank pool route', async () => {
+  it('creates shared approval and skips fund creation for cross-pool routes', async () => {
     txClient.internalTransaction.findUnique.mockResolvedValue(null);
     txClient.asset.findUnique.mockResolvedValue({
       id: 'asset-aed',
@@ -158,8 +193,9 @@ describe('InternalTransactionWorkflowService', () => {
         ownerNo: 'CUSTOMER_POOL',
         assetId: 'asset-aed',
         status: 'ACTIVE',
-        address: null,
         iban: 'AE11-CUST',
+        address: null,
+        regulatoryEnablementStatus: 'EFFECTIVE',
       })
       .mockResolvedValueOnce({
         id: 'wallet-liq-bank',
@@ -169,85 +205,139 @@ describe('InternalTransactionWorkflowService', () => {
         ownerNo: 'PLATFORM',
         assetId: 'asset-aed',
         status: 'ACTIVE',
-        address: null,
         iban: 'AE22-LIQ',
+        address: null,
       });
     internalTransactionsService.createStandaloneTransaction.mockResolvedValue({
       id: 'itx-fiat-1',
+      internalTxNo: 'ITX-FIAT-001',
+      referenceNo: 'POOL-001',
+      sourceType: 'INTERNAL_MANUAL',
+      sourceNo: 'MANUAL-001',
+    });
+    approvalsService.createAndSubmit.mockResolvedValue({
+      id: 'approval-1',
+      approvalNo: 'APR-001',
+      status: 'SUBMITTED',
+      actionType: ApprovalActionTypes.TREASURY_CROSS_POOL_TRANSFER_APPROVAL,
+    });
+    internalTransactionsService.syncApprovalProjection.mockResolvedValue({
+      id: 'itx-fiat-1',
+      internalTxNo: 'ITX-FIAT-001',
+      approvalStatus: InternalTransactionApprovalStatus.PENDING,
+      approvalCaseId: 'approval-1',
     });
 
     const result = await service.createManualTransaction(
       {
-        type: InternalTransactionType.CLIENT_BANK_TO_LIQ_BANK,
+        purpose: TreasuryTransferPurpose.POOL_REBALANCING,
         assetId: 'asset-aed',
         fromWalletId: 'wallet-cust-bank',
         toWalletId: 'wallet-liq-bank',
         amount: '1000.25',
-        reason: 'Fiat bank pool rebalance',
+        referenceNo: 'POOL-001',
+        reason: 'Cross-pool fiat rebalance',
       },
-      'admin-1',
+      adminActor,
     );
 
     expect(internalTransactionsService.createStandaloneTransaction).toHaveBeenCalledWith(
       expect.objectContaining({
         type: InternalTransactionType.CLIENT_BANK_TO_LIQ_BANK,
-        assetId: 'asset-aed',
-        fromWalletId: 'wallet-cust-bank',
-        toWalletId: 'wallet-liq-bank',
+        purpose: TreasuryTransferPurpose.POOL_REBALANCING,
+        approvalStatus: InternalTransactionApprovalStatus.PENDING,
       }),
       'admin-1',
       txClient,
     );
+    expect(approvalsService.createAndSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actionType: ApprovalActionTypes.TREASURY_CROSS_POOL_TRANSFER_APPROVAL,
+        entityRef: 'itx-fiat-1',
+        workflowNo: 'ITX-FIAT-001',
+      }),
+      expect.objectContaining({
+        workflowNo: 'ITX-FIAT-001',
+        reason: 'Cross-pool fiat rebalance',
+      }),
+      adminActor,
+      txClient,
+      { emitSideEffects: false },
+    );
+    expect(internalTransactionsService.syncApprovalProjection).toHaveBeenCalledWith(
+      'itx-fiat-1',
+      {
+        approvalCaseId: 'approval-1',
+        approvalStatus: InternalTransactionApprovalStatus.PENDING,
+        reviewReason: 'Cross-pool fiat rebalance',
+      },
+      'admin-1',
+      txClient,
+    );
+    expect(internalFundsService.createFromInternalTransaction).not.toHaveBeenCalled();
+    expect(approvalsService.emitSubmittedSideEffects).toHaveBeenCalledWith(
+      'approval-1',
+      adminActor,
+      'Cross-pool fiat rebalance',
+    );
     expect(result).toEqual(
       expect.objectContaining({
         idempotent: false,
-        internalTransaction: { id: 'itx-fiat-1' },
+        internalTransaction: expect.objectContaining({ id: 'itx-fiat-1' }),
         internalFund: null,
+        approvalCase: expect.objectContaining({ id: 'approval-1' }),
       }),
     );
   });
 
-  it('rejects when type-asset pair is mismatched', async () => {
-    txClient.internalTransaction.findUnique.mockResolvedValue(null);
+  it('returns existing transaction and fund for idempotent manual requests', async () => {
     txClient.asset.findUnique.mockResolvedValue({
-      id: 'asset-aed',
-      type: 'FIAT',
-      code: 'AED',
-      network: null,
-      decimals: 2,
+      id: 'asset-btc',
+      type: 'CRYPTO',
+      code: 'BTC',
+      network: 'BITCOIN',
+      decimals: 8,
     });
-
-    await expect(
-      service.createManualTransaction({
-        type: InternalTransactionType.MASTER_TO_LIQ,
-        assetId: 'asset-aed',
-        fromWalletId: 'wallet-master',
-        toWalletId: 'wallet-liq',
-        amount: '1',
-        reason: 'invalid pair',
-      }),
-    ).rejects.toThrow('Asset type mismatch');
-  });
-
-  it('returns existing transaction and existing fund for same requestId idempotency', async () => {
+    txClient.wallet.findUnique
+      .mockResolvedValueOnce({
+        id: 'wallet-master',
+        walletRole: 'MASTER',
+        ownerType: 'CUSTOMER',
+        ownerId: null,
+        ownerNo: 'CUSTOMER_POOL',
+        assetId: 'asset-btc',
+        status: 'ACTIVE',
+      })
+      .mockResolvedValueOnce({
+        id: 'wallet-payout',
+        walletRole: 'PAYOUT',
+        ownerType: 'CUSTOMER',
+        ownerId: null,
+        ownerNo: 'CUSTOMER_POOL',
+        assetId: 'asset-btc',
+        status: 'ACTIVE',
+      });
     txClient.internalTransaction.findUnique.mockResolvedValue({
       id: 'itx-existing',
-      internalTxNo: 'ITX0001',
+      internalTxNo: 'ITX-EXIST',
     });
     txClient.internalFund.findFirst.mockResolvedValue({
       id: 'ifd-existing',
-      internalFundNo: 'IFD0001',
+      internalFundNo: 'IFD-EXIST',
     });
 
-    const result = await service.createManualTransaction({
-      type: InternalTransactionType.LIQ_TO_PAYOUT,
-      assetId: 'asset-btc',
-      fromWalletId: 'wallet-liq',
-      toWalletId: 'wallet-payout',
-      amount: '3',
-      requestId: 'REQ-001',
-      reason: 'Hot wallet top-up',
-    });
+    const result = await service.createManualTransaction(
+      {
+        purpose: TreasuryTransferPurpose.PAYOUT_FUNDING,
+        assetId: 'asset-btc',
+        fromWalletId: 'wallet-master',
+        toWalletId: 'wallet-payout',
+        amount: '3',
+        requestId: 'REQ-001',
+        reason: 'Hot wallet top-up',
+      },
+      adminActor,
+    );
 
     expect(internalTransactionsService.createStandaloneTransaction).not.toHaveBeenCalled();
     expect(internalFundsService.createFromInternalTransaction).not.toHaveBeenCalled();
@@ -260,48 +350,7 @@ describe('InternalTransactionWorkflowService', () => {
     );
   });
 
-  it('rejects wallet role mismatch for selected type', async () => {
-    txClient.internalTransaction.findUnique.mockResolvedValue(null);
-    txClient.asset.findUnique.mockResolvedValue({
-      id: 'asset-btc',
-      type: 'CRYPTO',
-      code: 'BTC',
-      network: 'BITCOIN',
-      decimals: 8,
-    });
-    txClient.wallet.findUnique
-      .mockResolvedValueOnce({
-        id: 'wallet-master',
-        walletRole: 'PAYOUT',
-        ownerType: 'CUSTOMER',
-        ownerId: null,
-        ownerNo: 'CUSTOMER_POOL',
-        assetId: 'asset-btc',
-        status: 'ACTIVE',
-      })
-      .mockResolvedValueOnce({
-        id: 'wallet-liq',
-        walletRole: 'LIQ',
-        ownerType: 'PLATFORM',
-        ownerId: null,
-        ownerNo: 'PLATFORM',
-        assetId: 'asset-btc',
-        status: 'ACTIVE',
-      });
-
-    await expect(
-      service.createManualTransaction({
-        type: InternalTransactionType.MASTER_TO_LIQ,
-        assetId: 'asset-btc',
-        fromWalletId: 'wallet-master',
-        toWalletId: 'wallet-liq',
-        amount: '1',
-        reason: 'invalid route',
-      }),
-    ).rejects.toThrow('fromWallet role mismatch');
-  });
-
-  it('rejects FIAT route when wallet role does not match', async () => {
+  it('rejects wallet route mismatch for selected purpose', async () => {
     txClient.internalTransaction.findUnique.mockResolvedValue(null);
     txClient.asset.findUnique.mockResolvedValue({
       id: 'asset-aed',
@@ -331,18 +380,21 @@ describe('InternalTransactionWorkflowService', () => {
       });
 
     await expect(
-      service.createManualTransaction({
-        type: InternalTransactionType.CLIENT_BANK_TO_LIQ_BANK,
-        assetId: 'asset-aed',
-        fromWalletId: 'wallet-wrong',
-        toWalletId: 'wallet-liq-bank',
-        amount: '10',
-        reason: 'invalid fiat route',
-      }),
-    ).rejects.toThrow('fromWallet role mismatch');
+      service.createManualTransaction(
+        {
+          purpose: TreasuryTransferPurpose.POOL_REBALANCING,
+          assetId: 'asset-aed',
+          fromWalletId: 'wallet-wrong',
+          toWalletId: 'wallet-liq-bank',
+          amount: '10',
+          reason: 'invalid fiat route',
+        },
+        adminActor,
+      ),
+    ).rejects.toThrow('wallet route');
   });
 
-  it('approves review and creates first internal fund', async () => {
+  it('approves legacy review and creates first internal fund', async () => {
     txClient.internalTransaction.findUnique.mockResolvedValue({
       id: 'itx-1',
       sourceType: 'INTERNAL_MANUAL',
@@ -391,44 +443,7 @@ describe('InternalTransactionWorkflowService', () => {
     );
   });
 
-  it('rejects review and does not create fund', async () => {
-    txClient.internalTransaction.findUnique.mockResolvedValue({
-      id: 'itx-2',
-      sourceType: 'INTERNAL_MANUAL',
-      status: InternalTransactionStatus.INTERNAL_FUNDS_PENDING,
-      approvalStatus: InternalTransactionApprovalStatus.PENDING,
-      makerUserId: 'admin-maker',
-    });
-    internalTransactionsService.rejectManualReview.mockResolvedValue({
-      id: 'itx-2',
-      status: InternalTransactionStatus.REJECTED,
-    });
-
-    const result = await service.reviewManualTransaction(
-      'itx-2',
-      {
-        action: ManualInternalTransactionReviewAction.REJECT,
-        reason: 'insufficient justification',
-      },
-      'admin-checker',
-    );
-
-    expect(internalTransactionsService.rejectManualReview).toHaveBeenCalledWith(
-      'itx-2',
-      'admin-checker',
-      'insufficient justification',
-      txClient,
-    );
-    expect(internalFundsService.createFromInternalTransaction).not.toHaveBeenCalled();
-    expect(result).toEqual(
-      expect.objectContaining({
-        internalTransaction: expect.objectContaining({ id: 'itx-2' }),
-        internalFund: null,
-      }),
-    );
-  });
-
-  it('blocks self approval when INTERNAL_TX_ALLOW_SELF_APPROVAL=false', async () => {
+  it('blocks self approval in legacy review flow when self approval is disabled', async () => {
     process.env.INTERNAL_TX_ALLOW_SELF_APPROVAL = 'false';
     txClient.internalTransaction.findUnique.mockResolvedValue({
       id: 'itx-3',
@@ -447,5 +462,26 @@ describe('InternalTransactionWorkflowService', () => {
         'admin-1',
       ),
     ).rejects.toThrow('maker and checker must be different');
+  });
+
+  it('blocks legacy review when the transaction is linked to shared approval', async () => {
+    txClient.internalTransaction.findUnique.mockResolvedValue({
+      id: 'itx-4',
+      sourceType: 'INTERNAL_MANUAL',
+      status: InternalTransactionStatus.INTERNAL_FUNDS_PENDING,
+      approvalStatus: InternalTransactionApprovalStatus.PENDING,
+      makerUserId: 'admin-maker',
+      approvalCaseId: 'approval-1',
+    });
+
+    await expect(
+      service.reviewManualTransaction(
+        'itx-4',
+        {
+          action: ManualInternalTransactionReviewAction.APPROVE,
+        },
+        'admin-checker',
+      ),
+    ).rejects.toThrow('shared approval');
   });
 });

@@ -15,6 +15,7 @@ import {
   UpdateInternalFundStatusDto,
 } from './dto/internal-fund.dto';
 import { InternalTransactionsService } from '../internal-transactions/internal-transactions.service';
+import { FeeOccurrencesService } from '../fee-occurrences/fee-occurrences.service';
 import {
   InternalTransactionStatus,
   InternalTransactionType,
@@ -130,6 +131,7 @@ export class InternalFundsService {
     private readonly prisma: PrismaService,
     private readonly internalTransactionsService: InternalTransactionsService,
     private readonly eventEmitter: EventEmitter2,
+    private readonly feeOccurrencesService: FeeOccurrencesService,
   ) {
     this.auditLogsService = new AuditLogsService(prisma);
   }
@@ -164,6 +166,33 @@ export class InternalFundsService {
     });
 
     return JSON.stringify(history);
+  }
+
+  private stableHash(seed: string) {
+    let hash = 2166136261;
+    for (let index = 0; index < seed.length; index += 1) {
+      hash ^= seed.charCodeAt(index);
+      hash = Math.imul(hash, 16777619);
+    }
+    return hash >>> 0;
+  }
+
+  private sumFeeOccurrenceAmounts(occurrences: Array<{ amount: any }>) {
+    return occurrences.reduce(
+      (total, occurrence) =>
+        total.plus(new Prisma.Decimal(occurrence?.amount || 0)),
+      new Prisma.Decimal(0),
+    );
+  }
+
+  private buildCryptoFeePlaceholders(fundId: string) {
+    const gasUsed = 21_000 + (this.stableHash(`${fundId}:gas-used`) % 40_000);
+    const effectiveGasPrice =
+      10 + (this.stableHash(`${fundId}:gas-price`) % 190);
+    return {
+      gasUsed: String(gasUsed),
+      effectiveGasPrice: String(effectiveGasPrice),
+    };
   }
 
   private isInternalFundNoUniqueConflict(error: unknown): boolean {
@@ -203,7 +232,22 @@ export class InternalFundsService {
       sourceNo?: string | null;
     },
     operatorId: string,
-  ) {
+  ): Promise<
+    Array<{
+      internalFundId: string;
+      internalTransactionId: string;
+      oldStatus: string;
+      newStatus: string;
+      operatorId: string;
+    }>
+  > {
+    const emittedEvents: Array<{
+      internalFundId: string;
+      internalTransactionId: string;
+      oldStatus: string;
+      newStatus: string;
+      operatorId: string;
+    }> = [];
     const confirmedFunds = await (client as any).internalFund.findMany({
       where: {
         internalTransactionId: internalTransaction.id,
@@ -215,7 +259,7 @@ export class InternalFundsService {
       },
     });
 
-    if (!confirmedFunds.length) return;
+    if (!confirmedFunds.length) return emittedEvents;
 
     for (const fund of confirmedFunds) {
       const reason = 'Auto clear after internal transaction success';
@@ -259,7 +303,17 @@ export class InternalFundsService {
         },
         client,
       );
+
+      emittedEvents.push({
+        internalFundId: fund.id,
+        internalTransactionId: internalTransaction.id,
+        oldStatus: InternalFundStatus.CONFIRMED,
+        newStatus: InternalFundStatus.CLEAR,
+        operatorId,
+      });
     }
+
+    return emittedEvents;
   }
 
   async createFromInternalTransaction(
@@ -270,7 +324,10 @@ export class InternalFundsService {
     const execute = async (client: TxClient) => {
       const internalTx = await (client as any).internalTransaction.findUnique({
         where: { id: input.internalTransactionId },
-        include: { asset: true },
+        include: {
+          asset: true,
+          fromWallet: true,
+        },
       });
       if (!internalTx) {
         throw new NotFoundException('Internal transaction not found');
@@ -321,7 +378,16 @@ export class InternalFundsService {
             },
             include: {
               asset: true,
-              internalTransaction: true,
+              fromWallet: true,
+              internalTransaction: {
+                select: {
+                  id: true,
+                  internalTxNo: true,
+                  sourceType: true,
+                  sourceId: true,
+                  sourceNo: true,
+                },
+              },
             },
           });
 
@@ -390,19 +456,29 @@ export class InternalFundsService {
     } = dto;
 
     const execute = async (client: TxClient) => {
-      const item = await (client as any).internalFund.findUnique({
-        where: { id },
-        include: {
-          asset: true,
-          internalTransaction: {
-            select: {
-              id: true,
-              sourceType: true,
-              sourceId: true,
-              sourceNo: true,
-            },
+      const internalFundDetailInclude = {
+        asset: true,
+        fromWallet: true,
+        internalTransaction: {
+          select: {
+            id: true,
+            internalTxNo: true,
+            sourceType: true,
+            sourceId: true,
+            sourceNo: true,
           },
         },
+      } as const;
+      const eventPayloads: Array<{
+        internalFundId: string;
+        internalTransactionId: string;
+        oldStatus: string;
+        newStatus: string;
+        operatorId: string;
+      }> = [];
+      const item = await (client as any).internalFund.findUnique({
+        where: { id },
+        include: internalFundDetailInclude,
       });
       if (!item) {
         throw new NotFoundException('Internal fund not found');
@@ -488,33 +564,77 @@ export class InternalFundsService {
         client,
       );
 
+      let settledFund = {
+        ...item,
+        ...updated,
+      };
+
+      if (nextStatus === InternalFundStatus.CONFIRMED) {
+        const feeOccurrences =
+          await this.feeOccurrencesService.captureFromInternalFund(
+            settledFund,
+            operatorId,
+            client,
+          ) || [];
+        if (feeOccurrences.length > 0) {
+          const aggregateUpdate: Record<string, unknown> = {
+            feeAmount: this.sumFeeOccurrenceAmounts(feeOccurrences),
+          };
+          if (String(item.asset?.type || '').toUpperCase() !== 'FIAT') {
+            Object.assign(
+              aggregateUpdate,
+              this.buildCryptoFeePlaceholders(item.id),
+            );
+          }
+          settledFund = await (client as any).internalFund.update({
+            where: { id },
+            data: aggregateUpdate,
+          });
+        }
+      }
+
       const txStatus =
         await this.internalTransactionsService.syncStatusFromFunds(
           item.internalTransaction.id,
           operatorId,
           client,
         );
+      eventPayloads.push({
+        internalFundId: item.id,
+        internalTransactionId: item.internalTransaction.id,
+        oldStatus: currentStatus,
+        newStatus: nextStatus,
+        operatorId,
+      });
 
       if (
         nextStatus === InternalFundStatus.CONFIRMED &&
         txStatus?.status === InternalTransactionStatus.SUCCESS
       ) {
-        await this.autoClearConfirmedFunds(
-          client,
-          item.internalTransaction,
-          operatorId,
+        eventPayloads.push(
+          ...(await this.autoClearConfirmedFunds(
+            client,
+            item.internalTransaction,
+            operatorId,
+          )),
         );
+        if (
+          eventPayloads.some(
+            (eventPayload) =>
+              eventPayload.internalFundId === item.id &&
+              eventPayload.newStatus === InternalFundStatus.CLEAR,
+          )
+        ) {
+          settledFund = await (client as any).internalFund.findUnique({
+            where: { id },
+            include: internalFundDetailInclude,
+          });
+        }
       }
 
       return {
-        updated,
-        eventPayload: {
-          internalFundId: item.id,
-          internalTransactionId: item.internalTransaction.id,
-          oldStatus: currentStatus,
-          newStatus: nextStatus,
-          operatorId,
-        },
+        updated: settledFund,
+        eventPayloads,
       };
     };
 
@@ -527,8 +647,10 @@ export class InternalFundsService {
       (client: TxClient) => execute(client),
     );
 
-    if (result?.eventPayload) {
-      this.eventEmitter.emit('internal-fund.status.changed', result.eventPayload);
+    if (result?.eventPayloads?.length) {
+      for (const eventPayload of result.eventPayloads) {
+        this.eventEmitter.emit('internal-fund.status.changed', eventPayload);
+      }
     }
 
     return result.updated;
@@ -610,7 +732,18 @@ export class InternalFundsService {
       throw new NotFoundException('Internal fund not found');
     }
 
-    return item;
+    const feeOccurrences = await (this.prisma as any).feeOccurrence.findMany({
+      where: {
+        sourceEntityType: 'INTERNAL_FUND',
+        sourceEntityId: item.id,
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    return {
+      ...item,
+      feeOccurrences,
+    };
   }
 
   async createMock(operatorId = 'SYSTEM') {

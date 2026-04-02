@@ -23,6 +23,11 @@ import {
 import { PricingCenterService } from '../../trading/pricing-center/pricing-center.service';
 import { ChangeTicketStatuses } from '../change-tickets/constants/change-ticket.constants';
 import { ApprovalStatuses } from '../approvals/constants/approval.constants';
+import {
+  RegulatoryGateEffectivenessStatuses,
+  RegulatoryGateSubjectTypes,
+  RegulatoryGateTypes,
+} from '../regulatory-gates/constants/regulatory-gates.constants';
 import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
 import {
   AuditActions,
@@ -409,6 +414,40 @@ export class BusinessConfigService {
             ),
           }))
         : undefined,
+    };
+  }
+
+  private async findRegulatoryGateSummaryForRelease(releaseId: string) {
+    const gate = await this.prisma.regulatoryGateItem.findFirst({
+      where: {
+        subjectType: RegulatoryGateSubjectTypes.BUSINESS_CONFIG_RELEASE,
+        subjectId: releaseId,
+        revokedAt: null,
+      },
+      orderBy: [{ createdAt: 'desc' }],
+      select: {
+        id: true,
+        gateNo: true,
+        gateType: true,
+        gateResult: true,
+        filingStatus: true,
+        receiptStatus: true,
+        effectivenessStatus: true,
+      },
+    });
+
+    if (!gate) {
+      return null;
+    }
+
+    return {
+      gateId: gate.id,
+      gateNo: gate.gateNo,
+      gateType: gate.gateType,
+      gateResult: gate.gateResult,
+      filingStatus: gate.filingStatus,
+      receiptStatus: gate.receiptStatus,
+      effectivenessStatus: gate.effectivenessStatus,
     };
   }
 
@@ -1223,6 +1262,47 @@ export class BusinessConfigService {
       );
     }
 
+    const regulatoryGate = await this.prisma.regulatoryGateItem.findFirst({
+      where: {
+        gateType: RegulatoryGateTypes.LICENSE_SCOPE_CHANGE,
+        subjectType: RegulatoryGateSubjectTypes.BUSINESS_CONFIG_RELEASE,
+        subjectId: release.id,
+        revokedAt: null,
+        effectivenessStatus: {
+          not: RegulatoryGateEffectivenessStatuses.EFFECTIVE,
+        },
+      },
+      orderBy: [{ createdAt: 'desc' }],
+      select: {
+        id: true,
+        gateNo: true,
+        gateResult: true,
+        effectivenessStatus: true,
+      },
+    });
+    if (regulatoryGate) {
+      await this.recordReleaseAudit(
+        {
+          id: release.id,
+          subjectType,
+          releaseNo: release.releaseNo,
+          status: release.status,
+          changeTicketId: changeTicket.id,
+          approvalCaseId: changeTicket.latestApprovalId,
+        },
+        {
+          action: AuditActions.BUSINESS_CONFIG_RELEASE_PUBLISH_BLOCKED,
+          result: AuditResult.REJECTED,
+          reason: `Business config publish blocked: regulatory gate ${regulatoryGate.gateNo} is not effective`,
+          ticketNo: changeTicket.ticketNo,
+          changeTicketRef,
+        },
+      );
+      throw new BadRequestException(
+        `Business config release ${release.releaseNo} is blocked by regulatory gate ${regulatoryGate.gateNo}`,
+      );
+    }
+
     const items: Array<ParsedReleaseItem<Record<string, unknown>>> = (
       release.items || []
     ).map((item) => ({
@@ -1359,7 +1439,13 @@ export class BusinessConfigService {
   }
 
   async getReleaseByNo(releaseNo: string) {
-    return this.mapRelease(await this.findReleaseOrThrow(releaseNo));
+    const release = await this.findReleaseOrThrow(releaseNo);
+    return {
+      ...this.mapRelease(release),
+      regulatoryGateSummary: await this.findRegulatoryGateSummaryForRelease(
+        release.id,
+      ),
+    };
   }
 
   async getReleaseDiff(releaseNo: string): Promise<{

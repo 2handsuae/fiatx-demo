@@ -27,6 +27,42 @@ fi
 
 mkdir -p "$(dirname "${DB_FILE}")"
 
+fail_migration_metadata() {
+  local migration_name="$1"
+  local detail="${2:-unknown sqlite error}"
+  echo "[migrate] ERROR ${migration_name}: migration metadata read failed for ${DB_FILE}" >&2
+  echo "[migrate] ${detail}" >&2
+  exit 1
+}
+
+sqlite_scalar_or_fail() {
+  local migration_name="$1"
+  local sql="$2"
+  local output
+  local error_output
+  error_output="$(mktemp -t exchange-js-sqlite-error)"
+
+  if ! output="$(sqlite3 "${DB_FILE}" "${sql}" 2>"${error_output}")"; then
+    local detail
+    detail="$(tr '\n' ' ' <"${error_output}" | sed 's/[[:space:]]\+/ /g; s/^ //; s/ $//')"
+    rm -f "${error_output}"
+    fail_migration_metadata "${migration_name}" "${detail:-unknown sqlite error}"
+  fi
+
+  rm -f "${error_output}"
+  printf '%s' "${output}"
+}
+
+ensure_integer_or_fail() {
+  local migration_name="$1"
+  local value="$2"
+  local label="$3"
+
+  if [[ ! "${value}" =~ ^[0-9]+$ ]]; then
+    fail_migration_metadata "${migration_name}" "invalid ${label}: ${value}"
+  fi
+}
+
 run_sql_file() {
   local sql_file="$1"
   DATABASE_URL="${DB_URL}" "${PRISMA_BIN}" db execute --file "${sql_file}" --schema "${SCHEMA_FILE}" >/dev/null
@@ -93,12 +129,17 @@ create_migration_table
 while IFS= read -r migration_file; do
   migration_name="$(basename "$(dirname "${migration_file}")")"
   checksum="$(shasum -a 256 "${migration_file}" | awk '{print $1}')"
-  applied_count="$(sqlite3 "${DB_FILE}" "SELECT COUNT(*) FROM _prisma_migrations WHERE migration_name='${migration_name}' AND finished_at IS NOT NULL;" 2>/dev/null || echo "0")"
+  applied_count="$(
+    sqlite_scalar_or_fail \
+      "${migration_name}" \
+      "SELECT COUNT(*) FROM _prisma_migrations WHERE migration_name='${migration_name}' AND finished_at IS NOT NULL;"
+  )"
+  ensure_integer_or_fail "${migration_name}" "${applied_count}" "applied_count"
   if [[ "${applied_count}" != "0" ]]; then
     applied_checksum="$(
-      sqlite3 "${DB_FILE}" \
-        "SELECT checksum FROM _prisma_migrations WHERE migration_name='${migration_name}' AND finished_at IS NOT NULL ORDER BY finished_at DESC LIMIT 1;" \
-        2>/dev/null || true
+      sqlite_scalar_or_fail \
+        "${migration_name}" \
+        "SELECT checksum FROM _prisma_migrations WHERE migration_name='${migration_name}' AND finished_at IS NOT NULL ORDER BY finished_at DESC LIMIT 1;"
     )"
     if [[ -z "${applied_checksum}" ]]; then
       echo "[migrate] ERROR ${migration_name}: applied migration is missing checksum metadata" >&2

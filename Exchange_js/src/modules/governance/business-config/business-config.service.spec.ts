@@ -33,6 +33,9 @@ function createBusinessConfigPrismaMock() {
     businessConfigReleaseItem: {
       create: jest.fn(),
     },
+    regulatoryGateItem: {
+      findFirst: jest.fn(),
+    },
     changeTicket: {
       findFirst: jest.fn(),
     },
@@ -484,6 +487,41 @@ describe('BusinessConfigService', () => {
       }),
       undefined,
     );
+  });
+
+  it('publishRelease should reject validated release when blocked by license-scope regulatory gate', async () => {
+    const now = new Date('2026-03-23T10:00:00.000Z');
+    prisma.businessConfigRelease.findUnique.mockResolvedValue({
+      id: 'release-coa-1',
+      subjectType: 'COA',
+      releaseNo: 'COA-REL-001',
+      status: 'VALIDATED',
+      basedOnReleaseNo: null,
+      validationSummaryJson: '{}',
+      createdAt: now,
+      updatedAt: now,
+      items: [],
+    });
+    prisma.changeTicket.findFirst.mockResolvedValue({
+      id: 'ticket-1',
+      ticketNo: 'CT-001',
+      status: ChangeTicketStatuses.READY_FOR_DEPLOY,
+      latestApprovalId: 'approval-1',
+      latestApprovalStatus: ApprovalStatuses.APPROVED,
+    });
+    prisma.regulatoryGateItem.findFirst.mockResolvedValue({
+      id: 'gate-1',
+      gateNo: 'RGT2603300001',
+      gateType: 'LICENSE_SCOPE_CHANGE',
+      gateResult: 'BLOCKED',
+      effectivenessStatus: 'BLOCKED',
+    });
+
+    await expect(service.publishRelease('COA-REL-001', 'CT-001')).rejects.toThrow(
+      'Business config release COA-REL-001 is blocked by regulatory gate RGT2603300001',
+    );
+
+    expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 
   it('should complete a COA stage -> validate -> publish chain and supersede the prior active release', async () => {

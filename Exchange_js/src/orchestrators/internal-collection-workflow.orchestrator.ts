@@ -1,10 +1,20 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../core/prisma/prisma.service';
 import { InternalTransactionsService } from '../modules/asset-treasury/internal-transactions/internal-transactions.service';
 import { InternalFundsService } from '../modules/asset-treasury/internal-funds/internal-funds.service';
+import { InternalFundStatus } from '../modules/asset-treasury/internal-funds/dto/internal-fund.dto';
 import { buildCryptoSystemWalletNo } from '../modules/asset-treasury/wallets/system-wallet.util';
+import { WalletsService } from '../modules/asset-treasury/wallets/wallets.service';
 import { DepositStatusChangedEvent } from '../modules/trading/deposit-transactions/events/deposit-transaction.events';
 import { DepositTransactionStatus } from '../modules/trading/deposit-transactions/dto/deposit-transaction.dto';
+import {
+  InternalTransactionApprovalStatus,
+  InternalTransactionStatus,
+  InternalTransactionType,
+  TreasuryTransferInitiationMode,
+  TreasuryTransferPurpose,
+} from '../modules/asset-treasury/internal-transactions/dto/internal-transaction.dto';
 
 export type InternalCollectionReconcileAction =
   | 'CREATED'
@@ -39,6 +49,58 @@ export interface ReconcileMissingCollectionsResult {
   items: InternalCollectionReconcileItem[];
 }
 
+export interface CollectionWalletSummaryItem {
+  walletId: string;
+  walletNo: string | null;
+  assetId: string;
+  assetCode: string;
+  assetNetwork: string | null;
+  ownerType: string;
+  ownerId: string | null;
+  ownerNo: string | null;
+  ownerName: string | null;
+  availableBalance: string;
+  collectionAmountThreshold: string | null;
+  collectionMaxAgeMinutes: number | null;
+  earliestEligibleDepositAt: string | null;
+  eligibleDepositAgeMinutes: number | null;
+  shouldCollect: boolean;
+  latestCollectionSummary: {
+    internalTransactionId: string;
+    internalTxNo: string;
+    status: string;
+    createdAt: string;
+    completedAt: string | null;
+  } | null;
+}
+
+export interface CollectionWalletQueryParams {
+  skip?: number;
+  take?: number;
+  assetId?: string;
+}
+
+export interface ReconcileCollectionWalletParams {
+  walletId: string;
+  dryRun?: boolean;
+  operatorId?: string;
+}
+
+export interface ReconcileCollectionWalletResult {
+  walletId: string;
+  walletNo: string | null;
+  action: InternalCollectionReconcileAction;
+  reason?: string;
+  internalTransactionId?: string;
+  internalFundId?: string;
+  existingPendingAmount?: string;
+  expectedCollectionAmount?: string;
+  availableBalance: string;
+  shouldCollect: boolean;
+  collectionAmountThreshold: string | null;
+  collectionMaxAgeMinutes: number | null;
+}
+
 @Injectable()
 export class InternalCollectionWorkflowOrchestrator {
   private readonly logger = new Logger(InternalCollectionWorkflowOrchestrator.name);
@@ -49,6 +111,7 @@ export class InternalCollectionWorkflowOrchestrator {
     private readonly prisma: PrismaService,
     private readonly internalTransactionsService: InternalTransactionsService,
     private readonly internalFundsService: InternalFundsService,
+    private readonly walletsService: WalletsService,
   ) {}
 
   async onDepositStatusChanged(event: DepositStatusChangedEvent) {
@@ -56,6 +119,397 @@ export class InternalCollectionWorkflowOrchestrator {
       `Automatic internal collection trigger disabled for deposit ${event.depositId} transition ${event.oldStatus} -> ${event.newStatus}`,
     );
     return null;
+  }
+
+  private static readonly INTERNAL_TX_TERMINAL_STATUSES = [
+    InternalTransactionStatus.SUCCESS,
+    InternalTransactionStatus.FAILED,
+    InternalTransactionStatus.CANCELLED,
+    InternalTransactionStatus.REJECTED,
+    InternalTransactionStatus.EXPIRED,
+  ] as const;
+
+  private parseDecimal(value: Prisma.Decimal.Value | null | undefined) {
+    return new Prisma.Decimal(value ?? 0);
+  }
+
+  private isReusableWalletDrivenPendingCollection(
+    pendingCollection: {
+      sourceType?: string | null;
+      amount?: Prisma.Decimal.Value | null;
+    } | null,
+    expectedAmount: Prisma.Decimal,
+  ) {
+    if (!pendingCollection) {
+      return false;
+    }
+
+    const sourceType = String(pendingCollection.sourceType || '').trim().toUpperCase();
+    if (sourceType !== 'DEPOSIT_WALLET') {
+      return false;
+    }
+
+    return this.parseDecimal(pendingCollection.amount).equals(expectedAmount);
+  }
+
+  private buildPoolOwner(wallet: {
+    ownerType?: string | null;
+    ownerId?: string | null;
+    ownerNo?: string | null;
+  }) {
+    const ownerType = String(wallet.ownerType || '').trim().toUpperCase() || 'CUSTOMER';
+    const ownerId = wallet.ownerId || wallet.ownerNo || `${ownerType}_POOL`;
+    const ownerNo = wallet.ownerNo || ownerId;
+    return { ownerType, ownerId, ownerNo };
+  }
+
+  private async evaluateCollectionWallet(walletId: string) {
+    const wallet = await this.walletsService.findOne(walletId);
+    if (!wallet) {
+      return null;
+    }
+
+    const availableBalance = this.parseDecimal(wallet.availableBalance);
+    const [policy, pendingCollection, latestCollection, latestSuccessfulCollection, deposits] = await Promise.all([
+      this.prisma.safeguardingPolicy.findUnique({
+        where: {
+          assetId_poolRole: {
+            assetId: wallet.assetId,
+            poolRole: 'DEPOSIT',
+          },
+        },
+      }),
+      this.prisma.internalTransaction.findFirst({
+        where: {
+          purpose: TreasuryTransferPurpose.DEPOSIT_COLLECTION,
+          fromWalletId: wallet.id,
+          status: {
+            notIn: [...InternalCollectionWorkflowOrchestrator.INTERNAL_TX_TERMINAL_STATUSES],
+          },
+        },
+        include: {
+          funds: {
+            select: {
+              id: true,
+            },
+            take: 1,
+            orderBy: { createdAt: 'asc' },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+      }),
+      this.prisma.internalTransaction.findFirst({
+        where: {
+          purpose: TreasuryTransferPurpose.DEPOSIT_COLLECTION,
+          fromWalletId: wallet.id,
+        },
+        orderBy: [{ createdAt: 'desc' }],
+      }),
+      this.prisma.internalTransaction.findFirst({
+        where: {
+          purpose: TreasuryTransferPurpose.DEPOSIT_COLLECTION,
+          fromWalletId: wallet.id,
+          status: InternalTransactionStatus.SUCCESS,
+        },
+        orderBy: [{ completedAt: 'desc' }, { updatedAt: 'desc' }, { createdAt: 'desc' }],
+      }),
+      this.prisma.depositTransaction.findMany({
+        where: {
+          toWalletId: wallet.id,
+          status: DepositTransactionStatus.SUCCESS,
+        },
+        select: {
+          id: true,
+          depositNo: true,
+          createdAt: true,
+        },
+        orderBy: { createdAt: 'asc' },
+      }),
+    ]);
+
+    const latestSuccessfulCollectionAt = latestSuccessfulCollection
+      ? latestSuccessfulCollection.completedAt ||
+        latestSuccessfulCollection.updatedAt ||
+        latestSuccessfulCollection.createdAt
+      : null;
+
+    const earliestEligibleDeposit =
+      deposits.find((deposit) =>
+        latestSuccessfulCollectionAt
+          ? deposit.createdAt > latestSuccessfulCollectionAt
+          : true,
+      ) || null;
+
+    const eligibleDepositAgeMinutes = earliestEligibleDeposit
+      ? Math.max(
+          0,
+          Math.floor((Date.now() - earliestEligibleDeposit.createdAt.getTime()) / 60000),
+        )
+      : null;
+
+    const collectionAmountThreshold = policy?.collectionAmountThreshold
+      ? new Prisma.Decimal(policy.collectionAmountThreshold)
+      : null;
+    const collectionMaxAgeMinutes = policy?.collectionMaxAgeMinutes ?? null;
+
+    const overAmount =
+      !!collectionAmountThreshold &&
+      availableBalance.gt(0) &&
+      availableBalance.gte(collectionAmountThreshold);
+    const overAge =
+      !!collectionMaxAgeMinutes &&
+      !!eligibleDepositAgeMinutes &&
+      availableBalance.gt(0) &&
+      eligibleDepositAgeMinutes >= collectionMaxAgeMinutes;
+    const shouldCollect = overAmount || overAge;
+
+    return {
+      wallet,
+      availableBalance,
+      pendingCollection,
+      latestCollection,
+      collectionAmountThreshold,
+      collectionMaxAgeMinutes,
+      earliestEligibleDeposit,
+      eligibleDepositAgeMinutes,
+      shouldCollect,
+    };
+  }
+
+  async listCollectionWallets(
+    params: CollectionWalletQueryParams = {},
+  ): Promise<{ items: CollectionWalletSummaryItem[]; total: number }> {
+    const page = await this.walletsService.findAll({
+      skip: params.skip ?? 0,
+      take: params.take ?? 20,
+      where: {
+        walletRole: 'DEPOSIT',
+        status: 'ACTIVE',
+        ...(params.assetId ? { assetId: params.assetId } : {}),
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const evaluations = await Promise.all(
+      (page.items || []).map(async (wallet: any) => {
+        const details = await this.evaluateCollectionWallet(wallet.id);
+        if (!details) return null;
+        return {
+          walletId: wallet.id,
+          walletNo: wallet.walletNo ?? null,
+          assetId: wallet.assetId,
+          assetCode: wallet.asset?.code || '',
+          assetNetwork: wallet.asset?.network || null,
+          ownerType: wallet.ownerType,
+          ownerId: wallet.ownerId ?? null,
+          ownerNo: wallet.ownerNo ?? null,
+          ownerName: wallet.ownerName ?? null,
+          availableBalance: details.availableBalance.toString(),
+          collectionAmountThreshold: details.collectionAmountThreshold
+            ? details.collectionAmountThreshold.toString()
+            : null,
+          collectionMaxAgeMinutes: details.collectionMaxAgeMinutes,
+          earliestEligibleDepositAt: details.earliestEligibleDeposit
+            ? details.earliestEligibleDeposit.createdAt.toISOString()
+            : null,
+          eligibleDepositAgeMinutes: details.eligibleDepositAgeMinutes,
+          shouldCollect: details.shouldCollect,
+          latestCollectionSummary: details.latestCollection
+            ? {
+                internalTransactionId: details.latestCollection.id,
+                internalTxNo: details.latestCollection.internalTxNo,
+                status: details.latestCollection.status,
+                createdAt: details.latestCollection.createdAt.toISOString(),
+                completedAt: details.latestCollection.completedAt
+                  ? details.latestCollection.completedAt.toISOString()
+                  : null,
+              }
+            : null,
+        } satisfies CollectionWalletSummaryItem;
+      }),
+    );
+
+    return {
+      items: evaluations.filter(Boolean) as CollectionWalletSummaryItem[],
+      total: page.total,
+    };
+  }
+
+  async reconcileCollectionWallet(
+    params: ReconcileCollectionWalletParams,
+  ): Promise<ReconcileCollectionWalletResult> {
+    const { walletId, dryRun = false, operatorId = 'SYSTEM' } = params;
+    const details = await this.evaluateCollectionWallet(walletId);
+
+    if (!details) {
+      return {
+        walletId,
+        walletNo: null,
+        action: 'FAILED',
+        reason: 'Wallet not found',
+        availableBalance: '0',
+        shouldCollect: false,
+        collectionAmountThreshold: null,
+        collectionMaxAgeMinutes: null,
+      };
+    }
+
+    const { wallet, availableBalance, pendingCollection } = details;
+    const baseResult = {
+      walletId: wallet.id,
+      walletNo: wallet.walletNo ?? null,
+      availableBalance: availableBalance.toString(),
+      shouldCollect: details.shouldCollect,
+      collectionAmountThreshold: details.collectionAmountThreshold
+        ? details.collectionAmountThreshold.toString()
+        : null,
+      collectionMaxAgeMinutes: details.collectionMaxAgeMinutes,
+    };
+
+    if (String(wallet.walletRole || '').trim().toUpperCase() !== 'DEPOSIT') {
+      return {
+        ...baseResult,
+        action: 'SKIPPED',
+        reason: `walletRole ${wallet.walletRole || 'UNKNOWN'} is not DEPOSIT`,
+      };
+    }
+
+    if (String(wallet.asset?.type || '').trim().toUpperCase() !== 'CRYPTO') {
+      return {
+        ...baseResult,
+        action: 'SKIPPED',
+        reason: `asset type ${wallet.asset?.type || 'UNKNOWN'} is not CRYPTO`,
+      };
+    }
+
+    if (pendingCollection) {
+      const existingFund = pendingCollection.funds?.[0];
+      const expectedAmount = availableBalance.toString();
+      const existingPendingAmount = this.parseDecimal(pendingCollection.amount).toString();
+
+      if (!this.isReusableWalletDrivenPendingCollection(pendingCollection, availableBalance)) {
+        return {
+          ...baseResult,
+          action: 'FAILED',
+          reason:
+            `Pending collection amount mismatch: existing ${existingPendingAmount}, expected ${expectedAmount}. ` +
+            'Resolve or cancel the existing collection before creating a new wallet-driven collection.',
+          internalTransactionId: pendingCollection.id,
+          internalFundId: existingFund?.id,
+          existingPendingAmount,
+          expectedCollectionAmount: expectedAmount,
+        };
+      }
+
+      return {
+        ...baseResult,
+        action: 'IDEMPOTENT',
+        reason: 'Pending collection already exists for this deposit wallet',
+        internalTransactionId: pendingCollection.id,
+        internalFundId: existingFund?.id,
+        existingPendingAmount,
+        expectedCollectionAmount: expectedAmount,
+      };
+    }
+
+    if (availableBalance.lte(0)) {
+      return {
+        ...baseResult,
+        action: 'SKIPPED',
+        reason: 'Wallet available balance is zero',
+      };
+    }
+
+    if (!details.shouldCollect) {
+      return {
+        ...baseResult,
+        action: 'SKIPPED',
+        reason: 'Collection thresholds are not met yet',
+      };
+    }
+
+    const masterWalletNo = buildCryptoSystemWalletNo(
+      'MASTER',
+      wallet.asset.code,
+      wallet.asset.network,
+    );
+    const masterWallet = await (this.prisma as any).wallet.findFirst({
+      where: {
+        walletNo: masterWalletNo,
+        ownerType: 'CUSTOMER',
+        ownerId: null,
+        assetId: wallet.assetId,
+        status: 'ACTIVE',
+      },
+    });
+
+    if (!masterWallet) {
+      return {
+        ...baseResult,
+        action: 'FAILED',
+        reason: `Master wallet ${masterWalletNo} not found`,
+      };
+    }
+
+    if (dryRun) {
+      return {
+        ...baseResult,
+        action: 'WOULD_CREATE',
+        reason: 'Dry run',
+      };
+    }
+
+    const created = await (this.prisma as any).$transaction(async (tx: any) => {
+      const owner = this.buildPoolOwner(wallet);
+      const referenceNo = `COLL-${wallet.walletNo || wallet.id}`;
+      const internalTx = await this.internalTransactionsService.createStandaloneTransaction(
+        {
+          type: InternalTransactionType.DEP_TO_MASTER,
+          purpose: TreasuryTransferPurpose.DEPOSIT_COLLECTION,
+          initiationMode: TreasuryTransferInitiationMode.AUTOMATED,
+          sourceType: 'DEPOSIT_WALLET',
+          sourceId: `${wallet.id}:${Date.now()}`,
+          sourceNo: wallet.walletNo ?? wallet.id,
+          ownerType: owner.ownerType,
+          ownerId: owner.ownerId,
+          ownerNo: owner.ownerNo,
+          assetId: wallet.assetId,
+          amount: availableBalance,
+          feeAmount: new Prisma.Decimal(0),
+          netAmount: availableBalance,
+          fromWalletId: wallet.id,
+          fromAddress: wallet.address ?? null,
+          fromIban: wallet.iban ?? null,
+          toWalletId: masterWallet.id,
+          toAddress: masterWallet.address ?? null,
+          toIban: masterWallet.iban ?? null,
+          referenceNo,
+          approvalStatus: InternalTransactionApprovalStatus.APPROVED,
+          status: InternalTransactionStatus.INTERNAL_FUNDS_PENDING,
+        },
+        operatorId,
+        tx,
+      );
+
+      const internalFund = await this.internalFundsService.createFromInternalTransaction(
+        {
+          internalTransactionId: internalTx.id,
+          status: InternalFundStatus.CREATED,
+          referenceNo,
+        },
+        operatorId,
+        tx,
+      );
+
+      return { internalTx, internalFund };
+    });
+
+    return {
+      ...baseResult,
+      action: 'CREATED',
+      internalTransactionId: created.internalTx.id,
+      internalFundId: created.internalFund.id,
+    };
   }
 
   private isRetryableInsufficientBalanceError(reason?: string): boolean {

@@ -33,6 +33,7 @@ import {
   UserCheck,
   Sun,
   Moon,
+  AlertTriangle,
 } from 'lucide-react';
 import { Link, useLocation, useNavigate, Outlet } from 'react-router-dom';
 import { useAdminSession } from '../contexts/AdminSessionContext';
@@ -156,6 +157,24 @@ const DashboardLayout = () => {
           requiredPermissions: [PERMISSIONS.SAFEGUARDING_BREAKS_READ],
         },
         {
+          path: '/dashboard/reconciliation/safeguarding-warnings',
+          label: 'Safeguarding Warnings',
+          icon: <AlertTriangle size={18} />,
+          requiredPermissions: [PERMISSIONS.SAFEGUARDING_WARNINGS_READ],
+        },
+        {
+          path: '/dashboard/reconciliation/safeguarding-runs',
+          label: 'Safeguarding Runs',
+          icon: <History size={18} />,
+          requiredPermissions: [PERMISSIONS.SAFEGUARDING_RUNS_READ],
+        },
+        {
+          path: '/dashboard/reconciliation/safeguarding-fiat-statements',
+          label: 'Fiat Statement Imports',
+          icon: <FileText size={18} />,
+          requiredPermissions: [PERMISSIONS.SAFEGUARDING_FIAT_IMPORTS_READ],
+        },
+        {
           path: '/dashboard/reconciliation/outstanding-settlements',
           label: 'Outstanding Settlements',
           icon: <ClipboardList size={18} />,
@@ -220,6 +239,48 @@ const DashboardLayout = () => {
           label: 'SLA Timers',
           icon: <History size={18} />,
           requiredPermissions: [PERMISSIONS.GOV_SLA_TIMERS_READ],
+        },
+      ],
+    },
+    {
+      label: 'Governance Center',
+      icon: <Library size={20} />,
+      children: [
+        {
+          path: '/dashboard/governance/registries/shareholding-versions',
+          label: 'Shareholding Registry',
+          icon: <Building2 size={18} />,
+          requiredPermissions: [PERMISSIONS.GOV_SHAREHOLDING_REGISTRY_READ],
+        },
+        {
+          path: '/dashboard/governance/registries/appointments',
+          label: 'Appointments',
+          icon: <UserCheck size={18} />,
+          requiredPermissions: [PERMISSIONS.GOV_APPOINTMENTS_READ],
+        },
+        {
+          path: '/dashboard/governance/registries/trainings',
+          label: 'Trainings',
+          icon: <ClipboardList size={18} />,
+          requiredPermissions: [PERMISSIONS.GOV_TRAININGS_READ],
+        },
+        {
+          path: '/dashboard/governance/registries/conflicts',
+          label: 'Conflicts',
+          icon: <Shield size={18} />,
+          requiredPermissions: [PERMISSIONS.GOV_CONFLICTS_READ],
+        },
+        {
+          path: '/dashboard/governance/registries/wind-down-materials',
+          label: 'Wind-down Materials',
+          icon: <FileText size={18} />,
+          requiredPermissions: [PERMISSIONS.GOV_WIND_DOWN_MATERIALS_READ],
+        },
+        {
+          path: '/dashboard/governance/regulatory-gates',
+          label: 'Regulatory Gates',
+          icon: <ShieldCheck size={18} />,
+          requiredPermissions: [PERMISSIONS.GOV_REGULATORY_GATES_READ],
         },
       ],
     },
@@ -382,6 +443,30 @@ const DashboardLayout = () => {
           label: 'Internal Funds',
           icon: <Activity size={18} />,
           requiredPermissions: [PERMISSIONS.INTERNAL_FUNDS_READ],
+        },
+        {
+          path: '/dashboard/treasury/pool-settlement-batches',
+          label: 'Pool Settlement Batches',
+          icon: <Layers size={18} />,
+          requiredPermissions: [PERMISSIONS.POOL_SETTLEMENT_BATCH_READ],
+        },
+        {
+          path: '/dashboard/treasury/fee-occurrences',
+          label: 'Fee Occurrences',
+          icon: <Coins size={18} />,
+          requiredPermissions: [PERMISSIONS.FEE_OCCURRENCES_READ],
+        },
+        {
+          path: '/dashboard/treasury/reimbursement-obligations',
+          label: 'Reimbursement Obligations',
+          icon: <Wallet size={18} />,
+          requiredPermissions: [PERMISSIONS.REIMBURSEMENT_OBLIGATIONS_READ],
+        },
+        {
+          path: '/dashboard/treasury/deposit-wallet-monitor',
+          label: 'Deposit Wallet Monitor',
+          icon: <Repeat size={18} />,
+          requiredPermissions: [PERMISSIONS.INTERNAL_COLLECTIONS_RECONCILE],
         },
       ],
     },

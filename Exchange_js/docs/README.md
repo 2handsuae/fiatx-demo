@@ -113,6 +113,10 @@ Source of Truth Level: documentation-governance-index
 - `docs/glossary/`
   - purpose: define terms and naming boundaries
   - update when: new durable terminology is introduced or renamed
+- `docs/requirement/`
+  - purpose: imported requirement matrices and external business-input snapshots converted to Markdown
+  - update when: external control / task / workflow source files are revised or re-imported
+  - do not use for: overriding `docs/constraints/**`, `docs/specs/**`, or active runtime truth
 
 ## Metadata Convention
 - Normative documents should start with:
@@ -189,6 +193,11 @@ Source of Truth Level: documentation-governance-index
   - `docs/PRD/wave-3-customer-lifecycle-talk-track.md`
 - Documentation filing rule:
   - `docs/constraints/documentation-filing-and-adr-constraints.md`
+- Imported requirement references:
+  - `docs/requirement/README.md`
+  - `docs/requirement/master-controls.md`
+  - `docs/requirement/master-tasks.md`
+  - `docs/requirement/workflows.md`
 - Frontend platform constitution:
   - `docs/constraints/frontend-platform-constraints.md`
   - `docs/constraints/frontend-admin-ui-constraints.md`

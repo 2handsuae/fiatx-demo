@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 import { DepositWorkflowService } from './deposit-workflow.service';
 import { WithdrawWorkflowOrchestrator } from './withdraw-workflow.orchestrator';
 import { PayinsModule } from '../modules/asset-treasury/payins/payins.module';
@@ -12,6 +12,7 @@ import { PrismaModule } from '../core/prisma/prisma.module';
 import { TransactionComplianceModule } from '../modules/risk-engine/transaction-compliance/transaction-compliance.module';
 import { InternalTransactionsModule } from '../modules/asset-treasury/internal-transactions/internal-transactions.module';
 import { InternalFundsModule } from '../modules/asset-treasury/internal-funds/internal-funds.module';
+import { WalletsModule } from '../modules/asset-treasury/wallets/wallets.module';
 import { InternalCollectionWorkflowOrchestrator } from './internal-collection-workflow.orchestrator';
 import { AccountingEventExecutionService } from './accounting-event-execution.service';
 import { PayoutCloseoutRepairController } from './payout-closeout-repair.controller';
@@ -27,8 +28,9 @@ import { PayoutCloseoutRepairController } from './payout-closeout-repair.control
     ClearingModule,
     PrismaModule,
     TransactionComplianceModule,
-    InternalTransactionsModule,
+    forwardRef(() => InternalTransactionsModule),
     InternalFundsModule,
+    WalletsModule,
   ],
   controllers: [PayoutCloseoutRepairController],
   providers: [

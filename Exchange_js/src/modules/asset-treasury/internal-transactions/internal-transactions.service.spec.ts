@@ -1,7 +1,10 @@
 import { Prisma } from '@prisma/client';
 import { InternalTransactionsService } from './internal-transactions.service';
 import {
+  InternalTransactionApprovalStatus,
   InternalTransactionStatus,
+  TreasuryTransferInitiationMode,
+  TreasuryTransferPurpose,
   InternalTransactionType,
 } from './dto/internal-transaction.dto';
 
@@ -143,6 +146,8 @@ describe('InternalTransactionsService', () => {
       sourceType: 'DEPOSIT',
       sourceId: 'dep-1',
       sourceNo: 'DEP001',
+      purpose: TreasuryTransferPurpose.DEPOSIT_COLLECTION,
+      initiationMode: TreasuryTransferInitiationMode.AUTOMATED,
       status: InternalTransactionStatus.INTERNAL_FUNDS_PENDING,
       ownerType: 'CUSTOMER',
       ownerId: 'cust-1',
@@ -229,6 +234,8 @@ describe('InternalTransactionsService', () => {
     const created = await service.createStandaloneTransaction(
       {
         type: InternalTransactionType.CLIENT_BANK_TO_LIQ_BANK,
+        purpose: TreasuryTransferPurpose.POOL_REBALANCING,
+        initiationMode: TreasuryTransferInitiationMode.MANUAL,
         sourceType: 'INTERNAL_MANUAL',
         sourceId: 'manual-fiat-1',
         sourceNo: 'MANUAL-FIAT-1',
@@ -375,5 +382,89 @@ describe('InternalTransactionsService', () => {
       prisma,
     );
     expect(clearingsService.triggerClearing).not.toHaveBeenCalled();
+  });
+
+  it('should sync approval projection and move transaction to terminal status', async () => {
+    prisma.internalTransaction.findUnique.mockResolvedValue({
+      id: 'itx-approval-1',
+      internalTxNo: 'ITX-APPROVAL-1',
+      status: InternalTransactionStatus.INTERNAL_FUNDS_PENDING,
+      statusHistory: '[]',
+      completedAt: null,
+      checkerUserId: null,
+      checkedAt: null,
+      reviewReason: null,
+      ownerId: 'platform',
+      ownerType: 'PLATFORM',
+      assetId: 'asset-aed',
+      amount: new Prisma.Decimal(1000),
+      netAmount: new Prisma.Decimal(1000),
+      feeAmount: new Prisma.Decimal(0),
+      approvalCase: null,
+      asset: { type: 'FIAT' },
+      fromWallet: { id: 'wallet-from', ownerType: 'CUSTOMER' },
+      toWallet: { id: 'wallet-to', ownerType: 'PLATFORM' },
+    });
+    prisma.internalTransaction.update.mockResolvedValue({
+      id: 'itx-approval-1',
+      internalTxNo: 'ITX-APPROVAL-1',
+      status: InternalTransactionStatus.REJECTED,
+      statusHistory: '[]',
+      completedAt: new Date(),
+      checkerUserId: 'checker-1',
+      checkedAt: new Date(),
+      reviewReason: 'Rejected by approval workflow',
+      ownerId: 'platform',
+      ownerType: 'PLATFORM',
+      assetId: 'asset-aed',
+      amount: new Prisma.Decimal(1000),
+      netAmount: new Prisma.Decimal(1000),
+      feeAmount: new Prisma.Decimal(0),
+      approvalCase: {
+        id: 'approval-1',
+        approvalNo: 'APR-001',
+        status: 'REJECTED',
+        actionType: 'TREASURY_CROSS_POOL_TRANSFER_APPROVAL',
+      },
+      asset: { type: 'FIAT' },
+      fromWallet: { id: 'wallet-from', ownerType: 'CUSTOMER' },
+      toWallet: { id: 'wallet-to', ownerType: 'PLATFORM' },
+    });
+    prisma.internalTransactionAuditLog.create.mockResolvedValue({ id: 'log-approval-1' });
+    journalsService.triggerEvent.mockResolvedValue({ id: 'journal-approval-1' });
+
+    const result = await service.syncApprovalProjection(
+      'itx-approval-1',
+      {
+        approvalCaseId: 'approval-1',
+        approvalStatus: InternalTransactionApprovalStatus.REJECTED,
+        txStatus: InternalTransactionStatus.REJECTED,
+        checkerUserId: 'checker-1',
+        reviewReason: 'Rejected by approval workflow',
+      },
+      'checker-1',
+    );
+
+    expect(prisma.internalTransaction.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'itx-approval-1' },
+        data: expect.objectContaining({
+          approvalCaseId: 'approval-1',
+          approvalStatus: InternalTransactionApprovalStatus.REJECTED,
+          checkerUserId: 'checker-1',
+          status: InternalTransactionStatus.REJECTED,
+        }),
+      }),
+    );
+    expect(prisma.internalTransactionAuditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          internalTransactionId: 'itx-approval-1',
+          oldStatus: InternalTransactionStatus.INTERNAL_FUNDS_PENDING,
+          newStatus: InternalTransactionStatus.REJECTED,
+        }),
+      }),
+    );
+    expect(result.status).toBe(InternalTransactionStatus.REJECTED);
   });
 });

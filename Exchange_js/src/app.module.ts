@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { LoggerModule } from 'nestjs-pino';
 import { ConfigModule } from '@nestjs/config';
 import { EventEmitterModule } from '@nestjs/event-emitter';
+import { ScheduleModule } from '@nestjs/schedule';
 import { UsersModule } from './modules/identity/users/users.module';
 import { AuthModule } from './modules/identity/auth/auth.module';
 import { AccessControlModule } from './modules/identity/access-control/access-control.module';
@@ -29,9 +30,12 @@ import { PayoutsModule } from './modules/asset-treasury/payouts/payouts.module';
 import { InternalTransactionsModule } from './modules/asset-treasury/internal-transactions/internal-transactions.module';
 import { InternalFundsModule } from './modules/asset-treasury/internal-funds/internal-funds.module';
 import { InternalTransactionWorkflowModule } from './modules/asset-treasury/internal-transaction-workflow/internal-transaction-workflow.module';
+import { FeeOccurrencesModule } from './modules/asset-treasury/fee-occurrences/fee-occurrences.module';
+import { ReimbursementObligationsModule } from './modules/asset-treasury/reimbursement-obligations/reimbursement-obligations.module';
 import { ClearingModule } from './modules/clearing-settle/clearing/clearing.module';
 import { OutstandingsModule } from './modules/clearing-settle/outstandings/outstandings.module';
 import { OutstandingSettlementsModule } from './modules/clearing-settle/outstanding-settlements/outstanding-settlements.module';
+import { PoolSettlementBatchesModule } from './modules/clearing-settle/pool-settlement-batches/pool-settlement-batches.module';
 import { SafeguardingReconciliationModule } from './modules/clearing-settle/safeguarding-reconciliation/safeguarding-reconciliation.module';
 import { RiskEngineModule } from './modules/risk-engine/risk-engine.module';
 import { OnboardingModule } from './modules/identity/onboarding/onboarding.module';
@@ -49,6 +53,7 @@ import { GovernanceModule } from './modules/governance/governance.module';
     EventEmitterModule.forRoot({
       global: true,
     }),
+    ScheduleModule.forRoot(),
     LoggerModule.forRoot({
       pinoHttp: {
         transport:
@@ -89,9 +94,12 @@ import { GovernanceModule } from './modules/governance/governance.module';
     InternalTransactionsModule,
     InternalFundsModule,
     InternalTransactionWorkflowModule,
+    FeeOccurrencesModule,
+    ReimbursementObligationsModule,
     ClearingModule,
     OutstandingsModule,
     OutstandingSettlementsModule,
+    PoolSettlementBatchesModule,
     SafeguardingReconciliationModule,
     RiskEngineModule,
     TransactionComplianceModule,

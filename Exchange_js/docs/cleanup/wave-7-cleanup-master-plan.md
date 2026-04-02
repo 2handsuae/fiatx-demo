@@ -268,9 +268,11 @@ Source of Truth Level: cleanup
     - `Wave 8` owns `threshold / escalation`
     - `Wave 8` owns `funding / treasury coverage`
     - `Wave 8` owns更完整的 treasury / safeguarding operator tooling
+    - `Wave 9` owns `governance registries`
+    - `Wave 9` owns `filing receipt effectiveness 与 governance registry 运营化联动`
 - 退出标准：
   - `Wave 7 cleanup master` 可以从 active plan 退成 closure record
-  - 剩余问题不再挂在 `Wave 7`，而是明确移交到 `Wave 8` 或独立 remediation thread
+  - 剩余问题不再挂在 `Wave 7`，而是明确移交到 `Wave 8 / Wave 9` 或独立 remediation thread
 
 ## Stage Ordering Rationale
 - 先做 `Stage 1`，因为如果 transaction root 的词汇、字段和兼容列都还没收口，后续 response / rail cleanup 没有稳定坐标系。
