@@ -954,6 +954,60 @@ export class SlaTimersService {
     });
   }
 
+  async ensureGovernanceRegistryTimer(input: {
+    subjectType: string;
+    subjectId: string;
+    subjectNo: string;
+    timerType: string;
+    ownerUserId: string;
+    dueAt: Date;
+    traceId: string;
+    contextJson?: Record<string, unknown>;
+  }) {
+    return this.createOrReuseActiveTimer({
+      workflowType: SlaTimerWorkflowTypes.GOVERNANCE_REGISTRY,
+      workflowId: input.subjectId,
+      workflowNo: input.subjectNo,
+      subjectType: input.subjectType,
+      subjectId: input.subjectId,
+      subjectNo: input.subjectNo,
+      timerType: input.timerType,
+      ownerUserId: input.ownerUserId,
+      dueAt: input.dueAt,
+      traceId: input.traceId,
+      contextJson: input.contextJson || {},
+    });
+  }
+
+  async closeGovernanceRegistryTimer(input: {
+    subjectType: string;
+    subjectId: string;
+    timerType: string;
+    reason?: string;
+  }) {
+    const timer = await this.prisma.slaTimer.findFirst({
+      where: {
+        subjectType: input.subjectType,
+        subjectId: input.subjectId,
+        timerType: input.timerType,
+        status: SlaTimerStatuses.ACTIVE,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    if (!timer) {
+      return null;
+    }
+
+    return this.mapTimer(
+      await this.closeTimerRow(
+        timer as SlaTimerRow,
+        this.systemActor(),
+        input.reason || 'Governance registry SLA timer closed',
+      ),
+    );
+  }
+
   async getById(id: string) {
     return this.mapTimer(await this.findTimerOrThrow(id, true));
   }

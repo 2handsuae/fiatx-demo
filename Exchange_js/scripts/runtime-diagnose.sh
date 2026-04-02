@@ -56,6 +56,7 @@ json_array() {
 pending_local=()
 missing_local=()
 checksum_mismatches=()
+migration_metadata_error=""
 
 while IFS= read -r migration_file; do
   migration_name="$(basename "$(dirname "${migration_file}")")"
@@ -63,27 +64,74 @@ while IFS= read -r migration_file; do
   printf '%s|%s\n' "${migration_name}" "${checksum}" >>"${local_rows}"
 done < <(find "${migrations_dir}" -maxdepth 2 -name migration.sql | sort)
 
+set_migration_metadata_error() {
+  local detail="${1:-unknown sqlite error}"
+  if [[ -z "${migration_metadata_error}" ]]; then
+    migration_metadata_error="failed to read migration metadata from ${db_file}: ${detail}"
+  fi
+}
+
+sqlite_scalar_or_note() {
+  local __target_var="$1"
+  local sql="$2"
+  local output
+  local error_output
+  error_output="$(mktemp -t exchange-js-runtime-diagnose-sqlite-error)"
+
+  if ! output="$(sqlite3 "${db_file}" "${sql}" 2>"${error_output}")"; then
+    local detail
+    detail="$(tr '\n' ' ' <"${error_output}" | sed 's/[[:space:]]\+/ /g; s/^ //; s/ $//')"
+    rm -f "${error_output}"
+    set_migration_metadata_error "${detail:-unknown sqlite error}"
+    return 1
+  fi
+
+  rm -f "${error_output}"
+  printf -v "${__target_var}" '%s' "${output}"
+}
+
+sqlite_export_or_note() {
+  local sql="$1"
+  local output_file="$2"
+  local error_output
+  error_output="$(mktemp -t exchange-js-runtime-diagnose-sqlite-error)"
+
+  if ! sqlite3 -separator '|' "${db_file}" "${sql}" >"${output_file}" 2>"${error_output}"; then
+    local detail
+    detail="$(tr '\n' ' ' <"${error_output}" | sed 's/[[:space:]]\+/ /g; s/^ //; s/ $//')"
+    rm -f "${error_output}"
+    : >"${output_file}"
+    set_migration_metadata_error "${detail:-unknown sqlite error}"
+    return 1
+  fi
+
+  rm -f "${error_output}"
+}
+
 db_exists="false"
 latest_applied=""
 
 if [[ -f "${db_file}" ]]; then
   db_exists="true"
-  migration_table_exists="$(
-    sqlite3 "${db_file}" \
-      "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='_prisma_migrations';" \
-      2>/dev/null || echo "0"
-  )"
+  migration_table_exists="0"
+  sqlite_scalar_or_note \
+    migration_table_exists \
+    "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='_prisma_migrations';" || true
 
-  if [[ "${migration_table_exists}" == "1" ]]; then
-    sqlite3 -separator '|' "${db_file}" \
+  if [[ -n "${migration_table_exists}" && ! "${migration_table_exists}" =~ ^[0-9]+$ ]]; then
+    set_migration_metadata_error "invalid migration_table_exists: ${migration_table_exists}"
+    migration_table_exists="0"
+  fi
+
+  if [[ -z "${migration_metadata_error}" && "${migration_table_exists}" == "1" ]]; then
+    sqlite_export_or_note \
       "SELECT migration_name, COALESCE(checksum, '') FROM _prisma_migrations WHERE finished_at IS NOT NULL ORDER BY migration_name ASC;" \
-      >"${applied_rows}" 2>/dev/null || true
+      "${applied_rows}"
 
-    latest_applied="$(
-      sqlite3 "${db_file}" \
-        "SELECT migration_name FROM _prisma_migrations WHERE finished_at IS NOT NULL ORDER BY migration_name DESC LIMIT 1;" \
-        2>/dev/null || true
-    )"
+    latest_applied=""
+    sqlite_scalar_or_note \
+      latest_applied \
+      "SELECT migration_name FROM _prisma_migrations WHERE finished_at IS NOT NULL ORDER BY migration_name DESC LIMIT 1;" || true
   fi
 fi
 
@@ -151,10 +199,11 @@ cat <<EOF
     "latestApplied": "$(json_escape "${latest_applied}")",
     "localCount": ${local_count},
     "appliedCount": ${applied_count},
+    "metadataReadError": "$(json_escape "${migration_metadata_error}")",
     "pendingLocal": $(json_array "${pending_local[@]-}"),
     "missingLocal": $(json_array "${missing_local[@]-}"),
     "checksumMismatches": $(json_array "${checksum_mismatches[@]-}"),
-    "driftDetected": $([[ "${#pending_local[@]}" -gt 0 || "${#missing_local[@]}" -gt 0 || "${#checksum_mismatches[@]}" -gt 0 ]] && echo "true" || echo "false")
+    "driftDetected": $([[ -n "${migration_metadata_error}" || "${#pending_local[@]}" -gt 0 || "${#missing_local[@]}" -gt 0 || "${#checksum_mismatches[@]}" -gt 0 ]] && echo "true" || echo "false")
   },
   "counts": {
     "approvalCases": ${approval_count},

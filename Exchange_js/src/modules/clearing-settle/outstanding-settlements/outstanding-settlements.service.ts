@@ -68,6 +68,25 @@ export class OutstandingSettlementsService {
     private readonly internalFundsService: InternalFundsService,
   ) {}
 
+  private ensureRegulatorEnabledCustBankWallet(wallet: {
+    walletRole?: string | null;
+    walletNo?: string | null;
+    regulatoryEnablementStatus?: string | null;
+  }) {
+    if (String(wallet.walletRole || '').trim().toUpperCase() !== 'CUST_BANK') {
+      return;
+    }
+    if (
+      String(wallet.regulatoryEnablementStatus || '')
+        .trim()
+        .toUpperCase() !== 'EFFECTIVE'
+    ) {
+      throw new BadRequestException(
+        `CUST_BANK wallet ${wallet.walletNo || 'UNKNOWN'} is not regulator-enabled`,
+      );
+    }
+  }
+
   private normalizeSourceType(value?: string | null) {
     const normalized = String(value || 'SWAP')
       .trim()
@@ -278,7 +297,10 @@ export class OutstandingSettlementsService {
         walletNo: deterministicWalletNo,
       },
     });
-    if (byWalletNo) return byWalletNo;
+    if (byWalletNo) {
+      this.ensureRegulatorEnabledCustBankWallet(byWalletNo);
+      return byWalletNo;
+    }
 
     const byRole = await (client as any).wallet.findFirst({
       where: {
@@ -294,6 +316,8 @@ export class OutstandingSettlementsService {
         `No ACTIVE ${input.walletRole} wallet found for asset ${input.assetCode}`,
       );
     }
+
+    this.ensureRegulatorEnabledCustBankWallet(byRole);
 
     return byRole;
   }

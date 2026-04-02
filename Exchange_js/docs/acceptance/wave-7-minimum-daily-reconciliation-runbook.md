@@ -56,4 +56,4 @@ Source of Truth Level: acceptance
 ## Known Caveats
 - Wave 7 does not auto-close breaks when a later rerun becomes clean.
 - Wave 7 does not auto-create cases from reconciliation alerts.
-- Threshold escalation, treasury coverage, and full safeguarding inventory remain Wave 8 scope.
+- Threshold escalation, treasury coverage, and full safeguarding inventory remain Wave 8 finance-ops scope.

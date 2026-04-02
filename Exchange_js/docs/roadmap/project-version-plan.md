@@ -61,8 +61,8 @@
 | `WF-22` Outsourcing Governance | `Wave 9` | 后置扩展 |
 | `WF-23` Complaints + Disputes/Refunds + RCA/CAPA | `Wave 9` | 后置扩展；如监管优先级提高，可前移到 `Wave 8` |
 | `WF-24` Regulatory Reporting Calendar + Production Packs + Agreements | `Wave 9` | 后置扩展 |
-| `WF-GOV-01` Governance Registries | `Wave 8` | 治理台账全量上线 |
-| `WF-GOV-02` Filing + Receipt + Effectiveness Gate | `Wave 8` | `Wave 1` 未落地；后续单独完成 filing/receipt/effective 全链路 |
+| `WF-GOV-01` Governance Registries | `Wave 9` | 后移到治理运营波次，统一与证据工厂一起收口 |
+| `WF-GOV-02` Filing + Receipt + Effectiveness Gate | `Wave 9` | `Wave 1` 未落地；后移到治理运营波次完成 filing/receipt/effective 全链路 |
 | `WF-GOV-03` Security/Privacy Programme Evidence Factory | `Wave 9` | 后置扩展 |
 | `WF-GOV-04` Policy & Attestation Lifecycle | `Wave 9` | 后置扩展 |
 
@@ -644,23 +644,21 @@
 - internal treasury 全量运营工具
 - governance registries
 
-### Wave 8：财务运营与治理主线（Finance Ops + Governance）
+### Wave 8：财务运营主线（Finance Ops）
 
 **目标**
 
-补齐资金保障全量闭环、内部资金流、治理台账、报送/回执/生效门禁的全链路联动，把系统从“能跑业务”升级到“能长期合规运营”。
+补齐资金保障全量闭环、内部资金流、treasury/reconciliation 成本覆盖与运营视图，把系统从“能跑业务”升级到“能长期做财务运营”。
 
 **本波 workflow**
 
 - `WF-16` Phase B（full safeguarding reconciliation）
 - `WF-19` Phase C（funding/reconciliation coverage）
 - `WF-21` 全量
-- `WF-GOV-01` 全量
-- `WF-GOV-02` Phase B（full filing lifecycle）
 
 **为什么放在这里**
 
-- 客户资金主链在 `Wave 5-7` 完成后，这一波负责把运营、保障、治理、报送真正变成可持续的合规体系。
+- 客户资金主链在 `Wave 5-7` 完成后，这一波负责把保障、资金运营、费用补回与 operator tooling 真正收口成可持续的财务运营体系。
 
 **P0 交付物**
 
@@ -675,24 +673,14 @@
   - `onlyMissing`
   - 安全重放
 - fee items 扩展到 treasury/reconciliation 场景。
-- 治理台账完整：
-  - 股权
-  - 任命
-  - 培训
-  - 冲突
-  - wind-down 关键材料引用
-- filing / receipt / effective gate 全链路联动：
-  - 报送前后状态
-  - receipt 绑定
-  - 功能/发布联动阻断
 - 管理视图能实时看到：
-  - 合规状态
-  - 逾期项
+  - safeguarding 状态
+  - 未补回项
   - 未闭环项
 
 **Wave DoD**
 
-- `WF-16 全量 / WF-21 / GOV-01 / GOV-02 全量` 达到“可持续财务运营与治理”的标准。
+- `WF-16 全量 / WF-19 Wave 8 scope / WF-21 全量` 达到“可持续财务运营”的标准。
 
 **代表性 UAT**
 
@@ -703,22 +691,24 @@
   - 闭环后差异解除
   - 证据包包含对账、审批、执行、结案链路
 - 异常回滚流程：
-  - filing 未收到 receipt 就尝试开放功能或发布
-  - 系统自动阻断
-  - 阻断日志与责任链可导出
+  - 归集/内部资金重放命中 `dryRun` / `onlyMissing` / idempotent 保护
+  - 系统不重复建单
+  - 返回明确执行结果并保留责任链
 
 **明确不做**
 
 - 月结账单
+- governance registries
+- filing / receipt / effectiveness gate
 - 外包治理
 - complaints/disputes
 - security/privacy evidence factory
 
-### Wave 9：后置扩展与证据工厂（Deferred Extensions）
+### Wave 9：治理运营与证据工厂（Governance Ops + Evidence Factory）
 
 **目标**
 
-补齐不是主交易闭环必需、但监管与运营成熟度需要的后置扩展能力。
+补齐不属于资金主链必需、但治理运营成熟度与监管留痕需要的后置能力，把 governance registries、filing/receipt/effectiveness、报送材料与证据工厂统一收口。
 
 **本波 workflow**
 
@@ -726,13 +716,15 @@
 - `WF-22` 全量
 - `WF-23` 全量
 - `WF-24` 全量
+- `WF-GOV-01` 全量
+- `WF-GOV-02` 全量
 - `WF-GOV-03` 全量
 - `WF-GOV-04` 全量
 - `WF-06` Phase B（P2 link integrity and publish hardening）
 
 **为什么放在这里**
 
-- 这些能力重要，但不应阻塞前面八个 waves 的交易主链、账务主链与合规主链。
+- 这些能力重要，但不应阻塞前面八个 waves 的交易主链、账务主链、财务运营主链；它们更适合作为治理运营化与证据工厂波次统一收口。
 
 **P0 交付物**
 
@@ -740,6 +732,10 @@
   - `T+25` 内自动生成
   - 分发
   - 回执归档
+- 治理运营：
+  - governance registries
+  - filing / receipt / effectiveness gate
+  - governance summary / operator views
 - 外包治理：
   - materiality 判定
   - 合同条款闸门
@@ -764,11 +760,14 @@
 
 **Wave DoD**
 
-- `WF-18/22/23/24/GOV-03/GOV-04 + WF-06(P2)` 达到“监管运营成熟度扩展”的标准。
+- `WF-18/22/23/24/GOV-01/GOV-02/GOV-03/GOV-04 + WF-06(P2)` 达到“治理运营与监管证据工厂”的标准。
 
 **代表性 UAT**
 
 - 主流程：
+  - 治理台账完成更新
+  - filing 提交并取得 receipt
+  - effect gate 满足后允许正式生效
   - 周期性监管材料自动生成
   - 审核后提交
   - 回执归档
@@ -791,8 +790,8 @@
 - 如果需求涉及 `payin / deposit`，优先看 `Wave 5`。
 - 如果需求涉及 `quote / swap / best execution / product restriction`，优先看 `Wave 6`。
 - 如果需求涉及 `withdraw / payout / pre-kyt / tx kyt / travel rule / reversal / minimum reconciliation`，优先看 `Wave 7`。
-- 如果需求涉及 `internal treasury / safeguarding full reconciliation / filing receipt effectiveness / governance registry`，优先看 `Wave 8`。
-- 如果需求涉及 `monthly statements / outsourcing / complaints / regulatory calendar / policy attestation / security privacy evidence`，优先看 `Wave 9`。
+- 如果需求涉及 `internal treasury / safeguarding full reconciliation / treasury fee & reimbursement / finance ops dashboard`，优先看 `Wave 8`。
+- 如果需求涉及 `governance registry / filing receipt effectiveness / regulatory governance ops / monthly statements / outsourcing / complaints / regulatory calendar / policy attestation / security privacy evidence`，优先看 `Wave 9`。
 
 ## 7. Agent 执行注意事项
 

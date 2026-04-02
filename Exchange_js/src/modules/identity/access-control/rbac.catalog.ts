@@ -74,6 +74,10 @@ export type PermissionGroup =
   | 'GOV_DELETE_REQUEST_READ'
   | 'GOV_DELETE_REQUEST_WRITE'
   | 'GOV_DELETE_REQUEST_EXECUTE'
+  | 'GOV_REGISTRY_READ'
+  | 'GOV_REGISTRY_WRITE'
+  | 'GOV_REGULATORY_GATE_READ'
+  | 'GOV_REGULATORY_GATE_WRITE'
   | 'GOV_SLA_READ'
   | 'GOV_SLA_WRITE';
 
@@ -427,12 +431,52 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('GET', '/admin/internal-transactions', 'List internal transactions', ['INTERNAL_TX_READ']),
   route('GET', '/admin/internal-transactions/:id', 'Get internal transaction detail', ['INTERNAL_TX_READ']),
   route('POST', '/admin/internal-transactions', 'Create manual internal transaction', ['INTERNAL_TX_SUBMIT']),
+  route(
+    'GET',
+    '/admin/internal-transactions/collection-wallets',
+    'List deposit wallets eligible for collection',
+    ['INTERNAL_TX_SUBMIT'],
+  ),
+  route(
+    'POST',
+    '/admin/internal-transactions/collection-wallets/:walletId/reconcile',
+    'Run wallet-driven collection for a deposit wallet',
+    ['INTERNAL_TX_SUBMIT'],
+  ),
+  route(
+    'POST',
+    '/admin/internal-transactions/reconcile-collections',
+    'Replay internal collection transactions (legacy)',
+    ['INTERNAL_TX_SUBMIT'],
+  ),
   route('PATCH', '/admin/internal-transactions/:id/review', 'Review manual internal transaction', ['INTERNAL_TX_REVIEW']),
 
   route('GET', '/admin/internal-funds', 'List internal funds', ['INTERNAL_FUND_READ']),
   route('GET', '/admin/internal-funds/:id', 'Get internal fund detail', ['INTERNAL_FUND_READ']),
   route('PATCH', '/admin/internal-funds/:id/status', 'Update internal fund status', ['INTERNAL_FUND_WRITE']),
   route('POST', '/admin/internal-funds/mock', 'Mock internal fund transition', ['INTERNAL_FUND_WRITE']),
+  route('GET', '/admin/fee-occurrences', 'List fee occurrences', ['INTERNAL_FUND_READ']),
+  route('GET', '/admin/fee-occurrences/:id', 'Get fee occurrence detail', ['INTERNAL_FUND_READ']),
+  route('POST', '/admin/fee-occurrences', 'Record fee occurrence', ['INTERNAL_FUND_WRITE']),
+  route('PATCH', '/admin/fee-occurrences/:id/cancel', 'Cancel fee occurrence', ['INTERNAL_FUND_WRITE']),
+  route(
+    'GET',
+    '/admin/reimbursement-obligations',
+    'List reimbursement obligations',
+    ['INTERNAL_FUND_READ'],
+  ),
+  route(
+    'GET',
+    '/admin/reimbursement-obligations/:id',
+    'Get reimbursement obligation detail',
+    ['INTERNAL_FUND_READ'],
+  ),
+  route(
+    'PATCH',
+    '/admin/reimbursement-obligations/:id/status',
+    'Update reimbursement obligation status',
+    ['INTERNAL_FUND_WRITE'],
+  ),
 
   // Reconciliation
   route('GET', '/admin/reconciliation/outstandings', 'List outstandings', ['RECON_OUTSTANDING_READ']),
@@ -452,7 +496,7 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route(
     'POST',
     '/admin/reconciliation/safeguarding-breaks/generate-daily-diff',
-    'Generate safeguarding daily diff',
+    'Run full safeguarding reconciliation',
     ['RECON_BREAK_WRITE'],
   ),
   route(
@@ -461,11 +505,69 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
     'Update safeguarding reconciliation break status',
     ['RECON_BREAK_WRITE'],
   ),
+  route(
+    'GET',
+    '/admin/reconciliation/safeguarding-warnings',
+    'List safeguarding reconciliation warnings',
+    ['RECON_BREAK_READ'],
+  ),
+  route(
+    'GET',
+    '/admin/reconciliation/safeguarding-warnings/:id',
+    'Get safeguarding reconciliation warning detail',
+    ['RECON_BREAK_READ'],
+  ),
+  route(
+    'PATCH',
+    '/admin/reconciliation/safeguarding-warnings/:id/status',
+    'Update safeguarding reconciliation warning status',
+    ['RECON_BREAK_WRITE'],
+  ),
+  route(
+    'GET',
+    '/admin/reconciliation/safeguarding-runs',
+    'List safeguarding reconciliation runs',
+    ['RECON_BREAK_READ'],
+  ),
+  route(
+    'GET',
+    '/admin/reconciliation/safeguarding-runs/:id',
+    'Get safeguarding reconciliation run detail',
+    ['RECON_BREAK_READ'],
+  ),
+  route(
+    'POST',
+    '/admin/reconciliation/safeguarding-runs/:id/export-evidence-package',
+    'Export safeguarding reconciliation evidence package',
+    ['RECON_BREAK_WRITE'],
+  ),
+  route(
+    'POST',
+    '/admin/reconciliation/safeguarding-fiat-statements/imports',
+    'Import safeguarding fiat statement',
+    ['RECON_BREAK_WRITE'],
+  ),
+  route(
+    'GET',
+    '/admin/reconciliation/safeguarding-fiat-statements/imports',
+    'List safeguarding fiat statement imports',
+    ['RECON_BREAK_READ'],
+  ),
+  route(
+    'GET',
+    '/admin/reconciliation/safeguarding-fiat-statements/imports/:id',
+    'Get safeguarding fiat statement import detail',
+    ['RECON_BREAK_READ'],
+  ),
 
   route('POST', '/admin/reconciliation/outstanding-settlements', 'Create outstanding settlement', ['SETTLEMENT_WRITE']),
   route('GET', '/admin/reconciliation/outstanding-settlements', 'List outstanding settlements', ['SETTLEMENT_READ']),
   route('GET', '/admin/reconciliation/outstanding-settlements/:id', 'Get outstanding settlement detail', ['SETTLEMENT_READ']),
   route('POST', '/admin/reconciliation/outstanding-settlements/:id/sync', 'Sync outstanding settlement', ['SETTLEMENT_WRITE']),
+  route('GET', '/admin/pool-settlement-batches', 'List pool settlement batches', ['SETTLEMENT_READ']),
+  route('GET', '/admin/pool-settlement-batches/:id', 'Get pool settlement batch detail', ['SETTLEMENT_READ']),
+  route('POST', '/admin/pool-settlement-batches', 'Create pool settlement batch', ['SETTLEMENT_WRITE']),
+  route('POST', '/admin/pool-settlement-batches/:id/submit', 'Submit pool settlement batch', ['SETTLEMENT_WRITE']),
 
   // Clearing
   route('GET', '/clearings', 'List clearings', ['CLEARING_READ']),
@@ -583,6 +685,104 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
     'GOV_DELETE_REQUEST_EXECUTE',
   ]),
 
+  // Governance registries
+  route('GET', '/admin/governance/registries/shareholding-versions', 'List shareholding registry versions', [
+    'GOV_REGISTRY_READ',
+  ]),
+  route('GET', '/admin/governance/registries/shareholding-versions/:id', 'Get shareholding registry version detail', [
+    'GOV_REGISTRY_READ',
+  ]),
+  route('POST', '/admin/governance/registries/shareholding-versions', 'Create shareholding registry version', [
+    'GOV_REGISTRY_WRITE',
+  ]),
+  route('PATCH', '/admin/governance/registries/shareholding-versions/:id', 'Update shareholding registry version', [
+    'GOV_REGISTRY_WRITE',
+  ]),
+  route('GET', '/admin/governance/registries/appointments', 'List appointment records', [
+    'GOV_REGISTRY_READ',
+  ]),
+  route('GET', '/admin/governance/registries/appointments/:id', 'Get appointment record detail', [
+    'GOV_REGISTRY_READ',
+  ]),
+  route('POST', '/admin/governance/registries/appointments', 'Create appointment record', [
+    'GOV_REGISTRY_WRITE',
+  ]),
+  route('PATCH', '/admin/governance/registries/appointments/:id', 'Update appointment record', [
+    'GOV_REGISTRY_WRITE',
+  ]),
+  route('GET', '/admin/governance/registries/trainings', 'List training records', [
+    'GOV_REGISTRY_READ',
+  ]),
+  route('GET', '/admin/governance/registries/trainings/:id', 'Get training record detail', [
+    'GOV_REGISTRY_READ',
+  ]),
+  route('POST', '/admin/governance/registries/trainings', 'Create training record', [
+    'GOV_REGISTRY_WRITE',
+  ]),
+  route('PATCH', '/admin/governance/registries/trainings/:id', 'Update training record', [
+    'GOV_REGISTRY_WRITE',
+  ]),
+  route('GET', '/admin/governance/registries/conflicts', 'List conflict disclosures', [
+    'GOV_REGISTRY_READ',
+  ]),
+  route('GET', '/admin/governance/registries/conflicts/:id', 'Get conflict disclosure detail', [
+    'GOV_REGISTRY_READ',
+  ]),
+  route('POST', '/admin/governance/registries/conflicts', 'Create conflict disclosure', [
+    'GOV_REGISTRY_WRITE',
+  ]),
+  route('PATCH', '/admin/governance/registries/conflicts/:id', 'Update conflict disclosure', [
+    'GOV_REGISTRY_WRITE',
+  ]),
+  route('GET', '/admin/governance/registries/wind-down-materials', 'List wind-down material records', [
+    'GOV_REGISTRY_READ',
+  ]),
+  route('GET', '/admin/governance/registries/wind-down-materials/:id', 'Get wind-down material record detail', [
+    'GOV_REGISTRY_READ',
+  ]),
+  route('POST', '/admin/governance/registries/wind-down-materials', 'Create wind-down material record', [
+    'GOV_REGISTRY_WRITE',
+  ]),
+  route('PATCH', '/admin/governance/registries/wind-down-materials/:id', 'Update wind-down material record', [
+    'GOV_REGISTRY_WRITE',
+  ]),
+  route('GET', '/admin/governance/regulatory-gates', 'List regulatory gate items', [
+    'GOV_REGULATORY_GATE_READ',
+  ]),
+  route('GET', '/admin/governance/regulatory-gates/:id', 'Get regulatory gate detail', [
+    'GOV_REGULATORY_GATE_READ',
+  ]),
+  route('POST', '/admin/governance/regulatory-gates', 'Create regulatory gate item', [
+    'GOV_REGULATORY_GATE_WRITE',
+  ]),
+  route('PATCH', '/admin/governance/regulatory-gates/:id', 'Update regulatory gate item', [
+    'GOV_REGULATORY_GATE_WRITE',
+  ]),
+  route('POST', '/admin/governance/regulatory-gates/:id/submit', 'Submit regulatory gate filing', [
+    'GOV_REGULATORY_GATE_WRITE',
+  ]),
+  route(
+    'POST',
+    '/admin/governance/regulatory-gates/:id/record-feedback',
+    'Record regulatory gate filing feedback',
+    ['GOV_REGULATORY_GATE_WRITE'],
+  ),
+  route(
+    'POST',
+    '/admin/governance/regulatory-gates/:id/bind-receipt',
+    'Bind regulatory gate receipt',
+    ['GOV_REGULATORY_GATE_WRITE'],
+  ),
+  route(
+    'POST',
+    '/admin/governance/regulatory-gates/:id/mark-effective',
+    'Mark regulatory gate effective',
+    ['GOV_REGULATORY_GATE_WRITE'],
+  ),
+  route('POST', '/admin/governance/regulatory-gates/:id/revoke', 'Revoke regulatory gate', [
+    'GOV_REGULATORY_GATE_WRITE',
+  ]),
+
   // Governance SLA timers
   route('GET', '/admin/control-gates/sla-timers', 'List SLA timers', ['GOV_SLA_READ']),
   route('GET', '/admin/control-gates/sla-timers/:id', 'Get SLA timer detail', [
@@ -625,6 +825,8 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'GOV_APPROVAL_READ',
     'GOV_CHANGE_TICKET_READ',
     'GOV_DELETE_REQUEST_READ',
+    'GOV_REGISTRY_READ',
+    'GOV_REGULATORY_GATE_READ',
     'GOV_SLA_READ',
   ],
   SM: [
@@ -639,6 +841,8 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'GOV_APPROVAL_READ',
     'GOV_CHANGE_TICKET_READ',
     'GOV_DELETE_REQUEST_READ',
+    'GOV_REGISTRY_READ',
+    'GOV_REGULATORY_GATE_READ',
     'GOV_SLA_READ',
   ],
   TECH_ADMIN: [
@@ -659,6 +863,10 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'GOV_DELETE_REQUEST_READ',
     'GOV_DELETE_REQUEST_WRITE',
     'GOV_DELETE_REQUEST_EXECUTE',
+    'GOV_REGISTRY_READ',
+    'GOV_REGISTRY_WRITE',
+    'GOV_REGULATORY_GATE_READ',
+    'GOV_REGULATORY_GATE_WRITE',
     'GOV_SLA_READ',
     'GOV_SLA_WRITE',
   ],
@@ -673,6 +881,8 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'GOV_CHANGE_TICKET_WRITE',
     'GOV_DELETE_REQUEST_READ',
     'GOV_DELETE_REQUEST_WRITE',
+    'GOV_REGISTRY_READ',
+    'GOV_REGULATORY_GATE_READ',
   ],
   FINANCE: [
     'BASE_ACCESS',
@@ -685,6 +895,8 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'GOV_CHANGE_TICKET_WRITE',
     'GOV_DELETE_REQUEST_READ',
     'GOV_DELETE_REQUEST_WRITE',
+    'GOV_REGISTRY_READ',
+    'GOV_REGULATORY_GATE_READ',
   ],
   COMPLIANCE_LEAD: [
     'BASE_ACCESS',
@@ -708,6 +920,10 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'GOV_CHANGE_TICKET_WRITE',
     'GOV_DELETE_REQUEST_READ',
     'GOV_DELETE_REQUEST_WRITE',
+    'GOV_REGISTRY_READ',
+    'GOV_REGISTRY_WRITE',
+    'GOV_REGULATORY_GATE_READ',
+    'GOV_REGULATORY_GATE_WRITE',
     'GOV_SLA_READ',
     'GOV_SLA_WRITE',
   ],
@@ -733,6 +949,7 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'GOV_APPROVAL_DECIDE',
     'GOV_CHANGE_TICKET_READ',
     'GOV_DELETE_REQUEST_READ',
+    'GOV_REGISTRY_READ',
     'GOV_SLA_READ',
   ],
   DPO: [
@@ -748,6 +965,10 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'GOV_DELETE_REQUEST_READ',
     'GOV_DELETE_REQUEST_WRITE',
     'GOV_DELETE_REQUEST_EXECUTE',
+    'GOV_REGISTRY_READ',
+    'GOV_REGISTRY_WRITE',
+    'GOV_REGULATORY_GATE_READ',
+    'GOV_REGULATORY_GATE_WRITE',
     'GOV_SLA_READ',
   ],
   CISO: [
@@ -766,6 +987,10 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'GOV_CHANGE_TICKET_WRITE',
     'GOV_CHANGE_TICKET_GATE',
     'GOV_DELETE_REQUEST_READ',
+    'GOV_REGISTRY_READ',
+    'GOV_REGISTRY_WRITE',
+    'GOV_REGULATORY_GATE_READ',
+    'GOV_REGULATORY_GATE_WRITE',
     'GOV_SLA_READ',
     'GOV_SLA_WRITE',
   ],

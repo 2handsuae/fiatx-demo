@@ -336,6 +336,20 @@ export class AuditLogsService {
       PAYIN: { model: 'payin', field: 'payinNo' },
       INTERNAL_TRANSACTION: { model: 'internalTransaction', field: 'internalTxNo' },
       INTERNAL_FUND: { model: 'internalFund', field: 'internalFundNo' },
+      FEE_OCCURRENCE: { model: 'feeOccurrence', field: 'feeNo' },
+      REIMBURSEMENT_OBLIGATION: {
+        model: 'reimbursementObligation',
+        field: 'obligationNo',
+      },
+      SAFEGUARDING_RUN: { model: 'safeguardingRun', field: 'runNo' },
+      RECONCILIATION_WARNING: {
+        model: 'reconciliationWarning',
+        field: 'warningNo',
+      },
+      FIAT_STATEMENT_IMPORT: {
+        model: 'fiatStatementImport',
+        field: 'importNo',
+      },
       SWAP_QUOTE: { model: 'swapQuote', field: 'quoteNo' },
       KYT_CASE: { model: 'kytCase', field: 'caseNo' },
       TRAVEL_RULE_CASE: { model: 'travelRuleCase', field: 'caseNo' },

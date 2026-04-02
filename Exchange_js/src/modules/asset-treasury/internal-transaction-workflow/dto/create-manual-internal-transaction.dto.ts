@@ -7,12 +7,12 @@ import {
   Matches,
   MinLength,
 } from 'class-validator';
-import { InternalTransactionType } from '../../internal-transactions/dto/internal-transaction.dto';
+import { TreasuryTransferPurpose } from '../../internal-transactions/dto/internal-transaction.dto';
 
 export class CreateManualInternalTransactionDto {
-  @ApiProperty({ enum: InternalTransactionType })
-  @IsEnum(InternalTransactionType)
-  type!: InternalTransactionType;
+  @ApiProperty({ enum: TreasuryTransferPurpose })
+  @IsEnum(TreasuryTransferPurpose)
+  purpose!: TreasuryTransferPurpose;
 
   @ApiProperty()
   @IsUUID()

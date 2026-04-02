@@ -123,6 +123,14 @@ export const COMPLIANCE_ALERT_RULES: Record<string, ComplianceAlertRuleDefinitio
     defaultMessage:
       'Withdraw safeguarding reconciliation detected a break that requires investigation.',
   },
+  TX_SAFEGUARDING_BREAK_DETECTED: {
+    ruleCode: 'TX_SAFEGUARDING_BREAK_DETECTED',
+    capCode: 'CAP-016',
+    severity: ComplianceAlertSeverity.HIGH,
+    title: 'Safeguarding Break Detected',
+    defaultMessage:
+      'Safeguarding reconciliation detected an asset-level break that requires investigation.',
+  },
   ONB_ONBOARDING_JOURNEY_REVIEW: {
     ruleCode: 'ONB_ONBOARDING_JOURNEY_REVIEW',
     capCode: 'CAP-004',

@@ -104,6 +104,13 @@ interface PayoutDetail {
     module?: string | null;
     result?: string | null;
   }>;
+  feeOccurrences?: Array<{
+    id: string;
+    feeNo: string;
+    feeType: string;
+    amount: string;
+    status?: string | null;
+  }>;
 }
 
 const PayoutDetail = () => {
@@ -648,6 +655,32 @@ const PayoutDetail = () => {
 
         {/* 7. Clearing & Settlement Info - HIDDEN */}
         {/* Clearing section removed as per requirement */}
+
+        <DetailCard title="Linked Fee Occurrences" icon={<CreditCard size={18} />} columns={1}>
+          {data.feeOccurrences && data.feeOccurrences.length > 0 ? (
+            <div className="space-y-3">
+              {data.feeOccurrences.map((fee) => (
+                <div
+                  key={fee.id}
+                  className="rounded-lg border border-admin-border bg-gray-50/60 px-4 py-3"
+                >
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <div className="font-mono text-xs text-brand-primary">{fee.feeNo}</div>
+                      <div className="mt-1 text-sm font-medium text-gray-900">{fee.feeType}</div>
+                    </div>
+                    <div className="text-sm text-gray-700">
+                      {formatAssetAmount(fee.amount, data.asset?.decimals)}
+                    </div>
+                  </div>
+                  <div className="mt-2 text-xs text-gray-500">{fee.status || 'RECORDED'}</div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-sm text-gray-500">No linked fee occurrences.</div>
+          )}
+        </DetailCard>
 
         {/* 6. Status History & Audit */}
         <DetailCard title="Status History & Audit" icon={<Activity size={18} />} columns={1}>

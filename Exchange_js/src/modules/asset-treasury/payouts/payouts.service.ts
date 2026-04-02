@@ -64,6 +64,7 @@ import {
 import { AuditTriggerType } from '../../risk-engine/audit-logs/dto/audit-log.dto';
 import { TransactionComplianceService } from '../../risk-engine/transaction-compliance/transaction-compliance.service';
 import { PricingCenterService } from '../../trading/pricing-center/pricing-center.service';
+import { FeeOccurrencesService } from '../fee-occurrences/fee-occurrences.service';
 
 @Injectable()
 export class PayoutsService {
@@ -76,6 +77,7 @@ export class PayoutsService {
     private eventEmitter: EventEmitter2,
     private readonly transactionComplianceService: TransactionComplianceService,
     private readonly pricingCenterService: PricingCenterService,
+    private readonly feeOccurrencesService: FeeOccurrencesService,
   ) {
     this.auditLogsService = new AuditLogsService(prisma);
   }
@@ -260,6 +262,18 @@ export class PayoutsService {
       },
     });
     if (!item) throw new NotFoundException('Payout not found');
+    const linkedFeeOccurrences =
+      (await (this.prisma as any).feeOccurrence?.findMany?.({
+        where: {
+          sourceEntityType: 'PAYOUT',
+          sourceEntityId: item.id,
+        },
+        orderBy: { createdAt: 'asc' },
+      })) || [];
+    const feeOccurrences =
+      linkedFeeOccurrences.length > 0
+        ? linkedFeeOccurrences
+        : item.feeOccurrences || [];
     const auditLogs = await this.getCanonicalPayoutAuditLogs(
       item.id,
       item.payoutNo,
@@ -277,6 +291,7 @@ export class PayoutsService {
       type: this.normalizeAdminPayoutType(item.type),
       status: this.normalizeStoredPayoutStatus(item.status),
       displayStatus: this.normalizeRailDisplayStatus(item.status),
+      feeOccurrences,
       auditLogs,
     };
   }
@@ -383,8 +398,10 @@ export class PayoutsService {
       const item = await (client as any).payout.findUnique({
         where: { id },
         include: {
+          asset: true,
           withdraw: {
             include: {
+              fromWallet: true,
               asset: {
                 select: {
                   type: true,
@@ -515,6 +532,20 @@ export class PayoutsService {
         },
         client,
       );
+
+      if (nextStatus === PayoutStatus.CONFIRMED) {
+        await this.feeOccurrencesService.captureFromPayout(
+          {
+            ...item,
+            ...updated,
+            asset: item.asset,
+            sourceWallet: item.withdraw?.fromWallet || null,
+            withdraw: item.withdraw,
+          },
+          operatorId,
+          client,
+        );
+      }
 
       const postCommitEvents: Array<{ eventName: string; payload: any }> = [];
       if (nextStatus === PayoutStatus.CONFIRMED) {

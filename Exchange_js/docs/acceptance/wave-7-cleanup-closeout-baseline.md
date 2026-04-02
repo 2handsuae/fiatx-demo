@@ -165,10 +165,14 @@ Source of Truth Level: acceptance
   - live PRECHECK alert recommendation surface
   - response status used as current risk disposition
 
-## Wave 8 Handoff
-- `Wave 8` owns:
+## Post-Wave 7 Handoff
+- `Wave 8` finance handoff owns:
   - full safeguarding reconciliation
   - threshold / escalation
   - broader funding / treasury coverage
   - heavier treasury / safeguarding operator tooling
+- `Wave 9` governance handoff owns:
+  - governance registries
+  - filing receipt effectiveness
+  - governance registry 运营化联动
 - `Wave 7 cleanup` does not reopen those scopes.

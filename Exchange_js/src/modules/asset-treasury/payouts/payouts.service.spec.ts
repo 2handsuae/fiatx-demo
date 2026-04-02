@@ -18,6 +18,7 @@ describe('PayoutsService', () => {
   let eventEmitter: { emit: jest.Mock };
   let transactionComplianceService: any;
   let pricingCenterService: any;
+  let feeOccurrencesService: any;
 
   beforeEach(() => {
     prisma = {
@@ -30,6 +31,9 @@ describe('PayoutsService', () => {
         count: jest.fn(),
         create: jest.fn(),
         update: jest.fn(),
+      },
+      feeOccurrence: {
+        findMany: jest.fn().mockResolvedValue([]),
       },
       payoutAuditLog: {
         create: jest.fn(),
@@ -48,11 +52,15 @@ describe('PayoutsService', () => {
     pricingCenterService = {
       assertWithdrawExtremeVolatilityNotBlocked: jest.fn(),
     };
+    feeOccurrencesService = {
+      captureFromPayout: jest.fn().mockResolvedValue([]),
+    };
     service = new PayoutsService(
       prisma,
       eventEmitter as unknown as EventEmitter2,
       transactionComplianceService,
       pricingCenterService,
+      feeOccurrencesService,
     );
     (service as any).auditLogsService = {
       recordByActor: jest.fn().mockResolvedValue({ id: 'audit-log-1' }),
@@ -322,6 +330,64 @@ describe('PayoutsService', () => {
     );
   });
 
+  it('should capture payout fee occurrences on confirmed', async () => {
+    prisma.payout.findUnique.mockResolvedValue({
+      id: 'PO_crypto_confirm_1',
+      payoutNo: 'POC1',
+      withdrawId: 'WD_crypto_confirm_1',
+      ownerId: 'CUST_1',
+      assetId: 'asset-usdt',
+      type: PayoutType.CRYPTO,
+      status: PayoutStatus.CONFIRMING,
+      statusHistory: '[]',
+      sentAt: new Date(),
+      referenceNo: null,
+      withdraw: {
+        id: 'WD_crypto_confirm_1',
+        ownerId: 'CUST_1',
+        ownerNo: 'CU_0001',
+        fromWalletId: 'wallet-pay-1',
+        asset: {
+          type: 'CRYPTO',
+        },
+      },
+    });
+    prisma.payout.update.mockResolvedValue({
+      id: 'PO_crypto_confirm_1',
+      payoutNo: 'POC1',
+      status: PayoutStatus.CONFIRMED,
+      withdrawId: 'WD_crypto_confirm_1',
+      assetId: 'asset-usdt',
+      type: PayoutType.CRYPTO,
+      referenceNo: null,
+      txHash: '0xhash',
+      providerTxnId: null,
+      fromAddress: 'Tsource',
+      fromIban: null,
+      withdraw: {
+        id: 'WD_crypto_confirm_1',
+        withdrawNo: 'WD-C1',
+        fromWalletId: 'wallet-pay-1',
+      },
+      asset: { id: 'asset-usdt', code: 'USDT', type: 'CRYPTO', network: 'TRON', decimals: 6 },
+    });
+
+    const updated = await service.updateStatus(
+      'PO_crypto_confirm_1',
+      { action: PayoutAction.CONFIRM, txHash: '0xhash' },
+      'SYSTEM',
+    );
+
+    expect(updated.status).toBe(PayoutStatus.CONFIRMED);
+    expect(feeOccurrencesService.captureFromPayout).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'PO_crypto_confirm_1',
+      }),
+      'SYSTEM',
+      prisma,
+    );
+  });
+
   it('should return canonical audit logs in payout detail payload', async () => {
     prisma.payout.findUnique.mockResolvedValue({
       id: 'PO_detail_1',
@@ -333,6 +399,14 @@ describe('PayoutsService', () => {
       withdraw: { withdrawNo: 'WDDET1', ownerId: 'CUST_1', status: 'SUCCESS' },
       customer: null,
       clearings: [],
+      feeOccurrences: [
+        {
+          id: 'fee-1',
+          feeNo: 'FEE-1',
+          feeType: 'BANK_TRANSFER_FEE',
+          amount: '12.50',
+        },
+      ],
     });
     prisma.auditLogEvent.findMany.mockResolvedValue([
       {
@@ -369,6 +443,12 @@ describe('PayoutsService', () => {
         type: 'FIAT',
         status: 'CLEARED',
         displayStatus: 'CLEARED',
+        feeOccurrences: [
+          expect.objectContaining({
+            id: 'fee-1',
+            feeType: 'BANK_TRANSFER_FEE',
+          }),
+        ],
       }),
     );
   });

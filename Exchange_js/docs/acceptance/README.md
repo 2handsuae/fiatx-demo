@@ -37,7 +37,7 @@ Source of Truth Level: acceptance
 - `docs/acceptance/wave-7-minimum-daily-reconciliation-runbook.md`
   - Active Phase 4 manual runbook for break-based daily reconciliation validation.
 - `docs/acceptance/wave-7-cleanup-closeout-baseline.md`
-  - Stage 5 closeout baseline for branch acceptance, evidence symmetry, canonical audit expectations, residual compatibility shells, and Wave 8 handoff.
+  - Stage 5 closeout baseline for branch acceptance, evidence symmetry, canonical audit expectations, residual compatibility shells, and post-Wave 7 handoff.
 - `docs/acceptance/onboarding-compliance-center-wave3-acceptance-checklist.md`
   - Focused onboarding + compliance-center manual script.
 - `docs/acceptance/local-main-runtime-runbook.md`

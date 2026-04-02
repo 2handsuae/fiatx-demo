@@ -4,6 +4,8 @@ import {
   buildCryptoSystemWalletNo,
   buildFiatPoolWalletNo,
 } from '../src/modules/asset-treasury/wallets/system-wallet.util';
+import { cleanupWave8TreasuryDemoData } from '../src/modules/asset-treasury/demo/wave8-treasury-demo.util';
+import { cleanupWave8Gov02DemoData } from '../src/modules/governance/regulatory-gates/demo/wave8-gov02-demo.util';
 
 const prisma = new PrismaClient({
   log: ['warn', 'error'],
@@ -38,6 +40,14 @@ async function getPreservedBaselineWalletNos(): Promise<string[]> {
   return walletNos;
 }
 
+async function deleteManyIfDelegateExists(delegateName: string): Promise<number> {
+  const delegate = (prisma as any)[delegateName];
+  if (!delegate?.deleteMany) {
+    return 0;
+  }
+  return (await delegate.deleteMany()).count;
+}
+
 async function resetBusinessData(): Promise<void> {
   console.log(
     '--- Resetting business data (canonical baseline wallets will be preserved) ---',
@@ -45,9 +55,21 @@ async function resetBusinessData(): Promise<void> {
 
   const deleted: Record<string, number> = {};
   const preservedBaselineWalletNos = await getPreservedBaselineWalletNos();
+  const gov02DemoCleanup = await cleanupWave8Gov02DemoData(prisma as any);
+  const treasuryDemoCleanup = await cleanupWave8TreasuryDemoData(prisma as any);
+  Object.assign(deleted, gov02DemoCleanup);
+  Object.assign(deleted, treasuryDemoCleanup);
 
   deleted.clearing_lines = (await prisma.clearingLine.deleteMany()).count;
   deleted.clearings = (await prisma.clearing.deleteMany()).count;
+  deleted.fiat_statement_entries = (await (prisma as any).fiatStatementEntry.deleteMany()).count;
+  deleted.fiat_statement_imports = (await (prisma as any).fiatStatementImport.deleteMany()).count;
+  deleted.reconciliation_warnings = (await (prisma as any).reconciliationWarning.deleteMany()).count;
+  deleted.reconciliation_breaks = (await (prisma as any).reconciliationBreak.deleteMany()).count;
+  deleted.safeguarding_pool_snapshots = (await (prisma as any).safeguardingPoolSnapshot.deleteMany()).count;
+  deleted.liability_snapshots = (await (prisma as any).liabilitySnapshot.deleteMany()).count;
+  deleted.safeguarding_runs = (await (prisma as any).safeguardingRun.deleteMany()).count;
+  deleted.safeguarding_policies = (await (prisma as any).safeguardingPolicy.deleteMany()).count;
   deleted.journal_lines = (await prisma.journalLine.deleteMany()).count;
   deleted.journals = (await prisma.journal.deleteMany()).count;
   deleted.wallet_balance_entries = (await (prisma as any).walletBalanceEntry.deleteMany()).count;
@@ -55,7 +77,9 @@ async function resetBusinessData(): Promise<void> {
 
   deleted.payin_audit_logs = (await prisma.payinAuditLog.deleteMany()).count;
   deleted.deposit_audit_logs = (await prisma.depositAuditLog.deleteMany()).count;
-  deleted.swap_transaction_audit_logs = (await prisma.swapTransactionAuditLog.deleteMany()).count;
+  deleted.swap_transaction_audit_logs = await deleteManyIfDelegateExists(
+    'swapTransactionAuditLog',
+  );
   deleted.payout_audit_logs = (await prisma.payoutAuditLog.deleteMany()).count;
   deleted.withdraw_audit_logs = (await prisma.withdrawAuditLog.deleteMany()).count;
   deleted.internal_fund_audit_logs = (await (prisma as any).internalFundAuditLog.deleteMany()).count;

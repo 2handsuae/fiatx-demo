@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Activity, Clock, RefreshCw } from 'lucide-react';
+import { Activity, Clock, Link2, RefreshCw } from 'lucide-react';
 import { formatAssetAmount } from '../utils/number-format';
 import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/adminFetch';
 import { adminButtonClass } from '../components/common/adminButtonStyles';
@@ -10,6 +10,7 @@ import {
   DetailPageHeader,
   InfoField,
 } from '../components/compliance/DetailPageComponents';
+import { SimulationRail, type SimulationRailItem } from '../components/SimulationRail';
 
 type AuditLog = {
   id: string;
@@ -58,6 +59,13 @@ type InternalFundDetailData = {
     type: string;
     status: string;
   };
+  feeOccurrences?: Array<{
+    id: string;
+    feeNo: string;
+    feeType: string;
+    amount: string;
+    status?: string | null;
+  }>;
   auditLogs: AuditLog[];
 };
 
@@ -146,6 +154,22 @@ const getActions = (data: InternalFundDetailData): ActionItem[] => {
   return [];
 };
 
+function getRailItems(
+  data: InternalFundDetailData,
+  updating: boolean,
+  onAction: (action: string) => void,
+): SimulationRailItem[] {
+  return getActions(data).map((action) => ({
+    id: action.action,
+    label: action.label,
+    icon: <RefreshCw size={14} />,
+    state: 'available',
+    onClick: () => onAction(action.action),
+    disabled: updating,
+    helperText: `${data.status} -> ${action.label}`,
+  }));
+}
+
 const InternalFundDetail = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -225,6 +249,11 @@ const InternalFundDetail = () => {
     }
   }, [data?.statusHistory]);
 
+  const railItems = useMemo(
+    () => (data ? getRailItems(data, updating, handleStatusAction) : []),
+    [data, updating],
+  );
+
   if (loading) {
     return (
       <div className="flex min-h-[300px] flex-col items-center justify-center">
@@ -303,6 +332,12 @@ const InternalFundDetail = () => {
         <InfoField label="Net Amount" value={formatAssetAmount(data.netAmount, data.asset?.decimals)} />
       </DetailCard>
 
+      <SimulationRail
+        title="Execution Rail"
+        description="Advance the internal fund across simulated execution states, similar to payout rails."
+        items={railItems}
+      />
+
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
         <DetailCard title="Transfer Path" icon={<Clock size={18} />}>
           <InfoField label="From" value={data.fromAddress || data.fromIban || '-'} mono />
@@ -352,6 +387,29 @@ const InternalFundDetail = () => {
           </div>
         ) : null}
       </ActionSection>
+
+      <DetailCard title="Linked Fee Occurrences" icon={<Link2 size={18} />} columns={1}>
+        {data.feeOccurrences && data.feeOccurrences.length > 0 ? (
+          <div className="space-y-3">
+            {data.feeOccurrences.map((fee) => (
+              <div key={fee.id} className="rounded-lg border border-admin-border px-4 py-3">
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <div className="font-mono text-xs text-brand-primary">{fee.feeNo}</div>
+                    <div className="mt-1 text-sm font-medium text-gray-900">{fee.feeType}</div>
+                  </div>
+                  <div className="text-sm text-gray-700">
+                    {formatAssetAmount(fee.amount, data.asset?.decimals)}
+                  </div>
+                </div>
+                <div className="mt-2 text-xs text-gray-500">{fee.status || 'RECORDED'}</div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="text-sm text-gray-500">No linked fee occurrences</div>
+        )}
+      </DetailCard>
 
       <DetailCard title="Status History" icon={<Clock size={18} />} columns={1}>
         {parsedHistory.length === 0 ? (
