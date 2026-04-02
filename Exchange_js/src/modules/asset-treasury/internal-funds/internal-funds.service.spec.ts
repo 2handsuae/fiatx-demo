@@ -45,7 +45,7 @@ describe('InternalFundsService', () => {
     };
 
     feeOccurrencesService = {
-      captureFromInternalFund: jest.fn().mockResolvedValue(null),
+      captureFromInternalFund: jest.fn().mockResolvedValue([]),
     };
 
     service = new InternalFundsService(
@@ -155,20 +155,36 @@ describe('InternalFundsService', () => {
   });
 
   it('should auto clear confirmed funds after transaction reaches SUCCESS', async () => {
-    prisma.internalFund.findUnique.mockResolvedValue({
-      id: 'ifd-confirm-1',
-      status: InternalFundStatus.CONFIRMING,
-      statusHistory: '[]',
-      sentAt: new Date(),
-      confirmedAt: null,
-      internalTransaction: {
-        id: 'itx-success-1',
-        sourceType: 'DEPOSIT',
-        sourceId: 'dep-success-1',
-        sourceNo: 'DEP-S-1',
-      },
-      asset: { type: 'CRYPTO' },
-    });
+    prisma.internalFund.findUnique
+      .mockResolvedValueOnce({
+        id: 'ifd-confirm-1',
+        status: InternalFundStatus.CONFIRMING,
+        statusHistory: '[]',
+        sentAt: new Date(),
+        confirmedAt: null,
+        internalTransaction: {
+          id: 'itx-success-1',
+          sourceType: 'DEPOSIT',
+          sourceId: 'dep-success-1',
+          sourceNo: 'DEP-S-1',
+        },
+        asset: { type: 'CRYPTO' },
+      })
+      .mockResolvedValue({
+        id: 'ifd-confirm-1',
+        status: InternalFundStatus.CLEAR,
+        statusHistory: '[]',
+        sentAt: new Date(),
+        confirmedAt: new Date(),
+        completedAt: new Date(),
+        internalTransaction: {
+          id: 'itx-success-1',
+          sourceType: 'DEPOSIT',
+          sourceId: 'dep-success-1',
+          sourceNo: 'DEP-S-1',
+        },
+        asset: { type: 'CRYPTO' },
+      });
     prisma.internalFund.update
       .mockResolvedValueOnce({
         id: 'ifd-confirm-1',
@@ -193,7 +209,7 @@ describe('InternalFundsService', () => {
       'SYSTEM',
     );
 
-    expect(result.status).toBe(InternalFundStatus.CONFIRMED);
+    expect(result.status).toBe(InternalFundStatus.CLEAR);
     expect(internalTransactionsService.syncStatusFromFunds).toHaveBeenCalledWith(
       'itx-success-1',
       'SYSTEM',
@@ -272,7 +288,7 @@ describe('InternalFundsService', () => {
     expect(prisma.internalFund.create).not.toHaveBeenCalled();
   });
 
-  it('captures fee occurrence when created internal fund already has real cost evidence', async () => {
+  it('does not capture fee occurrence when created internal fund already has draft cost evidence', async () => {
     prisma.internalTransaction.findUnique.mockResolvedValue({
       id: 'itx-fee-1',
       sourceType: 'WITHDRAW',
@@ -310,16 +326,10 @@ describe('InternalFundsService', () => {
       'SYSTEM',
     );
 
-    expect(feeOccurrencesService.captureFromInternalFund).toHaveBeenCalledWith(
-      expect.objectContaining({
-        id: 'ifd-fee-1',
-      }),
-      'SYSTEM',
-      prisma,
-    );
+    expect(feeOccurrencesService.captureFromInternalFund).not.toHaveBeenCalled();
   });
 
-  it('captures fee occurrence when fund update brings fee evidence', async () => {
+  it('does not capture fee occurrence when non-confirm terminal evidence is updated before confirmation', async () => {
     prisma.internalFund.findUnique.mockResolvedValue({
       id: 'ifd-update-fee-1',
       internalFundNo: 'IFD-UF-1',
@@ -363,9 +373,57 @@ describe('InternalFundsService', () => {
       'SYSTEM',
     );
 
+    expect(feeOccurrencesService.captureFromInternalFund).not.toHaveBeenCalled();
+  });
+
+  it('captures fee occurrence and updates fee total when fund becomes confirmed', async () => {
+    prisma.internalFund.findUnique.mockResolvedValue({
+      id: 'ifd-confirm-fee-1',
+      internalFundNo: 'IFD-CF-1',
+      status: InternalFundStatus.CONFIRMING,
+      statusHistory: '[]',
+      sentAt: new Date(),
+      confirmedAt: null,
+      fromWalletId: 'w1',
+      fromAddress: '0xfrom',
+      fromIban: null,
+      internalTransaction: {
+        id: 'itx-confirm-fee-1',
+        sourceType: 'WITHDRAW',
+        sourceId: 'wd-3',
+        sourceNo: 'WD003',
+      },
+      asset: { id: 'asset-btc', code: 'BTC', type: 'CRYPTO', decimals: 8, network: 'BITCOIN' },
+    });
+    prisma.internalFund.update.mockResolvedValue({
+      id: 'ifd-confirm-fee-1',
+      internalFundNo: 'IFD-CF-1',
+      status: InternalFundStatus.CONFIRMED,
+      feeAmount: new Prisma.Decimal('0.00012'),
+      gasUsed: '21000',
+      effectiveGasPrice: '15',
+    });
+    prisma.internalFundAuditLog.create.mockResolvedValue({ id: 'log-2' });
+    internalTransactionsService.syncStatusFromFunds.mockResolvedValue({
+      id: 'itx-confirm-fee-1',
+      status: 'INTERNAL_FUNDS_PENDING',
+    });
+    feeOccurrencesService.captureFromInternalFund.mockResolvedValue([
+      { id: 'fee-1', amount: new Prisma.Decimal('0.0001') },
+      { id: 'fee-2', amount: new Prisma.Decimal('0.00002') },
+    ]);
+
+    await service.updateStatus(
+      'ifd-confirm-fee-1',
+      {
+        action: InternalFundAction.CONFIRM,
+      },
+      'SYSTEM',
+    );
+
     expect(feeOccurrencesService.captureFromInternalFund).toHaveBeenCalledWith(
       expect.objectContaining({
-        id: 'ifd-update-fee-1',
+        id: 'ifd-confirm-fee-1',
       }),
       'SYSTEM',
       prisma,

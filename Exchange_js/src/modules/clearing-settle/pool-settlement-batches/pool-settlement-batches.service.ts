@@ -744,21 +744,34 @@ export class PoolSettlementBatchesService {
     const actor = this.buildApprovalActorContext(actorUserId);
     const transactionResult = await (this.prisma as any).$transaction(
       async (tx: TxClient) => {
-        await (tx as any).$queryRaw(
-          Prisma.sql`
-            SELECT "id"
-            FROM "pool_settlement_batches"
-            WHERE "id" = ${id}
-            FOR UPDATE
-          `,
-        );
-
         const batch = await (tx as any).poolSettlementBatch.findUniqueOrThrow({
           where: { id },
         });
 
         if (batch.status !== PoolSettlementBatchStatus.CREATED) {
           throw new BadRequestException('Only CREATED batch can be submitted');
+        }
+
+        const submittedAt = new Date();
+        const claimResult = await (tx as any).poolSettlementBatch.updateMany({
+          where: {
+            id: batch.id,
+            status: PoolSettlementBatchStatus.CREATED,
+            approvalCaseId: null,
+          },
+          data: {
+            status: PoolSettlementBatchStatus.APPROVAL_PENDING,
+            submittedAt,
+          },
+        });
+
+        if ((claimResult?.count ?? 0) !== 1) {
+          const current = await (tx as any).poolSettlementBatch.findUniqueOrThrow({
+            where: { id: batch.id },
+          });
+          throw new BadRequestException(
+            `Only CREATED batch can be submitted (current status: ${current.status})`,
+          );
         }
 
         const traceId = `POOL-SETTLEMENT:${batch.batchNo}`;
@@ -791,9 +804,7 @@ export class PoolSettlementBatchesService {
         const updatedBatch = await (tx as any).poolSettlementBatch.update({
           where: { id: batch.id },
           data: {
-            status: PoolSettlementBatchStatus.APPROVAL_PENDING,
             approvalCaseId: approval.id,
-            submittedAt: new Date(),
           },
         });
 

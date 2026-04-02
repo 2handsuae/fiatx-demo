@@ -14,8 +14,8 @@ type PoolSettlementBatchSummary = {
   skippedSourceCount?: number;
   bucketCount?: number;
   nettableBucketCount?: number;
-  createdItemCount?: number;
-  nettedSourceCount?: number;
+  itemCount?: number;
+  zeroNetSourceCount?: number;
   skippedSourcesByReason?: Record<string, number>;
 };
 
@@ -295,7 +295,7 @@ const PoolSettlementBatchListPage = () => {
                           Routable {summary.routableSourceCount ?? 0}
                         </div>
                         <div className="mt-1">Skipped {summary.skippedSourceCount ?? 0}</div>
-                        <div className="mt-1">Items {summary.createdItemCount ?? 0}</div>
+                        <div className="mt-1">Items {summary.itemCount ?? 0}</div>
                       </td>
                       <td className="px-4 py-3 text-xs text-gray-600">
                         <div>{item.approvalCaseId || '-'}</div>

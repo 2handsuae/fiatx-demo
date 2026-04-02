@@ -50,6 +50,22 @@ type PoolSettlementBatchDispatchItem = {
   } | null;
 };
 
+type PoolSettlementNettedSourceRow = {
+  sourceFamily: string;
+  sourceId: string;
+};
+
+type PoolSettlementApprovedBatchContext = {
+  id: string;
+  batchNo?: string | null;
+};
+
+type PoolSettlementLinkedSourceRow = {
+  id: string;
+  sourceFamily: string;
+  sourceId: string;
+};
+
 @Injectable()
 export class PoolSettlementBatchApprovalProjectionService {
   private readonly logger = new Logger(
@@ -96,6 +112,176 @@ export class PoolSettlementBatchApprovalProjectionService {
       );
     }
     return service;
+  }
+
+  private describeDispatchError(error: unknown) {
+    const message =
+      error instanceof Error
+        ? error.message
+        : 'Pool settlement item dispatch failed';
+    return String(message || 'Pool settlement item dispatch failed').slice(0, 500);
+  }
+
+  private normalizeSourceFamily(sourceFamily?: string | null) {
+    return String(sourceFamily || '')
+      .trim()
+      .toUpperCase();
+  }
+
+  private collectSourceIds(
+    rows: PoolSettlementNettedSourceRow[],
+    sourceFamily: string,
+  ) {
+    return rows
+      .filter(
+        (row) => this.normalizeSourceFamily(row.sourceFamily) === sourceFamily,
+      )
+      .map((row) => row.sourceId);
+  }
+
+  private async settleNettedSources(tx: any, batchId: string, closedAt: Date) {
+    const nettedSourceRows = await tx.poolSettlementBatchItemSource.findMany({
+      where: {
+        batchId,
+        batchItemId: null,
+        status: 'NETTED',
+      },
+      select: {
+        sourceFamily: true,
+        sourceId: true,
+      },
+    });
+
+    if (!nettedSourceRows.length) {
+      return;
+    }
+
+    const outstandingIds = this.collectSourceIds(nettedSourceRows, 'OUTSTANDING');
+    const reimbursementIds = this.collectSourceIds(
+      nettedSourceRows,
+      'REIMBURSEMENT_OBLIGATION',
+    );
+
+    if (outstandingIds.length) {
+      await tx.outstanding.updateMany({
+        where: {
+          id: {
+            in: outstandingIds,
+          },
+          status: 'OPEN',
+          lockedByPoolSettlementBatchId: batchId,
+        },
+        data: {
+          status: 'CLOSED',
+          lockedByPoolSettlementBatchId: null,
+          lockedAt: null,
+          closedAt,
+          closedByInternalFundId: null,
+        },
+      });
+    }
+
+    if (reimbursementIds.length) {
+      await tx.reimbursementObligation.updateMany({
+        where: {
+          id: {
+            in: reimbursementIds,
+          },
+          status: 'OPEN',
+          lockedByPoolSettlementBatchId: batchId,
+        },
+        data: {
+          status: 'REIMBURSED',
+          lockedByPoolSettlementBatchId: null,
+          settlementInternalTransactionId: null,
+          reimbursedAt: closedAt,
+        },
+      });
+    }
+  }
+
+  private async releaseFailedSources(
+    tx: any,
+    batchId: string,
+    failedItemIds: string[],
+  ) {
+    if (!failedItemIds.length) {
+      return;
+    }
+
+    const sourceRows: PoolSettlementLinkedSourceRow[] =
+      await tx.poolSettlementBatchItemSource.findMany({
+        where: {
+          batchId,
+          batchItemId: {
+            in: failedItemIds,
+          },
+          status: 'LINKED',
+        },
+        select: {
+          id: true,
+          sourceFamily: true,
+          sourceId: true,
+        },
+      });
+
+    if (!sourceRows.length) {
+      return;
+    }
+
+    const outstandingIds = this.collectSourceIds(sourceRows, 'OUTSTANDING');
+    const reimbursementIds = this.collectSourceIds(
+      sourceRows,
+      'REIMBURSEMENT_OBLIGATION',
+    );
+
+    await tx.poolSettlementBatchItemSource.updateMany({
+      where: {
+        id: {
+          in: sourceRows.map((row) => row.id),
+        },
+        status: 'LINKED',
+      },
+      data: {
+        status: 'RELEASED',
+        closeReason: 'BATCH_RELEASED',
+      },
+    });
+
+    if (outstandingIds.length) {
+      await tx.outstanding.updateMany({
+        where: {
+          id: {
+            in: outstandingIds,
+          },
+          lockedByPoolSettlementBatchId: batchId,
+        },
+        data: {
+          status: 'OPEN',
+          lockedByPoolSettlementBatchId: null,
+          lockedAt: null,
+          closedAt: null,
+          closedByInternalFundId: null,
+        },
+      });
+    }
+
+    if (reimbursementIds.length) {
+      await tx.reimbursementObligation.updateMany({
+        where: {
+          id: {
+            in: reimbursementIds,
+          },
+          lockedByPoolSettlementBatchId: batchId,
+        },
+        data: {
+          status: 'OPEN',
+          lockedByPoolSettlementBatchId: null,
+          settlementInternalTransactionId: null,
+          reimbursedAt: null,
+        },
+      });
+    }
   }
 
   private getNonZeroItemQuery(batchId: string) {
@@ -271,9 +457,8 @@ export class PoolSettlementBatchApprovalProjectionService {
 
     const approvedAt = this.parseDecisionTime(event.decidedAt) || new Date();
     let approvedBatchLabel = event.entityRef;
-    let transitioned = false;
-
-    await (this.prisma as any).$transaction(async (tx: any) => {
+    const approvalProjection = await (this.prisma as any).$transaction(
+      async (tx: any) => {
       const approvalTransition = await tx.poolSettlementBatch.updateMany({
         where: {
           id: event.entityRef,
@@ -289,9 +474,12 @@ export class PoolSettlementBatchApprovalProjectionService {
       });
 
       if (!approvalTransition?.count) {
-        return;
+        return {
+          transitioned: false,
+          batch: null,
+          items: [] as PoolSettlementBatchDispatchItem[],
+        };
       }
-      transitioned = true;
 
       const batch = await tx.poolSettlementBatch.findUnique({
         where: { id: event.entityRef },
@@ -302,12 +490,19 @@ export class PoolSettlementBatchApprovalProjectionService {
           status: true,
         },
       });
-      if (!batch) return;
+      if (!batch) {
+        return {
+          transitioned: false,
+          batch: null,
+          items: [] as PoolSettlementBatchDispatchItem[],
+        };
+      }
       approvedBatchLabel = batch.batchNo || batch.id;
 
       const items = await tx.poolSettlementBatchItem.findMany(
         this.getNonZeroItemQuery(batch.id),
       );
+      await this.settleNettedSources(tx, batch.id, approvedAt);
 
       if (!items.length) {
         await tx.poolSettlementBatch.update({
@@ -317,77 +512,169 @@ export class PoolSettlementBatchApprovalProjectionService {
             closedAt: new Date(),
           },
         });
-        return;
+        return {
+          transitioned: true,
+          batch: {
+            id: batch.id,
+            batchNo: batch.batchNo,
+          } satisfies PoolSettlementApprovedBatchContext,
+          items: [] as PoolSettlementBatchDispatchItem[],
+        };
       }
+      return {
+        transitioned: true,
+        batch: {
+          id: batch.id,
+          batchNo: batch.batchNo,
+        } satisfies PoolSettlementApprovedBatchContext,
+        items: items as PoolSettlementBatchDispatchItem[],
+      };
+    });
 
+    if (!approvalProjection?.transitioned) {
+      return;
+    }
+
+    const batchContext = approvalProjection.batch;
+    const items = approvalProjection.items;
+
+    if (batchContext && items.length) {
       const internalTransactionsService = this.getInternalTransactionsService();
       const internalFundsService = this.getInternalFundsService();
+      let executingCount = 0;
+      const failedItemIds: string[] = [];
 
       for (const item of items as PoolSettlementBatchDispatchItem[]) {
         if (item.internalTransaction?.id) {
+          executingCount += 1;
           continue;
         }
 
-        const execution = this.resolveItemDirection(item);
-        const internalTx =
-          await internalTransactionsService.createStandaloneTransaction(
-            {
-              type: execution.type,
-              purpose: TreasuryTransferPurpose.POOL_REBALANCING,
-              initiationMode: TreasuryTransferInitiationMode.AUTOMATED,
-              status: InternalTransactionStatus.INTERNAL_FUNDS_PENDING,
-              approvalStatus: InternalTransactionApprovalStatus.APPROVED,
-              sourceType: InternalTransactionSourceType.POOL_SETTLEMENT_BATCH_ITEM,
-              sourceId: item.id,
-              sourceNo: batch.batchNo,
-              ownerType: 'PLATFORM',
-              ownerId: 'PLATFORM',
-              ownerNo: 'PLATFORM',
-              assetId: item.assetId,
-              amount: item.netAmount as any,
-              feeAmount: new Prisma.Decimal(0),
-              netAmount: item.netAmount as any,
-              fromWalletId: execution.fromWallet.id,
-              fromAddress: execution.fromWallet.address ?? null,
-              fromIban: execution.fromWallet.iban ?? null,
-              toWalletId: execution.toWallet.id,
-              toAddress: execution.toWallet.address ?? null,
-              toIban: execution.toWallet.iban ?? null,
-              referenceNo: batch.batchNo,
+        try {
+          const execution = this.resolveItemDirection(item);
+          const dispatched = await (this.prisma as any).$transaction(
+            async (tx: any) => {
+              const currentItem = await tx.poolSettlementBatchItem.findUnique({
+                where: { id: item.id },
+                select: {
+                  id: true,
+                  status: true,
+                },
+              });
+
+              if (!currentItem || currentItem.status !== 'READY') {
+                return false;
+              }
+
+              const internalTx =
+                await internalTransactionsService.createStandaloneTransaction(
+                  {
+                    type: execution.type,
+                    purpose: TreasuryTransferPurpose.POOL_REBALANCING,
+                    initiationMode: TreasuryTransferInitiationMode.AUTOMATED,
+                    status: InternalTransactionStatus.INTERNAL_FUNDS_PENDING,
+                    approvalStatus: InternalTransactionApprovalStatus.APPROVED,
+                    sourceType:
+                      InternalTransactionSourceType.POOL_SETTLEMENT_BATCH_ITEM,
+                    sourceId: item.id,
+                    sourceNo: batchContext.batchNo ?? batchContext.id,
+                    ownerType: 'PLATFORM',
+                    ownerId: 'PLATFORM',
+                    ownerNo: 'PLATFORM',
+                    assetId: item.assetId,
+                    amount: item.netAmount as any,
+                    feeAmount: new Prisma.Decimal(0),
+                    netAmount: item.netAmount as any,
+                    fromWalletId: execution.fromWallet.id,
+                    fromAddress: execution.fromWallet.address ?? null,
+                    fromIban: execution.fromWallet.iban ?? null,
+                    toWalletId: execution.toWallet.id,
+                    toAddress: execution.toWallet.address ?? null,
+                    toIban: execution.toWallet.iban ?? null,
+                    referenceNo: batchContext.batchNo ?? batchContext.id,
+                  },
+                  'SYSTEM',
+                  tx,
+                );
+
+              await tx.internalTransaction.update({
+                where: { id: internalTx.id },
+                data: {
+                  poolSettlementBatchItemId: item.id,
+                },
+              });
+
+              await internalFundsService.createFromInternalTransaction(
+                {
+                  internalTransactionId: internalTx.id,
+                  status: InternalFundStatus.CREATED,
+                  referenceNo: batchContext.batchNo ?? batchContext.id,
+                },
+                'SYSTEM',
+                tx,
+              );
+
+              await tx.poolSettlementBatchItem.update({
+                where: { id: item.id },
+                data: {
+                  status: 'EXECUTING',
+                  failedReason: null,
+                },
+              });
+
+              return true;
             },
-            'SYSTEM',
-            tx,
           );
 
-        await tx.internalTransaction.update({
-          where: { id: internalTx.id },
+          if (dispatched) {
+            executingCount += 1;
+          }
+        } catch (error) {
+          const failedReason = this.describeDispatchError(error);
+          this.logger.error(
+            `Failed to dispatch pool settlement batch item ${item.id} for batch ${batchContext.id}: ${failedReason}`,
+            error instanceof Error ? error.stack : undefined,
+          );
+
+          const transition = await (this.prisma as any).poolSettlementBatchItem.updateMany({
+            where: {
+              id: item.id,
+              status: 'READY',
+            },
+            data: {
+              status: 'FAILED',
+              failedReason,
+            },
+          });
+
+          if (transition?.count) {
+            failedItemIds.push(item.id);
+          }
+        }
+      }
+
+      if (executingCount > 0) {
+        await (this.prisma as any).poolSettlementBatch.update({
+          where: { id: batchContext.id },
           data: {
-            poolSettlementBatchItemId: item.id,
+            status: PoolSettlementBatchStatus.EXECUTING,
           },
         });
-
-        await internalFundsService.createFromInternalTransaction(
-          {
-            internalTransactionId: internalTx.id,
-            status: InternalFundStatus.CREATED,
-            referenceNo: batch.batchNo,
-          },
-          'SYSTEM',
-          tx,
-        );
-
-        await tx.poolSettlementBatchItem.update({
-          where: { id: item.id },
-          data: {
-            status: 'EXECUTING',
-          },
+      } else if (failedItemIds.length) {
+        await (this.prisma as any).$transaction(async (tx: any) => {
+          await this.releaseFailedSources(tx, batchContext.id, failedItemIds);
+          await tx.poolSettlementBatch.update({
+            where: { id: batchContext.id },
+            data: {
+              status: PoolSettlementBatchStatus.FAILED,
+              closedAt: new Date(),
+            },
+          });
         });
       }
-    });
-
-    if (transitioned) {
-      this.logger.log(`Pool settlement batch approved: ${approvedBatchLabel}`);
     }
+
+    this.logger.log(`Pool settlement batch approved: ${approvedBatchLabel}`);
   }
 
   @OnEvent(ApprovalEvents.REJECTED, { async: true })

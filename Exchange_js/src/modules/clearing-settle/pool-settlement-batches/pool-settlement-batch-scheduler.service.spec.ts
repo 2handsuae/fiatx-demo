@@ -38,7 +38,18 @@ describe('PoolSettlementBatchSchedulerService', () => {
     const { service, poolSettlementBatchesService } = createService();
 
     poolSettlementBatchesService.createBatch.mockRejectedValue(
-      new Error('No eligible routable source found'),
+      new Error('No eligible routable source found for pool settlement batch'),
+    );
+
+    await expect(service.runDaily()).resolves.toBeUndefined();
+    expect(poolSettlementBatchesService.submitBatch).not.toHaveBeenCalled();
+  });
+
+  it('swallows lock contention when another scheduler instance wins the batch', async () => {
+    const { service, poolSettlementBatchesService } = createService();
+
+    poolSettlementBatchesService.createBatch.mockRejectedValue(
+      new Error('No sources were locked for pool settlement batch'),
     );
 
     await expect(service.runDaily()).resolves.toBeUndefined();

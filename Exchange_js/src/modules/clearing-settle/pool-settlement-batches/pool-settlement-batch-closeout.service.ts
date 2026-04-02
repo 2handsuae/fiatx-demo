@@ -41,6 +41,12 @@ export class PoolSettlementBatchCloseoutService {
     'SUCCESS',
     'FAILED',
   ]);
+  private static readonly TERMINAL_BATCH_STATUSES = new Set<string>([
+    PoolSettlementBatchStatus.SUCCESS,
+    PoolSettlementBatchStatus.PARTIAL_FAILED,
+    PoolSettlementBatchStatus.FAILED,
+    PoolSettlementBatchStatus.CANCELLED,
+  ]);
 
   constructor(private readonly prisma: PrismaService) {}
 
@@ -61,6 +67,12 @@ export class PoolSettlementBatchCloseoutService {
 
   private isTerminalItemStatus(status: string) {
     return PoolSettlementBatchCloseoutService.TERMINAL_ITEM_STATUSES.has(status);
+  }
+
+  private isTerminalBatchStatus(status: string) {
+    return PoolSettlementBatchCloseoutService.TERMINAL_BATCH_STATUSES.has(
+      status as PoolSettlementBatchStatus,
+    );
   }
 
   private normalizeSourceFamily(sourceFamily?: string | null) {
@@ -155,7 +167,7 @@ export class PoolSettlementBatchCloseoutService {
           id: {
             in: outstandingIds,
           },
-          status: 'LOCKED',
+          status: 'OPEN',
           lockedByPoolSettlementBatchId: item.batchId,
         },
         data: {
@@ -272,6 +284,20 @@ export class PoolSettlementBatchCloseoutService {
   }
 
   private async recomputeBatchTerminalState(client: TxClient, batchId: string) {
+    const batch = await (client as any).poolSettlementBatch.findUnique({
+      where: { id: batchId },
+      select: {
+        id: true,
+        status: true,
+      },
+    });
+    if (!batch) {
+      return;
+    }
+    if (this.isTerminalBatchStatus(String(batch.status || ''))) {
+      return;
+    }
+
     const items = await (client as any).poolSettlementBatchItem.findMany({
       where: { batchId },
       select: {

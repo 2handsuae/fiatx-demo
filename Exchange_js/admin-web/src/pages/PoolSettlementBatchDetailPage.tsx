@@ -27,8 +27,8 @@ type BatchSummary = {
   skippedSourceCount?: number;
   bucketCount?: number;
   nettableBucketCount?: number;
-  createdItemCount?: number;
-  nettedSourceCount?: number;
+  itemCount?: number;
+  zeroNetSourceCount?: number;
   skippedSourcesByReason?: Record<string, number>;
 };
 
@@ -124,7 +124,7 @@ const BATCH_STATUS_COLORS: Record<string, string> = {
 
 const ITEM_STATUS_COLORS: Record<string, string> = {
   READY: 'bg-amber-100 text-amber-800',
-  SUBMITTED: 'bg-blue-100 text-blue-800',
+  EXECUTING: 'bg-blue-100 text-blue-800',
   SUCCESS: 'bg-emerald-100 text-emerald-800',
   FAILED: 'bg-rose-100 text-rose-800',
   NETTED: 'bg-slate-100 text-slate-800',
@@ -141,6 +141,7 @@ const PoolSettlementBatchDetailPage = () => {
   const [message, setMessage] = useState('');
 
   const canSubmit = hasAnyPermission([PERMISSIONS.POOL_SETTLEMENT_BATCH_SUBMIT]);
+  const canViewApproval = hasAnyPermission([PERMISSIONS.GOV_APPROVAL_DETAIL_READ]);
 
   const fetchDetail = async () => {
     if (!id) {
@@ -302,7 +303,7 @@ const PoolSettlementBatchDetailPage = () => {
         <InfoField
           label="Approval Link"
           value={
-            detail.approvalCaseId ? (
+            detail.approvalCaseId && canViewApproval ? (
               <Link
                 to={`/dashboard/control-gates/approvals/${detail.approvalCaseId}`}
                 className="text-brand-primary hover:underline"
@@ -321,8 +322,8 @@ const PoolSettlementBatchDetailPage = () => {
         <InfoField label="Routable Sources" value={detail.summaryJson?.routableSourceCount} />
         <InfoField label="Skipped Sources" value={detail.summaryJson?.skippedSourceCount} />
         <InfoField label="Buckets" value={detail.summaryJson?.bucketCount} />
-        <InfoField label="Created Items" value={detail.summaryJson?.createdItemCount} />
-        <InfoField label="Netted Without Item" value={detail.summaryJson?.nettedSourceCount} />
+        <InfoField label="Created Items" value={detail.summaryJson?.itemCount} />
+        <InfoField label="Netted Without Item" value={detail.summaryJson?.zeroNetSourceCount} />
       </DetailCard>
 
       {skippedEntries.length ? (

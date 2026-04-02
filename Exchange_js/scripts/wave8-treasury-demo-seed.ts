@@ -65,7 +65,6 @@ async function seedOpenReimbursement(input: {
     data: {
       feeNo: 'FEE-W8TREASURY-001',
       feeType: 'BANK_MONTHLY_FEE',
-      occurrenceType: 'PERIOD',
       status: 'RECORDED',
       assetId: input.aed.id,
       amount: asDecimal('25.00'),

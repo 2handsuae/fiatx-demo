@@ -14,6 +14,9 @@ describe('PoolSettlementBatchCloseoutService', () => {
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
       poolSettlementBatch: {
+        findUnique: jest
+          .fn()
+          .mockResolvedValue({ id: 'batch-1', status: PoolSettlementBatchStatus.EXECUTING }),
         update: jest.fn(),
       },
       poolSettlementBatchItemSource: {
@@ -100,7 +103,7 @@ describe('PoolSettlementBatchCloseoutService', () => {
         id: {
           in: ['outstanding-1'],
         },
-        status: 'LOCKED',
+        status: 'OPEN',
         lockedByPoolSettlementBatchId: 'batch-1',
       },
       data: {
@@ -113,6 +116,13 @@ describe('PoolSettlementBatchCloseoutService', () => {
     });
     expect(prisma.reimbursementObligation.updateMany).not.toHaveBeenCalled();
     expect(prisma.poolSettlementBatch.update).not.toHaveBeenCalled();
+    expect(prisma.poolSettlementBatch.findUnique).toHaveBeenCalledWith({
+      where: { id: 'batch-1' },
+      select: {
+        id: true,
+        status: true,
+      },
+    });
   });
 
   it('closes SUCCESS item and reimburses linked reimbursement obligation on CLEAR', async () => {
@@ -287,7 +297,7 @@ describe('PoolSettlementBatchCloseoutService', () => {
         id: {
           in: ['outstanding-success-1'],
         },
-        status: 'LOCKED',
+        status: 'OPEN',
         lockedByPoolSettlementBatchId: 'batch-1',
       },
       data: {
@@ -446,6 +456,38 @@ describe('PoolSettlementBatchCloseoutService', () => {
     expect(prisma.poolSettlementBatchItem.updateMany).not.toHaveBeenCalled();
     expect(prisma.poolSettlementBatchItemSource.findMany).not.toHaveBeenCalled();
     expect(prisma.poolSettlementBatchItem.findMany).not.toHaveBeenCalled();
+    expect(prisma.poolSettlementBatch.update).not.toHaveBeenCalled();
+  });
+
+  it('does not rewrite a batch that is already terminal when a later closeout recompute runs', async () => {
+    const prisma = makePrisma();
+    prisma.poolSettlementBatch.findUnique.mockResolvedValueOnce({
+      id: 'batch-1',
+      status: PoolSettlementBatchStatus.SUCCESS,
+    });
+    prisma.internalTransaction.findUnique.mockResolvedValue({
+      id: 'itx-1',
+      poolSettlementBatchItemId: 'item-1',
+    });
+    prisma.poolSettlementBatchItem.findUnique.mockResolvedValue({
+      id: 'item-1',
+      batchId: 'batch-1',
+      status: 'EXECUTING',
+    });
+    prisma.poolSettlementBatchItemSource.findMany.mockResolvedValue([
+      {
+        id: 'source-row-1',
+        sourceFamily: 'OUTSTANDING',
+        sourceId: 'outstanding-1',
+      },
+    ]);
+
+    const service = new PoolSettlementBatchCloseoutService(prisma);
+
+    await service.handleInternalFundStatusChanged(
+      makeEvent(InternalFundStatus.CLEAR),
+    );
+
     expect(prisma.poolSettlementBatch.update).not.toHaveBeenCalled();
   });
 });

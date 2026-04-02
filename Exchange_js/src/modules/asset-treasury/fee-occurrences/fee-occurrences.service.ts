@@ -25,13 +25,32 @@ import {
   CreateFeeOccurrenceDto,
   FeeOccurrenceQueryDto,
   FeeOccurrenceStatus,
-  FeeOccurrenceType,
   FeeType,
 } from './dto/fee-occurrence.dto';
+
+type AutomaticFeeTemplate = {
+  feeType: FeeType;
+  minMinorUnits: number;
+  maxMinorUnits: number;
+};
 
 @Injectable()
 export class FeeOccurrencesService {
   private readonly auditLogsService: AuditLogsService;
+  private static readonly PAYOUT_CRYPTO_TEMPLATES: AutomaticFeeTemplate[] = [
+    { feeType: FeeType.NETWORK_GAS, minMinorUnits: 2000, maxMinorUnits: 12000 },
+    { feeType: FeeType.CUSTODY_FEE, minMinorUnits: 500, maxMinorUnits: 4000 },
+  ];
+  private static readonly PAYOUT_FIAT_TEMPLATES: AutomaticFeeTemplate[] = [
+    { feeType: FeeType.BANK_TRANSFER_FEE, minMinorUnits: 500, maxMinorUnits: 3500 },
+  ];
+  private static readonly INTERNAL_FUND_CRYPTO_TEMPLATES: AutomaticFeeTemplate[] = [
+    { feeType: FeeType.INTERNAL_TRANSFER_GAS, minMinorUnits: 1000, maxMinorUnits: 8000 },
+    { feeType: FeeType.CUSTODY_FEE, minMinorUnits: 250, maxMinorUnits: 2000 },
+  ];
+  private static readonly INTERNAL_FUND_FIAT_TEMPLATES: AutomaticFeeTemplate[] = [
+    { feeType: FeeType.INTERNAL_BANK_FEE, minMinorUnits: 100, maxMinorUnits: 1500 },
+  ];
 
   constructor(
     private readonly prisma: PrismaService,
@@ -40,19 +59,152 @@ export class FeeOccurrencesService {
     this.auditLogsService = new AuditLogsService(prisma);
   }
 
-  private resolveAutomaticFeeType(assetType?: string | null) {
-    return String(assetType || '').toUpperCase() === 'FIAT'
-      ? FeeType.INTERNAL_BANK_FEE
-      : FeeType.INTERNAL_TRANSFER_GAS;
+  private normalizeAssetType(assetType?: string | null) {
+    return String(assetType || '').trim().toUpperCase();
   }
 
-  private hasInternalFundCostEvidence(item: any) {
-    const feeAmount = new Prisma.Decimal(item?.feeAmount || 0);
-    return (
-      feeAmount.gt(0) ||
-      Boolean(item?.gasUsed) ||
-      Boolean(item?.effectiveGasPrice)
+  private stableHash(seed: string) {
+    let hash = 2166136261;
+    for (let index = 0; index < seed.length; index += 1) {
+      hash ^= seed.charCodeAt(index);
+      hash = Math.imul(hash, 16777619);
+    }
+    return hash >>> 0;
+  }
+
+  private generateMinorUnits(
+    seed: string,
+    minMinorUnits: number,
+    maxMinorUnits: number,
+  ) {
+    if (maxMinorUnits <= minMinorUnits) return minMinorUnits;
+    const span = maxMinorUnits - minMinorUnits + 1;
+    return minMinorUnits + (this.stableHash(seed) % span);
+  }
+
+  private toAmountDecimal(minorUnits: number, decimals?: number | null) {
+    const safeDecimals = Math.max(0, Number(decimals || 0));
+    const divisor = new Prisma.Decimal(10).pow(safeDecimals);
+    const normalizedMinorUnits = Math.max(1, Math.trunc(minorUnits));
+    return new Prisma.Decimal(normalizedMinorUnits).div(divisor);
+  }
+
+  private buildAutomaticTemplates(
+    entityKind: 'INTERNAL_FUND' | 'PAYOUT',
+    assetType?: string | null,
+  ) {
+    const normalizedAssetType = this.normalizeAssetType(assetType);
+    if (entityKind === 'PAYOUT') {
+      return normalizedAssetType === 'FIAT'
+        ? FeeOccurrencesService.PAYOUT_FIAT_TEMPLATES
+        : FeeOccurrencesService.PAYOUT_CRYPTO_TEMPLATES;
+    }
+    return normalizedAssetType === 'FIAT'
+      ? FeeOccurrencesService.INTERNAL_FUND_FIAT_TEMPLATES
+      : FeeOccurrencesService.INTERNAL_FUND_CRYPTO_TEMPLATES;
+  }
+
+  private buildTraceIdFromPayout(item: any) {
+    if (item?.withdrawId) {
+      return `${AuditWorkflowTypes.WITHDRAW}:${item.withdrawId}`;
+    }
+    return null;
+  }
+
+  private stringifyMetadata(metadata: Record<string, unknown>) {
+    return JSON.stringify(metadata);
+  }
+
+  private async upsertAutomaticOccurrence(
+    input: {
+      idempotencyKey: string;
+      feeType: FeeType;
+      amount: Prisma.Decimal;
+      assetId: string;
+      sourceEntityType: string;
+      sourceEntityId: string;
+      sourceEntityNo?: string | null;
+      sourceWalletId?: string | null;
+      sourceAccountRef?: string | null;
+      relatedEntityType?: string | null;
+      relatedEntityId?: string | null;
+      relatedEntityNo?: string | null;
+      reimbursementImpact: string;
+      poolRole?: string | null;
+      evidenceRef?: string | null;
+      traceId?: string | null;
+      metadata: string;
+    },
+    operatorId: string,
+    db: any,
+    reason: string,
+  ) {
+    const occurrence = await (db as any).feeOccurrence.upsert({
+      where: { idempotencyKey: input.idempotencyKey },
+      update: {
+        status: FeeOccurrenceStatus.RECORDED,
+        assetId: input.assetId,
+        amount: input.amount,
+        sourceWalletId: input.sourceWalletId || null,
+        sourceAccountRef: input.sourceAccountRef || null,
+        reimbursementImpact: input.reimbursementImpact,
+        poolRole: input.poolRole || null,
+        relatedEntityType: input.relatedEntityType || null,
+        relatedEntityId: input.relatedEntityId || null,
+        relatedEntityNo: input.relatedEntityNo || null,
+        evidenceRef: input.evidenceRef || null,
+        traceId: input.traceId || null,
+        metadata: input.metadata,
+        cancelledAt: null,
+      },
+      create: {
+        feeNo: generateReferenceNo('FEE'),
+        feeType: input.feeType,
+        status: FeeOccurrenceStatus.RECORDED,
+        assetId: input.assetId,
+        amount: input.amount,
+        payer: 'PLATFORM',
+        chargedToCustomer: false,
+        sourceEntityType: input.sourceEntityType,
+        sourceEntityId: input.sourceEntityId,
+        sourceEntityNo: input.sourceEntityNo || null,
+        sourceWalletId: input.sourceWalletId || null,
+        sourceAccountRef: input.sourceAccountRef || null,
+        relatedEntityType: input.relatedEntityType || null,
+        relatedEntityId: input.relatedEntityId || null,
+        relatedEntityNo: input.relatedEntityNo || null,
+        reimbursementImpact: input.reimbursementImpact,
+        poolRole: input.poolRole || null,
+        evidenceRef: input.evidenceRef || null,
+        traceId: input.traceId || null,
+        idempotencyKey: input.idempotencyKey,
+        metadata: input.metadata,
+      },
+    });
+
+    await this.recordAudit(
+      {
+        action: AuditActions.FEE_OCCURRENCE_RECORDED,
+        entityId: occurrence.id,
+        entityNo: occurrence.feeNo,
+        reason,
+        afterData: {
+          feeType: occurrence.feeType,
+          reimbursementImpact: occurrence.reimbursementImpact,
+        },
+        traceId: occurrence.traceId,
+      },
+      operatorId,
+      db,
     );
+
+    await this.reimbursementObligationsService.syncForOccurrence(
+      occurrence,
+      operatorId,
+      db,
+    );
+
+    return occurrence;
   }
 
   private deriveReimbursementContext(input: {
@@ -149,95 +301,138 @@ export class FeeOccurrencesService {
   }
 
   async captureFromInternalFund(item: any, operatorId = 'SYSTEM', tx?: any) {
-    if (!this.hasInternalFundCostEvidence(item)) {
-      return null;
-    }
-
     const db = tx || this.prisma;
     const reimbursement = this.deriveReimbursementContext({
       sourceWallet: item.fromWallet,
     });
-    const feeType = this.resolveAutomaticFeeType(item?.asset?.type);
-    const idempotencyKey = `INTERNAL_FUND:${item.id}:${feeType}`;
-    const amount = new Prisma.Decimal(item.feeAmount || 0);
-    const metadata = JSON.stringify({
-      internalFundId: item.id,
-      internalTransactionId: item.internalTransaction?.id || null,
-      txHash: item.txHash || null,
-      providerTxnId: item.providerTxnId || null,
-      gasUsed: item.gasUsed || null,
-      effectiveGasPrice: item.effectiveGasPrice || null,
-      referenceNo: item.referenceNo || null,
-    });
+    const templates = this.buildAutomaticTemplates(
+      'INTERNAL_FUND',
+      item?.asset?.type,
+    );
+    const assetDecimals = Number(item?.asset?.decimals || 0);
+    const traceId = this.buildTraceIdFromInternalFund(item);
+    const evidenceRef =
+      item.txHash || item.providerTxnId || item.referenceNo || item.internalFundNo;
 
-    const occurrence = await (db as any).feeOccurrence.upsert({
-      where: { idempotencyKey },
-      update: {
-        status: FeeOccurrenceStatus.RECORDED,
-        assetId: item.assetId,
-        amount,
-        sourceWalletId: item.fromWalletId || null,
-        sourceAccountRef: item.fromIban || item.fromAddress || null,
-        reimbursementImpact: reimbursement.reimbursementImpact,
-        poolRole: reimbursement.poolRole,
-        relatedEntityType: 'INTERNAL_TRANSACTION',
-        relatedEntityId: item.internalTransaction?.id || null,
-        relatedEntityNo: item.internalTransaction?.internalTxNo || null,
-        evidenceRef: item.txHash || item.providerTxnId || item.referenceNo || item.internalFundNo,
-        traceId: this.buildTraceIdFromInternalFund(item),
-        metadata,
-        cancelledAt: null,
-      },
-      create: {
-        feeNo: generateReferenceNo('FEE'),
-        feeType,
-        occurrenceType: FeeOccurrenceType.DIRECT,
-        status: FeeOccurrenceStatus.RECORDED,
-        assetId: item.assetId,
-        amount,
-        payer: 'PLATFORM',
-        chargedToCustomer: false,
-        sourceEntityType: 'INTERNAL_FUND',
-        sourceEntityId: item.id,
-        sourceEntityNo: item.internalFundNo || null,
-        sourceWalletId: item.fromWalletId || null,
-        sourceAccountRef: item.fromIban || item.fromAddress || null,
-        relatedEntityType: 'INTERNAL_TRANSACTION',
-        relatedEntityId: item.internalTransaction?.id || null,
-        relatedEntityNo: item.internalTransaction?.internalTxNo || null,
-        reimbursementImpact: reimbursement.reimbursementImpact,
-        poolRole: reimbursement.poolRole,
-        evidenceRef: item.txHash || item.providerTxnId || item.referenceNo || item.internalFundNo,
-        traceId: this.buildTraceIdFromInternalFund(item),
-        idempotencyKey,
-        metadata,
-      },
-    });
-
-    await this.recordAudit(
-      {
-        action: AuditActions.FEE_OCCURRENCE_RECORDED,
-        entityId: occurrence.id,
-        entityNo: occurrence.feeNo,
-        reason: 'Captured from internal fund execution evidence',
-        afterData: {
-          feeType: occurrence.feeType,
-          occurrenceType: occurrence.occurrenceType,
-          reimbursementImpact: occurrence.reimbursementImpact,
+    const occurrences = [];
+    for (const template of templates) {
+      const amount = this.toAmountDecimal(
+        this.generateMinorUnits(
+          `INTERNAL_FUND:${item.id}:${template.feeType}`,
+          template.minMinorUnits,
+          template.maxMinorUnits,
+        ),
+        assetDecimals,
+      );
+      const metadata = this.stringifyMetadata({
+        generatedBy: 'stable-pseudo-random',
+        entityKind: 'INTERNAL_FUND',
+        feeType: template.feeType,
+        internalFundId: item.id,
+        internalTransactionId: item.internalTransaction?.id || null,
+        txHash: item.txHash || null,
+        providerTxnId: item.providerTxnId || null,
+        referenceNo: item.referenceNo || null,
+      });
+      const occurrence = await this.upsertAutomaticOccurrence(
+        {
+          idempotencyKey: `INTERNAL_FUND:${item.id}:${template.feeType}`,
+          feeType: template.feeType,
+          amount,
+          assetId: item.assetId || item.asset?.id,
+          sourceEntityType: 'INTERNAL_FUND',
+          sourceEntityId: item.id,
+          sourceEntityNo: item.internalFundNo || null,
+          sourceWalletId: item.fromWalletId || item.fromWallet?.id || null,
+          sourceAccountRef: item.fromIban || item.fromAddress || null,
+          relatedEntityType: 'INTERNAL_TRANSACTION',
+          relatedEntityId: item.internalTransaction?.id || null,
+          relatedEntityNo: item.internalTransaction?.internalTxNo || null,
+          reimbursementImpact: reimbursement.reimbursementImpact,
+          poolRole: reimbursement.poolRole,
+          evidenceRef,
+          traceId,
+          metadata,
         },
-        traceId: occurrence.traceId,
-      },
-      operatorId,
-      db,
-    );
+        operatorId,
+        db,
+        'Captured from confirmed internal fund execution',
+      );
+      occurrences.push(occurrence);
+    }
 
-    await this.reimbursementObligationsService.syncForOccurrence(
-      occurrence,
-      operatorId,
-      db,
-    );
+    return occurrences;
+  }
 
-    return occurrence;
+  async captureFromPayout(item: any, operatorId = 'SYSTEM', tx?: any) {
+    const db = tx || this.prisma;
+    const sourceWallet = item.sourceWallet || item.withdraw?.fromWallet || null;
+    const reimbursement = this.deriveReimbursementContext({
+      sourceWallet,
+    });
+    const templates = this.buildAutomaticTemplates('PAYOUT', item?.asset?.type);
+    const assetDecimals = Number(item?.asset?.decimals || 0);
+    const traceId = item.traceId || this.buildTraceIdFromPayout(item);
+    const evidenceRef =
+      item.evidenceRef ||
+      item.txHash ||
+      item.providerTxnId ||
+      item.referenceNo ||
+      item.payoutNo;
+
+    const occurrences = [];
+    for (const template of templates) {
+      const amount = this.toAmountDecimal(
+        this.generateMinorUnits(
+          `PAYOUT:${item.id}:${template.feeType}`,
+          template.minMinorUnits,
+          template.maxMinorUnits,
+        ),
+        assetDecimals,
+      );
+      const metadata = this.stringifyMetadata({
+        generatedBy: 'stable-pseudo-random',
+        entityKind: 'PAYOUT',
+        feeType: template.feeType,
+        payoutId: item.id,
+        withdrawId: item.withdrawId || item.withdraw?.id || null,
+        txHash: item.txHash || null,
+        providerTxnId: item.providerTxnId || null,
+        referenceNo: item.referenceNo || null,
+      });
+      const occurrence = await this.upsertAutomaticOccurrence(
+        {
+          idempotencyKey: `PAYOUT:${item.id}:${template.feeType}`,
+          feeType: template.feeType,
+          amount,
+          assetId: item.assetId || item.asset?.id,
+          sourceEntityType: 'PAYOUT',
+          sourceEntityId: item.id,
+          sourceEntityNo: item.payoutNo || null,
+          sourceWalletId: item.withdraw?.fromWalletId || sourceWallet?.id || null,
+          sourceAccountRef:
+            item.fromIban ||
+            item.fromAddress ||
+            item.withdraw?.fromIban ||
+            item.withdraw?.fromAddress ||
+            null,
+          relatedEntityType: 'WITHDRAW_TRANSACTION',
+          relatedEntityId: item.withdrawId || item.withdraw?.id || null,
+          relatedEntityNo: item.withdraw?.withdrawNo || null,
+          reimbursementImpact: reimbursement.reimbursementImpact,
+          poolRole: reimbursement.poolRole,
+          evidenceRef,
+          traceId,
+          metadata,
+        },
+        operatorId,
+        db,
+        'Captured from confirmed payout execution',
+      );
+      occurrences.push(occurrence);
+    }
+
+    return occurrences;
   }
 
   async recordManual(dto: CreateFeeOccurrenceDto, operatorId = 'SYSTEM') {
@@ -264,7 +459,6 @@ export class FeeOccurrencesService {
         data: {
           feeNo: generateReferenceNo('FEE'),
           feeType: dto.feeType,
-          occurrenceType: dto.occurrenceType,
           status: FeeOccurrenceStatus.RECORDED,
           assetId: dto.assetId,
           amount: new Prisma.Decimal(dto.amount),
@@ -280,8 +474,6 @@ export class FeeOccurrencesService {
           relatedEntityNo: dto.relatedEntityNo || null,
           reimbursementImpact: reimbursement.reimbursementImpact,
           poolRole: reimbursement.poolRole,
-          periodStart: dto.periodStart ? new Date(dto.periodStart) : null,
-          periodEnd: dto.periodEnd ? new Date(dto.periodEnd) : null,
           evidenceRef: dto.evidenceRef || null,
           traceId: dto.traceId || null,
           metadata:
@@ -297,7 +489,6 @@ export class FeeOccurrencesService {
           reason: 'Manual fee occurrence recorded',
           afterData: {
             feeType: created.feeType,
-            occurrenceType: created.occurrenceType,
             reimbursementImpact: created.reimbursementImpact,
           },
           traceId: created.traceId,
@@ -376,12 +567,11 @@ export class FeeOccurrencesService {
   }
 
   async findAllForAdmin(query: FeeOccurrenceQueryDto) {
-    const { skip = '0', take = '20', status, feeType, occurrenceType, assetId } =
+    const { skip = '0', take = '20', status, feeType, assetId } =
       query;
     const where: any = {};
     if (status) where.status = status;
     if (feeType) where.feeType = feeType;
-    if (occurrenceType) where.occurrenceType = occurrenceType;
     if (assetId) where.assetId = assetId;
 
     const [items, total] = await Promise.all([

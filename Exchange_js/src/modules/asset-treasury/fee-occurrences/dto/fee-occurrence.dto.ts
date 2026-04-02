@@ -2,17 +2,10 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsBoolean,
   IsEnum,
-  IsISO8601,
   IsOptional,
   IsString,
   IsUUID,
 } from 'class-validator';
-
-export enum FeeOccurrenceType {
-  DIRECT = 'DIRECT',
-  POOL = 'POOL',
-  PERIOD = 'PERIOD',
-}
 
 export enum FeeOccurrenceStatus {
   RECORDED = 'RECORDED',
@@ -50,11 +43,6 @@ export class FeeOccurrenceQueryDto {
   @IsEnum(FeeType)
   feeType?: FeeType;
 
-  @ApiPropertyOptional({ enum: FeeOccurrenceType })
-  @IsOptional()
-  @IsEnum(FeeOccurrenceType)
-  occurrenceType?: FeeOccurrenceType;
-
   @ApiPropertyOptional()
   @IsOptional()
   @IsUUID()
@@ -65,10 +53,6 @@ export class CreateFeeOccurrenceDto {
   @ApiProperty({ enum: FeeType })
   @IsEnum(FeeType)
   feeType!: FeeType;
-
-  @ApiProperty({ enum: FeeOccurrenceType })
-  @IsEnum(FeeOccurrenceType)
-  occurrenceType!: FeeOccurrenceType;
 
   @ApiProperty()
   @IsUUID()
@@ -122,16 +106,6 @@ export class CreateFeeOccurrenceDto {
   @IsOptional()
   @IsString()
   poolRole?: string;
-
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsISO8601()
-  periodStart?: string;
-
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsISO8601()
-  periodEnd?: string;
 
   @ApiPropertyOptional()
   @IsOptional()

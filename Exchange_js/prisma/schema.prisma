@@ -1959,7 +1959,6 @@ model FeeOccurrence {
   id                      String                   @id @default(uuid())
   feeNo                   String                   @unique
   feeType                 String
-  occurrenceType          String
   status                  String                   @default("RECORDED")
   assetId                 String
   amount                  Decimal
@@ -1975,8 +1974,6 @@ model FeeOccurrence {
   relatedEntityNo         String?
   reimbursementImpact     String                   @default("NONE")
   poolRole                String?
-  periodStart             DateTime?
-  periodEnd               DateTime?
   evidenceRef             String?
   traceId                 String?
   idempotencyKey          String?                  @unique
@@ -1989,7 +1986,6 @@ model FeeOccurrence {
   reimbursementObligation ReimbursementObligation?
 
   @@index([status])
-  @@index([feeType, occurrenceType])
   @@index([assetId, createdAt])
   @@index([sourceEntityType, sourceEntityId])
   @@index([relatedEntityType, relatedEntityId])

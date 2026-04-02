@@ -23,7 +23,6 @@ type FeeOccurrenceDetail = {
   id: string;
   feeNo: string;
   feeType: string;
-  occurrenceType: string;
   status: string;
   amount: string;
   payer?: string | null;
@@ -38,8 +37,6 @@ type FeeOccurrenceDetail = {
   relatedEntityType?: string | null;
   relatedEntityId?: string | null;
   relatedEntityNo?: string | null;
-  periodStart?: string | null;
-  periodEnd?: string | null;
   evidenceRef?: string | null;
   traceId?: string | null;
   metadata?: string | null;
@@ -273,7 +270,6 @@ const TreasuryResourceDetailPage = ({
                   <InfoField label="Fee No" value={item.feeNo} mono />
                   <InfoField label="Status" value={<StatusBadge value={item.status} />} />
                   <InfoField label="Fee Type" value={item.feeType} />
-                  <InfoField label="Occurrence Type" value={item.occurrenceType} />
                   <InfoField
                     label="Asset"
                     value={
@@ -304,8 +300,6 @@ const TreasuryResourceDetailPage = ({
                   <InfoField label="Related Entity Id" value={item.relatedEntityId} mono />
                   <InfoField label="Related Entity No" value={item.relatedEntityNo} />
                   <InfoField label="Evidence Ref" value={item.evidenceRef} />
-                  <InfoField label="Period Start" value={formatDateTime(item.periodStart)} />
-                  <InfoField label="Period End" value={formatDateTime(item.periodEnd)} />
                   <InfoField label="Trace Id" value={item.traceId} mono />
                   <InfoField
                     label="Linked Reimbursement"

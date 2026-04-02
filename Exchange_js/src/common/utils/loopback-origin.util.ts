@@ -41,3 +41,20 @@ export const expandLoopbackOrigins = (origins: string[]): string[] => {
   return Array.from(expanded);
 };
 
+const DEFAULT_LOCAL_WEB_ORIGINS = [
+  'http://localhost:3001',
+  'http://localhost:3002',
+  'http://localhost:3201',
+  'http://localhost:3202',
+];
+
+export const buildAllowedWebOrigins = (
+  adminUrl: string,
+  clientUrl: string,
+): string[] => {
+  return expandLoopbackOrigins([
+    adminUrl,
+    clientUrl,
+    ...DEFAULT_LOCAL_WEB_ORIGINS,
+  ]);
+};

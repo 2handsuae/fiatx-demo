@@ -51,6 +51,13 @@ type InternalFundDetailData = {
     type: string;
     status: string;
   };
+  feeOccurrences?: Array<{
+    id: string;
+    feeNo: string;
+    feeType: string;
+    amount: string;
+    status?: string | null;
+  }>;
   auditLogs: AuditLog[];
 };
 
@@ -305,6 +312,32 @@ const InternalFundDetail = () => {
         <InfoCard label="Gas Used" value={data.gasUsed || '-'} />
         <InfoCard label="Effective Gas Price" value={data.effectiveGasPrice || '-'} />
       </div>
+
+      <section className="bg-white rounded-xl border border-admin-border shadow-sm overflow-hidden">
+        <div className="px-5 py-4 border-b border-admin-border">
+          <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wider">Linked Fee Occurrences</h2>
+        </div>
+        <div className="divide-y divide-admin-border">
+          {data.feeOccurrences && data.feeOccurrences.length > 0 ? (
+            data.feeOccurrences.map((fee) => (
+              <div key={fee.id} className="px-5 py-4">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <div className="font-mono text-xs text-brand-primary">{fee.feeNo}</div>
+                    <div className="mt-1 text-sm font-medium text-gray-900">{fee.feeType}</div>
+                  </div>
+                  <div className="text-sm text-gray-700">
+                    {formatAssetAmount(fee.amount, data.asset?.decimals)}
+                  </div>
+                </div>
+                <div className="mt-2 text-xs text-gray-500">{fee.status || 'RECORDED'}</div>
+              </div>
+            ))
+          ) : (
+            <div className="px-5 py-6 text-sm text-gray-500">No linked fee occurrences</div>
+          )}
+        </div>
+      </section>
 
       <section className="bg-white rounded-xl border border-admin-border shadow-sm overflow-hidden">
         <div className="px-5 py-4 border-b border-admin-border">

@@ -9,7 +9,6 @@ import {
 } from '../components/governance/GovernanceUi';
 import {
   formatDateTime,
-  toIsoDateTime,
 } from '../components/governance/governanceUtils';
 import { useAdminSession } from '../contexts/AdminSessionContext';
 import { PERMISSIONS } from '../rbac/permissions';
@@ -30,7 +29,6 @@ type FeeOccurrenceItem = {
   id: string;
   feeNo: string;
   feeType: string;
-  occurrenceType: string;
   status: string;
   amount: string;
   poolRole?: string | null;
@@ -59,7 +57,6 @@ type TreasuryListResponse<T> = {
 type FeeFilters = {
   status: string;
   feeType: string;
-  occurrenceType: string;
 };
 
 type ObligationFilters = {
@@ -80,7 +77,6 @@ const FEE_TYPE_OPTIONS = [
   'RECONCILIATION_ADJUSTMENT_FEE',
 ] as const;
 
-const OCCURRENCE_TYPE_OPTIONS = ['', 'DIRECT', 'POOL', 'PERIOD'] as const;
 const FEE_STATUS_OPTIONS = ['', 'RECORDED', 'CANCELLED'] as const;
 const OBLIGATION_STATUS_OPTIONS = ['', 'OPEN', 'REIMBURSED', 'CANCELLED'] as const;
 const POOL_ROLE_OPTIONS = ['', 'DEPOSIT', 'MASTER', 'PAYOUT', 'CUST_BANK'] as const;
@@ -88,7 +84,6 @@ const POOL_ROLE_OPTIONS = ['', 'DEPOSIT', 'MASTER', 'PAYOUT', 'CUST_BANK'] as co
 const DEFAULT_FEE_FILTERS: FeeFilters = {
   status: '',
   feeType: '',
-  occurrenceType: '',
 };
 
 const DEFAULT_OBLIGATION_FILTERS: ObligationFilters = {
@@ -98,7 +93,6 @@ const DEFAULT_OBLIGATION_FILTERS: ObligationFilters = {
 
 const emptyCreateState = {
   feeType: 'BANK_MONTHLY_FEE',
-  occurrenceType: 'PERIOD',
   assetId: '',
   amount: '',
   sourceEntityType: '',
@@ -110,8 +104,6 @@ const emptyCreateState = {
   relatedEntityId: '',
   relatedEntityNo: '',
   poolRole: '',
-  periodStart: '',
-  periodEnd: '',
   evidenceRef: '',
   traceId: '',
   metadataJson: '{}',
@@ -174,9 +166,6 @@ const TreasuryResourcePage = ({
     if (resourceType === 'fee-occurrences') {
       if (feeFilters.status) params.set('status', feeFilters.status);
       if (feeFilters.feeType) params.set('feeType', feeFilters.feeType);
-      if (feeFilters.occurrenceType) {
-        params.set('occurrenceType', feeFilters.occurrenceType);
-      }
     } else {
       if (obligationFilters.status) params.set('status', obligationFilters.status);
       if (obligationFilters.poolRole) params.set('poolRole', obligationFilters.poolRole);
@@ -235,7 +224,6 @@ const TreasuryResourcePage = ({
       }
       const payload: Record<string, unknown> = {
         feeType: createState.feeType,
-        occurrenceType: createState.occurrenceType,
         assetId: createState.assetId,
         amount: createState.amount,
         metadata: parseMetadataJson(createState.metadataJson),
@@ -265,10 +253,6 @@ const TreasuryResourcePage = ({
         payload.relatedEntityNo = createState.relatedEntityNo.trim();
       }
       if (createState.poolRole.trim()) payload.poolRole = createState.poolRole.trim();
-      const periodStart = toIsoDateTime(createState.periodStart);
-      const periodEnd = toIsoDateTime(createState.periodEnd);
-      if (periodStart) payload.periodStart = periodStart;
-      if (periodEnd) payload.periodEnd = periodEnd;
       if (createState.evidenceRef.trim()) payload.evidenceRef = createState.evidenceRef.trim();
       if (createState.traceId.trim()) payload.traceId = createState.traceId.trim();
 
@@ -306,7 +290,6 @@ const TreasuryResourcePage = ({
         <tr>
           <th className="px-4 py-3 text-xs uppercase text-gray-500">Fee No</th>
           <th className="px-4 py-3 text-xs uppercase text-gray-500">Fee Type</th>
-          <th className="px-4 py-3 text-xs uppercase text-gray-500">Occurrence</th>
           <th className="px-4 py-3 text-xs uppercase text-gray-500">Asset</th>
           <th className="px-4 py-3 text-xs uppercase text-gray-500">Amount</th>
           <th className="px-4 py-3 text-xs uppercase text-gray-500">Pool</th>
@@ -318,7 +301,7 @@ const TreasuryResourcePage = ({
       <tbody className="divide-y divide-admin-border">
         {feeItems.length === 0 ? (
           <tr>
-            <td colSpan={9} className="px-4 py-8 text-center text-sm text-gray-500">
+            <td colSpan={8} className="px-4 py-8 text-center text-sm text-gray-500">
               No fee occurrences found.
             </td>
           </tr>
@@ -331,7 +314,6 @@ const TreasuryResourcePage = ({
             >
               <td className="px-4 py-3 font-mono text-xs text-brand-primary">{item.feeNo}</td>
               <td className="px-4 py-3 text-gray-700">{item.feeType}</td>
-              <td className="px-4 py-3 text-gray-700">{item.occurrenceType}</td>
               <td className="px-4 py-3 text-gray-700">
                 {item.asset ? `${item.asset.code}${item.asset.network ? ` · ${item.asset.network}` : ''}` : '-'}
               </td>
@@ -395,7 +377,7 @@ const TreasuryResourcePage = ({
   const renderFilters = () => {
     if (resourceType === 'fee-occurrences') {
       return (
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
           <select
             value={feeFilters.status}
             onChange={(event) =>
@@ -419,22 +401,6 @@ const TreasuryResourcePage = ({
             {FEE_TYPE_OPTIONS.map((feeType) => (
               <option key={feeType || 'ALL'} value={feeType}>
                 {feeType || 'All Fee Types'}
-              </option>
-            ))}
-          </select>
-          <select
-            value={feeFilters.occurrenceType}
-            onChange={(event) =>
-              setFeeFilters((prev) => ({
-                ...prev,
-                occurrenceType: event.target.value,
-              }))
-            }
-            className="rounded-lg border border-gray-200 px-3 py-2 text-sm"
-          >
-            {OCCURRENCE_TYPE_OPTIONS.map((occurrenceType) => (
-              <option key={occurrenceType || 'ALL'} value={occurrenceType}>
-                {occurrenceType || 'All Occurrence Types'}
               </option>
             ))}
           </select>
@@ -524,22 +490,6 @@ const TreasuryResourcePage = ({
               {FEE_TYPE_OPTIONS.filter(Boolean).map((feeType) => (
                 <option key={feeType} value={feeType}>
                   {feeType}
-                </option>
-              ))}
-            </select>
-            <select
-              value={createState.occurrenceType}
-              onChange={(event) =>
-                setCreateState((prev) => ({
-                  ...prev,
-                  occurrenceType: event.target.value,
-                }))
-              }
-              className="rounded-lg border border-gray-200 px-3 py-2 text-sm"
-            >
-              {OCCURRENCE_TYPE_OPTIONS.filter(Boolean).map((occurrenceType) => (
-                <option key={occurrenceType} value={occurrenceType}>
-                  {occurrenceType}
                 </option>
               ))}
             </select>
@@ -634,25 +584,6 @@ const TreasuryResourcePage = ({
                 </option>
               ))}
             </select>
-            <input
-              value={createState.periodStart}
-              onChange={(event) =>
-                setCreateState((prev) => ({
-                  ...prev,
-                  periodStart: event.target.value,
-                }))
-              }
-              type="datetime-local"
-              className="rounded-lg border border-gray-200 px-3 py-2 text-sm"
-            />
-            <input
-              value={createState.periodEnd}
-              onChange={(event) =>
-                setCreateState((prev) => ({ ...prev, periodEnd: event.target.value }))
-              }
-              type="datetime-local"
-              className="rounded-lg border border-gray-200 px-3 py-2 text-sm"
-            />
             <input
               value={createState.evidenceRef}
               onChange={(event) =>
