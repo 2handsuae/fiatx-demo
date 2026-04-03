@@ -14,8 +14,11 @@ interface ApprovalItem {
   actionType: string;
   entityRef: string;
   makerUserId: string;
+  makerUserNo?: string | null;
   status: string;
   executionStatus: string;
+  workflowNo?: string | null;
+  traceId?: string | null;
   decidedAt?: string | null;
   createdAt: string;
   evidencePackage?: {
@@ -200,10 +203,10 @@ const ApprovalsPage = () => {
               <tr>
                 <th className="px-4 py-3 text-xs uppercase text-gray-500">Approval No</th>
                 <th className="px-4 py-3 text-xs uppercase text-gray-500">Action Type</th>
-                <th className="px-4 py-3 text-xs uppercase text-gray-500">Entity Ref</th>
-                <th className="px-4 py-3 text-xs uppercase text-gray-500">Maker</th>
                 <th className="px-4 py-3 text-xs uppercase text-gray-500">Status</th>
                 <th className="px-4 py-3 text-xs uppercase text-gray-500">Execution</th>
+                <th className="px-4 py-3 text-xs uppercase text-gray-500">Maker</th>
+                <th className="px-4 py-3 text-xs uppercase text-gray-500">Workflow / Trace</th>
                 <th className="px-4 py-3 text-xs uppercase text-gray-500">Decided At</th>
                 <th className="px-4 py-3 text-xs uppercase text-gray-500">Action</th>
               </tr>
@@ -233,17 +236,22 @@ const ApprovalsPage = () => {
                       </button>
                     </td>
                     <td className="px-4 py-3 text-gray-700">{item.actionType}</td>
-                    <td className="px-4 py-3">
-                      <div className="font-mono text-xs text-gray-700">{item.entityRef}</div>
-                      {item.evidencePackage && (
-                        <div className="text-xs text-gray-500">
-                          {item.evidencePackage.packageNo} · {item.evidencePackage.status}
-                        </div>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-gray-700">{item.makerUserId}</td>
                     <td className="px-4 py-3 text-gray-700">{item.status}</td>
                     <td className="px-4 py-3 text-gray-700">{item.executionStatus}</td>
+                    <td className="px-4 py-3">
+                      <div className="font-mono text-xs text-gray-700">
+                        {item.makerUserNo || item.makerUserId}
+                      </div>
+                      {item.makerUserNo ? (
+                        <div className="text-xs text-gray-500">{item.makerUserId}</div>
+                      ) : null}
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="font-mono text-xs text-gray-700">
+                        {item.workflowNo || item.traceId || '-'}
+                      </div>
+                      <div className="text-xs text-gray-500">{item.entityRef}</div>
+                    </td>
                     <td className="px-4 py-3 text-gray-700">{formatDateTime(item.decidedAt)}</td>
                     <td className="px-4 py-3">
                       <button

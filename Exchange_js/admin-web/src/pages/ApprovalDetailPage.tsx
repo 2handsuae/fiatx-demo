@@ -2,13 +2,10 @@ import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   ArrowLeft,
-  CheckCircle2,
   FileJson,
   Link2,
   RefreshCw,
   ShieldCheck,
-  UserCheck,
-  XCircle,
 } from 'lucide-react';
 import {
   ActionSection,
@@ -27,6 +24,7 @@ interface ApprovalDetail {
   actionType: string;
   entityRef: string;
   makerUserId: string;
+  makerUserNo?: string | null;
   status: string;
   executionStatus: string;
   riskLevel: string;
@@ -37,6 +35,9 @@ interface ApprovalDetail {
   docRef?: string | null;
   metadata?: Record<string, unknown>;
   traceId: string;
+  workflowType?: string | null;
+  workflowId?: string | null;
+  workflowNo?: string | null;
   submittedAt?: string | null;
   timeoutAt?: string | null;
   decidedAt?: string | null;
@@ -247,19 +248,6 @@ const ApprovalDetailPage = () => {
           >
             <Link2 size={16} />
             Open Audit Evidence Package
-          </button>
-          ) : null}
-          {detail.caseEvidencePackage ? (
-            <button
-              onClick={() =>
-                navigate(
-                  `/dashboard/compliance/case-evidence-exports/${detail.caseEvidencePackage!.id}`,
-                )
-              }
-              className="inline-flex items-center gap-2 rounded-lg border border-admin-border px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
-            >
-              <Link2 size={16} />
-              Open Case Evidence Package
             </button>
           ) : null}
         </div>
@@ -276,66 +264,70 @@ const ApprovalDetailPage = () => {
         </div>
       )}
 
-      <DetailCard title="Summary" icon={<ShieldCheck size={18} />} description="Primary approval identity and current execution state.">
+      <DetailCard
+        title="Summary"
+        icon={<ShieldCheck size={18} />}
+        description="Operator-first business snapshot for current decision and execution state."
+      >
         <InfoField label="Approval No" value={detail.approvalNo} mono />
         <InfoField label="Action Type" value={detail.actionType} />
         <InfoField label="Status" value={detail.status} />
         <InfoField label="Execution Status" value={detail.executionStatus} />
+        <InfoField label="Maker User No" value={detail.makerUserNo || '-'} mono />
         <InfoField label="Maker User ID" value={detail.makerUserId} mono />
         <InfoField label="Risk Level" value={detail.riskLevel} />
-      </DetailCard>
-
-      <DetailCard title="Policy & Checker" icon={<UserCheck size={18} />}>
         <InfoField label="Checker Roles" value={detail.checkerRoles.join(', ')} />
         <InfoField label="Selected Checker Role" value={detail.selectedCheckerRole} />
         <InfoField label="Available Decision Roles" value={detail.availableDecisionRoles.join(', ')} />
-        <InfoField label="Allow Cancel" value={detail.allowCancel ? 'YES' : 'NO'} />
-        <InfoField label="Allow Retry" value={detail.allowRetry ? 'YES' : 'NO'} />
-        <InfoField label="Doc Ref" value={detail.docRef} mono />
-      </DetailCard>
-
-      <DetailCard title="Trace & Entity" icon={<Link2 size={18} />}>
-        <InfoField label="Approval ID" value={detail.id} mono />
-        <InfoField label="Trace ID" value={detail.traceId} mono />
-        <InfoField label="Entity Ref" value={detail.entityRef} mono />
-        <InfoField label="Submitted At" value={formatDateTime(detail.submittedAt)} />
-        <InfoField label="Timeout At" value={formatDateTime(detail.timeoutAt)} />
-        <InfoField label="Created At" value={formatDateTime(detail.createdAt)} />
-        <InfoField label="Updated At" value={formatDateTime(detail.updatedAt)} />
-      </DetailCard>
-
-      <DetailCard title="Decision & Execution" icon={<CheckCircle2 size={18} />}>
-        <InfoField label="Decision By User ID" value={detail.decisionByUserId} mono />
-        <InfoField label="Decision By Role" value={detail.decisionByRole} />
         <InfoField label="Decision Reason" value={detail.decisionReason} />
         <InfoField label="Decided At" value={formatDateTime(detail.decidedAt)} />
         <InfoField label="Executed At" value={formatDateTime(detail.executedAt)} />
+        <InfoField label="Allow Cancel" value={detail.allowCancel ? 'YES' : 'NO'} />
+        <InfoField label="Allow Retry" value={detail.allowRetry ? 'YES' : 'NO'} />
       </DetailCard>
 
-      <DetailCard title="Step" icon={<XCircle size={18} />}>
+      <DetailCard
+        title="Workflow References"
+        icon={<Link2 size={18} />}
+        description="Active-path references for workflow tracing and timeout handling."
+      >
+        <InfoField label="Entity Ref" value={detail.entityRef} mono />
+        <InfoField label="Workflow No" value={detail.workflowNo} mono />
+        <InfoField label="Trace ID" value={detail.traceId} mono />
+        <InfoField label="Submitted At" value={formatDateTime(detail.submittedAt)} />
+        <InfoField label="Timeout At" value={formatDateTime(detail.timeoutAt)} />
+      </DetailCard>
+
+      <DetailCard
+        title="Technical References"
+        icon={<FileJson size={18} />}
+        description="Low-noise technical identifiers and compact payloads for troubleshooting."
+        columns={1}
+      >
+        <InfoField label="Approval ID" value={detail.id} mono />
+        <InfoField label="Workflow Type" value={detail.workflowType} mono />
+        <InfoField label="Workflow ID" value={detail.workflowId} mono />
+        <InfoField label="Doc Ref" value={detail.docRef} mono />
+        <InfoField label="Created At" value={formatDateTime(detail.createdAt)} />
+        <InfoField label="Updated At" value={formatDateTime(detail.updatedAt)} />
         <InfoField label="Step No" value={detail.step?.stepNo} />
         <InfoField label="Step Status" value={detail.step?.status} />
         <InfoField label="Checker Role Candidates" value={detail.step?.checkerRoleCandidates.join(', ')} />
-        <InfoField label="Step Decided By" value={detail.step?.decidedByUserId} mono />
-        <InfoField label="Step Decided Role" value={detail.step?.decidedByRole} />
         <InfoField label="Step Reason" value={detail.step?.reason} />
+        {detail.evidencePackage ? (
+          <InfoField
+            label="Linked Audit Evidence Package"
+            value={`${detail.evidencePackage.packageNo} · ${detail.evidencePackage.status}`}
+          />
+        ) : null}
+        {detail.caseEvidencePackage ? (
+          <InfoField
+            label="Linked Case Evidence Package"
+            value={`${detail.caseEvidencePackage.packageNo} · ${detail.caseEvidencePackage.status}`}
+          />
+        ) : null}
+        <JsonBlock title="metadata" value={detail.metadata || {}} />
       </DetailCard>
-
-      {detail.evidencePackage && (
-        <DetailCard title="Linked Audit Evidence Package" icon={<Link2 size={18} />}>
-          <InfoField label="Package ID" value={detail.evidencePackage.id} mono />
-          <InfoField label="Package No" value={detail.evidencePackage.packageNo} />
-          <InfoField label="Package Status" value={detail.evidencePackage.status} />
-        </DetailCard>
-      )}
-
-      {detail.caseEvidencePackage && (
-        <DetailCard title="Linked Case Evidence Package" icon={<Link2 size={18} />}>
-          <InfoField label="Package ID" value={detail.caseEvidencePackage.id} mono />
-          <InfoField label="Package No" value={detail.caseEvidencePackage.packageNo} />
-          <InfoField label="Package Status" value={detail.caseEvidencePackage.status} />
-        </DetailCard>
-      )}
 
       <ActionSection
         title="Approval Actions"
@@ -395,9 +387,6 @@ const ApprovalDetailPage = () => {
         </div>
       </ActionSection>
 
-      <DetailCard title="Metadata" icon={<FileJson size={18} />} columns={1}>
-        <JsonBlock title="metadata" value={detail.metadata || {}} />
-      </DetailCard>
     </div>
   );
 };

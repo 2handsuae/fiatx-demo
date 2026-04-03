@@ -88,6 +88,9 @@ describe('ApprovalsService', () => {
       approvalStep: {
         update: jest.fn(),
       },
+      user: {
+        findMany: jest.fn().mockResolvedValue([]),
+      },
       $transaction: jest.fn(async (cb: (tx: any) => unknown) => cb(prisma)),
     };
 
@@ -405,6 +408,77 @@ describe('ApprovalsService', () => {
         }),
       }),
     );
+  });
+
+  it('lists approvals with makerUserNo resolved from user lookup without schema changes', async () => {
+    prisma.approvalCase.count.mockResolvedValue(1);
+    prisma.approvalCase.findMany.mockResolvedValue([
+      buildApproval({
+        makerUserId: 'maker-1',
+      }),
+    ]);
+    prisma.user.findMany.mockResolvedValue([
+      {
+        id: 'maker-1',
+        userNo: 'USR-MAKER-001',
+      },
+    ]);
+
+    const result = await service.list({}, actor);
+
+    expect(prisma.user.findMany).toHaveBeenCalledWith({
+      where: {
+        id: {
+          in: ['maker-1'],
+        },
+        deletedAt: null,
+      },
+      select: {
+        id: true,
+        userNo: true,
+      },
+    });
+    expect(result.items[0]).toMatchObject({
+      makerUserId: 'maker-1',
+      makerUserNo: 'USR-MAKER-001',
+    });
+    expect(result.items[0]).not.toHaveProperty('maker.userNo');
+  });
+
+  it('returns approval detail with makerUserNo resolved from user lookup and keeps decision actor ids hidden', async () => {
+    prisma.approvalCase.findUnique.mockResolvedValue(
+      buildApproval({
+        status: ApprovalStatuses.APPROVED,
+        makerUserId: 'maker-1',
+        decisionByUserId: 'checker-1',
+        decisionByRole: 'DPO',
+        decisionReason: 'approved for wave 1 path',
+      }),
+    );
+    prisma.user.findMany.mockResolvedValue([
+      {
+        id: 'maker-1',
+        userNo: 'USR-MAKER-001',
+      },
+      {
+        id: 'checker-1',
+        userNo: 'USR-CHECKER-001',
+      },
+    ]);
+
+    const result = await service.getById('approval-1', actor);
+
+    expect(result).toMatchObject({
+      makerUserId: 'maker-1',
+      makerUserNo: 'USR-MAKER-001',
+      decisionReason: 'approved for wave 1 path',
+      selectedCheckerRole: 'DPO',
+      allowCancel: true,
+      allowRetry: true,
+    });
+    expect(result).not.toHaveProperty('decisionByUserId');
+    expect(result).not.toHaveProperty('decisionByUserNo');
+    expect(result).not.toHaveProperty('decisionByRole');
   });
 
   it('expires overdue pending approvals and emits expiry event', async () => {

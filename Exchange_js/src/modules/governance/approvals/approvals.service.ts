@@ -458,6 +458,88 @@ export class ApprovalsService {
     };
   }
 
+  private async resolveUserNoMap(userIds: Array<string | null | undefined>) {
+    const normalizedIds = Array.from(
+      new Set(
+        userIds
+          .filter((value): value is string => typeof value === 'string')
+          .map((value) => value.trim())
+          .filter((value) => value.length > 0),
+      ),
+    );
+
+    if (!normalizedIds.length || typeof this.prisma.user?.findMany !== 'function') {
+      return new Map<string, string>();
+    }
+
+    const users = await this.prisma.user.findMany({
+      where: {
+        id: {
+          in: normalizedIds,
+        },
+        deletedAt: null,
+      },
+      select: {
+        id: true,
+        userNo: true,
+      },
+    });
+
+    return new Map<string, string>(
+      users
+        .filter(
+          (item: { id?: unknown; userNo?: unknown }) =>
+            typeof item.id === 'string' && typeof item.userNo === 'string',
+        )
+        .map((item: { id: string; userNo: string }) => [item.id, item.userNo]),
+    );
+  }
+
+  private async mapApprovalsForReadModel(
+    approvals: ApprovalCaseRow[],
+    actor?: ApprovalActorContext,
+  ) {
+    const userNoMap = await this.resolveUserNoMap(
+      approvals.flatMap((approval) => [
+        approval.makerUserId,
+        approval.decisionByUserId,
+        approval.steps?.[0]?.decidedByUserId,
+      ]),
+    );
+
+    return approvals.map((approval) => {
+      const currentStep = approval.steps?.[0] || null;
+
+      return {
+        ...this.mapApproval(approval, actor),
+        makerUserNo: userNoMap.get(approval.makerUserId) || null,
+        selectedCheckerRole: approval.selectedCheckerRole,
+        allowCancel: approval.allowCancel,
+        allowRetry: approval.allowRetry,
+        decisionReason: approval.decisionReason,
+        step: currentStep
+          ? {
+              id: currentStep.id,
+              stepNo: currentStep.stepNo,
+              status: currentStep.status,
+              checkerRoleCandidates: splitRoleCsv(currentStep.checkerRoleCandidates),
+              decidedByUserId: currentStep.decidedByUserId,
+              decidedByUserNo: currentStep.decidedByUserId
+                ? userNoMap.get(currentStep.decidedByUserId) || null
+                : null,
+              decidedByRole: currentStep.decidedByRole,
+              reason: currentStep.reason,
+              decidedAt: currentStep.decidedAt,
+              createdAt: currentStep.createdAt,
+              updatedAt: currentStep.updatedAt,
+            }
+          : null,
+        evidencePackage: approval.evidencePackage,
+        caseEvidencePackage: approval.caseEvidencePackage,
+      };
+    });
+  }
+
   private async resolveDecisionRole(
     approval: ApprovalCaseRow,
     actor: ApprovalActorContext,
@@ -984,7 +1066,8 @@ export class ApprovalsService {
 
   async getById(id: string, actor?: ApprovalActorContext) {
     const approval = await this.findCaseOrThrow(id);
-    return this.mapApproval(approval, actor);
+    const [mapped] = await this.mapApprovalsForReadModel([approval], actor);
+    return mapped;
   }
 
   async list(query: ApprovalQueryDto, actor?: ApprovalActorContext) {
@@ -1026,7 +1109,7 @@ export class ApprovalsService {
       total,
       skip,
       take,
-      items: rows.map((item) => this.mapApproval(item as ApprovalCaseRow, actor)),
+      items: await this.mapApprovalsForReadModel(rows as ApprovalCaseRow[], actor),
     };
   }
 
