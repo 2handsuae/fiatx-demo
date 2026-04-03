@@ -60,17 +60,8 @@ interface PeriodicReviewCycleSummary {
   resolutionReason?: string | null;
 }
 
-interface OnboardingLog {
-  id: string;
-  action: string;
-  actorId: string;
-  actorRole: string;
-  fromStage?: string | null;
-  toStage?: string | null;
-  caseType?: string | null;
-  caseId?: string | null;
-  detail?: string | null;
-  createdAt: string;
+interface AuditCenterSummary {
+  latestTraceId: string | null;
 }
 
 interface CustomerDetailData {
@@ -119,7 +110,7 @@ interface CustomerDetailData {
   uboProfiles?: UboProfile[];
   cddResponses?: ComplianceCase[];
   eddResponses?: ComplianceCase[];
-  onboardingAuditLogs?: OnboardingLog[];
+  auditCenterSummary?: AuditCenterSummary | null;
 }
 
 const getErrorMessage = (error: unknown, fallback: string) =>
@@ -362,6 +353,12 @@ const CustomerDetail = () => {
         <p className="mb-4 text-xs text-gray-500">
           Legacy compatibility fields have been retired from the customer payload. Remaining workflow summaries are shown in the canonical cards above and below.
         </p>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+          <KeyValue
+            label="Audit Center Latest Trace"
+            value={customer.auditCenterSummary?.latestTraceId || '-'}
+          />
+        </div>
         <div className="text-sm text-gray-600">
           Stage 5 removed legacy customer status, account, final-approval mirror, and pointer fields from the customer read-model.
         </div>
@@ -581,41 +578,6 @@ const CustomerDetail = () => {
 
       <DetailCard title="EDD Responses" icon={<Clock size={16} />} columns={1}>
         <CaseTable items={customer.eddResponses || []} />
-      </DetailCard>
-
-      <DetailCard title="Archived Onboarding Audit Logs" icon={<Clock size={16} />} columns={1}>
-        <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-          Historical mirror only. Canonical audit truth lives in Audit Center.
-        </div>
-        <table className="w-full text-left text-sm">
-          <thead>
-            <tr className="text-xs text-gray-500 uppercase border-b border-gray-200">
-              <th className="py-2">Time</th>
-              <th className="py-2">Action</th>
-              <th className="py-2">Actor</th>
-              <th className="py-2">Transition</th>
-              <th className="py-2">Response</th>
-            </tr>
-          </thead>
-          <tbody>
-            {(customer.onboardingAuditLogs || []).map((log) => (
-              <tr key={log.id} className="border-b border-gray-100">
-                <td className="py-2">{new Date(log.createdAt).toLocaleString()}</td>
-                <td className="py-2">{log.action}</td>
-                <td className="py-2">{log.actorRole}:{log.actorId}</td>
-                <td className="py-2">{`${log.fromStage || '-'} -> ${log.toStage || '-'}`}</td>
-                <td className="py-2">{log.caseType && log.caseId ? `${log.caseType}:${log.caseId.slice(0, 8)}...` : '-'}</td>
-              </tr>
-            ))}
-            {(customer.onboardingAuditLogs || []).length === 0 && (
-              <tr>
-                <td colSpan={5} className="py-4 text-center text-gray-500">
-                  No audit logs
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
       </DetailCard>
 
       <CaseBoundCustomerControlModal

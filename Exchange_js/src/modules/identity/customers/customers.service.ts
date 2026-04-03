@@ -54,10 +54,6 @@ const customerDetailInclude = {
     orderBy: { createdAt: 'desc' as const },
     take: 30,
   },
-  onboardingAuditLogs: {
-    orderBy: { createdAt: 'desc' as const },
-    take: 100,
-  },
   latestFinalApproval: {
     select: finalApprovalSummarySelect,
   },
@@ -80,9 +76,14 @@ type ResponseSummary = {
   responseType: 'CDD' | 'EDD';
 } & Record<string, unknown>;
 
+type AuditCenterSummary = {
+  latestTraceId: string | null;
+};
+
 type CustomerDetailView = Omit<CustomerDetailPayload, 'cddResponses' | 'eddResponses'> & {
   cddResponses: ResponseSummary[];
   eddResponses: ResponseSummary[];
+  auditCenterSummary: AuditCenterSummary;
 };
 
 @Injectable()
@@ -165,6 +166,9 @@ export class CustomersService {
         responseNo: caseNo,
         responseType: 'EDD' as const,
       })),
+      auditCenterSummary: {
+        latestTraceId: customer.latestDecisionRecordId ?? null,
+      },
     };
   }
 

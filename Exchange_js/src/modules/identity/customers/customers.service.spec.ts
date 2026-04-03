@@ -38,7 +38,10 @@ describe('CustomersService', () => {
   });
 
   it('findOne should query supported relations without wallets include', async () => {
-    mockPrismaService.customerMain.findUnique.mockResolvedValue({ id: 'c1' });
+    mockPrismaService.customerMain.findUnique.mockResolvedValue({
+      id: 'c1',
+      latestDecisionRecordId: 'decision-1',
+    });
 
     const customer = await service.findOne('c1');
 
@@ -50,14 +53,16 @@ describe('CustomersService', () => {
           uboProfiles: expect.any(Object),
           cddResponses: expect.any(Object),
           eddResponses: expect.any(Object),
-          onboardingAuditLogs: expect.any(Object),
         }),
       }),
     );
 
     const query = mockPrismaService.customerMain.findUnique.mock.calls[0][0];
     expect(query.include.wallets).toBeUndefined();
+    expect(query.include.onboardingAuditLogs).toBeUndefined();
     expect((customer as any)?.archivedOnboardingAuditLogs).toBeUndefined();
-    expect((customer as any)?.auditCenterSummary).toBeDefined();
+    expect((customer as any)?.auditCenterSummary).toEqual({
+      latestTraceId: 'decision-1',
+    });
   });
 });
