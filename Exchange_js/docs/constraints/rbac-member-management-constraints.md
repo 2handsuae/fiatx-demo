@@ -5,11 +5,13 @@
 1. list members
 2. create member
 3. assign roles per member
-- MUST keep role/permission explanation in dedicated `Role Management` page.
+- MUST keep `Role Management` as the fixed catalog explainer for roles and permissions.
+- MUST NOT treat `Role Management` as an online create/edit/delete surface for the role catalog.
 - MUST NOT duplicate role/permission catalog blocks into `Platform Members`.
 
 ## 2) Platform Members Entry and Form Contract
 - MUST keep menu entry path `Backend Member Management -> Platform Members`.
+- MUST treat role selection there as binding to a fixed role catalog, not authoring new roles.
 - MUST keep create-member form contract:
 1. email required
 2. at least one role required
@@ -75,6 +77,8 @@
 ## 7) Authorization Truth and Compatibility
 - Authorization truth MUST remain `user_roles + role_permissions`.
 - `users.role` MUST be treated as compatibility/display field only.
+- The role catalog is fixed; runtime member flows only bind users to existing roles and do not author the catalog.
+- `SUPER_ADMIN` MUST remain a preserved demo fallback role with full-site permission and maker-checker SoD bypass capability.
 - This constraint MUST NOT introduce schema migration or API contract change by itself.
 
 ## 8) Delivery Checklist for Related Threads

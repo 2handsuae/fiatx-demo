@@ -36,6 +36,7 @@ Source of Truth Level: specs-entity
   - login / session lookup
   - governed soft delete
 - Invitation token rows are linked supporting objects, not a substitute for user identity.
+- Runtime member flow binds admin users to the fixed role catalog; it does not author new roles.
 
 ## Write Owners
 - `UsersService` owns create, list, and role-binding convergence.
@@ -47,6 +48,7 @@ Source of Truth Level: specs-entity
 - Canonical authorization truth is:
   - `user_roles`
   - `role_permissions`
+- The role catalog is fixed; member assignment selects from existing roles instead of mutating the catalog.
 - `users.role` remains a compatibility / display field and MUST NOT be treated as the canonical permission source.
 
 ## Read-Model Meaning
@@ -57,3 +59,4 @@ Source of Truth Level: specs-entity
 ## Historical / Retired Notes
 - Legacy JS role seed identities are not canonical Wave 1 runtime truth.
 - Soft-deleted admin users are retired governed subjects, not alternative inactive members.
+- `SUPER_ADMIN` remains a preserved fallback role with full-site permission and maker-checker SoD bypass capability.

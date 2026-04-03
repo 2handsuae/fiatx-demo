@@ -14,6 +14,7 @@ Source of Truth Level: specs-module
   - invitation activation
   - admin login eligibility
   - role binding truth
+- The role catalog is fixed; `Platform Members` is the runtime path, and `Role Management` is the catalog explainer.
 
 ## Canonical Entrypoints
 - Member management:
@@ -28,11 +29,12 @@ Source of Truth Level: specs-module
 
 ## Integration Contract
 - `Platform Members` is the canonical admin surface for member create, list, and role assignment.
-- `Role Management` explains role/permission catalog semantics, but does not replace member lifecycle operations.
+- `Role Management` explains role/permission catalog semantics, but does not replace member lifecycle operations or author the catalog at runtime.
 - Authorization truth remains:
   - `user_roles`
   - `role_permissions`
 - `users.role` remains a compatibility / display field only.
+- Member role selection binds from the fixed catalog; it does not create or mutate role definitions.
 - Soft-deleted admin users MUST be excluded from:
   - platform members list
   - admin login lookup
@@ -49,10 +51,12 @@ Source of Truth Level: specs-module
 - Legacy JS role seed identities are not canonical runtime truth.
 - SMTP delivery is not required for Wave 1; admin UI manual invite-link handoff remains the supported baseline.
 - A soft-deleted admin user is retired runtime state, not an alternate inactive account flavor.
+- `SUPER_ADMIN` remains a preserved fallback role with full-site permission and maker-checker SoD bypass capability.
 
 ## MUST / MUST NOT
 - MUST resolve effective permissions from role bindings, not `users.role`.
 - MUST preserve invitation-based `INACTIVE -> ACTIVE` activation.
 - MUST keep admin auth boundary separate from customer auth under `/auth/customer/*`.
+- MUST keep the role catalog fixed and treat `Role Management` as explanatory only.
 - MUST NOT return soft-deleted admin users from normal list or auth paths.
 - MUST NOT invent alternative activation or role-truth stores outside current RBAC tables.

@@ -9,7 +9,8 @@ Source of Truth Level: specs-module
 # Approvals Module
 
 ## Purpose
-- This module owns approval-backed governance actions, including Wave 3 onboarding final approval.
+- This module owns the Wave 1 approval shell for approval-backed governance actions.
+- Specialised workflows bind to this shell, but they do not redefine its source-of-truth scope here.
 
 ## Canonical Entrypoints
 - `POST /admin/control-gates/approvals`
@@ -28,11 +29,12 @@ Source of Truth Level: specs-module
   - execution result tracking
   - approval audit
 - Workflow-bound approvals must persist workflow trace dimensions.
+- Approval Case remains the canonical governance object for the module, regardless of which workflow binds to it.
 
 ## Historical Aliases / Retired Names
-- Onboarding final approval is no longer a standalone custom final-review flow.
+- Onboarding final approval is one binding that uses the shared approval shell, not the module's defining purpose.
 - Canonical governance object is `Approval Case`.
 
 ## MUST / MUST NOT
-- MUST use approvals module for `ONBOARDING_FINAL_APPROVAL`.
+- MUST use approvals module for approval-backed governance actions, including `ONBOARDING_FINAL_APPROVAL`.
 - MUST NOT invent a separate customer final-review entity or direct status mutation path outside approval consumption.

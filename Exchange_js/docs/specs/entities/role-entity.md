@@ -10,6 +10,7 @@ Source of Truth Level: specs-entity
 
 ## Purpose
 - This document defines `Role` as the durable authorization catalog subject for backend access control.
+- The catalog is fixed; runtime member flows consume roles from it but do not author it.
 
 ## Canonical Fields
 - `id`
@@ -21,12 +22,12 @@ Source of Truth Level: specs-entity
 - `userRoles[]`
 
 ## Canonical Meaning
-- `Role` is the reusable capability bundle assigned to backend users.
+- `Role` is the reusable capability bundle assigned to backend users from a fixed catalog.
 - `code` is the canonical operator-facing and seed-facing identifier.
 - `Role` is a config subject, not a workflow root.
 
 ## Write Owners
-- Base seed and RBAC catalog management own role creation and convergence.
+- Base seed and RBAC catalog management own fixed role catalog truth and convergence.
 - Member assignment flows consume roles, but do not redefine role semantics.
 
 ## Authorization Relationship
@@ -37,3 +38,4 @@ Source of Truth Level: specs-entity
 
 ## Historical / Retired Notes
 - Legacy JS role identities are historical only and MUST NOT return as active role catalog truth.
+- `SUPER_ADMIN` remains a preserved fallback role with full-site permission and maker-checker SoD bypass capability.

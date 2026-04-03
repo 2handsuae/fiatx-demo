@@ -5,7 +5,9 @@
 1. `src/modules/governance/approvals`
 2. `src/modules/governance/approvals/constants`
 - MUST treat `Approval Engine + maker-checker` as the shared governance approval baseline for Wave 1.
+- MUST treat `Approval Case` as the shared governance shell for approval-backed controls, not as a later-wave business outcome object.
 - MUST NOT fold `GOV-02 effectiveness gate` semantics into this file until that workflow exists as an implemented capability.
+- MUST NOT introduce Wave 9 SLA / obligation semantics into this file.
 
 ## 2) Data Model and No-First Contract
 - MUST persist:
@@ -47,8 +49,10 @@
 3. `CHANGE_TICKET_APPROVAL`
 4. `DELETE_REQUEST_APPROVAL`
 5. `ONBOARDING_FINAL_APPROVAL`
+- These action types are the Wave 1 source-of-truth baseline; later-wave workflow specializations MUST NOT be rewritten here as canonical Wave 1 truth.
 - Maker-checker SoD MUST block the same non-super-admin user from acting as both maker and checker.
 - `SUPER_ADMIN` MAY bypass maker-checker SoD, but audit metadata MUST include `superAdminBypass=true`.
+- `SUPER_ADMIN` bypass is intentional and MUST be preserved as a demo fallback behavior, not treated as a bug.
 - Duplicate pending approvals for the same `actionType + entityRef` MUST be blocked by engine rules.
 
 ## 5) Audit and Workflow Traceability

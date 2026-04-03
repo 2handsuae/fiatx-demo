@@ -10,6 +10,7 @@ Source of Truth Level: specs-workflow
 
 ## Purpose
 - This workflow defines the Wave 1 admin-member lifecycle and auth-boundary semantics for `WF-02`.
+- The runtime member path is `Platform Members`; `Role Management` explains the fixed catalog and does not author runtime roles.
 
 ## Actors
 - member creator
@@ -34,6 +35,7 @@ Source of Truth Level: specs-workflow
 - `POST /auth/login` rejects `INACTIVE` or soft-deleted admin users.
 - `POST /users/:id/invitations/resend` invalidates the prior active token and creates a new invitation.
 - Role changes update authorization truth through `user_roles`, not `users.role`.
+- Member role binding is runtime behavior; the role catalog stays fixed and is not created or edited through this workflow.
 
 ## Read / Write Owners
 - `UsersService` owns member create, list, and role-binding convergence.
@@ -53,9 +55,11 @@ Source of Truth Level: specs-workflow
   - `GET /auth/me`
 - UI:
   - `Backend Member Management -> Platform Members`
+  - `Backend Member Management -> Role Management` (catalog explanation only)
 
 ## MUST / MUST NOT
 - MUST keep admin auth separate from `/auth/customer/*`.
 - MUST keep authorization truth in role bindings.
+- MUST keep the role catalog fixed and treat `Role Management` as explanatory, not as a runtime role-authoring surface.
 - MUST exclude soft-deleted admin users from member, invitation, and auth flows.
 - MUST NOT treat `users.role` as the canonical permission source.
