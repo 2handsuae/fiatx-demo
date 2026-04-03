@@ -123,9 +123,24 @@ const formatDateTime = (value?: string | null): string => {
 
 const selectSubjectAnchor = (item: AuditLogItem): AuditSubjectNo | null => {
   if (Array.isArray(item.subjectNos) && item.subjectNos.length > 0) {
-    const preferredSubject = item.subjectNos.find(
-      (subject) => subject.subjectRole !== 'ACTOR' && subject.subjectNo.trim(),
-    );
+    const preferredRoles = ['ENTITY', 'RELATED', 'SOURCE'];
+    const preferredSubject =
+      preferredRoles
+        .map((role) =>
+          item.subjectNos?.find(
+            (subject) => subject.subjectRole === role && subject.subjectNo.trim(),
+          ),
+        )
+        .find(Boolean) ||
+      item.subjectNos.find(
+        (subject) =>
+          subject.subjectRole !== 'ACTOR' &&
+          subject.subjectRole !== 'OWNER' &&
+          subject.subjectNo.trim(),
+      ) ||
+      item.subjectNos.find(
+        (subject) => subject.subjectRole === 'OWNER' && subject.subjectNo.trim(),
+      );
     if (preferredSubject) return preferredSubject;
   }
 
