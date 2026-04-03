@@ -136,8 +136,13 @@ DTO：`/Users/songshengwei/Documents/codex/projects/重做版/Exchange_js/src/mo
 - `GET /admin/control-gates/change-tickets`
 - `GET /admin/control-gates/change-tickets/:id`
 - `POST /admin/control-gates/change-tickets/:id/submit`
-- `POST /admin/control-gates/change-tickets/:id/resubmit`
-- `GET /admin/control-gates/change-tickets/:id/gate-runs`
+- `POST /admin/control-gates/change-tickets/:id/consume`
+- `POST /admin/control-gates/delete-requests`
+- `GET /admin/control-gates/delete-requests`
+- `GET /admin/control-gates/delete-requests/:id`
+- `POST /admin/control-gates/delete-requests/:id/submit`
+- `POST /admin/control-gates/delete-requests/:id/cancel`
+- `POST /admin/control-gates/delete-requests/:id/consume`
 
 ### 查询过滤（`GET /admin/audit-logs`）
 - 分页：`skip/take`
@@ -204,21 +209,17 @@ DTO：`/Users/songshengwei/Documents/codex/projects/重做版/Exchange_js/src/mo
 5. `DEPOSIT_COMPLIANCE_EVIDENCE_SYNCED`
 6. `DEPOSIT_ACCOUNTING_POSTED`
 
-### Governance Change Ticket workflow（第二阶段）
+### Governance Control Gate workflow（第二阶段）
 - `/Users/songshengwei/Documents/codex/projects/重做版/Exchange_js/src/modules/governance/change-tickets/change-tickets.service.ts`
-- `/Users/songshengwei/Documents/codex/projects/重做版/Exchange_js/src/modules/governance/change-tickets/release-gates.service.ts`
+- `/Users/songshengwei/Documents/codex/projects/重做版/Exchange_js/src/modules/governance/delete-requests/delete-requests.service.ts`
 - 动作：
 1. `CHANGE_TICKET_CREATED`
 2. `CHANGE_TICKET_SUBMITTED`
-3. `CHANGE_TICKET_APPROVAL_LINKED`
-4. `CHANGE_TICKET_APPROVED`
-5. `CHANGE_TICKET_REJECTED`
-6. `RELEASE_GATE_CHECKED`
-7. `RELEASE_GATE_PASSED`
-8. `RELEASE_GATE_FAILED`
-9. `CHANGE_TICKET_DEPLOYED`
-10. `CHANGE_TICKET_DEPLOY_FAILED`
-11. `CHANGE_TICKET_CLOSED`
+3. `CHANGE_TICKET_CONSUMED`
+4. `DELETE_REQUEST_CREATED`
+5. `DELETE_REQUEST_SUBMITTED`
+6. `DELETE_REQUEST_CANCELLED`
+7. `DELETE_REQUEST_CONSUMED`
 
 以下为当前关键接入点（P0 优先）：
 - Auth

@@ -35,8 +35,14 @@
 - `POST /admin/control-gates/change-tickets`：创建更改单。
 - `GET /admin/control-gates/change-tickets`：查看更改单列表。
 - `GET /admin/control-gates/change-tickets/:id`：查看更改单详情。
-- `POST /admin/control-gates/change-tickets/:id/submit|resubmit`：提交或重新提交审批。
-- `GET /admin/control-gates/change-tickets/:id/gate-runs`：查看 gate 执行记录。
+- `POST /admin/control-gates/change-tickets/:id/submit`：提交审批。
+- `POST /admin/control-gates/change-tickets/:id/consume`：消费处理结果。
+- `POST /admin/control-gates/delete-requests`：创建删除申请。
+- `GET /admin/control-gates/delete-requests`：查看删除申请列表。
+- `GET /admin/control-gates/delete-requests/:id`：查看删除申请详情。
+- `POST /admin/control-gates/delete-requests/:id/submit`：提交审批。
+- `POST /admin/control-gates/delete-requests/:id/cancel`：取消申请。
+- `POST /admin/control-gates/delete-requests/:id/consume`：消费处理结果。
 
 ## 历史兼容注记
 - 旧版更改单发布闭环与定时器能力保留在治理域的历史上下文中，但不作为当前 audit module 的主叙事。
