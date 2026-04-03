@@ -406,19 +406,49 @@ describe('AuditLogsService', () => {
 
   it('should persist multi-anchor subjectNos and digest-backed evidence payloads', async () => {
     prisma.auditLogEvent.findUnique.mockResolvedValue(null);
-    prisma.auditLogEvent.create.mockImplementation(({ data }: any) =>
-      Promise.resolve({
+    prisma.auditLogEvent.create.mockImplementation(({ data, include }: any) => {
+      const subjectNos = include?.subjectNos
+        ? [
+            {
+              id: 'subject-1',
+              eventId: 'a-contract',
+              subjectRole: 'OWNER',
+              subjectType: 'CUSTOMER',
+              subjectId: 'cust-1',
+              subjectNo: 'CUS2602180001',
+              occurredAt: new Date('2026-02-18T10:00:00.000Z'),
+              createdAt: new Date('2026-02-18T10:00:00.000Z'),
+            },
+            {
+              id: 'subject-2',
+              eventId: 'a-contract',
+              subjectRole: 'ENTITY',
+              subjectType: 'APPLICATION',
+              subjectId: 'app-1',
+              subjectNo: 'APP2602180001',
+              occurredAt: new Date('2026-02-18T10:00:00.000Z'),
+              createdAt: new Date('2026-02-18T10:00:00.000Z'),
+            },
+            {
+              id: 'subject-3',
+              eventId: 'a-contract',
+              subjectRole: 'ACTOR',
+              subjectType: 'ADMIN',
+              subjectId: 'admin-3',
+              subjectNo: 'OP2602180001',
+              occurredAt: new Date('2026-02-18T10:00:00.000Z'),
+              createdAt: new Date('2026-02-18T10:00:00.000Z'),
+            },
+          ]
+        : undefined;
+
+      return Promise.resolve({
         id: 'a-contract',
         auditNo: 'AUD2602180004',
         ...data,
-        subjectNos: data.subjectNos?.create?.map((item: any, index: number) => ({
-          id: `subject-${index}`,
-          eventId: 'a-contract',
-          createdAt: new Date('2026-02-18T10:00:00.000Z'),
-          ...item,
-        })),
-      }),
-    );
+        ...(subjectNos ? { subjectNos } : {}),
+      });
+    });
 
     const result = await service.recordByActor(
       {
