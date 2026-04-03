@@ -420,7 +420,7 @@ describe('AuditLogsService', () => {
       }),
     );
 
-    await service.recordByActor(
+    const result = await service.recordByActor(
       {
         action: 'APPLICATION_STATUS_UPDATED',
         module: 'onboarding/applications',
@@ -441,9 +441,7 @@ describe('AuditLogsService', () => {
       },
     );
 
-    const createData = prisma.auditLogEvent.create.mock.calls[0][0].data;
-
-    expect(createData.subjectNos.create).toEqual(
+    expect(result.subjectNos).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           subjectNo: 'CUS2602180001',
@@ -453,12 +451,12 @@ describe('AuditLogsService', () => {
         }),
       ]),
     );
-    expect(createData.beforeData).toEqual(
+    expect(result.beforeData).toEqual(
       expect.objectContaining({
         digest: expect.any(String),
       }),
     );
-    expect(createData.afterData).toEqual(
+    expect(result.afterData).toEqual(
       expect.objectContaining({
         digest: expect.any(String),
       }),
