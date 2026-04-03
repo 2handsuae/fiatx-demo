@@ -16,6 +16,8 @@
 边界要求：
 - 业务模块不直接写 `audit_log_events`，统一经 `AuditLogsService.recordByActor()` / `recordSystem()`。
 - 旧审计表仅保留历史读取，不再承接新写入。
+- `audit_log_events` 只承载 typed core + context JSON，`audit_log_subject_nos` 承载 operator-facing multi-anchor lookup layer。
+- `subjectNo` exact lookup 与 `traceId + workflowType/workflowNo` lookup 必须分开实现，不能用同一语义覆盖。
 - 每个新功能、每条新业务流程、每个关键状态迁移、每个自动阻断动作都 MUST 接入这条 canonical write path。
 - 没有接入 canonical audit logging 的功能不得视为完成态。
 
@@ -23,17 +25,12 @@
 Prisma 定义位于：`/Users/songshengwei/Documents/codex/projects/重做版/Exchange_js/prisma/schema.prisma`
 
 ### 1) `audit_log_events`
-核心字段：
-- 标识：`id`、`auditNo`
-- 事件：`triggerType`、`action`、`module`、`entityType`
-- 流程：`traceId`、`workflowType`、`workflowId`、`workflowNo`
-- 关联：`entityId`、`entityNo`、`entityOwnerType`、`entityOwnerId`、`entityOwnerNo`
-- 操作者：`actorType`、`actorId`、`actorNo`、`actorRole`
-- 状态：`statusFrom`、`statusTo`、`result`、`reason`
-- 上下文：`requestId`、`sourceIp`、`sourcePlatform`
-- 变更体：`metadata`、`beforeData`、`afterData`
-- 治理：`idempotencyKey`（unique nullable）、`payloadDigest`、`maskVersion`、`retainedUntil`、`archivedAt`
-- 时间：`occurredAt`、`createdAt`、`updatedAt`
+核心字段分层如下：
+- Typed core：`id`、`auditNo`、`triggerType`、`action`、`module`、`entityType`、`actorType`、`actorId`、`actorNo`、`actorRole`、`result`、`reason`
+- Lookup anchors：`entityId`、`entityNo`、`entityOwnerType`、`entityOwnerId`、`entityOwnerNo`、`traceId`、`workflowType`、`workflowId`、`workflowNo`
+- Context JSON：`requestId`、`sourceIp`、`sourcePlatform`、`metadata`、`beforeData`、`afterData`
+- Governance：`idempotencyKey`（unique nullable）、`payloadDigest`、`maskVersion`、`retainedUntil`
+- Time：`occurredAt`、`createdAt`、`updatedAt`
 
 关键索引：
 - `(module, entityType, entityId, occurredAt)`
@@ -45,10 +42,14 @@ Prisma 定义位于：`/Users/songshengwei/Documents/codex/projects/重做版/Ex
 - `(retainedUntil)`
 
 ### 2) `audit_log_subject_nos`
-用于一条事件挂多个 No，支持跨主体反查：
-- `eventId`、`subjectRole`（ACTOR/OWNER/ENTITY/RELATED/SOURCE）
-- `subjectType`、`subjectId`、`subjectNo`
-- `occurredAt`、`createdAt`
+用于一条事件挂多个 No，支持 operator-facing multi-anchor lookup：
+- `eventId`
+- `subjectRole`（ACTOR/OWNER/ENTITY/RELATED/SOURCE）
+- `subjectType`
+- `subjectId`
+- `subjectNo`
+- `occurredAt`
+- `createdAt`
 
 关键索引：
 - `(subjectNo, occurredAt)`
@@ -56,7 +57,7 @@ Prisma 定义位于：`/Users/songshengwei/Documents/codex/projects/重做版/Ex
 - `(eventId)`
 
 ### 3) `audit_evidence_packages`
-用于导出留痕：
+用于导出留痕的受治理对象：
 - `packageNo`
 - `approvalCaseId`
 - `exportedByType/exportedById/exportedByRole`
@@ -105,10 +106,12 @@ Prisma 定义位于：`/Users/songshengwei/Documents/codex/projects/重做版/Ex
 8. 保留期：`toRetainedUntil()`（+8 年）
 9. 落库：`createEventWithUniqueNo()`（冲突重试 + 幂等复用）
 
+`recordSystem()` 走同一 typed core / context JSON / subjectNos 构建规则，只是 actor 来源是系统或编排上下文。
+
 证据包链路在 `AuditEvidenceExportApprovalService.createExportRequest()`：
-- `POST /admin/audit-logs/export/evidence-package` 不再直接生成包体，而是先创建 `audit_evidence_packages` 申请记录
+- `POST /admin/audit-logs/export/evidence-package` 先创建 `audit_evidence_packages` 申请记录
 - 同步创建 `approval_case`，动作类型固定为 `AUDIT_EVIDENCE_EXPORT_APPROVAL`
-- 审批通过事件触发后，再调用 `AuditLogsService.buildEvidencePackageArtifacts()` 生成最终 `manifest/packageBody/digest`
+- 审批通过事件触发后，再调用 `AuditLogsService.buildEvidencePackageArtifacts()` 生成最终 `manifest/records/packageBody/digest`
 - 成功后将 `audit_evidence_packages.status` 更新为 `READY`，失败则为 `FAILED`
 - 追加一条 `EVIDENCE_EXPORT` 审计事件，并通过 `ApprovalsService.markExecutionResult()` 回写审批执行态
 
@@ -148,6 +151,8 @@ DTO：`/Users/songshengwei/Documents/codex/projects/重做版/Exchange_js/src/mo
 - 关键字：`keyword`
 - 归档开关：`includeArchived`
 
+`subjectNo` 精确检索和 `traceId/workflowType/workflowNo` 检索必须保持独立语义，DTO 不应把它们合并成一个含混入口。
+
 ### 详情返回（`GET /admin/audit-logs/:id`）
 - 返回事件基础字段 + `subjectNos[]`
 - Admin 前端独立详情页：`/dashboard/audit/audit-logs/:id`
@@ -157,7 +162,7 @@ DTO：`/Users/songshengwei/Documents/codex/projects/重做版/Exchange_js/src/mo
 - 当前模式：`SELECTION`
 - 必填：`selectedEventIds[]`
 - `maxItems`：默认 1000，最大 5000
-- `includeRecords`：可选，false 时不在包体里附 records
+- `includeRecords`：可选，false 时不在包体里包含 `records`
 
 ### 导出历史（`GET /admin/audit-logs/evidence-packages*`）
 - 列表返回持久化导出记录摘要。
@@ -212,28 +217,6 @@ DTO：`/Users/songshengwei/Documents/codex/projects/重做版/Exchange_js/src/mo
 2. `workflowNo=ticketNo`
 3. `traceId`
 4. `subjectNos` 至少包含 `ticketNo`
-
-## Governance WF-04（SLA Timer Engine）
-- 新模块：
-1. `SlaTimersService`
-2. `SlaTimerSweepService`
-3. `ApprovalSlaProjectionService`
-4. `ChangeTicketSlaProjectionService`
-- 新表：
-1. `sla_timers`
-- 状态机：
-1. `ACTIVE -> CLOSED / EXPIRED`
-- 当前 timer 类型：
-1. `APPROVAL_TIMEOUT`
-2. `CHANGE_POST_APPROVAL_FOLLOWUP`
-- 绑定规则：
-1. 审批进入 `PENDING` 时创建/复用 `APPROVAL_TIMEOUT`
-2. 审批 `APPROVED / REJECTED / CANCELLED / EXPIRED` 自动关闭 timeout timer
-3. 紧急变更 `DEPLOYED / DEPLOY_FAILED` 后创建/复用 `CHANGE_POST_APPROVAL_FOLLOWUP`
-4. 手工关闭 follow-up timer 时同步回写 `change_tickets.postApprovalCompletedAt`
-- 前端入口：
-1. `/dashboard/control-gates/sla-timers`
-2. `/dashboard/control-gates/sla-timers/:id`
 
 ## 关键接入矩阵（按模块列出接入点与 action）
 ### Deposit workflow（本轮重点验收）
@@ -352,6 +335,7 @@ sqlite3 /tmp/exchange_js_main/dev.db ".schema audit_log_subject_nos"
 - 数据库迁移已执行并成功（含 `audit_log_subject_nos` 与新增列）。
 - `npm run test -- audit-logs.service.spec.ts` 至少通过核心审计服务单测。
 - `GET /admin/audit-logs` 可按 `subjectNo/actorNo/entityOwnerNo` 命中数据。
+- `GET /admin/audit-logs/:id` 返回 `subjectNos[]`，且 `traceId` 查询不会和 `subjectNo` 语义混用。
 - 导出接口返回 `manifest/records/digest`，并产生 `EVIDENCE_EXPORT` 事件。
 - Admin 菜单主入口：`/dashboard/audit/audit-logs`
 - 兼容路由：`/dashboard/compliance/audit-logs`（跳转可保留，但菜单不展示）

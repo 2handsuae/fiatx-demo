@@ -22,13 +22,14 @@
 - SHOULD keep module/action/entity dictionaries centralized in `constants/audit-actions.constant.ts`.
 
 ## Canonical Data Model Constraints
-- MUST use `audit_log_events` as the canonical write table for new audit traffic.
+- MUST use `audit_log_events` as the canonical typed-core write table for new audit traffic.
 - MUST maintain `audit_evidence_packages` for export traceability.
-- MUST maintain `audit_log_subject_nos` as the multi-subject No detail table.
+- MUST maintain `audit_log_subject_nos` as the operator-facing multi-anchor lookup layer.
 - MUST keep `actorNo` and `entityOwnerNo` in `audit_log_events` synchronized with `audit_log_subject_nos`:
 1. when `actorNo` is non-null, at least one `ACTOR` subject row with the same No MUST exist
 2. when `entityOwnerNo` is non-null, at least one `OWNER` subject row with the same No MUST exist
 3. when `entityNo` is non-null, at least one `ENTITY` subject row SHOULD exist
+- MUST treat `metadata`, `beforeData`, and `afterData` as masked context JSON layered on top of the typed core, not as a payload dump.
 - MUST preserve governance fields on each event: `idempotencyKey`, `payloadDigest`, `maskVersion`, `retainedUntil`.
 - SHOULD persist `entityNo`, `entityOwnerType`, `entityOwnerId`, `requestId`, `sourcePlatform` whenever available.
 
@@ -64,6 +65,7 @@
 2. `subjectType`
 3. `actorNo`
 4. `entityOwnerNo`
+- `subjectNo` lookup MUST remain distinct from `traceId + workflowType/workflowNo` lookup; the two query families MUST NOT be merged into one semantic path.
 - `GET /admin/audit-logs/:id` MUST include `subjectNos[]` in response.
 - Evidence export records MUST include `actorNo`, `entityOwnerNo`, and `subjectNos[]`.
 - `keyword` search SHOULD stay complementary and MUST NOT replace exact No filters.
@@ -90,8 +92,10 @@
 - MUST compute record digests and package digest with SHA-256.
 - MUST persist one row in `audit_evidence_packages` per export execution.
 - MUST append one audit event with `triggerType=EVIDENCE_EXPORT` for the export action itself.
+- Exported `records` MUST remain typed, masked event records; they MUST NOT be described or treated as a raw payload dump.
 - Audit evidence export MUST remain approval-backed and MUST use `AUDIT_EVIDENCE_EXPORT_APPROVAL`.
 - The legacy direct export bypass path in `AuditLogsService.exportEvidencePackage()` MUST NOT remain callable once approval-backed flow is active.
+- The evidence package contract MUST stay domain-neutral; any domain-specific snapshot assembly belongs to workflow-specific specs, not to the audit evidence source of truth.
 - SHOULD keep `includeRecords` and `maxItems<=5000` contract stable.
 
 ## Masking, Digest, and Idempotency Constraints

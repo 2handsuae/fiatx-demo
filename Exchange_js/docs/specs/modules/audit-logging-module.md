@@ -5,92 +5,120 @@
 - 技术文档：[audit-logging-technical-doc.md](./audit-logging-technical-doc.md)
 - 审计约束：[audit-logging-constraints.md](../../constraints/audit-logging-constraints.md)
 
-> 以下保留 v1 快速概览，作为历史上下文。
+> 以下保留 v1 快速概览，作为当前 source-of-truth 的模块说明。
 
-## 1. Trigger 类型
+## 1. 模块 Contract
 
-当前模块采用以下 `triggerType`：
+统一审计日志采用三层语义：
+- typed core：`audit_log_events` 上的稳定事件事实字段
+- `subjectNos[]`：面向运营的 multi-anchor lookup layer
+- context JSON：`metadata`、`beforeData`、`afterData` 这类可脱敏上下文
 
-- `STATE_TRANSITION`：状态机迁移（如提现审批、清算完成）
-- `DATA_CREATE`：关键实体创建
-- `DATA_UPDATE`：关键字段更新
-- `DATA_DELETE`：关键数据删除
-- `PERMISSION_CHANGE`：权限、角色、访问策略变更
-- `AUTH_EVENT`：登录、登出、鉴权失败等事件
-- `CONFIG_CHANGE`：配置基线变更
-- `MANUAL_OVERRIDE`：人工强制干预
-- `SYSTEM_EVENT`：系统任务、批处理、补偿动作
-- `EVIDENCE_EXPORT`：证据包导出动作（导出行为本身也审计）
+这三层必须分开理解：
+- typed core 负责“发生了什么”
+- `subjectNos[]` 负责“用哪些 No 定位它”
+- context JSON 负责“补充上下文”，不能替代核心字段
 
-## 2. 表结构
+## 2. Trigger 与 Action 规范
+
+当前模块采用以下 `triggerType`，顺序固定：
+- `EVIDENCE_EXPORT`
+- `STATE_TRANSITION`
+- `MANUAL_OVERRIDE`
+- `AUTH_EVENT`
+- `PERMISSION_CHANGE`
+- `CONFIG_CHANGE`
+- `DATA_CREATE`
+- `DATA_UPDATE`
+- `DATA_DELETE`
+- `SYSTEM_EVENT`
+
+命名规则：
+- `action` 必须使用 `UPPER_SNAKE_CASE`
+- 状态迁移动作必须遵循 `<ENTITY>_<FROM_STATUS>_TO_<TO_STATUS>`，除非已明确列入 allowlist
+- `MANUAL_*` 只表示人工操作
+- `SYSTEM_*` 只表示系统任务或编排动作
+
+## 3. 数据模型
 
 ### `audit_log_events`
+这是统一审计的 typed core 表，不是 payload dump 容器。
 
-统一审计事件表，关键字段：
-
+核心字段：
 - 识别字段：`id`、`auditNo`
-- 事件字段：`triggerType`、`action`、`module`、`entityType`
-- 业务关联：`entityId`、`entityNo`、`entityOwnerType`、`entityOwnerId`
-- 变更对比：`statusFrom`、`statusTo`、`beforeData`、`afterData`
-- 操作者：`actorType`、`actorId`、`actorRole`
-- 请求上下文：`requestId`、`sourceIp`、`sourcePlatform`
-- 结果与说明：`result`、`reason`、`metadata`
-- 治理字段：`idempotencyKey`、`payloadDigest`、`maskVersion`、`retainedUntil`、`archivedAt`
+- 事件事实：`triggerType`、`action`、`module`、`entityType`
+- 业务关联：`entityId`、`entityNo`、`entityOwnerType`、`entityOwnerId`、`entityOwnerNo`
+- 流程关联：`traceId`、`workflowType`、`workflowId`、`workflowNo`
+- 操作者：`actorType`、`actorId`、`actorNo`、`actorRole`
+- 结果与说明：`result`、`reason`
+- 上下文 JSON：`requestId`、`sourceIp`、`sourcePlatform`、`metadata`、`beforeData`、`afterData`
+- 治理字段：`idempotencyKey`、`payloadDigest`、`maskVersion`、`retainedUntil`
 - 时间：`occurredAt`、`createdAt`、`updatedAt`
 
-索引覆盖：时间、触发类型、模块、实体、操作者、结果。
+### `audit_log_subject_nos`
+这是 operator-facing multi-anchor lookup layer，不是主事实表。
+
+字段：
+- `eventId`
+- `subjectRole`
+- `subjectType`
+- `subjectId`
+- `subjectNo`
+- `occurredAt`
+- `createdAt`
 
 ### `audit_evidence_packages`
+这是受治理的导出对象，不是某个业务域的交易快照容器。
 
-证据包导出留痕表，关键字段：
+字段：
+- `packageNo`
+- `approvalCaseId`
+- `exportedByType`
+- `exportedById`
+- `exportedByRole`
+- `status`
+- `exportMode`
+- `fileName`
+- `filterSnapshot`
+- `selectedEventIdsSnapshot`
+- `itemCount`
+- `digest`
+- `manifest`
+- `packageBody`
+- `createdAt`
+- `updatedAt`
 
-- `packageNo`：证据包编号
-- `exportedByType`、`exportedById`、`exportedByRole`：导出人
-- `approvalCaseId`：关联审批单（敏感导出需审批）
-- `filterSnapshot`：导出筛选条件快照
-- `itemCount`：包含审计记录数量
-- `digest`：证据包摘要（SHA-256）
-- `manifest`：导出清单（JSON）
+## 4. 查询边界
 
-## 3. 查询接口
+查询必须保持两条独立语义：
+- `subjectNo` 精确检索：用于 operator-facing 的 No-first 查找
+- `traceId + workflowType/workflowNo` 检索：用于 workflow 维度的链路定位
 
-- `GET /admin/audit-logs`
-- `GET /admin/audit-logs/:id`
-- `GET /admin/audit-logs/evidence-packages`
-- `GET /admin/audit-logs/evidence-packages/:id`
-- `GET /admin/audit-logs/evidence-packages/:id/download`
+两条语义不能混成一个查询概念，也不能用其中一条替代另一条。
 
-支持过滤：
+## 5. 写入与导出
 
-- 分页：`skip`、`take`
-- 业务过滤：`triggerType`、`module`、`entityType`、`entityId`、`actorId`、`result`
-- 工作流过滤：`traceId`、`workflowType`、`workflowNo`
-- 时间窗口：`startAt`、`endAt`
-- 关键字：`keyword`
+统一写入主路径：
+- `AuditLogsService.recordByActor()`
+- `AuditLogsService.recordSystem()`
 
-## 4. 导出证据包
+写入链路必须包含：
+- 输入校验
+- 脱敏
+- 幂等键
+- `subjectNos[]` 构建
+- `payloadDigest`
+- `retainedUntil`
+- 写入 `audit_log_events`
+- 写入 `audit_log_subject_nos`
 
-接口：`POST /admin/audit-logs/export/evidence-package`
+导出链路必须保持：
+- 先创建受审批治理的 export request
+- 再由批准结果触发最终 artifact 生成
+- 最终输出单个 JSON 包，包含 `manifest + records + digest`
+- 导出事件自身再写一条 `EVIDENCE_EXPORT`
 
-V1 当前只支持 `SELECTION` 模式，即从 `Audit Log` 页面勾选若干事件后发起导出。
-
-核心流程：
-
-1. `Audit Log` 页面按勾选事件创建 evidence export request。
-2. 系统同步创建 `approval_case`，动作类型固定为 `AUDIT_EVIDENCE_EXPORT_APPROVAL`。
-3. 审批通过前，`audit_evidence_packages.status = PENDING_APPROVAL`，不可下载。
-4. 审批通过后，系统按稳定顺序组装 `manifest/records/snapshots` 并计算最终 `digest`。
-5. 落库最终包体到 `audit_evidence_packages.packageBody`，状态推进为 `READY`。
-6. 同时写入一条 `EVIDENCE_EXPORT` 审计事件，形成导出闭环留痕。
-
-## 5. 管理接口（写入）
-
-- `POST /admin/audit-logs`：管理员手工补录/追记关键事件。
-- 所有新功能、所有新业务流程、所有关键状态迁移、所有自动阻断动作 MUST 接入 `AuditLogsService.recordByActor()` 或 `recordSystem()`。
-- 缺少 canonical audit logging 的功能不得视为完成态。
-- 业务模块 MUST NOT 直接写 `audit_log_events`，也 MUST NOT 绕过统一审计中心保留新的 ad-hoc 写入路径。
-
-## 6. 当前管理入口
+## 6. 当前入口
 
 - 一级菜单：`Audit Center`
 1. `Audit Log`
@@ -100,57 +128,9 @@ V1 当前只支持 `SELECTION` 模式，即从 `Audit Log` 页面勾选若干事
 2. `Change Tickets`
 3. `Delete Requests`
 4. `SLA Timers`
-- `Audit Log` 列表页仅保留列表、筛选、勾选导出能力。
-- `Audit Log Detail`：`/dashboard/audit/audit-logs/:id`
-- `Evidence Export` 列表页仅保留列表、分页、刷新、下载入口，不再内嵌 detail 模块；未审批/未就绪记录不可下载。
-- `Evidence Export Detail`：`/dashboard/audit/evidence-exports/:id`
-- `Evidence Export Detail` 仅基于 `audit_evidence_packages` 单条记录字段做语义归类展示，并保留 `manifest/packageBody` JSON。
-- `Approvals`：`/dashboard/control-gates/approvals`
-- `Approval Detail`：`/dashboard/control-gates/approvals/:id`
-- `Change Tickets`：`/dashboard/control-gates/change-tickets`
-- `Change Ticket Create`：`/dashboard/control-gates/change-tickets/create`
-- `Change Ticket Detail`：`/dashboard/control-gates/change-tickets/:id`
-- `Delete Requests`：`/dashboard/control-gates/delete-requests`
-- `Delete Request Create`：`/dashboard/control-gates/delete-requests/create`
-- `Delete Request Detail`：`/dashboard/control-gates/delete-requests/:id`
-- `SLA Timers`：`/dashboard/control-gates/sla-timers`
-- `SLA Timer Detail`：`/dashboard/control-gates/sla-timers/:id`
-- 兼容路由 `/dashboard/compliance/audit-logs` 仍保留跳转，但菜单中不再展示入口。
 
-## 6.1 Governance WF-06（Change Ticket + Release Gate）
+## 7. 运行与验证
 
-当前第二阶段已接入 `WF-06` 最小闭环：
-
-1. 创建 `Change Ticket`
-2. 提交并自动创建/提交 `CHANGE_TICKET_APPROVAL`
-3. 审批通过后进入 `READY_FOR_DEPLOY`
-4. 执行 `Release Gate Check`
-5. 标记 `DEPLOYED / DEPLOY_FAILED`
-6. 关闭工单
-
-该流程产出的审计事件统一具备：
-- `workflowType=CHANGE_TICKET`
-- `workflowNo=ticketNo`
-- `traceId`
-- `subjectNos` 至少包含 `ticketNo`
-
-## 6.2 Governance WF-04（SLA Timer Engine）
-
-当前第四阶段已接入两类 Governance SLA：
-
-1. `APPROVAL_TIMEOUT`
-2. `CHANGE_POST_APPROVAL_FOLLOWUP`
-
-实现约束：
-- 编号采用 `timerNo`
-- 状态机固定为 `ACTIVE -> CLOSED / EXPIRED`
-- `APPROVAL_TIMEOUT` 只读，不允许人工 close
-- `CHANGE_POST_APPROVAL_FOLLOWUP` 允许在详情页手工 close
-- 审计事件统一具备 `timerNo + workflowNo + subjectNo + traceId`
-
-## 7. 运维脚本
-
-- 历史回填（预览）：`npm run audit:backfill:dry`
-- 历史回填（执行）：`npm run audit:backfill:apply`
-- 保留期扫描（预览）：`npm run audit:retention:dry`
-- 保留期归档标记（执行）：`npm run audit:retention:apply`
+- 查询优先使用 No-first 入口，不要让关键词搜索盖过 exact No lookup。
+- 导出只接受已选事件和审批通过后的治理路径，不接受直接生成包体的旁路。
+- 证据包保持中性结构，任何域特定 snapshot 组装都必须放在 workflow 或 serializer 层，而不是模块定义本身。

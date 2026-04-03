@@ -1,6 +1,6 @@
 Status: active
 Owner: project-owner-and-agents
-Last Updated: 2026-03-28
+Last Updated: 2026-04-03
 Applies To: `Exchange_js`
 Supersedes: none
 Depends On: `docs/constraints/audit-logging-constraints.md`, `docs/constraints/governance-approval-constraints.md`, `docs/specs/entities/audit-evidence-package-entity.md`, `docs/specs/entities/approval-case-entity.md`
@@ -9,7 +9,7 @@ Source of Truth Level: specs-workflow
 # Audit Evidence Export Approval Workflow
 
 ## Purpose
-- This workflow defines the canonical Wave 1 path for exporting `Audit Center` evidence through maker-checker approval.
+- This workflow defines the canonical approval-gated path for exporting `Audit Center` evidence through maker-checker approval.
 
 ## Actors
 - export requester
@@ -28,8 +28,9 @@ Source of Truth Level: specs-workflow
 - `POST /admin/audit-logs/export/evidence-package` creates:
   - one `audit_evidence_packages` request record
   - one `AUDIT_EVIDENCE_EXPORT_APPROVAL`
-- Approval `APPROVED` triggers package artifact generation:
+- Approval `APPROVED` triggers final package artifact generation from selected typed audit events and associated context snapshots:
   - `manifest`
+  - `records`
   - `packageBody`
   - `digest`
 - Successful generation appends one `EVIDENCE_EXPORT` audit event for the export action itself.
@@ -52,17 +53,10 @@ Source of Truth Level: specs-workflow
   - `Audit Center -> Evidence Export`
   - `Control Gates Center -> Approvals`
 
-## Wave 5 / Wave 7 Transaction-Root Coverage
-- The same approval-backed export workflow is the canonical evidence path for:
-  - `DEPOSIT`
-  - `WITHDRAW`
-- Wave 5 deposit exports and Wave 7 withdraw exports MUST reuse the same API and approval contract.
-- The export workflow may assemble root-specific snapshot sections, but it MUST NOT fork into:
-  - a second deposit-only export engine
-  - a second withdraw-only export engine
-- Root-specific expectations are:
-  - deposit packages replay `signal -> payin -> deposit -> decision -> alert/case -> journal -> internal collection`
-  - withdraw packages replay `quote -> withdraw -> payout -> decision -> alert/case -> journal/clearing -> reconciliation break`
+## Payload Boundary
+- The workflow materializes a governed evidence package from selected events and optional snapshots.
+- The workflow does not define domain-scoped snapshot composition rules; those belong to upstream selection logic and downstream serializers.
+- The workflow MUST keep `subjectNo` exact lookup concerns separate from `traceId + workflowType/workflowNo` query concerns.
 
 ## MUST / MUST NOT
 - MUST use `AUDIT_EVIDENCE_EXPORT_APPROVAL`.

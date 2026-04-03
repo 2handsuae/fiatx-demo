@@ -1,36 +1,28 @@
 # 统一审计日志产品文档（Audit Logging）
 
 ## 产品背景与目标
-平台原有审计能力分散在多个业务表，查询链路割裂、证据提取成本高。统一审计模块的目标是建立单一审计中心，满足三件事：
-- 可追溯：关键操作与关键数据变化能串成完整事件链。
-- 可检索：支持按 No 体系快速反查（运营与合规日常方式）。
-- 可取证：支持导出可校验摘要的证据包，满足审计与监管提交。
+平台原有审计能力分散在多个业务表，查询链路割裂、取证成本高。统一审计模块的目标是建立单一审计中心，满足三件事：
+- 可追溯：关键操作与关键状态变化能串成完整事件链。
+- 可检索：支持按 No 体系快速反查，并把 No 查找与 workflow/trace 查找分开。
+- 可取证：支持导出可校验摘要的证据包，形成治理闭环。
 
-## 用户角色与核心场景（审计员、合规管理员、运营管理员）
-- 审计员：按 `subjectNo`、`actorNo`、`entityOwnerNo` 检索跨模块事件链，导出证据包并离线校验摘要。
+## 用户角色与核心场景
+- 审计员：按 `subjectNo`、`actorNo`、`entityOwnerNo` 检索跨模块事件链，必要时再用 `traceId + workflowType/workflowNo` 定位流程链路。
 - 合规管理员：查询登录、KYT、Travel Rule、状态迁移、人工干预等动作，定位责任人与处理时序。
 - 运营管理员：按业务 No（如 `withdrawNo`、`payoutNo`、`customerNo`）追踪异常流程与失败原因。
 
-## 本轮交付范围（Audit Center V1 + Governance Phase 4）
+## 本轮交付范围
 当前阶段重点交付：
 - Admin 一级菜单 `Audit Center`，下挂 `Audit Log` 与 `Evidence Export`。
-- Admin 一级菜单 `Control Gates Center`，当前下挂 `Approvals`、`Change Tickets`、`Delete Requests`、`SLA Timers`。
-- `Audit Log` 支持默认按 `DEPOSIT` workflow 检索、勾选审计事件、创建 evidence export request。
+- Admin 一级菜单 `Control Gates Center`，当前下挂 `Approvals`、`Change Tickets`、`Delete Requests`。
+- `Audit Log` 支持 No-first 检索、详情查看、勾选审计事件并创建 evidence export request。
 - `Evidence Export` 支持查看导出申请/已生成记录、进入独立详情页；仅审批通过且包体就绪后允许下载 JSON 证据包。
-- Deposit workflow 关键节点统一补齐 `traceId / workflowType / workflowNo`。
+- `Audit Log` 的事件事实层、`subjectNos[]` 查找层和 context JSON 层需要清晰分层。
+- `traceId` 查询与 `subjectNo` 查询必须分离，不再混用语义。
 - Governance `WF-06` 支持 `Change Ticket + Release Gate` 最小闭环：`create -> submit -> approval -> gate check -> deploy mark -> close`。
 - Governance `WF-05` 支持 `Delete Request + Soft Delete Gate` 最小闭环。
-- Governance `WF-04` 支持 `APPROVAL_TIMEOUT` 与 `CHANGE_POST_APPROVAL_FOLLOWUP` 两类 SLA timer。
 
-已有统一审计能力仍保留可读，本轮重点验收的标准化覆盖范围收敛到 deposit workflow：
-- Auth：平台用户与客户登录成功/失败、锁定/解锁。
-- Compliance：KYT provider response、Travel Rule provider response 更新与补偿任务行为。
-- Config：资产、LP 配置、会计事件、清结算模板、分录模板、COA、客户汇率配置。
-- 主数据：Wallet、Customer 的创建/更新/状态变化。
-- 报价：Swap Quote 创建/取消/使用。
-- 通用能力：统一查询、详情查看、证据包导出。
-
-### 当前接口能力清单
+## 当前接口能力清单
 - `POST /admin/audit-logs`：管理员手工补录审计事件。
 - `GET /admin/audit-logs`：分页查询，支持 `subjectNo/subjectType/actorNo/entityOwnerNo` 等过滤。
 - `GET /admin/audit-logs/:id`：查询单条详情，返回 `subjectNos[]`。
@@ -50,7 +42,7 @@
 - `POST /admin/control-gates/change-tickets/:id/deploy-status`：标记部署结果。
 - `POST /admin/control-gates/change-tickets/:id/close`：关闭更改单。
 
-### 后台入口
+## 后台入口
 主入口位于 Admin 后台一级菜单 `Audit Center`：
 - `Audit Log`：`/dashboard/audit/audit-logs`
 - `Audit Log Detail`：`/dashboard/audit/audit-logs/:id`
@@ -64,35 +56,24 @@
 - `Delete Requests`：`/dashboard/control-gates/delete-requests`
 - `Delete Request Create`：`/dashboard/control-gates/delete-requests/create`
 - `Delete Request Detail`：`/dashboard/control-gates/delete-requests/:id`
-- `SLA Timers`：`/dashboard/control-gates/sla-timers`
-- `SLA Timer Detail`：`/dashboard/control-gates/sla-timers/:id`
 
 兼容路由仍保留：
 - `/dashboard/compliance/audit-logs` -> 跳转到 `/dashboard/audit/audit-logs`
 
 ## 查询体验（No 优先检索）
-查询默认围绕 No 体系设计：
+查询默认围绕 No 体系设计，但语义分层要清晰：
 - 精确反查：`subjectNo` + `subjectType`。
 - 责任人反查：`actorNo`。
 - 归属主体反查：`entityOwnerNo`。
+- 流程链路反查：`traceId` + `workflowType` + `workflowNo`。
 - 时间窗与结果过滤：`startAt/endAt/result`。
-- 模糊补充：`keyword` 用于兜底搜索，不替代 No 精确检索。
+- 模糊补充：`keyword` 只用于兜底搜索，不替代 No 精确检索。
 
 ## 证据包能力（JSON 单文件、摘要校验、持久化复下载）
 证据包输出为单个 JSON 文件，结构固定为：
 - `manifest`：导出版本、时间、导出人、筛选条件、记录摘要列表。
-- `records`：脱敏后的审计记录。
-- `snapshots`：当前以 deposit 根对象快照为主，包含：
-  - `deposits`
-  - `kytCases`
-  - `travelRuleCases`
-  - `riskDecisionRecords`
-  - `alerts`
-  - `cases`
-  - `journals`
-  - `internalTransactions`
-  - `internalFunds`
-  - `depositEvidenceChain`
+- `records`：脱敏后的 typed 审计记录。
+- `snapshots`：仅作为补充上下文的可选结构，不定义域特定装配规则。
 - `digest`：包级 SHA-256 摘要。
 
 导出动作本身会新增一条 `EVIDENCE_EXPORT` 审计事件，形成闭环留痕。用户下载的内容来自审批通过后持久化的包体，而不是临时重算。
@@ -124,7 +105,7 @@
 - 当前导出模式仅支持 `Audit Log` 页勾选事件后创建导出申请，不支持按 trace/template 一键导出。
 - 查询权限当前限定为 `ADMIN` token。
 - 非 No 体系主体不伪造 No，需通过其他字段补充定位。
-- 本轮未扩展到 clearing/outstanding/journal 自动流水级全量审计。
+- 当前文档不把任何域特定 snapshot 组装写成 source-of-truth 规则。
 
 ## 路线图（P1/P2）
 - P1：
