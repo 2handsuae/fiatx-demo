@@ -127,10 +127,13 @@
 1. `Approvals`
 2. `Change Tickets`
 3. `Delete Requests`
-4. `SLA Timers`
 
 ## 7. 运行与验证
 
 - 查询优先使用 No-first 入口，不要让关键词搜索盖过 exact No lookup。
 - 导出只接受已选事件和审批通过后的治理路径，不接受直接生成包体的旁路。
 - 证据包保持中性结构，任何域特定 snapshot 组装都必须放在 workflow 或 serializer 层，而不是模块定义本身。
+
+## 8. 历史兼容注记
+
+- 旧版治理中的更改单发布流与定时器能力仅作为历史上下文保留，不属于当前 audit module source-of-truth。

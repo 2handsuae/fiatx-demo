@@ -19,8 +19,7 @@
 - `Evidence Export` 支持查看导出申请/已生成记录、进入独立详情页；仅审批通过且包体就绪后允许下载 JSON 证据包。
 - `Audit Log` 的事件事实层、`subjectNos[]` 查找层和 context JSON 层需要清晰分层。
 - `traceId` 查询与 `subjectNo` 查询必须分离，不再混用语义。
-- Governance `WF-06` 支持 `Change Ticket + Release Gate` 最小闭环：`create -> submit -> approval -> gate check -> deploy mark -> close`。
-- Governance `WF-05` 支持 `Delete Request + Soft Delete Gate` 最小闭环。
+- `Change Tickets` 与 `Delete Requests` 仍作为治理辅助能力保留，但不属于 audit module 的 canonical contract。
 
 ## 当前接口能力清单
 - `POST /admin/audit-logs`：管理员手工补录审计事件。
@@ -38,9 +37,9 @@
 - `GET /admin/control-gates/change-tickets/:id`：查看更改单详情。
 - `POST /admin/control-gates/change-tickets/:id/submit|resubmit`：提交或重新提交审批。
 - `GET /admin/control-gates/change-tickets/:id/gate-runs`：查看 gate 执行记录。
-- `POST /admin/control-gates/change-tickets/:id/gate-checks`：运行发布 gate 校验。
-- `POST /admin/control-gates/change-tickets/:id/deploy-status`：标记部署结果。
-- `POST /admin/control-gates/change-tickets/:id/close`：关闭更改单。
+
+## 历史兼容注记
+- 旧版更改单发布闭环与定时器能力保留在治理域的历史上下文中，但不作为当前 audit module 的主叙事。
 
 ## 后台入口
 主入口位于 Admin 后台一级菜单 `Audit Center`：

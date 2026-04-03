@@ -138,9 +138,6 @@ DTO：`/Users/songshengwei/Documents/codex/projects/重做版/Exchange_js/src/mo
 - `POST /admin/control-gates/change-tickets/:id/submit`
 - `POST /admin/control-gates/change-tickets/:id/resubmit`
 - `GET /admin/control-gates/change-tickets/:id/gate-runs`
-- `POST /admin/control-gates/change-tickets/:id/gate-checks`
-- `POST /admin/control-gates/change-tickets/:id/deploy-status`
-- `POST /admin/control-gates/change-tickets/:id/close`
 
 ### 查询过滤（`GET /admin/audit-logs`）
 - 分页：`skip/take`
@@ -191,32 +188,8 @@ DTO：`/Users/songshengwei/Documents/codex/projects/重做版/Exchange_js/src/mo
 1. `/dashboard/control-gates/approvals`
 2. `/dashboard/control-gates/approvals/:id`
 
-## Governance WF-06（Change Ticket + Release Gate）
-- 新模块：
-1. `ChangeTicketsService`
-2. `ReleaseGatesService`
-- 审批状态投影由 `ApprovalsService` 写侧同步推进，不再依赖异步读时修正
-- 新表：
-1. `change_tickets`
-2. `change_ticket_gate_runs`
-- 工单状态机：
-1. `DRAFT -> SUBMITTED -> APPROVAL_PENDING -> REJECTED / READY_FOR_DEPLOY -> DEPLOYED / DEPLOY_FAILED -> CLOSED`
-- Gate 规则：
-1. 仅 `READY_FOR_DEPLOY` 可跑 gate
-2. `DEPLOY_FAILED` 再次 gate 前自动回到 `READY_FOR_DEPLOY`
-3. 必须具备 `changeType/scopeSummary/riskLevel=HIGH/testEvidenceRef/rollbackPlanRef/latestApprovalStatus=APPROVED`
-- Active gate 唯一键：
-1. `${ticketId}|${targetEnv}|${releaseVersion}`
-2. 活跃态唯一，终态清空
-- 前端入口：
-1. `/dashboard/control-gates/change-tickets`
-2. `/dashboard/control-gates/change-tickets/create`
-3. `/dashboard/control-gates/change-tickets/:id`
-- 审计要求：
-1. `workflowType=CHANGE_TICKET`
-2. `workflowNo=ticketNo`
-3. `traceId`
-4. `subjectNos` 至少包含 `ticketNo`
+## 历史兼容注记
+- 旧版更改单发布能力仅作为治理域的历史上下文保留；本 audit module 文档不再把它写成当前实现主线。
 
 ## 关键接入矩阵（按模块列出接入点与 action）
 ### Deposit workflow（本轮重点验收）
