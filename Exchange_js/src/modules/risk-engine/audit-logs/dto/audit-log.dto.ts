@@ -80,6 +80,29 @@ export class AuditSubjectNoDto {
   subjectNo!: string;
 }
 
+export type AuditDeltaEvidence =
+  | (Record<string, unknown> & { digest: string })
+  | {
+      digest: string;
+      value: unknown;
+    }
+  | null;
+
+export interface AuditLogView {
+  auditNo: string;
+  triggerType: string;
+  action: string;
+  module: string;
+  workflowType: string | null;
+  workflowNo: string | null;
+  traceId: string | null;
+  result: string;
+  occurredAt: Date | string;
+  subjectNos: AuditSubjectNoDto[];
+  beforeData: AuditDeltaEvidence;
+  afterData: AuditDeltaEvidence;
+}
+
 export class CreateAuditLogEventDto {
   @ApiPropertyOptional({ enum: AuditTriggerType })
   @IsOptional()

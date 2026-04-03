@@ -15,8 +15,10 @@ import {
 } from './constants/audit-actions.constant';
 import {
   AuditActorContext,
+  AuditDeltaEvidence,
   AuditEvidenceExportMode,
   AuditEvidencePackageStatus,
+  AuditLogView,
   AuditLogQueryDto,
   AuditResult,
   AuditSubjectRole,
@@ -867,6 +869,33 @@ export class AuditLogsService {
     }
   }
 
+  private normalizeAuditDeltaEvidence(
+    value: unknown,
+    includeDigest: boolean,
+  ): AuditDeltaEvidence | unknown {
+    if (value === undefined || value === null) {
+      return null;
+    }
+
+    if (!includeDigest) {
+      return value;
+    }
+
+    const digest = sha256Hex(value);
+
+    if (Array.isArray(value) || typeof value !== 'object') {
+      return {
+        digest,
+        value,
+      };
+    }
+
+    return {
+      ...(value as Record<string, unknown>),
+      digest,
+    };
+  }
+
   private mapEvidencePackage(raw: any) {
     return {
       ...raw,
@@ -1130,7 +1159,16 @@ export class AuditLogsService {
     }
   }
 
-  private mapEvent(raw: any) {
+  private mapEvent(raw: any): AuditLogView & Record<string, unknown> {
+    const metadata = this.parseJson(raw.metadata);
+    const beforeData = this.normalizeAuditDeltaEvidence(
+      this.parseJson(raw.beforeData),
+      Boolean(raw.payloadDigest),
+    );
+    const afterData = this.normalizeAuditDeltaEvidence(
+      this.parseJson(raw.afterData),
+      Boolean(raw.payloadDigest),
+    );
     const subjectNos = Array.isArray(raw.subjectNos)
       ? raw.subjectNos.map((item: any) => ({
           id: item.id,
@@ -1146,9 +1184,18 @@ export class AuditLogsService {
 
     return {
       ...raw,
-      metadata: this.parseJson(raw.metadata),
-      beforeData: this.parseJson(raw.beforeData),
-      afterData: this.parseJson(raw.afterData),
+      auditNo: raw.auditNo,
+      triggerType: raw.triggerType,
+      action: raw.action,
+      module: raw.module,
+      workflowType: raw.workflowType ?? null,
+      workflowNo: raw.workflowNo ?? null,
+      traceId: raw.traceId ?? null,
+      result: raw.result,
+      occurredAt: raw.occurredAt,
+      metadata,
+      beforeData,
+      afterData,
       subjectNos,
     };
   }
