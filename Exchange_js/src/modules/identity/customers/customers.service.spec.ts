@@ -62,7 +62,7 @@ describe('CustomersService', () => {
     expect(query.include.onboardingAuditLogs).toBeUndefined();
     expect((customer as any)?.archivedOnboardingAuditLogs).toBeUndefined();
     expect((customer as any)?.auditCenterSummary).toEqual({
-      latestTraceId: 'decision-1',
+      latestDecisionRecordId: 'decision-1',
     });
   });
 });

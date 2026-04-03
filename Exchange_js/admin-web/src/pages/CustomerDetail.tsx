@@ -61,7 +61,7 @@ interface PeriodicReviewCycleSummary {
 }
 
 interface AuditCenterSummary {
-  latestTraceId: string | null;
+  latestDecisionRecordId: string | null;
 }
 
 interface CustomerDetailData {
@@ -355,8 +355,8 @@ const CustomerDetail = () => {
         </p>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
           <KeyValue
-            label="Audit Center Latest Trace"
-            value={customer.auditCenterSummary?.latestTraceId || '-'}
+            label="Latest Decision Record"
+            value={customer.auditCenterSummary?.latestDecisionRecordId || '-'}
           />
         </div>
         <div className="text-sm text-gray-600">

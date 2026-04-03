@@ -77,7 +77,7 @@ type ResponseSummary = {
 } & Record<string, unknown>;
 
 type AuditCenterSummary = {
-  latestTraceId: string | null;
+  latestDecisionRecordId: string | null;
 };
 
 type CustomerDetailView = Omit<CustomerDetailPayload, 'cddResponses' | 'eddResponses'> & {
@@ -167,7 +167,7 @@ export class CustomersService {
         responseType: 'EDD' as const,
       })),
       auditCenterSummary: {
-        latestTraceId: customer.latestDecisionRecordId ?? null,
+        latestDecisionRecordId: customer.latestDecisionRecordId ?? null,
       },
     };
   }
