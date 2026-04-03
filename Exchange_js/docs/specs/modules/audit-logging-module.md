@@ -122,7 +122,7 @@
 
 - 一级菜单：`Audit Center`
 1. `Audit Log`
-2. `Evidence Export`
+2. `Evidence Packages`
 - 一级菜单：`Control Gates Center`
 1. `Approvals`
 2. `Change Tickets`

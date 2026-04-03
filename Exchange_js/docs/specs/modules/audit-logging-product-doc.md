@@ -13,10 +13,10 @@
 
 ## 本轮交付范围
 当前阶段重点交付：
-- Admin 一级菜单 `Audit Center`，下挂 `Audit Log` 与 `Evidence Export`。
+- Admin 一级菜单 `Audit Center`，下挂 `Audit Log` 与 `Evidence Packages`。
 - Admin 一级菜单 `Control Gates Center`，当前下挂 `Approvals`、`Change Tickets`、`Delete Requests`。
 - `Audit Log` 支持 No-first 检索、详情查看、勾选审计事件并创建 evidence export request。
-- `Evidence Export` 支持查看导出申请/已生成记录、进入独立详情页；仅审批通过且包体就绪后允许下载 JSON 证据包。
+- `Evidence Packages` 支持查看导出申请/已生成记录、进入独立详情页；仅审批通过且包体就绪后允许下载 JSON 证据包。
 - `Audit Log` 的事件事实层、`subjectNos[]` 查找层和 context JSON 层需要清晰分层。
 - `traceId` 查询与 `subjectNo` 查询必须分离，不再混用语义。
 - `Change Tickets` 与 `Delete Requests` 仍作为治理辅助能力保留，但不属于 audit module 的 canonical contract。
@@ -26,8 +26,8 @@
 - `GET /admin/audit-logs`：分页查询，支持 `subjectNo/subjectType/actorNo/entityOwnerNo` 等过滤。
 - `GET /admin/audit-logs/:id`：查询单条详情，返回 `subjectNos[]`。
 - `POST /admin/audit-logs/export/evidence-package`：按勾选事件创建 evidence export request，并同步创建审批单。
-- `GET /admin/audit-logs/evidence-packages`：查看导出记录列表。
-- `GET /admin/audit-logs/evidence-packages/:id`：查看导出记录详情。
+- `GET /admin/audit-logs/evidence-packages`：查看导出记录列表（Evidence Packages）。
+- `GET /admin/audit-logs/evidence-packages/:id`：查看导出记录详情（Evidence Package Detail）。
 - `GET /admin/audit-logs/evidence-packages/:id/download`：仅在审批通过且包体 `READY` 时下载持久化 JSON 证据包。
 - `GET /admin/control-gates/approvals`：查看审批单列表。
 - `GET /admin/control-gates/approvals/:id`：查看审批单详情。
@@ -45,8 +45,8 @@
 主入口位于 Admin 后台一级菜单 `Audit Center`：
 - `Audit Log`：`/dashboard/audit/audit-logs`
 - `Audit Log Detail`：`/dashboard/audit/audit-logs/:id`
-- `Evidence Export`：`/dashboard/audit/evidence-exports`
-- `Evidence Export Detail`：`/dashboard/audit/evidence-exports/:id`
+- `Evidence Packages`：`/dashboard/audit/evidence-exports`
+- `Evidence Package Detail`：`/dashboard/audit/evidence-exports/:id`
 - `Approvals`：`/dashboard/control-gates/approvals`
 - `Approval Detail`：`/dashboard/control-gates/approvals/:id`
 - `Change Tickets`：`/dashboard/control-gates/change-tickets`
@@ -77,7 +77,7 @@
 
 导出动作本身会新增一条 `EVIDENCE_EXPORT` 审计事件，形成闭环留痕。用户下载的内容来自审批通过后持久化的包体，而不是临时重算。
 
-`Evidence Export` 列表页只展示导出记录摘要，不在底部内嵌 detail。用户点击 `View` 或 `packageNo` 后进入独立详情页，按导出记录字段含义查看：
+`Evidence Packages` 列表页只展示导出记录摘要，不在底部内嵌 detail。用户点击 `View` 或 `packageNo` 后进入独立的 `Evidence Package Detail` 页，按导出记录字段含义查看：
 - 标识类：`packageNo`、`fileName`
 - 执行状态类：`status`、`exportMode`、`itemCount`
 - 审批类：`approvalCaseId`、`approvalCase.status`

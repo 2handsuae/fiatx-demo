@@ -6,7 +6,7 @@ Supersedes: none
 Depends On: `docs/constraints/audit-logging-constraints.md`, `docs/constraints/governance-approval-constraints.md`, `docs/specs/entities/audit-evidence-package-entity.md`, `docs/specs/entities/approval-case-entity.md`
 Source of Truth Level: specs-workflow
 
-# Audit Evidence Export Approval Workflow
+# Audit Evidence Package Approval Workflow
 
 ## Purpose
 - This workflow defines the canonical approval-gated path for exporting `Audit Center` evidence through maker-checker approval.
@@ -50,7 +50,8 @@ Source of Truth Level: specs-workflow
   - `GET /admin/audit-logs/evidence-packages/:id/download`
 - UI:
   - `Audit Center -> Audit Log`
-  - `Audit Center -> Evidence Export`
+  - `Audit Center -> Evidence Packages`
+  - `Audit Center -> Evidence Package Detail`
   - `Control Gates Center -> Approvals`
 
 ## Payload Boundary
