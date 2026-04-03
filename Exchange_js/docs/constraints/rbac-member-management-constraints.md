@@ -93,20 +93,3 @@
 2. resend invalidates previous token
 3. accept sets password and flips status to `ACTIVE`
 4. `INACTIVE` login rejected before activation
-
-## 9) Governance Phase-2 Permission Baseline
-- `Control Gates Center -> Change Tickets` MUST follow the phase-2 role matrix:
-1. all Java roles can read
-2. `TECH_ADMIN / FINANCE / OPS_TREASURY / COMPLIANCE_LEAD / CISO` can create and submit
-3. `TECH_ADMIN / CISO` can run gate checks and mark deploy status
-4. `TECH_ADMIN` can close
-5. `SUPER_ADMIN` keeps full-site bypass permissions for demo
-- `GET /auth/me` permission resolution MUST expose the above permissions after `db:base:sync`.
-
-## 10) Governance Phase-4 Permission Baseline
-- `Control Gates Center -> SLA Timers` MUST follow the phase-4 role matrix:
-1. `TECH_ADMIN / CISO / COMPLIANCE_LEAD / MLRO / DPO / RI / SM` can read
-2. `TECH_ADMIN / CISO / COMPLIANCE_LEAD` can close `CHANGE_POST_APPROVAL_FOLLOWUP`
-3. `OPS_TREASURY / FINANCE` have no SLA timer access in this phase
-4. `SUPER_ADMIN` keeps full-site bypass permissions for demo
-- `GET /auth/me` permission resolution MUST expose the above permissions after `db:base:sync`.

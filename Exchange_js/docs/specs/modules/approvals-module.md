@@ -1,9 +1,9 @@
 Status: active
 Owner: project-owner-and-agents
-Last Updated: 2026-03-22
+Last Updated: 2026-04-03
 Applies To: `Exchange_js`
 Supersedes: none
-Depends On: `docs/specs/entities/approval-case-entity.md`, `docs/specs/workflows/mlro-and-final-approval-governance.md`
+Depends On: `docs/constraints/governance-approval-constraints.md`, `docs/specs/entities/approval-case-entity.md`
 Source of Truth Level: specs-module
 
 # Approvals Module

@@ -1,6 +1,6 @@
 Status: active
 Owner: project-owner-and-agents
-Last Updated: 2026-03-22
+Last Updated: 2026-04-03
 Applies To: `Exchange_js`
 Supersedes: none
 Depends On: `docs/constraints/rbac-member-management-constraints.md`, `docs/constraints/audit-logging-constraints.md`, `docs/specs/entities/admin-user-entity.md`, `docs/specs/modules/rbac-member-management-module.md`
