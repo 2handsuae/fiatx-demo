@@ -1434,13 +1434,6 @@ export class AuditLogsService {
         const orClauses: any[] = [];
         if (workflowNos.length) {
           orClauses.push({ workflowNo: { in: workflowNos } });
-          orClauses.push({
-            subjectNos: {
-              some: {
-                subjectNo: { in: workflowNos },
-              },
-            },
-          });
         }
         if (expanded.traceIds.length) {
           orClauses.push({

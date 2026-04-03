@@ -711,29 +711,18 @@ describe('AuditLogsService', () => {
     });
 
     const where = prisma.auditLogEvent.count.mock.calls[0][0].where;
-    expect(where).toEqual(
-      expect.objectContaining({
-        AND: expect.arrayContaining([
-          { workflowType: 'SWAP' },
+    expect(where.AND).toEqual([
+      { workflowType: 'SWAP' },
+      {
+        OR: [
+          { workflowNo: { in: ['SWP2603260001'] } },
           {
-            OR: expect.arrayContaining([
-              { workflowNo: { in: ['SWP2603260001'] } },
-              {
-                subjectNos: {
-                  some: {
-                    subjectNo: { in: ['SWP2603260001'] },
-                  },
-                },
-              },
-              {
-                traceId: { in: ['SWAP:swap-1'] },
-              },
-            ]),
+            traceId: { in: ['SWAP:swap-1'] },
           },
-          { archivedAt: null },
-        ]),
-      }),
-    );
+        ],
+      },
+      { archivedAt: null },
+    ]);
   });
 
   it('should map subjectNos from audit log records', async () => {
