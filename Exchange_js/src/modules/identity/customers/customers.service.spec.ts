@@ -40,7 +40,7 @@ describe('CustomersService', () => {
   it('findOne should query supported relations without wallets include', async () => {
     mockPrismaService.customerMain.findUnique.mockResolvedValue({ id: 'c1' });
 
-    await service.findOne('c1');
+    const customer = await service.findOne('c1');
 
     expect(mockPrismaService.customerMain.findUnique).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -57,5 +57,7 @@ describe('CustomersService', () => {
 
     const query = mockPrismaService.customerMain.findUnique.mock.calls[0][0];
     expect(query.include.wallets).toBeUndefined();
+    expect((customer as any)?.archivedOnboardingAuditLogs).toBeUndefined();
+    expect((customer as any)?.auditCenterSummary).toBeDefined();
   });
 });

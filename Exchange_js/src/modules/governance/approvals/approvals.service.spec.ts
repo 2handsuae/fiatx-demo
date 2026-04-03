@@ -266,6 +266,8 @@ describe('ApprovalsService', () => {
     );
 
     expect(result.status).toBe(ApprovalStatuses.APPROVED);
+    expect(result).not.toHaveProperty('decisionByUserId');
+    expect(result).not.toHaveProperty('decisionByRole');
     expect(prisma.approvalStep.update).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
