@@ -226,7 +226,13 @@ describe('UsersService', () => {
   });
 
   it('should only list active users in member directory queries', async () => {
-    prisma.user.findMany.mockResolvedValue([{ id: 'user-1', userNo: 'ADM2602190001' }]);
+    prisma.user.findMany.mockResolvedValue([
+      {
+        id: 'user-1',
+        userNo: 'ADM2602190001',
+        inviteStatus: 'PENDING',
+      },
+    ]);
 
     const result = await service.findAll({
       take: 10,
@@ -241,6 +247,7 @@ describe('UsersService', () => {
         }),
       }),
     );
+    expect(result[0]).not.toHaveProperty('inviteStatus');
     expect(result).toEqual([{ id: 'user-1', userNo: 'ADM2602190001' }]);
   });
 
