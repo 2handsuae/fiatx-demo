@@ -40,6 +40,16 @@ interface AuditLogItem {
   traceId?: string | null;
   workflowType?: string | null;
   workflowNo?: string | null;
+  subjectNos?: AuditSubjectNo[] | null;
+}
+
+interface AuditSubjectNo {
+  id: string;
+  subjectRole: string;
+  subjectType: string;
+  subjectId?: string | null;
+  subjectNo: string;
+  occurredAt: string;
 }
 
 interface AuditLogListResponse {
@@ -109,6 +119,26 @@ const formatDateTime = (value?: string | null): string => {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleString();
+};
+
+const selectSubjectAnchor = (item: AuditLogItem): AuditSubjectNo | null => {
+  if (Array.isArray(item.subjectNos) && item.subjectNos.length > 0) {
+    const preferredSubject = item.subjectNos.find(
+      (subject) => subject.subjectRole !== 'ACTOR' && subject.subjectNo.trim(),
+    );
+    if (preferredSubject) return preferredSubject;
+  }
+
+  const fallbackSubjectNo = item.entityNo?.trim();
+  if (!fallbackSubjectNo) return null;
+
+  return {
+    id: item.id,
+    subjectRole: 'ENTITY',
+    subjectType: item.entityType,
+    subjectNo: fallbackSubjectNo,
+    occurredAt: item.occurredAt,
+  };
 };
 
 const getStatusClassName = (result: AuditResult) => {
@@ -561,8 +591,24 @@ const AuditLogsPage = () => {
                       <div className="text-xs text-gray-500">{item.module}</div>
                     </td>
                     <td className="px-4 py-3 text-gray-700">
-                      <div className="font-medium text-gray-900">{item.entityNo || '-'}</div>
-                      <div className="text-xs text-gray-500">Subject Type: {item.entityType}</div>
+                      {(() => {
+                        const subjectAnchor = selectSubjectAnchor(item);
+                        return subjectAnchor ? (
+                          <>
+                            <div className="font-medium text-gray-900">
+                              {subjectAnchor.subjectNo}
+                            </div>
+                            <div className="text-xs text-gray-500">
+                              {subjectAnchor.subjectRole} / {subjectAnchor.subjectType}
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <div className="font-medium text-gray-900">-</div>
+                            <div className="text-xs text-gray-500">Subject Type: {item.entityType}</div>
+                          </>
+                        );
+                      })()}
                     </td>
                     <td className="px-4 py-3 text-gray-700">
                       <div className="font-medium text-gray-900">{item.entityOwnerNo || '-'}</div>
