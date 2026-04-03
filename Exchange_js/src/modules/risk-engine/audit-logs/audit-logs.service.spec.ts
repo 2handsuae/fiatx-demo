@@ -404,6 +404,67 @@ describe('AuditLogsService', () => {
     expect((result.afterData as any).payout.walletAddress).toMatch(/^0x1234/i);
   });
 
+  it('should persist multi-anchor subjectNos and digest-backed evidence payloads', async () => {
+    prisma.auditLogEvent.findUnique.mockResolvedValue(null);
+    prisma.auditLogEvent.create.mockImplementation(({ data }: any) =>
+      Promise.resolve({
+        id: 'a-contract',
+        auditNo: 'AUD2602180004',
+        ...data,
+        subjectNos: data.subjectNos?.create?.map((item: any, index: number) => ({
+          id: `subject-${index}`,
+          eventId: 'a-contract',
+          createdAt: new Date('2026-02-18T10:00:00.000Z'),
+          ...item,
+        })),
+      }),
+    );
+
+    await service.recordByActor(
+      {
+        action: 'APPLICATION_STATUS_UPDATED',
+        module: 'onboarding/applications',
+        entityType: 'APPLICATION',
+        entityId: 'app-1',
+        entityNo: 'APP2602180001',
+        entityOwnerType: 'CUSTOMER',
+        entityOwnerId: 'cust-1',
+        entityOwnerNo: 'CUS2602180001',
+        beforeData: { status: 'PENDING' },
+        afterData: { status: 'APPROVED' },
+      },
+      {
+        actorType: 'ADMIN',
+        actorId: 'admin-3',
+        actorNo: 'OP2602180001',
+        actorRole: 'OPS',
+      },
+    );
+
+    const createData = prisma.auditLogEvent.create.mock.calls[0][0].data;
+
+    expect(createData.subjectNos.create).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          subjectNo: 'CUS2602180001',
+        }),
+        expect.objectContaining({
+          subjectNo: 'APP2602180001',
+        }),
+      ]),
+    );
+    expect(createData.beforeData).toEqual(
+      expect.objectContaining({
+        digest: expect.any(String),
+      }),
+    );
+    expect(createData.afterData).toEqual(
+      expect.objectContaining({
+        digest: expect.any(String),
+      }),
+    );
+  });
+
   it('should generate stable payloadDigest for semantically equal payloads', async () => {
     prisma.auditLogEvent.findUnique.mockResolvedValue(null);
     prisma.auditLogEvent.create.mockImplementation(({ data }: any) =>
