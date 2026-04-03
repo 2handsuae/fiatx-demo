@@ -42,8 +42,6 @@ interface ApprovalDetail {
   timeoutAt?: string | null;
   decidedAt?: string | null;
   executedAt?: string | null;
-  decisionByUserId?: string | null;
-  decisionByRole?: string | null;
   decisionReason?: string | null;
   createdAt: string;
   updatedAt: string;
@@ -52,7 +50,6 @@ interface ApprovalDetail {
     stepNo: number;
     status: string;
     checkerRoleCandidates: string[];
-    decidedByUserId?: string | null;
     decidedByRole?: string | null;
     reason?: string | null;
     decidedAt?: string | null;
@@ -238,19 +235,6 @@ const ApprovalDetailPage = () => {
         <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-700">
           {detail.executionStatus}
         </span>
-        <div className="flex flex-wrap gap-3">
-          {detail.evidencePackage ? (
-          <button
-            onClick={() =>
-              navigate(`/dashboard/audit/evidence-exports/${detail.evidencePackage!.id}`)
-            }
-            className="inline-flex items-center gap-2 rounded-lg border border-admin-border px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
-          >
-            <Link2 size={16} />
-            Open Audit Evidence Package
-            </button>
-          ) : null}
-        </div>
       </DetailPageHeader>
 
       {message && (
@@ -325,6 +309,28 @@ const ApprovalDetailPage = () => {
             label="Linked Case Evidence Package"
             value={`${detail.caseEvidencePackage.packageNo} · ${detail.caseEvidencePackage.status}`}
           />
+        ) : null}
+        {detail.caseEvidencePackage ? (
+          <button
+            onClick={() =>
+              navigate(`/dashboard/compliance/evidence-packages/${detail.caseEvidencePackage!.id}`)
+            }
+            className="inline-flex w-fit items-center gap-2 rounded-md border border-admin-border/70 px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-50"
+          >
+            <Link2 size={14} />
+            Open Case Evidence Package
+          </button>
+        ) : null}
+        {detail.evidencePackage ? (
+          <button
+            onClick={() =>
+              navigate(`/dashboard/audit/evidence-exports/${detail.evidencePackage!.id}`)
+            }
+            className="inline-flex w-fit items-center gap-2 rounded-md border border-admin-border/70 px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-50"
+          >
+            <Link2 size={14} />
+            Open Audit Evidence Package
+          </button>
         ) : null}
         <JsonBlock title="metadata" value={detail.metadata || {}} />
       </DetailCard>

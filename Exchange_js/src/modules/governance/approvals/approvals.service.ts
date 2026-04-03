@@ -472,17 +472,22 @@ export class ApprovalsService {
       return new Map<string, string>();
     }
 
-    const users = await this.prisma.user.findMany({
-      where: {
-        id: {
-          in: normalizedIds,
+    let users: Array<{ id?: unknown; userNo?: unknown }> = [];
+    try {
+      users = await this.prisma.user.findMany({
+        where: {
+          id: {
+            in: normalizedIds,
+          },
         },
-      },
-      select: {
-        id: true,
-        userNo: true,
-      },
-    });
+        select: {
+          id: true,
+          userNo: true,
+        },
+      });
+    } catch {
+      return new Map<string, string>();
+    }
 
     return new Map<string, string>(
       users
@@ -490,7 +495,7 @@ export class ApprovalsService {
           (item: { id?: unknown; userNo?: unknown }) =>
             typeof item.id === 'string' && typeof item.userNo === 'string',
         )
-        .map((item: { id: string; userNo: string }) => [item.id, item.userNo]),
+        .map((item) => [item.id as string, item.userNo as string]),
     );
   }
 
@@ -499,11 +504,7 @@ export class ApprovalsService {
     actor?: ApprovalActorContext,
   ) {
     const userNoMap = await this.resolveUserNoMap(
-      approvals.flatMap((approval) => [
-        approval.makerUserId,
-        approval.decisionByUserId,
-        approval.steps?.[0]?.decidedByUserId,
-      ]),
+      approvals.map((approval) => approval.makerUserId),
     );
 
     return approvals.map((approval) => {
@@ -522,10 +523,6 @@ export class ApprovalsService {
               stepNo: currentStep.stepNo,
               status: currentStep.status,
               checkerRoleCandidates: splitRoleCsv(currentStep.checkerRoleCandidates),
-              decidedByUserId: currentStep.decidedByUserId,
-              decidedByUserNo: currentStep.decidedByUserId
-                ? userNoMap.get(currentStep.decidedByUserId) || null
-                : null,
               decidedByRole: currentStep.decidedByRole,
               reason: currentStep.reason,
               decidedAt: currentStep.decidedAt,

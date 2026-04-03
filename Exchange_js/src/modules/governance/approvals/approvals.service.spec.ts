@@ -444,6 +444,23 @@ describe('ApprovalsService', () => {
     expect(result.items[0]).not.toHaveProperty('maker.userNo');
   });
 
+  it('lists approvals when user lookup fails and degrades makerUserNo to null', async () => {
+    prisma.approvalCase.count.mockResolvedValue(1);
+    prisma.approvalCase.findMany.mockResolvedValue([
+      buildApproval({
+        makerUserId: 'maker-1',
+      }),
+    ]);
+    prisma.user.findMany.mockRejectedValue(new Error('lookup failed'));
+
+    const result = await service.list({}, actor);
+
+    expect(result.items[0]).toMatchObject({
+      makerUserId: 'maker-1',
+      makerUserNo: null,
+    });
+  });
+
   it('returns approval detail with makerUserNo resolved from user lookup and keeps decision actor ids hidden', async () => {
     prisma.approvalCase.findUnique.mockResolvedValue(
       buildApproval({
@@ -478,6 +495,27 @@ describe('ApprovalsService', () => {
     expect(result).not.toHaveProperty('decisionByUserId');
     expect(result).not.toHaveProperty('decisionByUserNo');
     expect(result).not.toHaveProperty('decisionByRole');
+    expect(result.step).not.toHaveProperty('decidedByUserId');
+    expect(result.step).not.toHaveProperty('decidedByUserNo');
+  });
+
+  it('returns approval detail when user lookup fails and degrades makerUserNo to null', async () => {
+    prisma.approvalCase.findUnique.mockResolvedValue(
+      buildApproval({
+        status: ApprovalStatuses.APPROVED,
+        makerUserId: 'maker-1',
+        decisionByUserId: 'checker-1',
+        decisionByRole: 'DPO',
+      }),
+    );
+    prisma.user.findMany.mockRejectedValue(new Error('lookup failed'));
+
+    const result = await service.getById('approval-1', actor);
+
+    expect(result).toMatchObject({
+      makerUserId: 'maker-1',
+      makerUserNo: null,
+    });
   });
 
   it('expires overdue pending approvals and emits expiry event', async () => {
