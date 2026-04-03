@@ -200,7 +200,7 @@ const DashboardLayout = () => {
         },
         {
           path: '/dashboard/audit/evidence-exports',
-          label: 'Evidence Export',
+          label: 'Evidence Packages',
           icon: <Layers size={18} />,
           requiredPermissions: [PERMISSIONS.AUDIT_EVIDENCE_EXPORTS_READ],
         },
@@ -326,7 +326,7 @@ const DashboardLayout = () => {
         },
         {
           path: '/dashboard/compliance/case-evidence-exports',
-          label: 'Case Evidence Exports',
+          label: 'Case Evidence Packages',
           icon: <Layers size={18} />,
           requiredPermissions: [PERMISSIONS.CASE_EVIDENCE_EXPORTS_READ],
         },

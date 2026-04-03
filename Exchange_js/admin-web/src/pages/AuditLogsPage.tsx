@@ -257,19 +257,19 @@ const AuditLogsPage = () => {
 
       if (!response.ok) {
         throw new Error(
-          await getApiErrorMessage(response, 'Failed to create evidence export.'),
+          await getApiErrorMessage(response, 'Failed to create evidence package.'),
         );
       }
 
       const data = (await response.json()) as EvidencePackageExportResponse;
       setLastExportId(data.id);
       setMessage(
-        `Export request created: ${data.packageNo} (${data.itemCount} records). Approval is pending before the package can be downloaded.`,
+        `Evidence package request created: ${data.packageNo} (${data.itemCount} records). Approval is pending before the package can be downloaded.`,
       );
       setSelectedIds([]);
     } catch (e: unknown) {
       if (e instanceof AdminSessionError) return;
-      setError(e instanceof Error ? e.message : 'Failed to create evidence export.');
+      setError(e instanceof Error ? e.message : 'Failed to create evidence package.');
     } finally {
       setExporting(false);
     }
@@ -473,7 +473,7 @@ const AuditLogsPage = () => {
             className={adminButtonClass('listPrimary')}
           >
             <FileUp size={16} />
-            {exporting ? 'Exporting...' : `Export Selected (${selectedIds.length})`}
+            {exporting ? 'Creating package...' : `Create Evidence Package (${selectedIds.length})`}
           </button>
           <button
             onClick={() => setSelectedIds([])}
@@ -505,7 +505,8 @@ const AuditLogsPage = () => {
                 <th className="px-4 py-3 text-xs uppercase text-gray-500">Workflow No</th>
                 <th className="px-4 py-3 text-xs uppercase text-gray-500">Trace ID</th>
                 <th className="px-4 py-3 text-xs uppercase text-gray-500">Audit Action</th>
-                <th className="px-4 py-3 text-xs uppercase text-gray-500">Subject</th>
+                <th className="px-4 py-3 text-xs uppercase text-gray-500">Subject No</th>
+                <th className="px-4 py-3 text-xs uppercase text-gray-500">Subject Owner No</th>
                 <th className="px-4 py-3 text-xs uppercase text-gray-500">actorNo</th>
                 <th className="px-4 py-3 text-xs uppercase text-gray-500">Result</th>
                 <th className="px-4 py-3 text-xs uppercase text-gray-500">Record</th>
@@ -514,13 +515,13 @@ const AuditLogsPage = () => {
             <tbody className="divide-y divide-admin-border">
               {loading ? (
                 <tr>
-                  <td colSpan={10} className="px-4 py-8 text-center text-gray-500">
+                  <td colSpan={11} className="px-4 py-8 text-center text-gray-500">
                     Loading...
                   </td>
                 </tr>
               ) : items.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="px-4 py-8 text-center text-gray-500">
+                  <td colSpan={11} className="px-4 py-8 text-center text-gray-500">
                     No audit logs found
                   </td>
                 </tr>
@@ -562,9 +563,10 @@ const AuditLogsPage = () => {
                     <td className="px-4 py-3 text-gray-700">
                       <div className="font-medium text-gray-900">{item.entityNo || '-'}</div>
                       <div className="text-xs text-gray-500">Subject Type: {item.entityType}</div>
-                      <div className="text-xs text-gray-500">
-                        entityOwnerNo: {item.entityOwnerNo || '-'}
-                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-gray-700">
+                      <div className="font-medium text-gray-900">{item.entityOwnerNo || '-'}</div>
+                      <div className="text-xs text-gray-500">entityOwnerNo</div>
                     </td>
                     <td className="px-4 py-3 text-gray-700">
                       <div className="font-medium text-gray-900">{item.actorNo || '-'}</div>

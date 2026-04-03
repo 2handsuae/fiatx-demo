@@ -239,15 +239,15 @@ const ApprovalDetailPage = () => {
         </span>
         <div className="flex flex-wrap gap-3">
           {detail.evidencePackage ? (
-            <button
-              onClick={() =>
-                navigate(`/dashboard/audit/evidence-exports/${detail.evidencePackage!.id}`)
-              }
-              className="inline-flex items-center gap-2 rounded-lg border border-admin-border px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
-            >
-              <Link2 size={16} />
-              Open Audit Evidence Export
-            </button>
+          <button
+            onClick={() =>
+              navigate(`/dashboard/audit/evidence-exports/${detail.evidencePackage!.id}`)
+            }
+            className="inline-flex items-center gap-2 rounded-lg border border-admin-border px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+          >
+            <Link2 size={16} />
+            Open Audit Evidence Package
+          </button>
           ) : null}
           {detail.caseEvidencePackage ? (
             <button
@@ -259,7 +259,7 @@ const ApprovalDetailPage = () => {
               className="inline-flex items-center gap-2 rounded-lg border border-admin-border px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
             >
               <Link2 size={16} />
-              Open Case Evidence Export
+              Open Case Evidence Package
             </button>
           ) : null}
         </div>
@@ -322,7 +322,7 @@ const ApprovalDetailPage = () => {
       </DetailCard>
 
       {detail.evidencePackage && (
-        <DetailCard title="Linked Audit Evidence Export" icon={<Link2 size={18} />}>
+        <DetailCard title="Linked Audit Evidence Package" icon={<Link2 size={18} />}>
           <InfoField label="Package ID" value={detail.evidencePackage.id} mono />
           <InfoField label="Package No" value={detail.evidencePackage.packageNo} />
           <InfoField label="Package Status" value={detail.evidencePackage.status} />
@@ -330,7 +330,7 @@ const ApprovalDetailPage = () => {
       )}
 
       {detail.caseEvidencePackage && (
-        <DetailCard title="Linked Case Evidence Export" icon={<Link2 size={18} />}>
+        <DetailCard title="Linked Case Evidence Package" icon={<Link2 size={18} />}>
           <InfoField label="Package ID" value={detail.caseEvidencePackage.id} mono />
           <InfoField label="Package No" value={detail.caseEvidencePackage.packageNo} />
           <InfoField label="Package Status" value={detail.caseEvidencePackage.status} />

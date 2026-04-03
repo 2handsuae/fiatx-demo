@@ -150,7 +150,7 @@ const EvidenceExportDetailPage = () => {
 
   const fetchDetail = async () => {
     if (!id) {
-      setError('Evidence export id is required.');
+      setError('Evidence package id is required.');
       setLoading(false);
       return;
     }
@@ -162,14 +162,14 @@ const EvidenceExportDetailPage = () => {
         `${import.meta.env.VITE_API_URL}/admin/audit-logs/evidence-packages/${id}`,
       );
       if (!response.ok) {
-        throw new Error(await getApiErrorMessage(response, 'Failed to load export detail.'));
+        throw new Error(await getApiErrorMessage(response, 'Failed to load evidence package detail.'));
       }
 
       const data = (await response.json()) as EvidenceExportDetail;
       setDetail(data);
     } catch (e: unknown) {
       if (e instanceof AdminSessionError) return;
-      setError(e instanceof Error ? e.message : 'Failed to load export detail.');
+      setError(e instanceof Error ? e.message : 'Failed to load evidence package detail.');
     } finally {
       setLoading(false);
     }
@@ -199,7 +199,7 @@ const EvidenceExportDetailPage = () => {
     return (
       <div className="flex min-h-[360px] flex-col items-center justify-center gap-3">
         <RefreshCw size={28} className="animate-spin text-brand-primary" />
-        <p className="text-sm text-gray-500">Loading evidence export detail...</p>
+        <p className="text-sm text-gray-500">Loading evidence package detail...</p>
       </div>
     );
   }
@@ -212,7 +212,7 @@ const EvidenceExportDetailPage = () => {
             onClick={() => navigate('/dashboard/audit/evidence-exports')}
             className={adminButtonClass('detailUtility')}
           >
-            Back to Evidence Export
+            Back to Evidence Packages
           </button>
           <button
             onClick={() => void fetchDetail()}
@@ -236,10 +236,10 @@ const EvidenceExportDetailPage = () => {
           onClick={() => navigate('/dashboard/audit/evidence-exports')}
           className={adminButtonClass('detailUtility')}
         >
-          Back to Evidence Export
+          Back to Evidence Packages
         </button>
         <div className="rounded-xl border border-admin-border bg-white px-6 py-10 text-center text-sm text-gray-500 shadow-sm">
-          Evidence export detail not found.
+          Evidence package detail not found.
         </div>
       </div>
     );
@@ -248,12 +248,12 @@ const EvidenceExportDetailPage = () => {
   return (
     <div className="space-y-6 pb-12">
       <DetailPageHeader
-        title="Evidence Export Detail"
+        title="Evidence Package Detail"
         subtitle={detail.packageNo}
         onBack={() => navigate('/dashboard/audit/evidence-exports')}
         onRefresh={() => void fetchDetail()}
         refreshing={loading}
-        backLabel="Back to Evidence Exports"
+        backLabel="Back to Evidence Packages"
       >
         <span className="rounded-full bg-blue-100 px-3 py-1 text-xs font-medium text-blue-700">
           {detail.status}
@@ -284,7 +284,7 @@ const EvidenceExportDetailPage = () => {
       )}
 
       <ActionSection
-        title="Export Actions"
+        title="Package Actions"
         description="Download stays in a dedicated action block so the header remains utility-only."
       >
         <button
@@ -299,10 +299,10 @@ const EvidenceExportDetailPage = () => {
         </button>
       </ActionSection>
 
-      <DetailCard title="Export Summary" icon={<FileText size={18} />}>
+      <DetailCard title="Package Summary" icon={<FileText size={18} />}>
         <InfoField label="Package No" value={detail.packageNo} mono />
         <InfoField label="Status" value={detail.status} />
-        <InfoField label="Export Mode" value={detail.exportMode} />
+        <InfoField label="Package Mode" value={detail.exportMode} />
         <InfoField label="File Name" value={detail.fileName} mono />
         <InfoField label="Item Count" value={detail.itemCount} />
       </DetailCard>
@@ -349,7 +349,7 @@ const EvidenceExportDetailPage = () => {
       <DetailCard title="Manifest Summary" icon={<ShieldCheck size={18} />}>
         <InfoField label="Version" value={getManifestField(detail.manifest, 'version')} />
         <InfoField label="Generated At" value={getManifestField(detail.manifest, 'generatedAt')} />
-        <InfoField label="Export Mode" value={getManifestField(detail.manifest, 'exportMode')} />
+        <InfoField label="Package Mode" value={getManifestField(detail.manifest, 'exportMode')} />
         <InfoField label="Item Count" value={getManifestField(detail.manifest, 'itemCount')} />
         <InfoField label="Digest Algorithm" value={getManifestField(detail.manifest, 'digestAlgorithm')} />
         <InfoField
@@ -358,10 +358,10 @@ const EvidenceExportDetailPage = () => {
         />
       </DetailCard>
 
-      <DetailCard title="Payload Blocks" icon={<FileJson size={18} />} columns={2}>
+      <DetailCard title="Package Records" icon={<FileJson size={18} />} columns={2}>
         <JsonBlock title="Selected Event IDs Snapshot" value={detail.selectedEventIdsSnapshot} />
         <JsonBlock title="Manifest" value={detail.manifest} />
-        <JsonBlock title="Package Body" value={detail.packageBody} />
+        <JsonBlock title="Package Records JSON" value={detail.packageBody} />
       </DetailCard>
     </div>
   );
