@@ -424,7 +424,6 @@ export class ApprovalsService {
       approval.status === ApprovalStatuses.PENDING &&
       availableDecisionRoles.length > 0 &&
       !makerCheckerConflict;
-    const currentStep = approval.steps[0] || null;
 
     return {
       id: approval.id,
@@ -436,9 +435,6 @@ export class ApprovalsService {
       executionStatus: approval.executionStatus,
       riskLevel: approval.riskLevel,
       checkerRoles,
-      selectedCheckerRole: approval.selectedCheckerRole,
-      allowCancel: approval.allowCancel,
-      allowRetry: approval.allowRetry,
       docRef: approval.docRef,
       metadata: this.parseMetadata(approval.metadataJson),
       traceId: approval.traceId,
@@ -449,27 +445,8 @@ export class ApprovalsService {
       timeoutAt: approval.timeoutAt,
       decidedAt: approval.decidedAt,
       executedAt: approval.executedAt,
-      decisionByUserId: approval.decisionByUserId,
-      decisionByRole: approval.decisionByRole,
-      decisionReason: approval.decisionReason,
       createdAt: approval.createdAt,
       updatedAt: approval.updatedAt,
-      step: currentStep
-        ? {
-            id: currentStep.id,
-            stepNo: currentStep.stepNo,
-            status: currentStep.status,
-            checkerRoleCandidates: splitRoleCsv(currentStep.checkerRoleCandidates),
-            decidedByUserId: currentStep.decidedByUserId,
-            decidedByRole: currentStep.decidedByRole,
-            reason: currentStep.reason,
-            decidedAt: currentStep.decidedAt,
-            createdAt: currentStep.createdAt,
-            updatedAt: currentStep.updatedAt,
-          }
-        : null,
-      evidencePackage: approval.evidencePackage,
-      caseEvidencePackage: approval.caseEvidencePackage,
       availableDecisionRoles,
       canApprove: canDecide,
       canReject: canDecide,
