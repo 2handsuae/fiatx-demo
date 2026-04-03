@@ -191,7 +191,7 @@ const TransactionComplianceCaseDetailPage = () => {
 
       {data && (
         <>
-          <DetailCard title="Bundle Summary">
+          <DetailCard title="Case Summary">
             <div>
               <span className="text-gray-500 text-xs block">Source Type</span>
               <span className="text-gray-900">{data.sourceType}</span>
@@ -203,6 +203,17 @@ const TransactionComplianceCaseDetailPage = () => {
             <div>
               <span className="text-gray-500 text-xs block">Derived Compliance</span>
               <span className="text-gray-900">{data.derivedComplianceStatus}</span>
+            </div>
+            <div>
+              <span className="text-gray-500 text-xs block">Coverage Scope</span>
+              <span className="text-gray-900">Pre-KYT / KYT / Travel Rule</span>
+            </div>
+          </DetailCard>
+
+          <DetailCard title="Technical References" columns={2}>
+            <div>
+              <span className="text-gray-500 text-xs block">Bundle Identifier</span>
+              <span className="text-gray-900">{`${data.sourceType}:${data.sourceId}`}</span>
             </div>
             <div>
               <span className="text-gray-500 text-xs block">Approval Policy</span>

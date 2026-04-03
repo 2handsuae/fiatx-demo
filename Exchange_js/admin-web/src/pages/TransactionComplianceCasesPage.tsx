@@ -193,7 +193,7 @@ const TransactionComplianceCasesPage = () => {
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Tx Evidence Bundles</h1>
           <p className="text-sm text-gray-500 mt-1">
-            One bundle per transaction source (`sourceType + sourceId`).
+            Review coverage for each transaction source across pre-KYT, KYT, and Travel Rule cases.
           </p>
         </div>
         <button

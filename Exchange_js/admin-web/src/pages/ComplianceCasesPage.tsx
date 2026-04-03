@@ -225,7 +225,7 @@ const ComplianceCasesPage = () => {
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Compliance Center - Cases</h1>
           <p className="text-sm text-gray-500 mt-1">
-            Investigate review escalations through a canonical workflow / stage / rule queue.
+            Review cases by ownership, status, severity, customer, and due date.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -256,7 +256,7 @@ const ComplianceCasesPage = () => {
 
       <div className="px-4 py-3 border border-slate-200 bg-slate-50 rounded-lg text-sm text-slate-700">
         {canWriteCases
-          ? 'Use the case list to scan ownership, severity, filing state, and due dates. Open the case detail page for actions, report drafting, MLRO review, and external filing follow-up.'
+          ? 'Use the case list to scan ownership, severity, filing state, and due dates. Open the case detail page for disposition, evidence, and filing follow-up.'
           : 'You currently have read-only access to compliance cases. Open the detail page for the full investigation record.'}
       </div>
 
@@ -350,7 +350,7 @@ const ComplianceCasesPage = () => {
                 <th className="px-4 py-3 text-xs uppercase text-gray-500">Case</th>
                 <th className="px-4 py-3 text-xs uppercase text-gray-500">Status</th>
                 <th className="px-4 py-3 text-xs uppercase text-gray-500">Severity</th>
-                <th className="px-4 py-3 text-xs uppercase text-gray-500">Workflow / Stage / Rule</th>
+                <th className="px-4 py-3 text-xs uppercase text-gray-500">Case Context</th>
                 <th className="px-4 py-3 text-xs uppercase text-gray-500">Freeze</th>
                 <th className="px-4 py-3 text-xs uppercase text-gray-500">Filing</th>
                 <th className="px-4 py-3 text-xs uppercase text-gray-500">Customer</th>
@@ -399,9 +399,11 @@ const ComplianceCasesPage = () => {
                       </span>
                     </td>
                     <td className="px-4 py-3 text-gray-700">
-                      <div>{item.workflow || item.caseType || 'GENERIC'}</div>
-                      <div className="text-xs text-gray-500">{item.stage || '-'}</div>
-                      <div className="text-xs text-gray-500">{item.rule || '-'}</div>
+                      <div>{item.caseType || item.workflow || 'GENERIC'}</div>
+                      <div className="text-xs text-gray-500">
+                        Workflow: {item.workflow || '-'} · Stage: {item.stage || '-'} · Rule:{' '}
+                        {item.rule || '-'}
+                      </div>
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex flex-col gap-1">

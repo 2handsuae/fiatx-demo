@@ -1021,9 +1021,8 @@ const ComplianceCaseDetailPage = () => {
         </div>
       ) : null}
 
-      <DetailCard title="Overview">
+      <DetailCard title="Case Summary">
         <InfoField label="Case No" value={detail.caseNo || '-'} mono />
-        <InfoField label="Title" value={detail.title} />
         <div className="min-w-0">
           <div className="text-xs uppercase tracking-wide text-gray-500">Status</div>
           <div className="mt-1">
@@ -1040,27 +1039,23 @@ const ComplianceCaseDetailPage = () => {
             </span>
           </div>
         </div>
-        <InfoField label="Workflow" value={detail.workflow || detail.caseType || 'GENERIC'} />
-        <InfoField label="Stage" value={detail.stage || '-'} />
-        <InfoField label="Rule" value={detail.rule || detail.ruleCode || '-'} />
+        <InfoField label="Customer No" value={detail.customerNo || '-'} />
+        <InfoField label="Due At" value={formatDateTime(detail.dueAt)} />
+        <InfoField label="Title" value={detail.title} />
         <InfoField label="Summary" value={detail.summary} />
         <InfoField label="Recommended Decisions" value={recommendedDecisions.join(', ') || '-'} />
       </DetailCard>
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
         <DetailCard title="Case Context" columns={2}>
-          <InfoField label="Customer" value={detail.customerNo || '-'} />
           <InfoField label="Primary Alert" value={detail.primaryAlertNo || '-'} />
-          <InfoField label="Source Module" value={detail.sourceModule || '-'} />
-          <InfoField label="Source Type" value={detail.sourceType || '-'} />
-          <InfoField label="Entity" value={detail.entityNo || detail.entityType || '-'} />
           <InfoField label="Alert Count" value={detail.alertCount} />
           <InfoField label="Assignee" value={detail.assigneeUserNo || '-'} />
           <InfoField label="Reason Codes" value={reasonCodes.join(', ') || '-'} />
+          <InfoField label="Case Type" value={detail.caseType || '-'} />
         </DetailCard>
 
-        <DetailCard title="Lifecycle & Investigation Phase" columns={2}>
-          <InfoField label="Due" value={formatDateTime(detail.dueAt)} />
+        <DetailCard title="Lifecycle & Status" columns={2}>
           <InfoField label="Overdue Flagged At" value={formatDateTime(detail.overdueMarkedAt)} />
           <InfoField label="Assigned At" value={formatDateTime(detail.assignedAt)} />
           <InfoField label="Last Action At" value={formatDateTime(detail.lastActionAt)} />
@@ -1068,7 +1063,7 @@ const ComplianceCaseDetailPage = () => {
           <InfoField label="Close Reason" value={detail.closeReason || '-'} />
           <InfoField label="Filing Status" value={currentFilingStatus} />
           <InfoField
-            label="Investigation Phase"
+            label="Case Status"
             value={
               detail.status === 'INVESTIGATING'
                 ? 'INVESTIGATING'
@@ -1079,6 +1074,21 @@ const ComplianceCaseDetailPage = () => {
           />
         </DetailCard>
       </div>
+
+      <DetailCard title="Technical References" columns={2}>
+        <InfoField label="Workflow" value={detail.workflow || detail.caseType || '-'} />
+        <InfoField label="Stage" value={detail.stage || '-'} />
+        <InfoField label="Rule" value={detail.rule || detail.ruleCode || '-'} />
+        <InfoField label="Rule Code" value={detail.ruleCode || '-'} />
+        <InfoField label="Source Module" value={detail.sourceModule || '-'} />
+        <InfoField label="Source Type" value={detail.sourceType || '-'} />
+        <InfoField label="Entity Type" value={detail.entityType || '-'} />
+        <InfoField label="Entity No" value={detail.entityNo || '-'} />
+        <InfoField label="Current Report Status" value={detail.currentReport?.status || '-'} />
+        <InfoField label="Filing No" value={detail.currentFiling?.filingNo || '-'} />
+        <InfoField label="External Ref" value={detail.currentFiling?.externalRefNo || '-'} />
+        <InfoField label="Primary Alert No" value={detail.primaryAlertNo || '-'} />
+      </DetailCard>
 
       <ActionSection
         title="Case Actions"
@@ -1166,9 +1176,9 @@ const ComplianceCaseDetailPage = () => {
       </DetailCard>
 
       <ActionSection
-        title="Workflow Proposal"
-        description="Workflow proposal is captured below as a case proposal and only takes effect after explicit MLRO approval."
-        emptyText="Workflow proposal is captured in the report draft."
+        title="Disposition Proposal"
+        description="Proposal details are captured below and only take effect after explicit MLRO approval."
+        emptyText="Proposal details are captured in the report draft."
       >
         <div className="text-sm text-gray-500">
           Choose the proposal code and final disposition in the report draft below. The case page records a proposal first; it does not directly execute the customer outcome.
@@ -1200,7 +1210,7 @@ const ComplianceCaseDetailPage = () => {
         )}
       </ActionSection>
 
-      <DetailCard title="Workflow & Governance" columns={2}>
+      <DetailCard title="Disposition & Filing" columns={2}>
         <InfoField label="Current Disposition" value={detail.currentDispositionCode || '-'} />
         <InfoField label="Current Reason" value={detail.currentDispositionReason || '-'} />
         <InfoField label="Current At" value={formatDateTime(detail.currentDispositionAt)} />
@@ -1528,8 +1538,8 @@ const ComplianceCaseDetailPage = () => {
                     <div className="min-w-0">
                       <div className="font-medium text-gray-900">{link.alertNo}</div>
                       <div className="text-sm text-gray-500">
-                        {(link.alert?.workflow || detail.workflow || detail.caseType || 'GENERIC')} /{' '}
-                        {link.alert?.stage || '-'} / {link.alert?.rule || link.alert?.ruleCode || '-'}
+                        {link.alert?.title || 'Alert'} · {link.alert?.status || '-'} ·{' '}
+                        {link.alert?.severity || '-'} · Due {formatDateTime(link.alert?.dueAt)}
                       </div>
                     </div>
                     <button
