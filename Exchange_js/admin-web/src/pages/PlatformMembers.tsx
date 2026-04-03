@@ -39,11 +39,25 @@ interface RoleCatalogItem {
 }
 
 interface InvitePayload {
+  userNo?: string;
   email: string;
   inviteLink: string;
   inviteExpiresAt: string;
   inviteStatus: string;
 }
+
+const formatMemberIdentity = (member?: { userNo?: string; email?: string } | null) => {
+  if (!member) {
+    return '-';
+  }
+
+  const { userNo, email } = member;
+  if (userNo && email) {
+    return `${userNo} · ${email}`;
+  }
+
+  return userNo || email || '-';
+};
 
 const PlatformMembers = () => {
   const { hasAnyPermission } = useAdminSession();
@@ -194,7 +208,7 @@ const PlatformMembers = () => {
     try {
       const payload = await fetchJson<{
         id: string;
-        userNo: string;
+        userNo?: string;
         email: string;
         status: string;
         roles: string[];
@@ -212,9 +226,10 @@ const PlatformMembers = () => {
 
       closeCreateModal();
       setNotice(
-        `Member ${normalizedEmail} was created with INACTIVE status. Send the invitation link to complete activation.`,
+        `Member ${formatMemberIdentity(payload)} was created with INACTIVE status. Send the invitation link to complete activation.`,
       );
       setInvitePayload({
+        userNo: payload.userNo,
         email: payload.email,
         inviteLink: payload.inviteLink,
         inviteExpiresAt: payload.inviteExpiresAt,
@@ -249,6 +264,7 @@ const PlatformMembers = () => {
 
     try {
       const payload = await fetchJson<{
+        userNo?: string;
         email: string;
         inviteLink: string;
         inviteExpiresAt: string;
@@ -257,8 +273,9 @@ const PlatformMembers = () => {
         method: 'POST',
       });
 
-      setNotice(`Invitation link resent for ${member.email}.`);
+      setNotice(`Invitation link resent for ${formatMemberIdentity(member)}.`);
       setInvitePayload({
+        userNo: payload.userNo,
         email: payload.email,
         inviteLink: payload.inviteLink,
         inviteExpiresAt: payload.inviteExpiresAt,
@@ -332,7 +349,7 @@ const PlatformMembers = () => {
       );
 
       closeRoleModal();
-      setNotice(`Role bindings updated for ${selectedMember.email}.`);
+      setNotice(`Role bindings updated for ${formatMemberIdentity(selectedMember)}.`);
       if (payload.warnings && payload.warnings.length > 0) {
         setModalWarnings(payload.warnings);
       }
@@ -403,7 +420,7 @@ const PlatformMembers = () => {
       {invitePayload && (
         <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800 space-y-2">
           <div>
-            Invitee: {invitePayload.email} | Status: {invitePayload.inviteStatus}
+            Invitee: {formatMemberIdentity(invitePayload)} | Status: {invitePayload.inviteStatus}
           </div>
           <div>Expires At: {new Date(invitePayload.inviteExpiresAt).toLocaleString()}</div>
           <div className="break-all font-mono text-xs bg-white border border-blue-100 rounded px-2 py-1">
@@ -493,7 +510,8 @@ const PlatformMembers = () => {
                   return (
                     <tr key={member.id} className="hover:bg-gray-50 transition-colors">
                       <td className="px-6 py-4">
-                        <div className="font-medium text-gray-900">{member.email}</div>
+                        <div className="font-medium text-gray-900">{member.userNo || '-'}</div>
+                        <div className="text-sm text-gray-500">{member.email || '-'}</div>
                         <div className="flex gap-2 text-[10px] font-mono">
                           <span className="text-brand-primary font-bold">No: {member.userNo || '-'}</span>
                           <span className="text-gray-400">ID: {member.id.substring(0, 8)}...</span>
@@ -664,7 +682,9 @@ const PlatformMembers = () => {
             <div className="px-5 py-4 border-b border-admin-border flex items-center justify-between">
               <div>
                 <h3 className="font-semibold text-gray-900">Assign Roles</h3>
-                <p className="text-xs text-gray-500 mt-1">{selectedMember?.email || '-'}</p>
+                <p className="text-xs text-gray-500 mt-1">
+                  {formatMemberIdentity(selectedMember)}
+                </p>
               </div>
               <button onClick={closeRoleModal} className="text-gray-400 hover:text-gray-600">
                 <X size={18} />
