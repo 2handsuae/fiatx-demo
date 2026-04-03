@@ -431,7 +431,6 @@ describe('ApprovalsService', () => {
         id: {
           in: ['maker-1'],
         },
-        deletedAt: null,
       },
       select: {
         id: true,

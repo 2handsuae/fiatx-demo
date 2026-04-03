@@ -242,9 +242,6 @@ const ApprovalsPage = () => {
                       <div className="font-mono text-xs text-gray-700">
                         {item.makerUserNo || item.makerUserId}
                       </div>
-                      {item.makerUserNo ? (
-                        <div className="text-xs text-gray-500">{item.makerUserId}</div>
-                      ) : null}
                     </td>
                     <td className="px-4 py-3">
                       <div className="font-mono text-xs text-gray-700">

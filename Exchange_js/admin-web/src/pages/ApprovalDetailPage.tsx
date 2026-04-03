@@ -274,7 +274,6 @@ const ApprovalDetailPage = () => {
         <InfoField label="Status" value={detail.status} />
         <InfoField label="Execution Status" value={detail.executionStatus} />
         <InfoField label="Maker User No" value={detail.makerUserNo || '-'} mono />
-        <InfoField label="Maker User ID" value={detail.makerUserId} mono />
         <InfoField label="Risk Level" value={detail.riskLevel} />
         <InfoField label="Checker Roles" value={detail.checkerRoles.join(', ')} />
         <InfoField label="Selected Checker Role" value={detail.selectedCheckerRole} />
@@ -305,6 +304,7 @@ const ApprovalDetailPage = () => {
         columns={1}
       >
         <InfoField label="Approval ID" value={detail.id} mono />
+        <InfoField label="Maker User ID" value={detail.makerUserId} mono />
         <InfoField label="Workflow Type" value={detail.workflowType} mono />
         <InfoField label="Workflow ID" value={detail.workflowId} mono />
         <InfoField label="Doc Ref" value={detail.docRef} mono />

@@ -477,7 +477,6 @@ export class ApprovalsService {
         id: {
           in: normalizedIds,
         },
-        deletedAt: null,
       },
       select: {
         id: true,
