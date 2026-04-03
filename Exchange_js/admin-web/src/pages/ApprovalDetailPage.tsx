@@ -313,7 +313,7 @@ const ApprovalDetailPage = () => {
         {detail.caseEvidencePackage ? (
           <button
             onClick={() =>
-              navigate(`/dashboard/compliance/evidence-packages/${detail.caseEvidencePackage!.id}`)
+              navigate(`/dashboard/compliance/case-evidence-exports/${detail.caseEvidencePackage!.id}`)
             }
             className="inline-flex w-fit items-center gap-2 rounded-md border border-admin-border/70 px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-50"
           >
