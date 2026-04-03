@@ -616,6 +616,7 @@ describe('AuditLogsService', () => {
         beforeData: JSON.stringify({ status: 'CREATED' }),
         afterData: JSON.stringify({ status: 'SUCCESS' }),
         occurredAt: new Date('2026-02-18T10:00:00.000Z'),
+        dbOnlyShadowField: 'should-not-leak',
       },
     ]);
 
@@ -623,8 +624,19 @@ describe('AuditLogsService', () => {
 
     expect(result.total).toBe(1);
     expect(result.items[0].metadata).toEqual({ source: 'api' });
-    expect(result.items[0].beforeData).toEqual({ status: 'CREATED' });
-    expect(result.items[0].afterData).toEqual({ status: 'SUCCESS' });
+    expect(result.items[0].beforeData).toEqual(
+      expect.objectContaining({
+        status: 'CREATED',
+        digest: expect.any(String),
+      }),
+    );
+    expect(result.items[0].afterData).toEqual(
+      expect.objectContaining({
+        status: 'SUCCESS',
+        digest: expect.any(String),
+      }),
+    );
+    expect(result.items[0]).not.toHaveProperty('dbOnlyShadowField');
   });
 
   it('should build time-window and keyword filters correctly', async () => {

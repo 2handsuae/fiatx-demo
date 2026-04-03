@@ -88,19 +88,55 @@ export type AuditDeltaEvidence =
     }
   | null;
 
+export interface AuditLogSubjectNoView {
+  id?: string;
+  eventId?: string;
+  subjectRole: AuditSubjectRole;
+  subjectType: string;
+  subjectId?: string | null;
+  subjectNo: string;
+  occurredAt?: Date | string | null;
+  createdAt?: Date | string | null;
+}
+
 export interface AuditLogView {
+  id: string;
   auditNo: string;
   triggerType: string;
   action: string;
   module: string;
+  entityType: string;
+  entityId: string | null;
+  entityNo: string | null;
   workflowType: string | null;
+  workflowId: string | null;
   workflowNo: string | null;
   traceId: string | null;
-  result: string;
-  occurredAt: Date | string;
-  subjectNos: AuditSubjectNoDto[];
+  entityOwnerType: string | null;
+  entityOwnerId: string | null;
+  entityOwnerNo: string | null;
+  statusFrom: string | null;
+  statusTo: string | null;
+  actorType: string;
+  actorId: string;
+  actorNo: string | null;
+  actorRole: string | null;
+  requestId: string | null;
+  sourceIp: string | null;
+  sourcePlatform: string | null;
+  result: string | null;
+  reason: string | null;
+  metadata: unknown;
   beforeData: AuditDeltaEvidence;
   afterData: AuditDeltaEvidence;
+  payloadDigest: string | null;
+  maskVersion: string | null;
+  retainedUntil: Date | string | null;
+  subjectNos: AuditLogSubjectNoView[];
+  occurredAt: Date | string;
+  createdAt?: Date | string | null;
+  updatedAt?: Date | string | null;
+  archivedAt?: Date | string | null;
 }
 
 export class CreateAuditLogEventDto {

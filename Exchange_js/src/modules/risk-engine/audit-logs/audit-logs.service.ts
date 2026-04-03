@@ -869,16 +869,9 @@ export class AuditLogsService {
     }
   }
 
-  private normalizeAuditDeltaEvidence(
-    value: unknown,
-    includeDigest: boolean,
-  ): AuditDeltaEvidence | unknown {
+  private normalizeAuditDeltaEvidence(value: unknown): AuditDeltaEvidence {
     if (value === undefined || value === null) {
       return null;
-    }
-
-    if (!includeDigest) {
-      return value;
     }
 
     const digest = sha256Hex(value);
@@ -1159,16 +1152,10 @@ export class AuditLogsService {
     }
   }
 
-  private mapEvent(raw: any): AuditLogView & Record<string, unknown> {
+  private mapEvent(raw: any): AuditLogView {
     const metadata = this.parseJson(raw.metadata);
-    const beforeData = this.normalizeAuditDeltaEvidence(
-      this.parseJson(raw.beforeData),
-      Boolean(raw.payloadDigest),
-    );
-    const afterData = this.normalizeAuditDeltaEvidence(
-      this.parseJson(raw.afterData),
-      Boolean(raw.payloadDigest),
-    );
+    const beforeData = this.normalizeAuditDeltaEvidence(this.parseJson(raw.beforeData));
+    const afterData = this.normalizeAuditDeltaEvidence(this.parseJson(raw.afterData));
     const subjectNos = Array.isArray(raw.subjectNos)
       ? raw.subjectNos.map((item: any) => ({
           id: item.id,
@@ -1183,20 +1170,43 @@ export class AuditLogsService {
       : [];
 
     return {
-      ...raw,
+      id: raw.id,
       auditNo: raw.auditNo,
       triggerType: raw.triggerType,
       action: raw.action,
       module: raw.module,
+      entityType: raw.entityType,
+      entityId: raw.entityId ?? null,
+      entityNo: raw.entityNo ?? null,
       workflowType: raw.workflowType ?? null,
+      workflowId: raw.workflowId ?? null,
       workflowNo: raw.workflowNo ?? null,
       traceId: raw.traceId ?? null,
-      result: raw.result,
-      occurredAt: raw.occurredAt,
+      entityOwnerType: raw.entityOwnerType ?? null,
+      entityOwnerId: raw.entityOwnerId ?? null,
+      entityOwnerNo: raw.entityOwnerNo ?? null,
+      statusFrom: raw.statusFrom ?? null,
+      statusTo: raw.statusTo ?? null,
+      actorType: raw.actorType,
+      actorId: raw.actorId,
+      actorNo: raw.actorNo ?? null,
+      actorRole: raw.actorRole ?? null,
+      requestId: raw.requestId ?? null,
+      sourceIp: raw.sourceIp ?? null,
+      sourcePlatform: raw.sourcePlatform ?? null,
+      result: raw.result ?? null,
+      reason: raw.reason ?? null,
       metadata,
       beforeData,
       afterData,
+      payloadDigest: raw.payloadDigest ?? null,
+      maskVersion: raw.maskVersion ?? null,
+      retainedUntil: raw.retainedUntil ?? null,
       subjectNos,
+      occurredAt: raw.occurredAt,
+      createdAt: raw.createdAt ?? null,
+      updatedAt: raw.updatedAt ?? null,
+      archivedAt: raw.archivedAt ?? null,
     };
   }
 
