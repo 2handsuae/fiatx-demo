@@ -126,9 +126,9 @@ const EvidenceExportsPage = () => {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Audit Center - Evidence Export</h1>
+          <h1 className="text-2xl font-bold text-gray-900">Audit Center - Evidence Packages</h1>
           <p className="mt-1 text-sm text-gray-500">
-            Download persisted evidence packages generated from the Audit Log selection flow.
+            Review persisted evidence packages and download approval-backed export artifacts.
           </p>
         </div>
         <button
@@ -157,13 +157,13 @@ const EvidenceExportsPage = () => {
             <thead className="border-b border-admin-border bg-admin-content-bg">
               <tr>
                 <th className="px-4 py-3 text-xs uppercase text-gray-500">Package No</th>
-                <th className="px-4 py-3 text-xs uppercase text-gray-500">Status</th>
-                <th className="px-4 py-3 text-xs uppercase text-gray-500">Mode</th>
+                <th className="px-4 py-3 text-xs uppercase text-gray-500">Approval Status</th>
+                <th className="px-4 py-3 text-xs uppercase text-gray-500">Export Mode</th>
                 <th className="px-4 py-3 text-xs uppercase text-gray-500">Created At</th>
                 <th className="px-4 py-3 text-xs uppercase text-gray-500">Exporter</th>
-                <th className="px-4 py-3 text-xs uppercase text-gray-500">Items</th>
+                <th className="px-4 py-3 text-xs uppercase text-gray-500">Item Count</th>
                 <th className="px-4 py-3 text-xs uppercase text-gray-500">Digest</th>
-                <th className="px-4 py-3 text-xs uppercase text-gray-500">Operation</th>
+                <th className="px-4 py-3 text-xs uppercase text-gray-500">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-admin-border">
@@ -176,7 +176,7 @@ const EvidenceExportsPage = () => {
               ) : items.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="px-4 py-8 text-center text-gray-500">
-                    No evidence exports found
+                    No evidence packages found
                   </td>
                 </tr>
               ) : (
@@ -193,16 +193,16 @@ const EvidenceExportsPage = () => {
                     <td className="px-4 py-3 text-gray-700">
                       <div>{item.status}</div>
                       {item.approvalCase && (
-                        <div className="text-xs text-gray-500">
-                          Approval {item.approvalCase.status}
-                        </div>
+                        <div className="text-xs text-gray-500">Case {item.approvalCase.status}</div>
                       )}
                     </td>
                     <td className="px-4 py-3 text-gray-700">{item.exportMode}</td>
                     <td className="px-4 py-3 text-gray-700">{formatDateTime(item.createdAt)}</td>
                     <td className="px-4 py-3 text-gray-700">
                       <div className="font-medium text-gray-900">{item.exportedById}</div>
-                      <div className="text-xs text-gray-500">{item.exportedByRole || item.exportedByType}</div>
+                      <div className="text-xs text-gray-500">
+                        {item.exportedByRole || item.exportedByType}
+                      </div>
                     </td>
                     <td className="px-4 py-3 text-gray-700">{item.itemCount}</td>
                     <td className="px-4 py-3 font-mono text-xs text-gray-700">
@@ -225,8 +225,8 @@ const EvidenceExportsPage = () => {
                           {downloading === item.id
                             ? 'Downloading...'
                             : item.status === 'READY'
-                              ? 'Download'
-                              : 'Waiting Approval'}
+                              ? 'Download Package'
+                              : 'Awaiting Approval'}
                         </button>
                       </div>
                     </td>

@@ -283,11 +283,10 @@ const AuditLogsPage = () => {
     <div className="space-y-6">
       <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Audit Center - Audit Log</h1>
+          <h1 className="text-2xl font-bold text-gray-900">Audit Center - Audit Logs</h1>
           <p className="mt-1 text-sm text-gray-500">
-            Select audit records here, then submit an evidence export request and track approval
-            in Evidence Export. `WITHDRAW` exports will include payout, compliance, accounting,
-            and reconciliation snapshots.
+            Search by typed core fields like Workflow No, Trace ID, Subject No, actorNo, and
+            entityOwnerNo, then submit an approval-backed evidence package request.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -302,7 +301,7 @@ const AuditLogsPage = () => {
             onClick={() => navigate('/dashboard/audit/evidence-exports')}
             className={adminButtonClass('listSecondary')}
           >
-            Open Evidence Export
+            Open Evidence Packages
           </button>
         </div>
       </div>
@@ -315,7 +314,7 @@ const AuditLogsPage = () => {
               onClick={() => navigate('/dashboard/audit/evidence-exports')}
               className={adminButtonClass('rowLink', 'mt-2')}
             >
-              View export record
+              View evidence package
             </button>
           )}
         </div>
@@ -328,43 +327,15 @@ const AuditLogsPage = () => {
       )}
 
       <div className="space-y-4 rounded-xl border border-admin-border bg-white p-4 shadow-sm">
+        <div className="text-sm text-gray-500">
+          Prioritize Workflow No, Trace ID, Subject No, actorNo, and entityOwnerNo when narrowing
+          records.
+        </div>
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-4">
           <input
-            value={filters.keyword}
-            onChange={(e) => setFilters((prev) => ({ ...prev, keyword: e.target.value }))}
-            placeholder="Keyword (action/no/reason)"
-            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
-          />
-          <input
-            value={filters.module}
-            onChange={(e) => setFilters((prev) => ({ ...prev, module: e.target.value }))}
-            placeholder="Module"
-            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
-          />
-          <input
-            value={filters.subjectNo}
-            onChange={(e) => setFilters((prev) => ({ ...prev, subjectNo: e.target.value }))}
-            placeholder="Subject No"
-            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
-          />
-          <input
-            value={filters.subjectType}
-            onChange={(e) => setFilters((prev) => ({ ...prev, subjectType: e.target.value }))}
-            placeholder="Subject Type"
-            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
-          />
-          <input
-            value={filters.actorNo}
-            onChange={(e) => setFilters((prev) => ({ ...prev, actorNo: e.target.value }))}
-            placeholder="Actor No"
-            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
-          />
-          <input
-            value={filters.entityOwnerNo}
-            onChange={(e) =>
-              setFilters((prev) => ({ ...prev, entityOwnerNo: e.target.value }))
-            }
-            placeholder="Entity Owner No"
+            value={filters.workflowNo}
+            onChange={(e) => setFilters((prev) => ({ ...prev, workflowNo: e.target.value }))}
+            placeholder="Workflow No"
             className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
           />
           <input
@@ -374,9 +345,41 @@ const AuditLogsPage = () => {
             className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
           />
           <input
-            value={filters.workflowNo}
-            onChange={(e) => setFilters((prev) => ({ ...prev, workflowNo: e.target.value }))}
-            placeholder="Workflow No"
+            value={filters.subjectNo}
+            onChange={(e) => setFilters((prev) => ({ ...prev, subjectNo: e.target.value }))}
+            placeholder="Subject No"
+            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+          />
+          <input
+            value={filters.actorNo}
+            onChange={(e) => setFilters((prev) => ({ ...prev, actorNo: e.target.value }))}
+            placeholder="actorNo"
+            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+          />
+          <input
+            value={filters.entityOwnerNo}
+            onChange={(e) =>
+              setFilters((prev) => ({ ...prev, entityOwnerNo: e.target.value }))
+            }
+            placeholder="entityOwnerNo"
+            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+          />
+          <input
+            value={filters.keyword}
+            onChange={(e) => setFilters((prev) => ({ ...prev, keyword: e.target.value }))}
+            placeholder="Keyword (action, audit no, reason)"
+            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+          />
+          <input
+            value={filters.module}
+            onChange={(e) => setFilters((prev) => ({ ...prev, module: e.target.value }))}
+            placeholder="Module"
+            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+          />
+          <input
+            value={filters.subjectType}
+            onChange={(e) => setFilters((prev) => ({ ...prev, subjectType: e.target.value }))}
+            placeholder="Subject Type"
             className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
           />
           <select
@@ -384,7 +387,7 @@ const AuditLogsPage = () => {
             onChange={(e) => setFilters((prev) => ({ ...prev, workflowType: e.target.value }))}
             className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
           >
-            <option value="">All Workflows</option>
+            <option value="">All Workflow Types</option>
             <option value="DEPOSIT">DEPOSIT</option>
             <option value="WITHDRAW">WITHDRAW</option>
             <option value="SWAP">SWAP</option>
@@ -499,13 +502,13 @@ const AuditLogsPage = () => {
                 </th>
                 <th className="px-4 py-3 text-xs uppercase text-gray-500">Audit No</th>
                 <th className="px-4 py-3 text-xs uppercase text-gray-500">Occurred At</th>
-                <th className="px-4 py-3 text-xs uppercase text-gray-500">Workflow</th>
+                <th className="px-4 py-3 text-xs uppercase text-gray-500">Workflow No</th>
                 <th className="px-4 py-3 text-xs uppercase text-gray-500">Trace ID</th>
-                <th className="px-4 py-3 text-xs uppercase text-gray-500">Action</th>
-                <th className="px-4 py-3 text-xs uppercase text-gray-500">Entity</th>
-                <th className="px-4 py-3 text-xs uppercase text-gray-500">Actor</th>
+                <th className="px-4 py-3 text-xs uppercase text-gray-500">Audit Action</th>
+                <th className="px-4 py-3 text-xs uppercase text-gray-500">Subject</th>
+                <th className="px-4 py-3 text-xs uppercase text-gray-500">actorNo</th>
                 <th className="px-4 py-3 text-xs uppercase text-gray-500">Result</th>
-                <th className="px-4 py-3 text-xs uppercase text-gray-500">Action</th>
+                <th className="px-4 py-3 text-xs uppercase text-gray-500">Record</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-admin-border">
@@ -558,9 +561,9 @@ const AuditLogsPage = () => {
                     </td>
                     <td className="px-4 py-3 text-gray-700">
                       <div className="font-medium text-gray-900">{item.entityNo || '-'}</div>
-                      <div className="text-xs text-gray-500">{item.entityType}</div>
+                      <div className="text-xs text-gray-500">Subject Type: {item.entityType}</div>
                       <div className="text-xs text-gray-500">
-                        OwnerNo: {item.entityOwnerNo || '-'}
+                        entityOwnerNo: {item.entityOwnerNo || '-'}
                       </div>
                     </td>
                     <td className="px-4 py-3 text-gray-700">
