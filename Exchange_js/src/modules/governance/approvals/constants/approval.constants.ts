@@ -1,3 +1,21 @@
+/**
+ * WAVE 1 STABLE CONTRACT
+ * The following three action types are Wave 1 governed flows.
+ * Their state machine, SoD rules, timeout policies, and execution
+ * dispatch are stable public API — do not change their behavior
+ * without a Wave 1 regression pass.
+ *
+ *   AUDIT_EVIDENCE_EXPORT_APPROVAL  — audit evidence package export gate
+ *   CHANGE_TICKET_APPROVAL          — admin access / RBAC change gate
+ *   DELETE_REQUEST_APPROVAL         — soft-delete gate
+ *
+ * The remaining types belong to future waves and are pre-registered here
+ * for schema continuity:
+ *   CASE_EVIDENCE_EXPORT_APPROVAL        — Wave 2-3
+ *   ONBOARDING_FINAL_APPROVAL            — Wave 2-3
+ *   POOL_SETTLEMENT_BATCH_APPROVAL       — Wave 5+
+ *   TREASURY_CROSS_POOL_TRANSFER_APPROVAL — Wave 5+
+ */
 export const ApprovalActionTypes = {
   AUDIT_EVIDENCE_EXPORT_APPROVAL: 'AUDIT_EVIDENCE_EXPORT_APPROVAL',
   CASE_EVIDENCE_EXPORT_APPROVAL: 'CASE_EVIDENCE_EXPORT_APPROVAL',
