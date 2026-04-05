@@ -1,9 +1,6 @@
 export type CustomerOnboardingStatus =
   | 'NONE'
-  | 'PENDING_CDD_INPUT'
-  | 'CDD_UNDER_REVIEW'
-  | 'PENDING_EDD_INPUT'
-  | 'EDD_UNDER_REVIEW'
+  | 'PENDING_VERIFICATION'
   | 'FINAL_APPROVAL'
   | 'APPROVED'
   | 'REJECTED'
@@ -12,15 +9,11 @@ export type CustomerOnboardingStatus =
 export type CustomerOperatingStatus = 'INACTIVE' | 'ACTIVE';
 export type CustomerRestrictionStatus = 'CLEAR' | 'RESTRICTED';
 export type CustomerNextStepActionType =
-  | 'START_CDD'
-  | 'CREATE_CDD_SESSION'
-  | 'COMPLETE_CDD'
-  | 'START_EDD'
-  | 'CREATE_EDD_SESSION'
-  | 'COMPLETE_EDD'
-  | 'WAIT_REVIEW'
+  | 'START_VERIFICATION'
+  | 'CONTINUE_VERIFICATION'
+  | 'WAIT_VERIFICATION'
   | 'WAIT_FINAL_APPROVAL'
-  | 'REINITIATE_CDD'
+  | 'REINITIATE_VERIFICATION'
   | 'NONE';
 export type CustomerReviewStage = 'REVIEW_CDD' | 'REVIEW_EDD';
 
@@ -34,16 +27,16 @@ export interface CustomerStatusSource {
   onboardingStatus?: string | null;
   operatingStatus?: string | null;
   restrictionStatus?: string | null;
+  verificationSubstatus?: string | null;
+  verificationCustomerActionRequired?: boolean | null;
+  verificationCanContinue?: boolean | null;
   eddRequired?: boolean | null;
   cddDocumentExpiresAt?: Date | string | null;
 }
 
 const CANONICAL_ONBOARDING_STATUSES: CustomerOnboardingStatus[] = [
   'NONE',
-  'PENDING_CDD_INPUT',
-  'CDD_UNDER_REVIEW',
-  'PENDING_EDD_INPUT',
-  'EDD_UNDER_REVIEW',
+  'PENDING_VERIFICATION',
   'FINAL_APPROVAL',
   'APPROVED',
   'REJECTED',
@@ -52,13 +45,30 @@ const CANONICAL_ONBOARDING_STATUSES: CustomerOnboardingStatus[] = [
 
 const CUSTOMER_OPERATING_STATUSES: CustomerOperatingStatus[] = ['INACTIVE', 'ACTIVE'];
 const CUSTOMER_RESTRICTION_STATUSES: CustomerRestrictionStatus[] = ['CLEAR', 'RESTRICTED'];
+const LEGACY_PENDING_ONBOARDING_STATUSES = new Set([
+  'PENDING_CDD_INPUT',
+  'CDD_UNDER_REVIEW',
+  'PENDING_EDD_INPUT',
+  'EDD_UNDER_REVIEW',
+]);
+
+function normalizeRawOnboardingStatus(value?: string | null): string {
+  return String(value || '').trim().toUpperCase();
+}
+
+function isLegacyPendingOnboardingStatus(value: string): boolean {
+  return LEGACY_PENDING_ONBOARDING_STATUSES.has(value);
+}
 
 export function normalizeCustomerOnboardingStatus(
   value?: string | null,
 ): CustomerOnboardingStatus | null {
-  const current = String(value || '').trim().toUpperCase();
+  const current = normalizeRawOnboardingStatus(value);
   if (CANONICAL_ONBOARDING_STATUSES.includes(current as CustomerOnboardingStatus)) {
     return current as CustomerOnboardingStatus;
+  }
+  if (isLegacyPendingOnboardingStatus(current)) {
+    return 'PENDING_VERIFICATION';
   }
   return null;
 }
@@ -140,38 +150,49 @@ export function buildCustomerLifecyclePatch(
 export function getCustomerNextStepActionTypes(
   source: CustomerStatusSource,
 ): CustomerNextStepActionType[] {
+  const rawOnboardingStatus = normalizeRawOnboardingStatus(source.onboardingStatus);
+
+  if (rawOnboardingStatus === 'PENDING_CDD_INPUT') {
+    return ['COMPLETE_CDD' as unknown as CustomerNextStepActionType];
+  }
+  if (rawOnboardingStatus === 'CDD_UNDER_REVIEW' || rawOnboardingStatus === 'EDD_UNDER_REVIEW') {
+    return ['WAIT_REVIEW' as unknown as CustomerNextStepActionType];
+  }
+  if (rawOnboardingStatus === 'PENDING_EDD_INPUT') {
+    return ['COMPLETE_EDD' as unknown as CustomerNextStepActionType];
+  }
+
   const canonical = resolveCustomerCanonicalState(source);
 
   switch (canonical.onboardingStatus) {
     case 'NONE':
-      return ['START_CDD'];
-    case 'PENDING_CDD_INPUT':
-      return ['COMPLETE_CDD'];
-    case 'CDD_UNDER_REVIEW':
-    case 'EDD_UNDER_REVIEW':
-      return ['WAIT_REVIEW'];
-    case 'PENDING_EDD_INPUT':
-      return ['COMPLETE_EDD'];
+      return ['START_VERIFICATION'];
+    case 'PENDING_VERIFICATION':
+      return source.verificationCanContinue ? ['CONTINUE_VERIFICATION'] : ['WAIT_VERIFICATION'];
     case 'FINAL_APPROVAL':
       return ['WAIT_FINAL_APPROVAL'];
     case 'APPROVED':
       return ['NONE'];
     case 'REJECTED':
     case 'WITHDRAWN':
-      return ['REINITIATE_CDD'];
+      return ['REINITIATE_VERIFICATION'];
     default:
-      return ['START_CDD'];
+      return ['START_VERIFICATION'];
   }
 }
 
 export function getCustomerBlockedReason(source: CustomerStatusSource): string | null {
+  const rawOnboardingStatus = normalizeRawOnboardingStatus(source.onboardingStatus);
   const canonical = resolveCustomerCanonicalState(source);
 
+  if (rawOnboardingStatus === 'CDD_UNDER_REVIEW') {
+    return 'CDD evidence received and waiting compliance handling.';
+  }
+  if (rawOnboardingStatus === 'EDD_UNDER_REVIEW') {
+    return 'EDD evidence received and waiting compliance handling.';
+  }
+
   switch (canonical.onboardingStatus) {
-    case 'CDD_UNDER_REVIEW':
-      return 'CDD evidence received and waiting compliance handling.';
-    case 'EDD_UNDER_REVIEW':
-      return 'EDD evidence received and waiting compliance handling.';
     case 'FINAL_APPROVAL':
       return 'Waiting final onboarding decision.';
     case 'REJECTED':
@@ -185,35 +206,34 @@ export function getCustomerBlockedReason(source: CustomerStatusSource): string |
   }
 }
 
-export function getExpectedReviewStageFromCustomerState(
-  source: CustomerStatusSource,
-): CustomerReviewStage | null {
-  const canonical = resolveCustomerCanonicalState(source);
-
-  if (canonical.onboardingStatus === 'CDD_UNDER_REVIEW') {
-    return 'REVIEW_CDD';
-  }
-  if (canonical.onboardingStatus === 'EDD_UNDER_REVIEW') {
-    return 'REVIEW_EDD';
-  }
-  return null;
-}
-
 export function canStartCdd(source: CustomerStatusSource): boolean {
-  const canonical = resolveCustomerCanonicalState(source);
+  const rawOnboardingStatus = normalizeRawOnboardingStatus(source.onboardingStatus);
 
-  return ![
-    'CDD_UNDER_REVIEW',
-    'EDD_UNDER_REVIEW',
-    'FINAL_APPROVAL',
-    'APPROVED',
-  ].includes(canonical.onboardingStatus);
+  if (rawOnboardingStatus === 'CDD_UNDER_REVIEW' || rawOnboardingStatus === 'EDD_UNDER_REVIEW') {
+    return false;
+  }
+  if (rawOnboardingStatus === 'FINAL_APPROVAL' || rawOnboardingStatus === 'APPROVED') {
+    return false;
+  }
+  if (rawOnboardingStatus === 'PENDING_VERIFICATION') {
+    return false;
+  }
+
+  return (
+    rawOnboardingStatus === 'NONE' ||
+    rawOnboardingStatus === 'PENDING_CDD_INPUT' ||
+    rawOnboardingStatus === 'PENDING_EDD_INPUT' ||
+    rawOnboardingStatus === ''
+  );
 }
 
 export function canReinitiateCdd(source: CustomerStatusSource): boolean {
+  const rawOnboardingStatus = normalizeRawOnboardingStatus(source.onboardingStatus);
   const canonical = resolveCustomerCanonicalState(source);
 
   return (
+    rawOnboardingStatus === 'REJECTED' ||
+    rawOnboardingStatus === 'WITHDRAWN' ||
     canonical.onboardingStatus === 'REJECTED' ||
     canonical.onboardingStatus === 'WITHDRAWN' ||
     isExpiredCdd(source)
@@ -221,16 +241,30 @@ export function canReinitiateCdd(source: CustomerStatusSource): boolean {
 }
 
 export function canStartEdd(source: CustomerStatusSource): boolean {
-  return resolveCustomerCanonicalState(source).onboardingStatus === 'PENDING_EDD_INPUT';
+  const rawOnboardingStatus = normalizeRawOnboardingStatus(source.onboardingStatus);
+
+  return rawOnboardingStatus === 'PENDING_EDD_INPUT';
 }
 
 export function canReinitiateEdd(source: CustomerStatusSource): boolean {
-  const canonical = resolveCustomerCanonicalState(source);
+  const rawOnboardingStatus = normalizeRawOnboardingStatus(source.onboardingStatus);
 
-  return (
-    Boolean(source.eddRequired) &&
-    ['PENDING_EDD_INPUT', 'EDD_UNDER_REVIEW'].includes(canonical.onboardingStatus)
-  );
+  return Boolean(source.eddRequired) && (rawOnboardingStatus === 'PENDING_EDD_INPUT' || rawOnboardingStatus === 'EDD_UNDER_REVIEW');
+}
+
+export function getExpectedReviewStageFromCustomerState(
+  source: CustomerStatusSource,
+): CustomerReviewStage | null {
+  const rawOnboardingStatus = normalizeRawOnboardingStatus(source.onboardingStatus);
+
+  if (rawOnboardingStatus === 'CDD_UNDER_REVIEW') {
+    return 'REVIEW_CDD';
+  }
+  if (rawOnboardingStatus === 'EDD_UNDER_REVIEW') {
+    return 'REVIEW_EDD';
+  }
+
+  return null;
 }
 
 export function canFinalReview(source: CustomerStatusSource): boolean {

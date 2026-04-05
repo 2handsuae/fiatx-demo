@@ -2,6 +2,7 @@ import {
   buildCustomerLifecyclePatch,
   canFinalReview,
   canReinitiateCdd,
+  canReinitiateEdd,
   canStartCdd,
   canStartEdd,
   getCustomerBlockedReason,
@@ -57,7 +58,80 @@ describe('customer-status.util', () => {
     ).toEqual(['WAIT_FINAL_APPROVAL']);
   });
 
-  it('should derive review stage from canonical onboarding state', () => {
+  it('returns REINITIATE_VERIFICATION for rejected and withdrawn customers', () => {
+    expect(
+      getCustomerNextStepActionTypes({
+        onboardingStatus: 'REJECTED',
+      }),
+    ).toEqual(['REINITIATE_VERIFICATION']);
+
+    expect(
+      getCustomerNextStepActionTypes({
+        onboardingStatus: 'WITHDRAWN',
+      }),
+    ).toEqual(['REINITIATE_VERIFICATION']);
+  });
+
+  it('returns CONTINUE_VERIFICATION while onboarding is pending and provider says customer can continue', () => {
+    expect(
+      getCustomerNextStepActionTypes({
+        onboardingStatus: 'PENDING_VERIFICATION',
+        verificationSubstatus: 'NEXT_LEVEL_REQUIRED',
+        verificationCustomerActionRequired: true,
+        verificationCanContinue: true,
+      }),
+    ).toEqual(['CONTINUE_VERIFICATION']);
+  });
+
+  it('returns WAIT_VERIFICATION while Sumsub is still processing without customer action', () => {
+    expect(
+      getCustomerNextStepActionTypes({
+        onboardingStatus: 'PENDING_VERIFICATION',
+        verificationSubstatus: 'UNDER_REVIEW',
+        verificationCustomerActionRequired: false,
+        verificationCanContinue: false,
+      }),
+    ).toEqual(['WAIT_VERIFICATION']);
+  });
+
+  it('keeps FINAL_APPROVAL and APPROVED behavior unchanged', () => {
+    expect(
+      getCustomerNextStepActionTypes({
+        onboardingStatus: 'FINAL_APPROVAL',
+      }),
+    ).toEqual(['WAIT_FINAL_APPROVAL']);
+
+    expect(
+      getCustomerNextStepActionTypes({
+        onboardingStatus: 'APPROVED',
+        operatingStatus: 'ACTIVE',
+      }),
+    ).toEqual(['NONE']);
+  });
+
+  it('should resolve unknown onboarding status to NONE and default operating state', () => {
+    expect(
+      resolveCustomerCanonicalState({
+        onboardingStatus: 'legacy-value',
+      }),
+    ).toEqual({
+      onboardingStatus: 'NONE',
+      operatingStatus: 'INACTIVE',
+      restrictionStatus: 'CLEAR',
+    });
+  });
+
+  it('should map legacy raw onboarding states to pending verification and review stages', () => {
+    expect(
+      resolveCustomerCanonicalState({
+        onboardingStatus: 'PENDING_CDD_INPUT',
+      }),
+    ).toEqual({
+      onboardingStatus: 'PENDING_VERIFICATION',
+      operatingStatus: 'INACTIVE',
+      restrictionStatus: 'CLEAR',
+    });
+
     expect(
       getExpectedReviewStageFromCustomerState({
         onboardingStatus: 'CDD_UNDER_REVIEW',
@@ -65,27 +139,32 @@ describe('customer-status.util', () => {
     ).toBe('REVIEW_CDD');
   });
 
-  it('should gate start CDD and start EDD by canonical onboarding state', () => {
+  it('should keep legacy CDD and EDD helper entry points working for raw statuses', () => {
     expect(
       canStartCdd({
-        onboardingStatus: 'APPROVED',
-        operatingStatus: 'ACTIVE',
+        onboardingStatus: 'PENDING_CDD_INPUT',
       }),
-    ).toBe(false);
+    ).toBe(true);
+    expect(
+      canReinitiateCdd({
+        onboardingStatus: 'PENDING_CDD_INPUT',
+        cddDocumentExpiresAt: new Date(Date.now() - 1000),
+      }),
+    ).toBe(true);
     expect(
       canStartEdd({
         onboardingStatus: 'PENDING_EDD_INPUT',
       }),
     ).toBe(true);
-  });
-
-  it('should allow CDD reinitiation for expired CDD snapshot and final review only in FINAL_APPROVAL', () => {
     expect(
-      canReinitiateCdd({
-        onboardingStatus: 'PENDING_CDD_INPUT',
-        cddDocumentExpiresAt: new Date(Date.now() - 60 * 1000),
+      canReinitiateEdd({
+        onboardingStatus: 'EDD_UNDER_REVIEW',
+        eddRequired: true,
       }),
     ).toBe(true);
+  });
+
+  it('should allow final review only in FINAL_APPROVAL', () => {
     expect(
       canFinalReview({
         onboardingStatus: 'FINAL_APPROVAL',
@@ -106,5 +185,10 @@ describe('customer-status.util', () => {
         operatingStatus: 'ACTIVE',
       }),
     ).toBe('Onboarding completed.');
+    expect(
+      getCustomerBlockedReason({
+        onboardingStatus: 'REJECTED',
+      }),
+    ).toBe('Onboarding is rejected. Re-initiate required.');
   });
 });
