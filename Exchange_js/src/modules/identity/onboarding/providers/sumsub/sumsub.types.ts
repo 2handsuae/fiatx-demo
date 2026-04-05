@@ -17,6 +17,18 @@ export interface SumsubCreateApplicantInput {
 }
 
 export interface SumsubCreateSdkTokenInput {
-  applicantId: string;
+  externalUserId: string;
   levelName: string;
+}
+
+export interface SumsubApplicantResponse {
+  id: string;
+}
+
+export interface SumsubSdkTokenResponse {
+  token: string;
+}
+
+export interface SumsubApplicantReviewStatusResponse {
+  reviewStatus: SumsubVerificationSubstatus | string;
 }

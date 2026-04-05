@@ -1,9 +1,12 @@
-import axios, { AxiosInstance, AxiosRequestConfig } from 'axios';
+import axios, { AxiosInstance } from 'axios';
 import { createHmac } from 'crypto';
 import { Injectable } from '@nestjs/common';
 import {
+  SumsubApplicantResponse,
+  SumsubApplicantReviewStatusResponse,
   SumsubCreateApplicantInput,
   SumsubCreateSdkTokenInput,
+  SumsubSdkTokenResponse,
 } from './sumsub.types';
 
 @Injectable()
@@ -16,38 +19,42 @@ export class SumsubClient {
     timeout: 10000,
   });
 
-  async createApplicant(input: SumsubCreateApplicantInput) {
-    return this.post(
+  async createApplicant(input: SumsubCreateApplicantInput): Promise<SumsubApplicantResponse> {
+    return this.post<SumsubApplicantResponse>(
       `/resources/applicants?levelName=${encodeURIComponent(input.levelName)}`,
       { externalUserId: input.externalUserId },
     );
   }
 
-  async createSdkToken(input: SumsubCreateSdkTokenInput) {
-    return this.post('/resources/accessTokens/sdk', {
-      userId: input.applicantId,
+  async createSdkToken(input: SumsubCreateSdkTokenInput): Promise<SumsubSdkTokenResponse> {
+    return this.post<SumsubSdkTokenResponse>('/resources/accessTokens/sdk', {
+      userId: input.externalUserId,
       levelName: input.levelName,
       ttlInSecs: 600,
     });
   }
 
-  async getApplicantReviewStatus(applicantId: string) {
-    return this.get(`/resources/applicants/${applicantId}/requiredIdDocsStatus`);
+  async getApplicantReviewStatus(
+    applicantId: string,
+  ): Promise<SumsubApplicantReviewStatusResponse> {
+    return this.get(`/resources/applicants/${applicantId}/status`);
   }
 
-  async changeLevel(applicantId: string, levelName: string) {
-    return this.post(
+  async changeLevel(applicantId: string, levelName: string): Promise<Record<string, never>> {
+    return this.post<Record<string, never>>(
       `/resources/applicants/${applicantId}/moveToLevel?name=${encodeURIComponent(levelName)}`,
       {},
     );
   }
 
-  private async get(path: string) {
-    return this.http.get(path, { headers: this.buildHeaders('GET', path) });
+  private async get<T>(path: string): Promise<T> {
+    const response = await this.http.get<T>(path, { headers: this.buildHeaders('GET', path) });
+    return response.data;
   }
 
-  private async post(path: string, data: Record<string, unknown>) {
-    return this.http.post(path, data, { headers: this.buildHeaders('POST', path, data) });
+  private async post<T>(path: string, data: Record<string, unknown>): Promise<T> {
+    const response = await this.http.post<T>(path, data, { headers: this.buildHeaders('POST', path, data) });
+    return response.data;
   }
 
   private buildHeaders(method: string, path: string, body?: Record<string, unknown>) {
