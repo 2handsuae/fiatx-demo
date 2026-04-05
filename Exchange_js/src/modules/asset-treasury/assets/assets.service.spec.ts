@@ -13,6 +13,10 @@ const mockPrismaService = {
     create: jest.fn(),
     update: jest.fn(),
   },
+  auditLogEvent: {
+    create: jest.fn().mockResolvedValue({ id: 'audit-id' }),
+    findUnique: jest.fn().mockResolvedValue(null),
+  },
 };
 
 describe('AssetsService', () => {
@@ -104,6 +108,10 @@ describe('AssetsService', () => {
 
   describe('changeStatus', () => {
     it('should update status', async () => {
+      mockPrismaService.asset.findUnique.mockResolvedValue({
+        id: '1',
+        status: AssetStatus.ACTIVE,
+      });
       mockPrismaService.asset.update.mockResolvedValue({
         id: '1',
         status: AssetStatus.DISABLED,

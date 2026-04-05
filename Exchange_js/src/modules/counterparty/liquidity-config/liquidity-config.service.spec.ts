@@ -22,6 +22,10 @@ const mockPrismaService = {
   asset: {
     findUnique: jest.fn(),
   },
+  auditLogEvent: {
+    create: jest.fn().mockResolvedValue({ id: 'audit-id' }),
+    findUnique: jest.fn().mockResolvedValue(null),
+  },
 };
 
 describe('LiquidityConfigService', () => {
