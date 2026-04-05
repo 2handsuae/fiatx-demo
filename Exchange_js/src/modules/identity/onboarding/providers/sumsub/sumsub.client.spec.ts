@@ -63,6 +63,13 @@ describe('SumsubClient', () => {
     });
 
     expect(token).toEqual({ token: 'sdk-token' });
+    const expectedTs = '1700000000';
+    const expectedSig = createHmac('sha256', 'test-secret-key')
+      .update(
+        `${expectedTs}POST/resources/accessTokens/sdk{"userId":"customer-1","levelName":"wave3-level-1","ttlInSecs":600}`,
+      )
+      .digest('hex');
+
     expect(post).toHaveBeenCalledWith(
       '/resources/accessTokens/sdk',
       expect.objectContaining({
@@ -70,7 +77,13 @@ describe('SumsubClient', () => {
         levelName: 'wave3-level-1',
         ttlInSecs: 600,
       }),
-      expect.any(Object),
+      expect.objectContaining({
+        headers: {
+          'X-App-Token': 'test-app-token',
+          'X-App-Access-Ts': expectedTs,
+          'X-App-Access-Sig': expectedSig,
+        },
+      }),
     );
   });
 
@@ -96,9 +109,20 @@ describe('SumsubClient', () => {
     const status = await client.getApplicantReviewStatus('app-1');
 
     expect(status).toEqual({ reviewStatus: 'COMPLETED' });
+    const expectedTs = '1700000000';
+    const expectedSig = createHmac('sha256', 'test-secret-key')
+      .update(`${expectedTs}GET/resources/applicants/app-1/status`)
+      .digest('hex');
+
     expect(get).toHaveBeenCalledWith(
       '/resources/applicants/app-1/status',
-      expect.any(Object),
+      expect.objectContaining({
+        headers: {
+          'X-App-Token': 'test-app-token',
+          'X-App-Access-Ts': expectedTs,
+          'X-App-Access-Sig': expectedSig,
+        },
+      }),
     );
   });
 });
