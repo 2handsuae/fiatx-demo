@@ -654,6 +654,10 @@ model AuditEvidencePackage {
   @@map("audit_evidence_packages")
 }
 
+// Wave 2-3: Compliance case evidence export. This table is NOT a Wave 1
+// delete target (removed from Wave 1 scope per change-delete-ticket-minimalization-design.md).
+// Its FK to approval_cases (approvalCaseId) is for the Wave 2-3 evidence export
+// approval flow — not part of Wave 1 governed five flows.
 model ComplianceCaseEvidencePackage {
   id                      String        @id @default(uuid())
   packageNo               String        @unique @default("TEMP")
