@@ -4,19 +4,21 @@
 Before any code change in `Exchange_js`, read:
 1. `docs/README.md`
 2. `docs/constraints/README.md`
-3. `docs/constraints/frontend-ui-constraints.md`
-4. `docs/constraints/backend-architecture-constraints.md`
-5. `docs/constraints/runtime-config-constraints.md`
-6. `docs/constraints/onboarding-flow-constraints.md`
-7. `docs/constraints/customer-transaction-flow-constraints.md`
-8. `docs/constraints/internal-transaction-flow-constraints.md`
-9. `docs/constraints/audit-logging-constraints.md`
-10. `docs/constraints/rbac-member-management-constraints.md`
-11. `docs/constraints/governance-approval-constraints.md`
-12. `docs/constraints/governance-change-ticket-constraints.md`
-13. `docs/constraints/governance-delete-request-constraints.md`
-14. `docs/constraints/governance-sla-timer-constraints.md`
-15. `docs/constraints/compliance-alert-incident-constraints.md`
+3. `docs/constraints/frontend-platform-constraints.md`
+4. `docs/constraints/frontend-admin-ui-constraints.md`
+5. `docs/constraints/frontend-client-ui-constraints.md`
+6. `docs/constraints/backend-architecture-constraints.md`
+7. `docs/constraints/runtime-config-constraints.md`
+8. `docs/constraints/onboarding-flow-constraints.md`
+9. `docs/constraints/customer-transaction-flow-constraints.md`
+10. `docs/constraints/internal-transaction-flow-constraints.md`
+11. `docs/constraints/audit-logging-constraints.md`
+12. `docs/constraints/rbac-member-management-constraints.md`
+13. `docs/constraints/governance-approval-constraints.md`
+14. `docs/constraints/governance-change-ticket-constraints.md`
+15. `docs/constraints/governance-delete-request-constraints.md`
+16. `docs/constraints/governance-sla-timer-constraints.md`
+17. `docs/constraints/compliance-alert-incident-constraints.md`
 
 ## Scope
 - Backend: `src/**`, `prisma/**`, `scripts/**`
