@@ -1,3 +1,6 @@
+import { ForbiddenException } from '@nestjs/common';
+import { GUARDS_METADATA } from '@nestjs/common/constants';
+import { AdminPermissionGuard } from 'src/modules/identity/access-control/admin-permission.guard';
 import { OnboardingSumsubSimulationController } from './onboarding-sumsub-simulation.controller';
 
 describe('OnboardingSumsubSimulationController', () => {
@@ -10,6 +13,12 @@ describe('OnboardingSumsubSimulationController', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     controller = new OnboardingSumsubSimulationController(onboardingServiceMock as any);
+  });
+
+  it('does not register the admin permission guard on the simulation controller', () => {
+    const guards = Reflect.getMetadata(GUARDS_METADATA, OnboardingSumsubSimulationController) ?? [];
+
+    expect(guards).not.toContain(AdminPermissionGuard);
   });
 
   it('builds a simulated Sumsub payload and routes it to the same service method', async () => {
@@ -33,5 +42,14 @@ describe('OnboardingSumsubSimulationController', () => {
         levelName: 'wave3-level-2',
       }),
     );
+  });
+
+  it('rejects non-customer tokens through ensureCustomer', () => {
+    expect(() =>
+      controller.simulate(
+        { user: { type: 'ADMIN', userId: 'admin-1' } } as any,
+        { eventType: 'applicantWorkflowCompleted' } as any,
+      ),
+    ).toThrow(ForbiddenException);
   });
 });

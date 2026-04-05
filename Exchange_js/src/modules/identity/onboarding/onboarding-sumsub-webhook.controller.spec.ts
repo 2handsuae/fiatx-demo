@@ -29,6 +29,8 @@ describe('OnboardingSumsubWebhookController', () => {
       expect.objectContaining({
         rawBody: expect.any(Buffer),
         signature: 'sha256=test-signature',
+        simulated: false,
+        actorId: 'SUMSUB',
       }),
     );
   });

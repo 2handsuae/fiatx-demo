@@ -10,7 +10,6 @@ import {
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { AdminPermissionGuard } from 'src/modules/identity/access-control/admin-permission.guard';
 import type { OnboardingService } from './onboarding.service';
 import { SimulateOnboardingSumsubEventDto } from './dto/onboarding.dto';
 
@@ -23,7 +22,7 @@ interface SumsubVerificationEventHandler {
 
 @ApiTags('Customer - Onboarding')
 @Controller('onboarding/sumsub')
-@UseGuards(AuthGuard('jwt'), AdminPermissionGuard)
+@UseGuards(AuthGuard('jwt'))
 @ApiBearerAuth()
 export class OnboardingSumsubSimulationController {
   constructor(

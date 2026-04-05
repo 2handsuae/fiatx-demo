@@ -33,12 +33,13 @@ export class OnboardingSumsubWebhookController {
   handleWebhook(
     @Req() req: { rawBody?: Buffer },
     @Body() body: Record<string, unknown>,
-    @Headers('x-sumsub-signature') signature?: string,
+    @Headers('x-payload-digest') signature?: string,
   ) {
     return this.sumsubHandler.handleSumsubVerificationEvent(body, {
       rawBody: req.rawBody,
       signature,
-      source: 'webhook',
+      simulated: false,
+      actorId: 'SUMSUB',
     });
   }
 }
