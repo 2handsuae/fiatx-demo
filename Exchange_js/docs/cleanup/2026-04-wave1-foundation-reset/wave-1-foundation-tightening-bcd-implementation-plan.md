@@ -89,7 +89,7 @@
 - Modify: `/Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js/src/modules/identity/users/users.service.spec.ts`
 - Modify: `/Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js/src/modules/identity/customers/customers.service.spec.ts`
 
-- [ ] **Step 1: Add failing expectations that define the Wave 1-only runtime surface**
+- [x] **Step 1: Add failing expectations that define the Wave 1-only runtime surface**
 
 ```ts
 expect(item.status).not.toBe('APPROVAL_PENDING');
@@ -103,7 +103,7 @@ expect(customer.archivedOnboardingAuditLogs).toBeUndefined();
 expect(customer.auditCenterSummary).toBeDefined();
 ```
 
-- [ ] **Step 2: Run the focused characterization tests**
+- [x] **Step 2: Run the focused characterization tests**
 
 Run:
 ```bash
@@ -113,7 +113,7 @@ cd /Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js
 Expected:
 - at least one assertion fails because old `Wave 1` runtime leakage is still visible
 
-- [ ] **Step 3: Commit the red baseline**
+- [x] **Step 3: Commit the red baseline**
 
 ```bash
 git add src/modules/governance/approvals/approvals.service.spec.ts src/modules/identity/users/users.service.spec.ts src/modules/identity/customers/customers.service.spec.ts
@@ -129,7 +129,7 @@ git commit -m "test: add stage d characterization baseline"
 - Modify: `/Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js/src/modules/identity/users/users.service.ts`
 - Modify: `/Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js/src/modules/identity/users/admin-invitations.service.ts`
 
-- [ ] **Step 1: Remove non-Wave-1 primary-flow wording from approval read models**
+- [x] **Step 1: Remove non-Wave-1 primary-flow wording from approval read models**
 
 ```ts
 return {
@@ -147,7 +147,7 @@ return {
 };
 ```
 
-- [ ] **Step 2: Keep invitation/member runtime focused on Wave 1 member boundary only**
+- [x] **Step 2: Keep invitation/member runtime focused on Wave 1 member boundary only**
 
 ```ts
 return {
@@ -162,7 +162,7 @@ return {
 };
 ```
 
-- [ ] **Step 3: Run the approval/member focused tests**
+- [x] **Step 3: Run the approval/member focused tests**
 
 Run:
 ```bash
@@ -172,7 +172,7 @@ cd /Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js
 Expected:
 - PASS
 
-- [ ] **Step 4: Commit Stage D core runtime trim**
+- [x] **Step 4: Commit Stage D core runtime trim**
 
 ```bash
 git add src/modules/governance/approvals/approvals.service.ts src/modules/governance/approvals/approvals.controller.ts src/modules/governance/approvals/dto/approval.dto.ts src/modules/identity/users/users.service.ts src/modules/identity/users/admin-invitations.service.ts src/modules/governance/approvals/approvals.service.spec.ts src/modules/identity/users/users.service.spec.ts src/modules/identity/users/admin-invitations.service.spec.ts
@@ -189,7 +189,7 @@ git commit -m "refactor: trim wave 1 approval and member runtime semantics"
 - Modify: `/Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js/admin-web/src/pages/TransactionComplianceCasesPage.tsx`
 - Modify: `/Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js/admin-web/src/pages/TransactionComplianceCaseDetailPage.tsx`
 
-- [ ] **Step 1: Remove archived onboarding audit logs from customer primary detail payload**
+- [x] **Step 1: Remove archived onboarding audit logs from customer primary detail payload**
 
 ```ts
 return {
@@ -202,7 +202,7 @@ return {
 };
 ```
 
-- [ ] **Step 2: Move governance/audit technical references out of compliance primary sections**
+- [x] **Step 2: Move governance/audit technical references out of compliance primary sections**
 
 ```tsx
 <InfoField label="Case No" value={detail.caseNo} mono />
@@ -217,7 +217,7 @@ return {
 </DetailCard>
 ```
 
-- [ ] **Step 3: Run customer/compliance tests and frontend build**
+- [x] **Step 3: Run customer/compliance tests and frontend build**
 
 Run:
 ```bash
@@ -229,7 +229,7 @@ Expected:
 - service spec PASS
 - frontend build PASS
 
-- [ ] **Step 4: Commit Stage D wider trim**
+- [x] **Step 4: Commit Stage D wider trim**
 
 ```bash
 git add src/modules/identity/customers/customers.service.ts admin-web/src/pages/CustomerDetail.tsx admin-web/src/pages/ComplianceCasesPage.tsx admin-web/src/pages/ComplianceCaseDetailPage.tsx admin-web/src/pages/TransactionComplianceCasesPage.tsx admin-web/src/pages/TransactionComplianceCaseDetailPage.tsx src/modules/identity/customers/customers.service.spec.ts
@@ -249,21 +249,21 @@ git commit -m "refactor: trim cross-wave coupling from wave 1 primary views"
 - Modify: `/Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js/docs/specs/modules/approvals-module.md`
 - Modify: `/Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js/docs/specs/modules/rbac-member-management-module.md`
 
-- [ ] **Step 1: Rewrite docs so Wave 1 objects describe Wave 1 only**
+- [x] **Step 1: Rewrite docs so Wave 1 objects describe Wave 1 only**
 
 ```md
 - MUST describe approval as a generic governance shell.
 - MUST NOT describe later-wave workflow specializations as canonical Wave 1 behavior.
 ```
 
-- [ ] **Step 2: Add explicit note that role catalog is fixed and member assignment is the runtime path**
+- [x] **Step 2: Add explicit note that role catalog is fixed and member assignment is the runtime path**
 
 ```md
 - Role catalog remains fixed in Wave 1.
 - Runtime change happens through member role assignment, not catalog mutation.
 ```
 
-- [ ] **Step 3: Review the docs for stale terms**
+- [x] **Step 3: Review the docs for stale terms**
 
 Run:
 ```bash
@@ -273,7 +273,7 @@ cd /Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js
 Expected:
 - no stale canonical wording for removed runtime semantics
 
-- [ ] **Step 4: Commit Stage D doc alignment**
+- [x] **Step 4: Commit Stage D doc alignment**
 
 ```bash
 git add docs/constraints/governance-approval-constraints.md docs/constraints/rbac-member-management-constraints.md docs/specs/entities/approval-case-entity.md docs/specs/entities/admin-user-entity.md docs/specs/entities/role-entity.md docs/specs/entities/permission-entity.md docs/specs/workflows/admin-member-auth-boundary-workflow.md docs/specs/modules/approvals-module.md docs/specs/modules/rbac-member-management-module.md
@@ -285,7 +285,7 @@ git commit -m "docs: align wave 1 approval and member source of truth"
 **Files:**
 - Modify: `/Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js/src/modules/risk-engine/audit-logs/audit-logs.service.spec.ts`
 
-- [ ] **Step 1: Add failing tests for the intended audit contract**
+- [x] **Step 1: Add failing tests for the intended audit contract**
 
 ```ts
 expect(event.subjectNos).toEqual(
@@ -298,7 +298,7 @@ expect(event.beforeData).toEqual(expect.objectContaining({ digest: expect.any(St
 expect(event.afterData).toEqual(expect.objectContaining({ digest: expect.any(String) }));
 ```
 
-- [ ] **Step 2: Run audit service spec and capture the red state**
+- [x] **Step 2: Run audit service spec and capture the red state**
 
 Run:
 ```bash
@@ -308,7 +308,7 @@ cd /Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js
 Expected:
 - FAIL because current audit service still mixes generic contract and domain-specific evidence assembly
 
-- [ ] **Step 3: Commit the red baseline**
+- [x] **Step 3: Commit the red baseline**
 
 ```bash
 git add src/modules/risk-engine/audit-logs/audit-logs.service.spec.ts
@@ -323,7 +323,7 @@ git commit -m "test: add stage c audit contract baseline"
 - Modify: `/Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js/src/modules/risk-engine/audit-logs/utils/audit-subject-no.util.ts`
 - Modify: `/Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js/src/modules/risk-engine/audit-logs/constants/audit-actions.constant.ts`
 
-- [ ] **Step 1: Split operator-facing typed core from context JSON**
+- [x] **Step 1: Split operator-facing typed core from context JSON**
 
 ```ts
 return {
@@ -342,7 +342,7 @@ return {
 };
 ```
 
-- [ ] **Step 2: Remove domain-specific evidence assembly from the generic core path**
+- [x] **Step 2: Remove domain-specific evidence assembly from the generic core path**
 
 ```ts
 private buildAuditEvidenceSummary(input: DomainEvidenceInput) {
@@ -354,7 +354,7 @@ private buildAuditEvidenceSummary(input: DomainEvidenceInput) {
 }
 ```
 
-- [ ] **Step 3: Keep `subjectNo` and `workflow + traceId` roles separate**
+- [x] **Step 3: Keep `subjectNo` and `workflow + traceId` roles separate**
 
 ```ts
 if (query.subjectNo) {
@@ -365,7 +365,7 @@ if (query.traceId) {
 }
 ```
 
-- [ ] **Step 4: Run focused audit tests**
+- [x] **Step 4: Run focused audit tests**
 
 Run:
 ```bash
@@ -375,7 +375,7 @@ cd /Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js
 Expected:
 - PASS
 
-- [ ] **Step 5: Commit Stage C service tightening**
+- [x] **Step 5: Commit Stage C service tightening**
 
 ```bash
 git add src/modules/risk-engine/audit-logs/audit-logs.service.ts src/modules/risk-engine/audit-logs/dto/audit-log.dto.ts src/modules/risk-engine/audit-logs/utils/audit-subject-no.util.ts src/modules/risk-engine/audit-logs/constants/audit-actions.constant.ts src/modules/risk-engine/audit-logs/audit-logs.service.spec.ts
@@ -395,7 +395,7 @@ git commit -m "refactor: tighten audit foundation contract"
 - Modify: `/Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js/docs/specs/modules/audit-logging-product-doc.md`
 - Modify: `/Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js/docs/specs/modules/audit-logging-technical-doc.md`
 
-- [ ] **Step 1: Make Audit Center filters and table speak the neutral contract**
+- [x] **Step 1: Make Audit Center filters and table speak the neutral contract**
 
 ```tsx
 <InfoField label="Workflow No" value={item.workflowNo} mono />
@@ -403,7 +403,7 @@ git commit -m "refactor: tighten audit foundation contract"
 <InfoField label="Subject No" value={item.primarySubjectNo} mono />
 ```
 
-- [ ] **Step 2: Rewrite docs around typed core / subjectNos / context JSON**
+- [x] **Step 2: Rewrite docs around typed core / subjectNos / context JSON**
 
 ```md
 - Core lookup fields remain typed.
@@ -411,7 +411,7 @@ git commit -m "refactor: tighten audit foundation contract"
 - `subjectNos[]` is the operator-facing multi-anchor lookup layer.
 ```
 
-- [ ] **Step 3: Run frontend build and stale-doc scan**
+- [x] **Step 3: Run frontend build and stale-doc scan**
 
 Run:
 ```bash
@@ -423,7 +423,7 @@ Expected:
 - frontend build PASS
 - no stale canonical phrasing
 
-- [ ] **Step 4: Commit Stage C UI/doc alignment**
+- [x] **Step 4: Commit Stage C UI/doc alignment**
 
 ```bash
 git add admin-web/src/pages/AuditLogsPage.tsx admin-web/src/pages/EvidenceExportsPage.tsx docs/constraints/audit-logging-constraints.md docs/specs/entities/audit-log-event-entity.md docs/specs/entities/audit-evidence-package-entity.md docs/specs/workflows/audit-evidence-export-approval-workflow.md docs/specs/modules/audit-logging-module.md docs/specs/modules/audit-logging-product-doc.md docs/specs/modules/audit-logging-technical-doc.md
@@ -442,7 +442,7 @@ git commit -m "docs: align audit center with tightened audit contract"
 - Modify: `/Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js/admin-web/src/pages/PlatformMembers.tsx`
 - Modify: `/Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js/admin-web/src/pages/RoleManagement.tsx`
 
-- [ ] **Step 1: Add or keep only the missing `No/code` fields required by active operator flows**
+- [x] **Step 1: Add or keep only the missing `No/code` fields required by active operator flows**
 
 ```prisma
 approvalNo        String?
@@ -455,7 +455,7 @@ consumedByUserNo  String?
 code String @unique
 ```
 
-- [ ] **Step 2: Apply the four-layer display model to the remaining Wave 1 pages**
+- [x] **Step 2: Apply the four-layer display model to the remaining Wave 1 pages**
 
 ```tsx
 <DetailCard title="Summary" columns={3}>...</DetailCard>
@@ -463,7 +463,7 @@ code String @unique
 <DetailCard title="Technical References" columns={2}>...</DetailCard>
 ```
 
-- [ ] **Step 3: Keep list pages operator-first**
+- [x] **Step 3: Keep list pages operator-first**
 
 ```tsx
 const columns = [
@@ -476,7 +476,7 @@ const columns = [
 ];
 ```
 
-- [ ] **Step 4: Run stage B focused verification**
+- [x] **Step 4: Run stage B focused verification**
 
 Run:
 ```bash
@@ -488,7 +488,7 @@ Expected:
 - all focused tests PASS
 - frontend build PASS
 
-- [ ] **Step 5: Commit Stage B convergence**
+- [x] **Step 5: Commit Stage B convergence**
 
 ```bash
 git add prisma/schema.prisma src/modules/governance/approvals/approvals.service.ts src/modules/identity/users/users.service.ts src/modules/risk-engine/audit-logs/audit-logs.service.ts admin-web/src/pages/ApprovalsPage.tsx admin-web/src/pages/ApprovalDetailPage.tsx admin-web/src/pages/PlatformMembers.tsx admin-web/src/pages/RoleManagement.tsx src/modules/governance/approvals/approvals.service.spec.ts src/modules/identity/users/users.service.spec.ts src/modules/risk-engine/audit-logs/audit-logs.service.spec.ts
@@ -500,7 +500,7 @@ git commit -m "refactor: converge remaining wave 1 base entities"
 **Files:**
 - Create: `/Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js/docs/cleanup/2026-04-wave1-foundation-reset/wave-1-foundation-tightening-bcd-acceptance-notes.md`
 
-- [ ] **Step 1: Write acceptance notes using the final stage outputs**
+- [x] **Step 1: Write acceptance notes using the final stage outputs**
 
 ```md
 ## Stage D
@@ -513,7 +513,7 @@ git commit -m "refactor: converge remaining wave 1 base entities"
 - entity and UI layering converged
 ```
 
-- [ ] **Step 2: Run the combined focused regression**
+- [x] **Step 2: Run the combined focused regression**
 
 Run:
 ```bash
@@ -525,7 +525,7 @@ Expected:
 - all focused suites PASS
 - frontend build PASS
 
-- [ ] **Step 3: Run backend build to record final repo state**
+- [x] **Step 3: Run backend build to record final repo state**
 
 Run:
 ```bash
@@ -536,7 +536,7 @@ Expected:
 - either PASS
 - or fail only on pre-existing unrelated repo issues, which must be written into the acceptance notes
 
-- [ ] **Step 4: Commit acceptance notes**
+- [x] **Step 4: Commit acceptance notes**
 
 ```bash
 git add docs/cleanup/2026-04-wave1-foundation-reset/wave-1-foundation-tightening-bcd-acceptance-notes.md

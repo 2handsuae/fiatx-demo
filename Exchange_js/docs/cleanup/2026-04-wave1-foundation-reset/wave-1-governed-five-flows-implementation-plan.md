@@ -71,7 +71,7 @@
 - Test: `/Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js/src/modules/identity/access-control/access-control.controller.spec.ts`
 - Test: `/Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js/src/modules/governance/change-tickets/change-tickets.service.spec.ts`
 
-- [ ] **Step 1: Write the failing controller/service tests for governed proposal creation**
+- [x] **Step 1: Write the failing controller/service tests for governed proposal creation**
 
 ```ts
 it('POST /users creates an admin member provisioning ticket instead of a user', async () => {
@@ -112,7 +112,7 @@ it('PUT /admin/iam/users/:id/roles creates a role-binding change ticket instead 
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run:
 
@@ -122,7 +122,7 @@ cd /Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js
 
 Expected: FAIL with current controllers still returning direct-write semantics and missing proposal helpers.
 
-- [ ] **Step 3: Rewire business controllers so they create tickets**
+- [x] **Step 3: Rewire business controllers so they create tickets**
 
 ```ts
 @Post()
@@ -141,7 +141,7 @@ async create(
 }
 ```
 
-- [ ] **Step 4: Implement proposal builders in `ChangeTicketsService`**
+- [x] **Step 4: Implement proposal builders in `ChangeTicketsService`**
 
 ```ts
 async createAdminMemberProvisioningTicket(
@@ -172,7 +172,7 @@ async createAdminMemberProvisioningTicket(
 }
 ```
 
-- [ ] **Step 5: Run the focused tests and verify they pass**
+- [x] **Step 5: Run the focused tests and verify they pass**
 
 Run:
 
@@ -182,7 +182,7 @@ cd /Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js
 
 Expected: PASS, including snapshot contents for both proposal flows.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 cd /Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js && git add src/modules/identity/users/users.controller.ts src/modules/identity/users/dto/create-admin-user.dto.ts src/modules/identity/access-control/access-control.controller.ts src/modules/identity/access-control/dto/update-user-roles.dto.ts src/modules/governance/change-tickets/change-tickets.service.ts src/modules/identity/users/users.controller.spec.ts src/modules/identity/access-control/access-control.controller.spec.ts src/modules/governance/change-tickets/change-tickets.service.spec.ts && git commit -m "feat: gate member and role changes behind change tickets"
@@ -198,7 +198,7 @@ cd /Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js
 - Test: `/Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js/src/modules/identity/users/users.service.spec.ts`
 - Test: `/Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js/src/modules/identity/access-control/access-control.service.spec.ts`
 
-- [ ] **Step 1: Write the failing consume-dispatch tests**
+- [x] **Step 1: Write the failing consume-dispatch tests**
 
 ```ts
 it('consumes admin member provisioning by creating inactive user, roles, and first invitation', async () => {
@@ -231,7 +231,7 @@ it('consumes admin role binding change by replacing the target user role binding
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run:
 
@@ -241,7 +241,7 @@ cd /Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js
 
 Expected: FAIL with missing execution methods and missing consume dispatch.
 
-- [ ] **Step 3: Add explicit execution methods in identity services**
+- [x] **Step 3: Add explicit execution methods in identity services**
 
 ```ts
 async executeAdminMemberProvisioning(
@@ -263,7 +263,7 @@ async executeGovernedRoleBindingChange(
 }
 ```
 
-- [ ] **Step 4: Dispatch from `ChangeTicketsService.consume()` using `changeType + bindingSnapshotJson`**
+- [x] **Step 4: Dispatch from `ChangeTicketsService.consume()` using `changeType + bindingSnapshotJson`**
 
 ```ts
 const binding = this.parseJson<Record<string, unknown>>(ticket.bindingSnapshotJson) || {};
@@ -284,7 +284,7 @@ if (input.success && ticket.changeType === ChangeTicketTypes.ADMIN_ACCESS_CHANGE
 }
 ```
 
-- [ ] **Step 5: Re-run focused tests and verify they pass**
+- [x] **Step 5: Re-run focused tests and verify they pass**
 
 Run:
 
@@ -294,7 +294,7 @@ cd /Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js
 
 Expected: PASS with consume now producing the formal business effect only on successful consume.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 cd /Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js && git add src/modules/governance/change-tickets/change-tickets.service.ts src/modules/identity/users/users.service.ts src/modules/identity/access-control/access-control.service.ts src/modules/governance/change-tickets/change-tickets.service.spec.ts src/modules/identity/users/users.service.spec.ts src/modules/identity/access-control/access-control.service.spec.ts && git commit -m "feat: execute governed change flows on consume"
@@ -309,7 +309,7 @@ cd /Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js
 - Test: `/Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js/src/modules/identity/users/users.controller.spec.ts`
 - Test: `/Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js/src/modules/identity/users/users.service.spec.ts`
 
-- [ ] **Step 1: Write the failing user-detail tests**
+- [x] **Step 1: Write the failing user-detail tests**
 
 ```ts
 it('returns member detail with invitation summary for inactive admin users', async () => {
@@ -330,7 +330,7 @@ it('returns member detail with invitation summary for inactive admin users', asy
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run:
 
@@ -340,7 +340,7 @@ cd /Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js
 
 Expected: FAIL with missing `getMemberDetail()` and `GET /users/:id`.
 
-- [ ] **Step 3: Add member detail read model to backend**
+- [x] **Step 3: Add member detail read model to backend**
 
 ```ts
 async getMemberDetail(userId: string) {
@@ -369,7 +369,7 @@ async getMemberDetail(userId: string) {
 }
 ```
 
-- [ ] **Step 4: Rework `PlatformMembers` into proposal-first actions plus member detail panel**
+- [x] **Step 4: Rework `PlatformMembers` into proposal-first actions plus member detail panel**
 
 ```tsx
 const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
@@ -411,7 +411,7 @@ const submitRoleChanges = async () => {
 };
 ```
 
-- [ ] **Step 5: Re-run focused user tests and front-end build**
+- [x] **Step 5: Re-run focused user tests and front-end build**
 
 Run:
 
@@ -422,7 +422,7 @@ cd /Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js
 
 Expected: user tests PASS; front-end build PASS with `PlatformMembers` now proposal-first and invitation panel ready.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 cd /Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js && git add src/modules/identity/users/users.controller.ts src/modules/identity/users/users.service.ts src/modules/identity/users/users.controller.spec.ts src/modules/identity/users/users.service.spec.ts admin-web/src/pages/PlatformMembers.tsx && git commit -m "feat: add governed platform member panel and invitation detail"
@@ -438,7 +438,7 @@ cd /Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js
 - Modify: `/Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js/admin-web/src/pages/EvidenceExportsPage.tsx`
 - Test: `/Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js/src/modules/governance/delete-requests/delete-requests.service.spec.ts`
 
-- [ ] **Step 1: Write the failing delete-request entry tests**
+- [x] **Step 1: Write the failing delete-request entry tests**
 
 ```ts
 it('creates an admin-user delete request by targetNo', async () => {
@@ -460,7 +460,7 @@ it('creates an admin-user delete request by targetNo', async () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails if new UI entry assumptions are not covered**
+- [x] **Step 2: Run test to verify it fails if new UI entry assumptions are not covered**
 
 Run:
 
@@ -470,7 +470,7 @@ cd /Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js
 
 Expected: If current coverage already passes, keep the new case and treat this step as regression lock-in rather than red-first.
 
-- [ ] **Step 3: Add UI actions that create delete requests and then navigate to the created request**
+- [x] **Step 3: Add UI actions that create delete requests and then navigate to the created request**
 
 ```tsx
 const createDeleteRequest = async (payload: {
@@ -491,7 +491,7 @@ const createDeleteRequest = async (payload: {
 };
 ```
 
-- [ ] **Step 4: Re-run delete-request tests and front-end build**
+- [x] **Step 4: Re-run delete-request tests and front-end build**
 
 Run:
 
@@ -502,7 +502,7 @@ cd /Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js
 
 Expected: PASS, and the three source pages now create delete requests instead of deleting directly.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd /Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js && git add admin-web/src/pages/PlatformMembers.tsx admin-web/src/pages/ChangeTicketDetailPage.tsx admin-web/src/pages/ChangeTicketsPage.tsx admin-web/src/pages/EvidenceExportDetailPage.tsx admin-web/src/pages/EvidenceExportsPage.tsx src/modules/governance/delete-requests/delete-requests.service.spec.ts src/modules/governance/delete-requests/delete-requests.controller.spec.ts && git commit -m "feat: wire governed delete-request entry points"
@@ -516,7 +516,7 @@ cd /Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js
 - Modify: `/Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js/src/modules/identity/users/admin-invitations.service.spec.ts`
 - Modify: `/Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js/src/modules/identity/users/users.service.spec.ts`
 
-- [ ] **Step 1: Add failing regression tests for resend/activate continuity**
+- [x] **Step 1: Add failing regression tests for resend/activate continuity**
 
 ```ts
 it('resend keeps invitation in the child flow and does not require a new change ticket', async () => {
@@ -530,7 +530,7 @@ it('resend keeps invitation in the child flow and does not require a new change 
 });
 ```
 
-- [ ] **Step 2: Run the invitation tests to verify the safety net**
+- [x] **Step 2: Run the invitation tests to verify the safety net**
 
 Run:
 
@@ -540,7 +540,7 @@ cd /Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js
 
 Expected: PASS or targeted FAIL only if the new member-detail assumptions require fixture updates.
 
-- [ ] **Step 3: Simplify UI so the global invite banner becomes short-lived feedback only**
+- [x] **Step 3: Simplify UI so the global invite banner becomes short-lived feedback only**
 
 ```tsx
 setNotice(`Invitation refreshed for ${formatMemberIdentity(member)}.`);
@@ -551,7 +551,7 @@ setTimeout(() => {
 // canonical long-lived display remains in memberDetail.inviteStatus / inviteExpiresAt / inviteLink
 ```
 
-- [ ] **Step 4: Verify build and focused tests**
+- [x] **Step 4: Verify build and focused tests**
 
 Run:
 
@@ -562,7 +562,7 @@ cd /Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js
 
 Expected: PASS; resend and activation remain intact while canonical invitation display moves into the member-detail panel.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd /Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js && git add admin-web/src/pages/PlatformMembers.tsx admin-web/src/pages/AdminInviteActivate.tsx src/modules/identity/users/admin-invitations.service.spec.ts src/modules/identity/users/users.service.spec.ts && git commit -m "feat: align invitation child flow with member detail view"
@@ -576,7 +576,7 @@ cd /Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js
 - Modify: `/Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js/docs/specs/workflows/delete-request-soft-delete-workflow.md`
 - Modify: `/Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js/docs/cleanup/2026-04-wave1-foundation-reset/README.md`
 
-- [ ] **Step 1: Update durable workflow docs to match the implemented behavior**
+- [x] **Step 1: Update durable workflow docs to match the implemented behavior**
 
 ```md
 - `PlatformMembers` no longer creates admin users directly.
@@ -585,7 +585,7 @@ cd /Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js
 - Invitation resend remains in the invitation child flow and does not require a new governance ticket.
 ```
 
-- [ ] **Step 2: Run focused regression and build checks**
+- [x] **Step 2: Run focused regression and build checks**
 
 Run:
 
@@ -600,7 +600,7 @@ Expected:
 - Front-end build: PASS
 - Back-end build: either PASS or fail only on known unrelated workspace dependency gaps; if it fails for a new reason, fix before claiming completion
 
-- [ ] **Step 3: Record acceptance notes if behavior shifted during implementation**
+- [x] **Step 3: Record acceptance notes if behavior shifted during implementation**
 
 ```md
 - Final runtime shape:
@@ -611,7 +611,7 @@ Expected:
   - `PlatformMembers -> member detail -> Invitation & Activation`
 ```
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 cd /Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js && git add docs/specs/workflows/admin-member-auth-boundary-workflow.md docs/specs/workflows/change-ticket-release-gate-workflow.md docs/specs/workflows/delete-request-soft-delete-workflow.md docs/cleanup/2026-04-wave1-foundation-reset/README.md && git commit -m "docs: align governed five flows workflow docs"

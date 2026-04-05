@@ -108,7 +108,7 @@ const DeleteRequestTargetTypes = {
 - Modify: `/Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js/src/modules/governance/change-tickets/dto/change-ticket.dto.ts`
 - Modify: `/Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js/src/modules/governance/delete-requests/dto/delete-request.dto.ts`
 
-- [ ] **Step 1: Write failing service-level enum expectations first**
+- [x] **Step 1: Write failing service-level enum expectations first**
 
 ```ts
 expect(ChangeTicketStatuses).toEqual({
@@ -130,7 +130,7 @@ expect(DeleteRequestTargetTypes).toEqual({
 });
 ```
 
-- [ ] **Step 2: Run the two governance service specs to see the old enum contract fail**
+- [x] **Step 2: Run the two governance service specs to see the old enum contract fail**
 
 Run:
 ```bash
@@ -143,7 +143,7 @@ Expected:
 - old type values
 - old field names like `makerUserId` / `executedByUserId`
 
-- [ ] **Step 3: Apply schema and constant reductions**
+- [x] **Step 3: Apply schema and constant reductions**
 
 ```prisma
 model ChangeTicket {
@@ -187,7 +187,7 @@ model ChangeTicket {
 // COMPLIANCE_CASE_EVIDENCE_PACKAGE
 ```
 
-- [ ] **Step 4: Shrink DTOs to the new contract**
+- [x] **Step 4: Shrink DTOs to the new contract**
 
 ```ts
 export class CreateChangeTicketDto {
@@ -223,7 +223,7 @@ export class CreateChangeTicketDto {
 // ExecuteDeleteRequestDto -> ConsumeDeleteRequestDto
 ```
 
-- [ ] **Step 5: Regenerate Prisma client after schema edits**
+- [x] **Step 5: Regenerate Prisma client after schema edits**
 
 Run:
 ```bash
@@ -233,7 +233,7 @@ cd /Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js
 Expected:
 - Prisma client generation completes without schema errors
 
-- [ ] **Step 6: Create the migration for the physical schema changes**
+- [x] **Step 6: Create the migration for the physical schema changes**
 
 Run:
 ```bash
@@ -255,7 +255,7 @@ Expected:
 - Test: `/Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js/src/modules/governance/change-tickets/change-tickets.service.spec.ts`
 - Test: `/Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js/src/modules/governance/change-tickets/change-tickets.controller.spec.ts`
 
-- [ ] **Step 1: Replace the old state progression tests with the new canonical path**
+- [x] **Step 1: Replace the old state progression tests with the new canonical path**
 
 ```ts
 it('projects approved approval to READY', async () => {
@@ -274,7 +274,7 @@ it('marks consume failure to FAILED and keeps it terminal', async () => {
 });
 ```
 
-- [ ] **Step 2: Run only change-ticket tests before refactor**
+- [x] **Step 2: Run only change-ticket tests before refactor**
 
 Run:
 ```bash
@@ -285,7 +285,7 @@ Expected:
 - failures around removed statuses
 - failures around removed `release-gates` controller delegation
 
-- [ ] **Step 3: Replace submit/approval/consume semantics in the service**
+- [x] **Step 3: Replace submit/approval/consume semantics in the service**
 
 ```ts
 // create -> DRAFT
@@ -307,7 +307,7 @@ Expected:
 // consume(id, dto, actor)
 ```
 
-- [ ] **Step 4: Preserve operator-facing `id + No` pairs in mapping**
+- [x] **Step 4: Preserve operator-facing `id + No` pairs in mapping**
 
 ```ts
 return {
@@ -324,7 +324,7 @@ return {
 };
 ```
 
-- [ ] **Step 5: Collapse the controller to `create/list/get/submit/consume`**
+- [x] **Step 5: Collapse the controller to `create/list/get/submit/consume`**
 
 ```ts
 @Post(':id/consume')
@@ -346,7 +346,7 @@ consume(
 // :id/gate-runs
 ```
 
-- [ ] **Step 5.5: Remove stale RBAC route registrations for deleted ChangeTicket actions**
+- [x] **Step 5.5: Remove stale RBAC route registrations for deleted ChangeTicket actions**
 
 ```ts
 // remove from rbac.catalog.ts:
@@ -360,14 +360,14 @@ consume(
 // POST /admin/control-gates/change-tickets/:id/consume
 ```
 
-- [ ] **Step 6: Remove `ReleaseGatesService` from module wiring and controller tests**
+- [x] **Step 6: Remove `ReleaseGatesService` from module wiring and controller tests**
 
 ```ts
 providers: [ChangeTicketsService],
 exports: [ChangeTicketsService],
 ```
 
-- [ ] **Step 7: Re-run change-ticket backend tests**
+- [x] **Step 7: Re-run change-ticket backend tests**
 
 Run:
 ```bash
@@ -385,7 +385,7 @@ Expected:
 - Test: `/Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js/src/modules/governance/delete-requests/delete-requests.service.spec.ts`
 - Test: `/Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js/src/modules/governance/delete-requests/delete-requests.controller.spec.ts`
 
-- [ ] **Step 1: Rewrite delete-request tests to the new names and terminal states**
+- [x] **Step 1: Rewrite delete-request tests to the new names and terminal states**
 
 ```ts
 it('projects approved approval to READY', async () => {
@@ -401,7 +401,7 @@ it('marks consume failure to FAILED', async () => {
 });
 ```
 
-- [ ] **Step 2: Run delete-request tests before refactor**
+- [x] **Step 2: Run delete-request tests before refactor**
 
 Run:
 ```bash
@@ -413,7 +413,7 @@ Expected:
 - failures around `EXECUTED` / `EXECUTION_FAILED`
 - failures around `COMPLIANCE_CASE_EVIDENCE_PACKAGE`
 
-- [ ] **Step 3: Rename the field model inside the service**
+- [x] **Step 3: Rename the field model inside the service**
 
 ```ts
 // makerUserId -> createdByUserId
@@ -432,7 +432,7 @@ const created = await this.createRequestWithUniqueNo({
 });
 ```
 
-- [ ] **Step 4: Restrict target resolution to the three Wave 1 target types**
+- [x] **Step 4: Restrict target resolution to the three Wave 1 target types**
 
 ```ts
 switch (targetType) {
@@ -445,7 +445,7 @@ switch (targetType) {
 }
 ```
 
-- [ ] **Step 5: Keep `submit/cancel/consume`, rename `execute` to `consume`, and map statuses**
+- [x] **Step 5: Keep `submit/cancel/consume`, rename `execute` to `consume`, and map statuses**
 
 ```ts
 // submit -> PENDING_APPROVAL
@@ -455,7 +455,7 @@ switch (targetType) {
 // consume failure -> FAILED
 ```
 
-- [ ] **Step 6: Re-run delete-request backend tests**
+- [x] **Step 6: Re-run delete-request backend tests**
 
 Run:
 ```bash
@@ -474,7 +474,7 @@ Expected:
 - Modify: `/Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js/src/modules/governance/sla-timers/sla-timers.service.ts`
 - Modify: `/Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js/src/modules/governance/sla-timers/sla-timers.service.spec.ts`
 
-- [ ] **Step 1: Rewrite business-config publish guard to the new ticket meaning**
+- [x] **Step 1: Rewrite business-config publish guard to the new ticket meaning**
 
 ```ts
 if (changeTicket.status !== ChangeTicketStatuses.READY) {
@@ -491,7 +491,7 @@ if (!changeTicket.approvalCaseId) {
 }
 ```
 
-- [ ] **Step 2: Replace old SLA/mock references to removed change types and deploy states**
+- [x] **Step 2: Replace old SLA/mock references to removed change types and deploy states**
 
 ```ts
 changeType: ChangeTicketTypes.ADMIN_ACCESS_CHANGE
@@ -502,7 +502,7 @@ changeType: ChangeTicketTypes.ADMIN_ACCESS_CHANGE
 // with DONE / FAILED terminal handling
 ```
 
-- [ ] **Step 3: Run the collateral unit tests**
+- [x] **Step 3: Run the collateral unit tests**
 
 Run:
 ```bash
@@ -521,7 +521,7 @@ Expected:
 - Modify: `/Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js/admin-web/src/pages/ChangeTicketDetailPage.tsx`
 - Modify: `/Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js/admin-web/src/rbac/permissions.ts`
 
-- [ ] **Step 1: Reduce create-page form to the minimal fields**
+- [x] **Step 1: Reduce create-page form to the minimal fields**
 
 ```ts
 const CHANGE_TYPE_OPTIONS = ['ADMIN_ACCESS_CHANGE', 'RBAC_CATALOG_CHANGE'];
@@ -543,7 +543,7 @@ const [formData, setFormData] = useState({
 // Post Approval Due At
 ```
 
-- [ ] **Step 2: Simplify list filters and columns**
+- [x] **Step 2: Simplify list filters and columns**
 
 ```ts
 interface FilterState {
@@ -563,7 +563,7 @@ interface FilterState {
 // replace latestApprovalStatus filter with approvalNo / operator-facing No filters
 ```
 
-- [ ] **Step 3: Replace detail actions with `submit` and `consume` only**
+- [x] **Step 3: Replace detail actions with `submit` and `consume` only**
 
 ```tsx
 {canSubmit && detail.status === 'DRAFT' && <SubmitButton />}
@@ -579,7 +579,7 @@ interface FilterState {
 // releaseVersion / targetEnv inputs
 ```
 
-- [ ] **Step 3.5: Remove stale frontend permissions for deleted ChangeTicket actions**
+- [x] **Step 3.5: Remove stale frontend permissions for deleted ChangeTicket actions**
 
 ```ts
 // remove:
@@ -593,7 +593,7 @@ interface FilterState {
 // GOV_CHANGE_TICKET_CONSUME
 ```
 
-- [ ] **Step 4: Move technical fields into a secondary section**
+- [x] **Step 4: Move technical fields into a secondary section**
 
 ```tsx
 <DetailCard title="Technical" columns={2}>
@@ -603,7 +603,7 @@ interface FilterState {
 </DetailCard>
 ```
 
-- [ ] **Step 5: Build the frontend app**
+- [x] **Step 5: Build the frontend app**
 
 Run:
 ```bash
@@ -622,7 +622,7 @@ Expected:
 - Modify: `/Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js/admin-web/src/pages/DeleteRequestDetailPage.tsx`
 - Modify: `/Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js/admin-web/src/rbac/permissions.ts`
 
-- [ ] **Step 1: Remove the compliance case evidence target from the create page**
+- [x] **Step 1: Remove the compliance case evidence target from the create page**
 
 ```ts
 const TARGET_TYPE_OPTIONS = [
@@ -632,7 +632,7 @@ const TARGET_TYPE_OPTIONS = [
 ];
 ```
 
-- [ ] **Step 2: Update list-page filters to operator-facing No pairs**
+- [x] **Step 2: Update list-page filters to operator-facing No pairs**
 
 ```ts
 interface FilterState {
@@ -648,7 +648,7 @@ interface FilterState {
 }
 ```
 
-- [ ] **Step 3: Replace detail naming and status language**
+- [x] **Step 3: Replace detail naming and status language**
 
 ```tsx
 interface DeleteRequestDetail {
@@ -670,14 +670,14 @@ interface DeleteRequestDetail {
 // EXECUTED -> DONE
 ```
 
-- [ ] **Step 3.5: Rename frontend permission surface from execute to consume**
+- [x] **Step 3.5: Rename frontend permission surface from execute to consume**
 
 ```ts
 // rename:
 // GOV_DELETE_REQUEST_EXECUTE -> GOV_DELETE_REQUEST_CONSUME
 ```
 
-- [ ] **Step 4: Keep snapshot JSON in a technical section, not in the primary summary**
+- [x] **Step 4: Keep snapshot JSON in a technical section, not in the primary summary**
 
 ```tsx
 <DetailCard title="Technical Snapshot" columns={1}>
@@ -685,7 +685,7 @@ interface DeleteRequestDetail {
 </DetailCard>
 ```
 
-- [ ] **Step 5: Rebuild the frontend after delete-request page changes**
+- [x] **Step 5: Rebuild the frontend after delete-request page changes**
 
 Run:
 ```bash
@@ -705,7 +705,7 @@ Expected:
 - Modify: `/Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js/docs/specs/entities/delete-request-entity.md`
 - Modify: `/Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js/docs/constraints/governance-change-ticket-constraints.md`
 
-- [ ] **Step 1: Update the permanent docs to the new semantics**
+- [x] **Step 1: Update the permanent docs to the new semantics**
 
 ```md
 ChangeTicket:
@@ -717,7 +717,7 @@ DeleteRequest:
 - targetType only allows CHANGE_TICKET / AUDIT_EVIDENCE_PACKAGE / ADMIN_USER
 ```
 
-- [ ] **Step 2: Run the focused backend governance regression**
+- [x] **Step 2: Run the focused backend governance regression**
 
 Run:
 ```bash
@@ -727,7 +727,7 @@ cd /Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js
 Expected:
 - all touched governance specs pass together
 
-- [ ] **Step 3: Run the fastest relevant builds**
+- [x] **Step 3: Run the fastest relevant builds**
 
 Run:
 ```bash
@@ -743,7 +743,7 @@ Expected:
 - Nest build passes
 - admin-web build passes
 
-- [ ] **Step 4: Commit the minimalization as a single focused change**
+- [x] **Step 4: Commit the minimalization as a single focused change**
 
 ```bash
 cd /Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js

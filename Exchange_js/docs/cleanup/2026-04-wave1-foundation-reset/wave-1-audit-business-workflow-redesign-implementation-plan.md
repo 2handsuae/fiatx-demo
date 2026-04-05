@@ -49,7 +49,7 @@
 - Modify: `/Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js/src/modules/risk-engine/audit-logs/constants/audit-actions.constant.ts`
 - Modify: `/Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js/src/modules/risk-engine/audit-logs/audit-logs.service.spec.ts`
 
-- [ ] Add a Wave 1 business-workflow constant set:
+- [x] Add a Wave 1 business-workflow constant set:
   - `ADMIN_MEMBER_PROVISIONING`
   - `ADMIN_LOGIN_ACCESS`
   - `ADMIN_ROLE_BINDING_CHANGE`
@@ -57,7 +57,7 @@
   - `ADMIN_USER_DELETION`
   - `AUDIT_EVIDENCE_PACKAGE_DELETION`
   - `AUDIT_EVIDENCE_EXPORT`
-- [ ] Add a user-action vocabulary/mapping helper for:
+- [x] Add a user-action vocabulary/mapping helper for:
   - `REQUEST_CREATED`
   - `SUBMITTED`
   - `APPROVED_FOR_EXECUTION`
@@ -72,8 +72,8 @@
   - `CANCELLED`
   - `EXPORTED`
   - `EXPORT_FAILED`
-- [ ] Add read-model tests that prove raw technical actions map to the intended user-action labels.
-- [ ] Run:
+- [x] Add read-model tests that prove raw technical actions map to the intended user-action labels.
+- [x] Run:
 ```bash
 cd /Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js && npm test -- src/modules/risk-engine/audit-logs/audit-logs.service.spec.ts --runInBand
 ```
@@ -84,20 +84,20 @@ cd /Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js
 - Modify: `/Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js/src/modules/governance/change-tickets/change-tickets.service.ts`
 - Modify: `/Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js/src/modules/governance/change-tickets/change-tickets.service.spec.ts`
 
-- [ ] Add helpers to resolve:
+- [x] Add helpers to resolve:
   - `ADMIN_ACCESS_CHANGE -> ADMIN_MEMBER_PROVISIONING`
   - `RBAC_CATALOG_CHANGE -> ADMIN_ROLE_BINDING_CHANGE`
-- [ ] Ensure all change-ticket audit writes use:
+- [x] Ensure all change-ticket audit writes use:
   - `workflowType = business workflow type`
   - `workflowNo = ticketNo`
   - `traceId = ticket.traceId`
-- [ ] Keep ticket container info in metadata/technical projection instead of making it the first-layer workflow name.
-- [ ] Ensure `subjectNos` always include:
+- [x] Keep ticket container info in metadata/technical projection instead of making it the first-layer workflow name.
+- [x] Ensure `subjectNos` always include:
   - `ticketNo`
   - `approvalNo` when present
   - target admin `userNo` when known from binding snapshot
-- [ ] Add tests covering both change types and their resulting workflow/action projections.
-- [ ] Run:
+- [x] Add tests covering both change types and their resulting workflow/action projections.
+- [x] Run:
 ```bash
 cd /Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js && npm test -- src/modules/governance/change-tickets/change-tickets.service.spec.ts --runInBand
 ```
@@ -108,23 +108,23 @@ cd /Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js
 - Modify: `/Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js/src/modules/governance/delete-requests/delete-requests.service.ts`
 - Modify: `/Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js/src/modules/governance/delete-requests/delete-requests.service.spec.ts`
 
-- [ ] Add helpers to resolve:
+- [x] Add helpers to resolve:
   - `CHANGE_TICKET -> CHANGE_TICKET_DELETION`
   - `ADMIN_USER -> ADMIN_USER_DELETION`
   - `AUDIT_EVIDENCE_PACKAGE -> AUDIT_EVIDENCE_PACKAGE_DELETION`
-- [ ] Stop inheriting target trace when a delete request is created.
-- [ ] Ensure each delete request starts its own trace unless a caller explicitly supplies one.
-- [ ] Ensure all delete-request audit writes use:
+- [x] Stop inheriting target trace when a delete request is created.
+- [x] Ensure each delete request starts its own trace unless a caller explicitly supplies one.
+- [x] Ensure all delete-request audit writes use:
   - `workflowType = business delete workflow`
   - `workflowNo = requestNo`
   - `traceId = request.traceId`
-- [ ] Ensure `subjectNos` always include:
+- [x] Ensure `subjectNos` always include:
   - `requestNo`
   - `approvalNo` when present
   - `targetNo`
   - actor `userNo`
-- [ ] Add regression tests proving deleting a change ticket no longer reuses the target change ticket trace.
-- [ ] Run:
+- [x] Add regression tests proving deleting a change ticket no longer reuses the target change ticket trace.
+- [x] Run:
 ```bash
 cd /Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js && npm test -- src/modules/governance/delete-requests/delete-requests.service.spec.ts --runInBand
 ```
@@ -137,17 +137,17 @@ cd /Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js
 - Modify: `/Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js/src/modules/governance/approvals/audit-evidence-export-approval.service.ts`
 - Modify: `/Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js/src/modules/governance/approvals/audit-evidence-export-approval.service.spec.ts`
 
-- [ ] Keep `APPROVAL_*` technical actions unchanged.
-- [ ] Ensure approval records always inherit parent workflow context from the caller:
+- [x] Keep `APPROVAL_*` technical actions unchanged.
+- [x] Ensure approval records always inherit parent workflow context from the caller:
   - parent business workflow type
   - parent primary ref no
   - parent trace id
-- [ ] Ensure evidence-export approval flow uses:
+- [x] Ensure evidence-export approval flow uses:
   - `workflowType = AUDIT_EVIDENCE_EXPORT`
   - `workflowNo = packageNo` or the chosen export root ref
   - one trace across request, approval, export result
-- [ ] Add tests proving approval events for CT/DR/export are queryable under the parent workflow context.
-- [ ] Run:
+- [x] Add tests proving approval events for CT/DR/export are queryable under the parent workflow context.
+- [x] Run:
 ```bash
 cd /Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js && npm test -- src/modules/governance/approvals/approvals.service.spec.ts src/modules/governance/approvals/audit-evidence-export-approval.service.spec.ts --runInBand
 ```
@@ -162,14 +162,14 @@ cd /Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js
 - Modify: `/Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js/src/modules/identity/users/admin-invitations.service.spec.ts`
 - Modify: `/Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js/src/modules/identity/access-control/access-control.service.spec.ts`
 
-- [ ] Introduce an internal audit-context parameter for governed execution paths:
+- [x] Introduce an internal audit-context parameter for governed execution paths:
   - business workflow type
   - primary ref no
   - trace id
-- [ ] Pass that context from `ChangeTicket.consume` into:
+- [x] Pass that context from `ChangeTicket.consume` into:
   - `UsersService.executeAdminMemberProvisioning`
   - `AccessControlService.executeGovernedRoleBindingChange`
-- [ ] Ensure:
+- [x] Ensure:
   - `USER_CREATED`
   - `USER_ROLE_BINDING_UPDATED`
   - `ADMIN_INVITATION_CREATED`
@@ -177,9 +177,9 @@ cd /Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js
   - `ADMIN_INVITATION_ACCEPTED`
   - `ADMIN_INVITATION_ACCEPT_FAILED`
   all stay on the same provisioning trace when they belong to one provisioning workflow instance.
-- [ ] Keep `ADMIN_LOGIN_*` on separate login workflow traces.
-- [ ] Add tests proving provisioning and invitation child-flow audits share one trace, while login remains separate.
-- [ ] Run:
+- [x] Keep `ADMIN_LOGIN_*` on separate login workflow traces.
+- [x] Add tests proving provisioning and invitation child-flow audits share one trace, while login remains separate.
+- [x] Run:
 ```bash
 cd /Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js && npm test -- src/modules/identity/users/users.service.spec.ts src/modules/identity/users/admin-invitations.service.spec.ts src/modules/identity/access-control/access-control.service.spec.ts --runInBand
 ```
@@ -193,21 +193,21 @@ cd /Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js
 - Modify: `/Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js/admin-web/src/pages/AuditLogDetailPage.tsx`
 - Modify: `/Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js/src/modules/risk-engine/audit-logs/audit-logs.service.spec.ts`
 
-- [ ] Extend audit API responses with derived display fields:
+- [x] Extend audit API responses with derived display fields:
   - `businessWorkflow`
   - `businessWorkflowLabel`
   - `primaryRefNo`
   - `userAction`
   - `userActionLabel`
-- [ ] Keep raw fields available for technical sections:
+- [x] Keep raw fields available for technical sections:
   - `action`
   - `entityType`
   - `entityNo`
   - `traceId`
   - container metadata
-- [ ] Update Audit Logs list/detail so the first-layer presentation uses business workflow and user action, not raw container names.
-- [ ] Move raw container and trace information into the technical section by default.
-- [ ] Run:
+- [x] Update Audit Logs list/detail so the first-layer presentation uses business workflow and user action, not raw container names.
+- [x] Move raw container and trace information into the technical section by default.
+- [x] Run:
 ```bash
 cd /Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js && npm test -- src/modules/risk-engine/audit-logs/audit-logs.service.spec.ts --runInBand
 cd /Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js/admin-web && npm run build
@@ -222,13 +222,13 @@ cd /Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js
 - Modify: `/Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js/docs/specs/workflows/delete-request-soft-delete-workflow.md`
 - Modify: `/Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js/docs/specs/workflows/admin-member-auth-boundary-workflow.md`
 
-- [ ] Promote the approved business-workflow-first terminology into permanent docs.
-- [ ] Explicitly document:
+- [x] Promote the approved business-workflow-first terminology into permanent docs.
+- [x] Explicitly document:
   - one workflow instance = one trace
   - approval is embedded
   - delete flows do not inherit target trace
   - business workflow is first-layer UI language
-- [ ] Run a final focused regression:
+- [x] Run a final focused regression:
 ```bash
 cd /Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js && npm test -- src/modules/governance/change-tickets/change-tickets.service.spec.ts src/modules/governance/delete-requests/delete-requests.service.spec.ts src/modules/governance/approvals/approvals.service.spec.ts src/modules/governance/approvals/audit-evidence-export-approval.service.spec.ts src/modules/identity/users/users.service.spec.ts src/modules/identity/users/admin-invitations.service.spec.ts src/modules/identity/access-control/access-control.service.spec.ts src/modules/risk-engine/audit-logs/audit-logs.service.spec.ts --runInBand
 cd /Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js/admin-web && npm run build

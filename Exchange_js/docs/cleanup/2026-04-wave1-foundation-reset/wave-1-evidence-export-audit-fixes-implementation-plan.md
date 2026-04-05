@@ -17,9 +17,9 @@
 - Modify: `src/modules/governance/sla-timers/approval-sla-projection.service.spec.ts`
 - Modify: `src/modules/risk-engine/audit-logs/audit-logs.service.spec.ts`
 
-- [ ] Add failing tests for evidence export request-created and download audit events.
-- [ ] Add failing tests proving evidence export approvals no longer create or close SLA timers.
-- [ ] Add failing tests proving evidence export rows expose stable workflow/primary ref and richer subjectNos.
+- [x] Add failing tests for evidence export request-created and download audit events.
+- [x] Add failing tests proving evidence export approvals no longer create or close SLA timers.
+- [x] Add failing tests proving evidence export rows expose stable workflow/primary ref and richer subjectNos.
 
 ### Task 2: Implement the evidence export audit chain
 
@@ -28,10 +28,10 @@
 - Modify: `src/modules/risk-engine/audit-logs/constants/audit-actions.constant.ts`
 - Modify: `src/modules/governance/sla-timers/approval-sla-projection.service.ts`
 
-- [ ] Record a request-created audit event when an evidence export request is created.
-- [ ] Record a downloaded audit event when an evidence package is downloaded.
-- [ ] Explicitly attach package/approval related subjects and keep one workflow + trace chain.
-- [ ] Skip SLA projection for audit evidence export approvals.
+- [x] Record a request-created audit event when an evidence export request is created.
+- [x] Record a downloaded audit event when an evidence package is downloaded.
+- [x] Explicitly attach package/approval related subjects and keep one workflow + trace chain.
+- [x] Skip SLA projection for audit evidence export approvals.
 
 ### Task 3: Align read-model mapping and verify
 
@@ -39,6 +39,6 @@
 - Modify: `src/modules/risk-engine/audit-logs/audit-logs.service.ts`
 - Modify: `src/modules/risk-engine/audit-logs/audit-logs.service.spec.ts`
 
-- [ ] Align user-action mapping so the new evidence export events surface cleanly.
-- [ ] Verify primary ref stays on `EVP...` and evidence export approval rows inherit the same workflow context.
-- [ ] Run focused Jest suites for evidence export, SLA projection, and audit log mapping.
+- [x] Align user-action mapping so the new evidence export events surface cleanly.
+- [x] Verify primary ref stays on `EVP...` and evidence export approval rows inherit the same workflow context.
+- [x] Run focused Jest suites for evidence export, SLA projection, and audit log mapping.
