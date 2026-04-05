@@ -13,6 +13,7 @@ import { PrismaService } from '../../../core/prisma/prisma.service';
 import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
 import {
   AuditActions,
+  AuditBusinessWorkflowTypes,
   AuditEntityTypes,
   AuditModules,
   AuditWorkflowTypes,
@@ -22,7 +23,9 @@ import {
   AuditSubjectRole,
   AuditTriggerType,
 } from '../../risk-engine/audit-logs/dto/audit-log.dto';
+import { sha256Hex } from '../../risk-engine/audit-logs/utils/audit-digest.util';
 import { ApprovalsService } from '../approvals/approvals.service';
+import { ChangeTicketStatuses } from '../change-tickets/constants/change-ticket.constants';
 import {
   ApprovalActionTypes,
   ApprovalActorContext,
@@ -31,16 +34,15 @@ import {
 } from '../approvals/constants/approval.constants';
 import {
   CancelDeleteRequestDto,
+  ConsumeDeleteRequestDto,
   CreateDeleteRequestDto,
   DeleteRequestQueryDto,
-  ExecuteDeleteRequestDto,
   SubmitDeleteRequestDto,
 } from './dto/delete-request.dto';
 import {
   DeleteRequestActiveStatuses,
   DeleteRequestStatuses,
   DeleteRequestTargetTypes,
-  DeleteRequestWorkflowTypes,
 } from './constants/delete-request.constants';
 
 type DeleteRequestWriteClient = any;
@@ -54,12 +56,11 @@ type DeleteRequestApprovalSnapshot = {
 
 type DeleteRequestRow = {
   [key: string]: any;
-  latestApproval: DeleteRequestApprovalSnapshot;
+  approvalCase: DeleteRequestApprovalSnapshot;
 };
 
 type ChangeTicketTargetRow = Record<string, any>;
 type AuditEvidencePackageTargetRow = Record<string, any>;
-type ComplianceCaseEvidencePackageTargetRow = Record<string, any>;
 type AdminUserTargetRow = Record<string, any>;
 
 export type ResolvedDeleteTarget =
@@ -75,14 +76,6 @@ export type ResolvedDeleteTarget =
       targetId: string;
       targetNo: string;
       row: AuditEvidencePackageTargetRow;
-      approvalNo: string | null;
-      approvalStatus: string | null;
-    }
-  | {
-      targetType: typeof DeleteRequestTargetTypes.COMPLIANCE_CASE_EVIDENCE_PACKAGE;
-      targetId: string;
-      targetNo: string;
-      row: ComplianceCaseEvidencePackageTargetRow;
       approvalNo: string | null;
       approvalStatus: string | null;
     }
@@ -108,6 +101,12 @@ interface DeleteRequestProjectionResult {
 export class DeleteRequestsService {
   private static readonly DEFAULT_TAKE = 20;
   private static readonly MAX_REQUEST_NO_RETRIES = 10;
+  private static readonly CHANGE_TICKET_DELETABLE_STATUSES = new Set<string>([
+    ChangeTicketStatuses.DONE,
+    ChangeTicketStatuses.FAILED,
+    ChangeTicketStatuses.REJECTED,
+    ChangeTicketStatuses.CANCELLED,
+  ]);
 
   constructor(
     @Inject(PrismaService)
@@ -169,7 +168,7 @@ export class DeleteRequestsService {
 
   private deleteRequestInclude() {
     return {
-      latestApproval: {
+      approvalCase: {
         select: {
           id: true,
           approvalNo: true,
@@ -177,33 +176,6 @@ export class DeleteRequestsService {
           traceId: true,
         },
       },
-    };
-  }
-
-  private mapDeleteRequest(request: DeleteRequestRow) {
-    return {
-      id: request.id,
-      requestNo: request.requestNo,
-      targetType: request.targetType,
-      targetId: request.targetId,
-      targetNo: request.targetNo,
-      status: request.status,
-      latestApprovalId: request.latestApprovalId,
-      latestApprovalNo: request.latestApproval?.approvalNo || null,
-      latestApprovalStatus: request.latestApprovalStatus,
-      makerUserId: request.makerUserId,
-      submittedByUserId: request.submittedByUserId,
-      executedByUserId: request.executedByUserId,
-      deleteReason: request.deleteReason,
-      docRef: request.docRef,
-      targetSnapshotJson: request.targetSnapshotJson
-        ? this.parseJson<Record<string, unknown>>(request.targetSnapshotJson)
-        : {},
-      traceId: request.traceId,
-      createdAt: request.createdAt,
-      updatedAt: request.updatedAt,
-      submittedAt: request.submittedAt,
-      executedAt: request.executedAt,
     };
   }
 
@@ -220,7 +192,42 @@ export class DeleteRequestsService {
     return JSON.stringify(value ?? {});
   }
 
-  private deleteRequestSubjectNos(request: DeleteRequestRow, approvalNo?: string | null) {
+  private mapDeleteRequest(request: DeleteRequestRow) {
+    return {
+      id: request.id,
+      requestNo: request.requestNo,
+      targetType: request.targetType,
+      targetId: request.targetId,
+      targetNo: request.targetNo,
+      status: request.status,
+      approvalCaseId: request.approvalCaseId,
+      approvalNo: request.approvalNo,
+      createdByUserId: request.createdByUserId,
+      createdByUserNo: request.createdByUserNo,
+      submittedByUserId: request.submittedByUserId,
+      submittedByUserNo: request.submittedByUserNo,
+      consumedByUserId: request.consumedByUserId,
+      consumedByUserNo: request.consumedByUserNo,
+      deleteReason: request.deleteReason,
+      resultNote: request.resultNote,
+      docRef: request.docRef,
+      targetSnapshotJson: request.targetSnapshotJson
+        ? this.parseJson<Record<string, unknown>>(request.targetSnapshotJson)
+        : {},
+      targetSnapshotDigest: request.targetSnapshotDigest || null,
+      traceId: request.traceId,
+      createdAt: request.createdAt,
+      updatedAt: request.updatedAt,
+      submittedAt: request.submittedAt,
+      consumedAt: request.consumedAt,
+    };
+  }
+
+  private deleteRequestSubjectNos(
+    request: DeleteRequestRow,
+    actor: ApprovalActorContext,
+    approvalNo?: string | null,
+  ) {
     const subjectNos: Array<{
       subjectRole: AuditSubjectRole;
       subjectType: string;
@@ -229,31 +236,51 @@ export class DeleteRequestsService {
     }> = [
       {
         subjectRole: AuditSubjectRole.ENTITY,
-        subjectType: AuditWorkflowTypes.DELETE_REQUEST,
+        subjectType: AuditEntityTypes.DELETE_REQUEST,
         subjectId: request.id,
         subjectNo: request.requestNo,
       },
-      {
-        subjectRole: AuditSubjectRole.RELATED,
-        subjectType: request.targetType,
-        subjectId: request.targetId,
-        subjectNo: request.targetNo,
-      },
     ];
 
-    const resolvedApprovalNo = this.normalizeOptionalString(
-      approvalNo || request.latestApproval?.approvalNo,
-    );
+    const resolvedApprovalNo = this.normalizeOptionalString(approvalNo || request.approvalNo);
     if (resolvedApprovalNo) {
       subjectNos.push({
         subjectRole: AuditSubjectRole.RELATED,
         subjectType: AuditEntityTypes.APPROVAL_CASE,
-        subjectId: request.latestApprovalId || undefined,
+        subjectId: request.approvalCaseId || undefined,
         subjectNo: resolvedApprovalNo,
       });
     }
 
+    subjectNos.push({
+      subjectRole: AuditSubjectRole.RELATED,
+      subjectType: request.targetType,
+      subjectId: request.targetId,
+      subjectNo: request.targetNo,
+    });
+
+    subjectNos.push({
+      subjectRole: AuditSubjectRole.ACTOR,
+      subjectType: actor.actorType,
+      subjectId: actor.userId,
+      subjectNo: actor.userNo || actor.userId,
+    });
+
     return subjectNos;
+  }
+
+  private resolveDeleteRequestBusinessWorkflowType(targetType: string) {
+    if (targetType === DeleteRequestTargetTypes.CHANGE_TICKET) {
+      return AuditBusinessWorkflowTypes.CHANGE_TICKET_DELETION;
+    }
+    if (targetType === DeleteRequestTargetTypes.ADMIN_USER) {
+      return AuditBusinessWorkflowTypes.ADMIN_USER_DELETION;
+    }
+    if (targetType === DeleteRequestTargetTypes.AUDIT_EVIDENCE_PACKAGE) {
+      return AuditBusinessWorkflowTypes.AUDIT_EVIDENCE_PACKAGE_DELETION;
+    }
+
+    throw new BadRequestException(`Unsupported delete request targetType: ${targetType}`);
   }
 
   private async recordDeleteRequestAudit(
@@ -275,7 +302,7 @@ export class DeleteRequestsService {
         entityType: AuditEntityTypes.DELETE_REQUEST,
         entityId: request.id,
         entityNo: request.requestNo,
-        workflowType: DeleteRequestWorkflowTypes.DELETE_REQUEST,
+        workflowType: this.resolveDeleteRequestBusinessWorkflowType(request.targetType),
         workflowId: request.id,
         workflowNo: request.requestNo,
         traceId: request.traceId,
@@ -287,12 +314,11 @@ export class DeleteRequestsService {
           targetType: request.targetType,
           targetId: request.targetId,
           targetNo: request.targetNo,
-          latestApprovalId: request.latestApprovalId,
-          latestApprovalNo: approvalNo || request.latestApproval?.approvalNo || null,
-          latestApprovalStatus: request.latestApprovalStatus,
+          approvalCaseId: request.approvalCaseId,
+          approvalNo: approvalNo || request.approvalNo || null,
           ...(metadata || {}),
         },
-        subjectNos: this.deleteRequestSubjectNos(request, approvalNo),
+        subjectNos: this.deleteRequestSubjectNos(request, actor, approvalNo),
         requestId: `DELETE_REQUEST_${request.requestNo}_${action}`,
         sourcePlatform: 'ADMIN_API',
       },
@@ -363,8 +389,8 @@ export class DeleteRequestsService {
         targetNo: target.row.ticketNo,
         status: target.row.status,
         changeType: target.row.changeType,
-        latestApprovalId: target.row.latestApprovalId,
-        latestApprovalStatus: target.row.latestApprovalStatus,
+        approvalCaseId: target.row.approvalCaseId,
+        approvalNo: target.row.approvalNo,
         traceId: target.row.traceId,
         createdAt: target.row.createdAt,
         updatedAt: target.row.updatedAt,
@@ -394,6 +420,7 @@ export class DeleteRequestsService {
       itemCount: target.row.itemCount,
       digest: target.row.digest,
       approvalCaseId: target.row.approvalCaseId,
+      approvalNo: target.approvalNo,
       approvalStatus: target.approvalStatus,
       createdAt: target.row.createdAt,
       updatedAt: target.row.updatedAt,
@@ -440,29 +467,32 @@ export class DeleteRequestsService {
           ticketNo: true,
           status: true,
           changeType: true,
-          latestApprovalId: true,
-          latestApprovalStatus: true,
+          approvalCaseId: true,
+          approvalNo: true,
           traceId: true,
           createdAt: true,
           updatedAt: true,
           deletedAt: true,
           deletedBy: true,
           deleteRequestId: true,
+          deleteRequestNo: true,
           deleteReason: true,
         },
       });
       if (!row) {
         throw new NotFoundException(`Change ticket not found: ${normalizedTargetNo}`);
       }
-      if (row.status !== 'CLOSED') {
-        throw new BadRequestException('Only CLOSED change tickets can be deleted');
+      if (!DeleteRequestsService.CHANGE_TICKET_DELETABLE_STATUSES.has(row.status)) {
+        throw new BadRequestException(
+          'Only terminal change tickets can be deleted',
+        );
       }
       return {
         targetType: DeleteRequestTargetTypes.CHANGE_TICKET,
         targetId: row.id,
         targetNo: row.ticketNo,
         row,
-        approvalNo: null,
+        approvalNo: row.approvalNo || null,
       };
     }
 
@@ -504,57 +534,6 @@ export class DeleteRequestsService {
       }
       return {
         targetType: DeleteRequestTargetTypes.AUDIT_EVIDENCE_PACKAGE,
-        targetId: row.id,
-        targetNo: row.packageNo,
-        row,
-        approvalNo: row.approvalCase?.approvalNo || null,
-        approvalStatus: row.approvalCase?.status || null,
-      };
-    }
-
-    if (
-      normalizedTargetType ===
-      DeleteRequestTargetTypes.COMPLIANCE_CASE_EVIDENCE_PACKAGE
-    ) {
-      const row = await this.prisma.complianceCaseEvidencePackage.findFirst({
-        where: {
-          packageNo: normalizedTargetNo,
-          deletedAt: null,
-        },
-        select: {
-          id: true,
-          packageNo: true,
-          approvalCaseId: true,
-          status: true,
-          exportMode: true,
-          itemCount: true,
-          digest: true,
-          createdAt: true,
-          updatedAt: true,
-          deletedAt: true,
-          deletedBy: true,
-          deleteRequestId: true,
-          deleteReason: true,
-          approvalCase: {
-            select: {
-              approvalNo: true,
-              status: true,
-            },
-          },
-        },
-      });
-      if (!row) {
-        throw new NotFoundException(
-          `Case evidence export package not found: ${normalizedTargetNo}`,
-        );
-      }
-      if (row.approvalCase?.status === ApprovalStatuses.PENDING) {
-        throw new BadRequestException(
-          'Case evidence export package with pending approval cannot be deleted',
-        );
-      }
-      return {
-        targetType: DeleteRequestTargetTypes.COMPLIANCE_CASE_EVIDENCE_PACKAGE,
         targetId: row.id,
         targetNo: row.packageNo,
         row,
@@ -626,29 +605,32 @@ export class DeleteRequestsService {
           ticketNo: true,
           status: true,
           changeType: true,
-          latestApprovalId: true,
-          latestApprovalStatus: true,
+          approvalCaseId: true,
+          approvalNo: true,
           traceId: true,
           createdAt: true,
           updatedAt: true,
           deletedAt: true,
           deletedBy: true,
           deleteRequestId: true,
+          deleteRequestNo: true,
           deleteReason: true,
         },
       });
       if (!row || row.deletedAt) {
         throw new NotFoundException(`Change ticket not found: ${normalizedTargetId}`);
       }
-      if (row.status !== 'CLOSED') {
-        throw new BadRequestException('Only CLOSED change tickets can be deleted');
+      if (!DeleteRequestsService.CHANGE_TICKET_DELETABLE_STATUSES.has(row.status)) {
+        throw new BadRequestException(
+          'Only terminal change tickets can be deleted',
+        );
       }
       return {
         targetType: DeleteRequestTargetTypes.CHANGE_TICKET,
         targetId: row.id,
         targetNo: row.ticketNo,
         row,
-        approvalNo: null,
+        approvalNo: row.approvalNo || null,
       };
     }
 
@@ -687,54 +669,6 @@ export class DeleteRequestsService {
       }
       return {
         targetType: DeleteRequestTargetTypes.AUDIT_EVIDENCE_PACKAGE,
-        targetId: row.id,
-        targetNo: row.packageNo,
-        row,
-        approvalNo: row.approvalCase?.approvalNo || null,
-        approvalStatus: row.approvalCase?.status || null,
-      };
-    }
-
-    if (
-      normalizedTargetType ===
-      DeleteRequestTargetTypes.COMPLIANCE_CASE_EVIDENCE_PACKAGE
-    ) {
-      const row = await this.prisma.complianceCaseEvidencePackage.findUnique({
-        where: { id: normalizedTargetId },
-        select: {
-          id: true,
-          packageNo: true,
-          approvalCaseId: true,
-          status: true,
-          exportMode: true,
-          itemCount: true,
-          digest: true,
-          createdAt: true,
-          updatedAt: true,
-          deletedAt: true,
-          deletedBy: true,
-          deleteRequestId: true,
-          deleteReason: true,
-          approvalCase: {
-            select: {
-              approvalNo: true,
-              status: true,
-            },
-          },
-        },
-      });
-      if (!row || row.deletedAt) {
-        throw new NotFoundException(
-          `Case evidence export package not found: ${normalizedTargetId}`,
-        );
-      }
-      if (row.approvalCase?.status === ApprovalStatuses.PENDING) {
-        throw new BadRequestException(
-          'Case evidence export package with pending approval cannot be deleted',
-        );
-      }
-      return {
-        targetType: DeleteRequestTargetTypes.COMPLIANCE_CASE_EVIDENCE_PACKAGE,
         targetId: row.id,
         targetNo: row.packageNo,
         row,
@@ -790,8 +724,12 @@ export class DeleteRequestsService {
     approvalStatus: string,
     approvalNo: string | null,
   ): Promise<DeleteRequestProjectionResult> {
+    if (request.status !== DeleteRequestStatuses.PENDING_APPROVAL) {
+      return { request };
+    }
+
     const normalizedApprovalStatus = this.normalizeOptionalString(approvalStatus);
-    const currentApprovalStatus = this.normalizeOptionalString(request.latestApprovalStatus);
+    const normalizedApprovalNo = this.normalizeOptionalString(approvalNo);
     if (!normalizedApprovalStatus) {
       return { request };
     }
@@ -800,49 +738,37 @@ export class DeleteRequestsService {
     let action: string | undefined;
     let reason: string | undefined;
     let result: AuditResult | undefined;
-    const pendingProjectionStatuses = new Set<string>([
-      DeleteRequestStatuses.SUBMITTED,
-      DeleteRequestStatuses.APPROVAL_PENDING,
-    ]);
-    const rejectingApprovalStatuses = new Set<string>([
-      ApprovalStatuses.REJECTED,
-      ApprovalStatuses.EXPIRED,
-      ApprovalStatuses.CANCELLED,
-    ]);
 
-    if (
-      normalizedApprovalStatus === ApprovalStatuses.APPROVED &&
-      pendingProjectionStatuses.has(request.status)
-    ) {
-      nextStatus = DeleteRequestStatuses.READY_TO_EXECUTE;
+    if (normalizedApprovalStatus === ApprovalStatuses.APPROVED) {
+      nextStatus = DeleteRequestStatuses.READY;
       action = AuditActions.DELETE_REQUEST_APPROVED;
-      reason = `Approval ${approvalNo || request.latestApprovalId || ''} approved`;
+      reason = `Approval ${normalizedApprovalNo || request.approvalCaseId || ''} approved`;
       result = AuditResult.SUCCESS;
     } else if (
-      rejectingApprovalStatuses.has(normalizedApprovalStatus) &&
-      pendingProjectionStatuses.has(request.status)
+      normalizedApprovalStatus === ApprovalStatuses.REJECTED ||
+      normalizedApprovalStatus === ApprovalStatuses.EXPIRED ||
+      normalizedApprovalStatus === ApprovalStatuses.CANCELLED
     ) {
       nextStatus = DeleteRequestStatuses.REJECTED;
       action = AuditActions.DELETE_REQUEST_REJECTED;
-      reason = `Approval ${approvalNo || request.latestApprovalId || ''} ${normalizedApprovalStatus.toLowerCase()}`;
+      reason = `Approval ${normalizedApprovalNo || request.approvalCaseId || ''} ${normalizedApprovalStatus.toLowerCase()}`;
       result = AuditResult.REJECTED;
-    } else if (
-      normalizedApprovalStatus === ApprovalStatuses.PENDING &&
-      request.status === DeleteRequestStatuses.SUBMITTED
-    ) {
-      nextStatus = DeleteRequestStatuses.APPROVAL_PENDING;
     }
 
-    if (nextStatus === request.status && normalizedApprovalStatus === currentApprovalStatus) {
+    const data: Record<string, unknown> = {};
+    if (nextStatus !== request.status) {
+      data.status = nextStatus;
+    }
+    if (normalizedApprovalNo && normalizedApprovalNo !== request.approvalNo) {
+      data.approvalNo = normalizedApprovalNo;
+    }
+    if (!Object.keys(data).length) {
       return { request };
     }
 
     const updated = (await this.prisma.deleteRequest.update({
       where: { id: request.id },
-      data: {
-        status: nextStatus,
-        latestApprovalStatus: normalizedApprovalStatus,
-      },
+      data,
       include: this.deleteRequestInclude(),
     })) as DeleteRequestRow;
 
@@ -853,7 +779,7 @@ export class DeleteRequestsService {
       result,
       statusFrom: request.status,
       statusTo: nextStatus,
-      approvalNo,
+      approvalNo: normalizedApprovalNo,
     };
   }
 
@@ -877,7 +803,7 @@ export class DeleteRequestsService {
     }
 
     const row = found as DeleteRequestRow;
-    if (row.latestApprovalId && row.latestApprovalId !== event.approvalId) {
+    if (row.approvalCaseId && row.approvalCaseId !== event.approvalId) {
       return this.mapDeleteRequest(row);
     }
 
@@ -905,18 +831,23 @@ export class DeleteRequestsService {
     if (existing) {
       return this.mapDeleteRequest(existing);
     }
+    const targetSnapshot = this.buildDeleteRequestSnapshot(target);
 
     const created = await this.createRequestWithUniqueNo({
       targetType: target.targetType,
       targetId: target.targetId,
       targetNo: target.targetNo,
       status: DeleteRequestStatuses.DRAFT,
-      latestApprovalStatus: null,
-      makerUserId: actor.userId,
+      approvalCaseId: null,
+      approvalNo: target.approvalNo,
+      createdByUserId: actor.userId,
+      createdByUserNo: actor.userNo,
       deleteReason: String(dto.deleteReason || '').trim(),
+      resultNote: null,
       docRef: this.normalizeOptionalString(dto.docRef),
-      targetSnapshotJson: this.serializeJson({}),
-      traceId: this.normalizeOptionalString(dto.traceId) || randomUUID(),
+      targetSnapshotJson: this.serializeJson(targetSnapshot),
+      targetSnapshotDigest: sha256Hex(targetSnapshot),
+      traceId: randomUUID(),
     });
 
     await this.recordDeleteRequestAudit(
@@ -938,8 +869,8 @@ export class DeleteRequestsService {
 
   async submit(id: string, dto: SubmitDeleteRequestDto, actor: ApprovalActorContext) {
     const existing = await this.findRequestOrThrow(id);
-    if (existing.makerUserId !== actor.userId) {
-      throw new ForbiddenException('Only the maker can submit this delete request');
+    if (existing.createdByUserId !== actor.userId) {
+      throw new ForbiddenException('Only the creator can submit this delete request');
     }
     if (existing.status !== DeleteRequestStatuses.DRAFT) {
       throw new BadRequestException('Only DRAFT delete requests can be submitted');
@@ -954,23 +885,15 @@ export class DeleteRequestsService {
           status: string;
         }
       | undefined;
+
     const updated = await this.prisma.$transaction(async (tx: any) => {
       const current = await this.findRequestOrThrow(id, tx);
-      if (current.makerUserId !== actor.userId) {
-        throw new ForbiddenException('Only the maker can submit this delete request');
+      if (current.createdByUserId !== actor.userId) {
+        throw new ForbiddenException('Only the creator can submit this delete request');
       }
       if (current.status !== DeleteRequestStatuses.DRAFT) {
         throw new BadRequestException('Only DRAFT delete requests can be submitted');
       }
-
-      await tx.deleteRequest.update({
-        where: { id: current.id },
-        data: {
-          status: DeleteRequestStatuses.SUBMITTED,
-          submittedByUserId: actor.userId,
-          submittedAt: new Date(),
-        },
-      });
 
       approval = await this.approvalsService.createAndSubmit(
         {
@@ -1000,9 +923,12 @@ export class DeleteRequestsService {
       return (await tx.deleteRequest.update({
         where: { id: current.id },
         data: {
-          status: DeleteRequestStatuses.APPROVAL_PENDING,
-          latestApprovalId: approval.id,
-          latestApprovalStatus: approval.status,
+          status: DeleteRequestStatuses.PENDING_APPROVAL,
+          approvalCaseId: approval.id,
+          approvalNo: approval.approvalNo,
+          submittedByUserId: actor.userId,
+          submittedByUserNo: actor.userNo,
+          submittedAt: new Date(),
         },
         include: this.deleteRequestInclude(),
       })) as DeleteRequestRow;
@@ -1015,9 +941,9 @@ export class DeleteRequestsService {
       AuditResult.SUCCESS,
       this.normalizeOptionalString(dto.reason) || 'Delete request submitted',
       DeleteRequestStatuses.DRAFT,
-      DeleteRequestStatuses.APPROVAL_PENDING,
+      DeleteRequestStatuses.PENDING_APPROVAL,
       {
-        approvalId: approval?.id || null,
+        approvalCaseId: approval?.id || null,
       },
       approval?.approvalNo || null,
     );
@@ -1036,26 +962,27 @@ export class DeleteRequestsService {
   async cancel(id: string, dto: CancelDeleteRequestDto, actor: ApprovalActorContext) {
     const current = await this.findRequestOrThrow(id);
     const isSuperAdmin = this.isSuperAdmin(actor);
-    if (current.makerUserId !== actor.userId && !isSuperAdmin) {
-      throw new ForbiddenException('Only the maker can cancel this delete request');
+    if (current.createdByUserId !== actor.userId && !isSuperAdmin) {
+      throw new ForbiddenException('Only the creator can cancel this delete request');
     }
+
     const cancellableStatuses = new Set<string>([
       DeleteRequestStatuses.DRAFT,
-      DeleteRequestStatuses.SUBMITTED,
-      DeleteRequestStatuses.APPROVAL_PENDING,
+      DeleteRequestStatuses.PENDING_APPROVAL,
+      DeleteRequestStatuses.READY,
     ]);
     if (!cancellableStatuses.has(current.status)) {
       throw new BadRequestException(
-        'Only DRAFT, SUBMITTED, or APPROVAL_PENDING delete requests can be cancelled',
+        'Only DRAFT, PENDING_APPROVAL, or READY delete requests can be cancelled',
       );
     }
 
     this.assertTraceConsistency(current.traceId, dto.traceId);
 
-    let latestApprovalStatus = current.latestApprovalStatus;
-    if (current.latestApprovalId && current.latestApprovalStatus === ApprovalStatuses.PENDING) {
+    let approvalNo = current.approvalNo || null;
+    if (current.approvalCaseId && current.approvalCase?.status === ApprovalStatuses.PENDING) {
       const cancelledApproval = await this.approvalsService.cancel(
-        current.latestApprovalId,
+        current.approvalCaseId,
         {
           reason:
             this.normalizeOptionalString(dto.reason) ||
@@ -1064,14 +991,14 @@ export class DeleteRequestsService {
         },
         actor,
       );
-      latestApprovalStatus = cancelledApproval.status;
+      approvalNo = cancelledApproval.approvalNo || approvalNo;
     }
 
     const updated = (await this.prisma.deleteRequest.update({
       where: { id: current.id },
       data: {
         status: DeleteRequestStatuses.CANCELLED,
-        latestApprovalStatus,
+        approvalNo,
       },
       include: this.deleteRequestInclude(),
     })) as DeleteRequestRow;
@@ -1084,39 +1011,48 @@ export class DeleteRequestsService {
       this.normalizeOptionalString(dto.reason) || 'Delete request cancelled',
       current.status,
       DeleteRequestStatuses.CANCELLED,
-      isSuperAdmin && current.makerUserId !== actor.userId ? { superAdminBypass: true } : undefined,
-      updated.latestApproval?.approvalNo || null,
+      isSuperAdmin && current.createdByUserId !== actor.userId
+        ? { superAdminBypass: true }
+        : undefined,
+      approvalNo,
     );
 
     return this.mapDeleteRequest(updated);
   }
 
-  async execute(id: string, dto: ExecuteDeleteRequestDto, actor: ApprovalActorContext) {
+  async consume(id: string, dto: ConsumeDeleteRequestDto, actor: ApprovalActorContext) {
     const current = await this.findRequestOrThrow(id);
-    if (current.status !== DeleteRequestStatuses.READY_TO_EXECUTE) {
-      throw new BadRequestException('Only READY_TO_EXECUTE delete requests can be executed');
+    if (current.status === DeleteRequestStatuses.FAILED) {
+      throw new BadRequestException('FAILED delete requests cannot be consumed again');
+    }
+    if (current.status !== DeleteRequestStatuses.READY) {
+      throw new BadRequestException('Only READY delete requests can be consumed');
     }
 
     this.assertTraceConsistency(current.traceId, dto.traceId);
 
-    const superAdminBypass = this.isSuperAdmin(actor) && current.makerUserId === actor.userId;
-    if (current.makerUserId === actor.userId && !superAdminBypass) {
-      throw new ForbiddenException('Maker cannot execute their own delete request');
+    const superAdminBypass = this.isSuperAdmin(actor) && current.createdByUserId === actor.userId;
+    if (current.createdByUserId === actor.userId && !superAdminBypass) {
+      throw new ForbiddenException('Creator cannot consume their own delete request');
     }
 
     const target = await this.resolveTargetById(current.targetType, current.targetId);
-    const approval = await this.approvalsService.requireApproved({
-      actionType: ApprovalActionTypes.DELETE_REQUEST_APPROVAL,
-      entityRef: current.id,
-      approvalCaseId: current.latestApprovalId || undefined,
-      actor,
-      traceId: current.traceId,
-    });
+    const approval = current.approvalCaseId
+      ? await this.approvalsService.requireApproved({
+          actionType: ApprovalActionTypes.DELETE_REQUEST_APPROVAL,
+          entityRef: current.id,
+          approvalCaseId: current.approvalCaseId,
+          actor,
+          traceId: current.traceId,
+        })
+      : null;
     const targetSnapshot = this.buildDeleteRequestSnapshot(target);
     const now = new Date();
+    const resultNote =
+      this.normalizeOptionalString(dto.reason) || `Delete request ${current.requestNo} consumed`;
 
     try {
-      const executed = await this.prisma.$transaction(async (tx: any) => {
+      const consumed = await this.prisma.$transaction(async (tx: any) => {
         if (target.targetType === DeleteRequestTargetTypes.CHANGE_TICKET) {
           await tx.changeTicket.update({
             where: { id: target.targetId },
@@ -1124,26 +1060,12 @@ export class DeleteRequestsService {
               deletedAt: now,
               deletedBy: actor.userId,
               deleteRequestId: current.id,
+              deleteRequestNo: current.requestNo,
               deleteReason: current.deleteReason,
             },
           });
-        } else if (
-          target.targetType === DeleteRequestTargetTypes.AUDIT_EVIDENCE_PACKAGE
-        ) {
+        } else if (target.targetType === DeleteRequestTargetTypes.AUDIT_EVIDENCE_PACKAGE) {
           await tx.auditEvidencePackage.update({
-            where: { id: target.targetId },
-            data: {
-              deletedAt: now,
-              deletedBy: actor.userId,
-              deleteRequestId: current.id,
-              deleteReason: current.deleteReason,
-            },
-          });
-        } else if (
-          target.targetType ===
-          DeleteRequestTargetTypes.COMPLIANCE_CASE_EVIDENCE_PACKAGE
-        ) {
-          await tx.complianceCaseEvidencePackage.update({
             where: { id: target.targetId },
             data: {
               deletedAt: now,
@@ -1178,81 +1100,67 @@ export class DeleteRequestsService {
         return (await tx.deleteRequest.update({
           where: { id: current.id },
           data: {
-            status: DeleteRequestStatuses.EXECUTED,
-            executedByUserId: actor.userId,
-            executedAt: now,
+            status: DeleteRequestStatuses.DONE,
+            approvalNo: approval?.approvalNo || current.approvalNo || null,
+            consumedByUserId: actor.userId,
+            consumedByUserNo: actor.userNo,
+            consumedAt: now,
+            resultNote,
             targetSnapshotJson: this.serializeJson(targetSnapshot),
+            targetSnapshotDigest: sha256Hex(targetSnapshot),
           },
           include: this.deleteRequestInclude(),
         })) as DeleteRequestRow;
       });
 
-      if (current.latestApprovalId) {
-        void this.approvalsService
-          .markExecutionResult(
-            current.latestApprovalId,
-            true,
-            actor,
-            this.normalizeOptionalString(dto.reason) || `Delete request ${current.requestNo} executed`,
-          )
-          .catch(() => undefined);
-      }
-
       await this.recordDeleteRequestAudit(
-        AuditActions.DELETE_REQUEST_EXECUTED,
-        executed,
+        AuditActions.DELETE_REQUEST_CONSUMED,
+        consumed,
         actor,
         AuditResult.SUCCESS,
-        this.normalizeOptionalString(dto.reason) || 'Delete request executed',
+        resultNote,
         current.status,
-        DeleteRequestStatuses.EXECUTED,
+        DeleteRequestStatuses.DONE,
         {
           targetSnapshot,
           ...(superAdminBypass ? { superAdminBypass: true } : {}),
         },
-        approval.approvalNo || null,
+        approval?.approvalNo || current.approvalNo || null,
       );
 
-      return this.mapDeleteRequest(executed);
+      return this.mapDeleteRequest(consumed);
     } catch (error) {
       const failed = (await this.prisma.deleteRequest.update({
         where: { id: current.id },
         data: {
-          status: DeleteRequestStatuses.EXECUTION_FAILED,
-          executedByUserId: actor.userId,
-          executedAt: now,
+          status: DeleteRequestStatuses.FAILED,
+          approvalNo: approval?.approvalNo || current.approvalNo || null,
+          consumedByUserId: actor.userId,
+          consumedByUserNo: actor.userNo,
+          consumedAt: now,
+          resultNote:
+            error instanceof Error
+              ? error.message
+              : this.normalizeOptionalString(dto.reason) || 'Delete request consume failed',
           targetSnapshotJson: this.serializeJson(targetSnapshot),
+          targetSnapshotDigest: sha256Hex(targetSnapshot),
         },
         include: this.deleteRequestInclude(),
       })) as DeleteRequestRow;
-
-      if (current.latestApprovalId) {
-        void this.approvalsService
-          .markExecutionResult(
-            current.latestApprovalId,
-            false,
-            actor,
-            this.normalizeOptionalString(dto.reason) ||
-              `Delete request ${current.requestNo} execution failed`,
-          )
-          .catch(() => undefined);
-      }
 
       await this.recordDeleteRequestAudit(
         AuditActions.DELETE_REQUEST_EXECUTION_FAILED,
         failed,
         actor,
         AuditResult.FAILED,
-        error instanceof Error
-          ? error.message
-          : this.normalizeOptionalString(dto.reason) || 'Delete request execution failed',
+        failed.resultNote,
         current.status,
-        DeleteRequestStatuses.EXECUTION_FAILED,
+        DeleteRequestStatuses.FAILED,
         {
           targetSnapshot,
           ...(superAdminBypass ? { superAdminBypass: true } : {}),
         },
-        approval.approvalNo || null,
+        approval?.approvalNo || current.approvalNo || null,
       );
 
       throw error;
@@ -1260,10 +1168,12 @@ export class DeleteRequestsService {
   }
 
   async getById(id: string, actor?: ApprovalActorContext) {
+    void actor;
     return this.mapDeleteRequest(await this.findRequestOrThrow(id));
   }
 
   async list(query: DeleteRequestQueryDto, actor?: ApprovalActorContext) {
+    void actor;
     const skip = this.normalizeSkip(query.skip);
     const take = this.normalizeTake(query.take);
     const where: Record<string, any> = {};
@@ -1280,11 +1190,17 @@ export class DeleteRequestsService {
     if (query.status) {
       where.status = query.status.trim().toUpperCase();
     }
-    if (query.latestApprovalStatus) {
-      where.latestApprovalStatus = query.latestApprovalStatus.trim().toUpperCase();
-    }
     if (query.traceId) {
       where.traceId = query.traceId.trim();
+    }
+    if (query.approvalNo) {
+      where.approvalNo = query.approvalNo.trim();
+    }
+    if (query.createdByUserNo) {
+      where.createdByUserNo = query.createdByUserNo.trim();
+    }
+    if (query.consumedByUserNo) {
+      where.consumedByUserNo = query.consumedByUserNo.trim();
     }
     if (query.keyword) {
       const keyword = query.keyword.trim();
@@ -1294,12 +1210,9 @@ export class DeleteRequestsService {
         { targetType: { contains: keyword } },
         { traceId: { contains: keyword } },
         { deleteReason: { contains: keyword } },
-        { latestApprovalStatus: { contains: keyword } },
-        {
-          latestApproval: {
-            approvalNo: { contains: keyword },
-          },
-        },
+        { approvalNo: { contains: keyword } },
+        { createdByUserNo: { contains: keyword } },
+        { consumedByUserNo: { contains: keyword } },
       ];
     }
 

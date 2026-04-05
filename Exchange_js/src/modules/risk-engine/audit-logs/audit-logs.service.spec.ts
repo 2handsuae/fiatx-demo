@@ -8,6 +8,9 @@ import {
   AuditActions,
   AuditEntityTypes,
   AuditModules,
+  AuditBusinessWorkflowTypes,
+  AuditUserActions,
+  mapRawAuditActionToUserAction,
 } from './constants/audit-actions.constant';
 
 describe('AuditLogsService', () => {
@@ -94,6 +97,120 @@ describe('AuditLogsService', () => {
     jest.clearAllMocks();
   });
 
+  it('should freeze Wave 1 business workflow taxonomy and user-action vocabulary', () => {
+    expect(AuditBusinessWorkflowTypes).toEqual({
+      ADMIN_MEMBER_PROVISIONING: 'ADMIN_MEMBER_PROVISIONING',
+      ADMIN_LOGIN_ACCESS: 'ADMIN_LOGIN_ACCESS',
+      ADMIN_ROLE_BINDING_CHANGE: 'ADMIN_ROLE_BINDING_CHANGE',
+      CHANGE_TICKET_DELETION: 'CHANGE_TICKET_DELETION',
+      ADMIN_USER_DELETION: 'ADMIN_USER_DELETION',
+      AUDIT_EVIDENCE_PACKAGE_DELETION: 'AUDIT_EVIDENCE_PACKAGE_DELETION',
+      AUDIT_EVIDENCE_EXPORT: 'AUDIT_EVIDENCE_EXPORT',
+    });
+
+    expect(AuditUserActions).toEqual({
+      REQUEST_CREATED: 'REQUEST_CREATED',
+      SUBMITTED: 'SUBMITTED',
+      APPROVED_FOR_EXECUTION: 'APPROVED_FOR_EXECUTION',
+      EXECUTED: 'EXECUTED',
+      INVITATION_ISSUED: 'INVITATION_ISSUED',
+      INVITATION_RESENT: 'INVITATION_RESENT',
+      ACTIVATED: 'ACTIVATED',
+      ACTIVATION_FAILED: 'ACTIVATION_FAILED',
+      LOGIN_SUCCEEDED: 'LOGIN_SUCCEEDED',
+      LOGIN_FAILED: 'LOGIN_FAILED',
+      ACCOUNT_LOCKED: 'ACCOUNT_LOCKED',
+      ACCOUNT_UNLOCKED: 'ACCOUNT_UNLOCKED',
+      ROLE_BINDINGS_UPDATED: 'ROLE_BINDINGS_UPDATED',
+      CANCELLED: 'CANCELLED',
+      EXPORTED: 'EXPORTED',
+      EXPORT_FAILED: 'EXPORT_FAILED',
+      DOWNLOADED: 'DOWNLOADED',
+    });
+  });
+
+  it('should map raw technical audit actions to user-layer actions', () => {
+    expect(mapRawAuditActionToUserAction(AuditActions.CHANGE_TICKET_CREATED)).toBe(
+      AuditUserActions.REQUEST_CREATED,
+    );
+    expect(mapRawAuditActionToUserAction(AuditActions.CHANGE_TICKET_SUBMITTED)).toBe(
+      AuditUserActions.SUBMITTED,
+    );
+    expect(mapRawAuditActionToUserAction(AuditActions.CHANGE_TICKET_APPROVED)).toBe(
+      AuditUserActions.APPROVED_FOR_EXECUTION,
+    );
+    expect(mapRawAuditActionToUserAction(AuditActions.CHANGE_TICKET_CONSUMED)).toBe(
+      AuditUserActions.EXECUTED,
+    );
+    expect(mapRawAuditActionToUserAction(AuditActions.DELETE_REQUEST_CREATED)).toBe(
+      AuditUserActions.REQUEST_CREATED,
+    );
+    expect(mapRawAuditActionToUserAction(AuditActions.DELETE_REQUEST_SUBMITTED)).toBe(
+      AuditUserActions.SUBMITTED,
+    );
+    expect(mapRawAuditActionToUserAction(AuditActions.DELETE_REQUEST_APPROVED)).toBe(
+      AuditUserActions.APPROVED_FOR_EXECUTION,
+    );
+    expect(mapRawAuditActionToUserAction(AuditActions.DELETE_REQUEST_CANCELLED)).toBe(
+      AuditUserActions.CANCELLED,
+    );
+    expect(mapRawAuditActionToUserAction(AuditActions.DELETE_REQUEST_CONSUMED)).toBe(
+      AuditUserActions.EXECUTED,
+    );
+    expect(mapRawAuditActionToUserAction(AuditActions.APPROVAL_SUBMITTED)).toBe(
+      AuditUserActions.SUBMITTED,
+    );
+    expect(mapRawAuditActionToUserAction(AuditActions.APPROVAL_APPROVED)).toBe(
+      AuditUserActions.APPROVED_FOR_EXECUTION,
+    );
+    expect(mapRawAuditActionToUserAction(AuditActions.APPROVAL_EXECUTED)).toBe(
+      AuditUserActions.EXECUTED,
+    );
+    expect(mapRawAuditActionToUserAction(AuditActions.ADMIN_INVITATION_CREATED)).toBe(
+      AuditUserActions.INVITATION_ISSUED,
+    );
+    expect(mapRawAuditActionToUserAction(AuditActions.ADMIN_INVITATION_RESENT)).toBe(
+      AuditUserActions.INVITATION_RESENT,
+    );
+    expect(mapRawAuditActionToUserAction(AuditActions.ADMIN_INVITATION_ACCEPTED)).toBe(
+      AuditUserActions.ACTIVATED,
+    );
+    expect(mapRawAuditActionToUserAction(AuditActions.ADMIN_INVITATION_ACCEPT_FAILED)).toBe(
+      AuditUserActions.ACTIVATION_FAILED,
+    );
+    expect(mapRawAuditActionToUserAction(AuditActions.ADMIN_LOGIN_SUCCESS)).toBe(
+      AuditUserActions.LOGIN_SUCCEEDED,
+    );
+    expect(mapRawAuditActionToUserAction(AuditActions.ADMIN_LOGIN_FAILED)).toBe(
+      AuditUserActions.LOGIN_FAILED,
+    );
+    expect(mapRawAuditActionToUserAction(AuditActions.ACCOUNT_LOCKED)).toBe(
+      AuditUserActions.ACCOUNT_LOCKED,
+    );
+    expect(mapRawAuditActionToUserAction(AuditActions.ACCOUNT_UNLOCKED)).toBe(
+      AuditUserActions.ACCOUNT_UNLOCKED,
+    );
+    expect(mapRawAuditActionToUserAction(AuditActions.AUDIT_EVIDENCE_PACKAGE_EXPORTED)).toBe(
+      AuditUserActions.EXPORTED,
+    );
+    expect(
+      mapRawAuditActionToUserAction(AuditActions.AUDIT_EVIDENCE_EXPORT_REQUESTED),
+    ).toBe(AuditUserActions.REQUEST_CREATED);
+    expect(
+      mapRawAuditActionToUserAction(AuditActions.AUDIT_EVIDENCE_PACKAGE_DOWNLOADED),
+    ).toBe(AuditUserActions.DOWNLOADED);
+    expect(mapRawAuditActionToUserAction(AuditActions.APPROVAL_EXECUTION_FAILED)).toBe(
+      AuditUserActions.EXPORT_FAILED,
+    );
+    expect(mapRawAuditActionToUserAction(AuditActions.USER_CREATED)).toBe(
+      AuditUserActions.EXECUTED,
+    );
+    expect(mapRawAuditActionToUserAction(AuditActions.USER_ROLE_BINDING_UPDATED)).toBe(
+      AuditUserActions.ROLE_BINDINGS_UPDATED,
+    );
+    expect(mapRawAuditActionToUserAction('UNKNOWN_WAVE1_ACTION')).toBeUndefined();
+  });
+
   it('should infer trigger type by rule order and persist EVIDENCE_EXPORT first', async () => {
     prisma.auditLogEvent.findUnique.mockResolvedValue(null);
     prisma.auditLogEvent.create.mockResolvedValue({
@@ -135,6 +252,89 @@ describe('AuditLogsService', () => {
         }),
       }),
     );
+  });
+
+  it('should map evidence export request and download actions into the audit evidence export workflow', async () => {
+    prisma.auditLogEvent.count.mockResolvedValue(2);
+    prisma.auditLogEvent.findMany.mockResolvedValue([
+      {
+        id: 'wf-exp-req-1',
+        auditNo: 'AUD2604051001',
+        triggerType: AuditTriggerType.EVIDENCE_EXPORT,
+        action: AuditActions.AUDIT_EVIDENCE_EXPORT_REQUESTED,
+        module: AuditModules.AUDIT_LOGS,
+        entityType: AuditEntityTypes.AUDIT_EVIDENCE_PACKAGE,
+        entityId: 'pkg-1',
+        entityNo: 'EVP2604050351',
+        workflowType: AuditBusinessWorkflowTypes.AUDIT_EVIDENCE_EXPORT,
+        workflowNo: 'EVP2604050351',
+        actorType: 'ADMIN',
+        actorId: 'admin-1',
+        actorNo: 'ADMIN-001',
+        result: AuditResult.SUCCESS,
+        metadata: null,
+        beforeData: null,
+        afterData: null,
+        occurredAt: new Date('2026-04-05T10:00:00.000Z'),
+        subjectNos: [
+          {
+            id: 'sub-related-evp',
+            eventId: 'wf-exp-req-1',
+            subjectRole: 'RELATED',
+            subjectType: 'APPROVAL_CASE',
+            subjectId: 'approval-1',
+            subjectNo: 'APR2604051189',
+            occurredAt: new Date('2026-04-05T10:00:00.000Z'),
+            createdAt: new Date('2026-04-05T10:00:00.000Z'),
+          },
+        ],
+      },
+      {
+        id: 'wf-exp-download-1',
+        auditNo: 'AUD2604051002',
+        triggerType: AuditTriggerType.EVIDENCE_EXPORT,
+        action: AuditActions.AUDIT_EVIDENCE_PACKAGE_DOWNLOADED,
+        module: AuditModules.AUDIT_LOGS,
+        entityType: AuditEntityTypes.AUDIT_EVIDENCE_PACKAGE,
+        entityId: 'pkg-1',
+        entityNo: 'EVP2604050351',
+        workflowType: AuditBusinessWorkflowTypes.AUDIT_EVIDENCE_EXPORT,
+        workflowNo: 'EVP2604050351',
+        actorType: 'ADMIN',
+        actorId: 'admin-1',
+        actorNo: 'ADMIN-001',
+        result: AuditResult.SUCCESS,
+        metadata: null,
+        beforeData: null,
+        afterData: null,
+        occurredAt: new Date('2026-04-05T10:05:00.000Z'),
+        subjectNos: [
+          {
+            id: 'sub-related-download',
+            eventId: 'wf-exp-download-1',
+            subjectRole: 'RELATED',
+            subjectType: 'APPROVAL_CASE',
+            subjectId: 'approval-1',
+            subjectNo: 'APR2604051189',
+            occurredAt: new Date('2026-04-05T10:05:00.000Z'),
+            createdAt: new Date('2026-04-05T10:05:00.000Z'),
+          },
+        ],
+      },
+    ]);
+
+    const result = await service.findAll({ take: 20 });
+
+    expect(result.items[0]).toMatchObject({
+      businessWorkflow: AuditBusinessWorkflowTypes.AUDIT_EVIDENCE_EXPORT,
+      userAction: AuditUserActions.REQUEST_CREATED,
+      primaryRefNo: 'EVP2604050351',
+    });
+    expect(result.items[1]).toMatchObject({
+      businessWorkflow: AuditBusinessWorkflowTypes.AUDIT_EVIDENCE_EXPORT,
+      userAction: AuditUserActions.DOWNLOADED,
+      primaryRefNo: 'EVP2604050351',
+    });
   });
 
   it('should keep trigger priority with AUTH before DATA_CREATE and SYSTEM last', async () => {
@@ -637,6 +837,300 @@ describe('AuditLogsService', () => {
       }),
     );
     expect(result.items[0]).not.toHaveProperty('dbOnlyShadowField');
+  });
+
+  it('should derive business workflow and user action display fields for governed and export logs', async () => {
+    prisma.auditLogEvent.count.mockResolvedValue(4);
+    prisma.auditLogEvent.findMany.mockResolvedValue([
+      {
+        id: 'wf-ct-1',
+        auditNo: 'AUD2604010001',
+        triggerType: AuditTriggerType.DATA_UPDATE,
+        action: AuditActions.APPROVAL_APPROVED,
+        module: AuditModules.GOVERNANCE_APPROVALS,
+        entityType: AuditEntityTypes.APPROVAL_CASE,
+        entityId: 'approval-1',
+        entityNo: 'APR2604010001',
+        workflowType: AuditBusinessWorkflowTypes.ADMIN_MEMBER_PROVISIONING,
+        workflowNo: 'CT2604010001',
+        actorType: 'ADMIN',
+        actorId: 'admin-1',
+        result: AuditResult.SUCCESS,
+        metadata: null,
+        beforeData: null,
+        afterData: null,
+        occurredAt: new Date('2026-04-01T10:00:00.000Z'),
+        subjectNos: [],
+      },
+      {
+        id: 'wf-dr-1',
+        auditNo: 'AUD2604010002',
+        triggerType: AuditTriggerType.DATA_CREATE,
+        action: AuditActions.DELETE_REQUEST_CREATED,
+        module: AuditModules.GOVERNANCE_DELETE_REQUESTS,
+        entityType: AuditEntityTypes.DELETE_REQUEST,
+        entityId: 'request-1',
+        entityNo: 'DR2604010001',
+        workflowType: AuditBusinessWorkflowTypes.CHANGE_TICKET_DELETION,
+        workflowNo: 'DR2604010001',
+        actorType: 'ADMIN',
+        actorId: 'admin-1',
+        result: AuditResult.SUCCESS,
+        metadata: null,
+        beforeData: null,
+        afterData: null,
+        occurredAt: new Date('2026-04-01T10:01:00.000Z'),
+        subjectNos: [],
+      },
+      {
+        id: 'wf-login-1',
+        auditNo: 'AUD2604010003',
+        triggerType: AuditTriggerType.AUTH_EVENT,
+        action: AuditActions.ADMIN_LOGIN_SUCCESS,
+        module: AuditModules.AUTH,
+        entityType: AuditEntityTypes.AUTH,
+        entityId: null,
+        entityNo: null,
+        workflowType: null,
+        workflowNo: null,
+        actorType: 'ADMIN',
+        actorId: 'admin-1',
+        actorNo: 'ADM2604010001',
+        result: AuditResult.SUCCESS,
+        metadata: null,
+        beforeData: null,
+        afterData: null,
+        occurredAt: new Date('2026-04-01T10:02:00.000Z'),
+        subjectNos: [],
+      },
+      {
+        id: 'wf-exp-1',
+        auditNo: 'AUD2604010004',
+        triggerType: AuditTriggerType.EVIDENCE_EXPORT,
+        action: AuditActions.AUDIT_EVIDENCE_PACKAGE_EXPORTED,
+        module: AuditModules.AUDIT_LOGS,
+        entityType: AuditEntityTypes.AUDIT_EVIDENCE_PACKAGE,
+        entityId: 'pkg-1',
+        entityNo: 'EVP2604010001',
+        workflowType: AuditBusinessWorkflowTypes.AUDIT_EVIDENCE_EXPORT,
+        workflowNo: 'EVP2604010001',
+        actorType: 'ADMIN',
+        actorId: 'admin-1',
+        result: AuditResult.SUCCESS,
+        metadata: null,
+        beforeData: null,
+        afterData: null,
+        occurredAt: new Date('2026-04-01T10:03:00.000Z'),
+        subjectNos: [],
+      },
+    ]);
+
+    const result = await service.findAll({ take: 20 });
+
+    expect(result.items[0]).toMatchObject({
+      businessWorkflow: AuditBusinessWorkflowTypes.ADMIN_MEMBER_PROVISIONING,
+      businessWorkflowLabel: 'Admin Member Provisioning',
+      userAction: AuditUserActions.APPROVED_FOR_EXECUTION,
+      userActionLabel: 'Approved For Execution',
+      primaryRefNo: 'CT2604010001',
+      action: AuditActions.APPROVAL_APPROVED,
+    });
+    expect(result.items[1]).toMatchObject({
+      businessWorkflow: AuditBusinessWorkflowTypes.CHANGE_TICKET_DELETION,
+      businessWorkflowLabel: 'Change Ticket Deletion',
+      userAction: AuditUserActions.REQUEST_CREATED,
+      userActionLabel: 'Request Created',
+      primaryRefNo: 'DR2604010001',
+    });
+    expect(result.items[2]).toMatchObject({
+      businessWorkflow: AuditBusinessWorkflowTypes.ADMIN_LOGIN_ACCESS,
+      businessWorkflowLabel: 'Admin Login Access',
+      userAction: AuditUserActions.LOGIN_SUCCEEDED,
+      userActionLabel: 'Login Succeeded',
+      primaryRefNo: null,
+    });
+    expect(result.items[3]).toMatchObject({
+      businessWorkflow: AuditBusinessWorkflowTypes.AUDIT_EVIDENCE_EXPORT,
+      businessWorkflowLabel: 'Audit Evidence Export',
+      userAction: AuditUserActions.EXPORTED,
+      userActionLabel: 'Exported',
+      primaryRefNo: 'EVP2604010001',
+    });
+  });
+
+  it('should derive primaryRefNo from workflowNo first and entityNo as fallback', async () => {
+    prisma.auditLogEvent.count.mockResolvedValue(2);
+    prisma.auditLogEvent.findMany.mockResolvedValue([
+      {
+        id: 'ref-1',
+        auditNo: 'AUD2604010010',
+        triggerType: AuditTriggerType.DATA_UPDATE,
+        action: AuditActions.USER_CREATED,
+        module: AuditModules.ACCESS_CONTROL,
+        entityType: AuditEntityTypes.ACCESS_CONTROL,
+        entityId: 'user-1',
+        entityNo: 'ADM2604010099',
+        workflowType: AuditBusinessWorkflowTypes.ADMIN_MEMBER_PROVISIONING,
+        workflowNo: 'CT2604010010',
+        actorType: 'ADMIN',
+        actorId: 'admin-1',
+        result: AuditResult.SUCCESS,
+        metadata: null,
+        beforeData: null,
+        afterData: null,
+        occurredAt: new Date('2026-04-01T11:00:00.000Z'),
+        subjectNos: [],
+      },
+      {
+        id: 'ref-2',
+        auditNo: 'AUD2604010011',
+        triggerType: AuditTriggerType.DATA_UPDATE,
+        action: AuditActions.USER_ROLE_BINDING_UPDATED,
+        module: AuditModules.ACCESS_CONTROL,
+        entityType: AuditEntityTypes.ACCESS_CONTROL,
+        entityId: 'user-2',
+        entityNo: 'ADM2604010011',
+        workflowType: null,
+        workflowNo: null,
+        actorType: 'ADMIN',
+        actorId: 'admin-1',
+        result: AuditResult.SUCCESS,
+        metadata: null,
+        beforeData: null,
+        afterData: null,
+        occurredAt: new Date('2026-04-01T11:01:00.000Z'),
+        subjectNos: [],
+      },
+    ]);
+
+    const result = await service.findAll({ take: 20 });
+
+    expect(result.items[0].primaryRefNo).toBe('CT2604010010');
+    expect(result.items[1].primaryRefNo).toBe('ADM2604010011');
+  });
+
+  it('should not map approval execution failure to EXPORT_FAILED outside audit evidence export workflow', async () => {
+    prisma.auditLogEvent.count.mockResolvedValue(1);
+    prisma.auditLogEvent.findMany.mockResolvedValue([
+      {
+        id: 'exec-failed-1',
+        auditNo: 'AUD2604010012',
+        triggerType: AuditTriggerType.DATA_UPDATE,
+        action: AuditActions.APPROVAL_EXECUTION_FAILED,
+        module: AuditModules.GOVERNANCE_APPROVALS,
+        entityType: AuditEntityTypes.APPROVAL_CASE,
+        entityId: 'approval-2',
+        entityNo: 'APR2604010002',
+        workflowType: AuditBusinessWorkflowTypes.ADMIN_MEMBER_PROVISIONING,
+        workflowNo: 'CT2604010012',
+        actorType: 'ADMIN',
+        actorId: 'admin-1',
+        result: AuditResult.FAILED,
+        metadata: null,
+        beforeData: null,
+        afterData: null,
+        occurredAt: new Date('2026-04-01T11:02:00.000Z'),
+        subjectNos: [],
+      },
+    ]);
+
+    const result = await service.findAll({ take: 20 });
+
+    expect(result.items[0]).toMatchObject({
+      businessWorkflow: AuditBusinessWorkflowTypes.ADMIN_MEMBER_PROVISIONING,
+      userAction: AuditActions.APPROVAL_EXECUTION_FAILED,
+      userActionLabel: 'Approval Execution Failed',
+    });
+  });
+
+  it('should prefer root business subjectNo over approval entityNo when workflowNo is missing', async () => {
+    prisma.auditLogEvent.count.mockResolvedValue(1);
+    prisma.auditLogEvent.findMany.mockResolvedValue([
+      {
+        id: 'ref-root-1',
+        auditNo: 'AUD2604010013',
+        triggerType: AuditTriggerType.DATA_UPDATE,
+        action: AuditActions.APPROVAL_APPROVED,
+        module: AuditModules.GOVERNANCE_APPROVALS,
+        entityType: AuditEntityTypes.APPROVAL_CASE,
+        entityId: 'approval-3',
+        entityNo: 'APR2604010003',
+        workflowType: AuditBusinessWorkflowTypes.ADMIN_MEMBER_PROVISIONING,
+        workflowNo: null,
+        actorType: 'ADMIN',
+        actorId: 'admin-1',
+        result: AuditResult.SUCCESS,
+        metadata: null,
+        beforeData: null,
+        afterData: null,
+        occurredAt: new Date('2026-04-01T11:03:00.000Z'),
+        subjectNos: [
+          {
+            id: 'sub-related-1',
+            eventId: 'ref-root-1',
+            subjectRole: 'RELATED',
+            subjectType: 'CHANGE_TICKET',
+            subjectId: 'ticket-1',
+            subjectNo: 'CT2604010013',
+            occurredAt: new Date('2026-04-01T11:03:00.000Z'),
+            createdAt: new Date('2026-04-01T11:03:00.000Z'),
+          },
+          {
+            id: 'sub-entity-1',
+            eventId: 'ref-root-1',
+            subjectRole: 'ENTITY',
+            subjectType: 'APPROVAL_CASE',
+            subjectId: 'approval-3',
+            subjectNo: 'APR2604010003',
+            occurredAt: new Date('2026-04-01T11:03:00.000Z'),
+            createdAt: new Date('2026-04-01T11:03:00.000Z'),
+          },
+        ],
+      },
+    ]);
+
+    const result = await service.findAll({ take: 20 });
+
+    expect(result.items[0].primaryRefNo).toBe('CT2604010013');
+  });
+
+  it('should expose derived display fields on audit log detail while preserving raw tuple fields', async () => {
+    prisma.auditLogEvent.findUnique.mockResolvedValue({
+      id: 'detail-1',
+      auditNo: 'AUD2604010100',
+      triggerType: AuditTriggerType.DATA_UPDATE,
+      action: AuditActions.APPROVAL_APPROVED,
+      module: AuditModules.GOVERNANCE_APPROVALS,
+      entityType: AuditEntityTypes.APPROVAL_CASE,
+      entityId: 'approval-1',
+      entityNo: 'APR2604010001',
+      workflowType: AuditBusinessWorkflowTypes.ADMIN_ROLE_BINDING_CHANGE,
+      workflowId: 'ticket-1',
+      workflowNo: 'CT2604010002',
+      traceId: 'trace-role-binding-1',
+      actorType: 'ADMIN',
+      actorId: 'admin-1',
+      result: AuditResult.SUCCESS,
+      metadata: null,
+      beforeData: null,
+      afterData: null,
+      occurredAt: new Date('2026-04-01T12:00:00.000Z'),
+      subjectNos: [],
+    });
+
+    const result = await service.findOne('detail-1');
+
+    expect(result).toMatchObject({
+      businessWorkflow: AuditBusinessWorkflowTypes.ADMIN_ROLE_BINDING_CHANGE,
+      businessWorkflowLabel: 'Admin Role Binding Change',
+      userAction: AuditUserActions.APPROVED_FOR_EXECUTION,
+      userActionLabel: 'Approved For Execution',
+      primaryRefNo: 'CT2604010002',
+      action: AuditActions.APPROVAL_APPROVED,
+      workflowType: AuditBusinessWorkflowTypes.ADMIN_ROLE_BINDING_CHANGE,
+      workflowNo: 'CT2604010002',
+      traceId: 'trace-role-binding-1',
+    });
   });
 
   it('should build time-window and keyword filters correctly', async () => {

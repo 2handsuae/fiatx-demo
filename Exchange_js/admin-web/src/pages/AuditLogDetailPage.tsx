@@ -45,6 +45,11 @@ interface AuditLogDetail {
   id: string;
   auditNo: string;
   triggerType: TriggerType;
+  businessWorkflow?: string | null;
+  businessWorkflowLabel?: string | null;
+  primaryRefNo?: string | null;
+  userAction?: string | null;
+  userActionLabel?: string | null;
   action: string;
   module: string;
   entityType: string;
@@ -207,15 +212,22 @@ const AuditLogDetailPage = () => {
         </span>
       </DetailPageHeader>
 
-      <DetailCard title="Event Identity" icon={<FileText size={18} />}>
+      <DetailCard title="Workflow Summary" icon={<FileText size={18} />}>
         <InfoField label="Audit No" value={detail.auditNo} mono />
-        <InfoField label="Action" value={detail.action} />
-        <InfoField label="Trigger Type" value={detail.triggerType} />
+        <InfoField
+          label="Business Workflow"
+          value={detail.businessWorkflowLabel || detail.businessWorkflow}
+        />
+        <InfoField label="Primary Ref No" value={detail.primaryRefNo} mono />
+        <InfoField label="User Action" value={detail.userActionLabel || detail.userAction} />
         <InfoField label="Occurred At" value={formatDateTime(detail.occurredAt)} />
-        <InfoField label="Module" value={detail.module} />
+        <InfoField label="Result" value={detail.result} />
       </DetailCard>
 
-      <DetailCard title="Workflow & Correlation" icon={<GitBranch size={18} />}>
+      <DetailCard title="Technical Context" icon={<GitBranch size={18} />}>
+        <InfoField label="Action" value={detail.action} />
+        <InfoField label="Trigger Type" value={detail.triggerType} />
+        <InfoField label="Module" value={detail.module} />
         <InfoField label="Trace ID" value={detail.traceId} mono />
         <InfoField label="Workflow Type" value={detail.workflowType} />
         <InfoField label="Workflow No" value={detail.workflowNo} mono />

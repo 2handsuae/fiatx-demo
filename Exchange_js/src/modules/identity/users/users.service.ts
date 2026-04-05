@@ -4,6 +4,7 @@ import {
   Inject,
   Injectable,
   InternalServerErrorException,
+  NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import * as bcrypt from 'bcrypt';
@@ -14,6 +15,7 @@ import { getPrimaryRoleCode } from '../access-control/rbac.catalog';
 import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
 import {
   AuditActions,
+  AuditBusinessWorkflowTypes,
   AuditEntityTypes,
   AuditModules,
 } from '../../risk-engine/audit-logs/constants/audit-actions.constant';
@@ -27,10 +29,50 @@ interface CreateAdminUserInput {
     actorRole: string;
     actorNo?: string;
   };
+  auditContext?: InternalAuditContext;
 }
 
 const MAX_USER_NO_GENERATION_RETRIES = 10;
 type UserRow = any;
+
+type GovernedAdminMemberProvisioningBinding = {
+  intent?: string;
+  email: string;
+  roleCodes: string[];
+  [key: string]: unknown;
+};
+
+type GovernedExecutionActor = {
+  actorType?: string;
+  userId: string;
+  userNo?: string;
+  role?: string;
+  roleCodes?: string[];
+};
+
+type MemberInvitationSummary = {
+  inviteStatus: 'PENDING' | 'EXPIRED' | 'USED' | 'REVOKED';
+  inviteExpiresAt: string;
+};
+
+type MemberDetail = {
+  id: string;
+  userNo: string;
+  email: string;
+  role: string;
+  status: string;
+  createdAt: Date;
+  updatedAt: Date;
+  lastLoginAt: Date | null;
+  roles: string[];
+  latestInvitation: MemberInvitationSummary | null;
+};
+
+type InternalAuditContext = {
+  workflowType?: string;
+  workflowNo?: string;
+  traceId?: string;
+};
 
 @Injectable()
 export class UsersService {
@@ -44,6 +86,12 @@ export class UsersService {
 
   private normalizeEmail(email: string): string {
     return String(email || '').trim().toLowerCase();
+  }
+
+  private normalizeOptionalString(value: unknown): string | null {
+    if (value === null || value === undefined) return null;
+    const normalized = String(value).trim();
+    return normalized.length ? normalized : null;
   }
 
   private normalizeRoleCodes(roleCodes: string[]): string[] {
@@ -60,10 +108,77 @@ export class UsersService {
     return normalized;
   }
 
+  private toAdminActor(actor: GovernedExecutionActor | CreateAdminUserInput['actor']) {
+    if ('actorId' in actor) {
+      return {
+        actorId: actor.actorId,
+        actorNo: actor.actorNo ?? actor.actorId,
+        actorRole: actor.actorRole,
+      };
+    }
+
+    return {
+      actorId: actor.userId,
+      actorNo: actor.userNo || actor.userId,
+      actorRole: actor.role || actor.roleCodes?.[0] || 'UNKNOWN',
+    };
+  }
+
+  private sameRoleCodes(left: string[], right: string[]): boolean {
+    const normalizedLeft = [...this.normalizeRoleCodes(left)].sort();
+    const normalizedRight = [...this.normalizeRoleCodes(right)].sort();
+    return (
+      normalizedLeft.length === normalizedRight.length &&
+      normalizedLeft.every((code, index) => code === normalizedRight[index])
+    );
+  }
+
   private activeUserWhere(where?: Record<string, unknown>) {
     return {
       ...(where || {}),
       deletedAt: null,
+    };
+  }
+
+  private isRecoverableProvisioningError(error: unknown): boolean {
+    if (!(error instanceof ConflictException)) {
+      return false;
+    }
+
+    const message = this.normalizeOptionalString(error.message)?.toLowerCase() || '';
+    return message.includes('email already exists');
+  }
+
+  private applyAuditContext<T extends Record<string, unknown>>(
+    payload: T,
+    auditContext?: InternalAuditContext,
+  ): T {
+    const workflowType = this.normalizeOptionalString(auditContext?.workflowType);
+    const workflowNo = this.normalizeOptionalString(auditContext?.workflowNo);
+    const traceId = this.normalizeOptionalString(auditContext?.traceId);
+
+    return {
+      ...payload,
+      workflowType: workflowType || undefined,
+      workflowNo: workflowNo || undefined,
+      traceId: traceId || undefined,
+    } as T;
+  }
+
+  private buildProvisioningAuditContext(
+    binding: GovernedAdminMemberProvisioningBinding,
+  ): InternalAuditContext | undefined {
+    const workflowNo = this.normalizeOptionalString(binding.ticketNo);
+    const traceId = this.normalizeOptionalString(binding.traceId);
+
+    if (!workflowNo && !traceId) {
+      return undefined;
+    }
+
+    return {
+      workflowType: AuditBusinessWorkflowTypes.ADMIN_MEMBER_PROVISIONING,
+      workflowNo: workflowNo || undefined,
+      traceId: traceId || undefined,
     };
   }
 
@@ -83,6 +198,23 @@ export class UsersService {
     }
 
     return typeof target === 'string' ? target.includes(fieldName) : false;
+  }
+
+  private mapInvitationStatus(invitation: {
+    expiresAt: Date;
+    consumedAt: Date | null;
+    revokedAt: Date | null;
+  }): MemberInvitationSummary['inviteStatus'] {
+    if (invitation.revokedAt) {
+      return 'REVOKED';
+    }
+    if (invitation.consumedAt) {
+      return 'USED';
+    }
+    if (invitation.expiresAt.getTime() <= Date.now()) {
+      return 'EXPIRED';
+    }
+    return 'PENDING';
   }
 
   async findOne(email: string): Promise<UserRow | null> {
@@ -107,6 +239,64 @@ export class UsersService {
     return this.prisma.user.findFirst({
       where: this.activeUserWhere({ id }),
     });
+  }
+
+  async getMemberDetail(id: string): Promise<MemberDetail> {
+    const member = await this.prisma.user.findFirst({
+      where: this.activeUserWhere({ id }),
+      include: {
+        userRoles: {
+          include: {
+            role: {
+              select: {
+                code: true,
+                name: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!member) {
+      throw new NotFoundException('User not found');
+    }
+
+    const latestInvitation = await this.prisma.adminUserInvitation.findFirst({
+      where: {
+        userId: member.id,
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+      select: {
+        expiresAt: true,
+        consumedAt: true,
+        revokedAt: true,
+      },
+    });
+
+    const roles = (member.userRoles || [])
+      .map((item: any) => item.role?.code)
+      .filter(Boolean);
+
+    return {
+      id: member.id,
+      userNo: member.userNo,
+      email: member.email,
+      role: member.role,
+      status: member.status,
+      createdAt: member.createdAt,
+      updatedAt: member.updatedAt,
+      lastLoginAt: member.lastLoginAt,
+      roles,
+      latestInvitation: latestInvitation
+        ? {
+            inviteStatus: this.mapInvitationStatus(latestInvitation),
+            inviteExpiresAt: latestInvitation.expiresAt.toISOString(),
+          }
+        : null,
+    };
   }
 
   async createAdminUser(input: CreateAdminUserInput) {
@@ -173,12 +363,14 @@ export class UsersService {
       invitation = await this.adminInvitationsService.createInvitationForUser({
         userId: createdUser.id,
         actor: input.actor,
+        auditContext: input.auditContext,
       });
 
       roleBinding = await this.accessControlService.replaceUserRoles(
         createdUser.id,
         normalizedRoleCodes,
         input.actor,
+        input.auditContext,
       );
     } catch (error) {
       await this.prisma.user
@@ -194,7 +386,7 @@ export class UsersService {
     }
 
     await this.auditLogsService.recordByActor(
-      {
+      this.applyAuditContext({
         action: AuditActions.USER_CREATED,
         module: AuditModules.ACCESS_CONTROL,
         entityType: AuditEntityTypes.ACCESS_CONTROL,
@@ -215,7 +407,7 @@ export class UsersService {
           inviteStatus: invitation.inviteStatus,
           inviteExpiresAt: invitation.inviteExpiresAt,
         },
-      },
+      }, input.auditContext),
       {
         actorType: 'ADMIN',
         actorId: input.actor.actorId,
@@ -236,6 +428,66 @@ export class UsersService {
     };
   }
 
+  async executeAdminMemberProvisioning(
+    binding: GovernedAdminMemberProvisioningBinding,
+    actor: GovernedExecutionActor,
+  ) {
+    const normalizedRoleCodes = this.normalizeRoleCodes(binding.roleCodes);
+    const adminActor = this.toAdminActor(actor);
+    const auditContext = this.buildProvisioningAuditContext(binding);
+
+    try {
+      return await this.createAdminUser({
+        email: binding.email,
+        roleCodes: normalizedRoleCodes,
+        actor: adminActor,
+        auditContext,
+      });
+    } catch (error) {
+      if (!this.isRecoverableProvisioningError(error)) {
+        throw error;
+      }
+
+      const existingUser = await this.prisma.user.findFirst({
+        where: this.activeUserWhere({
+          email: this.normalizeEmail(binding.email),
+        }),
+        select: {
+          id: true,
+          userNo: true,
+          email: true,
+          status: true,
+        },
+      });
+
+      if (!existingUser || existingUser.status !== 'INACTIVE') {
+        throw error;
+      }
+
+      const existingRoleCodes = await this.accessControlService.getUserRoleCodes(existingUser.id);
+      if (!this.sameRoleCodes(existingRoleCodes, normalizedRoleCodes)) {
+        throw error;
+      }
+
+      const invitation = await this.adminInvitationsService.resendInvitationForUser({
+        userId: existingUser.id,
+        actor: adminActor,
+        auditContext,
+      });
+
+      return {
+        id: existingUser.id,
+        userNo: existingUser.userNo,
+        email: existingUser.email,
+        status: existingUser.status,
+        roles: normalizedRoleCodes,
+        inviteLink: invitation.inviteLink,
+        inviteExpiresAt: invitation.inviteExpiresAt,
+        inviteStatus: invitation.inviteStatus,
+      };
+    }
+  }
+
   async resendAdminInvitation(input: {
     userId: string;
     actor: {
@@ -243,10 +495,12 @@ export class UsersService {
       actorRole: string;
       actorNo?: string;
     };
+    auditContext?: InternalAuditContext;
   }) {
     return this.adminInvitationsService.resendInvitationForUser({
       userId: input.userId,
       actor: input.actor,
+      auditContext: input.auditContext,
     });
   }
 

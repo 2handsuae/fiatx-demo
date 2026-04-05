@@ -17,13 +17,28 @@ import { AdminPermissionGuard } from './admin-permission.guard';
 import { UpdateUserRolesDto } from './dto/update-user-roles.dto';
 import { RequirePermissions } from './require-permissions.decorator';
 import { buildPermissionCode } from './permission-code.util';
+import { ChangeTicketsService } from '../../governance/change-tickets/change-tickets.service';
+import { ApprovalActorContext } from '../../governance/approvals/constants/approval.constants';
 
 @ApiTags('Admin - IAM')
 @Controller('admin/iam')
 @UseGuards(AuthGuard('jwt'), AdminPermissionGuard)
 @ApiBearerAuth()
 export class AccessControlController {
-  constructor(private readonly accessControlService: AccessControlService) {}
+  constructor(
+    private readonly accessControlService: AccessControlService,
+    private readonly changeTicketsService: ChangeTicketsService,
+  ) {}
+
+  private buildAdminActor(req: any): ApprovalActorContext {
+    return {
+      actorType: 'ADMIN',
+      userId: req.user.userId,
+      userNo: req.user.userNo,
+      role: req.user.role || 'ADMIN',
+      roleCodes: req.user.roleCodes || [req.user.role || 'ADMIN'],
+    };
+  }
 
   private ensureAdmin(req: any) {
     if (req.user?.type !== 'ADMIN') {
@@ -61,17 +76,20 @@ export class AccessControlController {
 
   @Put('users/:id/roles')
   @RequirePermissions(buildPermissionCode('PUT', '/admin/iam/users/:id/roles'))
-  @ApiOperation({ summary: 'Replace one user role bindings (full replace)' })
+  @ApiOperation({ summary: 'Create role binding change ticket' })
   replaceUserRoles(
     @Req() req: any,
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body(new ValidationPipe({ transform: true })) body: UpdateUserRolesDto,
   ) {
     this.ensureAdmin(req);
-    return this.accessControlService.replaceUserRoles(id, body.roleCodes || [], {
-      actorId: req.user.userId,
-      actorRole: req.user.role || 'ADMIN',
-      actorNo: req.user.userNo,
-    });
+    return this.changeTicketsService.createAdminRoleBindingChangeTicket(
+      id,
+      {
+        roleCodes: body.roleCodes,
+        changeReason: body.changeReason,
+      },
+      this.buildAdminActor(req),
+    );
   }
 }

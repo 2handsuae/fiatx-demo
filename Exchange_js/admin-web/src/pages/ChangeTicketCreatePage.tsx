@@ -7,11 +7,10 @@ import { adminButtonClass } from '../components/common/adminButtonStyles';
 const CHANGE_TYPE_OPTIONS = [
   'ADMIN_ACCESS_CHANGE',
   'RBAC_CATALOG_CHANGE',
-  'GOVERNANCE_POLICY_CHANGE',
-  'COMPLIANCE_WORKFLOW_CHANGE',
-  'CUSTOMER_LIFECYCLE_WORKFLOW_CHANGE',
-  'AUDIT_EVIDENCE_POLICY_CHANGE',
 ];
+
+const REQUIRED_FIELD_ERROR =
+  'Please fill in scope summary, change reason, test evidence ref, and rollback plan ref with non-empty values.';
 
 const ChangeTicketCreatePage = () => {
   const navigate = useNavigate();
@@ -20,38 +19,46 @@ const ChangeTicketCreatePage = () => {
   const [formData, setFormData] = useState({
     changeType: 'ADMIN_ACCESS_CHANGE',
     scopeSummary: '',
+    changeReason: '',
     testEvidenceRef: '',
     rollbackPlanRef: '',
-    emergency: false,
-    emergencyReason: '',
-    postApprovalDueAt: '',
+    traceId: '',
   });
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
-    setError(null);
+    const normalized = {
+      scopeSummary: formData.scopeSummary.trim(),
+      changeReason: formData.changeReason.trim(),
+      testEvidenceRef: formData.testEvidenceRef.trim(),
+      rollbackPlanRef: formData.rollbackPlanRef.trim(),
+      traceId: formData.traceId.trim(),
+    };
 
-    if (formData.emergency && !formData.emergencyReason.trim()) {
-      setError('Emergency reason is required when the ticket is marked as emergency.');
-      setLoading(false);
+    if (
+      !normalized.scopeSummary ||
+      !normalized.changeReason ||
+      !normalized.testEvidenceRef ||
+      !normalized.rollbackPlanRef
+    ) {
+      setError(REQUIRED_FIELD_ERROR);
       return;
     }
+
+    setLoading(true);
+    setError(null);
 
     try {
       const payload: Record<string, unknown> = {
         changeType: formData.changeType,
-        scopeSummary: formData.scopeSummary.trim(),
-        testEvidenceRef: formData.testEvidenceRef.trim(),
-        rollbackPlanRef: formData.rollbackPlanRef.trim(),
-        emergency: formData.emergency,
+        scopeSummary: normalized.scopeSummary,
+        changeReason: normalized.changeReason,
+        testEvidenceRef: normalized.testEvidenceRef,
+        rollbackPlanRef: normalized.rollbackPlanRef,
       };
 
-      if (formData.emergencyReason.trim()) {
-        payload.emergencyReason = formData.emergencyReason.trim();
-      }
-      if (formData.postApprovalDueAt.trim()) {
-        payload.postApprovalDueAt = new Date(formData.postApprovalDueAt).toISOString();
+      if (normalized.traceId) {
+        payload.traceId = normalized.traceId;
       }
 
       const response = await adminFetch(
@@ -92,7 +99,7 @@ const ChangeTicketCreatePage = () => {
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Create Change Ticket</h1>
           <p className="mt-1 text-sm text-gray-500">
-            Open a release-gated change ticket with the minimum evidence required.
+            Open a change ticket with the minimum evidence required.
           </p>
         </div>
       </div>
@@ -125,11 +132,11 @@ const ChangeTicketCreatePage = () => {
             </div>
 
             <div className="space-y-2">
-              <label className="block text-sm font-medium text-gray-700">Risk Level</label>
+              <label className="block text-sm font-medium text-gray-700">Trace ID</label>
               <input
-                value="HIGH"
-                readOnly
-                className="w-full rounded-lg border border-admin-border bg-gray-50 px-3 py-2 text-gray-600"
+                value={formData.traceId}
+                onChange={(e) => setFormData((prev) => ({ ...prev, traceId: e.target.value }))}
+                className="w-full rounded-lg border border-admin-border px-3 py-2 focus:border-brand-primary focus:outline-none focus:ring-1 focus:ring-brand-primary/20"
               />
             </div>
           </div>
@@ -141,6 +148,19 @@ const ChangeTicketCreatePage = () => {
             <textarea
               value={formData.scopeSummary}
               onChange={(e) => setFormData((prev) => ({ ...prev, scopeSummary: e.target.value }))}
+              rows={4}
+              className="w-full rounded-lg border border-admin-border px-3 py-2 focus:border-brand-primary focus:outline-none focus:ring-1 focus:ring-brand-primary/20"
+              required
+            />
+          </div>
+
+          <div className="space-y-2">
+            <label className="block text-sm font-medium text-gray-700">
+              Change Reason <span className="text-red-500">*</span>
+            </label>
+            <textarea
+              value={formData.changeReason}
+              onChange={(e) => setFormData((prev) => ({ ...prev, changeReason: e.target.value }))}
               rows={4}
               className="w-full rounded-lg border border-admin-border px-3 py-2 focus:border-brand-primary focus:outline-none focus:ring-1 focus:ring-brand-primary/20"
               required
@@ -175,54 +195,6 @@ const ChangeTicketCreatePage = () => {
                 required
               />
             </div>
-          </div>
-
-          <div className="rounded-xl border border-admin-border bg-gray-50 p-4">
-            <div className="flex items-center gap-3">
-              <input
-                id="emergency"
-                type="checkbox"
-                checked={formData.emergency}
-                onChange={(e) =>
-                  setFormData((prev) => ({ ...prev, emergency: e.target.checked }))
-                }
-                className="h-4 w-4 rounded border-gray-300 text-brand-primary focus:ring-brand-primary"
-              />
-              <label htmlFor="emergency" className="text-sm font-medium text-gray-700">
-                Mark as emergency change
-              </label>
-            </div>
-
-            {formData.emergency && (
-              <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
-                <div className="space-y-2 md:col-span-2">
-                  <label className="block text-sm font-medium text-gray-700">
-                    Emergency Reason <span className="text-red-500">*</span>
-                  </label>
-                  <textarea
-                    value={formData.emergencyReason}
-                    onChange={(e) =>
-                      setFormData((prev) => ({ ...prev, emergencyReason: e.target.value }))
-                    }
-                    rows={3}
-                    className="w-full rounded-lg border border-admin-border px-3 py-2 focus:border-brand-primary focus:outline-none focus:ring-1 focus:ring-brand-primary/20"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="block text-sm font-medium text-gray-700">
-                    Post Approval Due At
-                  </label>
-                  <input
-                    type="datetime-local"
-                    value={formData.postApprovalDueAt}
-                    onChange={(e) =>
-                      setFormData((prev) => ({ ...prev, postApprovalDueAt: e.target.value }))
-                    }
-                    className="w-full rounded-lg border border-admin-border px-3 py-2 focus:border-brand-primary focus:outline-none focus:ring-1 focus:ring-brand-primary/20"
-                  />
-                </div>
-              </div>
-            )}
           </div>
 
           <div className="flex justify-end gap-3 border-t border-admin-border pt-4">

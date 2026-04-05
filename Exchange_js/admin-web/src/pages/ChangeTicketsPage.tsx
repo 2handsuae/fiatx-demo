@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Plus, RefreshCw, Search } from 'lucide-react';
 import Pagination from '../components/common/Pagination';
@@ -15,11 +15,9 @@ interface ChangeTicketItem {
   ticketNo: string;
   status: string;
   changeType: string | null;
-  latestApprovalStatus: string | null;
-  latestApprovalNo: string | null;
+  approvalNo: string | null;
   traceId: string;
   createdAt: string;
-  updatedAt: string;
 }
 
 interface ChangeTicketListResponse {
@@ -33,9 +31,7 @@ interface FilterState {
   ticketNo: string;
   status: string;
   changeType: string;
-  latestApprovalStatus: string;
   traceId: string;
-  releaseVersion: string;
   keyword: string;
 }
 
@@ -45,9 +41,7 @@ const DEFAULT_FILTERS: FilterState = {
   ticketNo: '',
   status: '',
   changeType: '',
-  latestApprovalStatus: '',
   traceId: '',
-  releaseVersion: '',
   keyword: '',
 };
 
@@ -62,12 +56,15 @@ const ChangeTicketsPage = () => {
   const navigate = useNavigate();
   const { hasAnyPermission } = useAdminSession();
   const canCreate = hasAnyPermission([PERMISSIONS.GOV_CHANGE_TICKET_CREATE]);
+  const canReadDetail = hasAnyPermission([PERMISSIONS.GOV_CHANGE_TICKET_DETAIL_READ]);
   const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
+  const [appliedFilters, setAppliedFilters] = useState<FilterState>(DEFAULT_FILTERS);
   const [items, setItems] = useState<ChangeTicketItem[]>([]);
   const [total, setTotal] = useState(0);
   const [currentPage, setCurrentPage] = useState(1);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const requestSeqRef = useRef(0);
 
   const buildParams = (page: number, nextFilters: FilterState) => {
     const params = new URLSearchParams();
@@ -77,18 +74,13 @@ const ChangeTicketsPage = () => {
     if (nextFilters.ticketNo.trim()) params.set('ticketNo', nextFilters.ticketNo.trim());
     if (nextFilters.status.trim()) params.set('status', nextFilters.status.trim());
     if (nextFilters.changeType.trim()) params.set('changeType', nextFilters.changeType.trim());
-    if (nextFilters.latestApprovalStatus.trim()) {
-      params.set('latestApprovalStatus', nextFilters.latestApprovalStatus.trim());
-    }
     if (nextFilters.traceId.trim()) params.set('traceId', nextFilters.traceId.trim());
-    if (nextFilters.releaseVersion.trim()) {
-      params.set('releaseVersion', nextFilters.releaseVersion.trim());
-    }
     if (nextFilters.keyword.trim()) params.set('keyword', nextFilters.keyword.trim());
     return params;
   };
 
-  const fetchItems = async (page: number, nextFilters: FilterState = filters) => {
+  const fetchItems = async (page: number, nextFilters: FilterState) => {
+    const requestSeq = ++requestSeqRef.current;
     setLoading(true);
     setError('');
     try {
@@ -103,13 +95,16 @@ const ChangeTicketsPage = () => {
       }
 
       const data = (await response.json()) as ChangeTicketListResponse;
+      if (requestSeq !== requestSeqRef.current) return;
       setItems(Array.isArray(data.items) ? data.items : []);
       setTotal(typeof data.total === 'number' ? data.total : 0);
       setCurrentPage(page);
     } catch (e: unknown) {
+      if (requestSeq !== requestSeqRef.current) return;
       if (e instanceof AdminSessionError) return;
       setError(e instanceof Error ? e.message : 'Failed to load change tickets.');
     } finally {
+      if (requestSeq !== requestSeqRef.current) return;
       setLoading(false);
     }
   };
@@ -122,14 +117,12 @@ const ChangeTicketsPage = () => {
     <div className="space-y-6">
       <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Control Gates Center - Change Tickets</h1>
-          <p className="mt-1 text-sm text-gray-500">
-            Create, review, and track release-gated change tickets with approval linkage.
-          </p>
+          <h1 className="text-2xl font-bold text-gray-900">Change Tickets</h1>
+          <p className="mt-1 text-sm text-gray-500">Search and review change tickets.</p>
         </div>
         <div className="flex items-center gap-2">
           <button
-            onClick={() => void fetchItems(currentPage)}
+            onClick={() => void fetchItems(currentPage, appliedFilters)}
             className={adminIconButtonClass()}
             title="Refresh"
           >
@@ -154,7 +147,7 @@ const ChangeTicketsPage = () => {
       )}
 
       <div className="space-y-4 rounded-xl border border-admin-border bg-white p-4 shadow-sm">
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-7">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-5">
           <input
             value={filters.ticketNo}
             onChange={(e) => setFilters((prev) => ({ ...prev, ticketNo: e.target.value }))}
@@ -174,25 +167,9 @@ const ChangeTicketsPage = () => {
             className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
           />
           <input
-            value={filters.latestApprovalStatus}
-            onChange={(e) =>
-              setFilters((prev) => ({ ...prev, latestApprovalStatus: e.target.value }))
-            }
-            placeholder="Approval Status"
-            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
-          />
-          <input
             value={filters.traceId}
             onChange={(e) => setFilters((prev) => ({ ...prev, traceId: e.target.value }))}
             placeholder="Trace ID"
-            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
-          />
-          <input
-            value={filters.releaseVersion}
-            onChange={(e) =>
-              setFilters((prev) => ({ ...prev, releaseVersion: e.target.value }))
-            }
-            placeholder="Release Version"
             className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
           />
           <input
@@ -205,7 +182,10 @@ const ChangeTicketsPage = () => {
 
         <div className="flex flex-wrap items-center gap-3">
           <button
-            onClick={() => void fetchItems(1)}
+            onClick={() => {
+              setAppliedFilters(filters);
+              void fetchItems(1, filters);
+            }}
             className={adminButtonClass('listPrimary')}
           >
             <Search size={16} />
@@ -214,6 +194,7 @@ const ChangeTicketsPage = () => {
           <button
             onClick={() => {
               setFilters(DEFAULT_FILTERS);
+              setAppliedFilters(DEFAULT_FILTERS);
               void fetchItems(1, DEFAULT_FILTERS);
             }}
             className={adminButtonClass('listSecondary')}
@@ -231,22 +212,21 @@ const ChangeTicketsPage = () => {
                 <th className="px-4 py-3 text-xs uppercase text-gray-500">Ticket No</th>
                 <th className="px-4 py-3 text-xs uppercase text-gray-500">Change Type</th>
                 <th className="px-4 py-3 text-xs uppercase text-gray-500">Status</th>
-                <th className="px-4 py-3 text-xs uppercase text-gray-500">Approval</th>
+                <th className="px-4 py-3 text-xs uppercase text-gray-500">Approval No</th>
                 <th className="px-4 py-3 text-xs uppercase text-gray-500">Trace ID</th>
                 <th className="px-4 py-3 text-xs uppercase text-gray-500">Created At</th>
-                <th className="px-4 py-3 text-xs uppercase text-gray-500">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-admin-border">
               {loading ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-8 text-center text-gray-500">
+                  <td colSpan={6} className="px-4 py-8 text-center text-gray-500">
                     Loading...
                   </td>
                 </tr>
               ) : items.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-8 text-center text-gray-500">
+                  <td colSpan={6} className="px-4 py-8 text-center text-gray-500">
                     No change tickets found
                   </td>
                 </tr>
@@ -254,19 +234,24 @@ const ChangeTicketsPage = () => {
                 items.map((item) => (
                   <tr key={item.id} className="hover:bg-gray-50">
                     <td className="px-4 py-3">
-                      <button
-                        onClick={() => navigate(`/dashboard/control-gates/change-tickets/${item.id}`)}
-                        className={adminButtonClass('rowKeyLink')}
-                      >
-                        {item.ticketNo}
-                      </button>
+                      {canReadDetail ? (
+                        <button
+                          onClick={() =>
+                            navigate(`/dashboard/control-gates/change-tickets/${item.id}`)
+                          }
+                          className={adminButtonClass('rowKeyLink')}
+                        >
+                          {item.ticketNo}
+                        </button>
+                      ) : (
+                        <span className="text-gray-900">{item.ticketNo}</span>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-gray-700">{item.changeType || '-'}</td>
                     <td className="px-4 py-3 text-gray-700">{item.status}</td>
                     <td className="px-4 py-3">
-                      <div className="text-gray-700">{item.latestApprovalStatus || '-'}</div>
                       <div className="font-mono text-xs text-gray-500">
-                        {item.latestApprovalNo || '-'}
+                        {item.approvalNo || '-'}
                       </div>
                     </td>
                     <td className="px-4 py-3">
@@ -275,14 +260,6 @@ const ChangeTicketsPage = () => {
                       </div>
                     </td>
                     <td className="px-4 py-3 text-gray-700">{formatDateTime(item.createdAt)}</td>
-                    <td className="px-4 py-3">
-                      <button
-                        onClick={() => navigate(`/dashboard/control-gates/change-tickets/${item.id}`)}
-                        className={adminButtonClass('rowLink')}
-                      >
-                        View
-                      </button>
-                    </td>
                   </tr>
                 ))
               )}
@@ -294,7 +271,7 @@ const ChangeTicketsPage = () => {
             currentPage={currentPage}
             totalItems={total}
             pageSize={PAGE_SIZE}
-            onPageChange={(page) => void fetchItems(page)}
+            onPageChange={(page) => void fetchItems(page, appliedFilters)}
           />
         </div>
       </div>

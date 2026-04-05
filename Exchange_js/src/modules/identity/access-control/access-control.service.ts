@@ -3,6 +3,7 @@ import { PrismaService } from '../../../core/prisma/prisma.service';
 import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
 import {
   AuditActions,
+  AuditBusinessWorkflowTypes,
   AuditEntityTypes,
   AuditModules,
 } from '../../risk-engine/audit-logs/constants/audit-actions.constant';
@@ -21,6 +22,27 @@ interface AdminActorContext {
   actorNo?: string;
 }
 
+type GovernedRoleBindingChangeBinding = {
+  intent?: string;
+  targetUserId: string;
+  roleCodes: string[];
+  [key: string]: unknown;
+};
+
+type GovernedExecutionActor = {
+  actorType?: string;
+  userId: string;
+  userNo?: string;
+  role?: string;
+  roleCodes?: string[];
+};
+
+type InternalAuditContext = {
+  workflowType?: string;
+  workflowNo?: string;
+  traceId?: string;
+};
+
 @Injectable()
 export class AccessControlService {
   constructor(
@@ -36,6 +58,12 @@ export class AccessControlService {
           .filter(Boolean),
       ),
     ).sort();
+  }
+
+  private normalizeOptionalString(value: unknown): string | null {
+    if (value === null || value === undefined) return null;
+    const normalized = String(value).trim();
+    return normalized.length ? normalized : null;
   }
 
   private validateHardMutex(roleCodes: string[]) {
@@ -58,6 +86,47 @@ export class AccessControlService {
     return SOFT_WARNING_ROLE_GROUPS.filter((rule) =>
       rule.codes.every((code) => set.has(code)),
     ).map((rule) => rule.message);
+  }
+
+  private toAdminActor(actor: GovernedExecutionActor): AdminActorContext {
+    return {
+      actorId: actor.userId,
+      actorNo: actor.userNo || actor.userId,
+      actorRole: actor.role || actor.roleCodes?.[0] || 'UNKNOWN',
+    };
+  }
+
+  private applyAuditContext<T extends Record<string, unknown>>(
+    payload: T,
+    auditContext?: InternalAuditContext,
+  ): T {
+    const workflowType = this.normalizeOptionalString(auditContext?.workflowType);
+    const workflowNo = this.normalizeOptionalString(auditContext?.workflowNo);
+    const traceId = this.normalizeOptionalString(auditContext?.traceId);
+
+    return {
+      ...payload,
+      workflowType: workflowType || undefined,
+      workflowNo: workflowNo || undefined,
+      traceId: traceId || undefined,
+    } as T;
+  }
+
+  private buildGovernedRoleBindingAuditContext(
+    binding: GovernedRoleBindingChangeBinding,
+  ): InternalAuditContext | undefined {
+    const workflowNo = this.normalizeOptionalString(binding.ticketNo);
+    const traceId = this.normalizeOptionalString(binding.traceId);
+
+    if (!workflowNo && !traceId) {
+      return undefined;
+    }
+
+    return {
+      workflowType: AuditBusinessWorkflowTypes.ADMIN_ROLE_BINDING_CHANGE,
+      workflowNo: workflowNo || undefined,
+      traceId: traceId || undefined,
+    };
   }
 
   async listRoles() {
@@ -202,6 +271,7 @@ export class AccessControlService {
     userId: string,
     roleCodes: string[],
     actor: AdminActorContext,
+    auditContext?: InternalAuditContext,
   ) {
     const normalizedRoleCodes = this.normalizeRoleCodes(roleCodes);
     if (normalizedRoleCodes.length === 0) {
@@ -268,7 +338,7 @@ export class AccessControlService {
     const warnings = this.buildSoftWarnings(afterRoleCodes);
 
     await this.auditLogsService.recordByActor(
-      {
+      this.applyAuditContext({
         action: AuditActions.USER_ROLE_BINDING_UPDATED,
         module: AuditModules.ACCESS_CONTROL,
         entityType: AuditEntityTypes.ACCESS_CONTROL,
@@ -286,7 +356,7 @@ export class AccessControlService {
           userEmail: user.email,
           warnings,
         },
-      },
+      }, auditContext),
       {
         actorType: 'ADMIN',
         actorId: actor.actorId,
@@ -301,5 +371,18 @@ export class AccessControlService {
       roles: afterRoleCodes,
       warnings,
     };
+  }
+
+  async executeGovernedRoleBindingChange(
+    binding: GovernedRoleBindingChangeBinding,
+    actor: GovernedExecutionActor,
+  ) {
+    const auditContext = this.buildGovernedRoleBindingAuditContext(binding);
+    return this.replaceUserRoles(
+      binding.targetUserId,
+      binding.roleCodes,
+      this.toAdminActor(actor),
+      auditContext,
+    );
   }
 }

@@ -66,6 +66,7 @@ export interface ApprovalDecisionEvent {
   workflowNo?: string | null;
   status: string;
   decisionByUserId?: string | null;
+  decisionByUserNo?: string | null;
   decisionByRole?: string | null;
   decisionReason?: string | null;
   decidedAt?: string | null;

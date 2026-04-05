@@ -144,4 +144,57 @@ describe('SumsubClient', () => {
       }),
     );
   });
+
+  it('queries applicant by external user id and returns null on 404', async () => {
+    const get = jest
+      .fn()
+      .mockResolvedValueOnce({ data: { id: 'app-1' } })
+      .mockRejectedValueOnce({ response: { status: 404 } });
+    mockedAxios.create.mockReturnValue({ get } as any);
+
+    const client = new SumsubClient();
+
+    await expect(client.getApplicantByExternalUserId('customer-1')).resolves.toEqual({
+      id: 'app-1',
+    });
+    await expect(client.getApplicantByExternalUserId('missing-customer')).resolves.toBeNull();
+
+    expect(get).toHaveBeenNthCalledWith(
+      1,
+      '/resources/applicants/-;externalUserId=customer-1/one',
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          'X-App-Token': 'test-app-token',
+        }),
+      }),
+    );
+    expect(get).toHaveBeenNthCalledWith(
+      2,
+      '/resources/applicants/-;externalUserId=missing-customer/one',
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          'X-App-Token': 'test-app-token',
+        }),
+      }),
+    );
+  });
+
+  it('verifies webhook signatures against the raw payload bytes', () => {
+    const client = new SumsubClient();
+    const rawBody = Buffer.from('{"type":"applicantPending","applicantId":"app-1"}');
+    const signature = createHmac('sha256', 'test-secret-key').update(rawBody).digest('hex');
+
+    expect(client.verifyWebhookSignature(rawBody, signature, 'HMAC_SHA256_HEX')).toBe(true);
+  });
+
+  it('rejects webhook signatures that do not match the raw payload', () => {
+    const client = new SumsubClient();
+    const rawBody = Buffer.from('{"type":"applicantPending","applicantId":"app-1"}');
+
+    expect(client.verifyWebhookSignature(rawBody, 'bad-signature', 'HMAC_SHA256_HEX')).toBe(
+      false,
+    );
+    expect(client.verifyWebhookSignature(rawBody, undefined, 'HMAC_SHA256_HEX')).toBe(false);
+    expect(client.verifyWebhookSignature(rawBody, 'deadbeef', 'UNKNOWN')).toBe(false);
+  });
 });

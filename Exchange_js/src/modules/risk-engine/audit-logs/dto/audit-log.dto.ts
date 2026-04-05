@@ -103,6 +103,11 @@ export interface AuditLogView {
   id: string;
   auditNo: string;
   triggerType: string;
+  businessWorkflow: string | null;
+  businessWorkflowLabel: string | null;
+  primaryRefNo: string | null;
+  userAction: string | null;
+  userActionLabel: string | null;
   action: string;
   module: string;
   entityType: string;

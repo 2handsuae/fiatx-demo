@@ -21,6 +21,40 @@
 - 每个新功能、每条新业务流程、每个关键状态迁移、每个自动阻断动作都 MUST 接入这条 canonical write path。
 - 没有接入 canonical audit logging 的功能不得视为完成态。
 
+## Business Workflow / Trace Canonical Rules
+统一审计的第一层语义以 business workflow 为准，规则固定如下：
+- 一个 business workflow 实例 MUST 对应一条 `traceId`。
+- `workflowType/workflowId/workflowNo` 是 raw container tuple，用于技术定位与派生显示，不直接等同于页面第一层文案。
+- read model 需要从 raw tuple、`action`、`subjectNos[]` 派生 `businessWorkflow`、`userAction`、`primaryRefNo`。
+- `approval` MUST 视为嵌入式治理节点；若 approval 服务于父业务流程，则其审计事件 MUST 继承父 workflow 上下文与 trace。
+- delete workflow MUST 使用自己的 workflow trace，MUST NOT 继承 target 对象原 trace。
+- 页面第一层隐藏 container 名称；raw tuple 与 raw action 保留在 technical context 中。
+
+Wave 1 operator-facing business workflows 固定为：
+- `ADMIN_MEMBER_PROVISIONING`
+- `ADMIN_LOGIN_ACCESS`
+- `ADMIN_ROLE_BINDING_CHANGE`
+- `CHANGE_TICKET_DELETION`
+- `ADMIN_USER_DELETION`
+- `AUDIT_EVIDENCE_PACKAGE_DELETION`
+- `AUDIT_EVIDENCE_EXPORT`
+
+Wave 1 第一层 user action vocabulary 固定为：
+- `REQUEST_CREATED`
+- `SUBMITTED`
+- `APPROVED_FOR_EXECUTION`
+- `REJECTED`
+- `CANCELLED`
+- `EXECUTED`
+- `EXECUTION_FAILED`
+- `RESENT`
+- `ACCEPTED`
+- `ACCEPT_FAILED`
+- `LOGIN_SUCCEEDED`
+- `LOGIN_FAILED`
+- `EXPORTED`
+- `EXPORT_FAILED`
+
 ## 数据模型（`audit_log_events`、`audit_log_subject_nos`、`audit_evidence_packages`）
 Prisma 定义位于：`/Users/songshengwei/Documents/codex/projects/重做版/Exchange_js/prisma/schema.prisma`
 
@@ -159,6 +193,8 @@ DTO：`/Users/songshengwei/Documents/codex/projects/重做版/Exchange_js/src/mo
 - 返回事件基础字段 + `subjectNos[]`
 - Admin 前端独立详情页：`/dashboard/audit/audit-logs/:id`
 - 详情页按单条事件字段做语义分组展示，不做跨表聚合查询
+- 第一层展示字段为 `businessWorkflow`、`userAction`、`primaryRefNo`
+- 技术区保留 raw `action`、`traceId`、`workflowType/workflowId/workflowNo`、`entityType/entityNo`
 
 ### 导出（`POST /admin/audit-logs/export/evidence-package`）
 - 当前模式：`SELECTION`
@@ -193,6 +229,11 @@ DTO：`/Users/songshengwei/Documents/codex/projects/重做版/Exchange_js/src/mo
 1. `/dashboard/control-gates/approvals`
 2. `/dashboard/control-gates/approvals/:id`
 
+approval 审计语义要求：
+- `APPROVAL_*` 仍保留为 raw technical action。
+- 若 approval 绑定到 `ChangeTicket`、`DeleteRequest`、`AUDIT_EVIDENCE_EXPORT` 等父流程，则 approval record 与 approval event MUST 继承父 business workflow 上下文。
+- 审批页可继续展示 approval container；审计页第一层不得把 `APPROVAL` 作为 operator workflow。
+
 ## 历史兼容注记
 - 旧版更改单发布能力仅作为治理域的历史上下文保留；本 audit module 文档不再把它写成当前实现主线。
 
@@ -220,6 +261,8 @@ DTO：`/Users/songshengwei/Documents/codex/projects/重做版/Exchange_js/src/mo
 5. `DELETE_REQUEST_SUBMITTED`
 6. `DELETE_REQUEST_CANCELLED`
 7. `DELETE_REQUEST_CONSUMED`
+
+这些 container action 在审计页中仅作为 raw technical action 保留；页面第一层 workflow 应派生为其对应业务语义，如 `ADMIN_MEMBER_PROVISIONING`、`ADMIN_ROLE_BINDING_CHANGE`、`*_DELETION`。
 
 以下为当前关键接入点（P0 优先）：
 - Auth

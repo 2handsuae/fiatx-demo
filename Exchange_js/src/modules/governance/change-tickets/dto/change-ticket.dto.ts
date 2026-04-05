@@ -1,21 +1,7 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import {
-  IsBoolean,
-  IsDateString,
-  IsIn,
-  IsInt,
-  IsOptional,
-  IsString,
-  Max,
-  Min,
-} from 'class-validator';
-import {
-  CHANGE_TICKET_DEPLOY_STATUS_VALUES,
-  CHANGE_TICKET_RELEASE_ENV_VALUES,
-  CHANGE_TICKET_STATUS_VALUES,
-  CHANGE_TICKET_TYPE_VALUES,
-} from '../constants/change-ticket.constants';
+import { IsIn, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
+import { CHANGE_TICKET_STATUS_VALUES, CHANGE_TICKET_TYPE_VALUES } from '../constants/change-ticket.constants';
 
 export class CreateChangeTicketDto {
   @IsIn(CHANGE_TICKET_TYPE_VALUES)
@@ -25,22 +11,13 @@ export class CreateChangeTicketDto {
   scopeSummary!: string;
 
   @IsString()
+  changeReason!: string;
+
+  @IsString()
   testEvidenceRef!: string;
 
   @IsString()
   rollbackPlanRef!: string;
-
-  @IsOptional()
-  @IsBoolean()
-  emergency?: boolean;
-
-  @IsOptional()
-  @IsString()
-  emergencyReason?: string;
-
-  @IsOptional()
-  @IsDateString()
-  postApprovalDueAt?: string;
 
   @IsOptional()
   @IsString()
@@ -48,61 +25,6 @@ export class CreateChangeTicketDto {
 }
 
 export class SubmitChangeTicketDto {
-  @IsOptional()
-  @IsString()
-  reason?: string;
-
-  @IsOptional()
-  @IsString()
-  traceId?: string;
-}
-
-export class ResubmitChangeTicketDto {
-  @IsOptional()
-  @IsString()
-  reason?: string;
-
-  @IsOptional()
-  @IsString()
-  traceId?: string;
-}
-
-export class CloseChangeTicketDto {
-  @IsOptional()
-  @IsString()
-  reason?: string;
-
-  @IsOptional()
-  @IsString()
-  traceId?: string;
-}
-
-export class GateCheckDto {
-  @IsIn(CHANGE_TICKET_RELEASE_ENV_VALUES)
-  targetEnv!: string;
-
-  @IsString()
-  releaseVersion!: string;
-
-  @IsOptional()
-  @IsString()
-  reason?: string;
-
-  @IsOptional()
-  @IsString()
-  traceId?: string;
-}
-
-export class MarkDeployStatusDto {
-  @IsIn(CHANGE_TICKET_RELEASE_ENV_VALUES)
-  targetEnv!: string;
-
-  @IsString()
-  releaseVersion!: string;
-
-  @IsIn(CHANGE_TICKET_DEPLOY_STATUS_VALUES)
-  deployStatus!: string;
-
   @IsOptional()
   @IsString()
   reason?: string;
@@ -142,15 +64,7 @@ export class ChangeTicketQueryDto {
 
   @IsOptional()
   @IsString()
-  latestApprovalStatus?: string;
-
-  @IsOptional()
-  @IsString()
   traceId?: string;
-
-  @IsOptional()
-  @IsString()
-  releaseVersion?: string;
 
   @IsOptional()
   @IsString()

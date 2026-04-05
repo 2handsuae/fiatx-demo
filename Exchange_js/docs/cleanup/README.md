@@ -2,7 +2,7 @@
 
 Status: active
 Owner: project-owner-and-agents
-Last Updated: 2026-03-30
+Last Updated: 2026-04-02
 Applies To: `Exchange_js`
 Supersedes: none
 Depends On: `docs/README.md`
@@ -19,6 +19,8 @@ Source of Truth Level: cleanup
 4. final closure plans only when retirement history matters
 
 ## Current Cleanup Documents
+- Current active round workspace:
+  - `docs/cleanup/2026-04-wave1-foundation-reset/README.md`
 - Cross-wave priority summary:
   - `docs/cleanup/cross-wave-cleanup-priority-summary.md`
 - Wave 1 residual inventory:
@@ -118,6 +120,9 @@ Source of Truth Level: cleanup
   - `docs/constraints/**`
   - `docs/specs/**`
   - `docs/acceptance/**`
+- 当前新的 active cleanup/review thread 如果需要和历史 closeout 文档隔离，允许在 `docs/cleanup/` 下使用 round-scoped 子目录，例如：
+  - `docs/cleanup/2026-04-wave1-foundation-reset/`
+  - 这类目录用于当前轮的工作区，不替代 top-level historical cleanup records
 
 ## Update When
 - A legacy alias is introduced or removed.

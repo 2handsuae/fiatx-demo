@@ -1,13 +1,6 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import {
-  IsIn,
-  IsInt,
-  IsOptional,
-  IsString,
-  Max,
-  Min,
-} from 'class-validator';
+import { IsIn, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
 import {
   DELETE_REQUEST_STATUS_VALUES,
   DELETE_REQUEST_TARGET_TYPE_VALUES,
@@ -52,7 +45,7 @@ export class CancelDeleteRequestDto {
   traceId?: string;
 }
 
-export class ExecuteDeleteRequestDto {
+export class ConsumeDeleteRequestDto {
   @IsOptional()
   @IsString()
   reason?: string;
@@ -96,11 +89,19 @@ export class DeleteRequestQueryDto {
 
   @IsOptional()
   @IsString()
-  latestApprovalStatus?: string;
+  traceId?: string;
 
   @IsOptional()
   @IsString()
-  traceId?: string;
+  approvalNo?: string;
+
+  @IsOptional()
+  @IsString()
+  createdByUserNo?: string;
+
+  @IsOptional()
+  @IsString()
+  consumedByUserNo?: string;
 
   @IsOptional()
   @IsString()

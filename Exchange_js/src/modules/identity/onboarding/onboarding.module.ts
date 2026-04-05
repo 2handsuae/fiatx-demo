@@ -29,10 +29,6 @@ import { OnboardingSumsubSimulationController } from './onboarding-sumsub-simula
   ],
   providers: [
     OnboardingService,
-    {
-      provide: 'OnboardingService',
-      useExisting: OnboardingService,
-    },
     WorkflowTransitionService,
     OnboardingWorkflowTransitionService,
     OnboardingFinalApprovalService,

@@ -25,11 +25,6 @@ import {
   ApprovalStatuses,
 } from '../approvals/constants/approval.constants';
 import {
-  ChangeTicketStatuses,
-  ChangeTicketWorkflowTypes,
-} from '../change-tickets/constants/change-ticket.constants';
-import {
-  DEFAULT_CHANGE_POST_APPROVAL_FOLLOWUP_HOURS,
   DEFAULT_SLA_DEMO_DUE_IN_SECONDS,
   DEFAULT_SLA_TIMER_GRACE_SECONDS,
   SlaNotificationStatuses,
@@ -895,63 +890,8 @@ export class SlaTimersService {
   }
 
   async ensureChangePostApprovalFollowUpTimer(ticketId: string) {
-    const ticket = await this.prisma.changeTicket.findUnique({
-      where: { id: ticketId },
-      select: {
-        id: true,
-        ticketNo: true,
-        status: true,
-        emergency: true,
-        traceId: true,
-        createdByUserId: true,
-        deployedAt: true,
-        postApprovalDueAt: true,
-        postApprovalCompletedAt: true,
-        deletedAt: true,
-      },
-    });
-
-    if (!ticket || ticket.deletedAt || !ticket.emergency || ticket.postApprovalCompletedAt) {
-      return null;
-    }
-    if (!ticket.deployedAt) {
-      return null;
-    }
-    if (
-      !([
-        ChangeTicketStatuses.DEPLOYED,
-        ChangeTicketStatuses.DEPLOY_FAILED,
-        ChangeTicketStatuses.CLOSED,
-      ] as string[]).includes(ticket.status)
-    ) {
-      return null;
-    }
-
-    const dueAt =
-      ticket.postApprovalDueAt ||
-      new Date(
-        ticket.deployedAt.getTime() +
-          DEFAULT_CHANGE_POST_APPROVAL_FOLLOWUP_HOURS * 60 * 60 * 1000,
-      );
-
-    return this.createOrReuseActiveTimer({
-      workflowType: ChangeTicketWorkflowTypes.CHANGE_TICKET,
-      workflowId: ticket.id,
-      workflowNo: ticket.ticketNo,
-      subjectType: AuditEntityTypes.CHANGE_TICKET,
-      subjectId: ticket.id,
-      subjectNo: ticket.ticketNo,
-      timerType: SlaTimerTypes.CHANGE_POST_APPROVAL_FOLLOWUP,
-      ownerUserId: ticket.createdByUserId,
-      dueAt,
-      traceId: ticket.traceId,
-      contextJson: {
-        ticketNo: ticket.ticketNo,
-        emergency: true,
-        deployedAt: ticket.deployedAt.toISOString(),
-        postApprovalDueAt: dueAt.toISOString(),
-      },
-    });
+    void ticketId;
+    return null;
   }
 
   async ensureGovernanceRegistryTimer(input: {
@@ -1175,52 +1115,15 @@ export class SlaTimersService {
     }
 
     if (current.timerType === SlaTimerTypes.CHANGE_POST_APPROVAL_FOLLOWUP) {
-      const ticket = await this.prisma.changeTicket.findUnique({
-        where: { id: current.subjectId },
-        select: {
-          id: true,
-          ticketNo: true,
-          deployedAt: true,
-          postApprovalDueAt: true,
-          postApprovalCompletedAt: true,
-          deletedAt: true,
-        },
-      });
-
-      if (!ticket || ticket.deletedAt) {
-        throw new NotFoundException(`Change ticket not found: ${current.subjectId}`);
-      }
-      if (!ticket.deployedAt) {
-        throw new BadRequestException('Change ticket has not been deployed yet');
-      }
-      if (ticket.postApprovalCompletedAt) {
-        throw new BadRequestException('Change ticket follow-up is already completed');
-      }
-
-      const fallbackDueAt =
-        ticket.postApprovalDueAt ||
-        new Date(
-          ticket.deployedAt.getTime() +
-            DEFAULT_CHANGE_POST_APPROVAL_FOLLOWUP_HOURS * 60 * 60 * 1000,
-        );
-      const dueAt = this.resolveDueAtFromRecalc(dto, fallbackDueAt);
+      const dueAt = this.resolveDueAtFromRecalc(dto, current.dueAt);
       const graceSeconds =
         typeof dto.graceSeconds === 'number' ? dto.graceSeconds : current.graceSeconds;
       const contextJson = {
         ...(this.parseJson<Record<string, unknown>>(current.contextJson) || {}),
-        ticketNo: ticket.ticketNo,
-        postApprovalDueAt: dueAt.toISOString(),
         recalculatedAt: new Date().toISOString(),
       };
 
       const updated = await this.prisma.$transaction(async (tx: any) => {
-        await tx.changeTicket.update({
-          where: { id: ticket.id },
-          data: {
-            postApprovalDueAt: dueAt,
-          },
-        });
-
         const next = (await tx.slaTimer.update({
           where: { id: current.id },
           data: {
@@ -1300,13 +1203,6 @@ export class SlaTimersService {
         throw new BadRequestException('Only ACTIVE timers can be closed');
       }
 
-      await tx.changeTicket.update({
-        where: { id: timer.subjectId },
-        data: {
-          postApprovalCompletedAt: now,
-        },
-      });
-
       return (await tx.slaTimer.update({
         where: { id: timer.id },
         data: {
@@ -1325,9 +1221,6 @@ export class SlaTimersService {
       reason,
       SlaTimerStatuses.ACTIVE,
       SlaTimerStatuses.CLOSED,
-      {
-        postApprovalCompletedAt: now.toISOString(),
-      },
     );
 
     await this.skipScheduledNotifications(
@@ -1335,9 +1228,6 @@ export class SlaTimersService {
       {
         reasonCode: 'TIMER_CLOSED',
         message: reason,
-        metadata: {
-          postApprovalCompletedAt: now.toISOString(),
-        },
       },
       actor,
     );
@@ -1411,23 +1301,6 @@ export class SlaTimersService {
       }
 
       if (row.timerType === SlaTimerTypes.CHANGE_POST_APPROVAL_FOLLOWUP) {
-        const ticket = await this.prisma.changeTicket.findUnique({
-          where: { id: row.subjectId },
-          select: {
-            deletedAt: true,
-            postApprovalCompletedAt: true,
-          },
-        });
-        if (!ticket || ticket.deletedAt || ticket.postApprovalCompletedAt) {
-          const closed = await this.closeTimerRow(
-            row,
-            this.systemActor(),
-            'Emergency change follow-up already completed; timer closed',
-          );
-          closedIds.push(closed.id);
-          continue;
-        }
-
         const expired = await this.expireTimerRow(
           row,
           this.systemActor(),

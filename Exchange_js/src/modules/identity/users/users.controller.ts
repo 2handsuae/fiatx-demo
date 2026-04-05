@@ -3,6 +3,7 @@ import {
   Controller,
   Get,
   Param,
+  ParseUUIDPipe,
   UseGuards,
   Query,
   Req,
@@ -17,17 +18,32 @@ import { AdminPermissionGuard } from '../access-control/admin-permission.guard';
 import { RequirePermissions } from '../access-control/require-permissions.decorator';
 import { buildPermissionCode } from '../access-control/permission-code.util';
 import { CreateAdminUserDto } from './dto/create-admin-user.dto';
+import { ChangeTicketsService } from '../../governance/change-tickets/change-tickets.service';
+import { ApprovalActorContext } from '../../governance/approvals/constants/approval.constants';
 
 @ApiTags('users')
 @ApiBearerAuth()
 @Controller('users')
 @UseGuards(AuthGuard('jwt'), AdminPermissionGuard)
 export class UsersController {
-  constructor(private readonly usersService: UsersService) {}
+  constructor(
+    private readonly usersService: UsersService,
+    private readonly changeTicketsService: ChangeTicketsService,
+  ) {}
+
+  private buildAdminActor(req: any): ApprovalActorContext {
+    return {
+      actorType: 'ADMIN',
+      userId: req.user.userId,
+      userNo: req.user.userNo,
+      role: req.user.role || 'ADMIN',
+      roleCodes: req.user.roleCodes || [req.user.role || 'ADMIN'],
+    };
+  }
 
   @Post()
   @RequirePermissions(buildPermissionCode('POST', '/users'))
-  @ApiOperation({ summary: 'Create admin member and bind roles' })
+  @ApiOperation({ summary: 'Create admin member provisioning change ticket' })
   async create(
     @Req() req: any,
     @Body(new ValidationPipe({ transform: true })) body: CreateAdminUserDto,
@@ -36,15 +52,14 @@ export class UsersController {
       throw new ForbiddenException('Admin token required');
     }
 
-    return this.usersService.createAdminUser({
-      email: body.email,
-      roleCodes: body.roleCodes,
-      actor: {
-        actorId: req.user.userId,
-        actorRole: req.user.role || 'ADMIN',
-        actorNo: req.user.userNo,
+    return this.changeTicketsService.createAdminMemberProvisioningTicket(
+      {
+        email: body.email,
+        roleCodes: body.roleCodes,
+        changeReason: body.changeReason,
       },
-    });
+      this.buildAdminActor(req),
+    );
   }
 
   @Get()
@@ -74,6 +89,17 @@ export class UsersController {
         .map((item: any) => item.role?.code)
         .filter(Boolean),
     }));
+  }
+
+  @Get(':id')
+  @RequirePermissions(buildPermissionCode('GET', '/users'))
+  @ApiOperation({ summary: 'Get one user detail with invitation summary' })
+  async findOne(@Req() req: any, @Param('id', new ParseUUIDPipe()) id: string) {
+    if (req.user?.type !== 'ADMIN') {
+      throw new ForbiddenException('Admin token required');
+    }
+
+    return this.usersService.getMemberDetail(id);
   }
 
   @Post(':id/invitations/resend')

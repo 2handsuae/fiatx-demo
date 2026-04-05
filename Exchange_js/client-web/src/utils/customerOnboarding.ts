@@ -1,9 +1,6 @@
 export type CanonicalOnboardingStatus =
   | 'NONE'
-  | 'PENDING_CDD_INPUT'
-  | 'CDD_UNDER_REVIEW'
-  | 'PENDING_EDD_INPUT'
-  | 'EDD_UNDER_REVIEW'
+  | 'PENDING_VERIFICATION'
   | 'FINAL_APPROVAL'
   | 'APPROVED'
   | 'REJECTED'
@@ -18,10 +15,7 @@ export interface CustomerLifecycleSnapshot {
 
 const CANONICAL_ONBOARDING_STATUSES: CanonicalOnboardingStatus[] = [
   'NONE',
-  'PENDING_CDD_INPUT',
-  'CDD_UNDER_REVIEW',
-  'PENDING_EDD_INPUT',
-  'EDD_UNDER_REVIEW',
+  'PENDING_VERIFICATION',
   'FINAL_APPROVAL',
   'APPROVED',
   'REJECTED',
@@ -78,10 +72,7 @@ export const isCustomerInProgress = (source: CustomerLifecycleSnapshot): boolean
 
   return [
     'NONE',
-    'PENDING_CDD_INPUT',
-    'CDD_UNDER_REVIEW',
-    'PENDING_EDD_INPUT',
-    'EDD_UNDER_REVIEW',
+    'PENDING_VERIFICATION',
     'FINAL_APPROVAL',
   ].includes(onboardingStatus);
 };

@@ -72,13 +72,13 @@ describe('AuditEvidenceExportApprovalService', () => {
       id: 'approval-1',
       approvalNo: 'APR2603140001',
       status: 'DRAFT',
-      traceId: 'trace-1',
+      traceId: 'trace-export-1',
     });
     approvalsService.submit.mockResolvedValue({
       id: 'approval-1',
       approvalNo: 'APR2603140001',
       status: 'PENDING',
-      traceId: 'trace-1',
+      traceId: 'trace-export-1',
     });
     auditLogsService.findEvidencePackage.mockResolvedValue({
       id: 'pkg-1',
@@ -90,6 +90,7 @@ describe('AuditEvidenceExportApprovalService', () => {
     const result = await service.createExportRequest(
       {
         selectedEventIds: ['log-1'],
+        traceId: 'trace-export-1',
       } as any,
       actor,
     );
@@ -99,13 +100,43 @@ describe('AuditEvidenceExportApprovalService', () => {
       expect.objectContaining({
         actionType: 'AUDIT_EVIDENCE_EXPORT_APPROVAL',
         entityRef: 'pkg-1',
+        traceId: 'trace-export-1',
+        workflowType: 'AUDIT_EVIDENCE_EXPORT',
+        workflowId: 'pkg-1',
+        workflowNo: 'EVP-1',
       }),
       actor,
     );
     expect(prisma.auditEvidencePackage.update).toHaveBeenCalledWith({
       where: { id: 'pkg-1' },
-      data: { approvalCaseId: 'approval-1' },
+      data: {
+        approvalCaseId: 'approval-1',
+        approvalCaseNo: 'APR2603140001',
+      },
     });
+    expect(auditLogsService.createEvidencePackageRecord).toHaveBeenCalledWith(
+      expect.objectContaining({
+        exportedByNo: actor.userNo,
+      }),
+    );
+    expect(auditLogsService.recordByActor).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'AUDIT_EVIDENCE_EXPORT_REQUESTED',
+        workflowType: 'AUDIT_EVIDENCE_EXPORT',
+        workflowNo: 'EVP-1',
+        traceId: 'trace-export-1',
+        subjectNos: expect.arrayContaining([
+          expect.objectContaining({
+            subjectRole: 'RELATED',
+            subjectType: 'APPROVAL_CASE',
+            subjectNo: 'APR2603140001',
+          }),
+        ]),
+      }),
+      expect.objectContaining({
+        actorId: actor.userId,
+      }),
+    );
   });
 
   it('creates swap export request and preserves swap workflow summary in approval metadata', async () => {
@@ -134,13 +165,13 @@ describe('AuditEvidenceExportApprovalService', () => {
       id: 'approval-swap-1',
       approvalNo: 'APR2603260001',
       status: 'DRAFT',
-      traceId: 'trace-swap-1',
+      traceId: 'trace-export-swap-1',
     });
     approvalsService.submit.mockResolvedValue({
       id: 'approval-swap-1',
       approvalNo: 'APR2603260001',
       status: 'PENDING',
-      traceId: 'trace-swap-1',
+      traceId: 'trace-export-swap-1',
     });
     auditLogsService.findEvidencePackage.mockResolvedValue({
       id: 'pkg-swap-1',
@@ -153,6 +184,7 @@ describe('AuditEvidenceExportApprovalService', () => {
       {
         selectedEventIds: ['log-swap-1'],
         workflowType: 'SWAP',
+        traceId: 'trace-export-swap-1',
       } as any,
       actor,
     );
@@ -161,6 +193,10 @@ describe('AuditEvidenceExportApprovalService', () => {
       expect.objectContaining({
         actionType: 'AUDIT_EVIDENCE_EXPORT_APPROVAL',
         entityRef: 'pkg-swap-1',
+        traceId: 'trace-export-swap-1',
+        workflowType: 'AUDIT_EVIDENCE_EXPORT',
+        workflowId: 'pkg-swap-1',
+        workflowNo: 'EVP-SWAP-1',
         metadata: expect.objectContaining({
           packageNo: 'EVP-SWAP-1',
           workflowSummary: {
@@ -225,6 +261,16 @@ describe('AuditEvidenceExportApprovalService', () => {
         userId: 'checker-1',
       }),
       'Evidence export package generated successfully',
+    );
+    expect(auditLogsService.recordByActor).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'AUDIT_EVIDENCE_PACKAGE_EXPORTED',
+        workflowType: 'AUDIT_EVIDENCE_EXPORT',
+        workflowId: 'pkg-1',
+        workflowNo: 'EVP-1',
+        traceId: 'trace-1',
+      }),
+      expect.any(Object),
     );
   });
 
@@ -348,7 +394,14 @@ describe('AuditEvidenceExportApprovalService', () => {
       packageNo: 'EVP-1',
       approvalCaseId: 'approval-1',
       status: 'READY',
+      exportedById: actor.userId,
+      exportedByNo: actor.userNo,
+      exportedByRole: actor.role,
+      workflowType: 'AUDIT_EVIDENCE_EXPORT',
+      workflowId: 'pkg-1',
+      workflowNo: 'EVP-1',
       approvalCase: {
+        approvalNo: 'APR2603140001',
         traceId: 'trace-1',
       },
     });
@@ -363,6 +416,24 @@ describe('AuditEvidenceExportApprovalService', () => {
       expect.objectContaining({
         approvalCaseId: 'approval-1',
         entityRef: 'pkg-1',
+      }),
+    );
+    expect(auditLogsService.recordByActor).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'AUDIT_EVIDENCE_PACKAGE_DOWNLOADED',
+        workflowType: 'AUDIT_EVIDENCE_EXPORT',
+        workflowNo: 'EVP-1',
+        traceId: 'trace-1',
+        subjectNos: expect.arrayContaining([
+          expect.objectContaining({
+            subjectRole: 'RELATED',
+            subjectType: 'APPROVAL_CASE',
+            subjectNo: 'APR2603140001',
+          }),
+        ]),
+      }),
+      expect.objectContaining({
+        actorId: actor.userId,
       }),
     );
     expect(result.packageNo).toBe('EVP-1');

@@ -5,24 +5,26 @@ import { DeleteRequestsService } from './delete-requests.service';
 
 describe('DeleteRequestsController', () => {
   let controller: DeleteRequestsController;
+
   const deleteRequestsService = {
     create: jest.fn(),
     list: jest.fn(),
     getById: jest.fn(),
     submit: jest.fn(),
     cancel: jest.fn(),
-    execute: jest.fn(),
+    consume: jest.fn(),
   };
 
   const adminReq = {
     user: {
       type: 'ADMIN',
-      userId: 'executor-1',
+      userId: 'checker-1',
       userNo: 'ADM-003',
       role: 'TECH_ADMIN',
       roleCodes: ['TECH_ADMIN'],
     },
   };
+
   const customerReq = { user: { type: 'CUSTOMER', userId: 'cust-1' } };
 
   beforeEach(async () => {
@@ -35,22 +37,33 @@ describe('DeleteRequestsController', () => {
     jest.clearAllMocks();
   });
 
-  it('delegates execute with admin actor context', async () => {
-    deleteRequestsService.execute.mockResolvedValue({ id: 'delete-request-1', status: 'EXECUTED' });
+  it('delegates consume with admin actor context', async () => {
+    deleteRequestsService.consume.mockResolvedValue({ id: 'delete-request-1', status: 'DONE' });
 
-    await controller.execute(adminReq, 'delete-request-1', { reason: 'cleanup' } as any);
+    await controller.consume(adminReq, 'delete-request-1', { reason: 'cleanup' } as any);
 
-    expect(deleteRequestsService.execute).toHaveBeenCalledWith(
+    expect(deleteRequestsService.consume).toHaveBeenCalledWith(
       'delete-request-1',
       { reason: 'cleanup' },
       {
         actorType: 'ADMIN',
-        userId: 'executor-1',
+        userId: 'checker-1',
         userNo: 'ADM-003',
         role: 'TECH_ADMIN',
         roleCodes: ['TECH_ADMIN'],
       },
     );
+  });
+
+  it('only exposes create, list, getById, submit, cancel, and consume handlers', () => {
+    const prototype = Object.getPrototypeOf(controller) as Record<string, unknown>;
+
+    expect(typeof prototype.create).toBe('function');
+    expect(typeof prototype.list).toBe('function');
+    expect(typeof prototype.getById).toBe('function');
+    expect(typeof prototype.submit).toBe('function');
+    expect(typeof prototype.cancel).toBe('function');
+    expect(typeof prototype.consume).toBe('function');
   });
 
   it('rejects non-admin delete request access', () => {

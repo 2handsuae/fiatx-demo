@@ -1,10 +1,9 @@
 export const DeleteRequestStatuses = {
   DRAFT: 'DRAFT',
-  SUBMITTED: 'SUBMITTED',
-  APPROVAL_PENDING: 'APPROVAL_PENDING',
-  READY_TO_EXECUTE: 'READY_TO_EXECUTE',
-  EXECUTED: 'EXECUTED',
-  EXECUTION_FAILED: 'EXECUTION_FAILED',
+  PENDING_APPROVAL: 'PENDING_APPROVAL',
+  READY: 'READY',
+  DONE: 'DONE',
+  FAILED: 'FAILED',
   REJECTED: 'REJECTED',
   CANCELLED: 'CANCELLED',
 } as const;
@@ -12,19 +11,13 @@ export const DeleteRequestStatuses = {
 export const DeleteRequestTargetTypes = {
   CHANGE_TICKET: 'CHANGE_TICKET',
   AUDIT_EVIDENCE_PACKAGE: 'AUDIT_EVIDENCE_PACKAGE',
-  COMPLIANCE_CASE_EVIDENCE_PACKAGE: 'COMPLIANCE_CASE_EVIDENCE_PACKAGE',
   ADMIN_USER: 'ADMIN_USER',
-} as const;
-
-export const DeleteRequestWorkflowTypes = {
-  DELETE_REQUEST: 'DELETE_REQUEST',
 } as const;
 
 export const DELETE_REQUEST_STATUS_VALUES = Object.values(DeleteRequestStatuses);
 export const DELETE_REQUEST_TARGET_TYPE_VALUES = Object.values(DeleteRequestTargetTypes);
 
 export const DeleteRequestActiveStatuses = [
-  DeleteRequestStatuses.SUBMITTED,
-  DeleteRequestStatuses.APPROVAL_PENDING,
-  DeleteRequestStatuses.READY_TO_EXECUTE,
+  DeleteRequestStatuses.PENDING_APPROVAL,
+  DeleteRequestStatuses.READY,
 ] as const;

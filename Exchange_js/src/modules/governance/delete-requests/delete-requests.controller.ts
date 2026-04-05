@@ -17,9 +17,9 @@ import { ApprovalActorContext } from '../approvals/constants/approval.constants'
 import { DeleteRequestsService } from './delete-requests.service';
 import {
   CancelDeleteRequestDto,
+  ConsumeDeleteRequestDto,
   CreateDeleteRequestDto,
   DeleteRequestQueryDto,
-  ExecuteDeleteRequestDto,
   SubmitDeleteRequestDto,
 } from './dto/delete-request.dto';
 
@@ -88,13 +88,13 @@ export class DeleteRequestsController {
     return this.deleteRequestsService.cancel(id, body, this.ensureAdmin(req));
   }
 
-  @Post(':id/execute')
-  @ApiOperation({ summary: 'Execute a delete request' })
-  execute(
+  @Post(':id/consume')
+  @ApiOperation({ summary: 'Consume a delete request' })
+  consume(
     @Req() req: any,
     @Param('id') id: string,
-    @Body(new ValidationPipe({ transform: true })) body: ExecuteDeleteRequestDto,
+    @Body(new ValidationPipe({ transform: true })) body: ConsumeDeleteRequestDto,
   ) {
-    return this.deleteRequestsService.execute(id, body, this.ensureAdmin(req));
+    return this.deleteRequestsService.consume(id, body, this.ensureAdmin(req));
   }
 }

@@ -25,6 +25,7 @@ interface ApprovalDetail {
   entityRef: string;
   makerUserId: string;
   makerUserNo?: string | null;
+  decisionByUserNo?: string | null;
   status: string;
   executionStatus: string;
   riskLevel: string;
@@ -47,9 +48,11 @@ interface ApprovalDetail {
   updatedAt: string;
   step?: {
     id: string;
+    approvalNo?: string | null;
     stepNo: number;
     status: string;
     checkerRoleCandidates: string[];
+    decidedByUserNo?: string | null;
     decidedByRole?: string | null;
     reason?: string | null;
     decidedAt?: string | null;
@@ -263,6 +266,7 @@ const ApprovalDetailPage = () => {
         <InfoField label="Selected Checker Role" value={detail.selectedCheckerRole} />
         <InfoField label="Available Decision Roles" value={detail.availableDecisionRoles.join(', ')} />
         <InfoField label="Decision Reason" value={detail.decisionReason} />
+        <InfoField label="Decision By User No" value={detail.decisionByUserNo || '-'} mono />
         <InfoField label="Decided At" value={formatDateTime(detail.decidedAt)} />
         <InfoField label="Executed At" value={formatDateTime(detail.executedAt)} />
         <InfoField label="Allow Cancel" value={detail.allowCancel ? 'YES' : 'NO'} />
@@ -294,8 +298,10 @@ const ApprovalDetailPage = () => {
         <InfoField label="Doc Ref" value={detail.docRef} mono />
         <InfoField label="Created At" value={formatDateTime(detail.createdAt)} />
         <InfoField label="Updated At" value={formatDateTime(detail.updatedAt)} />
+        <InfoField label="Step Approval No" value={detail.step?.approvalNo} mono />
         <InfoField label="Step No" value={detail.step?.stepNo} />
         <InfoField label="Step Status" value={detail.step?.status} />
+        <InfoField label="Step Decided By User No" value={detail.step?.decidedByUserNo} mono />
         <InfoField label="Checker Role Candidates" value={detail.step?.checkerRoleCandidates.join(', ')} />
         <InfoField label="Step Reason" value={detail.step?.reason} />
         {detail.evidencePackage ? (

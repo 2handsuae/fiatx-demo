@@ -73,7 +73,7 @@ export type PermissionGroup =
   | 'GOV_CHANGE_TICKET_CLOSE'
   | 'GOV_DELETE_REQUEST_READ'
   | 'GOV_DELETE_REQUEST_WRITE'
-  | 'GOV_DELETE_REQUEST_EXECUTE'
+  | 'GOV_DELETE_REQUEST_CONSUME'
   | 'GOV_REGISTRY_READ'
   | 'GOV_REGISTRY_WRITE'
   | 'GOV_REGULATORY_GATE_READ'
@@ -651,18 +651,8 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('GET', '/admin/control-gates/change-tickets', 'List change tickets', ['GOV_CHANGE_TICKET_READ']),
   route('GET', '/admin/control-gates/change-tickets/:id', 'Get change ticket detail', ['GOV_CHANGE_TICKET_READ']),
   route('POST', '/admin/control-gates/change-tickets/:id/submit', 'Submit change ticket', ['GOV_CHANGE_TICKET_WRITE']),
-  route('POST', '/admin/control-gates/change-tickets/:id/resubmit', 'Resubmit change ticket', ['GOV_CHANGE_TICKET_WRITE']),
-  route('GET', '/admin/control-gates/change-tickets/:id/gate-runs', 'List change ticket gate runs', [
-    'GOV_CHANGE_TICKET_READ',
-  ]),
-  route('POST', '/admin/control-gates/change-tickets/:id/gate-checks', 'Run change ticket gate check', [
-    'GOV_CHANGE_TICKET_GATE',
-  ]),
-  route('POST', '/admin/control-gates/change-tickets/:id/deploy-status', 'Mark change ticket deploy status', [
-    'GOV_CHANGE_TICKET_GATE',
-  ]),
-  route('POST', '/admin/control-gates/change-tickets/:id/close', 'Close change ticket', [
-    'GOV_CHANGE_TICKET_CLOSE',
+  route('POST', '/admin/control-gates/change-tickets/:id/consume', 'Consume change ticket', [
+    'GOV_CHANGE_TICKET_WRITE',
   ]),
 
   // Governance delete requests
@@ -681,8 +671,8 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('POST', '/admin/control-gates/delete-requests/:id/cancel', 'Cancel delete request', [
     'GOV_DELETE_REQUEST_WRITE',
   ]),
-  route('POST', '/admin/control-gates/delete-requests/:id/execute', 'Execute delete request', [
-    'GOV_DELETE_REQUEST_EXECUTE',
+  route('POST', '/admin/control-gates/delete-requests/:id/consume', 'Consume delete request', [
+    'GOV_DELETE_REQUEST_CONSUME',
   ]),
 
   // Governance registries
@@ -862,7 +852,7 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'GOV_CHANGE_TICKET_CLOSE',
     'GOV_DELETE_REQUEST_READ',
     'GOV_DELETE_REQUEST_WRITE',
-    'GOV_DELETE_REQUEST_EXECUTE',
+    'GOV_DELETE_REQUEST_CONSUME',
     'GOV_REGISTRY_READ',
     'GOV_REGISTRY_WRITE',
     'GOV_REGULATORY_GATE_READ',
@@ -964,7 +954,7 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'GOV_CHANGE_TICKET_READ',
     'GOV_DELETE_REQUEST_READ',
     'GOV_DELETE_REQUEST_WRITE',
-    'GOV_DELETE_REQUEST_EXECUTE',
+    'GOV_DELETE_REQUEST_CONSUME',
     'GOV_REGISTRY_READ',
     'GOV_REGISTRY_WRITE',
     'GOV_REGULATORY_GATE_READ',

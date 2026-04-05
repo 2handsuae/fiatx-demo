@@ -2,31 +2,21 @@ import {
   Body,
   Controller,
   Headers,
-  Inject,
   Post,
   Req,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
-import type { OnboardingService } from './onboarding.service';
-
-interface SumsubVerificationEventHandler {
-  handleSumsubVerificationEvent(
-    payload: Record<string, unknown>,
-    context: Record<string, unknown>,
-  ): Promise<unknown>;
-}
+import { OnboardingService } from './onboarding.service';
+import { SumsubClient } from './providers/sumsub/sumsub.client';
 
 @ApiTags('Onboarding - Sumsub')
 @Controller('onboarding/sumsub')
 export class OnboardingSumsubWebhookController {
   constructor(
-    @Inject('OnboardingService')
     private readonly onboardingService: OnboardingService,
+    private readonly sumsubClient: SumsubClient,
   ) {}
-
-  private get sumsubHandler(): SumsubVerificationEventHandler {
-    return this.onboardingService as unknown as SumsubVerificationEventHandler;
-  }
 
   @Post('webhook')
   @ApiOperation({ summary: 'Receive Sumsub webhook events' })
@@ -34,10 +24,16 @@ export class OnboardingSumsubWebhookController {
     @Req() req: { rawBody?: Buffer },
     @Body() body: Record<string, unknown>,
     @Headers('x-payload-digest') signature?: string,
+    @Headers('x-payload-digest-alg') digestAlg?: string,
   ) {
-    return this.sumsubHandler.handleSumsubVerificationEvent(body, {
+    if (!this.sumsubClient.verifyWebhookSignature(req.rawBody, signature, digestAlg)) {
+      throw new UnauthorizedException('Invalid Sumsub webhook signature');
+    }
+
+    return this.onboardingService.handleSumsubVerificationEvent(body, {
       rawBody: req.rawBody,
       signature,
+      digestAlg,
       simulated: false,
       actorId: 'SUMSUB',
     });

@@ -4,12 +4,14 @@ import { PrismaService } from '../../../core/prisma/prisma.service';
 import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
 import {
   AuditActions,
+  AuditBusinessWorkflowTypes,
   AuditEntityTypes,
   AuditModules,
 } from '../../risk-engine/audit-logs/constants/audit-actions.constant';
 import {
   AuditEvidencePackageStatus,
   AuditResult,
+  AuditSubjectRole,
   AuditTriggerType,
   ExportEvidencePackageDto,
 } from '../../risk-engine/audit-logs/dto/audit-log.dto';
@@ -67,6 +69,33 @@ export class AuditEvidenceExportApprovalService {
     };
   }
 
+  private buildApprovalRelatedSubjects(
+    packageId: string,
+    packageNo: string,
+    approvalId?: string | null,
+    approvalNo?: string | null,
+  ) {
+    const subjects = [];
+
+    if (approvalNo) {
+      subjects.push({
+        subjectRole: AuditSubjectRole.RELATED,
+        subjectType: AuditEntityTypes.APPROVAL_CASE,
+        subjectId: approvalId || undefined,
+        subjectNo: approvalNo,
+      });
+    }
+
+    subjects.push({
+      subjectRole: AuditSubjectRole.RELATED,
+      subjectType: AuditEntityTypes.AUDIT_EVIDENCE_PACKAGE,
+      subjectId: packageId,
+      subjectNo: packageNo,
+    });
+
+    return subjects;
+  }
+
   async createExportRequest(
     query: ExportEvidencePackageDto,
     actor: ApprovalActorContext,
@@ -88,6 +117,7 @@ export class AuditEvidenceExportApprovalService {
     const evidencePackage = await this.auditLogsService.createEvidencePackageRecord({
       exportedByType: actor.actorType,
       exportedById: actor.userId,
+      exportedByNo: actor.userNo || null,
       exportedByRole: actor.role || actor.roleCodes[0] || null,
       status: AuditEvidencePackageStatus.PENDING_APPROVAL,
       exportMode: selection.normalizedCriteria.mode,
@@ -104,6 +134,9 @@ export class AuditEvidenceExportApprovalService {
       {
         actionType: ApprovalActionTypes.AUDIT_EVIDENCE_EXPORT_APPROVAL,
         entityRef: evidencePackage.id,
+        workflowType: AuditBusinessWorkflowTypes.AUDIT_EVIDENCE_EXPORT,
+        workflowId: evidencePackage.id,
+        workflowNo: evidencePackage.packageNo,
         metadata: {
           packageId: evidencePackage.id,
           packageNo: evidencePackage.packageNo,
@@ -130,8 +163,42 @@ export class AuditEvidenceExportApprovalService {
       where: { id: evidencePackage.id },
       data: {
         approvalCaseId: submitted.id,
+        approvalCaseNo: submitted.approvalNo || null,
       },
     });
+
+    await this.auditLogsService.recordByActor(
+      {
+        triggerType: AuditTriggerType.EVIDENCE_EXPORT,
+        action: AuditActions.AUDIT_EVIDENCE_EXPORT_REQUESTED,
+        module: AuditModules.AUDIT_LOGS,
+        entityType: AuditEntityTypes.AUDIT_EVIDENCE_PACKAGE,
+        entityId: evidencePackage.id,
+        entityNo: evidencePackage.packageNo,
+        workflowType: AuditBusinessWorkflowTypes.AUDIT_EVIDENCE_EXPORT,
+        workflowId: evidencePackage.id,
+        workflowNo: evidencePackage.packageNo,
+        traceId: submitted.traceId,
+        result: AuditResult.SUCCESS,
+        reason: `Evidence export request ${evidencePackage.packageNo} created`,
+        metadata: {
+          approvalId: submitted.id,
+          approvalNo: submitted.approvalNo || null,
+          exportMode: evidencePackage.exportMode,
+          itemCount: selection.itemCount,
+          workflowSummary: selection.workflowSummary,
+        },
+        subjectNos: this.buildApprovalRelatedSubjects(
+          evidencePackage.id,
+          evidencePackage.packageNo,
+          submitted.id,
+          submitted.approvalNo || null,
+        ),
+        requestId: `EVIDENCE_EXPORT_REQUEST_${evidencePackage.packageNo}`,
+        sourcePlatform: 'ADMIN_API',
+      },
+      this.toAuditActor(actor),
+    );
 
     return this.auditLogsService.findEvidencePackage(evidencePackage.id);
   }
@@ -161,7 +228,40 @@ export class AuditEvidenceExportApprovalService {
       throw new BadRequestException('Export package is not ready');
     }
 
-    return this.auditLogsService.downloadEvidencePackage(id);
+    const downloaded = await this.auditLogsService.downloadEvidencePackage(id);
+
+    await this.auditLogsService.recordByActor(
+      {
+        triggerType: AuditTriggerType.EVIDENCE_EXPORT,
+        action: AuditActions.AUDIT_EVIDENCE_PACKAGE_DOWNLOADED,
+        module: AuditModules.AUDIT_LOGS,
+        entityType: AuditEntityTypes.AUDIT_EVIDENCE_PACKAGE,
+        entityId: found.id,
+        entityNo: found.packageNo,
+        workflowType: AuditBusinessWorkflowTypes.AUDIT_EVIDENCE_EXPORT,
+        workflowId: found.id,
+        workflowNo: found.packageNo,
+        traceId: this.normalizeOptionalString(found.approvalCase?.traceId) || undefined,
+        result: AuditResult.SUCCESS,
+        reason: `Evidence package ${found.packageNo} downloaded`,
+        metadata: {
+          approvalCaseId: found.approvalCaseId,
+          approvalNo: this.normalizeOptionalString(found.approvalCase?.approvalNo),
+          fileName: found.fileName || null,
+        },
+        subjectNos: this.buildApprovalRelatedSubjects(
+          found.id,
+          found.packageNo,
+          found.approvalCaseId,
+          this.normalizeOptionalString(found.approvalCase?.approvalNo),
+        ),
+        requestId: `EVIDENCE_EXPORT_DOWNLOAD_${found.packageNo}`,
+        sourcePlatform: 'ADMIN_API',
+      },
+      this.toAuditActor(actor),
+    );
+
+    return downloaded;
   }
 
   @OnEvent(ApprovalEvents.APPROVED, { async: true })
@@ -184,9 +284,9 @@ export class AuditEvidenceExportApprovalService {
     const exporterActor: ApprovalActorContext = {
       actorType: 'ADMIN',
       userId: evidencePackage.exportedById,
+      userNo: evidencePackage.exportedByNo || undefined,
       role: evidencePackage.exportedByRole || undefined,
       roleCodes: evidencePackage.exportedByRole ? [evidencePackage.exportedByRole] : [],
-      userNo: undefined,
     };
 
     try {
@@ -243,6 +343,9 @@ export class AuditEvidenceExportApprovalService {
           entityType: AuditEntityTypes.AUDIT_EVIDENCE_PACKAGE,
           entityId: evidencePackage.id,
           entityNo: evidencePackage.packageNo,
+          workflowType: AuditBusinessWorkflowTypes.AUDIT_EVIDENCE_EXPORT,
+          workflowId: evidencePackage.id,
+          workflowNo: evidencePackage.packageNo,
           result: AuditResult.SUCCESS,
           reason: `Exported ${artifacts.itemCount} audit logs after approval`,
           traceId: event.traceId,
@@ -264,7 +367,7 @@ export class AuditEvidenceExportApprovalService {
         {
           actorType: 'ADMIN',
           userId: event.decisionByUserId || exporterActor.userId,
-          userNo: exporterActor.userNo,
+          userNo: event.decisionByUserNo || exporterActor.userNo,
           role: event.decisionByRole || exporterActor.role,
           roleCodes: event.decisionByRole ? [event.decisionByRole] : exporterActor.roleCodes,
         },
@@ -284,7 +387,7 @@ export class AuditEvidenceExportApprovalService {
         {
           actorType: 'ADMIN',
           userId: event.decisionByUserId || exporterActor.userId,
-          userNo: exporterActor.userNo,
+          userNo: event.decisionByUserNo || exporterActor.userNo,
           role: event.decisionByRole || exporterActor.role,
           roleCodes: event.decisionByRole ? [event.decisionByRole] : exporterActor.roleCodes,
         },

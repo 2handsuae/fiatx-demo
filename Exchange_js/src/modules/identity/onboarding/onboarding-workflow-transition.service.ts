@@ -37,6 +37,12 @@ import {
 import { OnboardingFinalApprovalService } from './onboarding-final-approval.service';
 
 export type WorkflowTransitionProducerType = 'ALERT' | 'CASE' | 'DECISION_RECORD';
+type LegacyCompatibleOnboardingStatus =
+  | CustomerOnboardingStatus
+  | 'PENDING_CDD_INPUT'
+  | 'CDD_UNDER_REVIEW'
+  | 'PENDING_EDD_INPUT'
+  | 'EDD_UNDER_REVIEW';
 
 export const WORKFLOW_TRANSITION_CODES = {
   CDD_APPROVE_TO_ACTIVE: 'CDD_APPROVE_TO_ACTIVE',
@@ -137,8 +143,9 @@ export class OnboardingWorkflowTransitionService {
     onboardingStatus?: string | null;
     operatingStatus?: string | null;
     restrictionStatus?: string | null;
-  }): CustomerOnboardingStatus {
-    return resolveCustomerCanonicalState(customer).onboardingStatus;
+  }): LegacyCompatibleOnboardingStatus {
+    return resolveCustomerCanonicalState(customer)
+      .onboardingStatus as LegacyCompatibleOnboardingStatus;
   }
 
   private buildCustomerLifecyclePatch(
@@ -150,13 +157,16 @@ export class OnboardingWorkflowTransitionService {
       cddDocumentExpiresAt?: Date | string | null;
     },
     next: {
-      onboardingStatus: CustomerOnboardingStatus;
+      onboardingStatus: LegacyCompatibleOnboardingStatus;
       operatingStatus?: CustomerOperatingStatus;
       restrictionStatus?: CustomerRestrictionStatus;
       eddRequired?: boolean;
     },
   ): Prisma.CustomerMainUpdateInput {
-    return buildCustomerLifecycleStatePatch(customer, next);
+    return buildCustomerLifecycleStatePatch(
+      customer,
+      next as Parameters<typeof buildCustomerLifecycleStatePatch>[1],
+    );
   }
 
   private buildLatestFinalApprovalBindingPatch(
@@ -507,7 +517,7 @@ export class OnboardingWorkflowTransitionService {
     }
 
     const now = new Date();
-    let toStatus: CustomerOnboardingStatus = fromStatus;
+    let toStatus: LegacyCompatibleOnboardingStatus = fromStatus;
     let transitionCode: WorkflowTransitionCode = WORKFLOW_TRANSITION_CODES.NO_TRANSITION;
     let eddResponse: any | null = null;
     let caseType: 'CDD' | 'EDD' | null = null;

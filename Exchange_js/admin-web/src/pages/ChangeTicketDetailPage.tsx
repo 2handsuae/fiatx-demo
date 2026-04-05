@@ -1,24 +1,24 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
-  AlertTriangle,
   ArrowLeft,
   CheckCircle2,
   ClipboardList,
   Link2,
   RefreshCw,
-  Rocket,
   ShieldCheck,
-  XCircle,
+  Trash2,
 } from 'lucide-react';
 import { useAdminSession } from '../contexts/AdminSessionContext';
 import { PERMISSIONS } from '../rbac/permissions';
 import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/adminFetch';
+import { createDeleteRequest, DELETE_REQUEST_TARGET_TYPES } from '../utils/deleteRequests';
 import {
   ActionSection,
   DetailCard,
   DetailPageHeader,
   InfoField,
+  JsonBlock,
 } from '../components/compliance/DetailPageComponents';
 import { adminButtonClass } from '../components/common/adminButtonStyles';
 
@@ -27,44 +27,36 @@ interface ChangeTicketDetail {
   ticketNo: string;
   status: string;
   changeType: string | null;
+  changeReason: string | null;
   scopeSummary: string | null;
-  riskLevel: string;
   testEvidenceRef: string | null;
   rollbackPlanRef: string | null;
-  latestApprovalId: string | null;
-  latestApprovalNo: string | null;
-  latestApprovalStatus: string | null;
+  bindingSnapshotJson: Record<string, unknown> | null;
+  bindingDigest: string | null;
+  approvalCaseId: string | null;
+  approvalNo: string | null;
   traceId: string;
-  emergency: boolean;
-  emergencyReason: string | null;
-  postApprovalDueAt: string | null;
-  postApprovalCompletedAt: string | null;
   createdByUserId: string;
+  createdByUserNo: string;
   submittedByUserId: string | null;
-  closedByUserId: string | null;
+  submittedByUserNo: string | null;
+  consumedByUserId: string | null;
+  consumedByUserNo: string | null;
   submittedAt: string | null;
-  deployedAt: string | null;
-  closedAt: string | null;
+  consumedAt: string | null;
+  resultNote: string | null;
   createdAt: string;
   updatedAt: string;
 }
 
-interface GateRunItem {
-  id: string;
-  ticketId: string;
-  targetEnv: string;
-  releaseVersion: string;
-  status: string;
-  reason: string | null;
-  failureReason: string | null;
-  operatorUserId: string;
-  traceId: string;
-  startedAt: string | null;
-  finishedAt: string | null;
-  createdAt: string;
-}
-
-const RELEASE_ENV_OPTIONS = ['DEV', 'UAT', 'PROD'];
+const SUBMITTABLE_CHANGE_TICKET_STATUSES = ['DRAFT'] as const;
+const CONSUMABLE_CHANGE_TICKET_STATUSES = ['READY'] as const;
+const CONSUME_RESULT_SUCCESS = 'success' as const;
+const CONSUME_RESULT_FAILURE = 'failure' as const;
+const CONSUME_RESULT_OPTIONS = [
+  { value: CONSUME_RESULT_SUCCESS, label: 'Success' },
+  { value: CONSUME_RESULT_FAILURE, label: 'Failure' },
+] as const;
 
 const formatDateTime = (value?: string | null): string => {
   if (!value) return '-';
@@ -78,21 +70,19 @@ const ChangeTicketDetailPage = () => {
   const navigate = useNavigate();
   const { hasAnyPermission } = useAdminSession();
   const [detail, setDetail] = useState<ChangeTicketDetail | null>(null);
-  const [gateRuns, setGateRuns] = useState<GateRunItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [submittingAction, setSubmittingAction] = useState<string | null>(null);
-  const [reason, setReason] = useState('');
-  const [targetEnv, setTargetEnv] = useState('UAT');
-  const [releaseVersion, setReleaseVersion] = useState('');
+  const [consumeResult, setConsumeResult] = useState<typeof CONSUME_RESULT_SUCCESS | typeof CONSUME_RESULT_FAILURE>(CONSUME_RESULT_SUCCESS);
+  const [consumeNote, setConsumeNote] = useState('');
+  const [deleteReason, setDeleteReason] = useState('');
+  const requestSeqRef = useRef(0);
 
   const canSubmit = hasAnyPermission([PERMISSIONS.GOV_CHANGE_TICKET_SUBMIT]);
-  const canResubmit = hasAnyPermission([PERMISSIONS.GOV_CHANGE_TICKET_RESUBMIT]);
-  const canGate = hasAnyPermission([PERMISSIONS.GOV_CHANGE_TICKET_GATE_CHECK]);
-  const canDeploy = hasAnyPermission([PERMISSIONS.GOV_CHANGE_TICKET_DEPLOY_STATUS]);
-  const canClose = hasAnyPermission([PERMISSIONS.GOV_CHANGE_TICKET_CLOSE]);
+  const canConsume = hasAnyPermission([PERMISSIONS.GOV_CHANGE_TICKET_CONSUME]);
   const canViewApproval = hasAnyPermission([PERMISSIONS.GOV_APPROVAL_DETAIL_READ]);
+  const canRequestDeletion = hasAnyPermission([PERMISSIONS.GOV_DELETE_REQUEST_CREATE]);
 
   const fetchDetail = async () => {
     if (!id) {
@@ -101,143 +91,130 @@ const ChangeTicketDetailPage = () => {
       return;
     }
 
+    const requestSeq = ++requestSeqRef.current;
     setLoading(true);
     setError('');
     try {
-      const [detailResponse, gateRunsResponse] = await Promise.all([
-        adminFetch(`${import.meta.env.VITE_API_URL}/admin/control-gates/change-tickets/${id}`),
-        adminFetch(`${import.meta.env.VITE_API_URL}/admin/control-gates/change-tickets/${id}/gate-runs`),
-      ]);
-
-      if (!detailResponse.ok) {
-        throw new Error(await getApiErrorMessage(detailResponse, 'Failed to load change ticket.'));
-      }
-      if (!gateRunsResponse.ok) {
-        throw new Error(await getApiErrorMessage(gateRunsResponse, 'Failed to load gate runs.'));
+      const response = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/admin/control-gates/change-tickets/${id}`,
+      );
+      if (!response.ok) {
+        throw new Error(await getApiErrorMessage(response, 'Failed to load change ticket.'));
       }
 
-      const detailData = (await detailResponse.json()) as ChangeTicketDetail;
-      const gateRunData = (await gateRunsResponse.json()) as GateRunItem[];
-      setDetail(detailData);
-      setGateRuns(Array.isArray(gateRunData) ? gateRunData : []);
+      const data = (await response.json()) as ChangeTicketDetail;
+      if (requestSeq !== requestSeqRef.current) return;
+      setDetail(data);
     } catch (e: unknown) {
+      if (requestSeq !== requestSeqRef.current) return;
       if (e instanceof AdminSessionError) return;
       setError(e instanceof Error ? e.message : 'Failed to load change ticket detail.');
     } finally {
+      if (requestSeq !== requestSeqRef.current) return;
       setLoading(false);
     }
   };
 
-  const submitSimpleAction = async (path: string, successMessage: string) => {
-    if (!id) return;
-    setSubmittingAction(path);
+  const submitChangeTicket = async () => {
+    if (!id || !detail) return;
+    setSubmittingAction('submit');
     setError('');
     setMessage('');
     try {
-      const payload: Record<string, unknown> = {};
-      if (reason.trim()) payload.reason = reason.trim();
-
       const response = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/control-gates/change-tickets/${id}/${path}`,
+        `${import.meta.env.VITE_API_URL}/admin/control-gates/change-tickets/${id}/submit`,
         {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify(payload),
+          body: JSON.stringify({ traceId: detail.traceId }),
         },
       );
       if (!response.ok) {
-        throw new Error(await getApiErrorMessage(response, `Failed to ${path} change ticket.`));
+        throw new Error(await getApiErrorMessage(response, 'Failed to submit change ticket.'));
       }
 
-      setMessage(successMessage);
-      setReason('');
+      setMessage(`Change ticket ${detail.ticketNo} submitted successfully.`);
       await fetchDetail();
     } catch (e: unknown) {
       if (e instanceof AdminSessionError) return;
-      setError(e instanceof Error ? e.message : `Failed to ${path} change ticket.`);
+      setError(e instanceof Error ? e.message : 'Failed to submit change ticket.');
     } finally {
       setSubmittingAction(null);
     }
   };
 
-  const runGateCheck = async () => {
-    if (!id) return;
-    setSubmittingAction('gate-checks');
+  const consumeChangeTicket = async () => {
+    if (!id || !detail) return;
+    const note = consumeNote.trim();
+
+    setSubmittingAction('consume');
     setError('');
     setMessage('');
     try {
       const response = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/control-gates/change-tickets/${id}/gate-checks`,
+        `${import.meta.env.VITE_API_URL}/admin/control-gates/change-tickets/${id}/consume`,
         {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            targetEnv,
-            releaseVersion: releaseVersion.trim(),
-            reason: reason.trim() || undefined,
+            success: consumeResult === CONSUME_RESULT_SUCCESS,
+            ...(note ? { note } : {}),
+            traceId: detail.traceId,
           }),
         },
       );
       if (!response.ok) {
-        throw new Error(await getApiErrorMessage(response, 'Failed to run gate check.'));
-      }
-
-      setMessage(`Gate check for ${targetEnv}/${releaseVersion.trim()} completed.`);
-      setReason('');
-      await fetchDetail();
-    } catch (e: unknown) {
-      if (e instanceof AdminSessionError) return;
-      setError(e instanceof Error ? e.message : 'Failed to run gate check.');
-    } finally {
-      setSubmittingAction(null);
-    }
-  };
-
-  const markDeployStatus = async (deployStatus: 'DEPLOYED' | 'DEPLOY_FAILED') => {
-    if (!id) return;
-    setSubmittingAction(deployStatus);
-    setError('');
-    setMessage('');
-    try {
-      const response = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/control-gates/change-tickets/${id}/deploy-status`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            targetEnv,
-            releaseVersion: releaseVersion.trim(),
-            deployStatus,
-            reason: reason.trim() || undefined,
-          }),
-        },
-      );
-      if (!response.ok) {
-        throw new Error(await getApiErrorMessage(response, 'Failed to mark deploy status.'));
+        throw new Error(await getApiErrorMessage(response, 'Failed to consume change ticket.'));
       }
 
       setMessage(
-        deployStatus === 'DEPLOYED'
-          ? 'Deploy marked as deployed.'
-          : 'Deploy marked as failed.',
+        consumeResult === CONSUME_RESULT_SUCCESS
+          ? `Change ticket ${detail.ticketNo} consumed successfully.`
+          : `Change ticket ${detail.ticketNo} consume failed recorded.`,
       );
-      setReason('');
+      setConsumeNote('');
       await fetchDetail();
     } catch (e: unknown) {
       if (e instanceof AdminSessionError) return;
-      setError(e instanceof Error ? e.message : 'Failed to mark deploy status.');
+      setError(e instanceof Error ? e.message : 'Failed to consume change ticket.');
+    } finally {
+      setSubmittingAction(null);
+    }
+  };
+
+  const requestChangeTicketDeletion = async () => {
+    if (!detail) return;
+
+    const normalizedReason = deleteReason.trim();
+    if (!normalizedReason) {
+      setError('Delete reason is required.');
+      return;
+    }
+
+    setSubmittingAction('delete-request');
+    setError('');
+    setMessage('');
+    try {
+      const created = await createDeleteRequest({
+        targetType: DELETE_REQUEST_TARGET_TYPES.CHANGE_TICKET,
+        targetNo: detail.ticketNo,
+        deleteReason: normalizedReason,
+      });
+      navigate(`/dashboard/control-gates/delete-requests/${created.id}`);
+    } catch (e: unknown) {
+      if (e instanceof AdminSessionError) return;
+      setError(e instanceof Error ? e.message : 'Failed to create delete request.');
     } finally {
       setSubmittingAction(null);
     }
   };
 
   useEffect(() => {
+    setDeleteReason('');
     void fetchDetail();
   }, [id]);
 
@@ -278,11 +255,6 @@ const ChangeTicketDetailPage = () => {
 
   if (!detail) return null;
 
-  const canRunGate =
-    canGate && ['READY_FOR_DEPLOY', 'DEPLOY_FAILED'].includes(detail.status) && !!releaseVersion.trim();
-  const canMarkDeploy =
-    canDeploy && ['READY_FOR_DEPLOY', 'DEPLOY_FAILED'].includes(detail.status) && !!releaseVersion.trim();
-
   return (
     <div className="space-y-6">
       <DetailPageHeader
@@ -292,9 +264,9 @@ const ChangeTicketDetailPage = () => {
         onRefresh={() => void fetchDetail()}
         backLabel="Back to Change Tickets"
       >
-        {detail.latestApprovalId && canViewApproval && (
+        {detail.approvalCaseId && canViewApproval && (
           <button
-            onClick={() => navigate(`/dashboard/control-gates/approvals/${detail.latestApprovalId}`)}
+            onClick={() => navigate(`/dashboard/control-gates/approvals/${detail.approvalCaseId}`)}
             className={adminButtonClass('detailUtility')}
           >
             <Link2 size={16} />
@@ -322,214 +294,148 @@ const ChangeTicketDetailPage = () => {
         <InfoField label="Ticket No" value={detail.ticketNo} mono />
         <InfoField label="Status" value={detail.status} />
         <InfoField label="Change Type" value={detail.changeType} />
-        <InfoField label="Risk Level" value={detail.riskLevel} />
+        <InfoField label="Approval No" value={detail.approvalNo} mono />
         <InfoField label="Trace ID" value={detail.traceId} mono />
-        <InfoField label="Created By" value={detail.createdByUserId} />
       </DetailCard>
 
-      <DetailCard title="Approval Link" icon={<Link2 size={18} />} columns={3}>
-        <InfoField label="Approval No" value={detail.latestApprovalNo} mono />
-        <InfoField label="Approval Status" value={detail.latestApprovalStatus} />
-        <InfoField label="Approval Id" value={detail.latestApprovalId} mono />
-      </DetailCard>
-
-      <DetailCard title="Change Scope & Gate Evidence" icon={<ClipboardList size={18} />} columns={2}>
+      <DetailCard title="Change Scope" icon={<ClipboardList size={18} />} columns={2}>
+        <InfoField label="Change Reason" value={detail.changeReason} />
         <InfoField label="Scope Summary" value={detail.scopeSummary} />
         <InfoField label="Test Evidence Ref" value={detail.testEvidenceRef} mono />
         <InfoField label="Rollback Plan Ref" value={detail.rollbackPlanRef} mono />
       </DetailCard>
 
-      <DetailCard title="Emergency & Timing" icon={<AlertTriangle size={18} />} columns={3}>
-        <InfoField label="Emergency" value={detail.emergency ? 'YES' : 'NO'} />
-        <InfoField label="Emergency Reason" value={detail.emergencyReason} />
-        <InfoField label="Post Approval Due At" value={formatDateTime(detail.postApprovalDueAt)} />
-        <InfoField
-          label="Post Approval Completed At"
-          value={formatDateTime(detail.postApprovalCompletedAt)}
-        />
-        <InfoField label="Deployed At" value={formatDateTime(detail.deployedAt)} />
+      <DetailCard title="Actors" icon={<Link2 size={18} />} columns={3}>
+        <InfoField label="Created By User No" value={detail.createdByUserNo} mono />
+        <InfoField label="Submitted By User No" value={detail.submittedByUserNo} mono />
+        <InfoField label="Consumed By User No" value={detail.consumedByUserNo} mono />
+      </DetailCard>
+
+      <DetailCard title="Timing & Result" icon={<ClipboardList size={18} />} columns={2}>
+        <InfoField label="Submitted At" value={formatDateTime(detail.submittedAt)} />
+        <InfoField label="Consumed At" value={formatDateTime(detail.consumedAt)} />
+        <InfoField label="Result Note" value={detail.resultNote} />
+        <InfoField label="Created At" value={formatDateTime(detail.createdAt)} />
+        <InfoField label="Updated At" value={formatDateTime(detail.updatedAt)} />
+      </DetailCard>
+
+      <DetailCard title="Technical Details" icon={<ClipboardList size={18} />} columns={3}>
+        <InfoField label="Approval Case ID" value={detail.approvalCaseId} mono />
+        <InfoField label="Created By User ID" value={detail.createdByUserId} mono />
+        <InfoField label="Submitted By User ID" value={detail.submittedByUserId} mono />
+        <InfoField label="Consumed By User ID" value={detail.consumedByUserId} mono />
+        <InfoField label="Binding Digest" value={detail.bindingDigest} mono />
+        <div className="md:col-span-3">
+          <JsonBlock title="Binding Snapshot JSON" value={detail.bindingSnapshotJson || {}} compact />
+        </div>
       </DetailCard>
 
       <ActionSection
         title="Workflow Actions"
-        description="Change ticket workflow actions live here. Utility buttons stay in the header; gate and deploy controls stay in the workflow surface."
+        description="Submit, consume, and governed deletion proposals are available here when the current state permits."
       >
         <div className="space-y-4">
-          <div className="flex flex-wrap items-center gap-3">
-            {canSubmit && detail.status === 'DRAFT' && (
+          {canRequestDeletion && (
+            <div className="space-y-4 rounded-xl border border-admin-border bg-gray-50 p-4">
+              <div className="space-y-1">
+                <div className="text-sm font-semibold text-gray-900">Request Deletion</div>
+                <div className="text-xs text-gray-500">
+                  Open a governed deletion proposal for ticket {detail.ticketNo}. The request is tracked separately under control gates.
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <label className="block text-xs uppercase tracking-wide text-gray-500">
+                  Delete Reason
+                </label>
+                <textarea
+                  value={deleteReason}
+                  onChange={(e) => setDeleteReason(e.target.value)}
+                  rows={3}
+                  className="w-full rounded-lg border border-admin-border px-3 py-2 text-sm"
+                  placeholder="Explain why this change ticket should enter governed deletion."
+                />
+              </div>
+
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  onClick={() => void requestChangeTicketDeletion()}
+                  disabled={submittingAction !== null || !deleteReason.trim()}
+                  className={adminButtonClass('workflowSecondary')}
+                >
+                  <Trash2 size={16} />
+                  {submittingAction === 'delete-request' ? 'Requesting...' : 'Request Deletion'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {canSubmit && SUBMITTABLE_CHANGE_TICKET_STATUSES.includes(detail.status as (typeof SUBMITTABLE_CHANGE_TICKET_STATUSES)[number]) && (
+            <div className="flex flex-wrap items-center gap-3">
               <button
-                onClick={() =>
-                  void submitSimpleAction(
-                    'submit',
-                    `Change ticket ${detail.ticketNo} submitted successfully.`,
-                  )
-                }
+                onClick={() => void submitChangeTicket()}
                 disabled={submittingAction !== null}
                 className={adminButtonClass('workflowPrimary')}
               >
                 <CheckCircle2 size={16} />
                 Submit
               </button>
-            )}
-            {canResubmit && detail.status === 'REJECTED' && (
-              <button
-                onClick={() =>
-                  void submitSimpleAction(
-                    'resubmit',
-                    `Change ticket ${detail.ticketNo} resubmitted successfully.`,
-                  )
-                }
-                disabled={submittingAction !== null}
-                className={adminButtonClass('workflowPrimary')}
-              >
-                <CheckCircle2 size={16} />
-                Resubmit
-              </button>
-            )}
-            {canClose && ['DEPLOYED', 'DEPLOY_FAILED'].includes(detail.status) && (
-              <button
-                onClick={() =>
-                  void submitSimpleAction(
-                    'close',
-                    `Change ticket ${detail.ticketNo} closed successfully.`,
-                  )
-                }
-                disabled={submittingAction !== null}
-                className={adminButtonClass('workflowSecondary')}
-              >
-                <ClipboardList size={16} />
-                Close
-              </button>
-            )}
-          </div>
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <div className="space-y-2">
-            <label className="block text-xs uppercase tracking-wide text-gray-500">Target Env</label>
-            <select
-              value={targetEnv}
-              onChange={(e) => setTargetEnv(e.target.value)}
-              className="w-full rounded-lg border border-admin-border px-3 py-2 text-sm"
-            >
-              {RELEASE_ENV_OPTIONS.map((item) => (
-                <option key={item} value={item}>
-                  {item}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="space-y-2">
-            <label className="block text-xs uppercase tracking-wide text-gray-500">
-              Release Version
-            </label>
-            <input
-              value={releaseVersion}
-              onChange={(e) => setReleaseVersion(e.target.value)}
-              className="w-full rounded-lg border border-admin-border px-3 py-2 text-sm"
-              placeholder="e.g. 2026.03.14-rc1"
-            />
-          </div>
-          <div className="space-y-2 md:col-span-2">
-            <label className="block text-xs uppercase tracking-wide text-gray-500">Reason</label>
-            <input
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-              className="w-full rounded-lg border border-admin-border px-3 py-2 text-sm"
-              placeholder="Optional operator note"
-            />
-          </div>
-        </div>
+            </div>
+          )}
 
-        <div className="mt-4 flex flex-wrap items-center gap-3">
-          {canGate && (
-            <button
-              onClick={() => void runGateCheck()}
-              disabled={!canRunGate || submittingAction !== null}
-              className={adminButtonClass('workflowPrimary')}
-            >
-              <ShieldCheck size={16} />
-              Run Gate Check
-            </button>
+          {canConsume && CONSUMABLE_CHANGE_TICKET_STATUSES.includes(detail.status as (typeof CONSUMABLE_CHANGE_TICKET_STATUSES)[number]) && (
+            <div className="space-y-4 rounded-xl border border-admin-border bg-gray-50 p-4">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <div className="space-y-2">
+                  <label className="block text-xs uppercase tracking-wide text-gray-500">
+                    Result
+                  </label>
+                  <select
+                    value={consumeResult}
+                    onChange={(e) =>
+                      setConsumeResult(
+                        e.target.value === CONSUME_RESULT_FAILURE
+                          ? CONSUME_RESULT_FAILURE
+                          : CONSUME_RESULT_SUCCESS,
+                      )
+                    }
+                    className="w-full rounded-lg border border-admin-border px-3 py-2 text-sm"
+                  >
+                    {CONSUME_RESULT_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <label className="block text-xs uppercase tracking-wide text-gray-500">
+                    Reason / Note
+                  </label>
+                  <textarea
+                    value={consumeNote}
+                    onChange={(e) => setConsumeNote(e.target.value)}
+                    rows={3}
+                    className="w-full rounded-lg border border-admin-border px-3 py-2 text-sm"
+                    placeholder="Optional operator note"
+                  />
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  onClick={() => void consumeChangeTicket()}
+                  disabled={submittingAction !== null}
+                  className={adminButtonClass('workflowPrimary')}
+                >
+                  <CheckCircle2 size={16} />
+                  Consume
+                </button>
+              </div>
+            </div>
           )}
-          {canDeploy && (
-            <>
-              <button
-                onClick={() => void markDeployStatus('DEPLOYED')}
-                disabled={!canMarkDeploy || submittingAction !== null}
-                className={adminButtonClass('workflowSecondary')}
-              >
-                <Rocket size={16} />
-                Mark Deployed
-              </button>
-              <button
-                onClick={() => void markDeployStatus('DEPLOY_FAILED')}
-                disabled={!canMarkDeploy || submittingAction !== null}
-                className={adminButtonClass('workflowNegative')}
-              >
-                <XCircle size={16} />
-                Mark Deploy Failed
-              </button>
-            </>
-          )}
-        </div>
         </div>
       </ActionSection>
-
-      <div className="rounded-xl border border-admin-border bg-white p-6 shadow-sm">
-        <div className="mb-4 flex items-center gap-2">
-          <div className="text-brand-primary">
-            <Rocket size={18} />
-          </div>
-          <h2 className="text-lg font-bold text-gray-900">Gate Runs</h2>
-        </div>
-        {gateRuns.length === 0 ? (
-          <div className="text-sm text-gray-500">No gate runs recorded yet.</div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="border-b border-admin-border bg-admin-content-bg">
-                <tr>
-                  <th className="px-4 py-3 text-xs uppercase text-gray-500">Env</th>
-                  <th className="px-4 py-3 text-xs uppercase text-gray-500">Release</th>
-                  <th className="px-4 py-3 text-xs uppercase text-gray-500">Status</th>
-                  <th className="px-4 py-3 text-xs uppercase text-gray-500">Operator</th>
-                  <th className="px-4 py-3 text-xs uppercase text-gray-500">Started</th>
-                  <th className="px-4 py-3 text-xs uppercase text-gray-500">Finished</th>
-                  <th className="px-4 py-3 text-xs uppercase text-gray-500">Reason</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-admin-border">
-                {gateRuns.map((item) => (
-                  <tr key={item.id}>
-                    <td className="px-4 py-3">{item.targetEnv}</td>
-                    <td className="px-4 py-3 font-mono text-xs text-gray-700">
-                      {item.releaseVersion}
-                    </td>
-                    <td className="px-4 py-3">{item.status}</td>
-                    <td className="px-4 py-3">{item.operatorUserId}</td>
-                    <td className="px-4 py-3">{formatDateTime(item.startedAt)}</td>
-                    <td className="px-4 py-3">{formatDateTime(item.finishedAt)}</td>
-                    <td className="px-4 py-3">
-                      <div>{item.reason || '-'}</div>
-                      {item.failureReason && (
-                        <div className="text-xs text-red-600">{item.failureReason}</div>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
-      <DetailCard title="Lifecycle" icon={<CheckCircle2 size={18} />} columns={3}>
-        <InfoField label="Created At" value={formatDateTime(detail.createdAt)} />
-        <InfoField label="Updated At" value={formatDateTime(detail.updatedAt)} />
-        <InfoField label="Submitted At" value={formatDateTime(detail.submittedAt)} />
-        <InfoField label="Submitted By" value={detail.submittedByUserId} />
-        <InfoField label="Closed At" value={formatDateTime(detail.closedAt)} />
-        <InfoField label="Closed By" value={detail.closedByUserId} />
-      </DetailCard>
     </div>
   );
 };

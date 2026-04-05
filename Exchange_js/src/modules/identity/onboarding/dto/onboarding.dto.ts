@@ -14,6 +14,11 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
+import type {
+  CustomerOnboardingStatus,
+  CustomerOperatingStatus,
+  CustomerRestrictionStatus,
+} from '../../customer-status.util';
 
 export const ONBOARDING_MOCK_DATA_TYPES = [
   'LOW_RISK',
@@ -213,6 +218,44 @@ export class SubmitFinalApprovalDto {
   @IsOptional()
   @IsString()
   reason?: string;
+}
+
+export class VerificationProjectionDto {
+  provider!: string | null;
+  applicantId!: string | null;
+  currentLevelName!: string | null;
+  latestReviewId!: string | null;
+  latestAttemptId!: string | null;
+  substatus!: string | null;
+  customerActionRequired!: boolean;
+  canContinue!: boolean;
+  latestEventType!: string | null;
+  latestEventAt!: Date | string | null;
+  experiencedLevel2!: boolean;
+}
+
+export class StartVerificationResponseDto extends VerificationProjectionDto {
+  sdkToken!: string;
+}
+
+export interface StartVerificationCustomerSnapshotDto {
+  onboardingStatus: CustomerOnboardingStatus;
+  operatingStatus: CustomerOperatingStatus;
+  restrictionStatus: CustomerRestrictionStatus;
+}
+
+export interface StartVerificationNextStepDto {
+  actions: Array<{ type: string; payload?: Record<string, unknown> }>;
+  blockedReason: string | null;
+  activeCaseId: string | null;
+  requiresEdd: boolean;
+  verification: VerificationProjectionDto;
+}
+
+export interface StartVerificationSnapshotDto {
+  customer: StartVerificationCustomerSnapshotDto;
+  nextStep: StartVerificationNextStepDto;
+  verification: StartVerificationResponseDto;
 }
 
 export class ReinitiateEddDto {

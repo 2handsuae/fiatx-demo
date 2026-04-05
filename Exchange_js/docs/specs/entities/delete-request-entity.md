@@ -1,6 +1,6 @@
 Status: active
 Owner: project-owner-and-agents
-Last Updated: 2026-03-22
+Last Updated: 2026-04-02
 Applies To: `Exchange_js`
 Supersedes: none
 Depends On: `docs/specs/workflows/delete-request-soft-delete-workflow.md`
@@ -9,7 +9,7 @@ Source of Truth Level: specs-entity
 # Delete Request Entity
 
 ## Purpose
-- This document defines the canonical semantics for `Delete Request` as the Wave 1 governed soft-delete object.
+- Canonical entity semantics for governance delete requests in the minimal approval-and-consume model.
 
 ## Canonical Fields
 - `id`
@@ -18,39 +18,55 @@ Source of Truth Level: specs-entity
 - `targetId`
 - `targetNo`
 - `status`
-- `latestApprovalId`
-- `latestApprovalStatus`
-- `makerUserId`
+- `approvalCaseId`
+- `approvalNo`
+- `createdByUserId`
+- `createdByUserNo`
 - `submittedByUserId`
-- `executedByUserId`
+- `submittedByUserNo`
+- `consumedByUserId`
+- `consumedByUserNo`
 - `deleteReason`
+- `resultNote`
 - `docRef`
 - `targetSnapshotJson`
+- `targetSnapshotDigest`
 - `traceId`
 - `submittedAt`
-- `executedAt`
+- `consumedAt`
+- `createdAt`
+- `updatedAt`
 
 ## Lifecycle Anchor
-- Delete request is the governance root for soft-delete approval and execute flow.
-- Approval result projects to request status, but approval remains a separate governance object.
-- Execute writes standardized delete fields onto the target object instead of deleting the governance chain.
+- `DeleteRequestsService` owns creation, target resolution, approval binding, cancel, and consume.
+- Approval remains a separate governance object identified by `approvalCaseId` and `approvalNo`.
+- Consume writes the standardized soft-delete fields onto the target object.
 
-## Write Owners
-- `DeleteRequestsService` owns request creation, target validation, snapshot capture, and execute behavior.
-- `ApprovalsService` owns approval lifecycle and execution-result projection.
+## State Model
+- `DRAFT`
+- `PENDING_APPROVAL`
+- `READY`
+- `DONE`
+- `FAILED`
+- `REJECTED`
+- `CANCELLED`
+
+## Target Model
+- `CHANGE_TICKET`
+- `AUDIT_EVIDENCE_PACKAGE`
+- `ADMIN_USER`
+
+## Action Model
+- `create`
+- `list`
+- `getById`
+- `submit`
+- `cancel`
+- `consume`
 
 ## Read-Model Meaning
 - `requestNo` is the operator-facing primary identifier.
-- `targetNo` is the canonical admin-facing lookup value for create, list, and detail flows.
-- `targetSnapshotJson` preserves the pre-delete target view for after-the-fact review.
-- `latestApprovalStatus` keeps the real approval terminal status even when request status mirrors to `REJECTED`.
-
-## Supported Targets
-- `CHANGE_TICKET`
-- `AUDIT_EVIDENCE_PACKAGE`
-- `COMPLIANCE_CASE_EVIDENCE_PACKAGE`
-- `ADMIN_USER`
-
-## Historical / Retired Notes
-- `APPROVAL_CASE` is not a supported target and is retired runtime history.
-- This entity does not define undelete or hard-delete semantics.
+- `targetNo` is the canonical lookup key for admin create and detail flows.
+- `targetSnapshotJson` preserves the target view captured at request creation and final consume.
+- `targetSnapshotDigest` carries the stored snapshot digest when the request keeps one.
+- `resultNote` captures the final consume outcome note.

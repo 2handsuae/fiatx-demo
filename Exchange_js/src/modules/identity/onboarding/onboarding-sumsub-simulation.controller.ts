@@ -2,7 +2,6 @@ import {
   Body,
   Controller,
   ForbiddenException,
-  Inject,
   Post,
   Req,
   UseGuards,
@@ -10,29 +9,15 @@ import {
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import type { OnboardingService } from './onboarding.service';
+import { OnboardingService } from './onboarding.service';
 import { SimulateOnboardingSumsubEventDto } from './dto/onboarding.dto';
-
-interface SumsubVerificationEventHandler {
-  handleSumsubVerificationEvent(
-    payload: Record<string, unknown>,
-    context: Record<string, unknown>,
-  ): Promise<unknown>;
-}
 
 @ApiTags('Customer - Onboarding')
 @Controller('onboarding/sumsub')
 @UseGuards(AuthGuard('jwt'))
 @ApiBearerAuth()
 export class OnboardingSumsubSimulationController {
-  constructor(
-    @Inject('OnboardingService')
-    private readonly onboardingService: OnboardingService,
-  ) {}
-
-  private get sumsubHandler(): SumsubVerificationEventHandler {
-    return this.onboardingService as unknown as SumsubVerificationEventHandler;
-  }
+  constructor(private readonly onboardingService: OnboardingService) {}
 
   private ensureCustomer(req: any) {
     if (req.user?.type !== 'CUSTOMER') {
@@ -47,6 +32,10 @@ export class OnboardingSumsubSimulationController {
     @Req() req: any,
     @Body(new ValidationPipe({ transform: true })) body: SimulateOnboardingSumsubEventDto,
   ) {
+    if (process.env.NODE_ENV !== 'development') {
+      throw new ForbiddenException('Simulation is only available in development');
+    }
+
     const actorId = this.ensureCustomer(req);
     const payload: Record<string, unknown> = {
       type: body.eventType,
@@ -55,7 +44,7 @@ export class OnboardingSumsubSimulationController {
       reviewRejectType: body.reviewRejectType,
     };
 
-    return this.sumsubHandler.handleSumsubVerificationEvent(payload, {
+    return this.onboardingService.handleSumsubVerificationEvent(payload, {
       simulated: true,
       actorId,
       levelName: body.levelName,

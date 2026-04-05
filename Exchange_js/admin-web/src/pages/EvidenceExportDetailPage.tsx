@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   Download,
@@ -7,8 +7,11 @@ import {
   Link2,
   RefreshCw,
   ShieldCheck,
+  Trash2,
   User,
 } from 'lucide-react';
+import { useAdminSession } from '../contexts/AdminSessionContext';
+import { PERMISSIONS } from '../rbac/permissions';
 import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/adminFetch';
 import {
   ActionSection,
@@ -18,11 +21,13 @@ import {
   JsonBlock,
 } from '../components/compliance/DetailPageComponents';
 import { adminButtonClass } from '../components/common/adminButtonStyles';
+import { createDeleteRequest, DELETE_REQUEST_TARGET_TYPES } from '../utils/deleteRequests';
 
 interface EvidenceExportDetail {
   id: string;
   packageNo: string;
   approvalCaseId?: string | null;
+  approvalCaseNo?: string | null;
   status: string;
   exportMode: string;
   fileName?: string | null;
@@ -30,6 +35,7 @@ interface EvidenceExportDetail {
   digest?: string | null;
   exportedByType: string;
   exportedById: string;
+  exportedByNo?: string | null;
   exportedByRole?: string | null;
   approvalCase?: {
     id: string;
@@ -39,6 +45,7 @@ interface EvidenceExportDetail {
     status: string;
     executionStatus: string;
     traceId?: string | null;
+    decisionByUserNo?: string | null;
     decisionByUserId?: string | null;
     decisionByRole?: string | null;
     decidedAt?: string | null;
@@ -142,35 +149,56 @@ const downloadPackage = async (id: string): Promise<string> => {
 const EvidenceExportDetailPage = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { hasAnyPermission } = useAdminSession();
   const [detail, setDetail] = useState<EvidenceExportDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [downloading, setDownloading] = useState(false);
+  const [requestingDeletion, setRequestingDeletion] = useState(false);
+  const [deleteReason, setDeleteReason] = useState('');
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
+  const requestSeqRef = useRef(0);
+  const detailIdRef = useRef<string | null>(null);
+  const canRequestDeletion = hasAnyPermission([PERMISSIONS.GOV_DELETE_REQUEST_CREATE]);
 
-  const fetchDetail = async () => {
-    if (!id) {
+  const fetchDetail = async (detailId: string | null = id ?? null) => {
+    if (!detailId) {
+      requestSeqRef.current += 1;
+      detailIdRef.current = null;
+      setDetail(null);
       setError('Evidence package id is required.');
       setLoading(false);
       return;
     }
 
+    const requestSeq = ++requestSeqRef.current;
+    detailIdRef.current = detailId;
     setLoading(true);
     setError('');
     try {
       const response = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/audit-logs/evidence-packages/${id}`,
+        `${import.meta.env.VITE_API_URL}/admin/audit-logs/evidence-packages/${detailId}`,
       );
       if (!response.ok) {
         throw new Error(await getApiErrorMessage(response, 'Failed to load evidence package detail.'));
       }
 
       const data = (await response.json()) as EvidenceExportDetail;
+      if (requestSeqRef.current !== requestSeq || detailIdRef.current !== detailId) {
+        return;
+      }
       setDetail(data);
     } catch (e: unknown) {
+      if (requestSeqRef.current !== requestSeq || detailIdRef.current !== detailId) {
+        return;
+      }
       if (e instanceof AdminSessionError) return;
+      setDetail(null);
       setError(e instanceof Error ? e.message : 'Failed to load evidence package detail.');
     } finally {
+      if (requestSeqRef.current !== requestSeq || detailIdRef.current !== detailId) {
+        return;
+      }
       setLoading(false);
     }
   };
@@ -191,8 +219,37 @@ const EvidenceExportDetailPage = () => {
     }
   };
 
+  const handleRequestDeletion = async () => {
+    if (!detail) return;
+
+    const normalizedReason = deleteReason.trim();
+    if (!normalizedReason) {
+      setError('Delete reason is required.');
+      return;
+    }
+
+    setRequestingDeletion(true);
+    setError('');
+    setMessage('');
+    try {
+      const created = await createDeleteRequest({
+        targetType: DELETE_REQUEST_TARGET_TYPES.AUDIT_EVIDENCE_PACKAGE,
+        targetNo: detail.packageNo,
+        deleteReason: normalizedReason,
+      });
+      navigate(`/dashboard/control-gates/delete-requests/${created.id}`);
+    } catch (e: unknown) {
+      if (e instanceof AdminSessionError) return;
+      setError(e instanceof Error ? e.message : 'Failed to create delete request.');
+    } finally {
+      setRequestingDeletion(false);
+    }
+  };
+
   useEffect(() => {
-    void fetchDetail();
+    setDeleteReason('');
+    detailIdRef.current = id ?? null;
+    void fetchDetail(id ?? null);
   }, [id]);
 
   if (loading) {
@@ -287,16 +344,53 @@ const EvidenceExportDetailPage = () => {
         title="Package Actions"
         description="Download stays in a dedicated action block so the header remains utility-only."
       >
-        <button
-          onClick={() => void handleDownload()}
-          disabled={detail.status !== 'READY' || downloading}
-          className={adminButtonClass(
-            detail.status === 'READY' ? 'workflowPrimary' : 'workflowSecondary',
+        <div className="space-y-4">
+          <button
+            onClick={() => void handleDownload()}
+            disabled={detail.status !== 'READY' || downloading}
+            className={adminButtonClass(
+              detail.status === 'READY' ? 'workflowPrimary' : 'workflowSecondary',
+            )}
+          >
+            <Download size={16} />
+            {downloading ? 'Downloading...' : detail.status === 'READY' ? 'Download Package' : 'Waiting Approval'}
+          </button>
+
+          {canRequestDeletion && (
+            <div className="space-y-4 rounded-xl border border-admin-border bg-gray-50 p-4">
+              <div className="space-y-1">
+                <div className="text-sm font-semibold text-gray-900">Request Deletion</div>
+                <div className="text-xs text-gray-500">
+                  Open a governed deletion proposal for package {detail.packageNo}. The underlying package remains intact until the request completes.
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <label className="block text-xs uppercase tracking-wide text-gray-500">
+                  Delete Reason
+                </label>
+                <textarea
+                  value={deleteReason}
+                  onChange={(e) => setDeleteReason(e.target.value)}
+                  rows={3}
+                  className="w-full rounded-lg border border-admin-border px-3 py-2 text-sm"
+                  placeholder="Explain why this evidence package should enter governed deletion."
+                />
+              </div>
+
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  onClick={() => void handleRequestDeletion()}
+                  disabled={requestingDeletion || !deleteReason.trim()}
+                  className={adminButtonClass('workflowSecondary')}
+                >
+                  <Trash2 size={16} />
+                  {requestingDeletion ? 'Requesting...' : 'Request Deletion'}
+                </button>
+              </div>
+            </div>
           )}
-        >
-          <Download size={16} />
-          {downloading ? 'Downloading...' : detail.status === 'READY' ? 'Download Package' : 'Waiting Approval'}
-        </button>
+        </div>
       </ActionSection>
 
       <DetailCard title="Package Summary" icon={<FileText size={18} />}>
@@ -309,7 +403,7 @@ const EvidenceExportDetailPage = () => {
 
       <DetailCard title="Exporter" icon={<User size={18} />}>
         <InfoField label="Exporter Type" value={detail.exportedByType} />
-        <InfoField label="Exporter ID" value={detail.exportedById} mono />
+        <InfoField label="Exporter No" value={detail.exportedByNo} mono />
         <InfoField label="Exporter Role" value={detail.exportedByRole} />
       </DetailCard>
 
@@ -325,13 +419,21 @@ const EvidenceExportDetailPage = () => {
           <InfoField label="Approval Status" value={detail.approvalCase.status} />
           <InfoField label="Execution Status" value={detail.approvalCase.executionStatus} />
           <InfoField label="Action Type" value={detail.approvalCase.actionType} />
-          <InfoField label="Approval ID" value={detail.approvalCase.id} mono />
+          <InfoField label="Decision By User No" value={detail.approvalCase.decisionByUserNo} mono />
           <InfoField label="Trace ID" value={detail.approvalCase.traceId} mono />
           <InfoField label="Decided At" value={formatDateTime(detail.approvalCase.decidedAt)} />
-          <InfoField label="Decision By User" value={detail.approvalCase.decisionByUserId} mono />
           <InfoField label="Decision By Role" value={detail.approvalCase.decisionByRole} />
         </DetailCard>
       )}
+
+      <DetailCard title="Technical References" icon={<Link2 size={18} />}>
+        <InfoField label="Package ID" value={detail.id} mono />
+        <InfoField label="Approval Case ID" value={detail.approvalCaseId} mono />
+        <InfoField label="Approval Case No" value={detail.approvalCaseNo} mono />
+        <InfoField label="Exporter ID" value={detail.exportedById} mono />
+        <InfoField label="Approval ID" value={detail.approvalCase?.id} mono />
+        <InfoField label="Decision By User ID" value={detail.approvalCase?.decisionByUserId} mono />
+      </DetailCard>
 
       <DetailCard title="Selection Snapshot" icon={<FileText size={18} />}>
         <InfoField

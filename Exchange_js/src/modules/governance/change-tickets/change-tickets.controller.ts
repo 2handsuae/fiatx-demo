@@ -12,29 +12,35 @@ import {
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { IsBoolean, IsOptional, IsString } from 'class-validator';
 import { AdminPermissionGuard } from '../../identity/access-control/admin-permission.guard';
 import { ApprovalActorContext } from '../approvals/constants/approval.constants';
 import { ChangeTicketsService } from './change-tickets.service';
-import { ReleaseGatesService } from './release-gates.service';
 import {
   ChangeTicketQueryDto,
-  CloseChangeTicketDto,
   CreateChangeTicketDto,
-  GateCheckDto,
-  MarkDeployStatusDto,
-  ResubmitChangeTicketDto,
   SubmitChangeTicketDto,
 } from './dto/change-ticket.dto';
+
+class ConsumeChangeTicketDto {
+  @IsBoolean()
+  success!: boolean;
+
+  @IsOptional()
+  @IsString()
+  note?: string;
+
+  @IsOptional()
+  @IsString()
+  traceId?: string;
+}
 
 @ApiTags('Admin - Governance Change Tickets')
 @Controller('admin/control-gates/change-tickets')
 @UseGuards(AuthGuard('jwt'), AdminPermissionGuard)
 @ApiBearerAuth()
 export class ChangeTicketsController {
-  constructor(
-    private readonly changeTicketsService: ChangeTicketsService,
-    private readonly releaseGatesService: ReleaseGatesService,
-  ) {}
+  constructor(private readonly changeTicketsService: ChangeTicketsService) {}
 
   private ensureAdmin(req: any): ApprovalActorContext {
     if (req.user?.type !== 'ADMIN') {
@@ -84,50 +90,13 @@ export class ChangeTicketsController {
     return this.changeTicketsService.submit(id, body, this.ensureAdmin(req));
   }
 
-  @Post(':id/resubmit')
-  @ApiOperation({ summary: 'Resubmit a rejected change ticket' })
-  resubmit(
+  @Post(':id/consume')
+  @ApiOperation({ summary: 'Consume a ready change ticket' })
+  consume(
     @Req() req: any,
     @Param('id') id: string,
-    @Body(new ValidationPipe({ transform: true })) body: ResubmitChangeTicketDto,
+    @Body(new ValidationPipe({ transform: true })) body: ConsumeChangeTicketDto,
   ) {
-    return this.changeTicketsService.resubmit(id, body, this.ensureAdmin(req));
-  }
-
-  @Get(':id/gate-runs')
-  @ApiOperation({ summary: 'List gate runs for a change ticket' })
-  gateRuns(@Req() req: any, @Param('id') id: string) {
-    this.ensureAdmin(req);
-    return this.releaseGatesService.listGateRuns(id);
-  }
-
-  @Post(':id/gate-checks')
-  @ApiOperation({ summary: 'Run a release gate check' })
-  gateCheck(
-    @Req() req: any,
-    @Param('id') id: string,
-    @Body(new ValidationPipe({ transform: true })) body: GateCheckDto,
-  ) {
-    return this.releaseGatesService.runGateCheck(id, body, this.ensureAdmin(req));
-  }
-
-  @Post(':id/deploy-status')
-  @ApiOperation({ summary: 'Mark deploy status for a change ticket' })
-  markDeployStatus(
-    @Req() req: any,
-    @Param('id') id: string,
-    @Body(new ValidationPipe({ transform: true })) body: MarkDeployStatusDto,
-  ) {
-    return this.releaseGatesService.markDeployStatus(id, body, this.ensureAdmin(req));
-  }
-
-  @Post(':id/close')
-  @ApiOperation({ summary: 'Close a change ticket' })
-  close(
-    @Req() req: any,
-    @Param('id') id: string,
-    @Body(new ValidationPipe({ transform: true })) body: CloseChangeTicketDto,
-  ) {
-    return this.changeTicketsService.close(id, body, this.ensureAdmin(req));
+    return this.changeTicketsService.consume(id, body, this.ensureAdmin(req));
   }
 }

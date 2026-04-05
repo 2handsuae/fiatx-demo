@@ -42,7 +42,7 @@
 | `WF-01` Audit Events + Evidence Export | `Wave 1` | 一次性完成基础能力，后续各波只扩展覆盖面 |
 | `WF-02` RBAC + Auth Boundary | `Wave 1` | 一次性完成基础能力 |
 | `WF-03` SoD Block + Maker-Checker | `Wave 1` | 已按 Wave 1 落地通用 approval engine 与 3 类敏感动作复用 |
-| `WF-04` Notice Registry + SLA Timers | `Wave 1` | 已按 Wave 1 落地简化版 governance SLA timer + notification registry |
+| `WF-04` Notice Registry + SLA Timers | `Wave 1`、`Wave 9` | `Wave 1` 只保留历史最小 timer/notification kernel；通用 `obligation / SLA / escalation` 治理能力后移到 `Wave 9` |
 | `WF-05` Retention + Delete Gate | `Wave 1` | 已按 Wave 1 落地 delete request + soft delete gate 审批闭环 |
 | `WF-06` Change Ticket + Release Gate + Link Integrity | `Wave 1`、`Wave 9` | `Wave 1` 完成发布闸门 P0；`Wave 9` 完成 P2 的 link integrity 深化 |
 | `WF-07` PayIn→Deposit | `Wave 5` | 完整交付充值链路 |
@@ -53,7 +53,7 @@
 | `WF-12` Risk Engine Cases | `Wave 2`、`Wave 3`、`Wave 5`、`Wave 7` | `Wave 2` 完成标准内核；`Wave 3` 接 onboarding sanctions；`Wave 5/7` 接入交易侧案例 |
 | `WF-14` Alerts→Incidents + Incident Mgmt | `Wave 2` | 标准告警/事件内核提前完成 |
 | `WF-15` Posting Engine + Base Config Center | `Wave 4` | 完整交付账务底座 |
-| `WF-16` Safeguarding Reconciliation + Funding SLA | `Wave 7`、`Wave 8` | `Wave 7` 做最小日对账；`Wave 8` 做全量保障对账闭环 |
+| `WF-16` Safeguarding Reconciliation + Funding SLA | `Wave 7`、`Wave 8`、`Wave 9` | `Wave 7` 做最小日对账；`Wave 8` 做全量保障对账与财务运营事实；如需统一 overdue/escalation 治理壳，则后移到 `Wave 9` |
 | `WF-17` Periodic Risk Review | `Wave 3` | 与 onboarding/customer gate 一起完成正式 customer review 闭环 |
 | `WF-18` Monthly Statements | `Wave 9` | 后置扩展 |
 | `WF-19` Splitting Items + Fee Engine | `Wave 4`、`Wave 6`、`Wave 8` | `Wave 4` 完成骨架；`Wave 6` 覆盖 swap；`Wave 8` 覆盖 treasury/reconciliation |
@@ -115,6 +115,7 @@
 - `Wave 1` 的最终 acceptance 结论入口固定为：
   - `docs/acceptance/wave-1-foundation-final-acceptance.md`
 - `WF-GOV-02` filing / receipt / effectiveness gate 不属于当前 `Wave 1` 完成范围。
+- `WF-04` 在 `Wave 1` 的完成范围应理解为历史最小 timer/notifier 资产，而不是未来通用 `obligation / SLA / escalation` 平台；后者统一后移到 `Wave 9`。
 
 ## 4.1 Wave 2 / Wave 3 Completion Note
 
@@ -159,21 +160,21 @@
 
 **目标**
 
-建立所有后续业务都会复用的控制面底座：权限边界、审计取证、maker-checker、软删除、发布闸门，以及 Governance 范围内的通用计时器。
+建立所有后续业务都会复用的控制面底座：权限边界、审计取证、maker-checker、软删除、发布闸门，以及历史已落地的最小时限内核。
 
 **本波 workflow**
 
 - `WF-01` 全量
 - `WF-02` 全量
 - `WF-03` Approval Engine + maker-checker
-- `WF-04` Governance SLA Timer + notification registry
+- `WF-04` 历史最小 timer/notifier kernel
 - `WF-05` Delete Request + soft delete gate
 - `WF-06` Change Ticket + Release Gate
 
 **为什么放在这里**
 
-- 后续每个业务波次都要依赖统一审计、统一审批、统一定时器、统一闸门。
-- 不先做底座，后面 onboarding、deposit、swap、withdraw、complaints 都会各做一套临时逻辑，返工成本极高。
+- 后续每个业务波次都要依赖统一审计、统一审批、统一闸门，以及最小可复用的时限事实。
+- 不先做底座，后面 onboarding、deposit、swap、withdraw 都会各做一套临时逻辑，返工成本极高。
 
 **P0 交付物**
 
@@ -191,11 +192,12 @@
   - 缺变更单禁止上线
   - 缺测试证据禁止上线
   - 缺回滚方案禁止上线
-- Governance 范围内 SLA 能力落地：
+- 历史最小时限能力落地：
   - `APPROVAL_TIMEOUT`
   - `CHANGE_POST_APPROVAL_FOLLOWUP`
   - notification registry
   - `Close / Recalc / demo mock`
+  - 但不把它继续定义为通用 `obligation / breach / escalation` 平台
 
 **Wave DoD**
 
@@ -259,7 +261,8 @@
   - status machine
   - assignee rule
   - escalation
-  - SLA / overdue handling
+  - case-local overdue facts
+  - 不在本波抽象通用 `obligation / SLA / breach` 引擎
 - 标准动作目录落地：
   - 冻结
   - 解冻
@@ -648,7 +651,7 @@
 
 **目标**
 
-补齐资金保障全量闭环、内部资金流、treasury/reconciliation 成本覆盖与运营视图，把系统从“能跑业务”升级到“能长期做财务运营”。
+补齐资金保障全量闭环、内部资金流、treasury/reconciliation 成本覆盖与运营视图，把系统从“能跑业务”升级到“能长期做财务运营”；本波只做财务运营主线，不在这里产品化通用治理式 `SLA / obligation / escalation`。
 
 **本波 workflow**
 
@@ -659,6 +662,7 @@
 **为什么放在这里**
 
 - 客户资金主链在 `Wave 5-7` 完成后，这一波负责把保障、资金运营、费用补回与 operator tooling 真正收口成可持续的财务运营体系。
+- `Client Money` 日对账、safeguarding batch、break register 这些业务本体都属于 `Wave 8`；只有通用超时治理壳才后移到 `Wave 9`。
 
 **P0 交付物**
 
@@ -666,7 +670,7 @@
   - daily batch
   - threshold
   - break register
-  - break handling SLA
+  - break owner / closure tracking
 - 内部资金流全量上线：
   - internal tx/fund/collection
   - `dryRun`
@@ -677,6 +681,7 @@
   - safeguarding 状态
   - 未补回项
   - 未闭环项
+  - 但 overdue/breach/escalation 仍只保留业务事实，不在本波抽象成统一治理对象
 
 **Wave DoD**
 
@@ -698,6 +703,7 @@
 **明确不做**
 
 - 月结账单
+- 通用 `obligation / breach / escalation` engine
 - governance registries
 - filing / receipt / effectiveness gate
 - 外包治理
@@ -708,11 +714,12 @@
 
 **目标**
 
-补齐不属于资金主链必需、但治理运营成熟度与监管留痕需要的后置能力，把 governance registries、filing/receipt/effectiveness、报送材料与证据工厂统一收口。
+补齐不属于资金主链必需、但治理运营成熟度与监管留痕需要的后置能力，把通用 `obligation / SLA / breach / escalation`、governance registries、filing/receipt/effectiveness、报送材料与证据工厂统一收口。
 
 **本波 workflow**
 
 - `WF-18` 全量
+- `WF-04` Phase B（generic obligation / breach / escalation）
 - `WF-22` 全量
 - `WF-23` 全量
 - `WF-24` 全量
@@ -725,6 +732,7 @@
 **为什么放在这里**
 
 - 这些能力重要，但不应阻塞前面八个 waves 的交易主链、账务主链、财务运营主链；它们更适合作为治理运营化与证据工厂波次统一收口。
+- 这里统一承接“时限义务”而不是重写前面 waves 的主流程：前面 waves 只保留业务事实和控制结果，`Wave 9` 再统一接住 case-bound obligation、overdue、breach、escalation 与 evidence。
 
 **P0 交付物**
 
@@ -732,6 +740,12 @@
   - `T+25` 内自动生成
   - 分发
   - 回执归档
+- 通用治理时限引擎：
+  - case-bound obligation
+  - deadline / recurring / prior-notice / ongoing-follow-up 四类规则
+  - overdue / breach 记录
+  - escalation policy
+  - completion evidence
 - 治理运营：
   - governance registries
   - filing / receipt / effectiveness gate
@@ -748,6 +762,11 @@
   - `4w/8w SLA`
   - RCA / CAPA
   - 标准证据导出
+- 监管与治理时限场景：
+  - AML 补件 `48h`
+  - cyber / BCDR `72h`
+  - 立即通知类义务
+  - outsourcing prior notice
 - security / privacy programme evidence：
   - 审计模板导出
   - 周期复核记录
@@ -760,11 +779,13 @@
 
 **Wave DoD**
 
-- `WF-18/22/23/24/GOV-01/GOV-02/GOV-03/GOV-04 + WF-06(P2)` 达到“治理运营与监管证据工厂”的标准。
+- `WF-04` Phase B、`WF-18/22/23/24/GOV-01/GOV-02/GOV-03/GOV-04 + WF-06(P2)` 达到“治理运营与监管证据工厂”的标准。
 
 **代表性 UAT**
 
 - 主流程：
+  - AML 补件 case 自动生成 `48h` obligation
+  - 到期前完成提交并归档 evidence
   - 治理台账完成更新
   - filing 提交并取得 receipt
   - effect gate 满足后允许正式生效
@@ -773,6 +794,8 @@
   - 回执归档
   - 证据包按模板导出
 - 异常回滚流程：
+  - obligation 超时进入 breach
+  - escalation policy 自动升级责任链
   - 公示链接失效或外包合同缺关键条款
   - 发布/生效动作被自动阻断
   - 阻断原因、责任人、整改动作留痕
@@ -790,8 +813,8 @@
 - 如果需求涉及 `payin / deposit`，优先看 `Wave 5`。
 - 如果需求涉及 `quote / swap / best execution / product restriction`，优先看 `Wave 6`。
 - 如果需求涉及 `withdraw / payout / pre-kyt / tx kyt / travel rule / reversal / minimum reconciliation`，优先看 `Wave 7`。
-- 如果需求涉及 `internal treasury / safeguarding full reconciliation / treasury fee & reimbursement / finance ops dashboard`，优先看 `Wave 8`。
-- 如果需求涉及 `governance registry / filing receipt effectiveness / regulatory governance ops / monthly statements / outsourcing / complaints / regulatory calendar / policy attestation / security privacy evidence`，优先看 `Wave 9`。
+- 如果需求涉及 `internal treasury / safeguarding full reconciliation / client money daily reconciliation / treasury fee & reimbursement / finance ops dashboard`，优先看 `Wave 8`。
+- 如果需求涉及 `obligation / overdue / breach / escalation / regulatory response timer / complaints SLA / monthly statements / outsourcing / governance registry / filing receipt effectiveness / policy attestation / security privacy evidence`，优先看 `Wave 9`。
 
 ## 7. Agent 执行注意事项
 
@@ -800,5 +823,6 @@
   - 本次完成什么
   - 哪些能力必须后置到下一波
   - 哪些 contract 现在就要预留
-- 当需求涉及 gate、timer、approval、evidence package 时，优先复用已有平台引擎，而不是在业务模块里单独实现。
+- 当需求涉及 gate、approval、evidence package 时，优先复用已有平台引擎，而不是在业务模块里单独实现。
+- 当需求涉及 `timer / overdue / breach / escalation` 时，先判断它是不是业务主流程事实；如果不是，默认按 `Wave 9` 的治理旁支处理，而不是塞回业务状态机。
 - 当需求与本文件冲突但与 `docs/constraints/**` 一致时，以约束文档为准；本文件应作为交付顺序参考，而不是行为 contract。

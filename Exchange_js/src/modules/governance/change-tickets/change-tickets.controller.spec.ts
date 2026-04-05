@@ -2,22 +2,16 @@ import { ForbiddenException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { ChangeTicketsController } from './change-tickets.controller';
 import { ChangeTicketsService } from './change-tickets.service';
-import { ReleaseGatesService } from './release-gates.service';
 
-describe('ChangeTicketsController', () => {
+describe('ChangeTicketsController Task 2', () => {
   let controller: ChangeTicketsController;
+
   const changeTicketsService = {
     create: jest.fn(),
     list: jest.fn(),
     getById: jest.fn(),
     submit: jest.fn(),
-    resubmit: jest.fn(),
-    close: jest.fn(),
-  };
-  const releaseGatesService = {
-    listGateRuns: jest.fn(),
-    runGateCheck: jest.fn(),
-    markDeployStatus: jest.fn(),
+    consume: jest.fn(),
   };
 
   const adminReq = {
@@ -34,35 +28,30 @@ describe('ChangeTicketsController', () => {
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [ChangeTicketsController],
-      providers: [
-        { provide: ChangeTicketsService, useValue: changeTicketsService },
-        { provide: ReleaseGatesService, useValue: releaseGatesService },
-      ],
+      providers: [{ provide: ChangeTicketsService, useValue: changeTicketsService }],
     }).compile();
 
     controller = module.get<ChangeTicketsController>(ChangeTicketsController);
     jest.clearAllMocks();
   });
 
-  it('delegates gate check with admin actor context', async () => {
-    releaseGatesService.runGateCheck.mockResolvedValue({ id: 'run-1', status: 'PASSED' });
+  it('delegates consume with admin actor context', async () => {
+    changeTicketsService.consume.mockResolvedValue({ id: 'ticket-1', status: 'DONE' });
 
-    await controller.gateCheck(
+    await controller.consume(
       adminReq,
       'ticket-1',
       {
-        targetEnv: 'UAT',
-        releaseVersion: 'v1.0.0',
-        reason: 'preflight',
-      } as any,
+        success: true,
+        note: 'Applied successfully',
+      },
     );
 
-    expect(releaseGatesService.runGateCheck).toHaveBeenCalledWith(
+    expect(changeTicketsService.consume).toHaveBeenCalledWith(
       'ticket-1',
       {
-        targetEnv: 'UAT',
-        releaseVersion: 'v1.0.0',
-        reason: 'preflight',
+        success: true,
+        note: 'Applied successfully',
       },
       {
         actorType: 'ADMIN',
@@ -74,7 +63,22 @@ describe('ChangeTicketsController', () => {
     );
   });
 
-  it('rejects non-admin change ticket access', () => {
+  it('keeps list protected for admins', () => {
     expect(() => controller.list(customerReq, {} as any)).toThrow(ForbiddenException);
+  });
+
+  it('only exposes create, list, getById, submit, and consume handlers', () => {
+    const prototype = Object.getPrototypeOf(controller) as Record<string, unknown>;
+
+    expect(typeof prototype.create).toBe('function');
+    expect(typeof prototype.list).toBe('function');
+    expect(typeof prototype.getById).toBe('function');
+    expect(typeof prototype.submit).toBe('function');
+    expect(typeof prototype.consume).toBe('function');
+    expect('resubmit' in prototype).toBe(false);
+    expect('listGateRuns' in prototype).toBe(false);
+    expect('runGateCheck' in prototype).toBe(false);
+    expect('markDeployStatus' in prototype).toBe(false);
+    expect('close' in prototype).toBe(false);
   });
 });

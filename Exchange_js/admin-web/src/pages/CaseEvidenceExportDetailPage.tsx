@@ -26,6 +26,7 @@ interface CaseEvidenceExportDetail {
   id: string;
   packageNo: string;
   approvalCaseId?: string | null;
+  approvalCaseNo?: string | null;
   status: string;
   exportMode: string;
   fileName?: string | null;
@@ -33,6 +34,7 @@ interface CaseEvidenceExportDetail {
   digest?: string | null;
   exportedByType: string;
   exportedById: string;
+  exportedByNo?: string | null;
   exportedByRole?: string | null;
   approvalCase?: {
     id: string;
@@ -42,6 +44,7 @@ interface CaseEvidenceExportDetail {
     status: string;
     executionStatus: string;
     traceId?: string | null;
+    decisionByUserNo?: string | null;
     decisionByUserId?: string | null;
     decisionByRole?: string | null;
     decidedAt?: string | null;
@@ -242,18 +245,26 @@ const CaseEvidenceExportDetailPage = () => {
       </DetailCard>
 
       <DetailCard title="Exporter & Approval" icon={<ShieldCheck size={18} />} columns={3}>
-        <InfoField label="Exporter Id" value={detail.exportedById} />
+        <InfoField label="Exporter No" value={detail.exportedByNo} />
         <InfoField label="Exporter Role" value={detail.exportedByRole || detail.exportedByType} />
-        <InfoField label="Approval Case Id" value={detail.approvalCaseId} mono />
+        <InfoField label="Approval Case No" value={detail.approvalCaseNo} mono />
         <InfoField label="Approval No" value={detail.approvalCase?.approvalNo} />
         <InfoField label="Approval Status" value={detail.approvalCase?.status} />
         <InfoField label="Execution Status" value={detail.approvalCase?.executionStatus} />
-        <InfoField label="Decision By" value={detail.approvalCase?.decisionByUserId} />
+        <InfoField label="Decision By User No" value={detail.approvalCase?.decisionByUserNo} />
         <InfoField label="Decision Role" value={detail.approvalCase?.decisionByRole} />
         <InfoField
           label="Decided At"
           value={formatDateTime(detail.approvalCase?.decidedAt)}
         />
+      </DetailCard>
+
+      <DetailCard title="Technical References" icon={<FileJson size={18} />} columns={3}>
+        <InfoField label="Package ID" value={detail.id} mono />
+        <InfoField label="Approval Case ID" value={detail.approvalCaseId} mono />
+        <InfoField label="Exporter ID" value={detail.exportedById} mono />
+        <InfoField label="Approval ID" value={detail.approvalCase?.id} mono />
+        <InfoField label="Decision By User ID" value={detail.approvalCase?.decisionByUserId} mono />
       </DetailCard>
 
       <DetailCard title="Selection Snapshot" icon={<User size={18} />} columns={2}>

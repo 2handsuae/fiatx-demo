@@ -1,11 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   ArrowLeft,
   CheckCircle2,
   ClipboardList,
   Link2,
-  PlayCircle,
   RefreshCw,
   ShieldCheck,
   XCircle,
@@ -29,21 +28,37 @@ interface DeleteRequestDetail {
   targetId: string;
   targetNo: string;
   status: string;
-  latestApprovalId: string | null;
-  latestApprovalNo: string | null;
-  latestApprovalStatus: string | null;
-  makerUserId: string;
+  approvalCaseId: string | null;
+  approvalNo: string | null;
+  createdByUserId: string;
+  createdByUserNo: string;
   submittedByUserId: string | null;
-  executedByUserId: string | null;
+  submittedByUserNo: string | null;
+  consumedByUserId: string | null;
+  consumedByUserNo: string | null;
   deleteReason: string;
+  resultNote: string | null;
   docRef: string | null;
   targetSnapshotJson: Record<string, unknown> | null;
+  targetSnapshotDigest: string | null;
   traceId: string;
   createdAt: string;
   updatedAt: string;
   submittedAt: string | null;
-  executedAt: string | null;
+  consumedAt: string | null;
 }
+
+const DELETE_REQUEST_STATUSES = {
+  DRAFT: 'DRAFT',
+  PENDING_APPROVAL: 'PENDING_APPROVAL',
+  READY: 'READY',
+  DONE: 'DONE',
+  FAILED: 'FAILED',
+  REJECTED: 'REJECTED',
+  CANCELLED: 'CANCELLED',
+} as const;
+
+const SUPER_ADMIN_ROLE = 'SUPER_ADMIN';
 
 const formatDateTime = (value?: string | null): string => {
   if (!value) return '-';
@@ -62,13 +77,16 @@ const DeleteRequestDetailPage = () => {
   const [message, setMessage] = useState('');
   const [submittingAction, setSubmittingAction] = useState<string | null>(null);
   const [reason, setReason] = useState('');
+  const requestSeqRef = useRef(0);
 
   const canSubmit = hasAnyPermission([PERMISSIONS.GOV_DELETE_REQUEST_SUBMIT]);
   const canCancel = hasAnyPermission([PERMISSIONS.GOV_DELETE_REQUEST_CANCEL]);
-  const canExecute = hasAnyPermission([PERMISSIONS.GOV_DELETE_REQUEST_EXECUTE]);
+  const canConsume = hasAnyPermission([PERMISSIONS.GOV_DELETE_REQUEST_CONSUME]);
   const canViewApproval = hasAnyPermission([PERMISSIONS.GOV_APPROVAL_DETAIL_READ]);
+  const isSuperAdmin = (session?.roles || []).includes(SUPER_ADMIN_ROLE);
 
   const fetchDetail = async () => {
+    const requestId = ++requestSeqRef.current;
     if (!id) {
       setError('Delete request id is required.');
       setLoading(false);
@@ -86,22 +104,26 @@ const DeleteRequestDetailPage = () => {
       }
 
       const data = (await response.json()) as DeleteRequestDetail;
+      if (requestId !== requestSeqRef.current) return;
       setDetail(data);
     } catch (e: unknown) {
+      if (requestId !== requestSeqRef.current) return;
       if (e instanceof AdminSessionError) return;
       setError(e instanceof Error ? e.message : 'Failed to load delete request detail.');
     } finally {
-      setLoading(false);
+      if (requestId === requestSeqRef.current) {
+        setLoading(false);
+      }
     }
   };
 
-  const submitSimpleAction = async (path: 'submit' | 'cancel' | 'execute', successMessage: string) => {
-    if (!id) return;
+  const submitSimpleAction = async (path: 'submit' | 'cancel' | 'consume', successMessage: string) => {
+    if (!id || !detail) return;
     setSubmittingAction(path);
     setError('');
     setMessage('');
     try {
-      const payload: Record<string, unknown> = {};
+      const payload: Record<string, unknown> = { traceId: detail.traceId };
       if (reason.trim()) payload.reason = reason.trim();
 
       const response = await adminFetch(
@@ -153,10 +175,7 @@ const DeleteRequestDetailPage = () => {
             <ArrowLeft size={16} />
             Back to Delete Requests
           </button>
-          <button
-            onClick={() => void fetchDetail()}
-            className={adminButtonClass('detailUtility')}
-          >
+          <button onClick={() => void fetchDetail()} className={adminButtonClass('detailUtility')}>
             <RefreshCw size={16} />
             Retry
           </button>
@@ -170,7 +189,19 @@ const DeleteRequestDetailPage = () => {
 
   if (!detail) return null;
 
-  const isMaker = session?.id === detail.makerUserId;
+  const status = detail.status;
+  const isMaker = session?.id === detail.createdByUserId;
+  const canSubmitAction = canSubmit && isMaker && status === DELETE_REQUEST_STATUSES.DRAFT;
+  const canCancelAction =
+    canCancel &&
+    (isMaker || isSuperAdmin) &&
+    (status === DELETE_REQUEST_STATUSES.DRAFT ||
+      status === DELETE_REQUEST_STATUSES.PENDING_APPROVAL ||
+      status === DELETE_REQUEST_STATUSES.READY);
+  const canConsumeAction =
+    canConsume &&
+    status === DELETE_REQUEST_STATUSES.READY &&
+    (!isMaker || isSuperAdmin);
 
   return (
     <div className="space-y-6">
@@ -181,9 +212,9 @@ const DeleteRequestDetailPage = () => {
         onRefresh={() => void fetchDetail()}
         backLabel="Back to Delete Requests"
       >
-        {detail.latestApprovalId && canViewApproval && (
+        {detail.approvalCaseId && canViewApproval && (
           <button
-            onClick={() => navigate(`/dashboard/control-gates/approvals/${detail.latestApprovalId}`)}
+            onClick={() => navigate(`/dashboard/control-gates/approvals/${detail.approvalCaseId}`)}
             className={adminButtonClass('detailUtility')}
           >
             <Link2 size={16} />
@@ -209,34 +240,29 @@ const DeleteRequestDetailPage = () => {
 
       <DetailCard title="Request Summary" icon={<ShieldCheck size={18} />} columns={3}>
         <InfoField label="Request No" value={detail.requestNo} mono />
-        <InfoField label="Status" value={detail.status} />
+        <InfoField label="Status" value={status} />
+        <InfoField label="Approval No" value={detail.approvalNo} mono />
         <InfoField label="Trace ID" value={detail.traceId} mono />
-        <InfoField label="Maker User Id" value={detail.makerUserId} mono />
-        <InfoField label="Submitted By" value={detail.submittedByUserId} mono />
-        <InfoField label="Executed By" value={detail.executedByUserId} mono />
+        <InfoField label="Created By User No" value={detail.createdByUserNo} mono />
+        <InfoField label="Submitted By User No" value={detail.submittedByUserNo} mono />
+        <InfoField label="Consumed By User No" value={detail.consumedByUserNo} mono />
       </DetailCard>
 
       <DetailCard title="Target Reference" icon={<ClipboardList size={18} />} columns={3}>
         <InfoField label="Target Type" value={detail.targetType} />
         <InfoField label="Target No" value={detail.targetNo} mono />
-        <InfoField label="Target Id" value={detail.targetId} mono />
         <InfoField label="Delete Reason" value={detail.deleteReason} />
+        <InfoField label="Result Note" value={detail.resultNote} />
         <InfoField label="Doc Ref" value={detail.docRef} mono />
-      </DetailCard>
-
-      <DetailCard title="Approval Link" icon={<Link2 size={18} />} columns={3}>
-        <InfoField label="Approval No" value={detail.latestApprovalNo} mono />
-        <InfoField label="Approval Status" value={detail.latestApprovalStatus} />
-        <InfoField label="Approval Id" value={detail.latestApprovalId} mono />
       </DetailCard>
 
       <ActionSection
         title="Workflow Actions"
-        description="Delete request workflow actions live here. Utility buttons stay in the header and execution actions stay in this dedicated surface."
+        description="Submit, cancel, or consume this request."
       >
         <div className="space-y-4">
           <div className="flex flex-wrap items-center gap-3">
-            {canSubmit && isMaker && detail.status === 'DRAFT' && (
+            {canSubmitAction && (
               <button
                 onClick={() =>
                   void submitSimpleAction(
@@ -251,68 +277,63 @@ const DeleteRequestDetailPage = () => {
                 Submit
               </button>
             )}
-            {canCancel &&
-              isMaker &&
-              ['DRAFT', 'SUBMITTED', 'APPROVAL_PENDING'].includes(detail.status) && (
-                <button
-                  onClick={() =>
-                    void submitSimpleAction(
-                      'cancel',
-                      `Delete request ${detail.requestNo} cancelled successfully.`,
-                    )
-                  }
-                  disabled={submittingAction !== null}
-                  className={adminButtonClass('workflowNegative')}
-                >
-                  <XCircle size={16} />
-                  Cancel
-                </button>
-              )}
-            {canExecute && detail.status === 'READY_TO_EXECUTE' && (
+            {canCancelAction && (
               <button
                 onClick={() =>
                   void submitSimpleAction(
-                    'execute',
-                    `Delete request ${detail.requestNo} executed successfully.`,
+                    'cancel',
+                    `Delete request ${detail.requestNo} cancelled successfully.`,
+                  )
+                }
+                disabled={submittingAction !== null}
+                className={adminButtonClass('workflowNegative')}
+              >
+                <XCircle size={16} />
+                Cancel
+              </button>
+            )}
+            {canConsumeAction && (
+              <button
+                onClick={() =>
+                  void submitSimpleAction(
+                    'consume',
+                    `Delete request ${detail.requestNo} consumed successfully.`,
                   )
                 }
                 disabled={submittingAction !== null}
                 className={adminButtonClass('workflowPrimary')}
               >
-                <PlayCircle size={16} />
-                Execute
+                <ShieldCheck size={16} />
+                Consume
               </button>
             )}
           </div>
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-          <InfoField label="Current Status" value={detail.status} />
-          <InfoField label="Approval Status" value={detail.latestApprovalStatus} />
-          <InfoField
-            label="Execution Ready"
-            value={detail.status === 'READY_TO_EXECUTE' ? 'YES' : 'NO'}
-          />
-        </div>
-        <div className="mt-4 space-y-2">
-          <label className="block text-xs uppercase tracking-wide text-gray-500">Reason</label>
-          <input
-            value={reason}
-            onChange={(e) => setReason(e.target.value)}
-            className="w-full rounded-lg border border-admin-border px-3 py-2 text-sm"
-            placeholder="Optional operator note"
-          />
-        </div>
+          <div className="space-y-2">
+            <label className="block text-xs uppercase tracking-wide text-gray-500">Reason</label>
+            <input
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              className="w-full rounded-lg border border-admin-border px-3 py-2 text-sm"
+              placeholder="Optional operator note"
+            />
+          </div>
         </div>
       </ActionSection>
 
-      <DetailCard title="Target Snapshot" icon={<ClipboardList size={18} />} columns={1}>
-        <JsonBlock title="Target Snapshot JSON" value={detail.targetSnapshotJson || {}} compact />
-      </DetailCard>
-
-      <DetailCard title="Lifecycle" icon={<ClipboardList size={18} />} columns={3}>
+      <DetailCard title="Technical Details" icon={<ClipboardList size={18} />} columns={3}>
+        <InfoField label="Approval Case ID" value={detail.approvalCaseId} mono />
+        <InfoField label="Target ID" value={detail.targetId} mono />
+        <InfoField label="Created By User ID" value={detail.createdByUserId} mono />
+        <InfoField label="Submitted By User ID" value={detail.submittedByUserId} mono />
+        <InfoField label="Consumed By User ID" value={detail.consumedByUserId} mono />
+        <InfoField label="Target Snapshot Digest" value={detail.targetSnapshotDigest} mono />
         <InfoField label="Created At" value={formatDateTime(detail.createdAt)} />
         <InfoField label="Updated At" value={formatDateTime(detail.updatedAt)} />
         <InfoField label="Submitted At" value={formatDateTime(detail.submittedAt)} />
-        <InfoField label="Executed At" value={formatDateTime(detail.executedAt)} />
+        <InfoField label="Consumed At" value={formatDateTime(detail.consumedAt)} />
+        <div className="md:col-span-3">
+          <JsonBlock title="Target Snapshot JSON" value={detail.targetSnapshotJson || {}} compact />
+        </div>
       </DetailCard>
     </div>
   );

@@ -30,7 +30,6 @@ import {
   getCustomerNextStepActionTypes,
   getExpectedReviewStageFromCustomerState,
   isCustomerApprovedAndActive,
-  normalizeCustomerOnboardingStatus,
   resolveCustomerCanonicalState,
 } from '../customer-status.util';
 import { ComplianceAlertAction } from '../../risk-engine/compliance-alerts/constants/compliance-alert-rules.constant';
@@ -57,6 +56,7 @@ import {
   RiskEngineService,
   RiskRecommendedAction,
 } from '../../risk-engine/risk-engine.service';
+import { SumsubClient } from './providers/sumsub/sumsub.client';
 import {
   ApplyOnboardingAlertDecisionDto,
   ApplyOnboardingCaseProposalDto,
@@ -65,6 +65,8 @@ import {
   MockCompleteSessionDto,
   OnboardingMockDataType,
   ReinitiateEddDto,
+  StartVerificationCustomerSnapshotDto,
+  StartVerificationSnapshotDto,
   UpdateInvestorClassificationDto,
   UpsertEntityDto,
 } from './dto/onboarding.dto';
@@ -79,6 +81,12 @@ type TradeAction = 'SWAP' | 'WITHDRAW' | 'DEPOSIT';
 type CaseType = 'CDD' | 'EDD';
 type SubjectKind = 'INDIVIDUAL_CUSTOMER' | 'CORPORATE_ENTITY' | 'UBO_PERSON';
 type MockResult = 'PASS' | 'FAIL';
+type LegacyCompatibleOnboardingStatus =
+  | CustomerOnboardingStatus
+  | 'PENDING_CDD_INPUT'
+  | 'CDD_UNDER_REVIEW'
+  | 'PENDING_EDD_INPUT'
+  | 'EDD_UNDER_REVIEW';
 export type OnboardingActionType = CustomerNextStepActionType;
 
 export interface OnboardingAction {
@@ -91,6 +99,21 @@ export interface NextStepPayload {
   blockedReason: string | null;
   activeCaseId: string | null;
   requiresEdd: boolean;
+  verification: VerificationProjection;
+}
+
+export interface VerificationProjection {
+  provider: string | null;
+  applicantId: string | null;
+  currentLevelName: string | null;
+  latestReviewId: string | null;
+  latestAttemptId: string | null;
+  substatus: string | null;
+  customerActionRequired: boolean;
+  canContinue: boolean;
+  latestEventType: string | null;
+  latestEventAt: Date | string | null;
+  experiencedLevel2: boolean;
 }
 
 export interface SessionResponse {
@@ -125,6 +148,24 @@ const tradingEligibilitySelect = {
 export class OnboardingService {
   private readonly logger = new Logger(OnboardingService.name);
   private readonly auditLogsService: AuditLogsService;
+  private readonly recognizedRawOnboardingStatuses = new Set([
+    'NONE',
+    'PENDING_VERIFICATION',
+    'FINAL_APPROVAL',
+    'APPROVED',
+    'REJECTED',
+    'WITHDRAWN',
+    'PENDING_CDD_INPUT',
+    'CDD_UNDER_REVIEW',
+    'PENDING_EDD_INPUT',
+    'EDD_UNDER_REVIEW',
+  ]);
+  private readonly legacyRawVerificationStatuses = new Set([
+    'PENDING_CDD_INPUT',
+    'CDD_UNDER_REVIEW',
+    'PENDING_EDD_INPUT',
+    'EDD_UNDER_REVIEW',
+  ]);
 
   constructor(
     private readonly prisma: PrismaService,
@@ -133,8 +174,364 @@ export class OnboardingService {
     private readonly workflowTransitionService: WorkflowTransitionService,
     private readonly complianceIncidentsService: ComplianceIncidentsService,
     private readonly onboardingFinalApprovalService: OnboardingFinalApprovalService,
+    private readonly sumsubClient: SumsubClient,
   ) {
     this.auditLogsService = new AuditLogsService(prisma);
+  }
+
+  async handleSumsubVerificationEvent(
+    payload: Record<string, unknown> = {},
+    context: Record<string, unknown> = {},
+  ): Promise<{
+    customer: {
+      onboardingStatus: string | null;
+      operatingStatus: string | null;
+      restrictionStatus: string | null;
+    };
+    verification: VerificationProjection;
+  }> {
+    const eventType = this.normalizeOptionalString(payload.type) || 'unknown';
+    const actorId =
+      this.normalizeOptionalString(context.actorId) ||
+      (context.simulated === true ? null : 'SUMSUB');
+    const actorRole = context.simulated === true ? 'CUSTOMER' : 'SYSTEM';
+
+    if (!actorId) {
+      throw new BadRequestException('actorId is required for Sumsub verification events');
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const customer = await this.findCustomerForSumsubVerificationEvent(tx, payload, context);
+      if (!customer) {
+        throw new NotFoundException(
+          `Customer not found for Sumsub verification event ${eventType}.`,
+        );
+      }
+
+      const currentCanonical = this.getCanonicalState(customer);
+      if (
+        currentCanonical.onboardingStatus === 'APPROVED' ||
+        currentCanonical.onboardingStatus === 'FINAL_APPROVAL' ||
+        currentCanonical.onboardingStatus === 'REJECTED' ||
+        currentCanonical.onboardingStatus === 'WITHDRAWN'
+      ) {
+        this.logger.warn(
+          `Ignoring Sumsub verification event ${eventType} for terminal onboarding state ${currentCanonical.onboardingStatus}.`,
+        );
+        return {
+          customer: {
+            onboardingStatus: customer.onboardingStatus ?? null,
+            operatingStatus: customer.operatingStatus ?? null,
+            restrictionStatus: customer.restrictionStatus ?? null,
+          },
+          verification: this.buildVerificationProjection(customer),
+        };
+      }
+
+      const now = new Date();
+      const nextLevelName =
+        this.resolveSumsubLevelName(payload, context) || customer.sumsubCurrentLevelName || null;
+      const reviewResult = this.resolveSumsubReviewResult(payload, context);
+      const reviewId = this.resolveSumsubReviewId(payload, context);
+      const attemptId = this.resolveSumsubAttemptId(payload, context);
+      const experiencedLevel2 =
+        customer.sumsubExperiencedLevel2 === true || this.isSumsubLevel2Level(nextLevelName);
+
+      let updateData: Prisma.CustomerMainUpdateInput = {
+        verificationProvider: 'SUMSUB',
+        verificationLatestEventType: eventType,
+        verificationLatestEventAt: now,
+      };
+
+      if (nextLevelName) {
+        updateData.sumsubCurrentLevelName = nextLevelName;
+      }
+      if (reviewId) {
+        updateData.sumsubLatestReviewId = reviewId;
+      }
+      if (attemptId) {
+        updateData.sumsubLatestAttemptId = attemptId;
+      }
+
+      switch (eventType) {
+        case 'applicantPending':
+          updateData = {
+            ...updateData,
+            ...this.buildCustomerLifecyclePatch(customer, {
+              onboardingStatus: 'PENDING_VERIFICATION',
+              operatingStatus: 'INACTIVE',
+            }),
+            verificationSubstatus: 'SUBMITTED',
+            verificationCustomerActionRequired: false,
+            verificationCanContinue: false,
+          };
+          break;
+        case 'applicantOnHold':
+          updateData = {
+            ...updateData,
+            ...this.buildCustomerLifecyclePatch(customer, {
+              onboardingStatus: 'PENDING_VERIFICATION',
+              operatingStatus: 'INACTIVE',
+            }),
+            verificationSubstatus: 'UNDER_REVIEW',
+            verificationCustomerActionRequired: false,
+            verificationCanContinue: false,
+          };
+          break;
+        case 'applicantLevelChanged':
+          updateData = {
+            ...updateData,
+            ...this.buildCustomerLifecyclePatch(customer, {
+              onboardingStatus: 'PENDING_VERIFICATION',
+              operatingStatus: 'INACTIVE',
+            }),
+            verificationSubstatus: 'NEXT_LEVEL_REQUIRED',
+            verificationCustomerActionRequired: false,
+            verificationCanContinue: true,
+            sumsubExperiencedLevel2: experiencedLevel2,
+          };
+          break;
+        case 'applicantReviewed':
+          if (reviewResult.reviewAnswer === 'RED' && reviewResult.reviewRejectType === 'RETRY') {
+            updateData = {
+              ...updateData,
+              ...this.buildCustomerLifecyclePatch(customer, {
+                onboardingStatus: 'PENDING_VERIFICATION',
+                operatingStatus: 'INACTIVE',
+              }),
+              verificationSubstatus: 'RESUBMIT_REQUIRED',
+              verificationCustomerActionRequired: true,
+              verificationCanContinue: true,
+              sumsubExperiencedLevel2: experiencedLevel2,
+            };
+          } else {
+            updateData = {
+              ...updateData,
+              ...this.buildCustomerLifecyclePatch(customer, {
+                onboardingStatus: 'PENDING_VERIFICATION',
+                operatingStatus: 'INACTIVE',
+              }),
+              verificationSubstatus: 'UNDER_REVIEW',
+              verificationCustomerActionRequired: false,
+              verificationCanContinue: false,
+              sumsubExperiencedLevel2: experiencedLevel2,
+            };
+          }
+          break;
+        case 'applicantWorkflowCompleted':
+          if (experiencedLevel2) {
+            const pendingApproval =
+              await this.onboardingFinalApprovalService.ensurePendingApprovalInTransaction(tx, {
+                customer: {
+                  ...customer,
+                  onboardingStatus: 'FINAL_APPROVAL',
+                  operatingStatus: 'INACTIVE',
+                },
+                actorId,
+                actorRole,
+                reason: `Sumsub workflow completed via ${eventType}`,
+              });
+            updateData = {
+              ...updateData,
+              ...this.buildCustomerLifecyclePatch(customer, {
+                onboardingStatus: 'FINAL_APPROVAL',
+                operatingStatus: 'INACTIVE',
+              }),
+              ...this.buildLatestFinalApprovalBindingPatch(pendingApproval.approval.id),
+              latestFinalApprovalStatus: pendingApproval.approval.status || 'PENDING',
+              verificationSubstatus: 'COMPLETED',
+              verificationCustomerActionRequired: false,
+              verificationCanContinue: false,
+              sumsubExperiencedLevel2: true,
+            };
+          } else {
+            updateData = {
+              ...updateData,
+              ...this.buildCustomerLifecyclePatch(customer, {
+                onboardingStatus: 'APPROVED',
+                operatingStatus: 'ACTIVE',
+              }),
+              ...this.buildLatestFinalApprovalBindingPatch(null),
+              latestFinalApprovalStatus: null,
+              verificationSubstatus: 'COMPLETED',
+              verificationCustomerActionRequired: false,
+              verificationCanContinue: false,
+              sumsubExperiencedLevel2: false,
+            };
+          }
+          break;
+        case 'applicantWorkflowFailed':
+          updateData = {
+            ...updateData,
+            ...this.buildCustomerLifecyclePatch(customer, {
+              onboardingStatus: 'REJECTED',
+              operatingStatus: 'INACTIVE',
+            }),
+            ...this.buildLatestFinalApprovalBindingPatch(null),
+            latestFinalApprovalStatus: null,
+            verificationSubstatus: 'FAILED',
+            verificationCustomerActionRequired: false,
+            verificationCanContinue: false,
+            sumsubExperiencedLevel2: experiencedLevel2,
+          };
+          break;
+        default:
+          updateData = {
+            ...updateData,
+            ...this.buildCustomerLifecyclePatch(customer, {
+              onboardingStatus: 'PENDING_VERIFICATION',
+              operatingStatus: 'INACTIVE',
+            }),
+            verificationSubstatus: 'PROCESSING',
+            verificationCustomerActionRequired: false,
+            verificationCanContinue: false,
+            sumsubExperiencedLevel2: experiencedLevel2,
+          };
+          this.logger.warn(`Unhandled Sumsub verification event ${eventType}; marking as PROCESSING.`);
+          break;
+      }
+
+      const updatedCustomer = await tx.customerMain.update({
+        where: { id: customer.id },
+        data: updateData,
+      });
+
+      return {
+        customer: {
+          onboardingStatus: updatedCustomer.onboardingStatus ?? null,
+          operatingStatus: updatedCustomer.operatingStatus ?? null,
+          restrictionStatus: updatedCustomer.restrictionStatus ?? null,
+        },
+        verification: this.buildVerificationProjection(updatedCustomer),
+      };
+    });
+  }
+
+  private normalizeOptionalString(value: unknown): string | null {
+    if (value === null || value === undefined) return null;
+    const normalized = String(value).trim();
+    return normalized.length > 0 ? normalized : null;
+  }
+
+  private getRecord(value: unknown): Record<string, unknown> {
+    return value && typeof value === 'object' && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : {};
+  }
+
+  private async findCustomerForSumsubVerificationEvent(
+    tx: Prisma.TransactionClient,
+    payload: Record<string, unknown>,
+    context: Record<string, unknown>,
+  ) {
+    const customerId =
+      (context.simulated === true ? this.normalizeOptionalString(context.actorId) : null) ||
+      this.normalizeOptionalString(payload.externalUserId) ||
+      this.normalizeOptionalString(this.getRecord(payload.applicant).externalUserId);
+    const applicantId = this.resolveSumsubApplicantId(payload, context);
+    if (applicantId) {
+      const byApplicantId = await tx.customerMain.findUnique({
+        where: { sumsubApplicantId: applicantId },
+      });
+      if (byApplicantId) {
+        if (customerId && customerId !== byApplicantId.id) {
+          throw new BadRequestException(
+            'Sumsub verification event identity mismatch between applicantId and customer identity.',
+          );
+        }
+        return byApplicantId;
+      }
+
+      throw new BadRequestException(
+        'Sumsub verification event applicantId does not match any customer.',
+      );
+    }
+
+    if (!customerId) {
+      throw new BadRequestException(
+        'Sumsub verification event requires applicantId or customer identity.',
+      );
+    }
+
+    return tx.customerMain.findUnique({
+      where: { id: customerId },
+    });
+  }
+
+  private resolveSumsubApplicantId(
+    payload: Record<string, unknown>,
+    context: Record<string, unknown>,
+  ): string | null {
+    return (
+      this.normalizeOptionalString(payload.applicantId) ||
+      this.normalizeOptionalString(this.getRecord(payload.applicant).id) ||
+      this.normalizeOptionalString(context.applicantId)
+    );
+  }
+
+  private resolveSumsubLevelName(
+    payload: Record<string, unknown>,
+    context: Record<string, unknown>,
+  ): string | null {
+    return (
+      this.normalizeOptionalString(payload.levelName) ||
+      this.normalizeOptionalString(this.getRecord(payload.level).name) ||
+      this.normalizeOptionalString(context.levelName)
+    );
+  }
+
+  private resolveSumsubReviewResult(
+    payload: Record<string, unknown>,
+    context: Record<string, unknown>,
+  ): {
+    reviewAnswer: string | null;
+    reviewRejectType: string | null;
+  } {
+    const reviewResult = this.getRecord(payload.reviewResult);
+    return {
+      reviewAnswer: (
+        this.normalizeOptionalString(reviewResult.reviewAnswer) ||
+        this.normalizeOptionalString(payload.reviewAnswer) ||
+        this.normalizeOptionalString(context.reviewAnswer)
+      )?.toUpperCase() || null,
+      reviewRejectType: (
+        this.normalizeOptionalString(reviewResult.reviewRejectType) ||
+        this.normalizeOptionalString(payload.reviewRejectType) ||
+        this.normalizeOptionalString(context.reviewRejectType)
+      )?.toUpperCase() || null,
+    };
+  }
+
+  private resolveSumsubReviewId(
+    payload: Record<string, unknown>,
+    context: Record<string, unknown>,
+  ): string | null {
+    const reviewResult = this.getRecord(payload.reviewResult);
+    return (
+      this.normalizeOptionalString(reviewResult.reviewId) ||
+      this.normalizeOptionalString(payload.reviewId) ||
+      this.normalizeOptionalString(context.reviewId)
+    );
+  }
+
+  private resolveSumsubAttemptId(
+    payload: Record<string, unknown>,
+    context: Record<string, unknown>,
+  ): string | null {
+    return (
+      this.normalizeOptionalString(payload.attemptId) ||
+      this.normalizeOptionalString(this.getRecord(payload.inspection).id) ||
+      this.normalizeOptionalString(context.attemptId)
+    );
+  }
+
+  private isSumsubLevel2Level(levelName?: string | null): boolean {
+    const normalized = String(levelName || '').trim().toLowerCase();
+    if (!normalized) {
+      return false;
+    }
+
+    return normalized.includes('level-2') || normalized.includes('level2');
   }
 
   private parseJsonSafely(value?: string | null): Record<string, unknown> {
@@ -168,11 +565,28 @@ export class OnboardingService {
     return resolveCustomerCanonicalState(customer);
   }
 
+  private normalizeRawOnboardingStatus(value?: string | null): string {
+    return String(value || '').trim().toUpperCase();
+  }
+
+  private resolveInvalidRawOnboardingStatus(customer: {
+    onboardingStatus?: string | null;
+  }): string | null {
+    const rawOnboardingStatus = this.normalizeRawOnboardingStatus(customer.onboardingStatus);
+    if (!rawOnboardingStatus) {
+      return null;
+    }
+
+    return this.recognizedRawOnboardingStatuses.has(rawOnboardingStatus)
+      ? null
+      : rawOnboardingStatus;
+  }
+
   private getCustomerOnboardingStatus(customer: {
     onboardingStatus?: string | null;
     operatingStatus?: string | null;
     restrictionStatus?: string | null;
-  }): CustomerOnboardingStatus {
+  }): LegacyCompatibleOnboardingStatus {
     return this.getCanonicalState(customer).onboardingStatus;
   }
 
@@ -180,7 +594,7 @@ export class OnboardingService {
     customer: {
       eddRequired?: boolean | null;
     },
-    onboardingStatus: CustomerOnboardingStatus,
+    onboardingStatus: LegacyCompatibleOnboardingStatus,
   ): boolean {
     switch (onboardingStatus) {
       case 'NONE':
@@ -208,13 +622,16 @@ export class OnboardingService {
       cddDocumentExpiresAt?: Date | string | null;
     },
     next: {
-      onboardingStatus: CustomerOnboardingStatus;
+      onboardingStatus: LegacyCompatibleOnboardingStatus;
       operatingStatus?: CustomerOperatingStatus;
       restrictionStatus?: CustomerRestrictionStatus;
       eddRequired?: boolean;
     },
   ): Prisma.CustomerMainUpdateInput {
-    return buildCustomerLifecycleStatePatch(customer, next);
+    return buildCustomerLifecycleStatePatch(
+      customer,
+      next as Parameters<typeof buildCustomerLifecycleStatePatch>[1],
+    );
   }
 
   private async findLatestOnboardingCddResponse(
@@ -250,12 +667,12 @@ export class OnboardingService {
     activeJourneyId?: string | null;
     onboardingStatus?: string | null;
   }): Promise<string | null> {
-    const onboardingStatus = normalizeCustomerOnboardingStatus(customer.onboardingStatus);
-    if (!onboardingStatus) {
+    const rawOnboardingStatus = String(customer.onboardingStatus || '').trim().toUpperCase();
+    if (!rawOnboardingStatus) {
       return null;
     }
 
-    if (onboardingStatus === 'PENDING_EDD_INPUT' || onboardingStatus === 'EDD_UNDER_REVIEW') {
+    if (rawOnboardingStatus === 'PENDING_EDD_INPUT' || rawOnboardingStatus === 'EDD_UNDER_REVIEW') {
       const eddResponse = await this.findLatestOnboardingEddResponse(
         customer.id,
         customer.activeJourneyId,
@@ -263,7 +680,7 @@ export class OnboardingService {
       return eddResponse?.id || null;
     }
 
-    if (onboardingStatus === 'PENDING_CDD_INPUT' || onboardingStatus === 'CDD_UNDER_REVIEW') {
+    if (rawOnboardingStatus === 'PENDING_CDD_INPUT' || rawOnboardingStatus === 'CDD_UNDER_REVIEW') {
       const cddResponse = await this.findLatestOnboardingCddResponse(
         customer.id,
         customer.activeJourneyId,
@@ -598,6 +1015,17 @@ export class OnboardingService {
   }
 
   private async buildNextStep(customer: any): Promise<NextStepPayload> {
+    const invalidRawOnboardingStatus = this.resolveInvalidRawOnboardingStatus(customer);
+    if (invalidRawOnboardingStatus) {
+      return {
+        actions: [{ type: 'NONE' }],
+        blockedReason: `Onboarding status ${invalidRawOnboardingStatus} is invalid. Contact support.`,
+        activeCaseId: null,
+        requiresEdd: false,
+        verification: this.buildVerificationProjection(customer),
+      };
+    }
+
     const canonical = this.getCanonicalState(customer);
     const activeCaseId = await this.resolveActiveOnboardingResponseId(customer);
     return {
@@ -605,6 +1033,7 @@ export class OnboardingService {
       blockedReason: this.buildBlockedReason(customer),
       activeCaseId,
       requiresEdd: this.resolveEddRequiredForState(customer, canonical.onboardingStatus),
+      verification: this.buildVerificationProjection(customer),
     };
   }
 
@@ -799,6 +1228,34 @@ export class OnboardingService {
       qrCodeUrl: session.qrCodeUrl,
       expiresAt: session.expiresAt,
       status: session.status,
+    };
+  }
+
+  private buildVerificationProjection(customer: {
+    verificationProvider?: string | null;
+    sumsubApplicantId?: string | null;
+    sumsubCurrentLevelName?: string | null;
+    sumsubLatestReviewId?: string | null;
+    sumsubLatestAttemptId?: string | null;
+    verificationSubstatus?: string | null;
+    verificationCustomerActionRequired?: boolean | null;
+    verificationCanContinue?: boolean | null;
+    verificationLatestEventType?: string | null;
+    verificationLatestEventAt?: Date | string | null;
+    sumsubExperiencedLevel2?: boolean | null;
+  }): VerificationProjection {
+    return {
+      provider: customer.verificationProvider ?? null,
+      applicantId: customer.sumsubApplicantId ?? null,
+      currentLevelName: customer.sumsubCurrentLevelName ?? null,
+      latestReviewId: customer.sumsubLatestReviewId ?? null,
+      latestAttemptId: customer.sumsubLatestAttemptId ?? null,
+      substatus: customer.verificationSubstatus ?? null,
+      customerActionRequired: !!customer.verificationCustomerActionRequired,
+      canContinue: !!customer.verificationCanContinue,
+      latestEventType: customer.verificationLatestEventType ?? null,
+      latestEventAt: customer.verificationLatestEventAt ?? null,
+      experiencedLevel2: !!customer.sumsubExperiencedLevel2,
     };
   }
 
@@ -1327,6 +1784,144 @@ export class OnboardingService {
       blockedReason: nextStep.blockedReason,
       activeCaseId: nextStep.activeCaseId,
       requiresEdd: nextStep.requiresEdd,
+      verification: nextStep.verification,
+    };
+  }
+
+  private buildCustomerSnapshot(customer: {
+    onboardingStatus?: string | null;
+    operatingStatus?: string | null;
+    restrictionStatus?: string | null;
+  }): StartVerificationCustomerSnapshotDto {
+    const canonical = this.getCanonicalState(customer);
+    return {
+      onboardingStatus: canonical.onboardingStatus,
+      operatingStatus: canonical.operatingStatus,
+      restrictionStatus: canonical.restrictionStatus,
+    };
+  }
+
+  async startVerification(customerId: string): Promise<StartVerificationSnapshotDto> {
+    const customer = await this.getCustomerOrThrow(customerId, true);
+    this.ensureIndividualOnly(customer);
+
+    const rawOnboardingStatus = this.normalizeRawOnboardingStatus(customer.onboardingStatus);
+    const currentStatus = this.getCustomerOnboardingStatus(customer);
+    if (this.resolveInvalidRawOnboardingStatus(customer)) {
+      throw new BadRequestException(
+        `Current status ${rawOnboardingStatus} does not allow starting verification.`,
+      );
+    }
+
+    if (this.legacyRawVerificationStatuses.has(rawOnboardingStatus)) {
+      throw new BadRequestException(
+        `Current status ${rawOnboardingStatus} does not allow starting verification.`,
+      );
+    }
+
+    if (currentStatus === 'APPROVED' || currentStatus === 'FINAL_APPROVAL') {
+      throw new BadRequestException(
+        `Current status ${currentStatus} does not allow starting verification.`,
+      );
+    }
+
+    if (currentStatus === 'PENDING_VERIFICATION' && customer.verificationCanContinue !== true) {
+      throw new BadRequestException(
+        'Current status PENDING_VERIFICATION does not allow starting verification.',
+      );
+    }
+
+    if (
+      currentStatus === 'PENDING_VERIFICATION' &&
+      customer.verificationProvider &&
+      customer.verificationProvider !== 'SUMSUB'
+    ) {
+      throw new BadRequestException(
+        'Current status PENDING_VERIFICATION does not allow starting verification.',
+      );
+    }
+
+    if (!['NONE', 'PENDING_VERIFICATION', 'REJECTED', 'WITHDRAWN'].includes(currentStatus)) {
+      throw new BadRequestException(
+        `Current status ${currentStatus} does not allow starting verification.`,
+      );
+    }
+
+    const isReinitiating = currentStatus === 'REJECTED' || currentStatus === 'WITHDRAWN';
+    const levelName = String(customer.sumsubCurrentLevelName || '').trim() || 'wave3-level-1';
+
+    let applicantId = customer.sumsubApplicantId ? String(customer.sumsubApplicantId) : null;
+    if (!applicantId) {
+      const existingApplicant = await this.sumsubClient.getApplicantByExternalUserId(customerId);
+      applicantId = existingApplicant?.id || null;
+    }
+    if (!applicantId) {
+      applicantId = (
+        await this.sumsubClient.createApplicant({
+          externalUserId: customerId,
+          levelName,
+        })
+      ).id;
+    }
+
+    const sdkToken = await this.sumsubClient.createSdkToken({
+      externalUserId: customerId,
+      levelName,
+    });
+
+    const updateData: Prisma.CustomerMainUpdateInput = {
+      ...this.buildCustomerLifecyclePatch(customer, {
+        onboardingStatus: 'PENDING_VERIFICATION',
+        operatingStatus: 'INACTIVE',
+      }),
+      ...(currentStatus === 'PENDING_VERIFICATION' && !customer.verificationProvider
+        ? { verificationProvider: 'SUMSUB' }
+        : {}),
+      ...(currentStatus === 'PENDING_VERIFICATION' && !customer.sumsubCurrentLevelName
+        ? { sumsubCurrentLevelName: levelName }
+        : {}),
+      ...(currentStatus === 'PENDING_VERIFICATION' && !customer.sumsubApplicantId
+        ? { sumsubApplicantId: applicantId }
+        : {}),
+    };
+
+    if (currentStatus !== 'PENDING_VERIFICATION') {
+      Object.assign(updateData, {
+        verificationProvider: 'SUMSUB',
+        verificationSubstatus: 'CREATED',
+        verificationCustomerActionRequired: true,
+        verificationCanContinue: true,
+        sumsubApplicantId: applicantId,
+        sumsubCurrentLevelName: levelName,
+      });
+    }
+
+    if (isReinitiating) {
+      Object.assign(updateData, this.buildLatestFinalApprovalBindingPatch(null), {
+        latestFinalApprovalStatus: null,
+        verificationLatestEventType: null,
+        verificationLatestEventAt: null,
+      });
+      updateData.sumsubExperiencedLevel2 = false;
+      updateData.sumsubLatestReviewId = null;
+      updateData.sumsubLatestAttemptId = null;
+    }
+
+    const updated = await this.prisma.customerMain.update({
+      where: { id: customerId },
+      data: updateData,
+    });
+
+    const nextStep = await this.buildNextStep(updated);
+    const verification = {
+      ...this.buildVerificationProjection(updated),
+      sdkToken: sdkToken.token,
+    };
+
+    return {
+      customer: this.buildCustomerSnapshot(updated),
+      nextStep,
+      verification,
     };
   }
 

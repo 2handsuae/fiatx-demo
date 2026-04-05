@@ -31,6 +31,8 @@
     "config:release:publish": "ts-node -r tsconfig-paths/register scripts/config-release-publish.ts",
     "runtime:diagnose": "bash scripts/runtime-diagnose.sh",
     "wave1:repair": "ts-node scripts/wave1-repair.ts",
+    "wave1:audit:workflow:backfill:dry": "ts-node scripts/backfill-wave1-audit-workflows.ts",
+    "wave1:audit:workflow:backfill:apply": "ts-node scripts/backfill-wave1-audit-workflows.ts --apply",
     "wave1:foundation:smoke": "ts-node scripts/wave1-foundation-smoke.ts",
     "wave4:pricing:quote:smoke": "ts-node scripts/wave4-pricing-quote-smoke.ts",
     "wave4:cleanup:inventory": "ts-node scripts/wave4-cleanup-inventory.ts",

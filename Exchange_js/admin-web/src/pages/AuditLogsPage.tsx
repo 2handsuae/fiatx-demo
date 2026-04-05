@@ -26,6 +26,11 @@ interface AuditLogItem {
   id: string;
   auditNo: string;
   triggerType: TriggerType;
+  businessWorkflow?: string | null;
+  businessWorkflowLabel?: string | null;
+  primaryRefNo?: string | null;
+  userAction?: string | null;
+  userActionLabel?: string | null;
   action: string;
   module: string;
   entityType: string;
@@ -547,9 +552,9 @@ const AuditLogsPage = () => {
                 </th>
                 <th className="px-4 py-3 text-xs uppercase text-gray-500">Audit No</th>
                 <th className="px-4 py-3 text-xs uppercase text-gray-500">Occurred At</th>
-                <th className="px-4 py-3 text-xs uppercase text-gray-500">Workflow No</th>
-                <th className="px-4 py-3 text-xs uppercase text-gray-500">Trace ID</th>
-                <th className="px-4 py-3 text-xs uppercase text-gray-500">Audit Action</th>
+                <th className="px-4 py-3 text-xs uppercase text-gray-500">Business Workflow</th>
+                <th className="px-4 py-3 text-xs uppercase text-gray-500">Primary Ref</th>
+                <th className="px-4 py-3 text-xs uppercase text-gray-500">User Action</th>
                 <th className="px-4 py-3 text-xs uppercase text-gray-500">Subject No</th>
                 <th className="px-4 py-3 text-xs uppercase text-gray-500">Subject Owner No</th>
                 <th className="px-4 py-3 text-xs uppercase text-gray-500">actorNo</th>
@@ -595,15 +600,20 @@ const AuditLogsPage = () => {
                     </td>
                     <td className="px-4 py-3 text-gray-700">{formatDateTime(item.occurredAt)}</td>
                     <td className="px-4 py-3 text-gray-700">
-                      <div className="font-medium text-gray-900">{item.workflowType || '-'}</div>
-                      <div className="text-xs text-gray-500">{item.workflowNo || '-'}</div>
+                      <div className="font-medium text-gray-900">
+                        {item.businessWorkflowLabel || item.businessWorkflow || '-'}
+                      </div>
+                      <div className="text-xs text-gray-500">{item.module}</div>
                     </td>
-                    <td className="px-4 py-3 font-mono text-xs text-gray-600">
-                      {item.traceId || '-'}
+                    <td className="px-4 py-3 text-gray-700">
+                      <div className="font-medium text-gray-900">{item.primaryRefNo || '-'}</div>
+                      <div className="text-xs text-gray-500">Primary Ref No</div>
                     </td>
                     <td className="px-4 py-3">
-                      <div className="font-medium text-gray-900">{item.action}</div>
-                      <div className="text-xs text-gray-500">{item.module}</div>
+                      <div className="font-medium text-gray-900">
+                        {item.userActionLabel || item.userAction || item.action}
+                      </div>
+                      <div className="text-xs text-gray-500">{item.action}</div>
                     </td>
                     <td className="px-4 py-3 text-gray-700">
                       {(() => {

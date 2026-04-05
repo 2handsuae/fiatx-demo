@@ -1,95 +1,137 @@
 import { BadRequestException } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { ChangeTicketsService } from './change-tickets.service';
-import {
-  ChangeTicketStatuses,
-  ChangeTicketRiskLevels,
-} from './constants/change-ticket.constants';
-import {
-  ApprovalActionTypes,
-  ApprovalStatuses,
-} from '../approvals/constants/approval.constants';
+import { ApprovalActionTypes, ApprovalStatuses } from '../approvals/constants/approval.constants';
+import { ChangeTicketStatuses, ChangeTicketTypes } from './constants/change-ticket.constants';
 import {
   AuditActions,
-  AuditEntityTypes,
-  AuditModules,
+  AuditBusinessWorkflowTypes,
+  AuditWorkflowTypes,
 } from '../../risk-engine/audit-logs/constants/audit-actions.constant';
-import { ChangeTicketEvents } from './constants/change-ticket.constants';
+import { sha256Hex } from '../../risk-engine/audit-logs/utils/audit-digest.util';
 
-const baseDate = new Date('2026-03-14T12:00:00.000Z');
+const actor = {
+  actorType: 'ADMIN' as const,
+  userId: 'admin-1',
+  userNo: 'ADM-001',
+  role: 'TECH_ADMIN',
+  roleCodes: ['TECH_ADMIN'],
+};
 
-const buildTicket = (overrides: Record<string, unknown> = {}) => ({
+const makeTicket = (overrides: Record<string, any> = {}) => ({
   id: 'ticket-1',
-  ticketNo: 'CT2603140001',
+  ticketNo: 'CT2604020001',
   status: ChangeTicketStatuses.DRAFT,
-  changeType: 'ADMIN_ACCESS_CHANGE',
-  scopeSummary: 'Patch release',
-  riskLevel: ChangeTicketRiskLevels.HIGH,
+  changeType: ChangeTicketTypes.ADMIN_ACCESS_CHANGE,
+  changeReason: 'Emergency access change',
+  scopeSummary: 'Rotate privileged access',
+  riskLevel: 'HIGH',
   testEvidenceRef: 'TEST-1',
   rollbackPlanRef: 'ROLLBACK-1',
-  latestApprovalId: null,
-  latestApprovalStatus: null,
+  bindingSnapshotJson: '{}',
+  bindingDigest: null,
+  approvalCaseId: null,
+  approvalNo: null,
   traceId: 'trace-1',
-  emergency: false,
-  emergencyReason: null,
-  postApprovalDueAt: null,
-  postApprovalCompletedAt: null,
-  createdByUserId: 'maker-1',
+  createdByUserId: 'creator-1',
+  createdByUserNo: 'USR-001',
   submittedByUserId: null,
-  closedByUserId: null,
+  submittedByUserNo: null,
+  consumedByUserId: null,
+  consumedByUserNo: null,
   submittedAt: null,
-  deployedAt: null,
-  closedAt: null,
-  createdAt: baseDate,
-  updatedAt: baseDate,
-  latestApproval: null,
+  consumedAt: null,
+  resultNote: null,
+  createdAt: new Date('2026-04-02T09:00:00.000Z'),
+  updatedAt: new Date('2026-04-02T09:00:00.000Z'),
+  deletedAt: null,
+  approvalCase: null,
   ...overrides,
 });
 
-describe('ChangeTicketsService', () => {
+const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value));
+
+const findAuditWrite = (mock: jest.Mock, action: string) =>
+  mock.mock.calls
+    .map(([event, actor]) => ({ event, actor }))
+    .find(({ event }) => event.action === action);
+
+describe('ChangeTicketsService Task 2', () => {
+  let service: ChangeTicketsService;
   let prisma: any;
   let approvalsService: any;
   let auditLogsService: any;
-  let eventEmitter: any;
-  let service: ChangeTicketsService;
-
-  const actor = {
-    actorType: 'ADMIN' as const,
-    userId: 'tech-admin-1',
-    userNo: 'ADM-001',
-    role: 'TECH_ADMIN',
-    roleCodes: ['TECH_ADMIN'],
-  };
+  let eventEmitter: EventEmitter2;
+  let usersService: any;
+  let accessControlService: any;
+  let ticket: any;
 
   beforeEach(() => {
+    ticket = makeTicket();
+
     prisma = {
       changeTicket: {
-        findUnique: jest.fn(),
-        create: jest.fn(),
-        update: jest.fn(),
-        count: jest.fn(),
-        findMany: jest.fn(),
+        create: jest.fn(async ({ data }: any) => {
+          ticket = {
+            ...ticket,
+            ...data,
+          };
+          return clone(ticket);
+        }),
+        findUnique: jest.fn(async ({ where }: any) => {
+          if (where.id !== ticket.id || ticket.deletedAt) {
+            return null;
+          }
+          return clone(ticket);
+        }),
+        update: jest.fn(async ({ where, data }: any) => {
+          if (where.id !== ticket.id || ticket.deletedAt) {
+            throw new Error(`Unexpected ticket id ${where.id}`);
+          }
+          ticket = {
+            ...ticket,
+            ...data,
+            updatedAt: new Date('2026-04-02T10:00:00.000Z'),
+            approvalCase:
+              data.approvalCaseId || data.approvalNo
+                ? {
+                    id: data.approvalCaseId ?? ticket.approvalCaseId ?? 'apr-1',
+                    approvalNo: data.approvalNo ?? ticket.approvalNo ?? 'APR-001',
+                    status: ticket.approvalCase?.status ?? ApprovalStatuses.PENDING,
+                    traceId: ticket.traceId,
+                  }
+                : ticket.approvalCase,
+          };
+          return clone(ticket);
+        }),
       },
-      changeTicketGateRun: {
-        findMany: jest.fn(),
-        create: jest.fn(),
-        update: jest.fn(),
-        findFirst: jest.fn(),
-      },
-      $transaction: jest.fn(async (cb: (tx: any) => unknown) => cb(prisma)),
+      $transaction: jest.fn(async (callback: (tx: any) => Promise<any>) => {
+        const snapshot = clone(ticket);
+        try {
+          return await callback(prisma);
+        } catch (error) {
+          ticket = snapshot;
+          throw error;
+        }
+      }),
     };
 
     approvalsService = {
       createAndSubmit: jest.fn(),
-      emitSubmittedSideEffects: jest.fn().mockResolvedValue(undefined),
+      emitSubmittedSideEffects: jest.fn(),
     };
-
     auditLogsService = {
       recordByActor: jest.fn().mockResolvedValue(undefined),
     };
-
     eventEmitter = {
-      emitAsync: jest.fn().mockResolvedValue([]),
       emit: jest.fn(),
+      emitAsync: jest.fn().mockResolvedValue(undefined),
+    } as unknown as EventEmitter2;
+    usersService = {
+      executeAdminMemberProvisioning: jest.fn(),
+    };
+    accessControlService = {
+      executeGovernedRoleBindingChange: jest.fn(),
     };
 
     service = new ChangeTicketsService(
@@ -97,319 +139,593 @@ describe('ChangeTicketsService', () => {
       approvalsService,
       auditLogsService,
       eventEmitter,
+      usersService,
+      accessControlService,
     );
   });
 
-  it('creates a change ticket with a generated ticketNo and audit record', async () => {
-    prisma.changeTicket.create.mockResolvedValue(buildTicket());
-
+  it('freezes bindingSnapshotJson and bindingDigest on create', async () => {
     const result = await service.create(
       {
-        changeType: 'ADMIN_ACCESS_CHANGE',
-        scopeSummary: 'Patch release',
+        changeType: ChangeTicketTypes.ADMIN_ACCESS_CHANGE,
+        changeReason: 'Emergency access change',
+        scopeSummary: 'Rotate privileged access',
         testEvidenceRef: 'TEST-1',
         rollbackPlanRef: 'ROLLBACK-1',
+        traceId: 'trace-1',
       },
       actor,
     );
 
-    expect(result.ticketNo).toBe('CT2603140001');
+    const expectedSnapshot = {
+      ticketNo: ticket.ticketNo,
+      changeType: ticket.changeType,
+      changeReason: ticket.changeReason,
+      scopeSummary: ticket.scopeSummary,
+      testEvidenceRef: ticket.testEvidenceRef,
+      rollbackPlanRef: ticket.rollbackPlanRef,
+      traceId: ticket.traceId,
+      createdByUserNo: actor.userNo,
+    };
+
+    expect(prisma.changeTicket.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'ticket-1' },
+        data: {
+          bindingSnapshotJson: JSON.stringify(expectedSnapshot),
+          bindingDigest: sha256Hex(expectedSnapshot),
+        },
+      }),
+    );
+    expect(result).toEqual(
+      expect.objectContaining({
+        bindingSnapshotJson: expectedSnapshot,
+        bindingDigest: sha256Hex(expectedSnapshot),
+      }),
+    );
+  });
+
+  it('creates admin member provisioning tickets with ADMIN_ACCESS_CHANGE', async () => {
+    const result = await service.createAdminMemberProvisioningTicket(
+      {
+        email: '  New-Admin@fiatx.com ',
+        roleCodes: ['ciso', 'tech_admin'],
+        changeReason: 'Need emergency admin coverage',
+      },
+      actor,
+    );
+    const expectedSnapshot = {
+      ticketNo: result.ticketNo,
+      changeType: ChangeTicketTypes.ADMIN_ACCESS_CHANGE,
+      traceId: result.traceId,
+      intent: 'ADMIN_MEMBER_PROVISIONING',
+      email: 'new-admin@fiatx.com',
+      roleCodes: ['CISO', 'TECH_ADMIN'],
+      requestedByUserId: actor.userId,
+      requestedByUserNo: actor.userNo,
+      changeReason: 'Need emergency admin coverage',
+      scopeSummary: 'Provision admin member new-admin@fiatx.com with roles CISO, TECH_ADMIN',
+      testEvidenceRef: 'BUSINESS_PAGE_PROPOSAL',
+      rollbackPlanRef: 'BUSINESS_PAGE_PROPOSAL',
+    };
+
     expect(prisma.changeTicket.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
-          ticketNo: expect.stringMatching(/^CT\d{10}$/),
-          riskLevel: ChangeTicketRiskLevels.HIGH,
+          changeType: ChangeTicketTypes.ADMIN_ACCESS_CHANGE,
+          changeReason: 'Need emergency admin coverage',
+          scopeSummary: 'Provision admin member new-admin@fiatx.com with roles CISO, TECH_ADMIN',
+          testEvidenceRef: 'BUSINESS_PAGE_PROPOSAL',
+          rollbackPlanRef: 'BUSINESS_PAGE_PROPOSAL',
         }),
       }),
     );
-    expect(auditLogsService.recordByActor).toHaveBeenCalledWith(
+    expect(prisma.changeTicket.update).toHaveBeenCalledWith(
       expect.objectContaining({
-        action: AuditActions.CHANGE_TICKET_CREATED,
-        module: AuditModules.GOVERNANCE_CHANGE_TICKETS,
-        entityType: AuditEntityTypes.CHANGE_TICKET,
-        entityNo: 'CT2603140001',
+        where: { id: 'ticket-1' },
+        data: expect.objectContaining({
+          bindingSnapshotJson: JSON.stringify(expectedSnapshot),
+          bindingDigest: sha256Hex(expectedSnapshot),
+        }),
       }),
-      expect.anything(),
+    );
+    expect(result).toMatchObject({
+      id: 'ticket-1',
+      ticketNo: ticket.ticketNo,
+      changeType: ChangeTicketTypes.ADMIN_ACCESS_CHANGE,
+      bindingSnapshotJson: expectedSnapshot,
+      bindingDigest: sha256Hex(expectedSnapshot),
+    });
+  });
+
+  it('projects ADMIN_ACCESS_CHANGE audits to ADMIN_MEMBER_PROVISIONING', async () => {
+    const result = await service.createAdminMemberProvisioningTicket(
+      {
+        email: '  New-Admin@fiatx.com ',
+        roleCodes: ['ciso', 'tech_admin'],
+        changeReason: 'Need emergency admin coverage',
+      },
+      actor,
+    );
+
+    const auditWrite = findAuditWrite(auditLogsService.recordByActor, AuditActions.CHANGE_TICKET_CREATED);
+
+    expect(auditWrite).toBeDefined();
+    expect(auditWrite?.event.workflowType).toBe(AuditBusinessWorkflowTypes.ADMIN_MEMBER_PROVISIONING);
+    expect(auditWrite?.event.workflowType).not.toBe(AuditWorkflowTypes.CHANGE_TICKET);
+    expect(auditWrite?.event.workflowNo).toBe(result.ticketNo);
+    expect(auditWrite?.event.traceId).toBe(result.traceId);
+    expect(auditWrite?.event.subjectNos).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ subjectNo: result.ticketNo }),
+      ]),
     );
   });
 
-  it('submits a draft ticket, links approval, and emits approval side effects', async () => {
-    prisma.changeTicket.findUnique
-      .mockResolvedValueOnce(buildTicket())
-      .mockResolvedValueOnce(buildTicket());
-    prisma.changeTicket.update
-      .mockResolvedValueOnce(
-        buildTicket({
-          status: ChangeTicketStatuses.SUBMITTED,
-          submittedByUserId: actor.userId,
-          submittedAt: baseDate,
+  it.each(['', '   '])('rejects blank changeReason for admin member provisioning tickets', async (changeReason) => {
+    await expect(
+      service.createAdminMemberProvisioningTicket(
+        {
+          email: 'new-admin@fiatx.com',
+          roleCodes: ['CISO'],
+          changeReason,
+        },
+        actor,
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('creates admin role binding change tickets with RBAC_CATALOG_CHANGE', async () => {
+    const targetUser = {
+      id: 'user-123',
+      userNo: 'USR-123',
+      email: 'target@fiatx.com',
+    };
+    prisma.user = {
+      findFirst: jest.fn(async () => targetUser),
+    };
+
+    const result = await service.createAdminRoleBindingChangeTicket(
+      '  user-123  ',
+      {
+        roleCodes: ['dpo'],
+        changeReason: 'Need DPO access',
+      },
+      actor,
+    );
+    const expectedSnapshot = {
+      ticketNo: result.ticketNo,
+      changeType: ChangeTicketTypes.RBAC_CATALOG_CHANGE,
+      traceId: result.traceId,
+      intent: 'ADMIN_ROLE_BINDING_CHANGE',
+      targetUserId: targetUser.id,
+      targetUserNo: targetUser.userNo,
+      targetEmail: targetUser.email,
+      roleCodes: ['DPO'],
+      requestedByUserId: actor.userId,
+      requestedByUserNo: actor.userNo,
+      changeReason: 'Need DPO access',
+      scopeSummary: 'Replace admin role bindings for user user-123 with roles DPO',
+      testEvidenceRef: 'BUSINESS_PAGE_PROPOSAL',
+      rollbackPlanRef: 'BUSINESS_PAGE_PROPOSAL',
+    };
+
+    expect(prisma.changeTicket.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          changeType: ChangeTicketTypes.RBAC_CATALOG_CHANGE,
+          changeReason: 'Need DPO access',
+          scopeSummary: 'Replace admin role bindings for user user-123 with roles DPO',
+          testEvidenceRef: 'BUSINESS_PAGE_PROPOSAL',
+          rollbackPlanRef: 'BUSINESS_PAGE_PROPOSAL',
         }),
-      )
-      .mockResolvedValueOnce(
-        buildTicket({
-          status: ChangeTicketStatuses.APPROVAL_PENDING,
-          submittedByUserId: actor.userId,
-          submittedAt: baseDate,
-          latestApprovalId: 'approval-1',
-          latestApprovalStatus: ApprovalStatuses.PENDING,
-          latestApproval: {
-            id: 'approval-1',
-            approvalNo: 'APR2603140001',
-            status: ApprovalStatuses.PENDING,
-            traceId: 'trace-1',
-          },
+      }),
+    );
+    expect(prisma.user.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          id: 'user-123',
+          deletedAt: null,
+        },
+      }),
+    );
+    expect(prisma.changeTicket.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'ticket-1' },
+        data: expect.objectContaining({
+          bindingSnapshotJson: JSON.stringify(expectedSnapshot),
+          bindingDigest: sha256Hex(expectedSnapshot),
         }),
-      );
-    approvalsService.createAndSubmit.mockResolvedValue({
-      id: 'approval-1',
-      approvalNo: 'APR2603140001',
-      status: ApprovalStatuses.PENDING,
+      }),
+    );
+    expect(result).toMatchObject({
+      id: 'ticket-1',
+      ticketNo: ticket.ticketNo,
+      changeType: ChangeTicketTypes.RBAC_CATALOG_CHANGE,
+      bindingSnapshotJson: expectedSnapshot,
+      bindingDigest: sha256Hex(expectedSnapshot),
+    });
+  });
+
+  it('projects RBAC_CATALOG_CHANGE audits to ADMIN_ROLE_BINDING_CHANGE and keeps target user anchors', async () => {
+    const targetUser = {
+      id: 'user-123',
+      userNo: 'USR-123',
+      email: 'target@fiatx.com',
+    };
+    prisma.user = {
+      findFirst: jest.fn(async () => targetUser),
+    };
+
+    const result = await service.createAdminRoleBindingChangeTicket(
+      '  user-123  ',
+      {
+        roleCodes: ['dpo'],
+        changeReason: 'Need DPO access',
+      },
+      actor,
+    );
+
+    const auditWrite = findAuditWrite(auditLogsService.recordByActor, AuditActions.CHANGE_TICKET_CREATED);
+
+    expect(auditWrite).toBeDefined();
+    expect(auditWrite?.event.workflowType).toBe(AuditBusinessWorkflowTypes.ADMIN_ROLE_BINDING_CHANGE);
+    expect(auditWrite?.event.workflowType).not.toBe(AuditWorkflowTypes.CHANGE_TICKET);
+    expect(auditWrite?.event.workflowNo).toBe(result.ticketNo);
+    expect(auditWrite?.event.traceId).toBe(result.traceId);
+    expect(auditWrite?.event.subjectNos).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ subjectNo: result.ticketNo }),
+        expect.objectContaining({ subjectNo: targetUser.userNo }),
+      ]),
+    );
+  });
+
+  it.each(['', '   '])('rejects blank changeReason for role binding change tickets', async (changeReason) => {
+    prisma.user = {
+      findFirst: jest.fn(async () => ({
+        id: 'user-123',
+        userNo: 'USR-123',
+        email: 'target@fiatx.com',
+      })),
+    };
+
+    await expect(
+      service.createAdminRoleBindingChangeTicket(
+        'user-123',
+        {
+          roleCodes: ['DPO'],
+          changeReason,
+        },
+        actor,
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('rolls back draft writes when snapshot persistence fails', async () => {
+    const initialTicket = clone(ticket);
+    prisma.changeTicket.update.mockImplementationOnce(async () => {
+      throw new Error('snapshot write failed');
     });
 
-    const result = await service.submit('ticket-1', { reason: 'go live' }, actor);
+    await expect(
+      service.createAdminMemberProvisioningTicket(
+        {
+          email: 'new-admin@fiatx.com',
+          roleCodes: ['CISO'],
+          changeReason: 'Need emergency admin coverage',
+        },
+        actor,
+      ),
+    ).rejects.toThrow('snapshot write failed');
 
-    expect(result.status).toBe(ChangeTicketStatuses.APPROVAL_PENDING);
-    expect(approvalsService.createAndSubmit).toHaveBeenCalledWith(
-      expect.objectContaining({
-        actionType: ApprovalActionTypes.CHANGE_TICKET_APPROVAL,
-        entityRef: 'ticket-1',
-      }),
-      expect.anything(),
-      actor,
-      prisma,
-      { emitSideEffects: false },
-    );
-    expect(approvalsService.emitSubmittedSideEffects).toHaveBeenCalledWith(
-      'approval-1',
-      actor,
-      'go live',
-    );
-    expect(auditLogsService.recordByActor).toHaveBeenCalledTimes(2);
+    expect(ticket).toEqual(initialTicket);
+    expect(ticket.bindingSnapshotJson).toBe('{}');
+    expect(ticket.bindingDigest).toBeNull();
+    expect(prisma.changeTicket.create).toHaveBeenCalledTimes(1);
+    expect(prisma.changeTicket.update).toHaveBeenCalledTimes(1);
   });
 
-  it('projects approved approval to READY_FOR_DEPLOY', async () => {
-    prisma.changeTicket.findUnique.mockResolvedValue(
-      buildTicket({
-        status: ChangeTicketStatuses.APPROVAL_PENDING,
-        latestApprovalId: 'approval-1',
-        latestApprovalStatus: ApprovalStatuses.PENDING,
-        latestApproval: {
-          id: 'approval-1',
-          approvalNo: 'APR2603140001',
-          status: ApprovalStatuses.APPROVED,
-          traceId: 'trace-1',
-        },
-      }),
-    );
-    prisma.changeTicket.update.mockResolvedValue(
-      buildTicket({
-        status: ChangeTicketStatuses.READY_FOR_DEPLOY,
-        latestApprovalId: 'approval-1',
-        latestApprovalStatus: ApprovalStatuses.APPROVED,
-        latestApproval: {
-          id: 'approval-1',
-          approvalNo: 'APR2603140001',
-          status: ApprovalStatuses.APPROVED,
-          traceId: 'trace-1',
-        },
-      }),
-    );
+  it('projects approved approvals to READY', async () => {
+    ticket = makeTicket({
+      status: ChangeTicketStatuses.PENDING_APPROVAL,
+      approvalCaseId: 'apr-1',
+      approvalNo: 'APR-001',
+      approvalCase: {
+        id: 'apr-1',
+        approvalNo: 'APR-001',
+        status: ApprovalStatuses.PENDING,
+        traceId: 'trace-1',
+      },
+    });
 
     const result = await service.syncApprovalProjectionByEvent({
-      approvalId: 'approval-1',
-      approvalNo: 'APR2603140001',
+      approvalId: 'apr-1',
+      approvalNo: 'APR-001',
       entityRef: 'ticket-1',
       actionType: ApprovalActionTypes.CHANGE_TICKET_APPROVAL,
       status: ApprovalStatuses.APPROVED,
     });
 
-    expect(result?.status).toBe(ChangeTicketStatuses.READY_FOR_DEPLOY);
-    expect(auditLogsService.recordByActor).toHaveBeenCalledWith(
+    expect(prisma.changeTicket.update).toHaveBeenCalledWith(
       expect.objectContaining({
-        action: AuditActions.CHANGE_TICKET_APPROVED,
-        statusTo: ChangeTicketStatuses.READY_FOR_DEPLOY,
-      }),
-      expect.anything(),
-    );
-  });
-
-  it('projects expired approval to REJECTED to avoid pending lock', async () => {
-    prisma.changeTicket.findUnique.mockResolvedValue(
-      buildTicket({
-        status: ChangeTicketStatuses.APPROVAL_PENDING,
-        latestApprovalId: 'approval-1',
-        latestApprovalStatus: ApprovalStatuses.PENDING,
-        latestApproval: {
-          id: 'approval-1',
-          approvalNo: 'APR2603140001',
-          status: ApprovalStatuses.EXPIRED,
-          traceId: 'trace-1',
-        },
-      }),
-    );
-    prisma.changeTicket.update.mockResolvedValue(
-      buildTicket({
-        status: ChangeTicketStatuses.REJECTED,
-        latestApprovalId: 'approval-1',
-        latestApprovalStatus: ApprovalStatuses.EXPIRED,
-        latestApproval: {
-          id: 'approval-1',
-          approvalNo: 'APR2603140001',
-          status: ApprovalStatuses.EXPIRED,
-          traceId: 'trace-1',
-        },
-      }),
-    );
-
-    const result = await service.syncApprovalProjectionByEvent({
-      approvalId: 'approval-1',
-      approvalNo: 'APR2603140001',
-      entityRef: 'ticket-1',
-      actionType: ApprovalActionTypes.CHANGE_TICKET_APPROVAL,
-      status: ApprovalStatuses.EXPIRED,
-    });
-
-    expect(result?.status).toBe(ChangeTicketStatuses.REJECTED);
-    expect(auditLogsService.recordByActor).toHaveBeenCalledWith(
-      expect.objectContaining({
-        action: AuditActions.CHANGE_TICKET_REJECTED,
-        statusTo: ChangeTicketStatuses.REJECTED,
-      }),
-      expect.anything(),
-    );
-  });
-
-  it('runs a gate check from READY_FOR_DEPLOY and records pass audit', async () => {
-    prisma.changeTicket.findUnique.mockResolvedValue(
-      buildTicket({
-        status: ChangeTicketStatuses.READY_FOR_DEPLOY,
-        latestApprovalId: 'approval-1',
-        latestApprovalStatus: ApprovalStatuses.APPROVED,
-      }),
-    );
-    prisma.changeTicketGateRun.create.mockResolvedValue({
-      id: 'run-1',
-      ticketId: 'ticket-1',
-      targetEnv: 'UAT',
-      releaseVersion: 'v1.0.0',
-      status: 'PENDING',
-      reason: 'preflight',
-      failureReason: null,
-      operatorUserId: actor.userId,
-      traceId: 'trace-1',
-      startedAt: null,
-      finishedAt: null,
-      createdAt: baseDate,
-    });
-    prisma.changeTicketGateRun.update
-      .mockResolvedValueOnce({
-        id: 'run-1',
-        ticketId: 'ticket-1',
-        targetEnv: 'UAT',
-        releaseVersion: 'v1.0.0',
-        status: 'RUNNING',
-        reason: 'preflight',
-        failureReason: null,
-        operatorUserId: actor.userId,
-        traceId: 'trace-1',
-        startedAt: baseDate,
-        finishedAt: null,
-        createdAt: baseDate,
-      })
-      .mockResolvedValueOnce({
-        id: 'run-1',
-        ticketId: 'ticket-1',
-        targetEnv: 'UAT',
-        releaseVersion: 'v1.0.0',
-        status: 'PASSED',
-        reason: 'preflight',
-        failureReason: null,
-        operatorUserId: actor.userId,
-        traceId: 'trace-1',
-        startedAt: baseDate,
-        finishedAt: baseDate,
-        createdAt: baseDate,
-      });
-
-    const result = await service.runGateCheck(
-      'ticket-1',
-      {
-        targetEnv: 'UAT',
-        releaseVersion: 'v1.0.0',
-        reason: 'preflight',
-      },
-      actor,
-    );
-
-    expect(result.status).toBe('PASSED');
-    expect(prisma.changeTicketGateRun.create).toHaveBeenCalledWith(
-      expect.objectContaining({
+        where: { id: 'ticket-1' },
         data: expect.objectContaining({
-          status: 'PENDING',
-          targetEnv: 'UAT',
-          releaseVersion: 'v1.0.0',
+          status: ChangeTicketStatuses.READY,
         }),
       }),
     );
-    expect(auditLogsService.recordByActor).toHaveBeenCalledWith(
+    expect(result).toEqual(
       expect.objectContaining({
-        action: AuditActions.RELEASE_GATE_PASSED,
-        workflowNo: 'CT2603140001',
-        entityType: AuditEntityTypes.CHANGE_TICKET_GATE_RUN,
+        id: 'ticket-1',
+        status: ChangeTicketStatuses.READY,
+        approvalCaseId: 'apr-1',
+        approvalNo: 'APR-001',
       }),
-      expect.anything(),
     );
   });
 
-  it('blocks close when ticket has not been deployed', async () => {
-    prisma.changeTicket.findUnique.mockResolvedValue(buildTicket());
-
-    await expect(service.close('ticket-1', {}, actor)).rejects.toBeInstanceOf(
-      BadRequestException,
-    );
-  });
-
-  it('emits deploy-marked event after deploy status is recorded', async () => {
-    prisma.changeTicket.findUnique.mockResolvedValue(
-      buildTicket({
-        status: ChangeTicketStatuses.READY_FOR_DEPLOY,
-        latestApprovalStatus: ApprovalStatuses.APPROVED,
-      }),
-    );
-    prisma.changeTicketGateRun.findFirst.mockResolvedValue({
-      id: 'run-1',
-      ticketId: 'ticket-1',
-      targetEnv: 'PROD',
-      releaseVersion: 'v1.0.0',
-      status: 'PASSED',
-      createdAt: baseDate,
+  it.each([
+    ApprovalStatuses.REJECTED,
+    ApprovalStatuses.EXPIRED,
+    ApprovalStatuses.CANCELLED,
+  ])('projects %s approvals to REJECTED', async (approvalStatus) => {
+    ticket = makeTicket({
+      status: ChangeTicketStatuses.PENDING_APPROVAL,
+      approvalCaseId: 'apr-1',
+      approvalNo: 'APR-001',
+      approvalCase: {
+        id: 'apr-1',
+        approvalNo: 'APR-001',
+        status: ApprovalStatuses.PENDING,
+        traceId: 'trace-1',
+      },
     });
-    prisma.changeTicket.update.mockResolvedValue(
-      buildTicket({
-        status: ChangeTicketStatuses.DEPLOYED,
-        latestApprovalStatus: ApprovalStatuses.APPROVED,
-        emergency: true,
-        deployedAt: baseDate,
+
+    const result = await service.syncApprovalProjectionByEvent({
+      approvalId: 'apr-1',
+      approvalNo: 'APR-001',
+      entityRef: 'ticket-1',
+      actionType: ApprovalActionTypes.CHANGE_TICKET_APPROVAL,
+      status: approvalStatus,
+    });
+
+    expect(prisma.changeTicket.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'ticket-1' },
+        data: expect.objectContaining({
+          status: ChangeTicketStatuses.REJECTED,
+        }),
       }),
     );
+    expect(result).toEqual(
+      expect.objectContaining({
+        id: 'ticket-1',
+        status: ChangeTicketStatuses.REJECTED,
+        approvalCaseId: 'apr-1',
+        approvalNo: 'APR-001',
+      }),
+    );
+  });
 
-    await service.markDeployStatus(
+  it('submits directly to PENDING_APPROVAL and stores approval identifiers', async () => {
+    approvalsService.createAndSubmit.mockResolvedValue({
+      id: 'apr-1',
+      approvalNo: 'APR-001',
+      status: ApprovalStatuses.PENDING,
+    });
+
+    const result = await service.submit(
       'ticket-1',
       {
-        targetEnv: 'PROD',
-        releaseVersion: 'v1.0.0',
-        deployStatus: 'DEPLOYED',
+        reason: 'Need approval',
       },
       actor,
     );
 
-    expect(eventEmitter.emitAsync).toHaveBeenCalledWith(
-      ChangeTicketEvents.DEPLOY_MARKED,
+    expect(approvalsService.createAndSubmit).toHaveBeenCalledTimes(1);
+    expect(prisma.changeTicket.update).toHaveBeenLastCalledWith(
       expect.objectContaining({
-        ticketId: 'ticket-1',
-        ticketNo: 'CT2603140001',
-        status: ChangeTicketStatuses.DEPLOYED,
+        where: { id: 'ticket-1' },
+        data: expect.objectContaining({
+          status: ChangeTicketStatuses.PENDING_APPROVAL,
+          approvalCaseId: 'apr-1',
+          approvalNo: 'APR-001',
+          submittedByUserId: actor.userId,
+          submittedByUserNo: actor.userNo,
+        }),
       }),
     );
+    expect(result).toEqual(
+      expect.objectContaining({
+        status: ChangeTicketStatuses.PENDING_APPROVAL,
+        approvalCaseId: 'apr-1',
+        approvalNo: 'APR-001',
+        submittedByUserId: actor.userId,
+        submittedByUserNo: actor.userNo,
+      }),
+    );
+  });
+
+  it('consume success dispatches admin member provisioning from frozen snapshot', async () => {
+    const bindingSnapshot = {
+      intent: 'ADMIN_MEMBER_PROVISIONING',
+      email: 'new-admin@fiatx.com',
+      roleCodes: ['CISO', 'TECH_ADMIN'],
+      requestedByUserId: actor.userId,
+      requestedByUserNo: actor.userNo,
+      changeReason: 'Need emergency admin coverage',
+    };
+    ticket = makeTicket({
+      status: ChangeTicketStatuses.READY,
+      bindingSnapshotJson: JSON.stringify(bindingSnapshot),
+      approvalCaseId: 'apr-1',
+      approvalNo: 'APR-001',
+      approvalCase: {
+        id: 'apr-1',
+        approvalNo: 'APR-001',
+        status: ApprovalStatuses.APPROVED,
+        traceId: 'trace-1',
+      },
+    });
+    usersService.executeAdminMemberProvisioning.mockResolvedValue({
+      userNo: 'ADM2604030001',
+      inviteStatus: 'PENDING',
+      inviteExpiresAt: '2026-04-04T00:00:00.000Z',
+      inviteLink: 'http://localhost:3001/admin/activate?token=abc',
+    });
+
+    const result = await service.consume(
+      'ticket-1',
+      {
+        success: true,
+        note: 'Applied successfully',
+      },
+      actor,
+    );
+
+    expect(usersService.executeAdminMemberProvisioning).toHaveBeenCalledWith(bindingSnapshot, actor);
+    expect(accessControlService.executeGovernedRoleBindingChange).not.toHaveBeenCalled();
+    expect(prisma.changeTicket.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'ticket-1' },
+        data: expect.objectContaining({
+          status: ChangeTicketStatuses.DONE,
+          consumedByUserId: actor.userId,
+          consumedByUserNo: actor.userNo,
+          resultNote: 'Applied successfully',
+        }),
+      }),
+    );
+    expect(result).toEqual(
+      expect.objectContaining({
+        status: ChangeTicketStatuses.DONE,
+        consumedByUserId: actor.userId,
+        consumedByUserNo: actor.userNo,
+        resultNote: 'Applied successfully',
+      }),
+    );
+  });
+
+  it('consume success dispatches governed role binding replacement from frozen snapshot', async () => {
+    const bindingSnapshot = {
+      intent: 'ADMIN_ROLE_BINDING_CHANGE',
+      targetUserId: 'user-123',
+      targetUserNo: 'USR-123',
+      roleCodes: ['DPO'],
+      requestedByUserId: actor.userId,
+      requestedByUserNo: actor.userNo,
+      changeReason: 'Need DPO access',
+    };
+    ticket = makeTicket({
+      status: ChangeTicketStatuses.READY,
+      changeType: ChangeTicketTypes.RBAC_CATALOG_CHANGE,
+      bindingSnapshotJson: JSON.stringify(bindingSnapshot),
+      approvalCaseId: 'apr-1',
+      approvalNo: 'APR-001',
+      approvalCase: {
+        id: 'apr-1',
+        approvalNo: 'APR-001',
+        status: ApprovalStatuses.APPROVED,
+        traceId: 'trace-1',
+      },
+    });
+    accessControlService.executeGovernedRoleBindingChange.mockResolvedValue({
+      userId: 'user-123',
+      userNo: 'USR-123',
+      roles: ['DPO'],
+      warnings: [],
+    });
+
+    const result = await service.consume(
+      'ticket-1',
+      {
+        success: true,
+        note: 'Applied successfully',
+      },
+      actor,
+    );
+
+    expect(accessControlService.executeGovernedRoleBindingChange).toHaveBeenCalledWith(
+      bindingSnapshot,
+      actor,
+    );
+    expect(usersService.executeAdminMemberProvisioning).not.toHaveBeenCalled();
+    const auditWrite = findAuditWrite(auditLogsService.recordByActor, AuditActions.CHANGE_TICKET_CONSUMED);
+    expect(auditWrite).toBeDefined();
+    expect(auditWrite?.event.action).toBe(AuditActions.CHANGE_TICKET_CONSUMED);
+    expect(auditWrite?.event.workflowType).toBe(AuditBusinessWorkflowTypes.ADMIN_ROLE_BINDING_CHANGE);
+    expect(auditWrite?.event.workflowType).not.toBe(AuditWorkflowTypes.CHANGE_TICKET);
+    expect(auditWrite?.event.workflowNo).toBe(ticket.ticketNo);
+    expect(auditWrite?.event.traceId).toBe(ticket.traceId);
+    expect(auditWrite?.event.subjectNos).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ subjectNo: ticket.ticketNo }),
+        expect.objectContaining({ subjectNo: 'APR-001' }),
+        expect.objectContaining({ subjectNo: 'USR-123' }),
+      ]),
+    );
+    expect(result).toEqual(
+      expect.objectContaining({
+        status: ChangeTicketStatuses.DONE,
+        consumedByUserId: actor.userId,
+        consumedByUserNo: actor.userNo,
+        resultNote: 'Applied successfully',
+      }),
+    );
+  });
+
+  it('consume failure moves READY ticket to FAILED', async () => {
+    ticket = makeTicket({
+      status: ChangeTicketStatuses.READY,
+      approvalCaseId: 'apr-1',
+      approvalNo: 'APR-001',
+      approvalCase: {
+        id: 'apr-1',
+        approvalNo: 'APR-001',
+        status: ApprovalStatuses.APPROVED,
+        traceId: 'trace-1',
+      },
+    });
+
+    const result = await service.consume(
+      'ticket-1',
+      {
+        success: false,
+        note: 'Automation failed',
+      },
+      actor,
+    );
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        status: ChangeTicketStatuses.FAILED,
+        resultNote: 'Automation failed',
+      }),
+    );
+    expect(usersService.executeAdminMemberProvisioning).not.toHaveBeenCalled();
+    expect(accessControlService.executeGovernedRoleBindingChange).not.toHaveBeenCalled();
+  });
+
+  it('rejects consuming a FAILED ticket because FAILED is terminal', async () => {
+    ticket = makeTicket({
+      status: ChangeTicketStatuses.FAILED,
+      consumedByUserId: 'admin-0',
+      consumedByUserNo: 'ADM-000',
+      consumedAt: new Date('2026-04-02T09:30:00.000Z'),
+      resultNote: 'Previous failure',
+    });
+
+    await expect(
+      service.consume(
+        'ticket-1',
+        {
+          success: true,
+          note: 'Retry should not be allowed',
+        },
+        actor,
+      ),
+    ).rejects.toThrow(new BadRequestException('FAILED change tickets cannot be consumed again'));
+    expect(prisma.changeTicket.update).not.toHaveBeenCalled();
   });
 });

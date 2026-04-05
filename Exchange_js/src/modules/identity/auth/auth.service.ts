@@ -3,12 +3,13 @@ import { UsersService } from '../users/users.service';
 import { AdminInvitationsService } from '../users/admin-invitations.service';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
-import { createHash } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
 import { AccessControlService } from '../access-control/access-control.service';
 import { getPrimaryRoleCode } from '../access-control/rbac.catalog';
 import {
   AuditActions,
+  AuditBusinessWorkflowTypes,
   AuditEntityTypes,
   AuditModules,
 } from '../../risk-engine/audit-logs/constants/audit-actions.constant';
@@ -35,11 +36,30 @@ export class AuthService {
     return createHash('sha256').update(normalized).digest('hex');
   }
 
+  private buildLoginAuditContext(params: {
+    traceId: string;
+    userNo?: string | null;
+    identifier?: string;
+  }) {
+    const normalizedUserNo = String(params.userNo || '').trim();
+    const normalizedIdentifier = String(params.identifier || '').trim().toLowerCase();
+    const fallbackRef = normalizedIdentifier
+      ? `LOGIN:${this.maskIdentifier(normalizedIdentifier).slice(0, 12)}`
+      : 'LOGIN:UNKNOWN';
+
+    return {
+      workflowType: AuditBusinessWorkflowTypes.ADMIN_LOGIN_ACCESS,
+      workflowNo: normalizedUserNo || fallbackRef,
+      traceId: params.traceId,
+    };
+  }
+
   async validateUser(
     identifier: string,
     pass: string,
     ctx: AuthRequestContext = {},
   ): Promise<any> {
+    const authTraceId = randomUUID();
     const user = await this.usersService.findByIdentifier(identifier);
     if (!user) {
       await this.auditLogsService.recordByActor(
@@ -53,6 +73,10 @@ export class AuthService {
           metadata: {
             identifierHash: this.maskIdentifier(identifier),
           },
+          ...this.buildLoginAuditContext({
+            traceId: authTraceId,
+            identifier,
+          }),
           requestId: ctx.requestId,
           sourceIp: ctx.sourceIp,
           sourcePlatform: ctx.sourcePlatform || 'ADMIN_AUTH_API',
@@ -81,6 +105,11 @@ export class AuthService {
             identifierHash: this.maskIdentifier(identifier),
             accountStatus: user.status,
           },
+          ...this.buildLoginAuditContext({
+            traceId: authTraceId,
+            userNo: user.userNo,
+            identifier,
+          }),
           requestId: ctx.requestId,
           sourceIp: ctx.sourceIp,
           sourcePlatform: ctx.sourcePlatform || 'ADMIN_AUTH_API',
@@ -116,6 +145,11 @@ export class AuthService {
             lockedUntil: user.lockedUntil.toISOString(),
             identifierHash: this.maskIdentifier(identifier),
           },
+          ...this.buildLoginAuditContext({
+            traceId: authTraceId,
+            userNo: user.userNo,
+            identifier,
+          }),
           requestId: ctx.requestId,
           sourceIp: ctx.sourceIp,
           sourcePlatform: ctx.sourcePlatform || 'ADMIN_AUTH_API',
@@ -147,6 +181,11 @@ export class AuthService {
           entityId: user.id,
           entityNo: user.userNo,
           result: AuditResult.SUCCESS,
+          ...this.buildLoginAuditContext({
+            traceId: authTraceId,
+            userNo: user.userNo,
+            identifier,
+          }),
           reason: 'Admin account auto unlocked after lock timeout',
           requestId: ctx.requestId,
           sourceIp: ctx.sourceIp,
@@ -180,6 +219,11 @@ export class AuthService {
           entityId: user.id,
           entityNo: user.userNo,
           result: AuditResult.SUCCESS,
+          ...this.buildLoginAuditContext({
+            traceId: authTraceId,
+            userNo: user.userNo,
+            identifier,
+          }),
           requestId: ctx.requestId,
           sourceIp: ctx.sourceIp,
           sourcePlatform: ctx.sourcePlatform || 'ADMIN_AUTH_API',
@@ -225,6 +269,11 @@ export class AuthService {
             failedLoginAttempts: attempts,
             lockApplied: attempts >= 5,
           },
+          ...this.buildLoginAuditContext({
+            traceId: authTraceId,
+            userNo: user.userNo,
+            identifier,
+          }),
           requestId: ctx.requestId,
           sourceIp: ctx.sourceIp,
           sourcePlatform: ctx.sourcePlatform || 'ADMIN_AUTH_API',
@@ -252,6 +301,11 @@ export class AuthService {
               failedLoginAttempts: attempts,
               lockedUntil: updateData.lockedUntil?.toISOString?.() || null,
             },
+            ...this.buildLoginAuditContext({
+              traceId: authTraceId,
+              userNo: user.userNo,
+              identifier,
+            }),
             requestId: ctx.requestId,
             sourceIp: ctx.sourceIp,
             sourcePlatform: ctx.sourcePlatform || 'ADMIN_AUTH_API',

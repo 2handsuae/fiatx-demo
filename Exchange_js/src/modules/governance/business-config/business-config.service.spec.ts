@@ -6,7 +6,6 @@ import {
   WITHDRAWAL_POLICY_CODE,
 } from '../../trading/pricing-center/types/pricing.types';
 import { ChangeTicketStatuses } from '../change-tickets/constants/change-ticket.constants';
-import { ApprovalStatuses } from '../approvals/constants/approval.constants';
 import {
   AuditActions,
 } from '../../risk-engine/audit-logs/constants/audit-actions.constant';
@@ -433,7 +432,7 @@ describe('BusinessConfigService', () => {
     );
   });
 
-  it('publishRelease should reject change tickets that are not ready for deploy', async () => {
+  it('publishRelease should reject change tickets that are not READY', async () => {
     const now = new Date('2026-03-23T10:00:00.000Z');
     prisma.businessConfigRelease.findUnique.mockResolvedValue({
       id: 'release-coa-1',
@@ -470,12 +469,12 @@ describe('BusinessConfigService', () => {
       id: 'ticket-1',
       ticketNo: 'CT-001',
       status: ChangeTicketStatuses.DRAFT,
-      latestApprovalId: 'approval-1',
-      latestApprovalStatus: ApprovalStatuses.APPROVED,
+      approvalCaseId: 'approval-1',
+      approvalNo: 'APR-001',
     });
 
     await expect(service.publishRelease('COA-REL-001', 'CT-001')).rejects.toThrow(
-      'Change ticket CT-001 must be READY_FOR_DEPLOY before publish',
+      'Change ticket CT-001 must be READY before publish',
     );
 
     expect(prisma.$transaction).not.toHaveBeenCalled();
@@ -505,9 +504,9 @@ describe('BusinessConfigService', () => {
     prisma.changeTicket.findFirst.mockResolvedValue({
       id: 'ticket-1',
       ticketNo: 'CT-001',
-      status: ChangeTicketStatuses.READY_FOR_DEPLOY,
-      latestApprovalId: 'approval-1',
-      latestApprovalStatus: ApprovalStatuses.APPROVED,
+      status: ChangeTicketStatuses.READY,
+      approvalCaseId: 'approval-1',
+      approvalNo: 'APR-001',
     });
     prisma.regulatoryGateItem.findFirst.mockResolvedValue({
       id: 'gate-1',
@@ -571,9 +570,9 @@ describe('BusinessConfigService', () => {
     prisma.changeTicket.findFirst.mockResolvedValue({
       id: 'ticket-1',
       ticketNo: 'CT-001',
-      status: ChangeTicketStatuses.READY_FOR_DEPLOY,
-      latestApprovalId: 'approval-1',
-      latestApprovalStatus: ApprovalStatuses.APPROVED,
+      status: ChangeTicketStatuses.READY,
+      approvalCaseId: 'approval-1',
+      approvalNo: 'APR-001',
     });
     prisma.coa.upsert.mockImplementation(async ({ where, create, update }: any) => {
       const current = projectedCoa.get(where.code);
@@ -689,9 +688,9 @@ describe('BusinessConfigService', () => {
     prisma.changeTicket.findFirst.mockResolvedValue({
       id: 'ticket-2',
       ticketNo: 'CT-002',
-      status: ChangeTicketStatuses.READY_FOR_DEPLOY,
-      latestApprovalId: 'approval-2',
-      latestApprovalStatus: ApprovalStatuses.APPROVED,
+      status: ChangeTicketStatuses.READY,
+      approvalCaseId: 'approval-2',
+      approvalNo: 'APR-002',
     });
     prisma.asset.findFirst.mockResolvedValue({ id: 'asset-aed' });
     prisma.journalHeaderTemplate.upsert.mockImplementation(async ({ where, create, update }: any) => {

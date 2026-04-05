@@ -95,6 +95,7 @@ describe('ComplianceCaseEvidencePackagesService', () => {
     });
     approvalsServiceMock.submit.mockResolvedValue({
       id: 'appr-1',
+      approvalNo: 'APR2602010001',
       status: ApprovalStatuses.PENDING,
     });
     prismaMock.complianceCaseEvidencePackage.update.mockResolvedValue({
@@ -127,6 +128,7 @@ describe('ComplianceCaseEvidencePackagesService', () => {
           status: AuditEvidencePackageStatus.PENDING_APPROVAL,
           exportMode: 'CASE_SELECTION',
           itemCount: 1,
+          exportedByNo: 'US0001',
         }),
       }),
     );
@@ -144,6 +146,13 @@ describe('ComplianceCaseEvidencePackagesService', () => {
       }),
       expect.objectContaining({ userId: 'admin-1' }),
     );
+    expect(prismaMock.complianceCaseEvidencePackage.update).toHaveBeenCalledWith({
+      where: { id: 'pkg-1' },
+      data: {
+        approvalCaseId: 'appr-1',
+        approvalCaseNo: 'APR2602010001',
+      },
+    });
     expect(result.packageNo).toBe('CEP2602010001');
   });
 

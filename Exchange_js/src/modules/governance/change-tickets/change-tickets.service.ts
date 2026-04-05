@@ -1,7 +1,6 @@
 import {
   BadRequestException,
   ConflictException,
-  ForbiddenException,
   Inject,
   Injectable,
   NotFoundException,
@@ -20,6 +19,7 @@ import {
 import {
   AuditActions,
   AuditEntityTypes,
+  AuditBusinessWorkflowTypes,
   AuditModules,
   AuditWorkflowTypes,
 } from '../../risk-engine/audit-logs/constants/audit-actions.constant';
@@ -29,22 +29,16 @@ import {
   AuditTriggerType,
 } from '../../risk-engine/audit-logs/dto/audit-log.dto';
 import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
-import {
-  ChangeTicketDeployStatuses,
-  ChangeTicketDeployEvent,
-  ChangeTicketEvents,
-  ChangeTicketGateRunStatuses,
-  ChangeTicketRiskLevels,
-  ChangeTicketStatuses,
-  ChangeTicketWorkflowTypes,
-} from './constants/change-ticket.constants';
+import { sha256Hex } from '../../risk-engine/audit-logs/utils/audit-digest.util';
+import { ChangeTicketStatuses } from './constants/change-ticket.constants';
+import { ChangeTicketTypes } from './constants/change-ticket.constants';
 import {
   ChangeTicketQueryDto,
-  CloseChangeTicketDto,
   CreateChangeTicketDto,
-  ResubmitChangeTicketDto,
   SubmitChangeTicketDto,
 } from './dto/change-ticket.dto';
+import { UsersService } from '../../identity/users/users.service';
+import { AccessControlService } from '../../identity/access-control/access-control.service';
 
 type ChangeTicketWriteClient = any;
 
@@ -57,10 +51,30 @@ type ChangeTicketApprovalSnapshot = {
 
 type ChangeTicketRow = {
   [key: string]: any;
-  latestApproval: ChangeTicketApprovalSnapshot;
+  approvalCase?: ChangeTicketApprovalSnapshot;
 };
 
-type GateRunRow = Record<string, any>;
+type ConsumeChangeTicketInput = {
+  success: boolean;
+  note?: string;
+  traceId?: string;
+};
+
+type AdminMemberProvisioningTicketInput = {
+  email: string;
+  roleCodes: string[];
+  changeReason: string;
+};
+
+type AdminRoleBindingChangeTicketInput = {
+  roleCodes: string[];
+  changeReason: string;
+};
+
+type ChangeTicketBindingSnapshot = {
+  intent?: string;
+  [key: string]: any;
+};
 
 interface ApprovalProjectionResult {
   ticket: ChangeTicketRow;
@@ -72,10 +86,13 @@ interface ApprovalProjectionResult {
   approvalNo?: string | null;
 }
 
+const CHANGE_TICKET_CONSUME_FAILED_ACTION = 'CHANGE_TICKET_CONSUME_FAILED';
+
 @Injectable()
 export class ChangeTicketsService {
   private static readonly DEFAULT_TAKE = 20;
   private static readonly MAX_TICKET_NO_RETRIES = 10;
+  private static readonly BUSINESS_PAGE_PROPOSAL_REF = 'BUSINESS_PAGE_PROPOSAL';
 
   constructor(
     @Inject(PrismaService)
@@ -84,6 +101,8 @@ export class ChangeTicketsService {
     private readonly approvalsService: ApprovalsService,
     private readonly auditLogsService: AuditLogsService,
     private readonly eventEmitter: EventEmitter2,
+    private readonly usersService: UsersService,
+    private readonly accessControlService: AccessControlService,
   ) {}
 
   private getDb(client?: ChangeTicketWriteClient): ChangeTicketWriteClient {
@@ -106,9 +125,17 @@ export class ChangeTicketsService {
     return normalized.length ? normalized : null;
   }
 
-  private normalizeTake(take?: number): number {
-    if (!take || take < 1) return ChangeTicketsService.DEFAULT_TAKE;
-    return Math.min(take, 200);
+  private parseJson<T>(value?: string | null): T | null {
+    if (!value) return null;
+    try {
+      return JSON.parse(value) as T;
+    } catch {
+      return null;
+    }
+  }
+
+  private serializeJson(value: unknown): string {
+    return JSON.stringify(value ?? {});
   }
 
   private normalizeSkip(skip?: number): number {
@@ -116,14 +143,9 @@ export class ChangeTicketsService {
     return skip;
   }
 
-  private toDate(value?: string | null): Date | null {
-    const normalized = this.normalizeOptionalString(value);
-    if (!normalized) return null;
-    const date = new Date(normalized);
-    if (Number.isNaN(date.getTime())) {
-      throw new BadRequestException(`Invalid date value: ${value}`);
-    }
-    return date;
+  private normalizeTake(take?: number): number {
+    if (!take || take < 1) return ChangeTicketsService.DEFAULT_TAKE;
+    return Math.min(take, 200);
   }
 
   private toAuditActor(actor: ApprovalActorContext) {
@@ -144,7 +166,7 @@ export class ChangeTicketsService {
 
   private ticketInclude() {
     return {
-      latestApproval: {
+      approvalCase: {
         select: {
           id: true,
           approvalNo: true,
@@ -155,50 +177,248 @@ export class ChangeTicketsService {
     };
   }
 
+  private buildBindingSnapshot(ticket: ChangeTicketRow) {
+    return {
+      ticketNo: ticket.ticketNo,
+      changeType: ticket.changeType,
+      changeReason: ticket.changeReason,
+      scopeSummary: ticket.scopeSummary,
+      testEvidenceRef: ticket.testEvidenceRef,
+      rollbackPlanRef: ticket.rollbackPlanRef,
+      traceId: ticket.traceId,
+      createdByUserNo: ticket.createdByUserNo,
+    };
+  }
+
+  private normalizeProposalEmail(email: string) {
+    return String(email || '').trim().toLowerCase();
+  }
+
+  private normalizeProposalRoleCodes(roleCodes: string[]) {
+    const seen = new Set<string>();
+    const normalized: string[] = [];
+
+    for (const rawCode of roleCodes || []) {
+      const code = String(rawCode || '').trim().toUpperCase();
+      if (!code || seen.has(code)) {
+        continue;
+      }
+      seen.add(code);
+      normalized.push(code);
+    }
+
+    return normalized;
+  }
+
+  private buildBusinessPageProposalRefs() {
+    return {
+      testEvidenceRef: ChangeTicketsService.BUSINESS_PAGE_PROPOSAL_REF,
+      rollbackPlanRef: ChangeTicketsService.BUSINESS_PAGE_PROPOSAL_REF,
+    };
+  }
+
+  private resolveBusinessWorkflowType(changeType: string) {
+    switch (changeType) {
+      case ChangeTicketTypes.ADMIN_ACCESS_CHANGE:
+        return AuditBusinessWorkflowTypes.ADMIN_MEMBER_PROVISIONING;
+      case ChangeTicketTypes.RBAC_CATALOG_CHANGE:
+        return AuditBusinessWorkflowTypes.ADMIN_ROLE_BINDING_CHANGE;
+      default:
+        return AuditWorkflowTypes.CHANGE_TICKET;
+    }
+  }
+
+  private requireNonBlankString(value: unknown, fieldName: string): string {
+    const normalized = this.normalizeOptionalString(value);
+    if (!normalized) {
+      throw new BadRequestException(`${fieldName} is required`);
+    }
+    return normalized;
+  }
+
+  private async createTicketWithFrozenSnapshot(
+    dto: CreateChangeTicketDto,
+    actor: ApprovalActorContext,
+    buildBindingSnapshot: (draft: ChangeTicketRow) => Record<string, unknown>,
+  ) {
+    const created = (await this.prisma.$transaction(async (tx: ChangeTicketWriteClient) => {
+      const draft = await this.createTicketWithUniqueNo(
+        {
+          status: ChangeTicketStatuses.DRAFT,
+          changeType: dto.changeType,
+          changeReason: this.requireNonBlankString(dto.changeReason, 'changeReason'),
+          scopeSummary: dto.scopeSummary.trim(),
+          testEvidenceRef: dto.testEvidenceRef.trim(),
+          rollbackPlanRef: dto.rollbackPlanRef.trim(),
+          traceId: this.normalizeOptionalString(dto.traceId) || randomUUID(),
+          createdByUserId: actor.userId,
+          createdByUserNo: actor.userNo || actor.userId,
+        },
+        tx,
+      );
+
+      const bindingSnapshot = buildBindingSnapshot(draft);
+      return (await tx.changeTicket.update({
+        where: { id: draft.id },
+        data: {
+          bindingSnapshotJson: this.serializeJson(bindingSnapshot),
+          bindingDigest: sha256Hex(bindingSnapshot),
+        },
+        include: this.ticketInclude(),
+      })) as ChangeTicketRow;
+    })) as ChangeTicketRow;
+
+    await this.recordTicketAudit(
+      AuditActions.CHANGE_TICKET_CREATED,
+      created,
+      actor,
+      AuditResult.SUCCESS,
+      'Change ticket created',
+      null,
+      ChangeTicketStatuses.DRAFT,
+    );
+
+    return this.mapTicket(created);
+  }
+
   private mapTicket(ticket: ChangeTicketRow) {
     return {
       id: ticket.id,
       ticketNo: ticket.ticketNo,
       status: ticket.status,
       changeType: ticket.changeType,
+      changeReason: ticket.changeReason,
       scopeSummary: ticket.scopeSummary,
-      riskLevel: ticket.riskLevel,
       testEvidenceRef: ticket.testEvidenceRef,
       rollbackPlanRef: ticket.rollbackPlanRef,
-      latestApprovalId: ticket.latestApprovalId,
-      latestApprovalNo: ticket.latestApproval?.approvalNo || null,
-      latestApprovalStatus: ticket.latestApprovalStatus,
+      bindingSnapshotJson: this.parseJson<Record<string, unknown>>(ticket.bindingSnapshotJson) || {},
+      bindingDigest: ticket.bindingDigest || null,
+      approvalCaseId: ticket.approvalCaseId,
+      approvalNo: ticket.approvalNo || ticket.approvalCase?.approvalNo || null,
       traceId: ticket.traceId,
-      emergency: ticket.emergency,
-      emergencyReason: ticket.emergencyReason,
-      postApprovalDueAt: ticket.postApprovalDueAt,
-      postApprovalCompletedAt: ticket.postApprovalCompletedAt,
       createdByUserId: ticket.createdByUserId,
+      createdByUserNo: ticket.createdByUserNo,
       submittedByUserId: ticket.submittedByUserId,
-      closedByUserId: ticket.closedByUserId,
+      submittedByUserNo: ticket.submittedByUserNo,
+      consumedByUserId: ticket.consumedByUserId,
+      consumedByUserNo: ticket.consumedByUserNo,
       submittedAt: ticket.submittedAt,
-      deployedAt: ticket.deployedAt,
-      closedAt: ticket.closedAt,
+      consumedAt: ticket.consumedAt,
+      resultNote: ticket.resultNote,
+      deletedAt: ticket.deletedAt || null,
+      deletedBy: ticket.deletedBy || null,
+      deleteRequestId: ticket.deleteRequestId || null,
+      deleteRequestNo: ticket.deleteRequestNo || null,
+      deleteReason: ticket.deleteReason || null,
       createdAt: ticket.createdAt,
       updatedAt: ticket.updatedAt,
     };
   }
 
-  mapGateRun(run: GateRunRow) {
-    return {
-      id: run.id,
-      ticketId: run.ticketId,
-      targetEnv: run.targetEnv,
-      releaseVersion: run.releaseVersion,
-      status: run.status,
-      reason: run.reason,
-      failureReason: run.failureReason,
-      operatorUserId: run.operatorUserId,
-      traceId: run.traceId,
-      startedAt: run.startedAt,
-      finishedAt: run.finishedAt,
-      createdAt: run.createdAt,
-    };
+  private async dispatchFormalExecution(
+    ticket: ChangeTicketRow,
+    actor: ApprovalActorContext,
+  ): Promise<unknown> {
+    const bindingSnapshot = this.parseJson<ChangeTicketBindingSnapshot>(ticket.bindingSnapshotJson) || {};
+
+    switch (bindingSnapshot.intent) {
+      case 'ADMIN_MEMBER_PROVISIONING':
+        return this.usersService.executeAdminMemberProvisioning(bindingSnapshot as any, actor);
+      case 'ADMIN_ROLE_BINDING_CHANGE':
+        return this.accessControlService.executeGovernedRoleBindingChange(
+          bindingSnapshot as any,
+          actor,
+        );
+      default:
+        return null;
+    }
+  }
+
+  private ticketSubjectNos(ticket: ChangeTicketRow, approvalNo?: string | null) {
+    const bindingSnapshot = this.parseJson<ChangeTicketBindingSnapshot>(ticket.bindingSnapshotJson) || {};
+    const subjectNos: Array<{
+      subjectRole: AuditSubjectRole;
+      subjectType: string;
+      subjectId?: string;
+      subjectNo: string;
+    }> = [
+      {
+        subjectRole: AuditSubjectRole.ENTITY,
+        subjectType: AuditEntityTypes.CHANGE_TICKET,
+        subjectId: ticket.id,
+        subjectNo: ticket.ticketNo,
+      },
+    ];
+
+    const resolvedApprovalNo = this.normalizeOptionalString(
+      approvalNo || ticket.approvalNo || ticket.approvalCase?.approvalNo,
+    );
+    if (resolvedApprovalNo) {
+      subjectNos.push({
+        subjectRole: AuditSubjectRole.RELATED,
+        subjectType: AuditEntityTypes.APPROVAL_CASE,
+        subjectId: ticket.approvalCaseId || undefined,
+        subjectNo: resolvedApprovalNo,
+      });
+    }
+
+    const targetUserNo = this.normalizeOptionalString(
+      bindingSnapshot.targetUserNo || bindingSnapshot.userNo,
+    );
+    if (targetUserNo) {
+      subjectNos.push({
+        subjectRole: AuditSubjectRole.RELATED,
+        subjectType: 'ADMIN_USER',
+        subjectId:
+          this.normalizeOptionalString(bindingSnapshot.targetUserId || bindingSnapshot.userId) ||
+          undefined,
+        subjectNo: targetUserNo,
+      });
+    }
+
+    return subjectNos;
+  }
+
+  private async recordTicketAudit(
+    action: string,
+    ticket: ChangeTicketRow,
+    actor: ApprovalActorContext,
+    result: AuditResult,
+    reason?: string | null,
+    statusFrom?: string | null,
+    statusTo?: string | null,
+    metadata?: Record<string, unknown>,
+    approvalNo?: string | null,
+  ) {
+    await this.auditLogsService.recordByActor(
+      {
+        triggerType: AuditTriggerType.DATA_UPDATE,
+        action,
+        module: AuditModules.GOVERNANCE_CHANGE_TICKETS,
+        entityType: AuditEntityTypes.CHANGE_TICKET,
+        entityId: ticket.id,
+        entityNo: ticket.ticketNo,
+        workflowType: this.resolveBusinessWorkflowType(ticket.changeType),
+        workflowId: ticket.id,
+        workflowNo: ticket.ticketNo,
+        traceId: ticket.traceId,
+        statusFrom: statusFrom || undefined,
+        statusTo: statusTo || undefined,
+        result,
+        reason: reason || undefined,
+        metadata: {
+          approvalCaseId: ticket.approvalCaseId,
+          approvalNo: approvalNo || ticket.approvalNo || ticket.approvalCase?.approvalNo || null,
+          approvalStatus: ticket.approvalCase?.status || null,
+          changeType: ticket.changeType,
+          ...(metadata || {}),
+        },
+        subjectNos: this.ticketSubjectNos(ticket, approvalNo),
+        requestId: `CHANGE_TICKET_${ticket.ticketNo}_${action}`,
+        sourcePlatform: 'ADMIN_API',
+      },
+      this.toAuditActor(actor),
+    );
   }
 
   private async findTicketOrThrow(
@@ -223,6 +443,7 @@ export class ChangeTicketsService {
     client?: ChangeTicketWriteClient,
   ): Promise<ChangeTicketRow> {
     const db = this.getDb(client);
+
     for (let i = 0; i < ChangeTicketsService.MAX_TICKET_NO_RETRIES; i += 1) {
       try {
         return (await db.changeTicket.create({
@@ -249,162 +470,14 @@ export class ChangeTicketsService {
     throw new ConflictException('Failed to generate unique ticketNo');
   }
 
-  private ticketSubjectNos(ticket: ChangeTicketRow, approvalNo?: string | null) {
-    const subjectNos: Array<{
-      subjectRole: AuditSubjectRole;
-      subjectType: string;
-      subjectId?: string;
-      subjectNo: string;
-    }> = [
-      {
-        subjectRole: AuditSubjectRole.ENTITY,
-        subjectType: AuditWorkflowTypes.CHANGE_TICKET,
-        subjectId: ticket.id,
-        subjectNo: ticket.ticketNo,
-      },
-    ];
-
-    const resolvedApprovalNo = this.normalizeOptionalString(
-      approvalNo || ticket.latestApproval?.approvalNo,
-    );
-    if (resolvedApprovalNo) {
-      subjectNos.push({
-        subjectRole: AuditSubjectRole.RELATED,
-        subjectType: AuditEntityTypes.APPROVAL_CASE,
-        subjectId: ticket.latestApprovalId || undefined,
-        subjectNo: resolvedApprovalNo,
-      });
-    }
-
-    return subjectNos;
-  }
-
-  private gateRunEntityNo(ticket: ChangeTicketRow, run: GateRunRow) {
-    return `${ticket.ticketNo}:${run.targetEnv}:${run.releaseVersion}`;
-  }
-
-  private async emitChangeTicketEvent(eventName: string, payload: ChangeTicketDeployEvent) {
-    if (typeof this.eventEmitter.emitAsync === 'function') {
-      await this.eventEmitter.emitAsync(eventName, payload);
-      return;
-    }
-
-    this.eventEmitter.emit(eventName, payload);
-  }
-
-  private async recordTicketAudit(
-    action: string,
-    ticket: ChangeTicketRow,
-    actor: ApprovalActorContext,
-    result: AuditResult,
-    reason?: string | null,
-    statusFrom?: string | null,
-    statusTo?: string | null,
-    metadata?: Record<string, unknown>,
-    approvalNo?: string | null,
-  ) {
-    await this.auditLogsService.recordByActor(
-      {
-        triggerType: AuditTriggerType.DATA_UPDATE,
-        action,
-        module: AuditModules.GOVERNANCE_CHANGE_TICKETS,
-        entityType: AuditEntityTypes.CHANGE_TICKET,
-        entityId: ticket.id,
-        entityNo: ticket.ticketNo,
-        workflowType: ChangeTicketWorkflowTypes.CHANGE_TICKET,
-        workflowId: ticket.id,
-        workflowNo: ticket.ticketNo,
-        traceId: ticket.traceId,
-        statusFrom: statusFrom || undefined,
-        statusTo: statusTo || undefined,
-        result,
-        reason: reason || undefined,
-        metadata: {
-          latestApprovalId: ticket.latestApprovalId,
-          latestApprovalNo: approvalNo || ticket.latestApproval?.approvalNo || null,
-          latestApprovalStatus: ticket.latestApprovalStatus,
-          changeType: ticket.changeType,
-          emergency: ticket.emergency,
-          ...(metadata || {}),
-        },
-        subjectNos: this.ticketSubjectNos(ticket, approvalNo),
-        requestId: `CHANGE_TICKET_${ticket.ticketNo}_${action}`,
-        sourcePlatform: 'ADMIN_API',
-      },
-      this.toAuditActor(actor),
-    );
-  }
-
-  private async recordGateAudit(
-    action: string,
-    ticket: ChangeTicketRow,
-    run: GateRunRow,
-    actor: ApprovalActorContext,
-    result: AuditResult,
-    reason?: string | null,
-    statusFrom?: string | null,
-    statusTo?: string | null,
-    metadata?: Record<string, unknown>,
-  ) {
-    await this.auditLogsService.recordByActor(
-      {
-        triggerType: AuditTriggerType.DATA_UPDATE,
-        action,
-        module: AuditModules.GOVERNANCE_CHANGE_TICKETS,
-        entityType: AuditEntityTypes.CHANGE_TICKET_GATE_RUN,
-        entityId: run.id,
-        entityNo: this.gateRunEntityNo(ticket, run),
-        workflowType: ChangeTicketWorkflowTypes.CHANGE_TICKET,
-        workflowId: ticket.id,
-        workflowNo: ticket.ticketNo,
-        traceId: run.traceId,
-        statusFrom: statusFrom || undefined,
-        statusTo: statusTo || undefined,
-        result,
-        reason: reason || undefined,
-        metadata: {
-          gateRunId: run.id,
-          targetEnv: run.targetEnv,
-          releaseVersion: run.releaseVersion,
-          failureReason: run.failureReason,
-          ...(metadata || {}),
-        },
-        subjectNos: this.ticketSubjectNos(ticket),
-        requestId: `CHANGE_TICKET_GATE_${ticket.ticketNo}_${action}_${run.targetEnv}_${run.releaseVersion}`,
-        sourcePlatform: 'ADMIN_API',
-      },
-      this.toAuditActor(actor),
-    );
-  }
-
-  private buildActiveKey(ticketId: string, targetEnv: string, releaseVersion: string) {
-    return `${ticketId}|${targetEnv}|${releaseVersion}`;
-  }
-
-  private ensureGateEvidenceComplete(ticket: ChangeTicketRow) {
-    const complete =
-      this.normalizeOptionalString(ticket.changeType) &&
-      this.normalizeOptionalString(ticket.scopeSummary) &&
-      ticket.riskLevel === ChangeTicketRiskLevels.HIGH &&
-      this.normalizeOptionalString(ticket.testEvidenceRef) &&
-      this.normalizeOptionalString(ticket.rollbackPlanRef) &&
-      ticket.latestApprovalStatus === ApprovalStatuses.APPROVED;
-
-    if (!complete) {
-      throw new BadRequestException(
-        'Gate evidence is incomplete or the latest approval is not approved',
-      );
-    }
-  }
-
   private async applyApprovalProjection(
     ticket: ChangeTicketRow,
     approvalStatus: string,
     approvalNo: string | null,
-    actor: ApprovalActorContext,
   ): Promise<ApprovalProjectionResult> {
-    const currentApprovalStatus = this.normalizeOptionalString(ticket.latestApprovalStatus);
     const normalizedApprovalStatus = this.normalizeOptionalString(approvalStatus);
+    const currentApprovalStatus = this.normalizeOptionalString(ticket.approvalCase?.status);
+
     if (!normalizedApprovalStatus) {
       return { ticket };
     }
@@ -416,13 +489,11 @@ export class ChangeTicketsService {
 
     if (
       normalizedApprovalStatus === ApprovalStatuses.APPROVED &&
-      ([ChangeTicketStatuses.SUBMITTED, ChangeTicketStatuses.APPROVAL_PENDING] as string[]).includes(
-        ticket.status,
-      )
+      ticket.status === ChangeTicketStatuses.PENDING_APPROVAL
     ) {
-      nextStatus = ChangeTicketStatuses.READY_FOR_DEPLOY;
+      nextStatus = ChangeTicketStatuses.READY;
       action = AuditActions.CHANGE_TICKET_APPROVED;
-      reason = `Approval ${approvalNo || ticket.latestApprovalId || ''} approved`;
+      reason = `Approval ${approvalNo || ticket.approvalCaseId || ''} approved`;
       result = AuditResult.SUCCESS;
     } else if (
       ([
@@ -430,19 +501,12 @@ export class ChangeTicketsService {
         ApprovalStatuses.EXPIRED,
         ApprovalStatuses.CANCELLED,
       ] as string[]).includes(normalizedApprovalStatus) &&
-      ([ChangeTicketStatuses.SUBMITTED, ChangeTicketStatuses.APPROVAL_PENDING] as string[]).includes(
-        ticket.status,
-      )
+      ticket.status === ChangeTicketStatuses.PENDING_APPROVAL
     ) {
       nextStatus = ChangeTicketStatuses.REJECTED;
       action = AuditActions.CHANGE_TICKET_REJECTED;
-      reason = `Approval ${approvalNo || ticket.latestApprovalId || ''} ${normalizedApprovalStatus.toLowerCase()}`;
+      reason = `Approval ${approvalNo || ticket.approvalCaseId || ''} ${normalizedApprovalStatus.toLowerCase()}`;
       result = AuditResult.REJECTED;
-    } else if (
-      normalizedApprovalStatus === ApprovalStatuses.PENDING &&
-      ticket.status === ChangeTicketStatuses.SUBMITTED
-    ) {
-      nextStatus = ChangeTicketStatuses.APPROVAL_PENDING;
     }
 
     if (nextStatus === ticket.status && normalizedApprovalStatus === currentApprovalStatus) {
@@ -453,7 +517,6 @@ export class ChangeTicketsService {
       where: { id: ticket.id },
       data: {
         status: nextStatus,
-        latestApprovalStatus: normalizedApprovalStatus,
       },
       include: this.ticketInclude(),
     })) as ChangeTicketRow;
@@ -489,16 +552,11 @@ export class ChangeTicketsService {
     }
 
     const row = ticket as ChangeTicketRow;
-    if (row.latestApprovalId && row.latestApprovalId !== event.approvalId) {
+    if (row.approvalCaseId && row.approvalCaseId !== event.approvalId) {
       return this.mapTicket(row);
     }
 
-    const projection = await this.applyApprovalProjection(
-      row,
-      event.status,
-      event.approvalNo,
-      this.systemActor(),
-    );
+    const projection = await this.applyApprovalProjection(row, event.status, event.approvalNo);
 
     if (projection.action) {
       await this.recordTicketAudit(
@@ -518,44 +576,118 @@ export class ChangeTicketsService {
   }
 
   async create(dto: CreateChangeTicketDto, actor: ApprovalActorContext) {
-    const emergency = dto.emergency === true;
-    if (emergency && !this.normalizeOptionalString(dto.emergencyReason)) {
-      throw new BadRequestException('emergencyReason is required when emergency is true');
+    return this.createTicketWithFrozenSnapshot(dto, actor, (draft) => this.buildBindingSnapshot(draft));
+  }
+
+  async createAdminMemberProvisioningTicket(
+    input: AdminMemberProvisioningTicketInput,
+    actor: ApprovalActorContext,
+  ) {
+    const email = this.normalizeProposalEmail(input.email);
+    if (!email) {
+      throw new BadRequestException('email is required');
     }
 
-    const created = await this.createTicketWithUniqueNo({
-      status: ChangeTicketStatuses.DRAFT,
-      changeType: dto.changeType,
-      scopeSummary: dto.scopeSummary.trim(),
-      riskLevel: ChangeTicketRiskLevels.HIGH,
-      testEvidenceRef: dto.testEvidenceRef.trim(),
-      rollbackPlanRef: dto.rollbackPlanRef.trim(),
-      traceId: this.normalizeOptionalString(dto.traceId) || randomUUID(),
-      emergency,
-      emergencyReason: this.normalizeOptionalString(dto.emergencyReason),
-      postApprovalDueAt: this.toDate(dto.postApprovalDueAt),
-      createdByUserId: actor.userId,
+    const roleCodes = this.normalizeProposalRoleCodes(input.roleCodes);
+    if (roleCodes.length === 0) {
+      throw new BadRequestException('At least one role code is required');
+    }
+
+    const changeReason = this.requireNonBlankString(input.changeReason, 'changeReason');
+    const scopeSummary = `Provision admin member ${email} with roles ${roleCodes.join(', ')}`;
+
+    return this.createTicketWithFrozenSnapshot(
+      {
+        changeType: ChangeTicketTypes.ADMIN_ACCESS_CHANGE,
+        changeReason,
+        scopeSummary,
+        ...this.buildBusinessPageProposalRefs(),
+      },
+      actor,
+      (draft) => ({
+        ticketNo: draft.ticketNo,
+        changeType: draft.changeType,
+        traceId: draft.traceId,
+        intent: 'ADMIN_MEMBER_PROVISIONING',
+        email,
+        roleCodes,
+        requestedByUserId: actor.userId,
+        requestedByUserNo: actor.userNo || actor.userId,
+        changeReason,
+        scopeSummary,
+        testEvidenceRef: draft.testEvidenceRef,
+        rollbackPlanRef: draft.rollbackPlanRef,
+      }),
+    );
+  }
+
+  async createAdminRoleBindingChangeTicket(
+    userId: string,
+    input: AdminRoleBindingChangeTicketInput,
+    actor: ApprovalActorContext,
+  ) {
+    const normalizedUserId = String(userId || '').trim();
+    if (!normalizedUserId) {
+      throw new BadRequestException('userId is required');
+    }
+
+    const roleCodes = this.normalizeProposalRoleCodes(input.roleCodes);
+    if (roleCodes.length === 0) {
+      throw new BadRequestException('At least one role code is required');
+    }
+
+    const targetUser = await this.prisma.user.findFirst({
+      where: {
+        id: normalizedUserId,
+        deletedAt: null,
+      },
+      select: {
+        id: true,
+        userNo: true,
+        email: true,
+      },
     });
 
-    await this.recordTicketAudit(
-      AuditActions.CHANGE_TICKET_CREATED,
-      created,
-      actor,
-      AuditResult.SUCCESS,
-      'Change ticket created',
-      null,
-      ChangeTicketStatuses.DRAFT,
-    );
+    if (!targetUser) {
+      throw new NotFoundException('User not found');
+    }
 
-    return this.mapTicket(created);
+    const changeReason = this.requireNonBlankString(input.changeReason, 'changeReason');
+    const scopeSummary = `Replace admin role bindings for user ${normalizedUserId} with roles ${roleCodes.join(', ')}`;
+
+    return this.createTicketWithFrozenSnapshot(
+      {
+        changeType: ChangeTicketTypes.RBAC_CATALOG_CHANGE,
+        changeReason,
+        scopeSummary,
+        ...this.buildBusinessPageProposalRefs(),
+      },
+      actor,
+      (draft) => ({
+        ticketNo: draft.ticketNo,
+        changeType: draft.changeType,
+        traceId: draft.traceId,
+        intent: 'ADMIN_ROLE_BINDING_CHANGE',
+        targetUserId: targetUser.id,
+        targetUserNo: targetUser.userNo,
+        targetEmail: targetUser.email,
+        roleCodes,
+        requestedByUserId: actor.userId,
+        requestedByUserNo: actor.userNo || actor.userId,
+        changeReason,
+        scopeSummary,
+        testEvidenceRef: draft.testEvidenceRef,
+        rollbackPlanRef: draft.rollbackPlanRef,
+      }),
+    );
   }
 
   async submit(id: string, dto: SubmitChangeTicketDto, actor: ApprovalActorContext) {
-    const existing = await this.findTicketOrThrow(id);
-    if (existing.status !== ChangeTicketStatuses.DRAFT) {
+    const current = await this.findTicketOrThrow(id);
+    if (current.status !== ChangeTicketStatuses.DRAFT) {
       throw new BadRequestException('Only DRAFT change tickets can be submitted');
     }
-    this.assertTraceConsistency(existing.traceId, dto.traceId);
+    this.assertTraceConsistency(current.traceId, dto.traceId);
 
     let approval:
       | {
@@ -564,21 +696,12 @@ export class ChangeTicketsService {
           status: string;
         }
       | undefined;
+
     const updated = await this.prisma.$transaction(async (tx: any) => {
       const ticket = await this.findTicketOrThrow(id, tx);
       if (ticket.status !== ChangeTicketStatuses.DRAFT) {
         throw new BadRequestException('Only DRAFT change tickets can be submitted');
       }
-
-      const submittedAt = new Date();
-      await tx.changeTicket.update({
-        where: { id: ticket.id },
-        data: {
-          status: ChangeTicketStatuses.SUBMITTED,
-          submittedByUserId: actor.userId,
-          submittedAt,
-        },
-      });
 
       approval = await this.approvalsService.createAndSubmit(
         {
@@ -604,9 +727,12 @@ export class ChangeTicketsService {
       return (await tx.changeTicket.update({
         where: { id: ticket.id },
         data: {
-          status: ChangeTicketStatuses.APPROVAL_PENDING,
-          latestApprovalId: approval.id,
-          latestApprovalStatus: approval.status,
+          status: ChangeTicketStatuses.PENDING_APPROVAL,
+          approvalCaseId: approval.id,
+          approvalNo: approval.approvalNo,
+          submittedByUserId: actor.userId,
+          submittedByUserNo: actor.userNo || actor.userId,
+          submittedAt: new Date(),
         },
         include: this.ticketInclude(),
       })) as ChangeTicketRow;
@@ -619,8 +745,13 @@ export class ChangeTicketsService {
       AuditResult.SUCCESS,
       this.normalizeOptionalString(dto.reason) || 'Change ticket submitted',
       ChangeTicketStatuses.DRAFT,
-      ChangeTicketStatuses.SUBMITTED,
+      ChangeTicketStatuses.PENDING_APPROVAL,
+      {
+        approvalCaseId: approval?.id || null,
+      },
+      approval?.approvalNo || null,
     );
+
     if (approval) {
       await this.approvalsService.emitSubmittedSideEffects(
         approval.id,
@@ -633,10 +764,10 @@ export class ChangeTicketsService {
         actor,
         AuditResult.SUCCESS,
         `Approval ${approval.approvalNo} linked`,
-        ChangeTicketStatuses.SUBMITTED,
-        ChangeTicketStatuses.APPROVAL_PENDING,
+        ChangeTicketStatuses.PENDING_APPROVAL,
+        ChangeTicketStatuses.PENDING_APPROVAL,
         {
-          approvalId: approval.id,
+          approvalCaseId: approval.id,
         },
         approval.approvalNo,
       );
@@ -645,133 +776,48 @@ export class ChangeTicketsService {
     return this.mapTicket(updated);
   }
 
-  async resubmit(id: string, dto: ResubmitChangeTicketDto, actor: ApprovalActorContext) {
+  async consume(id: string, dto: ConsumeChangeTicketInput, actor: ApprovalActorContext) {
     const current = await this.findTicketOrThrow(id);
-    if (current.status !== ChangeTicketStatuses.REJECTED) {
-      throw new BadRequestException('Only REJECTED change tickets can be resubmitted');
-    }
     this.assertTraceConsistency(current.traceId, dto.traceId);
 
-    let approval:
-      | {
-          id: string;
-          approvalNo: string;
-          status: string;
-        }
-      | undefined;
-    const updated = await this.prisma.$transaction(async (tx: any) => {
-      const ticket = await this.findTicketOrThrow(id, tx);
-      if (ticket.status !== ChangeTicketStatuses.REJECTED) {
-        throw new BadRequestException('Only REJECTED change tickets can be resubmitted');
-      }
-
-      const submittedAt = new Date();
-      await tx.changeTicket.update({
-        where: { id: ticket.id },
-        data: {
-          status: ChangeTicketStatuses.SUBMITTED,
-          submittedByUserId: actor.userId,
-          submittedAt,
-        },
-      });
-
-      approval = await this.approvalsService.createAndSubmit(
-        {
-          actionType: ApprovalActionTypes.CHANGE_TICKET_APPROVAL,
-          entityRef: ticket.id,
-          metadata: {
-            source: 'WF06',
-            ticketNo: ticket.ticketNo,
-            resubmit: true,
-          },
-          traceId: ticket.traceId,
-        },
-        {
-          reason:
-            this.normalizeOptionalString(dto.reason) ||
-            `Change ticket ${ticket.ticketNo} resubmitted`,
-          traceId: ticket.traceId,
-        },
-        actor,
-        tx,
-        { emitSideEffects: false },
-      );
-
-      return (await tx.changeTicket.update({
-        where: { id: ticket.id },
-        data: {
-          status: ChangeTicketStatuses.APPROVAL_PENDING,
-          latestApprovalId: approval.id,
-          latestApprovalStatus: approval.status,
-        },
-        include: this.ticketInclude(),
-      })) as ChangeTicketRow;
-    });
-
-    await this.recordTicketAudit(
-      AuditActions.CHANGE_TICKET_SUBMITTED,
-      updated,
-      actor,
-      AuditResult.SUCCESS,
-      this.normalizeOptionalString(dto.reason) || 'Change ticket resubmitted',
-      ChangeTicketStatuses.REJECTED,
-      ChangeTicketStatuses.SUBMITTED,
-      { resubmit: true },
-    );
-    if (approval) {
-      await this.approvalsService.emitSubmittedSideEffects(
-        approval.id,
-        actor,
-        this.normalizeOptionalString(dto.reason) || `Change ticket ${updated.ticketNo} resubmitted`,
-      );
-      await this.recordTicketAudit(
-        AuditActions.CHANGE_TICKET_APPROVAL_LINKED,
-        updated,
-        actor,
-        AuditResult.SUCCESS,
-        `Approval ${approval.approvalNo} linked`,
-        ChangeTicketStatuses.SUBMITTED,
-        ChangeTicketStatuses.APPROVAL_PENDING,
-        {
-          approvalId: approval.id,
-          resubmit: true,
-        },
-        approval.approvalNo,
-      );
+    if (current.status === ChangeTicketStatuses.FAILED) {
+      throw new BadRequestException('FAILED change tickets cannot be consumed again');
+    }
+    if (current.status !== ChangeTicketStatuses.READY) {
+      throw new BadRequestException('Only READY change tickets can be consumed');
     }
 
-    return this.mapTicket(updated);
-  }
+    const nextStatus = dto.success ? ChangeTicketStatuses.DONE : ChangeTicketStatuses.FAILED;
+    const note = this.normalizeOptionalString(dto.note);
 
-  async close(id: string, dto: CloseChangeTicketDto, actor: ApprovalActorContext) {
-    const current = await this.findTicketOrThrow(id);
-    if (
-      !([ChangeTicketStatuses.DEPLOYED, ChangeTicketStatuses.DEPLOY_FAILED] as string[]).includes(
-        current.status,
-      )
-    ) {
-      throw new BadRequestException('Only DEPLOYED or DEPLOY_FAILED tickets can be closed');
+    if (dto.success) {
+      await this.dispatchFormalExecution(current, actor);
     }
-    this.assertTraceConsistency(current.traceId, dto.traceId);
 
     const updated = (await this.prisma.changeTicket.update({
       where: { id: current.id },
       data: {
-        status: ChangeTicketStatuses.CLOSED,
-        closedByUserId: actor.userId,
-        closedAt: new Date(),
+        status: nextStatus,
+        consumedByUserId: actor.userId,
+        consumedByUserNo: actor.userNo || actor.userId,
+        consumedAt: new Date(),
+        resultNote: note,
       },
       include: this.ticketInclude(),
     })) as ChangeTicketRow;
 
     await this.recordTicketAudit(
-      AuditActions.CHANGE_TICKET_CLOSED,
+      dto.success ? AuditActions.CHANGE_TICKET_CONSUMED : CHANGE_TICKET_CONSUME_FAILED_ACTION,
       updated,
       actor,
-      AuditResult.SUCCESS,
-      this.normalizeOptionalString(dto.reason) || 'Change ticket closed',
-      current.status,
-      ChangeTicketStatuses.CLOSED,
+      dto.success ? AuditResult.SUCCESS : AuditResult.FAILED,
+      note || (dto.success ? 'Change ticket consumed successfully' : 'Change ticket consume failed'),
+      ChangeTicketStatuses.READY,
+      nextStatus,
+      {
+        consumed: true,
+      },
+      updated.approvalNo || updated.approvalCase?.approvalNo || null,
     );
 
     return this.mapTicket(updated);
@@ -797,18 +843,8 @@ export class ChangeTicketsService {
     if (query.changeType) {
       where.changeType = query.changeType.trim().toUpperCase();
     }
-    if (query.latestApprovalStatus) {
-      where.latestApprovalStatus = query.latestApprovalStatus.trim().toUpperCase();
-    }
     if (query.traceId) {
       where.traceId = query.traceId.trim();
-    }
-    if (query.releaseVersion) {
-      where.gateRuns = {
-        some: {
-          releaseVersion: query.releaseVersion.trim(),
-        },
-      };
     }
     if (query.keyword) {
       const keyword = query.keyword.trim();
@@ -817,19 +853,7 @@ export class ChangeTicketsService {
         { traceId: { contains: keyword } },
         { scopeSummary: { contains: keyword } },
         { changeType: { contains: keyword } },
-        { latestApprovalStatus: { contains: keyword } },
-        {
-          latestApproval: {
-            approvalNo: { contains: keyword },
-          },
-        },
-        {
-          gateRuns: {
-            some: {
-              releaseVersion: { contains: keyword },
-            },
-          },
-        },
+        { approvalNo: { contains: keyword } },
       ];
     }
 
@@ -848,207 +872,7 @@ export class ChangeTicketsService {
       total,
       skip,
       take,
-      items: rows.map((row) => this.mapTicket(row as ChangeTicketRow)),
+      items: rows.map((row: ChangeTicketRow) => this.mapTicket(row)),
     };
-  }
-
-  async listGateRuns(ticketId: string) {
-    await this.findTicketOrThrow(ticketId);
-    const rows = await this.prisma.changeTicketGateRun.findMany({
-      where: { ticketId },
-      orderBy: [{ createdAt: 'desc' }],
-    });
-
-    return rows.map((row) => this.mapGateRun(row as GateRunRow));
-  }
-
-  async runGateCheck(
-    id: string,
-    input: {
-      targetEnv: string;
-      releaseVersion: string;
-      reason?: string;
-      traceId?: string;
-    },
-    actor: ApprovalActorContext,
-  ) {
-    let ticket = await this.findTicketOrThrow(id);
-    this.assertTraceConsistency(ticket.traceId, input.traceId);
-
-    if (ticket.status === ChangeTicketStatuses.DEPLOY_FAILED) {
-      ticket = (await this.prisma.changeTicket.update({
-        where: { id: ticket.id },
-        data: { status: ChangeTicketStatuses.READY_FOR_DEPLOY },
-        include: this.ticketInclude(),
-      })) as ChangeTicketRow;
-    }
-
-    if (ticket.status !== ChangeTicketStatuses.READY_FOR_DEPLOY) {
-      throw new BadRequestException('Change ticket is not ready for gate check');
-    }
-    this.ensureGateEvidenceComplete(ticket);
-
-    const releaseVersion = input.releaseVersion.trim();
-    const activeKey = this.buildActiveKey(ticket.id, input.targetEnv, releaseVersion);
-    let run: GateRunRow;
-    try {
-      run = (await this.prisma.changeTicketGateRun.create({
-        data: {
-          ticketId: ticket.id,
-          targetEnv: input.targetEnv,
-          releaseVersion,
-          status: ChangeTicketGateRunStatuses.PENDING,
-          reason: this.normalizeOptionalString(input.reason),
-          operatorUserId: actor.userId,
-          traceId: ticket.traceId,
-          activeKey,
-        },
-      })) as GateRunRow;
-    } catch (error) {
-      const maybe = error as { code?: string; meta?: { target?: string[] | string } };
-      const target = maybe?.meta?.target;
-      const activeConflict =
-        maybe?.code === 'P2002' &&
-        ((Array.isArray(target) && target.includes('activeKey')) ||
-          (typeof target === 'string' && target.includes('activeKey')));
-      if (activeConflict) {
-        throw new ConflictException(
-          'Gate check already running for this ticket, environment, and release version',
-        );
-      }
-      throw error;
-    }
-
-    await this.recordGateAudit(
-      AuditActions.RELEASE_GATE_CHECKED,
-      ticket,
-      run,
-      actor,
-      AuditResult.SUCCESS,
-      this.normalizeOptionalString(input.reason) || 'Release gate check started',
-      null,
-      ChangeTicketGateRunStatuses.PENDING,
-    );
-
-    run = (await this.prisma.changeTicketGateRun.update({
-      where: { id: run.id },
-      data: {
-        status: ChangeTicketGateRunStatuses.RUNNING,
-        startedAt: new Date(),
-      },
-    })) as GateRunRow;
-
-    const passed = (await this.prisma.changeTicketGateRun.update({
-      where: { id: run.id },
-      data: {
-        status: ChangeTicketGateRunStatuses.PASSED,
-        finishedAt: new Date(),
-        activeKey: null,
-      },
-    })) as GateRunRow;
-
-    await this.recordGateAudit(
-      AuditActions.RELEASE_GATE_PASSED,
-      ticket,
-      passed,
-      actor,
-      AuditResult.SUCCESS,
-      this.normalizeOptionalString(input.reason) || 'Release gate passed',
-      ChangeTicketGateRunStatuses.RUNNING,
-      ChangeTicketGateRunStatuses.PASSED,
-    );
-
-    return this.mapGateRun(passed);
-  }
-
-  async markDeployStatus(
-    id: string,
-    input: {
-      targetEnv: string;
-      releaseVersion: string;
-      deployStatus: string;
-      reason?: string;
-      traceId?: string;
-    },
-    actor: ApprovalActorContext,
-  ) {
-    const ticket = await this.findTicketOrThrow(id);
-    this.assertTraceConsistency(ticket.traceId, input.traceId);
-
-    if (
-      !([
-        ChangeTicketStatuses.READY_FOR_DEPLOY,
-        ChangeTicketStatuses.DEPLOY_FAILED,
-      ] as string[]).includes(ticket.status)
-    ) {
-      throw new BadRequestException('Change ticket status does not allow deploy mark');
-    }
-
-    this.ensureGateEvidenceComplete(ticket);
-
-    const releaseVersion = input.releaseVersion.trim();
-    const passed = await this.prisma.changeTicketGateRun.findFirst({
-      where: {
-        ticketId: ticket.id,
-        targetEnv: input.targetEnv,
-        releaseVersion,
-        status: ChangeTicketGateRunStatuses.PASSED,
-      },
-      orderBy: [{ createdAt: 'desc' }],
-    });
-    if (!passed) {
-      throw new BadRequestException(
-        'No PASSED gate run found for the selected environment and release version',
-      );
-    }
-
-    if (
-      input.deployStatus === ChangeTicketDeployStatuses.DEPLOY_FAILED &&
-      !this.normalizeOptionalString(input.reason)
-    ) {
-      throw new BadRequestException('reason is required when marking deploy failed');
-    }
-
-    const nextStatus =
-      input.deployStatus === ChangeTicketDeployStatuses.DEPLOYED
-        ? ChangeTicketStatuses.DEPLOYED
-        : ChangeTicketStatuses.DEPLOY_FAILED;
-
-    const updated = (await this.prisma.changeTicket.update({
-      where: { id: ticket.id },
-      data: {
-        status: nextStatus,
-        deployedAt: new Date(),
-      },
-      include: this.ticketInclude(),
-    })) as ChangeTicketRow;
-
-    await this.recordTicketAudit(
-      nextStatus === ChangeTicketStatuses.DEPLOYED
-        ? AuditActions.CHANGE_TICKET_DEPLOYED
-        : AuditActions.CHANGE_TICKET_DEPLOY_FAILED,
-      updated,
-      actor,
-      nextStatus === ChangeTicketStatuses.DEPLOYED ? AuditResult.SUCCESS : AuditResult.FAILED,
-      this.normalizeOptionalString(input.reason) ||
-        (nextStatus === ChangeTicketStatuses.DEPLOYED
-          ? 'Deploy marked as deployed'
-          : 'Deploy marked as failed'),
-      ticket.status,
-      nextStatus,
-      {
-        targetEnv: input.targetEnv,
-        releaseVersion,
-      },
-    );
-
-    await this.emitChangeTicketEvent(ChangeTicketEvents.DEPLOY_MARKED, {
-      ticketId: updated.id,
-      ticketNo: updated.ticketNo,
-      traceId: updated.traceId,
-      status: updated.status,
-    });
-
-    return this.mapTicket(updated);
   }
 }

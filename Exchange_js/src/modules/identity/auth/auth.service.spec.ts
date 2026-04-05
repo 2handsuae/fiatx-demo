@@ -6,6 +6,7 @@ import { JwtService } from '@nestjs/jwt';
 import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
 import { ForbiddenException } from '@nestjs/common';
 import { AccessControlService } from '../access-control/access-control.service';
+import { AuditBusinessWorkflowTypes } from '../../risk-engine/audit-logs/constants/audit-actions.constant';
 
 describe('AuthService', () => {
   let service: AuthService;
@@ -160,6 +161,44 @@ describe('AuthService', () => {
       }),
     );
     expect(result.user.roles).toEqual(['SUPER_ADMIN', 'MLRO']);
+  });
+
+  it('writes admin login success audit with login workflow and fresh trace', async () => {
+    usersService.findByIdentifier.mockResolvedValue({
+      id: 'user-1',
+      userNo: 'ADMIN-001',
+      role: 'SUPER_ADMIN',
+      email: 'admin@fiatx.com',
+      password: '$2b$10$YjgDqqV9A6t5r2On1m8xP.Ef9nQ4myS0xFjM8g9v8T6SdR5QQVh6W',
+      status: 'ACTIVE',
+      failedLoginAttempts: 0,
+      lockedUntil: null,
+      lastLoginAt: null,
+    });
+    usersService.update.mockResolvedValue(undefined);
+    auditLogsService.recordByActor.mockResolvedValue({});
+
+    const bcrypt = require('bcrypt');
+    jest.spyOn(bcrypt, 'compare').mockResolvedValue(true);
+
+    await service.validateUser('admin@fiatx.com', '123456', {
+      requestId: 'req-login-1',
+      sourceIp: '127.0.0.1',
+      sourcePlatform: 'ADMIN_AUTH_API',
+    });
+
+    expect(auditLogsService.recordByActor).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'ADMIN_LOGIN_SUCCESS',
+        workflowType: AuditBusinessWorkflowTypes.ADMIN_LOGIN_ACCESS,
+        workflowNo: 'ADMIN-001',
+        traceId: expect.any(String),
+      }),
+      expect.objectContaining({
+        actorId: 'user-1',
+        actorNo: 'ADMIN-001',
+      }),
+    );
   });
 
   it('should reject deleted admin session snapshots', async () => {

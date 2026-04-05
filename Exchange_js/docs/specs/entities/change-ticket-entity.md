@@ -1,6 +1,6 @@
 Status: active
 Owner: project-owner-and-agents
-Last Updated: 2026-03-22
+Last Updated: 2026-04-02
 Applies To: `Exchange_js`
 Supersedes: none
 Depends On: `docs/specs/workflows/change-ticket-release-gate-workflow.md`
@@ -9,50 +9,68 @@ Source of Truth Level: specs-entity
 # Change Ticket Entity
 
 ## Purpose
-- This document defines the canonical semantics for `Change Ticket` as the Wave 1 governance release-control object.
+- Canonical entity semantics for governance change tickets in the minimal approval-and-consume model.
 
 ## Canonical Fields
 - `id`
 - `ticketNo`
 - `status`
 - `changeType`
+- `changeReason`
 - `scopeSummary`
-- `riskLevel`
 - `testEvidenceRef`
 - `rollbackPlanRef`
-- `latestApprovalId`
-- `latestApprovalStatus`
+- `bindingSnapshotJson`
+- `bindingDigest`
+- `approvalCaseId`
+- `approvalNo`
 - `traceId`
-- `emergency`
-- `emergencyReason`
-- `postApprovalDueAt`
-- `postApprovalCompletedAt`
 - `createdByUserId`
+- `createdByUserNo`
 - `submittedByUserId`
-- `closedByUserId`
+- `submittedByUserNo`
+- `consumedByUserId`
+- `consumedByUserNo`
 - `submittedAt`
-- `deployedAt`
-- `closedAt`
+- `consumedAt`
+- `resultNote`
 - `deletedAt`
 - `deletedBy`
 - `deleteRequestId`
+- `deleteRequestNo`
 - `deleteReason`
+- `createdAt`
+- `updatedAt`
 
 ## Lifecycle Anchor
-- Change ticket is the workflow root for Wave 1 release gate semantics.
-- Approval terminal state projects into ticket state, but approval remains a separate governance object.
-- Gate runs are subordinate execution records attached to the ticket.
+- `ChangeTicketsService` owns creation, approval binding, approval-projection sync, and consume.
+- Approval remains a separate governance object identified by `approvalCaseId` and `approvalNo`.
+- Soft delete is applied by `DeleteRequestsService` onto the target ticket, not by removing the ticket chain.
 
-## Write Owners
-- `ChangeTicketsService` owns ticket lifecycle and approval binding.
-- `ReleaseGatesService` owns gate-run evaluation and deploy gate checks.
-- `DeleteRequestsService` may soft-delete closed tickets.
+## State Model
+- `DRAFT`
+- `PENDING_APPROVAL`
+- `READY`
+- `DONE`
+- `FAILED`
+- `REJECTED`
+- `CANCELLED`
+
+## Type Model
+- `ADMIN_ACCESS_CHANGE`
+- `RBAC_CATALOG_CHANGE`
+
+## Action Model
+- `create`
+- `list`
+- `getById`
+- `submit`
+- `consume`
 
 ## Read-Model Meaning
 - `ticketNo` is the operator-facing primary identifier.
-- `latestApprovalStatus` preserves actual approval terminal truth even when ticket status maps to `REJECTED`.
-- `postApprovalDueAt` and `postApprovalCompletedAt` exist only for emergency post-approval follow-up semantics.
-
-## Historical / Retired Notes
-- `APPROVED` is not a stable `change_tickets.status`.
-- Generic or trading-oriented `changeType` values are retired runtime history and are not canonical Wave 1 truth.
+- `approvalCaseId` and `approvalNo` carry the linked approval reference.
+- `createdByUserNo`, `submittedByUserNo`, and `consumedByUserNo` are the operator-facing user references.
+- `bindingSnapshotJson` and `bindingDigest` preserve the consume-binding payload and digest snapshot when present.
+- `resultNote` captures the final consume outcome note.
+- `deletedAt` and related delete fields only appear after a delete request consumes the ticket.

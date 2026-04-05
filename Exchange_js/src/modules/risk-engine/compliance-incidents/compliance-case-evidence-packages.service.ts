@@ -496,6 +496,7 @@ export class ComplianceCaseEvidencePackagesService {
   private mapEvidencePackage(row: any) {
     return {
       ...row,
+      approvalCaseNo: row.approvalCaseNo || row.approvalCase?.approvalNo || null,
       filterSnapshot: this.parseJson(row.filterSnapshot),
       selectedCaseIdsSnapshot: this.parseJson(row.selectedCaseIdsSnapshot) || [],
       manifest: this.parseJson(row.manifest),
@@ -524,6 +525,7 @@ export class ComplianceCaseEvidencePackagesService {
     const evidencePackage = await this.createPackageRecord({
       exportedByType: actor.actorType,
       exportedById: actor.userId,
+      exportedByNo: actor.userNo || null,
       exportedByRole: actor.role || actor.roleCodes[0] || null,
       status: AuditEvidencePackageStatus.PENDING_APPROVAL,
       exportMode: 'CASE_SELECTION',
@@ -567,6 +569,7 @@ export class ComplianceCaseEvidencePackagesService {
       where: { id: evidencePackage.id },
       data: {
         approvalCaseId: submitted.id,
+        approvalCaseNo: submitted.approvalNo || null,
       },
     });
 
@@ -600,6 +603,7 @@ export class ComplianceCaseEvidencePackagesService {
               status: true,
               executionStatus: true,
               traceId: true,
+              decisionByUserNo: true,
               decisionByUserId: true,
               decisionByRole: true,
               decidedAt: true,
@@ -635,6 +639,7 @@ export class ComplianceCaseEvidencePackagesService {
             status: true,
             executionStatus: true,
             traceId: true,
+            decisionByUserNo: true,
             decisionByUserId: true,
             decisionByRole: true,
             decidedAt: true,
@@ -708,9 +713,9 @@ export class ComplianceCaseEvidencePackagesService {
     const exporterActor: ApprovalActorContext = {
       actorType: 'ADMIN',
       userId: evidencePackage.exportedById,
+      userNo: evidencePackage.exportedByNo || undefined,
       role: evidencePackage.exportedByRole || undefined,
       roleCodes: evidencePackage.exportedByRole ? [evidencePackage.exportedByRole] : [],
-      userNo: undefined,
     };
 
     try {
@@ -775,7 +780,7 @@ export class ComplianceCaseEvidencePackagesService {
         {
           actorType: 'ADMIN',
           userId: event.decisionByUserId || exporterActor.userId,
-          userNo: exporterActor.userNo,
+          userNo: event.decisionByUserNo || exporterActor.userNo,
           role: event.decisionByRole || exporterActor.role,
           roleCodes: event.decisionByRole ? [event.decisionByRole] : exporterActor.roleCodes,
         },
@@ -795,7 +800,7 @@ export class ComplianceCaseEvidencePackagesService {
         {
           actorType: 'ADMIN',
           userId: event.decisionByUserId || exporterActor.userId,
-          userNo: exporterActor.userNo,
+          userNo: event.decisionByUserNo || exporterActor.userNo,
           role: event.decisionByRole || exporterActor.role,
           roleCodes: event.decisionByRole ? [event.decisionByRole] : exporterActor.roleCodes,
         },

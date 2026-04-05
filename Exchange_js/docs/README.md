@@ -2,7 +2,7 @@
 
 Status: active
 Owner: project-owner-and-agents
-Last Updated: 2026-04-01
+Last Updated: 2026-04-02
 Applies To: `Exchange_js`
 Supersedes: none
 Depends On: `AGENTS.md`, `docs/constraints/README.md`
@@ -90,6 +90,7 @@ Source of Truth Level: documentation-governance-index
 - `docs/cleanup/`
   - purpose: staged legacy removal, compatibility convergence, debt retirement
   - update when: a cleanup stage starts, advances, or is completed
+  - note: new active cleanup rounds MAY use a dedicated subfolder under `docs/cleanup/` to separate current work from historical closeout records
   - do not use for: permanent workflow semantics
 - `docs/constraints/`
   - purpose: hard rules, invariants, and forbidden patterns

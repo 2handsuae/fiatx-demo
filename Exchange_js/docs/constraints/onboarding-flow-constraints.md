@@ -3,10 +3,10 @@
 ## 1) Scope and Ownership
 - Scope module: `src/modules/identity/onboarding/**`.
 - Customer endpoints under `/onboarding/**`.
-- Admin compliance endpoints under `/admin/compliance/**`.
+- Provider webhook endpoints under `/onboarding/sumsub/**`.
 - Customer and admin authority MUST remain separated by token type.
 - This document follows current implementation names.
-- Compliance `Case` domain semantics are defined by `docs/constraints/compliance-alert-case-foundation-constraints.md`.
+- Sumsub workflow is the verification truth source for active onboarding runtime.
 
 ## 1.1) Related Canonical Docs
 - Workflow truth:
@@ -19,23 +19,22 @@
 3. `docs/specs/entities/approval-case-entity.md`
 - Module integration truth:
 1. `docs/specs/modules/customer-onboarding-module.md`
-2. `docs/specs/modules/compliance-center-module.md`
-3. `docs/specs/modules/approvals-module.md`
+2. `docs/specs/modules/approvals-module.md`
 
 ## 2) Canonical Identities
-- Onboarding domain MUST only use these identities:
+- Active onboarding runtime MUST treat these as primary identities:
 1. `customer`
-2. `cddResponse` (onboarding evidence container / provider response, not compliance `Case`)
-3. `eddResponse` (onboarding evidence container / provider response, not compliance `Case`)
-4. `workflowDecisionRecord`
-5. `alert`
-6. `case` (compliance investigation object; some historical physical/service names may still contain `incident` in normalization or archived cleanup context)
+2. `sumsub applicant`
+3. `verification projection`
+4. `approval`
+- Legacy onboarding evidence identities MAY remain for compatibility and browse use cases:
+1. `cddResponse`
+2. `eddResponse`
+3. `workflowDecisionRecord`
+4. `alert`
+5. `case`
 - Final approval MUST be approval-backed and projected back to customer lifecycle.
-- Approval runtime semantics are defined by the approvals module; onboarding MUST consume approval result projection instead of directly inventing a separate final-review entity.
-- Note:
-1. `cddResponse / eddResponse / workflowDecisionRecord` are current physical/runtime names
-2. operator-facing canonical naming is `CDD Response / EDD Response`
-3. active admin/runtime contract uses `Case`; historical `incident` names are archived implementation residue only and MUST NOT be reintroduced as new external surface
+- Approval runtime semantics are defined by the approvals module; onboarding MUST consume approval result projection instead of inventing a second final-review lifecycle.
 
 ## 3) Next-Step Contract
 - `getNextStep` is the single source for onboarding guidance.
@@ -44,82 +43,86 @@
 2. `blockedReason`
 3. `activeCaseId`
 4. `requiresEdd`
+5. `verification`
 - Allowed action types:
-1. `START_CDD`
-2. `CREATE_CDD_SESSION`
-3. `COMPLETE_CDD`
-4. `START_EDD`
-5. `CREATE_EDD_SESSION`
-6. `COMPLETE_EDD`
-7. `WAIT_REVIEW`
-8. `WAIT_FINAL_APPROVAL`
-9. `REINITIATE_CDD`
-10. `NONE`
+1. `START_VERIFICATION`
+2. `CONTINUE_VERIFICATION`
+3. `WAIT_VERIFICATION`
+4. `WAIT_FINAL_APPROVAL`
+5. `REINITIATE_VERIFICATION`
+6. `NONE`
+- `verification` MUST remain the active provider read model and include:
+1. `provider`
+2. `applicantId`
+3. `currentLevelName`
+4. `latestReviewId`
+5. `latestAttemptId`
+6. `substatus`
+7. `customerActionRequired`
+8. `canContinue`
+9. `latestEventType`
+10. `latestEventAt`
+11. `experiencedLevel2`
+- `activeCaseId` MAY remain present for backward compatibility but is not the primary Sumsub workflow driver.
 - MUST NOT add competing next-step logic in controller or frontend page layers.
-- Frontend MAY use `actions[]`, `blockedReason`, and `activeCaseId` from this contract, but onboarding primary state MUST be derived from canonical customer fields.
+- Frontend MAY use `actions[]`, `blockedReason`, and `verification`, but onboarding primary state MUST be derived from canonical customer fields.
+- Legacy compatibility paths MAY still emit historical next-step actions while the old flow remains readable.
 
 ## 4) State Machine Constraints
 - Customer lifecycle MUST stay progress-only:
-1. `NONE -> PENDING_CDD_INPUT -> CDD_UNDER_REVIEW -> PENDING_EDD_INPUT -> EDD_UNDER_REVIEW -> FINAL_APPROVAL -> APPROVED`
+1. `NONE -> PENDING_VERIFICATION -> APPROVED`
+2. `NONE -> PENDING_VERIFICATION -> FINAL_APPROVAL -> APPROVED`
 - Customer terminal status MUST stay:
 1. `REJECTED`
 2. `WITHDRAWN`
-- Canonical response lifecycle projection MUST stay:
-1. `CREATED -> COMPLETED`
-- Historical physical/internal persistence MAY still retain intermediate names such as `RECEIVED / FINAL` in migration, normalization, or archived cleanup context, but new external contracts MUST NOT expose them as canonical response lifecycle truth.
-- DecisionRecord lifecycle MUST stay:
-1. `CREATED -> COMPLETED | FAILED`
-- State fields MUST express lifecycle progress only, not business decisions.
+- `FINAL_APPROVAL` MUST only be reachable when provider workflow completed after the customer experienced `level2`.
+- Legacy EDD compatibility transition MAY still reach `FINAL_APPROVAL`; this is cleanup residue and not the active provider-first path.
+- `applicantWorkflowCompleted` without `level2` experience MUST move customer directly to `APPROVED + ACTIVE`.
+- `applicantWorkflowFailed` MUST move customer to `REJECTED + INACTIVE`.
+- Legacy raw onboarding states such as `PENDING_CDD_INPUT`, `CDD_UNDER_REVIEW`, `PENDING_EDD_INPUT`, and `EDD_UNDER_REVIEW` MAY still be recognized for normalization or compatibility, but active runtime MUST NOT transition back into them.
+- Approved-customer expiry currently remains a compatibility exception and still falls back to a legacy raw pending state until provider-first expiry re-entry is implemented.
+- State fields MUST express customer lifecycle only, not provider step-by-step detail.
 
-## 5) Risk Engine Constraints
-- Risk decision domain MUST expose one entry:
-1. `evaluate(contextType, subjectId, signals, policyVersion?)`
-- Every evaluate call MUST persist one `workflowDecisionRecord`.
-- DecisionRecord MUST be replayable with:
-1. `contextType`
-2. `policyVersion`
-3. `inputHash`
-4. input snapshot
-5. output (`decision`, `recommendedActions`, `reasonCodes`)
-- External CDD/EDD provider callback MUST be treated as evidence input only; final routing is decided by Risk Engine output mapping.
+## 5) Provider Verification Constraints
+- Active onboarding verification MUST be driven by Sumsub workflow events.
+- `startVerification` MUST:
+1. create or reuse applicant
+2. issue SDK token
+3. move customer to `PENDING_VERIFICATION`
+- Current onboarding-driving provider events are:
+1. `applicantPending`
+2. `applicantOnHold`
+3. `applicantReviewed`
+4. `applicantLevelChanged`
+5. `applicantWorkflowCompleted`
+6. `applicantWorkflowFailed`
+- `applicantReviewed + RED + RETRY` MUST map to:
+1. customer stays `PENDING_VERIFICATION`
+2. `verification.substatus = RESUBMIT_REQUIRED`
+3. `verification.canContinue = true`
+- `applicantLevelChanged` MUST map to:
+1. customer stays `PENDING_VERIFICATION`
+2. `verification.substatus = NEXT_LEVEL_REQUIRED`
+3. `sumsubExperiencedLevel2 = true` only when the new level is `level2`
+- Unsupported or non-terminal provider events MAY be projected as `PROCESSING`, but they MUST NOT invent new customer lifecycle states.
+- Starting verification MUST be rejected for:
+1. `APPROVED`
+2. `FINAL_APPROVAL`
+3. invalid raw legacy onboarding states
 
-## 6) CDD/EDD Orchestration Constraints
-- Starting onboarding MUST create or reuse active CDD evidence container (`cddResponse`) in `CREATED`.
-- Session completion MUST store provider payload and complete the underlying onboarding evidence container evidence intake.
-- Historical physical/internal state names such as `RECEIVED -> FINAL` MAY still exist inside implementation or migration context, but operator-facing/runtime contract MUST continue to project response lifecycle as `CREATED -> COMPLETED`.
-- CDD completion MUST create a pending `workflowDecisionRecord` and queue final CDD risk simulation for Admin `Risk Policy Executions`.
-- CDD completion MUST move customer to `CDD_UNDER_REVIEW` while waiting for Admin `Risk Policy Executions` to simulate the final risk outcome.
-- EDD completion MUST create a pending `workflowDecisionRecord` and queue final EDD risk simulation for Admin `Risk Policy Executions`.
-- EDD completion MUST move customer to `EDD_UNDER_REVIEW` while waiting for Admin `Risk Policy Executions` to simulate the final risk outcome.
-- Historical CDD `mockDataType` compatibility MAY remain in runtime internals, but it MUST NOT be treated as the active client UI contract:
-1. `LOW_RISK` -> auto-pass onboarding to `APPROVED + ACTIVE` without creating/updating onboarding journey alert
-2. `MEDIUM_RISK` / `HIGH_RISK_OR_PEP` -> create/update onboarding journey alert only
-3. `SANCTION_AND_OTHER` -> create/update onboarding journey alert only
-- Legacy compatibility for CDD mock completion MUST remain:
-1. when `mockDataType` is missing and `result='FAIL'`, map to `SANCTION_AND_OTHER`
-2. otherwise map to `LOW_RISK`
-- Final approve/reject action MUST only be allowed from `FINAL_APPROVAL`.
+## 6) Legacy Response / Session Compatibility
+- `CDD Response` and `EDD Response` remain legacy evidence containers only.
+- Response/session completion MUST NOT be treated as the active canonical onboarding pass/fail signal.
+- Legacy bootstrap/reinitiate/session/mock-complete endpoints MAY remain for compatibility, fixtures, or archived cleanup context.
+- Active onboarding UI MUST NOT depend on legacy response/session mock-complete flow.
+- Legacy review-stage transitions MAY still write raw onboarding statuses as compatibility residue until fully removed.
 
-## 7) Alert and Incident Integration
-- Onboarding review signal MUST be upserted by journey key + stage (`customerId:journeyId + stage`) as one alert per review stage.
-- EDD re-evaluation MUST use a dedicated `REVIEW_EDD` alert instead of rewriting the `REVIEW_CDD` alert.
-- Alert/incident decision details MAY be written to filter fields (`decisionRecommendation`, `decision`) but MUST NOT change state-machine definition.
-- Recommendation options MUST come from risk-engine output (`recommendedDecisions`) and be projected to alert/incident detail.
-- Recommendation set contract MUST remain:
-1. CDD review: `CLEAR`, `REJECT`, `REQUIRE_EDD`
-2. EDD review: `CLEAR`, `REJECT`
-- EDD-stage recommendation rendering MUST NOT show `REQUIRE_EDD` in alert or incident detail views.
-- `REVIEW_CDD` stage MAY be progressed by assigned onboarding journey alert decision action:
-1. `CLEAR` -> customer `APPROVED + ACTIVE`
-2. `REJECT` -> customer `REJECTED`
-3. `REQUIRE_EDD` -> create/reuse EDD evidence container (`eddResponse`) and move customer to `PENDING_EDD_INPUT`
-- `REVIEW_EDD` stage MAY be progressed by assigned onboarding journey alert/incident decision action:
-1. `CLEAR` -> customer `FINAL_APPROVAL`
-2. `REJECT` -> customer `REJECTED`
-- Alert/case decision MUST first write producer-side disposition/event, then delegate workflow mutation to onboarding workflow transition consumer.
-- Onboarding workflow mutation MUST NOT be implemented as ad-hoc customer status updates scattered in alert/case handlers.
-- Recommendation actions are intentionally repeat-callable at container level; illegal transitions MUST be blocked by onboarding stage validation.
-- Alert workflow state (`ASSIGN/ESCALATE/CLOSE`) and onboarding recommendation actions MUST stay decoupled.
+## 7) Final Approval Constraints
+- Final approval MUST remain approval-backed.
+- Only onboarding workflows that completed after `level2` experience MAY auto-create `ONBOARDING_FINAL_APPROVAL`.
+- Approval submit / approve / reject MUST stay inside approvals module semantics.
+- Final approval rejection MUST resolve customer to `REJECTED`.
+- Final approval MUST NOT be created for `level1`-only workflow completion.
 
 ## 8) Trading Gate and Legacy Snapshot
 - Trading eligibility gate MUST use canonical customer state:
@@ -128,7 +131,8 @@
 3. `restrictionStatus != RESTRICTED`
 4. `complianceHoldStatus != FROZEN`
 - Legacy fields (`complianceStatus`, `cddStatus`, `eddStatus`) have been removed from customer schema/payload and MUST NOT be reintroduced as customer lifecycle truth.
-- Reinitiation MUST only be available for rejected/withdrawn/expired scenarios.
+- Provider-first reinitiation via `startVerification` currently applies to rejected/withdrawn scenarios.
+- Expired approved customers still follow the legacy compatibility path until provider-first expiry handling is implemented.
 
 ## 9) Auditability (Mandatory)
 - Canonical onboarding / periodic review audit store MUST be `audit_log_events`.
@@ -141,61 +145,45 @@
 2. `workflowId = journeyId`
 3. `workflowNo = journeyId`
 4. `traceId = ONBOARDING:<journeyId>`
-- Key onboarding actions MUST write canonical audit events with:
+- Key onboarding actions SHOULD write canonical audit events with:
 1. actor id/role
 2. customer id
-3. evidence container type/id when applicable
-4. from/to stage when applicable
+3. provider object identifiers when applicable
+4. from/to lifecycle state when applicable
 5. detail payload
-- Canonical audit events for onboarding flow MUST also include:
-1. `traceId`
-2. `workflowType`
-3. `workflowId`
-4. `workflowNo`
-5. `entityOwnerType/entityOwnerId/entityOwnerNo`
-- `onboarding final approval` MUST inherit the same onboarding trace and MUST NOT generate a new random trace when created from onboarding flow.
-- Decision transition actions MUST keep reason fields for audit and replay.
+- Current runtime MUST include:
+1. final approval submitted / approved / rejected when applicable
+- Verification-start and provider-webhook audit emission is a remaining Wave 3 foundation reset follow-up and is not yet mandatory in the current implementation.
 
 ## 10) Thread Delivery Checklist (Onboarding)
 - `getNextStep` contract changes explicitly versioned/documented when touched.
-- Customer/case/decision transitions validated with tests.
-- Risk Engine evaluate-to-record behavior validated.
-- Alert/incident linkage validated for onboarding journey rules.
+- Customer/provider transition handling validated with tests.
+- Webhook simulation and real webhook reuse the same handler.
 - Audit log records verified for critical actions.
 - `Audit Center` trace query verified for onboarding flow when work touches:
-1. response submit
-2. alert
-3. case
-4. final approval
+1. final approval
+2. provider-event replay only when that audit gap is explicitly closed in the same work
 - Cross-module read-model stability verified for `GET /customers/:id` onboarding snapshot fields:
 1. canonical customer status fields
-2. `cddResponses`
-3. `eddResponses`
+2. `verification`
+3. legacy response projections only where still intentionally exposed
 
 ## 11) Client Verification Projection Rules
 - Client `/verification` UI MUST treat canonical customer fields as the primary onboarding state source.
-- `getNextStep` MAY still be consumed for action guidance, `blockedReason`, and `activeCaseId`, but MUST NOT be treated as the primary onboarding state source.
-- Client `/verification` MUST remain the customer-side evidence collection and mock-complete surface.
-- Shared `Simulation Mode` MUST gate customer-side evidence collection and mock-complete actions on `/verification`.
-- When shared `Simulation Mode` is disabled, `/verification` MUST NOT expose these customer-side simulation actions:
-1. `Bootstrap CDD`
-2. `Regenerate Session`
-3. `Mock Complete CDD`
-4. `Start EDD`
-5. `Reinitiate CDD / EDD`
-6. `Mock Complete EDD`
-- Admin `CDD Response / EDD Response` pages MAY browse evidence detail, but MUST NOT introduce a second onboarding provider mock-complete surface.
+- `getNextStep` MAY still be consumed for action guidance, `blockedReason`, and `verification`, but MUST NOT be treated as a second independent onboarding state machine.
+- Client `/verification` MUST remain the provider-backed start / continue / wait surface.
+- Shared `Simulation Mode` MUST gate customer-side Sumsub event simulation on `/verification`.
+- When shared `Simulation Mode` is disabled, `/verification` MUST NOT expose Sumsub simulation actions.
 - Projection baseline MUST keep these canonical mappings:
-1. `onboardingStatus = NONE` -> `CDD` / `START_CDD`
-2. `onboardingStatus = PENDING_CDD_INPUT` -> `CDD` / `COMPLETE_CDD`
-3. `onboardingStatus = PENDING_EDD_INPUT` -> `EDD` / `COMPLETE_EDD`
-4. `onboardingStatus = CDD_UNDER_REVIEW | EDD_UNDER_REVIEW` -> `WAIT_REVIEW` / `WAIT`
-5. `onboardingStatus = FINAL_APPROVAL` -> `WAIT_REVIEW` / `WAIT`
-6. `onboardingStatus = REJECTED | WITHDRAWN` -> `REINITIATE` / `REINITIATE_CDD`
-7. `onboardingStatus = APPROVED` and `operatingStatus = ACTIVE` -> terminal completion and client redirect
-- Final `ONBOARDING_CDD` risk simulation MUST be executed from Admin `Risk Policy Executions`, not from a client-side risk selection dialog.
-- Final `ONBOARDING_EDD` risk simulation MUST be executed from Admin `Risk Policy Executions`, not from a client-side risk selection dialog.
-- `ONBOARDING_EDD + LOW + EDD_CLEAR` simulation MUST bypass alert/case creation and move customer directly to `FINAL_APPROVAL`.
-- CDD mock-complete in client MUST submit session completion without client-side risk selection; `mockDataType` is retained compatibility only and is not the active UI contract.
-- EDD mock-complete MUST keep direct `{ result: 'PASS' }`.
-- In `PENDING_EDD`, client MUST require explicit `Start EDD` action to create session link when no valid QR link exists; client MUST NOT auto-start EDD session implicitly.
+1. `onboardingStatus = NONE` -> `START_VERIFICATION`
+2. `onboardingStatus = PENDING_VERIFICATION` and `verification.canContinue = true` -> `CONTINUE_VERIFICATION`
+3. `onboardingStatus = PENDING_VERIFICATION` and `verification.canContinue != true` -> `WAIT_VERIFICATION`
+4. `onboardingStatus = FINAL_APPROVAL` -> `WAIT_FINAL_APPROVAL`
+5. `onboardingStatus = REJECTED | WITHDRAWN` -> `REINITIATE_VERIFICATION`
+6. `onboardingStatus = APPROVED` and `operatingStatus = ACTIVE` -> terminal completion and client redirect
+- Legacy projection actions such as `COMPLETE_CDD`, `WAIT_REVIEW`, and `COMPLETE_EDD` may still appear through compatibility runtime residue and MUST NOT be treated as the active provider-first path.
+- Provider projection guidance MUST follow:
+1. `substatus = CREATED | RESUBMIT_REQUIRED | NEXT_LEVEL_REQUIRED` -> customer may continue verification
+2. `substatus = SUBMITTED | UNDER_REVIEW | PROCESSING` -> customer waits
+3. `substatus = COMPLETED` with `onboardingStatus = FINAL_APPROVAL` -> customer waits for final approval
+4. `substatus = FAILED` -> customer may reinitiate only after lifecycle moves to `REJECTED` or `WITHDRAWN`

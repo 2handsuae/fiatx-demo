@@ -11,6 +11,15 @@
 - 合规管理员：查询登录、KYT、Travel Rule、状态迁移、人工干预等动作，定位责任人与处理时序。
 - 运营管理员：按业务 No（如 `withdrawNo`、`payoutNo`、`customerNo`）追踪异常流程与失败原因。
 
+## Operator-facing 语义规则
+页面第一层采用 business-workflow-first 语义，而不是底层 container 名称：
+- 一个业务 workflow 实例 = 一条 `traceId`，用于串起该实例内的用户动作与系统执行结果。
+- 页面第一层默认展示 `businessWorkflow`、`userAction`、`primaryRefNo`。
+- `approval` 是嵌入式治理节点，不是顶层 operator workflow；审批事件应归属于父业务 workflow。
+- `Change Ticket` 与 `Delete Request` 是治理容器，不是页面第一层 workflow 名称。
+- 删除类流程使用自己的 workflow trace，不继承被删目标对象的 trace。
+- raw `action`、`traceId`、`workflowType/workflowNo/workflowId`、`entityType/entityNo` 仅在 technical context 中保留。
+
 ## 本轮交付范围
 当前阶段重点交付：
 - Admin 一级菜单 `Audit Center`，下挂 `Audit Log` 与 `Evidence Packages`。
@@ -20,6 +29,37 @@
 - `Audit Log` 的事件事实层、`subjectNos[]` 查找层和 context JSON 层需要清晰分层。
 - `traceId` 查询与 `subjectNo` 查询必须分离，不再混用语义。
 - `Change Tickets` 与 `Delete Requests` 仍作为治理辅助能力保留，但不属于 audit module 的 canonical contract。
+
+## Wave 1 Operator-facing Business Workflows
+当前页面第一层只使用以下业务 workflow 语义：
+- `ADMIN_MEMBER_PROVISIONING`
+- `ADMIN_LOGIN_ACCESS`
+- `ADMIN_ROLE_BINDING_CHANGE`
+- `CHANGE_TICKET_DELETION`
+- `ADMIN_USER_DELETION`
+- `AUDIT_EVIDENCE_PACKAGE_DELETION`
+- `AUDIT_EVIDENCE_EXPORT`
+
+这些名称用于列表页、详情页、筛选与运营沟通；底层 container 或技术动作不直接作为第一层展示语言。
+
+## Wave 1 User Action Vocabulary
+页面第一层用户动作采用稳定、面向运营的 vocabulary，当前包括但不限于：
+- `REQUEST_CREATED`
+- `SUBMITTED`
+- `APPROVED_FOR_EXECUTION`
+- `REJECTED`
+- `CANCELLED`
+- `EXECUTED`
+- `EXECUTION_FAILED`
+- `RESENT`
+- `ACCEPTED`
+- `ACCEPT_FAILED`
+- `LOGIN_SUCCEEDED`
+- `LOGIN_FAILED`
+- `EXPORTED`
+- `EXPORT_FAILED`
+
+底层 raw `action` 继续完整保留，用于技术排障、取证复核和精细检索。
 
 ## 当前接口能力清单
 - `POST /admin/audit-logs`：管理员手工补录审计事件。
@@ -74,6 +114,13 @@
 - 时间窗与结果过滤：`startAt/endAt/result`。
 - 模糊补充：`keyword` 只用于兜底搜索，不替代 No 精确检索。
 
+`primaryRefNo` 的产品语义是“当前业务 workflow 实例最稳定、最面向运营的主编号”：
+- 优先使用 `workflowNo`
+- 若无 `workflowNo`，优先使用根业务 `subjectNo`
+- 最后才退回技术实体编号
+
+因此 approval 子节点号不应在存在父业务编号时抢占第一层主编号。
+
 ## 证据包能力（JSON 单文件、摘要校验、持久化复下载）
 证据包输出为单个 JSON 文件，结构固定为：
 - `manifest`：导出版本、时间、导出人、筛选条件、记录摘要列表。
@@ -82,6 +129,10 @@
 - `digest`：包级 SHA-256 摘要。
 
 导出动作本身会新增一条 `EVIDENCE_EXPORT` 审计事件，形成闭环留痕。用户下载的内容来自审批通过后持久化的包体，而不是临时重算。
+
+证据导出在页面第一层归属于 `AUDIT_EVIDENCE_EXPORT`：
+- 导出申请、审批、执行成功、执行失败共用同一条 trace。
+- `approval` 只作为该业务 workflow 内的治理节点展示，不单独抬升为顶层 workflow。
 
 `Evidence Packages` 列表页只展示导出记录摘要，不在底部内嵌 detail。用户点击 `View` 或 `packageNo` 后进入独立的 `Evidence Package Detail` 页，按导出记录字段含义查看：
 - 标识类：`packageNo`、`fileName`

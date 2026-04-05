@@ -14,7 +14,6 @@ import { QRCodeSVG } from 'qrcode.react';
 import { useCustomerProfile } from '../hooks/useCustomerProfile';
 import {
   normalizeCanonicalOnboardingStatus,
-  normalizeCanonicalOperatingStatus,
 } from '../utils/customerOnboarding';
 import { useSimulationMode } from '../utils/simulationMode';
 import { customerFetch } from '../utils/customerFetch';
@@ -31,6 +30,21 @@ interface UboItem {
 interface OnboardingAction {
   type: string;
   payload?: Record<string, unknown>;
+}
+
+interface VerificationProjection {
+  provider?: string | null;
+  applicantId?: string | null;
+  currentLevelName?: string | null;
+  latestReviewId?: string | null;
+  latestAttemptId?: string | null;
+  substatus?: string | null;
+  customerActionRequired?: boolean;
+  canContinue?: boolean;
+  latestEventType?: string | null;
+  latestEventAt?: string | null;
+  experiencedLevel2?: boolean;
+  sdkToken?: string | null;
 }
 
 interface OnboardingSnapshot {
@@ -52,6 +66,7 @@ interface OnboardingSnapshot {
     incorporationCountry?: string;
   } | null;
   uboProfiles?: UboItem[];
+  verification?: VerificationProjection | null;
 }
 
 interface PeriodicReviewSnapshot {
@@ -87,6 +102,7 @@ interface NextStepPayload {
   blockedReason: string | null;
   activeCaseId: string | null;
   requiresEdd: boolean;
+  verification?: VerificationProjection | null;
 }
 
 interface PeriodicReviewNextStepPayload {
@@ -118,7 +134,16 @@ interface ResponseItem {
 }
 
 type IntroStage = 'INTRO' | 'GUIDE' | 'FLOW';
-type VerificationStep = 'ENTITY_INFO' | 'CDD' | 'WAIT_REVIEW' | 'EDD' | 'REINITIATE' | 'COMPLETED';
+type VerificationStep =
+  | 'ENTITY_INFO'
+  | 'CDD'
+  | 'WAIT_REVIEW'
+  | 'EDD'
+  | 'REINITIATE'
+  | 'COMPLETED'
+  | 'START_VERIFICATION'
+  | 'VERIFY'
+  | 'FINAL_APPROVAL';
 type VerificationAction =
   | 'SAVE_ENTITY'
   | 'START_CDD'
@@ -127,6 +152,11 @@ type VerificationAction =
   | 'WAIT'
   | 'REINITIATE_CDD'
   | 'REINITIATE_EDD'
+  | 'START_VERIFICATION'
+  | 'CONTINUE_VERIFICATION'
+  | 'WAIT_VERIFICATION'
+  | 'WAIT_FINAL_APPROVAL'
+  | 'REINITIATE_VERIFICATION'
   | 'NONE';
 
 interface VerificationStepState {
@@ -136,10 +166,42 @@ interface VerificationStepState {
   activeCaseId: string | null;
   requiresEdd: boolean;
   actions: OnboardingAction[];
+  verification: VerificationProjection | null;
 }
 
 const getErrorMessage = (error: unknown, fallback: string) =>
   error instanceof Error ? error.message : fallback;
+
+const normalizeVerificationProjection = (
+  value?: VerificationProjection | null,
+): VerificationProjection | null => {
+  if (!value) {
+    return null;
+  }
+
+  return {
+    provider: value.provider || null,
+    applicantId: value.applicantId || null,
+    currentLevelName: value.currentLevelName || null,
+    latestReviewId: value.latestReviewId || null,
+    latestAttemptId: value.latestAttemptId || null,
+    substatus: value.substatus || null,
+    customerActionRequired: !!value.customerActionRequired,
+    canContinue: !!value.canContinue,
+    latestEventType: value.latestEventType || null,
+    latestEventAt: value.latestEventAt || null,
+    experiencedLevel2: !!value.experiencedLevel2,
+    sdkToken: value.sdkToken || null,
+  };
+};
+
+const formatVerificationLabel = (value?: string | null) =>
+  String(value || '')
+    .trim()
+    .split(/[_\s]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0) + part.slice(1).toLowerCase())
+    .join(' ');
 
 const resolveSessionId = (session?: ResponseSession | null): string | null => {
   if (!session) return null;
@@ -160,8 +222,8 @@ const mapOnboardingToStep = (
   const onboardingStatus = normalizeCanonicalOnboardingStatus(
     onboarding?.onboardingStatus ?? profile?.onboardingStatus,
   );
-  const operatingStatus = normalizeCanonicalOperatingStatus(
-    onboarding?.operatingStatus ?? profile?.operatingStatus,
+  const verification = normalizeVerificationProjection(
+    nextStep?.verification ?? onboarding?.verification ?? null,
   );
   const actions =
     nextStep?.actions || onboarding?.actions || profile?.actions || [];
@@ -173,7 +235,7 @@ const mapOnboardingToStep = (
   const activeCaseId =
     nextStep?.activeCaseId || null;
 
-  if (onboardingStatus === 'APPROVED' && operatingStatus === 'ACTIVE') {
+  if (onboardingStatus === 'APPROVED') {
     return {
       step: 'COMPLETED',
       action: 'NONE',
@@ -181,80 +243,67 @@ const mapOnboardingToStep = (
       activeCaseId,
       requiresEdd,
       actions,
+      verification,
     };
   }
 
   if (
     onboardingStatus === 'REJECTED' ||
     onboardingStatus === 'WITHDRAWN' ||
-    hasAction('REINITIATE_CDD')
+    hasAction('REINITIATE_VERIFICATION')
   ) {
     return {
       step: 'REINITIATE',
-      action: hasAction('REINITIATE_EDD') ? 'REINITIATE_EDD' : 'REINITIATE_CDD',
+      action: 'REINITIATE_VERIFICATION',
       blockedReason,
       activeCaseId,
       requiresEdd,
       actions,
+      verification,
     };
   }
 
   if (onboardingStatus === 'FINAL_APPROVAL' || hasAction('WAIT_FINAL_APPROVAL')) {
     return {
-      step: 'WAIT_REVIEW',
-      action: 'WAIT',
+      step: 'FINAL_APPROVAL',
+      action: 'WAIT_FINAL_APPROVAL',
       blockedReason,
       activeCaseId,
       requiresEdd: true,
       actions,
+      verification,
     };
   }
 
   if (
-    onboardingStatus === 'CDD_UNDER_REVIEW' ||
-    onboardingStatus === 'EDD_UNDER_REVIEW' ||
-    hasAction('WAIT_REVIEW')
+    onboardingStatus === 'PENDING_VERIFICATION' ||
+    hasAction('CONTINUE_VERIFICATION') ||
+    hasAction('WAIT_VERIFICATION')
   ) {
+    const shouldContinueVerification =
+      verification?.customerActionRequired ||
+      verification?.canContinue ||
+      hasAction('CONTINUE_VERIFICATION');
     return {
-      step: 'WAIT_REVIEW',
-      action: 'WAIT',
+      step: shouldContinueVerification ? 'VERIFY' : 'WAIT_REVIEW',
+      action: shouldContinueVerification ? 'CONTINUE_VERIFICATION' : 'WAIT_VERIFICATION',
       blockedReason,
       activeCaseId,
-      requiresEdd: onboardingStatus === 'EDD_UNDER_REVIEW' || requiresEdd,
+      requiresEdd: Boolean(verification?.experiencedLevel2 || requiresEdd),
       actions,
+      verification,
     };
   }
 
-  if (onboardingStatus === 'PENDING_EDD_INPUT' || hasAction('COMPLETE_EDD')) {
+  if (onboardingStatus === 'NONE' || hasAction('START_VERIFICATION')) {
     return {
-      step: 'EDD',
-      action: 'COMPLETE_EDD',
-      blockedReason,
-      activeCaseId,
-      requiresEdd: true,
-      actions,
-    };
-  }
-
-  if (onboardingStatus === 'PENDING_CDD_INPUT' || hasAction('COMPLETE_CDD')) {
-    return {
-      step: 'CDD',
-      action: hasAction('START_CDD') && !activeCaseId ? 'START_CDD' : 'COMPLETE_CDD',
+      step: 'START_VERIFICATION',
+      action: 'START_VERIFICATION',
       blockedReason,
       activeCaseId,
       requiresEdd,
       actions,
-    };
-  }
-
-  if (onboardingStatus === 'NONE' || hasAction('START_CDD')) {
-    return {
-      step: 'CDD',
-      action: 'START_CDD',
-      blockedReason,
-      activeCaseId,
-      requiresEdd,
-      actions,
+      verification,
     };
   }
 
@@ -265,6 +314,7 @@ const mapOnboardingToStep = (
     activeCaseId,
     requiresEdd,
     actions,
+    verification,
   };
 };
 
@@ -297,6 +347,7 @@ const mapPeriodicReviewNextStepToLegacy = (
       activeCaseId,
       requiresEdd,
       actions,
+      verification: null,
     };
   }
 
@@ -308,6 +359,7 @@ const mapPeriodicReviewNextStepToLegacy = (
       activeCaseId,
       requiresEdd: false,
       actions,
+      verification: null,
     };
   }
 
@@ -319,6 +371,7 @@ const mapPeriodicReviewNextStepToLegacy = (
       activeCaseId,
       requiresEdd: true,
       actions,
+      verification: null,
     };
   }
 
@@ -330,6 +383,7 @@ const mapPeriodicReviewNextStepToLegacy = (
       activeCaseId,
       requiresEdd: true,
       actions,
+      verification: null,
     };
   }
 
@@ -340,6 +394,7 @@ const mapPeriodicReviewNextStepToLegacy = (
     activeCaseId,
     requiresEdd: false,
     actions,
+    verification: null,
   };
 };
 
@@ -378,6 +433,154 @@ const cardClass =
 const SimulationModeNotice = ({ message }: { message: string }) => (
   <div className="mt-6 rounded-2xl border border-amber-200 bg-amber-50/80 px-4 py-3 text-sm text-amber-800">
     {message}
+  </div>
+);
+
+const formatVerificationTime = (value?: string | null) => {
+  if (!value) {
+    return null;
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+
+  return date.toLocaleString();
+};
+
+const onboardingSimulationActions: Array<{
+  label: string;
+  eventType: string;
+  payload?: {
+    levelName?: string;
+    reviewAnswer?: string;
+    reviewRejectType?: string;
+  };
+}> = [
+  {
+    label: 'Pending',
+    eventType: 'applicantPending',
+  },
+  {
+    label: 'On Hold',
+    eventType: 'applicantOnHold',
+  },
+  {
+    label: 'Level Changed',
+    eventType: 'applicantLevelChanged',
+    payload: { levelName: 'wave3-level-2' },
+  },
+  {
+    label: 'Workflow Completed',
+    eventType: 'applicantWorkflowCompleted',
+  },
+  {
+    label: 'Workflow Failed',
+    eventType: 'applicantWorkflowFailed',
+  },
+];
+
+const OnboardingVerificationDetails = ({
+  verification,
+}: {
+  verification: VerificationProjection | null;
+}) => {
+  if (!verification) {
+    return null;
+  }
+
+  const items = [
+    {
+      label: 'Provider',
+      value: verification.provider ? formatVerificationLabel(verification.provider) : null,
+    },
+    {
+      label: 'Status',
+      value: verification.substatus ? formatVerificationLabel(verification.substatus) : null,
+    },
+    {
+      label: 'Level',
+      value: verification.currentLevelName || null,
+    },
+    {
+      label: 'Latest Event',
+      value: verification.latestEventType
+        ? formatVerificationLabel(verification.latestEventType)
+        : null,
+    },
+    {
+      label: 'Updated',
+      value: formatVerificationTime(verification.latestEventAt),
+    },
+  ].filter((item) => item.value);
+
+  if (!items.length) {
+    return null;
+  }
+
+  return (
+    <div className="mt-8 grid w-full gap-3 text-left md:grid-cols-2">
+      {items.map((item) => (
+        <div
+          key={item.label}
+          className="rounded-2xl border border-slate-100 bg-slate-50/80 px-4 py-3"
+        >
+          <div className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
+            {item.label}
+          </div>
+          <div className="mt-2 text-sm font-medium text-slate-800">{item.value}</div>
+        </div>
+      ))}
+    </div>
+  );
+};
+
+const OnboardingSimulationPanel = ({
+  enabled,
+  saving,
+  onSimulate,
+  noticeMessage,
+}: {
+  enabled: boolean;
+  saving: boolean;
+  onSimulate: (
+    eventType: string,
+    options?: {
+      levelName?: string;
+      reviewAnswer?: string;
+      reviewRejectType?: string;
+    },
+  ) => Promise<boolean>;
+  noticeMessage: string;
+}) => (
+  <div className="mt-8 w-full rounded-3xl border border-slate-100 bg-slate-50/80 px-5 py-5 text-left">
+    <div className="flex items-center gap-3 text-slate-800">
+      <ShieldCheck size={18} className="text-indigo-500" />
+      <div>
+        <div className="text-sm font-semibold">Simulation Events</div>
+        <div className="text-xs text-slate-500">
+          Trigger Sumsub-style status changes for onboarding verification.
+        </div>
+      </div>
+    </div>
+
+    {enabled ? (
+      <div className="mt-4 grid gap-3 md:grid-cols-2">
+        {onboardingSimulationActions.map((item) => (
+          <button
+            key={item.eventType}
+            onClick={() => onSimulate(item.eventType, item.payload).catch(() => undefined)}
+            disabled={saving}
+            className={secondaryButtonClass}
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
+    ) : (
+      <SimulationModeNotice message={noticeMessage} />
+    )}
   </div>
 );
 
@@ -423,7 +626,13 @@ const Verification = () => {
   const loadOnboarding = async () => {
     const response = await withAuth(`${import.meta.env.VITE_API_URL}/onboarding/me`);
     if (!response.ok) throw new Error('Failed to load onboarding profile');
-    setOnboarding((await response.json()) as OnboardingSnapshot);
+    const data = (await response.json()) as OnboardingSnapshot;
+    setOnboarding({
+      ...data,
+      actions: Array.isArray(data.actions) ? data.actions : [],
+      blockedReason: data.blockedReason || null,
+      verification: normalizeVerificationProjection(data.verification),
+    });
   };
 
   const loadPeriodicReview = async () => {
@@ -459,6 +668,7 @@ const Verification = () => {
       blockedReason: data.blockedReason || null,
       activeCaseId: data.activeCaseId || null,
       requiresEdd: !!data.requiresEdd,
+      verification: normalizeVerificationProjection(data.verification),
     });
     setPeriodicNextStep(null);
   };
@@ -508,12 +718,13 @@ const Verification = () => {
 
   const refreshAll = async () => {
     try {
-      await Promise.all([
-        verificationMode === 'PERIODIC_REVIEW' ? loadPeriodicReview() : loadOnboarding(),
-        loadNextStep(),
-        loadResponses(),
-        refreshProfile(),
-      ]);
+      if (verificationMode === 'PERIODIC_REVIEW') {
+        await Promise.all([loadPeriodicReview(), loadNextStep(), loadResponses(), refreshProfile()]);
+        return;
+      }
+
+      setResponses([]);
+      await Promise.all([loadOnboarding(), loadNextStep(), refreshProfile()]);
     } catch (e: unknown) {
       setMessage(
         getErrorMessage(
@@ -533,13 +744,16 @@ const Verification = () => {
   }, [profile?.id, profile?.activePeriodicReviewCycleId, profile?.periodicReviewOverdueAt]);
 
   useEffect(() => {
+    if (verificationMode !== 'PERIODIC_REVIEW') {
+      return;
+    }
     const hasPending = responses.some((item) => item.latestSession?.status === 'PENDING');
     if (!hasPending) return;
     const timer = window.setInterval(() => {
       Promise.all([loadResponses(), loadNextStep()]).catch(() => undefined);
     }, 8000);
     return () => window.clearInterval(timer);
-  }, [responses]);
+  }, [responses, verificationMode]);
 
   const runAction = async (action: () => Promise<Response>, successMessage: string) => {
     setSaving(true);
@@ -599,6 +813,38 @@ const Verification = () => {
           body: JSON.stringify({}),
         }),
       'A new EDD response and QR session have been created.',
+    );
+
+  const startOnboardingVerification = async (successMessage: string) =>
+    runAction(
+      () =>
+        withAuth(`${import.meta.env.VITE_API_URL}/onboarding/verification/start`, {
+          method: 'POST',
+          body: JSON.stringify({}),
+        }),
+      successMessage,
+    );
+
+  const simulateOnboardingVerification = async (
+    eventType: string,
+    options?: {
+      levelName?: string;
+      reviewAnswer?: string;
+      reviewRejectType?: string;
+    },
+  ) =>
+    runAction(
+      () =>
+        withAuth(`${import.meta.env.VITE_API_URL}/onboarding/sumsub/simulate`, {
+          method: 'POST',
+          body: JSON.stringify({
+            eventType,
+            levelName: options?.levelName,
+            reviewAnswer: options?.reviewAnswer,
+            reviewRejectType: options?.reviewRejectType,
+          }),
+        }),
+      `Simulated ${formatVerificationLabel(eventType)}.`,
     );
 
   const startEdd = async () =>
@@ -688,26 +934,18 @@ const Verification = () => {
     [verificationMode, periodicNextStep, periodicReview, nextStep, onboarding, profile],
   );
 
-  const onboardingStatus = normalizeCanonicalOnboardingStatus(
-    onboarding?.onboardingStatus ?? profile?.onboardingStatus,
-  );
-  const operatingStatus = normalizeCanonicalOperatingStatus(
-    onboarding?.operatingStatus ?? profile?.operatingStatus,
-  );
-  const approved =
-    verificationMode === 'ONBOARDING' &&
-    onboardingStatus === 'APPROVED' &&
-    operatingStatus === 'ACTIVE';
-  const pendingFinalApproval =
-    verificationMode === 'ONBOARDING' && onboardingStatus === 'FINAL_APPROVAL';
   const showIntroFlow =
-    currentStep.step === 'CDD' &&
-    currentStep.action === 'START_CDD' &&
+    ((verificationMode === 'ONBOARDING' &&
+      currentStep.step === 'START_VERIFICATION' &&
+      currentStep.action === 'START_VERIFICATION') ||
+      (verificationMode === 'PERIODIC_REVIEW' &&
+        currentStep.step === 'CDD' &&
+        currentStep.action === 'START_CDD')) &&
     introStage !== 'FLOW';
   const simulationModeNotice =
     verificationMode === 'PERIODIC_REVIEW'
       ? 'Simulation Mode is off. Enable it from admin to run periodic review demo actions on this page.'
-      : 'Simulation Mode is off. Enable it from admin to run onboarding demo actions on this page.';
+      : 'Simulation Mode is off. Enable it from admin to run onboarding Sumsub event simulations on this page.';
 
   const currentResponseType: 'CDD' | 'EDD' = currentStep.step === 'EDD' ? 'EDD' : 'CDD';
   const currentResponseCandidates = useMemo(
@@ -727,32 +965,25 @@ const Verification = () => {
     new Date(activeResponse.latestSession.expiresAt).getTime() > Date.now();
 
   useEffect(() => {
-    if (currentStep.step === 'CDD' && currentStep.action === 'START_CDD') {
+    if (
+      (currentStep.step === 'START_VERIFICATION' &&
+        currentStep.action === 'START_VERIFICATION') ||
+      (currentStep.step === 'CDD' && currentStep.action === 'START_CDD')
+    ) {
       setIntroStage((prev) => (prev === 'FLOW' ? 'INTRO' : prev));
       return;
     }
     setIntroStage('FLOW');
   }, [currentStep.step, currentStep.action]);
 
-  useEffect(() => {
-    if (!approved) return;
-    navigate('/profile', { replace: true });
-  }, [approved, navigate]);
-
   if (loading)
     return <div className="flex h-screen items-center justify-center text-slate-400">Loading...</div>;
   if (error) return <div className="flex h-screen items-center justify-center text-red-500">{error}</div>;
   if (!profile) return null;
-  if (approved) return null;
 
   const isCorporate =
     onboarding?.customerType === 'CORPORATE' || profile.customerType === 'CORPORATE';
-  const reviewCardContent = pendingFinalApproval
-    ? {
-        title: 'Final Approval',
-        description: 'EDD has been approved. Waiting for final management confirmation.',
-      }
-    : currentStep.requiresEdd
+  const reviewCardContent = currentStep.requiresEdd
       ? {
           title: verificationMode === 'PERIODIC_REVIEW' ? 'Periodic Review' : 'Under Review',
           description:
@@ -907,7 +1138,19 @@ const Verification = () => {
                     ))}
                   </div>
 
-                  {simulationModeEnabled ? (
+                  {verificationMode === 'ONBOARDING' ? (
+                    <button
+                      onClick={async () => {
+                        const ok = await startOnboardingVerification('Verification started.');
+                        if (ok) setIntroStage('FLOW');
+                      }}
+                      disabled={saving}
+                      className={`${primaryButtonClass} mt-10`}
+                    >
+                      {saving ? 'Initializing...' : 'Start Verification'}
+                      {!saving && <ChevronRight size={16} />}
+                    </button>
+                  ) : simulationModeEnabled ? (
                     <button
                       onClick={async () => {
                         const ok = await bootstrapCdd();
@@ -926,7 +1169,7 @@ const Verification = () => {
               </motion.section>
             )}
 
-            {currentStep.step === 'CDD' && !showIntroFlow && (
+            {verificationMode === 'PERIODIC_REVIEW' && currentStep.step === 'CDD' && !showIntroFlow && (
               <motion.div
                 key="cdd"
                 initial={{ opacity: 0, scale: 0.95 }}
@@ -949,7 +1192,7 @@ const Verification = () => {
               </motion.div>
             )}
 
-            {currentStep.step === 'EDD' && (
+            {verificationMode === 'PERIODIC_REVIEW' && currentStep.step === 'EDD' && (
               <motion.div
                 key="edd"
                 initial={{ opacity: 0, scale: 0.95 }}
@@ -1008,6 +1251,52 @@ const Verification = () => {
               </motion.div>
             )}
 
+            {verificationMode === 'ONBOARDING' && currentStep.step === 'VERIFY' && (
+              <motion.section
+                key="verify"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                className={cardClass}
+              >
+                <div className="flex flex-col items-center text-center">
+                  <div className="mb-6 relative">
+                    <div className="absolute inset-0 rounded-full bg-indigo-400/20 blur-xl" />
+                    <div className="relative rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-600 p-5 text-white shadow-xl shadow-indigo-500/20">
+                      <ShieldCheck size={40} />
+                    </div>
+                  </div>
+
+                  <h2 className="text-2xl font-bold text-slate-900">Continue Verification</h2>
+                  <p className="mt-3 max-w-lg text-slate-500 leading-relaxed">
+                    Your onboarding now uses our verification provider directly. Continue the
+                    identity check to finish submission.
+                  </p>
+
+                  <OnboardingVerificationDetails verification={currentStep.verification} />
+
+                  <button
+                    onClick={() =>
+                      startOnboardingVerification('Verification continuation is ready.').catch(
+                        () => undefined,
+                      )
+                    }
+                    disabled={saving}
+                    className={`${primaryButtonClass} mt-8`}
+                  >
+                    <ShieldCheck size={18} />
+                    Continue Verification
+                  </button>
+
+                  <OnboardingSimulationPanel
+                    enabled={simulationModeEnabled}
+                    saving={saving}
+                    onSimulate={simulateOnboardingVerification}
+                    noticeMessage={simulationModeNotice}
+                  />
+                </div>
+              </motion.section>
+            )}
+
             {currentStep.step === 'WAIT_REVIEW' && (
               <motion.section
                 key="wait"
@@ -1025,15 +1314,55 @@ const Verification = () => {
 
                   <h2 className="text-2xl font-bold text-slate-900">{reviewCardContent.title}</h2>
                   <p className="mt-3 text-slate-500 leading-relaxed max-w-lg">
-                    {reviewCardContent.description}
+                    {verificationMode === 'PERIODIC_REVIEW'
+                      ? reviewCardContent.description
+                      : 'Your verification has been submitted to the provider and is now waiting for review. We will update the onboarding status once the review result arrives.'}
                   </p>
 
-                  <div className="mt-8 w-full border-t border-slate-100 pt-6">
-                    <ResponseSummaryList
-                      items={responses}
-                      responseType={currentStep.requiresEdd ? 'EDD' : 'CDD'}
-                    />
+                  {verificationMode === 'PERIODIC_REVIEW' ? (
+                    <div className="mt-8 w-full border-t border-slate-100 pt-6">
+                      <ResponseSummaryList
+                        items={responses}
+                        responseType={currentStep.requiresEdd ? 'EDD' : 'CDD'}
+                      />
+                    </div>
+                  ) : (
+                    <>
+                      <OnboardingVerificationDetails verification={currentStep.verification} />
+                      <OnboardingSimulationPanel
+                        enabled={simulationModeEnabled}
+                        saving={saving}
+                        onSimulate={simulateOnboardingVerification}
+                        noticeMessage={simulationModeNotice}
+                      />
+                    </>
+                  )}
+                </div>
+              </motion.section>
+            )}
+
+            {verificationMode === 'ONBOARDING' && currentStep.step === 'FINAL_APPROVAL' && (
+              <motion.section
+                key="final-approval"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                className={cardClass}
+              >
+                <div className="flex flex-col items-center text-center">
+                  <div className="mb-6 relative">
+                    <div className="absolute inset-0 rounded-full bg-blue-400/20 blur-xl animate-pulse" />
+                    <div className="relative rounded-2xl bg-blue-50 p-5 text-blue-500">
+                      <Clock3 size={40} />
+                    </div>
                   </div>
+
+                  <h2 className="text-2xl font-bold text-slate-900">Final Approval</h2>
+                  <p className="mt-3 max-w-lg text-slate-500 leading-relaxed">
+                    Provider verification is complete. Your onboarding is now waiting for the final
+                    internal approval step before account activation.
+                  </p>
+
+                  <OnboardingVerificationDetails verification={currentStep.verification} />
                 </div>
               </motion.section>
             )}
@@ -1058,22 +1387,78 @@ const Verification = () => {
                     Please try again. Ensure your documents are clear and details match.
                   </p>
 
-                  {simulationModeEnabled ? (
+                  {verificationMode === 'ONBOARDING' ? (
                     <button
                       onClick={() =>
-                        currentStep.action === 'REINITIATE_EDD'
-                          ? reinitiateEdd().catch(() => undefined)
-                          : reinitiateCdd().catch(() => undefined)
+                        startOnboardingVerification('Verification restarted.').catch(
+                          () => undefined,
+                        )
                       }
                       disabled={saving}
                       className={`${primaryButtonClass} mt-8 bg-gradient-to-r from-red-500 to-orange-600 shadow-red-500/30 hover:shadow-red-500/50`}
                     >
                       <RefreshCw size={18} />
-                      {currentStep.action === 'REINITIATE_EDD' ? 'Retry EDD' : 'Retry Verification'}
+                      Retry Verification
                     </button>
                   ) : (
-                    <SimulationModeNotice message={simulationModeNotice} />
+                    <>
+                      {simulationModeEnabled ? (
+                        <button
+                          onClick={() =>
+                            currentStep.action === 'REINITIATE_EDD'
+                              ? reinitiateEdd().catch(() => undefined)
+                              : reinitiateCdd().catch(() => undefined)
+                          }
+                          disabled={saving}
+                          className={`${primaryButtonClass} mt-8 bg-gradient-to-r from-red-500 to-orange-600 shadow-red-500/30 hover:shadow-red-500/50`}
+                        >
+                          <RefreshCw size={18} />
+                          {currentStep.action === 'REINITIATE_EDD'
+                            ? 'Retry EDD'
+                            : 'Retry Verification'}
+                        </button>
+                      ) : (
+                        <SimulationModeNotice message={simulationModeNotice} />
+                      )}
+                    </>
                   )}
+
+                  {verificationMode === 'ONBOARDING' && (
+                    <OnboardingSimulationPanel
+                      enabled={simulationModeEnabled}
+                      saving={saving}
+                      onSimulate={simulateOnboardingVerification}
+                      noticeMessage={simulationModeNotice}
+                    />
+                  )}
+                </div>
+              </motion.section>
+            )}
+
+            {verificationMode === 'ONBOARDING' && currentStep.step === 'COMPLETED' && (
+              <motion.section
+                key="completed"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                className={cardClass}
+              >
+                <div className="flex flex-col items-center text-center">
+                  <div className="mb-6 rounded-2xl bg-emerald-50 p-5 text-emerald-500">
+                    <ShieldCheck size={40} />
+                  </div>
+                  <h2 className="text-2xl font-bold text-slate-900">Verification Complete</h2>
+                  <p className="mt-3 max-w-lg text-slate-500 leading-relaxed">
+                    Your onboarding verification has been approved and your account is ready.
+                  </p>
+
+                  <OnboardingVerificationDetails verification={currentStep.verification} />
+
+                  <button
+                    onClick={() => navigate('/profile')}
+                    className={`${primaryButtonClass} mt-8`}
+                  >
+                    Go to Profile
+                  </button>
                 </div>
               </motion.section>
             )}

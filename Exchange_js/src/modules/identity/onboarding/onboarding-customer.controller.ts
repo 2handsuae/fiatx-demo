@@ -43,7 +43,7 @@ export class OnboardingCustomerController {
   }
 
   @Get('responses')
-  @ApiOperation({ summary: 'List my CDD/EDD responses with latest provider session status.' })
+  @ApiOperation({ summary: '[Legacy] List my CDD/EDD responses with latest provider session status.' })
   listMyResponses(@Req() req: any) {
     const customerId = this.ensureCustomer(req);
     return this.onboardingService.listMyResponses(customerId);
@@ -54,6 +54,13 @@ export class OnboardingCustomerController {
   getNextStep(@Req() req: any): Promise<any> {
     const customerId = this.ensureCustomer(req);
     return this.onboardingService.getNextStep(customerId);
+  }
+
+  @Post('verification/start')
+  @ApiOperation({ summary: 'Start or continue provider-backed onboarding verification.' })
+  startVerification(@Req() req: any) {
+    const customerId = this.ensureCustomer(req);
+    return this.onboardingService.startVerification(customerId);
   }
 
   @Post('entity')
@@ -67,7 +74,7 @@ export class OnboardingCustomerController {
   }
 
   @Post('cdd-responses/bootstrap')
-  @ApiOperation({ summary: 'Start CDD journey: bootstrap required CDD responses and auto-create QR session.' })
+  @ApiOperation({ summary: '[Legacy] Start CDD journey: bootstrap required CDD responses and auto-create QR session.' })
   bootstrapCddResponses(
     @Req() req: any,
     @Body(new ValidationPipe({ transform: true })) body: BootstrapResponsesDto,
@@ -77,21 +84,21 @@ export class OnboardingCustomerController {
   }
 
   @Post('cdd-responses/reinitiate')
-  @ApiOperation({ summary: 'Re-initiate CDD and auto-create QR session for current CDD response.' })
+  @ApiOperation({ summary: '[Legacy] Re-initiate CDD and auto-create QR session for current CDD response.' })
   reinitiateCddResponses(@Req() req: any) {
     const customerId = this.ensureCustomer(req);
     return this.onboardingService.reinitiateCddResponses(customerId, customerId);
   }
 
   @Post('edd-responses/start')
-  @ApiOperation({ summary: 'Start current EDD response and auto-create QR session.' })
+  @ApiOperation({ summary: '[Legacy] Start current EDD response and auto-create QR session.' })
   startEddResponses(@Req() req: any) {
     const customerId = this.ensureCustomer(req);
     return this.onboardingService.startEddResponses(customerId, customerId);
   }
 
   @Post('edd-responses/reinitiate')
-  @ApiOperation({ summary: 'Re-initiate EDD responses after EDD rejection.' })
+  @ApiOperation({ summary: '[Legacy] Re-initiate EDD responses after EDD rejection.' })
   reinitiateEddResponses(
     @Req() req: any,
     @Body(new ValidationPipe({ transform: true })) body: ReinitiateEddDto,
@@ -101,7 +108,7 @@ export class OnboardingCustomerController {
   }
 
   @Post('responses/:id/sessions')
-  @ApiOperation({ summary: 'Create third-party compliance response session and return QR payload.' })
+  @ApiOperation({ summary: '[Legacy] Create third-party compliance response session and return QR payload.' })
   createResponseSession(
     @Req() req: any,
     @Param('id') id: string,
@@ -112,7 +119,7 @@ export class OnboardingCustomerController {
   }
 
   @Post('response-sessions/:sessionId/mock-complete')
-  @ApiOperation({ summary: 'Mock callback: complete compliance response session and advance response status.' })
+  @ApiOperation({ summary: '[Legacy] Mock callback: complete compliance response session and advance response status.' })
   mockCompleteResponseSession(
     @Req() req: any,
     @Param('sessionId') sessionId: string,

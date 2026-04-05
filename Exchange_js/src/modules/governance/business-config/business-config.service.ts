@@ -22,7 +22,6 @@ import {
 } from '../../../config/manifests/pricing-policies.manifest';
 import { PricingCenterService } from '../../trading/pricing-center/pricing-center.service';
 import { ChangeTicketStatuses } from '../change-tickets/constants/change-ticket.constants';
-import { ApprovalStatuses } from '../approvals/constants/approval.constants';
 import {
   RegulatoryGateEffectivenessStatuses,
   RegulatoryGateSubjectTypes,
@@ -464,6 +463,7 @@ export class BusinessConfigService {
     extras?: {
       ticketNo?: string | null;
       changeTicketRef?: string | null;
+      approvalNo?: string | null;
       validationSummary?: BusinessConfigValidationSummary;
     },
   ) {
@@ -475,6 +475,7 @@ export class BusinessConfigService {
       approvalCaseId: release.approvalCaseId,
       ticketNo: extras?.ticketNo ?? null,
       changeTicketRef: extras?.changeTicketRef ?? null,
+      approvalNo: extras?.approvalNo ?? null,
       validationSummary: extras?.validationSummary,
     };
   }
@@ -495,6 +496,7 @@ export class BusinessConfigService {
       reason: string;
       ticketNo?: string | null;
       changeTicketRef?: string | null;
+      approvalNo?: string | null;
       validationSummary?: BusinessConfigValidationSummary;
       client?: Prisma.TransactionClient;
     },
@@ -512,11 +514,13 @@ export class BusinessConfigService {
         afterData: this.buildReleaseAuditData(release, {
           ticketNo: input.ticketNo,
           changeTicketRef: input.changeTicketRef,
+          approvalNo: input.approvalNo,
           validationSummary: input.validationSummary,
         }),
         metadata: this.buildReleaseAuditData(release, {
           ticketNo: input.ticketNo,
           changeTicketRef: input.changeTicketRef,
+          approvalNo: input.approvalNo,
           validationSummary: input.validationSummary,
         }),
         idempotencyKey: `business-config:${release.releaseNo}:${input.action}`,
@@ -1193,8 +1197,8 @@ export class BusinessConfigService {
         id: true,
         ticketNo: true,
         status: true,
-        latestApprovalId: true,
-        latestApprovalStatus: true,
+        approvalCaseId: true,
+        approvalNo: true,
       },
     });
 
@@ -1217,7 +1221,7 @@ export class BusinessConfigService {
       );
       throw new NotFoundException(`Change ticket not found: ${changeTicketRef}`);
     }
-    if (changeTicket.status !== ChangeTicketStatuses.READY_FOR_DEPLOY) {
+    if (changeTicket.status !== ChangeTicketStatuses.READY) {
       await this.recordReleaseAudit(
         {
           id: release.id,
@@ -1225,40 +1229,19 @@ export class BusinessConfigService {
           releaseNo: release.releaseNo,
           status: release.status,
           changeTicketId: changeTicket.id,
-          approvalCaseId: changeTicket.latestApprovalId,
+          approvalCaseId: changeTicket.approvalCaseId,
         },
         {
           action: AuditActions.BUSINESS_CONFIG_RELEASE_PUBLISH_BLOCKED,
           result: AuditResult.REJECTED,
-          reason: `Business config publish blocked: change ticket ${changeTicket.ticketNo} is not READY_FOR_DEPLOY`,
+          reason: `Business config publish blocked: change ticket ${changeTicket.ticketNo} is not READY`,
           ticketNo: changeTicket.ticketNo,
           changeTicketRef,
+          approvalNo: changeTicket.approvalNo,
         },
       );
       throw new BadRequestException(
-        `Change ticket ${changeTicket.ticketNo} must be READY_FOR_DEPLOY before publish`,
-      );
-    }
-    if (changeTicket.latestApprovalStatus !== ApprovalStatuses.APPROVED) {
-      await this.recordReleaseAudit(
-        {
-          id: release.id,
-          subjectType,
-          releaseNo: release.releaseNo,
-          status: release.status,
-          changeTicketId: changeTicket.id,
-          approvalCaseId: changeTicket.latestApprovalId,
-        },
-        {
-          action: AuditActions.BUSINESS_CONFIG_RELEASE_PUBLISH_BLOCKED,
-          result: AuditResult.REJECTED,
-          reason: `Business config publish blocked: approval is not APPROVED for ${changeTicket.ticketNo}`,
-          ticketNo: changeTicket.ticketNo,
-          changeTicketRef,
-        },
-      );
-      throw new BadRequestException(
-        `Change ticket ${changeTicket.ticketNo} requires APPROVED approval before publish`,
+        `Change ticket ${changeTicket.ticketNo} must be READY before publish`,
       );
     }
 
@@ -1288,7 +1271,7 @@ export class BusinessConfigService {
           releaseNo: release.releaseNo,
           status: release.status,
           changeTicketId: changeTicket.id,
-          approvalCaseId: changeTicket.latestApprovalId,
+          approvalCaseId: changeTicket.approvalCaseId,
         },
         {
           action: AuditActions.BUSINESS_CONFIG_RELEASE_PUBLISH_BLOCKED,
@@ -1296,6 +1279,7 @@ export class BusinessConfigService {
           reason: `Business config publish blocked: regulatory gate ${regulatoryGate.gateNo} is not effective`,
           ticketNo: changeTicket.ticketNo,
           changeTicketRef,
+          approvalNo: changeTicket.approvalNo,
         },
       );
       throw new BadRequestException(
@@ -1360,7 +1344,7 @@ export class BusinessConfigService {
         data: {
           status: BUSINESS_CONFIG_RELEASE_STATUSES.ACTIVE,
           changeTicketId: changeTicket.id,
-          approvalCaseId: changeTicket.latestApprovalId,
+          approvalCaseId: changeTicket.approvalCaseId,
           effectiveFrom: publishedAt,
           publishedAt,
           publishedBy,
@@ -1385,13 +1369,14 @@ export class BusinessConfigService {
           releaseNo: release.releaseNo,
           status: BUSINESS_CONFIG_RELEASE_STATUSES.ACTIVE,
           changeTicketId: changeTicket.id,
-          approvalCaseId: changeTicket.latestApprovalId,
+          approvalCaseId: changeTicket.approvalCaseId,
         },
         {
           action: AuditActions.BUSINESS_CONFIG_RELEASE_PUBLISHED,
           reason: `Business config release published: ${release.releaseNo}`,
           ticketNo: changeTicket.ticketNo,
           changeTicketRef,
+          approvalNo: changeTicket.approvalNo,
           client: tx,
         },
       );

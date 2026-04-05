@@ -32,12 +32,20 @@ type IssueInvitationOptions = {
   userId: string;
   actor: AdminActor;
   action: string;
+  auditContext?: InternalAuditContext;
 };
 
 type RequestContext = {
   requestId?: string;
   sourceIp?: string;
   sourcePlatform?: string;
+  auditContext?: InternalAuditContext;
+};
+
+type InternalAuditContext = {
+  workflowType?: string;
+  workflowNo?: string;
+  traceId?: string;
 };
 
 @Injectable()
@@ -50,6 +58,12 @@ export class AdminInvitationsService {
 
   private normalizeToken(token: string): string {
     return String(token || '').trim();
+  }
+
+  private normalizeOptionalString(value: unknown): string | null {
+    if (value === null || value === undefined) return null;
+    const normalized = String(value).trim();
+    return normalized.length ? normalized : null;
   }
 
   private hashToken(token: string): string {
@@ -74,6 +88,78 @@ export class AdminInvitationsService {
 
   private buildExpiresAt(): Date {
     return new Date(Date.now() + INVITATION_TTL_MS);
+  }
+
+  private applyAuditContext<T extends Record<string, unknown>>(
+    payload: T,
+    auditContext?: InternalAuditContext,
+  ): T {
+    const workflowType = this.normalizeOptionalString(auditContext?.workflowType);
+    const workflowNo = this.normalizeOptionalString(auditContext?.workflowNo);
+    const traceId = this.normalizeOptionalString(auditContext?.traceId);
+
+    return {
+      ...payload,
+      workflowType: workflowType || undefined,
+      workflowNo: workflowNo || undefined,
+      traceId: traceId || undefined,
+    } as T;
+  }
+
+  private resolvePersistableAuditContext(
+    auditContext?: InternalAuditContext,
+  ): InternalAuditContext | undefined {
+    const workflowType = this.normalizeOptionalString(auditContext?.workflowType);
+    const workflowNo = this.normalizeOptionalString(auditContext?.workflowNo);
+    const traceId = this.normalizeOptionalString(auditContext?.traceId);
+
+    if (!workflowType && !workflowNo && !traceId) {
+      return undefined;
+    }
+
+    return {
+      workflowType: workflowType || undefined,
+      workflowNo: workflowNo || undefined,
+      traceId: traceId || undefined,
+    };
+  }
+
+  private async findLatestInvitationAuditContext(
+    userId: string,
+  ): Promise<InternalAuditContext | undefined> {
+    const latest = await (this.prisma as any).adminUserInvitation.findFirst?.({
+      where: {
+        userId,
+        OR: [
+          { workflowType: { not: null } },
+          { workflowNo: { not: null } },
+          { traceId: { not: null } },
+        ],
+      },
+      orderBy: [{ createdAt: 'desc' }],
+      select: {
+        workflowType: true,
+        workflowNo: true,
+        traceId: true,
+      },
+    });
+
+    return this.resolvePersistableAuditContext(latest || undefined);
+  }
+
+  private async findInvitationAuditContextByTokenHash(
+    tokenHash: string,
+  ): Promise<InternalAuditContext | undefined> {
+    const invitation = await (this.prisma as any).adminUserInvitation.findUnique?.({
+      where: { tokenHash },
+      select: {
+        workflowType: true,
+        workflowNo: true,
+        traceId: true,
+      },
+    });
+
+    return this.resolvePersistableAuditContext(invitation || undefined);
   }
 
   private assertPassword(password: string): void {
@@ -104,9 +190,11 @@ export class AdminInvitationsService {
     tx: any,
     userId: string,
     createdByUserId?: string,
+    auditContext?: InternalAuditContext,
   ): Promise<{ invitation: any; token: string }> {
     const now = new Date();
     const expiresAt = this.buildExpiresAt();
+    const persistedContext = this.resolvePersistableAuditContext(auditContext);
 
     await tx.adminUserInvitation.updateMany({
       where: {
@@ -128,6 +216,9 @@ export class AdminInvitationsService {
             tokenHash,
             expiresAt,
             createdByUserId: createdByUserId || null,
+            workflowType: persistedContext?.workflowType || null,
+            workflowNo: persistedContext?.workflowNo || null,
+            traceId: persistedContext?.traceId || null,
           },
         });
         return { invitation, token };
@@ -171,6 +262,10 @@ export class AdminInvitationsService {
       throw new BadRequestException('Invitation can only be resent for INACTIVE users');
     }
 
+    const effectiveAuditContext =
+      this.resolvePersistableAuditContext(options.auditContext) ||
+      (await this.findLatestInvitationAuditContext(user.id));
+
     const issued = await this.prisma.$transaction(async (tx) => {
       const currentUser = await tx.user.findUnique({
         where: { id: user.id },
@@ -184,12 +279,13 @@ export class AdminInvitationsService {
         tx as any,
         user.id,
         options.actor.actorId,
+        effectiveAuditContext,
       );
       return { invitation, token };
     });
 
     await this.auditLogsService.recordByActor(
-      {
+      this.applyAuditContext({
         action: options.action,
         triggerType: AuditTriggerType.PERMISSION_CHANGE,
         module: AuditModules.ACCESS_CONTROL,
@@ -202,7 +298,7 @@ export class AdminInvitationsService {
           userEmail: user.email,
           inviteExpiresAt: issued.invitation.expiresAt.toISOString(),
         },
-      },
+      }, effectiveAuditContext),
       {
         actorType: 'ADMIN',
         actorId: options.actor.actorId,
@@ -225,6 +321,7 @@ export class AdminInvitationsService {
   async createInvitationForUser(input: {
     userId: string;
     actor: AdminActor;
+    auditContext?: InternalAuditContext;
   }): Promise<{
     userId: string;
     userNo: string;
@@ -238,12 +335,14 @@ export class AdminInvitationsService {
       userId: input.userId,
       actor: input.actor,
       action: AuditActions.ADMIN_INVITATION_CREATED,
+      auditContext: input.auditContext,
     });
   }
 
   async resendInvitationForUser(input: {
     userId: string;
     actor: AdminActor;
+    auditContext?: InternalAuditContext;
   }): Promise<{
     userId: string;
     userNo: string;
@@ -257,6 +356,7 @@ export class AdminInvitationsService {
       userId: input.userId,
       actor: input.actor,
       action: AuditActions.ADMIN_INVITATION_RESENT,
+      auditContext: input.auditContext,
     });
   }
 
@@ -313,6 +413,9 @@ export class AdminInvitationsService {
 
     const tokenHash = this.hashToken(normalizedToken);
     const now = new Date();
+    const effectiveAuditContext =
+      this.resolvePersistableAuditContext(ctx.auditContext) ||
+      (await this.findInvitationAuditContextByTokenHash(tokenHash));
 
     try {
       const accepted = await this.prisma.$transaction(async (tx) => {
@@ -376,7 +479,7 @@ export class AdminInvitationsService {
       });
 
       await this.auditLogsService.recordByActor(
-        {
+        this.applyAuditContext({
           triggerType: AuditTriggerType.AUTH_EVENT,
           action: AuditActions.ADMIN_INVITATION_ACCEPTED,
           module: AuditModules.AUTH,
@@ -387,7 +490,7 @@ export class AdminInvitationsService {
           requestId: ctx.requestId,
           sourceIp: ctx.sourceIp,
           sourcePlatform: ctx.sourcePlatform || 'ADMIN_INVITATION_API',
-        },
+        }, effectiveAuditContext),
         {
           actorType: 'ADMIN',
           actorId: accepted.id,
@@ -404,7 +507,7 @@ export class AdminInvitationsService {
       };
     } catch (error: any) {
       await this.auditLogsService.recordByActor(
-        {
+        this.applyAuditContext({
           triggerType: AuditTriggerType.AUTH_EVENT,
           action: AuditActions.ADMIN_INVITATION_ACCEPT_FAILED,
           module: AuditModules.AUTH,
@@ -417,7 +520,7 @@ export class AdminInvitationsService {
           requestId: ctx.requestId,
           sourceIp: ctx.sourceIp,
           sourcePlatform: ctx.sourcePlatform || 'ADMIN_INVITATION_API',
-        },
+        }, effectiveAuditContext),
         {
           actorType: 'ADMIN',
           actorId: 'UNKNOWN',

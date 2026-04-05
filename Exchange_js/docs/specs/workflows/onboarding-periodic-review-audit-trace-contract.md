@@ -1,9 +1,9 @@
 Status: active
 Owner: project-owner-and-agents
-Last Updated: 2026-03-21
+Last Updated: 2026-04-05
 Applies To: `Exchange_js`
 Supersedes: none
-Depends On: `docs/constraints/onboarding-flow-constraints.md`, `docs/constraints/compliance-alert-incident-constraints.md`, `docs/constraints/onboarding-alert-case-workflow-stage-rule-mapping.md`
+Depends On: `docs/constraints/onboarding-flow-constraints.md`, `docs/specs/workflows/onboarding-canonical-workflow.md`
 Source of Truth Level: specs-workflow
 
 # Onboarding And Periodic Review Audit Trace Contract
@@ -12,7 +12,7 @@ Source of Truth Level: specs-workflow
 - This document defines the canonical audit and trace contract shared by:
   - onboarding
   - periodic review
-  - workflow-bound alert / case
+  - workflow-bound alert / case when still used
   - onboarding final approval
 - It exists to ensure that one customer workflow can be replayed in `Audit Center` through a single trace instead of fragmented audit silos.
 
@@ -58,28 +58,30 @@ Source of Truth Level: specs-workflow
 
 ## Non-Negotiables
 - `traceId` MUST be derived from workflow root and MUST NOT be generated randomly by downstream workflow-bound objects.
-- Workflow-bound `alert / case / approval / filing` MUST inherit upstream workflow trace.
+- Workflow-bound `provider event / alert / case / approval / filing` MUST inherit upstream workflow trace.
 - Only non-workflow-bound approvals MAY continue to generate their own approval-scoped trace.
 - `Audit Center` queries, replay, and evidence export MUST prefer `traceId + workflowType + workflowNo`.
 
 ## Object Inheritance Rules
 
-### Response / Session Layer
-- `CDD Response` and `EDD Response` events MUST write canonical audit with workflow root trace.
-- Session lifecycle events such as created/completed/submitted MUST stay on the same trace.
+### Onboarding Verification Layer
+- Verification start events SHOULD write canonical audit with workflow root trace.
+- Sumsub webhook intake and simulation intake SHOULD write audit under the same onboarding trace.
+- Provider identifiers such as `applicantId`, `reviewId`, `attemptId`, and `levelName` SHOULD be captured when available.
+- Full provider-event audit coverage is still being completed in the current runtime.
 
-### Alert Layer
-- Workflow-bound onboarding or periodic review alert MUST inherit trace from:
+### Legacy Response / Session Layer
+- `CDD Response` and `EDD Response` events may remain in historical compatibility traces.
+- They are no longer required canonical onboarding replay milestones.
+
+### Alert / Case Layer
+- Workflow-bound onboarding or periodic review alert/case, when still created, MUST inherit trace from:
   - onboarding journey
   - periodic review cycle
-- `ESCALATE_TO_CASE` MUST preserve trace; it does not start a new chain.
-
-### Case Layer
-- Workflow-bound case MUST continue the same upstream trace.
-- Case investigation, report finalize, submit-to-MLRO, MLRO return, MLRO approve, and filing follow-up MUST all preserve that trace.
+- Optional investigation objects do not start a new trace.
 
 ### Approval Layer
-- `ONBOARDING_FINAL_APPROVAL` created after onboarding `REVIEW_EDD + CLEAR` MUST inherit:
+- `ONBOARDING_FINAL_APPROVAL` created after onboarding provider workflow completion with `level2` MUST inherit:
   - `traceId = ONBOARDING:<journeyId>`
 - Workflow-bound approval main record MUST persist:
   - `workflowType`
@@ -97,23 +99,19 @@ Source of Truth Level: specs-workflow
   - `entityOwnerId`
   - `entityOwnerNo`
 - When applicable, canonical audit SHOULD also carry subject identifiers such as:
-  - `responseNo`
+  - `applicantId`
+  - `reviewId`
+  - `attemptId`
+  - `levelName`
+  - `approvalNo`
   - `alertNo`
   - `caseNo`
-  - `approvalNo`
 
 ## Minimum Event Coverage
 
 ### Onboarding
-- CDD session created / completed
-- EDD session created / completed
-- CDD / EDD submitted
-- alert created / triaged
-- case escalated / investigated
-- report finalized
-- submit to MLRO
-- MLRO returned / approved
-- final approval submitted / approved / rejected
+- final approval submitted / approved / rejected only when onboarding completed after `level2`
+- verification-start, provider-event, and workflow-terminal audit milestones remain desired follow-up coverage rather than guaranteed current runtime milestones
 
 ### Periodic Review
 - cycle created / due / started
@@ -128,11 +126,9 @@ Source of Truth Level: specs-workflow
 
 ### Onboarding Replay
 - One `traceId` query in `Audit Center` MUST be able to show:
-  - response submit
-  - alert triage
-  - case investigation
-  - MLRO review
-  - onboarding final approval
+  - onboarding final approval when applicable
+- Verification-start, provider-webhook, and provider workflow terminal replay coverage is still partial in the current runtime and remains a cleanup follow-up item.
+- Optional alert/case investigation objects MAY appear on the same trace, but they are not required canonical onboarding milestones.
 
 ### Periodic Review Replay
 - One `traceId` query in `Audit Center` MUST be able to show:
@@ -151,8 +147,8 @@ Source of Truth Level: specs-workflow
   - `workflowNo`
 - Active runtime no longer depends on mirror writes.
 - Historical mirror backfill MUST remain deterministic:
-  - onboarding rows may be backfilled only when `journeyId` can be resolved from linked `CDD/EDD response`
-  - periodic review rows may be backfilled only when `periodicReviewCycleId` and `cycleNo` can be resolved from linked `CDD/EDD response`
+  - onboarding rows may be backfilled only when `journeyId` can be resolved from linked workflow root
+  - periodic review rows may be backfilled only when `periodicReviewCycleId` and `cycleNo` can be resolved from linked workflow root
   - rows without deterministic workflow root remain `null` and are treated as residual compatibility debt
 
 ## Non-Goals

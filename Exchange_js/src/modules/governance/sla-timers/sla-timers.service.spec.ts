@@ -248,61 +248,15 @@ describe('SlaTimersService', () => {
     );
   });
 
-  it('creates follow-up timer only for emergency deployed change tickets', async () => {
-    prisma.changeTicket.findUnique.mockResolvedValue({
-      id: 'ticket-1',
-      ticketNo: 'CT2603140001',
-      status: 'DEPLOYED',
-      emergency: true,
-      traceId: 'trace-ticket-1',
-      createdByUserId: 'maker-1',
-      deployedAt: new Date('2026-03-14T16:30:00.000Z'),
-      postApprovalDueAt: null,
-      postApprovalCompletedAt: null,
-      deletedAt: null,
-    });
-    prisma.slaTimer.findFirst.mockResolvedValue(null);
-    prisma.slaTimer.create.mockResolvedValue(
-      buildTimer({
-        id: 'timer-2',
-        timerNo: 'TM2603140002',
-        workflowType: 'CHANGE_TICKET',
-        workflowId: 'ticket-1',
-        workflowNo: 'CT2603140001',
-        subjectType: 'CHANGE_TICKET',
-        subjectId: 'ticket-1',
-        subjectNo: 'CT2603140001',
-        timerType: SlaTimerTypes.CHANGE_POST_APPROVAL_FOLLOWUP,
-        traceId: 'trace-ticket-1',
-        activeKey: 'CHANGE_TICKET|CHANGE_TICKET|ticket-1|CHANGE_POST_APPROVAL_FOLLOWUP',
-      }),
-    );
-    prisma.slaNotification.findFirst.mockResolvedValue(null);
-    prisma.slaNotification.create.mockResolvedValue(
-      buildNotification({
-        timerId: 'timer-2',
-      }),
-    );
-    prisma.slaNotification.findMany.mockResolvedValue([
-      buildNotification({
-        timerId: 'timer-2',
-      }),
-    ]);
-
+  it('does not create change follow-up timers under the minimal change-ticket workflow', async () => {
     const result = await service.ensureChangePostApprovalFollowUpTimer('ticket-1');
 
-    expect(result?.timerType).toBe(SlaTimerTypes.CHANGE_POST_APPROVAL_FOLLOWUP);
-    expect(prisma.slaTimer.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          workflowNo: 'CT2603140001',
-          timerType: SlaTimerTypes.CHANGE_POST_APPROVAL_FOLLOWUP,
-        }),
-      }),
-    );
+    expect(result).toBeNull();
+    expect(prisma.changeTicket.findUnique).not.toHaveBeenCalled();
+    expect(prisma.slaTimer.create).not.toHaveBeenCalled();
   });
 
-  it('closes active follow-up timer and writes postApprovalCompletedAt back to change ticket', async () => {
+  it('closes active follow-up timer without writing back to change ticket', async () => {
     prisma.slaTimer.findUnique.mockResolvedValue(
       buildTimer({
         workflowType: 'CHANGE_TICKET',
@@ -332,10 +286,6 @@ describe('SlaTimersService', () => {
         triggeredAt: baseDate,
       }),
     );
-    prisma.changeTicket.update.mockResolvedValue({
-      id: 'ticket-1',
-      postApprovalCompletedAt: baseDate,
-    });
     prisma.slaTimer.update.mockResolvedValue(
       buildTimer({
         workflowType: 'CHANGE_TICKET',
@@ -355,11 +305,151 @@ describe('SlaTimersService', () => {
     const result = await service.close('timer-1', { reason: 'done' }, actor);
 
     expect(result.status).toBe(SlaTimerStatuses.CLOSED);
-    expect(prisma.changeTicket.update).toHaveBeenCalledWith(
+    expect(prisma.changeTicket.update).not.toHaveBeenCalled();
+    expect(prisma.changeTicket.findUnique).not.toHaveBeenCalled();
+  });
+
+  it('recalculates existing change follow-up timer without querying change-ticket workflow fields', async () => {
+    const nextDueAt = new Date('2026-03-14T18:00:00.000Z');
+    prisma.slaTimer.findUnique.mockResolvedValue(
+      buildTimer({
+        workflowType: 'CHANGE_TICKET',
+        workflowId: 'ticket-1',
+        workflowNo: 'CT2603140001',
+        subjectType: 'CHANGE_TICKET',
+        subjectId: 'ticket-1',
+        subjectNo: 'CT2603140001',
+        timerType: SlaTimerTypes.CHANGE_POST_APPROVAL_FOLLOWUP,
+        traceId: 'trace-ticket-1',
+        activeKey: 'CHANGE_TICKET|CHANGE_TICKET|ticket-1|CHANGE_POST_APPROVAL_FOLLOWUP',
+        contextJson: JSON.stringify({
+          ticketNo: 'CT2603140001',
+        }),
+        notifications: [buildNotification()],
+      }),
+    );
+    prisma.slaTimer.update.mockResolvedValue(
+      buildTimer({
+        workflowType: 'CHANGE_TICKET',
+        workflowId: 'ticket-1',
+        workflowNo: 'CT2603140001',
+        subjectType: 'CHANGE_TICKET',
+        subjectId: 'ticket-1',
+        subjectNo: 'CT2603140001',
+        timerType: SlaTimerTypes.CHANGE_POST_APPROVAL_FOLLOWUP,
+        traceId: 'trace-ticket-1',
+        dueAt: nextDueAt,
+        graceSeconds: 90,
+      }),
+    );
+    prisma.slaNotification.findFirst.mockResolvedValue(buildNotification());
+    prisma.slaNotification.update.mockResolvedValue(
+      buildNotification({
+        scheduledAt: nextDueAt,
+        status: SlaNotificationStatuses.SCHEDULED,
+      }),
+    );
+    prisma.slaNotification.findMany.mockResolvedValue([
+      buildNotification({
+        scheduledAt: nextDueAt,
+        status: SlaNotificationStatuses.SCHEDULED,
+      }),
+    ]);
+
+    const result = await service.recalc(
+      'timer-1',
+      {
+        dueAt: nextDueAt.toISOString(),
+        graceSeconds: 90,
+        reason: 'minimal change follow-up recalc',
+      },
+      actor,
+    );
+
+    expect(result.status).toBe(SlaTimerStatuses.ACTIVE);
+    expect(prisma.changeTicket.findUnique).not.toHaveBeenCalled();
+    expect(prisma.changeTicket.update).not.toHaveBeenCalled();
+    expect(prisma.slaTimer.update).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: 'ticket-1' },
+        where: { id: 'timer-1' },
         data: expect.objectContaining({
-          postApprovalCompletedAt: expect.any(Date),
+          dueAt: nextDueAt,
+          graceSeconds: 90,
+        }),
+      }),
+    );
+  });
+
+  it('expires existing change follow-up timers without querying change-ticket workflow fields', async () => {
+    prisma.slaTimer.findMany.mockResolvedValue([
+      buildTimer({
+        workflowType: 'CHANGE_TICKET',
+        workflowId: 'ticket-1',
+        workflowNo: 'CT2603140001',
+        subjectType: 'CHANGE_TICKET',
+        subjectId: 'ticket-1',
+        subjectNo: 'CT2603140001',
+        timerType: SlaTimerTypes.CHANGE_POST_APPROVAL_FOLLOWUP,
+        traceId: 'trace-ticket-1',
+        dueAt: new Date('2026-03-14T15:00:00.000Z'),
+        graceSeconds: 120,
+        activeKey: 'CHANGE_TICKET|CHANGE_TICKET|ticket-1|CHANGE_POST_APPROVAL_FOLLOWUP',
+      }),
+    ]);
+    prisma.slaNotification.findFirst
+      .mockResolvedValueOnce(buildNotification())
+      .mockResolvedValueOnce(null);
+    prisma.slaNotification.update.mockResolvedValue(
+      buildNotification({
+        status: SlaNotificationStatuses.TRIGGERED,
+        triggeredAt: baseDate,
+      }),
+    );
+    prisma.slaNotification.create.mockResolvedValue(
+      buildNotification({
+        id: 'notification-2',
+        notificationType: SlaNotificationTypes.EXPIRE_MARK,
+        status: SlaNotificationStatuses.TRIGGERED,
+        triggeredAt: baseDate,
+      }),
+    );
+    prisma.slaNotification.findMany.mockResolvedValue([
+      buildNotification({
+        status: SlaNotificationStatuses.TRIGGERED,
+        triggeredAt: baseDate,
+      }),
+      buildNotification({
+        id: 'notification-2',
+        notificationType: SlaNotificationTypes.EXPIRE_MARK,
+        status: SlaNotificationStatuses.TRIGGERED,
+        triggeredAt: baseDate,
+      }),
+    ]);
+    prisma.slaTimer.update.mockResolvedValue(
+      buildTimer({
+        workflowType: 'CHANGE_TICKET',
+        workflowId: 'ticket-1',
+        workflowNo: 'CT2603140001',
+        subjectType: 'CHANGE_TICKET',
+        subjectId: 'ticket-1',
+        subjectNo: 'CT2603140001',
+        timerType: SlaTimerTypes.CHANGE_POST_APPROVAL_FOLLOWUP,
+        traceId: 'trace-ticket-1',
+        status: SlaTimerStatuses.EXPIRED,
+        expiredAt: baseDate,
+        activeKey: null,
+      }),
+    );
+
+    const result = await service.expireDueTimers();
+
+    expect(result.expiredCount).toBe(1);
+    expect(prisma.changeTicket.findUnique).not.toHaveBeenCalled();
+    expect(prisma.slaTimer.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: SlaTimerStatuses.EXPIRED,
+          activeKey: null,
         }),
       }),
     );

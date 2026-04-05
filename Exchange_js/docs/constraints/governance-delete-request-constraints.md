@@ -1,135 +1,130 @@
 # Governance Delete Request Constraints
 
 ## 1) Scope and Ownership
-- MUST keep `WF-05` canonical implementation under:
-1. `src/modules/governance/delete-requests`
-2. `src/modules/governance/approvals`
-- MUST treat `Delete Request + Soft Delete Gate` as the only in-scope governance workflow for this phase.
-- MUST NOT fold `SLA Timer` requirements into this constraint file until that phase is implemented.
+- MUST keep the canonical implementation under:
+  1. `src/modules/governance/delete-requests`
+  2. `src/modules/governance/approvals`
+- MUST treat delete requests as the minimal approval-and-consume workflow for `WF-05`.
+- MUST NOT fold SLA timer requirements into this file.
 
-## 2) Data Model and No-First Contract
+## 2) Data Model and Identifier Contract
 - MUST persist `delete_requests`.
 - `delete_requests` MUST expose `requestNo` as the operator-facing primary identifier.
 - `requestNo` MUST be generated with `generateReferenceNo('DR')`.
 - Internal routing and foreign-key relations MAY continue to use `id`, but admin UI and default search MUST prioritize `requestNo` and `targetNo`.
-- Phase 3 target scope MUST be limited to:
-1. `CHANGE_TICKET`
-2. `AUDIT_EVIDENCE_PACKAGE`
-3. `COMPLIANCE_CASE_EVIDENCE_PACKAGE`
-4. `ADMIN_USER`
-- Soft delete fields MUST be standardized on target tables as:
-1. `deletedAt`
-2. `deletedBy`
-3. `deleteRequestId`
-4. `deleteReason`
+- Canonical target types are limited to:
+  1. `CHANGE_TICKET`
+  2. `AUDIT_EVIDENCE_PACKAGE`
+  3. `ADMIN_USER`
+- Canonical status values are limited to:
+  1. `DRAFT`
+  2. `PENDING_APPROVAL`
+  3. `READY`
+  4. `DONE`
+  5. `FAILED`
+  6. `REJECTED`
+  7. `CANCELLED`
+- Soft delete fields on target tables MUST be standardized as:
+  1. `deletedAt`
+  2. `deletedBy`
+  3. `deleteRequestId`
+  4. `deleteReason`
 
-## 3) Delete Request State Machine
-- MUST keep delete request state machine:
-1. `DRAFT`
-2. `SUBMITTED`
-3. `APPROVAL_PENDING`
-4. `READY_TO_EXECUTE`
-5. `EXECUTED`
-6. `EXECUTION_FAILED`
-7. `REJECTED`
-8. `CANCELLED`
-- `APPROVED` MUST NOT be used as a stable `delete_requests.status`.
-- Approval projection MUST map:
-1. `APPROVED -> READY_TO_EXECUTE`
-2. `REJECTED -> REJECTED`
-3. `EXPIRED -> REJECTED`
-4. `CANCELLED -> REJECTED`
-- `latestApprovalStatus` MUST preserve the real approval terminal status even when request status mirrors to `REJECTED`.
-- Phase 3 MUST NOT implement `resubmit`, `undelete`, or batch delete.
+## 3) Field Contract
+- MUST keep the current minimal field model:
+  1. `approvalCaseId`
+  2. `approvalNo`
+  3. `createdByUserNo`
+  4. `submittedByUserNo`
+  5. `consumedByUserNo`
+  6. `deleteReason`
+  7. `resultNote`
+  8. `docRef`
+  9. `targetSnapshotJson`
+  10. `targetSnapshotDigest`
+  11. `traceId`
+  12. `targetType`
+  13. `targetId`
+  14. `targetNo`
+- `createdByUserId`, `submittedByUserId`, and `consumedByUserId` remain part of the storage model and are used for SoD checks.
 
 ## 4) Approval Binding and SoD
-- Submit MUST create and submit an approval case with:
-1. `actionType = DELETE_REQUEST_APPROVAL`
-2. `entityRef = deleteRequest.id`
-3. metadata including `requestNo`, `targetType`, `targetId`, and `targetNo`
-- Phase 3 checker roles MUST come from the approval policy baseline: `DPO,TECH_ADMIN`.
-- `submit` MUST be allowed only from `DRAFT` and only by the maker.
-- `cancel` MUST be allowed only from `DRAFT / SUBMITTED / APPROVAL_PENDING` and only by the maker.
-- `execute` MUST be allowed only from `READY_TO_EXECUTE`.
-- Maker MUST NOT execute their own delete request.
-- `SUPER_ADMIN` MAY bypass maker-checker and maker-executor SoD, but audit metadata MUST include `superAdminBypass=true`.
+- `submit` MUST be allowed only from `DRAFT` and only by the creator.
+- `submit` MUST create and submit one approval case with:
+  1. `actionType = DELETE_REQUEST_APPROVAL`
+  2. `entityRef = deleteRequest.id`
+  3. metadata including `requestNo`, `targetType`, `targetId`, and `targetNo`
+- Approval projection MUST map:
+  1. `APPROVED -> READY`
+  2. `REJECTED -> REJECTED`
+  3. `EXPIRED -> REJECTED`
+  4. `CANCELLED -> REJECTED`
+- `cancel` MUST be allowed from `DRAFT`, `PENDING_APPROVAL`, or `READY`.
+- `cancel` MUST be allowed by the creator, and `SUPER_ADMIN` MAY cancel another user's request.
+- `consume` MUST be allowed only from `READY`.
+- The creator MUST NOT consume their own request unless the actor is `SUPER_ADMIN`.
+- If a request has an approval case, `consume` MUST re-check that approval case is approved before deleting the target.
+- `SUPER_ADMIN` MAY bypass the creator-executor SoD, and audit metadata MUST include `superAdminBypass=true` when that happens.
+- There is no execute or resubmit step in this workflow.
 
 ## 5) Target Gate Rules
-- `CHANGE_TICKET` delete target MUST be `CLOSED` and not already deleted.
-- `AUDIT_EVIDENCE_PACKAGE` delete target MUST NOT be deleted already.
-- `AUDIT_EVIDENCE_PACKAGE` delete target MUST be blocked when its linked approval is `PENDING`.
-- `COMPLIANCE_CASE_EVIDENCE_PACKAGE` delete target MUST NOT be deleted already.
-- `COMPLIANCE_CASE_EVIDENCE_PACKAGE` delete target MUST be blocked when its linked approval is `PENDING`.
-- `ADMIN_USER` delete target MUST NOT be deleted already and MUST be resolved by `userNo`.
-- `APPROVAL_CASE` MUST NOT remain a supported delete target or compatibility alias.
-- Phase 3 MUST resolve targets by `targetNo` in the UI and create API.
+- `CHANGE_TICKET` MUST exist, MUST not already be deleted, and MUST be in a terminal ticket status: `DONE`, `FAILED`, `REJECTED`, or `CANCELLED`.
+- `AUDIT_EVIDENCE_PACKAGE` MUST exist, MUST not already be deleted, and MUST not have a pending linked approval.
+- `ADMIN_USER` MUST exist, MUST not already be deleted, and MUST be resolved by `userNo` in the admin create flow.
+- `COMPLIANCE_CASE_EVIDENCE_PACKAGE` and `APPROVAL_CASE` are not canonical targets.
 
-## 6) Execution and Read Filtering
-- Execute MUST re-check approval via `requireApproved(DELETE_REQUEST_APPROVAL, entityRef=deleteRequest.id)`.
-- Execute MUST snapshot the target before writing soft delete fields.
-- Execute MUST best-effort write `ApprovalsService.markExecutionResult(...)`.
-- Normal read paths for:
-1. `Approvals`
-2. `Change Tickets`
-3. `Evidence Export`
-4. `Case Evidence Export`
-5. `Platform Members / admin auth / admin invitation`
-  MUST exclude rows with `deletedAt != null`.
-- Direct detail/download access to soft-deleted target rows MUST return `404`.
-- `Delete Request` list/detail MUST remain readable after target deletion.
-
-## 7) Audit and Workflow Traceability
+## 6) Audit and Workflow Traceability
 - All delete request writes MUST go through `AuditLogsService`.
 - Audit records MUST include:
-1. `module = GOVERNANCE_DELETE_REQUESTS`
-2. `entityType = DELETE_REQUEST`
-3. `entityId = deleteRequest.id`
-4. `entityNo = deleteRequest.requestNo`
-5. `workflowType = DELETE_REQUEST`
-6. `workflowId = deleteRequest.id`
-7. `workflowNo = deleteRequest.requestNo`
-8. `traceId = deleteRequest.traceId`
+  1. `module = GOVERNANCE_DELETE_REQUESTS`
+  2. `entityType = DELETE_REQUEST`
+  3. `entityId = deleteRequest.id`
+  4. `entityNo = deleteRequest.requestNo`
+  5. `workflowType = DELETE_REQUEST`
+  6. `workflowId = deleteRequest.id`
+  7. `workflowNo = deleteRequest.requestNo`
+  8. `traceId = deleteRequest.traceId`
 - `subjectNos` MUST include `requestNo` and `targetNo`.
 - If an approval is linked, `subjectNos` SHOULD also include `approvalNo`.
-- Phase 3 action dictionary MUST include:
-1. `DELETE_REQUEST_CREATED`
-2. `DELETE_REQUEST_SUBMITTED`
-3. `DELETE_REQUEST_APPROVED`
-4. `DELETE_REQUEST_REJECTED`
-5. `DELETE_REQUEST_CANCELLED`
-6. `DELETE_REQUEST_EXECUTED`
-7. `DELETE_REQUEST_EXECUTION_FAILED`
+- Active action dictionary MUST include:
+  1. `DELETE_REQUEST_CREATED`
+  2. `DELETE_REQUEST_SUBMITTED`
+  3. `DELETE_REQUEST_APPROVED`
+  4. `DELETE_REQUEST_REJECTED`
+  5. `DELETE_REQUEST_CANCELLED`
+  6. `DELETE_REQUEST_CONSUMED`
+  7. `DELETE_REQUEST_CONSUME_FAILED`
 
-## 8) Admin UI and Route Contract
+## 7) Admin UI and Route Contract
 - Control Gates admin entry MUST surface:
-1. `/dashboard/control-gates/delete-requests`
-2. `/dashboard/control-gates/delete-requests/create`
-3. `/dashboard/control-gates/delete-requests/:id`
+  1. `/dashboard/control-gates/delete-requests`
+  2. `/dashboard/control-gates/delete-requests/create`
+  3. `/dashboard/control-gates/delete-requests/:id`
 - List page MUST remain a pure list page and MUST NOT embed a bottom detail panel.
 - List page default filters MUST support:
-1. `requestNo`
-2. `targetType`
-3. `targetNo`
-4. `status`
-5. `latestApprovalStatus`
-6. `traceId`
-7. `keyword`
-- Detail page MUST keep admin detail page styling and MUST expose actions according to request status and permission.
+  1. `requestNo`
+  2. `targetType`
+  3. `targetNo`
+  4. `status`
+  5. `traceId`
+  6. `approvalNo`
+  7. `createdByUserNo`
+  8. `consumedByUserNo`
+  9. `keyword`
+- Detail page MUST expose only create, list, detail, submit, cancel, and consume actions.
 
-## 9) RBAC Baseline
-- Phase 3 permission groups MUST include:
-1. `GOV_DELETE_REQUEST_READ`
-2. `GOV_DELETE_REQUEST_WRITE`
-3. `GOV_DELETE_REQUEST_EXECUTE`
-- Phase 3 role matrix MUST be:
-1. all Java roles -> `GOV_DELETE_REQUEST_READ`
-2. `TECH_ADMIN / FINANCE / OPS_TREASURY / COMPLIANCE_LEAD / DPO` -> `GOV_DELETE_REQUEST_WRITE`
-3. `TECH_ADMIN / DPO` -> `GOV_DELETE_REQUEST_EXECUTE`
-4. `SUPER_ADMIN` -> all permissions
+## 8) RBAC Baseline
+- Active route permissions MUST be:
+  1. `GET /admin/control-gates/delete-requests` -> `GOV_DELETE_REQUEST_READ`
+  2. `GET /admin/control-gates/delete-requests/:id` -> `GOV_DELETE_REQUEST_READ`
+  3. `POST /admin/control-gates/delete-requests` -> `GOV_DELETE_REQUEST_WRITE`
+  4. `POST /admin/control-gates/delete-requests/:id/submit` -> `GOV_DELETE_REQUEST_WRITE`
+  5. `POST /admin/control-gates/delete-requests/:id/cancel` -> `GOV_DELETE_REQUEST_WRITE`
+  6. `POST /admin/control-gates/delete-requests/:id/consume` -> `GOV_DELETE_REQUEST_CONSUME`
+- `SUPER_ADMIN` bypasses permission checks in the admin permission guard.
+- Any broader legacy catalog entries not tied to active routes are non-canonical for this workflow.
 
-## 10) Delivery Checklist
-- Prisma migration added for `delete_requests` and target soft delete fields.
-- Approval submit and projection path verified end-to-end.
-- Execute soft delete path verified with tests.
-- Soft-deleted approvals, change tickets, and evidence packages are hidden from normal list/detail/download paths.
-- RBAC sync updates new delete request permissions into active roles.
+## 9) Delivery Checklist
+- Request create, submit, cancel, consume, and list filters are verified against tests.
+- Approval submit and projection path are verified end-to-end.
+- Soft-deleted targets remain hidden from their normal modules, while delete-request detail stays readable.

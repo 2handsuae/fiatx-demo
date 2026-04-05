@@ -100,6 +100,15 @@ describe('OnboardingService', () => {
   const onboardingFinalApprovalServiceMock: any = {
     proxyFinalDecision: jest.fn(),
     emitSubmittedSideEffects: jest.fn(),
+    ensurePendingApprovalInTransaction: jest.fn(),
+  };
+
+  const sumsubClientMock: any = {
+    createApplicant: jest.fn(),
+    createSdkToken: jest.fn(),
+    getApplicantByExternalUserId: jest.fn(),
+    getApplicantReviewStatus: jest.fn(),
+    changeLevel: jest.fn(),
   };
 
   let service: OnboardingService;
@@ -117,6 +126,15 @@ describe('OnboardingService', () => {
     prismaMock.complianceIncidentDispositionRecord.create.mockResolvedValue({
       id: 'case-disp-1',
     });
+    onboardingFinalApprovalServiceMock.ensurePendingApprovalInTransaction.mockResolvedValue({
+      approval: {
+        id: 'approval-1',
+        approvalNo: 'APP-1',
+        status: 'PENDING',
+      },
+      created: true,
+      auditAction: 'FINAL_APPROVAL_SUBMITTED',
+    });
     service = new OnboardingService(
       prismaMock,
       riskEngineMock,
@@ -124,7 +142,345 @@ describe('OnboardingService', () => {
       workflowTransitionServiceMock,
       complianceIncidentsMock,
       onboardingFinalApprovalServiceMock,
+      sumsubClientMock,
     );
+  });
+
+  const buildVerificationCustomer = (overrides?: Record<string, unknown>) => ({
+    id: 'customer-1',
+    customerNo: 'CU0001',
+    customerType: 'INDIVIDUAL',
+    onboardingStatus: 'PENDING_VERIFICATION',
+    operatingStatus: 'INACTIVE',
+    restrictionStatus: 'CLEAR',
+    verificationProvider: 'SUMSUB',
+    verificationSubstatus: 'CREATED',
+    verificationCustomerActionRequired: true,
+    verificationCanContinue: true,
+    verificationLatestEventType: null,
+    verificationLatestEventAt: null,
+    sumsubApplicantId: 'app-1',
+    sumsubCurrentLevelName: 'wave3-level-1',
+    sumsubLatestReviewId: null,
+    sumsubLatestAttemptId: null,
+    sumsubExperiencedLevel2: false,
+    latestFinalApprovalId: null,
+    latestFinalApprovalStatus: null,
+    activeJourneyId: 'ONB-1',
+    eddRequired: false,
+    ...overrides,
+  });
+
+  const seedVerificationEventFlow = (customerOverrides?: Record<string, unknown>) => {
+    const customer = buildVerificationCustomer(customerOverrides);
+    prismaMock.customerMain.findUnique.mockResolvedValue(customer);
+    prismaMock.customerMain.update.mockImplementation(async ({ data }: any) => ({
+      ...customer,
+      ...data,
+    }));
+    return customer;
+  };
+
+  describe('handleSumsubVerificationEvent', () => {
+    it('keeps onboarding pending with SUBMITTED substatus for applicantPending', async () => {
+      seedVerificationEventFlow();
+
+      const result = await service.handleSumsubVerificationEvent(
+        {
+          type: 'applicantPending',
+          applicantId: 'app-1',
+          applicantType: 'individual',
+        },
+        { simulated: false, actorId: 'SUMSUB' },
+      );
+
+      expect(prismaMock.customerMain.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'customer-1' },
+          data: expect.objectContaining({
+            onboardingStatus: 'PENDING_VERIFICATION',
+            verificationSubstatus: 'SUBMITTED',
+            verificationCustomerActionRequired: false,
+            verificationCanContinue: false,
+            verificationLatestEventType: 'applicantPending',
+          }),
+        }),
+      );
+      expect(result.customer.onboardingStatus).toBe('PENDING_VERIFICATION');
+      expect(result.verification.substatus).toBe('SUBMITTED');
+    });
+
+    it('keeps onboarding pending with UNDER_REVIEW substatus for applicantOnHold', async () => {
+      seedVerificationEventFlow();
+
+      const result = await service.handleSumsubVerificationEvent(
+        {
+          type: 'applicantOnHold',
+          applicantId: 'app-1',
+        },
+        { simulated: false, actorId: 'SUMSUB' },
+      );
+
+      expect(prismaMock.customerMain.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            onboardingStatus: 'PENDING_VERIFICATION',
+            verificationSubstatus: 'UNDER_REVIEW',
+            verificationCustomerActionRequired: false,
+            verificationCanContinue: false,
+          }),
+        }),
+      );
+      expect(result.verification.substatus).toBe('UNDER_REVIEW');
+    });
+
+    it('keeps onboarding pending and allows continuation when review is RED with RETRY', async () => {
+      seedVerificationEventFlow();
+
+      const result = await service.handleSumsubVerificationEvent(
+        {
+          type: 'applicantReviewed',
+          applicantId: 'app-1',
+          reviewResult: {
+            reviewAnswer: 'RED',
+            reviewRejectType: 'RETRY',
+            reviewId: 'rev-1',
+          },
+        },
+        { simulated: false, actorId: 'SUMSUB' },
+      );
+
+      expect(prismaMock.customerMain.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            onboardingStatus: 'PENDING_VERIFICATION',
+            verificationSubstatus: 'RESUBMIT_REQUIRED',
+            verificationCustomerActionRequired: true,
+            verificationCanContinue: true,
+            sumsubLatestReviewId: 'rev-1',
+          }),
+        }),
+      );
+      expect(result.verification.substatus).toBe('RESUBMIT_REQUIRED');
+      expect(result.verification.canContinue).toBe(true);
+    });
+
+    it('marks level2 experience and keeps onboarding pending for applicantLevelChanged', async () => {
+      seedVerificationEventFlow();
+
+      const result = await service.handleSumsubVerificationEvent(
+        {
+          type: 'applicantLevelChanged',
+          applicantId: 'app-1',
+          levelName: 'wave3-level-2',
+        },
+        { simulated: false, actorId: 'SUMSUB' },
+      );
+
+      expect(prismaMock.customerMain.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            onboardingStatus: 'PENDING_VERIFICATION',
+            verificationSubstatus: 'NEXT_LEVEL_REQUIRED',
+            verificationCanContinue: true,
+            verificationCustomerActionRequired: false,
+            sumsubCurrentLevelName: 'wave3-level-2',
+            sumsubExperiencedLevel2: true,
+          }),
+        }),
+      );
+      expect(result.verification.substatus).toBe('NEXT_LEVEL_REQUIRED');
+      expect(result.verification.experiencedLevel2).toBe(true);
+    });
+
+    it('approves and activates customer when workflow completes without level2', async () => {
+      seedVerificationEventFlow({
+        sumsubExperiencedLevel2: false,
+        verificationSubstatus: 'UNDER_REVIEW',
+      });
+
+      const result = await service.handleSumsubVerificationEvent(
+        {
+          type: 'applicantWorkflowCompleted',
+          applicantId: 'app-1',
+        },
+        { simulated: false, actorId: 'SUMSUB' },
+      );
+
+      expect(prismaMock.customerMain.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            onboardingStatus: 'APPROVED',
+            operatingStatus: 'ACTIVE',
+            verificationSubstatus: 'COMPLETED',
+            latestFinalApprovalStatus: null,
+          }),
+        }),
+      );
+      expect(onboardingFinalApprovalServiceMock.ensurePendingApprovalInTransaction).not.toHaveBeenCalled();
+      expect(result.customer.onboardingStatus).toBe('APPROVED');
+      expect(result.customer.operatingStatus).toBe('ACTIVE');
+    });
+
+    it('routes workflow completion with level2 into FINAL_APPROVAL and ensures pending approval', async () => {
+      seedVerificationEventFlow({
+        sumsubExperiencedLevel2: true,
+        verificationSubstatus: 'UNDER_REVIEW',
+      });
+
+      const result = await service.handleSumsubVerificationEvent(
+        {
+          type: 'applicantWorkflowCompleted',
+          applicantId: 'app-1',
+        },
+        { simulated: false, actorId: 'SUMSUB' },
+      );
+
+      expect(onboardingFinalApprovalServiceMock.ensurePendingApprovalInTransaction).toHaveBeenCalledWith(
+        prismaMock,
+        expect.objectContaining({
+          customer: expect.objectContaining({
+            id: 'customer-1',
+            onboardingStatus: 'FINAL_APPROVAL',
+          }),
+          actorId: 'SUMSUB',
+          actorRole: 'SYSTEM',
+        }),
+      );
+      expect(prismaMock.customerMain.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            onboardingStatus: 'FINAL_APPROVAL',
+            verificationSubstatus: 'COMPLETED',
+            latestFinalApprovalStatus: 'PENDING',
+          }),
+        }),
+      );
+      expect(result.customer.onboardingStatus).toBe('FINAL_APPROVAL');
+      expect(result.customer.operatingStatus).toBe('INACTIVE');
+    });
+
+    it('rejects onboarding when workflow fails', async () => {
+      seedVerificationEventFlow({
+        verificationSubstatus: 'UNDER_REVIEW',
+        sumsubExperiencedLevel2: true,
+      });
+
+      const result = await service.handleSumsubVerificationEvent(
+        {
+          type: 'applicantWorkflowFailed',
+          applicantId: 'app-1',
+        },
+        { simulated: false, actorId: 'SUMSUB' },
+      );
+
+      expect(prismaMock.customerMain.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            onboardingStatus: 'REJECTED',
+            operatingStatus: 'INACTIVE',
+            verificationSubstatus: 'FAILED',
+          }),
+        }),
+      );
+      expect(result.customer.onboardingStatus).toBe('REJECTED');
+    });
+
+    it('keeps onboarding pending with PROCESSING substatus for unknown events', async () => {
+      seedVerificationEventFlow();
+
+      const result = await service.handleSumsubVerificationEvent(
+        {
+          type: 'applicantMysteryEvent',
+          applicantId: 'app-1',
+        },
+        { simulated: false, actorId: 'SUMSUB' },
+      );
+
+      expect(prismaMock.customerMain.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            onboardingStatus: 'PENDING_VERIFICATION',
+            verificationSubstatus: 'PROCESSING',
+            verificationLatestEventType: 'applicantMysteryEvent',
+          }),
+        }),
+      );
+      expect(result.customer.onboardingStatus).toBe('PENDING_VERIFICATION');
+      expect(result.verification.substatus).toBe('PROCESSING');
+    });
+
+    it('does not regress APPROVED customers when a late webhook arrives', async () => {
+      const customer = buildVerificationCustomer({
+        onboardingStatus: 'APPROVED',
+        operatingStatus: 'ACTIVE',
+        verificationSubstatus: 'COMPLETED',
+        verificationCustomerActionRequired: false,
+        verificationCanContinue: false,
+      });
+      prismaMock.customerMain.findUnique.mockResolvedValue(customer);
+
+      const result = await service.handleSumsubVerificationEvent(
+        {
+          type: 'applicantPending',
+          applicantId: 'app-1',
+        },
+        { simulated: false, actorId: 'SUMSUB' },
+      );
+
+      expect(prismaMock.customerMain.update).not.toHaveBeenCalled();
+      expect(result.customer.onboardingStatus).toBe('APPROVED');
+      expect(result.customer.operatingStatus).toBe('ACTIVE');
+      expect(result.verification.substatus).toBe('COMPLETED');
+    });
+
+    it('rejects webhook payloads whose applicantId and externalUserId point to different customers', async () => {
+      prismaMock.customerMain.findUnique.mockImplementation(async ({ where }: any) => {
+        if (where?.sumsubApplicantId === 'app-1') {
+          return buildVerificationCustomer({ id: 'customer-1', sumsubApplicantId: 'app-1' });
+        }
+        if (where?.id === 'customer-2') {
+          return buildVerificationCustomer({ id: 'customer-2', sumsubApplicantId: 'app-2' });
+        }
+        return null;
+      });
+
+      await expect(
+        service.handleSumsubVerificationEvent(
+          {
+            type: 'applicantPending',
+            applicantId: 'app-1',
+            externalUserId: 'customer-2',
+          },
+          { simulated: false, actorId: 'SUMSUB' },
+        ),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(prismaMock.customerMain.update).not.toHaveBeenCalled();
+    });
+
+    it('rejects webhook payloads when applicantId is present but no applicant-linked customer exists', async () => {
+      prismaMock.customerMain.findUnique.mockImplementation(async ({ where }: any) => {
+        if (where?.sumsubApplicantId === 'app-missing') {
+          return null;
+        }
+        if (where?.id === 'customer-2') {
+          return buildVerificationCustomer({ id: 'customer-2', sumsubApplicantId: 'app-2' });
+        }
+        return null;
+      });
+
+      await expect(
+        service.handleSumsubVerificationEvent(
+          {
+            type: 'applicantPending',
+            applicantId: 'app-missing',
+            externalUserId: 'customer-2',
+          },
+          { simulated: false, actorId: 'SUMSUB' },
+        ),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(prismaMock.customerMain.update).not.toHaveBeenCalled();
+    });
   });
 
   const seedCddMockFlow = () => {
@@ -474,6 +830,392 @@ describe('OnboardingService', () => {
     expect(result.requiresEdd).toBe(true);
   });
 
+  it.each(['APPROVED', 'FINAL_APPROVAL'] as const)(
+    'should reject verification start while onboarding is %s',
+    async (status) => {
+      prismaMock.customerMain.findUnique.mockResolvedValue({
+        id: 'c1',
+        customerType: 'INDIVIDUAL',
+        onboardingStatus: status,
+        operatingStatus: status === 'APPROVED' ? 'ACTIVE' : 'INACTIVE',
+        restrictionStatus: 'CLEAR',
+      });
+
+      await expect(service.startVerification('c1')).rejects.toBeInstanceOf(
+        BadRequestException,
+      );
+    },
+  );
+
+  it.each(['PENDING_CDD_INPUT', 'CDD_UNDER_REVIEW', 'PENDING_EDD_INPUT', 'EDD_UNDER_REVIEW'] as const)(
+    'should reject verification start while onboarding is legacy raw state %s',
+    async (status) => {
+      prismaMock.customerMain.findUnique.mockResolvedValue({
+        id: 'c1',
+        customerType: 'INDIVIDUAL',
+        onboardingStatus: status,
+        operatingStatus: 'INACTIVE',
+        restrictionStatus: 'CLEAR',
+      });
+
+      await expect(service.startVerification('c1')).rejects.toBeInstanceOf(
+        BadRequestException,
+      );
+    },
+  );
+
+  it('should reject verification start when raw onboarding status is unknown', async () => {
+    prismaMock.customerMain.findUnique.mockResolvedValue({
+      id: 'c1',
+      customerNo: 'CU0001',
+      customerType: 'INDIVIDUAL',
+      onboardingStatus: 'SOMETHING_UNKNOWN',
+      operatingStatus: 'INACTIVE',
+      restrictionStatus: 'CLEAR',
+    });
+
+    await expect(service.startVerification('c1')).rejects.toBeInstanceOf(BadRequestException);
+    expect(sumsubClientMock.getApplicantByExternalUserId).not.toHaveBeenCalled();
+    expect(sumsubClientMock.createApplicant).not.toHaveBeenCalled();
+    expect(sumsubClientMock.createSdkToken).not.toHaveBeenCalled();
+  });
+
+  it('should fail closed on next-step projection when raw onboarding status is unknown', async () => {
+    prismaMock.customerMain.findUnique.mockResolvedValue({
+      id: 'c1',
+      customerNo: 'CU0001',
+      customerType: 'INDIVIDUAL',
+      onboardingStatus: 'SOMETHING_UNKNOWN',
+      operatingStatus: 'INACTIVE',
+      restrictionStatus: 'CLEAR',
+      activeJourneyId: null,
+    });
+
+    const result = await service.getNextStep('c1');
+
+    expect(result.actions).toEqual([{ type: 'NONE' }]);
+    expect(result.blockedReason).toContain('SOMETHING_UNKNOWN');
+  });
+
+  it('should fail closed on onboarding projection when raw onboarding status is unknown', async () => {
+    prismaMock.customerMain.findUnique.mockResolvedValue({
+      id: 'c1',
+      customerNo: 'CU0001',
+      customerType: 'INDIVIDUAL',
+      onboardingStatus: 'SOMETHING_UNKNOWN',
+      operatingStatus: 'INACTIVE',
+      restrictionStatus: 'CLEAR',
+      activeJourneyId: null,
+    });
+
+    const result = await service.getMyOnboarding('c1');
+
+    expect(result.actions).toEqual([{ type: 'NONE' }]);
+    expect(result.blockedReason).toContain('SOMETHING_UNKNOWN');
+  });
+
+  it('should create Sumsub applicant and return sdk token when starting verification', async () => {
+    prismaMock.customerMain.findUnique.mockResolvedValue({
+      id: 'c1',
+      customerNo: 'CU0001',
+      customerType: 'INDIVIDUAL',
+      onboardingStatus: 'NONE',
+      operatingStatus: 'INACTIVE',
+      restrictionStatus: 'CLEAR',
+      verificationProvider: null,
+      verificationSubstatus: null,
+      verificationCustomerActionRequired: false,
+      verificationCanContinue: false,
+      verificationLatestEventType: null,
+      verificationLatestEventAt: null,
+      sumsubApplicantId: null,
+      sumsubCurrentLevelName: null,
+      sumsubLatestReviewId: null,
+      sumsubLatestAttemptId: null,
+      sumsubExperiencedLevel2: true,
+      latestFinalApprovalId: 'approval-1',
+      latestFinalApprovalStatus: 'PENDING',
+    });
+    sumsubClientMock.getApplicantByExternalUserId.mockResolvedValue(null);
+    sumsubClientMock.createApplicant.mockResolvedValue({ id: 'app-1' });
+    sumsubClientMock.createSdkToken.mockResolvedValue({ token: 'sdk-token-1' });
+    prismaMock.customerMain.update.mockResolvedValue({
+      id: 'c1',
+      customerNo: 'CU0001',
+      customerType: 'INDIVIDUAL',
+      onboardingStatus: 'PENDING_VERIFICATION',
+      operatingStatus: 'INACTIVE',
+      restrictionStatus: 'CLEAR',
+      verificationProvider: 'SUMSUB',
+      verificationSubstatus: 'CREATED',
+      verificationCustomerActionRequired: true,
+      verificationCanContinue: true,
+      verificationLatestEventType: null,
+      verificationLatestEventAt: null,
+      sumsubApplicantId: 'app-1',
+      sumsubCurrentLevelName: 'wave3-level-1',
+      sumsubLatestReviewId: null,
+      sumsubLatestAttemptId: null,
+      sumsubExperiencedLevel2: false,
+      latestFinalApprovalId: 'approval-1',
+      latestFinalApprovalStatus: 'PENDING',
+    });
+
+    const result = await service.startVerification('c1');
+
+    expect(sumsubClientMock.createApplicant).toHaveBeenCalledWith({
+      externalUserId: 'c1',
+      levelName: 'wave3-level-1',
+    });
+    expect(sumsubClientMock.getApplicantByExternalUserId).toHaveBeenCalledWith('c1');
+    expect(sumsubClientMock.createSdkToken).toHaveBeenCalledWith({
+      externalUserId: 'c1',
+      levelName: 'wave3-level-1',
+    });
+    expect(prismaMock.customerMain.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'c1' },
+        data: expect.objectContaining({
+          onboardingStatus: 'PENDING_VERIFICATION',
+          verificationProvider: 'SUMSUB',
+          verificationSubstatus: 'CREATED',
+          verificationCustomerActionRequired: true,
+          verificationCanContinue: true,
+          sumsubApplicantId: 'app-1',
+          sumsubCurrentLevelName: 'wave3-level-1',
+        }),
+      }),
+    );
+    const firstUpdateData = prismaMock.customerMain.update.mock.calls[0][0].data;
+    expect(firstUpdateData.latestFinalApproval).toBeUndefined();
+    expect(firstUpdateData.latestFinalApprovalStatus).toBeUndefined();
+    expect(result.customer).toEqual({
+      onboardingStatus: 'PENDING_VERIFICATION',
+      operatingStatus: 'INACTIVE',
+      restrictionStatus: 'CLEAR',
+    });
+    expect(result.nextStep).toEqual(
+      expect.objectContaining({
+        actions: [{ type: 'CONTINUE_VERIFICATION' }],
+        blockedReason: null,
+        activeCaseId: null,
+        requiresEdd: false,
+      }),
+    );
+    expect(result.verification).toEqual(
+      expect.objectContaining({
+        provider: 'SUMSUB',
+        applicantId: 'app-1',
+        currentLevelName: 'wave3-level-1',
+        substatus: 'CREATED',
+        customerActionRequired: true,
+        canContinue: true,
+        sdkToken: 'sdk-token-1',
+      }),
+    );
+  });
+
+  it('should reject continuing verification while pending when canContinue is false', async () => {
+    prismaMock.customerMain.findUnique.mockResolvedValue({
+      id: 'c1',
+      customerNo: 'CU0001',
+      customerType: 'INDIVIDUAL',
+      onboardingStatus: 'PENDING_VERIFICATION',
+      operatingStatus: 'INACTIVE',
+      restrictionStatus: 'CLEAR',
+      verificationProvider: 'SUMSUB',
+      verificationSubstatus: 'UNDER_REVIEW',
+      verificationCustomerActionRequired: false,
+      verificationCanContinue: false,
+      verificationLatestEventType: 'applicantReviewed',
+      verificationLatestEventAt: new Date('2026-04-01T00:00:00.000Z'),
+      sumsubApplicantId: 'app-1',
+      sumsubCurrentLevelName: 'wave3-level-1',
+      sumsubLatestReviewId: 'rev-1',
+      sumsubLatestAttemptId: 'att-1',
+      sumsubExperiencedLevel2: false,
+    });
+
+    await expect(service.startVerification('c1')).rejects.toBeInstanceOf(BadRequestException);
+    expect(sumsubClientMock.createApplicant).not.toHaveBeenCalled();
+    expect(sumsubClientMock.getApplicantByExternalUserId).not.toHaveBeenCalled();
+    expect(sumsubClientMock.createSdkToken).not.toHaveBeenCalled();
+  });
+
+  it('should continue verification while pending without resetting provider projection', async () => {
+    prismaMock.customerMain.findUnique.mockResolvedValue({
+      id: 'c1',
+      customerNo: 'CU0001',
+      customerType: 'INDIVIDUAL',
+      onboardingStatus: 'PENDING_VERIFICATION',
+      operatingStatus: 'INACTIVE',
+      restrictionStatus: 'CLEAR',
+      verificationProvider: 'SUMSUB',
+      verificationSubstatus: 'NEXT_LEVEL_REQUIRED',
+      verificationCustomerActionRequired: false,
+      verificationCanContinue: true,
+      verificationLatestEventType: 'applicantReviewed',
+      verificationLatestEventAt: new Date('2026-04-01T00:00:00.000Z'),
+      sumsubApplicantId: 'app-1',
+      sumsubCurrentLevelName: 'wave3-level-2',
+      sumsubLatestReviewId: 'rev-1',
+      sumsubLatestAttemptId: 'att-1',
+      sumsubExperiencedLevel2: true,
+    });
+    sumsubClientMock.createSdkToken.mockResolvedValue({ token: 'sdk-token-continue' });
+    prismaMock.customerMain.update.mockResolvedValue({
+      id: 'c1',
+      customerNo: 'CU0001',
+      customerType: 'INDIVIDUAL',
+      onboardingStatus: 'PENDING_VERIFICATION',
+      operatingStatus: 'INACTIVE',
+      restrictionStatus: 'CLEAR',
+      verificationProvider: 'SUMSUB',
+      verificationSubstatus: 'NEXT_LEVEL_REQUIRED',
+      verificationCustomerActionRequired: false,
+      verificationCanContinue: true,
+      verificationLatestEventType: 'applicantReviewed',
+      verificationLatestEventAt: new Date('2026-04-01T00:00:00.000Z'),
+      sumsubApplicantId: 'app-1',
+      sumsubCurrentLevelName: 'wave3-level-2',
+      sumsubLatestReviewId: 'rev-1',
+      sumsubLatestAttemptId: 'att-1',
+      sumsubExperiencedLevel2: true,
+    });
+
+    const result = await service.startVerification('c1');
+
+    expect(sumsubClientMock.createApplicant).not.toHaveBeenCalled();
+    expect(sumsubClientMock.getApplicantByExternalUserId).not.toHaveBeenCalled();
+    expect(sumsubClientMock.createSdkToken).toHaveBeenCalledWith({
+      externalUserId: 'c1',
+      levelName: 'wave3-level-2',
+    });
+    const updateData = prismaMock.customerMain.update.mock.calls[0][0].data;
+    expect(updateData.onboardingStatus).toBe('PENDING_VERIFICATION');
+    expect(updateData.sumsubApplicantId).toBeUndefined();
+    expect(updateData.sumsubCurrentLevelName).toBeUndefined();
+    expect(updateData.verificationSubstatus).toBeUndefined();
+    expect(updateData.verificationCustomerActionRequired).toBeUndefined();
+    expect(updateData.verificationCanContinue).toBeUndefined();
+    expect(result.verification).toEqual(
+      expect.objectContaining({
+        applicantId: 'app-1',
+        currentLevelName: 'wave3-level-2',
+        substatus: 'NEXT_LEVEL_REQUIRED',
+        customerActionRequired: false,
+        canContinue: true,
+        latestEventType: 'applicantReviewed',
+        sdkToken: 'sdk-token-continue',
+      }),
+    );
+  });
+
+  it('should reject pending verification continue when provider is not Sumsub', async () => {
+    prismaMock.customerMain.findUnique.mockResolvedValue({
+      id: 'c1',
+      customerNo: 'CU0001',
+      customerType: 'INDIVIDUAL',
+      onboardingStatus: 'PENDING_VERIFICATION',
+      operatingStatus: 'INACTIVE',
+      restrictionStatus: 'CLEAR',
+      verificationProvider: 'OTHER',
+      verificationSubstatus: 'NEXT_LEVEL_REQUIRED',
+      verificationCustomerActionRequired: false,
+      verificationCanContinue: true,
+      verificationLatestEventType: 'applicantReviewed',
+      verificationLatestEventAt: new Date('2026-04-01T00:00:00.000Z'),
+      sumsubApplicantId: 'app-1',
+      sumsubCurrentLevelName: 'wave3-level-2',
+      sumsubLatestReviewId: 'rev-1',
+      sumsubLatestAttemptId: 'att-1',
+      sumsubExperiencedLevel2: true,
+    });
+
+    await expect(service.startVerification('c1')).rejects.toBeInstanceOf(BadRequestException);
+    expect(sumsubClientMock.getApplicantByExternalUserId).not.toHaveBeenCalled();
+    expect(sumsubClientMock.createApplicant).not.toHaveBeenCalled();
+    expect(sumsubClientMock.createSdkToken).not.toHaveBeenCalled();
+  });
+
+  it('should reuse existing Sumsub applicant and reset reinitiation fields when restarting verification', async () => {
+    prismaMock.customerMain.findUnique.mockResolvedValue({
+      id: 'c1',
+      customerNo: 'CU0001',
+      customerType: 'INDIVIDUAL',
+      onboardingStatus: 'REJECTED',
+      operatingStatus: 'INACTIVE',
+      restrictionStatus: 'CLEAR',
+      verificationProvider: 'SUMSUB',
+      verificationSubstatus: 'FAILED',
+      verificationCustomerActionRequired: false,
+      verificationCanContinue: false,
+      verificationLatestEventType: 'applicantReviewed',
+      verificationLatestEventAt: new Date('2026-04-01T00:00:00.000Z'),
+      sumsubApplicantId: null,
+      sumsubCurrentLevelName: 'wave3-level-2',
+      sumsubLatestReviewId: 'rev-1',
+      sumsubLatestAttemptId: 'att-1',
+      sumsubExperiencedLevel2: true,
+      latestFinalApprovalId: 'approval-1',
+      latestFinalApprovalStatus: 'PENDING',
+    });
+    sumsubClientMock.getApplicantByExternalUserId.mockResolvedValue({ id: 'app-remote' });
+    sumsubClientMock.createSdkToken.mockResolvedValue({ token: 'sdk-token-2' });
+    prismaMock.customerMain.update.mockResolvedValue({
+      id: 'c1',
+      customerNo: 'CU0001',
+      customerType: 'INDIVIDUAL',
+      onboardingStatus: 'PENDING_VERIFICATION',
+      operatingStatus: 'INACTIVE',
+      restrictionStatus: 'CLEAR',
+      verificationProvider: 'SUMSUB',
+      verificationSubstatus: 'CREATED',
+      verificationCustomerActionRequired: true,
+      verificationCanContinue: true,
+      verificationLatestEventType: null,
+      verificationLatestEventAt: null,
+      sumsubApplicantId: 'app-remote',
+      sumsubCurrentLevelName: 'wave3-level-2',
+      sumsubLatestReviewId: null,
+      sumsubLatestAttemptId: null,
+      sumsubExperiencedLevel2: false,
+      latestFinalApprovalId: null,
+      latestFinalApprovalStatus: null,
+    });
+
+    const result = await service.startVerification('c1');
+
+    expect(sumsubClientMock.createApplicant).not.toHaveBeenCalled();
+    expect(sumsubClientMock.getApplicantByExternalUserId).toHaveBeenCalledWith('c1');
+    expect(sumsubClientMock.createSdkToken).toHaveBeenCalledWith({
+      externalUserId: 'c1',
+      levelName: 'wave3-level-2',
+    });
+    expect(prismaMock.customerMain.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          sumsubExperiencedLevel2: false,
+          sumsubLatestReviewId: null,
+          sumsubLatestAttemptId: null,
+          latestFinalApproval: { disconnect: true },
+          latestFinalApprovalStatus: null,
+          verificationLatestEventType: null,
+          verificationLatestEventAt: null,
+        }),
+      }),
+    );
+    expect(result.verification).toEqual(
+      expect.objectContaining({
+        applicantId: 'app-remote',
+        currentLevelName: 'wave3-level-2',
+        latestEventType: null,
+        latestEventAt: null,
+        sdkToken: 'sdk-token-2',
+      }),
+    );
+  });
+
   it('should return REINITIATE_CDD action when canonical onboarding is REJECTED', async () => {
     prismaMock.customerMain.findUnique.mockResolvedValue({
       id: 'c1',
@@ -486,8 +1228,101 @@ describe('OnboardingService', () => {
 
     const result = await service.getNextStep('c1');
 
-    expect(result.actions).toEqual([{ type: 'REINITIATE_CDD' }]);
+    expect(result.actions).toEqual([{ type: 'REINITIATE_VERIFICATION' }]);
     expect(result.blockedReason).toContain('Re-initiate');
+  });
+
+  it('should project verification fields on my onboarding snapshot', async () => {
+    prismaMock.customerMain.findUnique
+      .mockResolvedValueOnce({
+        id: 'c1',
+        onboardingStatus: 'PENDING_VERIFICATION',
+        operatingStatus: 'INACTIVE',
+        restrictionStatus: 'CLEAR',
+        verificationProvider: 'SUMSUB',
+        verificationSubstatus: 'CREATED',
+        verificationCustomerActionRequired: true,
+        verificationCanContinue: true,
+        verificationLatestEventType: 'applicantCreated',
+        verificationLatestEventAt: new Date('2026-04-01T00:00:00.000Z'),
+        sumsubApplicantId: 'app-1',
+        sumsubCurrentLevelName: 'wave3-level-1',
+        sumsubLatestReviewId: 'rev-1',
+        sumsubLatestAttemptId: 'att-1',
+        sumsubExperiencedLevel2: false,
+      })
+      .mockResolvedValueOnce({
+        id: 'c1',
+        customerType: 'INDIVIDUAL',
+        onboardingStatus: 'PENDING_VERIFICATION',
+        operatingStatus: 'INACTIVE',
+        restrictionStatus: 'CLEAR',
+        verificationProvider: 'SUMSUB',
+        verificationSubstatus: 'CREATED',
+        verificationCustomerActionRequired: true,
+        verificationCanContinue: true,
+        verificationLatestEventType: 'applicantCreated',
+        verificationLatestEventAt: new Date('2026-04-01T00:00:00.000Z'),
+        sumsubApplicantId: 'app-1',
+        sumsubCurrentLevelName: 'wave3-level-1',
+        sumsubLatestReviewId: 'rev-1',
+        sumsubLatestAttemptId: 'att-1',
+        sumsubExperiencedLevel2: false,
+      });
+
+    const result = await service.getMyOnboarding('c1');
+
+    expect(result.verification).toEqual(
+      expect.objectContaining({
+        provider: 'SUMSUB',
+        applicantId: 'app-1',
+        currentLevelName: 'wave3-level-1',
+        latestReviewId: 'rev-1',
+        latestAttemptId: 'att-1',
+        substatus: 'CREATED',
+        customerActionRequired: true,
+        canContinue: true,
+        latestEventType: 'applicantCreated',
+        experiencedLevel2: false,
+      }),
+    );
+  });
+
+  it('should project verification fields on next step snapshot', async () => {
+    prismaMock.customerMain.findUnique.mockResolvedValue({
+      id: 'c1',
+      onboardingStatus: 'PENDING_VERIFICATION',
+      operatingStatus: 'INACTIVE',
+      restrictionStatus: 'CLEAR',
+      verificationProvider: 'SUMSUB',
+      verificationSubstatus: 'UNDER_REVIEW',
+      verificationCustomerActionRequired: false,
+      verificationCanContinue: false,
+      verificationLatestEventType: 'applicantReviewed',
+      verificationLatestEventAt: new Date('2026-04-02T00:00:00.000Z'),
+      sumsubApplicantId: 'app-1',
+      sumsubCurrentLevelName: 'wave3-level-2',
+      sumsubLatestReviewId: 'rev-2',
+      sumsubLatestAttemptId: 'att-2',
+      sumsubExperiencedLevel2: true,
+    });
+
+    const result = await service.getNextStep('c1');
+
+    expect(result.verification).toEqual(
+      expect.objectContaining({
+        provider: 'SUMSUB',
+        applicantId: 'app-1',
+        currentLevelName: 'wave3-level-2',
+        latestReviewId: 'rev-2',
+        latestAttemptId: 'att-2',
+        substatus: 'UNDER_REVIEW',
+        customerActionRequired: false,
+        canContinue: false,
+        latestEventType: 'applicantReviewed',
+        experiencedLevel2: true,
+      }),
+    );
   });
 
   it('should auto-expire ACTIVE customer to PENDING_CDD when cddDocumentExpiresAt passed', async () => {

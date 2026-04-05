@@ -15,15 +15,19 @@ import { PrismaService } from '../../../core/prisma/prisma.service';
 import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
 import {
   AuditActions,
+  AuditBusinessWorkflowTypes,
   AuditEntityTypes,
   AuditModules,
+  AuditWorkflowTypes,
 } from '../../risk-engine/audit-logs/constants/audit-actions.constant';
 import {
   AuditResult,
+  AuditSubjectRole,
   AuditTriggerType,
 } from '../../risk-engine/audit-logs/dto/audit-log.dto';
 import { ApprovalPolicyService } from './approval-policy.service';
 import { ChangeTicketsService } from '../change-tickets/change-tickets.service';
+import { ChangeTicketTypes } from '../change-tickets/constants/change-ticket.constants';
 import {
   ApprovalActionTypes,
   ApprovalActorContext,
@@ -37,6 +41,7 @@ import {
   splitRoleCsv,
 } from './constants/approval.constants';
 import { DeleteRequestsService } from '../delete-requests/delete-requests.service';
+import { DeleteRequestTargetTypes } from '../delete-requests/constants/delete-request.constants';
 import {
   ApprovalQueryDto,
   CancelApprovalDto,
@@ -46,6 +51,12 @@ import {
 } from './dto/approval.dto';
 
 type ApprovalWriteClient = any;
+type ApprovalWorkflowContext = {
+  workflowType: string | null;
+  workflowId: string | null;
+  workflowNo: string | null;
+  traceId: string | null;
+};
 type ApprovalCaseRow = {
   [key: string]: any;
   steps: Array<Record<string, any>>;
@@ -178,6 +189,92 @@ export class ApprovalsService {
     };
   }
 
+  private resolveChangeTicketWorkflowType(changeType: unknown): string {
+    switch (this.normalizeOptionalString(changeType)?.toUpperCase()) {
+      case ChangeTicketTypes.ADMIN_ACCESS_CHANGE:
+        return AuditBusinessWorkflowTypes.ADMIN_MEMBER_PROVISIONING;
+      case ChangeTicketTypes.RBAC_CATALOG_CHANGE:
+        return AuditBusinessWorkflowTypes.ADMIN_ROLE_BINDING_CHANGE;
+      default:
+        return AuditWorkflowTypes.CHANGE_TICKET;
+    }
+  }
+
+  private resolveDeleteRequestWorkflowType(targetType: unknown): string {
+    switch (this.normalizeOptionalString(targetType)?.toUpperCase()) {
+      case DeleteRequestTargetTypes.CHANGE_TICKET:
+        return AuditBusinessWorkflowTypes.CHANGE_TICKET_DELETION;
+      case DeleteRequestTargetTypes.ADMIN_USER:
+        return AuditBusinessWorkflowTypes.ADMIN_USER_DELETION;
+      case DeleteRequestTargetTypes.AUDIT_EVIDENCE_PACKAGE:
+        return AuditBusinessWorkflowTypes.AUDIT_EVIDENCE_PACKAGE_DELETION;
+      default:
+        return AuditWorkflowTypes.DELETE_REQUEST;
+    }
+  }
+
+  private async resolveParentWorkflowContext(
+    actionType: string,
+    entityRef: string,
+    client?: ApprovalWriteClient,
+  ): Promise<ApprovalWorkflowContext> {
+    const db = this.getDb(client);
+
+    if (actionType === ApprovalActionTypes.CHANGE_TICKET_APPROVAL) {
+      const ticket = await db.changeTicket?.findFirst?.({
+        where: {
+          id: entityRef,
+          deletedAt: null,
+        },
+        select: {
+          id: true,
+          ticketNo: true,
+          traceId: true,
+          changeType: true,
+        },
+      });
+
+      if (ticket) {
+        return {
+          workflowType: this.resolveChangeTicketWorkflowType(ticket.changeType),
+          workflowId: this.normalizeOptionalString(ticket.id),
+          workflowNo: this.normalizeOptionalString(ticket.ticketNo),
+          traceId: this.normalizeOptionalString(ticket.traceId),
+        };
+      }
+    }
+
+    if (actionType === ApprovalActionTypes.DELETE_REQUEST_APPROVAL) {
+      const request = await db.deleteRequest?.findFirst?.({
+        where: {
+          id: entityRef,
+        },
+        select: {
+          id: true,
+          requestNo: true,
+          traceId: true,
+          targetType: true,
+        },
+      });
+
+      if (request) {
+        return {
+          workflowType: this.resolveDeleteRequestWorkflowType(request.targetType),
+          workflowId: this.normalizeOptionalString(request.id),
+          workflowNo: this.normalizeOptionalString(request.requestNo),
+          traceId: this.normalizeOptionalString(request.traceId),
+        };
+      }
+    }
+
+    return {
+      workflowType: null,
+      workflowId: null,
+      workflowNo: null,
+      traceId: null,
+    };
+  }
+
   private assertWorkflowContextConsistency(
     approval: ApprovalCaseRow | { workflowType?: string | null; workflowId?: string | null; workflowNo?: string | null },
     input: { workflowType?: unknown; workflowId?: unknown; workflowNo?: unknown },
@@ -224,6 +321,18 @@ export class ApprovalsService {
     statusTo?: string | null,
     metadata?: Record<string, unknown>,
   ) {
+    const subjectNos =
+      approval.workflowNo && approval.workflowNo !== approval.approvalNo
+        ? [
+            {
+              subjectRole: AuditSubjectRole.RELATED,
+              subjectType: approval.workflowType || 'WORKFLOW',
+              subjectId: approval.workflowId || undefined,
+              subjectNo: approval.workflowNo,
+            },
+          ]
+        : undefined;
+
     await this.auditLogsService.recordByActor(
       {
         triggerType: AuditTriggerType.DATA_UPDATE,
@@ -236,6 +345,7 @@ export class ApprovalsService {
         workflowType: approval.workflowType || undefined,
         workflowId: approval.workflowId || undefined,
         workflowNo: approval.workflowNo || undefined,
+        subjectNos,
         result,
         reason: reason || undefined,
         statusFrom: statusFrom || undefined,
@@ -266,6 +376,7 @@ export class ApprovalsService {
       workflowNo: approval.workflowNo,
       status: approval.status,
       decisionByUserId: approval.decisionByUserId,
+      decisionByUserNo: approval.decisionByUserNo,
       decisionByRole: approval.decisionByRole,
       decisionReason: approval.decisionReason,
       decidedAt: approval.decidedAt ? approval.decidedAt.toISOString() : null,
@@ -386,10 +497,19 @@ export class ApprovalsService {
     const db = this.getDb(client);
     for (let i = 0; i < ApprovalsService.MAX_NO_RETRIES; i += 1) {
       try {
+        const approvalNo = generateReferenceNo('APR');
         return (await db.approvalCase.create({
           data: {
             ...data,
-            approvalNo: generateReferenceNo('APR'),
+            approvalNo,
+            steps: data.steps
+              ? {
+                  create: {
+                    ...data.steps.create,
+                    approvalNo,
+                  },
+                }
+              : undefined,
           },
           include: this.approvalInclude(),
         })) as ApprovalCaseRow;
@@ -431,6 +551,7 @@ export class ApprovalsService {
       actionType: approval.actionType,
       entityRef: approval.entityRef,
       makerUserId: approval.makerUserId,
+      makerUserNo: approval.makerUserNo || null,
       status: approval.status,
       executionStatus: approval.executionStatus,
       riskLevel: approval.riskLevel,
@@ -444,6 +565,7 @@ export class ApprovalsService {
       submittedAt: approval.submittedAt,
       timeoutAt: approval.timeoutAt,
       decidedAt: approval.decidedAt,
+      decisionByUserNo: approval.decisionByUserNo || null,
       executedAt: approval.executedAt,
       createdAt: approval.createdAt,
       updatedAt: approval.updatedAt,
@@ -458,61 +580,15 @@ export class ApprovalsService {
     };
   }
 
-  private async resolveUserNoMap(userIds: Array<string | null | undefined>) {
-    const normalizedIds = Array.from(
-      new Set(
-        userIds
-          .filter((value): value is string => typeof value === 'string')
-          .map((value) => value.trim())
-          .filter((value) => value.length > 0),
-      ),
-    );
-
-    if (!normalizedIds.length || typeof this.prisma.user?.findMany !== 'function') {
-      return new Map<string, string>();
-    }
-
-    let users: Array<{ id?: unknown; userNo?: unknown }> = [];
-    try {
-      users = await this.prisma.user.findMany({
-        where: {
-          id: {
-            in: normalizedIds,
-          },
-        },
-        select: {
-          id: true,
-          userNo: true,
-        },
-      });
-    } catch {
-      return new Map<string, string>();
-    }
-
-    return new Map<string, string>(
-      users
-        .filter(
-          (item: { id?: unknown; userNo?: unknown }) =>
-            typeof item.id === 'string' && typeof item.userNo === 'string',
-        )
-        .map((item) => [item.id as string, item.userNo as string]),
-    );
-  }
-
   private async mapApprovalsForReadModel(
     approvals: ApprovalCaseRow[],
     actor?: ApprovalActorContext,
   ) {
-    const userNoMap = await this.resolveUserNoMap(
-      approvals.map((approval) => approval.makerUserId),
-    );
-
     return approvals.map((approval) => {
       const currentStep = approval.steps?.[0] || null;
 
       return {
         ...this.mapApproval(approval, actor),
-        makerUserNo: userNoMap.get(approval.makerUserId) || null,
         selectedCheckerRole: approval.selectedCheckerRole,
         allowCancel: approval.allowCancel,
         allowRetry: approval.allowRetry,
@@ -520,9 +596,11 @@ export class ApprovalsService {
         step: currentStep
           ? {
               id: currentStep.id,
+              approvalNo: currentStep.approvalNo || approval.approvalNo,
               stepNo: currentStep.stepNo,
               status: currentStep.status,
               checkerRoleCandidates: splitRoleCsv(currentStep.checkerRoleCandidates),
+              decidedByUserNo: currentStep.decidedByUserNo || null,
               decidedByRole: currentStep.decidedByRole,
               reason: currentStep.reason,
               decidedAt: currentStep.decidedAt,
@@ -600,7 +678,21 @@ export class ApprovalsService {
       throw new BadRequestException('entityRef is required');
     }
 
-    const workflowContext = this.normalizeWorkflowContext(dto);
+    const parentWorkflowContext = await this.resolveParentWorkflowContext(
+      actionType,
+      entityRef,
+      client,
+    );
+    const lockWorkflowToParent =
+      actionType === ApprovalActionTypes.CHANGE_TICKET_APPROVAL ||
+      actionType === ApprovalActionTypes.DELETE_REQUEST_APPROVAL;
+    const workflowContext = lockWorkflowToParent
+      ? {
+          workflowType: parentWorkflowContext.workflowType,
+          workflowId: parentWorkflowContext.workflowId,
+          workflowNo: parentWorkflowContext.workflowNo,
+        }
+      : this.normalizeWorkflowContext(dto);
 
     const existingPending = await db.approvalCase.findFirst({
       where: {
@@ -614,8 +706,14 @@ export class ApprovalsService {
     });
 
     if (existingPending) {
-      this.assertTraceConsistency(existingPending.traceId, dto.traceId);
-      this.assertWorkflowContextConsistency(existingPending, dto);
+      this.assertTraceConsistency(
+        existingPending.traceId,
+        lockWorkflowToParent ? parentWorkflowContext.traceId : dto.traceId,
+      );
+      this.assertWorkflowContextConsistency(
+        existingPending,
+        lockWorkflowToParent ? workflowContext : dto,
+      );
       return existingPending as ApprovalCaseRow;
     }
 
@@ -637,6 +735,7 @@ export class ApprovalsService {
         actionType,
         entityRef,
         makerUserId: actor.userId,
+        makerUserNo: this.normalizeOptionalString(actor.userNo),
         status: ApprovalStatuses.DRAFT,
         executionStatus: ApprovalExecutionStatuses.NOT_EXECUTED,
         riskLevel: policy.riskLevel,
@@ -646,7 +745,11 @@ export class ApprovalsService {
         allowRetry: policy.allowRetry,
         docRef: this.normalizeOptionalString(dto.docRef),
         metadataJson: this.serializeMetadata(dto.metadata || {}),
-        traceId: this.normalizeOptionalString(dto.traceId) || randomUUID(),
+        traceId:
+          (lockWorkflowToParent
+            ? parentWorkflowContext.traceId
+            : this.normalizeOptionalString(dto.traceId)) ||
+          randomUUID(),
         workflowType: workflowContext.workflowType,
         workflowId: workflowContext.workflowId,
         workflowNo: workflowContext.workflowNo,
@@ -799,6 +902,7 @@ export class ApprovalsService {
         data: {
           status: ApprovalStepStatuses.APPROVED,
           decidedByUserId: actor.userId,
+          decidedByUserNo: this.normalizeOptionalString(actor.userNo),
           decidedByRole: decisionRole,
           reason: this.normalizeOptionalString(dto.reason),
           decidedAt: now,
@@ -811,6 +915,7 @@ export class ApprovalsService {
           status: ApprovalStatuses.APPROVED,
           selectedCheckerRole: decisionRole,
           decisionByUserId: actor.userId,
+          decisionByUserNo: this.normalizeOptionalString(actor.userNo),
           decisionByRole: decisionRole,
           decisionReason: this.normalizeOptionalString(dto.reason),
           decidedAt: now,
@@ -860,6 +965,7 @@ export class ApprovalsService {
         data: {
           status: ApprovalStepStatuses.REJECTED,
           decidedByUserId: actor.userId,
+          decidedByUserNo: this.normalizeOptionalString(actor.userNo),
           decidedByRole: decisionRole,
           reason: this.normalizeOptionalString(dto.reason),
           decidedAt: now,
@@ -872,6 +978,7 @@ export class ApprovalsService {
           status: ApprovalStatuses.REJECTED,
           selectedCheckerRole: decisionRole,
           decisionByUserId: actor.userId,
+          decisionByUserNo: this.normalizeOptionalString(actor.userNo),
           decisionByRole: decisionRole,
           decisionReason: this.normalizeOptionalString(dto.reason),
           decidedAt: now,
@@ -931,6 +1038,8 @@ export class ApprovalsService {
         },
         data: {
           status: ApprovalStepStatuses.CANCELLED,
+          decidedByUserId: actor.userId,
+          decidedByUserNo: this.normalizeOptionalString(actor.userNo),
           reason: this.normalizeOptionalString(dto.reason),
           decidedAt: now,
         },
@@ -941,6 +1050,7 @@ export class ApprovalsService {
         data: {
           status: ApprovalStatuses.CANCELLED,
           decisionByUserId: actor.userId,
+          decisionByUserNo: this.normalizeOptionalString(actor.userNo),
           decisionByRole: actor.role || actor.roleCodes[0] || null,
           decisionReason: this.normalizeOptionalString(dto.reason),
           decidedAt: now,
@@ -1085,6 +1195,8 @@ export class ApprovalsService {
         { id: { contains: keyword } },
         { actionType: { contains: keyword } },
         { entityRef: { contains: keyword } },
+        { makerUserNo: { contains: keyword } },
+        { decisionByUserNo: { contains: keyword } },
         { makerUserId: { contains: keyword } },
         { decisionByUserId: { contains: keyword } },
       ];

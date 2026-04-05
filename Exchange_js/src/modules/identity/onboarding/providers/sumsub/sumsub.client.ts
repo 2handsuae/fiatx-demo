@@ -1,5 +1,5 @@
 import axios, { AxiosInstance } from 'axios';
-import { createHmac } from 'crypto';
+import { createHmac, timingSafeEqual } from 'crypto';
 import { Injectable } from '@nestjs/common';
 import {
   SumsubApplicantResponse,
@@ -32,6 +32,14 @@ export class SumsubClient {
     });
   }
 
+  async getApplicantByExternalUserId(
+    externalUserId: string,
+  ): Promise<SumsubApplicantResponse | null> {
+    return this.getOptional<SumsubApplicantResponse>(
+      `/resources/applicants/-;externalUserId=${encodeURIComponent(externalUserId)}/one`,
+    );
+  }
+
   async getApplicantReviewStatus(
     applicantId: string,
   ): Promise<SumsubApplicantReviewStatusResponse> {
@@ -45,9 +53,49 @@ export class SumsubClient {
     );
   }
 
+  verifyWebhookSignature(
+    rawBody?: Buffer,
+    signature?: string,
+    digestAlg?: string,
+  ): boolean {
+    if (!rawBody || rawBody.length === 0 || !signature) {
+      return false;
+    }
+
+    const algorithm = this.resolveWebhookDigestAlgorithm(digestAlg);
+    if (!algorithm) {
+      return false;
+    }
+
+    const expected = createHmac(algorithm, this.requireWebhookSecretKey())
+      .update(rawBody)
+      .digest('hex');
+    const normalizedSignature = signature.trim().toLowerCase();
+
+    if (normalizedSignature.length !== expected.length) {
+      return false;
+    }
+
+    return timingSafeEqual(
+      Buffer.from(normalizedSignature, 'utf8'),
+      Buffer.from(expected, 'utf8'),
+    );
+  }
+
   private async get<T>(path: string): Promise<T> {
     const response = await this.http.get<T>(path, { headers: this.buildHeaders('GET', path) });
     return response.data;
+  }
+
+  private async getOptional<T>(path: string): Promise<T | null> {
+    try {
+      return await this.get<T>(path);
+    } catch (error) {
+      if ((error as { response?: { status?: number } }).response?.status === 404) {
+        return null;
+      }
+      throw error;
+    }
   }
 
   private async post<T>(path: string, data: Record<string, unknown>): Promise<T> {
@@ -66,6 +114,30 @@ export class SumsubClient {
       'X-App-Access-Ts': ts,
       'X-App-Access-Sig': sig,
     } satisfies Record<string, string>;
+  }
+
+  private resolveWebhookDigestAlgorithm(
+    digestAlg?: string,
+  ): 'sha1' | 'sha256' | 'sha512' | null {
+    switch (String(digestAlg || '').trim().toUpperCase()) {
+      case '':
+      case 'HMAC_SHA256_HEX':
+        return 'sha256';
+      case 'HMAC_SHA1_HEX':
+        return 'sha1';
+      case 'HMAC_SHA512_HEX':
+        return 'sha512';
+      default:
+        return null;
+    }
+  }
+
+  private requireWebhookSecretKey(): string {
+    const secretKey = process.env.SUMSUB_SECRET_KEY;
+    if (!secretKey) {
+      throw new Error('Sumsub webhook secret is missing: SUMSUB_SECRET_KEY');
+    }
+    return secretKey;
   }
 
   private requireCredentials(): { appToken: string; secretKey: string } {

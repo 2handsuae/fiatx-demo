@@ -9,8 +9,10 @@ import { PrismaService } from '../../../core/prisma/prisma.service';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 import {
   AuditActions,
+  AuditBusinessWorkflowTypes,
   AuditEntityTypes,
   AuditModules,
+  mapRawAuditActionToUserAction,
   AuditWorkflowTypes,
 } from './constants/audit-actions.constant';
 import {
@@ -892,6 +894,7 @@ export class AuditLogsService {
   private mapEvidencePackage(raw: any) {
     return {
       ...raw,
+      approvalCaseNo: raw.approvalCaseNo || raw.approvalCase?.approvalNo || null,
       approvalCase: raw.approvalCase
         && !raw.approvalCase.deletedAt
         ? {
@@ -902,6 +905,7 @@ export class AuditLogsService {
             status: raw.approvalCase.status,
             executionStatus: raw.approvalCase.executionStatus,
             traceId: raw.approvalCase.traceId,
+            decisionByUserNo: raw.approvalCase.decisionByUserNo,
             decisionByUserId: raw.approvalCase.decisionByUserId,
             decisionByRole: raw.approvalCase.decisionByRole,
             decidedAt: raw.approvalCase.decidedAt,
@@ -1168,11 +1172,19 @@ export class AuditLogsService {
           createdAt: item.createdAt,
         }))
       : [];
+    const businessWorkflow = this.deriveBusinessWorkflow(raw);
+    const userAction = this.deriveUserAction(raw.action, businessWorkflow);
+    const primaryRefNo = this.derivePrimaryRefNo(raw, subjectNos);
 
     return {
       id: raw.id,
       auditNo: raw.auditNo,
       triggerType: raw.triggerType,
+      businessWorkflow,
+      businessWorkflowLabel: this.toDisplayLabel(businessWorkflow),
+      primaryRefNo,
+      userAction,
+      userActionLabel: this.toDisplayLabel(userAction),
       action: raw.action,
       module: raw.module,
       entityType: raw.entityType,
@@ -1208,6 +1220,116 @@ export class AuditLogsService {
       updatedAt: raw.updatedAt ?? null,
       archivedAt: raw.archivedAt ?? null,
     };
+  }
+
+  private deriveBusinessWorkflow(raw: {
+    workflowType?: string | null;
+    action?: string | null;
+  }): string | null {
+    const workflowType = this.normalizeOptionalString(raw.workflowType);
+    if (workflowType && workflowType !== AuditWorkflowTypes.APPROVAL) {
+      return workflowType;
+    }
+
+    const action = this.normalizeOptionalString(raw.action)?.toUpperCase() || null;
+    switch (action) {
+      case AuditActions.ADMIN_LOGIN_SUCCESS:
+      case AuditActions.ADMIN_LOGIN_FAILED:
+      case AuditActions.ACCOUNT_LOCKED:
+      case AuditActions.ACCOUNT_UNLOCKED:
+        return AuditBusinessWorkflowTypes.ADMIN_LOGIN_ACCESS;
+      default:
+        return workflowType === AuditWorkflowTypes.APPROVAL ? null : workflowType;
+    }
+  }
+
+  private deriveUserAction(
+    action?: string | null,
+    businessWorkflow?: string | null,
+  ): string | null {
+    const normalizedAction = this.normalizeOptionalString(action)?.toUpperCase() || null;
+    if (!normalizedAction) {
+      return null;
+    }
+
+    if (
+      normalizedAction === AuditActions.APPROVAL_EXECUTION_FAILED &&
+      businessWorkflow !== AuditBusinessWorkflowTypes.AUDIT_EVIDENCE_EXPORT
+    ) {
+      return normalizedAction;
+    }
+
+    return mapRawAuditActionToUserAction(normalizedAction) || normalizedAction;
+  }
+
+  private derivePrimaryRefNo(
+    raw: {
+      workflowNo?: string | null;
+      entityNo?: string | null;
+    },
+    subjectNos: Array<{ subjectRole?: string | null; subjectNo?: string | null }>,
+  ): string | null {
+    const workflowNo = this.normalizeOptionalString(raw.workflowNo);
+    if (workflowNo) {
+      return workflowNo;
+    }
+
+    const preferredSubject =
+      subjectNos.find(
+        (subject) =>
+          subject.subjectRole === AuditSubjectRole.RELATED &&
+          this.normalizeOptionalString(subject.subjectNo),
+      ) ||
+      subjectNos.find(
+        (subject) =>
+          subject.subjectRole === AuditSubjectRole.OWNER &&
+          this.normalizeOptionalString(subject.subjectNo),
+      ) ||
+      subjectNos.find(
+        (subject) =>
+          subject.subjectRole === AuditSubjectRole.ENTITY &&
+          this.normalizeOptionalString(subject.subjectNo) &&
+          !String(subject.subjectNo).trim().toUpperCase().startsWith('APR'),
+      ) ||
+      subjectNos.find(
+        (subject) =>
+          subject.subjectRole !== AuditSubjectRole.ACTOR &&
+          this.normalizeOptionalString(subject.subjectNo) &&
+          !String(subject.subjectNo).trim().toUpperCase().startsWith('APR'),
+      ) ||
+      null;
+
+    if (preferredSubject) {
+      return this.normalizeOptionalString(preferredSubject.subjectNo);
+    }
+
+    const entityNo = this.normalizeOptionalString(raw.entityNo);
+    if (entityNo) {
+      return entityNo;
+    }
+
+    const fallbackSubject =
+      subjectNos.find(
+        (subject) =>
+          subject.subjectRole !== AuditSubjectRole.ACTOR &&
+          this.normalizeOptionalString(subject.subjectNo),
+      ) || null;
+
+    return fallbackSubject ? this.normalizeOptionalString(fallbackSubject.subjectNo) : null;
+  }
+
+  private toDisplayLabel(value: string | null): string | null {
+    const normalized = this.normalizeOptionalString(value);
+    if (!normalized) {
+      return null;
+    }
+
+    return normalized
+      .toLowerCase()
+      .split('_')
+      .filter(Boolean)
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(' ');
   }
 
   private async resolveSwapWorkflowSearchExpansion(
@@ -3348,6 +3470,7 @@ export class AuditLogsService {
               executionStatus: true,
               traceId: true,
               deletedAt: true,
+              decisionByUserNo: true,
               decisionByUserId: true,
               decisionByRole: true,
               decidedAt: true,
@@ -3386,6 +3509,7 @@ export class AuditLogsService {
             executionStatus: true,
             traceId: true,
             deletedAt: true,
+            decisionByUserNo: true,
             decisionByUserId: true,
             decisionByRole: true,
             decidedAt: true,

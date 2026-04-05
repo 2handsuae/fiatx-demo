@@ -6,13 +6,6 @@ import {
   ApprovalActionTypes,
   ApprovalActorContext,
 } from '../approvals/constants/approval.constants';
-import { ChangeTicketsService } from '../change-tickets/change-tickets.service';
-import {
-  ChangeTicketDeployStatuses,
-  ChangeTicketReleaseEnvironments,
-  ChangeTicketTypes,
-} from '../change-tickets/constants/change-ticket.constants';
-import { ReleaseGatesService } from '../change-tickets/release-gates.service';
 import { SlaTimerStatuses, SlaTimerTypes } from './constants/sla-timer.constants';
 import {
   MockApprovalTimeoutDto,
@@ -25,8 +18,6 @@ export class SlaTimerMockService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly approvalsService: ApprovalsService,
-    private readonly changeTicketsService: ChangeTicketsService,
-    private readonly releaseGatesService: ReleaseGatesService,
     private readonly slaTimersService: SlaTimersService,
   ) {}
 
@@ -34,16 +25,6 @@ export class SlaTimerMockService {
     if (value === null || value === undefined) return null;
     const normalized = String(value).trim();
     return normalized.length ? normalized : null;
-  }
-
-  private decisionBypassActor(actor: ApprovalActorContext): ApprovalActorContext {
-    return {
-      actorType: 'ADMIN',
-      userId: actor.userId,
-      userNo: actor.userNo,
-      role: 'SUPER_ADMIN',
-      roleCodes: ['SUPER_ADMIN'],
-    };
   }
 
   private async findActiveTimerOrThrow(subjectId: string, timerType: string) {
@@ -107,105 +88,11 @@ export class SlaTimerMockService {
   }
 
   async createChangeFollowUpMock(dto: MockChangeFollowUpDto, actor: ApprovalActorContext) {
-    const traceId = this.normalizeOptionalString(dto.traceId) || randomUUID();
-    const releaseVersion =
-      this.normalizeOptionalString(dto.releaseVersion) || `demo-${Date.now()}`;
-    const dueAt = new Date(
-      Date.now() +
-        (typeof dto.dueInSeconds === 'number' ? dto.dueInSeconds : 30) * 1000,
+    void dto;
+    void actor;
+    throw new BadRequestException(
+      'Change follow-up SLA demo is not supported under the minimal ChangeTicket workflow',
     );
-
-    const ticket = await this.changeTicketsService.create(
-      {
-        changeType: ChangeTicketTypes.GOVERNANCE_POLICY_CHANGE,
-        scopeSummary: 'SLA mock emergency follow-up change ticket',
-        testEvidenceRef: 'DEMO-TEST-EVIDENCE',
-        rollbackPlanRef: 'DEMO-ROLLBACK-PLAN',
-        emergency: true,
-        emergencyReason:
-          this.normalizeOptionalString(dto.reason) || 'SLA mock emergency deployment',
-        postApprovalDueAt: dueAt.toISOString(),
-        traceId,
-      },
-      actor,
-    );
-
-    const submitted = await this.changeTicketsService.submit(
-      ticket.id,
-      {
-        reason:
-          this.normalizeOptionalString(dto.reason) ||
-          `SLA mock change ticket ${ticket.ticketNo} submitted`,
-        traceId,
-      },
-      actor,
-    );
-
-    if (!submitted.latestApprovalId) {
-      throw new BadRequestException('Change ticket approval was not linked');
-    }
-
-    await this.approvalsService.approve(
-      submitted.latestApprovalId,
-      {
-        checkerRole: 'TECH_ADMIN',
-        reason:
-          this.normalizeOptionalString(dto.reason) ||
-          `SLA mock change ticket ${ticket.ticketNo} approved`,
-        traceId,
-      },
-      this.decisionBypassActor(actor),
-    );
-
-    await this.releaseGatesService.runGateCheck(
-      ticket.id,
-      {
-        targetEnv: ChangeTicketReleaseEnvironments.PROD,
-        releaseVersion,
-        reason: 'SLA mock gate check',
-        traceId,
-      },
-      actor,
-    );
-
-    await this.releaseGatesService.markDeployStatus(
-      ticket.id,
-      {
-        targetEnv: ChangeTicketReleaseEnvironments.PROD,
-        releaseVersion,
-        deployStatus: dto.simulateDeployFailure
-          ? ChangeTicketDeployStatuses.DEPLOY_FAILED
-          : ChangeTicketDeployStatuses.DEPLOYED,
-        reason:
-          this.normalizeOptionalString(dto.reason) ||
-          (dto.simulateDeployFailure
-            ? 'SLA mock deploy failed'
-            : 'SLA mock deployed'),
-        traceId,
-      },
-      actor,
-    );
-
-    const timer = await this.findActiveTimerOrThrow(
-      ticket.id,
-      SlaTimerTypes.CHANGE_POST_APPROVAL_FOLLOWUP,
-    );
-
-    if (typeof dto.graceSeconds === 'number') {
-      return this.slaTimersService.recalc(
-        timer.id,
-        {
-          graceSeconds: dto.graceSeconds,
-          reason:
-            this.normalizeOptionalString(dto.reason) ||
-            'SLA change follow-up mock recalculated',
-          traceId,
-        },
-        actor,
-      );
-    }
-
-    return this.slaTimersService.getById(timer.id);
   }
 
   async mockExpire(id: string, actor: ApprovalActorContext) {
