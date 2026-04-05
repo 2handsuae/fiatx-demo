@@ -1,3 +1,11 @@
+Status: wave-9-deferred
+Note: SLA governance (WF-04) was formally moved to Wave 9 via
+docs/cleanup/2026-04-wave1-foundation-reset/wave-boundary-sla-governance-realignment.md (2026-04).
+This document remains valid specification for Wave 9 implementation.
+It is NOT Wave 1 scope and MUST NOT be treated as active Wave 1 truth.
+
+---
+
 # Governance SLA Timer Constraints
 
 ## 1) Scope and Ownership
