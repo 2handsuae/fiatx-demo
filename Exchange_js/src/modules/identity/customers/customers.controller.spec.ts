@@ -48,7 +48,23 @@ describe('CustomersController', () => {
     );
   });
 
-  it('should map legacy review filter to canonical onboarding status', () => {
+  it('maps legacy PENDING_CDD filter to canonical PENDING_VERIFICATION', () => {
+    controller.findAll({ user: { type: 'ADMIN' } }, undefined, undefined, undefined, 'PENDING_CDD');
+
+    expect(customersServiceMock.findAll).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          AND: expect.arrayContaining([
+            expect.objectContaining({
+              onboardingStatus: 'PENDING_VERIFICATION',
+            }),
+          ]),
+        }),
+      }),
+    );
+  });
+
+  it('maps legacy REVIEW_CDD filter to canonical PENDING_VERIFICATION', () => {
     controller.findAll(
       { user: { type: 'ADMIN' } },
       undefined,
@@ -62,7 +78,23 @@ describe('CustomersController', () => {
         where: expect.objectContaining({
           AND: expect.arrayContaining([
             expect.objectContaining({
-              onboardingStatus: 'CDD_UNDER_REVIEW',
+              onboardingStatus: 'PENDING_VERIFICATION',
+            }),
+          ]),
+        }),
+      }),
+    );
+  });
+
+  it('maps legacy REVIEW_EDD filter to canonical PENDING_VERIFICATION', () => {
+    controller.findAll({ user: { type: 'ADMIN' } }, undefined, undefined, undefined, 'REVIEW_EDD');
+
+    expect(customersServiceMock.findAll).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          AND: expect.arrayContaining([
+            expect.objectContaining({
+              onboardingStatus: 'PENDING_VERIFICATION',
             }),
           ]),
         }),

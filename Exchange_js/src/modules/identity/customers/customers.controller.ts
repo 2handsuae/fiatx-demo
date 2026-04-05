@@ -36,13 +36,11 @@ const buildCustomerStatusWhere = (status?: string): Prisma.CustomerMainWhereInpu
         operatingStatus: 'ACTIVE',
       };
     case 'PENDING_CDD':
-      return { onboardingStatus: 'PENDING_CDD_INPUT' };
     case 'REVIEW_CDD':
-      return { onboardingStatus: 'CDD_UNDER_REVIEW' };
     case 'PENDING_EDD':
-      return { onboardingStatus: 'PENDING_EDD_INPUT' };
     case 'REVIEW_EDD':
-      return { onboardingStatus: 'EDD_UNDER_REVIEW' };
+    case 'PENDING_VERIFICATION':
+      return { onboardingStatus: 'PENDING_VERIFICATION' };
     case 'FINAL_APPROVAL':
     case 'APPROVED':
     case 'REJECTED':
