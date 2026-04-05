@@ -703,8 +703,8 @@ model ApprovalCase {
   approvalNo                     String                         @unique
   actionType                     String
   entityRef                      String
-  makerUserId                    String
-  makerUserNo                    String?
+  createdByUserId                String
+  createdByUserNo                String?
   status                         String                         @default("DRAFT")
   executionStatus                String                         @default("NOT_EXECUTED")
   riskLevel                      String                         @default("HIGH")
