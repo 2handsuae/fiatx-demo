@@ -102,6 +102,44 @@ describe('CustomersController', () => {
     );
   });
 
+  it('maps legacy PENDING_EDD filter to canonical PENDING_VERIFICATION', () => {
+    controller.findAll({ user: { type: 'ADMIN' } }, undefined, undefined, undefined, 'PENDING_EDD');
+
+    expect(customersServiceMock.findAll).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          AND: expect.arrayContaining([
+            expect.objectContaining({
+              onboardingStatus: 'PENDING_VERIFICATION',
+            }),
+          ]),
+        }),
+      }),
+    );
+  });
+
+  it('maps stored PENDING_EDD_INPUT status to canonical PENDING_VERIFICATION', () => {
+    controller.findAll(
+      { user: { type: 'ADMIN' } },
+      undefined,
+      undefined,
+      undefined,
+      'PENDING_EDD_INPUT',
+    );
+
+    expect(customersServiceMock.findAll).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          AND: expect.arrayContaining([
+            expect.objectContaining({
+              onboardingStatus: 'PENDING_VERIFICATION',
+            }),
+          ]),
+        }),
+      }),
+    );
+  });
+
   it('should accept canonical onboarding status directly', () => {
     controller.findAll(
       { user: { type: 'ADMIN' } },
