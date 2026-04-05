@@ -18,14 +18,6 @@ import { SlaTimersModule } from './sla-timers/sla-timers.module';
     RegulatoryGatesModule,
     SlaTimersModule,
   ],
-  exports: [
-    ApprovalsModule,
-    BusinessConfigModule,
-    ChangeTicketsModule,
-    DeleteRequestsModule,
-    GovernanceRegistriesModule,
-    RegulatoryGatesModule,
-    SlaTimersModule,
-  ],
+  exports: [ApprovalsModule, ChangeTicketsModule, DeleteRequestsModule],
 })
 export class GovernanceModule {}
