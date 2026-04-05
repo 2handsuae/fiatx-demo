@@ -16,6 +16,8 @@ import { PeriodicReviewAdminController } from '../periodic-review/periodic-revie
 import { PeriodicReviewSweepService } from '../periodic-review/periodic-review-sweep.service';
 import { PeriodicReviewWorkflowTransitionService } from '../periodic-review/periodic-review-workflow-transition.service';
 import { SumsubClient } from './providers/sumsub/sumsub.client';
+import { OnboardingSumsubWebhookController } from './onboarding-sumsub-webhook.controller';
+import { OnboardingSumsubSimulationController } from './onboarding-sumsub-simulation.controller';
 
 @Module({
   imports: [
@@ -27,6 +29,10 @@ import { SumsubClient } from './providers/sumsub/sumsub.client';
   ],
   providers: [
     OnboardingService,
+    {
+      provide: 'OnboardingService',
+      useExisting: OnboardingService,
+    },
     WorkflowTransitionService,
     OnboardingWorkflowTransitionService,
     OnboardingFinalApprovalService,
@@ -38,6 +44,8 @@ import { SumsubClient } from './providers/sumsub/sumsub.client';
   controllers: [
     OnboardingCustomerController,
     OnboardingAdminController,
+    OnboardingSumsubWebhookController,
+    OnboardingSumsubSimulationController,
     PeriodicReviewCustomerController,
     PeriodicReviewAdminController,
   ],

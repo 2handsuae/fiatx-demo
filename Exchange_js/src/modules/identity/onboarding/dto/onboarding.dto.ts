@@ -221,6 +221,24 @@ export class ReinitiateEddDto {
   journeyId?: string;
 }
 
+export class SimulateOnboardingSumsubEventDto {
+  @IsString()
+  @IsNotEmpty()
+  eventType!: string;
+
+  @IsOptional()
+  @IsString()
+  levelName?: string;
+
+  @IsOptional()
+  @IsString()
+  reviewAnswer?: string;
+
+  @IsOptional()
+  @IsString()
+  reviewRejectType?: string;
+}
+
 export class DecisionRecordQueryDto {
   @IsOptional()
   @Type(() => Number)

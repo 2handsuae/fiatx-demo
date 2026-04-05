@@ -8,7 +8,7 @@ import { buildAllowedWebOrigins } from './common/utils/loopback-origin.util';
 // import { AllExceptionsFilter } from './common/filters/all-exceptions.filter'; // Commented out until file is recreated
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule, { bufferLogs: true });
+  const app = await NestFactory.create(AppModule, { bufferLogs: true, rawBody: true });
   const configService = app.get(ConfigService);
   const port = configService.get<number>('API_PORT') || 3000;
   const adminUrl =
