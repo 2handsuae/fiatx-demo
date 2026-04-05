@@ -11,6 +11,16 @@ export type SumsubVerificationSubstatus =
   | 'COMPLETED'
   | 'FAILED';
 
+export type SumsubReviewStatus =
+  | 'init'
+  | 'pending'
+  | 'prechecked'
+  | 'queued'
+  | 'completed'
+  | 'onHold'
+  | 'awaitingService'
+  | 'awaitingUser';
+
 export interface SumsubCreateApplicantInput {
   externalUserId: string;
   levelName: string;
@@ -30,5 +40,5 @@ export interface SumsubSdkTokenResponse {
 }
 
 export interface SumsubApplicantReviewStatusResponse {
-  reviewStatus: SumsubVerificationSubstatus | string;
+  reviewStatus: SumsubReviewStatus;
 }

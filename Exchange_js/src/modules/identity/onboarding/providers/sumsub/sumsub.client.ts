@@ -12,8 +12,6 @@ import {
 @Injectable()
 export class SumsubClient {
   private readonly baseUrl = process.env.SUMSUB_BASE_URL || 'https://api.sumsub.com';
-  private readonly appToken = process.env.SUMSUB_APP_TOKEN || '';
-  private readonly secretKey = process.env.SUMSUB_SECRET_KEY || '';
   private readonly http: AxiosInstance = axios.create({
     baseURL: this.baseUrl,
     timeout: 10000,
@@ -58,14 +56,30 @@ export class SumsubClient {
   }
 
   private buildHeaders(method: string, path: string, body?: Record<string, unknown>) {
+    const { appToken, secretKey } = this.requireCredentials();
     const ts = Math.floor(Date.now() / 1000).toString();
     const payload = `${ts}${method.toUpperCase()}${path}${body ? JSON.stringify(body) : ''}`;
-    const sig = createHmac('sha256', this.secretKey).update(payload).digest('hex');
+    const sig = createHmac('sha256', secretKey).update(payload).digest('hex');
 
     return {
-      'X-App-Token': this.appToken,
+      'X-App-Token': appToken,
       'X-App-Access-Ts': ts,
       'X-App-Access-Sig': sig,
     } satisfies Record<string, string>;
+  }
+
+  private requireCredentials(): { appToken: string; secretKey: string } {
+    const appToken = process.env.SUMSUB_APP_TOKEN;
+    const secretKey = process.env.SUMSUB_SECRET_KEY;
+    const missing = [
+      !appToken ? 'SUMSUB_APP_TOKEN' : null,
+      !secretKey ? 'SUMSUB_SECRET_KEY' : null,
+    ].filter((value): value is string => value !== null);
+
+    if (missing.length > 0) {
+      throw new Error(`Sumsub credentials are missing: ${missing.join(', ')}`);
+    }
+
+    return { appToken: appToken!, secretKey: secretKey! };
   }
 }

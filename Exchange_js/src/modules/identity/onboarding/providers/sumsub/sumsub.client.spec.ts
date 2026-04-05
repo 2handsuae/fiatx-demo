@@ -52,6 +52,25 @@ describe('SumsubClient', () => {
     );
   });
 
+  it('rejects requests when Sumsub credentials are missing', async () => {
+    delete process.env.SUMSUB_APP_TOKEN;
+    delete process.env.SUMSUB_SECRET_KEY;
+
+    const post = jest.fn().mockResolvedValue({ data: { id: 'app-1' } });
+    mockedAxios.create.mockReturnValue({ post } as any);
+
+    const client = new SumsubClient();
+
+    await expect(
+      client.createApplicant({
+        externalUserId: 'customer-1',
+        levelName: 'wave3-level-1',
+      }),
+    ).rejects.toThrow('Sumsub credentials are missing: SUMSUB_APP_TOKEN, SUMSUB_SECRET_KEY');
+
+    expect(post).not.toHaveBeenCalled();
+  });
+
   it('sends the local user identifier as userId when creating sdk tokens', async () => {
     const post = jest.fn().mockResolvedValue({ data: { token: 'sdk-token' } });
     mockedAxios.create.mockReturnValue({ post } as any);
@@ -102,13 +121,13 @@ describe('SumsubClient', () => {
   });
 
   it('queries applicant review status from the status endpoint', async () => {
-    const get = jest.fn().mockResolvedValue({ data: { reviewStatus: 'COMPLETED' } });
+    const get = jest.fn().mockResolvedValue({ data: { reviewStatus: 'completed' } });
     mockedAxios.create.mockReturnValue({ get } as any);
 
     const client = new SumsubClient();
     const status = await client.getApplicantReviewStatus('app-1');
 
-    expect(status).toEqual({ reviewStatus: 'COMPLETED' });
+    expect(status).toEqual({ reviewStatus: 'completed' });
     const expectedTs = '1700000000';
     const expectedSig = createHmac('sha256', 'test-secret-key')
       .update(`${expectedTs}GET/resources/applicants/app-1/status`)
