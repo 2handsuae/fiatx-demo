@@ -66,7 +66,7 @@ It is NOT Wave 1 scope and MUST NOT be treated as active Wave 1 truth.
 4. `subjectType = APPROVAL_CASE`
 5. `subjectId = approval.id`
 6. `subjectNo = approval.approvalNo`
-7. `ownerUserId = approval.makerUserId`
+7. `ownerUserId = approval.createdByUserId`
 8. `dueAt = approval.timeoutAt`
 - Approval `APPROVED / REJECTED / CANCELLED / EXPIRED` MUST automatically close the active timeout timer.
 - SLA scheduler MUST remain the only automatic approval-timeout scanner.

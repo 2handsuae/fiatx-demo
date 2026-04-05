@@ -15,8 +15,8 @@ const buildApproval = (overrides: Record<string, unknown> = {}) => ({
   approvalNo: 'APR2603140001',
   actionType: ApprovalActionTypes.AUDIT_EVIDENCE_EXPORT_APPROVAL,
   entityRef: 'pkg-1',
-  makerUserId: 'maker-1',
-  makerUserNo: 'USR-MAKER-001',
+  createdByUserId: 'maker-1',
+  createdByUserNo: 'USR-MAKER-001',
   status: ApprovalStatuses.DRAFT,
   executionStatus: ApprovalExecutionStatuses.NOT_EXECUTED,
   riskLevel: 'HIGH',
@@ -205,7 +205,7 @@ describe('ApprovalsService', () => {
       expect.objectContaining({
         data: expect.objectContaining({
           approvalNo: expect.stringMatching(/^APR\d{10}$/),
-          makerUserNo: actor.userNo,
+          createdByUserNo: actor.userNo,
           steps: {
             create: expect.objectContaining({
               approvalNo: expect.stringMatching(/^APR\d{10}$/),
@@ -499,7 +499,7 @@ describe('ApprovalsService', () => {
     prisma.approvalCase.findUnique.mockResolvedValue(
       buildApproval({
         status: ApprovalStatuses.PENDING,
-        makerUserId: actor.userId,
+        createdByUserId: actor.userId,
         checkerRoles: 'DPO',
       }),
     );
@@ -519,7 +519,7 @@ describe('ApprovalsService', () => {
     prisma.approvalCase.findUnique.mockResolvedValue(
       buildApproval({
         status: ApprovalStatuses.PENDING,
-        makerUserId: 'maker-1',
+        createdByUserId: 'maker-1',
         checkerRoles: 'DPO',
         workflowType: 'ONBOARDING',
         workflowId: 'ONB-1',
@@ -529,7 +529,7 @@ describe('ApprovalsService', () => {
     prisma.approvalCase.update.mockResolvedValue(
       buildApproval({
         status: ApprovalStatuses.APPROVED,
-        makerUserId: 'maker-1',
+        createdByUserId: 'maker-1',
         checkerRoles: 'DPO',
         decisionByUserId: actor.userId,
         decisionByRole: 'DPO',
@@ -595,7 +595,7 @@ describe('ApprovalsService', () => {
     prisma.approvalCase.findUnique.mockResolvedValue(
       buildApproval({
         status: ApprovalStatuses.PENDING,
-        makerUserId: 'maker-1',
+        createdByUserId: 'maker-1',
         checkerRoles: 'DPO',
         workflowType: 'ONBOARDING',
         workflowId: 'ONB-1',
@@ -629,14 +629,14 @@ describe('ApprovalsService', () => {
     prisma.approvalCase.findUnique.mockResolvedValue(
       buildApproval({
         status: ApprovalStatuses.PENDING,
-        makerUserId: 'maker-1',
+        createdByUserId: 'maker-1',
         checkerRoles: 'DPO,MLRO',
       }),
     );
     prisma.approvalCase.update.mockResolvedValue(
       buildApproval({
         status: ApprovalStatuses.APPROVED,
-        makerUserId: 'maker-1',
+        createdByUserId: 'maker-1',
         checkerRoles: 'DPO,MLRO',
         decisionByUserId: 'maker-1',
         decisionByRole: 'DPO',
@@ -705,12 +705,12 @@ describe('ApprovalsService', () => {
     );
   });
 
-  it('lists approvals using persisted makerUserNo without user lookup', async () => {
+  it('lists approvals using persisted createdByUserNo without user lookup', async () => {
     prisma.approvalCase.count.mockResolvedValue(1);
     prisma.approvalCase.findMany.mockResolvedValue([
       buildApproval({
-        makerUserId: 'maker-1',
-        makerUserNo: 'USR-MAKER-001',
+        createdByUserId: 'maker-1',
+        createdByUserNo: 'USR-MAKER-001',
       }),
     ]);
 
@@ -718,26 +718,26 @@ describe('ApprovalsService', () => {
 
     expect(prisma.user.findMany).not.toHaveBeenCalled();
     expect(result.items[0]).toMatchObject({
-      makerUserId: 'maker-1',
-      makerUserNo: 'USR-MAKER-001',
+      createdByUserId: 'maker-1',
+      createdByUserNo: 'USR-MAKER-001',
     });
     expect(result.items[0]).not.toHaveProperty('maker.userNo');
   });
 
-  it('lists approvals when persisted makerUserNo is absent and leaves it null', async () => {
+  it('lists approvals when persisted createdByUserNo is absent and leaves it null', async () => {
     prisma.approvalCase.count.mockResolvedValue(1);
     prisma.approvalCase.findMany.mockResolvedValue([
       buildApproval({
-        makerUserId: 'maker-1',
-        makerUserNo: null,
+        createdByUserId: 'maker-1',
+        createdByUserNo: null,
       }),
     ]);
 
     const result = await service.list({}, actor);
 
     expect(result.items[0]).toMatchObject({
-      makerUserId: 'maker-1',
-      makerUserNo: null,
+      createdByUserId: 'maker-1',
+      createdByUserNo: null,
     });
   });
 
@@ -745,8 +745,8 @@ describe('ApprovalsService', () => {
     prisma.approvalCase.findUnique.mockResolvedValue(
       buildApproval({
         status: ApprovalStatuses.APPROVED,
-        makerUserId: 'maker-1',
-        makerUserNo: 'USR-MAKER-001',
+        createdByUserId: 'maker-1',
+        createdByUserNo: 'USR-MAKER-001',
         decisionByUserId: 'checker-1',
         decisionByUserNo: 'USR-CHECKER-001',
         decisionByRole: 'DPO',
@@ -774,8 +774,8 @@ describe('ApprovalsService', () => {
     const result = await service.getById('approval-1', actor);
 
     expect(result).toMatchObject({
-      makerUserId: 'maker-1',
-      makerUserNo: 'USR-MAKER-001',
+      createdByUserId: 'maker-1',
+      createdByUserNo: 'USR-MAKER-001',
       decisionByUserNo: 'USR-CHECKER-001',
       decisionReason: 'approved for wave 1 path',
       selectedCheckerRole: 'DPO',
@@ -791,12 +791,12 @@ describe('ApprovalsService', () => {
     });
   });
 
-  it('returns approval detail when persisted makerUserNo is absent and leaves it null', async () => {
+  it('returns approval detail when persisted createdByUserNo is absent and leaves it null', async () => {
     prisma.approvalCase.findUnique.mockResolvedValue(
       buildApproval({
         status: ApprovalStatuses.APPROVED,
-        makerUserId: 'maker-1',
-        makerUserNo: null,
+        createdByUserId: 'maker-1',
+        createdByUserNo: null,
         decisionByUserId: 'checker-1',
         decisionByRole: 'DPO',
       }),
@@ -805,8 +805,8 @@ describe('ApprovalsService', () => {
     const result = await service.getById('approval-1', actor);
 
     expect(result).toMatchObject({
-      makerUserId: 'maker-1',
-      makerUserNo: null,
+      createdByUserId: 'maker-1',
+      createdByUserNo: null,
     });
   });
 

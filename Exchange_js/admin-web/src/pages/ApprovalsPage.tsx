@@ -13,8 +13,8 @@ interface ApprovalItem {
   approvalNo: string;
   actionType: string;
   entityRef: string;
-  makerUserId: string;
-  makerUserNo?: string | null;
+  createdByUserId: string;
+  createdByUserNo?: string | null;
   status: string;
   executionStatus: string;
   workflowNo?: string | null;
@@ -240,7 +240,7 @@ const ApprovalsPage = () => {
                     <td className="px-4 py-3 text-gray-700">{item.executionStatus}</td>
                     <td className="px-4 py-3">
                       <div className="font-mono text-xs text-gray-700">
-                        {item.makerUserNo || item.makerUserId}
+                        {item.createdByUserNo || item.createdByUserId}
                       </div>
                     </td>
                     <td className="px-4 py-3">

@@ -115,7 +115,7 @@ describe('SlaTimersService', () => {
       approvalNo: 'APR2603140001',
       actionType: ApprovalActionTypes.AUDIT_EVIDENCE_EXPORT_APPROVAL,
       entityRef: 'pkg-1',
-      makerUserId: 'maker-1',
+      createdByUserId: 'maker-1',
       status: ApprovalStatuses.PENDING,
       timeoutAt: new Date('2026-03-14T17:00:00.000Z'),
       traceId: 'trace-1',

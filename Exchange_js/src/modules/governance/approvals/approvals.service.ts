@@ -537,7 +537,7 @@ export class ApprovalsService {
       : [];
     const makerCheckerConflict = actor
       ? !this.isSuperAdmin(actor) &&
-        actor.userId === approval.makerUserId &&
+        actor.userId === approval.createdByUserId &&
         availableDecisionRoles.length > 0
       : false;
     const canDecide =
@@ -550,8 +550,8 @@ export class ApprovalsService {
       approvalNo: approval.approvalNo,
       actionType: approval.actionType,
       entityRef: approval.entityRef,
-      makerUserId: approval.makerUserId,
-      makerUserNo: approval.makerUserNo || null,
+      createdByUserId: approval.createdByUserId,
+      createdByUserNo: approval.createdByUserNo || null,
       status: approval.status,
       executionStatus: approval.executionStatus,
       riskLevel: approval.riskLevel,
@@ -575,7 +575,7 @@ export class ApprovalsService {
       canCancel:
         !!actor &&
         approval.allowCancel &&
-        (actor.userId === approval.makerUserId || this.isSuperAdmin(actor)) &&
+        (actor.userId === approval.createdByUserId || this.isSuperAdmin(actor)) &&
         cancellableStatuses.has(approval.status),
     };
   }
@@ -633,7 +633,7 @@ export class ApprovalsService {
 
     if (
       !superAdminBypass &&
-      actor.userId === approval.makerUserId &&
+      actor.userId === approval.createdByUserId &&
       (await this.approvalPolicyService.isSameUserMakerCheckerDenied())
     ) {
       throw new ForbiddenException('Maker and checker must be different users');
@@ -734,8 +734,8 @@ export class ApprovalsService {
       {
         actionType,
         entityRef,
-        makerUserId: actor.userId,
-        makerUserNo: this.normalizeOptionalString(actor.userNo),
+        createdByUserId: actor.userId,
+        createdByUserNo: this.normalizeOptionalString(actor.userNo),
         status: ApprovalStatuses.DRAFT,
         executionStatus: ApprovalExecutionStatuses.NOT_EXECUTED,
         riskLevel: policy.riskLevel,
@@ -773,7 +773,7 @@ export class ApprovalsService {
   ): Promise<ApprovalCaseRow> {
     const db = this.getDb(client);
     const approval = await this.findCaseOrThrow(id, client);
-    if (approval.makerUserId !== actor.userId) {
+    if (approval.createdByUserId !== actor.userId) {
       throw new ForbiddenException('Only the maker can submit this approval');
     }
     if (approval.status !== ApprovalStatuses.DRAFT) {
@@ -934,7 +934,7 @@ export class ApprovalsService {
       dto.reason || 'Approval approved',
       ApprovalStatuses.PENDING,
       ApprovalStatuses.APPROVED,
-      this.isSuperAdmin(actor) && actor.userId === updated.makerUserId
+      this.isSuperAdmin(actor) && actor.userId === updated.createdByUserId
         ? { superAdminBypass: true }
         : undefined,
     );
@@ -997,7 +997,7 @@ export class ApprovalsService {
       dto.reason || 'Approval rejected',
       ApprovalStatuses.PENDING,
       ApprovalStatuses.REJECTED,
-      this.isSuperAdmin(actor) && actor.userId === updated.makerUserId
+      this.isSuperAdmin(actor) && actor.userId === updated.createdByUserId
         ? { superAdminBypass: true }
         : undefined,
     );
@@ -1010,7 +1010,7 @@ export class ApprovalsService {
     let previousStatus: string = ApprovalStatuses.DRAFT;
     const updated = await this.prisma.$transaction(async (tx: any) => {
       const approval = await this.findCaseOrThrow(id, tx);
-      if (approval.makerUserId !== actor.userId && !this.isSuperAdmin(actor)) {
+      if (approval.createdByUserId !== actor.userId && !this.isSuperAdmin(actor)) {
         throw new ForbiddenException('Only the maker can cancel this approval');
       }
       if (!approval.allowCancel) {
@@ -1069,7 +1069,7 @@ export class ApprovalsService {
       dto.reason || 'Approval cancelled',
       previousStatus,
       ApprovalStatuses.CANCELLED,
-      this.isSuperAdmin(actor) && actor.userId !== updated.makerUserId
+      this.isSuperAdmin(actor) && actor.userId !== updated.createdByUserId
         ? { superAdminBypass: true }
         : undefined,
     );
@@ -1195,9 +1195,9 @@ export class ApprovalsService {
         { id: { contains: keyword } },
         { actionType: { contains: keyword } },
         { entityRef: { contains: keyword } },
-        { makerUserNo: { contains: keyword } },
+        { createdByUserNo: { contains: keyword } },
         { decisionByUserNo: { contains: keyword } },
-        { makerUserId: { contains: keyword } },
+        { createdByUserId: { contains: keyword } },
         { decisionByUserId: { contains: keyword } },
       ];
     }

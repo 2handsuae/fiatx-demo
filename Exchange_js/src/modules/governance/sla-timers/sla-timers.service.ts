@@ -832,7 +832,7 @@ export class SlaTimersService {
         approvalNo: true,
         actionType: true,
         entityRef: true,
-        makerUserId: true,
+        createdByUserId: true,
         status: true,
         timeoutAt: true,
         traceId: true,
@@ -855,7 +855,7 @@ export class SlaTimersService {
       subjectId: approval.id,
       subjectNo: approval.approvalNo,
       timerType: SlaTimerTypes.APPROVAL_TIMEOUT,
-      ownerUserId: approval.makerUserId,
+      ownerUserId: approval.createdByUserId,
       dueAt: approval.timeoutAt,
       traceId: approval.traceId,
       contextJson: {
