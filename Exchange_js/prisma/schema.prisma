@@ -12,6 +12,11 @@ model User {
   userNo              String                @unique @default("TEMP")
   email               String                @unique
   password            String
+  // Legacy: single-role string kept for JWT backward compatibility.
+  // Authoritative RBAC is resolved via userRoles → roles → role_permissions.
+  // auth.service.ts includes this field in JWT roleCodes for tokens issued
+  // before the roleCodes claim existed. Safe to remove only after all
+  // active sessions have been refreshed.
   role                String
   status              String
   failedLoginAttempts Int                   @default(0)

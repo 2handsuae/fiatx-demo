@@ -324,6 +324,10 @@ export class AuthService {
   }
 
   async login(user: any) {
+    // RBAC resolution: primary source is user_roles table (getUserRoleCodes).
+    // user.role (legacy) is appended so older JWT tokens that predate the
+    // roleCodes claim continue to work. Once all sessions are refreshed,
+    // the user.role fallback here can be removed.
     const resolvedRoleCodes = this.accessControlService
       ? await this.accessControlService.getUserRoleCodes(user.id)
       : [];
