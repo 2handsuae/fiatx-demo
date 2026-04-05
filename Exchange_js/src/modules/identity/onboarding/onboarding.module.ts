@@ -15,6 +15,7 @@ import { PeriodicReviewCustomerController } from '../periodic-review/periodic-re
 import { PeriodicReviewAdminController } from '../periodic-review/periodic-review-admin.controller';
 import { PeriodicReviewSweepService } from '../periodic-review/periodic-review-sweep.service';
 import { PeriodicReviewWorkflowTransitionService } from '../periodic-review/periodic-review-workflow-transition.service';
+import { SumsubClient } from './providers/sumsub/sumsub.client';
 
 @Module({
   imports: [
@@ -32,6 +33,7 @@ import { PeriodicReviewWorkflowTransitionService } from '../periodic-review/peri
     PeriodicReviewService,
     PeriodicReviewSweepService,
     PeriodicReviewWorkflowTransitionService,
+    SumsubClient,
   ],
   controllers: [
     OnboardingCustomerController,
