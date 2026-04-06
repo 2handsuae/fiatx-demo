@@ -2,24 +2,55 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ── Admin Design Tokens ─────────────────────────────────────
+   Light-mode defaults.  Dark-mode overrides set in .dark block.
+   Tailwind adm-* colors in tailwind.config.js reference these vars.
+──────────────────────────────────────────────────────────── */
 :root {
-  /* Default to light theme for admin content area */
+  --adm-bg:      #f8fafc;
+  --adm-panel:   #ffffff;
+  --adm-card:    #f1f5f9;
+  --adm-hover:   #f1f5f9;
+  --adm-border:  #e2e8f0;
+  --adm-bhi:     #cbd5e1;
+  --adm-amber:   #d97706;
+  --adm-text-1:  #0f172a;
+  --adm-text-2:  #475569;
+  --adm-text-3:  #94a3b8;
+  --adm-green:   #059669;
+  --adm-red:     #dc2626;
+  --adm-yellow:  #d97706;
+  --adm-blue:    #2563eb;
+}
+
+.dark {
+  --adm-bg:      #0c1018;
+  --adm-panel:   #111827;
+  --adm-card:    #1a2332;
+  --adm-hover:   #1e2d3f;
+  --adm-border:  #1f2d3d;
+  --adm-bhi:     #2a3d52;
+  --adm-amber:   #f59e0b;
+  --adm-text-1:  #e2e8f0;
+  --adm-text-2:  #8b9eb0;
+  --adm-text-3:  #4a6075;
+  --adm-green:   #10b981;
+  --adm-red:     #ef4444;
+  --adm-yellow:  #f59e0b;
+  --adm-blue:    #3b82f6;
+}
+
+:root {
   color-scheme: light dark;
 }
 
 body {
   @apply bg-admin-content-bg text-gray-900 overflow-x-hidden dark:bg-deep-space dark:text-white;
-  font-family: 'Inter', sans-serif;
+  font-family: 'Noto Sans SC', 'Inter', sans-serif;
 }
 
 /* Scrollbar */
-::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-::-webkit-scrollbar-track {
-  @apply bg-transparent;
-}
-::-webkit-scrollbar-thumb {
-  @apply bg-gray-300 rounded hover:bg-gray-400 transition-colors;
-}
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--adm-border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--adm-bhi); }
