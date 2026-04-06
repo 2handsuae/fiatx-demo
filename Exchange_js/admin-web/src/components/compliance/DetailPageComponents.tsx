@@ -107,6 +107,7 @@ export const InfoField = ({
   highlight = false,
   emptyLabel = '—',
   copyable = false,
+  /** @deprecated use isCopied */
   copied = false,
   isCopied = false,
   onCopy,
@@ -210,7 +211,7 @@ export const ActionSection = ({
   children?: ReactNode;
 }) => (
   <div className="overflow-hidden rounded-lg border border-adm-border bg-adm-panel shadow-sm">
-    <div className="border-b border-adm-border bg-adm-card px-4 py-2.5">
+    <div className="flex items-center gap-2 border-b border-adm-border bg-adm-card px-4 py-2.5">
       <span className="font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t2">
         {title}
       </span>
