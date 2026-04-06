@@ -496,32 +496,42 @@ DRAFT → PENDING_APPROVAL → READY → DONE
 |---|---|---|---|---|
 | `id` | UUID | PK | 主键 | |
 | `auditNo` | String | UNIQUE, NOT NULL | 业务编号 | 格式 `AUD-YYYYMMDD-XXXX` |
-| `triggerType` | Enum | NOT NULL | 触发来源类型 | `SYSTEM` / `ADMIN` / `CLIENT` / `SCHEDULED` |
+| `triggerType` | String | NOT NULL | 触发来源类型 | `SYSTEM` / `ADMIN` / `CLIENT` / `SCHEDULED` |
 | `action` | String | NOT NULL | 具体操作代码 | 如 `CHANGE_TICKET_CREATED`、`APPROVAL_APPROVED` |
 | `module` | String | NOT NULL | 所属模块 | 如 `GOVERNANCE_CHANGE_TICKETS`、`APPROVAL` |
 | `entityType` | String | NOT NULL | 实体类型 | 如 `CHANGE_TICKET`、`APPROVAL_CASE`、`USER` |
 | `entityId` | String | NULLABLE | 实体主键 id | |
 | `entityNo` | String | NULLABLE | 实体业务编号 | 如 `CT-20260405-0001` |
-| `traceId` | String | NOT NULL | 链路追踪 ID | 用于跨表、跨服务关联 |
+| `traceId` | String | **NULLABLE** | 链路追踪 ID | 用于跨表、跨服务关联；系统触发场景下可能为空 |
 | `workflowType` | String | NULLABLE | 关联工作流类型 | |
 | `workflowId` | String | NULLABLE | 关联工作流 id | |
 | `workflowNo` | String | NULLABLE | 关联工作流业务编号 | |
-| `actorType` | Enum | NOT NULL | 操作人类型 | `SYSTEM` / `ADMIN` / `CLIENT` |
-| `actorId` | String | NULLABLE | 操作人 id | 关联 `users.id` |
-| `actorNo` | String | NULLABLE | 操作人业务编号 | 如 `ADMIN-CISO` |
-| `actorRole` | String | NULLABLE | 操作人角色 code | 记录操作时实际使用的角色 |
+| `entityOwnerType` | String | NULLABLE | 实体所有者类型 | 如客户 id 所属类型，用于多租户场景 |
+| `entityOwnerId` | String | NULLABLE | 实体所有者 id | 如客户 id |
+| `entityOwnerNo` | String | NULLABLE | 实体所有者业务编号 | 冗余字段，便于查询 |
 | `statusFrom` | String | NULLABLE | 状态变更前的值 | 状态变更操作时填写 |
 | `statusTo` | String | NULLABLE | 状态变更后的值 | 状态变更操作时填写 |
-| `result` | Enum | NOT NULL | 操作结果 | `SUCCESS` / `FAILURE` |
+| `actorType` | String | NOT NULL | 操作人类型 | `SYSTEM` / `ADMIN` / `CLIENT` |
+| `actorId` | String | **NOT NULL** | 操作人 id | 系统触发时填 `'SYSTEM'` |
+| `actorNo` | String | NULLABLE | 操作人业务编号 | 如 `ADMIN-CISO` |
+| `actorRole` | String | NULLABLE | 操作人角色 code | 记录操作时实际使用的角色 |
+| `requestId` | String | NULLABLE | HTTP 请求 id | 与 HTTP 请求追踪关联，系统触发时为空 |
+| `sourceIp` | String | NULLABLE | 来源 IP 地址 | 系统触发时为空 |
+| `sourcePlatform` | String | NULLABLE | 来源平台标识 | 如 `ADMIN_WEB`、`SYSTEM`、`CLIENT_WEB` |
+| `result` | String | NOT NULL, DEFAULT 'SUCCESS' | 操作结果 | `SUCCESS` / `FAILURE` |
 | `reason` | String | NULLABLE | 失败原因或补充说明 | |
-| `metadata` | JSON | NULLABLE | 附加元数据 | 如 `{ superAdminBypass: true, ipAddress: "..." }` |
-| `beforeData` | JSON | NULLABLE | 变更前数据快照 | 敏感字段应脱敏 |
-| `afterData` | JSON | NULLABLE | 变更后数据快照 | 敏感字段应脱敏 |
+| `metadata` | String | NULLABLE | 附加元数据（JSON 字符串） | 如 `{ superAdminBypass: true }` |
+| `beforeData` | String | NULLABLE | 变更前数据快照（JSON 字符串） | 敏感字段应脱敏 |
+| `afterData` | String | NULLABLE | 变更后数据快照（JSON 字符串） | 敏感字段应脱敏 |
+| `idempotencyKey` | String | UNIQUE, NULLABLE | 幂等键 | 防止同一事件重复写入；key 由 module+entityType+entityId+action+requestId+triggerType 的 SHA256 生成 |
 | `payloadDigest` | String | NOT NULL | 整条记录摘要 | SHA256，用于检测日志篡改 |
-| `retainedUntil` | DateTime | NULLABLE | 数据保留截止时间 | 根据数据保留策略设定 |
-| `maskVersion` | String | NULLABLE | 数据脱敏版本号 | 记录脱敏规则版本，便于未来重新脱敏 |
-| `idempotencyKey` | String | UNIQUE, NULLABLE | 幂等键 | 防止同一事件重复写入 |
-| `occurredAt` | DateTime | NOT NULL | 事件发生的业务时间 | 与 `createdAt`（系统写入时间）可能不同 |
+| `maskVersion` | String | **NOT NULL**, DEFAULT 'v1' | 数据脱敏版本号 | 记录写入时的脱敏规则版本，支持历史数据重新脱敏 |
+| `retainedUntil` | DateTime | **NOT NULL** | 数据保留截止时间 | 必填，根据数据保留策略在写入时计算 |
+| `archivedAt` | DateTime | NULLABLE | 归档时间 | 归档处理后写入，`null` 表示未归档 |
+| `occurredAt` | DateTime | NOT NULL, DEFAULT now() | 事件发生的业务时间 | 与 `createdAt`（系统写入时间）可能因延迟而不同 |
+| `createdAt` | DateTime | NOT NULL, DEFAULT now() | 数据库记录写入时间 | |
+| `updatedAt` | DateTime | NOT NULL | 记录最后更新时间 | 自动更新 |
+| `subjectNos` | Relation | — | 关联 `AuditLogSubjectNo[]` | 子表，记录与本条日志关联的业务编号列表（如 ticketNo + approvalNo） |
 
 ### 枚举说明
 
