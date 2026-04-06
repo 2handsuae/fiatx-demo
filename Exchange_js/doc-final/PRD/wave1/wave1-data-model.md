@@ -53,7 +53,7 @@
 | `userNo` | String | UNIQUE, NOT NULL | 业务编号，格式 `ADMIN-XXX` | 全局唯一，operator 侧主要展示标识 |
 | `email` | String | UNIQUE, NOT NULL | 登录邮箱 | 不区分大小写存储（建议全小写） |
 | `password` | String | NOT NULL | bcrypt 哈希密码 | 明文不入库，wave 1 demo 默认密码 `123456` |
-| `role` | String | NULLABLE | 兼容字段（legacy） | JWT `role` claim 向后兼容用，权威来源见 `user_roles` |
+| `role` | String | NOT NULL | 兼容字段（legacy） | JWT `role` claim 向后兼容用，权威来源见 `user_roles` |
 | `status` | Enum | NOT NULL | `ACTIVE` / `INACTIVE` | `INACTIVE` 表示邀请已创建但用户未激活 |
 | `failedLoginAttempts` | Int | DEFAULT 0 | 连续登录失败次数 | 达到阈值后触发账号锁定 |
 | `lockedUntil` | DateTime | NULLABLE | 账号解锁时间 | 锁定期间禁止登录；`null` 表示未锁定 |
@@ -175,10 +175,11 @@ DRAFT → PENDING → APPROVED → (executionStatus: EXECUTED)
 | `executionStatus` | Enum | NOT NULL | 执行状态 | `NOT_EXECUTED` / `EXECUTED` / `EXECUTION_FAILED` |
 | `riskLevel` | Enum | NOT NULL | 风险等级 | Wave 1 全部为 `HIGH` |
 | `checkerRoles` | String | NOT NULL | 允许审批的角色列表 | 逗号分隔的 role code，来自 `approval_action_policies` |
-| `selectedCheckerRole` | String | NULLABLE | 实际执行审批的角色 | 审批决策后填写 |
+| `selectedCheckerRole` | String | NOT NULL | 实际执行审批的角色 | 审批决策后填写 |
 | `allowCancel` | Boolean | NOT NULL | 是否允许取消 | 来自 `approval_action_policies` 配置 |
 | `allowRetry` | Boolean | NOT NULL | 是否允许执行失败后重试 | 来自 `approval_action_policies` 配置 |
-| `metadataJson` | JSON | NULLABLE | 附加元数据 | 如 `{ ticketNo, requestNo, source }` |
+| `metadataJson` | String | NOT NULL DEFAULT `{}` | 附加元数据（JSON序列化字符串） | 如 `{ ticketNo, requestNo, source }` |
+| `docRef` | String | NULLABLE | 关联文档引用 | 可选，指向关联的外部文档或附件 |
 | `traceId` | String | NOT NULL | 链路追踪 ID | 贯穿整个工作流，用于跨表关联日志 |
 | `workflowType` | String | NULLABLE | 关联业务工作流类型 | 如 `CHANGE_TICKET` |
 | `workflowId` | String | NULLABLE | 关联业务工作流 id | |
@@ -353,11 +354,11 @@ DRAFT → PENDING_APPROVAL → READY → DONE
 | `status` | Enum | NOT NULL | 工单状态 | 见下方枚举说明 |
 | `changeType` | Enum | NOT NULL | 变更类型 | Wave 1 有效值见下表 |
 | `changeReason` | String | NOT NULL | 变更原因 | 必填，业务必要性说明 |
-| `bindingSnapshotJson` | JSON | NOT NULL | 变更内容快照 | 提交时冻结，不可更改；包含 `intent` 字段 |
-| `bindingDigest` | String | NOT NULL | 快照 SHA256 摘要 | 防篡改校验，消费前验证 |
-| `scopeSummary` | String | NULLABLE | 变更范围描述 | 简要说明影响范围 |
-| `testEvidenceRef` | String | NULLABLE | 测试证据引用 | 如测试报告 URL 或文件路径 |
-| `rollbackPlanRef` | String | NULLABLE | 回滚计划引用 | 如回滚脚本 URL 或文件路径 |
+| `bindingSnapshotJson` | String | NOT NULL DEFAULT `{}` | 变更内容快照（JSON序列化字符串） | 提交时冻结，不可更改；包含 `intent` 字段 |
+| `bindingDigest` | String | NULLABLE | 快照 SHA256 摘要 | 防篡改校验，消费前验证；`null` 表示尚未计算 |
+| `scopeSummary` | String | NOT NULL | 变更范围描述 | 简要说明影响范围 |
+| `testEvidenceRef` | String | NOT NULL | 测试证据引用 | 如测试报告 URL 或文件路径 |
+| `rollbackPlanRef` | String | NOT NULL | 回滚计划引用 | 如回滚脚本 URL 或文件路径 |
 | `approvalCaseId` | String | UNIQUE, NULLABLE | 关联审批单 id | 关联 `approval_cases.id`，UNIQUE 确保 1:1 |
 | `approvalNo` | String | NULLABLE | 关联审批单业务编号 | 冗余字段 |
 | `traceId` | String | NOT NULL | 链路追踪 ID | 贯穿整个工作流 |
