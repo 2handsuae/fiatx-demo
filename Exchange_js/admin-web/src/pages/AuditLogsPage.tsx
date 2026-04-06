@@ -121,13 +121,6 @@ const toIsoString = (value: string): string | undefined => {
   return date.toISOString();
 };
 
-const formatDateTime = (value?: string | null): string => {
-  if (!value) return '-';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString();
-};
-
 const selectSubjectAnchor = (item: AuditLogItem): AuditSubjectNo | null => {
   if (Array.isArray(item.subjectNos) && item.subjectNos.length > 0) {
     const preferredRoles = ['ENTITY', 'RELATED', 'SOURCE'];
