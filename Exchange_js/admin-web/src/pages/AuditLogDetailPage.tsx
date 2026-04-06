@@ -17,6 +17,7 @@ import {
   JsonBlock,
 } from '../components/compliance/DetailPageComponents';
 import { adminButtonClass } from '../components/common/adminButtonStyles';
+import { AdminBadge, TriggerTag } from '../components/ui/AdminBadge';
 
 type TriggerType =
   | 'EVIDENCE_EXPORT'
@@ -93,18 +94,6 @@ const formatDateTime = (value?: string | null): string => {
   return date.toLocaleString();
 };
 
-const getStatusClassName = (result: AuditResult) => {
-  switch (result) {
-    case 'SUCCESS':
-      return 'bg-green-100 text-green-700';
-    case 'FAILED':
-      return 'bg-red-100 text-red-700';
-    case 'REJECTED':
-      return 'bg-amber-100 text-amber-700';
-    default:
-      return 'bg-gray-100 text-gray-700';
-  }
-};
 
 const AuditLogDetailPage = () => {
   const { id } = useParams<{ id: string }>();
@@ -145,8 +134,8 @@ const AuditLogDetailPage = () => {
   if (loading) {
     return (
       <div className="flex min-h-[360px] flex-col items-center justify-center gap-3">
-        <RefreshCw size={28} className="animate-spin text-brand-primary" />
-        <p className="text-sm text-gray-500">Loading audit log detail...</p>
+        <RefreshCw size={28} className="animate-spin text-adm-amber" />
+        <p className="text-sm text-adm-t2">Loading audit log detail...</p>
       </div>
     );
   }
@@ -169,7 +158,7 @@ const AuditLogDetailPage = () => {
             Retry
           </button>
         </div>
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-4 text-sm text-red-700">
+        <div className="rounded-xl border border-adm-red/30 bg-adm-red/10 px-4 py-4 text-sm text-adm-red">
           {error}
         </div>
       </div>
@@ -185,7 +174,7 @@ const AuditLogDetailPage = () => {
         >
           Back to Audit Log
         </button>
-        <div className="rounded-xl border border-admin-border bg-white px-6 py-10 text-center text-sm text-gray-500 shadow-sm">
+        <div className="rounded-xl border border-adm-border bg-adm-card px-6 py-10 text-center text-sm text-adm-t2 shadow-sm">
           Audit log detail not found.
         </div>
       </div>
@@ -202,14 +191,8 @@ const AuditLogDetailPage = () => {
         refreshing={loading}
         backLabel="Back to Audit Logs"
       >
-        <span
-          className={`rounded-full px-3 py-1 text-xs font-medium ${getStatusClassName(detail.result)}`}
-        >
-          {detail.result}
-        </span>
-        <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-700">
-          {detail.triggerType}
-        </span>
+        <AdminBadge value={detail.result} />
+        <TriggerTag value={detail.triggerType} />
       </DetailPageHeader>
 
       <DetailCard title="Workflow Summary" icon={<FileText size={18} />}>
@@ -278,14 +261,18 @@ const AuditLogDetailPage = () => {
             {detail.subjectNos.map((subject) => (
               <span
                 key={subject.id}
-                className="rounded-full bg-gray-100 px-3 py-1 text-xs text-gray-700"
+                className="inline-flex items-center gap-1.5 rounded border border-adm-border bg-adm-card px-2.5 py-1 font-mono text-[10px] text-adm-t2"
               >
-                {subject.subjectRole} / {subject.subjectType} / {subject.subjectNo}
+                <span className="text-adm-t3">{subject.subjectRole}</span>
+                <span className="text-adm-t3">/</span>
+                <span>{subject.subjectType}</span>
+                <span className="text-adm-t3">/</span>
+                <span className="font-semibold text-adm-amber">{subject.subjectNo}</span>
               </span>
             ))}
           </div>
         ) : (
-          <div className="text-sm text-gray-500">No subject numbers attached.</div>
+          <div className="text-sm text-adm-t2">No subject numbers attached.</div>
         )}
       </DetailCard>
 
