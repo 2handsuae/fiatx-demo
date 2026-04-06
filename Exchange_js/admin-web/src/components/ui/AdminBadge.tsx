@@ -17,13 +17,14 @@ const STATUS_MAP: Record<string, BadgeVariant> = {
   DELETED:          'deleted',
 };
 
+// Note: `active` and `success` intentionally use the same green colour — both represent "positive/live" states.
 const BADGE_CLS: Record<BadgeVariant, string> = {
   success:  'bg-adm-green/10  text-adm-green  border-adm-green/25',
   failed:   'bg-adm-red/10    text-adm-red    border-adm-red/25',
   rejected: 'bg-adm-amber/10  text-adm-amber  border-adm-amber/25',
   pending:  'bg-adm-blue/10   text-adm-blue   border-adm-blue/25',
   active:   'bg-adm-green/10  text-adm-green  border-adm-green/25',
-  deleted:  'bg-adm-red/10    text-adm-red    border-adm-red/25',
+  deleted:  'bg-adm-t3/10     text-adm-t2     border-adm-t3/25',
   info:     'bg-adm-t3/10     text-adm-t2     border-adm-t3/25',
 };
 
@@ -47,12 +48,12 @@ export const AdminBadge = ({
 };
 
 const TRIGGER_CLS: Record<string, string> = {
-  AUTH_EVENT:       'bg-purple-500/10 text-purple-500 border-purple-500/20',
-  EVIDENCE_EXPORT:  'bg-sky-500/10    text-sky-500    border-sky-500/20',
-  STATE_TRANSITION: 'bg-indigo-500/10 text-indigo-500 border-indigo-500/20',
-  MANUAL_OVERRIDE:  'bg-orange-500/10 text-orange-500 border-orange-500/20',
-  PERMISSION_CHANGE:'bg-violet-500/10 text-violet-500 border-violet-500/20',
-  CONFIG_CHANGE:    'bg-teal-500/10   text-teal-500   border-teal-500/20',
+  AUTH_EVENT:       'bg-adm-amber/10  text-adm-amber  border-adm-amber/20',
+  EVIDENCE_EXPORT:  'bg-adm-blue/10   text-adm-blue   border-adm-blue/20',
+  STATE_TRANSITION: 'bg-adm-green/10  text-adm-green  border-adm-green/20',
+  MANUAL_OVERRIDE:  'bg-adm-red/10    text-adm-red    border-adm-red/20',
+  PERMISSION_CHANGE:'bg-adm-amber/10  text-adm-amber  border-adm-amber/20',
+  CONFIG_CHANGE:    'bg-adm-t2/10     text-adm-t2     border-adm-t2/20',
 };
 
 /** Smaller tag for triggerType values */
