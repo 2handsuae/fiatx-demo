@@ -7,6 +7,8 @@ import {
   adminIconButtonClass,
 } from '../components/common/adminButtonStyles';
 import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/adminFetch';
+import { AdminBadge, TriggerTag } from '../components/ui/AdminBadge';
+import { PageTitleBar } from '../components/ui/PageTitleBar';
 
 type TriggerType =
   | 'EVIDENCE_EXPORT'
@@ -187,6 +189,8 @@ const AuditLogsPage = () => {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [lastExportId, setLastExportId] = useState<string | null>(null);
 
+  const [showAdvanced, setShowAdvanced] = useState(false);
+
   const selectedIdSet = useMemo(() => new Set(selectedIds), [selectedIds]);
   const currentPageIds = useMemo(() => items.map((item) => item.id), [items]);
   const allCurrentPageSelected =
@@ -329,350 +333,353 @@ const AuditLogsPage = () => {
     void fetchLogs(1, DEFAULT_FILTERS);
   }, []);
 
+  /* ── Shared input className for filter inputs ── */
+  const fi =
+    'h-[30px] rounded border border-adm-border bg-adm-bg px-2.5 font-mono text-[11px] text-adm-t1 placeholder:text-adm-t3 outline-none focus:border-adm-amber transition-colors';
+
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Audit Center - Audit Logs</h1>
-          <p className="mt-1 text-sm text-gray-500">
-            Search by typed core fields like Workflow No, Trace ID, Subject No, actorNo, and
-            entityOwnerNo, then submit an approval-backed evidence package request.
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => void fetchLogs(currentPage, filters)}
-            className={adminIconButtonClass()}
-            title="Refresh"
-          >
-            <RefreshCw size={20} className={loading ? 'animate-spin' : ''} />
-          </button>
-          <button
-            onClick={() => navigate('/dashboard/audit/evidence-exports')}
-            className={adminButtonClass('listSecondary')}
-          >
-            Open Evidence Packages
-          </button>
-        </div>
+    <div className="flex h-full flex-col overflow-hidden">
+      {/* ── Page Title Bar ── */}
+      <PageTitleBar
+        title="Audit Logs"
+        meta={`${total} records · Compliance & Risk`}
+      >
+        <button
+          onClick={() => void handleExportSelected()}
+          disabled={exporting || selectedIds.length === 0}
+          className={adminButtonClass('listPrimary')}
+        >
+          <FileUp size={13} />
+          {exporting
+            ? 'Creating…'
+            : selectedIds.length > 0
+              ? `Create Package (${selectedIds.length})`
+              : 'Create Evidence Package'}
+        </button>
+        <button
+          onClick={() => navigate('/dashboard/audit/evidence-exports')}
+          className={adminButtonClass('listSecondary')}
+        >
+          Evidence Packages
+        </button>
+        <button
+          onClick={() => void fetchLogs(currentPage, filters)}
+          className={adminIconButtonClass()}
+          title="Refresh"
+        >
+          <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+        </button>
+      </PageTitleBar>
+
+      {/* ── Primary Filter Bar ── */}
+      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-adm-border bg-adm-panel px-5 py-2">
+        <input
+          value={filters.keyword}
+          onChange={(e) => setFilters((p) => ({ ...p, keyword: e.target.value }))}
+          placeholder="Audit No / Keyword"
+          className={`${fi} w-40`}
+        />
+        <select
+          value={filters.result}
+          onChange={(e) =>
+            setFilters((p) => ({ ...p, result: e.target.value as FilterState['result'] }))
+          }
+          className={`${fi} w-32`}
+        >
+          <option value="">All Results</option>
+          <option value="SUCCESS">SUCCESS</option>
+          <option value="FAILED">FAILED</option>
+          <option value="REJECTED">REJECTED</option>
+        </select>
+        <select
+          value={filters.triggerType}
+          onChange={(e) =>
+            setFilters((p) => ({
+              ...p,
+              triggerType: e.target.value as FilterState['triggerType'],
+            }))
+          }
+          className={`${fi} w-44`}
+        >
+          <option value="">All Triggers</option>
+          <option value="EVIDENCE_EXPORT">EVIDENCE_EXPORT</option>
+          <option value="STATE_TRANSITION">STATE_TRANSITION</option>
+          <option value="MANUAL_OVERRIDE">MANUAL_OVERRIDE</option>
+          <option value="AUTH_EVENT">AUTH_EVENT</option>
+          <option value="PERMISSION_CHANGE">PERMISSION_CHANGE</option>
+          <option value="CONFIG_CHANGE">CONFIG_CHANGE</option>
+          <option value="DATA_CREATE">DATA_CREATE</option>
+          <option value="DATA_UPDATE">DATA_UPDATE</option>
+          <option value="DATA_DELETE">DATA_DELETE</option>
+          <option value="SYSTEM_EVENT">SYSTEM_EVENT</option>
+        </select>
+        <input
+          value={filters.actorNo}
+          onChange={(e) => setFilters((p) => ({ ...p, actorNo: e.target.value }))}
+          placeholder="Actor No"
+          className={`${fi} w-28`}
+        />
+        <button
+          onClick={() => void fetchLogs(1, filters)}
+          className={adminButtonClass('listPrimary')}
+        >
+          <Search size={13} />
+          Search
+        </button>
+        <button onClick={() => void handleReset()} className={adminButtonClass('listSecondary')}>
+          Reset
+        </button>
+        <button
+          onClick={() => setShowAdvanced((p) => !p)}
+          className="ml-1 font-mono text-[10px] text-adm-t3 transition-colors hover:text-adm-amber"
+        >
+          {showAdvanced ? 'Less ▲' : 'Advanced ▾'}
+        </button>
       </div>
 
-      {message && (
-        <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
-          <div>{message}</div>
-          {lastExportId && (
-            <button
-              onClick={() => navigate('/dashboard/audit/evidence-exports')}
-              className={adminButtonClass('rowLink', 'mt-2')}
-            >
-              View evidence package
-            </button>
-          )}
-        </div>
-      )}
-
-      {error && (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          {error}
-        </div>
-      )}
-
-      <div className="space-y-4 rounded-xl border border-admin-border bg-white p-4 shadow-sm">
-        <div className="text-sm text-gray-500">
-          Prioritize Workflow No, Trace ID, Subject No, actorNo, and entityOwnerNo when narrowing
-          records.
-        </div>
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-4">
+      {/* ── Advanced Filter Bar ── */}
+      {showAdvanced && (
+        <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-adm-border bg-adm-bg/60 px-5 py-2">
           <input
             value={filters.workflowNo}
-            onChange={(e) => setFilters((prev) => ({ ...prev, workflowNo: e.target.value }))}
+            onChange={(e) => setFilters((p) => ({ ...p, workflowNo: e.target.value }))}
             placeholder="Workflow No"
-            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+            className={`${fi} w-36`}
           />
           <input
             value={filters.traceId}
-            onChange={(e) => setFilters((prev) => ({ ...prev, traceId: e.target.value }))}
+            onChange={(e) => setFilters((p) => ({ ...p, traceId: e.target.value }))}
             placeholder="Trace ID"
-            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+            className={`${fi} w-36`}
           />
           <input
             value={filters.subjectNo}
-            onChange={(e) => setFilters((prev) => ({ ...prev, subjectNo: e.target.value }))}
+            onChange={(e) => setFilters((p) => ({ ...p, subjectNo: e.target.value }))}
             placeholder="Subject No"
-            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
-          />
-          <input
-            value={filters.actorNo}
-            onChange={(e) => setFilters((prev) => ({ ...prev, actorNo: e.target.value }))}
-            placeholder="actorNo"
-            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+            className={`${fi} w-36`}
           />
           <input
             value={filters.entityOwnerNo}
-            onChange={(e) =>
-              setFilters((prev) => ({ ...prev, entityOwnerNo: e.target.value }))
-            }
-            placeholder="entityOwnerNo"
-            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+            onChange={(e) => setFilters((p) => ({ ...p, entityOwnerNo: e.target.value }))}
+            placeholder="Entity Owner No"
+            className={`${fi} w-36`}
           />
-          <input
-            value={filters.keyword}
-            onChange={(e) => setFilters((prev) => ({ ...prev, keyword: e.target.value }))}
-            placeholder="Keyword (action, audit no, reason)"
-            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
-          />
-          <input
-            value={filters.module}
-            onChange={(e) => setFilters((prev) => ({ ...prev, module: e.target.value }))}
-            placeholder="Module"
-            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
-          />
-          <input
-            value={filters.subjectType}
-            onChange={(e) => setFilters((prev) => ({ ...prev, subjectType: e.target.value }))}
-            placeholder="Subject Type"
-            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
-          />
-          <select
-            value={filters.workflowType}
-            onChange={(e) => setFilters((prev) => ({ ...prev, workflowType: e.target.value }))}
-            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
-          >
-            <option value="">All Workflow Types</option>
-            <option value="DEPOSIT">DEPOSIT</option>
-            <option value="WITHDRAW">WITHDRAW</option>
-            <option value="SWAP">SWAP</option>
-          </select>
-          <select
-            value={filters.triggerType}
-            onChange={(e) =>
-              setFilters((prev) => ({
-                ...prev,
-                triggerType: e.target.value as FilterState['triggerType'],
-              }))
-            }
-            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
-          >
-            <option value="">All Trigger Types</option>
-            <option value="EVIDENCE_EXPORT">EVIDENCE_EXPORT</option>
-            <option value="STATE_TRANSITION">STATE_TRANSITION</option>
-            <option value="MANUAL_OVERRIDE">MANUAL_OVERRIDE</option>
-            <option value="AUTH_EVENT">AUTH_EVENT</option>
-            <option value="PERMISSION_CHANGE">PERMISSION_CHANGE</option>
-            <option value="CONFIG_CHANGE">CONFIG_CHANGE</option>
-            <option value="DATA_CREATE">DATA_CREATE</option>
-            <option value="DATA_UPDATE">DATA_UPDATE</option>
-            <option value="DATA_DELETE">DATA_DELETE</option>
-            <option value="SYSTEM_EVENT">SYSTEM_EVENT</option>
-          </select>
-          <select
-            value={filters.result}
-            onChange={(e) =>
-              setFilters((prev) => ({
-                ...prev,
-                result: e.target.value as FilterState['result'],
-              }))
-            }
-            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
-          >
-            <option value="">All Results</option>
-            <option value="SUCCESS">SUCCESS</option>
-            <option value="FAILED">FAILED</option>
-            <option value="REJECTED">REJECTED</option>
-          </select>
           <input
             type="datetime-local"
             value={filters.startAt}
-            onChange={(e) => setFilters((prev) => ({ ...prev, startAt: e.target.value }))}
-            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+            onChange={(e) => setFilters((p) => ({ ...p, startAt: e.target.value }))}
+            className={fi}
           />
           <input
             type="datetime-local"
             value={filters.endAt}
-            onChange={(e) => setFilters((prev) => ({ ...prev, endAt: e.target.value }))}
-            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+            onChange={(e) => setFilters((p) => ({ ...p, endAt: e.target.value }))}
+            className={fi}
           />
-          <label className="inline-flex items-center gap-2 text-sm text-gray-700">
+          <label className="flex items-center gap-1.5 font-mono text-[11px] text-adm-t2">
             <input
               type="checkbox"
               checked={filters.includeArchived}
               onChange={(e) =>
-                setFilters((prev) => ({ ...prev, includeArchived: e.target.checked }))
-              }
+                setFilters((p) => ({ ...p, includeArchived: e.target.checked }))
+            }
             />
-            Include archived
+            Include Archived
           </label>
         </div>
+      )}
 
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            onClick={() => void fetchLogs(1, filters)}
-            className={adminButtonClass('listPrimary')}
-          >
-            <Search size={16} />
-            Search
-          </button>
-          <button
-            onClick={() => void handleReset()}
-            className={adminButtonClass('listSecondary')}
-          >
-            Reset
-          </button>
-          <button
-            onClick={() => void handleExportSelected()}
-            disabled={exporting || selectedIds.length === 0}
-            className={adminButtonClass('listPrimary')}
-          >
-            <FileUp size={16} />
-            {exporting ? 'Creating package...' : `Create Evidence Package (${selectedIds.length})`}
-          </button>
+      {/* ── Message / Error banners ── */}
+      {message && (
+        <div className="shrink-0 border-b border-adm-green/20 bg-adm-green/6 px-5 py-2.5 font-mono text-[11px] text-adm-green">
+          {message}
+          {lastExportId && (
+            <button
+              onClick={() => navigate('/dashboard/audit/evidence-exports')}
+              className={adminButtonClass('rowLink', 'ml-3')}
+            >
+              View package →
+            </button>
+          )}
+        </div>
+      )}
+      {error && (
+        <div className="shrink-0 border-b border-adm-red/20 bg-adm-red/6 px-5 py-2.5 font-mono text-[11px] text-adm-red">
+          {error}
+        </div>
+      )}
+
+      {/* ── Selection bar ── */}
+      {selectedIds.length > 0 && (
+        <div className="flex shrink-0 items-center gap-3 border-b border-adm-amber/20 bg-adm-amber/5 px-5 py-2">
+          <span className="font-mono text-[11px] text-adm-t2">
+            {selectedIds.length} selected
+          </span>
+          <div className="h-3 w-px bg-adm-border" />
           <button
             onClick={() => setSelectedIds([])}
-            disabled={selectedIds.length === 0}
             className={adminButtonClass('listSecondary')}
           >
-            <X size={16} />
-            Clear Selection
+            <X size={12} />
+            Deselect
           </button>
         </div>
-      </div>
+      )}
 
-      <div className="rounded-xl border border-admin-border bg-white shadow-sm">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead className="border-b border-admin-border bg-admin-content-bg">
-              <tr>
-                <th className="px-4 py-3 text-xs uppercase text-gray-500">
-                  <button
-                    onClick={toggleSelectCurrentPage}
-                    className="inline-flex items-center text-gray-600 hover:text-brand-primary"
-                    title="Select current page"
-                  >
-                    {allCurrentPageSelected ? <CheckSquare size={16} /> : <Square size={16} />}
-                  </button>
+      {/* ── Table ── */}
+      <div className="flex-1 overflow-auto">
+        <table className="w-full border-collapse text-sm">
+          <thead>
+            <tr>
+              <th className="w-9 border-b border-adm-border bg-adm-panel px-3 py-2">
+                <button
+                  onClick={toggleSelectCurrentPage}
+                  className="text-adm-t3 hover:text-adm-amber transition-colors"
+                  title="Select page"
+                >
+                  {allCurrentPageSelected ? (
+                    <CheckSquare size={14} />
+                  ) : (
+                    <Square size={14} />
+                  )}
+                </button>
+              </th>
+              {(
+                [
+                  ['Time',     '110px'],
+                  ['Audit No', '152px'],
+                  ['Result',   '84px'],
+                  ['Action',   'auto'],
+                  ['Subject',  '180px'],
+                  ['Actor',    '130px'],
+                ] as [string, string][]
+              ).map(([label, w]) => (
+                <th
+                  key={label}
+                  style={{ width: w === 'auto' ? undefined : w }}
+                  className="border-b border-adm-border bg-adm-panel px-3 py-2 text-left font-mono text-[9px] font-semibold uppercase tracking-[0.12em] text-adm-t3 whitespace-nowrap"
+                >
+                  {label}
                 </th>
-                <th className="px-4 py-3 text-xs uppercase text-gray-500">Audit No</th>
-                <th className="px-4 py-3 text-xs uppercase text-gray-500">Occurred At</th>
-                <th className="px-4 py-3 text-xs uppercase text-gray-500">Business Workflow</th>
-                <th className="px-4 py-3 text-xs uppercase text-gray-500">Primary Ref</th>
-                <th className="px-4 py-3 text-xs uppercase text-gray-500">User Action</th>
-                <th className="px-4 py-3 text-xs uppercase text-gray-500">Subject No</th>
-                <th className="px-4 py-3 text-xs uppercase text-gray-500">Subject Owner No</th>
-                <th className="px-4 py-3 text-xs uppercase text-gray-500">actorNo</th>
-                <th className="px-4 py-3 text-xs uppercase text-gray-500">Result</th>
-                <th className="px-4 py-3 text-xs uppercase text-gray-500">Record</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {loading && (
+              <tr>
+                <td
+                  colSpan={7}
+                  className="px-3 py-10 text-center font-mono text-[11px] text-adm-t3"
+                >
+                  Loading…
+                </td>
               </tr>
-            </thead>
-            <tbody className="divide-y divide-admin-border">
-              {loading ? (
-                <tr>
-                  <td colSpan={11} className="px-4 py-8 text-center text-gray-500">
-                    Loading...
-                  </td>
-                </tr>
-              ) : items.length === 0 ? (
-                <tr>
-                  <td colSpan={11} className="px-4 py-8 text-center text-gray-500">
-                    No audit logs found
-                  </td>
-                </tr>
-              ) : (
-                items.map((item) => (
-                  <tr key={item.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-3">
+            )}
+            {!loading && items.length === 0 && (
+              <tr>
+                <td
+                  colSpan={7}
+                  className="px-3 py-10 text-center font-mono text-[11px] text-adm-t3"
+                >
+                  No audit logs found.
+                </td>
+              </tr>
+            )}
+            {!loading &&
+              items.map((item) => {
+                const subjectAnchor = selectSubjectAnchor(item);
+                const borderCls =
+                  item.result === 'SUCCESS'
+                    ? 'border-l-2 border-l-adm-green'
+                    : item.result === 'FAILED'
+                      ? 'border-l-2 border-l-adm-red'
+                      : item.result === 'REJECTED'
+                        ? 'border-l-2 border-l-adm-amber'
+                        : '';
+                return (
+                  <tr
+                    key={item.id}
+                    className="cursor-pointer border-b border-adm-border transition-colors hover:bg-adm-hover"
+                    onClick={() => navigate(`/dashboard/audit/audit-logs/${item.id}`)}
+                  >
+                    {/* Checkbox */}
+                    <td className="px-3 py-2.5">
                       <button
-                        onClick={() => toggleSelection(item.id)}
-                        className="inline-flex items-center text-gray-600 hover:text-brand-primary"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleSelection(item.id);
+                        }}
+                        className="text-adm-t3 hover:text-adm-amber transition-colors"
                       >
                         {selectedIdSet.has(item.id) ? (
-                          <CheckSquare size={16} />
+                          <CheckSquare size={14} />
                         ) : (
-                          <Square size={16} />
+                          <Square size={14} />
                         )}
                       </button>
                     </td>
-                    <td className="px-4 py-3">
-                      <button
-                        onClick={() => navigate(`/dashboard/audit/audit-logs/${item.id}`)}
-                        className={adminButtonClass('rowKeyLink')}
-                      >
+                    {/* Time — 2 lines */}
+                    <td className="px-3 py-2.5 font-mono text-[10px] leading-relaxed text-adm-t2">
+                      {new Date(item.occurredAt).toLocaleDateString()}
+                      <br />
+                      {new Date(item.occurredAt).toLocaleTimeString()}
+                    </td>
+                    {/* Audit No — amber + status left-border */}
+                    <td className={`px-3 py-2.5 ${borderCls}`}>
+                      <span className="font-mono text-[11px] font-semibold text-adm-amber">
                         {item.auditNo}
-                      </button>
-                    </td>
-                    <td className="px-4 py-3 text-gray-700">{formatDateTime(item.occurredAt)}</td>
-                    <td className="px-4 py-3 text-gray-700">
-                      <div className="font-medium text-gray-900">
-                        {item.businessWorkflowLabel || item.businessWorkflow || '-'}
-                      </div>
-                      <div className="text-xs text-gray-500">{item.module}</div>
-                    </td>
-                    <td className="px-4 py-3 text-gray-700">
-                      <div className="font-medium text-gray-900">{item.primaryRefNo || '-'}</div>
-                      <div className="text-xs text-gray-500">Primary Ref No</div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="font-medium text-gray-900">
-                        {item.userActionLabel || item.userAction || item.action}
-                      </div>
-                      <div className="text-xs text-gray-500">{item.action}</div>
-                    </td>
-                    <td className="px-4 py-3 text-gray-700">
-                      {(() => {
-                        const subjectAnchor = selectSubjectAnchor(item);
-                        return subjectAnchor ? (
-                          <>
-                            <div className="font-medium text-gray-900">
-                              {subjectAnchor.subjectNo}
-                            </div>
-                            <div className="text-xs text-gray-500">
-                              {subjectAnchor.subjectRole} / {subjectAnchor.subjectType}
-                            </div>
-                          </>
-                        ) : (
-                          <>
-                            <div className="font-medium text-gray-900">-</div>
-                            <div className="text-xs text-gray-500">Subject Type: {item.entityType}</div>
-                          </>
-                        );
-                      })()}
-                    </td>
-                    <td className="px-4 py-3 text-gray-700">
-                      <div className="font-medium text-gray-900">{item.entityOwnerNo || '-'}</div>
-                      <div className="text-xs text-gray-500">entityOwnerNo</div>
-                    </td>
-                    <td className="px-4 py-3 text-gray-700">
-                      <div className="font-medium text-gray-900">{item.actorNo || '-'}</div>
-                      <div className="text-xs text-gray-500">{item.actorType}</div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span
-                        className={`rounded-full px-2 py-1 text-xs ${getStatusClassName(item.result)}`}
-                      >
-                        {item.result}
                       </span>
                     </td>
-                    <td className="px-4 py-3">
-                      <button
-                        onClick={() => navigate(`/dashboard/audit/audit-logs/${item.id}`)}
-                        className={adminButtonClass('rowLink')}
-                      >
-                        View
-                      </button>
+                    {/* Result badge */}
+                    <td className="px-3 py-2.5">
+                      <AdminBadge value={item.result} />
+                    </td>
+                    {/* Action — main label + trigger tag */}
+                    <td className="max-w-[240px] px-3 py-2.5">
+                      <div className="text-[11px] leading-snug text-adm-t1">
+                        {item.userActionLabel || item.userAction || item.action}
+                      </div>
+                      <div className="mt-1">
+                        <TriggerTag value={item.triggerType} />
+                      </div>
+                    </td>
+                    {/* Subject */}
+                    <td className="px-3 py-2.5">
+                      {subjectAnchor ? (
+                        <>
+                          <div className="font-mono text-[11px] font-semibold text-adm-amber">
+                            {subjectAnchor.subjectNo}
+                          </div>
+                          <div className="font-mono text-[9px] text-adm-t3">
+                            {subjectAnchor.subjectRole} / {subjectAnchor.subjectType}
+                          </div>
+                        </>
+                      ) : (
+                        <span className="text-adm-t3">—</span>
+                      )}
+                    </td>
+                    {/* Actor */}
+                    <td className="px-3 py-2.5">
+                      <div className="font-mono text-[11px] font-semibold text-adm-amber">
+                        {item.actorNo ?? item.actorId.slice(0, 8) + '…'}
+                      </div>
+                      <div className="font-mono text-[9px] text-adm-t3">{item.actorType}</div>
                     </td>
                   </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+                );
+              })}
+          </tbody>
+        </table>
+      </div>
 
-        <div className="border-t border-admin-border px-4 py-4">
-          <Pagination
-            currentPage={currentPage}
-            totalItems={total}
-            pageSize={PAGE_SIZE}
-            onPageChange={(page) => void fetchLogs(page, filters)}
-          />
-        </div>
+      {/* ── Pagination footer ── */}
+      <div className="shrink-0 border-t border-adm-border bg-adm-panel px-5 py-2.5">
+        <Pagination
+          currentPage={currentPage}
+          totalItems={total}
+          pageSize={PAGE_SIZE}
+          onPageChange={(page) => void fetchLogs(page, filters)}
+        />
       </div>
     </div>
   );
