@@ -20,8 +20,8 @@ describe('DeleteRequestsController', () => {
       type: 'ADMIN',
       userId: 'checker-1',
       userNo: 'ADM-003',
-      role: 'TECH_ADMIN',
-      roleCodes: ['TECH_ADMIN'],
+      role: 'TECH_OFFICER',
+      roleCodes: ['TECH_OFFICER'],
     },
   };
 
@@ -49,8 +49,8 @@ describe('DeleteRequestsController', () => {
         actorType: 'ADMIN',
         userId: 'checker-1',
         userNo: 'ADM-003',
-        role: 'TECH_ADMIN',
-        roleCodes: ['TECH_ADMIN'],
+        role: 'TECH_OFFICER',
+        roleCodes: ['TECH_OFFICER'],
       },
     );
   });

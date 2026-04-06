@@ -114,7 +114,7 @@ describe('AuthService', () => {
       status: 'ACTIVE',
       lastLoginAt: new Date('2026-03-15T08:00:00.000Z'),
     });
-    accessControlService.getUserRoleCodes.mockResolvedValue(['TECH_ADMIN']);
+    accessControlService.getUserRoleCodes.mockResolvedValue(['TECH_OFFICER']);
     accessControlService.getUserPermissionCodes.mockResolvedValue([
       'api.get.admin_control_gates_change_tickets',
       'api.post.admin_control_gates_change_tickets',
@@ -127,7 +127,7 @@ describe('AuthService', () => {
       expect.objectContaining({
         id: 'user-1',
         userNo: 'ADMIN-TECH',
-        roles: ['TECH_ADMIN'],
+        roles: ['TECH_OFFICER'],
         permissions: [
           'api.get.admin_control_gates_change_tickets',
           'api.post.admin_control_gates_change_tickets',

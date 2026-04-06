@@ -21,16 +21,16 @@ const actor = {
   actorType: 'ADMIN' as const,
   userId: 'admin-1',
   userNo: 'ADM-001',
-  role: 'TECH_ADMIN',
-  roleCodes: ['TECH_ADMIN'],
+  role: 'TECH_OFFICER',
+  roleCodes: ['TECH_OFFICER'],
 };
 
 const reviewer = {
   actorType: 'ADMIN' as const,
   userId: 'admin-2',
   userNo: 'ADM-002',
-  role: 'TECH_ADMIN',
-  roleCodes: ['TECH_ADMIN'],
+  role: 'TECH_OFFICER',
+  roleCodes: ['TECH_OFFICER'],
 };
 
 function buildApprovalCase(overrides: Record<string, unknown> = {}) {
@@ -372,7 +372,7 @@ describe('DeleteRequestsService Task 3 contract', () => {
       userNo: 'ADM-777',
       email: 'ops@example.com',
       status: 'ACTIVE',
-      role: 'OPS_TREASURY',
+      role: 'OPS_OFFICER',
       createdAt: new Date('2026-04-01T00:00:00.000Z'),
       updatedAt: new Date('2026-04-01T00:00:00.000Z'),
       deletedAt: null,
@@ -382,7 +382,7 @@ describe('DeleteRequestsService Task 3 contract', () => {
       userRoles: [
         {
           role: {
-            code: 'OPS_TREASURY',
+            code: 'OPS_OFFICER',
             name: 'Ops Treasury',
           },
         },
@@ -418,7 +418,7 @@ describe('DeleteRequestsService Task 3 contract', () => {
       email: targetRow.email,
       status: targetRow.status,
       role: targetRow.role,
-      roles: ['OPS_TREASURY'],
+      roles: ['OPS_OFFICER'],
       createdAt: targetRow.createdAt,
       updatedAt: targetRow.updatedAt,
     };
@@ -581,7 +581,7 @@ describe('DeleteRequestsService Task 3 contract', () => {
           userNo: 'ADM-777',
           email: 'ops@example.com',
           status: 'ACTIVE',
-          role: 'OPS_TREASURY',
+          role: 'OPS_OFFICER',
           createdAt: new Date('2026-04-01T00:00:00.000Z'),
           updatedAt: new Date('2026-04-01T00:00:00.000Z'),
           deletedAt: null,
@@ -1190,7 +1190,7 @@ describe('DeleteRequestsService Task 3 contract', () => {
       userNo: 'ADM-777',
       email: 'ops@example.com',
       status: 'ACTIVE',
-      role: 'OPS_TREASURY',
+      role: 'OPS_OFFICER',
       createdAt: new Date('2026-04-01T00:00:00.000Z'),
       updatedAt: new Date('2026-04-01T00:00:00.000Z'),
       deletedAt: null,
@@ -1267,7 +1267,7 @@ describe('DeleteRequestsService Task 3 contract', () => {
       userNo: 'ADM-777',
       email: 'ops@example.com',
       status: 'ACTIVE',
-      role: 'OPS_TREASURY',
+      role: 'OPS_OFFICER',
       createdAt: new Date('2026-04-01T00:00:00.000Z'),
       updatedAt: new Date('2026-04-01T00:00:00.000Z'),
       deletedAt: null,

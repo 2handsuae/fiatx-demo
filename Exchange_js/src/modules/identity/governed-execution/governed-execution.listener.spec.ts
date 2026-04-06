@@ -11,8 +11,8 @@ const makeEvent = (bindingOverrides: Record<string, unknown> = {}): ChangeTicket
     actorType: 'ADMIN',
     userId: 'admin-1',
     userNo: 'ADM-001',
-    role: 'TECH_ADMIN',
-    roleCodes: ['TECH_ADMIN'],
+    role: 'TECH_OFFICER',
+    roleCodes: ['TECH_OFFICER'],
   },
   binding: bindingOverrides,
 });
@@ -39,7 +39,7 @@ describe('GovernedExecutionListener', () => {
     const event = makeEvent({
       intent: 'ADMIN_MEMBER_PROVISIONING',
       email: 'new-admin@fiatx.com',
-      roleCodes: ['CISO', 'TECH_ADMIN'],
+      roleCodes: ['CISO', 'TECH_OFFICER'],
     });
 
     await listener.handleChangeTicketConsumed(event);

@@ -66,7 +66,7 @@ describe('WorkflowTransitionService', () => {
       journeyId: 'ONB-1',
       dispositionCode: 'CLEAR',
       actorId: 'admin-1',
-      actorRole: 'COMPLIANCE_LEAD',
+      actorRole: 'COMPLIANCE_OFFICER',
     } as any);
 
     expect(onboardingWorkflowTransitionServiceMock.execute).toHaveBeenCalledWith(
@@ -97,7 +97,7 @@ describe('WorkflowTransitionService', () => {
       sourceId: 'prr-1',
       dispositionCode: 'CLEAR',
       actorId: 'admin-1',
-      actorRole: 'COMPLIANCE_LEAD',
+      actorRole: 'COMPLIANCE_OFFICER',
     } as any);
 
     expect(periodicReviewWorkflowTransitionServiceMock.execute).toHaveBeenCalledWith(
@@ -121,7 +121,7 @@ describe('WorkflowTransitionService', () => {
         journeyId: 'ONB-1',
         dispositionCode: 'CLEAR',
         actorId: 'admin-1',
-        actorRole: 'COMPLIANCE_LEAD',
+        actorRole: 'COMPLIANCE_OFFICER',
       } as any),
     ).rejects.toBeInstanceOf(BadRequestException);
   });
@@ -243,7 +243,7 @@ describe('WorkflowTransitionService', () => {
       sourceType: 'SWAP',
       dispositionCode: 'RISK_CONFIRMED',
       actorId: 'admin-1',
-      actorRole: 'COMPLIANCE_LEAD',
+      actorRole: 'COMPLIANCE_OFFICER',
       latestDecisionRecordId: 'decision-2',
     } as any);
 
@@ -281,7 +281,7 @@ describe('WorkflowTransitionService', () => {
         sourceType: 'SWAP',
         dispositionCode: 'FREEZE_TRANSACTION',
         actorId: 'admin-1',
-        actorRole: 'COMPLIANCE_LEAD',
+        actorRole: 'COMPLIANCE_OFFICER',
       } as any),
     ).rejects.toThrow('Swap transaction workflow does not support FREEZE transitions');
   });
@@ -358,7 +358,7 @@ describe('WorkflowTransitionService', () => {
       sourceType: 'WITHDRAW',
       dispositionCode: 'FREEZE_TRANSACTION',
       actorId: 'admin-1',
-      actorRole: 'COMPLIANCE_LEAD',
+      actorRole: 'COMPLIANCE_OFFICER',
       latestDecisionRecordId: 'decision-wd-2',
     } as any);
 

@@ -354,7 +354,7 @@ describe('RiskDecisionRecordsService', () => {
           actorType: 'ADMIN',
           actorId: 'admin-1',
           actorNo: 'ADM-1',
-          actorRole: 'COMPLIANCE_LEAD',
+          actorRole: 'COMPLIANCE_OFFICER',
           sourcePlatform: 'ADMIN_API',
         },
       ),
@@ -401,7 +401,7 @@ describe('RiskDecisionRecordsService', () => {
         actorType: 'ADMIN',
         actorId: 'admin-1',
         actorNo: 'ADM-1',
-        actorRole: 'COMPLIANCE_LEAD',
+        actorRole: 'COMPLIANCE_OFFICER',
         sourcePlatform: 'ADMIN_API',
       },
     );
@@ -436,7 +436,7 @@ describe('RiskDecisionRecordsService', () => {
           actorType: 'ADMIN',
           actorId: 'admin-1',
           actorNo: 'ADM-1',
-          actorRole: 'COMPLIANCE_LEAD',
+          actorRole: 'COMPLIANCE_OFFICER',
           sourcePlatform: 'ADMIN_API',
         },
       ),
@@ -481,7 +481,7 @@ describe('RiskDecisionRecordsService', () => {
         actorType: 'ADMIN',
         actorId: 'admin-1',
         actorNo: 'ADM-1',
-        actorRole: 'COMPLIANCE_LEAD',
+        actorRole: 'COMPLIANCE_OFFICER',
         sourcePlatform: 'ADMIN_API',
       },
     );
@@ -491,7 +491,7 @@ describe('RiskDecisionRecordsService', () => {
       riskLevel: 'LOW',
       reasonCode: 'EDD_CLEAR',
       actorId: 'admin-1',
-      actorRole: 'COMPLIANCE_LEAD',
+      actorRole: 'COMPLIANCE_OFFICER',
     });
   });
 
@@ -512,7 +512,7 @@ describe('RiskDecisionRecordsService', () => {
           actorType: 'ADMIN',
           actorId: 'admin-1',
           actorNo: 'ADM-1',
-          actorRole: 'COMPLIANCE_LEAD',
+          actorRole: 'COMPLIANCE_OFFICER',
           sourcePlatform: 'ADMIN_API',
         },
       ),
@@ -557,7 +557,7 @@ describe('RiskDecisionRecordsService', () => {
         actorType: 'ADMIN',
         actorId: 'admin-1',
         actorNo: 'ADM-1',
-        actorRole: 'COMPLIANCE_LEAD',
+        actorRole: 'COMPLIANCE_OFFICER',
         sourcePlatform: 'ADMIN_API',
       },
     );
@@ -605,7 +605,7 @@ describe('RiskDecisionRecordsService', () => {
         actorType: 'ADMIN',
         actorId: 'admin-1',
         actorNo: 'ADM-1',
-        actorRole: 'COMPLIANCE_LEAD',
+        actorRole: 'COMPLIANCE_OFFICER',
         sourcePlatform: 'ADMIN_API',
       },
     );
@@ -653,7 +653,7 @@ describe('RiskDecisionRecordsService', () => {
         actorType: 'ADMIN',
         actorId: 'admin-1',
         actorNo: 'ADM-1',
-        actorRole: 'COMPLIANCE_LEAD',
+        actorRole: 'COMPLIANCE_OFFICER',
         sourcePlatform: 'ADMIN_API',
       },
     );
@@ -705,7 +705,7 @@ describe('RiskDecisionRecordsService', () => {
         actorType: 'ADMIN',
         actorId: 'admin-1',
         actorNo: 'ADM-1',
-        actorRole: 'COMPLIANCE_LEAD',
+        actorRole: 'COMPLIANCE_OFFICER',
         sourcePlatform: 'ADMIN_API',
       },
     );
@@ -775,7 +775,7 @@ describe('RiskDecisionRecordsService', () => {
         actorType: 'ADMIN',
         actorId: 'admin-1',
         actorNo: 'ADM-1',
-        actorRole: 'COMPLIANCE_LEAD',
+        actorRole: 'COMPLIANCE_OFFICER',
         sourcePlatform: 'ADMIN_API',
       },
     );

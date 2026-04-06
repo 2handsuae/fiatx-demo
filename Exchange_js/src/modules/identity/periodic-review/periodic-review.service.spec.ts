@@ -150,7 +150,7 @@ describe('PeriodicReviewService', () => {
       status: 'PENDING_CDD_INPUT',
     });
 
-    const result = await service.triggerPeriodicReview('c1', 'admin-1', 'COMPLIANCE_LEAD', 'due');
+    const result = await service.triggerPeriodicReview('c1', 'admin-1', 'COMPLIANCE_OFFICER', 'due');
 
     expect(complianceIncidentsServiceMock.createFromAlertInTransaction).toHaveBeenCalledWith(
       prismaMock,
@@ -241,7 +241,7 @@ describe('PeriodicReviewService', () => {
     );
 
     await expect(
-      service.triggerPeriodicReview('c1', 'admin-1', 'COMPLIANCE_LEAD', 'due'),
+      service.triggerPeriodicReview('c1', 'admin-1', 'COMPLIANCE_OFFICER', 'due'),
     ).rejects.toThrow('case create failed');
 
     expect(complianceIncidentsServiceMock.applyActionInTransaction).not.toHaveBeenCalled();

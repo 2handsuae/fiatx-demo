@@ -15,8 +15,8 @@ const actor = {
   actorType: 'ADMIN' as const,
   userId: 'admin-1',
   userNo: 'ADM-001',
-  role: 'TECH_ADMIN',
-  roleCodes: ['TECH_ADMIN'],
+  role: 'TECH_OFFICER',
+  roleCodes: ['TECH_OFFICER'],
 };
 
 const makeTicket = (overrides: Record<string, any> = {}) => ({
@@ -191,7 +191,7 @@ describe('ChangeTicketsService Task 2', () => {
       traceId: result.traceId,
       intent: 'ADMIN_MEMBER_PROVISIONING',
       email: 'new-admin@fiatx.com',
-      roleCodes: ['CISO', 'TECH_ADMIN'],
+      roleCodes: ['CISO', 'TECH_OFFICER'],
       requestedByUserId: actor.userId,
       requestedByUserNo: actor.userNo,
       changeReason: 'Need emergency admin coverage',
@@ -542,7 +542,7 @@ describe('ChangeTicketsService Task 2', () => {
     const bindingSnapshot = {
       intent: 'ADMIN_MEMBER_PROVISIONING',
       email: 'new-admin@fiatx.com',
-      roleCodes: ['CISO', 'TECH_ADMIN'],
+      roleCodes: ['CISO', 'TECH_OFFICER'],
       requestedByUserId: actor.userId,
       requestedByUserNo: actor.userNo,
       changeReason: 'Need emergency admin coverage',
@@ -576,7 +576,7 @@ describe('ChangeTicketsService Task 2', () => {
         binding: expect.objectContaining({
           intent: 'ADMIN_MEMBER_PROVISIONING',
           email: 'new-admin@fiatx.com',
-          roleCodes: ['CISO', 'TECH_ADMIN'],
+          roleCodes: ['CISO', 'TECH_OFFICER'],
         }),
         actor: expect.objectContaining({ userId: actor.userId }),
       }),

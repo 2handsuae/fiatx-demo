@@ -697,15 +697,15 @@ describe('ComplianceIncidentsService', () => {
     expect(result.status).toBe(ComplianceIncidentStatus.ASSIGNED);
   });
 
-  it('should reject assigning incident to user without SUPER_ADMIN, COMPLIANCE_LEAD, or MLRO role', async () => {
+  it('should reject assigning incident to user without SUPER_ADMIN, COMPLIANCE_OFFICER, or MLRO role', async () => {
     prismaMock.complianceIncident.findUnique.mockResolvedValue(
       buildIncident({ status: ComplianceIncidentStatus.OPEN }),
     );
     prismaMock.user.findUnique.mockResolvedValue({
       userNo: 'US0008',
-      role: 'RI',
+      role: 'SENIOR_MANAGEMENT_OFFICER',
       status: 'ACTIVE',
-      userRoles: [{ role: { code: 'RI' } }],
+      userRoles: [{ role: { code: 'SENIOR_MANAGEMENT_OFFICER' } }],
     });
 
     await expect(
@@ -720,7 +720,7 @@ describe('ComplianceIncidentsService', () => {
           actorId: 'admin-1',
         },
       ),
-    ).rejects.toThrow('SUPER_ADMIN, COMPLIANCE_LEAD, or MLRO');
+    ).rejects.toThrow('SUPER_ADMIN, COMPLIANCE_OFFICER, or MLRO');
   });
 
   it('should reject reassign in ASSIGNED when actor is not current assignee', async () => {
@@ -960,7 +960,7 @@ describe('ComplianceIncidentsService', () => {
           actorType: 'ADMIN',
           actorId: 'admin-1',
           actorNo: 'US0001',
-          actorRole: 'COMPLIANCE_LEAD',
+          actorRole: 'COMPLIANCE_OFFICER',
           sourcePlatform: 'ADMIN_API',
         },
       ),

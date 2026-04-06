@@ -712,7 +712,7 @@ describe('ComplianceAlertsService', () => {
       actorType: 'ADMIN',
       actorId: 'admin-9',
       actorNo: 'US0009',
-      actorRole: 'COMPLIANCE_LEAD',
+      actorRole: 'COMPLIANCE_OFFICER',
     });
 
     expect(result.availableHandlingActions).toEqual(['ASSIGN']);
@@ -736,7 +736,7 @@ describe('ComplianceAlertsService', () => {
       actorType: 'ADMIN',
       actorId: 'admin-2',
       actorNo: 'US0002',
-      actorRole: 'COMPLIANCE_LEAD',
+      actorRole: 'COMPLIANCE_OFFICER',
     });
 
     expect(result.availableHandlingActions).toEqual([]);
@@ -760,7 +760,7 @@ describe('ComplianceAlertsService', () => {
       actorType: 'ADMIN',
       actorId: 'admin-1',
       actorNo: 'US0001',
-      actorRole: 'COMPLIANCE_LEAD',
+      actorRole: 'COMPLIANCE_OFFICER',
     });
 
     expect(result.availableHandlingActions).toEqual([
@@ -798,7 +798,7 @@ describe('ComplianceAlertsService', () => {
       actorType: 'ADMIN',
       actorId: 'admin-1',
       actorNo: 'US0001',
-      actorRole: 'COMPLIANCE_LEAD',
+      actorRole: 'COMPLIANCE_OFFICER',
     });
 
     expect(result.availableHandlingActions).toEqual([
@@ -1187,7 +1187,7 @@ describe('ComplianceAlertsService', () => {
       actorType: 'ADMIN',
       actorId: 'admin-9',
       actorNo: 'US0009',
-      actorRole: 'COMPLIANCE_LEAD',
+      actorRole: 'COMPLIANCE_OFFICER',
     });
 
     expect(result.primaryObject).toEqual({
@@ -1215,7 +1215,7 @@ describe('ComplianceAlertsService', () => {
       actorType: 'ADMIN',
       actorId: 'admin-2',
       actorNo: 'US0002',
-      actorRole: 'COMPLIANCE_LEAD',
+      actorRole: 'COMPLIANCE_OFFICER',
     });
 
     expect(result.availableHandlingActions).toEqual([]);
@@ -1237,7 +1237,7 @@ describe('ComplianceAlertsService', () => {
       actorType: 'ADMIN',
       actorId: 'admin-1',
       actorNo: 'US0001',
-      actorRole: 'COMPLIANCE_LEAD',
+      actorRole: 'COMPLIANCE_OFFICER',
     });
 
     expect(result.availableHandlingActions).toEqual([
@@ -1271,7 +1271,7 @@ describe('ComplianceAlertsService', () => {
       actorType: 'ADMIN',
       actorId: 'admin-1',
       actorNo: 'US0001',
-      actorRole: 'COMPLIANCE_LEAD',
+      actorRole: 'COMPLIANCE_OFFICER',
     });
 
     expect(result.primaryObject).toEqual({
@@ -1308,7 +1308,7 @@ describe('ComplianceAlertsService', () => {
       actorType: 'ADMIN',
       actorId: 'admin-1',
       actorNo: 'US0001',
-      actorRole: 'COMPLIANCE_LEAD',
+      actorRole: 'COMPLIANCE_OFFICER',
     });
 
     expect(result.primaryObject).toEqual({
@@ -1339,14 +1339,14 @@ describe('ComplianceAlertsService', () => {
         actorType: 'ADMIN',
         actorId: 'admin-1',
         actorNo: 'US0001',
-        actorRole: 'COMPLIANCE_LEAD',
+        actorRole: 'COMPLIANCE_OFFICER',
       },
     );
 
     expect(onboardingServiceMock.applyOnboardingDecisionFromAlert).toHaveBeenCalledWith(
       'alert-1',
       'admin-1',
-      'COMPLIANCE_LEAD',
+      'COMPLIANCE_OFFICER',
       expect.objectContaining({
         decision: 'CLEAR',
         alertOutcome: 'FALSE_POSITIVE',
@@ -1447,7 +1447,7 @@ describe('ComplianceAlertsService', () => {
         actorType: 'ADMIN',
         actorId: 'admin-1',
         actorNo: 'US0001',
-        actorRole: 'COMPLIANCE_LEAD',
+        actorRole: 'COMPLIANCE_OFFICER',
       },
     );
 
@@ -1485,7 +1485,7 @@ describe('ComplianceAlertsService', () => {
           actorType: 'ADMIN',
           actorId: 'admin-1',
           actorNo: 'US0001',
-          actorRole: 'COMPLIANCE_LEAD',
+          actorRole: 'COMPLIANCE_OFFICER',
         },
       ),
     ).rejects.toThrow('requires a reason');
@@ -1589,7 +1589,7 @@ describe('ComplianceAlertsService', () => {
         actorType: 'ADMIN',
         actorId: 'admin-1',
         actorNo: 'US0001',
-        actorRole: 'COMPLIANCE_LEAD',
+        actorRole: 'COMPLIANCE_OFFICER',
       },
     );
 
@@ -1711,7 +1711,7 @@ describe('ComplianceAlertsService', () => {
         actorType: 'ADMIN',
         actorId: 'admin-1',
         actorNo: 'US0001',
-        actorRole: 'COMPLIANCE_LEAD',
+        actorRole: 'COMPLIANCE_OFFICER',
       },
     );
 
@@ -1859,7 +1859,7 @@ describe('ComplianceAlertsService', () => {
         actorType: 'ADMIN',
         actorId: 'admin-1',
         actorNo: 'US0001',
-        actorRole: 'COMPLIANCE_LEAD',
+        actorRole: 'COMPLIANCE_OFFICER',
       },
     );
 
@@ -1906,7 +1906,7 @@ describe('ComplianceAlertsService', () => {
           actorType: 'ADMIN',
           actorId: 'admin-1',
           actorNo: 'US0001',
-          actorRole: 'COMPLIANCE_LEAD',
+          actorRole: 'COMPLIANCE_OFFICER',
         },
       ),
     ).rejects.toThrow('historical read-only');
@@ -2013,7 +2013,7 @@ describe('ComplianceAlertsService', () => {
         actorType: 'ADMIN',
         actorId: 'admin-1',
         actorNo: 'US0001',
-        actorRole: 'COMPLIANCE_LEAD',
+        actorRole: 'COMPLIANCE_OFFICER',
       },
     );
 
@@ -2066,7 +2066,7 @@ describe('ComplianceAlertsService', () => {
         actorType: 'ADMIN',
         actorId: 'admin-1',
         actorNo: 'US0001',
-        actorRole: 'COMPLIANCE_LEAD',
+        actorRole: 'COMPLIANCE_OFFICER',
       },
     );
 

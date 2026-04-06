@@ -67,8 +67,8 @@ describe('SlaTimersService', () => {
     actorType: 'ADMIN' as const,
     userId: 'tech-admin-1',
     userNo: 'ADM-001',
-    role: 'TECH_ADMIN',
-    roleCodes: ['TECH_ADMIN'],
+    role: 'TECH_OFFICER',
+    roleCodes: ['TECH_OFFICER'],
   };
 
   beforeEach(() => {

@@ -19,8 +19,8 @@ describe('ChangeTicketsController Task 2', () => {
       type: 'ADMIN',
       userId: 'tech-admin-1',
       userNo: 'ADM-001',
-      role: 'TECH_ADMIN',
-      roleCodes: ['TECH_ADMIN'],
+      role: 'TECH_OFFICER',
+      roleCodes: ['TECH_OFFICER'],
     },
   };
   const customerReq = { user: { type: 'CUSTOMER', userId: 'cust-1' } };
@@ -57,8 +57,8 @@ describe('ChangeTicketsController Task 2', () => {
         actorType: 'ADMIN',
         userId: 'tech-admin-1',
         userNo: 'ADM-001',
-        role: 'TECH_ADMIN',
-        roleCodes: ['TECH_ADMIN'],
+        role: 'TECH_OFFICER',
+        roleCodes: ['TECH_OFFICER'],
       },
     );
   });

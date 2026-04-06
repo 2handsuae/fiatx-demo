@@ -40,7 +40,7 @@ describe('PeriodicReviewAdminController', () => {
         user: {
           type: 'ADMIN',
           userId: 'admin-1',
-          role: 'COMPLIANCE_LEAD',
+          role: 'COMPLIANCE_OFFICER',
         },
       },
       'case-1',
@@ -50,7 +50,7 @@ describe('PeriodicReviewAdminController', () => {
     expect(periodicReviewServiceMock.applyDecisionFromIncident).toHaveBeenCalledWith(
       'case-1',
       'admin-1',
-      'COMPLIANCE_LEAD',
+      'COMPLIANCE_OFFICER',
       { decision: 'CLEAR' },
     );
     expect(result.case).toEqual({ id: 'case-1', caseNo: 'CAS2603220001' });

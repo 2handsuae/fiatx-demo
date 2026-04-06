@@ -48,7 +48,7 @@ describe('ComplianceAlertsAdminController', () => {
           type: 'ADMIN',
           userId: 'admin-1',
           userNo: 'US0001',
-          role: 'COMPLIANCE_LEAD',
+          role: 'COMPLIANCE_OFFICER',
         },
       },
       'alert-1',
@@ -59,7 +59,7 @@ describe('ComplianceAlertsAdminController', () => {
       expect.objectContaining({
         actorId: 'admin-1',
         actorNo: 'US0001',
-        actorRole: 'COMPLIANCE_LEAD',
+        actorRole: 'COMPLIANCE_OFFICER',
       }),
     );
     expect(result).toEqual({ id: 'alert-1' });
@@ -124,7 +124,7 @@ describe('ComplianceAlertsAdminController', () => {
           type: 'ADMIN',
           userId: 'admin-1',
           userNo: 'US0001',
-          role: 'COMPLIANCE_LEAD',
+          role: 'COMPLIANCE_OFFICER',
         },
       },
       'alert-1',
@@ -139,7 +139,7 @@ describe('ComplianceAlertsAdminController', () => {
       expect.objectContaining({
         actorId: 'admin-1',
         actorNo: 'US0001',
-        actorRole: 'COMPLIANCE_LEAD',
+        actorRole: 'COMPLIANCE_OFFICER',
       }),
     );
     expect(result).toEqual({ id: 'alert-1', status: 'CLOSED' });

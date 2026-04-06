@@ -442,7 +442,7 @@ describe('AuditLogsService', () => {
       {
         actorType: 'ADMIN',
         actorId: 'admin-9',
-        actorRole: 'COMPLIANCE_LEAD',
+        actorRole: 'COMPLIANCE_OFFICER',
       },
     );
 
@@ -459,7 +459,7 @@ describe('AuditLogsService', () => {
       {
         actorType: 'ADMIN',
         actorId: 'admin-9',
-        actorRole: 'COMPLIANCE_LEAD',
+        actorRole: 'COMPLIANCE_OFFICER',
       },
     );
 

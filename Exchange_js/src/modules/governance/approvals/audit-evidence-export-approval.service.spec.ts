@@ -11,8 +11,8 @@ describe('AuditEvidenceExportApprovalService', () => {
     actorType: 'ADMIN' as const,
     userId: 'admin-1',
     userNo: 'USR-1',
-    role: 'COMPLIANCE_LEAD',
-    roleCodes: ['COMPLIANCE_LEAD'],
+    role: 'COMPLIANCE_OFFICER',
+    roleCodes: ['COMPLIANCE_OFFICER'],
   };
 
   beforeEach(() => {
@@ -218,7 +218,7 @@ describe('AuditEvidenceExportApprovalService', () => {
       selectedEventIdsSnapshot: JSON.stringify(['log-1']),
       filterSnapshot: JSON.stringify({ workflowType: 'DEPOSIT', includeRecords: true }),
       exportedById: 'admin-1',
-      exportedByRole: 'COMPLIANCE_LEAD',
+      exportedByRole: 'COMPLIANCE_OFFICER',
     });
     auditLogsService.buildEvidencePackageArtifacts.mockResolvedValue({
       generatedAt: '2026-03-14T10:00:00.000Z',
@@ -283,7 +283,7 @@ describe('AuditEvidenceExportApprovalService', () => {
       selectedEventIdsSnapshot: JSON.stringify(['log-swap-1']),
       filterSnapshot: JSON.stringify({ workflowType: 'SWAP', includeRecords: true }),
       exportedById: 'admin-1',
-      exportedByRole: 'COMPLIANCE_LEAD',
+      exportedByRole: 'COMPLIANCE_OFFICER',
     });
     auditLogsService.buildEvidencePackageArtifacts.mockResolvedValue({
       generatedAt: '2026-03-26T10:00:00.000Z',
@@ -354,7 +354,7 @@ describe('AuditEvidenceExportApprovalService', () => {
       selectedEventIdsSnapshot: JSON.stringify(['log-1']),
       filterSnapshot: JSON.stringify({ workflowType: 'DEPOSIT' }),
       exportedById: 'admin-1',
-      exportedByRole: 'COMPLIANCE_LEAD',
+      exportedByRole: 'COMPLIANCE_OFFICER',
     });
     auditLogsService.buildEvidencePackageArtifacts.mockRejectedValue(
       new Error('generation failed'),

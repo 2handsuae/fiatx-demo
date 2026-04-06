@@ -1414,10 +1414,10 @@ export class ComplianceIncidentsService {
     const eligible =
       roleCodes.includes('SUPER_ADMIN') ||
       roleCodes.includes('MLRO') ||
-      roleCodes.includes('COMPLIANCE_LEAD');
+      roleCodes.includes('COMPLIANCE_OFFICER');
     if (!eligible) {
       throw new BadRequestException(
-        `Case assignee must have SUPER_ADMIN, COMPLIANCE_LEAD, or MLRO role: ${userId}`,
+        `Case assignee must have SUPER_ADMIN, COMPLIANCE_OFFICER, or MLRO role: ${userId}`,
       );
     }
 

@@ -70,7 +70,7 @@ describe('OnboardingFinalApprovalService', () => {
       status: ApprovalStatuses.PENDING,
     });
 
-    const result = await service.submitFinalApproval('c1', 'admin-1', 'COMPLIANCE_LEAD', {
+    const result = await service.submitFinalApproval('c1', 'admin-1', 'COMPLIANCE_OFFICER', {
       reason: 'submit',
     });
 
@@ -93,7 +93,7 @@ describe('OnboardingFinalApprovalService', () => {
       }),
       expect.objectContaining({
         userId: 'admin-1',
-        role: 'COMPLIANCE_LEAD',
+        role: 'COMPLIANCE_OFFICER',
       }),
       prisma,
       { emitSideEffects: false },
@@ -110,7 +110,7 @@ describe('OnboardingFinalApprovalService', () => {
       'approval-1',
       expect.objectContaining({
         userId: 'admin-1',
-        role: 'COMPLIANCE_LEAD',
+        role: 'COMPLIANCE_OFFICER',
       }),
       'submit',
     );
@@ -130,7 +130,7 @@ describe('OnboardingFinalApprovalService', () => {
       onboardingStatus: 'EDD_UNDER_REVIEW',
     });
 
-    await expect(service.submitFinalApproval('c1', 'admin-1', 'COMPLIANCE_LEAD')).rejects.toBeInstanceOf(
+    await expect(service.submitFinalApproval('c1', 'admin-1', 'COMPLIANCE_OFFICER')).rejects.toBeInstanceOf(
       BadRequestException,
     );
   });
@@ -195,7 +195,7 @@ describe('OnboardingFinalApprovalService', () => {
       traceId: 'trace-1',
       status: ApprovalStatuses.CANCELLED,
       decisionByUserId: 'admin-1',
-      decisionByRole: 'COMPLIANCE_LEAD',
+      decisionByRole: 'COMPLIANCE_OFFICER',
       decidedAt: null,
     });
 
@@ -278,7 +278,7 @@ describe('OnboardingFinalApprovalService', () => {
     });
 
     await expect(
-      service.submitFinalApproval('c1', 'admin-1', 'COMPLIANCE_LEAD'),
+      service.submitFinalApproval('c1', 'admin-1', 'COMPLIANCE_OFFICER'),
     ).rejects.toBeInstanceOf(ConflictException);
   });
 });

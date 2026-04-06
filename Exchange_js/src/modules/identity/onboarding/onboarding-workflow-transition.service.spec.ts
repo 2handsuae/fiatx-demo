@@ -103,7 +103,7 @@ describe('OnboardingWorkflowTransitionService', () => {
       dispositionCode: 'REQUIRE_EDD',
       reason: 'need more checks',
       actorId: 'admin-1',
-      actorRole: 'COMPLIANCE_LEAD',
+      actorRole: 'COMPLIANCE_OFFICER',
       latestDecisionRecordId: 'dr-1',
       linkedCaseIds: ['cdd-1'],
     });
@@ -243,7 +243,7 @@ describe('OnboardingWorkflowTransitionService', () => {
         journeyId: 'ONB-1',
         dispositionCode: 'CLEAR',
         actorId: 'admin-1',
-        actorRole: 'COMPLIANCE_LEAD',
+        actorRole: 'COMPLIANCE_OFFICER',
       }),
     ).rejects.toBeInstanceOf(BadRequestException);
   });

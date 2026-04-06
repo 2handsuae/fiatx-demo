@@ -540,7 +540,7 @@ async function runCaseEvidenceExportScenario(
 async function createAdminUser(token: string, email: string) {
   return authed<AdminUserResponse>(token, 'post', '/users', {
     email,
-    roleCodes: ['FINANCE'],
+    roleCodes: ['OPS_OFFICER'],
   });
 }
 
@@ -642,7 +642,7 @@ async function verifyDeletedActiveUser(
         superAdminToken,
         'put',
         `/admin/iam/users/${activeUser.id}/roles`,
-        { roleCodes: ['FINANCE'] },
+        { roleCodes: ['OPS_OFFICER'] },
       ),
     [404],
   );

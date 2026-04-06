@@ -25,7 +25,7 @@ describe('UsersService', () => {
     lastLoginAt: null,
     userRoles: [
       { role: { code: 'CISO' } },
-      { role: { code: 'TECH_ADMIN' } },
+      { role: { code: 'TECH_OFFICER' } },
     ],
   });
 
@@ -228,7 +228,7 @@ describe('UsersService', () => {
       createdAt: new Date('2026-02-19T08:00:00.000Z'),
       updatedAt: new Date('2026-02-19T08:00:00.000Z'),
       lastLoginAt: null,
-      roles: ['CISO', 'TECH_ADMIN'],
+      roles: ['CISO', 'TECH_OFFICER'],
       latestInvitation: {
         inviteStatus: 'PENDING',
         inviteExpiresAt: '2026-04-02T00:00:00.000Z',
@@ -341,14 +341,14 @@ describe('UsersService', () => {
     const binding = {
       intent: 'ADMIN_MEMBER_PROVISIONING',
       email: 'new-admin@fiatx.com',
-      roleCodes: ['CISO', 'TECH_ADMIN'],
+      roleCodes: ['CISO', 'TECH_OFFICER'],
     };
     const executionResult = {
       id: 'user-1',
       userNo: 'ADM2602190001',
       email: 'new-admin@fiatx.com',
       status: 'INACTIVE',
-      roles: ['CISO', 'TECH_ADMIN'],
+      roles: ['CISO', 'TECH_OFFICER'],
       inviteStatus: 'PENDING',
       inviteExpiresAt: '2026-02-20T00:00:00.000Z',
       inviteLink: 'http://localhost:3001/admin/activate?token=abc',
@@ -367,7 +367,7 @@ describe('UsersService', () => {
 
     expect(createAdminUserSpy).toHaveBeenCalledWith({
       email: 'new-admin@fiatx.com',
-      roleCodes: ['CISO', 'TECH_ADMIN'],
+      roleCodes: ['CISO', 'TECH_OFFICER'],
       actor: {
         actorId: 'admin-1',
         actorNo: 'ADMIN-001',
@@ -394,7 +394,7 @@ describe('UsersService', () => {
     accessControlService.replaceUserRoles.mockResolvedValue({
       userId: 'user-1',
       userNo: 'ADM2602190001',
-      roles: ['CISO', 'TECH_ADMIN'],
+      roles: ['CISO', 'TECH_OFFICER'],
       warnings: [],
     });
     auditLogsService.recordByActor.mockResolvedValue({});
@@ -403,7 +403,7 @@ describe('UsersService', () => {
       {
         intent: 'ADMIN_MEMBER_PROVISIONING',
         email: 'new-admin@fiatx.com',
-        roleCodes: ['CISO', 'TECH_ADMIN'],
+        roleCodes: ['CISO', 'TECH_OFFICER'],
         ticketNo: 'CT2604010001',
         traceId: 'trace-provision-1',
       },
@@ -431,7 +431,7 @@ describe('UsersService', () => {
     });
     expect(accessControlService.replaceUserRoles).toHaveBeenCalledWith(
       'user-1',
-      ['CISO', 'TECH_ADMIN'],
+      ['CISO', 'TECH_OFFICER'],
       {
         actorId: 'admin-1',
         actorRole: 'SUPER_ADMIN',
@@ -463,7 +463,7 @@ describe('UsersService', () => {
       email: 'new-admin@fiatx.com',
       status: 'INACTIVE',
     });
-    accessControlService.getUserRoleCodes.mockResolvedValue(['TECH_ADMIN', 'CISO']);
+    accessControlService.getUserRoleCodes.mockResolvedValue(['TECH_OFFICER', 'CISO']);
     adminInvitationsService.resendInvitationForUser.mockResolvedValue({
       userId: 'user-1',
       userNo: 'ADM2602190001',
@@ -478,7 +478,7 @@ describe('UsersService', () => {
       {
         intent: 'ADMIN_MEMBER_PROVISIONING',
         email: 'new-admin@fiatx.com',
-        roleCodes: ['CISO', 'TECH_ADMIN'],
+        roleCodes: ['CISO', 'TECH_OFFICER'],
         ticketNo: 'CT2604010001',
         traceId: 'trace-provision-1',
       },
@@ -522,7 +522,7 @@ describe('UsersService', () => {
       userNo: 'ADM2602190001',
       email: 'new-admin@fiatx.com',
       status: 'INACTIVE',
-      roles: ['CISO', 'TECH_ADMIN'],
+      roles: ['CISO', 'TECH_OFFICER'],
       inviteLink: 'http://localhost:3001/admin/activate?token=recovered',
       inviteExpiresAt: '2026-02-20T01:00:00.000Z',
       inviteStatus: 'PENDING',
@@ -538,14 +538,14 @@ describe('UsersService', () => {
       email: 'new-admin@fiatx.com',
       status: 'INACTIVE',
     });
-    accessControlService.getUserRoleCodes.mockResolvedValue(['TECH_ADMIN', 'CISO']);
+    accessControlService.getUserRoleCodes.mockResolvedValue(['TECH_OFFICER', 'CISO']);
 
     await expect(
       service.executeAdminMemberProvisioning(
         {
           intent: 'ADMIN_MEMBER_PROVISIONING',
           email: 'new-admin@fiatx.com',
-          roleCodes: ['CISO', 'TECH_ADMIN'],
+          roleCodes: ['CISO', 'TECH_OFFICER'],
           ticketNo: 'CT2604010001',
           traceId: 'trace-provision-1',
         },
@@ -580,14 +580,14 @@ describe('UsersService', () => {
     accessControlService.replaceUserRoles.mockResolvedValue({
       userId: 'user-2',
       userNo: 'ADM2602190002',
-      roles: ['RI', 'CISO'],
+      roles: ['SENIOR_MANAGEMENT_OFFICER', 'CISO'],
       warnings: [],
     });
     auditLogsService.recordByActor.mockResolvedValue({});
 
     await service.createAdminUser({
       email: 'dual-role@fiatx.com',
-      roleCodes: ['RI', 'CISO'],
+      roleCodes: ['SENIOR_MANAGEMENT_OFFICER', 'CISO'],
       actor: {
         actorId: 'admin-1',
         actorRole: 'SUPER_ADMIN',

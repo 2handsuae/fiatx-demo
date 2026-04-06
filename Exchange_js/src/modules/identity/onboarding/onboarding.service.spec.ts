@@ -1584,7 +1584,7 @@ describe('OnboardingService', () => {
       service.applyOnboardingDecisionFromAlert(
         'alert-onb-1',
         'admin-1',
-        'COMPLIANCE_LEAD',
+        'COMPLIANCE_OFFICER',
         { decision: 'CLEAR' },
       ),
     ).rejects.toBeInstanceOf(BadRequestException);
@@ -1601,7 +1601,7 @@ describe('OnboardingService', () => {
       service.applyOnboardingDecisionFromAlert(
         'alert-onb-1',
         'admin-1',
-        'COMPLIANCE_LEAD',
+        'COMPLIANCE_OFFICER',
         { decision: 'CLEAR' },
       ),
     ).rejects.toBeInstanceOf(ForbiddenException);
@@ -1635,7 +1635,7 @@ describe('OnboardingService', () => {
       service.applyOnboardingDecisionFromAlert(
         'alert-onb-1',
         'admin-1',
-        'COMPLIANCE_LEAD',
+        'COMPLIANCE_OFFICER',
         { decision: 'REQUIRE_EDD' },
       ),
     ).rejects.toBeInstanceOf(BadRequestException);
@@ -1646,7 +1646,7 @@ describe('OnboardingService', () => {
     const result = await service.applyOnboardingDecisionFromAlert(
       'alert-onb-1',
       'admin-1',
-      'COMPLIANCE_LEAD',
+      'COMPLIANCE_OFFICER',
       { decision: 'CLEAR' },
     );
 
@@ -1699,7 +1699,7 @@ describe('OnboardingService', () => {
     const result = await service.applyOnboardingDecisionFromAlert(
       'alert-onb-1',
       'admin-1',
-        'COMPLIANCE_LEAD',
+        'COMPLIANCE_OFFICER',
         { decision: 'REJECT', reason: 'risk not acceptable' },
     );
 
@@ -1745,7 +1745,7 @@ describe('OnboardingService', () => {
     const result = await service.applyOnboardingDecisionFromAlert(
       'alert-onb-1',
       'admin-1',
-      'COMPLIANCE_LEAD',
+      'COMPLIANCE_OFFICER',
       { decision: 'REQUIRE_EDD' },
     );
 
@@ -2309,7 +2309,7 @@ describe('OnboardingService', () => {
       riskLevel: 'LOW',
       reasonCode: 'EDD_CLEAR',
       actorId: 'admin-1',
-      actorRole: 'COMPLIANCE_LEAD',
+      actorRole: 'COMPLIANCE_OFFICER',
     });
 
     expect(riskEngineMock.completeDecisionRecord).toHaveBeenCalledWith(
@@ -2340,7 +2340,7 @@ describe('OnboardingService', () => {
     expect(onboardingFinalApprovalServiceMock.emitSubmittedSideEffects).toHaveBeenCalledWith(
       'approval-1',
       'admin-1',
-      'COMPLIANCE_LEAD',
+      'COMPLIANCE_OFFICER',
       'EDD_CLEAR',
     );
     expect(result.customer.onboardingStatus).toBe('FINAL_APPROVAL');
