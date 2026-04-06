@@ -8,6 +8,7 @@ const formatValue = (value: unknown): string => {
   return text === '' ? '-' : text;
 };
 
+/* ── Detail Page Header ──────────────────────────────────────── */
 export const DetailPageHeader = ({
   title,
   subtitle,
@@ -25,35 +26,38 @@ export const DetailPageHeader = ({
   backLabel?: string;
   children?: ReactNode;
 }) => (
-  <div className="rounded-xl border border-admin-border bg-white p-6 shadow-sm">
-    <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+  <div className="shrink-0 border-b border-adm-border bg-adm-panel px-6 py-4">
+    <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
       <div className="space-y-2">
-        <div className="flex items-center gap-3">
-          <button
-            onClick={onBack}
-            className={adminButtonClass('detailUtility')}
-          >
-            <ArrowLeft size={16} />
+        <div className="flex items-center gap-2">
+          <button onClick={onBack} className={adminButtonClass('detailUtility')}>
+            <ArrowLeft size={14} />
             {backLabel}
           </button>
-          <button
-            onClick={onRefresh}
-            className={adminButtonClass('detailUtility')}
-          >
-            <RefreshCw size={16} className={refreshing ? 'animate-spin' : ''} />
+          <button onClick={onRefresh} className={adminButtonClass('detailUtility')}>
+            <RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} />
             Refresh
           </button>
         </div>
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">{title}</h1>
-          {subtitle ? <p className="mt-1 font-mono text-sm text-gray-500">{subtitle}</p> : null}
+          <div className="font-mono text-[10px] uppercase tracking-[0.1em] text-adm-t3">
+            {title}
+          </div>
+          {subtitle ? (
+            <div className="mt-1 font-mono text-lg font-semibold text-adm-amber">
+              {subtitle}
+            </div>
+          ) : null}
         </div>
       </div>
-      {children ? <div className="flex flex-wrap items-center gap-2">{children}</div> : null}
+      {children ? (
+        <div className="flex flex-wrap items-center gap-2">{children}</div>
+      ) : null}
     </div>
   </div>
 );
 
+/* ── Detail Card ──────────────────────────────────────────────── */
 export const DetailCard = ({
   title,
   icon,
@@ -67,7 +71,7 @@ export const DetailCard = ({
   children: ReactNode;
   columns?: 1 | 2 | 3;
 }) => {
-  const gridClassName =
+  const gridCls =
     columns === 1
       ? 'grid grid-cols-1 gap-4'
       : columns === 2
@@ -75,24 +79,33 @@ export const DetailCard = ({
         : 'grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3';
 
   return (
-    <div className="rounded-xl border border-admin-border bg-white p-6 shadow-sm">
-      <div className="mb-4 flex items-center gap-2">
-        {icon ? <div className="text-brand-primary">{icon}</div> : null}
-        <h2 className="text-lg font-bold text-gray-900">{title}</h2>
+    <div className="overflow-hidden rounded-lg border border-adm-border bg-adm-panel shadow-sm">
+      {/* Card header bar */}
+      <div className="flex items-center gap-2 border-b border-adm-border bg-adm-card px-4 py-2.5">
+        {icon ? <span className="text-adm-t3">{icon}</span> : null}
+        <span className="font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t2">
+          {title}
+        </span>
       </div>
-      {description ? <p className="mb-4 text-sm text-gray-500">{description}</p> : null}
-      <div className={gridClassName}>{children}</div>
+      {/* Card body */}
+      <div className="p-4">
+        {description ? (
+          <p className="mb-4 font-mono text-[11px] text-adm-t3">{description}</p>
+        ) : null}
+        <div className={gridCls}>{children}</div>
+      </div>
     </div>
   );
 };
 
+/* ── Info Field ───────────────────────────────────────────────── */
 export const InfoField = ({
   label,
   value,
   mono = false,
   accent = false,
   highlight = false,
-  emptyLabel = '-',
+  emptyLabel = '—',
   copyable = false,
   copied = false,
   isCopied = false,
@@ -120,24 +133,28 @@ export const InfoField = ({
   const displayValue = hasValue ? normalized : emptyLabel;
   const showCopied = copied || isCopied;
 
+  const valueCls = [
+    'mt-1 flex items-center gap-2 break-all',
+    mono || accent || highlight ? 'font-mono text-[11px]' : 'text-[13px]',
+    accent || highlight ? 'font-semibold text-adm-amber' : hasValue ? 'text-adm-t1' : 'text-adm-t3',
+  ].join(' ');
+
   return (
     <div className="min-w-0">
-      <div className="text-xs uppercase tracking-wide text-gray-500">{label}</div>
-      <div
-        className={`mt-1 flex items-center gap-2 break-all text-sm ${
-          accent || highlight ? 'font-semibold text-brand-primary' : 'text-gray-900'
-        } ${mono ? 'font-mono' : ''}`}
-      >
-        {icon ? <span className="text-gray-400">{icon}</span> : null}
+      {/* Label */}
+      <div className="font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">{label}</div>
+      {/* Value */}
+      <div className={valueCls}>
+        {icon ? <span className="text-adm-t3">{icon}</span> : null}
         {link && hasValue ? (
           <a
             href={link}
             target={link.startsWith('/') ? undefined : '_blank'}
             rel={link.startsWith('/') ? undefined : 'noopener noreferrer'}
-            className="inline-flex items-center gap-1 hover:text-blue-600"
+            className="inline-flex items-center gap-1 text-adm-amber hover:opacity-75"
           >
             {displayValue}
-            <ExternalLink size={12} />
+            <ExternalLink size={11} />
           </a>
         ) : (
           <span>{displayValue}</span>
@@ -145,10 +162,10 @@ export const InfoField = ({
         {copyable && hasValue && onCopy ? (
           <button
             onClick={() => onCopy(normalized)}
-            className="shrink-0 rounded p-1 text-gray-400 transition-colors hover:bg-gray-100 hover:text-brand-primary"
-            title="Copy to clipboard"
+            className="shrink-0 rounded p-0.5 text-adm-t3 transition-colors hover:bg-adm-hover hover:text-adm-amber"
+            title="Copy"
           >
-            {showCopied ? <Check size={14} className="text-green-600" /> : <Copy size={14} />}
+            {showCopied ? <Check size={12} className="text-adm-green" /> : <Copy size={12} />}
           </button>
         ) : null}
       </div>
@@ -156,6 +173,7 @@ export const InfoField = ({
   );
 };
 
+/* ── Json Block ───────────────────────────────────────────────── */
 export const JsonBlock = ({
   title,
   value,
@@ -166,9 +184,11 @@ export const JsonBlock = ({
   compact?: boolean;
 }) => (
   <div className="min-w-0">
-    <div className="mb-2 text-xs uppercase tracking-wide text-gray-500">{title}</div>
+    <div className="mb-1.5 font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">
+      {title}
+    </div>
     <pre
-      className={`overflow-auto rounded-lg bg-gray-900 p-3 text-xs text-gray-100 ${
+      className={`overflow-auto rounded bg-gray-900 p-3 font-mono text-[11px] text-gray-100 ${
         compact ? 'max-h-56' : 'max-h-96'
       }`}
     >
@@ -177,6 +197,7 @@ export const JsonBlock = ({
   </div>
 );
 
+/* ── Action Section ───────────────────────────────────────────── */
 export const ActionSection = ({
   title,
   description,
@@ -188,11 +209,19 @@ export const ActionSection = ({
   emptyText?: string;
   children?: ReactNode;
 }) => (
-  <div className="rounded-xl border border-admin-border bg-white p-6 shadow-sm">
-    <div className="mb-4">
-      <h2 className="text-lg font-bold text-gray-900">{title}</h2>
-      {description ? <p className="mt-1 text-sm text-gray-500">{description}</p> : null}
+  <div className="overflow-hidden rounded-lg border border-adm-border bg-adm-panel shadow-sm">
+    <div className="border-b border-adm-border bg-adm-card px-4 py-2.5">
+      <span className="font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t2">
+        {title}
+      </span>
     </div>
-    {children ? children : <div className="text-sm text-gray-500">{emptyText || '-'}</div>}
+    <div className="p-4">
+      {description ? (
+        <p className="mb-3 font-mono text-[11px] text-adm-t3">{description}</p>
+      ) : null}
+      {children ?? (
+        <div className="font-mono text-[11px] text-adm-t3">{emptyText ?? '—'}</div>
+      )}
+    </div>
   </div>
 );
