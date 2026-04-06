@@ -6,6 +6,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { UsersModule } from './modules/identity/users/users.module';
 import { AuthModule } from './modules/identity/auth/auth.module';
 import { AccessControlModule } from './modules/identity/access-control/access-control.module';
+import { GovernedExecutionModule } from './modules/identity/governed-execution/governed-execution.module';
 import { CustomersModule } from './modules/identity/customers/customers.module';
 import { NotificationsModule } from './core/notifications/notifications.module';
 import { LiquidityProvidersModule } from './modules/counterparty/liquidity-providers/liquidity-providers.module';
@@ -70,6 +71,7 @@ import { GovernanceModule } from './modules/governance/governance.module';
     UsersModule,
     AuthModule,
     AccessControlModule,
+    GovernedExecutionModule,
     CustomersModule,
     NotificationsModule,
     LiquidityProvidersModule,
