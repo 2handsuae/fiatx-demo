@@ -9,12 +9,9 @@ import { DEFAULT_CLEARING_TEMPLATES } from '../src/config/manifests/clearing-tem
 import { buildDeterministicWalletNo } from '../src/common/utils/no-generator.util';
 import {
   ACTIVE_RBAC_ROLE_CODES,
-  LEGACY_RBAC_ROLE_CODES,
-  LEGACY_RBAC_ROLE_CODE_MAPPING,
   RBAC_PERMISSION_DEFINITIONS,
   RBAC_ROLE_DEFINITIONS,
   buildRolePermissionCodeMap,
-  getPrimaryRoleCode,
 } from '../src/modules/identity/access-control/rbac.catalog';
 import {
   ApprovalSoDRuleCodes,
@@ -40,23 +37,17 @@ type RoleSeedAccount = {
 
 const ROLE_SEED_ACCOUNTS: RoleSeedAccount[] = [
   { roleCode: 'SUPER_ADMIN', email: 'admin@fiatx.com', userNo: 'ADMIN-001' },
-  { roleCode: 'RI', email: 'ri@fiatx.com', userNo: 'ADMIN-RI' },
-  { roleCode: 'SM', email: 'sm@fiatx.com', userNo: 'ADMIN-SM' },
-  { roleCode: 'TECH_ADMIN', email: 'tech_admin@fiatx.com', userNo: 'ADMIN-TECH' },
-  {
-    roleCode: 'OPS_TREASURY',
-    email: 'ops_treasury@fiatx.com',
-    userNo: 'ADMIN-OPS-TR',
-  },
-  { roleCode: 'FINANCE', email: 'finance@fiatx.com', userNo: 'ADMIN-FIN' },
-  {
-    roleCode: 'COMPLIANCE_LEAD',
-    email: 'compliance_lead@fiatx.com',
-    userNo: 'ADMIN-COM-LEAD',
-  },
+  { roleCode: 'SENIOR_MANAGEMENT_OFFICER', email: 'sm@fiatx.com', userNo: 'ADMIN-SMO' },
+  { roleCode: 'CISO', email: 'ciso@fiatx.com', userNo: 'ADMIN-CISO' },
   { roleCode: 'MLRO', email: 'mlro@fiatx.com', userNo: 'ADMIN-MLRO' },
   { roleCode: 'DPO', email: 'dpo@fiatx.com', userNo: 'ADMIN-DPO' },
-  { roleCode: 'CISO', email: 'ciso@fiatx.com', userNo: 'ADMIN-CISO' },
+  {
+    roleCode: 'COMPLIANCE_OFFICER',
+    email: 'compliance_lead@fiatx.com',
+    userNo: 'ADMIN-COMP',
+  },
+  { roleCode: 'TECH_OFFICER', email: 'tech_admin@fiatx.com', userNo: 'ADMIN-TECH' },
+  { roleCode: 'OPS_OFFICER', email: 'ops_officer@fiatx.com', userNo: 'ADMIN-OPS' },
 ];
 
 const CRYPTO_SYSTEM_WALLET_KINDS = [
@@ -181,91 +172,16 @@ async function seedAdmin(prisma: PrismaClient): Promise<void> {
   });
 }
 
-async function deactivateLegacyRoles(prisma: PrismaClient): Promise<void> {
-  if (!LEGACY_RBAC_ROLE_CODES.length) {
-    return;
-  }
-
-  await (prisma as any).role.updateMany({
-    where: {
-      code: { in: LEGACY_RBAC_ROLE_CODES },
-    },
-    data: {
-      status: 'INACTIVE',
-    },
+async function deleteObsoleteRoles(prisma: PrismaClient): Promise<void> {
+  await (prisma as any).role.deleteMany({
+    where: { code: { notIn: ACTIVE_RBAC_ROLE_CODES } },
   });
-}
-
-async function migrateLegacyUserRoles(
-  prisma: PrismaClient,
-  roleIdByCode: Map<string, string>,
-): Promise<void> {
-  const userRoles = await (prisma as any).userRole.findMany({
-    include: {
-      role: {
-        select: {
-          code: true,
-          status: true,
-        },
-      },
-    },
-    orderBy: [{ userId: 'asc' }, { role: { code: 'asc' } }],
-  });
-
-  const desiredCodesByUserId = new Map<string, string[]>();
-  for (const userRole of userRoles) {
-    const roleCode = String(userRole.role?.code || '').trim().toUpperCase();
-    if (!roleCode) {
-      continue;
-    }
-
-    const mappedRoleCode =
-      LEGACY_RBAC_ROLE_CODE_MAPPING[roleCode] ||
-      (ACTIVE_RBAC_ROLE_CODES.includes(roleCode) ? roleCode : null);
-    if (!mappedRoleCode) {
-      continue;
-    }
-
-    const current = desiredCodesByUserId.get(userRole.userId) || [];
-    if (!current.includes(mappedRoleCode)) {
-      current.push(mappedRoleCode);
-      desiredCodesByUserId.set(userRole.userId, current);
-    }
-  }
-
-  for (const [userId, desiredRoleCodes] of desiredCodesByUserId.entries()) {
-    const filteredRoleCodes = desiredRoleCodes.filter((code) => roleIdByCode.has(code));
-    if (!filteredRoleCodes.length) {
-      continue;
-    }
-
-    const roleIds = filteredRoleCodes
-      .map((code) => roleIdByCode.get(code))
-      .filter(Boolean) as string[];
-    const primaryRoleCode = getPrimaryRoleCode(filteredRoleCodes) || filteredRoleCodes[0];
-
-    await (prisma as any).$transaction(async (tx: any) => {
-      await tx.userRole.deleteMany({
-        where: { userId },
-      });
-
-      await tx.userRole.createMany({
-        data: roleIds.map((roleId) => ({
-          userId,
-          roleId,
-        })),
-      });
-
-      await tx.user.update({
-        where: { id: userId },
-        data: { role: primaryRoleCode },
-      });
-    });
-  }
 }
 
 async function seedRbac(prisma: PrismaClient): Promise<void> {
   const rolePermissionCodeMap = buildRolePermissionCodeMap();
+
+  await deleteObsoleteRoles(prisma);
 
   for (const role of RBAC_ROLE_DEFINITIONS) {
     await (prisma as any).role.upsert({
@@ -369,8 +285,6 @@ async function seedRbac(prisma: PrismaClient): Promise<void> {
     });
   }
 
-  await migrateLegacyUserRoles(prisma, roleIdByCode);
-  await deactivateLegacyRoles(prisma);
   await seedRoleAdminAccounts(prisma, roleIdByCode);
 }
 
@@ -1056,24 +970,14 @@ async function isBaseComplete(prisma: PrismaClient): Promise<boolean> {
     return false;
   }
 
-  const [activeRoleCount, legacyActiveCount] = await Promise.all([
-    (prisma as any).role.count({
-      where: {
-        status: 'ACTIVE',
-        code: { in: ACTIVE_RBAC_ROLE_CODES },
-      },
-    }),
-    LEGACY_RBAC_ROLE_CODES.length
-      ? (prisma as any).role.count({
-          where: {
-            status: 'ACTIVE',
-            code: { in: LEGACY_RBAC_ROLE_CODES },
-          },
-        })
-      : Promise.resolve(0),
-  ]);
+  const activeRoleCount = await (prisma as any).role.count({
+    where: {
+      status: 'ACTIVE',
+      code: { in: ACTIVE_RBAC_ROLE_CODES },
+    },
+  });
 
-  if (activeRoleCount !== ACTIVE_RBAC_ROLE_CODES.length || legacyActiveCount !== 0) {
+  if (activeRoleCount !== ACTIVE_RBAC_ROLE_CODES.length) {
     return false;
   }
 
