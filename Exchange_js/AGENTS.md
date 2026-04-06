@@ -38,6 +38,7 @@ Before any code change in `Exchange_js`, read:
 - `Wave 5` runtime truth is no longer roadmap-only; use the runtime baseline below for durable semantics.
 - `docs/roadmap/wave-4-ledger-asset-structure-phase-plan.md` is the current planning reference for Wave 4 ledger, wallet/account, pricing, and config-release sequencing.
 - `docs/roadmap/wave1-foundation-migration-from-exchange-java.md` is a historical migration-reference document and MUST NOT be treated as the current implementation truth.
+- `doc-final/` is the Wave 1 finalized truth; `docs/` remains the working document tree for active development.
 
 ### Wave 5 Runtime Baseline
 - When work touches `PayIn -> Deposit`, transaction compliance, transaction risk/case callback, deposit accounting, or deposit evidence export, also read:
@@ -57,6 +58,26 @@ Before any code change in `Exchange_js`, read:
 14. `docs/acceptance/wave-5-deposit-evidence-export-runbook.md`
 - `docs/roadmap/wave-5-payin-deposit-phase-plan.md` remains historical phase planning context.
 - `docs/cleanup/wave-5-cleanup-master-plan.md` remains closeout / delivery hygiene context.
+
+## Wave 1 Finalized Documentation
+
+> `doc-final/` is the authoritative finalized documentation tree. It is separate from `docs/` (which contains working/in-progress docs). Always prefer `doc-final/` over `docs/` for Wave 1 truth.
+
+### Wave 1 PRD (Developer Reference)
+- `doc-final/PRD/wave1/wave1-data-model.md` — All Wave 1 tables, field definitions, seed data (8 roles, 8 admin accounts, approval policies, SoD rules)
+- `doc-final/PRD/wave1/wave1-workflows.md` — 6 governed workflow specifications: state machines, actors, SoD rules, APIs, audit event sequences
+- `doc-final/PRD/wave1/wave1-audit-integration.md` — How to call AuditLogsService; Wave 1 audit event dictionary; future wave onboarding rules
+
+### Wave 1 Acceptance Tests (QA Reference)
+- `doc-final/acceptance/wave1-acceptance-tests.md` — Step-by-step acceptance tests for all 6 Wave 1 flows + 4 negative cases
+
+### Global Reference (All Waves)
+- `doc-final/glossary/global-glossary.md` — Canonical terminology definitions; grows with each wave
+
+### Wave 1 Role Catalog (Final)
+8 roles in production: SUPER_ADMIN, SENIOR_MANAGEMENT_OFFICER, CISO, MLRO, DPO, COMPLIANCE_OFFICER, TECH_OFFICER, OPS_OFFICER
+- VARA Responsible Individual candidates: CISO + SENIOR_MANAGEMENT_OFFICER (minimum 2 required by VARA Company Rulebook I.C.1)
+- All role codes use `_OFFICER` suffix convention (except VARA-mandated acronyms: MLRO, DPO, CISO)
 
 ## Documentation Governance
 - Documentation rules are mandatory for every future thread in `Exchange_js`.
