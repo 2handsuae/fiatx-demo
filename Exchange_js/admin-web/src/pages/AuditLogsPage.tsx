@@ -163,19 +163,6 @@ const selectSubjectAnchor = (item: AuditLogItem): AuditSubjectNo | null => {
   };
 };
 
-const getStatusClassName = (result: AuditResult) => {
-  switch (result) {
-    case 'SUCCESS':
-      return 'bg-green-100 text-green-700';
-    case 'FAILED':
-      return 'bg-red-100 text-red-700';
-    case 'REJECTED':
-      return 'bg-amber-100 text-amber-700';
-    default:
-      return 'bg-gray-100 text-gray-700';
-  }
-};
-
 const AuditLogsPage = () => {
   const navigate = useNavigate();
   const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
