@@ -204,7 +204,6 @@ const AuditLogDetailPage = () => {
         <InfoField label="Primary Ref No" value={detail.primaryRefNo} mono />
         <InfoField label="User Action" value={detail.userActionLabel || detail.userAction} />
         <InfoField label="Occurred At" value={formatDateTime(detail.occurredAt)} />
-        <InfoField label="Result" value={detail.result} />
       </DetailCard>
 
       <DetailCard title="Technical Context" icon={<GitBranch size={18} />}>

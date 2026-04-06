@@ -54,6 +54,10 @@ const TRIGGER_CLS: Record<string, string> = {
   MANUAL_OVERRIDE:  'bg-adm-red/10    text-adm-red    border-adm-red/20',
   PERMISSION_CHANGE:'bg-adm-amber/10  text-adm-amber  border-adm-amber/20',
   CONFIG_CHANGE:    'bg-adm-t2/10     text-adm-t2     border-adm-t2/20',
+  DATA_CREATE:      'bg-adm-green/10  text-adm-green  border-adm-green/20',
+  DATA_UPDATE:      'bg-adm-blue/10   text-adm-blue   border-adm-blue/20',
+  DATA_DELETE:      'bg-adm-red/10    text-adm-red    border-adm-red/20',
+  SYSTEM_EVENT:     'bg-adm-t2/10     text-adm-t2     border-adm-t2/20',
 };
 
 /** Smaller tag for triggerType values */
