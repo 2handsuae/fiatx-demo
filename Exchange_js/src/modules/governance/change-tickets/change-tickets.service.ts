@@ -37,8 +37,10 @@ import {
   CreateChangeTicketDto,
   SubmitChangeTicketDto,
 } from './dto/change-ticket.dto';
-import { UsersService } from '../../identity/users/users.service';
-import { AccessControlService } from '../../identity/access-control/access-control.service';
+import {
+  CHANGE_TICKET_CONSUMED,
+  ChangeTicketConsumedEvent,
+} from './events/change-ticket-consumed.event';
 
 type ChangeTicketWriteClient = any;
 
@@ -101,8 +103,6 @@ export class ChangeTicketsService {
     private readonly approvalsService: ApprovalsService,
     private readonly auditLogsService: AuditLogsService,
     private readonly eventEmitter: EventEmitter2,
-    private readonly usersService: UsersService,
-    private readonly accessControlService: AccessControlService,
   ) {}
 
   private getDb(client?: ChangeTicketWriteClient): ChangeTicketWriteClient {
@@ -318,20 +318,24 @@ export class ChangeTicketsService {
   private async dispatchFormalExecution(
     ticket: ChangeTicketRow,
     actor: ApprovalActorContext,
-  ): Promise<unknown> {
-    const bindingSnapshot = this.parseJson<ChangeTicketBindingSnapshot>(ticket.bindingSnapshotJson) || {};
+  ): Promise<void> {
+    const binding = this.parseJson<ChangeTicketConsumedEvent['binding']>(ticket.bindingSnapshotJson) || {};
 
-    switch (bindingSnapshot.intent) {
-      case 'ADMIN_MEMBER_PROVISIONING':
-        return this.usersService.executeAdminMemberProvisioning(bindingSnapshot as any, actor);
-      case 'ADMIN_ROLE_BINDING_CHANGE':
-        return this.accessControlService.executeGovernedRoleBindingChange(
-          bindingSnapshot as any,
-          actor,
-        );
-      default:
-        return null;
-    }
+    const event: ChangeTicketConsumedEvent = {
+      ticketId: ticket.id,
+      ticketNo: ticket.ticketNo,
+      traceId: ticket.traceId,
+      actor: {
+        actorType: actor.actorType,
+        userId: actor.userId,
+        userNo: actor.userNo,
+        role: actor.role,
+        roleCodes: actor.roleCodes,
+      },
+      binding,
+    };
+
+    await this.eventEmitter.emitAsync(CHANGE_TICKET_CONSUMED, event);
   }
 
   private ticketSubjectNos(ticket: ChangeTicketRow, approvalNo?: string | null) {
