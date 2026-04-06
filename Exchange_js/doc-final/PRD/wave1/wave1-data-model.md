@@ -16,7 +16,7 @@
 - **删除管理**（Delete Management）：删除申请工作流
 - **审计合规**（Audit & Compliance）：审计日志事件、审计证据包
 
-所有表均在 PostgreSQL 上通过 Prisma ORM 管理，迁移文件位于 `prisma/migrations/`。
+所有表均在 SQLite（开发/demo）上通过 Prisma ORM 管理，迁移文件位于 `prisma/migrations/`。
 
 ---
 
@@ -131,6 +131,8 @@ users ──< approval_cases (createdByUserId, decisionByUserId)
 | `id` | UUID | PK | 主键 | |
 | `userId` | String | NOT NULL, FK | 关联 `users.id` | 外键约束 |
 | `roleId` | String | NOT NULL, FK | 关联 `roles.id` | 外键约束 |
+| `createdAt` | DateTime | NOT NULL | 记录创建时间 | 自动设置 |
+| `updatedAt` | DateTime | NOT NULL | 记录最后更新时间 | 自动更新 |
 
 ### 索引与约束
 
@@ -170,7 +172,7 @@ DRAFT → PENDING → APPROVED → (executionStatus: EXECUTED)
 | `actionType` | Enum | NOT NULL | 审批类型 | Wave 1 有效值见下表 |
 | `entityRef` | String | NOT NULL | 被审批对象的 id | 关联 `change_ticket.id` / `delete_request.id` / `audit_evidence_package.id` |
 | `createdByUserId` | String | NOT NULL | 发起人（maker）的用户 id | 关联 `users.id` |
-| `createdByUserNo` | String | NOT NULL | 发起人的 `userNo` | 冗余字段，避免 JOIN |
+| `createdByUserNo` | String | NULLABLE | 发起人的 `userNo` | 冗余字段，避免 JOIN |
 | `status` | Enum | NOT NULL | 审批单状态 | `DRAFT` / `PENDING` / `APPROVED` / `REJECTED` / `EXPIRED` / `CANCELLED` |
 | `executionStatus` | Enum | NOT NULL | 执行状态 | `NOT_EXECUTED` / `EXECUTED` / `EXECUTION_FAILED` |
 | `riskLevel` | Enum | NOT NULL | 风险等级 | Wave 1 全部为 `HIGH` |
@@ -184,6 +186,8 @@ DRAFT → PENDING → APPROVED → (executionStatus: EXECUTED)
 | `workflowType` | String | NULLABLE | 关联业务工作流类型 | 如 `CHANGE_TICKET` |
 | `workflowId` | String | NULLABLE | 关联业务工作流 id | |
 | `workflowNo` | String | NULLABLE | 关联业务工作流业务编号 | |
+| `createdAt` | DateTime | NOT NULL | 记录创建时间 | 自动设置 |
+| `updatedAt` | DateTime | NOT NULL | 记录最后更新时间 | 自动更新 |
 | `submittedAt` | DateTime | NULLABLE | 提交审批时间 | 从 `DRAFT` 进入 `PENDING` 的时间 |
 | `timeoutAt` | DateTime | NULLABLE | 超时截止时间 | `submittedAt + timeoutHours` |
 | `decidedAt` | DateTime | NULLABLE | 审批决策时间 | |
@@ -243,7 +247,7 @@ DRAFT → PENDING → APPROVED → (executionStatus: EXECUTED)
 |---|---|---|---|---|
 | `id` | UUID | PK | 主键 | |
 | `approvalCaseId` | String | NOT NULL, FK | 关联 `approval_cases.id` | 外键约束 |
-| `approvalNo` | String | NOT NULL | 关联审批单业务编号 | 冗余字段，便于查询时避免 JOIN |
+| `approvalNo` | String | NULLABLE | 关联审批单业务编号 | 冗余字段，便于查询时避免 JOIN |
 | `stepNo` | Int | NOT NULL | 步骤序号 | Wave 1 固定为 `1` |
 | `status` | Enum | NOT NULL | 步骤状态 | `PENDING` / `APPROVED` / `REJECTED` / `EXPIRED` / `CANCELLED` |
 | `checkerRoleCandidates` | String | NOT NULL | 该步骤允许的审批角色 | 逗号分隔的 role code |
@@ -252,6 +256,8 @@ DRAFT → PENDING → APPROVED → (executionStatus: EXECUTED)
 | `decidedByRole` | String | NULLABLE | 决策人实际使用的角色 code | |
 | `reason` | String | NULLABLE | 决策说明或拒绝原因 | |
 | `decidedAt` | DateTime | NULLABLE | 决策时间 | |
+| `createdAt` | DateTime | NOT NULL | 记录创建时间 | 自动设置 |
+| `updatedAt` | DateTime | NOT NULL | 记录最后更新时间 | 自动更新 |
 
 ### 设计说明
 
@@ -277,6 +283,7 @@ DRAFT → PENDING → APPROVED → (executionStatus: EXECUTED)
 | `timeoutHours` | Int | NOT NULL, DEFAULT 24 | 超时小时数 | 从 `submittedAt` 起计算 |
 | `allowCancel` | Boolean | NOT NULL | 是否允许 maker 取消审批 | |
 | `allowRetry` | Boolean | NOT NULL | 执行失败后是否允许重试 | |
+| `updatedAt` | DateTime | NOT NULL | 记录最后更新时间 | 自动更新（无 `createdAt`，以 `actionType` 为 PK） |
 
 ### Wave 1 Seeded 策略
 
@@ -313,6 +320,8 @@ SoD（Segregation of Duties，职责分离）规则表，定义审批流程中�
 | `ruleCode` | String | PK | 规则代码，主键 | Wave 1 有效值：`DENY_SAME_USER_MAKER_CHECKER` |
 | `enabled` | Boolean | NOT NULL | 是否启用 | `false` 时规则不生效（不建议在生产关闭） |
 | `description` | String | NULLABLE | 规则说明 | |
+| `createdAt` | DateTime | NOT NULL | 记录创建时间 | 自动设置 |
+| `updatedAt` | DateTime | NOT NULL | 记录最后更新时间 | 自动更新 |
 
 ### Wave 1 Seeded 规则
 
@@ -376,6 +385,8 @@ DRAFT → PENDING_APPROVAL → READY → DONE
 | `deleteRequestId` | String | NULLABLE | 关联的删除申请 id | 关联 `delete_requests.id` |
 | `deleteRequestNo` | String | NULLABLE | 关联的删除申请业务编号 | 冗余字段 |
 | `deleteReason` | String | NULLABLE | 删除原因 | 由删除工作流写入 |
+| `createdAt` | DateTime | NOT NULL | 记录创建时间 | 自动设置 |
+| `updatedAt` | DateTime | NOT NULL | 记录最后更新时间 | 自动更新 |
 
 ### 枚举说明
 
@@ -462,9 +473,13 @@ DRAFT → PENDING_APPROVAL → READY → DONE
 | `deleteReason` | String | NOT NULL | 删除原因 | 必填，合规要求 |
 | `resultNote` | String | NULLABLE | 执行结果说明 | |
 | `docRef` | String | NULLABLE | 外部文档引用 | 如合规审批单据 URL |
-| `targetSnapshotJson` | JSON | NULLABLE | 目标对象快照 | 创建申请时冻结，记录删除前的数据状态 |
+| `targetSnapshotJson` | String | NOT NULL DEFAULT `{}` | 目标对象快照（JSON序列化字符串） | 创建申请时冻结，记录删除前的数据状态 |
 | `targetSnapshotDigest` | String | NULLABLE | 快照 SHA256 摘要 | 防篡改 |
 | `traceId` | String | NOT NULL | 链路追踪 ID | |
+| `createdAt` | DateTime | NOT NULL | 记录创建时间 | 自动设置 |
+| `updatedAt` | DateTime | NOT NULL | 记录最后更新时间 | 自动更新 |
+| `submittedAt` | DateTime | NULLABLE | 提交时间 | 进入 `PENDING_APPROVAL` 的时间 |
+| `consumedAt` | DateTime | NULLABLE | 执行消费时间 | 进入 `DONE` 或 `FAILED` 的时间 |
 
 ### 枚举说明
 
@@ -497,7 +512,7 @@ DRAFT → PENDING_APPROVAL → READY → DONE
 |---|---|---|---|---|
 | `id` | UUID | PK | 主键 | |
 | `auditNo` | String | UNIQUE, NOT NULL | 业务编号 | 格式 `AUD-YYYYMMDD-XXXX` |
-| `triggerType` | String | NOT NULL | 触发来源类型 | `SYSTEM` / `ADMIN` / `CLIENT` / `SCHEDULED` |
+| `triggerType` | String | NOT NULL | 触发机制分类 | `STATE_TRANSITION` / `MANUAL_OVERRIDE` / `EVIDENCE_EXPORT` / `AUTH_EVENT` / `PERMISSION_CHANGE` / `CONFIG_CHANGE` / `DATA_CREATE` / `DATA_UPDATE` / `DATA_DELETE` / `SYSTEM_EVENT` |
 | `action` | String | NOT NULL | 具体操作代码 | 如 `CHANGE_TICKET_CREATED`、`APPROVAL_APPROVED` |
 | `module` | String | NOT NULL | 所属模块 | 如 `GOVERNANCE_CHANGE_TICKETS`、`APPROVAL` |
 | `entityType` | String | NOT NULL | 实体类型 | 如 `CHANGE_TICKET`、`APPROVAL_CASE`、`USER` |
@@ -519,7 +534,7 @@ DRAFT → PENDING_APPROVAL → READY → DONE
 | `requestId` | String | NULLABLE | HTTP 请求 id | 与 HTTP 请求追踪关联，系统触发时为空 |
 | `sourceIp` | String | NULLABLE | 来源 IP 地址 | 系统触发时为空 |
 | `sourcePlatform` | String | NULLABLE | 来源平台标识 | 如 `ADMIN_WEB`、`SYSTEM`、`CLIENT_WEB` |
-| `result` | String | NOT NULL, DEFAULT 'SUCCESS' | 操作结果 | `SUCCESS` / `FAILURE` |
+| `result` | String | NOT NULL, DEFAULT 'SUCCESS' | 操作结果 | `SUCCESS` / `FAILED` / `REJECTED` |
 | `reason` | String | NULLABLE | 失败原因或补充说明 | |
 | `metadata` | String | NULLABLE | 附加元数据（JSON 字符串） | 如 `{ superAdminBypass: true }` |
 | `beforeData` | String | NULLABLE | 变更前数据快照（JSON 字符串） | 敏感字段应脱敏 |
@@ -536,19 +551,26 @@ DRAFT → PENDING_APPROVAL → READY → DONE
 
 ### 枚举说明
 
-**TriggerType**：
+**TriggerType**（`AuditTriggerType` 枚举）：
 | 值 | 说明 |
 |---|---|
-| `SYSTEM` | 系统自动触发（如定时任务、事件监听器） |
-| `ADMIN` | 管理员操作触发 |
-| `CLIENT` | C 端客户操作触发（Wave 1 暂不涉及） |
-| `SCHEDULED` | 计划任务触发 |
+| `STATE_TRANSITION` | 业务状态机流转（最常见，需提供 `statusFrom`/`statusTo`） |
+| `MANUAL_OVERRIDE` | 人工干预/手动覆盖（需提供 `reason`，action 需以 `MANUAL_` 开头） |
+| `EVIDENCE_EXPORT` | 审计证据导出操作 |
+| `AUTH_EVENT` | 认证相关事件（登录、锁定、解锁） |
+| `PERMISSION_CHANGE` | 权限变更操作 |
+| `CONFIG_CHANGE` | 配置变更操作 |
+| `DATA_CREATE` | 数据创建操作 |
+| `DATA_UPDATE` | 数据更新操作 |
+| `DATA_DELETE` | 数据删除操作 |
+| `SYSTEM_EVENT` | 系统内部事件（action 需以 `SYSTEM_` 开头） |
 
 **AuditResult**：
 | 值 | 说明 |
 |---|---|
 | `SUCCESS` | 操作成功 |
-| `FAILURE` | 操作失败 |
+| `FAILED` | 操作失败 |
+| `REJECTED` | 操作被拒绝（如审批拒绝、校验未通过） |
 
 ### 设计说明
 
@@ -573,25 +595,27 @@ DRAFT → PENDING_APPROVAL → READY → DONE
 |---|---|---|---|---|
 | `id` | UUID | PK | 主键 | |
 | `packageNo` | String | UNIQUE, NOT NULL | 业务编号 | 格式 `AEP-YYYYMMDD-XXXX` |
-| `approvalCaseId` | String | NULLABLE | 关联审批单 id | 关联 `approval_cases.id` |
+| `approvalCaseId` | String | UNIQUE, NULLABLE | 关联审批单 id | 关联 `approval_cases.id`，UNIQUE 确保 1:1 |
 | `approvalCaseNo` | String | NULLABLE | 关联审批单业务编号 | 冗余字段 |
-| `exportedByType` | Enum | NOT NULL | 导出人类型 | `ADMIN` / `SYSTEM` |
-| `exportedById` | String | NULLABLE | 导出人用户 id | 关联 `users.id` |
+| `exportedByType` | String | NOT NULL | 导出人类型 | `ADMIN` / `SYSTEM` |
+| `exportedById` | String | NOT NULL | 导出人用户 id | 关联 `users.id` |
 | `exportedByNo` | String | NULLABLE | 导出人 `userNo` | 冗余字段 |
 | `exportedByRole` | String | NULLABLE | 导出人角色 code | 记录执行导出时使用的角色 |
-| `status` | Enum | NOT NULL | 包状态 | Wave 1 仅有 `READY` |
-| `exportMode` | Enum | NOT NULL | 导出模式 | Wave 1 仅有 `SELECTION`（手动选择条目） |
-| `fileName` | String | NOT NULL | 导出文件名 | 如 `audit-evidence-AEP-20260405-0001.json` |
-| `filterSnapshot` | JSON | NULLABLE | 筛选条件快照 | 记录导出时使用的筛选参数 |
-| `selectedEventIdsSnapshot` | JSON | NULLABLE | 选中的事件 ID 列表 | `SELECTION` 模式下，记录被选中的 `audit_log_events.id` 列表 |
+| `status` | String | NOT NULL, DEFAULT 'READY' | 包状态 | Wave 1 仅有 `READY` |
+| `exportMode` | String | NOT NULL, DEFAULT 'SELECTION' | 导出模式 | Wave 1 仅有 `SELECTION`（手动选择条目） |
+| `fileName` | String | NULLABLE | 导出文件名 | 如 `audit-evidence-AEP-20260405-0001.json` |
+| `filterSnapshot` | String | NULLABLE | 筛选条件快照（JSON序列化字符串） | 记录导出时使用的筛选参数 |
+| `selectedEventIdsSnapshot` | String | NULLABLE | 选中的事件 ID 列表（JSON序列化字符串） | `SELECTION` 模式下，记录被选中的 `audit_log_events.id` 列表 |
 | `itemCount` | Int | NOT NULL | 导出记录数 | |
 | `digest` | String | NOT NULL | 包内容摘要 | SHA256，用于验证包完整性 |
-| `manifest` | JSON | NULLABLE | 包清单 | 描述包内容结构的元数据 |
-| `packageBody` | Text/Bytes | NULLABLE | 包内容 | 序列化的证据内容（可能是 JSON 或加密 blob） |
+| `manifest` | String | NOT NULL | 包清单（JSON序列化字符串） | 描述包内容结构的元数据 |
+| `packageBody` | String | NULLABLE | 包内容 | 序列化的证据内容（JSON 或加密 blob） |
 | `deletedAt` | DateTime | NULLABLE | 软删除时间戳 | 需通过 `delete_requests` 工作流删除 |
 | `deletedBy` | String | NULLABLE | 执行软删除的用户 id | |
 | `deleteRequestId` | String | NULLABLE | 关联的删除申请 id | |
 | `deleteReason` | String | NULLABLE | 删除原因 | |
+| `createdAt` | DateTime | NOT NULL | 记录创建时间 | 自动设置 |
+| `updatedAt` | DateTime | NOT NULL | 记录最后更新时间 | 自动更新 |
 
 ### 枚举说明
 
