@@ -9,6 +9,7 @@ import {
   AuditWorkflowTypes,
 } from '../../risk-engine/audit-logs/constants/audit-actions.constant';
 import { sha256Hex } from '../../risk-engine/audit-logs/utils/audit-digest.util';
+import { CHANGE_TICKET_CONSUMED } from './events/change-ticket-consumed.event';
 
 const actor = {
   actorType: 'ADMIN' as const,
@@ -62,8 +63,6 @@ describe('ChangeTicketsService Task 2', () => {
   let approvalsService: any;
   let auditLogsService: any;
   let eventEmitter: EventEmitter2;
-  let usersService: any;
-  let accessControlService: any;
   let ticket: any;
 
   beforeEach(() => {
@@ -127,20 +126,12 @@ describe('ChangeTicketsService Task 2', () => {
       emit: jest.fn(),
       emitAsync: jest.fn().mockResolvedValue(undefined),
     } as unknown as EventEmitter2;
-    usersService = {
-      executeAdminMemberProvisioning: jest.fn(),
-    };
-    accessControlService = {
-      executeGovernedRoleBindingChange: jest.fn(),
-    };
 
     service = new ChangeTicketsService(
       prisma,
       approvalsService,
       auditLogsService,
       eventEmitter,
-      usersService,
-      accessControlService,
     );
   });
 
@@ -568,12 +559,6 @@ describe('ChangeTicketsService Task 2', () => {
         traceId: 'trace-1',
       },
     });
-    usersService.executeAdminMemberProvisioning.mockResolvedValue({
-      userNo: 'ADM2604030001',
-      inviteStatus: 'PENDING',
-      inviteExpiresAt: '2026-04-04T00:00:00.000Z',
-      inviteLink: 'http://localhost:3001/admin/activate?token=abc',
-    });
 
     const result = await service.consume(
       'ticket-1',
@@ -584,8 +569,18 @@ describe('ChangeTicketsService Task 2', () => {
       actor,
     );
 
-    expect(usersService.executeAdminMemberProvisioning).toHaveBeenCalledWith(bindingSnapshot, actor);
-    expect(accessControlService.executeGovernedRoleBindingChange).not.toHaveBeenCalled();
+    expect(eventEmitter.emitAsync).toHaveBeenCalledWith(
+      CHANGE_TICKET_CONSUMED,
+      expect.objectContaining({
+        ticketId: 'ticket-1',
+        binding: expect.objectContaining({
+          intent: 'ADMIN_MEMBER_PROVISIONING',
+          email: 'new-admin@fiatx.com',
+          roleCodes: ['CISO', 'TECH_ADMIN'],
+        }),
+        actor: expect.objectContaining({ userId: actor.userId }),
+      }),
+    );
     expect(prisma.changeTicket.update).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { id: 'ticket-1' },
@@ -630,12 +625,6 @@ describe('ChangeTicketsService Task 2', () => {
         traceId: 'trace-1',
       },
     });
-    accessControlService.executeGovernedRoleBindingChange.mockResolvedValue({
-      userId: 'user-123',
-      userNo: 'USR-123',
-      roles: ['DPO'],
-      warnings: [],
-    });
 
     const result = await service.consume(
       'ticket-1',
@@ -646,11 +635,18 @@ describe('ChangeTicketsService Task 2', () => {
       actor,
     );
 
-    expect(accessControlService.executeGovernedRoleBindingChange).toHaveBeenCalledWith(
-      bindingSnapshot,
-      actor,
+    expect(eventEmitter.emitAsync).toHaveBeenCalledWith(
+      CHANGE_TICKET_CONSUMED,
+      expect.objectContaining({
+        ticketId: 'ticket-1',
+        binding: expect.objectContaining({
+          intent: 'ADMIN_ROLE_BINDING_CHANGE',
+          targetUserId: 'user-123',
+          roleCodes: ['DPO'],
+        }),
+        actor: expect.objectContaining({ userId: actor.userId }),
+      }),
     );
-    expect(usersService.executeAdminMemberProvisioning).not.toHaveBeenCalled();
     const auditWrite = findAuditWrite(auditLogsService.recordByActor, AuditActions.CHANGE_TICKET_CONSUMED);
     expect(auditWrite).toBeDefined();
     expect(auditWrite?.event.action).toBe(AuditActions.CHANGE_TICKET_CONSUMED);
@@ -703,8 +699,7 @@ describe('ChangeTicketsService Task 2', () => {
         resultNote: 'Automation failed',
       }),
     );
-    expect(usersService.executeAdminMemberProvisioning).not.toHaveBeenCalled();
-    expect(accessControlService.executeGovernedRoleBindingChange).not.toHaveBeenCalled();
+    expect(eventEmitter.emitAsync).not.toHaveBeenCalled();
   });
 
   it('rejects consuming a FAILED ticket because FAILED is terminal', async () => {
