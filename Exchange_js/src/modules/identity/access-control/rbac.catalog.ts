@@ -114,83 +114,53 @@ export const RBAC_ROLE_DEFINITIONS: RbacRoleDefinition[] = [
     description: 'Emergency full access account, not for routine operations.',
   },
   {
-    code: 'RI',
-    name: 'Risk Intelligence',
-    description: 'Read-only oversight role for risk and control visibility.',
-  },
-  {
-    code: 'SM',
-    name: 'Senior Management',
-    description: 'Senior management oversight role with read-oriented access.',
-  },
-  {
-    code: 'TECH_ADMIN',
-    name: 'Tech Administrator',
-    description: 'Operate technical governance workflows and platform controls.',
-  },
-  {
-    code: 'OPS_TREASURY',
-    name: 'Operations Treasury',
-    description: 'Treasury and operations role for settlement-oriented workflows.',
-  },
-  {
-    code: 'FINANCE',
-    name: 'Finance',
-    description: 'Finance oversight role for accounting and governance flows.',
-  },
-  {
-    code: 'COMPLIANCE_LEAD',
-    name: 'Compliance Lead',
-    description: 'Compliance lead role for audit and export governance.',
-  },
-  {
-    code: 'MLRO',
-    name: 'MLRO',
-    description: 'Own AML oversight and approval decisions.',
-  },
-  {
-    code: 'DPO',
-    name: 'Data Protection Officer',
-    description: 'Data protection oversight for sensitive export governance.',
+    code: 'SENIOR_MANAGEMENT_OFFICER',
+    name: 'Senior Management Officer',
+    description: 'Senior management oversight, high-level approvals, and regulatory accountability.',
   },
   {
     code: 'CISO',
     name: 'Chief Information Security Officer',
-    description: 'Security governance and IAM control owner.',
+    description: 'Security governance and IAM control owner. VARA Responsible Individual candidate.',
+  },
+  {
+    code: 'MLRO',
+    name: 'Money Laundering Reporting Officer',
+    description: 'Own AML oversight, SAR filing, and independent regulatory reporting. VARA Responsible Individual candidate.',
+  },
+  {
+    code: 'DPO',
+    name: 'Data Protection Officer',
+    description: 'Data protection oversight for sensitive export governance and privacy compliance.',
+  },
+  {
+    code: 'COMPLIANCE_OFFICER',
+    name: 'Compliance Officer',
+    description: 'Daily compliance operations, audit export governance, and regulatory program management.',
+  },
+  {
+    code: 'TECH_OFFICER',
+    name: 'Tech Officer',
+    description: 'Platform operations, technical governance workflows, and change management.',
+  },
+  {
+    code: 'OPS_OFFICER',
+    name: 'Operations Officer',
+    description: 'Treasury operations, settlement, reconciliation, and accounting oversight.',
   },
 ];
 
 export const ACTIVE_RBAC_ROLE_CODES = RBAC_ROLE_DEFINITIONS.map((item) => item.code);
-
-export const LEGACY_RBAC_ROLE_CODE_MAPPING: Record<string, string> = {
-  IAM_ADMIN: 'CISO',
-  APPROVER: 'TECH_ADMIN',
-  COMPLIANCE_OFFICER: 'COMPLIANCE_LEAD',
-  ALERT_ANALYST: 'COMPLIANCE_LEAD',
-  CUSTOMER_OPS: 'RI',
-  TRADING_OPS: 'OPS_TREASURY',
-  TREASURY_MAKER: 'OPS_TREASURY',
-  TREASURY_CHECKER: 'OPS_TREASURY',
-  ACCOUNTING_OPS: 'FINANCE',
-  SETTLEMENT_OPS: 'OPS_TREASURY',
-  RECON_OPS: 'SM',
-  CONFIG_ADMIN: 'TECH_ADMIN',
-  AUDIT_OFFICER: 'COMPLIANCE_LEAD',
-};
-
-export const LEGACY_RBAC_ROLE_CODES = Object.keys(LEGACY_RBAC_ROLE_CODE_MAPPING);
 
 export const PRIMARY_ROLE_PRIORITY = [
   'SUPER_ADMIN',
   'CISO',
   'DPO',
   'MLRO',
-  'COMPLIANCE_LEAD',
-  'TECH_ADMIN',
-  'FINANCE',
-  'OPS_TREASURY',
-  'SM',
-  'RI',
+  'COMPLIANCE_OFFICER',
+  'SENIOR_MANAGEMENT_OFFICER',
+  'TECH_OFFICER',
+  'OPS_OFFICER',
 ] as const;
 
 export function getPrimaryRoleCode(roleCodes: string[]): string | null {
@@ -803,7 +773,7 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
 
 export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
   SUPER_ADMIN: [],
-  RI: [
+  SENIOR_MANAGEMENT_OFFICER: [
     'BASE_ACCESS',
     'IAM_READ',
     'AUDIT_READ',
@@ -819,23 +789,7 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'GOV_REGULATORY_GATE_READ',
     'GOV_SLA_READ',
   ],
-  SM: [
-    'BASE_ACCESS',
-    'IAM_READ',
-    'AUDIT_READ',
-    'RISK_DECISION_RECORD_READ',
-    'ALERT_READ',
-    'CASE_READ',
-    'CASE_EXPORT_READ',
-    'RECON_BREAK_READ',
-    'GOV_APPROVAL_READ',
-    'GOV_CHANGE_TICKET_READ',
-    'GOV_DELETE_REQUEST_READ',
-    'GOV_REGISTRY_READ',
-    'GOV_REGULATORY_GATE_READ',
-    'GOV_SLA_READ',
-  ],
-  TECH_ADMIN: [
+  TECH_OFFICER: [
     'BASE_ACCESS',
     'IAM_READ',
     'AUDIT_READ',
@@ -860,7 +814,7 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'GOV_SLA_READ',
     'GOV_SLA_WRITE',
   ],
-  OPS_TREASURY: [
+  OPS_OFFICER: [
     'BASE_ACCESS',
     'IAM_READ',
     'AUDIT_READ',
@@ -874,21 +828,7 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'GOV_REGISTRY_READ',
     'GOV_REGULATORY_GATE_READ',
   ],
-  FINANCE: [
-    'BASE_ACCESS',
-    'IAM_READ',
-    'AUDIT_READ',
-    'RECON_BREAK_READ',
-    'RECON_BREAK_WRITE',
-    'GOV_APPROVAL_READ',
-    'GOV_CHANGE_TICKET_READ',
-    'GOV_CHANGE_TICKET_WRITE',
-    'GOV_DELETE_REQUEST_READ',
-    'GOV_DELETE_REQUEST_WRITE',
-    'GOV_REGISTRY_READ',
-    'GOV_REGULATORY_GATE_READ',
-  ],
-  COMPLIANCE_LEAD: [
+  COMPLIANCE_OFFICER: [
     'BASE_ACCESS',
     'IAM_READ',
     'AUDIT_READ',
