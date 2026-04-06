@@ -41,20 +41,17 @@
 3. invitation preview, resend, and acceptance MUST reject soft-deleted admin users
 
 ## 4) Seeded Role Admin Accounts (Base Config)
-- Base seed MUST preserve one fixed admin account per active RBAC role (10 total), including:
-1. `SUPER_ADMIN` -> `admin@fiatx.com` (`ADMIN-001`)
-2. `RI` -> `ri@fiatx.com`
-3. `SM` -> `sm@fiatx.com`
-4. `TECH_ADMIN` -> `tech_admin@fiatx.com`
-5. `OPS_TREASURY` -> `ops_treasury@fiatx.com`
-6. `FINANCE` -> `finance@fiatx.com`
-7. `COMPLIANCE_LEAD` -> `compliance_lead@fiatx.com`
-8. `MLRO` -> `mlro@fiatx.com`
-9. `DPO` -> `dpo@fiatx.com`
-10. `CISO` -> `ciso@fiatx.com`
+- Base seed MUST preserve one fixed admin account per active RBAC role (8 total), including:
+  1. `SUPER_ADMIN` -> `admin@fiatx.com` (`ADMIN-001`)
+  2. `SENIOR_MANAGEMENT_OFFICER` -> `sm@fiatx.com` (`ADMIN-SMO`)
+  3. `CISO` -> `ciso@fiatx.com`
+  4. `MLRO` -> `mlro@fiatx.com`
+  5. `DPO` -> `dpo@fiatx.com`
+  6. `COMPLIANCE_OFFICER` -> `compliance_lead@fiatx.com` (`ADMIN-COMP`)
+  7. `TECH_OFFICER` -> `tech_admin@fiatx.com` (`ADMIN-TECH`)
+  8. `OPS_OFFICER` -> `ops_officer@fiatx.com` (`ADMIN-OPS`)
 - MUST NOT add an extra `super_admin@...` seed identity.
-- Legacy JS role seed identities MUST NOT be recreated in local base seed.
-- If stale legacy role rows exist in an old local database, they MAY be deactivated during one-time cleanup, but MUST NOT be returned by `GET /admin/iam/roles` and MUST NOT be assignable.
+- The `RI`, `SM`, `TECH_ADMIN`, `OPS_TREASURY`, `FINANCE`, and `COMPLIANCE_LEAD` role codes are retired; their seed accounts have been replaced with the unified `_OFFICER` convention.
 
 ## 5) Seed Behavior Rules
 - Seed sync MUST be idempotent by email (`upsert`).
@@ -68,7 +65,7 @@
 
 ## 6) Completeness Guard (`ensureBaseSeeded`)
 - Base completeness check MUST include role seed account integrity:
-1. all 10 active role accounts exist
+1. all 8 active role accounts exist
 2. each account is ACTIVE
 3. each account has exact mapped role binding in `user_roles`
 4. `admin@fiatx.com` owns `SUPER_ADMIN`
@@ -83,7 +80,7 @@
 
 ## 8) Delivery Checklist for Related Threads
 - Update `prisma/seed.base.ts` and verify base seed idempotency.
-- Verify role-seed accounts remain 10 after repeated `db:base:sync`.
+- Verify role-seed accounts remain 8 after repeated `db:base:sync`.
 - Verify seed drift repair:
 1. missing role account is recreated
 2. wrong extra role binding is converged back
