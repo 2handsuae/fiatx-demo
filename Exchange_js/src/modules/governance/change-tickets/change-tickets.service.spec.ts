@@ -180,7 +180,7 @@ describe('ChangeTicketsService Task 2', () => {
     const result = await service.createAdminMemberProvisioningTicket(
       {
         email: '  New-Admin@fiatx.com ',
-        roleCodes: ['ciso', 'tech_admin'],
+        roleCodes: ['ciso', 'tech_officer'],
         changeReason: 'Need emergency admin coverage',
       },
       actor,
@@ -195,7 +195,7 @@ describe('ChangeTicketsService Task 2', () => {
       requestedByUserId: actor.userId,
       requestedByUserNo: actor.userNo,
       changeReason: 'Need emergency admin coverage',
-      scopeSummary: 'Provision admin member new-admin@fiatx.com with roles CISO, TECH_ADMIN',
+      scopeSummary: 'Provision admin member new-admin@fiatx.com with roles CISO, TECH_OFFICER',
       testEvidenceRef: 'BUSINESS_PAGE_PROPOSAL',
       rollbackPlanRef: 'BUSINESS_PAGE_PROPOSAL',
     };
@@ -205,7 +205,7 @@ describe('ChangeTicketsService Task 2', () => {
         data: expect.objectContaining({
           changeType: ChangeTicketTypes.ADMIN_ACCESS_CHANGE,
           changeReason: 'Need emergency admin coverage',
-          scopeSummary: 'Provision admin member new-admin@fiatx.com with roles CISO, TECH_ADMIN',
+          scopeSummary: 'Provision admin member new-admin@fiatx.com with roles CISO, TECH_OFFICER',
           testEvidenceRef: 'BUSINESS_PAGE_PROPOSAL',
           rollbackPlanRef: 'BUSINESS_PAGE_PROPOSAL',
         }),
@@ -233,7 +233,7 @@ describe('ChangeTicketsService Task 2', () => {
     const result = await service.createAdminMemberProvisioningTicket(
       {
         email: '  New-Admin@fiatx.com ',
-        roleCodes: ['ciso', 'tech_admin'],
+        roleCodes: ['ciso', 'tech_officer'],
         changeReason: 'Need emergency admin coverage',
       },
       actor,
