@@ -7,6 +7,7 @@ import { useAdminSession } from './contexts/AdminSessionContext';
 import { PERMISSIONS } from './rbac/permissions';
 
 const PlatformMembers = lazy(() => import('./pages/PlatformMembers'));
+const PlatformMemberDetailPage = lazy(() => import('./pages/PlatformMemberDetailPage'));
 const CustomerManagement = lazy(() => import('./pages/CustomerManagement'));
 const PricingSwapConfigPage = lazy(() => import('./pages/PricingSwapConfigPage'));
 const PricingWithdrawalConfigPage = lazy(() => import('./pages/PricingWithdrawalConfigPage'));
@@ -62,6 +63,7 @@ const CddResponsesPage = lazy(() => import('./pages/CddResponsesPage'));
 const EddResponsesPage = lazy(() => import('./pages/EddResponsesPage'));
 const AuditLogsPage = lazy(() => import('./pages/AuditLogsPage'));
 const AuditLogDetailPage = lazy(() => import('./pages/AuditLogDetailPage'));
+const SumsubEventsPage = lazy(() => import('./pages/SumsubEventsPage'));
 const EvidenceExportsPage = lazy(() => import('./pages/EvidenceExportsPage'));
 const EvidenceExportDetailPage = lazy(() => import('./pages/EvidenceExportDetailPage'));
 const ApprovalsPage = lazy(() => import('./pages/ApprovalsPage'));
@@ -238,6 +240,10 @@ function App() {
               element={withPermission(<PlatformMembers />, [PERMISSIONS.USERS_READ])}
             />
             <Route
+              path="members/:id"
+              element={withPermission(<PlatformMemberDetailPage />, [PERMISSIONS.USERS_READ])}
+            />
+            <Route
               path="members/roles"
               element={withPermission(<RoleManagement />, [PERMISSIONS.IAM_ROLES_READ])}
             />
@@ -338,6 +344,10 @@ function App() {
             <Route
               path="reconciliation/outstandings/:id"
               element={withPermission(<SwapOutstandingDetail />, [PERMISSIONS.OUTSTANDING_DETAIL_READ])}
+            />
+            <Route
+              path="compliance/sumsub-events"
+              element={withPermission(<SumsubEventsPage />, [])}
             />
             <Route
               path="compliance/cdd-responses"

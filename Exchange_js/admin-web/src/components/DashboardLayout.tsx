@@ -94,9 +94,7 @@ const DashboardLayout = () => {
     }
   }, [isDarkMode]);
 
-  const toggleTheme = () => {
-    setIsDarkMode(!isDarkMode);
-  };
+  const toggleTheme = () => setIsDarkMode(!isDarkMode);
 
   const handleLogout = () => {
     clearSession();
@@ -106,438 +104,444 @@ const DashboardLayout = () => {
   const menuItems: MenuItem[] = [
     {
       path: '/dashboard',
-      icon: <LayoutDashboard size={20} />,
+      icon: <LayoutDashboard size={14} />,
       label: 'Overview',
       requiredPermissions: [PERMISSIONS.BASE_ACCESS],
     },
     {
       label: 'Customer Management',
-      icon: <UserCog size={20} />,
+      icon: <UserCog size={12} />,
       children: [
         {
           path: '/dashboard/customer/management',
           label: 'Customer Management',
-          icon: <Users size={18} />,
+          icon: <Users size={13} />,
           requiredPermissions: [PERMISSIONS.CUSTOMERS_READ],
         },
       ],
     },
     {
       label: 'Pricing Center',
-      icon: <Coins size={20} />,
+      icon: <Coins size={12} />,
       children: [
         {
           path: '/dashboard/pricing/swap-config',
           label: 'Swap Config',
-          icon: <Repeat size={18} />,
+          icon: <Repeat size={13} />,
           requiredPermissions: [PERMISSIONS.PRICING_POLICIES_READ],
         },
         {
           path: '/dashboard/pricing/withdraw-config',
           label: 'Withdrawal Config',
-          icon: <Upload size={18} />,
+          icon: <Upload size={13} />,
           requiredPermissions: [PERMISSIONS.PRICING_WITHDRAW_CONFIG_READ],
         },
         {
           path: '/dashboard/pricing/quotes',
           label: 'Quote Center',
-          icon: <FileText size={18} />,
+          icon: <FileText size={13} />,
           requiredPermissions: [PERMISSIONS.SWAP_QUOTES_READ],
         },
       ],
     },
     {
       label: 'Reconciliation Center',
-      icon: <Activity size={20} />,
+      icon: <Activity size={12} />,
       children: [
         {
           path: '/dashboard/reconciliation/safeguarding-breaks',
           label: 'Safeguarding Breaks',
-          icon: <ClipboardList size={18} />,
+          icon: <ClipboardList size={13} />,
           requiredPermissions: [PERMISSIONS.SAFEGUARDING_BREAKS_READ],
         },
         {
           path: '/dashboard/reconciliation/safeguarding-warnings',
           label: 'Safeguarding Warnings',
-          icon: <AlertTriangle size={18} />,
+          icon: <AlertTriangle size={13} />,
           requiredPermissions: [PERMISSIONS.SAFEGUARDING_WARNINGS_READ],
         },
         {
           path: '/dashboard/reconciliation/safeguarding-runs',
           label: 'Safeguarding Runs',
-          icon: <History size={18} />,
+          icon: <History size={13} />,
           requiredPermissions: [PERMISSIONS.SAFEGUARDING_RUNS_READ],
         },
         {
           path: '/dashboard/reconciliation/safeguarding-fiat-statements',
           label: 'Fiat Statement Imports',
-          icon: <FileText size={18} />,
+          icon: <FileText size={13} />,
           requiredPermissions: [PERMISSIONS.SAFEGUARDING_FIAT_IMPORTS_READ],
         },
         {
           path: '/dashboard/reconciliation/outstanding-settlements',
           label: 'Outstanding Settlements',
-          icon: <ClipboardList size={18} />,
+          icon: <ClipboardList size={13} />,
           requiredPermissions: [PERMISSIONS.OUTSTANDING_SETTLEMENTS_READ],
         },
         {
           path: '/dashboard/reconciliation/outstandings',
           label: 'Swap Outstandings',
-          icon: <ClipboardList size={18} />,
+          icon: <ClipboardList size={13} />,
           requiredPermissions: [PERMISSIONS.OUTSTANDINGS_READ],
         },
       ],
     },
     {
       label: 'Audit Center',
-      icon: <FileText size={20} />,
+      icon: <FileText size={12} />,
       children: [
         {
           path: '/dashboard/audit/audit-logs',
           label: 'Audit Log',
-          icon: <FileText size={18} />,
+          icon: <FileText size={13} />,
           requiredPermissions: [PERMISSIONS.AUDIT_LOGS_READ],
         },
         {
           path: '/dashboard/audit/evidence-exports',
           label: 'Evidence Packages',
-          icon: <Layers size={18} />,
+          icon: <Layers size={13} />,
           requiredPermissions: [PERMISSIONS.AUDIT_EVIDENCE_EXPORTS_READ],
         },
       ],
     },
     {
       label: 'Control Gates Center',
-      icon: <ShieldCheck size={20} />,
+      icon: <ShieldCheck size={12} />,
       children: [
         {
           path: '/dashboard/control-gates/change-tickets',
           label: 'Change Tickets',
-          icon: <Briefcase size={18} />,
+          icon: <Briefcase size={13} />,
           requiredPermissions: [PERMISSIONS.GOV_CHANGE_TICKETS_READ],
         },
         {
           path: '/dashboard/control-gates/business-config-releases',
           label: 'Config Releases',
-          icon: <Layers size={18} />,
+          icon: <Layers size={13} />,
           requiredPermissions: [PERMISSIONS.GOV_CHANGE_TICKETS_READ],
         },
         {
           path: '/dashboard/control-gates/delete-requests',
           label: 'Delete Requests',
-          icon: <ClipboardList size={18} />,
+          icon: <ClipboardList size={13} />,
           requiredPermissions: [PERMISSIONS.GOV_DELETE_REQUESTS_READ],
         },
         {
           path: '/dashboard/control-gates/approvals',
           label: 'Approvals',
-          icon: <Shield size={18} />,
+          icon: <Shield size={13} />,
           requiredPermissions: [PERMISSIONS.GOV_APPROVALS_READ],
         },
         {
           path: '/dashboard/control-gates/sla-timers',
           label: 'SLA Timers',
-          icon: <History size={18} />,
+          icon: <History size={13} />,
           requiredPermissions: [PERMISSIONS.GOV_SLA_TIMERS_READ],
         },
       ],
     },
     {
       label: 'Governance Center',
-      icon: <Library size={20} />,
+      icon: <Library size={12} />,
       children: [
         {
           path: '/dashboard/governance/registries/shareholding-versions',
           label: 'Shareholding Registry',
-          icon: <Building2 size={18} />,
+          icon: <Building2 size={13} />,
           requiredPermissions: [PERMISSIONS.GOV_SHAREHOLDING_REGISTRY_READ],
         },
         {
           path: '/dashboard/governance/registries/appointments',
           label: 'Appointments',
-          icon: <UserCheck size={18} />,
+          icon: <UserCheck size={13} />,
           requiredPermissions: [PERMISSIONS.GOV_APPOINTMENTS_READ],
         },
         {
           path: '/dashboard/governance/registries/trainings',
           label: 'Trainings',
-          icon: <ClipboardList size={18} />,
+          icon: <ClipboardList size={13} />,
           requiredPermissions: [PERMISSIONS.GOV_TRAININGS_READ],
         },
         {
           path: '/dashboard/governance/registries/conflicts',
           label: 'Conflicts',
-          icon: <Shield size={18} />,
+          icon: <Shield size={13} />,
           requiredPermissions: [PERMISSIONS.GOV_CONFLICTS_READ],
         },
         {
           path: '/dashboard/governance/registries/wind-down-materials',
           label: 'Wind-down Materials',
-          icon: <FileText size={18} />,
+          icon: <FileText size={13} />,
           requiredPermissions: [PERMISSIONS.GOV_WIND_DOWN_MATERIALS_READ],
         },
         {
           path: '/dashboard/governance/regulatory-gates',
           label: 'Regulatory Gates',
-          icon: <ShieldCheck size={18} />,
+          icon: <ShieldCheck size={13} />,
           requiredPermissions: [PERMISSIONS.GOV_REGULATORY_GATES_READ],
         },
       ],
     },
     {
       label: 'Compliance Center',
-      icon: <ClipboardList size={20} />,
+      icon: <ClipboardList size={12} />,
       children: [
+        {
+          path: '/dashboard/compliance/sumsub-events',
+          label: 'Sumsub Events',
+          icon: <Zap size={13} />,
+          requiredPermissions: [],
+        },
         {
           path: '/dashboard/compliance/cdd-responses',
           label: 'CDD Responses',
-          icon: <ShieldCheck size={18} />,
+          icon: <ShieldCheck size={13} />,
           requiredPermissions: [PERMISSIONS.CDD_RESPONSES_READ],
         },
         {
           path: '/dashboard/compliance/edd-responses',
           label: 'EDD Responses',
-          icon: <Shield size={18} />,
+          icon: <Shield size={13} />,
           requiredPermissions: [PERMISSIONS.EDD_RESPONSES_READ],
         },
         {
           path: '/dashboard/compliance/tx-kyt-responses',
           label: 'KYT Responses',
-          icon: <ShieldCheck size={18} />,
+          icon: <ShieldCheck size={13} />,
           requiredPermissions: [PERMISSIONS.TX_KYT_RESPONSES_READ],
         },
         {
           path: '/dashboard/compliance/tx-travel-rule-responses',
           label: 'Travel Rule Responses',
-          icon: <Shield size={18} />,
+          icon: <Shield size={13} />,
           requiredPermissions: [PERMISSIONS.TX_TRAVEL_RULE_RESPONSES_READ],
         },
         {
           path: '/dashboard/compliance/alerts',
           label: 'Alerts',
-          icon: <Activity size={18} />,
+          icon: <Activity size={13} />,
           requiredPermissions: [PERMISSIONS.ALERTS_READ],
         },
         {
           path: '/dashboard/compliance/cases',
           label: 'Cases',
-          icon: <Activity size={18} />,
+          icon: <Activity size={13} />,
           requiredPermissions: [PERMISSIONS.CASES_READ],
         },
         {
           path: '/dashboard/compliance/case-evidence-exports',
           label: 'Case Evidence Packages',
-          icon: <Layers size={18} />,
+          icon: <Layers size={13} />,
           requiredPermissions: [PERMISSIONS.CASE_EVIDENCE_EXPORTS_READ],
         },
       ],
     },
     {
       label: 'Risk Management',
-      icon: <Shield size={20} />,
+      icon: <Shield size={12} />,
       children: [
         {
           path: '/dashboard/risk/policy-executions',
           label: 'Risk Policy Executions',
-          icon: <Activity size={18} />,
+          icon: <Activity size={13} />,
           requiredPermissions: [PERMISSIONS.RISK_DECISION_RECORDS_READ],
         },
       ],
     },
     {
       label: 'Customer Transaction',
-      icon: <ArrowLeftRight size={20} />,
+      icon: <ArrowLeftRight size={12} />,
       children: [
         {
           path: '/exchange/deposit-transactions',
           label: 'Deposit Transactions',
-          icon: <Download size={18} />,
+          icon: <Download size={13} />,
           requiredPermissions: [PERMISSIONS.DEPOSIT_TRANSACTIONS_READ],
         },
         {
           path: '/exchange/withdraw-transactions',
           label: 'Withdraw Transactions',
-          icon: <Upload size={18} />,
+          icon: <Upload size={13} />,
           requiredPermissions: [PERMISSIONS.WITHDRAW_TRANSACTIONS_READ],
         },
         {
           path: '/exchange/swap-transactions',
           label: 'Swap Transactions',
-          icon: <Repeat size={18} />,
+          icon: <Repeat size={13} />,
           requiredPermissions: [PERMISSIONS.SWAP_TRANSACTIONS_READ],
         },
         {
           path: '/exchange/internal-transactions',
           label: 'Internal Transactions',
-          icon: <Repeat size={18} />,
+          icon: <Repeat size={13} />,
           requiredPermissions: [PERMISSIONS.INTERNAL_TRANSACTIONS_READ],
         },
       ],
     },
     {
       label: 'Account Center',
-      icon: <Library size={20} />,
+      icon: <Library size={12} />,
       children: [
         {
           path: '/ledger/journals',
           label: 'Journal Entries',
-          icon: <FileText size={18} />,
+          icon: <FileText size={13} />,
           requiredPermissions: [PERMISSIONS.JOURNALS_READ],
         },
         {
           path: '/ledger/journal-lines',
           label: 'Journal Lines',
-          icon: <AlignLeft size={18} />,
+          icon: <AlignLeft size={13} />,
           requiredPermissions: [PERMISSIONS.JOURNAL_LINES_READ],
         },
         {
           path: '/ledger/balance-history',
           label: 'Balance History',
-          icon: <History size={18} />,
+          icon: <History size={13} />,
           requiredPermissions: [PERMISSIONS.CUSTOMER_BALANCE_HISTORY_READ],
         },
       ],
     },
     {
       label: 'Clearing Center',
-      icon: <Zap size={20} />,
+      icon: <Zap size={12} />,
       children: [
         {
           path: '/clearing/management',
           label: 'Clearing',
-          icon: <Activity size={18} />,
+          icon: <Activity size={13} />,
           requiredPermissions: [PERMISSIONS.CLEARINGS_READ],
         },
         {
           path: '/clearing/details',
           label: 'Clearing Lines',
-          icon: <BarChart3 size={18} />,
+          icon: <BarChart3 size={13} />,
           requiredPermissions: [PERMISSIONS.CLEARING_LINES_READ],
         },
       ],
     },
     {
       label: 'Treasury Center',
-      icon: <Briefcase size={20} />,
+      icon: <Briefcase size={12} />,
       children: [
         {
           path: '/dashboard/treasury/wallets',
           label: 'Wallet & Account',
-          icon: <Wallet size={18} />,
+          icon: <Wallet size={13} />,
           requiredPermissions: [PERMISSIONS.WALLETS_READ],
         },
         {
           path: '/dashboard/treasury/payins',
           label: 'Payin Records',
-          icon: <LogIn size={18} />,
+          icon: <LogIn size={13} />,
           requiredPermissions: [PERMISSIONS.PAYINS_READ],
         },
         {
           path: '/dashboard/treasury/payouts',
           label: 'Payout Records',
-          icon: <LogOut size={18} />,
+          icon: <LogOut size={13} />,
           requiredPermissions: [PERMISSIONS.PAYOUTS_READ],
         },
         {
           path: '/dashboard/treasury/internal-funds',
           label: 'Internal Funds',
-          icon: <Activity size={18} />,
+          icon: <Activity size={13} />,
           requiredPermissions: [PERMISSIONS.INTERNAL_FUNDS_READ],
         },
         {
           path: '/dashboard/treasury/pool-settlement-batches',
           label: 'Pool Settlement Batches',
-          icon: <Layers size={18} />,
+          icon: <Layers size={13} />,
           requiredPermissions: [PERMISSIONS.POOL_SETTLEMENT_BATCH_READ],
         },
         {
           path: '/dashboard/treasury/fee-occurrences',
           label: 'Fee Occurrences',
-          icon: <Coins size={18} />,
+          icon: <Coins size={13} />,
           requiredPermissions: [PERMISSIONS.FEE_OCCURRENCES_READ],
         },
         {
           path: '/dashboard/treasury/reimbursement-obligations',
           label: 'Reimbursement Obligations',
-          icon: <Wallet size={18} />,
+          icon: <Wallet size={13} />,
           requiredPermissions: [PERMISSIONS.REIMBURSEMENT_OBLIGATIONS_READ],
         },
         {
           path: '/dashboard/treasury/deposit-wallet-monitor',
           label: 'Deposit Wallet Monitor',
-          icon: <Repeat size={18} />,
+          icon: <Repeat size={13} />,
           requiredPermissions: [PERMISSIONS.INTERNAL_COLLECTIONS_RECONCILE],
         },
       ],
     },
     {
       label: 'Infrastructure Domain',
-      icon: <Cpu size={20} />,
+      icon: <Cpu size={12} />,
       children: [
         {
           path: '/dashboard/system/assets',
           label: 'Assets Config',
-          icon: <Coins size={18} />,
+          icon: <Coins size={13} />,
           requiredPermissions: [PERMISSIONS.ASSETS_READ],
         },
         {
           path: '/ledger/coa',
           label: 'Chart of Accounts (COA)',
-          icon: <Table size={18} />,
+          icon: <Table size={13} />,
           requiredPermissions: [PERMISSIONS.COA_READ],
         },
         {
           path: '/dashboard/system/acct-events',
           label: 'Event Code Management',
-          icon: <Command size={18} />,
+          icon: <Command size={13} />,
           requiredPermissions: [PERMISSIONS.ACCT_EVENTS_READ],
         },
         {
           path: '/dashboard/system/journal-header-templates',
           label: 'Journal Templates',
-          icon: <FileCode size={18} />,
+          icon: <FileCode size={13} />,
           requiredPermissions: [PERMISSIONS.JOURNAL_HEADER_TEMPLATES_READ],
         },
         {
           path: '/dashboard/system/clearing-header-templates',
           label: 'Clearing Templates',
-          icon: <Layers size={18} />,
+          icon: <Layers size={13} />,
           requiredPermissions: [PERMISSIONS.CLEARING_TEMPLATES_READ],
         },
       ],
     },
     {
       label: 'Counterparty Management',
-      icon: <Handshake size={20} />,
+      icon: <Handshake size={12} />,
       children: [
         {
           path: '/dashboard/system/liquidity-providers',
           label: 'Liquidity Providers',
-          icon: <Building2 size={18} />,
+          icon: <Building2 size={13} />,
           requiredPermissions: [PERMISSIONS.LIQUIDITY_PROVIDERS_READ],
         },
         {
           path: '/dashboard/system/liquidity-config',
           label: 'LP Liquidity Config',
-          icon: <ShieldCheck size={18} />,
+          icon: <ShieldCheck size={13} />,
           requiredPermissions: [PERMISSIONS.LIQUIDITY_CONFIG_READ],
         },
       ],
     },
     {
       label: 'Backend Member Management',
-      icon: <Shield size={20} />,
+      icon: <Shield size={12} />,
       children: [
         {
           path: '/dashboard/members',
           label: 'Platform Members',
-          icon: <UserCheck size={18} />,
+          icon: <UserCheck size={13} />,
           requiredPermissions: [PERMISSIONS.USERS_READ],
         },
         {
           path: '/dashboard/members/roles',
           label: 'Role Management',
-          icon: <ShieldCheck size={18} />,
+          icon: <ShieldCheck size={13} />,
           requiredPermissions: [PERMISSIONS.IAM_ROLES_READ],
         },
       ],
@@ -550,18 +554,11 @@ const DashboardLayout = () => {
         if ('path' in item) {
           return hasAnyPermission(item.requiredPermissions) ? item : null;
         }
-
         const children = item.children.filter((child) =>
           hasAnyPermission(child.requiredPermissions),
         );
-        if (children.length === 0) {
-          return null;
-        }
-
-        return {
-          ...item,
-          children,
-        } as MenuGroup;
+        if (children.length === 0) return null;
+        return { ...item, children } as MenuGroup;
       })
       .filter((item): item is MenuItem => item !== null);
   }, [hasAnyPermission]);
@@ -571,53 +568,72 @@ const DashboardLayout = () => {
   const avatarText = displayName.slice(0, 1).toUpperCase();
 
   return (
-    <div className="h-screen bg-admin-content-bg dark:bg-deep-space flex font-['Noto_Sans_SC'] overflow-hidden">
+    <div className="flex h-screen overflow-hidden bg-adm-bg font-['Noto_Sans_SC']">
+
+      {/* ── Sidebar ── */}
       <aside
-        className={`fixed lg:static inset-y-0 left-0 z-50 w-64 bg-admin-sidebar-bg text-admin-sidebar-text transition-transform duration-300 ${
-          isSidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
-        } lg:w-64 flex flex-col border-r border-admin-sidebar-hover h-full`}
+        className={[
+          'fixed lg:static inset-y-0 left-0 z-50 flex h-full w-60 flex-col',
+          'border-r border-adm-border bg-adm-panel',
+          'transition-transform duration-300',
+          isSidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0',
+        ].join(' ')}
       >
-        <div className="h-16 flex-none flex items-center px-6 border-b border-admin-sidebar-hover">
-          <div className="w-8 h-8 bg-brand-primary rounded flex items-center justify-center font-bold mr-3 text-white">
-            E
+        {/* Logo */}
+        <div className="flex h-12 flex-none items-center gap-2.5 border-b border-adm-border px-4">
+          <div className="flex h-6 w-6 items-center justify-center rounded bg-adm-amber">
+            <span className="font-mono text-[11px] font-bold text-white">E</span>
           </div>
-          <span className="font-bold text-lg tracking-wide">ADMIN</span>
+          <span className="font-mono text-[11px] font-semibold uppercase tracking-[0.18em] text-adm-t1">
+            Admin
+          </span>
         </div>
 
-        <nav className="flex-1 py-6 px-3 space-y-1 overflow-y-auto">
+        {/* Nav */}
+        <nav className="flex-1 overflow-y-auto px-3 py-3">
           {visibleMenuItems.map((item, index) => (
             <div key={`${'path' in item ? item.path : item.label}-${index}`}>
               {'path' in item ? (
+                /* ── Top-level direct link ── */
                 <Link
                   to={item.path}
-                  className={`flex items-center px-3 py-2 rounded-lg transition-all duration-200 mb-1 ${
+                  className={[
+                    'mb-0.5 flex items-center gap-2 rounded px-2.5 py-1.5 transition-colors',
+                    'font-mono text-[11px]',
                     isPathActive(location.pathname, item.path)
-                      ? 'bg-brand-primary text-white shadow-md shadow-brand-primary/20'
-                      : 'text-gray-400 hover:text-admin-sidebar-text hover:bg-admin-sidebar-hover'
-                  }`}
+                      ? 'bg-adm-card font-medium text-adm-amber'
+                      : 'text-adm-t2 hover:bg-adm-hover hover:text-adm-t1',
+                  ].join(' ')}
                 >
-                  {item.icon}
-                  <span className="ml-3 text-sm font-medium">{item.label}</span>
+                  <span className="shrink-0">{item.icon}</span>
+                  {item.label}
                 </Link>
               ) : (
-                <div className="mb-4">
-                  <div className="flex items-center px-3 py-2 text-gray-500 text-xs font-bold uppercase tracking-wider">
-                    {item.icon}
-                    <span className="ml-3">{item.label}</span>
+                /* ── Group ── */
+                <div className="mb-1 mt-3 first:mt-1">
+                  {/* Group header — section label style */}
+                  <div className="mb-1 flex items-center gap-1.5 px-2.5 py-1">
+                    <span className="shrink-0 text-adm-t3">{item.icon}</span>
+                    <span className="font-mono text-[8.5px] font-semibold uppercase tracking-[0.16em] text-adm-t3">
+                      {item.label}
+                    </span>
                   </div>
-                  <div className="ml-4 pl-3 border-l border-admin-sidebar-hover space-y-1 mt-1">
+                  {/* Children */}
+                  <div className="space-y-0.5 pl-2">
                     {item.children.map((child, cIndex) => (
                       <Link
                         key={`${child.path}-${cIndex}`}
                         to={child.path}
-                        className={`flex items-center px-3 py-2 rounded-lg transition-all duration-200 ${
+                        className={[
+                          'flex items-center gap-2 rounded px-2.5 py-1.5 transition-colors',
+                          'font-mono text-[11px]',
                           isPathActive(location.pathname, child.path)
-                            ? 'text-white bg-admin-sidebar-hover border-r-2 border-brand-primary'
-                            : 'text-gray-400 hover:text-admin-sidebar-text hover:bg-admin-sidebar-hover/50'
-                        }`}
+                            ? 'bg-adm-card font-medium text-adm-amber'
+                            : 'text-adm-t2 hover:bg-adm-hover hover:text-adm-t1',
+                        ].join(' ')}
                       >
-                        {child.icon}
-                        <span className="ml-3 text-sm">{child.label}</span>
+                        <span className="shrink-0 text-current">{child.icon}</span>
+                        {child.label}
                       </Link>
                     ))}
                   </div>
@@ -627,72 +643,95 @@ const DashboardLayout = () => {
           ))}
         </nav>
 
-        <div className="p-4 border-t border-admin-sidebar-hover flex-none">
+        {/* Sign out */}
+        <div className="flex-none border-t border-adm-border px-3 py-3">
           <button
             onClick={handleLogout}
-            className="flex items-center w-full px-3 py-2 text-gray-400 hover:text-red-400 hover:bg-admin-sidebar-hover rounded-lg transition-colors"
+            className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 font-mono text-[11px] text-adm-t3 transition-colors hover:bg-adm-hover hover:text-adm-red"
           >
-            <LogOut size={20} />
-            <span className="ml-3 text-sm font-medium">Sign Out</span>
+            <LogOut size={13} />
+            Sign Out
           </button>
         </div>
       </aside>
 
-      <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
-        <header className="bg-white dark:bg-admin-sidebar-bg dark:border-admin-sidebar-hover border-b border-admin-border h-16 flex-none flex items-center justify-between px-6">
+      {/* ── Right column ── */}
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+
+        {/* Top header */}
+        <header className="flex h-12 flex-none items-center justify-between border-b border-adm-border bg-adm-panel px-5">
+          {/* Mobile hamburger */}
           <button
             onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-            className="lg:hidden text-gray-500 hover:text-gray-700"
+            className="text-adm-t3 transition-colors hover:text-adm-t1 lg:hidden"
           >
-            <Menu size={24} />
+            <Menu size={18} />
           </button>
-          <div className="flex items-center gap-4 ml-auto">
-            <label className="flex items-center gap-2 rounded-full border border-gray-200 px-3 py-1.5 text-xs font-semibold text-gray-600 dark:border-admin-sidebar-hover dark:text-gray-300">
-              <span>Simulation Mode</span>
+
+          {/* Right controls */}
+          <div className="ml-auto flex items-center gap-3">
+            {/* Simulation mode toggle */}
+            <label className="flex cursor-pointer items-center gap-2 rounded border border-adm-border px-2.5 py-1 font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">
+              <span>Simulation</span>
               <button
                 type="button"
                 onClick={() => setSimulationModeEnabled(!simulationModeEnabled)}
-                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                  simulationModeEnabled
-                    ? 'bg-blue-600'
-                    : 'bg-gray-300 dark:bg-admin-sidebar-hover'
-                }`}
+                className={[
+                  'relative inline-flex h-4 w-8 items-center rounded-full transition-colors',
+                  simulationModeEnabled ? 'bg-adm-amber' : 'bg-adm-hover',
+                ].join(' ')}
                 title={simulationModeEnabled ? 'Disable Simulation Mode' : 'Enable Simulation Mode'}
               >
                 <span
-                  className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${
-                    simulationModeEnabled ? 'translate-x-5' : 'translate-x-1'
-                  }`}
+                  className={[
+                    'inline-block h-3 w-3 transform rounded-full bg-white transition-transform',
+                    simulationModeEnabled ? 'translate-x-4' : 'translate-x-0.5',
+                  ].join(' ')}
                 />
               </button>
             </label>
+
+            {/* Theme toggle */}
             <button
               onClick={toggleTheme}
-              className="p-2 rounded-lg text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-admin-sidebar-hover transition-colors"
+              className="rounded p-1.5 text-adm-t3 transition-colors hover:bg-adm-hover hover:text-adm-t1"
               title={isDarkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
             >
-              {isDarkMode ? <Sun size={20} /> : <Moon size={20} />}
+              {isDarkMode ? <Sun size={15} /> : <Moon size={15} />}
             </button>
-            <div className="text-right">
-              <div className="text-sm font-bold text-gray-900 dark:text-white">{displayName}</div>
-              <div className="text-xs text-gray-500">{displayRole}</div>
-            </div>
-            <div className="w-10 h-10 bg-brand-primary rounded-full flex items-center justify-center text-white font-bold">
-              {avatarText}
+
+            {/* Divider */}
+            <div className="h-4 w-px bg-adm-border" />
+
+            {/* User info */}
+            <div className="flex items-center gap-2.5">
+              <div className="text-right">
+                <div className="font-mono text-[11px] font-medium text-adm-t1 leading-tight">
+                  {displayName}
+                </div>
+                <div className="font-mono text-[9px] text-adm-t3 leading-tight">
+                  {displayRole}
+                </div>
+              </div>
+              <div className="flex h-7 w-7 items-center justify-center rounded-full bg-adm-amber font-mono text-[11px] font-bold text-white">
+                {avatarText}
+              </div>
             </div>
           </div>
         </header>
 
-        <main className="flex-1 p-6 overflow-y-auto dark:bg-deep-space dark:text-white">
+        {/* Main content — no padding, let each page own its scroll */}
+        <main className="flex-1 overflow-hidden bg-adm-bg">
           <Outlet />
         </main>
       </div>
 
+      {/* Mobile backdrop */}
       {isSidebarOpen && (
         <div
-          className="fixed inset-0 bg-black/50 z-40 lg:hidden"
+          className="fixed inset-0 z-40 bg-black/50 lg:hidden"
           onClick={() => setIsSidebarOpen(false)}
-        ></div>
+        />
       )}
     </div>
   );
