@@ -12,6 +12,7 @@ import { SimulationScenario } from './dto/sumsub-ingestion.dto';
 import { SumsubWebhookEvent } from '@prisma/client';
 
 const MAX_NO_RETRIES = 5;
+const MAX_DISPATCH_ATTEMPTS = 3; // event becomes DEAD after this many failed attempts
 
 @Injectable()
 export class SumsubIngestionService {
@@ -105,7 +106,7 @@ export class SumsubIngestionService {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       const newRetryCount = event.retryCount + 1;
-      const newStatus = newRetryCount >= 3 ? 'DEAD' : 'FAILED';
+      const newStatus = newRetryCount >= MAX_DISPATCH_ATTEMPTS ? 'DEAD' : 'FAILED';
 
       await this.prisma.sumsubWebhookEvent.update({
         where: { id: event.id },
@@ -249,7 +250,8 @@ export class SumsubIngestionService {
     if (event.status !== 'DEAD') {
       throw new BadRequestException(`Only DEAD events can be replayed (current status: ${event.status})`);
     }
-    // Reset for retry
+    // Reset retryCount to 0: admin explicitly chose to replay this event.
+    // The event can reach DEAD again if dispatch continues to fail.
     const reset = await this.prisma.sumsubWebhookEvent.update({
       where: { id },
       data: { status: 'FAILED', retryCount: 0, lastErrorMessage: null },
@@ -267,7 +269,8 @@ export class SumsubIngestionService {
     }
     try {
       return JSON.parse(rawPayload) as Record<string, unknown>;
-    } catch {
+    } catch (err) {
+      this.logger.error(`Failed to parse rawPayload for event: ${String(err)}`);
       return {};
     }
   }
@@ -312,11 +315,12 @@ export class SumsubIngestionService {
   private buildDedupeKey(payload: Record<string, unknown>): string | null {
     const type = String(payload.type ?? '');
     const applicantId = String(payload.applicantId ?? '');
+    const externalUserId = String(payload.externalUserId ?? '');
     const reviewResult = payload.reviewResult as Record<string, unknown> | undefined;
     const reviewId = String(reviewResult?.reviewId ?? payload.reviewId ?? '');
     const attemptId = String(reviewResult?.attemptId ?? payload.attemptId ?? '');
     if (!type || !applicantId) return null;
-    return `${type}:${applicantId}:${reviewId}:${attemptId}`;
+    return `${type}:${applicantId}:${externalUserId}:${reviewId}:${attemptId}`;
   }
 
   private extractDedupeKey(payload: Record<string, unknown>): string | null {
