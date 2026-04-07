@@ -1,0 +1,329 @@
+// src/modules/sumsub-ingestion/sumsub-ingestion.service.ts
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
+import { PrismaService } from '../../core/prisma/prisma.service';
+import { OnboardingService } from '../identity/onboarding/onboarding.service';
+import { generateReferenceNo } from '../../common/utils/no-generator.util';
+import { SimulationScenario } from './dto/sumsub-ingestion.dto';
+import { SumsubWebhookEvent } from '@prisma/client';
+
+const MAX_NO_RETRIES = 5;
+
+@Injectable()
+export class SumsubIngestionService {
+  private readonly logger = new Logger(SumsubIngestionService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly onboardingService: OnboardingService,
+  ) {}
+
+  // ─── Main entry point (real webhook + simulation both call this) ──────────
+
+  async ingest(
+    rawPayload: Record<string, unknown>,
+    options: { isSimulated?: boolean; simulatedByUserId?: string } = {},
+  ): Promise<{ event: SumsubWebhookEvent; dispatchResult?: unknown }> {
+    const eventType = String(rawPayload.type ?? 'unknown');
+    const applicantId = String(rawPayload.applicantId ?? '');
+    const externalUserId = String(rawPayload.externalUserId ?? '');
+
+    // Deduplication: if an identical event (same type+applicantId+reviewId) was
+    // already PROCESSED, return it without dispatching again.
+    const dedupeKey = this.buildDedupeKey(rawPayload);
+    if (dedupeKey) {
+      const existing = await this.prisma.sumsubWebhookEvent.findFirst({
+        where: { eventType, applicantId, status: 'PROCESSED' },
+        orderBy: { createdAt: 'desc' },
+      });
+      if (existing) {
+        const existingPayload = this.parseRawPayload(existing.rawPayload);
+        if (this.extractDedupeKey(existingPayload) === dedupeKey) {
+          this.logger.warn(`Duplicate event skipped: ${dedupeKey}`);
+          return { event: existing };
+        }
+      }
+    }
+
+    // Persist event record
+    const event = await this.createEventRecord({
+      eventType,
+      applicantId,
+      externalUserId,
+      rawPayload,
+      isSimulated: options.isSimulated ?? false,
+      simulatedByUserId: options.simulatedByUserId ?? null,
+    });
+
+    if (options.isSimulated) {
+      // Synchronous dispatch for simulation — caller wants to see the result immediately
+      const dispatchResult = await this.dispatch(event);
+      return { event: await this.refresh(event.id), dispatchResult };
+    } else {
+      // Fire-and-forget for real webhooks — return 200 to Sumsub quickly
+      this.dispatch(event).catch((err) =>
+        this.logger.error(`Dispatch failed for event ${event.id}: ${String(err)}`),
+      );
+      return { event };
+    }
+  }
+
+  // ─── Dispatch to domain handler ───────────────────────────────────────────
+
+  async dispatch(event: SumsubWebhookEvent): Promise<unknown> {
+    try {
+      // rawPayload is stored as a JSON string in SQLite; parse it back to an object
+      const payload = this.parseRawPayload(event.rawPayload);
+      let result: unknown;
+
+      // Route by context — currently only ONBOARDING is implemented.
+      // Add PERIODIC_REVIEW and TRANSACTION cases here when those handlers are ready.
+      if (event.context === 'ONBOARDING') {
+        result = await this.onboardingService.handleSumsubVerificationEvent(payload, {
+          simulated: event.isSimulated,
+          actorId: event.isSimulated ? (event.simulatedByUserId ?? 'ADMIN_SIM') : 'SUMSUB',
+          rawBody: Buffer.from(JSON.stringify(payload)),
+        });
+      } else {
+        throw new Error(`No handler registered for context: ${event.context}`);
+      }
+
+      await this.prisma.sumsubWebhookEvent.update({
+        where: { id: event.id },
+        data: {
+          status: 'PROCESSED',
+          processedAt: new Date(),
+          dispatchedTo: event.context,
+        },
+      });
+
+      return result;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      const newRetryCount = event.retryCount + 1;
+      const newStatus = newRetryCount >= 3 ? 'DEAD' : 'FAILED';
+
+      await this.prisma.sumsubWebhookEvent.update({
+        where: { id: event.id },
+        data: {
+          status: newStatus,
+          retryCount: newRetryCount,
+          lastRetryAt: new Date(),
+          lastErrorMessage: message,
+        },
+      });
+
+      if (newStatus === 'DEAD') {
+        this.logger.error(
+          `Event ${event.eventNo} is DEAD after ${newRetryCount} attempts: ${message}`,
+        );
+        // TODO Wave 9: write system alert for dead events
+      }
+
+      throw err;
+    }
+  }
+
+  // ─── Simulation: build payload for each scenario ─────────────────────────
+
+  async simulate(
+    customerId: string,
+    scenario: SimulationScenario,
+    simulatedByUserId: string,
+    overrides?: Record<string, unknown>,
+  ): Promise<{ event: SumsubWebhookEvent; dispatchResult?: unknown }> {
+    const customer = await this.prisma.customerMain.findUnique({
+      where: { id: customerId },
+      select: { id: true, customerNo: true, sumsubApplicantId: true },
+    });
+    if (!customer) throw new NotFoundException(`Customer ${customerId} not found`);
+
+    const applicantId = customer.sumsubApplicantId ?? `SIM-${customer.customerNo}`;
+    const basePayload = this.buildScenarioPayload(scenario, applicantId, customer.id);
+    const finalPayload = { ...basePayload, ...(overrides ?? {}) };
+
+    return this.ingest(finalPayload, { isSimulated: true, simulatedByUserId });
+  }
+
+  private buildScenarioPayload(
+    scenario: SimulationScenario,
+    applicantId: string,
+    externalUserId: string,
+  ): Record<string, unknown> {
+    const base = { applicantId, externalUserId };
+    switch (scenario) {
+      case SimulationScenario.LOW_RISK_PASS:
+        return {
+          ...base,
+          type: 'applicantWorkflowCompleted',
+          reviewResult: { reviewAnswer: 'GREEN', reviewRejectType: 'FINAL' },
+        };
+      case SimulationScenario.MANUAL_REVIEW:
+        return { ...base, type: 'applicantOnHold' };
+      case SimulationScenario.RESUBMIT_REQUIRED:
+        return {
+          ...base,
+          type: 'applicantReviewed',
+          reviewResult: { reviewAnswer: 'RED', reviewRejectType: 'RETRY' },
+        };
+      case SimulationScenario.EDD_ESCALATE:
+        return { ...base, type: 'applicantLevelChanged', levelName: 'level2' };
+      case SimulationScenario.EDD_PASS:
+        // Sends applicantWorkflowCompleted — customer must have sumsubExperiencedLevel2=true
+        // (send EDD_ESCALATE first to set that flag)
+        return {
+          ...base,
+          type: 'applicantWorkflowCompleted',
+          reviewResult: { reviewAnswer: 'GREEN', reviewRejectType: 'FINAL' },
+        };
+      case SimulationScenario.WORKFLOW_FAIL:
+        return {
+          ...base,
+          type: 'applicantWorkflowFailed',
+          reviewResult: { reviewAnswer: 'RED', reviewRejectType: 'FINAL' },
+        };
+    }
+  }
+
+  // ─── List / detail for admin UI ───────────────────────────────────────────
+
+  async list(query: {
+    status?: string;
+    eventType?: string;
+    externalUserId?: string;
+    applicantId?: string;
+    skip?: number;
+    take?: number;
+  }) {
+    const where = {
+      ...(query.status ? { status: query.status as 'PENDING' | 'PROCESSED' | 'FAILED' | 'DEAD' } : {}),
+      ...(query.eventType ? { eventType: query.eventType } : {}),
+      ...(query.externalUserId ? { externalUserId: query.externalUserId } : {}),
+      ...(query.applicantId ? { applicantId: query.applicantId } : {}),
+    };
+    const take = Math.min(query.take ?? 20, 100);
+    const skip = query.skip ?? 0;
+
+    const [total, items] = await Promise.all([
+      this.prisma.sumsubWebhookEvent.count({ where }),
+      this.prisma.sumsubWebhookEvent.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take,
+        select: {
+          id: true,
+          eventNo: true,
+          eventType: true,
+          applicantId: true,
+          externalUserId: true,
+          context: true,
+          status: true,
+          retryCount: true,
+          isSimulated: true,
+          simulatedByUserId: true,
+          receivedAt: true,
+          processedAt: true,
+          dispatchedTo: true,
+          lastErrorMessage: true,
+          createdAt: true,
+        },
+      }),
+    ]);
+
+    return { total, skip, take, items };
+  }
+
+  async findOne(id: string) {
+    const event = await this.prisma.sumsubWebhookEvent.findUnique({ where: { id } });
+    if (!event) throw new NotFoundException(`Sumsub event ${id} not found`);
+    return event;
+  }
+
+  async replay(id: string): Promise<{ event: SumsubWebhookEvent }> {
+    const event = await this.findOne(id);
+    if (event.status !== 'DEAD') {
+      throw new BadRequestException(`Only DEAD events can be replayed (current status: ${event.status})`);
+    }
+    // Reset for retry
+    const reset = await this.prisma.sumsubWebhookEvent.update({
+      where: { id },
+      data: { status: 'FAILED', retryCount: 0, lastErrorMessage: null },
+    });
+    await this.dispatch(reset);
+    return { event: await this.refresh(id) };
+  }
+
+  // ─── Helpers ─────────────────────────────────────────────────────────────
+
+  private parseRawPayload(rawPayload: string): Record<string, unknown> {
+    if (typeof rawPayload !== 'string') {
+      // Already an object (should not happen with SQLite String type, but guard anyway)
+      return rawPayload as unknown as Record<string, unknown>;
+    }
+    try {
+      return JSON.parse(rawPayload) as Record<string, unknown>;
+    } catch {
+      return {};
+    }
+  }
+
+  private async createEventRecord(data: {
+    eventType: string;
+    applicantId: string;
+    externalUserId: string;
+    rawPayload: Record<string, unknown>;
+    isSimulated: boolean;
+    simulatedByUserId: string | null;
+  }): Promise<SumsubWebhookEvent> {
+    for (let i = 0; i < MAX_NO_RETRIES; i++) {
+      try {
+        return await this.prisma.sumsubWebhookEvent.create({
+          data: {
+            eventNo: generateReferenceNo('SWH'),
+            eventType: data.eventType,
+            applicantId: data.applicantId,
+            externalUserId: data.externalUserId,
+            context: 'ONBOARDING',
+            rawPayload: JSON.stringify(data.rawPayload),
+            receivedAt: new Date(),
+            status: 'PENDING',
+            isSimulated: data.isSimulated,
+            simulatedByUserId: data.simulatedByUserId,
+          },
+        });
+      } catch (err: unknown) {
+        const isUnique =
+          typeof err === 'object' &&
+          err !== null &&
+          'code' in err &&
+          (err as { code: string }).code === 'P2002';
+        if (isUnique) continue;
+        throw err;
+      }
+    }
+    throw new Error('Failed to generate unique eventNo after max retries');
+  }
+
+  private buildDedupeKey(payload: Record<string, unknown>): string | null {
+    const type = String(payload.type ?? '');
+    const applicantId = String(payload.applicantId ?? '');
+    const reviewResult = payload.reviewResult as Record<string, unknown> | undefined;
+    const reviewId = String(reviewResult?.reviewId ?? payload.reviewId ?? '');
+    const attemptId = String(reviewResult?.attemptId ?? payload.attemptId ?? '');
+    if (!type || !applicantId) return null;
+    return `${type}:${applicantId}:${reviewId}:${attemptId}`;
+  }
+
+  private extractDedupeKey(payload: Record<string, unknown>): string | null {
+    return this.buildDedupeKey(payload);
+  }
+
+  private async refresh(id: string): Promise<SumsubWebhookEvent> {
+    return this.prisma.sumsubWebhookEvent.findUniqueOrThrow({ where: { id } });
+  }
+}
