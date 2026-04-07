@@ -379,7 +379,7 @@ export default function SumsubEventsPage() {
               {/* Customer ID input */}
               <div>
                 <label className="mb-1.5 block font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">
-                  Customer ID (internal cuid or customerNo)
+                  Customer ID (internal cuid)
                 </label>
                 <input
                   value={simCustomerId}

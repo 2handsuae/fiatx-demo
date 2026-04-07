@@ -35,7 +35,8 @@ export class SumsubIngestionService {
 
     // Deduplication: if an identical event (same type+applicantId+reviewId) was
     // already PROCESSED, return it without dispatching again.
-    const dedupeKey = this.buildDedupeKey(rawPayload);
+    // Simulated events skip dedup so admins can re-run scenarios freely.
+    const dedupeKey = !options.isSimulated ? this.buildDedupeKey(rawPayload) : null;
     if (dedupeKey) {
       const existing = await this.prisma.sumsubWebhookEvent.findFirst({
         where: { eventType, applicantId, status: 'PROCESSED' },
