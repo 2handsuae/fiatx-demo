@@ -13,6 +13,7 @@ The platform is outsourcing all compliance operations to Sumsub. Sumsub acts as 
 risk scoring, AML/PEP/Sanctions screening, CDD verification, human review, EDD escalation, investigation, reporting, and regulatory filing all happen inside Sumsub. This system becomes a passive signal receiver — it only reacts to Sumsub webhooks and manages its own governance gate (Final Approval).
 
 This spec covers:
+- A unified Sumsub webhook ingestion layer (new) that receives, persists, and routes all Sumsub signals
 - The correct Wave 3 onboarding state machine under Sumsub full-auto mode
 - The Final Approval governance gate (the only step that happens inside this system)
 - What Wave 2 onboarding-side compliance code is no longer needed
@@ -81,10 +82,110 @@ REJECTED / WITHDRAWN → may reinitiate verification (back to NONE → PENDING_V
 
 ---
 
-## 4. Sumsub Webhook Handler
+## 4. Unified Sumsub Webhook Ingestion Layer
 
-**Endpoint:** `POST /onboarding/sumsub/webhook`
-**Auth:** HMAC-SHA256 signature verification (`x-payload-digest` header)
+All Sumsub signals — regardless of domain (onboarding, periodic review, future transaction monitoring) — enter the system through a single ingestion layer.
+
+### Architecture
+
+```
+Sumsub
+  │
+  ▼
+POST /webhooks/sumsub  (unified entry point)
+  │
+  ├── 1. Verify HMAC-SHA256 signature (x-payload-digest)
+  ├── 2. Persist raw event → sumsub_webhook_events (status: PENDING)
+  ├── 3. Parse: eventType + applicantId + externalUserId + context
+  ├── 4. Route to domain handler:
+  │       ├── context = ONBOARDING      → OnboardingService
+  │       ├── context = PERIODIC_REVIEW → PeriodicReviewService  (future)
+  │       └── context = TRANSACTION     → TransactionService     (future)
+  ├── 5. On success → update record status: PROCESSED
+  └── 6. On failure → update record status: FAILED, increment retryCount
+              └── Auto-retry (up to 3 attempts, exponential backoff)
+                      └── Still failing → status: DEAD, write system alert
+```
+
+### `sumsub_webhook_events` table
+
+| Field | Type | Notes |
+|---|---|---|
+| `id` | string | Primary key |
+| `eventNo` | string | Human-readable reference (e.g. `SWH-0001`) |
+| `eventType` | string | Sumsub event type (e.g. `applicantWorkflowCompleted`) |
+| `applicantId` | string | Sumsub applicant ID |
+| `externalUserId` | string | Our customer ID as sent to Sumsub |
+| `context` | enum | `ONBOARDING` / `PERIODIC_REVIEW` / `TRANSACTION` |
+| `rawPayload` | json | Full raw webhook body, immutable |
+| `receivedAt` | datetime | Wall-clock time of receipt |
+| `status` | enum | `PENDING` / `PROCESSED` / `FAILED` / `DEAD` |
+| `retryCount` | int | Number of processing attempts (max 3) |
+| `lastErrorMessage` | string | Error from last failed attempt |
+| `processedAt` | datetime | Timestamp of successful processing |
+| `dispatchedTo` | string | Which downstream handler was called |
+| `isSimulated` | boolean | `true` when created via admin simulation |
+| `simulatedByUserId` | string | Admin user who triggered simulation |
+| `createdAt` | datetime | |
+
+### Idempotency
+
+Each Sumsub event carries a unique `type + applicantId + reviewId/attemptId`. Before dispatching to the domain handler, the ingestion layer checks for an existing `PROCESSED` record with the same deduplication key. If found, the new event is stored as `PROCESSED` immediately with no downstream dispatch.
+
+### Retry policy
+
+- Max attempts: 3
+- Backoff: 30 s → 5 min → 30 min
+- After 3 failures: status → `DEAD`, write a system-level alert to notify operators
+- Dead events can be manually replayed from the Admin "Sumsub Events" page
+
+---
+
+## 5. Admin: Sumsub Events Page
+
+Location in admin nav: **Compliance → Sumsub Events**
+
+This page is the operational home for all Sumsub signal history and simulation.
+
+### Event log table
+
+Columns: Event No | Received At | Type | Applicant ID | Customer No | Context | Status | Simulated | Actions
+
+- Status badge: `PROCESSED` (green) / `PENDING` (blue) / `FAILED` (amber) / `DEAD` (red)
+- Clicking a row shows: raw payload, parsed fields, dispatch result, retry history
+- `DEAD` events show a "Replay" button
+- Simulated events show a "Simulated" badge
+
+### Simulation panel
+
+A "Simulate Event" button opens a form with:
+
+| Field | Input |
+|---|---|
+| Customer | Search by customer no / email |
+| Event Type | Dropdown: all supported Sumsub event types |
+| Scenario | Pre-built scenario shortcuts (see below) |
+| Raw override | Optional: paste custom JSON payload |
+
+**Pre-built scenarios (shortcuts for common demo flows):**
+
+| Scenario Label | Event Sent |
+|---|---|
+| ✅ Low risk — auto approve | `applicantWorkflowCompleted` (no level2) |
+| 🔍 Manual review required | `applicantOnHold` |
+| 📄 Resubmission required | `applicantReviewed` RED + RETRY |
+| ⬆️ Escalate to EDD | `applicantLevelChanged` → level2 |
+| ✅ EDD passed — needs Final Approval | `applicantWorkflowCompleted` (with level2) |
+| ❌ Workflow failed — rejected | `applicantWorkflowFailed` |
+
+Simulated events are stored in `sumsub_webhook_events` with `isSimulated = true` and `simulatedByUserId` set. They flow through the exact same ingestion → routing → domain handler path as real events. The result appears in the event log immediately.
+
+---
+
+## 6. Domain Webhook Handler: Onboarding
+
+Receives dispatched events from the ingestion layer for `context = ONBOARDING`.
+
 **All logic flows through:** `OnboardingService.handleSumsubVerificationEvent()`
 
 ### Event handling table
@@ -100,13 +201,9 @@ REJECTED / WITHDRAWN → may reinitiate verification (back to NONE → PENDING_V
 | `applicantWorkflowCompleted` (level2) | `onboardingStatus = FINAL_APPROVAL`, auto-create `ONBOARDING_FINAL_APPROVAL`, write audit log |
 | `applicantWorkflowFailed` | `onboardingStatus = REJECTED`, write audit log |
 
-### Idempotency
-
-Each webhook event carries a unique `type + applicantId + reviewId/attemptId`. The handler must be idempotent: replaying the same event must not produce duplicate audit entries, duplicate approval cases, or duplicate status transitions.
-
 ---
 
-## 5. Final Approval Gate
+## 7. Final Approval Gate
 
 This is the only governance step that happens inside this system (not in Sumsub).
 
@@ -129,13 +226,16 @@ This is the only governance step that happens inside this system (not in Sumsub)
 
 ---
 
-## 6. System Responsibility Boundary
+## 8. System Responsibility Boundary
 
 ### This system owns
 
 | Concern | Where |
 |---|---|
-| Sumsub webhook receiver + HMAC verification | `onboarding-sumsub-webhook.controller.ts` |
+| Unified Sumsub webhook receiver + HMAC verification | `sumsub-ingestion.controller.ts` (new) |
+| Webhook event persistence + retry + dead-letter | `sumsub-ingestion.service.ts` (new) |
+| Domain routing (onboarding / periodic review / transaction) | `sumsub-ingestion.service.ts` (new) |
+| Admin Sumsub Events page + simulation UI | `admin-web/SumsubEventsPage.tsx` (new) |
 | Customer state transitions (onboardingStatus, operatingStatus) | `onboarding.service.ts` |
 | verificationSubstatus projection | `onboarding.service.ts` |
 | Auto-create ONBOARDING_FINAL_APPROVAL | `onboarding-final-approval.service.ts` |
@@ -156,7 +256,7 @@ This is the only governance step that happens inside this system (not in Sumsub)
 
 ---
 
-## 7. Active API Endpoints (Post-Cleanup)
+## 9. Active API Endpoints (Post-Cleanup)
 
 ### Customer-facing
 
@@ -166,16 +266,24 @@ This is the only governance step that happens inside this system (not in Sumsub)
 | `GET` | `/onboarding/me` | Current onboarding status snapshot |
 | `GET` | `/onboarding/next-step` | Next action guidance for client UI |
 
-### Sumsub-facing
+### Sumsub-facing (unified ingestion)
 
 | Method | Path | Purpose |
 |---|---|---|
-| `POST` | `/onboarding/sumsub/webhook` | Receive all Sumsub verification events |
-| `POST` | `/onboarding/sumsub/simulate` | Dev/test simulation only |
+| `POST` | `/webhooks/sumsub` | Unified Sumsub webhook receiver (replaces `/onboarding/sumsub/webhook`) |
+
+### Admin-facing (new)
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/admin/sumsub-events` | List webhook event log (paginated, filterable) |
+| `GET` | `/admin/sumsub-events/:id` | Event detail + raw payload + retry history |
+| `POST` | `/admin/sumsub-events/:id/replay` | Replay a DEAD event |
+| `POST` | `/admin/sumsub-events/simulate` | Trigger a simulated Sumsub event |
 
 ---
 
-## 8. Wave 2 Onboarding-Side Cleanup Scope
+## 10. Wave 2 Onboarding-Side Cleanup Scope
 
 The following are no longer needed for onboarding now that Sumsub handles all compliance logic. They should be deprecated and removed.
 
@@ -216,7 +324,7 @@ KYT and Travel Rule cases currently use `compliance_alerts` / `compliance_incide
 
 ---
 
-## 9. Out of Scope
+## 11. Out of Scope
 
 - Periodic Review redesign for Sumsub (follow-on work, same pattern)
 - Transaction compliance (KYT / Travel Rule) Sumsub integration
@@ -225,12 +333,15 @@ KYT and Travel Rule cases currently use `compliance_alerts` / `compliance_incide
 
 ---
 
-## 10. Success Criteria
+## 12. Success Criteria
 
-1. `POST /onboarding/sumsub/webhook` correctly drives all `onboardingStatus` transitions.
-2. Low-risk customers reach `APPROVED` with no internal human action required.
-3. EDD-experienced customers auto-create `ONBOARDING_FINAL_APPROVAL`; SMO approval moves them to `APPROVED`.
-4. `applicantWorkflowFailed` always results in `REJECTED`.
-5. All transitions produce audit log entries with correct `traceId = ONBOARDING:<journeyId>`.
-6. Webhook handler is idempotent — replaying any event produces no duplicate side effects.
-7. Legacy CDD/EDD response write paths are removed; read paths (admin browse) may remain as historical views.
+1. `POST /webhooks/sumsub` receives all Sumsub events, persists them, and routes correctly by context.
+2. Every received event (real or simulated) appears in the Admin Sumsub Events log.
+3. Failed events auto-retry up to 3 times; dead events surface as system alerts.
+4. Low-risk customers reach `APPROVED` with no internal human action required.
+5. EDD-experienced customers auto-create `ONBOARDING_FINAL_APPROVAL`; SMO approval moves them to `APPROVED`.
+6. `applicantWorkflowFailed` always results in `REJECTED`.
+7. All transitions produce audit log entries with correct `traceId = ONBOARDING:<journeyId>`.
+8. Webhook handler is idempotent — replaying any event produces no duplicate side effects.
+9. Admin simulation covers all 6 pre-built scenarios and produces the correct downstream state change.
+10. Legacy CDD/EDD response write paths are removed; read paths (admin browse) may remain as historical views.
