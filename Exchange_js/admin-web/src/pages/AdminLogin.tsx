@@ -100,193 +100,235 @@ const AdminLogin = () => {
 
   return (
     <div
-      className="min-h-screen flex items-center justify-center relative overflow-hidden bg-adm-bg"
+      className="min-h-screen flex overflow-hidden bg-adm-bg"
       style={{ fontFamily: '"JetBrains Mono", "SF Mono", monospace' }}
     >
-      {/* Background: dot grid + amber radial glow */}
-      <div
-        className="absolute inset-0 pointer-events-none"
-        style={{
-          backgroundImage: `
-            radial-gradient(ellipse 60% 50% at 50% 50%, rgba(245,158,11,0.05) 0%, transparent 70%),
-            radial-gradient(var(--adm-border) 1px, transparent 1px)
-          `,
-          backgroundSize: '100% 100%, 24px 24px',
-        }}
-      />
-
-      {/* Login panel */}
+      {/* ── Left: Hero image panel (55%) ── */}
       <motion.div
-        initial={{ opacity: 0, y: 12 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
-        className="relative z-10 w-full max-w-[380px] mx-4"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 1.2 }}
+        className="hidden lg:flex lg:w-[55%] relative overflow-hidden"
       >
-        {/* Amber top accent bar */}
-        <div className="h-[2px] w-full bg-adm-amber rounded-t-sm" />
+        {/* Photo */}
+        <img
+          src="https://images.unsplash.com/photo-1639762681485-074b7f938ba0?q=80&w=2832&auto=format&fit=crop"
+          alt=""
+          className="absolute inset-0 w-full h-full object-cover"
+        />
 
-        <div className="bg-adm-panel border border-adm-border border-t-0 rounded-b-sm">
+        {/* Dark gradient overlay — heavier on right so panel reads cleanly */}
+        <div className="absolute inset-0 bg-gradient-to-r from-black/70 via-black/50 to-black/80" />
+        {/* Bottom gradient for text */}
+        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
 
-          {/* Header */}
-          <div className="px-8 pt-8 pb-6 border-b border-adm-border">
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ delay: 0.1 }}
-              className="flex items-center gap-3 mb-6"
-            >
-              <div className="flex h-7 w-7 items-center justify-center rounded bg-adm-amber flex-shrink-0">
-                <span className="font-mono text-[12px] font-bold text-gray-950">E</span>
+        {/* Amber radial glow in centre */}
+        <div
+          className="absolute inset-0 pointer-events-none"
+          style={{
+            background: 'radial-gradient(ellipse 70% 60% at 40% 60%, rgba(245,158,11,0.08) 0%, transparent 70%)',
+          }}
+        />
+
+        {/* Content */}
+        <div className="relative z-10 flex flex-col justify-between h-full p-12 w-full">
+          {/* Top: Logo */}
+          <motion.div
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.3, duration: 0.5 }}
+            className="flex items-center gap-3"
+          >
+            <div className="flex h-8 w-8 items-center justify-center rounded bg-adm-amber">
+              <span className="font-mono text-[13px] font-bold text-gray-950">E</span>
+            </div>
+            <div>
+              <div className="font-mono text-[10px] font-semibold uppercase tracking-[0.22em] text-white">
+                FiatX Admin
               </div>
-              <div>
-                <div className="font-mono text-[9px] font-semibold uppercase tracking-[0.22em] text-adm-t1">
-                  FiatX Admin
-                </div>
-                <div className="font-mono text-[8px] uppercase tracking-[0.14em] text-adm-t3 mt-0.5">
-                  Control Center
-                </div>
+              <div className="font-mono text-[8px] uppercase tracking-[0.14em] text-white/40 mt-0.5">
+                Control Center
               </div>
-              {/* Live indicator */}
-              <div className="ml-auto flex items-center gap-1.5">
-                <span className="relative flex h-1.5 w-1.5">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-adm-green opacity-75" />
-                  <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-adm-green" />
-                </span>
-                <span className="font-mono text-[8px] uppercase tracking-[0.1em] text-adm-t3">Secure</span>
-              </div>
-            </motion.div>
+            </div>
+          </motion.div>
 
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ delay: 0.15 }}
-            >
-              <h1 className="font-mono text-[15px] font-semibold text-adm-t1 leading-snug">
-                Administrator Sign In
-              </h1>
-              <p className="font-mono text-[10px] text-adm-t3 mt-1 tracking-wide">
-                Authorized personnel only
-              </p>
-            </motion.div>
-          </div>
+          {/* Bottom: Copy */}
+          <motion.div
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.5, duration: 0.6 }}
+            className="space-y-5"
+          >
+            <div className="w-10 h-[2px] bg-adm-amber" />
+            <h2 className="font-mono text-3xl font-semibold text-white leading-snug">
+              System<br />Control Center
+            </h2>
+            <p className="font-mono text-[11px] text-white/40 uppercase tracking-[0.12em] leading-relaxed max-w-xs">
+              Authorized personnel only.<br />
+              All activities are monitored<br />
+              and logged for compliance.
+            </p>
+            <div className="flex items-center gap-2 pt-2">
+              <span className="relative flex h-1.5 w-1.5">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-adm-green opacity-75" />
+                <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-adm-green" />
+              </span>
+              <span className="font-mono text-[8px] uppercase tracking-[0.14em] text-white/30">
+                Secure · 256-bit SSL · V 2.5.0
+              </span>
+            </div>
+          </motion.div>
+        </div>
 
-          {/* Form body */}
-          <div className="px-8 py-6">
-            {error && (
-              <motion.div
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: 'auto' }}
-                className="mb-5 flex items-center gap-2 rounded px-3 py-2.5 border border-adm-red/30 bg-adm-red/8"
-              >
-                <AlertCircle size={12} className="text-adm-red flex-shrink-0" />
-                <span className="font-mono text-[10px] text-adm-red">{error}</span>
-              </motion.div>
-            )}
+        {/* Right-edge fade to match panel bg */}
+        <div className="absolute inset-y-0 right-0 w-16 bg-gradient-to-r from-transparent to-adm-panel pointer-events-none" />
+      </motion.div>
 
-            <form onSubmit={handleSubmit} className="space-y-4">
-              {/* Email */}
-              <motion.div
-                initial={{ opacity: 0, x: -8 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: 0.2 }}
-              >
-                <label className="block font-mono text-[8.5px] uppercase tracking-[0.16em] text-adm-t3 mb-1.5">
-                  Email
-                </label>
-                <div className="relative group">
-                  <Mail
-                    size={12}
-                    className="absolute left-3 top-1/2 -translate-y-1/2 text-adm-t3 group-focus-within:text-adm-amber transition-colors"
-                  />
-                  <input
-                    type="text"
-                    required
-                    value={email}
-                    onChange={e => setEmail(e.target.value)}
-                    placeholder="admin@fiatx.com"
-                    className="w-full pl-8 pr-3 py-2.5 bg-adm-bg border border-adm-border rounded font-mono text-[11px] text-adm-t1 placeholder:text-adm-t3 focus:border-adm-amber focus:outline-none transition-colors"
-                  />
-                </div>
-              </motion.div>
+      {/* ── Right: Login panel (45%) ── */}
+      <div className="w-full lg:w-[45%] flex flex-col justify-center items-center relative bg-adm-panel border-l border-adm-border">
 
-              {/* Password */}
-              <motion.div
-                initial={{ opacity: 0, x: -8 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: 0.25 }}
-              >
-                <label className="block font-mono text-[8.5px] uppercase tracking-[0.16em] text-adm-t3 mb-1.5">
-                  Password
-                </label>
-                <div className="relative group">
-                  <Lock
-                    size={12}
-                    className="absolute left-3 top-1/2 -translate-y-1/2 text-adm-t3 group-focus-within:text-adm-amber transition-colors"
-                  />
-                  <input
-                    type={showPassword ? 'text' : 'password'}
-                    required
-                    value={password}
-                    onChange={e => setPassword(e.target.value)}
-                    placeholder="••••••••••"
-                    className="w-full pl-8 pr-9 py-2.5 bg-adm-bg border border-adm-border rounded font-mono text-[11px] text-adm-t1 placeholder:text-adm-t3 focus:border-adm-amber focus:outline-none transition-colors"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-adm-t3 hover:text-adm-t2 transition-colors"
-                  >
-                    {showPassword ? <EyeOff size={12} /> : <Eye size={12} />}
-                  </button>
-                </div>
+        {/* Dot grid on panel */}
+        <div
+          className="absolute inset-0 pointer-events-none opacity-40"
+          style={{
+            backgroundImage: 'radial-gradient(var(--adm-border) 1px, transparent 1px)',
+            backgroundSize: '24px 24px',
+          }}
+        />
 
-                {/* Quick Login link */}
-                <div className="mt-2 flex justify-end">
-                  <button
-                    type="button"
-                    onClick={() => setQuickLoginOpen(true)}
-                    className="inline-flex items-center gap-1 font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3 hover:text-adm-amber transition-colors"
-                  >
-                    <Zap size={9} />
-                    Quick Login
-                  </button>
-                </div>
-              </motion.div>
+        <motion.div
+          initial={{ opacity: 0, x: 16 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ duration: 0.45, ease: [0.16, 1, 0.3, 1] }}
+          className="relative z-10 w-full max-w-[360px] px-4"
+        >
+          {/* Amber top accent bar */}
+          <div className="h-[2px] w-full bg-adm-amber" />
 
-              {/* Submit */}
+          <div className="bg-adm-bg border border-adm-border border-t-0">
+            {/* Header */}
+            <div className="px-8 pt-8 pb-6 border-b border-adm-border">
               <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
-                transition={{ delay: 0.32 }}
+                transition={{ delay: 0.25 }}
               >
-                <button
-                  type="submit"
-                  disabled={isLoading}
-                  className="w-full flex items-center justify-center gap-2 py-2.5 bg-adm-amber rounded font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-gray-950 hover:opacity-90 active:opacity-80 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed mt-2"
-                >
-                  {isLoading ? (
-                    <div className="w-4 h-4 border-2 border-gray-950/30 border-t-gray-950 rounded-full animate-spin" />
-                  ) : (
-                    <>Authenticate <ArrowRight size={12} /></>
-                  )}
-                </button>
+                <h1 className="font-mono text-[16px] font-semibold text-adm-t1 leading-snug">
+                  Administrator Sign In
+                </h1>
+                <p className="font-mono text-[10px] text-adm-t3 mt-1.5 tracking-wide">
+                  Enter your credentials to continue
+                </p>
               </motion.div>
-            </form>
-          </div>
+            </div>
 
-          {/* Footer */}
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.4 }}
-            className="px-8 py-4 border-t border-adm-border"
-          >
-            <p className="font-mono text-[8px] uppercase tracking-[0.12em] text-adm-t3 text-center">
-              All activity is monitored and logged · 256-bit SSL
-            </p>
-          </motion.div>
-        </div>
-      </motion.div>
+            {/* Form */}
+            <div className="px-8 py-7">
+              {error && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 'auto' }}
+                  className="mb-5 flex items-center gap-2 rounded px-3 py-2.5 border border-adm-red/30 bg-adm-red/8"
+                >
+                  <AlertCircle size={12} className="text-adm-red flex-shrink-0" />
+                  <span className="font-mono text-[10px] text-adm-red">{error}</span>
+                </motion.div>
+              )}
+
+              <form onSubmit={handleSubmit} className="space-y-5">
+                <motion.div
+                  initial={{ opacity: 0, x: -8 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: 0.3 }}
+                >
+                  <label className="block font-mono text-[8.5px] uppercase tracking-[0.16em] text-adm-t3 mb-1.5">
+                    Email
+                  </label>
+                  <div className="relative group">
+                    <Mail size={12} className="absolute left-3 top-1/2 -translate-y-1/2 text-adm-t3 group-focus-within:text-adm-amber transition-colors" />
+                    <input
+                      type="text"
+                      required
+                      value={email}
+                      onChange={e => setEmail(e.target.value)}
+                      placeholder="admin@fiatx.com"
+                      className="w-full pl-8 pr-3 py-2.5 bg-adm-panel border border-adm-border font-mono text-[11px] text-adm-t1 placeholder:text-adm-t3 focus:border-adm-amber focus:outline-none transition-colors"
+                    />
+                  </div>
+                </motion.div>
+
+                <motion.div
+                  initial={{ opacity: 0, x: -8 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: 0.35 }}
+                >
+                  <label className="block font-mono text-[8.5px] uppercase tracking-[0.16em] text-adm-t3 mb-1.5">
+                    Password
+                  </label>
+                  <div className="relative group">
+                    <Lock size={12} className="absolute left-3 top-1/2 -translate-y-1/2 text-adm-t3 group-focus-within:text-adm-amber transition-colors" />
+                    <input
+                      type={showPassword ? 'text' : 'password'}
+                      required
+                      value={password}
+                      onChange={e => setPassword(e.target.value)}
+                      placeholder="••••••••••"
+                      className="w-full pl-8 pr-9 py-2.5 bg-adm-panel border border-adm-border font-mono text-[11px] text-adm-t1 placeholder:text-adm-t3 focus:border-adm-amber focus:outline-none transition-colors"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-adm-t3 hover:text-adm-t2 transition-colors"
+                    >
+                      {showPassword ? <EyeOff size={12} /> : <Eye size={12} />}
+                    </button>
+                  </div>
+                  <div className="mt-2 flex justify-end">
+                    <button
+                      type="button"
+                      onClick={() => setQuickLoginOpen(true)}
+                      className="inline-flex items-center gap-1 font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3 hover:text-adm-amber transition-colors"
+                    >
+                      <Zap size={9} />
+                      Quick Login
+                    </button>
+                  </div>
+                </motion.div>
+
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ delay: 0.42 }}
+                >
+                  <button
+                    type="submit"
+                    disabled={isLoading}
+                    className="w-full flex items-center justify-center gap-2 py-3 bg-adm-amber font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-gray-950 hover:opacity-90 active:opacity-80 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isLoading ? (
+                      <div className="w-4 h-4 border-2 border-gray-950/30 border-t-gray-950 rounded-full animate-spin" />
+                    ) : (
+                      <>Authenticate <ArrowRight size={12} /></>
+                    )}
+                  </button>
+                </motion.div>
+              </form>
+            </div>
+
+            {/* Footer */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.5 }}
+              className="px-8 py-4 border-t border-adm-border"
+            >
+              <p className="font-mono text-[8px] uppercase tracking-[0.12em] text-adm-t3 text-center">
+                All activity is monitored and logged · 256-bit SSL
+              </p>
+            </motion.div>
+          </div>
+        </motion.div>
+      </div>
 
       {/* Quick Login Modal */}
       <AnimatePresence>
