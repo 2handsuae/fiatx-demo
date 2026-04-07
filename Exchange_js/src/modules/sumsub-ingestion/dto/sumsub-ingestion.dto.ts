@@ -11,10 +11,10 @@ export enum SimulationScenario {
 
 export class SimulateEventDto {
   @IsString()
-  customerId: string;
+  customerId!: string;
 
   @IsEnum(SimulationScenario)
-  scenario: SimulationScenario;
+  scenario!: SimulationScenario;
 
   @IsOptional()
   overrides?: Record<string, unknown>;
