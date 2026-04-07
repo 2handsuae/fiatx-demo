@@ -3056,3 +3056,30 @@ model ClearingLine {
   @@index([clearingId])
   @@map("clearing_lines")
 }
+
+model SumsubWebhookEvent {
+  id                String    @id @default(cuid())
+  eventNo           String    @unique
+  eventType         String
+  applicantId       String
+  externalUserId    String
+  context           String    @default("ONBOARDING")
+  rawPayload        String
+  receivedAt        DateTime
+  status            String    @default("PENDING")
+  retryCount        Int       @default(0)
+  lastRetryAt       DateTime?
+  lastErrorMessage  String?
+  processedAt       DateTime?
+  dispatchedTo      String?
+  isSimulated       Boolean   @default(false)
+  simulatedByUserId String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@index([status, createdAt])
+  @@index([applicantId])
+  @@index([externalUserId])
+  @@index([eventType, status])
+  @@map("sumsub_webhook_events")
+}
