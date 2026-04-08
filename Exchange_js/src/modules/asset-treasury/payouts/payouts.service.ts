@@ -49,7 +49,7 @@ const FIAT_TRANSITIONS: Record<string, Partial<Record<PayoutAction, PayoutStatus
   [PayoutStatus.RETURNED]: {},
 };
 import { Prisma } from '@prisma/client';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID as uuidv4 } from 'crypto';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PayoutEvents } from './constants/payout-events.constant';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';

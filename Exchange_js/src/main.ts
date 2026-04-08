@@ -1,3 +1,7 @@
+// Node 18 polyfill: @nestjs/schedule uses globalThis.crypto (stable only in Node 19+)
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+if (!globalThis.crypto) { (globalThis as any).crypto = require('crypto').webcrypto; }
+
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { Logger } from 'nestjs-pino';
