@@ -166,7 +166,6 @@ describe('OnboardingService', () => {
     sumsubExperiencedLevel2: false,
     latestFinalApprovalId: null,
     latestFinalApprovalStatus: null,
-    activeJourneyId: 'ONB-1',
     eddRequired: false,
     ...overrides,
   });
@@ -578,7 +577,6 @@ describe('OnboardingService', () => {
       onboardingStatus: 'PENDING_CDD_INPUT',
       operatingStatus: 'INACTIVE',
       restrictionStatus: 'CLEAR',
-      activeJourneyId: 'ONB-1',
     };
     const cddResponse = {
       id: 'cdd-1',
@@ -654,7 +652,6 @@ describe('OnboardingService', () => {
       onboardingStatus: 'CDD_UNDER_REVIEW',
       operatingStatus: 'INACTIVE',
       restrictionStatus: 'CLEAR',
-      activeJourneyId: 'ONB-1',
       currentCddResponseId: 'cdd-1',
       latestDecisionRecordId: 'dr-1',
       eddRequired: false,
@@ -810,7 +807,6 @@ describe('OnboardingService', () => {
       onboardingStatus: 'CDD_UNDER_REVIEW',
       operatingStatus: 'INACTIVE',
       restrictionStatus: 'CLEAR',
-      activeJourneyId: 'ONB-1',
       eddRequired: false,
     });
     prismaMock.cddResponse.findFirst.mockResolvedValue({ id: 'cdd-1' });
@@ -876,7 +872,6 @@ describe('OnboardingService', () => {
       onboardingStatus: 'CDD_UNDER_REVIEW',
       operatingStatus: 'INACTIVE',
       restrictionStatus: 'CLEAR',
-      activeJourneyId: 'ONB-1',
       eddRequired: false,
     });
     prismaMock.cddResponse.findFirst.mockResolvedValue({ id: 'cdd-1' });
@@ -964,7 +959,6 @@ describe('OnboardingService', () => {
       onboardingStatus: 'SOMETHING_UNKNOWN',
       operatingStatus: 'INACTIVE',
       restrictionStatus: 'CLEAR',
-      activeJourneyId: null,
     });
 
     const result = await service.getNextStep('c1');
@@ -981,7 +975,6 @@ describe('OnboardingService', () => {
       onboardingStatus: 'SOMETHING_UNKNOWN',
       operatingStatus: 'INACTIVE',
       restrictionStatus: 'CLEAR',
-      activeJourneyId: null,
     });
 
     const result = await service.getMyOnboarding('c1');
@@ -2093,7 +2086,6 @@ describe('OnboardingService', () => {
       onboardingStatus: 'CDD_UNDER_REVIEW',
       operatingStatus: 'INACTIVE',
       restrictionStatus: 'CLEAR',
-      activeJourneyId: 'ONB-1',
     });
     prismaMock.customerMain.update.mockResolvedValue({
       id: 'c1',
@@ -2157,7 +2149,6 @@ describe('OnboardingService', () => {
       onboardingStatus: 'CDD_UNDER_REVIEW',
       operatingStatus: 'INACTIVE',
       restrictionStatus: 'CLEAR',
-      activeJourneyId: 'ONB-1',
     });
     prismaMock.customerMain.update.mockResolvedValue({
       id: 'c1',
@@ -2231,7 +2222,6 @@ describe('OnboardingService', () => {
       onboardingStatus: 'CDD_UNDER_REVIEW',
       operatingStatus: 'INACTIVE',
       restrictionStatus: 'CLEAR',
-      activeJourneyId: 'ONB-1',
     });
     prismaMock.customerMain.update.mockResolvedValue({
       id: 'c1',
@@ -2308,7 +2298,6 @@ describe('OnboardingService', () => {
       onboardingStatus: 'CDD_UNDER_REVIEW',
       operatingStatus: 'INACTIVE',
       restrictionStatus: 'CLEAR',
-      activeJourneyId: 'ONB-1',
     });
     prismaMock.customerMain.update.mockResolvedValue({
       id: 'c1',
@@ -2375,7 +2364,6 @@ describe('OnboardingService', () => {
       onboardingStatus: 'PENDING_EDD_INPUT',
       operatingStatus: 'INACTIVE',
       restrictionStatus: 'CLEAR',
-      activeJourneyId: 'ONB-1',
       currentEddResponseId: 'edd-1',
     });
     prismaMock.customerMain.update.mockResolvedValue({
@@ -2459,7 +2447,6 @@ describe('OnboardingService', () => {
       onboardingStatus: 'EDD_UNDER_REVIEW',
       operatingStatus: 'INACTIVE',
       restrictionStatus: 'CLEAR',
-      activeJourneyId: 'ONB-1',
       eddRequired: true,
     });
     riskEngineMock.completeDecisionRecord.mockResolvedValue({

@@ -53,7 +53,6 @@ describe('OnboardingFinalApprovalService', () => {
       id: 'c1',
       customerNo: 'CU0001',
       onboardingStatus: 'FINAL_APPROVAL',
-      activeJourneyId: 'ONB-1',
       latestFinalApprovalId: null,
       latestFinalApprovalStatus: null,
     });
