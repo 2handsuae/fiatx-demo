@@ -170,7 +170,6 @@ model CustomerMain {
   activePeriodicReviewCycleId     String?   @unique
   periodicReviewOverdueAt         DateTime?
   periodicReviewOverdueReason     String?
-  activeJourneyId                 String?
   latestDecisionRecordId          String?
   investorClassification          String    @default("RETAIL") // RETAIL, QUALIFIED, INSTITUTIONAL
   investorClassificationSource    String    @default("CDD") // CDD, ADMIN_OVERRIDE
