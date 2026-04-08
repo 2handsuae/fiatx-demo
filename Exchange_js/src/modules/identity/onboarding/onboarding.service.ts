@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import {
   BadRequestException,
   ForbiddenException,
@@ -1874,6 +1875,7 @@ export class OnboardingService {
         onboardingStatus: 'PENDING_VERIFICATION',
         operatingStatus: 'INACTIVE',
       }),
+      ...(customer.onboardingTraceId ? {} : { onboardingTraceId: randomUUID() }),
       ...(currentStatus === 'PENDING_VERIFICATION' && !customer.verificationProvider
         ? { verificationProvider: 'SUMSUB' }
         : {}),

@@ -1216,6 +1216,117 @@ describe('OnboardingService', () => {
     );
   });
 
+  it('should assign a UUID v4 onboardingTraceId when customer has none (first call)', async () => {
+    prismaMock.customerMain.findUnique.mockResolvedValue({
+      id: 'c1',
+      customerNo: 'CU0001',
+      customerType: 'INDIVIDUAL',
+      onboardingStatus: 'NONE',
+      operatingStatus: 'INACTIVE',
+      restrictionStatus: 'CLEAR',
+      onboardingTraceId: null,
+      verificationProvider: null,
+      verificationSubstatus: null,
+      verificationCustomerActionRequired: false,
+      verificationCanContinue: false,
+      verificationLatestEventType: null,
+      verificationLatestEventAt: null,
+      sumsubApplicantId: null,
+      sumsubCurrentLevelName: null,
+      sumsubLatestReviewId: null,
+      sumsubLatestAttemptId: null,
+      sumsubExperiencedLevel2: false,
+      latestFinalApprovalId: null,
+      latestFinalApprovalStatus: null,
+    });
+    sumsubClientMock.getApplicantByExternalUserId.mockResolvedValue(null);
+    sumsubClientMock.createApplicant.mockResolvedValue({ id: 'app-1' });
+    sumsubClientMock.createSdkToken.mockResolvedValue({ token: 'sdk-token-1' });
+    prismaMock.customerMain.update.mockResolvedValue({
+      id: 'c1',
+      customerNo: 'CU0001',
+      customerType: 'INDIVIDUAL',
+      onboardingStatus: 'PENDING_VERIFICATION',
+      operatingStatus: 'INACTIVE',
+      restrictionStatus: 'CLEAR',
+      verificationProvider: 'SUMSUB',
+      verificationSubstatus: 'CREATED',
+      verificationCustomerActionRequired: true,
+      verificationCanContinue: true,
+      verificationLatestEventType: null,
+      verificationLatestEventAt: null,
+      sumsubApplicantId: 'app-1',
+      sumsubCurrentLevelName: 'wave3-level-1',
+      sumsubLatestReviewId: null,
+      sumsubLatestAttemptId: null,
+      sumsubExperiencedLevel2: false,
+      latestFinalApprovalId: null,
+      latestFinalApprovalStatus: null,
+    });
+
+    await service.startVerification('c1');
+
+    const updateData = prismaMock.customerMain.update.mock.calls[0][0].data;
+    expect(updateData.onboardingTraceId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    );
+  });
+
+  it('should preserve existing onboardingTraceId and not overwrite it on subsequent calls', async () => {
+    const existingTraceId = '11111111-1111-4111-8111-111111111111';
+    prismaMock.customerMain.findUnique.mockResolvedValue({
+      id: 'c1',
+      customerNo: 'CU0001',
+      customerType: 'INDIVIDUAL',
+      onboardingStatus: 'NONE',
+      operatingStatus: 'INACTIVE',
+      restrictionStatus: 'CLEAR',
+      onboardingTraceId: existingTraceId,
+      verificationProvider: null,
+      verificationSubstatus: null,
+      verificationCustomerActionRequired: false,
+      verificationCanContinue: false,
+      verificationLatestEventType: null,
+      verificationLatestEventAt: null,
+      sumsubApplicantId: null,
+      sumsubCurrentLevelName: null,
+      sumsubLatestReviewId: null,
+      sumsubLatestAttemptId: null,
+      sumsubExperiencedLevel2: false,
+      latestFinalApprovalId: null,
+      latestFinalApprovalStatus: null,
+    });
+    sumsubClientMock.getApplicantByExternalUserId.mockResolvedValue(null);
+    sumsubClientMock.createApplicant.mockResolvedValue({ id: 'app-1' });
+    sumsubClientMock.createSdkToken.mockResolvedValue({ token: 'sdk-token-1' });
+    prismaMock.customerMain.update.mockResolvedValue({
+      id: 'c1',
+      customerNo: 'CU0001',
+      customerType: 'INDIVIDUAL',
+      onboardingStatus: 'PENDING_VERIFICATION',
+      operatingStatus: 'INACTIVE',
+      restrictionStatus: 'CLEAR',
+      verificationProvider: 'SUMSUB',
+      verificationSubstatus: 'CREATED',
+      verificationCustomerActionRequired: true,
+      verificationCanContinue: true,
+      verificationLatestEventType: null,
+      verificationLatestEventAt: null,
+      sumsubApplicantId: 'app-1',
+      sumsubCurrentLevelName: 'wave3-level-1',
+      sumsubLatestReviewId: null,
+      sumsubLatestAttemptId: null,
+      sumsubExperiencedLevel2: false,
+      latestFinalApprovalId: null,
+      latestFinalApprovalStatus: null,
+    });
+
+    await service.startVerification('c1');
+
+    const updateData = prismaMock.customerMain.update.mock.calls[0][0].data;
+    expect(updateData.onboardingTraceId).toBeUndefined();
+  });
+
   it('should return REINITIATE_CDD action when canonical onboarding is REJECTED', async () => {
     prismaMock.customerMain.findUnique.mockResolvedValue({
       id: 'c1',
