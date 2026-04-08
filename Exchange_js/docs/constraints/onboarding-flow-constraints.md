@@ -187,3 +187,10 @@
 2. `substatus = SUBMITTED | UNDER_REVIEW | PROCESSING` -> customer waits
 3. `substatus = COMPLETED` with `onboardingStatus = FINAL_APPROVAL` -> customer waits for final approval
 4. `substatus = FAILED` -> customer may reinitiate only after lifecycle moves to `REJECTED` or `WITHDRAWN`
+
+## Audit trace (2026-04-08)
+
+- Sumsub webhook audit emission and the single-purpose `customer_main.onboardingTraceId` column are governed by [`audit-trace-context-constraints.md`](./audit-trace-context-constraints.md).
+- Every onboarding sequence gets exactly one `traceId` (UUID v4) generated at `POST /onboarding/verification/start` and stored on `customer_main.onboardingTraceId`.
+- `OnboardingService.handleSumsubVerificationEvent` writes one `audit_log_events` row per webhook event (real or simulated) using `workflowType = ONBOARDING`, `traceId = customer.onboardingTraceId`, action `SUMSUB_APPLICANT_<EVENT>`, triggerType `DATA_UPDATE`.
+- The legacy `customer_main.activeJourneyId` column has been removed; it was overloaded as trace + CDD/EDD grouping + workflow handle. All three roles now use `customer.id` (for CDD/EDD response grouping) or `customer.onboardingTraceId` (for the audit trace).

@@ -60,22 +60,34 @@
 
 ## Gotchas learned the hard way
 
-### Trigger dependencies on SQLite table-recreate migrations
+### Use `ALTER TABLE DROP COLUMN`, not table-recreate, for SQLite 3.35+ column drops
 
-**Context:** When executing the 2026-04-08 `customer_main.activeJourneyId` drop via the SQLite table-recreate pattern, the migration failed mid-flight because the `wallets` table has two triggers (`wallets_owner_semantics_insert`, `wallets_owner_semantics_update`) whose bodies reference `customer_main`. SQLite validates trigger bodies at compile time, so `DROP TABLE "customer_main"` returned "no such table" as SQLite tried to re-validate the dependent trigger during the drop.
+**Context:** The 2026-04-08 cleanup originally tried two SQLite table-recreate migrations (`20260408020000_drop_customer_active_journey_id` and `20260408030000_drop_audit_log_workflow_id_no`) using the `CREATE TABLE x_new AS SELECT ... FROM x; DROP TABLE x; ALTER TABLE x_new RENAME TO x;` pattern. This pattern is **broken for this use case** because:
 
-**Rule for any future SQLite table-recreate migration:**
-1. Before the `DROP TABLE`, issue `DROP TRIGGER IF EXISTS <name>;` for every trigger that references the table.
-2. After the `ALTER TABLE ... RENAME TO ...`, recreate those triggers verbatim using their original `sql` body from `sqlite_master`.
-3. To find dependent triggers, run:
-   ```sql
-   SELECT name, sql FROM sqlite_master
-   WHERE type = 'trigger' AND sql LIKE '%<table-name>%';
-   ```
+1. **`CREATE TABLE ... AS SELECT` loses ALL constraints.** The new table has no PRIMARY KEY, no UNIQUE, no NOT NULL, no DEFAULTs — it's a plain copy. After rename, `PRAGMA table_info(x)` shows every column with PK=0 and NOT NULL=0. The old constraints are silently gone.
+2. **Foreign keys pointing at the recreated table break.** SQLite's FK resolution fails with "foreign key mismatch" at runtime because the referenced column no longer has a PRIMARY KEY or UNIQUE constraint. In our case, 17 tables (deposit_transactions, payouts, periodic_review_cycles, audit_log_subject_nos, etc.) had broken FKs after the recreates.
+3. **Trigger dependencies need manual handling.** When `DROP TABLE x` runs, SQLite tries to re-validate every trigger whose body references `x` and errors out with "no such table". Requires `DROP TRIGGER IF EXISTS` before the table drop + recreate after.
 
-Treat this as part of the standard SQLite table-recreate checklist. Anyone writing a `*_new` migration must verify no triggers will break before they run it.
+**Use the simpler native path instead.** SQLite 3.35+ (March 2021) supports `ALTER TABLE ... DROP COLUMN` as long as the column is not part of a PRIMARY KEY, UNIQUE constraint, FOREIGN KEY, or INDEX. For the common case of dropping a nullable unindexed column, this is ONE statement:
 
-**Effort to document this properly in a migration guide:** S — add to a migration-conventions doc if one is ever created.
+```sql
+ALTER TABLE "customer_main" DROP COLUMN "activeJourneyId";
+```
+
+If the column is in an index, drop the index first:
+
+```sql
+DROP INDEX IF EXISTS "audit_log_events_workflowType_workflowNo_occurredAt_idx";
+ALTER TABLE "audit_log_events" DROP COLUMN "workflowId";
+ALTER TABLE "audit_log_events" DROP COLUMN "workflowNo";
+```
+
+**Rule for any future SQLite column-drop migration:**
+1. First try `ALTER TABLE ... DROP COLUMN`. If the column is not in a PK / UNIQUE / FK / INDEX, this just works and preserves everything else.
+2. If the column IS in an index, drop the index first (`DROP INDEX IF EXISTS`), then drop the column.
+3. If the column IS a PK / UNIQUE / FK (truly needs a schema restructure), only then fall back to the table-recreate pattern — AND use explicit `CREATE TABLE new (...)` with full constraint definitions, not `CREATE TABLE new AS SELECT`, AND handle dependent triggers (drop before, recreate after), AND remember that FKs on OTHER tables referencing the recreated table will need to be rebuilt via a `VACUUM` or separate migration.
+
+**Effort to add this to a migration conventions doc if one is ever created:** S.
 
 ---
 
