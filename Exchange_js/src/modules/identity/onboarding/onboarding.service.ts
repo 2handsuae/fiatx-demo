@@ -145,6 +145,17 @@ const tradingEligibilitySelect = {
   complianceHoldCaseId: true,
 } satisfies Prisma.CustomerMainSelect;
 
+const SUMSUB_EVENT_ACTION_MAP: Record<string, string> = {
+  applicantPending: 'SUMSUB_APPLICANT_PENDING',
+  applicantOnHold: 'SUMSUB_APPLICANT_ON_HOLD',
+  applicantReviewed: 'SUMSUB_APPLICANT_REVIEWED',
+  applicantLevelChanged: 'SUMSUB_APPLICANT_LEVEL_CHANGED',
+  applicantWorkflowCompleted: 'SUMSUB_APPLICANT_WORKFLOW_COMPLETED',
+  applicantWorkflowFailed: 'SUMSUB_APPLICANT_WORKFLOW_FAILED',
+};
+
+const SUMSUB_DEFAULT_ACTION = 'SUMSUB_APPLICANT_EVENT';
+
 @Injectable()
 export class OnboardingService {
   private readonly logger = new Logger(OnboardingService.name);
@@ -201,7 +212,20 @@ export class OnboardingService {
       throw new BadRequestException('actorId is required for Sumsub verification events');
     }
 
-    return this.prisma.$transaction(async (tx) => {
+    type TxAuditCapture = {
+      updatedCustomer: any;
+      beforeOnboardingStatus: string | null;
+      beforeSubstatus: string | null;
+      resolvedLevelName: string | null;
+      resolvedReviewAnswer: string | null;
+      resolvedReviewRejectType: string | null;
+      resolvedReviewId: string | null;
+      resolvedAttemptId: string | null;
+    };
+    // Use a container array so TypeScript doesn't narrow out the closure-assigned value.
+    const txAuditCapture: TxAuditCapture[] = [];
+
+    const result = await this.prisma.$transaction(async (tx) => {
       const customer = await this.findCustomerForSumsubVerificationEvent(tx, payload, context);
       if (!customer) {
         throw new NotFoundException(
@@ -397,6 +421,19 @@ export class OnboardingService {
         data: updateData,
       });
 
+      // Populate txAuditCapture BEFORE returning — captures post-update state for audit write.
+      // Using an array container avoids TypeScript narrowing the closure-captured value to never.
+      txAuditCapture.push({
+        updatedCustomer,
+        beforeOnboardingStatus: this.normalizeOptionalString(customer.onboardingStatus),
+        beforeSubstatus: this.normalizeOptionalString(customer.verificationSubstatus),
+        resolvedLevelName: nextLevelName,
+        resolvedReviewAnswer: reviewResult.reviewAnswer || null,
+        resolvedReviewRejectType: reviewResult.reviewRejectType || null,
+        resolvedReviewId: reviewId,
+        resolvedAttemptId: attemptId,
+      });
+
       return {
         customer: {
           onboardingStatus: updatedCustomer.onboardingStatus ?? null,
@@ -406,6 +443,41 @@ export class OnboardingService {
         verification: this.buildVerificationProjection(updatedCustomer),
       };
     });
+
+    // Audit write OUTSIDE the transaction (matches the 84 other non-atomic sites).
+    // txAuditCapture is empty on the terminal-state early-return path → no audit write (correct).
+    // txAuditCapture is empty if the transaction throws → audit write skipped (correct).
+    const auditCapture = txAuditCapture[0];
+    if (auditCapture) {
+      await this.writeSumsubAudit({
+        customerId: auditCapture.updatedCustomer.id,
+        customerNo: auditCapture.updatedCustomer.customerNo || null,
+        onboardingTraceId: auditCapture.updatedCustomer.onboardingTraceId || null,
+        eventType,
+        simulated: context.simulated === true,
+        simulatedByUserId:
+          context.simulated === true
+            ? this.normalizeOptionalString(context.simulatedByUserId) ||
+              this.normalizeOptionalString(context.actorId)
+            : null,
+        onboardingStatusFrom: auditCapture.beforeOnboardingStatus,
+        onboardingStatusTo: this.normalizeOptionalString(
+          auditCapture.updatedCustomer.onboardingStatus,
+        ),
+        substatusFrom: auditCapture.beforeSubstatus,
+        substatusTo: this.normalizeOptionalString(
+          auditCapture.updatedCustomer.verificationSubstatus,
+        ),
+        levelName: auditCapture.resolvedLevelName,
+        reviewAnswer: auditCapture.resolvedReviewAnswer,
+        reviewRejectType: auditCapture.resolvedReviewRejectType,
+        applicantId: this.resolveSumsubApplicantId(payload, context),
+        reviewId: auditCapture.resolvedReviewId,
+        attemptId: auditCapture.resolvedAttemptId,
+      });
+    }
+
+    return result;
   }
 
   private normalizeOptionalString(value: unknown): string | null {
@@ -1122,6 +1194,88 @@ export class OnboardingService {
       },
     );
 
+  }
+
+  /**
+   * Writes one audit_log_events row for a sumsub webhook step.
+   * Called from handleSumsubVerificationEvent, AFTER the prisma.$transaction
+   * has committed (matching the 84 other non-atomic audit-write sites in the
+   * codebase). Uses workflowType + traceId only — no workflowId/workflowNo,
+   * per docs/constraints/audit-trace-context-constraints.md.
+   */
+  private async writeSumsubAudit(input: {
+    customerId: string;
+    customerNo: string | null;
+    onboardingTraceId: string | null;
+    eventType: string;
+    simulated: boolean;
+    simulatedByUserId: string | null;
+    onboardingStatusFrom: string | null;
+    onboardingStatusTo: string | null;
+    substatusFrom: string | null;
+    substatusTo: string | null;
+    levelName: string | null;
+    reviewAnswer: string | null;
+    reviewRejectType: string | null;
+    applicantId: string | null;
+    reviewId: string | null;
+    attemptId: string | null;
+  }) {
+    const action = SUMSUB_EVENT_ACTION_MAP[input.eventType] || SUMSUB_DEFAULT_ACTION;
+    const reason = input.simulated
+      ? `Simulated sumsub event ${input.eventType} (substatus ${input.substatusFrom || '∅'} → ${input.substatusTo || '∅'})`
+      : `Sumsub webhook ${input.eventType} (substatus ${input.substatusFrom || '∅'} → ${input.substatusTo || '∅'})`;
+
+    try {
+      await this.auditLogsService.recordByActor(
+        {
+          triggerType: AuditTriggerType.DATA_UPDATE,
+          action,
+          module: AuditModules.ONBOARDING,
+          entityType: AuditEntityTypes.ONBOARDING,
+          entityId: input.customerId,
+          entityNo: input.customerNo || undefined,
+          entityOwnerType: 'CUSTOMER',
+          entityOwnerId: input.customerId,
+          entityOwnerNo: input.customerNo || undefined,
+          traceId: input.onboardingTraceId || undefined,
+          workflowType: AuditWorkflowTypes.ONBOARDING,
+          statusFrom: input.onboardingStatusFrom || undefined,
+          statusTo: input.onboardingStatusTo || undefined,
+          reason,
+          metadata: {
+            eventType: input.eventType,
+            substatusFrom: input.substatusFrom,
+            substatusTo: input.substatusTo,
+            levelName: input.levelName,
+            reviewAnswer: input.reviewAnswer,
+            reviewRejectType: input.reviewRejectType,
+            applicantId: input.applicantId,
+            reviewId: input.reviewId,
+            attemptId: input.attemptId,
+            isSimulated: input.simulated,
+            simulatedByUserId: input.simulatedByUserId,
+            source: 'SUMSUB_INGESTION',
+          },
+          sourcePlatform: 'APPLICATION',
+        },
+        {
+          actorType: input.simulated ? 'ADMIN' : 'SYSTEM',
+          actorId: input.simulated
+            ? input.simulatedByUserId || 'ADMIN_SIM'
+            : 'SUMSUB',
+          actorRole: input.simulated ? 'ADMIN' : 'SYSTEM',
+        },
+      );
+    } catch (err) {
+      // Match the existing pattern in approvals/payouts/customer-auth: audit
+      // write failures don't fail the business operation. Log and continue.
+      this.logger.error(
+        `Failed to write sumsub audit for customer ${input.customerId} event ${input.eventType}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
   }
 
   private async getCustomerOrThrow(customerId: string, includeEntity = false): Promise<any> {

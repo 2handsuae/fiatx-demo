@@ -93,6 +93,7 @@ export class SumsubIngestionService {
           actorId: event.isSimulated
             ? (event.externalUserId || event.simulatedByUserId || 'ADMIN_SIM')
             : 'SUMSUB',
+          simulatedByUserId: event.simulatedByUserId || null,
           rawBody: Buffer.from(JSON.stringify(payload)),
         });
       } else {

@@ -481,6 +481,79 @@ describe('OnboardingService', () => {
       ).rejects.toBeInstanceOf(BadRequestException);
       expect(prismaMock.customerMain.update).not.toHaveBeenCalled();
     });
+
+    it('writes a DATA_UPDATE audit row for a real applicantOnHold webhook with traceId from customer', async () => {
+      const existingTrace = '22222222-2222-4222-8222-222222222222';
+      seedVerificationEventFlow({
+        id: 'customer-1',
+        customerNo: 'CU0001',
+        onboardingTraceId: existingTrace,
+        onboardingStatus: 'PENDING_VERIFICATION',
+        verificationSubstatus: 'SUBMITTED',
+        sumsubApplicantId: 'APPL-1',
+      });
+
+      await service.handleSumsubVerificationEvent(
+        {
+          type: 'applicantOnHold',
+          externalUserId: 'customer-1',
+          applicantId: 'APPL-1',
+        },
+        {
+          simulated: false,
+          actorId: 'SUMSUB',
+        },
+      );
+
+      expect(recordByActorSpy).toHaveBeenCalledTimes(1);
+      const [auditInput, actor] = recordByActorSpy.mock.calls[0];
+      expect(auditInput.action).toBe('SUMSUB_APPLICANT_ON_HOLD');
+      expect(auditInput.triggerType).toBe('DATA_UPDATE');
+      expect(auditInput.module).toBe('identity/onboarding');
+      expect(auditInput.entityType).toBe('ONBOARDING');
+      expect(auditInput.entityId).toBe('customer-1');
+      expect(auditInput.traceId).toBe(existingTrace);
+      expect(auditInput.workflowType).toBe('ONBOARDING');
+      // workflowId and workflowNo MUST NOT be set (new rule)
+      expect((auditInput as any).workflowId).toBeUndefined();
+      expect((auditInput as any).workflowNo).toBeUndefined();
+      expect((auditInput.metadata as any).eventType).toBe('applicantOnHold');
+      expect((auditInput.metadata as any).isSimulated).toBe(false);
+      expect(actor.actorId).toBe('SUMSUB');
+      expect(actor.actorType).toBe('SYSTEM');
+    });
+
+    it('writes a DATA_UPDATE audit row with ADMIN actorType for a simulated event', async () => {
+      const simulatedTrace = '33333333-3333-4333-8333-333333333333';
+      seedVerificationEventFlow({
+        id: 'customer-1',
+        customerNo: 'CU0001',
+        onboardingTraceId: simulatedTrace,
+        onboardingStatus: 'PENDING_VERIFICATION',
+        verificationSubstatus: 'SUBMITTED',
+      });
+
+      await service.handleSumsubVerificationEvent(
+        {
+          type: 'applicantOnHold',
+          externalUserId: 'customer-1',
+        },
+        {
+          simulated: true,
+          actorId: 'customer-1',
+          simulatedByUserId: 'admin-uuid-42',
+        },
+      );
+
+      expect(recordByActorSpy).toHaveBeenCalledTimes(1);
+      const [auditInput, actor] = recordByActorSpy.mock.calls[0];
+      expect(auditInput.action).toBe('SUMSUB_APPLICANT_ON_HOLD');
+      expect((auditInput.metadata as any).isSimulated).toBe(true);
+      expect((auditInput.metadata as any).simulatedByUserId).toBe('admin-uuid-42');
+      expect(actor.actorType).toBe('ADMIN');
+      expect(actor.actorId).toBe('admin-uuid-42');
+      expect(auditInput.reason).toContain('Simulated sumsub event applicantOnHold');
+    });
   });
 
   const seedCddMockFlow = () => {
