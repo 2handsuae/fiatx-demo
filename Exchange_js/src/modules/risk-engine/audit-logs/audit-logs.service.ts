@@ -1235,16 +1235,10 @@ export class AuditLogsService {
 
   private derivePrimaryRefNo(
     raw: {
-      workflowNo?: string | null;
       entityNo?: string | null;
     },
     subjectNos: Array<{ subjectRole?: string | null; subjectNo?: string | null }>,
   ): string | null {
-    const workflowNo = this.normalizeOptionalString(raw.workflowNo);
-    if (workflowNo) {
-      return workflowNo;
-    }
-
     const preferredSubject =
       subjectNos.find(
         (subject) =>
@@ -1455,7 +1449,6 @@ export class AuditLogsService {
           { actorNo: { contains: query.keyword } },
           { entityOwnerNo: { contains: query.keyword } },
           { traceId: { contains: query.keyword } },
-          { workflowNo: { contains: query.keyword } },
           { reason: { contains: query.keyword } },
           {
             subjectNos: {

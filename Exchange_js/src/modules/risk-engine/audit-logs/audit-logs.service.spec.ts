@@ -267,7 +267,6 @@ describe('AuditLogsService', () => {
         entityId: 'pkg-1',
         entityNo: 'EVP2604050351',
         workflowType: AuditBusinessWorkflowTypes.AUDIT_EVIDENCE_EXPORT,
-        workflowNo: 'EVP2604050351',
         actorType: 'ADMIN',
         actorId: 'admin-1',
         actorNo: 'ADMIN-001',
@@ -299,7 +298,6 @@ describe('AuditLogsService', () => {
         entityId: 'pkg-1',
         entityNo: 'EVP2604050351',
         workflowType: AuditBusinessWorkflowTypes.AUDIT_EVIDENCE_EXPORT,
-        workflowNo: 'EVP2604050351',
         actorType: 'ADMIN',
         actorId: 'admin-1',
         actorNo: 'ADMIN-001',
@@ -328,12 +326,12 @@ describe('AuditLogsService', () => {
     expect(result.items[0]).toMatchObject({
       businessWorkflow: AuditBusinessWorkflowTypes.AUDIT_EVIDENCE_EXPORT,
       userAction: AuditUserActions.REQUEST_CREATED,
-      primaryRefNo: 'EVP2604050351',
+      primaryRefNo: 'APR2604051189',
     });
     expect(result.items[1]).toMatchObject({
       businessWorkflow: AuditBusinessWorkflowTypes.AUDIT_EVIDENCE_EXPORT,
       userAction: AuditUserActions.DOWNLOADED,
-      primaryRefNo: 'EVP2604050351',
+      primaryRefNo: 'APR2604051189',
     });
   });
 
@@ -850,7 +848,6 @@ describe('AuditLogsService', () => {
         entityId: 'approval-1',
         entityNo: 'APR2604010001',
         workflowType: AuditBusinessWorkflowTypes.ADMIN_MEMBER_PROVISIONING,
-        workflowNo: 'CT2604010001',
         actorType: 'ADMIN',
         actorId: 'admin-1',
         result: AuditResult.SUCCESS,
@@ -870,7 +867,6 @@ describe('AuditLogsService', () => {
         entityId: 'request-1',
         entityNo: 'DR2604010001',
         workflowType: AuditBusinessWorkflowTypes.CHANGE_TICKET_DELETION,
-        workflowNo: 'DR2604010001',
         actorType: 'ADMIN',
         actorId: 'admin-1',
         result: AuditResult.SUCCESS,
@@ -890,7 +886,6 @@ describe('AuditLogsService', () => {
         entityId: null,
         entityNo: null,
         workflowType: null,
-        workflowNo: null,
         actorType: 'ADMIN',
         actorId: 'admin-1',
         actorNo: 'ADM2604010001',
@@ -911,7 +906,6 @@ describe('AuditLogsService', () => {
         entityId: 'pkg-1',
         entityNo: 'EVP2604010001',
         workflowType: AuditBusinessWorkflowTypes.AUDIT_EVIDENCE_EXPORT,
-        workflowNo: 'EVP2604010001',
         actorType: 'ADMIN',
         actorId: 'admin-1',
         result: AuditResult.SUCCESS,
@@ -930,7 +924,7 @@ describe('AuditLogsService', () => {
       businessWorkflowLabel: 'Admin Member Provisioning',
       userAction: AuditUserActions.APPROVED_FOR_EXECUTION,
       userActionLabel: 'Approved For Execution',
-      primaryRefNo: 'CT2604010001',
+      primaryRefNo: 'APR2604010001',
       action: AuditActions.APPROVAL_APPROVED,
     });
     expect(result.items[1]).toMatchObject({
@@ -956,56 +950,6 @@ describe('AuditLogsService', () => {
     });
   });
 
-  it('should derive primaryRefNo from workflowNo first and entityNo as fallback', async () => {
-    prisma.auditLogEvent.count.mockResolvedValue(2);
-    prisma.auditLogEvent.findMany.mockResolvedValue([
-      {
-        id: 'ref-1',
-        auditNo: 'AUD2604010010',
-        triggerType: AuditTriggerType.DATA_UPDATE,
-        action: AuditActions.USER_CREATED,
-        module: AuditModules.ACCESS_CONTROL,
-        entityType: AuditEntityTypes.ACCESS_CONTROL,
-        entityId: 'user-1',
-        entityNo: 'ADM2604010099',
-        workflowType: AuditBusinessWorkflowTypes.ADMIN_MEMBER_PROVISIONING,
-        workflowNo: 'CT2604010010',
-        actorType: 'ADMIN',
-        actorId: 'admin-1',
-        result: AuditResult.SUCCESS,
-        metadata: null,
-        beforeData: null,
-        afterData: null,
-        occurredAt: new Date('2026-04-01T11:00:00.000Z'),
-        subjectNos: [],
-      },
-      {
-        id: 'ref-2',
-        auditNo: 'AUD2604010011',
-        triggerType: AuditTriggerType.DATA_UPDATE,
-        action: AuditActions.USER_ROLE_BINDING_UPDATED,
-        module: AuditModules.ACCESS_CONTROL,
-        entityType: AuditEntityTypes.ACCESS_CONTROL,
-        entityId: 'user-2',
-        entityNo: 'ADM2604010011',
-        workflowType: null,
-        workflowNo: null,
-        actorType: 'ADMIN',
-        actorId: 'admin-1',
-        result: AuditResult.SUCCESS,
-        metadata: null,
-        beforeData: null,
-        afterData: null,
-        occurredAt: new Date('2026-04-01T11:01:00.000Z'),
-        subjectNos: [],
-      },
-    ]);
-
-    const result = await service.findAll({ take: 20 });
-
-    expect(result.items[0].primaryRefNo).toBe('CT2604010010');
-    expect(result.items[1].primaryRefNo).toBe('ADM2604010011');
-  });
 
   it('should not map approval execution failure to EXPORT_FAILED outside audit evidence export workflow', async () => {
     prisma.auditLogEvent.count.mockResolvedValue(1);
@@ -1020,7 +964,6 @@ describe('AuditLogsService', () => {
         entityId: 'approval-2',
         entityNo: 'APR2604010002',
         workflowType: AuditBusinessWorkflowTypes.ADMIN_MEMBER_PROVISIONING,
-        workflowNo: 'CT2604010012',
         actorType: 'ADMIN',
         actorId: 'admin-1',
         result: AuditResult.FAILED,
@@ -1054,7 +997,6 @@ describe('AuditLogsService', () => {
         entityId: 'approval-3',
         entityNo: 'APR2604010003',
         workflowType: AuditBusinessWorkflowTypes.ADMIN_MEMBER_PROVISIONING,
-        workflowNo: null,
         actorType: 'ADMIN',
         actorId: 'admin-1',
         result: AuditResult.SUCCESS,
@@ -1103,8 +1045,6 @@ describe('AuditLogsService', () => {
       entityId: 'approval-1',
       entityNo: 'APR2604010001',
       workflowType: AuditBusinessWorkflowTypes.ADMIN_ROLE_BINDING_CHANGE,
-      workflowId: 'ticket-1',
-      workflowNo: 'CT2604010002',
       traceId: 'trace-role-binding-1',
       actorType: 'ADMIN',
       actorId: 'admin-1',
@@ -1123,7 +1063,7 @@ describe('AuditLogsService', () => {
       businessWorkflowLabel: 'Admin Role Binding Change',
       userAction: AuditUserActions.APPROVED_FOR_EXECUTION,
       userActionLabel: 'Approved For Execution',
-      primaryRefNo: 'CT2604010002',
+      primaryRefNo: 'APR2604010001',
       action: AuditActions.APPROVAL_APPROVED,
       workflowType: AuditBusinessWorkflowTypes.ADMIN_ROLE_BINDING_CHANGE,
       traceId: 'trace-role-binding-1',
@@ -1384,8 +1324,6 @@ describe('AuditLogsService', () => {
         actorType: 'SYSTEM',
         actorId: 'SYSTEM',
         workflowType: 'DEPOSIT',
-        workflowId: 'dep-1',
-        workflowNo: 'DEP2603240001',
         metadata: null,
         beforeData: null,
         afterData: null,
@@ -2029,8 +1967,6 @@ describe('AuditLogsService', () => {
         actorType: 'ADMIN',
         actorId: 'admin-1',
         workflowType: 'WITHDRAW',
-        workflowId: 'withdraw-1',
-        workflowNo: 'WD2603270001',
         metadata: null,
         beforeData: null,
         afterData: null,
@@ -2049,8 +1985,6 @@ describe('AuditLogsService', () => {
         actorType: 'SYSTEM',
         actorId: 'SYSTEM',
         workflowType: 'WITHDRAW',
-        workflowId: 'withdraw-1',
-        workflowNo: 'WD2603270001',
         metadata: null,
         beforeData: null,
         afterData: null,
