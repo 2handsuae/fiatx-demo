@@ -96,6 +96,19 @@ interface CustomerDetailData {
   updatedAt?: string | null;
   corporateProfile?: CorporateProfile | null;
   uboProfiles?: UboProfile[];
+  // Verification (Sumsub) snapshot
+  verificationProvider?: string | null;
+  verificationSubstatus?: string | null;
+  verificationCustomerActionRequired?: boolean;
+  verificationCanContinue?: boolean;
+  verificationLatestEventType?: string | null;
+  verificationLatestEventAt?: string | null;
+  sumsubApplicantId?: string | null;
+  sumsubCurrentLevelName?: string | null;
+  sumsubLatestReviewId?: string | null;
+  sumsubLatestAttemptId?: string | null;
+  sumsubExperiencedLevel2?: boolean;
+  onboardingTraceId?: string | null;
 }
 
 /* ── Helpers ─────────────────────────────────────────────────── */
@@ -283,6 +296,13 @@ const CustomerDetail = () => {
     () => !!detail?.latestFinalApprovalId || !!detail?.latestFinalApproval,
     [detail],
   );
+  const hasVerification = useMemo(
+    () =>
+      !!detail?.verificationProvider ||
+      !!detail?.verificationSubstatus ||
+      !!detail?.sumsubApplicantId,
+    [detail],
+  );
 
   /* ── Loading / error stubs ── */
 
@@ -444,7 +464,63 @@ const CustomerDetail = () => {
             </div>
           </section>
 
-          {/* ④ Restriction detail — only when applicable */}
+          {/* ④ Verification (Sumsub) */}
+          {hasVerification && (
+            <section className="px-6 py-5">
+              <Cap>Verification</Cap>
+              <p className="mt-1 mb-4 font-mono text-[9px] text-adm-t3">
+                Identity provider snapshot — latest webhook event and SDK identifiers
+              </p>
+              <div className="mt-3 mb-4 flex flex-wrap items-center gap-2">
+                <AdminBadge value={detail.verificationSubstatus || 'CREATED'} />
+                {detail.sumsubExperiencedLevel2 && (
+                  <span className="inline-flex items-center rounded border border-adm-blue/25 bg-adm-blue/10 px-1.5 py-px font-mono text-[9px] text-adm-blue">
+                    EDD level2
+                  </span>
+                )}
+              </div>
+              <FieldGrid>
+                <Field label="Provider" value={detail.verificationProvider ?? undefined} />
+                <Field label="Current Level" value={detail.sumsubCurrentLevelName ?? undefined} />
+                <Field
+                  label="Latest Event"
+                  value={detail.verificationLatestEventType ?? undefined}
+                  mono
+                />
+                <Field
+                  label="Latest Event At"
+                  value={fmt(detail.verificationLatestEventAt)}
+                  mono
+                />
+                <Field
+                  label="Customer Action Required"
+                  value={
+                    detail.verificationCustomerActionRequired === undefined
+                      ? undefined
+                      : detail.verificationCustomerActionRequired
+                        ? 'YES'
+                        : 'NO'
+                  }
+                />
+                <Field
+                  label="Can Continue"
+                  value={
+                    detail.verificationCanContinue === undefined
+                      ? undefined
+                      : detail.verificationCanContinue
+                        ? 'YES'
+                        : 'NO'
+                  }
+                />
+                <Field label="Applicant ID" value={detail.sumsubApplicantId ?? undefined} mono />
+                <Field label="Latest Review ID" value={detail.sumsubLatestReviewId ?? undefined} mono />
+                <Field label="Latest Attempt ID" value={detail.sumsubLatestAttemptId ?? undefined} mono />
+                <Field label="Trace ID" value={detail.onboardingTraceId ?? undefined} mono full />
+              </FieldGrid>
+            </section>
+          )}
+
+          {/* ⑤ Restriction detail — only when applicable */}
           {hasRestriction && (
             <section className="px-6 py-5">
               <Cap>Restriction</Cap>
@@ -459,7 +535,7 @@ const CustomerDetail = () => {
             </section>
           )}
 
-          {/* ⑤ Compliance Hold detail — only when applicable */}
+          {/* ⑥ Compliance Hold detail — only when applicable */}
           {hasHold && (
             <section className="px-6 py-5">
               <Cap>Compliance Hold</Cap>
@@ -474,7 +550,7 @@ const CustomerDetail = () => {
             </section>
           )}
 
-          {/* ⑥ Final Approval (as linked card) */}
+          {/* ⑦ Final Approval (as linked card) */}
           {hasFinalApproval && (
             <section className="px-6 py-5">
               <Cap>Final Approval</Cap>
@@ -519,7 +595,7 @@ const CustomerDetail = () => {
             </section>
           )}
 
-          {/* ⑦ Periodic Review */}
+          {/* ⑧ Periodic Review */}
           {hasPeriodicReview && (
             <section className="px-6 py-5">
               <Cap>Periodic Review</Cap>
@@ -563,7 +639,7 @@ const CustomerDetail = () => {
             </section>
           )}
 
-          {/* ⑧ Investor Classification */}
+          {/* ⑨ Investor Classification */}
           <section className="px-6 py-5">
             <Cap>Investor Classification</Cap>
             <div className="mt-3">
@@ -579,7 +655,7 @@ const CustomerDetail = () => {
             </div>
           </section>
 
-          {/* ⑨ Corporate Profile (only for CORPORATE) */}
+          {/* ⑩ Corporate Profile (only for CORPORATE) */}
           {hasCorporate && detail.corporateProfile && (
             <section className="px-6 py-5">
               <Cap>Corporate Profile</Cap>
@@ -610,7 +686,7 @@ const CustomerDetail = () => {
             </section>
           )}
 
-          {/* ⑩ UBO List (only for CORPORATE) */}
+          {/* ⑪ UBO List (only for CORPORATE) */}
           {hasUbos && (
             <section className="px-6 py-5">
               <Cap>Ultimate Beneficial Owners</Cap>
@@ -715,6 +791,22 @@ const CustomerDetail = () => {
               <span className="shrink-0 font-mono text-[9px] text-adm-t3">Hold</span>
               <AdminBadge value={detail.complianceHoldStatus || 'ACTIVE'} />
             </div>
+          </SidebarGroup>
+
+          {/* Verification */}
+          <SidebarGroup title="Verification">
+            <div className="flex items-center justify-between gap-2">
+              <span className="shrink-0 font-mono text-[9px] text-adm-t3">Substatus</span>
+              <AdminBadge value={detail.verificationSubstatus || 'CREATED'} />
+            </div>
+            <SidebarKV label="Level" value={detail.sumsubCurrentLevelName} mono />
+            <SidebarKV label="Provider" value={detail.verificationProvider} />
+            <SidebarKV label="Last Event" value={detail.verificationLatestEventType} mono />
+            <SidebarKV label="Updated" value={fmt(detail.verificationLatestEventAt)} mono />
+            <SidebarKV
+              label="EDD Level2"
+              value={detail.sumsubExperiencedLevel2 ? 'YES' : 'NO'}
+            />
           </SidebarGroup>
 
           {/* Risk */}
