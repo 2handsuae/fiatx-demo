@@ -149,6 +149,7 @@ model CustomerMain {
   sumsubLatestReviewId            String?
   sumsubLatestAttemptId           String?
   sumsubExperiencedLevel2         Boolean   @default(false)
+  onboardingTraceId               String?
   operatingStatus                 String    @default("INACTIVE") // INACTIVE, ACTIVE
   restrictionStatus               String    @default("CLEAR") // CLEAR, RESTRICTED
   restrictionCaseId               String?
