@@ -17,7 +17,19 @@ export class SumsubClient {
     timeout: 10000,
   });
 
+  /**
+   * Mock mode: when SUMSUB_APP_TOKEN/SUMSUB_SECRET_KEY are missing, return fake
+   * data instead of calling the real Sumsub API. This lets dev/staging environments
+   * drive the onboarding flow end-to-end using the admin simulation tool.
+   */
+  private get isMockMode(): boolean {
+    return !process.env.SUMSUB_APP_TOKEN || !process.env.SUMSUB_SECRET_KEY;
+  }
+
   async createApplicant(input: SumsubCreateApplicantInput): Promise<SumsubApplicantResponse> {
+    if (this.isMockMode) {
+      return { id: `MOCK-${input.externalUserId}` };
+    }
     return this.post<SumsubApplicantResponse>(
       `/resources/applicants?levelName=${encodeURIComponent(input.levelName)}`,
       { externalUserId: input.externalUserId },
@@ -25,6 +37,9 @@ export class SumsubClient {
   }
 
   async createSdkToken(input: SumsubCreateSdkTokenInput): Promise<SumsubSdkTokenResponse> {
+    if (this.isMockMode) {
+      return { token: `MOCK-SDK-TOKEN-${input.externalUserId}` };
+    }
     return this.post<SumsubSdkTokenResponse>('/resources/accessTokens/sdk', {
       userId: input.externalUserId,
       levelName: input.levelName,
@@ -35,6 +50,10 @@ export class SumsubClient {
   async getApplicantByExternalUserId(
     externalUserId: string,
   ): Promise<SumsubApplicantResponse | null> {
+    if (this.isMockMode) {
+      // Pretend no applicant exists so createApplicant() is called next.
+      return null;
+    }
     return this.getOptional<SumsubApplicantResponse>(
       `/resources/applicants/-;externalUserId=${encodeURIComponent(externalUserId)}/one`,
     );
@@ -43,10 +62,16 @@ export class SumsubClient {
   async getApplicantReviewStatus(
     applicantId: string,
   ): Promise<SumsubApplicantReviewStatusResponse> {
+    if (this.isMockMode) {
+      return { reviewStatus: 'init' } as SumsubApplicantReviewStatusResponse;
+    }
     return this.get(`/resources/applicants/${applicantId}/status`);
   }
 
   async changeLevel(applicantId: string, levelName: string): Promise<Record<string, never>> {
+    if (this.isMockMode) {
+      return {} as Record<string, never>;
+    }
     return this.post<Record<string, never>>(
       `/resources/applicants/${applicantId}/moveToLevel?name=${encodeURIComponent(levelName)}`,
       {},

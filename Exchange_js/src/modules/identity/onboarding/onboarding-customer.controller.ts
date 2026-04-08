@@ -63,6 +63,18 @@ export class OnboardingCustomerController {
     return this.onboardingService.startVerification(customerId);
   }
 
+  @Post('verification/mock-submit')
+  @ApiOperation({
+    summary:
+      '[Mock-mode only] Simulate the customer completing the mobile KYC form. ' +
+      'Dispatches an applicantPending event so the UI transitions to the under-review state. ' +
+      'In production (with Sumsub credentials configured) this endpoint is disabled.',
+  })
+  mockSubmitVerification(@Req() req: any) {
+    const customerId = this.ensureCustomer(req);
+    return this.onboardingService.mockSubmitVerification(customerId);
+  }
+
   @Post('entity')
   @ApiOperation({ summary: 'Save entity profile without changing registered customer type' })
   upsertEntity(

@@ -87,7 +87,12 @@ export class SumsubIngestionService {
       if (event.context === 'ONBOARDING') {
         result = await this.onboardingService.handleSumsubVerificationEvent(payload, {
           simulated: event.isSimulated,
-          actorId: event.isSimulated ? (event.simulatedByUserId ?? 'ADMIN_SIM') : 'SUMSUB',
+          // When simulated, actorId must be the customer's ID (externalUserId) so the
+          // onboarding service can locate the customer. The admin who triggered the
+          // simulation is tracked separately via simulatedByUserId on the event record.
+          actorId: event.isSimulated
+            ? (event.externalUserId || event.simulatedByUserId || 'ADMIN_SIM')
+            : 'SUMSUB',
           rawBody: Buffer.from(JSON.stringify(payload)),
         });
       } else {
@@ -144,7 +149,9 @@ export class SumsubIngestionService {
     });
     if (!customer) throw new NotFoundException(`Customer ${customerId} not found`);
 
-    const applicantId = customer.sumsubApplicantId ?? `SIM-${customer.customerNo}`;
+    // Only include applicantId if customer already has a real one.
+    // Without it, the webhook handler falls through to externalUserId lookup.
+    const applicantId = customer.sumsubApplicantId ?? null;
     const basePayload = this.buildScenarioPayload(scenario, applicantId, customer.id);
     const finalPayload = { ...basePayload, ...(overrides ?? {}) };
 
@@ -153,10 +160,11 @@ export class SumsubIngestionService {
 
   private buildScenarioPayload(
     scenario: SimulationScenario,
-    applicantId: string,
+    applicantId: string | null,
     externalUserId: string,
   ): Record<string, unknown> {
-    const base = { applicantId, externalUserId };
+    const base: Record<string, unknown> = { externalUserId };
+    if (applicantId) base.applicantId = applicantId;
     switch (scenario) {
       case SimulationScenario.LOW_RISK_PASS:
         return {

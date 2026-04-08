@@ -449,38 +449,6 @@ const formatVerificationTime = (value?: string | null) => {
   return date.toLocaleString();
 };
 
-const onboardingSimulationActions: Array<{
-  label: string;
-  eventType: string;
-  payload?: {
-    levelName?: string;
-    reviewAnswer?: string;
-    reviewRejectType?: string;
-  };
-}> = [
-  {
-    label: 'Pending',
-    eventType: 'applicantPending',
-  },
-  {
-    label: 'On Hold',
-    eventType: 'applicantOnHold',
-  },
-  {
-    label: 'Level Changed',
-    eventType: 'applicantLevelChanged',
-    payload: { levelName: 'wave3-level-2' },
-  },
-  {
-    label: 'Workflow Completed',
-    eventType: 'applicantWorkflowCompleted',
-  },
-  {
-    label: 'Workflow Failed',
-    eventType: 'applicantWorkflowFailed',
-  },
-];
-
 const OnboardingVerificationDetails = ({
   verification,
 }: {
@@ -535,54 +503,6 @@ const OnboardingVerificationDetails = ({
     </div>
   );
 };
-
-const OnboardingSimulationPanel = ({
-  enabled,
-  saving,
-  onSimulate,
-  noticeMessage,
-}: {
-  enabled: boolean;
-  saving: boolean;
-  onSimulate: (
-    eventType: string,
-    options?: {
-      levelName?: string;
-      reviewAnswer?: string;
-      reviewRejectType?: string;
-    },
-  ) => Promise<boolean>;
-  noticeMessage: string;
-}) => (
-  <div className="mt-8 w-full rounded-3xl border border-slate-100 bg-slate-50/80 px-5 py-5 text-left">
-    <div className="flex items-center gap-3 text-slate-800">
-      <ShieldCheck size={18} className="text-indigo-500" />
-      <div>
-        <div className="text-sm font-semibold">Simulation Events</div>
-        <div className="text-xs text-slate-500">
-          Trigger Sumsub-style status changes for onboarding verification.
-        </div>
-      </div>
-    </div>
-
-    {enabled ? (
-      <div className="mt-4 grid gap-3 md:grid-cols-2">
-        {onboardingSimulationActions.map((item) => (
-          <button
-            key={item.eventType}
-            onClick={() => onSimulate(item.eventType, item.payload).catch(() => undefined)}
-            disabled={saving}
-            className={secondaryButtonClass}
-          >
-            {item.label}
-          </button>
-        ))}
-      </div>
-    ) : (
-      <SimulationModeNotice message={noticeMessage} />
-    )}
-  </div>
-);
 
 const Verification = () => {
   const { profile, loading, error, refreshProfile } = useCustomerProfile();
@@ -825,26 +745,14 @@ const Verification = () => {
       successMessage,
     );
 
-  const simulateOnboardingVerification = async (
-    eventType: string,
-    options?: {
-      levelName?: string;
-      reviewAnswer?: string;
-      reviewRejectType?: string;
-    },
-  ) =>
+  const mockSubmitVerification = async () =>
     runAction(
       () =>
-        withAuth(`${import.meta.env.VITE_API_URL}/onboarding/sumsub/simulate`, {
+        withAuth(`${import.meta.env.VITE_API_URL}/onboarding/verification/mock-submit`, {
           method: 'POST',
-          body: JSON.stringify({
-            eventType,
-            levelName: options?.levelName,
-            reviewAnswer: options?.reviewAnswer,
-            reviewRejectType: options?.reviewRejectType,
-          }),
+          body: JSON.stringify({}),
         }),
-      `Simulated ${formatVerificationLabel(eventType)}.`,
+      'Verification form submitted. Awaiting review.',
     );
 
   const startEdd = async () =>
@@ -1259,40 +1167,37 @@ const Verification = () => {
                 className={cardClass}
               >
                 <div className="flex flex-col items-center text-center">
-                  <div className="mb-6 relative">
-                    <div className="absolute inset-0 rounded-full bg-indigo-400/20 blur-xl" />
-                    <div className="relative rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-600 p-5 text-white shadow-xl shadow-indigo-500/20">
-                      <ShieldCheck size={40} />
-                    </div>
+                  <h2 className="text-2xl font-bold text-slate-900">Scan to Verify</h2>
+                  <p className="mt-3 max-w-md text-slate-500 leading-relaxed">
+                    Scan the QR code with your mobile device to complete identity verification.
+                  </p>
+
+                  <div className="mt-8 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+                    <QRCodeSVG
+                      value={
+                        currentStep.verification?.applicantId
+                          ? `https://verify.sumsub.com/idensic/l/#/applicants/${currentStep.verification.applicantId}`
+                          : `https://verify.sumsub.com/idensic/l/#/onboarding/${profile?.id || 'pending'}`
+                      }
+                      size={200}
+                      level="M"
+                    />
                   </div>
 
-                  <h2 className="text-2xl font-bold text-slate-900">Continue Verification</h2>
-                  <p className="mt-3 max-w-lg text-slate-500 leading-relaxed">
-                    Your onboarding now uses our verification provider directly. Continue the
-                    identity check to finish submission.
+                  <p className="mt-6 flex items-center gap-2 text-xs text-slate-400">
+                    <Smartphone size={14} />
+                    Open camera and scan to continue on mobile
                   </p>
 
                   <OnboardingVerificationDetails verification={currentStep.verification} />
 
                   <button
-                    onClick={() =>
-                      startOnboardingVerification('Verification continuation is ready.').catch(
-                        () => undefined,
-                      )
-                    }
+                    onClick={() => mockSubmitVerification().catch(() => undefined)}
                     disabled={saving}
-                    className={`${primaryButtonClass} mt-8`}
+                    className="mt-6 text-xs text-slate-400 underline-offset-4 hover:text-indigo-500 hover:underline disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    <ShieldCheck size={18} />
-                    Continue Verification
+                    {saving ? 'Submitting...' : "I've completed the form on mobile (simulate)"}
                   </button>
-
-                  <OnboardingSimulationPanel
-                    enabled={simulationModeEnabled}
-                    saving={saving}
-                    onSimulate={simulateOnboardingVerification}
-                    noticeMessage={simulationModeNotice}
-                  />
                 </div>
               </motion.section>
             )}
@@ -1327,15 +1232,7 @@ const Verification = () => {
                       />
                     </div>
                   ) : (
-                    <>
-                      <OnboardingVerificationDetails verification={currentStep.verification} />
-                      <OnboardingSimulationPanel
-                        enabled={simulationModeEnabled}
-                        saving={saving}
-                        onSimulate={simulateOnboardingVerification}
-                        noticeMessage={simulationModeNotice}
-                      />
-                    </>
+                    <OnboardingVerificationDetails verification={currentStep.verification} />
                   )}
                 </div>
               </motion.section>
@@ -1423,14 +1320,6 @@ const Verification = () => {
                     </>
                   )}
 
-                  {verificationMode === 'ONBOARDING' && (
-                    <OnboardingSimulationPanel
-                      enabled={simulationModeEnabled}
-                      saving={saving}
-                      onSimulate={simulateOnboardingVerification}
-                      noticeMessage={simulationModeNotice}
-                    />
-                  )}
                 </div>
               </motion.section>
             )}

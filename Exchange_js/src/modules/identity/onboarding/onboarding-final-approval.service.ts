@@ -315,9 +315,15 @@ export class OnboardingFinalApprovalService {
         actionType: ApprovalActionTypes.ONBOARDING_FINAL_APPROVAL,
         entityRef: customer.id,
         traceId: this.buildTraceContext(customer.activeJourneyId)?.traceId || undefined,
-        workflowType: ONBOARDING_WORKFLOW,
-        workflowId: customer.activeJourneyId || undefined,
-        workflowNo: customer.activeJourneyId || undefined,
+        // All three workflow fields must be provided together or not at all.
+        // When activeJourneyId is absent (e.g. simulated flows), omit all three.
+        ...(customer.activeJourneyId
+          ? {
+              workflowType: ONBOARDING_WORKFLOW,
+              workflowId: customer.activeJourneyId,
+              workflowNo: customer.activeJourneyId,
+            }
+          : {}),
         metadata: {
           source: 'WAVE3_PHASE4_ONBOARDING',
           customerId: customer.id,

@@ -1925,6 +1925,52 @@ export class OnboardingService {
     };
   }
 
+  /**
+   * Mock-mode only: simulate the customer finishing the mobile KYC form by
+   * dispatching an `applicantPending` event for the current customer. This
+   * transitions the customer from PENDING_VERIFICATION/CREATED to
+   * PENDING_VERIFICATION/SUBMITTED so the UI can show the "under review" page.
+   * In production (with real Sumsub credentials), Sumsub itself sends the
+   * webhook so this endpoint is a no-op gated check.
+   */
+  async mockSubmitVerification(customerId: string): Promise<StartVerificationSnapshotDto> {
+    if (process.env.SUMSUB_APP_TOKEN && process.env.SUMSUB_SECRET_KEY) {
+      throw new BadRequestException(
+        'mock-submit is only available when Sumsub credentials are not configured.',
+      );
+    }
+
+    const customer = await this.getCustomerOrThrow(customerId, true);
+    if (this.getCustomerOnboardingStatus(customer) !== 'PENDING_VERIFICATION') {
+      throw new BadRequestException(
+        'mock-submit requires customer to be in PENDING_VERIFICATION state.',
+      );
+    }
+
+    const payload: Record<string, unknown> = {
+      type: 'applicantPending',
+      externalUserId: customerId,
+      ...(customer.sumsubApplicantId ? { applicantId: customer.sumsubApplicantId } : {}),
+    };
+
+    await this.handleSumsubVerificationEvent(payload, {
+      simulated: true,
+      actorId: customerId,
+      rawBody: Buffer.from(JSON.stringify(payload)),
+    });
+
+    const refreshed = await this.getCustomerOrThrow(customerId, true);
+    const nextStep = await this.buildNextStep(refreshed);
+    return {
+      customer: this.buildCustomerSnapshot(refreshed),
+      nextStep,
+      verification: {
+        ...this.buildVerificationProjection(refreshed),
+        sdkToken: '',
+      },
+    };
+  }
+
   async listMyResponses(customerId: string) {
     await this.getCustomerOrThrow(customerId);
 
