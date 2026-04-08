@@ -1,16 +1,20 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Building2, Clock, ShieldCheck, User } from 'lucide-react';
+import { Link2, RefreshCw } from 'lucide-react';
 import CaseBoundCustomerControlModal, {
   type CustomerControlAction,
 } from '../components/CaseBoundCustomerControlModal';
-import {
-  ActionSection,
-  DetailCard,
-  DetailPageHeader,
-} from '../components/compliance/DetailPageComponents';
+import { DetailPageHeader } from '../components/compliance/DetailPageComponents';
 import { adminButtonClass } from '../components/common/adminButtonStyles';
-import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/adminFetch';
+import {
+  AdminPermissionError,
+  AdminSessionError,
+  adminFetch,
+  getApiErrorMessage,
+} from '../utils/adminFetch';
+import { AdminBadge } from '../components/ui/AdminBadge';
+
+/* ── Interfaces ──────────────────────────────────────────────── */
 
 interface CorporateProfile {
   companyName: string;
@@ -30,21 +34,6 @@ interface UboProfile {
   status: string;
 }
 
-interface ComplianceCase {
-  id: string;
-  responseNo: string;
-  responseType?: string | null;
-  status: string;
-  subjectKind: string;
-  subjectRefId: string;
-  journeyId: string;
-  workflow?: string | null;
-  periodicReviewCycleId?: string | null;
-  requiresEdd?: boolean;
-  reviewedAt?: string | null;
-  createdAt: string;
-}
-
 interface PeriodicReviewCycleSummary {
   id: string;
   cycleNo: string;
@@ -60,621 +49,720 @@ interface PeriodicReviewCycleSummary {
   resolutionReason?: string | null;
 }
 
-interface AuditCenterSummary {
-  latestDecisionRecordId: string | null;
+interface FinalApprovalSummary {
+  id: string;
+  approvalNo: string;
+  status: string;
+  decidedAt?: string | null;
+  decisionByRole?: string | null;
 }
 
 interface CustomerDetailData {
   id: string;
   customerNo: string;
   email?: string | null;
+  phone?: string | null;
   firstName?: string | null;
   lastName?: string | null;
   companyName?: string | null;
   customerType: string;
-  onboardingStatus?: string;
-  operatingStatus?: string;
-  restrictionStatus?: string;
+  onboardingStatus?: string | null;
+  operatingStatus?: string | null;
+  restrictionStatus?: string | null;
   restrictionCaseId?: string | null;
   restrictionReason?: string | null;
   restrictionSetAt?: string | null;
   restrictionReleasedAt?: string | null;
-  complianceHoldStatus?: string;
+  complianceHoldStatus?: string | null;
   complianceHoldCaseId?: string | null;
   complianceHoldReason?: string | null;
   complianceHoldSetAt?: string | null;
   complianceHoldReleasedAt?: string | null;
-  amlRiskTier: string;
-  eddRequired: boolean;
+  amlRiskTier?: string | null;
+  eddRequired?: boolean;
   cddDocumentExpiresAt?: string | null;
   latestFinalApprovalId?: string | null;
   latestFinalApprovalStatus?: string | null;
-  latestFinalApproval?: {
-    id: string;
-    approvalNo: string;
-    status: string;
-    decidedAt?: string | null;
-    decisionByRole?: string | null;
-  } | null;
+  latestFinalApproval?: FinalApprovalSummary | null;
   nextReviewAt?: string | null;
   activePeriodicReviewCycleId?: string | null;
   periodicReviewOverdueAt?: string | null;
   periodicReviewOverdueReason?: string | null;
   activePeriodicReviewCycle?: PeriodicReviewCycleSummary | null;
-  investorClassification: string;
-  investorClassificationSource: string;
+  investorClassification?: string | null;
+  investorClassificationSource?: string | null;
   investorClassificationUpdatedAt?: string | null;
   createdAt: string;
-  updatedAt: string;
+  updatedAt?: string | null;
   corporateProfile?: CorporateProfile | null;
   uboProfiles?: UboProfile[];
-  cddResponses?: ComplianceCase[];
-  eddResponses?: ComplianceCase[];
-  auditCenterSummary?: AuditCenterSummary | null;
 }
 
-const getErrorMessage = (error: unknown, fallback: string) =>
-  error instanceof Error ? error.message : fallback;
+/* ── Helpers ─────────────────────────────────────────────────── */
+
+const fmt = (v?: string | null): string => {
+  if (!v) return '—';
+  const d = new Date(v);
+  return Number.isNaN(d.getTime()) ? v : d.toLocaleString();
+};
+
+const displayName = (c: CustomerDetailData): string => {
+  if (c.customerType === 'CORPORATE') {
+    return (
+      c.companyName ||
+      c.corporateProfile?.companyName ||
+      `${c.firstName ?? ''} ${c.lastName ?? ''}`.trim() ||
+      c.customerNo
+    );
+  }
+  return `${c.firstName ?? ''} ${c.lastName ?? ''}`.trim() || c.companyName || c.customerNo;
+};
+
+/* ── Shared layout primitives (copy-pasted per contract §4.2) ─ */
+
+const Cap = ({ children }: { children: ReactNode }) => (
+  <p className="font-mono text-[8.5px] font-semibold uppercase tracking-[0.16em] text-adm-t3">
+    {children}
+  </p>
+);
+
+const FieldGrid = ({ children, cols = 2 }: { children: ReactNode; cols?: 1 | 2 }) => (
+  <div
+    className={[
+      'grid gap-x-8 gap-y-4',
+      cols === 1 ? 'grid-cols-1' : 'grid-cols-2',
+    ].join(' ')}
+  >
+    {children}
+  </div>
+);
+
+const Field = ({
+  label,
+  value,
+  mono = false,
+  amber = false,
+  full = false,
+}: {
+  label: string;
+  value?: string | null;
+  mono?: boolean;
+  amber?: boolean;
+  full?: boolean;
+}) => {
+  if (!value) return null;
+  return (
+    <div className={full ? 'col-span-2' : ''}>
+      <p className="mb-1 font-mono text-[8.5px] uppercase tracking-[0.14em] text-adm-t3">
+        {label}
+      </p>
+      <p
+        className={[
+          'break-all leading-relaxed',
+          mono ? 'font-mono text-[10px]' : 'text-[11px]',
+          amber ? 'font-semibold text-adm-amber' : 'text-adm-t2',
+        ].join(' ')}
+      >
+        {value}
+      </p>
+    </div>
+  );
+};
+
+const SidebarGroup = ({ title, children }: { title: string; children: ReactNode }) => (
+  <div className="border-b border-adm-border py-4 last:border-b-0">
+    <Cap>{title}</Cap>
+    <div className="mt-2.5 flex flex-col gap-1.5">{children}</div>
+  </div>
+);
+
+const SidebarKV = ({
+  label,
+  value,
+  mono = false,
+}: {
+  label: string;
+  value: ReactNode;
+  mono?: boolean;
+}) => {
+  if (value === null || value === undefined || value === '' || value === '—') return null;
+  return (
+    <div className="flex items-baseline justify-between gap-2">
+      <span className="shrink-0 font-mono text-[9px] text-adm-t3">{label}</span>
+      <span
+        className={[
+          'min-w-0 break-all text-right text-adm-t2',
+          mono ? 'font-mono text-[10px]' : 'text-[11px]',
+        ].join(' ')}
+      >
+        {value}
+      </span>
+    </div>
+  );
+};
+
+/* ─────────────────────────────────────────────────────────────── */
 
 const CustomerDetail = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
 
-  const [customer, setCustomer] = useState<CustomerDetailData | null>(null);
+  const [detail, setDetail] = useState<CustomerDetailData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [updatingClassification, setUpdatingClassification] = useState(false);
-  const [simulatingExpired, setSimulatingExpired] = useState(false);
-  const [triggeringPeriodicReview, setTriggeringPeriodicReview] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
   const [controlAction, setControlAction] = useState<CustomerControlAction | null>(null);
 
-  const fetchCustomer = async () => {
+  /* ── Fetching ── */
+
+  const fetchDetail = async () => {
+    if (!id) {
+      setError('Customer id is required.');
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    setError('');
     try {
-      const response = await adminFetch(`${import.meta.env.VITE_API_URL}/customers/${id}`);
-
-      if (!response.ok) {
-        throw new Error(await getApiErrorMessage(response, 'Failed to load data.'));
-      }
-
-      setCustomer((await response.json()) as CustomerDetailData);
+      const res = await adminFetch(`${import.meta.env.VITE_API_URL}/customers/${id}`);
+      if (!res.ok) throw new Error(await getApiErrorMessage(res, 'Failed to load customer.'));
+      setDetail((await res.json()) as CustomerDetailData);
     } catch (e: unknown) {
-      if (e instanceof AdminSessionError) {
-        return;
+      if (e instanceof AdminSessionError) return;
+      if (e instanceof AdminPermissionError) {
+        setError('Permission denied. You cannot view this customer.');
+      } else {
+        setError(e instanceof Error ? e.message : 'Failed to load customer.');
       }
-      setError(getErrorMessage(e, 'Failed to load data.'));
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    if (id) {
-      fetchCustomer();
-    }
-  }, [id, navigate]);
+    void fetchDetail();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
 
-  const fullName = useMemo(() => {
-    if (!customer) return '-';
-    if (customer.customerType === 'CORPORATE') {
-      return customer.companyName || customer.corporateProfile?.companyName || customer.customerNo;
-    }
-    const name = `${customer.firstName || ''} ${customer.lastName || ''}`.trim();
-    return name || customer.customerNo;
-  }, [customer]);
+  /* Auto-dismiss notice */
+  useEffect(() => {
+    if (!notice) return undefined;
+    const t = window.setTimeout(
+      () => setNotice((c) => (c === notice ? null : c)),
+      4000,
+    );
+    return () => window.clearTimeout(t);
+  }, [notice]);
 
-  const updateInvestorClassification = async () => {
-    if (!customer) return;
+  /* ── Derived booleans ── */
 
-    const classification = (window.prompt('Classification: RETAIL | QUALIFIED | INSTITUTIONAL', customer.investorClassification || 'RETAIL') || '').trim().toUpperCase();
-    if (!['RETAIL', 'QUALIFIED', 'INSTITUTIONAL'].includes(classification)) {
-      return;
-    }
+  const hasCorporate = useMemo(
+    () => detail?.customerType === 'CORPORATE' && !!detail.corporateProfile,
+    [detail],
+  );
+  const hasUbos = useMemo(
+    () => Array.isArray(detail?.uboProfiles) && (detail?.uboProfiles?.length ?? 0) > 0,
+    [detail],
+  );
+  const hasRestriction = useMemo(
+    () => detail?.restrictionStatus === 'RESTRICTED' || !!detail?.restrictionReason,
+    [detail],
+  );
+  const hasHold = useMemo(
+    () => detail?.complianceHoldStatus === 'FROZEN' || !!detail?.complianceHoldReason,
+    [detail],
+  );
+  const hasPeriodicReview = useMemo(
+    () =>
+      !!detail?.activePeriodicReviewCycle ||
+      !!detail?.activePeriodicReviewCycleId ||
+      !!detail?.periodicReviewOverdueAt,
+    [detail],
+  );
+  const hasFinalApproval = useMemo(
+    () => !!detail?.latestFinalApprovalId || !!detail?.latestFinalApproval,
+    [detail],
+  );
 
-    const reason = window.prompt('Please provide reason for override', '') || '';
-    if (!reason.trim()) {
-      return;
-    }
-
-    try {
-      setUpdatingClassification(true);
-      const response = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/compliance/customers/${customer.id}/investor-classification`,
-        {
-          method: 'PATCH',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            classification,
-            reason,
-          }),
-        },
-      );
-
-      if (!response.ok) {
-        throw new Error(await getApiErrorMessage(response, 'Failed to update classification'));
-      }
-
-      await fetchCustomer();
-    } catch (e) {
-      if (e instanceof AdminSessionError) {
-        return;
-      }
-      alert(getErrorMessage(e, 'Failed to update classification'));
-    } finally {
-      setUpdatingClassification(false);
-    }
-  };
-
-  const simulateExpired = async () => {
-    if (!customer) return;
-    if (!window.confirm('Simulate CDD document expiration for this customer?')) return;
-
-    try {
-      setSimulatingExpired(true);
-      const response = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/compliance/customers/${customer.id}/simulate-expired`,
-        {
-          method: 'POST',
-        },
-      );
-
-      if (!response.ok) {
-        throw new Error(await getApiErrorMessage(response, 'Failed to simulate expired'));
-      }
-
-      await fetchCustomer();
-    } catch (e) {
-      if (e instanceof AdminSessionError) {
-        return;
-      }
-      alert(getErrorMessage(e, 'Failed to simulate expired'));
-    } finally {
-      setSimulatingExpired(false);
-    }
-  };
-
-  const triggerPeriodicReview = async () => {
-    if (!customer) return;
-
-    const reason =
-      window.prompt('Periodic review trigger reason', 'Periodic review due')?.trim() ||
-      'Periodic review due';
-
-    try {
-      setTriggeringPeriodicReview(true);
-      const response = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/compliance/customers/${customer.id}/periodic-review/trigger`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ reason }),
-        },
-      );
-
-      if (!response.ok) {
-        throw new Error(await getApiErrorMessage(response, 'Failed to trigger periodic review'));
-      }
-
-      await fetchCustomer();
-    } catch (e) {
-      if (e instanceof AdminSessionError) {
-        return;
-      }
-      alert(getErrorMessage(e, 'Failed to trigger periodic review'));
-    } finally {
-      setTriggeringPeriodicReview(false);
-    }
-  };
+  /* ── Loading / error stubs ── */
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-primary"></div>
+      <div className="flex h-full items-center justify-center gap-3">
+        <RefreshCw size={24} className="animate-spin text-adm-amber" />
+        <p className="font-mono text-[11px] text-adm-t3">Loading…</p>
       </div>
     );
   }
 
-  if (error || !customer) {
+  if (error && !detail) {
     return (
-      <div className="p-8 text-center bg-white rounded-xl shadow-sm border border-admin-border">
-        <div className="text-red-500 mb-4">{error || 'Customer not found'}</div>
-        <button onClick={() => navigate(-1)} className="text-brand-primary hover:underline font-medium">
-          Go Back
-        </button>
+      <div className="flex h-full flex-col overflow-hidden">
+        <div className="shrink-0 border-b border-adm-border bg-adm-panel px-6 py-4 flex items-center gap-2">
+          <button
+            onClick={() => navigate('/dashboard/customer/management')}
+            className={adminButtonClass('detailUtility')}
+          >
+            ← Back
+          </button>
+          <button onClick={() => void fetchDetail()} className={adminButtonClass('detailUtility')}>
+            <RefreshCw size={13} />
+            Retry
+          </button>
+        </div>
+        <div className="px-6 py-6">
+          <div className="rounded-lg border border-adm-red/30 bg-adm-red/10 px-4 py-3 font-mono text-[11px] text-adm-red">
+            {error}
+          </div>
+        </div>
       </div>
     );
   }
 
-  const latestApprovalStatus =
-    customer.latestFinalApprovalStatus || customer.latestFinalApproval?.status || '-';
-  const canTriggerPeriodicReview =
-    customer.onboardingStatus === 'APPROVED' && customer.operatingStatus === 'ACTIVE';
+  if (!detail) {
+    return (
+      <div className="flex h-full flex-col overflow-hidden">
+        <div className="shrink-0 border-b border-adm-border bg-adm-panel px-6 py-4 flex items-center gap-2">
+          <button
+            onClick={() => navigate('/dashboard/customer/management')}
+            className={adminButtonClass('detailUtility')}
+          >
+            ← Back
+          </button>
+        </div>
+        <div className="px-6 py-6 font-mono text-[11px] text-adm-t3">
+          Customer not found.
+        </div>
+      </div>
+    );
+  }
+
+  const name = displayName(detail);
+  const isCorporate = detail.customerType === 'CORPORATE';
+  const finalApprovalStatus =
+    detail.latestFinalApprovalStatus || detail.latestFinalApproval?.status || null;
+  const canRestrict = detail.restrictionStatus !== 'RESTRICTED';
+  const canUnrestrict = detail.restrictionStatus === 'RESTRICTED';
+  const canFreeze = detail.complianceHoldStatus !== 'FROZEN';
+  const canUnfreeze = detail.complianceHoldStatus === 'FROZEN';
+
+  /* ── Render ── */
 
   return (
-    <div className="space-y-6 max-w-6xl mx-auto pb-12">
+    <div className="flex h-full flex-col overflow-hidden">
+
+      {/* ── Sticky header ── */}
       <DetailPageHeader
-        title={fullName}
-        subtitle={`${customer.customerNo} · ${customer.customerType} · ${customer.email || 'No email'}`}
-        onBack={() => navigate(-1)}
-        onRefresh={() => void fetchCustomer()}
-        backLabel="Back"
-      >
-        <div className="flex flex-wrap gap-3">
-          <StatusBadge label="Onboarding" value={customer.onboardingStatus || 'NONE'} />
-          <StatusBadge label="Operating" value={customer.operatingStatus || 'INACTIVE'} />
-          <StatusBadge label="Restriction" value={customer.restrictionStatus || 'CLEAR'} />
-          <StatusBadge label="Hold" value={customer.complianceHoldStatus || 'ACTIVE'} />
+        title="Customer"
+        onBack={() => navigate('/dashboard/customer/management')}
+        onRefresh={() => void fetchDetail()}
+        refreshing={loading}
+        backLabel="Customer Management"
+      />
+
+      {/* ── Inline notices ── */}
+      {(notice || error) && (
+        <div className="shrink-0 px-6 pt-3 pb-1 space-y-2">
+          {notice && (
+            <div className="rounded border border-adm-green/30 bg-adm-green/10 px-4 py-2 font-mono text-[11px] text-adm-green">
+              {notice}
+            </div>
+          )}
+          {error && (
+            <div className="rounded border border-adm-red/30 bg-adm-red/10 px-4 py-2 font-mono text-[11px] text-adm-red">
+              {error}
+            </div>
+          )}
         </div>
-      </DetailPageHeader>
+      )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <DetailCard title="Subject" icon={<User size={16} />} columns={1}>
-          <KeyValue label="Customer Type" value={customer.customerType} />
-          <KeyValue label="Company Name" value={customer.companyName || customer.corporateProfile?.companyName || '-'} />
-          <KeyValue label="First Name" value={customer.firstName || '-'} />
-          <KeyValue label="Last Name" value={customer.lastName || '-'} />
-          <KeyValue label="Created At" value={new Date(customer.createdAt).toLocaleString()} />
-        </DetailCard>
+      {/* ── Body ── */}
+      <div className="flex min-h-0 flex-1 overflow-hidden">
 
-        <DetailCard title="Compliance Snapshot" icon={<ShieldCheck size={16} />} columns={1}>
-          <p className="mb-4 text-xs text-gray-500">
-            Canonical statuses and workflow summaries below are the runtime source of truth.
-          </p>
-          <KeyValue label="Onboarding Status" value={customer.onboardingStatus || 'NONE'} />
-          <KeyValue label="Operating Status" value={customer.operatingStatus || 'INACTIVE'} />
-          <KeyValue label="Restriction Status" value={customer.restrictionStatus || 'CLEAR'} />
-          <KeyValue label="Compliance Hold Status" value={customer.complianceHoldStatus || 'ACTIVE'} />
-          <KeyValue label="Restriction Case" value={customer.restrictionCaseId || '-'} />
-          <KeyValue label="Restriction Reason" value={customer.restrictionReason || '-'} />
-          <KeyValue label="Restriction Set At" value={formatMaybeTime(customer.restrictionSetAt)} />
-          <KeyValue
-            label="Restriction Released At"
-            value={formatMaybeTime(customer.restrictionReleasedAt)}
-          />
-          <KeyValue label="AML Risk Tier" value={customer.amlRiskTier} />
-          <KeyValue label="EDD Required" value={customer.eddRequired ? 'YES' : 'NO'} />
-          <KeyValue label="Hold Case" value={customer.complianceHoldCaseId || '-'} />
-          <KeyValue label="Hold Reason" value={customer.complianceHoldReason || '-'} />
-          <KeyValue label="Hold Set At" value={formatMaybeTime(customer.complianceHoldSetAt)} />
-          <KeyValue
-            label="Hold Released At"
-            value={formatMaybeTime(customer.complianceHoldReleasedAt)}
-          />
-          <KeyValue label="CDD Doc Expires At" value={formatMaybeTime(customer.cddDocumentExpiresAt)} />
-          <KeyValue label="Next Review" value={formatMaybeTime(customer.nextReviewAt)} />
-          <KeyValue label="Last Updated" value={new Date(customer.updatedAt).toLocaleString()} />
-        </DetailCard>
+        {/* ════ LEFT MAIN ════ */}
+        <div className="flex min-w-0 flex-1 flex-col divide-y divide-adm-border overflow-y-auto">
+
+          {/* ① Identity (hero) */}
+          <section className="bg-adm-card px-6 py-5">
+            <Cap>Customer</Cap>
+            <p className="mt-1.5 font-mono text-[19px] font-bold leading-snug text-adm-amber">
+              {detail.customerNo}
+            </p>
+            <div className="mt-2.5 flex flex-wrap items-center gap-2">
+              <AdminBadge value={detail.onboardingStatus || 'NONE'} />
+              <AdminBadge value={detail.operatingStatus || 'INACTIVE'} />
+            </div>
+            <div className="mt-4 border-t border-adm-border pt-4">
+              <p className="font-mono text-[11px] text-adm-t2">{name}</p>
+              <p className="mt-1.5 break-all font-mono text-[9px] text-adm-t3">{detail.id}</p>
+            </div>
+          </section>
+
+          {/* ② Profile */}
+          <section className="px-6 py-5">
+            <Cap>Profile</Cap>
+            <div className="mt-3">
+              <FieldGrid>
+                <Field label="Customer Type" value={detail.customerType} />
+                <Field label="Display Name" value={name} />
+                <Field label="Email" value={detail.email ?? undefined} mono />
+                <Field label="Phone" value={detail.phone ?? undefined} mono />
+                {!isCorporate && (
+                  <>
+                    <Field label="First Name" value={detail.firstName ?? undefined} />
+                    <Field label="Last Name" value={detail.lastName ?? undefined} />
+                  </>
+                )}
+                {isCorporate && (
+                  <Field
+                    label="Company Name"
+                    value={detail.companyName ?? detail.corporateProfile?.companyName ?? undefined}
+                    full
+                  />
+                )}
+              </FieldGrid>
+            </div>
+          </section>
+
+          {/* ③ Compliance Snapshot */}
+          <section className="px-6 py-5">
+            <Cap>Compliance</Cap>
+            <p className="mt-1 mb-4 font-mono text-[9px] text-adm-t3">
+              Canonical lifecycle and risk snapshot
+            </p>
+            <div className="mt-3">
+              <FieldGrid>
+                <Field label="Onboarding Status" value={detail.onboardingStatus ?? 'NONE'} />
+                <Field label="Operating Status" value={detail.operatingStatus ?? 'INACTIVE'} />
+                <Field label="Restriction Status" value={detail.restrictionStatus ?? 'CLEAR'} />
+                <Field label="Compliance Hold" value={detail.complianceHoldStatus ?? 'ACTIVE'} />
+                <Field label="AML Risk Tier" value={detail.amlRiskTier ?? undefined} />
+                <Field label="EDD Required" value={detail.eddRequired ? 'YES' : 'NO'} />
+                <Field label="CDD Document Expires" value={fmt(detail.cddDocumentExpiresAt)} mono />
+                <Field label="Next Review" value={fmt(detail.nextReviewAt)} mono />
+              </FieldGrid>
+            </div>
+          </section>
+
+          {/* ④ Restriction detail — only when applicable */}
+          {hasRestriction && (
+            <section className="px-6 py-5">
+              <Cap>Restriction</Cap>
+              <div className="mt-3">
+                <FieldGrid>
+                  <Field label="Case ID" value={detail.restrictionCaseId ?? undefined} mono />
+                  <Field label="Set At" value={fmt(detail.restrictionSetAt)} mono />
+                  <Field label="Released At" value={fmt(detail.restrictionReleasedAt)} mono />
+                  <Field label="Reason" value={detail.restrictionReason ?? undefined} full />
+                </FieldGrid>
+              </div>
+            </section>
+          )}
+
+          {/* ⑤ Compliance Hold detail — only when applicable */}
+          {hasHold && (
+            <section className="px-6 py-5">
+              <Cap>Compliance Hold</Cap>
+              <div className="mt-3">
+                <FieldGrid>
+                  <Field label="Case ID" value={detail.complianceHoldCaseId ?? undefined} mono />
+                  <Field label="Set At" value={fmt(detail.complianceHoldSetAt)} mono />
+                  <Field label="Released At" value={fmt(detail.complianceHoldReleasedAt)} mono />
+                  <Field label="Reason" value={detail.complianceHoldReason ?? undefined} full />
+                </FieldGrid>
+              </div>
+            </section>
+          )}
+
+          {/* ⑥ Final Approval (as linked card) */}
+          {hasFinalApproval && (
+            <section className="px-6 py-5">
+              <Cap>Final Approval</Cap>
+              <p className="mt-1 mb-4 font-mono text-[9px] text-adm-t3">
+                Latest onboarding final approval workflow
+              </p>
+              <button
+                onClick={() =>
+                  navigate(`/dashboard/control-gates/approvals/${detail.latestFinalApprovalId}`)
+                }
+                className="flex w-full items-center justify-between gap-3 rounded border border-adm-border bg-adm-bg px-4 py-2.5 text-left transition-colors hover:border-adm-bhi hover:bg-adm-hover"
+              >
+                <div className="flex min-w-0 flex-col gap-0.5">
+                  <span className="font-mono text-[8.5px] uppercase tracking-[0.14em] text-adm-t3">
+                    Onboarding Final Approval
+                  </span>
+                  <span className="truncate font-mono text-[11px] font-semibold text-adm-amber">
+                    {detail.latestFinalApproval?.approvalNo || detail.latestFinalApprovalId}
+                  </span>
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  {finalApprovalStatus && <AdminBadge value={finalApprovalStatus} />}
+                  <Link2 size={13} className="text-adm-t3" />
+                </div>
+              </button>
+              {(detail.latestFinalApproval?.decidedAt ||
+                detail.latestFinalApproval?.decisionByRole) && (
+                <div className="mt-3">
+                  <FieldGrid>
+                    <Field
+                      label="Decided At"
+                      value={fmt(detail.latestFinalApproval?.decidedAt)}
+                      mono
+                    />
+                    <Field
+                      label="Decided By Role"
+                      value={detail.latestFinalApproval?.decisionByRole ?? undefined}
+                    />
+                  </FieldGrid>
+                </div>
+              )}
+            </section>
+          )}
+
+          {/* ⑦ Periodic Review */}
+          {hasPeriodicReview && (
+            <section className="px-6 py-5">
+              <Cap>Periodic Review</Cap>
+              <div className="mt-3">
+                <FieldGrid>
+                  <Field
+                    label="Active Cycle"
+                    value={
+                      detail.activePeriodicReviewCycle?.cycleNo ||
+                      detail.activePeriodicReviewCycleId ||
+                      undefined
+                    }
+                    mono
+                  />
+                  <Field
+                    label="Cycle Status"
+                    value={detail.activePeriodicReviewCycle?.status ?? undefined}
+                  />
+                  <Field
+                    label="Due At"
+                    value={fmt(detail.activePeriodicReviewCycle?.dueAt)}
+                    mono
+                  />
+                  <Field
+                    label="Triggered At"
+                    value={fmt(detail.activePeriodicReviewCycle?.triggeredAt)}
+                    mono
+                  />
+                  <Field
+                    label="Overdue At"
+                    value={fmt(detail.periodicReviewOverdueAt)}
+                    mono
+                  />
+                  <Field
+                    label="Overdue Reason"
+                    value={detail.periodicReviewOverdueReason ?? undefined}
+                    full
+                  />
+                </FieldGrid>
+              </div>
+            </section>
+          )}
+
+          {/* ⑧ Investor Classification */}
+          <section className="px-6 py-5">
+            <Cap>Investor Classification</Cap>
+            <div className="mt-3">
+              <FieldGrid>
+                <Field label="Classification" value={detail.investorClassification ?? 'RETAIL'} />
+                <Field label="Source" value={detail.investorClassificationSource ?? 'CDD'} />
+                <Field
+                  label="Updated At"
+                  value={fmt(detail.investorClassificationUpdatedAt)}
+                  mono
+                />
+              </FieldGrid>
+            </div>
+          </section>
+
+          {/* ⑨ Corporate Profile (only for CORPORATE) */}
+          {hasCorporate && detail.corporateProfile && (
+            <section className="px-6 py-5">
+              <Cap>Corporate Profile</Cap>
+              <div className="mt-3">
+                <FieldGrid>
+                  <Field label="Company Name" value={detail.corporateProfile.companyName} />
+                  <Field label="Registration No" value={detail.corporateProfile.registrationNo} mono />
+                  <Field
+                    label="Incorporation Country"
+                    value={detail.corporateProfile.incorporationCountry}
+                  />
+                  <Field
+                    label="License Type"
+                    value={detail.corporateProfile.licenseType ?? undefined}
+                  />
+                  <Field
+                    label="License Number"
+                    value={detail.corporateProfile.licenseNumber ?? undefined}
+                    mono
+                  />
+                  <Field
+                    label="Registered Address"
+                    value={detail.corporateProfile.registeredAddress ?? undefined}
+                    full
+                  />
+                </FieldGrid>
+              </div>
+            </section>
+          )}
+
+          {/* ⑩ UBO List (only for CORPORATE) */}
+          {hasUbos && (
+            <section className="px-6 py-5">
+              <Cap>Ultimate Beneficial Owners</Cap>
+              <p className="mt-1 mb-4 font-mono text-[9px] text-adm-t3">
+                {detail.uboProfiles?.length} declared UBO{(detail.uboProfiles?.length || 0) === 1 ? '' : 's'}
+              </p>
+              <div className="mt-3 flex flex-col gap-2">
+                {detail.uboProfiles?.map((ubo) => (
+                  <div
+                    key={ubo.id}
+                    className="flex items-center justify-between gap-3 rounded border border-adm-border bg-adm-bg px-4 py-2.5"
+                  >
+                    <div className="flex min-w-0 flex-col gap-0.5">
+                      <span className="truncate font-mono text-[11px] font-semibold text-adm-t2">
+                        {ubo.fullName}
+                      </span>
+                      <span className="font-mono text-[9px] text-adm-t3">
+                        {ubo.nationality || '—'} · Ownership {ubo.ownershipPercent ?? '—'}%
+                      </span>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-2">
+                      {ubo.pepFlag && (
+                        <span className="inline-flex items-center rounded border border-adm-red/25 bg-adm-red/10 px-1.5 py-px font-mono text-[9px] text-adm-red">
+                          PEP
+                        </span>
+                      )}
+                      <AdminBadge value={ubo.status} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+        </div>
+
+        {/* ════ RIGHT SIDEBAR ════ */}
+        <div className="w-[272px] min-w-[272px] overflow-y-auto border-l border-adm-border bg-adm-panel px-4 py-1">
+
+          {/* Actions */}
+          <div className="border-b border-adm-border py-4">
+            <Cap>Actions</Cap>
+            <div className="mt-2.5 flex flex-col gap-2">
+              {canRestrict && (
+                <button
+                  onClick={() => setControlAction('RESTRICT')}
+                  className={adminButtonClass('workflowNegative')}
+                >
+                  Restrict
+                </button>
+              )}
+              {canUnrestrict && (
+                <button
+                  onClick={() => setControlAction('UNRESTRICT')}
+                  className={adminButtonClass('workflowSecondary')}
+                >
+                  Unrestrict
+                </button>
+              )}
+              {canFreeze && (
+                <button
+                  onClick={() => setControlAction('FREEZE')}
+                  className={adminButtonClass('workflowNegative')}
+                >
+                  Freeze
+                </button>
+              )}
+              {canUnfreeze && (
+                <button
+                  onClick={() => setControlAction('UNFREEZE')}
+                  className={adminButtonClass('workflowSecondary')}
+                >
+                  Unfreeze
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Identity */}
+          <SidebarGroup title="Identity">
+            <SidebarKV label="Customer No" value={detail.customerNo} mono />
+            <SidebarKV label="Customer ID" value={detail.id} mono />
+            <SidebarKV label="Type" value={detail.customerType} />
+            <SidebarKV label="Email" value={detail.email} mono />
+            <SidebarKV label="Phone" value={detail.phone} mono />
+          </SidebarGroup>
+
+          {/* Status */}
+          <SidebarGroup title="Status">
+            <div className="flex items-center justify-between gap-2">
+              <span className="shrink-0 font-mono text-[9px] text-adm-t3">Onboarding</span>
+              <AdminBadge value={detail.onboardingStatus || 'NONE'} />
+            </div>
+            <div className="flex items-center justify-between gap-2">
+              <span className="shrink-0 font-mono text-[9px] text-adm-t3">Operating</span>
+              <AdminBadge value={detail.operatingStatus || 'INACTIVE'} />
+            </div>
+            <div className="flex items-center justify-between gap-2">
+              <span className="shrink-0 font-mono text-[9px] text-adm-t3">Restriction</span>
+              <AdminBadge value={detail.restrictionStatus || 'CLEAR'} />
+            </div>
+            <div className="flex items-center justify-between gap-2">
+              <span className="shrink-0 font-mono text-[9px] text-adm-t3">Hold</span>
+              <AdminBadge value={detail.complianceHoldStatus || 'ACTIVE'} />
+            </div>
+          </SidebarGroup>
+
+          {/* Risk */}
+          <SidebarGroup title="Risk">
+            <SidebarKV label="AML Tier" value={detail.amlRiskTier} />
+            <SidebarKV label="EDD Required" value={detail.eddRequired ? 'YES' : 'NO'} />
+            <SidebarKV
+              label="Investor"
+              value={detail.investorClassification || 'RETAIL'}
+            />
+          </SidebarGroup>
+
+          {/* Lifecycle */}
+          <SidebarGroup title="Lifecycle">
+            <SidebarKV label="Created" value={fmt(detail.createdAt)} mono />
+            <SidebarKV label="Updated" value={fmt(detail.updatedAt)} mono />
+            <SidebarKV
+              label="CDD Expires"
+              value={fmt(detail.cddDocumentExpiresAt)}
+              mono
+            />
+            <SidebarKV label="Next Review" value={fmt(detail.nextReviewAt)} mono />
+          </SidebarGroup>
+        </div>
       </div>
 
-      <DetailCard title="Compatibility Snapshot" icon={<ShieldCheck size={16} />} columns={1}>
-        <p className="mb-4 text-xs text-gray-500">
-          Legacy compatibility fields have been retired from the customer payload. Remaining workflow summaries are shown in the canonical cards above and below.
-        </p>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
-          <KeyValue
-            label="Latest Decision Record"
-            value={customer.auditCenterSummary?.latestDecisionRecordId || '-'}
-          />
-        </div>
-        <div className="text-sm text-gray-600">
-          Stage 5 removed legacy customer status, account, final-approval mirror, and pointer fields from the customer read-model.
-        </div>
-      </DetailCard>
-
-      <DetailCard title="Final Approval" icon={<ShieldCheck size={16} />} columns={1}>
-        <p className="mb-4 text-xs text-gray-500">
-          Approval workflow summary below is canonical. When EDD clears a customer into
-          <span className="font-medium text-gray-700"> FINAL_APPROVAL</span>, the approval is created automatically.
-        </p>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
-          <KeyValue label="Approval No" value={customer.latestFinalApproval?.approvalNo || '-'} />
-          <KeyValue label="Approval Status" value={latestApprovalStatus} />
-          <KeyValue label="Decision By Role" value={customer.latestFinalApproval?.decisionByRole || '-'} />
-          <KeyValue
-            label="Decision At"
-            value={formatMaybeTime(customer.latestFinalApproval?.decidedAt)}
-          />
-        </div>
-      </DetailCard>
-
-      <DetailCard title="Periodic Review" icon={<Clock size={16} />} columns={1}>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
-          <KeyValue
-            label="Active Cycle"
-            value={
-              customer.activePeriodicReviewCycle?.cycleNo ||
-              customer.activePeriodicReviewCycleId ||
-              '-'
-            }
-          />
-          <KeyValue
-            label="Cycle Status"
-            value={customer.activePeriodicReviewCycle?.status || '-'}
-          />
-          <KeyValue label="Next Review At" value={formatMaybeTime(customer.nextReviewAt)} />
-          <KeyValue
-            label="Overdue At"
-            value={formatMaybeTime(customer.periodicReviewOverdueAt)}
-          />
-          <KeyValue
-            label="Overdue Reason"
-            value={customer.periodicReviewOverdueReason || '-'}
-          />
-          <KeyValue
-            label="Current PRR CDD Response"
-            value={customer.activePeriodicReviewCycle?.currentCddResponseId || '-'}
-          />
-          <KeyValue
-            label="Current PRR EDD Response"
-            value={customer.activePeriodicReviewCycle?.currentEddResponseId || '-'}
-          />
-          <KeyValue
-            label="Primary Alert"
-            value={customer.activePeriodicReviewCycle?.primaryAlertId || '-'}
-          />
-          <KeyValue
-            label="Primary Case"
-            value={customer.activePeriodicReviewCycle?.primaryIncidentId || '-'}
-          />
-          <KeyValue
-            label="Triggered At"
-            value={formatMaybeTime(customer.activePeriodicReviewCycle?.triggeredAt)}
-          />
-          <KeyValue
-            label="Cleared At"
-            value={formatMaybeTime(customer.activePeriodicReviewCycle?.clearedAt)}
-          />
-          <KeyValue
-            label="Rejected At"
-            value={formatMaybeTime(customer.activePeriodicReviewCycle?.rejectedAt)}
-          />
-          <KeyValue
-            label="Resolution Reason"
-            value={customer.activePeriodicReviewCycle?.resolutionReason || '-'}
-          />
-          <KeyValue
-            label="Cycle Due At"
-            value={formatMaybeTime(customer.activePeriodicReviewCycle?.dueAt)}
-          />
-        </div>
-      </DetailCard>
-
-      <DetailCard title="Investor Classification" icon={<ShieldCheck size={16} />} columns={1}>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
-          <KeyValue label="Classification" value={customer.investorClassification || 'RETAIL'} />
-          <KeyValue label="Source" value={customer.investorClassificationSource || 'CDD'} />
-          <KeyValue
-            label="Updated At"
-            value={formatMaybeTime(customer.investorClassificationUpdatedAt)}
-          />
-        </div>
-      </DetailCard>
-
-      <ActionSection
-        title="Workflow Actions"
-        description="Runtime workflow actions live here. Status cards above remain read-only summaries."
-        emptyText="No workflow actions available for the current customer state."
-      >
-        <div className="flex flex-wrap gap-3">
-          {customer.latestFinalApprovalId ? (
-            <button
-              onClick={() =>
-                navigate(`/dashboard/control-gates/approvals/${customer.latestFinalApprovalId}`)
-              }
-              className={adminButtonClass('workflowSecondary')}
-            >
-              Open Final Approval
-            </button>
-          ) : null}
-          <button
-            onClick={() => void triggerPeriodicReview()}
-            disabled={!canTriggerPeriodicReview || triggeringPeriodicReview}
-            className={adminButtonClass('workflowSecondary')}
-          >
-            {triggeringPeriodicReview ? 'Triggering...' : 'Trigger Periodic Review'}
-          </button>
-          <button
-            onClick={updateInvestorClassification}
-            disabled={updatingClassification}
-            className={adminButtonClass('workflowSecondary')}
-          >
-            {updatingClassification ? 'Updating...' : 'Override Classification'}
-          </button>
-        </div>
-      </ActionSection>
-
-      <ActionSection
-        title="Control Actions"
-        description="Restriction and compliance hold controls are operator actions, not simulation shortcuts."
-      >
-        <div className="flex flex-wrap gap-3">
-          <button
-            onClick={() => setControlAction('RESTRICT')}
-            disabled={customer.restrictionStatus === 'RESTRICTED'}
-            className={adminButtonClass('workflowNegative')}
-          >
-            Restrict
-          </button>
-          <button
-            onClick={() => setControlAction('UNRESTRICT')}
-            disabled={customer.restrictionStatus !== 'RESTRICTED'}
-            className={adminButtonClass('workflowSecondary')}
-          >
-            Unrestrict
-          </button>
-          <button
-            onClick={() => setControlAction('FREEZE')}
-            disabled={customer.complianceHoldStatus === 'FROZEN'}
-            className={adminButtonClass('workflowNegative')}
-          >
-            Freeze
-          </button>
-          <button
-            onClick={() => setControlAction('UNFREEZE')}
-            disabled={customer.complianceHoldStatus !== 'FROZEN'}
-            className={adminButtonClass('workflowSecondary')}
-          >
-            Unfreeze
-          </button>
-        </div>
-      </ActionSection>
-
-      <ActionSection
-        title="Manual Simulation"
-        description="Simulation stays isolated from runtime workflow and control actions."
-      >
-        <div className="flex flex-wrap gap-3">
-          <button
-            onClick={simulateExpired}
-            disabled={simulatingExpired}
-            className={adminButtonClass('simulationAction')}
-          >
-            {simulatingExpired ? 'Mocking...' : 'Mock Auto Expire'}
-          </button>
-        </div>
-      </ActionSection>
-
-      {customer.customerType === 'CORPORATE' && (
-        <DetailCard title="Corporate Profile" icon={<Building2 size={16} />} columns={1}>
-          <pre className="text-xs bg-gray-950 text-gray-100 rounded-lg p-3 overflow-auto">
-            {JSON.stringify(customer.corporateProfile || {}, null, 2)}
-          </pre>
-        </DetailCard>
-      )}
-
-      {Array.isArray(customer.uboProfiles) && customer.uboProfiles.length > 0 && (
-        <DetailCard title="UBO List" icon={<User size={16} />} columns={1}>
-          <table className="w-full text-left text-sm">
-            <thead>
-              <tr className="text-xs text-gray-500 uppercase border-b border-gray-200">
-                <th className="py-2">Name</th>
-                <th className="py-2">Ownership</th>
-                <th className="py-2">Nationality</th>
-                <th className="py-2">PEP</th>
-                <th className="py-2">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {customer.uboProfiles.map((ubo) => (
-                <tr key={ubo.id} className="border-b border-gray-100">
-                  <td className="py-2">{ubo.fullName}</td>
-                  <td className="py-2">{ubo.ownershipPercent ?? '-'}%</td>
-                  <td className="py-2">{ubo.nationality || '-'}</td>
-                  <td className="py-2">{ubo.pepFlag ? 'YES' : 'NO'}</td>
-                  <td className="py-2">{ubo.status}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </DetailCard>
-      )}
-
-      <DetailCard title="CDD Responses" icon={<Clock size={16} />} columns={1}>
-        <CaseTable items={customer.cddResponses || []} showRequiresEdd />
-      </DetailCard>
-
-      <DetailCard title="EDD Responses" icon={<Clock size={16} />} columns={1}>
-        <CaseTable items={customer.eddResponses || []} />
-      </DetailCard>
-
+      {/* ── Control modal ── */}
       <CaseBoundCustomerControlModal
         open={!!controlAction}
         action={controlAction}
-        customerNo={customer.customerNo}
-        customerLabel={fullName}
+        customerNo={detail.customerNo}
+        customerLabel={name}
         currentCaseId={
           controlAction === 'UNRESTRICT'
-            ? customer.restrictionCaseId || null
+            ? detail.restrictionCaseId || null
             : controlAction === 'UNFREEZE'
-              ? customer.complianceHoldCaseId || null
+              ? detail.complianceHoldCaseId || null
               : null
         }
         onClose={() => setControlAction(null)}
         onSubmitted={async () => {
-          await fetchCustomer();
+          setControlAction(null);
+          setNotice('Control action submitted.');
+          await fetchDetail();
         }}
       />
     </div>
   );
 };
-
-const CaseTable = ({
-  items,
-  showRequiresEdd = false,
-}: {
-  items: ComplianceCase[];
-  showRequiresEdd?: boolean;
-}) => {
-  if (items.length === 0) {
-    return <div className="text-sm text-gray-500">No responses</div>;
-  }
-
-  return (
-    <table className="w-full text-left text-sm">
-      <thead>
-        <tr className="text-xs text-gray-500 uppercase border-b border-gray-200">
-          <th className="py-2">Response No</th>
-          <th className="py-2">Workflow</th>
-          <th className="py-2">Status</th>
-          <th className="py-2">Subject</th>
-          <th className="py-2">Journey / Cycle</th>
-          {showRequiresEdd && <th className="py-2">Requires EDD</th>}
-          <th className="py-2">Reviewed At</th>
-        </tr>
-      </thead>
-      <tbody>
-        {items.map((item) => (
-          <tr key={item.id} className="border-b border-gray-100">
-            <td className="py-2 font-medium">{item.responseNo}</td>
-            <td className="py-2">{item.workflow || 'ONBOARDING'}</td>
-            <td className="py-2">{item.status}</td>
-            <td className="py-2">{item.subjectKind}</td>
-            <td className="py-2">
-              <div>{item.journeyId || '-'}</div>
-              <div className="text-xs text-gray-500">{item.periodicReviewCycleId || '-'}</div>
-            </td>
-            {showRequiresEdd && <td className="py-2">{item.requiresEdd ? 'YES' : 'NO'}</td>}
-            <td className="py-2">{formatMaybeTime(item.reviewedAt)}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  );
-};
-
-const StatusBadge = ({
-  label,
-  value,
-  tone = 'blue',
-}: {
-  label: string;
-  value: string;
-  tone?: 'blue' | 'green' | 'yellow';
-}) => {
-  const palette = {
-    blue: 'bg-blue-50 text-blue-700 border-blue-200',
-    green: 'bg-green-50 text-green-700 border-green-200',
-    yellow: 'bg-yellow-50 text-yellow-700 border-yellow-200',
-  };
-
-  return (
-    <div className={`border rounded-lg px-3 py-2 min-w-[130px] ${palette[tone]}`}>
-      <div className="text-[10px] uppercase">{label}</div>
-      <div className="text-xs font-bold mt-0.5">{value}</div>
-    </div>
-  );
-};
-
-const KeyValue = ({ label, value }: { label: string; value: string }) => (
-  <div className="grid grid-cols-3 gap-3 text-sm py-1.5">
-    <div className="text-gray-500">{label}</div>
-    <div className="col-span-2 text-gray-900 font-medium">{value}</div>
-  </div>
-);
-
-const formatMaybeTime = (value?: string | null) => (value ? new Date(value).toLocaleString() : '-');
 
 export default CustomerDetail;

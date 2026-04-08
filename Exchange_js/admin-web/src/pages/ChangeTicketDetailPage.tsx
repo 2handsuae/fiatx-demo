@@ -1,26 +1,24 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { RefreshCw, X } from 'lucide-react';
 import {
-  ArrowLeft,
-  CheckCircle2,
-  ClipboardList,
-  Link2,
-  RefreshCw,
-  ShieldCheck,
-  Trash2,
-} from 'lucide-react';
-import { useAdminSession } from '../contexts/AdminSessionContext';
-import { PERMISSIONS } from '../rbac/permissions';
-import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/adminFetch';
+  AdminPermissionError,
+  AdminSessionError,
+  adminFetch,
+  getApiErrorMessage,
+} from '../utils/adminFetch';
 import { createDeleteRequest, DELETE_REQUEST_TARGET_TYPES } from '../utils/deleteRequests';
 import {
-  ActionSection,
-  DetailCard,
   DetailPageHeader,
-  InfoField,
   JsonBlock,
 } from '../components/compliance/DetailPageComponents';
 import { adminButtonClass } from '../components/common/adminButtonStyles';
+import { AdminBadge } from '../components/ui/AdminBadge';
+import { LinkedRelationCard, LinkedRelationEmpty } from '../components/ui/LinkedRelationCard';
+import { PERMISSIONS } from '../rbac/permissions';
+import { useAdminSession } from '../contexts/AdminSessionContext';
+
+/* ── Interfaces ──────────────────────────────────────────────── */
 
 interface ChangeTicketDetail {
   id: string;
@@ -49,117 +47,234 @@ interface ChangeTicketDetail {
   updatedAt: string;
 }
 
-const SUBMITTABLE_CHANGE_TICKET_STATUSES = ['DRAFT'] as const;
-const CONSUMABLE_CHANGE_TICKET_STATUSES = ['READY'] as const;
+type ModalKind = 'submit' | 'consume' | 'delete';
+
+/* ── Helpers ─────────────────────────────────────────────────── */
+
+const fmt = (v?: string | null): string => {
+  if (!v) return '—';
+  const d = new Date(v);
+  return Number.isNaN(d.getTime()) ? v : d.toLocaleString();
+};
+
+const SUBMITTABLE_STATUSES = ['DRAFT'] as const;
+const CONSUMABLE_STATUSES  = ['READY'] as const;
+
 const CONSUME_RESULT_SUCCESS = 'success' as const;
 const CONSUME_RESULT_FAILURE = 'failure' as const;
-const CONSUME_RESULT_OPTIONS = [
-  { value: CONSUME_RESULT_SUCCESS, label: 'Success' },
-  { value: CONSUME_RESULT_FAILURE, label: 'Failure' },
-] as const;
 
-const formatDateTime = (value?: string | null): string => {
-  if (!value) return '-';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString();
+/* ── Shared layout primitives ────────────────────────────────── */
+
+const Cap = ({ children }: { children: ReactNode }) => (
+  <p className="font-mono text-[8.5px] font-semibold uppercase tracking-[0.16em] text-adm-t3">
+    {children}
+  </p>
+);
+
+const FieldGrid = ({ children, cols = 2 }: { children: ReactNode; cols?: 1 | 2 }) => (
+  <div
+    className={[
+      'grid gap-x-8 gap-y-4',
+      cols === 1 ? 'grid-cols-1' : 'grid-cols-2',
+    ].join(' ')}
+  >
+    {children}
+  </div>
+);
+
+const Field = ({
+  label,
+  value,
+  mono = false,
+  amber = false,
+  full = false,
+}: {
+  label: string;
+  value?: string | null;
+  mono?: boolean;
+  amber?: boolean;
+  full?: boolean;
+}) => {
+  if (!value) return null;
+  return (
+    <div className={full ? 'col-span-2' : ''}>
+      <p className="mb-1 font-mono text-[8.5px] uppercase tracking-[0.14em] text-adm-t3">
+        {label}
+      </p>
+      <p
+        className={[
+          'break-all leading-relaxed',
+          mono ? 'font-mono text-[10px]' : 'text-[11px]',
+          amber ? 'font-semibold text-adm-amber' : 'text-adm-t2',
+        ].join(' ')}
+      >
+        {value}
+      </p>
+    </div>
+  );
 };
+
+/* ── Sidebar primitives ──────────────────────────────────────── */
+
+const SidebarGroup = ({ title, children }: { title: string; children: ReactNode }) => (
+  <div className="border-b border-adm-border py-4 last:border-b-0">
+    <Cap>{title}</Cap>
+    <div className="mt-2.5 flex flex-col gap-1.5">{children}</div>
+  </div>
+);
+
+const SidebarKV = ({
+  label,
+  value,
+  mono = false,
+}: {
+  label: string;
+  value: ReactNode;
+  mono?: boolean;
+}) => {
+  if (value === null || value === undefined || value === '' || value === '—') return null;
+  return (
+    <div className="flex items-baseline justify-between gap-2">
+      <span className="shrink-0 font-mono text-[9px] text-adm-t3">{label}</span>
+      <span
+        className={[
+          'min-w-0 break-all text-right text-adm-t2',
+          mono ? 'font-mono text-[10px]' : 'text-[11px]',
+        ].join(' ')}
+      >
+        {value}
+      </span>
+    </div>
+  );
+};
+
+/* ─────────────────────────────────────────────────────────────── */
 
 const ChangeTicketDetailPage = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { hasAnyPermission } = useAdminSession();
-  const [detail, setDetail] = useState<ChangeTicketDetail | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [message, setMessage] = useState('');
-  const [submittingAction, setSubmittingAction] = useState<string | null>(null);
-  const [consumeResult, setConsumeResult] = useState<typeof CONSUME_RESULT_SUCCESS | typeof CONSUME_RESULT_FAILURE>(CONSUME_RESULT_SUCCESS);
-  const [consumeNote, setConsumeNote] = useState('');
-  const [deleteReason, setDeleteReason] = useState('');
-  const requestSeqRef = useRef(0);
 
-  const canSubmit = hasAnyPermission([PERMISSIONS.GOV_CHANGE_TICKET_SUBMIT]);
-  const canConsume = hasAnyPermission([PERMISSIONS.GOV_CHANGE_TICKET_CONSUME]);
-  const canViewApproval = hasAnyPermission([PERMISSIONS.GOV_APPROVAL_DETAIL_READ]);
+  const canSubmit          = hasAnyPermission([PERMISSIONS.GOV_CHANGE_TICKET_SUBMIT]);
+  const canConsume         = hasAnyPermission([PERMISSIONS.GOV_CHANGE_TICKET_CONSUME]);
+  const canViewApproval    = hasAnyPermission([PERMISSIONS.GOV_APPROVAL_DETAIL_READ]);
   const canRequestDeletion = hasAnyPermission([PERMISSIONS.GOV_DELETE_REQUEST_CREATE]);
 
-  const fetchDetail = async () => {
-    if (!id) {
-      setError('Change ticket id is required.');
-      setLoading(false);
-      return;
-    }
+  const [detail,  setDetail]  = useState<ChangeTicketDetail | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error,   setError]   = useState('');
+  const [notice,  setNotice]  = useState<string | null>(null);
 
-    const requestSeq = ++requestSeqRef.current;
-    setLoading(true);
-    setError('');
+  /* Modal state */
+  const [modal, setModal] = useState<ModalKind | null>(null);
+  const [modalBusy, setModalBusy]       = useState(false);
+  const [modalError, setModalError]     = useState<string | null>(null);
+
+  /* Modal form fields */
+  const [consumeResult, setConsumeResult] = useState<typeof CONSUME_RESULT_SUCCESS | typeof CONSUME_RESULT_FAILURE>(CONSUME_RESULT_SUCCESS);
+  const [consumeNote, setConsumeNote]     = useState('');
+  const [deleteReason, setDeleteReason]   = useState('');
+
+  const requestSeqRef = useRef(0);
+
+  /* ── Fetching ── */
+
+  const fetchDetail = async () => {
+    if (!id) { setError('Change ticket id is required.'); setLoading(false); return; }
+    const seq = ++requestSeqRef.current;
+    setLoading(true); setError('');
     try {
-      const response = await adminFetch(
+      const res = await adminFetch(
         `${import.meta.env.VITE_API_URL}/admin/control-gates/change-tickets/${id}`,
       );
-      if (!response.ok) {
-        throw new Error(await getApiErrorMessage(response, 'Failed to load change ticket.'));
-      }
+      if (!res.ok) throw new Error(await getApiErrorMessage(res, 'Failed to load change ticket.'));
 
-      const data = (await response.json()) as ChangeTicketDetail;
-      if (requestSeq !== requestSeqRef.current) return;
+      const data = (await res.json()) as ChangeTicketDetail;
+      if (seq !== requestSeqRef.current) return;
       setDetail(data);
     } catch (e: unknown) {
-      if (requestSeq !== requestSeqRef.current) return;
+      if (seq !== requestSeqRef.current) return;
       if (e instanceof AdminSessionError) return;
-      setError(e instanceof Error ? e.message : 'Failed to load change ticket detail.');
+      if (e instanceof AdminPermissionError) {
+        setError('Permission denied. You cannot view this ticket.');
+      } else {
+        setError(e instanceof Error ? e.message : 'Failed to load change ticket detail.');
+      }
     } finally {
-      if (requestSeq !== requestSeqRef.current) return;
-      setLoading(false);
+      if (seq === requestSeqRef.current) setLoading(false);
     }
   };
 
+  useEffect(() => { void fetchDetail(); }, [id]);
+
+  /* Auto-dismiss notice */
+  useEffect(() => {
+    if (!notice) return undefined;
+    const t = window.setTimeout(() => setNotice((c) => (c === notice ? null : c)), 4000);
+    return () => window.clearTimeout(t);
+  }, [notice]);
+
+  /* ── Modal helpers ── */
+
+  const openModal = (kind: ModalKind) => {
+    setModalError(null);
+    if (kind === 'consume') {
+      setConsumeResult(CONSUME_RESULT_SUCCESS);
+      setConsumeNote('');
+    }
+    if (kind === 'delete') {
+      setDeleteReason('');
+    }
+    setModal(kind);
+  };
+
+  const closeModal = () => {
+    setModal(null);
+    setModalBusy(false);
+    setModalError(null);
+  };
+
+  /* ── Actions ── */
+
   const submitChangeTicket = async () => {
     if (!id || !detail) return;
-    setSubmittingAction('submit');
-    setError('');
-    setMessage('');
+    setModalBusy(true); setModalError(null);
     try {
       const response = await adminFetch(
         `${import.meta.env.VITE_API_URL}/admin/control-gates/change-tickets/${id}/submit`,
         {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ traceId: detail.traceId }),
         },
       );
       if (!response.ok) {
         throw new Error(await getApiErrorMessage(response, 'Failed to submit change ticket.'));
       }
-
-      setMessage(`Change ticket ${detail.ticketNo} submitted successfully.`);
+      closeModal();
+      setNotice(`Change ticket ${detail.ticketNo} submitted.`);
       await fetchDetail();
     } catch (e: unknown) {
-      if (e instanceof AdminSessionError) return;
-      setError(e instanceof Error ? e.message : 'Failed to submit change ticket.');
+      if (e instanceof AdminPermissionError) {
+        setModalError('Permission denied. You cannot submit this ticket.');
+      } else {
+        setModalError(e instanceof Error ? e.message : 'Failed to submit change ticket.');
+      }
     } finally {
-      setSubmittingAction(null);
+      setModalBusy(false);
     }
   };
 
   const consumeChangeTicket = async () => {
     if (!id || !detail) return;
-    const note = consumeNote.trim();
-
-    setSubmittingAction('consume');
-    setError('');
-    setMessage('');
+    setModalBusy(true); setModalError(null);
     try {
+      const note = consumeNote.trim();
       const response = await adminFetch(
         `${import.meta.env.VITE_API_URL}/admin/control-gates/change-tickets/${id}/consume`,
         {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             success: consumeResult === CONSUME_RESULT_SUCCESS,
             ...(note ? { note } : {}),
@@ -170,274 +285,499 @@ const ChangeTicketDetailPage = () => {
       if (!response.ok) {
         throw new Error(await getApiErrorMessage(response, 'Failed to consume change ticket.'));
       }
-
-      setMessage(
+      closeModal();
+      setNotice(
         consumeResult === CONSUME_RESULT_SUCCESS
-          ? `Change ticket ${detail.ticketNo} consumed successfully.`
-          : `Change ticket ${detail.ticketNo} consume failed recorded.`,
+          ? `Change ticket ${detail.ticketNo} consumed.`
+          : `Change ticket ${detail.ticketNo} marked as failed.`,
       );
-      setConsumeNote('');
       await fetchDetail();
     } catch (e: unknown) {
-      if (e instanceof AdminSessionError) return;
-      setError(e instanceof Error ? e.message : 'Failed to consume change ticket.');
+      if (e instanceof AdminPermissionError) {
+        setModalError('Permission denied. You cannot consume this ticket.');
+      } else {
+        setModalError(e instanceof Error ? e.message : 'Failed to consume change ticket.');
+      }
     } finally {
-      setSubmittingAction(null);
+      setModalBusy(false);
     }
   };
 
-  const requestChangeTicketDeletion = async () => {
+  const submitDeleteRequest = async () => {
     if (!detail) return;
-
-    const normalizedReason = deleteReason.trim();
-    if (!normalizedReason) {
-      setError('Delete reason is required.');
-      return;
-    }
-
-    setSubmittingAction('delete-request');
-    setError('');
-    setMessage('');
+    const reason = deleteReason.trim();
+    if (!reason) { setModalError('Delete reason is required.'); return; }
+    setModalBusy(true); setModalError(null);
     try {
       const created = await createDeleteRequest({
         targetType: DELETE_REQUEST_TARGET_TYPES.CHANGE_TICKET,
         targetNo: detail.ticketNo,
-        deleteReason: normalizedReason,
+        deleteReason: reason,
       });
+      closeModal();
       navigate(`/dashboard/control-gates/delete-requests/${created.id}`);
     } catch (e: unknown) {
-      if (e instanceof AdminSessionError) return;
-      setError(e instanceof Error ? e.message : 'Failed to create delete request.');
+      if (e instanceof AdminPermissionError) {
+        setModalError('Permission denied. You cannot request ticket deletion.');
+      } else {
+        setModalError(e instanceof Error ? e.message : 'Failed to create delete request.');
+      }
     } finally {
-      setSubmittingAction(null);
+      setModalBusy(false);
     }
   };
 
-  useEffect(() => {
-    setDeleteReason('');
-    void fetchDetail();
-  }, [id]);
+  /* ── Loading / error stubs ── */
 
   if (loading) {
     return (
-      <div className="flex min-h-[360px] flex-col items-center justify-center gap-3">
-        <RefreshCw size={28} className="animate-spin text-brand-primary" />
-        <p className="text-sm text-gray-500">Loading change ticket detail...</p>
+      <div className="flex h-full items-center justify-center gap-3">
+        <RefreshCw size={24} className="animate-spin text-adm-amber" />
+        <p className="font-mono text-[11px] text-adm-t3">Loading…</p>
       </div>
     );
   }
 
   if (error && !detail) {
     return (
-      <div className="space-y-6">
-        <div className="flex items-center gap-3">
+      <div className="flex h-full flex-col overflow-hidden">
+        <div className="shrink-0 border-b border-adm-border bg-adm-panel px-6 py-4 flex items-center gap-2">
           <button
             onClick={() => navigate('/dashboard/control-gates/change-tickets')}
             className={adminButtonClass('detailUtility')}
           >
-            <ArrowLeft size={16} />
-            Back to Change Tickets
+            ← Back
           </button>
           <button
             onClick={() => void fetchDetail()}
             className={adminButtonClass('detailUtility')}
           >
-            <RefreshCw size={16} />
-            Retry
+            <RefreshCw size={13} /> Retry
           </button>
         </div>
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-4 text-sm text-red-700">
-          {error}
+        <div className="px-6 py-6">
+          <div className="rounded-lg border border-adm-red/30 bg-adm-red/10 px-4 py-3 font-mono text-[11px] text-adm-red">
+            {error}
+          </div>
         </div>
       </div>
     );
   }
 
-  if (!detail) return null;
-
-  return (
-    <div className="space-y-6">
-      <DetailPageHeader
-        title="Change Ticket Detail"
-        subtitle={detail.ticketNo}
-        onBack={() => navigate('/dashboard/control-gates/change-tickets')}
-        onRefresh={() => void fetchDetail()}
-        backLabel="Back to Change Tickets"
-      >
-        {detail.approvalCaseId && canViewApproval && (
+  if (!detail) {
+    return (
+      <div className="flex h-full flex-col overflow-hidden">
+        <div className="shrink-0 border-b border-adm-border bg-adm-panel px-6 py-4">
           <button
-            onClick={() => navigate(`/dashboard/control-gates/approvals/${detail.approvalCaseId}`)}
+            onClick={() => navigate('/dashboard/control-gates/change-tickets')}
             className={adminButtonClass('detailUtility')}
           >
-            <Link2 size={16} />
-            View Approval
+            ← Back
           </button>
-        )}
-      </DetailPageHeader>
+        </div>
+        <div className="px-6 py-6 font-mono text-[11px] text-adm-t3">Change ticket not found.</div>
+      </div>
+    );
+  }
 
-      {(error || message) && (
-        <div className="space-y-2">
-          {message && (
-            <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
-              {message}
+  /* ── Derived ── */
+
+  const canSubmitAction  = canSubmit && SUBMITTABLE_STATUSES.includes(detail.status as (typeof SUBMITTABLE_STATUSES)[number]);
+  const canConsumeAction = canConsume && CONSUMABLE_STATUSES.includes(detail.status as (typeof CONSUMABLE_STATUSES)[number]);
+  const hasSubmission    = !!(detail.submittedByUserNo || detail.submittedAt);
+  const hasConsumption   = !!(detail.consumedByUserNo || detail.consumedAt || detail.resultNote);
+  const hasBinding       = !!(detail.bindingDigest || detail.bindingSnapshotJson);
+
+  const showActionsBlock =
+    canSubmitAction || canConsumeAction || canRequestDeletion;
+
+  /* ── Page ── */
+
+  return (
+    <div className="flex h-full flex-col overflow-hidden">
+
+      {/* ── Sticky nav header ── */}
+      <DetailPageHeader
+        title="Change Ticket"
+        onBack={() => navigate('/dashboard/control-gates/change-tickets')}
+        onRefresh={() => void fetchDetail()}
+        refreshing={loading}
+        backLabel="Change Tickets"
+      />
+
+      {/* ── Inline notices ── */}
+      {(notice || error) && (
+        <div className="shrink-0 px-6 pt-3 pb-1 space-y-2">
+          {notice && (
+            <div className="rounded border border-adm-green/30 bg-adm-green/10 px-4 py-2 font-mono text-[11px] text-adm-green">
+              {notice}
             </div>
           )}
           {error && (
-            <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            <div className="rounded border border-adm-red/30 bg-adm-red/10 px-4 py-2 font-mono text-[11px] text-adm-red">
               {error}
             </div>
           )}
         </div>
       )}
 
-      <DetailCard title="Ticket Summary" icon={<ShieldCheck size={18} />} columns={3}>
-        <InfoField label="Ticket No" value={detail.ticketNo} mono />
-        <InfoField label="Status" value={detail.status} />
-        <InfoField label="Change Type" value={detail.changeType} />
-        <InfoField label="Approval No" value={detail.approvalNo} mono />
-        <InfoField label="Trace ID" value={detail.traceId} mono />
-      </DetailCard>
+      {/* ── Body ── */}
+      <div className="flex min-h-0 flex-1 overflow-hidden">
 
-      <DetailCard title="Change Scope" icon={<ClipboardList size={18} />} columns={2}>
-        <InfoField label="Change Reason" value={detail.changeReason} />
-        <InfoField label="Scope Summary" value={detail.scopeSummary} />
-        <InfoField label="Test Evidence Ref" value={detail.testEvidenceRef} mono />
-        <InfoField label="Rollback Plan Ref" value={detail.rollbackPlanRef} mono />
-      </DetailCard>
+        {/* ════ LEFT MAIN ════ */}
+        <div className="flex min-w-0 flex-1 flex-col divide-y divide-adm-border overflow-y-auto">
 
-      <DetailCard title="Actors" icon={<Link2 size={18} />} columns={3}>
-        <InfoField label="Created By User No" value={detail.createdByUserNo} mono />
-        <InfoField label="Submitted By User No" value={detail.submittedByUserNo} mono />
-        <InfoField label="Consumed By User No" value={detail.consumedByUserNo} mono />
-      </DetailCard>
+          {/* ① Identity — ticketNo dominant, status, then secondary details */}
+          <section className="bg-adm-card px-6 py-5">
+            <Cap>Change Ticket</Cap>
+            <p className="mt-1.5 font-mono text-[19px] font-bold leading-snug text-adm-amber">
+              {detail.ticketNo}
+            </p>
+            <div className="mt-2.5">
+              <AdminBadge value={detail.status} />
+            </div>
+            <div className="mt-4 border-t border-adm-border pt-4">
+              <p className="font-mono text-[11px] text-adm-t2">{detail.changeType ?? '—'}</p>
+              <p className="mt-1.5 break-all font-mono text-[9px] text-adm-t3">{detail.id}</p>
+            </div>
+          </section>
 
-      <DetailCard title="Timing & Result" icon={<ClipboardList size={18} />} columns={2}>
-        <InfoField label="Submitted At" value={formatDateTime(detail.submittedAt)} />
-        <InfoField label="Consumed At" value={formatDateTime(detail.consumedAt)} />
-        <InfoField label="Result Note" value={detail.resultNote} />
-        <InfoField label="Created At" value={formatDateTime(detail.createdAt)} />
-        <InfoField label="Updated At" value={formatDateTime(detail.updatedAt)} />
-      </DetailCard>
+          {/* ② Approval — governance relationship (content, not action) */}
+          <section className="px-6 py-5">
+            <Cap>Approval</Cap>
+            <p className="mt-1 mb-4 font-mono text-[9px] text-adm-t3">
+              Governance case routing this ticket through approval
+            </p>
+            {detail.approvalCaseId && detail.approvalNo ? (
+              <LinkedRelationCard
+                cap="Approval Case"
+                identifier={detail.approvalNo}
+                onClick={
+                  canViewApproval
+                    ? () =>
+                        navigate(`/dashboard/control-gates/approvals/${detail.approvalCaseId}`)
+                    : undefined
+                }
+              />
+            ) : (
+              <LinkedRelationEmpty
+                cap="Approval Case"
+                message="No approval yet — submit this ticket to open an approval case."
+              />
+            )}
+          </section>
 
-      <DetailCard title="Technical Details" icon={<ClipboardList size={18} />} columns={3}>
-        <InfoField label="Approval Case ID" value={detail.approvalCaseId} mono />
-        <InfoField label="Created By User ID" value={detail.createdByUserId} mono />
-        <InfoField label="Submitted By User ID" value={detail.submittedByUserId} mono />
-        <InfoField label="Consumed By User ID" value={detail.consumedByUserId} mono />
-        <InfoField label="Binding Digest" value={detail.bindingDigest} mono />
-        <div className="md:col-span-3">
-          <JsonBlock title="Binding Snapshot JSON" value={detail.bindingSnapshotJson || {}} compact />
+          {/* ③ Change Scope */}
+          <section className="px-6 py-5">
+            <Cap>Change Scope</Cap>
+            <div className="mt-3">
+              <FieldGrid>
+                <Field label="Change Reason"     value={detail.changeReason}    full />
+                <Field label="Scope Summary"     value={detail.scopeSummary}    full />
+                <Field label="Test Evidence Ref" value={detail.testEvidenceRef} mono />
+                <Field label="Rollback Plan Ref" value={detail.rollbackPlanRef} mono />
+              </FieldGrid>
+            </div>
+          </section>
+
+          {/* ③ Binding Snapshot */}
+          {hasBinding && (
+            <section className="px-6 py-5">
+              <Cap>Binding Snapshot</Cap>
+              <p className="mt-1 mb-4 font-mono text-[9px] text-adm-t3">
+                Immutable state captured when this ticket was authored
+              </p>
+              <div className="rounded border border-adm-border bg-adm-bg p-4 space-y-4">
+                {detail.bindingDigest && (
+                  <div>
+                    <p className="mb-1 font-mono text-[8.5px] uppercase tracking-[0.14em] text-adm-t3">
+                      Binding Digest
+                    </p>
+                    <p className="break-all font-mono text-[10px] text-adm-t2">
+                      {detail.bindingDigest}
+                    </p>
+                  </div>
+                )}
+                {detail.bindingSnapshotJson && (
+                  <JsonBlock title="Binding Snapshot JSON" value={detail.bindingSnapshotJson} />
+                )}
+              </div>
+            </section>
+          )}
+
+          {/* ④ Consumption Result */}
+          {hasConsumption && (
+            <section className="px-6 py-5">
+              <Cap>Consumption Result</Cap>
+              <div className="mt-3">
+                <FieldGrid>
+                  <Field label="Consumed By" value={detail.consumedByUserNo} mono />
+                  <Field label="Consumed At" value={fmt(detail.consumedAt)}   mono />
+                  <Field label="Result Note" value={detail.resultNote}        full />
+                </FieldGrid>
+              </div>
+            </section>
+          )}
+
         </div>
-      </DetailCard>
 
-      <ActionSection
-        title="Workflow Actions"
-        description="Submit, consume, and governed deletion proposals are available here when the current state permits."
-      >
-        <div className="space-y-4">
-          {canRequestDeletion && (
-            <div className="space-y-4 rounded-xl border border-admin-border bg-gray-50 p-4">
-              <div className="space-y-1">
-                <div className="text-sm font-semibold text-gray-900">Request Deletion</div>
-                <div className="text-xs text-gray-500">
-                  Open a governed deletion proposal for ticket {detail.ticketNo}. The request is tracked separately under control gates.
-                </div>
-              </div>
+        {/* ════ RIGHT SIDEBAR ════ */}
+        <div className="w-[272px] min-w-[272px] overflow-y-auto border-l border-adm-border bg-adm-panel px-4 py-1">
 
-              <div className="space-y-2">
-                <label className="block text-xs uppercase tracking-wide text-gray-500">
-                  Delete Reason
-                </label>
-                <textarea
-                  value={deleteReason}
-                  onChange={(e) => setDeleteReason(e.target.value)}
-                  rows={3}
-                  className="w-full rounded-lg border border-admin-border px-3 py-2 text-sm"
-                  placeholder="Explain why this change ticket should enter governed deletion."
-                />
-              </div>
-
-              <div className="flex flex-wrap items-center gap-3">
-                <button
-                  onClick={() => void requestChangeTicketDeletion()}
-                  disabled={submittingAction !== null || !deleteReason.trim()}
-                  className={adminButtonClass('workflowSecondary')}
-                >
-                  <Trash2 size={16} />
-                  {submittingAction === 'delete-request' ? 'Requesting...' : 'Request Deletion'}
-                </button>
+          {/* Actions */}
+          {showActionsBlock && (
+            <div className="border-b border-adm-border py-4">
+              <Cap>Actions</Cap>
+              <div className="mt-2.5 flex flex-col gap-2">
+                {canSubmitAction && (
+                  <button
+                    onClick={() => openModal('submit')}
+                    className={adminButtonClass('workflowPrimary')}
+                  >
+                    Submit Ticket
+                  </button>
+                )}
+                {canConsumeAction && (
+                  <button
+                    onClick={() => openModal('consume')}
+                    className={adminButtonClass('workflowPrimary')}
+                  >
+                    Consume Ticket
+                  </button>
+                )}
+                {canRequestDeletion && (
+                  <button
+                    onClick={() => openModal('delete')}
+                    className={adminButtonClass('workflowNegative')}
+                  >
+                    Request Deletion
+                  </button>
+                )}
               </div>
             </div>
           )}
 
-          {canSubmit && SUBMITTABLE_CHANGE_TICKET_STATUSES.includes(detail.status as (typeof SUBMITTABLE_CHANGE_TICKET_STATUSES)[number]) && (
-            <div className="flex flex-wrap items-center gap-3">
+          {/* Maker */}
+          <SidebarGroup title="Maker">
+            <SidebarKV label="User No" value={detail.createdByUserNo}                />
+            <SidebarKV label="User ID" value={detail.createdByUserId}         mono   />
+            <SidebarKV label="Created" value={fmt(detail.createdAt)}          mono   />
+          </SidebarGroup>
+
+          {/* Submission */}
+          {hasSubmission && (
+            <SidebarGroup title="Submission">
+              <SidebarKV label="Submitted By" value={detail.submittedByUserNo}       />
+              <SidebarKV label="User ID"      value={detail.submittedByUserId} mono  />
+              <SidebarKV label="Submitted At" value={fmt(detail.submittedAt)}  mono  />
+            </SidebarGroup>
+          )}
+
+          {/* Governance */}
+          <SidebarGroup title="Governance">
+            <SidebarKV label="Approval No"     value={detail.approvalNo}     mono />
+            <SidebarKV label="Approval Case"   value={detail.approvalCaseId} mono />
+            <SidebarKV label="Trace ID"        value={detail.traceId}        mono />
+          </SidebarGroup>
+
+          {/* Lifecycle */}
+          <SidebarGroup title="Lifecycle">
+            <SidebarKV label="Updated" value={fmt(detail.updatedAt)} mono />
+          </SidebarGroup>
+
+        </div>
+      </div>
+
+      {/* ════ Submit Modal ════ */}
+      {modal === 'submit' && (
+        <ModalShell
+          title="Submit Change Ticket"
+          subtitle={`${detail.ticketNo} · ${detail.changeType ?? '—'}`}
+          onClose={closeModal}
+          footer={
+            <>
+              <button onClick={closeModal} className={adminButtonClass('modalCancel')}>
+                Cancel
+              </button>
               <button
                 onClick={() => void submitChangeTicket()}
-                disabled={submittingAction !== null}
+                disabled={modalBusy}
                 className={adminButtonClass('workflowPrimary')}
               >
-                <CheckCircle2 size={16} />
-                Submit
+                {modalBusy ? 'Submitting…' : 'Submit'}
               </button>
+            </>
+          }
+        >
+          <p className="font-mono text-[10px] text-adm-t3">
+            Submitting this ticket locks the binding snapshot and routes it through approval.
+            The ticket remains visible throughout its lifecycle.
+          </p>
+          {modalError && (
+            <div className="rounded border border-adm-red/30 bg-adm-red/10 px-3 py-2 font-mono text-[10px] text-adm-red">
+              {modalError}
             </div>
           )}
+        </ModalShell>
+      )}
 
-          {canConsume && CONSUMABLE_CHANGE_TICKET_STATUSES.includes(detail.status as (typeof CONSUMABLE_CHANGE_TICKET_STATUSES)[number]) && (
-            <div className="space-y-4 rounded-xl border border-admin-border bg-gray-50 p-4">
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <label className="block text-xs uppercase tracking-wide text-gray-500">
-                    Result
-                  </label>
-                  <select
-                    value={consumeResult}
-                    onChange={(e) =>
-                      setConsumeResult(
-                        e.target.value === CONSUME_RESULT_FAILURE
-                          ? CONSUME_RESULT_FAILURE
-                          : CONSUME_RESULT_SUCCESS,
-                      )
-                    }
-                    className="w-full rounded-lg border border-admin-border px-3 py-2 text-sm"
-                  >
-                    {CONSUME_RESULT_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="space-y-2">
-                  <label className="block text-xs uppercase tracking-wide text-gray-500">
-                    Reason / Note
-                  </label>
-                  <textarea
-                    value={consumeNote}
-                    onChange={(e) => setConsumeNote(e.target.value)}
-                    rows={3}
-                    className="w-full rounded-lg border border-admin-border px-3 py-2 text-sm"
-                    placeholder="Optional operator note"
-                  />
-                </div>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-3">
-                <button
-                  onClick={() => void consumeChangeTicket()}
-                  disabled={submittingAction !== null}
-                  className={adminButtonClass('workflowPrimary')}
-                >
-                  <CheckCircle2 size={16} />
-                  Consume
-                </button>
-              </div>
+      {/* ════ Consume Modal ════ */}
+      {modal === 'consume' && (
+        <ModalShell
+          title="Consume Change Ticket"
+          subtitle={`${detail.ticketNo} · ${detail.changeType ?? '—'}`}
+          onClose={closeModal}
+          footer={
+            <>
+              <button onClick={closeModal} className={adminButtonClass('modalCancel')}>
+                Cancel
+              </button>
+              <button
+                onClick={() => void consumeChangeTicket()}
+                disabled={modalBusy}
+                className={adminButtonClass('workflowPrimary')}
+              >
+                {modalBusy
+                  ? 'Recording…'
+                  : consumeResult === CONSUME_RESULT_SUCCESS
+                    ? 'Record Success'
+                    : 'Record Failure'}
+              </button>
+            </>
+          }
+        >
+          <p className="font-mono text-[10px] text-adm-t3">
+            Record the real-world execution result. Success consumes the ticket; failure marks
+            it as failed for audit.
+          </p>
+          <div>
+            <p className="mb-1.5 font-mono text-[8.5px] uppercase tracking-[0.14em] text-adm-t3">
+              Result
+            </p>
+            <select
+              value={consumeResult}
+              onChange={(e) =>
+                setConsumeResult(
+                  e.target.value === CONSUME_RESULT_FAILURE
+                    ? CONSUME_RESULT_FAILURE
+                    : CONSUME_RESULT_SUCCESS,
+                )
+              }
+              className="h-[32px] w-full rounded border border-adm-border bg-adm-bg px-3 font-mono text-[11px] text-adm-t1 outline-none focus:border-adm-amber transition-colors"
+            >
+              <option value={CONSUME_RESULT_SUCCESS}>Success</option>
+              <option value={CONSUME_RESULT_FAILURE}>Failure</option>
+            </select>
+          </div>
+          <div>
+            <p className="mb-1.5 font-mono text-[8.5px] uppercase tracking-[0.14em] text-adm-t3">
+              Operator Note (optional)
+            </p>
+            <textarea
+              value={consumeNote}
+              onChange={(e) => setConsumeNote(e.target.value)}
+              rows={3}
+              placeholder="Describe what was executed and anything notable."
+              className="w-full rounded border border-adm-border bg-adm-bg px-3 py-2 font-mono text-[10px] text-adm-t2 placeholder:text-adm-t3 focus:border-adm-amber focus:outline-none resize-none transition-colors"
+            />
+          </div>
+          {modalError && (
+            <div className="rounded border border-adm-red/30 bg-adm-red/10 px-3 py-2 font-mono text-[10px] text-adm-red">
+              {modalError}
             </div>
           )}
-        </div>
-      </ActionSection>
+        </ModalShell>
+      )}
+
+      {/* ════ Delete Modal ════ */}
+      {modal === 'delete' && (
+        <ModalShell
+          title="Request Ticket Deletion"
+          subtitle={`${detail.ticketNo}`}
+          onClose={closeModal}
+          footer={
+            <>
+              <button onClick={closeModal} className={adminButtonClass('modalCancel')}>
+                Cancel
+              </button>
+              <button
+                onClick={() => void submitDeleteRequest()}
+                disabled={modalBusy || !deleteReason.trim()}
+                className={adminButtonClass('workflowNegative')}
+              >
+                {modalBusy ? 'Requesting…' : 'Submit Request'}
+              </button>
+            </>
+          }
+        >
+          <p className="font-mono text-[10px] text-adm-t3">
+            This opens a governed deletion proposal for{' '}
+            <span className="text-adm-amber">{detail.ticketNo}</span>. The ticket remains
+            intact until the request is approved and executed.
+          </p>
+          <div>
+            <p className="mb-1.5 font-mono text-[8.5px] uppercase tracking-[0.14em] text-adm-t3">
+              Delete Reason
+            </p>
+            <textarea
+              value={deleteReason}
+              onChange={(e) => setDeleteReason(e.target.value)}
+              rows={4}
+              placeholder="Explain why this ticket should enter governed deletion…"
+              className="w-full rounded border border-adm-border bg-adm-bg px-3 py-2 font-mono text-[10px] text-adm-t2 placeholder:text-adm-t3 focus:border-adm-amber focus:outline-none resize-none transition-colors"
+              autoFocus
+            />
+          </div>
+          {modalError && (
+            <div className="rounded border border-adm-red/30 bg-adm-red/10 px-3 py-2 font-mono text-[10px] text-adm-red">
+              {modalError}
+            </div>
+          )}
+        </ModalShell>
+      )}
+
     </div>
   );
 };
+
+/* ── Modal shell ─────────────────────────────────────────────── */
+
+const ModalShell = ({
+  title,
+  subtitle,
+  onClose,
+  footer,
+  children,
+}: {
+  title: string;
+  subtitle: string;
+  onClose: () => void;
+  footer: ReactNode;
+  children: ReactNode;
+}) => (
+  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+    <div className="w-full max-w-md overflow-hidden rounded-xl border border-adm-border bg-adm-panel shadow-xl">
+      {/* Header */}
+      <div className="flex items-center justify-between border-b border-adm-border bg-adm-card px-5 py-4">
+        <div>
+          <p className="font-mono text-[11px] font-semibold text-adm-t1">{title}</p>
+          <p className="mt-1 font-mono text-[9px] text-adm-t3">{subtitle}</p>
+        </div>
+        <button
+          onClick={onClose}
+          className="rounded p-1 text-adm-t3 hover:bg-adm-hover hover:text-adm-t1"
+        >
+          <X size={15} />
+        </button>
+      </div>
+      {/* Body */}
+      <div className="px-5 py-4 space-y-3">{children}</div>
+      {/* Footer */}
+      <div className="flex justify-end gap-2 border-t border-adm-border bg-adm-card px-5 py-4">
+        {footer}
+      </div>
+    </div>
+  </div>
+);
 
 export default ChangeTicketDetailPage;

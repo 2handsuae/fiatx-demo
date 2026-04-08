@@ -13,6 +13,7 @@ import {
 } from '../components/compliance/DetailPageComponents';
 import { adminButtonClass } from '../components/common/adminButtonStyles';
 import { AdminBadge } from '../components/ui/AdminBadge';
+import { LinkedRelationCard, LinkedRelationEmpty } from '../components/ui/LinkedRelationCard';
 import { PERMISSIONS } from '../rbac/permissions';
 import { useAdminSession } from '../contexts/AdminSessionContext';
 
@@ -161,9 +162,10 @@ const SidebarKV = ({
 const CaseEvidenceExportDetailPage = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { hasPermission } = useAdminSession();
+  const { hasPermission, hasAnyPermission } = useAdminSession();
 
-  const canDownload = hasPermission(PERMISSIONS.CASE_EVIDENCE_EXPORT_DOWNLOAD);
+  const canDownload     = hasPermission(PERMISSIONS.CASE_EVIDENCE_EXPORT_DOWNLOAD);
+  const canViewApproval = hasAnyPermission([PERMISSIONS.GOV_APPROVAL_DETAIL_READ]);
 
   const [detail,      setDetail]      = useState<CaseEvidenceExportDetail | null>(null);
   const [loading,     setLoading]     = useState(true);
@@ -308,7 +310,11 @@ const CaseEvidenceExportDetailPage = () => {
     detail.filterSnapshot != null || (detail.selectedCaseIdsSnapshot?.length ?? 0) > 0;
   const hasManifest    = detail.manifest != null;
   const hasPackageBody = detail.packageBody != null;
-  const hasApproval    = !!(detail.approvalCase || detail.approvalCaseNo);
+  const hasDecision    = !!(
+    detail.approvalCase?.decisionByUserNo ||
+    detail.approvalCase?.decisionByRole ||
+    detail.approvalCase?.decidedAt
+  );
 
   /* ── Page ── */
 
@@ -361,7 +367,34 @@ const CaseEvidenceExportDetailPage = () => {
             </div>
           </section>
 
-          {/* ② Package Details — scope and integrity at a glance */}
+          {/* ② Approval — governance relationship (content, not action) */}
+          <section className="px-6 py-5">
+            <Cap>Approval</Cap>
+            <p className="mt-1 mb-4 font-mono text-[9px] text-adm-t3">
+              Governance case that authorized this export
+            </p>
+            {detail.approvalCaseId && (detail.approvalCase?.approvalNo || detail.approvalCaseNo) ? (
+              <LinkedRelationCard
+                cap="Approval Case"
+                identifier={(detail.approvalCase?.approvalNo || detail.approvalCaseNo) as string}
+                statusValue={detail.approvalCase?.status}
+                secondaryStatus={detail.approvalCase?.executionStatus}
+                onClick={
+                  canViewApproval
+                    ? () =>
+                        navigate(`/dashboard/control-gates/approvals/${detail.approvalCaseId}`)
+                    : undefined
+                }
+              />
+            ) : (
+              <LinkedRelationEmpty
+                cap="Approval Case"
+                message="No approval linked to this package."
+              />
+            )}
+          </section>
+
+          {/* ③ Package Details — scope and integrity at a glance */}
           <section className="px-6 py-5">
             <Cap>Package Details</Cap>
             <div className="mt-3">
@@ -464,21 +497,12 @@ const CaseEvidenceExportDetailPage = () => {
             </div>
           )}
 
-          {/* Approval */}
-          {hasApproval && (
-            <SidebarGroup title="Approval">
-              <SidebarKV label="Approval No"   value={detail.approvalCase?.approvalNo}  mono />
-              <SidebarKV label="Case No"        value={detail.approvalCaseNo}             mono />
-              {detail.approvalCase && (
-                <div className="flex items-center justify-between gap-2">
-                  <span className="shrink-0 font-mono text-[9px] text-adm-t3">Status</span>
-                  <AdminBadge value={detail.approvalCase.status} />
-                </div>
-              )}
-              <SidebarKV label="Exec Status"   value={detail.approvalCase?.executionStatus}       />
-              <SidebarKV label="Decision By"   value={detail.approvalCase?.decisionByUserNo}      />
-              <SidebarKV label="Decision Role" value={detail.approvalCase?.decisionByRole}        />
-              <SidebarKV label="Decided At"    value={fmt(detail.approvalCase?.decidedAt)}  mono />
+          {/* Decision — lightweight fingerprint; full approval is in the main area */}
+          {hasDecision && (
+            <SidebarGroup title="Decision">
+              <SidebarKV label="Decided By"  value={detail.approvalCase?.decisionByUserNo}   />
+              <SidebarKV label="Role"        value={detail.approvalCase?.decisionByRole}     />
+              <SidebarKV label="Decided At"  value={fmt(detail.approvalCase?.decidedAt)} mono />
             </SidebarGroup>
           )}
 
