@@ -144,7 +144,6 @@ describe('AdminInvitationsService', () => {
       expect.objectContaining({
         action: 'ADMIN_INVITATION_RESENT',
         workflowType: 'ADMIN_MEMBER_PROVISIONING',
-        workflowNo: 'CT2604010001',
         traceId: 'trace-provision-1',
       }),
       expect.any(Object),
@@ -190,7 +189,6 @@ describe('AdminInvitationsService', () => {
       expect.objectContaining({
         action: 'ADMIN_INVITATION_RESENT',
         workflowType: 'ADMIN_MEMBER_PROVISIONING',
-        workflowNo: 'CT2604010001',
         traceId: 'trace-provision-1',
       }),
       expect.any(Object),
@@ -300,7 +298,6 @@ describe('AdminInvitationsService', () => {
       expect.objectContaining({
         action: 'ADMIN_INVITATION_ACCEPTED',
         workflowType: 'ADMIN_MEMBER_PROVISIONING',
-        workflowNo: 'CT2604010001',
         traceId: 'trace-provision-1',
       }),
       expect.any(Object),
@@ -344,7 +341,6 @@ describe('AdminInvitationsService', () => {
       expect.objectContaining({
         action: 'ADMIN_INVITATION_ACCEPTED',
         workflowType: 'ADMIN_MEMBER_PROVISIONING',
-        workflowNo: 'CT2604010001',
         traceId: 'trace-provision-1',
       }),
       expect.any(Object),
@@ -383,7 +379,6 @@ describe('AdminInvitationsService', () => {
       expect.objectContaining({
         action: 'ADMIN_INVITATION_ACCEPT_FAILED',
         workflowType: 'ADMIN_MEMBER_PROVISIONING',
-        workflowNo: 'CT2604010001',
         traceId: 'trace-provision-1',
       }),
       expect.any(Object),
@@ -420,7 +415,6 @@ describe('AdminInvitationsService', () => {
       expect.objectContaining({
         action: 'ADMIN_INVITATION_ACCEPT_FAILED',
         workflowType: 'ADMIN_MEMBER_PROVISIONING',
-        workflowNo: 'CT2604010001',
         traceId: 'trace-provision-1',
       }),
       expect.any(Object),

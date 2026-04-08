@@ -303,8 +303,6 @@ export class DeleteRequestsService {
         entityId: request.id,
         entityNo: request.requestNo,
         workflowType: this.resolveDeleteRequestBusinessWorkflowType(request.targetType),
-        workflowId: request.id,
-        workflowNo: request.requestNo,
         traceId: request.traceId,
         statusFrom: statusFrom || undefined,
         statusTo: statusTo || undefined,

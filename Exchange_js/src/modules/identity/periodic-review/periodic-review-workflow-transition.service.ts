@@ -141,8 +141,6 @@ export class PeriodicReviewWorkflowTransitionService {
   ) {
     const traceContext = buildComplianceWorkflowTraceContext({
       workflow: PERIODIC_REVIEW_WORKFLOW,
-      workflowId: cycle.id,
-      workflowNo: cycle.cycleNo,
     });
     await this.auditLogsService.recordByActor(
       {
@@ -155,8 +153,6 @@ export class PeriodicReviewWorkflowTransitionService {
         traceId: traceContext?.traceId || undefined,
         workflowType:
           traceContext?.workflowType || AuditWorkflowTypes.PERIODIC_REVIEW,
-        workflowId: traceContext?.workflowId || undefined,
-        workflowNo: traceContext?.workflowNo || undefined,
         entityOwnerType: 'CUSTOMER',
         entityOwnerId: customer.id,
         entityOwnerNo: customer.customerNo || undefined,

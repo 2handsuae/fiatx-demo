@@ -1843,8 +1843,6 @@ export class ComplianceIncidentsService {
           entityNo: incident.incidentNo,
           traceId: workflowContext?.traceId || undefined,
           workflowType: workflowContext?.workflowType || undefined,
-          workflowId: workflowContext?.workflowId || undefined,
-          workflowNo: workflowContext?.workflowNo || undefined,
           reason: `Saved case report draft v${report.version}`,
           metadata: {
             reportId: report.id,
@@ -1976,8 +1974,6 @@ export class ComplianceIncidentsService {
           entityNo: incident.incidentNo,
           traceId: workflowContext?.traceId || undefined,
           workflowType: workflowContext?.workflowType || undefined,
-          workflowId: workflowContext?.workflowId || undefined,
-          workflowNo: workflowContext?.workflowNo || undefined,
           reason: `Finalized case report v${finalizedReport.version}`,
           metadata: {
             reportId: finalizedReport.id,
@@ -2396,8 +2392,6 @@ export class ComplianceIncidentsService {
           entityNo: incident.incidentNo,
           traceId: workflowContext?.traceId || undefined,
           workflowType: workflowContext?.workflowType || undefined,
-          workflowId: workflowContext?.workflowId || undefined,
-          workflowNo: workflowContext?.workflowNo || undefined,
           statusFrom: incident.status,
           statusTo: ComplianceIncidentStatus.PENDING_MLRO_REVIEW,
           reason:
@@ -2523,8 +2517,6 @@ export class ComplianceIncidentsService {
             entityNo: incident.incidentNo,
             traceId: workflowContext?.traceId || undefined,
             workflowType: workflowContext?.workflowType || undefined,
-            workflowId: workflowContext?.workflowId || undefined,
-            workflowNo: workflowContext?.workflowNo || undefined,
             statusFrom: incident.status,
             statusTo: ComplianceIncidentStatus.INVESTIGATING,
             reason:
@@ -2744,8 +2736,6 @@ export class ComplianceIncidentsService {
           entityNo: incident.incidentNo,
           traceId: workflowContext?.traceId || undefined,
           workflowType: workflowContext?.workflowType || undefined,
-          workflowId: workflowContext?.workflowId || undefined,
-          workflowNo: workflowContext?.workflowNo || undefined,
           statusFrom: incident.status,
           statusTo: ComplianceIncidentStatus.CLOSED,
           reason:
@@ -2879,8 +2869,6 @@ export class ComplianceIncidentsService {
           entityNo: incident.incidentNo,
           traceId: workflowContext?.traceId || undefined,
           workflowType: workflowContext?.workflowType || undefined,
-          workflowId: workflowContext?.workflowId || undefined,
-          workflowNo: workflowContext?.workflowNo || undefined,
           reason:
             this.normalizeOptionalString(dto.note) || 'External filing submitted.',
           metadata: {
@@ -2977,8 +2965,6 @@ export class ComplianceIncidentsService {
           entityNo: incident.incidentNo,
           traceId: workflowContext?.traceId || undefined,
           workflowType: workflowContext?.workflowType || undefined,
-          workflowId: workflowContext?.workflowId || undefined,
-          workflowNo: workflowContext?.workflowNo || undefined,
           reason: dto.feedback,
           metadata: {
             filingId: filing.id,
@@ -3075,8 +3061,6 @@ export class ComplianceIncidentsService {
           entityNo: incident.incidentNo,
           traceId: workflowContext?.traceId || undefined,
           workflowType: workflowContext?.workflowType || undefined,
-          workflowId: workflowContext?.workflowId || undefined,
-          workflowNo: workflowContext?.workflowNo || undefined,
           reason:
             this.normalizeOptionalString(dto.note) ||
             'External filing follow-up closed.',
@@ -3300,8 +3284,6 @@ export class ComplianceIncidentsService {
             entityNo: current.incidentNo,
             traceId: workflowContext?.traceId || undefined,
             workflowType: workflowContext?.workflowType || undefined,
-            workflowId: workflowContext?.workflowId || undefined,
-            workflowNo: workflowContext?.workflowNo || undefined,
             entityOwnerType: current.customerId ? 'CUSTOMER' : undefined,
             entityOwnerId: current.customerId || undefined,
             reason: `Case ${current.incidentNo} marked overdue`,
@@ -3525,8 +3507,6 @@ export class ComplianceIncidentsService {
         entityNo: incident.incidentNo,
         traceId: workflowContext?.traceId || undefined,
         workflowType: workflowContext?.workflowType || undefined,
-        workflowId: workflowContext?.workflowId || undefined,
-        workflowNo: workflowContext?.workflowNo || undefined,
         entityOwnerType: updatedAlert.ownerType || undefined,
         entityOwnerId: updatedAlert.ownerId || undefined,
         reason,
@@ -3720,8 +3700,6 @@ export class ComplianceIncidentsService {
           entityNo: incident.incidentNo,
           traceId: workflowContext?.traceId || undefined,
           workflowType: workflowContext?.workflowType || undefined,
-          workflowId: workflowContext?.workflowId || undefined,
-          workflowNo: workflowContext?.workflowNo || undefined,
           reason: note || `Linked alert ${alert.alertNo}`,
           metadata: {
             linkedAlertId: alert.id,
@@ -4079,8 +4057,6 @@ export class ComplianceIncidentsService {
         entityNo: updated.incidentNo,
         traceId: workflowContext?.traceId || undefined,
         workflowType: workflowContext?.workflowType || undefined,
-        workflowId: workflowContext?.workflowId || undefined,
-        workflowNo: workflowContext?.workflowNo || undefined,
         statusFrom: resolution.statusChanged ? currentStatus : undefined,
         statusTo: resolution.statusChanged ? updated.status : undefined,
         reason: reason || note || `${dto.action} executed`,

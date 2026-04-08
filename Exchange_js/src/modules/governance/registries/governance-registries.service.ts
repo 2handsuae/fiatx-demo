@@ -165,8 +165,6 @@ export class GovernanceRegistriesService {
         entityNo: input.entityNo,
         traceId: input.traceId || undefined,
         workflowType: AuditWorkflowTypes.GOVERNANCE_REGISTRY,
-        workflowId: input.entityId,
-        workflowNo: input.entityNo,
         result: AuditResult.SUCCESS,
         reason: input.reason || undefined,
         statusFrom: input.statusFrom || undefined,

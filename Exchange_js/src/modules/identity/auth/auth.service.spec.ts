@@ -191,7 +191,6 @@ describe('AuthService', () => {
       expect.objectContaining({
         action: 'ADMIN_LOGIN_SUCCESS',
         workflowType: AuditBusinessWorkflowTypes.ADMIN_LOGIN_ACCESS,
-        workflowNo: 'ADMIN-001',
         traceId: expect.any(String),
       }),
       expect.objectContaining({

@@ -41,15 +41,8 @@ export class AuthService {
     userNo?: string | null;
     identifier?: string;
   }) {
-    const normalizedUserNo = String(params.userNo || '').trim();
-    const normalizedIdentifier = String(params.identifier || '').trim().toLowerCase();
-    const fallbackRef = normalizedIdentifier
-      ? `LOGIN:${this.maskIdentifier(normalizedIdentifier).slice(0, 12)}`
-      : 'LOGIN:UNKNOWN';
-
     return {
       workflowType: AuditBusinessWorkflowTypes.ADMIN_LOGIN_ACCESS,
-      workflowNo: normalizedUserNo || fallbackRef,
       traceId: params.traceId,
     };
   }

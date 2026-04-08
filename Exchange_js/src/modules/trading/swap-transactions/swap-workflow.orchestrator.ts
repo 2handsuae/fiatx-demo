@@ -279,8 +279,6 @@ export class SwapWorkflowOrchestrator {
           entityNo: transaction.swapNo || undefined,
           traceId: `SWAP:${transaction.id}`,
           workflowType: AuditWorkflowTypes.SWAP,
-          workflowId: transaction.id,
-          workflowNo: transaction.swapNo || quote.quoteNo || transaction.id,
           entityOwnerType: transaction.ownerType,
           entityOwnerId: transaction.ownerId,
           entityOwnerNo: transaction.ownerNo || undefined,

@@ -722,8 +722,6 @@ describe('RiskDecisionRecordsService', () => {
         entityId: 'dr-swap-1',
         traceId: 'SWAP:swap-1',
         workflowType: 'SWAP',
-        workflowId: 'swap-1',
-        workflowNo: 'SWP2603260001',
         metadata: expect.objectContaining({
           decisionRecordId: 'dr-swap-1',
           contextType: 'TX_SWAP_FINAL',

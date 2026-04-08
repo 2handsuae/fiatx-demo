@@ -237,8 +237,6 @@ export class OnboardingFinalApprovalService {
         entityNo: input.customerNo || undefined,
         traceId: traceContext?.traceId || undefined,
         workflowType: traceContext?.workflowType || AuditWorkflowTypes.ONBOARDING,
-        workflowId: traceContext?.workflowId || undefined,
-        workflowNo: traceContext?.workflowNo || undefined,
         entityOwnerType: 'CUSTOMER',
         entityOwnerId: input.customerId,
         entityOwnerNo: input.customerNo || undefined,

@@ -285,8 +285,6 @@ describe('ComplianceIncidentsService', () => {
       expect.objectContaining({
         traceId: 'ONBOARDING:ONB-1',
         workflowType: 'ONBOARDING',
-        workflowId: 'ONB-1',
-        workflowNo: 'ONB-1',
       }),
       expect.anything(),
       expect.anything(),

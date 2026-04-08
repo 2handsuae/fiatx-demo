@@ -133,7 +133,6 @@ describe('AccessControlService', () => {
       },
       {
         workflowType: 'ADMIN_ROLE_BINDING_CHANGE',
-        workflowNo: 'CT2604010002',
         traceId: 'trace-role-binding-1',
       },
     );

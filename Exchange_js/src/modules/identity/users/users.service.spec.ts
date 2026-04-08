@@ -425,7 +425,6 @@ describe('UsersService', () => {
       },
       auditContext: {
         workflowType: 'ADMIN_MEMBER_PROVISIONING',
-        workflowNo: 'CT2604010001',
         traceId: 'trace-provision-1',
       },
     });
@@ -439,7 +438,6 @@ describe('UsersService', () => {
       },
       {
         workflowType: 'ADMIN_MEMBER_PROVISIONING',
-        workflowNo: 'CT2604010001',
         traceId: 'trace-provision-1',
       },
     );
@@ -447,7 +445,6 @@ describe('UsersService', () => {
       expect.objectContaining({
         action: 'USER_CREATED',
         workflowType: 'ADMIN_MEMBER_PROVISIONING',
-        workflowNo: 'CT2604010001',
         traceId: 'trace-provision-1',
       }),
       expect.any(Object),
@@ -513,7 +510,6 @@ describe('UsersService', () => {
       },
       auditContext: {
         workflowType: 'ADMIN_MEMBER_PROVISIONING',
-        workflowNo: 'CT2604010001',
         traceId: 'trace-provision-1',
       },
     });

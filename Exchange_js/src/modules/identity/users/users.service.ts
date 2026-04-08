@@ -70,7 +70,6 @@ type MemberDetail = {
 
 type InternalAuditContext = {
   workflowType?: string;
-  workflowNo?: string;
   traceId?: string;
 };
 
@@ -154,13 +153,11 @@ export class UsersService {
     auditContext?: InternalAuditContext,
   ): T {
     const workflowType = this.normalizeOptionalString(auditContext?.workflowType);
-    const workflowNo = this.normalizeOptionalString(auditContext?.workflowNo);
     const traceId = this.normalizeOptionalString(auditContext?.traceId);
 
     return {
       ...payload,
       workflowType: workflowType || undefined,
-      workflowNo: workflowNo || undefined,
       traceId: traceId || undefined,
     } as T;
   }
@@ -168,16 +165,14 @@ export class UsersService {
   private buildProvisioningAuditContext(
     binding: GovernedAdminMemberProvisioningBinding,
   ): InternalAuditContext | undefined {
-    const workflowNo = this.normalizeOptionalString(binding.ticketNo);
     const traceId = this.normalizeOptionalString(binding.traceId);
 
-    if (!workflowNo && !traceId) {
+    if (!traceId) {
       return undefined;
     }
 
     return {
       workflowType: AuditBusinessWorkflowTypes.ADMIN_MEMBER_PROVISIONING,
-      workflowNo: workflowNo || undefined,
       traceId: traceId || undefined,
     };
   }

@@ -158,8 +158,6 @@ describe('ComplianceAlertsService', () => {
       expect.objectContaining({
         traceId: 'ONBOARDING:journey-1',
         workflowType: 'ONBOARDING',
-        workflowId: 'journey-1',
-        workflowNo: 'journey-1',
       }),
       undefined,
     );
@@ -204,8 +202,6 @@ describe('ComplianceAlertsService', () => {
       expect.objectContaining({
         traceId: 'PERIODIC_REVIEW:cycle-1',
         workflowType: 'PERIODIC_REVIEW',
-        workflowId: 'cycle-1',
-        workflowNo: 'PRR0001',
       }),
       undefined,
     );
@@ -254,8 +250,6 @@ describe('ComplianceAlertsService', () => {
       expect.objectContaining({
         traceId: 'TRANSACTION:dep-1',
         workflowType: 'TRANSACTION',
-        workflowId: 'dep-1',
-        workflowNo: 'DEP0001',
       }),
       undefined,
     );
@@ -305,8 +299,6 @@ describe('ComplianceAlertsService', () => {
       expect.objectContaining({
         traceId: 'TRANSACTION:swap-1',
         workflowType: 'TRANSACTION',
-        workflowId: 'swap-1',
-        workflowNo: 'SWP0001',
       }),
       undefined,
     );
@@ -357,8 +349,6 @@ describe('ComplianceAlertsService', () => {
       expect.objectContaining({
         traceId: 'TRANSACTION:wd-1',
         workflowType: 'TRANSACTION',
-        workflowId: 'wd-1',
-        workflowNo: 'WD0001',
       }),
       undefined,
     );

@@ -647,7 +647,6 @@ describe('DeleteRequestsService Task 3 contract', () => {
       expect(auditPayload).toMatchObject({
         action: AuditActions.DELETE_REQUEST_CREATED,
         workflowType: expectedWorkflowType,
-        workflowNo: result.requestNo,
         traceId: result.traceId,
       });
       expect(auditActor).toMatchObject({
@@ -1083,7 +1082,6 @@ describe('DeleteRequestsService Task 3 contract', () => {
     expect(auditPayload).toMatchObject({
       action: AuditActions.DELETE_REQUEST_CONSUMED,
       workflowType: AuditBusinessWorkflowTypes.CHANGE_TICKET_DELETION,
-      workflowNo: ready.requestNo,
       traceId: ready.traceId,
     });
     expect(auditActor).toMatchObject({

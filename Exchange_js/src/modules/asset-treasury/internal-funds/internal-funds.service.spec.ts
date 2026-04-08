@@ -118,8 +118,6 @@ describe('InternalFundsService', () => {
       expect.objectContaining({
         data: expect.objectContaining({
           workflowType: 'DEPOSIT',
-          workflowId: 'dep-1',
-          workflowNo: 'DEP001',
         }),
       }),
     );

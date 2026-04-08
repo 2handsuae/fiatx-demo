@@ -135,8 +135,6 @@ export class DepositTransactionsService {
         entityOwnerId: item.ownerId,
         traceId: options?.traceId || `TRANSACTION:${item.id}`,
         workflowType: options?.workflowType || 'TRANSACTION',
-        workflowId: options?.workflowId || item.id,
-        workflowNo: options?.workflowNo || item.depositNo || item.id,
         reason,
         metadata: {
           depositId: item.id,
@@ -534,8 +532,6 @@ export class DepositTransactionsService {
         entityOwnerId: updated.ownerId,
         traceId: options?.traceId || undefined,
         workflowType: options?.workflowType || 'DEPOSIT',
-        workflowId: options?.workflowId || undefined,
-        workflowNo: options?.workflowNo || undefined,
         statusFrom: currentStatus,
         statusTo: nextStatus,
         reason: options?.reason || dto.reason || `Action: ${action}`,

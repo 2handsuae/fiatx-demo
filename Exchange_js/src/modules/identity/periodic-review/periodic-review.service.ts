@@ -282,8 +282,6 @@ export class PeriodicReviewService {
     });
     const workflowContext = buildComplianceWorkflowTraceContext({
       workflow: PERIODIC_REVIEW_WORKFLOW,
-      workflowId: input.workflowId,
-      workflowNo: input.workflowNo,
     });
     const triggerType = String(input.action || '').trim().toUpperCase().endsWith('_CREATED')
       ? AuditTriggerType.DATA_CREATE
@@ -300,8 +298,6 @@ export class PeriodicReviewService {
         traceId: workflowContext?.traceId || undefined,
         workflowType:
           workflowContext?.workflowType || AuditWorkflowTypes.PERIODIC_REVIEW,
-        workflowId: workflowContext?.workflowId || undefined,
-        workflowNo: workflowContext?.workflowNo || undefined,
         entityOwnerType: 'CUSTOMER',
         entityOwnerId: input.customerId,
         entityOwnerNo: customer?.customerNo || undefined,
@@ -819,8 +815,6 @@ export class PeriodicReviewService {
       actorId,
       actorRole: 'CUSTOMER',
       detail: `Session ${created.id} created for periodic review response ${caseId}.`,
-      workflowId: (targetCase as any).periodicReviewCycleId || null,
-      workflowNo: (targetCase as any).journeyId || null,
     });
 
     return this.buildSessionResponse(created);
@@ -922,8 +916,6 @@ export class PeriodicReviewService {
         fromStage: 'PENDING_CDD_INPUT',
         toStage: 'CDD_UNDER_REVIEW',
         detail: `Periodic review CDD submitted at ${now.toISOString()}.`,
-        workflowId: input.cycle.id,
-        workflowNo: input.cycle.cycleNo,
       });
     }
   }
@@ -973,8 +965,6 @@ export class PeriodicReviewService {
         fromStage: 'PENDING_EDD_INPUT',
         toStage: 'EDD_UNDER_REVIEW',
         detail: `Periodic review EDD submitted at ${now.toISOString()}.`,
-        workflowId: input.cycle.id,
-        workflowNo: input.cycle.cycleNo,
       });
     }
   }
@@ -1345,8 +1335,6 @@ export class PeriodicReviewService {
         fromStage: 'PENDING_CDD_INPUT',
         toStage: 'CDD_UNDER_REVIEW',
         detail: `Periodic review CDD queued for manual risk simulation decisionRecordId=${pendingDecision.decisionRecordId}.`,
-        workflowId: cycle.id,
-        workflowNo: cycle.cycleNo,
       });
 
       return {
@@ -1423,8 +1411,6 @@ export class PeriodicReviewService {
       fromStage: 'PENDING_EDD_INPUT',
       toStage: 'EDD_UNDER_REVIEW',
       detail: `Periodic review EDD queued for manual risk simulation decisionRecordId=${pendingDecision.decisionRecordId}.`,
-      workflowId: cycle.id,
-      workflowNo: cycle.cycleNo,
     });
 
     return {
@@ -1615,8 +1601,6 @@ export class PeriodicReviewService {
         fromStage: null,
         toStage: String(cycle.status || '').trim().toUpperCase() || null,
         detail: reason || `Periodic review cycle ${cycle.cycleNo} created.`,
-        workflowId: cycle.id,
-        workflowNo: cycle.cycleNo,
       });
     }
     return {

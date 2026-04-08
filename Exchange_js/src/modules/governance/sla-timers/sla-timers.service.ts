@@ -474,8 +474,6 @@ export class SlaTimersService {
         entityId: timer.id,
         entityNo: timer.timerNo,
         workflowType: timer.workflowType,
-        workflowId: timer.workflowId,
-        workflowNo: timer.workflowNo,
         traceId: timer.traceId,
         statusFrom: statusFrom || undefined,
         statusTo: statusTo || undefined,

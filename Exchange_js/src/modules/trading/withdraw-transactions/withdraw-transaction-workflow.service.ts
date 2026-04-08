@@ -111,8 +111,6 @@ export class WithdrawTransactionWorkflowService {
     return {
       traceId: `${AuditWorkflowTypes.WITHDRAW}:${withdraw.id}`,
       workflowType: AuditWorkflowTypes.WITHDRAW,
-      workflowId: withdraw.id,
-      workflowNo: withdraw.withdrawNo || withdraw.id,
     };
   }
 
@@ -282,8 +280,6 @@ export class WithdrawTransactionWorkflowService {
       entityOwnerId: withdraw.ownerId || undefined,
       traceId: trace.traceId,
       workflowType: trace.workflowType,
-      workflowId: trace.workflowId,
-      workflowNo: trace.workflowNo,
       reason,
       metadata,
       sourcePlatform: input.actor?.sourcePlatform || 'SYSTEM',
@@ -350,8 +346,6 @@ export class WithdrawTransactionWorkflowService {
           entityOwnerId: updated.ownerId,
           traceId: trace.traceId,
           workflowType: trace.workflowType,
-          workflowId: trace.workflowId,
-          workflowNo: trace.workflowNo,
           statusFrom: String(withdraw.status),
           statusTo: nextStatus,
           reason,
@@ -381,8 +375,6 @@ export class WithdrawTransactionWorkflowService {
           entityOwnerId: updated.ownerId,
           traceId: trace.traceId,
           workflowType: trace.workflowType,
-          workflowId: trace.workflowId,
-          workflowNo: trace.workflowNo,
           statusFrom: String(withdraw.status),
           statusTo: nextStatus,
           reason,

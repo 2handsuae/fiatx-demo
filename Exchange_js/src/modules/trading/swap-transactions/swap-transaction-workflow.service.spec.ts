@@ -105,8 +105,6 @@ describe('SwapTransactionWorkflowService', () => {
         triggerType: 'STATE_TRANSITION',
         action: 'SWAP_PENDING_COMPLIANCE_TO_UNDER_REVIEW',
         workflowType: 'SWAP',
-        workflowId: 'swap-1',
-        workflowNo: 'SWP_0001',
         statusFrom: SwapTransactionStatus.PENDING_COMPLIANCE,
         statusTo: SwapTransactionStatus.UNDER_REVIEW,
         metadata: expect.objectContaining({
@@ -159,8 +157,6 @@ describe('SwapTransactionWorkflowService', () => {
         triggerType: 'STATE_TRANSITION',
         action: 'SWAP_PENDING_COMPLIANCE_TO_SUCCESS',
         workflowType: 'SWAP',
-        workflowId: 'swap-1',
-        workflowNo: 'SWP_0001',
         statusFrom: SwapTransactionStatus.PENDING_COMPLIANCE,
         statusTo: SwapTransactionStatus.SUCCESS,
         metadata: expect.objectContaining({
@@ -214,8 +210,6 @@ describe('SwapTransactionWorkflowService', () => {
         triggerType: 'STATE_TRANSITION',
         action: 'SWAP_PENDING_COMPLIANCE_TO_REJECTED',
         workflowType: 'SWAP',
-        workflowId: 'swap-1',
-        workflowNo: 'SWP_0001',
         statusFrom: SwapTransactionStatus.PENDING_COMPLIANCE,
         statusTo: SwapTransactionStatus.REJECTED,
       }),
@@ -278,8 +272,6 @@ describe('SwapTransactionWorkflowService', () => {
         triggerType: 'STATE_TRANSITION',
         action: 'SWAP_PENDING_COMPLIANCE_TO_FAILED',
         workflowType: 'SWAP',
-        workflowId: 'swap-1',
-        workflowNo: 'SWP_0001',
         statusFrom: SwapTransactionStatus.PENDING_COMPLIANCE,
         statusTo: SwapTransactionStatus.FAILED,
       }),
@@ -312,8 +304,6 @@ describe('SwapTransactionWorkflowService', () => {
     expect(recordSystemSpy).toHaveBeenCalledWith(
       expect.objectContaining({
         workflowType: 'SWAP',
-        workflowId: 'swap-1',
-        workflowNo: 'swap-1',
         metadata: expect.objectContaining({
           quoteNo: 'QUO_0001',
         }),

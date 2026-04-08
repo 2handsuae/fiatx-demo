@@ -271,7 +271,6 @@ export class WithdrawTransactionsService {
             : undefined,
           {
             workflowType: AuditWorkflowTypes.WITHDRAW,
-            workflowId: withdrawId,
           },
           {
             traceId: `${AuditWorkflowTypes.WITHDRAW}:${withdrawId}`,

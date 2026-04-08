@@ -180,7 +180,6 @@ export class PayoutsService {
           normalizedWithdrawId
             ? {
                 workflowType: AuditWorkflowTypes.WITHDRAW,
-                workflowId: normalizedWithdrawId,
                 action: {
                   in: [
                     buildStateTransitionAction(

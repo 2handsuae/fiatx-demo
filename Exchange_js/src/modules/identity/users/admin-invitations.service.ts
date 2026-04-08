@@ -44,7 +44,6 @@ type RequestContext = {
 
 type InternalAuditContext = {
   workflowType?: string;
-  workflowNo?: string;
   traceId?: string;
 };
 
@@ -95,13 +94,11 @@ export class AdminInvitationsService {
     auditContext?: InternalAuditContext,
   ): T {
     const workflowType = this.normalizeOptionalString(auditContext?.workflowType);
-    const workflowNo = this.normalizeOptionalString(auditContext?.workflowNo);
     const traceId = this.normalizeOptionalString(auditContext?.traceId);
 
     return {
       ...payload,
       workflowType: workflowType || undefined,
-      workflowNo: workflowNo || undefined,
       traceId: traceId || undefined,
     } as T;
   }
@@ -110,16 +107,14 @@ export class AdminInvitationsService {
     auditContext?: InternalAuditContext,
   ): InternalAuditContext | undefined {
     const workflowType = this.normalizeOptionalString(auditContext?.workflowType);
-    const workflowNo = this.normalizeOptionalString(auditContext?.workflowNo);
     const traceId = this.normalizeOptionalString(auditContext?.traceId);
 
-    if (!workflowType && !workflowNo && !traceId) {
+    if (!workflowType && !traceId) {
       return undefined;
     }
 
     return {
       workflowType: workflowType || undefined,
-      workflowNo: workflowNo || undefined,
       traceId: traceId || undefined,
     };
   }
@@ -132,14 +127,12 @@ export class AdminInvitationsService {
         userId,
         OR: [
           { workflowType: { not: null } },
-          { workflowNo: { not: null } },
           { traceId: { not: null } },
         ],
       },
       orderBy: [{ createdAt: 'desc' }],
       select: {
         workflowType: true,
-        workflowNo: true,
         traceId: true,
       },
     });
@@ -154,7 +147,6 @@ export class AdminInvitationsService {
       where: { tokenHash },
       select: {
         workflowType: true,
-        workflowNo: true,
         traceId: true,
       },
     });
@@ -217,7 +209,6 @@ export class AdminInvitationsService {
             expiresAt,
             createdByUserId: createdByUserId || null,
             workflowType: persistedContext?.workflowType || null,
-            workflowNo: persistedContext?.workflowNo || null,
             traceId: persistedContext?.traceId || null,
           },
         });

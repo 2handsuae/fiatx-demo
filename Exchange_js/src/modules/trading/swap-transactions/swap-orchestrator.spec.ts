@@ -181,8 +181,6 @@ describe('SwapWorkflowOrchestrator', () => {
         entityNo: 'SWP_0001',
         traceId: 'SWAP:swap-1',
         workflowType: 'SWAP',
-        workflowId: 'swap-1',
-        workflowNo: 'SWP_0001',
         metadata: expect.objectContaining({
           quoteId: 'quote-1',
           quoteNo: 'QUO_0001',

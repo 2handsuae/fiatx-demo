@@ -313,8 +313,6 @@ describe('ApprovalsService', () => {
       expect.objectContaining({
         action: AuditActions.APPROVAL_SUBMITTED,
         workflowType: 'ADMIN_MEMBER_PROVISIONING',
-        workflowId: 'ticket-1',
-        workflowNo: 'CT2604010001',
         traceId: 'trace-ticket-1',
         subjectNos: expect.arrayContaining([
           expect.objectContaining({
@@ -429,8 +427,6 @@ describe('ApprovalsService', () => {
       expect.objectContaining({
         action: AuditActions.APPROVAL_SUBMITTED,
         workflowType: 'CHANGE_TICKET_DELETION',
-        workflowId: 'request-1',
-        workflowNo: 'DR2604010001',
         traceId: 'trace-request-1',
       }),
       expect.anything(),
@@ -577,8 +573,6 @@ describe('ApprovalsService', () => {
         action: AuditActions.APPROVAL_APPROVED,
         entityNo: 'APR2603140001',
         workflowType: 'ONBOARDING',
-        workflowId: 'ONB-1',
-        workflowNo: 'ONB-1',
         subjectNos: expect.arrayContaining([
           expect.objectContaining({
             subjectRole: 'RELATED',

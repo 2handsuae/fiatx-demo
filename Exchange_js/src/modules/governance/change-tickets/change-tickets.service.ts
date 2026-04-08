@@ -403,8 +403,6 @@ export class ChangeTicketsService {
         entityId: ticket.id,
         entityNo: ticket.ticketNo,
         workflowType: this.resolveBusinessWorkflowType(ticket.changeType),
-        workflowId: ticket.id,
-        workflowNo: ticket.ticketNo,
         traceId: ticket.traceId,
         statusFrom: statusFrom || undefined,
         statusTo: statusTo || undefined,

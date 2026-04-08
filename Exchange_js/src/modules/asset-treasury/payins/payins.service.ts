@@ -141,13 +141,11 @@ export class PayinsService {
           normalizedDepositId
             ? {
                 workflowType: AuditWorkflowTypes.DEPOSIT,
-                workflowId: normalizedDepositId,
               }
             : undefined,
           normalizedDepositNo
             ? {
                 workflowType: AuditWorkflowTypes.DEPOSIT,
-                workflowNo: normalizedDepositNo,
               }
             : undefined,
         ].filter(Boolean),

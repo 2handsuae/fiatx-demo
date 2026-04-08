@@ -274,8 +274,6 @@ export class RiskDecisionRecordsService {
     return {
       traceId: swap?.id ? `${AuditWorkflowTypes.SWAP}:${swap.id}` : undefined,
       workflowType: AuditWorkflowTypes.SWAP,
-      workflowId: swap?.id || swapId,
-      workflowNo: swap?.swapNo || undefined,
     };
   }
 
@@ -625,8 +623,6 @@ export class RiskDecisionRecordsService {
                 : contextType === 'TX_WITHDRAW_FINAL'
                   ? AuditWorkflowTypes.WITHDRAW
                 : AuditWorkflowTypes.TRANSACTION,
-            workflowId: record.subjectId || undefined,
-            workflowNo: undefined,
           };
 
     await this.auditLogsService.recordByActor(
@@ -640,8 +636,6 @@ export class RiskDecisionRecordsService {
         entityOwnerId: record.customerId || undefined,
         traceId: auditWorkflowContext.traceId,
         workflowType: auditWorkflowContext.workflowType,
-        workflowId: auditWorkflowContext.workflowId,
-        workflowNo: auditWorkflowContext.workflowNo,
         reason: `Manual ${body.riskLevel} simulation applied to ${contextType}`,
         metadata: {
           decisionRecordId: id,

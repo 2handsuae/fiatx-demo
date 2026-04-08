@@ -1169,8 +1169,6 @@ export class OnboardingService {
         entityNo: customer?.customerNo || undefined,
         traceId: workflowContext?.traceId || undefined,
         workflowType: workflowContext?.workflowType || AuditWorkflowTypes.ONBOARDING,
-        workflowId: workflowContext?.workflowId || undefined,
-        workflowNo: workflowContext?.workflowNo || undefined,
         entityOwnerType: 'CUSTOMER',
         entityOwnerId: input.customerId,
         entityOwnerNo: customer?.customerNo || undefined,

@@ -96,8 +96,6 @@ export class TransactionDepositWorkflowService {
     return {
       traceId: `TRANSACTION:${deposit.id}`,
       workflowType: 'TRANSACTION',
-      workflowId: deposit.id,
-      workflowNo: deposit.depositNo || deposit.id,
     };
   }
 
@@ -143,8 +141,6 @@ export class TransactionDepositWorkflowService {
       entityOwnerId: deposit.ownerId || undefined,
       traceId: trace.traceId,
       workflowType: trace.workflowType,
-      workflowId: trace.workflowId,
-      workflowNo: trace.workflowNo,
       reason,
       metadata,
       sourcePlatform: input.actor?.sourcePlatform || 'SYSTEM',
@@ -262,8 +258,6 @@ export class TransactionDepositWorkflowService {
       actor: input.actor,
       traceId: trace.traceId,
       workflowType: trace.workflowType,
-      workflowId: trace.workflowId,
-      workflowNo: trace.workflowNo,
       reason:
         this.normalizeOptionalString(input.reason) ||
         `${input.source} ${input.workflowAction.toLowerCase()} transaction deposit`,

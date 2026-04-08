@@ -343,8 +343,6 @@ export class ApprovalsService {
         entityNo: approval.approvalNo,
         traceId: approval.traceId,
         workflowType: approval.workflowType || undefined,
-        workflowId: approval.workflowId || undefined,
-        workflowNo: approval.workflowNo || undefined,
         subjectNos,
         result,
         reason: reason || undefined,

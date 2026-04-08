@@ -166,8 +166,6 @@ export class InternalTransactionsService {
 
     return {
       workflowType: 'DEPOSIT',
-      workflowId: source.sourceId || undefined,
-      workflowNo: source.sourceNo || undefined,
     };
   }
 
