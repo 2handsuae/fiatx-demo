@@ -93,12 +93,19 @@ export class CustomersController {
     description:
       'Compatibility filter. Accepts legacy values (e.g. ACTIVE, REVIEW_CDD) and canonical onboardingStatus values; internally mapped to canonical conditions.',
   })
+  @ApiQuery({
+    name: 'customerType',
+    required: false,
+    type: String,
+    description: 'Filter by customer type: INDIVIDUAL or CORPORATE.',
+  })
   findAll(
     @Request() req: any,
     @Query('skip') skip?: string,
     @Query('take') take?: string,
     @Query('search') search?: string,
     @Query('status') status?: string,
+    @Query('customerType') customerType?: string,
   ) {
     this.ensureAdmin(req);
     const where: Prisma.CustomerMainWhereInput = {};
@@ -110,6 +117,11 @@ export class CustomersController {
         { email: { contains: search } },
         { phone: { contains: search } },
       ];
+    }
+
+    const normalizedType = String(customerType || '').trim().toUpperCase();
+    if (normalizedType === 'INDIVIDUAL' || normalizedType === 'CORPORATE') {
+      where.customerType = normalizedType;
     }
 
     const statusWhere = buildCustomerStatusWhere(status);
