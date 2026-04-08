@@ -78,13 +78,11 @@ describe('OnboardingFinalApprovalService', () => {
       expect.objectContaining({
         actionType: ApprovalActionTypes.ONBOARDING_FINAL_APPROVAL,
         entityRef: 'c1',
-        traceId: 'ONBOARDING:ONB-1',
+        traceId: 'ONBOARDING:c1',
         workflowType: 'ONBOARDING',
-        workflowId: 'ONB-1',
-        workflowNo: 'ONB-1',
         metadata: expect.objectContaining({
           customerNo: 'CU0001',
-          journeyId: 'ONB-1',
+          journeyId: 'c1',
           currentEddResponseId: 'edd-1',
         }),
       }),

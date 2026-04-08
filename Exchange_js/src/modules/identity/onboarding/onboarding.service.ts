@@ -737,7 +737,6 @@ export class OnboardingService {
 
   private async resolveActiveOnboardingResponseId(customer: {
     id: string;
-    activeJourneyId?: string | null;
     onboardingStatus?: string | null;
   }): Promise<string | null> {
     const rawOnboardingStatus = String(customer.onboardingStatus || '').trim().toUpperCase();
@@ -748,7 +747,7 @@ export class OnboardingService {
     if (rawOnboardingStatus === 'PENDING_EDD_INPUT' || rawOnboardingStatus === 'EDD_UNDER_REVIEW') {
       const eddResponse = await this.findLatestOnboardingEddResponse(
         customer.id,
-        customer.activeJourneyId,
+        customer.id,
       );
       return eddResponse?.id || null;
     }
@@ -756,7 +755,7 @@ export class OnboardingService {
     if (rawOnboardingStatus === 'PENDING_CDD_INPUT' || rawOnboardingStatus === 'CDD_UNDER_REVIEW') {
       const cddResponse = await this.findLatestOnboardingCddResponse(
         customer.id,
-        customer.activeJourneyId,
+        customer.id,
       );
       return cddResponse?.id || null;
     }
@@ -1149,13 +1148,12 @@ export class OnboardingService {
       select: {
         id: true,
         customerNo: true,
-        activeJourneyId: true,
       },
     });
 
     const workflowContext = buildComplianceWorkflowTraceContext({
       workflow: ONBOARDING_WORKFLOW,
-      journeyId: input.journeyId || customer?.activeJourneyId || null,
+      journeyId: input.journeyId || customer?.id || null,
     });
     const triggerType = String(input.action || '').trim().toUpperCase().endsWith('_CREATED')
       ? AuditTriggerType.DATA_CREATE
@@ -1485,7 +1483,7 @@ export class OnboardingService {
     } = input;
     const isLowRiskAutoPass = input.mockDataType === 'LOW_RISK';
     const now = new Date();
-    const journeyId = cddResponse.journeyId || customer.activeJourneyId || generateReferenceNo('ONB');
+    const journeyId = cddResponse.journeyId || customer.id;
 
     const updateData: Prisma.CustomerMainUpdateInput = isLowRiskAutoPass
       ? {
@@ -1495,7 +1493,6 @@ export class OnboardingService {
             eddRequired: false,
           }),
           latestDecisionRecordId: decisionRecordId,
-          activeJourneyId: journeyId,
           ...this.buildLatestFinalApprovalBindingPatch(null),
           latestFinalApprovalStatus: null,
           cddDocumentExpiresAt: this.addDays(now, 365),
@@ -1508,7 +1505,6 @@ export class OnboardingService {
             eddRequired: false,
           }),
           latestDecisionRecordId: decisionRecordId,
-          activeJourneyId: journeyId,
           ...this.buildLatestFinalApprovalBindingPatch(null),
           latestFinalApprovalStatus: null,
         };
@@ -1546,7 +1542,7 @@ export class OnboardingService {
     recommendedActions: RiskRecommendedAction[];
   }) {
     const { customer, eddResponse, decisionRecordId, reasonCodes, recommendedActions } = input;
-    const journeyId = eddResponse.journeyId || customer.activeJourneyId || generateReferenceNo('ONB');
+    const journeyId = eddResponse.journeyId || customer.id;
 
     const updateData: Prisma.CustomerMainUpdateInput = {
       ...this.buildCustomerLifecyclePatch(customer, {
@@ -1555,7 +1551,6 @@ export class OnboardingService {
         eddRequired: true,
       }),
       latestDecisionRecordId: decisionRecordId,
-      activeJourneyId: journeyId,
       ...this.buildLatestFinalApprovalBindingPatch(null),
       latestFinalApprovalStatus: null,
     };
@@ -1646,7 +1641,7 @@ export class OnboardingService {
     }
 
     const journeyId =
-      cddResponse.journeyId || customer.activeJourneyId || generateReferenceNo('ONB');
+      cddResponse.journeyId || customer.id;
     const signals = this.buildManualCddSignals({
       caseNo: cddResponse.caseNo,
       cddResponseId: cddResponse.id,
@@ -1812,7 +1807,7 @@ export class OnboardingService {
     }
 
     const journeyId =
-      eddResponse.journeyId || customer.activeJourneyId || generateReferenceNo('ONB');
+      eddResponse.journeyId || customer.id;
     const signals = this.buildManualEddSignals({
       caseNo: eddResponse.caseNo,
       eddResponseId: eddResponse.id,
@@ -2276,7 +2271,7 @@ export class OnboardingService {
       );
     }
 
-    const journeyId = dto?.journeyId || customer.activeJourneyId || generateReferenceNo('ONB');
+    const journeyId = dto?.journeyId || customer.id;
 
     let cddResponse: any = await this.findLatestOnboardingCddResponse(customerId, journeyId);
 
@@ -2305,7 +2300,6 @@ export class OnboardingService {
         }),
         ...this.buildLatestFinalApprovalBindingPatch(null),
         latestFinalApprovalStatus: null,
-        activeJourneyId: journeyId,
       },
     });
 
@@ -2364,7 +2358,7 @@ export class OnboardingService {
       throw new BadRequestException('EDD can only be started when customer is in PENDING_EDD status.');
     }
 
-    const eddResponse = await this.findLatestOnboardingEddResponse(customerId, customer.activeJourneyId);
+    const eddResponse = await this.findLatestOnboardingEddResponse(customerId, customer.id);
     if (!eddResponse) {
       throw new BadRequestException('No active EDD response is available for session start.');
     }
@@ -2406,7 +2400,7 @@ export class OnboardingService {
       );
     }
 
-    const journeyId = body?.journeyId || customer.activeJourneyId || generateReferenceNo('ONB');
+    const journeyId = body?.journeyId || customer.id;
     const latestCddResponse = await this.findLatestOnboardingCddResponse(customerId, journeyId);
     const eddResponse = await this.prisma.eddResponse.create({
       data: {
@@ -2431,7 +2425,6 @@ export class OnboardingService {
         }),
         ...this.buildLatestFinalApprovalBindingPatch(null),
         latestFinalApprovalStatus: null,
-        activeJourneyId: journeyId,
       },
     });
 
@@ -2636,7 +2629,7 @@ export class OnboardingService {
 
       const customer = await this.getCustomerOrThrow(customerId);
       const journeyId =
-        cddResponse.journeyId || customer.activeJourneyId || generateReferenceNo('ONB');
+        cddResponse.journeyId || customer.id;
       const signals = this.buildPendingCddSignals({
         caseNo: cddResponse.caseNo,
         cddResponseId: cddResponse.id,
@@ -2691,7 +2684,6 @@ export class OnboardingService {
             eddRequired: false,
           }),
           latestDecisionRecordId: pendingDecision.decisionRecordId,
-          activeJourneyId: journeyId,
           ...this.buildLatestFinalApprovalBindingPatch(null),
           latestFinalApprovalStatus: null,
         },
@@ -2729,7 +2721,7 @@ export class OnboardingService {
 
     const customer = await this.getCustomerOrThrow(customerId);
     const journeyId =
-      eddResponse.journeyId || customer.activeJourneyId || generateReferenceNo('ONB');
+      eddResponse.journeyId || customer.id;
     const signals = this.buildPendingEddSignals({
       caseNo: eddResponse.caseNo,
       eddResponseId: eddResponse.id,
@@ -2774,7 +2766,6 @@ export class OnboardingService {
           eddRequired: true,
         }),
         latestDecisionRecordId: pendingDecision.decisionRecordId,
-        activeJourneyId: journeyId,
         ...this.buildLatestFinalApprovalBindingPatch(null),
         latestFinalApprovalStatus: null,
       },
@@ -3394,7 +3385,7 @@ export class OnboardingService {
       );
     }
     const journeyId =
-      alertJourneyId || String(customer.activeJourneyId || '').trim() || generateReferenceNo('ONB');
+      alertJourneyId || customer.id;
     const alertLinkedCaseIds = this.parseJsonArraySafely<string>(alert.linkedCaseIds);
     const alertDecisionRecordIds = this.parseJsonArraySafely<string>(alert.decisionRecordIds);
     const latestDecisionRecordId =

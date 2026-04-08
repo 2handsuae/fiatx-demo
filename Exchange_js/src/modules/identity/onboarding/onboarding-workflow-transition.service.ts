@@ -254,7 +254,7 @@ export class OnboardingWorkflowTransitionService {
         where: {
           customerId: customer.id,
           workflow: ONBOARDING_WORKFLOW,
-          ...(customer.activeJourneyId ? { journeyId: customer.activeJourneyId } : {}),
+          journeyId: customer.id,
         },
         orderBy: { createdAt: 'desc' },
       });
@@ -290,7 +290,7 @@ export class OnboardingWorkflowTransitionService {
         where: {
           customerId: customer.id,
           workflow: ONBOARDING_WORKFLOW,
-          ...(customer.activeJourneyId ? { journeyId: customer.activeJourneyId } : {}),
+          journeyId: customer.id,
         },
         orderBy: { createdAt: 'desc' },
       });
@@ -366,7 +366,7 @@ export class OnboardingWorkflowTransitionService {
     const traceContext = buildComplianceWorkflowTraceContext({
       workflow: ONBOARDING_WORKFLOW,
       journeyId:
-        input.journeyId || customer.activeJourneyId || null,
+        input.journeyId || customer.id,
     });
     await this.auditLogsService.recordByActor(
       {
@@ -524,7 +524,6 @@ export class OnboardingWorkflowTransitionService {
     let caseId: string | null = null;
     let createdFinalApprovalId: string | null = null;
     let customerUpdateData: Prisma.CustomerMainUpdateInput = {
-      activeJourneyId: input.journeyId,
       latestDecisionRecordId: input.latestDecisionRecordId || customer.latestDecisionRecordId || null,
     };
 
@@ -565,7 +564,7 @@ export class OnboardingWorkflowTransitionService {
         eddResponse = await this.createEddResponseIfNeeded(
           tx,
           customer.id,
-          input.journeyId || customer.activeJourneyId || generateReferenceNo('ONB'),
+          input.journeyId || customer.id,
           cddResponse.id,
         );
         transitionCode = WORKFLOW_TRANSITION_CODES.CDD_REQUIRE_EDD_TO_PENDING_EDD;
@@ -617,7 +616,6 @@ export class OnboardingWorkflowTransitionService {
           await this.onboardingFinalApprovalService.ensurePendingApprovalInTransaction(tx, {
             customer: {
               ...customer,
-              activeJourneyId: input.journeyId || customer.activeJourneyId || null,
               onboardingStatus: 'FINAL_APPROVAL',
               operatingStatus: 'INACTIVE',
               eddRequired: true,

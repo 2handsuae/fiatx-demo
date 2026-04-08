@@ -39,7 +39,6 @@ interface FinalApprovalCustomerRow {
   operatingStatus?: string | null;
   restrictionStatus?: string | null;
   eddRequired?: boolean | null;
-  activeJourneyId?: string | null;
   latestFinalApprovalId?: string | null;
   latestFinalApprovalStatus?: string | null;
 }
@@ -63,7 +62,6 @@ const FINAL_APPROVAL_CUSTOMER_SELECT = {
   operatingStatus: true,
   restrictionStatus: true,
   eddRequired: true,
-  activeJourneyId: true,
   latestFinalApprovalId: true,
   latestFinalApprovalStatus: true,
 } satisfies Prisma.CustomerMainSelect;
@@ -304,7 +302,7 @@ export class OnboardingFinalApprovalService {
       where: {
         customerId: customer.id,
         workflow: 'ONBOARDING',
-        ...(customer.activeJourneyId ? { journeyId: customer.activeJourneyId } : {}),
+        journeyId: customer.id,
       },
       orderBy: { createdAt: 'desc' },
       select: { id: true },
@@ -314,21 +312,13 @@ export class OnboardingFinalApprovalService {
       {
         actionType: ApprovalActionTypes.ONBOARDING_FINAL_APPROVAL,
         entityRef: customer.id,
-        traceId: this.buildTraceContext(customer.activeJourneyId)?.traceId || undefined,
-        // All three workflow fields must be provided together or not at all.
-        // When activeJourneyId is absent (e.g. simulated flows), omit all three.
-        ...(customer.activeJourneyId
-          ? {
-              workflowType: ONBOARDING_WORKFLOW,
-              workflowId: customer.activeJourneyId,
-              workflowNo: customer.activeJourneyId,
-            }
-          : {}),
+        traceId: this.buildTraceContext(customer.id)?.traceId || undefined,
+        workflowType: ONBOARDING_WORKFLOW,
         metadata: {
           source: 'WAVE3_PHASE4_ONBOARDING',
           customerId: customer.id,
           customerNo: customer.customerNo || null,
-          journeyId: customer.activeJourneyId || null,
+          journeyId: customer.id,
           currentEddResponseId: latestEddResponse?.id || null,
         },
       },
@@ -396,7 +386,7 @@ export class OnboardingFinalApprovalService {
         where: {
           customerId: customer.id,
           workflow: 'ONBOARDING',
-          ...(customer.activeJourneyId ? { journeyId: customer.activeJourneyId } : {}),
+          journeyId: customer.id,
         },
         orderBy: { createdAt: 'desc' },
         select: { id: true },
@@ -412,7 +402,7 @@ export class OnboardingFinalApprovalService {
         reason,
         fromStage: 'FINAL_APPROVAL',
         toStage: 'FINAL_APPROVAL',
-        journeyId: customer.activeJourneyId || null,
+        journeyId: customer.id,
         detail: {
           approvalId: resolved.approval.id,
           approvalNo: resolved.approval.approvalNo,
@@ -595,7 +585,7 @@ export class OnboardingFinalApprovalService {
       await this.writeProjectionAudit(
         customer.id,
         customer.customerNo || null,
-        customer.activeJourneyId || null,
+        customer.id,
         auditAction,
         actor.userId,
         actor.role || 'SYSTEM',
