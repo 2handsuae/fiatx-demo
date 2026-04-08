@@ -185,6 +185,13 @@ export class AuditEvidenceExportApprovalService {
           exportMode: evidencePackage.exportMode,
           itemCount: selection.itemCount,
           workflowSummary: selection.workflowSummary,
+          ...(submitted.id
+            ? {
+                parentEntityType: 'APPROVAL_CASE',
+                parentEntityId: submitted.id,
+                parentEntityNo: submitted.approvalNo || null,
+              }
+            : {}),
         },
         subjectNos: this.buildApprovalRelatedSubjects(
           evidencePackage.id,
@@ -244,6 +251,13 @@ export class AuditEvidenceExportApprovalService {
           approvalCaseId: found.approvalCaseId,
           approvalNo: this.normalizeOptionalString(found.approvalCase?.approvalNo),
           fileName: found.fileName || null,
+          ...(found.approvalCase
+            ? {
+                parentEntityType: 'APPROVAL_CASE',
+                parentEntityId: found.approvalCase.id,
+                parentEntityNo: found.approvalCase.approvalNo,
+              }
+            : {}),
         },
         subjectNos: this.buildApprovalRelatedSubjects(
           found.id,
@@ -348,6 +362,13 @@ export class AuditEvidenceExportApprovalService {
             itemCount: artifacts.itemCount,
             exportMode: evidencePackage.exportMode,
             approvalId: event.approvalId,
+            ...(event.approvalId
+              ? {
+                  parentEntityType: 'APPROVAL_CASE',
+                  parentEntityId: event.approvalId,
+                  parentEntityNo: this.normalizeOptionalString(event.approvalNo),
+                }
+              : {}),
           },
           requestId: `EXPORT_${evidencePackage.packageNo}`,
           sourcePlatform: 'ADMIN_API',

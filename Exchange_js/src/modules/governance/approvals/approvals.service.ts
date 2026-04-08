@@ -353,6 +353,16 @@ export class ApprovalsService {
           actionType: approval.actionType,
           entityRef: approval.entityRef,
           executionStatus: approval.executionStatus,
+          // Parent-entity pointer per audit-trace-context-constraints §4.
+          // The approval case governs a parent entity (change ticket, delete
+          // request, etc.); expose that upward link as explicit metadata.
+          ...(approval.workflowType && approval.workflowId
+            ? {
+                parentEntityType: approval.workflowType,
+                parentEntityId: approval.workflowId,
+                parentEntityNo: approval.workflowNo,
+              }
+            : {}),
           ...(metadata || {}),
         },
         requestId: `APPROVAL_${approval.approvalNo}_${action}`,
