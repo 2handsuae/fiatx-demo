@@ -7,36 +7,17 @@ import {
   adminIconButtonClass,
 } from '../components/common/adminButtonStyles';
 import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/adminFetch';
-import { AdminBadge, TriggerTag } from '../components/ui/AdminBadge';
+import { AdminBadge } from '../components/ui/AdminBadge';
 import { PageTitleBar } from '../components/ui/PageTitleBar';
-
-type TriggerType =
-  | 'EVIDENCE_EXPORT'
-  | 'STATE_TRANSITION'
-  | 'MANUAL_OVERRIDE'
-  | 'AUTH_EVENT'
-  | 'PERMISSION_CHANGE'
-  | 'CONFIG_CHANGE'
-  | 'DATA_CREATE'
-  | 'DATA_UPDATE'
-  | 'DATA_DELETE'
-  | 'SYSTEM_EVENT';
 
 type AuditResult = 'SUCCESS' | 'FAILED' | 'REJECTED';
 
 interface AuditLogItem {
   id: string;
   auditNo: string;
-  triggerType: TriggerType;
-  businessWorkflow?: string | null;
-  businessWorkflowLabel?: string | null;
-  primaryRefNo?: string | null;
-  userAction?: string | null;
-  userActionLabel?: string | null;
   action: string;
   module: string;
   entityType: string;
-  entityId?: string | null;
   entityNo?: string | null;
   entityOwnerNo?: string | null;
   actorType: string;
@@ -80,15 +61,11 @@ interface EvidencePackageExportResponse {
 
 interface FilterState {
   keyword: string;
-  module: string;
-  subjectNo: string;
-  subjectType: string;
+  entityNo: string;
   actorNo: string;
   entityOwnerNo: string;
   traceId: string;
-  workflowType: string;
   workflowNo: string;
-  triggerType: '' | TriggerType;
   result: '' | AuditResult;
   startAt: string;
   endAt: string;
@@ -97,15 +74,11 @@ interface FilterState {
 
 const DEFAULT_FILTERS: FilterState = {
   keyword: '',
-  module: '',
-  subjectNo: '',
-  subjectType: '',
+  entityNo: '',
   actorNo: '',
   entityOwnerNo: '',
   traceId: '',
-  workflowType: '',
   workflowNo: '',
-  triggerType: '',
   result: '',
   startAt: '',
   endAt: '',
@@ -119,41 +92,6 @@ const toIsoString = (value: string): string | undefined => {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return undefined;
   return date.toISOString();
-};
-
-const selectSubjectAnchor = (item: AuditLogItem): AuditSubjectNo | null => {
-  if (Array.isArray(item.subjectNos) && item.subjectNos.length > 0) {
-    const preferredRoles = ['ENTITY', 'RELATED', 'SOURCE'];
-    const preferredSubject =
-      preferredRoles
-        .map((role) =>
-          item.subjectNos?.find(
-            (subject) => subject.subjectRole === role && subject.subjectNo.trim(),
-          ),
-        )
-        .find(Boolean) ||
-      item.subjectNos.find(
-        (subject) =>
-          subject.subjectRole !== 'ACTOR' &&
-          subject.subjectRole !== 'OWNER' &&
-          subject.subjectNo.trim(),
-      ) ||
-      item.subjectNos.find(
-        (subject) => subject.subjectRole === 'OWNER' && subject.subjectNo.trim(),
-      );
-    if (preferredSubject) return preferredSubject;
-  }
-
-  const fallbackSubjectNo = item.entityNo?.trim();
-  if (!fallbackSubjectNo) return null;
-
-  return {
-    id: item.id,
-    subjectRole: 'ENTITY',
-    subjectType: item.entityType,
-    subjectNo: fallbackSubjectNo,
-    occurredAt: item.occurredAt,
-  };
 };
 
 const AuditLogsPage = () => {
@@ -182,21 +120,13 @@ const AuditLogsPage = () => {
     params.set('take', String(PAGE_SIZE));
 
     if (activeFilters.keyword.trim()) params.set('keyword', activeFilters.keyword.trim());
-    if (activeFilters.module.trim()) params.set('module', activeFilters.module.trim());
-    if (activeFilters.subjectNo.trim()) params.set('subjectNo', activeFilters.subjectNo.trim());
-    if (activeFilters.subjectType.trim()) {
-      params.set('subjectType', activeFilters.subjectType.trim());
-    }
+    if (activeFilters.entityNo.trim()) params.set('entityNo', activeFilters.entityNo.trim());
     if (activeFilters.actorNo.trim()) params.set('actorNo', activeFilters.actorNo.trim());
     if (activeFilters.entityOwnerNo.trim()) {
       params.set('entityOwnerNo', activeFilters.entityOwnerNo.trim());
     }
     if (activeFilters.traceId.trim()) params.set('traceId', activeFilters.traceId.trim());
-    if (activeFilters.workflowType.trim()) {
-      params.set('workflowType', activeFilters.workflowType.trim());
-    }
     if (activeFilters.workflowNo.trim()) params.set('workflowNo', activeFilters.workflowNo.trim());
-    if (activeFilters.triggerType) params.set('triggerType', activeFilters.triggerType);
     if (activeFilters.result) params.set('result', activeFilters.result);
 
     const startAt = toIsoString(activeFilters.startAt);
@@ -270,10 +200,7 @@ const AuditLogsPage = () => {
         maxItems: Math.max(selectedIds.length, 1),
       };
 
-      if (filters.workflowType.trim()) payload.workflowType = filters.workflowType.trim();
       if (filters.workflowNo.trim()) payload.workflowNo = filters.workflowNo.trim();
-      if (filters.subjectNo.trim()) payload.subjectNo = filters.subjectNo.trim();
-      if (filters.subjectType.trim()) payload.subjectType = filters.subjectType.trim();
       if (filters.actorNo.trim()) payload.actorNo = filters.actorNo.trim();
       if (filters.entityOwnerNo.trim()) payload.entityOwnerNo = filters.entityOwnerNo.trim();
       if (filters.traceId.trim()) payload.traceId = filters.traceId.trim();
@@ -371,33 +298,17 @@ const AuditLogsPage = () => {
           <option value="FAILED">FAILED</option>
           <option value="REJECTED">REJECTED</option>
         </select>
-        <select
-          value={filters.triggerType}
-          onChange={(e) =>
-            setFilters((p) => ({
-              ...p,
-              triggerType: e.target.value as FilterState['triggerType'],
-            }))
-          }
-          className={`${fi} w-44`}
-        >
-          <option value="">All Triggers</option>
-          <option value="EVIDENCE_EXPORT">EVIDENCE_EXPORT</option>
-          <option value="STATE_TRANSITION">STATE_TRANSITION</option>
-          <option value="MANUAL_OVERRIDE">MANUAL_OVERRIDE</option>
-          <option value="AUTH_EVENT">AUTH_EVENT</option>
-          <option value="PERMISSION_CHANGE">PERMISSION_CHANGE</option>
-          <option value="CONFIG_CHANGE">CONFIG_CHANGE</option>
-          <option value="DATA_CREATE">DATA_CREATE</option>
-          <option value="DATA_UPDATE">DATA_UPDATE</option>
-          <option value="DATA_DELETE">DATA_DELETE</option>
-          <option value="SYSTEM_EVENT">SYSTEM_EVENT</option>
-        </select>
         <input
           value={filters.actorNo}
           onChange={(e) => setFilters((p) => ({ ...p, actorNo: e.target.value }))}
           placeholder="Actor No"
           className={`${fi} w-28`}
+        />
+        <input
+          value={filters.traceId}
+          onChange={(e) => setFilters((p) => ({ ...p, traceId: e.target.value }))}
+          placeholder="Trace ID"
+          className={`${fi} w-32`}
         />
         <button
           onClick={() => void fetchLogs(1, filters)}
@@ -421,21 +332,9 @@ const AuditLogsPage = () => {
       {showAdvanced && (
         <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-adm-border bg-adm-bg/60 px-5 py-2">
           <input
-            value={filters.workflowNo}
-            onChange={(e) => setFilters((p) => ({ ...p, workflowNo: e.target.value }))}
-            placeholder="Workflow No"
-            className={`${fi} w-36`}
-          />
-          <input
-            value={filters.traceId}
-            onChange={(e) => setFilters((p) => ({ ...p, traceId: e.target.value }))}
-            placeholder="Trace ID"
-            className={`${fi} w-36`}
-          />
-          <input
-            value={filters.subjectNo}
-            onChange={(e) => setFilters((p) => ({ ...p, subjectNo: e.target.value }))}
-            placeholder="Subject No"
+            value={filters.entityNo}
+            onChange={(e) => setFilters((p) => ({ ...p, entityNo: e.target.value }))}
+            placeholder="Entity No"
             className={`${fi} w-36`}
           />
           <input
@@ -462,7 +361,7 @@ const AuditLogsPage = () => {
               checked={filters.includeArchived}
               onChange={(e) =>
                 setFilters((p) => ({ ...p, includeArchived: e.target.checked }))
-            }
+              }
             />
             Include Archived
           </label>
@@ -526,12 +425,16 @@ const AuditLogsPage = () => {
               </th>
               {(
                 [
-                  ['Time',     '110px'],
-                  ['Audit No', '152px'],
-                  ['Result',   '84px'],
-                  ['Action',   'auto'],
-                  ['Subject',  '180px'],
-                  ['Actor',    '130px'],
+                  ['Time',           '140px'],
+                  ['Audit No',       '152px'],
+                  ['Result',         '84px'],
+                  ['Workflow Type',  '130px'],
+                  ['Module',         '120px'],
+                  ['Action',         '180px'],
+                  ['Entity No',      '140px'],
+                  ['Entity Type',    '120px'],
+                  ['Trace ID',       '160px'],
+                  ['Actor No',       'auto'],
                 ] as [string, string][]
               ).map(([label, w]) => (
                 <th
@@ -548,7 +451,7 @@ const AuditLogsPage = () => {
             {loading && (
               <tr>
                 <td
-                  colSpan={7}
+                  colSpan={11}
                   className="px-3 py-10 text-center font-mono text-[11px] text-adm-t3"
                 >
                   Loading…
@@ -558,7 +461,7 @@ const AuditLogsPage = () => {
             {!loading && items.length === 0 && (
               <tr>
                 <td
-                  colSpan={7}
+                  colSpan={11}
                   className="px-3 py-10 text-center font-mono text-[11px] text-adm-t3"
                 >
                   No audit logs found.
@@ -567,7 +470,6 @@ const AuditLogsPage = () => {
             )}
             {!loading &&
               items.map((item) => {
-                const subjectAnchor = selectSubjectAnchor(item);
                 const borderCls =
                   item.result === 'SUCCESS'
                     ? 'border-l-2 border-l-adm-green'
@@ -598,11 +500,9 @@ const AuditLogsPage = () => {
                         )}
                       </button>
                     </td>
-                    {/* Time — 2 lines */}
-                    <td className="px-3 py-2.5 font-mono text-[10px] leading-relaxed text-adm-t2">
-                      {new Date(item.occurredAt).toLocaleDateString()}
-                      <br />
-                      {new Date(item.occurredAt).toLocaleTimeString()}
+                    {/* Time */}
+                    <td className="px-3 py-2.5 font-mono text-[10px] text-adm-t2 whitespace-nowrap">
+                      {new Date(item.occurredAt).toLocaleString()}
                     </td>
                     {/* Audit No — amber + status left-border */}
                     <td className={`px-3 py-2.5 ${borderCls}`}>
@@ -614,36 +514,33 @@ const AuditLogsPage = () => {
                     <td className="px-3 py-2.5">
                       <AdminBadge value={item.result} />
                     </td>
-                    {/* Action — main label + trigger tag */}
-                    <td className="max-w-[240px] px-3 py-2.5">
-                      <div className="text-[11px] leading-snug text-adm-t1">
-                        {item.userActionLabel || item.userAction || item.action}
-                      </div>
-                      <div className="mt-1">
-                        <TriggerTag value={item.triggerType} />
-                      </div>
+                    {/* Workflow Type */}
+                    <td className="px-3 py-2.5 font-mono text-[11px] text-adm-t2">
+                      {item.workflowType ?? <span className="text-adm-t3">—</span>}
                     </td>
-                    {/* Subject */}
-                    <td className="px-3 py-2.5">
-                      {subjectAnchor ? (
-                        <>
-                          <div className="font-mono text-[11px] font-semibold text-adm-amber">
-                            {subjectAnchor.subjectNo}
-                          </div>
-                          <div className="font-mono text-[9px] text-adm-t3">
-                            {subjectAnchor.subjectRole} / {subjectAnchor.subjectType}
-                          </div>
-                        </>
-                      ) : (
-                        <span className="text-adm-t3">—</span>
-                      )}
+                    {/* Module */}
+                    <td className="px-3 py-2.5 font-mono text-[11px] text-adm-t2">
+                      {item.module}
                     </td>
-                    {/* Actor */}
-                    <td className="px-3 py-2.5">
-                      <div className="font-mono text-[11px] font-semibold text-adm-amber">
-                        {item.actorNo ?? item.actorId.slice(0, 8) + '…'}
-                      </div>
-                      <div className="font-mono text-[9px] text-adm-t3">{item.actorType}</div>
+                    {/* Action */}
+                    <td className="max-w-[200px] px-3 py-2.5">
+                      <span className="truncate text-[11px] text-adm-t1">{item.action}</span>
+                    </td>
+                    {/* Entity No */}
+                    <td className="px-3 py-2.5 font-mono text-[11px] text-adm-amber">
+                      {item.entityNo ?? <span className="text-adm-t3">—</span>}
+                    </td>
+                    {/* Entity Type */}
+                    <td className="px-3 py-2.5 font-mono text-[11px] text-adm-t2">
+                      {item.entityType}
+                    </td>
+                    {/* Trace ID */}
+                    <td className="px-3 py-2.5 font-mono text-[10px] text-adm-t2">
+                      {item.traceId ?? <span className="text-adm-t3">—</span>}
+                    </td>
+                    {/* Actor No */}
+                    <td className="px-3 py-2.5 font-mono text-[11px] text-adm-amber">
+                      {item.actorNo ?? item.actorId.slice(0, 8) + '…'}
                     </td>
                   </tr>
                 );

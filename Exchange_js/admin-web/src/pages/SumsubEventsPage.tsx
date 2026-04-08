@@ -128,12 +128,18 @@ export default function SumsubEventsPage() {
       if (f.eventType) params.set('eventType', f.eventType);
       if (f.externalUserId) params.set('externalUserId', f.externalUserId);
 
-      const res = await adminFetch<ListResponse>(`/admin/sumsub-events?${params}`);
+      const response = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/admin/sumsub-events?${params}`,
+      );
+      if (!response.ok) {
+        throw new Error(await getApiErrorMessage(response, 'Failed to load events.'));
+      }
+      const res: ListResponse = await response.json();
       setItems(res.items);
       setTotal(res.total);
       setCurrentPage(page);
     } catch (e) {
-      setError(getApiErrorMessage(e));
+      setError(e instanceof Error ? e.message : 'Failed to load events.');
     } finally {
       setLoading(false);
     }
@@ -150,11 +156,17 @@ export default function SumsubEventsPage() {
 
   const handleReplay = async (id: string) => {
     try {
-      await adminFetch(`/admin/sumsub-events/${id}/replay`, { method: 'POST' });
+      const response = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/admin/sumsub-events/${id}/replay`,
+        { method: 'POST' },
+      );
+      if (!response.ok) {
+        throw new Error(await getApiErrorMessage(response, 'Replay failed.'));
+      }
       setMessage('Event replayed successfully.');
       void fetchEvents(currentPage, filters);
     } catch (e) {
-      setError(getApiErrorMessage(e));
+      setError(e instanceof Error ? e.message : 'Replay failed.');
     }
   };
 
@@ -163,16 +175,24 @@ export default function SumsubEventsPage() {
     setSimLoading(true);
     setSimError(null);
     try {
-      const res = await adminFetch<{ event: SumsubEventItem }>('/admin/sumsub-events/simulate', {
-        method: 'POST',
-        body: JSON.stringify({ customerId: simCustomerId, scenario: simScenario }),
-      });
+      const response = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/admin/sumsub-events/simulate`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ customerId: simCustomerId, scenario: simScenario }),
+        },
+      );
+      if (!response.ok) {
+        throw new Error(await getApiErrorMessage(response, 'Simulation failed.'));
+      }
+      const res: { event: SumsubEventItem } = await response.json();
       setShowSimulate(false);
       setSimCustomerId('');
       setMessage(`Simulated: ${res.event.eventNo} (${res.event.status})`);
       void fetchEvents(1, filters);
     } catch (e) {
-      setSimError(getApiErrorMessage(e));
+      setSimError(e instanceof Error ? e.message : 'Simulation failed.');
     } finally {
       setSimLoading(false);
     }

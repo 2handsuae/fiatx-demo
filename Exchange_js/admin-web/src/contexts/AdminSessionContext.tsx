@@ -126,7 +126,7 @@ export const AdminSessionProvider = ({ children }: { children: ReactNode }) => {
   );
 
   const hasAnyPermission = useCallback(
-    (permissions: string[]) => permissions.some((permission) => permissionSet.has(permission)),
+    (permissions: string[]) => permissions.length === 0 || permissions.some((permission) => permissionSet.has(permission)),
     [permissionSet],
   );
 

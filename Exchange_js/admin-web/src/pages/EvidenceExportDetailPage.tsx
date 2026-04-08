@@ -1,27 +1,23 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { Download, RefreshCw, X } from 'lucide-react';
 import {
-  Download,
-  FileJson,
-  FileText,
-  Link2,
-  RefreshCw,
-  ShieldCheck,
-  Trash2,
-  User,
-} from 'lucide-react';
-import { useAdminSession } from '../contexts/AdminSessionContext';
-import { PERMISSIONS } from '../rbac/permissions';
-import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/adminFetch';
+  AdminPermissionError,
+  AdminSessionError,
+  adminFetch,
+  getApiErrorMessage,
+} from '../utils/adminFetch';
 import {
-  ActionSection,
-  DetailCard,
   DetailPageHeader,
-  InfoField,
   JsonBlock,
 } from '../components/compliance/DetailPageComponents';
 import { adminButtonClass } from '../components/common/adminButtonStyles';
+import { AdminBadge } from '../components/ui/AdminBadge';
+import { PERMISSIONS } from '../rbac/permissions';
+import { useAdminSession } from '../contexts/AdminSessionContext';
 import { createDeleteRequest, DELETE_REQUEST_TARGET_TYPES } from '../utils/deleteRequests';
+
+/* ── Interfaces ──────────────────────────────────────────────── */
 
 interface EvidenceExportDetail {
   id: string;
@@ -39,7 +35,7 @@ interface EvidenceExportDetail {
   exportedByRole?: string | null;
   approvalCase?: {
     id: string;
-    approvalNo: string;
+    approvalNo?: string | null;
     actionType: string;
     entityRef: string;
     status: string;
@@ -68,219 +64,269 @@ interface DownloadResponse {
   content: unknown;
 }
 
-type JsonRecord = Record<string, unknown>;
+/* ── Helpers ─────────────────────────────────────────────────── */
 
-const formatDateTime = (value?: string | null): string => {
-  if (!value) return '-';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString();
+const fmt = (v?: string | null): string => {
+  if (!v) return '—';
+  const d = new Date(v);
+  return Number.isNaN(d.getTime()) ? v : d.toLocaleString();
 };
 
-const formatValue = (value: unknown): string => {
-  if (value === null || value === undefined) return '-';
-  const text = String(value).trim();
-  return text === '' ? '-' : text;
-};
+/* ── Shared layout primitives ────────────────────────────────── */
 
-const isJsonRecord = (value: unknown): value is JsonRecord =>
-  typeof value === 'object' && value !== null && !Array.isArray(value);
+const Cap = ({ children }: { children: ReactNode }) => (
+  <p className="font-mono text-[8.5px] font-semibold uppercase tracking-[0.16em] text-adm-t3">
+    {children}
+  </p>
+);
 
-const getManifestField = (manifest: unknown, key: string): string => {
-  if (!isJsonRecord(manifest)) return '-';
-  return formatValue(manifest[key]);
-};
+const FieldGrid = ({ children, cols = 2 }: { children: ReactNode; cols?: 1 | 2 }) => (
+  <div
+    className={[
+      'grid gap-x-8 gap-y-4',
+      cols === 1 ? 'grid-cols-1' : 'grid-cols-2',
+    ].join(' ')}
+  >
+    {children}
+  </div>
+);
 
-const summarizeWorkflow = (workflowSummary: unknown): string => {
-  if (workflowSummary === null || workflowSummary === undefined) return '-';
-  if (typeof workflowSummary === 'string') return workflowSummary.trim() || '-';
-
-  const summarizeRecord = (record: JsonRecord): string => {
-    const workflowType = formatValue(record.workflowType);
-    const workflowNo = formatValue(record.workflowNo);
-    const workflowNos = Array.isArray(record.workflowNos)
-      ? record.workflowNos.map((item) => formatValue(item)).filter((item) => item !== '-').join(', ')
-      : '';
-
-    if (workflowType !== '-' && workflowNos) return `${workflowType}: ${workflowNos}`;
-    if (workflowType !== '-' && workflowNo !== '-') return `${workflowType}: ${workflowNo}`;
-    if (workflowNos) return workflowNos;
-    return JSON.stringify(record);
-  };
-
-  if (Array.isArray(workflowSummary)) {
-    const parts = workflowSummary.map((item) =>
-      isJsonRecord(item) ? summarizeRecord(item) : formatValue(item),
-    );
-    const summary = parts.filter((item) => item !== '-').join(' | ');
-    return summary || '-';
-  }
-
-  if (isJsonRecord(workflowSummary)) {
-    return summarizeRecord(workflowSummary);
-  }
-
-  return formatValue(workflowSummary);
-};
-
-const downloadPackage = async (id: string): Promise<string> => {
-  const response = await adminFetch(
-    `${import.meta.env.VITE_API_URL}/admin/audit-logs/evidence-packages/${id}/download`,
+const Field = ({
+  label,
+  value,
+  mono = false,
+  amber = false,
+  full = false,
+}: {
+  label: string;
+  value?: string | null;
+  mono?: boolean;
+  amber?: boolean;
+  full?: boolean;
+}) => {
+  if (!value) return null;
+  return (
+    <div className={full ? 'col-span-2' : ''}>
+      <p className="mb-1 font-mono text-[8.5px] uppercase tracking-[0.14em] text-adm-t3">
+        {label}
+      </p>
+      <p
+        className={[
+          'break-all leading-relaxed',
+          mono ? 'font-mono text-[10px]' : 'text-[11px]',
+          amber ? 'font-semibold text-adm-amber' : 'text-adm-t2',
+        ].join(' ')}
+      >
+        {value}
+      </p>
+    </div>
   );
-  if (!response.ok) {
-    throw new Error(await getApiErrorMessage(response, 'Failed to download evidence package.'));
-  }
-
-  const data = (await response.json()) as DownloadResponse;
-  const content = JSON.stringify(data.content, null, 2);
-  const blob = new Blob([content], { type: 'application/json' });
-  const url = window.URL.createObjectURL(blob);
-  const anchor = document.createElement('a');
-  anchor.href = url;
-  anchor.download = data.fileName || `${data.packageNo}.json`;
-  document.body.appendChild(anchor);
-  anchor.click();
-  document.body.removeChild(anchor);
-  window.URL.revokeObjectURL(url);
-
-  return `Downloaded ${data.packageNo}. Digest: ${data.digest}`;
 };
+
+/* ── Sidebar primitives ──────────────────────────────────────── */
+
+const SidebarGroup = ({ title, children }: { title: string; children: ReactNode }) => (
+  <div className="border-b border-adm-border py-4 last:border-b-0">
+    <Cap>{title}</Cap>
+    <div className="mt-2.5 flex flex-col gap-1.5">{children}</div>
+  </div>
+);
+
+const SidebarKV = ({
+  label,
+  value,
+  mono = false,
+}: {
+  label: string;
+  value: ReactNode;
+  mono?: boolean;
+}) => {
+  if (value === null || value === undefined || value === '' || value === '—') return null;
+  return (
+    <div className="flex items-baseline justify-between gap-2">
+      <span className="shrink-0 font-mono text-[9px] text-adm-t3">{label}</span>
+      <span
+        className={[
+          'min-w-0 break-all text-right text-adm-t2',
+          mono ? 'font-mono text-[10px]' : 'text-[11px]',
+        ].join(' ')}
+      >
+        {value}
+      </span>
+    </div>
+  );
+};
+
+/* ─────────────────────────────────────────────────────────────── */
 
 const EvidenceExportDetailPage = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { hasAnyPermission } = useAdminSession();
-  const [detail, setDetail] = useState<EvidenceExportDetail | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [downloading, setDownloading] = useState(false);
-  const [requestingDeletion, setRequestingDeletion] = useState(false);
-  const [deleteReason, setDeleteReason] = useState('');
-  const [error, setError] = useState('');
-  const [message, setMessage] = useState('');
-  const requestSeqRef = useRef(0);
-  const detailIdRef = useRef<string | null>(null);
+  const { hasPermission, hasAnyPermission } = useAdminSession();
+
+  const canDownload        = hasPermission(PERMISSIONS.AUDIT_EVIDENCE_EXPORT_DOWNLOAD);
   const canRequestDeletion = hasAnyPermission([PERMISSIONS.GOV_DELETE_REQUEST_CREATE]);
 
-  const fetchDetail = async (detailId: string | null = id ?? null) => {
-    if (!detailId) {
-      requestSeqRef.current += 1;
-      detailIdRef.current = null;
-      setDetail(null);
-      setError('Evidence package id is required.');
-      setLoading(false);
-      return;
+  const [detail,      setDetail]      = useState<EvidenceExportDetail | null>(null);
+  const [loading,     setLoading]     = useState(true);
+  const [error,       setError]       = useState('');
+  const [notice,      setNotice]      = useState<string | null>(null);
+  const [downloading, setDownloading] = useState(false);
+
+  /* Delete modal */
+  const [isDeleteModalOpen,  setIsDeleteModalOpen]  = useState(false);
+  const [deleteReason,       setDeleteReason]        = useState('');
+  const [requestingDelete,   setRequestingDelete]    = useState(false);
+  const [deleteModalError,   setDeleteModalError]    = useState<string | null>(null);
+
+  const downloadSeqRef = useRef(0);
+
+  /* ── Fetching ── */
+
+  const fetchJson = async <T,>(url: string, init?: RequestInit): Promise<T> => {
+    const response = await adminFetch(url, init);
+    if (!response.ok) {
+      throw new Error(await getApiErrorMessage(response, 'Request failed.'));
     }
+    return (await response.json()) as T;
+  };
 
-    const requestSeq = ++requestSeqRef.current;
-    detailIdRef.current = detailId;
-    setLoading(true);
-    setError('');
+  const fetchDetail = async () => {
+    if (!id) { setError('Package ID is required.'); setLoading(false); return; }
+    setLoading(true); setError('');
     try {
-      const response = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/audit-logs/evidence-packages/${detailId}`,
+      const payload = await fetchJson<EvidenceExportDetail>(
+        `${import.meta.env.VITE_API_URL}/admin/audit-logs/evidence-packages/${id}`,
       );
-      if (!response.ok) {
-        throw new Error(await getApiErrorMessage(response, 'Failed to load evidence package detail.'));
-      }
-
-      const data = (await response.json()) as EvidenceExportDetail;
-      if (requestSeqRef.current !== requestSeq || detailIdRef.current !== detailId) {
-        return;
-      }
-      setDetail(data);
+      setDetail(payload);
     } catch (e: unknown) {
-      if (requestSeqRef.current !== requestSeq || detailIdRef.current !== detailId) {
-        return;
-      }
       if (e instanceof AdminSessionError) return;
-      setDetail(null);
-      setError(e instanceof Error ? e.message : 'Failed to load evidence package detail.');
-    } finally {
-      if (requestSeqRef.current !== requestSeq || detailIdRef.current !== detailId) {
-        return;
+      if (e instanceof AdminPermissionError) {
+        setError('Permission denied. You cannot view this evidence package.');
+      } else {
+        setError(e instanceof Error ? e.message : 'Failed to load evidence package.');
       }
+    } finally {
       setLoading(false);
     }
   };
+
+  useEffect(() => { void fetchDetail(); }, [id]);
+
+  /* Auto-dismiss notice */
+  useEffect(() => {
+    if (!notice) return undefined;
+    const t = window.setTimeout(
+      () => setNotice((c) => (c === notice ? null : c)),
+      4000,
+    );
+    return () => window.clearTimeout(t);
+  }, [notice]);
+
+  /* ── Download ── */
 
   const handleDownload = async () => {
     if (!id) return;
-    setDownloading(true);
-    setError('');
-    setMessage('');
+    const seq = downloadSeqRef.current + 1;
+    downloadSeqRef.current = seq;
+    setDownloading(true); setError('');
     try {
-      const nextMessage = await downloadPackage(id);
-      setMessage(nextMessage);
+      const data = await fetchJson<DownloadResponse>(
+        `${import.meta.env.VITE_API_URL}/admin/audit-logs/evidence-packages/${id}/download`,
+      );
+      if (downloadSeqRef.current !== seq) return;
+      const blob = new Blob([JSON.stringify(data.content, null, 2)], { type: 'application/json' });
+      const url  = window.URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href     = url;
+      a.download = data.fileName || `${data.packageNo}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+      setNotice(`Downloaded ${data.packageNo} — verify digest: ${data.digest}`);
     } catch (e: unknown) {
-      if (e instanceof AdminSessionError) return;
-      setError(e instanceof Error ? e.message : 'Failed to download evidence package.');
+      if (downloadSeqRef.current !== seq) return;
+      if (e instanceof AdminPermissionError) {
+        setError('Permission denied. You cannot download this package.');
+      } else {
+        setError(e instanceof Error ? e.message : 'Download failed.');
+      }
     } finally {
-      setDownloading(false);
+      if (downloadSeqRef.current === seq) setDownloading(false);
     }
   };
 
-  const handleRequestDeletion = async () => {
+  /* ── Delete modal ── */
+
+  const openDeleteModal = () => {
+    setDeleteReason('');
+    setDeleteModalError(null);
+    setIsDeleteModalOpen(true);
+  };
+
+  const closeDeleteModal = () => {
+    setIsDeleteModalOpen(false);
+    setDeleteReason('');
+    setDeleteModalError(null);
+  };
+
+  const submitDeleteRequest = async () => {
     if (!detail) return;
-
-    const normalizedReason = deleteReason.trim();
-    if (!normalizedReason) {
-      setError('Delete reason is required.');
-      return;
-    }
-
-    setRequestingDeletion(true);
-    setError('');
-    setMessage('');
+    const reason = deleteReason.trim();
+    if (!reason) { setDeleteModalError('Delete reason is required.'); return; }
+    setRequestingDelete(true); setDeleteModalError(null);
     try {
       const created = await createDeleteRequest({
         targetType: DELETE_REQUEST_TARGET_TYPES.AUDIT_EVIDENCE_PACKAGE,
         targetNo: detail.packageNo,
-        deleteReason: normalizedReason,
+        deleteReason: reason,
       });
+      closeDeleteModal();
       navigate(`/dashboard/control-gates/delete-requests/${created.id}`);
-    } catch (e: unknown) {
-      if (e instanceof AdminSessionError) return;
-      setError(e instanceof Error ? e.message : 'Failed to create delete request.');
+    } catch (err) {
+      if (err instanceof AdminPermissionError) {
+        setDeleteModalError('Permission denied. You cannot request package deletion.');
+      } else {
+        setDeleteModalError(err instanceof Error ? err.message : 'Failed to create delete request.');
+      }
     } finally {
-      setRequestingDeletion(false);
+      setRequestingDelete(false);
     }
   };
 
-  useEffect(() => {
-    setDeleteReason('');
-    detailIdRef.current = id ?? null;
-    void fetchDetail(id ?? null);
-  }, [id]);
+  /* ── Loading / error stubs ── */
 
   if (loading) {
     return (
-      <div className="flex min-h-[360px] flex-col items-center justify-center gap-3">
-        <RefreshCw size={28} className="animate-spin text-brand-primary" />
-        <p className="text-sm text-gray-500">Loading evidence package detail...</p>
+      <div className="flex h-full items-center justify-center gap-3">
+        <RefreshCw size={24} className="animate-spin text-adm-amber" />
+        <p className="font-mono text-[11px] text-adm-t3">Loading…</p>
       </div>
     );
   }
 
   if (error && !detail) {
     return (
-      <div className="space-y-6">
-        <div className="flex items-center gap-3">
+      <div className="flex h-full flex-col overflow-hidden">
+        <div className="shrink-0 border-b border-adm-border bg-adm-panel px-6 py-4 flex items-center gap-2">
           <button
             onClick={() => navigate('/dashboard/audit/evidence-exports')}
             className={adminButtonClass('detailUtility')}
           >
-            Back to Evidence Packages
+            ← Back
           </button>
           <button
             onClick={() => void fetchDetail()}
             className={adminButtonClass('detailUtility')}
           >
-            <RefreshCw size={16} />
-            Retry
+            <RefreshCw size={13} /> Retry
           </button>
         </div>
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-4 text-sm text-red-700">
-          {error}
+        <div className="px-6 py-6">
+          <div className="rounded-lg border border-adm-red/30 bg-adm-red/10 px-4 py-3 font-mono text-[11px] text-adm-red">
+            {error}
+          </div>
         </div>
       </div>
     );
@@ -288,183 +334,294 @@ const EvidenceExportDetailPage = () => {
 
   if (!detail) {
     return (
-      <div className="space-y-6">
-        <button
-          onClick={() => navigate('/dashboard/audit/evidence-exports')}
-          className={adminButtonClass('detailUtility')}
-        >
-          Back to Evidence Packages
-        </button>
-        <div className="rounded-xl border border-admin-border bg-white px-6 py-10 text-center text-sm text-gray-500 shadow-sm">
-          Evidence package detail not found.
+      <div className="flex h-full flex-col overflow-hidden">
+        <div className="shrink-0 border-b border-adm-border bg-adm-panel px-6 py-4">
+          <button
+            onClick={() => navigate('/dashboard/audit/evidence-exports')}
+            className={adminButtonClass('detailUtility')}
+          >
+            ← Back
+          </button>
         </div>
+        <div className="px-6 py-6 font-mono text-[11px] text-adm-t3">Package not found.</div>
       </div>
     );
   }
 
+  /* ── Derived ── */
+
+  const hasSelectionCriteria =
+    detail.filterSnapshot != null || (detail.selectedEventIdsSnapshot?.length ?? 0) > 0;
+  const hasManifest    = detail.manifest != null;
+  const hasPackageBody = detail.packageBody != null;
+  const hasApproval    = !!(detail.approvalCase || detail.approvalCaseNo);
+
+  /* ── Page ── */
+
   return (
-    <div className="space-y-6 pb-12">
+    <div className="flex h-full flex-col overflow-hidden">
+
+      {/* ── Sticky nav header ── */}
       <DetailPageHeader
-        title="Evidence Package Detail"
-        subtitle={detail.packageNo}
+        title="Evidence Package"
         onBack={() => navigate('/dashboard/audit/evidence-exports')}
         onRefresh={() => void fetchDetail()}
         refreshing={loading}
-        backLabel="Back to Evidence Packages"
-      >
-        <span className="rounded-full bg-blue-100 px-3 py-1 text-xs font-medium text-blue-700">
-          {detail.status}
-        </span>
-        <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-700">
-          {detail.exportMode}
-        </span>
-        {detail.approvalCase ? (
-          <button
-            onClick={() => navigate(`/dashboard/control-gates/approvals/${detail.approvalCase?.id}`)}
-            className={adminButtonClass('detailUtility')}
-          >
-            <Link2 size={16} />
-            Open Approval
-          </button>
-        ) : null}
-      </DetailPageHeader>
+        backLabel="Evidence Packages"
+      />
 
-      {message && (
-        <div className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
-          {message}
-        </div>
-      )}
-      {error && (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          {error}
-        </div>
-      )}
-
-      <ActionSection
-        title="Package Actions"
-        description="Download stays in a dedicated action block so the header remains utility-only."
-      >
-        <div className="space-y-4">
-          <button
-            onClick={() => void handleDownload()}
-            disabled={detail.status !== 'READY' || downloading}
-            className={adminButtonClass(
-              detail.status === 'READY' ? 'workflowPrimary' : 'workflowSecondary',
-            )}
-          >
-            <Download size={16} />
-            {downloading ? 'Downloading...' : detail.status === 'READY' ? 'Download Package' : 'Waiting Approval'}
-          </button>
-
-          {canRequestDeletion && (
-            <div className="space-y-4 rounded-xl border border-admin-border bg-gray-50 p-4">
-              <div className="space-y-1">
-                <div className="text-sm font-semibold text-gray-900">Request Deletion</div>
-                <div className="text-xs text-gray-500">
-                  Open a governed deletion proposal for package {detail.packageNo}. The underlying package remains intact until the request completes.
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <label className="block text-xs uppercase tracking-wide text-gray-500">
-                  Delete Reason
-                </label>
-                <textarea
-                  value={deleteReason}
-                  onChange={(e) => setDeleteReason(e.target.value)}
-                  rows={3}
-                  className="w-full rounded-lg border border-admin-border px-3 py-2 text-sm"
-                  placeholder="Explain why this evidence package should enter governed deletion."
-                />
-              </div>
-
-              <div className="flex flex-wrap items-center gap-3">
-                <button
-                  onClick={() => void handleRequestDeletion()}
-                  disabled={requestingDeletion || !deleteReason.trim()}
-                  className={adminButtonClass('workflowSecondary')}
-                >
-                  <Trash2 size={16} />
-                  {requestingDeletion ? 'Requesting...' : 'Request Deletion'}
-                </button>
-              </div>
+      {/* ── Inline notices ── */}
+      {(notice || error) && (
+        <div className="shrink-0 px-6 pt-3 pb-1 space-y-2">
+          {notice && (
+            <div className="rounded border border-adm-green/30 bg-adm-green/10 px-4 py-2 font-mono text-[11px] text-adm-green">
+              {notice}
+            </div>
+          )}
+          {error && (
+            <div className="rounded border border-adm-red/30 bg-adm-red/10 px-4 py-2 font-mono text-[11px] text-adm-red">
+              {error}
             </div>
           )}
         </div>
-      </ActionSection>
-
-      <DetailCard title="Package Summary" icon={<FileText size={18} />}>
-        <InfoField label="Package No" value={detail.packageNo} mono />
-        <InfoField label="Status" value={detail.status} />
-        <InfoField label="Package Mode" value={detail.exportMode} />
-        <InfoField label="File Name" value={detail.fileName} mono />
-        <InfoField label="Item Count" value={detail.itemCount} />
-      </DetailCard>
-
-      <DetailCard title="Exporter" icon={<User size={18} />}>
-        <InfoField label="Exporter Type" value={detail.exportedByType} />
-        <InfoField label="Exporter No" value={detail.exportedByNo} mono />
-        <InfoField label="Exporter Role" value={detail.exportedByRole} />
-      </DetailCard>
-
-      <DetailCard title="Lifecycle & Integrity" icon={<ShieldCheck size={18} />}>
-        <InfoField label="Digest" value={detail.digest} mono />
-        <InfoField label="Created At" value={formatDateTime(detail.createdAt)} />
-        <InfoField label="Updated At" value={formatDateTime(detail.updatedAt)} />
-      </DetailCard>
-
-      {detail.approvalCase && (
-        <DetailCard title="Approval" icon={<Link2 size={18} />}>
-          <InfoField label="Approval No" value={detail.approvalCase.approvalNo} mono />
-          <InfoField label="Approval Status" value={detail.approvalCase.status} />
-          <InfoField label="Execution Status" value={detail.approvalCase.executionStatus} />
-          <InfoField label="Action Type" value={detail.approvalCase.actionType} />
-          <InfoField label="Decision By User No" value={detail.approvalCase.decisionByUserNo} mono />
-          <InfoField label="Trace ID" value={detail.approvalCase.traceId} mono />
-          <InfoField label="Decided At" value={formatDateTime(detail.approvalCase.decidedAt)} />
-          <InfoField label="Decision By Role" value={detail.approvalCase.decisionByRole} />
-        </DetailCard>
       )}
 
-      <DetailCard title="Technical References" icon={<Link2 size={18} />}>
-        <InfoField label="Package ID" value={detail.id} mono />
-        <InfoField label="Approval Case ID" value={detail.approvalCaseId} mono />
-        <InfoField label="Approval Case No" value={detail.approvalCaseNo} mono />
-        <InfoField label="Exporter ID" value={detail.exportedById} mono />
-        <InfoField label="Approval ID" value={detail.approvalCase?.id} mono />
-        <InfoField label="Decision By User ID" value={detail.approvalCase?.decisionByUserId} mono />
-      </DetailCard>
+      {/* ── Body ── */}
+      <div className="flex min-h-0 flex-1 overflow-hidden">
 
-      <DetailCard title="Selection Snapshot" icon={<FileText size={18} />}>
-        <InfoField
-          label="Selected Event Count"
-          value={Array.isArray(detail.selectedEventIdsSnapshot) ? detail.selectedEventIdsSnapshot.length : 0}
-        />
-        <InfoField label="Selection Type" value="selectedEventIdsSnapshot" />
-        <InfoField label="Selection Scope" value="Persisted event id snapshot" />
-      </DetailCard>
+        {/* ════ LEFT MAIN ════ */}
+        <div className="flex min-w-0 flex-1 flex-col divide-y divide-adm-border overflow-y-auto">
 
-      <DetailCard title="Filter Snapshot" icon={<FileText size={18} />} columns={1}>
-        <JsonBlock title="Filter Snapshot" value={detail.filterSnapshot} />
-      </DetailCard>
+          {/* ① Identity — packageNo dominant, status, then secondary details */}
+          <section className="bg-adm-card px-6 py-5">
+            <Cap>Package</Cap>
+            <p className="mt-1.5 font-mono text-[19px] font-bold leading-snug text-adm-amber">
+              {detail.packageNo}
+            </p>
+            <div className="mt-2.5">
+              <AdminBadge value={detail.status} />
+            </div>
+            <div className="mt-4 border-t border-adm-border pt-4">
+              <p className="font-mono text-[11px] text-adm-t2">{detail.exportMode}</p>
+              <p className="mt-1.5 break-all font-mono text-[9px] text-adm-t3">{detail.id}</p>
+            </div>
+          </section>
 
-      <DetailCard title="Manifest Summary" icon={<ShieldCheck size={18} />}>
-        <InfoField label="Version" value={getManifestField(detail.manifest, 'version')} />
-        <InfoField label="Generated At" value={getManifestField(detail.manifest, 'generatedAt')} />
-        <InfoField label="Package Mode" value={getManifestField(detail.manifest, 'exportMode')} />
-        <InfoField label="Item Count" value={getManifestField(detail.manifest, 'itemCount')} />
-        <InfoField label="Digest Algorithm" value={getManifestField(detail.manifest, 'digestAlgorithm')} />
-        <InfoField
-          label="Workflow Summary"
-          value={isJsonRecord(detail.manifest) ? summarizeWorkflow(detail.manifest.workflowSummary) : '-'}
-        />
-      </DetailCard>
+          {/* ② Package Details — scope and integrity at a glance */}
+          <section className="px-6 py-5">
+            <Cap>Package Details</Cap>
+            <div className="mt-3">
+              <FieldGrid>
+                <Field label="Item Count"     value={`${detail.itemCount} events`}  />
+                <Field label="Created At"     value={fmt(detail.createdAt)}    mono  />
+                <Field label="File Name"      value={detail.fileName}          mono full />
+                <Field label="SHA-256 Digest" value={detail.digest}            mono full />
+              </FieldGrid>
+            </div>
+          </section>
 
-      <DetailCard title="Package Records" icon={<FileJson size={18} />} columns={2}>
-        <JsonBlock title="Selected Event IDs Snapshot" value={detail.selectedEventIdsSnapshot} />
-        <JsonBlock title="Manifest" value={detail.manifest} />
-        <JsonBlock title="Package Records JSON" value={detail.packageBody} />
-      </DetailCard>
+          {/* ③ Selection Criteria — what filter built this package */}
+          {hasSelectionCriteria && (
+            <section className="px-6 py-5">
+              <Cap>Selection Criteria</Cap>
+              <p className="mt-1 mb-4 font-mono text-[9px] text-adm-t3">
+                Filter snapshot used to build this evidence package
+              </p>
+
+              <div className="rounded border border-adm-border bg-adm-bg p-4 space-y-4">
+                {detail.filterSnapshot != null && (
+                  <JsonBlock title="Filter Snapshot" value={detail.filterSnapshot} />
+                )}
+
+                {(detail.selectedEventIdsSnapshot?.length ?? 0) > 0 && (
+                  <div>
+                    <p className="mb-2 font-mono text-[8.5px] uppercase tracking-[0.14em] text-adm-t3">
+                      Selected Event IDs ({detail.selectedEventIdsSnapshot!.length})
+                    </p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {detail.selectedEventIdsSnapshot!.map((eid) => (
+                        <span
+                          key={eid}
+                          className="inline-flex items-center rounded border border-adm-border bg-adm-card px-2 py-1 font-mono text-[9px] text-adm-t2"
+                        >
+                          {eid}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </section>
+          )}
+
+          {/* ④ Manifest */}
+          {hasManifest && (
+            <section className="px-6 py-5">
+              <Cap>Manifest</Cap>
+              <p className="mt-1 mb-4 font-mono text-[9px] text-adm-t3">
+                Table of contents for the evidence package
+              </p>
+              <div className="rounded border border-adm-border bg-adm-bg p-4">
+                <JsonBlock title="Package Manifest" value={detail.manifest} />
+              </div>
+            </section>
+          )}
+
+          {/* ⑤ Package Body */}
+          {hasPackageBody && (
+            <section className="px-6 py-5">
+              <Cap>Package Body</Cap>
+              <p className="mt-1 mb-4 font-mono text-[9px] text-adm-t3">
+                Full evidence payload — may be large
+              </p>
+              <div className="rounded border border-adm-border bg-adm-bg p-4">
+                <JsonBlock title="Evidence Data" value={detail.packageBody} />
+              </div>
+            </section>
+          )}
+
+        </div>
+
+        {/* ════ RIGHT SIDEBAR ════ */}
+        <div className="w-[272px] min-w-[272px] overflow-y-auto border-l border-adm-border bg-adm-panel px-4 py-1">
+
+          {/* Actions */}
+          {(canDownload || canRequestDeletion) && (
+            <div className="border-b border-adm-border py-4">
+              <Cap>Actions</Cap>
+              <div className="mt-2.5 flex flex-col gap-2">
+                {canDownload && (
+                  detail.status === 'READY' ? (
+                    <button
+                      onClick={() => void handleDownload()}
+                      disabled={downloading}
+                      className={adminButtonClass('workflowPrimary')}
+                    >
+                      <Download size={13} />
+                      {downloading ? 'Downloading…' : 'Download Package'}
+                    </button>
+                  ) : (
+                    <p className="rounded border border-adm-border bg-adm-bg px-3 py-2.5 font-mono text-[10px] text-adm-t3">
+                      {detail.status === 'PENDING_APPROVAL'
+                        ? 'Awaiting approval — download will be available once approved.'
+                        : `Package is ${detail.status.toLowerCase()} — download unavailable.`}
+                    </p>
+                  )
+                )}
+                {canRequestDeletion && (
+                  <button
+                    onClick={openDeleteModal}
+                    className={adminButtonClass('workflowNegative')}
+                  >
+                    Request Deletion
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Approval */}
+          {hasApproval && (
+            <SidebarGroup title="Approval">
+              <SidebarKV label="Approval No"   value={detail.approvalCase?.approvalNo}  mono />
+              <SidebarKV label="Case No"        value={detail.approvalCaseNo}             mono />
+              {detail.approvalCase && (
+                <div className="flex items-center justify-between gap-2">
+                  <span className="shrink-0 font-mono text-[9px] text-adm-t3">Status</span>
+                  <AdminBadge value={detail.approvalCase.status} />
+                </div>
+              )}
+              <SidebarKV label="Exec Status"   value={detail.approvalCase?.executionStatus}       />
+              <SidebarKV label="Decision By"   value={detail.approvalCase?.decisionByUserNo}      />
+              <SidebarKV label="Decision Role" value={detail.approvalCase?.decisionByRole}        />
+              <SidebarKV label="Decided At"    value={fmt(detail.approvalCase?.decidedAt)}  mono />
+            </SidebarGroup>
+          )}
+
+          {/* Exporter */}
+          <SidebarGroup title="Exporter">
+            <SidebarKV label="User No" value={detail.exportedByNo}                               />
+            <SidebarKV label="Role"    value={detail.exportedByRole ?? detail.exportedByType}    />
+            <SidebarKV label="User ID" value={detail.exportedById}                         mono />
+          </SidebarGroup>
+
+          {/* Lifecycle */}
+          <SidebarGroup title="Lifecycle">
+            <SidebarKV label="Created At" value={fmt(detail.createdAt)} mono />
+            <SidebarKV label="Updated At" value={fmt(detail.updatedAt)} mono />
+          </SidebarGroup>
+
+        </div>
+      </div>
+
+      {/* ════ Delete Modal ════ */}
+      {isDeleteModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md overflow-hidden rounded-xl border border-adm-border bg-adm-panel shadow-xl">
+
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-adm-border bg-adm-card px-5 py-4">
+              <div>
+                <p className="font-mono text-[11px] font-semibold text-adm-t1">
+                  Request Package Deletion
+                </p>
+                <p className="mt-1 font-mono text-[9px] text-adm-t3">
+                  {detail.packageNo}
+                </p>
+              </div>
+              <button
+                onClick={closeDeleteModal}
+                className="rounded p-1 text-adm-t3 hover:bg-adm-hover hover:text-adm-t1"
+              >
+                <X size={15} />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="px-5 py-4 space-y-3">
+              <p className="font-mono text-[10px] text-adm-t3">
+                This opens a governed deletion proposal for{' '}
+                <span className="text-adm-amber">{detail.packageNo}</span>.
+                The package remains intact until the request is approved and executed.
+              </p>
+              <div>
+                <p className="mb-1.5 font-mono text-[8.5px] uppercase tracking-[0.14em] text-adm-t3">
+                  Delete Reason
+                </p>
+                <textarea
+                  value={deleteReason}
+                  onChange={(e) => setDeleteReason(e.target.value)}
+                  rows={4}
+                  placeholder="Explain why this evidence package should enter governed deletion…"
+                  className="w-full rounded border border-adm-border bg-adm-bg px-3 py-2 font-mono text-[10px] text-adm-t2 placeholder:text-adm-t3 focus:border-adm-amber focus:outline-none resize-none transition-colors"
+                  autoFocus
+                />
+              </div>
+              {deleteModalError && (
+                <div className="rounded border border-adm-red/30 bg-adm-red/10 px-3 py-2 font-mono text-[10px] text-adm-red">
+                  {deleteModalError}
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="flex justify-end gap-2 border-t border-adm-border bg-adm-card px-5 py-4">
+              <button onClick={closeDeleteModal} className={adminButtonClass('modalCancel')}>
+                Cancel
+              </button>
+              <button
+                onClick={() => void submitDeleteRequest()}
+                disabled={requestingDelete || !deleteReason.trim()}
+                className={adminButtonClass('workflowNegative')}
+              >
+                {requestingDelete ? 'Requesting…' : 'Submit Request'}
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
     </div>
   );
 };

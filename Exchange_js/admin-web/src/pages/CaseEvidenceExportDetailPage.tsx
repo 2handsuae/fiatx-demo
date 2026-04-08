@@ -1,26 +1,22 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { Download, RefreshCw } from 'lucide-react';
 import {
-  Download,
-  FileJson,
-  FileText,
-  RefreshCw,
-  ShieldCheck,
-  User,
-} from 'lucide-react';
-import {
+  AdminPermissionError,
   AdminSessionError,
   adminFetch,
   getApiErrorMessage,
 } from '../utils/adminFetch';
 import {
-  ActionSection,
-  DetailCard,
   DetailPageHeader,
-  InfoField,
   JsonBlock,
 } from '../components/compliance/DetailPageComponents';
 import { adminButtonClass } from '../components/common/adminButtonStyles';
+import { AdminBadge } from '../components/ui/AdminBadge';
+import { PERMISSIONS } from '../rbac/permissions';
+import { useAdminSession } from '../contexts/AdminSessionContext';
+
+/* ── Interfaces ──────────────────────────────────────────────── */
 
 interface CaseEvidenceExportDetail {
   id: string;
@@ -67,221 +63,441 @@ interface DownloadResponse {
   content: unknown;
 }
 
-const formatDateTime = (value?: string | null): string => {
-  if (!value) return '-';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString();
+/* ── Helpers ─────────────────────────────────────────────────── */
+
+const fmt = (v?: string | null): string => {
+  if (!v) return '—';
+  const d = new Date(v);
+  return Number.isNaN(d.getTime()) ? v : d.toLocaleString();
 };
 
-const downloadPackage = async (id: string): Promise<string> => {
-  const response = await adminFetch(
-    `${import.meta.env.VITE_API_URL}/admin/compliance/cases/evidence-packages/${id}/download`,
+/* ── Shared layout primitives ────────────────────────────────── */
+
+const Cap = ({ children }: { children: ReactNode }) => (
+  <p className="font-mono text-[8.5px] font-semibold uppercase tracking-[0.16em] text-adm-t3">
+    {children}
+  </p>
+);
+
+const FieldGrid = ({ children, cols = 2 }: { children: ReactNode; cols?: 1 | 2 }) => (
+  <div
+    className={[
+      'grid gap-x-8 gap-y-4',
+      cols === 1 ? 'grid-cols-1' : 'grid-cols-2',
+    ].join(' ')}
+  >
+    {children}
+  </div>
+);
+
+const Field = ({
+  label,
+  value,
+  mono = false,
+  amber = false,
+  full = false,
+}: {
+  label: string;
+  value?: string | null;
+  mono?: boolean;
+  amber?: boolean;
+  full?: boolean;
+}) => {
+  if (!value) return null;
+  return (
+    <div className={full ? 'col-span-2' : ''}>
+      <p className="mb-1 font-mono text-[8.5px] uppercase tracking-[0.14em] text-adm-t3">
+        {label}
+      </p>
+      <p
+        className={[
+          'break-all leading-relaxed',
+          mono ? 'font-mono text-[10px]' : 'text-[11px]',
+          amber ? 'font-semibold text-adm-amber' : 'text-adm-t2',
+        ].join(' ')}
+      >
+        {value}
+      </p>
+    </div>
   );
-  if (!response.ok) {
-    throw new Error(
-      await getApiErrorMessage(response, 'Failed to download case evidence package.'),
-    );
-  }
-
-  const data = (await response.json()) as DownloadResponse;
-  const content = JSON.stringify(data.content, null, 2);
-  const blob = new Blob([content], { type: 'application/json' });
-  const url = window.URL.createObjectURL(blob);
-  const anchor = document.createElement('a');
-  anchor.href = url;
-  anchor.download = data.fileName || `${data.packageNo}.json`;
-  document.body.appendChild(anchor);
-  anchor.click();
-  document.body.removeChild(anchor);
-  window.URL.revokeObjectURL(url);
-
-  return `Downloaded ${data.packageNo}. Digest: ${data.digest}`;
 };
+
+/* ── Sidebar primitives ──────────────────────────────────────── */
+
+const SidebarGroup = ({ title, children }: { title: string; children: ReactNode }) => (
+  <div className="border-b border-adm-border py-4 last:border-b-0">
+    <Cap>{title}</Cap>
+    <div className="mt-2.5 flex flex-col gap-1.5">{children}</div>
+  </div>
+);
+
+const SidebarKV = ({
+  label,
+  value,
+  mono = false,
+}: {
+  label: string;
+  value: ReactNode;
+  mono?: boolean;
+}) => {
+  if (value === null || value === undefined || value === '' || value === '—') return null;
+  return (
+    <div className="flex items-baseline justify-between gap-2">
+      <span className="shrink-0 font-mono text-[9px] text-adm-t3">{label}</span>
+      <span
+        className={[
+          'min-w-0 break-all text-right text-adm-t2',
+          mono ? 'font-mono text-[10px]' : 'text-[11px]',
+        ].join(' ')}
+      >
+        {value}
+      </span>
+    </div>
+  );
+};
+
+/* ─────────────────────────────────────────────────────────────── */
 
 const CaseEvidenceExportDetailPage = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const [detail, setDetail] = useState<CaseEvidenceExportDetail | null>(null);
-  const [loading, setLoading] = useState(true);
+  const { hasPermission } = useAdminSession();
+
+  const canDownload = hasPermission(PERMISSIONS.CASE_EVIDENCE_EXPORT_DOWNLOAD);
+
+  const [detail,      setDetail]      = useState<CaseEvidenceExportDetail | null>(null);
+  const [loading,     setLoading]     = useState(true);
+  const [error,       setError]       = useState('');
+  const [notice,      setNotice]      = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false);
-  const [error, setError] = useState('');
-  const [message, setMessage] = useState('');
+
+  const downloadSeqRef = useRef(0);
+
+  /* ── Fetching ── */
+
+  const fetchJson = async <T,>(url: string, init?: RequestInit): Promise<T> => {
+    const response = await adminFetch(url, init);
+    if (!response.ok) {
+      throw new Error(await getApiErrorMessage(response, 'Request failed.'));
+    }
+    return (await response.json()) as T;
+  };
 
   const fetchDetail = async () => {
-    if (!id) {
-      setError('Case evidence export id is required.');
-      setLoading(false);
-      return;
-    }
-
-    setLoading(true);
-    setError('');
+    if (!id) { setError('Package ID is required.'); setLoading(false); return; }
+    setLoading(true); setError('');
     try {
-      const response = await adminFetch(
+      const payload = await fetchJson<CaseEvidenceExportDetail>(
         `${import.meta.env.VITE_API_URL}/admin/compliance/cases/evidence-packages/${id}`,
       );
-      if (!response.ok) {
-        throw new Error(
-          await getApiErrorMessage(response, 'Failed to load case export detail.'),
-        );
-      }
-
-      const data = (await response.json()) as CaseEvidenceExportDetail;
-      setDetail(data);
+      setDetail(payload);
     } catch (e: unknown) {
       if (e instanceof AdminSessionError) return;
-      setError(e instanceof Error ? e.message : 'Failed to load case export detail.');
+      if (e instanceof AdminPermissionError) {
+        setError('Permission denied. You cannot view this evidence package.');
+      } else {
+        setError(e instanceof Error ? e.message : 'Failed to load evidence package.');
+      }
     } finally {
       setLoading(false);
     }
   };
+
+  useEffect(() => { void fetchDetail(); }, [id]);
+
+  /* Auto-dismiss notice */
+  useEffect(() => {
+    if (!notice) return undefined;
+    const t = window.setTimeout(
+      () => setNotice((c) => (c === notice ? null : c)),
+      4000,
+    );
+    return () => window.clearTimeout(t);
+  }, [notice]);
+
+  /* ── Download ── */
 
   const handleDownload = async () => {
     if (!id) return;
-    setDownloading(true);
-    setError('');
-    setMessage('');
+    const seq = downloadSeqRef.current + 1;
+    downloadSeqRef.current = seq;
+    setDownloading(true); setError('');
     try {
-      const nextMessage = await downloadPackage(id);
-      setMessage(nextMessage);
-    } catch (e: unknown) {
-      if (e instanceof AdminSessionError) return;
-      setError(
-        e instanceof Error ? e.message : 'Failed to download case evidence package.',
+      const data = await fetchJson<DownloadResponse>(
+        `${import.meta.env.VITE_API_URL}/admin/compliance/cases/evidence-packages/${id}/download`,
       );
+      if (downloadSeqRef.current !== seq) return;
+      const blob = new Blob([JSON.stringify(data.content, null, 2)], { type: 'application/json' });
+      const url  = window.URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href     = url;
+      a.download = data.fileName || `${data.packageNo}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+      setNotice(`Downloaded ${data.packageNo} — verify digest: ${data.digest}`);
+    } catch (e: unknown) {
+      if (downloadSeqRef.current !== seq) return;
+      if (e instanceof AdminPermissionError) {
+        setError('Permission denied. You cannot download this package.');
+      } else {
+        setError(e instanceof Error ? e.message : 'Download failed.');
+      }
     } finally {
-      setDownloading(false);
+      if (downloadSeqRef.current === seq) setDownloading(false);
     }
   };
 
-  useEffect(() => {
-    void fetchDetail();
-  }, [id]);
+  /* ── Loading / error stubs ── */
 
   if (loading) {
     return (
-      <div className="flex min-h-[360px] flex-col items-center justify-center gap-3">
-        <RefreshCw size={28} className="animate-spin text-brand-primary" />
-        <p className="text-sm text-gray-500">Loading case evidence export detail...</p>
+      <div className="flex h-full items-center justify-center gap-3">
+        <RefreshCw size={24} className="animate-spin text-adm-amber" />
+        <p className="font-mono text-[11px] text-adm-t3">Loading…</p>
       </div>
     );
   }
 
   if (error && !detail) {
     return (
-      <div className="space-y-6">
-        <div className="flex items-center gap-3">
+      <div className="flex h-full flex-col overflow-hidden">
+        <div className="shrink-0 border-b border-adm-border bg-adm-panel px-6 py-4 flex items-center gap-2">
           <button
             onClick={() => navigate('/dashboard/compliance/case-evidence-exports')}
             className={adminButtonClass('detailUtility')}
           >
-            Back to Case Evidence Exports
+            ← Back
           </button>
           <button
             onClick={() => void fetchDetail()}
             className={adminButtonClass('detailUtility')}
           >
-            <RefreshCw size={16} />
-            Retry
+            <RefreshCw size={13} /> Retry
           </button>
         </div>
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          {error}
+        <div className="px-6 py-6">
+          <div className="rounded-lg border border-adm-red/30 bg-adm-red/10 px-4 py-3 font-mono text-[11px] text-adm-red">
+            {error}
+          </div>
         </div>
       </div>
     );
   }
 
-  if (!detail) return null;
+  if (!detail) {
+    return (
+      <div className="flex h-full flex-col overflow-hidden">
+        <div className="shrink-0 border-b border-adm-border bg-adm-panel px-6 py-4">
+          <button
+            onClick={() => navigate('/dashboard/compliance/case-evidence-exports')}
+            className={adminButtonClass('detailUtility')}
+          >
+            ← Back
+          </button>
+        </div>
+        <div className="px-6 py-6 font-mono text-[11px] text-adm-t3">Package not found.</div>
+      </div>
+    );
+  }
+
+  /* ── Derived ── */
+
+  const hasSelectionCriteria =
+    detail.filterSnapshot != null || (detail.selectedCaseIdsSnapshot?.length ?? 0) > 0;
+  const hasManifest    = detail.manifest != null;
+  const hasPackageBody = detail.packageBody != null;
+  const hasApproval    = !!(detail.approvalCase || detail.approvalCaseNo);
+
+  /* ── Page ── */
 
   return (
-    <div className="space-y-6">
+    <div className="flex h-full flex-col overflow-hidden">
+
+      {/* ── Sticky nav header ── */}
       <DetailPageHeader
-        title="Case Evidence Export Detail"
-        subtitle={detail.packageNo}
+        title="Evidence Package"
         onBack={() => navigate('/dashboard/compliance/case-evidence-exports')}
         onRefresh={() => void fetchDetail()}
         refreshing={loading}
-        backLabel="Back to Case Evidence Exports"
+        backLabel="Case Evidence Exports"
       />
 
-      {message && (
-        <div className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
-          {message}
-        </div>
-      )}
-      {error && (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          {error}
-        </div>
-      )}
-
-      <ActionSection
-        title="Export Actions"
-        description="Approval-gated case evidence packages use the same dedicated download block."
-      >
-        <button
-          onClick={() => void handleDownload()}
-          disabled={detail.status !== 'READY' || downloading}
-          className={adminButtonClass(
-            detail.status === 'READY' ? 'workflowPrimary' : 'workflowSecondary',
+      {/* ── Inline notices ── */}
+      {(notice || error) && (
+        <div className="shrink-0 px-6 pt-3 pb-1 space-y-2">
+          {notice && (
+            <div className="rounded border border-adm-green/30 bg-adm-green/10 px-4 py-2 font-mono text-[11px] text-adm-green">
+              {notice}
+            </div>
           )}
-        >
-          <Download size={16} />
-          {downloading ? 'Downloading...' : 'Download Package'}
-        </button>
-      </ActionSection>
+          {error && (
+            <div className="rounded border border-adm-red/30 bg-adm-red/10 px-4 py-2 font-mono text-[11px] text-adm-red">
+              {error}
+            </div>
+          )}
+        </div>
+      )}
 
-      <DetailCard title="Package Summary" icon={<FileText size={18} />} columns={3}>
-        <InfoField label="Package No" value={detail.packageNo} mono />
-        <InfoField label="Status" value={detail.status} />
-        <InfoField label="Mode" value={detail.exportMode} />
-        <InfoField label="Item Count" value={detail.itemCount} />
-        <InfoField label="Digest" value={detail.digest} mono />
-        <InfoField label="File Name" value={detail.fileName} />
-        <InfoField label="Created At" value={formatDateTime(detail.createdAt)} />
-        <InfoField label="Updated At" value={formatDateTime(detail.updatedAt)} />
-      </DetailCard>
+      {/* ── Body ── */}
+      <div className="flex min-h-0 flex-1 overflow-hidden">
 
-      <DetailCard title="Exporter & Approval" icon={<ShieldCheck size={18} />} columns={3}>
-        <InfoField label="Exporter No" value={detail.exportedByNo} />
-        <InfoField label="Exporter Role" value={detail.exportedByRole || detail.exportedByType} />
-        <InfoField label="Approval Case No" value={detail.approvalCaseNo} mono />
-        <InfoField label="Approval No" value={detail.approvalCase?.approvalNo} />
-        <InfoField label="Approval Status" value={detail.approvalCase?.status} />
-        <InfoField label="Execution Status" value={detail.approvalCase?.executionStatus} />
-        <InfoField label="Decision By User No" value={detail.approvalCase?.decisionByUserNo} />
-        <InfoField label="Decision Role" value={detail.approvalCase?.decisionByRole} />
-        <InfoField
-          label="Decided At"
-          value={formatDateTime(detail.approvalCase?.decidedAt)}
-        />
-      </DetailCard>
+        {/* ════ LEFT MAIN ════ */}
+        <div className="flex min-w-0 flex-1 flex-col divide-y divide-adm-border overflow-y-auto">
 
-      <DetailCard title="Technical References" icon={<FileJson size={18} />} columns={3}>
-        <InfoField label="Package ID" value={detail.id} mono />
-        <InfoField label="Approval Case ID" value={detail.approvalCaseId} mono />
-        <InfoField label="Exporter ID" value={detail.exportedById} mono />
-        <InfoField label="Approval ID" value={detail.approvalCase?.id} mono />
-        <InfoField label="Decision By User ID" value={detail.approvalCase?.decisionByUserId} mono />
-      </DetailCard>
+          {/* ① Identity — packageNo dominant, status, then secondary details */}
+          <section className="bg-adm-card px-6 py-5">
+            <Cap>Package</Cap>
+            <p className="mt-1.5 font-mono text-[19px] font-bold leading-snug text-adm-amber">
+              {detail.packageNo}
+            </p>
+            <div className="mt-2.5">
+              <AdminBadge value={detail.status} />
+            </div>
+            <div className="mt-4 border-t border-adm-border pt-4">
+              <p className="font-mono text-[11px] text-adm-t2">{detail.exportMode}</p>
+              <p className="mt-1.5 break-all font-mono text-[9px] text-adm-t3">{detail.id}</p>
+            </div>
+          </section>
 
-      <DetailCard title="Selection Snapshot" icon={<User size={18} />} columns={2}>
-        <JsonBlock title="Filter Snapshot" value={detail.filterSnapshot} />
-        <JsonBlock
-          title="Selected Case Ids Snapshot"
-          value={detail.selectedCaseIdsSnapshot || []}
-        />
-      </DetailCard>
+          {/* ② Package Details — scope and integrity at a glance */}
+          <section className="px-6 py-5">
+            <Cap>Package Details</Cap>
+            <div className="mt-3">
+              <FieldGrid>
+                <Field label="Item Count"   value={`${detail.itemCount} cases`}   />
+                <Field label="Created At"   value={fmt(detail.createdAt)}    mono  />
+                <Field label="File Name"    value={detail.fileName}          mono full />
+                <Field label="SHA-256 Digest" value={detail.digest}         mono full />
+              </FieldGrid>
+            </div>
+          </section>
 
-      <DetailCard title="Manifest" icon={<FileJson size={18} />} columns={1}>
-        <JsonBlock title="Manifest JSON" value={detail.manifest} />
-      </DetailCard>
+          {/* ③ Selection Criteria — what filter built this package */}
+          {hasSelectionCriteria && (
+            <section className="px-6 py-5">
+              <Cap>Selection Criteria</Cap>
+              <p className="mt-1 mb-4 font-mono text-[9px] text-adm-t3">
+                Filter snapshot used to build this evidence package
+              </p>
 
-      <DetailCard title="Package Body" icon={<FileJson size={18} />} columns={1}>
-        <JsonBlock title="Package Body JSON" value={detail.packageBody} />
-      </DetailCard>
+              <div className="rounded border border-adm-border bg-adm-bg p-4 space-y-4">
+                {detail.filterSnapshot != null && (
+                  <JsonBlock title="Filter Snapshot" value={detail.filterSnapshot} />
+                )}
+
+                {(detail.selectedCaseIdsSnapshot?.length ?? 0) > 0 && (
+                  <div>
+                    <p className="mb-2 font-mono text-[8.5px] uppercase tracking-[0.14em] text-adm-t3">
+                      Selected Case IDs ({detail.selectedCaseIdsSnapshot!.length})
+                    </p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {detail.selectedCaseIdsSnapshot!.map((cid) => (
+                        <span
+                          key={cid}
+                          className="inline-flex items-center rounded border border-adm-border bg-adm-card px-2 py-1 font-mono text-[9px] text-adm-t2"
+                        >
+                          {cid}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </section>
+          )}
+
+          {/* ④ Manifest */}
+          {hasManifest && (
+            <section className="px-6 py-5">
+              <Cap>Manifest</Cap>
+              <p className="mt-1 mb-4 font-mono text-[9px] text-adm-t3">
+                Table of contents for the evidence package
+              </p>
+              <div className="rounded border border-adm-border bg-adm-bg p-4">
+                <JsonBlock title="Package Manifest" value={detail.manifest} />
+              </div>
+            </section>
+          )}
+
+          {/* ⑤ Package Body */}
+          {hasPackageBody && (
+            <section className="px-6 py-5">
+              <Cap>Package Body</Cap>
+              <p className="mt-1 mb-4 font-mono text-[9px] text-adm-t3">
+                Full evidence payload — may be large
+              </p>
+              <div className="rounded border border-adm-border bg-adm-bg p-4">
+                <JsonBlock title="Evidence Data" value={detail.packageBody} />
+              </div>
+            </section>
+          )}
+
+        </div>
+
+        {/* ════ RIGHT SIDEBAR ════ */}
+        <div className="w-[272px] min-w-[272px] overflow-y-auto border-l border-adm-border bg-adm-panel px-4 py-1">
+
+          {/* Actions */}
+          {canDownload && (
+            <div className="border-b border-adm-border py-4">
+              <Cap>Actions</Cap>
+              <div className="mt-2.5 flex flex-col gap-2">
+                {detail.status === 'READY' ? (
+                  <button
+                    onClick={() => void handleDownload()}
+                    disabled={downloading}
+                    className={adminButtonClass('workflowPrimary')}
+                  >
+                    <Download size={13} />
+                    {downloading ? 'Downloading…' : 'Download Package'}
+                  </button>
+                ) : (
+                  <p className="rounded border border-adm-border bg-adm-bg px-3 py-2.5 font-mono text-[10px] text-adm-t3">
+                    {detail.status === 'PENDING_APPROVAL'
+                      ? 'Awaiting approval — download will be available once approved.'
+                      : `Package is ${detail.status.toLowerCase()} — download unavailable.`}
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Approval */}
+          {hasApproval && (
+            <SidebarGroup title="Approval">
+              <SidebarKV label="Approval No"   value={detail.approvalCase?.approvalNo}  mono />
+              <SidebarKV label="Case No"        value={detail.approvalCaseNo}             mono />
+              {detail.approvalCase && (
+                <div className="flex items-center justify-between gap-2">
+                  <span className="shrink-0 font-mono text-[9px] text-adm-t3">Status</span>
+                  <AdminBadge value={detail.approvalCase.status} />
+                </div>
+              )}
+              <SidebarKV label="Exec Status"   value={detail.approvalCase?.executionStatus}       />
+              <SidebarKV label="Decision By"   value={detail.approvalCase?.decisionByUserNo}      />
+              <SidebarKV label="Decision Role" value={detail.approvalCase?.decisionByRole}        />
+              <SidebarKV label="Decided At"    value={fmt(detail.approvalCase?.decidedAt)}  mono />
+            </SidebarGroup>
+          )}
+
+          {/* Exporter */}
+          <SidebarGroup title="Exporter">
+            <SidebarKV label="User No" value={detail.exportedByNo}                               />
+            <SidebarKV label="Role"    value={detail.exportedByRole ?? detail.exportedByType}    />
+            <SidebarKV label="User ID" value={detail.exportedById}                         mono />
+          </SidebarGroup>
+
+          {/* Lifecycle */}
+          <SidebarGroup title="Lifecycle">
+            <SidebarKV label="Created At" value={fmt(detail.createdAt)} mono />
+            <SidebarKV label="Updated At" value={fmt(detail.updatedAt)} mono />
+          </SidebarGroup>
+
+        </div>
+      </div>
+
     </div>
   );
 };
