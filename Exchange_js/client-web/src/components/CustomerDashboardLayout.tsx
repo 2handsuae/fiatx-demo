@@ -1,143 +1,323 @@
-import { useState } from 'react';
-import { 
-  LogOut, 
-  Menu, 
-  X, 
-  User, 
-  Wallet, 
-  ArrowDownCircle, 
-  ArrowUpCircle, 
-  ArrowLeftRight, 
-  TrendingUp,
-  Sun,
-  Moon
+import { useEffect, useState } from 'react';
+import {
+  LogOut,
+  PanelLeft,
+  PanelLeftClose,
+  User,
+  Wallet,
+  ArrowDownCircle,
+  ArrowUpCircle,
+  ArrowLeftRight,
+  LineChart,
+  ChevronRight,
 } from 'lucide-react';
 import { Link, useLocation, useNavigate, Outlet } from 'react-router-dom';
-import { useTheme } from '../context/ThemeContext';
+import { useAuth } from '../context/AuthContext';
+
+/* ────────────────────────────────────────────────────────────────
+ *  FIATX member shell — Terminal dialect.
+ *  Same brand tokens as the public pages, but turned DOWN:
+ *  no editorial `§` markers, no italic Fraunces headlines, no
+ *  Roman numerals as primary nav. This is a tool, not a magazine.
+ * ──────────────────────────────────────────────────────────────── */
+
+const MASTHEAD = ['F', 'I', 'A', 'T', 'X'];
+
+type NavItem = {
+  path: string;
+  label: string;
+  icon: React.ReactNode;
+  group: 'ASSETS' | 'MOVEMENT' | 'ACCOUNT';
+};
+
+const NAV: NavItem[] = [
+  { group: 'ASSETS',   path: '/overview',     label: 'Overview',     icon: <LineChart size={14} /> },
+  { group: 'ASSETS',   path: '/wallet',       label: 'Wallet',       icon: <Wallet size={14} /> },
+  { group: 'MOVEMENT', path: '/deposit',      label: 'Deposit',      icon: <ArrowDownCircle size={14} /> },
+  { group: 'MOVEMENT', path: '/swap',         label: 'Swap',         icon: <ArrowLeftRight size={14} /> },
+  { group: 'MOVEMENT', path: '/withdraw',     label: 'Withdraw',     icon: <ArrowUpCircle size={14} /> },
+  { group: 'ACCOUNT',  path: '/profile',      label: 'Profile',      icon: <User size={14} /> },
+];
+
+const GROUP_ORDER: NavItem['group'][] = ['ASSETS', 'MOVEMENT', 'ACCOUNT'];
+
+/* ─── Dubai clock, minimal ──────────────────────────────────────── */
+function DubaiClock() {
+  const [now, setNow] = useState(new Date());
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(new Date()), 1000);
+    return () => window.clearInterval(id);
+  }, []);
+  const dubai = new Date(now.getTime() + (now.getTimezoneOffset() + 240) * 60_000);
+  const hh = String(dubai.getHours()).padStart(2, '0');
+  const mm = String(dubai.getMinutes()).padStart(2, '0');
+  const ss = String(dubai.getSeconds()).padStart(2, '0');
+  return (
+    <span className="hidden md:inline-flex items-center font-mono text-[10px] text-fx-dune tabular-nums">
+      <span className="text-fx-dust mr-1.5 tracking-[0.14em]">DXB</span>
+      {hh}:{mm}
+      <span className="text-fx-brass/60 mx-px">:</span>
+      {ss}
+    </span>
+  );
+}
+
+/* ─── Compact masthead (same as public, only place Fraunces lives) */
+function MiniMasthead({ collapsed }: { collapsed: boolean }) {
+  return (
+    <Link to="/overview" className="inline-flex items-end gap-1" aria-label="FIATX">
+      {MASTHEAD.map((l, i) => (
+        <span key={i} className="inline-flex items-end">
+          <span className="fx-display font-light text-[18px] leading-none text-fx-sand">{l}</span>
+          {!collapsed && i < MASTHEAD.length - 1 && (
+            <span className="w-[2px] h-[2px] rounded-full bg-fx-brass mx-1 mb-[0.25em] shrink-0" />
+          )}
+        </span>
+      ))}
+    </Link>
+  );
+}
+
+/* ─── Compact status badge ──────────────────────────────────────── */
+function StatusBadge({ status }: { status: string }) {
+  const tone =
+    status === 'APPROVED' || status === 'ACTIVE'
+      ? 'text-fx-sage border-fx-sage/30 bg-fx-sage/5'
+      : status === 'REJECTED' || status === 'FROZEN' || status === 'WITHDRAWN'
+        ? 'text-fx-rust border-fx-rust/30 bg-fx-rust/5'
+        : status === 'FINAL_APPROVAL'
+          ? 'text-fx-brass border-fx-brass/30 bg-fx-brass/5'
+          : 'text-fx-dune border-fx-rule bg-transparent';
+  return (
+    <span
+      className={`inline-flex items-center gap-1 border px-1.5 py-[1px] font-mono text-[9px] uppercase tracking-[0.12em] ${tone}`}
+    >
+      <span className="w-[3px] h-[3px] rounded-full bg-current" />
+      {status.replace(/_/g, ' ')}
+    </span>
+  );
+}
+
+/* ─── Layout ────────────────────────────────────────────────────── */
 
 const CustomerDashboardLayout = () => {
-  const { theme, toggleTheme } = useTheme();
-  const [isSidebarOpen, setIsSidebarOpen] = useState(() => {
-    const saved = localStorage.getItem('sidebar_state');
-    return saved !== null ? JSON.parse(saved) : true;
-  });
-  
-  const toggleSidebar = () => {
-    const newState = !isSidebarOpen;
-    setIsSidebarOpen(newState);
-    localStorage.setItem('sidebar_state', JSON.stringify(newState));
-  };
-
   const location = useLocation();
   const navigate = useNavigate();
+  const { user } = useAuth();
+
+  const [collapsed, setCollapsed] = useState(() => {
+    const saved = localStorage.getItem('fx_rail_collapsed');
+    return saved === '1';
+  });
+
+  const toggleRail = () => {
+    const next = !collapsed;
+    setCollapsed(next);
+    localStorage.setItem('fx_rail_collapsed', next ? '1' : '0');
+  };
 
   const handleLogout = () => {
     localStorage.removeItem('customer_token');
     navigate('/login');
   };
 
-  const menuItems = [
-    { path: '/overview', icon: <TrendingUp size={20} />, label: 'Asset Overview' },
-    { path: '/wallet', icon: <Wallet size={20} />, label: 'Wallet' },
-    { path: '/deposit', icon: <ArrowDownCircle size={20} />, label: 'Deposit' },
-    { path: '/swap', icon: <ArrowLeftRight size={20} />, label: 'Swap' },
-    { path: '/withdraw', icon: <ArrowUpCircle size={20} />, label: 'Withdraw' },
-    { path: '/profile', icon: <User size={20} />, label: 'Profile' },
-  ];
+  const currentItem = NAV.find((item) => item.path === location.pathname);
+  const currentGroup = currentItem?.group || 'ACCOUNT';
+  const currentLabel = currentItem?.label || 'Dashboard';
+
+  // Member chip
+  const fullName =
+    [user?.firstName, user?.lastName].filter(Boolean).join(' ') || 'Member';
+  const initials =
+    ((user?.firstName?.[0] || '') + (user?.lastName?.[0] || 'M')).toUpperCase();
+  const email = user?.email || '';
+
+  const displayStatus =
+    String(user?.complianceHoldStatus || '').toUpperCase() === 'FROZEN'
+      ? 'FROZEN'
+      : String(user?.restrictionStatus || '').toUpperCase() === 'RESTRICTED'
+        ? 'RESTRICTED'
+        : String(user?.onboardingStatus || 'NONE').toUpperCase() === 'APPROVED' &&
+            String(user?.operatingStatus || 'INACTIVE').toUpperCase() === 'ACTIVE'
+          ? 'ACTIVE'
+          : String(user?.onboardingStatus || 'NONE').toUpperCase();
+
+  const railWidth = collapsed ? 'w-[72px]' : 'w-[220px]';
 
   return (
-    <div className="h-screen overflow-hidden bg-slate-50 dark:bg-fin-dark-bg flex font-['Inter'] transition-colors duration-500">
-      {/* Sidebar */}
-      <aside className={`fixed lg:static inset-y-0 left-0 z-50 h-full glass-panel border-r border-slate-200 dark:border-slate-800 transition-all duration-500 flex flex-col ${isSidebarOpen ? 'w-[260px] translate-x-0' : 'w-0 -translate-x-full lg:w-24 lg:translate-x-0'}`}>
-        <div className="h-20 flex items-center justify-between px-6 border-b border-slate-200/50 dark:border-slate-800/50">
-          <div className={`flex items-center ${!isSidebarOpen && 'lg:justify-center lg:w-full'}`}>
-             <div className="w-10 h-10 bg-tech-gradient rounded-xl flex items-center justify-center font-bold text-white shadow-glow animate-pulse-slow">
-               <span className="text-xl">E</span>
-             </div>
-             {isSidebarOpen && <span className="font-black text-xl text-slate-900 dark:text-white tracking-tighter ml-3">EXCHANGE<span className="text-brand-accent">.</span></span>}
-          </div>
-          {isSidebarOpen && (
-            <button onClick={toggleSidebar} className="lg:hidden text-slate-400 hover:text-slate-600 dark:hover:text-white transition-colors">
-              <X size={20} />
-            </button>
-          )}
+    <div className="h-screen overflow-hidden bg-fx-obsidian text-fx-sand flex font-sans">
+      {/* ── LEFT RAIL ─────────────────────────────────────────── */}
+      <aside
+        className={`relative flex flex-col shrink-0 border-r border-fx-rule bg-fx-ink/40 transition-all duration-300 ${railWidth}`}
+      >
+        {/* Rail header */}
+        <div className="h-14 flex items-center justify-between px-5 border-b border-fx-rule">
+          <MiniMasthead collapsed={collapsed} />
+          <button
+            onClick={toggleRail}
+            className="text-fx-dust hover:text-fx-brass transition-colors"
+            title={collapsed ? 'Expand' : 'Collapse'}
+            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          >
+            {collapsed ? <PanelLeft size={13} /> : <PanelLeftClose size={13} />}
+          </button>
         </div>
 
-        <nav className="flex-1 py-8 px-4 space-y-2 overflow-y-auto overflow-x-hidden">
-          {menuItems.map((item, index) => {
-            const isActive = location.pathname === item.path;
+        {/* Nav groups — compact ALL-CAPS headers, no § markers, no Roman numerals */}
+        <nav className="flex-1 overflow-y-auto overflow-x-hidden py-4">
+          {GROUP_ORDER.map((group, groupIdx) => {
+            const items = NAV.filter((n) => n.group === group);
             return (
-              <Link 
-                  key={index}
-                  to={item.path}
-                  className={`relative flex items-center px-4 py-3.5 rounded-xl transition-all duration-300 group mb-1 ${
-                  isActive 
-                      ? 'bg-brand-primary/10 text-brand-primary' 
-                      : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/50'
-                  }`}
-                  title={!isSidebarOpen ? item.label : ''}
-              >
-                  {isActive && (
-                    <div className="absolute left-0 top-1/4 bottom-1/4 w-1 bg-brand-primary rounded-r-full shadow-glow"></div>
-                  )}
-                  <div className={`shrink-0 transition-transform duration-300 ${isActive ? 'scale-110' : 'group-hover:scale-110'}`}>
-                    {item.icon}
+              <div key={group} className={groupIdx > 0 ? 'mt-6' : ''}>
+                {!collapsed && (
+                  <div className="px-5 pb-2 font-mono text-[9px] uppercase tracking-[0.14em] text-fx-dust/70">
+                    {group}
                   </div>
-                  <span className={`ml-4 text-sm font-bold tracking-tight whitespace-nowrap transition-all duration-300 ${isSidebarOpen ? 'opacity-100 translate-x-0' : 'opacity-0 -translate-x-4 lg:hidden'}`}>
-                    {item.label}
-                  </span>
-              </Link>
+                )}
+                {collapsed && groupIdx > 0 && (
+                  <div className="mx-4 mb-3 h-[1px] bg-fx-rule" />
+                )}
+                {items.map((item) => {
+                  const active = location.pathname === item.path;
+                  return (
+                    <Link
+                      key={item.path}
+                      to={item.path}
+                      className={`relative flex items-center gap-2.5 transition-colors ${
+                        collapsed
+                          ? 'justify-center px-0 py-[9px]'
+                          : 'px-5 py-[7px]'
+                      } ${
+                        active
+                          ? 'text-fx-sand bg-fx-sand/[0.025]'
+                          : 'text-fx-dust hover:text-fx-dune'
+                      }`}
+                      title={collapsed ? item.label : undefined}
+                    >
+                      {/* Active marker: thin brass bar on the left */}
+                      {active && (
+                        <span
+                          className={`absolute top-1/2 -translate-y-1/2 w-[2px] h-4 bg-fx-brass ${
+                            collapsed ? 'right-1' : 'left-0'
+                          }`}
+                        />
+                      )}
+                      <span
+                        className={`shrink-0 ${
+                          active ? 'text-fx-brass' : ''
+                        }`}
+                      >
+                        {item.icon}
+                      </span>
+                      {!collapsed && (
+                        <span
+                          className={`text-[12px] whitespace-nowrap ${
+                            active ? 'text-fx-sand font-medium' : ''
+                          }`}
+                        >
+                          {item.label}
+                        </span>
+                      )}
+                    </Link>
+                  );
+                })}
+              </div>
             );
           })}
         </nav>
 
-        <div className="p-6 border-t border-slate-200/50 dark:border-slate-800/50">
-          <button onClick={handleLogout} className="flex items-center w-full px-4 py-3 text-slate-400 hover:text-fin-rose hover:bg-rose-50 dark:hover:bg-rose-900/10 rounded-xl transition-all duration-300 group">
-            <div className="shrink-0 group-hover:rotate-12 transition-transform"><LogOut size={20} /></div>
-            <span className={`ml-4 text-sm font-bold tracking-tight whitespace-nowrap transition-all duration-300 ${isSidebarOpen ? 'opacity-100' : 'opacity-0 lg:hidden'}`}>Sign Out</span>
+        {/* Rail footer — licence line + sign out */}
+        <div className="border-t border-fx-rule p-4">
+          {!collapsed && (
+            <div className="mb-3 font-mono text-[9px] leading-relaxed text-fx-dust/60 tracking-wider">
+              VARA VASP · 2025/DXB
+            </div>
+          )}
+          <button
+            onClick={handleLogout}
+            className={`group w-full flex items-center text-fx-dust hover:text-fx-rust transition-colors ${
+              collapsed ? 'justify-center' : 'gap-2.5'
+            }`}
+            title="Sign out"
+          >
+            <LogOut size={13} className="group-hover:rotate-[-6deg] transition-transform" />
+            {!collapsed && (
+              <span className="text-[12px]">Sign out</span>
+            )}
           </button>
         </div>
       </aside>
 
-      {/* Main Content */}
+      {/* ── MAIN COLUMN ───────────────────────────────────────── */}
       <div className="flex-1 flex flex-col min-w-0">
-        <header className="bg-white/50 dark:bg-fin-dark-bg/50 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 h-20 flex items-center justify-between px-8 sticky top-0 z-40">
-          <button onClick={toggleSidebar} className="text-slate-400 hover:text-slate-900 dark:hover:text-white transition-all hover:scale-110">
-            <Menu size={24} />
-          </button>
-          <div className="flex items-center gap-6">
-             <button 
-                onClick={toggleTheme}
-                className="p-2.5 text-slate-400 hover:text-brand-primary hover:bg-brand-primary/10 rounded-xl transition-all"
-                title={theme === 'dark' ? 'Switch to Light' : 'Switch to Dark'}
-             >
-                {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
-             </button>
-             <div className="flex items-center gap-3 pl-6 border-l border-slate-200 dark:border-slate-800">
-                <div className="text-right hidden sm:block">
-                  <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Client</p>
-                  <p className="text-sm font-black text-slate-900 dark:text-white truncate max-w-[120px]">CUSTOMER</p>
+        {/* ── TOP BAR ─────────────────────────────────────────── */}
+        <header className="h-14 shrink-0 border-b border-fx-rule bg-fx-obsidian/80 backdrop-blur-xl flex items-center justify-between px-6 md:px-8">
+          {/* Plain breadcrumb — no serif italics, no § */}
+          <div className="flex items-center gap-2 min-w-0 font-sans">
+            <span className="text-[11px] uppercase tracking-[0.12em] text-fx-dust/70">
+              {currentGroup}
+            </span>
+            <ChevronRight size={12} className="text-fx-rule-strong" />
+            <span className="text-[13px] text-fx-sand font-medium truncate">
+              {currentLabel}
+            </span>
+          </div>
+
+          {/* Right cluster */}
+          <div className="flex items-center gap-5">
+            <DubaiClock />
+            <div className="hidden md:block h-5 w-[1px] bg-fx-rule" />
+
+            {/* Member chip */}
+            <Link
+              to="/profile"
+              className="group flex items-center gap-2.5 hover:opacity-90 transition-opacity"
+              title="Profile"
+            >
+              <div className="shrink-0 w-7 h-7 border border-fx-brass/40 bg-fx-brass/5 flex items-center justify-center">
+                <span className="font-mono text-[10px] text-fx-brass font-medium leading-none">
+                  {initials}
+                </span>
+              </div>
+              <div className="hidden lg:flex flex-col items-start min-w-0">
+                <div className="font-sans text-[12px] text-fx-sand truncate max-w-[140px] leading-tight">
+                  {fullName}
                 </div>
-                <div className="w-10 h-10 bg-tech-gradient rounded-xl flex items-center justify-center text-white font-black shadow-glow border border-white/20">C</div>
-             </div>
+                <div className="mt-[2px]">
+                  <StatusBadge status={displayStatus} />
+                </div>
+              </div>
+            </Link>
           </div>
         </header>
 
-        <main className={`flex-1 overflow-y-auto relative ${location.pathname === '/verification' ? '' : 'p-6 lg:p-10'}`}>
+        {/* ── CONTENT ────────────────────────────────────────── */}
+        <main
+          className={`flex-1 overflow-y-auto relative bg-fx-obsidian ${
+            location.pathname === '/verification' ? '' : 'px-6 md:px-8 py-8'
+          }`}
+        >
           {location.pathname === '/verification' ? (
             <Outlet />
           ) : (
-            <div className="max-w-7xl mx-auto">
+            <div className="max-w-[1200px] mx-auto">
               <Outlet />
+            </div>
+          )}
+
+          {/* Subtle footer watermark */}
+          {location.pathname !== '/verification' && (
+            <div className="max-w-[1200px] mx-auto mt-16 pt-4 border-t border-fx-rule flex items-center justify-between">
+              <span className="font-mono text-[9px] uppercase tracking-[0.14em] text-fx-dust/50">
+                FIATX · Dubai · {new Date().getFullYear()}
+              </span>
+              {email && (
+                <span className="font-mono text-[10px] text-fx-dust/50">{email}</span>
+              )}
             </div>
           )}
         </main>
       </div>
-      
-      {/* Mobile Overlay */}
-      {isSidebarOpen && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-40 lg:hidden" onClick={() => setIsSidebarOpen(false)}></div>
-      )}
     </div>
   );
 };
