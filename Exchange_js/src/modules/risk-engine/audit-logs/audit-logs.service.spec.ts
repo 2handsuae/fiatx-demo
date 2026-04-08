@@ -537,8 +537,6 @@ describe('AuditLogsService', () => {
 
     expect(result.traceId).toBe('DEPOSIT:payin-1');
     expect(result.workflowType).toBe('DEPOSIT');
-    expect(result.workflowId).toBe('dep-1');
-    expect(result.workflowNo).toBe('DEP2603010001');
     expect(result.subjectNos).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -1128,7 +1126,6 @@ describe('AuditLogsService', () => {
       primaryRefNo: 'CT2604010002',
       action: AuditActions.APPROVAL_APPROVED,
       workflowType: AuditBusinessWorkflowTypes.ADMIN_ROLE_BINDING_CHANGE,
-      workflowNo: 'CT2604010002',
       traceId: 'trace-role-binding-1',
     });
   });
@@ -1195,40 +1192,22 @@ describe('AuditLogsService', () => {
     );
   });
 
-  it('should keep swap workflowNo queries canonicalized to linked swap records only', async () => {
-    prisma.swapTransaction.findMany
-      .mockResolvedValueOnce([
-        {
-          id: 'swap-1',
-          swapNo: 'SWP2603260001',
-          quoteId: 'quote-1',
-          quoteNo: 'QUO2603260001',
-        },
-      ])
-      .mockResolvedValueOnce([]);
-    prisma.swapQuote.findMany.mockResolvedValue([]);
+  it('should filter SWAP audit rows by workflowType without cross-trace expansion', async () => {
     prisma.auditLogEvent.count.mockResolvedValue(0);
     prisma.auditLogEvent.findMany.mockResolvedValue([]);
 
     await service.findAll({
       workflowType: 'SWAP',
-      workflowNo: 'SWP2603260001',
       take: 20,
     });
 
     const where = prisma.auditLogEvent.count.mock.calls[0][0].where;
     expect(where.AND).toEqual([
       { workflowType: 'SWAP' },
-      {
-        OR: [
-          { workflowNo: { in: ['SWP2603260001'] } },
-          {
-            traceId: { in: ['SWAP:swap-1'] },
-          },
-        ],
-      },
       { archivedAt: null },
     ]);
+    // SWAP expansion helper is removed; queries use workflowType filter only
+    expect(prisma.swapTransaction.findMany).not.toHaveBeenCalled();
   });
 
   it('should map subjectNos from audit log records', async () => {
@@ -1693,13 +1672,14 @@ describe('AuditLogsService', () => {
         actorType: 'CUSTOMER',
         actorId: 'customer-1',
         workflowType: 'SWAP',
-        workflowId: 'quote-1',
-        workflowNo: 'QUO2603260001',
         metadata: null,
         beforeData: null,
         afterData: null,
         occurredAt: new Date('2026-03-26T11:00:00.000Z'),
-        subjectNos: [],
+        subjectNos: [
+          { subjectRole: 'RELATED', subjectType: 'SWAP', subjectId: 'swap-1', subjectNo: 'SWP2603260001' },
+          { subjectRole: 'RELATED', subjectType: 'SWAP_QUOTE', subjectId: 'quote-1', subjectNo: 'QUO2603260001' },
+        ],
       },
       {
         id: 'audit-swap-2',
@@ -1713,13 +1693,14 @@ describe('AuditLogsService', () => {
         actorType: 'SYSTEM',
         actorId: 'SYSTEM',
         workflowType: 'SWAP',
-        workflowId: 'swap-1',
-        workflowNo: 'SWP2603260001',
         metadata: null,
         beforeData: null,
         afterData: null,
         occurredAt: new Date('2026-03-26T11:02:00.000Z'),
-        subjectNos: [],
+        subjectNos: [
+          { subjectRole: 'RELATED', subjectType: 'SWAP', subjectId: 'swap-1', subjectNo: 'SWP2603260001' },
+          { subjectRole: 'RELATED', subjectType: 'SWAP_QUOTE', subjectId: 'quote-1', subjectNo: 'QUO2603260001' },
+        ],
       },
     ]);
     prisma.swapTransaction.findMany.mockResolvedValue([
@@ -2378,7 +2359,7 @@ describe('AuditLogsService', () => {
 
       expect(artifacts.manifest.workflowSummary).toEqual({
         workflowType: 'WITHDRAW',
-        workflowNos: ['WD2603270001'],
+        workflowNos: [],
       });
       expect(snapshots).toEqual(
         expect.objectContaining({
@@ -2424,26 +2405,16 @@ describe('AuditLogsService', () => {
     }
   });
 
-  it('should canonicalize swap export workflow summary and filter snapshot to swapNo when a linked swap is resolved', async () => {
-    prisma.swapTransaction.findMany
-      .mockResolvedValueOnce([
-        {
-          id: 'swap-1',
-          swapNo: 'SWP2603260001',
-          quoteId: 'quote-1',
-          quoteNo: 'QUO2603260001',
-        },
-      ])
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([
-        {
-          id: 'swap-1',
-          swapNo: 'SWP2603260001',
-          quoteId: 'quote-1',
-          quoteNo: 'QUO2603260001',
-          quoteSnapshotRef: 'quote-1',
-        },
-      ]);
+  it('should resolve swap export workflow summary from subjectNos when a linked swap is present', async () => {
+    prisma.swapTransaction.findMany.mockResolvedValue([
+      {
+        id: 'swap-1',
+        swapNo: 'SWP2603260001',
+        quoteId: 'quote-1',
+        quoteNo: 'QUO2603260001',
+        quoteSnapshotRef: 'quote-1',
+      },
+    ]);
     prisma.swapQuote.findMany.mockResolvedValue([
       {
         id: 'quote-1',
@@ -2463,41 +2434,29 @@ describe('AuditLogsService', () => {
         actorType: 'CUSTOMER',
         actorId: 'customer-1',
         workflowType: 'SWAP',
-        workflowId: 'quote-1',
-        workflowNo: 'QUO2603260001',
         metadata: null,
         beforeData: null,
         afterData: null,
         occurredAt: new Date('2026-03-26T11:00:00.000Z'),
-        subjectNos: [],
+        subjectNos: [
+          { subjectRole: 'RELATED', subjectType: 'SWAP', subjectId: 'swap-1', subjectNo: 'SWP2603260001' },
+          { subjectRole: 'RELATED', subjectType: 'SWAP_QUOTE', subjectId: 'quote-1', subjectNo: 'QUO2603260001' },
+        ],
       },
     ]);
 
     const result = await service.prepareEvidenceExportSelection({
       selectedEventIds: ['audit-swap-1'],
       workflowType: 'SWAP',
-      workflowNo: 'QUO2603260001',
     } as any);
 
     expect(result.workflowSummary).toEqual({
       workflowType: 'SWAP',
       workflowNos: ['SWP2603260001'],
     });
-    expect(result.normalizedCriteria.workflowNo).toBe('SWP2603260001');
-    expect(result.filterSnapshot.workflowNo).toBe('SWP2603260001');
   });
 
-  it('should reject quote-only swap export selection without a linked swap', async () => {
-    prisma.swapTransaction.findMany
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([]);
-    prisma.swapQuote.findMany.mockResolvedValue([
-      {
-        id: 'quote-1',
-        quoteNo: 'QUO2603260999',
-      },
-    ]);
+  it('should reject swap export selection without any linked swap subjectNos', async () => {
     prisma.auditLogEvent.findMany.mockResolvedValue([
       {
         id: 'audit-quote-1',
@@ -2511,8 +2470,6 @@ describe('AuditLogsService', () => {
         actorType: 'CUSTOMER',
         actorId: 'customer-1',
         workflowType: 'SWAP',
-        workflowId: 'quote-1',
-        workflowNo: 'QUO2603260999',
         metadata: null,
         beforeData: null,
         afterData: null,
@@ -2525,7 +2482,6 @@ describe('AuditLogsService', () => {
       service.prepareEvidenceExportSelection({
         selectedEventIds: ['audit-quote-1'],
         workflowType: 'SWAP',
-        workflowNo: 'QUO2603260999',
       } as any),
     ).rejects.toThrow('linked swap');
   });

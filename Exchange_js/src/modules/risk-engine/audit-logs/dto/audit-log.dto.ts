@@ -114,8 +114,6 @@ export interface AuditLogView {
   entityId: string | null;
   entityNo: string | null;
   workflowType: string | null;
-  workflowId: string | null;
-  workflowNo: string | null;
   traceId: string | null;
   entityOwnerType: string | null;
   entityOwnerId: string | null;
@@ -181,16 +179,6 @@ export class CreateAuditLogEventDto {
   @IsOptional()
   @IsString()
   workflowType?: string;
-
-  @ApiPropertyOptional({ description: '工作流根实体ID，例如 depositId' })
-  @IsOptional()
-  @IsString()
-  workflowId?: string;
-
-  @ApiPropertyOptional({ description: '工作流编号，例如 depositNo' })
-  @IsOptional()
-  @IsString()
-  workflowNo?: string;
 
   @ApiPropertyOptional()
   @IsOptional()
@@ -345,11 +333,6 @@ export class AuditLogQueryDto {
   @IsOptional()
   @IsString()
   workflowType?: string;
-
-  @ApiPropertyOptional({ description: '按工作流编号过滤，例如 depositNo' })
-  @IsOptional()
-  @IsString()
-  workflowNo?: string;
 
   @ApiPropertyOptional({ enum: AuditResult })
   @IsOptional()

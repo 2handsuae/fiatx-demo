@@ -156,8 +156,6 @@ export interface WithdrawEvidenceSnapshots {
 interface AuditWorkflowContext {
   traceId: string | null;
   workflowType: string | null;
-  workflowId: string | null;
-  workflowNo: string | null;
   entityOwnerNo: string | null;
   relatedSubjectNos: AuditSubjectNoRecord[];
 }
@@ -480,8 +478,6 @@ export class AuditLogsService {
       return {
         traceId: this.normalizeOptionalString(input.traceId),
         workflowType: this.normalizeOptionalString(input.workflowType),
-        workflowId: this.normalizeOptionalString(input.workflowId),
-        workflowNo: this.normalizeOptionalString(input.workflowNo),
         entityOwnerNo,
         relatedSubjectNos: [],
       };
@@ -495,11 +491,11 @@ export class AuditLogsService {
         (entityType === AuditEntityTypes.WITHDRAW_TRANSACTION ||
           explicitWorkflowType === AuditWorkflowTypes.WITHDRAW ||
           entityType === AuditEntityTypes.RECONCILIATION_BREAK) &&
-        (input.workflowId || input.entityId) &&
+        input.entityId &&
         db?.withdrawTransaction?.findUnique
       ) {
         withdraw = await db.withdrawTransaction.findUnique({
-          where: { id: input.workflowId || input.entityId },
+          where: { id: input.entityId },
           select: {
             id: true,
             withdrawNo: true,
@@ -597,17 +593,11 @@ export class AuditLogsService {
         }
       }
 
-      const workflowId =
-        this.normalizeOptionalString(input.workflowId) ||
+      const withdrawId =
         this.normalizeOptionalString(withdraw?.id) ||
         this.normalizeOptionalString(payout?.withdraw?.id) ||
         this.normalizeOptionalString(payout?.id) ||
         null;
-      const workflowNo =
-        this.normalizeOptionalString(input.workflowNo) ||
-        this.normalizeOptionalString(withdraw?.withdrawNo) ||
-        this.normalizeOptionalString(payout?.withdraw?.withdrawNo) ||
-        workflowId;
       const resolvedEntityOwnerNo =
         entityOwnerNo ||
         withdraw?.customer?.customerNo ||
@@ -629,10 +619,8 @@ export class AuditLogsService {
       return {
         traceId:
           this.normalizeOptionalString(input.traceId) ||
-          (workflowId ? `${AuditWorkflowTypes.WITHDRAW}:${workflowId}` : null),
+          (withdrawId ? `${AuditWorkflowTypes.WITHDRAW}:${withdrawId}` : null),
         workflowType: AuditWorkflowTypes.WITHDRAW,
-        workflowId,
-        workflowNo,
         entityOwnerNo: resolvedEntityOwnerNo,
         relatedSubjectNos,
       };
@@ -645,11 +633,11 @@ export class AuditLogsService {
       if (
         (entityType === AuditEntityTypes.SWAP_TRANSACTION ||
           explicitWorkflowType === AuditWorkflowTypes.SWAP) &&
-        (input.workflowId || input.entityId) &&
+        input.entityId &&
         db?.swapTransaction?.findUnique
       ) {
         swap = await db.swapTransaction.findUnique({
-          where: { id: input.workflowId || input.entityId },
+          where: { id: input.entityId },
           select: {
             id: true,
             swapNo: true,
@@ -671,7 +659,7 @@ export class AuditLogsService {
             },
           },
         });
-        if (!swap && input.entityId && input.entityId !== input.workflowId) {
+        if (!swap && input.entityId) {
           swap = await db.swapTransaction.findUnique({
             where: { id: input.entityId },
             select: {
@@ -727,18 +715,11 @@ export class AuditLogsService {
         }
       }
 
-      const workflowId =
-        this.normalizeOptionalString(input.workflowId) ||
+      const swapId =
         this.normalizeOptionalString(swap?.id) ||
         this.normalizeOptionalString(quote?.id) ||
         this.normalizeOptionalString(swap?.quoteId) ||
         null;
-      const workflowNo =
-        this.normalizeOptionalString(input.workflowNo) ||
-        this.normalizeOptionalString(swap?.swapNo) ||
-        this.normalizeOptionalString(quote?.quoteNo) ||
-        this.normalizeOptionalString(swap?.quoteNo) ||
-        workflowId;
       const resolvedEntityOwnerNo =
         entityOwnerNo ||
         swap?.ownerNo ||
@@ -753,10 +734,8 @@ export class AuditLogsService {
       return {
         traceId:
           this.normalizeOptionalString(input.traceId) ||
-          (workflowId ? `${AuditWorkflowTypes.SWAP}:${workflowId}` : null),
+          (swapId ? `${AuditWorkflowTypes.SWAP}:${swapId}` : null),
         workflowType: AuditWorkflowTypes.SWAP,
-        workflowId,
-        workflowNo,
         entityOwnerNo: resolvedEntityOwnerNo,
         relatedSubjectNos,
       };
@@ -768,11 +747,11 @@ export class AuditLogsService {
     if (
       (entityType === AuditEntityTypes.DEPOSIT_TRANSACTION ||
         explicitWorkflowType === AuditWorkflowTypes.DEPOSIT) &&
-      (input.workflowId || input.entityId) &&
+      input.entityId &&
       db?.depositTransaction?.findUnique
     ) {
       deposit = await db.depositTransaction.findUnique({
-        where: { id: input.workflowId || input.entityId },
+        where: { id: input.entityId },
         select: {
           id: true,
           depositNo: true,
@@ -842,12 +821,6 @@ export class AuditLogsService {
         this.normalizeOptionalString(input.traceId) ||
         this.buildDepositTraceId(payin?.id || deposit?.payinId, deposit?.id),
       workflowType: AuditWorkflowTypes.DEPOSIT,
-      workflowId:
-        this.normalizeOptionalString(input.workflowId) ||
-        this.normalizeOptionalString(deposit?.id),
-      workflowNo:
-        this.normalizeOptionalString(input.workflowNo) ||
-        this.normalizeOptionalString(deposit?.depositNo),
       entityOwnerNo: resolvedEntityOwnerNo,
       relatedSubjectNos,
     };
@@ -1191,8 +1164,6 @@ export class AuditLogsService {
       entityId: raw.entityId ?? null,
       entityNo: raw.entityNo ?? null,
       workflowType: raw.workflowType ?? null,
-      workflowId: raw.workflowId ?? null,
-      workflowNo: raw.workflowNo ?? null,
       traceId: raw.traceId ?? null,
       entityOwnerType: raw.entityOwnerType ?? null,
       entityOwnerId: raw.entityOwnerId ?? null,
@@ -1332,83 +1303,6 @@ export class AuditLogsService {
       .join(' ');
   }
 
-  private async resolveSwapWorkflowSearchExpansion(
-    workflowNo: string,
-    db: any,
-  ): Promise<{
-    workflowNos: string[];
-    traceIds: string[];
-  }> {
-    const normalizedWorkflowNo = this.normalizeOptionalString(workflowNo);
-    if (!normalizedWorkflowNo) {
-      return {
-        workflowNos: [],
-        traceIds: [],
-      };
-    }
-
-    const directSwapMatches = db?.swapTransaction?.findMany
-      ? await db.swapTransaction.findMany({
-          where: {
-            swapNo: normalizedWorkflowNo,
-          },
-          select: {
-            id: true,
-            swapNo: true,
-            quoteId: true,
-            quoteNo: true,
-          },
-        })
-      : [];
-
-    const quoteMatches = db?.swapQuote?.findMany
-      ? await db.swapQuote.findMany({
-          where: {
-            quoteNo: normalizedWorkflowNo,
-          },
-          select: {
-            id: true,
-            quoteNo: true,
-          },
-        })
-      : [];
-
-    const quoteIds = this.toSortedUniqueStrings([
-      ...directSwapMatches.map((item: any) => item.quoteId),
-      ...quoteMatches.map((item: any) => item.id),
-    ]);
-
-    const linkedSwapMatches =
-      quoteIds.length && db?.swapTransaction?.findMany
-        ? await db.swapTransaction.findMany({
-            where: {
-              OR: [
-                { quoteId: { in: quoteIds } },
-                { quoteSnapshotRef: { in: quoteIds } },
-              ],
-            },
-            select: {
-              id: true,
-              swapNo: true,
-              quoteId: true,
-              quoteNo: true,
-            },
-          })
-        : [];
-
-    const allSwaps = [...directSwapMatches, ...linkedSwapMatches];
-    return {
-      workflowNos: this.toSortedUniqueStrings([
-        ...allSwaps.map((item: any) => item.swapNo),
-      ]),
-      traceIds: this.toSortedUniqueStrings([
-        ...allSwaps.map((item: any) =>
-          item.id ? `${AuditWorkflowTypes.SWAP}:${item.id}` : null,
-        ),
-      ]),
-    };
-  }
-
   private async resolveSwapExportSelectionContext(
     records: any[],
     db: any,
@@ -1429,17 +1323,7 @@ export class AuditLogsService {
       quoteNo: string | null;
     }>;
   }> {
-    const workflowIds = this.toSortedUniqueStrings(
-      records
-        .filter((item) => item.workflowType === AuditWorkflowTypes.SWAP)
-        .map((item) => this.normalizeOptionalString(item.workflowId)) as Array<string | null>,
-    );
-    const workflowNos = this.toSortedUniqueStrings(
-      records
-        .filter((item) => item.workflowType === AuditWorkflowTypes.SWAP)
-        .map((item) => this.normalizeOptionalString(item.workflowNo)) as Array<string | null>,
-    );
-    const subjectNos = this.toSortedUniqueStrings(
+    const candidateNos = this.toSortedUniqueStrings(
       records.flatMap((item) =>
         Array.isArray(item.subjectNos)
           ? item.subjectNos.map((subject: any) =>
@@ -1449,12 +1333,7 @@ export class AuditLogsService {
       ) as Array<string | null>,
     );
 
-    const candidateNos = this.toSortedUniqueStrings([
-      ...workflowNos,
-      ...subjectNos,
-    ]);
-
-    if (!workflowIds.length && !candidateNos.length) {
+    if (!candidateNos.length) {
       return {
         swapIds: [],
         swapNos: [],
@@ -1469,19 +1348,8 @@ export class AuditLogsService {
       ? await db.swapTransaction.findMany({
           where: {
             OR: [
-              ...(workflowIds.length
-                ? [
-                    { id: { in: workflowIds } },
-                    { quoteId: { in: workflowIds } },
-                    { quoteSnapshotRef: { in: workflowIds } },
-                  ]
-                : []),
-              ...(candidateNos.length
-                ? [
-                    { swapNo: { in: candidateNos } },
-                    { quoteNo: { in: candidateNos } },
-                  ]
-                : []),
+              { swapNo: { in: candidateNos } },
+              { quoteNo: { in: candidateNos } },
             ],
           },
           select: {
@@ -1495,7 +1363,6 @@ export class AuditLogsService {
       : [];
 
     const quoteIds = this.toSortedUniqueStrings([
-      ...workflowIds,
       ...swapTransactions.map((item: any) => item.quoteId),
       ...swapTransactions.map((item: any) => item.quoteSnapshotRef),
     ]);
@@ -1554,33 +1421,6 @@ export class AuditLogsService {
     if (query.workflowType) andClauses.push({ workflowType: query.workflowType });
     if (query.result) andClauses.push({ result: query.result });
 
-    const normalizedWorkflowType = this.normalizeEntityType(query.workflowType);
-    const normalizedWorkflowNo = this.normalizeOptionalString(query.workflowNo);
-    if (normalizedWorkflowNo) {
-      if (normalizedWorkflowType === AuditWorkflowTypes.SWAP && db) {
-        const expanded = await this.resolveSwapWorkflowSearchExpansion(
-          normalizedWorkflowNo,
-          db,
-        );
-        const workflowNos = expanded.workflowNos;
-        const orClauses: any[] = [];
-        if (workflowNos.length) {
-          orClauses.push({ workflowNo: { in: workflowNos } });
-        }
-        if (expanded.traceIds.length) {
-          orClauses.push({
-            traceId: { in: expanded.traceIds },
-          });
-        }
-        if (orClauses.length) {
-          andClauses.push({ OR: orClauses });
-        } else {
-          andClauses.push({ id: '__NO_MATCH__' });
-        }
-      } else {
-        andClauses.push({ workflowNo: normalizedWorkflowNo });
-      }
-    }
 
     if (query.subjectNo || query.subjectType) {
       andClauses.push({
@@ -1812,16 +1652,7 @@ export class AuditLogsService {
         ? swapSelectionContext.swapNos.length
           ? swapSelectionContext.swapNos
           : []
-        : (this.toSortedUniqueStrings(records.map((row: any) => row.workflowNo)) as string[]);
-
-    const normalizedCriteriaWorkflowNo =
-      workflowSummaryType === AuditWorkflowTypes.SWAP && canonicalSwapWorkflowNo
-        ? canonicalSwapWorkflowNo
-        : query.workflowNo || null;
-    const filterSnapshotWorkflowNo =
-      workflowSummaryType === AuditWorkflowTypes.SWAP && canonicalSwapWorkflowNo
-        ? canonicalSwapWorkflowNo
-        : query.workflowNo || null;
+        : [];
 
     if (
       workflowSummaryType === AuditWorkflowTypes.SWAP &&
@@ -1840,7 +1671,6 @@ export class AuditLogsService {
         maxItems,
         includeRecords: query.includeRecords !== false,
         workflowType: explicitWorkflowType,
-        workflowNo: normalizedCriteriaWorkflowNo,
         traceId: query.traceId || null,
         subjectNo: query.subjectNo || null,
         subjectType: query.subjectType || null,
@@ -1851,7 +1681,6 @@ export class AuditLogsService {
         ...query,
         skip,
         maxItems,
-        workflowNo: filterSnapshotWorkflowNo,
       },
       selectedEventIds,
       records,
@@ -2003,8 +1832,6 @@ export class AuditLogsService {
       entityNo: entityNo || null,
       traceId: workflowContext.traceId,
       workflowType: workflowContext.workflowType,
-      workflowId: workflowContext.workflowId,
-      workflowNo: workflowContext.workflowNo,
       entityOwnerType: input.entityOwnerType || null,
       entityOwnerId: input.entityOwnerId || null,
       entityOwnerNo: entityOwnerNo || null,
@@ -2038,8 +1865,6 @@ export class AuditLogsService {
         entityNo: entityNo ?? null,
         traceId: workflowContext.traceId ?? null,
         workflowType: workflowContext.workflowType ?? null,
-        workflowId: workflowContext.workflowId ?? null,
-        workflowNo: workflowContext.workflowNo ?? null,
         entityOwnerType: input.entityOwnerType ?? null,
         entityOwnerId: input.entityOwnerId ?? null,
         entityOwnerNo: entityOwnerNo ?? null,
@@ -2407,14 +2232,21 @@ export class AuditLogsService {
   }
 
   private async buildDepositSnapshots(records: any[], db: any): Promise<DepositEvidenceSnapshots> {
-    const workflowIds = Array.from(
-      new Set(
-        records
-          .filter((item) => item.workflowType === AuditWorkflowTypes.DEPOSIT)
-          .map((item) => this.normalizeOptionalString(item.workflowId))
-          .filter(Boolean) as string[],
-      ),
+    const depositRecords = records.filter(
+      (item) => item.workflowType === AuditWorkflowTypes.DEPOSIT,
     );
+    const workflowIds = this.toSortedUniqueStrings([
+      ...depositRecords.flatMap((item) =>
+        Array.isArray(item.subjectNos)
+          ? item.subjectNos
+              .filter((s: any) => s.subjectType === 'DEPOSIT' && s.subjectId)
+              .map((s: any) => this.normalizeOptionalString(s.subjectId))
+          : [],
+      ) as Array<string | null>,
+      ...depositRecords
+        .filter((item) => item.entityType === AuditEntityTypes.DEPOSIT_TRANSACTION)
+        .map((item) => this.normalizeOptionalString(item.entityId)) as Array<string | null>,
+    ]);
 
     if (!workflowIds.length || !db?.depositTransaction?.findMany) {
       return {
@@ -2738,14 +2570,21 @@ export class AuditLogsService {
     records: any[],
     db: any,
   ): Promise<WithdrawEvidenceSnapshots> {
-    const workflowIds = Array.from(
-      new Set(
-        records
-          .filter((item) => item.workflowType === AuditWorkflowTypes.WITHDRAW)
-          .map((item) => this.normalizeOptionalString(item.workflowId))
-          .filter(Boolean) as string[],
-      ),
+    const withdrawRecords = records.filter(
+      (item) => item.workflowType === AuditWorkflowTypes.WITHDRAW,
     );
+    const workflowIds = this.toSortedUniqueStrings([
+      ...withdrawRecords.flatMap((item) =>
+        Array.isArray(item.subjectNos)
+          ? item.subjectNos
+              .filter((s: any) => s.subjectType === 'WITHDRAW' && s.subjectId)
+              .map((s: any) => this.normalizeOptionalString(s.subjectId))
+          : [],
+      ) as Array<string | null>,
+      ...withdrawRecords
+        .filter((item) => item.entityType === AuditEntityTypes.WITHDRAW_TRANSACTION)
+        .map((item) => this.normalizeOptionalString(item.entityId)) as Array<string | null>,
+    ]);
 
     if (!workflowIds.length || !db?.withdrawTransaction?.findMany) {
       return {

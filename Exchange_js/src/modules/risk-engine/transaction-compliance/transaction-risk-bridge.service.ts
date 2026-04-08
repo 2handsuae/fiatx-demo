@@ -1584,7 +1584,7 @@ export class TransactionRiskBridgeService {
     },
     tx?: Prisma.TransactionClient,
   ) {
-    const { traceId, workflowId, workflowNo } = this.buildSwapAuditWorkflowContext({
+    const { traceId } = this.buildSwapAuditWorkflowContext({
       swapId: input.swapId,
       swapNo: input.swapNo,
     });
@@ -1598,8 +1598,6 @@ export class TransactionRiskBridgeService {
         entityNo: input.swapNo || undefined,
         traceId,
         workflowType: AuditWorkflowTypes.SWAP,
-        workflowId,
-        workflowNo,
         entityOwnerType: 'CUSTOMER',
         entityOwnerId: input.customerId,
         entityOwnerNo: input.customerNo || undefined,
@@ -1681,7 +1679,7 @@ export class TransactionRiskBridgeService {
     },
     tx?: Prisma.TransactionClient,
   ) {
-    const { traceId, workflowId, workflowNo } = this.buildSwapAuditWorkflowContext({
+    const { traceId } = this.buildSwapAuditWorkflowContext({
       swapId: input.swapId,
       swapNo: input.swapNo,
     });
@@ -1695,8 +1693,6 @@ export class TransactionRiskBridgeService {
         entityNo: input.alertNo || undefined,
         traceId,
         workflowType: AuditWorkflowTypes.SWAP,
-        workflowId,
-        workflowNo,
         entityOwnerType: 'CUSTOMER',
         entityOwnerId: input.customerId,
         entityOwnerNo: input.customerNo || undefined,
@@ -1781,7 +1777,7 @@ export class TransactionRiskBridgeService {
     },
     tx?: Prisma.TransactionClient,
   ) {
-    const { traceId, workflowId, workflowNo } = this.buildSwapAuditWorkflowContext({
+    const { traceId } = this.buildSwapAuditWorkflowContext({
       swapId: input.swapId,
       swapNo: input.swapNo,
     });
@@ -1795,8 +1791,6 @@ export class TransactionRiskBridgeService {
         entityNo: input.caseNo || undefined,
         traceId,
         workflowType: AuditWorkflowTypes.SWAP,
-        workflowId,
-        workflowNo,
         entityOwnerType: 'CUSTOMER',
         entityOwnerId: input.customerId,
         entityOwnerNo: input.customerNo || undefined,
@@ -1824,14 +1818,8 @@ export class TransactionRiskBridgeService {
     swapId: string;
     swapNo?: string | null;
   }) {
-    const workflowId = input.swapId;
-    const workflowNo =
-      this.normalizeOptionalString(input.swapNo) ||
-      workflowId;
     return {
-      traceId: `SWAP:${workflowId}`,
-      workflowId,
-      workflowNo,
+      traceId: `SWAP:${input.swapId}`,
     };
   }
 

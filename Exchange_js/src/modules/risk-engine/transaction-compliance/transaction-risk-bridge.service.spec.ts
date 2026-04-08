@@ -677,8 +677,6 @@ describe('TransactionRiskBridgeService', () => {
     expect(recordSystemSpy).toHaveBeenCalledWith(
       expect.objectContaining({
         workflowType: 'SWAP',
-        workflowId: 'swap-1',
-        workflowNo: 'SWP0001',
         traceId: 'SWAP:swap-1',
         metadata: expect.objectContaining({
           quoteId: 'quote-1',
@@ -788,8 +786,6 @@ describe('TransactionRiskBridgeService', () => {
     expect(recordSystemSpy).toHaveBeenCalledWith(
       expect.objectContaining({
         workflowType: 'SWAP',
-        workflowId: 'swap-1',
-        workflowNo: 'SWP0001',
         traceId: 'SWAP:swap-1',
       }),
       undefined,
@@ -901,8 +897,6 @@ describe('TransactionRiskBridgeService', () => {
     expect(recordSystemSpy).toHaveBeenCalledWith(
       expect.objectContaining({
         workflowType: 'SWAP',
-        workflowId: 'swap-1',
-        workflowNo: 'SWP0001',
         traceId: 'SWAP:swap-1',
       }),
       undefined,
