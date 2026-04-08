@@ -62,7 +62,7 @@
 
 ### 5. Update `docs/constraints/onboarding-flow-constraints.md` with the new trace rules
 
-**Context:** the existing constraints doc does not yet mention `onboardingTraceId`, the audit write path, or the removal of `activeJourneyId`. Add a section cross-referencing `audit-trace-context-constraints.md`.
+**Context:** `docs/constraints/onboarding-flow-constraints.md` does not yet mention `onboardingTraceId`, the new sumsub audit write path, or the removal of `activeJourneyId`. It should cross-reference `audit-trace-context-constraints.md` and explain how onboarding traces are generated and inherited.
 
 **Who is blocked:** anyone reading the onboarding constraints to build new onboarding-adjacent work.
 

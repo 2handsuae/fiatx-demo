@@ -34,7 +34,7 @@
 - `admin_user_invitations.traceId`
 - `customer_main.onboardingTraceId` (single-purpose; only for the sumsub onboarding sequence)
 
-**Rule 5 — Inherit to child actions.** When a child action runs as part of an existing sequence, it reads the parent entity's traceId and passes it through. The `approvals.service` reads the parent change ticket's `traceId` and stores it on the approval case. Access-control role changes read `binding.traceId` from the governance bridge. Evidence package audit rows read `approval.traceId`. `OnboardingService.handleSumsubVerificationEvent` reads `customer.onboardingTraceId`.
+**Rule 5 — Inherit to child actions.** When a child action runs as part of an existing sequence, it reads the parent entity's traceId and passes it through. The `approvals.service` reads the parent change ticket's `traceId` and stores it on the approval case. Access-control role changes read `binding.traceId` from the governance bridge. Evidence package audit rows read `approval.traceId`. `OnboardingService.handleSumsubVerificationEvent` reads `customer.onboardingTraceId` on every invocation, so every webhook event for a single onboarding run — whether it's `applicantPending`, `applicantOnHold`, `applicantReviewed`, `applicantLevelChanged`, `applicantWorkflowCompleted`, or `applicantWorkflowFailed` — shares the same trace.
 
 ---
 
