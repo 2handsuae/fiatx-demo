@@ -576,8 +576,6 @@ model AuditLogEvent {
   entityNo        String?
   traceId         String?
   workflowType    String?
-  workflowId      String?
-  workflowNo      String?
   entityOwnerType String?
   entityOwnerId   String?
   statusFrom      String?
@@ -616,7 +614,6 @@ model AuditLogEvent {
   @@index([entityOwnerNo, occurredAt])
   @@index([traceId, occurredAt])
   @@index([workflowType, occurredAt])
-  @@index([workflowType, workflowNo, occurredAt])
   @@index([result, occurredAt])
   @@index([retainedUntil])
   @@index([archivedAt])
