@@ -58,6 +58,27 @@
 
 ---
 
+## Gotchas learned the hard way
+
+### Trigger dependencies on SQLite table-recreate migrations
+
+**Context:** When executing the 2026-04-08 `customer_main.activeJourneyId` drop via the SQLite table-recreate pattern, the migration failed mid-flight because the `wallets` table has two triggers (`wallets_owner_semantics_insert`, `wallets_owner_semantics_update`) whose bodies reference `customer_main`. SQLite validates trigger bodies at compile time, so `DROP TABLE "customer_main"` returned "no such table" as SQLite tried to re-validate the dependent trigger during the drop.
+
+**Rule for any future SQLite table-recreate migration:**
+1. Before the `DROP TABLE`, issue `DROP TRIGGER IF EXISTS <name>;` for every trigger that references the table.
+2. After the `ALTER TABLE ... RENAME TO ...`, recreate those triggers verbatim using their original `sql` body from `sqlite_master`.
+3. To find dependent triggers, run:
+   ```sql
+   SELECT name, sql FROM sqlite_master
+   WHERE type = 'trigger' AND sql LIKE '%<table-name>%';
+   ```
+
+Treat this as part of the standard SQLite table-recreate checklist. Anyone writing a `*_new` migration must verify no triggers will break before they run it.
+
+**Effort to document this properly in a migration guide:** S — add to a migration-conventions doc if one is ever created.
+
+---
+
 ## Documentation debt
 
 ### 5. Update `docs/constraints/onboarding-flow-constraints.md` with the new trace rules
