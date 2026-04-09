@@ -101,6 +101,45 @@ ALTER TABLE "audit_log_events" DROP COLUMN "workflowNo";
 
 **Effort:** S — 1 section append.
 
+### 7. Sumsub transaction + behavior event mirroring pipeline
+
+**Context:** Wave 3 firm-driven customer review v1 **不**把我们的交易（deposit / withdraw / swap）和行为事件（login / device change / 2FA reset）mirror 到 Sumsub 的 Transaction Monitoring / Behavior Monitoring API。这意味着 Sumsub 的 applicant risk score 在 onboarding 后基本不再更新，Layer 2 的评级管道只能依靠 AML 重筛结果 + 我们本地自研的简单行为打分，而不能利用 Sumsub Workflow Builder + Custom Rules Engine 的加权评分能力。这是一个有意的 scope 裁剪，为了 v1 更快上线。
+
+**What needs to happen:**
+
+- 新建一张 `sumsub_mirror_event` outbox 表（follow outbox pattern，保证可靠投递）
+- 拦截所有资金事件 + 关键行为事件写数据库时同步 enqueue outbox 行
+- 后台 worker 消费 outbox → `POST /resources/applicants/-/kyt/txns/-/data`（[Sumsub Submit Transaction API](https://docs.sumsub.com/reference/submit-transaction-for-existing-applicant)）
+- 处理 Sumsub 返回的同步打分 + 后续 `applicantReviewed` webhook（路由到 Layer 2/3）
+- 重试策略 + dead letter queue
+- 在 Sumsub Dashboard 配置 Custom Rules（按我们定义的加权评分方法）
+- 更新 `client-risk-assessment-policy-v1.md` 把 Sumsub score 纳入聚合公式
+- 调整 Layer 2 的 `applyPolicy` 从"AML labels + 本地评分" 切换到"Sumsub 加权 score 为主"
+- 更新 ClientRiskAssessment schema 把 `sumsubRiskScore` 和 `sumsubTags` 字段从"可选占位" 升级为"必填核心"
+
+**Who is blocked:** 需要完整动态风险画像的生产环境。demo / 内部测试用本地自研打分够了。
+
+**Effort:** L —— 5-7 天工作量。outbox 表 + worker + retry + DLQ 本身是独立基建。外加 Sumsub Dashboard 规则配置 + 对 existing customers 的反向 replay（把 onboarding 之后积累的交易 backfill 到 Sumsub）。
+
+---
+
+### 6. Draft Wave 3 firm-driven customer review policy documents
+
+**Context:** Wave 3 周期审查重设计（firm-driven Layer 2 `ClientRiskAssessment` 风险评级 + Layer 3 `MaterialRefreshCycle` 材料续档）落地时，VARA III.D.7 明确要求 VASP 自己定义 "criteria and methodology" 的客户风险评估方法学文档。设计阶段决定把 policy 的实际数字（tier mapping、material windows、signoff 角色矩阵）内嵌到 design 文档的表格里作为临时 reference，两份独立 policy 文件本身暂缓成稿，避免 plan 启动被文档 ceremony 阻塞。
+
+**What needs to happen:** 在合适的时机单独产出两份独立文档：
+
+- `docs/specs/policies/client-risk-assessment-policy-v1.md`
+  —— Layer 2 的 tier mapping（Sumsub riskScore → LOW/MEDIUM/HIGH）、signoff rules（方案 B 的自动/人工矩阵）、Sumsub Custom Rules Engine 配置映射表，对应 VARA III.D.7 的 "criteria and methodology" 要求
+- `docs/specs/policies/material-refresh-policy-v1.md`
+  —— Layer 3 的材料目录（哪些材料、哪些 tier 需要）、各材料的 `windowDays` 按 risk tier 差异化值、stage timeline（`-30 / -7 / 0 / +30`）、initialCollectionWindow、Sumsub Applicant Action level 映射
+
+两份文档发布时需要 MLRO + SENIOR_MANAGEMENT_OFFICER 双签；发布后 `ClientRiskAssessment.policyVersion` 字段引用其版本号，`MaterialRefreshCycle` 在 trace 里引用 `material-refresh-policy-v1.md` 的版本号。
+
+**Who is blocked:** 正式 VARA audit 时会要求出示这两份独立文档。demo 阶段和内部开发不受阻 —— 临时 reference 在 design 文档内已有，运行时逻辑直接编码在 policy config 里。
+
+**Effort:** M —— 两份约 400 行的 policy 文档，需要和合规对齐数字（windows、tier 阈值、signoff 角色、频率）并走双签流程。
+
 ---
 
 ## Conventions
