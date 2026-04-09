@@ -654,6 +654,7 @@ describe('ApprovalsService', () => {
       expect.objectContaining({
         action: AuditActions.APPROVAL_APPROVED,
         result: 'SUCCESS',
+        metadata: expect.objectContaining({ superAdminBypass: true }),
       }),
       expect.anything(),
     );

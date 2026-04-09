@@ -973,6 +973,9 @@ export class ApprovalsService {
       updated.status === ApprovalStatuses.APPROVED
         ? ApprovalStatuses.APPROVED
         : ApprovalStatuses.PENDING,
+      this.isSuperAdmin(actor) && actor.userId === updated.createdByUserId
+        ? { superAdminBypass: true }
+        : undefined,
     );
     if (updated.status === ApprovalStatuses.APPROVED) {
       await this.projectGovernanceApprovalDecision(updated);
@@ -1057,6 +1060,9 @@ export class ApprovalsService {
       dto.reason || 'Approval rejected',
       ApprovalStatuses.PENDING,
       ApprovalStatuses.REJECTED,
+      this.isSuperAdmin(actor) && actor.userId === updated.createdByUserId
+        ? { superAdminBypass: true }
+        : undefined,
     );
     await this.projectGovernanceApprovalDecision(updated);
     await this.emitApprovalEvent(ApprovalEvents.REJECTED, this.buildEventPayload(updated));
