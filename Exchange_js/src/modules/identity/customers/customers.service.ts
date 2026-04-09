@@ -33,7 +33,7 @@ const periodicReviewCycleSummarySelect = {
 } satisfies Prisma.PeriodicReviewCycleSelect;
 
 const customerListInclude = {
-  latestFinalApproval: {
+  latestRiskApproval: {
     select: finalApprovalSummarySelect,
   },
   activePeriodicReviewCycle: {
@@ -54,7 +54,7 @@ const customerDetailInclude = {
     orderBy: { createdAt: 'desc' as const },
     take: 30,
   },
-  latestFinalApproval: {
+  latestRiskApproval: {
     select: finalApprovalSummarySelect,
   },
   activePeriodicReviewCycle: {

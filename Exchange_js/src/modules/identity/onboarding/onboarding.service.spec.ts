@@ -164,8 +164,8 @@ describe('OnboardingService', () => {
     sumsubLatestReviewId: null,
     sumsubLatestAttemptId: null,
     sumsubExperiencedLevel2: false,
-    latestFinalApprovalId: null,
-    latestFinalApprovalStatus: null,
+    latestRiskApprovalId: null,
+    latestRiskApprovalStatus: null,
     eddRequired: false,
     ...overrides,
   });
@@ -312,7 +312,7 @@ describe('OnboardingService', () => {
             onboardingStatus: 'APPROVED',
             operatingStatus: 'ACTIVE',
             verificationSubstatus: 'COMPLETED',
-            latestFinalApprovalStatus: null,
+            latestRiskApprovalStatus: null,
           }),
         }),
       );
@@ -351,7 +351,7 @@ describe('OnboardingService', () => {
           data: expect.objectContaining({
             onboardingStatus: 'FINAL_APPROVAL',
             verificationSubstatus: 'COMPLETED',
-            latestFinalApprovalStatus: 'PENDING',
+            latestRiskApprovalStatus: 'PENDING',
           }),
         }),
       );
@@ -1002,8 +1002,8 @@ describe('OnboardingService', () => {
       sumsubLatestReviewId: null,
       sumsubLatestAttemptId: null,
       sumsubExperiencedLevel2: true,
-      latestFinalApprovalId: 'approval-1',
-      latestFinalApprovalStatus: 'PENDING',
+      latestRiskApprovalId: 'approval-1',
+      latestRiskApprovalStatus: 'PENDING',
     });
     sumsubClientMock.getApplicantByExternalUserId.mockResolvedValue(null);
     sumsubClientMock.createApplicant.mockResolvedValue({ id: 'app-1' });
@@ -1026,8 +1026,8 @@ describe('OnboardingService', () => {
       sumsubLatestReviewId: null,
       sumsubLatestAttemptId: null,
       sumsubExperiencedLevel2: false,
-      latestFinalApprovalId: 'approval-1',
-      latestFinalApprovalStatus: 'PENDING',
+      latestRiskApprovalId: 'approval-1',
+      latestRiskApprovalStatus: 'PENDING',
     });
 
     const result = await service.startVerification('c1');
@@ -1056,8 +1056,8 @@ describe('OnboardingService', () => {
       }),
     );
     const firstUpdateData = prismaMock.customerMain.update.mock.calls[0][0].data;
-    expect(firstUpdateData.latestFinalApproval).toBeUndefined();
-    expect(firstUpdateData.latestFinalApprovalStatus).toBeUndefined();
+    expect(firstUpdateData.latestRiskApproval).toBeUndefined();
+    expect(firstUpdateData.latestRiskApprovalStatus).toBeUndefined();
     expect(result.customer).toEqual({
       onboardingStatus: 'PENDING_VERIFICATION',
       operatingStatus: 'INACTIVE',
@@ -1226,8 +1226,8 @@ describe('OnboardingService', () => {
       sumsubLatestReviewId: 'rev-1',
       sumsubLatestAttemptId: 'att-1',
       sumsubExperiencedLevel2: true,
-      latestFinalApprovalId: 'approval-1',
-      latestFinalApprovalStatus: 'PENDING',
+      latestRiskApprovalId: 'approval-1',
+      latestRiskApprovalStatus: 'PENDING',
     });
     sumsubClientMock.getApplicantByExternalUserId.mockResolvedValue({ id: 'app-remote' });
     sumsubClientMock.createSdkToken.mockResolvedValue({ token: 'sdk-token-2' });
@@ -1249,8 +1249,8 @@ describe('OnboardingService', () => {
       sumsubLatestReviewId: null,
       sumsubLatestAttemptId: null,
       sumsubExperiencedLevel2: false,
-      latestFinalApprovalId: null,
-      latestFinalApprovalStatus: null,
+      latestRiskApprovalId: null,
+      latestRiskApprovalStatus: null,
     });
 
     const result = await service.startVerification('c1');
@@ -1267,8 +1267,8 @@ describe('OnboardingService', () => {
           sumsubExperiencedLevel2: false,
           sumsubLatestReviewId: null,
           sumsubLatestAttemptId: null,
-          latestFinalApproval: { disconnect: true },
-          latestFinalApprovalStatus: null,
+          latestRiskApproval: { disconnect: true },
+          latestRiskApprovalStatus: null,
           verificationLatestEventType: null,
           verificationLatestEventAt: null,
         }),
@@ -1305,8 +1305,8 @@ describe('OnboardingService', () => {
       sumsubLatestReviewId: null,
       sumsubLatestAttemptId: null,
       sumsubExperiencedLevel2: false,
-      latestFinalApprovalId: null,
-      latestFinalApprovalStatus: null,
+      latestRiskApprovalId: null,
+      latestRiskApprovalStatus: null,
     });
     sumsubClientMock.getApplicantByExternalUserId.mockResolvedValue(null);
     sumsubClientMock.createApplicant.mockResolvedValue({ id: 'app-1' });
@@ -1329,8 +1329,8 @@ describe('OnboardingService', () => {
       sumsubLatestReviewId: null,
       sumsubLatestAttemptId: null,
       sumsubExperiencedLevel2: false,
-      latestFinalApprovalId: null,
-      latestFinalApprovalStatus: null,
+      latestRiskApprovalId: null,
+      latestRiskApprovalStatus: null,
     });
 
     await service.startVerification('c1');
@@ -1362,8 +1362,8 @@ describe('OnboardingService', () => {
       sumsubLatestReviewId: null,
       sumsubLatestAttemptId: null,
       sumsubExperiencedLevel2: false,
-      latestFinalApprovalId: null,
-      latestFinalApprovalStatus: null,
+      latestRiskApprovalId: null,
+      latestRiskApprovalStatus: null,
     });
     sumsubClientMock.getApplicantByExternalUserId.mockResolvedValue(null);
     sumsubClientMock.createApplicant.mockResolvedValue({ id: 'app-1' });
@@ -1386,8 +1386,8 @@ describe('OnboardingService', () => {
       sumsubLatestReviewId: null,
       sumsubLatestAttemptId: null,
       sumsubExperiencedLevel2: false,
-      latestFinalApprovalId: null,
-      latestFinalApprovalStatus: null,
+      latestRiskApprovalId: null,
+      latestRiskApprovalStatus: null,
     });
 
     await service.startVerification('c1');
@@ -1718,8 +1718,8 @@ describe('OnboardingService', () => {
       where: { id: 'c1' },
       data: expect.objectContaining({
         cddDocumentExpiresAt: null,
-        latestFinalApproval: { disconnect: true },
-        latestFinalApprovalStatus: null,
+        latestRiskApproval: { disconnect: true },
+        latestRiskApprovalStatus: null,
       }),
     });
   });
@@ -2468,13 +2468,13 @@ describe('OnboardingService', () => {
         onboardingStatus: 'FINAL_APPROVAL',
         operatingStatus: 'INACTIVE',
         restrictionStatus: 'CLEAR',
-        latestFinalApprovalId: 'approval-1',
-        latestFinalApprovalStatus: 'PENDING',
+        latestRiskApprovalId: 'approval-1',
+        latestRiskApprovalStatus: 'PENDING',
       },
       eddResponse: { id: 'edd-1' },
       activeCaseId: 'edd-1',
-      latestFinalApprovalId: 'approval-1',
-      latestFinalApprovalStatus: 'PENDING',
+      latestRiskApprovalId: 'approval-1',
+      latestRiskApprovalStatus: 'PENDING',
       createdFinalApprovalId: 'approval-1',
     });
 

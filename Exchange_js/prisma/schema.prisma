@@ -164,8 +164,17 @@ model CustomerMain {
   complianceHoldSetAt             DateTime?
   complianceHoldReleasedAt        DateTime?
   cddDocumentExpiresAt            DateTime?
-  latestFinalApprovalId           String?   @unique
-  latestFinalApprovalStatus       String?
+  // ─── renamed 2026-04-09 Wave 3 ─────────────────
+  latestRiskApprovalId            String?   @unique
+  latestRiskApprovalStatus        String?
+
+  // ─── Wave 3 new ──────────────────────────────
+  riskTier                        String    @default("LOW")
+  riskTierUpdatedAt               DateTime?
+  pepStatus                       String    @default("NONE")
+  pepConfirmedAt                  DateTime?
+  latestRiskAssessmentId          String?
+
   nextReviewAt                    DateTime?
   activePeriodicReviewCycleId     String?   @unique
   periodicReviewOverdueAt         DateTime?
@@ -193,12 +202,15 @@ model CustomerMain {
   complianceSessions        ComplianceSession[]
   cddResponseReports        CddResponseReport[]
   eddResponseReports        EddResponseReport[]
-  latestFinalApproval       ApprovalCase?            @relation("CustomerLatestFinalApproval", fields: [latestFinalApprovalId], references: [id], onDelete: SetNull)
+  latestRiskApproval        ApprovalCase?            @relation("CustomerLatestRiskApproval", fields: [latestRiskApprovalId], references: [id], onDelete: SetNull)
   activePeriodicReviewCycle PeriodicReviewCycle?     @relation("CustomerActivePeriodicReviewCycle", fields: [activePeriodicReviewCycleId], references: [id], onDelete: SetNull)
   periodicReviewCycles      PeriodicReviewCycle[]    @relation("CustomerPeriodicReviewCycles")
+  materialHoldings          CustomerMaterialHolding[] @relation("CustomerMaterialHoldings")
+  materialRefreshCycles     MaterialRefreshCycle[]   @relation("CustomerMaterialRefreshCycles")
+  riskAssessments           ClientRiskAssessment[]   @relation("CustomerRiskAssessments")
 
   @@index([complianceHoldStatus])
-  @@index([latestFinalApprovalStatus])
+  @@index([latestRiskApprovalStatus])
   @@index([activePeriodicReviewCycleId])
   @@map("customer_main")
 }
@@ -734,7 +746,8 @@ model ApprovalCase {
   caseEvidencePackage            ComplianceCaseEvidencePackage? @relation("ComplianceCaseEvidencePackageApprovalCase")
   changeTicketApprovalCase       ChangeTicket?                  @relation("ChangeTicketApprovalCase")
   deleteRequestApprovalCase      DeleteRequest?                 @relation("DeleteRequestApprovalCase")
-  latestForCustomerFinalApproval CustomerMain?                  @relation("CustomerLatestFinalApproval")
+  latestForCustomerRiskApproval  CustomerMain?                  @relation("CustomerLatestRiskApproval")
+  riskAssessments                ClientRiskAssessment[]         @relation("ClientRiskAssessmentApprovalCase")
   linkedRegulatoryGates          RegulatoryGateItem[]           @relation("RegulatoryGateLinkedApproval")
   internalTransactionForApproval InternalTransaction?           @relation("InternalTransactionApprovalCase")
 
@@ -3079,4 +3092,127 @@ model SumsubWebhookEvent {
   @@index([externalUserId])
   @@index([eventType, status])
   @@map("sumsub_webhook_events")
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Wave 3 Firm-Driven Customer Review (2026-04-09)
+// ═══════════════════════════════════════════════════════════════
+
+model CustomerMaterialHolding {
+  id                   String   @id @default(cuid())
+  customerId           String
+  customer             CustomerMain @relation("CustomerMaterialHoldings", fields: [customerId], references: [id])
+
+  materialType         String
+  managementMode       String
+
+  verifiedAt           DateTime
+  expiresAt            DateTime?
+  status               String   @default("FRESH")
+
+  sumsubIdDocSetType   String?
+  sumsubDocId          String?
+
+  activeRefreshCycleId String?  @unique
+  activeRefreshCycle   MaterialRefreshCycle? @relation("ActiveRefreshCycle", fields: [activeRefreshCycleId], references: [id])
+
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  refreshCycles        MaterialRefreshCycle[] @relation("HoldingRefreshCycles")
+
+  @@unique([customerId, materialType])
+  @@index([expiresAt, status])
+  @@index([customerId])
+  @@map("customer_material_holdings")
+}
+
+model MaterialRefreshCycle {
+  id                       String   @id @default(cuid())
+  cycleNo                  String   @unique
+  customerId               String
+  customer                 CustomerMain @relation("CustomerMaterialRefreshCycles", fields: [customerId], references: [id])
+
+  holdingId                String
+  holding                  CustomerMaterialHolding @relation("HoldingRefreshCycles", fields: [holdingId], references: [id])
+
+  materialType             String
+
+  status                   String   @default("PENDING_CUSTOMER_EVIDENCE")
+  stage                    String   @default("NUDGE_ONLY")
+  triggerType              String
+
+  createdAt                DateTime @default(now())
+  stageNudgeAt             DateTime?
+  stageUrgentAt            DateTime?
+  stageBlockingAt          DateTime?
+  clearedAt                DateTime?
+  rejectedAt               DateTime?
+  graceExpiresAt           DateTime?
+  resolutionReason         String?
+
+  sumsubActionId           String?
+  sumsubActionLevelName    String?
+  sumsubActionCreatedAt    DateTime?
+
+  triggeredByAssessmentId  String?
+  triggeredByAssessment    ClientRiskAssessment? @relation("AssessmentTriggeredCycles", fields: [triggeredByAssessmentId], references: [id])
+
+  traceId                  String   @unique
+
+  activeForHolding         CustomerMaterialHolding? @relation("ActiveRefreshCycle")
+
+  @@index([customerId, status])
+  @@index([status, graceExpiresAt])
+  @@index([sumsubActionId])
+  @@map("material_refresh_cycles")
+}
+
+model ClientRiskAssessment {
+  id                          String   @id @default(cuid())
+  assessmentNo                String   @unique
+  customerId                  String
+  customer                    CustomerMain @relation("CustomerRiskAssessments", fields: [customerId], references: [id])
+
+  triggerType                 String
+  triggeredAt                 DateTime @default(now())
+
+  sumsubAmlCheckRequestedAt   DateTime?
+  sumsubAmlCheckInspectionId  String?
+  sumsubAmlReviewAnswer       String?
+  sumsubAmlLabels             String?  // JSON string
+  sumsubAmlRejectType         String?
+  sumsubSnapshotAt            DateTime?
+  sumsubRiskScore             Int?
+  sumsubTags                  String?  // JSON string
+
+  policyVersion               String
+  resultingRiskTier           String?
+  previousRiskTier            String?
+  scoreSuggestedTier          String?
+  recommendedAction           String?
+  reasoning                   String?  // JSON string
+
+  status                      String   @default("PENDING_SUMSUB_RESULT")
+  signoffMethod               String?
+  approvalCaseId              String?
+  approvalCase                ApprovalCase? @relation("ClientRiskAssessmentApprovalCase", fields: [approvalCaseId], references: [id])
+  signedBy                    String?
+  signedAt                    DateTime?
+  signedUnderPolicyVersion    String?
+
+  sumsubInternalCaseRef       String?
+  sumsubCaseFinalDecision     String?
+  sumsubCaseDecidedAt         DateTime?
+
+  triggeredRefreshCycles      MaterialRefreshCycle[] @relation("AssessmentTriggeredCycles")
+
+  traceId                     String   @unique
+  createdAt                   DateTime @default(now())
+
+  @@index([customerId, status])
+  @@index([customerId, triggeredAt])
+  @@index([sumsubAmlCheckInspectionId])
+  @@index([status, triggeredAt])
+  @@map("client_risk_assessments")
 }

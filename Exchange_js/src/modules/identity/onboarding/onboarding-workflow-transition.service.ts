@@ -113,8 +113,8 @@ export interface WorkflowTransitionOutput {
   updatedSubject?: WorkflowTransitionUpdatedSubject | null;
   eddResponse?: any | null;
   activeCaseId?: string | null;
-  latestFinalApprovalId?: string | null;
-  latestFinalApprovalStatus?: string | null;
+  latestRiskApprovalId?: string | null;
+  latestRiskApprovalStatus?: string | null;
   createdFinalApprovalId?: string | null;
 }
 
@@ -174,14 +174,14 @@ export class OnboardingWorkflowTransitionService {
   ): Prisma.CustomerMainUpdateInput {
     if (approvalId) {
       return {
-        latestFinalApproval: {
+        latestRiskApproval: {
           connect: { id: approvalId },
         },
       };
     }
 
     return {
-      latestFinalApproval: {
+      latestRiskApproval: {
         disconnect: true,
       },
     };
@@ -506,8 +506,8 @@ export class OnboardingWorkflowTransitionService {
         updatedCustomer: customer,
         eddResponse: null,
         activeCaseId: linkedCaseIds[0] || null,
-        latestFinalApprovalId: customer.latestFinalApprovalId || null,
-        latestFinalApprovalStatus: customer.latestFinalApprovalStatus || null,
+        latestRiskApprovalId: customer.latestRiskApprovalId || null,
+        latestRiskApprovalStatus: customer.latestRiskApprovalStatus || null,
         createdFinalApprovalId: null,
       };
       await this.writeWorkflowTransitionSnapshot(tx, input, noTransition);
@@ -541,7 +541,7 @@ export class OnboardingWorkflowTransitionService {
             eddRequired: false,
           }),
           ...this.buildLatestFinalApprovalBindingPatch(null),
-          latestFinalApprovalStatus: null,
+          latestRiskApprovalStatus: null,
           cddDocumentExpiresAt: this.addDays(now, 365),
           nextReviewAt: this.addDays(now, 365),
         };
@@ -556,7 +556,7 @@ export class OnboardingWorkflowTransitionService {
             eddRequired: false,
           }),
           ...this.buildLatestFinalApprovalBindingPatch(null),
-          latestFinalApprovalStatus: null,
+          latestRiskApprovalStatus: null,
         };
       } else if (workflowDecision === 'REQUIRE_EDD') {
         eddResponse = await this.createEddResponseIfNeeded(
@@ -575,7 +575,7 @@ export class OnboardingWorkflowTransitionService {
             eddRequired: true,
           }),
           ...this.buildLatestFinalApprovalBindingPatch(null),
-          latestFinalApprovalStatus: null,
+          latestRiskApprovalStatus: null,
           cddDocumentExpiresAt: this.addDays(now, 365),
         };
       } else {
@@ -635,7 +635,7 @@ export class OnboardingWorkflowTransitionService {
           ...this.buildLatestFinalApprovalBindingPatch(
             pendingFinalApproval.approval.id,
           ),
-          latestFinalApprovalStatus: pendingFinalApproval.approval.status || 'PENDING',
+          latestRiskApprovalStatus: pendingFinalApproval.approval.status || 'PENDING',
         };
       } else if (workflowDecision === 'REJECT') {
         transitionCode = WORKFLOW_TRANSITION_CODES.EDD_REJECT_TO_REJECTED;
@@ -648,7 +648,7 @@ export class OnboardingWorkflowTransitionService {
             eddRequired: true,
           }),
           ...this.buildLatestFinalApprovalBindingPatch(null),
-          latestFinalApprovalStatus: null,
+          latestRiskApprovalStatus: null,
         };
       } else {
         throw new BadRequestException(
@@ -696,8 +696,8 @@ export class OnboardingWorkflowTransitionService {
       updatedCustomer,
       eddResponse,
       activeCaseId: eddResponse?.id || null,
-      latestFinalApprovalId: updatedCustomer.latestFinalApprovalId || null,
-      latestFinalApprovalStatus: updatedCustomer.latestFinalApprovalStatus || null,
+      latestRiskApprovalId: updatedCustomer.latestRiskApprovalId || null,
+      latestRiskApprovalStatus: updatedCustomer.latestRiskApprovalStatus || null,
       createdFinalApprovalId,
     };
     await this.writeWorkflowTransitionSnapshot(tx, input, output);

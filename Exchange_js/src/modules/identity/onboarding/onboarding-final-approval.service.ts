@@ -39,8 +39,8 @@ interface FinalApprovalCustomerRow {
   operatingStatus?: string | null;
   restrictionStatus?: string | null;
   eddRequired?: boolean | null;
-  latestFinalApprovalId?: string | null;
-  latestFinalApprovalStatus?: string | null;
+  latestRiskApprovalId?: string | null;
+  latestRiskApprovalStatus?: string | null;
 }
 
 interface FinalApprovalSummary {
@@ -62,8 +62,8 @@ const FINAL_APPROVAL_CUSTOMER_SELECT = {
   operatingStatus: true,
   restrictionStatus: true,
   eddRequired: true,
-  latestFinalApprovalId: true,
-  latestFinalApprovalStatus: true,
+  latestRiskApprovalId: true,
+  latestRiskApprovalStatus: true,
 } satisfies Prisma.CustomerMainSelect;
 
 @Injectable()
@@ -151,12 +151,12 @@ export class OnboardingFinalApprovalService {
     client: ApprovalWriteClient,
     customer: FinalApprovalCustomerRow,
   ) {
-    if (!customer.latestFinalApprovalId) {
+    if (!customer.latestRiskApprovalId) {
       return null;
     }
 
     return client.approvalCase.findUnique({
-      where: { id: customer.latestFinalApprovalId },
+      where: { id: customer.latestRiskApprovalId },
       select: {
         id: true,
         approvalNo: true,
@@ -194,14 +194,14 @@ export class OnboardingFinalApprovalService {
   ): Prisma.CustomerMainUpdateInput {
     if (approvalId) {
       return {
-        latestFinalApproval: {
+        latestRiskApproval: {
           connect: { id: approvalId },
         },
       };
     }
 
     return {
-      latestFinalApproval: {
+      latestRiskApproval: {
         disconnect: true,
       },
     };
@@ -376,7 +376,7 @@ export class OnboardingFinalApprovalService {
         where: { id: customer.id },
         data: {
           ...this.buildLatestFinalApprovalBindingPatch(resolved.approval.id),
-          latestFinalApprovalStatus: resolved.approval.status,
+          latestRiskApprovalStatus: resolved.approval.status,
         },
       });
 
@@ -494,7 +494,7 @@ export class OnboardingFinalApprovalService {
           eddRequired: true,
         }),
         ...this.buildLatestFinalApprovalBindingPatch(event.approvalId),
-        latestFinalApprovalStatus: ApprovalStatuses.APPROVED,
+        latestRiskApprovalStatus: ApprovalStatuses.APPROVED,
       };
     }
 
@@ -506,13 +506,13 @@ export class OnboardingFinalApprovalService {
           eddRequired: true,
         }),
         ...this.buildLatestFinalApprovalBindingPatch(event.approvalId),
-        latestFinalApprovalStatus: ApprovalStatuses.REJECTED,
+        latestRiskApprovalStatus: ApprovalStatuses.REJECTED,
       };
     }
 
     return {
       ...this.buildLatestFinalApprovalBindingPatch(event.approvalId),
-      latestFinalApprovalStatus: status,
+      latestRiskApprovalStatus: status,
     };
   }
 
@@ -556,8 +556,8 @@ export class OnboardingFinalApprovalService {
     }
 
     if (
-      customer.latestFinalApprovalId &&
-      customer.latestFinalApprovalId !== event.approvalId
+      customer.latestRiskApprovalId &&
+      customer.latestRiskApprovalId !== event.approvalId
     ) {
       return customer;
     }

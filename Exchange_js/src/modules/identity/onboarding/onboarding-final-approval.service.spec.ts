@@ -53,8 +53,8 @@ describe('OnboardingFinalApprovalService', () => {
       id: 'c1',
       customerNo: 'CU0001',
       onboardingStatus: 'FINAL_APPROVAL',
-      latestFinalApprovalId: null,
-      latestFinalApprovalStatus: null,
+      latestRiskApprovalId: null,
+      latestRiskApprovalStatus: null,
     });
     prisma.eddResponse.findFirst.mockResolvedValue({ id: 'edd-1' });
     prisma.approvalCase.findFirst.mockResolvedValue(null);
@@ -98,8 +98,8 @@ describe('OnboardingFinalApprovalService', () => {
     expect(prisma.customerMain.update).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
-          latestFinalApproval: { connect: { id: 'approval-1' } },
-          latestFinalApprovalStatus: ApprovalStatuses.PENDING,
+          latestRiskApproval: { connect: { id: 'approval-1' } },
+          latestRiskApprovalStatus: ApprovalStatuses.PENDING,
         }),
       }),
     );
@@ -136,8 +136,8 @@ describe('OnboardingFinalApprovalService', () => {
     prisma.customerMain.findUnique.mockResolvedValue({
       id: 'c1',
       onboardingStatus: 'FINAL_APPROVAL',
-      latestFinalApprovalId: 'approval-1',
-      latestFinalApprovalStatus: ApprovalStatuses.PENDING,
+      latestRiskApprovalId: 'approval-1',
+      latestRiskApprovalStatus: ApprovalStatuses.PENDING,
     });
     prisma.approvalCase.findUnique.mockResolvedValue({
       id: 'approval-1',
@@ -174,13 +174,13 @@ describe('OnboardingFinalApprovalService', () => {
       operatingStatus: 'INACTIVE',
       restrictionStatus: 'CLEAR',
       eddRequired: true,
-      latestFinalApprovalId: 'approval-1',
-      latestFinalApprovalStatus: ApprovalStatuses.PENDING,
+      latestRiskApprovalId: 'approval-1',
+      latestRiskApprovalStatus: ApprovalStatuses.PENDING,
     });
     prisma.customerMain.update.mockResolvedValue({
       id: 'c1',
-      latestFinalApprovalId: 'approval-1',
-      latestFinalApprovalStatus: ApprovalStatuses.CANCELLED,
+      latestRiskApprovalId: 'approval-1',
+      latestRiskApprovalStatus: ApprovalStatuses.CANCELLED,
       onboardingStatus: 'FINAL_APPROVAL',
     });
 
@@ -199,7 +199,7 @@ describe('OnboardingFinalApprovalService', () => {
     expect(prisma.customerMain.update).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
-          latestFinalApprovalStatus: ApprovalStatuses.CANCELLED,
+          latestRiskApprovalStatus: ApprovalStatuses.CANCELLED,
         }),
       }),
     );
@@ -214,14 +214,14 @@ describe('OnboardingFinalApprovalService', () => {
       operatingStatus: 'INACTIVE',
       restrictionStatus: 'CLEAR',
       eddRequired: true,
-      latestFinalApprovalId: 'approval-1',
-      latestFinalApprovalStatus: ApprovalStatuses.PENDING,
+      latestRiskApprovalId: 'approval-1',
+      latestRiskApprovalStatus: ApprovalStatuses.PENDING,
     });
     prisma.customerMain.update.mockResolvedValue({
       id: 'c1',
       onboardingStatus: 'APPROVED',
       operatingStatus: 'ACTIVE',
-      latestFinalApprovalStatus: ApprovalStatuses.APPROVED,
+      latestRiskApprovalStatus: ApprovalStatuses.APPROVED,
     });
 
     await service.onApprovalApproved({
@@ -242,7 +242,7 @@ describe('OnboardingFinalApprovalService', () => {
         data: expect.objectContaining({
           onboardingStatus: 'APPROVED',
           operatingStatus: 'ACTIVE',
-          latestFinalApprovalStatus: ApprovalStatuses.APPROVED,
+          latestRiskApprovalStatus: ApprovalStatuses.APPROVED,
           restrictionStatus: 'CLEAR',
         }),
       }),
@@ -263,8 +263,8 @@ describe('OnboardingFinalApprovalService', () => {
       id: 'c1',
       customerNo: 'CU0001',
       onboardingStatus: 'FINAL_APPROVAL',
-      latestFinalApprovalId: 'approval-1',
-      latestFinalApprovalStatus: ApprovalStatuses.APPROVED,
+      latestRiskApprovalId: 'approval-1',
+      latestRiskApprovalStatus: ApprovalStatuses.APPROVED,
     });
     prisma.approvalCase.findUnique.mockResolvedValue({
       id: 'approval-1',

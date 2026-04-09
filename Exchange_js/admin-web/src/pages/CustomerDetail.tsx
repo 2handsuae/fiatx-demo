@@ -49,7 +49,7 @@ interface PeriodicReviewCycleSummary {
   resolutionReason?: string | null;
 }
 
-interface FinalApprovalSummary {
+interface RiskApprovalSummary {
   id: string;
   approvalNo: string;
   status: string;
@@ -81,9 +81,9 @@ interface CustomerDetailData {
   amlRiskTier?: string | null;
   eddRequired?: boolean;
   cddDocumentExpiresAt?: string | null;
-  latestFinalApprovalId?: string | null;
-  latestFinalApprovalStatus?: string | null;
-  latestFinalApproval?: FinalApprovalSummary | null;
+  latestRiskApprovalId?: string | null;
+  latestRiskApprovalStatus?: string | null;
+  latestRiskApproval?: RiskApprovalSummary | null;
   nextReviewAt?: string | null;
   activePeriodicReviewCycleId?: string | null;
   periodicReviewOverdueAt?: string | null;
@@ -293,7 +293,7 @@ const CustomerDetail = () => {
     [detail],
   );
   const hasFinalApproval = useMemo(
-    () => !!detail?.latestFinalApprovalId || !!detail?.latestFinalApproval,
+    () => !!detail?.latestRiskApprovalId || !!detail?.latestRiskApproval,
     [detail],
   );
   const hasVerification = useMemo(
@@ -360,7 +360,7 @@ const CustomerDetail = () => {
   const name = displayName(detail);
   const isCorporate = detail.customerType === 'CORPORATE';
   const finalApprovalStatus =
-    detail.latestFinalApprovalStatus || detail.latestFinalApproval?.status || null;
+    detail.latestRiskApprovalStatus || detail.latestRiskApproval?.status || null;
   const canRestrict = detail.restrictionStatus !== 'RESTRICTED';
   const canUnrestrict = detail.restrictionStatus === 'RESTRICTED';
   const canFreeze = detail.complianceHoldStatus !== 'FROZEN';
@@ -559,7 +559,7 @@ const CustomerDetail = () => {
               </p>
               <button
                 onClick={() =>
-                  navigate(`/dashboard/control-gates/approvals/${detail.latestFinalApprovalId}`)
+                  navigate(`/dashboard/control-gates/approvals/${detail.latestRiskApprovalId}`)
                 }
                 className="flex w-full items-center justify-between gap-3 rounded border border-adm-border bg-adm-bg px-4 py-2.5 text-left transition-colors hover:border-adm-bhi hover:bg-adm-hover"
               >
@@ -568,7 +568,7 @@ const CustomerDetail = () => {
                     Onboarding Final Approval
                   </span>
                   <span className="truncate font-mono text-[11px] font-semibold text-adm-amber">
-                    {detail.latestFinalApproval?.approvalNo || detail.latestFinalApprovalId}
+                    {detail.latestRiskApproval?.approvalNo || detail.latestRiskApprovalId}
                   </span>
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
@@ -576,18 +576,18 @@ const CustomerDetail = () => {
                   <Link2 size={13} className="text-adm-t3" />
                 </div>
               </button>
-              {(detail.latestFinalApproval?.decidedAt ||
-                detail.latestFinalApproval?.decisionByRole) && (
+              {(detail.latestRiskApproval?.decidedAt ||
+                detail.latestRiskApproval?.decisionByRole) && (
                 <div className="mt-3">
                   <FieldGrid>
                     <Field
                       label="Decided At"
-                      value={fmt(detail.latestFinalApproval?.decidedAt)}
+                      value={fmt(detail.latestRiskApproval?.decidedAt)}
                       mono
                     />
                     <Field
                       label="Decided By Role"
-                      value={detail.latestFinalApproval?.decisionByRole ?? undefined}
+                      value={detail.latestRiskApproval?.decisionByRole ?? undefined}
                     />
                   </FieldGrid>
                 </div>

@@ -363,7 +363,7 @@ export class OnboardingService {
                 operatingStatus: 'INACTIVE',
               }),
               ...this.buildLatestFinalApprovalBindingPatch(pendingApproval.approval.id),
-              latestFinalApprovalStatus: pendingApproval.approval.status || 'PENDING',
+              latestRiskApprovalStatus: pendingApproval.approval.status || 'PENDING',
               verificationSubstatus: 'COMPLETED',
               verificationCustomerActionRequired: false,
               verificationCanContinue: false,
@@ -377,7 +377,7 @@ export class OnboardingService {
                 operatingStatus: 'ACTIVE',
               }),
               ...this.buildLatestFinalApprovalBindingPatch(null),
-              latestFinalApprovalStatus: null,
+              latestRiskApprovalStatus: null,
               verificationSubstatus: 'COMPLETED',
               verificationCustomerActionRequired: false,
               verificationCanContinue: false,
@@ -393,7 +393,7 @@ export class OnboardingService {
               operatingStatus: 'INACTIVE',
             }),
             ...this.buildLatestFinalApprovalBindingPatch(null),
-            latestFinalApprovalStatus: null,
+            latestRiskApprovalStatus: null,
             verificationSubstatus: 'FAILED',
             verificationCustomerActionRequired: false,
             verificationCanContinue: false,
@@ -768,14 +768,14 @@ export class OnboardingService {
   ): Prisma.CustomerMainUpdateInput {
     if (approvalId) {
       return {
-        latestFinalApproval: {
+        latestRiskApproval: {
           connect: { id: approvalId },
         },
       };
     }
 
     return {
-      latestFinalApproval: {
+      latestRiskApproval: {
         disconnect: true,
       },
     };
@@ -1320,7 +1320,7 @@ export class OnboardingService {
           operatingStatus: 'INACTIVE',
         }),
         ...this.buildLatestFinalApprovalBindingPatch(null),
-        latestFinalApprovalStatus: null,
+        latestRiskApprovalStatus: null,
       },
     });
   }
@@ -1492,7 +1492,7 @@ export class OnboardingService {
           }),
           latestDecisionRecordId: decisionRecordId,
           ...this.buildLatestFinalApprovalBindingPatch(null),
-          latestFinalApprovalStatus: null,
+          latestRiskApprovalStatus: null,
           cddDocumentExpiresAt: this.addDays(now, 365),
           nextReviewAt: this.addDays(now, 365),
         }
@@ -1504,7 +1504,7 @@ export class OnboardingService {
           }),
           latestDecisionRecordId: decisionRecordId,
           ...this.buildLatestFinalApprovalBindingPatch(null),
-          latestFinalApprovalStatus: null,
+          latestRiskApprovalStatus: null,
         };
     const linkedCaseIds = [cddResponse.id];
 
@@ -1550,7 +1550,7 @@ export class OnboardingService {
       }),
       latestDecisionRecordId: decisionRecordId,
       ...this.buildLatestFinalApprovalBindingPatch(null),
-      latestFinalApprovalStatus: null,
+      latestRiskApprovalStatus: null,
     };
 
     const updated = await this.prisma.customerMain.update({
@@ -2047,7 +2047,7 @@ export class OnboardingService {
 
     if (isReinitiating) {
       Object.assign(updateData, this.buildLatestFinalApprovalBindingPatch(null), {
-        latestFinalApprovalStatus: null,
+        latestRiskApprovalStatus: null,
         verificationLatestEventType: null,
         verificationLatestEventAt: null,
       });
@@ -2297,7 +2297,7 @@ export class OnboardingService {
           eddRequired: false,
         }),
         ...this.buildLatestFinalApprovalBindingPatch(null),
-        latestFinalApprovalStatus: null,
+        latestRiskApprovalStatus: null,
       },
     });
 
@@ -2339,7 +2339,7 @@ export class OnboardingService {
       data: {
         cddDocumentExpiresAt: null,
         ...this.buildLatestFinalApprovalBindingPatch(null),
-        latestFinalApprovalStatus: null,
+        latestRiskApprovalStatus: null,
       },
     });
 
@@ -2422,7 +2422,7 @@ export class OnboardingService {
           eddRequired: true,
         }),
         ...this.buildLatestFinalApprovalBindingPatch(null),
-        latestFinalApprovalStatus: null,
+        latestRiskApprovalStatus: null,
       },
     });
 
@@ -2683,7 +2683,7 @@ export class OnboardingService {
           }),
           latestDecisionRecordId: pendingDecision.decisionRecordId,
           ...this.buildLatestFinalApprovalBindingPatch(null),
-          latestFinalApprovalStatus: null,
+          latestRiskApprovalStatus: null,
         },
       });
 
@@ -2765,7 +2765,7 @@ export class OnboardingService {
         }),
         latestDecisionRecordId: pendingDecision.decisionRecordId,
         ...this.buildLatestFinalApprovalBindingPatch(null),
-        latestFinalApprovalStatus: null,
+        latestRiskApprovalStatus: null,
       },
     });
 

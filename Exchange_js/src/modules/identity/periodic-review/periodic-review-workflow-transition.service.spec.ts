@@ -29,8 +29,8 @@ describe('PeriodicReviewWorkflowTransitionService', () => {
       restrictionCaseId: 'case-1',
       activePeriodicReviewCycleId: 'cycle-1',
       latestDecisionRecordId: 'dr-1',
-      latestFinalApprovalId: 'approval-1',
-      latestFinalApprovalStatus: 'APPROVED',
+      latestRiskApprovalId: 'approval-1',
+      latestRiskApprovalStatus: 'APPROVED',
     });
     txMock.periodicReviewCycle.findUnique.mockResolvedValue({
       id: 'cycle-1',
@@ -62,7 +62,7 @@ describe('PeriodicReviewWorkflowTransitionService', () => {
     } as any);
 
     expect(result.executed).toBe(false);
-    expect(result.latestFinalApprovalStatus).toBe('APPROVED');
+    expect(result.latestRiskApprovalStatus).toBe('APPROVED');
     expect(result).not.toHaveProperty('finalApprovalStatus');
     expect(txMock.workflowDecisionRecord.update).toHaveBeenCalledWith(
       expect.objectContaining({

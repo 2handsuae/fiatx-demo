@@ -404,8 +404,8 @@ export class PeriodicReviewWorkflowTransitionService {
         updatedCustomer: customer,
         eddResponse: null,
         activeCaseId: cycle.currentEddResponseId || cycle.currentCddResponseId || null,
-        latestFinalApprovalId: customer.latestFinalApprovalId || null,
-        latestFinalApprovalStatus: customer.latestFinalApprovalStatus || null,
+        latestRiskApprovalId: customer.latestRiskApprovalId || null,
+        latestRiskApprovalStatus: customer.latestRiskApprovalStatus || null,
         createdFinalApprovalId: null,
       };
       await this.writeWorkflowTransitionSnapshot(tx, input, noTransition);
@@ -602,8 +602,8 @@ export class PeriodicReviewWorkflowTransitionService {
           ? String((cycleUpdateData.currentEddResponseId as string | undefined) || '')
               .trim() || null
           : cycle.currentEddResponseId || null,
-      latestFinalApprovalId: updatedCustomer.latestFinalApprovalId || null,
-      latestFinalApprovalStatus: updatedCustomer.latestFinalApprovalStatus || null,
+      latestRiskApprovalId: updatedCustomer.latestRiskApprovalId || null,
+      latestRiskApprovalStatus: updatedCustomer.latestRiskApprovalStatus || null,
       createdFinalApprovalId: null,
     };
     await this.writeWorkflowTransitionSnapshot(tx, input, output);
