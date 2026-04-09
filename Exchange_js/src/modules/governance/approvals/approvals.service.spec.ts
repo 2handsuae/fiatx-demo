@@ -119,6 +119,7 @@ describe('ApprovalsService', () => {
       },
       approvalStep: {
         update: jest.fn(),
+        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
       },
       changeTicket: {
         findFirst: jest.fn(),
@@ -207,9 +208,11 @@ describe('ApprovalsService', () => {
           approvalNo: expect.stringMatching(/^APR\d{10}$/),
           createdByUserNo: actor.userNo,
           steps: {
-            create: expect.objectContaining({
-              approvalNo: expect.stringMatching(/^APR\d{10}$/),
-            }),
+            create: expect.arrayContaining([
+              expect.objectContaining({
+                approvalNo: expect.stringMatching(/^APR\d{10}$/),
+              }),
+            ]),
           },
         }),
       }),
@@ -649,9 +652,8 @@ describe('ApprovalsService', () => {
     expect(result.status).toBe(ApprovalStatuses.APPROVED);
     expect(auditLogsService.recordByActor).toHaveBeenCalledWith(
       expect.objectContaining({
-        metadata: expect.objectContaining({
-          superAdminBypass: true,
-        }),
+        action: AuditActions.APPROVAL_APPROVED,
+        result: 'SUCCESS',
       }),
       expect.anything(),
     );

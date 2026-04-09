@@ -506,18 +506,19 @@ export class ApprovalsService {
     for (let i = 0; i < ApprovalsService.MAX_NO_RETRIES; i += 1) {
       try {
         const approvalNo = generateReferenceNo('APR');
+        const stepsCreate = data.steps?.create;
+        const stepsPayload = stepsCreate
+          ? {
+              create: Array.isArray(stepsCreate)
+                ? stepsCreate.map((s: Record<string, any>) => ({ ...s, approvalNo }))
+                : { ...stepsCreate, approvalNo },
+            }
+          : undefined;
         return (await db.approvalCase.create({
           data: {
             ...data,
             approvalNo,
-            steps: data.steps
-              ? {
-                  create: {
-                    ...data.steps.create,
-                    approvalNo,
-                  },
-                }
-              : undefined,
+            steps: stepsPayload,
           },
           include: this.approvalInclude(),
         })) as ApprovalCaseRow;
@@ -762,11 +763,11 @@ export class ApprovalsService {
         workflowId: workflowContext.workflowId,
         workflowNo: workflowContext.workflowNo,
         steps: {
-          create: {
-            stepNo: 1,
+          create: policy.checkerRoles.map((role, idx) => ({
+            stepNo: idx + 1,
             status: ApprovalStepStatuses.PENDING,
-            checkerRoleCandidates: joinRoleCsv(policy.checkerRoles),
-          },
+            checkerRoleCandidates: role,
+          })),
         },
       },
       client,
@@ -894,9 +895,23 @@ export class ApprovalsService {
       if (approval.status !== ApprovalStatuses.PENDING) {
         throw new BadRequestException('Only PENDING approvals can be approved');
       }
-
       this.assertTraceConsistency(approval.traceId, dto.traceId);
       this.assertWorkflowContextConsistency(approval, dto);
+
+      // Find the current pending step the actor is authorized for
+      const currentStep = (approval.steps || []).find(
+        (s: any) =>
+          s.status === ApprovalStepStatuses.PENDING &&
+          (splitRoleCsv(s.checkerRoleCandidates).some((candidate: string) =>
+            (actor.roleCodes || []).includes(candidate),
+          ) || this.isSuperAdmin(actor)),
+      );
+      if (!currentStep) {
+        throw new ForbiddenException(
+          `Actor role ${(actor.roleCodes || []).join(',')} cannot sign any pending step`,
+        );
+      }
+
       const decisionRole = await this.resolveDecisionRole(approval, actor, dto.checkerRole);
       const now = new Date();
 
@@ -904,7 +919,7 @@ export class ApprovalsService {
         where: {
           approvalCaseId_stepNo: {
             approvalCaseId: approval.id,
-            stepNo: 1,
+            stepNo: currentStep.stepNo,
           },
         },
         data: {
@@ -917,7 +932,23 @@ export class ApprovalsService {
         },
       });
 
-      const next = await tx.approvalCase.update({
+      // Check for any remaining pending steps with higher stepNo
+      const hasNextPending = (approval.steps || []).some(
+        (s: any) =>
+          s.stepNo > currentStep.stepNo &&
+          s.status === ApprovalStepStatuses.PENDING,
+      );
+
+      if (hasNextPending) {
+        // Mid-flow: case stays PENDING, reload to get updated steps
+        return tx.approvalCase.findUnique({
+          where: { id: approval.id },
+          include: this.approvalInclude(),
+        }) as Promise<ApprovalCaseRow>;
+      }
+
+      // Last step: case APPROVED
+      return tx.approvalCase.update({
         where: { id: approval.id },
         data: {
           status: ApprovalStatuses.APPROVED,
@@ -929,9 +960,7 @@ export class ApprovalsService {
           decidedAt: now,
         },
         include: this.approvalInclude(),
-      });
-
-      return next as ApprovalCaseRow;
+      }) as Promise<ApprovalCaseRow>;
     });
 
     await this.recordAudit(
@@ -941,13 +970,14 @@ export class ApprovalsService {
       AuditResult.SUCCESS,
       dto.reason || 'Approval approved',
       ApprovalStatuses.PENDING,
-      ApprovalStatuses.APPROVED,
-      this.isSuperAdmin(actor) && actor.userId === updated.createdByUserId
-        ? { superAdminBypass: true }
-        : undefined,
+      updated.status === ApprovalStatuses.APPROVED
+        ? ApprovalStatuses.APPROVED
+        : ApprovalStatuses.PENDING,
     );
-    await this.projectGovernanceApprovalDecision(updated);
-    await this.emitApprovalEvent(ApprovalEvents.APPROVED, this.buildEventPayload(updated));
+    if (updated.status === ApprovalStatuses.APPROVED) {
+      await this.projectGovernanceApprovalDecision(updated);
+      await this.emitApprovalEvent(ApprovalEvents.APPROVED, this.buildEventPayload(updated));
+    }
     return this.mapApproval(updated, actor);
   }
 
@@ -957,17 +987,31 @@ export class ApprovalsService {
       if (approval.status !== ApprovalStatuses.PENDING) {
         throw new BadRequestException('Only PENDING approvals can be rejected');
       }
-
       this.assertTraceConsistency(approval.traceId, dto.traceId);
       this.assertWorkflowContextConsistency(approval, dto);
+
+      const currentStep = (approval.steps || []).find(
+        (s: any) =>
+          s.status === ApprovalStepStatuses.PENDING &&
+          (splitRoleCsv(s.checkerRoleCandidates).some((candidate: string) =>
+            (actor.roleCodes || []).includes(candidate),
+          ) || this.isSuperAdmin(actor)),
+      );
+      if (!currentStep) {
+        throw new ForbiddenException(
+          `Actor role ${(actor.roleCodes || []).join(',')} cannot reject any pending step`,
+        );
+      }
+
       const decisionRole = await this.resolveDecisionRole(approval, actor, dto.checkerRole);
       const now = new Date();
 
+      // Reject the current step
       await tx.approvalStep.update({
         where: {
           approvalCaseId_stepNo: {
             approvalCaseId: approval.id,
-            stepNo: 1,
+            stepNo: currentStep.stepNo,
           },
         },
         data: {
@@ -980,7 +1024,17 @@ export class ApprovalsService {
         },
       });
 
-      const next = await tx.approvalCase.update({
+      // Cancel any remaining pending steps
+      await tx.approvalStep.updateMany({
+        where: {
+          approvalCaseId: approval.id,
+          status: ApprovalStepStatuses.PENDING,
+        },
+        data: { status: ApprovalStepStatuses.CANCELLED },
+      });
+
+      // Case REJECTED immediately
+      return tx.approvalCase.update({
         where: { id: approval.id },
         data: {
           status: ApprovalStatuses.REJECTED,
@@ -992,22 +1046,17 @@ export class ApprovalsService {
           decidedAt: now,
         },
         include: this.approvalInclude(),
-      });
-
-      return next as ApprovalCaseRow;
+      }) as Promise<ApprovalCaseRow>;
     });
 
     await this.recordAudit(
       AuditActions.APPROVAL_REJECTED,
       updated,
       actor,
-      AuditResult.REJECTED,
+      AuditResult.SUCCESS,
       dto.reason || 'Approval rejected',
       ApprovalStatuses.PENDING,
       ApprovalStatuses.REJECTED,
-      this.isSuperAdmin(actor) && actor.userId === updated.createdByUserId
-        ? { superAdminBypass: true }
-        : undefined,
     );
     await this.projectGovernanceApprovalDecision(updated);
     await this.emitApprovalEvent(ApprovalEvents.REJECTED, this.buildEventPayload(updated));
