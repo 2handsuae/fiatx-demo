@@ -189,7 +189,7 @@ export class OnboardingFinalApprovalService {
     });
   }
 
-  private buildLatestFinalApprovalBindingPatch(
+  private buildLatestRiskApprovalBindingPatch(
     approvalId?: string | null,
   ): Prisma.CustomerMainUpdateInput {
     if (approvalId) {
@@ -375,7 +375,7 @@ export class OnboardingFinalApprovalService {
       await tx.customerMain.update({
         where: { id: customer.id },
         data: {
-          ...this.buildLatestFinalApprovalBindingPatch(resolved.approval.id),
+          ...this.buildLatestRiskApprovalBindingPatch(resolved.approval.id),
           latestRiskApprovalStatus: resolved.approval.status,
         },
       });
@@ -493,7 +493,7 @@ export class OnboardingFinalApprovalService {
           operatingStatus: 'ACTIVE',
           eddRequired: true,
         }),
-        ...this.buildLatestFinalApprovalBindingPatch(event.approvalId),
+        ...this.buildLatestRiskApprovalBindingPatch(event.approvalId),
         latestRiskApprovalStatus: ApprovalStatuses.APPROVED,
       };
     }
@@ -505,13 +505,13 @@ export class OnboardingFinalApprovalService {
           operatingStatus: 'INACTIVE',
           eddRequired: true,
         }),
-        ...this.buildLatestFinalApprovalBindingPatch(event.approvalId),
+        ...this.buildLatestRiskApprovalBindingPatch(event.approvalId),
         latestRiskApprovalStatus: ApprovalStatuses.REJECTED,
       };
     }
 
     return {
-      ...this.buildLatestFinalApprovalBindingPatch(event.approvalId),
+      ...this.buildLatestRiskApprovalBindingPatch(event.approvalId),
       latestRiskApprovalStatus: status,
     };
   }

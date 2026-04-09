@@ -9,7 +9,7 @@ import {
 } from '../../risk-engine/audit-logs/constants/audit-actions.constant';
 import { AuditResult, AuditTriggerType } from '../../risk-engine/audit-logs/dto/audit-log.dto';
 
-const finalApprovalSummarySelect = {
+const riskApprovalSummarySelect = {
   id: true,
   approvalNo: true,
   status: true,
@@ -34,7 +34,7 @@ const periodicReviewCycleSummarySelect = {
 
 const customerListInclude = {
   latestRiskApproval: {
-    select: finalApprovalSummarySelect,
+    select: riskApprovalSummarySelect,
   },
   activePeriodicReviewCycle: {
     select: periodicReviewCycleSummarySelect,
@@ -55,7 +55,7 @@ const customerDetailInclude = {
     take: 30,
   },
   latestRiskApproval: {
-    select: finalApprovalSummarySelect,
+    select: riskApprovalSummarySelect,
   },
   activePeriodicReviewCycle: {
     select: periodicReviewCycleSummarySelect,

@@ -169,7 +169,7 @@ export class OnboardingWorkflowTransitionService {
     );
   }
 
-  private buildLatestFinalApprovalBindingPatch(
+  private buildLatestRiskApprovalBindingPatch(
     approvalId?: string | null,
   ): Prisma.CustomerMainUpdateInput {
     if (approvalId) {
@@ -540,7 +540,7 @@ export class OnboardingWorkflowTransitionService {
             operatingStatus: 'ACTIVE',
             eddRequired: false,
           }),
-          ...this.buildLatestFinalApprovalBindingPatch(null),
+          ...this.buildLatestRiskApprovalBindingPatch(null),
           latestRiskApprovalStatus: null,
           cddDocumentExpiresAt: this.addDays(now, 365),
           nextReviewAt: this.addDays(now, 365),
@@ -555,7 +555,7 @@ export class OnboardingWorkflowTransitionService {
             operatingStatus: 'INACTIVE',
             eddRequired: false,
           }),
-          ...this.buildLatestFinalApprovalBindingPatch(null),
+          ...this.buildLatestRiskApprovalBindingPatch(null),
           latestRiskApprovalStatus: null,
         };
       } else if (workflowDecision === 'REQUIRE_EDD') {
@@ -574,7 +574,7 @@ export class OnboardingWorkflowTransitionService {
             operatingStatus: 'INACTIVE',
             eddRequired: true,
           }),
-          ...this.buildLatestFinalApprovalBindingPatch(null),
+          ...this.buildLatestRiskApprovalBindingPatch(null),
           latestRiskApprovalStatus: null,
           cddDocumentExpiresAt: this.addDays(now, 365),
         };
@@ -632,7 +632,7 @@ export class OnboardingWorkflowTransitionService {
             operatingStatus: 'INACTIVE',
             eddRequired: true,
           }),
-          ...this.buildLatestFinalApprovalBindingPatch(
+          ...this.buildLatestRiskApprovalBindingPatch(
             pendingFinalApproval.approval.id,
           ),
           latestRiskApprovalStatus: pendingFinalApproval.approval.status || 'PENDING',
@@ -647,7 +647,7 @@ export class OnboardingWorkflowTransitionService {
             operatingStatus: 'INACTIVE',
             eddRequired: true,
           }),
-          ...this.buildLatestFinalApprovalBindingPatch(null),
+          ...this.buildLatestRiskApprovalBindingPatch(null),
           latestRiskApprovalStatus: null,
         };
       } else {

@@ -33,7 +33,7 @@ DROP INDEX "swap_quotes_ownerNo_idx";
 -- DropIndex
 DROP INDEX "swap_transactions_quoteNo_idx";
 
--- CreateTable (order: client_risk_assessments first to avoid FK forward-ref issues)
+-- CreateTable order: client_risk_assessments first (no deps), then customer_material_holdings, then material_refresh_cycles (forward FK from holdings.activeRefreshCycleId is checked at DML time in SQLite, not DDL)
 CREATE TABLE "client_risk_assessments" (
     "id" TEXT NOT NULL PRIMARY KEY,
     "assessmentNo" TEXT NOT NULL,

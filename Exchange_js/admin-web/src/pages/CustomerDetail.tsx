@@ -292,7 +292,7 @@ const CustomerDetail = () => {
       !!detail?.periodicReviewOverdueAt,
     [detail],
   );
-  const hasFinalApproval = useMemo(
+  const hasRiskApproval = useMemo(
     () => !!detail?.latestRiskApprovalId || !!detail?.latestRiskApproval,
     [detail],
   );
@@ -359,7 +359,7 @@ const CustomerDetail = () => {
 
   const name = displayName(detail);
   const isCorporate = detail.customerType === 'CORPORATE';
-  const finalApprovalStatus =
+  const riskApprovalStatus =
     detail.latestRiskApprovalStatus || detail.latestRiskApproval?.status || null;
   const canRestrict = detail.restrictionStatus !== 'RESTRICTED';
   const canUnrestrict = detail.restrictionStatus === 'RESTRICTED';
@@ -550,12 +550,12 @@ const CustomerDetail = () => {
             </section>
           )}
 
-          {/* ⑦ Final Approval (as linked card) */}
-          {hasFinalApproval && (
+          {/* ⑦ Risk Approval (as linked card) */}
+          {hasRiskApproval && (
             <section className="px-6 py-5">
-              <Cap>Final Approval</Cap>
+              <Cap>Risk Approval</Cap>
               <p className="mt-1 mb-4 font-mono text-[9px] text-adm-t3">
-                Latest onboarding final approval workflow
+                Latest onboarding risk approval workflow
               </p>
               <button
                 onClick={() =>
@@ -565,14 +565,14 @@ const CustomerDetail = () => {
               >
                 <div className="flex min-w-0 flex-col gap-0.5">
                   <span className="font-mono text-[8.5px] uppercase tracking-[0.14em] text-adm-t3">
-                    Onboarding Final Approval
+                    Onboarding Risk Approval
                   </span>
                   <span className="truncate font-mono text-[11px] font-semibold text-adm-amber">
                     {detail.latestRiskApproval?.approvalNo || detail.latestRiskApprovalId}
                   </span>
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
-                  {finalApprovalStatus && <AdminBadge value={finalApprovalStatus} />}
+                  {riskApprovalStatus && <AdminBadge value={riskApprovalStatus} />}
                   <Link2 size={13} className="text-adm-t3" />
                 </div>
               </button>
