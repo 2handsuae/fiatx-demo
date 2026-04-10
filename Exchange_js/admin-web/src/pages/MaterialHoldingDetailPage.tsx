@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { RefreshCw } from 'lucide-react';
 import {
@@ -9,6 +9,8 @@ import {
 } from '../utils/adminFetch';
 import {
   DetailPageHeader,
+  DetailCard,
+  InfoField,
 } from '../components/compliance/DetailPageComponents';
 import { adminButtonClass } from '../components/common/adminButtonStyles';
 import { AdminBadge } from '../components/ui/AdminBadge';
@@ -65,39 +67,6 @@ const fmtDateTime = (v?: string | null): string => {
   if (!v) return '—';
   const d = new Date(v);
   return Number.isNaN(d.getTime()) ? v : d.toLocaleString();
-};
-
-/* ── Layout primitives ───────────────────────────────────────── */
-
-const Cap = ({ children }: { children: ReactNode }) => (
-  <p className="font-mono text-[8.5px] font-semibold uppercase tracking-[0.16em] text-adm-t3">
-    {children}
-  </p>
-);
-
-const KV = ({
-  label,
-  value,
-  mono = false,
-}: {
-  label: string;
-  value: ReactNode;
-  mono?: boolean;
-}) => {
-  if (value === null || value === undefined || value === '' || value === '—') return null;
-  return (
-    <div className="flex items-baseline gap-3">
-      <span className="w-36 shrink-0 font-mono text-[9px] text-adm-t3">{label}</span>
-      <span
-        className={[
-          'min-w-0 break-all text-adm-t2',
-          mono ? 'font-mono text-[10px]' : 'text-[11px]',
-        ].join(' ')}
-      >
-        {value}
-      </span>
-    </div>
-  );
 };
 
 /* ─────────────────────────────────────────────────────────────── */
@@ -240,15 +209,6 @@ const MaterialHoldingDetailPage = () => {
         ? `${Math.abs(daysLeft)} days overdue`
         : `${daysLeft} days left`;
 
-  const daysColor =
-    daysLeft === null || daysLeft === undefined
-      ? 'text-adm-t3'
-      : daysLeft < 7
-        ? 'text-adm-red font-bold'
-        : daysLeft <= 30
-          ? 'text-adm-amber font-semibold'
-          : 'text-adm-green';
-
   const stageButtons: { stage: SimStage; label: string }[] = [
     { stage: 'T_MINUS_30', label: '→ T-30 Nudge' },
     { stage: 'T_MINUS_7',  label: '→ T-7 Urgent' },
@@ -303,82 +263,29 @@ const MaterialHoldingDetailPage = () => {
       <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
 
         {/* ════ Section 1: Holding Info ════ */}
-        <section className="rounded-lg border border-adm-border bg-adm-panel shadow-sm overflow-hidden">
-          <div className="flex items-center gap-2 border-b border-adm-border bg-adm-card px-4 py-2.5">
-            <Cap>Holding Details</Cap>
-          </div>
-          <div className="px-5 py-4 space-y-2.5">
-            {/* Customer header */}
-            <div className="mb-3">
-              <p className="font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">Customer</p>
-              <button
-                className={adminButtonClass('rowLink')}
-                onClick={() => navigate(`/dashboard/customer/management/${detail.customer.id}`)}
-              >
-                {detail.customer.customerNo} ({detail.customer.email})
-              </button>
-            </div>
-
-            {/* Status row */}
-            <div className="flex flex-wrap items-center gap-3 pb-3 border-b border-adm-border">
-              <div>
-                <p className="mb-1 font-mono text-[8.5px] uppercase tracking-[0.12em] text-adm-t3">Status</p>
-                <AdminBadge value={detail.status} />
-              </div>
-              <div>
-                <p className="mb-1 font-mono text-[8.5px] uppercase tracking-[0.12em] text-adm-t3">Risk Tier</p>
-                <AdminBadge value={detail.customer.riskTier} />
-              </div>
-              {detail.customer.sumsubCurrentLevelName && (
-                <div>
-                  <p className="mb-1 font-mono text-[8.5px] uppercase tracking-[0.12em] text-adm-t3">Sumsub Level</p>
-                  <span className="font-mono text-[10px] text-adm-t2">
-                    {detail.customer.sumsubCurrentLevelName}
-                  </span>
-                </div>
-              )}
-              {detail.customer.restrictionStatus && (
-                <div>
-                  <p className="mb-1 font-mono text-[8.5px] uppercase tracking-[0.12em] text-adm-t3">Restriction</p>
-                  <AdminBadge value={detail.customer.restrictionStatus} />
-                </div>
-              )}
-            </div>
-
-            {/* Fields */}
-            <KV label="Management Mode"     value={detail.managementMode} />
-            <KV label="Level"               value={detail.levelName} mono />
-            <KV label="Sumsub Action Level" value={detail.sumsubActionLevelName} mono />
-            <KV label="Verified At"         value={fmtDate(detail.verifiedAt)} mono />
-            <KV
-              label="Expires At"
-              value={
-                detail.expiresAt
-                  ? (
-                    <span>
-                      {fmtDate(detail.expiresAt)}
-                      {daysLabel && (
-                        <span className={`ml-2 font-mono text-[10px] ${daysColor}`}>
-                          ({daysLabel})
-                        </span>
-                      )}
-                    </span>
-                  )
-                  : '—'
-              }
-            />
-          </div>
-        </section>
+        <DetailCard title="Holding Details" columns={3}>
+          <InfoField label="Customer" value={`${detail.customer.customerNo} (${detail.customer.email})`} link={`/dashboard/customer/management/${detail.customer.id}`} />
+          <InfoField label="Material Type" value={detail.materialType} accent />
+          <InfoField label="Management Mode" value={detail.managementMode} mono />
+          <InfoField label="Status" value={<AdminBadge value={detail.status} />} />
+          <InfoField label="Risk Tier" value={<AdminBadge value={detail.customer.riskTier} />} />
+          <InfoField label="Sumsub Level" value={detail.customer.sumsubCurrentLevelName} mono />
+          <InfoField label="Restriction" value={detail.customer.restrictionStatus ? <AdminBadge value={detail.customer.restrictionStatus} /> : null} />
+          <InfoField label="Verified At" value={fmtDate(detail.verifiedAt)} mono />
+          <InfoField
+            label="Expires At"
+            value={detail.expiresAt ? `${fmtDate(detail.expiresAt)} (${daysLabel || ''})` : null}
+            highlight={daysLeft !== null && daysLeft !== undefined && daysLeft < 7}
+          />
+          <InfoField label="Sumsub Action Level" value={detail.sumsubActionLevelName} mono />
+        </DetailCard>
 
         {/* ════ Section 2: Simulation Panel ════ */}
-        <section className="rounded-lg border border-adm-border bg-adm-panel shadow-sm overflow-hidden">
-          <div className="flex items-center gap-2 border-b border-adm-border bg-adm-card px-4 py-2.5">
-            <Cap>§ Stage Simulation</Cap>
-          </div>
-          <div className="px-5 py-4 space-y-4">
+        <DetailCard title="Stage Simulation" columns={1}>
+          <div className="space-y-4">
             <div>
               <p className="mb-2 font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">
-                Stage simulation
+                Lifecycle stage simulation
               </p>
               <div className="flex flex-wrap gap-2">
                 {stageButtons.map(({ stage, label }) => (
@@ -393,8 +300,7 @@ const MaterialHoldingDetailPage = () => {
                 ))}
               </div>
             </div>
-
-            <div>
+            <div className="border-t border-adm-border pt-4">
               <p className="mb-2 font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">
                 Customer action simulation
               </p>
@@ -412,76 +318,64 @@ const MaterialHoldingDetailPage = () => {
               </div>
             </div>
           </div>
-        </section>
+        </DetailCard>
 
         {/* ════ Section 3: Refresh Cycle History ════ */}
-        <section className="rounded-lg border border-adm-border bg-adm-panel shadow-sm overflow-hidden">
-          <div className="flex items-center gap-2 border-b border-adm-border bg-adm-card px-4 py-2.5">
-            <Cap>§ Refresh Cycle History</Cap>
-          </div>
-          <div className="divide-y divide-adm-border">
-            {detail.refreshCycles.length === 0 && (
-              <p className="px-5 py-4 font-mono text-[11px] text-adm-t3">
-                No refresh cycles yet.
-              </p>
-            )}
-            {detail.refreshCycles.map((cycle) => {
-              const isActive = cycle.id === detail.activeRefreshCycleId;
-              return (
-                <div
-                  key={cycle.id}
-                  className={[
-                    'px-5 py-3.5 space-y-1.5',
-                    isActive ? 'bg-adm-blue/4' : '',
-                  ].join(' ')}
-                >
-                  {/* Header row */}
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-mono text-[11px] font-semibold text-adm-amber">
-                      {cycle.cycleNo}
-                    </span>
-                    <AdminBadge value={cycle.status} />
-                    {cycle.stage && (
+        <DetailCard title="Refresh Cycle History" columns={1}>
+          {detail.refreshCycles.length === 0 ? (
+            <p className="font-mono text-[11px] text-adm-t3">No refresh cycles yet.</p>
+          ) : (
+            <div className="divide-y divide-adm-border -mx-4">
+              {detail.refreshCycles.map((cycle) => {
+                const isActive = cycle.id === detail.activeRefreshCycleId;
+                return (
+                  <div
+                    key={cycle.id}
+                    className={`px-4 py-3.5 space-y-1.5 ${isActive ? 'bg-adm-blue/5' : ''}`}
+                  >
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-mono text-[11px] font-semibold text-adm-amber">
+                        {cycle.cycleNo}
+                      </span>
+                      <AdminBadge value={cycle.status} />
+                      {cycle.stage && (
+                        <span className="font-mono text-[9px] text-adm-t3">{cycle.stage}</span>
+                      )}
                       <span className="font-mono text-[9px] text-adm-t3">
-                        {cycle.stage}
+                        Created: {fmtDate(cycle.createdAt)}
                       </span>
+                      {cycle.clearedAt && (
+                        <span className="font-mono text-[9px] text-adm-t3">
+                          Cleared: {fmtDate(cycle.clearedAt)}
+                        </span>
+                      )}
+                      {isActive && (
+                        <span className="font-mono text-[9px] font-semibold text-adm-blue">
+                          ← active cycle
+                        </span>
+                      )}
+                    </div>
+                    {cycle.sumsubActionId && (
+                      <p className="font-mono text-[9px] text-adm-t3">
+                        Sumsub Action: {cycle.sumsubActionId}
+                      </p>
                     )}
-                    <span className="font-mono text-[9px] text-adm-t3">
-                      Created: {fmtDate(cycle.createdAt)}
-                    </span>
-                    {cycle.clearedAt && (
-                      <span className="font-mono text-[9px] text-adm-t3">
-                        Cleared: {fmtDate(cycle.clearedAt)}
-                      </span>
+                    {cycle.resolution && (
+                      <p className="font-mono text-[9px] text-adm-t3">
+                        Resolution: {cycle.resolution}
+                      </p>
                     )}
-                    {isActive && (
-                      <span className="font-mono text-[9px] font-semibold text-adm-blue">
-                        ← active cycle
-                      </span>
+                    {cycle.graceExpiresAt && (
+                      <p className="font-mono text-[9px] text-adm-t3">
+                        Grace expires: {fmtDateTime(cycle.graceExpiresAt)}
+                      </p>
                     )}
                   </div>
-
-                  {/* Details */}
-                  {cycle.sumsubActionId && (
-                    <p className="font-mono text-[9px] text-adm-t3">
-                      Sumsub Action: {cycle.sumsubActionId}
-                    </p>
-                  )}
-                  {cycle.resolution && (
-                    <p className="font-mono text-[9px] text-adm-t3">
-                      Resolution: {cycle.resolution}
-                    </p>
-                  )}
-                  {cycle.graceExpiresAt && (
-                    <p className="font-mono text-[9px] text-adm-t3">
-                      Grace expires: {fmtDateTime(cycle.graceExpiresAt)}
-                    </p>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </section>
+                );
+              })}
+            </div>
+          )}
+        </DetailCard>
 
       </div>
     </div>
