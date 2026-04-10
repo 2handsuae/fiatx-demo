@@ -216,6 +216,44 @@ const SidebarKV = ({
 
 /* ─────────────────────────────────────────────────────────────── */
 
+/* ── Material Holding (summary) ─────────────────────────────── */
+
+interface MaterialHoldingSummary {
+  id: string;
+  materialType: string;
+  status: string;
+  expiresAt?: string | null;
+  daysFromExpiry?: number | null;
+  activeRefreshCycle?: {
+    id: string;
+    cycleNo: string;
+  } | null;
+}
+
+/* ── DaysLeftCell (inline, compact) ─────────────────────────── */
+
+const DaysLeftCell = ({ days }: { days?: number | null }) => {
+  if (days === null || days === undefined) {
+    return <span className="font-mono text-[10px] text-adm-t3">—</span>;
+  }
+  if (days < 0) {
+    return (
+      <span className="font-mono text-[10px] font-bold text-adm-red">
+        {days}d (exp)
+      </span>
+    );
+  }
+  if (days < 7) {
+    return <span className="font-mono text-[10px] font-bold text-adm-red">{days}d</span>;
+  }
+  if (days <= 30) {
+    return <span className="font-mono text-[10px] font-semibold text-adm-amber">{days}d</span>;
+  }
+  return <span className="font-mono text-[10px] text-adm-t2">{days}d</span>;
+};
+
+/* ─────────────────────────────────────────────────────────────── */
+
 const CustomerDetail = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -225,6 +263,11 @@ const CustomerDetail = () => {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState<string | null>(null);
   const [controlAction, setControlAction] = useState<CustomerControlAction | null>(null);
+
+  /* ── Material holdings state ── */
+  const [holdings, setHoldings] = useState<MaterialHoldingSummary[]>([]);
+  const [tierSaving, setTierSaving] = useState(false);
+  const [tierMessage, setTierMessage] = useState<string | null>(null);
 
   /* ── Fetching ── */
 
@@ -267,6 +310,29 @@ const CustomerDetail = () => {
     return () => window.clearTimeout(t);
   }, [notice]);
 
+  /* Auto-dismiss tier message */
+  useEffect(() => {
+    if (!tierMessage) return undefined;
+    const t = window.setTimeout(
+      () => setTierMessage((c) => (c === tierMessage ? null : c)),
+      5000,
+    );
+    return () => window.clearTimeout(t);
+  }, [tierMessage]);
+
+  /* ── Load material holdings whenever customer id is available ── */
+  const fetchHoldings = (customerId: string) => {
+    adminFetch(`${import.meta.env.VITE_API_URL}/admin/material-management/holdings?customerId=${customerId}`)
+      .then((r) => r.json())
+      .then((d: { items?: MaterialHoldingSummary[] }) => setHoldings(d.items || []))
+      .catch(() => {});
+  };
+
+  useEffect(() => {
+    if (detail?.id) fetchHoldings(detail.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [detail?.id]);
+
   /* ── Derived booleans ── */
 
   const hasCorporate = useMemo(
@@ -303,6 +369,69 @@ const CustomerDetail = () => {
       !!detail?.sumsubApplicantId,
     [detail],
   );
+
+  /* ── Tier simulation handlers ── */
+
+  const simulateTier = async (tier: 'LOW' | 'MEDIUM' | 'HIGH') => {
+    if (!detail) return;
+    setTierSaving(true);
+    try {
+      const res = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/admin/material-management/customers/${detail.id}/simulate-tier-change`,
+        { method: 'POST', body: JSON.stringify({ targetTier: tier }) },
+      );
+      const data = await res.json() as { ok?: boolean; previousTier?: string; newTier?: string; newLevel?: string };
+      if (data.ok) {
+        setTierMessage(`Tier changed: ${data.previousTier ?? '?'} → ${data.newTier ?? tier} (level: ${data.newLevel ?? '?'})`);
+        await fetchDetail();
+        if (detail?.id) fetchHoldings(detail.id);
+      } else {
+        setTierMessage('Simulate-tier-change returned ok=false');
+      }
+    } catch (err) {
+      setTierMessage('Failed: ' + (err instanceof Error ? err.message : String(err)));
+    } finally {
+      setTierSaving(false);
+    }
+  };
+
+  const simulatePepOrSanctions = async (type: 'PEP' | 'SANCTIONS') => {
+    if (!detail) return;
+    setTierSaving(true);
+    try {
+      // Step 1: Trigger assessment
+      await adminFetch(
+        `${import.meta.env.VITE_API_URL}/admin/compliance/customers/${detail.id}/risk-assessment/trigger`,
+        { method: 'POST', body: JSON.stringify({ reason: `Demo ${type} simulation` }) },
+      );
+
+      // Step 2: Simulate AML result
+      const labels = type === 'PEP' ? ['PEP_CLASS_1_DOMESTIC'] : ['SANCTIONS_UN'];
+      await adminFetch(
+        `${import.meta.env.VITE_API_URL}/admin/sumsub/simulate/aml-check-result`,
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            customerId: detail.id,
+            reviewAnswer: 'RED',
+            rejectLabels: labels,
+          }),
+        },
+      );
+
+      setTierMessage(
+        type === 'PEP'
+          ? 'PEP detected — customer RESTRICTED, dual-sign approval created'
+          : 'Sanctions hit — customer FROZEN',
+      );
+      await fetchDetail();
+      if (detail?.id) fetchHoldings(detail.id);
+    } catch (err) {
+      setTierMessage('Failed: ' + (err instanceof Error ? err.message : String(err)));
+    } finally {
+      setTierSaving(false);
+    }
+  };
 
   /* ── Loading / error stubs ── */
 
@@ -655,7 +784,154 @@ const CustomerDetail = () => {
             </div>
           </section>
 
-          {/* ⑩ Corporate Profile (only for CORPORATE) */}
+          {/* ⑩ Material Holdings Summary */}
+          <section className="px-6 py-5">
+            <Cap>Material Holdings</Cap>
+            <p className="mt-1 mb-3 font-mono text-[9px] text-adm-t3">
+              Active KYC material holdings for this customer
+            </p>
+            {holdings.length === 0 ? (
+              <p className="font-mono text-[10px] text-adm-t3">No holdings found.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full border-collapse text-sm">
+                  <thead>
+                    <tr>
+                      {(['Material', 'Status', 'Expires', 'Days Left', 'Cycle'] as string[]).map((h) => (
+                        <th
+                          key={h}
+                          className="border-b border-adm-border bg-adm-panel px-3 py-1.5 text-left font-mono text-[8.5px] font-semibold uppercase tracking-[0.12em] text-adm-t3 whitespace-nowrap"
+                        >
+                          {h}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {holdings.map((h) => (
+                      <tr
+                        key={h.id}
+                        className="cursor-pointer border-b border-adm-border transition-colors hover:bg-adm-hover"
+                        onClick={() => navigate(`/dashboard/compliance/material-management/${h.id}`)}
+                      >
+                        <td className="px-3 py-2 font-mono text-[10px] text-adm-t2 whitespace-nowrap">
+                          {h.materialType}
+                        </td>
+                        <td className="px-3 py-2 whitespace-nowrap">
+                          <AdminBadge value={h.status} />
+                        </td>
+                        <td className="px-3 py-2 font-mono text-[10px] text-adm-t2 whitespace-nowrap">
+                          {h.expiresAt
+                            ? new Date(h.expiresAt).toLocaleDateString()
+                            : '—'}
+                        </td>
+                        <td className="px-3 py-2 whitespace-nowrap">
+                          <DaysLeftCell days={h.daysFromExpiry} />
+                        </td>
+                        <td className="px-3 py-2 font-mono text-[10px] whitespace-nowrap">
+                          {h.activeRefreshCycle ? (
+                            <button
+                              className={adminButtonClass('rowLink')}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                navigate(`/dashboard/compliance/material-management/${h.id}`);
+                              }}
+                            >
+                              {h.activeRefreshCycle.cycleNo} →
+                            </button>
+                          ) : (
+                            <span className="text-adm-t3">—</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            <div className="mt-3">
+              <button
+                className={adminButtonClass('rowLink')}
+                onClick={() =>
+                  navigate(
+                    `/dashboard/compliance/material-management?customerId=${detail.id}`,
+                  )
+                }
+              >
+                View All →
+              </button>
+            </div>
+          </section>
+
+          {/* ⑪ Quick Tier Assignment (Demo) */}
+          <section className="px-6 py-5">
+            <Cap>Risk Tier Simulation (Demo)</Cap>
+            <p className="mt-1 mb-4 font-mono text-[9px] text-adm-t3">
+              Simulate AML check results to change this customer's risk tier. Demo only.
+            </p>
+
+            {/* Current tier display */}
+            <div className="mb-4 flex flex-wrap items-center gap-3">
+              <span className="font-mono text-[9px] text-adm-t3">Current tier:</span>
+              <AdminBadge value={detail.amlRiskTier || 'NONE'} />
+              {detail.sumsubCurrentLevelName && (
+                <>
+                  <span className="font-mono text-[9px] text-adm-t3">|  Level:</span>
+                  <span className="font-mono text-[10px] text-adm-t2">
+                    {detail.sumsubCurrentLevelName}
+                  </span>
+                </>
+              )}
+            </div>
+
+            {/* Tier message */}
+            {tierMessage && (
+              <div className="mb-3 rounded border border-adm-green/30 bg-adm-green/10 px-3 py-2 font-mono text-[10px] text-adm-green">
+                {tierMessage}
+              </div>
+            )}
+
+            {/* Quick assign buttons */}
+            <div className="flex flex-wrap gap-2">
+              <button
+                disabled={tierSaving}
+                onClick={() => void simulateTier('LOW')}
+                className={adminButtonClass('workflowSecondary')}
+              >
+                LOW
+              </button>
+              <button
+                disabled={tierSaving}
+                onClick={() => void simulateTier('MEDIUM')}
+                className={adminButtonClass('workflowSecondary')}
+              >
+                MEDIUM
+              </button>
+              <button
+                disabled={tierSaving}
+                onClick={() => void simulateTier('HIGH')}
+                className={adminButtonClass('workflowSecondary')}
+              >
+                HIGH
+              </button>
+              <button
+                disabled={tierSaving}
+                onClick={() => void simulatePepOrSanctions('PEP')}
+                className={adminButtonClass('workflowNegative')}
+              >
+                PEP
+              </button>
+              <button
+                disabled={tierSaving}
+                onClick={() => void simulatePepOrSanctions('SANCTIONS')}
+                className={adminButtonClass('workflowNegative')}
+              >
+                SANCTIONS
+              </button>
+            </div>
+          </section>
+
+          {/* ⑫ Corporate Profile (only for CORPORATE) */}
           {hasCorporate && detail.corporateProfile && (
             <section className="px-6 py-5">
               <Cap>Corporate Profile</Cap>
