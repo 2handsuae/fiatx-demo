@@ -30,6 +30,7 @@
     "config:release:validate": "ts-node -r tsconfig-paths/register scripts/config-release-validate.ts",
     "config:release:publish": "ts-node -r tsconfig-paths/register scripts/config-release-publish.ts",
     "runtime:diagnose": "bash scripts/runtime-diagnose.sh",
+    "wave3:seed": "ts-node scripts/wave3-demo-seed.ts",
     "wave1:repair": "ts-node scripts/wave1-repair.ts",
     "wave1:audit:workflow:backfill:dry": "ts-node scripts/backfill-wave1-audit-workflows.ts",
     "wave1:audit:workflow:backfill:apply": "ts-node scripts/backfill-wave1-audit-workflows.ts --apply",
