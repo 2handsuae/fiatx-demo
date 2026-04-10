@@ -351,6 +351,50 @@ export class MaterialRefreshService {
     return createdCycles;
   }
 
+  /**
+   * Seed initial holdings for a freshly onboarded customer.
+   * Materials start as FRESH with correct expiresAt — no cycle needed yet.
+   */
+  async seedInitialHoldings(customerId: string, levelName: string): Promise<void> {
+    const customer = await this.prisma.customerMain.findUnique({
+      where: { id: customerId },
+    });
+    if (!customer) return;
+
+    const policy = this.policyLoader.getPolicy();
+    const required = getRequiredMaterialsForLevel(levelName, policy);
+    const existing = await this.prisma.customerMaterialHolding.findMany({
+      where: { customerId },
+      select: { materialType: true },
+    });
+    const existingTypes = new Set(existing.map((h: any) => h.materialType));
+
+    for (const materialType of required) {
+      if (existingTypes.has(materialType)) continue;
+
+      const config = policy.materials[materialType];
+      if (!config) continue;
+
+      let expiresAt: Date | null = null;
+      if (config.windowDays) {
+        const days = config.windowDays[customer.riskTier as string];
+        if (days) expiresAt = addDays(new Date(), days);
+      }
+
+      await this.prisma.customerMaterialHolding.create({
+        data: {
+          holdingNo: generateReferenceNo('CMH'),
+          customerId,
+          materialType,
+          managementMode: config.managementMode,
+          verifiedAt: new Date(),
+          expiresAt,
+          status: 'FRESH',
+        },
+      });
+    }
+  }
+
   private mapSumsubDocToMaterialType(idDoc: any): string | null {
     if (idDoc.idDocType === 'ID_CARD' && idDoc.country === 'ARE') return 'EMIRATES_ID';
     if (idDoc.idDocType === 'PASSPORT') return 'PASSPORT';

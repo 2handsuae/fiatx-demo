@@ -15,7 +15,10 @@ export type AssessmentTriggerType =
 @Injectable()
 export class ClientRiskAssessmentService {
   /** Property-injected in module to avoid circular deps */
-  materialRefreshService?: { recomputeHoldingsForCustomer: (id: string, levelName: string) => Promise<any> };
+  materialRefreshService?: {
+    recomputeHoldingsForCustomer: (id: string, levelName: string) => Promise<any>;
+    seedInitialHoldings: (id: string, levelName: string) => Promise<void>;
+  };
 
   constructor(
     @Inject(PrismaService)
@@ -390,15 +393,20 @@ export class ClientRiskAssessmentService {
       }
     }
 
-    // Trigger Layer 3 recompute
-    if (tierChanged && this.materialRefreshService) {
+    // Trigger Layer 3: seed initial holdings on first onboarding, recompute on tier change
+    if (this.materialRefreshService) {
+      const holdingCount = await this.prisma.customerMaterialHolding.count({
+        where: { customerId: customer.id },
+      });
+      const levelName = customer.sumsubCurrentLevelName || 'wave3-level-1';
       try {
-        await this.materialRefreshService.recomputeHoldingsForCustomer(
-          customer.id,
-          customer.sumsubCurrentLevelName || 'wave3-level-1',
-        );
+        if (holdingCount === 0) {
+          await this.materialRefreshService.seedInitialHoldings(customer.id, levelName);
+        } else if (tierChanged) {
+          await this.materialRefreshService.recomputeHoldingsForCustomer(customer.id, levelName);
+        }
       } catch (err) {
-        console.error(`Layer 3 recompute failed for ${customer.id}:`, err);
+        console.error(`Layer 3 holdings failed for ${customer.id}:`, err);
       }
     }
   }
