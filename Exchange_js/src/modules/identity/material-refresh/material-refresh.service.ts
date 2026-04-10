@@ -11,6 +11,14 @@ function addDays(date: Date, days: number): Date {
   return new Date(date.getTime() + days * 24 * 60 * 60 * 1000);
 }
 
+/** Normalize Sumsub level names (e.g. "level2" → "wave3-level-2") to match policy config */
+function normalizeLevelName(raw: string): string {
+  if (raw.startsWith('wave3-')) return raw;
+  if (raw === 'level2' || raw === 'level-2') return 'wave3-level-2';
+  if (raw === 'level1' || raw === 'level-1') return 'wave3-level-1';
+  return `wave3-${raw}`;
+}
+
 @Injectable()
 export class MaterialRefreshService {
   constructor(
@@ -280,7 +288,7 @@ export class MaterialRefreshService {
     }
 
     // Check for missing required materials
-    const required = getRequiredMaterialsForLevel(levelName, policy);
+    const required = getRequiredMaterialsForLevel(normalizeLevelName(levelName), policy);
     const existingTypes = new Set(holdings.map((h: any) => h.materialType));
     for (const h of holdings) {
       const cfg = policy.materials[h.materialType];
@@ -362,7 +370,7 @@ export class MaterialRefreshService {
     if (!customer) return;
 
     const policy = this.policyLoader.getPolicy();
-    const required = getRequiredMaterialsForLevel(levelName, policy);
+    const required = getRequiredMaterialsForLevel(normalizeLevelName(levelName), policy);
     const existing = await this.prisma.customerMaterialHolding.findMany({
       where: { customerId },
       select: { materialType: true },
