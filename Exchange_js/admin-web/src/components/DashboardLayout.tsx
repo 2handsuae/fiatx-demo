@@ -294,8 +294,14 @@ const DashboardLayout = () => {
         },
         {
           path: '/dashboard/compliance/material-management',
-          label: 'Material Management',
+          label: 'Material Holdings',
           icon: <FileText size={13} />,
+          requiredPermissions: [PERMISSIONS.CUSTOMERS_READ],
+        },
+        {
+          path: '/dashboard/compliance/refresh-cycles',
+          label: 'Refresh Cycles',
+          icon: <History size={13} />,
           requiredPermissions: [PERMISSIONS.CUSTOMERS_READ],
         },
       ],

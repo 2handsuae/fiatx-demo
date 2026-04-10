@@ -24,6 +24,46 @@ export class AdminMaterialManagementController {
     }
   }
 
+  @Get('cycles')
+  @ApiOperation({ summary: 'List all material refresh cycles across customers' })
+  async listCycles(
+    @Req() req: any,
+    @Query('customerId') customerId?: string,
+    @Query('status') status?: string,
+    @Query('materialType') materialType?: string,
+    @Query('stage') stage?: string,
+    @Query('skip') skip?: string,
+    @Query('take') take?: string,
+  ) {
+    this.ensureAdmin(req);
+
+    const where: any = {};
+    if (customerId) where.customerId = customerId;
+    if (status) where.status = status;
+    if (materialType) where.materialType = materialType;
+    if (stage) where.stage = stage;
+
+    const [items, total] = await Promise.all([
+      this.prisma.materialRefreshCycle.findMany({
+        where,
+        include: {
+          customer: {
+            select: { customerNo: true, email: true, riskTier: true },
+          },
+          holding: {
+            select: { materialType: true, status: true, expiresAt: true },
+          },
+        },
+        orderBy: [{ createdAt: 'desc' }],
+        skip: parseInt(skip || '0', 10),
+        take: Math.min(parseInt(take || '50', 10), 200),
+      }),
+      this.prisma.materialRefreshCycle.count({ where }),
+    ]);
+
+    return { items, total };
+  }
+
   @Get('holdings')
   @ApiOperation({ summary: 'List all material holdings across customers' })
   async listHoldings(

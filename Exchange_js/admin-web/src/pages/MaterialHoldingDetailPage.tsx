@@ -291,7 +291,6 @@ const MaterialHoldingDetailPage = () => {
       {/* ── Header ── */}
       <DetailPageHeader
         title="Material Holding"
-        subtitle={materialLabel}
         onBack={() => navigate('/dashboard/compliance/material-management')}
         onRefresh={() => void fetchDetail()}
         refreshing={loading}
