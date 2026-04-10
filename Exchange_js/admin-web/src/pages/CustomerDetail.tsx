@@ -78,6 +78,7 @@ interface CustomerDetailData {
   complianceHoldReason?: string | null;
   complianceHoldSetAt?: string | null;
   complianceHoldReleasedAt?: string | null;
+  riskTier?: string | null;
   amlRiskTier?: string | null;
   eddRequired?: boolean;
   cddDocumentExpiresAt?: string | null;
@@ -585,7 +586,7 @@ const CustomerDetail = () => {
                 <Field label="Operating Status" value={detail.operatingStatus ?? 'INACTIVE'} />
                 <Field label="Restriction Status" value={detail.restrictionStatus ?? 'CLEAR'} />
                 <Field label="Compliance Hold" value={detail.complianceHoldStatus ?? 'ACTIVE'} />
-                <Field label="AML Risk Tier" value={detail.amlRiskTier ?? undefined} />
+                <Field label="Risk Tier" value={detail.riskTier || detail.amlRiskTier || undefined} />
                 <Field label="EDD Required" value={detail.eddRequired ? 'YES' : 'NO'} />
                 <Field label="CDD Document Expires" value={fmt(detail.cddDocumentExpiresAt)} mono />
                 <Field label="Next Review" value={fmt(detail.nextReviewAt)} mono />
@@ -1019,7 +1020,7 @@ const CustomerDetail = () => {
 
           {/* Risk */}
           <SidebarGroup title="Risk">
-            <SidebarKV label="AML Tier" value={detail.amlRiskTier} />
+            <SidebarKV label="Risk Tier" value={detail.riskTier || detail.amlRiskTier} />
             <SidebarKV label="EDD Required" value={detail.eddRequired ? 'YES' : 'NO'} />
             <SidebarKV
               label="Investor"

@@ -614,7 +614,7 @@ export class OnboardingFinalApprovalService {
         const defaultTier = level.includes('level-2') || level.includes('level2') ? 'HIGH' : 'LOW';
         await this.prisma.customerMain.update({
           where: { id: updated.id },
-          data: { riskTier: defaultTier, riskTierUpdatedAt: new Date() },
+          data: { riskTier: defaultTier, amlRiskTier: defaultTier, riskTierUpdatedAt: new Date() },
         });
 
         // Seed initial material holdings
