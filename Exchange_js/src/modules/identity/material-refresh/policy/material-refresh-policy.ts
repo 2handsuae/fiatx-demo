@@ -4,11 +4,10 @@ import * as path from 'path';
 
 export interface MaterialConfig {
   managementMode: 'SUMSUB_MANAGED' | 'SELF_MANAGED';
-  requiredForTiers: string[];
+  requiredForLevels: string[];
   sumsubIdDocSetType?: string;
   sumsubActionLevelName: string;
   windowDays?: Record<string, number>;
-  initialCollectionWindowDays?: Record<string, number>;
   enforceRestriction: boolean;
   alternativeOf?: string;
 }

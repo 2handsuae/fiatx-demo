@@ -15,7 +15,7 @@ export type AssessmentTriggerType =
 @Injectable()
 export class ClientRiskAssessmentService {
   /** Property-injected in module to avoid circular deps */
-  materialRefreshService?: { recomputeHoldingsForCustomer: (id: string, tier: string) => Promise<any> };
+  materialRefreshService?: { recomputeHoldingsForCustomer: (id: string, levelName: string) => Promise<any> };
 
   constructor(
     @Inject(PrismaService)
@@ -395,7 +395,7 @@ export class ClientRiskAssessmentService {
       try {
         await this.materialRefreshService.recomputeHoldingsForCustomer(
           customer.id,
-          assessment.resultingRiskTier!,
+          customer.sumsubCurrentLevelName || 'wave3-level-1',
         );
       } catch (err) {
         console.error(`Layer 3 recompute failed for ${customer.id}:`, err);

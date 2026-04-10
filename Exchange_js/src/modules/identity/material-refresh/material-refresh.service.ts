@@ -4,7 +4,7 @@ import { randomUUID } from 'crypto';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { SumsubClient } from '../onboarding/providers/sumsub/sumsub.client';
 import { MaterialRefreshPolicyLoader } from './policy/material-refresh-policy';
-import { getRequiredMaterialsForTier } from './policy/get-required-materials';
+import { getRequiredMaterialsForLevel } from './policy/get-required-materials';
 
 function addDays(date: Date, days: number): Date {
   return new Date(date.getTime() + days * 24 * 60 * 60 * 1000);
@@ -240,7 +240,7 @@ export class MaterialRefreshService {
 
   async recomputeHoldingsForCustomer(
     customerId: string,
-    newRiskTier: string,
+    levelName: string,
   ): Promise<any[]> {
     const holdings = await this.prisma.customerMaterialHolding.findMany({
       where: { customerId },
@@ -253,12 +253,12 @@ export class MaterialRefreshService {
     const policy = this.policyLoader.getPolicy();
     const createdCycles: any[] = [];
 
-    // Recompute expiresAt for SELF_MANAGED holdings
+    // Recompute expiresAt for SELF_MANAGED holdings (window size is still per risk tier)
     for (const holding of holdings) {
       if (holding.managementMode !== 'SELF_MANAGED') continue;
       const config = policy.materials[holding.materialType];
       if (!config?.windowDays) continue;
-      const newWindow = config.windowDays[newRiskTier];
+      const newWindow = config.windowDays[customer.riskTier as string];
       if (!newWindow) continue;
 
       const newExpiresAt = addDays(holding.verifiedAt, newWindow);
@@ -271,7 +271,7 @@ export class MaterialRefreshService {
     }
 
     // Check for missing required materials
-    const required = getRequiredMaterialsForTier(newRiskTier, policy);
+    const required = getRequiredMaterialsForLevel(levelName, policy);
     const existingTypes = new Set(holdings.map((h: any) => h.materialType));
     for (const h of holdings) {
       const cfg = policy.materials[h.materialType];
@@ -293,7 +293,7 @@ export class MaterialRefreshService {
       });
 
       const materialConfig = policy.materials[materialType];
-      const gracePeriodDays = materialConfig.initialCollectionWindowDays?.[newRiskTier] || 14;
+      const gracePeriodDays = 14;
 
       if (!customer.sumsubApplicantId) continue;
 

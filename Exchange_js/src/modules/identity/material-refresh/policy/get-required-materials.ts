@@ -1,13 +1,13 @@
 import { MaterialRefreshPolicy } from './material-refresh-policy';
 
-export function getRequiredMaterialsForTier(
-  tier: string,
+export function getRequiredMaterialsForLevel(
+  levelName: string,
   policy: MaterialRefreshPolicy,
 ): string[] {
   const required: string[] = [];
   for (const [materialType, config] of Object.entries(policy.materials)) {
-    if (config.alternativeOf) continue; // skip alternatives (PASSPORT is alt of EMIRATES_ID)
-    if (config.requiredForTiers.includes(tier)) {
+    if (config.alternativeOf) continue; // skip alternatives
+    if (config.requiredForLevels.includes(levelName)) {
       required.push(materialType);
     }
   }
