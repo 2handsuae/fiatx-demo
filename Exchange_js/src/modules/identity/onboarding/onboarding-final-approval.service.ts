@@ -306,12 +306,15 @@ export class OnboardingFinalApprovalService {
       select: { id: true },
     });
 
+    const traceCtx = this.buildTraceContext(customer.id);
     const created = await this.approvalsService.createAndSubmit(
       {
         actionType: ApprovalActionTypes.ONBOARDING_FINAL_APPROVAL,
         entityRef: customer.id,
-        traceId: this.buildTraceContext(customer.id)?.traceId || undefined,
+        traceId: traceCtx?.traceId || undefined,
         workflowType: ONBOARDING_WORKFLOW,
+        workflowId: customer.id,
+        workflowNo: customer.customerNo || customer.id,
         metadata: {
           source: 'WAVE3_PHASE4_ONBOARDING',
           customerId: customer.id,
