@@ -58,7 +58,7 @@ export function applyPolicy(
 
     let signoffMethod = rule.signoffMethod;
     if (downgradeBlocked && signoffMethod === 'AUTO_R2') {
-      signoffMethod = 'MANUAL_MLRO';
+      signoffMethod = 'DUAL_MLRO_SENIOR';
     }
 
     return {

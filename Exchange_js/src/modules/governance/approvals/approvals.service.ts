@@ -594,7 +594,22 @@ export class ApprovalsService {
     actor?: ApprovalActorContext,
   ) {
     return approvals.map((approval) => {
-      const currentStep = approval.steps?.[0] || null;
+      const allSteps = (approval.steps || [])
+        .sort((a: any, b: any) => a.stepNo - b.stepNo)
+        .map((s: any) => ({
+          id: s.id,
+          approvalNo: s.approvalNo || approval.approvalNo,
+          stepNo: s.stepNo,
+          status: s.status,
+          checkerRoleCandidates: splitRoleCsv(s.checkerRoleCandidates),
+          decidedByUserNo: s.decidedByUserNo || null,
+          decidedByRole: s.decidedByRole,
+          reason: s.reason,
+          decidedAt: s.decidedAt,
+          createdAt: s.createdAt,
+          updatedAt: s.updatedAt,
+        }));
+      const currentStep = allSteps.find((s: any) => s.status === 'PENDING') || allSteps[0] || null;
 
       return {
         ...this.mapApproval(approval, actor),
@@ -602,21 +617,8 @@ export class ApprovalsService {
         allowCancel: approval.allowCancel,
         allowRetry: approval.allowRetry,
         decisionReason: approval.decisionReason,
-        step: currentStep
-          ? {
-              id: currentStep.id,
-              approvalNo: currentStep.approvalNo || approval.approvalNo,
-              stepNo: currentStep.stepNo,
-              status: currentStep.status,
-              checkerRoleCandidates: splitRoleCsv(currentStep.checkerRoleCandidates),
-              decidedByUserNo: currentStep.decidedByUserNo || null,
-              decidedByRole: currentStep.decidedByRole,
-              reason: currentStep.reason,
-              decidedAt: currentStep.decidedAt,
-              createdAt: currentStep.createdAt,
-              updatedAt: currentStep.updatedAt,
-            }
-          : null,
+        step: currentStep,
+        steps: allSteps,
         evidencePackage: approval.evidencePackage,
         caseEvidencePackage: approval.caseEvidencePackage,
       };

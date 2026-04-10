@@ -140,8 +140,8 @@ export const DEFAULT_APPROVAL_POLICIES: Record<
   },
   [ApprovalActionTypes.ONBOARDING_FINAL_APPROVAL]: {
     riskLevel: ApprovalRiskLevels.HIGH,
-    checkerRoles: ['SENIOR_MANAGEMENT_OFFICER'],
-    timeoutHours: 24,
+    checkerRoles: ['MLRO', 'SENIOR_MANAGEMENT_OFFICER'],
+    timeoutHours: 240,
     allowCancel: true,
     allowRetry: true,
   },
@@ -169,8 +169,8 @@ export const DEFAULT_APPROVAL_POLICIES: Record<
   },
   [ApprovalActionTypes.RISK_RATING_HIGH_APPROVAL]: {
     riskLevel: ApprovalRiskLevels.HIGH,
-    checkerRoles: ['MLRO'],
-    timeoutHours: 168,
+    checkerRoles: ['MLRO', 'SENIOR_MANAGEMENT_OFFICER'],
+    timeoutHours: 240,
     allowCancel: true,
     allowRetry: true,
   },
