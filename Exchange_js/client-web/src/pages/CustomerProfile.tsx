@@ -1,6 +1,7 @@
 import { useNavigate } from 'react-router-dom';
 import { RefreshCw, ArrowRight } from 'lucide-react';
 import { useCustomerProfile } from '../hooks/useCustomerProfile';
+import { ProfileBannerStack } from '../components/ProfileBannerStack';
 import {
   isCustomerApprovedForAccess,
   isCustomerFinalApprovalPending,
@@ -188,6 +189,9 @@ const CustomerProfile = () => {
 
   return (
     <div className="space-y-10">
+      {/* ── Compliance banners ─────────────────────────────────── */}
+      <ProfileBannerStack />
+
       {/* ── Compact header ─────────────────────────────────────── */}
       <header>
         <div className="flex items-start gap-5">
