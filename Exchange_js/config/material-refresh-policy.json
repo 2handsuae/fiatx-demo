@@ -1,0 +1,51 @@
+{
+  "version": "1.0.0",
+  "effectiveFrom": "2026-04-09",
+  "stages": [
+    { "daysFromExpiry": -30, "action": "CREATE_CYCLE_NUDGE_ONLY" },
+    { "daysFromExpiry": -7, "action": "ESCALATE_URGENT" },
+    { "daysFromExpiry": 0, "action": "ENFORCE_RESTRICTION" },
+    { "daysFromExpiry": 30, "action": "TERMINATE_CYCLE_OFFBOARD" }
+  ],
+  "materials": {
+    "EMIRATES_ID": {
+      "managementMode": "SUMSUB_MANAGED",
+      "requiredForTiers": ["LOW", "MEDIUM", "HIGH"],
+      "sumsubIdDocSetType": "IDENTITY",
+      "sumsubActionLevelName": "wave3-action-id-refresh",
+      "enforceRestriction": true
+    },
+    "PASSPORT": {
+      "managementMode": "SUMSUB_MANAGED",
+      "requiredForTiers": ["LOW", "MEDIUM", "HIGH"],
+      "sumsubIdDocSetType": "IDENTITY",
+      "sumsubActionLevelName": "wave3-action-id-refresh",
+      "enforceRestriction": true,
+      "alternativeOf": "EMIRATES_ID"
+    },
+    "PROOF_OF_ADDRESS": {
+      "managementMode": "SELF_MANAGED",
+      "requiredForTiers": ["LOW", "MEDIUM", "HIGH"],
+      "sumsubActionLevelName": "wave3-action-poa-refresh",
+      "windowDays": { "LOW": 365, "MEDIUM": 270, "HIGH": 180 },
+      "initialCollectionWindowDays": { "MEDIUM": 21, "HIGH": 14 },
+      "enforceRestriction": true
+    },
+    "SOURCE_OF_FUNDS": {
+      "managementMode": "SELF_MANAGED",
+      "requiredForTiers": ["MEDIUM", "HIGH"],
+      "sumsubActionLevelName": "wave3-action-sof-refresh",
+      "windowDays": { "MEDIUM": 540, "HIGH": 365 },
+      "initialCollectionWindowDays": { "MEDIUM": 21, "HIGH": 14 },
+      "enforceRestriction": true
+    },
+    "SOURCE_OF_WEALTH": {
+      "managementMode": "SELF_MANAGED",
+      "requiredForTiers": ["HIGH"],
+      "sumsubActionLevelName": "wave3-action-sow-refresh",
+      "windowDays": { "HIGH": 730 },
+      "initialCollectionWindowDays": { "HIGH": 14 },
+      "enforceRestriction": true
+    }
+  }
+}
