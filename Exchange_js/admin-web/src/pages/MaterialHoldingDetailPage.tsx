@@ -325,10 +325,13 @@ const MaterialHoldingDetailPage = () => {
       <div className="flex min-h-0 flex-1 overflow-hidden">
         {/* ════ LEFT MAIN ════ */}
         <div className="flex min-w-0 flex-1 flex-col divide-y divide-adm-border overflow-y-auto">
-          {/* ① Identity — material type dominant, status badges inline */}
+          {/* ① Identity — holding ID prominent, material type subtitle */}
           <section className="bg-adm-card px-6 py-5">
             <Cap>Material Holding</Cap>
             <p className="mt-1.5 font-mono text-[19px] font-bold leading-snug text-adm-amber">
+              {detail.id.slice(0, 12).toUpperCase()}
+            </p>
+            <p className="mt-1 font-mono text-[13px] text-adm-t2">
               {materialLabel}
             </p>
             <div className="mt-2.5 flex flex-wrap items-center gap-2">
@@ -403,24 +406,23 @@ const MaterialHoldingDetailPage = () => {
               </div>
               <div className="border-t border-adm-border pt-4">
                 <p className="mb-2 font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">
-                  Customer action
+                  Customer action simulation
                 </p>
-                <div className="flex flex-wrap gap-2">
+                <p className="font-mono text-[10px] text-adm-t3 leading-relaxed">
+                  To simulate customer completing or failing this material refresh, use the{' '}
                   <button
-                    disabled={simLoading !== null}
-                    onClick={() => void simulate('GREEN')}
-                    className={adminButtonClass('workflowPrimary')}
+                    className={adminButtonClass('rowLink')}
+                    onClick={() => navigate('/dashboard/compliance/sumsub-events')}
                   >
-                    {simLoading === 'GREEN' ? 'Working…' : '✓ GREEN: Accepted'}
-                  </button>
-                  <button
-                    disabled={simLoading !== null}
-                    onClick={() => void simulate('RED')}
-                    className={adminButtonClass('workflowNegative')}
-                  >
-                    {simLoading === 'RED' ? 'Working…' : '✗ RED: Rejected'}
-                  </button>
-                </div>
+                    Sumsub Events
+                  </button>{' '}
+                  simulation panel with the Applicant Action Result endpoint.
+                  {activeCycle?.sumsubActionId && (
+                    <span className="block mt-1.5 font-mono text-[9px] text-adm-t3">
+                      Action ID: <span className="text-adm-amber">{activeCycle.sumsubActionId}</span>
+                    </span>
+                  )}
+                </p>
               </div>
             </div>
           </section>
@@ -542,8 +544,10 @@ const MaterialHoldingDetailPage = () => {
           )}
 
           {/* Lifecycle */}
-          <SidebarGroup title="Lifecycle">
+          <SidebarGroup title="Identification">
             <SidebarKV label="Holding ID" value={detail.id} mono />
+            <SidebarKV label="Short Ref" value={detail.id.slice(0, 12).toUpperCase()} mono />
+            <SidebarKV label="Material" value={detail.materialType} mono />
             <SidebarKV label="Total Cycles" value={String(detail.refreshCycles.length)} />
           </SidebarGroup>
         </div>
