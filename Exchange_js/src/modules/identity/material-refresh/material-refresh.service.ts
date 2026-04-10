@@ -5,6 +5,7 @@ import { PrismaService } from '../../../core/prisma/prisma.service';
 import { SumsubClient } from '../onboarding/providers/sumsub/sumsub.client';
 import { MaterialRefreshPolicyLoader } from './policy/material-refresh-policy';
 import { getRequiredMaterialsForLevel } from './policy/get-required-materials';
+import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 
 function addDays(date: Date, days: number): Date {
   return new Date(date.getTime() + days * 24 * 60 * 60 * 1000);
@@ -33,7 +34,7 @@ export class MaterialRefreshService {
     });
     if (!customer?.sumsubApplicantId) return;
 
-    const cycleNo = await this.generateCycleNo();
+    const cycleNo = generateReferenceNo('MRC');
     const cycle = await this.prisma.materialRefreshCycle.create({
       data: {
         cycleNo,
@@ -119,7 +120,7 @@ export class MaterialRefreshService {
 
   async terminateCycle(cycleId: string, reason: string): Promise<void> {
     const cycle = await this.prisma.materialRefreshCycle.findFirst({
-      where: { id: cycleId, status: 'PENDING_CUSTOMER_EVIDENCE' },
+      where: { id: cycleId, status: { in: ['PENDING_CUSTOMER_EVIDENCE', 'PENDING_SUMSUB_REVIEW'] } },
     });
     if (!cycle) return;
 
@@ -151,12 +152,18 @@ export class MaterialRefreshService {
     reviewResult: { reviewAnswer: 'GREEN' | 'RED'; reviewRejectType?: string };
   }): Promise<void> {
     const cycle = await this.prisma.materialRefreshCycle.findFirst({
-      where: { sumsubActionId: event.actionId, status: 'PENDING_CUSTOMER_EVIDENCE' },
+      where: { sumsubActionId: event.actionId, status: { in: ['PENDING_CUSTOMER_EVIDENCE', 'PENDING_SUMSUB_REVIEW'] } },
     });
     if (!cycle) return;
 
-    // RED leaves cycle pending for retry
-    if (event.reviewResult.reviewAnswer === 'RED') return;
+    // RED: reset status back to PENDING_CUSTOMER_EVIDENCE for retry
+    if (event.reviewResult.reviewAnswer === 'RED') {
+      await this.prisma.materialRefreshCycle.update({
+        where: { id: cycle.id },
+        data: { status: 'PENDING_CUSTOMER_EVIDENCE', customerSubmittedAt: null },
+      });
+      return;
+    }
 
     // GREEN: close cycle and refresh holding
     const holding = await this.prisma.customerMaterialHolding.findUnique({
@@ -178,7 +185,9 @@ export class MaterialRefreshService {
         (d: any) => this.mapSumsubDocToMaterialType(d) === holding.materialType,
       );
       if (idDoc?.validUntil) newExpiresAt = new Date(idDoc.validUntil);
-    } else if (holding.managementMode === 'SELF_MANAGED' && materialConfig?.windowDays) {
+    }
+    // Fallback: use policy windowDays (covers SELF_MANAGED + SUMSUB_MANAGED mock mode with no doc date)
+    if (!newExpiresAt && materialConfig?.windowDays) {
       const days = materialConfig.windowDays[customer.riskTier as string];
       if (days) newExpiresAt = addDays(new Date(), days);
     }
@@ -283,6 +292,7 @@ export class MaterialRefreshService {
 
       const newHolding = await this.prisma.customerMaterialHolding.create({
         data: {
+          holdingNo: generateReferenceNo('CMH'),
           customerId,
           materialType,
           managementMode: policy.materials[materialType].managementMode,
@@ -297,7 +307,7 @@ export class MaterialRefreshService {
 
       if (!customer.sumsubApplicantId) continue;
 
-      const cycleNo = await this.generateCycleNo();
+      const cycleNo = generateReferenceNo('MRC');
       const cycle = await this.prisma.materialRefreshCycle.create({
         data: {
           cycleNo,
@@ -339,14 +349,6 @@ export class MaterialRefreshService {
     }
 
     return createdCycles;
-  }
-
-  private async generateCycleNo(): Promise<string> {
-    const year = new Date().getFullYear();
-    const count = await this.prisma.materialRefreshCycle.count({
-      where: { cycleNo: { startsWith: `MRC-${year}-` } },
-    });
-    return `MRC-${year}-${String(count + 1).padStart(5, '0')}`;
   }
 
   private mapSumsubDocToMaterialType(idDoc: any): string | null {

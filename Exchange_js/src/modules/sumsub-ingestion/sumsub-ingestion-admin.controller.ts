@@ -69,6 +69,7 @@ export class SumsubIngestionAdminController {
       body.scenario,
       adminId,
       body.overrides,
+      body.customerNo,
     );
   }
 

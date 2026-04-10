@@ -64,6 +64,42 @@ export class AdminMaterialManagementController {
     return { items, total };
   }
 
+  @Get('cycles/:id')
+  @ApiOperation({ summary: 'Get refresh cycle detail' })
+  async getCycleDetail(@Req() req: any, @Param('id') id: string) {
+    this.ensureAdmin(req);
+
+    const cycle = await this.prisma.materialRefreshCycle.findUnique({
+      where: { id },
+      include: {
+        customer: {
+          select: {
+            id: true,
+            customerNo: true,
+            email: true,
+            riskTier: true,
+            restrictionStatus: true,
+            sumsubCurrentLevelName: true,
+          },
+        },
+        holding: {
+          select: {
+            id: true,
+            holdingNo: true,
+            materialType: true,
+            managementMode: true,
+            status: true,
+            expiresAt: true,
+            verifiedAt: true,
+          },
+        },
+      },
+    });
+
+    if (!cycle) throw new NotFoundException('Cycle not found');
+    return cycle;
+  }
+
   @Get('holdings')
   @ApiOperation({ summary: 'List all material holdings across customers' })
   async listHoldings(

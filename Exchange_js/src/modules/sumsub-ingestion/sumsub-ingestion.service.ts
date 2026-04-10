@@ -139,16 +139,28 @@ export class SumsubIngestionService {
   // ─── Simulation: build payload for each scenario ─────────────────────────
 
   async simulate(
-    customerId: string,
+    customerId: string | undefined,
     scenario: SimulationScenario,
     simulatedByUserId: string,
     overrides?: Record<string, unknown>,
+    customerNo?: string,
   ): Promise<{ event: SumsubWebhookEvent; dispatchResult?: unknown }> {
-    const customer = await this.prisma.customerMain.findUnique({
-      where: { id: customerId },
-      select: { id: true, customerNo: true, sumsubApplicantId: true },
-    });
-    if (!customer) throw new NotFoundException(`Customer ${customerId} not found`);
+    let customer: { id: string; customerNo: string | null; sumsubApplicantId: string | null } | null = null;
+    if (customerNo) {
+      customer = await this.prisma.customerMain.findFirst({
+        where: { customerNo },
+        select: { id: true, customerNo: true, sumsubApplicantId: true },
+      });
+      if (!customer) throw new NotFoundException(`Customer with No ${customerNo} not found`);
+    } else if (customerId) {
+      customer = await this.prisma.customerMain.findUnique({
+        where: { id: customerId },
+        select: { id: true, customerNo: true, sumsubApplicantId: true },
+      });
+      if (!customer) throw new NotFoundException(`Customer ${customerId} not found`);
+    } else {
+      throw new BadRequestException('Either customerId or customerNo is required');
+    }
 
     // Only include applicantId if customer already has a real one.
     // Without it, the webhook handler falls through to externalUserId lookup.

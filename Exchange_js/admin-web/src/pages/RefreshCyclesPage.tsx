@@ -222,20 +222,15 @@ const RefreshCyclesPage = () => {
                 className="cursor-pointer transition-colors hover:bg-adm-hover"
                 onClick={() =>
                   navigate(
-                    `/dashboard/compliance/material-management/${cycle.holdingId}`,
+                    `/dashboard/compliance/refresh-cycles/${cycle.id}`,
                   )
                 }
               >
                 <td className="px-6 py-3 font-mono text-[11px] font-semibold text-adm-amber">
                   {cycle.cycleNo}
                 </td>
-                <td className="px-3 py-3">
-                  <div className="font-mono text-[11px] text-adm-amber">
-                    {cycle.customer?.customerNo}
-                  </div>
-                  <div className="font-mono text-[9px] text-adm-t3">
-                    {cycle.customer?.email}
-                  </div>
+                <td className="px-3 py-3 font-mono text-[11px] text-adm-amber">
+                  {cycle.customer?.customerNo}
                 </td>
                 <td className="px-3 py-3 font-mono text-[10px] text-adm-t2">
                   {MATERIAL_LABELS[cycle.materialType] || cycle.materialType}

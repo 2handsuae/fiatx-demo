@@ -10,8 +10,13 @@ export enum SimulationScenario {
 }
 
 export class SimulateEventDto {
+  @IsOptional()
   @IsString()
-  customerId!: string;
+  customerId?: string;
+
+  @IsOptional()
+  @IsString()
+  customerNo?: string;
 
   @IsEnum(SimulationScenario)
   scenario!: SimulationScenario;

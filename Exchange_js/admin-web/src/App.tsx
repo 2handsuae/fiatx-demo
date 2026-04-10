@@ -125,6 +125,7 @@ const RoleManagement = lazy(() => import('./pages/RoleManagement'));
 const MaterialManagementPage = lazy(() => import('./pages/MaterialManagementPage'));
 const MaterialHoldingDetailPage = lazy(() => import('./pages/MaterialHoldingDetailPage'));
 const RefreshCyclesPage = lazy(() => import('./pages/RefreshCyclesPage'));
+const RefreshCycleDetailPage = lazy(() => import('./pages/RefreshCycleDetailPage'));
 
 const FullPageMessage = ({
   title,
@@ -387,6 +388,10 @@ function App() {
             <Route
               path="compliance/refresh-cycles"
               element={withPermission(<RefreshCyclesPage />, [PERMISSIONS.CUSTOMERS_READ])}
+            />
+            <Route
+              path="compliance/refresh-cycles/:cycleId"
+              element={withPermission(<RefreshCycleDetailPage />, [])}
             />
             <Route
               path="compliance/tx-kyt-responses"

@@ -71,17 +71,28 @@ export class AdminSumsubSimulationController {
   async simulateApplicantActionResult(
     @Req() req: any,
     @Body() body: {
-      cycleId: string;
+      cycleId?: string;
+      cycleNo?: string;
       reviewAnswer: 'GREEN' | 'RED';
       reviewRejectType?: string;
     },
   ) {
     this.ensureAdmin(req);
 
-    const cycle = await this.prisma.materialRefreshCycle.findUnique({
-      where: { id: body.cycleId },
-    });
-    if (!cycle) throw new ForbiddenException('Cycle not found');
+    let cycle: any;
+    if (body.cycleNo) {
+      cycle = await this.prisma.materialRefreshCycle.findFirst({
+        where: { cycleNo: body.cycleNo },
+      });
+      if (!cycle) throw new ForbiddenException(`Cycle with No ${body.cycleNo} not found`);
+    } else if (body.cycleId) {
+      cycle = await this.prisma.materialRefreshCycle.findUnique({
+        where: { id: body.cycleId },
+      });
+      if (!cycle) throw new ForbiddenException('Cycle not found');
+    } else {
+      throw new ForbiddenException('Either cycleId or cycleNo is required');
+    }
     const customer = await this.prisma.customerMain.findUnique({
       where: { id: cycle.customerId },
     });

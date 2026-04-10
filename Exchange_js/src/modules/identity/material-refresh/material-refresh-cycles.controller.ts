@@ -48,6 +48,31 @@ export class MaterialRefreshCyclesController {
     };
   }
 
+  @Post(':cycleId/submit')
+  async submitCycle(@Param('cycleId') cycleId: string, @Req() req: any) {
+    const customerId = this.ensureCustomer(req);
+    const cycle = await this.prisma.materialRefreshCycle.findUnique({
+      where: { id: cycleId },
+    });
+    if (!cycle) throw new NotFoundException('Cycle not found');
+    if (cycle.customerId !== customerId) {
+      throw new ForbiddenException('Not your cycle');
+    }
+    if (cycle.status !== 'PENDING_CUSTOMER_EVIDENCE') {
+      throw new ForbiddenException(`Cycle is ${cycle.status}, cannot submit`);
+    }
+
+    await this.prisma.materialRefreshCycle.update({
+      where: { id: cycleId },
+      data: {
+        status: 'PENDING_SUMSUB_REVIEW',
+        customerSubmittedAt: new Date(),
+      },
+    });
+
+    return { ok: true, status: 'PENDING_SUMSUB_REVIEW' };
+  }
+
   @Post(':cycleId/sdk-token')
   async getSdkToken(@Param('cycleId') cycleId: string, @Req() req: any) {
     const customerId = this.ensureCustomer(req);

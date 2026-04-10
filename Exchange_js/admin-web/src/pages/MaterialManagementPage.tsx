@@ -19,6 +19,7 @@ import { PageTitleBar } from '../components/ui/PageTitleBar';
 
 interface MaterialHoldingItem {
   id: string;
+  holdingNo: string;
   materialType: string;
   managementMode: string;
   status: string;
@@ -227,6 +228,7 @@ const MaterialManagementPage = () => {
             <tr>
               {(
                 [
+                  ['Holding No',       '140px'],
                   ['Customer',         '200px'],
                   ['Material Type',    '160px'],
                   ['Mode',             '130px'],
@@ -250,14 +252,14 @@ const MaterialManagementPage = () => {
           <tbody>
             {loading && (
               <tr>
-                <td colSpan={8} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
+                <td colSpan={9} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
                   Loading…
                 </td>
               </tr>
             )}
             {!loading && items.length === 0 && (
               <tr>
-                <td colSpan={8} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
+                <td colSpan={9} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
                   No holdings found.
                 </td>
               </tr>
@@ -268,14 +270,17 @@ const MaterialManagementPage = () => {
                 className="cursor-pointer border-b border-adm-border transition-colors hover:bg-adm-hover"
                 onClick={() => navigate(`/dashboard/compliance/material-management/${item.id}`)}
               >
+                {/* Holding No */}
+                <td className="px-4 py-2.5">
+                  <span className="font-mono text-[11px] font-semibold text-adm-amber">
+                    {item.holdingNo}
+                  </span>
+                </td>
+
                 {/* Customer */}
                 <td className="px-4 py-2.5">
                   <span className="font-mono text-[11px] font-semibold text-adm-amber">
                     {item.customer.customerNo}
-                  </span>
-                  <br />
-                  <span className="font-mono text-[9px] text-adm-t3">
-                    {item.customer.email}
                   </span>
                 </td>
 

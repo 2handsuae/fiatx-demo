@@ -3100,6 +3100,7 @@ model SumsubWebhookEvent {
 
 model CustomerMaterialHolding {
   id                   String   @id @default(cuid())
+  holdingNo            String   @unique @default("TEMP")
   customerId           String
   customer             CustomerMain @relation("CustomerMaterialHoldings", fields: [customerId], references: [id])
 
@@ -3148,6 +3149,7 @@ model MaterialRefreshCycle {
   stageBlockingAt          DateTime?
   clearedAt                DateTime?
   rejectedAt               DateTime?
+  customerSubmittedAt      DateTime?
   graceExpiresAt           DateTime?
   resolutionReason         String?
 

@@ -68,7 +68,7 @@ export class SumsubWebhookDispatcher {
       const pending = await this.prisma.materialRefreshCycle.findFirst({
         where: {
           sumsubActionId: event.actionId,
-          status: 'PENDING_CUSTOMER_EVIDENCE',
+          status: { in: ['PENDING_CUSTOMER_EVIDENCE', 'PENDING_SUMSUB_REVIEW'] },
         },
       });
       if (pending) {
