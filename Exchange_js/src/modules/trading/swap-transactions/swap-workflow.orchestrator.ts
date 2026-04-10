@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../core/prisma/prisma.service';
+import { ensureCustomerCanTransact } from '../shared/customer-transaction-guard';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 import { JournalsService } from '../../accounting/journals/journals.service';
 import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
@@ -179,6 +180,12 @@ export class SwapWorkflowOrchestrator {
     ownerId: string,
     quoteId: string,
   ): Promise<SwapOrchestratorOutput> {
+    // Enforce compliance hold / restriction checks before creating the swap
+    const customer = await (this.prisma as any).customerMain.findUnique({
+      where: { id: ownerId },
+    });
+    ensureCustomerCanTransact(customer);
+
     const now = new Date();
 
     const result = await this.prisma.$transaction(async (tx) => {

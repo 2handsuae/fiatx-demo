@@ -8,6 +8,7 @@ import {
 import { Prisma } from '@prisma/client';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 import { PrismaService } from '../../../core/prisma/prisma.service';
+import { ensureCustomerCanTransact } from '../shared/customer-transaction-guard';
 import {
   AuditActions,
   AuditEntityTypes,
@@ -133,6 +134,10 @@ export class InboundTransferSignalsService {
     dto: CreateInboundTransferSignalDto,
   ) {
     await this.onboardingService.assertTradingEligibility(customerId, 'DEPOSIT');
+    const customer = await (this.prisma as any).customerMain.findUnique({
+      where: { id: customerId },
+    });
+    ensureCustomerCanTransact(customer);
     const wallet = await this.getCustomerDepositWalletOrThrow(customerId, dto.walletId);
     const channelType = this.getChannelTypeFromWallet(wallet);
 

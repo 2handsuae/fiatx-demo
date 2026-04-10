@@ -1,5 +1,6 @@
 import { Injectable, Logger, NotFoundException, BadRequestException, Inject, forwardRef } from '@nestjs/common';
 import { PrismaService } from '../../../core/prisma/prisma.service';
+import { ensureCustomerCanTransact } from '../shared/customer-transaction-guard';
 import { 
   WithdrawTransactionQueryDto, 
   WithdrawTransactionStatus, 
@@ -456,6 +457,14 @@ export class WithdrawTransactionsService {
     // Verify asset
     const asset = await (this.prisma as any).asset.findUnique({ where: { id: assetId } });
     if (!asset) throw new NotFoundException('Asset not found');
+
+    // Enforce compliance hold / restriction checks for customer transactions
+    if (ownerType === 'CUSTOMER') {
+      const customer = await (this.prisma as any).customerMain.findUnique({
+        where: { id: userId },
+      });
+      ensureCustomerCanTransact(customer);
+    }
 
     const withdrawNo = this.generateWithdrawNo();
     

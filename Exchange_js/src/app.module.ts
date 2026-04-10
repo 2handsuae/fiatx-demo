@@ -49,6 +49,7 @@ import { SumsubIngestionModule } from './modules/sumsub-ingestion/sumsub-ingesti
 import { ClientRiskAssessmentModule } from './modules/identity/client-risk-assessment/client-risk-assessment.module';
 import { MaterialRefreshModule } from './modules/identity/material-refresh/material-refresh.module';
 import { SumsubIntegrationModule } from './modules/identity/sumsub-integration/sumsub-integration.module';
+import { ProfileBannersModule } from './modules/identity/profile-banners/profile-banners.module';
 
 @Module({
   imports: [
@@ -118,6 +119,7 @@ import { SumsubIntegrationModule } from './modules/identity/sumsub-integration/s
     ClientRiskAssessmentModule,
     MaterialRefreshModule,
     SumsubIntegrationModule,
+    ProfileBannersModule,
   ],
   controllers: [],
   providers: [],
