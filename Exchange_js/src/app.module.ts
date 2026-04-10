@@ -46,6 +46,7 @@ import { ComplianceAlertsModule } from './modules/risk-engine/compliance-alerts/
 import { ComplianceIncidentsModule } from './modules/risk-engine/compliance-incidents/compliance-incidents.module';
 import { GovernanceModule } from './modules/governance/governance.module';
 import { SumsubIngestionModule } from './modules/sumsub-ingestion/sumsub-ingestion.module';
+import { ClientRiskAssessmentModule } from './modules/identity/client-risk-assessment/client-risk-assessment.module';
 
 @Module({
   imports: [
@@ -112,6 +113,7 @@ import { SumsubIngestionModule } from './modules/sumsub-ingestion/sumsub-ingesti
     ComplianceIncidentsModule,
     OnboardingModule,
     SumsubIngestionModule,
+    ClientRiskAssessmentModule,
   ],
   controllers: [],
   providers: [],
