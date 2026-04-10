@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams, Navigate } from 'react-router-dom';
 import {
   AlertTriangle,
   ChevronRight,
@@ -533,9 +533,175 @@ const OnboardingVerificationDetails = ({
   );
 };
 
+/* ────────────────────────────────────────────────────────────────
+ *  MaterialRefreshVerificationMode
+ *  Shown when the customer is APPROVED and arrives at /verification
+ *  with ?cycleId=<id>. Fetches the refresh-cycle and a SDK token,
+ *  then presents a QR for the mobile Sumsub flow.
+ * ──────────────────────────────────────────────────────────────── */
+
+interface RefreshCycle {
+  id: string;
+  cycleNo: string;
+  status: string;
+  dueAt?: string | null;
+  mockActionId?: string | null;
+}
+
+interface RefreshSdkToken {
+  sdkToken?: string | null;
+  mockActionId?: string | null;
+}
+
+const MaterialRefreshVerificationMode = ({ cycleId }: { cycleId: string }) => {
+  const navigate = useNavigate();
+  const [cycle, setCycle] = useState<RefreshCycle | null>(null);
+  const [sdkInfo, setSdkInfo] = useState<RefreshSdkToken | null>(null);
+  const [loadingData, setLoadingData] = useState(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const load = async () => {
+      setLoadingData(true);
+      setFetchError(null);
+      try {
+        const base = `${import.meta.env.VITE_API_URL}/onboarding/refresh-cycles/${cycleId}`;
+
+        const cycleRes = await customerFetch(base);
+        if (!cycleRes.ok) throw new Error('Failed to load refresh cycle.');
+        const cycleData = (await cycleRes.json()) as RefreshCycle;
+        setCycle(cycleData);
+
+        const tokenRes = await customerFetch(`${base}/sdk-token`, { method: 'POST', body: JSON.stringify({}) });
+        if (tokenRes.ok) {
+          const tokenData = (await tokenRes.json()) as RefreshSdkToken;
+          setSdkInfo(tokenData);
+        }
+      } catch (e: unknown) {
+        setFetchError(getErrorMessage(e, 'Failed to load material refresh data.'));
+      } finally {
+        setLoadingData(false);
+      }
+    };
+    void load();
+  }, [cycleId]);
+
+  if (loadingData) {
+    return (
+      <div className="flex h-screen items-center justify-center gap-3 bg-fx-obsidian">
+        <RefreshCw size={14} className="animate-spin text-fx-brass" />
+        <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-fx-dust">
+          Loading review cycle
+        </span>
+      </div>
+    );
+  }
+
+  if (fetchError) {
+    return (
+      <div className="flex h-screen items-center justify-center px-6 bg-fx-obsidian">
+        <div className="max-w-md border border-fx-rust/30 bg-fx-rust/5 px-6 py-5">
+          <div className="font-mono text-[10px] uppercase tracking-[0.22em] text-fx-rust mb-2">
+            § Error
+          </div>
+          <div className="font-mono text-[11px] text-fx-dune">{fetchError}</div>
+          <button
+            onClick={() => navigate('/profile')}
+            className="mt-6 fx-btn-ghost"
+          >
+            Back to profile
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  const qrValue = sdkInfo?.sdkToken || sdkInfo?.mockActionId || cycleId;
+
+  return (
+    <div className="relative min-h-[calc(100vh-56px)] w-full bg-fx-obsidian flex items-center justify-center px-6 py-12">
+      <div className="w-full max-w-[560px]">
+        {/* Byline */}
+        <div className="flex items-center gap-3 mb-10">
+          <span className="h-[1px] w-6 bg-fx-brass" />
+          <span className="font-mono text-[9px] uppercase tracking-[0.22em] text-fx-dust">
+            § Material refresh · cycle {cycle?.cycleNo || cycleId}
+          </span>
+        </div>
+
+        {/* Headline */}
+        <h1 className="fx-display font-light text-[38px] leading-[1.05] text-fx-sand mb-3">
+          Identity refresh required.
+        </h1>
+        <p className="fx-serif italic text-fx-brass text-[15px] leading-[1.6] mb-10">
+          Complete the scan below to renew your compliance record.
+        </p>
+
+        {/* QR panel */}
+        <div className="border border-fx-rule bg-fx-ink/40 px-10 py-10 flex flex-col items-center gap-6">
+          <div className="bg-white p-3">
+            <QRCodeSVG value={qrValue} size={180} />
+          </div>
+          <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-fx-dust text-center">
+            Scan with your mobile device to begin
+          </p>
+
+          {/* Metadata strip */}
+          <div className="w-full border-t border-fx-rule pt-5 grid grid-cols-2 gap-4">
+            {cycle?.cycleNo && (
+              <div>
+                <div className="font-mono text-[9px] uppercase tracking-[0.14em] text-fx-dust/70 mb-1">
+                  Cycle
+                </div>
+                <div className="font-mono text-[11px] text-fx-sand tabular-nums">
+                  {cycle.cycleNo}
+                </div>
+              </div>
+            )}
+            {cycle?.status && (
+              <div>
+                <div className="font-mono text-[9px] uppercase tracking-[0.14em] text-fx-dust/70 mb-1">
+                  Status
+                </div>
+                <div className="font-mono text-[11px] text-fx-sand uppercase">
+                  {cycle.status.replace(/_/g, ' ')}
+                </div>
+              </div>
+            )}
+            {(sdkInfo?.mockActionId || cycle?.mockActionId) && (
+              <div className="col-span-2">
+                <div className="font-mono text-[9px] uppercase tracking-[0.14em] text-fx-dust/70 mb-1">
+                  Mock action id
+                </div>
+                <div className="font-mono text-[11px] text-fx-dune break-all">
+                  {sdkInfo?.mockActionId || cycle?.mockActionId}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="mt-8">
+          <button onClick={() => navigate('/profile')} className="fx-btn-ghost">
+            ← Back to profile
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+/* ────────────────────────────────────────────────────────────────
+ *  Verification — root component.
+ *  Routes between MaterialRefreshVerificationMode (APPROVED + cycleId)
+ *  and the existing onboarding / periodic-review flow.
+ * ──────────────────────────────────────────────────────────────── */
+
 const Verification = () => {
   const { profile, loading, error, refreshProfile } = useCustomerProfile();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const cycleId = searchParams.get('cycleId');
   const { enabled: simulationModeEnabled } = useSimulationMode();
 
   const [onboarding, setOnboarding] = useState<OnboardingSnapshot | null>(null);
@@ -934,6 +1100,17 @@ const Verification = () => {
       </div>
     );
   if (!profile) return null;
+
+  // Route: APPROVED customer with cycleId → material refresh mode
+  const onboardingStatus = String(profile.onboardingStatus || 'NONE').toUpperCase();
+  if (onboardingStatus === 'APPROVED' && cycleId) {
+    return <MaterialRefreshVerificationMode cycleId={cycleId} />;
+  }
+
+  // Route: APPROVED customer with no cycleId → nothing to do here
+  if (onboardingStatus === 'APPROVED' && !cycleId) {
+    return <Navigate to="/profile" replace />;
+  }
 
   const isCorporate =
     onboarding?.customerType === 'CORPORATE' || profile.customerType === 'CORPORATE';

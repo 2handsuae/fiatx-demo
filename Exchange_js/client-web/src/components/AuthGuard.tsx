@@ -1,5 +1,5 @@
 import { useEffect, type ReactNode } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation, Navigate } from 'react-router-dom';
 import { RefreshCw } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import {
@@ -33,6 +33,7 @@ const STEPS = ['Register', 'Verify', 'Review', 'Active'] as const;
 const AuthGuard = ({ children }: AuthGuardProps) => {
   const { user, loading, isAuthenticated, error } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
 
   useEffect(() => {
     if (!loading && !isAuthenticated && !error) {
@@ -78,6 +79,23 @@ const AuthGuard = ({ children }: AuthGuardProps) => {
 
   const isApproved = user ? isCustomerApprovedForAccess(user) : false;
   if (isApproved) {
+    // FROZEN: only /profile is accessible
+    if (user?.complianceHoldStatus === 'FROZEN') {
+      if (location.pathname !== '/profile') {
+        return <Navigate to="/profile" replace />;
+      }
+      return <>{children}</>;
+    }
+
+    // RESTRICTED: block core trading routes
+    if (user?.restrictionStatus === 'RESTRICTED') {
+      const blockedPaths = ['/deposit', '/withdraw', '/swap', '/wallet/send'];
+      if (blockedPaths.some((p) => location.pathname.startsWith(p))) {
+        return <Navigate to="/profile" replace />;
+      }
+      return <>{children}</>;
+    }
+
     return <>{children}</>;
   }
 
