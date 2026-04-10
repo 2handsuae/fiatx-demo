@@ -1,15 +1,18 @@
 // client-risk-assessment.module.ts
-import { Module, forwardRef } from '@nestjs/common';
+import { Module, forwardRef, OnModuleInit } from '@nestjs/common';
 import { ClientRiskAssessmentService } from './client-risk-assessment.service';
 import { ClientRiskAssessmentCronService } from './client-risk-assessment-cron.service';
 import { ClientRiskAssessmentController } from './client-risk-assessment.controller';
 import { ClientRiskAssessmentPolicyLoader } from './policy/policy-loader';
 import { OnboardingModule } from '../onboarding/onboarding.module';
 import { ApprovalsModule } from '../../governance/approvals/approvals.module';
+import { MaterialRefreshModule } from '../material-refresh/material-refresh.module';
+import { MaterialRefreshService } from '../material-refresh/material-refresh.service';
 
 @Module({
   imports: [
     forwardRef(() => OnboardingModule),
+    forwardRef(() => MaterialRefreshModule),
     ApprovalsModule,
   ],
   providers: [
@@ -20,4 +23,14 @@ import { ApprovalsModule } from '../../governance/approvals/approvals.module';
   controllers: [ClientRiskAssessmentController],
   exports: [ClientRiskAssessmentService],
 })
-export class ClientRiskAssessmentModule {}
+export class ClientRiskAssessmentModule implements OnModuleInit {
+  constructor(
+    private readonly clientRiskAssessmentService: ClientRiskAssessmentService,
+    private readonly materialRefreshService: MaterialRefreshService,
+  ) {}
+
+  onModuleInit() {
+    this.clientRiskAssessmentService.materialRefreshService =
+      this.materialRefreshService;
+  }
+}
