@@ -329,6 +329,12 @@ const DashboardLayout = () => {
           requiredPermissions: [PERMISSIONS.CASES_READ],
         },
         {
+          path: '/dashboard/compliance/material-management',
+          label: 'Material Management',
+          icon: <FileText size={13} />,
+          requiredPermissions: [PERMISSIONS.CUSTOMERS_READ],
+        },
+        {
           path: '/dashboard/compliance/case-evidence-exports',
           label: 'Case Evidence Packages',
           icon: <Layers size={13} />,

@@ -122,6 +122,8 @@ const TransactionComplianceCaseDetailPage = lazy(
 );
 const RiskPolicyExecutionsPage = lazy(() => import('./pages/RiskPolicyExecutionsPage'));
 const RoleManagement = lazy(() => import('./pages/RoleManagement'));
+const MaterialManagementPage = lazy(() => import('./pages/MaterialManagementPage'));
+const MaterialHoldingDetailPage = lazy(() => import('./pages/MaterialHoldingDetailPage'));
 
 const FullPageMessage = ({
   title,
@@ -372,6 +374,14 @@ function App() {
             <Route
               path="compliance/cases/:id"
               element={withPermission(<ComplianceCaseDetailPage />, [PERMISSIONS.CASES_READ])}
+            />
+            <Route
+              path="compliance/material-management"
+              element={withPermission(<MaterialManagementPage />, [PERMISSIONS.CUSTOMERS_READ])}
+            />
+            <Route
+              path="compliance/material-management/:holdingId"
+              element={withPermission(<MaterialHoldingDetailPage />, [PERMISSIONS.CUSTOMERS_READ])}
             />
             <Route
               path="compliance/tx-kyt-responses"
