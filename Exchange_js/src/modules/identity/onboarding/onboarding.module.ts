@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef, OnModuleInit } from '@nestjs/common';
 import { PrismaModule } from '../../../core/prisma/prisma.module';
 import { OnboardingService } from './onboarding.service';
 import { OnboardingCustomerController } from './onboarding-customer.controller';
@@ -16,6 +16,8 @@ import { PeriodicReviewAdminController } from '../periodic-review/periodic-revie
 import { PeriodicReviewSweepService } from '../periodic-review/periodic-review-sweep.service';
 import { PeriodicReviewWorkflowTransitionService } from '../periodic-review/periodic-review-workflow-transition.service';
 import { SumsubClient } from './providers/sumsub/sumsub.client';
+import { MaterialRefreshModule } from '../material-refresh/material-refresh.module';
+import { MaterialRefreshService } from '../material-refresh/material-refresh.service';
 
 @Module({
   imports: [
@@ -24,6 +26,7 @@ import { SumsubClient } from './providers/sumsub/sumsub.client';
     ComplianceAlertsModule,
     ComplianceIncidentsModule,
     ApprovalsModule,
+    forwardRef(() => MaterialRefreshModule),
   ],
   providers: [
     OnboardingService,
@@ -43,4 +46,13 @@ import { SumsubClient } from './providers/sumsub/sumsub.client';
   ],
   exports: [OnboardingService, OnboardingFinalApprovalService, PeriodicReviewService, SumsubClient],
 })
-export class OnboardingModule {}
+export class OnboardingModule implements OnModuleInit {
+  constructor(
+    private readonly finalApprovalService: OnboardingFinalApprovalService,
+    private readonly materialRefreshService: MaterialRefreshService,
+  ) {}
+
+  onModuleInit() {
+    this.finalApprovalService.materialRefreshService = this.materialRefreshService;
+  }
+}

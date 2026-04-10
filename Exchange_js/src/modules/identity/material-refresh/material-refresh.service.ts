@@ -378,7 +378,11 @@ export class MaterialRefreshService {
       let expiresAt: Date | null = null;
       if (config.windowDays) {
         const days = config.windowDays[customer.riskTier as string];
-        if (days) expiresAt = addDays(new Date(), days);
+        if (days) {
+          // Demo: randomize between 30% and 90% of window for varied expiry dates
+          const randomFraction = 0.3 + Math.random() * 0.6;
+          expiresAt = addDays(new Date(), Math.floor(days * randomFraction));
+        }
       }
 
       await this.prisma.customerMaterialHolding.create({

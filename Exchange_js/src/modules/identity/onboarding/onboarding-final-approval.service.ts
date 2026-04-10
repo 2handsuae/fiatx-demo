@@ -71,6 +71,9 @@ export class OnboardingFinalApprovalService {
   private readonly logger = new Logger(OnboardingFinalApprovalService.name);
   private readonly auditLogsService: AuditLogsService;
 
+  /** Property-injected to avoid circular deps — set in module onModuleInit */
+  materialRefreshService?: { seedInitialHoldings: (customerId: string, levelName: string) => Promise<void> };
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly approvalsService: ApprovalsService,
@@ -605,6 +608,23 @@ export class OnboardingFinalApprovalService {
           actor,
           `Customer final approval projected as ${normalizedStatus}`,
         );
+
+        // Set riskTier based on level: level2 → HIGH, else → LOW
+        const level = updated.sumsubCurrentLevelName || 'wave3-level-1';
+        const defaultTier = level.includes('level-2') || level.includes('level2') ? 'HIGH' : 'LOW';
+        await this.prisma.customerMain.update({
+          where: { id: updated.id },
+          data: { riskTier: defaultTier, riskTierUpdatedAt: new Date() },
+        });
+
+        // Seed initial material holdings
+        if (this.materialRefreshService) {
+          try {
+            await this.materialRefreshService.seedInitialHoldings(updated.id, level);
+          } catch (err) {
+            this.logger.error(`Failed to seed holdings for ${updated.id}:`, err);
+          }
+        }
       }
 
       return updated;
