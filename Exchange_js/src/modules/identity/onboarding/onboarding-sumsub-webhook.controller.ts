@@ -1,7 +1,10 @@
 import {
   Body,
   Controller,
+  forwardRef,
   Headers,
+  Inject,
+  Optional,
   Post,
   Req,
   UnauthorizedException,
@@ -9,6 +12,7 @@ import {
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { OnboardingService } from './onboarding.service';
 import { SumsubClient } from './providers/sumsub/sumsub.client';
+import { SumsubWebhookDispatcher } from '../sumsub-integration/sumsub-webhook-dispatcher.service';
 
 @ApiTags('Onboarding - Sumsub')
 @Controller('onboarding/sumsub')
@@ -16,6 +20,9 @@ export class OnboardingSumsubWebhookController {
   constructor(
     private readonly onboardingService: OnboardingService,
     private readonly sumsubClient: SumsubClient,
+    @Optional()
+    @Inject(forwardRef(() => SumsubWebhookDispatcher))
+    private readonly dispatcher?: SumsubWebhookDispatcher,
   ) {}
 
   @Post('webhook')
@@ -30,6 +37,16 @@ export class OnboardingSumsubWebhookController {
       throw new UnauthorizedException('Invalid Sumsub webhook signature');
     }
 
+    if (this.dispatcher) {
+      return this.dispatcher.dispatch(body as any, {
+        rawBody: req.rawBody,
+        signature,
+        simulated: false,
+        actorId: 'SUMSUB',
+      });
+    }
+
+    // Backward-compat fallback: dispatcher not loaded (e.g. in isolated unit tests)
     return this.onboardingService.handleSumsubVerificationEvent(body, {
       rawBody: req.rawBody,
       signature,

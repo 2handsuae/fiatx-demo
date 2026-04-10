@@ -48,6 +48,7 @@ import { GovernanceModule } from './modules/governance/governance.module';
 import { SumsubIngestionModule } from './modules/sumsub-ingestion/sumsub-ingestion.module';
 import { ClientRiskAssessmentModule } from './modules/identity/client-risk-assessment/client-risk-assessment.module';
 import { MaterialRefreshModule } from './modules/identity/material-refresh/material-refresh.module';
+import { SumsubIntegrationModule } from './modules/identity/sumsub-integration/sumsub-integration.module';
 
 @Module({
   imports: [
@@ -116,6 +117,7 @@ import { MaterialRefreshModule } from './modules/identity/material-refresh/mater
     SumsubIngestionModule,
     ClientRiskAssessmentModule,
     MaterialRefreshModule,
+    SumsubIntegrationModule,
   ],
   controllers: [],
   providers: [],
