@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { RefreshCw } from 'lucide-react';
 import {
@@ -7,11 +7,7 @@ import {
   adminFetch,
   getApiErrorMessage,
 } from '../utils/adminFetch';
-import {
-  DetailPageHeader,
-  DetailCard,
-  InfoField,
-} from '../components/compliance/DetailPageComponents';
+import { DetailPageHeader } from '../components/compliance/DetailPageComponents';
 import { adminButtonClass } from '../components/common/adminButtonStyles';
 import { AdminBadge } from '../components/ui/AdminBadge';
 
@@ -22,10 +18,12 @@ interface RefreshCycle {
   cycleNo: string;
   status: string;
   stage?: string | null;
+  triggerType?: string | null;
   sumsubActionId?: string | null;
-  resolution?: string | null;
+  resolutionReason?: string | null;
   graceExpiresAt?: string | null;
   clearedAt?: string | null;
+  rejectedAt?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -38,8 +36,8 @@ interface MaterialHoldingDetail {
   expiresAt?: string | null;
   verifiedAt?: string | null;
   daysFromExpiry?: number | null;
-  sumsubActionLevelName?: string | null;
-  levelName?: string | null;
+  sumsubIdDocSetType?: string | null;
+  sumsubDocId?: string | null;
   activeRefreshCycleId?: string | null;
   activeRefreshCycle?: RefreshCycle | null;
   refreshCycles: RefreshCycle[];
@@ -55,50 +53,133 @@ interface MaterialHoldingDetail {
 
 type SimStage = 'T_MINUS_30' | 'T_MINUS_7' | 'T_0' | 'T_PLUS_30' | 'GREEN' | 'RED';
 
-/* ── Helpers ─────────────────────────────────────────────────── */
+/* ── Layout primitives (mirrors ApprovalDetailPage exactly) ─── */
 
-const fmtDate = (v?: string | null): string => {
-  if (!v) return '—';
-  const d = new Date(v);
-  return Number.isNaN(d.getTime()) ? v : d.toLocaleDateString();
+const Cap = ({ children }: { children: ReactNode }) => (
+  <p className="font-mono text-[8.5px] font-semibold uppercase tracking-[0.16em] text-adm-t3">
+    {children}
+  </p>
+);
+
+const Field = ({
+  label,
+  value,
+  mono = false,
+  amber = false,
+  full = false,
+}: {
+  label: string;
+  value: ReactNode;
+  mono?: boolean;
+  amber?: boolean;
+  full?: boolean;
+}) => {
+  if (value === null || value === undefined || value === '' || value === '—') return null;
+  return (
+    <div className={full ? 'col-span-2' : ''}>
+      <p className="mb-1 font-mono text-[8.5px] uppercase tracking-[0.14em] text-adm-t3">
+        {label}
+      </p>
+      <p
+        className={[
+          'break-all leading-relaxed',
+          mono ? 'font-mono text-[10px]' : 'text-[11px]',
+          amber ? 'font-semibold text-adm-amber' : 'text-adm-t2',
+        ].join(' ')}
+      >
+        {value}
+      </p>
+    </div>
+  );
 };
 
-const fmtDateTime = (v?: string | null): string => {
-  if (!v) return '—';
+const SidebarGroup = ({ title, children }: { title: string; children: ReactNode }) => (
+  <div className="border-b border-adm-border py-4 last:border-b-0">
+    <Cap>{title}</Cap>
+    <div className="mt-2.5 flex flex-col gap-1.5">{children}</div>
+  </div>
+);
+
+const SidebarKV = ({
+  label,
+  value,
+  mono = false,
+}: {
+  label: string;
+  value: ReactNode;
+  mono?: boolean;
+}) => {
+  if (value === null || value === undefined || value === '' || value === '—') return null;
+  return (
+    <div className="flex items-baseline justify-between gap-2">
+      <span className="shrink-0 font-mono text-[9px] text-adm-t3">{label}</span>
+      <span
+        className={[
+          'min-w-0 break-all text-right text-adm-t2',
+          mono ? 'font-mono text-[10px]' : 'text-[11px]',
+        ].join(' ')}
+      >
+        {value}
+      </span>
+    </div>
+  );
+};
+
+/* ── Helpers ─────────────────────────────────────────────────── */
+
+const fmt = (v?: string | null): string => {
+  if (!v) return '';
   const d = new Date(v);
   return Number.isNaN(d.getTime()) ? v : d.toLocaleString();
 };
 
-/* ─────────────────────────────────────────────────────────────── */
+const fmtDate = (v?: string | null): string => {
+  if (!v) return '';
+  const d = new Date(v);
+  return Number.isNaN(d.getTime()) ? v : d.toLocaleDateString();
+};
+
+const MATERIAL_LABELS: Record<string, string> = {
+  EMIRATES_ID: 'Emirates ID',
+  LIVENESS: 'Liveness Check',
+  PROOF_OF_ADDRESS: 'Proof of Address',
+  SOURCE_OF_FUNDS: 'Source of Funds',
+  SOURCE_OF_WEALTH: 'Source of Wealth',
+};
+
+/* ── Page ────────────────────────────────────────────────────── */
 
 const MaterialHoldingDetailPage = () => {
   const { holdingId } = useParams<{ holdingId: string }>();
   const navigate = useNavigate();
 
-  const [detail,  setDetail]  = useState<MaterialHoldingDetail | null>(null);
+  const [detail, setDetail] = useState<MaterialHoldingDetail | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error,   setError]   = useState('');
+  const [error, setError] = useState('');
 
-  /* Simulation state */
   const [simLoading, setSimLoading] = useState<SimStage | null>(null);
   const [simMessage, setSimMessage] = useState<{ ok: boolean; text: string } | null>(null);
 
-  /* ── Fetch detail ── */
+  /* ── Fetch ── */
 
   const fetchDetail = async () => {
-    if (!holdingId) { setError('Holding ID is required.'); setLoading(false); return; }
-    setLoading(true); setError('');
+    if (!holdingId) {
+      setError('Holding ID is required.');
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    setError('');
     try {
       const res = await adminFetch(
         `${import.meta.env.VITE_API_URL}/admin/material-management/holdings/${holdingId}`,
       );
       if (!res.ok) throw new Error(await getApiErrorMessage(res, 'Failed to load holding.'));
-      const data = (await res.json()) as MaterialHoldingDetail;
-      setDetail(data);
+      setDetail((await res.json()) as MaterialHoldingDetail);
     } catch (e: unknown) {
       if (e instanceof AdminSessionError) return;
       if (e instanceof AdminPermissionError) {
-        setError('Permission denied. You cannot view this holding.');
+        setError('Permission denied.');
       } else {
         setError(e instanceof Error ? e.message : 'Failed to load holding detail.');
       }
@@ -107,16 +188,17 @@ const MaterialHoldingDetailPage = () => {
     }
   };
 
-  useEffect(() => { void fetchDetail(); }, [holdingId]);
+  useEffect(() => {
+    void fetchDetail();
+  }, [holdingId]);
 
-  /* Auto-dismiss sim message */
   useEffect(() => {
     if (!simMessage) return undefined;
     const t = window.setTimeout(() => setSimMessage(null), 5000);
     return () => window.clearTimeout(t);
   }, [simMessage]);
 
-  /* ── Simulate stage ── */
+  /* ── Simulate ── */
 
   const simulate = async (targetStage: SimStage) => {
     if (!holdingId || simLoading) return;
@@ -146,7 +228,7 @@ const MaterialHoldingDetailPage = () => {
     }
   };
 
-  /* ── Loading / error stubs ── */
+  /* ── Loading / error ── */
 
   if (loading) {
     return (
@@ -157,44 +239,25 @@ const MaterialHoldingDetailPage = () => {
     );
   }
 
-  if (error && !detail) {
-    return (
-      <div className="flex h-full flex-col overflow-hidden">
-        <div className="shrink-0 border-b border-adm-border bg-adm-panel px-6 py-4 flex items-center gap-2">
-          <button
-            onClick={() => navigate('/dashboard/compliance/material-management')}
-            className={adminButtonClass('detailUtility')}
-          >
-            ← Back
-          </button>
-          <button
-            onClick={() => void fetchDetail()}
-            className={adminButtonClass('detailUtility')}
-          >
-            <RefreshCw size={13} /> Retry
-          </button>
-        </div>
-        <div className="px-6 py-6">
-          <div className="rounded-lg border border-adm-red/30 bg-adm-red/10 px-4 py-3 font-mono text-[11px] text-adm-red">
-            {error}
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   if (!detail) {
     return (
       <div className="flex h-full flex-col overflow-hidden">
-        <div className="shrink-0 border-b border-adm-border bg-adm-panel px-6 py-4">
-          <button
-            onClick={() => navigate('/dashboard/compliance/material-management')}
-            className={adminButtonClass('detailUtility')}
-          >
-            ← Back
-          </button>
+        <DetailPageHeader
+          title="Material Holding"
+          onBack={() => navigate('/dashboard/compliance/material-management')}
+          onRefresh={() => void fetchDetail()}
+          refreshing={loading}
+          backLabel="Material Management"
+        />
+        <div className="px-6 py-6">
+          {error ? (
+            <div className="rounded border border-adm-red/30 bg-adm-red/10 px-4 py-3 font-mono text-[11px] text-adm-red">
+              {error}
+            </div>
+          ) : (
+            <p className="font-mono text-[11px] text-adm-t3">Holding not found.</p>
+          )}
         </div>
-        <div className="px-6 py-6 font-mono text-[11px] text-adm-t3">Holding not found.</div>
       </div>
     );
   }
@@ -206,30 +269,29 @@ const MaterialHoldingDetailPage = () => {
     daysLeft === null || daysLeft === undefined
       ? null
       : daysLeft < 0
-        ? `${Math.abs(daysLeft)} days overdue`
-        : `${daysLeft} days left`;
+        ? `${Math.abs(daysLeft)}d overdue`
+        : `${daysLeft}d left`;
 
-  const stageButtons: { stage: SimStage; label: string }[] = [
-    { stage: 'T_MINUS_30', label: '→ T-30 Nudge' },
-    { stage: 'T_MINUS_7',  label: '→ T-7 Urgent' },
-    { stage: 'T_0',        label: '→ T-0 Block' },
-    { stage: 'T_PLUS_30',  label: '→ T+30 Offboard' },
-  ];
+  const daysColor =
+    daysLeft === null || daysLeft === undefined
+      ? ''
+      : daysLeft < 7
+        ? 'text-adm-red font-bold'
+        : daysLeft <= 30
+          ? 'text-adm-amber font-semibold'
+          : 'text-adm-green';
 
-  const actionButtons: { stage: SimStage; label: string; variant: 'workflowPrimary' | 'workflowNegative' }[] = [
-    { stage: 'GREEN', label: '✓ GREEN: Accepted',  variant: 'workflowPrimary' },
-    { stage: 'RED',   label: '✗ RED: Rejected',    variant: 'workflowNegative' },
-  ];
+  const materialLabel = MATERIAL_LABELS[detail.materialType] || detail.materialType;
+  const activeCycle = detail.activeRefreshCycle;
 
-  /* ── Page ── */
+  /* ── Render ── */
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
-
       {/* ── Header ── */}
       <DetailPageHeader
         title="Material Holding"
-        subtitle={detail.materialType}
+        subtitle={materialLabel}
         onBack={() => navigate('/dashboard/compliance/material-management')}
         onRefresh={() => void fetchDetail()}
         refreshing={loading}
@@ -259,124 +321,232 @@ const MaterialHoldingDetailPage = () => {
         </div>
       )}
 
-      {/* ── Body ── */}
-      <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
+      {/* ── Body: two-column layout (matches ApprovalDetailPage) ── */}
+      <div className="flex min-h-0 flex-1 overflow-hidden">
+        {/* ════ LEFT MAIN ════ */}
+        <div className="flex min-w-0 flex-1 flex-col divide-y divide-adm-border overflow-y-auto">
+          {/* ① Identity — material type dominant, status badges inline */}
+          <section className="bg-adm-card px-6 py-5">
+            <Cap>Material Holding</Cap>
+            <p className="mt-1.5 font-mono text-[19px] font-bold leading-snug text-adm-amber">
+              {materialLabel}
+            </p>
+            <div className="mt-2.5 flex flex-wrap items-center gap-2">
+              <AdminBadge value={detail.status} />
+              <AdminBadge value={detail.customer.riskTier} />
+              {detail.customer.restrictionStatus &&
+                detail.customer.restrictionStatus !== 'CLEAR' && (
+                  <AdminBadge value={detail.customer.restrictionStatus} />
+                )}
+            </div>
+            <p className="mt-3 font-mono text-[11px] text-adm-t3">
+              {detail.managementMode}
+            </p>
+            <button
+              className={adminButtonClass('rowLink')}
+              onClick={() =>
+                navigate(`/dashboard/customer/management/${detail.customer.id}`)
+              }
+            >
+              {detail.customer.customerNo} ({detail.customer.email})
+            </button>
+          </section>
 
-        {/* ════ Section 1: Holding Info ════ */}
-        <DetailCard title="Holding Details" columns={3}>
-          <InfoField label="Customer" value={`${detail.customer.customerNo} (${detail.customer.email})`} link={`/dashboard/customer/management/${detail.customer.id}`} />
-          <InfoField label="Material Type" value={detail.materialType} accent />
-          <InfoField label="Management Mode" value={detail.managementMode} mono />
-          <InfoField label="Status" value={<AdminBadge value={detail.status} />} />
-          <InfoField label="Risk Tier" value={<AdminBadge value={detail.customer.riskTier} />} />
-          <InfoField label="Sumsub Level" value={detail.customer.sumsubCurrentLevelName} mono />
-          <InfoField label="Restriction" value={detail.customer.restrictionStatus ? <AdminBadge value={detail.customer.restrictionStatus} /> : null} />
-          <InfoField label="Verified At" value={fmtDate(detail.verifiedAt)} mono />
-          <InfoField
-            label="Expires At"
-            value={detail.expiresAt ? `${fmtDate(detail.expiresAt)} (${daysLabel || ''})` : null}
-            highlight={daysLeft !== null && daysLeft !== undefined && daysLeft < 7}
-          />
-          <InfoField label="Sumsub Action Level" value={detail.sumsubActionLevelName} mono />
-        </DetailCard>
+          {/* ② Holding Context */}
+          <section className="px-6 py-5">
+            <Cap>Holding Context</Cap>
+            <div className="mt-3 grid grid-cols-2 gap-4">
+              <Field label="Material Type" value={detail.materialType} amber />
+              <Field label="Management Mode" value={detail.managementMode} />
+              <Field label="Sumsub Level" value={detail.customer.sumsubCurrentLevelName} mono />
+              <Field label="Sumsub Doc Set Type" value={detail.sumsubIdDocSetType} mono />
+              <Field label="Verified At" value={fmtDate(detail.verifiedAt)} mono />
+              <Field
+                label="Expires At"
+                value={
+                  detail.expiresAt
+                    ? `${fmtDate(detail.expiresAt)}${daysLabel ? ` (${daysLabel})` : ''}`
+                    : null
+                }
+                mono
+              />
+            </div>
+          </section>
 
-        {/* ════ Section 2: Simulation Panel ════ */}
-        <DetailCard title="Stage Simulation" columns={1}>
-          <div className="space-y-4">
-            <div>
-              <p className="mb-2 font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">
-                Lifecycle stage simulation
-              </p>
-              <div className="flex flex-wrap gap-2">
-                {stageButtons.map(({ stage, label }) => (
+          {/* ③ Stage Simulation */}
+          <section className="px-6 py-5">
+            <Cap>Stage Simulation</Cap>
+            <div className="mt-3 space-y-4">
+              <div>
+                <p className="mb-2 font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">
+                  Lifecycle stage
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {(
+                    [
+                      { stage: 'T_MINUS_30' as SimStage, label: '→ T-30 Nudge' },
+                      { stage: 'T_MINUS_7' as SimStage, label: '→ T-7 Urgent' },
+                      { stage: 'T_0' as SimStage, label: '→ T-0 Block' },
+                      { stage: 'T_PLUS_30' as SimStage, label: '→ T+30 Offboard' },
+                    ]
+                  ).map(({ stage, label }) => (
+                    <button
+                      key={stage}
+                      disabled={simLoading !== null}
+                      onClick={() => void simulate(stage)}
+                      className={adminButtonClass('simulationAction')}
+                    >
+                      {simLoading === stage ? 'Working…' : label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="border-t border-adm-border pt-4">
+                <p className="mb-2 font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">
+                  Customer action
+                </p>
+                <div className="flex flex-wrap gap-2">
                   <button
-                    key={stage}
                     disabled={simLoading !== null}
-                    onClick={() => void simulate(stage)}
-                    className={adminButtonClass('simulationAction')}
+                    onClick={() => void simulate('GREEN')}
+                    className={adminButtonClass('workflowPrimary')}
                   >
-                    {simLoading === stage ? 'Working…' : label}
+                    {simLoading === 'GREEN' ? 'Working…' : '✓ GREEN: Accepted'}
                   </button>
-                ))}
+                  <button
+                    disabled={simLoading !== null}
+                    onClick={() => void simulate('RED')}
+                    className={adminButtonClass('workflowNegative')}
+                  >
+                    {simLoading === 'RED' ? 'Working…' : '✗ RED: Rejected'}
+                  </button>
+                </div>
               </div>
             </div>
-            <div className="border-t border-adm-border pt-4">
-              <p className="mb-2 font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">
-                Customer action simulation
-              </p>
-              <div className="flex flex-wrap gap-2">
-                {actionButtons.map(({ stage, label, variant }) => (
-                  <button
-                    key={stage}
-                    disabled={simLoading !== null}
-                    onClick={() => void simulate(stage)}
-                    className={adminButtonClass(variant)}
-                  >
-                    {simLoading === stage ? 'Working…' : label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-        </DetailCard>
+          </section>
 
-        {/* ════ Section 3: Refresh Cycle History ════ */}
-        <DetailCard title="Refresh Cycle History" columns={1}>
-          {detail.refreshCycles.length === 0 ? (
-            <p className="font-mono text-[11px] text-adm-t3">No refresh cycles yet.</p>
-          ) : (
-            <div className="divide-y divide-adm-border -mx-4">
-              {detail.refreshCycles.map((cycle) => {
-                const isActive = cycle.id === detail.activeRefreshCycleId;
-                return (
-                  <div
-                    key={cycle.id}
-                    className={`px-4 py-3.5 space-y-1.5 ${isActive ? 'bg-adm-blue/5' : ''}`}
-                  >
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-mono text-[11px] font-semibold text-adm-amber">
-                        {cycle.cycleNo}
-                      </span>
-                      <AdminBadge value={cycle.status} />
-                      {cycle.stage && (
-                        <span className="font-mono text-[9px] text-adm-t3">{cycle.stage}</span>
-                      )}
-                      <span className="font-mono text-[9px] text-adm-t3">
-                        Created: {fmtDate(cycle.createdAt)}
-                      </span>
-                      {cycle.clearedAt && (
-                        <span className="font-mono text-[9px] text-adm-t3">
-                          Cleared: {fmtDate(cycle.clearedAt)}
+          {/* ④ Refresh Cycle History */}
+          <section className="px-6 py-5">
+            <Cap>Refresh Cycle History</Cap>
+            {detail.refreshCycles.length === 0 ? (
+              <p className="mt-3 font-mono text-[11px] text-adm-t3">
+                No refresh cycles yet.
+              </p>
+            ) : (
+              <div className="mt-3 divide-y divide-adm-border rounded border border-adm-border">
+                {detail.refreshCycles.map((cycle) => {
+                  const isActive = cycle.id === detail.activeRefreshCycleId;
+                  return (
+                    <div
+                      key={cycle.id}
+                      className={[
+                        'px-4 py-3.5 space-y-1.5',
+                        isActive ? 'bg-adm-amber/5' : '',
+                      ].join(' ')}
+                    >
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-mono text-[11px] font-semibold text-adm-amber">
+                          {cycle.cycleNo}
                         </span>
+                        <AdminBadge value={cycle.status} />
+                        {cycle.stage && (
+                          <span className="font-mono text-[9px] text-adm-t3">{cycle.stage}</span>
+                        )}
+                        {cycle.triggerType && (
+                          <span className="font-mono text-[9px] text-adm-t3">
+                            trigger: {cycle.triggerType}
+                          </span>
+                        )}
+                        {isActive && (
+                          <span className="font-mono text-[9px] font-semibold text-adm-blue">
+                            ← active
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex flex-wrap gap-x-4 gap-y-1 font-mono text-[9px] text-adm-t3">
+                        <span>Created: {fmtDate(cycle.createdAt)}</span>
+                        {cycle.clearedAt && <span>Cleared: {fmtDate(cycle.clearedAt)}</span>}
+                        {cycle.rejectedAt && <span>Rejected: {fmtDate(cycle.rejectedAt)}</span>}
+                        {cycle.graceExpiresAt && (
+                          <span>Grace: {fmtDate(cycle.graceExpiresAt)}</span>
+                        )}
+                      </div>
+                      {cycle.sumsubActionId && (
+                        <p className="font-mono text-[9px] text-adm-t3">
+                          Action: {cycle.sumsubActionId}
+                        </p>
                       )}
-                      {isActive && (
-                        <span className="font-mono text-[9px] font-semibold text-adm-blue">
-                          ← active cycle
-                        </span>
+                      {cycle.resolutionReason && (
+                        <p className="font-mono text-[9px] text-adm-t3">
+                          Resolution: {cycle.resolutionReason}
+                        </p>
                       )}
                     </div>
-                    {cycle.sumsubActionId && (
-                      <p className="font-mono text-[9px] text-adm-t3">
-                        Sumsub Action: {cycle.sumsubActionId}
-                      </p>
-                    )}
-                    {cycle.resolution && (
-                      <p className="font-mono text-[9px] text-adm-t3">
-                        Resolution: {cycle.resolution}
-                      </p>
-                    )}
-                    {cycle.graceExpiresAt && (
-                      <p className="font-mono text-[9px] text-adm-t3">
-                        Grace expires: {fmtDateTime(cycle.graceExpiresAt)}
-                      </p>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </DetailCard>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+        </div>
 
+        {/* ════ RIGHT SIDEBAR ════ */}
+        <div className="hidden w-72 shrink-0 flex-col divide-y divide-adm-border overflow-y-auto border-l border-adm-border bg-adm-panel px-5 pt-5 lg:flex">
+          {/* Customer */}
+          <SidebarGroup title="Customer">
+            <SidebarKV label="Customer No" value={detail.customer.customerNo} />
+            <SidebarKV label="Email" value={detail.customer.email} mono />
+            <SidebarKV label="Risk Tier" value={detail.customer.riskTier} />
+            <SidebarKV
+              label="Restriction"
+              value={
+                detail.customer.restrictionStatus &&
+                detail.customer.restrictionStatus !== 'CLEAR'
+                  ? detail.customer.restrictionStatus
+                  : null
+              }
+            />
+          </SidebarGroup>
+
+          {/* Verification */}
+          <SidebarGroup title="Verification">
+            <SidebarKV label="Verified At" value={fmtDate(detail.verifiedAt)} mono />
+            <SidebarKV
+              label="Expires At"
+              value={detail.expiresAt ? fmtDate(detail.expiresAt) : null}
+              mono
+            />
+            {daysLabel && (
+              <SidebarKV
+                label="Countdown"
+                value={<span className={daysColor}>{daysLabel}</span>}
+              />
+            )}
+          </SidebarGroup>
+
+          {/* Sumsub */}
+          <SidebarGroup title="Sumsub">
+            <SidebarKV label="Level" value={detail.customer.sumsubCurrentLevelName} mono />
+            <SidebarKV label="Doc Set Type" value={detail.sumsubIdDocSetType} mono />
+            <SidebarKV label="Doc ID" value={detail.sumsubDocId} mono />
+          </SidebarGroup>
+
+          {/* Active Cycle */}
+          {activeCycle && (
+            <SidebarGroup title="Active Cycle">
+              <SidebarKV label="Cycle No" value={activeCycle.cycleNo} />
+              <SidebarKV label="Stage" value={activeCycle.stage} />
+              <SidebarKV label="Trigger" value={activeCycle.triggerType} mono />
+              <SidebarKV label="Grace" value={fmt(activeCycle.graceExpiresAt)} mono />
+              <SidebarKV label="Action ID" value={activeCycle.sumsubActionId} mono />
+            </SidebarGroup>
+          )}
+
+          {/* Lifecycle */}
+          <SidebarGroup title="Lifecycle">
+            <SidebarKV label="Holding ID" value={detail.id} mono />
+            <SidebarKV label="Total Cycles" value={String(detail.refreshCycles.length)} />
+          </SidebarGroup>
+        </div>
       </div>
     </div>
   );
