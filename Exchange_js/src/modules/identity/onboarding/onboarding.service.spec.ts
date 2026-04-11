@@ -3,8 +3,8 @@ import {
   ForbiddenException,
   NotFoundException,
 } from '@nestjs/common';
-import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
-import { AuditTriggerType } from '../../risk-engine/audit-logs/dto/audit-log.dto';
+import { AuditLogsService } from '../../audit-logging/audit-logs.service';
+import { AuditTriggerType } from '../../audit-logging/dto/audit-log.dto';
 import { OnboardingService } from './onboarding.service';
 import { WORKFLOW_TRANSITION_CODES } from './onboarding-workflow-transition.service';
 
@@ -92,11 +92,6 @@ describe('OnboardingService', () => {
     transition: jest.fn(),
   };
 
-  const complianceIncidentsMock: any = {
-    createFromAlert: jest.fn(),
-    findOne: jest.fn(),
-  };
-
   const onboardingFinalApprovalServiceMock: any = {
     proxyFinalDecision: jest.fn(),
     emitSubmittedSideEffects: jest.fn(),
@@ -138,9 +133,7 @@ describe('OnboardingService', () => {
     service = new OnboardingService(
       prismaMock,
       riskEngineMock,
-      orchestratorMock,
       workflowTransitionServiceMock,
-      complianceIncidentsMock,
       onboardingFinalApprovalServiceMock,
       sumsubClientMock,
     );
@@ -622,113 +615,7 @@ describe('OnboardingService', () => {
       decisionRecordIds: ['dr-low'],
       events: [],
     });
-    complianceIncidentsMock.createFromAlert.mockResolvedValue({ id: 'inc-1' });
-    complianceIncidentsMock.findOne.mockResolvedValue({ id: 'inc-1', status: 'ASSIGNED' });
-
     return { session, customer, cddResponse };
-  };
-
-  const seedAlertDecisionFlow = (overrides?: {
-    alert?: Record<string, unknown>;
-    customer?: Record<string, unknown>;
-    cddResponse?: Record<string, unknown>;
-  }) => {
-    const alert = {
-      id: 'alert-onb-1',
-      sourceType: 'ONBOARDING_JOURNEY',
-      sourceId: 'c1:ONB-1',
-      customerId: 'c1',
-      journeyId: 'ONB-1',
-      status: 'ASSIGNED',
-      assigneeUserId: 'admin-1',
-      decision: null,
-      linkedCaseIds: '["cdd-1"]',
-      decisionRecordIds: '["dr-1"]',
-      ...overrides?.alert,
-    };
-    const customer = {
-      id: 'c1',
-      customerNo: 'CU0001',
-      onboardingStatus: 'CDD_UNDER_REVIEW',
-      operatingStatus: 'INACTIVE',
-      restrictionStatus: 'CLEAR',
-      currentCddResponseId: 'cdd-1',
-      latestDecisionRecordId: 'dr-1',
-      eddRequired: false,
-      activeCaseId: 'cdd-1',
-      ...overrides?.customer,
-    };
-    const cddResponse = {
-      id: 'cdd-1',
-      customerId: 'c1',
-      journeyId: 'ONB-1',
-      status: 'FINAL',
-      ...overrides?.cddResponse,
-    };
-
-    prismaMock.complianceAlert.findUnique.mockResolvedValue(alert);
-    prismaMock.complianceAlert.update.mockResolvedValue({
-      ...alert,
-      decision: 'CLEAR',
-    });
-    prismaMock.complianceAlertEvent.create.mockResolvedValue({ id: 'alevt-1' });
-    prismaMock.customerMain.findUnique.mockResolvedValue(customer);
-    prismaMock.cddResponse.findUnique.mockResolvedValue(cddResponse);
-    prismaMock.cddResponse.findFirst.mockResolvedValue(cddResponse);
-    prismaMock.cddResponse.update.mockResolvedValue(cddResponse);
-    prismaMock.customerMain.update.mockResolvedValue({
-      ...customer,
-      onboardingStatus: 'APPROVED',
-      operatingStatus: 'ACTIVE',
-      eddRequired: false,
-      activeCaseId: null,
-    });
-    prismaMock.eddResponse.findFirst.mockResolvedValue(null);
-    prismaMock.eddResponse.create.mockResolvedValue({
-      id: 'edd-1',
-      caseNo: 'EDD2603010001',
-      customerId: 'c1',
-      cddResponseId: 'cdd-1',
-      journeyId: 'ONB-1',
-      status: 'CREATED',
-    });
-    orchestratorMock.findAlertDetail.mockResolvedValue({
-      id: 'alert-onb-1',
-      status: 'ASSIGNED',
-      sourceType: 'ONBOARDING_JOURNEY',
-      assigneeUserId: 'admin-1',
-      decision: 'CLEAR',
-      recommendedDecisions: ['CLEAR', 'REJECT', 'REQUIRE_EDD'],
-      linkedCaseIds: ['cdd-1'],
-      decisionRecordIds: ['dr-1'],
-      events: [],
-    });
-    workflowTransitionServiceMock.transition.mockResolvedValue({
-      workflow: 'ONBOARDING',
-      stage: 'REVIEW_CDD',
-      dispositionCode: 'CLEAR',
-      transitionCode: WORKFLOW_TRANSITION_CODES.CDD_APPROVE_TO_ACTIVE,
-      fromStatus: 'REVIEW_CDD',
-      toStatus: 'ACTIVE',
-      executed: true,
-      updatedCustomer: {
-        ...customer,
-        onboardingStatus: 'APPROVED',
-        operatingStatus: 'ACTIVE',
-        eddRequired: false,
-        activeCaseId: null,
-      },
-      eddResponse: null,
-      activeCaseId: null,
-      finalApprovalStatus: 'APPROVED',
-    });
-    prismaMock.onboardingAuditLog.create.mockResolvedValue({ id: 'audit-alert-1' });
-
-    return {
-      alert,
-      customer,
-      cddResponse,
-    };
   };
 
   it('should allow trading when canonical onboarding is APPROVED and active', async () => {
@@ -1753,280 +1640,6 @@ describe('OnboardingService', () => {
     expect(result.onboardingStatus).toBe('NONE');
   });
 
-  it('should reject onboarding alert decision when alert is not onboarding journey', async () => {
-    seedAlertDecisionFlow({
-      alert: {
-        sourceType: 'DEPOSIT',
-      },
-    });
-
-    await expect(
-      service.applyOnboardingDecisionFromAlert(
-        'alert-onb-1',
-        'admin-1',
-        'COMPLIANCE_OFFICER',
-        { decision: 'CLEAR' },
-      ),
-    ).rejects.toBeInstanceOf(BadRequestException);
-  });
-
-  it('should reject onboarding alert decision when actor is not assignee', async () => {
-    seedAlertDecisionFlow({
-      alert: {
-        assigneeUserId: 'admin-9',
-      },
-    });
-
-    await expect(
-      service.applyOnboardingDecisionFromAlert(
-        'alert-onb-1',
-        'admin-1',
-        'COMPLIANCE_OFFICER',
-        { decision: 'CLEAR' },
-      ),
-    ).rejects.toBeInstanceOf(ForbiddenException);
-  });
-
-  it('should reject REQUIRE_EDD decision when onboarding is in REVIEW_EDD', async () => {
-    seedAlertDecisionFlow({
-      customer: {
-        onboardingStatus: 'EDD_UNDER_REVIEW',
-        operatingStatus: 'INACTIVE',
-        currentEddResponseId: 'edd-1',
-      },
-      alert: {
-        linkedCaseIds: '["edd-1"]',
-      },
-    });
-    prismaMock.eddResponse.findUnique.mockResolvedValue({
-      id: 'edd-1',
-      customerId: 'c1',
-      journeyId: 'ONB-1',
-      status: 'FINAL',
-    });
-    prismaMock.eddResponse.findFirst.mockResolvedValue({
-      id: 'edd-1',
-      customerId: 'c1',
-      journeyId: 'ONB-1',
-      status: 'FINAL',
-    });
-
-    await expect(
-      service.applyOnboardingDecisionFromAlert(
-        'alert-onb-1',
-        'admin-1',
-        'COMPLIANCE_OFFICER',
-        { decision: 'REQUIRE_EDD' },
-      ),
-    ).rejects.toBeInstanceOf(BadRequestException);
-  });
-
-  it('should apply CLEAR decision and move onboarding to ACTIVE', async () => {
-    seedAlertDecisionFlow();
-    const result = await service.applyOnboardingDecisionFromAlert(
-      'alert-onb-1',
-      'admin-1',
-      'COMPLIANCE_OFFICER',
-      { decision: 'CLEAR' },
-    );
-
-    expect(workflowTransitionServiceMock.transition).toHaveBeenCalledWith(
-      expect.objectContaining({
-        customerMain: prismaMock.customerMain,
-      }),
-      expect.objectContaining({
-        workflow: 'ONBOARDING',
-        stage: 'REVIEW_CDD',
-        producerType: 'ALERT',
-        dispositionCode: 'CLEAR',
-      }),
-    );
-    expect(prismaMock.complianceAlert.update).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          decision: 'CLEAR',
-          decisionRecommendation: 'CLEAR',
-        }),
-      }),
-    );
-    expect(result.customer.onboardingStatus).toBe('APPROVED');
-    expect(result.customer.operatingStatus).toBe('ACTIVE');
-    expect(result.alert.status).toBe('ASSIGNED');
-  });
-
-  it('should apply REJECT decision and move onboarding to REJECTED', async () => {
-    seedAlertDecisionFlow();
-    workflowTransitionServiceMock.transition.mockResolvedValue({
-      workflow: 'ONBOARDING',
-      stage: 'REVIEW_CDD',
-      dispositionCode: 'REJECT',
-      transitionCode: WORKFLOW_TRANSITION_CODES.CDD_REJECT_TO_REJECTED,
-      fromStatus: 'REVIEW_CDD',
-      toStatus: 'REJECTED',
-      executed: true,
-      updatedCustomer: {
-        id: 'c1',
-        onboardingStatus: 'REJECTED',
-        operatingStatus: 'INACTIVE',
-        eddRequired: false,
-        activeCaseId: null,
-        customerNo: 'CU0001',
-      },
-      eddResponse: null,
-      activeCaseId: null,
-      finalApprovalStatus: 'REJECTED',
-    });
-    const result = await service.applyOnboardingDecisionFromAlert(
-      'alert-onb-1',
-      'admin-1',
-        'COMPLIANCE_OFFICER',
-        { decision: 'REJECT', reason: 'risk not acceptable' },
-    );
-
-    expect(workflowTransitionServiceMock.transition).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({
-        dispositionCode: 'REJECT',
-      }),
-    );
-    expect(result.customer.onboardingStatus).toBe('REJECTED');
-  });
-
-  it('should apply REQUIRE_EDD decision and create EDD case', async () => {
-    seedAlertDecisionFlow();
-    const eddResponse = {
-      id: 'edd-1',
-      caseNo: 'EDD2603010001',
-      customerId: 'c1',
-      cddResponseId: 'cdd-1',
-      journeyId: 'ONB-1',
-      status: 'CREATED',
-    };
-    workflowTransitionServiceMock.transition.mockResolvedValue({
-      workflow: 'ONBOARDING',
-      stage: 'REVIEW_CDD',
-      dispositionCode: 'REQUIRE_EDD',
-      transitionCode: WORKFLOW_TRANSITION_CODES.CDD_REQUIRE_EDD_TO_PENDING_EDD,
-      fromStatus: 'REVIEW_CDD',
-      toStatus: 'PENDING_EDD',
-      executed: true,
-      updatedCustomer: {
-        id: 'c1',
-        onboardingStatus: 'PENDING_EDD_INPUT',
-        operatingStatus: 'INACTIVE',
-        eddRequired: true,
-        activeCaseId: 'edd-1',
-        customerNo: 'CU0001',
-      },
-      eddResponse,
-      activeCaseId: 'edd-1',
-      finalApprovalStatus: 'NOT_REQUIRED',
-    });
-    const result = await service.applyOnboardingDecisionFromAlert(
-      'alert-onb-1',
-      'admin-1',
-      'COMPLIANCE_OFFICER',
-      { decision: 'REQUIRE_EDD' },
-    );
-
-    expect(workflowTransitionServiceMock.transition).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({
-        dispositionCode: 'REQUIRE_EDD',
-      }),
-    );
-    expect(result.customer.onboardingStatus).toBe('PENDING_EDD_INPUT');
-    expect(result.eddResponse?.id).toBe('edd-1');
-    expect(prismaMock.complianceAlert.update).toHaveBeenCalledTimes(2);
-  });
-
-  it.each([
-    {
-      name: 'CLEAR proposal to CLEAR disposition',
-      payload: { proposalCode: 'CLEAR' },
-      expectedWorkflowDecision: 'CLEAR',
-      expectedDispositionCode: 'CLEAR',
-      expectedReason: null,
-    },
-    {
-      name: 'REJECT proposal to RISK_CONFIRMED disposition',
-      payload: { proposalCode: 'REJECT', reason: 'risk not acceptable' },
-      expectedWorkflowDecision: 'REJECT',
-      expectedDispositionCode: 'RISK_CONFIRMED',
-      expectedReason: 'risk not acceptable',
-    },
-    {
-      name: 'legacy REQUIRE_EDD decision to RISK_CONFIRMED disposition',
-      payload: { decision: 'REQUIRE_EDD', reason: 'need enhanced due diligence' },
-      expectedWorkflowDecision: 'REQUIRE_EDD',
-      expectedDispositionCode: 'RISK_CONFIRMED',
-      expectedReason: 'need enhanced due diligence',
-    },
-  ])(
-    'should persist case onboarding proposal mapping for $name',
-    async ({
-      payload,
-      expectedWorkflowDecision,
-      expectedDispositionCode,
-      expectedReason,
-    }) => {
-      prismaMock.complianceIncident.findUnique.mockResolvedValue({
-        id: 'inc-onb-1',
-        status: 'ASSIGNED',
-        assigneeUserId: 'admin-1',
-        primaryAlertId: 'alert-onb-1',
-        metadata: '{}',
-        linkedCaseIds: '["cdd-1"]',
-      });
-      prismaMock.complianceAlert.findUnique.mockResolvedValue({
-        id: 'alert-onb-1',
-        sourceType: 'ONBOARDING_JOURNEY',
-        decisionRecordIds: '["dr-1"]',
-      });
-      prismaMock.complianceIncident.update.mockResolvedValue({
-        id: 'inc-onb-1',
-      });
-      prismaMock.complianceIncidentEvent.create.mockResolvedValue({
-        id: 'evt-inc-onb-1',
-      });
-      orchestratorMock.findAlertDetail.mockResolvedValue({ id: 'alert-onb-1' });
-      complianceIncidentsMock.findOne.mockResolvedValue({
-        id: 'inc-onb-1',
-        status: 'INVESTIGATING',
-        proposedWorkflowDecision: expectedWorkflowDecision,
-        proposedWorkflowReason: expectedReason,
-        proposedFinalDispositionCode: expectedDispositionCode,
-        proposedFinalDispositionReason: expectedReason,
-      });
-
-      const result = await service.applyOnboardingDecisionFromIncident(
-        'inc-onb-1',
-        'admin-1',
-        'MLRO',
-        payload as any,
-      );
-
-      expect(prismaMock.complianceIncident.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: { id: 'inc-onb-1' },
-          data: expect.objectContaining({
-            proposedWorkflowDecision: expectedWorkflowDecision,
-            proposedWorkflowReason: expectedReason,
-            proposedFinalDispositionCode: expectedDispositionCode,
-            proposedFinalDispositionReason: expectedReason,
-          }),
-        }),
-      );
-      expect(result.proposal).toEqual({
-        workflowDecision: expectedWorkflowDecision,
-        finalDispositionCode: expectedDispositionCode,
-        finalDispositionReason: expectedReason,
-      });
-      expect(result.customer).toBeNull();
-      expect(result.transition).toBeNull();
-    },
-  );
-
   it('should create one pending CDD decision record and keep customer under review', async () => {
     seedCddMockFlow();
     riskEngineMock.createPendingDecisionRecord.mockResolvedValue({
@@ -2188,110 +1801,24 @@ describe('OnboardingService', () => {
         decisionRecordId: 'dr-medium',
       }),
     );
-    expect(complianceIncidentsMock.createFromAlert).not.toHaveBeenCalled();
-    expect(result.customer.onboardingStatus).toBe('CDD_UNDER_REVIEW');
-  });
-
-  it('should create case from alert when manual simulation is HIGH', async () => {
-    seedCddMockFlow();
-    prismaMock.workflowDecisionRecord.findUnique
-      .mockResolvedValueOnce({
-        id: 'dr-high',
-        status: 'CREATED',
-        contextType: 'ONBOARDING_CDD',
-        customerId: 'c1',
-        subjectId: 'c1',
-        inputPayload: JSON.stringify({
-          signals: {
-            cddResponseId: 'cdd-1',
-            journeyId: 'ONB-1',
-          },
-        }),
-      })
-      .mockResolvedValueOnce({
-        id: 'dr-high',
-        outputs: JSON.stringify({
-          orchestration: {
-            alertId: 'alert-1',
-          },
-        }),
-      });
-    prismaMock.customerMain.findUnique.mockResolvedValue({
-      id: 'c1',
-      customerNo: 'CU0001',
-      onboardingStatus: 'CDD_UNDER_REVIEW',
-      operatingStatus: 'INACTIVE',
-      restrictionStatus: 'CLEAR',
-    });
-    prismaMock.customerMain.update.mockResolvedValue({
-      id: 'c1',
-      onboardingStatus: 'CDD_UNDER_REVIEW',
-      operatingStatus: 'INACTIVE',
-      restrictionStatus: 'CLEAR',
-    });
-    riskEngineMock.completeDecisionRecord.mockResolvedValue({
-      decision: 'REVIEW',
-      decisionRecordId: 'dr-high',
-      reasonCodes: ['CDD_SANCTIONS_HIT'],
-      recommendedActions: [{ type: 'UPSERT_ALERT' }, { type: 'AUTO_ESCALATE_CASE' }],
-    });
-
-    const result = await service.completeManualCddDecision({
-      decisionRecordId: 'dr-high',
-      riskLevel: 'HIGH',
-      reasonCode: 'CDD_SANCTIONS_HIT',
-    });
-
-    expect(riskEngineMock.completeDecisionRecord).toHaveBeenCalledWith(
-      'dr-high',
-      expect.objectContaining({
-        contextType: 'ONBOARDING_CDD',
-        signals: expect.objectContaining({
-          simulationMode: 'MANUAL',
-          simulationRiskLevel: 'HIGH',
-          simulationRiskReason: 'CDD_SANCTIONS_HIT',
-          mockDataType: 'SANCTION_AND_OTHER',
-          sanctionsHit: true,
-          pepHit: false,
-        }),
-      }),
-    );
-    expect(complianceIncidentsMock.createFromAlert).toHaveBeenCalledWith(
-      'alert-1',
-      expect.objectContaining({
-        reason: 'Auto-escalated onboarding CDD case for CDD2602010001',
-      }),
-      expect.objectContaining({
-        actorType: 'SYSTEM',
-      }),
-    );
     expect(result.customer.onboardingStatus).toBe('CDD_UNDER_REVIEW');
   });
 
   it('should keep HIGH manual simulation on HIGH_RISK_OR_PEP when reasonCode is CDD_PEP_MATCH', async () => {
     seedCddMockFlow();
-    prismaMock.workflowDecisionRecord.findUnique
-      .mockResolvedValueOnce({
-        id: 'dr-high-pep',
-        status: 'CREATED',
-        contextType: 'ONBOARDING_CDD',
-        customerId: 'c1',
-        subjectId: 'c1',
-        inputPayload: JSON.stringify({
-          signals: {
-            cddResponseId: 'cdd-1',
-            journeyId: 'ONB-1',
-          },
-        }),
-      })
-      .mockResolvedValueOnce({
-        id: 'dr-high-pep',
-        outputs: JSON.stringify({
-          orchestration: {
-            alertId: 'alert-1',
-          },
-        }),
-      });
+    prismaMock.workflowDecisionRecord.findUnique.mockResolvedValueOnce({
+      id: 'dr-high-pep',
+      status: 'CREATED',
+      contextType: 'ONBOARDING_CDD',
+      customerId: 'c1',
+      subjectId: 'c1',
+      inputPayload: JSON.stringify({
+        signals: {
+          cddResponseId: 'cdd-1',
+          journeyId: 'ONB-1',
+        },
+      }),
+    });
     prismaMock.customerMain.findUnique.mockResolvedValue({
       id: 'c1',
       customerNo: 'CU0001',
@@ -2510,7 +2037,6 @@ describe('OnboardingService', () => {
       }),
     );
     expect(orchestratorMock.orchestrate).not.toHaveBeenCalled();
-    expect(complianceIncidentsMock.createFromAlert).not.toHaveBeenCalled();
     expect(onboardingFinalApprovalServiceMock.emitSubmittedSideEffects).toHaveBeenCalledWith(
       'approval-1',
       'admin-1',
