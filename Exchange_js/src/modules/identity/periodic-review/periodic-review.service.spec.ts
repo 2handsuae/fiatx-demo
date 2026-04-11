@@ -1,5 +1,5 @@
-import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
-import { AuditTriggerType } from '../../risk-engine/audit-logs/dto/audit-log.dto';
+import { AuditLogsService } from '../../audit-logging/audit-logs.service';
+import { AuditTriggerType } from '../../audit-logging/dto/audit-log.dto';
 import { PeriodicReviewService } from './periodic-review.service';
 
 describe('PeriodicReviewService', () => {
@@ -53,9 +53,6 @@ describe('PeriodicReviewService', () => {
     createPendingDecisionRecord: jest.fn(),
     completeDecisionRecord: jest.fn(),
   };
-  const riskDecisionOrchestratorServiceMock: any = {
-    orchestrate: jest.fn(),
-  };
   const workflowTransitionServiceMock: any = {};
 
   let service: PeriodicReviewService;
@@ -74,7 +71,6 @@ describe('PeriodicReviewService', () => {
       complianceAlertsServiceMock,
       complianceIncidentsServiceMock,
       riskEngineServiceMock,
-      riskDecisionOrchestratorServiceMock,
       workflowTransitionServiceMock,
     );
   });
@@ -313,7 +309,6 @@ describe('PeriodicReviewService', () => {
       }),
     );
     expect(riskEngineServiceMock.evaluate).not.toHaveBeenCalled();
-    expect(riskDecisionOrchestratorServiceMock.orchestrate).not.toHaveBeenCalled();
     expect(prismaMock.cddResponse.update).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { id: 'cdd-1' },
@@ -397,7 +392,6 @@ describe('PeriodicReviewService', () => {
       }),
     );
     expect(riskEngineServiceMock.evaluate).not.toHaveBeenCalled();
-    expect(riskDecisionOrchestratorServiceMock.orchestrate).not.toHaveBeenCalled();
     expect(prismaMock.eddResponse.update).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { id: 'edd-1' },

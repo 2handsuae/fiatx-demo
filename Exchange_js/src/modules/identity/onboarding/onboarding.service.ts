@@ -9,13 +9,13 @@ import {
 import { Prisma } from '@prisma/client';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 import { PrismaService } from '../../../core/prisma/prisma.service';
-import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
+import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
   AuditEntityTypes,
   AuditModules,
   AuditWorkflowTypes,
-} from '../../risk-engine/audit-logs/constants/audit-actions.constant';
-import { AuditTriggerType } from '../../risk-engine/audit-logs/dto/audit-log.dto';
+} from '../../audit-logging/constants/audit-actions.constant';
+import { AuditTriggerType } from '../../audit-logging/dto/audit-log.dto';
 import {
   buildCustomerLifecyclePatch as buildCustomerLifecycleStatePatch,
   canReinitiateCdd,
@@ -48,10 +48,6 @@ import {
   ONBOARDING_SOURCE_TYPE,
   ONBOARDING_WORKFLOW,
 } from '../../risk-engine/constants/onboarding-compliance-workflow.constant';
-import {
-  RiskDecisionOrchestratorService,
-  UpsertOnboardingReviewAlertInput,
-} from '../../risk-engine/risk-decision-orchestrator.service';
 import {
   RiskDecision,
   RiskEngineService,
@@ -182,7 +178,6 @@ export class OnboardingService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly riskEngineService: RiskEngineService,
-    private readonly riskDecisionOrchestratorService: RiskDecisionOrchestratorService,
     private readonly workflowTransitionService: WorkflowTransitionService,
     private readonly complianceIncidentsService: ComplianceIncidentsService,
     private readonly onboardingFinalApprovalService: OnboardingFinalApprovalService,
@@ -1410,26 +1405,6 @@ export class OnboardingService {
     };
   }
 
-  private async upsertJourneyAlert(
-    input: UpsertOnboardingReviewAlertInput,
-  ): Promise<any | null> {
-    return this.riskDecisionOrchestratorService.upsertOnboardingReviewAlert(input);
-  }
-
-  private async closeJourneyAlertIfAny(
-    customerId: string,
-    journeyId: string,
-    reason: string,
-    stage?: OnboardingReviewStage,
-  ): Promise<void> {
-    await this.riskDecisionOrchestratorService.closeLatestJourneyAlertIfAny({
-      sourceType: ONBOARDING_SOURCE_TYPE,
-      sourceId: `${customerId}:${journeyId}`,
-      reason,
-      stage,
-    });
-  }
-
   private async createEddResponseIfNeeded(
     customerId: string,
     journeyId: string,
@@ -1513,21 +1488,6 @@ export class OnboardingService {
       data: updateData,
     });
 
-    await this.riskDecisionOrchestratorService.orchestrate({
-      workflow: ONBOARDING_WORKFLOW,
-      stage: ONBOARDING_REVIEW_STAGES.REVIEW_CDD,
-      customerId: customer.id,
-      customerNo: customer.customerNo || null,
-      sourceId: `${customer.id}:${journeyId}`,
-      sourceNo: journeyId,
-      linkedCaseIds,
-      decisionRecordId,
-      decision: input.decision,
-      reasonCodes,
-      recommendedActions,
-      contextType: 'ONBOARDING_CDD',
-    });
-
     return updated;
   }
 
@@ -1556,21 +1516,6 @@ export class OnboardingService {
     const updated = await this.prisma.customerMain.update({
       where: { id: customer.id },
       data: updateData,
-    });
-
-    await this.riskDecisionOrchestratorService.orchestrate({
-      workflow: ONBOARDING_WORKFLOW,
-      stage: ONBOARDING_REVIEW_STAGES.REVIEW_EDD,
-      customerId: customer.id,
-      customerNo: customer.customerNo || null,
-      sourceId: `${customer.id}:${journeyId}`,
-      sourceNo: journeyId,
-      linkedCaseIds: [eddResponse.id],
-      decisionRecordId,
-      decision: input.decision,
-      reasonCodes,
-      recommendedActions,
-      contextType: 'ONBOARDING_EDD',
     });
 
     return updated;
@@ -3487,9 +3432,7 @@ export class OnboardingService {
       });
     });
 
-    const alertDetail = await this.riskDecisionOrchestratorService.findAlertDetail(
-      txResult.alertId,
-    );
+    const alertDetail = null;
     await this.emitTransitionApprovalSideEffects(
       txResult.transition,
       actorId,
@@ -3640,10 +3583,10 @@ export class OnboardingService {
       };
     });
 
-    const [alertDetail, caseDetail] = await Promise.all([
-      this.riskDecisionOrchestratorService.findAlertDetail(txResult.alertId),
+    const [caseDetail] = await Promise.all([
       this.complianceIncidentsService.findOne(txResult.incidentId),
     ]);
+    const alertDetail = null;
 
     return {
       alert: alertDetail,

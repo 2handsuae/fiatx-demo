@@ -9,13 +9,13 @@ import {
 import { Prisma } from '@prisma/client';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 import { PrismaService } from '../../../core/prisma/prisma.service';
-import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
+import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
   AuditEntityTypes,
   AuditModules,
   AuditWorkflowTypes,
-} from '../../risk-engine/audit-logs/constants/audit-actions.constant';
-import { AuditTriggerType } from '../../risk-engine/audit-logs/dto/audit-log.dto';
+} from '../../audit-logging/constants/audit-actions.constant';
+import { AuditTriggerType } from '../../audit-logging/dto/audit-log.dto';
 import { CustomerNextStepActionType } from '../customer-status.util';
 import { ComplianceAlertsService } from '../../risk-engine/compliance-alerts/compliance-alerts.service';
 import { ComplianceIncidentsService } from '../../risk-engine/compliance-incidents/compliance-incidents.service';
@@ -33,9 +33,6 @@ import {
   PERIODIC_REVIEW_WORKFLOW,
   buildComplianceWorkflowTraceContext,
 } from '../../risk-engine/constants/onboarding-compliance-workflow.constant';
-import {
-  RiskDecisionOrchestratorService,
-} from '../../risk-engine/risk-decision-orchestrator.service';
 import {
   RiskEngineService,
 } from '../../risk-engine/risk-engine.service';
@@ -96,7 +93,6 @@ export class PeriodicReviewService {
     private readonly complianceAlertsService: ComplianceAlertsService,
     private readonly complianceIncidentsService: ComplianceIncidentsService,
     private readonly riskEngineService: RiskEngineService,
-    private readonly riskDecisionOrchestratorService: RiskDecisionOrchestratorService,
     private readonly workflowTransitionService: WorkflowTransitionService,
   ) {
     this.auditLogsService = new AuditLogsService(prisma);
@@ -889,22 +885,6 @@ export class PeriodicReviewService {
       },
     });
 
-    await this.riskDecisionOrchestratorService.orchestrate({
-      workflow: PERIODIC_REVIEW_WORKFLOW,
-      stage: ONBOARDING_REVIEW_STAGES.REVIEW_CDD,
-      customerId: input.customer.id,
-      customerNo: input.customer.customerNo || null,
-      sourceId: input.cycle.id,
-      sourceNo: input.cycle.cycleNo,
-      linkedCaseIds: [input.cddResponse.id],
-      decisionRecordId: input.decisionRecordId,
-      decision: 'REVIEW',
-      reasonCodes: input.reasonCodes,
-      recommendedActions: input.recommendedActions,
-      contextType: 'PERIODIC_REVIEW_CDD',
-      sourceModule: 'identity/periodic-review',
-    });
-
     if (!options.skipAudit) {
       await this.writeAudit({
         customerId: input.customer.id,
@@ -936,22 +916,6 @@ export class PeriodicReviewService {
         latestDecisionRecordId: input.decisionRecordId,
         currentEddResponseId: input.eddResponse.id,
       },
-    });
-
-    await this.riskDecisionOrchestratorService.orchestrate({
-      workflow: PERIODIC_REVIEW_WORKFLOW,
-      stage: ONBOARDING_REVIEW_STAGES.REVIEW_EDD,
-      customerId: input.customer.id,
-      customerNo: input.customer.customerNo || null,
-      sourceId: input.cycle.id,
-      sourceNo: input.cycle.cycleNo,
-      linkedCaseIds: [input.eddResponse.id],
-      decisionRecordId: input.decisionRecordId,
-      decision: 'REVIEW',
-      reasonCodes: input.reasonCodes,
-      recommendedActions: input.recommendedActions,
-      contextType: 'PERIODIC_REVIEW_EDD',
-      sourceModule: 'identity/periodic-review',
     });
 
     if (!options.skipAudit) {
