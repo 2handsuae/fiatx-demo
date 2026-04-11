@@ -46,7 +46,6 @@ import { GovernanceModule } from './modules/governance/governance.module';
 import { SumsubIngestionModule } from './modules/sumsub-ingestion/sumsub-ingestion.module';
 import { ClientRiskAssessmentModule } from './modules/identity/client-risk-assessment/client-risk-assessment.module';
 import { MaterialRefreshModule } from './modules/identity/material-refresh/material-refresh.module';
-import { SumsubIntegrationModule } from './modules/identity/sumsub-integration/sumsub-integration.module';
 import { ProfileBannersModule } from './modules/identity/profile-banners/profile-banners.module';
 
 @Module({
@@ -114,7 +113,6 @@ import { ProfileBannersModule } from './modules/identity/profile-banners/profile
     SumsubIngestionModule,
     ClientRiskAssessmentModule,
     MaterialRefreshModule,
-    SumsubIntegrationModule,
     ProfileBannersModule,
   ],
   controllers: [],

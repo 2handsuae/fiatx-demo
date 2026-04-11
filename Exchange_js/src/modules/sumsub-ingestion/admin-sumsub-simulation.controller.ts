@@ -2,9 +2,9 @@
 import { Controller, Post, Body, ForbiddenException, UseGuards, Req, Inject } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
-import { SumsubWebhookDispatcher } from './sumsub-webhook-dispatcher.service';
-import { ClientRiskAssessmentService } from '../client-risk-assessment/client-risk-assessment.service';
-import { PrismaService } from '../../../core/prisma/prisma.service';
+import { SumsubIngestionService } from './sumsub-ingestion.service';
+import { ClientRiskAssessmentService } from '../identity/client-risk-assessment/client-risk-assessment.service';
+import { PrismaService } from '../../core/prisma/prisma.service';
 
 @ApiTags('Admin - Sumsub Simulation')
 @Controller('admin/sumsub/simulate')
@@ -12,7 +12,7 @@ import { PrismaService } from '../../../core/prisma/prisma.service';
 @ApiBearerAuth()
 export class AdminSumsubSimulationController {
   constructor(
-    private readonly dispatcher: SumsubWebhookDispatcher,
+    private readonly ingestionService: SumsubIngestionService,
     private readonly clientRiskAssessmentService: ClientRiskAssessmentService,
     @Inject(PrismaService)
     private readonly prisma: PrismaService & Record<string, any>,
@@ -29,7 +29,8 @@ export class AdminSumsubSimulationController {
   async simulateAmlCheckResult(
     @Req() req: any,
     @Body() body: {
-      customerId: string;
+      customerId?: string;
+      customerNo?: string;
       reviewAnswer: 'GREEN' | 'RED';
       rejectLabels?: string[];
       reviewRejectType?: string;
@@ -37,9 +38,18 @@ export class AdminSumsubSimulationController {
   ) {
     this.ensureAdmin(req);
 
+    // Resolve customerId from customerNo if needed
+    let resolvedCustomerId = body.customerId;
+    if (!resolvedCustomerId && body.customerNo) {
+      const cust = await this.prisma.customerMain.findFirst({ where: { customerNo: body.customerNo } });
+      if (!cust) throw new ForbiddenException(`Customer with No ${body.customerNo} not found`);
+      resolvedCustomerId = cust.id;
+    }
+    if (!resolvedCustomerId) throw new ForbiddenException('Either customerId or customerNo is required');
+
     // Find the pending assessment for this customer
     const assessment = await this.prisma.clientRiskAssessment.findFirst({
-      where: { customerId: body.customerId, status: 'PENDING_SUMSUB_RESULT' },
+      where: { customerId: resolvedCustomerId, status: 'PENDING_SUMSUB_RESULT' },
       orderBy: { triggeredAt: 'desc' },
     });
     if (!assessment) {
@@ -47,10 +57,10 @@ export class AdminSumsubSimulationController {
     }
 
     const customer = await this.prisma.customerMain.findUnique({
-      where: { id: body.customerId },
+      where: { id: resolvedCustomerId },
     });
 
-    return this.dispatcher.dispatch(
+    return this.ingestionService.ingest(
       {
         type: 'applicantReviewed',
         applicantId: customer?.sumsubApplicantId,
@@ -61,8 +71,8 @@ export class AdminSumsubSimulationController {
           reviewRejectType: body.reviewRejectType,
         },
         createdAtMs: String(Date.now()),
-      } as any,
-      { simulated: true, actorId: 'ADMIN_SIMULATION' },
+      },
+      { isSimulated: true, simulatedByUserId: 'ADMIN_SIMULATION' },
     );
   }
 
@@ -97,7 +107,7 @@ export class AdminSumsubSimulationController {
       where: { id: cycle.customerId },
     });
 
-    return this.dispatcher.dispatch(
+    return this.ingestionService.ingest(
       {
         type: 'applicantActionReviewed',
         applicantId: customer?.sumsubApplicantId,
@@ -107,8 +117,8 @@ export class AdminSumsubSimulationController {
           reviewRejectType: body.reviewRejectType,
         },
         createdAtMs: String(Date.now()),
-      } as any,
-      { simulated: true, actorId: 'ADMIN_SIMULATION' },
+      },
+      { isSimulated: true, simulatedByUserId: 'ADMIN_SIMULATION' },
     );
   }
 
@@ -177,6 +187,71 @@ export class AdminSumsubSimulationController {
     return { ok: true };
   }
 
+  @Post('risk-assessment-scenario')
+  @ApiOperation({ summary: 'Trigger risk assessment + simulate AML result in one call' })
+  async simulateRiskAssessmentScenario(
+    @Req() req: any,
+    @Body() body: {
+      customerNo?: string;
+      customerId?: string;
+      reviewAnswer: 'GREEN' | 'RED';
+      rejectLabels?: string[];
+    },
+  ) {
+    this.ensureAdmin(req);
+
+    // Resolve customer
+    let customer: any;
+    if (body.customerNo) {
+      customer = await this.prisma.customerMain.findFirst({ where: { customerNo: body.customerNo } });
+      if (!customer) throw new ForbiddenException(`Customer with No ${body.customerNo} not found`);
+    } else if (body.customerId) {
+      customer = await this.prisma.customerMain.findUnique({ where: { id: body.customerId } });
+      if (!customer) throw new ForbiddenException('Customer not found');
+    } else {
+      throw new ForbiddenException('Either customerId or customerNo is required');
+    }
+
+    // Step 1: Trigger assessment
+    const assessment = await this.clientRiskAssessmentService.startAssessment({
+      customerId: customer.id,
+      triggerType: 'MLRO_MANUAL',
+    });
+
+    // Step 2: Find the pending assessment and simulate AML result
+    const updatedAssessment = await this.prisma.clientRiskAssessment.findFirst({
+      where: { customerId: customer.id, status: 'PENDING_SUMSUB_RESULT' },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!updatedAssessment) {
+      return { ok: true, assessmentId: assessment.id, note: 'Assessment created but no pending result found (might be idempotent)' };
+    }
+
+    await this.ingestionService.ingest(
+      {
+        type: 'applicantReviewed',
+        applicantId: customer.sumsubApplicantId,
+        inspectionId: updatedAssessment.sumsubAmlCheckInspectionId,
+        reviewResult: {
+          reviewAnswer: body.reviewAnswer,
+          rejectLabels: body.rejectLabels || [],
+        },
+        createdAtMs: String(Date.now()),
+      },
+      { isSimulated: true, simulatedByUserId: 'ADMIN_SIMULATION' },
+    );
+
+    // Reload to get current state
+    const final = await this.prisma.clientRiskAssessment.findUnique({ where: { id: updatedAssessment.id } });
+    return {
+      ok: true,
+      assessmentId: final?.id,
+      assessmentNo: (final as any)?.assessmentNo,
+      status: final?.status,
+      scenarioType: (final as any)?.recommendedAction,
+    };
+  }
+
   @Post('ongoing-doc-monitoring-fire')
   @ApiOperation({ summary: 'Simulate Sumsub Ongoing Document Monitoring fire' })
   async simulateOngoingDocMonitoring(
@@ -192,14 +267,14 @@ export class AdminSumsubSimulationController {
       throw new ForbiddenException('Customer has no Sumsub applicant');
     }
 
-    return this.dispatcher.dispatch(
+    return this.ingestionService.ingest(
       {
         type: 'applicantReviewed',
         reviewMode: 'ongoingDocExpired',
         applicantId: customer.sumsubApplicantId,
         createdAtMs: String(Date.now()),
-      } as any,
-      { simulated: true, actorId: 'ADMIN_SIMULATION' },
+      },
+      { isSimulated: true, simulatedByUserId: 'ADMIN_SIMULATION' },
     );
   }
 }
