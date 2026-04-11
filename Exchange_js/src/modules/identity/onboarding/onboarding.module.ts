@@ -4,8 +4,6 @@ import { OnboardingService } from './onboarding.service';
 import { OnboardingCustomerController } from './onboarding-customer.controller';
 import { OnboardingAdminController } from './onboarding-admin.controller';
 import { RiskEngineModule } from '../../risk-engine/risk-engine.module';
-import { ComplianceIncidentsModule } from '../../risk-engine/compliance-incidents/compliance-incidents.module';
-import { ComplianceAlertsModule } from '../../risk-engine/compliance-alerts/compliance-alerts.module';
 import { WorkflowTransitionService } from './workflow-transition.service';
 import { OnboardingWorkflowTransitionService } from './onboarding-workflow-transition.service';
 import { ApprovalsModule } from '../../governance/approvals/approvals.module';
@@ -23,8 +21,6 @@ import { MaterialRefreshService } from '../material-refresh/material-refresh.ser
   imports: [
     PrismaModule,
     RiskEngineModule,
-    ComplianceAlertsModule,
-    ComplianceIncidentsModule,
     ApprovalsModule,
     forwardRef(() => MaterialRefreshModule),
   ],

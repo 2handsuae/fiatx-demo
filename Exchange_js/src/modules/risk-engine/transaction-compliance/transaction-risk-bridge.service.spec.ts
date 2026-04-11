@@ -1,7 +1,5 @@
 import { ModuleRef } from '@nestjs/core';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
-import { ComplianceAlertsService } from '../compliance-alerts/compliance-alerts.service';
-import { ComplianceIncidentsService } from '../compliance-incidents/compliance-incidents.service';
 import { TransactionRiskBridgeService } from './transaction-risk-bridge.service';
 import { TxSourceType } from './types/tx-compliance.types';
 import { TransactionDepositWorkflowService } from '../../trading/deposit-transactions/transaction-deposit-workflow.service';
@@ -33,13 +31,6 @@ describe('TransactionRiskBridgeService', () => {
     createPendingDecisionRecord: jest.fn(),
     completeDecisionRecord: jest.fn(),
   };
-  const complianceAlertsServiceMock: any = {
-    triggerSystemAlert: jest.fn(),
-  };
-  const complianceIncidentsServiceMock: any = {
-    createFromAlert: jest.fn(),
-    createFromAlertInTransaction: jest.fn(),
-  };
   const transactionDepositWorkflowServiceMock: any = {
     execute: jest.fn(),
   };
@@ -63,12 +54,6 @@ describe('TransactionRiskBridgeService', () => {
     prismaMock.complianceIncidentAlert.findUnique.mockResolvedValue(null);
     riskEngineServiceMock.buildInputHash.mockReturnValue('hash-1');
     moduleRefMock.get.mockImplementation((token: unknown) => {
-      if (token === ComplianceAlertsService) {
-        return complianceAlertsServiceMock;
-      }
-      if (token === ComplianceIncidentsService) {
-        return complianceIncidentsServiceMock;
-      }
       if (token === TransactionDepositWorkflowService) {
         return transactionDepositWorkflowServiceMock;
       }
@@ -112,7 +97,7 @@ describe('TransactionRiskBridgeService', () => {
     ...overrides,
   });
 
-  it('should flag deposit from alert when KYT REVIEW only upserts alert', async () => {
+  it('should process deposit KYT REVIEW update without calling compliance alert service', async () => {
     prismaMock.depositTransaction.findUnique.mockResolvedValue({
       id: 'dep-1',
       depositNo: 'DEP0001',
@@ -129,14 +114,6 @@ describe('TransactionRiskBridgeService', () => {
       recommendedActions: [{ type: 'UPSERT_ALERT' }],
       reasonCodes: ['TX_KYT_REVIEW_REQUIRED'],
     });
-    complianceAlertsServiceMock.triggerSystemAlert.mockResolvedValue({
-      id: 'alert-1',
-      alertNo: 'ALT0001',
-    });
-    transactionDepositWorkflowServiceMock.execute.mockResolvedValue({
-      applied: true,
-      transitionCode: 'TX_DEPOSIT_FLAG_TO_UNDER_REVIEW',
-    });
 
     await service.handleDepositKytUpdate({
       depositId: 'dep-1',
@@ -150,25 +127,11 @@ describe('TransactionRiskBridgeService', () => {
       },
     });
 
-    expect(complianceAlertsServiceMock.triggerSystemAlert).toHaveBeenCalledWith(
-      expect.objectContaining({
-        decisionRecommendation: 'REVIEW',
-        decision: null,
-      }),
-      undefined,
-    );
-    expect(transactionDepositWorkflowServiceMock.execute).toHaveBeenCalledWith(
-      undefined,
-      expect.objectContaining({
-        depositId: 'dep-1',
-        source: 'ALERT',
-        sourceId: 'alert-1',
-        workflowAction: 'FLAG',
-      }),
-    );
+    // ComplianceAlertsService has been removed; no alert service calls expected
+    expect(riskEngineServiceMock.evaluate).toHaveBeenCalled();
   });
 
-  it('should flag deposit from case when KYT FAIL auto-escalates case', async () => {
+  it('should process deposit KYT FAIL update without calling compliance incident service', async () => {
     prismaMock.depositTransaction.findUnique.mockResolvedValue({
       id: 'dep-1',
       depositNo: 'DEP0001',
@@ -185,18 +148,6 @@ describe('TransactionRiskBridgeService', () => {
       recommendedActions: [{ type: 'UPSERT_ALERT' }, { type: 'AUTO_ESCALATE_CASE' }],
       reasonCodes: ['TX_KYT_FAIL'],
     });
-    complianceAlertsServiceMock.triggerSystemAlert.mockResolvedValue({
-      id: 'alert-1',
-      alertNo: 'ALT0001',
-    });
-    complianceIncidentsServiceMock.createFromAlert.mockResolvedValue({
-      id: 'case-1',
-      incidentNo: 'CAS0001',
-    });
-    transactionDepositWorkflowServiceMock.execute.mockResolvedValue({
-      applied: true,
-      transitionCode: 'TX_DEPOSIT_FLAG_TO_UNDER_REVIEW',
-    });
 
     await service.handleDepositKytUpdate({
       depositId: 'dep-1',
@@ -210,16 +161,8 @@ describe('TransactionRiskBridgeService', () => {
       },
     });
 
-    expect(transactionDepositWorkflowServiceMock.execute).toHaveBeenCalledWith(
-      undefined,
-      expect.objectContaining({
-        depositId: 'dep-1',
-        source: 'CASE',
-        sourceId: 'case-1',
-        caseId: 'case-1',
-        workflowAction: 'FLAG',
-      }),
-    );
+    // ComplianceIncidentsService has been removed; no incident service calls expected
+    expect(riskEngineServiceMock.evaluate).toHaveBeenCalled();
   });
 
   it('should skip final review until both KYT and Travel Rule are terminal', async () => {
@@ -257,7 +200,6 @@ describe('TransactionRiskBridgeService', () => {
       skipReason: 'FINAL_REVIEW_NOT_READY',
     });
     expect(riskEngineServiceMock.evaluate).not.toHaveBeenCalled();
-    expect(complianceAlertsServiceMock.triggerSystemAlert).not.toHaveBeenCalled();
   });
 
   it('should skip final review when travel rule evidence container is missing', async () => {
@@ -290,7 +232,6 @@ describe('TransactionRiskBridgeService', () => {
       skipReason: 'FINAL_REVIEW_NOT_READY',
     });
     expect(riskEngineServiceMock.evaluate).not.toHaveBeenCalled();
-    expect(complianceAlertsServiceMock.triggerSystemAlert).not.toHaveBeenCalled();
   });
 
   it('should create one pending final deposit decision record when both responses are terminal', async () => {
@@ -335,7 +276,6 @@ describe('TransactionRiskBridgeService', () => {
       }),
       undefined,
     );
-    expect(complianceAlertsServiceMock.triggerSystemAlert).not.toHaveBeenCalled();
     expect(transactionDepositWorkflowServiceMock.execute).not.toHaveBeenCalled();
     expect(result).toEqual({
       skipped: false,
@@ -459,7 +399,7 @@ describe('TransactionRiskBridgeService', () => {
     );
   });
 
-  it('should create deposit alert when manual simulation is MEDIUM', async () => {
+  it('should return null alertId and caseId for deposit MEDIUM risk (compliance services removed)', async () => {
     prismaMock.workflowDecisionRecord.findUnique.mockResolvedValue({
       id: 'decision-fiat-medium-1',
       status: 'CREATED',
@@ -482,14 +422,6 @@ describe('TransactionRiskBridgeService', () => {
       recommendedActions: [{ type: 'UPSERT_ALERT', payload: { recommendation: 'REVIEW' } }],
       reasonCodes: ['LARGE_DEPOSIT_PROFILE_MISMATCH'],
     });
-    complianceAlertsServiceMock.triggerSystemAlert.mockResolvedValue({
-      id: 'alert-fiat-medium-1',
-      alertNo: 'ALT-FIAT-MEDIUM-1',
-    });
-    transactionDepositWorkflowServiceMock.execute.mockResolvedValue({
-      applied: true,
-      transitionCode: 'TX_DEPOSIT_FLAG_TO_UNDER_REVIEW',
-    });
 
     const result = await service.simulateDepositFinalReview({
       decisionRecordId: 'decision-fiat-medium-1',
@@ -497,40 +429,18 @@ describe('TransactionRiskBridgeService', () => {
       riskReason: 'LARGE_DEPOSIT_PROFILE_MISMATCH',
     });
 
-    expect(complianceAlertsServiceMock.triggerSystemAlert).toHaveBeenCalled();
-    expect(complianceAlertsServiceMock.triggerSystemAlert).toHaveBeenCalledWith(
-      expect.objectContaining({
-        metadata: expect.objectContaining({
-          riskBand: 'MEDIUM',
-          riskReason: 'LARGE_DEPOSIT_PROFILE_MISMATCH',
-        }),
-      }),
-      undefined,
-    );
-    const depositAlertMetadata =
-      complianceAlertsServiceMock.triggerSystemAlert.mock.calls[0][0].metadata;
-    expect(depositAlertMetadata).not.toHaveProperty('simulationRiskLevel');
-    expect(depositAlertMetadata).not.toHaveProperty('simulationRiskReason');
-    expect(transactionDepositWorkflowServiceMock.execute).toHaveBeenCalledWith(
-      undefined,
-      expect.objectContaining({
-        depositId: 'dep-fiat-medium-1',
-        source: 'ALERT',
-        sourceId: 'alert-fiat-medium-1',
-        workflowAction: 'FLAG',
-      }),
-    );
+    // ComplianceAlertsService removed — alertId is always null now
     expect(result).toEqual(
       expect.objectContaining({
         skipped: false,
         decision: 'REVIEW',
-        alertId: 'alert-fiat-medium-1',
+        alertId: null,
         caseId: null,
       }),
     );
   });
 
-  it('should create deposit alert and case when manual simulation is HIGH', async () => {
+  it('should return null alertId and caseId for deposit HIGH risk (compliance services removed)', async () => {
     prismaMock.workflowDecisionRecord.findUnique.mockResolvedValue({
       id: 'decision-fiat-high-1',
       status: 'CREATED',
@@ -553,18 +463,6 @@ describe('TransactionRiskBridgeService', () => {
       recommendedActions: [{ type: 'UPSERT_ALERT' }, { type: 'AUTO_ESCALATE_CASE' }],
       reasonCodes: ['SANCTIONS_HIT'],
     });
-    complianceAlertsServiceMock.triggerSystemAlert.mockResolvedValue({
-      id: 'alert-fiat-high-1',
-      alertNo: 'ALT-FIAT-HIGH-1',
-    });
-    complianceIncidentsServiceMock.createFromAlert.mockResolvedValue({
-      id: 'case-fiat-high-1',
-      incidentNo: 'CAS-FIAT-HIGH-1',
-    });
-    transactionDepositWorkflowServiceMock.execute.mockResolvedValue({
-      applied: true,
-      transitionCode: 'TX_DEPOSIT_FLAG_TO_UNDER_REVIEW',
-    });
 
     const result = await service.simulateDepositFinalReview({
       decisionRecordId: 'decision-fiat-high-1',
@@ -572,28 +470,13 @@ describe('TransactionRiskBridgeService', () => {
       riskReason: 'SANCTIONS_HIT',
     });
 
-    expect(complianceIncidentsServiceMock.createFromAlert).toHaveBeenCalledWith(
-      'alert-fiat-high-1',
-      expect.objectContaining({
-        decisionRecordIds: ['decision-fiat-high-1'],
-      }),
-      expect.any(Object),
-    );
-    expect(transactionDepositWorkflowServiceMock.execute).toHaveBeenCalledWith(
-      undefined,
-      expect.objectContaining({
-        depositId: 'dep-fiat-high-1',
-        source: 'CASE',
-        sourceId: 'case-fiat-high-1',
-        workflowAction: 'FLAG',
-      }),
-    );
+    // ComplianceAlertsService and ComplianceIncidentsService removed — alertId/caseId always null
     expect(result).toEqual(
       expect.objectContaining({
         skipped: false,
         decision: 'REVIEW',
-        alertId: 'alert-fiat-high-1',
-        caseId: 'case-fiat-high-1',
+        alertId: null,
+        caseId: null,
       }),
     );
   });
@@ -620,7 +503,6 @@ describe('TransactionRiskBridgeService', () => {
       }),
       undefined,
     );
-    expect(complianceAlertsServiceMock.triggerSystemAlert).not.toHaveBeenCalled();
     expect(swapTransactionWorkflowServiceMock.execute).not.toHaveBeenCalled();
     expect(result).toEqual({
       skipped: false,
@@ -687,7 +569,7 @@ describe('TransactionRiskBridgeService', () => {
     );
   });
 
-  it('should create swap alert and flag under review when manual simulation is MEDIUM', async () => {
+  it('should return null alertId for swap MEDIUM risk (compliance services removed)', async () => {
     prismaMock.workflowDecisionRecord.findUnique.mockResolvedValue({
       id: 'decision-swap-review-1',
       status: 'CREATED',
@@ -711,18 +593,6 @@ describe('TransactionRiskBridgeService', () => {
       recommendedActions: [{ type: 'UPSERT_ALERT', payload: { recommendation: 'REVIEW' } }],
       reasonCodes: ['VELOCITY_SPIKE'],
     });
-    complianceAlertsServiceMock.triggerSystemAlert.mockResolvedValue({
-      id: 'alert-swap-review-1',
-      alertNo: 'ALT-SWAP-1',
-    });
-    swapTransactionWorkflowServiceMock.execute.mockResolvedValue({
-      applied: true,
-      transitionCode: 'TX_SWAP_FLAG_TO_UNDER_REVIEW',
-      swapId: 'swap-1',
-      swapNo: 'SWP0001',
-      swapStatusBefore: 'PENDING_COMPLIANCE',
-      swapStatusAfter: 'UNDER_REVIEW',
-    });
 
     const result = await service.simulateSwapFinalReview({
       decisionRecordId: 'decision-swap-review-1',
@@ -730,57 +600,13 @@ describe('TransactionRiskBridgeService', () => {
       riskReason: 'VELOCITY_SPIKE',
     });
 
-    expect(complianceAlertsServiceMock.triggerSystemAlert).toHaveBeenCalledWith(
-      expect.objectContaining({
-        ruleCode: 'TX_SWAP_FINAL_REVIEW_REQUIRED',
-        stage: 'REVIEW_SWAP_FINAL',
-        sourceType: 'SWAP',
-        sourceId: 'swap-1',
-        decisionRecommendation: 'REVIEW',
-        metadata: expect.objectContaining({
-          riskBand: 'MEDIUM',
-          riskReason: 'VELOCITY_SPIKE',
-        }),
-      }),
-      undefined,
-    );
-    const mediumSwapAlertMetadata =
-      complianceAlertsServiceMock.triggerSystemAlert.mock.calls[0][0].metadata;
-    expect(mediumSwapAlertMetadata).not.toHaveProperty('simulationRiskLevel');
-    expect(mediumSwapAlertMetadata).not.toHaveProperty('simulationRiskReason');
-    expect(swapTransactionWorkflowServiceMock.execute).toHaveBeenCalledWith(
-      undefined,
-      expect.objectContaining({
-        swapId: 'swap-1',
-        source: 'ALERT',
-        sourceId: 'alert-swap-review-1',
-        workflowAction: 'FLAG',
-      }),
-    );
+    // ComplianceAlertsService removed — alertId is always null now
     expect(result).toEqual(
       expect.objectContaining({
         skipped: false,
         decision: 'REVIEW',
-        alertId: 'alert-swap-review-1',
+        alertId: null,
         caseId: null,
-      }),
-    );
-    expect(prismaMock.workflowDecisionRecord.update).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { id: 'decision-swap-review-1' },
-        data: expect.objectContaining({
-          outputs: expect.stringContaining('"alertId":"alert-swap-review-1"'),
-        }),
-      }),
-    );
-    expect(prismaMock.workflowDecisionRecord.update).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { id: 'decision-swap-review-1' },
-        data: expect.objectContaining({
-          outputs: expect.stringContaining(
-            '"updatedSubject":{"id":"swap-1","sourceType":"SWAP","subjectNo":"SWP0001"',
-          ),
-        }),
       }),
     );
     expect(recordSystemSpy).toHaveBeenCalledWith(
@@ -792,7 +618,7 @@ describe('TransactionRiskBridgeService', () => {
     );
   });
 
-  it('should create swap alert and case when manual simulation is HIGH', async () => {
+  it('should return null alertId and caseId for swap HIGH risk (compliance services removed)', async () => {
     prismaMock.workflowDecisionRecord.findUnique.mockResolvedValue({
       id: 'decision-swap-high-1',
       status: 'CREATED',
@@ -816,22 +642,6 @@ describe('TransactionRiskBridgeService', () => {
       recommendedActions: [{ type: 'UPSERT_ALERT' }, { type: 'AUTO_ESCALATE_CASE' }],
       reasonCodes: ['LAYERING_PATTERN'],
     });
-    complianceAlertsServiceMock.triggerSystemAlert.mockResolvedValue({
-      id: 'alert-swap-high-1',
-      alertNo: 'ALT-SWAP-2',
-    });
-    complianceIncidentsServiceMock.createFromAlert.mockResolvedValue({
-      id: 'case-swap-1',
-      incidentNo: 'CAS-SWAP-1',
-    });
-    swapTransactionWorkflowServiceMock.execute.mockResolvedValue({
-      applied: true,
-      transitionCode: 'TX_SWAP_FLAG_TO_UNDER_REVIEW',
-      swapId: 'swap-1',
-      swapNo: 'SWP0001',
-      swapStatusBefore: 'PENDING_COMPLIANCE',
-      swapStatusAfter: 'UNDER_REVIEW',
-    });
 
     const result = await service.simulateSwapFinalReview({
       decisionRecordId: 'decision-swap-high-1',
@@ -839,59 +649,13 @@ describe('TransactionRiskBridgeService', () => {
       riskReason: 'LAYERING_PATTERN',
     });
 
-    expect(complianceIncidentsServiceMock.createFromAlert).toHaveBeenCalledWith(
-      'alert-swap-high-1',
-      expect.objectContaining({
-        decisionRecordIds: ['decision-swap-high-1'],
-      }),
-      expect.objectContaining({
-        actorType: 'SYSTEM',
-      }),
-    );
-    expect(swapTransactionWorkflowServiceMock.execute).toHaveBeenCalledWith(
-      undefined,
-      expect.objectContaining({
-        swapId: 'swap-1',
-        source: 'CASE',
-        sourceId: 'case-swap-1',
-        workflowAction: 'FLAG',
-        caseId: 'case-swap-1',
-      }),
-    );
-    const highSwapAlertMetadata =
-      complianceAlertsServiceMock.triggerSystemAlert.mock.calls[0][0].metadata;
-    expect(highSwapAlertMetadata).toEqual(
-      expect.objectContaining({
-        riskBand: 'HIGH',
-        riskReason: 'LAYERING_PATTERN',
-      }),
-    );
-    expect(highSwapAlertMetadata).not.toHaveProperty('simulationRiskLevel');
-    expect(highSwapAlertMetadata).not.toHaveProperty('simulationRiskReason');
+    // ComplianceAlertsService and ComplianceIncidentsService removed — alertId/caseId always null
     expect(result).toEqual(
       expect.objectContaining({
         skipped: false,
         decision: 'REVIEW',
-        alertId: 'alert-swap-high-1',
-        caseId: 'case-swap-1',
-      }),
-    );
-    expect(prismaMock.workflowDecisionRecord.update).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { id: 'decision-swap-high-1' },
-        data: expect.objectContaining({
-          outputs: expect.stringContaining('"caseId":"case-swap-1"'),
-        }),
-      }),
-    );
-    expect(prismaMock.workflowDecisionRecord.update).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { id: 'decision-swap-high-1' },
-        data: expect.objectContaining({
-          outputs: expect.stringContaining(
-            '"updatedSubject":{"id":"swap-1","sourceType":"SWAP","subjectNo":"SWP0001"',
-          ),
-        }),
+        alertId: null,
+        caseId: null,
       }),
     );
     expect(recordSystemSpy).toHaveBeenCalledWith(

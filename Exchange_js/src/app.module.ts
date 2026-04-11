@@ -42,8 +42,6 @@ import { RiskEngineModule } from './modules/risk-engine/risk-engine.module';
 import { OnboardingModule } from './modules/identity/onboarding/onboarding.module';
 import { TransactionComplianceModule } from './modules/risk-engine/transaction-compliance/transaction-compliance.module';
 import { AuditLogsModule } from './modules/audit-logging/audit-logs.module';
-import { ComplianceAlertsModule } from './modules/risk-engine/compliance-alerts/compliance-alerts.module';
-import { ComplianceIncidentsModule } from './modules/risk-engine/compliance-incidents/compliance-incidents.module';
 import { GovernanceModule } from './modules/governance/governance.module';
 import { SumsubIngestionModule } from './modules/sumsub-ingestion/sumsub-ingestion.module';
 import { ClientRiskAssessmentModule } from './modules/identity/client-risk-assessment/client-risk-assessment.module';
@@ -112,8 +110,6 @@ import { ProfileBannersModule } from './modules/identity/profile-banners/profile
     TransactionComplianceModule,
     AuditLogsModule,
     GovernanceModule,
-    ComplianceAlertsModule,
-    ComplianceIncidentsModule,
     OnboardingModule,
     SumsubIngestionModule,
     ClientRiskAssessmentModule,
