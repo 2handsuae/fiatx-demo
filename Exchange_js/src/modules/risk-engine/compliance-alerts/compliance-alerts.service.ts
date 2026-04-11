@@ -19,13 +19,13 @@ import {
   normalizeAlertDispositionCode,
   normalizeWorkflowDecision,
 } from '../constants/compliance-disposition.constant';
-import { AuditLogsService } from '../audit-logs/audit-logs.service';
+import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
   AuditActions,
   AuditEntityTypes,
   AuditModules,
-} from '../audit-logs/constants/audit-actions.constant';
-import { AuditTriggerType } from '../audit-logs/dto/audit-log.dto';
+} from '../../audit-logging/constants/audit-actions.constant';
+import { AuditTriggerType } from '../../audit-logging/dto/audit-log.dto';
 import {
   ALERT_SLA_HOURS,
   COMPLIANCE_ALERT_RULES,

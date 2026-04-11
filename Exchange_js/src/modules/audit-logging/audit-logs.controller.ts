@@ -13,8 +13,8 @@ import {
 import { AuthGuard } from '@nestjs/passport';
 import { AdminPermissionGuard } from 'src/modules/identity/access-control/admin-permission.guard';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { AuditEvidenceExportApprovalService } from '../../governance/approvals/audit-evidence-export-approval.service';
-import { ApprovalActorContext } from '../../governance/approvals/constants/approval.constants';
+import { AuditEvidenceExportApprovalService } from '../governance/approvals/audit-evidence-export-approval.service';
+import { ApprovalActorContext } from '../governance/approvals/constants/approval.constants';
 import { AuditLogsService } from './audit-logs.service';
 import {
   AuditActorContext,

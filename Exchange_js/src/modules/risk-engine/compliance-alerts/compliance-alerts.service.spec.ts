@@ -1,6 +1,6 @@
 import { ModuleRef } from '@nestjs/core';
 import { WorkflowTransitionService } from '../../identity/onboarding/workflow-transition.service';
-import { AuditLogsService } from '../audit-logs/audit-logs.service';
+import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import { ComplianceAlertsService } from './compliance-alerts.service';
 import {
   ComplianceAlertAction,

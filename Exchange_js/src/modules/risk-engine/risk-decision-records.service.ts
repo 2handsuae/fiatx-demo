@@ -8,17 +8,17 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../core/prisma/prisma.service';
 import { OnboardingService } from '../identity/onboarding/onboarding.service';
 import { PeriodicReviewService } from '../identity/periodic-review/periodic-review.service';
-import { AuditLogsService } from './audit-logs/audit-logs.service';
+import { AuditLogsService } from '../audit-logging/audit-logs.service';
 import {
   AuditActions,
   AuditEntityTypes,
   AuditModules,
   AuditWorkflowTypes,
-} from './audit-logs/constants/audit-actions.constant';
+} from '../audit-logging/constants/audit-actions.constant';
 import {
   AuditActorContext,
   AuditTriggerType,
-} from './audit-logs/dto/audit-log.dto';
+} from '../audit-logging/dto/audit-log.dto';
 import {
   getCanonicalReviewRuleForStage,
   getWorkflowFromSourceType,

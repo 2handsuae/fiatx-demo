@@ -1,6 +1,6 @@
 import { NotFoundException } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
-import { AuditLogsService } from './audit-logs/audit-logs.service';
+import { AuditLogsService } from '../audit-logging/audit-logs.service';
 import { OnboardingService } from '../identity/onboarding/onboarding.service';
 import { PeriodicReviewService } from '../identity/periodic-review/periodic-review.service';
 import { RiskDecisionRecordsService } from './risk-decision-records.service';

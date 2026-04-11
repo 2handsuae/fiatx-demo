@@ -1,5 +1,5 @@
 import { ConflictException } from '@nestjs/common';
-import { AuditLogsService } from '../audit-logs/audit-logs.service';
+import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import { ComplianceAlertsService } from '../compliance-alerts/compliance-alerts.service';
 import { ComplianceAlertAction } from '../compliance-alerts/constants/compliance-alert-rules.constant';
 import { ComplianceIncidentsService } from './compliance-incidents.service';

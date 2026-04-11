@@ -4,7 +4,7 @@ import {
   TxSourceType,
 } from './types/tx-compliance.types';
 import { TransactionRiskBridgeService } from './transaction-risk-bridge.service';
-import { AuditLogsService } from '../audit-logs/audit-logs.service';
+import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 
 describe('TransactionComplianceService', () => {
   const prismaMock: any = {

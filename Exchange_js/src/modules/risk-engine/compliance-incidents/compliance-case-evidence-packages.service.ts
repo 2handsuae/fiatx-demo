@@ -16,19 +16,19 @@ import {
   ApprovalActionTypes,
   ApprovalStatuses,
 } from '../../governance/approvals/constants/approval.constants';
-import { AuditLogsService } from '../audit-logs/audit-logs.service';
+import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
   AuditActions,
   AuditEntityTypes,
   AuditModules,
-} from '../audit-logs/constants/audit-actions.constant';
+} from '../../audit-logging/constants/audit-actions.constant';
 import {
   AuditActorContext,
   AuditEvidencePackageStatus,
   AuditResult,
   AuditTriggerType,
-} from '../audit-logs/dto/audit-log.dto';
-import { sha256Hex } from '../audit-logs/utils/audit-digest.util';
+} from '../../audit-logging/dto/audit-log.dto';
+import { sha256Hex } from '../../audit-logging/utils/audit-digest.util';
 import { ComplianceIncidentsService } from './compliance-incidents.service';
 import { buildCanonicalIncidentAssigneeWhere } from './compliance-incident-compat.util';
 import {

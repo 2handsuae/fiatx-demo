@@ -1,5 +1,5 @@
 export const AuditModules = {
-  AUDIT_LOGS: 'risk-engine/audit-logs',
+  AUDIT_LOGS: 'audit-logging',
   GOVERNANCE_APPROVALS: 'governance/approvals',
   BUSINESS_CONFIG: 'governance/business-config',
   GOVERNANCE_CHANGE_TICKETS: 'governance/change-tickets',

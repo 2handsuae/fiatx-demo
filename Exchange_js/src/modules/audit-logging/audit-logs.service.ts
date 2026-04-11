@@ -5,8 +5,8 @@ import {
   InternalServerErrorException,
   NotFoundException,
 } from '@nestjs/common';
-import { PrismaService } from '../../../core/prisma/prisma.service';
-import { generateReferenceNo } from '../../../common/utils/no-generator.util';
+import { PrismaService } from '../../core/prisma/prisma.service';
+import { generateReferenceNo } from '../../common/utils/no-generator.util';
 import {
   AuditActions,
   AuditBusinessWorkflowTypes,

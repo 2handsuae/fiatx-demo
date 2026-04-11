@@ -4,8 +4,8 @@ import {
   ApprovalActionTypes,
   ApprovalStatuses,
 } from '../../governance/approvals/constants/approval.constants';
-import { AuditLogsService } from '../audit-logs/audit-logs.service';
-import { AuditEvidencePackageStatus } from '../audit-logs/dto/audit-log.dto';
+import { AuditLogsService } from '../../audit-logging/audit-logs.service';
+import { AuditEvidencePackageStatus } from '../../audit-logging/dto/audit-log.dto';
 import { ComplianceIncidentsService } from './compliance-incidents.service';
 import { ComplianceCaseEvidencePackagesService } from './compliance-case-evidence-packages.service';
 

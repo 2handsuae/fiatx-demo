@@ -1,5 +1,5 @@
 import { ModuleRef } from '@nestjs/core';
-import { AuditLogsService } from '../audit-logs/audit-logs.service';
+import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import { ComplianceAlertsService } from '../compliance-alerts/compliance-alerts.service';
 import { ComplianceIncidentsService } from '../compliance-incidents/compliance-incidents.service';
 import { TransactionRiskBridgeService } from './transaction-risk-bridge.service';

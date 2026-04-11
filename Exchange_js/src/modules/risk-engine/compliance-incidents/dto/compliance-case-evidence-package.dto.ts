@@ -12,7 +12,7 @@ import {
   Max,
   Min,
 } from 'class-validator';
-import { AuditEvidencePackageStatus } from '../../audit-logs/dto/audit-log.dto';
+import { AuditEvidencePackageStatus } from '../../../audit-logging/dto/audit-log.dto';
 import { ComplianceCaseType, ComplianceIncidentStatus } from '../constants/compliance-incident-rules.constant';
 
 export class ExportComplianceCaseEvidencePackageDto {
