@@ -1,10 +1,12 @@
-import { Injectable, Inject } from '@nestjs/common';
+import { Injectable, Inject, Logger } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { SumsubClient } from '../onboarding/providers/sumsub/sumsub.client';
 import { ApprovalsService } from '../../governance/approvals/approvals.service';
 import { ClientRiskAssessmentPolicyLoader } from './policy/policy-loader';
 import { applyPolicy, PolicyInput, PolicyOutput } from './policy/client-risk-assessment-policy';
+import { generateReferenceNo } from '../../../common/utils/no-generator.util';
+import { TierUpgradeCaseService } from '../tier-upgrade-case/tier-upgrade-case.service';
 
 export type AssessmentTriggerType =
   | 'INITIAL_ONBOARDING'
@@ -12,12 +14,17 @@ export type AssessmentTriggerType =
   | 'SUMSUB_AML_HIT'
   | 'MLRO_MANUAL';
 
+// All statuses that mean "an active CRA exists — don't create another"
+const ACTIVE_CRA_STATUSES = ['PENDING_SUMSUB_RESULT', 'PENDING_MLRO_REVIEW', 'ESCALATED_TO_SUMSUB'];
+
 @Injectable()
 export class ClientRiskAssessmentService {
+  private readonly logger = new Logger(ClientRiskAssessmentService.name);
+
   /** Property-injected in module to avoid circular deps */
   materialRefreshService?: {
-    recomputeHoldingsForCustomer: (id: string, levelName: string) => Promise<any>;
     seedInitialHoldings: (id: string, levelName: string) => Promise<void>;
+    recomputeHoldingsForCustomer: (id: string, levelName: string) => Promise<any>;
   };
 
   constructor(
@@ -26,18 +33,21 @@ export class ClientRiskAssessmentService {
     private readonly sumsubClient: SumsubClient,
     private readonly approvalsService: ApprovalsService,
     private readonly policyLoader: ClientRiskAssessmentPolicyLoader,
+    private readonly tierUpgradeCaseService: TierUpgradeCaseService,
   ) {}
 
-  /** Main entry — triggers fresh /aml/check and creates pending assessment */
+  // ─── Public entry points ──────────────────────────────────────────────────
+
+  /** Triggers fresh /aml/check and creates PENDING_SUMSUB_RESULT assessment */
   async startAssessment(input: {
     customerId: string;
     triggerType: Exclude<AssessmentTriggerType, 'INITIAL_ONBOARDING'>;
     triggeredBy?: string;
     triggeredContext?: Record<string, any>;
   }): Promise<any> {
-    // Idempotency
+    // Idempotency: block if ANY active assessment exists
     const existing = await this.prisma.clientRiskAssessment.findFirst({
-      where: { customerId: input.customerId, status: 'PENDING_SUMSUB_RESULT' },
+      where: { customerId: input.customerId, status: { in: ACTIVE_CRA_STATUSES } },
     });
     if (existing) return existing;
 
@@ -47,7 +57,7 @@ export class ClientRiskAssessmentService {
     if (!customer) throw new Error(`Customer ${input.customerId} not found`);
 
     const policy = this.policyLoader.getPolicy();
-    const assessmentNo = await this.generateAssessmentNo();
+    const assessmentNo = generateReferenceNo('CRA');
     const traceId = `CLIENT_RISK_ASSESSMENT:${randomUUID()}`;
 
     const assessment = await this.prisma.clientRiskAssessment.create({
@@ -71,48 +81,11 @@ export class ClientRiskAssessmentService {
           data: { sumsubAmlCheckInspectionId: result.inspectionId },
         });
       } catch (err) {
-        console.error(`runAmlCheck failed for customer ${customer.id}:`, err);
+        this.logger.error(`runAmlCheck failed for customer ${customer.id}:`, String(err));
       }
     }
 
     return assessment;
-  }
-
-  /** For onboarding completion: uses known AML result, no /aml/check call */
-  async recordAssessmentFromKnownAmlResult(input: {
-    customerId: string;
-    knownAmlResult: { reviewAnswer: 'GREEN' | 'RED'; rejectLabels?: string[] };
-    snapshot: any;
-  }): Promise<any> {
-    const customer = await this.prisma.customerMain.findUnique({
-      where: { id: input.customerId },
-    });
-    if (!customer) throw new Error(`Customer ${input.customerId} not found`);
-
-    const policy = this.policyLoader.getPolicy();
-    const assessmentNo = await this.generateAssessmentNo();
-    const traceId = `CLIENT_RISK_ASSESSMENT:${randomUUID()}`;
-
-    const assessment = await this.prisma.clientRiskAssessment.create({
-      data: {
-        assessmentNo,
-        customerId: input.customerId,
-        triggerType: 'INITIAL_ONBOARDING',
-        policyVersion: policy.version,
-        previousRiskTier: customer.riskTier,
-        status: 'PENDING_SUMSUB_RESULT',
-        sumsubSnapshotAt: new Date(),
-        sumsubAmlReviewAnswer: input.knownAmlResult.reviewAnswer,
-        sumsubAmlLabels: JSON.stringify(input.knownAmlResult.rejectLabels || []),
-        traceId,
-      },
-    });
-
-    // Directly advance through the same pipeline as webhook handler
-    return this.processAssessmentResult(assessment.id, {
-      reviewAnswer: input.knownAmlResult.reviewAnswer,
-      rejectLabels: input.knownAmlResult.rejectLabels || [],
-    });
   }
 
   /** Webhook-driven: look up pending assessment by inspectionId and process */
@@ -131,7 +104,7 @@ export class ClientRiskAssessmentService {
       },
     });
     if (!assessment) {
-      console.warn(`No pending assessment for inspectionId ${inspectionId}`);
+      this.logger.warn(`No pending assessment for inspectionId ${inspectionId}`);
       return;
     }
 
@@ -147,42 +120,109 @@ export class ClientRiskAssessmentService {
     await this.processAssessmentResult(assessment.id, reviewResult);
   }
 
+  /**
+   * Ongoing monitoring hit: create assessment from known result (no API call).
+   * Also used for admin simulation of spontaneous AML hits.
+   */
+  async recordAssessmentFromKnownAmlResult(input: {
+    customerId: string;
+    triggerType?: string;
+    knownAmlResult: { reviewAnswer: 'GREEN' | 'RED'; rejectLabels?: string[]; inspectionId?: string };
+    snapshot?: any;
+  }): Promise<any> {
+    // Idempotency: block if ANY active assessment exists
+    const existing = await this.prisma.clientRiskAssessment.findFirst({
+      where: { customerId: input.customerId, status: { in: ACTIVE_CRA_STATUSES } },
+    });
+    if (existing) return existing;
+
+    const customer = await this.prisma.customerMain.findUnique({
+      where: { id: input.customerId },
+    });
+    if (!customer) throw new Error(`Customer ${input.customerId} not found`);
+
+    const policy = this.policyLoader.getPolicy();
+    const assessmentNo = generateReferenceNo('CRA');
+    const traceId = `CLIENT_RISK_ASSESSMENT:${randomUUID()}`;
+
+    const assessment = await this.prisma.clientRiskAssessment.create({
+      data: {
+        assessmentNo,
+        customerId: input.customerId,
+        triggerType: input.triggerType || 'SUMSUB_AML_HIT',
+        policyVersion: policy.version,
+        previousRiskTier: customer.riskTier,
+        status: 'PENDING_SUMSUB_RESULT',
+        sumsubSnapshotAt: new Date(),
+        sumsubAmlReviewAnswer: input.knownAmlResult.reviewAnswer,
+        sumsubAmlLabels: JSON.stringify(input.knownAmlResult.rejectLabels || []),
+        sumsubAmlCheckInspectionId: input.knownAmlResult.inspectionId || null,
+        traceId,
+      },
+    });
+
+    return this.processAssessmentResult(assessment.id, {
+      reviewAnswer: input.knownAmlResult.reviewAnswer,
+      rejectLabels: input.knownAmlResult.rejectLabels || [],
+    });
+  }
+
+  /** Called by approval projection when CRA MLRO review is decided */
   async handleSignoffComplete(
     assessmentId: string,
     approvalCase: { status: string },
   ): Promise<void> {
+    const assessment = await this.prisma.clientRiskAssessment.findUnique({
+      where: { id: assessmentId },
+    });
+    if (!assessment) return;
+
+    const isLowToHigh =
+      assessment.previousRiskTier === 'LOW' && assessment.resultingRiskTier === 'HIGH';
+
     if (approvalCase.status === 'APPROVED') {
       await this.prisma.clientRiskAssessment.update({
         where: { id: assessmentId },
-        data: {
-          status: 'SIGNED',
-          signedAt: new Date(),
-        },
+        data: { status: 'SIGNED', signedAt: new Date(), signedBy: 'MLRO' },
       });
-      await this.postSignoffCascade(assessmentId);
-    } else if (approvalCase.status === 'REJECTED') {
-      const assessment = await this.prisma.clientRiskAssessment.findUnique({
-        where: { id: assessmentId },
-      });
-      if (!assessment) return;
 
-      // For PEP rejection: offboard the customer
-      await this.prisma.customerMain.update({
-        where: { id: assessment.customerId },
-        data: {
-          onboardingStatus: 'REJECTED',
-          operatingStatus: 'INACTIVE',
-          pepStatus: 'CLEARED',
-        },
-      });
-      await this.prisma.clientRiskAssessment.update({
-        where: { id: assessmentId },
-        data: { status: 'SIGNED', signedAt: new Date() },
-      });
+      if (isLowToHigh) {
+        // Tier promotion owned by TierUpgradeCase
+        await this.tierUpgradeCaseService.createFromCra(assessment);
+        await this.prisma.customerMain.update({
+          where: { id: assessment.customerId },
+          data: { latestRiskAssessmentId: assessment.id },
+        });
+      } else {
+        // HIGH→HIGH label confirmation: cascade (tier stays HIGH)
+        await this.postSignoffCascade(assessmentId);
+      }
+    } else {
+      // REJECTED
+      if (isLowToHigh) {
+        // False positive: override resultingTier back to LOW
+        await this.prisma.clientRiskAssessment.update({
+          where: { id: assessmentId },
+          data: {
+            status: 'SIGNED',
+            signedAt: new Date(),
+            signedBy: 'MLRO_FALSE_POSITIVE',
+            resultingRiskTier: assessment.previousRiskTier,
+          },
+        });
+      } else {
+        // HIGH→HIGH dismissed: sign as-is (tier stays HIGH)
+        await this.prisma.clientRiskAssessment.update({
+          where: { id: assessmentId },
+          data: { status: 'SIGNED', signedAt: new Date(), signedBy: 'MLRO_REJECTED' },
+        });
+      }
+      await this.postSignoffCascade(assessmentId);
     }
   }
 
-  /** Shared post-AML processing — applies policy, routes signoff */
+  // ─── Internal processing ──────────────────────────────────────────────────
+
   private async processAssessmentResult(
     assessmentId: string,
     reviewResult: { reviewAnswer: 'GREEN' | 'RED'; rejectLabels?: string[] },
@@ -205,7 +245,7 @@ export class ClientRiskAssessmentService {
       return assessment;
     }
 
-    // Fetch snapshot
+    // Fetch snapshot for scoring
     const snapshot = customer.sumsubApplicantId
       ? await this.sumsubClient.getApplicant(customer.sumsubApplicantId)
       : { tags: [], totalScore: null };
@@ -213,6 +253,22 @@ export class ClientRiskAssessmentService {
     const holdings = await this.prisma.customerMaterialHolding.findMany({
       where: { customerId: customer.id },
     });
+
+    // Load previous labels for HIGH→HIGH comparison
+    let previousLabels: string[] | undefined;
+    if (customer.riskTier === 'HIGH') {
+      const prevAssessment = await this.prisma.clientRiskAssessment.findFirst({
+        where: { customerId: customer.id, status: 'SIGNED' },
+        orderBy: { triggeredAt: 'desc' },
+      });
+      if (prevAssessment?.sumsubAmlLabels) {
+        try {
+          previousLabels = JSON.parse(prevAssessment.sumsubAmlLabels) as string[];
+        } catch {
+          previousLabels = [];
+        }
+      }
+    }
 
     const policy = this.policyLoader.getPolicy();
     const policyInput: PolicyInput = {
@@ -225,6 +281,7 @@ export class ClientRiskAssessmentService {
       })),
       previousTier: customer.riskTier as any,
       previousPepStatus: customer.pepStatus as any,
+      previousLabels,
     };
     const output = applyPolicy(policyInput, policy);
 
@@ -246,39 +303,19 @@ export class ClientRiskAssessmentService {
     return assessment;
   }
 
-  private async handleSanctionsPath(
-    assessment: any,
-    customer: any,
-    labels: string[],
-  ): Promise<void> {
-    await this.prisma.customerMain.update({
-      where: { id: customer.id },
-      data: {
-        complianceHoldStatus: 'FROZEN',
-        complianceHoldReason: 'sanctions_hit_pending_investigation',
-      },
-    });
-
-    await this.prisma.clientRiskAssessment.update({
-      where: { id: assessment.id },
-      data: {
-        status: 'ESCALATED_TO_SUMSUB',
-        resultingRiskTier: 'HIGH',
-        recommendedAction: 'ESCALATE_TO_SUMSUB_CASE',
-        signoffMethod: 'ESCALATED',
-        reasoning: JSON.stringify({ ruleId: 'P1_labels_contains_SANCTIONS', labels }),
-      },
-    });
-  }
-
   private async routeSignoff(
     assessmentId: string,
     customer: any,
     output: PolicyOutput,
   ): Promise<void> {
     const policy = this.policyLoader.getPolicy();
+    const assessment = await this.prisma.clientRiskAssessment.findUnique({
+      where: { id: assessmentId },
+    });
+    if (!assessment) return;
 
-    if (output.signoffMethod === 'AUTO_R2') {
+    // AUTO paths → SIGNED immediately
+    if (output.scenarioType === 'LOW_TO_LOW' || output.scenarioType === 'HIGH_TO_HIGH_STABLE') {
       await this.prisma.clientRiskAssessment.update({
         where: { id: assessmentId },
         data: {
@@ -292,45 +329,60 @@ export class ClientRiskAssessmentService {
       return;
     }
 
-    // Apply immediate effects (RESTRICT for PEP)
-    if (output.immediateEffect === 'RESTRICT') {
-      await this.prisma.customerMain.update({
-        where: { id: customer.id },
-        data: {
-          restrictionStatus: 'RESTRICTED',
-          restrictionReason: 'pep_review_pending',
-          pepStatus: 'CONFIRMED',
-          pepConfirmedAt: new Date(),
-        },
-      });
-    }
-
-    const actionType = policy.signoffActionTypeMap[output.signoffMethod];
-    if (!actionType) {
-      console.error(`No action type mapping for signoff method ${output.signoffMethod}`);
+    // MLRO review needed (LOW→HIGH or HIGH→HIGH with new labels)
+    if (output.scenarioType === 'LOW_TO_HIGH' || output.scenarioType === 'HIGH_TO_HIGH_UPGRADE') {
+      await this.startMlroReview(assessment, output.scenarioType);
       return;
     }
 
-    const assessment = await this.prisma.clientRiskAssessment.findUnique({
-      where: { id: assessmentId },
-    });
-    const approvalCase = await this.approvalsService.create(
+    // Sanctions → already handled in processAssessmentResult
+  }
+
+  private async startMlroReview(assessment: any, scenarioType: string): Promise<void> {
+    const approvalCase = await this.approvalsService.createAndSubmit(
       {
-        actionType,
-        entityRef: `client_risk_assessment:${assessmentId}`,
-        traceId: assessment!.traceId,
+        actionType: 'RISK_RATING_MLRO_REVIEW',
+        entityRef: `client_risk_assessment:${assessment.id}`,
+        traceId: assessment.traceId,
+        workflowType: 'RISK_ASSESSMENT',
+        workflowId: assessment.id,
+        workflowNo: assessment.assessmentNo,
         metadata: {
-          assessmentId,
-          resultingTier: output.resultingTier,
-          reasoning: output.reasoning,
+          assessmentId: assessment.id,
+          resultingTier: assessment.resultingRiskTier,
+          scenarioType,
         },
       } as any,
+      { reason: `MLRO review for ${assessment.assessmentNo} (${scenarioType})` },
       { actorType: 'ADMIN', userId: 'SYSTEM', roleCodes: ['SUPER_ADMIN'] } as any,
     );
-
     await this.prisma.clientRiskAssessment.update({
-      where: { id: assessmentId },
-      data: { status: 'PENDING_SIGNATURE', approvalCaseId: approvalCase.id },
+      where: { id: assessment.id },
+      data: { status: 'PENDING_MLRO_REVIEW', approvalCaseId: approvalCase.id },
+    });
+  }
+
+  private async handleSanctionsPath(
+    assessment: any,
+    customer: any,
+    labels: string[],
+  ): Promise<void> {
+    await this.prisma.customerMain.update({
+      where: { id: customer.id },
+      data: {
+        complianceHoldStatus: 'FROZEN',
+        complianceHoldReason: 'sanctions_hit_pending_investigation',
+      },
+    });
+    await this.prisma.clientRiskAssessment.update({
+      where: { id: assessment.id },
+      data: {
+        status: 'ESCALATED_TO_SUMSUB',
+        resultingRiskTier: 'HIGH',
+        recommendedAction: 'ESCALATE_TO_SUMSUB_CASE',
+        signoffMethod: 'ESCALATED',
+        reasoning: JSON.stringify({ ruleId: 'P1_labels_contains_SANCTIONS', labels }),
+      },
     });
   }
 
@@ -346,7 +398,10 @@ export class ClientRiskAssessmentService {
     if (!customer) return;
 
     const policy = this.policyLoader.getPolicy();
-    const tierChanged = assessment.resultingRiskTier && assessment.resultingRiskTier !== customer.riskTier;
+
+    const tierChanged =
+      assessment.resultingRiskTier &&
+      assessment.resultingRiskTier !== customer.riskTier;
 
     const updateData: any = {
       latestRiskAssessmentId: assessment.id,
@@ -388,12 +443,12 @@ export class ClientRiskAssessmentService {
             },
           });
         } catch (err) {
-          console.error(`moveToLevel failed for ${customer.id}:`, err);
+          this.logger.error(`moveToLevel failed for ${customer.id}:`, String(err));
         }
       }
     }
 
-    // Trigger Layer 3: seed initial holdings on first onboarding, recompute on tier change
+    // Seed or recompute material holdings
     if (this.materialRefreshService) {
       const holdingCount = await this.prisma.customerMaterialHolding.count({
         where: { customerId: customer.id },
@@ -406,16 +461,8 @@ export class ClientRiskAssessmentService {
           await this.materialRefreshService.recomputeHoldingsForCustomer(customer.id, levelName);
         }
       } catch (err) {
-        console.error(`Layer 3 holdings failed for ${customer.id}:`, err);
+        this.logger.error(`Layer 3 holdings failed for ${customer.id}:`, String(err));
       }
     }
-  }
-
-  private async generateAssessmentNo(): Promise<string> {
-    const year = new Date().getFullYear();
-    const count = await this.prisma.clientRiskAssessment.count({
-      where: { assessmentNo: { startsWith: `CRA-${year}-` } },
-    });
-    return `CRA-${year}-${String(count + 1).padStart(5, '0')}`;
   }
 }

@@ -21,6 +21,9 @@ function normalizeLevelName(raw: string): string {
 
 @Injectable()
 export class MaterialRefreshService {
+  /** Property-injected to avoid circular deps — reserved for future use */
+  clientRiskAssessmentService?: Record<string, any>;
+
   constructor(
     @Inject(PrismaService)
     private readonly prisma: PrismaService & Record<string, any>,
@@ -229,6 +232,9 @@ export class MaterialRefreshService {
         data: { restrictionStatus: 'CLEAR', restrictionReason: null },
       });
     }
+
+    // Note: In the 3-state CRA design, material submission completion is handled by
+    // TierUpgradeCaseService.handleLevel2WorkflowComplete (triggered by Sumsub Level 2 webhook)
   }
 
   async handleSumsubDocMonitoringFire(event: { applicantId: string }): Promise<void> {
