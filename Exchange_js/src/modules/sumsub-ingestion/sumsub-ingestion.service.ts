@@ -9,6 +9,7 @@ import { PrismaService } from '../../core/prisma/prisma.service';
 import { OnboardingService } from '../identity/onboarding/onboarding.service';
 import { ClientRiskAssessmentService } from '../identity/client-risk-assessment/client-risk-assessment.service';
 import { MaterialRefreshService } from '../identity/material-refresh/material-refresh.service';
+import { TierUpgradeCaseService } from '../identity/tier-upgrade-case/tier-upgrade-case.service';
 import { generateReferenceNo } from '../../common/utils/no-generator.util';
 import { SimulationScenario } from './dto/sumsub-ingestion.dto';
 import { SumsubWebhookEvent } from '@prisma/client';
@@ -25,6 +26,7 @@ export class SumsubIngestionService {
     private readonly onboardingService: OnboardingService,
     private readonly clientRiskAssessmentService: ClientRiskAssessmentService,
     private readonly materialRefreshService: MaterialRefreshService,
+    private readonly tierUpgradeCaseService: TierUpgradeCaseService,
   ) {}
 
   // ─── Main entry point (real webhook + simulation both call this) ──────────
@@ -140,19 +142,32 @@ export class SumsubIngestionService {
             });
             dispatchedContext = 'ONBOARDING';
           }
-          // Clue 5: APPROVED + spontaneous AML RED → start new Layer 2 assessment
+          // Clue 4.5: APPROVED + RESTRICTED + applicantWorkflowCompleted → Level 2 completed
+          // handleLevel2WorkflowComplete is idempotent: it returns early if no PENDING_LEVEL2 case exists
+          else if (
+            customer.onboardingStatus === 'APPROVED' &&
+            customer.restrictionStatus === 'RESTRICTED' &&
+            event.eventType === 'applicantWorkflowCompleted'
+          ) {
+            await this.tierUpgradeCaseService.handleLevel2WorkflowComplete(customer.id);
+            result = { handled: 'tier_upgrade_level2_complete' };
+            dispatchedContext = 'TIER_UPGRADE';
+          }
+          // Clue 5: APPROVED + spontaneous AML RED → create assessment from known result (no extra API call)
           else if (
             customer.onboardingStatus === 'APPROVED' &&
             event.eventType === 'applicantReviewed' &&
             reviewResult?.reviewAnswer === 'RED'
           ) {
-            await this.clientRiskAssessmentService.startAssessment({
+            await this.clientRiskAssessmentService.recordAssessmentFromKnownAmlResult({
               customerId: customer.id,
               triggerType: 'SUMSUB_AML_HIT',
-              triggeredContext: {
-                spontaneousEvent: payload,
-                labels: reviewResult.rejectLabels || [],
+              knownAmlResult: {
+                reviewAnswer: reviewResult.reviewAnswer,
+                rejectLabels: reviewResult.rejectLabels || [],
+                inspectionId: inspectionId || undefined,
               },
+              snapshot: payload,
             });
             result = { handled: 'spontaneous_aml_hit' };
             dispatchedContext = 'AML_ASSESSMENT';
