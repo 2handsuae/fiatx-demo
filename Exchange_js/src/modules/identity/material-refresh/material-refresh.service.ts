@@ -235,6 +235,28 @@ export class MaterialRefreshService {
 
     // Note: In the 3-state CRA design, material submission completion is handled by
     // TierUpgradeCaseService.handleLevel2WorkflowComplete (triggered by Sumsub Level 2 webhook)
+
+    // NEW — periodic refresh fully cleared → kick off fresh CRA
+    if (this.clientRiskAssessmentService) {
+      const anyPendingExpiryCycle = await this.prisma.materialRefreshCycle.count({
+        where: {
+          customerId: customer.id,
+          triggerType: 'SCHEDULED_EXPIRY',
+          status: { in: ['PENDING_CUSTOMER_EVIDENCE', 'PENDING_SUMSUB_REVIEW'] },
+        },
+      });
+      if (anyPendingExpiryCycle === 0) {
+        try {
+          await this.clientRiskAssessmentService.startAssessment({
+            customerId: customer.id,
+            triggerType: 'SCHEDULED_QUARTERLY',
+            triggeredContext: { reason: 'material_refresh_complete' },
+          });
+        } catch (err) {
+          console.error(`material-refresh→CRA trigger failed for ${customer.id}:`, String(err));
+        }
+      }
+    }
   }
 
   async handleSumsubDocMonitoringFire(event: { applicantId: string }): Promise<void> {
