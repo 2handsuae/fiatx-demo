@@ -2816,8 +2816,10 @@ model TierUpgradeCase {
 
   completedAt          DateTime?
   rejectedAt           DateTime?
+  rejectedReason       String?
   traceId              String    @unique
   createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
 
   @@index([customerId, status])
   @@map("tier_upgrade_cases")
