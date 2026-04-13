@@ -1,5 +1,5 @@
 // admin-sumsub-simulation.controller.ts
-import { Controller, Post, Body, ForbiddenException, UseGuards, Req, Inject } from '@nestjs/common';
+import { Controller, Post, Body, ForbiddenException, NotFoundException, BadRequestException, UseGuards, Req, Inject } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { SumsubIngestionService } from './sumsub-ingestion.service';
@@ -250,6 +250,41 @@ export class AdminSumsubSimulationController {
       status: final?.status,
       scenarioType: (final as any)?.recommendedAction,
     };
+  }
+
+  @Post('level2-workflow-complete')
+  @ApiOperation({ summary: 'Simulate Sumsub Level 2 workflow completion for a tier upgrade case' })
+  async simulateLevel2WorkflowComplete(
+    @Req() req: any,
+    @Body() body: { customerNo: string },
+  ) {
+    this.ensureAdmin(req);
+
+    const customer = await this.prisma.customerMain.findFirst({
+      where: { customerNo: body.customerNo },
+      select: { id: true, sumsubApplicantId: true, restrictionStatus: true },
+    });
+    if (!customer) {
+      throw new NotFoundException(`Customer ${body.customerNo} not found`);
+    }
+    if (customer.restrictionStatus !== 'RESTRICTED') {
+      throw new BadRequestException(`Customer ${body.customerNo} is not RESTRICTED — no upgrade in progress`);
+    }
+    if (!customer.sumsubApplicantId) {
+      throw new BadRequestException('Customer has no Sumsub applicant ID');
+    }
+
+    return this.ingestionService.ingest(
+      {
+        type: 'applicantWorkflowCompleted',
+        applicantId: customer.sumsubApplicantId,
+        externalUserId: customer.id,
+        levelName: 'wave3-level-2',
+        reviewResult: { reviewAnswer: 'GREEN' },
+        createdAtMs: String(Date.now()),
+      },
+      { isSimulated: true, simulatedByUserId: 'ADMIN_SIMULATION' },
+    );
   }
 
   @Post('ongoing-doc-monitoring-fire')
