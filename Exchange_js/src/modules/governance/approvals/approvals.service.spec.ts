@@ -1,6 +1,6 @@
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { ApprovalsService } from './approvals.service';
-import { AuditActions } from '../../risk-engine/audit-logs/constants/audit-actions.constant';
+import { AuditActions } from '../../audit-logging/constants/audit-actions.constant';
 import {
   ApprovalActionTypes,
   ApprovalEvents,
@@ -58,7 +58,7 @@ const buildApproval = (overrides: Record<string, unknown> = {}) => ({
     },
   ],
   evidencePackage: null,
-  caseEvidencePackage: null,
+
   ...overrides,
 });
 
@@ -876,7 +876,7 @@ describe('ApprovalsService', () => {
         decisionByRole: null,
         decisionReason: null,
         evidencePackage: null,
-        caseEvidencePackage: null,
+      
         steps: [
           {
             id: 'step-ms-1',
@@ -1015,7 +1015,7 @@ describe('ApprovalsService', () => {
         decisionByRole: null,
         decisionReason: null,
         evidencePackage: null,
-        caseEvidencePackage: null,
+      
         steps: [
           {
             id: 'step-ms-3',

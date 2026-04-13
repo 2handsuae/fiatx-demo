@@ -12,19 +12,19 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { randomUUID } from 'crypto';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 import { PrismaService } from '../../../core/prisma/prisma.service';
-import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
+import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
   AuditActions,
   AuditBusinessWorkflowTypes,
   AuditEntityTypes,
   AuditModules,
   AuditWorkflowTypes,
-} from '../../risk-engine/audit-logs/constants/audit-actions.constant';
+} from '../../audit-logging/constants/audit-actions.constant';
 import {
   AuditResult,
   AuditSubjectRole,
   AuditTriggerType,
-} from '../../risk-engine/audit-logs/dto/audit-log.dto';
+} from '../../audit-logging/dto/audit-log.dto';
 import { ApprovalPolicyService } from './approval-policy.service';
 import { ChangeTicketsService } from '../change-tickets/change-tickets.service';
 import { ChangeTicketTypes } from '../change-tickets/constants/change-ticket.constants';
@@ -61,11 +61,6 @@ type ApprovalCaseRow = {
   [key: string]: any;
   steps: Array<Record<string, any>>;
   evidencePackage: {
-    id: string;
-    packageNo: string;
-    status: string;
-  } | null;
-  caseEvidencePackage: {
     id: string;
     packageNo: string;
     status: string;
@@ -446,13 +441,6 @@ export class ApprovalsService {
             status: true,
           },
         },
-        caseEvidencePackage: {
-          select: {
-            id: true,
-            packageNo: true,
-            status: true,
-          },
-        },
       },
     });
 
@@ -482,13 +470,6 @@ export class ApprovalsService {
         orderBy: { stepNo: 'asc' as const },
       },
       evidencePackage: {
-        select: {
-          id: true,
-          packageNo: true,
-          status: true,
-        },
-      },
-      caseEvidencePackage: {
         select: {
           id: true,
           packageNo: true,
@@ -620,7 +601,6 @@ export class ApprovalsService {
         step: currentStep,
         steps: allSteps,
         evidencePackage: approval.evidencePackage,
-        caseEvidencePackage: approval.caseEvidencePackage,
       };
     });
   }
