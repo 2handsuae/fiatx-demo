@@ -208,6 +208,7 @@ model CustomerMain {
   materialHoldings          CustomerMaterialHolding[] @relation("CustomerMaterialHoldings")
   materialRefreshCycles     MaterialRefreshCycle[]   @relation("CustomerMaterialRefreshCycles")
   riskAssessments           ClientRiskAssessment[]   @relation("CustomerRiskAssessments")
+  tierUpgradeCases          TierUpgradeCase[]        @relation("CustomerTierUpgradeCases")
 
   @@index([complianceHoldStatus])
   @@index([latestRiskApprovalStatus])
@@ -706,6 +707,7 @@ model ApprovalCase {
   riskAssessments                ClientRiskAssessment[]         @relation("ClientRiskAssessmentApprovalCase")
   linkedRegulatoryGates          RegulatoryGateItem[]           @relation("RegulatoryGateLinkedApproval")
   internalTransactionForApproval InternalTransaction?           @relation("InternalTransactionApprovalCase")
+  tierUpgradeCaseApproval        TierUpgradeCase?               @relation("TierUpgradeCaseApproval")
 
   @@index([actionType, entityRef, status])
   @@index([status, timeoutAt])
@@ -2777,8 +2779,6 @@ model ClientRiskAssessment {
   signoffMethod               String?
   approvalCaseId              String?
   approvalCase                ApprovalCase? @relation("ClientRiskAssessmentApprovalCase", fields: [approvalCaseId], references: [id])
-  phase1ApprovalCaseId        String?
-  phase2ApprovalCaseId        String?
   signedBy                    String?
   signedAt                    DateTime?
   signedUnderPolicyVersion    String?
@@ -2788,6 +2788,7 @@ model ClientRiskAssessment {
   sumsubCaseDecidedAt         DateTime?
 
   triggeredRefreshCycles      MaterialRefreshCycle[] @relation("AssessmentTriggeredCycles")
+  tierUpgradeCase             TierUpgradeCase? @relation("CraTierUpgradeCase")
 
   traceId                     String   @unique
   createdAt                   DateTime @default(now())
@@ -2797,4 +2798,27 @@ model ClientRiskAssessment {
   @@index([sumsubAmlCheckInspectionId])
   @@index([status, triggeredAt])
   @@map("client_risk_assessments")
+}
+
+model TierUpgradeCase {
+  id                   String    @id @default(cuid())
+  caseNo               String    @unique
+  customerId           String
+  customer             CustomerMain @relation("CustomerTierUpgradeCases", fields: [customerId], references: [id])
+  sourceCraId          String    @unique
+  sourceCra            ClientRiskAssessment @relation("CraTierUpgradeCase", fields: [sourceCraId], references: [id])
+
+  // PENDING_LEVEL2 | PENDING_PHASE2_APPROVAL | COMPLETED | REJECTED
+  status               String    @default("PENDING_LEVEL2")
+
+  phase2ApprovalCaseId String?   @unique
+  phase2ApprovalCase   ApprovalCase? @relation("TierUpgradeCaseApproval", fields: [phase2ApprovalCaseId], references: [id])
+
+  completedAt          DateTime?
+  rejectedAt           DateTime?
+  traceId              String    @unique
+  createdAt            DateTime  @default(now())
+
+  @@index([customerId, status])
+  @@map("tier_upgrade_cases")
 }
