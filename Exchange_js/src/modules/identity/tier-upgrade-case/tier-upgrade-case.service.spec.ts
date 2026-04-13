@@ -15,6 +15,15 @@ const mockPrisma = {
     findUnique: jest.fn(),
     update: jest.fn(),
   },
+  auditLogEvent: {
+    create: jest.fn().mockResolvedValue({ id: 'audit-1' }),
+    findUnique: jest.fn().mockResolvedValue(null),
+    findMany: jest.fn().mockResolvedValue([]),
+  },
+  auditLogSubjectNo: {
+    createMany: jest.fn().mockResolvedValue({ count: 0 }),
+  },
+  $transaction: jest.fn().mockImplementation(async (fn: (tx: any) => Promise<any>) => fn(mockPrisma)),
 };
 const mockApprovals = { createAndSubmit: jest.fn() };
 const mockSumsub = { moveToLevel: jest.fn() };
@@ -33,6 +42,8 @@ describe('TierUpgradeCaseService', () => {
     }).compile();
     service = module.get(TierUpgradeCaseService);
     jest.clearAllMocks();
+    // Re-apply $transaction mock after clearAllMocks
+    mockPrisma.$transaction.mockImplementation(async (fn: (tx: any) => Promise<any>) => fn(mockPrisma));
   });
 
   describe('createFromCra', () => {
@@ -71,6 +82,18 @@ describe('TierUpgradeCaseService', () => {
       await service.createFromCra(cra);
 
       expect(mockSumsub.moveToLevel).not.toHaveBeenCalled();
+      expect(mockPrisma.tierUpgradeCase.create).toHaveBeenCalled();
+    });
+
+    it('still creates case if moveToLevel throws', async () => {
+      const cra = { id: 'cra-1', customerId: 'cust-1', traceId: 'T1' };
+      const customer = { id: 'cust-1', sumsubApplicantId: 'sub-1' };
+      mockPrisma.customerMain.findUnique.mockResolvedValueOnce(customer);
+      mockPrisma.tierUpgradeCase.create.mockResolvedValueOnce({ id: 'tuc-1', caseNo: 'TUC-001' });
+      mockSumsub.moveToLevel.mockRejectedValueOnce(new Error('Sumsub API error'));
+
+      await expect(service.createFromCra(cra)).resolves.not.toThrow();
+
       expect(mockPrisma.tierUpgradeCase.create).toHaveBeenCalled();
     });
   });

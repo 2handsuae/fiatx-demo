@@ -1,17 +1,23 @@
-import { Injectable, Inject } from '@nestjs/common';
+import { Injectable, Inject, Logger } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { ApprovalsService } from '../../governance/approvals/approvals.service';
 import { SumsubClient } from '../onboarding/providers/sumsub/sumsub.client';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
+import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 
 @Injectable()
 export class TierUpgradeCaseService {
+  private readonly logger = new Logger(TierUpgradeCaseService.name);
+  private readonly auditLogsService: AuditLogsService;
+
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService & Record<string, any>,
     private readonly approvalsService: ApprovalsService,
     private readonly sumsubClient: SumsubClient,
-  ) {}
+  ) {
+    this.auditLogsService = new AuditLogsService(prisma);
+  }
 
   /**
    * Called when CRA is SIGNED as HIGH and previousTier was LOW.
@@ -26,22 +32,25 @@ export class TierUpgradeCaseService {
     const caseNo = generateReferenceNo('TUC');
     const traceId = `TIER_UPGRADE:${randomUUID()}`;
 
-    const upgradeCase = await this.prisma.tierUpgradeCase.create({
-      data: {
-        caseNo,
-        customerId: cra.customerId,
-        sourceCraId: cra.id,
-        status: 'PENDING_LEVEL2',
-        traceId,
-      },
-    });
+    let upgradeCase: any;
+    await this.prisma.$transaction(async (tx: any) => {
+      upgradeCase = await tx.tierUpgradeCase.create({
+        data: {
+          caseNo,
+          customerId: cra.customerId,
+          sourceCraId: cra.id,
+          status: 'PENDING_LEVEL2',
+          traceId,
+        },
+      });
 
-    await this.prisma.customerMain.update({
-      where: { id: cra.customerId },
-      data: {
-        restrictionStatus: 'RESTRICTED',
-        restrictionReason: 'tier_upgrade_pending_level2',
-      },
+      await tx.customerMain.update({
+        where: { id: cra.customerId },
+        data: {
+          restrictionStatus: 'RESTRICTED',
+          restrictionReason: 'tier_upgrade_pending_level2',
+        },
+      });
     });
 
     if (customer.sumsubApplicantId) {
@@ -52,9 +61,23 @@ export class TierUpgradeCaseService {
           data: { sumsubCurrentLevelName: 'wave3-level-2', sumsubExperiencedLevel2: true },
         });
       } catch (err) {
-        console.error(`TierUpgradeCase moveToLevel failed for ${cra.customerId}:`, err);
+        this.logger.error(`TierUpgradeCase moveToLevel failed for ${cra.customerId}:`, err);
       }
     }
+
+    await this.auditLogsService.recordSystem({
+      action: 'TIER_UPGRADE_CASE_CREATED',
+      workflowType: 'TIER_UPGRADE',
+      triggerType: 'AUTOMATED' as any,
+      module: 'identity/tier-upgrade-case',
+      entityType: 'TIER_UPGRADE_CASE',
+      entityId: upgradeCase?.id,
+      entityNo: upgradeCase?.caseNo,
+      traceId,
+      entityOwnerType: 'CUSTOMER',
+      entityOwnerId: cra.customerId,
+      metadata: { sourceCraId: cra.id },
+    });
 
     return upgradeCase;
   }
@@ -89,13 +112,20 @@ export class TierUpgradeCaseService {
       { actorType: 'ADMIN', userId: 'SYSTEM', roleCodes: ['SUPER_ADMIN'] } as any,
     );
 
-    await this.prisma.tierUpgradeCase.update({
-      where: { id: upgradeCase.id },
-      data: {
-        status: 'PENDING_PHASE2_APPROVAL',
-        phase2ApprovalCaseId: approvalCase.id,
-      },
-    });
+    try {
+      await this.prisma.tierUpgradeCase.update({
+        where: { id: upgradeCase.id },
+        data: {
+          status: 'PENDING_PHASE2_APPROVAL',
+          phase2ApprovalCaseId: approvalCase.id,
+        },
+      });
+    } catch (err) {
+      this.logger.error(
+        `TierUpgradeCase update failed after approval creation. caseId=${upgradeCase.id} approvalCaseId=${approvalCase.id}. Manual recovery needed.`,
+        err,
+      );
+    }
   }
 
   /**
@@ -113,36 +143,66 @@ export class TierUpgradeCaseService {
     if (!upgradeCase) return;
 
     if (approvalResult.status === 'APPROVED') {
-      await this.prisma.customerMain.update({
-        where: { id: upgradeCase.customerId },
-        data: {
-          riskTier: 'HIGH',
-          amlRiskTier: 'HIGH',
-          riskTierUpdatedAt: new Date(),
-          restrictionStatus: 'CLEAR',
-          restrictionReason: null,
-          latestRiskAssessmentId: upgradeCase.sourceCraId,
-          latestRiskApprovalId: upgradeCase.phase2ApprovalCaseId,
-          latestRiskApprovalStatus: 'APPROVED',
-        },
+      await this.prisma.$transaction(async (tx: any) => {
+        await tx.customerMain.update({
+          where: { id: upgradeCase.customerId },
+          data: {
+            riskTier: 'HIGH',
+            amlRiskTier: 'HIGH',
+            riskTierUpdatedAt: new Date(),
+            restrictionStatus: 'CLEAR',
+            restrictionReason: null,
+            latestRiskAssessmentId: upgradeCase.sourceCraId,
+            latestRiskApprovalId: upgradeCase.phase2ApprovalCaseId,
+            latestRiskApprovalStatus: 'APPROVED',
+          },
+        });
+        await tx.tierUpgradeCase.update({
+          where: { id: upgradeCase.id },
+          data: { status: 'COMPLETED', completedAt: new Date() },
+        });
       });
-      await this.prisma.tierUpgradeCase.update({
-        where: { id: upgradeCase.id },
-        data: { status: 'COMPLETED', completedAt: new Date() },
+
+      await this.auditLogsService.recordSystem({
+        action: 'TIER_UPGRADE_CASE_COMPLETED',
+        workflowType: 'TIER_UPGRADE',
+        triggerType: 'APPROVAL_DECISION' as any,
+        module: 'identity/tier-upgrade-case',
+        entityType: 'TIER_UPGRADE_CASE',
+        entityId: upgradeCase.id,
+        traceId: upgradeCase.traceId,
+        entityOwnerType: 'CUSTOMER',
+        entityOwnerId: upgradeCase.customerId,
+        metadata: { approvalCaseId: upgradeCase.phase2ApprovalCaseId },
       });
     } else {
-      await this.prisma.customerMain.update({
-        where: { id: upgradeCase.customerId },
-        data: {
-          onboardingStatus: 'REJECTED',
-          operatingStatus: 'INACTIVE',
-          restrictionStatus: 'CLEAR',
-          restrictionReason: null,
-        },
+      await this.prisma.$transaction(async (tx: any) => {
+        await tx.customerMain.update({
+          where: { id: upgradeCase.customerId },
+          data: {
+            onboardingStatus: 'REJECTED',
+            operatingStatus: 'INACTIVE',
+            restrictionStatus: 'CLEAR',
+            restrictionReason: null,
+          },
+        });
+        await tx.tierUpgradeCase.update({
+          where: { id: upgradeCase.id },
+          data: { status: 'REJECTED', rejectedAt: new Date() },
+        });
       });
-      await this.prisma.tierUpgradeCase.update({
-        where: { id: upgradeCase.id },
-        data: { status: 'REJECTED', rejectedAt: new Date() },
+
+      await this.auditLogsService.recordSystem({
+        action: 'TIER_UPGRADE_CASE_REJECTED',
+        workflowType: 'TIER_UPGRADE',
+        triggerType: 'APPROVAL_DECISION' as any,
+        module: 'identity/tier-upgrade-case',
+        entityType: 'TIER_UPGRADE_CASE',
+        entityId: upgradeCase.id,
+        traceId: upgradeCase.traceId,
+        entityOwnerType: 'CUSTOMER',
+        entityOwnerId: upgradeCase.customerId,
+        metadata: { approvalCaseId: upgradeCase.phase2ApprovalCaseId },
       });
     }
   }
