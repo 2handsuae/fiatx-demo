@@ -117,7 +117,7 @@ const RiskAssessmentListPage = () => {
     try {
       // Resolve customerNo → customerId
       const res = await adminFetch(
-        `/admin/customers?customerNo=${encodeURIComponent(startCraCustomerNo)}`,
+        `${import.meta.env.VITE_API_URL}/admin/customers?customerNo=${encodeURIComponent(startCraCustomerNo)}`,
       );
       const data = await res.json();
       const customerId = data.items?.[0]?.id;
@@ -127,7 +127,7 @@ const RiskAssessmentListPage = () => {
       }
 
       const trigRes = await adminFetch(
-        `/admin/compliance/customers/${customerId}/risk-assessment/trigger`,
+        `${import.meta.env.VITE_API_URL}/admin/compliance/customers/${customerId}/risk-assessment/trigger`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
