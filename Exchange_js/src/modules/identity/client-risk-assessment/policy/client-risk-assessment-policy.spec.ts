@@ -54,6 +54,22 @@ describe('HIGH→HIGH label comparison', () => {
     expect(result.scenarioType).toBe('HIGH_TO_HIGH_UPGRADE');
   });
 
+  it('HIGH→HIGH previousLabels=[] + amlLabels=[] → HIGH_TO_HIGH_STABLE (no new labels)', () => {
+    const result = applyPolicy(
+      {
+        amlAnswer: 'GREEN',
+        amlLabels: [],
+        holdings: [],
+        previousTier: 'HIGH',
+        previousLabels: [],
+      },
+      policy,
+    );
+    expect(result.scenarioType).toBe('HIGH_TO_HIGH_STABLE');
+    expect(result.signoffMethod).toBe('AUTO_R2');
+    expect(result.resultingTier).toBe('HIGH');
+  });
+
   it('LOW→LOW still works', () => {
     const result = applyPolicy(
       { amlAnswer: 'GREEN', amlLabels: [], holdings: [], previousTier: 'LOW', previousPepStatus: 'NONE' },
@@ -69,5 +85,6 @@ describe('HIGH→HIGH label comparison', () => {
       policy,
     );
     expect(result.scenarioType).toBe('LOW_TO_HIGH');
+    expect(result.signoffMethod).toBe('PHASE1_MLRO');
   });
 });
