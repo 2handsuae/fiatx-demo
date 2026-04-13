@@ -817,6 +817,11 @@ const Verification = () => {
   const [message, setMessage] = useState('');
   const [saving, setSaving] = useState(false);
   const [casesLoading, setCasesLoading] = useState(false);
+  const [complianceStatus, setComplianceStatus] = useState<{
+    requiresLevel2: boolean;
+    restrictionStatus: string | null;
+    tierUpgradeCase: { caseNo: string; status: string } | null;
+  } | null>(null);
 
   useEffect(() => {
     const style = document.createElement('style');
@@ -832,6 +837,22 @@ const Verification = () => {
     return () => {
       document.head.removeChild(style);
     };
+  }, []);
+
+  const fetchComplianceStatus = async () => {
+    try {
+      const res = await customerFetch(`${import.meta.env.VITE_API_URL}/compliance/me`);
+      if (res.ok) {
+        const data = await res.json();
+        setComplianceStatus(data);
+      }
+    } catch {
+      // ignore — non-critical
+    }
+  };
+
+  useEffect(() => {
+    fetchComplianceStatus().catch(() => undefined);
   }, []);
 
   const verificationMode =
@@ -1251,6 +1272,53 @@ const Verification = () => {
             </motion.div>
           )}
         </AnimatePresence>
+
+        {complianceStatus?.requiresLevel2 && (
+          <motion.div
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="w-full max-w-[640px] mb-8 border border-fx-brass/40 bg-fx-brass/[0.06] px-6 py-5"
+          >
+            <div className="flex items-center gap-3 mb-3">
+              <AlertTriangle size={14} className="text-fx-brass flex-shrink-0" />
+              <span className="font-mono text-[9px] uppercase tracking-[0.22em] text-fx-brass">
+                Enhanced Verification Required
+              </span>
+            </div>
+            <p className="fx-serif text-[13px] leading-[1.7] text-fx-dune mb-2">
+              Your account has been flagged for enhanced due diligence. Please complete Level 2
+              verification to restore full account access.
+            </p>
+            {complianceStatus.tierUpgradeCase?.caseNo && (
+              <p className="font-mono text-[10px] text-fx-dust/70 mb-5">
+                Upgrade case:{' '}
+                <span className="text-fx-sand">{complianceStatus.tierUpgradeCase.caseNo}</span>
+              </p>
+            )}
+            <button
+              className={primaryButtonClass}
+              onClick={async () => {
+                try {
+                  const res = await customerFetch(
+                    `${import.meta.env.VITE_API_URL}/compliance/verification/mock-complete-level2`,
+                    { method: 'POST' },
+                  );
+                  if (res.ok) {
+                    setMessage('Level 2 verification submitted. Awaiting final compliance approval.');
+                    await fetchComplianceStatus();
+                  } else {
+                    const err = (await res.json().catch(() => ({}))) as { message?: string };
+                    setMessage(`Error: ${err.message || 'Submission failed'}`);
+                  }
+                } catch {
+                  setMessage('Request failed. Please try again.');
+                }
+              }}
+            >
+              Mock Complete Level 2 Verification
+            </button>
+          </motion.div>
+        )}
 
         {isCorporate && (
           <motion.section
