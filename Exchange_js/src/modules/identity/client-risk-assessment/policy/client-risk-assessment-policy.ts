@@ -9,7 +9,8 @@ export interface PolicyInput {
     expiresAt: Date | null;
   }>;
   previousTier: 'LOW' | 'MEDIUM' | 'HIGH' | 'UNKNOWN';
-  previousPepStatus: 'NONE' | 'CONFIRMED' | 'CLEARED';
+  previousPepStatus?: 'NONE' | 'CONFIRMED' | 'CLEARED';
+  previousLabels?: string[];   // for HIGH→HIGH label comparison
 }
 
 export interface PolicyOutput {
@@ -17,6 +18,12 @@ export interface PolicyOutput {
   scoreSuggestedTier?: string;
   recommendedAction: string;
   signoffMethod: string;
+  scenarioType:
+    | 'LOW_TO_LOW'
+    | 'LOW_TO_HIGH'
+    | 'HIGH_TO_HIGH_STABLE'
+    | 'HIGH_TO_HIGH_UPGRADE'
+    | 'ESCALATED';
   immediateEffect?: string;
   matchedRule: number;
   reasoning: {
@@ -57,8 +64,33 @@ export function applyPolicy(
     }
 
     let signoffMethod = rule.signoffMethod;
-    if (downgradeBlocked && signoffMethod === 'AUTO_R2') {
-      signoffMethod = 'DUAL_MLRO_SENIOR';
+
+    // Determine scenarioType based on tier transition
+    let scenarioType: PolicyOutput['scenarioType'];
+
+    if (signoffMethod === 'ESCALATED') {
+      scenarioType = 'ESCALATED';
+    } else if (input.previousTier !== 'HIGH' && resultingTier === 'HIGH') {
+      // LOW→HIGH (or MEDIUM→HIGH future case)
+      scenarioType = 'LOW_TO_HIGH';
+      signoffMethod = 'PHASE1_MLRO';
+    } else if (resultingTier === 'HIGH' && (input.previousTier === 'HIGH' || downgradeBlocked)) {
+      // HIGH→HIGH: compare labels to decide auto vs MLRO review
+      const prevSet = new Set(input.previousLabels ?? []);
+      const hasNewLabel =
+        input.previousLabels === undefined ||
+        input.amlLabels.some((l) => !prevSet.has(l));
+
+      if (!hasNewLabel) {
+        scenarioType = 'HIGH_TO_HIGH_STABLE';
+        signoffMethod = 'AUTO_R2';
+      } else {
+        scenarioType = 'HIGH_TO_HIGH_UPGRADE';
+        signoffMethod = 'MANUAL_MLRO';
+      }
+    } else {
+      // GREEN/stable path — LOW stays LOW
+      scenarioType = 'LOW_TO_LOW';
     }
 
     return {
@@ -66,6 +98,7 @@ export function applyPolicy(
       scoreSuggestedTier,
       recommendedAction: rule.action,
       signoffMethod,
+      scenarioType,
       immediateEffect: rule.immediateEffect,
       matchedRule: rule.priority,
       reasoning: {
