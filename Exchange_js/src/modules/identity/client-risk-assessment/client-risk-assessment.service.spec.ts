@@ -30,6 +30,18 @@ const buildPrisma = () => ({
     findMany: jest.fn().mockResolvedValue([]),
     count: jest.fn().mockResolvedValue(0),
   },
+  auditLogEvent: {
+    create: jest.fn().mockResolvedValue({ id: 'audit-1' }),
+    findUnique: jest.fn().mockResolvedValue(null),
+    findMany: jest.fn().mockResolvedValue([]),
+  },
+  auditLogSubjectNo: {
+    createMany: jest.fn().mockResolvedValue({ count: 0 }),
+  },
+  $transaction: jest.fn().mockImplementation(async (fn: (tx: any) => Promise<any>) => fn({
+    clientRiskAssessment: { update: jest.fn().mockResolvedValue({}) },
+    customerMain: { update: jest.fn().mockResolvedValue({}) },
+  })),
 });
 
 const mockPolicy = {
@@ -87,6 +99,12 @@ describe('ClientRiskAssessmentService', () => {
     prisma.customerMaterialHolding.count.mockResolvedValue(0);
     prisma.clientRiskAssessment.update.mockResolvedValue({});
     prisma.customerMain.update.mockResolvedValue({});
+    prisma.auditLogEvent.create.mockResolvedValue({ id: 'audit-1' });
+    prisma.auditLogEvent.findUnique.mockResolvedValue(null);
+    prisma.auditLogEvent.findMany.mockResolvedValue([]);
+    prisma.auditLogSubjectNo.createMany.mockResolvedValue({ count: 0 });
+    // Re-apply $transaction mock after clearAllMocks
+    prisma.$transaction.mockImplementation(async (fn: (tx: any) => Promise<any>) => fn(prisma));
   });
 
   // ─── routeSignoff tests ──────────────────────────────────────────────────
@@ -205,7 +223,9 @@ describe('ClientRiskAssessmentService', () => {
       await service.handleSignoffComplete('cra-1', { status: 'APPROVED' });
 
       expect(prisma.clientRiskAssessment.update).toHaveBeenCalledWith(
-        expect.objectContaining({ data: expect.objectContaining({ status: 'SIGNED' }) }),
+        expect.objectContaining({
+          data: expect.objectContaining({ status: 'SIGNED', signedBy: 'MLRO' }),
+        }),
       );
       expect(mockTierUpgradeCaseService.createFromCra).toHaveBeenCalledWith(
         expect.objectContaining({ id: 'cra-1' }),
@@ -265,6 +285,45 @@ describe('ClientRiskAssessmentService', () => {
         expect.objectContaining({ data: expect.objectContaining({ status: 'SIGNED' }) }),
       );
       expect(mockTierUpgradeCaseService.createFromCra).not.toHaveBeenCalled();
+    });
+  });
+
+  // ─── handleSanctionsPath tests ───────────────────────────────────────────
+
+  describe('handleSanctionsPath — via handleSumsubAmlResult', () => {
+    it('SANCTIONS label → ESCALATED_TO_SUMSUB, customer frozen', async () => {
+      const assessment = {
+        id: 'cra-1', customerId: 'cust-1', traceId: 'T1', assessmentNo: 'CRA-001',
+        previousRiskTier: 'LOW', status: 'PENDING_SUMSUB_RESULT',
+      };
+      const customer = {
+        id: 'cust-1', riskTier: 'LOW', sumsubApplicantId: 'sub-1',
+        pepStatus: 'NONE', complianceHoldStatus: 'CLEAR', restrictionReason: null,
+        sumsubCurrentLevelName: 'wave3-level-1', sumsubExperiencedLevel2: false,
+      };
+
+      // handleSumsubAmlResult: findFirst for pending assessment
+      prisma.clientRiskAssessment.findFirst.mockResolvedValueOnce(assessment);
+      // processAssessmentResult: findUnique for assessment
+      prisma.clientRiskAssessment.findUnique.mockResolvedValueOnce(assessment);
+      // processAssessmentResult: findUnique for customer
+      prisma.customerMain.findUnique.mockResolvedValueOnce(customer);
+
+      await service.handleSumsubAmlResult('insp-1', {
+        reviewAnswer: 'RED',
+        rejectLabels: ['SANCTIONS_LIST'],
+      });
+
+      expect(prisma.customerMain.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ complianceHoldStatus: 'FROZEN' }),
+        }),
+      );
+      expect(prisma.clientRiskAssessment.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ status: 'ESCALATED_TO_SUMSUB' }),
+        }),
+      );
     });
   });
 

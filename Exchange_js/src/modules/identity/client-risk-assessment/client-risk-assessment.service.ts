@@ -7,6 +7,7 @@ import { ClientRiskAssessmentPolicyLoader } from './policy/policy-loader';
 import { applyPolicy, PolicyInput, PolicyOutput } from './policy/client-risk-assessment-policy';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 import { TierUpgradeCaseService } from '../tier-upgrade-case/tier-upgrade-case.service';
+import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 
 export type AssessmentTriggerType =
   | 'INITIAL_ONBOARDING'
@@ -20,6 +21,7 @@ const ACTIVE_CRA_STATUSES = ['PENDING_SUMSUB_RESULT', 'PENDING_MLRO_REVIEW', 'ES
 @Injectable()
 export class ClientRiskAssessmentService {
   private readonly logger = new Logger(ClientRiskAssessmentService.name);
+  private readonly auditLogsService: AuditLogsService;
 
   /** Property-injected in module to avoid circular deps */
   materialRefreshService?: {
@@ -34,7 +36,9 @@ export class ClientRiskAssessmentService {
     private readonly approvalsService: ApprovalsService,
     private readonly policyLoader: ClientRiskAssessmentPolicyLoader,
     private readonly tierUpgradeCaseService: TierUpgradeCaseService,
-  ) {}
+  ) {
+    this.auditLogsService = new AuditLogsService(prisma);
+  }
 
   // ─── Public entry points ──────────────────────────────────────────────────
 
@@ -71,6 +75,20 @@ export class ClientRiskAssessmentService {
         sumsubAmlCheckRequestedAt: new Date(),
         traceId,
       },
+    });
+
+    await this.auditLogsService.recordSystem({
+      traceId,
+      workflowType: 'RISK_ASSESSMENT',
+      action: 'RISK_ASSESSMENT_STARTED',
+      triggerType: input.triggerType as any,
+      entityType: 'ClientRiskAssessment',
+      entityId: assessment.id,
+      entityNo: assessment.assessmentNo,
+      entityOwnerType: 'Customer',
+      entityOwnerId: input.customerId,
+      module: 'ClientRiskAssessment',
+      metadata: { triggerType: input.triggerType },
     });
 
     if (customer.sumsubApplicantId) {
@@ -181,40 +199,99 @@ export class ClientRiskAssessmentService {
       assessment.previousRiskTier === 'LOW' && assessment.resultingRiskTier === 'HIGH';
 
     if (approvalCase.status === 'APPROVED') {
-      await this.prisma.clientRiskAssessment.update({
-        where: { id: assessmentId },
-        data: { status: 'SIGNED', signedAt: new Date(), signedBy: 'MLRO' },
-      });
-
       if (isLowToHigh) {
         // Tier promotion owned by TierUpgradeCase
-        await this.tierUpgradeCaseService.createFromCra(assessment);
-        await this.prisma.customerMain.update({
-          where: { id: assessment.customerId },
-          data: { latestRiskAssessmentId: assessment.id },
+        await this.prisma.$transaction(async (tx) => {
+          await tx.clientRiskAssessment.update({
+            where: { id: assessmentId },
+            data: { status: 'SIGNED', signedAt: new Date(), signedBy: 'MLRO' },
+          });
+          await tx.customerMain.update({
+            where: { id: assessment.customerId },
+            data: { latestRiskAssessmentId: assessment.id },
+          });
         });
+        await this.auditLogsService.recordSystem({
+          traceId: assessment.traceId,
+          workflowType: 'RISK_ASSESSMENT',
+          action: 'RISK_ASSESSMENT_MLRO_SIGNED',
+          triggerType: 'APPROVAL_DECISION' as any,
+          entityType: 'ClientRiskAssessment',
+          entityId: assessmentId,
+          entityOwnerType: 'Customer',
+          entityOwnerId: assessment.customerId,
+          module: 'ClientRiskAssessment',
+          metadata: { scenarioType: 'LOW_TO_HIGH' },
+        });
+        await this.tierUpgradeCaseService.createFromCra(assessment);
       } else {
         // HIGH→HIGH label confirmation: cascade (tier stays HIGH)
+        await this.prisma.$transaction(async (tx) => {
+          await tx.clientRiskAssessment.update({
+            where: { id: assessmentId },
+            data: { status: 'SIGNED', signedAt: new Date(), signedBy: 'MLRO' },
+          });
+        });
+        await this.auditLogsService.recordSystem({
+          traceId: assessment.traceId,
+          workflowType: 'RISK_ASSESSMENT',
+          action: 'RISK_ASSESSMENT_MLRO_SIGNED',
+          triggerType: 'APPROVAL_DECISION' as any,
+          entityType: 'ClientRiskAssessment',
+          entityId: assessmentId,
+          entityOwnerType: 'Customer',
+          entityOwnerId: assessment.customerId,
+          module: 'ClientRiskAssessment',
+          metadata: { scenarioType: 'HIGH_TO_HIGH_UPGRADE' },
+        });
         await this.postSignoffCascade(assessmentId);
       }
     } else {
       // REJECTED
       if (isLowToHigh) {
         // False positive: override resultingTier back to LOW
-        await this.prisma.clientRiskAssessment.update({
-          where: { id: assessmentId },
-          data: {
-            status: 'SIGNED',
-            signedAt: new Date(),
-            signedBy: 'MLRO_FALSE_POSITIVE',
-            resultingRiskTier: assessment.previousRiskTier,
-          },
+        await this.prisma.$transaction(async (tx) => {
+          await tx.clientRiskAssessment.update({
+            where: { id: assessmentId },
+            data: {
+              status: 'SIGNED',
+              signedAt: new Date(),
+              signedBy: 'MLRO_FALSE_POSITIVE',
+              resultingRiskTier: assessment.previousRiskTier,
+            },
+          });
+        });
+        await this.auditLogsService.recordSystem({
+          traceId: assessment.traceId,
+          workflowType: 'RISK_ASSESSMENT',
+          action: 'RISK_ASSESSMENT_MLRO_FALSE_POSITIVE',
+          triggerType: 'APPROVAL_DECISION' as any,
+          entityType: 'ClientRiskAssessment',
+          entityId: assessmentId,
+          entityOwnerType: 'Customer',
+          entityOwnerId: assessment.customerId,
+          module: 'ClientRiskAssessment',
+          metadata: { scenarioType: 'LOW_TO_HIGH_FALSE_POSITIVE' },
         });
       } else {
         // HIGH→HIGH dismissed: sign as-is (tier stays HIGH)
-        await this.prisma.clientRiskAssessment.update({
-          where: { id: assessmentId },
-          data: { status: 'SIGNED', signedAt: new Date(), signedBy: 'MLRO_REJECTED' },
+        await this.prisma.$transaction(async (tx) => {
+          await tx.clientRiskAssessment.update({
+            where: { id: assessmentId },
+            data: { status: 'SIGNED', signedAt: new Date(), signedBy: 'MLRO_REJECTED' },
+          });
+        });
+        await this.auditLogsService.recordSystem({
+          traceId: assessment.traceId,
+          workflowType: 'RISK_ASSESSMENT',
+          action: 'RISK_ASSESSMENT_MLRO_DISMISSED',
+          triggerType: 'APPROVAL_DECISION' as any,
+          entityType: 'ClientRiskAssessment',
+          entityId: assessmentId,
+          entityOwnerType: 'Customer',
+          entityOwnerId: assessment.customerId,
+          module: 'ClientRiskAssessment',
+          metadata: { scenarioType: 'HIGH_TO_HIGH_DISMISSED' },
         });
       }
       await this.postSignoffCascade(assessmentId);
@@ -325,6 +402,18 @@ export class ClientRiskAssessmentService {
           signedUnderPolicyVersion: policy.version,
         },
       });
+      await this.auditLogsService.recordSystem({
+        traceId: assessment.traceId,
+        workflowType: 'RISK_ASSESSMENT',
+        action: 'RISK_ASSESSMENT_AUTO_SIGNED',
+        triggerType: 'AUTOMATED' as any,
+        entityType: 'ClientRiskAssessment',
+        entityId: assessmentId,
+        entityOwnerType: 'Customer',
+        entityOwnerId: assessment.customerId,
+        module: 'ClientRiskAssessment',
+        metadata: { scenarioType: output.scenarioType },
+      });
       await this.postSignoffCascade(assessmentId);
       return;
     }
@@ -367,22 +456,36 @@ export class ClientRiskAssessmentService {
     customer: any,
     labels: string[],
   ): Promise<void> {
-    await this.prisma.customerMain.update({
-      where: { id: customer.id },
-      data: {
-        complianceHoldStatus: 'FROZEN',
-        complianceHoldReason: 'sanctions_hit_pending_investigation',
-      },
+    await this.prisma.$transaction(async (tx) => {
+      await tx.customerMain.update({
+        where: { id: customer.id },
+        data: {
+          complianceHoldStatus: 'FROZEN',
+          complianceHoldReason: 'sanctions_hit_pending_investigation',
+        },
+      });
+      await tx.clientRiskAssessment.update({
+        where: { id: assessment.id },
+        data: {
+          status: 'ESCALATED_TO_SUMSUB',
+          resultingRiskTier: 'HIGH',
+          recommendedAction: 'ESCALATE_TO_SUMSUB_CASE',
+          signoffMethod: 'ESCALATED',
+          reasoning: JSON.stringify({ ruleId: 'P1_labels_contains_SANCTIONS', labels }),
+        },
+      });
     });
-    await this.prisma.clientRiskAssessment.update({
-      where: { id: assessment.id },
-      data: {
-        status: 'ESCALATED_TO_SUMSUB',
-        resultingRiskTier: 'HIGH',
-        recommendedAction: 'ESCALATE_TO_SUMSUB_CASE',
-        signoffMethod: 'ESCALATED',
-        reasoning: JSON.stringify({ ruleId: 'P1_labels_contains_SANCTIONS', labels }),
-      },
+    await this.auditLogsService.recordSystem({
+      traceId: assessment.traceId,
+      workflowType: 'RISK_ASSESSMENT',
+      action: 'RISK_ASSESSMENT_ESCALATED_SANCTIONS',
+      triggerType: 'AUTOMATED' as any,
+      entityType: 'ClientRiskAssessment',
+      entityId: assessment.id,
+      entityOwnerType: 'Customer',
+      entityOwnerId: customer.id,
+      module: 'ClientRiskAssessment',
+      metadata: { labels },
     });
   }
 
