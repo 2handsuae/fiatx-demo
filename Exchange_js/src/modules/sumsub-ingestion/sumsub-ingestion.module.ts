@@ -12,7 +12,7 @@ import { SumsubRetryService } from './sumsub-ingestion-retry.service';
 @Module({
   imports: [
     PrismaModule,
-    OnboardingModule,
+    forwardRef(() => OnboardingModule),
     forwardRef(() => ClientRiskAssessmentModule),
     forwardRef(() => MaterialRefreshModule),
     forwardRef(() => TierUpgradeCaseModule),

@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Req, UseGuards, BadRequestException } from '@nestjs/common';
+import { Controller, Get, Post, Req, UseGuards, BadRequestException, Inject } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { PrismaService } from '../../../core/prisma/prisma.service';
@@ -10,6 +10,7 @@ import { SumsubIngestionService } from '../../sumsub-ingestion/sumsub-ingestion.
 @ApiBearerAuth()
 export class ClientRiskAssessmentCustomerController {
   constructor(
+    @Inject(PrismaService)
     private readonly prisma: PrismaService & Record<string, any>,
     private readonly ingestionService: SumsubIngestionService,
   ) {}
