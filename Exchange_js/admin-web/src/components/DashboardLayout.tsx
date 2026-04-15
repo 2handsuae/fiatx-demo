@@ -110,6 +110,78 @@ const DashboardLayout = () => {
       requiredPermissions: [PERMISSIONS.BASE_ACCESS],
     },
     {
+      label: 'Audit Center',
+      icon: <FileText size={12} />,
+      children: [
+        {
+          path: '/dashboard/audit/audit-logs',
+          label: 'Audit Log',
+          icon: <FileText size={13} />,
+          requiredPermissions: [PERMISSIONS.AUDIT_LOGS_READ],
+        },
+        {
+          path: '/dashboard/audit/evidence-exports',
+          label: 'Evidence Packages',
+          icon: <Layers size={13} />,
+          requiredPermissions: [PERMISSIONS.AUDIT_EVIDENCE_EXPORTS_READ],
+        },
+      ],
+    },
+    {
+      label: 'Control Gates Center',
+      icon: <ShieldCheck size={12} />,
+      children: [
+        {
+          path: '/dashboard/control-gates/change-tickets',
+          label: 'Change Tickets',
+          icon: <Briefcase size={13} />,
+          requiredPermissions: [PERMISSIONS.GOV_CHANGE_TICKETS_READ],
+        },
+        {
+          path: '/dashboard/control-gates/business-config-releases',
+          label: 'Config Releases',
+          icon: <Layers size={13} />,
+          requiredPermissions: [PERMISSIONS.GOV_CHANGE_TICKETS_READ],
+        },
+        {
+          path: '/dashboard/control-gates/delete-requests',
+          label: 'Delete Requests',
+          icon: <ClipboardList size={13} />,
+          requiredPermissions: [PERMISSIONS.GOV_DELETE_REQUESTS_READ],
+        },
+        {
+          path: '/dashboard/control-gates/approvals',
+          label: 'Approvals',
+          icon: <Shield size={13} />,
+          requiredPermissions: [PERMISSIONS.GOV_APPROVALS_READ],
+        },
+        {
+          path: '/dashboard/control-gates/sla-timers',
+          label: 'SLA Timers',
+          icon: <History size={13} />,
+          requiredPermissions: [PERMISSIONS.GOV_SLA_TIMERS_READ],
+        },
+      ],
+    },
+    {
+      label: 'Backend Member Management',
+      icon: <Shield size={12} />,
+      children: [
+        {
+          path: '/dashboard/members',
+          label: 'Platform Members',
+          icon: <UserCheck size={13} />,
+          requiredPermissions: [PERMISSIONS.USERS_READ],
+        },
+        {
+          path: '/dashboard/members/roles',
+          label: 'Role Management',
+          icon: <ShieldCheck size={13} />,
+          requiredPermissions: [PERMISSIONS.IAM_ROLES_READ],
+        },
+      ],
+    },
+    {
       label: 'Customer Management',
       icon: <UserCog size={12} />,
       children: [
@@ -118,6 +190,78 @@ const DashboardLayout = () => {
           label: 'Customer Management',
           icon: <Users size={13} />,
           requiredPermissions: [PERMISSIONS.CUSTOMERS_READ],
+        },
+      ],
+    },
+    {
+      label: 'Compliance Center',
+      icon: <ClipboardList size={12} />,
+      children: [
+        {
+          path: '/dashboard/compliance/risk-assessments',
+          label: 'Risk Assessments',
+          icon: <Shield size={13} />,
+          requiredPermissions: [],
+        },
+        {
+          path: '/dashboard/compliance/sumsub-events',
+          label: 'Sumsub Events',
+          icon: <Zap size={13} />,
+          requiredPermissions: [],
+        },
+        {
+          path: '/dashboard/compliance/material-management',
+          label: 'Material Holdings',
+          icon: <FileText size={13} />,
+          requiredPermissions: [PERMISSIONS.CUSTOMERS_READ],
+        },
+        {
+          path: '/dashboard/compliance/refresh-cycles',
+          label: 'Refresh Cycles',
+          icon: <History size={13} />,
+          requiredPermissions: [PERMISSIONS.CUSTOMERS_READ],
+        },
+      ],
+    },
+    {
+      label: 'Infrastructure Domain',
+      icon: <Cpu size={12} />,
+      children: [
+        {
+          path: '/dashboard/system/assets',
+          label: 'Assets Config',
+          icon: <Coins size={13} />,
+          requiredPermissions: [PERMISSIONS.ASSETS_READ],
+        },
+        {
+          path: '/dashboard/system/asset-configs',
+          label: 'Asset Operational Config',
+          icon: <Settings size={13} />,
+          requiredPermissions: [PERMISSIONS.ASSETS_READ],
+        },
+        {
+          path: '/ledger/coa',
+          label: 'Chart of Accounts (COA)',
+          icon: <Table size={13} />,
+          requiredPermissions: [PERMISSIONS.COA_READ],
+        },
+        {
+          path: '/dashboard/system/acct-events',
+          label: 'Event Code Management',
+          icon: <Command size={13} />,
+          requiredPermissions: [PERMISSIONS.ACCT_EVENTS_READ],
+        },
+        {
+          path: '/dashboard/system/journal-header-templates',
+          label: 'Journal Templates',
+          icon: <FileCode size={13} />,
+          requiredPermissions: [PERMISSIONS.JOURNAL_HEADER_TEMPLATES_READ],
+        },
+        {
+          path: '/dashboard/system/clearing-header-templates',
+          label: 'Clearing Templates',
+          icon: <Layers size={13} />,
+          requiredPermissions: [PERMISSIONS.CLEARING_TEMPLATES_READ],
         },
       ],
     },
@@ -188,60 +332,6 @@ const DashboardLayout = () => {
       ],
     },
     {
-      label: 'Audit Center',
-      icon: <FileText size={12} />,
-      children: [
-        {
-          path: '/dashboard/audit/audit-logs',
-          label: 'Audit Log',
-          icon: <FileText size={13} />,
-          requiredPermissions: [PERMISSIONS.AUDIT_LOGS_READ],
-        },
-        {
-          path: '/dashboard/audit/evidence-exports',
-          label: 'Evidence Packages',
-          icon: <Layers size={13} />,
-          requiredPermissions: [PERMISSIONS.AUDIT_EVIDENCE_EXPORTS_READ],
-        },
-      ],
-    },
-    {
-      label: 'Control Gates Center',
-      icon: <ShieldCheck size={12} />,
-      children: [
-        {
-          path: '/dashboard/control-gates/change-tickets',
-          label: 'Change Tickets',
-          icon: <Briefcase size={13} />,
-          requiredPermissions: [PERMISSIONS.GOV_CHANGE_TICKETS_READ],
-        },
-        {
-          path: '/dashboard/control-gates/business-config-releases',
-          label: 'Config Releases',
-          icon: <Layers size={13} />,
-          requiredPermissions: [PERMISSIONS.GOV_CHANGE_TICKETS_READ],
-        },
-        {
-          path: '/dashboard/control-gates/delete-requests',
-          label: 'Delete Requests',
-          icon: <ClipboardList size={13} />,
-          requiredPermissions: [PERMISSIONS.GOV_DELETE_REQUESTS_READ],
-        },
-        {
-          path: '/dashboard/control-gates/approvals',
-          label: 'Approvals',
-          icon: <Shield size={13} />,
-          requiredPermissions: [PERMISSIONS.GOV_APPROVALS_READ],
-        },
-        {
-          path: '/dashboard/control-gates/sla-timers',
-          label: 'SLA Timers',
-          icon: <History size={13} />,
-          requiredPermissions: [PERMISSIONS.GOV_SLA_TIMERS_READ],
-        },
-      ],
-    },
-    {
       label: 'Governance Center',
       icon: <Library size={12} />,
       children: [
@@ -280,36 +370,6 @@ const DashboardLayout = () => {
           label: 'Regulatory Gates',
           icon: <ShieldCheck size={13} />,
           requiredPermissions: [PERMISSIONS.GOV_REGULATORY_GATES_READ],
-        },
-      ],
-    },
-    {
-      label: 'Compliance Center',
-      icon: <ClipboardList size={12} />,
-      children: [
-        {
-          path: '/dashboard/compliance/risk-assessments',
-          label: 'Risk Assessments',
-          icon: <Shield size={13} />,
-          requiredPermissions: [],
-        },
-        {
-          path: '/dashboard/compliance/sumsub-events',
-          label: 'Sumsub Events',
-          icon: <Zap size={13} />,
-          requiredPermissions: [],
-        },
-        {
-          path: '/dashboard/compliance/material-management',
-          label: 'Material Holdings',
-          icon: <FileText size={13} />,
-          requiredPermissions: [PERMISSIONS.CUSTOMERS_READ],
-        },
-        {
-          path: '/dashboard/compliance/refresh-cycles',
-          label: 'Refresh Cycles',
-          icon: <History size={13} />,
-          requiredPermissions: [PERMISSIONS.CUSTOMERS_READ],
         },
       ],
     },
@@ -440,48 +500,6 @@ const DashboardLayout = () => {
       ],
     },
     {
-      label: 'Infrastructure Domain',
-      icon: <Cpu size={12} />,
-      children: [
-        {
-          path: '/dashboard/system/assets',
-          label: 'Assets Config',
-          icon: <Coins size={13} />,
-          requiredPermissions: [PERMISSIONS.ASSETS_READ],
-        },
-        {
-          path: '/dashboard/system/asset-configs',
-          label: 'Asset Operational Config',
-          icon: <Settings size={13} />,
-          requiredPermissions: [PERMISSIONS.ASSETS_READ],
-        },
-        {
-          path: '/ledger/coa',
-          label: 'Chart of Accounts (COA)',
-          icon: <Table size={13} />,
-          requiredPermissions: [PERMISSIONS.COA_READ],
-        },
-        {
-          path: '/dashboard/system/acct-events',
-          label: 'Event Code Management',
-          icon: <Command size={13} />,
-          requiredPermissions: [PERMISSIONS.ACCT_EVENTS_READ],
-        },
-        {
-          path: '/dashboard/system/journal-header-templates',
-          label: 'Journal Templates',
-          icon: <FileCode size={13} />,
-          requiredPermissions: [PERMISSIONS.JOURNAL_HEADER_TEMPLATES_READ],
-        },
-        {
-          path: '/dashboard/system/clearing-header-templates',
-          label: 'Clearing Templates',
-          icon: <Layers size={13} />,
-          requiredPermissions: [PERMISSIONS.CLEARING_TEMPLATES_READ],
-        },
-      ],
-    },
-    {
       label: 'Counterparty Management',
       icon: <Handshake size={12} />,
       children: [
@@ -496,24 +514,6 @@ const DashboardLayout = () => {
           label: 'LP Liquidity Config',
           icon: <ShieldCheck size={13} />,
           requiredPermissions: [PERMISSIONS.LIQUIDITY_CONFIG_READ],
-        },
-      ],
-    },
-    {
-      label: 'Backend Member Management',
-      icon: <Shield size={12} />,
-      children: [
-        {
-          path: '/dashboard/members',
-          label: 'Platform Members',
-          icon: <UserCheck size={13} />,
-          requiredPermissions: [PERMISSIONS.USERS_READ],
-        },
-        {
-          path: '/dashboard/members/roles',
-          label: 'Role Management',
-          icon: <ShieldCheck size={13} />,
-          requiredPermissions: [PERMISSIONS.IAM_ROLES_READ],
         },
       ],
     },
