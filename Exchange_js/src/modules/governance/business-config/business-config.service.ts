@@ -20,6 +20,10 @@ import {
   PricingPolicyManifestAsset,
   PricingPolicyManifestItem,
 } from '../../../config/manifests/pricing-policies.manifest';
+import {
+  AssetConfigManifestItem,
+  DEFAULT_ASSET_CONFIGS,
+} from '../../../config/manifests/asset-config.manifest';
 import { PricingCenterService } from '../../trading/pricing-center/pricing-center.service';
 import { ChangeTicketStatuses } from '../change-tickets/constants/change-ticket.constants';
 import {
@@ -27,16 +31,16 @@ import {
   RegulatoryGateSubjectTypes,
   RegulatoryGateTypes,
 } from '../regulatory-gates/constants/regulatory-gates.constants';
-import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
+import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
   AuditActions,
   AuditEntityTypes,
   AuditModules,
-} from '../../risk-engine/audit-logs/constants/audit-actions.constant';
+} from '../../audit-logging/constants/audit-actions.constant';
 import {
   AuditResult,
   AuditTriggerType,
-} from '../../risk-engine/audit-logs/dto/audit-log.dto';
+} from '../../audit-logging/dto/audit-log.dto';
 import {
   BusinessConfigDiffItem,
   BusinessConfigReleaseStatus,
@@ -119,12 +123,14 @@ type ClearingTemplateManifestPayload = Record<string, unknown> & {
   lineTemplates: ClearingTemplateLinePayload[];
 };
 type PricingPolicyManifestPayload = PricingPolicyManifestItem;
+type AssetConfigManifestPayload = AssetConfigManifestItem;
 type ManifestPayload =
   | CoaManifestPayload
   | AcctEventManifestPayload
   | JournalTemplateManifestPayload
   | ClearingTemplateManifestPayload
-  | PricingPolicyManifestPayload;
+  | PricingPolicyManifestPayload
+  | AssetConfigManifestPayload;
 type ManifestEntry = {
   businessKey: string;
   payload: ManifestPayload;
@@ -177,6 +183,9 @@ export class BusinessConfigService {
       case 'PRICINGPOLICY':
       case 'PRICING':
         return 'PRICING_POLICY';
+      case 'ASSET_CONFIG':
+      case 'ASSETCONFIG':
+        return 'ASSET_CONFIG';
       default:
         throw new BadRequestException(`Unsupported business config subjectType: ${input}`);
     }
@@ -293,6 +302,13 @@ export class BusinessConfigService {
 
     if (subjectType === 'PRICING_POLICY') {
       return this.getPricingManifestEntries();
+    }
+
+    if (subjectType === 'ASSET_CONFIG') {
+      return DEFAULT_ASSET_CONFIGS.map((item) => ({
+        businessKey: item.assetNo,
+        payload: item,
+      })).sort((left, right) => left.businessKey.localeCompare(right.businessKey));
     }
 
     throw new BadRequestException(`Unsupported subjectType: ${subjectType}`);
@@ -704,6 +720,37 @@ export class BusinessConfigService {
     return issues;
   }
 
+  private async validateAssetConfigRelease(
+    items: Array<ParsedReleaseItem<AssetConfigManifestPayload>>,
+  ): Promise<string[]> {
+    const issues: string[] = [];
+    const activeAssets = await this.prisma.asset.findMany({
+      where: { status: 'ACTIVE' },
+      select: { assetNo: true },
+    });
+    const activeAssetNos = new Set(activeAssets.map((a) => a.assetNo));
+
+    for (const item of items) {
+      const payload = item.payload;
+      if (!payload.assetNo || !payload.code || !payload.type) {
+        issues.push(`AssetConfig ${item.businessKey} requires assetNo, code, and type`);
+        continue;
+      }
+      if (!activeAssetNos.has(String(payload.assetNo))) {
+        issues.push(`AssetConfig ${item.businessKey} references unknown or inactive asset: ${payload.assetNo}`);
+      }
+      const minDeposit = Number(payload.depositMinAmount || 0);
+      if (isNaN(minDeposit) || minDeposit < 0) {
+        issues.push(`AssetConfig ${item.businessKey} depositMinAmount must be a non-negative number`);
+      }
+      const minWithdraw = Number(payload.withdrawMinAmount || 0);
+      if (isNaN(minWithdraw) || minWithdraw < 0) {
+        issues.push(`AssetConfig ${item.businessKey} withdrawMinAmount must be a non-negative number`);
+      }
+    }
+    return issues;
+  }
+
   private async validateReleaseItems(
     subjectType: BusinessConfigSubjectType,
     items: Array<ParsedReleaseItem<Record<string, unknown>>>,
@@ -751,6 +798,12 @@ export class BusinessConfigService {
       issues.push(
         ...(await this.validatePricingPolicyRelease(
           items as Array<ParsedReleaseItem<PricingPolicyManifestPayload>>,
+        )),
+      );
+    } else if (subjectType === 'ASSET_CONFIG') {
+      issues.push(
+        ...(await this.validateAssetConfigRelease(
+          items as Array<ParsedReleaseItem<AssetConfigManifestPayload>>,
         )),
       );
     }
@@ -983,6 +1036,15 @@ export class BusinessConfigService {
       },
       data: { isEnabled: false },
     });
+  }
+
+  // Wave 4: no-op projection — ASSET_CONFIG release snapshot is the source of truth.
+  // Wave 5 will add projection to a dedicated table when deposit/withdraw flows need DB queries.
+  private async projectAssetConfig(
+    _tx: GovernanceClient,
+    _items: Array<ParsedReleaseItem<AssetConfigManifestPayload>>,
+  ): Promise<void> {
+    // no-op
   }
 
   private async projectPricingPolicies(
@@ -1325,6 +1387,11 @@ export class BusinessConfigService {
         await this.projectPricingPolicies(
           tx,
           items as Array<ParsedReleaseItem<PricingPolicyManifestPayload>>,
+        );
+      } else if (subjectType === 'ASSET_CONFIG') {
+        await this.projectAssetConfig(
+          tx,
+          items as Array<ParsedReleaseItem<AssetConfigManifestPayload>>,
         );
       }
 
