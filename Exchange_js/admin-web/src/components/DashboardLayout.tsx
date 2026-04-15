@@ -34,6 +34,7 @@ import {
   Sun,
   Moon,
   AlertTriangle,
+  Settings,
 } from 'lucide-react';
 import { Link, useLocation, useNavigate, Outlet } from 'react-router-dom';
 import { useAdminSession } from '../contexts/AdminSessionContext';
@@ -287,6 +288,12 @@ const DashboardLayout = () => {
       icon: <ClipboardList size={12} />,
       children: [
         {
+          path: '/dashboard/compliance/risk-assessments',
+          label: 'Risk Assessments',
+          icon: <Shield size={13} />,
+          requiredPermissions: [],
+        },
+        {
           path: '/dashboard/compliance/sumsub-events',
           label: 'Sumsub Events',
           icon: <Zap size={13} />,
@@ -440,6 +447,12 @@ const DashboardLayout = () => {
           path: '/dashboard/system/assets',
           label: 'Assets Config',
           icon: <Coins size={13} />,
+          requiredPermissions: [PERMISSIONS.ASSETS_READ],
+        },
+        {
+          path: '/dashboard/system/asset-configs',
+          label: 'Asset Operational Config',
+          icon: <Settings size={13} />,
           requiredPermissions: [PERMISSIONS.ASSETS_READ],
         },
         {

@@ -45,6 +45,7 @@ const WithdrawTransactionDetail = lazy(() => import('./pages/WithdrawTransaction
 const SwapTransactionList = lazy(() => import('./pages/SwapTransactionList'));
 const SwapTransactionDetail = lazy(() => import('./pages/SwapTransactionDetail'));
 const CoaList = lazy(() => import('./pages/CoaList'));
+const AssetConfigList = lazy(() => import('./pages/AssetConfigList'));
 const JournalList = lazy(() => import('./pages/JournalList'));
 const JournalDetail = lazy(() => import('./pages/JournalDetail'));
 const JournalLinesList = lazy(() => import('./pages/JournalLinesList'));
@@ -121,11 +122,14 @@ const TransactionComplianceCaseDetailPage = lazy(
   () => import('./pages/TransactionComplianceCaseDetailPage'),
 );
 const RiskPolicyExecutionsPage = lazy(() => import('./pages/RiskPolicyExecutionsPage'));
-const RoleManagement = lazy(() => import('./pages/RoleManagement'));
+const RolesPage = lazy(() => import('./pages/RolesPage'));
+const RoleDetailPage = lazy(() => import('./pages/RoleDetailPage'));
 const MaterialManagementPage = lazy(() => import('./pages/MaterialManagementPage'));
 const MaterialHoldingDetailPage = lazy(() => import('./pages/MaterialHoldingDetailPage'));
 const RefreshCyclesPage = lazy(() => import('./pages/RefreshCyclesPage'));
 const RefreshCycleDetailPage = lazy(() => import('./pages/RefreshCycleDetailPage'));
+const RiskAssessmentListPage = lazy(() => import('./pages/RiskAssessmentListPage'));
+const RiskAssessmentDetailPage = lazy(() => import('./pages/RiskAssessmentDetailPage'));
 
 const FullPageMessage = ({
   title,
@@ -249,7 +253,11 @@ function App() {
             />
             <Route
               path="members/roles"
-              element={withPermission(<RoleManagement />, [PERMISSIONS.IAM_ROLES_READ])}
+              element={withPermission(<RolesPage />, [PERMISSIONS.IAM_ROLES_READ])}
+            />
+            <Route
+              path="members/roles/:code"
+              element={withPermission(<RoleDetailPage />, [PERMISSIONS.IAM_ROLES_READ])}
             />
             <Route
               path="customer/management"
@@ -392,6 +400,14 @@ function App() {
             <Route
               path="compliance/refresh-cycles/:cycleId"
               element={withPermission(<RefreshCycleDetailPage />, [])}
+            />
+            <Route
+              path="compliance/risk-assessments"
+              element={withPermission(<RiskAssessmentListPage />, [])}
+            />
+            <Route
+              path="compliance/risk-assessments/:assessmentId"
+              element={withPermission(<RiskAssessmentDetailPage />, [])}
             />
             <Route
               path="compliance/tx-kyt-responses"
@@ -816,6 +832,10 @@ function App() {
             <Route
               path="system/assets/create"
               element={withPermission(<AssetCreate />, [PERMISSIONS.ASSETS_CREATE])}
+            />
+            <Route
+              path="system/asset-configs"
+              element={withPermission(<AssetConfigList />, [PERMISSIONS.ASSETS_READ])}
             />
             <Route
               path="system/acct-events"
