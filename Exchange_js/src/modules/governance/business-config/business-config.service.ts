@@ -732,18 +732,18 @@ export class BusinessConfigService {
 
     for (const item of items) {
       const payload = item.payload;
-      if (!payload.assetNo || !payload.code || !payload.type) {
-        issues.push(`AssetConfig ${item.businessKey} requires assetNo, code, and type`);
+      if (!payload.assetNo || !payload.code || !payload.type || payload.depositMinAmount == null || payload.withdrawMinAmount == null) {
+        issues.push(`AssetConfig ${item.businessKey} requires assetNo, code, type, depositMinAmount, and withdrawMinAmount`);
         continue;
       }
       if (!activeAssetNos.has(String(payload.assetNo))) {
         issues.push(`AssetConfig ${item.businessKey} references unknown or inactive asset: ${payload.assetNo}`);
       }
-      const minDeposit = Number(payload.depositMinAmount || 0);
+      const minDeposit = Number(payload.depositMinAmount);
       if (isNaN(minDeposit) || minDeposit < 0) {
         issues.push(`AssetConfig ${item.businessKey} depositMinAmount must be a non-negative number`);
       }
-      const minWithdraw = Number(payload.withdrawMinAmount || 0);
+      const minWithdraw = Number(payload.withdrawMinAmount);
       if (isNaN(minWithdraw) || minWithdraw < 0) {
         issues.push(`AssetConfig ${item.businessKey} withdrawMinAmount must be a non-negative number`);
       }
