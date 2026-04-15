@@ -4,6 +4,7 @@ export const BUSINESS_CONFIG_SUBJECT_TYPES = [
   'JOURNAL_TEMPLATE',
   'CLEARING_TEMPLATE',
   'PRICING_POLICY',
+  'ASSET_CONFIG',
 ] as const;
 
 export type BusinessConfigSubjectType =
