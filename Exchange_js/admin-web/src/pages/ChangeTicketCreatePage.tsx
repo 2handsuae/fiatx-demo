@@ -7,6 +7,7 @@ import { adminButtonClass } from '../components/common/adminButtonStyles';
 const CHANGE_TYPE_OPTIONS = [
   'ADMIN_ACCESS_CHANGE',
   'RBAC_CATALOG_CHANGE',
+  'BUSINESS_CONFIG_CHANGE',
 ];
 
 const REQUIRED_FIELD_ERROR =
