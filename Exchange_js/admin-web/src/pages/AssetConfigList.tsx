@@ -1,222 +1,360 @@
 import { useEffect, useState } from 'react';
-import { RefreshCw, Settings } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { Clock, RefreshCw } from 'lucide-react';
 import {
-  BUSINESS_CONFIG_RELEASES_PATH,
-  showBusinessConfigReadOnlyAlert,
-} from '../utils/businessConfigReadOnly';
-import { adminFetch, getApiErrorMessage } from '../utils/adminFetch';
-import { adminButtonClass, adminIconButtonClass } from '../components/common/adminButtonStyles';
+  adminButtonClass,
+  adminIconButtonClass,
+} from '../components/common/adminButtonStyles';
+import { AdminBadge } from '../components/ui/AdminBadge';
+import { PageTitleBar } from '../components/ui/PageTitleBar';
+import {
+  AdminSessionError,
+  adminFetch,
+  getApiErrorMessage,
+} from '../utils/adminFetch';
 
-interface AssetConfigItem {
-  businessKey: string;
+/* ── Types ─────────────────────────────────────────────────────── */
+
+interface AssetRow {
+  assetNo: string;
   code: string;
-  type: string;
+  type: 'FIAT' | 'CRYPTO';
   network: string;
+  decimals: number;
+  description: string | null;
+  status: 'ACTIVE' | 'DISABLED';
   depositEnabled: boolean;
   withdrawEnabled: boolean;
   depositMinAmount: string;
   depositMaxAmount: string | null;
   withdrawMinAmount: string;
   withdrawMaxAmount: string | null;
-  networkFeeBuffer: string | null;
+  minConfirmations: number | null;
 }
 
-const renderBool = (v: boolean) => (
+interface FilterState {
+  type: string;
+  status: string;
+}
+
+/* ── Display helpers ────────────────────────────────────────────── */
+
+const TypeBadge = ({ type }: { type: 'FIAT' | 'CRYPTO' }) => (
   <span
-    className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-      v ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+    className={`inline-flex items-center rounded border px-1.5 py-0.5 font-mono text-[9px] font-bold tracking-widest ${
+      type === 'FIAT'
+        ? 'border-adm-blue/25 bg-adm-blue/10 text-adm-blue'
+        : 'border-adm-amber/25 bg-adm-amber/10 text-adm-amber'
     }`}
   >
-    {v ? 'Yes' : 'No'}
+    {type}
   </span>
 );
 
+const EnabledDot = ({ v }: { v: boolean }) => (
+  <span
+    className={`inline-flex items-center gap-1 font-mono text-[11px] font-medium ${
+      v ? 'text-adm-green' : 'text-adm-t3'
+    }`}
+  >
+    <span
+      className={`h-1.5 w-1.5 shrink-0 rounded-full ${v ? 'bg-adm-green' : 'bg-adm-t3'}`}
+    />
+    {v ? 'On' : 'Off'}
+  </span>
+);
+
+const AmtRange = ({ min, max }: { min: string; max: string | null }) => (
+  <span className="font-mono text-[11px] text-adm-t2 tabular-nums">
+    {min}
+    <span className="mx-1 text-adm-t3">/</span>
+    <span className={max ? 'text-adm-t2' : 'text-adm-t3'}>{max ?? '∞'}</span>
+  </span>
+);
+
+const DEFAULT_FILTERS: FilterState = { type: '', status: '' };
+
+const COLS = [
+  'Asset',
+  'Network',
+  'Status',
+  'Deposit',
+  'Dep. Min / Max',
+  'Withdraw',
+  'Wtd. Min / Max',
+  'Confirmations',
+] as const;
+
+/* ── Component ─────────────────────────────────────────────────── */
+
 const AssetConfigList = () => {
   const navigate = useNavigate();
-  const [items, setItems] = useState<AssetConfigItem[]>([]);
+  const [rows, setRows] = useState<AssetRow[]>([]);
+  const [releaseNo, setReleaseNo] = useState<string | null>(null);
+  const [effectiveDate, setEffectiveDate] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [activeReleaseNo, setActiveReleaseNo] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
 
-  const fetchItems = async () => {
+  const fetchData = async () => {
     setLoading(true);
-    setError('');
+    setError(null);
     try {
-      const listRes = await adminFetch(
+      const relListRes = await adminFetch(
         `${import.meta.env.VITE_API_URL}/admin/business-config/releases?subjectType=ASSET_CONFIG&status=ACTIVE&take=1`,
       );
-      if (!listRes.ok) {
-        setError(await getApiErrorMessage(listRes, 'Failed to fetch asset config releases.'));
+      if (!relListRes.ok) {
+        setError(await getApiErrorMessage(relListRes, 'Failed to fetch releases.'));
         return;
       }
-      const listData = await listRes.json();
-      const firstRelease = listData?.items?.[0];
+
+      const relListData = await relListRes.json();
+      const firstRelease = relListData?.items?.[0];
+
       if (!firstRelease?.releaseNo) {
-        setItems([]);
-        setActiveReleaseNo(null);
+        setRows([]);
         return;
       }
-      setActiveReleaseNo(firstRelease.releaseNo);
+
+      setReleaseNo(firstRelease.releaseNo as string);
 
       const detailRes = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/business-config/releases/${firstRelease.releaseNo}`,
+        `${import.meta.env.VITE_API_URL}/admin/business-config/releases/${firstRelease.releaseNo as string}`,
       );
       if (!detailRes.ok) {
-        setError(await getApiErrorMessage(detailRes, 'Failed to fetch asset config details.'));
+        setError(await getApiErrorMessage(detailRes, 'Failed to fetch release detail.'));
         return;
       }
+
       const detail = await detailRes.json();
-      const parsed: AssetConfigItem[] = (detail?.items ?? []).map(
-        (item: { businessKey: string; payload: Record<string, unknown> }) => ({
-          businessKey: item.businessKey,
-          code: String(item.payload.code ?? ''),
-          type: String(item.payload.type ?? ''),
-          network: String(item.payload.network ?? ''),
-          depositEnabled: item.payload.depositEnabled === true,
-          withdrawEnabled: item.payload.withdrawEnabled === true,
-          depositMinAmount: String(item.payload.depositMinAmount ?? ''),
-          depositMaxAmount:
-            item.payload.depositMaxAmount != null
-              ? String(item.payload.depositMaxAmount)
-              : null,
-          withdrawMinAmount: String(item.payload.withdrawMinAmount ?? ''),
-          withdrawMaxAmount:
-            item.payload.withdrawMaxAmount != null
-              ? String(item.payload.withdrawMaxAmount)
-              : null,
-          networkFeeBuffer:
-            item.payload.networkFeeBuffer != null
-              ? String(item.payload.networkFeeBuffer)
-              : null,
-        }),
-      );
-      setItems(parsed);
+      setEffectiveDate((detail.effectiveFrom ?? detail.publishedAt ?? null) as string | null);
+
+      const assets: AssetRow[] = ((detail.items ?? []) as Array<{ businessKey: string; payload: Record<string, unknown> }>).map((item) => {
+        const p = item.payload;
+        return {
+          assetNo: String(p.assetNo ?? item.businessKey),
+          code: String(p.code ?? ''),
+          type: (p.type as 'FIAT' | 'CRYPTO') ?? 'FIAT',
+          network: String(p.network ?? ''),
+          decimals: Number(p.decimals ?? 0),
+          description: p.description ? String(p.description) : null,
+          status: (p.status as 'ACTIVE' | 'DISABLED') ?? 'ACTIVE',
+          depositEnabled: Boolean(p.depositEnabled),
+          withdrawEnabled: Boolean(p.withdrawEnabled),
+          depositMinAmount: String(p.depositMinAmount ?? ''),
+          depositMaxAmount: p.depositMaxAmount != null ? String(p.depositMaxAmount) : null,
+          withdrawMinAmount: String(p.withdrawMinAmount ?? ''),
+          withdrawMaxAmount: p.withdrawMaxAmount != null ? String(p.withdrawMaxAmount) : null,
+          minConfirmations: p.minConfirmations != null ? Number(p.minConfirmations) : null,
+        };
+      });
+
+      setRows(assets);
     } catch (err) {
-      console.error('Failed to fetch AssetConfig', err);
-      setError('Failed to fetch asset config.');
+      if (err instanceof AdminSessionError) return;
+      setError('Failed to load assets.');
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    void fetchItems();
+    void fetchData();
   }, []);
 
-  return (
-    <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Asset Operational Config</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Per-asset deposit / withdrawal parameters managed by config-as-code
-          </p>
-        </div>
-        <div className="flex gap-3">
-          <button
-            onClick={() => navigate(BUSINESS_CONFIG_RELEASES_PATH)}
-            className={adminButtonClass('listSecondary')}
-          >
-            <Settings size={20} />
-            <span>Open Release Center</span>
-          </button>
-        </div>
-      </div>
+  const fi =
+    'h-[30px] rounded border border-adm-border bg-adm-bg px-2.5 font-mono text-[11px] text-adm-t1 placeholder:text-adm-t3 outline-none focus:border-adm-amber transition-colors';
 
-      <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
-        Asset operational config is managed by config-as-code and Business Config Releases. This
-        page shows the current ACTIVE release snapshot and is read-only.
-        {activeReleaseNo && (
-          <span className="ml-2 font-mono font-semibold">(Release: {activeReleaseNo})</span>
+  const visibleRows = rows.filter((r) => {
+    if (filters.type && r.type !== filters.type) return false;
+    if (filters.status && r.status !== filters.status) return false;
+    return true;
+  });
+
+  return (
+    <div className="flex h-full flex-col overflow-hidden">
+
+      {/* Title bar */}
+      <PageTitleBar
+        title="Assets"
+        meta={`${rows.length} asset${rows.length === 1 ? '' : 's'} · System`}
+      >
+        <button
+          onClick={() => navigate('/dashboard/system/asset-configs/history')}
+          className={adminButtonClass('listSecondary')}
+        >
+          <Clock size={13} />
+          Version History
+        </button>
+        <button
+          onClick={() => void fetchData()}
+          className={adminIconButtonClass()}
+          title="Refresh"
+        >
+          <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+        </button>
+      </PageTitleBar>
+
+      {/* Filter bar */}
+      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-adm-border bg-adm-panel px-5 py-2">
+        <select
+          value={filters.type}
+          onChange={(e) => setFilters((p) => ({ ...p, type: e.target.value }))}
+          className={`${fi} w-36`}
+        >
+          <option value="">All types</option>
+          <option value="FIAT">FIAT</option>
+          <option value="CRYPTO">CRYPTO</option>
+        </select>
+        <select
+          value={filters.status}
+          onChange={(e) => setFilters((p) => ({ ...p, status: e.target.value }))}
+          className={`${fi} w-36`}
+        >
+          <option value="">All statuses</option>
+          <option value="ACTIVE">ACTIVE</option>
+          <option value="DISABLED">DISABLED</option>
+        </select>
+        {releaseNo && (
+          <span className="ml-auto font-mono text-[10px] text-adm-t3">
+            {releaseNo}
+          </span>
         )}
       </div>
 
-      <div className="bg-white rounded-xl shadow-sm border border-admin-border overflow-hidden">
-        <div className="p-4 border-b border-admin-border flex justify-end">
-          <button onClick={() => void fetchItems()} className={adminIconButtonClass()}>
-            <RefreshCw size={20} className={loading ? 'animate-spin' : ''} />
-          </button>
+      {/* Error */}
+      {error && (
+        <div className="shrink-0 border-b border-adm-red/20 bg-adm-red/6 px-5 py-2.5 font-mono text-[11px] text-adm-red">
+          {error}
         </div>
+      )}
 
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead className="bg-admin-content-bg border-b border-admin-border">
+      {/* Table */}
+      <div className="flex-1 overflow-auto">
+        <table className="w-full border-collapse text-sm">
+          <thead>
+            <tr>
+              <th className="w-1 border-b border-adm-border bg-adm-panel" />
+              {COLS.map((label) => (
+                <th
+                  key={label}
+                  className="border-b border-adm-border bg-adm-panel px-4 py-2 text-left font-mono text-[9px] font-semibold uppercase tracking-[0.12em] text-adm-t3 whitespace-nowrap"
+                >
+                  {label}
+                </th>
+              ))}
+              <th className="w-8 border-b border-adm-border bg-adm-panel" />
+            </tr>
+          </thead>
+          <tbody>
+            {loading && (
               <tr>
-                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Asset No</th>
-                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Code</th>
-                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Type</th>
-                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Network</th>
-                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Deposit</th>
-                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Withdraw</th>
-                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Dep. Min</th>
-                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Dep. Max</th>
-                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Wtd. Min</th>
-                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Wtd. Max</th>
-                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Fee Buffer</th>
-                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider text-right">Action</th>
+                <td colSpan={COLS.length + 2} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
+                  Loading…
+                </td>
               </tr>
-            </thead>
-            <tbody className="divide-y divide-admin-border">
-              {error ? (
-                <tr>
-                  <td colSpan={12} className="px-6 py-12 text-center text-rose-600">
-                    {error}
-                  </td>
-                </tr>
-              ) : null}
-              {!error && loading ? (
-                <tr>
-                  <td colSpan={12} className="px-6 py-12 text-center text-gray-500">
-                    <div className="flex flex-col items-center justify-center">
-                      <RefreshCw className="animate-spin mb-2 text-brand-primary" size={24} />
-                      Loading asset config...
-                    </div>
-                  </td>
-                </tr>
-              ) : !error && items.length === 0 ? (
-                <tr>
-                  <td colSpan={12} className="px-6 py-12 text-center text-gray-500">
-                    No active ASSET_CONFIG release found. Run{' '}
-                    <span className="font-mono text-xs bg-gray-100 px-1 rounded">
-                      npm run config:stage -- --subject ASSET_CONFIG
-                    </span>{' '}
-                    to stage the first release.
-                  </td>
-                </tr>
-              ) : (
-                items.map((item) => (
-                  <tr key={item.businessKey} className="hover:bg-gray-50 transition-colors">
-                    <td className="px-6 py-4 font-mono font-medium text-gray-900">{item.businessKey}</td>
-                    <td className="px-6 py-4 font-mono font-medium text-gray-900">{item.code}</td>
-                    <td className="px-6 py-4">
-                      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-800">
-                        {item.type}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 text-gray-600">{item.network || '—'}</td>
-                    <td className="px-6 py-4">{renderBool(item.depositEnabled)}</td>
-                    <td className="px-6 py-4">{renderBool(item.withdrawEnabled)}</td>
-                    <td className="px-6 py-4 font-mono">{item.depositMinAmount}</td>
-                    <td className="px-6 py-4 font-mono">{item.depositMaxAmount ?? '—'}</td>
-                    <td className="px-6 py-4 font-mono">{item.withdrawMinAmount}</td>
-                    <td className="px-6 py-4 font-mono">{item.withdrawMaxAmount ?? '—'}</td>
-                    <td className="px-6 py-4 font-mono">{item.networkFeeBuffer ?? '—'}</td>
-                    <td className="px-6 py-4 text-right">
-                      <button
-                        className={adminButtonClass('rowSecondaryUtility')}
-                        onClick={() => showBusinessConfigReadOnlyAlert('ASSET_CONFIG')}
-                      >
-                        Read-only
-                      </button>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+            )}
+            {!loading && visibleRows.length === 0 && (
+              <tr>
+                <td colSpan={COLS.length + 2} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
+                  No assets found.
+                </td>
+              </tr>
+            )}
+            {!loading && visibleRows.map((row) => (
+              <tr
+                key={row.assetNo}
+                className="cursor-pointer border-b border-adm-border transition-colors hover:bg-adm-hover"
+                onClick={() => navigate(`/dashboard/system/asset-configs/${row.assetNo}`)}
+              >
+                {/* Type accent strip */}
+                <td className="py-3 pl-3">
+                  <div
+                    className={`h-5 w-0.5 rounded-full ${
+                      row.type === 'CRYPTO' ? 'bg-adm-amber' : 'bg-adm-blue'
+                    }`}
+                  />
+                </td>
+
+                {/* Asset: type badge + code + assetNo */}
+                <td className="px-4 py-3">
+                  <div className="flex items-center gap-2">
+                    <TypeBadge type={row.type} />
+                    <span className="font-mono text-[11px] font-semibold text-adm-amber">
+                      {row.code}
+                    </span>
+                    <span className="font-mono text-[10px] text-adm-t3">
+                      {row.assetNo}
+                    </span>
+                  </div>
+                </td>
+
+                {/* Network */}
+                <td className="px-4 py-3 font-mono text-[11px] text-adm-t2 whitespace-nowrap">
+                  {row.network || <span className="text-adm-t3">—</span>}
+                </td>
+
+                {/* Status from payload */}
+                <td className="px-4 py-3">
+                  <AdminBadge value={row.status} />
+                </td>
+
+                {/* Deposit enabled */}
+                <td className="px-4 py-3">
+                  <EnabledDot v={row.depositEnabled} />
+                </td>
+                {/* Deposit range */}
+                <td className="px-4 py-3">
+                  <AmtRange min={row.depositMinAmount} max={row.depositMaxAmount} />
+                </td>
+                {/* Withdraw enabled */}
+                <td className="px-4 py-3">
+                  <EnabledDot v={row.withdrawEnabled} />
+                </td>
+                {/* Withdraw range */}
+                <td className="px-4 py-3">
+                  <AmtRange min={row.withdrawMinAmount} max={row.withdrawMaxAmount} />
+                </td>
+                {/* Min confirmations */}
+                <td className="px-4 py-3 font-mono text-[11px] tabular-nums whitespace-nowrap">
+                  {row.type === 'CRYPTO' && row.minConfirmations != null ? (
+                    <span className="text-adm-t2">{row.minConfirmations}</span>
+                  ) : (
+                    <span className="text-adm-t3">—</span>
+                  )}
+                </td>
+
+                {/* Chevron */}
+                <td className="pr-4 py-3 text-right font-mono text-[12px] text-adm-t3">
+                  ›
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Footer */}
+      <div className="shrink-0 border-t border-adm-border bg-adm-panel px-5 py-2.5">
+        <div className="flex items-center justify-between">
+          <span className="font-mono text-[10px] text-adm-t3">
+            {rows.length > 0
+              ? `${visibleRows.length} / ${rows.length} asset${rows.length === 1 ? '' : 's'}`
+              : 'No assets'}
+          </span>
+          {effectiveDate && (
+            <span className="font-mono text-[10px] text-adm-t3">
+              Config effective{' '}
+              {new Date(effectiveDate).toLocaleDateString('en-US', {
+                month: 'short',
+                day: 'numeric',
+                year: 'numeric',
+              })}
+            </span>
+          )}
         </div>
       </div>
+
     </div>
   );
 };
