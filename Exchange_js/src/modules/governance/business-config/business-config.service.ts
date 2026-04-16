@@ -1296,6 +1296,7 @@ export class BusinessConfigService {
           reason: summary.ok
             ? `Business config release validated: ${release.releaseNo}`
             : `Business config release validation failed: ${release.releaseNo}`,
+          traceId: release.traceId ?? undefined,
           validationSummary: summary,
           client: tx,
         },
@@ -1402,6 +1403,7 @@ export class BusinessConfigService {
           action: AuditActions.BUSINESS_CONFIG_RELEASE_PUBLISH_BLOCKED,
           result: AuditResult.REJECTED,
           reason: `Business config publish blocked: change ticket not found (${changeTicketRef})`,
+          traceId: release.traceId ?? undefined,
           changeTicketRef,
         },
       );
@@ -1421,6 +1423,7 @@ export class BusinessConfigService {
           action: AuditActions.BUSINESS_CONFIG_RELEASE_PUBLISH_BLOCKED,
           result: AuditResult.REJECTED,
           reason: `Business config publish blocked: change ticket ${changeTicket.ticketNo} is not READY`,
+          traceId: release.traceId ?? undefined,
           ticketNo: changeTicket.ticketNo,
           changeTicketRef,
           approvalNo: changeTicket.approvalNo,
@@ -1463,6 +1466,7 @@ export class BusinessConfigService {
           action: AuditActions.BUSINESS_CONFIG_RELEASE_PUBLISH_BLOCKED,
           result: AuditResult.REJECTED,
           reason: `Business config publish blocked: regulatory gate ${regulatoryGate.gateNo} is not effective`,
+          traceId: release.traceId ?? undefined,
           ticketNo: changeTicket.ticketNo,
           changeTicketRef,
           approvalNo: changeTicket.approvalNo,
@@ -1565,6 +1569,7 @@ export class BusinessConfigService {
         {
           action: AuditActions.BUSINESS_CONFIG_RELEASE_PUBLISHED,
           reason: `Business config release published: ${release.releaseNo}`,
+          traceId: release.traceId ?? undefined,
           ticketNo: changeTicket.ticketNo,
           changeTicketRef,
           approvalNo: changeTicket.approvalNo,
