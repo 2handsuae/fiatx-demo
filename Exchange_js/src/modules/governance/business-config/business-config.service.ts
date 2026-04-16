@@ -407,6 +407,7 @@ export class BusinessConfigService {
       basedOnReleaseNo: row.basedOnReleaseNo,
       changeTicketId: row.changeTicketId,
       approvalCaseId: row.approvalCaseId,
+      traceId: row.traceId,
       effectiveFrom: row.effectiveFrom,
       publishedAt: row.publishedAt,
       publishedBy: row.publishedBy,
