@@ -22,14 +22,14 @@ import {
   AuditBusinessWorkflowTypes,
   AuditModules,
   AuditWorkflowTypes,
-} from '../../risk-engine/audit-logs/constants/audit-actions.constant';
+} from '../../audit-logging/constants/audit-actions.constant';
 import {
   AuditResult,
   AuditSubjectRole,
   AuditTriggerType,
-} from '../../risk-engine/audit-logs/dto/audit-log.dto';
-import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
-import { sha256Hex } from '../../risk-engine/audit-logs/utils/audit-digest.util';
+} from '../../audit-logging/dto/audit-log.dto';
+import { AuditLogsService } from '../../audit-logging/audit-logs.service';
+import { sha256Hex } from '../../audit-logging/utils/audit-digest.util';
 import { ChangeTicketStatuses } from './constants/change-ticket.constants';
 import { ChangeTicketTypes } from './constants/change-ticket.constants';
 import {
@@ -678,6 +678,38 @@ export class ChangeTicketsService {
         requestedByUserNo: actor.userNo || actor.userId,
         changeReason,
         scopeSummary,
+        testEvidenceRef: draft.testEvidenceRef,
+        rollbackPlanRef: draft.rollbackPlanRef,
+      }),
+    );
+  }
+
+  async createBusinessConfigReleaseTicket(
+    input: { releaseNo: string; traceId?: string; subjectType: string },
+    actor: ApprovalActorContext,
+  ) {
+    const scopeSummary = `Publish business config release ${input.releaseNo} (${input.subjectType})`;
+    const changeReason = `Config release ${input.releaseNo} validated; governance CT auto-created to authorize publish`;
+
+    return this.createTicketWithFrozenSnapshot(
+      {
+        changeType: ChangeTicketTypes.BUSINESS_CONFIG_CHANGE,
+        changeReason,
+        scopeSummary,
+        traceId: input.traceId,
+        testEvidenceRef: ChangeTicketsService.BUSINESS_PAGE_PROPOSAL_REF,
+        rollbackPlanRef: ChangeTicketsService.BUSINESS_PAGE_PROPOSAL_REF,
+      },
+      actor,
+      (draft) => ({
+        ticketNo: draft.ticketNo,
+        changeType: draft.changeType,
+        traceId: draft.traceId,
+        intent: 'BUSINESS_CONFIG_CHANGE',
+        releaseNo: input.releaseNo,
+        subjectType: input.subjectType,
+        scopeSummary,
+        changeReason,
         testEvidenceRef: draft.testEvidenceRef,
         rollbackPlanRef: draft.rollbackPlanRef,
       }),

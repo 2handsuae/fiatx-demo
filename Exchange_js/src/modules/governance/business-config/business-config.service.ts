@@ -25,7 +25,7 @@ import {
   DEFAULT_ASSET_CONFIGS,
 } from '../../../config/manifests/asset-config.manifest';
 import { PricingCenterService } from '../../trading/pricing-center/pricing-center.service';
-import { ChangeTicketStatuses } from '../change-tickets/constants/change-ticket.constants';
+import { ChangeTicketStatuses, ChangeTicketTypes } from '../change-tickets/constants/change-ticket.constants';
 import { ChangeTicketsService } from '../change-tickets/change-tickets.service';
 import {
   RegulatoryGateEffectivenessStatuses,
@@ -1303,6 +1303,31 @@ export class BusinessConfigService {
 
     if (!summary.ok) {
       throw new BadRequestException(summary.issues.join(' | '));
+    }
+
+    // Auto-create the governance CT for this release (idempotent: skip if already linked)
+    if (summary.ok && !release.changeTicketId) {
+      const systemActor = {
+        actorType: 'ADMIN' as const,
+        userId: 'SYSTEM',
+        userNo: 'SYSTEM',
+        role: 'SYSTEM',
+        roleCodes: ['SYSTEM'] as string[],
+      };
+
+      const ct = await this.changeTicketsService.createBusinessConfigReleaseTicket(
+        {
+          releaseNo: release.releaseNo,
+          traceId: release.traceId ?? undefined,
+          subjectType,
+        },
+        systemActor,
+      );
+
+      await this.prisma.businessConfigRelease.update({
+        where: { id: release.id },
+        data: { changeTicketId: ct.id },
+      });
     }
 
     return summary;
