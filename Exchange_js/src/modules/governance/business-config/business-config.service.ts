@@ -724,28 +724,60 @@ export class BusinessConfigService {
     items: Array<ParsedReleaseItem<AssetConfigManifestPayload>>,
   ): Promise<string[]> {
     const issues: string[] = [];
-    const activeAssets = await this.prisma.asset.findMany({
-      where: { status: 'ACTIVE' },
-      select: { assetNo: true },
-    });
-    const activeAssetNos = new Set(activeAssets.map((a) => a.assetNo));
+    const VALID_TYPES = new Set(['FIAT', 'CRYPTO']);
+    const VALID_STATUSES = new Set(['ACTIVE', 'DISABLED']);
 
     for (const item of items) {
       const payload = item.payload;
+
+      // Required fields
       if (!payload.assetNo || !payload.code || !payload.type || payload.depositMinAmount == null || payload.withdrawMinAmount == null) {
         issues.push(`AssetConfig ${item.businessKey} requires assetNo, code, type, depositMinAmount, and withdrawMinAmount`);
         continue;
       }
-      if (!activeAssetNos.has(String(payload.assetNo))) {
-        issues.push(`AssetConfig ${item.businessKey} references unknown or inactive asset: ${payload.assetNo}`);
+
+      // type must be FIAT or CRYPTO
+      if (!VALID_TYPES.has(String(payload.type))) {
+        issues.push(`AssetConfig ${item.businessKey} type must be FIAT or CRYPTO, got: ${payload.type}`);
       }
+
+      // status must be ACTIVE or DISABLED
+      if (!VALID_STATUSES.has(String(payload.status))) {
+        issues.push(`AssetConfig ${item.businessKey} status must be ACTIVE or DISABLED, got: ${payload.status}`);
+      }
+
+      // decimals must be a non-negative integer
+      const decimals = Number(payload.decimals);
+      if (!Number.isInteger(decimals) || decimals < 0) {
+        issues.push(`AssetConfig ${item.businessKey} decimals must be a non-negative integer`);
+      }
+
+      // depositMinAmount
       const minDeposit = Number(payload.depositMinAmount);
       if (isNaN(minDeposit) || minDeposit < 0) {
         issues.push(`AssetConfig ${item.businessKey} depositMinAmount must be a non-negative number`);
       }
+
+      // withdrawMinAmount
       const minWithdraw = Number(payload.withdrawMinAmount);
       if (isNaN(minWithdraw) || minWithdraw < 0) {
         issues.push(`AssetConfig ${item.businessKey} withdrawMinAmount must be a non-negative number`);
+      }
+
+      // minConfirmations: null for FIAT, positive integer for CRYPTO
+      if (payload.type === 'FIAT') {
+        if (payload.minConfirmations != null) {
+          issues.push(`AssetConfig ${item.businessKey} (FIAT) minConfirmations must be null`);
+        }
+      } else if (payload.type === 'CRYPTO') {
+        if (payload.minConfirmations == null) {
+          issues.push(`AssetConfig ${item.businessKey} (CRYPTO) minConfirmations is required`);
+        } else {
+          const confs = Number(payload.minConfirmations);
+          if (!Number.isInteger(confs) || confs < 1) {
+            issues.push(`AssetConfig ${item.businessKey} minConfirmations must be a positive integer`);
+          }
+        }
       }
     }
     return issues;
@@ -1038,13 +1070,38 @@ export class BusinessConfigService {
     });
   }
 
-  // Wave 4: no-op projection — ASSET_CONFIG release snapshot is the source of truth.
-  // Wave 5 will add projection to a dedicated table when deposit/withdraw flows need DB queries.
   private async projectAssetConfig(
-    _tx: GovernanceClient,
-    _items: Array<ParsedReleaseItem<AssetConfigManifestPayload>>,
+    tx: GovernanceClient,
+    items: Array<ParsedReleaseItem<AssetConfigManifestPayload>>,
   ): Promise<void> {
-    // no-op
+    const activeAssetNos = items.map((item) => String(item.payload.assetNo));
+
+    for (const item of items) {
+      const payload = item.payload;
+      const assetRecord = {
+        assetNo: String(payload.assetNo),
+        type: String(payload.type),
+        code: String(payload.code),
+        network: payload.network ? String(payload.network) : null,
+        decimals: Number(payload.decimals),
+        description: payload.description ? String(payload.description) : null,
+        status: String(payload.status),
+      };
+      await tx.asset.upsert({
+        where: { assetNo: String(payload.assetNo) },
+        update: assetRecord,
+        create: assetRecord,
+      });
+    }
+
+    // Disable any assets not present in the new release
+    await tx.asset.updateMany({
+      where: {
+        assetNo: { notIn: activeAssetNos },
+        status: { not: 'DISABLED' },
+      },
+      data: { status: 'DISABLED' },
+    });
   }
 
   private async projectPricingPolicies(
