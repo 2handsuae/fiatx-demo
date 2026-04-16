@@ -10,7 +10,7 @@ import {
   Prisma,
 } from '@prisma/client';
 import { PrismaService } from '../../../core/prisma/prisma.service';
-import { createHash } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import { DEFAULT_COA } from '../../../config/manifests/coa.manifest';
 import { DEFAULT_ACCT_EVENTS } from '../../../config/manifests/events.manifest';
 import { DEFAULT_JOURNAL_TEMPLATES } from '../../../config/manifests/journal-templates.manifest';
@@ -26,6 +26,7 @@ import {
 } from '../../../config/manifests/asset-config.manifest';
 import { PricingCenterService } from '../../trading/pricing-center/pricing-center.service';
 import { ChangeTicketStatuses } from '../change-tickets/constants/change-ticket.constants';
+import { ChangeTicketsService } from '../change-tickets/change-tickets.service';
 import {
   RegulatoryGateEffectivenessStatuses,
   RegulatoryGateSubjectTypes,
@@ -155,6 +156,7 @@ export class BusinessConfigService {
     private readonly prisma: PrismaService,
     private readonly auditLogsService: AuditLogsService,
     private readonly pricingCenterService: PricingCenterService,
+    private readonly changeTicketsService: ChangeTicketsService,
   ) {}
 
   private normalizeSubjectType(input: string): BusinessConfigSubjectType {
@@ -510,6 +512,7 @@ export class BusinessConfigService {
       action: string;
       result?: AuditResult;
       reason: string;
+      traceId?: string;
       ticketNo?: string | null;
       changeTicketRef?: string | null;
       approvalNo?: string | null;
@@ -527,6 +530,8 @@ export class BusinessConfigService {
         entityNo: release.releaseNo,
         result: input.result ?? AuditResult.SUCCESS,
         reason: input.reason,
+        traceId: input.traceId,
+        workflowType: 'CHANGE_TICKET',
         afterData: this.buildReleaseAuditData(release, {
           ticketNo: input.ticketNo,
           changeTicketRef: input.changeTicketRef,
@@ -1151,6 +1156,7 @@ export class BusinessConfigService {
     const releaseNo = await this.nextReleaseNo(subjectType);
     const sourceCommitSha = this.sourceCommitSha();
     const createdAt = new Date();
+    const traceId = randomUUID();
 
     return this.prisma.$transaction(async (tx) => {
       const release = await tx.businessConfigRelease.create({
@@ -1159,6 +1165,7 @@ export class BusinessConfigService {
           releaseNo,
           status: BUSINESS_CONFIG_RELEASE_STATUSES.DRAFT,
           basedOnReleaseNo: activeRelease?.releaseNo || null,
+          traceId,
           validationSummaryJson: JSON.stringify({
             ok: false,
             issues: [],
@@ -1234,6 +1241,7 @@ export class BusinessConfigService {
         {
           action: AuditActions.BUSINESS_CONFIG_RELEASE_STAGED,
           reason: `Business config release staged for ${subjectType}`,
+          traceId: staged.traceId ?? undefined,
           client: tx,
         },
       );

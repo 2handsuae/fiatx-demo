@@ -8,8 +8,8 @@ import {
 import { ChangeTicketStatuses } from '../change-tickets/constants/change-ticket.constants';
 import {
   AuditActions,
-} from '../../risk-engine/audit-logs/constants/audit-actions.constant';
-import { AuditResult } from '../../risk-engine/audit-logs/dto/audit-log.dto';
+} from '../../audit-logging/constants/audit-actions.constant';
+import { AuditResult } from '../../audit-logging/dto/audit-log.dto';
 
 function createBusinessConfigPrismaMock() {
   const prisma: any = {
@@ -302,6 +302,7 @@ describe('BusinessConfigService', () => {
       prisma,
       auditLogsService,
       pricingCenterService,
+      {} as any,
     );
   });
 
