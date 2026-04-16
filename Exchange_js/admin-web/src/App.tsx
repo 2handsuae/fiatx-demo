@@ -37,7 +37,6 @@ const InternalFundList = lazy(() => import('./pages/InternalFundList'));
 const InternalFundDetail = lazy(() => import('./pages/InternalFundDetail'));
 const AssetList = lazy(() => import('./pages/AssetList'));
 const AssetDetail = lazy(() => import('./pages/AssetDetail'));
-const AssetCreate = lazy(() => import('./pages/AssetCreate'));
 const DepositTransactionList = lazy(() => import('./pages/DepositTransactionList'));
 const DepositTransactionDetail = lazy(() => import('./pages/DepositTransactionDetail'));
 const WithdrawTransactionList = lazy(() => import('./pages/WithdrawTransactionList'));
@@ -46,6 +45,9 @@ const SwapTransactionList = lazy(() => import('./pages/SwapTransactionList'));
 const SwapTransactionDetail = lazy(() => import('./pages/SwapTransactionDetail'));
 const CoaList = lazy(() => import('./pages/CoaList'));
 const AssetConfigList = lazy(() => import('./pages/AssetConfigList'));
+const AssetConfigDetail = lazy(() => import('./pages/AssetConfigDetail'));
+const AssetConfigHistory = lazy(() => import('./pages/AssetConfigHistory'));
+const AssetConfigSnapshot = lazy(() => import('./pages/AssetConfigSnapshot'));
 const JournalList = lazy(() => import('./pages/JournalList'));
 const JournalDetail = lazy(() => import('./pages/JournalDetail'));
 const JournalLinesList = lazy(() => import('./pages/JournalLinesList'));
@@ -830,12 +832,20 @@ function App() {
               element={withPermission(<AssetDetail />, [PERMISSIONS.ASSETS_READ])}
             />
             <Route
-              path="system/assets/create"
-              element={withPermission(<AssetCreate />, [PERMISSIONS.ASSETS_CREATE])}
-            />
-            <Route
               path="system/asset-configs"
               element={withPermission(<AssetConfigList />, [PERMISSIONS.ASSETS_READ])}
+            />
+            <Route
+              path="system/asset-configs/history"
+              element={withPermission(<AssetConfigHistory />, [PERMISSIONS.ASSETS_READ])}
+            />
+            <Route
+              path="system/asset-configs/history/:releaseNo"
+              element={withPermission(<AssetConfigSnapshot />, [PERMISSIONS.ASSETS_READ])}
+            />
+            <Route
+              path="system/asset-configs/:assetNo"
+              element={withPermission(<AssetConfigDetail />, [PERMISSIONS.ASSETS_READ])}
             />
             <Route
               path="system/acct-events"
