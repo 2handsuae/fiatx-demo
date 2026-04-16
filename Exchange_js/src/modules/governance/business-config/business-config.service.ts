@@ -1333,6 +1333,39 @@ export class BusinessConfigService {
     return summary;
   }
 
+  /**
+   * Called by GovernedExecutionListener after a BUSINESS_CONFIG_CHANGE CT is consumed.
+   * Bypasses the CT READY status check — by the time the governance event fires the CT
+   * is already DONE (the consume() method transitions it before emitting the event).
+   */
+  async publishReleaseFromGovernance(releaseNo: string, ticketNo: string): Promise<void> {
+    const release = await this.findReleaseOrThrow(releaseNo);
+    const subjectType = this.normalizeSubjectType(release.subjectType);
+
+    if (release.status !== BUSINESS_CONFIG_RELEASE_STATUSES.VALIDATED) {
+      await this.recordReleaseAudit(
+        {
+          id: release.id,
+          subjectType,
+          releaseNo: release.releaseNo,
+          status: release.status,
+          changeTicketId: release.changeTicketId,
+          approvalCaseId: release.approvalCaseId,
+        },
+        {
+          action: AuditActions.BUSINESS_CONFIG_RELEASE_PUBLISH_BLOCKED,
+          result: AuditResult.REJECTED,
+          reason: `Governance-triggered publish blocked: release ${releaseNo} is not VALIDATED (status=${release.status})`,
+          traceId: release.traceId ?? undefined,
+          ticketNo,
+        },
+      );
+      return;
+    }
+
+    await this.publishRelease(releaseNo, ticketNo);
+  }
+
   async publishRelease(releaseNo: string, changeTicketRef: string) {
     const release = await this.findReleaseOrThrow(releaseNo);
     const subjectType = this.normalizeSubjectType(release.subjectType);
