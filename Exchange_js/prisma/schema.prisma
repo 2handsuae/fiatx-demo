@@ -1311,6 +1311,7 @@ model BusinessConfigRelease {
   basedOnReleaseNo      String?
   changeTicketId        String?
   approvalCaseId        String?
+  traceId               String?
   effectiveFrom         DateTime?
   publishedAt           DateTime?
   publishedBy           String?
