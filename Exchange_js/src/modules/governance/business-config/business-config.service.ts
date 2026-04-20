@@ -35,6 +35,7 @@ import {
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
   AuditActions,
+  AuditBusinessWorkflowTypes,
   AuditEntityTypes,
   AuditModules,
 } from '../../audit-logging/constants/audit-actions.constant';
@@ -532,7 +533,7 @@ export class BusinessConfigService {
         result: input.result ?? AuditResult.SUCCESS,
         reason: input.reason,
         traceId: input.traceId,
-        workflowType: 'CHANGE_TICKET',
+        workflowType: AuditBusinessWorkflowTypes.BUSINESS_CONFIG_CHANGE,
         afterData: this.buildReleaseAuditData(release, {
           ticketNo: input.ticketNo,
           changeTicketRef: input.changeTicketRef,

@@ -223,6 +223,8 @@ export class ChangeTicketsService {
         return AuditBusinessWorkflowTypes.ADMIN_MEMBER_PROVISIONING;
       case ChangeTicketTypes.RBAC_CATALOG_CHANGE:
         return AuditBusinessWorkflowTypes.ADMIN_ROLE_BINDING_CHANGE;
+      case ChangeTicketTypes.BUSINESS_CONFIG_CHANGE:
+        return AuditBusinessWorkflowTypes.BUSINESS_CONFIG_CHANGE;
       default:
         return AuditWorkflowTypes.CHANGE_TICKET;
     }
