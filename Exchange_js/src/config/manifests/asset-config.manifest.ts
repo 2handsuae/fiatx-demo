@@ -78,6 +78,6 @@ export const DEFAULT_ASSET_CONFIGS: AssetConfigManifestItem[] = [
     depositMaxAmount: null,
     withdrawMinAmount: '0.001',
     withdrawMaxAmount: null,
-    minConfirmations: 3,
+    minConfirmations: 6,
   },
 ];
