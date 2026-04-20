@@ -6,7 +6,7 @@ export const DEFAULT_JOURNAL_TEMPLATES = [
       eventCode: 'EVT_DEPOSIT_CONFIRMED__CRYPTO',
       version: 1,
       status: 'ACTIVE',
-      description: '充值确认（虚拟币）：受限托管入账 + 客户待审负债',
+      description: '充值确认（虚拟币）：链上资金进入受限托管 + 同步建立客户待审合规负债',
     },
     lines: [
       {
