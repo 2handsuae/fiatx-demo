@@ -11,19 +11,14 @@ import {
   classifyWalletSurface,
   isProtectedPoolWalletRole,
 } from '../../asset-treasury/wallets/system-wallet.util';
-import { ComplianceAlertsService } from '../../risk-engine/compliance-alerts/compliance-alerts.service';
-import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
+import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
   AuditActions,
   AuditEntityTypes,
   AuditModules,
   buildStateTransitionAction,
-} from '../../risk-engine/audit-logs/constants/audit-actions.constant';
-import { AuditTriggerType } from '../../risk-engine/audit-logs/dto/audit-log.dto';
-import {
-  TRANSACTION_REVIEW_RULES,
-  TRANSACTION_REVIEW_STAGES,
-} from '../../risk-engine/constants/onboarding-compliance-workflow.constant';
+} from '../../audit-logging/constants/audit-actions.constant';
+import { AuditTriggerType } from '../../audit-logging/dto/audit-log.dto';
 import {
   FiatStatementImportQueryDto,
   GenerateSafeguardingDailyDiffDto,
@@ -107,7 +102,6 @@ export class SafeguardingReconciliationService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly complianceAlertsService: ComplianceAlertsService,
     private readonly auditLogsService: AuditLogsService,
   ) {}
 
@@ -922,9 +916,8 @@ export class SafeguardingReconciliationService {
         operatorId,
         db,
       );
-      const linked = await this.linkBreakAlert(created, operatorId, db);
       return {
-        break: linked,
+        break: created,
         created: true,
         active: true,
       };
@@ -982,50 +975,12 @@ export class SafeguardingReconciliationService {
       operatorId,
       db,
     );
-    const linked = reopening ? await this.linkBreakAlert(updated, operatorId, db) : updated;
+    const linked = updated;
     return {
       break: linked,
       created: false,
       active: true,
     };
-  }
-
-  private async linkBreakAlert(item: any, operatorId: string, db: any) {
-    const alert = await this.complianceAlertsService.triggerSystemAlert(
-      {
-        ruleCode: TRANSACTION_REVIEW_RULES.TX_SAFEGUARDING_BREAK_DETECTED,
-        sourceModule: AuditModules.SAFEGUARDING_RECONCILIATION,
-        sourceType: SAFEGUARDING_BREAK_SOURCE_TYPE,
-        sourceId: item.sourceId,
-        sourceNo: item.sourceNo,
-        stage:
-          TRANSACTION_REVIEW_STAGES.REVIEW_SAFEGUARDING_RECONCILIATION,
-        entityType: AuditEntityTypes.RECONCILIATION_BREAK,
-        entityId: item.id,
-        entityNo: item.breakNo,
-        severity: 'HIGH' as any,
-        title: `Safeguarding break detected for ${item.sourceNo || item.assetCode || item.sourceId}`,
-        message:
-          'Safeguarding reconciliation detected an asset-level break that requires investigation.',
-        metadata: {
-          businessDate: item.businessDate,
-          breakType: item.breakType,
-        },
-        sourcePlatform: this.getSourcePlatform(operatorId),
-      },
-      db,
-    );
-
-    return (db as any).reconciliationBreak.update({
-      where: { id: item.id },
-      data: {
-        linkedAlertId: alert?.id || item.linkedAlertId || null,
-        linkedCaseId:
-          Array.isArray(alert?.linkedCaseIds) && alert.linkedCaseIds.length
-            ? alert.linkedCaseIds[0]
-            : item.linkedCaseId || null,
-      },
-    });
   }
 
   private summarizeByAsset(
@@ -1265,23 +1220,11 @@ export class SafeguardingReconciliationService {
     if (!item || item.sourceType !== SAFEGUARDING_BREAK_SOURCE_TYPE) {
       throw new NotFoundException('Safeguarding reconciliation break not found');
     }
-    const [alerts, cases] = await Promise.all([
-      item.linkedAlertId
-        ? (this.prisma as any).complianceAlert.findMany({
-            where: { id: item.linkedAlertId },
-          })
-        : [],
-      item.linkedCaseId
-        ? (this.prisma as any).complianceIncident.findMany({
-            where: { id: item.linkedCaseId },
-          })
-        : [],
-    ]);
     return {
       ...item,
       details: this.parseJson(item.detailsJson),
-      linkedAlerts: alerts,
-      linkedCases: cases,
+      linkedAlerts: [],
+      linkedCases: [],
     };
   }
 

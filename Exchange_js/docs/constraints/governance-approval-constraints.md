@@ -1,3 +1,10 @@
+> **PARTIALLY OUTDATED** — Some sections of this document no longer match the current code.
+> Last verified: 2026-04-11. See notes below for specific outdated sections.
+>
+> Updated specs: `docs/specs/wave3-layer2-risk-assessment.md`, `docs/specs/wave3-layer3-material-refresh.md`, `docs/specs/wave3-onboarding-integration.md`
+>
+> **Note:** States 'single-step only' but code now supports multi-step dual-sign
+
 # Governance Approval Constraints
 
 ## 1) Scope and Ownership

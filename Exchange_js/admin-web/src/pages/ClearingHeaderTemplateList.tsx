@@ -1,268 +1,279 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Search, RefreshCw, Plus, ChevronLeft, ChevronRight } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import {
-  BUSINESS_CONFIG_RELEASES_PATH,
-  showBusinessConfigReadOnlyAlert,
-} from '../utils/businessConfigReadOnly';
-import { adminFetch, getApiErrorMessage } from '../utils/adminFetch';
+import { Clock, RefreshCw } from 'lucide-react';
 import { adminButtonClass, adminIconButtonClass } from '../components/common/adminButtonStyles';
+import { PageTitleBar } from '../components/ui/PageTitleBar';
+import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/adminFetch';
 
-interface TemplateItem {
-  id: string;
+/* ── Types ─────────────────────────────────────────────────────── */
+
+interface TemplatePayload {
   code: string;
   clearingType: string;
   sourceType: string;
-  isEnabled: boolean;
   description: string;
-  updatedAt: string;
+  isEnabled: boolean;
+  feeMethod: 'CONFIGURED_FEE' | 'ACTUAL_FEE';
+  lineTemplates: unknown[];
 }
+
+interface FilterState {
+  clearingType: string;
+}
+
+/* ── Display helpers ────────────────────────────────────────────── */
+
+const ClearingTypeBadge = ({ type }: { type: string }) => {
+  const cls =
+    type === 'WITHDRAWAL'
+      ? 'border-adm-amber/25 bg-adm-amber/10 text-adm-amber'
+      : type === 'INTERNAL_COLLECTION'
+        ? 'border-adm-blue/25 bg-adm-blue/10 text-adm-blue'
+        : 'border-adm-border bg-adm-bg text-adm-t3';
+  return (
+    <span className={`inline-flex items-center rounded border px-1.5 py-0.5 font-mono text-[9px] font-bold tracking-widest ${cls}`}>
+      {type}
+    </span>
+  );
+};
+
+const EnabledDot = ({ v }: { v: boolean }) => (
+  <span className={`inline-flex items-center gap-1 font-mono text-[11px] font-medium ${v ? 'text-adm-green' : 'text-adm-t3'}`}>
+    <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${v ? 'bg-adm-green' : 'bg-adm-t3'}`} />
+    {v ? 'On' : 'Off'}
+  </span>
+);
+
+const DEFAULT_FILTERS: FilterState = { clearingType: '' };
+
+const COLS = ['Code', 'Clearing Type', 'Source Type', 'Fee Method', 'Lines', 'Enabled', ''] as const;
+
+/* ── Component ─────────────────────────────────────────────────── */
 
 const ClearingHeaderTemplateList = () => {
   const navigate = useNavigate();
-  const [items, setItems] = useState<TemplateItem[]>([]);
+  const [rows, setRows] = useState<TemplatePayload[]>([]);
+  const [releaseNo, setReleaseNo] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  
-  // Filters
-  const [search, setSearch] = useState('');
-  const [status, setStatus] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
 
-  // Pagination
-  const [page, setPage] = useState(1);
-  const [pageSize] = useState(10);
-  const [total, setTotal] = useState(0);
-  const [error, setError] = useState('');
-
-  const hasFilters = useMemo(() => Boolean(search.trim() || status), [search, status]);
-
-  const fetchItems = async () => {
+  const fetchData = async () => {
     setLoading(true);
-    setError('');
+    setError(null);
     try {
-      const params = new URLSearchParams();
-      params.append('skip', ((page - 1) * pageSize).toString());
-      params.append('take', pageSize.toString());
-      if (search) params.append('code', search);
-      if (status) params.append('status', status);
-      
-      const response = await adminFetch(`${import.meta.env.VITE_API_URL}/clearing-templates?${params.toString()}`);
-      if (response.ok) {
-        const result = await response.json();
-        setItems(result.items || []);
-        setTotal(result.total || 0);
+      const relRes = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/admin/business-config/releases?subjectType=CLEARING_TEMPLATE&status=ACTIVE&take=1`,
+      );
+      if (!relRes.ok) {
+        setError(await getApiErrorMessage(relRes, 'Failed to fetch releases.'));
         return;
       }
-    } catch (error) {
-      console.error('Failed to fetch templates', error);
-      setError('Failed to fetch clearing templates.');
+      const relData = await relRes.json();
+      const firstRelease = relData?.items?.[0];
+      if (!firstRelease?.releaseNo) {
+        setRows([]);
+        return;
+      }
+      setReleaseNo(firstRelease.releaseNo as string);
+
+      const detailRes = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/admin/business-config/releases/${firstRelease.releaseNo as string}`,
+      );
+      if (!detailRes.ok) {
+        setError(await getApiErrorMessage(detailRes, 'Failed to fetch release detail.'));
+        return;
+      }
+      const detail = await detailRes.json();
+      const templates: TemplatePayload[] = (
+        (detail.items ?? []) as Array<{ businessKey: string; payload: Record<string, unknown> }>
+      ).map((item) => {
+        const p = item.payload;
+        return {
+          code: String(p.code ?? item.businessKey),
+          clearingType: String(p.clearingType ?? ''),
+          sourceType: String(p.sourceType ?? ''),
+          description: String(p.description ?? ''),
+          isEnabled: Boolean(p.isEnabled),
+          feeMethod: (p.feeMethod as 'CONFIGURED_FEE' | 'ACTUAL_FEE') ?? 'CONFIGURED_FEE',
+          lineTemplates: Array.isArray(p.lineTemplates) ? (p.lineTemplates as unknown[]) : [],
+        };
+      });
+      setRows(templates);
+    } catch (err) {
+      if (err instanceof AdminSessionError) return;
+      setError('Failed to load clearing templates.');
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchItems();
-  }, [page, pageSize, status]);
+    void fetchData();
+  }, []);
 
-  const handleSearch = () => {
-      setPage(1);
-      fetchItems();
-  };
+  const fi =
+    'h-[30px] rounded border border-adm-border bg-adm-bg px-2.5 font-mono text-[11px] text-adm-t1 outline-none focus:border-adm-amber transition-colors';
 
-  const handleReset = () => {
-    setSearch('');
-    setStatus('');
-    setPage(1);
-    setItems([]);
-    setError('');
-    setLoading(true);
-    void (async () => {
-      try {
-        const response = await adminFetch(
-          `${import.meta.env.VITE_API_URL}/clearing-templates?skip=0&take=${pageSize}`,
-        );
-        if (response.ok) {
-          const result = await response.json();
-          setItems(result.items || []);
-          setTotal(result.total || 0);
-          return;
-        }
-        setError(await getApiErrorMessage(response, 'Failed to fetch clearing templates.'));
-      } catch (resetError) {
-        console.error('Failed to reset clearing template filters', resetError);
-        setError('Failed to fetch clearing templates.');
-      } finally {
-        setLoading(false);
-      }
-    })();
-  };
-
-  const totalPages = Math.ceil(total / pageSize);
+  const visibleRows = rows.filter((r) => {
+    if (filters.clearingType && r.clearingType !== filters.clearingType) return false;
+    return true;
+  });
 
   return (
-    <div className="space-y-6 p-6">
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Clearing Header Templates</h1>
-          <p className="text-sm text-gray-500 mt-1">Manage rules and templates for clearing processes</p>
-        </div>
-        <button 
-            onClick={() => navigate(BUSINESS_CONFIG_RELEASES_PATH)}
-            className={adminButtonClass('listSecondary')}
+    <div className="flex h-full flex-col overflow-hidden">
+
+      {/* Title bar */}
+      <PageTitleBar
+        title="Clearing Header Templates"
+        meta={`${rows.length} template${rows.length === 1 ? '' : 's'} · System`}
+      >
+        <button
+          onClick={() => navigate('/dashboard/system/clearing-header-templates/history')}
+          className={adminButtonClass('listSecondary')}
         >
-            <Plus size={20} />
-            <span>Open Release Center</span>
+          <Clock size={13} />
+          Version History
         </button>
+        <button
+          onClick={() => void fetchData()}
+          className={adminIconButtonClass()}
+          title="Refresh"
+        >
+          <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+        </button>
+      </PageTitleBar>
+
+      {/* Filter bar */}
+      <div className="shrink-0 flex items-center gap-2 border-b border-adm-border bg-adm-panel px-5 py-2">
+        <select
+          value={filters.clearingType}
+          onChange={(e) => setFilters((p) => ({ ...p, clearingType: e.target.value }))}
+          className={`${fi} w-52`}
+        >
+          <option value="">All clearing types</option>
+          <option value="WITHDRAWAL">WITHDRAWAL</option>
+          <option value="INTERNAL_COLLECTION">INTERNAL_COLLECTION</option>
+        </select>
+        {releaseNo && (
+          <span className="ml-auto font-mono text-[10px] text-adm-t3">
+            {releaseNo}
+          </span>
+        )}
       </div>
 
-      <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
-        Clearing header templates are now release-managed. This page remains read-only for current headers, while line inspection stays available.
-      </div>
-
-      <div className="bg-white rounded-xl shadow-sm border border-admin-border overflow-hidden">
-        <div className="p-4 border-b border-admin-border flex flex-col md:flex-row gap-4 justify-between">
-            <div className="flex flex-1 gap-4">
-                <div className="relative flex-1 max-w-md">
-                    <Search className="absolute left-3 top-2.5 text-gray-400 w-5 h-5" />
-                    <input 
-                    type="text" 
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-                    placeholder="Search by Code..." 
-                    className="w-full pl-10 pr-4 py-2 bg-admin-content-bg border border-admin-border rounded-lg focus:outline-none focus:border-brand-primary focus:ring-1 focus:ring-brand-primary/20 transition-all duration-200"
-                    />
-                </div>
-                <select 
-                    value={status}
-                    onChange={(e) => setStatus(e.target.value)}
-                    className="px-4 py-2 bg-admin-content-bg border border-admin-border rounded-lg focus:outline-none focus:border-brand-primary"
-                >
-                    <option value="">All Status</option>
-                    <option value="ACTIVE">Active</option>
-                    <option value="INACTIVE">Inactive</option>
-                </select>
-                <button onClick={handleSearch} className={adminButtonClass('listPrimary')}>
-                    Search
-                </button>
-                <button
-                  onClick={handleReset}
-                  className={adminButtonClass('listSecondary')}
-                  disabled={!hasFilters && !error}
-                >
-                  Reset
-                </button>
-            </div>
-            <button onClick={fetchItems} className={adminIconButtonClass('self-start md:self-auto')}>
-                <RefreshCw size={20} className={loading ? 'animate-spin' : ''} />
-            </button>
+      {/* Error */}
+      {error && (
+        <div className="shrink-0 border-b border-adm-red/20 bg-adm-red/6 px-5 py-2.5 font-mono text-[11px] text-adm-red">
+          {error}
         </div>
+      )}
 
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead className="bg-admin-content-bg border-b border-admin-border">
+      {/* Table */}
+      <div className="flex-1 overflow-auto">
+        <table className="w-full border-collapse text-sm">
+          <thead>
+            <tr>
+              <th className="w-1 border-b border-adm-border bg-adm-panel" />
+              {COLS.map((label) => (
+                <th
+                  key={label}
+                  className="font-mono text-[9px] font-semibold uppercase tracking-[0.12em] text-adm-t3 whitespace-nowrap border-b border-adm-border bg-adm-panel px-4 py-2 text-left"
+                >
+                  {label}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {loading && (
               <tr>
-                <th className="px-4 py-3 font-medium text-gray-500 uppercase tracking-wider">Template Name/Code</th>
-                <th className="px-4 py-3 font-medium text-gray-500 uppercase tracking-wider">Clearing Type</th>
-                <th className="px-4 py-3 font-medium text-gray-500 uppercase tracking-wider">Source Type</th>
-                <th className="px-4 py-3 font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                <th className="px-4 py-3 font-medium text-gray-500 uppercase tracking-wider">Created At</th>
-                <th className="px-4 py-3 font-medium text-gray-500 uppercase tracking-wider text-right">Action</th>
+                <td colSpan={COLS.length + 1} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
+                  Loading…
+                </td>
               </tr>
-            </thead>
-            <tbody className="divide-y divide-admin-border">
-              {error ? (
-                <tr>
-                  <td colSpan={6} className="px-4 py-12 text-center text-rose-600">
-                    {error}
-                  </td>
-                </tr>
-              ) : null}
-              {!error && loading && items.length === 0 ? (
-                <tr>
-                  <td colSpan={6} className="px-4 py-12 text-center text-gray-500">
-                    <div className="flex flex-col items-center justify-center">
-                      <RefreshCw className="animate-spin mb-2 text-brand-primary" size={24} />
-                      Loading templates...
-                    </div>
-                  </td>
-                </tr>
-              ) : !error && items.length === 0 ? (
-                <tr>
-                  <td colSpan={6} className="px-4 py-12 text-center text-gray-500">
-                    No templates found
-                  </td>
-                </tr>
-              ) : (
-                items.map((item) => (
-                  <tr key={item.id} className="hover:bg-gray-50 transition-colors">
-                    <td className="px-4 py-4">
-                        <div className="font-mono font-bold text-gray-800">{item.code}</div>
-                        <div className="text-[10px] text-gray-400">{item.description}</div>
-                    </td>
-                    <td className="px-4 py-4">
-                        <span className="px-2 py-1 bg-blue-50 text-blue-700 rounded text-xs font-medium">
-                            {item.clearingType}
-                        </span>
-                    </td>
-                    <td className="px-4 py-4 text-gray-600">{item.sourceType}</td>
-                    <td className="px-4 py-4">
-                        <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${item.isEnabled ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
-                            {item.isEnabled ? 'ACTIVE' : 'INACTIVE'}
-                        </span>
-                    </td>
-                    <td className="px-4 py-4 text-gray-500 text-xs">
-                        {new Date(item.updatedAt).toLocaleString()}
-                    </td>
-                    <td className="px-4 py-4 text-right">
-                      <div className="flex justify-end gap-3 items-center">
-                        <button 
-                            className={adminButtonClass('rowSecondaryUtility')}
-                            onClick={() => navigate(`/dashboard/system/clearing-line-templates?templateId=${item.id}`)}
-                        >
-                            Lines
-                        </button>
-                        <button 
-                            className={adminButtonClass('rowSecondaryUtility')}
-                            onClick={() => showBusinessConfigReadOnlyAlert('Clearing templates')}
-                        >
-                            Read-only
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+            )}
+            {!loading && visibleRows.length === 0 && (
+              <tr>
+                <td colSpan={COLS.length + 1} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
+                  No templates found.
+                </td>
+              </tr>
+            )}
+            {!loading && visibleRows.map((row) => (
+              <tr
+                key={row.code}
+                className="cursor-pointer border-b border-adm-border transition-colors hover:bg-adm-hover"
+                onClick={() => navigate(`/dashboard/system/clearing-header-templates/${row.code}`)}
+              >
+                {/* Accent strip */}
+                <td className="py-3 pl-3">
+                  <div
+                    className={`h-5 w-0.5 rounded-full ${
+                      row.clearingType === 'WITHDRAWAL'
+                        ? 'bg-adm-amber'
+                        : row.clearingType === 'INTERNAL_COLLECTION'
+                          ? 'bg-adm-blue'
+                          : 'bg-adm-t3/50'
+                    }`}
+                  />
+                </td>
 
-        {/* Pagination Controls */}
-        <div className="px-6 py-4 border-t border-admin-border flex items-center justify-between bg-gray-50">
-            <div className="text-sm text-gray-500">
-                Showing {items.length} of {total} entries
-            </div>
-            <div className="flex items-center gap-2">
-                <button 
-                    onClick={() => setPage(p => Math.max(1, p - 1))}
-                    disabled={page === 1}
-                    className="p-1 rounded hover:bg-white border border-transparent hover:border-gray-200 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-                >
-                    <ChevronLeft size={20} />
-                </button>
-                <span className="text-sm font-medium text-gray-700 bg-white px-3 py-1 rounded border border-gray-200 shadow-sm">
-                    Page {page} of {totalPages || 1}
-                </span>
-                <button 
-                    onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-                    disabled={page >= totalPages}
-                    className="p-1 rounded hover:bg-white border border-transparent hover:border-gray-200 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-                >
-                    <ChevronRight size={20} />
-                </button>
-            </div>
-        </div>
+                {/* Code */}
+                <td className="px-4 py-3">
+                  <span className="font-mono text-[11px] font-semibold text-adm-amber">
+                    {row.code}
+                  </span>
+                </td>
+
+                {/* Clearing Type */}
+                <td className="px-4 py-3">
+                  <ClearingTypeBadge type={row.clearingType} />
+                </td>
+
+                {/* Source Type */}
+                <td className="px-4 py-3">
+                  <span className="font-mono text-[11px] text-adm-t2">
+                    {row.sourceType}
+                  </span>
+                </td>
+
+                {/* Fee Method */}
+                <td className="px-4 py-3">
+                  <span className="font-mono text-[11px] text-adm-t2">
+                    {row.feeMethod}
+                  </span>
+                </td>
+
+                {/* Lines */}
+                <td className="px-4 py-3">
+                  <span className="font-mono text-[11px] text-adm-t2 tabular-nums">
+                    {Array.isArray(row.lineTemplates) ? row.lineTemplates.length : 0}
+                  </span>
+                </td>
+
+                {/* Enabled */}
+                <td className="px-4 py-3">
+                  <EnabledDot v={row.isEnabled} />
+                </td>
+
+                {/* Chevron */}
+                <td className="pr-4 py-3 text-right font-mono text-[12px] text-adm-t3">›</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
+
+      {/* Footer */}
+      <div className="shrink-0 border-t border-adm-border bg-adm-panel px-5 py-2.5">
+        <span className="font-mono text-[10px] text-adm-t3">
+          {rows.length > 0
+            ? `${visibleRows.length} / ${rows.length} template${rows.length === 1 ? '' : 's'}`
+            : 'No templates'}
+        </span>
+      </div>
+
     </div>
   );
 };

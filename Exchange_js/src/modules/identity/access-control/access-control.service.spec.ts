@@ -1,7 +1,7 @@
 import { NotFoundException } from '@nestjs/common';
 import { AccessControlService } from './access-control.service';
 import { PrismaService } from '../../../core/prisma/prisma.service';
-import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
+import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 
 describe('AccessControlService', () => {
   let service: AccessControlService;
@@ -133,7 +133,6 @@ describe('AccessControlService', () => {
       },
       {
         workflowType: 'ADMIN_ROLE_BINDING_CHANGE',
-        workflowNo: 'CT2604010002',
         traceId: 'trace-role-binding-1',
       },
     );

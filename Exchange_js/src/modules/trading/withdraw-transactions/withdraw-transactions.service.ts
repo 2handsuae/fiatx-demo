@@ -1,5 +1,6 @@
 import { Injectable, Logger, NotFoundException, BadRequestException, Inject, forwardRef } from '@nestjs/common';
 import { PrismaService } from '../../../core/prisma/prisma.service';
+import { ensureCustomerCanTransact } from '../shared/customer-transaction-guard';
 import { 
   WithdrawTransactionQueryDto, 
   WithdrawTransactionStatus, 
@@ -16,15 +17,15 @@ import { TransactionComplianceService } from '../../risk-engine/transaction-comp
 import {
   TxSourceType,
 } from '../../risk-engine/transaction-compliance/types/tx-compliance.types';
-import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
+import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
   AuditActions,
   AuditEntityTypes,
   AuditModules,
   AuditWorkflowTypes,
   buildStateTransitionAction,
-} from '../../risk-engine/audit-logs/constants/audit-actions.constant';
-import { AuditTriggerType } from '../../risk-engine/audit-logs/dto/audit-log.dto';
+} from '../../audit-logging/constants/audit-actions.constant';
+import { AuditTriggerType } from '../../audit-logging/dto/audit-log.dto';
 import { PricingCenterService } from '../pricing-center/pricing-center.service';
 
 export type WithdrawStatusUpdateSource = 'ADMIN_API' | 'WORKFLOW' | 'SYSTEM';
@@ -271,7 +272,6 @@ export class WithdrawTransactionsService {
             : undefined,
           {
             workflowType: AuditWorkflowTypes.WITHDRAW,
-            workflowId: withdrawId,
           },
           {
             traceId: `${AuditWorkflowTypes.WITHDRAW}:${withdrawId}`,
@@ -457,6 +457,14 @@ export class WithdrawTransactionsService {
     // Verify asset
     const asset = await (this.prisma as any).asset.findUnique({ where: { id: assetId } });
     if (!asset) throw new NotFoundException('Asset not found');
+
+    // Enforce compliance hold / restriction checks for customer transactions
+    if (ownerType === 'CUSTOMER') {
+      const customer = await (this.prisma as any).customerMain.findUnique({
+        where: { id: userId },
+      });
+      ensureCustomerCanTransact(customer);
+    }
 
     const withdrawNo = this.generateWithdrawNo();
     

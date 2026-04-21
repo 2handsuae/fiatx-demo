@@ -8,7 +8,7 @@ import {
   AuditEntityTypes,
   AuditModules,
   AuditWorkflowTypes,
-} from '../../risk-engine/audit-logs/constants/audit-actions.constant';
+} from '../../audit-logging/constants/audit-actions.constant';
 import {
   SlaNotificationStatuses,
   SlaNotificationTypes,

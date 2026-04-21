@@ -22,6 +22,11 @@ Source of Truth Level: specs-workflow
 - read/write ownership
 - API / UI projection notes
 
+## Archived Workflows (2026-04-11)
+The following workflow specs have been moved to `docs/archived/`:
+- `periodic-review-canonical-workflow.md` — replaced by `wave3-layer2-risk-assessment.md` / `wave3-layer3-material-refresh.md`
+- `alert-triage-and-case-escalation.md`, `case-final-lifecycle-and-external-filing.md` — Wave 2 → Sumsub
+
 ## Current Workflow Specs
 - `docs/specs/workflows/audit-evidence-export-approval-workflow.md`
   - Wave 1 approval-backed audit evidence export workflow.
@@ -35,16 +40,10 @@ Source of Truth Level: specs-workflow
   - Wave 1 admin member invitation, activation, and auth-boundary workflow.
 - `docs/specs/workflows/onboarding-canonical-workflow.md`
   - Canonical onboarding state machine and review/final-approval paths.
-- `docs/specs/workflows/periodic-review-canonical-workflow.md`
-  - Canonical periodic review cycle, restriction, review, and clear/reject flow.
 - `docs/specs/workflows/payin-deposit-canonical-workflow.md`
   - Canonical Wave 5 payin/deposit workflow, lifecycle-only response containers, final-review routing, accounting ordering, and evidence replay contract.
-- `docs/specs/workflows/alert-triage-and-case-escalation.md`
-  - Alert triage, assignment, false-positive, and case escalation semantics.
 - `docs/specs/workflows/mlro-and-final-approval-governance.md`
   - MLRO gate, case close boundary, and onboarding EDD clear final-approval governance.
-- `docs/specs/workflows/case-final-lifecycle-and-external-filing.md`
-  - Case report, workflow proposal, final disposition, measure, and external filing separation.
 - `docs/specs/workflows/onboarding-periodic-review-audit-trace-contract.md`
   - Unified trace and Audit Center replay contract for onboarding and periodic review.
 - `docs/specs/workflows/config-release-activation-workflow.md`

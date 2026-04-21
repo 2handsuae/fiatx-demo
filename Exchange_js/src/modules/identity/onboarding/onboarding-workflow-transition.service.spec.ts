@@ -1,5 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
-import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
+import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
   OnboardingWorkflowTransitionService,
   WORKFLOW_TRANSITION_CODES,
@@ -50,7 +50,7 @@ describe('OnboardingWorkflowTransitionService', () => {
       operatingStatus: 'INACTIVE',
       restrictionStatus: 'CLEAR',
       activeJourneyId: 'ONB-1',
-      latestFinalApprovalStatus: null,
+      latestRiskApprovalStatus: null,
       latestDecisionRecordId: 'dr-1',
     });
     txMock.cddResponse.findUnique.mockResolvedValue({
@@ -76,7 +76,7 @@ describe('OnboardingWorkflowTransitionService', () => {
       operatingStatus: 'INACTIVE',
       restrictionStatus: 'CLEAR',
       eddRequired: true,
-      latestFinalApprovalStatus: null,
+      latestRiskApprovalStatus: null,
     });
     txMock.onboardingAuditLog.create.mockResolvedValue({ id: 'audit-1' });
     txMock.workflowDecisionRecord.findUnique.mockResolvedValue({
@@ -163,8 +163,8 @@ describe('OnboardingWorkflowTransitionService', () => {
       eddRequired: true,
       activeJourneyId: 'ONB-1',
       latestDecisionRecordId: 'dr-1',
-      latestFinalApprovalId: null,
-      latestFinalApprovalStatus: null,
+      latestRiskApprovalId: null,
+      latestRiskApprovalStatus: null,
     });
     txMock.eddResponse.findFirst.mockResolvedValue({
       id: 'edd-1',
@@ -175,8 +175,8 @@ describe('OnboardingWorkflowTransitionService', () => {
       onboardingStatus: 'FINAL_APPROVAL',
       operatingStatus: 'INACTIVE',
       restrictionStatus: 'CLEAR',
-      latestFinalApprovalId: 'approval-1',
-      latestFinalApprovalStatus: 'PENDING',
+      latestRiskApprovalId: 'approval-1',
+      latestRiskApprovalStatus: 'PENDING',
     });
 
     const result = await service.execute(txMock, {
@@ -212,15 +212,15 @@ describe('OnboardingWorkflowTransitionService', () => {
       expect.objectContaining({
         data: expect.objectContaining({
           onboardingStatus: 'FINAL_APPROVAL',
-          latestFinalApproval: { connect: { id: 'approval-1' } },
-          latestFinalApprovalStatus: 'PENDING',
+          latestRiskApproval: { connect: { id: 'approval-1' } },
+          latestRiskApprovalStatus: 'PENDING',
         }),
       }),
     );
     expect(result).not.toHaveProperty('finalApprovalStatus');
     expect(result.createdFinalApprovalId).toBe('approval-1');
-    expect(result.latestFinalApprovalId).toBe('approval-1');
-    expect(result.latestFinalApprovalStatus).toBe('PENDING');
+    expect(result.latestRiskApprovalId).toBe('approval-1');
+    expect(result.latestRiskApprovalStatus).toBe('PENDING');
     expect(result.toStatus).toBe('FINAL_APPROVAL');
   });
 
@@ -230,7 +230,7 @@ describe('OnboardingWorkflowTransitionService', () => {
       onboardingStatus: 'EDD_UNDER_REVIEW',
       operatingStatus: 'INACTIVE',
       restrictionStatus: 'CLEAR',
-      latestFinalApprovalStatus: null,
+      latestRiskApprovalStatus: null,
     });
 
     await expect(

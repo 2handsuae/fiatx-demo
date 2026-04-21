@@ -1,4 +1,4 @@
-import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
+import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import { WithdrawTransactionStatus } from './dto/withdraw-transaction.dto';
 import { WithdrawTransactionWorkflowService } from './withdraw-transaction-workflow.service';
 

@@ -3,7 +3,7 @@ export const DEFAULT_CLEARING_TEMPLATES = [
     code: 'WITHDRAWAL_STANDARD_V1',
     clearingType: 'WITHDRAWAL',
     sourceType: 'WITHDRAWAL',
-    description: '标准提现清分模板：计算手续费',
+    description: '标准提现清分模板：全额拆分为客户净出账与平台服务手续费',
     isEnabled: true,
     feeMethod: 'CONFIGURED_FEE',
     outAssetSource: 'src.assetId',

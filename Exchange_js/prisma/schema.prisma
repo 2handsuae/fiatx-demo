@@ -149,6 +149,7 @@ model CustomerMain {
   sumsubLatestReviewId            String?
   sumsubLatestAttemptId           String?
   sumsubExperiencedLevel2         Boolean   @default(false)
+  onboardingTraceId               String?
   operatingStatus                 String    @default("INACTIVE") // INACTIVE, ACTIVE
   restrictionStatus               String    @default("CLEAR") // CLEAR, RESTRICTED
   restrictionCaseId               String?
@@ -163,13 +164,21 @@ model CustomerMain {
   complianceHoldSetAt             DateTime?
   complianceHoldReleasedAt        DateTime?
   cddDocumentExpiresAt            DateTime?
-  latestFinalApprovalId           String?   @unique
-  latestFinalApprovalStatus       String?
+  // ─── renamed 2026-04-09 Wave 3 ─────────────────
+  latestRiskApprovalId            String?   @unique
+  latestRiskApprovalStatus        String?
+
+  // ─── Wave 3 new ──────────────────────────────
+  riskTier                        String    @default("LOW")
+  riskTierUpdatedAt               DateTime?
+  pepStatus                       String    @default("NONE")
+  pepConfirmedAt                  DateTime?
+  latestRiskAssessmentId          String?
+
   nextReviewAt                    DateTime?
   activePeriodicReviewCycleId     String?   @unique
   periodicReviewOverdueAt         DateTime?
   periodicReviewOverdueReason     String?
-  activeJourneyId                 String?
   latestDecisionRecordId          String?
   investorClassification          String    @default("RETAIL") // RETAIL, QUALIFIED, INSTITUTIONAL
   investorClassificationSource    String    @default("CDD") // CDD, ADMIN_OVERRIDE
@@ -193,12 +202,16 @@ model CustomerMain {
   complianceSessions        ComplianceSession[]
   cddResponseReports        CddResponseReport[]
   eddResponseReports        EddResponseReport[]
-  latestFinalApproval       ApprovalCase?            @relation("CustomerLatestFinalApproval", fields: [latestFinalApprovalId], references: [id], onDelete: SetNull)
+  latestRiskApproval        ApprovalCase?            @relation("CustomerLatestRiskApproval", fields: [latestRiskApprovalId], references: [id], onDelete: SetNull)
   activePeriodicReviewCycle PeriodicReviewCycle?     @relation("CustomerActivePeriodicReviewCycle", fields: [activePeriodicReviewCycleId], references: [id], onDelete: SetNull)
   periodicReviewCycles      PeriodicReviewCycle[]    @relation("CustomerPeriodicReviewCycles")
+  materialHoldings          CustomerMaterialHolding[] @relation("CustomerMaterialHoldings")
+  materialRefreshCycles     MaterialRefreshCycle[]   @relation("CustomerMaterialRefreshCycles")
+  riskAssessments           ClientRiskAssessment[]   @relation("CustomerRiskAssessments")
+  tierUpgradeCases          TierUpgradeCase[]        @relation("CustomerTierUpgradeCases")
 
   @@index([complianceHoldStatus])
-  @@index([latestFinalApprovalStatus])
+  @@index([latestRiskApprovalStatus])
   @@index([activePeriodicReviewCycleId])
   @@map("customer_main")
 }
@@ -290,8 +303,6 @@ model PeriodicReviewCycle {
   rejectedAt             DateTime?
   currentCddResponseId   String?
   currentEddResponseId   String?
-  primaryAlertId         String?
-  primaryIncidentId      String?
   latestDecisionRecordId String?
   resolutionReason       String?
   createdAt              DateTime  @default(now())
@@ -304,8 +315,6 @@ model PeriodicReviewCycle {
 
   @@index([customerId, status])
   @@index([status, dueAt])
-  @@index([primaryAlertId])
-  @@index([primaryIncidentId])
   @@map("periodic_review_cycles")
 }
 
@@ -576,8 +585,6 @@ model AuditLogEvent {
   entityNo        String?
   traceId         String?
   workflowType    String?
-  workflowId      String?
-  workflowNo      String?
   entityOwnerType String?
   entityOwnerId   String?
   statusFrom      String?
@@ -616,7 +623,6 @@ model AuditLogEvent {
   @@index([entityOwnerNo, occurredAt])
   @@index([traceId, occurredAt])
   @@index([workflowType, occurredAt])
-  @@index([workflowType, workflowNo, occurredAt])
   @@index([result, occurredAt])
   @@index([retainedUntil])
   @@index([archivedAt])
@@ -659,45 +665,6 @@ model AuditEvidencePackage {
   @@map("audit_evidence_packages")
 }
 
-// Wave 2-3: Compliance case evidence export. This table is NOT a Wave 1
-// delete target (removed from Wave 1 scope per change-delete-ticket-minimalization-design.md).
-// Its FK to approval_cases (approvalCaseId) is for the Wave 2-3 evidence export
-// approval flow — not part of Wave 1 governed five flows.
-model ComplianceCaseEvidencePackage {
-  id                      String        @id @default(uuid())
-  packageNo               String        @unique @default("TEMP")
-  approvalCaseId          String?       @unique
-  approvalCaseNo          String?
-  exportedByType          String
-  exportedById            String
-  exportedByNo            String?
-  exportedByRole          String?
-  status                  String        @default("PENDING_APPROVAL")
-  exportMode              String        @default("CASE_SELECTION")
-  fileName                String?
-  filterSnapshot          String?
-  selectedCaseIdsSnapshot String?
-  itemCount               Int
-  digest                  String
-  manifest                String
-  packageBody             String?
-  deletedAt               DateTime?
-  deletedBy               String?
-  deleteRequestId         String?
-  deleteReason            String?
-  createdAt               DateTime      @default(now())
-  updatedAt               DateTime      @updatedAt
-  approvalCase            ApprovalCase? @relation("ComplianceCaseEvidencePackageApprovalCase", fields: [approvalCaseId], references: [id], onDelete: SetNull)
-
-  @@index([createdAt])
-  @@index([exportedByType, exportedById])
-  @@index([status, createdAt])
-  @@index([approvalCaseId])
-  @@index([approvalCaseNo])
-  @@index([deletedAt])
-  @@map("compliance_case_evidence_packages")
-}
-
 model ApprovalCase {
   id                             String                         @id @default(uuid())
   approvalNo                     String                         @unique
@@ -734,12 +701,13 @@ model ApprovalCase {
   deleteReason                   String?
   steps                          ApprovalStep[]
   evidencePackage                AuditEvidencePackage?          @relation("AuditEvidencePackageApprovalCase")
-  caseEvidencePackage            ComplianceCaseEvidencePackage? @relation("ComplianceCaseEvidencePackageApprovalCase")
   changeTicketApprovalCase       ChangeTicket?                  @relation("ChangeTicketApprovalCase")
   deleteRequestApprovalCase      DeleteRequest?                 @relation("DeleteRequestApprovalCase")
-  latestForCustomerFinalApproval CustomerMain?                  @relation("CustomerLatestFinalApproval")
+  latestForCustomerRiskApproval  CustomerMain?                  @relation("CustomerLatestRiskApproval")
+  riskAssessments                ClientRiskAssessment[]         @relation("ClientRiskAssessmentApprovalCase")
   linkedRegulatoryGates          RegulatoryGateItem[]           @relation("RegulatoryGateLinkedApproval")
   internalTransactionForApproval InternalTransaction?           @relation("InternalTransactionApprovalCase")
+  tierUpgradeCaseApproval        TierUpgradeCase?               @relation("TierUpgradeCaseApproval")
 
   @@index([actionType, entityRef, status])
   @@index([status, timeoutAt])
@@ -1164,380 +1132,6 @@ model AuditLogSubjectNo {
   @@map("audit_log_subject_nos")
 }
 
-model ComplianceAlert {
-  id                         String                             @id @default(uuid())
-  alertNo                    String                             @unique @default("TEMP")
-  dedupeKey                  String                             @unique
-  ruleCode                   String
-  capCode                    String?
-  severity                   String
-  status                     String                             @default("OPEN") // OPEN, ASSIGNED, ESCALATED, CLOSED
-  title                      String
-  message                    String
-  sourceModule               String
-  sourceType                 String
-  sourceId                   String
-  sourceNo                   String?
-  entityType                 String?
-  entityId                   String?
-  entityNo                   String?
-  ownerType                  String?
-  ownerId                    String?
-  ownerNo                    String?
-  customerId                 String?
-  customerNo                 String?
-  firstOccurredAt            DateTime
-  lastOccurredAt             DateTime
-  dueAt                      DateTime
-  hitCount                   Int                                @default(1)
-  assigneeUserId             String?
-  assigneeUserNo             String?
-  assignedAt                 DateTime?
-  journeyId                  String?
-  stage                      String?
-  currentDispositionCode     String?
-  currentDispositionReason   String?
-  currentDispositionAt       DateTime?
-  currentDispositionById     String?
-  currentDispositionByNo     String?
-  currentDispositionByRole   String?
-  currentDispositionRecordId String?
-  finalDispositionCode       String?
-  finalDispositionReason     String?
-  finalDispositionAt         DateTime?
-  finalDispositionRecordId   String?
-  decisionRecommendation     String?
-  decision                   String?
-  linkedCaseIds              String?
-  decisionRecordIds          String?
-  overdueMarkedAt            DateTime?
-  closedAt                   DateTime?
-  closeReason                String?
-  lastActionById             String?
-  lastActionByNo             String?
-  lastActionByRole           String?
-  lastActionAt               DateTime?
-  metadata                   String?
-  retainedUntil              DateTime
-  createdAt                  DateTime                           @default(now())
-  updatedAt                  DateTime                           @updatedAt
-  events                     ComplianceAlertEvent[]
-  dispositionRecords         ComplianceAlertDispositionRecord[]
-  primaryIncident            ComplianceIncident?                @relation("PrimaryIncidentAlert")
-  incidentLinks              ComplianceIncidentAlert[]
-
-  @@index([status, lastOccurredAt])
-  @@index([severity, status, dueAt])
-  @@index([ruleCode, lastOccurredAt])
-  @@index([sourceType, sourceId, lastOccurredAt])
-  @@index([sourceType, sourceId, stage, lastOccurredAt])
-  @@index([customerNo, lastOccurredAt])
-  @@index([status, dueAt, overdueMarkedAt])
-  @@map("compliance_alerts")
-}
-
-model ComplianceAlertEvent {
-  id             String          @id @default(uuid())
-  alertId        String
-  eventType      String
-  eventAt        DateTime        @default(now())
-  actorType      String
-  actorId        String
-  actorNo        String?
-  actorRole      String?
-  note           String?
-  payload        String?
-  sourcePlatform String?
-  createdAt      DateTime        @default(now())
-  alert          ComplianceAlert @relation(fields: [alertId], references: [id], onDelete: Cascade)
-
-  @@index([alertId, eventAt])
-  @@map("compliance_alert_events")
-}
-
-model ComplianceAlertDispositionRecord {
-  id                 String          @id @default(uuid())
-  alertId            String
-  dispositionCode    String
-  reason             String?
-  isFinal            Boolean         @default(false)
-  supersedesRecordId String?
-  decisionRecordId   String?
-  source             String?
-  sourceRefId        String?
-  actorType          String
-  actorId            String
-  actorNo            String?
-  actorRole          String?
-  createdAt          DateTime        @default(now())
-  alert              ComplianceAlert @relation(fields: [alertId], references: [id], onDelete: Cascade)
-
-  @@index([alertId, createdAt])
-  @@index([dispositionCode, createdAt])
-  @@map("compliance_alert_disposition_records")
-}
-
-model ComplianceIncident {
-  id                             String                                @id @default(uuid())
-  incidentNo                     String                                @unique @default("TEMP")
-  caseType                       String                                @default("GENERIC")
-  status                         String                                @default("OPEN") // OPEN, ASSIGNED, INVESTIGATING, PENDING_MLRO_REVIEW, RESOLVED(legacy), CLOSED
-  severity                       String
-  title                          String
-  summary                        String
-  primaryAlertId                 String?                               @unique
-  primaryAlertNo                 String?
-  customerId                     String?
-  customerNo                     String?
-  entityType                     String?
-  entityId                       String?
-  entityNo                       String?
-  sourceModule                   String?
-  sourceType                     String?
-  stage                          String?
-  ruleCode                       String?
-  ownerUserId                    String?
-  ownerUserNo                    String?
-  assignedAt                     DateTime?
-  alertCount                     Int                                   @default(1)
-  firstAlertAt                   DateTime
-  lastAlertAt                    DateTime
-  dueAt                          DateTime
-  resolvedAt                     DateTime?
-  closedAt                       DateTime?
-  closeReason                    String?
-  rootCauseCategory              String?
-  resolutionSummary              String?
-  containmentSummary             String?
-  closureChecklist               String?
-  decision                       String?
-  proposedWorkflowDecision       String?
-  proposedWorkflowReason         String?
-  proposedFinalDispositionCode   String?
-  proposedFinalDispositionReason String?
-  proposedFilingRequired         Boolean?
-  proposedFilingType             String?
-  proposedFilingAuthority        String?
-  submittedForMlroAt             DateTime?
-  submittedForMlroById           String?
-  submittedForMlroByNo           String?
-  submittedForMlroByRole         String?
-  mlroReviewOutcome              String?
-  mlroReviewNote                 String?
-  mlroReviewedAt                 DateTime?
-  mlroReviewedById               String?
-  mlroReviewedByNo               String?
-  mlroReviewedByRole             String?
-  currentDispositionCode         String?
-  currentDispositionReason       String?
-  currentDispositionAt           DateTime?
-  currentDispositionById         String?
-  currentDispositionByNo         String?
-  currentDispositionByRole       String?
-  currentDispositionRecordId     String?
-  finalDispositionCode           String?
-  finalDispositionReason         String?
-  finalDispositionAt             DateTime?
-  finalDispositionRecordId       String?
-  linkedCaseIds                  String?
-  decisionRecordIds              String?
-  freezeStatus                   String                                @default("ACTIVE") // ACTIVE, FROZEN
-  frozenAt                       DateTime?
-  freezeReason                   String?
-  reportStatus                   String                                @default("NOT_REPORTED") // NOT_REPORTED, REPORTED
-  reportRefNo                    String?                               @unique
-  reportedAt                     DateTime?
-  reportReason                   String?
-  reportedByUserId               String?
-  reportedByUserNo               String?
-  overdueMarkedAt                DateTime?
-  lastActionById                 String?
-  lastActionByNo                 String?
-  lastActionByRole               String?
-  lastActionAt                   DateTime?
-  metadata                       String?
-  retainedUntil                  DateTime
-  createdAt                      DateTime                              @default(now())
-  updatedAt                      DateTime                              @updatedAt
-  primaryAlert                   ComplianceAlert?                      @relation("PrimaryIncidentAlert", fields: [primaryAlertId], references: [id], onDelete: SetNull, onUpdate: Cascade)
-  alerts                         ComplianceIncidentAlert[]
-  events                         ComplianceIncidentEvent[]
-  dispositionRecords             ComplianceIncidentDispositionRecord[]
-  reports                        ComplianceIncidentReport[]
-  filings                        ComplianceIncidentExternalFiling[]
-
-  @@index([status, lastActionAt])
-  @@index([severity, status, dueAt])
-  @@index([caseType, status, dueAt])
-  @@index([sourceType, stage, lastActionAt])
-  @@index([ruleCode, lastActionAt])
-  @@index([status, dueAt, overdueMarkedAt])
-  @@index([reportStatus, reportedAt])
-  @@index([customerNo, lastActionAt])
-  @@index([primaryAlertId])
-  @@index([lastAlertAt])
-  @@map("compliance_incidents")
-}
-
-model ComplianceIncidentReport {
-  id                       String             @id @default(uuid())
-  incidentId               String
-  version                  Int
-  isCurrent                Boolean            @default(true)
-  status                   String             @default("DRAFT") // DRAFT, FINALIZED, SUPERSEDED
-  workflow                 String
-  stage                    String?
-  ruleCode                 String?
-  factsSummary             String?
-  investigationScope       String?
-  evidenceSummary          String?
-  containmentSummary       String?
-  analystConclusion        String?
-  recommendedActions       String?
-  finalDispositionCode     String?
-  finalDispositionReason   String?
-  filingRequired           Boolean?
-  filingType               String?
-  filingAuthority          String?
-  linkedAlertSnapshot      String?
-  decisionRecordSnapshot   String?
-  providerResponseSnapshot String?
-  createdByUserId          String?
-  createdByUserNo          String?
-  finalizedByUserId        String?
-  finalizedByUserNo        String?
-  finalizedAt              DateTime?
-  supersededAt             DateTime?
-  createdAt                DateTime           @default(now())
-  updatedAt                DateTime           @updatedAt
-  incident                 ComplianceIncident @relation(fields: [incidentId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-
-  @@unique([incidentId, version])
-  @@index([incidentId, isCurrent])
-  @@index([incidentId, status, updatedAt])
-  @@map("compliance_incident_reports")
-}
-
-model ComplianceIncidentExternalFiling {
-  id                   String                                  @id @default(uuid())
-  filingNo             String                                  @unique @default("TEMP")
-  incidentId           String                                  @unique
-  filingType           String?
-  filingAuthority      String?
-  status               String
-  requiredAt           DateTime?
-  requiredById         String?
-  requiredByNo         String?
-  requiredByRole       String?
-  submittedAt          DateTime?
-  submittedById        String?
-  submittedByNo        String?
-  submittedByRole      String?
-  externalRefNo        String?
-  latestFeedback       String?
-  latestFeedbackAt     DateTime?
-  latestFeedbackById   String?
-  latestFeedbackByNo   String?
-  latestFeedbackByRole String?
-  closedAt             DateTime?
-  closedById           String?
-  closedByNo           String?
-  closedByRole         String?
-  metadata             String?
-  createdAt            DateTime                                @default(now())
-  updatedAt            DateTime                                @updatedAt
-  incident             ComplianceIncident                      @relation(fields: [incidentId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  events               ComplianceIncidentExternalFilingEvent[]
-
-  @@index([status, updatedAt])
-  @@index([filingAuthority, status, updatedAt])
-  @@map("compliance_incident_external_filings")
-}
-
-model ComplianceIncidentExternalFilingEvent {
-  id             String                           @id @default(uuid())
-  filingId       String
-  eventType      String
-  eventAt        DateTime                         @default(now())
-  actorType      String
-  actorId        String
-  actorNo        String?
-  actorRole      String?
-  note           String?
-  statusFrom     String?
-  statusTo       String?
-  externalRefNo  String?
-  feedback       String?
-  sourcePlatform String?
-  createdAt      DateTime                         @default(now())
-  filing         ComplianceIncidentExternalFiling @relation(fields: [filingId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-
-  @@index([filingId, eventAt])
-  @@map("compliance_incident_external_filing_events")
-}
-
-model ComplianceIncidentAlert {
-  id           String             @id @default(uuid())
-  incidentId   String
-  alertId      String             @unique
-  alertNo      String
-  relationType String
-  linkedAt     DateTime           @default(now())
-  linkedByType String
-  linkedById   String
-  linkedByNo   String?
-  linkedByRole String?
-  note         String?
-  createdAt    DateTime           @default(now())
-  incident     ComplianceIncident @relation(fields: [incidentId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  alert        ComplianceAlert    @relation(fields: [alertId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-
-  @@unique([incidentId, alertId])
-  @@index([incidentId, relationType, linkedAt])
-  @@index([alertId])
-  @@map("compliance_incident_alerts")
-}
-
-model ComplianceIncidentEvent {
-  id             String             @id @default(uuid())
-  incidentId     String
-  eventType      String
-  eventAt        DateTime           @default(now())
-  actorType      String
-  actorId        String
-  actorNo        String?
-  actorRole      String?
-  note           String?
-  payload        String?
-  sourcePlatform String?
-  createdAt      DateTime           @default(now())
-  incident       ComplianceIncident @relation(fields: [incidentId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-
-  @@index([incidentId, eventAt])
-  @@map("compliance_incident_events")
-}
-
-model ComplianceIncidentDispositionRecord {
-  id                 String             @id @default(uuid())
-  incidentId         String
-  dispositionCode    String
-  reason             String?
-  isFinal            Boolean            @default(false)
-  supersedesRecordId String?
-  decisionRecordId   String?
-  source             String?
-  sourceRefId        String?
-  actorType          String
-  actorId            String
-  actorNo            String?
-  actorRole          String?
-  createdAt          DateTime           @default(now())
-  incident           ComplianceIncident @relation(fields: [incidentId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-
-  @@index([incidentId, createdAt])
-  @@index([dispositionCode, createdAt])
-  @@map("compliance_incident_disposition_records")
-}
 
 model LiquidityProvider {
   id             String                   @id
@@ -1717,6 +1311,7 @@ model BusinessConfigRelease {
   basedOnReleaseNo      String?
   changeTicketId        String?
   approvalCaseId        String?
+  traceId               String?
   effectiveFrom         DateTime?
   publishedAt           DateTime?
   publishedBy           String?
@@ -2786,8 +2381,6 @@ model ReconciliationBreak {
   deltaAmount      Decimal          @default(0)
   reasonCode       String
   status           String           @default("OPEN")
-  linkedAlertId    String?
-  linkedCaseId     String?
   detailsJson      String?
   detectedAt       DateTime         @default(now())
   resolvedAt       DateTime?
@@ -2802,8 +2395,6 @@ model ReconciliationBreak {
   @@index([sourceType, sourceId])
   @@index([withdrawId])
   @@index([payoutId])
-  @@index([linkedAlertId])
-  @@index([linkedCaseId])
   @@map("reconciliation_breaks")
 }
 
@@ -3082,4 +2673,155 @@ model SumsubWebhookEvent {
   @@index([externalUserId])
   @@index([eventType, status])
   @@map("sumsub_webhook_events")
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Wave 3 Firm-Driven Customer Review (2026-04-09)
+// ═══════════════════════════════════════════════════════════════
+
+model CustomerMaterialHolding {
+  id                   String   @id @default(cuid())
+  holdingNo            String   @unique @default("TEMP")
+  customerId           String
+  customer             CustomerMain @relation("CustomerMaterialHoldings", fields: [customerId], references: [id])
+
+  materialType         String
+  managementMode       String
+
+  verifiedAt           DateTime
+  expiresAt            DateTime?
+  status               String   @default("FRESH")
+
+  sumsubIdDocSetType   String?
+  sumsubDocId          String?
+
+  activeRefreshCycleId String?  @unique
+  activeRefreshCycle   MaterialRefreshCycle? @relation("ActiveRefreshCycle", fields: [activeRefreshCycleId], references: [id])
+
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  refreshCycles        MaterialRefreshCycle[] @relation("HoldingRefreshCycles")
+
+  @@unique([customerId, materialType])
+  @@index([expiresAt, status])
+  @@index([customerId])
+  @@map("customer_material_holdings")
+}
+
+model MaterialRefreshCycle {
+  id                       String   @id @default(cuid())
+  cycleNo                  String   @unique
+  customerId               String
+  customer                 CustomerMain @relation("CustomerMaterialRefreshCycles", fields: [customerId], references: [id])
+
+  holdingId                String
+  holding                  CustomerMaterialHolding @relation("HoldingRefreshCycles", fields: [holdingId], references: [id])
+
+  materialType             String
+
+  status                   String   @default("PENDING_CUSTOMER_EVIDENCE")
+  stage                    String   @default("NUDGE_ONLY")
+  triggerType              String
+
+  createdAt                DateTime @default(now())
+  stageNudgeAt             DateTime?
+  stageUrgentAt            DateTime?
+  stageBlockingAt          DateTime?
+  clearedAt                DateTime?
+  rejectedAt               DateTime?
+  customerSubmittedAt      DateTime?
+  graceExpiresAt           DateTime?
+  resolutionReason         String?
+
+  sumsubActionId           String?
+  sumsubActionLevelName    String?
+  sumsubActionCreatedAt    DateTime?
+
+  triggeredByAssessmentId  String?
+  triggeredByAssessment    ClientRiskAssessment? @relation("AssessmentTriggeredCycles", fields: [triggeredByAssessmentId], references: [id])
+
+  traceId                  String   @unique
+
+  activeForHolding         CustomerMaterialHolding? @relation("ActiveRefreshCycle")
+
+  @@index([customerId, status])
+  @@index([status, graceExpiresAt])
+  @@index([sumsubActionId])
+  @@map("material_refresh_cycles")
+}
+
+model ClientRiskAssessment {
+  id                          String   @id @default(cuid())
+  assessmentNo                String   @unique
+  customerId                  String
+  customer                    CustomerMain @relation("CustomerRiskAssessments", fields: [customerId], references: [id])
+
+  triggerType                 String
+  triggeredAt                 DateTime @default(now())
+
+  sumsubAmlCheckRequestedAt   DateTime?
+  sumsubAmlCheckInspectionId  String?
+  sumsubAmlReviewAnswer       String?
+  sumsubAmlLabels             String?  // JSON string
+  sumsubAmlRejectType         String?
+  sumsubSnapshotAt            DateTime?
+  sumsubRiskScore             Int?
+  sumsubTags                  String?  // JSON string
+
+  policyVersion               String
+  resultingRiskTier           String?
+  previousRiskTier            String?
+  scoreSuggestedTier          String?
+  recommendedAction           String?
+  reasoning                   String?  // JSON string
+
+  status                      String   @default("PENDING_SUMSUB_RESULT")
+  signoffMethod               String?
+  approvalCaseId              String?
+  approvalCase                ApprovalCase? @relation("ClientRiskAssessmentApprovalCase", fields: [approvalCaseId], references: [id])
+  signedBy                    String?
+  signedAt                    DateTime?
+  signedUnderPolicyVersion    String?
+
+  sumsubInternalCaseRef       String?
+  sumsubCaseFinalDecision     String?
+  sumsubCaseDecidedAt         DateTime?
+
+  triggeredRefreshCycles      MaterialRefreshCycle[] @relation("AssessmentTriggeredCycles")
+  tierUpgradeCase             TierUpgradeCase? @relation("CraTierUpgradeCase")
+
+  traceId                     String   @unique
+  createdAt                   DateTime @default(now())
+
+  @@index([customerId, status])
+  @@index([customerId, triggeredAt])
+  @@index([sumsubAmlCheckInspectionId])
+  @@index([status, triggeredAt])
+  @@map("client_risk_assessments")
+}
+
+model TierUpgradeCase {
+  id                   String    @id @default(cuid())
+  caseNo               String    @unique
+  customerId           String
+  customer             CustomerMain @relation("CustomerTierUpgradeCases", fields: [customerId], references: [id])
+  sourceCraId          String    @unique
+  sourceCra            ClientRiskAssessment @relation("CraTierUpgradeCase", fields: [sourceCraId], references: [id])
+
+  // PENDING_LEVEL2 | PENDING_PHASE2_APPROVAL | COMPLETED | REJECTED
+  status               String    @default("PENDING_LEVEL2")
+
+  phase2ApprovalCaseId String?   @unique
+  phase2ApprovalCase   ApprovalCase? @relation("TierUpgradeCaseApproval", fields: [phase2ApprovalCaseId], references: [id])
+
+  completedAt          DateTime?
+  rejectedAt           DateTime?
+  rejectedReason       String?
+  traceId              String    @unique
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  @@index([customerId, status])
+  @@map("tier_upgrade_cases")
 }

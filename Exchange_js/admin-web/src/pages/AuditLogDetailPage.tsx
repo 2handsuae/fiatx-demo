@@ -42,8 +42,6 @@ interface AuditLogDetail {
   occurredAt: string;
   traceId?: string | null;
   workflowType?: string | null;
-  workflowId?: string | null;
-  workflowNo?: string | null;
   requestId?: string | null;
   sourceIp?: string | null;
   sourcePlatform?: string | null;
@@ -206,7 +204,7 @@ const AuditLogDetailPage = () => {
   const hasOwner      = !!(detail.entityOwnerType || detail.entityOwnerId || detail.entityOwnerNo);
   const hasPayload    = detail.metadata != null || detail.beforeData != null || detail.afterData != null;
   const hasSubjects   = !!(detail.subjectNos?.length);
-  const hasWorkflow   = !!(detail.workflowType || detail.workflowNo || detail.workflowId || detail.traceId);
+  const hasWorkflow   = !!(detail.workflowType || detail.traceId);
 
   const payloadBlocks = [
     detail.metadata   != null && { title: 'Metadata',    value: detail.metadata },
@@ -345,8 +343,6 @@ const AuditLogDetailPage = () => {
               <div className="mt-3">
                 <FieldGrid>
                   <Field label="Type"        value={detail.workflowType} />
-                  <Field label="No"          value={detail.workflowNo}   mono />
-                  <Field label="Workflow ID" value={detail.workflowId}   mono full />
                   <Field label="Trace ID"    value={detail.traceId}      mono full />
                 </FieldGrid>
               </div>

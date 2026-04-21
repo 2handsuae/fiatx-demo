@@ -6,13 +6,13 @@ import {
 import { Prisma } from '@prisma/client';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 import { PrismaService } from '../../../core/prisma/prisma.service';
-import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
+import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
   AuditEntityTypes,
   AuditModules,
   AuditWorkflowTypes,
-} from '../../risk-engine/audit-logs/constants/audit-actions.constant';
-import { AuditTriggerType } from '../../risk-engine/audit-logs/dto/audit-log.dto';
+} from '../../audit-logging/constants/audit-actions.constant';
+import { AuditTriggerType } from '../../audit-logging/dto/audit-log.dto';
 import {
   buildCustomerLifecyclePatch as buildCustomerLifecycleStatePatch,
   CustomerOnboardingStatus,
@@ -113,8 +113,8 @@ export interface WorkflowTransitionOutput {
   updatedSubject?: WorkflowTransitionUpdatedSubject | null;
   eddResponse?: any | null;
   activeCaseId?: string | null;
-  latestFinalApprovalId?: string | null;
-  latestFinalApprovalStatus?: string | null;
+  latestRiskApprovalId?: string | null;
+  latestRiskApprovalStatus?: string | null;
   createdFinalApprovalId?: string | null;
 }
 
@@ -169,19 +169,19 @@ export class OnboardingWorkflowTransitionService {
     );
   }
 
-  private buildLatestFinalApprovalBindingPatch(
+  private buildLatestRiskApprovalBindingPatch(
     approvalId?: string | null,
   ): Prisma.CustomerMainUpdateInput {
     if (approvalId) {
       return {
-        latestFinalApproval: {
+        latestRiskApproval: {
           connect: { id: approvalId },
         },
       };
     }
 
     return {
-      latestFinalApproval: {
+      latestRiskApproval: {
         disconnect: true,
       },
     };
@@ -254,7 +254,7 @@ export class OnboardingWorkflowTransitionService {
         where: {
           customerId: customer.id,
           workflow: ONBOARDING_WORKFLOW,
-          ...(customer.activeJourneyId ? { journeyId: customer.activeJourneyId } : {}),
+          journeyId: customer.id,
         },
         orderBy: { createdAt: 'desc' },
       });
@@ -290,7 +290,7 @@ export class OnboardingWorkflowTransitionService {
         where: {
           customerId: customer.id,
           workflow: ONBOARDING_WORKFLOW,
-          ...(customer.activeJourneyId ? { journeyId: customer.activeJourneyId } : {}),
+          journeyId: customer.id,
         },
         orderBy: { createdAt: 'desc' },
       });
@@ -366,7 +366,7 @@ export class OnboardingWorkflowTransitionService {
     const traceContext = buildComplianceWorkflowTraceContext({
       workflow: ONBOARDING_WORKFLOW,
       journeyId:
-        input.journeyId || customer.activeJourneyId || null,
+        input.journeyId || customer.id,
     });
     await this.auditLogsService.recordByActor(
       {
@@ -378,8 +378,6 @@ export class OnboardingWorkflowTransitionService {
         entityNo: customer.customerNo || undefined,
         traceId: traceContext?.traceId || undefined,
         workflowType: traceContext?.workflowType || AuditWorkflowTypes.ONBOARDING,
-        workflowId: traceContext?.workflowId || undefined,
-        workflowNo: traceContext?.workflowNo || undefined,
         entityOwnerType: 'CUSTOMER',
         entityOwnerId: customer.id,
         entityOwnerNo: customer.customerNo || undefined,
@@ -508,8 +506,8 @@ export class OnboardingWorkflowTransitionService {
         updatedCustomer: customer,
         eddResponse: null,
         activeCaseId: linkedCaseIds[0] || null,
-        latestFinalApprovalId: customer.latestFinalApprovalId || null,
-        latestFinalApprovalStatus: customer.latestFinalApprovalStatus || null,
+        latestRiskApprovalId: customer.latestRiskApprovalId || null,
+        latestRiskApprovalStatus: customer.latestRiskApprovalStatus || null,
         createdFinalApprovalId: null,
       };
       await this.writeWorkflowTransitionSnapshot(tx, input, noTransition);
@@ -524,7 +522,6 @@ export class OnboardingWorkflowTransitionService {
     let caseId: string | null = null;
     let createdFinalApprovalId: string | null = null;
     let customerUpdateData: Prisma.CustomerMainUpdateInput = {
-      activeJourneyId: input.journeyId,
       latestDecisionRecordId: input.latestDecisionRecordId || customer.latestDecisionRecordId || null,
     };
 
@@ -543,8 +540,8 @@ export class OnboardingWorkflowTransitionService {
             operatingStatus: 'ACTIVE',
             eddRequired: false,
           }),
-          ...this.buildLatestFinalApprovalBindingPatch(null),
-          latestFinalApprovalStatus: null,
+          ...this.buildLatestRiskApprovalBindingPatch(null),
+          latestRiskApprovalStatus: null,
           cddDocumentExpiresAt: this.addDays(now, 365),
           nextReviewAt: this.addDays(now, 365),
         };
@@ -558,14 +555,14 @@ export class OnboardingWorkflowTransitionService {
             operatingStatus: 'INACTIVE',
             eddRequired: false,
           }),
-          ...this.buildLatestFinalApprovalBindingPatch(null),
-          latestFinalApprovalStatus: null,
+          ...this.buildLatestRiskApprovalBindingPatch(null),
+          latestRiskApprovalStatus: null,
         };
       } else if (workflowDecision === 'REQUIRE_EDD') {
         eddResponse = await this.createEddResponseIfNeeded(
           tx,
           customer.id,
-          input.journeyId || customer.activeJourneyId || generateReferenceNo('ONB'),
+          input.journeyId || customer.id,
           cddResponse.id,
         );
         transitionCode = WORKFLOW_TRANSITION_CODES.CDD_REQUIRE_EDD_TO_PENDING_EDD;
@@ -577,8 +574,8 @@ export class OnboardingWorkflowTransitionService {
             operatingStatus: 'INACTIVE',
             eddRequired: true,
           }),
-          ...this.buildLatestFinalApprovalBindingPatch(null),
-          latestFinalApprovalStatus: null,
+          ...this.buildLatestRiskApprovalBindingPatch(null),
+          latestRiskApprovalStatus: null,
           cddDocumentExpiresAt: this.addDays(now, 365),
         };
       } else {
@@ -617,7 +614,6 @@ export class OnboardingWorkflowTransitionService {
           await this.onboardingFinalApprovalService.ensurePendingApprovalInTransaction(tx, {
             customer: {
               ...customer,
-              activeJourneyId: input.journeyId || customer.activeJourneyId || null,
               onboardingStatus: 'FINAL_APPROVAL',
               operatingStatus: 'INACTIVE',
               eddRequired: true,
@@ -636,10 +632,10 @@ export class OnboardingWorkflowTransitionService {
             operatingStatus: 'INACTIVE',
             eddRequired: true,
           }),
-          ...this.buildLatestFinalApprovalBindingPatch(
+          ...this.buildLatestRiskApprovalBindingPatch(
             pendingFinalApproval.approval.id,
           ),
-          latestFinalApprovalStatus: pendingFinalApproval.approval.status || 'PENDING',
+          latestRiskApprovalStatus: pendingFinalApproval.approval.status || 'PENDING',
         };
       } else if (workflowDecision === 'REJECT') {
         transitionCode = WORKFLOW_TRANSITION_CODES.EDD_REJECT_TO_REJECTED;
@@ -651,8 +647,8 @@ export class OnboardingWorkflowTransitionService {
             operatingStatus: 'INACTIVE',
             eddRequired: true,
           }),
-          ...this.buildLatestFinalApprovalBindingPatch(null),
-          latestFinalApprovalStatus: null,
+          ...this.buildLatestRiskApprovalBindingPatch(null),
+          latestRiskApprovalStatus: null,
         };
       } else {
         throw new BadRequestException(
@@ -700,8 +696,8 @@ export class OnboardingWorkflowTransitionService {
       updatedCustomer,
       eddResponse,
       activeCaseId: eddResponse?.id || null,
-      latestFinalApprovalId: updatedCustomer.latestFinalApprovalId || null,
-      latestFinalApprovalStatus: updatedCustomer.latestFinalApprovalStatus || null,
+      latestRiskApprovalId: updatedCustomer.latestRiskApprovalId || null,
+      latestRiskApprovalStatus: updatedCustomer.latestRiskApprovalStatus || null,
       createdFinalApprovalId,
     };
     await this.writeWorkflowTransitionSnapshot(tx, input, output);

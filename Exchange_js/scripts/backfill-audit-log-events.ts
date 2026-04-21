@@ -4,9 +4,9 @@ import {
   AuditEntityTypes,
   AuditModules,
   buildStateTransitionAction,
-} from '../src/modules/risk-engine/audit-logs/constants/audit-actions.constant';
-import { AuditTriggerType } from '../src/modules/risk-engine/audit-logs/dto/audit-log.dto';
-import { sha256Hex } from '../src/modules/risk-engine/audit-logs/utils/audit-digest.util';
+} from '../src/modules/audit-logging/constants/audit-actions.constant';
+import { AuditTriggerType } from '../src/modules/audit-logging/dto/audit-log.dto';
+import { sha256Hex } from '../src/modules/audit-logging/utils/audit-digest.util';
 
 const prisma = new PrismaClient();
 

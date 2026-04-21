@@ -5,7 +5,6 @@ import { ReconciliationBreakStatuses } from './constants/safeguarding-reconcilia
 describe('SafeguardingReconciliationService', () => {
   let service: SafeguardingReconciliationService;
   let prisma: any;
-  let complianceAlertsService: { triggerSystemAlert: jest.Mock };
   let auditLogsService: { recordByActor: jest.Mock };
 
   const assetRows = [
@@ -183,13 +182,6 @@ describe('SafeguardingReconciliationService', () => {
         findMany: jest.fn(),
         findUnique: jest.fn(),
       },
-      complianceAlert: {
-        findUnique: jest.fn(),
-        findMany: jest.fn(),
-      },
-      complianceIncident: {
-        findMany: jest.fn(),
-      },
     };
     prisma.fiatStatementImport.findMany.mockResolvedValue([]);
     prisma.fiatStatementImport.updateMany.mockResolvedValue({ count: 0 });
@@ -203,15 +195,11 @@ describe('SafeguardingReconciliationService', () => {
         id: 'warning-1',
       }),
     );
-    complianceAlertsService = {
-      triggerSystemAlert: jest.fn(),
-    };
     auditLogsService = {
       recordByActor: jest.fn().mockResolvedValue(undefined),
     };
     service = new SafeguardingReconciliationService(
       prisma,
-      complianceAlertsService as any,
       auditLogsService as any,
     );
   });
@@ -297,7 +285,6 @@ describe('SafeguardingReconciliationService', () => {
         poolAmount: '7',
       }),
     ]);
-    expect(complianceAlertsService.triggerSystemAlert).not.toHaveBeenCalled();
   });
 
   it('creates coverage break and safeguarding alert when crypto liability does not match pool total', async () => {
@@ -339,13 +326,6 @@ describe('SafeguardingReconciliationService', () => {
     prisma.reconciliationWarning.findMany.mockResolvedValue([]);
     prisma.reconciliationBreak.findUnique.mockResolvedValueOnce(null);
     prisma.reconciliationBreak.create.mockResolvedValue(buildBreak());
-    complianceAlertsService.triggerSystemAlert.mockResolvedValue({
-      id: 'alert-1',
-      linkedCaseIds: [],
-    });
-    prisma.reconciliationBreak.update.mockResolvedValue(
-      buildBreak({ linkedAlertId: 'alert-1' }),
-    );
 
     const result: any = await service.generateDailyDiff(
       { businessDate: '2026-03-30' },
@@ -360,15 +340,6 @@ describe('SafeguardingReconciliationService', () => {
         deltaAmount: '2',
       }),
     ]);
-    expect(complianceAlertsService.triggerSystemAlert).toHaveBeenCalledWith(
-      expect.objectContaining({
-        ruleCode: 'TX_SAFEGUARDING_BREAK_DETECTED',
-        stage: 'REVIEW_SAFEGUARDING_RECONCILIATION',
-        sourceType: 'SAFEGUARDING_ASSET',
-        sourceId: 'asset-btc',
-      }),
-      prisma,
-    );
   });
 
   it('creates external-proof break when fiat pool total matches liability but statement balance differs', async () => {
@@ -438,25 +409,6 @@ describe('SafeguardingReconciliationService', () => {
         poolAmount: new Prisma.Decimal('100'),
         externalAmount: new Prisma.Decimal('95'),
         deltaAmount: new Prisma.Decimal('5'),
-      }),
-    );
-    complianceAlertsService.triggerSystemAlert.mockResolvedValue({
-      id: 'alert-2',
-      linkedCaseIds: [],
-    });
-    prisma.reconciliationBreak.update.mockResolvedValue(
-      buildBreak({
-        assetId: 'asset-aed',
-        assetCode: 'AED',
-        sourceId: 'asset-aed',
-        sourceNo: 'AED',
-        reasonCode: 'EXTERNAL_PROOF_BREAK',
-        breakType: 'EXTERNAL_PROOF_BREAK',
-        liabilityAmount: new Prisma.Decimal('100'),
-        poolAmount: new Prisma.Decimal('100'),
-        externalAmount: new Prisma.Decimal('95'),
-        deltaAmount: new Prisma.Decimal('5'),
-        linkedAlertId: 'alert-2',
       }),
     );
 
@@ -601,9 +553,6 @@ describe('SafeguardingReconciliationService', () => {
         resolvedAt: new Date('2026-03-30T13:00:00.000Z'),
       }),
     );
-    prisma.complianceAlert.findMany.mockResolvedValue([]);
-    prisma.complianceIncident.findMany.mockResolvedValue([]);
-
     const result = await service.updateStatus(
       'break-1',
       {

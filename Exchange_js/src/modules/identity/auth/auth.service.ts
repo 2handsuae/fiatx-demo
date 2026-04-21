@@ -4,7 +4,7 @@ import { AdminInvitationsService } from '../users/admin-invitations.service';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { createHash, randomUUID } from 'crypto';
-import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
+import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import { AccessControlService } from '../access-control/access-control.service';
 import { getPrimaryRoleCode } from '../access-control/rbac.catalog';
 import {
@@ -12,8 +12,8 @@ import {
   AuditBusinessWorkflowTypes,
   AuditEntityTypes,
   AuditModules,
-} from '../../risk-engine/audit-logs/constants/audit-actions.constant';
-import { AuditResult, AuditTriggerType } from '../../risk-engine/audit-logs/dto/audit-log.dto';
+} from '../../audit-logging/constants/audit-actions.constant';
+import { AuditResult, AuditTriggerType } from '../../audit-logging/dto/audit-log.dto';
 
 interface AuthRequestContext {
   requestId?: string;
@@ -41,15 +41,8 @@ export class AuthService {
     userNo?: string | null;
     identifier?: string;
   }) {
-    const normalizedUserNo = String(params.userNo || '').trim();
-    const normalizedIdentifier = String(params.identifier || '').trim().toLowerCase();
-    const fallbackRef = normalizedIdentifier
-      ? `LOGIN:${this.maskIdentifier(normalizedIdentifier).slice(0, 12)}`
-      : 'LOGIN:UNKNOWN';
-
     return {
       workflowType: AuditBusinessWorkflowTypes.ADMIN_LOGIN_ACCESS,
-      workflowNo: normalizedUserNo || fallbackRef,
       traceId: params.traceId,
     };
   }

@@ -5,16 +5,17 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../core/prisma/prisma.service';
+import { ensureCustomerCanTransact } from '../shared/customer-transaction-guard';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 import { JournalsService } from '../../accounting/journals/journals.service';
-import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
+import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
   AuditActions,
   AuditEntityTypes,
   AuditModules,
   AuditWorkflowTypes,
-} from '../../risk-engine/audit-logs/constants/audit-actions.constant';
-import { AuditTriggerType } from '../../risk-engine/audit-logs/dto/audit-log.dto';
+} from '../../audit-logging/constants/audit-actions.constant';
+import { AuditTriggerType } from '../../audit-logging/dto/audit-log.dto';
 import { TransactionComplianceService } from '../../risk-engine/transaction-compliance/transaction-compliance.service';
 import { PricingCenterService } from '../pricing-center/pricing-center.service';
 import { SwapEvents } from './constants/swap-events.constant';
@@ -179,6 +180,12 @@ export class SwapWorkflowOrchestrator {
     ownerId: string,
     quoteId: string,
   ): Promise<SwapOrchestratorOutput> {
+    // Enforce compliance hold / restriction checks before creating the swap
+    const customer = await (this.prisma as any).customerMain.findUnique({
+      where: { id: ownerId },
+    });
+    ensureCustomerCanTransact(customer);
+
     const now = new Date();
 
     const result = await this.prisma.$transaction(async (tx) => {
@@ -279,8 +286,6 @@ export class SwapWorkflowOrchestrator {
           entityNo: transaction.swapNo || undefined,
           traceId: `SWAP:${transaction.id}`,
           workflowType: AuditWorkflowTypes.SWAP,
-          workflowId: transaction.id,
-          workflowNo: transaction.swapNo || quote.quoteNo || transaction.id,
           entityOwnerType: transaction.ownerType,
           entityOwnerId: transaction.ownerId,
           entityOwnerNo: transaction.ownerNo || undefined,

@@ -24,14 +24,14 @@ import {
   isCryptoLiqWalletNo,
   isCryptoMasterWalletNo,
 } from '../wallets/system-wallet.util';
-import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
+import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
   AuditActions,
   AuditEntityTypes,
   AuditModules,
   buildStateTransitionAction,
-} from '../../risk-engine/audit-logs/constants/audit-actions.constant';
-import { AuditTriggerType } from '../../risk-engine/audit-logs/dto/audit-log.dto';
+} from '../../audit-logging/constants/audit-actions.constant';
+import { AuditTriggerType } from '../../audit-logging/dto/audit-log.dto';
 
 const CRYPTO_TRANSITIONS: Record<
   InternalFundStatus,
@@ -218,8 +218,6 @@ export class InternalFundsService {
 
     return {
       workflowType: 'DEPOSIT',
-      workflowId: internalTx?.sourceId || undefined,
-      workflowNo: internalTx?.sourceNo || undefined,
     };
   }
 

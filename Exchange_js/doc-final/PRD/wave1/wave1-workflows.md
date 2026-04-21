@@ -1,6 +1,6 @@
 Status: active
 Owner: project-owner-and-agents
-Last Updated: 2026-04-06
+Last Updated: 2026-04-11
 Applies To: `Exchange_js`
 Audience: Wave 2+ developers
 Source of Truth Level: PRD-wave1
@@ -51,6 +51,26 @@ Approval 直接执行型 (WF-03 扩展)
 > 重要约定：`Change Ticket`、`Delete Request`、`Approval` 是**治理容器**（governance container），不是面向 operator 的顶层工作流名称。
 >
 > 审计日志、UI 页面第一层使用的是**业务工作流名称**，例如 `ADMIN_MEMBER_PROVISIONING`、`CHANGE_TICKET_DELETION`。
+
+### 多步顺序审批机制 *(Updated 2026-04-11)*
+
+审批系统支持 **sequential multi-step approval**。当 `ApprovalActionPolicy.checkerRoles` 包含多个角色时，系统为每个角色创建一条 `ApprovalStep`，步骤必须按 `stepNo` 升序依次签批：
+
+```
+示例：ONBOARDING_FINAL_APPROVAL (checkerRoles: ['MLRO', 'SENIOR_MANAGEMENT_OFFICER'])
+
+  ApprovalCase PENDING
+    ├── Step 1 (MLRO)      → PENDING → [MLRO approve] → APPROVED
+    │                        case 仍为 PENDING（mid-flow）
+    └── Step 2 (SMO)       → PENDING → [SMO approve] → APPROVED
+                             所有步骤完成 → case APPROVED
+```
+
+**拒绝规则**：任一步骤拒绝 → 当前步骤 `REJECTED` + 所有剩余 `PENDING` 步骤批量 `CANCELLED` → case 立即 `REJECTED`。
+
+**策略来源优先级**：`ApprovalPolicyService.getPolicy()` 首先查询 `approval_action_policies` DB 表，未命中时回退到代码 `DEFAULT_APPROVAL_POLICIES` 常量。
+
+> 单步审批（如 `CHANGE_TICKET_APPROVAL` → `['CISO']`）行为不变，仍创建 1 条 step。
 
 ---
 
@@ -645,6 +665,7 @@ Trace: AUDIT_EVIDENCE_PACKAGE_DELETION / requestNo
 | Checker 角色限制 | `CISO` only | `DPO` 或 `CISO` | `DPO` 或 `MLRO` |
 | Creator ≠ Consumer | ❌ 无此限制 | ✅ 强制（SUPER_ADMIN 例外） | N/A（无 consume 步骤） |
 | SUPER_ADMIN 可绕过 SoD | ✅（留审计记录） | ✅（留审计记录） | ✅（留审计记录） |
+| 多步审批 *(Updated 2026-04-11)* | 单步（CISO only） | 单步（DPO/CISO） | 单步（DPO/MLRO） |
 | 审批超时时间 | 24h | 24h | 24h |
 | 支持 cancel | ✅ | ✅（DRAFT/PENDING_APPROVAL/READY 均可） | ✅ |
 
@@ -774,7 +795,65 @@ invariant: 软删除不执行物理删除，physical data 保留
 invariant: 删除工作流 trace 不继承被删目标 trace
 invariant: 所有 SoD 绕过行为必须在 audit 记录中标注
 invariant: Change Ticket 审批通过只改变状态为 READY，不执行任何业务写操作
+invariant: 多步审批中，步骤必须按 stepNo 升序依次签批，不可跳步           # Added 2026-04-11
+invariant: 多步审批中，任一步骤拒绝导致 case 立即 REJECTED，剩余步骤 CANCELLED  # Added 2026-04-11
 ```
+
+---
+
+## 八、Wave 3 审批扩展 *(Added 2026-04-11)*
+
+### ONBOARDING_FINAL_APPROVAL 升级为双签
+
+原 Wave 2 预埋的 `ONBOARDING_FINAL_APPROVAL` 已从单步审批（`['SENIOR_MANAGEMENT_OFFICER']`）升级为**双步顺序审批**（`['MLRO', 'SENIOR_MANAGEMENT_OFFICER']`，timeoutHours=240）。
+
+流程：
+```
+Onboarding 提交终审
+  → ApprovalCase PENDING
+    ├── Step 1: MLRO approve     → case 仍 PENDING (mid-flow)
+    └── Step 2: SMO approve      → case APPROVED → 触发 onboarding 执行
+```
+
+### Wave 3 新增审批 ActionType
+
+| ActionType | checkerRoles | 步数 | timeoutHours | 用途 |
+|---|---|---|---|---|
+| `RISK_RATING_UPGRADE_PHASE1` | MLRO | 1 | 168 | 风险评级 LOW→HIGH phase 1 |
+| `RISK_RATING_MAINTENANCE_APPROVAL` | MLRO | 1 | 168 | 高风险维护审批（HIGH→HIGH） |
+| `RISK_RATING_HIGH_APPROVAL` | MLRO → SMO | 2（双签） | 240 | 风险评级 LOW→HIGH phase 2 终审 |
+| `RISK_RATING_MEDIUM_APPROVAL` | COMPLIANCE_OFFICER | 1 | 168 | 预留（暂未启用） |
+| `PEP_RELATIONSHIP_APPROVAL` | MLRO → SMO | 2（双签） | 240 | 预留（PEP 当前复用 `RISK_RATING_HIGH_APPROVAL`） |
+
+### 双签审批流程示例（RISK_RATING_HIGH_APPROVAL）
+
+```
+风险评级升级请求 (LOW→HIGH phase 2)
+  → ApprovalCase PENDING (actionType=RISK_RATING_HIGH_APPROVAL)
+    ├── Step 1 (stepNo=1): MLRO 签批
+    │     MLRO approve → step APPROVED, case 仍 PENDING
+    └── Step 2 (stepNo=2): SENIOR_MANAGEMENT_OFFICER 签批
+          SMO approve → step APPROVED, case APPROVED → 触发执行
+
+  拒绝场景：
+    Step 1: MLRO reject → step REJECTED, Step 2 CANCELLED → case REJECTED
+    Step 2: SMO reject  → step REJECTED → case REJECTED（Step 1 已 APPROVED 不受影响）
+```
+
+### 审计事件（多步审批）
+
+多步审批中，**每个步骤的审批决策都会独立生成审计事件**：
+
+```
+Trace: RISK_RATING_HIGH_APPROVAL / approvalNo
+
+1. APPROVAL_SUBMITTED             — case 进入 PENDING
+2. APPROVAL_APPROVED              — Step 1 MLRO 签批（metadata 含 stepNo=1, checkerRole=MLRO）
+3. APPROVAL_APPROVED              — Step 2 SMO 签批（metadata 含 stepNo=2, checkerRole=SMO）
+4. APPROVAL_EXECUTED              — 执行成功（若为直接执行型）
+```
+
+> 拒绝场景下，被拒步骤生成 `APPROVAL_REJECTED` 事件，被取消的后续步骤不生成独立事件。
 
 ### 相关规格文档
 

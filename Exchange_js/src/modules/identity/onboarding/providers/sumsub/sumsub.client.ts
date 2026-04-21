@@ -78,6 +78,72 @@ export class SumsubClient {
     );
   }
 
+  // ─── Wave 3 mock-first methods (2026-04-09) ──────────────────────────────
+
+  async runAmlCheck(applicantId: string): Promise<{ ok: number; inspectionId: string }> {
+    if (process.env.SUMSUB_MOCK_MODE === 'true') {
+      const { randomUUID } = await import('crypto');
+      return { ok: 1, inspectionId: `mock-insp-${randomUUID()}` };
+    }
+    return this.post(`/resources/applicants/${applicantId}/aml/check`, {});
+  }
+
+  async getApplicant(applicantId: string): Promise<any> {
+    if (process.env.SUMSUB_MOCK_MODE === 'true') {
+      return {
+        id: applicantId,
+        info: { idDocs: [] },
+        riskLabels: [],
+        tags: [],
+        totalScore: null,
+      };
+    }
+    return this.get(`/resources/applicants/${applicantId}/one`);
+  }
+
+  async createApplicantAction(input: {
+    applicantId: string;
+    levelName: string;
+  }): Promise<{ id: string }> {
+    if (process.env.SUMSUB_MOCK_MODE === 'true') {
+      const { randomUUID } = await import('crypto');
+      return { id: `mock-action-${randomUUID()}` };
+    }
+    return this.post(
+      `/resources/applicantActions/-/forApplicant/${input.applicantId}?levelName=${encodeURIComponent(input.levelName)}`,
+      {},
+    );
+  }
+
+  async createActionSdkToken(input: {
+    applicantId: string;
+    levelName: string;
+    ttlInSecs?: number;
+  }): Promise<{ token: string }> {
+    if (process.env.SUMSUB_MOCK_MODE === 'true') {
+      return { token: `mock-sdk-token-${input.applicantId}-${Date.now()}` };
+    }
+    return this.post('/resources/accessTokens/sdk', {
+      userId: input.applicantId,
+      levelName: input.levelName,
+      ttlInSecs: input.ttlInSecs ?? 600,
+    });
+  }
+
+  async moveToLevel(
+    applicantId: string,
+    levelName: string,
+    docSets?: any[],
+  ): Promise<any> {
+    if (process.env.SUMSUB_MOCK_MODE === 'true') {
+      return { ok: 1, levelName };
+    }
+    return this.post(
+      `/resources/applicants/${applicantId}/moveToLevel?name=${encodeURIComponent(levelName)}`,
+      docSets ? { docSets } : {},
+    );
+  }
+
   verifyWebhookSignature(
     rawBody?: Buffer,
     signature?: string,

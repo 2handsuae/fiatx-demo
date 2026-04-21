@@ -41,11 +41,12 @@ import { SafeguardingReconciliationModule } from './modules/clearing-settle/safe
 import { RiskEngineModule } from './modules/risk-engine/risk-engine.module';
 import { OnboardingModule } from './modules/identity/onboarding/onboarding.module';
 import { TransactionComplianceModule } from './modules/risk-engine/transaction-compliance/transaction-compliance.module';
-import { AuditLogsModule } from './modules/risk-engine/audit-logs/audit-logs.module';
-import { ComplianceAlertsModule } from './modules/risk-engine/compliance-alerts/compliance-alerts.module';
-import { ComplianceIncidentsModule } from './modules/risk-engine/compliance-incidents/compliance-incidents.module';
+import { AuditLogsModule } from './modules/audit-logging/audit-logs.module';
 import { GovernanceModule } from './modules/governance/governance.module';
 import { SumsubIngestionModule } from './modules/sumsub-ingestion/sumsub-ingestion.module';
+import { ClientRiskAssessmentModule } from './modules/identity/client-risk-assessment/client-risk-assessment.module';
+import { MaterialRefreshModule } from './modules/identity/material-refresh/material-refresh.module';
+import { ProfileBannersModule } from './modules/identity/profile-banners/profile-banners.module';
 
 @Module({
   imports: [
@@ -108,10 +109,11 @@ import { SumsubIngestionModule } from './modules/sumsub-ingestion/sumsub-ingesti
     TransactionComplianceModule,
     AuditLogsModule,
     GovernanceModule,
-    ComplianceAlertsModule,
-    ComplianceIncidentsModule,
     OnboardingModule,
     SumsubIngestionModule,
+    ClientRiskAssessmentModule,
+    MaterialRefreshModule,
+    ProfileBannersModule,
   ],
   controllers: [],
   providers: [],

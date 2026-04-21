@@ -47,19 +47,22 @@ interface ApprovalDetail {
   decisionReason?: string | null;
   createdAt: string;
   updatedAt: string;
-  step?: {
-    id: string;
-    approvalNo?: string | null;
-    stepNo: number;
-    status: string;
-    checkerRoleCandidates: string[];
-    decidedByUserNo?: string | null;
-    decidedByRole?: string | null;
-    reason?: string | null;
-    decidedAt?: string | null;
-    createdAt: string;
-    updatedAt: string;
-  } | null;
+  step?: ApprovalStepItem | null;
+  steps?: ApprovalStepItem[];
+}
+
+interface ApprovalStepItem {
+  id: string;
+  approvalNo?: string | null;
+  stepNo: number;
+  status: string;
+  checkerRoleCandidates: string[];
+  decidedByUserNo?: string | null;
+  decidedByRole?: string | null;
+  reason?: string | null;
+  decidedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
   evidencePackage?: {
     id: string;
     packageNo: string;
@@ -360,7 +363,8 @@ const ApprovalDetailPage = () => {
 
   /* ── Derived ── */
 
-  const hasStep              = !!detail.step;
+  const allSteps             = detail.steps || (detail.step ? [detail.step] : []);
+  const hasSteps             = allSteps.length > 0;
   const hasDecision          = !!(detail.decidedAt || detail.decisionByUserNo || detail.decisionReason);
 
   /**
@@ -553,32 +557,49 @@ const ApprovalDetailPage = () => {
             </div>
           </section>
 
-          {/* ④ Current Step */}
-          {hasStep && detail.step && (
+          {/* ④ Approval Steps */}
+          {hasSteps && (
             <section className="px-6 py-5">
-              <Cap>Current Step</Cap>
+              <Cap>Approval Steps</Cap>
               <p className="mt-1 mb-4 font-mono text-[9px] text-adm-t3">
-                Active checker step for this approval
+                Sequential sign-off chain — each step must be approved in order
               </p>
-              <div className="rounded border border-adm-border bg-adm-bg p-4">
-                <FieldGrid>
-                  <div>
-                    <p className="mb-1 font-mono text-[8.5px] uppercase tracking-[0.14em] text-adm-t3">
-                      Step Status
-                    </p>
-                    <AdminBadge value={detail.step.status} />
-                  </div>
-                  <Field label="Step No" value={String(detail.step.stepNo)} mono />
-                  <Field
-                    label="Checker Role Candidates"
-                    value={joinOrDash(detail.step.checkerRoleCandidates)}
-                    full
-                  />
-                  <Field label="Decided By" value={detail.step.decidedByUserNo} mono />
-                  <Field label="Decided Role" value={detail.step.decidedByRole} />
-                  <Field label="Decided At" value={fmt(detail.step.decidedAt)} mono />
-                  <Field label="Reason" value={detail.step.reason} full />
-                </FieldGrid>
+              <div className="space-y-3">
+                {allSteps.map((s) => {
+                  const isPending = s.status === 'PENDING';
+                  const isApproved = s.status === 'APPROVED';
+                  return (
+                    <div
+                      key={s.id}
+                      className={[
+                        'rounded border p-4',
+                        isPending
+                          ? 'border-adm-amber/40 bg-adm-amber/5'
+                          : isApproved
+                            ? 'border-adm-green/30 bg-adm-green/5'
+                            : 'border-adm-border bg-adm-bg',
+                      ].join(' ')}
+                    >
+                      <div className="flex items-center gap-3 mb-3">
+                        <span className="font-mono text-[10px] font-semibold text-adm-t2">
+                          Step {s.stepNo}
+                        </span>
+                        <AdminBadge value={s.status} />
+                        <span className="font-mono text-[10px] text-adm-t3">
+                          {joinOrDash(s.checkerRoleCandidates)}
+                        </span>
+                      </div>
+                      {(s.decidedByUserNo || s.decidedByRole || s.decidedAt || s.reason) && (
+                        <FieldGrid>
+                          <Field label="Decided By" value={s.decidedByUserNo} mono />
+                          <Field label="Decided Role" value={s.decidedByRole} />
+                          <Field label="Decided At" value={fmt(s.decidedAt)} mono />
+                          <Field label="Reason" value={s.reason} full />
+                        </FieldGrid>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </section>
           )}

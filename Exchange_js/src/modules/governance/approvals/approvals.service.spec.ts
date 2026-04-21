@@ -1,6 +1,6 @@
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { ApprovalsService } from './approvals.service';
-import { AuditActions } from '../../risk-engine/audit-logs/constants/audit-actions.constant';
+import { AuditActions } from '../../audit-logging/constants/audit-actions.constant';
 import {
   ApprovalActionTypes,
   ApprovalEvents,
@@ -58,7 +58,7 @@ const buildApproval = (overrides: Record<string, unknown> = {}) => ({
     },
   ],
   evidencePackage: null,
-  caseEvidencePackage: null,
+
   ...overrides,
 });
 
@@ -119,6 +119,7 @@ describe('ApprovalsService', () => {
       },
       approvalStep: {
         update: jest.fn(),
+        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
       },
       changeTicket: {
         findFirst: jest.fn(),
@@ -207,9 +208,11 @@ describe('ApprovalsService', () => {
           approvalNo: expect.stringMatching(/^APR\d{10}$/),
           createdByUserNo: actor.userNo,
           steps: {
-            create: expect.objectContaining({
-              approvalNo: expect.stringMatching(/^APR\d{10}$/),
-            }),
+            create: expect.arrayContaining([
+              expect.objectContaining({
+                approvalNo: expect.stringMatching(/^APR\d{10}$/),
+              }),
+            ]),
           },
         }),
       }),
@@ -313,8 +316,6 @@ describe('ApprovalsService', () => {
       expect.objectContaining({
         action: AuditActions.APPROVAL_SUBMITTED,
         workflowType: 'ADMIN_MEMBER_PROVISIONING',
-        workflowId: 'ticket-1',
-        workflowNo: 'CT2604010001',
         traceId: 'trace-ticket-1',
         subjectNos: expect.arrayContaining([
           expect.objectContaining({
@@ -429,8 +430,6 @@ describe('ApprovalsService', () => {
       expect.objectContaining({
         action: AuditActions.APPROVAL_SUBMITTED,
         workflowType: 'CHANGE_TICKET_DELETION',
-        workflowId: 'request-1',
-        workflowNo: 'DR2604010001',
         traceId: 'trace-request-1',
       }),
       expect.anything(),
@@ -577,8 +576,6 @@ describe('ApprovalsService', () => {
         action: AuditActions.APPROVAL_APPROVED,
         entityNo: 'APR2603140001',
         workflowType: 'ONBOARDING',
-        workflowId: 'ONB-1',
-        workflowNo: 'ONB-1',
         subjectNos: expect.arrayContaining([
           expect.objectContaining({
             subjectRole: 'RELATED',
@@ -655,9 +652,9 @@ describe('ApprovalsService', () => {
     expect(result.status).toBe(ApprovalStatuses.APPROVED);
     expect(auditLogsService.recordByActor).toHaveBeenCalledWith(
       expect.objectContaining({
-        metadata: expect.objectContaining({
-          superAdminBypass: true,
-        }),
+        action: AuditActions.APPROVAL_APPROVED,
+        result: 'SUCCESS',
+        metadata: expect.objectContaining({ superAdminBypass: true }),
       }),
       expect.anything(),
     );
@@ -843,5 +840,289 @@ describe('ApprovalsService', () => {
         approvalNo: 'APR2603140001',
       }),
     );
+  });
+
+  describe('multi-step approval', () => {
+    it('full 2-step dual-sign: MLRO approves step 1 → case PENDING, SENIOR approves step 2 → APPROVED', async () => {
+      // Mutable case record simulating DB state
+      let caseRecord: any = {
+        id: 'approval-ms-1',
+        approvalNo: 'APR2603140002',
+        actionType: ApprovalActionTypes.RISK_RATING_HIGH_APPROVAL,
+        entityRef: 'customer-ms-1',
+        createdByUserId: 'maker-ms-1',
+        createdByUserNo: 'USR-MAKER-MS-001',
+        status: ApprovalStatuses.PENDING,
+        executionStatus: ApprovalExecutionStatuses.NOT_EXECUTED,
+        riskLevel: 'HIGH',
+        checkerRoles: 'MLRO,SENIOR_MANAGEMENT_OFFICER',
+        selectedCheckerRole: 'MLRO',
+        allowCancel: true,
+        allowRetry: true,
+        docRef: null,
+        metadataJson: '{}',
+        traceId: 'trace-ms-1',
+        workflowType: null,
+        workflowId: null,
+        workflowNo: null,
+        createdAt: baseDate,
+        updatedAt: baseDate,
+        submittedAt: baseDate,
+        timeoutAt: new Date(baseDate.getTime() + 168 * 60 * 60 * 1000),
+        decidedAt: null,
+        executedAt: null,
+        decisionByUserId: null,
+        decisionByUserNo: null,
+        decisionByRole: null,
+        decisionReason: null,
+        evidencePackage: null,
+      
+        steps: [
+          {
+            id: 'step-ms-1',
+            approvalCaseId: 'approval-ms-1',
+            approvalNo: 'APR2603140002',
+            stepNo: 1,
+            status: ApprovalStatuses.PENDING,
+            checkerRoleCandidates: 'MLRO',
+            decidedByUserId: null,
+            decidedByUserNo: null,
+            decidedByRole: null,
+            reason: null,
+            decidedAt: null,
+            createdAt: baseDate,
+            updatedAt: baseDate,
+          },
+          {
+            id: 'step-ms-2',
+            approvalCaseId: 'approval-ms-1',
+            approvalNo: 'APR2603140002',
+            stepNo: 2,
+            status: ApprovalStatuses.PENDING,
+            checkerRoleCandidates: 'SENIOR_MANAGEMENT_OFFICER',
+            decidedByUserId: null,
+            decidedByUserNo: null,
+            decidedByRole: null,
+            reason: null,
+            decidedAt: null,
+            createdAt: baseDate,
+            updatedAt: baseDate,
+          },
+        ],
+      };
+
+      // Mock policy for dual-role
+      approvalPolicyService.getPolicy.mockResolvedValue({
+        actionType: ApprovalActionTypes.RISK_RATING_HIGH_APPROVAL,
+        riskLevel: 'HIGH',
+        checkerRoles: ['MLRO', 'SENIOR_MANAGEMENT_OFFICER'],
+        timeoutHours: 168,
+        allowCancel: true,
+        allowRetry: true,
+      });
+
+      // findUnique always returns latest caseRecord
+      prisma.approvalCase.findUnique.mockImplementation(async () => ({
+        ...caseRecord,
+        steps: caseRecord.steps.map((s: any) => ({ ...s })),
+      }));
+
+      // approvalStep.update mutates the corresponding step in caseRecord
+      prisma.approvalStep.update.mockImplementation(
+        async ({ where, data }: { where: any; data: any }) => {
+          const stepNo = where.approvalCaseId_stepNo?.stepNo;
+          const step = caseRecord.steps.find((s: any) => s.stepNo === stepNo);
+          if (step) Object.assign(step, data);
+          return step;
+        },
+      );
+
+      // approvalCase.update mutates caseRecord and returns it (used for final APPROVED update)
+      prisma.approvalCase.update.mockImplementation(
+        async ({ data }: { data: any }) => {
+          Object.assign(caseRecord, data);
+          return { ...caseRecord, steps: caseRecord.steps.map((s: any) => ({ ...s })) };
+        },
+      );
+
+      const mlroActor = {
+        actorType: 'ADMIN' as const,
+        userId: 'checker-mlro-1',
+        userNo: 'USR-MLRO-001',
+        role: 'MLRO',
+        roleCodes: ['MLRO'],
+      };
+
+      const seniorActor = {
+        actorType: 'ADMIN' as const,
+        userId: 'checker-senior-1',
+        userNo: 'USR-SENIOR-001',
+        role: 'SENIOR_MANAGEMENT_OFFICER',
+        roleCodes: ['SENIOR_MANAGEMENT_OFFICER'],
+      };
+
+      // Step 1: MLRO approves → case should still be PENDING (mid-flow)
+      const afterStep1 = await service.approve('approval-ms-1', { reason: 'MLRO sign-off' }, mlroActor);
+
+      expect(afterStep1.status).toBe(ApprovalStatuses.PENDING);
+      expect(caseRecord.steps[0].status).toBe(ApprovalStatuses.APPROVED);
+      expect(caseRecord.steps[1].status).toBe(ApprovalStatuses.PENDING);
+
+      // Step 2: SENIOR approves → case should be APPROVED (last step)
+      const afterStep2 = await service.approve('approval-ms-1', { reason: 'Senior sign-off' }, seniorActor);
+
+      expect(afterStep2.status).toBe(ApprovalStatuses.APPROVED);
+      expect(caseRecord.steps[1].status).toBe(ApprovalStatuses.APPROVED);
+      expect(caseRecord.status).toBe(ApprovalStatuses.APPROVED);
+
+      // Event emitted only once (after final approval)
+      expect(eventEmitter.emitAsync).toHaveBeenCalledWith(
+        ApprovalEvents.APPROVED,
+        expect.objectContaining({ approvalId: 'approval-ms-1' }),
+      );
+    });
+
+    it('reject on any step marks entire case REJECTED', async () => {
+      // Mutable case record simulating DB state
+      let caseRecord: any = {
+        id: 'approval-ms-2',
+        approvalNo: 'APR2603140003',
+        actionType: ApprovalActionTypes.PEP_RELATIONSHIP_APPROVAL,
+        entityRef: 'customer-ms-2',
+        createdByUserId: 'maker-ms-2',
+        createdByUserNo: 'USR-MAKER-MS-002',
+        status: ApprovalStatuses.PENDING,
+        executionStatus: ApprovalExecutionStatuses.NOT_EXECUTED,
+        riskLevel: 'HIGH',
+        checkerRoles: 'MLRO,SENIOR_MANAGEMENT_OFFICER',
+        selectedCheckerRole: 'MLRO',
+        allowCancel: true,
+        allowRetry: true,
+        docRef: null,
+        metadataJson: '{}',
+        traceId: 'trace-ms-2',
+        workflowType: null,
+        workflowId: null,
+        workflowNo: null,
+        createdAt: baseDate,
+        updatedAt: baseDate,
+        submittedAt: baseDate,
+        timeoutAt: new Date(baseDate.getTime() + 240 * 60 * 60 * 1000),
+        decidedAt: null,
+        executedAt: null,
+        decisionByUserId: null,
+        decisionByUserNo: null,
+        decisionByRole: null,
+        decisionReason: null,
+        evidencePackage: null,
+      
+        steps: [
+          {
+            id: 'step-ms-3',
+            approvalCaseId: 'approval-ms-2',
+            approvalNo: 'APR2603140003',
+            stepNo: 1,
+            status: ApprovalStatuses.PENDING,
+            checkerRoleCandidates: 'MLRO',
+            decidedByUserId: null,
+            decidedByUserNo: null,
+            decidedByRole: null,
+            reason: null,
+            decidedAt: null,
+            createdAt: baseDate,
+            updatedAt: baseDate,
+          },
+          {
+            id: 'step-ms-4',
+            approvalCaseId: 'approval-ms-2',
+            approvalNo: 'APR2603140003',
+            stepNo: 2,
+            status: ApprovalStatuses.PENDING,
+            checkerRoleCandidates: 'SENIOR_MANAGEMENT_OFFICER',
+            decidedByUserId: null,
+            decidedByUserNo: null,
+            decidedByRole: null,
+            reason: null,
+            decidedAt: null,
+            createdAt: baseDate,
+            updatedAt: baseDate,
+          },
+        ],
+      };
+
+      // Mock policy for PEP dual-role
+      approvalPolicyService.getPolicy.mockResolvedValue({
+        actionType: ApprovalActionTypes.PEP_RELATIONSHIP_APPROVAL,
+        riskLevel: 'HIGH',
+        checkerRoles: ['MLRO', 'SENIOR_MANAGEMENT_OFFICER'],
+        timeoutHours: 240,
+        allowCancel: true,
+        allowRetry: true,
+      });
+
+      // findUnique always returns latest caseRecord
+      prisma.approvalCase.findUnique.mockImplementation(async () => ({
+        ...caseRecord,
+        steps: caseRecord.steps.map((s: any) => ({ ...s })),
+      }));
+
+      // approvalStep.update mutates the corresponding step in caseRecord
+      prisma.approvalStep.update.mockImplementation(
+        async ({ where, data }: { where: any; data: any }) => {
+          const stepNo = where.approvalCaseId_stepNo?.stepNo;
+          const step = caseRecord.steps.find((s: any) => s.stepNo === stepNo);
+          if (step) Object.assign(step, data);
+          return step;
+        },
+      );
+
+      // approvalStep.updateMany cancels remaining pending steps
+      prisma.approvalStep.updateMany.mockImplementation(
+        async ({ where, data }: { where: any; data: any }) => {
+          let count = 0;
+          caseRecord.steps.forEach((s: any) => {
+            if (s.status === where.status) {
+              Object.assign(s, data);
+              count++;
+            }
+          });
+          return { count };
+        },
+      );
+
+      // approvalCase.update mutates caseRecord and returns it
+      prisma.approvalCase.update.mockImplementation(
+        async ({ data }: { data: any }) => {
+          Object.assign(caseRecord, data);
+          return { ...caseRecord, steps: caseRecord.steps.map((s: any) => ({ ...s })) };
+        },
+      );
+
+      const mlroActor = {
+        actorType: 'ADMIN' as const,
+        userId: 'checker-mlro-2',
+        userNo: 'USR-MLRO-002',
+        role: 'MLRO',
+        roleCodes: ['MLRO'],
+      };
+
+      // MLRO rejects step 1 → entire case REJECTED, step 2 CANCELLED
+      const result = await service.reject('approval-ms-2', { reason: 'PEP risk too high' }, mlroActor);
+
+      expect(result.status).toBe(ApprovalStatuses.REJECTED);
+      expect(caseRecord.steps[0].status).toBe(ApprovalStatuses.REJECTED);
+      expect(caseRecord.steps[1].status).toBe(ApprovalStatuses.CANCELLED);
+      expect(caseRecord.status).toBe(ApprovalStatuses.REJECTED);
+
+      expect(prisma.approvalStep.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ status: 'CANCELLED' }),
+        }),
+      );
+      expect(eventEmitter.emitAsync).toHaveBeenCalledWith(
+        ApprovalEvents.REJECTED,
+        expect.objectContaining({ approvalId: 'approval-ms-2' }),
+      );
+    });
   });
 });

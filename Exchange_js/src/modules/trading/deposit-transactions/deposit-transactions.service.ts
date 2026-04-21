@@ -19,14 +19,14 @@ import { TransactionComplianceService } from '../../risk-engine/transaction-comp
 import {
   TxSourceType,
 } from '../../risk-engine/transaction-compliance/types/tx-compliance.types';
-import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
+import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
   AuditActions,
   AuditEntityTypes,
   AuditModules,
   buildStateTransitionAction,
-} from '../../risk-engine/audit-logs/constants/audit-actions.constant';
-import { AuditTriggerType } from '../../risk-engine/audit-logs/dto/audit-log.dto';
+} from '../../audit-logging/constants/audit-actions.constant';
+import { AuditTriggerType } from '../../audit-logging/dto/audit-log.dto';
 
 type DepositWriteClient = Prisma.TransactionClient | PrismaService;
 
@@ -135,8 +135,6 @@ export class DepositTransactionsService {
         entityOwnerId: item.ownerId,
         traceId: options?.traceId || `TRANSACTION:${item.id}`,
         workflowType: options?.workflowType || 'TRANSACTION',
-        workflowId: options?.workflowId || item.id,
-        workflowNo: options?.workflowNo || item.depositNo || item.id,
         reason,
         metadata: {
           depositId: item.id,
@@ -534,8 +532,6 @@ export class DepositTransactionsService {
         entityOwnerId: updated.ownerId,
         traceId: options?.traceId || undefined,
         workflowType: options?.workflowType || 'DEPOSIT',
-        workflowId: options?.workflowId || undefined,
-        workflowNo: options?.workflowNo || undefined,
         statusFrom: currentStatus,
         statusTo: nextStatus,
         reason: options?.reason || dto.reason || `Action: ${action}`,

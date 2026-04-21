@@ -49,7 +49,7 @@ interface PeriodicReviewCycleSummary {
   resolutionReason?: string | null;
 }
 
-interface FinalApprovalSummary {
+interface RiskApprovalSummary {
   id: string;
   approvalNo: string;
   status: string;
@@ -78,12 +78,13 @@ interface CustomerDetailData {
   complianceHoldReason?: string | null;
   complianceHoldSetAt?: string | null;
   complianceHoldReleasedAt?: string | null;
+  riskTier?: string | null;
   amlRiskTier?: string | null;
   eddRequired?: boolean;
   cddDocumentExpiresAt?: string | null;
-  latestFinalApprovalId?: string | null;
-  latestFinalApprovalStatus?: string | null;
-  latestFinalApproval?: FinalApprovalSummary | null;
+  latestRiskApprovalId?: string | null;
+  latestRiskApprovalStatus?: string | null;
+  latestRiskApproval?: RiskApprovalSummary | null;
   nextReviewAt?: string | null;
   activePeriodicReviewCycleId?: string | null;
   periodicReviewOverdueAt?: string | null;
@@ -96,6 +97,19 @@ interface CustomerDetailData {
   updatedAt?: string | null;
   corporateProfile?: CorporateProfile | null;
   uboProfiles?: UboProfile[];
+  // Verification (Sumsub) snapshot
+  verificationProvider?: string | null;
+  verificationSubstatus?: string | null;
+  verificationCustomerActionRequired?: boolean;
+  verificationCanContinue?: boolean;
+  verificationLatestEventType?: string | null;
+  verificationLatestEventAt?: string | null;
+  sumsubApplicantId?: string | null;
+  sumsubCurrentLevelName?: string | null;
+  sumsubLatestReviewId?: string | null;
+  sumsubLatestAttemptId?: string | null;
+  sumsubExperiencedLevel2?: boolean;
+  onboardingTraceId?: string | null;
 }
 
 /* ── Helpers ─────────────────────────────────────────────────── */
@@ -203,6 +217,44 @@ const SidebarKV = ({
 
 /* ─────────────────────────────────────────────────────────────── */
 
+/* ── Material Holding (summary) ─────────────────────────────── */
+
+interface MaterialHoldingSummary {
+  id: string;
+  materialType: string;
+  status: string;
+  expiresAt?: string | null;
+  daysFromExpiry?: number | null;
+  activeRefreshCycle?: {
+    id: string;
+    cycleNo: string;
+  } | null;
+}
+
+/* ── DaysLeftCell (inline, compact) ─────────────────────────── */
+
+const DaysLeftCell = ({ days }: { days?: number | null }) => {
+  if (days === null || days === undefined) {
+    return <span className="font-mono text-[10px] text-adm-t3">—</span>;
+  }
+  if (days < 0) {
+    return (
+      <span className="font-mono text-[10px] font-bold text-adm-red">
+        {days}d (exp)
+      </span>
+    );
+  }
+  if (days < 7) {
+    return <span className="font-mono text-[10px] font-bold text-adm-red">{days}d</span>;
+  }
+  if (days <= 30) {
+    return <span className="font-mono text-[10px] font-semibold text-adm-amber">{days}d</span>;
+  }
+  return <span className="font-mono text-[10px] text-adm-t2">{days}d</span>;
+};
+
+/* ─────────────────────────────────────────────────────────────── */
+
 const CustomerDetail = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -212,6 +264,15 @@ const CustomerDetail = () => {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState<string | null>(null);
   const [controlAction, setControlAction] = useState<CustomerControlAction | null>(null);
+
+  /* ── Material holdings state ── */
+  const [holdings, setHoldings] = useState<MaterialHoldingSummary[]>([]);
+  const [tierSaving, setTierSaving] = useState(false);
+  const [tierMessage, setTierMessage] = useState<string | null>(null);
+
+  /* ── Risk Assessment trigger state ── */
+  const [assessmentLoading, setAssessmentLoading] = useState(false);
+  const [assessmentMessage, setAssessmentMessage] = useState<string | null>(null);
 
   /* ── Fetching ── */
 
@@ -254,6 +315,29 @@ const CustomerDetail = () => {
     return () => window.clearTimeout(t);
   }, [notice]);
 
+  /* Auto-dismiss tier message */
+  useEffect(() => {
+    if (!tierMessage) return undefined;
+    const t = window.setTimeout(
+      () => setTierMessage((c) => (c === tierMessage ? null : c)),
+      5000,
+    );
+    return () => window.clearTimeout(t);
+  }, [tierMessage]);
+
+  /* ── Load material holdings whenever customer id is available ── */
+  const fetchHoldings = (customerId: string) => {
+    adminFetch(`${import.meta.env.VITE_API_URL}/admin/material-management/holdings?customerId=${customerId}`)
+      .then((r) => r.json())
+      .then((d: { items?: MaterialHoldingSummary[] }) => setHoldings(d.items || []))
+      .catch(() => {});
+  };
+
+  useEffect(() => {
+    if (detail?.id) fetchHoldings(detail.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [detail?.id]);
+
   /* ── Derived booleans ── */
 
   const hasCorporate = useMemo(
@@ -279,10 +363,101 @@ const CustomerDetail = () => {
       !!detail?.periodicReviewOverdueAt,
     [detail],
   );
-  const hasFinalApproval = useMemo(
-    () => !!detail?.latestFinalApprovalId || !!detail?.latestFinalApproval,
+  const hasRiskApproval = useMemo(
+    () => !!detail?.latestRiskApprovalId || !!detail?.latestRiskApproval,
     [detail],
   );
+  const hasVerification = useMemo(
+    () =>
+      !!detail?.verificationProvider ||
+      !!detail?.verificationSubstatus ||
+      !!detail?.sumsubApplicantId,
+    [detail],
+  );
+
+  /* ── Tier simulation handlers ── */
+
+  const simulateTier = async (tier: 'LOW' | 'MEDIUM' | 'HIGH') => {
+    if (!detail) return;
+    setTierSaving(true);
+    try {
+      const res = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/admin/material-management/customers/${detail.id}/simulate-tier-change`,
+        { method: 'POST', body: JSON.stringify({ targetTier: tier }) },
+      );
+      const data = await res.json() as { ok?: boolean; previousTier?: string; newTier?: string; newLevel?: string };
+      if (data.ok) {
+        setTierMessage(`Tier changed: ${data.previousTier ?? '?'} → ${data.newTier ?? tier} (level: ${data.newLevel ?? '?'})`);
+        await fetchDetail();
+        if (detail?.id) fetchHoldings(detail.id);
+      } else {
+        setTierMessage('Simulate-tier-change returned ok=false');
+      }
+    } catch (err) {
+      setTierMessage('Failed: ' + (err instanceof Error ? err.message : String(err)));
+    } finally {
+      setTierSaving(false);
+    }
+  };
+
+  const simulatePepOrSanctions = async (type: 'PEP' | 'SANCTIONS') => {
+    if (!detail) return;
+    setTierSaving(true);
+    try {
+      // Step 1: Trigger assessment
+      await adminFetch(
+        `${import.meta.env.VITE_API_URL}/admin/compliance/customers/${detail.id}/risk-assessment/trigger`,
+        { method: 'POST', body: JSON.stringify({ reason: `Demo ${type} simulation` }) },
+      );
+
+      // Step 2: Simulate AML result
+      const labels = type === 'PEP' ? ['PEP_CLASS_1_DOMESTIC'] : ['SANCTIONS_UN'];
+      await adminFetch(
+        `${import.meta.env.VITE_API_URL}/admin/sumsub/simulate/aml-check-result`,
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            customerId: detail.id,
+            reviewAnswer: 'RED',
+            rejectLabels: labels,
+          }),
+        },
+      );
+
+      setTierMessage(
+        type === 'PEP'
+          ? 'PEP detected — customer RESTRICTED, dual-sign approval created'
+          : 'Sanctions hit — customer FROZEN',
+      );
+      await fetchDetail();
+      if (detail?.id) fetchHoldings(detail.id);
+    } catch (err) {
+      setTierMessage('Failed: ' + (err instanceof Error ? err.message : String(err)));
+    } finally {
+      setTierSaving(false);
+    }
+  };
+
+  /* ── Risk Assessment trigger handler ── */
+
+  const triggerAssessment = async () => {
+    if (!detail) return;
+    setAssessmentLoading(true);
+    setAssessmentMessage(null);
+    try {
+      const res = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/admin/compliance/customers/${detail.id}/risk-assessment/trigger`,
+        { method: 'POST', body: JSON.stringify({}) },
+      );
+      const data = await res.json();
+      setAssessmentMessage(`Assessment started: ${data.assessmentNo || data.id || 'OK'}`);
+      await fetchDetail();
+    } catch (e) {
+      setAssessmentMessage(`Failed: ${e instanceof Error ? e.message : 'Unknown error'}`);
+    } finally {
+      setAssessmentLoading(false);
+    }
+  };
 
   /* ── Loading / error stubs ── */
 
@@ -339,8 +514,8 @@ const CustomerDetail = () => {
 
   const name = displayName(detail);
   const isCorporate = detail.customerType === 'CORPORATE';
-  const finalApprovalStatus =
-    detail.latestFinalApprovalStatus || detail.latestFinalApproval?.status || null;
+  const riskApprovalStatus =
+    detail.latestRiskApprovalStatus || detail.latestRiskApproval?.status || null;
   const canRestrict = detail.restrictionStatus !== 'RESTRICTED';
   const canUnrestrict = detail.restrictionStatus === 'RESTRICTED';
   const canFreeze = detail.complianceHoldStatus !== 'FROZEN';
@@ -436,7 +611,7 @@ const CustomerDetail = () => {
                 <Field label="Operating Status" value={detail.operatingStatus ?? 'INACTIVE'} />
                 <Field label="Restriction Status" value={detail.restrictionStatus ?? 'CLEAR'} />
                 <Field label="Compliance Hold" value={detail.complianceHoldStatus ?? 'ACTIVE'} />
-                <Field label="AML Risk Tier" value={detail.amlRiskTier ?? undefined} />
+                <Field label="Risk Tier" value={detail.riskTier || detail.amlRiskTier || undefined} />
                 <Field label="EDD Required" value={detail.eddRequired ? 'YES' : 'NO'} />
                 <Field label="CDD Document Expires" value={fmt(detail.cddDocumentExpiresAt)} mono />
                 <Field label="Next Review" value={fmt(detail.nextReviewAt)} mono />
@@ -444,7 +619,63 @@ const CustomerDetail = () => {
             </div>
           </section>
 
-          {/* ④ Restriction detail — only when applicable */}
+          {/* ④ Verification (Sumsub) */}
+          {hasVerification && (
+            <section className="px-6 py-5">
+              <Cap>Verification</Cap>
+              <p className="mt-1 mb-4 font-mono text-[9px] text-adm-t3">
+                Identity provider snapshot — latest webhook event and SDK identifiers
+              </p>
+              <div className="mt-3 mb-4 flex flex-wrap items-center gap-2">
+                <AdminBadge value={detail.verificationSubstatus || 'CREATED'} />
+                {detail.sumsubExperiencedLevel2 && (
+                  <span className="inline-flex items-center rounded border border-adm-blue/25 bg-adm-blue/10 px-1.5 py-px font-mono text-[9px] text-adm-blue">
+                    EDD level2
+                  </span>
+                )}
+              </div>
+              <FieldGrid>
+                <Field label="Provider" value={detail.verificationProvider ?? undefined} />
+                <Field label="Current Level" value={detail.sumsubCurrentLevelName ?? undefined} />
+                <Field
+                  label="Latest Event"
+                  value={detail.verificationLatestEventType ?? undefined}
+                  mono
+                />
+                <Field
+                  label="Latest Event At"
+                  value={fmt(detail.verificationLatestEventAt)}
+                  mono
+                />
+                <Field
+                  label="Customer Action Required"
+                  value={
+                    detail.verificationCustomerActionRequired === undefined
+                      ? undefined
+                      : detail.verificationCustomerActionRequired
+                        ? 'YES'
+                        : 'NO'
+                  }
+                />
+                <Field
+                  label="Can Continue"
+                  value={
+                    detail.verificationCanContinue === undefined
+                      ? undefined
+                      : detail.verificationCanContinue
+                        ? 'YES'
+                        : 'NO'
+                  }
+                />
+                <Field label="Applicant ID" value={detail.sumsubApplicantId ?? undefined} mono />
+                <Field label="Latest Review ID" value={detail.sumsubLatestReviewId ?? undefined} mono />
+                <Field label="Latest Attempt ID" value={detail.sumsubLatestAttemptId ?? undefined} mono />
+                <Field label="Trace ID" value={detail.onboardingTraceId ?? undefined} mono full />
+              </FieldGrid>
+            </section>
+          )}
+
+          {/* ⑤ Restriction detail — only when applicable */}
           {hasRestriction && (
             <section className="px-6 py-5">
               <Cap>Restriction</Cap>
@@ -459,7 +690,7 @@ const CustomerDetail = () => {
             </section>
           )}
 
-          {/* ⑤ Compliance Hold detail — only when applicable */}
+          {/* ⑥ Compliance Hold detail — only when applicable */}
           {hasHold && (
             <section className="px-6 py-5">
               <Cap>Compliance Hold</Cap>
@@ -474,44 +705,44 @@ const CustomerDetail = () => {
             </section>
           )}
 
-          {/* ⑥ Final Approval (as linked card) */}
-          {hasFinalApproval && (
+          {/* ⑦ Risk Approval (as linked card) */}
+          {hasRiskApproval && (
             <section className="px-6 py-5">
-              <Cap>Final Approval</Cap>
+              <Cap>Risk Approval</Cap>
               <p className="mt-1 mb-4 font-mono text-[9px] text-adm-t3">
-                Latest onboarding final approval workflow
+                Latest onboarding risk approval workflow
               </p>
               <button
                 onClick={() =>
-                  navigate(`/dashboard/control-gates/approvals/${detail.latestFinalApprovalId}`)
+                  navigate(`/dashboard/control-gates/approvals/${detail.latestRiskApprovalId}`)
                 }
                 className="flex w-full items-center justify-between gap-3 rounded border border-adm-border bg-adm-bg px-4 py-2.5 text-left transition-colors hover:border-adm-bhi hover:bg-adm-hover"
               >
                 <div className="flex min-w-0 flex-col gap-0.5">
                   <span className="font-mono text-[8.5px] uppercase tracking-[0.14em] text-adm-t3">
-                    Onboarding Final Approval
+                    Onboarding Risk Approval
                   </span>
                   <span className="truncate font-mono text-[11px] font-semibold text-adm-amber">
-                    {detail.latestFinalApproval?.approvalNo || detail.latestFinalApprovalId}
+                    {detail.latestRiskApproval?.approvalNo || detail.latestRiskApprovalId}
                   </span>
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
-                  {finalApprovalStatus && <AdminBadge value={finalApprovalStatus} />}
+                  {riskApprovalStatus && <AdminBadge value={riskApprovalStatus} />}
                   <Link2 size={13} className="text-adm-t3" />
                 </div>
               </button>
-              {(detail.latestFinalApproval?.decidedAt ||
-                detail.latestFinalApproval?.decisionByRole) && (
+              {(detail.latestRiskApproval?.decidedAt ||
+                detail.latestRiskApproval?.decisionByRole) && (
                 <div className="mt-3">
                   <FieldGrid>
                     <Field
                       label="Decided At"
-                      value={fmt(detail.latestFinalApproval?.decidedAt)}
+                      value={fmt(detail.latestRiskApproval?.decidedAt)}
                       mono
                     />
                     <Field
                       label="Decided By Role"
-                      value={detail.latestFinalApproval?.decisionByRole ?? undefined}
+                      value={detail.latestRiskApproval?.decisionByRole ?? undefined}
                     />
                   </FieldGrid>
                 </div>
@@ -519,7 +750,7 @@ const CustomerDetail = () => {
             </section>
           )}
 
-          {/* ⑦ Periodic Review */}
+          {/* ⑧ Periodic Review */}
           {hasPeriodicReview && (
             <section className="px-6 py-5">
               <Cap>Periodic Review</Cap>
@@ -563,7 +794,27 @@ const CustomerDetail = () => {
             </section>
           )}
 
-          {/* ⑧ Investor Classification */}
+          {/* ⑨ Risk Assessment */}
+          <section className="px-6 py-5">
+            <Cap>Risk Assessment</Cap>
+            <p className="mt-1 mb-4 font-mono text-[9px] text-adm-t3">
+              Manually trigger a periodic risk assessment for this customer.
+            </p>
+            {assessmentMessage && (
+              <div className="mb-3 rounded border border-adm-green/30 bg-adm-green/10 px-3 py-2 font-mono text-[10px] text-adm-green">
+                {assessmentMessage}
+              </div>
+            )}
+            <button
+              disabled={assessmentLoading}
+              onClick={() => void triggerAssessment()}
+              className={adminButtonClass('simulationAction')}
+            >
+              {assessmentLoading ? 'Triggering...' : 'Start Risk Assessment'}
+            </button>
+          </section>
+
+          {/* Investor Classification */}
           <section className="px-6 py-5">
             <Cap>Investor Classification</Cap>
             <div className="mt-3">
@@ -579,7 +830,86 @@ const CustomerDetail = () => {
             </div>
           </section>
 
-          {/* ⑨ Corporate Profile (only for CORPORATE) */}
+          {/* ⑩ Material Holdings Summary */}
+          <section className="px-6 py-5">
+            <Cap>Material Holdings</Cap>
+            <p className="mt-1 mb-3 font-mono text-[9px] text-adm-t3">
+              Active KYC material holdings for this customer
+            </p>
+            {holdings.length === 0 ? (
+              <p className="font-mono text-[10px] text-adm-t3">No holdings found.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full border-collapse text-sm">
+                  <thead>
+                    <tr>
+                      {(['Material', 'Status', 'Expires', 'Days Left', 'Cycle'] as string[]).map((h) => (
+                        <th
+                          key={h}
+                          className="border-b border-adm-border bg-adm-panel px-3 py-1.5 text-left font-mono text-[8.5px] font-semibold uppercase tracking-[0.12em] text-adm-t3 whitespace-nowrap"
+                        >
+                          {h}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {holdings.map((h) => (
+                      <tr
+                        key={h.id}
+                        className="cursor-pointer border-b border-adm-border transition-colors hover:bg-adm-hover"
+                        onClick={() => navigate(`/dashboard/compliance/material-management/${h.id}`)}
+                      >
+                        <td className="px-3 py-2 font-mono text-[10px] text-adm-t2 whitespace-nowrap">
+                          {h.materialType}
+                        </td>
+                        <td className="px-3 py-2 whitespace-nowrap">
+                          <AdminBadge value={h.status} />
+                        </td>
+                        <td className="px-3 py-2 font-mono text-[10px] text-adm-t2 whitespace-nowrap">
+                          {h.expiresAt
+                            ? new Date(h.expiresAt).toLocaleDateString()
+                            : '—'}
+                        </td>
+                        <td className="px-3 py-2 whitespace-nowrap">
+                          <DaysLeftCell days={h.daysFromExpiry} />
+                        </td>
+                        <td className="px-3 py-2 font-mono text-[10px] whitespace-nowrap">
+                          {h.activeRefreshCycle ? (
+                            <button
+                              className={adminButtonClass('rowLink')}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                navigate(`/dashboard/compliance/material-management/${h.id}`);
+                              }}
+                            >
+                              {h.activeRefreshCycle.cycleNo} →
+                            </button>
+                          ) : (
+                            <span className="text-adm-t3">—</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            <div className="mt-3">
+              <button
+                className={adminButtonClass('rowLink')}
+                onClick={() =>
+                  navigate(
+                    `/dashboard/compliance/material-management?customerId=${detail.id}`,
+                  )
+                }
+              >
+                View All →
+              </button>
+            </div>
+          </section>
+
+          {/* ⑫ Corporate Profile (only for CORPORATE) */}
           {hasCorporate && detail.corporateProfile && (
             <section className="px-6 py-5">
               <Cap>Corporate Profile</Cap>
@@ -610,7 +940,7 @@ const CustomerDetail = () => {
             </section>
           )}
 
-          {/* ⑩ UBO List (only for CORPORATE) */}
+          {/* ⑪ UBO List (only for CORPORATE) */}
           {hasUbos && (
             <section className="px-6 py-5">
               <Cap>Ultimate Beneficial Owners</Cap>
@@ -717,9 +1047,25 @@ const CustomerDetail = () => {
             </div>
           </SidebarGroup>
 
+          {/* Verification */}
+          <SidebarGroup title="Verification">
+            <div className="flex items-center justify-between gap-2">
+              <span className="shrink-0 font-mono text-[9px] text-adm-t3">Substatus</span>
+              <AdminBadge value={detail.verificationSubstatus || 'CREATED'} />
+            </div>
+            <SidebarKV label="Level" value={detail.sumsubCurrentLevelName} mono />
+            <SidebarKV label="Provider" value={detail.verificationProvider} />
+            <SidebarKV label="Last Event" value={detail.verificationLatestEventType} mono />
+            <SidebarKV label="Updated" value={fmt(detail.verificationLatestEventAt)} mono />
+            <SidebarKV
+              label="EDD Level2"
+              value={detail.sumsubExperiencedLevel2 ? 'YES' : 'NO'}
+            />
+          </SidebarGroup>
+
           {/* Risk */}
           <SidebarGroup title="Risk">
-            <SidebarKV label="AML Tier" value={detail.amlRiskTier} />
+            <SidebarKV label="Risk Tier" value={detail.riskTier || detail.amlRiskTier} />
             <SidebarKV label="EDD Required" value={detail.eddRequired ? 'YES' : 'NO'} />
             <SidebarKV
               label="Investor"

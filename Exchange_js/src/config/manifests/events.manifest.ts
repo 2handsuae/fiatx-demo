@@ -119,7 +119,7 @@ export const DEFAULT_ACCT_EVENTS = [
     postingMode: 'TEMPLATE',
     clearingMode: 'NONE',
     isActive: true,
-    description: '兑换成功：消耗锁定(from) 并增加可用(to)',
+    description: '兑换成功：消耗锁定(from) + LP结算 + 净额增加可用(to) + 扣除手续费至收入',
   },
   // 8. Withdrawal Created
   {

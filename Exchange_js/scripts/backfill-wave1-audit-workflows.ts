@@ -3,7 +3,7 @@ import { randomUUID } from 'crypto';
 import {
   AuditActions,
   AuditBusinessWorkflowTypes,
-} from '../src/modules/risk-engine/audit-logs/constants/audit-actions.constant';
+} from '../src/modules/audit-logging/constants/audit-actions.constant';
 import { ApprovalActionTypes } from '../src/modules/governance/approvals/constants/approval.constants';
 import {
   ChangeTicketTypes,

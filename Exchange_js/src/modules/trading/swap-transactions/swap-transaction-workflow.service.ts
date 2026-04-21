@@ -1,13 +1,13 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../core/prisma/prisma.service';
-import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
+import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
   AuditEntityTypes,
   AuditModules,
   buildStateTransitionAction,
-} from '../../risk-engine/audit-logs/constants/audit-actions.constant';
-import { AuditTriggerType } from '../../risk-engine/audit-logs/dto/audit-log.dto';
+} from '../../audit-logging/constants/audit-actions.constant';
+import { AuditTriggerType } from '../../audit-logging/dto/audit-log.dto';
 import { JournalsService } from '../../accounting/journals/journals.service';
 import { OutstandingsService } from '../../clearing-settle/outstandings/outstandings.service';
 import { SwapTransactionStatus } from './dto/swap-transaction.dto';
@@ -375,8 +375,6 @@ export class SwapTransactionWorkflowService {
           entityNo: updated.swapNo || undefined,
           traceId: trace.traceId,
           workflowType: trace.workflowType,
-          workflowId: trace.workflowId,
-          workflowNo: trace.workflowNo,
           entityOwnerType: updated.ownerType,
           entityOwnerId: updated.ownerId,
           entityOwnerNo: updated.ownerNo || undefined,
@@ -405,8 +403,6 @@ export class SwapTransactionWorkflowService {
           entityNo: updated.swapNo || undefined,
           traceId: trace.traceId,
           workflowType: trace.workflowType,
-          workflowId: trace.workflowId,
-          workflowNo: trace.workflowNo,
           entityOwnerType: updated.ownerType,
           entityOwnerId: updated.ownerId,
           entityOwnerNo: updated.ownerNo || undefined,

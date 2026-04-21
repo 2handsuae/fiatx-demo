@@ -10,7 +10,7 @@ import {
 } from '../modules/trading/deposit-transactions/dto/deposit-transaction.dto';
 import { PayinStatus } from '../modules/asset-treasury/payins/dto/payin.dto';
 import { TransactionComplianceService } from '../modules/risk-engine/transaction-compliance/transaction-compliance.service';
-import { AuditActions } from '../modules/risk-engine/audit-logs/constants/audit-actions.constant';
+import { AuditActions } from '../modules/audit-logging/constants/audit-actions.constant';
 
 describe('DepositWorkflowService', () => {
   const mockDepositService = {

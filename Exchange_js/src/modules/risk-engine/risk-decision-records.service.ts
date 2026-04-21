@@ -8,17 +8,17 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../core/prisma/prisma.service';
 import { OnboardingService } from '../identity/onboarding/onboarding.service';
 import { PeriodicReviewService } from '../identity/periodic-review/periodic-review.service';
-import { AuditLogsService } from './audit-logs/audit-logs.service';
+import { AuditLogsService } from '../audit-logging/audit-logs.service';
 import {
   AuditActions,
   AuditEntityTypes,
   AuditModules,
   AuditWorkflowTypes,
-} from './audit-logs/constants/audit-actions.constant';
+} from '../audit-logging/constants/audit-actions.constant';
 import {
   AuditActorContext,
   AuditTriggerType,
-} from './audit-logs/dto/audit-log.dto';
+} from '../audit-logging/dto/audit-log.dto';
 import {
   getCanonicalReviewRuleForStage,
   getWorkflowFromSourceType,
@@ -274,8 +274,6 @@ export class RiskDecisionRecordsService {
     return {
       traceId: swap?.id ? `${AuditWorkflowTypes.SWAP}:${swap.id}` : undefined,
       workflowType: AuditWorkflowTypes.SWAP,
-      workflowId: swap?.id || swapId,
-      workflowNo: swap?.swapNo || undefined,
     };
   }
 
@@ -625,8 +623,6 @@ export class RiskDecisionRecordsService {
                 : contextType === 'TX_WITHDRAW_FINAL'
                   ? AuditWorkflowTypes.WITHDRAW
                 : AuditWorkflowTypes.TRANSACTION,
-            workflowId: record.subjectId || undefined,
-            workflowNo: undefined,
           };
 
     await this.auditLogsService.recordByActor(
@@ -640,8 +636,6 @@ export class RiskDecisionRecordsService {
         entityOwnerId: record.customerId || undefined,
         traceId: auditWorkflowContext.traceId,
         workflowType: auditWorkflowContext.workflowType,
-        workflowId: auditWorkflowContext.workflowId,
-        workflowNo: auditWorkflowContext.workflowNo,
         reason: `Manual ${body.riskLevel} simulation applied to ${contextType}`,
         metadata: {
           decisionRecordId: id,

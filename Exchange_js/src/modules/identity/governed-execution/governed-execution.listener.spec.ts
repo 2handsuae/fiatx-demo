@@ -21,6 +21,7 @@ describe('GovernedExecutionListener', () => {
   let listener: GovernedExecutionListener;
   let usersService: { executeAdminMemberProvisioning: jest.Mock };
   let accessControlService: { executeGovernedRoleBindingChange: jest.Mock };
+  let businessConfigService: { publishReleaseFromGovernance: jest.Mock };
 
   beforeEach(() => {
     usersService = {
@@ -29,9 +30,13 @@ describe('GovernedExecutionListener', () => {
     accessControlService = {
       executeGovernedRoleBindingChange: jest.fn().mockResolvedValue({ userId: 'user-1' }),
     };
+    businessConfigService = {
+      publishReleaseFromGovernance: jest.fn().mockResolvedValue(undefined),
+    };
     listener = new GovernedExecutionListener(
       usersService as any,
       accessControlService as any,
+      businessConfigService as any,
     );
   });
 

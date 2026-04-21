@@ -1,13 +1,13 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../core/prisma/prisma.service';
-import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
+import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
   AuditActions,
   AuditEntityTypes,
   AuditModules,
-} from '../../risk-engine/audit-logs/constants/audit-actions.constant';
-import { AuditTriggerType } from '../../risk-engine/audit-logs/dto/audit-log.dto';
+} from '../../audit-logging/constants/audit-actions.constant';
+import { AuditTriggerType } from '../../audit-logging/dto/audit-log.dto';
 import {
   DepositTransactionAction,
   DepositTransactionStatus,
@@ -96,8 +96,6 @@ export class TransactionDepositWorkflowService {
     return {
       traceId: `TRANSACTION:${deposit.id}`,
       workflowType: 'TRANSACTION',
-      workflowId: deposit.id,
-      workflowNo: deposit.depositNo || deposit.id,
     };
   }
 
@@ -143,8 +141,6 @@ export class TransactionDepositWorkflowService {
       entityOwnerId: deposit.ownerId || undefined,
       traceId: trace.traceId,
       workflowType: trace.workflowType,
-      workflowId: trace.workflowId,
-      workflowNo: trace.workflowNo,
       reason,
       metadata,
       sourcePlatform: input.actor?.sourcePlatform || 'SYSTEM',
@@ -262,8 +258,6 @@ export class TransactionDepositWorkflowService {
       actor: input.actor,
       traceId: trace.traceId,
       workflowType: trace.workflowType,
-      workflowId: trace.workflowId,
-      workflowNo: trace.workflowNo,
       reason:
         this.normalizeOptionalString(input.reason) ||
         `${input.source} ${input.workflowAction.toLowerCase()} transaction deposit`,

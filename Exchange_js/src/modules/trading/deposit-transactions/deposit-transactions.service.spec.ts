@@ -8,7 +8,7 @@ import {
 import { BadRequestException } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { TransactionComplianceService } from '../../risk-engine/transaction-compliance/transaction-compliance.service';
-import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
+import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 
 describe('DepositTransactionsService', () => {
   let service: DepositTransactionsService;

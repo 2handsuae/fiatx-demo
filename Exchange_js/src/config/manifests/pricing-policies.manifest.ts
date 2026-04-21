@@ -33,7 +33,7 @@ export type PricingPolicyManifestItem =
 
 const DEFAULT_ROUTING = {
   provider: 'LP_A' as const,
-  maxStalenessSec: 30,
+  maxStalenessSec: 60,
   quoteLockSeconds: 30,
   rounding: {
     dp: 8,

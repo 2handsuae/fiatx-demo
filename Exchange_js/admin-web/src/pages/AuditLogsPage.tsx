@@ -27,7 +27,6 @@ interface AuditLogItem {
   occurredAt: string;
   traceId?: string | null;
   workflowType?: string | null;
-  workflowNo?: string | null;
   subjectNos?: AuditSubjectNo[] | null;
 }
 
@@ -65,7 +64,6 @@ interface FilterState {
   actorNo: string;
   entityOwnerNo: string;
   traceId: string;
-  workflowNo: string;
   result: '' | AuditResult;
   startAt: string;
   endAt: string;
@@ -78,7 +76,6 @@ const DEFAULT_FILTERS: FilterState = {
   actorNo: '',
   entityOwnerNo: '',
   traceId: '',
-  workflowNo: '',
   result: '',
   startAt: '',
   endAt: '',
@@ -126,7 +123,6 @@ const AuditLogsPage = () => {
       params.set('entityOwnerNo', activeFilters.entityOwnerNo.trim());
     }
     if (activeFilters.traceId.trim()) params.set('traceId', activeFilters.traceId.trim());
-    if (activeFilters.workflowNo.trim()) params.set('workflowNo', activeFilters.workflowNo.trim());
     if (activeFilters.result) params.set('result', activeFilters.result);
 
     const startAt = toIsoString(activeFilters.startAt);
@@ -200,7 +196,6 @@ const AuditLogsPage = () => {
         maxItems: Math.max(selectedIds.length, 1),
       };
 
-      if (filters.workflowNo.trim()) payload.workflowNo = filters.workflowNo.trim();
       if (filters.actorNo.trim()) payload.actorNo = filters.actorNo.trim();
       if (filters.entityOwnerNo.trim()) payload.entityOwnerNo = filters.entityOwnerNo.trim();
       if (filters.traceId.trim()) payload.traceId = filters.traceId.trim();

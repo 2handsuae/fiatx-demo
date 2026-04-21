@@ -9,13 +9,13 @@ import {
 } from './constants/delete-request.constants';
 import { ChangeTicketStatuses } from '../change-tickets/constants/change-ticket.constants';
 import { DeleteRequestsService } from './delete-requests.service';
-import { sha256Hex } from '../../risk-engine/audit-logs/utils/audit-digest.util';
+import { sha256Hex } from '../../audit-logging/utils/audit-digest.util';
 import {
   AuditActions,
   AuditBusinessWorkflowTypes,
   AuditEntityTypes,
-} from '../../risk-engine/audit-logs/constants/audit-actions.constant';
-import { AuditSubjectRole } from '../../risk-engine/audit-logs/dto/audit-log.dto';
+} from '../../audit-logging/constants/audit-actions.constant';
+import { AuditSubjectRole } from '../../audit-logging/dto/audit-log.dto';
 
 const actor = {
   actorType: 'ADMIN' as const,
@@ -647,7 +647,6 @@ describe('DeleteRequestsService Task 3 contract', () => {
       expect(auditPayload).toMatchObject({
         action: AuditActions.DELETE_REQUEST_CREATED,
         workflowType: expectedWorkflowType,
-        workflowNo: result.requestNo,
         traceId: result.traceId,
       });
       expect(auditActor).toMatchObject({
@@ -1083,7 +1082,6 @@ describe('DeleteRequestsService Task 3 contract', () => {
     expect(auditPayload).toMatchObject({
       action: AuditActions.DELETE_REQUEST_CONSUMED,
       workflowType: AuditBusinessWorkflowTypes.CHANGE_TICKET_DELETION,
-      workflowNo: ready.requestNo,
       traceId: ready.traceId,
     });
     expect(auditActor).toMatchObject({

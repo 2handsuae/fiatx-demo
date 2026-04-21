@@ -8,13 +8,13 @@ import {
 import { OnEvent } from '@nestjs/event-emitter';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../core/prisma/prisma.service';
-import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
+import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
   AuditEntityTypes,
   AuditModules,
   AuditWorkflowTypes,
-} from '../../risk-engine/audit-logs/constants/audit-actions.constant';
-import { AuditTriggerType } from '../../risk-engine/audit-logs/dto/audit-log.dto';
+} from '../../audit-logging/constants/audit-actions.constant';
+import { AuditTriggerType } from '../../audit-logging/dto/audit-log.dto';
 import {
   ONBOARDING_WORKFLOW,
   buildComplianceWorkflowTraceContext,
@@ -39,9 +39,8 @@ interface FinalApprovalCustomerRow {
   operatingStatus?: string | null;
   restrictionStatus?: string | null;
   eddRequired?: boolean | null;
-  activeJourneyId?: string | null;
-  latestFinalApprovalId?: string | null;
-  latestFinalApprovalStatus?: string | null;
+  latestRiskApprovalId?: string | null;
+  latestRiskApprovalStatus?: string | null;
 }
 
 interface FinalApprovalSummary {
@@ -63,15 +62,17 @@ const FINAL_APPROVAL_CUSTOMER_SELECT = {
   operatingStatus: true,
   restrictionStatus: true,
   eddRequired: true,
-  activeJourneyId: true,
-  latestFinalApprovalId: true,
-  latestFinalApprovalStatus: true,
+  latestRiskApprovalId: true,
+  latestRiskApprovalStatus: true,
 } satisfies Prisma.CustomerMainSelect;
 
 @Injectable()
 export class OnboardingFinalApprovalService {
   private readonly logger = new Logger(OnboardingFinalApprovalService.name);
   private readonly auditLogsService: AuditLogsService;
+
+  /** Property-injected to avoid circular deps — set in module onModuleInit */
+  materialRefreshService?: { seedInitialHoldings: (customerId: string, levelName: string) => Promise<void> };
 
   constructor(
     private readonly prisma: PrismaService,
@@ -153,12 +154,12 @@ export class OnboardingFinalApprovalService {
     client: ApprovalWriteClient,
     customer: FinalApprovalCustomerRow,
   ) {
-    if (!customer.latestFinalApprovalId) {
+    if (!customer.latestRiskApprovalId) {
       return null;
     }
 
     return client.approvalCase.findUnique({
-      where: { id: customer.latestFinalApprovalId },
+      where: { id: customer.latestRiskApprovalId },
       select: {
         id: true,
         approvalNo: true,
@@ -191,19 +192,19 @@ export class OnboardingFinalApprovalService {
     });
   }
 
-  private buildLatestFinalApprovalBindingPatch(
+  private buildLatestRiskApprovalBindingPatch(
     approvalId?: string | null,
   ): Prisma.CustomerMainUpdateInput {
     if (approvalId) {
       return {
-        latestFinalApproval: {
+        latestRiskApproval: {
           connect: { id: approvalId },
         },
       };
     }
 
     return {
-      latestFinalApproval: {
+      latestRiskApproval: {
         disconnect: true,
       },
     };
@@ -239,8 +240,6 @@ export class OnboardingFinalApprovalService {
         entityNo: input.customerNo || undefined,
         traceId: traceContext?.traceId || undefined,
         workflowType: traceContext?.workflowType || AuditWorkflowTypes.ONBOARDING,
-        workflowId: traceContext?.workflowId || undefined,
-        workflowNo: traceContext?.workflowNo || undefined,
         entityOwnerType: 'CUSTOMER',
         entityOwnerId: input.customerId,
         entityOwnerNo: input.customerNo || undefined,
@@ -304,31 +303,26 @@ export class OnboardingFinalApprovalService {
       where: {
         customerId: customer.id,
         workflow: 'ONBOARDING',
-        ...(customer.activeJourneyId ? { journeyId: customer.activeJourneyId } : {}),
+        journeyId: customer.id,
       },
       orderBy: { createdAt: 'desc' },
       select: { id: true },
     });
 
+    const traceCtx = this.buildTraceContext(customer.id);
     const created = await this.approvalsService.createAndSubmit(
       {
         actionType: ApprovalActionTypes.ONBOARDING_FINAL_APPROVAL,
         entityRef: customer.id,
-        traceId: this.buildTraceContext(customer.activeJourneyId)?.traceId || undefined,
-        // All three workflow fields must be provided together or not at all.
-        // When activeJourneyId is absent (e.g. simulated flows), omit all three.
-        ...(customer.activeJourneyId
-          ? {
-              workflowType: ONBOARDING_WORKFLOW,
-              workflowId: customer.activeJourneyId,
-              workflowNo: customer.activeJourneyId,
-            }
-          : {}),
+        traceId: traceCtx?.traceId || undefined,
+        workflowType: ONBOARDING_WORKFLOW,
+        workflowId: customer.id,
+        workflowNo: customer.customerNo || customer.id,
         metadata: {
           source: 'WAVE3_PHASE4_ONBOARDING',
           customerId: customer.id,
           customerNo: customer.customerNo || null,
-          journeyId: customer.activeJourneyId || null,
+          journeyId: customer.id,
           currentEddResponseId: latestEddResponse?.id || null,
         },
       },
@@ -387,8 +381,8 @@ export class OnboardingFinalApprovalService {
       await tx.customerMain.update({
         where: { id: customer.id },
         data: {
-          ...this.buildLatestFinalApprovalBindingPatch(resolved.approval.id),
-          latestFinalApprovalStatus: resolved.approval.status,
+          ...this.buildLatestRiskApprovalBindingPatch(resolved.approval.id),
+          latestRiskApprovalStatus: resolved.approval.status,
         },
       });
 
@@ -396,7 +390,7 @@ export class OnboardingFinalApprovalService {
         where: {
           customerId: customer.id,
           workflow: 'ONBOARDING',
-          ...(customer.activeJourneyId ? { journeyId: customer.activeJourneyId } : {}),
+          journeyId: customer.id,
         },
         orderBy: { createdAt: 'desc' },
         select: { id: true },
@@ -412,7 +406,7 @@ export class OnboardingFinalApprovalService {
         reason,
         fromStage: 'FINAL_APPROVAL',
         toStage: 'FINAL_APPROVAL',
-        journeyId: customer.activeJourneyId || null,
+        journeyId: customer.id,
         detail: {
           approvalId: resolved.approval.id,
           approvalNo: resolved.approval.approvalNo,
@@ -505,8 +499,8 @@ export class OnboardingFinalApprovalService {
           operatingStatus: 'ACTIVE',
           eddRequired: true,
         }),
-        ...this.buildLatestFinalApprovalBindingPatch(event.approvalId),
-        latestFinalApprovalStatus: ApprovalStatuses.APPROVED,
+        ...this.buildLatestRiskApprovalBindingPatch(event.approvalId),
+        latestRiskApprovalStatus: ApprovalStatuses.APPROVED,
       };
     }
 
@@ -517,14 +511,14 @@ export class OnboardingFinalApprovalService {
           operatingStatus: 'INACTIVE',
           eddRequired: true,
         }),
-        ...this.buildLatestFinalApprovalBindingPatch(event.approvalId),
-        latestFinalApprovalStatus: ApprovalStatuses.REJECTED,
+        ...this.buildLatestRiskApprovalBindingPatch(event.approvalId),
+        latestRiskApprovalStatus: ApprovalStatuses.REJECTED,
       };
     }
 
     return {
-      ...this.buildLatestFinalApprovalBindingPatch(event.approvalId),
-      latestFinalApprovalStatus: status,
+      ...this.buildLatestRiskApprovalBindingPatch(event.approvalId),
+      latestRiskApprovalStatus: status,
     };
   }
 
@@ -568,8 +562,8 @@ export class OnboardingFinalApprovalService {
     }
 
     if (
-      customer.latestFinalApprovalId &&
-      customer.latestFinalApprovalId !== event.approvalId
+      customer.latestRiskApprovalId &&
+      customer.latestRiskApprovalId !== event.approvalId
     ) {
       return customer;
     }
@@ -595,7 +589,7 @@ export class OnboardingFinalApprovalService {
       await this.writeProjectionAudit(
         customer.id,
         customer.customerNo || null,
-        customer.activeJourneyId || null,
+        customer.id,
         auditAction,
         actor.userId,
         actor.role || 'SYSTEM',
@@ -614,6 +608,23 @@ export class OnboardingFinalApprovalService {
           actor,
           `Customer final approval projected as ${normalizedStatus}`,
         );
+
+        // Set riskTier based on level: level2 → HIGH, else → LOW
+        const level = updated.sumsubCurrentLevelName || 'wave3-level-1';
+        const defaultTier = level.includes('level-2') || level.includes('level2') ? 'HIGH' : 'LOW';
+        await this.prisma.customerMain.update({
+          where: { id: updated.id },
+          data: { riskTier: defaultTier, amlRiskTier: defaultTier, riskTierUpdatedAt: new Date() },
+        });
+
+        // Seed initial material holdings
+        if (this.materialRefreshService) {
+          try {
+            await this.materialRefreshService.seedInitialHoldings(updated.id, level);
+          } catch (err) {
+            this.logger.error(`Failed to seed holdings for ${updated.id}:`, err);
+          }
+        }
       }
 
       return updated;

@@ -34,6 +34,9 @@ export const adminFetch = async (
 
   const headers = new Headers(init.headers || {});
   headers.set('Authorization', `Bearer ${token}`);
+  if (init.body !== undefined && !headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json');
+  }
 
   const response = await fetch(input, {
     ...init,

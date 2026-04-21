@@ -43,7 +43,11 @@ interface FilterState {
   externalUserId: string;
 }
 
-type SimulationScenario =
+/* ── Simulation tabs & scenarios ────────────────────────────────── */
+
+type SimTab = 'onboarding' | 'material' | 'craSimulation' | 'ongoingMonitoring' | 'level2Simulation';
+
+type OnboardingScenario =
   | 'LOW_RISK_PASS'
   | 'MANUAL_REVIEW'
   | 'RESUBMIT_REQUIRED'
@@ -51,38 +55,54 @@ type SimulationScenario =
   | 'EDD_PASS'
   | 'WORKFLOW_FAIL';
 
-const SCENARIOS: { value: SimulationScenario; label: string; hint: string }[] = [
+type MaterialScenario = 'GREEN' | 'RED';
+
+const ONBOARDING_SCENARIOS: { value: OnboardingScenario; label: string; hint: string }[] = [
   {
     value: 'LOW_RISK_PASS',
-    label: '✅ Low risk — auto approve',
+    label: 'Low risk — auto approve',
     hint: 'applicantWorkflowCompleted (no level2) → APPROVED',
   },
   {
     value: 'MANUAL_REVIEW',
-    label: '🔍 Manual review required',
+    label: 'Manual review required',
     hint: 'applicantOnHold → substatus UNDER_REVIEW',
   },
   {
     value: 'RESUBMIT_REQUIRED',
-    label: '📄 Resubmission required',
+    label: 'Resubmission required',
     hint: 'applicantReviewed RED+RETRY → substatus RESUBMIT_REQUIRED',
   },
   {
     value: 'EDD_ESCALATE',
-    label: '⬆️ Escalate to EDD',
+    label: 'Escalate to EDD',
     hint: 'applicantLevelChanged level2 → sets sumsubExperiencedLevel2=true',
   },
   {
     value: 'EDD_PASS',
-    label: '✅ EDD passed — needs Final Approval',
+    label: 'EDD passed — needs Final Approval',
     hint: 'applicantWorkflowCompleted (with level2) → FINAL_APPROVAL (run EDD_ESCALATE first)',
   },
   {
     value: 'WORKFLOW_FAIL',
-    label: '❌ Workflow failed — rejected',
+    label: 'Workflow failed — rejected',
     hint: 'applicantWorkflowFailed → REJECTED',
   },
 ];
+
+const MATERIAL_SCENARIOS: { value: MaterialScenario; label: string; hint: string }[] = [
+  {
+    value: 'GREEN',
+    label: 'Customer submitted — accepted',
+    hint: 'applicantActionReviewed GREEN → cycle CLEARED, holding renewed',
+  },
+  {
+    value: 'RED',
+    label: 'Customer submitted — rejected',
+    hint: 'applicantActionReviewed RED → cycle stays PENDING for retry',
+  },
+];
+
 
 const PAGE_SIZE = 20;
 
@@ -112,10 +132,27 @@ export default function SumsubEventsPage() {
 
   // Simulation modal state
   const [showSimulate, setShowSimulate] = useState(false);
-  const [simCustomerId, setSimCustomerId] = useState('');
-  const [simScenario, setSimScenario] = useState<SimulationScenario>('LOW_RISK_PASS');
+  const [simTab, setSimTab] = useState<SimTab>('onboarding');
+  const [simCustomerNo, setSimCustomerNo] = useState('');
+  const [simCycleNo, setSimCycleNo] = useState('');
+  const [simOnboardingScenario, setSimOnboardingScenario] = useState<OnboardingScenario>('LOW_RISK_PASS');
+  const [simMaterialScenario, setSimMaterialScenario] = useState<MaterialScenario>('GREEN');
   const [simLoading, setSimLoading] = useState(false);
   const [simError, setSimError] = useState<string | null>(null);
+
+  // CRA simulation tab
+  const [craNo, setCraNo] = useState('');
+  const [craReviewAnswer, setCraReviewAnswer] = useState('GREEN');
+
+  // Ongoing monitoring tab
+  const [omCustomerNo, setOmCustomerNo] = useState('');
+  const [omHitType, setOmHitType] = useState('PEP_TIER_1');
+
+  // Level 2 simulation tab
+  const [l2CustomerNo, setL2CustomerNo] = useState('');
+
+  // Shared result display
+  const [simResult, setSimResult] = useState('');
 
   const fetchEvents = async (page: number, f: FilterState) => {
     setLoading(true);
@@ -171,25 +208,39 @@ export default function SumsubEventsPage() {
   };
 
   const handleSimulate = async () => {
-    if (!simCustomerId.trim()) { setSimError('Customer ID is required'); return; }
     setSimLoading(true);
     setSimError(null);
     try {
-      const response = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/sumsub-events/simulate`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ customerId: simCustomerId, scenario: simScenario }),
-        },
-      );
-      if (!response.ok) {
-        throw new Error(await getApiErrorMessage(response, 'Simulation failed.'));
+      if (simTab === 'onboarding') {
+        if (!simCustomerNo.trim()) { setSimError('Customer No is required'); setSimLoading(false); return; }
+        const response = await adminFetch(
+          `${import.meta.env.VITE_API_URL}/admin/sumsub-events/simulate`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ customerNo: simCustomerNo, scenario: simOnboardingScenario }),
+          },
+        );
+        if (!response.ok) throw new Error(await getApiErrorMessage(response, 'Simulation failed.'));
+        const res = await response.json();
+        setShowSimulate(false);
+        setSimCustomerNo('');
+        setMessage(`Simulated: ${res.event?.eventNo ?? 'OK'} (${res.event?.status ?? simOnboardingScenario})`);
+      } else if (simTab === 'material') {
+        if (!simCycleNo.trim()) { setSimError('Cycle No is required'); setSimLoading(false); return; }
+        const response = await adminFetch(
+          `${import.meta.env.VITE_API_URL}/admin/sumsub/simulate/applicant-action-result`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ cycleNo: simCycleNo, reviewAnswer: simMaterialScenario }),
+          },
+        );
+        if (!response.ok) throw new Error(await getApiErrorMessage(response, 'Simulation failed.'));
+        setShowSimulate(false);
+        setSimCycleNo('');
+        setMessage(`Material simulation: ${simMaterialScenario} for cycle ${simCycleNo}`);
       }
-      const res: { event: SumsubEventItem } = await response.json();
-      setShowSimulate(false);
-      setSimCustomerId('');
-      setMessage(`Simulated: ${res.event.eventNo} (${res.event.status})`);
       void fetchEvents(1, filters);
     } catch (e) {
       setSimError(e instanceof Error ? e.message : 'Simulation failed.');
@@ -380,7 +431,7 @@ export default function SumsubEventsPage() {
       {/* Simulation Modal */}
       {showSimulate && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="w-[520px] rounded-lg border border-adm-border bg-adm-panel shadow-xl">
+          <div className="w-[560px] rounded-lg border border-adm-border bg-adm-panel shadow-xl">
             {/* Modal header */}
             <div className="flex items-center justify-between border-b border-adm-border bg-adm-card px-5 py-3">
               <span className="font-mono text-[11px] font-semibold uppercase tracking-[0.1em] text-adm-t2">
@@ -394,76 +445,322 @@ export default function SumsubEventsPage() {
               </button>
             </div>
 
+            {/* Tabs */}
+            <div className="flex border-b border-adm-border bg-adm-card">
+              {([
+                { key: 'onboarding' as SimTab, label: 'Onboarding' },
+                { key: 'material' as SimTab, label: 'Material Refresh' },
+                { key: 'craSimulation' as SimTab, label: 'CRA Result' },
+                { key: 'ongoingMonitoring' as SimTab, label: 'Ongoing Monitoring' },
+                { key: 'level2Simulation' as SimTab, label: 'Level 2 Complete' },
+              ]).map((tab) => (
+                <button
+                  key={tab.key}
+                  onClick={() => { setSimTab(tab.key); setSimError(null); setSimResult(''); }}
+                  className={`flex-1 py-2.5 font-mono text-[11px] font-medium transition-colors ${
+                    simTab === tab.key
+                      ? 'border-b-2 border-adm-amber text-adm-amber'
+                      : 'text-adm-t3 hover:text-adm-t2'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+
             {/* Modal body */}
             <div className="space-y-4 p-5">
-              {/* Customer ID input */}
-              <div>
-                <label className="mb-1.5 block font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">
-                  Customer ID (internal cuid)
-                </label>
-                <input
-                  value={simCustomerId}
-                  onChange={(e) => setSimCustomerId(e.target.value)}
-                  placeholder="e.g. clxxxxx… or CUST-001"
-                  className="w-full rounded border border-adm-border bg-adm-bg px-3 py-1.5 font-mono text-[11px] text-adm-t1 placeholder:text-adm-t3 outline-none focus:border-adm-amber"
-                />
-              </div>
-
-              {/* Scenario selector */}
-              <div>
-                <label className="mb-1.5 block font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">
-                  Scenario
-                </label>
-                <div className="space-y-1.5">
-                  {SCENARIOS.map((s) => (
-                    <label
-                      key={s.value}
-                      className={`flex cursor-pointer items-start gap-2.5 rounded border px-3 py-2 transition-colors ${
-                        simScenario === s.value
-                          ? 'border-adm-amber bg-adm-amber/6'
-                          : 'border-adm-border bg-adm-bg hover:border-adm-bhi'
-                      }`}
-                    >
-                      <input
-                        type="radio"
-                        name="scenario"
-                        value={s.value}
-                        checked={simScenario === s.value}
-                        onChange={() => setSimScenario(s.value)}
-                        className="mt-0.5 shrink-0"
-                      />
-                      <div>
-                        <div className="font-mono text-[11px] text-adm-t1">{s.label}</div>
-                        <div className="mt-0.5 font-mono text-[9px] text-adm-t3">{s.hint}</div>
-                      </div>
-                    </label>
-                  ))}
+              {/* Identifier input — changes per tab */}
+              {simTab === 'onboarding' && (
+                <div>
+                  <label className="mb-1.5 block font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">
+                    Customer No
+                  </label>
+                  <input
+                    value={simCustomerNo}
+                    onChange={(e) => setSimCustomerNo(e.target.value)}
+                    placeholder="e.g. CU2604108406"
+                    className="w-full rounded border border-adm-border bg-adm-bg px-3 py-1.5 font-mono text-[11px] text-adm-t1 placeholder:text-adm-t3 outline-none focus:border-adm-amber"
+                  />
                 </div>
-              </div>
+              )}
+              {simTab === 'material' && (
+                <div>
+                  <label className="mb-1.5 block font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">
+                    Cycle No
+                  </label>
+                  <input
+                    value={simCycleNo}
+                    onChange={(e) => setSimCycleNo(e.target.value)}
+                    placeholder="e.g. MRC-2026-00001"
+                    className="w-full rounded border border-adm-border bg-adm-bg px-3 py-1.5 font-mono text-[11px] text-adm-t1 placeholder:text-adm-t3 outline-none focus:border-adm-amber"
+                  />
+                </div>
+              )}
+
+              {/* Scenario selector — onboarding / material */}
+              {(simTab === 'onboarding' || simTab === 'material') && (
+                <div>
+                  <label className="mb-1.5 block font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">
+                    Scenario
+                  </label>
+                  <div className="space-y-1.5">
+                    {simTab === 'onboarding' &&
+                      ONBOARDING_SCENARIOS.map((s) => (
+                        <label
+                          key={s.value}
+                          className={`flex cursor-pointer items-start gap-2.5 rounded border px-3 py-2 transition-colors ${
+                            simOnboardingScenario === s.value
+                              ? 'border-adm-amber bg-adm-amber/6'
+                              : 'border-adm-border bg-adm-bg hover:border-adm-bhi'
+                          }`}
+                        >
+                          <input
+                            type="radio"
+                            name="scenario"
+                            value={s.value}
+                            checked={simOnboardingScenario === s.value}
+                            onChange={() => setSimOnboardingScenario(s.value)}
+                            className="mt-0.5 shrink-0"
+                          />
+                          <div>
+                            <div className="font-mono text-[11px] text-adm-t1">{s.label}</div>
+                            <div className="mt-0.5 font-mono text-[9px] text-adm-t3">{s.hint}</div>
+                          </div>
+                        </label>
+                      ))}
+                    {simTab === 'material' &&
+                      MATERIAL_SCENARIOS.map((s) => (
+                        <label
+                          key={s.value}
+                          className={`flex cursor-pointer items-start gap-2.5 rounded border px-3 py-2 transition-colors ${
+                            simMaterialScenario === s.value
+                              ? 'border-adm-amber bg-adm-amber/6'
+                              : 'border-adm-border bg-adm-bg hover:border-adm-bhi'
+                          }`}
+                        >
+                          <input
+                            type="radio"
+                            name="scenario"
+                            value={s.value}
+                            checked={simMaterialScenario === s.value}
+                            onChange={() => setSimMaterialScenario(s.value)}
+                            className="mt-0.5 shrink-0"
+                          />
+                          <div>
+                            <div className="font-mono text-[11px] text-adm-t1">{s.label}</div>
+                            <div className="mt-0.5 font-mono text-[9px] text-adm-t3">{s.hint}</div>
+                          </div>
+                        </label>
+                      ))}
+                  </div>
+                </div>
+              )}
+
+              {/* CRA Simulation tab */}
+              {simTab === 'craSimulation' && (
+                <div className="space-y-4">
+                  <p className="font-mono text-[10px] text-adm-t3">
+                    Simulate Sumsub AML result for an existing <strong>PENDING_SUMSUB_RESULT</strong> assessment.
+                    Use after admin triggers a CRA via the Risk Assessments page.
+                  </p>
+                  <div>
+                    <label className="mb-1.5 block font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">Customer No</label>
+                    <input
+                      value={craNo}
+                      onChange={e => setCraNo(e.target.value)}
+                      placeholder="CU2604133584"
+                      className="w-full rounded border border-adm-border bg-adm-bg px-3 py-1.5 font-mono text-[11px] text-adm-t1 placeholder:text-adm-t3 outline-none focus:border-adm-amber"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1.5 block font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">Review Answer</label>
+                    <select
+                      value={craReviewAnswer}
+                      onChange={e => setCraReviewAnswer(e.target.value)}
+                      className="w-full rounded border border-adm-border bg-adm-bg px-3 py-1.5 font-mono text-[11px] text-adm-t1 outline-none focus:border-adm-amber"
+                    >
+                      <option value="GREEN">GREEN — no new risk</option>
+                      <option value="RED_PEP">RED + PEP_TIER_1</option>
+                      <option value="RED_ADVERSE">RED + ADVERSE_MEDIA</option>
+                      <option value="RED_SANCTIONS">RED + SANCTIONS_LIST</option>
+                    </select>
+                  </div>
+                  <button
+                    disabled={!craNo || simLoading}
+                    onClick={async () => {
+                      setSimLoading(true);
+                      setSimError(null);
+                      try {
+                        const labelMap: Record<string, string[]> = {
+                          GREEN: [],
+                          RED_PEP: ['PEP_TIER_1'],
+                          RED_ADVERSE: ['ADVERSE_MEDIA'],
+                          RED_SANCTIONS: ['SANCTIONS_LIST'],
+                        };
+                        const answer = craReviewAnswer === 'GREEN' ? 'GREEN' : 'RED';
+                        const res = await adminFetch(`${import.meta.env.VITE_API_URL}/admin/sumsub/simulate/aml-check-result`, {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({
+                            customerNo: craNo,
+                            reviewAnswer: answer,
+                            rejectLabels: labelMap[craReviewAnswer] ?? [],
+                          }),
+                        });
+                        setSimResult(JSON.stringify(await res.json(), null, 2));
+                      } catch (e) {
+                        setSimError(e instanceof Error ? e.message : 'Simulation failed.');
+                      } finally {
+                        setSimLoading(false);
+                      }
+                    }}
+                    className={adminButtonClass('modalConfirm')}
+                  >
+                    {simLoading ? 'Sending…' : 'Simulate AML Result'}
+                  </button>
+                </div>
+              )}
+
+              {/* Ongoing Monitoring tab */}
+              {simTab === 'ongoingMonitoring' && (
+                <div className="space-y-4">
+                  <p className="font-mono text-[10px] text-adm-t3">
+                    Simulate a Sumsub Ongoing Monitoring hit. Creates a new CRA directly from the RED result
+                    — no prior assessment needed.
+                  </p>
+                  <div>
+                    <label className="mb-1.5 block font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">Customer No</label>
+                    <input
+                      value={omCustomerNo}
+                      onChange={e => setOmCustomerNo(e.target.value)}
+                      placeholder="CU2604133584"
+                      className="w-full rounded border border-adm-border bg-adm-bg px-3 py-1.5 font-mono text-[11px] text-adm-t1 placeholder:text-adm-t3 outline-none focus:border-adm-amber"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1.5 block font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">Hit Type</label>
+                    <select
+                      value={omHitType}
+                      onChange={e => setOmHitType(e.target.value)}
+                      className="w-full rounded border border-adm-border bg-adm-bg px-3 py-1.5 font-mono text-[11px] text-adm-t1 outline-none focus:border-adm-amber"
+                    >
+                      <option value="PEP_TIER_1">PEP (Tier 1)</option>
+                      <option value="ADVERSE_MEDIA">Adverse Media</option>
+                      <option value="SANCTIONS_LIST">Sanctions</option>
+                    </select>
+                  </div>
+                  <button
+                    disabled={!omCustomerNo || simLoading}
+                    onClick={async () => {
+                      setSimLoading(true);
+                      setSimError(null);
+                      try {
+                        const res = await adminFetch(`${import.meta.env.VITE_API_URL}/admin/sumsub/simulate/risk-assessment-scenario`, {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({
+                            customerNo: omCustomerNo,
+                            reviewAnswer: 'RED',
+                            rejectLabels: [omHitType],
+                          }),
+                        });
+                        setSimResult(JSON.stringify(await res.json(), null, 2));
+                      } catch (e) {
+                        setSimError(e instanceof Error ? e.message : 'Simulation failed.');
+                      } finally {
+                        setSimLoading(false);
+                      }
+                    }}
+                    className={adminButtonClass('modalConfirm')}
+                  >
+                    {simLoading ? 'Sending…' : 'Simulate Monitoring Hit'}
+                  </button>
+                </div>
+              )}
+
+              {/* Level 2 Simulation tab */}
+              {simTab === 'level2Simulation' && (
+                <div className="space-y-4">
+                  <p className="font-mono text-[10px] text-adm-t3">
+                    Simulate customer completing the Sumsub Level 2 workflow.
+                    Use when customer is <strong>RESTRICTED</strong> with a <strong>PENDING_LEVEL2</strong> TierUpgradeCase.
+                  </p>
+                  <div>
+                    <label className="mb-1.5 block font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">Customer No</label>
+                    <input
+                      value={l2CustomerNo}
+                      onChange={e => setL2CustomerNo(e.target.value)}
+                      placeholder="CU2604133584"
+                      className="w-full rounded border border-adm-border bg-adm-bg px-3 py-1.5 font-mono text-[11px] text-adm-t1 placeholder:text-adm-t3 outline-none focus:border-adm-amber"
+                    />
+                  </div>
+                  <button
+                    disabled={!l2CustomerNo || simLoading}
+                    onClick={async () => {
+                      setSimLoading(true);
+                      setSimError(null);
+                      try {
+                        const res = await adminFetch(`${import.meta.env.VITE_API_URL}/admin/sumsub/simulate/level2-workflow-complete`, {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ customerNo: l2CustomerNo }),
+                        });
+                        setSimResult(JSON.stringify(await res.json(), null, 2));
+                      } catch (e) {
+                        setSimError(e instanceof Error ? e.message : 'Simulation failed.');
+                      } finally {
+                        setSimLoading(false);
+                      }
+                    }}
+                    className={adminButtonClass('modalConfirm')}
+                  >
+                    {simLoading ? 'Sending…' : 'Simulate Level 2 Complete'}
+                  </button>
+                </div>
+              )}
 
               {simError && (
                 <div className="rounded border border-adm-red/20 bg-adm-red/6 px-3 py-2 font-mono text-[11px] text-adm-red">
                   {simError}
                 </div>
               )}
+
+              {simResult && (
+                <div className="mt-2">
+                  <pre className="rounded border border-adm-border bg-adm-bg p-3 font-mono text-[10px] text-adm-t2 overflow-auto max-h-48">{simResult}</pre>
+                </div>
+              )}
             </div>
 
             {/* Modal footer */}
-            <div className="flex justify-end gap-2 border-t border-adm-border px-5 py-3">
-              <button
-                onClick={() => { setShowSimulate(false); setSimError(null); }}
-                className={adminButtonClass('modalCancel')}
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => void handleSimulate()}
-                disabled={simLoading}
-                className={adminButtonClass('modalConfirm')}
-              >
-                {simLoading ? 'Sending…' : 'Send Event'}
-              </button>
-            </div>
+            {(simTab === 'onboarding' || simTab === 'material') && (
+              <div className="flex justify-end gap-2 border-t border-adm-border px-5 py-3">
+                <button
+                  onClick={() => { setShowSimulate(false); setSimError(null); setSimResult(''); }}
+                  className={adminButtonClass('modalCancel')}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => void handleSimulate()}
+                  disabled={simLoading}
+                  className={adminButtonClass('modalConfirm')}
+                >
+                  {simLoading ? 'Sending…' : 'Send Event'}
+                </button>
+              </div>
+            )}
+            {(simTab === 'craSimulation' || simTab === 'ongoingMonitoring' || simTab === 'level2Simulation') && (
+              <div className="flex justify-end gap-2 border-t border-adm-border px-5 py-3">
+                <button
+                  onClick={() => { setShowSimulate(false); setSimError(null); setSimResult(''); }}
+                  className={adminButtonClass('modalCancel')}
+                >
+                  Close
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}

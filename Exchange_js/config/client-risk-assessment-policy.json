@@ -1,0 +1,31 @@
+{
+  "version": "1.0.0",
+  "effectiveFrom": "2026-04-09",
+  "assessmentFrequencyDays": {
+    "LOW": 90,
+    "MEDIUM": 90,
+    "HIGH": 90
+  },
+  "tierMappingRules": [
+    { "priority": 1, "condition": "labels_contains_SANCTIONS", "tier": "HIGH", "action": "ESCALATE_TO_SUMSUB_CASE", "immediateEffect": "FREEZE", "signoffMethod": "ESCALATED" },
+    { "priority": 2, "condition": "labels_contains_PEP", "tier": "HIGH", "action": "PEP_REVIEW", "immediateEffect": "RESTRICT", "signoffMethod": "DUAL_MLRO_SENIOR" },
+    { "priority": 3, "condition": "labels_contains_ADVERSE_MEDIA", "tier": "HIGH", "action": "MANUAL_REVIEW", "signoffMethod": "MANUAL_MLRO" },
+    { "priority": 4, "condition": "red_other", "tier": "KEEP_PREVIOUS", "action": "MANUAL_REVIEW", "signoffMethod": "MANUAL_MLRO" },
+    { "priority": 5, "condition": "any_required_material_stale", "tier": "UNKNOWN", "action": "REQUEST_REFRESH", "signoffMethod": "MANUAL_MLRO" },
+    { "priority": 6, "condition": "green_stable", "tier": "LOW", "action": "REAFFIRM", "signoffMethod": "AUTO_R2" }
+  ],
+  "signoffActionTypeMap": {
+    "MANUAL_COMPLIANCE_OFFICER": "RISK_RATING_MEDIUM_APPROVAL",
+    "MANUAL_MLRO": "RISK_RATING_MLRO_REVIEW",
+    "PHASE1_MLRO": "RISK_RATING_MLRO_REVIEW",
+    "DUAL_MLRO_SENIOR": "RISK_RATING_MLRO_REVIEW",
+    "TIER_UPGRADE_PHASE2": "RISK_RATING_TIER_UPGRADE_APPROVAL"
+  },
+  "tierLevelConstraint": {
+    "LOW": ["wave3-level-1"],
+    "MEDIUM": ["wave3-level-1", "wave3-level-2"],
+    "HIGH": ["wave3-level-2"]
+  },
+  "frozenCustomersSkipLevelSync": true,
+  "downgradeForbidden": true
+}

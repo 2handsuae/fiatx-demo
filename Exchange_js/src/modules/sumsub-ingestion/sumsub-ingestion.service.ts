@@ -7,6 +7,9 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../core/prisma/prisma.service';
 import { OnboardingService } from '../identity/onboarding/onboarding.service';
+import { ClientRiskAssessmentService } from '../identity/client-risk-assessment/client-risk-assessment.service';
+import { MaterialRefreshService } from '../identity/material-refresh/material-refresh.service';
+import { TierUpgradeCaseService } from '../identity/tier-upgrade-case/tier-upgrade-case.service';
 import { generateReferenceNo } from '../../common/utils/no-generator.util';
 import { SimulationScenario } from './dto/sumsub-ingestion.dto';
 import { SumsubWebhookEvent } from '@prisma/client';
@@ -21,6 +24,9 @@ export class SumsubIngestionService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly onboardingService: OnboardingService,
+    private readonly clientRiskAssessmentService: ClientRiskAssessmentService,
+    private readonly materialRefreshService: MaterialRefreshService,
+    private readonly tierUpgradeCaseService: TierUpgradeCaseService,
   ) {}
 
   // ─── Main entry point (real webhook + simulation both call this) ──────────
@@ -81,22 +87,102 @@ export class SumsubIngestionService {
       // rawPayload is stored as a JSON string in SQLite; parse it back to an object
       const payload = this.parseRawPayload(event.rawPayload);
       let result: unknown;
+      let dispatchedContext = event.context;
 
-      // Route by context — currently only ONBOARDING is implemented.
-      // Add PERIODIC_REVIEW and TRANSACTION cases here when those handlers are ready.
-      if (event.context === 'ONBOARDING') {
-        result = await this.onboardingService.handleSumsubVerificationEvent(payload, {
-          simulated: event.isSimulated,
-          // When simulated, actorId must be the customer's ID (externalUserId) so the
-          // onboarding service can locate the customer. The admin who triggered the
-          // simulation is tracked separately via simulatedByUserId on the event record.
-          actorId: event.isSimulated
-            ? (event.externalUserId || event.simulatedByUserId || 'ADMIN_SIM')
-            : 'SUMSUB',
-          rawBody: Buffer.from(JSON.stringify(payload)),
+      const reviewMode = String(payload.reviewMode ?? '');
+      const inspectionId = String(payload.inspectionId ?? '');
+      const actionId = String(payload.actionId ?? '');
+      const applicantId = String(payload.applicantId ?? '');
+      const reviewResult = (payload.reviewResult ?? null) as {
+        reviewAnswer: 'GREEN' | 'RED';
+        rejectLabels?: string[];
+        reviewRejectType?: string;
+      } | null;
+
+      // Clue 1: explicit reviewMode → ongoing doc monitoring
+      if (reviewMode === 'ongoingDocExpired') {
+        result = await this.materialRefreshService.handleSumsubDocMonitoringFire({ applicantId });
+        dispatchedContext = 'MATERIAL_REFRESH_MONITORING';
+      }
+      // Clue 2: inspectionId matches pending ClientRiskAssessment
+      else if (inspectionId && reviewResult) {
+        const pendingAssessment = await this.prisma.clientRiskAssessment.findFirst({
+          where: { sumsubAmlCheckInspectionId: inspectionId, status: 'PENDING_SUMSUB_RESULT' },
         });
-      } else {
-        throw new Error(`No handler registered for context: ${event.context}`);
+        if (pendingAssessment) {
+          result = await this.clientRiskAssessmentService.handleSumsubAmlResult(inspectionId, reviewResult);
+          dispatchedContext = 'AML_ASSESSMENT';
+        }
+      }
+      // Clue 3: actionId matches pending MaterialRefreshCycle
+      if (!result && actionId && reviewResult) {
+        const pendingCycle = await this.prisma.materialRefreshCycle.findFirst({
+          where: { sumsubActionId: actionId, status: { in: ['PENDING_CUSTOMER_EVIDENCE', 'PENDING_SUMSUB_REVIEW'] } },
+        });
+        if (pendingCycle) {
+          result = await this.materialRefreshService.handleSumsubActionResult({ actionId, reviewResult });
+          dispatchedContext = 'MATERIAL_REFRESH_ACTION';
+        }
+      }
+      // Clues 4 & 5: look up customer by applicantId
+      if (!result && applicantId) {
+        const customer = await this.prisma.customerMain.findFirst({
+          where: { sumsubApplicantId: applicantId },
+        });
+        if (customer) {
+          // Clue 4: still in onboarding → delegate to onboarding service
+          if (customer.onboardingStatus === 'PENDING_VERIFICATION') {
+            result = await this.onboardingService.handleSumsubVerificationEvent(payload, {
+              simulated: event.isSimulated,
+              actorId: event.isSimulated
+                ? (event.externalUserId || event.simulatedByUserId || 'ADMIN_SIM')
+                : 'SUMSUB',
+              simulatedByUserId: event.simulatedByUserId || null,
+              rawBody: Buffer.from(JSON.stringify(payload)),
+            });
+            dispatchedContext = 'ONBOARDING';
+          }
+          // Clue 4.5: APPROVED + RESTRICTED + applicantWorkflowCompleted → Level 2 completed
+          // handleLevel2WorkflowComplete is idempotent: it returns early if no PENDING_LEVEL2 case exists
+          else if (
+            customer.onboardingStatus === 'APPROVED' &&
+            customer.restrictionStatus === 'RESTRICTED' &&
+            event.eventType === 'applicantWorkflowCompleted'
+          ) {
+            await this.tierUpgradeCaseService.handleLevel2WorkflowComplete(customer.id);
+            result = { handled: 'tier_upgrade_level2_complete' };
+            dispatchedContext = 'TIER_UPGRADE';
+          }
+          // Clue 5: APPROVED + spontaneous AML RED → create assessment from known result (no extra API call)
+          else if (
+            customer.onboardingStatus === 'APPROVED' &&
+            event.eventType === 'applicantReviewed' &&
+            reviewResult?.reviewAnswer === 'RED'
+          ) {
+            await this.clientRiskAssessmentService.recordAssessmentFromKnownAmlResult({
+              customerId: customer.id,
+              triggerType: 'SUMSUB_AML_HIT',
+              knownAmlResult: {
+                reviewAnswer: reviewResult.reviewAnswer,
+                rejectLabels: reviewResult.rejectLabels || [],
+                inspectionId: inspectionId || undefined,
+              },
+              snapshot: payload,
+            });
+            result = { handled: 'spontaneous_aml_hit' };
+            dispatchedContext = 'AML_ASSESSMENT';
+          } else {
+            this.logger.warn('unrouted_sumsub_webhook', {
+              applicantId,
+              type: event.eventType,
+              customerStatus: customer.onboardingStatus,
+            });
+          }
+        } else {
+          this.logger.warn('unrouted_webhook_no_customer', { applicantId });
+        }
+      } else if (!result) {
+        this.logger.warn('unrouted_webhook_no_applicant_id', { eventType: event.eventType });
       }
 
       await this.prisma.sumsubWebhookEvent.update({
@@ -104,7 +190,7 @@ export class SumsubIngestionService {
         data: {
           status: 'PROCESSED',
           processedAt: new Date(),
-          dispatchedTo: event.context,
+          dispatchedTo: dispatchedContext,
         },
       });
 
@@ -138,16 +224,28 @@ export class SumsubIngestionService {
   // ─── Simulation: build payload for each scenario ─────────────────────────
 
   async simulate(
-    customerId: string,
+    customerId: string | undefined,
     scenario: SimulationScenario,
     simulatedByUserId: string,
     overrides?: Record<string, unknown>,
+    customerNo?: string,
   ): Promise<{ event: SumsubWebhookEvent; dispatchResult?: unknown }> {
-    const customer = await this.prisma.customerMain.findUnique({
-      where: { id: customerId },
-      select: { id: true, customerNo: true, sumsubApplicantId: true },
-    });
-    if (!customer) throw new NotFoundException(`Customer ${customerId} not found`);
+    let customer: { id: string; customerNo: string | null; sumsubApplicantId: string | null } | null = null;
+    if (customerNo) {
+      customer = await this.prisma.customerMain.findFirst({
+        where: { customerNo },
+        select: { id: true, customerNo: true, sumsubApplicantId: true },
+      });
+      if (!customer) throw new NotFoundException(`Customer with No ${customerNo} not found`);
+    } else if (customerId) {
+      customer = await this.prisma.customerMain.findUnique({
+        where: { id: customerId },
+        select: { id: true, customerNo: true, sumsubApplicantId: true },
+      });
+      if (!customer) throw new NotFoundException(`Customer ${customerId} not found`);
+    } else {
+      throw new BadRequestException('Either customerId or customerNo is required');
+    }
 
     // Only include applicantId if customer already has a real one.
     // Without it, the webhook handler falls through to externalUserId lookup.

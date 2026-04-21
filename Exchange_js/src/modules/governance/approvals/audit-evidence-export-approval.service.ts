@@ -1,21 +1,21 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { PrismaService } from '../../../core/prisma/prisma.service';
-import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
+import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
   AuditActions,
   AuditBusinessWorkflowTypes,
   AuditEntityTypes,
   AuditModules,
-} from '../../risk-engine/audit-logs/constants/audit-actions.constant';
+} from '../../audit-logging/constants/audit-actions.constant';
 import {
   AuditEvidencePackageStatus,
   AuditResult,
   AuditSubjectRole,
   AuditTriggerType,
   ExportEvidencePackageDto,
-} from '../../risk-engine/audit-logs/dto/audit-log.dto';
-import { sha256Hex } from '../../risk-engine/audit-logs/utils/audit-digest.util';
+} from '../../audit-logging/dto/audit-log.dto';
+import { sha256Hex } from '../../audit-logging/utils/audit-digest.util';
 import { ApprovalsService } from './approvals.service';
 import {
   ApprovalActorContext,
@@ -176,8 +176,6 @@ export class AuditEvidenceExportApprovalService {
         entityId: evidencePackage.id,
         entityNo: evidencePackage.packageNo,
         workflowType: AuditBusinessWorkflowTypes.AUDIT_EVIDENCE_EXPORT,
-        workflowId: evidencePackage.id,
-        workflowNo: evidencePackage.packageNo,
         traceId: submitted.traceId,
         result: AuditResult.SUCCESS,
         reason: `Evidence export request ${evidencePackage.packageNo} created`,
@@ -187,6 +185,13 @@ export class AuditEvidenceExportApprovalService {
           exportMode: evidencePackage.exportMode,
           itemCount: selection.itemCount,
           workflowSummary: selection.workflowSummary,
+          ...(submitted.id
+            ? {
+                parentEntityType: 'APPROVAL_CASE',
+                parentEntityId: submitted.id,
+                parentEntityNo: submitted.approvalNo || null,
+              }
+            : {}),
         },
         subjectNos: this.buildApprovalRelatedSubjects(
           evidencePackage.id,
@@ -239,8 +244,6 @@ export class AuditEvidenceExportApprovalService {
         entityId: found.id,
         entityNo: found.packageNo,
         workflowType: AuditBusinessWorkflowTypes.AUDIT_EVIDENCE_EXPORT,
-        workflowId: found.id,
-        workflowNo: found.packageNo,
         traceId: this.normalizeOptionalString(found.approvalCase?.traceId) || undefined,
         result: AuditResult.SUCCESS,
         reason: `Evidence package ${found.packageNo} downloaded`,
@@ -248,6 +251,13 @@ export class AuditEvidenceExportApprovalService {
           approvalCaseId: found.approvalCaseId,
           approvalNo: this.normalizeOptionalString(found.approvalCase?.approvalNo),
           fileName: found.fileName || null,
+          ...(found.approvalCase
+            ? {
+                parentEntityType: 'APPROVAL_CASE',
+                parentEntityId: found.approvalCase.id,
+                parentEntityNo: found.approvalCase.approvalNo,
+              }
+            : {}),
         },
         subjectNos: this.buildApprovalRelatedSubjects(
           found.id,
@@ -344,8 +354,6 @@ export class AuditEvidenceExportApprovalService {
           entityId: evidencePackage.id,
           entityNo: evidencePackage.packageNo,
           workflowType: AuditBusinessWorkflowTypes.AUDIT_EVIDENCE_EXPORT,
-          workflowId: evidencePackage.id,
-          workflowNo: evidencePackage.packageNo,
           result: AuditResult.SUCCESS,
           reason: `Exported ${artifacts.itemCount} audit logs after approval`,
           traceId: event.traceId,
@@ -354,6 +362,13 @@ export class AuditEvidenceExportApprovalService {
             itemCount: artifacts.itemCount,
             exportMode: evidencePackage.exportMode,
             approvalId: event.approvalId,
+            ...(event.approvalId
+              ? {
+                  parentEntityType: 'APPROVAL_CASE',
+                  parentEntityId: event.approvalId,
+                  parentEntityNo: this.normalizeOptionalString(event.approvalNo),
+                }
+              : {}),
           },
           requestId: `EXPORT_${evidencePackage.packageNo}`,
           sourcePlatform: 'ADMIN_API',

@@ -26,17 +26,18 @@ Source of Truth Level: specs-module
 - historical aliases / retired names
 - `MUST call` / `MUST NOT call directly`
 
+## Archived Modules (2026-04-11)
+The following module specs have been moved to `docs/archived/`:
+- `compliance-center-module.md`, `risk-engine-module.md` — Wave 2 → Sumsub
+- `periodic-review-module.md` — replaced by `wave3-layer2-risk-assessment.md` / `wave3-layer3-material-refresh.md`
+- `audit-logging-technical-doc.md`, `audit-logging-product-doc.md` — replaced by `docs/constraints/audit-trace-context-constraints.md`
+
 ## Current Module Specs
 - `docs/specs/modules/governance-control-foundation-module.md`
 - `docs/specs/modules/rbac-member-management-module.md`
-- `docs/specs/modules/compliance-center-module.md`
-- `docs/specs/modules/risk-engine-module.md`
 - `docs/specs/modules/customer-onboarding-module.md`
-- `docs/specs/modules/periodic-review-module.md`
 - `docs/specs/modules/approvals-module.md`
 - `docs/specs/modules/audit-logging-module.md`
-- `docs/specs/modules/audit-logging-product-doc.md`
-- `docs/specs/modules/audit-logging-technical-doc.md`
 - `docs/specs/modules/accounting-ledger-module.md`
 - `docs/specs/modules/pricing-center-module.md`
 - `docs/specs/modules/asset-treasury-foundation-module.md`

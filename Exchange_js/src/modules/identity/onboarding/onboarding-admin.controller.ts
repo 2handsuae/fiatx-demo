@@ -19,8 +19,6 @@ import { RequirePermissions } from '../access-control/require-permissions.decora
 import { OnboardingService } from './onboarding.service';
 import { RiskDecisionRecordsService } from '../../risk-engine/risk-decision-records.service';
 import {
-  ApplyOnboardingAlertDecisionDto,
-  ApplyOnboardingCaseProposalDto,
   DecisionRecordQueryDto,
   UpdateInvestorClassificationDto,
 } from './dto/onboarding.dto';
@@ -141,23 +139,6 @@ export class OnboardingAdminController {
   getEddResponseDetail(@Req() req: any, @Param('id') id: string) {
     this.getAdminActor(req);
     return this.onboardingService.getEddResponseDetail(id);
-  }
-
-  @Post('cases/:id/onboarding-decision')
-  @RequirePermissions(buildPermissionCode('POST', '/admin/compliance/cases/:id/onboarding-decision'))
-  @ApiOperation({ summary: 'Apply onboarding decision from assigned onboarding case' })
-  async applyOnboardingDecisionFromCase(
-    @Req() req: any,
-    @Param('id') id: string,
-    @Body(new ValidationPipe({ transform: true })) body: ApplyOnboardingCaseProposalDto,
-  ) {
-    const actor = this.getAdminActor(req);
-    return this.onboardingService.applyOnboardingDecisionFromIncident(
-      id,
-      actor.actorId,
-      actor.actorRole,
-      body,
-    );
   }
 
   // Decision records are the canonical risk-execution read model. The legacy

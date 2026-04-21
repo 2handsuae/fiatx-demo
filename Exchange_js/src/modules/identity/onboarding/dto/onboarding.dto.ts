@@ -173,37 +173,6 @@ export class ReviewEddResponseDto {
   reason?: string;
 }
 
-export class ApplyOnboardingAlertDecisionDto {
-  @IsString()
-  @IsIn(['CLEAR', 'REJECT', 'REQUIRE_EDD'])
-  decision!: 'CLEAR' | 'REJECT' | 'REQUIRE_EDD';
-
-  @IsOptional()
-  @IsString()
-  @IsIn(['FALSE_POSITIVE'])
-  alertOutcome?: 'FALSE_POSITIVE';
-
-  @IsOptional()
-  @IsString()
-  reason?: string;
-}
-
-export class ApplyOnboardingCaseProposalDto {
-  @IsOptional()
-  @IsString()
-  @IsIn(['CLEAR', 'REJECT', 'REQUIRE_EDD'])
-  decision?: 'CLEAR' | 'REJECT' | 'REQUIRE_EDD';
-
-  @IsOptional()
-  @IsString()
-  @IsIn(['CLEAR', 'REJECT', 'REQUIRE_EDD'])
-  proposalCode?: 'CLEAR' | 'REJECT' | 'REQUIRE_EDD';
-
-  @IsOptional()
-  @IsString()
-  reason?: string;
-}
-
 export class FinalReviewCustomerDto {
   @IsString()
   @IsIn(['APPROVE', 'REJECT'])

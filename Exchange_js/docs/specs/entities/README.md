@@ -20,6 +20,12 @@ Source of Truth Level: specs-entity
 - write owners
 - read-model outputs
 
+## Archived Entities (2026-04-11)
+The following entity specs have been moved to `docs/archived/`:
+- `compliance-alert-entity.md`, `compliance-case-entity.md`, `compliance-case-report-entity.md`, `compliance-external-filing-entity.md`, `risk-decision-record-entity.md` — Wave 2 → Sumsub
+- `periodic-review-cycle-entity.md` — replaced by `wave3-layer2-risk-assessment.md` / `wave3-layer3-material-refresh.md`
+- `approval-case-entity.md`, `audit-log-event-entity.md` — replaced by `docs/constraints/audit-trace-context-constraints.md`
+
 ## Current Entity Specs
 - `Identity & Access`
   - `docs/specs/entities/admin-user-entity.md`
@@ -28,20 +34,11 @@ Source of Truth Level: specs-entity
 - `Customer Lifecycle`
   - `docs/specs/entities/customer-entity.md`
   - `docs/specs/entities/review-response-entity.md`
-  - `docs/specs/entities/periodic-review-cycle-entity.md`
-- `Risk & Compliance`
-  - `docs/specs/entities/compliance-alert-entity.md`
-  - `docs/specs/entities/compliance-case-entity.md`
-  - `docs/specs/entities/compliance-case-report-entity.md`
-  - `docs/specs/entities/compliance-external-filing-entity.md`
-  - `docs/specs/entities/risk-decision-record-entity.md`
 - `Governance Control Gates`
-  - `docs/specs/entities/approval-case-entity.md`
   - `docs/specs/entities/change-ticket-entity.md`
   - `docs/specs/entities/delete-request-entity.md`
   - `docs/specs/entities/governance-sla-timer-entity.md`
 - `Audit & Evidence`
-  - `docs/specs/entities/audit-log-event-entity.md`
   - `docs/specs/entities/audit-evidence-package-entity.md`
 - `Asset & Treasury Foundation`
   - `docs/specs/entities/asset-entity.md`

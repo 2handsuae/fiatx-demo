@@ -1,6 +1,6 @@
 Status: active
 Owner: project-owner-and-agents
-Last Updated: 2026-03-31
+Last Updated: 2026-04-21
 Applies To: `Exchange_js/admin-web`
 Supersedes: `docs/constraints/frontend-ui-constraints.md`
 Depends On: `docs/constraints/frontend-platform-constraints.md`, `docs/constraints/governance-approval-constraints.md`, `docs/constraints/governance-change-ticket-constraints.md`, `docs/constraints/governance-delete-request-constraints.md`, `docs/constraints/governance-sla-timer-constraints.md`
@@ -170,3 +170,125 @@ Source of Truth Level: constraints
 2. impacted operator workflow
 3. component convergence or divergence note
 4. cleanup note when it intentionally leaves old page-local patterns behind
+
+## 13) Config-Release Subject UI Pattern
+
+### 13.1 Overview
+
+Business-config release subjects (ASSET_CONFIG / COA / ACCT_EVENT / JOURNAL_TEMPLATE / CLEARING_TEMPLATE / PRICING_POLICY) share a **three-tier page architecture**. Every subject MUST implement all three tiers before the subject is considered UI-complete for its wave.
+
+| Tier | Route Pattern | Purpose |
+|---|---|---|
+| List | `/…/:subject` | Operator scanning; shows active release items |
+| Detail | `/…/:subject/:key` | Single-item drill-down with signature visualization |
+| Snapshot | `/…/:subject/history/:releaseNo` | Point-in-time version content viewer |
+
+History (version list) is a supporting fourth page but does not constitute a tier in the content architecture.
+
+### 13.2 List Page Rules (Config-Release)
+
+- MUST fetch via two-step API: `GET releases?subjectType=X&status=ACTIVE&take=1` → `GET releases/:releaseNo`.
+- MUST display the active `releaseNo` somewhere visible (filter bar trailing or footer).
+- Accent strip (left colored `w-0.5` bar per row) MUST encode the primary categorical dimension of that subject (e.g. CRYPTO/FIAT for journal, WITHDRAWAL/INTERNAL_COLLECTION for clearing).
+- Rows MUST be `cursor-pointer` with `onClick → /:key` once a detail page exists.
+- A chevron column (`›`) MUST appear as the last column when rows are clickable.
+- Version History button MUST appear in the title bar and navigate to the history list.
+- Filter bar MUST use `h-[30px]` selects with `border-adm-border` / `focus:border-adm-amber` styling.
+- Column headers MUST use `font-mono text-[9px] uppercase tracking-[0.12em] text-adm-t3`.
+
+### 13.3 Detail Page Rules (Config-Release)
+
+- MUST use `DetailPageHeader` from `../components/compliance/DetailPageComponents` for back navigation, refresh, and subtitle.
+- Layout MUST be a two-column split: main content left + sidebar right (`w-[272px] min-w-[272px]`).
+- Left main area MUST begin with an **Identity section** showing:
+  - Subject key in `font-mono text-[16px] font-bold text-adm-amber`
+  - Categorical badges (`AdminBadge` for status; custom badge for type)
+  - Accent bar (`h-10 w-1 rounded-full`) color-coded by category
+  - Key scalar fields in a compact grid below
+- Left main area MUST include a **Signature Element** section immediately after Identity. Each subject has exactly one canonical signature:
+
+  | Subject | Signature Element |
+  |---|---|
+  | ASSET_CONFIG | Asset properties grid (network, contract address, precision) |
+  | COA | T-Account Diagram — two-panel DR/CR with highlighted normal balance side |
+  | ACCT_EVENT | State Transition Diagram — `from` pill → SVG arrow → `to` pill (amber highlight) |
+  | JOURNAL_TEMPLATE | DR/CR Double-Entry Ledger — two-column table (DEBIT amber \| CREDIT blue) |
+  | CLEARING_TEMPLATE | Clearing Flow Pipeline — INCOMING cards → Pool node → FEE + OUTGOING cards |
+  | PRICING_POLICY (SWAP) | Pair Grid — currency pair fee matrix (Wave 6) |
+  | PRICING_POLICY (WITHDRAWAL) | Asset Tier Ladder — fee tier steps per asset (Wave 7) |
+
+- Left main area MAY include additional detail sections after the signature (full field tables, subordinate item lists).
+- Right sidebar MUST use `SidebarGroup` / `SidebarKV` pattern:
+  - Groups: Release (releaseNo, effectiveFrom, publishedAt) · subject-specific stats · History link
+  - `SidebarKV` renders nothing when value is null/empty — MUST NOT render `—` rows
+- `adminFetch` MUST be the only HTTP client used.
+- Error state MUST render a back button + red error card, not a blank page.
+
+### 13.4 Snapshot Page Rules (Config-Release)
+
+- Route MUST be `history/:releaseNo` — registered **before** `:key` dynamic segment in `App.tsx` to prevent React Router v6 collision.
+- MUST fetch the release detail AND the full history list in parallel (`Promise.all`) to derive `effectiveUntil` by finding the next newer release.
+- Layout mirrors Detail: main table left + `w-[272px]` sidebar right.
+- Right sidebar MUST contain four groups: **Release** · **Timeline** · **Validation** · **Governance**.
+  - Timeline MUST show "Ongoing" (green) for the currently active release; derived `effectiveUntil` for historical ones.
+  - Governance group MUST appear only when `changeTicketId` or `approvalCaseId` are non-null.
+- For subjects with embedded sub-items (JOURNAL_TEMPLATE lines, CLEARING_TEMPLATE lineTemplates):
+  - MUST use an **expandable accordion** pattern: header rows expand on click to reveal the sub-item table inline.
+  - Expand/collapse toggle MUST use `ChevronDown` / `ChevronRight` from `lucide-react`.
+  - Sub-item rows MUST have color-coded left borders matching sub-item type (DR → amber, CR → blue; INCOMING → green, FEE → amber, OUTGOING → blue).
+  - Footer MUST hint "click row to expand lines".
+- For flat subjects (COA, ACCT_EVENT), the snapshot table directly renders all items — no accordion needed.
+- `AdminBadge` MUST display release status in the header.
+- A "View current →" button MUST appear for historical (non-ACTIVE) snapshots.
+
+### 13.5 Data Fetching Contract
+
+```
+Step 1:  GET /admin/business-config/releases
+           ?subjectType=<SUBJECT>
+           &status=ACTIVE
+           &take=1
+         → extract items[0].releaseNo
+
+Step 2:  GET /admin/business-config/releases/:releaseNo
+         → iterate items[]; each item has { businessKey, payload }
+```
+
+- Payload field access MUST match the subject's actual structure:
+  - COA, ACCT_EVENT: flat fields directly on `payload`
+  - JOURNAL_TEMPLATE: nested — `payload.header.*` and `payload.lines[]`
+  - CLEARING_TEMPLATE: flat with embedded array — `payload.lineTemplates[]`
+  - PRICING_POLICY: flat with typed sub-arrays — `payload.pairs[]` (SWAP) or `payload.assets[]` (WITHDRAWAL)
+- Items MUST be found by `businessKey` match, not by array position.
+- `AdminSessionError` from `adminFetch` MUST be caught and silently returned (session redirect handled globally).
+
+### 13.6 Design Token Rules (adm-*)
+
+All config-release subject pages MUST use the adm-* token system exclusively. Reference mapping:
+
+| Token | Semantic role |
+|---|---|
+| `adm-panel` | Page-level background, table headers, sidebar background |
+| `adm-card` | Section card background (Identity section) |
+| `adm-bg` | Inner panel, expanded rows, code fields |
+| `adm-border` | All borders, dividers |
+| `adm-hover` | Table row hover state |
+| `adm-t1` | Primary text |
+| `adm-t2` | Secondary text, field values |
+| `adm-t3` | Tertiary text, labels, empty states, metadata |
+| `adm-amber` | Active / DR / primary accent; CRYPTO type; SWAP business |
+| `adm-blue` | CR / secondary accent; FIAT type; WITHDRAWAL business; OUTGOING lane |
+| `adm-green` | Enabled / INCOMING lane / active status / balanced indicator |
+| `adm-red` | Error states, error text |
+
+- MUST NOT use Tailwind raw colors (gray-*, blue-*, etc.) on config subject pages.
+- Opacity variants (e.g. `adm-amber/10`, `adm-border/50`) MAY be used for backgrounds and borders within signature elements.
+
+### 13.7 Forbidden Patterns
+
+- MUST NOT create a separate detail page for subordinate line items (journal lines, clearing line templates). Lines MUST be embedded in the header detail page.
+- MUST NOT use a flat item list for snapshot pages when the subject has two-level data — accordion is mandatory.
+- MUST NOT access payload fields by index or by field name without first verifying the subject's actual payload structure.
+- MUST NOT register `:key` dynamic route before `history/:releaseNo` static route in App.tsx.
+- MUST NOT duplicate `SidebarGroup` / `SidebarKV` as page-local components — import from the existing pattern or co-locate once per file.
+- MUST NOT show a blank loading screen without a back-navigation affordance.

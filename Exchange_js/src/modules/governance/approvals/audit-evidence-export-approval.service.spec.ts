@@ -123,7 +123,6 @@ describe('AuditEvidenceExportApprovalService', () => {
       expect.objectContaining({
         action: 'AUDIT_EVIDENCE_EXPORT_REQUESTED',
         workflowType: 'AUDIT_EVIDENCE_EXPORT',
-        workflowNo: 'EVP-1',
         traceId: 'trace-export-1',
         subjectNos: expect.arrayContaining([
           expect.objectContaining({
@@ -266,8 +265,6 @@ describe('AuditEvidenceExportApprovalService', () => {
       expect.objectContaining({
         action: 'AUDIT_EVIDENCE_PACKAGE_EXPORTED',
         workflowType: 'AUDIT_EVIDENCE_EXPORT',
-        workflowId: 'pkg-1',
-        workflowNo: 'EVP-1',
         traceId: 'trace-1',
       }),
       expect.any(Object),
@@ -422,7 +419,6 @@ describe('AuditEvidenceExportApprovalService', () => {
       expect.objectContaining({
         action: 'AUDIT_EVIDENCE_PACKAGE_DOWNLOADED',
         workflowType: 'AUDIT_EVIDENCE_EXPORT',
-        workflowNo: 'EVP-1',
         traceId: 'trace-1',
         subjectNos: expect.arrayContaining([
           expect.objectContaining({

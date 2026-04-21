@@ -10,7 +10,7 @@ import {
   Prisma,
 } from '@prisma/client';
 import { PrismaService } from '../../../core/prisma/prisma.service';
-import { createHash } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import { DEFAULT_COA } from '../../../config/manifests/coa.manifest';
 import { DEFAULT_ACCT_EVENTS } from '../../../config/manifests/events.manifest';
 import { DEFAULT_JOURNAL_TEMPLATES } from '../../../config/manifests/journal-templates.manifest';
@@ -20,23 +20,29 @@ import {
   PricingPolicyManifestAsset,
   PricingPolicyManifestItem,
 } from '../../../config/manifests/pricing-policies.manifest';
+import {
+  AssetConfigManifestItem,
+  DEFAULT_ASSET_CONFIGS,
+} from '../../../config/manifests/asset-config.manifest';
 import { PricingCenterService } from '../../trading/pricing-center/pricing-center.service';
-import { ChangeTicketStatuses } from '../change-tickets/constants/change-ticket.constants';
+import { ChangeTicketStatuses, ChangeTicketTypes } from '../change-tickets/constants/change-ticket.constants';
+import { ChangeTicketsService } from '../change-tickets/change-tickets.service';
 import {
   RegulatoryGateEffectivenessStatuses,
   RegulatoryGateSubjectTypes,
   RegulatoryGateTypes,
 } from '../regulatory-gates/constants/regulatory-gates.constants';
-import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
+import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
   AuditActions,
+  AuditBusinessWorkflowTypes,
   AuditEntityTypes,
   AuditModules,
-} from '../../risk-engine/audit-logs/constants/audit-actions.constant';
+} from '../../audit-logging/constants/audit-actions.constant';
 import {
   AuditResult,
   AuditTriggerType,
-} from '../../risk-engine/audit-logs/dto/audit-log.dto';
+} from '../../audit-logging/dto/audit-log.dto';
 import {
   BusinessConfigDiffItem,
   BusinessConfigReleaseStatus,
@@ -119,12 +125,14 @@ type ClearingTemplateManifestPayload = Record<string, unknown> & {
   lineTemplates: ClearingTemplateLinePayload[];
 };
 type PricingPolicyManifestPayload = PricingPolicyManifestItem;
+type AssetConfigManifestPayload = AssetConfigManifestItem;
 type ManifestPayload =
   | CoaManifestPayload
   | AcctEventManifestPayload
   | JournalTemplateManifestPayload
   | ClearingTemplateManifestPayload
-  | PricingPolicyManifestPayload;
+  | PricingPolicyManifestPayload
+  | AssetConfigManifestPayload;
 type ManifestEntry = {
   businessKey: string;
   payload: ManifestPayload;
@@ -149,6 +157,7 @@ export class BusinessConfigService {
     private readonly prisma: PrismaService,
     private readonly auditLogsService: AuditLogsService,
     private readonly pricingCenterService: PricingCenterService,
+    private readonly changeTicketsService: ChangeTicketsService,
   ) {}
 
   private normalizeSubjectType(input: string): BusinessConfigSubjectType {
@@ -177,6 +186,9 @@ export class BusinessConfigService {
       case 'PRICINGPOLICY':
       case 'PRICING':
         return 'PRICING_POLICY';
+      case 'ASSET_CONFIG':
+      case 'ASSETCONFIG':
+        return 'ASSET_CONFIG';
       default:
         throw new BadRequestException(`Unsupported business config subjectType: ${input}`);
     }
@@ -295,6 +307,13 @@ export class BusinessConfigService {
       return this.getPricingManifestEntries();
     }
 
+    if (subjectType === 'ASSET_CONFIG') {
+      return DEFAULT_ASSET_CONFIGS.map((item) => ({
+        businessKey: item.assetNo,
+        payload: item,
+      })).sort((left, right) => left.businessKey.localeCompare(right.businessKey));
+    }
+
     throw new BadRequestException(`Unsupported subjectType: ${subjectType}`);
   }
 
@@ -389,6 +408,7 @@ export class BusinessConfigService {
       basedOnReleaseNo: row.basedOnReleaseNo,
       changeTicketId: row.changeTicketId,
       approvalCaseId: row.approvalCaseId,
+      traceId: row.traceId,
       effectiveFrom: row.effectiveFrom,
       publishedAt: row.publishedAt,
       publishedBy: row.publishedBy,
@@ -494,6 +514,7 @@ export class BusinessConfigService {
       action: string;
       result?: AuditResult;
       reason: string;
+      traceId?: string;
       ticketNo?: string | null;
       changeTicketRef?: string | null;
       approvalNo?: string | null;
@@ -511,6 +532,8 @@ export class BusinessConfigService {
         entityNo: release.releaseNo,
         result: input.result ?? AuditResult.SUCCESS,
         reason: input.reason,
+        traceId: input.traceId,
+        workflowType: AuditBusinessWorkflowTypes.BUSINESS_CONFIG_CHANGE,
         afterData: this.buildReleaseAuditData(release, {
           ticketNo: input.ticketNo,
           changeTicketRef: input.changeTicketRef,
@@ -704,6 +727,69 @@ export class BusinessConfigService {
     return issues;
   }
 
+  private async validateAssetConfigRelease(
+    items: Array<ParsedReleaseItem<AssetConfigManifestPayload>>,
+  ): Promise<string[]> {
+    const issues: string[] = [];
+    const VALID_TYPES = new Set(['FIAT', 'CRYPTO']);
+    const VALID_STATUSES = new Set(['ACTIVE', 'DISABLED']);
+
+    for (const item of items) {
+      const payload = item.payload;
+
+      // Required fields
+      if (!payload.assetNo || !payload.code || !payload.type || payload.depositMinAmount == null || payload.withdrawMinAmount == null) {
+        issues.push(`AssetConfig ${item.businessKey} requires assetNo, code, type, depositMinAmount, and withdrawMinAmount`);
+        continue;
+      }
+
+      // type must be FIAT or CRYPTO
+      if (!VALID_TYPES.has(String(payload.type))) {
+        issues.push(`AssetConfig ${item.businessKey} type must be FIAT or CRYPTO, got: ${payload.type}`);
+      }
+
+      // status must be ACTIVE or DISABLED
+      if (!VALID_STATUSES.has(String(payload.status))) {
+        issues.push(`AssetConfig ${item.businessKey} status must be ACTIVE or DISABLED, got: ${payload.status}`);
+      }
+
+      // decimals must be a non-negative integer
+      const decimals = Number(payload.decimals);
+      if (!Number.isInteger(decimals) || decimals < 0) {
+        issues.push(`AssetConfig ${item.businessKey} decimals must be a non-negative integer`);
+      }
+
+      // depositMinAmount
+      const minDeposit = Number(payload.depositMinAmount);
+      if (isNaN(minDeposit) || minDeposit < 0) {
+        issues.push(`AssetConfig ${item.businessKey} depositMinAmount must be a non-negative number`);
+      }
+
+      // withdrawMinAmount
+      const minWithdraw = Number(payload.withdrawMinAmount);
+      if (isNaN(minWithdraw) || minWithdraw < 0) {
+        issues.push(`AssetConfig ${item.businessKey} withdrawMinAmount must be a non-negative number`);
+      }
+
+      // minConfirmations: null for FIAT, positive integer for CRYPTO
+      if (payload.type === 'FIAT') {
+        if (payload.minConfirmations != null) {
+          issues.push(`AssetConfig ${item.businessKey} (FIAT) minConfirmations must be null`);
+        }
+      } else if (payload.type === 'CRYPTO') {
+        if (payload.minConfirmations == null) {
+          issues.push(`AssetConfig ${item.businessKey} (CRYPTO) minConfirmations is required`);
+        } else {
+          const confs = Number(payload.minConfirmations);
+          if (!Number.isInteger(confs) || confs < 1) {
+            issues.push(`AssetConfig ${item.businessKey} minConfirmations must be a positive integer`);
+          }
+        }
+      }
+    }
+    return issues;
+  }
+
   private async validateReleaseItems(
     subjectType: BusinessConfigSubjectType,
     items: Array<ParsedReleaseItem<Record<string, unknown>>>,
@@ -751,6 +837,12 @@ export class BusinessConfigService {
       issues.push(
         ...(await this.validatePricingPolicyRelease(
           items as Array<ParsedReleaseItem<PricingPolicyManifestPayload>>,
+        )),
+      );
+    } else if (subjectType === 'ASSET_CONFIG') {
+      issues.push(
+        ...(await this.validateAssetConfigRelease(
+          items as Array<ParsedReleaseItem<AssetConfigManifestPayload>>,
         )),
       );
     }
@@ -985,6 +1077,40 @@ export class BusinessConfigService {
     });
   }
 
+  private async projectAssetConfig(
+    tx: GovernanceClient,
+    items: Array<ParsedReleaseItem<AssetConfigManifestPayload>>,
+  ): Promise<void> {
+    const activeAssetNos = items.map((item) => String(item.payload.assetNo));
+
+    for (const item of items) {
+      const payload = item.payload;
+      const assetRecord = {
+        assetNo: String(payload.assetNo),
+        type: String(payload.type),
+        code: String(payload.code),
+        network: payload.network ? String(payload.network) : null,
+        decimals: Number(payload.decimals),
+        description: payload.description ? String(payload.description) : null,
+        status: String(payload.status),
+      };
+      await tx.asset.upsert({
+        where: { assetNo: String(payload.assetNo) },
+        update: assetRecord,
+        create: assetRecord,
+      });
+    }
+
+    // Disable any assets not present in the new release
+    await tx.asset.updateMany({
+      where: {
+        assetNo: { notIn: activeAssetNos },
+        status: { not: 'DISABLED' },
+      },
+      data: { status: 'DISABLED' },
+    });
+  }
+
   private async projectPricingPolicies(
     tx: GovernanceClient,
     items: Array<ParsedReleaseItem<PricingPolicyManifestPayload>>,
@@ -1032,6 +1158,7 @@ export class BusinessConfigService {
     const releaseNo = await this.nextReleaseNo(subjectType);
     const sourceCommitSha = this.sourceCommitSha();
     const createdAt = new Date();
+    const traceId = randomUUID();
 
     return this.prisma.$transaction(async (tx) => {
       const release = await tx.businessConfigRelease.create({
@@ -1040,6 +1167,7 @@ export class BusinessConfigService {
           releaseNo,
           status: BUSINESS_CONFIG_RELEASE_STATUSES.DRAFT,
           basedOnReleaseNo: activeRelease?.releaseNo || null,
+          traceId,
           validationSummaryJson: JSON.stringify({
             ok: false,
             issues: [],
@@ -1115,6 +1243,7 @@ export class BusinessConfigService {
         {
           action: AuditActions.BUSINESS_CONFIG_RELEASE_STAGED,
           reason: `Business config release staged for ${subjectType}`,
+          traceId: staged.traceId ?? undefined,
           client: tx,
         },
       );
@@ -1168,6 +1297,7 @@ export class BusinessConfigService {
           reason: summary.ok
             ? `Business config release validated: ${release.releaseNo}`
             : `Business config release validation failed: ${release.releaseNo}`,
+          traceId: release.traceId ?? undefined,
           validationSummary: summary,
           client: tx,
         },
@@ -1178,7 +1308,65 @@ export class BusinessConfigService {
       throw new BadRequestException(summary.issues.join(' | '));
     }
 
+    // Auto-create the governance CT for this release (idempotent: skip if already linked)
+    if (summary.ok && !release.changeTicketId) {
+      const systemActor = {
+        actorType: 'ADMIN' as const,
+        userId: 'SYSTEM',
+        userNo: 'SYSTEM',
+        role: 'SYSTEM',
+        roleCodes: ['SYSTEM'] as string[],
+      };
+
+      const ct = await this.changeTicketsService.createBusinessConfigReleaseTicket(
+        {
+          releaseNo: release.releaseNo,
+          traceId: release.traceId ?? undefined,
+          subjectType,
+        },
+        systemActor,
+      );
+
+      await this.prisma.businessConfigRelease.update({
+        where: { id: release.id },
+        data: { changeTicketId: ct.id },
+      });
+    }
+
     return summary;
+  }
+
+  /**
+   * Called by GovernedExecutionListener after a BUSINESS_CONFIG_CHANGE CT is consumed.
+   * Bypasses the CT READY status check — by the time the governance event fires the CT
+   * is already DONE (the consume() method transitions it before emitting the event).
+   */
+  async publishReleaseFromGovernance(releaseNo: string, ticketNo: string): Promise<void> {
+    const release = await this.findReleaseOrThrow(releaseNo);
+    const subjectType = this.normalizeSubjectType(release.subjectType);
+
+    if (release.status !== BUSINESS_CONFIG_RELEASE_STATUSES.VALIDATED) {
+      await this.recordReleaseAudit(
+        {
+          id: release.id,
+          subjectType,
+          releaseNo: release.releaseNo,
+          status: release.status,
+          changeTicketId: release.changeTicketId,
+          approvalCaseId: release.approvalCaseId,
+        },
+        {
+          action: AuditActions.BUSINESS_CONFIG_RELEASE_PUBLISH_BLOCKED,
+          result: AuditResult.REJECTED,
+          reason: `Governance-triggered publish blocked: release ${releaseNo} is not VALIDATED (status=${release.status})`,
+          traceId: release.traceId ?? undefined,
+          ticketNo,
+        },
+      );
+      return;
+    }
+
+    await this.publishRelease(releaseNo, ticketNo);
   }
 
   async publishRelease(releaseNo: string, changeTicketRef: string) {
@@ -1216,6 +1404,7 @@ export class BusinessConfigService {
           action: AuditActions.BUSINESS_CONFIG_RELEASE_PUBLISH_BLOCKED,
           result: AuditResult.REJECTED,
           reason: `Business config publish blocked: change ticket not found (${changeTicketRef})`,
+          traceId: release.traceId ?? undefined,
           changeTicketRef,
         },
       );
@@ -1235,6 +1424,7 @@ export class BusinessConfigService {
           action: AuditActions.BUSINESS_CONFIG_RELEASE_PUBLISH_BLOCKED,
           result: AuditResult.REJECTED,
           reason: `Business config publish blocked: change ticket ${changeTicket.ticketNo} is not READY`,
+          traceId: release.traceId ?? undefined,
           ticketNo: changeTicket.ticketNo,
           changeTicketRef,
           approvalNo: changeTicket.approvalNo,
@@ -1277,6 +1467,7 @@ export class BusinessConfigService {
           action: AuditActions.BUSINESS_CONFIG_RELEASE_PUBLISH_BLOCKED,
           result: AuditResult.REJECTED,
           reason: `Business config publish blocked: regulatory gate ${regulatoryGate.gateNo} is not effective`,
+          traceId: release.traceId ?? undefined,
           ticketNo: changeTicket.ticketNo,
           changeTicketRef,
           approvalNo: changeTicket.approvalNo,
@@ -1326,6 +1517,11 @@ export class BusinessConfigService {
           tx,
           items as Array<ParsedReleaseItem<PricingPolicyManifestPayload>>,
         );
+      } else if (subjectType === 'ASSET_CONFIG') {
+        await this.projectAssetConfig(
+          tx,
+          items as Array<ParsedReleaseItem<AssetConfigManifestPayload>>,
+        );
       }
 
       await tx.businessConfigRelease.updateMany({
@@ -1374,6 +1570,7 @@ export class BusinessConfigService {
         {
           action: AuditActions.BUSINESS_CONFIG_RELEASE_PUBLISHED,
           reason: `Business config release published: ${release.releaseNo}`,
+          traceId: release.traceId ?? undefined,
           ticketNo: changeTicket.ticketNo,
           changeTicketRef,
           approvalNo: changeTicket.approvalNo,

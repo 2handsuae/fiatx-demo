@@ -11,6 +11,7 @@ export const ChangeTicketStatuses = {
 export const ChangeTicketTypes = {
   ADMIN_ACCESS_CHANGE: 'ADMIN_ACCESS_CHANGE',
   RBAC_CATALOG_CHANGE: 'RBAC_CATALOG_CHANGE',
+  BUSINESS_CONFIG_CHANGE: 'BUSINESS_CONFIG_CHANGE',
 } as const;
 
 export const CHANGE_TICKET_STATUS_VALUES = Object.values(ChangeTicketStatuses);

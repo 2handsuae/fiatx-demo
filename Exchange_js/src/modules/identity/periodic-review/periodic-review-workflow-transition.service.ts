@@ -6,13 +6,13 @@ import {
 import { Prisma } from '@prisma/client';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 import { PrismaService } from '../../../core/prisma/prisma.service';
-import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
+import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
   AuditEntityTypes,
   AuditModules,
   AuditWorkflowTypes,
-} from '../../risk-engine/audit-logs/constants/audit-actions.constant';
-import { AuditTriggerType } from '../../risk-engine/audit-logs/dto/audit-log.dto';
+} from '../../audit-logging/constants/audit-actions.constant';
+import { AuditTriggerType } from '../../audit-logging/dto/audit-log.dto';
 import {
   CustomerOnboardingStatus,
   resolveCustomerCanonicalState,
@@ -141,8 +141,6 @@ export class PeriodicReviewWorkflowTransitionService {
   ) {
     const traceContext = buildComplianceWorkflowTraceContext({
       workflow: PERIODIC_REVIEW_WORKFLOW,
-      workflowId: cycle.id,
-      workflowNo: cycle.cycleNo,
     });
     await this.auditLogsService.recordByActor(
       {
@@ -155,8 +153,6 @@ export class PeriodicReviewWorkflowTransitionService {
         traceId: traceContext?.traceId || undefined,
         workflowType:
           traceContext?.workflowType || AuditWorkflowTypes.PERIODIC_REVIEW,
-        workflowId: traceContext?.workflowId || undefined,
-        workflowNo: traceContext?.workflowNo || undefined,
         entityOwnerType: 'CUSTOMER',
         entityOwnerId: customer.id,
         entityOwnerNo: customer.customerNo || undefined,
@@ -408,8 +404,8 @@ export class PeriodicReviewWorkflowTransitionService {
         updatedCustomer: customer,
         eddResponse: null,
         activeCaseId: cycle.currentEddResponseId || cycle.currentCddResponseId || null,
-        latestFinalApprovalId: customer.latestFinalApprovalId || null,
-        latestFinalApprovalStatus: customer.latestFinalApprovalStatus || null,
+        latestRiskApprovalId: customer.latestRiskApprovalId || null,
+        latestRiskApprovalStatus: customer.latestRiskApprovalStatus || null,
         createdFinalApprovalId: null,
       };
       await this.writeWorkflowTransitionSnapshot(tx, input, noTransition);
@@ -606,8 +602,8 @@ export class PeriodicReviewWorkflowTransitionService {
           ? String((cycleUpdateData.currentEddResponseId as string | undefined) || '')
               .trim() || null
           : cycle.currentEddResponseId || null,
-      latestFinalApprovalId: updatedCustomer.latestFinalApprovalId || null,
-      latestFinalApprovalStatus: updatedCustomer.latestFinalApprovalStatus || null,
+      latestRiskApprovalId: updatedCustomer.latestRiskApprovalId || null,
+      latestRiskApprovalStatus: updatedCustomer.latestRiskApprovalStatus || null,
       createdFinalApprovalId: null,
     };
     await this.writeWorkflowTransitionSnapshot(tx, input, output);

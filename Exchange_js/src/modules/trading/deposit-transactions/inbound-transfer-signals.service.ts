@@ -8,13 +8,14 @@ import {
 import { Prisma } from '@prisma/client';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 import { PrismaService } from '../../../core/prisma/prisma.service';
+import { ensureCustomerCanTransact } from '../shared/customer-transaction-guard';
 import {
   AuditActions,
   AuditEntityTypes,
   AuditModules,
-} from '../../risk-engine/audit-logs/constants/audit-actions.constant';
-import { AuditTriggerType } from '../../risk-engine/audit-logs/dto/audit-log.dto';
-import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
+} from '../../audit-logging/constants/audit-actions.constant';
+import { AuditTriggerType } from '../../audit-logging/dto/audit-log.dto';
+import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import { OnboardingService } from '../../identity/onboarding/onboarding.service';
 import {
   PayinAction,
@@ -133,6 +134,10 @@ export class InboundTransferSignalsService {
     dto: CreateInboundTransferSignalDto,
   ) {
     await this.onboardingService.assertTradingEligibility(customerId, 'DEPOSIT');
+    const customer = await (this.prisma as any).customerMain.findUnique({
+      where: { id: customerId },
+    });
+    ensureCustomerCanTransact(customer);
     const wallet = await this.getCustomerDepositWalletOrThrow(customerId, dto.walletId);
     const channelType = this.getChannelTypeFromWallet(wallet);
 

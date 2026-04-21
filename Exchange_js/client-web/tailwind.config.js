@@ -8,29 +8,72 @@ export default {
   theme: {
     extend: {
       colors: {
-        'brand-primary': '#3B82F6',    // 更加鲜亮的金融蓝
-        'brand-secondary': '#F8FAFC',  // 背景灰
-        'brand-dark': '#0F172A',       // 深色模式主色 (Slate 900)
-        'brand-accent': '#22D3EE',     // 科技青 (Cyan 400)
-        'fin-emerald': '#10B981',      // 金融绿
-        'fin-rose': '#F43F5E',         // 金融红
-        'fin-dark-bg': '#020617',      // 极深背景 (Slate 950)
-      },
-      backgroundImage: {
-        'glass-gradient': 'linear-gradient(135deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.05))',
-        'tech-gradient': 'linear-gradient(135deg, #3B82F6 0%, #22D3EE 100%)',
-      },
-      boxShadow: {
-        'glow': '0 0 15px -3px rgba(34, 211, 238, 0.3)',
-        'inner-light': 'inset 0 1px 0 0 rgba(255, 255, 255, 0.05)',
-      },
-      animation: {
-        'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+        // ── Desert Monolith palette (FIATX) ───────────────────────────
+        'fx-obsidian': '#0B0908',   // primary background — warm near-black
+        'fx-ink':       '#141110',  // surface
+        'fx-charcoal':  '#1E1A16',  // elevated card
+        'fx-shadow':    '#2A231C',  // hovered row
+        'fx-sand':      '#F5EDE0',  // primary text, warm ivory
+        'fx-dune':      '#C8B896',  // secondary text
+        'fx-dust':      '#8B7B6A',  // tertiary / muted
+        'fx-brass':     '#C89B3C',  // primary accent — restrained gold
+        'fx-copper':    '#B07530',  // darker hover
+        'fx-ember':     '#E5B85F',  // highlight
+        'fx-sage':      '#739477',  // positive
+        'fx-rust':      '#B85A4A',  // destructive / error
+        'fx-rule':      'rgba(245, 237, 224, 0.08)', // hairline borders
+
+        // ── Legacy tokens kept for dashboard screens still using them ─
+        'brand-primary':   '#C89B3C',
+        'brand-secondary': '#F5EDE0',
+        'brand-dark':      '#0B0908',
+        'brand-accent':    '#E5B85F',
+        'fin-emerald':     '#739477',
+        'fin-rose':        '#B85A4A',
+        'fin-dark-bg':     '#0B0908',
       },
       fontFamily: {
-        'noto-medium': ['"Noto Sans SC"', 'sans-serif', '500'],
-        'noto-regular': ['"Noto Sans SC"', 'sans-serif', '400'],
-        'mono-fin': ['"JetBrains Mono"', '"Fira Code"', 'monospace'], // 专用金融数字字体
+        // Distinctive serif display — Fraunces variable
+        'display':    ['"Fraunces"', 'Georgia', 'serif'],
+        // Characterful grotesk for body
+        'sans':       ['"IBM Plex Sans"', 'system-ui', 'sans-serif'],
+        // Mono for every number, timestamp, address, label
+        'mono':       ['"IBM Plex Mono"', 'ui-monospace', 'monospace'],
+        // legacy
+        'noto-medium':  ['"IBM Plex Sans"', 'sans-serif', '500'],
+        'noto-regular': ['"IBM Plex Sans"', 'sans-serif', '400'],
+        'mono-fin':     ['"IBM Plex Mono"', 'monospace'],
+      },
+      letterSpacing: {
+        'cap': '0.14em',
+        'caps': '0.18em',
+      },
+      backgroundImage: {
+        'fx-grain': "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix type='matrix' values='0 0 0 0 0.96  0 0 0 0 0.93  0 0 0 0 0.88  0 0 0 0.035 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>\")",
+        'fx-vignette': 'radial-gradient(ellipse at center, transparent 0%, rgba(11,9,8,0.6) 100%)',
+      },
+      boxShadow: {
+        'fx-hairline': 'inset 0 0 0 1px rgba(245, 237, 224, 0.08)',
+        'fx-brass':    '0 0 0 1px rgba(200, 155, 60, 0.3), 0 8px 24px -12px rgba(200, 155, 60, 0.4)',
+      },
+      animation: {
+        'fx-drift':  'fx-drift 30s linear infinite',
+        'fx-pulse':  'fx-pulse 4s ease-in-out infinite',
+        'fx-scroll': 'fx-scroll 60s linear infinite',
+      },
+      keyframes: {
+        'fx-drift': {
+          '0%':   { backgroundPosition: '0 0' },
+          '100%': { backgroundPosition: '180px 180px' },
+        },
+        'fx-pulse': {
+          '0%, 100%': { opacity: '0.4' },
+          '50%':      { opacity: '0.9' },
+        },
+        'fx-scroll': {
+          '0%':   { transform: 'translateX(0)' },
+          '100%': { transform: 'translateX(-50%)' },
+        },
       },
     },
   },

@@ -30,13 +30,13 @@ import {
 } from './types/tx-compliance.types';
 import { DepositTransactionStatus } from '../../trading/deposit-transactions/dto/deposit-transaction.dto';
 import { WithdrawTransactionStatus } from '../../trading/withdraw-transactions/dto/withdraw-transaction.dto';
-import { AuditLogsService } from '../audit-logs/audit-logs.service';
+import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
   AuditActions,
   AuditEntityTypes,
   AuditModules,
-} from '../audit-logs/constants/audit-actions.constant';
-import { AuditResult, AuditTriggerType } from '../audit-logs/dto/audit-log.dto';
+} from '../../audit-logging/constants/audit-actions.constant';
+import { AuditResult, AuditTriggerType } from '../../audit-logging/dto/audit-log.dto';
 import {
   BridgeExecutionResult,
   TransactionRiskBridgeService,

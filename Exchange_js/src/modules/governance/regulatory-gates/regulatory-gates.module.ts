@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { AuditLogsModule } from '../../risk-engine/audit-logs/audit-logs.module';
+import { AuditLogsModule } from '../../audit-logging/audit-logs.module';
 import { GovernanceRegistriesModule } from '../registries/governance-registries.module';
 import { RegulatoryGatesController } from './regulatory-gates.controller';
 import { RegulatoryGatesService } from './regulatory-gates.service';

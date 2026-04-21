@@ -1,16 +1,39 @@
 import { useEffect, type ReactNode } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Lock, ShieldAlert } from 'lucide-react';
+import { useNavigate, useLocation, Navigate } from 'react-router-dom';
+import { RefreshCw } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { isCustomerApprovedForAccess } from '../utils/customerOnboarding';
+import {
+  isCustomerApprovedForAccess,
+  isCustomerFinalApprovalPending,
+  isCustomerRejected,
+  isCustomerWithdrawn,
+} from '../utils/customerOnboarding';
+
+/* ────────────────────────────────────────────────────────────────
+ *  AuthGuard — calm pending notice.
+ *  A single, low-ornament halt frame that sits inside the member
+ *  shell. No giant watermark, no 4-stage ledger. Just: where we are,
+ *  what's next, one CTA.
+ * ──────────────────────────────────────────────────────────────── */
 
 interface AuthGuardProps {
   children: ReactNode;
 }
 
+type GateCopy = {
+  byline: string;
+  title: string;
+  body: string;
+  cta: string;
+  tone: 'neutral' | 'waiting' | 'blocked';
+};
+
+const STEPS = ['Register', 'Verify', 'Review', 'Active'] as const;
+
 const AuthGuard = ({ children }: AuthGuardProps) => {
   const { user, loading, isAuthenticated, error } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
 
   useEffect(() => {
     if (!loading && !isAuthenticated && !error) {
@@ -19,86 +42,178 @@ const AuthGuard = ({ children }: AuthGuardProps) => {
   }, [loading, isAuthenticated, error, navigate]);
 
   if (loading) {
-      return (
-          <div className="w-full h-[400px] flex items-center justify-center">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-primary"></div>
-          </div>
-      );
+    return (
+      <div className="flex h-full min-h-[400px] items-center justify-center gap-3">
+        <RefreshCw size={14} className="animate-spin text-fx-brass" />
+        <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-fx-dust">
+          Verifying session
+        </span>
+      </div>
+    );
   }
 
   if (error) {
-      return (
-          <div className="w-full h-[400px] flex items-center justify-center flex-col gap-4">
-              <div className="text-red-500 font-medium">Failed to verify session</div>
-              <p className="text-gray-500 text-sm">{error}</p>
-              <button 
-                  onClick={() => window.location.reload()} 
-                  className="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm font-medium transition-colors"
-              >
-                  Retry
-              </button>
-          </div>
-      );
-  }
-
-  if (!isAuthenticated) {
-      return null;
-  }
-
-  const isApproved = user ? isCustomerApprovedForAccess(user) : false;
-
-  if (!isApproved) {
     return (
-      <div className="absolute inset-0 z-10 bg-slate-50/80 backdrop-blur-md flex items-center justify-center p-6">
-        <div className="relative overflow-hidden rounded-[2.5rem] border border-white/60 bg-white/95 px-10 py-12 shadow-[0_25px_50px_-12px_rgba(0,0,0,0.15)] backdrop-blur-xl max-w-lg w-full text-center">
-            {/* Ambient Background */}
-            <div className="absolute inset-0 overflow-hidden pointer-events-none">
-                <div className="absolute -top-1/2 -left-1/2 w-[200%] h-[200%] bg-gradient-to-br from-blue-50/80 via-transparent to-indigo-50/60"></div>
-                <div className="absolute top-0 right-0 w-32 h-32 bg-blue-100/50 rounded-full blur-3xl"></div>
-                <div className="absolute bottom-0 left-0 w-32 h-32 bg-violet-100/50 rounded-full blur-3xl"></div>
-            </div>
-
-            <div className="relative z-10">
-                {/* Icon Container */}
-                <div className="relative inline-flex mb-8">
-                    <div className="absolute inset-0 bg-gradient-to-br from-blue-400 to-indigo-500 rounded-3xl blur-xl opacity-30 animate-pulse"></div>
-                    <div className="relative w-20 h-20 bg-gradient-to-br from-blue-50 to-indigo-50 rounded-[1.25rem] rotate-6 flex items-center justify-center text-blue-600 shadow-xl border border-white/80">
-                        <div className="-rotate-6">
-                            <Lock size={36} strokeWidth={1.5} />
-                        </div>
-                    </div>
-                </div>
-                
-                {/* Title */}
-                <h2 className="text-3xl font-bold text-slate-900 mb-4 tracking-tight">
-                    Verification Required
-                </h2>
-                
-                {/* Description */}
-                <p className="text-slate-500 mb-8 text-base leading-relaxed max-w-sm mx-auto">
-                    Complete your identity verification to unlock full access to trading features.
-                </p>
-
-                {/* CTA Button */}
-                <button 
-                    onClick={() => navigate('/verification')}
-                    className="w-full py-4 bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-600 text-white font-bold rounded-2xl shadow-xl shadow-blue-500/25 hover:shadow-blue-500/40 hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-2.5 text-base"
-                >
-                    <ShieldAlert size={20} strokeWidth={2} />
-                    Start Verification
-                </button>
-
-                {/* Footer Note */}
-                <p className="mt-6 text-xs text-slate-400">
-                    Takes approximately 3-5 minutes to complete
-                </p>
-            </div>
+      <div className="flex h-full min-h-[400px] items-center justify-center px-6">
+        <div className="w-full max-w-md border border-fx-rust/30 bg-fx-rust/5 p-8">
+          <div className="font-mono text-[10px] uppercase tracking-[0.22em] text-fx-rust mb-3">
+            § Session error
+          </div>
+          <div className="fx-serif text-[18px] text-fx-sand mb-3 leading-snug">
+            Couldn&apos;t verify your session.
+          </div>
+          <p className="font-mono text-[11px] text-fx-dune mb-6 leading-relaxed">
+            {error}
+          </p>
+          <button onClick={() => window.location.reload()} className="fx-btn-ghost">
+            Retry
+          </button>
         </div>
       </div>
     );
   }
 
-  return <>{children}</>;
+  if (!isAuthenticated) {
+    return null;
+  }
+
+  const isApproved = user ? isCustomerApprovedForAccess(user) : false;
+  if (isApproved) {
+    // FROZEN: only /profile is accessible
+    if (user?.complianceHoldStatus === 'FROZEN') {
+      if (location.pathname !== '/profile') {
+        return <Navigate to="/profile" replace />;
+      }
+      return <>{children}</>;
+    }
+
+    // RESTRICTED: block core trading routes
+    if (user?.restrictionStatus === 'RESTRICTED') {
+      const blockedPaths = ['/deposit', '/withdraw', '/swap', '/wallet/send'];
+      if (blockedPaths.some((p) => location.pathname.startsWith(p))) {
+        return <Navigate to="/profile" replace />;
+      }
+      return <>{children}</>;
+    }
+
+    return <>{children}</>;
+  }
+
+  const onboardingStatus = String(user?.onboardingStatus || 'NONE').toUpperCase();
+  const isRejected = user ? isCustomerRejected(user) : false;
+  const isWithdrawn = user ? isCustomerWithdrawn(user) : false;
+  const isBlocked = isRejected || isWithdrawn;
+  const isFinalPending = user ? isCustomerFinalApprovalPending(user) : false;
+
+  /* Current step index into STEPS (0..3) */
+  const stepIndex = isBlocked
+    ? 1
+    : isFinalPending
+      ? 2
+      : onboardingStatus === 'PENDING_VERIFICATION'
+        ? 1
+        : onboardingStatus === 'NONE'
+          ? 1
+          : 2;
+
+  let copy: GateCopy;
+  if (isBlocked) {
+    copy = {
+      byline: '§ Access paused',
+      title: isRejected ? 'Application declined.' : 'Application withdrawn.',
+      body: isRejected
+        ? 'Our compliance team could not approve this application. You may open a new one with updated supporting information.'
+        : 'This application was withdrawn. You may open a new application at any time.',
+      cta: isRejected ? 'Retry verification' : 'Restart verification',
+      tone: 'blocked',
+    };
+  } else if (isFinalPending) {
+    copy = {
+      byline: '§ Awaiting final approval',
+      title: 'Final approval pending.',
+      body: 'A compliance officer is signing off your file. This usually takes 1–2 business days; we will email you the moment your account is active.',
+      cta: 'View status',
+      tone: 'waiting',
+    };
+  } else if (onboardingStatus === 'PENDING_VERIFICATION') {
+    copy = {
+      byline: '§ Verification in progress',
+      title: 'Verification in progress.',
+      body: 'You can continue your identity verification whenever you are ready. The process takes about three minutes.',
+      cta: 'Continue verification',
+      tone: 'waiting',
+    };
+  } else {
+    copy = {
+      byline: '§ Access pending',
+      title: 'Identity pending.',
+      body: 'Your trading features unlock once you pass customer due diligence. The process takes about three minutes.',
+      cta: 'Start verification',
+      tone: 'neutral',
+    };
+  }
+
+  const titleTone =
+    copy.tone === 'blocked' ? 'text-fx-rust' : 'text-fx-sand';
+
+  return (
+    <div className="flex min-h-[calc(100vh-4rem)] items-center justify-center px-6 py-16">
+      <div className="w-full max-w-[520px]">
+        {/* Byline — brass hairline + mono label */}
+        <div className="flex items-center gap-3 mb-10">
+          <span className="h-[1px] w-8 bg-fx-brass" />
+          <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-fx-dust">
+            {copy.byline}
+          </span>
+        </div>
+
+        {/* Title — single line, Fraunces display, calm size */}
+        <h1 className={`fx-display font-light text-[40px] leading-[1.05] ${titleTone}`}>
+          {copy.title}
+        </h1>
+
+        {/* Body — single paragraph, serif, narrow */}
+        <p className="mt-6 fx-serif text-[15px] leading-[1.7] text-fx-dune max-w-[440px]">
+          {copy.body}
+        </p>
+
+        {/* CTA + meta line */}
+        <div className="mt-10 flex flex-wrap items-center gap-5">
+          <button onClick={() => navigate('/verification')} className="fx-btn-primary">
+            {copy.cta} →
+          </button>
+          <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-fx-dust">
+            Est. 3 min · VARA regulated
+          </span>
+        </div>
+
+        {/* Step ticker — tiny hairline stepper */}
+        <div className="mt-14 pt-5 border-t border-fx-rule flex items-center gap-4 font-mono text-[9px] uppercase tracking-[0.18em]">
+          {STEPS.map((label, i) => {
+            const done = i < stepIndex;
+            const active = i === stepIndex;
+            const tone =
+              done
+                ? 'text-fx-sage'
+                : active
+                  ? 'text-fx-brass'
+                  : 'text-fx-dust/40';
+            return (
+              <span key={label} className="flex items-center gap-2">
+                <span className={tone}>
+                  {String.fromCharCode(0x2160 + i)}
+                </span>
+                <span className={tone}>{label}</span>
+                {i < STEPS.length - 1 && (
+                  <span className="ml-2 h-[1px] w-6 bg-fx-rule" />
+                )}
+              </span>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
 };
 
 export default AuthGuard;

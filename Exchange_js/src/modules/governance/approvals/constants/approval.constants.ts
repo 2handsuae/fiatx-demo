@@ -9,12 +9,18 @@
  *   CHANGE_TICKET_APPROVAL          — admin access / RBAC change gate
  *   DELETE_REQUEST_APPROVAL         — soft-delete gate
  *
- * The remaining types belong to future waves and are pre-registered here
- * for schema continuity:
+ * WAVE 2-3 PRE-REGISTERED
+ * These types are registered for schema continuity before full feature impl:
  *   CASE_EVIDENCE_EXPORT_APPROVAL        — Wave 2-3
- *   ONBOARDING_FINAL_APPROVAL            — Wave 2-3
+ *   ONBOARDING_FINAL_APPROVAL            — Wave 2 (kept until Phase 5 migration)
  *   POOL_SETTLEMENT_BATCH_APPROVAL       — Wave 5+
  *   TREASURY_CROSS_POOL_TRANSFER_APPROVAL — Wave 5+
+ *
+ * WAVE 3 (2026-04-09) ADDITIONS
+ * Three new action types for firm-driven customer review redesign:
+ *   RISK_RATING_MEDIUM_APPROVAL      — medium risk threshold signoff
+ *   RISK_RATING_HIGH_APPROVAL        — high risk threshold signoff
+ *   PEP_RELATIONSHIP_APPROVAL        — politically exposed person link signoff
  */
 export const ApprovalActionTypes = {
   AUDIT_EVIDENCE_EXPORT_APPROVAL: 'AUDIT_EVIDENCE_EXPORT_APPROVAL',
@@ -24,6 +30,15 @@ export const ApprovalActionTypes = {
   ONBOARDING_FINAL_APPROVAL: 'ONBOARDING_FINAL_APPROVAL',
   POOL_SETTLEMENT_BATCH_APPROVAL: 'POOL_SETTLEMENT_BATCH_APPROVAL',
   TREASURY_CROSS_POOL_TRANSFER_APPROVAL: 'TREASURY_CROSS_POOL_TRANSFER_APPROVAL',
+  // ─── Wave 3 (2026-04-09) ─────────────────────
+  RISK_RATING_MEDIUM_APPROVAL: 'RISK_RATING_MEDIUM_APPROVAL',
+  RISK_RATING_HIGH_APPROVAL: 'RISK_RATING_HIGH_APPROVAL',
+  RISK_RATING_UPGRADE_PHASE1: 'RISK_RATING_UPGRADE_PHASE1',
+  RISK_RATING_MAINTENANCE_APPROVAL: 'RISK_RATING_MAINTENANCE_APPROVAL',
+  PEP_RELATIONSHIP_APPROVAL: 'PEP_RELATIONSHIP_APPROVAL',
+  // ─── Wave 3 Tier Upgrade (2026-04-13) ────────
+  RISK_RATING_MLRO_REVIEW: 'RISK_RATING_MLRO_REVIEW',
+  RISK_RATING_TIER_UPGRADE_APPROVAL: 'RISK_RATING_TIER_UPGRADE_APPROVAL',
 } as const;
 
 export const ApprovalStatuses = {
@@ -130,8 +145,8 @@ export const DEFAULT_APPROVAL_POLICIES: Record<
   },
   [ApprovalActionTypes.ONBOARDING_FINAL_APPROVAL]: {
     riskLevel: ApprovalRiskLevels.HIGH,
-    checkerRoles: ['SENIOR_MANAGEMENT_OFFICER'],
-    timeoutHours: 24,
+    checkerRoles: ['MLRO', 'SENIOR_MANAGEMENT_OFFICER'],
+    timeoutHours: 240,
     allowCancel: true,
     allowRetry: true,
   },
@@ -146,6 +161,56 @@ export const DEFAULT_APPROVAL_POLICIES: Record<
     riskLevel: ApprovalRiskLevels.HIGH,
     checkerRoles: ['SENIOR_MANAGEMENT_OFFICER', 'TECH_OFFICER'],
     timeoutHours: 24,
+    allowCancel: true,
+    allowRetry: true,
+  },
+  // ─── Wave 3 (2026-04-09) ─────────────────────
+  [ApprovalActionTypes.RISK_RATING_MEDIUM_APPROVAL]: {
+    riskLevel: ApprovalRiskLevels.HIGH,
+    checkerRoles: ['COMPLIANCE_OFFICER'],
+    timeoutHours: 168,
+    allowCancel: true,
+    allowRetry: true,
+  },
+  [ApprovalActionTypes.RISK_RATING_HIGH_APPROVAL]: {
+    riskLevel: ApprovalRiskLevels.HIGH,
+    checkerRoles: ['MLRO', 'SENIOR_MANAGEMENT_OFFICER'],
+    timeoutHours: 240,
+    allowCancel: true,
+    allowRetry: true,
+  },
+  [ApprovalActionTypes.RISK_RATING_UPGRADE_PHASE1]: {
+    riskLevel: ApprovalRiskLevels.HIGH,
+    checkerRoles: ['MLRO'],
+    timeoutHours: 168,
+    allowCancel: true,
+    allowRetry: true,
+  },
+  [ApprovalActionTypes.RISK_RATING_MAINTENANCE_APPROVAL]: {
+    riskLevel: ApprovalRiskLevels.HIGH,
+    checkerRoles: ['MLRO'],
+    timeoutHours: 168,
+    allowCancel: true,
+    allowRetry: true,
+  },
+  [ApprovalActionTypes.PEP_RELATIONSHIP_APPROVAL]: {
+    riskLevel: ApprovalRiskLevels.HIGH,
+    checkerRoles: ['MLRO', 'SENIOR_MANAGEMENT_OFFICER'],
+    timeoutHours: 240,
+    allowCancel: true,
+    allowRetry: true,
+  },
+  [ApprovalActionTypes.RISK_RATING_MLRO_REVIEW]: {
+    riskLevel: ApprovalRiskLevels.HIGH,
+    checkerRoles: ['MLRO'],
+    timeoutHours: 168,
+    allowCancel: true,
+    allowRetry: true,
+  },
+  [ApprovalActionTypes.RISK_RATING_TIER_UPGRADE_APPROVAL]: {
+    riskLevel: ApprovalRiskLevels.HIGH,
+    checkerRoles: ['MLRO', 'SENIOR_MANAGEMENT_OFFICER'],
+    timeoutHours: 240,
     allowCancel: true,
     allowRetry: true,
   },

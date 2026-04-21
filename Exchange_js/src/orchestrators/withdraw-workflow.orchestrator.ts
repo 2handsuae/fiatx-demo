@@ -21,14 +21,14 @@ import {
   buildCryptoSystemWalletNo,
   buildFiatPoolWalletNo,
 } from '../modules/asset-treasury/wallets/system-wallet.util';
-import { AuditLogsService } from '../modules/risk-engine/audit-logs/audit-logs.service';
+import { AuditLogsService } from '../modules/audit-logging/audit-logs.service';
 import {
   AuditActions,
   AuditEntityTypes,
   AuditModules,
   buildStateTransitionAction,
-} from '../modules/risk-engine/audit-logs/constants/audit-actions.constant';
-import { AuditTriggerType } from '../modules/risk-engine/audit-logs/dto/audit-log.dto';
+} from '../modules/audit-logging/constants/audit-actions.constant';
+import { AuditTriggerType } from '../modules/audit-logging/dto/audit-log.dto';
 import { AccountingEventExecutionService } from './accounting-event-execution.service';
 
 export interface OrchestrationResult {

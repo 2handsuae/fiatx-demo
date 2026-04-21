@@ -3,7 +3,7 @@
 > **文档性质**：开发参考文档（Developer-Facing PRD）
 > **受众**：加入 Wave 2+ 的后端开发人员
 > **语言约定**：中文说明 + 技术英文术语混用
-> **最后更新**：2026-04-06
+> **最后更新**：2026-04-11
 
 ---
 
@@ -227,6 +227,16 @@ DRAFT → PENDING → APPROVED → (executionStatus: EXECUTED)
 | `DELETE_REQUEST_APPROVAL` | 删除申请审批 |
 | `AUDIT_EVIDENCE_EXPORT_APPROVAL` | 审计证据导出审批 |
 
+**Wave 3 新增 ActionType** *(Updated 2026-04-11)*：
+| 值 | checkerRoles | 审批步数 | 说明 |
+|---|---|---|---|
+| `ONBOARDING_FINAL_APPROVAL` | MLRO → SMO | 2 步（双签） | Onboarding 终审（原为单步 SMO，已升级为双签） |
+| `RISK_RATING_UPGRADE_PHASE1` | MLRO | 1 步 | 风险评级升级 phase 1 |
+| `RISK_RATING_MAINTENANCE_APPROVAL` | MLRO | 1 步 | 高风险维护审批 |
+| `RISK_RATING_HIGH_APPROVAL` | MLRO → SMO | 2 步（双签） | 高风险评级终审 |
+| `RISK_RATING_MEDIUM_APPROVAL` | COMPLIANCE_OFFICER | 1 步 | 中风险评级审批（预留） |
+| `PEP_RELATIONSHIP_APPROVAL` | MLRO → SMO | 2 步（双签） | PEP 关系审批（预留） |
+
 ### 设计说明
 
 - **traceId**：由发起动作时注入，贯穿 `approval_cases`、`change_tickets`/`delete_requests`、`audit_log_events` 三张表，实现全链路追踪。
@@ -239,7 +249,7 @@ DRAFT → PENDING → APPROVED → (executionStatus: EXECUTED)
 
 ### 业务说明
 
-记录审批单的每一个步骤。Wave 1 实现**单步审批**（即每个审批单只有 1 个步骤），该表是为 Wave 2+ 多步骤审批流程的**前向兼容**而保留的设计。
+记录审批单的每一个步骤。系统支持**顺序多步审批**（sequential multi-step approval）：当 `approval_action_policies.checkerRoles` 包含多个角色时，`createDraftCase()` 为每个角色创建一条 `approval_steps` 记录（`stepNo` 从 1 递增），各步骤必须按顺序依次审批。Wave 1 原有的三种治理 actionType（`CHANGE_TICKET_APPROVAL`、`DELETE_REQUEST_APPROVAL`、`AUDIT_EVIDENCE_EXPORT_APPROVAL`）仍为单步审批；Wave 3 新增的 `ONBOARDING_FINAL_APPROVAL`、`RISK_RATING_HIGH_APPROVAL`、`PEP_RELATIONSHIP_APPROVAL` 等类型使用双步审批（dual-sign）。 *(Updated 2026-04-11)*
 
 ### 字段定义
 
@@ -248,7 +258,7 @@ DRAFT → PENDING → APPROVED → (executionStatus: EXECUTED)
 | `id` | UUID | PK | 主键 | |
 | `approvalCaseId` | String | NOT NULL, FK | 关联 `approval_cases.id` | 外键约束 |
 | `approvalNo` | String | NULLABLE | 关联审批单业务编号 | 冗余字段，便于查询时避免 JOIN |
-| `stepNo` | Int | NOT NULL | 步骤序号 | Wave 1 固定为 `1` |
+| `stepNo` | Int | NOT NULL | 步骤序号 | 从 `1` 递增；单步审批仅有 `1`，多步审批可达 `N` |
 | `status` | Enum | NOT NULL | 步骤状态 | `PENDING` / `APPROVED` / `REJECTED` / `EXPIRED` / `CANCELLED` |
 | `checkerRoleCandidates` | String | NOT NULL | 该步骤允许的审批角色 | 逗号分隔的 role code |
 | `decidedByUserId` | String | NULLABLE | 决策人用户 id | |
@@ -259,11 +269,29 @@ DRAFT → PENDING → APPROVED → (executionStatus: EXECUTED)
 | `createdAt` | DateTime | NOT NULL | 记录创建时间 | 自动设置 |
 | `updatedAt` | DateTime | NOT NULL | 记录最后更新时间 | 自动更新 |
 
+### 多步审批运行机制 *(Updated 2026-04-11)*
+
+当 `checkerRoles` 策略包含 N 个角色时，`createDraftCase()` 创建 N 条 `approval_steps`：
+
+```typescript
+policy.checkerRoles.map((role, idx) => ({
+  stepNo: idx + 1,
+  status: 'PENDING',
+  checkerRoleCandidates: role,   // 每步对应单个角色
+}))
+```
+
+**审批顺序**：步骤必须按 `stepNo` 升序依次审批。`approve()` 查找第一个 `PENDING` 且匹配 actor 角色的步骤，标记为 `APPROVED`，然后检查是否存在后续 `PENDING` 步骤：
+- 若存在 → case 保持 `PENDING`（mid-flow），等待下一步签批
+- 若不存在 → case 变为 `APPROVED`（终态）
+
+**拒绝逻辑**：任一步骤被拒绝时，当前步骤标记为 `REJECTED`，所有剩余 `PENDING` 步骤批量标记为 `CANCELLED`，case 立即变为 `REJECTED`。
+
 ### 设计说明
 
-- Wave 1 中，`approval_cases` 与 `approval_steps` 为 1:1 关系（`stepNo` 始终为 `1`）。
-- Wave 2+ 若需要多步串行审批（如 CISO → SMO），只需在此表追加 `stepNo=2` 的记录，上层 `approval_cases` 结构无需变更。
-- `checkerRoleCandidates` 与父表 `approval_cases.checkerRoles` 在 Wave 1 中内容相同，Wave 2+ 每一步可以有不同的候选角色集。
+- 单步审批场景下（如 `CHANGE_TICKET_APPROVAL` → `checkerRoles: ['CISO']`），`approval_cases` 与 `approval_steps` 为 1:1 关系。
+- 多步审批场景下（如 `ONBOARDING_FINAL_APPROVAL` → `checkerRoles: ['MLRO', 'SENIOR_MANAGEMENT_OFFICER']`），系统创建 2 条步骤，Step 1 由 MLRO 签批，Step 2 由 SMO 签批。
+- 每步的 `checkerRoleCandidates` 是该步骤独立的角色要求，与父表 `approval_cases.checkerRoles`（逗号分隔的完整列表）区分。
 
 ---
 
@@ -289,21 +317,34 @@ DRAFT → PENDING → APPROVED → (executionStatus: EXECUTED)
 
 | actionType | checkerRoles | timeoutHours | allowCancel | allowRetry |
 |---|---|---|---|---|
-| `AUDIT_EVIDENCE_EXPORT_APPROVAL` | `DPO,MLRO` | 24 | true | false |
-| `CASE_EVIDENCE_EXPORT_APPROVAL` | `DPO,MLRO` | 24 | true | false |
-| `CHANGE_TICKET_APPROVAL` | `CISO` | 24 | true | false |
-| `DELETE_REQUEST_APPROVAL` | `DPO,CISO` | 24 | true | false |
-| `ONBOARDING_FINAL_APPROVAL` | `SENIOR_MANAGEMENT_OFFICER` | 24 | true | false |
-| `POOL_SETTLEMENT_BATCH_APPROVAL` | `SENIOR_MANAGEMENT_OFFICER,TECH_OFFICER` | 24 | true | false |
-| `TREASURY_CROSS_POOL_TRANSFER_APPROVAL` | `SENIOR_MANAGEMENT_OFFICER,TECH_OFFICER` | 24 | true | false |
+| `AUDIT_EVIDENCE_EXPORT_APPROVAL` | `DPO,MLRO` | 24 | true | true |
+| `CASE_EVIDENCE_EXPORT_APPROVAL` | `DPO,MLRO` | 24 | true | true |
+| `CHANGE_TICKET_APPROVAL` | `CISO` | 24 | true | true |
+| `DELETE_REQUEST_APPROVAL` | `DPO,CISO` | 24 | true | true |
+| `ONBOARDING_FINAL_APPROVAL` | `MLRO,SENIOR_MANAGEMENT_OFFICER` | 240 | true | true |
+| `POOL_SETTLEMENT_BATCH_APPROVAL` | `SENIOR_MANAGEMENT_OFFICER,TECH_OFFICER` | 24 | true | true |
+| `TREASURY_CROSS_POOL_TRANSFER_APPROVAL` | `SENIOR_MANAGEMENT_OFFICER,TECH_OFFICER` | 24 | true | true |
 
-> **说明**：`CASE_EVIDENCE_EXPORT_APPROVAL`、`ONBOARDING_FINAL_APPROVAL`、`POOL_SETTLEMENT_BATCH_APPROVAL`、`TREASURY_CROSS_POOL_TRANSFER_APPROVAL` 为 Wave 2+ 预埋策略，Wave 1 阶段不会触发，仅做前向兼容配置。
+> **说明**：`CASE_EVIDENCE_EXPORT_APPROVAL`、`POOL_SETTLEMENT_BATCH_APPROVAL`、`TREASURY_CROSS_POOL_TRANSFER_APPROVAL` 为 Wave 2+ 预埋策略，Wave 1 阶段不会触发，仅做前向兼容配置。
+
+> **多步审批提示**：当 `checkerRoles` 包含多个角色时（如 `MLRO,SENIOR_MANAGEMENT_OFFICER`），系统为每个角色创建独立的 `approval_steps` 记录，步骤必须按序依次签批。详见 [第 5 节](#5-approval_steps--审批步骤表)。 *(Updated 2026-04-11)*
+
+### Wave 3 新增策略 *(Updated 2026-04-11)*
+
+| actionType | checkerRoles | timeoutHours | allowCancel | allowRetry | 说明 |
+|---|---|---|---|---|---|
+| `RISK_RATING_UPGRADE_PHASE1` | `MLRO` | 168 | true | true | Layer 2: LOW→HIGH phase 1 单步审批 |
+| `RISK_RATING_MAINTENANCE_APPROVAL` | `MLRO` | 168 | true | true | Layer 2: HIGH→HIGH maintenance 单步审批 |
+| `RISK_RATING_HIGH_APPROVAL` | `MLRO,SENIOR_MANAGEMENT_OFFICER` | 240 | true | true | Layer 2: LOW→HIGH phase 2 双步审批（MLRO→SMO） |
+| `RISK_RATING_MEDIUM_APPROVAL` | `COMPLIANCE_OFFICER` | 168 | true | true | 预留（暂未启用） |
+| `PEP_RELATIONSHIP_APPROVAL` | `MLRO,SENIOR_MANAGEMENT_OFFICER` | 240 | true | true | 预留（PEP 当前复用 `RISK_RATING_HIGH_APPROVAL`） |
 
 ### 设计说明
 
 - 此表使用 `actionType` 作为主键（非 UUID），因为每种审批类型只有唯一一条策略，天然符合主键语义。
 - 策略更新通过数据库迁移脚本进行，不提供运行时 API 修改。
 - 快照机制：审批单创建时，`checkerRoles`、`allowCancel`、`allowRetry` 会快照写入 `approval_cases` 对应字段，避免策略变更影响进行中的审批。
+- **DB 策略优先** *(Updated 2026-04-11)*：`ApprovalPolicyService.getPolicy()` 首先查询 `approval_action_policies` DB 表，未命中时回退到代码中的 `DEFAULT_APPROVAL_POLICIES` 常量。两者应保持同步。
 
 ---
 
@@ -669,9 +710,9 @@ Wave 1 预置 8 个管理员账号，覆盖所有监管角色。这些账号在 
 | `TECH_OFFICER` | Tech Officer | 平台技术运营与变更管理 |
 | `OPS_OFFICER` | Operations Officer | 资金运营、结算、对账、会计 |
 
-### 12.3 Wave 1 审批策略（7 条）
+### 12.3 审批策略（Wave 1: 7 条 + Wave 3: 5 条）
 
-详见 [第 6 节](#6-approval_action_policies--审批策略配置表) 中的 Seeded 策略表。
+详见 [第 6 节](#6-approval_action_policies--审批策略配置表) 中的 Wave 1 Seeded 策略表和 Wave 3 新增策略表。
 
 ### 12.4 Wave 1 SoD 规则（1 条）
 

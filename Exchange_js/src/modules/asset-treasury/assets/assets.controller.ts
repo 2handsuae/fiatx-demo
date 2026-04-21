@@ -34,7 +34,10 @@ export class AssetsController {
   constructor(private readonly service: AssetsService) {}
 
   @Post()
-  @ApiOperation({ summary: 'Create a new asset' })
+  @ApiOperation({
+    summary: '[DEPRECATED] Create a new asset — use ASSET_CONFIG release instead',
+    deprecated: true,
+  })
   create(@Body() dto: CreateAssetDto) {
     return this.service.create(dto);
   }

@@ -21,15 +21,15 @@ import {
   PayinCreatedEvent,
 } from './events/payin.events';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
-import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
+import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
   AuditActions,
   AuditEntityTypes,
   AuditModules,
   AuditWorkflowTypes,
   buildStateTransitionAction,
-} from '../../risk-engine/audit-logs/constants/audit-actions.constant';
-import { AuditTriggerType } from '../../risk-engine/audit-logs/dto/audit-log.dto';
+} from '../../audit-logging/constants/audit-actions.constant';
+import { AuditTriggerType } from '../../audit-logging/dto/audit-log.dto';
 
 export interface CreateDetectedPayinInput {
   assetId: string;
@@ -141,13 +141,11 @@ export class PayinsService {
           normalizedDepositId
             ? {
                 workflowType: AuditWorkflowTypes.DEPOSIT,
-                workflowId: normalizedDepositId,
               }
             : undefined,
           normalizedDepositNo
             ? {
                 workflowType: AuditWorkflowTypes.DEPOSIT,
-                workflowNo: normalizedDepositNo,
               }
             : undefined,
         ].filter(Boolean),

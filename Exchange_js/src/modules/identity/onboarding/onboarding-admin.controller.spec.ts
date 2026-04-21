@@ -9,8 +9,6 @@ describe('OnboardingAdminController', () => {
     getCddResponseDetail: jest.fn(),
     listEddResponses: jest.fn(),
     getEddResponseDetail: jest.fn(),
-    applyOnboardingDecisionFromAlert: jest.fn(),
-    applyOnboardingDecisionFromIncident: jest.fn(),
     simulateCustomerExpired: jest.fn(),
     updateInvestorClassification: jest.fn(),
   };
@@ -76,59 +74,4 @@ describe('OnboardingAdminController', () => {
     expect(result).toEqual({ id: 'dr-1' });
   });
 
-  it('should expose canonical case onboarding-decision route with proposalCode payload', async () => {
-    onboardingServiceMock.applyOnboardingDecisionFromIncident.mockResolvedValue({
-      case: { id: 'inc-1', caseNo: 'CAS2603010001' },
-      alert: { id: 'alert-1' },
-      customer: { id: 'c1', onboardingStatus: 'APPROVED', operatingStatus: 'ACTIVE' },
-    });
-
-    const result = await controller.applyOnboardingDecisionFromCase(
-      {
-        user: {
-          type: 'ADMIN',
-          userId: 'admin-1',
-          role: 'MLRO',
-        },
-      },
-      'inc-1',
-      { proposalCode: 'CLEAR' } as any,
-    );
-
-    expect(onboardingServiceMock.applyOnboardingDecisionFromIncident).toHaveBeenCalledWith(
-      'inc-1',
-      'admin-1',
-      'MLRO',
-      { proposalCode: 'CLEAR' },
-    );
-    expect(result.case).toEqual({ id: 'inc-1', caseNo: 'CAS2603010001' });
-    expect(result).not.toHaveProperty('incident');
-  });
-
-  it('should keep legacy decision payload compatibility on case onboarding-decision route', async () => {
-    onboardingServiceMock.applyOnboardingDecisionFromIncident.mockResolvedValue({
-      case: { id: 'inc-1', caseNo: 'CAS2603010001' },
-      alert: { id: 'alert-1' },
-      proposal: { workflowDecision: 'REJECT', finalDispositionCode: 'RISK_CONFIRMED' },
-    });
-
-    await controller.applyOnboardingDecisionFromCase(
-      {
-        user: {
-          type: 'ADMIN',
-          userId: 'admin-1',
-          role: 'MLRO',
-        },
-      },
-      'inc-1',
-      { decision: 'REJECT', reason: 'legacy client' } as any,
-    );
-
-    expect(onboardingServiceMock.applyOnboardingDecisionFromIncident).toHaveBeenCalledWith(
-      'inc-1',
-      'admin-1',
-      'MLRO',
-      { decision: 'REJECT', reason: 'legacy client' },
-    );
-  });
 });

@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams, Navigate } from 'react-router-dom';
 import {
   AlertTriangle,
+  CheckCircle2,
   ChevronRight,
   Clock3,
   QrCode,
@@ -399,42 +400,69 @@ const mapPeriodicReviewNextStepToLegacy = (
 };
 
 const stepGuides = [
-  {
-    title: 'Basic Profile',
-    text: 'Provide your basic details.',
-  },
-  {
-    title: 'Face Verification',
-    text: 'Complete liveness check.',
-  },
-  {
-    title: 'Address Check',
-    text: 'Verify your residential address.',
-  },
-  {
-    title: 'Screening',
-    text: 'Pass background checks.',
-  },
-  {
-    title: 'Review',
-    text: 'Compliance team review.',
-  },
+  { title: 'Basic Profile',     text: 'Provide your basic details.' },
+  { title: 'Face Verification', text: 'Complete liveness check.' },
+  { title: 'Address Check',     text: 'Verify your residential address.' },
+  { title: 'Screening',         text: 'Pass background checks.' },
+  { title: 'Review',            text: 'Compliance team review.' },
 ];
 
+/* ── FIATX Desert Monolith button + card tokens ─────────────────── */
 const primaryButtonClass =
-  'relative overflow-hidden group w-full flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 px-6 py-3.5 text-sm font-semibold text-white shadow-lg shadow-indigo-500/30 transition-all hover:shadow-indigo-500/50 hover:scale-[1.02] active:scale-[0.98] disabled:opacity-70 disabled:cursor-not-allowed disabled:shadow-none';
+  'group inline-flex items-center justify-center gap-2 bg-fx-brass text-fx-obsidian font-mono text-[11px] tracking-[0.18em] uppercase px-6 py-3 transition-colors hover:bg-fx-ember disabled:opacity-50 disabled:cursor-not-allowed';
 
 const secondaryButtonClass =
-  'w-full flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-6 py-3.5 text-sm font-medium text-slate-700 transition-all hover:bg-slate-50 hover:border-slate-300 active:bg-slate-100 disabled:opacity-60';
+  'inline-flex items-center justify-center gap-2 border border-fx-rule-strong bg-transparent text-fx-sand font-mono text-[11px] tracking-[0.18em] uppercase px-6 py-3 transition-colors hover:border-fx-brass hover:text-fx-brass disabled:opacity-50 disabled:cursor-not-allowed';
 
+/* Editorial halt frame — hairline ruled panel, never round, calm. */
 const cardClass =
-  'relative w-full overflow-hidden rounded-[2rem] border border-white/60 bg-white/80 px-12 py-16 shadow-[0_20px_40px_-12px_rgba(0,0,0,0.1)] backdrop-blur-xl';
+  'relative w-full max-w-[640px] border border-fx-rule bg-fx-ink/40 px-10 md:px-14 py-14';
 
 const SimulationModeNotice = ({ message }: { message: string }) => (
-  <div className="mt-6 rounded-2xl border border-amber-200 bg-amber-50/80 px-4 py-3 text-sm text-amber-800">
+  <div className="mt-6 border border-fx-brass/20 bg-fx-brass/[0.04] px-4 py-3 font-mono text-[10px] uppercase tracking-[0.14em] text-fx-brass/90 leading-relaxed">
+    <span className="text-fx-brass">§ </span>
     {message}
   </div>
 );
+
+/* Editorial byline — brass hairline + chapter label */
+const FrameByline = ({ chapter, label }: { chapter: string; label: string }) => (
+  <div className="flex items-center gap-3 mb-7">
+    <span className="h-[1px] w-6 bg-fx-brass" />
+    <span className="font-mono text-[9px] uppercase tracking-[0.22em] text-fx-dust">
+      {chapter}
+    </span>
+    <span className="text-fx-rule-strong">·</span>
+    <span className="font-mono text-[9px] uppercase tracking-[0.22em] text-fx-dust">
+      {label}
+    </span>
+  </div>
+);
+
+/* Small tonal marker — replaces the pastel gradient icon pills */
+const ToneMark = ({
+  children,
+  tone,
+}: {
+  children: React.ReactNode;
+  tone: 'brass' | 'sage' | 'rust' | 'dust';
+}) => {
+  const cls =
+    tone === 'sage'
+      ? 'border-fx-sage/30 bg-fx-sage/5 text-fx-sage'
+      : tone === 'rust'
+        ? 'border-fx-rust/30 bg-fx-rust/5 text-fx-rust'
+        : tone === 'dust'
+          ? 'border-fx-rule-strong bg-fx-ink/30 text-fx-dust'
+          : 'border-fx-brass/30 bg-fx-brass/5 text-fx-brass';
+  return (
+    <div
+      className={`inline-flex h-12 w-12 items-center justify-center border ${cls}`}
+    >
+      {children}
+    </div>
+  );
+};
 
 const formatVerificationTime = (value?: string | null) => {
   if (!value) {
@@ -488,25 +516,295 @@ const OnboardingVerificationDetails = ({
   }
 
   return (
-    <div className="mt-8 grid w-full gap-3 text-left md:grid-cols-2">
+    <div className="mt-10 w-full text-left border-t border-fx-rule">
       {items.map((item) => (
         <div
           key={item.label}
-          className="rounded-2xl border border-slate-100 bg-slate-50/80 px-4 py-3"
+          className="grid grid-cols-12 gap-4 py-3 border-b border-fx-rule"
         >
-          <div className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
+          <div className="col-span-4 font-mono text-[9px] uppercase tracking-[0.18em] text-fx-dust pt-[2px]">
             {item.label}
           </div>
-          <div className="mt-2 text-sm font-medium text-slate-800">{item.value}</div>
+          <div className="col-span-8 font-mono text-[11px] text-fx-sand">
+            {item.value}
+          </div>
         </div>
       ))}
     </div>
   );
 };
 
+/* ────────────────────────────────────────────────────────────────
+ *  MaterialRefreshVerificationMode
+ *  Shown when the customer is APPROVED and arrives at /verification
+ *  with ?cycleId=<id>. Fetches the refresh-cycle and a SDK token,
+ *  then presents a QR for the mobile Sumsub flow.
+ * ──────────────────────────────────────────────────────────────── */
+
+interface RefreshCycle {
+  id: string;
+  cycleNo: string;
+  materialType?: string;
+  status: string;
+  dueAt?: string | null;
+  mockActionId?: string | null;
+}
+
+interface RefreshSdkToken {
+  sdkToken?: string | null;
+  mockActionId?: string | null;
+}
+
+const MaterialRefreshVerificationMode = ({ cycleId }: { cycleId: string }) => {
+  const navigate = useNavigate();
+  const [cycle, setCycle] = useState<RefreshCycle | null>(null);
+  const [sdkInfo, setSdkInfo] = useState<RefreshSdkToken | null>(null);
+  const [loadingData, setLoadingData] = useState(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const load = async () => {
+      setLoadingData(true);
+      setFetchError(null);
+      try {
+        const base = `${import.meta.env.VITE_API_URL}/onboarding/refresh-cycles/${cycleId}`;
+
+        const cycleRes = await customerFetch(base);
+        if (!cycleRes.ok) throw new Error('Failed to load refresh cycle.');
+        const cycleData = (await cycleRes.json()) as RefreshCycle;
+        setCycle(cycleData);
+
+        // sdk-token may 403 when cycle is already CLEARED/REJECTED — don't kick to login
+        try {
+          const tokenRes = await customerFetch(
+            `${base}/sdk-token`,
+            { method: 'POST', body: JSON.stringify({}) },
+            { redirectOnAuthFailure: false },
+          );
+          if (tokenRes.ok) {
+            const tokenData = (await tokenRes.json()) as RefreshSdkToken;
+            setSdkInfo(tokenData);
+          }
+        } catch {
+          // non-fatal: cycle might be CLEARED/PENDING_SUMSUB_REVIEW
+        }
+      } catch (e: unknown) {
+        setFetchError(getErrorMessage(e, 'Failed to load material refresh data.'));
+      } finally {
+        setLoadingData(false);
+      }
+    };
+    void load();
+  }, [cycleId]);
+
+  const handleSubmit = async () => {
+    setSubmitting(true);
+    setSubmitError(null);
+    try {
+      const res = await customerFetch(
+        `${import.meta.env.VITE_API_URL}/onboarding/refresh-cycles/${cycleId}/submit`,
+        { method: 'POST', body: JSON.stringify({}) },
+      );
+      if (!res.ok) throw new Error('Submission failed.');
+      setCycle((prev) => prev ? { ...prev, status: 'PENDING_SUMSUB_REVIEW' } : prev);
+    } catch (e: unknown) {
+      setSubmitError(getErrorMessage(e, 'Failed to submit material.'));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  if (loadingData) {
+    return (
+      <div className="flex h-screen items-center justify-center gap-3 bg-fx-obsidian">
+        <RefreshCw size={14} className="animate-spin text-fx-brass" />
+        <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-fx-dust">
+          Loading review cycle
+        </span>
+      </div>
+    );
+  }
+
+  if (fetchError) {
+    return (
+      <div className="flex h-screen items-center justify-center px-6 bg-fx-obsidian">
+        <div className="max-w-md border border-fx-rust/30 bg-fx-rust/5 px-6 py-5">
+          <div className="font-mono text-[10px] uppercase tracking-[0.22em] text-fx-rust mb-2">
+            § Error
+          </div>
+          <div className="font-mono text-[11px] text-fx-dune">{fetchError}</div>
+          <button
+            onClick={() => navigate('/profile')}
+            className="mt-6 fx-btn-ghost"
+          >
+            Back to profile
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  const qrValue = sdkInfo?.sdkToken || sdkInfo?.mockActionId || cycleId;
+  const status = cycle?.status || '';
+
+  /* ── PENDING_SUMSUB_REVIEW: full-page "Under Review" card (matches onboarding WAIT_REVIEW) ── */
+  if (status === 'PENDING_SUMSUB_REVIEW') {
+    return (
+      <div className="relative min-h-[calc(100vh-56px)] w-full bg-fx-obsidian">
+        <div className="relative mx-auto flex min-h-[calc(100vh-56px)] max-w-5xl flex-col items-center justify-center px-6 py-12">
+          <section className={cardClass}>
+            <FrameByline chapter="§ Material Refresh" label="Compliance review" />
+            <div className="flex items-start gap-6">
+              <ToneMark tone="brass">
+                <Clock3 size={20} />
+              </ToneMark>
+              <div className="flex-1">
+                <h2 className="fx-display font-light text-[36px] leading-[1.05] text-fx-sand">
+                  Under Review
+                  <br />
+                  <span className="fx-serif italic text-fx-brass">in progress.</span>
+                </h2>
+                <p className="mt-5 fx-serif text-[14px] leading-[1.7] text-fx-dune max-w-[460px]">
+                  Your material submission has been sent to the verification provider and is now
+                  waiting for review. We will update the status once the result arrives.
+                </p>
+                <div className="mt-8 grid grid-cols-2 gap-4">
+                  {cycle?.cycleNo && (
+                    <div>
+                      <div className="font-mono text-[9px] uppercase tracking-[0.14em] text-fx-dust/70 mb-1">Cycle</div>
+                      <div className="font-mono text-[11px] text-fx-sand tabular-nums">{cycle.cycleNo}</div>
+                    </div>
+                  )}
+                  <div>
+                    <div className="font-mono text-[9px] uppercase tracking-[0.14em] text-fx-dust/70 mb-1">Material</div>
+                    <div className="font-mono text-[11px] text-fx-sand">{cycle?.materialType?.replace(/_/g, ' ') || '—'}</div>
+                  </div>
+                </div>
+                <SimulationModeNotice message="Waiting for admin to simulate webhook result (GREEN / RED) via Sumsub Events." />
+                <button onClick={() => navigate('/profile')} className="mt-8 fx-btn-ghost">
+                  ← Back to profile
+                </button>
+              </div>
+            </div>
+          </section>
+        </div>
+      </div>
+    );
+  }
+
+  /* ── CLEARED: success page ── */
+  if (status === 'CLEARED') {
+    return (
+      <div className="relative min-h-[calc(100vh-56px)] w-full bg-fx-obsidian">
+        <div className="relative mx-auto flex min-h-[calc(100vh-56px)] max-w-5xl flex-col items-center justify-center px-6 py-12">
+          <section className={cardClass}>
+            <FrameByline chapter="§ Material Refresh" label="Complete" />
+            <div className="flex items-start gap-6">
+              <ToneMark tone="sage">
+                <CheckCircle2 size={20} />
+              </ToneMark>
+              <div className="flex-1">
+                <h2 className="fx-display font-light text-[36px] leading-[1.05] text-fx-sand">
+                  Verified
+                  <br />
+                  <span className="fx-serif italic text-fx-sage">successfully.</span>
+                </h2>
+                <p className="mt-5 fx-serif text-[14px] leading-[1.7] text-fx-dune max-w-[460px]">
+                  Your material has been verified. Your compliance record has been renewed.
+                </p>
+                <button onClick={() => navigate('/profile')} className="mt-8 fx-btn-ghost">
+                  ← Back to profile
+                </button>
+              </div>
+            </div>
+          </section>
+        </div>
+      </div>
+    );
+  }
+
+  /* ── PENDING_CUSTOMER_EVIDENCE: QR scan page with mock submit link ── */
+  return (
+    <div className="relative min-h-[calc(100vh-56px)] w-full bg-fx-obsidian flex items-center justify-center px-6 py-12">
+      <div className="w-full max-w-[560px]">
+        <FrameByline chapter="§ Material Refresh" label={`Cycle ${cycle?.cycleNo || cycleId}`} />
+
+        <h1 className="fx-display font-light text-[38px] leading-[1.05] text-fx-sand mb-3">
+          Identity refresh required.
+        </h1>
+        <p className="fx-serif italic text-fx-brass text-[15px] leading-[1.6] mb-10">
+          Complete the scan below to renew your compliance record.
+        </p>
+
+        {/* QR panel */}
+        <div className="border border-fx-rule bg-fx-ink/40 px-10 py-10 flex flex-col items-center gap-6">
+          <div className="bg-white p-3">
+            <QRCodeSVG value={qrValue} size={180} />
+          </div>
+          <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-fx-dust text-center">
+            Scan with your mobile device to begin
+          </p>
+
+          {/* Metadata strip */}
+          <div className="w-full border-t border-fx-rule pt-5 grid grid-cols-2 gap-4">
+            {cycle?.cycleNo && (
+              <div>
+                <div className="font-mono text-[9px] uppercase tracking-[0.14em] text-fx-dust/70 mb-1">Cycle</div>
+                <div className="font-mono text-[11px] text-fx-sand tabular-nums">{cycle.cycleNo}</div>
+              </div>
+            )}
+            {cycle?.status && (
+              <div>
+                <div className="font-mono text-[9px] uppercase tracking-[0.14em] text-fx-dust/70 mb-1">Status</div>
+                <div className="font-mono text-[11px] text-fx-sand uppercase">{cycle.status.replace(/_/g, ' ')}</div>
+              </div>
+            )}
+            {(sdkInfo?.mockActionId || cycle?.mockActionId) && (
+              <div className="col-span-2">
+                <div className="font-mono text-[9px] uppercase tracking-[0.14em] text-fx-dust/70 mb-1">Mock action id</div>
+                <div className="font-mono text-[11px] text-fx-dune break-all">{sdkInfo?.mockActionId || cycle?.mockActionId}</div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Dev mock submit — small text link, matching onboarding pattern */}
+        <button
+          onClick={() => void handleSubmit()}
+          disabled={submitting}
+          className="mt-8 font-mono text-[10px] uppercase tracking-[0.18em] text-fx-dust underline-offset-4 hover:text-fx-brass hover:underline disabled:opacity-50"
+        >
+          {submitting ? 'Submitting…' : '[ Dev ] Mock submit completed on mobile'}
+        </button>
+        {submitError && (
+          <div className="mt-3 border border-fx-rust/30 bg-fx-rust/5 px-4 py-3 font-mono text-[11px] text-fx-rust">
+            {submitError}
+          </div>
+        )}
+
+        <div className="mt-4">
+          <button onClick={() => navigate('/profile')} className="fx-btn-ghost">
+            ← Back to profile
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+/* ────────────────────────────────────────────────────────────────
+ *  Verification — root component.
+ *  Routes between MaterialRefreshVerificationMode (APPROVED + cycleId)
+ *  and the existing onboarding / periodic-review flow.
+ * ──────────────────────────────────────────────────────────────── */
+
 const Verification = () => {
   const { profile, loading, error, refreshProfile } = useCustomerProfile();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const cycleId = searchParams.get('cycleId');
   const { enabled: simulationModeEnabled } = useSimulationMode();
 
   const [onboarding, setOnboarding] = useState<OnboardingSnapshot | null>(null);
@@ -519,14 +817,19 @@ const Verification = () => {
   const [message, setMessage] = useState('');
   const [saving, setSaving] = useState(false);
   const [casesLoading, setCasesLoading] = useState(false);
+  const [complianceStatus, setComplianceStatus] = useState<{
+    requiresLevel2: boolean;
+    restrictionStatus: string | null;
+    tierUpgradeCase: { caseNo: string; status: string } | null;
+  } | null>(null);
 
   useEffect(() => {
     const style = document.createElement('style');
     style.innerHTML = `
-      @keyframes scan {
+      @keyframes fx-scan {
         0% { transform: translateY(0); opacity: 0; }
-        15% { opacity: 1; }
-        85% { opacity: 1; }
+        15% { opacity: 0.9; }
+        85% { opacity: 0.9; }
         100% { transform: translateY(200px); opacity: 0; }
       }
     `;
@@ -534,6 +837,22 @@ const Verification = () => {
     return () => {
       document.head.removeChild(style);
     };
+  }, []);
+
+  const fetchComplianceStatus = async () => {
+    try {
+      const res = await customerFetch(`${import.meta.env.VITE_API_URL}/compliance/me`);
+      if (res.ok) {
+        const data = await res.json();
+        setComplianceStatus(data);
+      }
+    } catch {
+      // ignore — non-critical
+    }
+  };
+
+  useEffect(() => {
+    fetchComplianceStatus().catch(() => undefined);
   }, []);
 
   const verificationMode =
@@ -885,9 +1204,37 @@ const Verification = () => {
   }, [currentStep.step, currentStep.action]);
 
   if (loading)
-    return <div className="flex h-screen items-center justify-center text-slate-400">Loading...</div>;
-  if (error) return <div className="flex h-screen items-center justify-center text-red-500">{error}</div>;
+    return (
+      <div className="flex h-screen items-center justify-center gap-3">
+        <RefreshCw size={14} className="animate-spin text-fx-brass" />
+        <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-fx-dust">
+          Loading verification
+        </span>
+      </div>
+    );
+  if (error)
+    return (
+      <div className="flex h-screen items-center justify-center px-6">
+        <div className="max-w-md border border-fx-rust/30 bg-fx-rust/5 px-6 py-5">
+          <div className="font-mono text-[10px] uppercase tracking-[0.22em] text-fx-rust mb-2">
+            § Error
+          </div>
+          <div className="font-mono text-[11px] text-fx-dune">{error}</div>
+        </div>
+      </div>
+    );
   if (!profile) return null;
+
+  // Route: APPROVED customer with cycleId → material refresh mode
+  const onboardingStatus = String(profile.onboardingStatus || 'NONE').toUpperCase();
+  if (onboardingStatus === 'APPROVED' && cycleId) {
+    return <MaterialRefreshVerificationMode cycleId={cycleId} />;
+  }
+
+  // Route: APPROVED customer with no cycleId → nothing to do here
+  if (onboardingStatus === 'APPROVED' && !cycleId) {
+    return <Navigate to="/profile" replace />;
+  }
 
   const isCorporate =
     onboarding?.customerType === 'CORPORATE' || profile.customerType === 'CORPORATE';
@@ -908,51 +1255,94 @@ const Verification = () => {
         };
 
   return (
-    <div className="relative min-h-[calc(100vh-80px)] w-full overflow-hidden bg-slate-50 font-['Noto_Sans_SC']">
-      <div className="pointer-events-none absolute inset-0 overflow-hidden">
-        <div className="absolute -left-[10%] top-[20%] h-[500px] w-[500px] rounded-full bg-blue-100/40 blur-[100px]" />
-        <div className="absolute -right-[10%] bottom-[20%] h-[500px] w-[500px] rounded-full bg-violet-100/40 blur-[100px]" />
-      </div>
-
-      <div className="relative mx-auto flex min-h-[calc(100vh-140px)] max-w-5xl flex-col items-center justify-center px-6 py-12">
+    <div className="relative min-h-[calc(100vh-56px)] w-full bg-fx-obsidian">
+      <div className="relative mx-auto flex min-h-[calc(100vh-56px)] max-w-5xl flex-col items-center justify-center px-6 py-12">
         <AnimatePresence mode="wait">
           {message && (
             <motion.div
-              initial={{ opacity: 0, y: -20 }}
+              initial={{ opacity: 0, y: -12 }}
               animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -20 }}
-              className="absolute top-4 z-50 w-full max-w-sm rounded-xl border border-blue-100 bg-white/90 px-4 py-3 text-sm font-medium text-blue-700 shadow-lg backdrop-blur-md"
+              exit={{ opacity: 0, y: -12 }}
+              className="absolute top-4 z-50 w-full max-w-sm border border-fx-brass/30 bg-fx-ink/90 px-4 py-3 text-[11px] font-mono text-fx-sand backdrop-blur"
             >
               <div className="flex items-center gap-3">
-                <div className="flex h-6 w-6 items-center justify-center rounded-full bg-blue-100 text-blue-600">
-                  <ShieldCheck size={14} />
-                </div>
-                {message}
+                <span className="text-fx-brass font-mono text-[10px] tracking-[0.2em]">§</span>
+                <span className="leading-relaxed">{message}</span>
               </div>
             </motion.div>
           )}
         </AnimatePresence>
 
+        {complianceStatus?.requiresLevel2 && (
+          <motion.div
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="w-full max-w-[640px] mb-8 border border-fx-brass/40 bg-fx-brass/[0.06] px-6 py-5"
+          >
+            <div className="flex items-center gap-3 mb-3">
+              <AlertTriangle size={14} className="text-fx-brass flex-shrink-0" />
+              <span className="font-mono text-[9px] uppercase tracking-[0.22em] text-fx-brass">
+                Enhanced Verification Required
+              </span>
+            </div>
+            <p className="fx-serif text-[13px] leading-[1.7] text-fx-dune mb-2">
+              Your account has been flagged for enhanced due diligence. Please complete Level 2
+              verification to restore full account access.
+            </p>
+            {complianceStatus.tierUpgradeCase?.caseNo && (
+              <p className="font-mono text-[10px] text-fx-dust/70 mb-5">
+                Upgrade case:{' '}
+                <span className="text-fx-sand">{complianceStatus.tierUpgradeCase.caseNo}</span>
+              </p>
+            )}
+            <button
+              className={primaryButtonClass}
+              onClick={async () => {
+                try {
+                  const res = await customerFetch(
+                    `${import.meta.env.VITE_API_URL}/compliance/verification/mock-complete-level2`,
+                    { method: 'POST' },
+                  );
+                  if (res.ok) {
+                    setMessage('Level 2 verification submitted. Awaiting final compliance approval.');
+                    await fetchComplianceStatus();
+                  } else {
+                    const err = (await res.json().catch(() => ({}))) as { message?: string };
+                    setMessage(`Error: ${err.message || 'Submission failed'}`);
+                  }
+                } catch {
+                  setMessage('Request failed. Please try again.');
+                }
+              }}
+            >
+              Mock Complete Level 2 Verification
+            </button>
+          </motion.div>
+        )}
+
         {isCorporate && (
           <motion.section
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
             className={cardClass}
           >
-            <div className="flex flex-col items-center text-center">
-              <div className="mb-6 rounded-2xl bg-amber-50 p-4 text-amber-600">
-                <AlertTriangle size={32} />
+            <FrameByline chapter="§ Chapter I" label="Corporate onboarding" />
+            <div className="flex items-start gap-6">
+              <ToneMark tone="brass">
+                <AlertTriangle size={20} />
+              </ToneMark>
+              <div className="flex-1">
+                <h2 className="fx-display font-light text-[34px] leading-[1.05] text-fx-sand">
+                  Corporate
+                  <br />
+                  <span className="fx-serif italic text-fx-brass">verification.</span>
+                </h2>
+                <p className="mt-5 fx-serif text-[14px] leading-[1.7] text-fx-dune max-w-[440px]">
+                  Corporate self-service onboarding is temporarily unavailable. Please contact
+                  our compliance support team to continue the KYB and UBO onboarding process.
+                </p>
+                <button className={`${secondaryButtonClass} mt-8`}>Contact support →</button>
               </div>
-              <h2 className="text-2xl font-bold text-slate-900">Corporate Verification</h2>
-              <p className="mt-4 text-slate-600 leading-relaxed">
-                Corporate self-service onboarding is temporarily unavailable. Please contact our
-                compliance support team to continue the KYB and UBO onboarding process.
-              </p>
-              <button
-                className={`${secondaryButtonClass} mt-8 border-amber-200 text-amber-700 hover:bg-amber-50`}
-              >
-                Contact Support
-              </button>
             </div>
           </motion.section>
         )}
@@ -962,48 +1352,51 @@ const Verification = () => {
             {showIntroFlow && introStage === 'INTRO' && (
               <motion.section
                 key="intro"
-                initial={{ opacity: 0, y: 20 }}
+                initial={{ opacity: 0, y: 16 }}
                 animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -20 }}
-                transition={{ duration: 0.4 }}
+                exit={{ opacity: 0, y: -12 }}
+                transition={{ duration: 0.5 }}
                 className={cardClass}
               >
-                <div className="flex flex-col items-center text-center">
-                  <div className="mb-8 relative">
-                    <div className="absolute inset-0 bg-blue-500/20 blur-2xl rounded-full" />
-                    <div className="relative rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 p-5 text-white shadow-xl shadow-blue-500/30">
-                      <ShieldCheck size={40} />
-                    </div>
-                  </div>
+                <FrameByline chapter="§ Chapter II" label="Identity verification" />
 
-                  <h2 className="text-3xl font-bold tracking-tight text-slate-900">
-                    Identity Verification
-                  </h2>
-                  <p className="mt-4 text-slate-500 leading-relaxed max-w-xs">
-                    We need to verify your identity to ensure the security of your account and
-                    comply with regulations.
-                  </p>
+                <h2 className="fx-display font-light text-[44px] md:text-[52px] leading-[0.95] text-fx-sand">
+                  Verify
+                  <br />
+                  <span className="fx-serif italic text-fx-brass">your identity.</span>
+                </h2>
+                <p className="mt-6 fx-serif text-[15px] leading-[1.7] text-fx-dune max-w-[460px]">
+                  We verify your identity to keep your account safe and comply with VARA
+                  regulation. It takes about three minutes on your phone.
+                </p>
 
-                  <div className="mt-8 grid w-full grid-cols-3 gap-3">
-                    <div className="flex flex-col items-center rounded-2xl bg-slate-50 p-3">
-                      <Clock3 size={20} className="mb-2 text-indigo-500" />
-                      <span className="text-xs font-semibold text-slate-900">~3 min</span>
-                      <span className="text-[10px] text-slate-400">Time</span>
+                {/* Meta ledger — three columns, hairline dividers, no cards */}
+                <div className="mt-10 grid grid-cols-3 border-t border-b border-fx-rule">
+                  {[
+                    { icon: <Clock3 size={14} />,      label: 'Duration',  value: '≈ 3 min' },
+                    { icon: <Smartphone size={14} />,  label: 'Device',    value: 'Mobile' },
+                    { icon: <ShieldCheck size={14} />, label: 'Partner',   value: 'Sumsub' },
+                  ].map((it, idx) => (
+                    <div
+                      key={it.label}
+                      className={`py-5 px-4 ${idx < 2 ? 'border-r border-fx-rule' : ''}`}
+                    >
+                      <div className="flex items-center gap-2 text-fx-brass">
+                        {it.icon}
+                        <span className="font-mono text-[9px] uppercase tracking-[0.18em] text-fx-dust">
+                          {it.label}
+                        </span>
+                      </div>
+                      <div className="mt-2 font-mono text-[13px] text-fx-sand tabular-nums">
+                        {it.value}
+                      </div>
                     </div>
-                    <div className="flex flex-col items-center rounded-2xl bg-slate-50 p-3">
-                      <Smartphone size={20} className="mb-2 text-indigo-500" />
-                      <span className="text-xs font-semibold text-slate-900">Mobile</span>
-                      <span className="text-[10px] text-slate-400">Device</span>
-                    </div>
-                    <div className="flex flex-col items-center rounded-2xl bg-slate-50 p-3">
-                      <ShieldCheck size={20} className="mb-2 text-indigo-500" />
-                      <span className="text-xs font-semibold text-slate-900">Secure</span>
-                      <span className="text-[10px] text-slate-400">Data</span>
-                    </div>
-                  </div>
+                  ))}
+                </div>
 
-                  <button onClick={() => setIntroStage('GUIDE')} className={`${primaryButtonClass} mt-10`}>
-                    Start Verification
+                <div className="mt-10">
+                  <button onClick={() => setIntroStage('GUIDE')} className={primaryButtonClass}>
+                    Begin verification →
                   </button>
                 </div>
               </motion.section>
@@ -1012,40 +1405,48 @@ const Verification = () => {
             {showIntroFlow && introStage === 'GUIDE' && (
               <motion.section
                 key="guide"
-                initial={{ opacity: 0, x: 20 }}
+                initial={{ opacity: 0, x: 16 }}
                 animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: -20 }}
-                transition={{ duration: 0.4 }}
+                exit={{ opacity: 0, x: -16 }}
+                transition={{ duration: 0.45 }}
                 className={cardClass}
               >
-                <div className="flex flex-col">
-                  <h2 className="text-2xl font-bold text-slate-900 text-center mb-2">
-                    Process Overview
-                  </h2>
-                  <p className="text-center text-slate-500 text-sm mb-8">
-                    Complete these steps to unlock full access
-                  </p>
+                <FrameByline chapter="§ Chapter II" label="Process overview" />
 
-                  <div className="space-y-4">
-                    {stepGuides.map((item, index) => (
-                      <motion.div
-                        initial={{ opacity: 0, x: -10 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        transition={{ delay: index * 0.1 }}
-                        key={item.title}
-                        className="flex items-center gap-4 rounded-xl border border-slate-100 bg-slate-50/50 p-3"
-                      >
-                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white text-sm font-bold text-indigo-600 shadow-sm border border-slate-100">
-                          {index + 1}
-                        </div>
-                        <div>
-                          <div className="text-sm font-semibold text-slate-800">{item.title}</div>
-                          <div className="text-xs text-slate-500">{item.text}</div>
-                        </div>
-                      </motion.div>
-                    ))}
-                  </div>
+                <h2 className="fx-display font-light text-[38px] leading-[1] text-fx-sand">
+                  Five steps
+                  <br />
+                  <span className="fx-serif italic text-fx-brass">to full access.</span>
+                </h2>
 
+                {/* Editorial ledger — Roman numerals, hairline rows */}
+                <ol className="mt-10">
+                  {stepGuides.map((item, index) => (
+                    <motion.li
+                      key={item.title}
+                      initial={{ opacity: 0, x: -8 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: index * 0.06 }}
+                      className="grid grid-cols-12 gap-4 py-4 border-t border-fx-rule last:border-b"
+                    >
+                      <div className="col-span-2">
+                        <span className="fx-display font-light text-[24px] leading-none text-fx-brass">
+                          {String.fromCharCode(0x2160 + index)}
+                        </span>
+                      </div>
+                      <div className="col-span-10">
+                        <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-fx-sand mb-1">
+                          {item.title}
+                        </div>
+                        <div className="fx-serif text-[12px] leading-relaxed text-fx-dune/80">
+                          {item.text}
+                        </div>
+                      </div>
+                    </motion.li>
+                  ))}
+                </ol>
+
+                <div className="mt-10">
                   {verificationMode === 'ONBOARDING' ? (
                     <button
                       onClick={async () => {
@@ -1053,10 +1454,10 @@ const Verification = () => {
                         if (ok) setIntroStage('FLOW');
                       }}
                       disabled={saving}
-                      className={`${primaryButtonClass} mt-10`}
+                      className={primaryButtonClass}
                     >
-                      {saving ? 'Initializing...' : 'Start Verification'}
-                      {!saving && <ChevronRight size={16} />}
+                      {saving ? 'Initializing…' : 'Begin verification'}
+                      {!saving && <ChevronRight size={14} />}
                     </button>
                   ) : simulationModeEnabled ? (
                     <button
@@ -1065,10 +1466,10 @@ const Verification = () => {
                         if (ok) setIntroStage('FLOW');
                       }}
                       disabled={saving}
-                      className={`${primaryButtonClass} mt-10`}
+                      className={primaryButtonClass}
                     >
-                      {saving ? 'Initializing...' : 'Continue to Scan'}
-                      {!saving && <ChevronRight size={16} />}
+                      {saving ? 'Initializing…' : 'Continue to scan'}
+                      {!saving && <ChevronRight size={14} />}
                     </button>
                   ) : (
                     <SimulationModeNotice message={simulationModeNotice} />
@@ -1103,48 +1504,55 @@ const Verification = () => {
             {verificationMode === 'PERIODIC_REVIEW' && currentStep.step === 'EDD' && (
               <motion.div
                 key="edd"
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                transition={{ duration: 0.4 }}
-                className="space-y-6 w-full"
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.45 }}
+                className="flex w-full flex-col items-center gap-6"
               >
-                <div className="rounded-2xl border border-violet-200 bg-violet-50/80 px-5 py-4 text-sm font-medium text-violet-800 flex items-center gap-3">
-                  <ShieldCheck size={18} />
-                  Enhanced Due Diligence Required
+                <div className="w-full max-w-[640px] border border-fx-brass/25 bg-fx-brass/5 px-5 py-4 font-mono text-[10px] uppercase tracking-[0.18em] text-fx-brass flex items-center gap-3">
+                  <ShieldCheck size={14} />
+                  Enhanced due diligence required
                 </div>
 
                 {!hasUsableActiveSession ? (
                   <motion.section
-                    initial={{ opacity: 0, y: 20 }}
+                    initial={{ opacity: 0, y: 16 }}
                     animate={{ opacity: 1, y: 0 }}
                     className={cardClass}
                   >
-                    <div className="flex flex-col items-center text-center">
-                      <div className="mb-6 rounded-2xl bg-violet-50 p-5 text-violet-600">
-                        <QrCode size={40} />
+                    <FrameByline chapter="§ Chapter III" label="Enhanced due diligence" />
+                    <div className="flex items-start gap-6">
+                      <ToneMark tone="brass">
+                        <QrCode size={20} />
+                      </ToneMark>
+                      <div className="flex-1">
+                        <h2 className="fx-display font-light text-[34px] leading-[1.05] text-fx-sand">
+                          Start
+                          <br />
+                          <span className="fx-serif italic text-fx-brass">EDD verification.</span>
+                        </h2>
+                        <p className="mt-5 fx-serif text-[14px] leading-[1.7] text-fx-dune max-w-[440px]">
+                          Your EDD response is ready. Generate your verification link, then scan
+                          the QR on your phone to continue.
+                        </p>
+                        {simulationModeEnabled ? (
+                          <button
+                            onClick={() => startEdd().catch(() => undefined)}
+                            disabled={saving}
+                            className={`${primaryButtonClass} mt-8`}
+                          >
+                            <QrCode size={14} />
+                            Start EDD
+                          </button>
+                        ) : (
+                          <SimulationModeNotice message={simulationModeNotice} />
+                        )}
                       </div>
-                      <h2 className="text-2xl font-bold text-slate-900">Start EDD Verification</h2>
-                      <p className="mt-3 text-slate-500 leading-relaxed max-w-md">
-                        Your EDD response is ready. Generate your verification link first, then scan QR
-                        to continue.
-                      </p>
-                      {simulationModeEnabled ? (
-                        <button
-                          onClick={() => startEdd().catch(() => undefined)}
-                          disabled={saving}
-                          className={`${primaryButtonClass} mt-8`}
-                        >
-                          <QrCode size={18} />
-                          Start EDD
-                        </button>
-                      ) : (
-                        <SimulationModeNotice message={simulationModeNotice} />
-                      )}
                     </div>
                   </motion.section>
                 ) : (
                   <JourneyResponsePanel
-                    title="Additional Check"
+                    title="Additional check"
                     subtitle="Please complete this additional verification step."
                     item={activeResponse}
                     loading={casesLoading}
@@ -1162,78 +1570,102 @@ const Verification = () => {
             {verificationMode === 'ONBOARDING' && currentStep.step === 'VERIFY' && (
               <motion.section
                 key="verify"
-                initial={{ opacity: 0, y: 20 }}
+                initial={{ opacity: 0, y: 16 }}
                 animate={{ opacity: 1, y: 0 }}
                 className={cardClass}
               >
-                <div className="flex flex-col items-center text-center">
-                  <h2 className="text-2xl font-bold text-slate-900">Scan to Verify</h2>
-                  <p className="mt-3 max-w-md text-slate-500 leading-relaxed">
-                    Scan the QR code with your mobile device to complete identity verification.
-                  </p>
+                <FrameByline chapter="§ Chapter II" label="Scan to continue" />
+                <div className="grid grid-cols-12 gap-8 md:gap-10">
+                  <div className="col-span-12 md:col-span-6">
+                    <h2 className="fx-display font-light text-[38px] leading-[1] text-fx-sand">
+                      Scan
+                      <br />
+                      <span className="fx-serif italic text-fx-brass">to verify.</span>
+                    </h2>
+                    <p className="mt-5 fx-serif text-[14px] leading-[1.7] text-fx-dune max-w-[360px]">
+                      Open your phone camera and scan this code. Verification happens through
+                      our VARA-approved partner, Sumsub.
+                    </p>
 
-                  <div className="mt-8 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-                    <QRCodeSVG
-                      value={
-                        currentStep.verification?.applicantId
-                          ? `https://verify.sumsub.com/idensic/l/#/applicants/${currentStep.verification.applicantId}`
-                          : `https://verify.sumsub.com/idensic/l/#/onboarding/${profile?.id || 'pending'}`
-                      }
-                      size={200}
-                      level="M"
-                    />
+                    <div className="mt-6 flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.18em] text-fx-dust">
+                      <Smartphone size={12} />
+                      Mobile device required
+                    </div>
+
+                    <button
+                      onClick={() => mockSubmitVerification().catch(() => undefined)}
+                      disabled={saving}
+                      className="mt-8 font-mono text-[10px] uppercase tracking-[0.18em] text-fx-dust underline-offset-4 hover:text-fx-brass hover:underline disabled:opacity-50"
+                    >
+                      {saving ? 'Submitting…' : '[ Dev ] Mark completed on mobile'}
+                    </button>
                   </div>
 
-                  <p className="mt-6 flex items-center gap-2 text-xs text-slate-400">
-                    <Smartphone size={14} />
-                    Open camera and scan to continue on mobile
-                  </p>
-
-                  <OnboardingVerificationDetails verification={currentStep.verification} />
-
-                  <button
-                    onClick={() => mockSubmitVerification().catch(() => undefined)}
-                    disabled={saving}
-                    className="mt-6 text-xs text-slate-400 underline-offset-4 hover:text-indigo-500 hover:underline disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {saving ? 'Submitting...' : "I've completed the form on mobile (simulate)"}
-                  </button>
+                  <div className="col-span-12 md:col-span-6 flex justify-center md:justify-end">
+                    {/* QR slab — light background for scannability, brass corner marks */}
+                    <div className="relative inline-block bg-fx-sand p-5">
+                      <QRCodeSVG
+                        value={
+                          currentStep.verification?.applicantId
+                            ? `https://verify.sumsub.com/idensic/l/#/applicants/${currentStep.verification.applicantId}`
+                            : `https://verify.sumsub.com/idensic/l/#/onboarding/${profile?.id || 'pending'}`
+                        }
+                        size={200}
+                        level="M"
+                        fgColor="#0B0908"
+                        bgColor="#F5EDE0"
+                      />
+                      {/* Brass corners */}
+                      <span className="absolute -top-[1px] -left-[1px] w-3 h-3 border-l-2 border-t-2 border-fx-brass" />
+                      <span className="absolute -top-[1px] -right-[1px] w-3 h-3 border-r-2 border-t-2 border-fx-brass" />
+                      <span className="absolute -bottom-[1px] -left-[1px] w-3 h-3 border-l-2 border-b-2 border-fx-brass" />
+                      <span className="absolute -bottom-[1px] -right-[1px] w-3 h-3 border-r-2 border-b-2 border-fx-brass" />
+                    </div>
+                  </div>
                 </div>
+
+                <OnboardingVerificationDetails verification={currentStep.verification} />
               </motion.section>
             )}
 
             {currentStep.step === 'WAIT_REVIEW' && (
               <motion.section
                 key="wait"
-                initial={{ opacity: 0, y: 20 }}
+                initial={{ opacity: 0, y: 16 }}
                 animate={{ opacity: 1, y: 0 }}
                 className={cardClass}
               >
-                <div className="flex flex-col items-center text-center">
-                  <div className="mb-6 relative">
-                    <div className="absolute inset-0 bg-amber-400/20 blur-xl rounded-full animate-pulse" />
-                    <div className="relative rounded-2xl bg-amber-50 p-5 text-amber-500">
-                      <Clock3 size={40} />
-                    </div>
+                <FrameByline
+                  chapter="§ Chapter III"
+                  label={verificationMode === 'PERIODIC_REVIEW' ? 'Periodic review' : 'Compliance review'}
+                />
+                <div className="flex items-start gap-6">
+                  <ToneMark tone="brass">
+                    <Clock3 size={20} />
+                  </ToneMark>
+                  <div className="flex-1">
+                    <h2 className="fx-display font-light text-[36px] leading-[1.05] text-fx-sand">
+                      {reviewCardContent.title}
+                      <br />
+                      <span className="fx-serif italic text-fx-brass">in progress.</span>
+                    </h2>
+                    <p className="mt-5 fx-serif text-[14px] leading-[1.7] text-fx-dune max-w-[460px]">
+                      {verificationMode === 'PERIODIC_REVIEW'
+                        ? reviewCardContent.description
+                        : 'Your verification has been submitted to the provider and is now waiting for review. We will update the status once the result arrives.'}
+                    </p>
+
+                    {verificationMode === 'PERIODIC_REVIEW' ? (
+                      <div className="mt-8">
+                        <ResponseSummaryList
+                          items={responses}
+                          responseType={currentStep.requiresEdd ? 'EDD' : 'CDD'}
+                        />
+                      </div>
+                    ) : (
+                      <OnboardingVerificationDetails verification={currentStep.verification} />
+                    )}
                   </div>
-
-                  <h2 className="text-2xl font-bold text-slate-900">{reviewCardContent.title}</h2>
-                  <p className="mt-3 text-slate-500 leading-relaxed max-w-lg">
-                    {verificationMode === 'PERIODIC_REVIEW'
-                      ? reviewCardContent.description
-                      : 'Your verification has been submitted to the provider and is now waiting for review. We will update the onboarding status once the review result arrives.'}
-                  </p>
-
-                  {verificationMode === 'PERIODIC_REVIEW' ? (
-                    <div className="mt-8 w-full border-t border-slate-100 pt-6">
-                      <ResponseSummaryList
-                        items={responses}
-                        responseType={currentStep.requiresEdd ? 'EDD' : 'CDD'}
-                      />
-                    </div>
-                  ) : (
-                    <OnboardingVerificationDetails verification={currentStep.verification} />
-                  )}
                 </div>
               </motion.section>
             )}
@@ -1241,25 +1673,27 @@ const Verification = () => {
             {verificationMode === 'ONBOARDING' && currentStep.step === 'FINAL_APPROVAL' && (
               <motion.section
                 key="final-approval"
-                initial={{ opacity: 0, y: 20 }}
+                initial={{ opacity: 0, y: 16 }}
                 animate={{ opacity: 1, y: 0 }}
                 className={cardClass}
               >
-                <div className="flex flex-col items-center text-center">
-                  <div className="mb-6 relative">
-                    <div className="absolute inset-0 rounded-full bg-blue-400/20 blur-xl animate-pulse" />
-                    <div className="relative rounded-2xl bg-blue-50 p-5 text-blue-500">
-                      <Clock3 size={40} />
-                    </div>
+                <FrameByline chapter="§ Chapter IV" label="Awaiting final approval" />
+                <div className="flex items-start gap-6">
+                  <ToneMark tone="brass">
+                    <Clock3 size={20} />
+                  </ToneMark>
+                  <div className="flex-1">
+                    <h2 className="fx-display font-light text-[36px] leading-[1.05] text-fx-sand">
+                      Final approval
+                      <br />
+                      <span className="fx-serif italic text-fx-brass">pending.</span>
+                    </h2>
+                    <p className="mt-5 fx-serif text-[14px] leading-[1.7] text-fx-dune max-w-[460px]">
+                      Provider verification is complete. A compliance officer is signing off your
+                      file before account activation. Usually 1–2 business days.
+                    </p>
+                    <OnboardingVerificationDetails verification={currentStep.verification} />
                   </div>
-
-                  <h2 className="text-2xl font-bold text-slate-900">Final Approval</h2>
-                  <p className="mt-3 max-w-lg text-slate-500 leading-relaxed">
-                    Provider verification is complete. Your onboarding is now waiting for the final
-                    internal approval step before account activation.
-                  </p>
-
-                  <OnboardingVerificationDetails verification={currentStep.verification} />
                 </div>
               </motion.section>
             )}
@@ -1267,39 +1701,43 @@ const Verification = () => {
             {currentStep.step === 'REINITIATE' && (
               <motion.section
                 key="rejected"
-                initial={{ opacity: 0, y: 20 }}
+                initial={{ opacity: 0, y: 16 }}
                 animate={{ opacity: 1, y: 0 }}
                 className={cardClass}
               >
-                <div className="flex flex-col items-center text-center">
-                  <div className="mb-6 rounded-2xl bg-red-50 p-5 text-red-500">
-                    <AlertTriangle size={40} />
-                  </div>
+                <FrameByline chapter="§ Chapter II" label="Verification halted" />
+                <div className="flex items-start gap-6">
+                  <ToneMark tone="rust">
+                    <AlertTriangle size={20} />
+                  </ToneMark>
+                  <div className="flex-1">
+                    <h2 className="fx-display font-light text-[36px] leading-[1.05] text-fx-sand">
+                      Verification
+                      <br />
+                      <span className="fx-serif italic text-fx-rust">could not continue.</span>
+                    </h2>
+                    <div className="mt-5 border-l-2 border-fx-rust/40 pl-4 font-mono text-[11px] text-fx-dune leading-relaxed">
+                      {currentStep.blockedReason || 'Verification could not be completed.'}
+                    </div>
+                    <p className="mt-5 fx-serif text-[14px] leading-[1.7] text-fx-dune max-w-[460px]">
+                      Please try again. Ensure your documents are clear and your details match.
+                    </p>
 
-                  <h2 className="text-2xl font-bold text-slate-900">Verification Failed</h2>
-                  <p className="mt-3 text-red-600/80 font-medium bg-red-50 px-4 py-2 rounded-lg text-sm">
-                    {currentStep.blockedReason || 'Verification could not be completed.'}
-                  </p>
-                  <p className="mt-4 text-slate-500 text-sm">
-                    Please try again. Ensure your documents are clear and details match.
-                  </p>
-
-                  {verificationMode === 'ONBOARDING' ? (
-                    <button
-                      onClick={() =>
-                        startOnboardingVerification('Verification restarted.').catch(
-                          () => undefined,
-                        )
-                      }
-                      disabled={saving}
-                      className={`${primaryButtonClass} mt-8 bg-gradient-to-r from-red-500 to-orange-600 shadow-red-500/30 hover:shadow-red-500/50`}
-                    >
-                      <RefreshCw size={18} />
-                      Retry Verification
-                    </button>
-                  ) : (
-                    <>
-                      {simulationModeEnabled ? (
+                    <div className="mt-8">
+                      {verificationMode === 'ONBOARDING' ? (
+                        <button
+                          onClick={() =>
+                            startOnboardingVerification('Verification restarted.').catch(
+                              () => undefined,
+                            )
+                          }
+                          disabled={saving}
+                          className={primaryButtonClass}
+                        >
+                          <RefreshCw size={14} />
+                          Retry verification
+                        </button>
+                      ) : simulationModeEnabled ? (
                         <button
                           onClick={() =>
                             currentStep.action === 'REINITIATE_EDD'
@@ -1307,19 +1745,18 @@ const Verification = () => {
                               : reinitiateCdd().catch(() => undefined)
                           }
                           disabled={saving}
-                          className={`${primaryButtonClass} mt-8 bg-gradient-to-r from-red-500 to-orange-600 shadow-red-500/30 hover:shadow-red-500/50`}
+                          className={primaryButtonClass}
                         >
-                          <RefreshCw size={18} />
+                          <RefreshCw size={14} />
                           {currentStep.action === 'REINITIATE_EDD'
                             ? 'Retry EDD'
-                            : 'Retry Verification'}
+                            : 'Retry verification'}
                         </button>
                       ) : (
                         <SimulationModeNotice message={simulationModeNotice} />
                       )}
-                    </>
-                  )}
-
+                    </div>
+                  </div>
                 </div>
               </motion.section>
             )}
@@ -1327,27 +1764,31 @@ const Verification = () => {
             {verificationMode === 'ONBOARDING' && currentStep.step === 'COMPLETED' && (
               <motion.section
                 key="completed"
-                initial={{ opacity: 0, y: 20 }}
+                initial={{ opacity: 0, y: 16 }}
                 animate={{ opacity: 1, y: 0 }}
                 className={cardClass}
               >
-                <div className="flex flex-col items-center text-center">
-                  <div className="mb-6 rounded-2xl bg-emerald-50 p-5 text-emerald-500">
-                    <ShieldCheck size={40} />
+                <FrameByline chapter="§ Chapter IV" label="Account active" />
+                <div className="flex items-start gap-6">
+                  <ToneMark tone="sage">
+                    <ShieldCheck size={20} />
+                  </ToneMark>
+                  <div className="flex-1">
+                    <h2 className="fx-display font-light text-[36px] leading-[1.05] text-fx-sand">
+                      Verification
+                      <br />
+                      <span className="fx-serif italic text-fx-sage">complete.</span>
+                    </h2>
+                    <p className="mt-5 fx-serif text-[14px] leading-[1.7] text-fx-dune max-w-[460px]">
+                      Your onboarding verification has been approved and your account is ready.
+                    </p>
+                    <OnboardingVerificationDetails verification={currentStep.verification} />
+                    <div className="mt-8">
+                      <button onClick={() => navigate('/profile')} className={primaryButtonClass}>
+                        Go to profile →
+                      </button>
+                    </div>
                   </div>
-                  <h2 className="text-2xl font-bold text-slate-900">Verification Complete</h2>
-                  <p className="mt-3 max-w-lg text-slate-500 leading-relaxed">
-                    Your onboarding verification has been approved and your account is ready.
-                  </p>
-
-                  <OnboardingVerificationDetails verification={currentStep.verification} />
-
-                  <button
-                    onClick={() => navigate('/profile')}
-                    className={`${primaryButtonClass} mt-8`}
-                  >
-                    Go to Profile
-                  </button>
                 </div>
               </motion.section>
             )}
@@ -1355,19 +1796,26 @@ const Verification = () => {
             {currentStep.step === 'ENTITY_INFO' && (
               <motion.section
                 key="manual"
-                initial={{ opacity: 0, y: 20 }}
+                initial={{ opacity: 0, y: 16 }}
                 animate={{ opacity: 1, y: 0 }}
                 className={cardClass}
               >
-                <div className="flex flex-col items-center text-center">
-                  <div className="mb-6 rounded-2xl bg-amber-50 p-5 text-amber-500">
-                    <AlertTriangle size={40} />
+                <FrameByline chapter="§ Chapter I" label="Manual setup" />
+                <div className="flex items-start gap-6">
+                  <ToneMark tone="brass">
+                    <AlertTriangle size={20} />
+                  </ToneMark>
+                  <div className="flex-1">
+                    <h2 className="fx-display font-light text-[36px] leading-[1.05] text-fx-sand">
+                      Setup
+                      <br />
+                      <span className="fx-serif italic text-fx-brass">required.</span>
+                    </h2>
+                    <p className="mt-5 fx-serif text-[14px] leading-[1.7] text-fx-dune max-w-[460px]">
+                      Your account requires manual configuration. Please contact support.
+                    </p>
+                    <button className={`${secondaryButtonClass} mt-8`}>Contact support →</button>
                   </div>
-                  <h2 className="text-2xl font-bold text-slate-900">Setup Required</h2>
-                  <p className="mt-3 text-slate-500 leading-relaxed">
-                    Your account requires manual configuration. Please contact support.
-                  </p>
-                  <button className={`${secondaryButtonClass} mt-8`}>Contact Support</button>
                 </div>
               </motion.section>
             )}
@@ -1404,10 +1852,12 @@ const JourneyResponsePanel = ({
 }) => {
   if (loading) {
     return (
-      <section className={cardClass + ' flex items-center justify-center min-h-[400px]'}>
-        <div className="flex flex-col items-center gap-4">
-          <div className="h-10 w-10 animate-spin rounded-full border-4 border-indigo-100 border-t-indigo-600" />
-          <p className="text-sm font-medium text-slate-400">Loading details...</p>
+      <section className={cardClass + ' flex items-center justify-center min-h-[360px]'}>
+        <div className="flex items-center gap-3">
+          <RefreshCw size={14} className="animate-spin text-fx-brass" />
+          <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-fx-dust">
+            Loading details
+          </span>
         </div>
       </section>
     );
@@ -1416,23 +1866,32 @@ const JourneyResponsePanel = ({
   if (!item) {
     return (
       <section className={cardClass}>
-        <div className="flex flex-col items-center text-center">
-          <div className="mb-6 rounded-2xl bg-slate-50 p-5 text-slate-400">
-            <QrCode size={40} />
+        <FrameByline chapter="§ Chapter II" label={title} />
+        <div className="flex items-start gap-6">
+          <ToneMark tone="dust">
+            <QrCode size={20} />
+          </ToneMark>
+          <div className="flex-1">
+            <h2 className="fx-display font-light text-[34px] leading-[1.05] text-fx-sand">
+              {title}
+              <br />
+              <span className="fx-serif italic text-fx-brass">not ready.</span>
+            </h2>
+            <p className="mt-5 fx-serif text-[14px] leading-[1.7] text-fx-dune max-w-[440px]">
+              {subtitle}
+            </p>
+            {simulationModeEnabled ? (
+              <button
+                onClick={() => onStart().catch(() => undefined)}
+                disabled={saving}
+                className={`${primaryButtonClass} mt-8`}
+              >
+                Start now →
+              </button>
+            ) : (
+              <SimulationModeNotice message={simulationModeMessage} />
+            )}
           </div>
-          <h2 className="text-2xl font-bold text-slate-900">{title}</h2>
-          <p className="mt-3 text-slate-500 leading-relaxed max-w-xs">{subtitle}</p>
-          {simulationModeEnabled ? (
-            <button
-              onClick={() => onStart().catch(() => undefined)}
-              disabled={saving}
-              className={`${primaryButtonClass} mt-8`}
-            >
-              Start Now
-            </button>
-          ) : (
-            <SimulationModeNotice message={simulationModeMessage} />
-          )}
         </div>
       </section>
     );
@@ -1446,76 +1905,92 @@ const JourneyResponsePanel = ({
 
   return (
     <section className={cardClass}>
-      <div className="flex flex-col items-center text-center">
-        <h2 className="text-2xl font-bold text-slate-900">{title}</h2>
-        <p className="mt-2 text-slate-500 text-sm max-w-xs">{subtitle}</p>
+      <FrameByline chapter="§ Chapter II" label={title} />
+      <div className="grid grid-cols-12 gap-8 md:gap-10">
+        <div className="col-span-12 md:col-span-6">
+          <h2 className="fx-display font-light text-[36px] leading-[1] text-fx-sand">
+            Scan
+            <br />
+            <span className="fx-serif italic text-fx-brass">to continue.</span>
+          </h2>
+          <p className="mt-5 fx-serif text-[14px] leading-[1.7] text-fx-dune max-w-[360px]">
+            {subtitle}
+          </p>
 
-        <div className="mt-8 relative group">
-          {item.latestSession?.qrCodeUrl ? (
-            <div className="relative overflow-hidden rounded-3xl bg-white p-4 shadow-xl shadow-indigo-500/10 border border-indigo-50">
-              <QRCodeSVG value={item.latestSession.qrCodeUrl} size={200} />
-
-              <div className="absolute inset-0 pointer-events-none">
-                <div
-                  className="h-1 w-full bg-indigo-500/50 blur-[2px] shadow-[0_0_15px_rgba(99,102,241,0.6)]"
-                  style={{ animation: 'scan 2s linear infinite' }}
-                />
-              </div>
-
-              <div className="absolute top-3 left-3 w-4 h-4 border-l-2 border-t-2 border-indigo-500 rounded-tl-md" />
-              <div className="absolute top-3 right-3 w-4 h-4 border-r-2 border-t-2 border-indigo-500 rounded-tr-md" />
-              <div className="absolute bottom-3 left-3 w-4 h-4 border-l-2 border-b-2 border-indigo-500 rounded-bl-md" />
-              <div className="absolute bottom-3 right-3 w-4 h-4 border-r-2 border-b-2 border-indigo-500 rounded-br-md" />
-            </div>
-          ) : (
-            <div className="flex h-[200px] w-[200px] items-center justify-center rounded-3xl border-2 border-dashed border-slate-200 bg-slate-50">
-              <span className="text-xs font-medium text-slate-400">QR Expired</span>
+          {item.latestSession && (
+            <div className="mt-6 inline-flex items-center gap-2 border border-fx-rule px-3 py-1.5 font-mono text-[9px] uppercase tracking-[0.18em]">
+              <span
+                className={`h-[6px] w-[6px] rounded-full ${
+                  hasUsableSession ? 'bg-fx-sage animate-pulse' : 'bg-fx-rust'
+                }`}
+              />
+              <span className={hasUsableSession ? 'text-fx-sage' : 'text-fx-rust'}>
+                {hasUsableSession ? 'Ready to scan' : 'Session expired'}
+              </span>
             </div>
           )}
+
+          <div className="mt-8 space-y-3">
+            {!hasUsableSession && simulationModeEnabled && (
+              <button
+                onClick={() => onCreateSession(item).catch(() => undefined)}
+                disabled={saving}
+                className={secondaryButtonClass}
+              >
+                <RefreshCw size={12} />
+                Regenerate QR
+              </button>
+            )}
+
+            {!hasUsableSession && !simulationModeEnabled && (
+              <SimulationModeNotice message={simulationModeMessage} />
+            )}
+
+            {item.latestSession?.status === 'PENDING' && simulationModeEnabled && (
+              <div>
+                <button
+                  onClick={() => {
+                    if (!item.latestSession || !sessionId) {
+                      return;
+                    }
+                    onMockComplete(item.latestSession, item.responseType).catch(() => undefined);
+                  }}
+                  disabled={saving || !sessionId}
+                  className="font-mono text-[10px] uppercase tracking-[0.18em] text-fx-dust underline-offset-4 hover:text-fx-brass hover:underline disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  [ Dev ] Mock complete
+                </button>
+              </div>
+            )}
+          </div>
         </div>
 
-        {item.latestSession && (
-          <div className="mt-6 flex items-center gap-2 rounded-full border border-slate-100 bg-slate-50/50 px-4 py-1.5">
-            <div
-              className={`h-2 w-2 rounded-full ${
-                hasUsableSession ? 'bg-emerald-500 animate-pulse' : 'bg-red-500'
-              }`}
-            />
-            <span className="text-xs font-medium text-slate-600 uppercase tracking-wide">
-              {hasUsableSession ? 'Ready to Scan' : 'Session Expired'}
-            </span>
-          </div>
-        )}
-
-        <div className="mt-8 w-full max-w-xs space-y-3">
-          {!hasUsableSession && simulationModeEnabled && (
-            <button
-              onClick={() => onCreateSession(item).catch(() => undefined)}
-              disabled={saving}
-              className={secondaryButtonClass}
-            >
-              <RefreshCw size={16} />
-              Regenerate QR Code
-            </button>
-          )}
-
-          {!hasUsableSession && !simulationModeEnabled && (
-            <SimulationModeNotice message={simulationModeMessage} />
-          )}
-
-          {item.latestSession?.status === 'PENDING' && simulationModeEnabled && (
-            <button
-              onClick={() => {
-                if (!item.latestSession || !sessionId) {
-                  return;
-                }
-                onMockComplete(item.latestSession, item.responseType).catch(() => undefined);
-              }}
-              disabled={saving || !sessionId}
-              className="w-full text-center text-xs font-medium text-slate-300 hover:text-indigo-400 transition-colors py-2 cursor-pointer disabled:cursor-not-allowed disabled:hover:text-slate-300"
-            >
-              [Dev] Mock Complete
-            </button>
+        <div className="col-span-12 md:col-span-6 flex justify-center md:justify-end">
+          {item.latestSession?.qrCodeUrl ? (
+            <div className="relative inline-block bg-fx-sand p-5 overflow-hidden">
+              <QRCodeSVG
+                value={item.latestSession.qrCodeUrl}
+                size={200}
+                fgColor="#0B0908"
+                bgColor="#F5EDE0"
+              />
+              {/* Brass scan line */}
+              <div className="pointer-events-none absolute inset-x-5 top-5">
+                <div
+                  className="h-[1px] w-[200px] bg-fx-brass"
+                  style={{ animation: 'fx-scan 2.2s linear infinite' }}
+                />
+              </div>
+              {/* Brass corners */}
+              <span className="absolute -top-[1px] -left-[1px] w-3 h-3 border-l-2 border-t-2 border-fx-brass" />
+              <span className="absolute -top-[1px] -right-[1px] w-3 h-3 border-r-2 border-t-2 border-fx-brass" />
+              <span className="absolute -bottom-[1px] -left-[1px] w-3 h-3 border-l-2 border-b-2 border-fx-brass" />
+              <span className="absolute -bottom-[1px] -right-[1px] w-3 h-3 border-r-2 border-b-2 border-fx-brass" />
+            </div>
+          ) : (
+            <div className="flex h-[240px] w-[240px] items-center justify-center border border-dashed border-fx-rule-strong font-mono text-[10px] uppercase tracking-[0.18em] text-fx-dust">
+              QR expired
+            </div>
           )}
         </div>
       </div>
@@ -1535,32 +2010,40 @@ const ResponseSummaryList = ({
   if (filtered.length === 0) return null;
 
   return (
-    <div className="w-full space-y-2">
-      <div className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-3 text-center">
-        Recent Activity
+    <div className="w-full">
+      <div className="font-mono text-[9px] uppercase tracking-[0.22em] text-fx-dust mb-3">
+        § Recent activity
       </div>
-      {filtered.map((item) => (
-        <div
-          key={item.id}
-          className="flex items-center justify-between rounded-xl border border-slate-100 bg-slate-50/50 px-4 py-3 text-sm transition-colors hover:bg-white hover:border-indigo-100"
-        >
-          <div className="flex items-center gap-3">
+      <div className="border-t border-fx-rule">
+        {filtered.map((item) => {
+          const dot =
+            item.status === 'APPROVED'
+              ? 'bg-fx-sage'
+              : item.status === 'REJECTED'
+                ? 'bg-fx-rust'
+                : 'bg-fx-brass';
+          const statusTone =
+            item.status === 'APPROVED'
+              ? 'text-fx-sage'
+              : item.status === 'REJECTED'
+                ? 'text-fx-rust'
+                : 'text-fx-brass';
+          return (
             <div
-              className={`h-2 w-2 rounded-full ${
-                item.status === 'APPROVED'
-                  ? 'bg-emerald-500'
-                  : item.status === 'REJECTED'
-                    ? 'bg-red-500'
-                    : 'bg-amber-500'
-              }`}
-            />
-            <span className="font-medium text-slate-700">{item.responseNo}</span>
-          </div>
-          <span className="text-xs font-medium text-slate-500 bg-white px-2 py-1 rounded border border-slate-100">
-            {item.status}
-          </span>
-        </div>
-      ))}
+              key={item.id}
+              className="flex items-center justify-between border-b border-fx-rule py-3"
+            >
+              <div className="flex items-center gap-3">
+                <span className={`h-[6px] w-[6px] rounded-full ${dot}`} />
+                <span className="font-mono text-[11px] text-fx-sand">{item.responseNo}</span>
+              </div>
+              <span className={`font-mono text-[9px] uppercase tracking-[0.18em] ${statusTone}`}>
+                {item.status}
+              </span>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 };

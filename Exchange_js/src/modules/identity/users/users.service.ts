@@ -12,13 +12,13 @@ import { randomBytes } from 'crypto';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 import { AccessControlService } from '../access-control/access-control.service';
 import { getPrimaryRoleCode } from '../access-control/rbac.catalog';
-import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
+import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
   AuditActions,
   AuditBusinessWorkflowTypes,
   AuditEntityTypes,
   AuditModules,
-} from '../../risk-engine/audit-logs/constants/audit-actions.constant';
+} from '../../audit-logging/constants/audit-actions.constant';
 import { AdminInvitationsService } from './admin-invitations.service';
 
 interface CreateAdminUserInput {
@@ -70,7 +70,6 @@ type MemberDetail = {
 
 type InternalAuditContext = {
   workflowType?: string;
-  workflowNo?: string;
   traceId?: string;
 };
 
@@ -154,13 +153,11 @@ export class UsersService {
     auditContext?: InternalAuditContext,
   ): T {
     const workflowType = this.normalizeOptionalString(auditContext?.workflowType);
-    const workflowNo = this.normalizeOptionalString(auditContext?.workflowNo);
     const traceId = this.normalizeOptionalString(auditContext?.traceId);
 
     return {
       ...payload,
       workflowType: workflowType || undefined,
-      workflowNo: workflowNo || undefined,
       traceId: traceId || undefined,
     } as T;
   }
@@ -168,16 +165,14 @@ export class UsersService {
   private buildProvisioningAuditContext(
     binding: GovernedAdminMemberProvisioningBinding,
   ): InternalAuditContext | undefined {
-    const workflowNo = this.normalizeOptionalString(binding.ticketNo);
     const traceId = this.normalizeOptionalString(binding.traceId);
 
-    if (!workflowNo && !traceId) {
+    if (!traceId) {
       return undefined;
     }
 
     return {
       workflowType: AuditBusinessWorkflowTypes.ADMIN_MEMBER_PROVISIONING,
-      workflowNo: workflowNo || undefined,
       traceId: traceId || undefined,
     };
   }

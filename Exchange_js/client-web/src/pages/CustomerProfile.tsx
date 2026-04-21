@@ -1,7 +1,7 @@
 import { useNavigate } from 'react-router-dom';
-import { User, Mail, Phone, Calendar, ShieldCheck, Clock, AlertCircle } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { RefreshCw, ArrowRight } from 'lucide-react';
 import { useCustomerProfile } from '../hooks/useCustomerProfile';
+import { ProfileBannerStack } from '../components/ProfileBannerStack';
 import {
   isCustomerApprovedForAccess,
   isCustomerFinalApprovalPending,
@@ -10,246 +10,425 @@ import {
   isCustomerWithdrawn,
 } from '../utils/customerOnboarding';
 
-const getPrimaryStatusLabel = (input: {
-  onboardingStatus?: string | null;
-  operatingStatus?: string | null;
-  restrictionStatus?: string | null;
-  complianceHoldStatus?: string | null;
-}) => {
-  const complianceHoldStatus = String(input.complianceHoldStatus || 'ACTIVE').trim().toUpperCase();
-  const restrictionStatus = String(input.restrictionStatus || 'CLEAR').trim().toUpperCase();
-  const onboardingStatus = String(input.onboardingStatus || 'NONE').trim().toUpperCase();
-  const operatingStatus = String(input.operatingStatus || 'INACTIVE').trim().toUpperCase();
+/* ────────────────────────────────────────────────────────────────
+ *  Profile — FIATX Terminal dialect.
+ *  Compact dossier. All fields on a single screen. The only piece
+ *  of Fraunces is the member's name at 28px. Everything else is
+ *  IBM Plex Sans / Mono. No oversized numerals, no `§` ornament.
+ * ──────────────────────────────────────────────────────────────── */
 
-  if (complianceHoldStatus === 'FROZEN') return 'FROZEN';
-  if (restrictionStatus === 'RESTRICTED') return 'RESTRICTED';
-  if (onboardingStatus === 'APPROVED' && operatingStatus === 'ACTIVE') return 'ACTIVE';
-  return onboardingStatus;
-};
+type ProfileLike = ReturnType<typeof useCustomerProfile>['profile'];
+
+function getPrimaryStatus(profile: NonNullable<ProfileLike>) {
+  const complianceHold = String(profile.complianceHoldStatus || 'ACTIVE').toUpperCase();
+  const restriction = String(profile.restrictionStatus || 'CLEAR').toUpperCase();
+  const onboarding = String(profile.onboardingStatus || 'NONE').toUpperCase();
+  const operating = String(profile.operatingStatus || 'INACTIVE').toUpperCase();
+  if (complianceHold === 'FROZEN') return 'FROZEN';
+  if (restriction === 'RESTRICTED') return 'RESTRICTED';
+  if (onboarding === 'APPROVED' && operating === 'ACTIVE') return 'ACTIVE';
+  return onboarding;
+}
+
+function statusTone(status: string) {
+  if (status === 'APPROVED' || status === 'ACTIVE')
+    return 'text-fx-sage border-fx-sage/30 bg-fx-sage/5';
+  if (status === 'REJECTED' || status === 'FROZEN' || status === 'WITHDRAWN')
+    return 'text-fx-rust border-fx-rust/30 bg-fx-rust/5';
+  if (status === 'FINAL_APPROVAL')
+    return 'text-fx-brass border-fx-brass/30 bg-fx-brass/5';
+  return 'text-fx-dune border-fx-rule bg-transparent';
+}
+
+function fmt(value?: string | null) {
+  if (!value) return '—';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return value;
+  return d.toLocaleString(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+function fmtDate(value?: string | null) {
+  if (!value) return '—';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return value;
+  return d.toLocaleDateString(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  });
+}
+
+/* ─── Tight key/value row (dossier style) ──────────────────────── */
+function Row({
+  label,
+  value,
+  mono = false,
+  accent = false,
+  span = 1,
+}: {
+  label: string;
+  value?: React.ReactNode;
+  mono?: boolean;
+  accent?: boolean;
+  span?: 1 | 2 | 3;
+}) {
+  const display = value === null || value === undefined || value === '' ? '—' : value;
+  const colCls =
+    span === 3 ? 'col-span-12' : span === 2 ? 'col-span-12 md:col-span-8' : 'col-span-12 sm:col-span-6 md:col-span-4';
+  return (
+    <div className={colCls}>
+      <div className="font-mono text-[9px] uppercase tracking-[0.14em] text-fx-dust/70 mb-1">
+        {label}
+      </div>
+      <div
+        className={[
+          'break-words leading-snug',
+          mono ? 'font-mono text-[12px] tabular-nums' : 'font-sans text-[13px]',
+          accent
+            ? 'text-fx-brass'
+            : display === '—'
+              ? 'text-fx-dust'
+              : 'text-fx-sand',
+        ].join(' ')}
+      >
+        {display}
+      </div>
+    </div>
+  );
+}
+
+/* ─── Section heading — small, quiet ───────────────────────────── */
+function SectionTitle({ children, right }: { children: React.ReactNode; right?: React.ReactNode }) {
+  return (
+    <div className="flex items-center justify-between pb-3 border-b border-fx-rule">
+      <h2 className="font-mono text-[10px] uppercase tracking-[0.16em] text-fx-dust">
+        {children}
+      </h2>
+      {right}
+    </div>
+  );
+}
+
+/* ─── Page ─────────────────────────────────────────────────────── */
 
 const CustomerProfile = () => {
   const { profile, loading, error } = useCustomerProfile();
   const navigate = useNavigate();
 
-  if (loading) return <div className="p-8 text-center text-gray-500">Loading profile...</div>;
-  if (error) return <div className="p-8 text-center text-red-500">{error}</div>;
-  if (!profile) return null;
+  if (loading) {
+    return (
+      <div className="flex min-h-[300px] items-center justify-center gap-3">
+        <RefreshCw size={14} className="animate-spin text-fx-brass" />
+        <span className="font-mono text-[11px] uppercase tracking-[0.14em] text-fx-dust">
+          Loading profile
+        </span>
+      </div>
+    );
+  }
 
-  const onboardingStatus = String(profile.onboardingStatus || 'NONE').toUpperCase();
-  const restrictionStatus = String(profile.restrictionStatus || 'CLEAR').toUpperCase();
-  const complianceHoldStatus = String(profile.complianceHoldStatus || 'ACTIVE').toUpperCase();
-  const statusLabel = getPrimaryStatusLabel(profile);
-  const isApproved = isCustomerApprovedForAccess(profile);
-  const isRejected = isCustomerRejected(profile);
-  const isWithdrawn = isCustomerWithdrawn(profile);
-  const isExpired = !!(
-    profile.cddDocumentExpiresAt &&
-    onboardingStatus === 'PENDING_CDD_INPUT' &&
-    new Date(profile.cddDocumentExpiresAt).getTime() <= Date.now()
+  if (error || !profile) {
+    return (
+      <div className="max-w-md mx-auto mt-16 border border-fx-rust/30 bg-fx-rust/5 p-6">
+        <div className="font-mono text-[10px] uppercase tracking-[0.14em] text-fx-rust mb-2">
+          Error
+        </div>
+        <p className="font-sans text-[13px] text-fx-dune">
+          {error || 'Profile could not be loaded.'}
+        </p>
+      </div>
+    );
+  }
+
+  const primaryStatus = getPrimaryStatus(profile);
+  const approved = isCustomerApprovedForAccess(profile);
+  const rejected = isCustomerRejected(profile);
+  const withdrawn = isCustomerWithdrawn(profile);
+  const finalPending = isCustomerFinalApprovalPending(profile);
+  const inProgress = isCustomerInProgress(profile);
+
+  const firstName = profile.firstName || '';
+  const lastName = profile.lastName || '';
+  const fullName = [firstName, lastName].filter(Boolean).join(' ') || 'Member';
+  const initials = ((firstName[0] || '') + (lastName[0] || 'M')).toUpperCase();
+
+  const showVerifyCta = !approved;
+  const ctaLabel = rejected
+    ? 'Retry verification'
+    : withdrawn
+      ? 'Restart verification'
+      : finalPending
+        ? 'View verification status'
+        : inProgress
+          ? 'Continue verification'
+          : 'Start verification';
+  const ctaCaption = rejected
+    ? 'Application declined'
+    : withdrawn
+      ? 'Application withdrawn'
+      : finalPending
+        ? 'Awaiting compliance sign-off'
+        : inProgress
+          ? 'Verification in progress'
+          : 'Trading unlocks after CDD clearance';
+
+  const periodicReviewActive = !!(
+    profile.activePeriodicReviewCycleId || profile.periodicReviewOverdueAt
   );
-  const isBlocked = isRejected || isWithdrawn;
-  const isRestricted =
-    restrictionStatus === 'RESTRICTED' || complianceHoldStatus === 'FROZEN';
-  const isInProgress = isCustomerInProgress(profile);
-  const isFinalPending = isCustomerFinalApprovalPending(profile);
-  const showVerifyButton = !isApproved;
-  const periodicReviewStatus = String(
+  const prrStatus = String(
     profile.activePeriodicReviewCycle?.status ||
       (profile.periodicReviewOverdueAt ? 'OVERDUE' : ''),
   )
     .trim()
     .toUpperCase();
-  const showPeriodicReviewBanner = !!(
-    profile.activePeriodicReviewCycleId || profile.periodicReviewOverdueAt
-  );
-  const periodicReviewMessage =
-    periodicReviewStatus === 'REJECTED'
-      ? 'Periodic review was rejected. Trading restrictions remain in place until compliance resolves the cycle.'
-      : periodicReviewStatus === 'EDD_UNDER_REVIEW'
-        ? 'Your periodic review EDD submission is under compliance review.'
-        : periodicReviewStatus === 'CDD_UNDER_REVIEW'
-          ? 'Your periodic review CDD submission is under compliance review.'
-          : periodicReviewStatus === 'PENDING_EDD_INPUT'
-            ? 'Additional EDD information is required for your periodic review.'
-            : profile.periodicReviewOverdueAt
-              ? 'Periodic review is due and waiting to be triggered after current restrictions are cleared.'
-              : 'Periodic review is active. Complete the required response to continue.';
-
-  const statusIconClass = isApproved
-    ? 'bg-green-100 text-green-600'
-    : isBlocked
-      ? 'bg-red-100 text-red-600'
-      : isExpired
-        ? 'bg-gray-100 text-gray-600'
-        : isRestricted
-          ? 'bg-yellow-100 text-yellow-600'
-          : 'bg-blue-100 text-blue-600';
-
-  const statusBadgeClass = isApproved
-    ? 'bg-green-100 text-green-700'
-    : isBlocked
-      ? 'bg-red-100 text-red-700'
-      : isExpired
-        ? 'bg-gray-100 text-gray-700'
-        : isRestricted
-          ? 'bg-yellow-100 text-yellow-700'
-          : isInProgress
-            ? 'bg-blue-100 text-blue-700'
-            : 'bg-gray-100 text-gray-700';
 
   return (
-    <div className="space-y-6 max-w-5xl mx-auto pb-12">
-      <div className="mb-4">
-          <h1 className="text-2xl font-bold text-gray-900">My Profile</h1>
-          <p className="text-gray-500">Manage your account settings and preferences.</p>
-      </div>
+    <div className="space-y-10">
+      {/* ── Compliance banners ─────────────────────────────────── */}
+      <ProfileBannerStack />
 
-      {/* Identity Verification Card */}
-      <motion.div 
-          layout
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden relative"
-      >
-          <div className="p-6 border-b border-gray-100 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                  <div className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors duration-300 ${statusIconClass}`}>
-                      <ShieldCheck size={20} />
-                  </div>
-                  <div>
-                      <h3 className="font-bold text-gray-900">Onboarding Status</h3>
-                      <p className="text-sm text-gray-500">Customer Type: <span className="font-medium text-gray-900">{profile.customerType}</span></p>
-                  </div>
-              </div>
-              <div className="flex items-center gap-3">
-                  <span className={`px-3 py-1 rounded-full text-xs font-bold transition-colors duration-300 ${statusBadgeClass}`}>
-                      {statusLabel.replace(/_/g, ' ')}
-                  </span>
-                  {showVerifyButton && (
-                      <button 
-                          onClick={() => navigate('/verification')}
-                          className={`px-4 py-2 ${isBlocked ? 'bg-red-600 hover:bg-red-700' : 'bg-brand-primary hover:bg-blue-700'} text-white text-sm font-bold rounded-lg transition-colors`}
-                      >
-                          {isBlocked ? 'Retry' : 'View Detail'}
-                      </button>
-                  )}
-              </div>
+      {/* ── Compact header ─────────────────────────────────────── */}
+      <header>
+        <div className="flex items-start gap-5">
+          <div className="shrink-0 w-14 h-14 border border-fx-brass/40 bg-fx-brass/5 flex items-center justify-center">
+            <span className="font-mono text-[16px] text-fx-brass font-medium leading-none">
+              {initials}
+            </span>
           </div>
-          {!isApproved && (
-              <div className={`p-4 ${isRejected ? 'bg-red-50/50' : 'bg-gray-50/50'}`}>
-                  <div className="flex items-start gap-3 text-sm text-gray-600">
-                      <AlertCircle size={16} className={`mt-0.5 ${isRejected ? 'text-red-600' : 'text-brand-primary'}`} />
-                      <div>
-                        <p>
-                        {isExpired
-                          ? 'Your CDD document has expired. Please re-initiate CDD verification.'
-                          : isBlocked
-                            ? 'Compliance case rejected. Please re-initiate verification.'
-                            : isFinalPending
-                              ? 'EDD approved. Waiting for final management approval.'
-                              : isInProgress && onboardingStatus === 'NONE'
-                              ? 'Start onboarding to unlock trading features.'
-                              : 'Complete onboarding (CDD/EDD) to unlock trading features.'}
-                        </p>
-                      </div>
-                  </div>
-              </div>
-          )}
-      </motion.div>
-
-      {showPeriodicReviewBanner && (
-        <motion.div
-          layout
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.05 }}
-          className="bg-amber-50 rounded-xl shadow-sm border border-amber-200 overflow-hidden"
-        >
-          <div className="p-6 border-b border-amber-100 flex items-center justify-between gap-4">
-            <div>
-              <h3 className="font-bold text-amber-900">Periodic Review</h3>
-              <p className="text-sm text-amber-700 mt-1">
-                {periodicReviewMessage}
-              </p>
+          <div className="min-w-0 flex-1">
+            {/* The only Fraunces usage on this page — name only, 28px */}
+            <h1 className="fx-display font-light text-[28px] leading-tight text-fx-sand break-words">
+              {fullName}
+            </h1>
+            <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
+              <span
+                className={`inline-flex items-center gap-1.5 border px-2 py-[2px] font-mono text-[9px] uppercase tracking-[0.14em] ${statusTone(
+                  primaryStatus,
+                )}`}
+              >
+                <span className="w-[3px] h-[3px] rounded-full bg-current" />
+                {primaryStatus.replace(/_/g, ' ')}
+              </span>
+              <span className="font-mono text-[10px] text-fx-dust uppercase tracking-[0.12em]">
+                {profile.customerType || 'INDIVIDUAL'}
+              </span>
+              <span className="font-mono text-[10px] text-fx-dust whitespace-nowrap">
+                Member since {fmtDate(profile.createdAt)}
+              </span>
             </div>
+          </div>
+        </div>
+
+        {/* CTA row — own line so the name isn't squeezed */}
+        {showVerifyCta && (
+          <div className="mt-5 flex flex-wrap items-center gap-3">
             <button
               onClick={() => navigate('/verification')}
-              className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white text-sm font-bold rounded-lg transition-colors"
+              className="fx-btn-primary"
             >
-              Open Review
+              {ctaLabel} →
             </button>
+            <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-fx-dust/70">
+              {ctaCaption}
+            </span>
           </div>
-          <div className="px-6 py-4 text-sm text-amber-800 flex flex-wrap gap-4">
-            <span>Status: {periodicReviewStatus || 'ACTIVE'}</span>
-            {profile.activePeriodicReviewCycle?.cycleNo && (
-              <span>Cycle: {profile.activePeriodicReviewCycle.cycleNo}</span>
-            )}
-            {profile.nextReviewAt && (
-              <span>Next Review At: {new Date(profile.nextReviewAt).toLocaleDateString()}</span>
-            )}
+        )}
+      </header>
+
+      {/* ── Periodic review banner ─────────────────────────────── */}
+      {periodicReviewActive && (
+        <div className="border-l-2 border-fx-brass bg-fx-brass/[0.03] px-4 py-3 flex items-center justify-between gap-4">
+          <div className="min-w-0">
+            <div className="font-mono text-[9px] uppercase tracking-[0.14em] text-fx-brass mb-1">
+              Periodic review active
+            </div>
+            <p className="font-sans text-[12px] text-fx-dune leading-snug">
+              {prrStatus === 'REJECTED'
+                ? 'Periodic review was rejected. Trading restrictions remain in place until compliance resolves the cycle.'
+                : prrStatus === 'EDD_UNDER_REVIEW'
+                  ? 'Your periodic review EDD submission is under compliance review.'
+                  : prrStatus === 'CDD_UNDER_REVIEW'
+                    ? 'Your periodic review CDD submission is under compliance review.'
+                    : prrStatus === 'PENDING_EDD_INPUT'
+                      ? 'Additional EDD information is required for your periodic review.'
+                      : profile.periodicReviewOverdueAt
+                        ? 'Periodic review is due and waiting to be triggered after current restrictions are cleared.'
+                        : 'Periodic review is active. Complete the required response to continue.'}
+            </p>
+            <div className="mt-1.5 flex flex-wrap gap-3 font-mono text-[10px] text-fx-dust tabular-nums">
+              {profile.activePeriodicReviewCycle?.cycleNo && (
+                <span>Cycle {profile.activePeriodicReviewCycle.cycleNo}</span>
+              )}
+              {prrStatus && <span>Status {prrStatus}</span>}
+              {profile.nextReviewAt && (
+                <span>Next {fmtDate(profile.nextReviewAt)}</span>
+              )}
+            </div>
           </div>
-        </motion.div>
+          <button
+            onClick={() => navigate('/verification')}
+            className="shrink-0 fx-btn-ghost"
+          >
+            Open review
+          </button>
+        </div>
       )}
 
-      {/* Basic Info Card */}
-        <motion.div 
-            layout
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.1 }}
-            className="bg-white rounded-xl shadow-sm border border-gray-200"
+      {/* ── Identity ───────────────────────────────────────────── */}
+      <section>
+        <SectionTitle>Identity</SectionTitle>
+        <div className="grid grid-cols-12 gap-x-6 gap-y-5 pt-5">
+          <Row label="First name" value={profile.firstName} />
+          <Row label="Last name" value={profile.lastName} />
+          <Row label="Customer type" value={profile.customerType} />
+          <Row label="Email" value={profile.email} mono span={2} />
+          <Row label="Phone" value={profile.phone} mono />
+          <Row label="Member since" value={fmtDate(profile.createdAt)} mono />
+          <Row label="Last login" value={fmt(profile.lastLoginAt)} mono />
+        </div>
+      </section>
+
+      {/* ── Compliance lifecycle ───────────────────────────────── */}
+      <section>
+        <SectionTitle>Compliance lifecycle</SectionTitle>
+        <div className="grid grid-cols-12 gap-x-6 gap-y-5 pt-5">
+          <Row
+            label="Onboarding"
+            value={
+              <span
+                className={`inline-flex items-center gap-1.5 border px-2 py-[2px] font-mono text-[10px] uppercase tracking-[0.14em] ${statusTone(
+                  String(profile.onboardingStatus || 'NONE').toUpperCase(),
+                )}`}
+              >
+                <span className="w-[3px] h-[3px] rounded-full bg-current" />
+                {String(profile.onboardingStatus || 'NONE').replace(/_/g, ' ')}
+              </span>
+            }
+          />
+          <Row
+            label="Operating"
+            value={
+              <span
+                className={`inline-flex items-center gap-1.5 border px-2 py-[2px] font-mono text-[10px] uppercase tracking-[0.14em] ${statusTone(
+                  String(profile.operatingStatus || 'INACTIVE').toUpperCase(),
+                )}`}
+              >
+                <span className="w-[3px] h-[3px] rounded-full bg-current" />
+                {String(profile.operatingStatus || 'INACTIVE').replace(/_/g, ' ')}
+              </span>
+            }
+          />
+          <Row
+            label="Restriction"
+            value={
+              <span
+                className={`inline-flex items-center gap-1.5 border px-2 py-[2px] font-mono text-[10px] uppercase tracking-[0.14em] ${statusTone(
+                  String(profile.restrictionStatus || 'CLEAR').toUpperCase(),
+                )}`}
+              >
+                <span className="w-[3px] h-[3px] rounded-full bg-current" />
+                {String(profile.restrictionStatus || 'CLEAR').replace(/_/g, ' ')}
+              </span>
+            }
+          />
+          <Row
+            label="Compliance hold"
+            value={
+              <span
+                className={`inline-flex items-center gap-1.5 border px-2 py-[2px] font-mono text-[10px] uppercase tracking-[0.14em] ${statusTone(
+                  String(profile.complianceHoldStatus || 'ACTIVE').toUpperCase(),
+                )}`}
+              >
+                <span className="w-[3px] h-[3px] rounded-full bg-current" />
+                {String(profile.complianceHoldStatus || 'ACTIVE').replace(/_/g, ' ')}
+              </span>
+            }
+          />
+          <Row label="AML risk tier" value={profile.amlRiskTier} mono />
+          <Row label="EDD required" value={profile.eddRequired ? 'YES' : 'NO'} mono />
+          <Row
+            label="Investor classification"
+            value={profile.investorClassification || 'RETAIL'}
+          />
+          <Row
+            label="CDD document expires"
+            value={fmt(profile.cddDocumentExpiresAt)}
+            mono
+          />
+        </div>
+      </section>
+
+      {/* ── Verification snapshot ──────────────────────────────── */}
+      <section>
+        <SectionTitle>
+          Verification
+          <span className="ml-2 text-fx-dust/60 normal-case tracking-normal font-sans text-[11px]">
+            (Sumsub)
+          </span>
+        </SectionTitle>
+        <div className="grid grid-cols-12 gap-x-6 gap-y-5 pt-5">
+          <Row label="Provider" value="Sumsub" />
+          <Row
+            label="Substatus"
+            value={
+              finalPending
+                ? 'AWAITING FINAL APPROVAL'
+                : inProgress
+                  ? 'IN PROGRESS'
+                  : rejected
+                    ? 'REJECTED'
+                    : approved
+                      ? 'COMPLETED'
+                      : 'NOT STARTED'
+            }
+            mono
+          />
+          <Row
+            label="Onboarding status"
+            value={String(profile.onboardingStatus || 'NONE').toUpperCase()}
+            mono
+          />
+        </div>
+
+        <button
+          onClick={() => navigate('/verification')}
+          className="mt-5 w-full max-w-xl flex items-center justify-between gap-3 border border-fx-rule bg-fx-ink/40 px-4 py-3 text-left transition-colors hover:border-fx-brass/50 hover:bg-fx-brass/[0.03] group"
         >
-            <div className="p-6 border-b border-gray-100">
-                <h3 className="font-bold text-gray-900">Basic Information</h3>
+          <div className="min-w-0">
+            <div className="font-mono text-[9px] uppercase tracking-[0.14em] text-fx-dust mb-0.5">
+              {approved ? 'Verification history' : ctaLabel}
             </div>
-            <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-8">
-                <div className="space-y-1">
-                    <label className="text-xs font-bold text-gray-500 uppercase tracking-wider flex items-center gap-1.5">
-                        <User size={14} /> Full Name
-                    </label>
-                    <div className="font-medium text-gray-900 text-lg">
-                        {profile.firstName || profile.lastName ? `${profile.firstName || ''} ${profile.lastName || ''}` : 'Not set'}
-                    </div>
-                </div>
-
-                <div className="space-y-1">
-                    <label className="text-xs font-bold text-gray-500 uppercase tracking-wider flex items-center gap-1.5">
-                        <Mail size={14} /> Email Address
-                    </label>
-                    <div className="font-medium text-gray-900 text-lg">
-                        {profile.email || 'Not linked'}
-                    </div>
-                </div>
-
-                <div className="space-y-1">
-                    <label className="text-xs font-bold text-gray-500 uppercase tracking-wider flex items-center gap-1.5">
-                        <Phone size={14} /> Phone Number
-                    </label>
-                    <div className="font-medium text-gray-900 text-lg">
-                        {profile.phone || 'Not linked'}
-                    </div>
-                </div>
-
-                <div className="space-y-1">
-                    <label className="text-xs font-bold text-gray-500 uppercase tracking-wider flex items-center gap-1.5">
-                        <Calendar size={14} /> Member Since
-                    </label>
-                    <div className="font-medium text-gray-900 text-lg">
-                        {new Date(profile.createdAt).toLocaleDateString()}
-                    </div>
-                </div>
-
-                <div className="space-y-1 md:col-span-2">
-                    <label className="text-xs font-bold text-gray-500 uppercase tracking-wider flex items-center gap-1.5">
-                        <Clock size={14} /> Last Login
-                    </label>
-                    <div className="font-medium text-gray-900">
-                        {profile.lastLoginAt ? new Date(profile.lastLoginAt).toLocaleString() : 'Never'}
-                    </div>
-                </div>
+            <div className="font-sans text-[12px] text-fx-dune truncate">
+              {approved
+                ? 'View the full Sumsub webhook timeline attached to your account.'
+                : 'Open the verification flow to continue the journey.'}
             </div>
-        </motion.div>
+          </div>
+          <ArrowRight size={13} className="text-fx-brass shrink-0 group-hover:translate-x-0.5 transition-transform" />
+        </button>
+      </section>
 
+      {/* ── Audit & retention ──────────────────────────────────── */}
+      <section>
+        <SectionTitle>Audit &amp; retention</SectionTitle>
+        <div className="grid grid-cols-12 gap-x-6 gap-y-5 pt-5">
+          <Row label="Retention period" value="8 years" mono accent />
+          <Row label="Governing rulebook" value="CRM Rulebook Part F" mono />
+          <Row label="Data protection" value="UAE Federal PDPL" mono />
+          <Row label="DPO contact" value="dpo@fiatx.ae" mono />
+          <Row label="Member identifier" value={profile.id} mono span={3} />
+        </div>
+        <p className="mt-4 font-sans text-[12px] text-fx-dust/70 leading-relaxed max-w-2xl">
+          You may request a copy of all personal data held about you at any time by emailing{' '}
+          <span className="text-fx-brass">dpo@fiatx.ae</span>. Requests are answered within
+          thirty days under the UAE Federal Personal Data Protection Law.
+        </p>
+      </section>
     </div>
   );
 };

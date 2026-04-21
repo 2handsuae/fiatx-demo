@@ -7,8 +7,8 @@ import {
   AuditActions,
   AuditBusinessWorkflowTypes,
   AuditWorkflowTypes,
-} from '../../risk-engine/audit-logs/constants/audit-actions.constant';
-import { sha256Hex } from '../../risk-engine/audit-logs/utils/audit-digest.util';
+} from '../../audit-logging/constants/audit-actions.constant';
+import { sha256Hex } from '../../audit-logging/utils/audit-digest.util';
 import { CHANGE_TICKET_CONSUMED } from './events/change-ticket-consumed.event';
 
 const actor = {
@@ -244,7 +244,6 @@ describe('ChangeTicketsService Task 2', () => {
     expect(auditWrite).toBeDefined();
     expect(auditWrite?.event.workflowType).toBe(AuditBusinessWorkflowTypes.ADMIN_MEMBER_PROVISIONING);
     expect(auditWrite?.event.workflowType).not.toBe(AuditWorkflowTypes.CHANGE_TICKET);
-    expect(auditWrite?.event.workflowNo).toBe(result.ticketNo);
     expect(auditWrite?.event.traceId).toBe(result.traceId);
     expect(auditWrite?.event.subjectNos).toEqual(
       expect.arrayContaining([
@@ -362,7 +361,6 @@ describe('ChangeTicketsService Task 2', () => {
     expect(auditWrite).toBeDefined();
     expect(auditWrite?.event.workflowType).toBe(AuditBusinessWorkflowTypes.ADMIN_ROLE_BINDING_CHANGE);
     expect(auditWrite?.event.workflowType).not.toBe(AuditWorkflowTypes.CHANGE_TICKET);
-    expect(auditWrite?.event.workflowNo).toBe(result.ticketNo);
     expect(auditWrite?.event.traceId).toBe(result.traceId);
     expect(auditWrite?.event.subjectNos).toEqual(
       expect.arrayContaining([
@@ -652,7 +650,6 @@ describe('ChangeTicketsService Task 2', () => {
     expect(auditWrite?.event.action).toBe(AuditActions.CHANGE_TICKET_CONSUMED);
     expect(auditWrite?.event.workflowType).toBe(AuditBusinessWorkflowTypes.ADMIN_ROLE_BINDING_CHANGE);
     expect(auditWrite?.event.workflowType).not.toBe(AuditWorkflowTypes.CHANGE_TICKET);
-    expect(auditWrite?.event.workflowNo).toBe(ticket.ticketNo);
     expect(auditWrite?.event.traceId).toBe(ticket.traceId);
     expect(auditWrite?.event.subjectNos).toEqual(
       expect.arrayContaining([

@@ -10,20 +10,20 @@ import {
 import { randomUUID } from 'crypto';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 import { PrismaService } from '../../../core/prisma/prisma.service';
-import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
+import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
   AuditActions,
   AuditBusinessWorkflowTypes,
   AuditEntityTypes,
   AuditModules,
   AuditWorkflowTypes,
-} from '../../risk-engine/audit-logs/constants/audit-actions.constant';
+} from '../../audit-logging/constants/audit-actions.constant';
 import {
   AuditResult,
   AuditSubjectRole,
   AuditTriggerType,
-} from '../../risk-engine/audit-logs/dto/audit-log.dto';
-import { sha256Hex } from '../../risk-engine/audit-logs/utils/audit-digest.util';
+} from '../../audit-logging/dto/audit-log.dto';
+import { sha256Hex } from '../../audit-logging/utils/audit-digest.util';
 import { ApprovalsService } from '../approvals/approvals.service';
 import { ChangeTicketStatuses } from '../change-tickets/constants/change-ticket.constants';
 import {
@@ -303,8 +303,6 @@ export class DeleteRequestsService {
         entityId: request.id,
         entityNo: request.requestNo,
         workflowType: this.resolveDeleteRequestBusinessWorkflowType(request.targetType),
-        workflowId: request.id,
-        workflowNo: request.requestNo,
         traceId: request.traceId,
         statusFrom: statusFrom || undefined,
         statusTo: statusTo || undefined,

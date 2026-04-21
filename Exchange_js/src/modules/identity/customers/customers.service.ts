@@ -1,15 +1,15 @@
 import { Injectable } from '@nestjs/common';
 import { CustomerMain, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../core/prisma/prisma.service';
-import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
+import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
   AuditActions,
   AuditEntityTypes,
   AuditModules,
-} from '../../risk-engine/audit-logs/constants/audit-actions.constant';
-import { AuditResult, AuditTriggerType } from '../../risk-engine/audit-logs/dto/audit-log.dto';
+} from '../../audit-logging/constants/audit-actions.constant';
+import { AuditResult, AuditTriggerType } from '../../audit-logging/dto/audit-log.dto';
 
-const finalApprovalSummarySelect = {
+const riskApprovalSummarySelect = {
   id: true,
   approvalNo: true,
   status: true,
@@ -27,14 +27,12 @@ const periodicReviewCycleSummarySelect = {
   rejectedAt: true,
   currentCddResponseId: true,
   currentEddResponseId: true,
-  primaryAlertId: true,
-  primaryIncidentId: true,
   resolutionReason: true,
 } satisfies Prisma.PeriodicReviewCycleSelect;
 
 const customerListInclude = {
-  latestFinalApproval: {
-    select: finalApprovalSummarySelect,
+  latestRiskApproval: {
+    select: riskApprovalSummarySelect,
   },
   activePeriodicReviewCycle: {
     select: periodicReviewCycleSummarySelect,
@@ -54,8 +52,8 @@ const customerDetailInclude = {
     orderBy: { createdAt: 'desc' as const },
     take: 30,
   },
-  latestFinalApproval: {
-    select: finalApprovalSummarySelect,
+  latestRiskApproval: {
+    select: riskApprovalSummarySelect,
   },
   activePeriodicReviewCycle: {
     select: periodicReviewCycleSummarySelect,

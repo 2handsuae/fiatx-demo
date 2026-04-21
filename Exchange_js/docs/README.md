@@ -78,7 +78,18 @@ Source of Truth Level: documentation-governance-index
 1. `Documentation updated: ...`
 2. `Documentation update not needed: ...`
 
+## Archived Documents (2026-04-11)
+- `docs/archived/` contains deprecated documents that have been removed from the active tree.
+- Each archived file has a deprecated header with replacement references.
+- Wave 2 compliance specs (alerts, cases, risk engine) → moved to Sumsub
+- Old periodic review specs → replaced by `docs/specs/wave3-layer2-risk-assessment.md` / `wave3-layer3-material-refresh.md`
+- Wave 1 audit trace entity/module specs → replaced by `docs/constraints/audit-trace-context-constraints.md`
+- Wave 3 current specs: `docs/specs/wave3-layer2-risk-assessment.md`, `docs/specs/wave3-layer3-material-refresh.md`, `docs/specs/wave3-onboarding-integration.md`
+
 ## Standard Documentation Structure
+- `docs/archived/`
+  - purpose: deprecated documents removed from active documentation tree
+  - do not use for: current implementation truth; each file has replacement pointers
 - `docs/PRD/`
   - purpose: product-facing walkthroughs, PRD narratives, cross-wave teaching notes, and talk tracks
   - update when: explanation scripts or stakeholder-facing requirement narration changes
@@ -288,11 +299,11 @@ Source of Truth Level: documentation-governance-index
   - `docs/specs/workflows/governance-sla-timer-workflow.md`
   - `docs/specs/workflows/admin-member-auth-boundary-workflow.md`
   - `docs/specs/workflows/onboarding-canonical-workflow.md`
-  - `docs/specs/workflows/periodic-review-canonical-workflow.md`
+  - ~~`docs/specs/workflows/periodic-review-canonical-workflow.md`~~ — archived
   - `docs/specs/workflows/payin-deposit-canonical-workflow.md`
-  - `docs/specs/workflows/alert-triage-and-case-escalation.md`
+  - ~~`docs/specs/workflows/alert-triage-and-case-escalation.md`~~ — archived
   - `docs/specs/workflows/mlro-and-final-approval-governance.md`
-  - `docs/specs/workflows/case-final-lifecycle-and-external-filing.md`
+  - ~~`docs/specs/workflows/case-final-lifecycle-and-external-filing.md`~~ — archived
   - `docs/specs/workflows/onboarding-periodic-review-audit-trace-contract.md`
   - `docs/specs/workflows/config-release-activation-workflow.md`
   - `docs/specs/workflows/quote-event-clearing-journal-workflow.md`
@@ -302,28 +313,28 @@ Source of Truth Level: documentation-governance-index
   - `docs/specs/entities/delete-request-entity.md`
   - `docs/specs/entities/governance-sla-timer-entity.md`
   - `docs/specs/entities/admin-user-entity.md`
-  - `docs/specs/entities/compliance-case-entity.md`
-  - `docs/specs/entities/compliance-alert-entity.md`
-  - `docs/specs/entities/compliance-case-report-entity.md`
-  - `docs/specs/entities/compliance-external-filing-entity.md`
+  - ~~`docs/specs/entities/compliance-case-entity.md`~~ — archived (Wave 2 → Sumsub)
+  - ~~`docs/specs/entities/compliance-alert-entity.md`~~ — archived (Wave 2 → Sumsub)
+  - ~~`docs/specs/entities/compliance-case-report-entity.md`~~ — archived (Wave 2 → Sumsub)
+  - ~~`docs/specs/entities/compliance-external-filing-entity.md`~~ — archived (Wave 2 → Sumsub)
   - `docs/specs/entities/customer-entity.md`
   - `docs/specs/entities/inbound-transfer-signal-entity.md`
   - `docs/specs/entities/payin-entity.md`
   - `docs/specs/entities/deposit-transaction-entity.md`
   - `docs/specs/entities/review-response-entity.md`
-  - `docs/specs/entities/periodic-review-cycle-entity.md`
-  - `docs/specs/entities/approval-case-entity.md`
-  - `docs/specs/entities/risk-decision-record-entity.md`
+  - ~~`docs/specs/entities/periodic-review-cycle-entity.md`~~ — archived (→ wave3-layer2/layer3)
+  - ~~`docs/specs/entities/approval-case-entity.md`~~ — archived (→ audit-trace-context-constraints)
+  - ~~`docs/specs/entities/risk-decision-record-entity.md`~~ — archived (Wave 2 → Sumsub)
   - `docs/specs/entities/wallet-entity.md`
   - `docs/specs/entities/business-config-release-entity.md`
   - `docs/specs/entities/pricing-quote-entity.md`
 - Module integration reference:
   - `docs/specs/modules/governance-control-foundation-module.md`
   - `docs/specs/modules/rbac-member-management-module.md`
-  - `docs/specs/modules/compliance-center-module.md`
-  - `docs/specs/modules/risk-engine-module.md`
+  - ~~`docs/specs/modules/compliance-center-module.md`~~ — archived (Wave 2 → Sumsub)
+  - ~~`docs/specs/modules/risk-engine-module.md`~~ — archived (Wave 2 → Sumsub)
   - `docs/specs/modules/customer-onboarding-module.md`
-  - `docs/specs/modules/periodic-review-module.md`
+  - ~~`docs/specs/modules/periodic-review-module.md`~~ — archived (→ wave3-layer2/layer3)
   - `docs/specs/modules/approvals-module.md`
   - `docs/specs/modules/audit-logging-module.md`
   - `docs/specs/modules/accounting-ledger-module.md`
@@ -336,7 +347,7 @@ Source of Truth Level: documentation-governance-index
   - `docs/acceptance/wave-5-deposit-accounting-blocked-runbook.md`
   - `docs/acceptance/wave-5-deposit-evidence-export-runbook.md`
   - `docs/acceptance/local-main-runtime-runbook.md`
-  - `docs/acceptance/onboarding-compliance-center-wave3-acceptance-checklist.md`
+  - ~~`docs/acceptance/onboarding-compliance-center-wave3-acceptance-checklist.md`~~ — archived (→ wave3-layer2/layer3)
   - `docs/acceptance/wave-4-ledger-asset-structure-acceptance-checklist.md`
 - Archived cleanup history:
   - `docs/cleanup/wave-1-governance-audit-cleanup-master-plan.md`

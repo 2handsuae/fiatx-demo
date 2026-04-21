@@ -1,463 +1,535 @@
-import { motion } from 'framer-motion';
-import {
-  Activity,
-  ArrowRight,
-  Briefcase,
-  Database,
-  Globe,
-  Menu,
-  Shield,
-  TrendingUp,
-  X,
-  Zap,
-} from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { motion, useScroll, useTransform } from 'framer-motion';
 import { Link } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
 
-const HERO_METRICS = [
-  { label: 'Execution Latency', value: '42ms', accent: 'text-brand-accent' },
-  { label: 'Settlement Visibility', value: 'T+0', accent: 'text-emerald-300' },
-  { label: 'Monitoring Coverage', value: '24/7', accent: 'text-white' },
+/* ────────────────────────────────────────────────────────────────
+ *  FIATX — Dubai virtual asset bridge
+ *  Aesthetic: Desert Monolith — editorial luxury + regulated gravity
+ *  Nothing here is meant to sparkle. It's meant to hold still.
+ * ──────────────────────────────────────────────────────────────── */
+
+const MASTHEAD = ['F', 'I', 'A', 'T', 'X'];
+
+// Footnotes under each letter — a tiny editorial joke only readable up close.
+const MASTHEAD_FOOTNOTES = [
+  'fiat',
+  'institutional',
+  'AED',
+  'treasury',
+  'exchange',
 ];
 
-const PLATFORM_PILLARS = [
+const RATES = [
+  { pair: 'AED / USDT',  bid: '3.6725',   delta: '+0.0012', dir: 'up' },
+  { pair: 'AED / USDC',  bid: '3.6718',   delta: '+0.0008', dir: 'up' },
+  { pair: 'USD / USDT',  bid: '0.9998',   delta: '−0.0002', dir: 'down' },
+  { pair: 'XAU / AED',   bid: '9,842.50', delta: '+18.20',  dir: 'up' },
+  { pair: 'BTC / USDT',  bid: '103,412',  delta: '+1,204',  dir: 'up' },
+  { pair: 'ETH / USDT',  bid: '3,721.80', delta: '−12.40',  dir: 'down' },
+  { pair: 'AED / EUR',   bid: '0.2467',   delta: '+0.0004', dir: 'up' },
+  { pair: 'AED / GBP',   bid: '0.2148',   delta: '−0.0003', dir: 'down' },
+];
+
+const SERVICES = [
   {
-    title: 'Funding Rails',
-    description: 'Route crypto and fiat movement through one governed treasury surface.',
-    icon: <Globe size={20} />,
+    no: '01',
+    title: 'Fiat ↔ Virtual Asset',
+    kicker: 'Core settlement',
+    body:
+      'Two-sided dirham bridge. AED into major stable assets on T+0, institutional quoting with price-tiered spreads. Settlement rides on-shore through UAE banking rails.',
+    caption: 'AED · USDT · USDC · EURT',
   },
   {
-    title: 'Risk Control',
-    description: 'Travel Rule, KYT, approval gates, and evidence export stay visible end to end.',
-    icon: <Shield size={20} />,
+    no: '02',
+    title: 'Safeguarded Custody',
+    kicker: 'Client assets',
+    body:
+      'Segregated client balances held in VARA-approved custody arrangements, with daily reconciliation and monthly statement warehousing. Your money is a ledger entry we cannot touch.',
+    caption: 'Bank-segregated · Daily recon · Monthly audit',
   },
   {
-    title: 'Operator Clarity',
-    description: 'Every transaction maps to a clean detail surface, not a maze of raw system state.',
-    icon: <Briefcase size={20} />,
+    no: '03',
+    title: 'Regulated Payouts',
+    kicker: 'Money movement',
+    body:
+      'Domestic IBAN payouts, cross-border wires and on-chain settlements — all routed through our travel-rule and sanctions-screening pipeline before a single satoshi moves.',
+    caption: 'Travel rule · KYT · Sanctions screen',
   },
 ];
 
-const TRUST_SIGNALS = [
-  { label: 'Regulated control plane', icon: <Shield size={18} /> },
-  { label: 'Realtime treasury state', icon: <Activity size={18} /> },
-  { label: 'Institutional audit evidence', icon: <Database size={18} /> },
-  { label: 'Best execution visibility', icon: <TrendingUp size={18} /> },
+const METRICS = [
+  { k: 'Settlement window',    v: 'T+0',        m: 'intraday dirham' },
+  { k: 'Licence jurisdiction', v: 'Dubai · UAE', m: 'VARA VASP' },
+  { k: 'Record retention',     v: '8 years',    m: 'per CRM rule 15' },
+  { k: 'Custody model',        v: 'Segregated', m: 'bank + on-chain' },
 ];
 
-const fadeUp = {
-  hidden: { opacity: 0, y: 24 },
-  show: { opacity: 1, y: 0 },
-};
+/* ─── Live Dubai clock (Asia/Dubai, UTC+4) ──────────────────────── */
+function DubaiClock() {
+  const [now, setNow] = useState(new Date());
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(new Date()), 1000);
+    return () => window.clearInterval(id);
+  }, []);
+  const dubai = new Date(now.getTime() + (now.getTimezoneOffset() + 240) * 60_000);
+  const hh = String(dubai.getHours()).padStart(2, '0');
+  const mm = String(dubai.getMinutes()).padStart(2, '0');
+  const ss = String(dubai.getSeconds()).padStart(2, '0');
+  return (
+    <span className="font-mono text-[11px] text-fx-dune tabular-nums">
+      <span className="text-fx-dust mr-2">DXB</span>
+      {hh}:{mm}
+      <span className="text-fx-brass/60 animate-fx-pulse">:</span>
+      {ss}
+    </span>
+  );
+}
 
-const LandingPage = () => {
-  const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const { isAuthenticated } = useAuth();
-
-  const primaryHref = isAuthenticated ? '/overview' : '/register';
-  const primaryLabel = isAuthenticated ? 'Open Dashboard' : 'Open Your Account';
-  const secondaryHref = isAuthenticated ? '/withdraw' : '/login';
-  const secondaryLabel = isAuthenticated ? 'Review Funding Flows' : 'Client Sign In';
+/* ─── The FIATX masthead — our signature element ───────────────── */
+function Masthead({ size = 'hero' }: { size?: 'hero' | 'nav' }) {
+  const letterCls =
+    size === 'hero'
+      ? 'fx-display font-light text-[96px] md:text-[128px] xl:text-[168px] leading-[0.85]'
+      : 'fx-display font-light text-[22px] leading-none';
+  const gapCls = size === 'hero' ? 'gap-3 md:gap-5' : 'gap-1.5';
+  const dotCls =
+    size === 'hero'
+      ? 'w-[8px] h-[8px] md:w-[10px] md:h-[10px] rounded-full bg-fx-brass'
+      : 'w-[3px] h-[3px] rounded-full bg-fx-brass';
 
   return (
-    <div className="min-h-screen overflow-hidden bg-[#03111f] text-white">
-      <div className="pointer-events-none fixed inset-0 overflow-hidden">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(34,211,238,0.16),_transparent_30%),radial-gradient(circle_at_80%_20%,_rgba(59,130,246,0.18),_transparent_28%),linear-gradient(180deg,_rgba(6,17,32,0.92),_rgba(2,6,23,1))]" />
-        <div className="absolute inset-0 opacity-[0.08] [background-image:linear-gradient(rgba(148,163,184,0.3)_1px,transparent_1px),linear-gradient(90deg,rgba(148,163,184,0.3)_1px,transparent_1px)] [background-size:56px_56px]" />
-        <div className="absolute left-[10%] top-36 h-64 w-64 rounded-full bg-cyan-400/10 blur-3xl" />
-        <div className="absolute bottom-10 right-[8%] h-80 w-80 rounded-full bg-blue-500/10 blur-3xl" />
+    <div className={`inline-flex items-end ${gapCls}`}>
+      {MASTHEAD.map((letter, i) => (
+        <div key={i} className="relative flex items-end">
+          <motion.span
+            initial={{ y: 24, opacity: 0, rotate: -2 }}
+            animate={{ y: 0, opacity: 1, rotate: 0 }}
+            transition={{
+              delay: 0.1 + i * 0.08,
+              duration: 0.9,
+              ease: [0.19, 1, 0.22, 1],
+            }}
+            className={`${letterCls} text-fx-sand inline-block`}
+          >
+            {letter}
+          </motion.span>
+          {size === 'hero' && (
+            <motion.span
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.9 + i * 0.04, duration: 0.6 }}
+              className="absolute -bottom-6 left-1/2 -translate-x-1/2 font-mono text-[9px] uppercase tracking-[0.2em] text-fx-dust whitespace-nowrap"
+            >
+              {MASTHEAD_FOOTNOTES[i]}
+            </motion.span>
+          )}
+          {i < MASTHEAD.length - 1 && (
+            <motion.span
+              initial={{ scale: 0 }}
+              animate={{ scale: 1 }}
+              transition={{ delay: 0.5 + i * 0.08, duration: 0.4 }}
+              className={`${dotCls} mx-1 md:mx-2 mb-[0.18em] shrink-0`}
+            />
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* ─── Top navigation — hairline border, no gloss ────────────────── */
+function TopNav() {
+  return (
+    <header className="sticky top-0 z-50 border-b border-fx-rule backdrop-blur-xl bg-fx-obsidian/80">
+      <div className="mx-auto max-w-[1400px] px-6 md:px-10 h-[72px] flex items-center justify-between">
+        <Link to="/" className="flex items-center gap-3 group">
+          <Masthead size="nav" />
+        </Link>
+
+        <nav className="hidden lg:flex items-center gap-10 font-mono text-[11px] uppercase tracking-[0.18em] text-fx-dune">
+          <a href="#services" className="hover:text-fx-brass transition-colors">Services</a>
+          <a href="#regulation" className="hover:text-fx-brass transition-colors">Regulation</a>
+          <a href="#metrics" className="hover:text-fx-brass transition-colors">Metrics</a>
+          <a href="#contact" className="hover:text-fx-brass transition-colors">Contact</a>
+        </nav>
+
+        <div className="flex items-center gap-6">
+          <div className="hidden md:block">
+            <DubaiClock />
+          </div>
+          <Link to="/login" className="fx-btn-ghost">Sign in</Link>
+          <Link to="/register" className="fx-btn-primary">Open account</Link>
+        </div>
       </div>
+    </header>
+  );
+}
 
-      <nav className="sticky top-0 z-50 border-b border-white/10 bg-[#041120]/75 backdrop-blur-2xl">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4 sm:px-6 lg:px-8">
-          <Link to="/" className="flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-white/10 bg-white/5 shadow-[0_0_30px_rgba(34,211,238,0.12)]">
-              <span className="text-lg font-black tracking-tight text-white">E</span>
-            </div>
-            <div>
-              <div className="text-[11px] uppercase tracking-[0.28em] text-slate-400">
-                Exchange
-              </div>
-              <div className="text-sm font-semibold text-white">Advanced Treasury Interface</div>
-            </div>
-          </Link>
+/* ─── Rate ticker — Bloomberg chyron, sealed by a hairline ─────── */
+function RateTicker() {
+  const doubled = [...RATES, ...RATES];
+  return (
+    <div className="border-y border-fx-rule overflow-hidden bg-fx-ink/40">
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ delay: 1.4, duration: 1 }}
+        className="flex animate-fx-scroll whitespace-nowrap py-3"
+        style={{ animationDuration: '80s' }}
+      >
+        {doubled.map((r, i) => (
+          <div key={i} className="flex items-center gap-3 px-8 shrink-0 font-mono text-[11px]">
+            <span className="text-fx-dust uppercase tracking-[0.12em]">{r.pair}</span>
+            <span className="text-fx-sand tabular-nums">{r.bid}</span>
+            <span className={`tabular-nums ${r.dir === 'up' ? 'text-fx-sage' : 'text-fx-rust'}`}>
+              {r.delta}
+            </span>
+            <span className="text-fx-dust/30">│</span>
+          </div>
+        ))}
+      </motion.div>
+    </div>
+  );
+}
 
-          <div className="hidden items-center gap-8 md:flex">
-            <a href="#platform" className="text-sm font-medium text-slate-300 transition-colors hover:text-white">
-              Platform
-            </a>
-            <a href="#controls" className="text-sm font-medium text-slate-300 transition-colors hover:text-white">
-              Controls
-            </a>
-            <a href="#evidence" className="text-sm font-medium text-slate-300 transition-colors hover:text-white">
-              Evidence
-            </a>
-            <Link
-              to={secondaryHref}
-              className="rounded-full border border-white/12 bg-white/5 px-5 py-2.5 text-sm font-semibold text-white transition-all hover:border-brand-accent/30 hover:bg-white/10"
-            >
-              {secondaryLabel}
-            </Link>
-            <Link
-              to={primaryHref}
-              className="inline-flex items-center gap-2 rounded-full bg-tech-gradient px-5 py-2.5 text-sm font-semibold text-white shadow-[0_18px_45px_rgba(34,211,238,0.16)] transition-all hover:translate-y-[-1px]"
-            >
-              {primaryLabel}
-              <ArrowRight size={16} />
-            </Link>
+/* ─── Hero — asymmetric 12-col grid with watermark Roman numeral ─ */
+function Hero() {
+  const { scrollY } = useScroll();
+  const watermarkY = useTransform(scrollY, [0, 800], [0, -120]);
+
+  return (
+    <section className="relative">
+      {/* Giant Roman numeral watermark — MMXXV (2025) — parallax */}
+      <motion.div
+        style={{ y: watermarkY }}
+        className="pointer-events-none absolute inset-0 flex items-center justify-end pr-4 md:pr-16 overflow-hidden"
+      >
+        <span className="fx-display-tight text-[280px] md:text-[440px] xl:text-[560px] leading-[0.8] text-fx-sand/[0.025] select-none">
+          MMXXV
+        </span>
+      </motion.div>
+
+      <div className="relative mx-auto max-w-[1400px] px-6 md:px-10 pt-24 md:pt-32 pb-20 md:pb-28">
+        <div className="grid grid-cols-12 gap-x-6 md:gap-x-10">
+          {/* ── Byline / issue number ────────────────────────────── */}
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.05, duration: 0.8 }}
+            className="col-span-12 mb-10 md:mb-16 flex items-center gap-4 text-fx-dust"
+          >
+            <span className="h-[1px] w-10 bg-fx-brass" />
+            <span className="font-mono text-[10px] uppercase tracking-[0.22em]">
+              Issue · 2025.IV · Dubai, UAE
+            </span>
+          </motion.div>
+
+          {/* ── Masthead ─────────────────────────────────────────── */}
+          <div className="col-span-12 lg:col-span-8">
+            <Masthead size="hero" />
           </div>
 
-          <button
-            onClick={() => setIsMenuOpen((value) => !value)}
-            className="rounded-xl border border-white/10 bg-white/5 p-2 text-slate-300 transition-colors hover:text-white md:hidden"
+          {/* ── Meta block (right column) ────────────────────────── */}
+          <motion.aside
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 1.1, duration: 0.9 }}
+            className="col-span-12 lg:col-span-4 lg:border-l lg:border-fx-rule lg:pl-8 mt-20 lg:mt-4 space-y-6"
           >
-            {isMenuOpen ? <X size={20} /> : <Menu size={20} />}
-          </button>
+            <div>
+              <div className="fx-cap mb-2">Filed under</div>
+              <div className="font-mono text-[12px] text-fx-dune leading-relaxed">
+                Virtual Asset Service Provider · Category 2 · Custody &amp; Exchange
+              </div>
+            </div>
+            <div className="h-[1px] bg-fx-rule" />
+            <div>
+              <div className="fx-cap mb-2">Licence</div>
+              <div className="font-mono text-[12px] text-fx-sand leading-relaxed">
+                Virtual Assets Regulatory Authority
+                <br />
+                <span className="text-fx-brass">VASP No. 2025/DXB-••••</span>
+              </div>
+            </div>
+            <div className="h-[1px] bg-fx-rule" />
+            <div>
+              <div className="fx-cap mb-2">Registered office</div>
+              <div className="font-mono text-[12px] text-fx-dune leading-relaxed">
+                Level 41, Emirates Towers
+                <br />
+                Sheikh Zayed Road, Dubai
+              </div>
+            </div>
+          </motion.aside>
         </div>
 
-        {isMenuOpen ? (
-          <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: 'auto' }}
-            className="border-t border-white/10 bg-[#061424]/95 px-4 py-4 md:hidden"
+        {/* ── Editorial lede — big serif pull quote ─────────────── */}
+        <div className="grid grid-cols-12 gap-x-6 md:gap-x-10 mt-24 md:mt-36">
+          <motion.p
+            initial={{ opacity: 0, y: 24 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 1.3, duration: 1 }}
+            className="col-span-12 md:col-span-10 lg:col-span-9 fx-serif text-[28px] md:text-[40px] xl:text-[52px] leading-[1.15] text-fx-sand"
           >
-            <div className="space-y-3">
-              <a href="#platform" className="block rounded-xl px-3 py-2 text-sm text-slate-300 hover:bg-white/5 hover:text-white">
-                Platform
-              </a>
-              <a href="#controls" className="block rounded-xl px-3 py-2 text-sm text-slate-300 hover:bg-white/5 hover:text-white">
-                Controls
-              </a>
-              <a href="#evidence" className="block rounded-xl px-3 py-2 text-sm text-slate-300 hover:bg-white/5 hover:text-white">
-                Evidence
-              </a>
-              <Link
-                to={secondaryHref}
-                className="block rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-center text-sm font-semibold text-white"
-              >
-                {secondaryLabel}
-              </Link>
-              <Link
-                to={primaryHref}
-                className="flex items-center justify-center gap-2 rounded-xl bg-tech-gradient px-4 py-3 text-sm font-semibold text-white"
-              >
-                {primaryLabel}
-                <ArrowRight size={16} />
-              </Link>
-            </div>
-          </motion.div>
-        ) : null}
-      </nav>
+            A regulated bridge between the{' '}
+            <span className="italic text-fx-brass">dirham</span> and the digital. Built in Dubai,
+            held to VARA&apos;s compliance rulebook, engineered for institutions that refuse to
+            guess.
+          </motion.p>
+        </div>
 
-      <main>
-        <section className="relative mx-auto max-w-7xl px-4 pb-20 pt-16 sm:px-6 lg:px-8 lg:pb-28 lg:pt-24">
-          <div className="grid gap-14 lg:grid-cols-[1.1fr_0.9fr] lg:items-center">
-            <motion.div
-              initial="hidden"
-              animate="show"
-              variants={fadeUp}
-              transition={{ duration: 0.7 }}
-              className="space-y-8"
+        {/* ── CTA strip ─────────────────────────────────────────── */}
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 1.5, duration: 0.8 }}
+          className="mt-12 md:mt-20 flex flex-wrap items-center gap-4"
+        >
+          <Link to="/register" className="fx-btn-primary">
+            Open an account →
+          </Link>
+          <a href="#services" className="fx-btn-ghost">
+            Read the prospectus
+          </a>
+          <span className="ml-2 fx-cap">KYC — 3 minutes · dirham-native onboarding</span>
+        </motion.div>
+      </div>
+
+      <RateTicker />
+    </section>
+  );
+}
+
+/* ─── Services — editorial 3-column with numerals & rules ──────── */
+function Services() {
+  return (
+    <section id="services" className="relative border-t border-fx-rule">
+      <div className="mx-auto max-w-[1400px] px-6 md:px-10 py-24 md:py-32">
+        <div className="mb-16 md:mb-24 grid grid-cols-12 gap-6">
+          <div className="col-span-12 md:col-span-4 fx-cap">§ Services</div>
+          <h2 className="col-span-12 md:col-span-8 fx-display font-light text-[42px] md:text-[64px] leading-[0.95] text-fx-sand">
+            Three things,
+            <br />
+            <span className="italic fx-serif text-fx-dune">done properly.</span>
+          </h2>
+        </div>
+
+        <div className="grid grid-cols-12 gap-6 md:gap-10">
+          {SERVICES.map((s, idx) => (
+            <motion.article
+              key={s.no}
+              initial={{ opacity: 0, y: 30 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true, margin: '-80px' }}
+              transition={{ duration: 0.9, delay: idx * 0.1, ease: [0.19, 1, 0.22, 1] }}
+              className="col-span-12 md:col-span-4 relative flex flex-col pt-8 border-t border-fx-rule"
             >
-              <div className="inline-flex items-center gap-2 rounded-full border border-cyan-400/20 bg-cyan-400/10 px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.26em] text-cyan-200">
-                <Activity size={14} />
-                Governed Digital Asset Operations
+              <div className="flex items-baseline justify-between mb-10">
+                <span className="fx-display font-light text-[72px] leading-none text-fx-brass/40">
+                  {s.no}
+                </span>
+                <span className="fx-cap">{s.kicker}</span>
               </div>
+              <h3 className="fx-display text-[30px] leading-[1.05] text-fx-sand mb-6">{s.title}</h3>
+              <p className="fx-serif text-[15px] leading-[1.7] text-fx-dune mb-8 max-w-sm">
+                {s.body}
+              </p>
+              <div className="mt-auto fx-cap text-fx-brass/80">{s.caption}</div>
+            </motion.article>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
 
-              <div className="space-y-5">
-                <h1 className="max-w-4xl text-5xl font-black leading-[0.96] tracking-[-0.05em] text-white sm:text-6xl lg:text-7xl">
-                  One platform for
-                  <span className="block bg-[linear-gradient(90deg,#ffffff_0%,#8be9ff_38%,#3b82f6_100%)] bg-clip-text text-transparent">
-                    funding, control, and proof.
-                  </span>
-                </h1>
-                <p className="max-w-2xl text-lg leading-8 text-slate-300">
-                  Exchange brings treasury rails, compliance review, approval gates, and evidence
-                  export into a single operating surface built for advanced financial workflows.
-                </p>
-              </div>
-
-              <div className="flex flex-col gap-3 sm:flex-row">
-                <Link
-                  to={primaryHref}
-                  className="inline-flex items-center justify-center gap-2 rounded-full bg-white px-7 py-4 text-sm font-semibold text-slate-950 transition-all hover:translate-y-[-1px] hover:bg-cyan-50"
-                >
-                  {primaryLabel}
-                  <ArrowRight size={16} />
-                </Link>
-                <Link
-                  to={secondaryHref}
-                  className="inline-flex items-center justify-center gap-2 rounded-full border border-white/12 bg-white/5 px-7 py-4 text-sm font-semibold text-white transition-all hover:border-cyan-300/30 hover:bg-white/10"
-                >
-                  {secondaryLabel}
-                </Link>
-              </div>
-
-              <div className="grid gap-4 sm:grid-cols-3">
-                {HERO_METRICS.map((metric) => (
-                  <div
-                    key={metric.label}
-                    className="rounded-[1.75rem] border border-white/10 bg-white/5 px-5 py-4 backdrop-blur-xl"
-                  >
-                    <div className="text-[11px] uppercase tracking-[0.24em] text-slate-400">
-                      {metric.label}
-                    </div>
-                    <div className={`mt-2 text-3xl font-black tracking-[-0.04em] ${metric.accent}`}>
-                      {metric.value}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </motion.div>
-
-            <motion.div
-              initial={{ opacity: 0, y: 24 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.8, delay: 0.12 }}
-              className="relative"
-            >
-              <div className="absolute inset-0 rounded-[2.25rem] bg-[radial-gradient(circle_at_top_right,_rgba(34,211,238,0.22),_transparent_35%),radial-gradient(circle_at_bottom_left,_rgba(59,130,246,0.18),_transparent_45%)] blur-2xl" />
-              <div className="relative overflow-hidden rounded-[2.25rem] border border-white/10 bg-[#081424]/80 p-6 shadow-[0_30px_80px_rgba(2,6,23,0.55)] backdrop-blur-2xl">
-                <div className="absolute inset-0 opacity-[0.08] [background-image:linear-gradient(rgba(148,163,184,0.35)_1px,transparent_1px),linear-gradient(90deg,rgba(148,163,184,0.35)_1px,transparent_1px)] [background-size:24px_24px]" />
-
-                <div className="relative z-10">
-                  <div className="mb-6 flex items-start justify-between">
-                    <div>
-                      <div className="text-[11px] uppercase tracking-[0.28em] text-slate-400">
-                        Command Layer
-                      </div>
-                      <div className="mt-2 text-2xl font-black tracking-[-0.04em] text-white">
-                        Treasury Control Surface
-                      </div>
-                    </div>
-                    <div className="rounded-full border border-cyan-400/20 bg-cyan-400/10 px-3 py-1 text-xs font-semibold text-cyan-200">
-                      Live
-                    </div>
-                  </div>
-
-                  <div className="grid gap-4 sm:grid-cols-[1.1fr_0.9fr]">
-                    <div className="space-y-4 rounded-[1.75rem] border border-white/8 bg-white/5 p-5">
-                      <div className="flex items-center justify-between border-b border-white/10 pb-3">
-                        <div>
-                          <div className="text-[11px] uppercase tracking-[0.22em] text-slate-500">
-                            Portfolio Value
-                          </div>
-                          <div className="mt-2 font-mono text-4xl font-black tracking-[-0.06em] text-white">
-                            124.6M
-                          </div>
-                        </div>
-                        <div className="rounded-2xl bg-emerald-400/15 px-3 py-2 text-right text-emerald-300">
-                          <div className="text-[10px] uppercase tracking-[0.18em]">Trend</div>
-                          <div className="font-mono text-lg font-bold">+3.9%</div>
-                        </div>
-                      </div>
-
-                      <div className="space-y-3">
-                        {[
-                          ['BTC / AED', '4.2M', '+1.8%'],
-                          ['ETH / AED', '3.7M', '+2.4%'],
-                          ['USDT / AED', '12.9M', '+0.1%'],
-                        ].map(([pair, exposure, change]) => (
-                          <div
-                            key={pair}
-                            className="flex items-center justify-between rounded-2xl border border-white/8 bg-[#0b1828] px-4 py-3"
-                          >
-                            <div>
-                              <div className="text-sm font-semibold text-white">{pair}</div>
-                              <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
-                                Monitored exposure
-                              </div>
-                            </div>
-                            <div className="text-right">
-                              <div className="font-mono text-base font-bold text-white">{exposure}</div>
-                              <div className="text-xs font-semibold text-emerald-300">{change}</div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div className="space-y-4">
-                      <div className="rounded-[1.75rem] border border-white/8 bg-white/5 p-5">
-                        <div className="text-[11px] uppercase tracking-[0.24em] text-slate-500">
-                          Review Load
-                        </div>
-                        <div className="mt-3 flex items-end justify-between">
-                          <div className="text-3xl font-black tracking-[-0.05em] text-white">08</div>
-                          <div className="text-sm font-semibold text-amber-300">Active cases</div>
-                        </div>
-                        <div className="mt-5 space-y-2">
-                          {[
-                            ['Travel Rule', '3'],
-                            ['KYT Review', '2'],
-                            ['Approval Gate', '3'],
-                          ].map(([label, value]) => (
-                            <div key={label} className="flex items-center justify-between text-sm text-slate-300">
-                              <span>{label}</span>
-                              <span className="font-mono text-white">{value}</span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-
-                      <div className="rounded-[1.75rem] border border-white/8 bg-gradient-to-br from-white/8 to-cyan-400/10 p-5">
-                        <div className="flex items-center gap-2 text-sm font-semibold text-cyan-200">
-                          <Zap size={16} />
-                          Evidence Ready
-                        </div>
-                        <p className="mt-3 text-sm leading-6 text-slate-300">
-                          Export packages carry linked transaction roots, control gates, and
-                          timeline-ready audit context.
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </motion.div>
-          </div>
-        </section>
-
-        <section className="border-y border-white/10 bg-black/20">
-          <div className="mx-auto grid max-w-7xl gap-4 px-4 py-5 sm:grid-cols-2 sm:px-6 lg:grid-cols-4 lg:px-8">
-            {TRUST_SIGNALS.map((signal) => (
-              <div
-                key={signal.label}
-                className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/5 px-4 py-4 text-sm text-slate-200"
-              >
-                <div className="rounded-xl border border-white/10 bg-white/5 p-2 text-cyan-200">
-                  {signal.icon}
-                </div>
-                <span className="font-medium">{signal.label}</span>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        <section id="platform" className="mx-auto max-w-7xl px-4 py-24 sm:px-6 lg:px-8">
-          <div className="mb-12 max-w-3xl">
-            <div className="text-[11px] uppercase tracking-[0.28em] text-slate-500">
-              Platform Layers
-            </div>
-            <h2 className="mt-4 text-4xl font-black tracking-[-0.04em] text-white">
-              Built for operator confidence, not dashboard noise.
+/* ─── Regulation — the trust wall ───────────────────────────────── */
+function Regulation() {
+  return (
+    <section id="regulation" className="relative border-t border-fx-rule bg-fx-ink/40">
+      <div className="mx-auto max-w-[1400px] px-6 md:px-10 py-24 md:py-32">
+        <div className="grid grid-cols-12 gap-6 md:gap-10">
+          <div className="col-span-12 md:col-span-5 space-y-6">
+            <div className="fx-cap">§ Regulation</div>
+            <h2 className="fx-display font-light text-[40px] md:text-[56px] leading-[0.95] text-fx-sand">
+              Licensed.
+              <br />
+              <span className="italic text-fx-brass">Audited.</span>
+              <br />
+              <span className="fx-serif italic text-fx-dune">Accountable.</span>
             </h2>
-            <p className="mt-4 text-base leading-7 text-slate-300">
-              The product language is intentionally split: a structured operator console for
-              governance and a refined fintech surface for clients. Both ride on the same terms,
-              same status model, and same evidence chain.
+            <p className="fx-serif text-[15px] leading-[1.7] text-fx-dune max-w-md">
+              FIATX operates under the Virtual Assets Regulatory Authority of Dubai — VARA —
+              Category 2 VASP licence. Every customer, every transaction, every reconciliation
+              break is recorded against an eight-year retention clock and exportable on demand.
             </p>
           </div>
 
-          <div className="grid gap-6 lg:grid-cols-3">
-            {PLATFORM_PILLARS.map((pillar, index) => (
-              <motion.div
-                key={pillar.title}
-                initial="hidden"
-                whileInView="show"
-                viewport={{ once: true, amount: 0.3 }}
-                variants={fadeUp}
-                transition={{ duration: 0.55, delay: index * 0.08 }}
-                className="rounded-[2rem] border border-white/10 bg-white/5 p-6 backdrop-blur-xl"
-              >
-                <div className="mb-5 inline-flex rounded-2xl border border-white/10 bg-white/5 p-3 text-cyan-200">
-                  {pillar.icon}
+          <div className="col-span-12 md:col-span-6 md:col-start-7 grid grid-cols-1 divide-y divide-fx-rule border border-fx-rule">
+            {[
+              { k: 'Customer Due Diligence', v: 'Level-1 onboarding via Sumsub · live webhook audit trail' },
+              { k: 'Enhanced Due Diligence', v: 'Level-2 manual review for PEPs, high-risk, complex ownership' },
+              { k: 'Travel Rule',            v: 'IVMS-101 data exchange on every fiat ↔ crypto transfer' },
+              { k: 'Sanctions Screening',    v: 'OFAC / EU / UN lists · wallet attribution · daily refresh' },
+              { k: 'STR Reporting',          v: 'goAML integration · 48-hour filing window · MLRO oversight' },
+              { k: 'Record Retention',       v: 'Eight years on every audit event · immutable · exportable' },
+            ].map((row) => (
+              <div key={row.k} className="grid grid-cols-12 gap-4 px-6 py-5">
+                <div className="col-span-12 md:col-span-4 fx-cap text-fx-dune">{row.k}</div>
+                <div className="col-span-12 md:col-span-8 font-mono text-[12px] text-fx-sand leading-relaxed">
+                  {row.v}
                 </div>
-                <h3 className="text-2xl font-black tracking-[-0.03em] text-white">{pillar.title}</h3>
-                <p className="mt-4 text-sm leading-7 text-slate-300">{pillar.description}</p>
-              </motion.div>
+              </div>
             ))}
           </div>
-        </section>
-
-        <section id="controls" className="border-y border-white/10 bg-black/20">
-          <div className="mx-auto grid max-w-7xl gap-10 px-4 py-24 sm:px-6 lg:grid-cols-[0.9fr_1.1fr] lg:px-8">
-            <div className="space-y-5">
-              <div className="text-[11px] uppercase tracking-[0.28em] text-slate-500">
-                Control Stack
-              </div>
-              <h2 className="text-4xl font-black tracking-[-0.04em] text-white">
-                The memorable part is not the glow. It is the clarity.
-              </h2>
-              <p className="text-base leading-7 text-slate-300">
-                Every funding flow, compliance review, and approval gate points to a canonical
-                object identity. That is what makes the UI feel calm, precise, and trustworthy.
-              </p>
-            </div>
-
-            <div className="grid gap-4 sm:grid-cols-2">
-              {[
-                ['No / Code first', 'Operator-facing surfaces prioritize human identifiers, not raw ids.'],
-                ['Lifecycle states', 'Loading, review, blocked, archived, and final states stay explicit.'],
-                ['Action grammar', 'Submit, approve, reject, retry, export, and refresh keep one meaning.'],
-                ['Evidence symmetry', 'Read models, audit trails, and evidence packages follow the same root.'],
-              ].map(([title, copy]) => (
-                <div
-                  key={title}
-                  className="rounded-[1.75rem] border border-white/10 bg-[#081424]/80 p-5"
-                >
-                  <div className="text-lg font-bold text-white">{title}</div>
-                  <p className="mt-3 text-sm leading-6 text-slate-300">{copy}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        <section id="evidence" className="mx-auto max-w-7xl px-4 py-24 sm:px-6 lg:px-8">
-          <div className="overflow-hidden rounded-[2.5rem] border border-white/10 bg-[linear-gradient(135deg,rgba(255,255,255,0.08),rgba(255,255,255,0.03))] p-8 backdrop-blur-2xl sm:p-10">
-            <div className="grid gap-10 lg:grid-cols-[0.95fr_1.05fr] lg:items-end">
-              <div>
-                <div className="text-[11px] uppercase tracking-[0.28em] text-cyan-200">
-                  Evidence Ready
-                </div>
-                <h2 className="mt-4 text-4xl font-black tracking-[-0.04em] text-white">
-                  Demo-ready flows, backed by operator-grade proof.
-                </h2>
-                <p className="mt-4 max-w-2xl text-base leading-7 text-slate-300">
-                  Use the client surface to onboard, fund, and withdraw. Use the admin console to
-                  inspect alerts, approvals, payouts, and evidence export without switching mental
-                  models.
-                </p>
-              </div>
-
-              <div className="flex flex-col gap-3 sm:flex-row lg:justify-end">
-                <Link
-                  to={primaryHref}
-                  className="inline-flex items-center justify-center gap-2 rounded-full bg-white px-7 py-4 text-sm font-semibold text-slate-950 transition-all hover:bg-cyan-50"
-                >
-                  {primaryLabel}
-                  <ArrowRight size={16} />
-                </Link>
-                <Link
-                  to={secondaryHref}
-                  className="inline-flex items-center justify-center gap-2 rounded-full border border-white/12 bg-white/5 px-7 py-4 text-sm font-semibold text-white transition-all hover:bg-white/10"
-                >
-                  {secondaryLabel}
-                </Link>
-              </div>
-            </div>
-          </div>
-        </section>
-      </main>
-
-      <footer className="border-t border-white/10 bg-[#020914]">
-        <div className="mx-auto flex max-w-7xl flex-col gap-5 px-4 py-8 text-sm text-slate-400 sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8">
-          <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-sm font-black text-white">
-              E
-            </div>
-            <div>
-              <div className="font-semibold text-slate-200">Exchange</div>
-              <div className="text-xs uppercase tracking-[0.22em] text-slate-500">
-                Advanced Treasury Interface
-              </div>
-            </div>
-          </div>
-          <div>© 2026 Exchange Group. Governance, treasury, and client flows in one platform.</div>
         </div>
-      </footer>
+      </div>
+    </section>
+  );
+}
+
+/* ─── Metrics — numeric editorial row ───────────────────────────── */
+function Metrics() {
+  return (
+    <section id="metrics" className="relative border-t border-fx-rule">
+      <div className="mx-auto max-w-[1400px] px-6 md:px-10 py-24 md:py-32">
+        <div className="mb-16 md:mb-24 flex items-end justify-between gap-6">
+          <div>
+            <div className="fx-cap mb-4">§ By the numbers</div>
+            <h2 className="fx-display font-light text-[42px] md:text-[64px] leading-[0.95] text-fx-sand">
+              Concrete
+              <span className="italic fx-serif text-fx-dune"> claims.</span>
+            </h2>
+          </div>
+          <div className="hidden md:block fx-cap text-right text-fx-dust/70 max-w-[200px]">
+            As of the most<br />recent regulatory filing
+          </div>
+        </div>
+
+        <div className="grid grid-cols-12 gap-6 md:gap-10 border-t border-fx-rule pt-12">
+          {METRICS.map((m, i) => (
+            <motion.div
+              key={m.k}
+              initial={{ opacity: 0, y: 20 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.8, delay: i * 0.1 }}
+              className="col-span-12 sm:col-span-6 md:col-span-3 flex flex-col gap-3"
+            >
+              <div className="fx-cap text-fx-dust">{m.k}</div>
+              <div className="fx-display font-light text-[36px] md:text-[44px] leading-none text-fx-brass tabular-nums">
+                {m.v}
+              </div>
+              <div className="font-mono text-[11px] text-fx-dune">{m.m}</div>
+            </motion.div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ─── Closing CTA — quiet invitation ─────────────────────────────── */
+function Invitation() {
+  return (
+    <section id="contact" className="relative border-t border-fx-rule bg-fx-ink/40">
+      <div className="mx-auto max-w-[1400px] px-6 md:px-10 py-28 md:py-40">
+        <div className="grid grid-cols-12 gap-6">
+          <div className="col-span-12 lg:col-span-9">
+            <div className="fx-cap mb-6">§ Open an account</div>
+            <h2 className="fx-display font-light text-[48px] md:text-[80px] xl:text-[104px] leading-[0.9] text-fx-sand">
+              A quiet corner of
+              <br />
+              <span className="italic fx-serif text-fx-brass">regulated finance.</span>
+            </h2>
+            <p className="mt-10 fx-serif text-[16px] md:text-[18px] leading-[1.6] text-fx-dune max-w-2xl">
+              Individual onboarding is live. Corporate, UBO and treasury access is by invitation —
+              we like to know who we&apos;re working with.
+            </p>
+          </div>
+          <div className="col-span-12 lg:col-span-3 flex flex-col gap-4 lg:pt-20">
+            <Link to="/register" className="fx-btn-primary w-full">
+              Open an individual account
+            </Link>
+            <Link to="/login" className="fx-btn-ghost w-full">
+              Sign in
+            </Link>
+            <p className="fx-cap text-fx-dust mt-4">
+              Corporate enquiries:{' '}
+              <span className="text-fx-dune normal-case tracking-normal font-sans">
+                institutions@fiatx.ae
+              </span>
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ─── Footer — masthead echo + colophon ─────────────────────────── */
+function Footer() {
+  return (
+    <footer className="border-t border-fx-rule">
+      <div className="mx-auto max-w-[1400px] px-6 md:px-10 py-16">
+        <div className="grid grid-cols-12 gap-6 mb-12">
+          <div className="col-span-12 md:col-span-4">
+            <Masthead size="nav" />
+            <p className="mt-4 fx-serif text-[13px] text-fx-dune max-w-xs leading-relaxed">
+              Operated by FIATX Financial Services Ltd, a Virtual Assets Service Provider licensed
+              by the Virtual Assets Regulatory Authority of Dubai.
+            </p>
+          </div>
+          <div className="col-span-6 md:col-span-2">
+            <div className="fx-cap mb-4">Product</div>
+            <ul className="space-y-2 font-mono text-[11px] text-fx-dune">
+              <li><a href="#services" className="hover:text-fx-brass">Services</a></li>
+              <li><Link to="/register" className="hover:text-fx-brass">Open account</Link></li>
+              <li><Link to="/login" className="hover:text-fx-brass">Sign in</Link></li>
+            </ul>
+          </div>
+          <div className="col-span-6 md:col-span-2">
+            <div className="fx-cap mb-4">Legal</div>
+            <ul className="space-y-2 font-mono text-[11px] text-fx-dune">
+              <li><a href="#" className="hover:text-fx-brass">Terms</a></li>
+              <li><a href="#" className="hover:text-fx-brass">Privacy</a></li>
+              <li><a href="#" className="hover:text-fx-brass">Cookies</a></li>
+              <li><a href="#" className="hover:text-fx-brass">Licence</a></li>
+            </ul>
+          </div>
+          <div className="col-span-12 md:col-span-4 md:text-right">
+            <div className="fx-cap mb-4">Licence watermark</div>
+            <div className="font-mono text-[11px] text-fx-dune">
+              VARA VASP · LICENCE No. 2025/DXB-••••
+              <br />
+              CRM Rulebook compliant · 8yr retention
+              <br />
+              MLRO registered · goAML enrolled
+            </div>
+          </div>
+        </div>
+        <div className="border-t border-fx-rule pt-6 flex flex-wrap items-center justify-between gap-4">
+          <div className="font-mono text-[10px] tracking-[0.18em] uppercase text-fx-dust">
+            © 2025 FIATX Financial Services Ltd · Dubai, UAE
+          </div>
+          <DubaiClock />
+        </div>
+      </div>
+    </footer>
+  );
+}
+
+/* ─── Page ──────────────────────────────────────────────────────── */
+const LandingPage = () => {
+  return (
+    <div className="min-h-screen bg-fx-obsidian text-fx-sand">
+      <TopNav />
+      <Hero />
+      <Services />
+      <Regulation />
+      <Metrics />
+      <Invitation />
+      <Footer />
     </div>
   );
 };

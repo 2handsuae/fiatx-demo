@@ -46,6 +46,9 @@ const DEFAULT_LOCAL_WEB_ORIGINS = [
   'http://localhost:3002',
   'http://localhost:3201',
   'http://localhost:3202',
+  'http://localhost:3500',
+  'http://localhost:3501',
+  'http://localhost:3502',
 ];
 
 export const buildAllowedWebOrigins = (

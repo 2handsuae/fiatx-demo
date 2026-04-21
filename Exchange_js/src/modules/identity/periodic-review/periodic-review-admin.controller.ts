@@ -12,10 +12,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
 import { AdminPermissionGuard } from '../access-control/admin-permission.guard';
 import { PeriodicReviewService } from './periodic-review.service';
-import { RequirePermissions } from '../access-control/require-permissions.decorator';
-import { buildPermissionCode } from '../access-control/permission-code.util';
 import {
-  ApplyOnboardingAlertDecisionDto,
   SubmitFinalApprovalDto,
 } from '../onboarding/dto/onboarding.dto';
 
@@ -52,22 +49,4 @@ export class PeriodicReviewAdminController {
     );
   }
 
-  @Post('cases/:id/periodic-review-decision')
-  @RequirePermissions(
-    buildPermissionCode('POST', '/admin/compliance/cases/:id/periodic-review-decision'),
-  )
-  @ApiOperation({ summary: 'Apply periodic review decision from assigned review case' })
-  async applyPeriodicReviewDecisionFromCase(
-    @Req() req: any,
-    @Param('id') id: string,
-    @Body(new ValidationPipe({ transform: true })) body: ApplyOnboardingAlertDecisionDto,
-  ) {
-    const actor = this.getAdminActor(req);
-    return this.periodicReviewService.applyDecisionFromIncident(
-      id,
-      actor.actorId,
-      actor.actorRole,
-      body,
-    );
-  }
 }

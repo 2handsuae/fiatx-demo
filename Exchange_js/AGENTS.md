@@ -18,7 +18,21 @@ Before any code change in `Exchange_js`, read:
 14. `docs/constraints/governance-change-ticket-constraints.md`
 15. `docs/constraints/governance-delete-request-constraints.md`
 16. `docs/constraints/governance-sla-timer-constraints.md`
-17. `docs/constraints/compliance-alert-incident-constraints.md`
+17. `docs/constraints/audit-trace-context-constraints.md`
+18. `docs/specs/wave3-layer2-risk-assessment.md`
+19. `docs/specs/wave3-layer3-material-refresh.md`
+20. `docs/specs/wave3-onboarding-integration.md`
+
+> **Note (2026-04-11):** Wave 2 compliance specs (compliance-center, risk-engine, alert/case entities)
+> and old periodic-review specs have been archived to `docs/archived/`. See `docs/archived/` for
+> deprecated documents with replacement references.
+
+> **Wave 2 Cleanup (2026-04-11):** All Wave 2 compliance alert/incident code has been removed from the codebase.
+> - `compliance-alerts/` and `compliance-incidents/` directories deleted; Prisma tables dropped
+> - `audit-logging/` is now a standalone `@Global()` module (was `risk-engine/audit-logs/`)
+> - `sumsub-ingestion/SumsubIngestionService` is the single canonical Sumsub webhook handler with 5-clue routing; `sumsub-integration/` deleted
+> - `RiskDecisionOrchestratorService` deleted
+> - Transaction compliance (KYT/Travel Rule) remains in `risk-engine/transaction-compliance/` but compliance alert/incident emission removed; will reconnect via Sumsub webhook in future Wave 5/7
 
 ## Scope
 - Backend: `src/**`, `prisma/**`, `scripts/**`
@@ -48,10 +62,10 @@ Before any code change in `Exchange_js`, read:
 4. `docs/specs/entities/inbound-transfer-signal-entity.md`
 5. `docs/specs/entities/payin-entity.md`
 6. `docs/specs/entities/deposit-transaction-entity.md`
-7. `docs/specs/entities/risk-decision-record-entity.md`
+7. ~~`docs/specs/entities/risk-decision-record-entity.md`~~ — archived (Wave 2 → Sumsub)
 8. `docs/specs/entities/audit-evidence-package-entity.md`
-9. `docs/specs/modules/risk-engine-module.md`
-10. `docs/specs/modules/compliance-center-module.md`
+9. ~~`docs/specs/modules/risk-engine-module.md`~~ — archived (Wave 2 → Sumsub)
+10. ~~`docs/specs/modules/compliance-center-module.md`~~ — archived (Wave 2 → Sumsub)
 11. `docs/specs/modules/accounting-ledger-module.md`
 12. `docs/acceptance/wave-5-payin-deposit-final-acceptance-checklist.md`
 13. `docs/acceptance/wave-5-deposit-accounting-blocked-runbook.md`
@@ -96,6 +110,7 @@ Before any code change in `Exchange_js`, read:
 5. `docs/adr/`: architecture and product decision records
 6. `docs/acceptance/`: runbooks, demo flows, validation checklists
 7. `docs/glossary/`: shared terminology and naming definitions
+8. `docs/archived/`: deprecated documents removed from active tree (2026-04-11+)
 
 ### Wave 4 Design Baseline
 - When work touches Wave 4 ledger / wallet / pricing / config-release behavior, also read:
@@ -217,20 +232,11 @@ Before any code change in `Exchange_js`, read:
 1. `CRYPTO`: enforce `preKytStatus=PASS`
 2. `FIAT`: no PRE-KYT gate
 
-## Recent Core Decisions (2026-02-20)
-- Compliance Incident V1 is enabled and is created manually from alert escalation (`POST /admin/compliance/incidents/from-alert/:alertId`).
-- Incident mainline is fixed to `NEW -> ASSIGNED -> INVESTIGATING -> RESOLVED -> CLOSED`, with branch to `FALSE_POSITIVE`; terminal states cannot reopen. (superseded by 2026-02-22 flow)
-- One incident can aggregate multiple alerts, but one alert can belong to only one incident (`compliance_incident_alerts.alertId` global unique).
-- Alert escalation to incident must run in one DB transaction: escalate alert to terminal `ESCALATED` and create incident + primary link atomically.
-
 ## Recent Core Decisions (2026-02-22)
-- Incident workflow is simplified to `OPEN -> ASSIGNED -> CLOSED`; legacy `RESOLVED` records are read-only compatible and MUST NOT be produced by new transitions.
-- Alert and incident recommendation buttons are container-level actions sourced from Risk Engine output and are intentionally repeat-callable; onboarding stage legality is the final gate.
-- CDD mock `LOW_RISK` is auto-pass: no onboarding journey alert is created/updated, and customer moves directly to `ACTIVE`.
-- CDD mock `MEDIUM_RISK` / `HIGH_RISK_OR_PEP` create/update onboarding journey alert only; no automatic incident creation.
-- CDD mock `SANCTION_AND_OTHER` is the only auto-escalation exception: create/update alert, auto-escalate, then auto-create incident with inherited recommendation payload.
-- EDD-stage recommendation set is fixed to `APPROVE` / `REJECT`; `REQUIRE_EDD` MUST NOT appear in alert or incident detail after EDD evaluation.
-- Incident recommendation rendering MUST follow primary alert latest recommendation first, with incident metadata snapshot as fallback only.
+- CDD mock `LOW_RISK` is auto-pass: customer moves directly to `ACTIVE`. No compliance alert or incident is created.
+- CDD mock `MEDIUM_RISK` / `HIGH_RISK_OR_PEP` update the customer's risk tier only; no alert or incident is created.
+- CDD mock `SANCTION_AND_OTHER` triggers a Layer 2 assessment via Sumsub; no auto-escalation to incident.
+- EDD-stage recommendation set is fixed to `APPROVE` / `REJECT`; `REQUIRE_EDD` MUST NOT appear after EDD evaluation.
 
 ## Recent Core Decisions (2026-02-23)
 - `GET /customers/:id` is a critical admin onboarding/compliance read-model endpoint and MUST remain stable for customer detail rendering.
