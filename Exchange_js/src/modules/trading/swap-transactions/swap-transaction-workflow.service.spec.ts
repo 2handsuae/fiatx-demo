@@ -1,6 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
+import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import { SwapTransactionStatus } from './dto/swap-transaction.dto';
 import { SwapTransactionWorkflowService } from './swap-transaction-workflow.service';
 

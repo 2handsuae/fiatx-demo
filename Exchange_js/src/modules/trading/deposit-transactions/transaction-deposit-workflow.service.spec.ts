@@ -1,5 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
-import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
+import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import { DepositTransactionAction } from './dto/deposit-transaction.dto';
 import { DepositTransactionsService } from './deposit-transactions.service';
 import { TransactionDepositWorkflowService } from './transaction-deposit-workflow.service';

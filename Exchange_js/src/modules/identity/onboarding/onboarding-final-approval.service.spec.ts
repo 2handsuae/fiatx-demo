@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException } from '@nestjs/common';
-import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
-import { AuditTriggerType } from '../../risk-engine/audit-logs/dto/audit-log.dto';
+import { AuditLogsService } from '../../audit-logging/audit-logs.service';
+import { AuditTriggerType } from '../../audit-logging/dto/audit-log.dto';
 import { OnboardingFinalApprovalService } from './onboarding-final-approval.service';
 import {
   ApprovalActionTypes,

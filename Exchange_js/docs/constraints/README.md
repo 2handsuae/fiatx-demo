@@ -55,9 +55,10 @@ This file is the constraints subtree index under the project-level documentation
    - `docs/constraints/rbac-member-management-constraints.md`
 2. `Customer Lifecycle`
    - `docs/constraints/onboarding-flow-constraints.md`
-3. `Risk & Compliance`
-   - `docs/constraints/compliance-alert-case-foundation-constraints.md`
-   - `docs/constraints/compliance-alert-incident-constraints.md`
+3. `Risk & Compliance` — **archived (2026-04-11, Wave 2 → Sumsub)**
+   - ~~`docs/constraints/compliance-alert-case-foundation-constraints.md`~~ — archived
+   - ~~`docs/constraints/compliance-alert-incident-constraints.md`~~ — archived
+   - ~~`docs/constraints/onboarding-alert-case-workflow-stage-rule-mapping.md`~~ — archived
 4. `Governance Control Gates`
    - `docs/constraints/governance-approval-constraints.md`
    - `docs/constraints/governance-change-ticket-constraints.md`
@@ -65,6 +66,7 @@ This file is the constraints subtree index under the project-level documentation
    - `docs/constraints/governance-sla-timer-constraints.md`
 5. `Audit & Evidence`
    - `docs/constraints/audit-logging-constraints.md`
+   - `docs/constraints/audit-trace-context-constraints.md` — current audit trace contract (replaces archived audit-log-event / approval-case entity specs)
 6. `Asset & Treasury Foundation`
    - `docs/constraints/wallet-account-model-constraints.md`
    - `docs/constraints/internal-transaction-flow-constraints.md`

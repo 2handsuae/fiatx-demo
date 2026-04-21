@@ -2,7 +2,7 @@ import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AdminInvitationsService } from './admin-invitations.service';
 import { PrismaService } from '../../../core/prisma/prisma.service';
-import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
+import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 
 describe('AdminInvitationsService', () => {
   let service: AdminInvitationsService;

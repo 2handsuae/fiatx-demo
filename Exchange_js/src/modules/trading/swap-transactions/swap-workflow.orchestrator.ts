@@ -8,14 +8,14 @@ import { PrismaService } from '../../../core/prisma/prisma.service';
 import { ensureCustomerCanTransact } from '../shared/customer-transaction-guard';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 import { JournalsService } from '../../accounting/journals/journals.service';
-import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
+import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
   AuditActions,
   AuditEntityTypes,
   AuditModules,
   AuditWorkflowTypes,
-} from '../../risk-engine/audit-logs/constants/audit-actions.constant';
-import { AuditTriggerType } from '../../risk-engine/audit-logs/dto/audit-log.dto';
+} from '../../audit-logging/constants/audit-actions.constant';
+import { AuditTriggerType } from '../../audit-logging/dto/audit-log.dto';
 import { TransactionComplianceService } from '../../risk-engine/transaction-compliance/transaction-compliance.service';
 import { PricingCenterService } from '../pricing-center/pricing-center.service';
 import { SwapEvents } from './constants/swap-events.constant';

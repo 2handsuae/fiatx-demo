@@ -8,16 +8,16 @@ import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import * as bcrypt from 'bcrypt';
 import { createHash, randomBytes } from 'crypto';
-import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
+import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
   AuditActions,
   AuditEntityTypes,
   AuditModules,
-} from '../../risk-engine/audit-logs/constants/audit-actions.constant';
+} from '../../audit-logging/constants/audit-actions.constant';
 import {
   AuditResult,
   AuditTriggerType,
-} from '../../risk-engine/audit-logs/dto/audit-log.dto';
+} from '../../audit-logging/dto/audit-log.dto';
 
 const INVITATION_TTL_MS = 24 * 60 * 60 * 1000;
 const MAX_TOKEN_GENERATION_RETRIES = 5;

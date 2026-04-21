@@ -18,16 +18,16 @@ import {
   buildDefaultPricingPolicyManifest,
   PricingPolicyManifestAsset,
 } from '../../../config/manifests/pricing-policies.manifest';
-import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
+import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
   AuditActions,
   AuditEntityTypes,
   AuditModules,
-} from '../../risk-engine/audit-logs/constants/audit-actions.constant';
+} from '../../audit-logging/constants/audit-actions.constant';
 import {
   AuditResult,
   AuditTriggerType,
-} from '../../risk-engine/audit-logs/dto/audit-log.dto';
+} from '../../audit-logging/dto/audit-log.dto';
 import {
   AdminPricingQuoteQueryDto,
   CreateWithdrawPricingQuoteDto,

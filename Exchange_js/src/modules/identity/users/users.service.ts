@@ -12,13 +12,13 @@ import { randomBytes } from 'crypto';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 import { AccessControlService } from '../access-control/access-control.service';
 import { getPrimaryRoleCode } from '../access-control/rbac.catalog';
-import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
+import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
   AuditActions,
   AuditBusinessWorkflowTypes,
   AuditEntityTypes,
   AuditModules,
-} from '../../risk-engine/audit-logs/constants/audit-actions.constant';
+} from '../../audit-logging/constants/audit-actions.constant';
 import { AdminInvitationsService } from './admin-invitations.service';
 
 interface CreateAdminUserInput {

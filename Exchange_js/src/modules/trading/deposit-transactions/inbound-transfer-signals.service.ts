@@ -13,9 +13,9 @@ import {
   AuditActions,
   AuditEntityTypes,
   AuditModules,
-} from '../../risk-engine/audit-logs/constants/audit-actions.constant';
-import { AuditTriggerType } from '../../risk-engine/audit-logs/dto/audit-log.dto';
-import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
+} from '../../audit-logging/constants/audit-actions.constant';
+import { AuditTriggerType } from '../../audit-logging/dto/audit-log.dto';
+import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import { OnboardingService } from '../../identity/onboarding/onboarding.service';
 import {
   PayinAction,

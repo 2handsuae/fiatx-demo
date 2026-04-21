@@ -4,6 +4,7 @@ import { AuthGuard } from '@nestjs/passport';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { SumsubIngestionService } from './sumsub-ingestion.service';
 import { ClientRiskAssessmentService } from '../identity/client-risk-assessment/client-risk-assessment.service';
+import { TierUpgradeCaseService } from '../identity/tier-upgrade-case/tier-upgrade-case.service';
 import { PrismaService } from '../../core/prisma/prisma.service';
 
 @ApiTags('Admin - Sumsub Simulation')
@@ -14,6 +15,7 @@ export class AdminSumsubSimulationController {
   constructor(
     private readonly ingestionService: SumsubIngestionService,
     private readonly clientRiskAssessmentService: ClientRiskAssessmentService,
+    private readonly tierUpgradeCaseService: TierUpgradeCaseService,
     @Inject(PrismaService)
     private readonly prisma: PrismaService & Record<string, any>,
   ) {}
@@ -212,13 +214,34 @@ export class AdminSumsubSimulationController {
       throw new ForbiddenException('Either customerId or customerNo is required');
     }
 
-    // Step 1: Trigger assessment
+    // For customers with a real Sumsub applicant, go through the full ingest pipeline.
+    // For demo/seed customers without sumsubApplicantId, call recordAssessmentFromKnownAmlResult
+    // directly — the ingest pipeline cannot match on null applicantId / null inspectionId.
+    if (!customer.sumsubApplicantId) {
+      const final = await this.clientRiskAssessmentService.recordAssessmentFromKnownAmlResult({
+        customerId: customer.id,
+        triggerType: 'MLRO_MANUAL',
+        knownAmlResult: {
+          reviewAnswer: body.reviewAnswer,
+          rejectLabels: body.rejectLabels || [],
+        },
+      });
+      return {
+        ok: true,
+        assessmentId: final?.id,
+        assessmentNo: (final as any)?.assessmentNo,
+        status: final?.status,
+        scenarioType: (final as any)?.recommendedAction,
+      };
+    }
+
+    // Step 1: Trigger assessment (customer has real Sumsub applicant)
     const assessment = await this.clientRiskAssessmentService.startAssessment({
       customerId: customer.id,
       triggerType: 'MLRO_MANUAL',
     });
 
-    // Step 2: Find the pending assessment and simulate AML result
+    // Step 2: Find the pending assessment and simulate AML result via ingest pipeline
     const updatedAssessment = await this.prisma.clientRiskAssessment.findFirst({
       where: { customerId: customer.id, status: 'PENDING_SUMSUB_RESULT' },
       orderBy: { createdAt: 'desc' },
@@ -270,8 +293,11 @@ export class AdminSumsubSimulationController {
     if (customer.restrictionStatus !== 'RESTRICTED') {
       throw new BadRequestException(`Customer ${body.customerNo} is not RESTRICTED — no upgrade in progress`);
     }
+
+    // For demo customers without a real Sumsub applicant, call the handler directly.
     if (!customer.sumsubApplicantId) {
-      throw new BadRequestException('Customer has no Sumsub applicant ID');
+      await this.tierUpgradeCaseService.handleLevel2WorkflowComplete(customer.id);
+      return { ok: true, note: 'Level 2 completed (direct path — no Sumsub applicant)' };
     }
 
     return this.ingestionService.ingest(

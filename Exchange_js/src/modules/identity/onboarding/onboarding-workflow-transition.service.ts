@@ -6,13 +6,13 @@ import {
 import { Prisma } from '@prisma/client';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 import { PrismaService } from '../../../core/prisma/prisma.service';
-import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
+import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
   AuditEntityTypes,
   AuditModules,
   AuditWorkflowTypes,
-} from '../../risk-engine/audit-logs/constants/audit-actions.constant';
-import { AuditTriggerType } from '../../risk-engine/audit-logs/dto/audit-log.dto';
+} from '../../audit-logging/constants/audit-actions.constant';
+import { AuditTriggerType } from '../../audit-logging/dto/audit-log.dto';
 import {
   buildCustomerLifecyclePatch as buildCustomerLifecycleStatePatch,
   CustomerOnboardingStatus,

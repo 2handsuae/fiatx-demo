@@ -142,6 +142,42 @@ ALTER TABLE "audit_log_events" DROP COLUMN "workflowNo";
 
 ---
 
+## Customer management backlog
+
+### 8. Customer-initiated Level upgrade request flow
+
+**Context:** 当前 Level 1 → Level 2 的升级只能由系统触发（CRA 评级变化驱动）。客户无法主动申请升级到 Level 2 以访问更多产品（如 Source of Funds / Source of Wealth 材料主动提交）。这是一个自然的用户旅程缺口，与 compliance threshold 联动——只有当客户自愿提升级别时，对应材料要求才会被激活。
+
+**What needs to happen:**
+- 客户端新增"申请 Level 2"入口（触发条件：当前 Level 1 + APPROVED 状态）
+- 后端新建 `LevelUpgradeRequest` 或复用 `ApprovalCase`（actionType = `CUSTOMER_LEVEL_UPGRADE`）
+- 审批通过后：调用 `materialRefreshService.recomputeHoldingsForCustomer()`，触发 Level 2 材料采集
+- 定义 compliance threshold：何种条件下系统自动建议 Level 2（例如交易量阈值、资产阈值）
+
+**Who is blocked:** 客户自助升级路径；依赖此路径的 Level 2 产品访问场景。
+
+**Effort:** M — 新审批类型 + 客户端入口 + materialRefresh 触发 + compliance threshold 配置。
+
+---
+
+### 9. Sanctions confirmed — regulatory referral record + audit trail
+
+**Context:** 当制裁命中被 MLRO 确认为真实命中时，实际 SAR 申报在 Sumsub 里完成。但本系统缺少对"已申报"这一事实的记录：没有申报时间、没有 Sumsub 案件引用 ID、审计日志里没有 `REGULATORY_REFERRAL_SUBMITTED` 事件。演示时制裁流程讲不完整。
+
+**What needs to happen:**
+- `ClientRiskAssessment` 或 offboarding case 上增加三个字段：
+  - `regulatoryReferralAt: DateTime?`
+  - `regulatoryReferralRef: String?`（Sumsub 案件 ID）
+  - `regulatoryReferralBy: String?`（MLRO userId）
+- MLRO 确认制裁命中的 Admin API 里，写入上述字段 + 写一条审计日志（action: `REGULATORY_REFERRAL_SUBMITTED`）
+- Schema migration（3 个可空字段，ALTER TABLE ADD COLUMN 即可）
+
+**Who is blocked:** 制裁 → 强制清退的完整演示路径；MLRO 操作闭环。
+
+**Effort:** S — schema 3 字段 + service 5 行 + 审计日志 1 条。
+
+---
+
 ## Conventions
 
 - When an item is closed: prefix the heading with `~~` and append `**→ closed by [plan file / PR]**` at the end of the section.

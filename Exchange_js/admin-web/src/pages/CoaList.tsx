@@ -1,305 +1,285 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Search, RefreshCw, Plus, ChevronLeft, ChevronRight, ArrowUpDown } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { Clock, RefreshCw } from 'lucide-react';
 import {
-  BUSINESS_CONFIG_RELEASES_PATH,
-  showBusinessConfigReadOnlyAlert,
-} from '../utils/businessConfigReadOnly';
-import { adminFetch, getApiErrorMessage } from '../utils/adminFetch';
-import { adminButtonClass, adminIconButtonClass } from '../components/common/adminButtonStyles';
+  adminButtonClass,
+  adminIconButtonClass,
+} from '../components/common/adminButtonStyles';
+import { AdminBadge } from '../components/ui/AdminBadge';
+import { PageTitleBar } from '../components/ui/PageTitleBar';
+import {
+  AdminSessionError,
+  adminFetch,
+  getApiErrorMessage,
+} from '../utils/adminFetch';
 
-interface CoaItem {
-  id: string;
+/* ── Types ─────────────────────────────────────────────────────── */
+
+interface CoaRow {
+  businessKey: string;
   code: string;
-  type: string;
+  type: 'ASSET' | 'LIABILITY' | 'EQUITY' | 'REVENUE' | 'EXPENSE';
   name: string;
-  status: string;
-  requiredTags: string[];
-  createdAt: string;
+  status: 'ACTIVE' | 'DISABLED';
 }
+
+interface FilterState {
+  type: string;
+}
+
+/* ── Display helpers ────────────────────────────────────────────── */
+
+const TypeBadge = ({ type }: { type: CoaRow['type'] }) => {
+  const cls: Record<CoaRow['type'], string> = {
+    ASSET:     'border-adm-blue/25 bg-adm-blue/10 text-adm-blue',
+    LIABILITY: 'border-adm-amber/25 bg-adm-amber/10 text-adm-amber',
+    EQUITY:    'border-adm-green/25 bg-adm-green/10 text-adm-green',
+    REVENUE:   'border-adm-green/25 bg-adm-green/10 text-adm-green',
+    EXPENSE:   'border-adm-red/25 bg-adm-red/10 text-adm-red',
+  };
+  return (
+    <span
+      className={`inline-flex items-center rounded border px-1.5 py-0.5 font-mono text-[9px] font-bold tracking-widest ${cls[type]}`}
+    >
+      {type}
+    </span>
+  );
+};
+
+const accentColor = (type: CoaRow['type']): string => {
+  if (type === 'ASSET' || type === 'EQUITY') return 'bg-adm-blue';
+  if (type === 'LIABILITY') return 'bg-adm-amber';
+  if (type === 'REVENUE') return 'bg-adm-green';
+  return 'bg-adm-red'; // EXPENSE
+};
+
+const DEFAULT_FILTERS: FilterState = { type: '' };
+
+const COLS = ['Code', 'Type', 'Name', 'Status', ''] as const;
+
+/* ── Component ─────────────────────────────────────────────────── */
 
 const CoaList = () => {
   const navigate = useNavigate();
-  const [items, setItems] = useState<CoaItem[]>([]);
+  const [rows, setRows] = useState<CoaRow[]>([]);
+  const [releaseNo, setReleaseNo] = useState<string | null>(null);
+  const [effectiveDate, setEffectiveDate] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [codeSearch, setCodeSearch] = useState('');
-  const [nameSearch, setNameSearch] = useState('');
-  
-  // Pagination & Sorting
-  const [page, setPage] = useState(1);
-  const [pageSize] = useState(10);
-  const [total, setTotal] = useState(0);
-  const [sortBy, setSortBy] = useState('code');
-  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
-  const [error, setError] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
 
-  const hasFilters = useMemo(
-    () => Boolean(codeSearch.trim() || nameSearch.trim()),
-    [codeSearch, nameSearch],
-  );
-
-  const fetchItems = async () => {
+  const fetchData = async () => {
     setLoading(true);
-    setError('');
+    setError(null);
     try {
-      const params = new URLSearchParams();
-      params.append('skip', ((page - 1) * pageSize).toString());
-      params.append('take', pageSize.toString());
-      if (codeSearch) params.append('code', codeSearch);
-      if (nameSearch) params.append('name', nameSearch);
-      params.append('sortBy', sortBy);
-      params.append('sortOrder', sortOrder);
-      
-      const response = await adminFetch(`${import.meta.env.VITE_API_URL}/coa?${params.toString()}`);
-      if (response.ok) {
-        const result = await response.json();
-        setItems(result.items || []);
-        setTotal(result.total || 0);
+      const relListRes = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/admin/business-config/releases?subjectType=COA&status=ACTIVE&take=1`,
+      );
+      if (!relListRes.ok) {
+        setError(await getApiErrorMessage(relListRes, 'Failed to fetch releases.'));
         return;
       }
-    } catch (error) {
-      console.error('Failed to fetch COA', error);
-      setError('Failed to fetch accounts.');
+
+      const relListData = await relListRes.json();
+      const firstRelease = relListData?.items?.[0];
+
+      if (!firstRelease?.releaseNo) {
+        setRows([]);
+        return;
+      }
+
+      setReleaseNo(firstRelease.releaseNo as string);
+
+      const detailRes = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/admin/business-config/releases/${firstRelease.releaseNo as string}`,
+      );
+      if (!detailRes.ok) {
+        setError(await getApiErrorMessage(detailRes, 'Failed to fetch release detail.'));
+        return;
+      }
+
+      const detail = await detailRes.json();
+      setEffectiveDate((detail.effectiveFrom ?? detail.publishedAt ?? null) as string | null);
+
+      const accounts: CoaRow[] = (
+        (detail.items ?? []) as Array<{ businessKey: string; payload: Record<string, unknown> }>
+      ).map((item) => {
+        const p = item.payload;
+        return {
+          businessKey: item.businessKey,
+          code: String(p.code ?? item.businessKey),
+          type: (p.type as CoaRow['type']) ?? 'ASSET',
+          name: String(p.name ?? ''),
+          status: (p.status as 'ACTIVE' | 'DISABLED') ?? 'ACTIVE',
+        };
+      });
+
+      setRows(accounts);
+    } catch (err) {
+      if (err instanceof AdminSessionError) return;
+      setError('Failed to load accounts.');
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchItems();
-  }, [page, pageSize, sortBy, sortOrder]);
+    void fetchData();
+  }, []);
 
-  const handleSearch = () => {
-      setPage(1);
-      fetchItems();
-  };
+  const fi =
+    'h-[30px] rounded border border-adm-border bg-adm-bg px-2.5 font-mono text-[11px] text-adm-t1 placeholder:text-adm-t3 outline-none focus:border-adm-amber transition-colors';
 
-  const handleReset = () => {
-    setCodeSearch('');
-    setNameSearch('');
-    setPage(1);
-    setItems([]);
-    setError('');
-    setLoading(true);
-    void (async () => {
-      try {
-        const response = await adminFetch(
-          `${import.meta.env.VITE_API_URL}/coa?skip=0&take=${pageSize}&sortBy=${sortBy}&sortOrder=${sortOrder}`,
-        );
-        if (response.ok) {
-          const result = await response.json();
-          setItems(result.items || []);
-          setTotal(result.total || 0);
-          return;
-        }
-        setError(await getApiErrorMessage(response, 'Failed to fetch accounts.'));
-      } catch (resetError) {
-        console.error('Failed to reset COA filters', resetError);
-        setError('Failed to fetch accounts.');
-      } finally {
-        setLoading(false);
-      }
-    })();
-  };
-
-  const handleSort = (field: string) => {
-    if (sortBy === field) {
-      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
-    } else {
-      setSortBy(field);
-      setSortOrder('asc');
-    }
-  };
-
-  const renderStatusBadge = (status: string) => {
-    const isSuccess = status === 'ACTIVE';
-    return (
-      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${isSuccess ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
-        {status}
-      </span>
-    );
-  };
-
-  const SortableHeader = ({ field, label }: { field: string, label: string }) => (
-    <th 
-      className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-50 transition-colors"
-      onClick={() => handleSort(field)}
-    >
-      <div className="flex items-center gap-1">
-        {label}
-        <ArrowUpDown size={14} className={sortBy === field ? 'text-brand-primary' : 'text-gray-300'} />
-      </div>
-    </th>
-  );
-
-  const totalPages = Math.ceil(total / pageSize);
+  const visibleRows = rows.filter((r) => {
+    if (filters.type && r.type !== filters.type) return false;
+    return true;
+  });
 
   return (
-    <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Chart of Accounts</h1>
-          <p className="text-sm text-gray-500 mt-1">Manage ledger accounts and definitions</p>
-        </div>
-        <div className="flex gap-3">
-            <button
-              onClick={() => navigate(BUSINESS_CONFIG_RELEASES_PATH)}
-              className={adminButtonClass('listSecondary')}
-            >
-                <Plus size={20} />
-                <span>Open Release Center</span>
-            </button>
-        </div>
+    <div className="flex h-full flex-col overflow-hidden">
+
+      {/* Title bar */}
+      <PageTitleBar
+        title="Chart of Accounts"
+        meta={`${rows.length} account${rows.length === 1 ? '' : 's'} · Ledger`}
+      >
+        <button
+          onClick={() => navigate('/ledger/coa/history')}
+          className={adminButtonClass('listSecondary')}
+        >
+          <Clock size={13} />
+          Version History
+        </button>
+        <button
+          onClick={() => void fetchData()}
+          className={adminIconButtonClass()}
+          title="Refresh"
+        >
+          <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+        </button>
+      </PageTitleBar>
+
+      {/* Filter bar */}
+      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-adm-border bg-adm-panel px-5 py-2">
+        <select
+          value={filters.type}
+          onChange={(e) => setFilters((p) => ({ ...p, type: e.target.value }))}
+          className={`${fi} w-40`}
+        >
+          <option value="">All types</option>
+          <option value="ASSET">ASSET</option>
+          <option value="LIABILITY">LIABILITY</option>
+          <option value="EQUITY">EQUITY</option>
+          <option value="REVENUE">REVENUE</option>
+          <option value="EXPENSE">EXPENSE</option>
+        </select>
+        {releaseNo && (
+          <span className="ml-auto font-mono text-[10px] text-adm-t3">
+            {releaseNo}
+          </span>
+        )}
       </div>
 
-      <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
-        COA is now managed by config-as-code and Business Config Releases. This page remains read-only for current active accounts.
-      </div>
+      {/* Error */}
+      {error && (
+        <div className="shrink-0 border-b border-adm-red/20 bg-adm-red/6 px-5 py-2.5 font-mono text-[11px] text-adm-red">
+          {error}
+        </div>
+      )}
 
-      <div className="bg-white rounded-xl shadow-sm border border-admin-border overflow-hidden">
-        <div className="p-4 border-b border-admin-border flex flex-col md:flex-row gap-4 justify-between">
-            <div className="flex gap-4 flex-1">
-                 <div className="relative flex-1 max-w-xs">
-                    <Search className="absolute left-3 top-2.5 text-gray-400 w-5 h-5" />
-                    <input 
-                    type="text" 
-                    value={codeSearch}
-                    onChange={(e) => setCodeSearch(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-                    placeholder="Search by Code..." 
-                    className="w-full pl-10 pr-4 py-2 bg-admin-content-bg border border-admin-border rounded-lg focus:outline-none focus:border-brand-primary focus:ring-1 focus:ring-brand-primary/20 transition-all duration-200"
-                    />
-                </div>
-                <div className="relative flex-1 max-w-xs">
-                    <Search className="absolute left-3 top-2.5 text-gray-400 w-5 h-5" />
-                    <input 
-                    type="text" 
-                    value={nameSearch}
-                    onChange={(e) => setNameSearch(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-                    placeholder="Search by Name..." 
-                    className="w-full pl-10 pr-4 py-2 bg-admin-content-bg border border-admin-border rounded-lg focus:outline-none focus:border-brand-primary focus:ring-1 focus:ring-brand-primary/20 transition-all duration-200"
-                    />
-                </div>
-                <button onClick={handleSearch} className={adminButtonClass('listPrimary')}>
-                    Search
-                </button>
-                <button
-                  onClick={handleReset}
-                  className={adminButtonClass('listSecondary')}
-                  disabled={!hasFilters && !error}
+      {/* Table */}
+      <div className="flex-1 overflow-auto">
+        <table className="w-full border-collapse text-sm">
+          <thead>
+            <tr>
+              <th className="w-1 border-b border-adm-border bg-adm-panel" />
+              {COLS.map((label) => (
+                <th
+                  key={label}
+                  className="border-b border-adm-border bg-adm-panel px-4 py-2 text-left font-mono text-[9px] font-semibold uppercase tracking-[0.12em] text-adm-t3 whitespace-nowrap"
                 >
-                  Reset
-                </button>
-            </div>
-          <button onClick={fetchItems} className={adminIconButtonClass()}>
-            <RefreshCw size={20} className={loading ? 'animate-spin' : ''} />
-          </button>
-        </div>
-
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead className="bg-admin-content-bg border-b border-admin-border">
+                  {label}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {loading && (
               <tr>
-                <SortableHeader field="code" label="Code" />
-                <SortableHeader field="type" label="Type" />
-                <SortableHeader field="name" label="Name" />
-                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Required Tags</th>
-                <SortableHeader field="status" label="Status" />
-                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider text-right">Action</th>
+                <td colSpan={COLS.length + 1} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
+                  Loading…
+                </td>
               </tr>
-            </thead>
-            <tbody className="divide-y divide-admin-border">
-              {error ? (
-                <tr>
-                  <td colSpan={6} className="px-6 py-12 text-center text-rose-600">
-                    {error}
-                  </td>
-                </tr>
-              ) : null}
-              {!error && loading && items.length === 0 ? (
-                <tr>
-                  <td colSpan={6} className="px-6 py-12 text-center text-gray-500">
-                    <div className="flex flex-col items-center justify-center">
-                      <RefreshCw className="animate-spin mb-2 text-brand-primary" size={24} />
-                      Loading accounts...
-                    </div>
-                  </td>
-                </tr>
-              ) : !error && items.length === 0 ? (
-                <tr>
-                  <td colSpan={6} className="px-6 py-12 text-center text-gray-500">
-                    No accounts found
-                  </td>
-                </tr>
-              ) : (
-                items.map((item) => (
-                  <tr key={item.id} className="hover:bg-gray-50 transition-colors">
-                    <td className="px-6 py-4 font-mono font-medium text-gray-900">{item.code}</td>
-                    <td className="px-6 py-4">
-                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-800">
-                            {item.type}
-                        </span>
-                    </td>
-                    <td className="px-6 py-4 font-medium text-gray-900">{item.name}</td>
-                    <td className="px-6 py-4">
-                        <div className="flex flex-wrap gap-1">
-                            {item.requiredTags && item.requiredTags.length > 0 ? (
-                                item.requiredTags.map((tag, idx) => (
-                                    <span key={idx} className="inline-flex items-center px-2 py-0.5 rounded text-xs bg-blue-50 text-blue-700 border border-blue-100">
-                                        {tag}
-                                    </span>
-                                ))
-                            ) : (
-                                <span className="text-gray-400 text-xs">-</span>
-                            )}
-                        </div>
-                    </td>
-                    <td className="px-6 py-4">{renderStatusBadge(item.status)}</td>
-                    <td className="px-6 py-4 text-right">
-                      <div className="flex justify-end gap-3 items-center">
-                        <button
-                            className={adminButtonClass('rowSecondaryUtility')}
-                            title="Read-only"
-                            onClick={() => showBusinessConfigReadOnlyAlert('COA')}
-                        >
-                            Read-only
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+            )}
+            {!loading && visibleRows.length === 0 && (
+              <tr>
+                <td colSpan={COLS.length + 1} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
+                  No accounts found.
+                </td>
+              </tr>
+            )}
+            {!loading && visibleRows.map((row) => (
+              <tr
+                key={row.businessKey}
+                className="cursor-pointer border-b border-adm-border transition-colors hover:bg-adm-hover"
+                onClick={() => navigate(`/ledger/coa/${row.code}`)}
+              >
+                {/* Type accent strip */}
+                <td className="py-3 pl-3">
+                  <div className={`h-5 w-0.5 rounded-full ${accentColor(row.type)}`} />
+                </td>
 
-        {/* Pagination Controls */}
-        <div className="px-6 py-4 border-t border-admin-border flex items-center justify-between">
-            <div className="text-sm text-gray-500">
-                Showing {items.length} of {total} entries
-            </div>
-            <div className="flex items-center gap-2">
-                <button 
-                    onClick={() => setPage(p => Math.max(1, p - 1))}
-                    disabled={page === 1}
-                    className="p-1 rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                    <ChevronLeft size={20} />
-                </button>
-                <span className="text-sm font-medium text-gray-700">
-                    Page {page} of {totalPages || 1}
-                </span>
-                <button 
-                    onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-                    disabled={page >= totalPages}
-                    className="p-1 rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                    <ChevronRight size={20} />
-                </button>
-            </div>
+                {/* Code */}
+                <td className="px-4 py-3 font-mono text-[11px] font-semibold text-adm-amber whitespace-nowrap">
+                  {row.code}
+                </td>
+
+                {/* Type */}
+                <td className="px-4 py-3">
+                  <TypeBadge type={row.type} />
+                </td>
+
+                {/* Name */}
+                <td className="px-4 py-3 font-mono text-[11px] text-adm-t1">
+                  {row.name || <span className="text-adm-t3">—</span>}
+                </td>
+
+                {/* Status */}
+                <td className="px-4 py-3">
+                  <AdminBadge value={row.status} />
+                </td>
+
+                {/* Chevron */}
+                <td className="pr-4 py-3 text-right font-mono text-[12px] text-adm-t3">
+                  ›
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Footer */}
+      <div className="shrink-0 border-t border-adm-border bg-adm-panel px-5 py-2.5">
+        <div className="flex items-center justify-between">
+          <span className="font-mono text-[10px] text-adm-t3">
+            {rows.length > 0
+              ? `${visibleRows.length} / ${rows.length} account${rows.length === 1 ? '' : 's'}`
+              : 'No accounts'}
+          </span>
+          {effectiveDate && (
+            <span className="font-mono text-[10px] text-adm-t3">
+              Config effective{' '}
+              {new Date(effectiveDate).toLocaleDateString('en-US', {
+                month: 'short',
+                day: 'numeric',
+                year: 'numeric',
+              })}
+            </span>
+          )}
         </div>
       </div>
+
     </div>
   );
 };

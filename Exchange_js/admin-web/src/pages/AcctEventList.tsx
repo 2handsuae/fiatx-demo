@@ -1,283 +1,349 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Search, RefreshCw, ChevronLeft, ChevronRight, ArrowUpDown, Settings } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { Clock, RefreshCw } from 'lucide-react';
 import {
-  BUSINESS_CONFIG_RELEASES_PATH,
-  showBusinessConfigReadOnlyAlert,
-} from '../utils/businessConfigReadOnly';
-import { adminFetch, getApiErrorMessage } from '../utils/adminFetch';
-import { adminButtonClass, adminIconButtonClass } from '../components/common/adminButtonStyles';
+  adminButtonClass,
+  adminIconButtonClass,
+} from '../components/common/adminButtonStyles';
+import { AdminBadge } from '../components/ui/AdminBadge';
+import { PageTitleBar } from '../components/ui/PageTitleBar';
+import {
+  AdminSessionError,
+  adminFetch,
+  getApiErrorMessage,
+} from '../utils/adminFetch';
 
-interface AcctEventItem {
-  id: string;
+/* ── Types ─────────────────────────────────────────────────────── */
+
+interface AcctEventRow {
+  businessKey: string;
   eventCode: string;
-  entityType: string;
-  ownerScope: string;
-  assetType: string;
+  entityType: 'DEPOSIT' | 'SWAP' | 'WITHDRAW' | 'INTERNAL_TX';
+  ownerScope: 'CUSTOMER' | 'PLATFORM';
+  assetType: 'CRYPTO' | 'FIAT' | 'ALL';
   triggerType: string;
+  toStatus: string;
   postingMode: string;
   clearingMode: string;
   isActive: boolean;
-  description: string;
 }
+
+interface FilterState {
+  entityType: string;
+  assetType: string;
+}
+
+/* ── Display helpers ────────────────────────────────────────────── */
+
+const EntityBadge = ({ type }: { type: AcctEventRow['entityType'] }) => {
+  const cls: Record<AcctEventRow['entityType'], string> = {
+    DEPOSIT:     'border-adm-blue/25 bg-adm-blue/10 text-adm-blue',
+    SWAP:        'border-adm-amber/25 bg-adm-amber/10 text-adm-amber',
+    WITHDRAW:    'border-adm-red/25 bg-adm-red/10 text-adm-red',
+    INTERNAL_TX: 'border-adm-green/25 bg-adm-green/10 text-adm-green',
+  };
+  return (
+    <span
+      className={`inline-flex items-center rounded border px-1.5 py-0.5 font-mono text-[9px] font-bold tracking-widest ${cls[type]}`}
+    >
+      {type}
+    </span>
+  );
+};
+
+const EnabledDot = ({ v }: { v: boolean }) => (
+  <span
+    className={`inline-flex items-center gap-1 font-mono text-[11px] font-medium ${
+      v ? 'text-adm-green' : 'text-adm-t3'
+    }`}
+  >
+    <span
+      className={`h-1.5 w-1.5 shrink-0 rounded-full ${v ? 'bg-adm-green' : 'bg-adm-t3'}`}
+    />
+    {v ? 'On' : 'Off'}
+  </span>
+);
+
+const accentColor = (assetType: AcctEventRow['assetType']): string => {
+  if (assetType === 'CRYPTO') return 'bg-adm-amber';
+  if (assetType === 'FIAT') return 'bg-adm-blue';
+  return 'bg-adm-t3';
+};
+
+const DEFAULT_FILTERS: FilterState = { entityType: '', assetType: '' };
+
+const COLS = [
+  'Event Code',
+  'Entity',
+  'Scope',
+  'Asset',
+  'To Status',
+  'Posting',
+  'Clearing',
+  'Active',
+  '',
+] as const;
+
+/* ── Component ─────────────────────────────────────────────────── */
 
 const AcctEventList = () => {
   const navigate = useNavigate();
-  const [items, setItems] = useState<AcctEventItem[]>([]);
+  const [rows, setRows] = useState<AcctEventRow[]>([]);
+  const [releaseNo, setReleaseNo] = useState<string | null>(null);
+  const [effectiveDate, setEffectiveDate] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  
-  // Filters
-  const [eventCodeSearch, setEventCodeSearch] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
 
-  // Pagination & Sorting
-  const [page, setPage] = useState(1);
-  const [pageSize] = useState(10);
-  const [total, setTotal] = useState(0);
-  const [sortBy, setSortBy] = useState('createdAt');
-  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
-  const [error, setError] = useState('');
-
-  const hasFilters = useMemo(() => Boolean(eventCodeSearch.trim()), [eventCodeSearch]);
-
-  const fetchItems = async () => {
+  const fetchData = async () => {
     setLoading(true);
-    setError('');
+    setError(null);
     try {
-      const params = new URLSearchParams();
-      params.append('skip', ((page - 1) * pageSize).toString());
-      params.append('take', pageSize.toString());
-      params.append('sortBy', sortBy);
-      params.append('sortOrder', sortOrder);
-
-      if (eventCodeSearch) params.append('eventCode', eventCodeSearch);
-      
-      const response = await adminFetch(`${import.meta.env.VITE_API_URL}/acct-events?${params.toString()}`);
-      if (response.ok) {
-        const result = await response.json();
-        setItems(result.items || []);
-        setTotal(result.total || 0);
+      const relListRes = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/admin/business-config/releases?subjectType=ACCT_EVENT&status=ACTIVE&take=1`,
+      );
+      if (!relListRes.ok) {
+        setError(await getApiErrorMessage(relListRes, 'Failed to fetch releases.'));
         return;
       }
-    } catch (error) {
-      console.error('Failed to fetch Acct Events', error);
-      setError('Failed to fetch accounting events.');
+
+      const relListData = await relListRes.json();
+      const firstRelease = relListData?.items?.[0];
+
+      if (!firstRelease?.releaseNo) {
+        setRows([]);
+        return;
+      }
+
+      setReleaseNo(firstRelease.releaseNo as string);
+
+      const detailRes = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/admin/business-config/releases/${firstRelease.releaseNo as string}`,
+      );
+      if (!detailRes.ok) {
+        setError(await getApiErrorMessage(detailRes, 'Failed to fetch release detail.'));
+        return;
+      }
+
+      const detail = await detailRes.json();
+      setEffectiveDate((detail.effectiveFrom ?? detail.publishedAt ?? null) as string | null);
+
+      const events: AcctEventRow[] = (
+        (detail.items ?? []) as Array<{ businessKey: string; payload: Record<string, unknown> }>
+      ).map((item) => {
+        const p = item.payload;
+        return {
+          businessKey: item.businessKey,
+          eventCode: String(p.eventCode ?? item.businessKey),
+          entityType: (p.entityType as AcctEventRow['entityType']) ?? 'DEPOSIT',
+          ownerScope: (p.ownerScope as AcctEventRow['ownerScope']) ?? 'CUSTOMER',
+          assetType: (p.assetType as AcctEventRow['assetType']) ?? 'ALL',
+          triggerType: String(p.triggerType ?? ''),
+          toStatus: String(p.toStatus ?? ''),
+          postingMode: String(p.postingMode ?? ''),
+          clearingMode: String(p.clearingMode ?? ''),
+          isActive: Boolean(p.isActive),
+        };
+      });
+
+      setRows(events);
+    } catch (err) {
+      if (err instanceof AdminSessionError) return;
+      setError('Failed to load accounting events.');
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchItems();
-  }, [page, pageSize, sortBy, sortOrder]);
+    void fetchData();
+  }, []);
 
-  const handleSearch = () => {
-      setPage(1);
-      fetchItems();
-  };
+  const fi =
+    'h-[30px] rounded border border-adm-border bg-adm-bg px-2.5 font-mono text-[11px] text-adm-t1 placeholder:text-adm-t3 outline-none focus:border-adm-amber transition-colors';
 
-  const handleReset = () => {
-    setEventCodeSearch('');
-    setPage(1);
-    setItems([]);
-    setError('');
-    setLoading(true);
-    void (async () => {
-      try {
-        const response = await adminFetch(
-          `${import.meta.env.VITE_API_URL}/acct-events?skip=0&take=${pageSize}&sortBy=${sortBy}&sortOrder=${sortOrder}`,
-        );
-        if (response.ok) {
-          const result = await response.json();
-          setItems(result.items || []);
-          setTotal(result.total || 0);
-          return;
-        }
-        setError(await getApiErrorMessage(response, 'Failed to fetch accounting events.'));
-      } catch (resetError) {
-        console.error('Failed to reset accounting event filters', resetError);
-        setError('Failed to fetch accounting events.');
-      } finally {
-        setLoading(false);
-      }
-    })();
-  };
-
-  const handleSort = (field: string) => {
-    if (sortBy === field) {
-      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
-    } else {
-      setSortBy(field);
-      setSortOrder('asc');
-    }
-  };
-
-  const SortableHeader = ({ field, label }: { field: string, label: string }) => (
-    <th 
-      className="px-4 py-3 font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-50 transition-colors"
-      onClick={() => handleSort(field)}
-    >
-      <div className="flex items-center gap-1">
-        {label}
-        <ArrowUpDown size={14} className={sortBy === field ? 'text-brand-primary' : 'text-gray-300'} />
-      </div>
-    </th>
-  );
-
-  const totalPages = Math.ceil(total / pageSize);
+  const visibleRows = rows.filter((r) => {
+    if (filters.entityType && r.entityType !== filters.entityType) return false;
+    if (filters.assetType && r.assetType !== filters.assetType) return false;
+    return true;
+  });
 
   return (
-    <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Event Code Management</h1>
-          <p className="text-sm text-gray-500 mt-1">Configure accounting event definitions and rules</p>
-        </div>
-        <div className="flex gap-2">
-            <button 
-                onClick={() => navigate(BUSINESS_CONFIG_RELEASES_PATH)}
-                className={adminButtonClass('listSecondary')}
-            >
-                <Settings size={20} />
-                <span>Open Release Center</span>
-            </button>
-        </div>
+    <div className="flex h-full flex-col overflow-hidden">
+
+      {/* Title bar */}
+      <PageTitleBar
+        title="Accounting Events"
+        meta={`${rows.length} event${rows.length === 1 ? '' : 's'} · System`}
+      >
+        <button
+          onClick={() => navigate('/dashboard/system/acct-events/history')}
+          className={adminButtonClass('listSecondary')}
+        >
+          <Clock size={13} />
+          Version History
+        </button>
+        <button
+          onClick={() => void fetchData()}
+          className={adminIconButtonClass()}
+          title="Refresh"
+        >
+          <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+        </button>
+      </PageTitleBar>
+
+      {/* Filter bar */}
+      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-adm-border bg-adm-panel px-5 py-2">
+        <select
+          value={filters.entityType}
+          onChange={(e) => setFilters((p) => ({ ...p, entityType: e.target.value }))}
+          className={`${fi} w-44`}
+        >
+          <option value="">All entities</option>
+          <option value="DEPOSIT">DEPOSIT</option>
+          <option value="SWAP">SWAP</option>
+          <option value="WITHDRAW">WITHDRAW</option>
+          <option value="INTERNAL_TX">INTERNAL_TX</option>
+        </select>
+        <select
+          value={filters.assetType}
+          onChange={(e) => setFilters((p) => ({ ...p, assetType: e.target.value }))}
+          className={`${fi} w-36`}
+        >
+          <option value="">All assets</option>
+          <option value="CRYPTO">CRYPTO</option>
+          <option value="FIAT">FIAT</option>
+          <option value="ALL">ALL</option>
+        </select>
+        {releaseNo && (
+          <span className="ml-auto font-mono text-[10px] text-adm-t3">
+            {releaseNo}
+          </span>
+        )}
       </div>
 
-      <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
-        Accounting events are now managed by config-as-code and Business Config Releases. This page remains read-only for current active rows.
-      </div>
+      {/* Error */}
+      {error && (
+        <div className="shrink-0 border-b border-adm-red/20 bg-adm-red/6 px-5 py-2.5 font-mono text-[11px] text-adm-red">
+          {error}
+        </div>
+      )}
 
-      <div className="bg-white rounded-xl shadow-sm border border-admin-border overflow-hidden">
-        <div className="p-4 border-b border-admin-border flex flex-col md:flex-row gap-4 justify-between">
-            <div className="relative flex-1 max-w-md flex gap-2">
-                <div className="relative flex-1">
-                    <Search className="absolute left-3 top-2.5 text-gray-400 w-5 h-5" />
-                    <input 
-                    type="text" 
-                    value={eventCodeSearch}
-                    onChange={(e) => setEventCodeSearch(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-                    placeholder="Search by Event Code..." 
-                    className="w-full pl-10 pr-4 py-2 bg-admin-content-bg border border-admin-border rounded-lg focus:outline-none focus:border-brand-primary focus:ring-1 focus:ring-brand-primary/20 transition-all duration-200"
-                    />
-                </div>
-                <button onClick={handleSearch} className={adminButtonClass('listPrimary')}>
-                    Search
-                </button>
-                <button
-                  onClick={handleReset}
-                  className={adminButtonClass('listSecondary')}
-                  disabled={!hasFilters && !error}
+      {/* Table */}
+      <div className="flex-1 overflow-auto">
+        <table className="w-full border-collapse text-sm">
+          <thead>
+            <tr>
+              <th className="w-1 border-b border-adm-border bg-adm-panel" />
+              {COLS.map((label) => (
+                <th
+                  key={label}
+                  className="border-b border-adm-border bg-adm-panel px-4 py-2 text-left font-mono text-[9px] font-semibold uppercase tracking-[0.12em] text-adm-t3 whitespace-nowrap"
                 >
-                  Reset
-                </button>
-            </div>
-            <button onClick={fetchItems} className={adminIconButtonClass('self-start md:self-auto')}>
-                <RefreshCw size={20} className={loading ? 'animate-spin' : ''} />
-            </button>
-        </div>
-
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead className="bg-admin-content-bg border-b border-admin-border">
+                  {label}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {loading && (
               <tr>
-                <SortableHeader field="eventCode" label="Event Code" />
-                <th className="px-4 py-3 font-medium text-gray-500 uppercase tracking-wider">Entity</th>
-                <th className="px-4 py-3 font-medium text-gray-500 uppercase tracking-wider">Scope</th>
-                <th className="px-4 py-3 font-medium text-gray-500 uppercase tracking-wider">Asset</th>
-                <th className="px-4 py-3 font-medium text-gray-500 uppercase tracking-wider">Trigger</th>
-                <th className="px-4 py-3 font-medium text-gray-500 uppercase tracking-wider">Posting</th>
-                <th className="px-4 py-3 font-medium text-gray-500 uppercase tracking-wider">Clearing</th>
-                <SortableHeader field="isActive" label="Status" />
-                <th className="px-4 py-3 font-medium text-gray-500 uppercase tracking-wider text-right">Action</th>
+                <td colSpan={COLS.length + 1} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
+                  Loading…
+                </td>
               </tr>
-            </thead>
-            <tbody className="divide-y divide-admin-border">
-              {error ? (
-                <tr>
-                  <td colSpan={9} className="px-4 py-12 text-center text-rose-600">
-                    {error}
-                  </td>
-                </tr>
-              ) : null}
-              {!error && loading && items.length === 0 ? (
-                <tr>
-                  <td colSpan={9} className="px-4 py-12 text-center text-gray-500">
-                    <div className="flex flex-col items-center justify-center">
-                      <RefreshCw className="animate-spin mb-2 text-brand-primary" size={24} />
-                      Loading events...
-                    </div>
-                  </td>
-                </tr>
-              ) : !error && items.length === 0 ? (
-                <tr>
-                  <td colSpan={9} className="px-4 py-12 text-center text-gray-500">
-                    No event codes found
-                  </td>
-                </tr>
-              ) : (
-                items.map((item) => (
-                  <tr key={item.id} className="hover:bg-gray-50 transition-colors">
-                    <td className="px-4 py-4">
-                        <div className="font-mono font-bold text-gray-800">{item.eventCode}</div>
-                        <div className="text-[10px] text-gray-400 truncate max-w-[150px]">{item.description}</div>
-                    </td>
-                    <td className="px-4 py-4"><span className="px-2 py-0.5 bg-gray-100 rounded text-xs">{item.entityType}</span></td>
-                    <td className="px-4 py-4 text-xs">{item.ownerScope}</td>
-                    <td className="px-4 py-4 text-xs">{item.assetType}</td>
-                    <td className="px-4 py-4">
-                        <span className="text-[10px] bg-blue-50 text-blue-700 px-2 py-0.5 rounded border border-blue-100">{item.triggerType}</span>
-                    </td>
-                    <td className="px-4 py-4 text-xs">{item.postingMode}</td>
-                    <td className="px-4 py-4 text-xs">{item.clearingMode}</td>
-                    <td className="px-4 py-4">
-                        <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${item.isActive ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
-                            {item.isActive ? 'Active' : 'Inactive'}
-                        </span>
-                    </td>
-                    <td className="px-4 py-4 text-right">
-                      <div className="flex justify-end gap-3 items-center">
-                        <button 
-                            className={adminButtonClass('rowSecondaryUtility')}
-                            onClick={() => showBusinessConfigReadOnlyAlert('Accounting events')}
-                        >
-                            Read-only
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+            )}
+            {!loading && visibleRows.length === 0 && (
+              <tr>
+                <td colSpan={COLS.length + 1} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
+                  No events found.
+                </td>
+              </tr>
+            )}
+            {!loading && visibleRows.map((row) => (
+              <tr
+                key={row.businessKey}
+                className="cursor-pointer border-b border-adm-border transition-colors hover:bg-adm-hover"
+                onClick={() => navigate(`/dashboard/system/acct-events/${row.eventCode}`)}
+              >
+                {/* Asset type accent strip */}
+                <td className="py-3 pl-3">
+                  <div className={`h-5 w-0.5 rounded-full ${accentColor(row.assetType)}`} />
+                </td>
 
-        {/* Pagination Controls */}
-        <div className="px-6 py-4 border-t border-admin-border flex items-center justify-between bg-gray-50">
-            <div className="text-sm text-gray-500">
-                Showing {items.length} of {total} entries
-            </div>
-            <div className="flex items-center gap-2">
-                <button 
-                    onClick={() => setPage(p => Math.max(1, p - 1))}
-                    disabled={page === 1}
-                    className="p-1 rounded hover:bg-white border border-transparent hover:border-gray-200 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-                >
-                    <ChevronLeft size={20} />
-                </button>
-                <span className="text-sm font-medium text-gray-700 bg-white px-3 py-1 rounded border border-gray-200 shadow-sm">
-                    Page {page} of {totalPages || 1}
-                </span>
-                <button 
-                    onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-                    disabled={page >= totalPages}
-                    className="p-1 rounded hover:bg-white border border-transparent hover:border-gray-200 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-                >
-                    <ChevronRight size={20} />
-                </button>
-            </div>
+                {/* Event Code */}
+                <td className="px-4 py-3 font-mono text-[11px] font-semibold text-adm-amber whitespace-nowrap">
+                  {row.eventCode}
+                </td>
+
+                {/* Entity */}
+                <td className="px-4 py-3">
+                  <EntityBadge type={row.entityType} />
+                </td>
+
+                {/* Scope */}
+                <td className="px-4 py-3 font-mono text-[11px] text-adm-t2 whitespace-nowrap">
+                  {row.ownerScope}
+                </td>
+
+                {/* Asset */}
+                <td className="px-4 py-3 font-mono text-[11px] text-adm-t2 whitespace-nowrap">
+                  {row.assetType}
+                </td>
+
+                {/* To Status */}
+                <td className="px-4 py-3 font-mono text-[11px] text-adm-t2 whitespace-nowrap">
+                  {row.toStatus || <span className="text-adm-t3">—</span>}
+                </td>
+
+                {/* Posting Mode */}
+                <td className="px-4 py-3 max-w-[120px]">
+                  <span className="block truncate font-mono text-[11px] text-adm-t2" title={row.postingMode}>
+                    {row.postingMode || <span className="text-adm-t3">—</span>}
+                  </span>
+                </td>
+
+                {/* Clearing Mode */}
+                <td className="px-4 py-3 max-w-[120px]">
+                  <span className="block truncate font-mono text-[11px] text-adm-t2" title={row.clearingMode}>
+                    {row.clearingMode || <span className="text-adm-t3">—</span>}
+                  </span>
+                </td>
+
+                {/* Active */}
+                <td className="px-4 py-3">
+                  <EnabledDot v={row.isActive} />
+                </td>
+
+                {/* Chevron */}
+                <td className="pr-4 py-3 text-right font-mono text-[12px] text-adm-t3">›</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Footer */}
+      <div className="shrink-0 border-t border-adm-border bg-adm-panel px-5 py-2.5">
+        <div className="flex items-center justify-between">
+          <span className="font-mono text-[10px] text-adm-t3">
+            {rows.length > 0
+              ? `${visibleRows.length} / ${rows.length} event${rows.length === 1 ? '' : 's'}`
+              : 'No events'}
+          </span>
+          {effectiveDate && (
+            <span className="font-mono text-[10px] text-adm-t3">
+              Config effective{' '}
+              {new Date(effectiveDate).toLocaleDateString('en-US', {
+                month: 'short',
+                day: 'numeric',
+                year: 'numeric',
+              })}
+            </span>
+          )}
         </div>
       </div>
+
     </div>
   );
 };

@@ -7,18 +7,18 @@ import {
 } from '@nestjs/common';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 import { PrismaService } from '../../../core/prisma/prisma.service';
-import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
+import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
   AuditActions,
   AuditEntityTypes,
   AuditModules,
   AuditWorkflowTypes,
-} from '../../risk-engine/audit-logs/constants/audit-actions.constant';
+} from '../../audit-logging/constants/audit-actions.constant';
 import {
   AuditResult,
   AuditSubjectRole,
   AuditTriggerType,
-} from '../../risk-engine/audit-logs/dto/audit-log.dto';
+} from '../../audit-logging/dto/audit-log.dto';
 import { ApprovalsService } from '../approvals/approvals.service';
 import {
   ApprovalActorContext,

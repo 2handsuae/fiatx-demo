@@ -18,17 +18,17 @@ import { PayinsService } from '../modules/asset-treasury/payins/payins.service';
 import { DepositStatusChangedEvent } from '../modules/trading/deposit-transactions/events/deposit-transaction.events';
 import { PrismaService } from '../core/prisma/prisma.service';
 import { TransactionComplianceService } from '../modules/risk-engine/transaction-compliance/transaction-compliance.service';
-import { AuditLogsService } from '../modules/risk-engine/audit-logs/audit-logs.service';
+import { AuditLogsService } from '../modules/audit-logging/audit-logs.service';
 import {
   AuditActions,
   AuditEntityTypes,
   AuditModules,
   buildStateTransitionAction,
-} from '../modules/risk-engine/audit-logs/constants/audit-actions.constant';
+} from '../modules/audit-logging/constants/audit-actions.constant';
 import {
   AuditResult,
   AuditTriggerType,
-} from '../modules/risk-engine/audit-logs/dto/audit-log.dto';
+} from '../modules/audit-logging/dto/audit-log.dto';
 
 interface OrchestrationResult {
   updated_payin_status?: string;

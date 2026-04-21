@@ -53,15 +53,15 @@ import { randomUUID as uuidv4 } from 'crypto';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PayoutEvents } from './constants/payout-events.constant';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
-import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
+import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
   AuditActions,
   AuditEntityTypes,
   AuditModules,
   AuditWorkflowTypes,
   buildStateTransitionAction,
-} from '../../risk-engine/audit-logs/constants/audit-actions.constant';
-import { AuditTriggerType } from '../../risk-engine/audit-logs/dto/audit-log.dto';
+} from '../../audit-logging/constants/audit-actions.constant';
+import { AuditTriggerType } from '../../audit-logging/dto/audit-log.dto';
 import { TransactionComplianceService } from '../../risk-engine/transaction-compliance/transaction-compliance.service';
 import { PricingCenterService } from '../../trading/pricing-center/pricing-center.service';
 import { FeeOccurrencesService } from '../fee-occurrences/fee-occurrences.service';

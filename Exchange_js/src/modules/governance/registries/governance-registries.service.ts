@@ -8,18 +8,18 @@ import { Prisma } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 import { PrismaService } from '../../../core/prisma/prisma.service';
-import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
+import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
   AuditActions,
   AuditEntityTypes,
   AuditModules,
   AuditWorkflowTypes,
   buildStateTransitionAction,
-} from '../../risk-engine/audit-logs/constants/audit-actions.constant';
+} from '../../audit-logging/constants/audit-actions.constant';
 import {
   AuditResult,
   AuditTriggerType,
-} from '../../risk-engine/audit-logs/dto/audit-log.dto';
+} from '../../audit-logging/dto/audit-log.dto';
 import { ApprovalActorContext } from '../approvals/constants/approval.constants';
 import { SlaTimersService } from '../sla-timers/sla-timers.service';
 import {

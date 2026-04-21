@@ -1,12 +1,12 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../../core/prisma/prisma.service';
-import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
+import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
   AuditActions,
   AuditBusinessWorkflowTypes,
   AuditEntityTypes,
   AuditModules,
-} from '../../risk-engine/audit-logs/constants/audit-actions.constant';
+} from '../../audit-logging/constants/audit-actions.constant';
 import {
   ACTIVE_RBAC_ROLE_CODES,
   HARD_MUTEX_ROLE_PAIRS,

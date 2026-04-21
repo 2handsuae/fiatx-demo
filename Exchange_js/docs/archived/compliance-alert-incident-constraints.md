@@ -1,3 +1,8 @@
+> **DEPRECATED** — This document describes logic that has been removed or replaced.
+> Archived on 2026-04-11. Wave 2 compliance content moved to Sumsub.
+>
+> Replacement: Wave 2 compliance domain fully migrated to Sumsub integration.
+
 # Compliance Alert & Incident Constraints (`risk-engine/compliance-alerts` + `risk-engine/compliance-incidents`, Current Runtime Case Surface)
 
 ## 0) Positioning in Wave 2

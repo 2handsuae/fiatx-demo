@@ -426,6 +426,7 @@
 - payin/deposit 实际入账链路
 - quote/swap 生命周期
 - payout/withdraw 链路
+- `PricingPolicy` admin 详情页与版本快照 UI —— SWAP Policy 拆入 Wave 6，WITHDRAWAL Policy 拆入 Wave 7；Wave 4 仅交付后端发布治理模型与 list + history 页面
 
 ### Wave 5：充值链路（PayIn -> Deposit）
 
@@ -554,10 +555,13 @@
   - 自动阻断与阻断日志
 - swap 失败场景可回滚且不留下账务悬挂。
 - fee items 在 swap 中闭环落地。
+- **SWAP Policy admin UI 交付**：
+  - `PricingPolicyDetail`（SWAP）— 详情页，展示 pair grid（货币对费率矩阵），包含 spread、markup、限额等配置
+  - `PricingPolicySnapshot`（SWAP）— 版本快照，展示历史版本内容，与 COA/AcctEvent/JournalTemplate/ClearingTemplate 快照模式对齐
 
 **Wave DoD**
 
-- `WF-08` 满足“quote 可追踪、swap 可落账、失败可回滚、证据可导出”。
+- `WF-08` 满足”quote 可追踪、swap 可落账、失败可回滚、证据可导出”。
 
 **代表性 UAT**
 
@@ -616,10 +620,13 @@
   - 差异自动建 Alert，必要时人工升 Case
   - 可追踪处理状态
 - withdraw / payout 失败或 returned 时，自动冲正或补偿，不得留下账务悬挂。
+- **WITHDRAWAL Policy admin UI 交付**：
+  - `PricingPolicyDetail`（WITHDRAWAL）— 详情页，展示 asset tier ladder（资产提现费用分层阶梯），包含区间范围、费率/固定费、限额等配置
+  - `PricingPolicySnapshot`（WITHDRAWAL）— 版本快照，展示历史版本内容，与其他 config subject 快照模式对齐
 
 **Wave DoD**
 
-- `WF-09/12/16(最小)` 达到“提现可控、交易合规全链路留痕、日对账最小闭环可运行”的标准。
+- `WF-09/12/16(最小)` 达到”提现可控、交易合规全链路留痕、日对账最小闭环可运行”的标准。
 
 **代表性 UAT**
 

@@ -1,3 +1,8 @@
+> **DEPRECATED** — This document describes logic that has been removed or replaced.
+> Archived on 2026-04-11. Periodic review redesigned in Wave 3 Layer 2/3.
+>
+> Replacement: `docs/specs/wave3-layer2-risk-assessment.md` / `docs/specs/wave3-layer3-material-refresh.md`
+
 Status: active
 Owner: project-owner-and-agents
 Last Updated: 2026-03-26

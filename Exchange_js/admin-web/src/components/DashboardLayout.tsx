@@ -35,6 +35,7 @@ import {
   Moon,
   AlertTriangle,
   Settings,
+  Tag,
 } from 'lucide-react';
 import { Link, useLocation, useNavigate, Outlet } from 'react-router-dom';
 import { useAdminSession } from '../contexts/AdminSessionContext';
@@ -228,15 +229,9 @@ const DashboardLayout = () => {
       icon: <Cpu size={12} />,
       children: [
         {
-          path: '/dashboard/system/assets',
-          label: 'Assets Config',
-          icon: <Coins size={13} />,
-          requiredPermissions: [PERMISSIONS.ASSETS_READ],
-        },
-        {
           path: '/dashboard/system/asset-configs',
-          label: 'Asset Operational Config',
-          icon: <Settings size={13} />,
+          label: 'Assets',
+          icon: <Coins size={13} />,
           requiredPermissions: [PERMISSIONS.ASSETS_READ],
         },
         {
@@ -269,6 +264,12 @@ const DashboardLayout = () => {
       label: 'Pricing Center',
       icon: <Coins size={12} />,
       children: [
+        {
+          path: '/dashboard/pricing/policies',
+          label: 'Pricing Policies',
+          icon: <Tag size={13} />,
+          requiredPermissions: [PERMISSIONS.PRICING_POLICIES_READ],
+        },
         {
           path: '/dashboard/pricing/swap-config',
           label: 'Swap Config',

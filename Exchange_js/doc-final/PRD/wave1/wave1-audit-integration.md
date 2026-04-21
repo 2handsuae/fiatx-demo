@@ -2,7 +2,7 @@
 
 > **受众**：AI 代码代理 / 未来 Wave 的开发者
 > **语言约定**：中文说明 + 英文代码
-> **最后更新**：2026-04-06（Wave 1 稳定合约）
+> **最后更新**：2026-04-11（Wave 3 多步审批扩展）
 
 ---
 
@@ -165,6 +165,26 @@ idempotencyKey = sha256(module + '|' + entityType + '|' + entityId + '|' + actio
 | `APPROVAL_EXECUTED` | `'APPROVAL_EXECUTED'` | 执行成功 | `recordSystem` |
 | `APPROVAL_EXECUTION_FAILED` | `'APPROVAL_EXECUTION_FAILED'` | 执行失败 | `recordSystem` |
 | `APPROVAL_REQUIRED_MISSING` | `'APPROVAL_REQUIRED_MISSING'` | 需要审批但未创建审批单 | `recordSystem` |
+
+#### 多步审批场景的审计事件 *(Updated 2026-04-11)*
+
+当审批单包含多个步骤时（如 `ONBOARDING_FINAL_APPROVAL` 的 MLRO→SMO 双签），**每个步骤的审批决策都会独立生成一条 `APPROVAL_APPROVED` 或 `APPROVAL_REJECTED` 审计事件**。所有步骤事件共享同一 `traceId`，通过 `metadata` 中的 `stepNo` 和 `checkerRole` 区分：
+
+```
+多步审批审计序列示例（RISK_RATING_HIGH_APPROVAL）：
+
+1. APPROVAL_SUBMITTED              — case 进入 PENDING
+2. APPROVAL_APPROVED               — Step 1: metadata { stepNo: 1, checkerRole: 'MLRO' }
+3. APPROVAL_APPROVED               — Step 2: metadata { stepNo: 2, checkerRole: 'SENIOR_MANAGEMENT_OFFICER' }
+4. APPROVAL_EXECUTED               — 执行成功
+
+拒绝场景：
+1. APPROVAL_SUBMITTED
+2. APPROVAL_REJECTED               — Step 1 被拒: metadata { stepNo: 1, checkerRole: 'MLRO' }
+   （Step 2 被系统 CANCELLED，不生成独立审计事件）
+```
+
+> 单步审批的审计事件行为不变。
 
 ### 3.4 AUDIT_LOGS 模块（证据包相关）
 

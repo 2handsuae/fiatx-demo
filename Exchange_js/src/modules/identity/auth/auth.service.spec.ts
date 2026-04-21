@@ -3,10 +3,10 @@ import { AuthService } from './auth.service';
 import { UsersService } from '../users/users.service';
 import { AdminInvitationsService } from '../users/admin-invitations.service';
 import { JwtService } from '@nestjs/jwt';
-import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
+import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import { ForbiddenException } from '@nestjs/common';
 import { AccessControlService } from '../access-control/access-control.service';
-import { AuditBusinessWorkflowTypes } from '../../risk-engine/audit-logs/constants/audit-actions.constant';
+import { AuditBusinessWorkflowTypes } from '../../audit-logging/constants/audit-actions.constant';
 
 describe('AuthService', () => {
   let service: AuthService;

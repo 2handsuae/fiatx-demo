@@ -37,6 +37,7 @@ export const ApprovalActionTypes = {
   RISK_RATING_MAINTENANCE_APPROVAL: 'RISK_RATING_MAINTENANCE_APPROVAL',
   PEP_RELATIONSHIP_APPROVAL: 'PEP_RELATIONSHIP_APPROVAL',
   // ─── Wave 3 Tier Upgrade (2026-04-13) ────────
+  RISK_RATING_MLRO_REVIEW: 'RISK_RATING_MLRO_REVIEW',
   RISK_RATING_TIER_UPGRADE_APPROVAL: 'RISK_RATING_TIER_UPGRADE_APPROVAL',
 } as const;
 
@@ -196,6 +197,13 @@ export const DEFAULT_APPROVAL_POLICIES: Record<
     riskLevel: ApprovalRiskLevels.HIGH,
     checkerRoles: ['MLRO', 'SENIOR_MANAGEMENT_OFFICER'],
     timeoutHours: 240,
+    allowCancel: true,
+    allowRetry: true,
+  },
+  [ApprovalActionTypes.RISK_RATING_MLRO_REVIEW]: {
+    riskLevel: ApprovalRiskLevels.HIGH,
+    checkerRoles: ['MLRO'],
+    timeoutHours: 168,
     allowCancel: true,
     allowRetry: true,
   },

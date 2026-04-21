@@ -270,6 +270,10 @@ const CustomerDetail = () => {
   const [tierSaving, setTierSaving] = useState(false);
   const [tierMessage, setTierMessage] = useState<string | null>(null);
 
+  /* ── Risk Assessment trigger state ── */
+  const [assessmentLoading, setAssessmentLoading] = useState(false);
+  const [assessmentMessage, setAssessmentMessage] = useState<string | null>(null);
+
   /* ── Fetching ── */
 
   const fetchDetail = async () => {
@@ -431,6 +435,27 @@ const CustomerDetail = () => {
       setTierMessage('Failed: ' + (err instanceof Error ? err.message : String(err)));
     } finally {
       setTierSaving(false);
+    }
+  };
+
+  /* ── Risk Assessment trigger handler ── */
+
+  const triggerAssessment = async () => {
+    if (!detail) return;
+    setAssessmentLoading(true);
+    setAssessmentMessage(null);
+    try {
+      const res = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/admin/compliance/customers/${detail.id}/risk-assessment/trigger`,
+        { method: 'POST', body: JSON.stringify({}) },
+      );
+      const data = await res.json();
+      setAssessmentMessage(`Assessment started: ${data.assessmentNo || data.id || 'OK'}`);
+      await fetchDetail();
+    } catch (e) {
+      setAssessmentMessage(`Failed: ${e instanceof Error ? e.message : 'Unknown error'}`);
+    } finally {
+      setAssessmentLoading(false);
     }
   };
 
@@ -769,7 +794,27 @@ const CustomerDetail = () => {
             </section>
           )}
 
-          {/* ⑨ Investor Classification */}
+          {/* ⑨ Risk Assessment */}
+          <section className="px-6 py-5">
+            <Cap>Risk Assessment</Cap>
+            <p className="mt-1 mb-4 font-mono text-[9px] text-adm-t3">
+              Manually trigger a periodic risk assessment for this customer.
+            </p>
+            {assessmentMessage && (
+              <div className="mb-3 rounded border border-adm-green/30 bg-adm-green/10 px-3 py-2 font-mono text-[10px] text-adm-green">
+                {assessmentMessage}
+              </div>
+            )}
+            <button
+              disabled={assessmentLoading}
+              onClick={() => void triggerAssessment()}
+              className={adminButtonClass('simulationAction')}
+            >
+              {assessmentLoading ? 'Triggering...' : 'Start Risk Assessment'}
+            </button>
+          </section>
+
+          {/* Investor Classification */}
           <section className="px-6 py-5">
             <Cap>Investor Classification</Cap>
             <div className="mt-3">

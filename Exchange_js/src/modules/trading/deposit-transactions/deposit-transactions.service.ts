@@ -19,14 +19,14 @@ import { TransactionComplianceService } from '../../risk-engine/transaction-comp
 import {
   TxSourceType,
 } from '../../risk-engine/transaction-compliance/types/tx-compliance.types';
-import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
+import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
   AuditActions,
   AuditEntityTypes,
   AuditModules,
   buildStateTransitionAction,
-} from '../../risk-engine/audit-logs/constants/audit-actions.constant';
-import { AuditTriggerType } from '../../risk-engine/audit-logs/dto/audit-log.dto';
+} from '../../audit-logging/constants/audit-actions.constant';
+import { AuditTriggerType } from '../../audit-logging/dto/audit-log.dto';
 
 type DepositWriteClient = Prisma.TransactionClient | PrismaService;
 

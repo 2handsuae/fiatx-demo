@@ -7,8 +7,8 @@ import {
   AuditActions,
   AuditBusinessWorkflowTypes,
   AuditWorkflowTypes,
-} from '../../risk-engine/audit-logs/constants/audit-actions.constant';
-import { sha256Hex } from '../../risk-engine/audit-logs/utils/audit-digest.util';
+} from '../../audit-logging/constants/audit-actions.constant';
+import { sha256Hex } from '../../audit-logging/utils/audit-digest.util';
 import { CHANGE_TICKET_CONSUMED } from './events/change-ticket-consumed.event';
 
 const actor = {

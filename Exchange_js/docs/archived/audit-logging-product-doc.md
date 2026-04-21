@@ -1,3 +1,8 @@
+> **DEPRECATED** — This document describes logic that has been removed or replaced.
+> Archived on 2026-04-11. See current audit contract.
+>
+> Replacement: `docs/constraints/audit-trace-context-constraints.md`
+
 # 统一审计日志产品文档（Audit Logging）
 
 ## 产品背景与目标

@@ -1,21 +1,21 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { PrismaService } from '../../../core/prisma/prisma.service';
-import { AuditLogsService } from '../../risk-engine/audit-logs/audit-logs.service';
+import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
   AuditActions,
   AuditBusinessWorkflowTypes,
   AuditEntityTypes,
   AuditModules,
-} from '../../risk-engine/audit-logs/constants/audit-actions.constant';
+} from '../../audit-logging/constants/audit-actions.constant';
 import {
   AuditEvidencePackageStatus,
   AuditResult,
   AuditSubjectRole,
   AuditTriggerType,
   ExportEvidencePackageDto,
-} from '../../risk-engine/audit-logs/dto/audit-log.dto';
-import { sha256Hex } from '../../risk-engine/audit-logs/utils/audit-digest.util';
+} from '../../audit-logging/dto/audit-log.dto';
+import { sha256Hex } from '../../audit-logging/utils/audit-digest.util';
 import { ApprovalsService } from './approvals.service';
 import {
   ApprovalActorContext,
