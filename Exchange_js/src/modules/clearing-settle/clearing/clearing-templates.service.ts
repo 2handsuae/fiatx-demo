@@ -11,11 +11,10 @@ import { AuditResult, AuditTriggerType } from '../../audit-logging/dto/audit-log
 
 @Injectable()
 export class ClearingTemplatesService {
-  private readonly auditLogsService: AuditLogsService;
-
-  constructor(private prisma: PrismaService) {
-    this.auditLogsService = new AuditLogsService(prisma);
-  }
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly auditLogsService: AuditLogsService,
+  ) {}
 
   async create(dto: CreateClearingTemplateDto) {
     const { lineTemplates, ...headerData } = dto;

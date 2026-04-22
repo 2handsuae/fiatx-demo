@@ -84,6 +84,7 @@ describe('DepositWorkflowService', () => {
       mockEventEmitter as unknown as EventEmitter2,
       mockPrisma as unknown as PrismaService,
       mockTransactionComplianceService as unknown as TransactionComplianceService,
+      {} as any,
     );
   });
 

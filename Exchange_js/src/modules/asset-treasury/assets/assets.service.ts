@@ -19,11 +19,11 @@ import { AuditResult, AuditTriggerType } from '../../audit-logging/dto/audit-log
 @Injectable()
 export class AssetsService {
   private readonly logger = new Logger(AssetsService.name);
-  private readonly auditLogsService: AuditLogsService;
 
-  constructor(private prisma: PrismaService) {
-    this.auditLogsService = new AuditLogsService(prisma);
-  }
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly auditLogsService: AuditLogsService,
+  ) {}
 
   async create(data: CreateAssetDto) {
     this.logger.log(

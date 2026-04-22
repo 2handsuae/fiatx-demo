@@ -106,7 +106,7 @@ describe('PoolSettlementBatchesService', () => {
       createAndSubmit: jest.fn(),
       emitSubmittedSideEffects: jest.fn(),
     } as any;
-    const service = new PoolSettlementBatchesService(prisma, approvalsService);
+    const service = new PoolSettlementBatchesService(prisma, approvalsService, {} as any, {} as any);
     return { prisma, service, approvalsService };
   };
 

@@ -20,7 +20,7 @@ describe('PeriodicReviewWorkflowTransitionService', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    service = new PeriodicReviewWorkflowTransitionService(txMock as any);
+    service = new PeriodicReviewWorkflowTransitionService(txMock as any, {} as any);
     txMock.customerMain.findUnique.mockResolvedValue({
       id: 'c1',
       onboardingStatus: 'APPROVED',

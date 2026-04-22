@@ -120,14 +120,11 @@ export interface WorkflowTransitionOutput {
 
 @Injectable()
 export class OnboardingWorkflowTransitionService {
-  private readonly auditLogsService: AuditLogsService;
-
   constructor(
     private readonly prisma: PrismaService,
     private readonly onboardingFinalApprovalService: OnboardingFinalApprovalService,
-  ) {
-    this.auditLogsService = new AuditLogsService(prisma);
-  }
+    private readonly auditLogsService: AuditLogsService,
+  ) {}
 
   private readonly noTransitionDispositionCodes = new Set<string>([
     ALERT_DISPOSITION_CODES.ESCALATE_TO_CASE,

@@ -47,17 +47,15 @@ type DecisionRecordListQuery = {
 
 @Injectable()
 export class RiskDecisionRecordsService {
-  private readonly auditLogsService: AuditLogsService;
   private onboardingService?: OnboardingService | null;
   private periodicReviewService?: PeriodicReviewService | null;
   private transactionRiskBridgeService?: TransactionRiskBridgeService | null;
 
   constructor(
     private readonly prisma: PrismaService,
+    private readonly auditLogsService: AuditLogsService,
     private readonly moduleRef?: ModuleRef,
-  ) {
-    this.auditLogsService = new AuditLogsService(prisma);
-  }
+  ) {}
 
   private getOnboardingService(): OnboardingService {
     if (this.onboardingService) {

@@ -43,6 +43,7 @@ describe('InternalTransactionsService', () => {
       prisma,
       journalsService,
       clearingsService,
+      {} as any,
     );
     jest.clearAllMocks();
   });

@@ -33,11 +33,11 @@ import {
 export class WalletsService {
   private readonly logger = new Logger(WalletsService.name);
   private static readonly MAX_WALLET_NO_RETRIES = 5;
-  private readonly auditLogsService: AuditLogsService;
 
-  constructor(private prisma: PrismaService) {
-    this.auditLogsService = new AuditLogsService(prisma);
-  }
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly auditLogsService: AuditLogsService,
+  ) {}
 
   private static readonly walletBalanceSnapshotSelect = {
     walletId: true,

@@ -53,6 +53,7 @@ describe('InternalFundsService', () => {
       internalTransactionsService,
       eventEmitter,
       feeOccurrencesService,
+      {} as any,
     );
     jest.clearAllMocks();
   });

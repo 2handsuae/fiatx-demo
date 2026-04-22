@@ -72,15 +72,13 @@ interface SessionResponse {
 @Injectable()
 export class PeriodicReviewService {
   private readonly logger = new Logger(PeriodicReviewService.name);
-  private readonly auditLogsService: AuditLogsService;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly riskEngineService: RiskEngineService,
     private readonly workflowTransitionService: WorkflowTransitionService,
-  ) {
-    this.auditLogsService = new AuditLogsService(prisma);
-  }
+    private readonly auditLogsService: AuditLogsService,
+  ) {}
 
   private parseJsonSafely(value?: string | null): Record<string, unknown> {
     if (!value) return {};

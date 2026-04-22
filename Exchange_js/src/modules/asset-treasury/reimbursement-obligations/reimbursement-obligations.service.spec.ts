@@ -22,7 +22,7 @@ describe('ReimbursementObligationsService', () => {
       $transaction: jest.fn((cb: any) => cb(prisma)),
     };
 
-    service = new ReimbursementObligationsService(prisma);
+    service = new ReimbursementObligationsService(prisma, {} as any);
   });
 
   it('opens reimbursement obligation for safeguarded pool occurrence', async () => {

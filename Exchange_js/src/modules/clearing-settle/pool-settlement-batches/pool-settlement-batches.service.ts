@@ -54,18 +54,12 @@ interface ScannedSource {
 
 @Injectable()
 export class PoolSettlementBatchesService {
-  private readonly outstandingsService: OutstandingsService;
-  private readonly reimbursementObligationsService: ReimbursementObligationsService;
-
   constructor(
     private readonly prisma: PrismaService,
     private readonly approvalsService: ApprovalsService,
-  ) {
-    this.outstandingsService = new OutstandingsService(prisma);
-    this.reimbursementObligationsService = new ReimbursementObligationsService(
-      prisma,
-    );
-  }
+    private readonly outstandingsService: OutstandingsService,
+    private readonly reimbursementObligationsService: ReimbursementObligationsService,
+  ) {}
 
   private buildApprovalActorContext(actorUserId: string) {
     return {

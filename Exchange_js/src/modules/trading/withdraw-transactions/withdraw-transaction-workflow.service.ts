@@ -65,15 +65,13 @@ type WithdrawWriteClient = Prisma.TransactionClient | PrismaService;
 @Injectable()
 export class WithdrawTransactionWorkflowService {
   private readonly logger = new Logger(WithdrawTransactionWorkflowService.name);
-  private readonly auditLogsService: AuditLogsService;
 
   constructor(
     private readonly prisma: PrismaService,
     @Inject(forwardRef(() => WithdrawTransactionsService))
     private readonly withdrawTransactionsService: WithdrawTransactionsService,
-  ) {
-    this.auditLogsService = new AuditLogsService(prisma);
-  }
+    private readonly auditLogsService: AuditLogsService,
+  ) {}
 
   private getDb(tx?: Prisma.TransactionClient): WithdrawWriteClient {
     return tx ?? this.prisma;

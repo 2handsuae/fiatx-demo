@@ -36,6 +36,7 @@ describe('WithdrawTransactionWorkflowService', () => {
     service = new WithdrawTransactionWorkflowService(
       prismaMock as any,
       withdrawTransactionsServiceMock as any,
+      {} as any,
     );
   });
 

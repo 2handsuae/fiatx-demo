@@ -117,7 +117,7 @@ export const DEFAULT_APPROVAL_POLICIES: Record<
 > = {
   [ApprovalActionTypes.AUDIT_EVIDENCE_EXPORT_APPROVAL]: {
     riskLevel: ApprovalRiskLevels.HIGH,
-    checkerRoles: ['DPO', 'MLRO'],
+    checkerRoles: ['MLRO'],
     timeoutHours: 24,
     allowCancel: true,
     allowRetry: true,
@@ -138,7 +138,7 @@ export const DEFAULT_APPROVAL_POLICIES: Record<
   },
   [ApprovalActionTypes.DELETE_REQUEST_APPROVAL]: {
     riskLevel: ApprovalRiskLevels.HIGH,
-    checkerRoles: ['DPO', 'CISO'],
+    checkerRoles: ['CISO'],
     timeoutHours: 24,
     allowCancel: true,
     allowRetry: true,

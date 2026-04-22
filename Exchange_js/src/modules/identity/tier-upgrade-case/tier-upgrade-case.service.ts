@@ -9,15 +9,13 @@ import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 @Injectable()
 export class TierUpgradeCaseService {
   private readonly logger = new Logger(TierUpgradeCaseService.name);
-  private readonly auditLogsService: AuditLogsService;
 
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService & Record<string, any>,
     private readonly approvalsService: ApprovalsService,
     private readonly sumsubClient: SumsubClient,
-  ) {
-    this.auditLogsService = new AuditLogsService(prisma);
-  }
+    private readonly auditLogsService: AuditLogsService,
+  ) {}
 
   /**
    * Called when CRA is SIGNED as HIGH and previousTier was LOW.

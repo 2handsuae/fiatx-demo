@@ -52,14 +52,12 @@ interface UpdatePayinStatusOptions {
 @Injectable()
 export class PayinsService {
   private readonly logger = new Logger(PayinsService.name);
-  private readonly auditLogsService: AuditLogsService;
 
   constructor(
-    private prisma: PrismaService,
-    private eventEmitter: EventEmitter2,
-  ) {
-    this.auditLogsService = new AuditLogsService(prisma);
-  }
+    private readonly prisma: PrismaService,
+    private readonly eventEmitter: EventEmitter2,
+    private readonly auditLogsService: AuditLogsService,
+  ) {}
 
   private normalizeOptionalString(value?: string | null): string | null {
     const normalized = String(value || '').trim();

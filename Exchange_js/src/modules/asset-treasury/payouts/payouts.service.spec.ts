@@ -61,6 +61,7 @@ describe('PayoutsService', () => {
       transactionComplianceService,
       pricingCenterService,
       feeOccurrencesService,
+      {} as any,
     );
     (service as any).auditLogsService = {
       recordByActor: jest.fn().mockResolvedValue({ id: 'audit-log-1' }),

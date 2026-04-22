@@ -59,15 +59,13 @@ type SwapWriteClient = Prisma.TransactionClient | PrismaService;
 @Injectable()
 export class SwapTransactionWorkflowService {
   private readonly logger = new Logger(SwapTransactionWorkflowService.name);
-  private readonly auditLogsService: AuditLogsService;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly journalsService: JournalsService,
     private readonly outstandingsService: OutstandingsService,
-  ) {
-    this.auditLogsService = new AuditLogsService(prisma);
-  }
+    private readonly auditLogsService: AuditLogsService,
+  ) {}
 
   private getDb(tx?: Prisma.TransactionClient): SwapWriteClient {
     return tx ?? this.prisma;

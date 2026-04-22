@@ -38,11 +38,10 @@ import {
 
 @Injectable()
 export class PeriodicReviewWorkflowTransitionService {
-  private readonly auditLogsService: AuditLogsService;
-
-  constructor(private readonly prisma: PrismaService) {
-    this.auditLogsService = new AuditLogsService(prisma);
-  }
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly auditLogsService: AuditLogsService,
+  ) {}
 
   private readonly noTransitionDispositionCodes = new Set<string>([
     ALERT_DISPOSITION_CODES.ESCALATE_TO_CASE,

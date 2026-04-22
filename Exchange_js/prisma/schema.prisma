@@ -2666,7 +2666,7 @@ model SumsubWebhookEvent {
   isSimulated       Boolean   @default(false)
   simulatedByUserId String?
   createdAt         DateTime  @default(now()) @map("created_at")
-  updatedAt         DateTime  @updatedAt      @map("updated_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
 
   @@index([status, createdAt])
   @@index([applicantId])

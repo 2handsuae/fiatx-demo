@@ -40,7 +40,6 @@ export interface SwapOrchestratorOutput {
 @Injectable()
 export class SwapWorkflowOrchestrator {
   private readonly logger = new Logger(SwapWorkflowOrchestrator.name);
-  private readonly auditLogsService: AuditLogsService;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -49,9 +48,8 @@ export class SwapWorkflowOrchestrator {
     private readonly pricingCenterService: PricingCenterService,
     private readonly transactionComplianceService: TransactionComplianceService,
     private readonly swapTransactionWorkflowService: SwapTransactionWorkflowService,
-  ) {
-    this.auditLogsService = new AuditLogsService(prisma);
-  }
+    private readonly auditLogsService: AuditLogsService,
+  ) {}
 
   private parseJson<T>(value: string | null | undefined, fallback: T): T {
     if (!value) return fallback;

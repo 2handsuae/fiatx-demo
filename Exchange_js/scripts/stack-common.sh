@@ -85,6 +85,15 @@ load_stack_config() {
       CLIENT_PORT="3302"
       BRANCH_RULE="trae/*"
       ;;
+    branch)
+      STACK="branch"
+      WT_DIR="${ROOT_DIR}/.wt/branch"
+      APP_DIR="${WT_DIR}/Exchange_js"
+      BACKEND_PORT="3500"
+      ADMIN_PORT="3501"
+      CLIENT_PORT="3502"
+      BRANCH_RULE="branch"
+      ;;
     audit-evidence)
       STACK="audit-evidence"
       WT_DIR="${ROOT_DIR}/.wt/codex/branch"

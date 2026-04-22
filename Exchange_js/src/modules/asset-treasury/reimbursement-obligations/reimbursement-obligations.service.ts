@@ -21,11 +21,10 @@ import {
 
 @Injectable()
 export class ReimbursementObligationsService {
-  private readonly auditLogsService: AuditLogsService;
-
-  constructor(private readonly prisma: PrismaService) {
-    this.auditLogsService = new AuditLogsService(prisma);
-  }
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly auditLogsService: AuditLogsService,
+  ) {}
 
   async findOpenForPoolSettlementBatch(tx?: any) {
     const db = tx || this.prisma;

@@ -88,18 +88,16 @@ type JournalPostingResult =
 @Injectable()
 export class WithdrawWorkflowOrchestrator {
   private readonly logger = new Logger(WithdrawWorkflowOrchestrator.name);
-  private readonly auditLogsService: AuditLogsService;
 
   constructor(
-    private prisma: PrismaService,
-    private withdrawalService: WithdrawTransactionsService,
-    private payoutsService: PayoutsService,
-    private accountingEventExecutionService: AccountingEventExecutionService,
-    private clearingsService: ClearingsService,
-    private transactionComplianceService: TransactionComplianceService,
-  ) {
-    this.auditLogsService = new AuditLogsService(prisma);
-  }
+    private readonly prisma: PrismaService,
+    private readonly withdrawalService: WithdrawTransactionsService,
+    private readonly payoutsService: PayoutsService,
+    private readonly accountingEventExecutionService: AccountingEventExecutionService,
+    private readonly clearingsService: ClearingsService,
+    private readonly transactionComplianceService: TransactionComplianceService,
+    private readonly auditLogsService: AuditLogsService,
+  ) {}
 
   // --- Withdrawal Listeners ---
 

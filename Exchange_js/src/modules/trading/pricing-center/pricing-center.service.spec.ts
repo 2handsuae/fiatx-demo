@@ -21,7 +21,7 @@ describe('PricingCenterService - Swap Phase 1 constraints', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    service = new PricingCenterService(mockPrisma as any, {} as any, {} as any);
+    service = new PricingCenterService(mockPrisma as any, {} as any, {} as any, {} as any);
   });
 
   const buildBaseSwapPolicy = (): SwapPricingPolicyConfig => ({

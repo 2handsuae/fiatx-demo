@@ -69,7 +69,6 @@ const FINAL_APPROVAL_CUSTOMER_SELECT = {
 @Injectable()
 export class OnboardingFinalApprovalService {
   private readonly logger = new Logger(OnboardingFinalApprovalService.name);
-  private readonly auditLogsService: AuditLogsService;
 
   /** Property-injected to avoid circular deps — set in module onModuleInit */
   materialRefreshService?: { seedInitialHoldings: (customerId: string, levelName: string) => Promise<void> };
@@ -77,9 +76,8 @@ export class OnboardingFinalApprovalService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly approvalsService: ApprovalsService,
-  ) {
-    this.auditLogsService = new AuditLogsService(prisma);
-  }
+    private readonly auditLogsService: AuditLogsService,
+  ) {}
 
   private normalizeOptionalString(value: unknown): string | null {
     if (value === null || value === undefined) return null;

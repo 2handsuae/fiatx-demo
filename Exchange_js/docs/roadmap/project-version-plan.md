@@ -114,6 +114,8 @@
   - `docs/cleanup/wave-1-governance-audit-cleanup-master-plan.md`
 - `Wave 1` 的最终 acceptance 结论入口固定为：
   - `docs/acceptance/wave-1-foundation-final-acceptance.md`
+- `Wave 1–4` 产品级工作流快速参考：
+  - `docs/roadmap/wave1-4-product-workflow-summary.md`
 - `WF-GOV-02` filing / receipt / effectiveness gate 不属于当前 `Wave 1` 完成范围。
 - `WF-04` 在 `Wave 1` 的完成范围应理解为历史最小 timer/notifier 资产，而不是未来通用 `obligation / SLA / escalation` 平台；后者统一后移到 `Wave 9`。
 

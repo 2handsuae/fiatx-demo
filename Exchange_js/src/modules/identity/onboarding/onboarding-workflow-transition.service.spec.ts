@@ -42,6 +42,7 @@ describe('OnboardingWorkflowTransitionService', () => {
     service = new OnboardingWorkflowTransitionService(
       txMock as any,
       onboardingFinalApprovalServiceMock as any,
+      {} as any,
     );
     txMock.customerMain.findUnique.mockResolvedValue({
       id: 'c1',

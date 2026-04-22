@@ -51,6 +51,7 @@ describe('RiskDecisionRecordsService', () => {
     });
     service = new RiskDecisionRecordsService(
       prismaMock,
+      {} as any,
       moduleRefMock as unknown as ModuleRef,
     );
   });

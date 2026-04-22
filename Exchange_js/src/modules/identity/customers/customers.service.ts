@@ -86,11 +86,10 @@ type CustomerDetailView = Omit<CustomerDetailPayload, 'cddResponses' | 'eddRespo
 
 @Injectable()
 export class CustomersService {
-  private readonly auditLogsService: AuditLogsService;
-
-  constructor(private prisma: PrismaService) {
-    this.auditLogsService = new AuditLogsService(prisma);
-  }
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly auditLogsService: AuditLogsService,
+  ) {}
 
   async create(data: Prisma.CustomerMainCreateInput): Promise<CustomerMain> {
     const created = await this.prisma.customerMain.create({
