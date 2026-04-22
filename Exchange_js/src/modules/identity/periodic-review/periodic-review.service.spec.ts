@@ -63,6 +63,7 @@ describe('PeriodicReviewService', () => {
       prismaMock,
       riskEngineServiceMock,
       workflowTransitionServiceMock,
+      {} as any,
     );
   });
 

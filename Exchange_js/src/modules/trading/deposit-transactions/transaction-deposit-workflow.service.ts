@@ -54,14 +54,12 @@ type DepositWriteClient = Prisma.TransactionClient | PrismaService;
 @Injectable()
 export class TransactionDepositWorkflowService {
   private readonly logger = new Logger(TransactionDepositWorkflowService.name);
-  private readonly auditLogsService: AuditLogsService;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly depositTransactionsService: DepositTransactionsService,
-  ) {
-    this.auditLogsService = new AuditLogsService(prisma);
-  }
+    private readonly auditLogsService: AuditLogsService,
+  ) {}
 
   private getDb(tx?: Prisma.TransactionClient): DepositWriteClient {
     return tx ?? this.prisma;

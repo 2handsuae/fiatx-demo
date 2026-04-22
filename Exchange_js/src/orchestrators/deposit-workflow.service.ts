@@ -48,7 +48,6 @@ interface DepositAccountingOutcome {
 @Injectable()
 export class DepositWorkflowService implements OnModuleInit {
   private readonly logger = new Logger(DepositWorkflowService.name);
-  private readonly auditLogsService: AuditLogsService;
 
   constructor(
     private readonly depositService: DepositTransactionsService,
@@ -57,9 +56,8 @@ export class DepositWorkflowService implements OnModuleInit {
     private readonly eventEmitter: EventEmitter2,
     private readonly prisma: PrismaService,
     private readonly transactionComplianceService: TransactionComplianceService,
-  ) {
-    this.auditLogsService = new AuditLogsService(prisma);
-  }
+    private readonly auditLogsService: AuditLogsService,
+  ) {}
 
   onModuleInit() {
     this.logger.log(

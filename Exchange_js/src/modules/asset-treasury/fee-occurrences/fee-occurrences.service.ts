@@ -36,7 +36,6 @@ type AutomaticFeeTemplate = {
 
 @Injectable()
 export class FeeOccurrencesService {
-  private readonly auditLogsService: AuditLogsService;
   private static readonly PAYOUT_CRYPTO_TEMPLATES: AutomaticFeeTemplate[] = [
     { feeType: FeeType.NETWORK_GAS, minMinorUnits: 2000, maxMinorUnits: 12000 },
     { feeType: FeeType.CUSTODY_FEE, minMinorUnits: 500, maxMinorUnits: 4000 },
@@ -55,9 +54,8 @@ export class FeeOccurrencesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly reimbursementObligationsService: ReimbursementObligationsService,
-  ) {
-    this.auditLogsService = new AuditLogsService(prisma);
-  }
+    private readonly auditLogsService: AuditLogsService,
+  ) {}
 
   private normalizeAssetType(assetType?: string | null) {
     return String(assetType || '').trim().toUpperCase();

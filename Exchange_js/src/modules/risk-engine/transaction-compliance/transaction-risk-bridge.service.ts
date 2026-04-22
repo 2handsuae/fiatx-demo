@@ -183,15 +183,13 @@ export interface BridgeExecutionResult {
 @Injectable()
 export class TransactionRiskBridgeService {
   private readonly logger = new Logger(TransactionRiskBridgeService.name);
-  private readonly auditLogsService: AuditLogsService;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly riskEngineService: RiskEngineService,
+    private readonly auditLogsService: AuditLogsService,
     private readonly moduleRef?: ModuleRef,
-  ) {
-    this.auditLogsService = new AuditLogsService(prisma);
-  }
+  ) {}
 
   private getDb(tx?: Prisma.TransactionClient): DbClient {
     return tx ?? this.prisma;

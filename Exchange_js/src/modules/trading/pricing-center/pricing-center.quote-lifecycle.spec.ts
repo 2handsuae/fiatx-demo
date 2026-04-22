@@ -104,7 +104,7 @@ describe('PricingCenterService - Quote lifecycle', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    service = new PricingCenterService(mockPrisma as any, {} as any, {} as any);
+    service = new PricingCenterService(mockPrisma as any, {} as any, {} as any, {} as any);
     mockPrisma.asset.findMany.mockResolvedValue([]);
     mockPrisma.pricingPolicy.update.mockResolvedValue({});
     mockPrisma.customerMain.findUnique.mockResolvedValue({

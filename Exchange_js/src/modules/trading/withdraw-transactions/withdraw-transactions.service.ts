@@ -41,7 +41,6 @@ export interface WithdrawStatusUpdateContext {
 @Injectable()
 export class WithdrawTransactionsService {
   private readonly logger = new Logger(WithdrawTransactionsService.name);
-  private readonly auditLogsService: AuditLogsService;
   private readonly systemStatusUpdateContext: WithdrawStatusUpdateContext = {
     source: 'SYSTEM',
     actorType: 'SYSTEM',
@@ -103,15 +102,14 @@ export class WithdrawTransactionsService {
   };
 
   constructor(
-    private prisma: PrismaService,
-    private eventEmitter: EventEmitter2,
-    private journalsService: JournalsService,
+    private readonly prisma: PrismaService,
+    private readonly eventEmitter: EventEmitter2,
+    private readonly journalsService: JournalsService,
     @Inject(forwardRef(() => TransactionComplianceService))
-    private transactionComplianceService: TransactionComplianceService,
-    private pricingCenterService: PricingCenterService,
-  ) {
-    this.auditLogsService = new AuditLogsService(prisma);
-  }
+    private readonly transactionComplianceService: TransactionComplianceService,
+    private readonly pricingCenterService: PricingCenterService,
+    private readonly auditLogsService: AuditLogsService,
+  ) {}
 
   private createAccountingContext(withdrawal: {
     ownerId: string;

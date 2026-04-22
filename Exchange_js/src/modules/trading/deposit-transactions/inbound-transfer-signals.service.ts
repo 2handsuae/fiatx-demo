@@ -59,15 +59,13 @@ export interface ScanSummary {
 @Injectable()
 export class InboundTransferSignalsService {
   private readonly logger = new Logger(InboundTransferSignalsService.name);
-  private readonly auditLogsService: AuditLogsService;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly payinsService: PayinsService,
     private readonly onboardingService: OnboardingService,
-  ) {
-    this.auditLogsService = new AuditLogsService(prisma);
-  }
+    private readonly auditLogsService: AuditLogsService,
+  ) {}
 
   async findAllForCustomer(
     customerId: string,

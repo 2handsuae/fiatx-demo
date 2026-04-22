@@ -32,6 +32,7 @@ describe('FeeOccurrencesService', () => {
     service = new FeeOccurrencesService(
       prisma,
       reimbursementObligationsService,
+      {} as any,
     );
   });
 

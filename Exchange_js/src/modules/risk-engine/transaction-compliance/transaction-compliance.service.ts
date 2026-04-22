@@ -48,15 +48,13 @@ type DbClient = Prisma.TransactionClient | PrismaService;
 @Injectable()
 export class TransactionComplianceService {
   private readonly logger = new Logger(TransactionComplianceService.name);
-  private readonly auditLogsService: AuditLogsService;
 
   constructor(
     private readonly prisma: PrismaService,
+    private readonly auditLogsService: AuditLogsService,
     @Optional()
     private readonly transactionRiskBridgeService?: TransactionRiskBridgeService,
-  ) {
-    this.auditLogsService = new AuditLogsService(prisma);
-  }
+  ) {}
 
   private getClient(tx?: Prisma.TransactionClient): DbClient {
     return tx ?? this.prisma;

@@ -136,6 +136,7 @@ describe('OnboardingService', () => {
       workflowTransitionServiceMock,
       onboardingFinalApprovalServiceMock,
       sumsubClientMock,
+      {} as any,
     );
   });
 

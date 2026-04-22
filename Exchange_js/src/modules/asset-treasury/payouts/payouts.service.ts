@@ -70,17 +70,15 @@ import { FeeOccurrencesService } from '../fee-occurrences/fee-occurrences.servic
 export class PayoutsService {
   private static readonly UPDATE_STATUS_TX_TIMEOUT_MS = 15_000;
   private readonly logger = new Logger(PayoutsService.name);
-  private readonly auditLogsService: AuditLogsService;
 
   constructor(
-    private prisma: PrismaService,
-    private eventEmitter: EventEmitter2,
+    private readonly prisma: PrismaService,
+    private readonly eventEmitter: EventEmitter2,
     private readonly transactionComplianceService: TransactionComplianceService,
     private readonly pricingCenterService: PricingCenterService,
     private readonly feeOccurrencesService: FeeOccurrencesService,
-  ) {
-    this.auditLogsService = new AuditLogsService(prisma);
-  }
+    private readonly auditLogsService: AuditLogsService,
+  ) {}
 
   private normalizeOptionalString(value?: string | null): string | null {
     const normalized = String(value || '').trim();

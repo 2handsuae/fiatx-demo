@@ -125,16 +125,14 @@ type CreateFromInternalTransactionInput = {
 @Injectable()
 export class InternalFundsService {
   private static readonly MAX_NO_GENERATION_RETRIES = 10;
-  private readonly auditLogsService: AuditLogsService;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly internalTransactionsService: InternalTransactionsService,
     private readonly eventEmitter: EventEmitter2,
     private readonly feeOccurrencesService: FeeOccurrencesService,
-  ) {
-    this.auditLogsService = new AuditLogsService(prisma);
-  }
+    private readonly auditLogsService: AuditLogsService,
+  ) {}
 
   private getTransitionMap(assetType: string) {
     return assetType === 'FIAT' ? FIAT_TRANSITIONS : CRYPTO_TRANSITIONS;

@@ -1021,6 +1021,8 @@ describe('PoolSettlementBatchesService submitBatch', () => {
     const service = new PoolSettlementBatchesService(
       prisma,
       approvalsService as any,
+      {} as any,
+      {} as any,
     );
 
     await expect(service.submitBatch('batch-1', 'admin-1')).rejects.toBeInstanceOf(
@@ -1059,6 +1061,8 @@ describe('PoolSettlementBatchesService submitBatch', () => {
     const service = new PoolSettlementBatchesService(
       prisma,
       approvalsService as any,
+      {} as any,
+      {} as any,
     );
 
     const result = await service.submitBatch('batch-1', 'admin-1');
@@ -1160,6 +1164,8 @@ describe('PoolSettlementBatchesService submitBatch', () => {
     const service = new PoolSettlementBatchesService(
       prisma,
       approvalsService as any,
+      {} as any,
+      {} as any,
     );
 
     await service.submitBatch('batch-serial-1', 'admin-1');

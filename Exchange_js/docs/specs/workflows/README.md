@@ -2,7 +2,7 @@
 
 Status: active
 Owner: project-owner-and-agents
-Last Updated: 2026-03-28
+Last Updated: 2026-04-21
 Applies To: `Exchange_js`
 Supersedes: none
 Depends On: `docs/specs/README.md`

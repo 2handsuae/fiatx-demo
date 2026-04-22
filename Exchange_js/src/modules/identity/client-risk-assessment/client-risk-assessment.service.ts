@@ -21,7 +21,6 @@ const ACTIVE_CRA_STATUSES = ['PENDING_SUMSUB_RESULT', 'PENDING_MLRO_REVIEW', 'ES
 @Injectable()
 export class ClientRiskAssessmentService {
   private readonly logger = new Logger(ClientRiskAssessmentService.name);
-  private readonly auditLogsService: AuditLogsService;
 
   /** Property-injected in module to avoid circular deps */
   materialRefreshService?: {
@@ -36,9 +35,8 @@ export class ClientRiskAssessmentService {
     private readonly approvalsService: ApprovalsService,
     private readonly policyLoader: ClientRiskAssessmentPolicyLoader,
     private readonly tierUpgradeCaseService: TierUpgradeCaseService,
-  ) {
-    this.auditLogsService = new AuditLogsService(prisma);
-  }
+    private readonly auditLogsService: AuditLogsService,
+  ) {}
 
   // ─── Public entry points ──────────────────────────────────────────────────
 

@@ -97,10 +97,8 @@ export class InternalTransactionsService {
     private readonly prisma: PrismaService,
     private readonly journalsService: JournalsService,
     private readonly clearingsService: ClearingsService,
-  ) {
-    this.auditLogsService = new AuditLogsService(prisma);
-  }
-  private readonly auditLogsService: AuditLogsService;
+    private readonly auditLogsService: AuditLogsService,
+  ) {}
 
   private appendStatusHistory(
     current: string | null | undefined,

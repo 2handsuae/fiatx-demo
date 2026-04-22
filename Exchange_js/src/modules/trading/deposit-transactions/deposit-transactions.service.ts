@@ -54,15 +54,13 @@ export interface DepositStatusUpdateOptions {
 @Injectable()
 export class DepositTransactionsService {
   private readonly logger = new Logger(DepositTransactionsService.name);
-  private readonly auditLogsService: AuditLogsService;
 
   constructor(
-    private prisma: PrismaService,
-    private eventEmitter: EventEmitter2,
-    private transactionComplianceService: TransactionComplianceService,
-    ) {
-    this.auditLogsService = new AuditLogsService(prisma);
-  }
+    private readonly prisma: PrismaService,
+    private readonly eventEmitter: EventEmitter2,
+    private readonly transactionComplianceService: TransactionComplianceService,
+    private readonly auditLogsService: AuditLogsService,
+  ) {}
 
   private getDb(tx?: Prisma.TransactionClient): DepositWriteClient {
     return tx ?? this.prisma;

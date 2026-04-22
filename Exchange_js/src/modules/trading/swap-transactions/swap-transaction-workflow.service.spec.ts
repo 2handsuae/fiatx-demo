@@ -69,6 +69,7 @@ describe('SwapTransactionWorkflowService', () => {
       prismaMock as any,
       journalsServiceMock as any,
       outstandingsServiceMock as any,
+      {} as any,
     );
   });
 

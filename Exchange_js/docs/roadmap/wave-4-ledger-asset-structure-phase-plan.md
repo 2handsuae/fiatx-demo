@@ -140,7 +140,7 @@ payload.restrictions.{ extremeVolatilityBlocked, ... }
 
 ## 4. Design Pattern Summary
 
-All five complete subjects follow the identical design pattern defined in `docs/constraints/frontend-admin-ui-constraints.md` Section 13. Key constants:
+All five complete subjects (ASSET_CONFIG, COA, ACCT_EVENT, JOURNAL_TEMPLATE, CLEARING_TEMPLATE) follow the identical design pattern defined in `docs/constraints/frontend-admin-ui-constraints.md` Section 13. Key constants:
 
 ### API Contract (two-step fetch)
 ```

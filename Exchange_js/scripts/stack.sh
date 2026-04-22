@@ -6,8 +6,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 usage() {
   cat >&2 <<USAGE
 Usage:
-  $0 up <main|codex|claude|trae|audit-evidence|all>
-  $0 down <main|codex|claude|trae|audit-evidence|all>
+  $0 up <main|codex|claude|trae|branch|audit-evidence|all>
+  $0 down <main|codex|claude|trae|branch|audit-evidence|all>
   $0 status
   $0 reset-main
 USAGE
@@ -15,7 +15,7 @@ USAGE
 
 is_valid_stack() {
   case "$1" in
-    main|codex|claude|trae|audit-evidence) return 0 ;;
+    main|codex|claude|trae|branch|audit-evidence) return 0 ;;
     *) return 1 ;;
   esac
 }

@@ -65,6 +65,7 @@ describe('TransactionRiskBridgeService', () => {
     service = new TransactionRiskBridgeService(
       prismaMock as any,
       riskEngineServiceMock as any,
+      {} as any,
       moduleRefMock as unknown as ModuleRef,
     );
   });

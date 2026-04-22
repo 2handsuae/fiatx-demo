@@ -139,12 +139,6 @@ const DashboardLayout = () => {
           requiredPermissions: [PERMISSIONS.GOV_CHANGE_TICKETS_READ],
         },
         {
-          path: '/dashboard/control-gates/business-config-releases',
-          label: 'Config Releases',
-          icon: <Layers size={13} />,
-          requiredPermissions: [PERMISSIONS.GOV_CHANGE_TICKETS_READ],
-        },
-        {
           path: '/dashboard/control-gates/delete-requests',
           label: 'Delete Requests',
           icon: <ClipboardList size={13} />,
@@ -155,12 +149,6 @@ const DashboardLayout = () => {
           label: 'Approvals',
           icon: <Shield size={13} />,
           requiredPermissions: [PERMISSIONS.GOV_APPROVALS_READ],
-        },
-        {
-          path: '/dashboard/control-gates/sla-timers',
-          label: 'SLA Timers',
-          icon: <History size={13} />,
-          requiredPermissions: [PERMISSIONS.GOV_SLA_TIMERS_READ],
         },
       ],
     },
@@ -192,24 +180,6 @@ const DashboardLayout = () => {
           icon: <Users size={13} />,
           requiredPermissions: [PERMISSIONS.CUSTOMERS_READ],
         },
-      ],
-    },
-    {
-      label: 'Compliance Center',
-      icon: <ClipboardList size={12} />,
-      children: [
-        {
-          path: '/dashboard/compliance/risk-assessments',
-          label: 'Risk Assessments',
-          icon: <Shield size={13} />,
-          requiredPermissions: [],
-        },
-        {
-          path: '/dashboard/compliance/sumsub-events',
-          label: 'Sumsub Events',
-          icon: <Zap size={13} />,
-          requiredPermissions: [],
-        },
         {
           path: '/dashboard/compliance/material-management',
           label: 'Material Holdings',
@@ -221,6 +191,24 @@ const DashboardLayout = () => {
           label: 'Refresh Cycles',
           icon: <History size={13} />,
           requiredPermissions: [PERMISSIONS.CUSTOMERS_READ],
+        },
+      ],
+    },
+    {
+      label: 'Compliance Center',
+      icon: <ClipboardList size={12} />,
+      children: [
+        {
+          path: '/dashboard/compliance/sumsub-events',
+          label: 'Sumsub Events',
+          icon: <Zap size={13} />,
+          requiredPermissions: [],
+        },
+        {
+          path: '/dashboard/compliance/risk-assessments',
+          label: 'Risk Assessments',
+          icon: <Shield size={13} />,
+          requiredPermissions: [],
         },
       ],
     },

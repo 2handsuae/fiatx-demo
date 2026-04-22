@@ -24,6 +24,7 @@ describe('TransactionDepositWorkflowService', () => {
     service = new TransactionDepositWorkflowService(
       prismaMock as any,
       depositTransactionsServiceMock as unknown as DepositTransactionsService,
+      {} as any,
     );
   });
 

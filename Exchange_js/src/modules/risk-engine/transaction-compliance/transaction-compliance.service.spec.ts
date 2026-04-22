@@ -411,6 +411,7 @@ describe('TransactionComplianceService', () => {
     const bridgeMock = buildBridgeMock();
     const serviceWithBridge = new TransactionComplianceService(
       prismaMock,
+      {} as any,
       bridgeMock,
     );
     prismaMock.depositTransaction.findUnique.mockResolvedValue({
@@ -794,6 +795,7 @@ describe('TransactionComplianceService', () => {
     const bridgeMock = buildBridgeMock();
     const serviceWithBridge = new TransactionComplianceService(
       prismaMock,
+      {} as any,
       bridgeMock,
     );
     prismaMock.kytCase.findUnique.mockResolvedValueOnce(null);
@@ -858,6 +860,7 @@ describe('TransactionComplianceService', () => {
     const bridgeMock = buildBridgeMock();
     const serviceWithBridge = new TransactionComplianceService(
       prismaMock,
+      {} as any,
       bridgeMock,
     );
     prismaMock.travelRuleCase.findUnique.mockResolvedValue({

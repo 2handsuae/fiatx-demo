@@ -913,9 +913,11 @@ export class BusinessConfigService {
     items: Array<ParsedReleaseItem<AcctEventManifestPayload>>,
   ) {
     const activeCodes = items.map((item) => String(item.payload.eventCode));
+
+    // Pass 1: upsert without reversal-code FKs so self-referential rows exist first
     for (const item of items) {
       const payload = item.payload;
-      const eventRecord: Prisma.AcctEventUncheckedCreateInput = {
+      const baseRecord: Prisma.AcctEventUncheckedCreateInput = {
         eventCode: payload.eventCode,
         entityType: String(payload.entityType ?? ''),
         ownerScope: String(payload.ownerScope ?? ''),
@@ -928,14 +930,8 @@ export class BusinessConfigService {
         toStatus: typeof payload.toStatus === 'string' ? payload.toStatus : null,
         postingMode: String(payload.postingMode ?? ''),
         clearingMode: String(payload.clearingMode ?? ''),
-        postingReversalOfEventCode:
-          typeof payload.postingReversalOfEventCode === 'string'
-            ? payload.postingReversalOfEventCode
-            : null,
-        clearingReversalOfEventCode:
-          typeof payload.clearingReversalOfEventCode === 'string'
-            ? payload.clearingReversalOfEventCode
-            : null,
+        postingReversalOfEventCode: null,
+        clearingReversalOfEventCode: null,
         clearingTemplateCode:
           typeof payload.clearingTemplateCode === 'string'
             ? payload.clearingTemplateCode
@@ -946,9 +942,32 @@ export class BusinessConfigService {
       };
       await tx.acctEvent.upsert({
         where: { eventCode: payload.eventCode },
-        update: eventRecord,
-        create: eventRecord,
+        update: baseRecord,
+        create: baseRecord,
       });
+    }
+
+    // Pass 2: update reversal codes now that all rows exist
+    for (const item of items) {
+      const payload = item.payload;
+      if (
+        typeof payload.postingReversalOfEventCode === 'string' ||
+        typeof payload.clearingReversalOfEventCode === 'string'
+      ) {
+        await tx.acctEvent.update({
+          where: { eventCode: payload.eventCode },
+          data: {
+            postingReversalOfEventCode:
+              typeof payload.postingReversalOfEventCode === 'string'
+                ? payload.postingReversalOfEventCode
+                : null,
+            clearingReversalOfEventCode:
+              typeof payload.clearingReversalOfEventCode === 'string'
+                ? payload.clearingReversalOfEventCode
+                : null,
+          },
+        });
+      }
     }
 
     await tx.acctEvent.updateMany({

@@ -22,11 +22,11 @@ import { AuditResult, AuditTriggerType } from '../../audit-logging/dto/audit-log
 @Injectable()
 export class JournalHeaderTemplatesService {
   private readonly logger = new Logger(JournalHeaderTemplatesService.name);
-  private readonly auditLogsService: AuditLogsService;
 
-  constructor(private prisma: PrismaService) {
-    this.auditLogsService = new AuditLogsService(prisma);
-  }
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly auditLogsService: AuditLogsService,
+  ) {}
 
   async create(createDto: CreateJournalHeaderTemplateDto) {
     const existing = await this.prisma.journalHeaderTemplate.findUnique({

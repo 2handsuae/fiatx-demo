@@ -180,7 +180,6 @@ export interface PricingQuoteDetail {
 
 @Injectable()
 export class PricingCenterService {
-  private readonly auditLogsService: AuditLogsService;
   private static readonly MAX_SWAP_QUOTE_NO_GENERATION_RETRIES = 10;
   private static readonly WITHDRAW_SERVICE_FEE_CODE: WithdrawalFeeItemCode =
     'WITHDRAW_SERVICE_FEE';
@@ -191,9 +190,8 @@ export class PricingCenterService {
     private readonly prisma: PrismaService,
     private readonly pricingEngineService: PricingEngineService,
     private readonly binanceRateProvider: BinanceRateProvider,
-  ) {
-    this.auditLogsService = new AuditLogsService(prisma);
-  }
+    private readonly auditLogsService: AuditLogsService,
+  ) {}
 
   private normalizeAmountBound(value: unknown): string | null {
     if (value === null || value === undefined || value === '') {

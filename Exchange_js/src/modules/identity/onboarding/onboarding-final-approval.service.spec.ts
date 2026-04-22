@@ -45,7 +45,7 @@ describe('OnboardingFinalApprovalService', () => {
       markExecutionResult: jest.fn(),
     };
 
-    service = new OnboardingFinalApprovalService(prisma, approvalsService);
+    service = new OnboardingFinalApprovalService(prisma, approvalsService, {} as any);
   });
 
   it('should create and submit onboarding final approval for FINAL_APPROVAL customer', async () => {

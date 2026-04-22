@@ -142,7 +142,6 @@ const SUMSUB_DEFAULT_ACTION = 'SUMSUB_APPLICANT_EVENT';
 @Injectable()
 export class OnboardingService {
   private readonly logger = new Logger(OnboardingService.name);
-  private readonly auditLogsService: AuditLogsService;
   private readonly recognizedRawOnboardingStatuses = new Set([
     'NONE',
     'PENDING_VERIFICATION',
@@ -168,9 +167,8 @@ export class OnboardingService {
     private readonly workflowTransitionService: WorkflowTransitionService,
     private readonly onboardingFinalApprovalService: OnboardingFinalApprovalService,
     private readonly sumsubClient: SumsubClient,
-  ) {
-    this.auditLogsService = new AuditLogsService(prisma);
-  }
+    private readonly auditLogsService: AuditLogsService,
+  ) {}
 
   async handleSumsubVerificationEvent(
     payload: Record<string, unknown> = {},
