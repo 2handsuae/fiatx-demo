@@ -91,7 +91,6 @@ export class CustomerAuthService {
         {
           triggerType: AuditTriggerType.AUTH_EVENT,
           action: AuditActions.CUSTOMER_LOGIN_FAILED,
-          module: AuditModules.CUSTOMER_AUTH,
           entityType: AuditEntityTypes.AUTH,
           result: AuditResult.FAILED,
           reason: 'Customer login failed: account not found',
@@ -117,7 +116,6 @@ export class CustomerAuthService {
         {
           triggerType: AuditTriggerType.AUTH_EVENT,
           action: AuditActions.CUSTOMER_LOGIN_FAILED,
-          module: AuditModules.CUSTOMER_AUTH,
           entityType: AuditEntityTypes.AUTH,
           entityId: customer.id,
           entityNo: customer.customerNo,
@@ -145,7 +143,6 @@ export class CustomerAuthService {
         {
           triggerType: AuditTriggerType.AUTH_EVENT,
           action: AuditActions.CUSTOMER_LOGIN_FAILED,
-          module: AuditModules.CUSTOMER_AUTH,
           entityType: AuditEntityTypes.AUTH,
           entityId: customer.id,
           entityNo: customer.customerNo,
@@ -179,7 +176,6 @@ export class CustomerAuthService {
         {
           triggerType: AuditTriggerType.AUTH_EVENT,
           action: AuditActions.ACCOUNT_LOCKED,
-          module: AuditModules.CUSTOMER_AUTH,
           entityType: AuditEntityTypes.AUTH,
           entityId: customer.id,
           entityNo: customer.customerNo,
@@ -211,7 +207,6 @@ export class CustomerAuthService {
         {
           triggerType: AuditTriggerType.AUTH_EVENT,
           action: AuditActions.ACCOUNT_UNLOCKED,
-          module: AuditModules.CUSTOMER_AUTH,
           entityType: AuditEntityTypes.AUTH,
           entityId: customer.id,
           entityNo: customer.customerNo,
@@ -245,7 +240,6 @@ export class CustomerAuthService {
         {
           triggerType: AuditTriggerType.AUTH_EVENT,
           action: AuditActions.CUSTOMER_LOGIN_SUCCESS,
-          module: AuditModules.CUSTOMER_AUTH,
           entityType: AuditEntityTypes.AUTH,
           entityId: customer.id,
           entityNo: customer.customerNo,
@@ -281,7 +275,6 @@ export class CustomerAuthService {
         {
           triggerType: AuditTriggerType.AUTH_EVENT,
           action: AuditActions.CUSTOMER_LOGIN_FAILED,
-          module: AuditModules.CUSTOMER_AUTH,
           entityType: AuditEntityTypes.AUTH,
           entityId: customer.id,
           entityNo: customer.customerNo,
@@ -311,7 +304,6 @@ export class CustomerAuthService {
           {
             triggerType: AuditTriggerType.AUTH_EVENT,
             action: AuditActions.ACCOUNT_LOCKED,
-            module: AuditModules.CUSTOMER_AUTH,
             entityType: AuditEntityTypes.AUTH,
             entityId: customer.id,
             entityNo: customer.customerNo,

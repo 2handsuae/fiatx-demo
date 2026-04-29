@@ -62,17 +62,11 @@ export class JournalHeaderTemplatesService {
     await this.auditLogsService.recordSystem({
       triggerType: AuditTriggerType.CONFIG_CHANGE,
       action: AuditActions.JOURNAL_TEMPLATE_UPDATED,
-      module: AuditModules.JOURNAL_HEADER_TEMPLATES,
       entityType: AuditEntityTypes.JOURNAL_HEADER_TEMPLATE,
       entityId: created.id,
       entityNo: created.templateCode,
       result: AuditResult.SUCCESS,
       reason: 'Journal header template created',
-      afterData: {
-        templateCode: created.templateCode,
-        eventCode: created.eventCode,
-        status: created.status,
-      },
       sourcePlatform: 'ADMIN_API',
     });
 
@@ -137,22 +131,11 @@ export class JournalHeaderTemplatesService {
       await this.auditLogsService.recordSystem({
         triggerType: AuditTriggerType.CONFIG_CHANGE,
         action: AuditActions.JOURNAL_TEMPLATE_UPDATED,
-        module: AuditModules.JOURNAL_HEADER_TEMPLATES,
         entityType: AuditEntityTypes.JOURNAL_HEADER_TEMPLATE,
         entityId: updated.id,
         entityNo: updated.templateCode,
         result: AuditResult.SUCCESS,
         reason: 'Journal header template updated',
-        beforeData: {
-          templateCode: before.templateCode,
-          eventCode: before.eventCode,
-          status: before.status,
-        },
-        afterData: {
-          templateCode: updated.templateCode,
-          eventCode: updated.eventCode,
-          status: updated.status,
-        },
         sourcePlatform: 'ADMIN_API',
       });
 

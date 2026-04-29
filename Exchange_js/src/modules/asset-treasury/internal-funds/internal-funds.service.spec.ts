@@ -96,8 +96,6 @@ describe('InternalFundsService', () => {
       expect.objectContaining({
         data: expect.objectContaining({
           action: 'INTERNAL_FUND_CREATED_TO_SIGNING',
-          statusFrom: InternalFundStatus.CREATED,
-          statusTo: InternalFundStatus.SIGNING,
         }),
       }),
     );
@@ -226,8 +224,6 @@ describe('InternalFundsService', () => {
       expect.objectContaining({
         data: expect.objectContaining({
           action: 'INTERNAL_FUND_CONFIRMED_TO_CLEAR',
-          statusFrom: InternalFundStatus.CONFIRMED,
-          statusTo: InternalFundStatus.CLEAR,
         }),
       }),
     );

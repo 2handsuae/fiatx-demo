@@ -63,7 +63,7 @@ Generic maker-checker gate: any governed action (change ticket, delete request, 
 ## Default Policies (from `approval.constants.ts`)
 | actionType | checkerRoles | timeoutHours |
 |---|---|---|
-| AUDIT_EVIDENCE_EXPORT_APPROVAL | DPO, MLRO | 24 |
+| AUDIT_EVIDENCE_EXPORT_APPROVAL | MLRO | 24 |
 | CASE_EVIDENCE_EXPORT_APPROVAL | DPO, MLRO | 24 |
 | CHANGE_TICKET_APPROVAL | CISO | 24 |
 | DELETE_REQUEST_APPROVAL | DPO, CISO | 24 |

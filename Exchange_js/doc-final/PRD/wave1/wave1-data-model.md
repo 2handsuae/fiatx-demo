@@ -33,7 +33,8 @@
 9. [delete_requests — 删除申请表](#9-delete_requests--删除申请表)
 10. [audit_log_events — 审计日志事件表](#10-audit_log_events--审计日志事件表)
 11. [audit_evidence_packages — 审计证据包表](#11-audit_evidence_packages--审计证据包表)
-12. [Seed 数据](#12-seed-数据)
+12. [audit_log_subject_nos — 审计主体编号关联表](#12-audit_log_subject_nos--审计主体编号关联表)
+13. [Seed 数据](#13-seed-数据)
 
 ---
 
@@ -317,7 +318,7 @@ policy.checkerRoles.map((role, idx) => ({
 
 | actionType | checkerRoles | timeoutHours | allowCancel | allowRetry |
 |---|---|---|---|---|
-| `AUDIT_EVIDENCE_EXPORT_APPROVAL` | `DPO,MLRO` | 24 | true | true |
+| `AUDIT_EVIDENCE_EXPORT_APPROVAL` | `MLRO` | 24 | true | true |
 | `CASE_EVIDENCE_EXPORT_APPROVAL` | `DPO,MLRO` | 24 | true | true |
 | `CHANGE_TICKET_APPROVAL` | `CISO` | 24 | true | true |
 | `DELETE_REQUEST_APPROVAL` | `DPO,CISO` | 24 | true | true |
@@ -545,7 +546,7 @@ DRAFT → PENDING_APPROVAL → READY → DONE
 
 审计日志是 Wave 1 合规架构的基石。系统中**所有重要操作**（用户登录、审批决策、变更执行、删除操作等）都必须写入此表，且记录一经写入**不可修改、不可物理删除**。
 
-`payloadDigest` 字段对整条记录做摘要，用于检测日志是否被篡改。
+`payloadDigest` 字段对整条记录做摘要，用于检测日志是否被篡改。关联的业务主体编号通过 `audit_log_subject_nos` 子表记录（详见 Section 12）。
 
 ### 字段定义
 
@@ -553,72 +554,85 @@ DRAFT → PENDING_APPROVAL → READY → DONE
 |---|---|---|---|---|
 | `id` | UUID | PK | 主键 | |
 | `auditNo` | String | UNIQUE, NOT NULL | 业务编号 | 格式 `AUD-YYYYMMDD-XXXX` |
-| `triggerType` | String | NOT NULL | 触发机制分类 | `STATE_TRANSITION` / `MANUAL_OVERRIDE` / `EVIDENCE_EXPORT` / `AUTH_EVENT` / `PERMISSION_CHANGE` / `CONFIG_CHANGE` / `DATA_CREATE` / `DATA_UPDATE` / `DATA_DELETE` / `SYSTEM_EVENT` |
-| `action` | String | NOT NULL | 具体操作代码 | 如 `CHANGE_TICKET_CREATED`、`APPROVAL_APPROVED` |
-| `module` | String | NOT NULL | 所属模块 | 如 `GOVERNANCE_CHANGE_TICKETS`、`APPROVAL` |
-| `entityType` | String | NOT NULL | 实体类型 | 如 `CHANGE_TICKET`、`APPROVAL_CASE`、`USER` |
+| `triggerType` | String | NOT NULL | 触发机制分类 | 见下方枚举说明 |
+| `action` | String | NOT NULL | 具体操作代码 | 如 `CHANGE_TICKET_CREATED`、`APPROVAL_GRANTED`，必须来自常量文件 |
+| `entityType` | String | NOT NULL | 实体类型 | 如 `CHANGE_TICKET`、`APPROVAL_CASE`、`AUDIT_EVIDENCE_PACKAGE` |
 | `entityId` | String | NULLABLE | 实体主键 id | |
-| `entityNo` | String | NULLABLE | 实体业务编号 | 如 `CT-20260405-0001` |
-| `traceId` | String | **NULLABLE** | 链路追踪 ID | 用于跨表、跨服务关联；系统触发场景下可能为空 |
-| `workflowType` | String | NULLABLE | 关联工作流类型 | |
-| `workflowId` | String | NULLABLE | 关联工作流 id | |
-| `workflowNo` | String | NULLABLE | 关联工作流业务编号 | |
-| `entityOwnerType` | String | NULLABLE | 实体所有者类型 | 如客户 id 所属类型，用于多租户场景 |
-| `entityOwnerId` | String | NULLABLE | 实体所有者 id | 如客户 id |
-| `entityOwnerNo` | String | NULLABLE | 实体所有者业务编号 | 冗余字段，便于查询 |
-| `statusFrom` | String | NULLABLE | 状态变更前的值 | 状态变更操作时填写 |
-| `statusTo` | String | NULLABLE | 状态变更后的值 | 状态变更操作时填写 |
+| `entityNo` | String | NULLABLE | 实体业务编号 | 如 `CT-20260405-0001`、`AEP-20260429-0001` |
+| `traceId` | String | NULLABLE | 链路追踪 ID | 用于跨表、跨服务关联同一工作流实例的所有事件 |
+| `workflowType` | String | NULLABLE | 关联工作流类型 | 如 `AUDIT_EVIDENCE_EXPORT`、`CHANGE_TICKET`，Audit Center 按此聚合 |
+| `entityOwnerType` | String | NULLABLE | 实体所有者类型 | 多租户场景下的所有者类型（如 CUSTOMER） |
+| `entityOwnerId` | String | NULLABLE | 实体所有者 id | |
+| `entityOwnerNo` | String | NULLABLE | 实体所有者业务编号 | 冗余字段，便于查询，避免 JOIN |
 | `actorType` | String | NOT NULL | 操作人类型 | `SYSTEM` / `ADMIN` / `CLIENT` |
-| `actorId` | String | **NOT NULL** | 操作人 id | 系统触发时填 `'SYSTEM'` |
+| `actorId` | String | NOT NULL | 操作人 id | 系统触发时填 `'SYSTEM'` |
 | `actorNo` | String | NULLABLE | 操作人业务编号 | 如 `ADMIN-CISO` |
 | `actorRole` | String | NULLABLE | 操作人角色 code | 记录操作时实际使用的角色 |
-| `requestId` | String | NULLABLE | HTTP 请求 id | 与 HTTP 请求追踪关联，系统触发时为空 |
+| `requestId` | String | NULLABLE | HTTP 请求 id | 系统触发时为空，用于幂等键生成 |
 | `sourceIp` | String | NULLABLE | 来源 IP 地址 | 系统触发时为空 |
-| `sourcePlatform` | String | NULLABLE | 来源平台标识 | 如 `ADMIN_WEB`、`SYSTEM`、`CLIENT_WEB` |
+| `sourcePlatform` | String | NULLABLE | 来源平台标识 | 如 `ADMIN_API`、`SYSTEM`、`CLIENT_API` |
 | `result` | String | NOT NULL, DEFAULT 'SUCCESS' | 操作结果 | `SUCCESS` / `FAILED` / `REJECTED` |
 | `reason` | String | NULLABLE | 失败原因或补充说明 | |
-| `metadata` | String | NULLABLE | 附加元数据（JSON 字符串） | 如 `{ superAdminBypass: true }` |
-| `beforeData` | String | NULLABLE | 变更前数据快照（JSON 字符串） | 敏感字段应脱敏 |
-| `afterData` | String | NULLABLE | 变更后数据快照（JSON 字符串） | 敏感字段应脱敏 |
-| `idempotencyKey` | String | UNIQUE, NULLABLE | 幂等键 | 防止同一事件重复写入；key 由 module+entityType+entityId+action+requestId+triggerType 的 SHA256 生成 |
+| `metadata` | String | NULLABLE | 附加元数据（JSON 字符串） | 如 `{ itemCount: 42, fileSize: 102400 }` |
+| `idempotencyKey` | String | UNIQUE, NULLABLE | 幂等键 | SHA256(action \| entityType \| entityId \| requestId \| triggerType) |
 | `payloadDigest` | String | NOT NULL | 整条记录摘要 | SHA256，用于检测日志篡改 |
-| `maskVersion` | String | **NOT NULL**, DEFAULT 'v1' | 数据脱敏版本号 | 记录写入时的脱敏规则版本，支持历史数据重新脱敏 |
-| `retainedUntil` | DateTime | **NOT NULL** | 数据保留截止时间 | 必填，根据数据保留策略在写入时计算 |
+| `retainedUntil` | DateTime | NOT NULL | 数据保留截止时间 | 写入时根据保留策略自动计算 |
 | `archivedAt` | DateTime | NULLABLE | 归档时间 | 归档处理后写入，`null` 表示未归档 |
-| `occurredAt` | DateTime | NOT NULL, DEFAULT now() | 事件发生的业务时间 | 与 `createdAt`（系统写入时间）可能因延迟而不同 |
+| `occurredAt` | DateTime | NOT NULL, DEFAULT now() | 事件发生的业务时间 | 与 `createdAt`（系统写入时间）可能因消息延迟而不同 |
 | `createdAt` | DateTime | NOT NULL, DEFAULT now() | 数据库记录写入时间 | |
 | `updatedAt` | DateTime | NOT NULL | 记录最后更新时间 | 自动更新 |
-| `subjectNos` | Relation | — | 关联 `AuditLogSubjectNo[]` | 子表，记录与本条日志关联的业务编号列表（如 ticketNo + approvalNo） |
+| `subjectNos` | Relation | — | 关联 `audit_log_subject_nos[]` | 子表，详见 Section 12 |
+
+> **已删除字段**：`module`（2026-04-29 删除）。workflow 上下文已由 `workflowType` + `entityType` + `action` + `triggerType` 完整覆盖，`module` 字段冗余无独立信息量，从 schema、DTO、所有 service call site 中全部移除。
+
+### 索引
+
+| 索引 | 字段 | 用途 |
+|---|---|---|
+| PK | `id` | 主键查询 |
+| UNIQUE | `auditNo` | 业务编号唯一 |
+| UNIQUE | `idempotencyKey` | 幂等防重 |
+| INDEX | `occurredAt` | 时间范围查询 |
+| INDEX | `triggerType, occurredAt` | 按触发类型过滤 |
+| INDEX | `entityType, entityId` | 按实体查询 |
+| INDEX | `actorType, actorId, occurredAt` | 按操作人查询 |
+| INDEX | `actorNo, occurredAt` | 按操作人业务编号查询 |
+| INDEX | `entityOwnerNo, occurredAt` | 按所有者查询 |
+| INDEX | `traceId, occurredAt` | 按 trace 查询工作流时间线 |
+| INDEX | `workflowType, occurredAt` | 按工作流类型聚合 |
+| INDEX | `result, occurredAt` | 按操作结果过滤 |
+| INDEX | `retainedUntil` | 数据保留清理任务 |
+| INDEX | `archivedAt` | 归档状态查询 |
 
 ### 枚举说明
 
 **TriggerType**（`AuditTriggerType` 枚举）：
 | 值 | 说明 |
 |---|---|
-| `STATE_TRANSITION` | 业务状态机流转（最常见，需提供 `statusFrom`/`statusTo`） |
-| `MANUAL_OVERRIDE` | 人工干预/手动覆盖（需提供 `reason`，action 需以 `MANUAL_` 开头） |
-| `EVIDENCE_EXPORT` | 审计证据导出操作 |
+| `STATE_TRANSITION` | 业务状态机流转 |
+| `MANUAL_OVERRIDE` | 人工干预/手动覆盖 |
+| `EVIDENCE_EXPORT` | 审计证据导出操作（C5 专用） |
 | `AUTH_EVENT` | 认证相关事件（登录、锁定、解锁） |
 | `PERMISSION_CHANGE` | 权限变更操作 |
 | `CONFIG_CHANGE` | 配置变更操作 |
 | `DATA_CREATE` | 数据创建操作 |
 | `DATA_UPDATE` | 数据更新操作 |
 | `DATA_DELETE` | 数据删除操作 |
-| `SYSTEM_EVENT` | 系统内部事件（action 需以 `SYSTEM_` 开头） |
+| `SYSTEM_EVENT` | 系统内部自动触发事件 |
 
 **AuditResult**：
 | 值 | 说明 |
 |---|---|
 | `SUCCESS` | 操作成功 |
-| `FAILED` | 操作失败 |
-| `REJECTED` | 操作被拒绝（如审批拒绝、校验未通过） |
+| `FAILED` | 操作失败（技术性错误） |
+| `REJECTED` | 操作被拒绝（审批拒绝、校验未通过） |
 
 ### 设计说明
 
-- **不可篡改原则**：审计日志应用层禁止 UPDATE/DELETE，数据库层可通过行级安全策略（RLS）或触发器加强保护。
-- **幂等写入**：`idempotencyKey` 保证同一业务事件在重试场景下不会产生重复日志记录。
-- **occurredAt vs createdAt**：`occurredAt` 是业务语义时间（事件实际发生的时间），`createdAt` 是数据库记录写入时间，两者可能因消息队列延迟等原因存在差异。
-- **脱敏管理**：`maskVersion` 记录写入时使用的脱敏规则版本，支持未来对历史数据重新应用新的脱敏策略。
+- **不可篡改原则**：应用层禁止对 `audit_log_events` 执行 UPDATE/DELETE。
+- **幂等写入**：`idempotencyKey`（SHA256）保证同一业务事件在重试场景下不产生重复记录；唯一约束冲突被静默处理，不抛异常。
+- **occurredAt vs createdAt**：`occurredAt` 是业务语义时间，`createdAt` 是 DB 写入时间，两者在事件回放/补录场景下可能不同。
+- **无 module 字段**：上下文由 `workflowType`、`entityType`、`action`、`triggerType` 四字段共同承载，表达力更强且无冗余。
 
 ---
 
@@ -626,9 +640,13 @@ DRAFT → PENDING_APPROVAL → READY → DONE
 
 ### 业务说明
 
-审计证据包（Audit Evidence Package）是将 `audit_log_events` 中的记录打包成可交付证据文件的数据结构。导出操作需要经过审批（`AUDIT_EVIDENCE_EXPORT_APPROVAL`），审批通过后才能正式生成证据包。
+审计证据包（Audit Evidence Package）是将选定的 `audit_log_events` 记录打包成可交付证据文件的数据结构。全流程需经过审批（`AUDIT_EVIDENCE_EXPORT_APPROVAL`）：
 
-证据包一旦创建，状态为 `READY`（即时可用），不经历中间状态。
+1. Maker 发起申请 → 证据包以 `PENDING_APPROVAL` 状态创建
+2. Checker（DPO 或 MLRO）审批通过 → 系统异步执行打包 → 状态变为 `READY`
+3. Operator 下载包文件
+
+证据包从创建到就绪经历多个中间状态（见枚举说明）。
 
 ### 字段定义
 
@@ -637,50 +655,158 @@ DRAFT → PENDING_APPROVAL → READY → DONE
 | `id` | UUID | PK | 主键 | |
 | `packageNo` | String | UNIQUE, NOT NULL | 业务编号 | 格式 `AEP-YYYYMMDD-XXXX` |
 | `approvalCaseId` | String | UNIQUE, NULLABLE | 关联审批单 id | 关联 `approval_cases.id`，UNIQUE 确保 1:1 |
-| `approvalCaseNo` | String | NULLABLE | 关联审批单业务编号 | 冗余字段 |
-| `exportedByType` | String | NOT NULL | 导出人类型 | `ADMIN` / `SYSTEM` |
-| `exportedById` | String | NOT NULL | 导出人用户 id | 关联 `users.id` |
-| `exportedByNo` | String | NULLABLE | 导出人 `userNo` | 冗余字段 |
-| `exportedByRole` | String | NULLABLE | 导出人角色 code | 记录执行导出时使用的角色 |
-| `status` | String | NOT NULL, DEFAULT 'READY' | 包状态 | Wave 1 仅有 `READY` |
-| `exportMode` | String | NOT NULL, DEFAULT 'SELECTION' | 导出模式 | Wave 1 仅有 `SELECTION`（手动选择条目） |
-| `fileName` | String | NULLABLE | 导出文件名 | 如 `audit-evidence-AEP-20260405-0001.json` |
-| `filterSnapshot` | String | NULLABLE | 筛选条件快照（JSON序列化字符串） | 记录导出时使用的筛选参数 |
-| `selectedEventIdsSnapshot` | String | NULLABLE | 选中的事件 ID 列表（JSON序列化字符串） | `SELECTION` 模式下，记录被选中的 `audit_log_events.id` 列表 |
-| `itemCount` | Int | NOT NULL | 导出记录数 | |
-| `digest` | String | NOT NULL | 包内容摘要 | SHA256，用于验证包完整性 |
-| `manifest` | String | NOT NULL | 包清单（JSON序列化字符串） | 描述包内容结构的元数据 |
-| `packageBody` | String | NULLABLE | 包内容 | 序列化的证据内容（JSON 或加密 blob） |
-| `deletedAt` | DateTime | NULLABLE | 软删除时间戳 | 需通过 `delete_requests` 工作流删除 |
+| `approvalCaseNo` | String | NULLABLE | 关联审批单业务编号 | 冗余字段，避免 JOIN |
+| `exportedByType` | String | NOT NULL | 申请人类型 | `ADMIN` |
+| `exportedById` | String | NOT NULL | 申请人用户 id | 关联 `users.id`；审批通过后也是打包执行人 |
+| `exportedByNo` | String | NULLABLE | 申请人 `userNo` | 冗余字段 |
+| `exportedByRole` | String | NULLABLE | 申请人角色 code | 记录申请时使用的角色 |
+| `status` | String | NOT NULL | 证据包状态 | 见下方枚举说明 |
+| `exportMode` | String | NOT NULL, DEFAULT 'SELECTION' | 导出模式 | 目前仅有 `SELECTION`（手动勾选条目） |
+| `fileName` | String | NULLABLE | 生成的文件名 | 格式 `{packageNo}.json`；打包完成前为 null |
+| `filterSnapshot` | String | NULLABLE | 筛选条件快照（JSON 序列化） | 申请时传入的查询参数，包含 startAt/endAt/selectedEventIds 等 |
+| `selectedEventIdsSnapshot` | String | NULLABLE | 选中的事件 ID 列表（JSON 序列化） | `SELECTION` 模式下被选中的 `audit_log_events.id` 列表 |
+| `itemCount` | Int | NOT NULL | 选中记录数 | 创建时由系统计算 |
+| `digest` | String | NOT NULL | 内容摘要 | SHA256；申请阶段为请求摘要，打包完成后更新为包体摘要 |
+| `manifest` | String | NOT NULL | 包清单（JSON 序列化） | 描述包内容结构：版本、时间范围、生成时间、审批信息等 |
+| `packageBody` | String | NULLABLE | 包体内容（JSON 序列化） | 打包完成前为 null；包含 records 列表和 manifest |
+| `deletedAt` | DateTime | NULLABLE | 软删除时间戳 | 需通过 `DELETE_REQUEST_APPROVAL` 工作流删除 |
 | `deletedBy` | String | NULLABLE | 执行软删除的用户 id | |
 | `deleteRequestId` | String | NULLABLE | 关联的删除申请 id | |
 | `deleteReason` | String | NULLABLE | 删除原因 | |
-| `createdAt` | DateTime | NOT NULL | 记录创建时间 | 自动设置 |
+| `createdAt` | DateTime | NOT NULL | 记录创建时间 | 证据包申请提交时创建 |
 | `updatedAt` | DateTime | NOT NULL | 记录最后更新时间 | 自动更新 |
 
 ### 枚举说明
 
-**PackageStatus**（Wave 1）：
-| 值 | 说明 |
-|---|---|
-| `READY` | 证据包已生成，可供下载/提交 |
+**PackageStatus**（完整状态集）：
+| 值 | 说明 | 来源 |
+|---|---|---|
+| `PENDING_APPROVAL` | 审批等待中，尚未生成包体 | 申请创建时写入 |
+| `READY` | 证据包已生成，可供下载 | 审批通过且打包成功后写入 |
+| `FAILED` | 打包执行失败 | 审批通过但生成异常时写入 |
+| `REJECTED` | 审批被拒绝 | Checker 拒绝时写入 |
+| `CANCELLED` | 申请已取消 | 申请人或 SUPER_ADMIN 取消时写入 |
+| `EXPIRED` | 审批超时 | 审批单 expire 时写入 |
 
-**ExportMode**（Wave 1）：
+**ExportMode**：
 | 值 | 说明 |
 |---|---|
-| `SELECTION` | 手动选择特定审计日志条目进行打包 |
+| `SELECTION` | 手动勾选特定审计日志条目打包，目前唯一支持的模式 |
+
+### 索引
+
+| 索引 | 字段 | 用途 |
+|---|---|---|
+| PK | `id` | 主键 |
+| UNIQUE | `packageNo` | 业务编号唯一 |
+| UNIQUE | `approvalCaseId` | 确保 1:1 关联 |
+| INDEX | `createdAt` | 时间排序查询 |
+| INDEX | `exportedByType, exportedById` | 按申请人查询 |
+| INDEX | `status, createdAt` | 按状态过滤 |
+| INDEX | `exportMode, createdAt` | 按导出模式过滤 |
+
+### manifest 结构（参考）
+
+```json
+{
+  "version": "1.0",
+  "generatedAt": "2026-04-29T14:00:00.000Z",
+  "requestPhase": "PENDING_APPROVAL",   // 申请阶段
+  "exportMode": "SELECTION",
+  "criteria": { "startAt": "...", "endAt": "..." },
+  "workflowSummary": { "... breakdown by workflow" },
+  "itemCount": 42,
+  "approvalStatus": "APPROVED",
+  "approvalId": "uuid",
+  "approvedBy": "user-uuid",
+  "approvalDecidedAt": "2026-04-29T14:30:00.000Z"
+}
+```
 
 ### 设计说明
 
-- **审批前置**：证据包的创建申请（`AUDIT_EVIDENCE_EXPORT_APPROVAL`）审批通过后，系统自动执行打包动作并创建此记录。
-- **完整性保证**：`digest` 字段对 `packageBody` 内容做 SHA256 摘要，接收方（如监管机构）可验证证据包在传输过程中未被篡改。
-- **软删除限制**：证据包的删除需要通过 `DELETE_REQUEST_APPROVAL` 审批工作流，不允许直接删除。
+- **两阶段写入**：证据包在申请时创建（`PENDING_APPROVAL`），审批通过后异步更新 `packageBody`、`digest`、`manifest`、`fileName`、`status`，实现申请与生成解耦。
+- **完整性保证**：`digest` 对包体做 SHA256 摘要，监管机构可在收到证据包后独立验证完整性。
+- **软删除限制**：证据包删除须经 `DELETE_REQUEST_APPROVAL` 工作流（`targetType=AUDIT_EVIDENCE_PACKAGE`），禁止直接删除。删除后 `packageBody` 物理数据保留。
 
 ---
 
-## 12. Seed 数据
+## 12. audit_log_subject_nos — 审计主体编号关联表
 
-### 12.1 Wave 1 管理员用户（8 个）
+### 业务说明
+
+每条 `audit_log_events` 记录可以关联多个"主体"（Subject）。主体是与本次审计事件存在业务关系的实体，典型用途：
+
+- C5 导出申请事件同时关联 `AUDIT_EVIDENCE_PACKAGE`（被导出的包）和 `APPROVAL_CASE`（关联的审批单），使 Audit Center 可以通过 packageNo 或 approvalNo 任意一个编号检索到该事件。
+- 审批决策事件同时关联审批单和被审批的业务实体。
+
+`audit_log_subject_nos` 表支持通过 `subjectNo` 精确检索，是 Audit Center 跨实体关联查询的核心索引表。
+
+### 字段定义
+
+| 字段名 | 类型 | 约束 | 说明 | 备注 |
+|---|---|---|---|---|
+| `id` | UUID | PK | 主键 | |
+| `eventId` | String | NOT NULL, FK | 关联 `audit_log_events.id` | 外键，级联删除（`onDelete: Cascade`） |
+| `subjectRole` | String | NOT NULL | 主体在本事件中的角色 | 见下方枚举说明 |
+| `subjectType` | String | NOT NULL | 主体实体类型 | 来自 `AuditEntityTypes` 常量，如 `AUDIT_EVIDENCE_PACKAGE`、`APPROVAL_CASE` |
+| `subjectId` | String | NULLABLE | 主体内部 UUID | 可选，有助于精确关联 |
+| `subjectNo` | String | NOT NULL | 主体业务编号 | 如 `AEP-20260429-0001`、`APR-20260429-0001` |
+| `occurredAt` | DateTime | NOT NULL | 冗余自父事件的 occurredAt | 避免 JOIN 的查询优化字段 |
+| `createdAt` | DateTime | NOT NULL | 记录创建时间 | 自动设置 |
+
+### 枚举说明
+
+**SubjectRole**（`AuditSubjectRole` 枚举）：
+| 值 | 说明 |
+|---|---|
+| `ACTOR` | 主体是操作人（适合记录操作人的业务编号） |
+| `OWNER` | 主体是实体的所有者（如客户） |
+| `ENTITY` | 主体是本事件的核心实体（主角） |
+| `RELATED` | 主体与本事件存在关联关系（配角） |
+| `SOURCE` | 主体是触发本事件的来源实体 |
+
+### 索引
+
+| 索引 | 字段 | 用途 |
+|---|---|---|
+| PK | `id` | 主键 |
+| INDEX | `subjectNo, occurredAt` | 按业务编号检索所有相关事件（核心查询路径） |
+| INDEX | `subjectType, subjectNo, occurredAt` | 按类型+编号精确过滤 |
+| INDEX | `eventId` | 反查某事件的所有 subject |
+
+### 使用示例（C5 EXPORT_REQUESTED 事件）
+
+```typescript
+subjectNos: [
+  {
+    subjectRole: AuditSubjectRole.RELATED,
+    subjectType: AuditEntityTypes.APPROVAL_CASE,
+    subjectId: approval.id,
+    subjectNo: approval.approvalNo,   // 'APR-20260429-0001'
+  },
+  {
+    subjectRole: AuditSubjectRole.RELATED,
+    subjectType: AuditEntityTypes.AUDIT_EVIDENCE_PACKAGE,
+    subjectId: evidencePackage.id,
+    subjectNo: evidencePackage.packageNo,  // 'AEP-20260429-0001'
+  },
+]
+```
+
+效果：Audit Center 可以用 `APR-20260429-0001` 或 `AEP-20260429-0001` 任意一个编号，检索到这条 `EXPORT_REQUESTED` 事件。
+
+### 设计说明
+
+- **子表关系**：`audit_log_subject_nos` 通过 `eventId` 外键关联 `audit_log_events`，级联删除（审计事件理论上不删除，此配置为防御性设置）。
+- **去 JOIN 设计**：`occurredAt` 冗余自父表，支持时间范围 + subjectNo 的复合查询，无需 JOIN。
+- **写入归属**：由 `AuditLogsService` 内部在写入 `audit_log_events` 时同步批量写入，调用方通过 `subjectNos` 数组传入，不直接操作子表。
+
+---
+
+## 13. Seed 数据
+
+### 13.1 Wave 1 管理员用户（8 个）
 
 Wave 1 预置 8 个管理员账号，覆盖所有监管角色。这些账号在 Seed 脚本中创建，用于 demo 环境和开发测试。
 
@@ -697,7 +823,7 @@ Wave 1 预置 8 个管理员账号，覆盖所有监管角色。这些账号在 
 
 > **注意**：所有账号默认密码为 `123456`（仅限 demo 环境），生产环境部署前必须强制修改。
 
-### 12.2 Wave 1 角色定义（8 个）
+### 13.2 Wave 1 角色定义（8 个）
 
 | code | name | VARA 对应 / 职责说明 |
 |---|---|---|
@@ -710,11 +836,11 @@ Wave 1 预置 8 个管理员账号，覆盖所有监管角色。这些账号在 
 | `TECH_OFFICER` | Tech Officer | 平台技术运营与变更管理 |
 | `OPS_OFFICER` | Operations Officer | 资金运营、结算、对账、会计 |
 
-### 12.3 审批策略（Wave 1: 7 条 + Wave 3: 5 条）
+### 13.3 审批策略（Wave 1: 7 条 + Wave 3: 5 条）
 
 详见 [第 6 节](#6-approval_action_policies--审批策略配置表) 中的 Wave 1 Seeded 策略表和 Wave 3 新增策略表。
 
-### 12.4 Wave 1 SoD 规则（1 条）
+### 13.4 Wave 1 SoD 规则（1 条）
 
 | ruleCode | enabled | 说明 |
 |---|---|---|

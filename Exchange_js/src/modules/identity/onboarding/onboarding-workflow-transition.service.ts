@@ -369,7 +369,6 @@ export class OnboardingWorkflowTransitionService {
       {
         triggerType: AuditTriggerType.STATE_TRANSITION,
         action: this.getWorkflowAuditAction(dispositionCode),
-        module: AuditModules.ONBOARDING,
         entityType: AuditEntityTypes.ONBOARDING,
         entityId: customer.id,
         entityNo: customer.customerNo || undefined,
@@ -378,8 +377,6 @@ export class OnboardingWorkflowTransitionService {
         entityOwnerType: 'CUSTOMER',
         entityOwnerId: customer.id,
         entityOwnerNo: customer.customerNo || undefined,
-        statusFrom: fromStatus || undefined,
-        statusTo: toStatus || undefined,
         reason: String(input.reason || '').trim() || dispositionCode,
         metadata: {
           producerType: input.producerType,

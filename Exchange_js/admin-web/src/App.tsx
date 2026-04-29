@@ -146,6 +146,7 @@ const ClearingHeaderTemplateDetail = lazy(() => import('./pages/ClearingHeaderTe
 const ClearingTemplateSnapshot = lazy(() => import('./pages/ClearingTemplateSnapshot'));
 const PricingPolicyList = lazy(() => import('./pages/PricingPolicyList'));
 const PricingPolicyHistory = lazy(() => import('./pages/PricingPolicyHistory'));
+const SodConfigPage = lazy(() => import('./pages/SodConfigPage'));
 
 const FullPageMessage = ({
   title,
@@ -553,6 +554,10 @@ function App() {
             <Route
               path="control-gates/approvals"
               element={withPermission(<ApprovalsPage />, [PERMISSIONS.GOV_APPROVALS_READ])}
+            />
+            <Route
+              path="control-gates/sod-config"
+              element={withPermission(<SodConfigPage />, [PERMISSIONS.GOV_APPROVALS_READ])}
             />
             <Route
               path="control-gates"

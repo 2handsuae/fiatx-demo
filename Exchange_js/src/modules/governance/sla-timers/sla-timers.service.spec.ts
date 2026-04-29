@@ -242,7 +242,6 @@ describe('SlaTimersService', () => {
     expect(auditLogsService.recordByActor).toHaveBeenCalledWith(
       expect.objectContaining({
         action: AuditActions.SLA_TIMER_EXPIRED,
-        statusTo: SlaTimerStatuses.EXPIRED,
       }),
       expect.anything(),
     );

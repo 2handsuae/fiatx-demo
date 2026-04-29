@@ -367,7 +367,6 @@ export class SwapTransactionWorkflowService {
         {
           triggerType: AuditTriggerType.STATE_TRANSITION,
           action: this.buildAuditAction(beforeStatus, nextStatus),
-          module: AuditModules.SWAP_TRANSACTIONS,
           entityType: AuditEntityTypes.SWAP_TRANSACTION,
           entityId: updated.id,
           entityNo: updated.swapNo || undefined,
@@ -376,8 +375,6 @@ export class SwapTransactionWorkflowService {
           entityOwnerType: updated.ownerType,
           entityOwnerId: updated.ownerId,
           entityOwnerNo: updated.ownerNo || undefined,
-          statusFrom: beforeStatus,
-          statusTo: nextStatus,
           reason: input.reason || `Swap workflow action ${input.workflowAction}`,
           metadata: auditMetadata,
           sourcePlatform: input.actor.sourcePlatform || 'SYSTEM',
@@ -395,7 +392,6 @@ export class SwapTransactionWorkflowService {
         {
           triggerType: AuditTriggerType.STATE_TRANSITION,
           action: this.buildAuditAction(beforeStatus, nextStatus),
-          module: AuditModules.SWAP_TRANSACTIONS,
           entityType: AuditEntityTypes.SWAP_TRANSACTION,
           entityId: updated.id,
           entityNo: updated.swapNo || undefined,
@@ -404,8 +400,6 @@ export class SwapTransactionWorkflowService {
           entityOwnerType: updated.ownerType,
           entityOwnerId: updated.ownerId,
           entityOwnerNo: updated.ownerNo || undefined,
-          statusFrom: beforeStatus,
-          statusTo: nextStatus,
           reason: input.reason || `Swap workflow action ${input.workflowAction}`,
           metadata: auditMetadata,
           sourcePlatform: 'SYSTEM',

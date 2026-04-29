@@ -85,7 +85,6 @@ export class ClientRiskAssessmentService {
       entityNo: assessment.assessmentNo,
       entityOwnerType: 'Customer',
       entityOwnerId: input.customerId,
-      module: 'ClientRiskAssessment',
       metadata: { triggerType: input.triggerType },
     });
 
@@ -218,7 +217,6 @@ export class ClientRiskAssessmentService {
           entityId: assessmentId,
           entityOwnerType: 'Customer',
           entityOwnerId: assessment.customerId,
-          module: 'ClientRiskAssessment',
           metadata: { scenarioType: 'LOW_TO_HIGH' },
         });
         await this.tierUpgradeCaseService.createFromCra(assessment);
@@ -239,7 +237,6 @@ export class ClientRiskAssessmentService {
           entityId: assessmentId,
           entityOwnerType: 'Customer',
           entityOwnerId: assessment.customerId,
-          module: 'ClientRiskAssessment',
           metadata: { scenarioType: 'HIGH_TO_HIGH_UPGRADE' },
         });
         await this.postSignoffCascade(assessmentId);
@@ -268,7 +265,6 @@ export class ClientRiskAssessmentService {
           entityId: assessmentId,
           entityOwnerType: 'Customer',
           entityOwnerId: assessment.customerId,
-          module: 'ClientRiskAssessment',
           metadata: { scenarioType: 'LOW_TO_HIGH_FALSE_POSITIVE' },
         });
       } else {
@@ -288,7 +284,6 @@ export class ClientRiskAssessmentService {
           entityId: assessmentId,
           entityOwnerType: 'Customer',
           entityOwnerId: assessment.customerId,
-          module: 'ClientRiskAssessment',
           metadata: { scenarioType: 'HIGH_TO_HIGH_DISMISSED' },
         });
       }
@@ -409,7 +404,6 @@ export class ClientRiskAssessmentService {
         entityId: assessmentId,
         entityOwnerType: 'Customer',
         entityOwnerId: assessment.customerId,
-        module: 'ClientRiskAssessment',
         metadata: { scenarioType: output.scenarioType },
       });
       await this.postSignoffCascade(assessmentId);
@@ -482,7 +476,6 @@ export class ClientRiskAssessmentService {
       entityId: assessment.id,
       entityOwnerType: 'Customer',
       entityOwnerId: customer.id,
-      module: 'ClientRiskAssessment',
       metadata: { labels },
     });
   }

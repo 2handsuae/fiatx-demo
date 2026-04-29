@@ -47,17 +47,11 @@ export class CoaService {
     await this.auditLogsService.recordSystem({
       triggerType: AuditTriggerType.CONFIG_CHANGE,
       action: AuditActions.COA_CONFIG_UPDATED,
-      module: AuditModules.COA,
       entityType: AuditEntityTypes.COA,
       entityId: item.id,
       entityNo: item.code,
       result: AuditResult.SUCCESS,
       reason: 'COA created',
-      afterData: {
-        code: item.code,
-        type: item.type,
-        status: item.status,
-      },
       sourcePlatform: 'ADMIN_API',
     });
 
@@ -127,24 +121,11 @@ export class CoaService {
       await this.auditLogsService.recordSystem({
         triggerType: AuditTriggerType.CONFIG_CHANGE,
         action: AuditActions.COA_CONFIG_UPDATED,
-        module: AuditModules.COA,
         entityType: AuditEntityTypes.COA,
         entityId: item.id,
         entityNo: item.code,
         result: AuditResult.SUCCESS,
         reason: 'COA updated',
-        beforeData: {
-          code: before.code,
-          type: before.type,
-          status: before.status,
-          requiredTags: before.requiredTags,
-        },
-        afterData: {
-          code: item.code,
-          type: item.type,
-          status: item.status,
-          requiredTags: JSON.parse(item.requiredTags),
-        },
         sourcePlatform: 'ADMIN_API',
       });
       return {
@@ -167,17 +148,11 @@ export class CoaService {
       await this.auditLogsService.recordSystem({
         triggerType: AuditTriggerType.CONFIG_CHANGE,
         action: AuditActions.COA_CONFIG_UPDATED,
-        module: AuditModules.COA,
         entityType: AuditEntityTypes.COA,
         entityId: deleted.id,
         entityNo: deleted.code,
         result: AuditResult.SUCCESS,
         reason: 'COA deleted',
-        beforeData: {
-          code: before.code,
-          type: before.type,
-          status: before.status,
-        },
         sourcePlatform: 'ADMIN_API',
       });
       return deleted;

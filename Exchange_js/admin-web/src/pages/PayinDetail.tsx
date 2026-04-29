@@ -113,7 +113,6 @@ interface PayinDetail {
     reason?: string | null;
     createdAt?: string | null;
     occurredAt?: string | null;
-    module?: string | null;
     result?: string | null;
   }>;
   simulationProfile?: {
@@ -565,7 +564,6 @@ const AuditEventList = ({
     reason?: string | null;
     createdAt?: string | null;
     occurredAt?: string | null;
-    module?: string | null;
     result?: string | null;
   }>;
 }) => {
@@ -603,7 +601,6 @@ const AuditEventList = ({
               </div>
               <div className="text-xs text-gray-400">
                 {(event.actorType || 'SYSTEM')}: {event.actorId || event.operatorId || 'SYSTEM'}
-                {event.module ? ` · ${event.module}` : ''}
                 {event.result ? ` · ${event.result}` : ''}
               </div>
             </div>

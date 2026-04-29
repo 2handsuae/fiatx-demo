@@ -71,16 +71,10 @@ export class JournalLineTemplatesService {
     await this.auditLogsService.recordSystem({
       triggerType: AuditTriggerType.CONFIG_CHANGE,
       action: AuditActions.JOURNAL_TEMPLATE_UPDATED,
-      module: AuditModules.JOURNAL_LINE_TEMPLATES,
       entityType: AuditEntityTypes.JOURNAL_LINE_TEMPLATE,
       entityId: created.id,
       result: AuditResult.SUCCESS,
       reason: 'Journal line template created',
-      afterData: {
-        templateId: created.templateId,
-        lineNo: created.lineNo,
-        accountCode: created.accountCode,
-      },
       sourcePlatform: 'ADMIN_API',
     });
 
@@ -132,23 +126,10 @@ export class JournalLineTemplatesService {
       await this.auditLogsService.recordSystem({
         triggerType: AuditTriggerType.CONFIG_CHANGE,
         action: AuditActions.JOURNAL_TEMPLATE_UPDATED,
-        module: AuditModules.JOURNAL_LINE_TEMPLATES,
         entityType: AuditEntityTypes.JOURNAL_LINE_TEMPLATE,
         entityId: updated.id,
         result: AuditResult.SUCCESS,
         reason: 'Journal line template updated',
-        beforeData: {
-          templateId: before.templateId,
-          lineNo: before.lineNo,
-          accountCode: before.accountCode,
-          drCr: before.drCr,
-        },
-        afterData: {
-          templateId: updated.templateId,
-          lineNo: updated.lineNo,
-          accountCode: updated.accountCode,
-          drCr: updated.drCr,
-        },
         sourcePlatform: 'ADMIN_API',
       });
 
@@ -171,16 +152,10 @@ export class JournalLineTemplatesService {
       await this.auditLogsService.recordSystem({
         triggerType: AuditTriggerType.CONFIG_CHANGE,
         action: AuditActions.JOURNAL_TEMPLATE_UPDATED,
-        module: AuditModules.JOURNAL_LINE_TEMPLATES,
         entityType: AuditEntityTypes.JOURNAL_LINE_TEMPLATE,
         entityId: id,
         result: AuditResult.SUCCESS,
         reason: 'Journal line template deleted',
-        beforeData: {
-          templateId: before.templateId,
-          lineNo: before.lineNo,
-          accountCode: before.accountCode,
-        },
         sourcePlatform: 'ADMIN_API',
       });
       return deleted;

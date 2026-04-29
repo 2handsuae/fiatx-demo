@@ -6,6 +6,7 @@ import {
   AuditActions,
   AuditBusinessWorkflowTypes,
   AuditEntityTypes,
+  AuditGovernanceActions,
   AuditModules,
 } from '../../audit-logging/constants/audit-actions.constant';
 import {
@@ -167,39 +168,28 @@ export class AuditEvidenceExportApprovalService {
       },
     });
 
+    const dateRangeFrom = this.normalizeOptionalString((selection.filterSnapshot as any)?.startAt);
+    const dateRangeTo   = this.normalizeOptionalString((selection.filterSnapshot as any)?.endAt);
+
+    // C5-1: export_requested
     await this.auditLogsService.recordByActor(
       {
         triggerType: AuditTriggerType.EVIDENCE_EXPORT,
-        action: AuditActions.AUDIT_EVIDENCE_EXPORT_REQUESTED,
-        module: AuditModules.AUDIT_LOGS,
+        action: AuditGovernanceActions.AUDIT_EVIDENCE_EXPORT.EXPORT_REQUESTED,
         entityType: AuditEntityTypes.AUDIT_EVIDENCE_PACKAGE,
         entityId: evidencePackage.id,
         entityNo: evidencePackage.packageNo,
         workflowType: AuditBusinessWorkflowTypes.AUDIT_EVIDENCE_EXPORT,
         traceId: submitted.traceId,
         result: AuditResult.SUCCESS,
-        reason: `Evidence export request ${evidencePackage.packageNo} created`,
-        metadata: {
-          approvalId: submitted.id,
-          approvalNo: submitted.approvalNo || null,
-          exportMode: evidencePackage.exportMode,
-          itemCount: selection.itemCount,
-          workflowSummary: selection.workflowSummary,
-          ...(submitted.id
-            ? {
-                parentEntityType: 'APPROVAL_CASE',
-                parentEntityId: submitted.id,
-                parentEntityNo: submitted.approvalNo || null,
-              }
-            : {}),
-        },
+        metadata: { dateRangeFrom, dateRangeTo, itemCount: selection.itemCount },
         subjectNos: this.buildApprovalRelatedSubjects(
           evidencePackage.id,
           evidencePackage.packageNo,
           submitted.id,
           submitted.approvalNo || null,
         ),
-        requestId: `EVIDENCE_EXPORT_REQUEST_${evidencePackage.packageNo}`,
+        requestId: `EVIDENCE_EXPORT_REQUESTED_${evidencePackage.packageNo}`,
         sourcePlatform: 'ADMIN_API',
       },
       this.toAuditActor(actor),
@@ -235,37 +225,24 @@ export class AuditEvidenceExportApprovalService {
 
     const downloaded = await this.auditLogsService.downloadEvidencePackage(id);
 
+    // C5-9: package_downloaded
     await this.auditLogsService.recordByActor(
       {
         triggerType: AuditTriggerType.EVIDENCE_EXPORT,
-        action: AuditActions.AUDIT_EVIDENCE_PACKAGE_DOWNLOADED,
-        module: AuditModules.AUDIT_LOGS,
+        action: AuditGovernanceActions.AUDIT_EVIDENCE_EXPORT.PACKAGE_DOWNLOADED,
         entityType: AuditEntityTypes.AUDIT_EVIDENCE_PACKAGE,
         entityId: found.id,
         entityNo: found.packageNo,
         workflowType: AuditBusinessWorkflowTypes.AUDIT_EVIDENCE_EXPORT,
         traceId: this.normalizeOptionalString(found.approvalCase?.traceId) || undefined,
         result: AuditResult.SUCCESS,
-        reason: `Evidence package ${found.packageNo} downloaded`,
-        metadata: {
-          approvalCaseId: found.approvalCaseId,
-          approvalNo: this.normalizeOptionalString(found.approvalCase?.approvalNo),
-          fileName: found.fileName || null,
-          ...(found.approvalCase
-            ? {
-                parentEntityType: 'APPROVAL_CASE',
-                parentEntityId: found.approvalCase.id,
-                parentEntityNo: found.approvalCase.approvalNo,
-              }
-            : {}),
-        },
         subjectNos: this.buildApprovalRelatedSubjects(
           found.id,
           found.packageNo,
           found.approvalCaseId,
           this.normalizeOptionalString(found.approvalCase?.approvalNo),
         ),
-        requestId: `EVIDENCE_EXPORT_DOWNLOAD_${found.packageNo}`,
+        requestId: `EVIDENCE_EXPORT_DOWNLOAD_${found.packageNo}_${Date.now()}`,
         sourcePlatform: 'ADMIN_API',
       },
       this.toAuditActor(actor),
@@ -299,11 +276,44 @@ export class AuditEvidenceExportApprovalService {
       roleCodes: evidencePackage.exportedByRole ? [evidencePackage.exportedByRole] : [],
     };
 
+    const filterSnapshot =
+      this.parseJson<Record<string, unknown>>(evidencePackage.filterSnapshot) || {};
+    const dateRangeFrom = this.normalizeOptionalString(filterSnapshot.startAt);
+    const dateRangeTo   = this.normalizeOptionalString(filterSnapshot.endAt);
+    const checkerActor = {
+      actorType: 'ADMIN' as const,
+      actorId: event.decisionByUserId || exporterActor.userId,
+      actorNo: this.normalizeOptionalString(event.decisionByUserNo) || undefined,
+      actorRole: this.normalizeOptionalString(event.decisionByRole) || undefined,
+    };
+
+    // C5-3: approval_granted
+    await this.auditLogsService.recordByActor(
+      {
+        triggerType: AuditTriggerType.EVIDENCE_EXPORT,
+        action: AuditGovernanceActions.AUDIT_EVIDENCE_EXPORT.APPROVAL_GRANTED,
+        entityType: AuditEntityTypes.AUDIT_EVIDENCE_PACKAGE,
+        entityId: evidencePackage.id,
+        entityNo: evidencePackage.packageNo,
+        workflowType: AuditBusinessWorkflowTypes.AUDIT_EVIDENCE_EXPORT,
+        traceId: event.traceId,
+        result: AuditResult.SUCCESS,
+        metadata: { dateRangeFrom, dateRangeTo, caseId: event.approvalId },
+        subjectNos: this.buildApprovalRelatedSubjects(
+          evidencePackage.id,
+          evidencePackage.packageNo,
+          event.approvalId,
+          this.normalizeOptionalString(event.approvalNo),
+        ),
+        requestId: `EVIDENCE_EXPORT_APPROVAL_GRANTED_${evidencePackage.packageNo}`,
+        sourcePlatform: 'ADMIN_API',
+      },
+      checkerActor,
+    );
+
     try {
       const selectedEventIds =
         this.parseJson<string[]>(evidencePackage.selectedEventIdsSnapshot) || [];
-      const filterSnapshot =
-        this.parseJson<Record<string, unknown>>(evidencePackage.filterSnapshot) || {};
       const exportQuery: ExportEvidencePackageDto = {
         ...filterSnapshot,
         selectedEventIds,
@@ -334,6 +344,9 @@ export class AuditEvidenceExportApprovalService {
         approvalSummary,
       );
 
+      const packageBodyStr = JSON.stringify(artifacts.packageBody);
+      const fileSize = Buffer.byteLength(packageBodyStr, 'utf8');
+
       await this.prisma.auditEvidencePackage.update({
         where: { id: evidencePackage.id },
         data: {
@@ -341,36 +354,23 @@ export class AuditEvidenceExportApprovalService {
           fileName: `${evidencePackage.packageNo}.json`,
           digest: artifacts.digest,
           manifest: this.serializeJson(artifacts.manifest),
-          packageBody: this.serializeJson(artifacts.packageBody),
+          packageBody: packageBodyStr,
         },
       });
 
+      // C5-7: generation_completed
       await this.auditLogsService.recordByActor(
         {
           triggerType: AuditTriggerType.EVIDENCE_EXPORT,
-          action: AuditActions.AUDIT_EVIDENCE_PACKAGE_EXPORTED,
-          module: AuditModules.AUDIT_LOGS,
+          action: AuditGovernanceActions.AUDIT_EVIDENCE_EXPORT.GENERATION_COMPLETED,
           entityType: AuditEntityTypes.AUDIT_EVIDENCE_PACKAGE,
           entityId: evidencePackage.id,
           entityNo: evidencePackage.packageNo,
           workflowType: AuditBusinessWorkflowTypes.AUDIT_EVIDENCE_EXPORT,
-          result: AuditResult.SUCCESS,
-          reason: `Exported ${artifacts.itemCount} audit logs after approval`,
           traceId: event.traceId,
-          metadata: {
-            digest: artifacts.digest,
-            itemCount: artifacts.itemCount,
-            exportMode: evidencePackage.exportMode,
-            approvalId: event.approvalId,
-            ...(event.approvalId
-              ? {
-                  parentEntityType: 'APPROVAL_CASE',
-                  parentEntityId: event.approvalId,
-                  parentEntityNo: this.normalizeOptionalString(event.approvalNo),
-                }
-              : {}),
-          },
-          requestId: `EXPORT_${evidencePackage.packageNo}`,
+          result: AuditResult.SUCCESS,
+          metadata: { fileSize, fileCount: artifacts.itemCount },
+          requestId: `EVIDENCE_EXPORT_GENERATION_COMPLETED_${evidencePackage.packageNo}`,
           sourcePlatform: 'ADMIN_API',
         },
         this.toAuditActor(exporterActor),
@@ -391,10 +391,28 @@ export class AuditEvidenceExportApprovalService {
     } catch (error) {
       await this.prisma.auditEvidencePackage.update({
         where: { id: evidencePackage.id },
-        data: {
-          status: AuditEvidencePackageStatus.FAILED,
-        },
+        data: { status: AuditEvidencePackageStatus.FAILED },
       });
+
+      // C5-8: generation_failed
+      await this.auditLogsService.recordByActor(
+        {
+          triggerType: AuditTriggerType.EVIDENCE_EXPORT,
+          action: AuditGovernanceActions.AUDIT_EVIDENCE_EXPORT.GENERATION_FAILED,
+          entityType: AuditEntityTypes.AUDIT_EVIDENCE_PACKAGE,
+          entityId: evidencePackage.id,
+          entityNo: evidencePackage.packageNo,
+          workflowType: AuditBusinessWorkflowTypes.AUDIT_EVIDENCE_EXPORT,
+          traceId: event.traceId,
+          result: AuditResult.FAILED,
+          metadata: {
+            failureReason: error instanceof Error ? error.message : 'Evidence export generation failed',
+          },
+          requestId: `EVIDENCE_EXPORT_GENERATION_FAILED_${evidencePackage.packageNo}_${Date.now()}`,
+          sourcePlatform: 'ADMIN_API',
+        },
+        this.toAuditActor(exporterActor),
+      ).catch(() => { /* best-effort — don't mask original error */ });
 
       await this.approvalsService.markExecutionResult(
         event.approvalId,
@@ -417,15 +435,57 @@ export class AuditEvidenceExportApprovalService {
       return;
     }
 
+    const evidencePackage = await this.prisma.auditEvidencePackage.findFirst({
+      where: {
+        deletedAt: null,
+        OR: [{ approvalCaseId: event.approvalId }, { id: event.entityRef }],
+      },
+    });
+
     await this.prisma.auditEvidencePackage.updateMany({
       where: {
         deletedAt: null,
         OR: [{ approvalCaseId: event.approvalId }, { id: event.entityRef }],
       },
-      data: {
-        status: AuditEvidencePackageStatus.REJECTED,
-      },
+      data: { status: AuditEvidencePackageStatus.REJECTED },
     });
+
+    if (evidencePackage) {
+      const filterSnapshot =
+        this.parseJson<Record<string, unknown>>(evidencePackage.filterSnapshot) || {};
+      const dateRangeFrom = this.normalizeOptionalString(filterSnapshot.startAt);
+      const dateRangeTo   = this.normalizeOptionalString(filterSnapshot.endAt);
+      const deciderActor = {
+        actorType: 'ADMIN' as const,
+        actorId: event.decisionByUserId || evidencePackage.exportedById,
+        actorNo: this.normalizeOptionalString(event.decisionByUserNo) || undefined,
+        actorRole: this.normalizeOptionalString(event.decisionByRole) || undefined,
+      };
+
+      // C5-4: approval_declined
+      await this.auditLogsService.recordByActor(
+        {
+          triggerType: AuditTriggerType.EVIDENCE_EXPORT,
+          action: AuditGovernanceActions.AUDIT_EVIDENCE_EXPORT.APPROVAL_DECLINED,
+          entityType: AuditEntityTypes.AUDIT_EVIDENCE_PACKAGE,
+          entityId: evidencePackage.id,
+          entityNo: evidencePackage.packageNo,
+          workflowType: AuditBusinessWorkflowTypes.AUDIT_EVIDENCE_EXPORT,
+          traceId: event.traceId,
+          result: AuditResult.REJECTED,
+          metadata: { dateRangeFrom, dateRangeTo, caseId: event.approvalId },
+          subjectNos: this.buildApprovalRelatedSubjects(
+            evidencePackage.id,
+            evidencePackage.packageNo,
+            event.approvalId,
+            this.normalizeOptionalString(event.approvalNo),
+          ),
+          requestId: `EVIDENCE_EXPORT_APPROVAL_DECLINED_${evidencePackage.packageNo}`,
+          sourcePlatform: 'ADMIN_API',
+        },
+        deciderActor,
+      ).catch(() => { /* best-effort */ });
+    }
   }
 
   @OnEvent(ApprovalEvents.CANCELLED, { async: true })
@@ -434,15 +494,53 @@ export class AuditEvidenceExportApprovalService {
       return;
     }
 
+    const evidencePackage = await this.prisma.auditEvidencePackage.findFirst({
+      where: {
+        deletedAt: null,
+        OR: [{ approvalCaseId: event.approvalId }, { id: event.entityRef }],
+      },
+    });
+
     await this.prisma.auditEvidencePackage.updateMany({
       where: {
         deletedAt: null,
         OR: [{ approvalCaseId: event.approvalId }, { id: event.entityRef }],
       },
-      data: {
-        status: AuditEvidencePackageStatus.CANCELLED,
-      },
+      data: { status: AuditEvidencePackageStatus.CANCELLED },
     });
+
+    if (evidencePackage) {
+      const cancelerActor = {
+        actorType: 'ADMIN' as const,
+        actorId: event.decisionByUserId || evidencePackage.exportedById,
+        actorNo: this.normalizeOptionalString(event.decisionByUserNo) || undefined,
+        actorRole: this.normalizeOptionalString(event.decisionByRole) || undefined,
+      };
+
+      // C5-5: approval_cancelled
+      await this.auditLogsService.recordByActor(
+        {
+          triggerType: AuditTriggerType.EVIDENCE_EXPORT,
+          action: AuditGovernanceActions.AUDIT_EVIDENCE_EXPORT.APPROVAL_CANCELLED,
+          entityType: AuditEntityTypes.AUDIT_EVIDENCE_PACKAGE,
+          entityId: evidencePackage.id,
+          entityNo: evidencePackage.packageNo,
+          workflowType: AuditBusinessWorkflowTypes.AUDIT_EVIDENCE_EXPORT,
+          traceId: event.traceId,
+          result: AuditResult.SUCCESS,
+          metadata: { caseId: event.approvalId },
+          subjectNos: this.buildApprovalRelatedSubjects(
+            evidencePackage.id,
+            evidencePackage.packageNo,
+            event.approvalId,
+            this.normalizeOptionalString(event.approvalNo),
+          ),
+          requestId: `EVIDENCE_EXPORT_APPROVAL_CANCELLED_${evidencePackage.packageNo}`,
+          sourcePlatform: 'ADMIN_API',
+        },
+        cancelerActor,
+      ).catch(() => { /* best-effort */ });
+    }
   }
 
   @OnEvent(ApprovalEvents.EXPIRED, { async: true })

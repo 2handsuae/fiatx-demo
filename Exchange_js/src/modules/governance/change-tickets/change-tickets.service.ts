@@ -83,8 +83,6 @@ interface ApprovalProjectionResult {
   action?: string;
   reason?: string;
   result?: AuditResult;
-  statusFrom?: string;
-  statusTo?: string;
   approvalNo?: string | null;
 }
 
@@ -276,8 +274,6 @@ export class ChangeTicketsService {
       actor,
       AuditResult.SUCCESS,
       'Change ticket created',
-      null,
-      ChangeTicketStatuses.DRAFT,
     );
 
     return this.mapTicket(created);
@@ -391,8 +387,6 @@ export class ChangeTicketsService {
     actor: ApprovalActorContext,
     result: AuditResult,
     reason?: string | null,
-    statusFrom?: string | null,
-    statusTo?: string | null,
     metadata?: Record<string, unknown>,
     approvalNo?: string | null,
   ) {
@@ -400,14 +394,11 @@ export class ChangeTicketsService {
       {
         triggerType: AuditTriggerType.DATA_UPDATE,
         action,
-        module: AuditModules.GOVERNANCE_CHANGE_TICKETS,
         entityType: AuditEntityTypes.CHANGE_TICKET,
         entityId: ticket.id,
         entityNo: ticket.ticketNo,
         workflowType: this.resolveBusinessWorkflowType(ticket.changeType),
         traceId: ticket.traceId,
-        statusFrom: statusFrom || undefined,
-        statusTo: statusTo || undefined,
         result,
         reason: reason || undefined,
         metadata: {
@@ -530,8 +521,6 @@ export class ChangeTicketsService {
       action,
       reason,
       result,
-      statusFrom: ticket.status,
-      statusTo: nextStatus,
       approvalNo,
     };
   }
@@ -569,8 +558,6 @@ export class ChangeTicketsService {
         this.systemActor(),
         projection.result || AuditResult.SUCCESS,
         projection.reason,
-        projection.statusFrom,
-        projection.statusTo,
         undefined,
         projection.approvalNo,
       );
@@ -780,8 +767,6 @@ export class ChangeTicketsService {
       actor,
       AuditResult.SUCCESS,
       this.normalizeOptionalString(dto.reason) || 'Change ticket submitted',
-      ChangeTicketStatuses.DRAFT,
-      ChangeTicketStatuses.PENDING_APPROVAL,
       {
         approvalCaseId: approval?.id || null,
       },
@@ -800,8 +785,6 @@ export class ChangeTicketsService {
         actor,
         AuditResult.SUCCESS,
         `Approval ${approval.approvalNo} linked`,
-        ChangeTicketStatuses.PENDING_APPROVAL,
-        ChangeTicketStatuses.PENDING_APPROVAL,
         {
           approvalCaseId: approval.id,
         },
@@ -848,8 +831,6 @@ export class ChangeTicketsService {
       actor,
       dto.success ? AuditResult.SUCCESS : AuditResult.FAILED,
       note || (dto.success ? 'Change ticket consumed successfully' : 'Change ticket consume failed'),
-      ChangeTicketStatuses.READY,
-      nextStatus,
       {
         consumed: true,
       },

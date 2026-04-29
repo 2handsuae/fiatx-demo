@@ -595,7 +595,6 @@ describe('WithdrawTransactionsService', () => {
         actorId: 'SYSTEM',
         reason: 'closeout',
         occurredAt: '2026-03-28T10:00:00.000Z',
-        module: 'orchestrators/withdraw-workflow',
         result: 'SUCCESS',
       },
     ]);

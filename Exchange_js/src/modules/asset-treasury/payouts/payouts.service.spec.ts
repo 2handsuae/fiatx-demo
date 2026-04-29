@@ -419,7 +419,6 @@ describe('PayoutsService', () => {
         actorId: 'SYSTEM',
         reason: 'closeout',
         occurredAt: '2026-03-28T11:00:00.000Z',
-        module: 'asset-treasury/payouts',
         result: 'SUCCESS',
       },
     ]);

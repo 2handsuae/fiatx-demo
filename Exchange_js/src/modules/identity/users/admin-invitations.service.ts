@@ -279,7 +279,6 @@ export class AdminInvitationsService {
       this.applyAuditContext({
         action: options.action,
         triggerType: AuditTriggerType.PERMISSION_CHANGE,
-        module: AuditModules.ACCESS_CONTROL,
         entityType: AuditEntityTypes.ACCESS_CONTROL,
         entityId: user.id,
         entityNo: user.userNo,
@@ -473,7 +472,6 @@ export class AdminInvitationsService {
         this.applyAuditContext({
           triggerType: AuditTriggerType.AUTH_EVENT,
           action: AuditActions.ADMIN_INVITATION_ACCEPTED,
-          module: AuditModules.AUTH,
           entityType: AuditEntityTypes.AUTH,
           entityId: accepted.id,
           entityNo: accepted.userNo,
@@ -501,7 +499,6 @@ export class AdminInvitationsService {
         this.applyAuditContext({
           triggerType: AuditTriggerType.AUTH_EVENT,
           action: AuditActions.ADMIN_INVITATION_ACCEPT_FAILED,
-          module: AuditModules.AUTH,
           entityType: AuditEntityTypes.AUTH,
           result: AuditResult.FAILED,
           reason: error?.message || 'Admin invitation accept failed',

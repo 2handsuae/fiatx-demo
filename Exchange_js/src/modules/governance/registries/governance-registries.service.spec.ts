@@ -195,8 +195,6 @@ describe('GovernanceRegistriesService', () => {
     expect(auditLogsService.recordByActor).toHaveBeenCalledWith(
       expect.objectContaining({
         entityNo: 'APT2603300001',
-        statusFrom: 'PLANNED',
-        statusTo: 'ACTIVE',
       }),
       expect.anything(),
     );

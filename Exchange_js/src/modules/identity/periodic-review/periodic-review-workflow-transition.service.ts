@@ -133,8 +133,6 @@ export class PeriodicReviewWorkflowTransitionService {
     cycle: any,
     input: WorkflowTransitionInput,
     dispositionCode: string,
-    fromStatus: string,
-    toStatus: string,
     caseType: string | null,
     caseId: string | null,
   ) {
@@ -145,7 +143,6 @@ export class PeriodicReviewWorkflowTransitionService {
       {
         triggerType: AuditTriggerType.STATE_TRANSITION,
         action: this.getWorkflowAuditAction(dispositionCode),
-        module: AuditModules.ONBOARDING,
         entityType: AuditEntityTypes.ONBOARDING,
         entityId: customer.id,
         entityNo: customer.customerNo || undefined,
@@ -155,8 +152,6 @@ export class PeriodicReviewWorkflowTransitionService {
         entityOwnerType: 'CUSTOMER',
         entityOwnerId: customer.id,
         entityOwnerNo: customer.customerNo || undefined,
-        statusFrom: fromStatus || undefined,
-        statusTo: toStatus || undefined,
         reason: String(input.reason || '').trim() || dispositionCode,
         metadata: {
           producerType: input.producerType,
@@ -580,8 +575,6 @@ export class PeriodicReviewWorkflowTransitionService {
       cycle,
       input,
       dispositionCode,
-      fromStatus,
-      toStatus,
       caseType,
       caseId,
     );

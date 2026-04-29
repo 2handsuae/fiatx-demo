@@ -17,7 +17,6 @@ import {
 } from './constants/audit-actions.constant';
 import {
   AuditActorContext,
-  AuditDeltaEvidence,
   AuditEvidenceExportMode,
   AuditEvidencePackageStatus,
   AuditLogView,
@@ -30,8 +29,6 @@ import {
   ExportEvidencePackageDto,
 } from './dto/audit-log.dto';
 import {
-  AUDIT_MASK_VERSION,
-  maskAuditPayload,
   maskIpAddress,
 } from './utils/audit-mask.util';
 import { sha256Hex } from './utils/audit-digest.util';
@@ -169,7 +166,9 @@ export class AuditLogsService {
   private static readonly DEFAULT_EXPORT_MAX_ITEMS = 1000;
   private static readonly MAX_EXPORT_MAX_ITEMS = 5000;
   private static readonly RETENTION_YEARS = 8;
-  private static readonly ACTION_NAME_RE = /^[A-Z0-9]+(?:_[A-Z0-9]+)*$/;
+  /** Accepts UPPER_SNAKE_CASE (legacy) or dotted.lowercase.path (governance) */
+  private static readonly ACTION_NAME_RE =
+    /^(?:[A-Z0-9]+(?:_[A-Z0-9]+)*|[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)*)$/;
   private static readonly STATE_TRANSITION_ACTION_ALLOWLIST: Set<string> = new Set([
     AuditActions.CDD_SUBMITTED,
     AuditActions.CDD_APPROVED,
@@ -844,26 +843,6 @@ export class AuditLogsService {
     }
   }
 
-  private normalizeAuditDeltaEvidence(value: unknown): AuditDeltaEvidence {
-    if (value === undefined || value === null) {
-      return null;
-    }
-
-    const digest = sha256Hex(value);
-
-    if (Array.isArray(value) || typeof value !== 'object') {
-      return {
-        digest,
-        value,
-      };
-    }
-
-    return {
-      ...(value as Record<string, unknown>),
-      digest,
-    };
-  }
-
   private mapEvidencePackage(raw: any) {
     return {
       ...raw,
@@ -946,10 +925,6 @@ export class AuditLogsService {
     return retainedUntil;
   }
 
-  private hasPayload(value: unknown): boolean {
-    return value !== null && value !== undefined;
-  }
-
   private isDeleteAction(action: string): boolean {
     return (
       action.includes('DELETE') ||
@@ -965,15 +940,10 @@ export class AuditLogsService {
     if (input.triggerType) return input.triggerType;
 
     const action = String(input.action || '').toUpperCase();
-    const module = String(input.module || '').toLowerCase();
     const entityType = String(input.entityType || '').toUpperCase();
 
     if (action === AuditActions.AUDIT_EVIDENCE_PACKAGE_EXPORTED) {
       return AuditTriggerType.EVIDENCE_EXPORT;
-    }
-
-    if (input.statusFrom && input.statusTo && input.statusFrom !== input.statusTo) {
-      return AuditTriggerType.STATE_TRANSITION;
     }
 
     if (action.startsWith('MANUAL_')) {
@@ -981,7 +951,6 @@ export class AuditLogsService {
     }
 
     if (
-      module.includes('/auth') ||
       action.includes('LOGIN') ||
       action.includes('LOGOUT') ||
       action.includes('LOCK') ||
@@ -999,7 +968,6 @@ export class AuditLogsService {
     }
 
     if (
-      module.includes('config') ||
       action.endsWith('_CONFIG_UPDATED') ||
       action.includes('ACCT_EVENT_UPDATED') ||
       action.includes('CLEARING_TEMPLATE_UPDATED')
@@ -1007,15 +975,7 @@ export class AuditLogsService {
       return AuditTriggerType.CONFIG_CHANGE;
     }
 
-    const hasBefore = this.hasPayload(input.beforeData);
-    const hasAfter = this.hasPayload(input.afterData);
-
-    if (!hasBefore && hasAfter) {
-      return AuditTriggerType.DATA_CREATE;
-    }
-
     if (
-      (hasBefore && hasAfter) ||
       action.endsWith('_UPDATED') ||
       action.includes('_UPDATE_') ||
       action.includes('MODIFIED')
@@ -1023,7 +983,7 @@ export class AuditLogsService {
       return AuditTriggerType.DATA_UPDATE;
     }
 
-    if ((hasBefore && !hasAfter) || this.isDeleteAction(action)) {
+    if (this.isDeleteAction(action)) {
       return AuditTriggerType.DATA_DELETE;
     }
 
@@ -1043,11 +1003,10 @@ export class AuditLogsService {
     triggerType: AuditTriggerType,
   ): string | null {
     if (input.idempotencyKey) return input.idempotencyKey;
-    if (!input.module || !input.action) return null;
+    if (!input.action) return null;
     const normalizedRequestId = this.normalizeOptionalString(input.requestId);
 
     const parts = [
-      input.module,
       input.entityType,
       input.entityId || 'NA',
       input.action,
@@ -1062,26 +1021,21 @@ export class AuditLogsService {
     input: CreateAuditLogEventDto,
     triggerType: AuditTriggerType,
   ) {
-    const normalizedAction = String(input.action || '').trim().toUpperCase();
-    if (!AuditLogsService.ACTION_NAME_RE.test(normalizedAction)) {
+    // Test raw action string to support both UPPER_SNAKE_CASE and dotted.lowercase.path
+    const action = String(input.action || '').trim();
+    if (!AuditLogsService.ACTION_NAME_RE.test(action)) {
       throw new BadRequestException(
-        'action must be UPPER_SNAKE_CASE (e.g. ENTITY_VERB or ENTITY_FROM_TO)',
+        'action must be UPPER_SNAKE_CASE (e.g. ENTITY_VERB) or dotted.lowercase.path (e.g. governance.admin_invite.initiated)',
       );
     }
+    // Legacy uppercase checks
+    const normalizedAction = action.toUpperCase();
 
     if (
       triggerType === AuditTriggerType.STATE_TRANSITION &&
-      (!input.statusFrom || !input.statusTo)
-    ) {
-      throw new BadRequestException(
-        'statusFrom/statusTo are required for STATE_TRANSITION triggerType',
-      );
-    }
-
-    if (
-      triggerType === AuditTriggerType.STATE_TRANSITION &&
-      !normalizedAction.includes('_TO_') &&
-      !AuditLogsService.STATE_TRANSITION_ACTION_ALLOWLIST.has(normalizedAction)
+      /^[A-Z0-9_]+$/.test(action) && // only enforce pattern for uppercase-format actions
+      !action.includes('_TO_') &&
+      !AuditLogsService.STATE_TRANSITION_ACTION_ALLOWLIST.has(action)
     ) {
       throw new BadRequestException(
         'STATE_TRANSITION action must follow <ENTITY>_<FROM_STATUS>_TO_<TO_STATUS> or approved allowlist',
@@ -1131,8 +1085,6 @@ export class AuditLogsService {
 
   private mapEvent(raw: any): AuditLogView {
     const metadata = this.parseJson(raw.metadata);
-    const beforeData = this.normalizeAuditDeltaEvidence(this.parseJson(raw.beforeData));
-    const afterData = this.normalizeAuditDeltaEvidence(this.parseJson(raw.afterData));
     const subjectNos = Array.isArray(raw.subjectNos)
       ? raw.subjectNos.map((item: any) => ({
           id: item.id,
@@ -1159,7 +1111,6 @@ export class AuditLogsService {
       userAction,
       userActionLabel: this.toDisplayLabel(userAction),
       action: raw.action,
-      module: raw.module,
       entityType: raw.entityType,
       entityId: raw.entityId ?? null,
       entityNo: raw.entityNo ?? null,
@@ -1168,8 +1119,6 @@ export class AuditLogsService {
       entityOwnerType: raw.entityOwnerType ?? null,
       entityOwnerId: raw.entityOwnerId ?? null,
       entityOwnerNo: raw.entityOwnerNo ?? null,
-      statusFrom: raw.statusFrom ?? null,
-      statusTo: raw.statusTo ?? null,
       actorType: raw.actorType,
       actorId: raw.actorId,
       actorNo: raw.actorNo ?? null,
@@ -1180,10 +1129,7 @@ export class AuditLogsService {
       result: raw.result ?? null,
       reason: raw.reason ?? null,
       metadata,
-      beforeData,
-      afterData,
       payloadDigest: raw.payloadDigest ?? null,
-      maskVersion: raw.maskVersion ?? null,
       retainedUntil: raw.retainedUntil ?? null,
       subjectNos,
       occurredAt: raw.occurredAt,
@@ -1405,7 +1351,6 @@ export class AuditLogsService {
     const where: any = {};
     const andClauses: any[] = [];
     if (query.triggerType) andClauses.push({ triggerType: query.triggerType });
-    if (query.module) andClauses.push({ module: query.module });
     if (query.entityType) andClauses.push({ entityType: query.entityType });
     if (query.entityId) andClauses.push({ entityId: query.entityId });
     if (query.actorId) andClauses.push({ actorId: query.actorId });
@@ -1442,7 +1387,6 @@ export class AuditLogsService {
       andClauses.push({
         OR: [
           { action: { contains: query.keyword } },
-          { module: { contains: query.keyword } },
           { entityType: { contains: query.keyword } },
           { entityId: { contains: query.keyword } },
           { entityNo: { contains: query.keyword } },
@@ -1789,9 +1733,6 @@ export class AuditLogsService {
     const triggerType = this.inferTriggerType(input, actor);
     this.validateInput(input, triggerType);
 
-    const maskedMetadata = maskAuditPayload(input.metadata || null);
-    const maskedBeforeData = maskAuditPayload(input.beforeData || null);
-    const maskedAfterData = maskAuditPayload(input.afterData || null);
     const maskedSourceIp = maskIpAddress(input.sourceIp);
     const normalizedRequestId = this.normalizeOptionalString(input.requestId);
 
@@ -1819,7 +1760,6 @@ export class AuditLogsService {
     const payloadDigest = sha256Hex({
       triggerType,
       action: input.action,
-      module: input.module,
       entityType: input.entityType,
       entityId: input.entityId || null,
       entityNo: entityNo || null,
@@ -1828,8 +1768,6 @@ export class AuditLogsService {
       entityOwnerType: input.entityOwnerType || null,
       entityOwnerId: input.entityOwnerId || null,
       entityOwnerNo: entityOwnerNo || null,
-      statusFrom: input.statusFrom || null,
-      statusTo: input.statusTo || null,
       actorType: actor.actorType,
       actorId: actor.actorId,
       actorNo: actorNo || null,
@@ -1839,11 +1777,8 @@ export class AuditLogsService {
       sourcePlatform: input.sourcePlatform || null,
       result: input.result || AuditResult.SUCCESS,
       reason: input.reason || null,
-      metadata: maskedMetadata,
-      beforeData: maskedBeforeData,
-      afterData: maskedAfterData,
+      metadata: input.metadata ?? null,
       occurredAt: occurredAt.toISOString(),
-      maskVersion: AUDIT_MASK_VERSION,
       retainedUntil: retainedUntil.toISOString(),
       subjectNos,
     });
@@ -1852,7 +1787,6 @@ export class AuditLogsService {
       {
         triggerType,
         action: input.action,
-        module: input.module,
         entityType: input.entityType,
         entityId: input.entityId ?? null,
         entityNo: entityNo ?? null,
@@ -1861,8 +1795,6 @@ export class AuditLogsService {
         entityOwnerType: input.entityOwnerType ?? null,
         entityOwnerId: input.entityOwnerId ?? null,
         entityOwnerNo: entityOwnerNo ?? null,
-        statusFrom: input.statusFrom ?? null,
-        statusTo: input.statusTo ?? null,
         actorType: actor.actorType,
         actorId: actor.actorId,
         actorNo: actorNo ?? null,
@@ -1872,12 +1804,9 @@ export class AuditLogsService {
         sourcePlatform: input.sourcePlatform ?? null,
         result: input.result ?? AuditResult.SUCCESS,
         reason: input.reason ?? null,
-        metadata: this.serializeJson(maskedMetadata),
-        beforeData: this.serializeJson(maskedBeforeData),
-        afterData: this.serializeJson(maskedAfterData),
+        metadata: this.serializeJson(input.metadata ?? null),
         idempotencyKey,
         payloadDigest,
-        maskVersion: AUDIT_MASK_VERSION,
         retainedUntil,
         occurredAt,
       },

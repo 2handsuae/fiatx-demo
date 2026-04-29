@@ -1351,7 +1351,6 @@ export class PricingCenterService {
       {
         triggerType: AuditTriggerType.DATA_UPDATE,
         action: AuditActions.SWAP_PRODUCT_RESTRICTED,
-        module: AuditModules.PRICING_CENTER,
         entityType: AuditEntityTypes.SWAP_QUOTE,
         entityId: `RESTRICTION:${input.ownerId}:${input.fromAssetId}:${input.toAssetId}`,
         entityOwnerType: input.ownerType,
@@ -1531,7 +1530,6 @@ export class PricingCenterService {
     ownerId: string;
     ownerNo?: string | null;
     assetId: string;
-    module: string;
     entityType: string;
     entityId: string;
     entityNo?: string | null;
@@ -1557,7 +1555,6 @@ export class PricingCenterService {
       {
         triggerType: AuditTriggerType.DATA_UPDATE,
         action: AuditActions.WITHDRAW_EXTREME_VOLATILITY_BLOCKED,
-        module: input.module,
         entityType: input.entityType,
         entityId: input.entityId,
         entityNo: input.entityNo || undefined,
@@ -2038,16 +2035,11 @@ export class PricingCenterService {
         {
           triggerType: AuditTriggerType.DATA_CREATE,
           action: AuditActions.SWAP_PRICING_SIMULATED,
-          module: AuditModules.PRICING_CENTER,
           entityType: AuditEntityTypes.PRICING_POLICY,
           entityId: SWAP_POLICY_CODE,
           entityNo: quote.matched.pairId,
           result: AuditResult.SUCCESS,
           reason: 'Swap pricing simulated',
-          afterData: {
-            quoteId: quote.quoteId,
-            matched: quote.matched,
-          },
           sourcePlatform: 'ADMIN_API',
         },
         actor,
@@ -2153,7 +2145,6 @@ export class PricingCenterService {
       {
         triggerType: AuditTriggerType.DATA_CREATE,
         action: AuditActions.SWAP_QUOTE_CREATED,
-        module: AuditModules.SWAP_QUOTES,
         entityType: AuditEntityTypes.SWAP_QUOTE,
         entityId: created.id,
         entityNo: created.quoteNo || undefined,
@@ -2162,14 +2153,6 @@ export class PricingCenterService {
         entityOwnerNo: created.ownerNo || undefined,
         result: AuditResult.SUCCESS,
         reason: 'Swap quote created',
-        afterData: {
-          status: created.status,
-          fromAssetId: created.fromAssetId,
-          toAssetId: created.toAssetId,
-          amountIn: created.amountIn.toString(),
-          amountOut: created.amountOut.toString(),
-          expiresAt: created.expiresAt,
-        },
         sourcePlatform: ownerType === 'CUSTOMER' ? 'CUSTOMER_API' : 'SYSTEM',
       },
       this.buildQuoteActor(ownerType, ownerId, created.ownerNo),
@@ -2247,7 +2230,6 @@ export class PricingCenterService {
       {
         triggerType: AuditTriggerType.DATA_UPDATE,
         action: AuditActions.SWAP_QUOTE_USED,
-        module: AuditModules.SWAP_QUOTES,
         entityType: AuditEntityTypes.SWAP_QUOTE,
         entityId: updated.id,
         entityNo: updated.quoteNo || undefined,
@@ -2256,10 +2238,6 @@ export class PricingCenterService {
         entityOwnerNo: updated.ownerNo || undefined,
         result: AuditResult.SUCCESS,
         reason: 'Swap quote consumed',
-        statusFrom: SwapQuoteStatus.ACTIVE,
-        statusTo: SwapQuoteStatus.USED,
-        beforeData: { status: SwapQuoteStatus.ACTIVE },
-        afterData: { status: SwapQuoteStatus.USED, usedAt: updated.usedAt },
         sourcePlatform: ownerType === 'CUSTOMER' ? 'CUSTOMER_API' : 'SYSTEM',
       },
       this.buildQuoteActor(ownerType, ownerId, updated.ownerNo),
@@ -2308,7 +2286,6 @@ export class PricingCenterService {
       {
         triggerType: AuditTriggerType.DATA_UPDATE,
         action: AuditActions.SWAP_QUOTE_CANCELLED,
-        module: AuditModules.SWAP_QUOTES,
         entityType: AuditEntityTypes.SWAP_QUOTE,
         entityId: cancelled.id,
         entityNo: cancelled.quoteNo || undefined,
@@ -2317,13 +2294,6 @@ export class PricingCenterService {
         entityOwnerNo: cancelled.ownerNo || undefined,
         result: AuditResult.SUCCESS,
         reason: 'Swap quote cancelled',
-        statusFrom: SwapQuoteStatus.ACTIVE,
-        statusTo: SwapQuoteStatus.CANCELLED,
-        beforeData: { status: SwapQuoteStatus.ACTIVE },
-        afterData: {
-          status: SwapQuoteStatus.CANCELLED,
-          cancelledAt: cancelled.cancelledAt,
-        },
         sourcePlatform: ownerType === 'CUSTOMER' ? 'CUSTOMER_API' : 'SYSTEM',
       },
       this.buildQuoteActor(ownerType, ownerId, cancelled.ownerNo),
@@ -2418,16 +2388,11 @@ export class PricingCenterService {
         {
           triggerType: AuditTriggerType.DATA_CREATE,
           action: AuditActions.WITHDRAW_PRICING_SIMULATED,
-          module: AuditModules.PRICING_CENTER,
           entityType: AuditEntityTypes.PRICING_POLICY,
           entityId: WITHDRAWAL_POLICY_CODE,
           entityNo: quote.matched.assetEntryId,
           result: AuditResult.SUCCESS,
           reason: 'Withdrawal pricing simulated',
-          afterData: {
-            quoteId: quote.quoteId,
-            matched: quote.matched,
-          },
           sourcePlatform: 'ADMIN_API',
         },
         actor,
@@ -2448,7 +2413,6 @@ export class PricingCenterService {
       ownerId,
       ownerNo,
       assetId: dto.assetId,
-      module: AuditModules.PRICING_CENTER,
       entityType: AuditEntityTypes.WITHDRAW_PRICING_QUOTE,
       entityId: `WITHDRAW_QUOTE_RESTRICTION:${ownerId}:${dto.assetId}`,
       sourcePlatform: ownerType === 'CUSTOMER' ? 'CUSTOMER_API' : 'ADMIN_API',
@@ -2488,7 +2452,6 @@ export class PricingCenterService {
       {
         triggerType: AuditTriggerType.DATA_CREATE,
         action: AuditActions.WITHDRAW_PRICING_QUOTE_CREATED,
-        module: AuditModules.PRICING_CENTER,
         entityType: AuditEntityTypes.WITHDRAW_PRICING_QUOTE,
         entityId: created.id,
         entityNo: created.quoteNo,
@@ -2497,11 +2460,6 @@ export class PricingCenterService {
         entityOwnerNo: created.ownerNo || undefined,
         result: AuditResult.SUCCESS,
         reason: 'Withdrawal pricing quote created',
-        afterData: {
-          assetId: created.assetId,
-          amount: created.amount.toString(),
-          expiresAt: created.expiresAt,
-        },
         sourcePlatform: ownerType === 'CUSTOMER' ? 'CUSTOMER_API' : 'ADMIN_API',
       },
       {
@@ -2607,7 +2565,6 @@ export class PricingCenterService {
       {
         triggerType: AuditTriggerType.DATA_UPDATE,
         action: AuditActions.WITHDRAW_PRICING_QUOTE_USED,
-        module: AuditModules.PRICING_CENTER,
         entityType: AuditEntityTypes.WITHDRAW_PRICING_QUOTE,
         entityId: consumed.id,
         entityNo: consumed.quoteNo,
@@ -2616,10 +2573,6 @@ export class PricingCenterService {
         entityOwnerNo: consumed.ownerNo || undefined,
         result: AuditResult.SUCCESS,
         reason: 'Withdrawal pricing quote consumed',
-        statusFrom: 'ACTIVE',
-        statusTo: 'USED',
-        beforeData: { status: 'ACTIVE' },
-        afterData: { status: 'USED', usedAt: consumed.usedAt },
         sourcePlatform: ownerType === 'CUSTOMER' ? 'CUSTOMER_API' : 'ADMIN_API',
       },
       this.buildQuoteActor(ownerType, ownerId, consumed.ownerNo),
@@ -2668,7 +2621,6 @@ export class PricingCenterService {
       {
         triggerType: AuditTriggerType.DATA_UPDATE,
         action: AuditActions.WITHDRAW_PRICING_QUOTE_CANCELLED,
-        module: AuditModules.PRICING_CENTER,
         entityType: AuditEntityTypes.WITHDRAW_PRICING_QUOTE,
         entityId: cancelled.id,
         entityNo: cancelled.quoteNo,
@@ -2677,13 +2629,6 @@ export class PricingCenterService {
         entityOwnerNo: cancelled.ownerNo || undefined,
         result: AuditResult.SUCCESS,
         reason: 'Withdrawal pricing quote cancelled',
-        statusFrom: 'ACTIVE',
-        statusTo: 'CANCELLED',
-        beforeData: { status: 'ACTIVE' },
-        afterData: {
-          status: 'CANCELLED',
-          cancelledAt: cancelled.cancelledAt,
-        },
         sourcePlatform: ownerType === 'CUSTOMER' ? 'CUSTOMER_API' : 'ADMIN_API',
       },
       this.buildQuoteActor(ownerType, ownerId, cancelled.ownerNo),

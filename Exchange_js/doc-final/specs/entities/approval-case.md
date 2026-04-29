@@ -77,7 +77,7 @@ Each `ApprovalCase` has one or more `ApprovalStep` records (table `approval_step
 ## Action Types (ApprovalActionTypes) — known as of 2026-04-21
 | Value | Wave | Default checker roles | Timeout |
 |---|---|---|---|
-| AUDIT_EVIDENCE_EXPORT_APPROVAL | 1 | DPO, MLRO | 24 h |
+| AUDIT_EVIDENCE_EXPORT_APPROVAL | 1 | MLRO | 24 h |
 | CASE_EVIDENCE_EXPORT_APPROVAL | 1 | DPO, MLRO | 24 h |
 | CHANGE_TICKET_APPROVAL | 1 | CISO | 24 h |
 | DELETE_REQUEST_APPROVAL | 1 | DPO, CISO | 24 h |

@@ -186,10 +186,6 @@ export class FeeOccurrencesService {
         entityId: occurrence.id,
         entityNo: occurrence.feeNo,
         reason,
-        afterData: {
-          feeType: occurrence.feeType,
-          reimbursementImpact: occurrence.reimbursementImpact,
-        },
         traceId: occurrence.traceId,
       },
       operatorId,
@@ -260,32 +256,21 @@ export class FeeOccurrencesService {
       action: string;
       entityId: string;
       entityNo?: string | null;
-      statusFrom?: string | null;
-      statusTo?: string | null;
       reason?: string | null;
-      beforeData?: Record<string, unknown>;
-      afterData?: Record<string, unknown>;
       traceId?: string | null;
+      triggerType?: AuditTriggerType;
     },
     operatorId: string,
     db: any,
   ) {
     await this.auditLogsService.recordByActor(
       {
-        triggerType:
-          input.statusFrom || input.statusTo
-            ? AuditTriggerType.STATE_TRANSITION
-            : AuditTriggerType.DATA_CREATE,
+        triggerType: input.triggerType ?? AuditTriggerType.DATA_CREATE,
         action: input.action,
-        module: AuditModules.FEE_OCCURRENCES,
         entityType: AuditEntityTypes.FEE_OCCURRENCE,
         entityId: input.entityId,
         entityNo: input.entityNo || undefined,
-        statusFrom: input.statusFrom || undefined,
-        statusTo: input.statusTo || undefined,
         reason: input.reason || undefined,
-        beforeData: input.beforeData,
-        afterData: input.afterData,
         traceId: input.traceId || undefined,
         sourcePlatform: operatorId === 'SYSTEM' ? 'SYSTEM' : 'ADMIN_API',
       },
@@ -485,10 +470,6 @@ export class FeeOccurrencesService {
           entityId: created.id,
           entityNo: created.feeNo,
           reason: 'Manual fee occurrence recorded',
-          afterData: {
-            feeType: created.feeType,
-            reimbursementImpact: created.reimbursementImpact,
-          },
           traceId: created.traceId,
         },
         operatorId,
@@ -547,11 +528,8 @@ export class FeeOccurrencesService {
           ),
           entityId: row.id,
           entityNo: row.feeNo,
-          statusFrom: current.status,
-          statusTo: row.status,
+          triggerType: AuditTriggerType.STATE_TRANSITION,
           reason: dto.reason || 'Fee occurrence cancelled',
-          beforeData: { status: current.status },
-          afterData: { status: row.status },
           traceId: row.traceId,
         },
         operatorId,

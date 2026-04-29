@@ -335,16 +335,9 @@ export class AccessControlService {
     await this.auditLogsService.recordByActor(
       this.applyAuditContext({
         action: AuditActions.USER_ROLE_BINDING_UPDATED,
-        module: AuditModules.ACCESS_CONTROL,
         entityType: AuditEntityTypes.ACCESS_CONTROL,
         entityId: user.id,
         entityNo: user.userNo,
-        beforeData: {
-          roles: beforeRoleCodes,
-        },
-        afterData: {
-          roles: afterRoleCodes,
-        },
         metadata: {
           userId: user.id,
           userNo: user.userNo,

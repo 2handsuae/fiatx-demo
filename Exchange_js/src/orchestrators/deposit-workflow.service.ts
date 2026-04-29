@@ -223,7 +223,6 @@ export class DepositWorkflowService implements OnModuleInit {
       await this.auditLogsService.recordSystem({
         triggerType: AuditTriggerType.DATA_UPDATE,
         action: AuditActions.DEPOSIT_COMPLIANCE_EVIDENCE_SYNCED,
-        module: AuditModules.DEPOSIT_TRANSACTIONS,
         entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
         entityId: deposit.id,
         entityNo: deposit.depositNo,
@@ -393,18 +392,13 @@ export class DepositWorkflowService implements OnModuleInit {
           {
             triggerType: AuditTriggerType.STATE_TRANSITION,
             action: buildStateTransitionAction('PAYIN', payin.status, PayinStatus.CLEARED),
-            module: AuditModules.PAYINS,
             entityType: AuditEntityTypes.PAYIN,
             entityId: payin.id,
             entityNo: payin.payinNo,
             entityOwnerType: payin.ownerId ? 'CUSTOMER' : undefined,
             entityOwnerId: payin.ownerId || undefined,
             workflowType: 'DEPOSIT',
-            statusFrom: payin.status,
-            statusTo: PayinStatus.CLEARED,
             reason: 'Deposit rejected orchestration',
-            beforeData: { status: payin.status },
-            afterData: { status: PayinStatus.CLEARED },
             sourcePlatform: 'SYSTEM',
           },
           tx,
@@ -530,7 +524,6 @@ export class DepositWorkflowService implements OnModuleInit {
     await this.auditLogsService.recordSystem({
       triggerType: AuditTriggerType.DATA_UPDATE,
       action: AuditActions.DEPOSIT_ACCOUNTING_POSTED,
-      module: AuditModules.DEPOSIT_TRANSACTIONS,
       entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
       entityId: deposit.id,
       entityNo: deposit.depositNo,
@@ -564,7 +557,6 @@ export class DepositWorkflowService implements OnModuleInit {
     await this.auditLogsService.recordSystem({
       triggerType: AuditTriggerType.DATA_UPDATE,
       action: AuditActions.DEPOSIT_ACCOUNTING_BLOCKED,
-      module: AuditModules.DEPOSIT_TRANSACTIONS,
       entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
       entityId: deposit.id,
       entityNo: deposit.depositNo,

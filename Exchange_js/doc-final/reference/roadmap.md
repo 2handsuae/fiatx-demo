@@ -28,6 +28,21 @@ Full detail: `docs/roadmap/project-version-plan.md`
 
 ---
 
+## 未来规划项（无 Wave 归属，MVP 不做）
+
+以下为架构上已识别、但明确排除在 MVP 之外的治理能力扩展：
+
+| 项目 | 描述 | 前置依赖 |
+|---|---|---|
+| 角色创建（C4c） | 运行时新增 role code + 定义初始权限集合 | C4a（权限修改）先验证可行 |
+| 角色权限修改（C4a） | 运行时变更某角色对应的 permission group 绑定 | role catalog 从硬编码迁移为 DB 驱动 |
+| 角色停用/归档（C4d） | 停用一个角色，处理现有用户绑定 | C4c 先完成；需定义孤儿绑定策略 |
+| SoD 对新角色的识别 | 新增角色后，approval policy 的 checkerRoles 能动态引用它 | C4c + C4b 均完成后才有意义 |
+
+> 决策背景：Wave 1 的 8 个角色对应真实监管职能（MLRO/CISO/DPO…），不是技术分工，不应随意在运行时创建。MVP 阶段 role catalog 保持硬编码；C4a 运行时能力验证通过后再评估是否推进 C4c。
+
+---
+
 ## Wave 4 补充说明
 
 - PRICING_POLICY、Outstanding、PoolSettlementBatch → **Wave 6** 范围，Wave 4 代码已预建但无数据创建路径

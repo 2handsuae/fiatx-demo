@@ -59,7 +59,6 @@ export class AuthService {
         {
           triggerType: AuditTriggerType.AUTH_EVENT,
           action: AuditActions.ADMIN_LOGIN_FAILED,
-          module: AuditModules.AUTH,
           entityType: AuditEntityTypes.AUTH,
           result: AuditResult.FAILED,
           reason: 'Admin login failed: account not found',
@@ -88,7 +87,6 @@ export class AuthService {
         {
           triggerType: AuditTriggerType.AUTH_EVENT,
           action: AuditActions.ADMIN_LOGIN_FAILED,
-          module: AuditModules.AUTH,
           entityType: AuditEntityTypes.AUTH,
           entityId: user.id,
           entityNo: user.userNo,
@@ -128,7 +126,6 @@ export class AuthService {
         {
           triggerType: AuditTriggerType.AUTH_EVENT,
           action: AuditActions.ACCOUNT_LOCKED,
-          module: AuditModules.AUTH,
           entityType: AuditEntityTypes.AUTH,
           entityId: user.id,
           entityNo: user.userNo,
@@ -169,7 +166,6 @@ export class AuthService {
         {
           triggerType: AuditTriggerType.AUTH_EVENT,
           action: AuditActions.ACCOUNT_UNLOCKED,
-          module: AuditModules.AUTH,
           entityType: AuditEntityTypes.AUTH,
           entityId: user.id,
           entityNo: user.userNo,
@@ -207,7 +203,6 @@ export class AuthService {
         {
           triggerType: AuditTriggerType.AUTH_EVENT,
           action: AuditActions.ADMIN_LOGIN_SUCCESS,
-          module: AuditModules.AUTH,
           entityType: AuditEntityTypes.AUTH,
           entityId: user.id,
           entityNo: user.userNo,
@@ -249,7 +244,6 @@ export class AuthService {
         {
           triggerType: AuditTriggerType.AUTH_EVENT,
           action: AuditActions.ADMIN_LOGIN_FAILED,
-          module: AuditModules.AUTH,
           entityType: AuditEntityTypes.AUTH,
           entityId: user.id,
           entityNo: user.userNo,
@@ -284,7 +278,6 @@ export class AuthService {
           {
             triggerType: AuditTriggerType.AUTH_EVENT,
             action: AuditActions.ACCOUNT_LOCKED,
-            module: AuditModules.AUTH,
             entityType: AuditEntityTypes.AUTH,
             entityId: user.id,
             entityNo: user.userNo,

@@ -314,8 +314,6 @@ export class ApprovalsService {
     actor: ApprovalActorContext,
     result: AuditResult,
     reason?: string | null,
-    statusFrom?: string | null,
-    statusTo?: string | null,
     metadata?: Record<string, unknown>,
   ) {
     const subjectNos =
@@ -334,7 +332,6 @@ export class ApprovalsService {
       {
         triggerType: AuditTriggerType.DATA_UPDATE,
         action,
-        module: AuditModules.GOVERNANCE_APPROVALS,
         entityType: AuditEntityTypes.APPROVAL_CASE,
         entityId: approval.id,
         entityNo: approval.approvalNo,
@@ -343,8 +340,6 @@ export class ApprovalsService {
         subjectNos,
         result,
         reason: reason || undefined,
-        statusFrom: statusFrom || undefined,
-        statusTo: statusTo || undefined,
         metadata: {
           approvalNo: approval.approvalNo,
           actionType: approval.actionType,
@@ -367,6 +362,16 @@ export class ApprovalsService {
       },
       this.toAuditActor(actor),
     );
+  }
+
+  /**
+   * Returns true when this workflowType has a dedicated service that owns
+   * ALL audit log writes for that workflow (Plan B pattern).
+   * approvals.service must skip its generic APPROVAL_CASE events for these
+   * workflows to avoid duplicate entries in the audit log.
+   */
+  private hasDedicatedAuditService(workflowType: string | null | undefined): boolean {
+    return workflowType === AuditBusinessWorkflowTypes.AUDIT_EVIDENCE_EXPORT;
   }
 
   private buildEventPayload(approval: ApprovalCaseRow): ApprovalDecisionEvent {
@@ -812,18 +817,18 @@ export class ApprovalsService {
     reason?: string | null,
   ) {
     const approval = await this.findCaseOrThrow(approvalId);
-    await this.recordAudit(
-      AuditActions.APPROVAL_SUBMITTED,
-      approval,
-      actor,
-      AuditResult.SUCCESS,
-      reason || 'Approval submitted',
-      ApprovalStatuses.DRAFT,
-      ApprovalStatuses.PENDING,
-      {
-        timeoutAt: approval.timeoutAt?.toISOString(),
-      },
-    );
+    if (!this.hasDedicatedAuditService(approval.workflowType)) {
+      await this.recordAudit(
+        AuditActions.APPROVAL_SUBMITTED,
+        approval,
+        actor,
+        AuditResult.SUCCESS,
+        reason || 'Approval submitted',
+        {
+          timeoutAt: approval.timeoutAt?.toISOString(),
+        },
+      );
+    }
     await this.emitApprovalEvent(ApprovalEvents.SUBMITTED, this.buildEventPayload(approval));
     return this.mapApproval(approval, actor);
   }
@@ -848,8 +853,6 @@ export class ApprovalsService {
         actor,
         AuditResult.SUCCESS,
         submitDto.reason || 'Approval submitted',
-        ApprovalStatuses.DRAFT,
-        ApprovalStatuses.PENDING,
         {
           timeoutAt: submitted.timeoutAt?.toISOString(),
         },
@@ -947,20 +950,18 @@ export class ApprovalsService {
       }) as Promise<ApprovalCaseRow>;
     });
 
-    await this.recordAudit(
-      AuditActions.APPROVAL_APPROVED,
-      updated,
-      actor,
-      AuditResult.SUCCESS,
-      dto.reason || 'Approval approved',
-      ApprovalStatuses.PENDING,
-      updated.status === ApprovalStatuses.APPROVED
-        ? ApprovalStatuses.APPROVED
-        : ApprovalStatuses.PENDING,
-      this.isSuperAdmin(actor) && actor.userId === updated.createdByUserId
-        ? { superAdminBypass: true }
-        : undefined,
-    );
+    if (!this.hasDedicatedAuditService(updated.workflowType)) {
+      await this.recordAudit(
+        AuditActions.APPROVAL_APPROVED,
+        updated,
+        actor,
+        AuditResult.SUCCESS,
+        dto.reason || 'Approval approved',
+        this.isSuperAdmin(actor) && actor.userId === updated.createdByUserId
+          ? { superAdminBypass: true }
+          : undefined,
+      );
+    }
     if (updated.status === ApprovalStatuses.APPROVED) {
       await this.projectGovernanceApprovalDecision(updated);
       await this.emitApprovalEvent(ApprovalEvents.APPROVED, this.buildEventPayload(updated));
@@ -1036,18 +1037,18 @@ export class ApprovalsService {
       }) as Promise<ApprovalCaseRow>;
     });
 
-    await this.recordAudit(
-      AuditActions.APPROVAL_REJECTED,
-      updated,
-      actor,
-      AuditResult.SUCCESS,
-      dto.reason || 'Approval rejected',
-      ApprovalStatuses.PENDING,
-      ApprovalStatuses.REJECTED,
-      this.isSuperAdmin(actor) && actor.userId === updated.createdByUserId
-        ? { superAdminBypass: true }
-        : undefined,
-    );
+    if (!this.hasDedicatedAuditService(updated.workflowType)) {
+      await this.recordAudit(
+        AuditActions.APPROVAL_REJECTED,
+        updated,
+        actor,
+        AuditResult.SUCCESS,
+        dto.reason || 'Approval rejected',
+        this.isSuperAdmin(actor) && actor.userId === updated.createdByUserId
+          ? { superAdminBypass: true }
+          : undefined,
+      );
+    }
     await this.projectGovernanceApprovalDecision(updated);
     await this.emitApprovalEvent(ApprovalEvents.REJECTED, this.buildEventPayload(updated));
     return this.mapApproval(updated, actor);
@@ -1108,18 +1109,18 @@ export class ApprovalsService {
       return next as ApprovalCaseRow;
     });
 
-    await this.recordAudit(
-      AuditActions.APPROVAL_CANCELLED,
-      updated,
-      actor,
-      AuditResult.SUCCESS,
-      dto.reason || 'Approval cancelled',
-      previousStatus,
-      ApprovalStatuses.CANCELLED,
-      this.isSuperAdmin(actor) && actor.userId !== updated.createdByUserId
-        ? { superAdminBypass: true }
-        : undefined,
-    );
+    if (!this.hasDedicatedAuditService(updated.workflowType)) {
+      await this.recordAudit(
+        AuditActions.APPROVAL_CANCELLED,
+        updated,
+        actor,
+        AuditResult.SUCCESS,
+        dto.reason || 'Approval cancelled',
+        this.isSuperAdmin(actor) && actor.userId !== updated.createdByUserId
+          ? { superAdminBypass: true }
+          : undefined,
+      );
+    }
     await this.projectGovernanceApprovalDecision(updated);
     await this.emitApprovalEvent(ApprovalEvents.CANCELLED, this.buildEventPayload(updated));
     return this.mapApproval(updated, actor);
@@ -1131,13 +1132,11 @@ export class ApprovalsService {
     actor: ApprovalActorContext,
     reason?: string | null,
   ) {
-    let previousExecutionStatus: string = ApprovalExecutionStatuses.NOT_EXECUTED;
     const updated = await this.prisma.$transaction(async (tx: any) => {
       const approval = await this.findCaseOrThrow(approvalCaseId, tx);
       if (approval.status !== ApprovalStatuses.APPROVED) {
         throw new BadRequestException('Only APPROVED approvals can record execution results');
       }
-      previousExecutionStatus = approval.executionStatus;
 
       const next = await tx.approvalCase.update({
         where: { id: approval.id },
@@ -1153,17 +1152,17 @@ export class ApprovalsService {
       return next as ApprovalCaseRow;
     });
 
-    await this.recordAudit(
-      success
-        ? AuditActions.APPROVAL_EXECUTED
-        : AuditActions.APPROVAL_EXECUTION_FAILED,
-      updated,
-      actor,
-      success ? AuditResult.SUCCESS : AuditResult.FAILED,
-      reason || (success ? 'Approval execution succeeded' : 'Approval execution failed'),
-      previousExecutionStatus,
-      updated.executionStatus,
-    );
+    if (!this.hasDedicatedAuditService(updated.workflowType)) {
+      await this.recordAudit(
+        success
+          ? AuditActions.APPROVAL_EXECUTED
+          : AuditActions.APPROVAL_EXECUTION_FAILED,
+        updated,
+        actor,
+        success ? AuditResult.SUCCESS : AuditResult.FAILED,
+        reason || (success ? 'Approval execution succeeded' : 'Approval execution failed'),
+      );
+    }
     return this.mapApproval(updated, actor);
   }
 
@@ -1186,7 +1185,6 @@ export class ApprovalsService {
           {
             triggerType: AuditTriggerType.DATA_UPDATE,
             action: AuditActions.APPROVAL_REQUIRED_MISSING,
-            module: AuditModules.GOVERNANCE_APPROVALS,
             entityType: AuditEntityTypes.APPROVAL_CASE,
             entityId: input.entityRef,
             entityNo: input.entityRef,
@@ -1313,8 +1311,6 @@ export class ApprovalsService {
       this.systemActor(),
       AuditResult.REJECTED,
       'Approval expired after timeout',
-      ApprovalStatuses.PENDING,
-      ApprovalStatuses.EXPIRED,
     );
     await this.projectGovernanceApprovalDecision(updated);
     await this.emitApprovalEvent(ApprovalEvents.EXPIRED, this.buildEventPayload(updated));

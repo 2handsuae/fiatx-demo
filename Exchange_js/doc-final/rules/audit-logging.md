@@ -9,7 +9,7 @@ Last Updated: 2026-04-21 | Scope: Wave 1–4 | Source: docs/constraints/audit-lo
 - Must route all new audit writes through `AuditLogsService`; no ad-hoc table writes in feature modules.
 - Must use `recordByActor()` for human/API-triggered actions and `recordSystem()` for jobs/orchestrators.
 - Canonical implementation lives in `src/modules/risk-engine/audit-logs`.
-- Must keep action/module/entity dictionaries centralized in `constants/audit-actions.constant.ts`.
+- Must keep action/entity/workflow-type dictionaries centralized in `constants/audit-actions.constant.ts` (`AuditActions`, `AuditGovernanceActions`, `AuditEntityTypes`, `AuditWorkflowTypes`, `AuditBusinessWorkflowTypes`). Note: `AuditModules` constant still exists for legacy reference but the `module` field has been removed from `audit_log_events` — do not pass it to `recordByActor`/`recordSystem`.
 
 ## Required Fields
 
@@ -21,6 +21,7 @@ Last Updated: 2026-04-21 | Scope: Wave 1–4 | Source: docs/constraints/audit-lo
 ## Forbidden Fields
 
 - `workflowId` and `workflowNo` are **not** columns on `audit_log_events` — they were removed 2026-04-08.
+- `module` is **not** a column on `audit_log_events` — removed 2026-04-29. Do not pass `module:` in any `recordByActor`/`recordSystem` call.
 - Must never set `workflowId` or `workflowNo` in `recordByActor` / `recordSystem` payloads.
 - Must never propagate an `auditContext` object containing `workflowId` or `workflowNo`; service-to-service context must only carry `{ workflowType, traceId }`.
 

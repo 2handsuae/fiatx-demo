@@ -383,16 +383,9 @@ export class UsersService {
     await this.auditLogsService.recordByActor(
       this.applyAuditContext({
         action: AuditActions.USER_CREATED,
-        module: AuditModules.ACCESS_CONTROL,
         entityType: AuditEntityTypes.ACCESS_CONTROL,
         entityId: createdUser.id,
         entityNo: createdUser.userNo,
-        afterData: {
-          email: createdUser.email,
-          status: createdUser.status,
-          role: createdUser.role,
-          roles: roleBinding.roles,
-        },
         metadata: {
           userId: createdUser.id,
           userNo: createdUser.userNo,

@@ -16,7 +16,6 @@ interface AuditLogItem {
   id: string;
   auditNo: string;
   action: string;
-  module: string;
   entityType: string;
   entityNo?: string | null;
   entityOwnerNo?: string | null;
@@ -424,7 +423,6 @@ const AuditLogsPage = () => {
                   ['Audit No',       '152px'],
                   ['Result',         '84px'],
                   ['Workflow Type',  '130px'],
-                  ['Module',         '120px'],
                   ['Action',         '180px'],
                   ['Entity No',      '140px'],
                   ['Entity Type',    '120px'],
@@ -446,7 +444,7 @@ const AuditLogsPage = () => {
             {loading && (
               <tr>
                 <td
-                  colSpan={11}
+                  colSpan={10}
                   className="px-3 py-10 text-center font-mono text-[11px] text-adm-t3"
                 >
                   Loading…
@@ -456,7 +454,7 @@ const AuditLogsPage = () => {
             {!loading && items.length === 0 && (
               <tr>
                 <td
-                  colSpan={11}
+                  colSpan={10}
                   className="px-3 py-10 text-center font-mono text-[11px] text-adm-t3"
                 >
                   No audit logs found.
@@ -512,10 +510,6 @@ const AuditLogsPage = () => {
                     {/* Workflow Type */}
                     <td className="px-3 py-2.5 font-mono text-[11px] text-adm-t2">
                       {item.workflowType ?? <span className="text-adm-t3">—</span>}
-                    </td>
-                    {/* Module */}
-                    <td className="px-3 py-2.5 font-mono text-[11px] text-adm-t2">
-                      {item.module}
                     </td>
                     {/* Action */}
                     <td className="max-w-[200px] px-3 py-2.5">

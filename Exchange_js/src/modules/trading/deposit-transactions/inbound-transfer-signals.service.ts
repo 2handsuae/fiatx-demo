@@ -691,7 +691,6 @@ export class InboundTransferSignalsService {
     await this.auditLogsService.recordSystem({
       triggerType,
       action,
-      module: AuditModules.INBOUND_TRANSFER_SIGNALS,
       entityType: AuditEntityTypes.INBOUND_TRANSFER_SIGNAL,
       entityId: signal.id,
       entityNo: signal.signalNo,

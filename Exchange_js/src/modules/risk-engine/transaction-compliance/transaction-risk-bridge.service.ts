@@ -1254,7 +1254,6 @@ export class TransactionRiskBridgeService {
       {
         triggerType: AuditTriggerType.DATA_UPDATE,
         action: AuditActions.TX_RISK_EVALUATED,
-        module: AuditModules.TRANSACTION_COMPLIANCE,
         entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
         entityId: input.depositId,
         entityNo: input.depositNo || undefined,
@@ -1306,7 +1305,6 @@ export class TransactionRiskBridgeService {
       {
         triggerType: AuditTriggerType.DATA_UPDATE,
         action: AuditActions.TX_RISK_EVALUATED,
-        module: AuditModules.TRANSACTION_COMPLIANCE,
         entityType: AuditEntityTypes.SWAP_TRANSACTION,
         entityId: input.swapId,
         entityNo: input.swapNo || undefined,
@@ -1356,7 +1354,6 @@ export class TransactionRiskBridgeService {
       {
         triggerType: AuditTriggerType.DATA_UPDATE,
         action: AuditActions.TX_CASE_ESCALATED,
-        module: AuditModules.TRANSACTION_COMPLIANCE,
         entityType: AuditEntityTypes.COMPLIANCE_INCIDENT,
         entityId: input.caseId,
         entityNo: input.caseNo || undefined,
@@ -1407,7 +1404,6 @@ export class TransactionRiskBridgeService {
       {
         triggerType: AuditTriggerType.DATA_UPDATE,
         action: AuditActions.TX_CASE_ESCALATED,
-        module: AuditModules.TRANSACTION_COMPLIANCE,
         entityType: AuditEntityTypes.COMPLIANCE_INCIDENT,
         entityId: input.caseId,
         entityNo: input.caseNo || undefined,
@@ -1468,7 +1464,6 @@ export class TransactionRiskBridgeService {
       {
         triggerType: AuditTriggerType.DATA_UPDATE,
         action: AuditActions.TX_RISK_EVALUATED,
-        module: AuditModules.TRANSACTION_COMPLIANCE,
         entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
         entityId: input.withdrawId,
         entityNo: input.withdrawNo || undefined,
@@ -1522,7 +1517,6 @@ export class TransactionRiskBridgeService {
       {
         triggerType: AuditTriggerType.DATA_UPDATE,
         action: AuditActions.TX_CASE_ESCALATED,
-        module: AuditModules.TRANSACTION_COMPLIANCE,
         entityType: AuditEntityTypes.COMPLIANCE_INCIDENT,
         entityId: input.caseId,
         entityNo: input.caseNo || undefined,

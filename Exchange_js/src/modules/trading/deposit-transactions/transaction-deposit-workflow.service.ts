@@ -131,7 +131,6 @@ export class TransactionDepositWorkflowService {
     const payload = {
       triggerType: AuditTriggerType.DATA_UPDATE,
       action,
-      module: AuditModules.DEPOSIT_TRANSACTIONS,
       entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
       entityId: deposit.id,
       entityNo: deposit.depositNo || undefined,

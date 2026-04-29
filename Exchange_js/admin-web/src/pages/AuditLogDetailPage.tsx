@@ -1,6 +1,6 @@
 import { useEffect, type ReactNode, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowRight, RefreshCw } from 'lucide-react';
+import { ArrowRight, Check, Copy, RefreshCw } from 'lucide-react';
 import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/adminFetch';
 import {
   DetailPageHeader,
@@ -25,7 +25,6 @@ interface AuditLogDetail {
   auditNo: string;
   triggerType: string;
   action: string;
-  module: string;
   entityType: string;
   entityNo?: string | null;
   entityOwnerType?: string | null;
@@ -142,6 +141,42 @@ const SidebarKV = ({
 
 /* ─────────────────────────────────────────────────────────────── */
 
+/* ── Raw Record Block ──────────────────────────────────────────── */
+
+const RawRecordBlock = ({ detail }: { detail: AuditLogDetail }) => {
+  const [copied, setCopied] = useState(false);
+  const json = JSON.stringify(detail, null, 2);
+
+  const handleCopy = () => {
+    void navigator.clipboard.writeText(json).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+
+  return (
+    <section className="px-6 py-5">
+      <div className="flex items-center justify-between">
+        <Cap>Raw Record</Cap>
+        <button
+          onClick={handleCopy}
+          className="flex items-center gap-1.5 rounded border border-adm-border bg-adm-card px-2 py-1 font-mono text-[9px] text-adm-t3 transition-colors hover:border-adm-amber hover:text-adm-amber"
+        >
+          {copied
+            ? <><Check size={10} /><span>Copied</span></>
+            : <><Copy size={10} /><span>Copy</span></>
+          }
+        </button>
+      </div>
+      <pre className="mt-2 overflow-auto rounded bg-gray-950 p-4 font-mono text-[11px] leading-relaxed text-gray-200 border border-gray-800">
+        {json}
+      </pre>
+    </section>
+  );
+};
+
+/* ─────────────────────────────────────────────────────────────── */
+
 const AuditLogDetailPage = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -232,7 +267,7 @@ const AuditLogDetailPage = () => {
 
           {/* ── 1 · EVENT HERO CARD ────────────────────────────────
                Single source of truth for the event identity:
-               auditNo + result (top row), module + occurred time,
+               auditNo + result (top row), occurred time,
                action headline, optional reason, optional state change. ── */}
           <section className="bg-adm-card px-6 py-5">
 
@@ -247,11 +282,8 @@ const AuditLogDetailPage = () => {
             {/* Divider */}
             <div className="my-3.5 border-t border-adm-border" />
 
-            {/* Row 2: module breadcrumb + occurred timestamp */}
-            <div className="flex items-center justify-between gap-4">
-              <p className="font-mono text-[9px] uppercase tracking-[0.15em] text-adm-t3">
-                {detail.module}
-              </p>
+            {/* Row 2: occurred timestamp */}
+            <div className="flex items-center justify-end gap-4">
               <p className="font-mono text-[10px] text-adm-t3">
                 {fmt(detail.occurredAt)}
               </p>
@@ -390,6 +422,11 @@ const AuditLogDetailPage = () => {
               </div>
             </section>
           )}
+
+          {/* ── 7 · RAW RECORD ─────────────────────────────────────
+               Full database row dump — exactly what the API returned,
+               mirroring the persisted record field-for-field. ── */}
+          <RawRecordBlock detail={detail} />
 
         </div>
 

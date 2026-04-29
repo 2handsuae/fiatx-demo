@@ -232,7 +232,6 @@ export class OnboardingFinalApprovalService {
       {
         triggerType: AuditTriggerType.DATA_UPDATE,
         action: input.action,
-        module: AuditModules.ONBOARDING,
         entityType: AuditEntityTypes.ONBOARDING,
         entityId: input.customerId,
         entityNo: input.customerNo || undefined,
@@ -241,8 +240,6 @@ export class OnboardingFinalApprovalService {
         entityOwnerType: 'CUSTOMER',
         entityOwnerId: input.customerId,
         entityOwnerNo: input.customerNo || undefined,
-        statusFrom: input.fromStage || undefined,
-        statusTo: input.toStage || undefined,
         reason: input.reason || undefined,
         metadata: input.detail,
         sourcePlatform: 'APPLICATION',

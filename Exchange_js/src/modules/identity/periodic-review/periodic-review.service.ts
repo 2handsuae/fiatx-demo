@@ -250,7 +250,6 @@ export class PeriodicReviewService {
       {
         triggerType,
         action: input.action,
-        module: AuditModules.ONBOARDING,
         entityType: AuditEntityTypes.ONBOARDING,
         entityId: input.customerId,
         entityNo: customer?.customerNo || undefined,
@@ -260,8 +259,6 @@ export class PeriodicReviewService {
         entityOwnerType: 'CUSTOMER',
         entityOwnerId: input.customerId,
         entityOwnerNo: customer?.customerNo || undefined,
-        statusFrom: input.fromStage || undefined,
-        statusTo: input.toStage || undefined,
         reason: input.detail || undefined,
         metadata: {
           caseType: input.caseType || null,

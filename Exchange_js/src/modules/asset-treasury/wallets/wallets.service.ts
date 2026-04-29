@@ -375,7 +375,6 @@ export class WalletsService {
         await this.auditLogsService.recordSystem({
           triggerType: AuditTriggerType.DATA_CREATE,
           action: AuditActions.WALLET_CREATED,
-          module: AuditModules.WALLETS,
           entityType: AuditEntityTypes.WALLET,
           entityId: result.id,
           entityNo: result.walletNo || undefined,
@@ -384,14 +383,6 @@ export class WalletsService {
           entityOwnerNo: result.ownerNo || undefined,
           result: AuditResult.SUCCESS,
           reason: 'Wallet created',
-          afterData: {
-            ownerType: result.ownerType,
-            ownerId: result.ownerId,
-            type: result.type,
-            direction: result.direction,
-            status: result.status,
-            assetId: result.assetId,
-          },
           sourcePlatform: 'ADMIN_API',
         });
 
@@ -706,19 +697,14 @@ export class WalletsService {
     await this.auditLogsService.recordSystem({
       triggerType: AuditTriggerType.DATA_UPDATE,
       action: AuditActions.WALLET_STATUS_UPDATED,
-      module: AuditModules.WALLETS,
       entityType: AuditEntityTypes.WALLET,
       entityId: result.id,
       entityNo: result.walletNo || undefined,
       entityOwnerType: result.ownerType,
       entityOwnerId: result.ownerId || undefined,
       entityOwnerNo: before.ownerNo || undefined,
-      statusFrom: before.status,
-      statusTo: result.status,
       result: AuditResult.SUCCESS,
       reason: 'Wallet status changed',
-      beforeData: { status: before.status },
-      afterData: { status: result.status },
       sourcePlatform: 'ADMIN_API',
     });
     return result;

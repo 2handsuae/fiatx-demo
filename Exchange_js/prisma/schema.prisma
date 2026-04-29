@@ -579,7 +579,6 @@ model AuditLogEvent {
   auditNo         String              @unique @default("TEMP")
   triggerType     String
   action          String
-  module          String
   entityType      String
   entityId        String?
   entityNo        String?
@@ -587,8 +586,6 @@ model AuditLogEvent {
   workflowType    String?
   entityOwnerType String?
   entityOwnerId   String?
-  statusFrom      String?
-  statusTo        String?
   actorType       String
   actorId         String
   actorNo         String?
@@ -599,11 +596,8 @@ model AuditLogEvent {
   result          String              @default("SUCCESS")
   reason          String?
   metadata        String?
-  beforeData      String?
-  afterData       String?
   idempotencyKey  String?             @unique
   payloadDigest   String
-  maskVersion     String              @default("v1")
   retainedUntil   DateTime
   entityOwnerNo   String?
   archivedAt      DateTime?
@@ -614,10 +608,8 @@ model AuditLogEvent {
 
   @@index([occurredAt])
   @@index([triggerType, occurredAt])
-  @@index([module, occurredAt])
   @@index([entityType, entityId])
   @@index([actorType, actorId])
-  @@index([module, entityType, entityId, occurredAt])
   @@index([actorType, actorId, occurredAt])
   @@index([actorNo, occurredAt])
   @@index([entityOwnerNo, occurredAt])

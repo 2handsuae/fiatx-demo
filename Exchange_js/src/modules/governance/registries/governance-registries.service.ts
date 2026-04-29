@@ -147,19 +147,12 @@ export class GovernanceRegistriesService {
     entityNo: string;
     traceId?: string | null;
     reason?: string | null;
-    statusFrom?: string | null;
-    statusTo?: string | null;
-    beforeData?: Record<string, unknown>;
-    afterData?: Record<string, unknown>;
+    triggerType?: AuditTriggerType;
   }, actor: ApprovalActorContext) {
     await this.auditLogsService.recordByActor(
       {
-        triggerType:
-          input.statusFrom || input.statusTo
-            ? AuditTriggerType.STATE_TRANSITION
-            : AuditTriggerType.DATA_CREATE,
+        triggerType: input.triggerType ?? AuditTriggerType.DATA_CREATE,
         action: input.action,
-        module: AuditModules.GOVERNANCE_REGISTRIES,
         entityType: input.entityType,
         entityId: input.entityId,
         entityNo: input.entityNo,
@@ -167,10 +160,6 @@ export class GovernanceRegistriesService {
         workflowType: AuditWorkflowTypes.GOVERNANCE_REGISTRY,
         result: AuditResult.SUCCESS,
         reason: input.reason || undefined,
-        statusFrom: input.statusFrom || undefined,
-        statusTo: input.statusTo || undefined,
-        beforeData: input.beforeData,
-        afterData: input.afterData,
         sourcePlatform: 'ADMIN_API',
       },
       this.toAuditActor(actor),
@@ -616,10 +605,6 @@ export class GovernanceRegistriesService {
         entityId: outcome.created.id,
         entityNo: outcome.created.registryNo,
         traceId: outcome.created.traceId,
-        afterData: {
-          status: outcome.created.status,
-          participantCount: outcome.created.participants.length,
-        },
       },
       actor,
     );
@@ -639,8 +624,7 @@ export class GovernanceRegistriesService {
           entityId: outcome.superseded.id,
           entityNo: outcome.superseded.registryNo,
           traceId: outcome.superseded.traceId,
-          statusFrom: outcome.superseded.status,
-          statusTo: ShareholdingRegistryStatuses.SUPERSEDED,
+          triggerType: AuditTriggerType.STATE_TRANSITION,
           reason: `Superseded by ${outcome.created.registryNo}`,
         },
         actor,
@@ -749,20 +733,11 @@ export class GovernanceRegistriesService {
         entityId: outcome.updated.id,
         entityNo: outcome.updated.registryNo,
         traceId: outcome.updated.traceId,
-        statusFrom:
+        triggerType:
           outcome.current.status !== outcome.updated.status
-            ? outcome.current.status
-            : undefined,
-        statusTo:
-          outcome.current.status !== outcome.updated.status
-            ? outcome.updated.status
-            : undefined,
+            ? AuditTriggerType.STATE_TRANSITION
+            : AuditTriggerType.DATA_CREATE,
         reason: options.auditReason || undefined,
-        beforeData: { status: outcome.current.status },
-        afterData: {
-          status: outcome.updated.status,
-          participantCount: outcome.updated.participants.length,
-        },
       },
       actor,
     );
@@ -838,11 +813,6 @@ export class GovernanceRegistriesService {
         entityId: created.id,
         entityNo: created.appointmentNo,
         traceId: created.traceId,
-        afterData: {
-          status: created.status,
-          roleType: created.roleType,
-          regulatedFlag: created.regulatedFlag,
-        },
       },
       actor,
     );
@@ -927,11 +897,8 @@ export class GovernanceRegistriesService {
         entityId: updated.id,
         entityNo: updated.appointmentNo,
         traceId: updated.traceId,
-        statusFrom: current.status !== updated.status ? current.status : undefined,
-        statusTo: current.status !== updated.status ? updated.status : undefined,
+        triggerType: current.status !== updated.status ? AuditTriggerType.STATE_TRANSITION : AuditTriggerType.DATA_CREATE,
         reason: options.auditReason || undefined,
-        beforeData: { status: current.status },
-        afterData: { status: updated.status, effectiveAt: updated.effectiveAt?.toISOString?.() || updated.effectiveAt || null },
       },
       actor,
     );
@@ -1089,10 +1056,6 @@ export class GovernanceRegistriesService {
         entityId: created.id,
         entityNo: created.trainingNo,
         traceId: created.traceId,
-        afterData: {
-          status: created.status,
-          trainingType: created.trainingType,
-        },
       },
       actor,
     );
@@ -1156,10 +1119,7 @@ export class GovernanceRegistriesService {
         entityId: updated.id,
         entityNo: updated.trainingNo,
         traceId: updated.traceId,
-        statusFrom: current.status !== updated.status ? current.status : undefined,
-        statusTo: current.status !== updated.status ? updated.status : undefined,
-        beforeData: { status: current.status },
-        afterData: { status: updated.status, dueAt: updated.dueAt?.toISOString?.() || updated.dueAt || null },
+        triggerType: current.status !== updated.status ? AuditTriggerType.STATE_TRANSITION : AuditTriggerType.DATA_CREATE,
       },
       actor,
     );
@@ -1232,10 +1192,6 @@ export class GovernanceRegistriesService {
         entityId: created.id,
         entityNo: created.disclosureNo,
         traceId: created.traceId,
-        afterData: {
-          status: created.status,
-          disclosureType: created.disclosureType,
-        },
       },
       actor,
     );
@@ -1312,10 +1268,7 @@ export class GovernanceRegistriesService {
         entityId: updated.id,
         entityNo: updated.disclosureNo,
         traceId: updated.traceId,
-        statusFrom: current.status !== updated.status ? current.status : undefined,
-        statusTo: current.status !== updated.status ? updated.status : undefined,
-        beforeData: { status: current.status },
-        afterData: { status: updated.status, closedAt: updated.closedAt?.toISOString?.() || updated.closedAt || null },
+        triggerType: current.status !== updated.status ? AuditTriggerType.STATE_TRANSITION : AuditTriggerType.DATA_CREATE,
       },
       actor,
     );
@@ -1387,10 +1340,6 @@ export class GovernanceRegistriesService {
         entityId: created.id,
         entityNo: created.materialNo,
         traceId: created.traceId,
-        afterData: {
-          status: created.status,
-          materialType: created.materialType,
-        },
       },
       actor,
     );
@@ -1461,10 +1410,7 @@ export class GovernanceRegistriesService {
         entityId: updated.id,
         entityNo: updated.materialNo,
         traceId: updated.traceId,
-        statusFrom: current.status !== updated.status ? current.status : undefined,
-        statusTo: current.status !== updated.status ? updated.status : undefined,
-        beforeData: { status: current.status },
-        afterData: { status: updated.status, supersededAt: updated.supersededAt?.toISOString?.() || updated.supersededAt || null },
+        triggerType: current.status !== updated.status ? AuditTriggerType.STATE_TRANSITION : AuditTriggerType.DATA_CREATE,
       },
       actor,
     );

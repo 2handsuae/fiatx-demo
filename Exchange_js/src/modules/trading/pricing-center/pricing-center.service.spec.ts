@@ -375,7 +375,6 @@ describe('PricingCenterService - Swap Phase 1 constraints', () => {
         ownerId: 'owner-1',
         ownerNo: 'CUS-001',
         assetId: 'asset-btc',
-        module: 'PRICING_CENTER',
         entityType: 'WITHDRAW_PRICING_QUOTE',
         entityId: 'WITHDRAW_QUOTE_RESTRICTION:owner-1:asset-btc',
         entityNo: 'WQO-001',

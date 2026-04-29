@@ -66,18 +66,11 @@ export class AssetsService {
     await this.auditLogsService.recordSystem({
       triggerType: AuditTriggerType.CONFIG_CHANGE,
       action: AuditActions.ASSET_CONFIG_UPDATED,
-      module: AuditModules.ASSETS,
       entityType: AuditEntityTypes.ASSET,
       entityId: result.id,
       entityNo: result.assetNo || undefined,
       result: AuditResult.SUCCESS,
       reason: 'Asset config created',
-      afterData: {
-        type: result.type,
-        code: result.code,
-        network: result.network,
-        status: result.status,
-      },
       sourcePlatform: 'ADMIN_API',
     });
 
@@ -127,16 +120,11 @@ export class AssetsService {
     await this.auditLogsService.recordSystem({
       triggerType: AuditTriggerType.CONFIG_CHANGE,
       action: AuditActions.ASSET_CONFIG_UPDATED,
-      module: AuditModules.ASSETS,
       entityType: AuditEntityTypes.ASSET,
       entityId: result.id,
       entityNo: result.assetNo || undefined,
-      statusFrom: before.status,
-      statusTo: result.status,
       result: AuditResult.SUCCESS,
       reason: 'Asset status changed',
-      beforeData: { status: before.status },
-      afterData: { status: result.status },
       sourcePlatform: 'ADMIN_API',
     });
 

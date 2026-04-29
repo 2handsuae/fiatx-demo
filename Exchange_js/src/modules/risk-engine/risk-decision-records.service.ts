@@ -627,7 +627,6 @@ export class RiskDecisionRecordsService {
       {
         triggerType: AuditTriggerType.MANUAL_OVERRIDE,
         action: AuditActions.RISK_DECISION_MANUAL_SIMULATED,
-        module: AuditModules.RISK_DECISION_RECORDS,
         entityType: AuditEntityTypes.RISK_DECISION_RECORD,
         entityId: id,
         entityOwnerType: 'CUSTOMER',
