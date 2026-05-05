@@ -21,6 +21,7 @@ model User {
   status              String
   failedLoginAttempts Int                   @default(0)
   lockedUntil         DateTime?
+  suspendedAt         DateTime?
   lastLoginAt         DateTime?
   deletedAt           DateTime?
   deletedBy           String?
@@ -30,6 +31,7 @@ model User {
   updatedAt           DateTime              @updatedAt
   userRoles           UserRole[]
   adminInvitations    AdminUserInvitation[]
+  roleChangeRequests  AdminRoleChangeRequest[] @relation("roleChangeTarget")
 
   @@index([deletedAt])
   @@map("users")
@@ -113,6 +115,32 @@ model AdminUserInvitation {
   @@index([expiresAt])
   @@index([traceId])
   @@map("admin_user_invitations")
+}
+
+model AdminRoleChangeRequest {
+  id                String    @id @default(uuid())
+  requestNo         String    @unique @default("TEMP")
+  targetUserId      String
+  currentRoleCodes  String
+  proposedRoleCodes String
+  changeReason      String
+  status            String    @default("PENDING_APPROVAL")
+  approvalCaseId    String?
+  approvalCaseNo    String?
+  requestedByUserId String
+  executedAt        DateTime?
+  failureReason     String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  deletedAt         DateTime?
+
+  targetUser        User      @relation("roleChangeTarget", fields: [targetUserId], references: [id])
+
+  @@index([targetUserId])
+  @@index([approvalCaseId])
+  @@index([status])
+  @@index([requestedByUserId])
+  @@map("admin_role_change_requests")
 }
 
 model CustomerMain {
