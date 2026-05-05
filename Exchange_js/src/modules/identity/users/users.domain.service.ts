@@ -127,4 +127,37 @@ export class UsersDomainService {
       role: user.role,
     };
   }
+
+  async suspendUser(
+    userId: string,
+    tx?: Prisma.TransactionClient,
+  ): Promise<{ id: string; userNo: string; status: string }> {
+    const client = tx || this.prisma;
+    const user = await client.user.findFirst({
+      where: { id: userId, deletedAt: null },
+      select: { id: true, userNo: true, status: true, userRoles: { select: { role: { select: { code: true } } } } },
+    });
+    if (!user) throw new NotFoundException('User not found');
+
+    const roleCodes = user.userRoles.map((ur: any) => ur.role.code);
+    if (roleCodes.includes('SUPER_ADMIN')) {
+      throw new ConflictException('SUPER_ADMIN account cannot be suspended');
+    }
+
+    if (user.status === 'SUSPENDED') {
+      return { id: user.id, userNo: user.userNo, status: user.status };
+    }
+
+    if (user.status !== 'ACTIVE' && user.status !== 'INACTIVE' && user.status !== 'INVITE_SENT' && user.status !== 'PENDING_INVITE_APPROVAL') {
+      throw new ConflictException(`Cannot suspend user in status: ${user.status}`);
+    }
+
+    const updated = await client.user.update({
+      where: { id: userId },
+      data: { status: 'SUSPENDED', suspendedAt: new Date() },
+      select: { id: true, userNo: true, status: true },
+    });
+
+    return updated;
+  }
 }
