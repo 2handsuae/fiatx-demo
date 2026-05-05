@@ -42,6 +42,7 @@ export const ApprovalActionTypes = {
   // ─── Wave 1 Governance Redesign (2026-04-30) ─
   ADMIN_INVITE_APPROVAL: 'ADMIN_INVITE_APPROVAL',
   ADMIN_ROLE_BINDING_CHANGE_APPROVAL: 'ADMIN_ROLE_BINDING_CHANGE_APPROVAL',
+  ADMIN_SUSPENSION_APPROVAL: 'ADMIN_SUSPENSION_APPROVAL',
 } as const;
 
 export const ApprovalStatuses = {

@@ -92,6 +92,7 @@ export const AuditEntityTypes = {
   SWAP_QUOTE: 'SWAP_QUOTE',
   PRICING_POLICY: 'PRICING_POLICY',
   WITHDRAW_PRICING_QUOTE: 'WITHDRAW_PRICING_QUOTE',
+  ADMIN_USER: 'ADMIN_USER',
 } as const;
 
 export const AuditWorkflowTypes = {
