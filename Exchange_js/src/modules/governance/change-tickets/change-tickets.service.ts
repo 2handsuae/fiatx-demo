@@ -26,7 +26,6 @@ import {
 import {
   AuditResult,
   AuditSubjectRole,
-  AuditTriggerType,
 } from '../../audit-logging/dto/audit-log.dto';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import { sha256Hex } from '../../audit-logging/utils/audit-digest.util';
@@ -64,11 +63,6 @@ type ConsumeChangeTicketInput = {
 
 type AdminMemberProvisioningTicketInput = {
   email: string;
-  roleCodes: string[];
-  changeReason: string;
-};
-
-type AdminRoleBindingChangeTicketInput = {
   roleCodes: string[];
   changeReason: string;
 };
@@ -392,7 +386,6 @@ export class ChangeTicketsService {
   ) {
     await this.auditLogsService.recordByActor(
       {
-        triggerType: AuditTriggerType.DATA_UPDATE,
         action,
         entityType: AuditEntityTypes.CHANGE_TICKET,
         entityId: ticket.id,
@@ -601,67 +594,6 @@ export class ChangeTicketsService {
         traceId: draft.traceId,
         intent: 'ADMIN_MEMBER_PROVISIONING',
         email,
-        roleCodes,
-        requestedByUserId: actor.userId,
-        requestedByUserNo: actor.userNo || actor.userId,
-        changeReason,
-        scopeSummary,
-        testEvidenceRef: draft.testEvidenceRef,
-        rollbackPlanRef: draft.rollbackPlanRef,
-      }),
-    );
-  }
-
-  async createAdminRoleBindingChangeTicket(
-    userId: string,
-    input: AdminRoleBindingChangeTicketInput,
-    actor: ApprovalActorContext,
-  ) {
-    const normalizedUserId = String(userId || '').trim();
-    if (!normalizedUserId) {
-      throw new BadRequestException('userId is required');
-    }
-
-    const roleCodes = this.normalizeProposalRoleCodes(input.roleCodes);
-    if (roleCodes.length === 0) {
-      throw new BadRequestException('At least one role code is required');
-    }
-
-    const targetUser = await this.prisma.user.findFirst({
-      where: {
-        id: normalizedUserId,
-        deletedAt: null,
-      },
-      select: {
-        id: true,
-        userNo: true,
-        email: true,
-      },
-    });
-
-    if (!targetUser) {
-      throw new NotFoundException('User not found');
-    }
-
-    const changeReason = this.requireNonBlankString(input.changeReason, 'changeReason');
-    const scopeSummary = `Replace admin role bindings for user ${normalizedUserId} with roles ${roleCodes.join(', ')}`;
-
-    return this.createTicketWithFrozenSnapshot(
-      {
-        changeType: ChangeTicketTypes.RBAC_CATALOG_CHANGE,
-        changeReason,
-        scopeSummary,
-        ...this.buildBusinessPageProposalRefs(),
-      },
-      actor,
-      (draft) => ({
-        ticketNo: draft.ticketNo,
-        changeType: draft.changeType,
-        traceId: draft.traceId,
-        intent: 'ADMIN_ROLE_BINDING_CHANGE',
-        targetUserId: targetUser.id,
-        targetUserNo: targetUser.userNo,
-        targetEmail: targetUser.email,
         roleCodes,
         requestedByUserId: actor.userId,
         requestedByUserNo: actor.userNo || actor.userId,

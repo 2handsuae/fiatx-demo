@@ -3,9 +3,7 @@ import { PrismaService } from '../../../core/prisma/prisma.service';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
   AuditActions,
-  AuditBusinessWorkflowTypes,
   AuditEntityTypes,
-  AuditModules,
 } from '../../audit-logging/constants/audit-actions.constant';
 import {
   ACTIVE_RBAC_ROLE_CODES,
@@ -21,21 +19,6 @@ interface AdminActorContext {
   actorRole: string;
   actorNo?: string;
 }
-
-type GovernedRoleBindingChangeBinding = {
-  intent?: string;
-  targetUserId: string;
-  roleCodes: string[];
-  [key: string]: unknown;
-};
-
-type GovernedExecutionActor = {
-  actorType?: string;
-  userId: string;
-  userNo?: string;
-  role?: string;
-  roleCodes?: string[];
-};
 
 type InternalAuditContext = {
   workflowType?: string;
@@ -87,14 +70,6 @@ export class AccessControlService {
     ).map((rule) => rule.message);
   }
 
-  private toAdminActor(actor: GovernedExecutionActor): AdminActorContext {
-    return {
-      actorId: actor.userId,
-      actorNo: actor.userNo || actor.userId,
-      actorRole: actor.role || actor.roleCodes?.[0] || 'UNKNOWN',
-    };
-  }
-
   private applyAuditContext<T extends Record<string, unknown>>(
     payload: T,
     auditContext?: InternalAuditContext,
@@ -107,21 +82,6 @@ export class AccessControlService {
       workflowType: workflowType || undefined,
       traceId: traceId || undefined,
     } as T;
-  }
-
-  private buildGovernedRoleBindingAuditContext(
-    binding: GovernedRoleBindingChangeBinding,
-  ): InternalAuditContext | undefined {
-    const traceId = this.normalizeOptionalString(binding.traceId);
-
-    if (!traceId) {
-      return undefined;
-    }
-
-    return {
-      workflowType: AuditBusinessWorkflowTypes.ADMIN_ROLE_BINDING_CHANGE,
-      traceId: traceId || undefined,
-    };
   }
 
   async listRoles() {
@@ -361,16 +321,4 @@ export class AccessControlService {
     };
   }
 
-  async executeGovernedRoleBindingChange(
-    binding: GovernedRoleBindingChangeBinding,
-    actor: GovernedExecutionActor,
-  ) {
-    const auditContext = this.buildGovernedRoleBindingAuditContext(binding);
-    return this.replaceUserRoles(
-      binding.targetUserId,
-      binding.roleCodes,
-      this.toAdminActor(actor),
-      auditContext,
-    );
-  }
 }

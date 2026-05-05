@@ -1,24 +1,18 @@
 import {
-  Body,
   Controller,
   ForbiddenException,
   Get,
   Param,
   ParseUUIDPipe,
-  Put,
   Req,
   UseGuards,
-  ValidationPipe,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { AccessControlService } from './access-control.service';
 import { AdminPermissionGuard } from './admin-permission.guard';
-import { UpdateUserRolesDto } from './dto/update-user-roles.dto';
 import { RequirePermissions } from './require-permissions.decorator';
 import { buildPermissionCode } from './permission-code.util';
-import { ChangeTicketsService } from '../../governance/change-tickets/change-tickets.service';
-import { ApprovalActorContext } from '../../governance/approvals/constants/approval.constants';
 
 @ApiTags('Admin - IAM')
 @Controller('admin/iam')
@@ -27,18 +21,7 @@ import { ApprovalActorContext } from '../../governance/approvals/constants/appro
 export class AccessControlController {
   constructor(
     private readonly accessControlService: AccessControlService,
-    private readonly changeTicketsService: ChangeTicketsService,
   ) {}
-
-  private buildAdminActor(req: any): ApprovalActorContext {
-    return {
-      actorType: 'ADMIN',
-      userId: req.user.userId,
-      userNo: req.user.userNo,
-      role: req.user.role || 'ADMIN',
-      roleCodes: req.user.roleCodes || [req.user.role || 'ADMIN'],
-    };
-  }
 
   private ensureAdmin(req: any) {
     if (req.user?.type !== 'ADMIN') {
@@ -72,24 +55,5 @@ export class AccessControlController {
       userId: id,
       roles,
     };
-  }
-
-  @Put('users/:id/roles')
-  @RequirePermissions(buildPermissionCode('PUT', '/admin/iam/users/:id/roles'))
-  @ApiOperation({ summary: 'Create role binding change ticket' })
-  replaceUserRoles(
-    @Req() req: any,
-    @Param('id', new ParseUUIDPipe()) id: string,
-    @Body(new ValidationPipe({ transform: true })) body: UpdateUserRolesDto,
-  ) {
-    this.ensureAdmin(req);
-    return this.changeTicketsService.createAdminRoleBindingChangeTicket(
-      id,
-      {
-        roleCodes: body.roleCodes,
-        changeReason: body.changeReason,
-      },
-      this.buildAdminActor(req),
-    );
   }
 }

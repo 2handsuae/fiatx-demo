@@ -195,10 +195,14 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('GET', '/users', 'List users', ['IAM_READ']),
   route('POST', '/users', 'Create admin user', ['IAM_ASSIGN']),
   route('POST', '/users/:id/invitations/resend', 'Resend admin invitation', ['IAM_ASSIGN']),
+  route('POST', '/users/:id/suspend', 'Suspend admin user (C4)', ['IAM_ASSIGN']),
   route('GET', '/admin/iam/roles', 'List role catalog', ['IAM_READ']),
   route('GET', '/admin/iam/permissions', 'List permission catalog', ['IAM_READ']),
   route('GET', '/admin/iam/users/:id/roles', 'Get user roles', ['IAM_READ']),
   route('PUT', '/admin/iam/users/:id/roles', 'Replace user roles', ['IAM_ASSIGN']),
+  route('POST', '/admin/iam/role-change-requests', 'Create role binding change request', ['IAM_ASSIGN']),
+  route('GET', '/admin/iam/role-change-requests', 'List role binding change requests', ['IAM_READ']),
+  route('GET', '/admin/iam/role-change-requests/:id', 'Get role binding change request', ['IAM_READ']),
 
   // Customer domain
   route('POST', '/customers', 'Create customer', ['CUSTOMER_WRITE']),
@@ -787,6 +791,7 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'CASE_EXPORT_READ',
     'RECON_BREAK_READ',
     'GOV_APPROVAL_READ',
+    'GOV_APPROVAL_DECIDE',
     'GOV_CHANGE_TICKET_READ',
     'GOV_DELETE_REQUEST_READ',
     'GOV_REGISTRY_READ',
@@ -796,6 +801,7 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
   TECH_OFFICER: [
     'BASE_ACCESS',
     'IAM_READ',
+    'IAM_ASSIGN',
     'AUDIT_READ',
     'AUDIT_EXPORT_READ',
     'RISK_DECISION_RECORD_READ',
