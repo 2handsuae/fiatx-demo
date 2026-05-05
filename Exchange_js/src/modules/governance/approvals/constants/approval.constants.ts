@@ -39,6 +39,9 @@ export const ApprovalActionTypes = {
   // ─── Wave 3 Tier Upgrade (2026-04-13) ────────
   RISK_RATING_MLRO_REVIEW: 'RISK_RATING_MLRO_REVIEW',
   RISK_RATING_TIER_UPGRADE_APPROVAL: 'RISK_RATING_TIER_UPGRADE_APPROVAL',
+  // ─── Wave 1 Governance Redesign (2026-04-30) ─
+  ADMIN_INVITE_APPROVAL: 'ADMIN_INVITE_APPROVAL',
+  ADMIN_ROLE_BINDING_CHANGE_APPROVAL: 'ADMIN_ROLE_BINDING_CHANGE_APPROVAL',
 } as const;
 
 export const ApprovalStatuses = {
@@ -213,6 +216,21 @@ export const DEFAULT_APPROVAL_POLICIES: Record<
     timeoutHours: 240,
     allowCancel: true,
     allowRetry: true,
+  },
+  // ─── Wave 1 Governance Redesign (2026-04-30) ─
+  [ApprovalActionTypes.ADMIN_INVITE_APPROVAL]: {
+    riskLevel: ApprovalRiskLevels.HIGH,
+    checkerRoles: ['CISO'],
+    timeoutHours: 48,
+    allowCancel: true,
+    allowRetry: false,
+  },
+  [ApprovalActionTypes.ADMIN_ROLE_BINDING_CHANGE_APPROVAL]: {
+    riskLevel: ApprovalRiskLevels.HIGH,
+    checkerRoles: ['CISO'],
+    timeoutHours: 48,
+    allowCancel: true,
+    allowRetry: false,
   },
 };
 

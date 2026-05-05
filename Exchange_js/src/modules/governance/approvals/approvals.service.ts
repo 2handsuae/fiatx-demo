@@ -373,6 +373,7 @@ export class ApprovalsService {
     const DEDICATED: string[] = [
       AuditBusinessWorkflowTypes.AUDIT_EVIDENCE_EXPORT,
       AuditBusinessWorkflowTypes.ADMIN_INVITE,
+      AuditBusinessWorkflowTypes.ADMIN_ROLE_BINDING_CHANGE,
     ];
     return DEDICATED.includes(workflowType);
   }

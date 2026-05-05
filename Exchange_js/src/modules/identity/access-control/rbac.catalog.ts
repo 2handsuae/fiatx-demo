@@ -181,7 +181,11 @@ export function getPrimaryRoleCode(roleCodes: string[]): string | null {
   return normalized[0] || null;
 }
 
-export const HARD_MUTEX_ROLE_PAIRS: Array<[string, string]> = [];
+export const HARD_MUTEX_ROLE_PAIRS: Array<[string, string]> = [
+  ['CISO', 'MLRO'],
+  ['MLRO', 'OPS_OFFICER'],
+  ['CISO', 'OPS_OFFICER'],
+];
 
 export const SOFT_WARNING_ROLE_GROUPS: Array<{ codes: string[]; message: string }> = [];
 

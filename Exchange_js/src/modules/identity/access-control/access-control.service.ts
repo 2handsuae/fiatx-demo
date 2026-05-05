@@ -65,7 +65,7 @@ export class AccessControlService {
     return normalized.length ? normalized : null;
   }
 
-  private validateHardMutex(roleCodes: string[]) {
+  validateHardMutex(roleCodes: string[]) {
     if (roleCodes.includes('SUPER_ADMIN')) {
       return;
     }
