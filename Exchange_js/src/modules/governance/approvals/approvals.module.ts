@@ -5,7 +5,6 @@ import { DeleteRequestsModule } from '../delete-requests/delete-requests.module'
 import { ApprovalPolicyService } from './approval-policy.service';
 import { ApprovalsController } from './approvals.controller';
 import { ApprovalsService } from './approvals.service';
-import { AuditEvidenceExportApprovalService } from './audit-evidence-export-approval.service';
 
 @Module({
   imports: [
@@ -17,8 +16,7 @@ import { AuditEvidenceExportApprovalService } from './audit-evidence-export-appr
   providers: [
     ApprovalsService,
     ApprovalPolicyService,
-    AuditEvidenceExportApprovalService,
   ],
-  exports: [ApprovalsService, AuditEvidenceExportApprovalService],
+  exports: [ApprovalsService],
 })
 export class ApprovalsModule {}
