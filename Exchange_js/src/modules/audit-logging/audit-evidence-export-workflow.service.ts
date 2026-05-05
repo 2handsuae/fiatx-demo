@@ -64,7 +64,7 @@ export class AuditEvidenceExportWorkflowService {
     approvalId?: string | null,
     approvalNo?: string | null,
   ) {
-    const subjects: Array<{ subjectRole: string; subjectType: string; subjectId?: string; subjectNo: string }> = [];
+    const subjects: Array<{ subjectRole: AuditSubjectRole; subjectType: string; subjectId?: string; subjectNo: string }> = [];
     if (approvalNo) {
       subjects.push({
         subjectRole: AuditSubjectRole.RELATED,
