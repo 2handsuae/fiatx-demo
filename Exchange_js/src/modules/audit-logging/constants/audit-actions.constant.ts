@@ -128,6 +128,13 @@ export const AuditBusinessWorkflowTypes = {
   AUDIT_EVIDENCE_PACKAGE_DELETION: 'AUDIT_EVIDENCE_PACKAGE_DELETION',
   AUDIT_EVIDENCE_EXPORT: 'AUDIT_EVIDENCE_EXPORT',
   BUSINESS_CONFIG_CHANGE: 'BUSINESS_CONFIG_CHANGE',
+  // Governance redesign workflow types (C1–D2)
+  ADMIN_INVITE: 'ADMIN_INVITE',
+  ADMIN_ROLE_BINDING: 'ADMIN_ROLE_BINDING',
+  ADMIN_SUSPENSION: 'ADMIN_SUSPENSION',
+  ADMIN_REACTIVATION: 'ADMIN_REACTIVATION',
+  APPROVAL_POLICY: 'APPROVAL_POLICY',
+  ADMIN_ACCOUNT_DELETION: 'ADMIN_ACCOUNT_DELETION',
 } as const;
 
 export const AuditUserActions = {
@@ -382,64 +389,55 @@ export const AuditActions = {
   SYSTEM_WITHDRAW_APPROVED_ORCHESTRATED: 'SYSTEM_WITHDRAW_APPROVED_ORCHESTRATED',
 } as const;
 
-/**
- * Governance workflow audit actions — dotted.lowercase.path format
- * Pattern: governance.<workflow>.<event>
- * Metadata contracts defined in admin-governance-redesign.md
- */
 export const AuditGovernanceActions = {
   // C1 — Admin Invite
   ADMIN_INVITE: {
-    INITIATED:              'governance.admin_invite.initiated',
-    SUBMITTED_FOR_APPROVAL: 'governance.admin_invite.submitted_for_approval',
-    APPROVAL_GRANTED:       'governance.admin_invite.approval_granted',
-    APPROVAL_DECLINED:      'governance.admin_invite.approval_declined',
-    APPROVAL_CANCELLED:     'governance.admin_invite.approval_cancelled',
-    LINK_DISPATCHED:        'governance.admin_invite.link_dispatched',
-    LINK_EXPIRED:           'governance.admin_invite.link_expired',
-    ACCOUNT_ACTIVATED:      'governance.admin_invite.account_activated',
+    INVITE_REQUESTED:       'INVITE_REQUESTED',
+    APPROVAL_GRANTED:       'APPROVAL_GRANTED',
+    APPROVAL_DECLINED:      'APPROVAL_DECLINED',
+    APPROVAL_CANCELLED:     'APPROVAL_CANCELLED',
+    INVITE_LINK_DISPATCHED: 'INVITE_LINK_DISPATCHED',
+    INVITE_CANCELLED:       'INVITE_CANCELLED',
+    INVITE_LINK_EXPIRED:    'INVITE_LINK_EXPIRED',
+    ACCOUNT_ACTIVATED:      'ACCOUNT_ACTIVATED',
   },
 
   // C2 — Admin Role Binding Change
   ADMIN_ROLE_BINDING: {
-    CHANGE_INITIATED:       'governance.admin_role_binding.change_initiated',
-    SUBMITTED_FOR_APPROVAL: 'governance.admin_role_binding.submitted_for_approval',
-    APPROVAL_GRANTED:       'governance.admin_role_binding.approval_granted',
-    APPROVAL_DECLINED:      'governance.admin_role_binding.approval_declined',
-    APPROVAL_CANCELLED:     'governance.admin_role_binding.approval_cancelled',
-    CHANGE_APPLIED:         'governance.admin_role_binding.change_applied',
-    CHANGE_APPLY_FAILED:    'governance.admin_role_binding.change_apply_failed',
+    CHANGE_REQUESTED:     'CHANGE_REQUESTED',
+    APPROVAL_GRANTED:     'APPROVAL_GRANTED',
+    APPROVAL_DECLINED:    'APPROVAL_DECLINED',
+    APPROVAL_CANCELLED:   'APPROVAL_CANCELLED',
+    CHANGE_APPLIED:       'CHANGE_APPLIED',
+    CHANGE_APPLY_FAILED:  'CHANGE_APPLY_FAILED',
   },
 
   // C3a — Admin Suspension
   ADMIN_SUSPENSION: {
-    INITIATED:              'governance.admin_suspension.initiated',
-    SUBMITTED_FOR_APPROVAL: 'governance.admin_suspension.submitted_for_approval',
-    APPROVAL_GRANTED:       'governance.admin_suspension.approval_granted',
-    APPROVAL_DECLINED:      'governance.admin_suspension.approval_declined',
-    APPROVAL_CANCELLED:     'governance.admin_suspension.approval_cancelled',
-    ACCOUNT_SUSPENDED:      'governance.admin_suspension.account_suspended',
+    SUSPENSION_REQUESTED: 'SUSPENSION_REQUESTED',
+    APPROVAL_GRANTED:     'APPROVAL_GRANTED',
+    APPROVAL_DECLINED:    'APPROVAL_DECLINED',
+    APPROVAL_CANCELLED:   'APPROVAL_CANCELLED',
+    ACCOUNT_SUSPENDED:    'ACCOUNT_SUSPENDED',
   },
 
   // C3b — Admin Reactivation
   ADMIN_REACTIVATION: {
-    INITIATED:              'governance.admin_reactivation.initiated',
-    SUBMITTED_FOR_APPROVAL: 'governance.admin_reactivation.submitted_for_approval',
-    APPROVAL_GRANTED:       'governance.admin_reactivation.approval_granted',
-    APPROVAL_DECLINED:      'governance.admin_reactivation.approval_declined',
-    APPROVAL_CANCELLED:     'governance.admin_reactivation.approval_cancelled',
-    ACCOUNT_REACTIVATED:    'governance.admin_reactivation.account_reactivated',
+    REACTIVATION_REQUESTED: 'REACTIVATION_REQUESTED',
+    APPROVAL_GRANTED:       'APPROVAL_GRANTED',
+    APPROVAL_DECLINED:      'APPROVAL_DECLINED',
+    APPROVAL_CANCELLED:     'APPROVAL_CANCELLED',
+    ACCOUNT_REACTIVATED:    'ACCOUNT_REACTIVATED',
   },
 
   // C4b — Approval Policy Modification
   APPROVAL_POLICY: {
-    MODIFICATION_INITIATED:    'governance.approval_policy.modification_initiated',
-    SUBMITTED_FOR_APPROVAL:    'governance.approval_policy.submitted_for_approval',
-    APPROVAL_GRANTED:          'governance.approval_policy.approval_granted',
-    APPROVAL_DECLINED:         'governance.approval_policy.approval_declined',
-    APPROVAL_CANCELLED:        'governance.approval_policy.approval_cancelled',
-    MODIFICATION_APPLIED:      'governance.approval_policy.modification_applied',
-    MODIFICATION_APPLY_FAILED: 'governance.approval_policy.modification_apply_failed',
+    MODIFICATION_REQUESTED:    'MODIFICATION_REQUESTED',
+    APPROVAL_GRANTED:          'APPROVAL_GRANTED',
+    APPROVAL_DECLINED:         'APPROVAL_DECLINED',
+    APPROVAL_CANCELLED:        'APPROVAL_CANCELLED',
+    MODIFICATION_APPLIED:      'MODIFICATION_APPLIED',
+    MODIFICATION_APPLY_FAILED: 'MODIFICATION_APPLY_FAILED',
   },
 
   // C5 — Audit Evidence Export
@@ -455,22 +453,20 @@ export const AuditGovernanceActions = {
 
   // D1 — Admin Account Deletion
   ADMIN_ACCOUNT_DELETION: {
-    INITIATED:              'governance.admin_account_deletion.initiated',
-    SUBMITTED_FOR_APPROVAL: 'governance.admin_account_deletion.submitted_for_approval',
-    APPROVAL_GRANTED:       'governance.admin_account_deletion.approval_granted',
-    APPROVAL_DECLINED:      'governance.admin_account_deletion.approval_declined',
-    APPROVAL_CANCELLED:     'governance.admin_account_deletion.approval_cancelled',
-    ACCOUNT_SOFT_DELETED:   'governance.admin_account_deletion.account_soft_deleted',
+    DELETION_REQUESTED:   'DELETION_REQUESTED',
+    APPROVAL_GRANTED:     'APPROVAL_GRANTED',
+    APPROVAL_DECLINED:    'APPROVAL_DECLINED',
+    APPROVAL_CANCELLED:   'APPROVAL_CANCELLED',
+    ACCOUNT_SOFT_DELETED: 'ACCOUNT_SOFT_DELETED',
   },
 
   // D2 — Audit Evidence Package Deletion
   AUDIT_EVIDENCE_PACKAGE_DELETION: {
-    INITIATED:              'governance.audit_evidence_package_deletion.initiated',
-    SUBMITTED_FOR_APPROVAL: 'governance.audit_evidence_package_deletion.submitted_for_approval',
-    APPROVAL_GRANTED:       'governance.audit_evidence_package_deletion.approval_granted',
-    APPROVAL_DECLINED:      'governance.audit_evidence_package_deletion.approval_declined',
-    APPROVAL_CANCELLED:     'governance.audit_evidence_package_deletion.approval_cancelled',
-    PACKAGE_PURGED:         'governance.audit_evidence_package_deletion.package_purged',
+    DELETION_REQUESTED: 'DELETION_REQUESTED',
+    APPROVAL_GRANTED:   'APPROVAL_GRANTED',
+    APPROVAL_DECLINED:  'APPROVAL_DECLINED',
+    APPROVAL_CANCELLED: 'APPROVAL_CANCELLED',
+    PACKAGE_PURGED:     'PACKAGE_PURGED',
   },
 } as const;
 
