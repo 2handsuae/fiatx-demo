@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Mail, RefreshCw } from 'lucide-react';
+import { Mail, RefreshCw, Copy, Check } from 'lucide-react';
 import {
   AdminPermissionError,
   AdminSessionError,
@@ -24,6 +24,7 @@ interface MemberDetail {
   latestInvitation: {
     inviteStatus: 'PENDING' | 'EXPIRED' | 'USED' | 'REVOKED';
     inviteExpiresAt: string;
+    inviteLink: string | null;
   } | null;
 }
 
@@ -39,6 +40,61 @@ const INVITE_STATUS_COLORS: Record<string, string> = {
   EXPIRED: 'text-adm-red',
   REVOKED: 'text-adm-red',
 };
+
+function InvitationSection({ invitation }: { invitation: NonNullable<MemberDetail['latestInvitation']> }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    if (!invitation.inviteLink) return;
+    await navigator.clipboard.writeText(invitation.inviteLink);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <section className="px-6 py-5">
+      <p className="mb-3 font-mono text-[8.5px] font-semibold uppercase tracking-[0.16em] text-adm-t3">Invitation Status</p>
+      <div className="rounded border border-adm-border bg-adm-bg p-4 space-y-4">
+        <div className="grid grid-cols-2 gap-x-8 gap-y-4">
+          <div>
+            <p className="mb-1.5 font-mono text-[8.5px] uppercase tracking-[0.14em] text-adm-t3">Invite Status</p>
+            <span
+              className={[
+                'font-mono text-[10px] font-semibold',
+                INVITE_STATUS_COLORS[invitation.inviteStatus] || 'text-adm-t2',
+              ].join(' ')}
+            >
+              {invitation.inviteStatus}
+            </span>
+          </div>
+          <div>
+            <p className="mb-1 font-mono text-[8.5px] uppercase tracking-[0.14em] text-adm-t3">Expires At</p>
+            <p className="font-mono text-[10px] text-adm-t2">
+              {fmt(invitation.inviteExpiresAt)}
+            </p>
+          </div>
+        </div>
+        {invitation.inviteLink && (
+          <div>
+            <p className="mb-1.5 font-mono text-[8.5px] uppercase tracking-[0.14em] text-adm-t3">Invite Link</p>
+            <div className="flex items-center gap-2">
+              <code className="flex-1 overflow-hidden text-ellipsis whitespace-nowrap rounded border border-adm-border bg-adm-panel px-3 py-1.5 font-mono text-[10px] text-adm-t2">
+                {invitation.inviteLink}
+              </code>
+              <button
+                onClick={() => void handleCopy()}
+                className="inline-flex items-center gap-1 rounded border border-adm-border bg-adm-panel px-2 py-1.5 font-mono text-[10px] text-adm-t2 hover:border-adm-amber/50 transition-colors"
+              >
+                {copied ? <Check size={12} className="text-adm-green" /> : <Copy size={12} />}
+                {copied ? 'Copied' : 'Copy'}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
 
 export default function PlatformMemberDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -251,30 +307,7 @@ export default function PlatformMemberDetailPage() {
 
         {/* Invitation Status */}
         {member.latestInvitation && (
-          <section className="px-6 py-5">
-            <p className="mb-3 font-mono text-[8.5px] font-semibold uppercase tracking-[0.16em] text-adm-t3">Invitation Status</p>
-            <div className="rounded border border-adm-border bg-adm-bg p-4">
-              <div className="grid grid-cols-2 gap-x-8 gap-y-4">
-                <div>
-                  <p className="mb-1.5 font-mono text-[8.5px] uppercase tracking-[0.14em] text-adm-t3">Invite Status</p>
-                  <span
-                    className={[
-                      'font-mono text-[10px] font-semibold',
-                      INVITE_STATUS_COLORS[member.latestInvitation.inviteStatus] || 'text-adm-t2',
-                    ].join(' ')}
-                  >
-                    {member.latestInvitation.inviteStatus}
-                  </span>
-                </div>
-                <div>
-                  <p className="mb-1 font-mono text-[8.5px] uppercase tracking-[0.14em] text-adm-t3">Expires At</p>
-                  <p className="font-mono text-[10px] text-adm-t2">
-                    {fmt(member.latestInvitation.inviteExpiresAt)}
-                  </p>
-                </div>
-              </div>
-            </div>
-          </section>
+          <InvitationSection invitation={member.latestInvitation} />
         )}
 
         {/* Actions */}

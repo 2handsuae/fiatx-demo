@@ -10,7 +10,7 @@ datasource db {
 model User {
   id                  String                @id @default(uuid())
   userNo              String                @unique @default("TEMP")
-  email               String                @unique
+  email               String
   password            String
   // Legacy: single-role string kept for JWT backward compatibility.
   // Authoritative RBAC is resolved via userRoles → roles → role_permissions.
@@ -96,6 +96,7 @@ model UserRole {
 model AdminUserInvitation {
   id              String    @id @default(uuid())
   userId          String
+  token           String?
   tokenHash       String    @unique
   expiresAt       DateTime
   consumedAt      DateTime?
@@ -577,7 +578,6 @@ model WorkflowDecisionRecord {
 model AuditLogEvent {
   id              String              @id @default(uuid())
   auditNo         String              @unique @default("TEMP")
-  triggerType     String
   action          String
   entityType      String
   entityId        String?
@@ -607,7 +607,6 @@ model AuditLogEvent {
   subjectNos      AuditLogSubjectNo[]
 
   @@index([occurredAt])
-  @@index([triggerType, occurredAt])
   @@index([entityType, entityId])
   @@index([actorType, actorId])
   @@index([actorType, actorId, occurredAt])

@@ -3,6 +3,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { AdminInvitationsService } from './admin-invitations.service';
 
@@ -11,6 +12,7 @@ type UserRow = any;
 type MemberInvitationSummary = {
   inviteStatus: 'PENDING' | 'EXPIRED' | 'USED' | 'REVOKED';
   inviteExpiresAt: string;
+  inviteLink: string | null;
 };
 
 type MemberDetail = {
@@ -37,7 +39,17 @@ export class UsersService {
     @Inject(PrismaService)
     private prisma: PrismaService & Record<string, any>,
     private adminInvitationsService: AdminInvitationsService,
+    private configService: ConfigService,
   ) {}
+
+  private buildInviteLink(token: string): string {
+    const adminUrl = (
+      this.configService.get<string>('ADMIN_URL') ||
+      process.env.ADMIN_URL ||
+      'http://localhost:3001'
+    ).replace(/\/+$/, '');
+    return `${adminUrl}/admin/activate?token=${encodeURIComponent(token)}`;
+  }
 
   private activeUserWhere(where?: Record<string, unknown>) {
     return {
@@ -117,6 +129,7 @@ export class UsersService {
         createdAt: 'desc',
       },
       select: {
+        token: true,
         expiresAt: true,
         consumedAt: true,
         revokedAt: true,
@@ -141,6 +154,10 @@ export class UsersService {
         ? {
             inviteStatus: this.mapInvitationStatus(latestInvitation),
             inviteExpiresAt: latestInvitation.expiresAt.toISOString(),
+            inviteLink:
+              this.mapInvitationStatus(latestInvitation) === 'PENDING' && latestInvitation.token
+                ? this.buildInviteLink(latestInvitation.token)
+                : null,
           }
         : null,
     };

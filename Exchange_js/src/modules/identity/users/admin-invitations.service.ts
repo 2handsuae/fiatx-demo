@@ -11,12 +11,13 @@ import { createHash, randomBytes } from 'crypto';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
   AuditActions,
+  AuditBusinessWorkflowTypes,
   AuditEntityTypes,
+  AuditGovernanceActions,
   AuditModules,
 } from '../../audit-logging/constants/audit-actions.constant';
 import {
   AuditResult,
-  AuditTriggerType,
 } from '../../audit-logging/dto/audit-log.dto';
 
 const INVITATION_TTL_MS = 24 * 60 * 60 * 1000;
@@ -205,6 +206,7 @@ export class AdminInvitationsService {
         const invitation = await tx.adminUserInvitation.create({
           data: {
             userId,
+            token,
             tokenHash,
             expiresAt,
             createdByUserId: createdByUserId || null,
@@ -249,8 +251,8 @@ export class AdminInvitationsService {
       throw new NotFoundException('User not found');
     }
 
-    if (user.status !== 'INACTIVE') {
-      throw new BadRequestException('Invitation can only be resent for INACTIVE users');
+    if (user.status !== 'INACTIVE' && user.status !== 'INVITE_SENT') {
+      throw new BadRequestException('Invitation can only be resent for INACTIVE or INVITE_SENT users');
     }
 
     const effectiveAuditContext =
@@ -262,8 +264,8 @@ export class AdminInvitationsService {
         where: { id: user.id },
         select: { status: true, deletedAt: true },
       });
-      if (!currentUser || currentUser.deletedAt || currentUser.status !== 'INACTIVE') {
-        throw new BadRequestException('Invitation can only be resent for INACTIVE users');
+      if (!currentUser || currentUser.deletedAt || (currentUser.status !== 'INACTIVE' && currentUser.status !== 'INVITE_SENT')) {
+        throw new BadRequestException('Invitation can only be resent for INACTIVE or INVITE_SENT users');
       }
 
       const { invitation, token } = await this.createInvitationRecord(
@@ -278,7 +280,6 @@ export class AdminInvitationsService {
     await this.auditLogsService.recordByActor(
       this.applyAuditContext({
         action: options.action,
-        triggerType: AuditTriggerType.PERMISSION_CHANGE,
         entityType: AuditEntityTypes.ACCESS_CONTROL,
         entityId: user.id,
         entityNo: user.userNo,
@@ -468,10 +469,13 @@ export class AdminInvitationsService {
         return updatedUser;
       });
 
+      const isAdminInviteFlow =
+        effectiveAuditContext?.workflowType === AuditBusinessWorkflowTypes.ADMIN_INVITE;
       await this.auditLogsService.recordByActor(
         this.applyAuditContext({
-          triggerType: AuditTriggerType.AUTH_EVENT,
-          action: AuditActions.ADMIN_INVITATION_ACCEPTED,
+          action: isAdminInviteFlow
+            ? AuditGovernanceActions.ADMIN_INVITE.ACCOUNT_ACTIVATED
+            : AuditActions.ADMIN_INVITATION_ACCEPTED,
           entityType: AuditEntityTypes.AUTH,
           entityId: accepted.id,
           entityNo: accepted.userNo,
@@ -497,7 +501,6 @@ export class AdminInvitationsService {
     } catch (error: any) {
       await this.auditLogsService.recordByActor(
         this.applyAuditContext({
-          triggerType: AuditTriggerType.AUTH_EVENT,
           action: AuditActions.ADMIN_INVITATION_ACCEPT_FAILED,
           entityType: AuditEntityTypes.AUTH,
           result: AuditResult.FAILED,
