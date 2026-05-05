@@ -18,8 +18,10 @@ import { RequirePermissions } from '../access-control/require-permissions.decora
 import { buildPermissionCode } from '../access-control/permission-code.util';
 import { ApprovalActorContext } from '../../governance/approvals/constants/approval.constants';
 import { AdminInviteWorkflowService } from './admin-invite-workflow.service';
+import { AdminSuspensionWorkflowService } from './admin-suspension-workflow.service';
 import { UsersService } from './users.service';
 import { CreateAdminUserDto } from './dto/create-admin-user.dto';
+import { SuspendAdminUserDto } from './dto/suspend-admin-user.dto';
 
 @ApiTags('users')
 @ApiBearerAuth()
@@ -28,6 +30,7 @@ import { CreateAdminUserDto } from './dto/create-admin-user.dto';
 export class UsersController {
   constructor(
     private readonly adminInviteWorkflow: AdminInviteWorkflowService,
+    private readonly adminSuspensionWorkflow: AdminSuspensionWorkflowService,
     private readonly usersService: UsersService,
   ) {}
 
@@ -111,5 +114,23 @@ export class UsersController {
     }
 
     return this.adminInviteWorkflow.resendInvitation(id, this.buildAdminActor(req));
+  }
+
+  @Post(':id/suspend')
+  @RequirePermissions(buildPermissionCode('POST', '/users/:id/suspend'))
+  @ApiOperation({ summary: 'Initiate admin account suspension approval (C4)' })
+  async suspendUser(
+    @Req() req: any,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body(new ValidationPipe({ transform: true })) body: SuspendAdminUserDto,
+  ) {
+    if (req.user?.type !== 'ADMIN') {
+      throw new ForbiddenException('Admin token required');
+    }
+
+    return this.adminSuspensionWorkflow.initiateSuspension(
+      { targetUserId: id, reason: body.reason },
+      this.buildAdminActor(req),
+    );
   }
 }
