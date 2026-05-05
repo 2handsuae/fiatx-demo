@@ -10,6 +10,7 @@ import { PrismaService } from '../../../core/prisma/prisma.service';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
   AuditActions,
+  AuditBusinessWorkflowTypes,
   AuditEntityTypes,
   AuditModules,
   AuditWorkflowTypes,
@@ -17,7 +18,6 @@ import {
 import {
   AuditResult,
   AuditSubjectRole,
-  AuditTriggerType,
 } from '../../audit-logging/dto/audit-log.dto';
 import { ApprovalsService } from '../approvals/approvals.service';
 import {
@@ -455,6 +455,11 @@ export class SlaTimersService {
     return skipped;
   }
 
+  private static readonly WORKFLOW_OWNS_AUDIT: string[] = [
+    AuditBusinessWorkflowTypes.AUDIT_EVIDENCE_EXPORT,
+    AuditBusinessWorkflowTypes.ADMIN_INVITE,
+  ];
+
   private async recordTimerAudit(
     action: string,
     timer: SlaTimerRow,
@@ -463,9 +468,11 @@ export class SlaTimersService {
     reason?: string | null,
     metadata?: Record<string, unknown>,
   ) {
+    if (timer.workflowType && SlaTimersService.WORKFLOW_OWNS_AUDIT.includes(timer.workflowType)) {
+      return;
+    }
     await this.auditLogsService.recordByActor(
       {
-        triggerType: AuditTriggerType.DATA_UPDATE,
         action,
         entityType: AuditEntityTypes.SLA_TIMER,
         entityId: timer.id,

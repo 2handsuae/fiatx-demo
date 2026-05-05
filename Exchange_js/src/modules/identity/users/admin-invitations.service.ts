@@ -277,26 +277,30 @@ export class AdminInvitationsService {
       return { invitation, token };
     });
 
-    await this.auditLogsService.recordByActor(
-      this.applyAuditContext({
-        action: options.action,
-        entityType: AuditEntityTypes.ACCESS_CONTROL,
-        entityId: user.id,
-        entityNo: user.userNo,
-        metadata: {
-          userId: user.id,
-          userNo: user.userNo,
-          userEmail: user.email,
-          inviteExpiresAt: issued.invitation.expiresAt.toISOString(),
+    const workflowOwnsAudit =
+      effectiveAuditContext?.workflowType === AuditBusinessWorkflowTypes.ADMIN_INVITE;
+    if (!workflowOwnsAudit) {
+      await this.auditLogsService.recordByActor(
+        this.applyAuditContext({
+          action: options.action,
+          entityType: AuditEntityTypes.ACCESS_CONTROL,
+          entityId: user.id,
+          entityNo: user.userNo,
+          metadata: {
+            userId: user.id,
+            userNo: user.userNo,
+            userEmail: user.email,
+            inviteExpiresAt: issued.invitation.expiresAt.toISOString(),
+          },
+        }, effectiveAuditContext),
+        {
+          actorType: 'ADMIN',
+          actorId: options.actor.actorId,
+          actorNo: options.actor.actorNo,
+          actorRole: options.actor.actorRole,
         },
-      }, effectiveAuditContext),
-      {
-        actorType: 'ADMIN',
-        actorId: options.actor.actorId,
-        actorNo: options.actor.actorNo,
-        actorRole: options.actor.actorRole,
-      },
-    );
+      );
+    }
 
     return {
       userId: user.id,

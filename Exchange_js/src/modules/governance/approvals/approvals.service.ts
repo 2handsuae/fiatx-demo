@@ -23,7 +23,6 @@ import {
 import {
   AuditResult,
   AuditSubjectRole,
-  AuditTriggerType,
 } from '../../audit-logging/dto/audit-log.dto';
 import { ApprovalPolicyService } from './approval-policy.service';
 import { ChangeTicketsService } from '../change-tickets/change-tickets.service';
@@ -330,7 +329,6 @@ export class ApprovalsService {
 
     await this.auditLogsService.recordByActor(
       {
-        triggerType: AuditTriggerType.DATA_UPDATE,
         action,
         entityType: AuditEntityTypes.APPROVAL_CASE,
         entityId: approval.id,
@@ -371,7 +369,12 @@ export class ApprovalsService {
    * workflows to avoid duplicate entries in the audit log.
    */
   private hasDedicatedAuditService(workflowType: string | null | undefined): boolean {
-    return workflowType === AuditBusinessWorkflowTypes.AUDIT_EVIDENCE_EXPORT;
+    if (!workflowType) return false;
+    const DEDICATED: string[] = [
+      AuditBusinessWorkflowTypes.AUDIT_EVIDENCE_EXPORT,
+      AuditBusinessWorkflowTypes.ADMIN_INVITE,
+    ];
+    return DEDICATED.includes(workflowType);
   }
 
   private buildEventPayload(approval: ApprovalCaseRow): ApprovalDecisionEvent {
@@ -847,16 +850,18 @@ export class ApprovalsService {
         : await this.submitCase(created.id, submitDto, actor, client);
 
     if (options?.emitSideEffects !== false && submitted.status === ApprovalStatuses.PENDING) {
-      await this.recordAudit(
-        AuditActions.APPROVAL_SUBMITTED,
-        submitted,
-        actor,
-        AuditResult.SUCCESS,
-        submitDto.reason || 'Approval submitted',
-        {
-          timeoutAt: submitted.timeoutAt?.toISOString(),
-        },
-      );
+      if (!this.hasDedicatedAuditService(submitted.workflowType)) {
+        await this.recordAudit(
+          AuditActions.APPROVAL_SUBMITTED,
+          submitted,
+          actor,
+          AuditResult.SUCCESS,
+          submitDto.reason || 'Approval submitted',
+          {
+            timeoutAt: submitted.timeoutAt?.toISOString(),
+          },
+        );
+      }
       await this.emitApprovalEvent(ApprovalEvents.SUBMITTED, this.buildEventPayload(submitted));
     }
 
@@ -1183,7 +1188,6 @@ export class ApprovalsService {
       if (input.actor) {
         await this.auditLogsService.recordByActor(
           {
-            triggerType: AuditTriggerType.DATA_UPDATE,
             action: AuditActions.APPROVAL_REQUIRED_MISSING,
             entityType: AuditEntityTypes.APPROVAL_CASE,
             entityId: input.entityRef,
