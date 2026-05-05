@@ -43,6 +43,24 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       }
     }
 
+    if (payload?.type === 'ADMIN') {
+      const adminUser = await this.prisma.user.findFirst({
+        where: { id: payload.sub, deletedAt: null },
+        select: { id: true, status: true },
+      });
+
+      if (!adminUser) {
+        throw new UnauthorizedException('Admin user not found');
+      }
+
+      if (adminUser.status === 'SUSPENDED') {
+        throw new ForbiddenException({
+          code: 'ADMIN_ACCOUNT_SUSPENDED',
+          message: 'Account has been suspended. Contact your administrator.',
+        });
+      }
+    }
+
     const roleCodes = Array.isArray(payload?.roleCodes)
       ? payload.roleCodes.map((item: unknown) =>
           String(item || '').trim().toUpperCase(),
