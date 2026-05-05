@@ -177,7 +177,7 @@ const PlatformMembers = () => {
 
     setCreating(true); setCreateError(null);
     try {
-      const payload = await fetchJson<{ ticketNo: string }>(
+      const payload = await fetchJson<{ userNo: string; approvalNo: string; status: string }>(
         `${import.meta.env.VITE_API_URL}/users`,
         {
           method: 'POST',
@@ -191,7 +191,7 @@ const PlatformMembers = () => {
       );
       closeCreateModal();
       setNotice(
-        `Provisioning request ${payload.ticketNo} created for ${email}. The member will appear after approval and execution.`,
+        `Invite approval ${payload.approvalNo} submitted for ${email} (${payload.userNo}). The member will receive an invitation link once the CISO approves.`,
       );
     } catch (err) {
       if (err instanceof AdminPermissionError) {
@@ -221,7 +221,7 @@ const PlatformMembers = () => {
         {canCreateMember && (
           <button onClick={openCreateModal} className={adminButtonClass('listPrimary')}>
             <Plus size={13} />
-            Submit Provisioning Request
+            Invite Member
           </button>
         )}
         <button
@@ -245,11 +245,14 @@ const PlatformMembers = () => {
         <select
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value)}
-          className={`${fi} w-28`}
+          className={`${fi} w-52`}
         >
           <option value="">All Status</option>
+          <option value="PENDING_INVITE_APPROVAL">PENDING_INVITE_APPROVAL</option>
+          <option value="INVITE_SENT">INVITE_SENT</option>
           <option value="ACTIVE">ACTIVE</option>
-          <option value="INACTIVE">INACTIVE</option>
+          <option value="PENDING_SUSPENSION_APPROVAL">PENDING_SUSPENSION_APPROVAL</option>
+          <option value="SUSPENDED">SUSPENDED</option>
         </select>
         <button
           onClick={() => setApplied(keyword.trim())}
@@ -388,10 +391,10 @@ const PlatformMembers = () => {
             <div className="flex items-center justify-between border-b border-adm-border bg-adm-card px-5 py-4">
               <div>
                 <p className="font-mono text-[11px] font-semibold text-adm-t1">
-                  Submit Provisioning Request
+                  Invite Admin Member
                 </p>
                 <p className="mt-1 font-mono text-[9px] text-adm-t3">
-                  Creates a governed access request. The member only appears after approval and execution.
+                  Submits a CISO approval request. The invite link is dispatched after approval.
                 </p>
               </div>
               <button
