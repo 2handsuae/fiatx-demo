@@ -1,15 +1,24 @@
 import { Module, forwardRef } from '@nestjs/common';
-import { UsersService } from './users.service';
-import { UsersController } from './users.controller';
 import { PrismaModule } from '../../../core/prisma/prisma.module';
-import { AdminInvitationsService } from './admin-invitations.service';
 import { AccessControlModule } from '../access-control/access-control.module';
-import { ChangeTicketsModule } from '../../governance/change-tickets/change-tickets.module';
+import { ApprovalsModule } from '../../governance/approvals/approvals.module';
+import { UsersService } from './users.service';
+import { UsersDomainService } from './users.domain.service';
+import { AdminInvitationsService } from './admin-invitations.service';
+import { AdminInviteApprovalService } from './admin-invite-approval.service';
+import { AdminInviteWorkflowService } from './admin-invite-workflow.service';
+import { UsersController } from './users.controller';
 
 @Module({
-  imports: [PrismaModule, AccessControlModule, forwardRef(() => ChangeTicketsModule)],
-  providers: [UsersService, AdminInvitationsService],
+  imports: [PrismaModule, AccessControlModule, forwardRef(() => ApprovalsModule)],
+  providers: [
+    UsersService,
+    UsersDomainService,
+    AdminInvitationsService,
+    AdminInviteApprovalService,
+    AdminInviteWorkflowService,
+  ],
   controllers: [UsersController],
-  exports: [UsersService, AdminInvitationsService],
+  exports: [UsersService, UsersDomainService, AdminInvitationsService],
 })
 export class UsersModule {}
