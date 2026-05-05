@@ -139,6 +139,8 @@ export class AdminInviteWorkflowService {
     if (!user) return;
 
     try {
+      await this.usersDomainService.updateStatus(user.id, 'INVITE_SENT');
+
       const invitation = await this.adminInvitationsService.createInvitationForUser({
         userId: user.id,
         actor: {
@@ -151,8 +153,6 @@ export class AdminInviteWorkflowService {
           traceId: event.traceId,
         },
       });
-
-      await this.usersDomainService.updateStatus(user.id, 'INVITE_SENT');
 
       await this.auditLogsService.recordByActor(
         {

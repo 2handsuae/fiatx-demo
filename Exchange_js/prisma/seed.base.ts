@@ -156,7 +156,7 @@ export async function ensureBaseSeeded(prisma: PrismaClient): Promise<void> {
 async function seedAdmin(prisma: PrismaClient): Promise<void> {
   const password = await bcrypt.hash(DEFAULT_ADMIN_PASSWORD, 10);
   await prisma.user.upsert({
-    where: { email: DEFAULT_ADMIN_EMAIL },
+    where: { userNo: DEFAULT_ADMIN_USER_NO },
     update: {
       password,
       role: 'SUPER_ADMIN',
@@ -337,9 +337,9 @@ async function seedRoleAdminAccounts(
     }
 
     const user = await prisma.user.upsert({
-      where: { email: account.email },
+      where: { userNo: account.userNo },
       update: {
-        userNo: account.userNo,
+        email: account.email,
         password,
         role: account.roleCode,
         status: 'ACTIVE',
