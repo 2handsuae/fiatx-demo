@@ -374,6 +374,7 @@ export class ApprovalsService {
       AuditBusinessWorkflowTypes.AUDIT_EVIDENCE_EXPORT,
       AuditBusinessWorkflowTypes.ADMIN_INVITE,
       AuditBusinessWorkflowTypes.ADMIN_ROLE_BINDING_CHANGE,
+      AuditBusinessWorkflowTypes.ADMIN_SUSPENSION,
     ];
     return DEDICATED.includes(workflowType);
   }

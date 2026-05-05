@@ -233,6 +233,14 @@ export const DEFAULT_APPROVAL_POLICIES: Record<
     allowCancel: true,
     allowRetry: false,
   },
+  // ─── Wave 1 Governance Redesign — C4 (2026-05-05) ─
+  [ApprovalActionTypes.ADMIN_SUSPENSION_APPROVAL]: {
+    riskLevel: ApprovalRiskLevels.HIGH,
+    checkerRoles: ['SENIOR_MANAGEMENT_OFFICER'],
+    timeoutHours: 48,
+    allowCancel: true,
+    allowRetry: false,
+  },
 };
 
 export function isSuperAdminRoleContext(roleCodes: string[]): boolean {
