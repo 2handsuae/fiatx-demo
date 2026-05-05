@@ -1,25 +1,25 @@
 import {
   Body,
   Controller,
+  ForbiddenException,
   Get,
   Param,
   ParseUUIDPipe,
-  UseGuards,
+  Post,
   Query,
   Req,
-  ForbiddenException,
-  Post,
+  UseGuards,
   ValidationPipe,
 } from '@nestjs/common';
-import { UsersService } from './users.service';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
-import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { AdminPermissionGuard } from '../access-control/admin-permission.guard';
 import { RequirePermissions } from '../access-control/require-permissions.decorator';
 import { buildPermissionCode } from '../access-control/permission-code.util';
-import { CreateAdminUserDto } from './dto/create-admin-user.dto';
-import { ChangeTicketsService } from '../../governance/change-tickets/change-tickets.service';
 import { ApprovalActorContext } from '../../governance/approvals/constants/approval.constants';
+import { AdminInviteWorkflowService } from './admin-invite-workflow.service';
+import { UsersService } from './users.service';
+import { CreateAdminUserDto } from './dto/create-admin-user.dto';
 
 @ApiTags('users')
 @ApiBearerAuth()
@@ -27,8 +27,8 @@ import { ApprovalActorContext } from '../../governance/approvals/constants/appro
 @UseGuards(AuthGuard('jwt'), AdminPermissionGuard)
 export class UsersController {
   constructor(
+    private readonly adminInviteWorkflow: AdminInviteWorkflowService,
     private readonly usersService: UsersService,
-    private readonly changeTicketsService: ChangeTicketsService,
   ) {}
 
   private buildAdminActor(req: any): ApprovalActorContext {
@@ -43,7 +43,7 @@ export class UsersController {
 
   @Post()
   @RequirePermissions(buildPermissionCode('POST', '/users'))
-  @ApiOperation({ summary: 'Create admin member provisioning change ticket' })
+  @ApiOperation({ summary: 'Initiate admin invite approval (C1)' })
   async create(
     @Req() req: any,
     @Body(new ValidationPipe({ transform: true })) body: CreateAdminUserDto,
@@ -52,7 +52,7 @@ export class UsersController {
       throw new ForbiddenException('Admin token required');
     }
 
-    return this.changeTicketsService.createAdminMemberProvisioningTicket(
+    return this.adminInviteWorkflow.initiateInvite(
       {
         email: body.email,
         roleCodes: body.roleCodes,
@@ -104,19 +104,12 @@ export class UsersController {
 
   @Post(':id/invitations/resend')
   @RequirePermissions(buildPermissionCode('POST', '/users/:id/invitations/resend'))
-  @ApiOperation({ summary: 'Resend admin invitation link for INACTIVE member' })
+  @ApiOperation({ summary: 'Resend admin invitation link for INACTIVE/INVITE_SENT member' })
   async resendInvitation(@Req() req: any, @Param('id') id: string) {
     if (req.user?.type !== 'ADMIN') {
       throw new ForbiddenException('Admin token required');
     }
 
-    return this.usersService.resendAdminInvitation({
-      userId: id,
-      actor: {
-        actorId: req.user.userId,
-        actorRole: req.user.role || 'ADMIN',
-        actorNo: req.user.userNo,
-      },
-    });
+    return this.adminInviteWorkflow.resendInvitation(id, this.buildAdminActor(req));
   }
 }
