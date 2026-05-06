@@ -160,4 +160,33 @@ export class UsersDomainService {
 
     return updated;
   }
+
+  async reactivateUser(
+    userId: string,
+    tx?: Prisma.TransactionClient,
+  ): Promise<{ id: string; userNo: string; status: string }> {
+    const client = tx || this.prisma;
+    const user = await client.user.findFirst({
+      where: { id: userId, deletedAt: null },
+      select: { id: true, userNo: true, status: true, userRoles: { select: { role: { select: { code: true } } } } },
+    });
+    if (!user) throw new NotFoundException('User not found');
+
+    const roleCodes = user.userRoles.map((ur: any) => ur.role.code);
+    if (roleCodes.includes('SUPER_ADMIN')) {
+      throw new ConflictException('SUPER_ADMIN account cannot be reactivated via this workflow');
+    }
+
+    if (user.status !== 'SUSPENDED') {
+      throw new ConflictException(`Cannot reactivate user in status: ${user.status}`);
+    }
+
+    const updated = await client.user.update({
+      where: { id: userId },
+      data: { status: 'ACTIVE', suspendedAt: null },
+      select: { id: true, userNo: true, status: true },
+    });
+
+    return updated;
+  }
 }
