@@ -160,6 +160,10 @@ export const PERMISSIONS = {
   GOV_REGULATORY_GATE_REVOKE:
     'api.post.admin_governance_regulatory_gates_id_revoke',
 
+  // Approval Policy Management
+  GOV_APPROVAL_POLICIES_READ: 'api.get.admin_governance_approval_policies',
+  GOV_APPROVAL_POLICY_CHANGE_CREATE: 'api.post.admin_governance_approval_policies_actionType_change_requests',
+
   WALLETS_READ: 'api.get.wallets',
   WALLET_DETAIL_READ: 'api.get.wallets_id',
   PAYINS_READ: 'api.get.treasury_payins',

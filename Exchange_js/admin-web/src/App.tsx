@@ -149,6 +149,7 @@ const ClearingTemplateSnapshot = lazy(() => import('./pages/ClearingTemplateSnap
 const PricingPolicyList = lazy(() => import('./pages/PricingPolicyList'));
 const PricingPolicyHistory = lazy(() => import('./pages/PricingPolicyHistory'));
 const SodConfigPage = lazy(() => import('./pages/SodConfigPage'));
+const ApprovalPoliciesPage = lazy(() => import('./pages/ApprovalPoliciesPage'));
 
 const FullPageMessage = ({
   title,
@@ -741,6 +742,12 @@ function App() {
               path="governance/regulatory-gates/:id"
               element={withPermission(<RegulatoryGateDetailPage />, [
                 PERMISSIONS.GOV_REGULATORY_GATE_DETAIL_READ,
+              ])}
+            />
+            <Route
+              path="governance/approval-policies"
+              element={withPermission(<ApprovalPoliciesPage />, [
+                PERMISSIONS.GOV_APPROVAL_POLICIES_READ,
               ])}
             />
             <Route

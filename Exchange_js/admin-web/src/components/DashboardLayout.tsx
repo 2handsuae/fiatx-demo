@@ -499,6 +499,12 @@ const DashboardLayout = () => {
           icon: <ShieldCheck size={13} />,
           requiredPermissions: [PERMISSIONS.GOV_REGULATORY_GATES_READ],
         },
+        {
+          path: '/dashboard/governance/approval-policies',
+          label: 'Approval Policies',
+          icon: <Shield size={13} />,
+          requiredPermissions: [PERMISSIONS.GOV_APPROVAL_POLICIES_READ],
+        },
       ],
     },
     // ─── Counterparty ─────────────────────────────────────────────
