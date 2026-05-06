@@ -379,30 +379,79 @@ const AdminLogin = () => {
 
       {/* MFA Verification Modal */}
       {showMfaInput && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
-          <div className="bg-slate-800 border border-slate-700 rounded-xl p-8 w-80 flex flex-col gap-5">
-            <div className="text-center">
-              <div className="text-white font-semibold text-lg">双因素验证</div>
-              <div className="text-slate-400 text-sm mt-1">请输入 Authenticator App 的 6 位验证码</div>
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50">
+          <div className="w-full max-w-[340px] mx-4">
+            {/* Amber top accent bar */}
+            <div className="h-[2px] w-full bg-adm-amber" />
+
+            <div className="bg-adm-bg border border-adm-border border-t-0">
+              {/* Header */}
+              <div className="flex items-center justify-between px-6 py-4 border-b border-adm-border">
+                <div>
+                  <p className="font-mono text-[8.5px] uppercase tracking-[0.18em] text-adm-t3 mb-0.5">
+                    Security Verification
+                  </p>
+                  <h2 className="font-mono text-[13px] font-semibold text-adm-t1">
+                    Two-Factor Authentication
+                  </h2>
+                </div>
+                <button
+                  onClick={() => { setShowMfaInput(false); setMfaCode(''); setError(''); }}
+                  className="text-adm-t3 hover:text-adm-t1 transition-colors"
+                >
+                  <X size={13} />
+                </button>
+              </div>
+
+              {/* Body */}
+              <div className="px-6 py-5 space-y-4">
+                <p className="font-mono text-[10px] text-adm-t3 leading-relaxed">
+                  Enter the 6-digit code from your authenticator app to continue.
+                </p>
+
+                <div>
+                  <label className="block font-mono text-[8.5px] uppercase tracking-[0.16em] text-adm-t3 mb-1.5">
+                    Verification Code
+                  </label>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    maxLength={6}
+                    value={mfaCode}
+                    onChange={(e) => setMfaCode(e.target.value.replace(/\D/g, ''))}
+                    placeholder="000000"
+                    className="w-full px-3 py-2.5 bg-adm-panel border border-adm-border font-mono text-[15px] text-adm-t1 placeholder:text-adm-t3 focus:border-adm-amber focus:outline-none transition-colors tracking-[0.4em] text-center"
+                    autoFocus
+                  />
+                </div>
+
+                {error && (
+                  <div className="flex items-center gap-2 px-3 py-2 border border-adm-red/30 bg-adm-red/8">
+                    <AlertCircle size={11} className="text-adm-red flex-shrink-0" />
+                    <span className="font-mono text-[10px] text-adm-red">{error}</span>
+                  </div>
+                )}
+
+                <button
+                  onClick={handleMfaVerify}
+                  disabled={mfaCode.length !== 6 || mfaSubmitting}
+                  className="w-full flex items-center justify-center gap-2 py-2.5 bg-adm-amber font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-gray-950 hover:opacity-90 active:opacity-80 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {mfaSubmitting ? (
+                    <div className="w-3.5 h-3.5 border-2 border-gray-950/30 border-t-gray-950 rounded-full animate-spin" />
+                  ) : (
+                    <>Verify <ArrowRight size={11} /></>
+                  )}
+                </button>
+              </div>
+
+              {/* Footer */}
+              <div className="px-6 py-3 border-t border-adm-border">
+                <p className="font-mono text-[8px] uppercase tracking-[0.12em] text-adm-t3 text-center">
+                  All activity is monitored and logged · 256-bit SSL
+                </p>
+              </div>
             </div>
-            <input
-              type="text"
-              inputMode="numeric"
-              maxLength={6}
-              value={mfaCode}
-              onChange={(e) => setMfaCode(e.target.value.replace(/\D/g, ''))}
-              placeholder="6 位验证码"
-              className="bg-slate-900 border border-slate-600 rounded-lg px-4 py-2.5 text-white text-center text-xl font-mono tracking-[0.5em] focus:outline-none focus:border-indigo-500 w-full"
-              autoFocus
-            />
-            {error && <div className="text-red-400 text-sm text-center">{error}</div>}
-            <button
-              onClick={handleMfaVerify}
-              disabled={mfaCode.length !== 6 || mfaSubmitting}
-              className="bg-indigo-600 hover:bg-indigo-500 text-white font-medium py-2.5 rounded-lg disabled:opacity-50"
-            >
-              {mfaSubmitting ? '验证中…' : '验证'}
-            </button>
           </div>
         </div>
       )}

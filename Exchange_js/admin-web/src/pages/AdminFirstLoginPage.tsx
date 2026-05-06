@@ -24,18 +24,18 @@ const STATUS_TO_STEP: Record<string, number> = {
 };
 
 const SECURITY_RULES = [
-  '每次登录必须通过 MFA 验证',
-  '密码每 90 天必须更换一次',
-  '禁止共享账号或 MFA 设备',
-  '所有操作均被系统审计记录',
-  '发现安全异常须立即上报 CISO',
+  'MFA verification is required at every login',
+  'Password must be changed every 90 days',
+  'Sharing accounts or MFA devices is strictly prohibited',
+  'All operations are recorded and audited by the system',
+  'Any security anomaly must be reported to the CISO immediately',
 ];
 
 const STEP_LABELS = [
-  '身份确认',
-  'MFA 绑定',
-  '安全须知',
-  '完成',
+  'Identity',
+  'MFA Setup',
+  'Security',
+  'Complete',
 ];
 
 // ── Progress Bar ──────────────────────────────────────────────────────────────
@@ -111,13 +111,13 @@ function IdentityConfirmStep({ onNext }: { onNext: () => void }) {
         const res = await firstLoginFetch('/auth/first-login/me');
         if (!res.ok) {
           const data = await res.json().catch(() => ({}));
-          setError((data as { message?: string }).message || '无法获取用户信息');
+          setError((data as { message?: string }).message || 'Unable to load user info.');
           return;
         }
         const data = await res.json() as MeInfo;
         setMeInfo(data);
       } catch {
-        setError('网络错误，请重试');
+        setError('Network error. Please try again.');
       } finally {
         setLoading(false);
       }
@@ -131,12 +131,12 @@ function IdentityConfirmStep({ onNext }: { onNext: () => void }) {
       const res = await firstLoginFetch('/auth/first-login/confirm-identity', 'POST');
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        setError((data as { message?: string }).message || '确认身份失败，请重试');
+        setError((data as { message?: string }).message || 'Identity confirmation failed. Please try again.');
         return;
       }
       onNext();
     } catch {
-      setError('网络错误，请重试');
+      setError('Network error. Please try again.');
     } finally {
       setSubmitting(false);
     }
@@ -145,9 +145,9 @@ function IdentityConfirmStep({ onNext }: { onNext: () => void }) {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="font-mono text-[15px] font-semibold text-adm-t1">欢迎完成首次登录设置</h2>
+        <h2 className="font-mono text-[15px] font-semibold text-adm-t1">Complete Your First-Login Setup</h2>
         <p className="font-mono text-[11px] text-adm-t3 mt-2 leading-relaxed">
-          首次登录需完成 MFA 绑定 和安全须知确认，预计耗时 2 分钟
+          First-time login requires MFA binding and security acknowledgement. Takes about 2 minutes.
         </p>
       </div>
 
@@ -164,17 +164,17 @@ function IdentityConfirmStep({ onNext }: { onNext: () => void }) {
       ) : meInfo ? (
         <div className="bg-adm-panel border border-adm-border p-4 space-y-3">
           <div className="flex items-center justify-between">
-            <span className="font-mono text-[9px] uppercase tracking-[0.12em] text-adm-t3">用户编号</span>
+            <span className="font-mono text-[9px] uppercase tracking-[0.12em] text-adm-t3">User No.</span>
             <span className="font-mono text-[11px] text-adm-amber">{meInfo.userNo}</span>
           </div>
           <div className="border-t border-adm-border" />
           <div className="flex items-center justify-between">
-            <span className="font-mono text-[9px] uppercase tracking-[0.12em] text-adm-t3">邮箱</span>
+            <span className="font-mono text-[9px] uppercase tracking-[0.12em] text-adm-t3">Email</span>
             <span className="font-mono text-[11px] text-adm-t1">{meInfo.email}</span>
           </div>
           <div className="border-t border-adm-border" />
           <div className="flex items-center justify-between">
-            <span className="font-mono text-[9px] uppercase tracking-[0.12em] text-adm-t3">角色</span>
+            <span className="font-mono text-[9px] uppercase tracking-[0.12em] text-adm-t3">Role</span>
             <span className="font-mono text-[11px] text-adm-t1">{meInfo.role}</span>
           </div>
         </div>
@@ -188,7 +188,7 @@ function IdentityConfirmStep({ onNext }: { onNext: () => void }) {
         {submitting ? (
           <div className="w-4 h-4 border-2 border-gray-950/30 border-t-gray-950 rounded-full animate-spin" />
         ) : (
-          '开始设置 →'
+          'Begin Setup →'
         )}
       </button>
     </div>
@@ -216,13 +216,13 @@ function MfaBindingStep({ onNext }: { onNext: () => void }) {
         const res = await firstLoginFetch('/auth/first-login/mfa/init', 'POST');
         if (!res.ok) {
           const data = await res.json().catch(() => ({}));
-          setError((data as { message?: string }).message || 'MFA 初始化失败');
+          setError((data as { message?: string }).message || 'Failed to initialise MFA.');
           return;
         }
         const data = await res.json() as MfaInitData;
         setMfaData(data);
       } catch {
-        setError('网络错误，请重试');
+        setError('Network error. Please try again.');
       } finally {
         setLoading(false);
       }
@@ -231,7 +231,7 @@ function MfaBindingStep({ onNext }: { onNext: () => void }) {
 
   const handleVerify = async () => {
     if (code.length !== 6) {
-      setError('请输入 6 位验证码');
+      setError('Please enter a 6-digit code.');
       return;
     }
     setSubmitting(true);
@@ -241,20 +241,20 @@ function MfaBindingStep({ onNext }: { onNext: () => void }) {
       const res = await firstLoginFetch('/auth/first-login/mfa/verify', 'POST', { code });
       if (res.status === 429) {
         const data = await res.json().catch(() => ({}));
-        setLockMessage((data as { message?: string }).message || '验证次数过多，账号已临时锁定，请稍后再试');
+        setLockMessage((data as { message?: string }).message || 'Too many attempts. Account temporarily locked. Please try again later.');
         return;
       }
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         const typed = data as { message?: string; attemptsRemaining?: number };
-        const msg = typed.message || '验证码错误，请重试';
+        const msg = typed.message || 'Incorrect code. Please try again.';
         const remaining = typed.attemptsRemaining;
-        setError(remaining !== undefined ? `${msg}（剩余尝试次数：${remaining}）` : msg);
+        setError(remaining !== undefined ? `${msg} (${remaining} attempts remaining)` : msg);
         return;
       }
       onNext();
     } catch {
-      setError('网络错误，请重试');
+      setError('Network error. Please try again.');
     } finally {
       setSubmitting(false);
     }
@@ -263,9 +263,9 @@ function MfaBindingStep({ onNext }: { onNext: () => void }) {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="font-mono text-[15px] font-semibold text-adm-t1">绑定 MFA 验证器</h2>
+        <h2 className="font-mono text-[15px] font-semibold text-adm-t1">Bind MFA Authenticator</h2>
         <p className="font-mono text-[11px] text-adm-t3 mt-2 leading-relaxed">
-          使用 Google Authenticator 或其他 TOTP 应用扫描二维码
+          Scan the QR code with Google Authenticator or any TOTP app
         </p>
       </div>
 
@@ -301,7 +301,7 @@ function MfaBindingStep({ onNext }: { onNext: () => void }) {
           {/* Manual key */}
           <div className="bg-adm-panel border border-adm-border p-3">
             <p className="font-mono text-[9px] uppercase tracking-[0.12em] text-adm-t3 mb-1.5">
-              手动输入密钥
+              Manual Entry Key
             </p>
             <p className="font-mono text-[11px] text-adm-amber break-all">{mfaData.manualKey}</p>
           </div>
@@ -309,7 +309,7 @@ function MfaBindingStep({ onNext }: { onNext: () => void }) {
           {/* Code input */}
           <div>
             <label className="block font-mono text-[8.5px] uppercase tracking-[0.16em] text-adm-t3 mb-1.5">
-              验证码（6 位数字）
+              Verification Code (6 digits)
             </label>
             <input
               type="text"
@@ -334,7 +334,7 @@ function MfaBindingStep({ onNext }: { onNext: () => void }) {
         {submitting ? (
           <div className="w-4 h-4 border-2 border-gray-950/30 border-t-gray-950 rounded-full animate-spin" />
         ) : (
-          '验证绑定'
+          'Verify & Bind'
         )}
       </button>
     </div>
@@ -355,7 +355,7 @@ function PolicyAckStep({ onNext }: { onNext: () => void }) {
       const res = await firstLoginFetch('/auth/first-login/policy/acknowledge', 'POST');
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        setError((data as { message?: string }).message || '确认失败，请重试');
+        setError((data as { message?: string }).message || 'Confirmation failed. Please try again.');
         return;
       }
       const data = await res.json() as { accessToken?: string };
@@ -366,7 +366,7 @@ function PolicyAckStep({ onNext }: { onNext: () => void }) {
       }
       onNext();
     } catch {
-      setError('网络错误，请重试');
+      setError('Network error. Please try again.');
     } finally {
       setSubmitting(false);
     }
@@ -375,9 +375,9 @@ function PolicyAckStep({ onNext }: { onNext: () => void }) {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="font-mono text-[15px] font-semibold text-adm-t1">安全规则须知</h2>
+        <h2 className="font-mono text-[15px] font-semibold text-adm-t1">Security Policy</h2>
         <p className="font-mono text-[11px] text-adm-t3 mt-2 leading-relaxed">
-          请仔细阅读以下安全规则，确认后方可进入系统
+          Please read the security rules carefully before accessing the system.
         </p>
       </div>
 
@@ -389,7 +389,7 @@ function PolicyAckStep({ onNext }: { onNext: () => void }) {
 
       {/* Security rules */}
       <div className="bg-adm-panel border border-adm-border p-4">
-        <p className="font-mono text-[9px] uppercase tracking-[0.12em] text-adm-t3 mb-3">安全规则</p>
+        <p className="font-mono text-[9px] uppercase tracking-[0.12em] text-adm-t3 mb-3">Security Rules</p>
         <ul className="space-y-2.5">
           {SECURITY_RULES.map((rule, i) => (
             <li key={i} className="flex items-start gap-2.5">
@@ -424,7 +424,7 @@ function PolicyAckStep({ onNext }: { onNext: () => void }) {
           </div>
         </div>
         <span className="font-mono text-[11px] text-adm-t2 leading-relaxed">
-          我已阅读并同意遵守上述安全规则
+          I have read and agree to comply with the security rules above
         </span>
       </label>
 
@@ -436,7 +436,7 @@ function PolicyAckStep({ onNext }: { onNext: () => void }) {
         {submitting ? (
           <div className="w-4 h-4 border-2 border-gray-950/30 border-t-gray-950 rounded-full animate-spin" />
         ) : (
-          '确认并进入系统'
+          'Confirm & Enter System'
         )}
       </button>
     </div>
@@ -457,9 +457,9 @@ function CompletionStep() {
       </div>
 
       <div>
-        <h2 className="font-mono text-[15px] font-semibold text-adm-t1">设置完成</h2>
+        <h2 className="font-mono text-[15px] font-semibold text-adm-t1">Setup Complete</h2>
         <p className="font-mono text-[11px] text-adm-t3 mt-2">
-          MFA 已绑定 · 安全须知已确认
+          MFA Bound · Security Policy Accepted
         </p>
       </div>
 
@@ -469,7 +469,7 @@ function CompletionStep() {
             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-adm-green opacity-75" />
             <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-adm-green" />
           </span>
-          <span className="font-mono text-[10px] text-adm-t2 uppercase tracking-[0.12em]">账号已就绪</span>
+          <span className="font-mono text-[10px] text-adm-t2 uppercase tracking-[0.12em]">Account Ready</span>
         </div>
       </div>
 
@@ -477,7 +477,7 @@ function CompletionStep() {
         onClick={() => navigate('/dashboard')}
         className="w-full flex items-center justify-center gap-2 py-3 bg-adm-amber font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-gray-950 hover:opacity-90 active:opacity-80 transition-opacity"
       >
-        进入管理台 →
+        Enter Admin Console →
       </button>
     </div>
   );
@@ -503,7 +503,8 @@ export default function AdminFirstLoginPage() {
       try {
         const res = await firstLoginFetch('/auth/first-login/status');
         if (!res.ok) {
-          // If unauthorized, token is invalid — go back to login
+          sessionStorage.removeItem('firstLoginToken');
+          localStorage.setItem('admin_login_error', 'Your setup session has expired. Please sign in again to continue.');
           navigate('/admin/login', { replace: true });
           return;
         }
@@ -551,7 +552,7 @@ export default function AdminFirstLoginPage() {
                 FiatX Admin
               </div>
               <div className="font-mono text-[8px] uppercase tracking-[0.14em] text-adm-t3 mt-0.5">
-                首次登录设置
+                First-Login Setup
               </div>
             </div>
           </div>
@@ -583,7 +584,7 @@ export default function AdminFirstLoginPage() {
           {/* Footer */}
           <div className="px-8 py-4 border border-t-0 border-adm-border bg-adm-bg">
             <p className="font-mono text-[8px] uppercase tracking-[0.12em] text-adm-t3 text-center">
-              所有操作均被审计记录 · 256-bit SSL
+              All activity is audited and logged · 256-bit SSL
             </p>
           </div>
         </div>
