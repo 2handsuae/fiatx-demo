@@ -196,6 +196,7 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('POST', '/users', 'Create admin user', ['IAM_ASSIGN']),
   route('POST', '/users/:id/invitations/resend', 'Resend admin invitation', ['IAM_ASSIGN']),
   route('POST', '/users/:id/suspend', 'Suspend admin user (C4)', ['IAM_ASSIGN']),
+  route('POST', '/users/:id/reactivate', 'Reactivate admin user (C4b)', ['IAM_ASSIGN']),
   route('GET', '/admin/iam/roles', 'List role catalog', ['IAM_READ']),
   route('GET', '/admin/iam/permissions', 'List permission catalog', ['IAM_READ']),
   route('GET', '/admin/iam/users/:id/roles', 'Get user roles', ['IAM_READ']),
