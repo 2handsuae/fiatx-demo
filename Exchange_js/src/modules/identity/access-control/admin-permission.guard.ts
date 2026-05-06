@@ -50,6 +50,10 @@ export class AdminPermissionGuard implements CanActivate {
       return true;
     }
 
+    if (user?.scope === 'first_login' || user?.scope === 'mfa_session') {
+      throw new ForbiddenException('Restricted token cannot access this endpoint');
+    }
+
     if (!this.accessControlService) {
       return true;
     }
