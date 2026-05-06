@@ -127,6 +127,12 @@ const DashboardLayout = () => {
           icon: <ShieldCheck size={13} />,
           requiredPermissions: [PERMISSIONS.IAM_ROLES_READ],
         },
+        {
+          path: '/dashboard/members/role-change-requests',
+          label: 'Role Change Requests',
+          icon: <ArrowLeftRight size={13} />,
+          requiredPermissions: [PERMISSIONS.IAM_ROLE_CHANGE_REQUESTS_READ],
+        },
       ],
     },
     // ─── Control Gates ────────────────────────────────────────────

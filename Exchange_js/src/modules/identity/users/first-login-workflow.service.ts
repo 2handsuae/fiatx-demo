@@ -18,7 +18,7 @@ import { decryptMfaSecret, encryptMfaSecret } from '../../../common/utils/mfa-cr
 interface OtplibFunctions {
   generateSecret: () => string;
   generateURI: (opts: { secret: string; label: string; issuer: string }) => string;
-  verifySync: (opts: { token: string; secret: string }) => boolean;
+  verifySync: (opts: { token: string; secret: string }) => { valid: boolean };
 }
 let _otpFns: OtplibFunctions | null = null;
 async function getOtp(): Promise<OtplibFunctions> {
@@ -206,7 +206,8 @@ export class FirstLoginWorkflowService {
 
     const secret = decryptMfaSecret(user.mfaSecret);
     const otp = await getOtp();
-    const isValid = otp.verifySync({ token: code, secret });
+    const verifyResult = otp.verifySync({ token: code, secret });
+    const isValid = verifyResult.valid;
 
     if (!isValid) {
       const { newCount, locked } = await this.usersDomainService.incrementMfaVerifyFail(userId);
@@ -348,7 +349,8 @@ export class FirstLoginWorkflowService {
 
     const secret = decryptMfaSecret(user.mfaSecret);
     const otp = await getOtp();
-    const isValid = otp.verifySync({ token: code, secret });
+    const verifyResult = otp.verifySync({ token: code, secret });
+    const isValid = verifyResult.valid;
 
     if (!isValid) {
       const { newCount, locked } = await this.usersDomainService.incrementMfaVerifyFail(userId);
