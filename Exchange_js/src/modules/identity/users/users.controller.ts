@@ -19,9 +19,11 @@ import { buildPermissionCode } from '../access-control/permission-code.util';
 import { ApprovalActorContext } from '../../governance/approvals/constants/approval.constants';
 import { AdminInviteWorkflowService } from './admin-invite-workflow.service';
 import { AdminSuspensionWorkflowService } from './admin-suspension-workflow.service';
+import { AdminReactivationWorkflowService } from './admin-reactivation-workflow.service';
 import { UsersService } from './users.service';
 import { CreateAdminUserDto } from './dto/create-admin-user.dto';
 import { SuspendAdminUserDto } from './dto/suspend-admin-user.dto';
+import { ReactivateAdminUserDto } from './dto/reactivate-admin-user.dto';
 
 @ApiTags('users')
 @ApiBearerAuth()
@@ -31,6 +33,7 @@ export class UsersController {
   constructor(
     private readonly adminInviteWorkflow: AdminInviteWorkflowService,
     private readonly adminSuspensionWorkflow: AdminSuspensionWorkflowService,
+    private readonly adminReactivationWorkflow: AdminReactivationWorkflowService,
     private readonly usersService: UsersService,
   ) {}
 
@@ -129,6 +132,24 @@ export class UsersController {
     }
 
     return this.adminSuspensionWorkflow.initiateSuspension(
+      { targetUserId: id, reason: body.reason },
+      this.buildAdminActor(req),
+    );
+  }
+
+  @Post(':id/reactivate')
+  @RequirePermissions(buildPermissionCode('POST', '/users/:id/reactivate'))
+  @ApiOperation({ summary: 'Initiate admin account reactivation approval (C4b)' })
+  async reactivateUser(
+    @Req() req: any,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body(new ValidationPipe({ transform: true })) body: ReactivateAdminUserDto,
+  ) {
+    if (req.user?.type !== 'ADMIN') {
+      throw new ForbiddenException('Admin token required');
+    }
+
+    return this.adminReactivationWorkflow.initiateReactivation(
       { targetUserId: id, reason: body.reason },
       this.buildAdminActor(req),
     );

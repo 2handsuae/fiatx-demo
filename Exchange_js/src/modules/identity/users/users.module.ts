@@ -12,6 +12,8 @@ import { AdminRoleBindingChangeWorkflowService } from './admin-role-binding-chan
 import { AdminRoleChangeRequestController } from './admin-role-change-request.controller';
 import { AdminSuspensionApprovalService } from './admin-suspension-approval.service';
 import { AdminSuspensionWorkflowService } from './admin-suspension-workflow.service';
+import { AdminReactivationApprovalService } from './admin-reactivation-approval.service';
+import { AdminReactivationWorkflowService } from './admin-reactivation-workflow.service';
 import { UsersController } from './users.controller';
 
 @Module({
@@ -26,6 +28,8 @@ import { UsersController } from './users.controller';
     AdminRoleBindingChangeWorkflowService,
     AdminSuspensionApprovalService,
     AdminSuspensionWorkflowService,
+    AdminReactivationApprovalService,
+    AdminReactivationWorkflowService,
   ],
   controllers: [UsersController, AdminRoleChangeRequestController],
   exports: [UsersService, UsersDomainService, AdminInvitationsService],
