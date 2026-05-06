@@ -341,6 +341,7 @@ export class FirstLoginWorkflowService {
     email: string,
     userNo: string,
     loginTraceId?: string,
+    ctx: { requestId?: string; sourceIp?: string } = {},
   ): Promise<{ accessToken: string }> {
     const user = await this.loadUser(userId);
     if (!user.mfaSecret) {
@@ -372,6 +373,8 @@ export class FirstLoginWorkflowService {
           workflowType: loginTraceId ? AuditBusinessWorkflowTypes.ADMIN_LOGIN_ACCESS : undefined,
           result: AuditResult.FAILED,
           metadata: { failCount: newCount, locked },
+          requestId: ctx.requestId,
+          sourceIp: ctx.sourceIp,
           sourcePlatform: 'ADMIN_API',
         },
         this.buildActor(user),
@@ -402,6 +405,8 @@ export class FirstLoginWorkflowService {
         workflowType: loginTraceId ? AuditBusinessWorkflowTypes.ADMIN_LOGIN_ACCESS : undefined,
         result: AuditResult.SUCCESS,
         metadata: { userNo },
+        requestId: ctx.requestId,
+        sourceIp: ctx.sourceIp,
         sourcePlatform: 'ADMIN_API',
       },
       this.buildActor(user),
