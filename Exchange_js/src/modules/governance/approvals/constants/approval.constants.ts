@@ -44,6 +44,8 @@ export const ApprovalActionTypes = {
   ADMIN_ROLE_BINDING_CHANGE_APPROVAL: 'ADMIN_ROLE_BINDING_CHANGE_APPROVAL',
   ADMIN_SUSPENSION_APPROVAL: 'ADMIN_SUSPENSION_APPROVAL',
   ADMIN_REACTIVATION_APPROVAL: 'ADMIN_REACTIVATION_APPROVAL',
+  // ─── Approval Policy Governance (2026-05-06) ────
+  APPROVAL_POLICY_CHANGE: 'APPROVAL_POLICY_CHANGE',
 } as const;
 
 export const ApprovalStatuses = {
@@ -249,7 +251,28 @@ export const DEFAULT_APPROVAL_POLICIES: Record<
     allowCancel: true,
     allowRetry: false,
   },
+  // ─── Approval Policy Governance (2026-05-06) ────
+  [ApprovalActionTypes.APPROVAL_POLICY_CHANGE]: {
+    riskLevel: ApprovalRiskLevels.HIGH,
+    checkerRoles: ['CISO'],
+    timeoutHours: 48,
+    allowCancel: true,
+    allowRetry: false,
+  },
 };
+
+/**
+ * Only these action types are visible in the Approval Policy Management UI.
+ * Non-V1 types remain in code but are filtered out of API responses.
+ */
+export const V1_APPROVAL_ACTION_TYPES: readonly string[] = [
+  ApprovalActionTypes.ADMIN_INVITE_APPROVAL,
+  ApprovalActionTypes.ADMIN_ROLE_BINDING_CHANGE_APPROVAL,
+  ApprovalActionTypes.ADMIN_SUSPENSION_APPROVAL,
+  ApprovalActionTypes.ADMIN_REACTIVATION_APPROVAL,
+  ApprovalActionTypes.AUDIT_EVIDENCE_EXPORT_APPROVAL,
+  ApprovalActionTypes.APPROVAL_POLICY_CHANGE,
+] as const;
 
 export function isSuperAdminRoleContext(roleCodes: string[]): boolean {
   return (roleCodes || []).some((roleCode) => String(roleCode || '').trim().toUpperCase() === 'SUPER_ADMIN');

@@ -812,6 +812,30 @@ model ApprovalSodRule {
   @@map("approval_sod_rules")
 }
 
+model ApprovalPolicyChangeRequest {
+  id                   String    @id @default(uuid())
+  requestNo            String    @unique @default("TEMP")
+  targetActionType     String
+  currentCheckerRoles  String
+  proposedCheckerRoles String
+  changeReason         String
+  status               String    @default("PENDING_APPROVAL")
+  approvalCaseId       String?
+  approvalCaseNo       String?
+  requestedByUserId    String
+  executedAt           DateTime?
+  failureReason        String?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+  deletedAt            DateTime?
+
+  @@index([targetActionType, status])
+  @@index([approvalCaseId])
+  @@index([status])
+  @@index([requestedByUserId])
+  @@map("approval_policy_change_requests")
+}
+
 model ChangeTicket {
   id                   String        @id @default(uuid())
   ticketNo             String        @unique @default("TEMP")

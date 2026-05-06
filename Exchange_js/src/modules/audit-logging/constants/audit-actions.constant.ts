@@ -94,6 +94,7 @@ export const AuditEntityTypes = {
   WITHDRAW_PRICING_QUOTE: 'WITHDRAW_PRICING_QUOTE',
   ADMIN_USER: 'ADMIN_USER',
   PASSWORD_RESET_TOKEN: 'PASSWORD_RESET_TOKEN',
+  APPROVAL_POLICY: 'APPROVAL_POLICY',
 } as const;
 
 export const AuditWorkflowTypes = {
