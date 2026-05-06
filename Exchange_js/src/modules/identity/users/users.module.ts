@@ -1,4 +1,5 @@
 import { Module, forwardRef } from '@nestjs/common';
+import { JwtModule } from '@nestjs/jwt';
 import { PrismaModule } from '../../../core/prisma/prisma.module';
 import { AccessControlModule } from '../access-control/access-control.module';
 import { ApprovalsModule } from '../../governance/approvals/approvals.module';
@@ -20,7 +21,15 @@ import { AdminCredentialMgmtController } from './admin-credential-mgmt.controlle
 import { UsersController } from './users.controller';
 
 @Module({
-  imports: [PrismaModule, AccessControlModule, forwardRef(() => ApprovalsModule)],
+  imports: [
+    PrismaModule,
+    AccessControlModule,
+    forwardRef(() => ApprovalsModule),
+    JwtModule.register({
+      secret: process.env.JWT_SECRET || 'secretKey',
+      signOptions: { expiresIn: '24h' },
+    }),
+  ],
   providers: [
     UsersService,
     UsersDomainService,
