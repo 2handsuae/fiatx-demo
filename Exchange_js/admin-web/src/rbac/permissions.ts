@@ -12,6 +12,7 @@ export const PERMISSIONS = {
   IAM_ROLE_CHANGE_REQUESTS_READ: 'api.get.admin_iam_role_change_requests',
   IAM_ROLE_CHANGE_REQUEST_DETAIL_READ: 'api.get.admin_iam_role_change_requests_id',
   USERS_SUSPEND: 'api.post.users_id_suspend',
+  USERS_REACTIVATE: 'api.post.users_id_reactivate',
 
   CUSTOMERS_READ: 'api.get.customers',
   CUSTOMERS_DETAIL_READ: 'api.get.customers_id',

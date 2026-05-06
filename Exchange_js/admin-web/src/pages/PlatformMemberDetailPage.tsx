@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Mail, RefreshCw, Copy, Check, ShieldCheck, UserX, X } from 'lucide-react';
+import { Mail, RefreshCw, Copy, Check, ShieldCheck, UserCheck, UserX, X } from 'lucide-react';
 import {
   AdminPermissionError,
   AdminSessionError,
@@ -105,6 +105,10 @@ export default function PlatformMemberDetailPage() {
   const [showSuspendModal, setShowSuspendModal] = useState(false);
   const [suspendReason, setSuspendReason] = useState('');
   const [submittingSuspend, setSubmittingSuspend] = useState(false);
+
+  const [showReactivateModal, setShowReactivateModal] = useState(false);
+  const [reactivateReason, setReactivateReason] = useState('');
+  const [submittingReactivate, setSubmittingReactivate] = useState(false);
 
   /* ── Fetching ── */
 
@@ -234,6 +238,34 @@ export default function PlatformMemberDetailPage() {
     }
   };
 
+  /* ── Reactivate user ── */
+
+  const handleSubmitReactivate = async () => {
+    if (!member || !reactivateReason.trim()) return;
+    setSubmittingReactivate(true);
+    try {
+      const res = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/users/${id}/reactivate`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reason: reactivateReason.trim() }),
+        },
+      );
+      if (!res.ok) throw new Error(await getApiErrorMessage(res, 'Failed to submit reactivation request'));
+      const data = await res.json();
+      setShowReactivateModal(false);
+      setReactivateReason('');
+      setNotice(`Reactivation request submitted for approval (${data.approvalNo}).`);
+      void fetchDetail();
+    } catch (err: unknown) {
+      if (err instanceof AdminSessionError) return;
+      setError(err instanceof Error ? err.message : 'Failed to submit reactivation request.');
+    } finally {
+      setSubmittingReactivate(false);
+    }
+  };
+
   /* ── Loading / error stubs ── */
 
   if (loading) {
@@ -286,7 +318,10 @@ export default function PlatformMemberDetailPage() {
   const canSuspend =
     (member.status === 'ACTIVE' || member.status === 'INACTIVE') &&
     hasAnyPermission([PERMISSIONS.USERS_SUSPEND]);
-  const showActions = canResend || canChangeRoles || canSuspend;
+  const canReactivate =
+    member.status === 'SUSPENDED' &&
+    hasAnyPermission([PERMISSIONS.USERS_REACTIVATE]);
+  const showActions = canResend || canChangeRoles || canSuspend || canReactivate;
   const roleCodes = member.roles?.length ? member.roles : member.role ? [member.role] : [];
   const invitation = member.latestInvitation;
 
@@ -420,6 +455,15 @@ export default function PlatformMemberDetailPage() {
                   >
                     <UserX size={13} />
                     Suspend User
+                  </button>
+                )}
+                {canReactivate && (
+                  <button
+                    onClick={() => { setReactivateReason(''); setShowReactivateModal(true); }}
+                    className={adminButtonClass('workflowPrimary')}
+                  >
+                    <UserCheck size={13} />
+                    Reactivate User
                   </button>
                 )}
               </div>
@@ -592,6 +636,69 @@ export default function PlatformMemberDetailPage() {
                 className={adminButtonClass('modalConfirm')}
               >
                 {submittingSuspend ? 'Submitting…' : 'Submit for Approval'}
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* ════ Reactivate Modal ════ */}
+      {showReactivateModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md overflow-hidden rounded-xl border border-adm-border bg-adm-panel shadow-xl">
+
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-adm-border bg-adm-card px-5 py-4">
+              <div>
+                <p className="font-mono text-[11px] font-semibold text-adm-t1">
+                  Reactivate Admin Account
+                </p>
+                <p className="mt-1 font-mono text-[9px] text-adm-t3">
+                  {member.userNo} · {member.email}
+                </p>
+              </div>
+              <button
+                onClick={() => setShowReactivateModal(false)}
+                className="rounded p-1 text-adm-t3 hover:bg-adm-hover hover:text-adm-t1"
+              >
+                <X size={15} />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="px-5 py-4 space-y-3">
+              <div className="rounded border border-adm-amber/30 bg-adm-amber/10 px-3 py-2.5 font-mono text-[10px] text-adm-amber leading-relaxed">
+                This will submit a reactivation request for approval. If approved, this user will
+                regain access to the admin panel.
+              </div>
+
+              <div>
+                <p className="mb-1.5 font-mono text-[8.5px] uppercase tracking-[0.14em] text-adm-t3">
+                  Reason for Reactivation
+                </p>
+                <textarea
+                  value={reactivateReason}
+                  onChange={(e) => setReactivateReason(e.target.value)}
+                  rows={4}
+                  placeholder="Describe why this account should be reactivated…"
+                  className="w-full rounded border border-adm-border bg-adm-bg px-3 py-2 font-mono text-[10px] text-adm-t2 placeholder:text-adm-t3 focus:border-adm-amber focus:outline-none resize-none transition-colors"
+                  autoFocus
+                />
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="flex justify-end gap-2 border-t border-adm-border bg-adm-card px-5 py-4">
+              <button onClick={() => setShowReactivateModal(false)} className={adminButtonClass('modalCancel')}>
+                Cancel
+              </button>
+              <button
+                onClick={() => void handleSubmitReactivate()}
+                disabled={submittingReactivate || !reactivateReason.trim()}
+                className={adminButtonClass('modalConfirm')}
+              >
+                {submittingReactivate ? 'Submitting…' : 'Submit for Approval'}
               </button>
             </div>
 
