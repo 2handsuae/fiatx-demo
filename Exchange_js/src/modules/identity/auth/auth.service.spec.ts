@@ -160,7 +160,7 @@ describe('AuthService', () => {
         type: 'ADMIN',
       }),
     );
-    expect(result.user.roles).toEqual(['SUPER_ADMIN', 'MLRO']);
+    expect((result as any).user.roles).toEqual(['SUPER_ADMIN', 'MLRO']);
   });
 
   it('writes admin login success audit with login workflow and fresh trace', async () => {
