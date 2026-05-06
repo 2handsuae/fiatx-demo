@@ -8,6 +8,10 @@ export const PERMISSIONS = {
   IAM_PERMISSIONS_READ: 'api.get.admin_iam_permissions',
   IAM_USER_ROLES_READ: 'api.get.admin_iam_users_id_roles',
   IAM_USER_ROLES_WRITE: 'api.put.admin_iam_users_id_roles',
+  IAM_ROLE_CHANGE_REQUESTS_CREATE: 'api.post.admin_iam_role_change_requests',
+  IAM_ROLE_CHANGE_REQUESTS_READ: 'api.get.admin_iam_role_change_requests',
+  IAM_ROLE_CHANGE_REQUEST_DETAIL_READ: 'api.get.admin_iam_role_change_requests_id',
+  USERS_SUSPEND: 'api.post.users_id_suspend',
 
   CUSTOMERS_READ: 'api.get.customers',
   CUSTOMERS_DETAIL_READ: 'api.get.customers_id',
