@@ -77,9 +77,7 @@ export type PermissionGroup =
   | 'GOV_REGISTRY_READ'
   | 'GOV_REGISTRY_WRITE'
   | 'GOV_REGULATORY_GATE_READ'
-  | 'GOV_REGULATORY_GATE_WRITE'
-  | 'GOV_SLA_READ'
-  | 'GOV_SLA_WRITE';
+  | 'GOV_REGULATORY_GATE_WRITE';
 
 export interface RbacPermissionDefinition {
   code: string;
@@ -752,32 +750,6 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
     'GOV_REGULATORY_GATE_WRITE',
   ]),
 
-  // Governance SLA timers
-  route('GET', '/admin/control-gates/sla-timers', 'List SLA timers', ['GOV_SLA_READ']),
-  route('GET', '/admin/control-gates/sla-timers/:id', 'Get SLA timer detail', [
-    'GOV_SLA_READ',
-  ]),
-  route('POST', '/admin/control-gates/sla-timers/:id/recalc', 'Recalculate SLA timer', [
-    'GOV_SLA_WRITE',
-  ]),
-  route('POST', '/admin/control-gates/sla-timers/:id/close', 'Close SLA timer', [
-    'GOV_SLA_WRITE',
-  ]),
-  route(
-    'POST',
-    '/admin/demo/control-gates/sla-timers/approval-timeout',
-    'Create approval-timeout SLA mock chain',
-    ['GOV_SLA_WRITE'],
-  ),
-  route(
-    'POST',
-    '/admin/demo/control-gates/sla-timers/change-follow-up',
-    'Create change follow-up SLA mock chain',
-    ['GOV_SLA_WRITE'],
-  ),
-  route('POST', '/admin/demo/control-gates/sla-timers/:id/expire', 'Mock expire SLA timer', [
-    'GOV_SLA_WRITE',
-  ]),
 ];
 
 export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
@@ -797,7 +769,7 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'GOV_DELETE_REQUEST_READ',
     'GOV_REGISTRY_READ',
     'GOV_REGULATORY_GATE_READ',
-    'GOV_SLA_READ',
+
   ],
   TECH_OFFICER: [
     'BASE_ACCESS',
@@ -822,8 +794,8 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'GOV_REGISTRY_WRITE',
     'GOV_REGULATORY_GATE_READ',
     'GOV_REGULATORY_GATE_WRITE',
-    'GOV_SLA_READ',
-    'GOV_SLA_WRITE',
+
+
   ],
   OPS_OFFICER: [
     'BASE_ACCESS',
@@ -865,8 +837,8 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'GOV_REGISTRY_WRITE',
     'GOV_REGULATORY_GATE_READ',
     'GOV_REGULATORY_GATE_WRITE',
-    'GOV_SLA_READ',
-    'GOV_SLA_WRITE',
+
+
   ],
   MLRO: [
     'BASE_ACCESS',
@@ -891,7 +863,7 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'GOV_CHANGE_TICKET_READ',
     'GOV_DELETE_REQUEST_READ',
     'GOV_REGISTRY_READ',
-    'GOV_SLA_READ',
+
   ],
   DPO: [
     'BASE_ACCESS',
@@ -910,7 +882,7 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'GOV_REGISTRY_WRITE',
     'GOV_REGULATORY_GATE_READ',
     'GOV_REGULATORY_GATE_WRITE',
-    'GOV_SLA_READ',
+
   ],
   CISO: [
     'BASE_ACCESS',
@@ -931,8 +903,8 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'GOV_REGISTRY_WRITE',
     'GOV_REGULATORY_GATE_READ',
     'GOV_REGULATORY_GATE_WRITE',
-    'GOV_SLA_READ',
-    'GOV_SLA_WRITE',
+
+
   ],
 };
 

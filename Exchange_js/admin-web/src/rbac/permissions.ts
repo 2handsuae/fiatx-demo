@@ -114,10 +114,6 @@ export const PERMISSIONS = {
   GOV_DELETE_REQUEST_SUBMIT: 'api.post.admin_control_gates_delete_requests_id_submit',
   GOV_DELETE_REQUEST_CANCEL: 'api.post.admin_control_gates_delete_requests_id_cancel',
   GOV_DELETE_REQUEST_CONSUME: 'api.post.admin_control_gates_delete_requests_id_consume',
-  GOV_SLA_TIMERS_READ: 'api.get.admin_control_gates_sla_timers',
-  GOV_SLA_TIMER_DETAIL_READ: 'api.get.admin_control_gates_sla_timers_id',
-  GOV_SLA_TIMER_RECALC: 'api.post.admin_control_gates_sla_timers_id_recalc',
-  GOV_SLA_TIMER_CLOSE: 'api.post.admin_control_gates_sla_timers_id_close',
   GOV_SHAREHOLDING_REGISTRY_READ:
     'api.get.admin_governance_registries_shareholding_versions',
   GOV_SHAREHOLDING_REGISTRY_DETAIL_READ:

@@ -18,15 +18,13 @@ import {
 } from '../../audit-logging/constants/audit-actions.constant';
 import {
   AuditResult,
-  AuditTriggerType,
 } from '../../audit-logging/dto/audit-log.dto';
 import { ApprovalActorContext } from '../approvals/constants/approval.constants';
-import { SlaTimersService } from '../sla-timers/sla-timers.service';
 import {
   AppointmentStatuses,
   ConflictDisclosureStatuses,
   GovernanceRegistryPrefixes,
-  GovernanceRegistrySlaTimerTypes,
+
   GovernanceRegistrySubjectTypes,
   ShareholdingParticipantTypes,
   ShareholdingRegistryStatuses,
@@ -63,7 +61,6 @@ export class GovernanceRegistriesService {
     @Inject(PrismaService)
     private readonly prisma: PrismaService & Record<string, any>,
     private readonly auditLogsService: AuditLogsService,
-    private readonly slaTimersService: SlaTimersService,
   ) {}
 
   private normalizeOptionalString(value: unknown): string | null {
@@ -147,11 +144,9 @@ export class GovernanceRegistriesService {
     entityNo: string;
     traceId?: string | null;
     reason?: string | null;
-    triggerType?: AuditTriggerType;
   }, actor: ApprovalActorContext) {
     await this.auditLogsService.recordByActor(
       {
-        triggerType: input.triggerType ?? AuditTriggerType.DATA_CREATE,
         action: input.action,
         entityType: input.entityType,
         entityId: input.entityId,
@@ -392,90 +387,6 @@ export class GovernanceRegistriesService {
     };
   }
 
-  private async syncTrainingTimer(item: any, actor: ApprovalActorContext) {
-    const status = this.deriveTrainingStatus(item.status, item.dueAt, item.completedAt);
-    if ((status === TrainingStatuses.ASSIGNED || status === TrainingStatuses.OVERDUE) && item.dueAt) {
-      await this.slaTimersService.ensureGovernanceRegistryTimer({
-        subjectType: GovernanceRegistrySubjectTypes.TRAINING_RECORD,
-        subjectId: item.id,
-        subjectNo: item.trainingNo,
-        timerType: GovernanceRegistrySlaTimerTypes.TRAINING_DUE,
-        ownerUserId: item.updatedByUserId || item.createdByUserId || actor.userId,
-        dueAt: item.dueAt,
-        traceId: item.traceId,
-        contextJson: {
-          trainingType: item.trainingType,
-          assignee: item.assignee,
-        },
-      });
-      return;
-    }
-
-    await this.slaTimersService.closeGovernanceRegistryTimer({
-      subjectType: GovernanceRegistrySubjectTypes.TRAINING_RECORD,
-      subjectId: item.id,
-      timerType: GovernanceRegistrySlaTimerTypes.TRAINING_DUE,
-      reason: 'Training no longer requires an active due timer',
-    });
-  }
-
-  private async syncConflictTimer(item: any, actor: ApprovalActorContext) {
-    if (
-      [ConflictDisclosureStatuses.OPEN, ConflictDisclosureStatuses.UNDER_REVIEW].includes(
-        item.status,
-      ) &&
-      item.reviewDueAt
-    ) {
-      await this.slaTimersService.ensureGovernanceRegistryTimer({
-        subjectType: GovernanceRegistrySubjectTypes.CONFLICT_DISCLOSURE,
-        subjectId: item.id,
-        subjectNo: item.disclosureNo,
-        timerType: GovernanceRegistrySlaTimerTypes.CONFLICT_REVIEW,
-        ownerUserId: item.updatedByUserId || item.createdByUserId || actor.userId,
-        dueAt: item.reviewDueAt,
-        traceId: item.traceId,
-        contextJson: {
-          disclosureType: item.disclosureType,
-          disclosedByName: item.disclosedByName,
-        },
-      });
-      return;
-    }
-
-    await this.slaTimersService.closeGovernanceRegistryTimer({
-      subjectType: GovernanceRegistrySubjectTypes.CONFLICT_DISCLOSURE,
-      subjectId: item.id,
-      timerType: GovernanceRegistrySlaTimerTypes.CONFLICT_REVIEW,
-      reason: 'Conflict disclosure no longer requires an active review timer',
-    });
-  }
-
-  private async syncWindDownTimer(item: any, actor: ApprovalActorContext) {
-    if (item.status === WindDownMaterialStatuses.ACTIVE && item.reviewDueAt) {
-      await this.slaTimersService.ensureGovernanceRegistryTimer({
-        subjectType: GovernanceRegistrySubjectTypes.WIND_DOWN_MATERIAL,
-        subjectId: item.id,
-        subjectNo: item.materialNo,
-        timerType: GovernanceRegistrySlaTimerTypes.WIND_DOWN_REVIEW,
-        ownerUserId: item.updatedByUserId || item.createdByUserId || actor.userId,
-        dueAt: item.reviewDueAt,
-        traceId: item.traceId,
-        contextJson: {
-          materialType: item.materialType,
-          versionLabel: item.versionLabel,
-        },
-      });
-      return;
-    }
-
-    await this.slaTimersService.closeGovernanceRegistryTimer({
-      subjectType: GovernanceRegistrySubjectTypes.WIND_DOWN_MATERIAL,
-      subjectId: item.id,
-      timerType: GovernanceRegistrySlaTimerTypes.WIND_DOWN_REVIEW,
-      reason: 'Wind-down material no longer requires an active review timer',
-    });
-  }
-
   private buildContains(keyword?: string | null) {
     const normalized = this.normalizeOptionalString(keyword);
     if (!normalized) return null;
@@ -624,7 +535,6 @@ export class GovernanceRegistriesService {
           entityId: outcome.superseded.id,
           entityNo: outcome.superseded.registryNo,
           traceId: outcome.superseded.traceId,
-          triggerType: AuditTriggerType.STATE_TRANSITION,
           reason: `Superseded by ${outcome.created.registryNo}`,
         },
         actor,
@@ -733,10 +643,6 @@ export class GovernanceRegistriesService {
         entityId: outcome.updated.id,
         entityNo: outcome.updated.registryNo,
         traceId: outcome.updated.traceId,
-        triggerType:
-          outcome.current.status !== outcome.updated.status
-            ? AuditTriggerType.STATE_TRANSITION
-            : AuditTriggerType.DATA_CREATE,
         reason: options.auditReason || undefined,
       },
       actor,
@@ -897,7 +803,6 @@ export class GovernanceRegistriesService {
         entityId: updated.id,
         entityNo: updated.appointmentNo,
         traceId: updated.traceId,
-        triggerType: current.status !== updated.status ? AuditTriggerType.STATE_TRANSITION : AuditTriggerType.DATA_CREATE,
         reason: options.auditReason || undefined,
       },
       actor,
@@ -1048,7 +953,7 @@ export class GovernanceRegistriesService {
       },
     });
 
-    await this.syncTrainingTimer(created, actor);
+
     await this.recordAudit(
       {
         action: AuditActions.TRAINING_RECORD_CREATED,
@@ -1108,7 +1013,6 @@ export class GovernanceRegistriesService {
       },
     });
 
-    await this.syncTrainingTimer(updated, actor);
     await this.recordAudit(
       {
         action:
@@ -1119,7 +1023,6 @@ export class GovernanceRegistriesService {
         entityId: updated.id,
         entityNo: updated.trainingNo,
         traceId: updated.traceId,
-        triggerType: current.status !== updated.status ? AuditTriggerType.STATE_TRANSITION : AuditTriggerType.DATA_CREATE,
       },
       actor,
     );
@@ -1184,7 +1087,7 @@ export class GovernanceRegistriesService {
       },
     });
 
-    await this.syncConflictTimer(created, actor);
+
     await this.recordAudit(
       {
         action: AuditActions.CONFLICT_DISCLOSURE_CREATED,
@@ -1257,7 +1160,6 @@ export class GovernanceRegistriesService {
       },
     });
 
-    await this.syncConflictTimer(updated, actor);
     await this.recordAudit(
       {
         action:
@@ -1268,7 +1170,6 @@ export class GovernanceRegistriesService {
         entityId: updated.id,
         entityNo: updated.disclosureNo,
         traceId: updated.traceId,
-        triggerType: current.status !== updated.status ? AuditTriggerType.STATE_TRANSITION : AuditTriggerType.DATA_CREATE,
       },
       actor,
     );
@@ -1332,7 +1233,7 @@ export class GovernanceRegistriesService {
       },
     });
 
-    await this.syncWindDownTimer(created, actor);
+
     await this.recordAudit(
       {
         action: AuditActions.WIND_DOWN_MATERIAL_CREATED,
@@ -1399,7 +1300,6 @@ export class GovernanceRegistriesService {
       },
     });
 
-    await this.syncWindDownTimer(updated, actor);
     await this.recordAudit(
       {
         action:
@@ -1410,7 +1310,6 @@ export class GovernanceRegistriesService {
         entityId: updated.id,
         entityNo: updated.materialNo,
         traceId: updated.traceId,
-        triggerType: current.status !== updated.status ? AuditTriggerType.STATE_TRANSITION : AuditTriggerType.DATA_CREATE,
       },
       actor,
     );

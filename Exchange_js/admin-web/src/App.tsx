@@ -81,8 +81,6 @@ const BusinessConfigReleasesPage = lazy(() => import('./pages/BusinessConfigRele
 const DeleteRequestsPage = lazy(() => import('./pages/DeleteRequestsPage'));
 const DeleteRequestCreatePage = lazy(() => import('./pages/DeleteRequestCreatePage'));
 const DeleteRequestDetailPage = lazy(() => import('./pages/DeleteRequestDetailPage'));
-const SlaTimersPage = lazy(() => import('./pages/SlaTimersPage'));
-const SlaTimerDetailPage = lazy(() => import('./pages/SlaTimerDetailPage'));
 const GovernanceRegistryListPage = lazy(() => import('./pages/GovernanceRegistryListPage'));
 const GovernanceRegistryDetailPage = lazy(() => import('./pages/GovernanceRegistryDetailPage'));
 const GovernanceRegistryCreatePage = lazy(() => import('./pages/GovernanceRegistryCreatePage'));
@@ -584,16 +582,7 @@ function App() {
                 PERMISSIONS.GOV_APPROVAL_DETAIL_READ,
               ])}
             />
-            <Route
-              path="control-gates/sla-timers"
-              element={withPermission(<SlaTimersPage />, [PERMISSIONS.GOV_SLA_TIMERS_READ])}
-            />
-            <Route
-              path="control-gates/sla-timers/:id"
-              element={withPermission(<SlaTimerDetailPage />, [
-                PERMISSIONS.GOV_SLA_TIMER_DETAIL_READ,
-              ])}
-            />
+
             <Route
               path="governance/registries/shareholding-versions"
               element={withPermission(
