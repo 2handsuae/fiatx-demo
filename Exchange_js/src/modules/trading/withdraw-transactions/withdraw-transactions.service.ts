@@ -25,7 +25,6 @@ import {
   AuditWorkflowTypes,
   buildStateTransitionAction,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditTriggerType } from '../../audit-logging/dto/audit-log.dto';
 import { PricingCenterService } from '../pricing-center/pricing-center.service';
 
 export type WithdrawStatusUpdateSource = 'ADMIN_API' | 'WORKFLOW' | 'SYSTEM';
@@ -578,7 +577,7 @@ export class WithdrawTransactionsService {
 
         await this.auditLogsService.recordByActor(
           {
-            triggerType: AuditTriggerType.DATA_CREATE,
+
             action: AuditActions.WITHDRAW_CREATED,
             entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
             entityId: record.id,
@@ -718,7 +717,7 @@ export class WithdrawTransactionsService {
 
       await this.auditLogsService.recordByActor(
         {
-          triggerType: AuditTriggerType.STATE_TRANSITION,
+
           action: buildStateTransitionAction('WITHDRAW', currentStatus, nextStatus),
           entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
           entityId: updated.id,
@@ -867,7 +866,7 @@ export class WithdrawTransactionsService {
       });
 
       await this.auditLogsService.recordSystem({
-        triggerType: AuditTriggerType.DATA_CREATE,
+
         action: AuditActions.WITHDRAW_CREATED,
         entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
         entityId: created.id,

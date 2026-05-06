@@ -7,7 +7,7 @@ import {
   AuditEntityTypes,
   AuditModules,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditResult, AuditTriggerType } from '../../audit-logging/dto/audit-log.dto';
+import { AuditResult } from '../../audit-logging/dto/audit-log.dto';
 
 const riskApprovalSummarySelect = {
   id: true,
@@ -97,7 +97,6 @@ export class CustomersService {
     });
 
     await this.auditLogsService.recordSystem({
-      triggerType: AuditTriggerType.DATA_CREATE,
       action: AuditActions.CUSTOMER_CREATED,
       entityType: AuditEntityTypes.CUSTOMER,
       entityId: created.id,
@@ -175,7 +174,6 @@ export class CustomersService {
     });
 
     await this.auditLogsService.recordSystem({
-      triggerType: AuditTriggerType.DATA_UPDATE,
       action: AuditActions.CUSTOMER_UPDATED,
       entityType: AuditEntityTypes.CUSTOMER,
       entityId: updated.id,
@@ -198,7 +196,6 @@ export class CustomersService {
     });
 
     await this.auditLogsService.recordSystem({
-      triggerType: AuditTriggerType.DATA_DELETE,
       action: AuditActions.CUSTOMER_DELETED,
       entityType: AuditEntityTypes.CUSTOMER,
       entityId: deleted.id,

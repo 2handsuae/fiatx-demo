@@ -21,7 +21,6 @@ import {
 import {
   AuditResult,
   AuditSubjectRole,
-  AuditTriggerType,
 } from '../../audit-logging/dto/audit-log.dto';
 import { sha256Hex } from '../../audit-logging/utils/audit-digest.util';
 import { ApprovalsService } from '../approvals/approvals.service';
@@ -292,7 +291,6 @@ export class DeleteRequestsService {
   ) {
     await this.auditLogsService.recordByActor(
       {
-        triggerType: AuditTriggerType.DATA_UPDATE,
         action,
         entityType: AuditEntityTypes.DELETE_REQUEST,
         entityId: request.id,

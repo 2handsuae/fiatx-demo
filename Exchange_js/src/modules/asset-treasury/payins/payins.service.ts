@@ -29,7 +29,6 @@ import {
   AuditWorkflowTypes,
   buildStateTransitionAction,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditTriggerType } from '../../audit-logging/dto/audit-log.dto';
 
 export interface CreateDetectedPayinInput {
   assetId: string;
@@ -229,7 +228,7 @@ export class PayinsService {
     );
 
     await this.auditLogsService.recordSystem({
-      triggerType: AuditTriggerType.DATA_CREATE,
+
       action: AuditActions.PAYIN_CREATED,
       entityType: AuditEntityTypes.PAYIN,
       entityId: payin.id,
@@ -472,7 +471,7 @@ export class PayinsService {
     });
 
     await this.auditLogsService.recordSystem({
-      triggerType: AuditTriggerType.STATE_TRANSITION,
+
       action: buildStateTransitionAction('PAYIN', currentStatus, nextStatus),
       entityType: AuditEntityTypes.PAYIN,
       entityId: updatedPayin.id,

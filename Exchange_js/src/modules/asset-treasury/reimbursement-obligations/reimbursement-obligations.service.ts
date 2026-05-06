@@ -12,7 +12,6 @@ import {
   AuditModules,
   buildStateTransitionAction,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditTriggerType } from '../../audit-logging/dto/audit-log.dto';
 import {
   ReimbursementObligationQueryDto,
   ReimbursementObligationStatus,
@@ -138,7 +137,7 @@ export class ReimbursementObligationsService {
 
     await this.auditLogsService.recordByActor(
       {
-        triggerType: AuditTriggerType.DATA_CREATE,
+
         action: AuditActions.REIMBURSEMENT_OBLIGATION_OPENED,
         entityType: AuditEntityTypes.REIMBURSEMENT_OBLIGATION,
         entityId: obligation.id,
@@ -183,7 +182,7 @@ export class ReimbursementObligationsService {
 
     await this.auditLogsService.recordByActor(
       {
-        triggerType: AuditTriggerType.STATE_TRANSITION,
+
         action: buildStateTransitionAction(
           'REIMBURSEMENT_OBLIGATION',
           current.status,
@@ -293,7 +292,7 @@ export class ReimbursementObligationsService {
 
     await this.auditLogsService.recordByActor(
       {
-        triggerType: AuditTriggerType.STATE_TRANSITION,
+
         action: buildStateTransitionAction(
           'REIMBURSEMENT_OBLIGATION',
           current.status,

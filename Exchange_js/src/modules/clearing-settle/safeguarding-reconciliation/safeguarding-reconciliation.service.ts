@@ -18,7 +18,6 @@ import {
   AuditModules,
   buildStateTransitionAction,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditTriggerType } from '../../audit-logging/dto/audit-log.dto';
 import {
   FiatStatementImportQueryDto,
   GenerateSafeguardingDailyDiffDto,
@@ -196,7 +195,6 @@ export class SafeguardingReconciliationService {
 
   private async recordAudit(
     input: {
-      triggerType: AuditTriggerType;
       action: string;
       entityType: string;
       entityId: string;
@@ -209,7 +207,6 @@ export class SafeguardingReconciliationService {
   ) {
     await this.auditLogsService.recordByActor(
       {
-        triggerType: input.triggerType,
         action: input.action,
         entityType: input.entityType,
         entityId: input.entityId,
@@ -717,7 +714,7 @@ export class SafeguardingReconciliationService {
     for (const warning of warnings) {
       await this.recordAudit(
         {
-          triggerType: AuditTriggerType.DATA_CREATE,
+
           action: buildStateTransitionAction(
             'RECONCILIATION_WARNING',
             'NEW',
@@ -887,7 +884,7 @@ export class SafeguardingReconciliationService {
       });
       await this.recordAudit(
         {
-          triggerType: AuditTriggerType.DATA_CREATE,
+
           action: AuditActions.TX_SAFEGUARDING_BREAK_DETECTED,
           entityType: AuditEntityTypes.RECONCILIATION_BREAK,
           entityId: created.id,
@@ -932,7 +929,7 @@ export class SafeguardingReconciliationService {
     });
     await this.recordAudit(
       {
-        triggerType: AuditTriggerType.STATE_TRANSITION,
+
         action: reopening
           ? AuditActions.TX_SAFEGUARDING_BREAK_DETECTED
           : buildStateTransitionAction(
@@ -1130,7 +1127,7 @@ export class SafeguardingReconciliationService {
 
       await this.recordAudit(
         {
-          triggerType: AuditTriggerType.DATA_CREATE,
+
           action: AuditActions.SAFEGUARDING_RUN_GENERATED,
           entityType: AuditEntityTypes.SAFEGUARDING_RUN,
           entityId: finishedRun.id,
@@ -1221,7 +1218,7 @@ export class SafeguardingReconciliationService {
 
     await this.recordAudit(
       {
-        triggerType: AuditTriggerType.STATE_TRANSITION,
+
         action:
           dto.status === ReconciliationBreakStatuses.RESOLVED
             ? AuditActions.TX_SAFEGUARDING_BREAK_RESOLVED
@@ -1318,7 +1315,7 @@ export class SafeguardingReconciliationService {
 
     await this.recordAudit(
       {
-        triggerType: AuditTriggerType.STATE_TRANSITION,
+
         action: buildStateTransitionAction(
           'RECONCILIATION_WARNING',
           current.status,
@@ -1588,7 +1585,7 @@ export class SafeguardingReconciliationService {
 
       await this.recordAudit(
         {
-          triggerType: AuditTriggerType.DATA_CREATE,
+
           action: AuditActions.FIAT_STATEMENT_IMPORTED,
           entityType: AuditEntityTypes.FIAT_STATEMENT_IMPORT,
           entityId: updated.id,
@@ -1665,7 +1662,6 @@ export class SafeguardingReconciliationService {
 
     await this.recordAudit(
       {
-        triggerType: AuditTriggerType.DATA_CREATE,
         action: AuditActions.SAFEGUARDING_EVIDENCE_PACKAGE_EXPORTED,
         entityType: AuditEntityTypes.SAFEGUARDING_RUN,
         entityId: run.id,

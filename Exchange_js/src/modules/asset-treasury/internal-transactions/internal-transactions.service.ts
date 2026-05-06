@@ -16,7 +16,6 @@ import {
   AuditModules,
   buildStateTransitionAction,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditTriggerType } from '../../audit-logging/dto/audit-log.dto';
 import {
   InternalTransactionQueryDto,
   InternalTransactionApprovalStatus,
@@ -306,7 +305,7 @@ export class InternalTransactionsService {
 
         await this.auditLogsService.recordByActor(
           {
-            triggerType: AuditTriggerType.DATA_CREATE,
+
             action: AuditActions.INTERNAL_TX_CREATED,
             entityType: AuditEntityTypes.INTERNAL_TRANSACTION,
             entityId: created.id,
@@ -735,7 +734,7 @@ export class InternalTransactionsService {
 
       await this.auditLogsService.recordByActor(
         {
-          triggerType: AuditTriggerType.STATE_TRANSITION,
+
           action: buildStateTransitionAction('INTERNAL_TX', current, next),
           entityType: AuditEntityTypes.INTERNAL_TRANSACTION,
           entityId: updated.id,

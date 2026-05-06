@@ -18,7 +18,7 @@ import {
   AuditEntityTypes,
   AuditModules,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditResult, AuditTriggerType } from '../../audit-logging/dto/audit-log.dto';
+import { AuditResult } from '../../audit-logging/dto/audit-log.dto';
 
 @Injectable()
 export class LiquidityConfigService {
@@ -78,7 +78,7 @@ export class LiquidityConfigService {
     });
 
     await this.auditLogsService.recordSystem({
-      triggerType: AuditTriggerType.CONFIG_CHANGE,
+
       action: AuditActions.LP_CONFIG_UPDATED,
       entityType: AuditEntityTypes.LIQUIDITY_CONFIG,
       entityId: result.id,
@@ -169,7 +169,7 @@ export class LiquidityConfigService {
     });
 
     await this.auditLogsService.recordSystem({
-      triggerType: AuditTriggerType.CONFIG_CHANGE,
+
       action: AuditActions.LP_CONFIG_UPDATED,
       entityType: AuditEntityTypes.LIQUIDITY_CONFIG,
       entityId: result.id,
@@ -187,7 +187,7 @@ export class LiquidityConfigService {
     const before = await this.findOne(id); // Ensure exists
     const deleted = await this.prisma.liquidityConfiguration.delete({ where: { id } });
     await this.auditLogsService.recordSystem({
-      triggerType: AuditTriggerType.CONFIG_CHANGE,
+
       action: AuditActions.LP_CONFIG_UPDATED,
       entityType: AuditEntityTypes.LIQUIDITY_CONFIG,
       entityId: id,
@@ -206,7 +206,7 @@ export class LiquidityConfigService {
       data: { status },
     });
     await this.auditLogsService.recordSystem({
-      triggerType: AuditTriggerType.CONFIG_CHANGE,
+
       action: AuditActions.LP_CONFIG_UPDATED,
       entityType: AuditEntityTypes.LIQUIDITY_CONFIG,
       entityId: id,

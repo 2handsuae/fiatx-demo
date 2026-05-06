@@ -28,7 +28,6 @@ import {
   AuditModules,
   buildStateTransitionAction,
 } from '../modules/audit-logging/constants/audit-actions.constant';
-import { AuditTriggerType } from '../modules/audit-logging/dto/audit-log.dto';
 import { AccountingEventExecutionService } from './accounting-event-execution.service';
 
 export interface OrchestrationResult {
@@ -212,7 +211,7 @@ export class WithdrawWorkflowOrchestrator {
         );
       }
       const log = await this.auditLogsService.recordSystem({
-        triggerType: AuditTriggerType.SYSTEM_EVENT,
+
         action: AuditActions.SYSTEM_WITHDRAW_CREATED_ORCHESTRATED,
         entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
         entityId: withdrawId,
@@ -244,7 +243,7 @@ export class WithdrawWorkflowOrchestrator {
         );
       }
       const log = await this.auditLogsService.recordSystem({
-        triggerType: AuditTriggerType.SYSTEM_EVENT,
+
         action: AuditActions.SYSTEM_WITHDRAW_TERMINAL_ORCHESTRATED,
         entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
         entityId: withdrawId,
@@ -341,7 +340,7 @@ export class WithdrawWorkflowOrchestrator {
 
         const log = await this.auditLogsService.recordSystem(
           {
-            triggerType: AuditTriggerType.SYSTEM_EVENT,
+    
             action: AuditActions.SYSTEM_WITHDRAW_APPROVED_ORCHESTRATED,
             entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
             entityId: withdrawId,
@@ -476,7 +475,7 @@ export class WithdrawWorkflowOrchestrator {
 
       const log = await this.auditLogsService.recordSystem(
         {
-          triggerType: AuditTriggerType.STATE_TRANSITION,
+
           action: buildStateTransitionAction(
             'WITHDRAW',
             withdrawal.status,
@@ -942,7 +941,7 @@ export class WithdrawWorkflowOrchestrator {
 
       const log = await this.auditLogsService.recordSystem(
         {
-          triggerType: AuditTriggerType.SYSTEM_EVENT,
+  
           action: AuditActions.SYSTEM_WITHDRAW_TERMINAL_ORCHESTRATED,
           entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
           entityId: withdrawId,

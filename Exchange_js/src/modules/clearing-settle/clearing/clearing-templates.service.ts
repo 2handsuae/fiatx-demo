@@ -7,7 +7,7 @@ import {
   AuditEntityTypes,
   AuditModules,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditResult, AuditTriggerType } from '../../audit-logging/dto/audit-log.dto';
+import { AuditResult } from '../../audit-logging/dto/audit-log.dto';
 
 @Injectable()
 export class ClearingTemplatesService {
@@ -30,7 +30,7 @@ export class ClearingTemplatesService {
       }
     });
     await this.auditLogsService.recordSystem({
-      triggerType: AuditTriggerType.CONFIG_CHANGE,
+
       action: AuditActions.CLEARING_TEMPLATE_UPDATED,
       entityType: AuditEntityTypes.CLEARING_TEMPLATE,
       entityId: created.id,
@@ -101,7 +101,7 @@ export class ClearingTemplatesService {
       }
     });
     await this.auditLogsService.recordSystem({
-      triggerType: AuditTriggerType.CONFIG_CHANGE,
+
       action: AuditActions.CLEARING_TEMPLATE_UPDATED,
       entityType: AuditEntityTypes.CLEARING_TEMPLATE,
       entityId: updated.id,
@@ -119,7 +119,7 @@ export class ClearingTemplatesService {
       where: { id }
     });
     await this.auditLogsService.recordSystem({
-      triggerType: AuditTriggerType.CONFIG_CHANGE,
+
       action: AuditActions.CLEARING_TEMPLATE_UPDATED,
       entityType: AuditEntityTypes.CLEARING_TEMPLATE,
       entityId: id,

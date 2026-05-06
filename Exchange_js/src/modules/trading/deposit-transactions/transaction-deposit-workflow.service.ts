@@ -7,7 +7,6 @@ import {
   AuditEntityTypes,
   AuditModules,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditTriggerType } from '../../audit-logging/dto/audit-log.dto';
 import {
   DepositTransactionAction,
   DepositTransactionStatus,
@@ -129,7 +128,7 @@ export class TransactionDepositWorkflowService {
   ) {
     const trace = this.getTraceContext(deposit);
     const payload = {
-      triggerType: AuditTriggerType.DATA_UPDATE,
+
       action,
       entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
       entityId: deposit.id,

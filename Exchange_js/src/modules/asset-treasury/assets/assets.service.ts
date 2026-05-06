@@ -14,7 +14,7 @@ import {
   AuditEntityTypes,
   AuditModules,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditResult, AuditTriggerType } from '../../audit-logging/dto/audit-log.dto';
+import { AuditResult } from '../../audit-logging/dto/audit-log.dto';
 
 @Injectable()
 export class AssetsService {
@@ -64,7 +64,7 @@ export class AssetsService {
     });
 
     await this.auditLogsService.recordSystem({
-      triggerType: AuditTriggerType.CONFIG_CHANGE,
+
       action: AuditActions.ASSET_CONFIG_UPDATED,
       entityType: AuditEntityTypes.ASSET,
       entityId: result.id,
@@ -118,7 +118,7 @@ export class AssetsService {
     });
 
     await this.auditLogsService.recordSystem({
-      triggerType: AuditTriggerType.CONFIG_CHANGE,
+
       action: AuditActions.ASSET_CONFIG_UPDATED,
       entityType: AuditEntityTypes.ASSET,
       entityId: result.id,

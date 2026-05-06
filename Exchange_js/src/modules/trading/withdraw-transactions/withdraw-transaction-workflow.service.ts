@@ -9,7 +9,6 @@ import {
   AuditWorkflowTypes,
   buildStateTransitionAction,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditTriggerType } from '../../audit-logging/dto/audit-log.dto';
 import {
   isLegacyReadOnlyReviewStage,
   normalizeComplianceReviewStage,
@@ -268,7 +267,7 @@ export class WithdrawTransactionWorkflowService {
   ) {
     const trace = this.getTraceContext(withdraw);
     const payload = {
-      triggerType: AuditTriggerType.DATA_UPDATE,
+
       action: this.mapAuditAction(input.workflowAction),
       entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
       entityId: withdraw.id,
@@ -333,7 +332,7 @@ export class WithdrawTransactionWorkflowService {
     if (input.actor) {
       await this.auditLogsService.recordByActor(
         {
-          triggerType: AuditTriggerType.STATE_TRANSITION,
+
           action: buildStateTransitionAction('WITHDRAW', String(withdraw.status), nextStatus),
           entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
           entityId: updated.id,
@@ -357,7 +356,7 @@ export class WithdrawTransactionWorkflowService {
     } else {
       await this.auditLogsService.recordSystem(
         {
-          triggerType: AuditTriggerType.STATE_TRANSITION,
+
           action: buildStateTransitionAction('WITHDRAW', String(withdraw.status), nextStatus),
           entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
           entityId: updated.id,

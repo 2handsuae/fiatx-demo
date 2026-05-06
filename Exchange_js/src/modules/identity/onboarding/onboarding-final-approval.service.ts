@@ -14,7 +14,6 @@ import {
   AuditModules,
   AuditWorkflowTypes,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditTriggerType } from '../../audit-logging/dto/audit-log.dto';
 import {
   ONBOARDING_WORKFLOW,
   buildComplianceWorkflowTraceContext,
@@ -230,7 +229,6 @@ export class OnboardingFinalApprovalService {
     const traceContext = this.buildTraceContext(input.journeyId);
     await this.auditLogsService.recordByActor(
       {
-        triggerType: AuditTriggerType.DATA_UPDATE,
         action: input.action,
         entityType: AuditEntityTypes.ONBOARDING,
         entityId: input.customerId,

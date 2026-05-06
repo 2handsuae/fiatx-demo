@@ -61,7 +61,6 @@ import {
   AuditWorkflowTypes,
   buildStateTransitionAction,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditTriggerType } from '../../audit-logging/dto/audit-log.dto';
 import { TransactionComplianceService } from '../../risk-engine/transaction-compliance/transaction-compliance.service';
 import { PricingCenterService } from '../../trading/pricing-center/pricing-center.service';
 import { FeeOccurrencesService } from '../fee-occurrences/fee-occurrences.service';
@@ -339,7 +338,7 @@ export class PayoutsService {
 
       await this.auditLogsService.recordByActor(
         {
-          triggerType: AuditTriggerType.DATA_CREATE,
+
           action: AuditActions.PAYOUT_CREATED,
           entityType: AuditEntityTypes.PAYOUT,
           entityId: record.id,
@@ -497,7 +496,7 @@ export class PayoutsService {
 
       await this.auditLogsService.recordByActor(
         {
-          triggerType: AuditTriggerType.STATE_TRANSITION,
+
           action: buildStateTransitionAction('PAYOUT', oldStatus, nextStatus),
           entityType: AuditEntityTypes.PAYOUT,
           entityId: updated.id,
@@ -638,7 +637,7 @@ export class PayoutsService {
 
         await this.auditLogsService.recordByActor(
           {
-            triggerType: AuditTriggerType.DATA_CREATE,
+  
             action: AuditActions.PAYOUT_CREATED,
             entityType: AuditEntityTypes.PAYOUT,
             entityId: payout.id,

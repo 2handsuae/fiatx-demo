@@ -17,7 +17,7 @@ import {
   AuditEntityTypes,
   AuditModules,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditResult, AuditTriggerType } from '../../audit-logging/dto/audit-log.dto';
+import { AuditResult } from '../../audit-logging/dto/audit-log.dto';
 
 @Injectable()
 export class AcctEventsService {
@@ -54,7 +54,6 @@ export class AcctEventsService {
     });
 
     await this.auditLogsService.recordSystem({
-      triggerType: AuditTriggerType.CONFIG_CHANGE,
       action: AuditActions.ACCT_EVENT_UPDATED,
       entityType: AuditEntityTypes.ACCT_EVENT,
       entityId: created.id,
@@ -126,7 +125,6 @@ export class AcctEventsService {
       });
 
       await this.auditLogsService.recordSystem({
-        triggerType: AuditTriggerType.CONFIG_CHANGE,
         action: AuditActions.ACCT_EVENT_UPDATED,
         entityType: AuditEntityTypes.ACCT_EVENT,
         entityId: updated.id,

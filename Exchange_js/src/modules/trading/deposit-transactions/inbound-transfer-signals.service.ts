@@ -14,7 +14,6 @@ import {
   AuditEntityTypes,
   AuditModules,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditTriggerType } from '../../audit-logging/dto/audit-log.dto';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import { OnboardingService } from '../../identity/onboarding/onboarding.service';
 import {
@@ -220,7 +219,7 @@ export class InboundTransferSignalsService {
         action: AuditActions.INBOUND_SIGNAL_SUBMITTED,
         signal: created,
         reason: 'Customer submitted inbound transfer signal',
-        triggerType: AuditTriggerType.DATA_CREATE,
+
         metadata: {
           signalId: created.id,
           walletId: created.walletId,
@@ -309,7 +308,7 @@ export class InboundTransferSignalsService {
         action: AuditActions.INBOUND_SIGNAL_SCANNED,
         signal,
         reason: 'Customer triggered inbound transfer scan',
-        triggerType: AuditTriggerType.DATA_UPDATE,
+
         metadata: {
           signalId: signal.id,
           walletId: signal.walletId,
@@ -367,7 +366,7 @@ export class InboundTransferSignalsService {
           action: AuditActions.INBOUND_SIGNAL_FAILED,
           signal,
           reason: failureReason,
-          triggerType: AuditTriggerType.DATA_UPDATE,
+  
           metadata: {
             signalId: signal.id,
             walletId: signal.walletId,
@@ -435,7 +434,6 @@ export class InboundTransferSignalsService {
       reason: createdPayin
         ? 'Inbound transfer signal created new payin'
         : 'Inbound transfer signal reused existing payin',
-      triggerType: AuditTriggerType.DATA_UPDATE,
       metadata: {
         signalId: signal.id,
         walletId: signal.walletId,
@@ -668,7 +666,6 @@ export class InboundTransferSignalsService {
       action: AuditActions.INBOUND_SIGNAL_BLOCKED,
       signal,
       reason,
-      triggerType: AuditTriggerType.DATA_UPDATE,
       metadata: {
         signalId: signal.id,
         walletId: signal.walletId,
@@ -683,13 +680,11 @@ export class InboundTransferSignalsService {
     action: string;
     signal: any;
     reason: string;
-    triggerType: AuditTriggerType;
     metadata: Record<string, unknown>;
     sourcePlatform: string;
   }) {
-    const { action, signal, reason, triggerType, metadata, sourcePlatform } = params;
+    const { action, signal, reason, metadata, sourcePlatform } = params;
     await this.auditLogsService.recordSystem({
-      triggerType,
       action,
       entityType: AuditEntityTypes.INBOUND_TRANSFER_SIGNAL,
       entityId: signal.id,

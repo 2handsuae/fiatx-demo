@@ -7,7 +7,6 @@ import {
   AuditModules,
   buildStateTransitionAction,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditTriggerType } from '../../audit-logging/dto/audit-log.dto';
 import { JournalsService } from '../../accounting/journals/journals.service';
 import { OutstandingsService } from '../../clearing-settle/outstandings/outstandings.service';
 import { SwapTransactionStatus } from './dto/swap-transaction.dto';
@@ -365,7 +364,7 @@ export class SwapTransactionWorkflowService {
     if (input.actor) {
       await this.auditLogsService.recordByActor(
         {
-          triggerType: AuditTriggerType.STATE_TRANSITION,
+
           action: this.buildAuditAction(beforeStatus, nextStatus),
           entityType: AuditEntityTypes.SWAP_TRANSACTION,
           entityId: updated.id,
@@ -390,7 +389,7 @@ export class SwapTransactionWorkflowService {
     } else {
       await this.auditLogsService.recordSystem(
         {
-          triggerType: AuditTriggerType.STATE_TRANSITION,
+
           action: this.buildAuditAction(beforeStatus, nextStatus),
           entityType: AuditEntityTypes.SWAP_TRANSACTION,
           entityId: updated.id,

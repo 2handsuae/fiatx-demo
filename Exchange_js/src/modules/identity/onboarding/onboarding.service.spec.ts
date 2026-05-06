@@ -4,7 +4,6 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
-import { AuditTriggerType } from '../../audit-logging/dto/audit-log.dto';
 import { OnboardingService } from './onboarding.service';
 import { WORKFLOW_TRANSITION_CODES } from './onboarding-workflow-transition.service';
 
@@ -1547,7 +1546,6 @@ describe('OnboardingService', () => {
     expect(recordByActorSpy).toHaveBeenCalledWith(
       expect.objectContaining({
         action: 'CDD_SESSION_CREATED',
-        triggerType: AuditTriggerType.DATA_CREATE,
       }),
       expect.anything(),
     );

@@ -19,7 +19,6 @@ import {
   AuditWorkflowTypes,
   buildStateTransitionAction,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditTriggerType } from '../../audit-logging/dto/audit-log.dto';
 import {
   CancelFeeOccurrenceDto,
   CreateFeeOccurrenceDto,
@@ -258,14 +257,13 @@ export class FeeOccurrencesService {
       entityNo?: string | null;
       reason?: string | null;
       traceId?: string | null;
-      triggerType?: AuditTriggerType;
     },
     operatorId: string,
     db: any,
   ) {
     await this.auditLogsService.recordByActor(
       {
-        triggerType: input.triggerType ?? AuditTriggerType.DATA_CREATE,
+
         action: input.action,
         entityType: AuditEntityTypes.FEE_OCCURRENCE,
         entityId: input.entityId,
@@ -528,7 +526,6 @@ export class FeeOccurrencesService {
           ),
           entityId: row.id,
           entityNo: row.feeNo,
-          triggerType: AuditTriggerType.STATE_TRANSITION,
           reason: dto.reason || 'Fee occurrence cancelled',
           traceId: row.traceId,
         },

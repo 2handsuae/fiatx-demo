@@ -27,7 +27,6 @@ import {
 } from '../modules/audit-logging/constants/audit-actions.constant';
 import {
   AuditResult,
-  AuditTriggerType,
 } from '../modules/audit-logging/dto/audit-log.dto';
 
 interface OrchestrationResult {
@@ -221,7 +220,7 @@ export class DepositWorkflowService implements OnModuleInit {
             );
 
       await this.auditLogsService.recordSystem({
-        triggerType: AuditTriggerType.DATA_UPDATE,
+
         action: AuditActions.DEPOSIT_COMPLIANCE_EVIDENCE_SYNCED,
         entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
         entityId: deposit.id,
@@ -390,7 +389,7 @@ export class DepositWorkflowService implements OnModuleInit {
 
         await this.auditLogsService.recordSystem(
           {
-            triggerType: AuditTriggerType.STATE_TRANSITION,
+
             action: buildStateTransitionAction('PAYIN', payin.status, PayinStatus.CLEARED),
             entityType: AuditEntityTypes.PAYIN,
             entityId: payin.id,
@@ -522,7 +521,6 @@ export class DepositWorkflowService implements OnModuleInit {
   }) {
     const { deposit, payin, eventCode, journalId, fromStatus, toStatus, assetType, reason } = params;
     await this.auditLogsService.recordSystem({
-      triggerType: AuditTriggerType.DATA_UPDATE,
       action: AuditActions.DEPOSIT_ACCOUNTING_POSTED,
       entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
       entityId: deposit.id,
@@ -555,7 +553,6 @@ export class DepositWorkflowService implements OnModuleInit {
   }) {
     const { deposit, payin, eventCode, fromStatus, toStatus, assetType, blockedReason } = params;
     await this.auditLogsService.recordSystem({
-      triggerType: AuditTriggerType.DATA_UPDATE,
       action: AuditActions.DEPOSIT_ACCOUNTING_BLOCKED,
       entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
       entityId: deposit.id,

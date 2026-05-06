@@ -36,7 +36,7 @@ import {
   AuditEntityTypes,
   AuditModules,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditResult, AuditTriggerType } from '../../audit-logging/dto/audit-log.dto';
+import { AuditResult } from '../../audit-logging/dto/audit-log.dto';
 import {
   BridgeExecutionResult,
   TransactionRiskBridgeService,
@@ -1513,9 +1513,6 @@ export class TransactionComplianceService {
 
     await this.auditLogsService.recordSystem(
       {
-        triggerType: existed
-          ? AuditTriggerType.DATA_UPDATE
-          : AuditTriggerType.DATA_CREATE,
         action: existed
           ? AuditActions.KYT_CASE_UPDATED
           : AuditActions.KYT_CASE_CREATED,
@@ -1669,7 +1666,7 @@ export class TransactionComplianceService {
 
     await this.auditLogsService.recordSystem(
       {
-        triggerType: AuditTriggerType.DATA_UPDATE,
+
         action: AuditActions.TRAVEL_RULE_UPDATED,
         entityType: AuditEntityTypes.TRAVEL_RULE_CASE,
         entityId: record.id,

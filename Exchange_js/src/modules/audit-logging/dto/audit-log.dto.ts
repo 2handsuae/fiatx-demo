@@ -14,19 +14,6 @@ import {
   ValidateNested,
 } from 'class-validator';
 
-export enum AuditTriggerType {
-  EVIDENCE_EXPORT = 'EVIDENCE_EXPORT',
-  STATE_TRANSITION = 'STATE_TRANSITION',
-  MANUAL_OVERRIDE = 'MANUAL_OVERRIDE',
-  AUTH_EVENT = 'AUTH_EVENT',
-  PERMISSION_CHANGE = 'PERMISSION_CHANGE',
-  CONFIG_CHANGE = 'CONFIG_CHANGE',
-  DATA_CREATE = 'DATA_CREATE',
-  DATA_UPDATE = 'DATA_UPDATE',
-  DATA_DELETE = 'DATA_DELETE',
-  SYSTEM_EVENT = 'SYSTEM_EVENT',
-}
-
 export enum AuditResult {
   SUCCESS = 'SUCCESS',
   FAILED = 'FAILED',
@@ -94,7 +81,6 @@ export interface AuditLogSubjectNoView {
 export interface AuditLogView {
   id: string;
   auditNo: string;
-  triggerType: string;
   businessWorkflow: string | null;
   businessWorkflowLabel: string | null;
   primaryRefNo: string | null;
@@ -129,11 +115,6 @@ export interface AuditLogView {
 }
 
 export class CreateAuditLogEventDto {
-  @ApiPropertyOptional({ enum: AuditTriggerType })
-  @IsOptional()
-  @IsEnum(AuditTriggerType)
-  triggerType?: AuditTriggerType;
-
   @ApiPropertyOptional({ description: '操作动作标识，例如 WITHDRAW_APPROVED' })
   @IsString()
   action!: string;
@@ -242,11 +223,6 @@ export class AuditLogQueryDto {
   @Min(1)
   @Max(200)
   take?: number;
-
-  @ApiPropertyOptional({ enum: AuditTriggerType })
-  @IsOptional()
-  @IsEnum(AuditTriggerType)
-  triggerType?: AuditTriggerType;
 
   @ApiPropertyOptional()
   @IsOptional()

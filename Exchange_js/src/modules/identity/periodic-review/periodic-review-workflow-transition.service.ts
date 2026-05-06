@@ -12,7 +12,6 @@ import {
   AuditModules,
   AuditWorkflowTypes,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditTriggerType } from '../../audit-logging/dto/audit-log.dto';
 import {
   CustomerOnboardingStatus,
   resolveCustomerCanonicalState,
@@ -141,7 +140,6 @@ export class PeriodicReviewWorkflowTransitionService {
     });
     await this.auditLogsService.recordByActor(
       {
-        triggerType: AuditTriggerType.STATE_TRANSITION,
         action: this.getWorkflowAuditAction(dispositionCode),
         entityType: AuditEntityTypes.ONBOARDING,
         entityId: customer.id,

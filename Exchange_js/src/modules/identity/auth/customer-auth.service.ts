@@ -16,7 +16,7 @@ import {
   AuditEntityTypes,
   AuditModules,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditResult, AuditTriggerType } from '../../audit-logging/dto/audit-log.dto';
+import { AuditResult } from '../../audit-logging/dto/audit-log.dto';
 
 interface AuthRequestContext {
   requestId?: string;
@@ -89,7 +89,6 @@ export class CustomerAuthService {
     if (!customer) {
       await this.auditLogsService.recordByActor(
         {
-          triggerType: AuditTriggerType.AUTH_EVENT,
           action: AuditActions.CUSTOMER_LOGIN_FAILED,
           entityType: AuditEntityTypes.AUTH,
           result: AuditResult.FAILED,
@@ -114,7 +113,6 @@ export class CustomerAuthService {
       // Customer exists but no password set (maybe only phone verified?)
       await this.auditLogsService.recordByActor(
         {
-          triggerType: AuditTriggerType.AUTH_EVENT,
           action: AuditActions.CUSTOMER_LOGIN_FAILED,
           entityType: AuditEntityTypes.AUTH,
           entityId: customer.id,
@@ -141,7 +139,6 @@ export class CustomerAuthService {
     if (String(customer.complianceHoldStatus || 'ACTIVE').toUpperCase() === 'FROZEN') {
       await this.auditLogsService.recordByActor(
         {
-          triggerType: AuditTriggerType.AUTH_EVENT,
           action: AuditActions.CUSTOMER_LOGIN_FAILED,
           entityType: AuditEntityTypes.AUTH,
           entityId: customer.id,
@@ -174,7 +171,6 @@ export class CustomerAuthService {
     if (customer.lockedUntil && customer.lockedUntil > new Date()) {
       await this.auditLogsService.recordByActor(
         {
-          triggerType: AuditTriggerType.AUTH_EVENT,
           action: AuditActions.ACCOUNT_LOCKED,
           entityType: AuditEntityTypes.AUTH,
           entityId: customer.id,
@@ -205,7 +201,6 @@ export class CustomerAuthService {
       });
       await this.auditLogsService.recordByActor(
         {
-          triggerType: AuditTriggerType.AUTH_EVENT,
           action: AuditActions.ACCOUNT_UNLOCKED,
           entityType: AuditEntityTypes.AUTH,
           entityId: customer.id,
@@ -238,7 +233,6 @@ export class CustomerAuthService {
       });
       await this.auditLogsService.recordByActor(
         {
-          triggerType: AuditTriggerType.AUTH_EVENT,
           action: AuditActions.CUSTOMER_LOGIN_SUCCESS,
           entityType: AuditEntityTypes.AUTH,
           entityId: customer.id,
@@ -273,7 +267,6 @@ export class CustomerAuthService {
 
       await this.auditLogsService.recordByActor(
         {
-          triggerType: AuditTriggerType.AUTH_EVENT,
           action: AuditActions.CUSTOMER_LOGIN_FAILED,
           entityType: AuditEntityTypes.AUTH,
           entityId: customer.id,
@@ -302,8 +295,7 @@ export class CustomerAuthService {
       if (attempts >= 5) {
         await this.auditLogsService.recordByActor(
           {
-            triggerType: AuditTriggerType.AUTH_EVENT,
-            action: AuditActions.ACCOUNT_LOCKED,
+              action: AuditActions.ACCOUNT_LOCKED,
             entityType: AuditEntityTypes.AUTH,
             entityId: customer.id,
             entityNo: customer.customerNo,

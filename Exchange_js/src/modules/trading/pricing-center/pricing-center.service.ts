@@ -26,7 +26,6 @@ import {
 } from '../../audit-logging/constants/audit-actions.constant';
 import {
   AuditResult,
-  AuditTriggerType,
 } from '../../audit-logging/dto/audit-log.dto';
 import {
   AdminPricingQuoteQueryDto,
@@ -1349,7 +1348,7 @@ export class PricingCenterService {
   }) {
     await this.auditLogsService.recordByActor(
       {
-        triggerType: AuditTriggerType.DATA_UPDATE,
+
         action: AuditActions.SWAP_PRODUCT_RESTRICTED,
         entityType: AuditEntityTypes.SWAP_QUOTE,
         entityId: `RESTRICTION:${input.ownerId}:${input.fromAssetId}:${input.toAssetId}`,
@@ -1553,7 +1552,7 @@ export class PricingCenterService {
 
     await this.auditLogsService.recordByActor(
       {
-        triggerType: AuditTriggerType.DATA_UPDATE,
+
         action: AuditActions.WITHDRAW_EXTREME_VOLATILITY_BLOCKED,
         entityType: input.entityType,
         entityId: input.entityId,
@@ -2033,7 +2032,7 @@ export class PricingCenterService {
     if (actor) {
       await this.auditLogsService.recordByActor(
         {
-          triggerType: AuditTriggerType.DATA_CREATE,
+
           action: AuditActions.SWAP_PRICING_SIMULATED,
           entityType: AuditEntityTypes.PRICING_POLICY,
           entityId: SWAP_POLICY_CODE,
@@ -2143,7 +2142,7 @@ export class PricingCenterService {
 
     await this.auditLogsService.recordByActor(
       {
-        triggerType: AuditTriggerType.DATA_CREATE,
+
         action: AuditActions.SWAP_QUOTE_CREATED,
         entityType: AuditEntityTypes.SWAP_QUOTE,
         entityId: created.id,
@@ -2228,7 +2227,7 @@ export class PricingCenterService {
 
     await this.auditLogsService.recordByActor(
       {
-        triggerType: AuditTriggerType.DATA_UPDATE,
+
         action: AuditActions.SWAP_QUOTE_USED,
         entityType: AuditEntityTypes.SWAP_QUOTE,
         entityId: updated.id,
@@ -2284,7 +2283,7 @@ export class PricingCenterService {
 
     await this.auditLogsService.recordByActor(
       {
-        triggerType: AuditTriggerType.DATA_UPDATE,
+
         action: AuditActions.SWAP_QUOTE_CANCELLED,
         entityType: AuditEntityTypes.SWAP_QUOTE,
         entityId: cancelled.id,
@@ -2386,7 +2385,7 @@ export class PricingCenterService {
     if (actor) {
       await this.auditLogsService.recordByActor(
         {
-          triggerType: AuditTriggerType.DATA_CREATE,
+
           action: AuditActions.WITHDRAW_PRICING_SIMULATED,
           entityType: AuditEntityTypes.PRICING_POLICY,
           entityId: WITHDRAWAL_POLICY_CODE,
@@ -2450,7 +2449,7 @@ export class PricingCenterService {
 
     await this.auditLogsService.recordByActor(
       {
-        triggerType: AuditTriggerType.DATA_CREATE,
+
         action: AuditActions.WITHDRAW_PRICING_QUOTE_CREATED,
         entityType: AuditEntityTypes.WITHDRAW_PRICING_QUOTE,
         entityId: created.id,
@@ -2563,7 +2562,7 @@ export class PricingCenterService {
 
     await this.auditLogsService.recordByActor(
       {
-        triggerType: AuditTriggerType.DATA_UPDATE,
+
         action: AuditActions.WITHDRAW_PRICING_QUOTE_USED,
         entityType: AuditEntityTypes.WITHDRAW_PRICING_QUOTE,
         entityId: consumed.id,
@@ -2619,7 +2618,7 @@ export class PricingCenterService {
 
     await this.auditLogsService.recordByActor(
       {
-        triggerType: AuditTriggerType.DATA_UPDATE,
+
         action: AuditActions.WITHDRAW_PRICING_QUOTE_CANCELLED,
         entityType: AuditEntityTypes.WITHDRAW_PRICING_QUOTE,
         entityId: cancelled.id,

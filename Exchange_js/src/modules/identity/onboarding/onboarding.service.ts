@@ -15,7 +15,6 @@ import {
   AuditModules,
   AuditWorkflowTypes,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditTriggerType } from '../../audit-logging/dto/audit-log.dto';
 import {
   buildCustomerLifecyclePatch as buildCustomerLifecycleStatePatch,
   canReinitiateCdd,
@@ -1134,13 +1133,8 @@ export class OnboardingService {
       workflow: ONBOARDING_WORKFLOW,
       journeyId: input.journeyId || customer?.id || null,
     });
-    const triggerType = String(input.action || '').trim().toUpperCase().endsWith('_CREATED')
-      ? AuditTriggerType.DATA_CREATE
-      : AuditTriggerType.DATA_UPDATE;
-
     await this.auditLogsService.recordByActor(
       {
-        triggerType,
         action: input.action,
         entityType: AuditEntityTypes.ONBOARDING,
         entityId: input.customerId,
@@ -1201,7 +1195,6 @@ export class OnboardingService {
     try {
       await this.auditLogsService.recordByActor(
         {
-          triggerType: AuditTriggerType.DATA_UPDATE,
           action,
           entityType: AuditEntityTypes.ONBOARDING,
           entityId: input.customerId,

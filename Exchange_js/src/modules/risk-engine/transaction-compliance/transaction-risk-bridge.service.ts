@@ -9,7 +9,6 @@ import {
   AuditModules,
   AuditWorkflowTypes,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditTriggerType } from '../../audit-logging/dto/audit-log.dto';
 import {
   TRANSACTION_REVIEW_RULES,
   TRANSACTION_REVIEW_STAGES,
@@ -1252,7 +1251,7 @@ export class TransactionRiskBridgeService {
   ) {
     await this.auditLogsService.recordSystem(
       {
-        triggerType: AuditTriggerType.DATA_UPDATE,
+
         action: AuditActions.TX_RISK_EVALUATED,
         entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
         entityId: input.depositId,
@@ -1303,7 +1302,7 @@ export class TransactionRiskBridgeService {
     });
     await this.auditLogsService.recordSystem(
       {
-        triggerType: AuditTriggerType.DATA_UPDATE,
+
         action: AuditActions.TX_RISK_EVALUATED,
         entityType: AuditEntityTypes.SWAP_TRANSACTION,
         entityId: input.swapId,
@@ -1352,7 +1351,7 @@ export class TransactionRiskBridgeService {
   ) {
     await this.auditLogsService.recordSystem(
       {
-        triggerType: AuditTriggerType.DATA_UPDATE,
+
         action: AuditActions.TX_CASE_ESCALATED,
         entityType: AuditEntityTypes.COMPLIANCE_INCIDENT,
         entityId: input.caseId,
@@ -1402,7 +1401,7 @@ export class TransactionRiskBridgeService {
     });
     await this.auditLogsService.recordSystem(
       {
-        triggerType: AuditTriggerType.DATA_UPDATE,
+
         action: AuditActions.TX_CASE_ESCALATED,
         entityType: AuditEntityTypes.COMPLIANCE_INCIDENT,
         entityId: input.caseId,
@@ -1462,7 +1461,7 @@ export class TransactionRiskBridgeService {
   ) {
     await this.auditLogsService.recordSystem(
       {
-        triggerType: AuditTriggerType.DATA_UPDATE,
+
         action: AuditActions.TX_RISK_EVALUATED,
         entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
         entityId: input.withdrawId,
@@ -1515,7 +1514,7 @@ export class TransactionRiskBridgeService {
   ) {
     await this.auditLogsService.recordSystem(
       {
-        triggerType: AuditTriggerType.DATA_UPDATE,
+
         action: AuditActions.TX_CASE_ESCALATED,
         entityType: AuditEntityTypes.COMPLIANCE_INCIDENT,
         entityId: input.caseId,

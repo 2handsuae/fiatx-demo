@@ -31,7 +31,6 @@ import {
   AuditModules,
   buildStateTransitionAction,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditTriggerType } from '../../audit-logging/dto/audit-log.dto';
 
 const CRYPTO_TRANSITIONS: Record<
   InternalFundStatus,
@@ -275,7 +274,7 @@ export class InternalFundsService {
 
       await this.auditLogsService.recordByActor(
         {
-          triggerType: AuditTriggerType.STATE_TRANSITION,
+
           action: buildStateTransitionAction(
             'INTERNAL_FUND',
             InternalFundStatus.CONFIRMED,
@@ -384,7 +383,7 @@ export class InternalFundsService {
 
           await this.auditLogsService.recordByActor(
             {
-              triggerType: AuditTriggerType.DATA_CREATE,
+
               action: AuditActions.INTERNAL_FUND_CREATED,
               entityType: AuditEntityTypes.INTERNAL_FUND,
               entityId: created.id,
@@ -528,7 +527,7 @@ export class InternalFundsService {
 
       await this.auditLogsService.recordByActor(
         {
-          triggerType: AuditTriggerType.STATE_TRANSITION,
+
           action: buildStateTransitionAction('INTERNAL_FUND', currentStatus, nextStatus),
           entityType: AuditEntityTypes.INTERNAL_FUND,
           entityId: updated.id,

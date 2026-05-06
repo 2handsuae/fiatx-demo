@@ -17,7 +17,7 @@ import {
   AuditEntityTypes,
   AuditModules,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditResult, AuditTriggerType } from '../../audit-logging/dto/audit-log.dto';
+import { AuditResult } from '../../audit-logging/dto/audit-log.dto';
 
 @Injectable()
 export class JournalHeaderTemplatesService {
@@ -60,7 +60,7 @@ export class JournalHeaderTemplatesService {
     });
 
     await this.auditLogsService.recordSystem({
-      triggerType: AuditTriggerType.CONFIG_CHANGE,
+
       action: AuditActions.JOURNAL_TEMPLATE_UPDATED,
       entityType: AuditEntityTypes.JOURNAL_HEADER_TEMPLATE,
       entityId: created.id,
@@ -129,7 +129,7 @@ export class JournalHeaderTemplatesService {
       });
 
       await this.auditLogsService.recordSystem({
-        triggerType: AuditTriggerType.CONFIG_CHANGE,
+  
         action: AuditActions.JOURNAL_TEMPLATE_UPDATED,
         entityType: AuditEntityTypes.JOURNAL_HEADER_TEMPLATE,
         entityId: updated.id,

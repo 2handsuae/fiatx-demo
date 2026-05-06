@@ -13,7 +13,7 @@ import {
   AuditEntityTypes,
   AuditModules,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditResult, AuditTriggerType } from '../../audit-logging/dto/audit-log.dto';
+import { AuditResult } from '../../audit-logging/dto/audit-log.dto';
 
 @Injectable()
 export class CoaService {
@@ -45,7 +45,7 @@ export class CoaService {
     });
 
     await this.auditLogsService.recordSystem({
-      triggerType: AuditTriggerType.CONFIG_CHANGE,
+
       action: AuditActions.COA_CONFIG_UPDATED,
       entityType: AuditEntityTypes.COA,
       entityId: item.id,
@@ -119,7 +119,7 @@ export class CoaService {
         data,
       });
       await this.auditLogsService.recordSystem({
-        triggerType: AuditTriggerType.CONFIG_CHANGE,
+  
         action: AuditActions.COA_CONFIG_UPDATED,
         entityType: AuditEntityTypes.COA,
         entityId: item.id,
@@ -146,7 +146,7 @@ export class CoaService {
     try {
       const deleted = await this.prisma.coa.delete({ where: { id } });
       await this.auditLogsService.recordSystem({
-        triggerType: AuditTriggerType.CONFIG_CHANGE,
+  
         action: AuditActions.COA_CONFIG_UPDATED,
         entityType: AuditEntityTypes.COA,
         entityId: deleted.id,

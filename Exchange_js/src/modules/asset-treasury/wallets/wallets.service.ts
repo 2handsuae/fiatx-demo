@@ -23,7 +23,7 @@ import {
   AuditEntityTypes,
   AuditModules,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditResult, AuditTriggerType } from '../../audit-logging/dto/audit-log.dto';
+import { AuditResult } from '../../audit-logging/dto/audit-log.dto';
 import {
   classifyWalletSurface,
   isProtectedPoolWalletRole,
@@ -373,7 +373,7 @@ export class WalletsService {
         });
 
         await this.auditLogsService.recordSystem({
-          triggerType: AuditTriggerType.DATA_CREATE,
+
           action: AuditActions.WALLET_CREATED,
           entityType: AuditEntityTypes.WALLET,
           entityId: result.id,
@@ -695,7 +695,7 @@ export class WalletsService {
       data: { status },
     });
     await this.auditLogsService.recordSystem({
-      triggerType: AuditTriggerType.DATA_UPDATE,
+
       action: AuditActions.WALLET_STATUS_UPDATED,
       entityType: AuditEntityTypes.WALLET,
       entityId: result.id,

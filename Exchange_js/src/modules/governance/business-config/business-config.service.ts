@@ -41,7 +41,6 @@ import {
 } from '../../audit-logging/constants/audit-actions.constant';
 import {
   AuditResult,
-  AuditTriggerType,
 } from '../../audit-logging/dto/audit-log.dto';
 import {
   BusinessConfigDiffItem,
@@ -524,7 +523,6 @@ export class BusinessConfigService {
   ) {
     return this.auditLogsService.recordSystem(
       {
-        triggerType: AuditTriggerType.CONFIG_CHANGE,
         action: input.action,
         entityType: AuditEntityTypes.CONFIG,
         entityId: release.id,

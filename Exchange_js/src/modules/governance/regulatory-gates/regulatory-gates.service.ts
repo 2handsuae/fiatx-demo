@@ -16,7 +16,6 @@ import {
 } from '../../audit-logging/constants/audit-actions.constant';
 import {
   AuditResult,
-  AuditTriggerType,
 } from '../../audit-logging/dto/audit-log.dto';
 import {
   ApprovalActorContext,
@@ -216,7 +215,6 @@ export class RegulatoryGatesService {
       action: string;
       entityId: string;
       entityNo: string;
-      triggerType?: AuditTriggerType;
       traceId?: string | null;
       reason?: string | null;
     },
@@ -225,7 +223,6 @@ export class RegulatoryGatesService {
   ) {
     await this.auditLogsService.recordByActor(
       {
-        triggerType: input.triggerType ?? AuditTriggerType.DATA_CREATE,
         action: input.action,
         entityType: AuditEntityTypes.REGULATORY_GATE_ITEM,
         entityId: input.entityId,
@@ -750,7 +747,6 @@ export class RegulatoryGatesService {
       await this.recordAudit(
         {
           action: AuditActions.REGULATORY_GATE_SUBMITTED,
-          triggerType: AuditTriggerType.DATA_UPDATE,
           entityId: updated.id,
           entityNo: updated.gateNo,
           traceId: updated.traceId,
@@ -818,7 +814,6 @@ export class RegulatoryGatesService {
       await this.recordAudit(
         {
           action: AuditActions.REGULATORY_GATE_FEEDBACK_RECORDED,
-          triggerType: AuditTriggerType.DATA_UPDATE,
           entityId: updated.id,
           entityNo: updated.gateNo,
           traceId: updated.traceId,
@@ -878,7 +873,6 @@ export class RegulatoryGatesService {
       await this.recordAudit(
         {
           action: AuditActions.REGULATORY_GATE_RECEIPT_BOUND,
-          triggerType: AuditTriggerType.DATA_UPDATE,
           entityId: updated.id,
           entityNo: updated.gateNo,
           traceId: updated.traceId,
@@ -989,7 +983,6 @@ export class RegulatoryGatesService {
     await this.recordAudit(
       {
         action: AuditActions.REGULATORY_GATE_MARKED_EFFECTIVE,
-        triggerType: AuditTriggerType.DATA_UPDATE,
         entityId: updated.id,
         entityNo: updated.gateNo,
         traceId: updated.traceId,
@@ -1033,7 +1026,6 @@ export class RegulatoryGatesService {
       await this.recordAudit(
         {
           action: AuditActions.REGULATORY_GATE_REVOKED,
-          triggerType: AuditTriggerType.DATA_UPDATE,
           entityId: updated.id,
           entityNo: updated.gateNo,
           traceId: updated.traceId,

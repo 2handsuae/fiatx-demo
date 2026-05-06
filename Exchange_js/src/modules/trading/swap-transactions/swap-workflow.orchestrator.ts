@@ -15,7 +15,6 @@ import {
   AuditModules,
   AuditWorkflowTypes,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditTriggerType } from '../../audit-logging/dto/audit-log.dto';
 import { TransactionComplianceService } from '../../risk-engine/transaction-compliance/transaction-compliance.service';
 import { PricingCenterService } from '../pricing-center/pricing-center.service';
 import { SwapEvents } from './constants/swap-events.constant';
@@ -276,7 +275,7 @@ export class SwapWorkflowOrchestrator {
 
       const auditLog = await this.auditLogsService.recordByActor(
         {
-          triggerType: AuditTriggerType.DATA_CREATE,
+
           action: AuditActions.SWAP_CREATED,
           entityType: AuditEntityTypes.SWAP_TRANSACTION,
           entityId: transaction.id,

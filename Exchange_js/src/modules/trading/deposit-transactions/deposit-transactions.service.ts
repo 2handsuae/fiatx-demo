@@ -26,7 +26,6 @@ import {
   AuditModules,
   buildStateTransitionAction,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditTriggerType } from '../../audit-logging/dto/audit-log.dto';
 
 type DepositWriteClient = Prisma.TransactionClient | PrismaService;
 
@@ -123,7 +122,7 @@ export class DepositTransactionsService {
   ) {
     await this.recordAuditEvent(
       {
-        triggerType: AuditTriggerType.DATA_UPDATE,
+
         action: AuditActions.TX_DEPOSIT_RELEASE_BLOCKED,
         entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
         entityId: item.id,
@@ -519,7 +518,7 @@ export class DepositTransactionsService {
 
     await this.recordAuditEvent(
       {
-        triggerType: AuditTriggerType.STATE_TRANSITION,
+
         action: buildStateTransitionAction('DEPOSIT', currentStatus, nextStatus),
         entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
         entityId: updated.id,
@@ -663,7 +662,7 @@ export class DepositTransactionsService {
     });
 
     await this.auditLogsService.recordSystem({
-      triggerType: AuditTriggerType.DATA_CREATE,
+
       action: AuditActions.DEPOSIT_CREATED_FROM_PAYIN,
       entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
       entityId: created.id,
