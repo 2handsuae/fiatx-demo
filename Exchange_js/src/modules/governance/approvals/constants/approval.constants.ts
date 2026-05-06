@@ -43,6 +43,7 @@ export const ApprovalActionTypes = {
   ADMIN_INVITE_APPROVAL: 'ADMIN_INVITE_APPROVAL',
   ADMIN_ROLE_BINDING_CHANGE_APPROVAL: 'ADMIN_ROLE_BINDING_CHANGE_APPROVAL',
   ADMIN_SUSPENSION_APPROVAL: 'ADMIN_SUSPENSION_APPROVAL',
+  ADMIN_REACTIVATION_APPROVAL: 'ADMIN_REACTIVATION_APPROVAL',
 } as const;
 
 export const ApprovalStatuses = {
@@ -235,6 +236,13 @@ export const DEFAULT_APPROVAL_POLICIES: Record<
   },
   // ─── Wave 1 Governance Redesign — C4 (2026-05-05) ─
   [ApprovalActionTypes.ADMIN_SUSPENSION_APPROVAL]: {
+    riskLevel: ApprovalRiskLevels.HIGH,
+    checkerRoles: ['SENIOR_MANAGEMENT_OFFICER'],
+    timeoutHours: 48,
+    allowCancel: true,
+    allowRetry: false,
+  },
+  [ApprovalActionTypes.ADMIN_REACTIVATION_APPROVAL]: {
     riskLevel: ApprovalRiskLevels.HIGH,
     checkerRoles: ['SENIOR_MANAGEMENT_OFFICER'],
     timeoutHours: 48,
