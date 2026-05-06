@@ -121,6 +121,10 @@ export class FirstLoginWorkflowService {
 
   async confirmIdentity(userId: string): Promise<{ nextStep: string; traceId: string }> {
     const user = await this.loadUser(userId);
+    // Idempotent: if already at MFA_BINDING (e.g. page crash mid-flow), let them continue
+    if (user.firstLoginStatus === 'MFA_BINDING') {
+      return { nextStep: 'MFA_BINDING', traceId: user.firstLoginTraceId || randomUUID() };
+    }
     if (user.firstLoginStatus !== 'PENDING_IDENTITY_CONFIRM') {
       throw new ForbiddenException(
         `Cannot confirm identity in status: ${user.firstLoginStatus}`,
