@@ -177,6 +177,7 @@ export class AdminPasswordResetWorkflowService {
             resetNo,
             userId,
             tokenHash,
+            token: plainToken,
             status: 'PENDING',
             requestSource,
             requestedByUserId,

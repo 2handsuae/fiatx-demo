@@ -15,6 +15,12 @@ type MemberInvitationSummary = {
   inviteLink: string | null;
 };
 
+type MemberPasswordResetSummary = {
+  resetStatus: 'PENDING' | 'EXPIRED' | 'CONSUMED' | 'REVOKED';
+  resetExpiresAt: string;
+  resetLink: string | null;
+};
+
 type MemberDetail = {
   id: string;
   userNo: string;
@@ -26,6 +32,7 @@ type MemberDetail = {
   lastLoginAt: Date | null;
   roles: string[];
   latestInvitation: MemberInvitationSummary | null;
+  latestPasswordReset: MemberPasswordResetSummary | null;
 };
 
 type InternalAuditContext = {
@@ -51,6 +58,15 @@ export class UsersService {
     return `${adminUrl}/admin/activate?token=${encodeURIComponent(token)}`;
   }
 
+  private buildResetLink(token: string): string {
+    const adminUrl = (
+      this.configService.get<string>('ADMIN_URL') ||
+      process.env.ADMIN_URL ||
+      'http://localhost:3001'
+    ).replace(/\/+$/, '');
+    return `${adminUrl}/admin/reset-password?token=${encodeURIComponent(token)}`;
+  }
+
   private activeUserWhere(where?: Record<string, unknown>) {
     return {
       ...(where || {}),
@@ -72,6 +88,17 @@ export class UsersService {
     if (invitation.expiresAt.getTime() <= Date.now()) {
       return 'EXPIRED';
     }
+    return 'PENDING';
+  }
+
+  private mapResetStatus(record: {
+    expiresAt: Date;
+    consumedAt: Date | null;
+    status: string;
+  }): MemberPasswordResetSummary['resetStatus'] {
+    if (record.status === 'REVOKED') return 'REVOKED';
+    if (record.status === 'CONSUMED' || record.consumedAt) return 'CONSUMED';
+    if (record.expiresAt.getTime() <= Date.now()) return 'EXPIRED';
     return 'PENDING';
   }
 
@@ -139,6 +166,17 @@ export class UsersService {
       },
     });
 
+    const latestPasswordReset = await this.prisma.passwordResetToken.findFirst({
+      where: { userId: member.id },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        token: true,
+        expiresAt: true,
+        consumedAt: true,
+        status: true,
+      },
+    });
+
     const roles = (member.userRoles || [])
       .map((item: any) => item.role?.code)
       .filter(Boolean);
@@ -160,6 +198,16 @@ export class UsersService {
             inviteLink:
               this.mapInvitationStatus(latestInvitation) === 'PENDING' && latestInvitation.token
                 ? this.buildInviteLink(latestInvitation.token)
+                : null,
+          }
+        : null,
+      latestPasswordReset: latestPasswordReset
+        ? {
+            resetStatus: this.mapResetStatus(latestPasswordReset),
+            resetExpiresAt: latestPasswordReset.expiresAt.toISOString(),
+            resetLink:
+              this.mapResetStatus(latestPasswordReset) === 'PENDING' && latestPasswordReset.token
+                ? this.buildResetLink(latestPasswordReset.token)
                 : null,
           }
         : null,

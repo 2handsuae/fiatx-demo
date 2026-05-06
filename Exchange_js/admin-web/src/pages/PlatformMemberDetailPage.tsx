@@ -33,6 +33,11 @@ interface MemberDetail {
     inviteExpiresAt: string;
     inviteLink: string | null;
   } | null;
+  latestPasswordReset: {
+    resetStatus: 'PENDING' | 'EXPIRED' | 'CONSUMED' | 'REVOKED';
+    resetExpiresAt: string;
+    resetLink: string | null;
+  } | null;
 }
 
 /* ── Helpers ─────────────────────────────────────────────────── */
@@ -380,6 +385,7 @@ export default function PlatformMemberDetailPage() {
   const showActions = canResend || canChangeRoles || canSuspend || canReactivate || canResetMfa || canResetPassword;
   const roleCodes = member.roles?.length ? member.roles : member.role ? [member.role] : [];
   const invitation = member.latestInvitation;
+  const passwordReset = member.latestPasswordReset;
 
   /* ── Page ── */
 
@@ -471,6 +477,20 @@ export default function PlatformMemberDetailPage() {
               </div>
               {invitation.inviteLink && (
                 <InviteLinkField link={invitation.inviteLink} />
+              )}
+            </section>
+          )}
+
+          {/* ④ Password Reset */}
+          {passwordReset && (
+            <section className="px-6 py-5">
+              <Cap>Password Reset</Cap>
+              <div className="mt-3 grid grid-cols-2 gap-x-8 gap-y-4">
+                <InfoField label="Reset Status" value={passwordReset.resetStatus} mono accent />
+                <InfoField label="Expires At" value={fmt(passwordReset.resetExpiresAt)} mono />
+              </div>
+              {passwordReset.resetLink && (
+                <ResetLinkField link={passwordReset.resetLink} />
               )}
             </section>
           )}
@@ -897,6 +917,36 @@ function InviteLinkField({ link }: { link: string }) {
   return (
     <div className="mt-4">
       <div className="font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">Invite Link</div>
+      <div className="mt-1 flex items-center gap-2">
+        <code className="flex-1 overflow-hidden text-ellipsis whitespace-nowrap rounded border border-adm-border bg-adm-bg px-3 py-1.5 font-mono text-[10px] text-adm-t2">
+          {link}
+        </code>
+        <button
+          onClick={() => void handleCopy()}
+          className="shrink-0 rounded p-1.5 text-adm-t3 transition-colors hover:bg-adm-hover hover:text-adm-amber"
+          title="Copy"
+        >
+          {copied ? <Check size={12} className="text-adm-green" /> : <Copy size={12} />}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ── Reset Link sub-component ───────────────────────────────── */
+
+function ResetLinkField({ link }: { link: string }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    await navigator.clipboard.writeText(link);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <div className="mt-4">
+      <div className="font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">Reset Link</div>
       <div className="mt-1 flex items-center gap-2">
         <code className="flex-1 overflow-hidden text-ellipsis whitespace-nowrap rounded border border-adm-border bg-adm-bg px-3 py-1.5 font-mono text-[10px] text-adm-t2">
           {link}

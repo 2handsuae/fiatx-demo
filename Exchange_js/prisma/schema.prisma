@@ -131,6 +131,7 @@ model PasswordResetToken {
   resetNo           String    @unique @default("TEMP")
   userId            String
   tokenHash         String    @unique
+  token             String?
   status            String    @default("PENDING")
   requestSource     String
   requestedByUserId String?
