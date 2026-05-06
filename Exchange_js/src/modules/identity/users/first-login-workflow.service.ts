@@ -8,28 +8,30 @@ import {
 import { JwtService } from '@nestjs/jwt';
 import { randomUUID } from 'crypto';
 import * as QRCode from 'qrcode';
-
-// otplib v13 is ESM-only; load via require to avoid Jest ESM transform issues.
-// All call sites are inside async methods so the require executes lazily at runtime.
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-function getOtplib(): {
-  generateSecret: () => string;
-  generateURI: (opts: { issuer: string; label: string; secret: string }) => string;
-  verifySync: (opts: { token: string; secret: string }) => { valid: boolean };
-} {
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  return require('otplib');
-}
-
-const authenticator = {
-  generateSecret: (): string => getOtplib().generateSecret(),
-  keyuri: (label: string, issuer: string, secret: string): string =>
-    getOtplib().generateURI({ issuer, label, secret }),
-  verify: ({ token, secret }: { token: string; secret: string }): boolean =>
-    getOtplib().verifySync({ token, secret }).valid,
-};
-
 import { decryptMfaSecret, encryptMfaSecret } from '../../../common/utils/mfa-crypto.util';
+
+// otplib v13 uses a functional API (no authenticator object); it is ESM-only.
+// Dynamic import() resolves the ESM-under-CJS restriction at runtime.
+// otplib v13 uses a functional API and is ESM-only.
+// Dynamic import() resolves the ESM-under-CJS restriction at runtime.
+// verifySync is used for synchronous TOTP code validation.
+interface OtplibFunctions {
+  generateSecret: () => string;
+  generateURI: (opts: { secret: string; label: string; issuer: string }) => string;
+  verifySync: (opts: { token: string; secret: string }) => boolean;
+}
+let _otpFns: OtplibFunctions | null = null;
+async function getOtp(): Promise<OtplibFunctions> {
+  if (!_otpFns) {
+    const m = await import('otplib') as any;
+    _otpFns = {
+      generateSecret: m.generateSecret,
+      generateURI: m.generateURI,
+      verifySync: m.verifySync,
+    };
+  }
+  return _otpFns as OtplibFunctions;
+}
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
   AuditEntityTypes,
@@ -153,8 +155,9 @@ export class FirstLoginWorkflowService {
       );
     }
 
-    const secret = authenticator.generateSecret();
-    const otpauthUri = authenticator.keyuri(user.email, MFA_ISSUER, secret);
+    const otp = await getOtp();
+    const secret = otp.generateSecret();
+    const otpauthUri = otp.generateURI({ secret, label: user.email, issuer: MFA_ISSUER });
     const qrDataUrl = await QRCode.toDataURL(otpauthUri);
 
     const encryptedSecret = encryptMfaSecret(secret);
@@ -202,7 +205,8 @@ export class FirstLoginWorkflowService {
     }
 
     const secret = decryptMfaSecret(user.mfaSecret);
-    const isValid = authenticator.verify({ token: code, secret });
+    const otp = await getOtp();
+    const isValid = otp.verifySync({ token: code, secret });
 
     if (!isValid) {
       const { newCount, locked } = await this.usersDomainService.incrementMfaVerifyFail(userId);
@@ -343,7 +347,8 @@ export class FirstLoginWorkflowService {
     }
 
     const secret = decryptMfaSecret(user.mfaSecret);
-    const isValid = authenticator.verify({ token: code, secret });
+    const otp = await getOtp();
+    const isValid = otp.verifySync({ token: code, secret });
 
     if (!isValid) {
       const { newCount, locked } = await this.usersDomainService.incrementMfaVerifyFail(userId);
