@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Check, ChevronDown, ChevronRight, RefreshCw } from 'lucide-react';
+import { Check, RefreshCw } from 'lucide-react';
 import {
   AdminPermissionError,
   AdminSessionError,
@@ -37,8 +37,6 @@ interface RoleDetail {
   permissions: RolePermission[];
   members: RoleMember[];
 }
-
-type AccessLevel = 'MANAGE' | 'FULL' | 'OPERATE' | 'VIEW' | 'NONE';
 
 interface ActionBucket {
   key: string;
@@ -171,18 +169,6 @@ const DOMAIN_CONFIG: DomainConfig[] = [
   },
 ];
 
-const AccessBadge = ({ level }: { level: AccessLevel }) => (
-  <span
-    className={[
-      'inline-flex shrink-0 items-center rounded border px-2 py-0.5',
-      'font-mono text-[9px] font-bold tracking-widest',
-      ACCESS_STYLE[level],
-    ].join(' ')}
-  >
-    {ACCESS_LABEL[level]}
-  </span>
-);
-
 /* ── Shared sidebar primitives ────────────────────────────────── */
 
 const SidebarGroup = ({ title, children }: { title: string; children: ReactNode }) => (
@@ -219,163 +205,67 @@ const SidebarKV = ({
   );
 };
 
-/* ── Method tag ───────────────────────────────────────────────── */
+/* ── Action bucket row ───────────────────────────────────────── */
 
-const METHOD_CLS: Record<string, string> = {
-  GET:    'border-adm-green/25 bg-adm-green/10 text-adm-green',
-  POST:   'border-adm-blue/25  bg-adm-blue/10  text-adm-blue',
-  PUT:    'border-adm-amber/25 bg-adm-amber/10 text-adm-amber',
-  PATCH:  'border-adm-amber/25 bg-adm-amber/10 text-adm-amber',
-  DELETE: 'border-adm-red/25   bg-adm-red/10   text-adm-red',
-};
-
-const MethodTag = ({ value }: { value: string }) => {
-  const cls = METHOD_CLS[value.toUpperCase()] ?? 'border-adm-border bg-adm-bg text-adm-t2';
-  return (
-    <span className={`inline-flex shrink-0 items-center rounded border px-1.5 py-0.5 font-mono text-[9px] font-semibold ${cls}`}>
-      {value.toUpperCase()}
+const BucketRow = ({
+  bucket,
+  held,
+}: {
+  bucket: ActionBucket;
+  held: boolean;
+}) => (
+  <div
+    className={[
+      'flex items-start gap-3 py-2',
+      held ? '' : 'opacity-40',
+    ].join(' ')}
+  >
+    <span className="w-[72px] shrink-0 font-mono text-[9px] font-semibold text-adm-t3 pt-px">
+      {bucket.label}
     </span>
-  );
-};
+    {held ? (
+      <Check size={12} className="shrink-0 text-adm-green mt-px" />
+    ) : (
+      <span className="shrink-0 font-mono text-[12px] leading-none text-adm-red mt-px">✗</span>
+    )}
+    <span
+      className={[
+        'font-mono text-[10px] leading-relaxed',
+        held ? 'text-adm-t2' : 'text-adm-t3',
+      ].join(' ')}
+    >
+      {bucket.description}
+    </span>
+  </div>
+);
 
-/* ── Domain capability card ───────────────────────────────────── */
+/* ── Domain capability card ──────────────────────────────────── */
 
 const DomainCard = ({
   domain,
-  level,
   heldGroups,
-  domainPerms,
 }: {
   domain: DomainConfig;
-  level: AccessLevel;
   heldGroups: Set<string>;
-  domainPerms: RolePermission[];
-}) => {
-  const [rawOpen, setRawOpen] = useState(false);
-  const hasAccess = level !== 'NONE';
-
-  return (
-    <div
-      className={[
-        'overflow-hidden rounded-lg border',
-        hasAccess ? 'border-adm-border bg-adm-card' : 'border-adm-border/40 bg-adm-bg/40',
-      ].join(' ')}
-    >
-      {/* Header */}
-      <div className="flex items-center justify-between gap-3 border-b border-adm-border px-4 py-3">
-        <div className="flex min-w-0 items-center gap-2">
-          <span className="text-sm leading-none">{domain.icon}</span>
-          <span
-            className={[
-              'font-mono text-[11px] font-semibold',
-              hasAccess ? 'text-adm-t1' : 'text-adm-t3',
-            ].join(' ')}
-          >
-            {domain.label}
-          </span>
-        </div>
-        <AccessBadge level={level} />
-      </div>
-
-      {/* Capability rows */}
-      <div className="px-4 py-2.5">
-        {domain.capabilities.map((cap) => {
-          const held = heldGroups.has(cap.group);
-          return (
-            <div
-              key={cap.label}
-              className={[
-                'flex items-start gap-2.5 py-1',
-                held ? '' : 'opacity-30',
-              ].join(' ')}
-            >
-              <div className="mt-px shrink-0">
-                {held ? (
-                  <Check size={11} className="text-adm-green" />
-                ) : (
-                  <span className="inline-block h-[11px] w-[11px] rounded-full border border-adm-border/60" />
-                )}
-              </div>
-              <span
-                className={[
-                  'font-mono text-[10px] leading-relaxed',
-                  held ? 'text-adm-t1' : 'text-adm-t3',
-                ].join(' ')}
-              >
-                {cap.label}
-              </span>
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Raw API bindings (collapsible) */}
-      {domainPerms.length > 0 && (
-        <div className="border-t border-adm-border/60">
-          <button
-            type="button"
-            onClick={() => setRawOpen((o) => !o)}
-            className="flex w-full items-center gap-1.5 px-4 py-2 text-left transition-colors hover:bg-adm-hover"
-          >
-            {rawOpen
-              ? <ChevronDown  size={10} className="shrink-0 text-adm-t3" />
-              : <ChevronRight size={10} className="shrink-0 text-adm-t3" />
-            }
-            <span className="font-mono text-[9px] text-adm-t3">
-              {rawOpen ? 'Hide' : 'Show'} raw API bindings ({domainPerms.length} routes)
-            </span>
-          </button>
-
-          {rawOpen && (
-            <div className="border-t border-adm-border/40 bg-adm-bg">
-              {domainPerms.map((p) => (
-                <div
-                  key={p.code}
-                  className="flex items-center gap-2 border-b border-adm-border/30 px-4 py-1.5 last:border-b-0"
-                >
-                  <MethodTag value={p.method} />
-                  <span className="flex-1 truncate font-mono text-[10px] text-adm-t2">{p.path}</span>
-                  <span className="shrink-0 truncate font-mono text-[9px] text-adm-t3 max-w-[180px]">{p.name}</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-};
-
-/* ── Horizontal overview bar ──────────────────────────────────── */
-
-const OverviewBar = ({
-  domains,
-  levels,
-}: {
-  domains: DomainConfig[];
-  levels: Record<string, AccessLevel>;
 }) => (
-  <div className="flex gap-2 overflow-x-auto pb-1">
-    {domains.map((domain) => {
-      const level = levels[domain.id];
-      const hasAccess = level !== 'NONE';
-      return (
-        <div
-          key={domain.id}
-          className={[
-            'flex shrink-0 items-center gap-2 rounded-full border px-3 py-1.5',
-            hasAccess
-              ? 'border-adm-border bg-adm-card'
-              : 'border-adm-border/30 bg-transparent opacity-40',
-          ].join(' ')}
-        >
-          <span className="text-xs leading-none">{domain.icon}</span>
-          <span className="whitespace-nowrap font-mono text-[9px] text-adm-t2">{domain.label}</span>
-          <span className="font-mono text-[9px] text-adm-t3">·</span>
-          <AccessBadge level={level} />
-        </div>
-      );
-    })}
+  <div className="overflow-hidden rounded-lg border border-adm-border bg-adm-card">
+    {/* Header */}
+    <div className="flex items-center gap-2 border-b border-adm-border px-4 py-3">
+      <span className="text-sm leading-none">{domain.icon}</span>
+      <span className="font-mono text-[11px] font-semibold text-adm-t1">
+        {domain.label}
+      </span>
+    </div>
+    {/* Bucket rows */}
+    <div className="divide-y divide-adm-border/40 px-4">
+      {domain.buckets.map((bucket) => (
+        <BucketRow
+          key={bucket.key}
+          bucket={bucket}
+          held={bucket.groups.some((g) => heldGroups.has(g))}
+        />
+      ))}
+    </div>
   </div>
 );
 
@@ -391,7 +281,6 @@ const RoleDetailPage = () => {
   const [detail, setDetail]   = useState<RoleDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState('');
-  const [showAll, setShowAll] = useState(false);
 
   /* ── Fetch ── */
 
@@ -442,50 +331,13 @@ const RoleDetailPage = () => {
     return s;
   }, [detail]);
 
-  /* ── Access level per domain ── */
-
-  const domainLevels = useMemo(() => {
-    const result: Record<string, AccessLevel> = {};
-    for (const d of DOMAIN_CONFIG) result[d.id] = d.computeLevel(heldGroups);
-    return result;
-  }, [heldGroups]);
-
-  /* ── Map permissions → domains (for raw bindings drawer) ── */
-
-  const domainPermsMap = useMemo(() => {
-    const map: Record<string, RolePermission[]> = {};
-    for (const d of DOMAIN_CONFIG) map[d.id] = [];
-    for (const perm of detail?.permissions ?? []) {
-      const group = PERM_CODE_TO_GROUP[perm.code];
-      if (!group) continue;
-      for (const d of DOMAIN_CONFIG) {
-        if (d.groups.includes(group)) {
-          map[d.id].push(perm);
-          break;
-        }
-      }
-    }
-    return map;
-  }, [detail]);
-
-  /* ── Visible domains (filtered by toggle) ── */
-
+  /* ── Visible domains: only those with at least one held bucket ── */
   const visibleDomains = useMemo(
-    () => showAll ? DOMAIN_CONFIG : DOMAIN_CONFIG.filter((d) => domainLevels[d.id] !== 'NONE'),
-    [showAll, domainLevels],
+    () => DOMAIN_CONFIG.filter((d) =>
+      d.buckets.some((b) => b.groups.some((g) => heldGroups.has(g)))
+    ),
+    [heldGroups],
   );
-
-  /* ── Coverage stats ── */
-
-  const coveredCount = useMemo(
-    () => DOMAIN_CONFIG.filter((d) => domainLevels[d.id] !== 'NONE').length,
-    [domainLevels],
-  );
-
-  const wave1GroupsHeld = useMemo(() => {
-    const allWave1 = new Set(DOMAIN_CONFIG.flatMap((d) => d.groups));
-    return [...heldGroups].filter((g) => allWave1.has(g)).sort();
-  }, [heldGroups]);
 
   /* ── Loading ── */
 
@@ -583,54 +435,11 @@ const RoleDetailPage = () => {
             )}
           </section>
 
-          {/* ② Quick capability overview bar */}
-          <section className="px-6 py-4">
-            <p className="mb-3 font-mono text-[8.5px] font-semibold uppercase tracking-[0.16em] text-adm-t3">
-              Capability Overview
-            </p>
-            <OverviewBar domains={DOMAIN_CONFIG} levels={domainLevels} />
-          </section>
-
-          {/* ③ Domain cards */}
+          {/* ② Domain capability cards */}
           <section className="flex-1 px-6 py-5">
-            {/* Section header + toggle */}
-            <div className="mb-4 flex items-center justify-between gap-4">
-              <p className="font-mono text-[8.5px] font-semibold uppercase tracking-[0.16em] text-adm-t3">
-                Functional Domains
-                <span className="ml-2 font-normal normal-case tracking-normal text-adm-t3 opacity-70">
-                  ({coveredCount} of {DOMAIN_CONFIG.length} with access)
-                </span>
-              </p>
-
-              {/* Toggle — Show domains without access */}
-              <button
-                type="button"
-                onClick={() => setShowAll((v) => !v)}
-                className="flex shrink-0 items-center gap-2 font-mono text-[9px] text-adm-t3 transition-colors hover:text-adm-t2"
-              >
-                {/* pill toggle */}
-                <span
-                  className={[
-                    'relative inline-flex h-[14px] w-[26px] items-center rounded-full border transition-colors',
-                    showAll
-                      ? 'border-adm-amber/60 bg-adm-amber/15'
-                      : 'border-adm-border bg-adm-bg',
-                  ].join(' ')}
-                >
-                  <span
-                    className={[
-                      'absolute h-[9px] w-[9px] rounded-full transition-all',
-                      showAll
-                        ? 'left-[14px] bg-adm-amber'
-                        : 'left-[2px] bg-adm-t3/50',
-                    ].join(' ')}
-                  />
-                </span>
-                Show domains without access
-              </button>
-            </div>
-
-            {/* Cards */}
+            <p className="mb-4 font-mono text-[8.5px] font-semibold uppercase tracking-[0.16em] text-adm-t3">
+              Capabilities · V1
+            </p>
             <div className="flex flex-col gap-3">
               {visibleDomains.length === 0 ? (
                 <div className="py-10 text-center font-mono text-[11px] text-adm-t3">
@@ -641,9 +450,7 @@ const RoleDetailPage = () => {
                   <DomainCard
                     key={domain.id}
                     domain={domain}
-                    level={domainLevels[domain.id]}
                     heldGroups={heldGroups}
-                    domainPerms={domainPermsMap[domain.id] ?? []}
                   />
                 ))
               )}
@@ -652,80 +459,62 @@ const RoleDetailPage = () => {
         </div>
 
         {/* ════ RIGHT SIDEBAR ════ */}
-        <div className="w-[272px] min-w-[272px] overflow-y-auto border-l border-adm-border bg-adm-panel px-4 py-1">
-
-          {/* Identity */}
-          <SidebarGroup title="Identity">
-            <SidebarKV label="Role ID" value={detail.id}   mono />
-            <SidebarKV label="Code"    value={detail.code} mono />
-            <SidebarKV label="Name"    value={detail.name}      />
+        <div className="w-[240px] min-w-[240px] overflow-y-auto border-l border-adm-border bg-adm-panel px-4 py-1">
+          {/* Quick Info */}
+          <SidebarGroup title="Quick Info">
             <div className="flex items-center justify-between gap-2">
               <span className="shrink-0 font-mono text-[9px] text-adm-t3">Status</span>
               <AdminBadge value={detail.status} />
             </div>
-          </SidebarGroup>
-
-          {/* Access Coverage */}
-          <SidebarGroup title="Access Coverage">
             <SidebarKV
-              label="Domains with access"
-              value={`${coveredCount} / ${DOMAIN_CONFIG.length}`}
+              label="Domains"
+              value={`${visibleDomains.length} / ${DOMAIN_CONFIG.length}`}
               mono
             />
             <SidebarKV
-              label="Wave 1 groups held"
-              value={String(wave1GroupsHeld.length)}
-              mono
-            />
-            <SidebarKV
-              label="Total API routes"
+              label="API Routes"
               value={String(detail.permissions?.length ?? 0)}
               mono
             />
           </SidebarGroup>
 
-          {/* Permission Groups */}
-          <SidebarGroup title="Permission Groups (Wave 1)">
-            {wave1GroupsHeld.length === 0 ? (
-              <p className="font-mono text-[9px] text-adm-t3">No Wave 1 groups held.</p>
+          {/* Members */}
+          <SidebarGroup title={`Members (${detail.members?.length ?? 0})`}>
+            {(detail.members ?? []).length === 0 ? (
+              <p className="font-mono text-[9px] text-adm-t3">No members hold this role.</p>
             ) : (
-              wave1GroupsHeld.map((group) => (
-                <div key={group} className="flex items-center gap-1.5">
-                  <Check size={10} className="shrink-0 text-adm-green" />
-                  <span className="font-mono text-[10px] text-adm-t2">{group}</span>
-                </div>
-              ))
+              <>
+                {(detail.members ?? []).map((member) => (
+                  <div
+                    key={member.id}
+                    className="flex items-center gap-2.5 py-1.5"
+                  >
+                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-adm-amber/15 font-mono text-[9px] font-semibold text-adm-amber">
+                      {member.email
+                        .split('@')[0]
+                        .slice(0, 2)
+                        .toUpperCase()}
+                    </span>
+                    <div className="min-w-0">
+                      <p className="truncate font-mono text-[10px] text-adm-t2">
+                        {member.email}
+                      </p>
+                      <p className="font-mono text-[8px] text-adm-t3">
+                        {member.userNo}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => navigate('/dashboard/members')}
+                  className="mt-2 font-mono text-[9px] text-adm-t3 transition-colors hover:text-adm-t2"
+                >
+                  → View all in Members page
+                </button>
+              </>
             )}
           </SidebarGroup>
-
-          {/* Legend */}
-          <SidebarGroup title="Access Level Legend">
-            {(
-              [
-                ['MANAGE',  'amber', 'Assign / write (highest)'],
-                ['FULL',    'amber', 'Decide / execute'],
-                ['OPERATE', 'green', 'Read + write / submit'],
-                ['VIEW',    'blue',  'Read only'],
-                ['—',       'grey',  'No access'],
-              ] as [string, string, string][]
-            ).map(([label, color, desc]) => (
-              <div key={label} className="flex items-baseline gap-2">
-                <span
-                  className={[
-                    'shrink-0 inline-flex items-center rounded border px-1.5 py-0.5 font-mono text-[8px] font-bold tracking-wider',
-                    color === 'amber' ? 'border-adm-amber/40 bg-adm-amber/10 text-adm-amber' :
-                    color === 'green' ? 'border-adm-green/40 bg-adm-green/10 text-adm-green' :
-                    color === 'blue'  ? 'border-adm-blue/40  bg-adm-blue/10  text-adm-blue'  :
-                    'border-adm-border bg-transparent text-adm-t3',
-                  ].join(' ')}
-                >
-                  {label}
-                </span>
-                <span className="font-mono text-[9px] text-adm-t3">{desc}</span>
-              </div>
-            ))}
-          </SidebarGroup>
-
         </div>
       </div>
     </div>
