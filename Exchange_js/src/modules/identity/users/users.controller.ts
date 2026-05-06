@@ -20,6 +20,7 @@ import { ApprovalActorContext } from '../../governance/approvals/constants/appro
 import { AdminInviteWorkflowService } from './admin-invite-workflow.service';
 import { AdminSuspensionWorkflowService } from './admin-suspension-workflow.service';
 import { AdminReactivationWorkflowService } from './admin-reactivation-workflow.service';
+import { AdminPasswordResetWorkflowService } from './admin-password-reset-workflow.service';
 import { UsersService } from './users.service';
 import { CreateAdminUserDto } from './dto/create-admin-user.dto';
 import { SuspendAdminUserDto } from './dto/suspend-admin-user.dto';
@@ -35,6 +36,7 @@ export class UsersController {
     private readonly adminSuspensionWorkflow: AdminSuspensionWorkflowService,
     private readonly adminReactivationWorkflow: AdminReactivationWorkflowService,
     private readonly usersService: UsersService,
+    private readonly adminPasswordResetWorkflow: AdminPasswordResetWorkflowService,
   ) {}
 
   private buildAdminActor(req: any): ApprovalActorContext {
@@ -152,6 +154,23 @@ export class UsersController {
     return this.adminReactivationWorkflow.initiateReactivation(
       { targetUserId: id, reason: body.reason },
       this.buildAdminActor(req),
+    );
+  }
+
+  @Post(':id/reset-password')
+  @RequirePermissions(buildPermissionCode('POST', '/users/:id/reset-password'))
+  @ApiOperation({ summary: 'Initiate CISO password reset for admin user (C5)' })
+  async resetPassword(
+    @Req() req: any,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ) {
+    if (req.user?.type !== 'ADMIN') {
+      throw new ForbiddenException('Admin token required');
+    }
+
+    return this.adminPasswordResetWorkflow.requestCisoReset(
+      id,
+      { userId: req.user.userId, userNo: req.user.userNo },
     );
   }
 }
