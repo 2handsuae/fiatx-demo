@@ -37,4 +37,4 @@ PRAGMA defer_foreign_keys=OFF;
 -- Backfill: existing accounts skip the first-login ceremony
 UPDATE "users"
 SET "firstLoginStatus" = 'COMPLETED'
-WHERE "status" IN ('ACTIVE', 'SUSPENDED', 'INVITE_SENT');
+WHERE "status" IN ('ACTIVE', 'SUSPENDED', 'INVITE_SENT', 'LOCKED');
