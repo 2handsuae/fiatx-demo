@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Mail, RefreshCw, Copy, Check, ShieldCheck, UserCheck, UserX, KeyRound, X } from 'lucide-react';
+import { Mail, RefreshCw, Copy, Check, ShieldCheck, UserCheck, UserX, KeyRound, Lock, X } from 'lucide-react';
 import {
   AdminPermissionError,
   AdminSessionError,
@@ -112,6 +112,9 @@ export default function PlatformMemberDetailPage() {
 
   const [showMfaResetModal, setShowMfaResetModal] = useState(false);
   const [submittingMfaReset, setSubmittingMfaReset] = useState(false);
+
+  const [showPasswordResetModal, setShowPasswordResetModal] = useState(false);
+  const [submittingPasswordReset, setSubmittingPasswordReset] = useState(false);
 
   /* ── Fetching ── */
 
@@ -291,6 +294,27 @@ export default function PlatformMemberDetailPage() {
     }
   };
 
+  /* ── Reset Password ── */
+
+  const handleSubmitPasswordReset = async () => {
+    if (!member) return;
+    setSubmittingPasswordReset(true);
+    try {
+      const res = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/users/${id}/reset-password`,
+        { method: 'POST' },
+      );
+      if (!res.ok) throw new Error(await getApiErrorMessage(res, 'Failed to reset password'));
+      setShowPasswordResetModal(false);
+      setNotice(`Reset link sent to ${member.email}`);
+    } catch (err: unknown) {
+      if (err instanceof AdminSessionError) return;
+      setError(err instanceof Error ? err.message : 'Failed to reset password.');
+    } finally {
+      setSubmittingPasswordReset(false);
+    }
+  };
+
   /* ── Loading / error stubs ── */
 
   if (loading) {
@@ -349,7 +373,11 @@ export default function PlatformMemberDetailPage() {
   const canResetMfa =
     member.status === 'ACTIVE' &&
     hasAnyPermission([PERMISSIONS.USERS_RESET_MFA]);
-  const showActions = canResend || canChangeRoles || canSuspend || canReactivate || canResetMfa;
+  const canResetPassword =
+    member.status === 'ACTIVE' &&
+    member.role !== 'SUPER_ADMIN' &&
+    hasAnyPermission([PERMISSIONS.USERS_RESET_PASSWORD]);
+  const showActions = canResend || canChangeRoles || canSuspend || canReactivate || canResetMfa || canResetPassword;
   const roleCodes = member.roles?.length ? member.roles : member.role ? [member.role] : [];
   const invitation = member.latestInvitation;
 
@@ -501,6 +529,15 @@ export default function PlatformMemberDetailPage() {
                   >
                     <KeyRound size={13} />
                     Reset MFA
+                  </button>
+                )}
+                {canResetPassword && (
+                  <button
+                    onClick={() => setShowPasswordResetModal(true)}
+                    className={adminButtonClass('workflowNegative')}
+                  >
+                    <Lock size={13} />
+                    Reset Password
                   </button>
                 )}
               </div>
@@ -786,6 +823,56 @@ export default function PlatformMemberDetailPage() {
                 className={adminButtonClass('modalConfirm')}
               >
                 {submittingMfaReset ? 'Resetting…' : 'Reset MFA'}
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* ════ Password Reset Confirmation Modal ════ */}
+      {showPasswordResetModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md overflow-hidden rounded-xl border border-adm-border bg-adm-panel shadow-xl">
+
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-adm-border bg-adm-card px-5 py-4">
+              <div>
+                <p className="font-mono text-[11px] font-semibold text-adm-t1">
+                  Reset Password
+                </p>
+                <p className="mt-1 font-mono text-[9px] text-adm-t3">
+                  {member.userNo} · {member.email}
+                </p>
+              </div>
+              <button
+                onClick={() => setShowPasswordResetModal(false)}
+                className="rounded p-1 text-adm-t3 hover:bg-adm-hover hover:text-adm-t1"
+              >
+                <X size={15} />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="px-5 py-4 space-y-3">
+              <div className="rounded border border-adm-red/30 bg-adm-red/10 px-3 py-2.5 font-mono text-[10px] text-adm-red leading-relaxed">
+                This will send a password reset link to <strong>{member.email}</strong>.
+                The user's current password will remain valid until they complete the reset.
+                This action takes effect immediately without approval.
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="flex justify-end gap-2 border-t border-adm-border bg-adm-card px-5 py-4">
+              <button onClick={() => setShowPasswordResetModal(false)} className={adminButtonClass('modalCancel')}>
+                Cancel
+              </button>
+              <button
+                onClick={() => void handleSubmitPasswordReset()}
+                disabled={submittingPasswordReset}
+                className={adminButtonClass('modalConfirm')}
+              >
+                {submittingPasswordReset ? 'Sending…' : 'Send Reset Link'}
               </button>
             </div>
 

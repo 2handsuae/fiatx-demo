@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Lock, Mail, ArrowRight, Eye, EyeOff, AlertCircle, Zap, X } from 'lucide-react';
+import { Lock, Mail, ArrowRight, ArrowLeft, Eye, EyeOff, AlertCircle, Zap, X, CheckCircle, ShieldCheck } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { notifyAdminAuthChanged } from '../contexts/AdminSessionContext';
 
@@ -25,6 +25,12 @@ const AdminLogin = () => {
   const [mfaCode, setMfaCode] = useState('');
   const [mfaSubmitting, setMfaSubmitting] = useState(false);
   const [quickLoginOpen, setQuickLoginOpen] = useState(false);
+  const [forgotStep, setForgotStep] = useState<'none' | 'email' | 'mfa' | 'sent'>('none');
+  const [forgotEmail, setForgotEmail] = useState('');
+  const [forgotMfaCode, setForgotMfaCode] = useState('');
+  const [forgotMfaSessionToken, setForgotMfaSessionToken] = useState('');
+  const [forgotLoading, setForgotLoading] = useState(false);
+  const [forgotError, setForgotError] = useState('');
   const navigate = useNavigate();
   const modalRef = useRef<HTMLDivElement>(null);
 
@@ -145,6 +151,66 @@ const AdminLogin = () => {
     }
   };
 
+  const handleForgotEmailSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setForgotLoading(true);
+    setForgotError('');
+    try {
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/auth/password-reset/request`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: forgotEmail }),
+      });
+      const data = await response.json();
+      if (data.mfaSessionToken) {
+        setForgotMfaSessionToken(data.mfaSessionToken);
+        setForgotStep('mfa');
+      } else {
+        // Anti-enumeration: no token means email not found, but show success anyway
+        setForgotStep('sent');
+      }
+    } catch {
+      setForgotError('Network error. Please try again.');
+    } finally {
+      setForgotLoading(false);
+    }
+  };
+
+  const handleForgotMfaSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (forgotMfaCode.length !== 6) return;
+    setForgotLoading(true);
+    setForgotError('');
+    try {
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/auth/password-reset/verify-mfa`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${forgotMfaSessionToken}`,
+        },
+        body: JSON.stringify({ code: forgotMfaCode }),
+      });
+      if (response.ok) {
+        setForgotStep('sent');
+      } else {
+        const err = await response.json();
+        setForgotError(err.message || 'Verification failed. Please try again.');
+      }
+    } catch {
+      setForgotError('Network error. Please try again.');
+    } finally {
+      setForgotLoading(false);
+    }
+  };
+
+  const resetForgotFlow = () => {
+    setForgotStep('none');
+    setForgotEmail('');
+    setForgotMfaCode('');
+    setForgotMfaSessionToken('');
+    setForgotError('');
+  };
+
   return (
     <div
       className="min-h-screen flex overflow-hidden bg-adm-bg"
@@ -253,126 +319,308 @@ const AdminLogin = () => {
           <div className="h-[2px] w-full bg-adm-amber" />
 
           <div className="bg-adm-bg border border-adm-border border-t-0">
-            {/* Header */}
-            <div className="px-8 pt-8 pb-6 border-b border-adm-border">
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ delay: 0.25 }}
-              >
-                <h1 className="font-mono text-[16px] font-semibold text-adm-t1 leading-snug">
-                  Administrator Sign In
-                </h1>
-                <p className="font-mono text-[10px] text-adm-t3 mt-1.5 tracking-wide">
-                  Enter your credentials to continue
-                </p>
-              </motion.div>
-            </div>
+            {forgotStep === 'none' ? (
+              <>
+                {/* Header */}
+                <div className="px-8 pt-8 pb-6 border-b border-adm-border">
+                  <motion.div
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    transition={{ delay: 0.25 }}
+                  >
+                    <h1 className="font-mono text-[16px] font-semibold text-adm-t1 leading-snug">
+                      Administrator Sign In
+                    </h1>
+                    <p className="font-mono text-[10px] text-adm-t3 mt-1.5 tracking-wide">
+                      Enter your credentials to continue
+                    </p>
+                  </motion.div>
+                </div>
 
-            {/* Form */}
-            <div className="px-8 py-7">
-              {error && (
-                <motion.div
-                  initial={{ opacity: 0, height: 0 }}
-                  animate={{ opacity: 1, height: 'auto' }}
-                  className="mb-5 flex items-center gap-2 rounded px-3 py-2.5 border border-adm-red/30 bg-adm-red/8"
-                >
-                  <AlertCircle size={12} className="text-adm-red flex-shrink-0" />
-                  <span className="font-mono text-[10px] text-adm-red">{error}</span>
-                </motion.div>
-              )}
-
-              <form onSubmit={handleSubmit} className="space-y-5">
-                <motion.div
-                  initial={{ opacity: 0, x: -8 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: 0.3 }}
-                >
-                  <label className="block font-mono text-[8.5px] uppercase tracking-[0.16em] text-adm-t3 mb-1.5">
-                    Email
-                  </label>
-                  <div className="relative group">
-                    <Mail size={12} className="absolute left-3 top-1/2 -translate-y-1/2 text-adm-t3 group-focus-within:text-adm-amber transition-colors" />
-                    <input
-                      type="text"
-                      required
-                      value={email}
-                      onChange={e => setEmail(e.target.value)}
-                      placeholder="admin@fiatx.com"
-                      className="w-full pl-8 pr-3 py-2.5 bg-adm-panel border border-adm-border font-mono text-[11px] text-adm-t1 placeholder:text-adm-t3 focus:border-adm-amber focus:outline-none transition-colors"
-                    />
-                  </div>
-                </motion.div>
-
-                <motion.div
-                  initial={{ opacity: 0, x: -8 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: 0.35 }}
-                >
-                  <label className="block font-mono text-[8.5px] uppercase tracking-[0.16em] text-adm-t3 mb-1.5">
-                    Password
-                  </label>
-                  <div className="relative group">
-                    <Lock size={12} className="absolute left-3 top-1/2 -translate-y-1/2 text-adm-t3 group-focus-within:text-adm-amber transition-colors" />
-                    <input
-                      type={showPassword ? 'text' : 'password'}
-                      required
-                      value={password}
-                      onChange={e => setPassword(e.target.value)}
-                      placeholder="••••••••••"
-                      className="w-full pl-8 pr-9 py-2.5 bg-adm-panel border border-adm-border font-mono text-[11px] text-adm-t1 placeholder:text-adm-t3 focus:border-adm-amber focus:outline-none transition-colors"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-adm-t3 hover:text-adm-t2 transition-colors"
+                {/* Form */}
+                <div className="px-8 py-7">
+                  {error && (
+                    <motion.div
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: 'auto' }}
+                      className="mb-5 flex items-center gap-2 rounded px-3 py-2.5 border border-adm-red/30 bg-adm-red/8"
                     >
-                      {showPassword ? <EyeOff size={12} /> : <Eye size={12} />}
-                    </button>
-                  </div>
-                  <div className="mt-2 flex justify-end">
-                    <button
-                      type="button"
-                      onClick={() => setQuickLoginOpen(true)}
-                      className="inline-flex items-center gap-1 font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3 hover:text-adm-amber transition-colors"
-                    >
-                      <Zap size={9} />
-                      Quick Login
-                    </button>
-                  </div>
-                </motion.div>
+                      <AlertCircle size={12} className="text-adm-red flex-shrink-0" />
+                      <span className="font-mono text-[10px] text-adm-red">{error}</span>
+                    </motion.div>
+                  )}
 
+                  <form onSubmit={handleSubmit} className="space-y-5">
+                    <motion.div
+                      initial={{ opacity: 0, x: -8 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: 0.3 }}
+                    >
+                      <label className="block font-mono text-[8.5px] uppercase tracking-[0.16em] text-adm-t3 mb-1.5">
+                        Email
+                      </label>
+                      <div className="relative group">
+                        <Mail size={12} className="absolute left-3 top-1/2 -translate-y-1/2 text-adm-t3 group-focus-within:text-adm-amber transition-colors" />
+                        <input
+                          type="text"
+                          required
+                          value={email}
+                          onChange={e => setEmail(e.target.value)}
+                          placeholder="admin@fiatx.com"
+                          className="w-full pl-8 pr-3 py-2.5 bg-adm-panel border border-adm-border font-mono text-[11px] text-adm-t1 placeholder:text-adm-t3 focus:border-adm-amber focus:outline-none transition-colors"
+                        />
+                      </div>
+                    </motion.div>
+
+                    <motion.div
+                      initial={{ opacity: 0, x: -8 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: 0.35 }}
+                    >
+                      <label className="block font-mono text-[8.5px] uppercase tracking-[0.16em] text-adm-t3 mb-1.5">
+                        Password
+                      </label>
+                      <div className="relative group">
+                        <Lock size={12} className="absolute left-3 top-1/2 -translate-y-1/2 text-adm-t3 group-focus-within:text-adm-amber transition-colors" />
+                        <input
+                          type={showPassword ? 'text' : 'password'}
+                          required
+                          value={password}
+                          onChange={e => setPassword(e.target.value)}
+                          placeholder="••••••••••"
+                          className="w-full pl-8 pr-9 py-2.5 bg-adm-panel border border-adm-border font-mono text-[11px] text-adm-t1 placeholder:text-adm-t3 focus:border-adm-amber focus:outline-none transition-colors"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowPassword(!showPassword)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-adm-t3 hover:text-adm-t2 transition-colors"
+                        >
+                          {showPassword ? <EyeOff size={12} /> : <Eye size={12} />}
+                        </button>
+                      </div>
+                      <div className="mt-2 flex items-center justify-between">
+                        <button
+                          type="button"
+                          onClick={() => { setError(''); setForgotStep('email'); }}
+                          className="font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3 hover:text-adm-amber transition-colors"
+                        >
+                          Forgot Password?
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setQuickLoginOpen(true)}
+                          className="inline-flex items-center gap-1 font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3 hover:text-adm-amber transition-colors"
+                        >
+                          <Zap size={9} />
+                          Quick Login
+                        </button>
+                      </div>
+                    </motion.div>
+
+                    <motion.div
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      transition={{ delay: 0.42 }}
+                    >
+                      <button
+                        type="submit"
+                        disabled={isLoading}
+                        className="w-full flex items-center justify-center gap-2 py-3 bg-adm-amber font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-gray-950 hover:opacity-90 active:opacity-80 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {isLoading ? (
+                          <div className="w-4 h-4 border-2 border-gray-950/30 border-t-gray-950 rounded-full animate-spin" />
+                        ) : (
+                          <>Authenticate <ArrowRight size={12} /></>
+                        )}
+                      </button>
+                    </motion.div>
+                  </form>
+                </div>
+
+                {/* Footer */}
                 <motion.div
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
-                  transition={{ delay: 0.42 }}
+                  transition={{ delay: 0.5 }}
+                  className="px-8 py-4 border-t border-adm-border"
                 >
-                  <button
-                    type="submit"
-                    disabled={isLoading}
-                    className="w-full flex items-center justify-center gap-2 py-3 bg-adm-amber font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-gray-950 hover:opacity-90 active:opacity-80 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {isLoading ? (
-                      <div className="w-4 h-4 border-2 border-gray-950/30 border-t-gray-950 rounded-full animate-spin" />
-                    ) : (
-                      <>Authenticate <ArrowRight size={12} /></>
-                    )}
-                  </button>
+                  <p className="font-mono text-[8px] uppercase tracking-[0.12em] text-adm-t3 text-center">
+                    All activity is monitored and logged · 256-bit SSL
+                  </p>
                 </motion.div>
-              </form>
-            </div>
+              </>
+            ) : (
+              <>
+                {/* Forgot Password Header */}
+                <div className="px-8 pt-8 pb-6 border-b border-adm-border">
+                  <motion.div
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    transition={{ duration: 0.3 }}
+                  >
+                    <h1 className="font-mono text-[16px] font-semibold text-adm-t1 leading-snug">
+                      {forgotStep === 'email' && 'Reset Password'}
+                      {forgotStep === 'mfa' && 'Verify Identity'}
+                      {forgotStep === 'sent' && 'Check Your Email'}
+                    </h1>
+                    <p className="font-mono text-[10px] text-adm-t3 mt-1.5 tracking-wide">
+                      {forgotStep === 'email' && 'Enter the email associated with your account'}
+                      {forgotStep === 'mfa' && 'Enter the 6-digit code from your authenticator'}
+                      {forgotStep === 'sent' && 'A password reset link has been sent'}
+                    </p>
+                  </motion.div>
+                </div>
 
-            {/* Footer */}
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ delay: 0.5 }}
-              className="px-8 py-4 border-t border-adm-border"
-            >
-              <p className="font-mono text-[8px] uppercase tracking-[0.12em] text-adm-t3 text-center">
-                All activity is monitored and logged · 256-bit SSL
-              </p>
-            </motion.div>
+                {/* Forgot Password Body */}
+                <div className="px-8 py-7">
+                  {forgotError && (
+                    <motion.div
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: 'auto' }}
+                      className="mb-5 flex items-center gap-2 rounded px-3 py-2.5 border border-adm-red/30 bg-adm-red/8"
+                    >
+                      <AlertCircle size={12} className="text-adm-red flex-shrink-0" />
+                      <span className="font-mono text-[10px] text-adm-red">{forgotError}</span>
+                    </motion.div>
+                  )}
+
+                  {forgotStep === 'email' && (
+                    <form onSubmit={handleForgotEmailSubmit} className="space-y-5">
+                      <motion.div
+                        initial={{ opacity: 0, x: -8 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ duration: 0.3 }}
+                      >
+                        <label className="block font-mono text-[8.5px] uppercase tracking-[0.16em] text-adm-t3 mb-1.5">
+                          Email Address
+                        </label>
+                        <div className="relative group">
+                          <Mail size={12} className="absolute left-3 top-1/2 -translate-y-1/2 text-adm-t3 group-focus-within:text-adm-amber transition-colors" />
+                          <input
+                            type="email"
+                            required
+                            value={forgotEmail}
+                            onChange={e => setForgotEmail(e.target.value)}
+                            placeholder="admin@fiatx.com"
+                            className="w-full pl-8 pr-3 py-2.5 bg-adm-panel border border-adm-border font-mono text-[11px] text-adm-t1 placeholder:text-adm-t3 focus:border-adm-amber focus:outline-none transition-colors"
+                            autoFocus
+                          />
+                        </div>
+                      </motion.div>
+
+                      <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        transition={{ delay: 0.1 }}
+                      >
+                        <button
+                          type="submit"
+                          disabled={forgotLoading}
+                          className="w-full flex items-center justify-center gap-2 py-3 bg-adm-amber font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-gray-950 hover:opacity-90 active:opacity-80 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {forgotLoading ? (
+                            <div className="w-4 h-4 border-2 border-gray-950/30 border-t-gray-950 rounded-full animate-spin" />
+                          ) : (
+                            <>Continue <ArrowRight size={12} /></>
+                          )}
+                        </button>
+                      </motion.div>
+                    </form>
+                  )}
+
+                  {forgotStep === 'mfa' && (
+                    <form onSubmit={handleForgotMfaSubmit} className="space-y-5">
+                      <motion.div
+                        initial={{ opacity: 0, x: -8 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ duration: 0.3 }}
+                      >
+                        <label className="block font-mono text-[8.5px] uppercase tracking-[0.16em] text-adm-t3 mb-1.5">
+                          Verification Code
+                        </label>
+                        <div className="relative group">
+                          <ShieldCheck size={12} className="absolute left-3 top-1/2 -translate-y-1/2 text-adm-t3 group-focus-within:text-adm-amber transition-colors" />
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            maxLength={6}
+                            required
+                            value={forgotMfaCode}
+                            onChange={e => setForgotMfaCode(e.target.value.replace(/\D/g, ''))}
+                            placeholder="000000"
+                            className="w-full pl-8 pr-3 py-2.5 bg-adm-panel border border-adm-border font-mono text-[15px] text-adm-t1 placeholder:text-adm-t3 focus:border-adm-amber focus:outline-none transition-colors tracking-[0.4em]"
+                            autoFocus
+                          />
+                        </div>
+                      </motion.div>
+
+                      <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        transition={{ delay: 0.1 }}
+                      >
+                        <button
+                          type="submit"
+                          disabled={forgotMfaCode.length !== 6 || forgotLoading}
+                          className="w-full flex items-center justify-center gap-2 py-3 bg-adm-amber font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-gray-950 hover:opacity-90 active:opacity-80 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {forgotLoading ? (
+                            <div className="w-4 h-4 border-2 border-gray-950/30 border-t-gray-950 rounded-full animate-spin" />
+                          ) : (
+                            <>Verify <ArrowRight size={12} /></>
+                          )}
+                        </button>
+                      </motion.div>
+                    </form>
+                  )}
+
+                  {forgotStep === 'sent' && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.4 }}
+                      className="text-center space-y-4"
+                    >
+                      <div className="flex justify-center">
+                        <div className="w-10 h-10 rounded-full bg-adm-green/10 border border-adm-green/20 flex items-center justify-center">
+                          <CheckCircle size={18} className="text-adm-green" />
+                        </div>
+                      </div>
+                      <p className="font-mono text-[11px] text-adm-t1 leading-relaxed">
+                        Reset link sent to your email
+                      </p>
+                      <p className="font-mono text-[9px] text-adm-t3 leading-relaxed">
+                        If an account exists for that email, you will receive a password reset link shortly.
+                      </p>
+                    </motion.div>
+                  )}
+
+                  {/* Back to Login link */}
+                  <div className="mt-5 pt-4 border-t border-adm-border">
+                    <button
+                      type="button"
+                      onClick={resetForgotFlow}
+                      className="inline-flex items-center gap-1.5 font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3 hover:text-adm-amber transition-colors"
+                    >
+                      <ArrowLeft size={10} />
+                      Back to Login
+                    </button>
+                  </div>
+                </div>
+
+                {/* Footer */}
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ delay: 0.3 }}
+                  className="px-8 py-4 border-t border-adm-border"
+                >
+                  <p className="font-mono text-[8px] uppercase tracking-[0.12em] text-adm-t3 text-center">
+                    All activity is monitored and logged · 256-bit SSL
+                  </p>
+                </motion.div>
+              </>
+            )}
           </div>
         </motion.div>
       </div>

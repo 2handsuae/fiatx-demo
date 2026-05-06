@@ -14,6 +14,7 @@ export const PERMISSIONS = {
   USERS_SUSPEND: 'api.post.users_id_suspend',
   USERS_REACTIVATE: 'api.post.users_id_reactivate',
   USERS_RESET_MFA: 'api.post.admin_iam_users_id_reset_mfa',
+  USERS_RESET_PASSWORD: 'api.post.users_id_reset_password',
 
   CUSTOMERS_READ: 'api.get.customers',
   CUSTOMERS_DETAIL_READ: 'api.get.customers_id',
