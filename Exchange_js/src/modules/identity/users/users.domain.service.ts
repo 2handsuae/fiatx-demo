@@ -190,6 +190,38 @@ export class UsersDomainService {
     return updated;
   }
 
+  async resetPassword(
+    userId: string,
+    newPasswordHash: string,
+    tx?: Prisma.TransactionClient,
+  ): Promise<{ id: string; userNo: string; status: string }> {
+    const client = tx || this.prisma;
+    const user = await client.user.findFirst({
+      where: { id: userId, deletedAt: null },
+      select: { id: true, userNo: true, status: true, firstLoginStatus: true },
+    });
+    if (!user) throw new NotFoundException('User not found');
+
+    if (user.status !== 'ACTIVE') {
+      throw new ConflictException(`Cannot reset password for user in status: ${user.status}`);
+    }
+    if (user.firstLoginStatus !== 'COMPLETED') {
+      throw new ConflictException('Cannot reset password before first login is completed');
+    }
+
+    const updated = await client.user.update({
+      where: { id: userId },
+      data: {
+        password: newPasswordHash,
+        failedLoginAttempts: 0,
+        lockedUntil: null,
+      },
+      select: { id: true, userNo: true, status: true },
+    });
+
+    return updated;
+  }
+
   async setFirstLoginStatus(
     userId: string,
     status: string,
@@ -281,6 +313,39 @@ export class UsersDomainService {
       where: { id: userId },
       data: { mfaVerifyFailCount: 0, mfaVerifyLockedUntil: null },
     });
+  }
+
+  async resetMfa(
+    userId: string,
+    tx?: Prisma.TransactionClient,
+  ): Promise<{ id: string; userNo: string; email: string; role: string }> {
+    const client = tx || this.prisma;
+    const user = await client.user.findFirst({
+      where: { id: userId, deletedAt: null },
+      select: { id: true, userNo: true, email: true, role: true, status: true, mfaEnabledAt: true },
+    });
+    if (!user) throw new NotFoundException('User not found');
+    if (user.status !== 'ACTIVE') {
+      throw new ConflictException('Cannot reset MFA for a non-active user');
+    }
+    if (!user.mfaEnabledAt) {
+      throw new ConflictException('User has no MFA binding to reset');
+    }
+
+    await client.user.update({
+      where: { id: userId },
+      data: {
+        mfaSecret: null,
+        mfaEnabledAt: null,
+        mfaVerifyFailCount: 0,
+        mfaVerifyLockedUntil: null,
+        firstLoginStatus: 'PENDING_IDENTITY_CONFIRM',
+        firstLoginTraceId: null,
+        securityAckAt: null,
+      },
+    });
+
+    return { id: user.id, userNo: user.userNo, email: user.email, role: user.role };
   }
 
   async findFirstLoginState(userId: string): Promise<{
