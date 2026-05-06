@@ -1,0 +1,403 @@
+import {
+  ForbiddenException,
+  HttpException,
+  HttpStatus,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { JwtService } from '@nestjs/jwt';
+import { randomUUID } from 'crypto';
+import * as QRCode from 'qrcode';
+
+// otplib v13 is ESM-only; load via require to avoid Jest ESM transform issues.
+// All call sites are inside async methods so the require executes lazily at runtime.
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+function getOtplib(): {
+  generateSecret: () => string;
+  generateURI: (opts: { issuer: string; label: string; secret: string }) => string;
+  verifySync: (opts: { token: string; secret: string }) => { valid: boolean };
+} {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  return require('otplib');
+}
+
+const authenticator = {
+  generateSecret: (): string => getOtplib().generateSecret(),
+  keyuri: (label: string, issuer: string, secret: string): string =>
+    getOtplib().generateURI({ issuer, label, secret }),
+  verify: ({ token, secret }: { token: string; secret: string }): boolean =>
+    getOtplib().verifySync({ token, secret }).valid,
+};
+
+import { decryptMfaSecret, encryptMfaSecret } from '../../../common/utils/mfa-crypto.util';
+import { AuditLogsService } from '../../audit-logging/audit-logs.service';
+import {
+  AuditEntityTypes,
+  AuditGovernanceActions,
+  AuditWorkflowTypes,
+} from '../../audit-logging/constants/audit-actions.constant';
+import { AuditResult } from '../../audit-logging/dto/audit-log.dto';
+import { UsersDomainService } from './users.domain.service';
+
+const MFA_ISSUER = process.env.MFA_ISSUER || 'Exchange Admin';
+
+/**
+ * Local TooManyRequestsException — @nestjs/common does not ship one.
+ */
+export class TooManyRequestsException extends HttpException {
+  constructor(response: string | Record<string, any> = 'Too Many Requests') {
+    super(response, HttpStatus.TOO_MANY_REQUESTS);
+  }
+}
+
+interface FirstLoginUserState {
+  id: string;
+  userNo: string;
+  email: string;
+  role: string;
+  firstLoginStatus: string;
+  firstLoginTraceId: string | null;
+  mfaSecret: string | null;
+  mfaEnabledAt: Date | null;
+  mfaVerifyFailCount: number;
+  mfaVerifyLockedUntil: Date | null;
+}
+
+@Injectable()
+export class FirstLoginWorkflowService {
+  constructor(
+    private readonly usersDomainService: UsersDomainService,
+    private readonly auditLogsService: AuditLogsService,
+    private readonly jwtService: JwtService,
+  ) {}
+
+  private async loadUser(userId: string): Promise<FirstLoginUserState> {
+    const user = await this.usersDomainService.findFirstLoginState(userId);
+    if (!user) throw new NotFoundException('User not found');
+    return user;
+  }
+
+  private buildActor(user: FirstLoginUserState) {
+    return {
+      actorType: 'ADMIN',
+      actorId: user.id,
+      actorNo: user.userNo,
+      actorRole: user.role,
+    };
+  }
+
+  private retryAfterSeconds(lockedUntil: Date | null | undefined): number {
+    if (!lockedUntil) return 0;
+    return Math.max(0, Math.ceil((lockedUntil.getTime() - Date.now()) / 1000));
+  }
+
+  async getStatus(userId: string): Promise<{ currentStep: string }> {
+    const user = await this.loadUser(userId);
+    return { currentStep: user.firstLoginStatus };
+  }
+
+  async getIdentityPreview(userId: string): Promise<{
+    userNo: string;
+    email: string;
+    role: string;
+    currentStep: string;
+  }> {
+    const user = await this.loadUser(userId);
+    return {
+      userNo: user.userNo,
+      email: user.email,
+      role: user.role,
+      currentStep: user.firstLoginStatus,
+    };
+  }
+
+  async confirmIdentity(userId: string): Promise<{ nextStep: string; traceId: string }> {
+    const user = await this.loadUser(userId);
+    if (user.firstLoginStatus !== 'PENDING_IDENTITY_CONFIRM') {
+      throw new ForbiddenException(
+        `Cannot confirm identity in status: ${user.firstLoginStatus}`,
+      );
+    }
+
+    const traceId = randomUUID();
+    await this.usersDomainService.setFirstLoginStatus(userId, 'MFA_BINDING', undefined);
+    await this.usersDomainService.storeMfaSecret(userId, user.mfaSecret || '', traceId, undefined);
+
+    await this.auditLogsService.recordByActor(
+      {
+        action: AuditGovernanceActions.ADMIN_FIRST_LOGIN.IDENTITY_CONFIRMED,
+        entityType: AuditEntityTypes.ADMIN_USER,
+        entityId: user.id,
+        entityNo: user.userNo,
+        workflowType: AuditWorkflowTypes.ADMIN_FIRST_LOGIN,
+        traceId,
+        result: AuditResult.SUCCESS,
+        metadata: { fromStatus: 'PENDING_IDENTITY_CONFIRM', toStatus: 'MFA_BINDING' },
+        sourcePlatform: 'ADMIN_API',
+      },
+      this.buildActor(user),
+    );
+
+    return { nextStep: 'MFA_BINDING', traceId };
+  }
+
+  async initMfaBind(userId: string): Promise<{
+    qrDataUrl: string;
+    manualKey: string;
+    otpauthUri: string;
+  }> {
+    const user = await this.loadUser(userId);
+    if (user.firstLoginStatus !== 'MFA_BINDING') {
+      throw new ForbiddenException(
+        `Cannot init MFA binding in status: ${user.firstLoginStatus}`,
+      );
+    }
+
+    const secret = authenticator.generateSecret();
+    const otpauthUri = authenticator.keyuri(user.email, MFA_ISSUER, secret);
+    const qrDataUrl = await QRCode.toDataURL(otpauthUri);
+
+    const encryptedSecret = encryptMfaSecret(secret);
+    const traceId = user.firstLoginTraceId || randomUUID();
+    await this.usersDomainService.storeMfaSecret(userId, encryptedSecret, traceId, undefined);
+
+    await this.auditLogsService.recordByActor(
+      {
+        action: AuditGovernanceActions.ADMIN_FIRST_LOGIN.MFA_BINDING_INITIATED,
+        entityType: AuditEntityTypes.ADMIN_USER,
+        entityId: user.id,
+        entityNo: user.userNo,
+        workflowType: AuditWorkflowTypes.ADMIN_FIRST_LOGIN,
+        traceId,
+        result: AuditResult.SUCCESS,
+        metadata: { issuer: MFA_ISSUER },
+        sourcePlatform: 'ADMIN_API',
+      },
+      this.buildActor(user),
+    );
+
+    return {
+      qrDataUrl,
+      manualKey: secret.replace(/(.{4})/g, '$1 ').trim(),
+      otpauthUri,
+    };
+  }
+
+  async verifyMfaBind(userId: string, code: string): Promise<{ nextStep: string }> {
+    const user = await this.loadUser(userId);
+    if (user.firstLoginStatus !== 'MFA_BINDING') {
+      throw new ForbiddenException(
+        `Cannot verify MFA in status: ${user.firstLoginStatus}`,
+      );
+    }
+    if (!user.mfaSecret) {
+      throw new ForbiddenException('MFA secret not initialized');
+    }
+
+    if (user.mfaVerifyLockedUntil && user.mfaVerifyLockedUntil > new Date()) {
+      throw new TooManyRequestsException({
+        message: 'MFA verification temporarily locked',
+        retryAfterSeconds: this.retryAfterSeconds(user.mfaVerifyLockedUntil),
+      });
+    }
+
+    const secret = decryptMfaSecret(user.mfaSecret);
+    const isValid = authenticator.verify({ token: code, secret });
+
+    if (!isValid) {
+      const { newCount, locked } = await this.usersDomainService.incrementMfaVerifyFail(userId);
+
+      await this.auditLogsService.recordByActor(
+        {
+          action: AuditGovernanceActions.ADMIN_FIRST_LOGIN.MFA_VERIFY_FAILED,
+          entityType: AuditEntityTypes.ADMIN_USER,
+          entityId: user.id,
+          entityNo: user.userNo,
+          workflowType: AuditWorkflowTypes.ADMIN_FIRST_LOGIN,
+          traceId: user.firstLoginTraceId || undefined,
+          result: AuditResult.FAILED,
+          metadata: { failCount: newCount, locked },
+          sourcePlatform: 'ADMIN_API',
+        },
+        this.buildActor(user),
+      );
+
+      if (locked) {
+        await this.auditLogsService.recordByActor(
+          {
+            action: AuditGovernanceActions.ADMIN_FIRST_LOGIN.MFA_VERIFY_LOCKED,
+            entityType: AuditEntityTypes.ADMIN_USER,
+            entityId: user.id,
+            entityNo: user.userNo,
+            workflowType: AuditWorkflowTypes.ADMIN_FIRST_LOGIN,
+            traceId: user.firstLoginTraceId || undefined,
+            result: AuditResult.FAILED,
+            metadata: { failCount: newCount, lockoutMinutes: 15 },
+            sourcePlatform: 'ADMIN_API',
+          },
+          this.buildActor(user),
+        );
+
+        throw new TooManyRequestsException({
+          message: 'MFA verification locked due to too many failed attempts',
+          retryAfterSeconds: 15 * 60,
+        });
+      }
+
+      throw new ForbiddenException({
+        message: 'Invalid MFA code',
+        attemptsRemaining: Math.max(0, 5 - newCount),
+      });
+    }
+
+    await this.usersDomainService.completeMfaBinding(userId);
+
+    await this.auditLogsService.recordByActor(
+      {
+        action: AuditGovernanceActions.ADMIN_FIRST_LOGIN.MFA_BINDING_COMPLETED,
+        entityType: AuditEntityTypes.ADMIN_USER,
+        entityId: user.id,
+        entityNo: user.userNo,
+        workflowType: AuditWorkflowTypes.ADMIN_FIRST_LOGIN,
+        traceId: user.firstLoginTraceId || undefined,
+        result: AuditResult.SUCCESS,
+        metadata: { fromStatus: 'MFA_BINDING', toStatus: 'POLICY_ACK_PENDING' },
+        sourcePlatform: 'ADMIN_API',
+      },
+      this.buildActor(user),
+    );
+
+    return { nextStep: 'POLICY_ACK_PENDING' };
+  }
+
+  async acknowledgePolicy(userId: string): Promise<{ accessToken: string }> {
+    const user = await this.loadUser(userId);
+    if (user.firstLoginStatus !== 'POLICY_ACK_PENDING') {
+      throw new ForbiddenException(
+        `Cannot acknowledge policy in status: ${user.firstLoginStatus}`,
+      );
+    }
+
+    await this.usersDomainService.completeFirstLogin(userId, undefined);
+
+    await this.auditLogsService.recordByActor(
+      {
+        action: AuditGovernanceActions.ADMIN_FIRST_LOGIN.POLICY_ACKNOWLEDGED,
+        entityType: AuditEntityTypes.ADMIN_USER,
+        entityId: user.id,
+        entityNo: user.userNo,
+        workflowType: AuditWorkflowTypes.ADMIN_FIRST_LOGIN,
+        traceId: user.firstLoginTraceId || undefined,
+        result: AuditResult.SUCCESS,
+        metadata: { fromStatus: 'POLICY_ACK_PENDING', toStatus: 'COMPLETED' },
+        sourcePlatform: 'ADMIN_API',
+      },
+      this.buildActor(user),
+    );
+
+    await this.auditLogsService.recordByActor(
+      {
+        action: AuditGovernanceActions.ADMIN_FIRST_LOGIN.FIRST_LOGIN_COMPLETED,
+        entityType: AuditEntityTypes.ADMIN_USER,
+        entityId: user.id,
+        entityNo: user.userNo,
+        workflowType: AuditWorkflowTypes.ADMIN_FIRST_LOGIN,
+        traceId: user.firstLoginTraceId || undefined,
+        result: AuditResult.SUCCESS,
+        metadata: { userNo: user.userNo, role: user.role },
+        sourcePlatform: 'ADMIN_API',
+      },
+      this.buildActor(user),
+    );
+
+    const accessToken = this.jwtService.sign({
+      username: user.email,
+      sub: user.id,
+      userNo: user.userNo,
+      role: user.role,
+      roleCodes: [user.role],
+      type: 'ADMIN',
+    });
+
+    return { accessToken };
+  }
+
+  async verifyMfaLogin(
+    userId: string,
+    code: string,
+    roleCodes: string[],
+    role: string,
+    email: string,
+    userNo: string,
+  ): Promise<{ accessToken: string }> {
+    const user = await this.loadUser(userId);
+    if (!user.mfaSecret) {
+      throw new ForbiddenException('MFA not bound');
+    }
+
+    if (user.mfaVerifyLockedUntil && user.mfaVerifyLockedUntil > new Date()) {
+      throw new TooManyRequestsException({
+        message: 'MFA verification temporarily locked',
+        retryAfterSeconds: this.retryAfterSeconds(user.mfaVerifyLockedUntil),
+      });
+    }
+
+    const secret = decryptMfaSecret(user.mfaSecret);
+    const isValid = authenticator.verify({ token: code, secret });
+
+    if (!isValid) {
+      const { newCount, locked } = await this.usersDomainService.incrementMfaVerifyFail(userId);
+
+      await this.auditLogsService.recordByActor(
+        {
+          action: AuditGovernanceActions.ADMIN_FIRST_LOGIN.MFA_LOGIN_VERIFY_FAILED,
+          entityType: AuditEntityTypes.ADMIN_USER,
+          entityId: user.id,
+          entityNo: user.userNo,
+          result: AuditResult.FAILED,
+          metadata: { failCount: newCount, locked },
+          sourcePlatform: 'ADMIN_API',
+        },
+        this.buildActor(user),
+      );
+
+      if (locked) {
+        throw new TooManyRequestsException({
+          message: 'MFA verification locked due to too many failed attempts',
+          retryAfterSeconds: 15 * 60,
+        });
+      }
+
+      throw new ForbiddenException({
+        message: 'Invalid MFA code',
+        attemptsRemaining: Math.max(0, 5 - newCount),
+      });
+    }
+
+    await this.usersDomainService.clearMfaVerifyFail(userId);
+
+    await this.auditLogsService.recordByActor(
+      {
+        action: AuditGovernanceActions.ADMIN_FIRST_LOGIN.MFA_LOGIN_VERIFIED,
+        entityType: AuditEntityTypes.ADMIN_USER,
+        entityId: user.id,
+        entityNo: user.userNo,
+        result: AuditResult.SUCCESS,
+        metadata: { userNo },
+        sourcePlatform: 'ADMIN_API',
+      },
+      this.buildActor(user),
+    );
+
+    const accessToken = this.jwtService.sign({
+      username: email,
+      sub: user.id,
+      userNo,
+      role,
+      roleCodes,
+      type: 'ADMIN',
+    });
+
+    return { accessToken };
+  }
+}
