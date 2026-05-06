@@ -93,6 +93,7 @@ export const AuditEntityTypes = {
   PRICING_POLICY: 'PRICING_POLICY',
   WITHDRAW_PRICING_QUOTE: 'WITHDRAW_PRICING_QUOTE',
   ADMIN_USER: 'ADMIN_USER',
+  PASSWORD_RESET_TOKEN: 'PASSWORD_RESET_TOKEN',
 } as const;
 
 export const AuditWorkflowTypes = {
@@ -121,6 +122,8 @@ export const AuditWorkflowTypes = {
   AUDIT_EVIDENCE_PACKAGE_DELETION: 'AUDIT_EVIDENCE_PACKAGE_DELETION',
   // C3c — Admin First Login
   ADMIN_FIRST_LOGIN: 'ADMIN_FIRST_LOGIN',
+  // C3d — Admin Credential Management (MFA Reset, future: Password Reset, Session Revocation)
+  ADMIN_CREDENTIAL_MGMT: 'ADMIN_CREDENTIAL_MGMT',
 } as const;
 
 export const AuditBusinessWorkflowTypes = {
@@ -139,6 +142,8 @@ export const AuditBusinessWorkflowTypes = {
   ADMIN_REACTIVATION: 'ADMIN_REACTIVATION',
   APPROVAL_POLICY: 'APPROVAL_POLICY',
   ADMIN_ACCOUNT_DELETION: 'ADMIN_ACCOUNT_DELETION',
+  // C3d — Admin Credential Management
+  ADMIN_CREDENTIAL_MGMT: 'ADMIN_CREDENTIAL_MGMT',
 } as const;
 
 export const AuditUserActions = {
@@ -471,6 +476,16 @@ export const AuditGovernanceActions = {
     APPROVAL_DECLINED:  'APPROVAL_DECLINED',
     APPROVAL_CANCELLED: 'APPROVAL_CANCELLED',
     PACKAGE_PURGED:     'PACKAGE_PURGED',
+  },
+
+  // C3d — Admin Credential Management
+  ADMIN_CREDENTIAL_MGMT: {
+    MFA_RESET_EXECUTED:        'CREDENTIAL_MFA_RESET_EXECUTED',
+    // C5 — Admin Password Reset
+    PASSWORD_RESET_REQUESTED: 'PASSWORD_RESET_REQUESTED',
+    PASSWORD_RESET_COMPLETED: 'PASSWORD_RESET_COMPLETED',
+    PASSWORD_RESET_FAILED:    'PASSWORD_RESET_FAILED',
+    PASSWORD_RESET_REVOKED:   'PASSWORD_RESET_REVOKED',
   },
 
   // C3c — Admin First Login
