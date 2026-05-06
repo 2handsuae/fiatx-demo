@@ -97,6 +97,19 @@ export class AccessControlService {
             permission: true,
           },
         },
+        userRoles: {
+          include: {
+            user: {
+              select: {
+                id: true,
+                userNo: true,
+                email: true,
+                status: true,
+                deletedAt: true,
+              },
+            },
+          },
+        },
       },
     });
 
@@ -115,6 +128,15 @@ export class AccessControlService {
           description: item.permission.description,
         }))
         .sort((a: any, b: any) => a.code.localeCompare(b.code)),
+      members: (role.userRoles || [])
+        .map((ur: any) => ur.user)
+        .filter((u: any) => u && u.deletedAt === null)
+        .map((u: any) => ({
+          id: u.id,
+          userNo: u.userNo,
+          email: u.email,
+          status: u.status,
+        })),
     }));
   }
 
