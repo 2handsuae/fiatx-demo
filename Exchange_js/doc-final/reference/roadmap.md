@@ -1,6 +1,6 @@
 # Product Roadmap
 
-Last Updated: 2026-05-05
+Last Updated: 2026-05-06
 格式：每个版本交付一组 workflow，✅ = 已交付验收，[ ] = 待实现。
 
 ---
