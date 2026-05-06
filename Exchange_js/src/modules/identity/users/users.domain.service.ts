@@ -189,4 +189,126 @@ export class UsersDomainService {
 
     return updated;
   }
+
+  async setFirstLoginStatus(
+    userId: string,
+    status: string,
+    tx?: Prisma.TransactionClient,
+  ): Promise<void> {
+    const client = tx || this.prisma;
+    const user = await client.user.findFirst({
+      where: { id: userId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!user) throw new NotFoundException('User not found');
+    await client.user.update({ where: { id: userId }, data: { firstLoginStatus: status } });
+  }
+
+  async storeMfaSecret(
+    userId: string,
+    encryptedSecret: string,
+    traceId: string,
+    tx?: Prisma.TransactionClient,
+  ): Promise<void> {
+    const client = tx || this.prisma;
+    await client.user.update({
+      where: { id: userId },
+      data: { mfaSecret: encryptedSecret, firstLoginTraceId: traceId },
+    });
+  }
+
+  async completeMfaBinding(
+    userId: string,
+    tx?: Prisma.TransactionClient,
+  ): Promise<void> {
+    const client = tx || this.prisma;
+    await client.user.update({
+      where: { id: userId },
+      data: {
+        firstLoginStatus: 'POLICY_ACK_PENDING',
+        mfaEnabledAt: new Date(),
+        mfaVerifyFailCount: 0,
+        mfaVerifyLockedUntil: null,
+      },
+    });
+  }
+
+  async incrementMfaVerifyFail(
+    userId: string,
+    tx?: Prisma.TransactionClient,
+  ): Promise<{ newCount: number; locked: boolean }> {
+    const client = tx || this.prisma;
+    const user = await client.user.findFirst({
+      where: { id: userId, deletedAt: null },
+      select: { id: true, mfaVerifyFailCount: true },
+    });
+    if (!user) throw new NotFoundException('User not found');
+
+    const newCount = (user.mfaVerifyFailCount ?? 0) + 1;
+    const locked = newCount >= 5;
+    await client.user.update({
+      where: { id: userId },
+      data: {
+        mfaVerifyFailCount: newCount,
+        ...(locked ? { mfaVerifyLockedUntil: new Date(Date.now() + 15 * 60 * 1000) } : {}),
+      },
+    });
+    return { newCount, locked };
+  }
+
+  async completeFirstLogin(
+    userId: string,
+    tx?: Prisma.TransactionClient,
+  ): Promise<void> {
+    const client = tx || this.prisma;
+    await client.user.update({
+      where: { id: userId },
+      data: {
+        firstLoginStatus: 'COMPLETED',
+        securityAckAt: new Date(),
+        mfaVerifyFailCount: 0,
+        mfaVerifyLockedUntil: null,
+      },
+    });
+  }
+
+  async clearMfaVerifyFail(
+    userId: string,
+    tx?: Prisma.TransactionClient,
+  ): Promise<void> {
+    const client = tx || this.prisma;
+    await client.user.update({
+      where: { id: userId },
+      data: { mfaVerifyFailCount: 0, mfaVerifyLockedUntil: null },
+    });
+  }
+
+  async findFirstLoginState(userId: string): Promise<{
+    id: string;
+    userNo: string;
+    email: string;
+    role: string;
+    firstLoginStatus: string;
+    firstLoginTraceId: string | null;
+    mfaSecret: string | null;
+    mfaEnabledAt: Date | null;
+    mfaVerifyFailCount: number;
+    mfaVerifyLockedUntil: Date | null;
+  } | null> {
+    return this.prisma.user.findFirst({
+      where: { id: userId, deletedAt: null },
+      select: {
+        id: true,
+        userNo: true,
+        email: true,
+        role: true,
+        firstLoginStatus: true,
+        firstLoginTraceId: true,
+        mfaSecret: true,
+        mfaEnabledAt: true,
+        mfaVerifyFailCount: true,
+        mfaVerifyLockedUntil: true,
+      },
+    });
+  }
 }
