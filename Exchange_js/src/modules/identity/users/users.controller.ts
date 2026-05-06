@@ -90,6 +90,8 @@ export class UsersController {
       email: user.email,
       role: user.role,
       status: user.status,
+      firstLoginStatus: user.firstLoginStatus ?? null,
+      mfaEnabledAt: user.mfaEnabledAt ?? null,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
       lastLoginAt: user.lastLoginAt,

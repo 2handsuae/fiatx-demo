@@ -23,6 +23,8 @@ interface Member {
   email: string;
   role: string;
   status: string;
+  firstLoginStatus: string | null;
+  mfaEnabledAt: string | null;
   createdAt: string;
   lastLoginAt: string | null;
   roles?: string[];
@@ -49,6 +51,27 @@ const fmt = (v?: string | null): string => {
   if (!v) return '—';
   const d = new Date(v);
   return Number.isNaN(d.getTime()) ? v : d.toLocaleString();
+};
+
+/** Returns a short label + color when the user's security setup is incomplete. */
+const getSecurityBadge = (
+  firstLoginStatus: string | null,
+  mfaEnabledAt: string | null,
+): { label: string; color: string } | null => {
+  if (!firstLoginStatus || firstLoginStatus === 'COMPLETED') {
+    // Defensive: COMPLETED but MFA somehow missing
+    if (!mfaEnabledAt) return { label: 'MFA Off', color: 'text-adm-amber border-adm-amber/25 bg-adm-amber/10' };
+    return null; // normal — no badge
+  }
+  const map: Record<string, string> = {
+    PENDING_IDENTITY_CONFIRM: 'Setup Pending',
+    MFA_BINDING: 'MFA Pending',
+    POLICY_ACK_PENDING: 'Policy Pending',
+  };
+  return {
+    label: map[firstLoginStatus] || firstLoginStatus,
+    color: 'text-adm-amber border-adm-amber/25 bg-adm-amber/10',
+  };
 };
 
 /* ─────────────────────────────────────────────────────────────── */
@@ -358,7 +381,18 @@ const PlatformMembers = () => {
                     </td>
                     {/* Status */}
                     <td className="px-4 py-2.5">
-                      <AdminBadge value={member.status} />
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <AdminBadge value={member.status} />
+                        {(() => {
+                          const badge = getSecurityBadge(member.firstLoginStatus, member.mfaEnabledAt);
+                          if (!badge) return null;
+                          return (
+                            <span className={`inline-flex items-center rounded border px-1.5 py-0.5 font-mono text-[8px] ${badge.color}`}>
+                              {badge.label}
+                            </span>
+                          );
+                        })()}
+                      </div>
                     </td>
                     {/* Joined */}
                     <td className="px-4 py-2.5 font-mono text-[10px] text-adm-t2 whitespace-nowrap">

@@ -27,6 +27,8 @@ type MemberDetail = {
   email: string;
   role: string;
   status: string;
+  firstLoginStatus: string | null;
+  mfaEnabledAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
   lastLoginAt: Date | null;
@@ -187,6 +189,8 @@ export class UsersService {
       email: member.email,
       role: member.role,
       status: member.status,
+      firstLoginStatus: (member as any).firstLoginStatus ?? null,
+      mfaEnabledAt: (member as any).mfaEnabledAt ?? null,
       createdAt: member.createdAt,
       updatedAt: member.updatedAt,
       lastLoginAt: member.lastLoginAt,

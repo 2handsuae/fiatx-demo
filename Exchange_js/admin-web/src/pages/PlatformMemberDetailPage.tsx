@@ -24,6 +24,8 @@ interface MemberDetail {
   email: string;
   role: string;
   status: string;
+  firstLoginStatus: string | null;
+  mfaEnabledAt: string | null;
   roles: string[];
   createdAt: string;
   updatedAt: string;
@@ -569,6 +571,39 @@ export default function PlatformMemberDetailPage() {
             <SidebarKV label="User No" value={member.userNo} />
             <SidebarKV label="Email" value={member.email} />
             <SidebarKV label="Primary Role" value={member.role} />
+          </SidebarGroup>
+
+          {/* Security */}
+          <SidebarGroup title="Security">
+            <SidebarKV
+              label="MFA"
+              value={
+                member.mfaEnabledAt ? (
+                  <span className="text-adm-green">Active</span>
+                ) : member.firstLoginStatus === 'MFA_BINDING' ? (
+                  <span className="text-adm-amber">Binding…</span>
+                ) : (
+                  <span className="text-adm-amber">Not Bound</span>
+                )
+              }
+            />
+            <SidebarKV
+              label="Onboarding"
+              value={
+                member.firstLoginStatus === 'COMPLETED' ? (
+                  <span className="text-adm-green">Completed</span>
+                ) : member.firstLoginStatus === 'PENDING_IDENTITY_CONFIRM' ? (
+                  <span className="text-adm-amber">Setup Pending</span>
+                ) : member.firstLoginStatus === 'MFA_BINDING' ? (
+                  <span className="text-adm-amber">MFA Pending</span>
+                ) : member.firstLoginStatus === 'POLICY_ACK_PENDING' ? (
+                  <span className="text-adm-amber">Policy Pending</span>
+                ) : (
+                  member.firstLoginStatus || '—'
+                )
+              }
+            />
+            <SidebarKV label="MFA Bound At" value={fmt(member.mfaEnabledAt)} mono />
           </SidebarGroup>
 
           {/* Lifecycle */}
