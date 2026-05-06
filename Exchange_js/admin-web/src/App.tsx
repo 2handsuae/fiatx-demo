@@ -3,6 +3,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import AdminLogin from './pages/AdminLogin';
 import AdminInviteActivate from './pages/AdminInviteActivate';
 import AdminFirstLoginPage from './pages/AdminFirstLoginPage';
+import ResetPasswordPage from './pages/ResetPasswordPage';
 import DashboardLayout from './components/DashboardLayout';
 import { useAdminSession } from './contexts/AdminSessionContext';
 import { PERMISSIONS } from './rbac/permissions';
@@ -249,6 +250,7 @@ function App() {
         <Route path="/admin/login" element={<LoginEntry />} />
         <Route path="/admin/activate" element={<AdminInviteActivate />} />
         <Route path="/admin/first-login" element={<AdminFirstLoginPage />} />
+        <Route path="/admin/reset-password" element={<ResetPasswordPage />} />
 
         <Route
           element={
