@@ -14,6 +14,8 @@ import { AdminSuspensionApprovalService } from './admin-suspension-approval.serv
 import { AdminSuspensionWorkflowService } from './admin-suspension-workflow.service';
 import { AdminReactivationApprovalService } from './admin-reactivation-approval.service';
 import { AdminReactivationWorkflowService } from './admin-reactivation-workflow.service';
+import { AdminMfaResetService } from './admin-mfa-reset.service';
+import { AdminCredentialMgmtController } from './admin-credential-mgmt.controller';
 import { UsersController } from './users.controller';
 
 @Module({
@@ -30,8 +32,9 @@ import { UsersController } from './users.controller';
     AdminSuspensionWorkflowService,
     AdminReactivationApprovalService,
     AdminReactivationWorkflowService,
+    AdminMfaResetService,
   ],
-  controllers: [UsersController, AdminRoleChangeRequestController],
+  controllers: [UsersController, AdminRoleChangeRequestController, AdminCredentialMgmtController],
   exports: [UsersService, UsersDomainService, AdminInvitationsService],
 })
 export class UsersModule {}
