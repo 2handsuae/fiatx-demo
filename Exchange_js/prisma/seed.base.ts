@@ -161,6 +161,7 @@ async function seedAdmin(prisma: PrismaClient): Promise<void> {
       password,
       role: 'SUPER_ADMIN',
       status: 'ACTIVE',
+      firstLoginStatus: 'COMPLETED',
     },
     create: {
       userNo: DEFAULT_ADMIN_USER_NO,
@@ -168,6 +169,7 @@ async function seedAdmin(prisma: PrismaClient): Promise<void> {
       password,
       role: 'SUPER_ADMIN',
       status: 'ACTIVE',
+      firstLoginStatus: 'COMPLETED',
     },
   });
 }
@@ -343,6 +345,7 @@ async function seedRoleAdminAccounts(
         password,
         role: account.roleCode,
         status: 'ACTIVE',
+        firstLoginStatus: 'COMPLETED',
       },
       create: {
         userNo: account.userNo,
@@ -350,6 +353,7 @@ async function seedRoleAdminAccounts(
         password,
         role: account.roleCode,
         status: 'ACTIVE',
+        firstLoginStatus: 'COMPLETED',
       },
       select: { id: true },
     });
