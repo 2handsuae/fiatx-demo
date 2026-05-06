@@ -35,6 +35,7 @@ export class MfaSessionGuard implements CanActivate {
       email: payload.username,
       role: payload.role,
       roleCodes: payload.roleCodes,
+      loginTraceId: payload.loginTraceId,
     };
     return true;
   }

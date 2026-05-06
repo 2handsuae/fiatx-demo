@@ -21,9 +21,14 @@ interface OtplibFunctions {
   verifySync: (opts: { token: string; secret: string }) => { valid: boolean };
 }
 let _otpFns: OtplibFunctions | null = null;
+// Use new Function to prevent TypeScript (module:commonjs) from rewriting
+// import() to require(). otplib v13 is ESM-only; require() of its CJS shim
+// fails because @scure/base is a pure-ESM transitive dep. Native import()
+// uses the "import" export condition and avoids that path.
+const _dynamicImport = new Function('s', 'return import(s)');
 async function getOtp(): Promise<OtplibFunctions> {
   if (!_otpFns) {
-    const m = await import('otplib') as any;
+    const m = await _dynamicImport('otplib') as any;
     _otpFns = {
       generateSecret: m.generateSecret,
       generateURI: m.generateURI,
@@ -34,6 +39,7 @@ async function getOtp(): Promise<OtplibFunctions> {
 }
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
+  AuditBusinessWorkflowTypes,
   AuditEntityTypes,
   AuditGovernanceActions,
   AuditWorkflowTypes,
@@ -334,6 +340,7 @@ export class FirstLoginWorkflowService {
     role: string,
     email: string,
     userNo: string,
+    loginTraceId?: string,
   ): Promise<{ accessToken: string }> {
     const user = await this.loadUser(userId);
     if (!user.mfaSecret) {
@@ -361,6 +368,8 @@ export class FirstLoginWorkflowService {
           entityType: AuditEntityTypes.ADMIN_USER,
           entityId: user.id,
           entityNo: user.userNo,
+          traceId: loginTraceId,
+          workflowType: loginTraceId ? AuditBusinessWorkflowTypes.ADMIN_LOGIN_ACCESS : undefined,
           result: AuditResult.FAILED,
           metadata: { failCount: newCount, locked },
           sourcePlatform: 'ADMIN_API',
@@ -389,6 +398,8 @@ export class FirstLoginWorkflowService {
         entityType: AuditEntityTypes.ADMIN_USER,
         entityId: user.id,
         entityNo: user.userNo,
+        traceId: loginTraceId,
+        workflowType: loginTraceId ? AuditBusinessWorkflowTypes.ADMIN_LOGIN_ACCESS : undefined,
         result: AuditResult.SUCCESS,
         metadata: { userNo },
         sourcePlatform: 'ADMIN_API',

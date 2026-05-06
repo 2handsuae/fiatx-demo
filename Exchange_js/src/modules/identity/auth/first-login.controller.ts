@@ -84,7 +84,7 @@ export class FirstLoginController {
     @Req() req: any,
     @Body(new ValidationPipe({ whitelist: true })) body: MfaVerifyDto,
   ) {
-    const { userId, userNo, email, role, roleCodes } = req.mfaSessionUser;
-    return this.firstLoginWorkflowService.verifyMfaLogin(userId, body.code, roleCodes, role, email, userNo);
+    const { userId, userNo, email, role, roleCodes, loginTraceId } = req.mfaSessionUser;
+    return this.firstLoginWorkflowService.verifyMfaLogin(userId, body.code, roleCodes, role, email, userNo, loginTraceId);
   }
 }

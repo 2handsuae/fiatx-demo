@@ -219,7 +219,7 @@ export class AuthService {
         },
       );
       const { password: _, ...result } = user;
-      return result;
+      return { ...result, authTraceId };
     } else {
       // Increment failed attempts
       const attempts = user.failedLoginAttempts + 1;
@@ -347,6 +347,7 @@ export class AuthService {
           roleCodes,
           scope: 'mfa_session',
           type: 'ADMIN',
+          loginTraceId: user.authTraceId,
         },
         { expiresIn: '15m' },
       );
