@@ -31,6 +31,7 @@ model User {
   updatedAt           DateTime              @updatedAt
   userRoles           UserRole[]
   adminInvitations    AdminUserInvitation[]
+  passwordResetTokens PasswordResetToken[]
   roleChangeRequests  AdminRoleChangeRequest[] @relation("roleChangeTarget")
 
   firstLoginStatus     String    @default("PENDING_IDENTITY_CONFIRM")
@@ -123,6 +124,28 @@ model AdminUserInvitation {
   @@index([expiresAt])
   @@index([traceId])
   @@map("admin_user_invitations")
+}
+
+model PasswordResetToken {
+  id                String    @id @default(uuid())
+  resetNo           String    @unique @default("TEMP")
+  userId            String
+  tokenHash         String    @unique
+  status            String    @default("PENDING")
+  requestSource     String
+  requestedByUserId String?
+  requestedByUserNo String?
+  expiresAt         DateTime
+  consumedAt        DateTime?
+  traceId           String
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status, expiresAt])
+  @@index([traceId, createdAt])
+  @@map("password_reset_tokens")
 }
 
 model AdminRoleChangeRequest {
