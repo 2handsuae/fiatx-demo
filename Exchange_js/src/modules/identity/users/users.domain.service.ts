@@ -322,13 +322,13 @@ export class UsersDomainService {
     const client = tx || this.prisma;
     const user = await client.user.findFirst({
       where: { id: userId, deletedAt: null },
-      select: { id: true, userNo: true, email: true, role: true, status: true, mfaEnabledAt: true },
+      select: { id: true, userNo: true, email: true, role: true, status: true, mfaEnabledAt: true, mfaSecret: true },
     });
     if (!user) throw new NotFoundException('User not found');
     if (user.status !== 'ACTIVE') {
       throw new ConflictException('Cannot reset MFA for a non-active user');
     }
-    if (!user.mfaEnabledAt) {
+    if (!user.mfaEnabledAt && !user.mfaSecret) {
       throw new ConflictException('User has no MFA binding to reset');
     }
 
