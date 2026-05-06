@@ -192,6 +192,48 @@ export class FirstLoginWorkflowService {
     };
   }
 
+  /**
+   * Verify a TOTP code against the user's MFA secret.
+   * Reusable across flows: first-login MFA bind, MFA login, password reset.
+   * Handles fail count + lockout. Does NOT complete binding or generate tokens.
+   */
+  async verifyMfaCode(userId: string, code: string): Promise<void> {
+    const user = await this.loadUser(userId);
+    if (!user.mfaSecret) {
+      throw new ForbiddenException('MFA not bound');
+    }
+
+    if (user.mfaVerifyLockedUntil && user.mfaVerifyLockedUntil > new Date()) {
+      throw new TooManyRequestsException({
+        message: 'MFA verification temporarily locked',
+        retryAfterSeconds: this.retryAfterSeconds(user.mfaVerifyLockedUntil),
+      });
+    }
+
+    const secret = decryptMfaSecret(user.mfaSecret);
+    const otp = await getOtp();
+    const verifyResult = otp.verifySync({ token: code, secret });
+    const isValid = verifyResult.valid;
+
+    if (!isValid) {
+      const { newCount, locked } = await this.usersDomainService.incrementMfaVerifyFail(userId);
+
+      if (locked) {
+        throw new TooManyRequestsException({
+          message: 'MFA verification locked due to too many failed attempts',
+          retryAfterSeconds: 15 * 60,
+        });
+      }
+
+      throw new ForbiddenException({
+        message: 'Invalid MFA code',
+        attemptsRemaining: Math.max(0, 5 - newCount),
+      });
+    }
+
+    await this.usersDomainService.clearMfaVerifyFail(userId);
+  }
+
   async verifyMfaBind(userId: string, code: string): Promise<{ nextStep: string }> {
     const user = await this.loadUser(userId);
     if (user.firstLoginStatus !== 'MFA_BINDING') {
