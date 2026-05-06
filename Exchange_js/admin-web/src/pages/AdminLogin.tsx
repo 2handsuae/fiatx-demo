@@ -21,6 +21,9 @@ const AdminLogin = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+  const [showMfaInput, setShowMfaInput] = useState(false);
+  const [mfaCode, setMfaCode] = useState('');
+  const [mfaSubmitting, setMfaSubmitting] = useState(false);
   const [quickLoginOpen, setQuickLoginOpen] = useState(false);
   const navigate = useNavigate();
   const modalRef = useRef<HTMLDivElement>(null);
@@ -65,6 +68,19 @@ const AdminLogin = () => {
       });
       if (response.ok) {
         const data = await response.json();
+
+        if (data.status === 'FIRST_LOGIN_REQUIRED') {
+          sessionStorage.setItem('firstLoginToken', data.firstLoginToken);
+          navigate('/admin/first-login');
+          return;
+        }
+
+        if (data.status === 'MFA_REQUIRED') {
+          sessionStorage.setItem('mfaSessionToken', data.mfaSessionToken);
+          setShowMfaInput(true);
+          return;
+        }
+
         const payload = decodeTokenPayload(data.access_token);
         if (!payload || payload.type !== 'ADMIN') {
           localStorage.removeItem('admin_token');
@@ -96,6 +112,37 @@ const AdminLogin = () => {
     setEmail(account.email);
     setPassword('123456');
     await doLogin(account.email, '123456');
+  };
+
+  const handleMfaVerify = async () => {
+    if (mfaCode.length !== 6) return;
+    setMfaSubmitting(true);
+    setError('');
+    try {
+      const token = sessionStorage.getItem('mfaSessionToken');
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/auth/mfa/verify`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ code: mfaCode }),
+      });
+      if (response.ok) {
+        const data = await response.json();
+        sessionStorage.removeItem('mfaSessionToken');
+        localStorage.setItem('admin_token', data.accessToken);
+        notifyAdminAuthChanged();
+        navigate('/dashboard');
+      } else {
+        const err = await response.json();
+        setError(err.message || 'MFA verification failed');
+      }
+    } catch {
+      setError('Network error. Please try again.');
+    } finally {
+      setMfaSubmitting(false);
+    }
   };
 
   return (
@@ -329,6 +376,36 @@ const AdminLogin = () => {
           </div>
         </motion.div>
       </div>
+
+      {/* MFA Verification Modal */}
+      {showMfaInput && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+          <div className="bg-slate-800 border border-slate-700 rounded-xl p-8 w-80 flex flex-col gap-5">
+            <div className="text-center">
+              <div className="text-white font-semibold text-lg">双因素验证</div>
+              <div className="text-slate-400 text-sm mt-1">请输入 Authenticator App 的 6 位验证码</div>
+            </div>
+            <input
+              type="text"
+              inputMode="numeric"
+              maxLength={6}
+              value={mfaCode}
+              onChange={(e) => setMfaCode(e.target.value.replace(/\D/g, ''))}
+              placeholder="6 位验证码"
+              className="bg-slate-900 border border-slate-600 rounded-lg px-4 py-2.5 text-white text-center text-xl font-mono tracking-[0.5em] focus:outline-none focus:border-indigo-500 w-full"
+              autoFocus
+            />
+            {error && <div className="text-red-400 text-sm text-center">{error}</div>}
+            <button
+              onClick={handleMfaVerify}
+              disabled={mfaCode.length !== 6 || mfaSubmitting}
+              className="bg-indigo-600 hover:bg-indigo-500 text-white font-medium py-2.5 rounded-lg disabled:opacity-50"
+            >
+              {mfaSubmitting ? '验证中…' : '验证'}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Quick Login Modal */}
       <AnimatePresence>
