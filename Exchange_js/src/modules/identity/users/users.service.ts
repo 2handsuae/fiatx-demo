@@ -87,6 +87,9 @@ export class UsersService {
   async findByIdentifier(identifier: string): Promise<UserRow | null> {
     const value = (identifier || '').trim();
     if (!value) return null;
+    // No select clause: all columns are returned, including password (for bcrypt
+    // comparison in validateUser), firstLoginStatus, and mfaEnabledAt (required
+    // by login() to branch on first-login / MFA flows).
     return this.prisma.user.findFirst({
       where: this.activeUserWhere({
         OR: [{ email: value }, { userNo: value }],
