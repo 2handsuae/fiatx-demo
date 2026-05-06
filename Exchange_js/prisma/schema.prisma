@@ -33,6 +33,14 @@ model User {
   adminInvitations    AdminUserInvitation[]
   roleChangeRequests  AdminRoleChangeRequest[] @relation("roleChangeTarget")
 
+  firstLoginStatus     String    @default("PENDING_IDENTITY_CONFIRM")
+  mfaSecret            String?
+  mfaEnabledAt         DateTime?
+  mfaVerifyFailCount   Int       @default(0)
+  mfaVerifyLockedUntil DateTime?
+  securityAckAt        DateTime?
+  firstLoginTraceId    String?
+
   @@index([deletedAt])
   @@map("users")
 }
