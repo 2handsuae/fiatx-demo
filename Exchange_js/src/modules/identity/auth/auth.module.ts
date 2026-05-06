@@ -6,6 +6,8 @@ import { CustomerAuthController } from './customer-auth.controller';
 import { FirstLoginController } from './first-login.controller';
 import { FirstLoginGuard } from './guards/first-login.guard';
 import { MfaSessionGuard } from './guards/mfa-session.guard';
+import { PasswordResetMfaGuard } from './guards/password-reset-mfa.guard';
+import { PasswordResetController } from './password-reset.controller';
 import { FirstLoginWorkflowService } from '../users/first-login-workflow.service';
 import { UsersModule } from '../users/users.module';
 import { AccessControlModule } from '../access-control/access-control.module';
@@ -25,7 +27,7 @@ import { PrismaModule } from '../../../core/prisma/prisma.module';
       signOptions: { expiresIn: '1d' },
     }),
   ],
-  providers: [AuthService, CustomerAuthService, JwtStrategy, FirstLoginGuard, MfaSessionGuard, FirstLoginWorkflowService],
-  controllers: [CustomerAuthController, AuthController, FirstLoginController],
+  providers: [AuthService, CustomerAuthService, JwtStrategy, FirstLoginGuard, MfaSessionGuard, PasswordResetMfaGuard, FirstLoginWorkflowService],
+  controllers: [CustomerAuthController, AuthController, FirstLoginController, PasswordResetController],
 })
 export class AuthModule {}
