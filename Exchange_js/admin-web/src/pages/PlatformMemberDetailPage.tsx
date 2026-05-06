@@ -469,7 +469,58 @@ export default function PlatformMemberDetailPage() {
             </div>
           </section>
 
-          {/* ③ Invitation Status */}
+          {/* ③ Security & MFA */}
+          <section className="px-6 py-5">
+            <Cap>Security</Cap>
+            <div className="mt-3 grid grid-cols-2 gap-x-8 gap-y-4">
+              <div>
+                <div className="font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">MFA Status</div>
+                <div className="mt-1">
+                  {member.mfaEnabledAt ? (
+                    <span className="inline-flex items-center rounded border border-adm-green/25 bg-adm-green/10 px-2.5 py-1 font-mono text-[10px] text-adm-green">
+                      Active
+                    </span>
+                  ) : member.firstLoginStatus === 'MFA_BINDING' ? (
+                    <span className="inline-flex items-center rounded border border-adm-amber/25 bg-adm-amber/10 px-2.5 py-1 font-mono text-[10px] text-adm-amber">
+                      Binding in Progress
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center rounded border border-adm-amber/25 bg-adm-amber/10 px-2.5 py-1 font-mono text-[10px] text-adm-amber">
+                      Not Bound
+                    </span>
+                  )}
+                </div>
+              </div>
+              <div>
+                <div className="font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">Onboarding Step</div>
+                <div className="mt-1">
+                  {member.firstLoginStatus === 'COMPLETED' ? (
+                    <span className="inline-flex items-center rounded border border-adm-green/25 bg-adm-green/10 px-2.5 py-1 font-mono text-[10px] text-adm-green">
+                      Completed
+                    </span>
+                  ) : member.firstLoginStatus === 'PENDING_IDENTITY_CONFIRM' ? (
+                    <span className="inline-flex items-center rounded border border-adm-amber/25 bg-adm-amber/10 px-2.5 py-1 font-mono text-[10px] text-adm-amber">
+                      Setup Pending
+                    </span>
+                  ) : member.firstLoginStatus === 'MFA_BINDING' ? (
+                    <span className="inline-flex items-center rounded border border-adm-amber/25 bg-adm-amber/10 px-2.5 py-1 font-mono text-[10px] text-adm-amber">
+                      MFA Pending
+                    </span>
+                  ) : member.firstLoginStatus === 'POLICY_ACK_PENDING' ? (
+                    <span className="inline-flex items-center rounded border border-adm-amber/25 bg-adm-amber/10 px-2.5 py-1 font-mono text-[10px] text-adm-amber">
+                      Policy Pending
+                    </span>
+                  ) : (
+                    <span className="font-mono text-[11px] text-adm-t3">{member.firstLoginStatus || '—'}</span>
+                  )}
+                </div>
+              </div>
+              <InfoField label="MFA Bound At" value={fmt(member.mfaEnabledAt)} mono />
+              <InfoField label="Last Login" value={member.lastLoginAt ? fmt(member.lastLoginAt) : 'Never'} mono />
+            </div>
+          </section>
+
+          {/* ④ Invitation Status */}
           {invitation && (
             <section className="px-6 py-5">
               <Cap>Invitation</Cap>
@@ -566,60 +617,12 @@ export default function PlatformMemberDetailPage() {
             </div>
           )}
 
-          {/* Account */}
-          <SidebarGroup title="Account">
-            <SidebarKV label="User No" value={member.userNo} />
-            <SidebarKV label="Email" value={member.email} />
+          {/* Quick Reference */}
+          <SidebarGroup title="Quick Reference">
+            <SidebarKV label="User No" value={member.userNo} mono />
+            <SidebarKV label="Status" value={<AdminBadge value={member.status} />} />
             <SidebarKV label="Primary Role" value={member.role} />
           </SidebarGroup>
-
-          {/* Security */}
-          <SidebarGroup title="Security">
-            <SidebarKV
-              label="MFA"
-              value={
-                member.mfaEnabledAt ? (
-                  <span className="text-adm-green">Active</span>
-                ) : member.firstLoginStatus === 'MFA_BINDING' ? (
-                  <span className="text-adm-amber">Binding…</span>
-                ) : (
-                  <span className="text-adm-amber">Not Bound</span>
-                )
-              }
-            />
-            <SidebarKV
-              label="Onboarding"
-              value={
-                member.firstLoginStatus === 'COMPLETED' ? (
-                  <span className="text-adm-green">Completed</span>
-                ) : member.firstLoginStatus === 'PENDING_IDENTITY_CONFIRM' ? (
-                  <span className="text-adm-amber">Setup Pending</span>
-                ) : member.firstLoginStatus === 'MFA_BINDING' ? (
-                  <span className="text-adm-amber">MFA Pending</span>
-                ) : member.firstLoginStatus === 'POLICY_ACK_PENDING' ? (
-                  <span className="text-adm-amber">Policy Pending</span>
-                ) : (
-                  member.firstLoginStatus || '—'
-                )
-              }
-            />
-            <SidebarKV label="MFA Bound At" value={fmt(member.mfaEnabledAt)} mono />
-          </SidebarGroup>
-
-          {/* Lifecycle */}
-          <SidebarGroup title="Lifecycle">
-            <SidebarKV label="Created" value={fmt(member.createdAt)} mono />
-            <SidebarKV label="Updated" value={fmt(member.updatedAt)} mono />
-            <SidebarKV label="Last Login" value={member.lastLoginAt ? fmt(member.lastLoginAt) : 'Never'} mono />
-          </SidebarGroup>
-
-          {/* Invitation */}
-          {invitation && (
-            <SidebarGroup title="Invitation">
-              <SidebarKV label="Status" value={invitation.inviteStatus} />
-              <SidebarKV label="Expires" value={fmt(invitation.inviteExpiresAt)} mono />
-            </SidebarGroup>
-          )}
 
         </div>
       </div>

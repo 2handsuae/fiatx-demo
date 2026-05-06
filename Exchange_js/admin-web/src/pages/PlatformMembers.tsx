@@ -314,9 +314,10 @@ const PlatformMembers = () => {
                 [
                   ['User No',    '148px'],
                   ['Email',      '220px'],
-                  ['Roles',      '220px'],
+                  ['Roles',      '200px'],
                   ['Status',     '90px'],
-                  ['Joined',     '148px'],
+                  ['MFA',        '100px'],
+                  ['Joined',     '130px'],
                   ['Last Login', 'auto'],
                 ] as [string, string][]
               ).map(([label, w]) => (
@@ -333,14 +334,14 @@ const PlatformMembers = () => {
           <tbody>
             {loading && (
               <tr>
-                <td colSpan={6} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
+                <td colSpan={7} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
                   Loading…
                 </td>
               </tr>
             )}
             {!loading && filteredMembers.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
+                <td colSpan={7} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
                   No members found.
                 </td>
               </tr>
@@ -381,18 +382,25 @@ const PlatformMembers = () => {
                     </td>
                     {/* Status */}
                     <td className="px-4 py-2.5">
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        <AdminBadge value={member.status} />
-                        {(() => {
-                          const badge = getSecurityBadge(member.firstLoginStatus, member.mfaEnabledAt);
-                          if (!badge) return null;
+                      <AdminBadge value={member.status} />
+                    </td>
+                    {/* MFA */}
+                    <td className="px-4 py-2.5">
+                      {(() => {
+                        const badge = getSecurityBadge(member.firstLoginStatus, member.mfaEnabledAt);
+                        if (!badge) {
                           return (
-                            <span className={`inline-flex items-center rounded border px-1.5 py-0.5 font-mono text-[8px] ${badge.color}`}>
-                              {badge.label}
+                            <span className="inline-flex items-center rounded border border-adm-green/25 bg-adm-green/10 px-2 py-0.5 font-mono text-[9px] text-adm-green">
+                              Active
                             </span>
                           );
-                        })()}
-                      </div>
+                        }
+                        return (
+                          <span className={`inline-flex items-center rounded border px-2 py-0.5 font-mono text-[9px] ${badge.color}`}>
+                            {badge.label}
+                          </span>
+                        );
+                      })()}
                     </td>
                     {/* Joined */}
                     <td className="px-4 py-2.5 font-mono text-[10px] text-adm-t2 whitespace-nowrap">
