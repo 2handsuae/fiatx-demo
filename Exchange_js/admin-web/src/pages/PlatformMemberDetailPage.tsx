@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Mail, RefreshCw, Copy, Check, ShieldCheck, UserCheck, UserX, X } from 'lucide-react';
+import { Mail, RefreshCw, Copy, Check, ShieldCheck, UserCheck, UserX, KeyRound, X } from 'lucide-react';
 import {
   AdminPermissionError,
   AdminSessionError,
@@ -109,6 +109,9 @@ export default function PlatformMemberDetailPage() {
   const [showReactivateModal, setShowReactivateModal] = useState(false);
   const [reactivateReason, setReactivateReason] = useState('');
   const [submittingReactivate, setSubmittingReactivate] = useState(false);
+
+  const [showMfaResetModal, setShowMfaResetModal] = useState(false);
+  const [submittingMfaReset, setSubmittingMfaReset] = useState(false);
 
   /* ── Fetching ── */
 
@@ -266,6 +269,28 @@ export default function PlatformMemberDetailPage() {
     }
   };
 
+  /* ── Reset MFA ── */
+
+  const handleSubmitMfaReset = async () => {
+    if (!member) return;
+    setSubmittingMfaReset(true);
+    try {
+      const res = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/admin/iam/users/${id}/reset-mfa`,
+        { method: 'POST' },
+      );
+      if (!res.ok) throw new Error(await getApiErrorMessage(res, 'Failed to reset MFA'));
+      setShowMfaResetModal(false);
+      setNotice(`MFA reset successful for ${member.userNo}. User will need to re-bind MFA on next login.`);
+      void fetchDetail();
+    } catch (err: unknown) {
+      if (err instanceof AdminSessionError) return;
+      setError(err instanceof Error ? err.message : 'Failed to reset MFA.');
+    } finally {
+      setSubmittingMfaReset(false);
+    }
+  };
+
   /* ── Loading / error stubs ── */
 
   if (loading) {
@@ -321,7 +346,10 @@ export default function PlatformMemberDetailPage() {
   const canReactivate =
     member.status === 'SUSPENDED' &&
     hasAnyPermission([PERMISSIONS.USERS_REACTIVATE]);
-  const showActions = canResend || canChangeRoles || canSuspend || canReactivate;
+  const canResetMfa =
+    member.status === 'ACTIVE' &&
+    hasAnyPermission([PERMISSIONS.USERS_RESET_MFA]);
+  const showActions = canResend || canChangeRoles || canSuspend || canReactivate || canResetMfa;
   const roleCodes = member.roles?.length ? member.roles : member.role ? [member.role] : [];
   const invitation = member.latestInvitation;
 
@@ -464,6 +492,15 @@ export default function PlatformMemberDetailPage() {
                   >
                     <UserCheck size={13} />
                     Reactivate User
+                  </button>
+                )}
+                {canResetMfa && (
+                  <button
+                    onClick={() => setShowMfaResetModal(true)}
+                    className={adminButtonClass('workflowNegative')}
+                  >
+                    <KeyRound size={13} />
+                    Reset MFA
                   </button>
                 )}
               </div>
@@ -699,6 +736,56 @@ export default function PlatformMemberDetailPage() {
                 className={adminButtonClass('modalConfirm')}
               >
                 {submittingReactivate ? 'Submitting…' : 'Submit for Approval'}
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* ════ MFA Reset Confirmation Modal ════ */}
+      {showMfaResetModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md overflow-hidden rounded-xl border border-adm-border bg-adm-panel shadow-xl">
+
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-adm-border bg-adm-card px-5 py-4">
+              <div>
+                <p className="font-mono text-[11px] font-semibold text-adm-t1">
+                  Reset MFA Binding
+                </p>
+                <p className="mt-1 font-mono text-[9px] text-adm-t3">
+                  {member.userNo} · {member.email}
+                </p>
+              </div>
+              <button
+                onClick={() => setShowMfaResetModal(false)}
+                className="rounded p-1 text-adm-t3 hover:bg-adm-hover hover:text-adm-t1"
+              >
+                <X size={15} />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="px-5 py-4 space-y-3">
+              <div className="rounded border border-adm-red/30 bg-adm-red/10 px-3 py-2.5 font-mono text-[10px] text-adm-red leading-relaxed">
+                This will immediately remove this user's MFA binding. They will be required to
+                complete the full identity verification and MFA setup flow on their next login.
+                This action takes effect immediately without approval.
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="flex justify-end gap-2 border-t border-adm-border bg-adm-card px-5 py-4">
+              <button onClick={() => setShowMfaResetModal(false)} className={adminButtonClass('modalCancel')}>
+                Cancel
+              </button>
+              <button
+                onClick={() => void handleSubmitMfaReset()}
+                disabled={submittingMfaReset}
+                className={adminButtonClass('modalConfirm')}
+              >
+                {submittingMfaReset ? 'Resetting…' : 'Reset MFA'}
               </button>
             </div>
 
