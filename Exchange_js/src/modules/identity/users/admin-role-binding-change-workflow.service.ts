@@ -53,7 +53,7 @@ export class AdminRoleBindingChangeWorkflowService {
 
     const targetUser = await this.prisma.user.findFirst({
       where: { id: dto.targetUserId, deletedAt: null },
-      select: { id: true, userNo: true },
+      select: { id: true, userNo: true, email: true },
     });
     if (!targetUser) {
       throw new NotFoundException('Target user not found');
@@ -95,6 +95,17 @@ export class AdminRoleBindingChangeWorkflowService {
           currentRoleCodes,
           proposedRoleCodes: dto.roleCodes,
           changeReason: dto.changeReason,
+        },
+        objectSnapshot: {
+          requestNo: request.requestNo,
+          targetUserId: request.targetUserId,
+          targetUserNo: targetUser.userNo,
+          targetEmail: targetUser.email,
+          currentRoleCodes: JSON.parse(request.currentRoleCodes),
+          proposedRoleCodes: JSON.parse(request.proposedRoleCodes),
+          changeReason: request.changeReason,
+          status: request.status,
+          createdAt: request.createdAt,
         },
       },
       { reason: dto.changeReason, traceId },
