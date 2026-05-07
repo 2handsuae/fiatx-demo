@@ -78,7 +78,9 @@ export type PermissionGroup =
   | 'GOV_REGISTRY_READ'
   | 'GOV_REGISTRY_WRITE'
   | 'GOV_REGULATORY_GATE_READ'
-  | 'GOV_REGULATORY_GATE_WRITE';
+  | 'GOV_REGULATORY_GATE_WRITE'
+  | 'GOV_APPROVAL_POLICY_READ'
+  | 'GOV_APPROVAL_POLICY_WRITE';
 
 export interface RbacPermissionDefinition {
   code: string;
@@ -753,6 +755,20 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
     'GOV_REGULATORY_GATE_WRITE',
   ]),
 
+  // Approval Policy Management
+  route('GET', '/admin/governance/approval-policies', 'List approval policies', [
+    'GOV_APPROVAL_POLICY_READ',
+  ]),
+  route('POST', '/admin/governance/approval-policies/:actionType/change-requests', 'Create approval policy change request', [
+    'GOV_APPROVAL_POLICY_WRITE',
+  ]),
+  route('GET', '/admin/governance/approval-policies/change-requests', 'List approval policy change requests', [
+    'GOV_APPROVAL_POLICY_READ',
+  ]),
+  route('GET', '/admin/governance/approval-policies/change-requests/:id', 'Get approval policy change request detail', [
+    'GOV_APPROVAL_POLICY_READ',
+  ]),
+
 ];
 
 export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
@@ -772,6 +788,7 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'GOV_DELETE_REQUEST_READ',
     'GOV_REGISTRY_READ',
     'GOV_REGULATORY_GATE_READ',
+    'GOV_APPROVAL_POLICY_READ',
 
   ],
   TECH_OFFICER: [
@@ -798,7 +815,8 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'GOV_REGISTRY_WRITE',
     'GOV_REGULATORY_GATE_READ',
     'GOV_REGULATORY_GATE_WRITE',
-
+    'GOV_APPROVAL_POLICY_READ',
+    'GOV_APPROVAL_POLICY_WRITE',
 
   ],
   OPS_OFFICER: [
@@ -841,7 +859,8 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'GOV_REGISTRY_WRITE',
     'GOV_REGULATORY_GATE_READ',
     'GOV_REGULATORY_GATE_WRITE',
-
+    'GOV_APPROVAL_POLICY_READ',
+    'GOV_APPROVAL_POLICY_WRITE',
 
   ],
   MLRO: [
@@ -867,6 +886,7 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'GOV_CHANGE_TICKET_READ',
     'GOV_DELETE_REQUEST_READ',
     'GOV_REGISTRY_READ',
+    'GOV_APPROVAL_POLICY_READ',
 
   ],
   DPO: [
@@ -886,6 +906,8 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'GOV_REGISTRY_WRITE',
     'GOV_REGULATORY_GATE_READ',
     'GOV_REGULATORY_GATE_WRITE',
+    'GOV_APPROVAL_POLICY_READ',
+    'GOV_APPROVAL_POLICY_WRITE',
 
   ],
   CISO: [
@@ -908,7 +930,8 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'GOV_REGISTRY_WRITE',
     'GOV_REGULATORY_GATE_READ',
     'GOV_REGULATORY_GATE_WRITE',
-
+    'GOV_APPROVAL_POLICY_READ',
+    'GOV_APPROVAL_POLICY_WRITE',
 
   ],
 };

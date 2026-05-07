@@ -52,7 +52,7 @@ export default function ApprovalPoliciesPage() {
     setLoading(true);
     setError('');
     try {
-      const res = await adminFetch('/admin/governance/approval-policies');
+      const res = await adminFetch(`${import.meta.env.VITE_API_URL}/admin/governance/approval-policies`);
       if (!res.ok) throw new Error(await getApiErrorMessage(res));
       setPolicies(await res.json());
     } catch (err: any) {
@@ -96,7 +96,7 @@ export default function ApprovalPoliciesPage() {
     setSubmitError('');
     try {
       const res = await adminFetch(
-        `/admin/governance/approval-policies/${editTarget.actionType}/change-requests`,
+        `${import.meta.env.VITE_API_URL}/admin/governance/approval-policies/${editTarget.actionType}/change-requests`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
