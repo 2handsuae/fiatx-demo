@@ -622,9 +622,10 @@ export class ApprovalsService {
     approval: ApprovalCaseRow,
     actor: ApprovalActorContext,
     requestedRole?: string,
+    stepCandidateRoles?: string[],
   ): Promise<string> {
     const normalizedRequestedRole = this.normalizeOptionalString(requestedRole);
-    const allowedRoles = splitRoleCsv(approval.checkerRoles);
+    const allowedRoles = stepCandidateRoles || splitRoleCsv(approval.checkerRoles);
     const actorRoles = Array.from(new Set(actor.roleCodes.map((item) => String(item).trim())));
     const superAdminBypass = this.isSuperAdmin(actor);
     const intersection = superAdminBypass
@@ -722,15 +723,15 @@ export class ApprovalsService {
     }
 
     const policy = await this.approvalPolicyService.getPolicy(actionType);
-    if (!policy.checkerRoles.length) {
-      throw new BadRequestException(`No checker roles configured for actionType ${actionType}`);
+    if (!policy.steps.length) {
+      throw new BadRequestException(`No steps configured for actionType ${actionType}`);
     }
 
     const selectedCheckerRole =
-      this.normalizeOptionalString(dto.checkerRole) || policy.checkerRoles[0];
-    if (!policy.checkerRoles.includes(selectedCheckerRole)) {
+      this.normalizeOptionalString(dto.checkerRole) || policy.steps[0]?.roles[0];
+    if (!policy.steps[0]?.roles.includes(selectedCheckerRole)) {
       throw new BadRequestException(
-        `checkerRole ${selectedCheckerRole} is not allowed by policy ${actionType}`,
+        `checkerRole ${selectedCheckerRole} is not allowed by step 1 of policy ${actionType}`,
       );
     }
 
@@ -758,10 +759,10 @@ export class ApprovalsService {
         workflowId: workflowContext.workflowId,
         workflowNo: workflowContext.workflowNo,
         steps: {
-          create: policy.checkerRoles.map((role, idx) => ({
-            stepNo: idx + 1,
+          create: policy.steps.map((step) => ({
+            stepNo: step.stepNo,
             status: ApprovalStepStatuses.PENDING,
-            checkerRoleCandidates: role,
+            checkerRoleCandidates: step.roles.join(','),
           })),
         },
       },
@@ -791,6 +792,8 @@ export class ApprovalsService {
     const now = new Date();
     const timeoutAt = new Date(now.getTime() + policy.timeoutHours * 60 * 60 * 1000);
 
+    // NOTE: stepNo: 1 is intentional — submit always activates the first step.
+    // Do not change to dynamic lookup.
     await db.approvalStep.update({
       where: {
         approvalCaseId_stepNo: {
@@ -893,21 +896,26 @@ export class ApprovalsService {
       this.assertTraceConsistency(approval.traceId, dto.traceId);
       this.assertWorkflowContextConsistency(approval, dto);
 
-      // Find the current pending step the actor is authorized for
-      const currentStep = (approval.steps || []).find(
-        (s: any) =>
-          s.status === ApprovalStepStatuses.PENDING &&
-          (splitRoleCsv(s.checkerRoleCandidates).some((candidate: string) =>
-            (actor.roleCodes || []).includes(candidate),
-          ) || this.isSuperAdmin(actor)),
+      // Find the FIRST pending step (enforce sequential ordering — no step skipping)
+      const firstPendingStep = (approval.steps || []).find(
+        (s: any) => s.status === ApprovalStepStatuses.PENDING,
       );
-      if (!currentStep) {
+      if (!firstPendingStep) {
+        throw new ForbiddenException('No pending steps available');
+      }
+      const canAct =
+        splitRoleCsv(firstPendingStep.checkerRoleCandidates).some((candidate: string) =>
+          (actor.roleCodes || []).includes(candidate),
+        ) || this.isSuperAdmin(actor);
+      if (!canAct) {
         throw new ForbiddenException(
-          `Actor role ${(actor.roleCodes || []).join(',')} cannot sign any pending step`,
+          `Actor role ${(actor.roleCodes || []).join(',')} cannot sign the current pending step (step ${firstPendingStep.stepNo})`,
         );
       }
+      const currentStep = firstPendingStep;
 
-      const decisionRole = await this.resolveDecisionRole(approval, actor, dto.checkerRole);
+      const stepCandidateRoles = splitRoleCsv(currentStep.checkerRoleCandidates);
+      const decisionRole = await this.resolveDecisionRole(approval, actor, dto.checkerRole, stepCandidateRoles);
       const now = new Date();
 
       await tx.approvalStep.update({
@@ -986,20 +994,26 @@ export class ApprovalsService {
       this.assertTraceConsistency(approval.traceId, dto.traceId);
       this.assertWorkflowContextConsistency(approval, dto);
 
-      const currentStep = (approval.steps || []).find(
-        (s: any) =>
-          s.status === ApprovalStepStatuses.PENDING &&
-          (splitRoleCsv(s.checkerRoleCandidates).some((candidate: string) =>
-            (actor.roleCodes || []).includes(candidate),
-          ) || this.isSuperAdmin(actor)),
+      // Find the FIRST pending step (enforce sequential ordering)
+      const firstPendingStep = (approval.steps || []).find(
+        (s: any) => s.status === ApprovalStepStatuses.PENDING,
       );
-      if (!currentStep) {
+      if (!firstPendingStep) {
+        throw new ForbiddenException('No pending steps available');
+      }
+      const canAct =
+        splitRoleCsv(firstPendingStep.checkerRoleCandidates).some((candidate: string) =>
+          (actor.roleCodes || []).includes(candidate),
+        ) || this.isSuperAdmin(actor);
+      if (!canAct) {
         throw new ForbiddenException(
-          `Actor role ${(actor.roleCodes || []).join(',')} cannot reject any pending step`,
+          `Actor role ${(actor.roleCodes || []).join(',')} cannot reject the current pending step (step ${firstPendingStep.stepNo})`,
         );
       }
+      const currentStep = firstPendingStep;
 
-      const decisionRole = await this.resolveDecisionRole(approval, actor, dto.checkerRole);
+      const stepCandidateRoles = splitRoleCsv(currentStep.checkerRoleCandidates);
+      const decisionRole = await this.resolveDecisionRole(approval, actor, dto.checkerRole, stepCandidateRoles);
       const now = new Date();
 
       // Reject the current step
@@ -1085,12 +1099,11 @@ export class ApprovalsService {
       previousStatus = approval.status;
       const now = new Date();
 
-      await tx.approvalStep.update({
+      // Cancel ALL remaining PENDING steps (preserves already-APPROVED steps)
+      await tx.approvalStep.updateMany({
         where: {
-          approvalCaseId_stepNo: {
-            approvalCaseId: approval.id,
-            stepNo: 1,
-          },
+          approvalCaseId: approval.id,
+          status: ApprovalStepStatuses.PENDING,
         },
         data: {
           status: ApprovalStepStatuses.CANCELLED,
@@ -1281,12 +1294,11 @@ export class ApprovalsService {
       }
 
       const decidedAt = new Date();
-      await tx.approvalStep.update({
+      // Expire ALL remaining PENDING steps (preserves already-APPROVED steps)
+      await tx.approvalStep.updateMany({
         where: {
-          approvalCaseId_stepNo: {
-            approvalCaseId: approval.id,
-            stepNo: 1,
-          },
+          approvalCaseId: approval.id,
+          status: ApprovalStepStatuses.PENDING,
         },
         data: {
           status: ApprovalStepStatuses.EXPIRED,
