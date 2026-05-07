@@ -1,6 +1,6 @@
 # Product Roadmap
 
-Last Updated: 2026-05-06
+Last Updated: 2026-05-07
 格式：每个版本交付一组 workflow，✅ = 已交付验收，[ ] = 待实现。
 
 ---
@@ -38,7 +38,7 @@ V6 → V7（EOD 兑换结算触发 INTERNAL-IN/OUT 真实资产交割；LP 缺�
 - [x] Admin MFA Reset（CISO/TECH_OFFICER 在后台发起 `POST /admin/iam/users/:id/reset-mfa`；RBAC 权限 `IAM_CREDENTIAL_RESET`；重置后目标用户重走首登四步流程；薄 workflow 层审计打点，`workflowType: ADMIN_CREDENTIAL_MGMT`；无审批门） — **VARA**：TIR Rulebook III.A Authentication — MFA 是管理访问的强制要求，设备丢失时必须有受控恢复路径 ✅ 2026-05-06
 - [ ] Admin Session Force-Revocation（独立于 Suspension：只杀 session 不停用账号；需 JWT 撤销能力改造；薄 workflow 层审计打点，同上 workflowType） — **VARA**：TIR Rulebook III.C Session Management + IV.C Incident Response — 凭证泄露疑似但不确定需要停用时，立即终止所有活跃会话
 - [x] Audit Evidence Export（审计证据包导出审批；已完成 3-Layer 架构重构：薄审批处理器 + 工作流编排器 + 领域服务，路由迁移至 `/admin/audit/evidence-packages`） — **VARA**：CRM Rulebook III.A Record Keeping — 审计记录必须可导出可验证，保留不少于 8 年 ✅ 2026-05-05
-- [x] Approval Policy Management（审批策略管理：V1 白名单过滤展示 6 种审批类型的 checkerRoles 配置；修改 checkerRoles 需走 APPROVAL_POLICY_CHANGE 审批（CISO 审批通过后自动 upsert 生效）；APPROVAL_POLICY_CHANGE 自身的 checker 硬编码不可通过平台修改；3-Layer 架构：Domain Service + 薄审批处理器 + 工作流编排器；前端含 current→proposed diff 对比弹窗；workflowType: APPROVAL_POLICY） — **VARA + 业务**：CRM Rulebook II.B Internal Controls + Company Rulebook III Governance — 审批链本身的治理必须自洽且防篡改 ✅ 2026-05-06
+- [x] Approval Policy Management（审批策略管理：V1 白名单过滤展示 6 种审批类型；**多步骤审批链配置**：`stepsConfig` JSON 列取代扁平 `checkerRoles`，每步支持多角色 OR 关系（任一角色可审批该步）；回退链 stepsConfig→checkerRoles→DEFAULT；修改需走 APPROVAL_POLICY_CHANGE 审批（CISO 审批通过后自动 upsert 生效）；APPROVAL_POLICY_CHANGE 自身 checker 硬编码不可修改；3-Layer 架构：Domain Service + 薄审批处理器 + 工作流编排器；前端步骤编辑器含 Add/Remove Step + 角色切换 + current→proposed 步骤对比；修复 5 个 BLOCKER：approve/reject 步骤跳跃、resolveDecisionRole 角色范围、cancel/expire 硬编码 stepNo:1；含 backfill 迁移脚本；workflowType: APPROVAL_POLICY） — **VARA + 业务**：CRM Rulebook II.B Internal Controls + Company Rulebook III Governance — 审批链本身的治理必须自洽且防篡改 ✅ 2026-05-07
 
 > \#5/6/7 共享 `workflowType: ADMIN_CREDENTIAL_MGMT`。#7 需要 JWT 撤销能力改造（token blacklist 或 session store）。
 
