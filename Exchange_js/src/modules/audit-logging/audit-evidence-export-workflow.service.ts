@@ -126,6 +126,15 @@ export class AuditEvidenceExportWorkflowService {
           itemCount: selection.itemCount,
           workflowSummary: selection.workflowSummary,
         },
+        objectSnapshot: {
+          packageNo: evidencePackage.packageNo,
+          exportMode: evidencePackage.exportMode,
+          itemCount: evidencePackage.itemCount,
+          status: evidencePackage.status,
+          filterSnapshot: selection.filterSnapshot,
+          digest: evidencePackage.digest,
+          createdAt: evidencePackage.createdAt,
+        },
         traceId: query.traceId,
       },
       {
