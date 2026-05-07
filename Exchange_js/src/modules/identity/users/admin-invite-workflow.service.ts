@@ -79,6 +79,13 @@ export class AdminInviteWorkflowService {
             roleCodes,
             changeReason: dto.changeReason || null,
           },
+          objectSnapshot: {
+            userNo: user.userNo,
+            email: user.email,
+            roleCodes,
+            changeReason: dto.changeReason || null,
+            status: user.status,
+          },
         },
         {
           reason: dto.changeReason || `Admin invite request for ${user.email}`,
