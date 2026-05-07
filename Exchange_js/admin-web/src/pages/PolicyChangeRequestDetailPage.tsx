@@ -11,6 +11,28 @@ import { DetailPageHeader } from '../components/compliance/DetailPageComponents'
 import { AdminBadge } from '../components/ui/AdminBadge';
 import { adminButtonClass } from '../components/common/adminButtonStyles';
 
+interface PolicyStepConfig {
+  stepNo: number;
+  roles: string[];
+}
+
+function parseSteps(stepsJson?: string | null, rolesCsv?: string | null): PolicyStepConfig[] {
+  if (stepsJson) {
+    try {
+      return JSON.parse(stepsJson);
+    } catch {
+      /* fallback */
+    }
+  }
+  if (rolesCsv) {
+    return rolesCsv
+      .split(',')
+      .filter(Boolean)
+      .map((r, i) => ({ stepNo: i + 1, roles: [r.trim()] }));
+  }
+  return [];
+}
+
 const ACTION_TYPE_LABELS: Record<string, string> = {
   ADMIN_INVITE_APPROVAL: 'Admin Invite',
   ADMIN_ROLE_BINDING_CHANGE_APPROVAL: 'Role Binding Change',
@@ -26,6 +48,8 @@ interface PolicyChangeRequest {
   targetActionType: string;
   currentCheckerRoles: string;
   proposedCheckerRoles: string;
+  currentStepsConfig?: string | null;
+  proposedStepsConfig?: string | null;
   changeReason: string;
   status: string;
   requestedByUserId: string;
@@ -42,9 +66,6 @@ const fmt = (v?: string | null): string => {
   const d = new Date(v);
   return Number.isNaN(d.getTime()) ? v : d.toLocaleString();
 };
-
-const splitCsv = (csv: string): string[] =>
-  csv ? csv.split(',').filter(Boolean) : [];
 
 export default function PolicyChangeRequestDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -110,9 +131,6 @@ export default function PolicyChangeRequestDetailPage() {
   }
 
   if (!data) return null;
-
-  const currentRoles = splitCsv(data.currentCheckerRoles);
-  const proposedRoles = splitCsv(data.proposedCheckerRoles);
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -194,42 +212,47 @@ export default function PolicyChangeRequestDetailPage() {
         {/* Role Comparison */}
         <section className="px-6 py-5">
           <p className="mb-3 font-mono text-[8.5px] font-semibold uppercase tracking-[0.16em] text-adm-t3">Checker Role Comparison</p>
-          <div className="grid grid-cols-2 gap-6">
-            <div>
-              <p className="mb-2 font-mono text-[9px] uppercase tracking-[0.12em] text-adm-t3">Current Roles</p>
-              <div className="flex flex-wrap gap-1.5">
-                {currentRoles.length === 0 ? (
-                  <span className="font-mono text-[10px] text-adm-t3">None</span>
-                ) : (
-                  currentRoles.map((r) => (
-                    <span
-                      key={r}
-                      className="inline-flex rounded border border-adm-border bg-adm-bg px-2 py-1 font-mono text-[10px] text-adm-t2"
-                    >
-                      {r}
-                    </span>
-                  ))
-                )}
+              {/* Step Configuration Comparison */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <p className="mb-2 font-mono text-[8.5px] font-semibold uppercase tracking-[0.14em] text-adm-t3">
+                    Current Configuration
+                  </p>
+                  <div className="space-y-1">
+                    {parseSteps(data.currentStepsConfig, data.currentCheckerRoles).map((step) => (
+                      <div key={step.stepNo} className="flex items-center gap-1.5">
+                        <span className="font-mono text-[9px] text-adm-t3 shrink-0">S{step.stepNo}</span>
+                        <div className="flex flex-wrap gap-1">
+                          {step.roles.map((r) => (
+                            <span key={r} className="inline-flex rounded border border-adm-border bg-adm-panel px-1.5 py-0.5 font-mono text-[9px] text-adm-t2">
+                              {r}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <p className="mb-2 font-mono text-[8.5px] font-semibold uppercase tracking-[0.14em] text-adm-t3">
+                    Proposed Configuration
+                  </p>
+                  <div className="space-y-1">
+                    {parseSteps(data.proposedStepsConfig, data.proposedCheckerRoles).map((step) => (
+                      <div key={step.stepNo} className="flex items-center gap-1.5">
+                        <span className="font-mono text-[9px] text-adm-amber shrink-0">S{step.stepNo}</span>
+                        <div className="flex flex-wrap gap-1">
+                          {step.roles.map((r) => (
+                            <span key={r} className="inline-flex rounded border border-adm-amber/25 bg-adm-amber/10 px-1.5 py-0.5 font-mono text-[9px] text-adm-amber">
+                              {r}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
               </div>
-            </div>
-            <div>
-              <p className="mb-2 font-mono text-[9px] uppercase tracking-[0.12em] text-adm-t3">Change To</p>
-              <div className="flex flex-wrap gap-1.5">
-                {proposedRoles.length === 0 ? (
-                  <span className="font-mono text-[10px] text-adm-t3">None</span>
-                ) : (
-                  proposedRoles.map((r) => (
-                    <span
-                      key={r}
-                      className="inline-flex rounded border border-adm-amber/25 bg-adm-amber/10 px-2 py-1 font-mono text-[10px] text-adm-amber"
-                    >
-                      {r}
-                    </span>
-                  ))
-                )}
-              </div>
-            </div>
-          </div>
         </section>
       </div>
     </div>

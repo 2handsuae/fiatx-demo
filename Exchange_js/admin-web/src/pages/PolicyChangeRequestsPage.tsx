@@ -15,6 +15,28 @@ import {
 import { AdminBadge } from '../components/ui/AdminBadge';
 import { PageTitleBar } from '../components/ui/PageTitleBar';
 
+interface PolicyStepConfig {
+  stepNo: number;
+  roles: string[];
+}
+
+function parseSteps(stepsJson?: string | null, rolesCsv?: string | null): PolicyStepConfig[] {
+  if (stepsJson) {
+    try {
+      return JSON.parse(stepsJson);
+    } catch {
+      /* fallback */
+    }
+  }
+  if (rolesCsv) {
+    return rolesCsv
+      .split(',')
+      .filter(Boolean)
+      .map((r, i) => ({ stepNo: i + 1, roles: [r.trim()] }));
+  }
+  return [];
+}
+
 const ACTION_TYPE_LABELS: Record<string, string> = {
   ADMIN_INVITE_APPROVAL: 'Admin Invite',
   ADMIN_ROLE_BINDING_CHANGE_APPROVAL: 'Role Binding Change',
@@ -30,6 +52,8 @@ interface ChangeRequestItem {
   targetActionType: string;
   currentCheckerRoles: string;
   proposedCheckerRoles: string;
+  currentStepsConfig?: string | null;
+  proposedStepsConfig?: string | null;
   changeReason: string;
   status: string;
   approvalCaseId?: string | null;
@@ -48,9 +72,6 @@ const fmt = (v?: string | null): string => {
   const d = new Date(v);
   return Number.isNaN(d.getTime()) ? v : d.toLocaleString();
 };
-
-const splitCsv = (csv: string): string[] =>
-  csv ? csv.split(',').filter(Boolean) : [];
 
 const PAGE_SIZE = 20;
 
@@ -158,8 +179,7 @@ export default function PolicyChangeRequestsPage() {
                 [
                   ['Request No', '150px'],
                   ['Target Policy', '170px'],
-                  ['Current Roles', '180px'],
-                  ['Change To', '180px'],
+                  ['Change', '180px'],
                   ['Status', '130px'],
                   ['Approval No', '140px'],
                   ['Created', '150px'],
@@ -179,14 +199,14 @@ export default function PolicyChangeRequestsPage() {
           <tbody>
             {loading && (
               <tr>
-                <td colSpan={8} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
+                <td colSpan={7} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
                   Loading…
                 </td>
               </tr>
             )}
             {!loading && items.length === 0 && (
               <tr>
-                <td colSpan={8} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
+                <td colSpan={7} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
                   No policy change requests found.
                 </td>
               </tr>
@@ -205,23 +225,14 @@ export default function PolicyChangeRequestsPage() {
                 <td className="px-4 py-2.5 font-mono text-[11px] text-adm-t2 whitespace-nowrap">
                   {ACTION_TYPE_LABELS[item.targetActionType] || item.targetActionType}
                 </td>
-                <td className="px-4 py-2.5">
-                  <div className="flex flex-wrap gap-1">
-                    {splitCsv(item.currentCheckerRoles).map((r) => (
-                      <span key={r} className="inline-flex rounded border border-adm-border bg-adm-bg px-1.5 py-0.5 font-mono text-[9px] text-adm-t2">
-                        {r}
-                      </span>
-                    ))}
-                  </div>
-                </td>
-                <td className="px-4 py-2.5">
-                  <div className="flex flex-wrap gap-1">
-                    {splitCsv(item.proposedCheckerRoles).map((r) => (
-                      <span key={r} className="inline-flex rounded border border-adm-amber/25 bg-adm-amber/10 px-1.5 py-0.5 font-mono text-[9px] text-adm-amber">
-                        {r}
-                      </span>
-                    ))}
-                  </div>
+                <td className="px-4 py-2.5 font-mono text-[10px] text-adm-t2">
+                  {(() => {
+                    const current = parseSteps(item.currentStepsConfig, item.currentCheckerRoles);
+                    const proposed = parseSteps(item.proposedStepsConfig, item.proposedCheckerRoles);
+                    const cRoles = new Set(current.flatMap((s) => s.roles)).size;
+                    const pRoles = new Set(proposed.flatMap((s) => s.roles)).size;
+                    return `${current.length}s·${cRoles}r → ${proposed.length}s·${pRoles}r`;
+                  })()}
                 </td>
                 <td className="px-4 py-2.5">
                   <AdminBadge value={item.status} />
