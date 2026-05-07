@@ -105,19 +105,19 @@ const DOMAIN_CONFIG: DomainConfig[] = [
     buckets: [
       {
         key: 'view',
-        label: 'View',
+        label: 'View members & roles',
         groups: ['IAM_READ'],
         description: 'Browse member list, view detail & role bindings, view role catalog',
       },
       {
         key: 'manage',
-        label: 'Manage',
+        label: 'Manage members',
         groups: ['IAM_ASSIGN'],
         description: 'Invite members, resend invitations, assign/change roles',
       },
       {
         key: 'credentials',
-        label: 'Credentials',
+        label: 'Manage credentials',
         groups: ['IAM_CREDENTIAL_RESET'],
         description: 'Reset password, reset MFA',
       },
@@ -130,19 +130,19 @@ const DOMAIN_CONFIG: DomainConfig[] = [
     buckets: [
       {
         key: 'view',
-        label: 'View',
+        label: 'View approval cases',
         groups: ['GOV_APPROVAL_READ'],
         description: 'Browse approval cases, view step history, view SoD configuration',
       },
       {
         key: 'submit',
-        label: 'Submit',
+        label: 'Submit approval requests',
         groups: ['GOV_APPROVAL_WRITE'],
         description: 'Create, submit, and cancel approval requests',
       },
       {
         key: 'decide',
-        label: 'Decide',
+        label: 'Decide on approvals',
         groups: ['GOV_APPROVAL_DECIDE'],
         description: 'Approve or reject approval cases',
       },
@@ -155,13 +155,13 @@ const DOMAIN_CONFIG: DomainConfig[] = [
     buckets: [
       {
         key: 'view',
-        label: 'View',
+        label: 'View audit logs',
         groups: ['AUDIT_READ'],
         description: 'Browse audit log events, filter, view detail',
       },
       {
         key: 'export',
-        label: 'Export',
+        label: 'Export evidence packages',
         groups: ['AUDIT_EXPORT_CREATE', 'AUDIT_EXPORT_READ'],
         description: 'Create, browse, and download evidence packages',
       },
@@ -216,25 +216,23 @@ const BucketRow = ({
 }) => (
   <div
     className={[
-      'flex items-start gap-3 py-2',
+      'flex items-center gap-2.5 py-2',
       held ? '' : 'opacity-40',
     ].join(' ')}
+    title={bucket.description}
   >
-    <span className="w-[72px] shrink-0 font-mono text-[9px] font-semibold text-adm-t3 pt-px">
-      {bucket.label}
-    </span>
     {held ? (
-      <Check size={12} className="shrink-0 text-adm-green mt-px" />
+      <Check size={12} className="shrink-0 text-adm-green" />
     ) : (
-      <span className="shrink-0 font-mono text-[12px] leading-none text-adm-red mt-px">✗</span>
+      <span className="shrink-0 font-mono text-[12px] leading-none text-adm-red">✗</span>
     )}
     <span
       className={[
         'font-mono text-[10px] leading-relaxed',
-        held ? 'text-adm-t2' : 'text-adm-t3',
+        held ? 'text-adm-t1' : 'text-adm-t3',
       ].join(' ')}
     >
-      {bucket.description}
+      {bucket.label}
     </span>
   </div>
 );
