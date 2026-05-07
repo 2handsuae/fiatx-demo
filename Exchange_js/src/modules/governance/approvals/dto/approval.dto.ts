@@ -25,6 +25,11 @@ export class CreateApprovalDto {
   @IsObject()
   metadata?: Record<string, unknown>;
 
+  @ApiPropertyOptional({ type: Object, description: 'Frozen snapshot of the approval subject (request) at creation time' })
+  @IsOptional()
+  @IsObject()
+  objectSnapshot?: Record<string, unknown>;
+
   @IsOptional()
   @IsString()
   traceId?: string;

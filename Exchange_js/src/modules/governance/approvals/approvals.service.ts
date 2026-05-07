@@ -561,6 +561,7 @@ export class ApprovalsService {
       checkerRoles,
       docRef: approval.docRef,
       metadata: this.parseMetadata(approval.metadataJson),
+      objectSnapshot: approval.objectSnapshot ? JSON.parse(approval.objectSnapshot as string) : null,
       traceId: approval.traceId,
       workflowType: approval.workflowType,
       workflowId: approval.workflowId,
@@ -750,6 +751,7 @@ export class ApprovalsService {
         allowRetry: policy.allowRetry,
         docRef: this.normalizeOptionalString(dto.docRef),
         metadataJson: this.serializeMetadata(dto.metadata || {}),
+        objectSnapshot: dto.objectSnapshot ? JSON.stringify(dto.objectSnapshot) : null,
         traceId:
           (lockWorkflowToParent
             ? parentWorkflowContext.traceId
