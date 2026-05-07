@@ -13,8 +13,14 @@ import {
 import { useAdminSession } from '../contexts/AdminSessionContext';
 import { PERMISSIONS } from '../rbac/permissions';
 
+interface PolicyStepConfig {
+  stepNo: number;
+  roles: string[];
+}
+
 interface PolicyView {
   actionType: string;
+  steps: PolicyStepConfig[];
   checkerRoles: string[];
   timeoutHours: number;
   source: 'DEFAULT' | 'CUSTOMIZED';
@@ -48,7 +54,7 @@ export default function ApprovalPoliciesPage() {
 
   // Modal state
   const [editTarget, setEditTarget] = useState<PolicyView | null>(null);
-  const [proposedRoles, setProposedRoles] = useState<string[]>([]);
+  const [proposedSteps, setProposedSteps] = useState<PolicyStepConfig[]>([]);
   const [changeReason, setChangeReason] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState('');
@@ -78,26 +84,46 @@ export default function ApprovalPoliciesPage() {
 
   const openEdit = (policy: PolicyView) => {
     setEditTarget(policy);
-    setProposedRoles([...policy.checkerRoles]);
+    setProposedSteps(policy.steps.map((s) => ({ stepNo: s.stepNo, roles: [...s.roles] })));
     setChangeReason('');
     setSubmitError('');
   };
 
   const closeEdit = () => {
     setEditTarget(null);
-    setProposedRoles([]);
+    setProposedSteps([]);
     setChangeReason('');
     setSubmitError('');
   };
 
-  const toggleRole = (role: string) => {
-    setProposedRoles((prev) =>
-      prev.includes(role) ? prev.filter((r) => r !== role) : [...prev, role],
+  const toggleStepRole = (stepIdx: number, role: string) => {
+    setProposedSteps((prev) =>
+      prev.map((step, idx) => {
+        if (idx !== stepIdx) return step;
+        const roles = step.roles.includes(role)
+          ? step.roles.filter((r) => r !== role)
+          : [...step.roles, role];
+        return { ...step, roles };
+      }),
     );
   };
 
+  const addStep = () => {
+    setProposedSteps((prev) => [...prev, { stepNo: prev.length + 1, roles: [] }]);
+  };
+
+  const removeStep = (stepIdx: number) => {
+    setProposedSteps((prev) =>
+      prev
+        .filter((_, idx) => idx !== stepIdx)
+        .map((step, idx) => ({ ...step, stepNo: idx + 1 })),
+    );
+  };
+
+  const isStepsValid = proposedSteps.length > 0 && proposedSteps.every((s) => s.roles.length > 0);
+
   const handleSubmit = async () => {
-    if (!editTarget || proposedRoles.length === 0 || !changeReason.trim()) return;
+    if (!editTarget || !isStepsValid || !changeReason.trim()) return;
     setSubmitting(true);
     setSubmitError('');
     try {
@@ -107,7 +133,7 @@ export default function ApprovalPoliciesPage() {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            proposedCheckerRoles: proposedRoles,
+            proposedSteps,
             changeReason: changeReason.trim(),
           }),
         },
@@ -154,7 +180,7 @@ export default function ApprovalPoliciesPage() {
               {(
                 [
                   ['Action Type', '200px'],
-                  ['Checker Roles', 'auto'],
+                  ['Steps', 'auto'],
                   ['Timeout', '80px'],
                   ['Source', '110px'],
                   ['Actions', '100px'],
@@ -194,14 +220,23 @@ export default function ApprovalPoliciesPage() {
                   {label(p.actionType)}
                 </td>
                 <td className="px-4 py-2.5">
-                  <div className="flex flex-wrap gap-1">
-                    {p.checkerRoles.map((r) => (
-                      <span
-                        key={r}
-                        className="inline-flex rounded border border-adm-amber/25 bg-adm-amber/10 px-1.5 py-0.5 font-mono text-[9px] text-adm-amber"
-                      >
-                        {r}
-                      </span>
+                  <div className="space-y-1">
+                    {p.steps.map((step) => (
+                      <div key={step.stepNo} className="flex items-center gap-1.5">
+                        <span className="font-mono text-[9px] text-adm-t3 shrink-0">
+                          S{step.stepNo}
+                        </span>
+                        <div className="flex flex-wrap gap-1">
+                          {step.roles.map((r) => (
+                            <span
+                              key={r}
+                              className="inline-flex rounded border border-adm-amber/25 bg-adm-amber/10 px-1.5 py-0.5 font-mono text-[9px] text-adm-amber"
+                            >
+                              {r}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
                     ))}
                   </div>
                 </td>
@@ -234,9 +269,9 @@ export default function ApprovalPoliciesPage() {
       {/* ── Edit Modal ── */}
       {editTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="w-full max-w-lg mx-4 rounded-lg border border-adm-border bg-adm-bg shadow-2xl">
+          <div className="w-full max-w-lg mx-4 rounded-lg border border-adm-border bg-adm-bg shadow-2xl max-h-[85vh] flex flex-col">
             {/* Header */}
-            <div className="flex items-center justify-between border-b border-adm-border px-5 py-4">
+            <div className="flex items-center justify-between border-b border-adm-border px-5 py-4 shrink-0">
               <h3 className="font-mono text-sm font-semibold text-adm-t1">
                 Modify: {label(editTarget.actionType)}
               </h3>
@@ -245,47 +280,82 @@ export default function ApprovalPoliciesPage() {
               </button>
             </div>
 
-            <div className="space-y-5 px-5 py-5">
-              {/* Current */}
+            <div className="flex-1 overflow-auto space-y-5 px-5 py-5">
+              {/* Current Configuration */}
               <div>
                 <p className="mb-2 font-mono text-[8.5px] font-semibold uppercase tracking-[0.14em] text-adm-t3">
-                  Current Checker Roles
+                  Current Configuration
                 </p>
-                <div className="flex flex-wrap gap-1.5">
-                  {editTarget.checkerRoles.map((r) => (
-                    <span
-                      key={r}
-                      className="inline-flex rounded border border-adm-amber/25 bg-adm-amber/10 px-2 py-1 font-mono text-[10px] text-adm-amber"
-                    >
-                      {r}
-                    </span>
+                <div className="space-y-1">
+                  {editTarget.steps.map((step) => (
+                    <div key={step.stepNo} className="flex items-center gap-1.5">
+                      <span className="font-mono text-[9px] text-adm-t3 shrink-0">
+                        Step {step.stepNo}:
+                      </span>
+                      <div className="flex flex-wrap gap-1">
+                        {step.roles.map((r) => (
+                          <span
+                            key={r}
+                            className="inline-flex rounded border border-adm-amber/25 bg-adm-amber/10 px-2 py-1 font-mono text-[10px] text-adm-amber"
+                          >
+                            {r}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
                   ))}
                 </div>
               </div>
 
-              {/* Change To */}
+              {/* Proposed Configuration */}
               <div>
                 <p className="mb-2 font-mono text-[8.5px] font-semibold uppercase tracking-[0.14em] text-adm-t3">
-                  Change To
+                  Proposed Configuration
                 </p>
-                <div className="flex flex-wrap gap-2">
-                  {AVAILABLE_ROLES.map((role) => (
-                    <button
-                      key={role}
-                      onClick={() => toggleRole(role)}
-                      className={`rounded border px-3 py-1.5 font-mono text-[10px] transition-colors ${
-                        proposedRoles.includes(role)
-                          ? 'border-adm-amber/50 bg-adm-amber/20 text-adm-amber'
-                          : 'border-adm-border bg-adm-panel text-adm-t3 hover:border-adm-t3'
-                      }`}
-                    >
-                      {role}
-                    </button>
+                <div className="space-y-4">
+                  {proposedSteps.map((step, stepIdx) => (
+                    <div key={stepIdx} className="rounded border border-adm-border bg-adm-panel p-3">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="font-mono text-[10px] font-semibold text-adm-t2">
+                          Step {step.stepNo}
+                        </span>
+                        {proposedSteps.length > 1 && (
+                          <button
+                            onClick={() => removeStep(stepIdx)}
+                            className="text-adm-t3 hover:text-adm-red transition-colors"
+                            title="Remove step"
+                          >
+                            <X size={12} />
+                          </button>
+                        )}
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {AVAILABLE_ROLES.map((role) => (
+                          <button
+                            key={role}
+                            onClick={() => toggleStepRole(stepIdx, role)}
+                            className={`rounded border px-3 py-1.5 font-mono text-[10px] transition-colors ${
+                              step.roles.includes(role)
+                                ? 'border-adm-amber/50 bg-adm-amber/20 text-adm-amber'
+                                : 'border-adm-border bg-adm-bg text-adm-t3 hover:border-adm-t3'
+                            }`}
+                          >
+                            {role}
+                          </button>
+                        ))}
+                      </div>
+                      {step.roles.length === 0 && (
+                        <p className="mt-2 font-mono text-[10px] text-adm-red">Select at least one role</p>
+                      )}
+                    </div>
                   ))}
+                  <button
+                    onClick={addStep}
+                    className="w-full rounded border border-dashed border-adm-border px-3 py-2 font-mono text-[10px] text-adm-t3 transition-colors hover:border-adm-amber hover:text-adm-amber"
+                  >
+                    + Add Step
+                  </button>
                 </div>
-                {proposedRoles.length === 0 && (
-                  <p className="mt-2 font-mono text-[10px] text-adm-t3">Select at least one role</p>
-                )}
               </div>
 
               {/* Change reason */}
@@ -310,7 +380,7 @@ export default function ApprovalPoliciesPage() {
             </div>
 
             {/* Footer */}
-            <div className="flex justify-end gap-3 border-t border-adm-border px-5 py-4">
+            <div className="flex justify-end gap-3 border-t border-adm-border px-5 py-4 shrink-0">
               <button
                 onClick={closeEdit}
                 className="rounded px-4 py-2 font-mono text-[10px] uppercase tracking-wider text-adm-t3 transition-colors hover:text-adm-t1"
@@ -319,7 +389,7 @@ export default function ApprovalPoliciesPage() {
               </button>
               <button
                 onClick={handleSubmit}
-                disabled={submitting || proposedRoles.length === 0 || !changeReason.trim()}
+                disabled={submitting || !isStepsValid || !changeReason.trim()}
                 className="rounded bg-adm-amber px-4 py-2 font-mono text-[10px] font-bold uppercase tracking-wider text-adm-bg transition-opacity hover:opacity-90 disabled:opacity-40"
               >
                 {submitting ? 'Submitting…' : 'Submit for Approval'}
