@@ -10,7 +10,7 @@ datasource db {
 model User {
   id                  String                @id @default(uuid())
   userNo              String                @unique @default("TEMP")
-  email               String                @unique
+  email               String
   password            String
   // Legacy: single-role string kept for JWT backward compatibility.
   // Authoritative RBAC is resolved via userRoles → roles → role_permissions.
@@ -21,6 +21,7 @@ model User {
   status              String
   failedLoginAttempts Int                   @default(0)
   lockedUntil         DateTime?
+  suspendedAt         DateTime?
   lastLoginAt         DateTime?
   deletedAt           DateTime?
   deletedBy           String?
@@ -30,6 +31,16 @@ model User {
   updatedAt           DateTime              @updatedAt
   userRoles           UserRole[]
   adminInvitations    AdminUserInvitation[]
+  passwordResetTokens PasswordResetToken[]
+  roleChangeRequests  AdminRoleChangeRequest[] @relation("roleChangeTarget")
+
+  firstLoginStatus     String    @default("PENDING_IDENTITY_CONFIRM")
+  mfaSecret            String?
+  mfaEnabledAt         DateTime?
+  mfaVerifyFailCount   Int       @default(0)
+  mfaVerifyLockedUntil DateTime?
+  securityAckAt        DateTime?
+  firstLoginTraceId    String?
 
   @@index([deletedAt])
   @@map("users")
@@ -96,6 +107,7 @@ model UserRole {
 model AdminUserInvitation {
   id              String    @id @default(uuid())
   userId          String
+  token           String?
   tokenHash       String    @unique
   expiresAt       DateTime
   consumedAt      DateTime?
@@ -112,6 +124,55 @@ model AdminUserInvitation {
   @@index([expiresAt])
   @@index([traceId])
   @@map("admin_user_invitations")
+}
+
+model PasswordResetToken {
+  id                String    @id @default(uuid())
+  resetNo           String    @unique @default("TEMP")
+  userId            String
+  tokenHash         String    @unique
+  token             String?
+  status            String    @default("PENDING")
+  requestSource     String
+  requestedByUserId String?
+  requestedByUserNo String?
+  expiresAt         DateTime
+  consumedAt        DateTime?
+  traceId           String
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status, expiresAt])
+  @@index([traceId, createdAt])
+  @@map("password_reset_tokens")
+}
+
+model AdminRoleChangeRequest {
+  id                String    @id @default(uuid())
+  requestNo         String    @unique @default("TEMP")
+  targetUserId      String
+  currentRoleCodes  String
+  proposedRoleCodes String
+  changeReason      String
+  status            String    @default("PENDING_APPROVAL")
+  approvalCaseId    String?
+  approvalCaseNo    String?
+  requestedByUserId String
+  executedAt        DateTime?
+  failureReason     String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  deletedAt         DateTime?
+
+  targetUser        User      @relation("roleChangeTarget", fields: [targetUserId], references: [id])
+
+  @@index([targetUserId])
+  @@index([approvalCaseId])
+  @@index([status])
+  @@index([requestedByUserId])
+  @@map("admin_role_change_requests")
 }
 
 model CustomerMain {
@@ -577,9 +638,7 @@ model WorkflowDecisionRecord {
 model AuditLogEvent {
   id              String              @id @default(uuid())
   auditNo         String              @unique @default("TEMP")
-  triggerType     String
   action          String
-  module          String
   entityType      String
   entityId        String?
   entityNo        String?
@@ -587,8 +646,6 @@ model AuditLogEvent {
   workflowType    String?
   entityOwnerType String?
   entityOwnerId   String?
-  statusFrom      String?
-  statusTo        String?
   actorType       String
   actorId         String
   actorNo         String?
@@ -599,11 +656,8 @@ model AuditLogEvent {
   result          String              @default("SUCCESS")
   reason          String?
   metadata        String?
-  beforeData      String?
-  afterData       String?
   idempotencyKey  String?             @unique
   payloadDigest   String
-  maskVersion     String              @default("v1")
   retainedUntil   DateTime
   entityOwnerNo   String?
   archivedAt      DateTime?
@@ -613,11 +667,8 @@ model AuditLogEvent {
   subjectNos      AuditLogSubjectNo[]
 
   @@index([occurredAt])
-  @@index([triggerType, occurredAt])
-  @@index([module, occurredAt])
   @@index([entityType, entityId])
   @@index([actorType, actorId])
-  @@index([module, entityType, entityId, occurredAt])
   @@index([actorType, actorId, occurredAt])
   @@index([actorNo, occurredAt])
   @@index([entityOwnerNo, occurredAt])
@@ -743,6 +794,7 @@ model ApprovalActionPolicy {
   actionType   String   @id
   riskLevel    String   @default("HIGH")
   checkerRoles String
+  stepsConfig  String?
   timeoutHours Int      @default(24)
   allowCancel  Boolean  @default(true)
   allowRetry   Boolean  @default(true)
@@ -759,6 +811,32 @@ model ApprovalSodRule {
   updatedAt   DateTime @updatedAt
 
   @@map("approval_sod_rules")
+}
+
+model ApprovalPolicyChangeRequest {
+  id                   String    @id @default(uuid())
+  requestNo            String    @unique @default("TEMP")
+  targetActionType     String
+  currentCheckerRoles  String
+  proposedCheckerRoles String
+  currentStepsConfig   String?
+  proposedStepsConfig  String?
+  changeReason         String
+  status               String    @default("PENDING_APPROVAL")
+  approvalCaseId       String?
+  approvalCaseNo       String?
+  requestedByUserId    String
+  executedAt           DateTime?
+  failureReason        String?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+  deletedAt            DateTime?
+
+  @@index([targetActionType, status])
+  @@index([approvalCaseId])
+  @@index([status])
+  @@index([requestedByUserId])
+  @@map("approval_policy_change_requests")
 }
 
 model ChangeTicket {

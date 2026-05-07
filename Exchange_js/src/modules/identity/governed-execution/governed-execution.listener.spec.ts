@@ -19,57 +19,29 @@ const makeEvent = (bindingOverrides: Record<string, unknown> = {}): ChangeTicket
 
 describe('GovernedExecutionListener', () => {
   let listener: GovernedExecutionListener;
-  let usersService: { executeAdminMemberProvisioning: jest.Mock };
-  let accessControlService: { executeGovernedRoleBindingChange: jest.Mock };
   let businessConfigService: { publishReleaseFromGovernance: jest.Mock };
 
   beforeEach(() => {
-    usersService = {
-      executeAdminMemberProvisioning: jest.fn().mockResolvedValue({ userNo: 'ADM-NEW' }),
-    };
-    accessControlService = {
-      executeGovernedRoleBindingChange: jest.fn().mockResolvedValue({ userId: 'user-1' }),
-    };
     businessConfigService = {
       publishReleaseFromGovernance: jest.fn().mockResolvedValue(undefined),
     };
     listener = new GovernedExecutionListener(
-      usersService as any,
-      accessControlService as any,
       businessConfigService as any,
     );
   });
 
-  it('routes ADMIN_MEMBER_PROVISIONING intent to usersService', async () => {
+  it('routes BUSINESS_CONFIG_CHANGE intent to businessConfigService', async () => {
     const event = makeEvent({
-      intent: 'ADMIN_MEMBER_PROVISIONING',
-      email: 'new-admin@fiatx.com',
-      roleCodes: ['CISO', 'TECH_OFFICER'],
+      intent: 'BUSINESS_CONFIG_CHANGE',
+      releaseNo: 'REL-001',
     });
 
     await listener.handleChangeTicketConsumed(event);
 
-    expect(usersService.executeAdminMemberProvisioning).toHaveBeenCalledWith(
-      event.binding,
-      event.actor,
+    expect(businessConfigService.publishReleaseFromGovernance).toHaveBeenCalledWith(
+      'REL-001',
+      event.ticketNo,
     );
-    expect(accessControlService.executeGovernedRoleBindingChange).not.toHaveBeenCalled();
-  });
-
-  it('routes ADMIN_ROLE_BINDING_CHANGE intent to accessControlService', async () => {
-    const event = makeEvent({
-      intent: 'ADMIN_ROLE_BINDING_CHANGE',
-      targetUserId: 'user-123',
-      roleCodes: ['DPO'],
-    });
-
-    await listener.handleChangeTicketConsumed(event);
-
-    expect(accessControlService.executeGovernedRoleBindingChange).toHaveBeenCalledWith(
-      event.binding,
-      event.actor,
-    );
-    expect(usersService.executeAdminMemberProvisioning).not.toHaveBeenCalled();
   });
 
   it('does not call any service for unknown intent', async () => {
@@ -77,8 +49,7 @@ describe('GovernedExecutionListener', () => {
 
     await listener.handleChangeTicketConsumed(event);
 
-    expect(usersService.executeAdminMemberProvisioning).not.toHaveBeenCalled();
-    expect(accessControlService.executeGovernedRoleBindingChange).not.toHaveBeenCalled();
+    expect(businessConfigService.publishReleaseFromGovernance).not.toHaveBeenCalled();
   });
 
   it('does not call any service when intent is absent', async () => {
@@ -86,33 +57,6 @@ describe('GovernedExecutionListener', () => {
 
     await listener.handleChangeTicketConsumed(event);
 
-    expect(usersService.executeAdminMemberProvisioning).not.toHaveBeenCalled();
-    expect(accessControlService.executeGovernedRoleBindingChange).not.toHaveBeenCalled();
-  });
-
-  it('propagates errors from usersService to the caller', async () => {
-    usersService.executeAdminMemberProvisioning.mockRejectedValue(
-      new Error('provisioning failed'),
-    );
-    const event = makeEvent({
-      intent: 'ADMIN_MEMBER_PROVISIONING',
-      email: 'fail@fiatx.com',
-      roleCodes: ['CISO'],
-    });
-
-    await expect(listener.handleChangeTicketConsumed(event)).rejects.toThrow('provisioning failed');
-  });
-
-  it('propagates errors from accessControlService to the caller', async () => {
-    accessControlService.executeGovernedRoleBindingChange.mockRejectedValue(
-      new Error('role binding failed'),
-    );
-    const event = makeEvent({
-      intent: 'ADMIN_ROLE_BINDING_CHANGE',
-      targetUserId: 'user-1',
-      roleCodes: ['DPO'],
-    });
-
-    await expect(listener.handleChangeTicketConsumed(event)).rejects.toThrow('role binding failed');
+    expect(businessConfigService.publishReleaseFromGovernance).not.toHaveBeenCalled();
   });
 });

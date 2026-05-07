@@ -26,7 +26,6 @@ import {
   AuditModules,
   buildStateTransitionAction,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditTriggerType } from '../../audit-logging/dto/audit-log.dto';
 
 type DepositWriteClient = Prisma.TransactionClient | PrismaService;
 
@@ -123,9 +122,8 @@ export class DepositTransactionsService {
   ) {
     await this.recordAuditEvent(
       {
-        triggerType: AuditTriggerType.DATA_UPDATE,
+
         action: AuditActions.TX_DEPOSIT_RELEASE_BLOCKED,
-        module: AuditModules.DEPOSIT_TRANSACTIONS,
         entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
         entityId: item.id,
         entityNo: item.depositNo,
@@ -520,9 +518,8 @@ export class DepositTransactionsService {
 
     await this.recordAuditEvent(
       {
-        triggerType: AuditTriggerType.STATE_TRANSITION,
+
         action: buildStateTransitionAction('DEPOSIT', currentStatus, nextStatus),
-        module: AuditModules.DEPOSIT_TRANSACTIONS,
         entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
         entityId: updated.id,
         entityNo: updated.depositNo,
@@ -530,11 +527,7 @@ export class DepositTransactionsService {
         entityOwnerId: updated.ownerId,
         traceId: options?.traceId || undefined,
         workflowType: options?.workflowType || 'DEPOSIT',
-        statusFrom: currentStatus,
-        statusTo: nextStatus,
         reason: options?.reason || dto.reason || `Action: ${action}`,
-        beforeData: { status: currentStatus },
-        afterData: { status: nextStatus },
         metadata: options?.metadata || undefined,
         sourcePlatform: options?.sourcePlatform || options?.actor?.sourcePlatform || 'SYSTEM',
       },
@@ -669,9 +662,8 @@ export class DepositTransactionsService {
     });
 
     await this.auditLogsService.recordSystem({
-      triggerType: AuditTriggerType.DATA_CREATE,
+
       action: AuditActions.DEPOSIT_CREATED_FROM_PAYIN,
-      module: AuditModules.DEPOSIT_TRANSACTIONS,
       entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
       entityId: created.id,
       entityNo: created.depositNo,
@@ -679,12 +671,6 @@ export class DepositTransactionsService {
       entityOwnerId: created.ownerId,
       workflowType: 'DEPOSIT',
       reason: 'Deposit created from payin detection',
-      afterData: {
-        status: created.status,
-        amount: created.amount?.toString?.(),
-        assetId: created.assetId,
-        payinId: created.payinId,
-      },
       sourcePlatform: 'SYSTEM',
     });
 

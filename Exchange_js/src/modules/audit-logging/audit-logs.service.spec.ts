@@ -2,7 +2,6 @@ import { InternalServerErrorException, NotFoundException } from '@nestjs/common'
 import { AuditLogsService } from './audit-logs.service';
 import {
   AuditResult,
-  AuditTriggerType,
 } from './dto/audit-log.dto';
 import {
   AuditActions,
@@ -211,48 +210,6 @@ describe('AuditLogsService', () => {
     expect(mapRawAuditActionToUserAction('UNKNOWN_WAVE1_ACTION')).toBeUndefined();
   });
 
-  it('should infer trigger type by rule order and persist EVIDENCE_EXPORT first', async () => {
-    prisma.auditLogEvent.findUnique.mockResolvedValue(null);
-    prisma.auditLogEvent.create.mockResolvedValue({
-      id: 'a1',
-      auditNo: 'AUD2602180001',
-      triggerType: AuditTriggerType.EVIDENCE_EXPORT,
-      action: AuditActions.AUDIT_EVIDENCE_PACKAGE_EXPORTED,
-      module: AuditModules.AUDIT_LOGS,
-      entityType: AuditEntityTypes.AUDIT_EVIDENCE_PACKAGE,
-      entityId: 'pkg-1',
-      actorType: 'ADMIN',
-      actorId: 'admin-1',
-      payloadDigest: 'x'.repeat(64),
-      metadata: null,
-      beforeData: null,
-      afterData: null,
-      occurredAt: new Date('2026-02-18T10:00:00.000Z'),
-    });
-
-    const result = await service.recordByActor(
-      {
-        action: AuditActions.AUDIT_EVIDENCE_PACKAGE_EXPORTED,
-        module: AuditModules.AUDIT_LOGS,
-        entityType: AuditEntityTypes.AUDIT_EVIDENCE_PACKAGE,
-        entityId: 'pkg-1',
-      },
-      {
-        actorType: 'ADMIN',
-        actorId: 'admin-1',
-        actorRole: 'OPS',
-      },
-    );
-
-    expect(result.triggerType).toBe(AuditTriggerType.EVIDENCE_EXPORT);
-    expect(prisma.auditLogEvent.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          triggerType: AuditTriggerType.EVIDENCE_EXPORT,
-        }),
-      }),
-    );
-  });
 
   it('should map evidence export request and download actions into the audit evidence export workflow', async () => {
     prisma.auditLogEvent.count.mockResolvedValue(2);
@@ -260,9 +217,7 @@ describe('AuditLogsService', () => {
       {
         id: 'wf-exp-req-1',
         auditNo: 'AUD2604051001',
-        triggerType: AuditTriggerType.EVIDENCE_EXPORT,
         action: AuditActions.AUDIT_EVIDENCE_EXPORT_REQUESTED,
-        module: AuditModules.AUDIT_LOGS,
         entityType: AuditEntityTypes.AUDIT_EVIDENCE_PACKAGE,
         entityId: 'pkg-1',
         entityNo: 'EVP2604050351',
@@ -291,9 +246,7 @@ describe('AuditLogsService', () => {
       {
         id: 'wf-exp-download-1',
         auditNo: 'AUD2604051002',
-        triggerType: AuditTriggerType.EVIDENCE_EXPORT,
         action: AuditActions.AUDIT_EVIDENCE_PACKAGE_DOWNLOADED,
-        module: AuditModules.AUDIT_LOGS,
         entityType: AuditEntityTypes.AUDIT_EVIDENCE_PACKAGE,
         entityId: 'pkg-1',
         entityNo: 'EVP2604050351',
@@ -335,161 +288,9 @@ describe('AuditLogsService', () => {
     });
   });
 
-  it('should keep trigger priority with AUTH before DATA_CREATE and SYSTEM last', async () => {
-    prisma.auditLogEvent.findUnique.mockResolvedValue(null);
-    prisma.auditLogEvent.create
-      .mockImplementationOnce(({ data }: any) =>
-        Promise.resolve({
-          id: 'a-auth',
-          auditNo: 'AUD260218000A',
-          ...data,
-        }),
-      )
-      .mockImplementationOnce(({ data }: any) =>
-        Promise.resolve({
-          id: 'a-create',
-          auditNo: 'AUD260218000B',
-          ...data,
-        }),
-      );
 
-    const authResult = await service.recordByActor(
-      {
-        action: AuditActions.ADMIN_LOGIN_SUCCESS,
-        module: 'identity/auth',
-        entityType: AuditEntityTypes.AUTH,
-        afterData: { sessionId: 's-1' },
-      },
-      {
-        actorType: 'SYSTEM',
-        actorId: 'SYSTEM',
-        actorRole: 'SYSTEM',
-      },
-    );
 
-    const createResult = await service.recordByActor(
-      {
-        action: 'SYSTEM_TASK_CREATED',
-        module: 'orchestrators/reconcile',
-        entityType: 'RECONCILE_TASK',
-        entityId: 'task-1',
-        afterData: { status: 'CREATED' },
-      },
-      {
-        actorType: 'SYSTEM',
-        actorId: 'SYSTEM',
-        actorRole: 'SYSTEM',
-      },
-    );
 
-    expect(authResult.triggerType).toBe(AuditTriggerType.AUTH_EVENT);
-    expect(createResult.triggerType).toBe(AuditTriggerType.DATA_CREATE);
-  });
-
-  it('should allow onboarding state-transition action in approved allowlist', async () => {
-    prisma.auditLogEvent.findUnique.mockResolvedValue(null);
-    prisma.auditLogEvent.create.mockImplementation(({ data }: any) =>
-      Promise.resolve({
-        id: 'a-onboarding',
-        auditNo: 'AUD260218000C',
-        ...data,
-      }),
-    );
-
-    const result = await service.recordByActor(
-      {
-        triggerType: AuditTriggerType.STATE_TRANSITION,
-        action: AuditActions.CDD_APPROVED,
-        module: AuditModules.ONBOARDING,
-        entityType: AuditEntityTypes.ONBOARDING,
-        entityId: 'case-1',
-        statusFrom: 'IN_PROGRESS',
-        statusTo: 'APPROVED',
-      },
-      {
-        actorType: 'ADMIN',
-        actorId: 'admin-9',
-        actorRole: 'OPS',
-      },
-    );
-
-    expect(result.triggerType).toBe(AuditTriggerType.STATE_TRANSITION);
-    expect(result.action).toBe(AuditActions.CDD_APPROVED);
-  });
-
-  it('should allow alert resolution and canonical workflow actions in state-transition allowlist', async () => {
-    prisma.auditLogEvent.findUnique.mockResolvedValue(null);
-    prisma.auditLogEvent.create.mockImplementation(({ data }: any) =>
-      Promise.resolve({
-        id: 'a-alert-resolution',
-        auditNo: 'AUD2603250001',
-        ...data,
-      }),
-    );
-
-    const alertResult = await service.recordByActor(
-      {
-        triggerType: AuditTriggerType.STATE_TRANSITION,
-        action: AuditActions.ALERT_RESOLVED,
-        module: AuditModules.COMPLIANCE_ALERTS,
-        entityType: AuditEntityTypes.COMPLIANCE_ALERT,
-        entityId: 'alert-1',
-        statusFrom: 'ASSIGNED',
-        statusTo: 'CLOSED',
-      },
-      {
-        actorType: 'ADMIN',
-        actorId: 'admin-9',
-        actorRole: 'COMPLIANCE_OFFICER',
-      },
-    );
-
-    const workflowResult = await service.recordByActor(
-      {
-        triggerType: AuditTriggerType.STATE_TRANSITION,
-        action: 'ONBOARDING_WORKFLOW_CLEAR',
-        module: AuditModules.ONBOARDING,
-        entityType: AuditEntityTypes.ONBOARDING,
-        entityId: 'customer-1',
-        statusFrom: 'CDD_UNDER_REVIEW',
-        statusTo: 'APPROVED',
-      },
-      {
-        actorType: 'ADMIN',
-        actorId: 'admin-9',
-        actorRole: 'COMPLIANCE_OFFICER',
-      },
-    );
-
-    expect(alertResult.triggerType).toBe(AuditTriggerType.STATE_TRANSITION);
-    expect(alertResult.action).toBe(AuditActions.ALERT_RESOLVED);
-    expect(workflowResult.triggerType).toBe(AuditTriggerType.STATE_TRANSITION);
-    expect(workflowResult.action).toBe('ONBOARDING_WORKFLOW_CLEAR');
-  });
-
-  it('should allow canonical swap state-transition actions without allowlist entries', async () => {
-    prisma.auditLogEvent.findUnique.mockResolvedValue(null);
-    prisma.auditLogEvent.create.mockImplementation(({ data }: any) =>
-      Promise.resolve({
-        id: 'a-swap-transition',
-        auditNo: 'AUD2603260099',
-        ...data,
-      }),
-    );
-
-    const result = await service.recordSystem({
-      triggerType: AuditTriggerType.STATE_TRANSITION,
-      action: 'SWAP_PENDING_COMPLIANCE_TO_SUCCESS',
-      module: AuditModules.SWAP_TRANSACTIONS,
-      entityType: AuditEntityTypes.SWAP_TRANSACTION,
-      entityId: 'swap-1',
-      statusFrom: 'PENDING_COMPLIANCE',
-      statusTo: 'SUCCESS',
-    });
-
-    expect(result.triggerType).toBe(AuditTriggerType.STATE_TRANSITION);
-    expect(result.action).toBe('SWAP_PENDING_COMPLIANCE_TO_SUCCESS');
-  });
 
   it('should derive deposit trace and workflow context for payin events', async () => {
     prisma.payin.findUnique.mockResolvedValue({
@@ -520,9 +321,7 @@ describe('AuditLogsService', () => {
     );
 
     const result = await service.recordSystem({
-      triggerType: AuditTriggerType.DATA_CREATE,
       action: AuditActions.PAYIN_CREATED,
-      module: AuditModules.PAYINS,
       entityType: AuditEntityTypes.PAYIN,
       entityId: 'payin-1',
       entityNo: 'PI2603010001',
@@ -530,7 +329,6 @@ describe('AuditLogsService', () => {
       entityOwnerId: 'cust-1',
       workflowType: 'DEPOSIT',
       reason: 'Initial simulation',
-      afterData: { status: 'DETECTED' },
     });
 
     expect(result.traceId).toBe('DEPOSIT:payin-1');
@@ -549,7 +347,7 @@ describe('AuditLogsService', () => {
     );
   });
 
-  it('should mask payload and generate payloadDigest', async () => {
+  it('should mask sourceIp and generate payloadDigest', async () => {
     prisma.auditLogEvent.findUnique.mockResolvedValue(null);
     prisma.auditLogEvent.create.mockImplementation(({ data }: any) =>
       Promise.resolve({
@@ -562,27 +360,9 @@ describe('AuditLogsService', () => {
     const result = await service.recordByActor(
       {
         action: 'WITHDRAW_PAYOUT_PENDING_TO_SUCCESS',
-        module: AuditModules.WITHDRAW_TRANSACTIONS,
         entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
         entityId: 'wd-1',
-        statusFrom: 'PAYOUT_PENDING',
-        statusTo: 'SUCCESS',
         sourceIp: '192.168.8.50',
-        beforeData: {
-          email: 'alice@example.com',
-          phone: '13800138000',
-          nested: {
-            iban: 'AE12345678901234567890',
-            authorization: 'Bearer secret-token',
-          },
-        },
-        afterData: {
-          status: 'SUCCESS',
-          payout: {
-            walletAddress: '0x1234567890abcdef1234567890abcdef12345678',
-          },
-          token: 'raw-token',
-        },
       },
       {
         actorType: 'ADMIN',
@@ -593,11 +373,6 @@ describe('AuditLogsService', () => {
 
     expect(result.sourceIp).toBe('192.168.8.0');
     expect(result.payloadDigest).toHaveLength(64);
-    expect((result.beforeData as any).email).toBe('a***@example.com');
-    expect((result.beforeData as any).nested.iban).toMatch(/7890$/);
-    expect((result.beforeData as any).nested.authorization).toBe('***');
-    expect((result.afterData as any).token).toBe('***');
-    expect((result.afterData as any).payout.walletAddress).toMatch(/^0x1234/i);
   });
 
   it('should persist multi-anchor subjectNos and digest-backed evidence payloads', async () => {
@@ -649,15 +424,12 @@ describe('AuditLogsService', () => {
     const result = await service.recordByActor(
       {
         action: 'APPLICATION_STATUS_UPDATED',
-        module: 'onboarding/applications',
         entityType: 'APPLICATION',
         entityId: 'app-1',
         entityNo: 'APP2602180001',
         entityOwnerType: 'CUSTOMER',
         entityOwnerId: 'cust-1',
         entityOwnerNo: 'CUS2602180001',
-        beforeData: { status: 'PENDING' },
-        afterData: { status: 'APPROVED' },
       },
       {
         actorType: 'ADMIN',
@@ -677,16 +449,6 @@ describe('AuditLogsService', () => {
         }),
       ]),
     );
-    expect(result.beforeData).toEqual(
-      expect.objectContaining({
-        digest: expect.any(String),
-      }),
-    );
-    expect(result.afterData).toEqual(
-      expect.objectContaining({
-        digest: expect.any(String),
-      }),
-    );
   });
 
   it('should generate stable payloadDigest for semantically equal payloads', async () => {
@@ -703,11 +465,9 @@ describe('AuditLogsService', () => {
       {
         idempotencyKey: 'digest-test-1',
         action: 'WITHDRAW_METADATA_UPDATED',
-        module: AuditModules.WITHDRAW_TRANSACTIONS,
         entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
         entityId: 'wd-2',
-        beforeData: { b: 2, a: 1 },
-        afterData: { nested: { y: 2, x: 1 }, ok: true },
+        metadata: { b: 2, a: 1 },
         occurredAt: '2026-02-18T10:00:00.000Z',
       },
       {
@@ -721,11 +481,9 @@ describe('AuditLogsService', () => {
       {
         idempotencyKey: 'digest-test-2',
         action: 'WITHDRAW_METADATA_UPDATED',
-        module: AuditModules.WITHDRAW_TRANSACTIONS,
         entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
         entityId: 'wd-2',
-        beforeData: { a: 1, b: 2 },
-        afterData: { ok: true, nested: { x: 1, y: 2 } },
+        metadata: { a: 1, b: 2 },
         occurredAt: '2026-02-18T10:00:00.000Z',
       },
       {
@@ -763,7 +521,6 @@ describe('AuditLogsService', () => {
       {
         idempotencyKey: 'fixed-key-1',
         action: 'SYSTEM_RECONCILE_EXECUTED',
-        module: 'orchestrators/reconcile',
         entityType: 'SYSTEM_TASK',
         entityId: 'task-1',
       },
@@ -778,7 +535,6 @@ describe('AuditLogsService', () => {
       {
         idempotencyKey: 'fixed-key-1',
         action: 'SYSTEM_RECONCILE_EXECUTED',
-        module: 'orchestrators/reconcile',
         entityType: 'SYSTEM_TASK',
         entityId: 'task-1',
       },
@@ -800,9 +556,7 @@ describe('AuditLogsService', () => {
       {
         id: 'a3',
         auditNo: 'AUD2602180003',
-        triggerType: AuditTriggerType.DATA_UPDATE,
         action: 'WITHDRAW_UPDATED',
-        module: 'trading/withdraw',
         entityType: 'WITHDRAW_TRANSACTION',
         entityId: 'wd-1',
         actorType: 'ADMIN',
@@ -841,9 +595,7 @@ describe('AuditLogsService', () => {
       {
         id: 'wf-ct-1',
         auditNo: 'AUD2604010001',
-        triggerType: AuditTriggerType.DATA_UPDATE,
         action: AuditActions.APPROVAL_APPROVED,
-        module: AuditModules.GOVERNANCE_APPROVALS,
         entityType: AuditEntityTypes.APPROVAL_CASE,
         entityId: 'approval-1',
         entityNo: 'APR2604010001',
@@ -860,9 +612,7 @@ describe('AuditLogsService', () => {
       {
         id: 'wf-dr-1',
         auditNo: 'AUD2604010002',
-        triggerType: AuditTriggerType.DATA_CREATE,
         action: AuditActions.DELETE_REQUEST_CREATED,
-        module: AuditModules.GOVERNANCE_DELETE_REQUESTS,
         entityType: AuditEntityTypes.DELETE_REQUEST,
         entityId: 'request-1',
         entityNo: 'DR2604010001',
@@ -879,9 +629,7 @@ describe('AuditLogsService', () => {
       {
         id: 'wf-login-1',
         auditNo: 'AUD2604010003',
-        triggerType: AuditTriggerType.AUTH_EVENT,
         action: AuditActions.ADMIN_LOGIN_SUCCESS,
-        module: AuditModules.AUTH,
         entityType: AuditEntityTypes.AUTH,
         entityId: null,
         entityNo: null,
@@ -899,9 +647,7 @@ describe('AuditLogsService', () => {
       {
         id: 'wf-exp-1',
         auditNo: 'AUD2604010004',
-        triggerType: AuditTriggerType.EVIDENCE_EXPORT,
         action: AuditActions.AUDIT_EVIDENCE_PACKAGE_EXPORTED,
-        module: AuditModules.AUDIT_LOGS,
         entityType: AuditEntityTypes.AUDIT_EVIDENCE_PACKAGE,
         entityId: 'pkg-1',
         entityNo: 'EVP2604010001',
@@ -957,9 +703,7 @@ describe('AuditLogsService', () => {
       {
         id: 'exec-failed-1',
         auditNo: 'AUD2604010012',
-        triggerType: AuditTriggerType.DATA_UPDATE,
         action: AuditActions.APPROVAL_EXECUTION_FAILED,
-        module: AuditModules.GOVERNANCE_APPROVALS,
         entityType: AuditEntityTypes.APPROVAL_CASE,
         entityId: 'approval-2',
         entityNo: 'APR2604010002',
@@ -990,9 +734,7 @@ describe('AuditLogsService', () => {
       {
         id: 'ref-root-1',
         auditNo: 'AUD2604010013',
-        triggerType: AuditTriggerType.DATA_UPDATE,
         action: AuditActions.APPROVAL_APPROVED,
-        module: AuditModules.GOVERNANCE_APPROVALS,
         entityType: AuditEntityTypes.APPROVAL_CASE,
         entityId: 'approval-3',
         entityNo: 'APR2604010003',
@@ -1038,9 +780,7 @@ describe('AuditLogsService', () => {
     prisma.auditLogEvent.findUnique.mockResolvedValue({
       id: 'detail-1',
       auditNo: 'AUD2604010100',
-      triggerType: AuditTriggerType.DATA_UPDATE,
       action: AuditActions.APPROVAL_APPROVED,
-      module: AuditModules.GOVERNANCE_APPROVALS,
       entityType: AuditEntityTypes.APPROVAL_CASE,
       entityId: 'approval-1',
       entityNo: 'APR2604010001',
@@ -1156,9 +896,7 @@ describe('AuditLogsService', () => {
       {
         id: 'a-sub-1',
         auditNo: 'AUD2602180999',
-        triggerType: AuditTriggerType.DATA_UPDATE,
         action: 'WALLET_STATUS_UPDATED',
-        module: 'asset-treasury/wallets',
         entityType: 'WALLET',
         entityId: 'wallet-1',
         actorType: 'ADMIN',
@@ -1295,7 +1033,6 @@ describe('AuditLogsService', () => {
       service.recordByActor(
         {
           action: AuditActions.ADMIN_LOGIN_SUCCESS,
-          module: AuditModules.AUTH,
           entityType: AuditEntityTypes.AUTH,
         },
         {
@@ -1315,9 +1052,7 @@ describe('AuditLogsService', () => {
       {
         id: 'audit-1',
         auditNo: 'AUD2603240001',
-        triggerType: AuditTriggerType.DATA_UPDATE,
         action: AuditActions.DEPOSIT_ACCOUNTING_POSTED,
-        module: AuditModules.DEPOSIT_TRANSACTIONS,
         entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
         entityId: 'dep-1',
         entityNo: 'DEP2603240001',
@@ -1601,9 +1336,7 @@ describe('AuditLogsService', () => {
       {
         id: 'audit-swap-1',
         auditNo: 'AUD2603260001',
-        triggerType: AuditTriggerType.DATA_UPDATE,
         action: AuditActions.SWAP_CREATED,
-        module: AuditModules.SWAP_TRANSACTIONS,
         entityType: AuditEntityTypes.SWAP_TRANSACTION,
         entityId: 'swap-1',
         entityNo: 'SWP2603260001',
@@ -1622,9 +1355,7 @@ describe('AuditLogsService', () => {
       {
         id: 'audit-swap-2',
         auditNo: 'AUD2603260002',
-        triggerType: AuditTriggerType.DATA_UPDATE,
         action: AuditActions.TX_SWAP_RELEASED,
-        module: AuditModules.SWAP_TRANSACTIONS,
         entityType: AuditEntityTypes.SWAP_TRANSACTION,
         entityId: 'swap-1',
         entityNo: 'SWP2603260001',
@@ -1958,9 +1689,7 @@ describe('AuditLogsService', () => {
       {
         id: 'audit-withdraw-1',
         auditNo: 'AUD2603270001',
-        triggerType: AuditTriggerType.DATA_UPDATE,
         action: AuditActions.SYSTEM_WITHDRAW_APPROVED_ORCHESTRATED,
-        module: AuditModules.WITHDRAW_TRANSACTIONS,
         entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
         entityId: 'withdraw-1',
         entityNo: 'WD2603270001',
@@ -1976,9 +1705,7 @@ describe('AuditLogsService', () => {
       {
         id: 'audit-withdraw-2',
         auditNo: 'AUD2603270002',
-        triggerType: AuditTriggerType.DATA_UPDATE,
         action: AuditActions.TX_RECONCILIATION_BREAK_DETECTED,
-        module: AuditModules.SAFEGUARDING_RECONCILIATION,
         entityType: AuditEntityTypes.RECONCILIATION_BREAK,
         entityId: 'break-1',
         entityNo: 'RBR2603270001',
@@ -2359,9 +2086,7 @@ describe('AuditLogsService', () => {
       {
         id: 'audit-swap-1',
         auditNo: 'AUD2603260101',
-        triggerType: AuditTriggerType.DATA_UPDATE,
         action: AuditActions.SWAP_CREATED,
-        module: AuditModules.SWAP_TRANSACTIONS,
         entityType: AuditEntityTypes.SWAP_TRANSACTION,
         entityId: 'swap-1',
         entityNo: 'SWP2603260001',
@@ -2395,9 +2120,7 @@ describe('AuditLogsService', () => {
       {
         id: 'audit-quote-1',
         auditNo: 'AUD2603260999',
-        triggerType: AuditTriggerType.DATA_CREATE,
         action: AuditActions.SWAP_QUOTE_CREATED,
-        module: AuditModules.SWAP_TRANSACTIONS,
         entityType: AuditEntityTypes.SWAP_QUOTE,
         entityId: 'quote-1',
         entityNo: 'QUO2603260999',

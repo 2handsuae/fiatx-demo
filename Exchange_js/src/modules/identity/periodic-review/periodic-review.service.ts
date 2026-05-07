@@ -15,7 +15,6 @@ import {
   AuditModules,
   AuditWorkflowTypes,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditTriggerType } from '../../audit-logging/dto/audit-log.dto';
 import { CustomerNextStepActionType } from '../customer-status.util';
 import {
   PERIODIC_REVIEW_WORKFLOW,
@@ -242,15 +241,9 @@ export class PeriodicReviewService {
     const workflowContext = buildComplianceWorkflowTraceContext({
       workflow: PERIODIC_REVIEW_WORKFLOW,
     });
-    const triggerType = String(input.action || '').trim().toUpperCase().endsWith('_CREATED')
-      ? AuditTriggerType.DATA_CREATE
-      : AuditTriggerType.DATA_UPDATE;
-
     await this.auditLogsService.recordByActor(
       {
-        triggerType,
         action: input.action,
-        module: AuditModules.ONBOARDING,
         entityType: AuditEntityTypes.ONBOARDING,
         entityId: input.customerId,
         entityNo: customer?.customerNo || undefined,
@@ -260,8 +253,6 @@ export class PeriodicReviewService {
         entityOwnerType: 'CUSTOMER',
         entityOwnerId: input.customerId,
         entityOwnerNo: customer?.customerNo || undefined,
-        statusFrom: input.fromStage || undefined,
-        statusTo: input.toStage || undefined,
         reason: input.detail || undefined,
         metadata: {
           caseType: input.caseType || null,

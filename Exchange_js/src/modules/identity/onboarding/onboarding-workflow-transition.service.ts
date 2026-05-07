@@ -12,7 +12,6 @@ import {
   AuditModules,
   AuditWorkflowTypes,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditTriggerType } from '../../audit-logging/dto/audit-log.dto';
 import {
   buildCustomerLifecyclePatch as buildCustomerLifecycleStatePatch,
   CustomerOnboardingStatus,
@@ -367,9 +366,7 @@ export class OnboardingWorkflowTransitionService {
     });
     await this.auditLogsService.recordByActor(
       {
-        triggerType: AuditTriggerType.STATE_TRANSITION,
         action: this.getWorkflowAuditAction(dispositionCode),
-        module: AuditModules.ONBOARDING,
         entityType: AuditEntityTypes.ONBOARDING,
         entityId: customer.id,
         entityNo: customer.customerNo || undefined,
@@ -378,8 +375,6 @@ export class OnboardingWorkflowTransitionService {
         entityOwnerType: 'CUSTOMER',
         entityOwnerId: customer.id,
         entityOwnerNo: customer.customerNo || undefined,
-        statusFrom: fromStatus || undefined,
-        statusTo: toStatus || undefined,
         reason: String(input.reason || '').trim() || dispositionCode,
         metadata: {
           producerType: input.producerType,

@@ -18,7 +18,7 @@ import {
   AuditEntityTypes,
   AuditModules,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditResult, AuditTriggerType } from '../../audit-logging/dto/audit-log.dto';
+import { AuditResult } from '../../audit-logging/dto/audit-log.dto';
 
 @Injectable()
 export class LiquidityConfigService {
@@ -78,19 +78,12 @@ export class LiquidityConfigService {
     });
 
     await this.auditLogsService.recordSystem({
-      triggerType: AuditTriggerType.CONFIG_CHANGE,
+
       action: AuditActions.LP_CONFIG_UPDATED,
-      module: AuditModules.LIQUIDITY_CONFIG,
       entityType: AuditEntityTypes.LIQUIDITY_CONFIG,
       entityId: result.id,
       result: AuditResult.SUCCESS,
       reason: 'Liquidity config created',
-      afterData: {
-        lpId: result.lpId,
-        fromAssetId: result.fromAssetId,
-        toAssetId: result.toAssetId,
-        status: result.status,
-      },
       sourcePlatform: 'ADMIN_API',
     });
 
@@ -176,27 +169,12 @@ export class LiquidityConfigService {
     });
 
     await this.auditLogsService.recordSystem({
-      triggerType: AuditTriggerType.CONFIG_CHANGE,
+
       action: AuditActions.LP_CONFIG_UPDATED,
-      module: AuditModules.LIQUIDITY_CONFIG,
       entityType: AuditEntityTypes.LIQUIDITY_CONFIG,
       entityId: result.id,
       result: AuditResult.SUCCESS,
       reason: 'Liquidity config updated',
-      beforeData: {
-        spreadPercent: config.spreadPercent,
-        feePercent: config.feePercent,
-        feeFixedAmount: config.feeFixedAmount,
-        minFromAmount: config.minFromAmount,
-        maxFromAmount: config.maxFromAmount,
-      },
-      afterData: {
-        spreadPercent: result.spreadPercent,
-        feePercent: result.feePercent,
-        feeFixedAmount: result.feeFixedAmount,
-        minFromAmount: result.minFromAmount,
-        maxFromAmount: result.maxFromAmount,
-      },
       sourcePlatform: 'ADMIN_API',
     });
 
@@ -209,20 +187,12 @@ export class LiquidityConfigService {
     const before = await this.findOne(id); // Ensure exists
     const deleted = await this.prisma.liquidityConfiguration.delete({ where: { id } });
     await this.auditLogsService.recordSystem({
-      triggerType: AuditTriggerType.CONFIG_CHANGE,
+
       action: AuditActions.LP_CONFIG_UPDATED,
-      module: AuditModules.LIQUIDITY_CONFIG,
       entityType: AuditEntityTypes.LIQUIDITY_CONFIG,
       entityId: id,
       result: AuditResult.SUCCESS,
       reason: 'Liquidity config deleted',
-      beforeData: {
-        id: before.id,
-        lpId: before.lpId,
-        fromAssetId: before.fromAssetId,
-        toAssetId: before.toAssetId,
-        status: before.status,
-      },
       sourcePlatform: 'ADMIN_API',
     });
     return deleted;
@@ -236,17 +206,12 @@ export class LiquidityConfigService {
       data: { status },
     });
     await this.auditLogsService.recordSystem({
-      triggerType: AuditTriggerType.CONFIG_CHANGE,
+
       action: AuditActions.LP_CONFIG_UPDATED,
-      module: AuditModules.LIQUIDITY_CONFIG,
       entityType: AuditEntityTypes.LIQUIDITY_CONFIG,
       entityId: id,
-      statusFrom: before.status,
-      statusTo: result.status,
       result: AuditResult.SUCCESS,
       reason: 'Liquidity config status changed',
-      beforeData: { status: before.status },
-      afterData: { status: result.status },
       sourcePlatform: 'ADMIN_API',
     });
     return result;

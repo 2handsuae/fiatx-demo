@@ -26,7 +26,6 @@ import {
 import {
   AuditResult,
   AuditSubjectRole,
-  AuditTriggerType,
 } from '../../audit-logging/dto/audit-log.dto';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import { sha256Hex } from '../../audit-logging/utils/audit-digest.util';
@@ -68,11 +67,6 @@ type AdminMemberProvisioningTicketInput = {
   changeReason: string;
 };
 
-type AdminRoleBindingChangeTicketInput = {
-  roleCodes: string[];
-  changeReason: string;
-};
-
 type ChangeTicketBindingSnapshot = {
   intent?: string;
   [key: string]: any;
@@ -83,8 +77,6 @@ interface ApprovalProjectionResult {
   action?: string;
   reason?: string;
   result?: AuditResult;
-  statusFrom?: string;
-  statusTo?: string;
   approvalNo?: string | null;
 }
 
@@ -276,8 +268,6 @@ export class ChangeTicketsService {
       actor,
       AuditResult.SUCCESS,
       'Change ticket created',
-      null,
-      ChangeTicketStatuses.DRAFT,
     );
 
     return this.mapTicket(created);
@@ -391,23 +381,17 @@ export class ChangeTicketsService {
     actor: ApprovalActorContext,
     result: AuditResult,
     reason?: string | null,
-    statusFrom?: string | null,
-    statusTo?: string | null,
     metadata?: Record<string, unknown>,
     approvalNo?: string | null,
   ) {
     await this.auditLogsService.recordByActor(
       {
-        triggerType: AuditTriggerType.DATA_UPDATE,
         action,
-        module: AuditModules.GOVERNANCE_CHANGE_TICKETS,
         entityType: AuditEntityTypes.CHANGE_TICKET,
         entityId: ticket.id,
         entityNo: ticket.ticketNo,
         workflowType: this.resolveBusinessWorkflowType(ticket.changeType),
         traceId: ticket.traceId,
-        statusFrom: statusFrom || undefined,
-        statusTo: statusTo || undefined,
         result,
         reason: reason || undefined,
         metadata: {
@@ -530,8 +514,6 @@ export class ChangeTicketsService {
       action,
       reason,
       result,
-      statusFrom: ticket.status,
-      statusTo: nextStatus,
       approvalNo,
     };
   }
@@ -569,8 +551,6 @@ export class ChangeTicketsService {
         this.systemActor(),
         projection.result || AuditResult.SUCCESS,
         projection.reason,
-        projection.statusFrom,
-        projection.statusTo,
         undefined,
         projection.approvalNo,
       );
@@ -614,67 +594,6 @@ export class ChangeTicketsService {
         traceId: draft.traceId,
         intent: 'ADMIN_MEMBER_PROVISIONING',
         email,
-        roleCodes,
-        requestedByUserId: actor.userId,
-        requestedByUserNo: actor.userNo || actor.userId,
-        changeReason,
-        scopeSummary,
-        testEvidenceRef: draft.testEvidenceRef,
-        rollbackPlanRef: draft.rollbackPlanRef,
-      }),
-    );
-  }
-
-  async createAdminRoleBindingChangeTicket(
-    userId: string,
-    input: AdminRoleBindingChangeTicketInput,
-    actor: ApprovalActorContext,
-  ) {
-    const normalizedUserId = String(userId || '').trim();
-    if (!normalizedUserId) {
-      throw new BadRequestException('userId is required');
-    }
-
-    const roleCodes = this.normalizeProposalRoleCodes(input.roleCodes);
-    if (roleCodes.length === 0) {
-      throw new BadRequestException('At least one role code is required');
-    }
-
-    const targetUser = await this.prisma.user.findFirst({
-      where: {
-        id: normalizedUserId,
-        deletedAt: null,
-      },
-      select: {
-        id: true,
-        userNo: true,
-        email: true,
-      },
-    });
-
-    if (!targetUser) {
-      throw new NotFoundException('User not found');
-    }
-
-    const changeReason = this.requireNonBlankString(input.changeReason, 'changeReason');
-    const scopeSummary = `Replace admin role bindings for user ${normalizedUserId} with roles ${roleCodes.join(', ')}`;
-
-    return this.createTicketWithFrozenSnapshot(
-      {
-        changeType: ChangeTicketTypes.RBAC_CATALOG_CHANGE,
-        changeReason,
-        scopeSummary,
-        ...this.buildBusinessPageProposalRefs(),
-      },
-      actor,
-      (draft) => ({
-        ticketNo: draft.ticketNo,
-        changeType: draft.changeType,
-        traceId: draft.traceId,
-        intent: 'ADMIN_ROLE_BINDING_CHANGE',
-        targetUserId: targetUser.id,
-        targetUserNo: targetUser.userNo,
-        targetEmail: targetUser.email,
         roleCodes,
         requestedByUserId: actor.userId,
         requestedByUserNo: actor.userNo || actor.userId,
@@ -780,8 +699,6 @@ export class ChangeTicketsService {
       actor,
       AuditResult.SUCCESS,
       this.normalizeOptionalString(dto.reason) || 'Change ticket submitted',
-      ChangeTicketStatuses.DRAFT,
-      ChangeTicketStatuses.PENDING_APPROVAL,
       {
         approvalCaseId: approval?.id || null,
       },
@@ -800,8 +717,6 @@ export class ChangeTicketsService {
         actor,
         AuditResult.SUCCESS,
         `Approval ${approval.approvalNo} linked`,
-        ChangeTicketStatuses.PENDING_APPROVAL,
-        ChangeTicketStatuses.PENDING_APPROVAL,
         {
           approvalCaseId: approval.id,
         },
@@ -848,8 +763,6 @@ export class ChangeTicketsService {
       actor,
       dto.success ? AuditResult.SUCCESS : AuditResult.FAILED,
       note || (dto.success ? 'Change ticket consumed successfully' : 'Change ticket consume failed'),
-      ChangeTicketStatuses.READY,
-      nextStatus,
       {
         consumed: true,
       },

@@ -16,7 +16,6 @@ import {
 } from '../../audit-logging/constants/audit-actions.constant';
 import {
   AuditResult,
-  AuditTriggerType,
 } from '../../audit-logging/dto/audit-log.dto';
 import {
   ApprovalActorContext,
@@ -216,26 +215,15 @@ export class RegulatoryGatesService {
       action: string;
       entityId: string;
       entityNo: string;
-      triggerType?: AuditTriggerType;
       traceId?: string | null;
-      statusFrom?: string | null;
-      statusTo?: string | null;
       reason?: string | null;
-      beforeData?: Record<string, unknown>;
-      afterData?: Record<string, unknown>;
     },
     actor: ApprovalActorContext,
     db?: RegulatoryGateWriteClient,
   ) {
     await this.auditLogsService.recordByActor(
       {
-        triggerType:
-          input.triggerType ||
-          (input.statusFrom || input.statusTo
-            ? AuditTriggerType.STATE_TRANSITION
-            : AuditTriggerType.DATA_CREATE),
         action: input.action,
-        module: AuditModules.GOVERNANCE_REGULATORY_GATES,
         entityType: AuditEntityTypes.REGULATORY_GATE_ITEM,
         entityId: input.entityId,
         entityNo: input.entityNo,
@@ -243,10 +231,6 @@ export class RegulatoryGatesService {
         workflowType: AuditWorkflowTypes.REGULATORY_GATE,
         result: AuditResult.SUCCESS,
         reason: input.reason || undefined,
-        statusFrom: input.statusFrom || undefined,
-        statusTo: input.statusTo || undefined,
-        beforeData: input.beforeData,
-        afterData: input.afterData,
         sourcePlatform: 'ADMIN_API',
       },
       this.toAuditActor(actor),
@@ -631,12 +615,6 @@ export class RegulatoryGatesService {
           entityId: created.id,
           entityNo: created.gateNo,
           traceId: created.traceId,
-          afterData: {
-            gateType: created.gateType,
-            subjectType: created.subjectType,
-            subjectNo: created.subjectNo,
-            gateResult: created.gateResult,
-          },
         },
         actor,
         db,
@@ -719,8 +697,6 @@ export class RegulatoryGatesService {
           entityId: updated.id,
           entityNo: updated.gateNo,
           traceId: updated.traceId,
-          beforeData: { gateResult: current.gateResult },
-          afterData: { gateResult: updated.gateResult },
         },
         actor,
         db,
@@ -771,14 +747,9 @@ export class RegulatoryGatesService {
       await this.recordAudit(
         {
           action: AuditActions.REGULATORY_GATE_SUBMITTED,
-          triggerType: AuditTriggerType.DATA_UPDATE,
           entityId: updated.id,
           entityNo: updated.gateNo,
           traceId: updated.traceId,
-          statusFrom: current.filingStatus,
-          statusTo: updated.filingStatus,
-          beforeData: { filingStatus: current.filingStatus },
-          afterData: { filingStatus: updated.filingStatus, filingRefNo: updated.filingRefNo },
         },
         actor,
         db,
@@ -843,17 +814,9 @@ export class RegulatoryGatesService {
       await this.recordAudit(
         {
           action: AuditActions.REGULATORY_GATE_FEEDBACK_RECORDED,
-          triggerType: AuditTriggerType.DATA_UPDATE,
           entityId: updated.id,
           entityNo: updated.gateNo,
           traceId: updated.traceId,
-          statusFrom: current.filingStatus,
-          statusTo: updated.filingStatus,
-          beforeData: { filingStatus: current.filingStatus },
-          afterData: {
-            filingStatus: updated.filingStatus,
-            gateResult: updated.gateResult,
-          },
         },
         actor,
         db,
@@ -910,18 +873,9 @@ export class RegulatoryGatesService {
       await this.recordAudit(
         {
           action: AuditActions.REGULATORY_GATE_RECEIPT_BOUND,
-          triggerType: AuditTriggerType.DATA_UPDATE,
           entityId: updated.id,
           entityNo: updated.gateNo,
           traceId: updated.traceId,
-          statusFrom: current.receiptStatus,
-          statusTo: updated.receiptStatus,
-          beforeData: { receiptStatus: current.receiptStatus },
-          afterData: {
-            receiptStatus: updated.receiptStatus,
-            receiptType: updated.receiptType,
-            gateResult: updated.gateResult,
-          },
         },
         actor,
         db,
@@ -1029,14 +983,9 @@ export class RegulatoryGatesService {
     await this.recordAudit(
       {
         action: AuditActions.REGULATORY_GATE_MARKED_EFFECTIVE,
-        triggerType: AuditTriggerType.DATA_UPDATE,
         entityId: updated.id,
         entityNo: updated.gateNo,
         traceId: updated.traceId,
-        statusFrom: current.effectivenessStatus,
-        statusTo: updated.effectivenessStatus,
-        beforeData: { gateResult: current.gateResult },
-        afterData: { gateResult: updated.gateResult, effectiveAt: updated.effectiveAt },
       },
       actor,
     );
@@ -1077,15 +1026,10 @@ export class RegulatoryGatesService {
       await this.recordAudit(
         {
           action: AuditActions.REGULATORY_GATE_REVOKED,
-          triggerType: AuditTriggerType.DATA_UPDATE,
           entityId: updated.id,
           entityNo: updated.gateNo,
           traceId: updated.traceId,
-          statusFrom: current.effectivenessStatus,
-          statusTo: updated.effectivenessStatus,
           reason: this.normalizeOptionalString(dto.reason),
-          beforeData: { gateResult: current.gateResult },
-          afterData: { gateResult: updated.gateResult, revokedAt: updated.revokedAt },
         },
         actor,
         db,

@@ -3,9 +3,11 @@ import { PrismaModule } from '../../../core/prisma/prisma.module';
 import { ChangeTicketsModule } from '../change-tickets/change-tickets.module';
 import { DeleteRequestsModule } from '../delete-requests/delete-requests.module';
 import { ApprovalPolicyService } from './approval-policy.service';
+import { ApprovalPolicyChangeApprovalService } from './approval-policy-change-approval.service';
+import { ApprovalPolicyChangeWorkflowService } from './approval-policy-change-workflow.service';
+import { ApprovalPolicyController } from './approval-policy.controller';
 import { ApprovalsController } from './approvals.controller';
 import { ApprovalsService } from './approvals.service';
-import { AuditEvidenceExportApprovalService } from './audit-evidence-export-approval.service';
 
 @Module({
   imports: [
@@ -13,12 +15,13 @@ import { AuditEvidenceExportApprovalService } from './audit-evidence-export-appr
     forwardRef(() => ChangeTicketsModule),
     forwardRef(() => DeleteRequestsModule),
   ],
-  controllers: [ApprovalsController],
+  controllers: [ApprovalsController, ApprovalPolicyController],
   providers: [
     ApprovalsService,
     ApprovalPolicyService,
-    AuditEvidenceExportApprovalService,
+    ApprovalPolicyChangeApprovalService,
+    ApprovalPolicyChangeWorkflowService,
   ],
-  exports: [ApprovalsService, AuditEvidenceExportApprovalService],
+  exports: [ApprovalsService],
 })
 export class ApprovalsModule {}

@@ -15,7 +15,6 @@ import {
   AuditModules,
   AuditWorkflowTypes,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditTriggerType } from '../../audit-logging/dto/audit-log.dto';
 import {
   buildCustomerLifecyclePatch as buildCustomerLifecycleStatePatch,
   canReinitiateCdd,
@@ -1134,15 +1133,9 @@ export class OnboardingService {
       workflow: ONBOARDING_WORKFLOW,
       journeyId: input.journeyId || customer?.id || null,
     });
-    const triggerType = String(input.action || '').trim().toUpperCase().endsWith('_CREATED')
-      ? AuditTriggerType.DATA_CREATE
-      : AuditTriggerType.DATA_UPDATE;
-
     await this.auditLogsService.recordByActor(
       {
-        triggerType,
         action: input.action,
-        module: AuditModules.ONBOARDING,
         entityType: AuditEntityTypes.ONBOARDING,
         entityId: input.customerId,
         entityNo: customer?.customerNo || undefined,
@@ -1151,8 +1144,6 @@ export class OnboardingService {
         entityOwnerType: 'CUSTOMER',
         entityOwnerId: input.customerId,
         entityOwnerNo: customer?.customerNo || undefined,
-        statusFrom: input.fromStage || undefined,
-        statusTo: input.toStage || undefined,
         reason: input.detail || undefined,
         metadata: {
           caseType: input.caseType || null,
@@ -1204,9 +1195,7 @@ export class OnboardingService {
     try {
       await this.auditLogsService.recordByActor(
         {
-          triggerType: AuditTriggerType.DATA_UPDATE,
           action,
-          module: AuditModules.ONBOARDING,
           entityType: AuditEntityTypes.ONBOARDING,
           entityId: input.customerId,
           entityNo: input.customerNo || undefined,
@@ -1215,8 +1204,6 @@ export class OnboardingService {
           entityOwnerNo: input.customerNo || undefined,
           traceId: input.onboardingTraceId || undefined,
           workflowType: AuditWorkflowTypes.ONBOARDING,
-          statusFrom: input.onboardingStatusFrom || undefined,
-          statusTo: input.onboardingStatusTo || undefined,
           reason,
           metadata: {
             eventType: input.eventType,

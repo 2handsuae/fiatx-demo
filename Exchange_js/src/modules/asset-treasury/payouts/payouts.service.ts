@@ -61,7 +61,6 @@ import {
   AuditWorkflowTypes,
   buildStateTransitionAction,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditTriggerType } from '../../audit-logging/dto/audit-log.dto';
 import { TransactionComplianceService } from '../../risk-engine/transaction-compliance/transaction-compliance.service';
 import { PricingCenterService } from '../../trading/pricing-center/pricing-center.service';
 import { FeeOccurrencesService } from '../fee-occurrences/fee-occurrences.service';
@@ -146,7 +145,6 @@ export class PayoutsService {
       actorNo: event.actorNo || null,
       reason: event.reason || null,
       occurredAt: event.occurredAt || event.createdAt || null,
-      module: event.module || null,
       result: event.result || null,
       oldStatus: this.normalizeAuditStatus(event.statusFrom),
       newStatus: this.normalizeAuditStatus(event.statusTo),
@@ -340,21 +338,14 @@ export class PayoutsService {
 
       await this.auditLogsService.recordByActor(
         {
-          triggerType: AuditTriggerType.DATA_CREATE,
+
           action: AuditActions.PAYOUT_CREATED,
-          module: AuditModules.PAYOUTS,
           entityType: AuditEntityTypes.PAYOUT,
           entityId: record.id,
           entityNo: record.payoutNo,
           entityOwnerType: 'CUSTOMER',
           entityOwnerId: record.ownerId || undefined,
           reason: 'Payout initiated',
-          afterData: {
-            status: record.status,
-            withdrawId: record.withdrawId,
-            amount: record.amount?.toString?.(),
-            assetId: record.assetId,
-          },
           sourcePlatform: operatorId === 'SYSTEM' ? 'SYSTEM' : 'ADMIN_API',
         },
         {
@@ -446,7 +437,6 @@ export class PayoutsService {
           ownerId: item.ownerId || item.withdraw?.ownerId || 'UNKNOWN_OWNER',
           ownerNo: item.withdraw?.ownerNo || null,
           assetId: item.assetId,
-          module: AuditModules.PAYOUTS,
           entityType: AuditEntityTypes.PAYOUT,
           entityId: item.id,
           entityNo: item.payoutNo || null,
@@ -506,20 +496,15 @@ export class PayoutsService {
 
       await this.auditLogsService.recordByActor(
         {
-          triggerType: AuditTriggerType.STATE_TRANSITION,
+
           action: buildStateTransitionAction('PAYOUT', oldStatus, nextStatus),
-          module: AuditModules.PAYOUTS,
           entityType: AuditEntityTypes.PAYOUT,
           entityId: updated.id,
           entityNo: updated.payoutNo,
           entityOwnerType: 'CUSTOMER',
           entityOwnerId: updated.ownerId || undefined,
-          statusFrom: oldStatus,
-          statusTo: nextStatus,
           reason:
             reason || (action ? `Action: ${action}` : `Status updated to ${nextStatus}`),
-          beforeData: { status: oldStatus },
-          afterData: { status: nextStatus },
           sourcePlatform: operatorId === 'SYSTEM' ? 'SYSTEM' : 'ADMIN_API',
         },
         {
@@ -652,15 +637,13 @@ export class PayoutsService {
 
         await this.auditLogsService.recordByActor(
           {
-            triggerType: AuditTriggerType.DATA_CREATE,
+  
             action: AuditActions.PAYOUT_CREATED,
-            module: AuditModules.PAYOUTS,
             entityType: AuditEntityTypes.PAYOUT,
             entityId: payout.id,
             entityOwnerType: 'CUSTOMER',
             entityOwnerId: withdraw.ownerId,
             reason: 'Mock payout created',
-            afterData: { status: payout.status, withdrawId: payout.withdrawId },
             sourcePlatform: 'SYSTEM',
           },
           {

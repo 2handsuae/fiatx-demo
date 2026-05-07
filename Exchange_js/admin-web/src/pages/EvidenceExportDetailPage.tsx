@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Download, RefreshCw, X } from 'lucide-react';
+import { Check, Copy, Download, RefreshCw, X } from 'lucide-react';
 import {
   AdminPermissionError,
   AdminSessionError,
@@ -155,6 +155,40 @@ const SidebarKV = ({
         {value}
       </span>
     </div>
+  );
+};
+
+/* ── Raw Record Block ──────────────────────────────────────────── */
+
+const RawRecordBlock = ({ detail }: { detail: EvidenceExportDetail }) => {
+  const [copied, setCopied] = useState(false);
+  const json = JSON.stringify(detail, null, 2);
+
+  const handleCopy = () => {
+    void navigator.clipboard.writeText(json).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+
+  return (
+    <section className="px-6 py-5">
+      <div className="flex items-center justify-between">
+        <Cap>Raw Record</Cap>
+        <button
+          onClick={handleCopy}
+          className="flex items-center gap-1.5 rounded border border-adm-border bg-adm-card px-2 py-1 font-mono text-[9px] text-adm-t3 transition-colors hover:border-adm-amber hover:text-adm-amber"
+        >
+          {copied
+            ? <><Check size={10} /><span>Copied</span></>
+            : <><Copy size={10} /><span>Copy</span></>
+          }
+        </button>
+      </div>
+      <pre className="mt-2 overflow-auto rounded bg-gray-950 p-4 font-mono text-[11px] leading-relaxed text-gray-200 border border-gray-800">
+        {json}
+      </pre>
+    </section>
   );
 };
 
@@ -512,6 +546,9 @@ const EvidenceExportDetailPage = () => {
               </div>
             </section>
           )}
+
+          {/* ⑥ Raw Record */}
+          <RawRecordBlock detail={detail} />
 
         </div>
 

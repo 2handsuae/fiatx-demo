@@ -7,7 +7,7 @@ import {
   AuditEntityTypes,
   AuditModules,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditResult, AuditTriggerType } from '../../audit-logging/dto/audit-log.dto';
+import { AuditResult } from '../../audit-logging/dto/audit-log.dto';
 
 const riskApprovalSummarySelect = {
   id: true,
@@ -97,9 +97,7 @@ export class CustomersService {
     });
 
     await this.auditLogsService.recordSystem({
-      triggerType: AuditTriggerType.DATA_CREATE,
       action: AuditActions.CUSTOMER_CREATED,
-      module: AuditModules.CUSTOMERS,
       entityType: AuditEntityTypes.CUSTOMER,
       entityId: created.id,
       entityNo: created.customerNo,
@@ -108,11 +106,6 @@ export class CustomersService {
       entityOwnerNo: created.customerNo,
       result: AuditResult.SUCCESS,
       reason: 'Customer created',
-      afterData: {
-        customerType: created.customerType,
-        onboardingStatus: created.onboardingStatus,
-        operatingStatus: created.operatingStatus,
-      },
       sourcePlatform: 'ADMIN_API',
     });
 
@@ -181,9 +174,7 @@ export class CustomersService {
     });
 
     await this.auditLogsService.recordSystem({
-      triggerType: AuditTriggerType.DATA_UPDATE,
       action: AuditActions.CUSTOMER_UPDATED,
-      module: AuditModules.CUSTOMERS,
       entityType: AuditEntityTypes.CUSTOMER,
       entityId: updated.id,
       entityNo: updated.customerNo,
@@ -192,18 +183,6 @@ export class CustomersService {
       entityOwnerNo: updated.customerNo,
       result: AuditResult.SUCCESS,
       reason: 'Customer updated',
-      beforeData: before
-        ? {
-            customerType: before.customerType,
-            onboardingStatus: before.onboardingStatus,
-            operatingStatus: before.operatingStatus,
-          }
-        : undefined,
-      afterData: {
-        customerType: updated.customerType,
-        onboardingStatus: updated.onboardingStatus,
-        operatingStatus: updated.operatingStatus,
-      },
       sourcePlatform: 'ADMIN_API',
     });
 
@@ -217,9 +196,7 @@ export class CustomersService {
     });
 
     await this.auditLogsService.recordSystem({
-      triggerType: AuditTriggerType.DATA_DELETE,
       action: AuditActions.CUSTOMER_DELETED,
-      module: AuditModules.CUSTOMERS,
       entityType: AuditEntityTypes.CUSTOMER,
       entityId: deleted.id,
       entityNo: deleted.customerNo,
@@ -228,13 +205,6 @@ export class CustomersService {
       entityOwnerNo: deleted.customerNo,
       result: AuditResult.SUCCESS,
       reason: 'Customer deleted',
-      beforeData: before
-        ? {
-            customerType: before.customerType,
-            onboardingStatus: before.onboardingStatus,
-            operatingStatus: before.operatingStatus,
-          }
-        : undefined,
       sourcePlatform: 'ADMIN_API',
     });
 

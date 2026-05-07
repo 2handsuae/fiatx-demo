@@ -31,7 +31,6 @@ import {
   AuditModules,
   buildStateTransitionAction,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditTriggerType } from '../../audit-logging/dto/audit-log.dto';
 
 const CRYPTO_TRANSITIONS: Record<
   InternalFundStatus,
@@ -275,20 +274,15 @@ export class InternalFundsService {
 
       await this.auditLogsService.recordByActor(
         {
-          triggerType: AuditTriggerType.STATE_TRANSITION,
+
           action: buildStateTransitionAction(
             'INTERNAL_FUND',
             InternalFundStatus.CONFIRMED,
             InternalFundStatus.CLEAR,
           ),
-          module: AuditModules.INTERNAL_FUNDS,
           entityType: AuditEntityTypes.INTERNAL_FUND,
           entityId: fund.id,
-          statusFrom: InternalFundStatus.CONFIRMED,
-          statusTo: InternalFundStatus.CLEAR,
           reason,
-          beforeData: { status: InternalFundStatus.CONFIRMED },
-          afterData: { status: InternalFundStatus.CLEAR },
           ...this.buildDepositWorkflowAuditContext(internalTransaction),
           sourcePlatform: 'SYSTEM',
         },
@@ -389,17 +383,12 @@ export class InternalFundsService {
 
           await this.auditLogsService.recordByActor(
             {
-              triggerType: AuditTriggerType.DATA_CREATE,
+
               action: AuditActions.INTERNAL_FUND_CREATED,
-              module: AuditModules.INTERNAL_FUNDS,
               entityType: AuditEntityTypes.INTERNAL_FUND,
               entityId: created.id,
               entityNo: created.internalFundNo,
               reason: 'Initial creation',
-              afterData: {
-                status: created.status,
-                internalTransactionId: created.internalTransactionId,
-              },
               ...this.buildDepositWorkflowAuditContext(created.internalTransaction),
               sourcePlatform: operatorId === 'SYSTEM' ? 'SYSTEM' : 'ADMIN_API',
             },
@@ -538,17 +527,12 @@ export class InternalFundsService {
 
       await this.auditLogsService.recordByActor(
         {
-          triggerType: AuditTriggerType.STATE_TRANSITION,
+
           action: buildStateTransitionAction('INTERNAL_FUND', currentStatus, nextStatus),
-          module: AuditModules.INTERNAL_FUNDS,
           entityType: AuditEntityTypes.INTERNAL_FUND,
           entityId: updated.id,
           entityNo: updated.internalFundNo,
-          statusFrom: currentStatus,
-          statusTo: nextStatus,
           reason: reason || `Action: ${action}`,
-          beforeData: { status: currentStatus },
-          afterData: { status: nextStatus },
           ...this.buildDepositWorkflowAuditContext(item.internalTransaction),
           sourcePlatform: operatorId === 'SYSTEM' ? 'SYSTEM' : 'ADMIN_API',
         },

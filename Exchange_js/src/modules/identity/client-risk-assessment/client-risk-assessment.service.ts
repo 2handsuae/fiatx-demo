@@ -79,13 +79,11 @@ export class ClientRiskAssessmentService {
       traceId,
       workflowType: 'RISK_ASSESSMENT',
       action: 'RISK_ASSESSMENT_STARTED',
-      triggerType: input.triggerType as any,
       entityType: 'ClientRiskAssessment',
       entityId: assessment.id,
       entityNo: assessment.assessmentNo,
       entityOwnerType: 'Customer',
       entityOwnerId: input.customerId,
-      module: 'ClientRiskAssessment',
       metadata: { triggerType: input.triggerType },
     });
 
@@ -213,12 +211,10 @@ export class ClientRiskAssessmentService {
           traceId: assessment.traceId,
           workflowType: 'RISK_ASSESSMENT',
           action: 'RISK_ASSESSMENT_MLRO_SIGNED',
-          triggerType: 'APPROVAL_DECISION' as any,
           entityType: 'ClientRiskAssessment',
           entityId: assessmentId,
           entityOwnerType: 'Customer',
           entityOwnerId: assessment.customerId,
-          module: 'ClientRiskAssessment',
           metadata: { scenarioType: 'LOW_TO_HIGH' },
         });
         await this.tierUpgradeCaseService.createFromCra(assessment);
@@ -234,12 +230,10 @@ export class ClientRiskAssessmentService {
           traceId: assessment.traceId,
           workflowType: 'RISK_ASSESSMENT',
           action: 'RISK_ASSESSMENT_MLRO_SIGNED',
-          triggerType: 'APPROVAL_DECISION' as any,
           entityType: 'ClientRiskAssessment',
           entityId: assessmentId,
           entityOwnerType: 'Customer',
           entityOwnerId: assessment.customerId,
-          module: 'ClientRiskAssessment',
           metadata: { scenarioType: 'HIGH_TO_HIGH_UPGRADE' },
         });
         await this.postSignoffCascade(assessmentId);
@@ -263,12 +257,10 @@ export class ClientRiskAssessmentService {
           traceId: assessment.traceId,
           workflowType: 'RISK_ASSESSMENT',
           action: 'RISK_ASSESSMENT_MLRO_FALSE_POSITIVE',
-          triggerType: 'APPROVAL_DECISION' as any,
           entityType: 'ClientRiskAssessment',
           entityId: assessmentId,
           entityOwnerType: 'Customer',
           entityOwnerId: assessment.customerId,
-          module: 'ClientRiskAssessment',
           metadata: { scenarioType: 'LOW_TO_HIGH_FALSE_POSITIVE' },
         });
       } else {
@@ -283,12 +275,10 @@ export class ClientRiskAssessmentService {
           traceId: assessment.traceId,
           workflowType: 'RISK_ASSESSMENT',
           action: 'RISK_ASSESSMENT_MLRO_DISMISSED',
-          triggerType: 'APPROVAL_DECISION' as any,
           entityType: 'ClientRiskAssessment',
           entityId: assessmentId,
           entityOwnerType: 'Customer',
           entityOwnerId: assessment.customerId,
-          module: 'ClientRiskAssessment',
           metadata: { scenarioType: 'HIGH_TO_HIGH_DISMISSED' },
         });
       }
@@ -404,12 +394,10 @@ export class ClientRiskAssessmentService {
         traceId: assessment.traceId,
         workflowType: 'RISK_ASSESSMENT',
         action: 'RISK_ASSESSMENT_AUTO_SIGNED',
-        triggerType: 'AUTOMATED' as any,
         entityType: 'ClientRiskAssessment',
         entityId: assessmentId,
         entityOwnerType: 'Customer',
         entityOwnerId: assessment.customerId,
-        module: 'ClientRiskAssessment',
         metadata: { scenarioType: output.scenarioType },
       });
       await this.postSignoffCascade(assessmentId);
@@ -477,12 +465,10 @@ export class ClientRiskAssessmentService {
       traceId: assessment.traceId,
       workflowType: 'RISK_ASSESSMENT',
       action: 'RISK_ASSESSMENT_ESCALATED_SANCTIONS',
-      triggerType: 'AUTOMATED' as any,
       entityType: 'ClientRiskAssessment',
       entityId: assessment.id,
       entityOwnerType: 'Customer',
       entityOwnerId: customer.id,
-      module: 'ClientRiskAssessment',
       metadata: { labels },
     });
   }

@@ -21,7 +21,6 @@ import {
 import {
   AuditResult,
   AuditSubjectRole,
-  AuditTriggerType,
 } from '../../audit-logging/dto/audit-log.dto';
 import { sha256Hex } from '../../audit-logging/utils/audit-digest.util';
 import { ApprovalsService } from '../approvals/approvals.service';
@@ -92,8 +91,6 @@ interface DeleteRequestProjectionResult {
   action?: string;
   reason?: string;
   result?: AuditResult;
-  statusFrom?: string;
-  statusTo?: string;
   approvalNo?: string | null;
 }
 
@@ -289,23 +286,17 @@ export class DeleteRequestsService {
     actor: ApprovalActorContext,
     result: AuditResult,
     reason?: string | null,
-    statusFrom?: string | null,
-    statusTo?: string | null,
     metadata?: Record<string, unknown>,
     approvalNo?: string | null,
   ) {
     await this.auditLogsService.recordByActor(
       {
-        triggerType: AuditTriggerType.DATA_UPDATE,
         action,
-        module: AuditModules.GOVERNANCE_DELETE_REQUESTS,
         entityType: AuditEntityTypes.DELETE_REQUEST,
         entityId: request.id,
         entityNo: request.requestNo,
         workflowType: this.resolveDeleteRequestBusinessWorkflowType(request.targetType),
         traceId: request.traceId,
-        statusFrom: statusFrom || undefined,
-        statusTo: statusTo || undefined,
         result,
         reason: reason || undefined,
         metadata: {
@@ -775,8 +766,6 @@ export class DeleteRequestsService {
       action,
       reason,
       result,
-      statusFrom: request.status,
-      statusTo: nextStatus,
       approvalNo: normalizedApprovalNo,
     };
   }
@@ -813,8 +802,6 @@ export class DeleteRequestsService {
         this.systemActor(),
         projection.result || AuditResult.SUCCESS,
         projection.reason,
-        projection.statusFrom,
-        projection.statusTo,
         undefined,
         projection.approvalNo,
       );
@@ -854,8 +841,6 @@ export class DeleteRequestsService {
       actor,
       AuditResult.SUCCESS,
       'Delete request created',
-      null,
-      DeleteRequestStatuses.DRAFT,
       {
         targetSnapshotPreview: this.buildDeleteRequestSnapshot(target),
       },
@@ -938,8 +923,6 @@ export class DeleteRequestsService {
       actor,
       AuditResult.SUCCESS,
       this.normalizeOptionalString(dto.reason) || 'Delete request submitted',
-      DeleteRequestStatuses.DRAFT,
-      DeleteRequestStatuses.PENDING_APPROVAL,
       {
         approvalCaseId: approval?.id || null,
       },
@@ -1007,8 +990,6 @@ export class DeleteRequestsService {
       actor,
       AuditResult.SUCCESS,
       this.normalizeOptionalString(dto.reason) || 'Delete request cancelled',
-      current.status,
-      DeleteRequestStatuses.CANCELLED,
       isSuperAdmin && current.createdByUserId !== actor.userId
         ? { superAdminBypass: true }
         : undefined,
@@ -1117,8 +1098,6 @@ export class DeleteRequestsService {
         actor,
         AuditResult.SUCCESS,
         resultNote,
-        current.status,
-        DeleteRequestStatuses.DONE,
         {
           targetSnapshot,
           ...(superAdminBypass ? { superAdminBypass: true } : {}),
@@ -1152,8 +1131,6 @@ export class DeleteRequestsService {
         actor,
         AuditResult.FAILED,
         failed.resultNote,
-        current.status,
-        DeleteRequestStatuses.FAILED,
         {
           targetSnapshot,
           ...(superAdminBypass ? { superAdminBypass: true } : {}),

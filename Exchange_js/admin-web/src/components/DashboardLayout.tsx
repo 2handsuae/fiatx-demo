@@ -34,7 +34,6 @@ import {
   Sun,
   Moon,
   AlertTriangle,
-  Settings,
   Tag,
 } from 'lucide-react';
 import { Link, useLocation, useNavigate, Outlet } from 'react-router-dom';
@@ -110,6 +109,57 @@ const DashboardLayout = () => {
       label: 'Overview',
       requiredPermissions: [PERMISSIONS.BASE_ACCESS],
     },
+    // ─── Identity & Access ────────────────────────────────────────
+    {
+      label: 'Identity & Access',
+      icon: <UserCog size={12} />,
+      children: [
+        {
+          path: '/dashboard/members',
+          label: 'Platform Members',
+          icon: <UserCheck size={13} />,
+          requiredPermissions: [PERMISSIONS.USERS_READ],
+        },
+        {
+          path: '/dashboard/members/roles',
+          label: 'Role Management',
+          icon: <ShieldCheck size={13} />,
+          requiredPermissions: [PERMISSIONS.IAM_ROLES_READ],
+        },
+        {
+          path: '/dashboard/members/role-change-requests',
+          label: 'Role Change Requests',
+          icon: <ArrowLeftRight size={13} />,
+          requiredPermissions: [PERMISSIONS.IAM_ROLE_CHANGE_REQUESTS_READ],
+        },
+      ],
+    },
+    // ─── Control Gates ────────────────────────────────────────────
+    {
+      label: 'Control Gates',
+      icon: <ShieldCheck size={12} />,
+      children: [
+        {
+          path: '/dashboard/control-gates/approvals',
+          label: 'Approvals',
+          icon: <Shield size={13} />,
+          requiredPermissions: [PERMISSIONS.GOV_APPROVALS_READ],
+        },
+        {
+          path: '/dashboard/governance/approval-policies',
+          label: 'Approval Policies',
+          icon: <Shield size={13} />,
+          requiredPermissions: [PERMISSIONS.GOV_APPROVAL_POLICIES_READ],
+        },
+        {
+          path: '/dashboard/governance/policy-change-requests',
+          label: 'Policy Change Requests',
+          icon: <ArrowLeftRight size={13} />,
+          requiredPermissions: [PERMISSIONS.GOV_APPROVAL_POLICY_CHANGE_REQUESTS_READ],
+        },
+      ],
+    },
+    // ─── Audit Center ─────────────────────────────────────────────
     {
       label: 'Audit Center',
       icon: <FileText size={12} />,
@@ -128,51 +178,10 @@ const DashboardLayout = () => {
         },
       ],
     },
-    {
-      label: 'Control Gates Center',
-      icon: <ShieldCheck size={12} />,
-      children: [
-        {
-          path: '/dashboard/control-gates/change-tickets',
-          label: 'Change Tickets',
-          icon: <Briefcase size={13} />,
-          requiredPermissions: [PERMISSIONS.GOV_CHANGE_TICKETS_READ],
-        },
-        {
-          path: '/dashboard/control-gates/delete-requests',
-          label: 'Delete Requests',
-          icon: <ClipboardList size={13} />,
-          requiredPermissions: [PERMISSIONS.GOV_DELETE_REQUESTS_READ],
-        },
-        {
-          path: '/dashboard/control-gates/approvals',
-          label: 'Approvals',
-          icon: <Shield size={13} />,
-          requiredPermissions: [PERMISSIONS.GOV_APPROVALS_READ],
-        },
-      ],
-    },
-    {
-      label: 'Backend Member Management',
-      icon: <Shield size={12} />,
-      children: [
-        {
-          path: '/dashboard/members',
-          label: 'Platform Members',
-          icon: <UserCheck size={13} />,
-          requiredPermissions: [PERMISSIONS.USERS_READ],
-        },
-        {
-          path: '/dashboard/members/roles',
-          label: 'Role Management',
-          icon: <ShieldCheck size={13} />,
-          requiredPermissions: [PERMISSIONS.IAM_ROLES_READ],
-        },
-      ],
-    },
+    // ─── Customer Management ──────────────────────────────────────
     {
       label: 'Customer Management',
-      icon: <UserCog size={12} />,
+      icon: <Users size={12} />,
       children: [
         {
           path: '/dashboard/customer/management',
@@ -194,8 +203,9 @@ const DashboardLayout = () => {
         },
       ],
     },
+    // ─── Compliance ───────────────────────────────────────────────
     {
-      label: 'Compliance Center',
+      label: 'Compliance',
       icon: <ClipboardList size={12} />,
       children: [
         {
@@ -212,158 +222,9 @@ const DashboardLayout = () => {
         },
       ],
     },
+    // ─── Trading ──────────────────────────────────────────────────
     {
-      label: 'Infrastructure Domain',
-      icon: <Cpu size={12} />,
-      children: [
-        {
-          path: '/dashboard/system/asset-configs',
-          label: 'Assets',
-          icon: <Coins size={13} />,
-          requiredPermissions: [PERMISSIONS.ASSETS_READ],
-        },
-        {
-          path: '/ledger/coa',
-          label: 'Chart of Accounts (COA)',
-          icon: <Table size={13} />,
-          requiredPermissions: [PERMISSIONS.COA_READ],
-        },
-        {
-          path: '/dashboard/system/acct-events',
-          label: 'Event Code Management',
-          icon: <Command size={13} />,
-          requiredPermissions: [PERMISSIONS.ACCT_EVENTS_READ],
-        },
-        {
-          path: '/dashboard/system/journal-header-templates',
-          label: 'Journal Templates',
-          icon: <FileCode size={13} />,
-          requiredPermissions: [PERMISSIONS.JOURNAL_HEADER_TEMPLATES_READ],
-        },
-        {
-          path: '/dashboard/system/clearing-header-templates',
-          label: 'Clearing Templates',
-          icon: <Layers size={13} />,
-          requiredPermissions: [PERMISSIONS.CLEARING_TEMPLATES_READ],
-        },
-      ],
-    },
-    {
-      label: 'Pricing Center',
-      icon: <Coins size={12} />,
-      children: [
-        {
-          path: '/dashboard/pricing/policies',
-          label: 'Pricing Policies',
-          icon: <Tag size={13} />,
-          requiredPermissions: [PERMISSIONS.PRICING_POLICIES_READ],
-        },
-        {
-          path: '/dashboard/pricing/swap-config',
-          label: 'Swap Config',
-          icon: <Repeat size={13} />,
-          requiredPermissions: [PERMISSIONS.PRICING_POLICIES_READ],
-        },
-        {
-          path: '/dashboard/pricing/withdraw-config',
-          label: 'Withdrawal Config',
-          icon: <Upload size={13} />,
-          requiredPermissions: [PERMISSIONS.PRICING_WITHDRAW_CONFIG_READ],
-        },
-        {
-          path: '/dashboard/pricing/quotes',
-          label: 'Quote Center',
-          icon: <FileText size={13} />,
-          requiredPermissions: [PERMISSIONS.SWAP_QUOTES_READ],
-        },
-      ],
-    },
-    {
-      label: 'Reconciliation Center',
-      icon: <Activity size={12} />,
-      children: [
-        {
-          path: '/dashboard/reconciliation/safeguarding-breaks',
-          label: 'Safeguarding Breaks',
-          icon: <ClipboardList size={13} />,
-          requiredPermissions: [PERMISSIONS.SAFEGUARDING_BREAKS_READ],
-        },
-        {
-          path: '/dashboard/reconciliation/safeguarding-warnings',
-          label: 'Safeguarding Warnings',
-          icon: <AlertTriangle size={13} />,
-          requiredPermissions: [PERMISSIONS.SAFEGUARDING_WARNINGS_READ],
-        },
-        {
-          path: '/dashboard/reconciliation/safeguarding-runs',
-          label: 'Safeguarding Runs',
-          icon: <History size={13} />,
-          requiredPermissions: [PERMISSIONS.SAFEGUARDING_RUNS_READ],
-        },
-        {
-          path: '/dashboard/reconciliation/safeguarding-fiat-statements',
-          label: 'Fiat Statement Imports',
-          icon: <FileText size={13} />,
-          requiredPermissions: [PERMISSIONS.SAFEGUARDING_FIAT_IMPORTS_READ],
-        },
-        {
-          path: '/dashboard/reconciliation/outstanding-settlements',
-          label: 'Outstanding Settlements',
-          icon: <ClipboardList size={13} />,
-          requiredPermissions: [PERMISSIONS.OUTSTANDING_SETTLEMENTS_READ],
-        },
-        {
-          path: '/dashboard/reconciliation/outstandings',
-          label: 'Swap Outstandings',
-          icon: <ClipboardList size={13} />,
-          requiredPermissions: [PERMISSIONS.OUTSTANDINGS_READ],
-        },
-      ],
-    },
-    {
-      label: 'Governance Center',
-      icon: <Library size={12} />,
-      children: [
-        {
-          path: '/dashboard/governance/registries/shareholding-versions',
-          label: 'Shareholding Registry',
-          icon: <Building2 size={13} />,
-          requiredPermissions: [PERMISSIONS.GOV_SHAREHOLDING_REGISTRY_READ],
-        },
-        {
-          path: '/dashboard/governance/registries/appointments',
-          label: 'Appointments',
-          icon: <UserCheck size={13} />,
-          requiredPermissions: [PERMISSIONS.GOV_APPOINTMENTS_READ],
-        },
-        {
-          path: '/dashboard/governance/registries/trainings',
-          label: 'Trainings',
-          icon: <ClipboardList size={13} />,
-          requiredPermissions: [PERMISSIONS.GOV_TRAININGS_READ],
-        },
-        {
-          path: '/dashboard/governance/registries/conflicts',
-          label: 'Conflicts',
-          icon: <Shield size={13} />,
-          requiredPermissions: [PERMISSIONS.GOV_CONFLICTS_READ],
-        },
-        {
-          path: '/dashboard/governance/registries/wind-down-materials',
-          label: 'Wind-down Materials',
-          icon: <FileText size={13} />,
-          requiredPermissions: [PERMISSIONS.GOV_WIND_DOWN_MATERIALS_READ],
-        },
-        {
-          path: '/dashboard/governance/regulatory-gates',
-          label: 'Regulatory Gates',
-          icon: <ShieldCheck size={13} />,
-          requiredPermissions: [PERMISSIONS.GOV_REGULATORY_GATES_READ],
-        },
-      ],
-    },
-    {
-      label: 'Customer Transaction',
+      label: 'Trading',
       icon: <ArrowLeftRight size={12} />,
       children: [
         {
@@ -392,8 +253,9 @@ const DashboardLayout = () => {
         },
       ],
     },
+    // ─── Accounting ───────────────────────────────────────────────
     {
-      label: 'Account Center',
+      label: 'Accounting',
       icon: <Library size={12} />,
       children: [
         {
@@ -416,8 +278,9 @@ const DashboardLayout = () => {
         },
       ],
     },
+    // ─── Clearing ─────────────────────────────────────────────────
     {
-      label: 'Clearing Center',
+      label: 'Clearing',
       icon: <Zap size={12} />,
       children: [
         {
@@ -434,8 +297,9 @@ const DashboardLayout = () => {
         },
       ],
     },
+    // ─── Treasury ─────────────────────────────────────────────────
     {
-      label: 'Treasury Center',
+      label: 'Treasury',
       icon: <Briefcase size={12} />,
       children: [
         {
@@ -488,8 +352,163 @@ const DashboardLayout = () => {
         },
       ],
     },
+    // ─── Reconciliation ───────────────────────────────────────────
     {
-      label: 'Counterparty Management',
+      label: 'Reconciliation',
+      icon: <Activity size={12} />,
+      children: [
+        {
+          path: '/dashboard/reconciliation/safeguarding-breaks',
+          label: 'Safeguarding Breaks',
+          icon: <ClipboardList size={13} />,
+          requiredPermissions: [PERMISSIONS.SAFEGUARDING_BREAKS_READ],
+        },
+        {
+          path: '/dashboard/reconciliation/safeguarding-warnings',
+          label: 'Safeguarding Warnings',
+          icon: <AlertTriangle size={13} />,
+          requiredPermissions: [PERMISSIONS.SAFEGUARDING_WARNINGS_READ],
+        },
+        {
+          path: '/dashboard/reconciliation/safeguarding-runs',
+          label: 'Safeguarding Runs',
+          icon: <History size={13} />,
+          requiredPermissions: [PERMISSIONS.SAFEGUARDING_RUNS_READ],
+        },
+        {
+          path: '/dashboard/reconciliation/safeguarding-fiat-statements',
+          label: 'Fiat Statement Imports',
+          icon: <FileText size={13} />,
+          requiredPermissions: [PERMISSIONS.SAFEGUARDING_FIAT_IMPORTS_READ],
+        },
+        {
+          path: '/dashboard/reconciliation/outstanding-settlements',
+          label: 'Outstanding Settlements',
+          icon: <ClipboardList size={13} />,
+          requiredPermissions: [PERMISSIONS.OUTSTANDING_SETTLEMENTS_READ],
+        },
+        {
+          path: '/dashboard/reconciliation/outstandings',
+          label: 'Swap Outstandings',
+          icon: <ClipboardList size={13} />,
+          requiredPermissions: [PERMISSIONS.OUTSTANDINGS_READ],
+        },
+      ],
+    },
+    // ─── Pricing ──────────────────────────────────────────────────
+    {
+      label: 'Pricing',
+      icon: <Coins size={12} />,
+      children: [
+        {
+          path: '/dashboard/pricing/policies',
+          label: 'Pricing Policies',
+          icon: <Tag size={13} />,
+          requiredPermissions: [PERMISSIONS.PRICING_POLICIES_READ],
+        },
+        {
+          path: '/dashboard/pricing/swap-config',
+          label: 'Swap Config',
+          icon: <Repeat size={13} />,
+          requiredPermissions: [PERMISSIONS.PRICING_POLICIES_READ],
+        },
+        {
+          path: '/dashboard/pricing/withdraw-config',
+          label: 'Withdrawal Config',
+          icon: <Upload size={13} />,
+          requiredPermissions: [PERMISSIONS.PRICING_WITHDRAW_CONFIG_READ],
+        },
+        {
+          path: '/dashboard/pricing/quotes',
+          label: 'Quote Center',
+          icon: <FileText size={13} />,
+          requiredPermissions: [PERMISSIONS.SWAP_QUOTES_READ],
+        },
+      ],
+    },
+    // ─── Configuration ────────────────────────────────────────────
+    {
+      label: 'Configuration',
+      icon: <Cpu size={12} />,
+      children: [
+        {
+          path: '/dashboard/system/asset-configs',
+          label: 'Assets',
+          icon: <Coins size={13} />,
+          requiredPermissions: [PERMISSIONS.ASSETS_READ],
+        },
+        {
+          path: '/ledger/coa',
+          label: 'Chart of Accounts (COA)',
+          icon: <Table size={13} />,
+          requiredPermissions: [PERMISSIONS.COA_READ],
+        },
+        {
+          path: '/dashboard/system/acct-events',
+          label: 'Event Code Management',
+          icon: <Command size={13} />,
+          requiredPermissions: [PERMISSIONS.ACCT_EVENTS_READ],
+        },
+        {
+          path: '/dashboard/system/journal-header-templates',
+          label: 'Journal Templates',
+          icon: <FileCode size={13} />,
+          requiredPermissions: [PERMISSIONS.JOURNAL_HEADER_TEMPLATES_READ],
+        },
+        {
+          path: '/dashboard/system/clearing-header-templates',
+          label: 'Clearing Templates',
+          icon: <Layers size={13} />,
+          requiredPermissions: [PERMISSIONS.CLEARING_TEMPLATES_READ],
+        },
+      ],
+    },
+    // ─── Governance Registries ────────────────────────────────────
+    {
+      label: 'Governance Registries',
+      icon: <Library size={12} />,
+      children: [
+        {
+          path: '/dashboard/governance/registries/shareholding-versions',
+          label: 'Shareholding Registry',
+          icon: <Building2 size={13} />,
+          requiredPermissions: [PERMISSIONS.GOV_SHAREHOLDING_REGISTRY_READ],
+        },
+        {
+          path: '/dashboard/governance/registries/appointments',
+          label: 'Appointments',
+          icon: <UserCheck size={13} />,
+          requiredPermissions: [PERMISSIONS.GOV_APPOINTMENTS_READ],
+        },
+        {
+          path: '/dashboard/governance/registries/trainings',
+          label: 'Trainings',
+          icon: <ClipboardList size={13} />,
+          requiredPermissions: [PERMISSIONS.GOV_TRAININGS_READ],
+        },
+        {
+          path: '/dashboard/governance/registries/conflicts',
+          label: 'Conflicts',
+          icon: <Shield size={13} />,
+          requiredPermissions: [PERMISSIONS.GOV_CONFLICTS_READ],
+        },
+        {
+          path: '/dashboard/governance/registries/wind-down-materials',
+          label: 'Wind-down Materials',
+          icon: <FileText size={13} />,
+          requiredPermissions: [PERMISSIONS.GOV_WIND_DOWN_MATERIALS_READ],
+        },
+        {
+          path: '/dashboard/governance/regulatory-gates',
+          label: 'Regulatory Gates',
+          icon: <ShieldCheck size={13} />,
+          requiredPermissions: [PERMISSIONS.GOV_REGULATORY_GATES_READ],
+        },
+      ],
+    },
+    // ─── Counterparty ─────────────────────────────────────────────
+    {
+      label: 'Counterparty',
       icon: <Handshake size={12} />,
       children: [
         {

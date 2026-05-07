@@ -106,8 +106,6 @@ describe('SwapTransactionWorkflowService', () => {
         triggerType: 'STATE_TRANSITION',
         action: 'SWAP_PENDING_COMPLIANCE_TO_UNDER_REVIEW',
         workflowType: 'SWAP',
-        statusFrom: SwapTransactionStatus.PENDING_COMPLIANCE,
-        statusTo: SwapTransactionStatus.UNDER_REVIEW,
         metadata: expect.objectContaining({
           quoteId: 'quote-1',
           quoteNo: 'QUO_0001',
@@ -158,8 +156,6 @@ describe('SwapTransactionWorkflowService', () => {
         triggerType: 'STATE_TRANSITION',
         action: 'SWAP_PENDING_COMPLIANCE_TO_SUCCESS',
         workflowType: 'SWAP',
-        statusFrom: SwapTransactionStatus.PENDING_COMPLIANCE,
-        statusTo: SwapTransactionStatus.SUCCESS,
         metadata: expect.objectContaining({
           quoteId: 'quote-1',
           quoteNo: 'QUO_0001',
@@ -211,8 +207,6 @@ describe('SwapTransactionWorkflowService', () => {
         triggerType: 'STATE_TRANSITION',
         action: 'SWAP_PENDING_COMPLIANCE_TO_REJECTED',
         workflowType: 'SWAP',
-        statusFrom: SwapTransactionStatus.PENDING_COMPLIANCE,
-        statusTo: SwapTransactionStatus.REJECTED,
       }),
       prismaMock,
     );
@@ -273,8 +267,6 @@ describe('SwapTransactionWorkflowService', () => {
         triggerType: 'STATE_TRANSITION',
         action: 'SWAP_PENDING_COMPLIANCE_TO_FAILED',
         workflowType: 'SWAP',
-        statusFrom: SwapTransactionStatus.PENDING_COMPLIANCE,
-        statusTo: SwapTransactionStatus.FAILED,
       }),
       prismaMock,
     );

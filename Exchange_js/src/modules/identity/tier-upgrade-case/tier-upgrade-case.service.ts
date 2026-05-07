@@ -66,8 +66,6 @@ export class TierUpgradeCaseService {
     await this.auditLogsService.recordSystem({
       action: 'TIER_UPGRADE_CASE_CREATED',
       workflowType: 'TIER_UPGRADE',
-      triggerType: 'AUTOMATED' as any,
-      module: 'identity/tier-upgrade-case',
       entityType: 'TIER_UPGRADE_CASE',
       entityId: upgradeCase?.id,
       entityNo: upgradeCase?.caseNo,
@@ -164,8 +162,6 @@ export class TierUpgradeCaseService {
       await this.auditLogsService.recordSystem({
         action: 'TIER_UPGRADE_CASE_COMPLETED',
         workflowType: 'TIER_UPGRADE',
-        triggerType: 'APPROVAL_DECISION' as any,
-        module: 'identity/tier-upgrade-case',
         entityType: 'TIER_UPGRADE_CASE',
         entityId: upgradeCase.id,
         traceId: upgradeCase.traceId,
@@ -193,8 +189,6 @@ export class TierUpgradeCaseService {
       await this.auditLogsService.recordSystem({
         action: 'TIER_UPGRADE_CASE_REJECTED',
         workflowType: 'TIER_UPGRADE',
-        triggerType: 'APPROVAL_DECISION' as any,
-        module: 'identity/tier-upgrade-case',
         entityType: 'TIER_UPGRADE_CASE',
         entityId: upgradeCase.id,
         traceId: upgradeCase.traceId,

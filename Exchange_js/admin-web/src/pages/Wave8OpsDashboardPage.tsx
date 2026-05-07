@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AlertTriangle, Clock3, Landmark, RefreshCw, ShieldCheck, Wallet } from 'lucide-react';
+import { AlertTriangle, Landmark, RefreshCw, ShieldCheck, Wallet } from 'lucide-react';
 import { useAdminSession } from '../contexts/AdminSessionContext';
 import { PERMISSIONS } from '../rbac/permissions';
 import { StatusBadge } from '../components/governance/GovernanceUi';
@@ -40,7 +40,6 @@ const Wave8OpsDashboardPage = () => {
     PERMISSIONS.REIMBURSEMENT_OBLIGATIONS_READ,
   ]);
   const canReadGates = hasAnyPermission([PERMISSIONS.GOV_REGULATORY_GATES_READ]);
-  const canReadSlaTimers = hasAnyPermission([PERMISSIONS.GOV_SLA_TIMERS_READ]);
 
   const baseCards = useMemo<DashboardCard[]>(
     () => [
@@ -71,13 +70,6 @@ const Wave8OpsDashboardPage = () => {
         path: '/dashboard/governance/regulatory-gates',
         icon: <ShieldCheck size={18} />,
         description: 'Governance items blocked on filing, receipt, or effectiveness.',
-      },
-      {
-        title: 'Overdue SLA Timers',
-        count: null,
-        path: '/dashboard/control-gates/sla-timers',
-        icon: <Clock3 size={18} />,
-        description: 'Expired governance or control-gate timers.',
       },
     ],
     [],
@@ -122,7 +114,6 @@ const Wave8OpsDashboardPage = () => {
         warningCount,
         obligationCount,
         blockedGateCount,
-        expiredTimerCount,
         breakList,
         warningList,
         obligationList,
@@ -143,10 +134,6 @@ const Wave8OpsDashboardPage = () => {
         guardedCount(
           canReadGates,
           '/admin/governance/regulatory-gates?gateResult=BLOCKED&take=1',
-        ),
-        guardedCount(
-          canReadSlaTimers,
-          '/admin/control-gates/sla-timers?status=EXPIRED&take=1',
         ),
         canReadBreaks
           ? fetchJson<{ items: Array<Record<string, unknown>> }>(
@@ -175,7 +162,6 @@ const Wave8OpsDashboardPage = () => {
         { ...baseCards[1], count: warningCount },
         { ...baseCards[2], count: obligationCount },
         { ...baseCards[3], count: blockedGateCount },
-        { ...baseCards[4], count: expiredTimerCount },
       ]);
 
       const issueRows: RecentItem[] = [
@@ -295,7 +281,7 @@ const Wave8OpsDashboardPage = () => {
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Wave 8 Ops Dashboard</h1>
           <p className="mt-1 text-sm text-gray-500">
-            Operational view across safeguarding, treasury reimbursements, regulatory gates, and governance SLAs.
+            Operational view across safeguarding, treasury reimbursements, and regulatory gates.
           </p>
         </div>
         <button

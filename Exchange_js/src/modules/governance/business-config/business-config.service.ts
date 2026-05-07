@@ -41,7 +41,6 @@ import {
 } from '../../audit-logging/constants/audit-actions.constant';
 import {
   AuditResult,
-  AuditTriggerType,
 } from '../../audit-logging/dto/audit-log.dto';
 import {
   BusinessConfigDiffItem,
@@ -524,9 +523,7 @@ export class BusinessConfigService {
   ) {
     return this.auditLogsService.recordSystem(
       {
-        triggerType: AuditTriggerType.CONFIG_CHANGE,
         action: input.action,
-        module: AuditModules.BUSINESS_CONFIG,
         entityType: AuditEntityTypes.CONFIG,
         entityId: release.id,
         entityNo: release.releaseNo,
@@ -534,12 +531,6 @@ export class BusinessConfigService {
         reason: input.reason,
         traceId: input.traceId,
         workflowType: AuditBusinessWorkflowTypes.BUSINESS_CONFIG_CHANGE,
-        afterData: this.buildReleaseAuditData(release, {
-          ticketNo: input.ticketNo,
-          changeTicketRef: input.changeTicketRef,
-          approvalNo: input.approvalNo,
-          validationSummary: input.validationSummary,
-        }),
         metadata: this.buildReleaseAuditData(release, {
           ticketNo: input.ticketNo,
           changeTicketRef: input.changeTicketRef,

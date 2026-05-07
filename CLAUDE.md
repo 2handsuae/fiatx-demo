@@ -25,22 +25,18 @@ npm run runtime:diagnose  # 诊断迁移漂移
 | 审计日志写法 | `doc-final/rules/audit-logging.md` |
 | 前端管理台 | `doc-final/rules/frontend-admin.md` |
 | 前端客户端 | `doc-final/rules/frontend-client.md` |
-| 治理（审批/变更单/删除请求/SLA） | `doc-final/rules/domain-governance.md` |
-| Onboarding / KYC / 定期复审 | `doc-final/rules/domain-onboarding.md` |
-| 账务 / 配置发布 / 钱包 | `doc-final/rules/domain-ledger.md` |
 
-需要了解 wave 完成状态 → `doc-final/reference/wave-status.md`
 需要了解架构决策 → `doc-final/reference/decisions.md`
-需要了解 wave 详细规划 → `doc-final/reference/roadmap.md`
 
 ---
 
-## 4 条不可违反规则
+## 5 条不可违反规则
 
 1. 有持久状态、operator 可见操作 → **必须** 写 `AuditLogsService`（DI 注入，禁止 `new`）
 2. 多表状态变更 → **必须** 用 DB transaction（`prisma.$transaction`）
 3. 有稳定业务键（`customerNo`、`templateCode` 等）→ **禁止** 以 `id` 作主查询合同
 4. **禁止** 绕过 onboarding / compliance 状态门语义
+5. Workflow **禁止**直接写任何 domain 实体的 Prisma 表 → 必须通过该 domain 的 service 方法（绕过即破坏不变量保护）
 
 ---
 

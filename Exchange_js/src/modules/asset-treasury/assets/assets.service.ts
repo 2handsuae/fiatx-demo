@@ -14,7 +14,7 @@ import {
   AuditEntityTypes,
   AuditModules,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditResult, AuditTriggerType } from '../../audit-logging/dto/audit-log.dto';
+import { AuditResult } from '../../audit-logging/dto/audit-log.dto';
 
 @Injectable()
 export class AssetsService {
@@ -64,20 +64,13 @@ export class AssetsService {
     });
 
     await this.auditLogsService.recordSystem({
-      triggerType: AuditTriggerType.CONFIG_CHANGE,
+
       action: AuditActions.ASSET_CONFIG_UPDATED,
-      module: AuditModules.ASSETS,
       entityType: AuditEntityTypes.ASSET,
       entityId: result.id,
       entityNo: result.assetNo || undefined,
       result: AuditResult.SUCCESS,
       reason: 'Asset config created',
-      afterData: {
-        type: result.type,
-        code: result.code,
-        network: result.network,
-        status: result.status,
-      },
       sourcePlatform: 'ADMIN_API',
     });
 
@@ -125,18 +118,13 @@ export class AssetsService {
     });
 
     await this.auditLogsService.recordSystem({
-      triggerType: AuditTriggerType.CONFIG_CHANGE,
+
       action: AuditActions.ASSET_CONFIG_UPDATED,
-      module: AuditModules.ASSETS,
       entityType: AuditEntityTypes.ASSET,
       entityId: result.id,
       entityNo: result.assetNo || undefined,
-      statusFrom: before.status,
-      statusTo: result.status,
       result: AuditResult.SUCCESS,
       reason: 'Asset status changed',
-      beforeData: { status: before.status },
-      afterData: { status: result.status },
       sourcePlatform: 'ADMIN_API',
     });
 

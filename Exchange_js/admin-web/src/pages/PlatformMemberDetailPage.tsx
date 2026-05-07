@@ -1,37 +1,22 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
-import { Copy, RefreshCw, X } from 'lucide-react';
+import { useEffect, useState, type ReactNode } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
+import { Mail, RefreshCw, Copy, Check, ShieldCheck, UserCheck, UserX, KeyRound, Lock, X } from 'lucide-react';
 import {
   AdminPermissionError,
   AdminSessionError,
   adminFetch,
   getApiErrorMessage,
 } from '../utils/adminFetch';
-import { DetailPageHeader } from '../components/compliance/DetailPageComponents';
+import {
+  DetailPageHeader,
+  InfoField,
+} from '../components/compliance/DetailPageComponents';
 import { adminButtonClass } from '../components/common/adminButtonStyles';
 import { AdminBadge } from '../components/ui/AdminBadge';
-import {
-  hydrateMemberInvitationLink,
-  persistMemberInvitationLink,
-} from '../utils/memberInvitationLinkCache';
-import { createDeleteRequest, DELETE_REQUEST_TARGET_TYPES } from '../utils/deleteRequests';
-import { PERMISSIONS } from '../rbac/permissions';
 import { useAdminSession } from '../contexts/AdminSessionContext';
+import { PERMISSIONS } from '../rbac/permissions';
 
 /* ── Interfaces ──────────────────────────────────────────────── */
-
-interface InvitationDetail {
-  inviteExpiresAt: string;
-  inviteStatus: string;
-  inviteLink?: string;
-  consumedAt?: string | null;
-  revokedAt?: string | null;
-  createdByUserId?: string | null;
-  workflowType?: string | null;
-  workflowNo?: string | null;
-  traceId?: string | null;
-  createdAt?: string | null;
-}
 
 interface MemberDetail {
   id: string;
@@ -39,21 +24,22 @@ interface MemberDetail {
   email: string;
   role: string;
   status: string;
+  firstLoginStatus: string | null;
+  mfaEnabledAt: string | null;
+  roles: string[];
   createdAt: string;
-  lastLoginAt: string | null;
   updatedAt: string;
-  roles?: string[];
-  failedLoginAttempts?: number | null;
-  lockedUntil?: string | null;
-  latestInvitation: InvitationDetail | null;
-}
-
-interface RoleCatalogItem {
-  id: string;
-  code: string;
-  name: string;
-  description: string;
-  status: string;
+  lastLoginAt: string | null;
+  latestInvitation: {
+    inviteStatus: 'PENDING' | 'EXPIRED' | 'USED' | 'REVOKED';
+    inviteExpiresAt: string;
+    inviteLink: string | null;
+  } | null;
+  latestPasswordReset: {
+    resetStatus: 'PENDING' | 'EXPIRED' | 'CONSUMED' | 'REVOKED';
+    resetExpiresAt: string;
+    resetLink: string | null;
+  } | null;
 }
 
 /* ── Helpers ─────────────────────────────────────────────────── */
@@ -64,58 +50,13 @@ const fmt = (v?: string | null): string => {
   return Number.isNaN(d.getTime()) ? v : d.toLocaleString();
 };
 
-/* ── Shared layout primitives ────────────────────────────────── */
+/* ── Shared layout primitives (same as ApprovalDetailPage) ──── */
 
 const Cap = ({ children }: { children: ReactNode }) => (
   <p className="font-mono text-[8.5px] font-semibold uppercase tracking-[0.16em] text-adm-t3">
     {children}
   </p>
 );
-
-const FieldGrid = ({ children, cols = 2 }: { children: ReactNode; cols?: 1 | 2 }) => (
-  <div
-    className={[
-      'grid gap-x-8 gap-y-4',
-      cols === 1 ? 'grid-cols-1' : 'grid-cols-2',
-    ].join(' ')}
-  >
-    {children}
-  </div>
-);
-
-const Field = ({
-  label,
-  value,
-  mono = false,
-  amber = false,
-  full = false,
-}: {
-  label: string;
-  value?: string | null;
-  mono?: boolean;
-  amber?: boolean;
-  full?: boolean;
-}) => {
-  if (!value) return null;
-  return (
-    <div className={full ? 'col-span-2' : ''}>
-      <p className="mb-1 font-mono text-[8.5px] uppercase tracking-[0.14em] text-adm-t3">
-        {label}
-      </p>
-      <p
-        className={[
-          'break-all leading-relaxed',
-          mono ? 'font-mono text-[10px]' : 'text-[11px]',
-          amber ? 'font-semibold text-adm-amber' : 'text-adm-t2',
-        ].join(' ')}
-      >
-        {value}
-      </p>
-    </div>
-  );
-};
-
-/* ── Sidebar primitives ──────────────────────────────────────── */
 
 const SidebarGroup = ({ title, children }: { title: string; children: ReactNode }) => (
   <div className="border-b border-adm-border py-4 last:border-b-0">
@@ -149,78 +90,55 @@ const SidebarKV = ({
   );
 };
 
-/* ─────────────────────────────────────────────────────────────── */
+/* ── Main Component ──────────────────────────────────────────── */
 
-const PlatformMemberDetailPage = () => {
+export default function PlatformMemberDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { hasAnyPermission } = useAdminSession();
 
-  const [detail, setDetail]   = useState<MemberDetail | null>(null);
+  const [member, setMember] = useState<MemberDetail | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError]     = useState('');
-  const [notice, setNotice]   = useState<string | null>(null);
-
-  /* Role change modal */
-  const [isRoleModalOpen, setIsRoleModalOpen]       = useState(false);
-  const [rolesCatalog, setRolesCatalog]             = useState<RoleCatalogItem[]>([]);
-  const [selectedRoleCodes, setSelectedRoleCodes]   = useState<string[]>([]);
-  const [roleChangeReason, setRoleChangeReason]     = useState('');
-  const [modalLoading, setModalLoading]             = useState(false);
-  const [savingRoles, setSavingRoles]               = useState(false);
-  const [modalError, setModalError]                 = useState<string | null>(null);
-
-  /* Resend invitation */
   const [resending, setResending] = useState(false);
-  const resendSeqRef              = useRef(0);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
-  /* Delete modal */
-  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
-  const [deleteReason, setDeleteReason]           = useState('');
-  const [requestingDelete, setRequestingDelete]   = useState(false);
-  const [deleteModalError, setDeleteModalError]   = useState<string | null>(null);
+  const [showRoleChangeModal, setShowRoleChangeModal] = useState(false);
+  const [availableRoles, setAvailableRoles] = useState<string[]>([]);
+  const [selectedRoles, setSelectedRoles] = useState<string[]>([]);
+  const [changeReason, setChangeReason] = useState('');
+  const [submittingRoleChange, setSubmittingRoleChange] = useState(false);
 
-  /* Permissions */
-  const canReadUserRoles   = hasAnyPermission([PERMISSIONS.IAM_USER_ROLES_READ]);
-  const canAssignRoles     = hasAnyPermission([PERMISSIONS.IAM_USER_ROLES_WRITE]);
-  const canReadRoleCatalog = hasAnyPermission([PERMISSIONS.IAM_ROLES_READ]);
-  const canResendInvite    = hasAnyPermission([
-    PERMISSIONS.USERS_INVITATION_RESEND,
-    PERMISSIONS.USERS_CREATE,
-  ]);
-  const canRequestDeletion = hasAnyPermission([PERMISSIONS.GOV_DELETE_REQUEST_CREATE]);
+  const [showSuspendModal, setShowSuspendModal] = useState(false);
+  const [suspendReason, setSuspendReason] = useState('');
+  const [submittingSuspend, setSubmittingSuspend] = useState(false);
+
+  const [showReactivateModal, setShowReactivateModal] = useState(false);
+  const [reactivateReason, setReactivateReason] = useState('');
+  const [submittingReactivate, setSubmittingReactivate] = useState(false);
+
+  const [showMfaResetModal, setShowMfaResetModal] = useState(false);
+  const [submittingMfaReset, setSubmittingMfaReset] = useState(false);
+
+  const [showPasswordResetModal, setShowPasswordResetModal] = useState(false);
+  const [submittingPasswordReset, setSubmittingPasswordReset] = useState(false);
 
   /* ── Fetching ── */
 
-  const fetchJson = async <T,>(url: string, init?: RequestInit): Promise<T> => {
-    const response = await adminFetch(url, init);
-    if (!response.ok) {
-      throw new Error(await getApiErrorMessage(response, 'Request failed.'));
-    }
-    return (await response.json()) as T;
-  };
-
   const fetchDetail = async () => {
     if (!id) { setError('Member id is required.'); setLoading(false); return; }
-    setLoading(true); setError('');
+    setLoading(true);
+    setError(null);
     try {
-      const payload = await fetchJson<MemberDetail>(
-        `${import.meta.env.VITE_API_URL}/users/${id}`,
-      );
-      setDetail({
-        ...payload,
-        latestInvitation: hydrateMemberInvitationLink(
-          undefined,
-          payload.id,
-          payload.latestInvitation,
-        ),
-      });
-    } catch (e: unknown) {
-      if (e instanceof AdminSessionError) return;
-      if (e instanceof AdminPermissionError) {
+      const res = await adminFetch(`${import.meta.env.VITE_API_URL}/users/${id}`);
+      if (!res.ok) throw new Error(await getApiErrorMessage(res, 'Failed to load member'));
+      setMember((await res.json()) as MemberDetail);
+    } catch (err: unknown) {
+      if (err instanceof AdminSessionError) return;
+      if (err instanceof AdminPermissionError) {
         setError('Permission denied. You cannot view this member.');
       } else {
-        setError(e instanceof Error ? e.message : 'Failed to load member detail.');
+        setError(err instanceof Error ? err.message : 'Failed to load member detail.');
       }
     } finally {
       setLoading(false);
@@ -229,182 +147,178 @@ const PlatformMemberDetailPage = () => {
 
   useEffect(() => { void fetchDetail(); }, [id]);
 
-  /* Auto-dismiss notice */
   useEffect(() => {
     if (!notice) return undefined;
-    const t = window.setTimeout(
-      () => setNotice((c) => (c === notice ? null : c)),
-      4000,
-    );
+    const t = window.setTimeout(() => setNotice((c) => (c === notice ? null : c)), 4000);
     return () => window.clearTimeout(t);
   }, [notice]);
 
-  /* ── Role change modal ── */
+  /* ── Resend invitation ── */
 
-  const openRoleModal = async () => {
-    if (!detail) return;
-    setIsRoleModalOpen(true);
-    setModalLoading(true);
-    setModalError(null);
-    setRoleChangeReason('');
-
+  const handleResend = async () => {
+    if (!member) return;
+    setResending(true);
     try {
-      const [rolesPayload, catalogPayload] = await Promise.all([
-        canReadUserRoles
-          ? fetchJson<{ userId: string; roles: Array<{ code: string }> }>(
-              `${import.meta.env.VITE_API_URL}/admin/iam/users/${detail.id}/roles`,
-            )
-          : Promise.resolve({ userId: detail.id, roles: [] as Array<{ code: string }> }),
-        canReadRoleCatalog
-          ? fetchJson<RoleCatalogItem[]>(
-              `${import.meta.env.VITE_API_URL}/admin/iam/roles`,
-            )
-          : Promise.resolve([] as RoleCatalogItem[]),
-      ]);
-      setSelectedRoleCodes(rolesPayload.roles.map((r) => r.code));
-      setRolesCatalog(catalogPayload.filter((r) => r.status === 'ACTIVE'));
-    } catch (err) {
-      if (err instanceof AdminPermissionError) {
-        setModalError('Permission denied. You cannot read role data.');
-      } else {
-        setModalError(err instanceof Error ? err.message : 'Failed to load role data.');
-      }
+      const res = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/users/${id}/invitations/resend`,
+        { method: 'POST' },
+      );
+      if (!res.ok) throw new Error(await getApiErrorMessage(res, 'Failed to resend invitation'));
+      setNotice(`Invitation resent successfully for ${member.userNo}.`);
+      void fetchDetail();
+    } catch (err: unknown) {
+      if (err instanceof AdminSessionError) return;
+      setError(err instanceof Error ? err.message : 'Failed to resend invitation.');
     } finally {
-      setModalLoading(false);
+      setResending(false);
     }
   };
 
-  const closeRoleModal = () => {
-    setIsRoleModalOpen(false);
-    setSelectedRoleCodes([]);
-    setRolesCatalog([]);
-    setModalError(null);
-    setRoleChangeReason('');
+  /* ── Role change ── */
+
+  const handleOpenRoleChange = async () => {
+    try {
+      const res = await adminFetch(`${import.meta.env.VITE_API_URL}/admin/iam/roles`);
+      if (res.ok) {
+        const data = await res.json();
+        setAvailableRoles(Array.isArray(data) ? data.map((r: any) => r.code) : []);
+      }
+    } catch { /* ignore */ }
+    const roleCodes = member?.roles?.length ? member.roles : member?.role ? [member.role] : [];
+    setSelectedRoles(roleCodes);
+    setChangeReason('');
+    setShowRoleChangeModal(true);
   };
 
-  const toggleRoleCode = (code: string) => {
-    setSelectedRoleCodes((c) =>
-      c.includes(code) ? c.filter((x) => x !== code) : [...c, code].sort(),
+  const handleToggleRole = (code: string) => {
+    setSelectedRoles((prev) =>
+      prev.includes(code) ? prev.filter((r) => r !== code) : [...prev, code],
     );
   };
 
-  const submitRoleChange = async () => {
-    if (!detail) return;
-    if (!roleChangeReason.trim()) { setModalError('Change reason is required.'); return; }
-    setSavingRoles(true); setModalError(null);
+  const handleSubmitRoleChange = async () => {
+    if (!member || selectedRoles.length === 0 || !changeReason.trim()) return;
+    setSubmittingRoleChange(true);
     try {
-      const payload = await fetchJson<{ ticketNo: string }>(
-        `${import.meta.env.VITE_API_URL}/admin/iam/users/${detail.id}/roles`,
+      const res = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/admin/iam/role-change-requests`,
         {
-          method: 'PUT',
+          method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            roleCodes: selectedRoleCodes,
-            changeReason: roleChangeReason.trim(),
+            targetUserId: member.id,
+            roleCodes: selectedRoles,
+            changeReason: changeReason.trim(),
           }),
         },
       );
-      closeRoleModal();
-      setNotice(
-        `Role binding change request ${payload.ticketNo} created. Existing bindings remain until approval and execution.`,
+      if (!res.ok) throw new Error(await getApiErrorMessage(res, 'Failed to submit role change request'));
+      setShowRoleChangeModal(false);
+      setNotice('Role change request submitted for approval.');
+    } catch (err: unknown) {
+      if (err instanceof AdminSessionError) return;
+      setError(err instanceof Error ? err.message : 'Failed to submit role change request.');
+    } finally {
+      setSubmittingRoleChange(false);
+    }
+  };
+
+  /* ── Suspend user ── */
+
+  const handleSubmitSuspend = async () => {
+    if (!member || !suspendReason.trim()) return;
+    setSubmittingSuspend(true);
+    try {
+      const res = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/users/${id}/suspend`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reason: suspendReason.trim() }),
+        },
       );
-    } catch (err) {
-      if (err instanceof AdminPermissionError) {
-        setModalError('Permission denied. You cannot submit role change requests.');
-      } else {
-        setModalError(err instanceof Error ? err.message : 'Failed to create role change request.');
-      }
+      if (!res.ok) throw new Error(await getApiErrorMessage(res, 'Failed to submit suspension request'));
+      const data = await res.json();
+      setShowSuspendModal(false);
+      setSuspendReason('');
+      setNotice(`Suspension request submitted for approval (${data.approvalNo}).`);
+      void fetchDetail();
+    } catch (err: unknown) {
+      if (err instanceof AdminSessionError) return;
+      setError(err instanceof Error ? err.message : 'Failed to submit suspension request.');
     } finally {
-      setSavingRoles(false);
+      setSubmittingSuspend(false);
     }
   };
 
-  /* ── Resend invitation ── */
+  /* ── Reactivate user ── */
 
-  const submitResendInvite = async () => {
-    if (!detail) return;
-    const seq = resendSeqRef.current + 1;
-    resendSeqRef.current = seq;
-    setResending(true); setError('');
+  const handleSubmitReactivate = async () => {
+    if (!member || !reactivateReason.trim()) return;
+    setSubmittingReactivate(true);
     try {
-      const payload = await fetchJson<{
-        inviteLink: string;
-        inviteExpiresAt: string;
-        inviteStatus: string;
-      }>(`${import.meta.env.VITE_API_URL}/users/${detail.id}/invitations/resend`, {
-        method: 'POST',
-      });
-      if (resendSeqRef.current !== seq) return;
-      persistMemberInvitationLink(undefined, detail.id, payload);
-      setDetail((c) =>
-        c
-          ? {
-              ...c,
-              latestInvitation: hydrateMemberInvitationLink(undefined, detail.id, {
-                inviteLink: payload.inviteLink,
-                inviteExpiresAt: payload.inviteExpiresAt,
-                inviteStatus: payload.inviteStatus,
-              }),
-            }
-          : c,
+      const res = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/users/${id}/reactivate`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reason: reactivateReason.trim() }),
+        },
       );
-      setNotice(`Invitation reissued for ${detail.userNo}. Invite link updated below.`);
-    } catch (err) {
-      if (resendSeqRef.current !== seq) return;
-      if (err instanceof AdminPermissionError) {
-        setError('Permission denied. You cannot resend invitations.');
-      } else {
-        setError(err instanceof Error ? err.message : 'Failed to resend invitation.');
-      }
+      if (!res.ok) throw new Error(await getApiErrorMessage(res, 'Failed to submit reactivation request'));
+      const data = await res.json();
+      setShowReactivateModal(false);
+      setReactivateReason('');
+      setNotice(`Reactivation request submitted for approval (${data.approvalNo}).`);
+      void fetchDetail();
+    } catch (err: unknown) {
+      if (err instanceof AdminSessionError) return;
+      setError(err instanceof Error ? err.message : 'Failed to submit reactivation request.');
     } finally {
-      if (resendSeqRef.current === seq) setResending(false);
+      setSubmittingReactivate(false);
     }
   };
 
-  const copyInviteLink = async (link: string) => {
+  /* ── Reset MFA ── */
+
+  const handleSubmitMfaReset = async () => {
+    if (!member) return;
+    setSubmittingMfaReset(true);
     try {
-      await navigator.clipboard.writeText(link);
-      setNotice('Invitation link copied.');
-    } catch {
-      setError('Copy failed. Please copy the link manually.');
+      const res = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/admin/iam/users/${id}/reset-mfa`,
+        { method: 'POST' },
+      );
+      if (!res.ok) throw new Error(await getApiErrorMessage(res, 'Failed to reset MFA'));
+      setShowMfaResetModal(false);
+      setNotice(`MFA reset successful for ${member.userNo}. User will need to re-bind MFA on next login.`);
+      void fetchDetail();
+    } catch (err: unknown) {
+      if (err instanceof AdminSessionError) return;
+      setError(err instanceof Error ? err.message : 'Failed to reset MFA.');
+    } finally {
+      setSubmittingMfaReset(false);
     }
   };
 
-  /* ── Delete modal ── */
+  /* ── Reset Password ── */
 
-  const openDeleteModal = () => {
-    setDeleteReason('');
-    setDeleteModalError(null);
-    setIsDeleteModalOpen(true);
-  };
-
-  const closeDeleteModal = () => {
-    setIsDeleteModalOpen(false);
-    setDeleteReason('');
-    setDeleteModalError(null);
-  };
-
-  const submitDeleteRequest = async () => {
-    if (!detail) return;
-    const reason = deleteReason.trim();
-    if (!reason) { setDeleteModalError('Delete reason is required.'); return; }
-    setRequestingDelete(true); setDeleteModalError(null);
+  const handleSubmitPasswordReset = async () => {
+    if (!member) return;
+    setSubmittingPasswordReset(true);
     try {
-      const created = await createDeleteRequest({
-        targetType: DELETE_REQUEST_TARGET_TYPES.ADMIN_USER,
-        targetNo: detail.userNo,
-        deleteReason: reason,
-      });
-      closeDeleteModal();
-      navigate(`/dashboard/control-gates/delete-requests/${created.id}`);
-    } catch (err) {
-      if (err instanceof AdminPermissionError) {
-        setDeleteModalError('Permission denied. You cannot request member deletion.');
-      } else {
-        setDeleteModalError(err instanceof Error ? err.message : 'Failed to create delete request.');
-      }
+      const res = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/users/${id}/reset-password`,
+        { method: 'POST' },
+      );
+      if (!res.ok) throw new Error(await getApiErrorMessage(res, 'Failed to reset password'));
+      setShowPasswordResetModal(false);
+      setNotice(`Reset link sent to ${member.email}`);
+    } catch (err: unknown) {
+      if (err instanceof AdminSessionError) return;
+      setError(err instanceof Error ? err.message : 'Failed to reset password.');
     } finally {
-      setRequestingDelete(false);
+      setSubmittingPasswordReset(false);
     }
   };
 
@@ -419,20 +333,14 @@ const PlatformMemberDetailPage = () => {
     );
   }
 
-  if (error && !detail) {
+  if (error && !member) {
     return (
       <div className="flex h-full flex-col overflow-hidden">
         <div className="shrink-0 border-b border-adm-border bg-adm-panel px-6 py-4 flex items-center gap-2">
-          <button
-            onClick={() => navigate('/dashboard/members')}
-            className={adminButtonClass('detailUtility')}
-          >
+          <button onClick={() => navigate('/dashboard/members')} className={adminButtonClass('detailUtility')}>
             ← Back
           </button>
-          <button
-            onClick={() => void fetchDetail()}
-            className={adminButtonClass('detailUtility')}
-          >
+          <button onClick={() => void fetchDetail()} className={adminButtonClass('detailUtility')}>
             <RefreshCw size={13} /> Retry
           </button>
         </div>
@@ -445,14 +353,11 @@ const PlatformMemberDetailPage = () => {
     );
   }
 
-  if (!detail) {
+  if (!member) {
     return (
       <div className="flex h-full flex-col overflow-hidden">
         <div className="shrink-0 border-b border-adm-border bg-adm-panel px-6 py-4">
-          <button
-            onClick={() => navigate('/dashboard/members')}
-            className={adminButtonClass('detailUtility')}
-          >
+          <button onClick={() => navigate('/dashboard/members')} className={adminButtonClass('detailUtility')}>
             ← Back
           </button>
         </div>
@@ -463,20 +368,26 @@ const PlatformMemberDetailPage = () => {
 
   /* ── Derived ── */
 
-  const roleCodes =
-    detail.roles && detail.roles.length > 0
-      ? detail.roles
-      : detail.role
-        ? [detail.role]
-        : [];
-
-  const hasLockInfo =
-    (detail.failedLoginAttempts != null && detail.failedLoginAttempts > 0) ||
-    !!detail.lockedUntil;
-
-  const inv = detail.latestInvitation;
-  const hasInvitation  = !!inv;
-  const hasInvTrace    = !!(inv?.workflowType || inv?.workflowNo || inv?.traceId);
+  const canResend = member.status === 'INVITE_SENT' || member.status === 'INACTIVE';
+  const canChangeRoles =
+    member.status === 'ACTIVE' && hasAnyPermission([PERMISSIONS.IAM_ROLE_CHANGE_REQUESTS_CREATE]);
+  const canSuspend =
+    (member.status === 'ACTIVE' || member.status === 'INACTIVE') &&
+    hasAnyPermission([PERMISSIONS.USERS_SUSPEND]);
+  const canReactivate =
+    member.status === 'SUSPENDED' &&
+    hasAnyPermission([PERMISSIONS.USERS_REACTIVATE]);
+  const canResetMfa =
+    member.status === 'ACTIVE' &&
+    hasAnyPermission([PERMISSIONS.USERS_RESET_MFA]);
+  const canResetPassword =
+    member.status === 'ACTIVE' &&
+    member.role !== 'SUPER_ADMIN' &&
+    hasAnyPermission([PERMISSIONS.USERS_RESET_PASSWORD]);
+  const showActions = canResend || canChangeRoles || canSuspend || canReactivate || canResetMfa || canResetPassword;
+  const roleCodes = member.roles?.length ? member.roles : member.role ? [member.role] : [];
+  const invitation = member.latestInvitation;
+  const passwordReset = member.latestPasswordReset;
 
   /* ── Page ── */
 
@@ -486,6 +397,7 @@ const PlatformMemberDetailPage = () => {
       {/* ── Sticky nav header ── */}
       <DetailPageHeader
         title="Platform Member"
+        subtitle={member.userNo}
         onBack={() => navigate('/dashboard/members')}
         onRefresh={() => void fetchDetail()}
         refreshing={loading}
@@ -508,113 +420,131 @@ const PlatformMemberDetailPage = () => {
         </div>
       )}
 
-      {/* ── Body ── */}
+      {/* ── Body: two-column layout ── */}
       <div className="flex min-h-0 flex-1 overflow-hidden">
 
         {/* ════ LEFT MAIN ════ */}
         <div className="flex min-w-0 flex-1 flex-col divide-y divide-adm-border overflow-y-auto">
 
-          {/* ② Identity — UserNo dominant, status, then dim details */}
+          {/* ① Identity */}
           <section className="bg-adm-card px-6 py-5">
             <Cap>Member</Cap>
             <p className="mt-1.5 font-mono text-[19px] font-bold leading-snug text-adm-amber">
-              {detail.userNo}
+              {member.userNo}
             </p>
             <div className="mt-2.5">
-              <AdminBadge value={detail.status} />
+              <AdminBadge value={member.status} />
             </div>
             <div className="mt-4 border-t border-adm-border pt-4">
-              <p className="font-mono text-[11px] text-adm-t2">{detail.email}</p>
-              <p className="mt-1.5 break-all font-mono text-[9px] text-adm-t3">{detail.id}</p>
+              <p className="font-mono text-[11px] text-adm-t2">{member.email}</p>
+              <p className="mt-1.5 break-all font-mono text-[9px] text-adm-t3">{member.id}</p>
             </div>
           </section>
 
-          {/* ③ Account State — only when there is lock info */}
-          {hasLockInfo && (
-            <section className="px-6 py-5">
-              <Cap>Account State</Cap>
-              <div className="mt-3">
-                <FieldGrid>
-                  {detail.failedLoginAttempts != null && detail.failedLoginAttempts > 0 && (
-                    <Field
-                      label="Failed Login Attempts"
-                      value={String(detail.failedLoginAttempts)}
-                    />
+          {/* ② Details */}
+          <section className="px-6 py-5">
+            <Cap>Details</Cap>
+            <div className="mt-3 grid grid-cols-2 gap-x-8 gap-y-4">
+              <InfoField label="Primary Role" value={member.role} mono />
+              <div>
+                <div className="font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">All Roles</div>
+                <div className="mt-1 flex flex-wrap gap-1.5">
+                  {roleCodes.length === 0 ? (
+                    <span className="font-mono text-[11px] text-adm-t3">No roles assigned</span>
+                  ) : (
+                    roleCodes.map((code) => (
+                      <span
+                        key={code}
+                        className="inline-flex items-center rounded border border-adm-blue/25 bg-adm-blue/10 px-2.5 py-1 font-mono text-[10px] text-adm-blue"
+                      >
+                        {code}
+                      </span>
+                    ))
                   )}
-                  <Field label="Locked Until" value={fmt(detail.lockedUntil)} mono />
-                </FieldGrid>
+                </div>
               </div>
+              <InfoField label="Created" value={fmt(member.createdAt)} mono />
+              <InfoField label="Updated" value={fmt(member.updatedAt)} mono />
+              <InfoField label="Last Login" value={member.lastLoginAt ? fmt(member.lastLoginAt) : 'Never'} mono />
+            </div>
+          </section>
+
+          {/* ③ Security & MFA */}
+          <section className="px-6 py-5">
+            <Cap>Security</Cap>
+            <div className="mt-3 grid grid-cols-2 gap-x-8 gap-y-4">
+              <div>
+                <div className="font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">MFA Status</div>
+                <div className="mt-1">
+                  {member.mfaEnabledAt ? (
+                    <span className="inline-flex items-center rounded border border-adm-green/25 bg-adm-green/10 px-2.5 py-1 font-mono text-[10px] text-adm-green">
+                      Active
+                    </span>
+                  ) : member.firstLoginStatus === 'MFA_BINDING' ? (
+                    <span className="inline-flex items-center rounded border border-adm-amber/25 bg-adm-amber/10 px-2.5 py-1 font-mono text-[10px] text-adm-amber">
+                      Binding in Progress
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center rounded border border-adm-amber/25 bg-adm-amber/10 px-2.5 py-1 font-mono text-[10px] text-adm-amber">
+                      Not Bound
+                    </span>
+                  )}
+                </div>
+              </div>
+              <div>
+                <div className="font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">Onboarding Step</div>
+                <div className="mt-1">
+                  {member.firstLoginStatus === 'COMPLETED' ? (
+                    <span className="inline-flex items-center rounded border border-adm-green/25 bg-adm-green/10 px-2.5 py-1 font-mono text-[10px] text-adm-green">
+                      Completed
+                    </span>
+                  ) : member.firstLoginStatus === 'PENDING_IDENTITY_CONFIRM' ? (
+                    <span className="inline-flex items-center rounded border border-adm-amber/25 bg-adm-amber/10 px-2.5 py-1 font-mono text-[10px] text-adm-amber">
+                      Setup Pending
+                    </span>
+                  ) : member.firstLoginStatus === 'MFA_BINDING' ? (
+                    <span className="inline-flex items-center rounded border border-adm-amber/25 bg-adm-amber/10 px-2.5 py-1 font-mono text-[10px] text-adm-amber">
+                      MFA Pending
+                    </span>
+                  ) : member.firstLoginStatus === 'POLICY_ACK_PENDING' ? (
+                    <span className="inline-flex items-center rounded border border-adm-amber/25 bg-adm-amber/10 px-2.5 py-1 font-mono text-[10px] text-adm-amber">
+                      Policy Pending
+                    </span>
+                  ) : (
+                    <span className="font-mono text-[11px] text-adm-t3">{member.firstLoginStatus || '—'}</span>
+                  )}
+                </div>
+              </div>
+              <InfoField label="MFA Bound At" value={fmt(member.mfaEnabledAt)} mono />
+              <InfoField label="Last Login" value={member.lastLoginAt ? fmt(member.lastLoginAt) : 'Never'} mono />
+            </div>
+          </section>
+
+          {/* ④ Invitation Status */}
+          {invitation && (
+            <section className="px-6 py-5">
+              <Cap>Invitation</Cap>
+              <div className="mt-3 grid grid-cols-2 gap-x-8 gap-y-4">
+                <InfoField label="Invite Status" value={invitation.inviteStatus} mono accent />
+                <InfoField label="Expires At" value={fmt(invitation.inviteExpiresAt)} mono />
+              </div>
+              {invitation.inviteLink && (
+                <InviteLinkField link={invitation.inviteLink} />
+              )}
             </section>
           )}
 
-          {/* ④ Role Bindings */}
-          <section className="px-6 py-5">
-            <Cap>Role Bindings</Cap>
-            <p className="mt-1 font-mono text-[9px] text-adm-t3">
-              Current bindings · submit a change request to alter them
-            </p>
-            <div className="mt-3 flex flex-wrap gap-2">
-              {roleCodes.length === 0 ? (
-                <p className="font-mono text-[10px] text-adm-t3">No roles assigned.</p>
-              ) : (
-                roleCodes.map((code) => (
-                  <span
-                    key={code}
-                    className="inline-flex items-center rounded border border-adm-blue/25 bg-adm-blue/10 px-2.5 py-1 font-mono text-[10px] text-adm-blue"
-                  >
-                    {code}
-                  </span>
-                ))
-              )}
-            </div>
-          </section>
-
-          {/* ⑤ Invitation & Activation */}
-          {hasInvitation && inv && (
+          {/* ④ Password Reset */}
+          {passwordReset && (
             <section className="px-6 py-5">
-              <Cap>Invitation &amp; Activation</Cap>
-              <p className="mt-1 mb-4 font-mono text-[9px] text-adm-t3">
-                Canonical invitation state for this member
-              </p>
-
-              <div className="rounded border border-adm-border bg-adm-bg p-4">
-                <FieldGrid>
-                  <div>
-                    <p className="mb-1.5 font-mono text-[8.5px] uppercase tracking-[0.14em] text-adm-t3">
-                      Invite Status
-                    </p>
-                    <AdminBadge value={inv.inviteStatus} />
-                  </div>
-                  <Field label="Expires At" value={fmt(inv.inviteExpiresAt)} mono />
-                  {inv.consumedAt && (
-                    <Field label="Consumed At" value={fmt(inv.consumedAt)} mono />
-                  )}
-                  {inv.revokedAt && (
-                    <Field label="Revoked At" value={fmt(inv.revokedAt)} mono />
-                  )}
-                  {inv.createdByUserId && (
-                    <Field label="Invited By" value={inv.createdByUserId} mono full />
-                  )}
-                </FieldGrid>
-
-                {inv.inviteLink && (
-                  <div className="mt-4 border-t border-adm-border pt-4">
-                    <Cap>Invite Link</Cap>
-                    <div className="mt-2 rounded border border-adm-border bg-adm-card px-3 py-2.5">
-                      <p className="break-all font-mono text-[9px] text-adm-t3">
-                        {inv.inviteLink}
-                      </p>
-                    </div>
-                    <button
-                      onClick={() => void copyInviteLink(inv.inviteLink!)}
-                      className={`mt-2 ${adminButtonClass('detailUtility')}`}
-                    >
-                      <Copy size={12} />
-                      Copy Link
-                    </button>
-                  </div>
-                )}
+              <Cap>Password Reset</Cap>
+              <div className="mt-3 grid grid-cols-2 gap-x-8 gap-y-4">
+                <InfoField label="Reset Status" value={passwordReset.resetStatus} mono accent />
+                <InfoField label="Expires At" value={fmt(passwordReset.resetExpiresAt)} mono />
               </div>
+              {passwordReset.resetLink && (
+                <ResetLinkField link={passwordReset.resetLink} />
+              )}
             </section>
           )}
 
@@ -624,148 +554,81 @@ const PlatformMemberDetailPage = () => {
         <div className="w-[272px] min-w-[272px] overflow-y-auto border-l border-adm-border bg-adm-panel px-4 py-1">
 
           {/* Actions */}
-          {(canAssignRoles || (canResendInvite && detail.status === 'INACTIVE') || canRequestDeletion) && (
+          {showActions && (
             <div className="border-b border-adm-border py-4">
               <Cap>Actions</Cap>
               <div className="mt-2.5 flex flex-col gap-2">
-                {canAssignRoles && (
+                {canChangeRoles && (
                   <button
-                    onClick={() => void openRoleModal()}
-                    className={adminButtonClass('detailUtility')}
+                    onClick={() => void handleOpenRoleChange()}
+                    className={adminButtonClass('workflowPrimary')}
                   >
-                    Request Role Change
+                    <ShieldCheck size={13} />
+                    Change Roles
                   </button>
                 )}
-                {canResendInvite && detail.status === 'INACTIVE' && (
+                {canResend && (
                   <button
-                    onClick={() => void submitResendInvite()}
+                    onClick={() => void handleResend()}
                     disabled={resending}
                     className={adminButtonClass('detailUtility')}
                   >
+                    <Mail size={13} />
                     {resending ? 'Reissuing…' : 'Resend Invitation'}
                   </button>
                 )}
-                {canRequestDeletion && (
+                {canSuspend && (
                   <button
-                    onClick={openDeleteModal}
+                    onClick={() => { setSuspendReason(''); setShowSuspendModal(true); }}
                     className={adminButtonClass('workflowNegative')}
                   >
-                    Request Deletion
+                    <UserX size={13} />
+                    Suspend User
+                  </button>
+                )}
+                {canReactivate && (
+                  <button
+                    onClick={() => { setReactivateReason(''); setShowReactivateModal(true); }}
+                    className={adminButtonClass('workflowPrimary')}
+                  >
+                    <UserCheck size={13} />
+                    Reactivate User
+                  </button>
+                )}
+                {canResetMfa && (
+                  <button
+                    onClick={() => setShowMfaResetModal(true)}
+                    className={adminButtonClass('workflowNegative')}
+                  >
+                    <KeyRound size={13} />
+                    Reset MFA
+                  </button>
+                )}
+                {canResetPassword && (
+                  <button
+                    onClick={() => setShowPasswordResetModal(true)}
+                    className={adminButtonClass('workflowNegative')}
+                  >
+                    <Lock size={13} />
+                    Reset Password
                   </button>
                 )}
               </div>
             </div>
           )}
 
-          <SidebarGroup title="Lifecycle">
-            <SidebarKV label="Joined"     value={fmt(detail.createdAt)}   mono />
-            <SidebarKV label="Last Login" value={fmt(detail.lastLoginAt)} mono />
-            <SidebarKV label="Updated"    value={fmt(detail.updatedAt)}   mono />
+          {/* Quick Reference */}
+          <SidebarGroup title="Quick Reference">
+            <SidebarKV label="User No" value={member.userNo} mono />
+            <SidebarKV label="Status" value={<AdminBadge value={member.status} />} />
+            <SidebarKV label="Primary Role" value={member.role} />
           </SidebarGroup>
-
-          {hasInvTrace && inv && (
-            <SidebarGroup title="Invitation Trace">
-              <SidebarKV label="Workflow Type" value={inv.workflowType}           />
-              <SidebarKV label="Workflow No"   value={inv.workflowNo}       mono  />
-              <SidebarKV label="Trace ID"      value={inv.traceId}          mono  />
-              <SidebarKV label="Issued At"     value={fmt(inv.createdAt)}   mono  />
-            </SidebarGroup>
-          )}
 
         </div>
       </div>
 
       {/* ════ Role Change Modal ════ */}
-      {isRoleModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-lg overflow-hidden rounded-xl border border-adm-border bg-adm-panel shadow-xl">
-
-            {/* Modal header */}
-            <div className="flex items-center justify-between border-b border-adm-border bg-adm-card px-5 py-4">
-              <div>
-                <p className="font-mono text-[11px] font-semibold text-adm-t1">
-                  Submit Role Binding Change
-                </p>
-                <p className="mt-1 font-mono text-[9px] text-adm-t3">
-                  {detail.userNo} · {detail.email}
-                </p>
-              </div>
-              <button
-                onClick={closeRoleModal}
-                className="rounded p-1 text-adm-t3 hover:bg-adm-hover hover:text-adm-t1"
-              >
-                <X size={15} />
-              </button>
-            </div>
-
-            {/* Modal body */}
-            <div className="max-h-[60vh] space-y-3 overflow-y-auto px-5 py-4">
-              {modalLoading ? (
-                <p className="font-mono text-[11px] text-adm-t3">Loading roles…</p>
-              ) : rolesCatalog.length === 0 ? (
-                <p className="font-mono text-[11px] text-adm-t3">No active roles available.</p>
-              ) : (
-                rolesCatalog.map((role) => (
-                  <label
-                    key={role.id}
-                    className="flex cursor-pointer gap-3 rounded border border-adm-border bg-adm-bg p-3 hover:bg-adm-card"
-                  >
-                    <input
-                      type="checkbox"
-                      className="mt-0.5"
-                      checked={selectedRoleCodes.includes(role.code)}
-                      onChange={() => toggleRoleCode(role.code)}
-                    />
-                    <div>
-                      <p className="font-mono text-[10px] font-semibold text-adm-t1">{role.code}</p>
-                      <p className="mt-0.5 font-mono text-[9px] text-adm-t3">
-                        {role.description || role.name}
-                      </p>
-                    </div>
-                  </label>
-                ))
-              )}
-
-              <div>
-                <p className="mb-1.5 font-mono text-[8.5px] uppercase tracking-[0.14em] text-adm-t3">
-                  Change Reason
-                </p>
-                <textarea
-                  value={roleChangeReason}
-                  onChange={(e) => setRoleChangeReason(e.target.value)}
-                  rows={3}
-                  placeholder="Explain why these role bindings should change."
-                  className="w-full rounded border border-adm-border bg-adm-bg px-3 py-2 font-mono text-[10px] text-adm-t2 placeholder:text-adm-t3 focus:border-adm-amber focus:outline-none resize-none"
-                />
-              </div>
-
-              {modalError && (
-                <div className="rounded border border-adm-red/30 bg-adm-red/10 px-3 py-2 font-mono text-[10px] text-adm-red">
-                  {modalError}
-                </div>
-              )}
-            </div>
-
-            {/* Modal footer */}
-            <div className="flex justify-end gap-2 border-t border-adm-border bg-adm-card px-5 py-4">
-              <button onClick={closeRoleModal} className={adminButtonClass('modalCancel')}>
-                Cancel
-              </button>
-              <button
-                onClick={() => void submitRoleChange()}
-                disabled={savingRoles || modalLoading}
-                className={adminButtonClass('modalConfirm')}
-              >
-                {savingRoles ? 'Submitting…' : 'Submit Request'}
-              </button>
-            </div>
-
-          </div>
-        </div>
-      )}
-
-      {/* ════ Delete Modal ════ */}
-      {isDeleteModalOpen && (
+      {showRoleChangeModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <div className="w-full max-w-md overflow-hidden rounded-xl border border-adm-border bg-adm-panel shadow-xl">
 
@@ -773,14 +636,14 @@ const PlatformMemberDetailPage = () => {
             <div className="flex items-center justify-between border-b border-adm-border bg-adm-card px-5 py-4">
               <div>
                 <p className="font-mono text-[11px] font-semibold text-adm-t1">
-                  Request Member Deletion
+                  Change Role Bindings
                 </p>
                 <p className="mt-1 font-mono text-[9px] text-adm-t3">
-                  {detail.userNo} · {detail.email}
+                  {member.userNo} · {member.email}
                 </p>
               </div>
               <button
-                onClick={closeDeleteModal}
+                onClick={() => setShowRoleChangeModal(false)}
                 className="rounded p-1 text-adm-t3 hover:bg-adm-hover hover:text-adm-t1"
               >
                 <X size={15} />
@@ -789,42 +652,59 @@ const PlatformMemberDetailPage = () => {
 
             {/* Body */}
             <div className="px-5 py-4 space-y-3">
-              <p className="font-mono text-[10px] text-adm-t3">
-                This opens a governed deletion proposal for{' '}
-                <span className="text-adm-amber">{detail.userNo}</span>.
-                The member record remains active until the request is approved and executed.
-              </p>
               <div>
                 <p className="mb-1.5 font-mono text-[8.5px] uppercase tracking-[0.14em] text-adm-t3">
-                  Delete Reason
+                  Select Roles
+                </p>
+                <div className="flex flex-wrap gap-2 rounded border border-adm-border bg-adm-bg p-3 max-h-36 overflow-y-auto">
+                  {availableRoles.length === 0 ? (
+                    <span className="font-mono text-[10px] text-adm-t3">Loading roles…</span>
+                  ) : (
+                    availableRoles.map((code) => (
+                      <button
+                        key={code}
+                        type="button"
+                        onClick={() => handleToggleRole(code)}
+                        className={[
+                          'inline-flex rounded border px-2.5 py-1 font-mono text-[10px] transition-colors',
+                          selectedRoles.includes(code)
+                            ? 'border-adm-blue/50 bg-adm-blue/15 text-adm-blue'
+                            : 'border-adm-border bg-adm-panel text-adm-t2 hover:border-adm-blue/30',
+                        ].join(' ')}
+                      >
+                        {code}
+                      </button>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              <div>
+                <p className="mb-1.5 font-mono text-[8.5px] uppercase tracking-[0.14em] text-adm-t3">
+                  Reason for Change
                 </p>
                 <textarea
-                  value={deleteReason}
-                  onChange={(e) => setDeleteReason(e.target.value)}
+                  value={changeReason}
+                  onChange={(e) => setChangeReason(e.target.value)}
                   rows={4}
-                  placeholder="Explain why this member should enter governed deletion…"
+                  placeholder="Describe why this role change is needed…"
                   className="w-full rounded border border-adm-border bg-adm-bg px-3 py-2 font-mono text-[10px] text-adm-t2 placeholder:text-adm-t3 focus:border-adm-amber focus:outline-none resize-none transition-colors"
                   autoFocus
                 />
               </div>
-              {deleteModalError && (
-                <div className="rounded border border-adm-red/30 bg-adm-red/10 px-3 py-2 font-mono text-[10px] text-adm-red">
-                  {deleteModalError}
-                </div>
-              )}
             </div>
 
             {/* Footer */}
             <div className="flex justify-end gap-2 border-t border-adm-border bg-adm-card px-5 py-4">
-              <button onClick={closeDeleteModal} className={adminButtonClass('modalCancel')}>
+              <button onClick={() => setShowRoleChangeModal(false)} className={adminButtonClass('modalCancel')}>
                 Cancel
               </button>
               <button
-                onClick={() => void submitDeleteRequest()}
-                disabled={requestingDelete || !deleteReason.trim()}
-                className={adminButtonClass('workflowNegative')}
+                onClick={() => void handleSubmitRoleChange()}
+                disabled={submittingRoleChange || selectedRoles.length === 0 || !changeReason.trim()}
+                className={adminButtonClass('modalConfirm')}
               >
-                {requestingDelete ? 'Requesting…' : 'Submit Request'}
+                {submittingRoleChange ? 'Submitting…' : 'Submit for Approval'}
               </button>
             </div>
 
@@ -832,8 +712,291 @@ const PlatformMemberDetailPage = () => {
         </div>
       )}
 
+      {/* ════ Suspend Modal ════ */}
+      {showSuspendModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md overflow-hidden rounded-xl border border-adm-border bg-adm-panel shadow-xl">
+
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-adm-border bg-adm-card px-5 py-4">
+              <div>
+                <p className="font-mono text-[11px] font-semibold text-adm-t1">
+                  Suspend Admin Account
+                </p>
+                <p className="mt-1 font-mono text-[9px] text-adm-t3">
+                  {member.userNo} · {member.email}
+                </p>
+              </div>
+              <button
+                onClick={() => setShowSuspendModal(false)}
+                className="rounded p-1 text-adm-t3 hover:bg-adm-hover hover:text-adm-t1"
+              >
+                <X size={15} />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="px-5 py-4 space-y-3">
+              <div className="rounded border border-adm-amber/30 bg-adm-amber/10 px-3 py-2.5 font-mono text-[10px] text-adm-amber leading-relaxed">
+                This will submit a suspension request for approval. If approved, this user will be
+                immediately blocked from accessing the admin panel.
+              </div>
+
+              <div>
+                <p className="mb-1.5 font-mono text-[8.5px] uppercase tracking-[0.14em] text-adm-t3">
+                  Reason for Suspension
+                </p>
+                <textarea
+                  value={suspendReason}
+                  onChange={(e) => setSuspendReason(e.target.value)}
+                  rows={4}
+                  placeholder="Describe why this account should be suspended…"
+                  className="w-full rounded border border-adm-border bg-adm-bg px-3 py-2 font-mono text-[10px] text-adm-t2 placeholder:text-adm-t3 focus:border-adm-amber focus:outline-none resize-none transition-colors"
+                  autoFocus
+                />
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="flex justify-end gap-2 border-t border-adm-border bg-adm-card px-5 py-4">
+              <button onClick={() => setShowSuspendModal(false)} className={adminButtonClass('modalCancel')}>
+                Cancel
+              </button>
+              <button
+                onClick={() => void handleSubmitSuspend()}
+                disabled={submittingSuspend || !suspendReason.trim()}
+                className={adminButtonClass('modalConfirm')}
+              >
+                {submittingSuspend ? 'Submitting…' : 'Submit for Approval'}
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* ════ Reactivate Modal ════ */}
+      {showReactivateModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md overflow-hidden rounded-xl border border-adm-border bg-adm-panel shadow-xl">
+
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-adm-border bg-adm-card px-5 py-4">
+              <div>
+                <p className="font-mono text-[11px] font-semibold text-adm-t1">
+                  Reactivate Admin Account
+                </p>
+                <p className="mt-1 font-mono text-[9px] text-adm-t3">
+                  {member.userNo} · {member.email}
+                </p>
+              </div>
+              <button
+                onClick={() => setShowReactivateModal(false)}
+                className="rounded p-1 text-adm-t3 hover:bg-adm-hover hover:text-adm-t1"
+              >
+                <X size={15} />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="px-5 py-4 space-y-3">
+              <div className="rounded border border-adm-amber/30 bg-adm-amber/10 px-3 py-2.5 font-mono text-[10px] text-adm-amber leading-relaxed">
+                This will submit a reactivation request for approval. If approved, this user will
+                regain access to the admin panel.
+              </div>
+
+              <div>
+                <p className="mb-1.5 font-mono text-[8.5px] uppercase tracking-[0.14em] text-adm-t3">
+                  Reason for Reactivation
+                </p>
+                <textarea
+                  value={reactivateReason}
+                  onChange={(e) => setReactivateReason(e.target.value)}
+                  rows={4}
+                  placeholder="Describe why this account should be reactivated…"
+                  className="w-full rounded border border-adm-border bg-adm-bg px-3 py-2 font-mono text-[10px] text-adm-t2 placeholder:text-adm-t3 focus:border-adm-amber focus:outline-none resize-none transition-colors"
+                  autoFocus
+                />
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="flex justify-end gap-2 border-t border-adm-border bg-adm-card px-5 py-4">
+              <button onClick={() => setShowReactivateModal(false)} className={adminButtonClass('modalCancel')}>
+                Cancel
+              </button>
+              <button
+                onClick={() => void handleSubmitReactivate()}
+                disabled={submittingReactivate || !reactivateReason.trim()}
+                className={adminButtonClass('modalConfirm')}
+              >
+                {submittingReactivate ? 'Submitting…' : 'Submit for Approval'}
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* ════ MFA Reset Confirmation Modal ════ */}
+      {showMfaResetModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md overflow-hidden rounded-xl border border-adm-border bg-adm-panel shadow-xl">
+
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-adm-border bg-adm-card px-5 py-4">
+              <div>
+                <p className="font-mono text-[11px] font-semibold text-adm-t1">
+                  Reset MFA Binding
+                </p>
+                <p className="mt-1 font-mono text-[9px] text-adm-t3">
+                  {member.userNo} · {member.email}
+                </p>
+              </div>
+              <button
+                onClick={() => setShowMfaResetModal(false)}
+                className="rounded p-1 text-adm-t3 hover:bg-adm-hover hover:text-adm-t1"
+              >
+                <X size={15} />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="px-5 py-4 space-y-3">
+              <div className="rounded border border-adm-red/30 bg-adm-red/10 px-3 py-2.5 font-mono text-[10px] text-adm-red leading-relaxed">
+                This will immediately remove this user's MFA binding. They will be required to
+                complete the full identity verification and MFA setup flow on their next login.
+                This action takes effect immediately without approval.
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="flex justify-end gap-2 border-t border-adm-border bg-adm-card px-5 py-4">
+              <button onClick={() => setShowMfaResetModal(false)} className={adminButtonClass('modalCancel')}>
+                Cancel
+              </button>
+              <button
+                onClick={() => void handleSubmitMfaReset()}
+                disabled={submittingMfaReset}
+                className={adminButtonClass('modalConfirm')}
+              >
+                {submittingMfaReset ? 'Resetting…' : 'Reset MFA'}
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* ════ Password Reset Confirmation Modal ════ */}
+      {showPasswordResetModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md overflow-hidden rounded-xl border border-adm-border bg-adm-panel shadow-xl">
+
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-adm-border bg-adm-card px-5 py-4">
+              <div>
+                <p className="font-mono text-[11px] font-semibold text-adm-t1">
+                  Reset Password
+                </p>
+                <p className="mt-1 font-mono text-[9px] text-adm-t3">
+                  {member.userNo} · {member.email}
+                </p>
+              </div>
+              <button
+                onClick={() => setShowPasswordResetModal(false)}
+                className="rounded p-1 text-adm-t3 hover:bg-adm-hover hover:text-adm-t1"
+              >
+                <X size={15} />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="px-5 py-4 space-y-3">
+              <div className="rounded border border-adm-red/30 bg-adm-red/10 px-3 py-2.5 font-mono text-[10px] text-adm-red leading-relaxed">
+                This will send a password reset link to <strong>{member.email}</strong>.
+                The user's current password will remain valid until they complete the reset.
+                This action takes effect immediately without approval.
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="flex justify-end gap-2 border-t border-adm-border bg-adm-card px-5 py-4">
+              <button onClick={() => setShowPasswordResetModal(false)} className={adminButtonClass('modalCancel')}>
+                Cancel
+              </button>
+              <button
+                onClick={() => void handleSubmitPasswordReset()}
+                disabled={submittingPasswordReset}
+                className={adminButtonClass('modalConfirm')}
+              >
+                {submittingPasswordReset ? 'Sending…' : 'Send Reset Link'}
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
     </div>
   );
-};
+}
 
-export default PlatformMemberDetailPage;
+/* ── Invite Link sub-component ───────────────────────────────── */
+
+function InviteLinkField({ link }: { link: string }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    await navigator.clipboard.writeText(link);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <div className="mt-4">
+      <div className="font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">Invite Link</div>
+      <div className="mt-1 flex items-center gap-2">
+        <code className="flex-1 overflow-hidden text-ellipsis whitespace-nowrap rounded border border-adm-border bg-adm-bg px-3 py-1.5 font-mono text-[10px] text-adm-t2">
+          {link}
+        </code>
+        <button
+          onClick={() => void handleCopy()}
+          className="shrink-0 rounded p-1.5 text-adm-t3 transition-colors hover:bg-adm-hover hover:text-adm-amber"
+          title="Copy"
+        >
+          {copied ? <Check size={12} className="text-adm-green" /> : <Copy size={12} />}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ── Reset Link sub-component ───────────────────────────────── */
+
+function ResetLinkField({ link }: { link: string }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    await navigator.clipboard.writeText(link);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <div className="mt-4">
+      <div className="font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">Reset Link</div>
+      <div className="mt-1 flex items-center gap-2">
+        <code className="flex-1 overflow-hidden text-ellipsis whitespace-nowrap rounded border border-adm-border bg-adm-bg px-3 py-1.5 font-mono text-[10px] text-adm-t2">
+          {link}
+        </code>
+        <button
+          onClick={() => void handleCopy()}
+          className="shrink-0 rounded p-1.5 text-adm-t3 transition-colors hover:bg-adm-hover hover:text-adm-amber"
+          title="Copy"
+        >
+          {copied ? <Check size={12} className="text-adm-green" /> : <Copy size={12} />}
+        </button>
+      </div>
+    </div>
+  );
+}

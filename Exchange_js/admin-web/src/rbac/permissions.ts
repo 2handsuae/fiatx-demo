@@ -8,6 +8,13 @@ export const PERMISSIONS = {
   IAM_PERMISSIONS_READ: 'api.get.admin_iam_permissions',
   IAM_USER_ROLES_READ: 'api.get.admin_iam_users_id_roles',
   IAM_USER_ROLES_WRITE: 'api.put.admin_iam_users_id_roles',
+  IAM_ROLE_CHANGE_REQUESTS_CREATE: 'api.post.admin_iam_role_change_requests',
+  IAM_ROLE_CHANGE_REQUESTS_READ: 'api.get.admin_iam_role_change_requests',
+  IAM_ROLE_CHANGE_REQUEST_DETAIL_READ: 'api.get.admin_iam_role_change_requests_id',
+  USERS_SUSPEND: 'api.post.users_id_suspend',
+  USERS_REACTIVATE: 'api.post.users_id_reactivate',
+  USERS_RESET_MFA: 'api.post.admin_iam_users_id_reset_mfa',
+  USERS_RESET_PASSWORD: 'api.post.users_id_reset_password',
 
   CUSTOMERS_READ: 'api.get.customers',
   CUSTOMERS_DETAIL_READ: 'api.get.customers_id',
@@ -109,10 +116,6 @@ export const PERMISSIONS = {
   GOV_DELETE_REQUEST_SUBMIT: 'api.post.admin_control_gates_delete_requests_id_submit',
   GOV_DELETE_REQUEST_CANCEL: 'api.post.admin_control_gates_delete_requests_id_cancel',
   GOV_DELETE_REQUEST_CONSUME: 'api.post.admin_control_gates_delete_requests_id_consume',
-  GOV_SLA_TIMERS_READ: 'api.get.admin_control_gates_sla_timers',
-  GOV_SLA_TIMER_DETAIL_READ: 'api.get.admin_control_gates_sla_timers_id',
-  GOV_SLA_TIMER_RECALC: 'api.post.admin_control_gates_sla_timers_id_recalc',
-  GOV_SLA_TIMER_CLOSE: 'api.post.admin_control_gates_sla_timers_id_close',
   GOV_SHAREHOLDING_REGISTRY_READ:
     'api.get.admin_governance_registries_shareholding_versions',
   GOV_SHAREHOLDING_REGISTRY_DETAIL_READ:
@@ -156,6 +159,12 @@ export const PERMISSIONS = {
     'api.post.admin_governance_regulatory_gates_id_mark_effective',
   GOV_REGULATORY_GATE_REVOKE:
     'api.post.admin_governance_regulatory_gates_id_revoke',
+
+  // Approval Policy Management
+  GOV_APPROVAL_POLICIES_READ: 'api.get.admin_governance_approval_policies',
+  GOV_APPROVAL_POLICY_CHANGE_CREATE: 'api.post.admin_governance_approval_policies_actiontype_change_requests',
+  GOV_APPROVAL_POLICY_CHANGE_REQUESTS_READ: 'api.get.admin_governance_approval_policies_change_requests',
+  GOV_APPROVAL_POLICY_CHANGE_REQUEST_DETAIL_READ: 'api.get.admin_governance_approval_policies_change_requests_id',
 
   WALLETS_READ: 'api.get.wallets',
   WALLET_DETAIL_READ: 'api.get.wallets_id',

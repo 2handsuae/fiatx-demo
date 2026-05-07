@@ -23,6 +23,8 @@ interface Member {
   email: string;
   role: string;
   status: string;
+  firstLoginStatus: string | null;
+  mfaEnabledAt: string | null;
   createdAt: string;
   lastLoginAt: string | null;
   roles?: string[];
@@ -49,6 +51,27 @@ const fmt = (v?: string | null): string => {
   if (!v) return '—';
   const d = new Date(v);
   return Number.isNaN(d.getTime()) ? v : d.toLocaleString();
+};
+
+/** Returns a short label + color when the user's security setup is incomplete. */
+const getSecurityBadge = (
+  firstLoginStatus: string | null,
+  mfaEnabledAt: string | null,
+): { label: string; color: string } | null => {
+  if (!firstLoginStatus || firstLoginStatus === 'COMPLETED') {
+    // Defensive: COMPLETED but MFA somehow missing
+    if (!mfaEnabledAt) return { label: 'MFA Off', color: 'text-adm-amber border-adm-amber/25 bg-adm-amber/10' };
+    return null; // normal — no badge
+  }
+  const map: Record<string, string> = {
+    PENDING_IDENTITY_CONFIRM: 'Setup Pending',
+    MFA_BINDING: 'MFA Pending',
+    POLICY_ACK_PENDING: 'Policy Pending',
+  };
+  return {
+    label: map[firstLoginStatus] || firstLoginStatus,
+    color: 'text-adm-amber border-adm-amber/25 bg-adm-amber/10',
+  };
 };
 
 /* ─────────────────────────────────────────────────────────────── */
@@ -177,7 +200,7 @@ const PlatformMembers = () => {
 
     setCreating(true); setCreateError(null);
     try {
-      const payload = await fetchJson<{ ticketNo: string }>(
+      const payload = await fetchJson<{ userNo: string; approvalNo: string; status: string }>(
         `${import.meta.env.VITE_API_URL}/users`,
         {
           method: 'POST',
@@ -191,7 +214,7 @@ const PlatformMembers = () => {
       );
       closeCreateModal();
       setNotice(
-        `Provisioning request ${payload.ticketNo} created for ${email}. The member will appear after approval and execution.`,
+        `Invite approval ${payload.approvalNo} submitted for ${email} (${payload.userNo}). The member will receive an invitation link once the CISO approves.`,
       );
     } catch (err) {
       if (err instanceof AdminPermissionError) {
@@ -221,7 +244,7 @@ const PlatformMembers = () => {
         {canCreateMember && (
           <button onClick={openCreateModal} className={adminButtonClass('listPrimary')}>
             <Plus size={13} />
-            Submit Provisioning Request
+            Invite Member
           </button>
         )}
         <button
@@ -245,11 +268,14 @@ const PlatformMembers = () => {
         <select
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value)}
-          className={`${fi} w-28`}
+          className={`${fi} w-52`}
         >
           <option value="">All Status</option>
+          <option value="PENDING_INVITE_APPROVAL">PENDING_INVITE_APPROVAL</option>
+          <option value="INVITE_SENT">INVITE_SENT</option>
           <option value="ACTIVE">ACTIVE</option>
-          <option value="INACTIVE">INACTIVE</option>
+          <option value="PENDING_SUSPENSION_APPROVAL">PENDING_SUSPENSION_APPROVAL</option>
+          <option value="SUSPENDED">SUSPENDED</option>
         </select>
         <button
           onClick={() => setApplied(keyword.trim())}
@@ -288,9 +314,10 @@ const PlatformMembers = () => {
                 [
                   ['User No',    '148px'],
                   ['Email',      '220px'],
-                  ['Roles',      '220px'],
+                  ['Roles',      '200px'],
                   ['Status',     '90px'],
-                  ['Joined',     '148px'],
+                  ['MFA',        '100px'],
+                  ['Joined',     '130px'],
                   ['Last Login', 'auto'],
                 ] as [string, string][]
               ).map(([label, w]) => (
@@ -307,14 +334,14 @@ const PlatformMembers = () => {
           <tbody>
             {loading && (
               <tr>
-                <td colSpan={6} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
+                <td colSpan={7} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
                   Loading…
                 </td>
               </tr>
             )}
             {!loading && filteredMembers.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
+                <td colSpan={7} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
                   No members found.
                 </td>
               </tr>
@@ -357,6 +384,24 @@ const PlatformMembers = () => {
                     <td className="px-4 py-2.5">
                       <AdminBadge value={member.status} />
                     </td>
+                    {/* MFA */}
+                    <td className="px-4 py-2.5">
+                      {(() => {
+                        const badge = getSecurityBadge(member.firstLoginStatus, member.mfaEnabledAt);
+                        if (!badge) {
+                          return (
+                            <span className="inline-flex items-center rounded border border-adm-green/25 bg-adm-green/10 px-2 py-0.5 font-mono text-[9px] text-adm-green">
+                              Active
+                            </span>
+                          );
+                        }
+                        return (
+                          <span className={`inline-flex items-center rounded border px-2 py-0.5 font-mono text-[9px] ${badge.color}`}>
+                            {badge.label}
+                          </span>
+                        );
+                      })()}
+                    </td>
                     {/* Joined */}
                     <td className="px-4 py-2.5 font-mono text-[10px] text-adm-t2 whitespace-nowrap">
                       {new Date(member.createdAt).toLocaleDateString()}
@@ -388,10 +433,10 @@ const PlatformMembers = () => {
             <div className="flex items-center justify-between border-b border-adm-border bg-adm-card px-5 py-4">
               <div>
                 <p className="font-mono text-[11px] font-semibold text-adm-t1">
-                  Submit Provisioning Request
+                  Invite Admin Member
                 </p>
                 <p className="mt-1 font-mono text-[9px] text-adm-t3">
-                  Creates a governed access request. The member only appears after approval and execution.
+                  Submits a CISO approval request. The invite link is dispatched after approval.
                 </p>
               </div>
               <button

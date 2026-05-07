@@ -3,6 +3,12 @@ import { AuthService } from './auth.service';
 import { CustomerAuthService } from './customer-auth.service';
 import { AuthController } from './auth.controller';
 import { CustomerAuthController } from './customer-auth.controller';
+import { FirstLoginController } from './first-login.controller';
+import { FirstLoginGuard } from './guards/first-login.guard';
+import { MfaSessionGuard } from './guards/mfa-session.guard';
+import { PasswordResetMfaGuard } from './guards/password-reset-mfa.guard';
+import { PasswordResetController } from './password-reset.controller';
+import { FirstLoginWorkflowService } from '../users/first-login-workflow.service';
 import { UsersModule } from '../users/users.module';
 import { AccessControlModule } from '../access-control/access-control.module';
 import { PassportModule } from '@nestjs/passport';
@@ -21,7 +27,7 @@ import { PrismaModule } from '../../../core/prisma/prisma.module';
       signOptions: { expiresIn: '1d' },
     }),
   ],
-  providers: [AuthService, CustomerAuthService, JwtStrategy],
-  controllers: [CustomerAuthController, AuthController],
+  providers: [AuthService, CustomerAuthService, JwtStrategy, FirstLoginGuard, MfaSessionGuard, PasswordResetMfaGuard, FirstLoginWorkflowService],
+  controllers: [CustomerAuthController, AuthController, FirstLoginController, PasswordResetController],
 })
 export class AuthModule {}

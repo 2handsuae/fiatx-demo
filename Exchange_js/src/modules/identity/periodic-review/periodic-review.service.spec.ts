@@ -1,5 +1,4 @@
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
-import { AuditTriggerType } from '../../audit-logging/dto/audit-log.dto';
 import { PeriodicReviewService } from './periodic-review.service';
 
 describe('PeriodicReviewService', () => {
@@ -145,7 +144,6 @@ describe('PeriodicReviewService', () => {
     expect(recordByActorSpy).toHaveBeenCalledWith(
       expect.objectContaining({
         action: 'CDD_PERIODIC_REVIEW_SESSION_CREATED',
-        triggerType: AuditTriggerType.DATA_CREATE,
       }),
       expect.anything(),
     );

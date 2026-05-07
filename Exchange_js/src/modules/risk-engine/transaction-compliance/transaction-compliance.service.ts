@@ -36,7 +36,7 @@ import {
   AuditEntityTypes,
   AuditModules,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditResult, AuditTriggerType } from '../../audit-logging/dto/audit-log.dto';
+import { AuditResult } from '../../audit-logging/dto/audit-log.dto';
 import {
   BridgeExecutionResult,
   TransactionRiskBridgeService,
@@ -1513,13 +1513,9 @@ export class TransactionComplianceService {
 
     await this.auditLogsService.recordSystem(
       {
-        triggerType: existed
-          ? AuditTriggerType.DATA_UPDATE
-          : AuditTriggerType.DATA_CREATE,
         action: existed
           ? AuditActions.KYT_CASE_UPDATED
           : AuditActions.KYT_CASE_CREATED,
-        module: AuditModules.TRANSACTION_COMPLIANCE,
         entityType: AuditEntityTypes.KYT_CASE,
         entityId: record.id,
         entityNo: record.caseNo,
@@ -1528,17 +1524,6 @@ export class TransactionComplianceService {
         reason: existed
           ? 'KYT case updated by compliance flow'
           : 'KYT case created by compliance flow',
-        beforeData: existed
-          ? {
-              status: existed.status,
-            }
-          : undefined,
-        afterData: {
-          status: record.status,
-          screeningStage: record.screeningStage,
-          provider: record.provider,
-          providerCaseId: record.providerCaseId,
-        },
         metadata: {
           sourceType: record.sourceType,
           sourceId: record.sourceId,
@@ -1681,9 +1666,8 @@ export class TransactionComplianceService {
 
     await this.auditLogsService.recordSystem(
       {
-        triggerType: AuditTriggerType.DATA_UPDATE,
+
         action: AuditActions.TRAVEL_RULE_UPDATED,
-        module: AuditModules.TRANSACTION_COMPLIANCE,
         entityType: AuditEntityTypes.TRAVEL_RULE_CASE,
         entityId: record.id,
         entityNo: record.caseNo,
@@ -1692,17 +1676,6 @@ export class TransactionComplianceService {
         reason: existed
           ? 'Travel Rule case updated by compliance flow'
           : 'Travel Rule case created by compliance flow',
-        beforeData: existed
-          ? {
-              status: existed.status,
-            }
-          : undefined,
-        afterData: {
-          status: record.status,
-          provider: record.provider,
-          providerTransferId: record.providerTransferId,
-          required: record.required,
-        },
         metadata: {
           sourceType: record.sourceType,
           sourceId: record.sourceId,

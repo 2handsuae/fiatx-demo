@@ -17,7 +17,7 @@ import {
   AuditEntityTypes,
   AuditModules,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditResult, AuditTriggerType } from '../../audit-logging/dto/audit-log.dto';
+import { AuditResult } from '../../audit-logging/dto/audit-log.dto';
 
 @Injectable()
 export class AcctEventsService {
@@ -54,19 +54,11 @@ export class AcctEventsService {
     });
 
     await this.auditLogsService.recordSystem({
-      triggerType: AuditTriggerType.CONFIG_CHANGE,
       action: AuditActions.ACCT_EVENT_UPDATED,
-      module: AuditModules.ACCT_EVENTS,
       entityType: AuditEntityTypes.ACCT_EVENT,
       entityId: created.id,
       result: AuditResult.SUCCESS,
       reason: 'Accounting event created',
-      afterData: {
-        eventCode: created.eventCode,
-        triggerType: created.triggerType,
-        postingMode: created.postingMode,
-        isActive: created.isActive,
-      },
       sourcePlatform: 'ADMIN_API',
     });
 
@@ -133,25 +125,11 @@ export class AcctEventsService {
       });
 
       await this.auditLogsService.recordSystem({
-        triggerType: AuditTriggerType.CONFIG_CHANGE,
         action: AuditActions.ACCT_EVENT_UPDATED,
-        module: AuditModules.ACCT_EVENTS,
         entityType: AuditEntityTypes.ACCT_EVENT,
         entityId: updated.id,
         result: AuditResult.SUCCESS,
         reason: 'Accounting event updated',
-        beforeData: {
-          eventCode: before.eventCode,
-          triggerType: before.triggerType,
-          postingMode: before.postingMode,
-          isActive: before.isActive,
-        },
-        afterData: {
-          eventCode: updated.eventCode,
-          triggerType: updated.triggerType,
-          postingMode: updated.postingMode,
-          isActive: updated.isActive,
-        },
         sourcePlatform: 'ADMIN_API',
       });
 

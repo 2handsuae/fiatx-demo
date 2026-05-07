@@ -29,7 +29,6 @@ import {
   AuditWorkflowTypes,
   buildStateTransitionAction,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditTriggerType } from '../../audit-logging/dto/audit-log.dto';
 
 export interface CreateDetectedPayinInput {
   assetId: string;
@@ -105,7 +104,6 @@ export class PayinsService {
       actorNo: event.actorNo || null,
       reason: event.reason || null,
       occurredAt: event.occurredAt || event.createdAt || null,
-      module: event.module || null,
       result: event.result || null,
       oldStatus: event.statusFrom || null,
       newStatus: event.statusTo || null,
@@ -230,9 +228,8 @@ export class PayinsService {
     );
 
     await this.auditLogsService.recordSystem({
-      triggerType: AuditTriggerType.DATA_CREATE,
+
       action: AuditActions.PAYIN_CREATED,
-      module: AuditModules.PAYINS,
       entityType: AuditEntityTypes.PAYIN,
       entityId: payin.id,
       entityNo: payin.payinNo,
@@ -240,14 +237,6 @@ export class PayinsService {
       entityOwnerId: wallet.ownerId || undefined,
       workflowType: 'DEPOSIT',
       reason: initialReason,
-      afterData: {
-        status: payin.status,
-        type: payin.type,
-        amount: payin.amount?.toString?.(),
-        assetId: payin.assetId,
-        toWalletId: payin.toWalletId,
-        providerTxnId: payin.providerTxnId,
-      },
       sourcePlatform: 'SYSTEM',
     });
 
@@ -482,20 +471,15 @@ export class PayinsService {
     });
 
     await this.auditLogsService.recordSystem({
-      triggerType: AuditTriggerType.STATE_TRANSITION,
+
       action: buildStateTransitionAction('PAYIN', currentStatus, nextStatus),
-      module: AuditModules.PAYINS,
       entityType: AuditEntityTypes.PAYIN,
       entityId: updatedPayin.id,
       entityNo: updatedPayin.payinNo,
       entityOwnerType: updatedPayin.ownerId ? 'CUSTOMER' : undefined,
       entityOwnerId: updatedPayin.ownerId || undefined,
       workflowType: 'DEPOSIT',
-      statusFrom: currentStatus,
-      statusTo: nextStatus,
       reason: `Action: ${action}`,
-      beforeData: { status: currentStatus },
-      afterData: { status: nextStatus },
       sourcePlatform: 'SYSTEM',
     });
 

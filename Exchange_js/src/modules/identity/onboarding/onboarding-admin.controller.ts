@@ -12,7 +12,7 @@ import {
   ValidationPipe,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
-import { AdminPermissionGuard } from 'src/modules/identity/access-control/admin-permission.guard';
+import { AdminPermissionGuard } from '../access-control/admin-permission.guard';
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { buildPermissionCode } from '../access-control/permission-code.util';
 import { RequirePermissions } from '../access-control/require-permissions.decorator';

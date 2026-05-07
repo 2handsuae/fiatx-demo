@@ -17,7 +17,6 @@ import {
 } from '../audit-logging/constants/audit-actions.constant';
 import {
   AuditActorContext,
-  AuditTriggerType,
 } from '../audit-logging/dto/audit-log.dto';
 import {
   getCanonicalReviewRuleForStage,
@@ -625,9 +624,8 @@ export class RiskDecisionRecordsService {
 
     await this.auditLogsService.recordByActor(
       {
-        triggerType: AuditTriggerType.MANUAL_OVERRIDE,
+
         action: AuditActions.RISK_DECISION_MANUAL_SIMULATED,
-        module: AuditModules.RISK_DECISION_RECORDS,
         entityType: AuditEntityTypes.RISK_DECISION_RECORD,
         entityId: id,
         entityOwnerType: 'CUSTOMER',

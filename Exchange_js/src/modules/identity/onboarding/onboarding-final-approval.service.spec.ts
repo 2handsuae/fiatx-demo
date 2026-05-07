@@ -1,6 +1,5 @@
 import { BadRequestException, ConflictException } from '@nestjs/common';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
-import { AuditTriggerType } from '../../audit-logging/dto/audit-log.dto';
 import { OnboardingFinalApprovalService } from './onboarding-final-approval.service';
 import {
   ApprovalActionTypes,
@@ -114,7 +113,6 @@ describe('OnboardingFinalApprovalService', () => {
     expect(recordByActorSpy).toHaveBeenCalledWith(
       expect.objectContaining({
         action: 'FINAL_APPROVAL_SUBMITTED',
-        triggerType: AuditTriggerType.DATA_UPDATE,
       }),
       expect.anything(),
     );

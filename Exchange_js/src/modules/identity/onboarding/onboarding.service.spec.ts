@@ -4,7 +4,6 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
-import { AuditTriggerType } from '../../audit-logging/dto/audit-log.dto';
 import { OnboardingService } from './onboarding.service';
 import { WORKFLOW_TRANSITION_CODES } from './onboarding-workflow-transition.service';
 
@@ -511,7 +510,6 @@ describe('OnboardingService', () => {
       expect((auditInput as any).workflowId).toBeUndefined();
       expect((auditInput as any).workflowNo).toBeUndefined();
       expect((auditInput.metadata as any).eventType).toBe('applicantOnHold');
-      expect(auditInput.statusTo).toBe('PENDING_VERIFICATION');
       expect((auditInput.metadata as any).substatusFrom).toBe('SUBMITTED');
       expect((auditInput.metadata as any).substatusTo).toBe('UNDER_REVIEW');
       expect((auditInput.metadata as any).isSimulated).toBe(false);
@@ -1548,7 +1546,6 @@ describe('OnboardingService', () => {
     expect(recordByActorSpy).toHaveBeenCalledWith(
       expect.objectContaining({
         action: 'CDD_SESSION_CREATED',
-        triggerType: AuditTriggerType.DATA_CREATE,
       }),
       expect.anything(),
     );

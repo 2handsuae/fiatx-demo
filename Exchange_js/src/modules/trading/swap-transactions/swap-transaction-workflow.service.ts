@@ -7,7 +7,6 @@ import {
   AuditModules,
   buildStateTransitionAction,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditTriggerType } from '../../audit-logging/dto/audit-log.dto';
 import { JournalsService } from '../../accounting/journals/journals.service';
 import { OutstandingsService } from '../../clearing-settle/outstandings/outstandings.service';
 import { SwapTransactionStatus } from './dto/swap-transaction.dto';
@@ -365,9 +364,8 @@ export class SwapTransactionWorkflowService {
     if (input.actor) {
       await this.auditLogsService.recordByActor(
         {
-          triggerType: AuditTriggerType.STATE_TRANSITION,
+
           action: this.buildAuditAction(beforeStatus, nextStatus),
-          module: AuditModules.SWAP_TRANSACTIONS,
           entityType: AuditEntityTypes.SWAP_TRANSACTION,
           entityId: updated.id,
           entityNo: updated.swapNo || undefined,
@@ -376,8 +374,6 @@ export class SwapTransactionWorkflowService {
           entityOwnerType: updated.ownerType,
           entityOwnerId: updated.ownerId,
           entityOwnerNo: updated.ownerNo || undefined,
-          statusFrom: beforeStatus,
-          statusTo: nextStatus,
           reason: input.reason || `Swap workflow action ${input.workflowAction}`,
           metadata: auditMetadata,
           sourcePlatform: input.actor.sourcePlatform || 'SYSTEM',
@@ -393,9 +389,8 @@ export class SwapTransactionWorkflowService {
     } else {
       await this.auditLogsService.recordSystem(
         {
-          triggerType: AuditTriggerType.STATE_TRANSITION,
+
           action: this.buildAuditAction(beforeStatus, nextStatus),
-          module: AuditModules.SWAP_TRANSACTIONS,
           entityType: AuditEntityTypes.SWAP_TRANSACTION,
           entityId: updated.id,
           entityNo: updated.swapNo || undefined,
@@ -404,8 +399,6 @@ export class SwapTransactionWorkflowService {
           entityOwnerType: updated.ownerType,
           entityOwnerId: updated.ownerId,
           entityOwnerNo: updated.ownerNo || undefined,
-          statusFrom: beforeStatus,
-          statusTo: nextStatus,
           reason: input.reason || `Swap workflow action ${input.workflowAction}`,
           metadata: auditMetadata,
           sourcePlatform: 'SYSTEM',

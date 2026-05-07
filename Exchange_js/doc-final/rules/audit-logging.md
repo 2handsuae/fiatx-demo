@@ -1,5 +1,5 @@
 # Audit Logging Rules
-Last Updated: 2026-04-21 | Scope: Wave 1–4 | Source: docs/constraints/audit-logging-constraints.md, audit-trace-context-constraints.md
+Last Updated: 2026-04-30 | Scope: Wave 1–4 | Source: docs/constraints/audit-logging-constraints.md, audit-trace-context-constraints.md
 
 ---
 
@@ -9,40 +9,40 @@ Last Updated: 2026-04-21 | Scope: Wave 1–4 | Source: docs/constraints/audit-lo
 - Must route all new audit writes through `AuditLogsService`; no ad-hoc table writes in feature modules.
 - Must use `recordByActor()` for human/API-triggered actions and `recordSystem()` for jobs/orchestrators.
 - Canonical implementation lives in `src/modules/risk-engine/audit-logs`.
-- Must keep action/module/entity dictionaries centralized in `constants/audit-actions.constant.ts`.
+- Must keep action/entity/workflow-type dictionaries centralized in `constants/audit-actions.constant.ts` (`AuditActions`, `AuditGovernanceActions`, `AuditEntityTypes`, `AuditWorkflowTypes`, `AuditBusinessWorkflowTypes`). Note: `AuditModules` constant still exists for legacy reference but the `module` field has been removed from `audit_log_events` — do not pass it to `recordByActor`/`recordSystem`.
 
 ## Required Fields
 
 - `workflowType`: always required; must come from `AuditWorkflowTypes` or `AuditBusinessWorkflowTypes`; never null; never derived lazily from action name at write time.
 - `action`: required; must match `/^[A-Z0-9]+(?:_[A-Z0-9]+)*$/` (UPPER_SNAKE_CASE).
-- `triggerType`: required; must be one of the canonical normalized values (see below).
 - `traceId`: strongly recommended on every row; must be a valid UUID v4 when set; omit only for truly standalone non-sequence events.
 
 ## Forbidden Fields
 
 - `workflowId` and `workflowNo` are **not** columns on `audit_log_events` — they were removed 2026-04-08.
+- `module` is **not** a column on `audit_log_events` — removed 2026-04-29. Do not pass `module:` in any `recordByActor`/`recordSystem` call.
+- `triggerType` is **not** a column on `audit_log_events` — removed 2026-04-30. Do not pass `triggerType:` in any `recordByActor`/`recordSystem` call.
 - Must never set `workflowId` or `workflowNo` in `recordByActor` / `recordSystem` payloads.
 - Must never propagate an `auditContext` object containing `workflowId` or `workflowNo`; service-to-service context must only carry `{ workflowType, traceId }`.
-
-## triggerType Canonical Order (pick the first that applies)
-
-1. `EVIDENCE_EXPORT`
-2. `STATE_TRANSITION` — requires `statusFrom` and `statusTo`
-3. `MANUAL_OVERRIDE` — requires non-empty `reason`
-4. `AUTH_EVENT`
-5. `PERMISSION_CHANGE`
-6. `CONFIG_CHANGE`
-7. `DATA_CREATE`
-8. `DATA_UPDATE`
-9. `DATA_DELETE`
-10. `SYSTEM_EVENT`
 
 ## action Naming Conventions
 
 - State transition actions: `<ENTITY>_<FROM_STATUS>_TO_<TO_STATUS>` (except approved allowlist).
 - Manual actions: must start with `MANUAL_`.
 - System actions: must start with `SYSTEM_`.
-- Compliance alert/incident actions: use `DATA_CREATE` / `DATA_UPDATE` trigger types with domain names (`ALERT_*`, `INCIDENT_*`) — not `MANUAL_*` / `SYSTEM_*`.
+- Compliance alert/incident actions: use domain names (`ALERT_*`, `INCIDENT_*`) — not `MANUAL_*` / `SYSTEM_*`.
+
+## Governance Action Naming Convention
+
+Governance workflow actions use SHORT_UPPERCASE values stored under `AuditGovernanceActions.<WORKFLOW>.*`:
+
+- **Initiation**: `<DOMAIN>_REQUESTED` — covers both record creation and approval submission (one log, not two)
+- **Approval decisions** (shared across workflows): `APPROVAL_GRANTED`, `APPROVAL_DECLINED`, `APPROVAL_CANCELLED`
+- **Execution results**: past-tense verb (e.g., `ACCOUNT_ACTIVATED`, `ACCOUNT_SUSPENDED`, `CHANGE_APPLIED`, `PACKAGE_PURGED`)
+- **System events**: `<DOMAIN>_EXPIRED` (e.g., `INVITE_LINK_EXPIRED`)
+
+Workflows are distinguished by `workflowType` field, not by action name prefix.
+Reference implementation: `AuditGovernanceActions.AUDIT_EVIDENCE_EXPORT.*` in `audit-actions.constant.ts`.
 
 ## When Audit Log MUST Be Written
 
@@ -51,7 +51,7 @@ A feature or workflow is **not delivery-complete** without audit coverage for ev
 - New workflow or key state transition.
 - Automatic block / deny action (silent blocking without audit is forbidden).
 - Repair action (must capture: actor, reason, target subject, result).
-- Evidence package export (must append `triggerType=EVIDENCE_EXPORT` event).
+- Evidence package export (must append an audit event with `action=PACKAGE_EXPORTED` or equivalent governance action).
 - Provider callback side effect.
 
 P0 domains that must have unified write path coverage:

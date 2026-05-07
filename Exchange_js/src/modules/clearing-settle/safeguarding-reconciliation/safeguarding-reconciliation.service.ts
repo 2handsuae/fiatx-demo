@@ -18,7 +18,6 @@ import {
   AuditModules,
   buildStateTransitionAction,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditTriggerType } from '../../audit-logging/dto/audit-log.dto';
 import {
   FiatStatementImportQueryDto,
   GenerateSafeguardingDailyDiffDto,
@@ -196,16 +195,11 @@ export class SafeguardingReconciliationService {
 
   private async recordAudit(
     input: {
-      triggerType: AuditTriggerType;
       action: string;
       entityType: string;
       entityId: string;
       entityNo?: string | null;
-      statusFrom?: string | null;
-      statusTo?: string | null;
       reason?: string | null;
-      beforeData?: Record<string, unknown>;
-      afterData?: Record<string, unknown>;
       traceId?: string | null;
     },
     operatorId: string,
@@ -213,17 +207,11 @@ export class SafeguardingReconciliationService {
   ) {
     await this.auditLogsService.recordByActor(
       {
-        triggerType: input.triggerType,
         action: input.action,
-        module: AuditModules.SAFEGUARDING_RECONCILIATION,
         entityType: input.entityType,
         entityId: input.entityId,
         entityNo: input.entityNo || undefined,
-        statusFrom: input.statusFrom || undefined,
-        statusTo: input.statusTo || undefined,
         reason: input.reason || undefined,
-        beforeData: input.beforeData,
-        afterData: input.afterData,
         traceId: input.traceId || undefined,
         sourcePlatform: this.getSourcePlatform(operatorId),
       },
@@ -726,7 +714,7 @@ export class SafeguardingReconciliationService {
     for (const warning of warnings) {
       await this.recordAudit(
         {
-          triggerType: AuditTriggerType.DATA_CREATE,
+
           action: buildStateTransitionAction(
             'RECONCILIATION_WARNING',
             'NEW',
@@ -735,10 +723,6 @@ export class SafeguardingReconciliationService {
           entityType: AuditEntityTypes.RECONCILIATION_WARNING,
           entityId: warning.id,
           entityNo: warning.warningNo,
-          afterData: {
-            warningType: warning.warningType,
-            poolRole: warning.poolRole,
-          },
           traceId: run.traceId || null,
         },
         operatorId,
@@ -900,17 +884,11 @@ export class SafeguardingReconciliationService {
       });
       await this.recordAudit(
         {
-          triggerType: AuditTriggerType.DATA_CREATE,
+
           action: AuditActions.TX_SAFEGUARDING_BREAK_DETECTED,
           entityType: AuditEntityTypes.RECONCILIATION_BREAK,
           entityId: created.id,
           entityNo: created.breakNo,
-          afterData: {
-            breakType: created.breakType,
-            liabilityAmount: created.liabilityAmount?.toString?.() || null,
-            poolAmount: created.poolAmount?.toString?.() || null,
-            externalAmount: created.externalAmount?.toString?.() || null,
-          },
           traceId: run.traceId || null,
         },
         operatorId,
@@ -951,7 +929,7 @@ export class SafeguardingReconciliationService {
     });
     await this.recordAudit(
       {
-        triggerType: AuditTriggerType.STATE_TRANSITION,
+
         action: reopening
           ? AuditActions.TX_SAFEGUARDING_BREAK_DETECTED
           : buildStateTransitionAction(
@@ -962,14 +940,6 @@ export class SafeguardingReconciliationService {
         entityType: AuditEntityTypes.RECONCILIATION_BREAK,
         entityId: updated.id,
         entityNo: updated.breakNo,
-        statusFrom: existing.status,
-        statusTo: updated.status,
-        beforeData: {
-          breakType: existing.breakType,
-        },
-        afterData: {
-          breakType: updated.breakType,
-        },
         traceId: run.traceId || null,
       },
       operatorId,
@@ -1157,16 +1127,11 @@ export class SafeguardingReconciliationService {
 
       await this.recordAudit(
         {
-          triggerType: AuditTriggerType.DATA_CREATE,
+
           action: AuditActions.SAFEGUARDING_RUN_GENERATED,
           entityType: AuditEntityTypes.SAFEGUARDING_RUN,
           entityId: finishedRun.id,
           entityNo: finishedRun.runNo,
-          afterData: {
-            businessDate: finishedRun.businessDate,
-            breakCount: finishedRun.breakCount,
-            warningCount: finishedRun.warningCount,
-          },
           traceId: finishedRun.traceId || null,
         },
         operatorId,
@@ -1253,7 +1218,7 @@ export class SafeguardingReconciliationService {
 
     await this.recordAudit(
       {
-        triggerType: AuditTriggerType.STATE_TRANSITION,
+
         action:
           dto.status === ReconciliationBreakStatuses.RESOLVED
             ? AuditActions.TX_SAFEGUARDING_BREAK_RESOLVED
@@ -1265,11 +1230,7 @@ export class SafeguardingReconciliationService {
         entityType: AuditEntityTypes.RECONCILIATION_BREAK,
         entityId: updated.id,
         entityNo: updated.breakNo,
-        statusFrom: current.status,
-        statusTo: updated.status,
         reason: dto.note || undefined,
-        beforeData: { status: current.status },
-        afterData: { status: updated.status },
         traceId: updated.runId ? `SAFEGUARDING:${updated.businessDate}` : null,
       },
       operatorId,
@@ -1354,7 +1315,7 @@ export class SafeguardingReconciliationService {
 
     await this.recordAudit(
       {
-        triggerType: AuditTriggerType.STATE_TRANSITION,
+
         action: buildStateTransitionAction(
           'RECONCILIATION_WARNING',
           current.status,
@@ -1363,11 +1324,7 @@ export class SafeguardingReconciliationService {
         entityType: AuditEntityTypes.RECONCILIATION_WARNING,
         entityId: updated.id,
         entityNo: updated.warningNo,
-        statusFrom: current.status,
-        statusTo: updated.status,
         reason: dto.note || undefined,
-        beforeData: { status: current.status },
-        afterData: { status: updated.status },
         traceId: `SAFEGUARDING:${updated.businessDate}`,
       },
       operatorId,
@@ -1628,16 +1585,11 @@ export class SafeguardingReconciliationService {
 
       await this.recordAudit(
         {
-          triggerType: AuditTriggerType.DATA_CREATE,
+
           action: AuditActions.FIAT_STATEMENT_IMPORTED,
           entityType: AuditEntityTypes.FIAT_STATEMENT_IMPORT,
           entityId: updated.id,
           entityNo: updated.importNo,
-          afterData: {
-            businessDate: updated.businessDate,
-            closingBalance: updated.closingBalance?.toString?.() || null,
-            fileName: updated.fileName,
-          },
           traceId: updated.traceId || null,
         },
         operatorId,
@@ -1710,15 +1662,10 @@ export class SafeguardingReconciliationService {
 
     await this.recordAudit(
       {
-        triggerType: AuditTriggerType.DATA_CREATE,
         action: AuditActions.SAFEGUARDING_EVIDENCE_PACKAGE_EXPORTED,
         entityType: AuditEntityTypes.SAFEGUARDING_RUN,
         entityId: run.id,
         entityNo: run.runNo,
-        afterData: {
-          breakCount: run.breakCount,
-          warningCount: run.warningCount,
-        },
         traceId: run.traceId || null,
       },
       operatorId,

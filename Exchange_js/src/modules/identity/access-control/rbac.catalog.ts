@@ -10,6 +10,7 @@ export type PermissionGroup =
   | 'BASE_ACCESS'
   | 'IAM_READ'
   | 'IAM_ASSIGN'
+  | 'IAM_CREDENTIAL_RESET'
   | 'CUSTOMER_READ'
   | 'CUSTOMER_WRITE'
   | 'CUSTOMER_RATE_READ'
@@ -78,8 +79,8 @@ export type PermissionGroup =
   | 'GOV_REGISTRY_WRITE'
   | 'GOV_REGULATORY_GATE_READ'
   | 'GOV_REGULATORY_GATE_WRITE'
-  | 'GOV_SLA_READ'
-  | 'GOV_SLA_WRITE';
+  | 'GOV_APPROVAL_POLICY_READ'
+  | 'GOV_APPROVAL_POLICY_WRITE';
 
 export interface RbacPermissionDefinition {
   code: string;
@@ -181,7 +182,11 @@ export function getPrimaryRoleCode(roleCodes: string[]): string | null {
   return normalized[0] || null;
 }
 
-export const HARD_MUTEX_ROLE_PAIRS: Array<[string, string]> = [];
+export const HARD_MUTEX_ROLE_PAIRS: Array<[string, string]> = [
+  ['CISO', 'MLRO'],
+  ['MLRO', 'OPS_OFFICER'],
+  ['CISO', 'OPS_OFFICER'],
+];
 
 export const SOFT_WARNING_ROLE_GROUPS: Array<{ codes: string[]; message: string }> = [];
 
@@ -191,10 +196,17 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('GET', '/users', 'List users', ['IAM_READ']),
   route('POST', '/users', 'Create admin user', ['IAM_ASSIGN']),
   route('POST', '/users/:id/invitations/resend', 'Resend admin invitation', ['IAM_ASSIGN']),
+  route('POST', '/users/:id/suspend', 'Suspend admin user (C4)', ['IAM_ASSIGN']),
+  route('POST', '/users/:id/reactivate', 'Reactivate admin user (C4b)', ['IAM_ASSIGN']),
   route('GET', '/admin/iam/roles', 'List role catalog', ['IAM_READ']),
   route('GET', '/admin/iam/permissions', 'List permission catalog', ['IAM_READ']),
   route('GET', '/admin/iam/users/:id/roles', 'Get user roles', ['IAM_READ']),
   route('PUT', '/admin/iam/users/:id/roles', 'Replace user roles', ['IAM_ASSIGN']),
+  route('POST', '/admin/iam/role-change-requests', 'Create role binding change request', ['IAM_ASSIGN']),
+  route('GET', '/admin/iam/role-change-requests', 'List role binding change requests', ['IAM_READ']),
+  route('GET', '/admin/iam/role-change-requests/:id', 'Get role binding change request', ['IAM_READ']),
+  route('POST', '/admin/iam/users/:id/reset-mfa', 'Reset admin MFA binding', ['IAM_CREDENTIAL_RESET']),
+  route('POST', '/users/:id/reset-password', 'Reset admin password (C5)', ['IAM_CREDENTIAL_RESET']),
 
   // Customer domain
   route('POST', '/customers', 'Create customer', ['CUSTOMER_WRITE']),
@@ -743,32 +755,20 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
     'GOV_REGULATORY_GATE_WRITE',
   ]),
 
-  // Governance SLA timers
-  route('GET', '/admin/control-gates/sla-timers', 'List SLA timers', ['GOV_SLA_READ']),
-  route('GET', '/admin/control-gates/sla-timers/:id', 'Get SLA timer detail', [
-    'GOV_SLA_READ',
+  // Approval Policy Management
+  route('GET', '/admin/governance/approval-policies', 'List approval policies', [
+    'GOV_APPROVAL_POLICY_READ',
   ]),
-  route('POST', '/admin/control-gates/sla-timers/:id/recalc', 'Recalculate SLA timer', [
-    'GOV_SLA_WRITE',
+  route('POST', '/admin/governance/approval-policies/:actionType/change-requests', 'Create approval policy change request', [
+    'GOV_APPROVAL_POLICY_WRITE',
   ]),
-  route('POST', '/admin/control-gates/sla-timers/:id/close', 'Close SLA timer', [
-    'GOV_SLA_WRITE',
+  route('GET', '/admin/governance/approval-policies/change-requests', 'List approval policy change requests', [
+    'GOV_APPROVAL_POLICY_READ',
   ]),
-  route(
-    'POST',
-    '/admin/demo/control-gates/sla-timers/approval-timeout',
-    'Create approval-timeout SLA mock chain',
-    ['GOV_SLA_WRITE'],
-  ),
-  route(
-    'POST',
-    '/admin/demo/control-gates/sla-timers/change-follow-up',
-    'Create change follow-up SLA mock chain',
-    ['GOV_SLA_WRITE'],
-  ),
-  route('POST', '/admin/demo/control-gates/sla-timers/:id/expire', 'Mock expire SLA timer', [
-    'GOV_SLA_WRITE',
+  route('GET', '/admin/governance/approval-policies/change-requests/:id', 'Get approval policy change request detail', [
+    'GOV_APPROVAL_POLICY_READ',
   ]),
+
 ];
 
 export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
@@ -783,15 +783,19 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'CASE_EXPORT_READ',
     'RECON_BREAK_READ',
     'GOV_APPROVAL_READ',
+    'GOV_APPROVAL_DECIDE',
     'GOV_CHANGE_TICKET_READ',
     'GOV_DELETE_REQUEST_READ',
     'GOV_REGISTRY_READ',
     'GOV_REGULATORY_GATE_READ',
-    'GOV_SLA_READ',
+    'GOV_APPROVAL_POLICY_READ',
+
   ],
   TECH_OFFICER: [
     'BASE_ACCESS',
     'IAM_READ',
+    'IAM_ASSIGN',
+    'IAM_CREDENTIAL_RESET',
     'AUDIT_READ',
     'AUDIT_EXPORT_READ',
     'RISK_DECISION_RECORD_READ',
@@ -811,8 +815,9 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'GOV_REGISTRY_WRITE',
     'GOV_REGULATORY_GATE_READ',
     'GOV_REGULATORY_GATE_WRITE',
-    'GOV_SLA_READ',
-    'GOV_SLA_WRITE',
+    'GOV_APPROVAL_POLICY_READ',
+    'GOV_APPROVAL_POLICY_WRITE',
+
   ],
   OPS_OFFICER: [
     'BASE_ACCESS',
@@ -854,8 +859,9 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'GOV_REGISTRY_WRITE',
     'GOV_REGULATORY_GATE_READ',
     'GOV_REGULATORY_GATE_WRITE',
-    'GOV_SLA_READ',
-    'GOV_SLA_WRITE',
+    'GOV_APPROVAL_POLICY_READ',
+    'GOV_APPROVAL_POLICY_WRITE',
+
   ],
   MLRO: [
     'BASE_ACCESS',
@@ -880,7 +886,8 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'GOV_CHANGE_TICKET_READ',
     'GOV_DELETE_REQUEST_READ',
     'GOV_REGISTRY_READ',
-    'GOV_SLA_READ',
+    'GOV_APPROVAL_POLICY_READ',
+
   ],
   DPO: [
     'BASE_ACCESS',
@@ -899,12 +906,15 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'GOV_REGISTRY_WRITE',
     'GOV_REGULATORY_GATE_READ',
     'GOV_REGULATORY_GATE_WRITE',
-    'GOV_SLA_READ',
+    'GOV_APPROVAL_POLICY_READ',
+    'GOV_APPROVAL_POLICY_WRITE',
+
   ],
   CISO: [
     'BASE_ACCESS',
     'IAM_READ',
     'IAM_ASSIGN',
+    'IAM_CREDENTIAL_RESET',
     'AUDIT_READ',
     'RISK_DECISION_RECORD_READ',
     'ALERT_READ',
@@ -920,8 +930,9 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'GOV_REGISTRY_WRITE',
     'GOV_REGULATORY_GATE_READ',
     'GOV_REGULATORY_GATE_WRITE',
-    'GOV_SLA_READ',
-    'GOV_SLA_WRITE',
+    'GOV_APPROVAL_POLICY_READ',
+    'GOV_APPROVAL_POLICY_WRITE',
+
   ],
 };
 

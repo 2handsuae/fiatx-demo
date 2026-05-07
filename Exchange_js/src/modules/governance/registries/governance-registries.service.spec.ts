@@ -5,7 +5,6 @@ const baseDate = new Date('2026-03-30T09:00:00.000Z');
 describe('GovernanceRegistriesService', () => {
   let prisma: any;
   let auditLogsService: any;
-  let slaTimersService: any;
   let service: GovernanceRegistriesService;
 
   const actor = {
@@ -63,12 +62,7 @@ describe('GovernanceRegistriesService', () => {
       recordByActor: jest.fn().mockResolvedValue(undefined),
     };
 
-    slaTimersService = {
-      ensureGovernanceRegistryTimer: jest.fn().mockResolvedValue({ id: 'timer-1' }),
-      closeGovernanceRegistryTimer: jest.fn().mockResolvedValue({ id: 'timer-1' }),
-    };
-
-    service = new GovernanceRegistriesService(prisma, auditLogsService, slaTimersService);
+    service = new GovernanceRegistriesService(prisma, auditLogsService);
   });
 
   it('creates a shareholding version with participants and supersedes the previous version', async () => {
@@ -195,8 +189,6 @@ describe('GovernanceRegistriesService', () => {
     expect(auditLogsService.recordByActor).toHaveBeenCalledWith(
       expect.objectContaining({
         entityNo: 'APT2603300001',
-        statusFrom: 'PLANNED',
-        statusTo: 'ACTIVE',
       }),
       expect.anything(),
     );
@@ -312,17 +304,10 @@ describe('GovernanceRegistriesService', () => {
       actor,
     );
 
-    expect(slaTimersService.ensureGovernanceRegistryTimer).toHaveBeenCalledWith(
-      expect.objectContaining({
-        subjectType: 'CONFLICT_DISCLOSURE',
-        subjectId: 'cfd-1',
-        subjectNo: 'CFD2603300001',
-      }),
-    );
     expect(result.disclosureNo).toBe('CFD2603300001');
   });
 
-  it('archives a wind-down material and closes its outstanding SLA timer', async () => {
+  it('archives a wind-down material', async () => {
     prisma.windDownMaterialRecord.findUnique.mockResolvedValue({
       id: 'wdm-1',
       materialNo: 'WDM2603300001',
@@ -348,12 +333,6 @@ describe('GovernanceRegistriesService', () => {
       actor,
     );
 
-    expect(slaTimersService.closeGovernanceRegistryTimer).toHaveBeenCalledWith(
-      expect.objectContaining({
-        subjectType: 'WIND_DOWN_MATERIAL',
-        subjectId: 'wdm-1',
-      }),
-    );
     expect(result.status).toBe('ARCHIVED');
   });
 });

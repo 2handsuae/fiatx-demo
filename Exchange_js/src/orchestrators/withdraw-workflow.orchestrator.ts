@@ -28,7 +28,6 @@ import {
   AuditModules,
   buildStateTransitionAction,
 } from '../modules/audit-logging/constants/audit-actions.constant';
-import { AuditTriggerType } from '../modules/audit-logging/dto/audit-log.dto';
 import { AccountingEventExecutionService } from './accounting-event-execution.service';
 
 export interface OrchestrationResult {
@@ -212,9 +211,8 @@ export class WithdrawWorkflowOrchestrator {
         );
       }
       const log = await this.auditLogsService.recordSystem({
-        triggerType: AuditTriggerType.SYSTEM_EVENT,
+
         action: AuditActions.SYSTEM_WITHDRAW_CREATED_ORCHESTRATED,
-        module: AuditModules.WITHDRAW_WORKFLOW,
         entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
         entityId: withdrawId,
         entityNo: withdrawal.withdrawNo,
@@ -245,9 +243,8 @@ export class WithdrawWorkflowOrchestrator {
         );
       }
       const log = await this.auditLogsService.recordSystem({
-        triggerType: AuditTriggerType.SYSTEM_EVENT,
+
         action: AuditActions.SYSTEM_WITHDRAW_TERMINAL_ORCHESTRATED,
-        module: AuditModules.WITHDRAW_WORKFLOW,
         entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
         entityId: withdrawId,
         entityNo: withdrawal.withdrawNo,
@@ -343,22 +340,14 @@ export class WithdrawWorkflowOrchestrator {
 
         const log = await this.auditLogsService.recordSystem(
           {
-            triggerType: AuditTriggerType.SYSTEM_EVENT,
+    
             action: AuditActions.SYSTEM_WITHDRAW_APPROVED_ORCHESTRATED,
-            module: AuditModules.WITHDRAW_WORKFLOW,
             entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
             entityId: withdrawId,
             entityNo: withdrawWithSourceWallet.withdrawNo,
             entityOwnerType: withdrawWithSourceWallet.ownerType,
             entityOwnerId: withdrawWithSourceWallet.ownerId,
-            statusFrom: withdrawal.status,
-            statusTo: withdrawWithSourceWallet.status,
             reason: marker,
-            beforeData: { status: withdrawal.status },
-            afterData: {
-              status: withdrawWithSourceWallet.status,
-              payoutId: boundPayout.id,
-            },
             idempotencyKey: marker,
             sourcePlatform: 'SYSTEM',
           },
@@ -486,23 +475,18 @@ export class WithdrawWorkflowOrchestrator {
 
       const log = await this.auditLogsService.recordSystem(
         {
-          triggerType: AuditTriggerType.STATE_TRANSITION,
+
           action: buildStateTransitionAction(
             'WITHDRAW',
             withdrawal.status,
             updatedWithdrawal.status,
           ),
-          module: AuditModules.WITHDRAW_WORKFLOW,
           entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
           entityId: withdrawId,
           entityNo: updatedWithdrawal.withdrawNo,
           entityOwnerType: updatedWithdrawal.ownerType,
           entityOwnerId: updatedWithdrawal.ownerId,
-          statusFrom: withdrawal.status,
-          statusTo: updatedWithdrawal.status,
           reason: marker,
-          beforeData: { status: withdrawal.status },
-          afterData: { status: updatedWithdrawal.status },
           idempotencyKey: marker,
           sourcePlatform: 'SYSTEM',
         },
@@ -957,24 +941,14 @@ export class WithdrawWorkflowOrchestrator {
 
       const log = await this.auditLogsService.recordSystem(
         {
-          triggerType: AuditTriggerType.SYSTEM_EVENT,
+  
           action: AuditActions.SYSTEM_WITHDRAW_TERMINAL_ORCHESTRATED,
-          module: AuditModules.WITHDRAW_WORKFLOW,
           entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
           entityId: withdrawId,
           entityNo: accountingWithdrawal.withdrawNo,
           entityOwnerType: accountingWithdrawal.ownerType,
           entityOwnerId: accountingWithdrawal.ownerId,
-          statusFrom: currentWithdrawal.status,
-          statusTo: accountingWithdrawal.status,
           reason: marker,
-          beforeData: { status: currentWithdrawal.status },
-          afterData: {
-            status: accountingWithdrawal.status,
-            payoutStatus,
-            payoutId,
-            compensationTargetStatus: targetWithdrawStatus,
-          },
           metadata: {
             payoutId,
             payoutStatus,

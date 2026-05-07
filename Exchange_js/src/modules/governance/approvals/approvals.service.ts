@@ -23,7 +23,6 @@ import {
 import {
   AuditResult,
   AuditSubjectRole,
-  AuditTriggerType,
 } from '../../audit-logging/dto/audit-log.dto';
 import { ApprovalPolicyService } from './approval-policy.service';
 import { ChangeTicketsService } from '../change-tickets/change-tickets.service';
@@ -314,8 +313,6 @@ export class ApprovalsService {
     actor: ApprovalActorContext,
     result: AuditResult,
     reason?: string | null,
-    statusFrom?: string | null,
-    statusTo?: string | null,
     metadata?: Record<string, unknown>,
   ) {
     const subjectNos =
@@ -332,9 +329,7 @@ export class ApprovalsService {
 
     await this.auditLogsService.recordByActor(
       {
-        triggerType: AuditTriggerType.DATA_UPDATE,
         action,
-        module: AuditModules.GOVERNANCE_APPROVALS,
         entityType: AuditEntityTypes.APPROVAL_CASE,
         entityId: approval.id,
         entityNo: approval.approvalNo,
@@ -343,8 +338,6 @@ export class ApprovalsService {
         subjectNos,
         result,
         reason: reason || undefined,
-        statusFrom: statusFrom || undefined,
-        statusTo: statusTo || undefined,
         metadata: {
           approvalNo: approval.approvalNo,
           actionType: approval.actionType,
@@ -367,6 +360,24 @@ export class ApprovalsService {
       },
       this.toAuditActor(actor),
     );
+  }
+
+  /**
+   * Returns true when this workflowType has a dedicated service that owns
+   * ALL audit log writes for that workflow (Plan B pattern).
+   * approvals.service must skip its generic APPROVAL_CASE events for these
+   * workflows to avoid duplicate entries in the audit log.
+   */
+  private hasDedicatedAuditService(workflowType: string | null | undefined): boolean {
+    if (!workflowType) return false;
+    const DEDICATED: string[] = [
+      AuditBusinessWorkflowTypes.AUDIT_EVIDENCE_EXPORT,
+      AuditBusinessWorkflowTypes.ADMIN_INVITE,
+      AuditBusinessWorkflowTypes.ADMIN_ROLE_BINDING_CHANGE,
+      AuditBusinessWorkflowTypes.ADMIN_SUSPENSION,
+      AuditBusinessWorkflowTypes.ADMIN_REACTIVATION,
+    ];
+    return DEDICATED.includes(workflowType);
   }
 
   private buildEventPayload(approval: ApprovalCaseRow): ApprovalDecisionEvent {
@@ -611,9 +622,10 @@ export class ApprovalsService {
     approval: ApprovalCaseRow,
     actor: ApprovalActorContext,
     requestedRole?: string,
+    stepCandidateRoles?: string[],
   ): Promise<string> {
     const normalizedRequestedRole = this.normalizeOptionalString(requestedRole);
-    const allowedRoles = splitRoleCsv(approval.checkerRoles);
+    const allowedRoles = stepCandidateRoles || splitRoleCsv(approval.checkerRoles);
     const actorRoles = Array.from(new Set(actor.roleCodes.map((item) => String(item).trim())));
     const superAdminBypass = this.isSuperAdmin(actor);
     const intersection = superAdminBypass
@@ -711,15 +723,15 @@ export class ApprovalsService {
     }
 
     const policy = await this.approvalPolicyService.getPolicy(actionType);
-    if (!policy.checkerRoles.length) {
-      throw new BadRequestException(`No checker roles configured for actionType ${actionType}`);
+    if (!policy.steps.length) {
+      throw new BadRequestException(`No steps configured for actionType ${actionType}`);
     }
 
     const selectedCheckerRole =
-      this.normalizeOptionalString(dto.checkerRole) || policy.checkerRoles[0];
-    if (!policy.checkerRoles.includes(selectedCheckerRole)) {
+      this.normalizeOptionalString(dto.checkerRole) || policy.steps[0]?.roles[0];
+    if (!policy.steps[0]?.roles.includes(selectedCheckerRole)) {
       throw new BadRequestException(
-        `checkerRole ${selectedCheckerRole} is not allowed by policy ${actionType}`,
+        `checkerRole ${selectedCheckerRole} is not allowed by step 1 of policy ${actionType}`,
       );
     }
 
@@ -747,10 +759,10 @@ export class ApprovalsService {
         workflowId: workflowContext.workflowId,
         workflowNo: workflowContext.workflowNo,
         steps: {
-          create: policy.checkerRoles.map((role, idx) => ({
-            stepNo: idx + 1,
+          create: policy.steps.map((step) => ({
+            stepNo: step.stepNo,
             status: ApprovalStepStatuses.PENDING,
-            checkerRoleCandidates: role,
+            checkerRoleCandidates: step.roles.join(','),
           })),
         },
       },
@@ -780,6 +792,8 @@ export class ApprovalsService {
     const now = new Date();
     const timeoutAt = new Date(now.getTime() + policy.timeoutHours * 60 * 60 * 1000);
 
+    // NOTE: stepNo: 1 is intentional — submit always activates the first step.
+    // Do not change to dynamic lookup.
     await db.approvalStep.update({
       where: {
         approvalCaseId_stepNo: {
@@ -812,18 +826,18 @@ export class ApprovalsService {
     reason?: string | null,
   ) {
     const approval = await this.findCaseOrThrow(approvalId);
-    await this.recordAudit(
-      AuditActions.APPROVAL_SUBMITTED,
-      approval,
-      actor,
-      AuditResult.SUCCESS,
-      reason || 'Approval submitted',
-      ApprovalStatuses.DRAFT,
-      ApprovalStatuses.PENDING,
-      {
-        timeoutAt: approval.timeoutAt?.toISOString(),
-      },
-    );
+    if (!this.hasDedicatedAuditService(approval.workflowType)) {
+      await this.recordAudit(
+        AuditActions.APPROVAL_SUBMITTED,
+        approval,
+        actor,
+        AuditResult.SUCCESS,
+        reason || 'Approval submitted',
+        {
+          timeoutAt: approval.timeoutAt?.toISOString(),
+        },
+      );
+    }
     await this.emitApprovalEvent(ApprovalEvents.SUBMITTED, this.buildEventPayload(approval));
     return this.mapApproval(approval, actor);
   }
@@ -842,18 +856,18 @@ export class ApprovalsService {
         : await this.submitCase(created.id, submitDto, actor, client);
 
     if (options?.emitSideEffects !== false && submitted.status === ApprovalStatuses.PENDING) {
-      await this.recordAudit(
-        AuditActions.APPROVAL_SUBMITTED,
-        submitted,
-        actor,
-        AuditResult.SUCCESS,
-        submitDto.reason || 'Approval submitted',
-        ApprovalStatuses.DRAFT,
-        ApprovalStatuses.PENDING,
-        {
-          timeoutAt: submitted.timeoutAt?.toISOString(),
-        },
-      );
+      if (!this.hasDedicatedAuditService(submitted.workflowType)) {
+        await this.recordAudit(
+          AuditActions.APPROVAL_SUBMITTED,
+          submitted,
+          actor,
+          AuditResult.SUCCESS,
+          submitDto.reason || 'Approval submitted',
+          {
+            timeoutAt: submitted.timeoutAt?.toISOString(),
+          },
+        );
+      }
       await this.emitApprovalEvent(ApprovalEvents.SUBMITTED, this.buildEventPayload(submitted));
     }
 
@@ -882,21 +896,26 @@ export class ApprovalsService {
       this.assertTraceConsistency(approval.traceId, dto.traceId);
       this.assertWorkflowContextConsistency(approval, dto);
 
-      // Find the current pending step the actor is authorized for
-      const currentStep = (approval.steps || []).find(
-        (s: any) =>
-          s.status === ApprovalStepStatuses.PENDING &&
-          (splitRoleCsv(s.checkerRoleCandidates).some((candidate: string) =>
-            (actor.roleCodes || []).includes(candidate),
-          ) || this.isSuperAdmin(actor)),
+      // Find the FIRST pending step (enforce sequential ordering — no step skipping)
+      const firstPendingStep = (approval.steps || []).find(
+        (s: any) => s.status === ApprovalStepStatuses.PENDING,
       );
-      if (!currentStep) {
+      if (!firstPendingStep) {
+        throw new ForbiddenException('No pending steps available');
+      }
+      const canAct =
+        splitRoleCsv(firstPendingStep.checkerRoleCandidates).some((candidate: string) =>
+          (actor.roleCodes || []).includes(candidate),
+        ) || this.isSuperAdmin(actor);
+      if (!canAct) {
         throw new ForbiddenException(
-          `Actor role ${(actor.roleCodes || []).join(',')} cannot sign any pending step`,
+          `Actor role ${(actor.roleCodes || []).join(',')} cannot sign the current pending step (step ${firstPendingStep.stepNo})`,
         );
       }
+      const currentStep = firstPendingStep;
 
-      const decisionRole = await this.resolveDecisionRole(approval, actor, dto.checkerRole);
+      const stepCandidateRoles = splitRoleCsv(currentStep.checkerRoleCandidates);
+      const decisionRole = await this.resolveDecisionRole(approval, actor, dto.checkerRole, stepCandidateRoles);
       const now = new Date();
 
       await tx.approvalStep.update({
@@ -947,20 +966,18 @@ export class ApprovalsService {
       }) as Promise<ApprovalCaseRow>;
     });
 
-    await this.recordAudit(
-      AuditActions.APPROVAL_APPROVED,
-      updated,
-      actor,
-      AuditResult.SUCCESS,
-      dto.reason || 'Approval approved',
-      ApprovalStatuses.PENDING,
-      updated.status === ApprovalStatuses.APPROVED
-        ? ApprovalStatuses.APPROVED
-        : ApprovalStatuses.PENDING,
-      this.isSuperAdmin(actor) && actor.userId === updated.createdByUserId
-        ? { superAdminBypass: true }
-        : undefined,
-    );
+    if (!this.hasDedicatedAuditService(updated.workflowType)) {
+      await this.recordAudit(
+        AuditActions.APPROVAL_APPROVED,
+        updated,
+        actor,
+        AuditResult.SUCCESS,
+        dto.reason || 'Approval approved',
+        this.isSuperAdmin(actor) && actor.userId === updated.createdByUserId
+          ? { superAdminBypass: true }
+          : undefined,
+      );
+    }
     if (updated.status === ApprovalStatuses.APPROVED) {
       await this.projectGovernanceApprovalDecision(updated);
       await this.emitApprovalEvent(ApprovalEvents.APPROVED, this.buildEventPayload(updated));
@@ -977,20 +994,26 @@ export class ApprovalsService {
       this.assertTraceConsistency(approval.traceId, dto.traceId);
       this.assertWorkflowContextConsistency(approval, dto);
 
-      const currentStep = (approval.steps || []).find(
-        (s: any) =>
-          s.status === ApprovalStepStatuses.PENDING &&
-          (splitRoleCsv(s.checkerRoleCandidates).some((candidate: string) =>
-            (actor.roleCodes || []).includes(candidate),
-          ) || this.isSuperAdmin(actor)),
+      // Find the FIRST pending step (enforce sequential ordering)
+      const firstPendingStep = (approval.steps || []).find(
+        (s: any) => s.status === ApprovalStepStatuses.PENDING,
       );
-      if (!currentStep) {
+      if (!firstPendingStep) {
+        throw new ForbiddenException('No pending steps available');
+      }
+      const canAct =
+        splitRoleCsv(firstPendingStep.checkerRoleCandidates).some((candidate: string) =>
+          (actor.roleCodes || []).includes(candidate),
+        ) || this.isSuperAdmin(actor);
+      if (!canAct) {
         throw new ForbiddenException(
-          `Actor role ${(actor.roleCodes || []).join(',')} cannot reject any pending step`,
+          `Actor role ${(actor.roleCodes || []).join(',')} cannot reject the current pending step (step ${firstPendingStep.stepNo})`,
         );
       }
+      const currentStep = firstPendingStep;
 
-      const decisionRole = await this.resolveDecisionRole(approval, actor, dto.checkerRole);
+      const stepCandidateRoles = splitRoleCsv(currentStep.checkerRoleCandidates);
+      const decisionRole = await this.resolveDecisionRole(approval, actor, dto.checkerRole, stepCandidateRoles);
       const now = new Date();
 
       // Reject the current step
@@ -1036,18 +1059,18 @@ export class ApprovalsService {
       }) as Promise<ApprovalCaseRow>;
     });
 
-    await this.recordAudit(
-      AuditActions.APPROVAL_REJECTED,
-      updated,
-      actor,
-      AuditResult.SUCCESS,
-      dto.reason || 'Approval rejected',
-      ApprovalStatuses.PENDING,
-      ApprovalStatuses.REJECTED,
-      this.isSuperAdmin(actor) && actor.userId === updated.createdByUserId
-        ? { superAdminBypass: true }
-        : undefined,
-    );
+    if (!this.hasDedicatedAuditService(updated.workflowType)) {
+      await this.recordAudit(
+        AuditActions.APPROVAL_REJECTED,
+        updated,
+        actor,
+        AuditResult.SUCCESS,
+        dto.reason || 'Approval rejected',
+        this.isSuperAdmin(actor) && actor.userId === updated.createdByUserId
+          ? { superAdminBypass: true }
+          : undefined,
+      );
+    }
     await this.projectGovernanceApprovalDecision(updated);
     await this.emitApprovalEvent(ApprovalEvents.REJECTED, this.buildEventPayload(updated));
     return this.mapApproval(updated, actor);
@@ -1076,12 +1099,11 @@ export class ApprovalsService {
       previousStatus = approval.status;
       const now = new Date();
 
-      await tx.approvalStep.update({
+      // Cancel ALL remaining PENDING steps (preserves already-APPROVED steps)
+      await tx.approvalStep.updateMany({
         where: {
-          approvalCaseId_stepNo: {
-            approvalCaseId: approval.id,
-            stepNo: 1,
-          },
+          approvalCaseId: approval.id,
+          status: ApprovalStepStatuses.PENDING,
         },
         data: {
           status: ApprovalStepStatuses.CANCELLED,
@@ -1108,18 +1130,18 @@ export class ApprovalsService {
       return next as ApprovalCaseRow;
     });
 
-    await this.recordAudit(
-      AuditActions.APPROVAL_CANCELLED,
-      updated,
-      actor,
-      AuditResult.SUCCESS,
-      dto.reason || 'Approval cancelled',
-      previousStatus,
-      ApprovalStatuses.CANCELLED,
-      this.isSuperAdmin(actor) && actor.userId !== updated.createdByUserId
-        ? { superAdminBypass: true }
-        : undefined,
-    );
+    if (!this.hasDedicatedAuditService(updated.workflowType)) {
+      await this.recordAudit(
+        AuditActions.APPROVAL_CANCELLED,
+        updated,
+        actor,
+        AuditResult.SUCCESS,
+        dto.reason || 'Approval cancelled',
+        this.isSuperAdmin(actor) && actor.userId !== updated.createdByUserId
+          ? { superAdminBypass: true }
+          : undefined,
+      );
+    }
     await this.projectGovernanceApprovalDecision(updated);
     await this.emitApprovalEvent(ApprovalEvents.CANCELLED, this.buildEventPayload(updated));
     return this.mapApproval(updated, actor);
@@ -1131,13 +1153,11 @@ export class ApprovalsService {
     actor: ApprovalActorContext,
     reason?: string | null,
   ) {
-    let previousExecutionStatus: string = ApprovalExecutionStatuses.NOT_EXECUTED;
     const updated = await this.prisma.$transaction(async (tx: any) => {
       const approval = await this.findCaseOrThrow(approvalCaseId, tx);
       if (approval.status !== ApprovalStatuses.APPROVED) {
         throw new BadRequestException('Only APPROVED approvals can record execution results');
       }
-      previousExecutionStatus = approval.executionStatus;
 
       const next = await tx.approvalCase.update({
         where: { id: approval.id },
@@ -1153,17 +1173,17 @@ export class ApprovalsService {
       return next as ApprovalCaseRow;
     });
 
-    await this.recordAudit(
-      success
-        ? AuditActions.APPROVAL_EXECUTED
-        : AuditActions.APPROVAL_EXECUTION_FAILED,
-      updated,
-      actor,
-      success ? AuditResult.SUCCESS : AuditResult.FAILED,
-      reason || (success ? 'Approval execution succeeded' : 'Approval execution failed'),
-      previousExecutionStatus,
-      updated.executionStatus,
-    );
+    if (!this.hasDedicatedAuditService(updated.workflowType)) {
+      await this.recordAudit(
+        success
+          ? AuditActions.APPROVAL_EXECUTED
+          : AuditActions.APPROVAL_EXECUTION_FAILED,
+        updated,
+        actor,
+        success ? AuditResult.SUCCESS : AuditResult.FAILED,
+        reason || (success ? 'Approval execution succeeded' : 'Approval execution failed'),
+      );
+    }
     return this.mapApproval(updated, actor);
   }
 
@@ -1184,9 +1204,7 @@ export class ApprovalsService {
       if (input.actor) {
         await this.auditLogsService.recordByActor(
           {
-            triggerType: AuditTriggerType.DATA_UPDATE,
             action: AuditActions.APPROVAL_REQUIRED_MISSING,
-            module: AuditModules.GOVERNANCE_APPROVALS,
             entityType: AuditEntityTypes.APPROVAL_CASE,
             entityId: input.entityRef,
             entityNo: input.entityRef,
@@ -1276,12 +1294,11 @@ export class ApprovalsService {
       }
 
       const decidedAt = new Date();
-      await tx.approvalStep.update({
+      // Expire ALL remaining PENDING steps (preserves already-APPROVED steps)
+      await tx.approvalStep.updateMany({
         where: {
-          approvalCaseId_stepNo: {
-            approvalCaseId: approval.id,
-            stepNo: 1,
-          },
+          approvalCaseId: approval.id,
+          status: ApprovalStepStatuses.PENDING,
         },
         data: {
           status: ApprovalStepStatuses.EXPIRED,
@@ -1313,8 +1330,6 @@ export class ApprovalsService {
       this.systemActor(),
       AuditResult.REJECTED,
       'Approval expired after timeout',
-      ApprovalStatuses.PENDING,
-      ApprovalStatuses.EXPIRED,
     );
     await this.projectGovernanceApprovalDecision(updated);
     await this.emitApprovalEvent(ApprovalEvents.EXPIRED, this.buildEventPayload(updated));

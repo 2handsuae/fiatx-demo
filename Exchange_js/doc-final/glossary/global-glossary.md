@@ -285,7 +285,7 @@ interface ApprovalActorContext {
 |---|---|---|---|
 | `CHANGE_TICKET_APPROVAL` | `['CISO']` | 24 | true |
 | `DELETE_REQUEST_APPROVAL` | `['DPO', 'CISO']` | 24 | true |
-| `AUDIT_EVIDENCE_EXPORT_APPROVAL` | `['DPO', 'MLRO']` | 24 | true |
+| `AUDIT_EVIDENCE_EXPORT_APPROVAL` | `['MLRO']` | 24 | true |
 
 **相关概念**：ApprovalActionTypes、DEFAULT_APPROVAL_POLICIES、Checker、GOV_APPROVAL_DECIDE
 

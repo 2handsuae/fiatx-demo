@@ -10,6 +10,7 @@ import { PrismaService } from '../../../core/prisma/prisma.service';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
   AuditActions,
+  AuditBusinessWorkflowTypes,
   AuditEntityTypes,
   AuditModules,
   AuditWorkflowTypes,
@@ -17,7 +18,6 @@ import {
 import {
   AuditResult,
   AuditSubjectRole,
-  AuditTriggerType,
 } from '../../audit-logging/dto/audit-log.dto';
 import { ApprovalsService } from '../approvals/approvals.service';
 import {
@@ -237,7 +237,7 @@ export class SlaTimersService {
     reason?: string | null,
     metadata?: Record<string, unknown>,
   ) {
-    await this.recordTimerAudit(action, timer, actor, result, reason, undefined, undefined, {
+    await this.recordTimerAudit(action, timer, actor, result, reason, {
       notificationId: notification.id,
       notificationType: notification.notificationType,
       notificationStatus: notification.status,
@@ -455,28 +455,30 @@ export class SlaTimersService {
     return skipped;
   }
 
+  private static readonly WORKFLOW_OWNS_AUDIT: string[] = [
+    AuditBusinessWorkflowTypes.AUDIT_EVIDENCE_EXPORT,
+    AuditBusinessWorkflowTypes.ADMIN_INVITE,
+  ];
+
   private async recordTimerAudit(
     action: string,
     timer: SlaTimerRow,
     actor: ApprovalActorContext,
     result: AuditResult,
     reason?: string | null,
-    statusFrom?: string | null,
-    statusTo?: string | null,
     metadata?: Record<string, unknown>,
   ) {
+    if (timer.workflowType && SlaTimersService.WORKFLOW_OWNS_AUDIT.includes(timer.workflowType)) {
+      return;
+    }
     await this.auditLogsService.recordByActor(
       {
-        triggerType: AuditTriggerType.DATA_UPDATE,
         action,
-        module: AuditModules.GOVERNANCE_SLA_TIMERS,
         entityType: AuditEntityTypes.SLA_TIMER,
         entityId: timer.id,
         entityNo: timer.timerNo,
         workflowType: timer.workflowType,
         traceId: timer.traceId,
-        statusFrom: statusFrom || undefined,
-        statusTo: statusTo || undefined,
         result,
         reason: reason || undefined,
         metadata: {
@@ -616,8 +618,6 @@ export class SlaTimersService {
       actor,
       AuditResult.SUCCESS,
       reason,
-      SlaTimerStatuses.ACTIVE,
-      SlaTimerStatuses.CLOSED,
       metadata,
     );
 
@@ -677,8 +677,6 @@ export class SlaTimersService {
       actor,
       AuditResult.REJECTED,
       reason,
-      SlaTimerStatuses.ACTIVE,
-      SlaTimerStatuses.EXPIRED,
       metadata,
     );
 
@@ -784,8 +782,6 @@ export class SlaTimersService {
         this.systemActor(),
         AuditResult.SUCCESS,
         'SLA timer created',
-        null,
-        SlaTimerStatuses.ACTIVE,
       );
       await this.upsertScheduledNotification(
         created,
@@ -1099,8 +1095,6 @@ export class SlaTimersService {
         actor,
         AuditResult.SUCCESS,
         reason,
-        undefined,
-        undefined,
         {
           previousDueAt: current.dueAt.toISOString(),
           nextDueAt: dueAt.toISOString(),
@@ -1156,8 +1150,6 @@ export class SlaTimersService {
         actor,
         AuditResult.SUCCESS,
         reason,
-        undefined,
-        undefined,
         {
           previousDueAt: current.dueAt.toISOString(),
           nextDueAt: dueAt.toISOString(),
@@ -1217,8 +1209,6 @@ export class SlaTimersService {
       actor,
       AuditResult.SUCCESS,
       reason,
-      SlaTimerStatuses.ACTIVE,
-      SlaTimerStatuses.CLOSED,
     );
 
     await this.skipScheduledNotifications(

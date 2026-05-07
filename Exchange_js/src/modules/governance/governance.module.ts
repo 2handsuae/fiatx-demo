@@ -5,7 +5,6 @@ import { ChangeTicketsModule } from './change-tickets/change-tickets.module';
 import { DeleteRequestsModule } from './delete-requests/delete-requests.module';
 import { GovernanceRegistriesModule } from './registries/governance-registries.module';
 import { RegulatoryGatesModule } from './regulatory-gates/regulatory-gates.module';
-import { SlaTimersModule } from './sla-timers/sla-timers.module';
 
 @Global()
 @Module({
@@ -16,7 +15,6 @@ import { SlaTimersModule } from './sla-timers/sla-timers.module';
     DeleteRequestsModule,
     GovernanceRegistriesModule,
     RegulatoryGatesModule,
-    SlaTimersModule,
   ],
   exports: [ApprovalsModule, ChangeTicketsModule, DeleteRequestsModule],
 })

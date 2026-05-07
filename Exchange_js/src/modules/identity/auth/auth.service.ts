@@ -13,7 +13,7 @@ import {
   AuditEntityTypes,
   AuditModules,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditResult, AuditTriggerType } from '../../audit-logging/dto/audit-log.dto';
+import { AuditResult } from '../../audit-logging/dto/audit-log.dto';
 
 interface AuthRequestContext {
   requestId?: string;
@@ -57,9 +57,7 @@ export class AuthService {
     if (!user) {
       await this.auditLogsService.recordByActor(
         {
-          triggerType: AuditTriggerType.AUTH_EVENT,
           action: AuditActions.ADMIN_LOGIN_FAILED,
-          module: AuditModules.AUTH,
           entityType: AuditEntityTypes.AUTH,
           result: AuditResult.FAILED,
           reason: 'Admin login failed: account not found',
@@ -86,9 +84,7 @@ export class AuthService {
     if (user.status === 'INACTIVE') {
       await this.auditLogsService.recordByActor(
         {
-          triggerType: AuditTriggerType.AUTH_EVENT,
           action: AuditActions.ADMIN_LOGIN_FAILED,
-          module: AuditModules.AUTH,
           entityType: AuditEntityTypes.AUTH,
           entityId: user.id,
           entityNo: user.userNo,
@@ -126,9 +122,7 @@ export class AuthService {
     ) {
       await this.auditLogsService.recordByActor(
         {
-          triggerType: AuditTriggerType.AUTH_EVENT,
           action: AuditActions.ACCOUNT_LOCKED,
-          module: AuditModules.AUTH,
           entityType: AuditEntityTypes.AUTH,
           entityId: user.id,
           entityNo: user.userNo,
@@ -162,14 +156,12 @@ export class AuthService {
     ) {
       // Unlock automatically
       await this.usersService.update({
-        where: { email: user.email },
+        where: { id: user.id },
         data: { status: 'ACTIVE', failedLoginAttempts: 0, lockedUntil: null },
       });
       await this.auditLogsService.recordByActor(
         {
-          triggerType: AuditTriggerType.AUTH_EVENT,
           action: AuditActions.ACCOUNT_UNLOCKED,
-          module: AuditModules.AUTH,
           entityType: AuditEntityTypes.AUTH,
           entityId: user.id,
           entityNo: user.userNo,
@@ -196,7 +188,7 @@ export class AuthService {
     const isMatch = await bcrypt.compare(pass, user.password);
     if (isMatch) {
       await this.usersService.update({
-        where: { email: user.email },
+        where: { id: user.id },
         data: {
           failedLoginAttempts: 0,
           lockedUntil: null,
@@ -205,9 +197,7 @@ export class AuthService {
       });
       await this.auditLogsService.recordByActor(
         {
-          triggerType: AuditTriggerType.AUTH_EVENT,
           action: AuditActions.ADMIN_LOGIN_SUCCESS,
-          module: AuditModules.AUTH,
           entityType: AuditEntityTypes.AUTH,
           entityId: user.id,
           entityNo: user.userNo,
@@ -229,7 +219,7 @@ export class AuthService {
         },
       );
       const { password: _, ...result } = user;
-      return result;
+      return { ...result, authTraceId };
     } else {
       // Increment failed attempts
       const attempts = user.failedLoginAttempts + 1;
@@ -241,15 +231,13 @@ export class AuthService {
       }
 
       await this.usersService.update({
-        where: { email: user.email },
+        where: { id: user.id },
         data: updateData,
       });
 
       await this.auditLogsService.recordByActor(
         {
-          triggerType: AuditTriggerType.AUTH_EVENT,
           action: AuditActions.ADMIN_LOGIN_FAILED,
-          module: AuditModules.AUTH,
           entityType: AuditEntityTypes.AUTH,
           entityId: user.id,
           entityNo: user.userNo,
@@ -282,9 +270,7 @@ export class AuthService {
       if (attempts >= 5) {
         await this.auditLogsService.recordByActor(
           {
-            triggerType: AuditTriggerType.AUTH_EVENT,
-            action: AuditActions.ACCOUNT_LOCKED,
-            module: AuditModules.AUTH,
+              action: AuditActions.ACCOUNT_LOCKED,
             entityType: AuditEntityTypes.AUTH,
             entityId: user.id,
             entityNo: user.userNo,
@@ -332,6 +318,43 @@ export class AuthService {
       ),
     );
     const primaryRole = getPrimaryRoleCode(roleCodes) || user.role || 'ADMIN';
+
+    // Branch 1: first login not yet completed — issue a scoped first-login token
+    const firstLoginStatus = user.firstLoginStatus ?? 'COMPLETED';
+    if (firstLoginStatus !== 'COMPLETED') {
+      const firstLoginToken = this.jwtService.sign(
+        {
+          username: user.email,
+          sub: user.id,
+          userNo: user.userNo,
+          role: primaryRole,
+          scope: 'first_login',
+          type: 'ADMIN',
+        },
+        { expiresIn: '15m' },
+      );
+      return { status: 'FIRST_LOGIN_REQUIRED', firstLoginToken };
+    }
+
+    // Branch 2: MFA enrolled — issue a scoped MFA session token
+    if (user.mfaEnabledAt) {
+      const mfaSessionToken = this.jwtService.sign(
+        {
+          username: user.email,
+          sub: user.id,
+          userNo: user.userNo,
+          role: primaryRole,
+          roleCodes,
+          scope: 'mfa_session',
+          type: 'ADMIN',
+          loginTraceId: user.authTraceId,
+        },
+        { expiresIn: '15m' },
+      );
+      return { status: 'MFA_REQUIRED', mfaSessionToken };
+    }
+
+    // Branch 3: normal login — issue a full access token
     const payload = {
       username: user.email,
       sub: user.id,

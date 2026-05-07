@@ -2,6 +2,8 @@ import { lazy, Suspense, type ReactElement } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import AdminLogin from './pages/AdminLogin';
 import AdminInviteActivate from './pages/AdminInviteActivate';
+import AdminFirstLoginPage from './pages/AdminFirstLoginPage';
+import ResetPasswordPage from './pages/ResetPasswordPage';
 import DashboardLayout from './components/DashboardLayout';
 import { useAdminSession } from './contexts/AdminSessionContext';
 import { PERMISSIONS } from './rbac/permissions';
@@ -80,8 +82,6 @@ const BusinessConfigReleasesPage = lazy(() => import('./pages/BusinessConfigRele
 const DeleteRequestsPage = lazy(() => import('./pages/DeleteRequestsPage'));
 const DeleteRequestCreatePage = lazy(() => import('./pages/DeleteRequestCreatePage'));
 const DeleteRequestDetailPage = lazy(() => import('./pages/DeleteRequestDetailPage'));
-const SlaTimersPage = lazy(() => import('./pages/SlaTimersPage'));
-const SlaTimerDetailPage = lazy(() => import('./pages/SlaTimerDetailPage'));
 const GovernanceRegistryListPage = lazy(() => import('./pages/GovernanceRegistryListPage'));
 const GovernanceRegistryDetailPage = lazy(() => import('./pages/GovernanceRegistryDetailPage'));
 const GovernanceRegistryCreatePage = lazy(() => import('./pages/GovernanceRegistryCreatePage'));
@@ -126,6 +126,8 @@ const TransactionComplianceCaseDetailPage = lazy(
   () => import('./pages/TransactionComplianceCaseDetailPage'),
 );
 const RiskPolicyExecutionsPage = lazy(() => import('./pages/RiskPolicyExecutionsPage'));
+const RoleChangeRequestsPage = lazy(() => import('./pages/RoleChangeRequestsPage'));
+const RoleChangeRequestDetailPage = lazy(() => import('./pages/RoleChangeRequestDetailPage'));
 const RolesPage = lazy(() => import('./pages/RolesPage'));
 const RoleDetailPage = lazy(() => import('./pages/RoleDetailPage'));
 const MaterialManagementPage = lazy(() => import('./pages/MaterialManagementPage'));
@@ -146,6 +148,9 @@ const ClearingHeaderTemplateDetail = lazy(() => import('./pages/ClearingHeaderTe
 const ClearingTemplateSnapshot = lazy(() => import('./pages/ClearingTemplateSnapshot'));
 const PricingPolicyList = lazy(() => import('./pages/PricingPolicyList'));
 const PricingPolicyHistory = lazy(() => import('./pages/PricingPolicyHistory'));
+const ApprovalPoliciesPage = lazy(() => import('./pages/ApprovalPoliciesPage'));
+const PolicyChangeRequestsPage = lazy(() => import('./pages/PolicyChangeRequestsPage'));
+const PolicyChangeRequestDetailPage = lazy(() => import('./pages/PolicyChangeRequestDetailPage'));
 
 const FullPageMessage = ({
   title,
@@ -246,6 +251,8 @@ function App() {
       <Routes>
         <Route path="/admin/login" element={<LoginEntry />} />
         <Route path="/admin/activate" element={<AdminInviteActivate />} />
+        <Route path="/admin/first-login" element={<AdminFirstLoginPage />} />
+        <Route path="/admin/reset-password" element={<ResetPasswordPage />} />
 
         <Route
           element={
@@ -274,6 +281,14 @@ function App() {
             <Route
               path="members/roles/:code"
               element={withPermission(<RoleDetailPage />, [PERMISSIONS.IAM_ROLES_READ])}
+            />
+            <Route
+              path="members/role-change-requests"
+              element={withPermission(<RoleChangeRequestsPage />, [PERMISSIONS.IAM_ROLE_CHANGE_REQUESTS_READ])}
+            />
+            <Route
+              path="members/role-change-requests/:id"
+              element={withPermission(<RoleChangeRequestDetailPage />, [PERMISSIONS.IAM_ROLE_CHANGE_REQUEST_DETAIL_READ])}
             />
             <Route
               path="customer/management"
@@ -567,16 +582,7 @@ function App() {
                 PERMISSIONS.GOV_APPROVAL_DETAIL_READ,
               ])}
             />
-            <Route
-              path="control-gates/sla-timers"
-              element={withPermission(<SlaTimersPage />, [PERMISSIONS.GOV_SLA_TIMERS_READ])}
-            />
-            <Route
-              path="control-gates/sla-timers/:id"
-              element={withPermission(<SlaTimerDetailPage />, [
-                PERMISSIONS.GOV_SLA_TIMER_DETAIL_READ,
-              ])}
-            />
+
             <Route
               path="governance/registries/shareholding-versions"
               element={withPermission(
@@ -733,6 +739,24 @@ function App() {
               path="governance/regulatory-gates/:id"
               element={withPermission(<RegulatoryGateDetailPage />, [
                 PERMISSIONS.GOV_REGULATORY_GATE_DETAIL_READ,
+              ])}
+            />
+            <Route
+              path="governance/approval-policies"
+              element={withPermission(<ApprovalPoliciesPage />, [
+                PERMISSIONS.GOV_APPROVAL_POLICIES_READ,
+              ])}
+            />
+            <Route
+              path="governance/policy-change-requests"
+              element={withPermission(<PolicyChangeRequestsPage />, [
+                PERMISSIONS.GOV_APPROVAL_POLICY_CHANGE_REQUESTS_READ,
+              ])}
+            />
+            <Route
+              path="governance/policy-change-requests/:id"
+              element={withPermission(<PolicyChangeRequestDetailPage />, [
+                PERMISSIONS.GOV_APPROVAL_POLICY_CHANGE_REQUEST_DETAIL_READ,
               ])}
             />
             <Route

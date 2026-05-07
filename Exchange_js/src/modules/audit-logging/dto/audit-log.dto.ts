@@ -14,19 +14,6 @@ import {
   ValidateNested,
 } from 'class-validator';
 
-export enum AuditTriggerType {
-  EVIDENCE_EXPORT = 'EVIDENCE_EXPORT',
-  STATE_TRANSITION = 'STATE_TRANSITION',
-  MANUAL_OVERRIDE = 'MANUAL_OVERRIDE',
-  AUTH_EVENT = 'AUTH_EVENT',
-  PERMISSION_CHANGE = 'PERMISSION_CHANGE',
-  CONFIG_CHANGE = 'CONFIG_CHANGE',
-  DATA_CREATE = 'DATA_CREATE',
-  DATA_UPDATE = 'DATA_UPDATE',
-  DATA_DELETE = 'DATA_DELETE',
-  SYSTEM_EVENT = 'SYSTEM_EVENT',
-}
-
 export enum AuditResult {
   SUCCESS = 'SUCCESS',
   FAILED = 'FAILED',
@@ -80,14 +67,6 @@ export class AuditSubjectNoDto {
   subjectNo!: string;
 }
 
-export type AuditDeltaEvidence =
-  | (Record<string, unknown> & { digest: string })
-  | {
-      digest: string;
-      value: unknown;
-    }
-  | null;
-
 export interface AuditLogSubjectNoView {
   id?: string;
   eventId?: string;
@@ -102,14 +81,12 @@ export interface AuditLogSubjectNoView {
 export interface AuditLogView {
   id: string;
   auditNo: string;
-  triggerType: string;
   businessWorkflow: string | null;
   businessWorkflowLabel: string | null;
   primaryRefNo: string | null;
   userAction: string | null;
   userActionLabel: string | null;
   action: string;
-  module: string;
   entityType: string;
   entityId: string | null;
   entityNo: string | null;
@@ -118,8 +95,6 @@ export interface AuditLogView {
   entityOwnerType: string | null;
   entityOwnerId: string | null;
   entityOwnerNo: string | null;
-  statusFrom: string | null;
-  statusTo: string | null;
   actorType: string;
   actorId: string;
   actorNo: string | null;
@@ -130,10 +105,7 @@ export interface AuditLogView {
   result: string | null;
   reason: string | null;
   metadata: unknown;
-  beforeData: AuditDeltaEvidence;
-  afterData: AuditDeltaEvidence;
   payloadDigest: string | null;
-  maskVersion: string | null;
   retainedUntil: Date | string | null;
   subjectNos: AuditLogSubjectNoView[];
   occurredAt: Date | string;
@@ -143,18 +115,9 @@ export interface AuditLogView {
 }
 
 export class CreateAuditLogEventDto {
-  @ApiPropertyOptional({ enum: AuditTriggerType })
-  @IsOptional()
-  @IsEnum(AuditTriggerType)
-  triggerType?: AuditTriggerType;
-
   @ApiPropertyOptional({ description: '操作动作标识，例如 WITHDRAW_APPROVED' })
   @IsString()
   action!: string;
-
-  @ApiPropertyOptional({ description: '模块名，例如 trading/withdraw' })
-  @IsString()
-  module!: string;
 
   @ApiPropertyOptional({ description: '实体类型，例如 WITHDRAW_TRANSACTION' })
   @IsString()
@@ -195,16 +158,6 @@ export class CreateAuditLogEventDto {
   @IsString()
   entityOwnerNo?: string;
 
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsString()
-  statusFrom?: string;
-
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsString()
-  statusTo?: string;
-
   @ApiPropertyOptional({ enum: AuditResult })
   @IsOptional()
   @IsEnum(AuditResult)
@@ -218,14 +171,6 @@ export class CreateAuditLogEventDto {
   @ApiPropertyOptional({ type: Object })
   @IsOptional()
   metadata?: Record<string, unknown>;
-
-  @ApiPropertyOptional({ type: Object })
-  @IsOptional()
-  beforeData?: Record<string, unknown>;
-
-  @ApiPropertyOptional({ type: Object })
-  @IsOptional()
-  afterData?: Record<string, unknown>;
 
   @ApiPropertyOptional({
     type: [AuditSubjectNoDto],
@@ -278,16 +223,6 @@ export class AuditLogQueryDto {
   @Min(1)
   @Max(200)
   take?: number;
-
-  @ApiPropertyOptional({ enum: AuditTriggerType })
-  @IsOptional()
-  @IsEnum(AuditTriggerType)
-  triggerType?: AuditTriggerType;
-
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsString()
-  module?: string;
 
   @ApiPropertyOptional()
   @IsOptional()

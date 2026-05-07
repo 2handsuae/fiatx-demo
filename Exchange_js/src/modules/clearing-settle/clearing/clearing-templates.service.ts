@@ -7,7 +7,7 @@ import {
   AuditEntityTypes,
   AuditModules,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditResult, AuditTriggerType } from '../../audit-logging/dto/audit-log.dto';
+import { AuditResult } from '../../audit-logging/dto/audit-log.dto';
 
 @Injectable()
 export class ClearingTemplatesService {
@@ -30,19 +30,13 @@ export class ClearingTemplatesService {
       }
     });
     await this.auditLogsService.recordSystem({
-      triggerType: AuditTriggerType.CONFIG_CHANGE,
+
       action: AuditActions.CLEARING_TEMPLATE_UPDATED,
-      module: AuditModules.CLEARING_TEMPLATES,
       entityType: AuditEntityTypes.CLEARING_TEMPLATE,
       entityId: created.id,
       entityNo: created.code,
       result: AuditResult.SUCCESS,
       reason: 'Clearing template created',
-      afterData: {
-        code: created.code,
-        isEnabled: created.isEnabled,
-        lineTemplateCount: created.lineTemplates?.length || 0,
-      },
       sourcePlatform: 'ADMIN_API',
     });
     return created;
@@ -107,24 +101,13 @@ export class ClearingTemplatesService {
       }
     });
     await this.auditLogsService.recordSystem({
-      triggerType: AuditTriggerType.CONFIG_CHANGE,
+
       action: AuditActions.CLEARING_TEMPLATE_UPDATED,
-      module: AuditModules.CLEARING_TEMPLATES,
       entityType: AuditEntityTypes.CLEARING_TEMPLATE,
       entityId: updated.id,
       entityNo: updated.code,
       result: AuditResult.SUCCESS,
       reason: 'Clearing template updated',
-      beforeData: {
-        code: before.code,
-        isEnabled: before.isEnabled,
-        lineTemplateCount: before.lineTemplates?.length || 0,
-      },
-      afterData: {
-        code: updated.code,
-        isEnabled: updated.isEnabled,
-        lineTemplateCount: updated.lineTemplates?.length || 0,
-      },
       sourcePlatform: 'ADMIN_API',
     });
     return updated;
@@ -136,18 +119,13 @@ export class ClearingTemplatesService {
       where: { id }
     });
     await this.auditLogsService.recordSystem({
-      triggerType: AuditTriggerType.CONFIG_CHANGE,
+
       action: AuditActions.CLEARING_TEMPLATE_UPDATED,
-      module: AuditModules.CLEARING_TEMPLATES,
       entityType: AuditEntityTypes.CLEARING_TEMPLATE,
       entityId: id,
       entityNo: before.code,
       result: AuditResult.SUCCESS,
       reason: 'Clearing template deleted',
-      beforeData: {
-        code: before.code,
-        isEnabled: before.isEnabled,
-      },
       sourcePlatform: 'ADMIN_API',
     });
     return deleted;

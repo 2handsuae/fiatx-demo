@@ -1,0 +1,1381 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Audit Log — Forensic Document Redesign</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Syne:wght@400;500;600;700;800&family=Outfit:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:        #070b13;
+    --bg-panel:  #0d1320;
+    --bg-card:   #111927;
+    --bg-hover:  #15202e;
+    --bg-input:  #0a1119;
+    --border:    #1e2e42;
+    --border-hi: #2a3e58;
+    --amber:     #e8a020;
+    --amber-dim: rgba(232,160,32,0.12);
+    --amber-glo: rgba(232,160,32,0.30);
+    --text-1:    #d6e4f5;
+    --text-2:    #7b96b2;
+    --text-3:    #4a6380;
+    --green:     #22c55e;
+    --red:       #ef4444;
+    --yellow:    #f59e0b;
+    --mono:      'JetBrains Mono', monospace;
+    --sans:      'Outfit', sans-serif;
+    --display:   'Syne', sans-serif;
+    --radius:    6px;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text-1);
+    font-family: var(--sans);
+    font-size: 14px;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* ── LAYOUT ────────────────────────────────────────── */
+  .shell { display: flex; min-height: 100vh; }
+
+  .sidebar {
+    width: 220px;
+    flex-shrink: 0;
+    background: var(--bg-panel);
+    border-right: 1px solid var(--border);
+    padding: 24px 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .sidebar-logo {
+    padding: 0 20px 24px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 16px;
+  }
+  .sidebar-logo span {
+    font-family: var(--display);
+    font-size: 15px;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    color: var(--amber);
+    text-transform: uppercase;
+  }
+  .sidebar-logo sub {
+    display: block;
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--text-3);
+    letter-spacing: 0.15em;
+    margin-top: 2px;
+  }
+
+  .nav-group { margin-bottom: 4px; }
+  .nav-label {
+    padding: 6px 20px;
+    font-size: 9px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--text-3);
+    font-family: var(--display);
+    font-weight: 600;
+  }
+  .nav-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 20px;
+    font-size: 13px;
+    color: var(--text-2);
+    cursor: pointer;
+    border-left: 2px solid transparent;
+    transition: all 0.15s;
+  }
+  .nav-item:hover { color: var(--text-1); background: var(--bg-hover); }
+  .nav-item.active {
+    color: var(--amber);
+    border-left-color: var(--amber);
+    background: var(--amber-dim);
+  }
+  .nav-item .dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: currentColor; flex-shrink: 0;
+  }
+
+  .main {
+    flex: 1;
+    overflow: auto;
+    padding: 0;
+    position: relative;
+  }
+
+  /* ── TAB SWITCHER ───────────────────────────────────── */
+  .view-tabs {
+    display: flex;
+    gap: 0;
+    background: var(--bg-panel);
+    border-bottom: 1px solid var(--border);
+    padding: 0 32px;
+  }
+  .view-tab {
+    padding: 14px 20px;
+    font-family: var(--display);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-3);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: all 0.2s;
+    margin-bottom: -1px;
+  }
+  .view-tab:hover { color: var(--text-1); }
+  .view-tab.active { color: var(--amber); border-bottom-color: var(--amber); }
+
+  /* ── VIEWS ──────────────────────────────────────────── */
+  .view { display: none; }
+  .view.active { display: block; }
+
+  /* ──────────────────────────────────────────────────── */
+  /*  LIST PAGE                                           */
+  /* ──────────────────────────────────────────────────── */
+
+  .page-header {
+    padding: 28px 32px 0;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+  }
+  .page-title {
+    font-family: var(--display);
+    font-size: 22px;
+    font-weight: 800;
+    color: var(--text-1);
+    letter-spacing: -0.01em;
+  }
+  .page-subtitle {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-3);
+    margin-top: 4px;
+    letter-spacing: 0.05em;
+  }
+  .page-actions { display: flex; gap: 8px; align-items: center; }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 14px;
+    border-radius: var(--radius);
+    font-family: var(--sans);
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    border: none;
+    transition: all 0.15s;
+  }
+  .btn-ghost {
+    background: transparent;
+    border: 1px solid var(--border-hi);
+    color: var(--text-2);
+  }
+  .btn-ghost:hover { border-color: var(--amber); color: var(--amber); }
+  .btn-amber {
+    background: var(--amber);
+    color: #000;
+    font-weight: 600;
+  }
+  .btn-amber:hover { background: #f0ad2a; }
+  .btn-danger {
+    background: rgba(239,68,68,0.12);
+    border: 1px solid rgba(239,68,68,0.3);
+    color: var(--red);
+  }
+
+  /* ── FILTER PANEL ───────────────────────────────────── */
+  .filter-panel {
+    margin: 20px 32px 0;
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+  .filter-primary {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr 1fr 140px;
+    gap: 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .filter-field {
+    padding: 12px 16px;
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+  }
+  .filter-field:last-child { border-right: none; }
+  .filter-label {
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 0.12em;
+    color: var(--text-3);
+    text-transform: uppercase;
+  }
+  .filter-input {
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 5px 8px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-1);
+    outline: none;
+    transition: border-color 0.15s;
+    width: 100%;
+  }
+  .filter-input:focus { border-color: var(--amber); }
+  .filter-input::placeholder { color: var(--text-3); }
+  .filter-select {
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 5px 8px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-1);
+    outline: none;
+    width: 100%;
+    cursor: pointer;
+    appearance: none;
+  }
+
+  .filter-actions-col {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 6px;
+    padding: 12px 16px;
+  }
+
+  .filter-advanced {
+    display: none;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 0;
+    border-top: 1px solid var(--border);
+  }
+  .filter-advanced.open { display: grid; }
+
+  .filter-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 16px;
+    background: var(--bg);
+    border-top: 1px solid var(--border);
+  }
+  .filter-toggle {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text-3);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    letter-spacing: 0.06em;
+    transition: color 0.15s;
+  }
+  .filter-toggle:hover { color: var(--amber); }
+  .filter-toggle-arrow { transition: transform 0.2s; }
+  .filter-toggle-arrow.open { transform: rotate(180deg); }
+
+  .filter-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    background: var(--amber-dim);
+    border: 1px solid var(--amber-glo);
+    border-radius: 20px;
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--amber);
+  }
+  .chip-x { cursor: pointer; opacity: 0.6; }
+  .chip-x:hover { opacity: 1; }
+
+  /* ── TABLE ─────────────────────────────────────────── */
+  .table-wrap {
+    margin: 16px 32px 32px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+    position: relative;
+  }
+
+  .table-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 16px;
+    background: var(--bg-panel);
+    border-bottom: 1px solid var(--border);
+  }
+  .table-count {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-3);
+  }
+  .table-count strong { color: var(--amber); }
+  .table-toolbar-actions { display: flex; gap: 8px; }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+  thead tr {
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
+  }
+  th {
+    padding: 9px 16px;
+    text-align: left;
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-3);
+    font-weight: 500;
+    white-space: nowrap;
+    user-select: none;
+    cursor: pointer;
+  }
+  th:hover { color: var(--text-2); }
+  th.sort-asc::after { content: " ↑"; color: var(--amber); }
+  th.sort-desc::after { content: " ↓"; color: var(--amber); }
+  th:first-child { width: 36px; cursor: default; }
+
+  tbody tr {
+    border-bottom: 1px solid var(--border);
+    transition: background 0.1s;
+    position: relative;
+    cursor: pointer;
+  }
+  tbody tr:last-child { border-bottom: none; }
+  tbody tr:hover { background: var(--bg-hover); }
+  tbody tr.selected { background: rgba(232,160,32,0.06); }
+
+  /* Left-border result indicator */
+  tbody tr td:first-child {
+    position: relative;
+  }
+  tbody tr.result-success td:nth-child(2) {
+    border-left: 3px solid var(--green);
+  }
+  tbody tr.result-failed td:nth-child(2) {
+    border-left: 3px solid var(--red);
+  }
+  tbody tr.result-rejected td:nth-child(2) {
+    border-left: 3px solid var(--yellow);
+  }
+
+  td {
+    padding: 10px 16px;
+    vertical-align: middle;
+  }
+  td.mono {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-2);
+  }
+  td.audit-no {
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--amber);
+    white-space: nowrap;
+  }
+  td.timestamp {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text-3);
+    white-space: nowrap;
+  }
+
+  .result-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+  }
+  .result-badge::before {
+    content: '';
+    width: 5px; height: 5px;
+    border-radius: 50%;
+    background: currentColor;
+  }
+  .badge-success { background: rgba(34,197,94,0.12); color: var(--green); }
+  .badge-failed  { background: rgba(239,68,68,0.12); color: var(--red); }
+  .badge-rejected { background: rgba(245,158,11,0.12); color: var(--yellow); }
+
+  .trigger-badge {
+    display: inline-block;
+    padding: 1px 7px;
+    border-radius: 3px;
+    background: var(--bg-card);
+    border: 1px solid var(--border-hi);
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--text-2);
+    white-space: nowrap;
+  }
+
+  .actor-cell { display: flex; flex-direction: column; gap: 2px; }
+  .actor-id { font-family: var(--mono); font-size: 10px; color: var(--text-2); }
+  .actor-role { font-family: var(--mono); font-size: 9px; color: var(--text-3); }
+
+  .entity-cell .entity-type {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text-2);
+  }
+  .entity-cell .entity-no {
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--text-3);
+  }
+
+  .cb { accent-color: var(--amber); width: 13px; height: 13px; cursor: pointer; }
+
+  /* ── FLOATING ACTION BAR ────────────────────────────── */
+  .float-bar {
+    position: fixed;
+    bottom: -80px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--bg-card);
+    border: 1px solid var(--amber-glo);
+    border-radius: 8px;
+    padding: 10px 20px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.6), 0 0 0 1px rgba(232,160,32,0.1);
+    transition: bottom 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+    z-index: 100;
+    white-space: nowrap;
+  }
+  .float-bar.visible { bottom: 28px; }
+  .float-bar-count {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--amber);
+    font-weight: 600;
+  }
+  .float-bar-sep { width: 1px; height: 20px; background: var(--border-hi); }
+
+  /* ──────────────────────────────────────────────────── */
+  /*  DETAIL PAGE                                         */
+  /* ──────────────────────────────────────────────────── */
+
+  .detail-page { display: flex; min-height: calc(100vh - 48px); }
+
+  /* Left sidebar */
+  .detail-sidebar {
+    width: 280px;
+    flex-shrink: 0;
+    background: var(--bg-panel);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    position: sticky;
+    top: 0;
+    height: calc(100vh - 48px);
+    overflow-y: auto;
+  }
+
+  .detail-sidebar-header {
+    padding: 24px 20px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .back-link {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text-3);
+    cursor: pointer;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-bottom: 16px;
+    transition: color 0.15s;
+  }
+  .back-link:hover { color: var(--amber); }
+
+  .audit-id-display {
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--amber);
+    word-break: break-all;
+    line-height: 1.4;
+  }
+  .audit-id-label {
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 0.12em;
+    color: var(--text-3);
+    text-transform: uppercase;
+    margin-bottom: 4px;
+  }
+
+  .result-indicator {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 12px;
+    padding: 8px 10px;
+    border-radius: var(--radius);
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .result-indicator.success { background: rgba(34,197,94,0.1); color: var(--green); border: 1px solid rgba(34,197,94,0.2); }
+  .result-indicator.failed  { background: rgba(239,68,68,0.1); color: var(--red); border: 1px solid rgba(239,68,68,0.2); }
+  .result-indicator.rejected { background: rgba(245,158,11,0.1); color: var(--yellow); border: 1px solid rgba(245,158,11,0.2); }
+  .result-indicator-dot {
+    width: 8px; height: 8px; border-radius: 50%; background: currentColor; flex-shrink: 0;
+  }
+
+  /* State transition visual */
+  .state-transition {
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+  }
+  .state-transition-label {
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 0.12em;
+    color: var(--text-3);
+    text-transform: uppercase;
+    margin-bottom: 10px;
+  }
+  .state-flow {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .state-pill {
+    padding: 4px 10px;
+    border-radius: 3px;
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 500;
+  }
+  .state-pill.from {
+    background: rgba(123,150,178,0.12);
+    border: 1px solid rgba(123,150,178,0.25);
+    color: var(--text-2);
+  }
+  .state-pill.to-success {
+    background: rgba(34,197,94,0.1);
+    border: 1px solid rgba(34,197,94,0.25);
+    color: var(--green);
+  }
+  .state-pill.to-failed {
+    background: rgba(239,68,68,0.1);
+    border: 1px solid rgba(239,68,68,0.25);
+    color: var(--red);
+  }
+  .state-arrow {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-3);
+    flex-shrink: 0;
+  }
+
+  /* Integrity card in sidebar */
+  .sidebar-section {
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+  }
+  .sidebar-section-title {
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 0.12em;
+    color: var(--text-3);
+    text-transform: uppercase;
+    margin-bottom: 10px;
+  }
+  .sidebar-kv { margin-bottom: 8px; }
+  .sidebar-kv-key {
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--text-3);
+    letter-spacing: 0.08em;
+  }
+  .sidebar-kv-value {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-2);
+    word-break: break-all;
+    margin-top: 1px;
+  }
+  .sidebar-kv-value.amber { color: var(--amber); }
+
+  /* Right content */
+  .detail-content {
+    flex: 1;
+    padding: 28px 32px;
+    overflow: auto;
+  }
+
+  .detail-content-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    margin-bottom: 24px;
+  }
+  .detail-title {
+    font-family: var(--display);
+    font-size: 18px;
+    font-weight: 800;
+    color: var(--text-1);
+  }
+  .detail-subtitle {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-3);
+    margin-top: 4px;
+  }
+
+  /* ── CARDS ──────────────────────────────────────────── */
+  .dcard {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    margin-bottom: 16px;
+    overflow: hidden;
+  }
+  .dcard-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-panel);
+  }
+  .dcard-title {
+    font-family: var(--display);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-2);
+  }
+  .dcard-icon {
+    font-size: 12px;
+    color: var(--text-3);
+  }
+  .dcard-body {
+    padding: 16px;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px 16px;
+  }
+  .dcard-body.cols-2 { grid-template-columns: repeat(2, 1fr); }
+  .dcard-body.cols-1 { grid-template-columns: 1fr; }
+
+  .kv { display: flex; flex-direction: column; gap: 3px; }
+  .kv-key {
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-3);
+  }
+  .kv-value {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-1);
+  }
+  .kv-value.amber { color: var(--amber); }
+  .kv-value.dim { color: var(--text-2); }
+  .kv-value.empty { color: var(--text-3); font-style: italic; font-size: 11px; }
+
+  /* ── SUBJECT CHAIN ──────────────────────────────────── */
+  .subject-chain { display: flex; flex-direction: column; gap: 6px; padding: 12px 16px; }
+  .subject-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+  }
+  .subject-role-badge {
+    font-family: var(--mono);
+    font-size: 9px;
+    padding: 2px 6px;
+    background: var(--amber-dim);
+    border: 1px solid var(--amber-glo);
+    border-radius: 3px;
+    color: var(--amber);
+    white-space: nowrap;
+  }
+  .subject-type { font-size: 10px; color: var(--text-3); font-family: var(--mono); }
+  .subject-no { font-family: var(--mono); font-size: 11px; color: var(--text-2); flex: 1; }
+  .subject-time { font-family: var(--mono); font-size: 9px; color: var(--text-3); }
+
+  /* ── DIFF VIEW ──────────────────────────────────────── */
+  .diff-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0; }
+  .diff-panel { border-right: 1px solid var(--border); }
+  .diff-panel:last-child { border-right: none; }
+  .diff-panel-header {
+    padding: 8px 14px;
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg);
+    color: var(--text-3);
+  }
+  .diff-panel-header.before { color: var(--red); }
+  .diff-panel-header.after { color: var(--green); }
+  .diff-panel-header.meta { color: var(--text-3); }
+  .diff-code {
+    padding: 12px 14px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-2);
+    white-space: pre;
+    overflow: auto;
+    line-height: 1.6;
+    min-height: 80px;
+    max-height: 220px;
+  }
+  .diff-code .line-add { color: var(--green); }
+  .diff-code .line-rem { color: var(--red); }
+  .diff-code .line-key { color: var(--amber); }
+
+  /* ── EMPTY STATE ────────────────────────────────────── */
+  .empty-state {
+    text-align: center;
+    padding: 16px;
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text-3);
+    font-style: italic;
+  }
+
+  /* ── SCROLLBAR ─────────────────────────────────────── */
+  ::-webkit-scrollbar { width: 5px; height: 5px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--border-hi); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--text-3); }
+</style>
+</head>
+<body>
+<div class="shell">
+  <!-- ── APP SIDEBAR ──────────────────────────── -->
+  <nav class="sidebar">
+    <div class="sidebar-logo">
+      <span>FiatX</span>
+      <sub>ADMIN CONSOLE</sub>
+    </div>
+    <div class="nav-group">
+      <div class="nav-label">Governance</div>
+      <div class="nav-item"><span class="dot"></span>Change Tickets</div>
+      <div class="nav-item"><span class="dot"></span>Approval Cases</div>
+    </div>
+    <div class="nav-group">
+      <div class="nav-label">Audit</div>
+      <div class="nav-item active"><span class="dot"></span>Audit Logs</div>
+    </div>
+    <div class="nav-group">
+      <div class="nav-label">Identity</div>
+      <div class="nav-item"><span class="dot"></span>Admin Users</div>
+      <div class="nav-item"><span class="dot"></span>Role Bindings</div>
+    </div>
+  </nav>
+
+  <div class="main">
+    <!-- ── TAB SWITCHER ──────────────────────── -->
+    <div class="view-tabs">
+      <div class="view-tab active" onclick="switchView('list')">List View</div>
+      <div class="view-tab" onclick="switchView('detail')">Detail View</div>
+    </div>
+
+    <!-- ═══════════════════════════════════════ -->
+    <!--  LIST VIEW                              -->
+    <!-- ═══════════════════════════════════════ -->
+    <div id="view-list" class="view active">
+      <div class="page-header">
+        <div>
+          <div class="page-title">Audit Logs</div>
+          <div class="page-subtitle">IMMUTABLE RECORD · TAMPER-EVIDENT</div>
+        </div>
+        <div class="page-actions">
+          <button class="btn btn-ghost" onclick="toggleExport()">
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 10v4h12v-4M8 2v8M5 7l3 3 3-3"/></svg>
+            Export CSV
+          </button>
+        </div>
+      </div>
+
+      <!-- FILTER PANEL -->
+      <div class="filter-panel">
+        <div class="filter-primary">
+          <div class="filter-field">
+            <div class="filter-label">Workflow No</div>
+            <input class="filter-input" type="text" placeholder="WF-2026-…" value="WF-2026-001">
+          </div>
+          <div class="filter-field">
+            <div class="filter-label">Trace ID</div>
+            <input class="filter-input" type="text" placeholder="trace-…">
+          </div>
+          <div class="filter-field">
+            <div class="filter-label">Subject No</div>
+            <input class="filter-input" type="text" placeholder="USR-…">
+          </div>
+          <div class="filter-field">
+            <div class="filter-label">Trigger Type</div>
+            <select class="filter-select">
+              <option value="">All types</option>
+              <option>STATE_TRANSITION</option>
+              <option>AUTH_EVENT</option>
+              <option>DATA_CREATE</option>
+              <option>DATA_UPDATE</option>
+              <option>EVIDENCE_EXPORT</option>
+            </select>
+          </div>
+          <div class="filter-actions-col">
+            <button class="btn btn-amber" style="justify-content:center">Search</button>
+            <button class="btn btn-ghost" style="justify-content:center;font-size:11px">Clear</button>
+          </div>
+        </div>
+        <div id="advanced-filters" class="filter-advanced">
+          <div class="filter-field">
+            <div class="filter-label">Actor No</div>
+            <input class="filter-input" type="text" placeholder="ADM-…">
+          </div>
+          <div class="filter-field">
+            <div class="filter-label">Actor Type</div>
+            <select class="filter-select">
+              <option value="">All</option>
+              <option>ADMIN_USER</option>
+              <option>SYSTEM</option>
+            </select>
+          </div>
+          <div class="filter-field">
+            <div class="filter-label">Result</div>
+            <select class="filter-select">
+              <option value="">All results</option>
+              <option>SUCCESS</option>
+              <option>FAILED</option>
+              <option>REJECTED</option>
+            </select>
+          </div>
+          <div class="filter-field">
+            <div class="filter-label">Date From</div>
+            <input class="filter-input" type="date">
+          </div>
+          <div class="filter-field">
+            <div class="filter-label">Date To</div>
+            <input class="filter-input" type="date">
+          </div>
+        </div>
+        <div class="filter-footer">
+          <div class="filter-chips">
+            <div class="chip">workflowNo: WF-2026-001 <span class="chip-x" onclick="removeChip(this)">×</span></div>
+          </div>
+          <div class="filter-toggle" onclick="toggleAdvanced(this)">
+            <span>Advanced Filters</span>
+            <span class="filter-toggle-arrow" id="adv-arrow">▾</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- TABLE -->
+      <div class="table-wrap">
+        <div class="table-toolbar">
+          <div class="table-count">Showing <strong>1–20</strong> of <strong>847</strong> records</div>
+          <div class="table-toolbar-actions">
+            <button class="btn btn-ghost" style="font-size:11px">
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 1H2l5 6.5V14l2-1V7.5L14 1z"/></svg>
+              Columns
+            </button>
+          </div>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th><input type="checkbox" class="cb" id="checkAll" onchange="toggleAll(this)"></th>
+              <th class="sort-desc">Occurred At</th>
+              <th>Audit No</th>
+              <th>Result</th>
+              <th>Trigger</th>
+              <th>Actor</th>
+              <th>Entity</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="result-success" onclick="switchView('detail')">
+              <td><input type="checkbox" class="cb row-check" onchange="updateFloat()"></td>
+              <td class="timestamp">2026-04-06<br>09:41:23</td>
+              <td class="audit-no">AUD-2026-000847</td>
+              <td><span class="result-badge badge-success">SUCCESS</span></td>
+              <td><span class="trigger-badge">STATE_TRANSITION</span></td>
+              <td>
+                <div class="actor-cell">
+                  <div class="actor-id">ADM-001</div>
+                  <div class="actor-role">SUPER_ADMIN</div>
+                </div>
+              </td>
+              <td>
+                <div class="entity-cell">
+                  <div class="entity-type">CHANGE_TICKET</div>
+                  <div class="entity-no">CT-2026-0091</div>
+                </div>
+              </td>
+              <td class="mono">consume</td>
+            </tr>
+            <tr class="result-failed">
+              <td><input type="checkbox" class="cb row-check" onchange="updateFloat()"></td>
+              <td class="timestamp">2026-04-06<br>09:39:58</td>
+              <td class="audit-no">AUD-2026-000846</td>
+              <td><span class="result-badge badge-failed">FAILED</span></td>
+              <td><span class="trigger-badge">AUTH_EVENT</span></td>
+              <td>
+                <div class="actor-cell">
+                  <div class="actor-id">ADM-047</div>
+                  <div class="actor-role">CISO</div>
+                </div>
+              </td>
+              <td>
+                <div class="entity-cell">
+                  <div class="entity-type">AUTH_SESSION</div>
+                  <div class="entity-no">—</div>
+                </div>
+              </td>
+              <td class="mono">login</td>
+            </tr>
+            <tr class="result-rejected">
+              <td><input type="checkbox" class="cb row-check" onchange="updateFloat()"></td>
+              <td class="timestamp">2026-04-06<br>09:37:12</td>
+              <td class="audit-no">AUD-2026-000845</td>
+              <td><span class="result-badge badge-rejected">REJECTED</span></td>
+              <td><span class="trigger-badge">STATE_TRANSITION</span></td>
+              <td>
+                <div class="actor-cell">
+                  <div class="actor-id">ADM-003</div>
+                  <div class="actor-role">TECH_ADMIN</div>
+                </div>
+              </td>
+              <td>
+                <div class="entity-cell">
+                  <div class="entity-type">APPROVAL_CASE</div>
+                  <div class="entity-no">AC-2026-0442</div>
+                </div>
+              </td>
+              <td class="mono">reject</td>
+            </tr>
+            <tr class="result-success">
+              <td><input type="checkbox" class="cb row-check" onchange="updateFloat()"></td>
+              <td class="timestamp">2026-04-06<br>09:35:01</td>
+              <td class="audit-no">AUD-2026-000844</td>
+              <td><span class="result-badge badge-success">SUCCESS</span></td>
+              <td><span class="trigger-badge">DATA_CREATE</span></td>
+              <td>
+                <div class="actor-cell">
+                  <div class="actor-id">ADM-001</div>
+                  <div class="actor-role">SUPER_ADMIN</div>
+                </div>
+              </td>
+              <td>
+                <div class="entity-cell">
+                  <div class="entity-type">ADMIN_USER</div>
+                  <div class="entity-no">USR-2026-0128</div>
+                </div>
+              </td>
+              <td class="mono">provision</td>
+            </tr>
+            <tr class="result-success">
+              <td><input type="checkbox" class="cb row-check" onchange="updateFloat()"></td>
+              <td class="timestamp">2026-04-06<br>09:31:44</td>
+              <td class="audit-no">AUD-2026-000843</td>
+              <td><span class="result-badge badge-success">SUCCESS</span></td>
+              <td><span class="trigger-badge">PERMISSION_CHANGE</span></td>
+              <td>
+                <div class="actor-cell">
+                  <div class="actor-id">SYSTEM</div>
+                  <div class="actor-role">INTERNAL</div>
+                </div>
+              </td>
+              <td>
+                <div class="entity-cell">
+                  <div class="entity-type">ROLE_BINDING</div>
+                  <div class="entity-no">RB-2026-0033</div>
+                </div>
+              </td>
+              <td class="mono">rebind</td>
+            </tr>
+            <tr class="result-failed">
+              <td><input type="checkbox" class="cb row-check" onchange="updateFloat()"></td>
+              <td class="timestamp">2026-04-06<br>09:28:09</td>
+              <td class="audit-no">AUD-2026-000842</td>
+              <td><span class="result-badge badge-failed">FAILED</span></td>
+              <td><span class="trigger-badge">DATA_UPDATE</span></td>
+              <td>
+                <div class="actor-cell">
+                  <div class="actor-id">ADM-022</div>
+                  <div class="actor-role">COMPLIANCE_OFFICER</div>
+                </div>
+              </td>
+              <td>
+                <div class="entity-cell">
+                  <div class="entity-type">CONFIG</div>
+                  <div class="entity-no">CFG-0019</div>
+                </div>
+              </td>
+              <td class="mono">update</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <!-- Pagination row -->
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 16px;background:var(--bg-panel);border-top:1px solid var(--border)">
+          <div style="font-family:var(--mono);font-size:10px;color:var(--text-3)">Page 1 of 43</div>
+          <div style="display:flex;gap:4px">
+            <button class="btn btn-ghost" style="padding:5px 10px;font-size:11px;opacity:0.4" disabled>← Prev</button>
+            <button class="btn btn-ghost" style="padding:5px 10px;font-size:11px">Next →</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <!-- /LIST VIEW -->
+
+    <!-- ═══════════════════════════════════════ -->
+    <!--  DETAIL VIEW                            -->
+    <!-- ═══════════════════════════════════════ -->
+    <div id="view-detail" class="view">
+      <div class="detail-page">
+
+        <!-- LEFT SIDEBAR -->
+        <div class="detail-sidebar">
+          <div class="detail-sidebar-header">
+            <div class="back-link" onclick="switchView('list')">
+              ← Back to Audit Logs
+            </div>
+            <div class="audit-id-label">Audit No</div>
+            <div class="audit-id-display">AUD-2026-000847</div>
+            <div class="result-indicator success">
+              <span class="result-indicator-dot"></span>
+              SUCCESS
+            </div>
+          </div>
+
+          <!-- State Transition -->
+          <div class="state-transition">
+            <div class="state-transition-label">State Transition</div>
+            <div class="state-flow">
+              <div class="state-pill from">PENDING_APPROVAL</div>
+              <div class="state-arrow">──▶</div>
+              <div class="state-pill to-success">CONSUMED</div>
+            </div>
+          </div>
+
+          <!-- Identity Summary -->
+          <div class="sidebar-section">
+            <div class="sidebar-section-title">Actor</div>
+            <div class="sidebar-kv">
+              <div class="sidebar-kv-key">Type</div>
+              <div class="sidebar-kv-value">ADMIN_USER</div>
+            </div>
+            <div class="sidebar-kv">
+              <div class="sidebar-kv-key">ID</div>
+              <div class="sidebar-kv-value amber">ADM-001</div>
+            </div>
+            <div class="sidebar-kv">
+              <div class="sidebar-kv-key">Role</div>
+              <div class="sidebar-kv-value">SUPER_ADMIN</div>
+            </div>
+          </div>
+
+          <!-- Integrity -->
+          <div class="sidebar-section">
+            <div class="sidebar-section-title">Integrity</div>
+            <div class="sidebar-kv">
+              <div class="sidebar-kv-key">Payload Digest</div>
+              <div class="sidebar-kv-value" style="font-size:9px;word-break:break-all">sha256:e3b0c44298fc<br>1c149afb…</div>
+            </div>
+            <div class="sidebar-kv">
+              <div class="sidebar-kv-key">Mask Version</div>
+              <div class="sidebar-kv-value">v2</div>
+            </div>
+            <div class="sidebar-kv">
+              <div class="sidebar-kv-key">Retained Until</div>
+              <div class="sidebar-kv-value">2033-04-06</div>
+            </div>
+          </div>
+
+          <!-- Trace -->
+          <div class="sidebar-section">
+            <div class="sidebar-section-title">Trace</div>
+            <div class="sidebar-kv">
+              <div class="sidebar-kv-key">Trace ID</div>
+              <div class="sidebar-kv-value amber" style="font-size:10px;word-break:break-all">trc_8f3a2b9d<br>e1c047fa…</div>
+            </div>
+            <div class="sidebar-kv">
+              <div class="sidebar-kv-key">Request ID</div>
+              <div class="sidebar-kv-value" style="font-size:10px">req_4d912a…</div>
+            </div>
+            <div class="sidebar-kv">
+              <div class="sidebar-kv-key">Source IP</div>
+              <div class="sidebar-kv-value">10.0.1.42</div>
+            </div>
+            <div class="sidebar-kv">
+              <div class="sidebar-kv-key">Platform</div>
+              <div class="sidebar-kv-value">ADMIN_WEB</div>
+            </div>
+          </div>
+        </div>
+        <!-- /LEFT SIDEBAR -->
+
+        <!-- RIGHT CONTENT -->
+        <div class="detail-content">
+          <div class="detail-content-header">
+            <div>
+              <div class="detail-title">Audit Log Detail</div>
+              <div class="detail-subtitle">2026-04-06 09:41:23 UTC · STATE_TRANSITION</div>
+            </div>
+            <button class="btn btn-ghost">
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M13.5 8A5.5 5.5 0 1 1 8 2.5"/><path d="M11 2h3v3"/><path d="M14 2l-4 4"/></svg>
+              Refresh
+            </button>
+          </div>
+
+          <!-- Workflow Summary -->
+          <div class="dcard">
+            <div class="dcard-header">
+              <span class="dcard-icon">◈</span>
+              <span class="dcard-title">Workflow Summary</span>
+            </div>
+            <div class="dcard-body">
+              <div class="kv">
+                <div class="kv-key">Business Workflow</div>
+                <div class="kv-value">Governed Role Change</div>
+              </div>
+              <div class="kv">
+                <div class="kv-key">User Action</div>
+                <div class="kv-value dim">Consume Change Ticket</div>
+              </div>
+              <div class="kv">
+                <div class="kv-key">Primary Ref No</div>
+                <div class="kv-value amber">CT-2026-0091</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Entity -->
+          <div class="dcard">
+            <div class="dcard-header">
+              <span class="dcard-icon">◉</span>
+              <span class="dcard-title">Entity</span>
+            </div>
+            <div class="dcard-body cols-2">
+              <div class="kv">
+                <div class="kv-key">Entity Type</div>
+                <div class="kv-value dim">CHANGE_TICKET</div>
+              </div>
+              <div class="kv">
+                <div class="kv-key">Entity No</div>
+                <div class="kv-value amber">CT-2026-0091</div>
+              </div>
+              <div class="kv">
+                <div class="kv-key">Entity ID</div>
+                <div class="kv-value" style="font-size:11px">clxf8a2b3c4d5e6f7</div>
+              </div>
+              <div class="kv">
+                <div class="kv-key">Owner</div>
+                <div class="kv-value dim">ADMIN_USER / ADM-001</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Technical Context -->
+          <div class="dcard">
+            <div class="dcard-header">
+              <span class="dcard-icon">⌥</span>
+              <span class="dcard-title">Technical Context</span>
+            </div>
+            <div class="dcard-body">
+              <div class="kv">
+                <div class="kv-key">Action</div>
+                <div class="kv-value dim">consume</div>
+              </div>
+              <div class="kv">
+                <div class="kv-key">Module</div>
+                <div class="kv-value dim">governance.change-tickets</div>
+              </div>
+              <div class="kv">
+                <div class="kv-key">Workflow Type</div>
+                <div class="kv-value dim">APPROVAL_REQUIRED</div>
+              </div>
+              <div class="kv">
+                <div class="kv-key">Workflow No</div>
+                <div class="kv-value amber">WF-2026-001</div>
+              </div>
+              <div class="kv">
+                <div class="kv-key">Workflow ID</div>
+                <div class="kv-value" style="font-size:11px">clxwf9b2c3d4e5f6</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Subject Chain -->
+          <div class="dcard">
+            <div class="dcard-header">
+              <span class="dcard-icon">◆</span>
+              <span class="dcard-title">Subject Chain</span>
+            </div>
+            <div class="subject-chain">
+              <div class="subject-item">
+                <div class="subject-role-badge">INITIATOR</div>
+                <div class="subject-type">ADMIN_USER</div>
+                <div class="subject-no">ADM-001</div>
+                <div class="subject-time">09:38:12</div>
+              </div>
+              <div class="subject-item">
+                <div class="subject-role-badge">APPROVER</div>
+                <div class="subject-type">ADMIN_USER</div>
+                <div class="subject-no">ADM-003</div>
+                <div class="subject-time">09:40:55</div>
+              </div>
+              <div class="subject-item">
+                <div class="subject-role-badge">TARGET</div>
+                <div class="subject-type">ADMIN_USER</div>
+                <div class="subject-no">USR-2026-0128</div>
+                <div class="subject-time">09:41:23</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Payload Diff -->
+          <div class="dcard">
+            <div class="dcard-header">
+              <span class="dcard-icon">⊞</span>
+              <span class="dcard-title">Payload</span>
+            </div>
+            <div class="diff-grid">
+              <div class="diff-panel">
+                <div class="diff-panel-header meta">Metadata</div>
+                <div class="diff-code"><span class="line-key">"intent"</span>:        "ADMIN_ROLE_BINDING_CHANGE"
+<span class="line-key">"ticketNo"</span>:     "CT-2026-0091"
+<span class="line-key">"traceId"</span>:      "trc_8f3a2b9d…"
+<span class="line-key">"occurredAt"</span>:   "2026-04-06T09:41:23Z"
+<span class="line-key">"actorNo"</span>:      "ADM-001"</div>
+              </div>
+              <div class="diff-panel">
+                <div class="diff-panel-header before">Before Data</div>
+                <div class="diff-code"><span class="line-key">"userId"</span>:       "usr_128"
+<span class="line-key">"userNo"</span>:       "USR-2026-0128"
+<span class="line-rem">- "roleCodes"</span>:   ["CISO"]
+<span class="line-key">"status"</span>:       "ACTIVE"</div>
+              </div>
+              <div class="diff-panel">
+                <div class="diff-panel-header after">After Data</div>
+                <div class="diff-code"><span class="line-key">"userId"</span>:       "usr_128"
+<span class="line-key">"userNo"</span>:       "USR-2026-0128"
+<span class="line-add">+ "roleCodes"</span>:   ["CISO","TECH_ADMIN"]
+<span class="line-key">"status"</span>:       "ACTIVE"</div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+        <!-- /RIGHT CONTENT -->
+      </div>
+    </div>
+    <!-- /DETAIL VIEW -->
+
+  </div><!-- /main -->
+</div><!-- /shell -->
+
+<!-- FLOATING ACTION BAR -->
+<div class="float-bar" id="float-bar">
+  <div class="float-bar-count" id="float-count">0 selected</div>
+  <div class="float-bar-sep"></div>
+  <button class="btn btn-ghost" style="font-size:12px">
+    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 10v4h12v-4M8 2v8M5 7l3 3 3-3"/></svg>
+    Export Selected
+  </button>
+  <button class="btn btn-ghost" style="font-size:12px">Copy IDs</button>
+  <div class="float-bar-sep"></div>
+  <button class="btn btn-ghost" style="font-size:12px;color:var(--text-3)" onclick="clearSelection()">Deselect</button>
+</div>
+
+<script>
+  function switchView(view) {
+    document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+    document.querySelectorAll('.view-tab').forEach(t => t.classList.remove('active'));
+    document.getElementById('view-' + view).classList.add('active');
+    const tabs = document.querySelectorAll('.view-tab');
+    if (view === 'list') tabs[0].classList.add('active');
+    else tabs[1].classList.add('active');
+  }
+
+  function toggleAdvanced(el) {
+    const panel = document.getElementById('advanced-filters');
+    const arrow = document.getElementById('adv-arrow');
+    panel.classList.toggle('open');
+    arrow.classList.toggle('open');
+  }
+
+  function removeChip(x) {
+    x.parentElement.remove();
+  }
+
+  function toggleAll(cb) {
+    document.querySelectorAll('.row-check').forEach(c => {
+      c.checked = cb.checked;
+      c.closest('tr').classList.toggle('selected', cb.checked);
+    });
+    updateFloat();
+  }
+
+  function updateFloat() {
+    const checked = document.querySelectorAll('.row-check:checked');
+    const bar = document.getElementById('float-bar');
+    const count = document.getElementById('float-count');
+    count.textContent = checked.length + ' selected';
+    bar.classList.toggle('visible', checked.length > 0);
+  }
+
+  function clearSelection() {
+    document.querySelectorAll('.row-check, #checkAll').forEach(c => c.checked = false);
+    document.querySelectorAll('tbody tr').forEach(r => r.classList.remove('selected'));
+    document.getElementById('float-bar').classList.remove('visible');
+  }
+</script>
+</body>
+</html>

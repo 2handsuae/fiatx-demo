@@ -12,7 +12,6 @@ import {
   AuditModules,
   buildStateTransitionAction,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditTriggerType } from '../../audit-logging/dto/audit-log.dto';
 import {
   ReimbursementObligationQueryDto,
   ReimbursementObligationStatus,
@@ -138,17 +137,12 @@ export class ReimbursementObligationsService {
 
     await this.auditLogsService.recordByActor(
       {
-        triggerType: AuditTriggerType.DATA_CREATE,
+
         action: AuditActions.REIMBURSEMENT_OBLIGATION_OPENED,
-        module: AuditModules.REIMBURSEMENT_OBLIGATIONS,
         entityType: AuditEntityTypes.REIMBURSEMENT_OBLIGATION,
         entityId: obligation.id,
         entityNo: obligation.obligationNo,
         reason: obligation.reason || 'Reimbursement obligation opened',
-        afterData: {
-          status: obligation.status,
-          feeOccurrenceId: obligation.feeOccurrenceId,
-        },
         traceId: obligation.traceId || null,
         sourcePlatform: actorType === 'SYSTEM' ? 'SYSTEM' : 'ADMIN_API',
       },
@@ -188,21 +182,16 @@ export class ReimbursementObligationsService {
 
     await this.auditLogsService.recordByActor(
       {
-        triggerType: AuditTriggerType.STATE_TRANSITION,
+
         action: buildStateTransitionAction(
           'REIMBURSEMENT_OBLIGATION',
           current.status,
           updated.status,
         ),
-        module: AuditModules.REIMBURSEMENT_OBLIGATIONS,
         entityType: AuditEntityTypes.REIMBURSEMENT_OBLIGATION,
         entityId: updated.id,
         entityNo: updated.obligationNo,
-        statusFrom: current.status,
-        statusTo: updated.status,
         reason,
-        beforeData: { status: current.status },
-        afterData: { status: updated.status },
         traceId: updated.traceId || null,
         sourcePlatform: operatorId === 'SYSTEM' ? 'SYSTEM' : 'ADMIN_API',
       },
@@ -303,21 +292,16 @@ export class ReimbursementObligationsService {
 
     await this.auditLogsService.recordByActor(
       {
-        triggerType: AuditTriggerType.STATE_TRANSITION,
+
         action: buildStateTransitionAction(
           'REIMBURSEMENT_OBLIGATION',
           current.status,
           updated.status,
         ),
-        module: AuditModules.REIMBURSEMENT_OBLIGATIONS,
         entityType: AuditEntityTypes.REIMBURSEMENT_OBLIGATION,
         entityId: updated.id,
         entityNo: updated.obligationNo,
-        statusFrom: current.status,
-        statusTo: updated.status,
         reason: dto.reason || undefined,
-        beforeData: { status: current.status },
-        afterData: { status: updated.status },
         traceId: updated.traceId || null,
         sourcePlatform: operatorId === 'SYSTEM' ? 'SYSTEM' : 'ADMIN_API',
       },
