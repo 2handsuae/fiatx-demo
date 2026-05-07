@@ -14,7 +14,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { AdminPermissionGuard } from '../../identity/access-control/admin-permission.guard';
 import { RequirePermissions } from '../../identity/access-control/require-permissions.decorator';
 import { buildPermissionCode } from '../../identity/access-control/permission-code.util';
-import { ApprovalActorContext } from './constants/approval.constants';
+import { ApprovalActorContext, PolicyStepConfig } from './constants/approval.constants';
 import { ApprovalPolicyService } from './approval-policy.service';
 import { ApprovalPolicyChangeWorkflowService } from './approval-policy-change-workflow.service';
 
@@ -57,7 +57,7 @@ export class ApprovalPolicyController {
   @ApiOperation({ summary: 'Create approval policy change request' })
   createChangeRequest(
     @Param('actionType') actionType: string,
-    @Body() body: { proposedCheckerRoles: string[]; changeReason: string },
+    @Body() body: { proposedSteps: PolicyStepConfig[]; changeReason: string },
     @Req() req: any,
   ) {
     if (req.user?.type !== 'ADMIN') {
@@ -65,7 +65,7 @@ export class ApprovalPolicyController {
     }
     return this.workflowService.requestChange(
       actionType,
-      body.proposedCheckerRoles,
+      body.proposedSteps,
       body.changeReason,
       this.buildAdminActor(req),
     );
