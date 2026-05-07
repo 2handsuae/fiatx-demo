@@ -15,6 +15,10 @@ import {
   ApprovalActionTypes,
   ApprovalActorContext,
   V1_APPROVAL_ACTION_TYPES,
+  PolicyStepConfig,
+  deriveCheckerRoles,
+  parseAndValidateStepsConfig,
+  checkerRolesToSteps,
 } from './constants/approval.constants';
 import {
   AuditBusinessWorkflowTypes,
@@ -50,7 +54,7 @@ export class ApprovalPolicyChangeWorkflowService {
 
   async requestChange(
     targetActionType: string,
-    proposedCheckerRoles: string[],
+    proposedSteps: PolicyStepConfig[],
     changeReason: string,
     actor: ApprovalActorContext,
   ): Promise<{ id: string; requestNo: string; approvalNo: string; approvalCaseId: string; status: string }> {
@@ -70,42 +74,56 @@ export class ApprovalPolicyChangeWorkflowService {
       });
     }
 
-    // 3. Validate proposedCheckerRoles
-    if (!proposedCheckerRoles || proposedCheckerRoles.length === 0) {
-      throw new BadRequestException('proposedCheckerRoles must not be empty');
+    // 3. Validate proposedSteps structure
+    if (!proposedSteps || proposedSteps.length === 0) {
+      throw new BadRequestException('proposedSteps must not be empty');
     }
+    parseAndValidateStepsConfig(JSON.stringify(proposedSteps));
 
     // 4. Snapshot current policy
     const currentPolicy = await this.policyService.getPolicy(targetActionType);
-    const currentCheckerRoles = currentPolicy.checkerRoles;
 
-    // 5. No-change guard
-    const sortedCurrent = [...currentCheckerRoles].sort().join(',');
-    const sortedProposed = [...proposedCheckerRoles].sort().join(',');
-    if (sortedCurrent === sortedProposed) {
+    // 5. No-change guard (structural comparison with role normalization)
+    const normalize = (steps: PolicyStepConfig[]) =>
+      JSON.stringify(steps.map((s) => ({ ...s, roles: [...s.roles].sort() })));
+    if (normalize(currentPolicy.steps) === normalize(proposedSteps)) {
       throw new ConflictException({
         code: 'NO_CHANGE',
-        message: 'Proposed checker roles are identical to current configuration',
+        message: 'Proposed step configuration is identical to current configuration',
+      });
+    }
+
+    // 6. Concurrent request guard
+    const pendingExists = await this.prisma.approvalPolicyChangeRequest.findFirst({
+      where: { targetActionType, status: 'PENDING_APPROVAL', deletedAt: null },
+    });
+    if (pendingExists) {
+      throw new ConflictException({
+        code: 'PENDING_REQUEST_EXISTS',
+        message: `A pending change request already exists for ${targetActionType} (${pendingExists.requestNo})`,
       });
     }
 
     const traceId = randomUUID();
     const requestNo = generateReferenceNo('APC');
 
-    // 6. Create request
+    // 7. Create request (both JSON and CSV fields)
+    const proposedCheckerRoles = deriveCheckerRoles(proposedSteps);
     const request = await this.prisma.approvalPolicyChangeRequest.create({
       data: {
         requestNo,
         targetActionType,
-        currentCheckerRoles: currentCheckerRoles.join(','),
+        currentCheckerRoles: currentPolicy.checkerRoles.join(','),
         proposedCheckerRoles: proposedCheckerRoles.join(','),
+        currentStepsConfig: JSON.stringify(currentPolicy.steps),
+        proposedStepsConfig: JSON.stringify(proposedSteps),
         changeReason,
         status: 'PENDING_APPROVAL',
         requestedByUserId: actor.userId,
       },
     });
 
-    // 7. Create and submit approval case
+    // 8. Create and submit approval case
     const approvalCase = await this.approvalsService.createAndSubmit(
       {
         actionType: ApprovalActionTypes.APPROVAL_POLICY_CHANGE,
@@ -117,7 +135,9 @@ export class ApprovalPolicyChangeWorkflowService {
         metadata: {
           requestNo,
           targetActionType,
-          currentCheckerRoles,
+          currentStepsConfig: currentPolicy.steps,
+          proposedStepsConfig: proposedSteps,
+          currentCheckerRoles: currentPolicy.checkerRoles,
           proposedCheckerRoles,
           changeReason,
         },
@@ -126,7 +146,7 @@ export class ApprovalPolicyChangeWorkflowService {
       actor,
     );
 
-    // 8. Link approval case to request
+    // 9. Link approval case to request
     await this.prisma.approvalPolicyChangeRequest.update({
       where: { id: request.id },
       data: {
@@ -135,7 +155,7 @@ export class ApprovalPolicyChangeWorkflowService {
       },
     });
 
-    // 9. Audit: MODIFICATION_REQUESTED
+    // 10. Audit: MODIFICATION_REQUESTED
     await this.auditLogsService.recordByActor(
       {
         action: AuditGovernanceActions.APPROVAL_POLICY.MODIFICATION_REQUESTED,
@@ -147,7 +167,9 @@ export class ApprovalPolicyChangeWorkflowService {
         result: AuditResult.SUCCESS,
         metadata: {
           targetActionType,
-          currentCheckerRoles,
+          currentStepsConfig: currentPolicy.steps,
+          proposedStepsConfig: proposedSteps,
+          currentCheckerRoles: currentPolicy.checkerRoles,
           proposedCheckerRoles,
           changeReason,
           approvalNo: approvalCase.approvalNo,
@@ -191,13 +213,21 @@ export class ApprovalPolicyChangeWorkflowService {
     });
     if (!request) return;
 
-    const proposedRoles = request.proposedCheckerRoles.split(',').filter(Boolean);
+    // Parse proposed steps — fallback to flat CSV for old records
+    let proposedSteps: PolicyStepConfig[];
+    if (request.proposedStepsConfig) {
+      proposedSteps = parseAndValidateStepsConfig(request.proposedStepsConfig);
+    } else {
+      proposedSteps = checkerRolesToSteps(
+        request.proposedCheckerRoles.split(',').filter(Boolean),
+      );
+    }
 
     try {
       await this.prisma.$transaction(async (tx: any) => {
-        await this.policyService.upsertCheckerRoles(
+        await this.policyService.upsertStepsConfig(
           request.targetActionType,
-          proposedRoles,
+          proposedSteps,
           tx,
         );
         await tx.approvalPolicyChangeRequest.update({
@@ -217,7 +247,8 @@ export class ApprovalPolicyChangeWorkflowService {
           result: AuditResult.SUCCESS,
           metadata: {
             targetActionType: request.targetActionType,
-            appliedCheckerRoles: proposedRoles,
+            appliedStepsConfig: proposedSteps,
+            appliedCheckerRoles: deriveCheckerRoles(proposedSteps),
             approvalId: event.approvalId,
             approvalNo: event.approvalNo,
           },
