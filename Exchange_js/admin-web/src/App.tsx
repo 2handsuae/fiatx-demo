@@ -148,8 +148,9 @@ const ClearingHeaderTemplateDetail = lazy(() => import('./pages/ClearingHeaderTe
 const ClearingTemplateSnapshot = lazy(() => import('./pages/ClearingTemplateSnapshot'));
 const PricingPolicyList = lazy(() => import('./pages/PricingPolicyList'));
 const PricingPolicyHistory = lazy(() => import('./pages/PricingPolicyHistory'));
-const SodConfigPage = lazy(() => import('./pages/SodConfigPage'));
 const ApprovalPoliciesPage = lazy(() => import('./pages/ApprovalPoliciesPage'));
+const PolicyChangeRequestsPage = lazy(() => import('./pages/PolicyChangeRequestsPage'));
+const PolicyChangeRequestDetailPage = lazy(() => import('./pages/PolicyChangeRequestDetailPage'));
 
 const FullPageMessage = ({
   title,
@@ -569,10 +570,6 @@ function App() {
               element={withPermission(<ApprovalsPage />, [PERMISSIONS.GOV_APPROVALS_READ])}
             />
             <Route
-              path="control-gates/sod-config"
-              element={withPermission(<SodConfigPage />, [PERMISSIONS.GOV_APPROVALS_READ])}
-            />
-            <Route
               path="control-gates"
               element={withPermission(
                 <Navigate to="/dashboard/control-gates/change-tickets" replace />,
@@ -748,6 +745,18 @@ function App() {
               path="governance/approval-policies"
               element={withPermission(<ApprovalPoliciesPage />, [
                 PERMISSIONS.GOV_APPROVAL_POLICIES_READ,
+              ])}
+            />
+            <Route
+              path="governance/policy-change-requests"
+              element={withPermission(<PolicyChangeRequestsPage />, [
+                PERMISSIONS.GOV_APPROVAL_POLICY_CHANGE_REQUESTS_READ,
+              ])}
+            />
+            <Route
+              path="governance/policy-change-requests/:id"
+              element={withPermission(<PolicyChangeRequestDetailPage />, [
+                PERMISSIONS.GOV_APPROVAL_POLICY_CHANGE_REQUEST_DETAIL_READ,
               ])}
             />
             <Route

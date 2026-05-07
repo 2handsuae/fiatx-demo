@@ -34,7 +34,6 @@ import {
   Sun,
   Moon,
   AlertTriangle,
-  Settings,
   Tag,
 } from 'lucide-react';
 import { Link, useLocation, useNavigate, Outlet } from 'react-router-dom';
@@ -147,10 +146,16 @@ const DashboardLayout = () => {
           requiredPermissions: [PERMISSIONS.GOV_APPROVALS_READ],
         },
         {
-          path: '/dashboard/control-gates/sod-config',
-          label: 'SoD Config',
-          icon: <Settings size={13} />,
-          requiredPermissions: [PERMISSIONS.GOV_APPROVALS_READ],
+          path: '/dashboard/governance/approval-policies',
+          label: 'Approval Policies',
+          icon: <Shield size={13} />,
+          requiredPermissions: [PERMISSIONS.GOV_APPROVAL_POLICIES_READ],
+        },
+        {
+          path: '/dashboard/governance/policy-change-requests',
+          label: 'Policy Change Requests',
+          icon: <ArrowLeftRight size={13} />,
+          requiredPermissions: [PERMISSIONS.GOV_APPROVAL_POLICY_CHANGE_REQUESTS_READ],
         },
       ],
     },
@@ -498,12 +503,6 @@ const DashboardLayout = () => {
           label: 'Regulatory Gates',
           icon: <ShieldCheck size={13} />,
           requiredPermissions: [PERMISSIONS.GOV_REGULATORY_GATES_READ],
-        },
-        {
-          path: '/dashboard/governance/approval-policies',
-          label: 'Approval Policies',
-          icon: <Shield size={13} />,
-          requiredPermissions: [PERMISSIONS.GOV_APPROVAL_POLICIES_READ],
         },
       ],
     },

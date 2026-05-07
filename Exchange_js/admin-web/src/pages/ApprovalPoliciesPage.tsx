@@ -1,8 +1,15 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Shield, Pencil, X, ArrowRight } from 'lucide-react';
+import { Shield, Pencil, X, RefreshCw } from 'lucide-react';
 import { PageTitleBar } from '../components/ui/PageTitleBar';
-import { adminFetch, AdminSessionError, getApiErrorMessage } from '../utils/adminFetch';
+import { AdminBadge } from '../components/ui/AdminBadge';
+import { adminIconButtonClass } from '../components/common/adminButtonStyles';
+import {
+  AdminPermissionError,
+  AdminSessionError,
+  adminFetch,
+  getApiErrorMessage,
+} from '../utils/adminFetch';
 import { useAdminSession } from '../contexts/AdminSessionContext';
 import { PERMISSIONS } from '../rbac/permissions';
 
@@ -37,7 +44,7 @@ export default function ApprovalPoliciesPage() {
   const { hasAnyPermission } = useAdminSession();
   const [policies, setPolicies] = useState<PolicyView[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const [error, setError] = useState<string | null>(null);
 
   // Modal state
   const [editTarget, setEditTarget] = useState<PolicyView | null>(null);
@@ -50,25 +57,24 @@ export default function ApprovalPoliciesPage() {
 
   const fetchPolicies = async () => {
     setLoading(true);
-    setError('');
+    setError(null);
     try {
       const res = await adminFetch(`${import.meta.env.VITE_API_URL}/admin/governance/approval-policies`);
-      if (!res.ok) throw new Error(await getApiErrorMessage(res));
+      if (!res.ok) throw new Error(await getApiErrorMessage(res, 'Failed to load policies.'));
       setPolicies(await res.json());
-    } catch (err: any) {
-      if (err instanceof AdminSessionError) {
-        navigate('/admin/login');
-        return;
+    } catch (err) {
+      if (err instanceof AdminSessionError) return;
+      if (err instanceof AdminPermissionError) {
+        setError('Permission denied.');
+      } else {
+        setError(err instanceof Error ? err.message : 'Failed to load policies.');
       }
-      setError(err.message || 'Failed to load policies');
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => {
-    fetchPolicies();
-  }, []);
+  useEffect(() => { void fetchPolicies(); }, []);
 
   const openEdit = (policy: PolicyView) => {
     setEditTarget(policy);
@@ -106,13 +112,13 @@ export default function ApprovalPoliciesPage() {
           }),
         },
       );
-      if (!res.ok) throw new Error(await getApiErrorMessage(res));
+      if (!res.ok) throw new Error(await getApiErrorMessage(res, 'Submit failed.'));
       const data = await res.json();
       closeEdit();
-      fetchPolicies();
-      alert(`Change request submitted. Approval No: ${data.approvalNo}`);
-    } catch (err: any) {
-      setSubmitError(err.message || 'Submit failed');
+      navigate(`/dashboard/governance/policy-change-requests/${data.id}`);
+    } catch (err) {
+      if (err instanceof AdminSessionError) return;
+      setSubmitError(err instanceof Error ? err.message : 'Submit failed.');
     } finally {
       setSubmitting(false);
     }
@@ -121,69 +127,106 @@ export default function ApprovalPoliciesPage() {
   const label = (at: string) => ACTION_TYPE_LABELS[at] || at;
 
   return (
-    <div className="min-h-screen bg-adm-bg text-adm-t1 p-6">
-      <PageTitleBar title="Approval Policies" meta="Manage checker role assignments for each approval type" />
+    <div className="flex h-full flex-col overflow-hidden">
+      <PageTitleBar
+        title="Approval Policies"
+        meta={`${policies.length} polic${policies.length === 1 ? 'y' : 'ies'} · Control Gates`}
+      >
+        <button
+          onClick={() => void fetchPolicies()}
+          className={adminIconButtonClass()}
+          title="Refresh"
+        >
+          <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+        </button>
+      </PageTitleBar>
 
       {error && (
-        <div className="mt-4 p-3 bg-red-900/30 border border-red-700 rounded text-red-300 text-xs font-mono">
+        <div className="shrink-0 border-b border-adm-red/20 bg-adm-red/6 px-5 py-2.5 font-mono text-[11px] text-adm-red">
           {error}
         </div>
       )}
 
-      <div className="mt-6 border border-adm-border rounded overflow-hidden">
-        <table className="w-full text-xs">
+      <div className="flex-1 overflow-auto">
+        <table className="w-full border-collapse text-sm">
           <thead>
-            <tr className="bg-adm-panel border-b border-adm-border text-adm-t3 uppercase tracking-wider">
-              <th className="px-4 py-3 text-left font-mono font-medium">Action Type</th>
-              <th className="px-4 py-3 text-left font-mono font-medium">Checker Roles</th>
-              <th className="px-4 py-3 text-left font-mono font-medium">Timeout</th>
-              <th className="px-4 py-3 text-left font-mono font-medium">Source</th>
-              <th className="px-4 py-3 text-right font-mono font-medium">Actions</th>
+            <tr>
+              {(
+                [
+                  ['Action Type', '200px'],
+                  ['Checker Roles', 'auto'],
+                  ['Timeout', '80px'],
+                  ['Source', '110px'],
+                  ['Actions', '100px'],
+                ] as [string, string][]
+              ).map(([col, w]) => (
+                <th
+                  key={col}
+                  style={{ width: w === 'auto' ? undefined : w }}
+                  className="border-b border-adm-border bg-adm-panel px-4 py-2 text-left font-mono text-[9px] font-semibold uppercase tracking-[0.12em] text-adm-t3 whitespace-nowrap"
+                >
+                  {col}
+                </th>
+              ))}
             </tr>
           </thead>
           <tbody>
-            {loading ? (
-              <tr><td colSpan={5} className="px-4 py-8 text-center text-adm-t3">Loading...</td></tr>
-            ) : policies.length === 0 ? (
-              <tr><td colSpan={5} className="px-4 py-8 text-center text-adm-t3">No policies found</td></tr>
-            ) : (
-              policies.map((p) => (
-                <tr key={p.actionType} className="border-b border-adm-border hover:bg-adm-panel/50 transition-colors">
-                  <td className="px-4 py-3 font-mono text-adm-t1">{label(p.actionType)}</td>
-                  <td className="px-4 py-3">
-                    <div className="flex gap-1.5 flex-wrap">
-                      {p.checkerRoles.map((r) => (
-                        <span key={r} className="px-2 py-0.5 bg-adm-amber/10 text-adm-amber border border-adm-amber/30 rounded font-mono text-[10px]">
-                          {r}
-                        </span>
-                      ))}
-                    </div>
-                  </td>
-                  <td className="px-4 py-3 font-mono text-adm-t2">{p.timeoutHours}h</td>
-                  <td className="px-4 py-3">
-                    {p.source === 'CUSTOMIZED' ? (
-                      <span className="px-2 py-0.5 bg-adm-amber/20 text-adm-amber rounded text-[10px] font-mono">Customized</span>
-                    ) : (
-                      <span className="px-2 py-0.5 bg-gray-700/50 text-adm-t3 rounded text-[10px] font-mono">Default</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    {p.editable && canCreate ? (
-                      <button
-                        onClick={() => openEdit(p)}
-                        className="inline-flex items-center gap-1 px-2.5 py-1 bg-adm-panel border border-adm-border rounded text-adm-t2 hover:text-adm-amber hover:border-adm-amber/50 transition-colors text-[10px] font-mono uppercase tracking-wider"
-                      >
-                        <Pencil size={12} /> Edit
-                      </button>
-                    ) : (
-                      <span className="text-adm-t3 text-[10px] font-mono" title="This policy can only be modified via code deployment">
-                        <Shield size={12} className="inline mr-1 opacity-40" />Locked
-                      </span>
-                    )}
-                  </td>
-                </tr>
-              ))
+            {loading && (
+              <tr>
+                <td colSpan={5} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
+                  Loading…
+                </td>
+              </tr>
             )}
+            {!loading && policies.length === 0 && (
+              <tr>
+                <td colSpan={5} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
+                  No policies found.
+                </td>
+              </tr>
+            )}
+            {!loading && policies.map((p) => (
+              <tr
+                key={p.actionType}
+                className="border-b border-adm-border transition-colors hover:bg-adm-hover"
+              >
+                <td className="px-4 py-2.5 font-mono text-[11px] font-semibold text-adm-t1">
+                  {label(p.actionType)}
+                </td>
+                <td className="px-4 py-2.5">
+                  <div className="flex flex-wrap gap-1">
+                    {p.checkerRoles.map((r) => (
+                      <span
+                        key={r}
+                        className="inline-flex rounded border border-adm-amber/25 bg-adm-amber/10 px-1.5 py-0.5 font-mono text-[9px] text-adm-amber"
+                      >
+                        {r}
+                      </span>
+                    ))}
+                  </div>
+                </td>
+                <td className="px-4 py-2.5 font-mono text-[10px] text-adm-t2">
+                  {p.timeoutHours}h
+                </td>
+                <td className="px-4 py-2.5">
+                  <AdminBadge value={p.source} />
+                </td>
+                <td className="px-4 py-2.5 text-right">
+                  {p.editable && canCreate ? (
+                    <button
+                      onClick={() => openEdit(p)}
+                      className="inline-flex items-center gap-1 rounded border border-adm-border bg-adm-bg px-2 py-1 font-mono text-[9px] text-adm-t2 transition-colors hover:border-adm-amber/50 hover:text-adm-amber"
+                    >
+                      <Pencil size={11} /> Edit
+                    </button>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 font-mono text-[9px] text-adm-t3">
+                      <Shield size={11} className="opacity-40" />Locked
+                    </span>
+                  )}
+                </td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>
@@ -191,94 +234,95 @@ export default function ApprovalPoliciesPage() {
       {/* ── Edit Modal ── */}
       {editTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="bg-adm-bg border border-adm-border rounded-lg w-full max-w-lg mx-4 shadow-2xl">
+          <div className="w-full max-w-lg mx-4 rounded-lg border border-adm-border bg-adm-bg shadow-2xl">
             {/* Header */}
-            <div className="flex items-center justify-between px-5 py-4 border-b border-adm-border">
+            <div className="flex items-center justify-between border-b border-adm-border px-5 py-4">
               <h3 className="font-mono text-sm font-semibold text-adm-t1">
                 Modify: {label(editTarget.actionType)}
               </h3>
-              <button onClick={closeEdit} className="text-adm-t3 hover:text-adm-t1">
+              <button onClick={closeEdit} className="text-adm-t3 hover:text-adm-t1 transition-colors">
                 <X size={16} />
               </button>
             </div>
 
-            <div className="px-5 py-5 space-y-5">
-              {/* Current → Proposed */}
-              <div className="flex items-center gap-3">
-                <div className="flex-1">
-                  <p className="font-mono text-[9px] uppercase tracking-widest text-adm-t3 mb-2">Current</p>
-                  <div className="flex gap-1.5 flex-wrap">
-                    {editTarget.checkerRoles.map((r) => (
-                      <span key={r} className="px-2 py-0.5 bg-gray-700/50 text-adm-t3 rounded font-mono text-[10px]">{r}</span>
-                    ))}
-                  </div>
-                </div>
-                <ArrowRight size={16} className="text-adm-t3 mt-4 shrink-0" />
-                <div className="flex-1">
-                  <p className="font-mono text-[9px] uppercase tracking-widest text-adm-t3 mb-2">Proposed</p>
-                  <div className="flex gap-1.5 flex-wrap">
-                    {proposedRoles.length > 0 ? proposedRoles.map((r) => (
-                      <span key={r} className="px-2 py-0.5 bg-adm-amber/10 text-adm-amber border border-adm-amber/30 rounded font-mono text-[10px]">{r}</span>
-                    )) : (
-                      <span className="text-adm-t3 text-[10px] font-mono">Select at least one role</span>
-                    )}
-                  </div>
+            <div className="space-y-5 px-5 py-5">
+              {/* Current */}
+              <div>
+                <p className="mb-2 font-mono text-[8.5px] font-semibold uppercase tracking-[0.14em] text-adm-t3">
+                  Current Checker Roles
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {editTarget.checkerRoles.map((r) => (
+                    <span
+                      key={r}
+                      className="inline-flex rounded border border-adm-amber/25 bg-adm-amber/10 px-2 py-1 font-mono text-[10px] text-adm-amber"
+                    >
+                      {r}
+                    </span>
+                  ))}
                 </div>
               </div>
 
-              {/* Role toggles */}
+              {/* Change To */}
               <div>
-                <p className="font-mono text-[9px] uppercase tracking-widest text-adm-t3 mb-2">Available Roles</p>
-                <div className="flex gap-2 flex-wrap">
+                <p className="mb-2 font-mono text-[8.5px] font-semibold uppercase tracking-[0.14em] text-adm-t3">
+                  Change To
+                </p>
+                <div className="flex flex-wrap gap-2">
                   {AVAILABLE_ROLES.map((role) => (
                     <button
                       key={role}
                       onClick={() => toggleRole(role)}
-                      className={`px-3 py-1.5 rounded font-mono text-[10px] border transition-colors ${
+                      className={`rounded border px-3 py-1.5 font-mono text-[10px] transition-colors ${
                         proposedRoles.includes(role)
-                          ? 'bg-adm-amber/20 text-adm-amber border-adm-amber/50'
-                          : 'bg-adm-panel text-adm-t3 border-adm-border hover:border-adm-t3'
+                          ? 'border-adm-amber/50 bg-adm-amber/20 text-adm-amber'
+                          : 'border-adm-border bg-adm-panel text-adm-t3 hover:border-adm-t3'
                       }`}
                     >
                       {role}
                     </button>
                   ))}
                 </div>
+                {proposedRoles.length === 0 && (
+                  <p className="mt-2 font-mono text-[10px] text-adm-t3">Select at least one role</p>
+                )}
               </div>
 
               {/* Change reason */}
               <div>
-                <p className="font-mono text-[9px] uppercase tracking-widest text-adm-t3 mb-2">Change Reason</p>
+                <p className="mb-2 font-mono text-[8.5px] font-semibold uppercase tracking-[0.14em] text-adm-t3">
+                  Change Reason
+                </p>
                 <textarea
                   value={changeReason}
                   onChange={(e) => setChangeReason(e.target.value)}
-                  placeholder="Explain why this change is needed..."
+                  placeholder="Explain why this change is needed…"
                   rows={3}
-                  className="w-full px-3 py-2 bg-adm-panel border border-adm-border rounded font-mono text-xs text-adm-t1 placeholder:text-adm-t3 focus:border-adm-amber focus:outline-none resize-none"
+                  className="w-full resize-none rounded border border-adm-border bg-adm-panel px-3 py-2 font-mono text-xs text-adm-t1 placeholder:text-adm-t3 outline-none focus:border-adm-amber"
                 />
               </div>
 
               {submitError && (
-                <div className="p-2 bg-red-900/30 border border-red-700 rounded text-red-300 text-[10px] font-mono">
+                <div className="rounded border border-adm-red/30 bg-adm-red/10 px-3 py-2 font-mono text-[10px] text-adm-red">
                   {submitError}
                 </div>
               )}
             </div>
 
             {/* Footer */}
-            <div className="flex justify-end gap-3 px-5 py-4 border-t border-adm-border">
+            <div className="flex justify-end gap-3 border-t border-adm-border px-5 py-4">
               <button
                 onClick={closeEdit}
-                className="px-4 py-2 font-mono text-[10px] uppercase tracking-wider text-adm-t3 hover:text-adm-t1 transition-colors"
+                className="rounded px-4 py-2 font-mono text-[10px] uppercase tracking-wider text-adm-t3 transition-colors hover:text-adm-t1"
               >
                 Cancel
               </button>
               <button
                 onClick={handleSubmit}
                 disabled={submitting || proposedRoles.length === 0 || !changeReason.trim()}
-                className="px-4 py-2 bg-adm-amber font-mono text-[10px] font-bold uppercase tracking-wider text-gray-950 rounded hover:opacity-90 disabled:opacity-40 transition-opacity"
+                className="rounded bg-adm-amber px-4 py-2 font-mono text-[10px] font-bold uppercase tracking-wider text-adm-bg transition-opacity hover:opacity-90 disabled:opacity-40"
               >
-                {submitting ? 'Submitting...' : 'Submit for Approval'}
+                {submitting ? 'Submitting…' : 'Submit for Approval'}
               </button>
             </div>
           </div>

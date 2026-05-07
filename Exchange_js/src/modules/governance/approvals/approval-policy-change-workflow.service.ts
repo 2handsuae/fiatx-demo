@@ -53,7 +53,7 @@ export class ApprovalPolicyChangeWorkflowService {
     proposedCheckerRoles: string[],
     changeReason: string,
     actor: ApprovalActorContext,
-  ): Promise<{ requestNo: string; approvalNo: string; status: string }> {
+  ): Promise<{ id: string; requestNo: string; approvalNo: string; approvalCaseId: string; status: string }> {
     // 1. Validate targetActionType in V1 whitelist
     if (!V1_APPROVAL_ACTION_TYPES.includes(targetActionType)) {
       throw new BadRequestException({
@@ -159,8 +159,10 @@ export class ApprovalPolicyChangeWorkflowService {
     );
 
     return {
+      id: request.id,
       requestNo,
       approvalNo: approvalCase.approvalNo,
+      approvalCaseId: approvalCase.id,
       status: 'PENDING_APPROVAL',
     };
   }
