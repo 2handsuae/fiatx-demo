@@ -1,3 +1,5 @@
+import { BadRequestException } from '@nestjs/common';
+
 /**
  * WAVE 1 STABLE CONTRACT
  * The following three action types are Wave 1 governed flows.
@@ -112,11 +114,62 @@ export interface ApprovalDecisionEvent {
   decidedAt?: string | null;
 }
 
+// ─── Multi-Step Policy Configuration ───────────────
+
+export interface PolicyStepConfig {
+  stepNo: number;   // 1-based, sequential, no gaps
+  roles: string[];  // OR: any of these roles can approve this step
+}
+
+/** Derive flat unique roles from steps array */
+export function deriveCheckerRoles(steps: PolicyStepConfig[]): string[] {
+  return [...new Set(steps.flatMap((s) => s.roles))];
+}
+
+/** Parse JSON string into PolicyStepConfig[], validate structure */
+export function parseAndValidateStepsConfig(json: string): PolicyStepConfig[] {
+  let arr: any[];
+  try {
+    arr = JSON.parse(json);
+  } catch {
+    throw new BadRequestException('Invalid stepsConfig JSON');
+  }
+  if (!Array.isArray(arr) || arr.length === 0) {
+    throw new BadRequestException('stepsConfig must be a non-empty array');
+  }
+  for (let i = 0; i < arr.length; i++) {
+    const step = arr[i];
+    if (step.stepNo !== i + 1) {
+      throw new BadRequestException(
+        `stepsConfig[${i}].stepNo must be ${i + 1}, got ${step.stepNo}`,
+      );
+    }
+    if (!Array.isArray(step.roles) || step.roles.length === 0) {
+      throw new BadRequestException(
+        `stepsConfig[${i}].roles must be a non-empty array`,
+      );
+    }
+    for (const role of step.roles) {
+      if (typeof role !== 'string' || !role.trim()) {
+        throw new BadRequestException(
+          `stepsConfig[${i}].roles contains invalid value: ${role}`,
+        );
+      }
+    }
+  }
+  return arr as PolicyStepConfig[];
+}
+
+/** Convert flat role array to steps (each role = 1 step). Backward compat. */
+export function checkerRolesToSteps(roles: string[]): PolicyStepConfig[] {
+  return roles.map((role, idx) => ({ stepNo: idx + 1, roles: [role] }));
+}
+
 export const DEFAULT_APPROVAL_POLICIES: Record<
   string,
   {
     riskLevel: string;
-    checkerRoles: string[];
+    steps: PolicyStepConfig[];
     timeoutHours: number;
     allowCancel: boolean;
     allowRetry: boolean;
@@ -124,49 +177,49 @@ export const DEFAULT_APPROVAL_POLICIES: Record<
 > = {
   [ApprovalActionTypes.AUDIT_EVIDENCE_EXPORT_APPROVAL]: {
     riskLevel: ApprovalRiskLevels.HIGH,
-    checkerRoles: ['MLRO'],
+    steps: [{ stepNo: 1, roles: ['MLRO'] }],
     timeoutHours: 24,
     allowCancel: true,
     allowRetry: true,
   },
   [ApprovalActionTypes.CASE_EVIDENCE_EXPORT_APPROVAL]: {
     riskLevel: ApprovalRiskLevels.HIGH,
-    checkerRoles: ['DPO', 'MLRO'],
+    steps: [{ stepNo: 1, roles: ['DPO'] }, { stepNo: 2, roles: ['MLRO'] }],
     timeoutHours: 24,
     allowCancel: true,
     allowRetry: true,
   },
   [ApprovalActionTypes.CHANGE_TICKET_APPROVAL]: {
     riskLevel: ApprovalRiskLevels.HIGH,
-    checkerRoles: ['CISO'],
+    steps: [{ stepNo: 1, roles: ['CISO'] }],
     timeoutHours: 24,
     allowCancel: true,
     allowRetry: true,
   },
   [ApprovalActionTypes.DELETE_REQUEST_APPROVAL]: {
     riskLevel: ApprovalRiskLevels.HIGH,
-    checkerRoles: ['CISO'],
+    steps: [{ stepNo: 1, roles: ['CISO'] }],
     timeoutHours: 24,
     allowCancel: true,
     allowRetry: true,
   },
   [ApprovalActionTypes.ONBOARDING_FINAL_APPROVAL]: {
     riskLevel: ApprovalRiskLevels.HIGH,
-    checkerRoles: ['MLRO', 'SENIOR_MANAGEMENT_OFFICER'],
+    steps: [{ stepNo: 1, roles: ['MLRO'] }, { stepNo: 2, roles: ['SENIOR_MANAGEMENT_OFFICER'] }],
     timeoutHours: 240,
     allowCancel: true,
     allowRetry: true,
   },
   [ApprovalActionTypes.POOL_SETTLEMENT_BATCH_APPROVAL]: {
     riskLevel: ApprovalRiskLevels.HIGH,
-    checkerRoles: ['SENIOR_MANAGEMENT_OFFICER', 'TECH_OFFICER'],
+    steps: [{ stepNo: 1, roles: ['SENIOR_MANAGEMENT_OFFICER'] }, { stepNo: 2, roles: ['TECH_OFFICER'] }],
     timeoutHours: 24,
     allowCancel: true,
     allowRetry: true,
   },
   [ApprovalActionTypes.TREASURY_CROSS_POOL_TRANSFER_APPROVAL]: {
     riskLevel: ApprovalRiskLevels.HIGH,
-    checkerRoles: ['SENIOR_MANAGEMENT_OFFICER', 'TECH_OFFICER'],
+    steps: [{ stepNo: 1, roles: ['SENIOR_MANAGEMENT_OFFICER'] }, { stepNo: 2, roles: ['TECH_OFFICER'] }],
     timeoutHours: 24,
     allowCancel: true,
     allowRetry: true,
@@ -174,49 +227,49 @@ export const DEFAULT_APPROVAL_POLICIES: Record<
   // ─── Wave 3 (2026-04-09) ─────────────────────
   [ApprovalActionTypes.RISK_RATING_MEDIUM_APPROVAL]: {
     riskLevel: ApprovalRiskLevels.HIGH,
-    checkerRoles: ['COMPLIANCE_OFFICER'],
+    steps: [{ stepNo: 1, roles: ['COMPLIANCE_OFFICER'] }],
     timeoutHours: 168,
     allowCancel: true,
     allowRetry: true,
   },
   [ApprovalActionTypes.RISK_RATING_HIGH_APPROVAL]: {
     riskLevel: ApprovalRiskLevels.HIGH,
-    checkerRoles: ['MLRO', 'SENIOR_MANAGEMENT_OFFICER'],
+    steps: [{ stepNo: 1, roles: ['MLRO'] }, { stepNo: 2, roles: ['SENIOR_MANAGEMENT_OFFICER'] }],
     timeoutHours: 240,
     allowCancel: true,
     allowRetry: true,
   },
   [ApprovalActionTypes.RISK_RATING_UPGRADE_PHASE1]: {
     riskLevel: ApprovalRiskLevels.HIGH,
-    checkerRoles: ['MLRO'],
+    steps: [{ stepNo: 1, roles: ['MLRO'] }],
     timeoutHours: 168,
     allowCancel: true,
     allowRetry: true,
   },
   [ApprovalActionTypes.RISK_RATING_MAINTENANCE_APPROVAL]: {
     riskLevel: ApprovalRiskLevels.HIGH,
-    checkerRoles: ['MLRO'],
+    steps: [{ stepNo: 1, roles: ['MLRO'] }],
     timeoutHours: 168,
     allowCancel: true,
     allowRetry: true,
   },
   [ApprovalActionTypes.PEP_RELATIONSHIP_APPROVAL]: {
     riskLevel: ApprovalRiskLevels.HIGH,
-    checkerRoles: ['MLRO', 'SENIOR_MANAGEMENT_OFFICER'],
+    steps: [{ stepNo: 1, roles: ['MLRO'] }, { stepNo: 2, roles: ['SENIOR_MANAGEMENT_OFFICER'] }],
     timeoutHours: 240,
     allowCancel: true,
     allowRetry: true,
   },
   [ApprovalActionTypes.RISK_RATING_MLRO_REVIEW]: {
     riskLevel: ApprovalRiskLevels.HIGH,
-    checkerRoles: ['MLRO'],
+    steps: [{ stepNo: 1, roles: ['MLRO'] }],
     timeoutHours: 168,
     allowCancel: true,
     allowRetry: true,
   },
   [ApprovalActionTypes.RISK_RATING_TIER_UPGRADE_APPROVAL]: {
     riskLevel: ApprovalRiskLevels.HIGH,
-    checkerRoles: ['MLRO', 'SENIOR_MANAGEMENT_OFFICER'],
+    steps: [{ stepNo: 1, roles: ['MLRO'] }, { stepNo: 2, roles: ['SENIOR_MANAGEMENT_OFFICER'] }],
     timeoutHours: 240,
     allowCancel: true,
     allowRetry: true,
@@ -224,14 +277,14 @@ export const DEFAULT_APPROVAL_POLICIES: Record<
   // ─── Wave 1 Governance Redesign (2026-04-30) ─
   [ApprovalActionTypes.ADMIN_INVITE_APPROVAL]: {
     riskLevel: ApprovalRiskLevels.HIGH,
-    checkerRoles: ['CISO'],
+    steps: [{ stepNo: 1, roles: ['CISO'] }],
     timeoutHours: 48,
     allowCancel: true,
     allowRetry: false,
   },
   [ApprovalActionTypes.ADMIN_ROLE_BINDING_CHANGE_APPROVAL]: {
     riskLevel: ApprovalRiskLevels.HIGH,
-    checkerRoles: ['CISO'],
+    steps: [{ stepNo: 1, roles: ['CISO'] }],
     timeoutHours: 48,
     allowCancel: true,
     allowRetry: false,
@@ -239,14 +292,14 @@ export const DEFAULT_APPROVAL_POLICIES: Record<
   // ─── Wave 1 Governance Redesign — C4 (2026-05-05) ─
   [ApprovalActionTypes.ADMIN_SUSPENSION_APPROVAL]: {
     riskLevel: ApprovalRiskLevels.HIGH,
-    checkerRoles: ['SENIOR_MANAGEMENT_OFFICER'],
+    steps: [{ stepNo: 1, roles: ['SENIOR_MANAGEMENT_OFFICER'] }],
     timeoutHours: 48,
     allowCancel: true,
     allowRetry: false,
   },
   [ApprovalActionTypes.ADMIN_REACTIVATION_APPROVAL]: {
     riskLevel: ApprovalRiskLevels.HIGH,
-    checkerRoles: ['SENIOR_MANAGEMENT_OFFICER'],
+    steps: [{ stepNo: 1, roles: ['SENIOR_MANAGEMENT_OFFICER'] }],
     timeoutHours: 48,
     allowCancel: true,
     allowRetry: false,
@@ -254,7 +307,7 @@ export const DEFAULT_APPROVAL_POLICIES: Record<
   // ─── Approval Policy Governance (2026-05-06) ────
   [ApprovalActionTypes.APPROVAL_POLICY_CHANGE]: {
     riskLevel: ApprovalRiskLevels.HIGH,
-    checkerRoles: ['CISO'],
+    steps: [{ stepNo: 1, roles: ['CISO'] }],
     timeoutHours: 48,
     allowCancel: true,
     allowRetry: false,
