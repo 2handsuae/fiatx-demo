@@ -98,6 +98,13 @@ export class AdminSuspensionWorkflowService {
           targetEmail: targetUser.email,
           reason: dto.reason,
         },
+        objectSnapshot: {
+          targetUserId: dto.targetUserId,
+          targetUserNo: targetUser.userNo,
+          targetEmail: targetUser.email,
+          targetStatus: targetUser.status,
+          reason: dto.reason,
+        },
       },
       {
         reason: dto.reason,
