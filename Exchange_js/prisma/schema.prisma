@@ -732,6 +732,7 @@ model ApprovalCase {
   allowRetry                     Boolean                        @default(true)
   docRef                         String?
   metadataJson                   String                         @default("{}")
+  objectSnapshot                 String?
   traceId                        String
   workflowType                   String?
   workflowId                     String?
