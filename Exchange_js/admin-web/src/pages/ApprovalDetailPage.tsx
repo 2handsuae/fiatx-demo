@@ -36,6 +36,7 @@ interface ApprovalDetail {
   allowRetry: boolean;
   docRef?: string | null;
   metadata?: Record<string, unknown>;
+  objectSnapshot?: Record<string, unknown> | null;
   traceId: string;
   workflowType?: string | null;
   workflowId?: string | null;
@@ -655,6 +656,19 @@ const ApprovalDetailPage = () => {
               </p>
               <div className="rounded border border-adm-border bg-adm-bg p-4">
                 <JsonBlock title="metadata" value={detail.metadata} />
+              </div>
+            </section>
+          )}
+
+          {/* ⑧ Request Snapshot */}
+          {detail.objectSnapshot && Object.keys(detail.objectSnapshot).length > 0 && (
+            <section className="px-6 py-5">
+              <Cap>Request Snapshot</Cap>
+              <p className="mt-1 mb-4 font-mono text-[9px] text-adm-t3">
+                Snapshot of the business object at the time of the request
+              </p>
+              <div className="rounded border border-adm-border bg-adm-bg p-4">
+                <JsonBlock title="objectSnapshot" value={detail.objectSnapshot} />
               </div>
             </section>
           )}
