@@ -74,16 +74,7 @@ const PERM_CODE_TO_GROUP: Record<string, string> = {
   /* IAM_CREDENTIAL_RESET ────────────────────────────── */
   'api.post.admin_iam_users_id_reset_mfa':  'IAM_CREDENTIAL_RESET',
   'api.post.users_id_reset_password':       'IAM_CREDENTIAL_RESET',
-  /* GOV_APPROVAL_READ ────────────────────────────────── */
-  'api.get.admin_control_gates_approvals':    'GOV_APPROVAL_READ',
-  'api.get.admin_control_gates_approvals_id': 'GOV_APPROVAL_READ',
-  /* GOV_APPROVAL_WRITE ───────────────────────────────── */
-  'api.post.admin_control_gates_approvals':              'GOV_APPROVAL_WRITE',
-  'api.post.admin_control_gates_approvals_id_submit':    'GOV_APPROVAL_WRITE',
-  'api.post.admin_control_gates_approvals_id_cancel':    'GOV_APPROVAL_WRITE',
-  /* GOV_APPROVAL_DECIDE ──────────────────────────────── */
-  'api.post.admin_control_gates_approvals_id_approve':   'GOV_APPROVAL_DECIDE',
-  'api.post.admin_control_gates_approvals_id_reject':    'GOV_APPROVAL_DECIDE',
+  /* GOV_APPROVAL_* intentionally unmapped — see DOMAIN_CONFIG comment */
   /* AUDIT_READ ───────────────────────────────────────── */
   'api.get.admin_audit_logs':    'AUDIT_READ',
   'api.get.admin_audit_logs_id': 'AUDIT_READ',
@@ -123,31 +114,11 @@ const DOMAIN_CONFIG: DomainConfig[] = [
       },
     ],
   },
-  {
-    id: 'gov-approvals',
-    label: 'Governance · Approvals',
-    icon: '⚖️',
-    buckets: [
-      {
-        key: 'view',
-        label: 'View approval cases',
-        groups: ['GOV_APPROVAL_READ'],
-        description: 'Browse approval cases, view step history, view SoD configuration',
-      },
-      {
-        key: 'submit',
-        label: 'Submit approval requests',
-        groups: ['GOV_APPROVAL_WRITE'],
-        description: 'Create, submit, and cancel approval requests',
-      },
-      {
-        key: 'decide',
-        label: 'Decide on approvals',
-        groups: ['GOV_APPROVAL_DECIDE'],
-        description: 'Approve or reject approval cases',
-      },
-    ],
-  },
+  /* Governance · Approvals intentionally hidden from V1 role detail.
+     Approval capabilities are governed by Approval Policy configuration
+     (checker role assignments per workflow type), not by static permission
+     groups. Showing GOV_APPROVAL_* here would be misleading.
+     Future: display "Checker for: <workflow types>" from policy config. */
   {
     id: 'audit',
     label: 'Audit Center',
