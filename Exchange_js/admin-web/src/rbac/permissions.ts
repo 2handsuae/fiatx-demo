@@ -160,8 +160,8 @@ export const PERMISSIONS = {
   GOV_REGULATORY_GATE_REVOKE:
     'api.post.admin_governance_regulatory_gates_id_revoke',
 
-  IAM_ROLE_DEFINITIONS_CREATE: 'api.post.admin_iam_role-definitions',
-  IAM_ROLE_DEFINITIONS_PERMISSION_GROUPS: 'api.get.admin_iam_role-definitions_permission-groups',
+  IAM_ROLE_DEFINITIONS_CREATE: 'api.post.admin_iam_role_definitions',
+  IAM_ROLE_DEFINITIONS_PERMISSION_GROUPS: 'api.get.admin_iam_role_definitions_permission_groups',
 
   // Approval Policy Management
   GOV_APPROVAL_POLICIES_READ: 'api.get.admin_governance_approval_policies',
