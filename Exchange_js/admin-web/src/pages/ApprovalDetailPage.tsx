@@ -35,7 +35,6 @@ interface ApprovalDetail {
   allowCancel: boolean;
   allowRetry: boolean;
   docRef?: string | null;
-  metadata?: Record<string, unknown>;
   objectSnapshot?: Record<string, unknown> | null;
   traceId: string;
   workflowType?: string | null;
@@ -444,8 +443,6 @@ const ApprovalDetailPage = () => {
   }
 
   const hasSubject = subjectCards.length > 0;
-  const hasMetadata          =
-    !!detail.metadata && Object.keys(detail.metadata).length > 0;
   const showActionsBlock =
     (detail.canApprove && canDecide) ||
     (detail.canReject && canDecide) ||
@@ -647,20 +644,7 @@ const ApprovalDetailPage = () => {
             )}
           </section>
 
-          {/* ⑦ Metadata */}
-          {hasMetadata && (
-            <section className="px-6 py-5">
-              <Cap>Metadata</Cap>
-              <p className="mt-1 mb-4 font-mono text-[9px] text-adm-t3">
-                Structured payload for this approval case
-              </p>
-              <div className="rounded border border-adm-border bg-adm-bg p-4">
-                <JsonBlock title="metadata" value={detail.metadata} />
-              </div>
-            </section>
-          )}
-
-          {/* ⑧ Request Snapshot */}
+          {/* ⑦ Request Snapshot */}
           {detail.objectSnapshot && Object.keys(detail.objectSnapshot).length > 0 && (
             <section className="px-6 py-5">
               <Cap>Request Snapshot</Cap>
