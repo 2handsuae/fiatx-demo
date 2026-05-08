@@ -116,27 +116,6 @@ export class ApprovalsService {
     return skip;
   }
 
-  private serializeMetadata(value: unknown): string {
-    if (value === null || value === undefined) return '{}';
-    try {
-      return JSON.stringify(value);
-    } catch {
-      throw new BadRequestException('Failed to serialize approval metadata');
-    }
-  }
-
-  private parseMetadata(value: string | null | undefined): Record<string, unknown> {
-    if (!value) return {};
-    try {
-      const parsed = JSON.parse(value);
-      return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-        ? (parsed as Record<string, unknown>)
-        : {};
-    } catch {
-      return {};
-    }
-  }
-
   private toAuditActor(actor: ApprovalActorContext) {
     return {
       actorType: actor.actorType,
@@ -560,7 +539,6 @@ export class ApprovalsService {
       riskLevel: approval.riskLevel,
       checkerRoles,
       docRef: approval.docRef,
-      metadata: this.parseMetadata(approval.metadataJson),
       objectSnapshot: approval.objectSnapshot ? JSON.parse(approval.objectSnapshot as string) : null,
       traceId: approval.traceId,
       workflowType: approval.workflowType,
@@ -750,7 +728,6 @@ export class ApprovalsService {
         allowCancel: policy.allowCancel,
         allowRetry: policy.allowRetry,
         docRef: this.normalizeOptionalString(dto.docRef),
-        metadataJson: this.serializeMetadata(dto.metadata || {}),
         objectSnapshot: dto.objectSnapshot ? JSON.stringify(dto.objectSnapshot) : null,
         traceId:
           (lockWorkflowToParent
