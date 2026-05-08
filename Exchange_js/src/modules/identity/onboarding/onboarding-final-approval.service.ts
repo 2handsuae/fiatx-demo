@@ -311,7 +311,7 @@ export class OnboardingFinalApprovalService {
         workflowType: ONBOARDING_WORKFLOW,
         workflowId: customer.id,
         workflowNo: customer.customerNo || customer.id,
-        metadata: {
+        objectSnapshot: {
           source: 'WAVE3_PHASE4_ONBOARDING',
           customerId: customer.id,
           customerNo: customer.customerNo || null,
