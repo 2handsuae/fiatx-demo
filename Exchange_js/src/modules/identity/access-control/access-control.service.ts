@@ -87,8 +87,7 @@ export class AccessControlService {
   async listRoles() {
     const roles = await (this.prisma as any).role.findMany({
       where: {
-        status: 'ACTIVE',
-        code: { in: ACTIVE_RBAC_ROLE_CODES },
+        status: { in: ['ACTIVE', 'PENDING_APPROVAL'] },
       },
       orderBy: { code: 'asc' },
       include: {
@@ -154,6 +153,23 @@ export class AccessControlService {
       name: item.name,
       description: item.description,
     }));
+  }
+
+  listPermissionGroups() {
+    const groupMap = new Map<string, { code: string; permissionCount: number }>();
+
+    for (const perm of RBAC_PERMISSION_DEFINITIONS) {
+      for (const group of perm.groups) {
+        const existing = groupMap.get(group);
+        if (existing) {
+          existing.permissionCount++;
+        } else {
+          groupMap.set(group, { code: group, permissionCount: 1 });
+        }
+      }
+    }
+
+    return Array.from(groupMap.values()).sort((a, b) => a.code.localeCompare(b.code));
   }
 
   async getUserRoleCodes(userId: string): Promise<string[]> {
