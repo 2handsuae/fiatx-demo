@@ -120,12 +120,6 @@ export class AuditEvidenceExportWorkflowService {
         workflowType: AuditBusinessWorkflowTypes.AUDIT_EVIDENCE_EXPORT,
         workflowId: evidencePackage.id,
         workflowNo: evidencePackage.packageNo,
-        metadata: {
-          packageId: evidencePackage.id,
-          packageNo: evidencePackage.packageNo,
-          itemCount: selection.itemCount,
-          workflowSummary: selection.workflowSummary,
-        },
         objectSnapshot: {
           packageNo: evidencePackage.packageNo,
           exportMode: evidencePackage.exportMode,
@@ -134,6 +128,7 @@ export class AuditEvidenceExportWorkflowService {
           filterSnapshot: selection.filterSnapshot,
           digest: evidencePackage.digest,
           createdAt: evidencePackage.createdAt,
+          workflowSummary: selection.workflowSummary,
         },
         traceId: query.traceId,
       },
