@@ -11,6 +11,7 @@ export type PermissionGroup =
   | 'IAM_READ'
   | 'IAM_ASSIGN'
   | 'IAM_CREDENTIAL_RESET'
+  | 'IAM_ROLE_DEFINE'
   | 'CUSTOMER_READ'
   | 'CUSTOMER_WRITE'
   | 'CUSTOMER_RATE_READ'
@@ -207,6 +208,8 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('GET', '/admin/iam/role-change-requests/:id', 'Get role binding change request', ['IAM_READ']),
   route('POST', '/admin/iam/users/:id/reset-mfa', 'Reset admin MFA binding', ['IAM_CREDENTIAL_RESET']),
   route('POST', '/users/:id/reset-password', 'Reset admin password (C5)', ['IAM_CREDENTIAL_RESET']),
+  route('POST', '/admin/iam/role-definitions', 'Create role definition request', ['IAM_ROLE_DEFINE']),
+  route('GET', '/admin/iam/role-definitions/permission-groups', 'List available permission groups', ['IAM_ROLE_DEFINE']),
 
   // Customer domain
   route('POST', '/customers', 'Create customer', ['CUSTOMER_WRITE']),
@@ -796,6 +799,7 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'IAM_READ',
     'IAM_ASSIGN',
     'IAM_CREDENTIAL_RESET',
+    'IAM_ROLE_DEFINE',
     'AUDIT_READ',
     'AUDIT_EXPORT_READ',
     'RISK_DECISION_RECORD_READ',
@@ -915,6 +919,7 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'IAM_READ',
     'IAM_ASSIGN',
     'IAM_CREDENTIAL_RESET',
+    'IAM_ROLE_DEFINE',
     'AUDIT_READ',
     'RISK_DECISION_RECORD_READ',
     'ALERT_READ',
