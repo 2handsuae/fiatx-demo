@@ -145,6 +145,8 @@ export const AuditBusinessWorkflowTypes = {
   ADMIN_ACCOUNT_DELETION: 'ADMIN_ACCOUNT_DELETION',
   // C3d — Admin Credential Management
   ADMIN_CREDENTIAL_MGMT: 'ADMIN_CREDENTIAL_MGMT',
+  // Role Definition Governance (2026-05-08)
+  ROLE_DEFINITION_CREATE: 'ROLE_DEFINITION_CREATE',
 } as const;
 
 export const AuditUserActions = {
@@ -501,6 +503,17 @@ export const AuditGovernanceActions = {
     // Normal login (post-first-login)
     MFA_LOGIN_VERIFIED:       'MFA_LOGIN_VERIFIED',
     MFA_LOGIN_VERIFY_FAILED:  'MFA_LOGIN_VERIFY_FAILED',
+  },
+
+  // Role Definition Governance (2026-05-08)
+  ROLE_DEFINITION: {
+    CREATE_REQUESTED:     'CREATE_REQUESTED',
+    APPROVAL_GRANTED:     'APPROVAL_GRANTED',
+    APPROVAL_DECLINED:    'APPROVAL_DECLINED',
+    APPROVAL_CANCELLED:   'APPROVAL_CANCELLED',
+    ROLE_ACTIVATED:       'ROLE_ACTIVATED',
+    ROLE_ACTIVATE_FAILED: 'ROLE_ACTIVATE_FAILED',
+    CREATE_CANCELLED:     'CREATE_CANCELLED',
   },
 } as const;
 

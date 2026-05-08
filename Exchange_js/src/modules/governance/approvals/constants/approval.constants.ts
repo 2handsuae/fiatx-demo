@@ -48,6 +48,8 @@ export const ApprovalActionTypes = {
   ADMIN_REACTIVATION_APPROVAL: 'ADMIN_REACTIVATION_APPROVAL',
   // ─── Approval Policy Governance (2026-05-06) ────
   APPROVAL_POLICY_CHANGE: 'APPROVAL_POLICY_CHANGE',
+  // ─── Role Definition Governance (2026-05-08) ────
+  ROLE_DEFINITION_CREATE: 'ROLE_DEFINITION_CREATE',
 } as const;
 
 export const ApprovalStatuses = {
@@ -306,6 +308,14 @@ export const DEFAULT_APPROVAL_POLICIES: Record<
   },
   // ─── Approval Policy Governance (2026-05-06) ────
   [ApprovalActionTypes.APPROVAL_POLICY_CHANGE]: {
+    riskLevel: ApprovalRiskLevels.HIGH,
+    steps: [{ stepNo: 1, roles: ['CISO'] }],
+    timeoutHours: 48,
+    allowCancel: true,
+    allowRetry: false,
+  },
+  // ─── Role Definition Governance (2026-05-08) ────
+  [ApprovalActionTypes.ROLE_DEFINITION_CREATE]: {
     riskLevel: ApprovalRiskLevels.HIGH,
     steps: [{ stepNo: 1, roles: ['CISO'] }],
     timeoutHours: 48,
