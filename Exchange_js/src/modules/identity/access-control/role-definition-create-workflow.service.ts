@@ -223,7 +223,6 @@ export class RoleDefinitionCreateWorkflowService {
             roleId: role.id,
             permissionId: p.id,
           })),
-          skipDuplicates: true,
         });
       }
 
