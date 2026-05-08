@@ -13,6 +13,8 @@ import {
 } from '../utils/adminFetch';
 import { AdminBadge } from '../components/ui/AdminBadge';
 import { PageTitleBar } from '../components/ui/PageTitleBar';
+import { PERMISSIONS } from '../rbac/permissions';
+import { useAdminSession } from '../contexts/AdminSessionContext';
 
 /* ── Interfaces ──────────────────────────────────────────────── */
 
@@ -33,10 +35,17 @@ interface RoleItem {
   permissions: RolePermission[];
 }
 
+interface PermissionGroup {
+  code: string;
+  permissionCount: number;
+}
+
 /* ─────────────────────────────────────────────────────────────── */
 
 const RolesPage = () => {
   const navigate = useNavigate();
+  const { hasPermission } = useAdminSession();
+  const canCreate = hasPermission(PERMISSIONS.IAM_ROLE_DEFINITIONS_CREATE);
 
   const [roles, setRoles] = useState<RoleItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -46,6 +55,17 @@ const RolesPage = () => {
   const [keyword, setKeyword] = useState('');
   const [applied, setApplied] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+
+  /* Create modal state */
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [createCode, setCreateCode] = useState('');
+  const [createName, setCreateName] = useState('');
+  const [createDescription, setCreateDescription] = useState('');
+  const [createGroups, setCreateGroups] = useState<string[]>([]);
+  const [createReason, setCreateReason] = useState('');
+  const [createError, setCreateError] = useState('');
+  const [createLoading, setCreateLoading] = useState(false);
+  const [permissionGroups, setPermissionGroups] = useState<PermissionGroup[]>([]);
 
   /* ── Data fetching ── */
 
@@ -74,6 +94,67 @@ const RolesPage = () => {
   };
 
   useEffect(() => { void loadRoles(); }, []);
+
+  /* ── Permission groups fetch (when create modal opens) ── */
+
+  useEffect(() => {
+    if (!showCreateModal) return;
+    adminFetch(`${import.meta.env.VITE_API_URL}/admin/iam/role-definitions/permission-groups`)
+      .then(async (res) => {
+        if (!res.ok) return;
+        const data = (await res.json()) as PermissionGroup[];
+        setPermissionGroups(Array.isArray(data) ? data : []);
+      })
+      .catch(() => {});
+  }, [showCreateModal]);
+
+  /* ── Submit create ── */
+
+  const submitCreate = async () => {
+    setCreateError('');
+    const code = createCode.trim().toUpperCase();
+    const name = createName.trim();
+    const reason = createReason.trim();
+    if (!code || !name || createGroups.length === 0 || !reason) {
+      setCreateError('All fields except description are required');
+      return;
+    }
+    setCreateLoading(true);
+    try {
+      const response = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/admin/iam/role-definitions`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            roleCode: code,
+            roleName: name,
+            description: createDescription.trim() || undefined,
+            permissionGroupCodes: createGroups,
+            changeReason: reason,
+          }),
+        },
+      );
+      if (!response.ok) {
+        const msg = await getApiErrorMessage(response, 'Failed to submit');
+        setCreateError(msg);
+        return;
+      }
+      const res = (await response.json()) as { approvalNo: string };
+      setShowCreateModal(false);
+      setCreateCode('');
+      setCreateName('');
+      setCreateDescription('');
+      setCreateGroups([]);
+      setCreateReason('');
+      void loadRoles();
+      alert(`Role creation submitted. Approval: ${res.approvalNo}`);
+    } catch (err: unknown) {
+      setCreateError(err instanceof Error ? err.message : 'Failed to submit');
+    } finally {
+      setCreateLoading(false);
+    }
+  };
 
   /* ── Derived ── */
 
@@ -132,11 +213,12 @@ const RolesPage = () => {
         <select
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value)}
-          className={`${fi} w-32`}
+          className={`${fi} w-40`}
         >
           <option value="">All Status</option>
           <option value="ACTIVE">ACTIVE</option>
           <option value="INACTIVE">INACTIVE</option>
+          <option value="PENDING_APPROVAL">PENDING_APPROVAL</option>
         </select>
         <button
           onClick={() => setApplied(keyword.trim())}
@@ -152,6 +234,14 @@ const RolesPage = () => {
         >
           Reset
         </button>
+        {canCreate && (
+          <button
+            className={adminButtonClass()}
+            onClick={() => setShowCreateModal(true)}
+          >
+            + Create Role
+          </button>
+        )}
       </div>
 
       {/* ── Notices ── */}
@@ -170,7 +260,7 @@ const RolesPage = () => {
                 [
                   ['Code',        '200px'],
                   ['Name',        '200px'],
-                  ['Status',      '100px'],
+                  ['Status',      '130px'],
                   ['Permissions', '130px'],
                   ['Description', 'auto'],
                 ] as [string, string][]
@@ -251,6 +341,94 @@ const RolesPage = () => {
           Fixed backend catalog
         </span>
       </div>
+
+      {/* ── Create Role Modal ── */}
+      {showCreateModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="w-full max-w-lg rounded-lg border border-adm-border bg-adm-bg-card shadow-xl">
+            <div className="flex items-center justify-between border-b border-adm-border px-6 py-4">
+              <h2 className="text-sm font-semibold text-adm-t1">Create Role</h2>
+              <button onClick={() => setShowCreateModal(false)} className="text-adm-t3 hover:text-adm-t1">&times;</button>
+            </div>
+            <div className="space-y-4 px-6 py-4">
+              <div>
+                <label className="mb-1 block text-xs font-medium text-adm-t2">Role Code</label>
+                <input
+                  className="w-full rounded border border-adm-border bg-adm-bg px-3 py-2 font-mono text-xs text-adm-t1 uppercase"
+                  value={createCode}
+                  onChange={(e) => setCreateCode(e.target.value.toUpperCase().replace(/[^A-Z0-9_]/g, ''))}
+                  placeholder="e.g. RISK_ANALYST"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-adm-t2">Role Name</label>
+                <input
+                  className="w-full rounded border border-adm-border bg-adm-bg px-3 py-2 text-xs text-adm-t1"
+                  value={createName}
+                  onChange={(e) => setCreateName(e.target.value)}
+                  placeholder="e.g. Risk Analyst"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-adm-t2">Description (optional)</label>
+                <input
+                  className="w-full rounded border border-adm-border bg-adm-bg px-3 py-2 text-xs text-adm-t1"
+                  value={createDescription}
+                  onChange={(e) => setCreateDescription(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-adm-t2">Permission Groups</label>
+                <div className="max-h-48 overflow-y-auto rounded border border-adm-border bg-adm-bg p-2">
+                  {permissionGroups.length === 0 && (
+                    <p className="px-1 py-0.5 font-mono text-[10px] text-adm-t3">Loading groups…</p>
+                  )}
+                  {permissionGroups.map((g) => (
+                    <label key={g.code} className="flex items-center gap-2 px-1 py-0.5 text-xs text-adm-t1">
+                      <input
+                        type="checkbox"
+                        checked={createGroups.includes(g.code)}
+                        onChange={(e) => {
+                          setCreateGroups((prev) =>
+                            e.target.checked ? [...prev, g.code] : prev.filter((c) => c !== g.code),
+                          );
+                        }}
+                      />
+                      <span className="font-mono">{g.code}</span>
+                      <span className="text-adm-t3">({g.permissionCount})</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-adm-t2">Change Reason</label>
+                <textarea
+                  className="w-full rounded border border-adm-border bg-adm-bg px-3 py-2 text-xs text-adm-t1"
+                  rows={2}
+                  value={createReason}
+                  onChange={(e) => setCreateReason(e.target.value)}
+                />
+              </div>
+              {createError && <p className="text-xs text-red-500">{createError}</p>}
+            </div>
+            <div className="flex justify-end gap-2 border-t border-adm-border px-6 py-3">
+              <button
+                className="rounded border border-adm-border px-4 py-1.5 text-xs text-adm-t2 hover:bg-adm-bg"
+                onClick={() => setShowCreateModal(false)}
+              >
+                Cancel
+              </button>
+              <button
+                className={adminButtonClass()}
+                onClick={() => void submitCreate()}
+                disabled={createLoading}
+              >
+                {createLoading ? 'Submitting...' : 'Submit for Approval'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );
