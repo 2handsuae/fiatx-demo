@@ -73,12 +73,6 @@ export class AdminInviteWorkflowService {
           workflowId: user.id,
           workflowNo: user.userNo,
           traceId,
-          metadata: {
-            userNo: user.userNo,
-            userEmail: user.email,
-            roleCodes,
-            changeReason: dto.changeReason || null,
-          },
           objectSnapshot: {
             userNo: user.userNo,
             email: user.email,
