@@ -132,15 +132,6 @@ export class ApprovalPolicyChangeWorkflowService {
         workflowId: request.id,
         workflowNo: requestNo,
         traceId,
-        metadata: {
-          requestNo,
-          targetActionType,
-          currentStepsConfig: currentPolicy.steps,
-          proposedStepsConfig: proposedSteps,
-          currentCheckerRoles: currentPolicy.checkerRoles,
-          proposedCheckerRoles,
-          changeReason,
-        },
         objectSnapshot: {
           requestNo: request.requestNo,
           targetActionType: request.targetActionType,
