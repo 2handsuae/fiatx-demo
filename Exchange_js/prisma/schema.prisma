@@ -47,15 +47,18 @@ model User {
 }
 
 model Role {
-  id              String           @id @default(uuid())
-  code            String           @unique
-  name            String
-  description     String?
-  status          String           @default("ACTIVE")
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
-  rolePermissions RolePermission[]
-  userRoles       UserRole[]
+  id                       String           @id @default(uuid())
+  code                     String           @unique
+  name                     String
+  description              String?
+  status                   String           @default("ACTIVE")
+  approvalCaseId           String?
+  approvalCaseNo           String?
+  proposedPermissionGroups String?
+  createdAt                DateTime         @default(now())
+  updatedAt                DateTime         @updatedAt
+  rolePermissions          RolePermission[]
+  userRoles                UserRole[]
 
   @@map("roles")
 }
