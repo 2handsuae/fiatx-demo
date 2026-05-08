@@ -88,14 +88,6 @@ export class AdminRoleBindingChangeWorkflowService {
         workflowId: request.id,
         workflowNo: requestNo,
         traceId,
-        metadata: {
-          requestNo,
-          targetUserId: targetUser.id,
-          targetUserNo: targetUser.userNo,
-          currentRoleCodes,
-          proposedRoleCodes: dto.roleCodes,
-          changeReason: dto.changeReason,
-        },
         objectSnapshot: {
           requestNo: request.requestNo,
           targetUserId: request.targetUserId,
