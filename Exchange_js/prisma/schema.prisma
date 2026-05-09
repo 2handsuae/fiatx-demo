@@ -59,6 +59,7 @@ model Role {
   updatedAt                DateTime         @updatedAt
   rolePermissions          RolePermission[]
   userRoles                UserRole[]
+  modifyRequests           RoleDefinitionModifyRequest[]
 
   @@map("roles")
 }
@@ -2915,4 +2916,30 @@ model TierUpgradeCase {
 
   @@index([customerId, status])
   @@map("tier_upgrade_cases")
+}
+
+model RoleDefinitionModifyRequest {
+  id                       String    @id @default(uuid())
+  requestNo                String    @unique @default("TEMP")
+  roleId                   String
+  currentName              String
+  currentDescription       String?
+  currentPermissionGroups  String
+  proposedName             String
+  proposedDescription      String?
+  proposedPermissionGroups String
+  changeReason             String
+  status                   String    @default("PENDING_APPROVAL")
+  approvalCaseId           String?
+  approvalCaseNo           String?
+  requestedByUserId        String
+  executedAt               DateTime?
+  failureReason            String?
+  createdAt                DateTime  @default(now())
+  updatedAt                DateTime  @updatedAt
+
+  role Role @relation(fields: [roleId], references: [id])
+
+  @@index([roleId, status])
+  @@map("role_definition_modify_requests")
 }
