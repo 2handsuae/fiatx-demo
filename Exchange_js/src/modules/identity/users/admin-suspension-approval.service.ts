@@ -17,6 +17,7 @@ export class AdminSuspensionApprovalService extends ApprovalHandlerBase {
     granted: AuditGovernanceActions.ADMIN_SUSPENSION.APPROVAL_GRANTED,
     declined: AuditGovernanceActions.ADMIN_SUSPENSION.APPROVAL_DECLINED,
     cancelled: AuditGovernanceActions.ADMIN_SUSPENSION.APPROVAL_CANCELLED,
+    expired: AuditGovernanceActions.ADMIN_SUSPENSION.APPROVAL_EXPIRED,
   };
   readonly entityType = AuditEntityTypes.ADMIN_USER;
 

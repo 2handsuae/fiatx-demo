@@ -17,6 +17,7 @@ export class AdminReactivationApprovalService extends ApprovalHandlerBase {
     granted: AuditGovernanceActions.ADMIN_REACTIVATION.APPROVAL_GRANTED,
     declined: AuditGovernanceActions.ADMIN_REACTIVATION.APPROVAL_DECLINED,
     cancelled: AuditGovernanceActions.ADMIN_REACTIVATION.APPROVAL_CANCELLED,
+    expired: AuditGovernanceActions.ADMIN_REACTIVATION.APPROVAL_EXPIRED,
   };
   readonly entityType = AuditEntityTypes.ADMIN_USER;
 

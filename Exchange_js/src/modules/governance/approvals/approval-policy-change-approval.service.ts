@@ -17,6 +17,7 @@ export class ApprovalPolicyChangeApprovalService extends ApprovalHandlerBase {
     granted: AuditGovernanceActions.APPROVAL_POLICY.APPROVAL_GRANTED,
     declined: AuditGovernanceActions.APPROVAL_POLICY.APPROVAL_DECLINED,
     cancelled: AuditGovernanceActions.APPROVAL_POLICY.APPROVAL_CANCELLED,
+    expired: AuditGovernanceActions.APPROVAL_POLICY.APPROVAL_EXPIRED,
   };
   readonly entityType = AuditEntityTypes.APPROVAL_POLICY;
 
