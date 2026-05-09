@@ -516,20 +516,31 @@ export class ApprovalsService {
       ApprovalStatuses.PENDING,
     ]);
     const checkerRoles = splitRoleCsv(approval.checkerRoles);
+    const pendingStep = (approval.steps || []).find(
+      (s: any) => s.status === ApprovalStepStatuses.PENDING,
+    );
+    const stepRoles = pendingStep
+      ? splitRoleCsv(pendingStep.checkerRoleCandidates)
+      : [];
     const availableDecisionRoles = actor
       ? this.isSuperAdmin(actor)
-        ? checkerRoles
-        : checkerRoles.filter((role) => actor.roleCodes.includes(role))
+        ? stepRoles
+        : stepRoles.filter((role) => actor.roleCodes.includes(role))
       : [];
     const makerCheckerConflict = actor
       ? !this.isSuperAdmin(actor) &&
         actor.userId === approval.createdByUserId &&
         availableDecisionRoles.length > 0
       : false;
+    const crossStepConflict = actor
+      ? this.hasActorApprovedAnyStep(approval.steps || [], actor.userId)
+      : false;
     const canDecide =
       approval.status === ApprovalStatuses.PENDING &&
+      !!pendingStep &&
       availableDecisionRoles.length > 0 &&
-      !makerCheckerConflict;
+      !makerCheckerConflict &&
+      !crossStepConflict;
 
     return {
       id: approval.id,
