@@ -35,9 +35,18 @@ interface RoleItem {
   permissions: RolePermission[];
 }
 
-interface PermissionGroup {
-  code: string;
-  permissionCount: number;
+interface ActionBucket {
+  key: string;
+  label: string;
+  description: string;
+  groups: string[];
+}
+
+interface ActionDomain {
+  id: string;
+  label: string;
+  icon: string;
+  buckets: ActionBucket[];
 }
 
 /* ─────────────────────────────────────────────────────────────── */
@@ -61,11 +70,11 @@ const RolesPage = () => {
   const [createCode, setCreateCode] = useState('');
   const [createName, setCreateName] = useState('');
   const [createDescription, setCreateDescription] = useState('');
-  const [createGroups, setCreateGroups] = useState<string[]>([]);
+  const [selectedBucketKeys, setSelectedBucketKeys] = useState<Set<string>>(new Set());
   const [createReason, setCreateReason] = useState('');
   const [createError, setCreateError] = useState('');
   const [createLoading, setCreateLoading] = useState(false);
-  const [permissionGroups, setPermissionGroups] = useState<PermissionGroup[]>([]);
+  const [actionDomains, setActionDomains] = useState<ActionDomain[]>([]);
 
   /* ── Data fetching ── */
 
@@ -95,15 +104,15 @@ const RolesPage = () => {
 
   useEffect(() => { void loadRoles(); }, []);
 
-  /* ── Permission groups fetch (when create modal opens) ── */
+  /* ── Action buckets fetch (when create modal opens) ── */
 
   useEffect(() => {
     if (!showCreateModal) return;
-    adminFetch(`${import.meta.env.VITE_API_URL}/admin/iam/role-definitions/permission-groups`)
+    adminFetch(`${import.meta.env.VITE_API_URL}/admin/iam/action-buckets`)
       .then(async (res) => {
         if (!res.ok) return;
-        const data = (await res.json()) as PermissionGroup[];
-        setPermissionGroups(Array.isArray(data) ? data : []);
+        const data = (await res.json()) as { domains: ActionDomain[] };
+        setActionDomains((data.domains ?? []).filter((d) => d.buckets.length > 0));
       })
       .catch(() => {});
   }, [showCreateModal]);
@@ -115,7 +124,7 @@ const RolesPage = () => {
     const code = createCode.trim().toUpperCase();
     const name = createName.trim();
     const reason = createReason.trim();
-    if (!code || !name || createGroups.length === 0 || !reason) {
+    if (!code || !name || selectedBucketKeys.size === 0 || !reason) {
       setCreateError('All fields except description are required');
       return;
     }
@@ -130,7 +139,12 @@ const RolesPage = () => {
             roleCode: code,
             roleName: name,
             description: createDescription.trim() || undefined,
-            permissionGroupCodes: createGroups,
+            permissionGroupCodes: Array.from(new Set(
+              actionDomains
+                .flatMap((d) => d.buckets)
+                .filter((b) => selectedBucketKeys.has(b.key))
+                .flatMap((b) => b.groups),
+            )),
             changeReason: reason,
           }),
         },
@@ -145,7 +159,7 @@ const RolesPage = () => {
       setCreateCode('');
       setCreateName('');
       setCreateDescription('');
-      setCreateGroups([]);
+      setSelectedBucketKeys(new Set());
       setCreateReason('');
       void loadRoles();
       alert(`Role creation submitted. Approval: ${res.approvalNo}`);
@@ -378,25 +392,42 @@ const RolesPage = () => {
                 />
               </div>
               <div>
-                <label className="mb-1 block text-xs font-medium text-adm-t2">Permission Groups</label>
-                <div className="max-h-48 overflow-y-auto rounded border border-adm-border bg-adm-bg p-2">
-                  {permissionGroups.length === 0 && (
-                    <p className="px-1 py-0.5 font-mono text-[10px] text-adm-t3">Loading groups…</p>
+                <label className="mb-1 block text-xs font-medium text-adm-t2">Capabilities</label>
+                <div className="max-h-64 overflow-y-auto rounded border border-adm-border bg-adm-bg p-2 space-y-3">
+                  {actionDomains.length === 0 && (
+                    <p className="px-1 py-0.5 font-mono text-[10px] text-adm-t3">Loading…</p>
                   )}
-                  {permissionGroups.map((g) => (
-                    <label key={g.code} className="flex items-center gap-2 px-1 py-0.5 text-xs text-adm-t1">
-                      <input
-                        type="checkbox"
-                        checked={createGroups.includes(g.code)}
-                        onChange={(e) => {
-                          setCreateGroups((prev) =>
-                            e.target.checked ? [...prev, g.code] : prev.filter((c) => c !== g.code),
-                          );
-                        }}
-                      />
-                      <span className="font-mono">{g.code}</span>
-                      <span className="text-adm-t3">({g.permissionCount})</span>
-                    </label>
+                  {actionDomains.map((domain) => (
+                    <div key={domain.id}>
+                      <p className="flex items-center gap-1.5 px-1 py-1 font-mono text-[10px] font-semibold text-adm-t2">
+                        <span>{domain.icon}</span>
+                        {domain.label}
+                      </p>
+                      {domain.buckets.map((bucket) => (
+                        <label
+                          key={bucket.key}
+                          className="flex items-center gap-2 px-1 py-0.5 text-xs text-adm-t1"
+                          title={bucket.description}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selectedBucketKeys.has(bucket.key)}
+                            onChange={(e) => {
+                              setSelectedBucketKeys((prev) => {
+                                const next = new Set(prev);
+                                if (e.target.checked) {
+                                  next.add(bucket.key);
+                                } else {
+                                  next.delete(bucket.key);
+                                }
+                                return next;
+                              });
+                            }}
+                          />
+                          <span className="font-mono text-[11px]">{bucket.label}</span>
+                        </label>
+                      ))}
+                    </div>
                   ))}
                 </div>
               </div>
