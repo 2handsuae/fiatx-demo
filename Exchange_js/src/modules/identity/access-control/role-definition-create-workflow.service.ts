@@ -206,6 +206,11 @@ export class RoleDefinitionCreateWorkflowService {
 
       const groupCodes: string[] = JSON.parse(role.proposedPermissionGroups || '[]');
 
+      /* Every role must include BASE_ACCESS for /auth/me to work */
+      if (!groupCodes.includes('BASE_ACCESS')) {
+        groupCodes.push('BASE_ACCESS');
+      }
+
       const permissionCodes = RBAC_PERMISSION_DEFINITIONS
         .filter((p) => p.groups.some((g) => groupCodes.includes(g)))
         .map((p) => p.code);
