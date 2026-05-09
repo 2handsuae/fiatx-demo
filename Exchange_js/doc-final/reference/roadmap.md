@@ -1,6 +1,6 @@
 # Product Roadmap
 
-Last Updated: 2026-05-07
+Last Updated: 2026-05-10
 格式：每个版本交付一组 workflow，✅ = 已交付验收，[ ] = 待实现。
 
 ---
@@ -36,17 +36,16 @@ V6 → V7（EOD 兑换结算触发 INTERNAL-IN/OUT 真实资产交割；LP 缺�
 - [x] Admin Account Reactivation（账号恢复审批；3-Layer 架构：薄审批处理器 + 工作流编排器 + 领域服务，Suspension 的配对恢复路径） — **业务必须**：Suspension 的配对恢复路径，没有它则停用等于永久删除 ✅ 2026-05-06
 - [x] Admin Password Reset（自助忘记密码 + CISO 代操作双路径；自助路径：邮箱→MFA 验证→重置链接；CISO 路径：详情页发起→重置链接展示在成员详情页；token 15min 有效期 + SHA-256 hash + 速率限制；反枚举设计；重置密码页面匹配 Admin 暗色主题；薄 workflow 层审计打点，`workflowType: ADMIN_CREDENTIAL_MGMT`） — **VARA**：TIR Rulebook III.A Authentication — 凭证生命周期管理，泄露时必须能即时重置 ✅ 2026-05-06
 - [x] Admin MFA Reset（CISO/TECH_OFFICER 在后台发起 `POST /admin/iam/users/:id/reset-mfa`；RBAC 权限 `IAM_CREDENTIAL_RESET`；重置后目标用户重走首登四步流程；薄 workflow 层审计打点，`workflowType: ADMIN_CREDENTIAL_MGMT`；无审批门） — **VARA**：TIR Rulebook III.A Authentication — MFA 是管理访问的强制要求，设备丢失时必须有受控恢复路径 ✅ 2026-05-06
-- [ ] Admin Session Force-Revocation（独立于 Suspension：只杀 session 不停用账号；需 JWT 撤销能力改造；薄 workflow 层审计打点，同上 workflowType） — **VARA**：TIR Rulebook III.C Session Management + IV.C Incident Response — 凭证泄露疑似但不确定需要停用时，立即终止所有活跃会话
+- [x] Role Definition CRUD（自定义创建角色 / 修改角色权限集；3-Layer 架构：薄审批处理器 + 工作流编排器 + 领域服务；Action Bucket Catalog 提供用户可理解的能力抽象——4 域 13 bucket（Auth 1 forcedOn + IAM 6 + Approval Center 3 含 1 restricted CISO-only + Audit Center 3）；前端 Create/Modify Modal bucket 勾选式权限组装；手动审计录入 API 已移除——日志仅限系统写入） — **业务必须**：组织扩大后需自定义角色；上线后无 SUPER_ADMIN，优先级高 ✅ 2026-05-10
 - [x] Audit Evidence Export（审计证据包导出审批；已完成 3-Layer 架构重构：薄审批处理器 + 工作流编排器 + 领域服务，路由迁移至 `/admin/audit/evidence-packages`） — **VARA**：CRM Rulebook III.A Record Keeping — 审计记录必须可导出可验证，保留不少于 8 年 ✅ 2026-05-05
 - [x] Approval Policy Management（审批策略管理：V1 白名单过滤展示 6 种审批类型；**多步骤审批链配置**：`stepsConfig` JSON 列取代扁平 `checkerRoles`，每步支持多角色 OR 关系（任一角色可审批该步）；回退链 stepsConfig→checkerRoles→DEFAULT；修改需走 APPROVAL_POLICY_CHANGE 审批（CISO 审批通过后自动 upsert 生效）；APPROVAL_POLICY_CHANGE 自身 checker 硬编码不可修改；3-Layer 架构：Domain Service + 薄审批处理器 + 工作流编排器；前端步骤编辑器含 Add/Remove Step + 角色切换 + current→proposed 步骤对比；修复 5 个 BLOCKER：approve/reject 步骤跳跃、resolveDecisionRole 角色范围、cancel/expire 硬编码 stepNo:1；含 backfill 迁移脚本；workflowType: APPROVAL_POLICY） — **VARA + 业务**：CRM Rulebook II.B Internal Controls + Company Rulebook III Governance — 审批链本身的治理必须自洽且防篡改 ✅ 2026-05-07
 
-> \#5/6/7 共享 `workflowType: ADMIN_CREDENTIAL_MGMT`。#7 需要 JWT 撤销能力改造（token blacklist 或 session store）。
+> \#5/6/7 共享 `workflowType: ADMIN_CREDENTIAL_MGMT`。
 
-### ADVANCED（9 workflows）
+### ADVANCED（8 workflows）
 
 - [ ] Admin Account Deletion（管理员账号删除审批） — **VARA**：TIR Rulebook III.B.2 Access Control + Company Rulebook Offboarding — 离职人员必须完全撤销访问，Suspension 只是临时措施
 - [ ] Audit Evidence Package Deletion（证据包删除审批） — **业务必须**：证据包生命周期管理，保留期满后需受控删除
-- [ ] Role Definition CRUD（自定义创建角色 / 修改角色权限集） — **业务必须**：组织扩大后需自定义角色；上线后无 SUPER_ADMIN，优先级高
 - [ ] Emergency Break-Glass（紧急权限绕过：请求 → 增强验证 → 时限 elevated access → 自动收回 → 事后 review） — **VARA**：TIR Rulebook V.A Business Continuity — 紧急情况下维持关键系统操作能力；上线后无 SUPER_ADMIN，优先级高
 - [ ] Approval 超时预警 / 通知（到期前 N 小时通知审批人；仍无响应则升级到上级角色） — **业务必须**：防止审批静默过期导致业务卡死
 - [ ] Periodic Access Review（权限快照导出 + 标记休眠账号 / 过度权限 / SoD 违规；CISO 季度审查签字用） — **VARA**：TIR Rulebook III.B.4 Access Control — 定期审查"谁有什么权限"，VARA 审计必查项
@@ -71,8 +70,8 @@ V6 → V7（EOD 兑换结算触发 INTERNAL-IN/OUT 真实资产交割；LP 缺�
 ## V2 — 客户管理 + 合规底座
 
 > 建立客户准入与合规管理体系：客户入驻、风险评估、材料管理、限额升级、账号冻结管控。Sumsub 负责自动化验证与持续监控，EDD 调查在平台内部由 MLRO 执行。V4–V6 交易资格门依赖本版本。
-> MVP 阶段仅服务 Qualified Individual 客户；机构客户（Corporate/Institutional）所有工作流列入 ADVANCED。
-> 客户身上有两个独立状态轴：Customer Level（Level 1/2，产品层，决定限额）和 Risk Rating（HIGH/MED/LOW，合规层，决定监控强度）。限额只和 Level 挂钩；EDD 独立于 Level，由 Risk = HIGH 触发。
+> MVP 阶段仅服务 Individual 客户；机构客户（Corporate/Institutional）所有工作流列入 ADVANCED。
+> 客户主表 3 轴状态模型（✅ 2026-05-09）：onboardingStatus（准入）、adminStatus（行政开关）、complianceStatus（合规开关）；两个开关都通过后看 restrictions JSON 做细粒度能力限制。investorTier（STANDARD/ENHANCED）查限额策略表；riskRating（LOW/MEDIUM/HIGH）决定监控强度。详见 `doc-final/superpowers/specs/2026-05-08-customer-main-table-design.md`。
 
 ### MVP（6 workflows）
 
@@ -105,28 +104,32 @@ V6 → V7（EOD 兑换结算触发 INTERNAL-IN/OUT 真实资产交割；LP 缺�
 
 ## V3 — 财务配置
 
-> 建立新记账架构底座：TigerBeetle 账户模型、客户金融账户开通、充提地址管理。V4–V7 所有记账操作的硬前置依赖。
+> 建立记账架构底座与资产治理体系：TigerBeetle 账户模型、资产上架与暂停、客户金融账户开通、充值地址与 VIBAN 分配、提现地址注册（含安全冷却）、交易限额配置。V4–V7 所有记账操作的硬前置依赖。
 
-**客户账户与地址：**
+### MVP（8 workflows）
 
-- [ ] 补充 Onboarding 工作流：客户入驻成功后给客户开 TigerBeetle Account
-- [ ] 客户创建提现虚拟币地址（含安全冷却：地址创建后进入 PENDING_ACTIVATION 状态，24–48h 冷却期满后变 ACTIVE 方可提现；冷却期内发送通知，客户可取消）
-- [ ] 客户创建提现银行账户（同上冷却机制）
-- [ ] 为客户创建虚拟币充值地址，创建对应 TigerBeetle Account
-- [ ] 为客户创建银行 VIBAN
+- [ ] Asset Listing（资产上架审批：Maker 提案含全部参数——symbol / precision / 支持网络 / 合约地址 / min-max 金额 / 充提启用开关 → Checker 审批 → 批准后系统自动创建该资产全套 TB 系统账户） — **VARA + 业务**：没有资产定义，V4-V7 全部无法运行
+- [ ] Asset Suspension / Resumption（资产暂停/恢复审批：区别于 V4/V5 的"渠道暂停"——渠道暂停只关一条链或一个银行通道，这里是暂停整个资产的所有操作；暂停期间充值进 Suspense、提现/兑换拒绝新建；恢复需审批） — **VARA**：TIR Rulebook IV.C Incident Response — 技术故障 / 合规要求 / 链分叉时必须能暂停资产级操作
+- [ ] Customer Account Provisioning（客户 TB 账户开通：V2 Onboarding 通过后自动触发 → 为客户创建全套 TB 账户组；仅做账户创建，充值地址和 VIBAN 由独立工作流分配） — **业务必须**：V4-V6 的前置，客户没有 TB 账户就无法记账
+- [ ] Crypto Deposit Address Creation（为客户创建虚拟币充值地址 + 对应 TB Account；Onboarding 完成后触发或按需创建） — **业务必须**：V4 虚拟币充值的前置
+- [ ] Withdrawal Address Registration — Bank（客户注册提现银行账户：提交银行账户信息 → 账户持有人姓名与客户身份匹配校验 → PENDING_ACTIVATION → 安全冷却期 → 冷却期满 ACTIVE；注册时同步在 Zand Bank 建立白名单对） — **VARA**：TIR Rulebook III.A Authentication — 安全冷却防止凭证泄露后资产被立即转移；CRM Rulebook IV.A — 第三方账户禁止
+- [ ] VIBAN Creation（为客户分配法币 VIBAN：前置条件——客户已完成 Bank Withdrawal Address Registration，Zand Bank 白名单对已建立 → 分配 VIBAN → 关联 TB Account） — **业务必须**：V4 法币充值的前置；依赖 Bank Withdrawal Address Registration
+- [ ] Withdrawal Address Registration — Crypto（客户注册提现虚拟币地址：提交地址 → 地址格式 + 网络校验 → PENDING_ACTIVATION → 安全冷却期 24-48h → 冷却期内发通知 + 客户可取消 → 冷却期满自动 ACTIVE → 方可用于提现） — **VARA**：TIR Rulebook III.A Authentication — 安全冷却防止凭证泄露后资产被立即转移
+- [ ] Transaction Limit Configuration（交易限额配置变更审批：定义 Level 1 / Level 2 × 操作类型 deposit/withdrawal/swap × 时间周期 daily/monthly 的金额上限矩阵；变更走 Maker/Checker；V4-V7 运行时消费此配置做前置校验） — **VARA + 业务**：CRM Rulebook II.C Risk-Based Approach — 限额是 AML 风控的核心参数
 
-**推后交付（非 MVP）：**
+### ADVANCED（3 workflows）
 
-- [ ] 客户删除提现虚拟币地址（确认无在途提现 → 冷却期校验 → 地址停用归档）
-- [ ] 客户删除提现银行账户（同上）
+- [ ] Asset Delisting（资产下架审批：确认无在途订单 → 客户持仓余额清退路径 → 充值地址停用 → 配置归档 → 审批下架） — **业务必须**：资产上架的配对退出路径
+- [ ] Withdrawal Address Deletion — Crypto（客户删除提现虚拟币地址：确认无在途提现 → 地址停用归档） — **业务必须**
+- [ ] Withdrawal Address Deletion — Bank（客户删除提现银行账户：确认无在途提现 → 账户停用归档） — **业务必须**
 
-**资产配置：**
+### Supporting Features（非 workflow，无独立状态机）
 
-- [ ] 创建新资产时配套开 TigerBeetle Account（系统账户全套）
-
-**非工作流：**
-
-- [ ] 整理所有 Account 类型定义（资产侧 / 负债侧 / 系统级 / 客户级）
+- **TB Account 类型定义** — 全量定义资产侧 / 负债侧 / 系统级 / 客户级账户类型及 flags（MVP）
+- **系统钱包架构 + TB 映射** — Client Deposit Wallet / Main Wallet / Outbound Wallet / Company Liquidity / Ops / LP Pool / Gas Reserve 的创建与 TB Account 绑定（MVP）
+- **Network / Chain 配置** — 支持网络列表、确认数要求、Gas 参数、合约地址；资产上架时引用（MVP）
+- **Custodian 集成配置** — HexTrust vault 配置、钱包策略、callback 注册；V4 充值监听 / V5 提现广播 / V7 内部转账全部依赖（MVP）
+- **Banking Partner 集成配置** — 银行 API 对接、VIBAN 号段分配、法币通道配置（MVP）
 
 ---
 
@@ -136,27 +139,29 @@ V6 → V7（EOD 兑换结算触发 INTERNAL-IN/OUT 真实资产交割；LP 缺�
 
 **前置：** V2（客户合规资格）+ V3（账户模型）
 
-**Workflow 清单：**
+### MVP（6 workflows）
 
-主流程：
-- [ ] 虚拟币充值工作流（链上确认 → Payin 匹配 → Deposit 创建 → 路由判断：小额/自托管钱包直接 KYT → 记账；大额 VASP 来源需先完成 Travel Rule 匹配再 KYT → 记账；内嵌：大额超限锁账户触发 Tier Upgrade、客户暂停时挂起进 Suspense 等恢复事件）
-- [ ] 法币充值工作流（VIBAN 到账 → Payin 匹配 → Deposit 创建 → KYT → 记账；内嵌同上）
+- [ ] 虚拟币充值工作流（链上确认 → Payin 匹配 → Deposit 创建 → 路由判断：小额/自托管钱包直接 KYT → 记账；大额 VASP 来源需先完成 Travel Rule 匹配再 KYT → 记账；内嵌：大额超限触发 Tier Upgrade 引导、客户暂停时挂起进 Suspense 等恢复事件） — **VARA + 业务**：CRM Rulebook II.A CDD + TIR Rulebook Schedule 1 — 充值是资金入口，KYT + Travel Rule 是 VARA 强制合规门
+- [ ] 法币充值工作流（VIBAN 到账 → Payin 匹配 → Deposit 创建 → KYT → 记账；内嵌同上） — **VARA + 业务**：同上
+- [ ] Travel Rule 接收匹配工作流（接收 originating VASP 推送的 TR 数据包 → 暂存等待 Payin 到达匹配；或 Payin 先到进入 TRAVEL_RULE_PENDING 等 TR 数据；两者到齐后做 originator 身份筛查 → 通过继续 KYT → 超时未匹配进人工审核） — **VARA**：FATF Travel Rule / VARA TIR Rulebook — 持牌 VASP 间转账强制要求交换 originator/beneficiary 信息
+- [ ] KYT 材料补充工作流（KYT RETRY → applicantActionPending → 客户补资金来源证明 → Sumsub 复审 → 放行 / 拒绝） — **VARA**：CRM Rulebook III.B Enhanced Due Diligence — KYT 可疑时必须收集资金来源说明
+- [ ] 制裁 / 高风险地址冻结审批工作流（命中制裁名单或混币器 → 资金进 Frozen Account → MLRO 审批 → 解冻放行 / 确认没收 / SAR） — **VARA**：CRM Rulebook IV.A Suspicious Activity + OFAC/SDN 合规 — 制裁地址资金必须冻结并上报
+- [ ] 第三方付款退回工作流（汇款人与客户不符 → 拒绝入账 → 发起银行退款 → 确认完成 → 审计记录） — **VARA**：CRM Rulebook II.A CDD — 禁止第三方代付，法币充值汇款人必须与客户身份一致
 
-Travel Rule 接收工作流：
-- [ ] Travel Rule 接收匹配工作流（接收 originating VASP 推送的 TR 数据包 → 暂存等待 Payin 到达匹配；或 Payin 先到进入 TRAVEL_RULE_PENDING 等 TR 数据；两者到齐后做 originator 身份筛查 → 通过继续 KYT → 超时未匹配进人工审核）
+### ADVANCED（3 workflows）
 
-合规异常工作流：
-- [ ] KYT 材料补充工作流（KYT RETRY → applicantActionPending → 客户补资金来源 → Sumsub 复审 → 放行 / 拒绝）
-- [ ] 制裁 / 高风险地址冻结审批工作流（命中制裁名单或混币器 → 资金进 Frozen Account → MLRO 审批 → 解冻放行 / 确认没收 / SAR）
+- [ ] 充值渠道暂停 / 恢复工作流（指定链/token/法币渠道：Maker 提案 + Checker 审批 → 暂停，在途 Payin 处理策略明确；恢复同样需审批门；全程审计） — **业务必须**：运营治理能力，上线初期可人工处理
+- [ ] 孤儿充值处理工作流（资金到达无活跃客户的地址 → 进 Suspense → 人工识别归属 → 可恢复客户则补记账 / 无法归属则 MLRO 审批处置：退回 / 没收 / SAR） — **VARA + 业务**：CRM Rulebook III.A Record Keeping — 无主资金必须有正式处置流程和审计记录
+- [ ] 法币充值 Bank Reversal 工作流（银行在到账后发起冲正 → 平台收到 reversal 通知 → 客户余额充足：冻结等额资金 → 自动扣回 → 通知客户；客户余额不足：冻结账户 → 创建应收记录 → 通知客户 → 催收/处置路径；全程审计） — **业务必须**：法币充值特有的信用风险，区别于"第三方退回"——第三方退回是入账前拦截，Bank Reversal 是入账后被银行反向拉回
 
-法币专属异常工作流：
-- [ ] 第三方付款退回工作流（汇款人与客户不符 → 拒绝入账 → 发起银行退款 → 确认完成 → 审计记录）
+### Supporting Features（非 workflow，无独立状态机）
 
-运营治理工作流：
-- [ ] 充值渠道暂停 / 恢复工作流（指定链/token/法币渠道：Maker 提案 + Checker 审批 → 暂停，在途 Payin 处理策略明确；恢复同样需审批门；全程审计）
-- [ ] 孤儿充值处理工作流（资金到达无活跃客户的地址 → 进 Suspense → 人工识别归属 → 可恢复客户则补记账 / 无法归属则 MLRO 审批处置：退回 / 没收 / SAR）
-
-不单做工作流（技术处理 / 主流程内嵌）：区块重组自动回退、重复 txHash 幂等去重、ERC-20 合约失败忽略、KYT 超时转人工、TB 记账失败走 repair surface。
+- **区块重组自动回退** — 链上确认数回退时自动撤销对应 Deposit 记账，append 补偿凭证（MVP）
+- **重复 txHash 幂等去重** — 同一 txHash 重复推送不产生重复 Deposit（MVP）
+- **ERC-20 合约失败忽略** — 合约执行失败的交易不创建 Payin（MVP）
+- **KYT 超时转人工** — KYT 审查超时后自动转运营人工决策（MVP）
+- **TB 记账失败 repair surface** — Deposit 合规通过但 TB 记账失败时的专用修复路径，范围窄于正常路径（MVP）
+- **充值成功通知** — 充值到账后推送客户通知，复用 V1 Notification send（MVP）
 
 ---
 

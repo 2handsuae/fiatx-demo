@@ -90,6 +90,8 @@ export const PERMISSIONS = {
     'api.get.admin_compliance_tx_cases_sourceType_sourceId',
   TX_COMPLIANCE_READ: 'api.get.admin_compliance_tx_kyt_cases',
   TX_COMPLIANCE_WRITE: 'api.post.admin_compliance_tx_kyt_cases_mock_complete',
+  SUMSUB_EVENTS_READ: 'api.get.admin_sumsub_events',
+  RISK_ASSESSMENTS_READ: 'api.get.admin_compliance_risk_assessments',
   RISK_DECISION_RECORDS_READ: 'api.get.admin_risk_decision_records',
   RISK_DECISION_RECORD_DETAIL_READ: 'api.get.admin_risk_decision_records_id',
   AUDIT_LOGS_READ: 'api.get.admin_audit_logs',

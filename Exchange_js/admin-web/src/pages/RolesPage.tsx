@@ -40,6 +40,8 @@ interface ActionBucket {
   label: string;
   description: string;
   groups: string[];
+  forcedOn?: boolean;
+  restricted?: boolean;
 }
 
 interface ActionDomain {
@@ -146,7 +148,8 @@ const RolesPage = () => {
     const code = createCode.trim().toUpperCase();
     const name = createName.trim();
     const reason = createReason.trim();
-    if (!code || !name || selectedBucketKeys.size === 0 || !reason) {
+    const hasForcedBuckets = actionDomains.some((d) => d.buckets.some((b) => b.forcedOn));
+    if (!code || !name || (!hasForcedBuckets && selectedBucketKeys.size === 0) || !reason) {
       setCreateError('All fields except description are required.');
       return;
     }
@@ -164,7 +167,7 @@ const RolesPage = () => {
             permissionGroupCodes: Array.from(new Set(
               actionDomains
                 .flatMap((d) => d.buckets)
-                .filter((b) => selectedBucketKeys.has(b.key))
+                .filter((b) => !b.restricted && (b.forcedOn || selectedBucketKeys.has(b.key)))
                 .flatMap((b) => b.groups),
             )),
             changeReason: reason,
@@ -463,14 +466,16 @@ const RolesPage = () => {
                         {domain.buckets.map((bucket) => (
                           <label
                             key={bucket.key}
-                            className="flex cursor-pointer gap-3 rounded border border-adm-border bg-adm-bg p-3 hover:bg-adm-card"
-                            title={bucket.description}
+                            className={`flex gap-3 rounded border border-adm-border bg-adm-bg p-3 ${bucket.forcedOn || bucket.restricted ? 'cursor-not-allowed opacity-70' : 'cursor-pointer hover:bg-adm-card'}`}
+                            title={bucket.restricted ? 'Restricted — CISO only' : bucket.forcedOn ? 'Required — cannot be disabled' : bucket.description}
                           >
                             <input
                               type="checkbox"
                               className="mt-0.5"
-                              checked={selectedBucketKeys.has(bucket.key)}
+                              checked={bucket.forcedOn ? true : bucket.restricted ? false : selectedBucketKeys.has(bucket.key)}
+                              disabled={bucket.forcedOn || bucket.restricted}
                               onChange={(e) => {
+                                if (bucket.forcedOn || bucket.restricted) return;
                                 setSelectedBucketKeys((prev) => {
                                   const next = new Set(prev);
                                   if (e.target.checked) {
@@ -485,6 +490,8 @@ const RolesPage = () => {
                             <div>
                               <p className="font-mono text-[10px] font-semibold text-adm-t1">
                                 {bucket.label}
+                                {bucket.forcedOn && <span className="ml-1.5 text-[8px] text-adm-t3">(required)</span>}
+                                {bucket.restricted && <span className="ml-1.5 text-[8px] text-adm-t3">(CISO only)</span>}
                               </p>
                               <p className="mt-0.5 font-mono text-[9px] text-adm-t3">
                                 {bucket.description}
