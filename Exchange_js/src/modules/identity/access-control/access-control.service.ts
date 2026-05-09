@@ -7,7 +7,7 @@ import {
 } from '../../audit-logging/constants/audit-actions.constant';
 import {
   ACTION_BUCKET_CATALOG,
-  ACTIVE_RBAC_ROLE_CODES,
+
   HARD_MUTEX_ROLE_PAIRS,
   RBAC_PERMISSION_CODE_SET,
   RBAC_PERMISSION_DEFINITIONS,
@@ -185,10 +185,7 @@ export class AccessControlService {
     const userRoles = await (this.prisma as any).userRole.findMany({
       where: {
         userId,
-        role: {
-          status: 'ACTIVE',
-          code: { in: ACTIVE_RBAC_ROLE_CODES },
-        },
+        role: { status: 'ACTIVE' },
       },
       include: { role: true },
       orderBy: { role: { code: 'asc' } },
@@ -201,10 +198,7 @@ export class AccessControlService {
     const userRoles = await (this.prisma as any).userRole.findMany({
       where: {
         userId,
-        role: {
-          status: 'ACTIVE',
-          code: { in: ACTIVE_RBAC_ROLE_CODES },
-        },
+        role: { status: 'ACTIVE' },
       },
       include: { role: true },
       orderBy: { role: { code: 'asc' } },
@@ -227,10 +221,7 @@ export class AccessControlService {
     const userRoles = await (this.prisma as any).userRole.findMany({
       where: {
         userId,
-        role: {
-          status: 'ACTIVE',
-          code: { in: ACTIVE_RBAC_ROLE_CODES },
-        },
+        role: { status: 'ACTIVE' },
       },
       include: {
         role: {
