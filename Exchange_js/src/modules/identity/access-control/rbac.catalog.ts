@@ -210,6 +210,7 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('POST', '/users/:id/reset-password', 'Reset admin password (C5)', ['IAM_CREDENTIAL_RESET']),
   route('POST', '/admin/iam/role-definitions', 'Create role definition request', ['IAM_ROLE_DEFINE']),
   route('GET', '/admin/iam/role-definitions/permission-groups', 'List available permission groups', ['IAM_ROLE_DEFINE']),
+  route('GET', '/admin/iam/action-buckets', 'List action bucket catalog', ['IAM_READ']),
 
   // Customer domain
   route('POST', '/customers', 'Create customer', ['CUSTOMER_WRITE']),
@@ -773,6 +774,145 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   ]),
 
 ];
+
+/* ═══════════════════════════════════════════════════════════════
+   Action Bucket Catalog
+   User-facing capability abstraction. Each "bucket" represents
+   a functional capability users can understand (e.g. "View members & roles")
+   mapped to one or more PermissionGroups.
+   ═══════════════════════════════════════════════════════════════ */
+
+export interface ActionBucket {
+  key: string;
+  label: string;
+  description: string;
+  groups: PermissionGroup[];
+}
+
+export interface ActionDomain {
+  id: string;
+  label: string;
+  icon: string;
+  buckets: ActionBucket[];
+}
+
+export const ACTION_BUCKET_CATALOG: ActionDomain[] = [
+  // ─── Domain 1: Identity & Access ─────────────────────
+  {
+    id: 'iam',
+    label: 'Identity & Access',
+    icon: '🔐',
+    buckets: [
+      {
+        key: 'iam.view',
+        label: 'View members & roles',
+        description: 'Browse member list, view detail & role bindings, view role catalog',
+        groups: ['IAM_READ'],
+      },
+      {
+        key: 'iam.manage_members',
+        label: 'Manage members',
+        description: 'Invite members, resend invitations, assign/change roles',
+        groups: ['IAM_ASSIGN'],
+      },
+      {
+        key: 'iam.manage_credentials',
+        label: 'Manage credentials',
+        description: 'Reset password, reset MFA',
+        groups: ['IAM_CREDENTIAL_RESET'],
+      },
+      {
+        key: 'iam.define_roles',
+        label: 'Create role definitions',
+        description: 'Propose new role definitions for approval',
+        groups: ['IAM_ROLE_DEFINE'],
+      },
+    ],
+  },
+  // ─── Domain 2: Approval Center ───────────────────────
+  {
+    id: 'gov_approvals',
+    label: 'Approval Center',
+    icon: '🚦',
+    buckets: [
+      {
+        key: 'gov_approvals.view',
+        label: 'View approvals',
+        description: 'Browse approval list, view approval detail and history',
+        groups: ['GOV_APPROVAL_READ'],
+      },
+      {
+        key: 'gov_approvals.submit',
+        label: 'Submit approvals',
+        description: 'Create and submit approval requests',
+        groups: ['GOV_APPROVAL_WRITE'],
+      },
+      {
+        key: 'gov_approval_policies.view',
+        label: 'View approval policies',
+        description: 'Browse approval policy configurations',
+        groups: ['GOV_APPROVAL_POLICY_READ'],
+      },
+      {
+        key: 'gov_approval_policies.manage',
+        label: 'Manage approval policies',
+        description: 'Submit approval policy change requests',
+        groups: ['GOV_APPROVAL_POLICY_WRITE'],
+      },
+    ],
+  },
+  // ─── Domain 3: Audit Center ──────────────────────────
+  {
+    id: 'audit',
+    label: 'Audit Center',
+    icon: '📁',
+    buckets: [
+      {
+        key: 'audit.view',
+        label: 'View audit logs',
+        description: 'Browse audit log events, filter, view detail',
+        groups: ['AUDIT_READ'],
+      },
+      {
+        key: 'audit.export',
+        label: 'Export evidence packages',
+        description: 'Create, browse, and download audit evidence packages',
+        groups: ['AUDIT_EXPORT_CREATE', 'AUDIT_EXPORT_READ'],
+      },
+      {
+        key: 'audit.manual_entry',
+        label: 'Manual audit entries',
+        description: 'Create manual audit log entries',
+        groups: ['AUDIT_MANUAL_WRITE'],
+      },
+    ],
+  },
+  // ─── Placeholder Domains (no buckets yet) ────────────
+  { id: 'customer', label: 'Customer Management', icon: '👥', buckets: [] },
+  { id: 'compliance', label: 'Compliance', icon: '🛡️', buckets: [] },
+  { id: 'trading', label: 'Trading', icon: '📊', buckets: [] },
+  { id: 'accounting', label: 'Accounting', icon: '📒', buckets: [] },
+  { id: 'treasury', label: 'Treasury', icon: '📦', buckets: [] },
+  { id: 'recon', label: 'Reconciliation', icon: '🔍', buckets: [] },
+  { id: 'pricing', label: 'Pricing', icon: '💰', buckets: [] },
+  { id: 'config', label: 'Configuration', icon: '⚙️', buckets: [] },
+  { id: 'gov_registry', label: 'Governance Registries', icon: '🏛️', buckets: [] },
+  { id: 'counterparty', label: 'Counterparty', icon: '🤝', buckets: [] },
+  { id: 'clearing', label: 'Clearing', icon: '📋', buckets: [] },
+];
+
+/**
+ * Build a map from permission code → PermissionGroup[].
+ * Used by the frontend to derive which groups a role holds
+ * from its list of individual permission codes.
+ */
+export function buildPermCodeToGroups(): Record<string, string[]> {
+  const map: Record<string, string[]> = {};
+  for (const perm of RBAC_PERMISSION_DEFINITIONS) {
+    map[perm.code] = [...perm.groups];
+  }
+  return map;
+}
 
 export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
   SUPER_ADMIN: [],
