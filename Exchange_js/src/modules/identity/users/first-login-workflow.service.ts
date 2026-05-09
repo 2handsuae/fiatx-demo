@@ -63,6 +63,7 @@ interface FirstLoginUserState {
   userNo: string;
   email: string;
   role: string;
+  status: string;
   firstLoginStatus: string;
   firstLoginTraceId: string | null;
   mfaSecret: string | null;
@@ -397,6 +398,15 @@ export class FirstLoginWorkflowService {
     ctx: { requestId?: string; sourceIp?: string } = {},
   ): Promise<{ accessToken: string }> {
     const user = await this.loadUser(userId);
+
+    // Status gate: reject SUSPENDED and LOCKED users
+    if (user.status === 'SUSPENDED') {
+      throw new ForbiddenException('Account has been suspended');
+    }
+    if (user.status === 'LOCKED') {
+      throw new ForbiddenException('Account is locked');
+    }
+
     if (!user.mfaSecret) {
       throw new ForbiddenException('MFA not bound');
     }

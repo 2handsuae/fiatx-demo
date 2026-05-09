@@ -115,6 +115,38 @@ export class AuthService {
       );
     }
 
+    if (user.status === 'SUSPENDED') {
+      await this.auditLogsService.recordByActor(
+        {
+          action: AuditActions.ADMIN_LOGIN_FAILED,
+          entityType: AuditEntityTypes.AUTH,
+          entityId: user.id,
+          entityNo: user.userNo,
+          result: AuditResult.REJECTED,
+          reason: 'Admin login rejected: account suspended',
+          metadata: {
+            identifierHash: this.maskIdentifier(identifier),
+            accountStatus: user.status,
+          },
+          ...this.buildLoginAuditContext({
+            traceId: authTraceId,
+            userNo: user.userNo,
+            identifier,
+          }),
+          requestId: ctx.requestId,
+          sourceIp: ctx.sourceIp,
+          sourcePlatform: ctx.sourcePlatform || 'ADMIN_AUTH_API',
+        },
+        {
+          actorType: 'ADMIN',
+          actorId: user.id,
+          actorNo: user.userNo,
+          actorRole: user.role,
+        },
+      );
+      throw new ForbiddenException('Account has been suspended');
+    }
+
     if (
       user.status === 'LOCKED' &&
       user.lockedUntil &&

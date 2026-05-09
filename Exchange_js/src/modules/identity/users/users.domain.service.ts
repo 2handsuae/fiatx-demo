@@ -353,6 +353,7 @@ export class UsersDomainService {
     userNo: string;
     email: string;
     role: string;
+    status: string;
     firstLoginStatus: string;
     firstLoginTraceId: string | null;
     mfaSecret: string | null;
@@ -367,6 +368,7 @@ export class UsersDomainService {
         userNo: true,
         email: true,
         role: true,
+        status: true,
         firstLoginStatus: true,
         firstLoginTraceId: true,
         mfaSecret: true,
