@@ -6,6 +6,7 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -16,6 +17,7 @@ import { AdminPermissionGuard } from './admin-permission.guard';
 import { RequirePermissions } from './require-permissions.decorator';
 import { buildPermissionCode } from './permission-code.util';
 import { RoleDefinitionCreateWorkflowService } from './role-definition-create-workflow.service';
+import { RoleDefinitionModifyWorkflowService } from './role-definition-modify-workflow.service';
 import { ApprovalActorContext } from '../../governance/approvals/constants/approval.constants';
 
 @ApiTags('Admin - IAM')
@@ -26,6 +28,7 @@ export class AccessControlController {
   constructor(
     private readonly accessControlService: AccessControlService,
     private readonly roleDefinitionCreateWorkflow: RoleDefinitionCreateWorkflowService,
+    private readonly roleDefinitionModifyWorkflowService: RoleDefinitionModifyWorkflowService,
   ) {}
 
   private ensureAdmin(req: any) {
@@ -50,6 +53,35 @@ export class AccessControlController {
   createRoleDefinition(@Req() req: any, @Body() body: any) {
     this.ensureAdmin(req);
     return this.roleDefinitionCreateWorkflow.initiateCreate(body, this.buildAdminActor(req));
+  }
+
+  @Post('role-definitions/:roleId/modify')
+  @RequirePermissions(buildPermissionCode('POST', '/admin/iam/role-definitions/:roleId/modify'))
+  @ApiOperation({ summary: 'Submit a role definition modify request' })
+  async submitRoleDefinitionModify(
+    @Param('roleId') roleId: string,
+    @Body() body: any,
+    @Req() req: any,
+  ) {
+    this.ensureAdmin(req);
+    const actor = this.buildAdminActor(req);
+    return this.roleDefinitionModifyWorkflowService.initiateModify(roleId, body, actor);
+  }
+
+  @Get('role-definition-modify-requests')
+  @RequirePermissions(buildPermissionCode('GET', '/admin/iam/role-definition-modify-requests'))
+  @ApiOperation({ summary: 'List role definition modify requests' })
+  async listRoleDefinitionModifyRequests(@Query() query: any, @Req() req: any) {
+    this.ensureAdmin(req);
+    return this.accessControlService.listRoleDefinitionModifyRequests(query);
+  }
+
+  @Get('role-definition-modify-requests/:id')
+  @RequirePermissions(buildPermissionCode('GET', '/admin/iam/role-definition-modify-requests/:id'))
+  @ApiOperation({ summary: 'Get role definition modify request detail' })
+  async getRoleDefinitionModifyRequest(@Param('id') id: string, @Req() req: any) {
+    this.ensureAdmin(req);
+    return this.accessControlService.getRoleDefinitionModifyRequest(id);
   }
 
   @Get('role-definitions/permission-groups')

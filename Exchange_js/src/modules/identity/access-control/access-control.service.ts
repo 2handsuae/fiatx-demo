@@ -368,4 +368,41 @@ export class AccessControlService {
     };
   }
 
+  /* ── Role Definition Modify Requests ── */
+
+  async listRoleDefinitionModifyRequests(query: {
+    roleId?: string;
+    status?: string;
+    take?: number;
+    skip?: number;
+  }) {
+    const where: any = {};
+    if (query.roleId) where.roleId = query.roleId;
+    if (query.status) where.status = query.status;
+
+    const [items, total] = await Promise.all([
+      (this.prisma as any).roleDefinitionModifyRequest.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        take: query.take || 50,
+        skip: query.skip || 0,
+        include: { role: { select: { code: true, name: true } } },
+      }),
+      (this.prisma as any).roleDefinitionModifyRequest.count({ where }),
+    ]);
+
+    return { items, total };
+  }
+
+  async getRoleDefinitionModifyRequest(id: string) {
+    const request = await (this.prisma as any).roleDefinitionModifyRequest.findUnique({
+      where: { id },
+      include: { role: { select: { code: true, name: true, status: true } } },
+    });
+    if (!request) {
+      throw new NotFoundException(`Role definition modify request not found: ${id}`);
+    }
+    return request;
+  }
+
 }
