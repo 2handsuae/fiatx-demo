@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { RefreshCw, Search } from 'lucide-react';
+import { Plus, RefreshCw, Search, X } from 'lucide-react';
 import {
   adminButtonClass,
   adminIconButtonClass,
@@ -72,9 +72,12 @@ const RolesPage = () => {
   const [createDescription, setCreateDescription] = useState('');
   const [selectedBucketKeys, setSelectedBucketKeys] = useState<Set<string>>(new Set());
   const [createReason, setCreateReason] = useState('');
-  const [createError, setCreateError] = useState('');
+  const [createError, setCreateError] = useState<string | null>(null);
   const [createLoading, setCreateLoading] = useState(false);
   const [actionDomains, setActionDomains] = useState<ActionDomain[]>([]);
+
+  /* Success notice with auto-dismiss */
+  const [notice, setNotice] = useState<string | null>(null);
 
   /* ── Data fetching ── */
 
@@ -104,6 +107,12 @@ const RolesPage = () => {
 
   useEffect(() => { void loadRoles(); }, []);
 
+  useEffect(() => {
+    if (!notice) return undefined;
+    const t = window.setTimeout(() => setNotice((c) => (c === notice ? null : c)), 4000);
+    return () => window.clearTimeout(t);
+  }, [notice]);
+
   /* ── Action buckets fetch (when create modal opens) ── */
 
   useEffect(() => {
@@ -117,15 +126,28 @@ const RolesPage = () => {
       .catch(() => {});
   }, [showCreateModal]);
 
+  /* ── Modal open/close helpers ── */
+
+  const openCreateModal = () => setShowCreateModal(true);
+  const closeCreateModal = () => {
+    setShowCreateModal(false);
+    setCreateCode('');
+    setCreateName('');
+    setCreateDescription('');
+    setSelectedBucketKeys(new Set());
+    setCreateReason('');
+    setCreateError(null);
+  };
+
   /* ── Submit create ── */
 
   const submitCreate = async () => {
-    setCreateError('');
+    setCreateError(null);
     const code = createCode.trim().toUpperCase();
     const name = createName.trim();
     const reason = createReason.trim();
     if (!code || !name || selectedBucketKeys.size === 0 || !reason) {
-      setCreateError('All fields except description are required');
+      setCreateError('All fields except description are required.');
       return;
     }
     setCreateLoading(true);
@@ -155,16 +177,15 @@ const RolesPage = () => {
         return;
       }
       const res = (await response.json()) as { approvalNo: string };
-      setShowCreateModal(false);
-      setCreateCode('');
-      setCreateName('');
-      setCreateDescription('');
-      setSelectedBucketKeys(new Set());
-      setCreateReason('');
+      closeCreateModal();
       void loadRoles();
-      alert(`Role creation submitted. Approval: ${res.approvalNo}`);
+      setNotice(`Role definition approval ${res.approvalNo} submitted for ${code}.`);
     } catch (err: unknown) {
-      setCreateError(err instanceof Error ? err.message : 'Failed to submit');
+      if (err instanceof AdminPermissionError) {
+        setCreateError('Permission denied. You cannot submit role definition requests.');
+      } else {
+        setCreateError(err instanceof Error ? err.message : 'Failed to submit.');
+      }
     } finally {
       setCreateLoading(false);
     }
@@ -206,6 +227,12 @@ const RolesPage = () => {
         title="Roles"
         meta={`${roles.length} role${roles.length === 1 ? '' : 's'} · ${totalPermissions} permission bindings · Identity & Access`}
       >
+        {canCreate && (
+          <button onClick={openCreateModal} className={adminButtonClass('listPrimary')}>
+            <Plus size={13} />
+            Create Role
+          </button>
+        )}
         <button
           onClick={() => void loadRoles()}
           className={adminIconButtonClass()}
@@ -248,17 +275,14 @@ const RolesPage = () => {
         >
           Reset
         </button>
-        {canCreate && (
-          <button
-            className={adminButtonClass()}
-            onClick={() => setShowCreateModal(true)}
-          >
-            + Create Role
-          </button>
-        )}
       </div>
 
       {/* ── Notices ── */}
+      {notice && (
+        <div className="shrink-0 border-b border-adm-green/20 bg-adm-green/6 px-5 py-2.5 font-mono text-[11px] text-adm-green">
+          {notice}
+        </div>
+      )}
       {error && (
         <div className="shrink-0 border-b border-adm-red/20 bg-adm-red/6 px-5 py-2.5 font-mono text-[11px] text-adm-red">
           {error}
@@ -356,107 +380,159 @@ const RolesPage = () => {
         </span>
       </div>
 
-      {/* ── Create Role Modal ── */}
+      {/* ════ Create Role Modal ════ */}
       {showCreateModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="w-full max-w-lg rounded-lg border border-adm-border bg-adm-bg-card shadow-xl">
-            <div className="flex items-center justify-between border-b border-adm-border px-6 py-4">
-              <h2 className="text-sm font-semibold text-adm-t1">Create Role</h2>
-              <button onClick={() => setShowCreateModal(false)} className="text-adm-t3 hover:text-adm-t1">&times;</button>
-            </div>
-            <div className="space-y-4 px-6 py-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-lg overflow-hidden rounded-xl border border-adm-border bg-adm-panel shadow-xl">
+
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-adm-border bg-adm-card px-5 py-4">
               <div>
-                <label className="mb-1 block text-xs font-medium text-adm-t2">Role Code</label>
+                <p className="font-mono text-[11px] font-semibold text-adm-t1">
+                  Create Role Definition
+                </p>
+                <p className="mt-1 font-mono text-[9px] text-adm-t3">
+                  Submits an approval request. The role becomes active after approval.
+                </p>
+              </div>
+              <button
+                onClick={closeCreateModal}
+                className="rounded p-1 text-adm-t3 hover:bg-adm-hover hover:text-adm-t1"
+              >
+                <X size={15} />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="max-h-[60vh] space-y-4 overflow-y-auto px-5 py-4">
+
+              {/* Role Code */}
+              <div>
+                <p className="mb-1.5 font-mono text-[8.5px] uppercase tracking-[0.14em] text-adm-t3">
+                  Role Code
+                </p>
                 <input
-                  className="w-full rounded border border-adm-border bg-adm-bg px-3 py-2 font-mono text-xs text-adm-t1 uppercase"
                   value={createCode}
                   onChange={(e) => setCreateCode(e.target.value.toUpperCase().replace(/[^A-Z0-9_]/g, ''))}
                   placeholder="e.g. RISK_ANALYST"
+                  className="h-[32px] w-full rounded border border-adm-border bg-adm-bg px-3 font-mono text-[11px] text-adm-t1 placeholder:text-adm-t3 outline-none focus:border-adm-amber transition-colors uppercase"
                 />
               </div>
+
+              {/* Role Name */}
               <div>
-                <label className="mb-1 block text-xs font-medium text-adm-t2">Role Name</label>
+                <p className="mb-1.5 font-mono text-[8.5px] uppercase tracking-[0.14em] text-adm-t3">
+                  Role Name
+                </p>
                 <input
-                  className="w-full rounded border border-adm-border bg-adm-bg px-3 py-2 text-xs text-adm-t1"
                   value={createName}
                   onChange={(e) => setCreateName(e.target.value)}
                   placeholder="e.g. Risk Analyst"
+                  className="h-[32px] w-full rounded border border-adm-border bg-adm-bg px-3 font-mono text-[11px] text-adm-t1 placeholder:text-adm-t3 outline-none focus:border-adm-amber transition-colors"
                 />
               </div>
+
+              {/* Description */}
               <div>
-                <label className="mb-1 block text-xs font-medium text-adm-t2">Description (optional)</label>
+                <p className="mb-1.5 font-mono text-[8.5px] uppercase tracking-[0.14em] text-adm-t3">
+                  Description (optional)
+                </p>
                 <input
-                  className="w-full rounded border border-adm-border bg-adm-bg px-3 py-2 text-xs text-adm-t1"
                   value={createDescription}
                   onChange={(e) => setCreateDescription(e.target.value)}
+                  className="h-[32px] w-full rounded border border-adm-border bg-adm-bg px-3 font-mono text-[11px] text-adm-t1 placeholder:text-adm-t3 outline-none focus:border-adm-amber transition-colors"
                 />
               </div>
+
+              {/* Capabilities */}
               <div>
-                <label className="mb-1 block text-xs font-medium text-adm-t2">Capabilities</label>
-                <div className="max-h-64 overflow-y-auto rounded border border-adm-border bg-adm-bg p-2 space-y-3">
+                <p className="mb-1.5 font-mono text-[8.5px] uppercase tracking-[0.14em] text-adm-t3">
+                  Capabilities
+                </p>
+                <div className="space-y-2">
                   {actionDomains.length === 0 && (
-                    <p className="px-1 py-0.5 font-mono text-[10px] text-adm-t3">Loading…</p>
+                    <p className="font-mono text-[10px] text-adm-t3">Loading…</p>
                   )}
                   {actionDomains.map((domain) => (
                     <div key={domain.id}>
-                      <p className="flex items-center gap-1.5 px-1 py-1 font-mono text-[10px] font-semibold text-adm-t2">
+                      <p className="flex items-center gap-1.5 py-1 font-mono text-[10px] font-semibold text-adm-t2">
                         <span>{domain.icon}</span>
                         {domain.label}
                       </p>
-                      {domain.buckets.map((bucket) => (
-                        <label
-                          key={bucket.key}
-                          className="flex items-center gap-2 px-1 py-0.5 text-xs text-adm-t1"
-                          title={bucket.description}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={selectedBucketKeys.has(bucket.key)}
-                            onChange={(e) => {
-                              setSelectedBucketKeys((prev) => {
-                                const next = new Set(prev);
-                                if (e.target.checked) {
-                                  next.add(bucket.key);
-                                } else {
-                                  next.delete(bucket.key);
-                                }
-                                return next;
-                              });
-                            }}
-                          />
-                          <span className="font-mono text-[11px]">{bucket.label}</span>
-                        </label>
-                      ))}
+                      <div className="space-y-1">
+                        {domain.buckets.map((bucket) => (
+                          <label
+                            key={bucket.key}
+                            className="flex cursor-pointer gap-3 rounded border border-adm-border bg-adm-bg p-3 hover:bg-adm-card"
+                            title={bucket.description}
+                          >
+                            <input
+                              type="checkbox"
+                              className="mt-0.5"
+                              checked={selectedBucketKeys.has(bucket.key)}
+                              onChange={(e) => {
+                                setSelectedBucketKeys((prev) => {
+                                  const next = new Set(prev);
+                                  if (e.target.checked) {
+                                    next.add(bucket.key);
+                                  } else {
+                                    next.delete(bucket.key);
+                                  }
+                                  return next;
+                                });
+                              }}
+                            />
+                            <div>
+                              <p className="font-mono text-[10px] font-semibold text-adm-t1">
+                                {bucket.label}
+                              </p>
+                              <p className="mt-0.5 font-mono text-[9px] text-adm-t3">
+                                {bucket.description}
+                              </p>
+                            </div>
+                          </label>
+                        ))}
+                      </div>
                     </div>
                   ))}
                 </div>
               </div>
+
+              {/* Change Reason */}
               <div>
-                <label className="mb-1 block text-xs font-medium text-adm-t2">Change Reason</label>
+                <p className="mb-1.5 font-mono text-[8.5px] uppercase tracking-[0.14em] text-adm-t3">
+                  Change Reason
+                </p>
                 <textarea
-                  className="w-full rounded border border-adm-border bg-adm-bg px-3 py-2 text-xs text-adm-t1"
-                  rows={2}
                   value={createReason}
                   onChange={(e) => setCreateReason(e.target.value)}
+                  rows={3}
+                  placeholder="Explain why this role definition is needed."
+                  className="w-full rounded border border-adm-border bg-adm-bg px-3 py-2 font-mono text-[10px] text-adm-t2 placeholder:text-adm-t3 outline-none focus:border-adm-amber transition-colors resize-none"
                 />
               </div>
-              {createError && <p className="text-xs text-adm-red">{createError}</p>}
+
+              {createError && (
+                <div className="rounded border border-adm-red/30 bg-adm-red/10 px-3 py-2 font-mono text-[10px] text-adm-red">
+                  {createError}
+                </div>
+              )}
             </div>
-            <div className="flex justify-end gap-2 border-t border-adm-border px-6 py-3">
-              <button
-                className="rounded border border-adm-border px-4 py-1.5 text-xs text-adm-t2 hover:bg-adm-bg"
-                onClick={() => setShowCreateModal(false)}
-              >
+
+            {/* Footer */}
+            <div className="flex justify-end gap-2 border-t border-adm-border bg-adm-card px-5 py-4">
+              <button onClick={closeCreateModal} className={adminButtonClass('modalCancel')}>
                 Cancel
               </button>
               <button
-                className={adminButtonClass()}
                 onClick={() => void submitCreate()}
                 disabled={createLoading}
+                className={adminButtonClass('modalConfirm')}
               >
-                {createLoading ? 'Submitting...' : 'Submit for Approval'}
+                {createLoading ? 'Submitting…' : 'Submit Request'}
               </button>
             </div>
+
           </div>
         </div>
       )}
