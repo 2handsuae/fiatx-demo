@@ -6,11 +6,11 @@ export type CanonicalOnboardingStatus =
   | 'REJECTED'
   | 'WITHDRAWN';
 
-export type CanonicalOperatingStatus = 'INACTIVE' | 'ACTIVE';
+export type CanonicalAdminStatus = 'INACTIVE' | 'ACTIVE';
 
 export interface CustomerLifecycleSnapshot {
   onboardingStatus?: string | null;
-  operatingStatus?: string | null;
+  adminStatus?: string | null;
 }
 
 const CANONICAL_ONBOARDING_STATUSES: CanonicalOnboardingStatus[] = [
@@ -22,7 +22,7 @@ const CANONICAL_ONBOARDING_STATUSES: CanonicalOnboardingStatus[] = [
   'WITHDRAWN',
 ];
 
-const CANONICAL_OPERATING_STATUSES: CanonicalOperatingStatus[] = ['INACTIVE', 'ACTIVE'];
+const CANONICAL_ADMIN_STATUSES: CanonicalAdminStatus[] = ['INACTIVE', 'ACTIVE'];
 export const normalizeCanonicalOnboardingStatus = (
   value?: string | null,
 ): CanonicalOnboardingStatus | null => {
@@ -33,20 +33,20 @@ export const normalizeCanonicalOnboardingStatus = (
   return null;
 };
 
-export const normalizeCanonicalOperatingStatus = (
+export const normalizeCanonicalAdminStatus = (
   value?: string | null,
-): CanonicalOperatingStatus | null => {
+): CanonicalAdminStatus | null => {
   const current = String(value || '').trim().toUpperCase();
-  if (CANONICAL_OPERATING_STATUSES.includes(current as CanonicalOperatingStatus)) {
-    return current as CanonicalOperatingStatus;
+  if (CANONICAL_ADMIN_STATUSES.includes(current as CanonicalAdminStatus)) {
+    return current as CanonicalAdminStatus;
   }
   return null;
 };
 
 export const isCustomerApprovedForAccess = (source: CustomerLifecycleSnapshot): boolean => {
   const onboardingStatus = normalizeCanonicalOnboardingStatus(source.onboardingStatus);
-  const operatingStatus = normalizeCanonicalOperatingStatus(source.operatingStatus);
-  return onboardingStatus === 'APPROVED' && operatingStatus === 'ACTIVE';
+  const adminStatus = normalizeCanonicalAdminStatus(source.adminStatus);
+  return onboardingStatus === 'APPROVED' && adminStatus === 'ACTIVE';
 };
 
 export const isCustomerRejected = (source: CustomerLifecycleSnapshot): boolean => {

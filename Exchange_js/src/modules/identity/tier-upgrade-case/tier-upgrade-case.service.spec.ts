@@ -67,8 +67,8 @@ describe('TierUpgradeCaseService', () => {
       expect(mockPrisma.customerMain.update).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
-            restrictionStatus: 'RESTRICTED',
-            restrictionReason: 'tier_upgrade_pending_level2',
+            complianceStatus: 'RESTRICTED',
+            complianceFreezeReason: 'tier_upgrade_pending_level2',
           }),
         }),
       );
@@ -136,7 +136,7 @@ describe('TierUpgradeCaseService', () => {
       id: 'tuc-1', customerId: 'cust-1', sourceCraId: 'cra-1', phase2ApprovalCaseId: 'ap-1',
     };
 
-    it('APPROVED → COMPLETED: sets riskTier=HIGH, clears restriction', async () => {
+    it('APPROVED → COMPLETED: sets riskRating=HIGH, clears complianceStatus', async () => {
       mockPrisma.tierUpgradeCase.findUnique.mockResolvedValueOnce(upgradeCase);
 
       await service.handleSignoffComplete('tuc-1', { status: 'APPROVED' });
@@ -144,9 +144,9 @@ describe('TierUpgradeCaseService', () => {
       expect(mockPrisma.customerMain.update).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
-            riskTier: 'HIGH',
-            restrictionStatus: 'CLEAR',
-            restrictionReason: null,
+            riskRating: 'HIGH',
+            complianceStatus: 'CLEAR',
+            complianceFreezeReason: null,
           }),
         }),
       );
@@ -164,7 +164,7 @@ describe('TierUpgradeCaseService', () => {
         expect.objectContaining({
           data: expect.objectContaining({
             onboardingStatus: 'REJECTED',
-            operatingStatus: 'INACTIVE',
+            adminStatus: 'INACTIVE',
           }),
         }),
       );

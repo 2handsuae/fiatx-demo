@@ -20,7 +20,7 @@ import { OnboardingService } from './onboarding.service';
 import { RiskDecisionRecordsService } from '../../risk-engine/risk-decision-records.service';
 import {
   DecisionRecordQueryDto,
-  UpdateInvestorClassificationDto,
+  UpdateInvestorTierDto,
 } from './dto/onboarding.dto';
 
 @ApiTags('Admin - Onboarding')
@@ -187,15 +187,15 @@ export class OnboardingAdminController {
     return this.onboardingService.simulateCustomerExpired(id, actor.actorId, actor.actorRole);
   }
 
-  @Patch('customers/:id/investor-classification')
-  @ApiOperation({ summary: 'Override investor classification with audit reason' })
-  updateInvestorClassification(
+  @Patch('customers/:id/investor-tier')
+  @ApiOperation({ summary: 'Override investor tier with audit reason' })
+  updateInvestorTier(
     @Req() req: any,
     @Param('id') id: string,
-    @Body(new ValidationPipe({ transform: true })) body: UpdateInvestorClassificationDto,
+    @Body(new ValidationPipe({ transform: true })) body: UpdateInvestorTierDto,
   ) {
     const actor = this.getAdminActor(req);
-    return this.onboardingService.updateInvestorClassification(
+    return this.onboardingService.updateInvestorTier(
       id,
       actor.actorId,
       actor.actorRole,

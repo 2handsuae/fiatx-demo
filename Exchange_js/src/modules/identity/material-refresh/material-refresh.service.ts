@@ -117,8 +117,8 @@ export class MaterialRefreshService {
       await this.prisma.customerMain.update({
         where: { id: holding.customerId },
         data: {
-          restrictionStatus: 'RESTRICTED',
-          restrictionReason: `material_expired:${holding.materialType}`,
+          complianceStatus: 'FROZEN',
+          complianceFreezeReason: `material_expired:${holding.materialType}`,
         },
       });
     }
@@ -148,7 +148,7 @@ export class MaterialRefreshService {
       where: { id: cycle.customerId },
       data: {
         onboardingStatus: 'WITHDRAWN',
-        operatingStatus: 'INACTIVE',
+        adminStatus: 'INACTIVE',
       },
     });
 
@@ -199,7 +199,7 @@ export class MaterialRefreshService {
     }
     // Fallback: use policy windowDays (covers SELF_MANAGED + SUMSUB_MANAGED mock mode with no doc date)
     if (!newExpiresAt && materialConfig?.windowDays) {
-      const days = materialConfig.windowDays[customer.riskTier as string];
+      const days = materialConfig.windowDays[customer.riskRating as string];
       if (days) newExpiresAt = addDays(new Date(), days);
     }
 
@@ -222,14 +222,14 @@ export class MaterialRefreshService {
       },
     });
 
-    // Release restriction if this cycle caused it
+    // Release compliance freeze if this cycle caused it
     if (
-      customer.restrictionStatus === 'RESTRICTED' &&
-      customer.restrictionReason === `material_expired:${holding.materialType}`
+      customer.complianceStatus === 'FROZEN' &&
+      customer.complianceFreezeReason === `material_expired:${holding.materialType}`
     ) {
       await this.prisma.customerMain.update({
         where: { id: customer.id },
-        data: { restrictionStatus: 'CLEAR', restrictionReason: null },
+        data: { complianceStatus: 'CLEAR', complianceFreezeReason: null },
       });
     }
 
@@ -303,7 +303,7 @@ export class MaterialRefreshService {
       if (holding.managementMode !== 'SELF_MANAGED') continue;
       const config = policy.materials[holding.materialType];
       if (!config?.windowDays) continue;
-      const newWindow = config.windowDays[customer.riskTier as string];
+      const newWindow = config.windowDays[customer.riskRating as string];
       if (!newWindow) continue;
 
       const newExpiresAt = addDays(holding.verifiedAt, newWindow);
@@ -413,7 +413,7 @@ export class MaterialRefreshService {
 
       let expiresAt: Date | null = null;
       if (config.windowDays) {
-        const days = config.windowDays[customer.riskTier as string];
+        const days = config.windowDays[customer.riskRating as string];
         if (days) {
           // Demo: randomize between 30% and 90% of window for varied expiry dates
           const randomFraction = 0.3 + Math.random() * 0.6;

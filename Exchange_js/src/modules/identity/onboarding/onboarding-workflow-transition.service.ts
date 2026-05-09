@@ -15,9 +15,8 @@ import {
 import {
   buildCustomerLifecyclePatch as buildCustomerLifecycleStatePatch,
   CustomerOnboardingStatus,
-  CustomerOperatingStatus,
+  CustomerAdminStatus,
   CustomerReviewStage,
-  CustomerRestrictionStatus,
   getExpectedReviewStageFromCustomerState,
   resolveCustomerCanonicalState,
 } from '../customer-status.util';
@@ -137,8 +136,8 @@ export class OnboardingWorkflowTransitionService {
 
   private getCustomerOnboardingStatus(customer: {
     onboardingStatus?: string | null;
-    operatingStatus?: string | null;
-    restrictionStatus?: string | null;
+    adminStatus?: string | null;
+    complianceStatus?: string | null;
   }): LegacyCompatibleOnboardingStatus {
     return resolveCustomerCanonicalState(customer)
       .onboardingStatus as LegacyCompatibleOnboardingStatus;
@@ -147,15 +146,15 @@ export class OnboardingWorkflowTransitionService {
   private buildCustomerLifecyclePatch(
     customer: {
       onboardingStatus?: string | null;
-      operatingStatus?: string | null;
-      restrictionStatus?: string | null;
+      adminStatus?: string | null;
+      complianceStatus?: string | null;
       eddRequired?: boolean | null;
       cddDocumentExpiresAt?: Date | string | null;
     },
     next: {
       onboardingStatus: LegacyCompatibleOnboardingStatus;
-      operatingStatus?: CustomerOperatingStatus;
-      restrictionStatus?: CustomerRestrictionStatus;
+      adminStatus?: CustomerAdminStatus;
+      complianceStatus?: string;
       eddRequired?: boolean;
     },
   ): Prisma.CustomerMainUpdateInput {
@@ -193,8 +192,8 @@ export class OnboardingWorkflowTransitionService {
 
   private getExpectedReviewStage(customer: {
     onboardingStatus?: string | null;
-    operatingStatus?: string | null;
-    restrictionStatus?: string | null;
+    adminStatus?: string | null;
+    complianceStatus?: string | null;
   }): CustomerReviewStage | null {
     return getExpectedReviewStageFromCustomerState(customer);
   }
@@ -529,7 +528,7 @@ export class OnboardingWorkflowTransitionService {
           ...customerUpdateData,
           ...this.buildCustomerLifecyclePatch(customer, {
             onboardingStatus: 'APPROVED',
-            operatingStatus: 'ACTIVE',
+            adminStatus: 'ACTIVE',
             eddRequired: false,
           }),
           ...this.buildLatestRiskApprovalBindingPatch(null),
@@ -544,7 +543,7 @@ export class OnboardingWorkflowTransitionService {
           ...customerUpdateData,
           ...this.buildCustomerLifecyclePatch(customer, {
             onboardingStatus: 'REJECTED',
-            operatingStatus: 'INACTIVE',
+            adminStatus: 'INACTIVE',
             eddRequired: false,
           }),
           ...this.buildLatestRiskApprovalBindingPatch(null),
@@ -563,7 +562,7 @@ export class OnboardingWorkflowTransitionService {
           ...customerUpdateData,
           ...this.buildCustomerLifecyclePatch(customer, {
             onboardingStatus: 'PENDING_EDD_INPUT',
-            operatingStatus: 'INACTIVE',
+            adminStatus: 'INACTIVE',
             eddRequired: true,
           }),
           ...this.buildLatestRiskApprovalBindingPatch(null),
@@ -607,7 +606,7 @@ export class OnboardingWorkflowTransitionService {
             customer: {
               ...customer,
               onboardingStatus: 'FINAL_APPROVAL',
-              operatingStatus: 'INACTIVE',
+              adminStatus: 'INACTIVE',
               eddRequired: true,
             },
             actorId: input.actorId,
@@ -621,7 +620,7 @@ export class OnboardingWorkflowTransitionService {
           ...customerUpdateData,
           ...this.buildCustomerLifecyclePatch(customer, {
             onboardingStatus: 'FINAL_APPROVAL',
-            operatingStatus: 'INACTIVE',
+            adminStatus: 'INACTIVE',
             eddRequired: true,
           }),
           ...this.buildLatestRiskApprovalBindingPatch(
@@ -636,7 +635,7 @@ export class OnboardingWorkflowTransitionService {
           ...customerUpdateData,
           ...this.buildCustomerLifecyclePatch(customer, {
             onboardingStatus: 'REJECTED',
-            operatingStatus: 'INACTIVE',
+            adminStatus: 'INACTIVE',
             eddRequired: true,
           }),
           ...this.buildLatestRiskApprovalBindingPatch(null),

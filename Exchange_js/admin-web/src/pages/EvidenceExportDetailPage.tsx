@@ -232,7 +232,7 @@ const EvidenceExportDetailPage = () => {
     setLoading(true); setError('');
     try {
       const payload = await fetchJson<EvidenceExportDetail>(
-        `${import.meta.env.VITE_API_URL}/admin/audit-logs/evidence-packages/${id}`,
+        `${import.meta.env.VITE_API_URL}/admin/audit/evidence-packages/${id}`,
       );
       setDetail(payload);
     } catch (e: unknown) {
@@ -268,7 +268,7 @@ const EvidenceExportDetailPage = () => {
     setDownloading(true); setError('');
     try {
       const data = await fetchJson<DownloadResponse>(
-        `${import.meta.env.VITE_API_URL}/admin/audit-logs/evidence-packages/${id}/download`,
+        `${import.meta.env.VITE_API_URL}/admin/audit/evidence-packages/${id}/download`,
       );
       if (downloadSeqRef.current !== seq) return;
       const blob = new Blob([JSON.stringify(data.content, null, 2)], { type: 'application/json' });

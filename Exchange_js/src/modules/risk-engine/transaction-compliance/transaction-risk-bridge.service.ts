@@ -536,8 +536,8 @@ export class TransactionRiskBridgeService {
           select: {
             id: true,
             customerNo: true,
-            amlRiskTier: true,
-            investorClassification: true,
+            riskRating: true,
+            investorTier: true,
           },
         },
       },
@@ -603,8 +603,8 @@ export class TransactionRiskBridgeService {
       feeCurrency?: string | null;
       exchangeRate?: Prisma.Decimal | null;
       customer?: {
-        amlRiskTier?: string | null;
-        investorClassification?: string | null;
+        riskRating?: string | null;
+        investorTier?: string | null;
       } | null;
     };
   }): Record<string, unknown> {
@@ -624,8 +624,8 @@ export class TransactionRiskBridgeService {
       feeAmount: input.swap.feeAmount?.toString?.() || '0',
       feeCurrency: input.swap.feeCurrency || null,
       exchangeRate: input.swap.exchangeRate?.toString?.() || null,
-      customerAmlRiskTier: input.swap.customer?.amlRiskTier || 'LOW',
-      investorClassification: input.swap.customer?.investorClassification || null,
+      customerRiskRating: input.swap.customer?.riskRating || 'LOW',
+      investorTier: input.swap.customer?.investorTier || null,
       triggerStage: TRANSACTION_REVIEW_STAGES.REVIEW_SWAP_FINAL,
       simulationMode: 'MANUAL_PENDING',
     };
@@ -761,8 +761,8 @@ export class TransactionRiskBridgeService {
       feeCurrency?: string | null;
       exchangeRate?: Prisma.Decimal | null;
       customer?: {
-        amlRiskTier?: string | null;
-        investorClassification?: string | null;
+        riskRating?: string | null;
+        investorTier?: string | null;
       } | null;
     };
     riskProfile: SwapSimulationRiskProfile;
@@ -782,9 +782,9 @@ export class TransactionRiskBridgeService {
       feeAmount: input.swap.feeAmount?.toString?.() || '0',
       feeCurrency: input.swap.feeCurrency || null,
       exchangeRate: input.swap.exchangeRate?.toString?.() || null,
-      customerAmlRiskTier: input.swap.customer?.amlRiskTier || 'LOW',
-      investorClassification:
-        input.swap.customer?.investorClassification || null,
+      customerRiskRating: input.swap.customer?.riskRating || 'LOW',
+      investorTier:
+        input.swap.customer?.investorTier || null,
       triggerStage: TRANSACTION_REVIEW_STAGES.REVIEW_SWAP_FINAL,
       riskBand: input.riskProfile.riskLevel,
       riskReason: input.riskProfile.riskReason,

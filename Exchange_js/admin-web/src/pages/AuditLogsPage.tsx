@@ -200,7 +200,7 @@ const AuditLogsPage = () => {
       if (filters.traceId.trim()) payload.traceId = filters.traceId.trim();
 
       const response = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/audit-logs/export/evidence-package`,
+        `${import.meta.env.VITE_API_URL}/admin/audit/evidence-packages`,
         {
           method: 'POST',
           headers: {

@@ -123,14 +123,14 @@ describe('ClientRiskAssessmentService', () => {
     };
 
     const customerHigh = {
-      id: 'cust-1', riskTier: 'HIGH', sumsubApplicantId: 'sub-1',
-      pepStatus: 'NONE', complianceHoldStatus: null,
+      id: 'cust-1', riskRating: 'HIGH', sumsubApplicantId: 'sub-1',
+      pepStatus: 'NONE', complianceStatus: null,
       sumsubCurrentLevelName: 'wave3-level-2',
     };
 
     const customerLow = {
-      id: 'cust-1', riskTier: 'LOW', sumsubApplicantId: null,
-      pepStatus: 'NONE', complianceHoldStatus: null,
+      id: 'cust-1', riskRating: 'LOW', sumsubApplicantId: null,
+      pepStatus: 'NONE', complianceStatus: null,
       sumsubCurrentLevelName: 'wave3-level-1',
     };
 
@@ -245,8 +245,8 @@ describe('ClientRiskAssessmentService', () => {
         ...assessment, resultingRiskTier: 'LOW', status: 'SIGNED',
       });
       prisma.customerMain.findUnique.mockResolvedValueOnce({
-        id: 'cust-1', riskTier: 'LOW', complianceHoldStatus: null,
-        restrictionReason: null, sumsubApplicantId: null,
+        id: 'cust-1', riskRating: 'LOW', complianceStatus: null,
+        sumsubApplicantId: null,
       });
 
       await service.handleSignoffComplete('cra-1', { status: 'REJECTED' });
@@ -274,8 +274,8 @@ describe('ClientRiskAssessmentService', () => {
       // postSignoffCascade fetches
       prisma.clientRiskAssessment.findUnique.mockResolvedValueOnce(assessment);
       prisma.customerMain.findUnique.mockResolvedValueOnce({
-        id: 'cust-1', riskTier: 'HIGH', complianceHoldStatus: null,
-        restrictionReason: null, sumsubApplicantId: null,
+        id: 'cust-1', riskRating: 'HIGH', complianceStatus: null,
+        sumsubApplicantId: null,
         sumsubCurrentLevelName: 'wave3-level-2',
       });
 
@@ -297,8 +297,8 @@ describe('ClientRiskAssessmentService', () => {
         previousRiskTier: 'LOW', status: 'PENDING_SUMSUB_RESULT',
       };
       const customer = {
-        id: 'cust-1', riskTier: 'LOW', sumsubApplicantId: 'sub-1',
-        pepStatus: 'NONE', complianceHoldStatus: 'CLEAR', restrictionReason: null,
+        id: 'cust-1', riskRating: 'LOW', sumsubApplicantId: 'sub-1',
+        pepStatus: 'NONE', complianceStatus: 'CLEAR',
         sumsubCurrentLevelName: 'wave3-level-1', sumsubExperiencedLevel2: false,
       };
 
@@ -316,7 +316,7 @@ describe('ClientRiskAssessmentService', () => {
 
       expect(prisma.customerMain.update).toHaveBeenCalledWith(
         expect.objectContaining({
-          data: expect.objectContaining({ complianceHoldStatus: 'FROZEN' }),
+          data: expect.objectContaining({ complianceStatus: 'FROZEN' }),
         }),
       );
       expect(prisma.clientRiskAssessment.update).toHaveBeenCalledWith(

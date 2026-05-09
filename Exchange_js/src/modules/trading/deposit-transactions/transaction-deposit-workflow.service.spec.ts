@@ -122,7 +122,7 @@ describe('TransactionDepositWorkflowService', () => {
     depositTransactionsServiceMock.updateStatus.mockRejectedValue(
       new BadRequestException({
         code: 'DEPOSIT_RELEASE_BLOCKED',
-        blockedReason: 'restrictionStatus=RESTRICTED (expected CLEAR)',
+        blockedReason: 'complianceStatus=FROZEN (expected CLEAR)',
       }),
     );
 
@@ -136,7 +136,7 @@ describe('TransactionDepositWorkflowService', () => {
 
     expect(result.applied).toBe(false);
     expect(result.blocked).toBe(true);
-    expect(result.blockedReason).toContain('restrictionStatus=RESTRICTED');
+    expect(result.blockedReason).toContain('complianceStatus=FROZEN');
     expect(result.transitionCode).toBe('TX_DEPOSIT_RELEASE_BLOCKED');
   });
 

@@ -172,13 +172,12 @@ const DashboardLayout = () => {
           icon: <FileText size={13} />,
           requiredPermissions: [PERMISSIONS.AUDIT_LOGS_READ],
         },
-        // Hidden: objectSnapshot on approval replaces direct navigation
-        // {
-        //   path: '/dashboard/audit/evidence-exports',
-        //   label: 'Evidence Packages',
-        //   icon: <Layers size={13} />,
-        //   requiredPermissions: [PERMISSIONS.AUDIT_EVIDENCE_EXPORTS_READ],
-        // },
+        {
+          path: '/dashboard/audit/evidence-exports',
+          label: 'Evidence Packages',
+          icon: <Layers size={13} />,
+          requiredPermissions: [PERMISSIONS.AUDIT_EVIDENCE_EXPORTS_READ],
+        },
       ],
     },
     // ─── Customer Management ──────────────────────────────────────

@@ -169,8 +169,8 @@ describe('OnboardingFinalApprovalService', () => {
       id: 'c1',
       customerNo: 'CU0001',
       onboardingStatus: 'FINAL_APPROVAL',
-      operatingStatus: 'INACTIVE',
-      restrictionStatus: 'CLEAR',
+      adminStatus: 'INACTIVE',
+      complianceStatus: 'CLEAR',
       eddRequired: true,
       latestRiskApprovalId: 'approval-1',
       latestRiskApprovalStatus: ApprovalStatuses.PENDING,
@@ -209,8 +209,8 @@ describe('OnboardingFinalApprovalService', () => {
       id: 'c1',
       customerNo: 'CU0001',
       onboardingStatus: 'FINAL_APPROVAL',
-      operatingStatus: 'INACTIVE',
-      restrictionStatus: 'CLEAR',
+      adminStatus: 'INACTIVE',
+      complianceStatus: 'CLEAR',
       eddRequired: true,
       latestRiskApprovalId: 'approval-1',
       latestRiskApprovalStatus: ApprovalStatuses.PENDING,
@@ -218,7 +218,7 @@ describe('OnboardingFinalApprovalService', () => {
     prisma.customerMain.update.mockResolvedValue({
       id: 'c1',
       onboardingStatus: 'APPROVED',
-      operatingStatus: 'ACTIVE',
+      adminStatus: 'ACTIVE',
       latestRiskApprovalStatus: ApprovalStatuses.APPROVED,
     });
 
@@ -239,9 +239,9 @@ describe('OnboardingFinalApprovalService', () => {
       expect.objectContaining({
         data: expect.objectContaining({
           onboardingStatus: 'APPROVED',
-          operatingStatus: 'ACTIVE',
+          adminStatus: 'ACTIVE',
           latestRiskApprovalStatus: ApprovalStatuses.APPROVED,
-          restrictionStatus: 'CLEAR',
+          complianceStatus: 'CLEAR',
         }),
       }),
     );

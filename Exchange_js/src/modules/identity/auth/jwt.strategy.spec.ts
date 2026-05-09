@@ -64,7 +64,7 @@ describe('JwtStrategy', () => {
   it('should reject customer token when compliance hold is frozen', async () => {
     prismaMock.customerMain.findUnique.mockResolvedValue({
       id: 'c1',
-      complianceHoldStatus: 'FROZEN',
+      complianceStatus: 'FROZEN',
     });
 
     await expect(
@@ -81,8 +81,7 @@ describe('JwtStrategy', () => {
   it('should allow customer token when restriction is present but hold is active', async () => {
     prismaMock.customerMain.findUnique.mockResolvedValue({
       id: 'c1',
-      complianceHoldStatus: 'ACTIVE',
-      restrictionStatus: 'RESTRICTED',
+      complianceStatus: 'CLEAR',
     });
 
     await expect(
@@ -103,11 +102,10 @@ describe('JwtStrategy', () => {
     });
   });
 
-  it('should allow customer token when customer is restricted but not frozen', async () => {
+  it('should allow customer token when complianceStatus is CLEAR', async () => {
     prismaMock.customerMain.findUnique.mockResolvedValue({
       id: 'c1',
-      complianceHoldStatus: 'ACTIVE',
-      restrictionStatus: 'RESTRICTED',
+      complianceStatus: 'CLEAR',
     });
 
     await expect(

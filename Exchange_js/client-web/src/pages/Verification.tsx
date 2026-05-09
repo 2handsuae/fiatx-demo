@@ -53,14 +53,14 @@ interface OnboardingSnapshot {
   customerType: 'INDIVIDUAL' | 'CORPORATE' | 'UNKNOWN';
   companyName?: string | null;
   onboardingStatus?: string;
-  operatingStatus?: string;
-  restrictionStatus?: string;
+  adminStatus?: string;
+  restrictions?: string[];
   actions?: OnboardingAction[];
   blockedReason?: string | null;
-  amlRiskTier: string;
+  riskRating: string;
   eddRequired: boolean;
   cddDocumentExpiresAt?: string | null;
-  investorClassification?: string | null;
+  investorTier?: string | null;
   corporateProfile?: {
     companyName?: string;
     registrationNo?: string;
@@ -72,11 +72,9 @@ interface OnboardingSnapshot {
 
 interface PeriodicReviewSnapshot {
   activePeriodicReviewCycleId?: string | null;
-  periodicReviewOverdueAt?: string | null;
-  periodicReviewOverdueReason?: string | null;
   nextReviewAt?: string | null;
-  restrictionStatus?: string;
-  complianceHoldStatus?: string;
+  restrictions?: string[];
+  complianceStatus?: string;
   cycle?: {
     id: string;
     cycleNo: string;
@@ -215,7 +213,7 @@ const mapOnboardingToStep = (
   onboarding: OnboardingSnapshot | null,
   profile: {
     onboardingStatus?: string;
-    operatingStatus?: string;
+    adminStatus?: string;
     actions?: OnboardingAction[];
     eddRequired?: boolean;
   } | null,
@@ -819,7 +817,7 @@ const Verification = () => {
   const [casesLoading, setCasesLoading] = useState(false);
   const [complianceStatus, setComplianceStatus] = useState<{
     requiresLevel2: boolean;
-    restrictionStatus: string | null;
+    restrictions: string[] | null;
     tierUpgradeCase: { caseNo: string; status: string } | null;
   } | null>(null);
 
@@ -856,7 +854,7 @@ const Verification = () => {
   }, []);
 
   const verificationMode =
-    profile?.activePeriodicReviewCycleId || profile?.periodicReviewOverdueAt
+    profile?.activePeriodicReviewCycleId
       ? 'PERIODIC_REVIEW'
       : 'ONBOARDING';
 
@@ -980,7 +978,7 @@ const Verification = () => {
     if (profile) {
       refreshAll().catch(() => undefined);
     }
-  }, [profile?.id, profile?.activePeriodicReviewCycleId, profile?.periodicReviewOverdueAt]);
+  }, [profile?.id, profile?.activePeriodicReviewCycleId]);
 
   useEffect(() => {
     if (verificationMode !== 'PERIODIC_REVIEW') {

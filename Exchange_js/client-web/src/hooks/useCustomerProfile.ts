@@ -14,17 +14,15 @@ export interface CustomerProfileData {
   companyName?: string | null;
   customerType: string;
   onboardingStatus?: string;
-  operatingStatus?: string;
-  restrictionStatus?: string;
-  complianceHoldStatus?: string;
+  adminStatus?: string;
+  complianceStatus?: string;
+  restrictions?: string[];
   actions?: Array<{ type: string; payload?: Record<string, unknown> }>;
-  amlRiskTier: string;
+  riskRating: string;
   eddRequired: boolean;
   cddDocumentExpiresAt?: string | null;
   nextReviewAt?: string | null;
   activePeriodicReviewCycleId?: string | null;
-  periodicReviewOverdueAt?: string | null;
-  periodicReviewOverdueReason?: string | null;
   activePeriodicReviewCycle?: {
     id: string;
     cycleNo: string;
@@ -39,7 +37,7 @@ export interface CustomerProfileData {
     primaryIncidentId?: string | null;
     resolutionReason?: string | null;
   } | null;
-  investorClassification?: string | null;
+  investorTier?: string | null;
   createdAt: string;
   lastLoginAt: string | null;
 }
@@ -66,19 +64,23 @@ export const useCustomerProfile = () => {
           ...data,
           customerType: data.customerType || 'UNKNOWN',
           onboardingStatus: data.onboardingStatus || 'NONE',
-          operatingStatus: data.operatingStatus || 'INACTIVE',
-          restrictionStatus: data.restrictionStatus || 'CLEAR',
-          complianceHoldStatus: data.complianceHoldStatus || 'ACTIVE',
+          adminStatus: data.adminStatus || 'INACTIVE',
+          complianceStatus: data.complianceStatus || 'CLEAR',
+          restrictions: (() => {
+            if (Array.isArray(data.restrictions)) return data.restrictions;
+            if (typeof data.restrictions === 'string') {
+              try { return JSON.parse(data.restrictions); } catch { return []; }
+            }
+            return [];
+          })(),
           actions: Array.isArray(data.actions) ? data.actions : [],
-          amlRiskTier: data.amlRiskTier || 'LOW',
+          riskRating: data.riskRating || 'LOW',
           eddRequired: !!data.eddRequired,
           cddDocumentExpiresAt: data.cddDocumentExpiresAt || null,
           nextReviewAt: data.nextReviewAt || null,
           activePeriodicReviewCycleId: data.activePeriodicReviewCycleId || null,
-          periodicReviewOverdueAt: data.periodicReviewOverdueAt || null,
-          periodicReviewOverdueReason: data.periodicReviewOverdueReason || null,
           activePeriodicReviewCycle: data.activePeriodicReviewCycle || null,
-          investorClassification: data.investorClassification || 'RETAIL',
+          investorTier: data.investorTier || 'STANDARD',
         });
       } else {
         setError(await getCustomerApiErrorMessage(response, 'Failed to load profile'));

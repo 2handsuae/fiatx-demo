@@ -20,13 +20,13 @@ import {
 type ProfileLike = ReturnType<typeof useCustomerProfile>['profile'];
 
 function getPrimaryStatus(profile: NonNullable<ProfileLike>) {
-  const complianceHold = String(profile.complianceHoldStatus || 'ACTIVE').toUpperCase();
-  const restriction = String(profile.restrictionStatus || 'CLEAR').toUpperCase();
+  const compliance = String(profile.complianceStatus || 'CLEAR').toUpperCase();
+  const hasRestrictions = Array.isArray(profile.restrictions) && profile.restrictions.length > 0;
   const onboarding = String(profile.onboardingStatus || 'NONE').toUpperCase();
-  const operating = String(profile.operatingStatus || 'INACTIVE').toUpperCase();
-  if (complianceHold === 'FROZEN') return 'FROZEN';
-  if (restriction === 'RESTRICTED') return 'RESTRICTED';
-  if (onboarding === 'APPROVED' && operating === 'ACTIVE') return 'ACTIVE';
+  const admin = String(profile.adminStatus || 'INACTIVE').toUpperCase();
+  if (compliance === 'FROZEN') return 'FROZEN';
+  if (hasRestrictions) return 'RESTRICTED';
+  if (onboarding === 'APPROVED' && admin === 'ACTIVE') return 'ACTIVE';
   return onboarding;
 }
 
@@ -177,12 +177,9 @@ const CustomerProfile = () => {
           ? 'Verification in progress'
           : 'Trading unlocks after CDD clearance';
 
-  const periodicReviewActive = !!(
-    profile.activePeriodicReviewCycleId || profile.periodicReviewOverdueAt
-  );
+  const periodicReviewActive = !!profile.activePeriodicReviewCycleId;
   const prrStatus = String(
-    profile.activePeriodicReviewCycle?.status ||
-      (profile.periodicReviewOverdueAt ? 'OVERDUE' : ''),
+    profile.activePeriodicReviewCycle?.status || '',
   )
     .trim()
     .toUpperCase();
@@ -256,9 +253,7 @@ const CustomerProfile = () => {
                     ? 'Your periodic review CDD submission is under compliance review.'
                     : prrStatus === 'PENDING_EDD_INPUT'
                       ? 'Additional EDD information is required for your periodic review.'
-                      : profile.periodicReviewOverdueAt
-                        ? 'Periodic review is due and waiting to be triggered after current restrictions are cleared.'
-                        : 'Periodic review is active. Complete the required response to continue.'}
+                      : 'Periodic review is active. Complete the required response to continue.'}
             </p>
             <div className="mt-1.5 flex flex-wrap gap-3 font-mono text-[10px] text-fx-dust tabular-nums">
               {profile.activePeriodicReviewCycle?.cycleNo && (
@@ -311,49 +306,45 @@ const CustomerProfile = () => {
             }
           />
           <Row
-            label="Operating"
+            label="Admin status"
             value={
               <span
                 className={`inline-flex items-center gap-1.5 border px-2 py-[2px] font-mono text-[10px] uppercase tracking-[0.14em] ${statusTone(
-                  String(profile.operatingStatus || 'INACTIVE').toUpperCase(),
+                  String(profile.adminStatus || 'INACTIVE').toUpperCase(),
                 )}`}
               >
                 <span className="w-[3px] h-[3px] rounded-full bg-current" />
-                {String(profile.operatingStatus || 'INACTIVE').replace(/_/g, ' ')}
+                {String(profile.adminStatus || 'INACTIVE').replace(/_/g, ' ')}
               </span>
             }
           />
           <Row
-            label="Restriction"
+            label="Restrictions"
             value={
-              <span
-                className={`inline-flex items-center gap-1.5 border px-2 py-[2px] font-mono text-[10px] uppercase tracking-[0.14em] ${statusTone(
-                  String(profile.restrictionStatus || 'CLEAR').toUpperCase(),
-                )}`}
-              >
-                <span className="w-[3px] h-[3px] rounded-full bg-current" />
-                {String(profile.restrictionStatus || 'CLEAR').replace(/_/g, ' ')}
-              </span>
+              Array.isArray(profile.restrictions) && profile.restrictions.length > 0
+                ? profile.restrictions.join(', ')
+                : 'NONE'
             }
+            mono
           />
           <Row
-            label="Compliance hold"
+            label="Compliance status"
             value={
               <span
                 className={`inline-flex items-center gap-1.5 border px-2 py-[2px] font-mono text-[10px] uppercase tracking-[0.14em] ${statusTone(
-                  String(profile.complianceHoldStatus || 'ACTIVE').toUpperCase(),
+                  String(profile.complianceStatus || 'CLEAR').toUpperCase(),
                 )}`}
               >
                 <span className="w-[3px] h-[3px] rounded-full bg-current" />
-                {String(profile.complianceHoldStatus || 'ACTIVE').replace(/_/g, ' ')}
+                {String(profile.complianceStatus || 'CLEAR').replace(/_/g, ' ')}
               </span>
             }
           />
-          <Row label="AML risk tier" value={profile.amlRiskTier} mono />
+          <Row label="Risk rating" value={profile.riskRating} mono />
           <Row label="EDD required" value={profile.eddRequired ? 'YES' : 'NO'} mono />
           <Row
-            label="Investor classification"
-            value={profile.investorClassification || 'RETAIL'}
+            label="Investor tier"
+            value={profile.investorTier || 'STANDARD'}
           />
           <Row
             label="CDD document expires"

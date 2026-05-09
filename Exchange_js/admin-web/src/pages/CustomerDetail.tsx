@@ -67,19 +67,14 @@ interface CustomerDetailData {
   companyName?: string | null;
   customerType: string;
   onboardingStatus?: string | null;
-  operatingStatus?: string | null;
-  restrictionStatus?: string | null;
-  restrictionCaseId?: string | null;
-  restrictionReason?: string | null;
-  restrictionSetAt?: string | null;
-  restrictionReleasedAt?: string | null;
-  complianceHoldStatus?: string | null;
-  complianceHoldCaseId?: string | null;
-  complianceHoldReason?: string | null;
-  complianceHoldSetAt?: string | null;
-  complianceHoldReleasedAt?: string | null;
+  adminStatus?: string | null;
+  complianceStatus?: string | null;
+  complianceFreezeCaseId?: string | null;
+  complianceFreezeReason?: string | null;
+  complianceFreezeAt?: string | null;
+  complianceFreezeReleasedAt?: string | null;
   riskTier?: string | null;
-  amlRiskTier?: string | null;
+  riskRating?: string | null;
   eddRequired?: boolean;
   cddDocumentExpiresAt?: string | null;
   latestRiskApprovalId?: string | null;
@@ -87,12 +82,10 @@ interface CustomerDetailData {
   latestRiskApproval?: RiskApprovalSummary | null;
   nextReviewAt?: string | null;
   activePeriodicReviewCycleId?: string | null;
-  periodicReviewOverdueAt?: string | null;
-  periodicReviewOverdueReason?: string | null;
   activePeriodicReviewCycle?: PeriodicReviewCycleSummary | null;
-  investorClassification?: string | null;
-  investorClassificationSource?: string | null;
-  investorClassificationUpdatedAt?: string | null;
+  investorTier?: string | null;
+  investorTierSource?: string | null;
+  investorTierUpdatedAt?: string | null;
   createdAt: string;
   updatedAt?: string | null;
   corporateProfile?: CorporateProfile | null;
@@ -348,19 +341,14 @@ const CustomerDetail = () => {
     () => Array.isArray(detail?.uboProfiles) && (detail?.uboProfiles?.length ?? 0) > 0,
     [detail],
   );
-  const hasRestriction = useMemo(
-    () => detail?.restrictionStatus === 'RESTRICTED' || !!detail?.restrictionReason,
-    [detail],
-  );
-  const hasHold = useMemo(
-    () => detail?.complianceHoldStatus === 'FROZEN' || !!detail?.complianceHoldReason,
+  const hasComplianceFreeze = useMemo(
+    () => detail?.complianceStatus === 'FROZEN' || !!detail?.complianceFreezeReason,
     [detail],
   );
   const hasPeriodicReview = useMemo(
     () =>
       !!detail?.activePeriodicReviewCycle ||
-      !!detail?.activePeriodicReviewCycleId ||
-      !!detail?.periodicReviewOverdueAt,
+      !!detail?.activePeriodicReviewCycleId,
     [detail],
   );
   const hasRiskApproval = useMemo(
@@ -516,10 +504,8 @@ const CustomerDetail = () => {
   const isCorporate = detail.customerType === 'CORPORATE';
   const riskApprovalStatus =
     detail.latestRiskApprovalStatus || detail.latestRiskApproval?.status || null;
-  const canRestrict = detail.restrictionStatus !== 'RESTRICTED';
-  const canUnrestrict = detail.restrictionStatus === 'RESTRICTED';
-  const canFreeze = detail.complianceHoldStatus !== 'FROZEN';
-  const canUnfreeze = detail.complianceHoldStatus === 'FROZEN';
+  const canFreeze = detail.complianceStatus !== 'FROZEN';
+  const canUnfreeze = detail.complianceStatus === 'FROZEN';
 
   /* ── Render ── */
 
@@ -565,7 +551,7 @@ const CustomerDetail = () => {
             </p>
             <div className="mt-2.5 flex flex-wrap items-center gap-2">
               <AdminBadge value={detail.onboardingStatus || 'NONE'} />
-              <AdminBadge value={detail.operatingStatus || 'INACTIVE'} />
+              <AdminBadge value={detail.adminStatus || 'INACTIVE'} />
             </div>
             <div className="mt-4 border-t border-adm-border pt-4">
               <p className="font-mono text-[11px] text-adm-t2">{name}</p>
@@ -608,10 +594,9 @@ const CustomerDetail = () => {
             <div className="mt-3">
               <FieldGrid>
                 <Field label="Onboarding Status" value={detail.onboardingStatus ?? 'NONE'} />
-                <Field label="Operating Status" value={detail.operatingStatus ?? 'INACTIVE'} />
-                <Field label="Restriction Status" value={detail.restrictionStatus ?? 'CLEAR'} />
-                <Field label="Compliance Hold" value={detail.complianceHoldStatus ?? 'ACTIVE'} />
-                <Field label="Risk Tier" value={detail.riskTier || detail.amlRiskTier || undefined} />
+                <Field label="Admin Status" value={detail.adminStatus ?? 'INACTIVE'} />
+                <Field label="Compliance Status" value={detail.complianceStatus ?? 'CLEAR'} />
+                <Field label="Risk Rating" value={detail.riskTier || detail.riskRating || undefined} />
                 <Field label="EDD Required" value={detail.eddRequired ? 'YES' : 'NO'} />
                 <Field label="CDD Document Expires" value={fmt(detail.cddDocumentExpiresAt)} mono />
                 <Field label="Next Review" value={fmt(detail.nextReviewAt)} mono />
@@ -675,31 +660,16 @@ const CustomerDetail = () => {
             </section>
           )}
 
-          {/* ⑤ Restriction detail — only when applicable */}
-          {hasRestriction && (
+          {/* ⑤ Compliance Freeze detail — only when applicable */}
+          {hasComplianceFreeze && (
             <section className="px-6 py-5">
-              <Cap>Restriction</Cap>
+              <Cap>Compliance Freeze</Cap>
               <div className="mt-3">
                 <FieldGrid>
-                  <Field label="Case ID" value={detail.restrictionCaseId ?? undefined} mono />
-                  <Field label="Set At" value={fmt(detail.restrictionSetAt)} mono />
-                  <Field label="Released At" value={fmt(detail.restrictionReleasedAt)} mono />
-                  <Field label="Reason" value={detail.restrictionReason ?? undefined} full />
-                </FieldGrid>
-              </div>
-            </section>
-          )}
-
-          {/* ⑥ Compliance Hold detail — only when applicable */}
-          {hasHold && (
-            <section className="px-6 py-5">
-              <Cap>Compliance Hold</Cap>
-              <div className="mt-3">
-                <FieldGrid>
-                  <Field label="Case ID" value={detail.complianceHoldCaseId ?? undefined} mono />
-                  <Field label="Set At" value={fmt(detail.complianceHoldSetAt)} mono />
-                  <Field label="Released At" value={fmt(detail.complianceHoldReleasedAt)} mono />
-                  <Field label="Reason" value={detail.complianceHoldReason ?? undefined} full />
+                  <Field label="Case ID" value={detail.complianceFreezeCaseId ?? undefined} mono />
+                  <Field label="Frozen At" value={fmt(detail.complianceFreezeAt)} mono />
+                  <Field label="Released At" value={fmt(detail.complianceFreezeReleasedAt)} mono />
+                  <Field label="Reason" value={detail.complianceFreezeReason ?? undefined} full />
                 </FieldGrid>
               </div>
             </section>
@@ -779,16 +749,6 @@ const CustomerDetail = () => {
                     value={fmt(detail.activePeriodicReviewCycle?.triggeredAt)}
                     mono
                   />
-                  <Field
-                    label="Overdue At"
-                    value={fmt(detail.periodicReviewOverdueAt)}
-                    mono
-                  />
-                  <Field
-                    label="Overdue Reason"
-                    value={detail.periodicReviewOverdueReason ?? undefined}
-                    full
-                  />
                 </FieldGrid>
               </div>
             </section>
@@ -816,14 +776,14 @@ const CustomerDetail = () => {
 
           {/* Investor Classification */}
           <section className="px-6 py-5">
-            <Cap>Investor Classification</Cap>
+            <Cap>Investor Tier</Cap>
             <div className="mt-3">
               <FieldGrid>
-                <Field label="Classification" value={detail.investorClassification ?? 'RETAIL'} />
-                <Field label="Source" value={detail.investorClassificationSource ?? 'CDD'} />
+                <Field label="Tier" value={detail.investorTier ?? 'RETAIL'} />
+                <Field label="Source" value={detail.investorTierSource ?? 'CDD'} />
                 <Field
                   label="Updated At"
-                  value={fmt(detail.investorClassificationUpdatedAt)}
+                  value={fmt(detail.investorTierUpdatedAt)}
                   mono
                 />
               </FieldGrid>
@@ -983,22 +943,6 @@ const CustomerDetail = () => {
           <div className="border-b border-adm-border py-4">
             <Cap>Actions</Cap>
             <div className="mt-2.5 flex flex-col gap-2">
-              {canRestrict && (
-                <button
-                  onClick={() => setControlAction('RESTRICT')}
-                  className={adminButtonClass('workflowNegative')}
-                >
-                  Restrict
-                </button>
-              )}
-              {canUnrestrict && (
-                <button
-                  onClick={() => setControlAction('UNRESTRICT')}
-                  className={adminButtonClass('workflowSecondary')}
-                >
-                  Unrestrict
-                </button>
-              )}
               {canFreeze && (
                 <button
                   onClick={() => setControlAction('FREEZE')}
@@ -1034,16 +978,12 @@ const CustomerDetail = () => {
               <AdminBadge value={detail.onboardingStatus || 'NONE'} />
             </div>
             <div className="flex items-center justify-between gap-2">
-              <span className="shrink-0 font-mono text-[9px] text-adm-t3">Operating</span>
-              <AdminBadge value={detail.operatingStatus || 'INACTIVE'} />
+              <span className="shrink-0 font-mono text-[9px] text-adm-t3">Admin</span>
+              <AdminBadge value={detail.adminStatus || 'INACTIVE'} />
             </div>
             <div className="flex items-center justify-between gap-2">
-              <span className="shrink-0 font-mono text-[9px] text-adm-t3">Restriction</span>
-              <AdminBadge value={detail.restrictionStatus || 'CLEAR'} />
-            </div>
-            <div className="flex items-center justify-between gap-2">
-              <span className="shrink-0 font-mono text-[9px] text-adm-t3">Hold</span>
-              <AdminBadge value={detail.complianceHoldStatus || 'ACTIVE'} />
+              <span className="shrink-0 font-mono text-[9px] text-adm-t3">Compliance</span>
+              <AdminBadge value={detail.complianceStatus || 'CLEAR'} />
             </div>
           </SidebarGroup>
 
@@ -1065,11 +1005,11 @@ const CustomerDetail = () => {
 
           {/* Risk */}
           <SidebarGroup title="Risk">
-            <SidebarKV label="Risk Tier" value={detail.riskTier || detail.amlRiskTier} />
+            <SidebarKV label="Risk Rating" value={detail.riskTier || detail.riskRating} />
             <SidebarKV label="EDD Required" value={detail.eddRequired ? 'YES' : 'NO'} />
             <SidebarKV
-              label="Investor"
-              value={detail.investorClassification || 'RETAIL'}
+              label="Investor Tier"
+              value={detail.investorTier || 'RETAIL'}
             />
           </SidebarGroup>
 
@@ -1094,11 +1034,9 @@ const CustomerDetail = () => {
         customerNo={detail.customerNo}
         customerLabel={name}
         currentCaseId={
-          controlAction === 'UNRESTRICT'
-            ? detail.restrictionCaseId || null
-            : controlAction === 'UNFREEZE'
-              ? detail.complianceHoldCaseId || null
-              : null
+          controlAction === 'UNFREEZE'
+            ? detail.complianceFreezeCaseId || null
+            : null
         }
         onClose={() => setControlAction(null)}
         onSubmitted={async () => {

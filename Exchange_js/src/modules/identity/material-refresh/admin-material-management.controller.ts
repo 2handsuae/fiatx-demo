@@ -48,7 +48,7 @@ export class AdminMaterialManagementController {
         where,
         include: {
           customer: {
-            select: { customerNo: true, email: true, riskTier: true },
+            select: { customerNo: true, email: true, riskRating: true },
           },
           holding: {
             select: { materialType: true, status: true, expiresAt: true },
@@ -77,8 +77,8 @@ export class AdminMaterialManagementController {
             id: true,
             customerNo: true,
             email: true,
-            riskTier: true,
-            restrictionStatus: true,
+            riskRating: true,
+            complianceStatus: true,
             sumsubCurrentLevelName: true,
           },
         },
@@ -125,7 +125,7 @@ export class AdminMaterialManagementController {
             select: {
               customerNo: true,
               email: true,
-              riskTier: true,
+              riskRating: true,
               sumsubCurrentLevelName: true,
             },
           },
@@ -170,8 +170,8 @@ export class AdminMaterialManagementController {
             id: true,
             customerNo: true,
             email: true,
-            riskTier: true,
-            restrictionStatus: true,
+            riskRating: true,
+            complianceStatus: true,
             sumsubCurrentLevelName: true,
           },
         },
@@ -306,8 +306,8 @@ export class AdminMaterialManagementController {
 
     // 1. Update customer tier + level
     const updateData: any = {
-      riskTier: body.targetTier,
-      riskTierUpdatedAt: new Date(),
+      riskRating: body.targetTier,
+      riskRatingUpdatedAt: new Date(),
     };
 
     // Sync level if needed
@@ -337,7 +337,7 @@ export class AdminMaterialManagementController {
         customerId,
         triggerType: 'MLRO_MANUAL',
         policyVersion: 'simulated',
-        previousRiskTier: customer.riskTier,
+        previousRiskTier: customer.riskRating,
         resultingRiskTier: body.targetTier,
         status: 'SIGNED',
         signedBy: 'ADMIN_SIMULATION',
@@ -350,7 +350,7 @@ export class AdminMaterialManagementController {
 
     return {
       ok: true,
-      previousTier: customer.riskTier,
+      previousTier: customer.riskRating,
       newTier: body.targetTier,
       newLevel: targetLevel,
       message: `Customer tier changed to ${body.targetTier}, level synced to ${targetLevel}`,

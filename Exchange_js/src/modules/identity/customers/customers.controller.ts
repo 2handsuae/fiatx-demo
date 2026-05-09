@@ -33,7 +33,7 @@ const buildCustomerStatusWhere = (status?: string): Prisma.CustomerMainWhereInpu
     case 'ACTIVE':
       return {
         onboardingStatus: 'APPROVED',
-        operatingStatus: 'ACTIVE',
+        adminStatus: 'ACTIVE',
       };
     case 'PENDING_CDD':
     case 'REVIEW_CDD':

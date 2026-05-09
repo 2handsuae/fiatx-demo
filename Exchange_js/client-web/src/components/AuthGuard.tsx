@@ -80,7 +80,7 @@ const AuthGuard = ({ children }: AuthGuardProps) => {
   const isApproved = user ? isCustomerApprovedForAccess(user) : false;
   if (isApproved) {
     // FROZEN: only /profile is accessible
-    if (user?.complianceHoldStatus === 'FROZEN') {
+    if (user?.complianceStatus === 'FROZEN') {
       if (location.pathname !== '/profile') {
         return <Navigate to="/profile" replace />;
       }
@@ -88,7 +88,7 @@ const AuthGuard = ({ children }: AuthGuardProps) => {
     }
 
     // RESTRICTED: block core trading routes
-    if (user?.restrictionStatus === 'RESTRICTED') {
+    if (Array.isArray(user?.restrictions) && user.restrictions.length > 0) {
       const blockedPaths = ['/deposit', '/withdraw', '/swap', '/wallet/send'];
       if (blockedPaths.some((p) => location.pathname.startsWith(p))) {
         return <Navigate to="/profile" replace />;

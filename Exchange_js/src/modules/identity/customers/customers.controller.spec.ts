@@ -40,7 +40,7 @@ describe('CustomersController', () => {
           AND: expect.arrayContaining([
             expect.objectContaining({
               onboardingStatus: 'APPROVED',
-              operatingStatus: 'ACTIVE',
+              adminStatus: 'ACTIVE',
             }),
           ]),
         }),

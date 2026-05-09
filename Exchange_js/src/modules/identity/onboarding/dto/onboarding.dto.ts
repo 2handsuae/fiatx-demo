@@ -16,8 +16,8 @@ import {
 import { Type } from 'class-transformer';
 import type {
   CustomerOnboardingStatus,
-  CustomerOperatingStatus,
-  CustomerRestrictionStatus,
+  CustomerAdminStatus,
+  CustomerComplianceStatus,
 } from '../../customer-status.util';
 
 export const ONBOARDING_MOCK_DATA_TYPES = [
@@ -209,8 +209,8 @@ export class StartVerificationResponseDto extends VerificationProjectionDto {
 
 export interface StartVerificationCustomerSnapshotDto {
   onboardingStatus: CustomerOnboardingStatus;
-  operatingStatus: CustomerOperatingStatus;
-  restrictionStatus: CustomerRestrictionStatus;
+  adminStatus: CustomerAdminStatus;
+  complianceStatus: CustomerComplianceStatus;
 }
 
 export interface StartVerificationNextStepDto {
@@ -294,7 +294,7 @@ export class DecisionRecordQueryDto {
   policyVersion?: string;
 }
 
-export class UpdateInvestorClassificationDto {
+export class UpdateInvestorTierDto {
   @IsString()
   @IsIn(['RETAIL', 'QUALIFIED', 'INSTITUTIONAL'])
   classification!: 'RETAIL' | 'QUALIFIED' | 'INSTITUTIONAL';

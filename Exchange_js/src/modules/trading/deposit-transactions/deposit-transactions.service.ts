@@ -159,19 +159,14 @@ export class DepositTransactionsService {
         `onboardingStatus=${customer.onboardingStatus || 'UNKNOWN'} (expected APPROVED)`,
       );
     }
-    if (String(customer.operatingStatus || '').toUpperCase() !== 'ACTIVE') {
+    if (String(customer.adminStatus || '').toUpperCase() !== 'ACTIVE') {
       reasons.push(
-        `operatingStatus=${customer.operatingStatus || 'UNKNOWN'} (expected ACTIVE)`,
+        `adminStatus=${customer.adminStatus || 'UNKNOWN'} (expected ACTIVE)`,
       );
     }
-    if (String(customer.restrictionStatus || '').toUpperCase() !== 'CLEAR') {
+    if (String(customer.complianceStatus || '').toUpperCase() !== 'CLEAR') {
       reasons.push(
-        `restrictionStatus=${customer.restrictionStatus || 'UNKNOWN'} (expected CLEAR)`,
-      );
-    }
-    if (String(customer.complianceHoldStatus || '').toUpperCase() !== 'ACTIVE') {
-      reasons.push(
-        `complianceHoldStatus=${customer.complianceHoldStatus || 'UNKNOWN'} (expected ACTIVE)`,
+        `complianceStatus=${customer.complianceStatus || 'UNKNOWN'} (expected CLEAR)`,
       );
     }
 
@@ -214,9 +209,8 @@ export class DepositTransactionsService {
           nextStatus,
           reasons,
           onboardingStatus: customer.onboardingStatus || null,
-          operatingStatus: customer.operatingStatus || null,
-          restrictionStatus: customer.restrictionStatus || null,
-          complianceHoldStatus: customer.complianceHoldStatus || null,
+          adminStatus: customer.adminStatus || null,
+          complianceStatus: customer.complianceStatus || null,
           kytStatus: item.kytStatus || null,
           travelRuleRequired: item.travelRuleRequired ?? null,
           travelRuleStatus: item.travelRuleStatus || null,
@@ -250,9 +244,8 @@ export class DepositTransactionsService {
             lastName: true,
             email: true,
             onboardingStatus: true,
-            operatingStatus: true,
-            restrictionStatus: true,
-            complianceHoldStatus: true,
+            adminStatus: true,
+            complianceStatus: true,
           },
         },
       },
@@ -306,9 +299,8 @@ export class DepositTransactionsService {
               lastName: true,
               email: true,
               onboardingStatus: true,
-              operatingStatus: true,
-              restrictionStatus: true,
-              complianceHoldStatus: true,
+              adminStatus: true,
+              complianceStatus: true,
             },
           },
         },
@@ -346,9 +338,8 @@ export class DepositTransactionsService {
             lastName: true,
             email: true,
             onboardingStatus: true,
-            operatingStatus: true,
-            restrictionStatus: true,
-            complianceHoldStatus: true,
+            adminStatus: true,
+            complianceStatus: true,
           },
         },
         auditLogs: {

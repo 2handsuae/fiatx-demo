@@ -582,11 +582,8 @@ export class PeriodicReviewService {
       customerId: customer.id,
       customerNo: customer.customerNo,
       activePeriodicReviewCycleId: customer.activePeriodicReviewCycleId || null,
-      periodicReviewOverdueAt: customer.periodicReviewOverdueAt || null,
-      periodicReviewOverdueReason: customer.periodicReviewOverdueReason || null,
       nextReviewAt: customer.nextReviewAt || null,
-      restrictionStatus: customer.restrictionStatus,
-      complianceHoldStatus: customer.complianceHoldStatus,
+      complianceStatus: customer.complianceStatus,
       cycle,
       ...nextStep,
     };
@@ -1360,13 +1357,10 @@ export class PeriodicReviewService {
         id: true,
         customerNo: true,
         onboardingStatus: true,
-        operatingStatus: true,
-        restrictionStatus: true,
-        complianceHoldStatus: true,
+        adminStatus: true,
+        complianceStatus: true,
         activePeriodicReviewCycleId: true,
         nextReviewAt: true,
-        periodicReviewOverdueAt: true,
-        periodicReviewOverdueReason: true,
       },
     });
     if (!customer) {
@@ -1374,7 +1368,7 @@ export class PeriodicReviewService {
     }
     if (
       String(customer.onboardingStatus || '').trim().toUpperCase() !== 'APPROVED' ||
-      String(customer.operatingStatus || '').trim().toUpperCase() !== 'ACTIVE'
+      String(customer.adminStatus || '').trim().toUpperCase() !== 'ACTIVE'
     ) {
       throw new ConflictException('Periodic review trigger requires customer APPROVED + ACTIVE.');
     }
@@ -1391,24 +1385,7 @@ export class PeriodicReviewService {
     }
 
     const now = new Date();
-    if (String(customer.restrictionStatus || '').trim().toUpperCase() === 'RESTRICTED') {
-      await this.prisma.customerMain.update({
-        where: { id: customerId },
-        data: {
-          periodicReviewOverdueAt: customer.periodicReviewOverdueAt || now,
-          periodicReviewOverdueReason: 'EXISTING_RESTRICTION',
-        },
-      });
-      return { blocked: true, reason: 'EXISTING_RESTRICTION' as const, customer };
-    }
-    if (String(customer.complianceHoldStatus || '').trim().toUpperCase() === 'FROZEN') {
-      await this.prisma.customerMain.update({
-        where: { id: customerId },
-        data: {
-          periodicReviewOverdueAt: customer.periodicReviewOverdueAt || now,
-          periodicReviewOverdueReason: 'EXISTING_FREEZE',
-        },
-      });
+    if (String(customer.complianceStatus || '').trim().toUpperCase() === 'FROZEN') {
       return { blocked: true, reason: 'EXISTING_FREEZE' as const, customer };
     }
 
@@ -1450,8 +1427,6 @@ export class PeriodicReviewService {
         where: { id: customer.id },
         data: {
           ...this.buildCustomerActiveCyclePatch(cycle.id),
-          periodicReviewOverdueAt: null,
-          periodicReviewOverdueReason: null,
         },
       });
 
@@ -1499,7 +1474,7 @@ export class PeriodicReviewService {
     const customers = await this.prisma.customerMain.findMany({
       where: {
         onboardingStatus: 'APPROVED',
-        operatingStatus: 'ACTIVE',
+        adminStatus: 'ACTIVE',
         activePeriodicReviewCycleId: null,
         nextReviewAt: {
           lte: now,

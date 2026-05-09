@@ -46,7 +46,7 @@ interface MaterialHoldingDetail {
     customerNo: string;
     email: string;
     riskTier: string;
-    restrictionStatus?: string | null;
+    complianceStatus?: string | null;
     sumsubCurrentLevelName?: string | null;
   };
 }
@@ -336,9 +336,9 @@ const MaterialHoldingDetailPage = () => {
             <div className="mt-2.5 flex flex-wrap items-center gap-2">
               <AdminBadge value={detail.status} />
               <AdminBadge value={detail.customer.riskTier} />
-              {detail.customer.restrictionStatus &&
-                detail.customer.restrictionStatus !== 'CLEAR' && (
-                  <AdminBadge value={detail.customer.restrictionStatus} />
+              {detail.customer.complianceStatus &&
+                detail.customer.complianceStatus !== 'CLEAR' && (
+                  <AdminBadge value={detail.customer.complianceStatus} />
                 )}
             </div>
             <p className="mt-3 font-mono text-[11px] text-adm-t3">
@@ -498,11 +498,11 @@ const MaterialHoldingDetailPage = () => {
             <SidebarKV label="Email" value={detail.customer.email} mono />
             <SidebarKV label="Risk Tier" value={detail.customer.riskTier} />
             <SidebarKV
-              label="Restriction"
+              label="Compliance"
               value={
-                detail.customer.restrictionStatus &&
-                detail.customer.restrictionStatus !== 'CLEAR'
-                  ? detail.customer.restrictionStatus
+                detail.customer.complianceStatus &&
+                detail.customer.complianceStatus !== 'CLEAR'
+                  ? detail.customer.complianceStatus
                   : null
               }
             />

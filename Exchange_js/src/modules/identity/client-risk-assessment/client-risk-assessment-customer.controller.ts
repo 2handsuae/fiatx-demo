@@ -22,11 +22,9 @@ export class ClientRiskAssessmentCustomerController {
       where: { id: customerId },
       select: {
         customerNo: true,
-        riskTier: true,
-        operatingStatus: true,
-        restrictionStatus: true,
-        restrictionReason: true,
-        complianceHoldStatus: true,
+        riskRating: true,
+        adminStatus: true,
+        complianceStatus: true,
         sumsubCurrentLevelName: true,
         sumsubApplicantId: true,
       },
@@ -49,16 +47,13 @@ export class ClientRiskAssessmentCustomerController {
     });
 
     return {
-      riskTier: customer.riskTier,
-      operatingStatus: customer.operatingStatus,
-      restrictionStatus: customer.restrictionStatus,
-      restrictionReason: customer.restrictionReason,
-      complianceHoldStatus: customer.complianceHoldStatus,
+      riskRating: customer.riskRating,
+      adminStatus: customer.adminStatus,
+      complianceStatus: customer.complianceStatus,
       sumsubLevel: customer.sumsubCurrentLevelName,
       activeCra: activeCra ?? null,
       tierUpgradeCase: tierUpgradeCase ?? null,
       requiresLevel2:
-        customer.restrictionStatus === 'RESTRICTED' &&
         tierUpgradeCase?.status === 'PENDING_LEVEL2',
     };
   }
@@ -69,11 +64,11 @@ export class ClientRiskAssessmentCustomerController {
     const customerId = req.user?.sub;
     const customer = await this.prisma.customerMain.findUnique({
       where: { id: customerId },
-      select: { sumsubApplicantId: true, restrictionStatus: true, restrictionReason: true },
+      select: { sumsubApplicantId: true },
     });
 
-    if (customer?.restrictionStatus !== 'RESTRICTED') {
-      throw new BadRequestException('Customer is not RESTRICTED — Level 2 not required');
+    if (!customer) {
+      throw new BadRequestException('Customer not found');
     }
     if (!customer?.sumsubApplicantId) {
       throw new BadRequestException('No Sumsub applicant ID');

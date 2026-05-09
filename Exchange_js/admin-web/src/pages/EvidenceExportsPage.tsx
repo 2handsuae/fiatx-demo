@@ -97,7 +97,7 @@ const EvidenceExportsPage = () => {
       if (status) params.set('status', status);
 
       const res = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/audit-logs/evidence-packages?${params.toString()}`,
+        `${import.meta.env.VITE_API_URL}/admin/audit/evidence-packages?${params.toString()}`,
       );
       if (!res.ok) throw new Error(await getApiErrorMessage(res, 'Failed to load evidence packages.'));
 
@@ -132,7 +132,7 @@ const EvidenceExportsPage = () => {
     setError(null);
     try {
       const res = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/audit-logs/evidence-packages/${item.id}/download`,
+        `${import.meta.env.VITE_API_URL}/admin/audit/evidence-packages/${item.id}/download`,
       );
       if (!res.ok) throw new Error(await getApiErrorMessage(res, 'Download failed.'));
 

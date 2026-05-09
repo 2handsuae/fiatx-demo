@@ -1298,7 +1298,7 @@ export class PricingCenterService {
       select: {
         id: true,
         customerNo: true,
-        investorClassification: true,
+        investorTier: true,
       },
     });
 
@@ -1308,25 +1308,25 @@ export class PricingCenterService {
 
     const blockedInvestorClassifications = (
       pair.restrictions?.blockedInvestorClassifications || []
-    ).map((item) => String(item || '').trim().toUpperCase());
-    const investorClassification = String(
-      customer.investorClassification || '',
+    ).map((item: any) => String(item || '').trim().toUpperCase());
+    const investorTier = String(
+      customer.investorTier || '',
     )
       .trim()
       .toUpperCase();
 
     if (
       blockedInvestorClassifications.length > 0 &&
-      blockedInvestorClassifications.includes(investorClassification)
+      blockedInvestorClassifications.includes(investorTier)
     ) {
       return {
         restrictionCode: 'INVESTOR_CLASSIFICATION_BLOCKED',
-        reason: `Investor classification ${investorClassification} is blocked for this swap pair`,
+        reason: `Investor tier ${investorTier} is blocked for this swap pair`,
         metadata: {
           policyRef,
           pairId: pair.id,
           pairName: pair.name,
-          investorClassification,
+          investorTier,
           blockedInvestorClassifications,
           customerId: customer.id,
           customerNo: customer.customerNo,

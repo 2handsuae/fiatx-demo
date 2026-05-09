@@ -179,78 +179,87 @@ model AdminRoleChangeRequest {
 }
 
 model CustomerMain {
-  id                              String    @id @default(uuid())
-  customerNo                      String    @unique @default("TEMP")
-  email                           String?   @unique
-  phone                           String?   @unique
-  emailVerifiedAt                 DateTime?
-  phoneVerifiedAt                 DateTime?
-  firstName                       String?
-  lastName                        String?
-  companyName                     String?
-  passwordHash                    String?
-  passwordUpdatedAt               DateTime?
-  riskScore                       Int?
-  riskLevel                       String?
-  riskUpdatedAt                   DateTime?
-  failedLoginCount                Int       @default(0)
-  lockedUntil                     DateTime?
-  lastLoginAt                     DateTime?
-  lastLoginIp                     String?
-  locale                          String?
-  timezone                        String?
-  termsAcceptedAt                 DateTime?
-  customerType                    String    @default("UNKNOWN") // INDIVIDUAL, CORPORATE(legacy disabled in current onboarding)
-  onboardingStatus                String    @default("NONE") // NONE, PENDING_VERIFICATION, FINAL_APPROVAL, APPROVED, REJECTED, WITHDRAWN
-  verificationProvider            String?
-  verificationSubstatus           String?
+  // ═══ 身份 ═══
+  id              String    @id @default(uuid())
+  customerNo      String    @unique @default("TEMP")
+  customerType    String    @default("INDIVIDUAL")
+  email           String?   @unique
+  phone           String?   @unique
+  emailVerifiedAt DateTime?
+  phoneVerifiedAt DateTime?
+  firstName       String?
+  lastName        String?
+  companyName     String?
+
+  // ═══ 认证 / 安全 ═══
+  passwordHash      String?
+  passwordUpdatedAt DateTime?
+  failedLoginCount  Int       @default(0)
+  lockedUntil       DateTime?
+  lastLoginAt       DateTime?
+  lastLoginIp       String?
+  locale            String?
+  timezone          String?
+  termsAcceptedAt   DateTime?
+
+  // ═══ 状态轴 1：准入旅程 ═══
+  onboardingStatus  String    @default("NONE")
+  onboardingTraceId String?
+
+  // ═══ 状态轴 2：行政生命周期 ═══
+  adminStatus       String    @default("INACTIVE")
+  suspendedReason   String?
+  suspendedAt       DateTime?
+
+  // ═══ 状态轴 3：合规冻结 ═══
+  complianceStatus           String    @default("CLEAR")
+  complianceFreezeReason     String?
+  complianceFreezeCaseId     String?
+  complianceFreezeAt         DateTime?
+  complianceFreezeReleasedAt DateTime?
+
+  // ═══ 细粒度限制 ═══
+  restrictions String @default("[]")
+
+  // ═══ 产品属性 ═══
+  investorTier          String    @default("STANDARD")
+  investorTierSource    String    @default("ONBOARDING")
+  investorTierUpdatedAt DateTime?
+
+  // ═══ 合规属性 ═══
+  riskRating          String    @default("LOW")
+  riskRatingUpdatedAt DateTime?
+  eddRequired         Boolean   @default(false)
+  pepStatus           String    @default("NONE")
+  pepConfirmedAt      DateTime?
+  cddDocumentExpiresAt DateTime?
+
+  // ═══ Sumsub 集成 ═══
+  sumsubApplicantId                  String?   @unique
+  sumsubCurrentLevelName             String?
+  sumsubLatestReviewId               String?
+  sumsubLatestAttemptId              String?
+  sumsubExperiencedLevel2            Boolean   @default(false)
+  verificationProvider               String?
+  verificationSubstatus              String?
   verificationCustomerActionRequired Boolean   @default(false)
-  verificationCanContinue         Boolean   @default(false)
-  verificationLatestEventType     String?
-  verificationLatestEventAt       DateTime?
-  sumsubApplicantId               String?   @unique
-  sumsubCurrentLevelName          String?
-  sumsubLatestReviewId            String?
-  sumsubLatestAttemptId           String?
-  sumsubExperiencedLevel2         Boolean   @default(false)
-  onboardingTraceId               String?
-  operatingStatus                 String    @default("INACTIVE") // INACTIVE, ACTIVE
-  restrictionStatus               String    @default("CLEAR") // CLEAR, RESTRICTED
-  restrictionCaseId               String?
-  restrictionReason               String?
-  restrictionSetAt                DateTime?
-  restrictionReleasedAt           DateTime?
-  amlRiskTier                     String    @default("LOW") // LOW, MEDIUM, HIGH
-  eddRequired                     Boolean   @default(false)
-  complianceHoldStatus            String    @default("ACTIVE") // ACTIVE, FROZEN
-  complianceHoldCaseId            String?
-  complianceHoldReason            String?
-  complianceHoldSetAt             DateTime?
-  complianceHoldReleasedAt        DateTime?
-  cddDocumentExpiresAt            DateTime?
-  // ─── renamed 2026-04-09 Wave 3 ─────────────────
-  latestRiskApprovalId            String?   @unique
-  latestRiskApprovalStatus        String?
+  verificationCanContinue            Boolean   @default(false)
+  verificationLatestEventType        String?
+  verificationLatestEventAt          DateTime?
 
-  // ─── Wave 3 new ──────────────────────────────
-  riskTier                        String    @default("LOW")
-  riskTierUpdatedAt               DateTime?
-  pepStatus                       String    @default("NONE")
-  pepConfirmedAt                  DateTime?
-  latestRiskAssessmentId          String?
+  // ═══ 工作流指针 ═══
+  latestRiskApprovalId        String?   @unique
+  latestRiskApprovalStatus    String?
+  latestRiskAssessmentId      String?
+  latestDecisionRecordId      String?
+  activePeriodicReviewCycleId String?   @unique
+  nextReviewAt                DateTime?
 
-  nextReviewAt                    DateTime?
-  activePeriodicReviewCycleId     String?   @unique
-  periodicReviewOverdueAt         DateTime?
-  periodicReviewOverdueReason     String?
-  latestDecisionRecordId          String?
-  investorClassification          String    @default("RETAIL") // RETAIL, QUALIFIED, INSTITUTIONAL
-  investorClassificationSource    String    @default("CDD") // CDD, ADMIN_OVERRIDE
-  investorClassificationUpdatedAt DateTime?
-  createdAt                       DateTime  @default(now())
-  updatedAt                       DateTime  @updatedAt
+  // ═══ 时间戳 ═══
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  // Relations
+  // ═══ Relations ═══
   depositTransactions       DepositTransaction[]
   swapTransactions          SwapTransaction[]
   withdrawTransactions      WithdrawTransaction[]
@@ -274,8 +283,9 @@ model CustomerMain {
   riskAssessments           ClientRiskAssessment[]   @relation("CustomerRiskAssessments")
   tierUpgradeCases          TierUpgradeCase[]        @relation("CustomerTierUpgradeCases")
 
-  @@index([complianceHoldStatus])
-  @@index([latestRiskApprovalStatus])
+  @@index([adminStatus])
+  @@index([complianceStatus])
+  @@index([riskRating])
   @@index([activePeriodicReviewCycleId])
   @@map("customer_main")
 }

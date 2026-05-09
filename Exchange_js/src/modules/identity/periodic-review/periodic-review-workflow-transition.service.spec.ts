@@ -24,9 +24,9 @@ describe('PeriodicReviewWorkflowTransitionService', () => {
     txMock.customerMain.findUnique.mockResolvedValue({
       id: 'c1',
       onboardingStatus: 'APPROVED',
-      operatingStatus: 'ACTIVE',
-      restrictionStatus: 'RESTRICTED',
-      restrictionCaseId: 'case-1',
+      adminStatus: 'ACTIVE',
+      complianceStatus: 'FROZEN',
+      complianceFreezeCaseId: 'case-1',
       activePeriodicReviewCycleId: 'cycle-1',
       latestDecisionRecordId: 'dr-1',
       latestRiskApprovalId: 'approval-1',
