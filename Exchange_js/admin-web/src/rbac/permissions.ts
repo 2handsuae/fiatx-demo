@@ -162,7 +162,7 @@ export const PERMISSIONS = {
 
   IAM_ROLE_DEFINITIONS_CREATE: 'api.post.admin_iam_role_definitions',
   IAM_ROLE_DEFINITIONS_PERMISSION_GROUPS: 'api.get.admin_iam_role_definitions_permission_groups',
-  IAM_ROLE_DEFINITIONS_MODIFY: 'api.post.admin_iam_role_definitions_id_modify',
+  IAM_ROLE_DEFINITIONS_MODIFY: 'api.post.admin_iam_role_definitions_roleid_modify',
   IAM_ROLE_DEFINITION_MODIFY_REQUESTS_READ: 'api.get.admin_iam_role_definition_modify_requests',
   IAM_ROLE_DEFINITION_MODIFY_REQUEST_DETAIL_READ: 'api.get.admin_iam_role_definition_modify_requests_id',
   IAM_ACTION_BUCKETS_READ: 'api.get.admin_iam_action_buckets',
