@@ -210,6 +210,9 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('POST', '/users/:id/reset-password', 'Reset admin password (C5)', ['IAM_CREDENTIAL_RESET']),
   route('POST', '/admin/iam/role-definitions', 'Create role definition request', ['IAM_ROLE_DEFINE']),
   route('GET', '/admin/iam/role-definitions/permission-groups', 'List available permission groups', ['IAM_ROLE_DEFINE']),
+  route('POST', '/admin/iam/role-definitions/:roleId/modify', 'Submit role definition modify request', ['IAM_ROLE_DEFINE']),
+  route('GET', '/admin/iam/role-definition-modify-requests', 'List role definition modify requests', ['IAM_READ']),
+  route('GET', '/admin/iam/role-definition-modify-requests/:id', 'Get role definition modify request detail', ['IAM_READ']),
   route('GET', '/admin/iam/action-buckets', 'List action bucket catalog', ['IAM_READ']),
 
   // Customer domain
@@ -823,8 +826,8 @@ export const ACTION_BUCKET_CATALOG: ActionDomain[] = [
       },
       {
         key: 'iam.define_roles',
-        label: 'Create role definitions',
-        description: 'Propose new role definitions for approval',
+        label: 'Manage role definitions',
+        description: 'Propose new role definitions or modify existing ones for approval',
         groups: ['IAM_ROLE_DEFINE'],
       },
     ],
