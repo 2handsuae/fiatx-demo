@@ -6,11 +6,13 @@ import {
   AuditEntityTypes,
 } from '../../audit-logging/constants/audit-actions.constant';
 import {
+  ACTION_BUCKET_CATALOG,
   ACTIVE_RBAC_ROLE_CODES,
   HARD_MUTEX_ROLE_PAIRS,
   RBAC_PERMISSION_CODE_SET,
   RBAC_PERMISSION_DEFINITIONS,
   SOFT_WARNING_ROLE_GROUPS,
+  buildPermCodeToGroups,
   getPrimaryRoleCode,
 } from './rbac.catalog';
 
@@ -153,6 +155,13 @@ export class AccessControlService {
       name: item.name,
       description: item.description,
     }));
+  }
+
+  getActionBucketCatalog() {
+    return {
+      domains: ACTION_BUCKET_CATALOG,
+      permCodeToGroups: buildPermCodeToGroups(),
+    };
   }
 
   listPermissionGroups() {

@@ -60,6 +60,12 @@ export class AccessControlController {
     return this.accessControlService.listPermissionGroups();
   }
 
+  @Get('action-buckets')
+  @ApiOperation({ summary: 'List action bucket catalog with permission-code-to-group mapping' })
+  getActionBucketCatalog() {
+    return this.accessControlService.getActionBucketCatalog();
+  }
+
   @Get('roles')
   @RequirePermissions(buildPermissionCode('GET', '/admin/iam/roles'))
   @ApiOperation({ summary: 'List fixed role catalog with bound permissions' })
