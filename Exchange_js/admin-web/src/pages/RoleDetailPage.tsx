@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Check, RefreshCw } from 'lucide-react';
+import { Check, RefreshCw, X } from 'lucide-react';
 import {
   AdminPermissionError,
   AdminSessionError,
@@ -11,6 +11,8 @@ import { DetailPageHeader } from '../components/compliance/DetailPageComponents'
 import { adminButtonClass } from '../components/common/adminButtonStyles';
 import { AdminBadge } from '../components/ui/AdminBadge';
 import { SidebarGroup, SidebarKV } from '../components/ui/SidebarPrimitives';
+import { PERMISSIONS } from '../rbac/permissions';
+import { useAdminSession } from '../contexts/AdminSessionContext';
 
 /* ── Types ────────────────────────────────────────────────────── */
 
@@ -136,6 +138,19 @@ const RoleDetailPage = () => {
   const [error, setError]     = useState('');
   const [catalog, setCatalog] = useState<ActionBucketCatalogResponse | null>(null);
 
+  const { hasPermission } = useAdminSession();
+  const canModify = hasPermission(PERMISSIONS.IAM_ROLE_DEFINITIONS_MODIFY);
+
+  /* Modify modal state */
+  const [showModifyModal, setShowModifyModal] = useState(false);
+  const [modifyName, setModifyName] = useState('');
+  const [modifyDescription, setModifyDescription] = useState('');
+  const [modifySelectedBuckets, setModifySelectedBuckets] = useState<Set<string>>(new Set());
+  const [modifyReason, setModifyReason] = useState('');
+  const [modifyError, setModifyError] = useState<string | null>(null);
+  const [modifyLoading, setModifyLoading] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+
   /* ── Fetch ── */
 
   const fetchDetail = async () => {
@@ -184,6 +199,13 @@ const RoleDetailPage = () => {
       .catch(() => {});
   }, []);
 
+  /* Notice auto-dismiss */
+  useEffect(() => {
+    if (!notice) return undefined;
+    const t = window.setTimeout(() => setNotice((c) => (c === notice ? null : c)), 4000);
+    return () => window.clearTimeout(t);
+  }, [notice]);
+
   /* ── Derive held permission groups from returned routes ── */
 
   const heldGroups = useMemo(() => {
@@ -206,6 +228,78 @@ const RoleDetailPage = () => {
     ),
     [catalog, heldGroups],
   );
+
+  /* Open modify modal — pre-fill current values */
+  const openModifyModal = () => {
+    if (!detail || !catalog) return;
+    setModifyName(detail.name || '');
+    setModifyDescription(detail.description || '');
+    /* Pre-select currently held buckets */
+    const held = new Set<string>();
+    for (const domain of catalog.domains) {
+      for (const bucket of domain.buckets) {
+        if (bucket.groups.some((g) => heldGroups.has(g))) {
+          held.add(bucket.key);
+        }
+      }
+    }
+    setModifySelectedBuckets(held);
+    setModifyReason('');
+    setModifyError(null);
+    setShowModifyModal(true);
+  };
+
+  const closeModifyModal = () => {
+    setShowModifyModal(false);
+    setModifyError(null);
+  };
+
+  const submitModify = async () => {
+    if (!detail) return;
+    setModifyError(null);
+    const name = modifyName.trim();
+    const reason = modifyReason.trim();
+    if (!name || modifySelectedBuckets.size === 0 || !reason) {
+      setModifyError('Name, at least one capability, and change reason are required.');
+      return;
+    }
+    setModifyLoading(true);
+    try {
+      const domainsWithBuckets = (catalog?.domains ?? []).filter((d) => d.buckets.length > 0);
+      const permissionGroupCodes = Array.from(new Set(
+        domainsWithBuckets
+          .flatMap((d) => d.buckets)
+          .filter((b) => modifySelectedBuckets.has(b.key))
+          .flatMap((b) => b.groups),
+      ));
+      const res = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/admin/iam/role-definitions/${detail.id}/modify`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            proposedName: name,
+            proposedDescription: modifyDescription.trim() || undefined,
+            proposedPermissionGroups: permissionGroupCodes,
+            changeReason: reason,
+          }),
+        },
+      );
+      if (!res.ok) {
+        const msg = await getApiErrorMessage(res, 'Failed to submit modify request.');
+        setModifyError(msg);
+        return;
+      }
+      const data = (await res.json()) as { approvalNo: string; requestNo: string };
+      closeModifyModal();
+      void fetchDetail();
+      setNotice(`Role modify approval ${data.approvalNo} submitted for ${detail.code}.`);
+    } catch (err: unknown) {
+      setModifyError(err instanceof Error ? err.message : 'Failed to submit.');
+    } finally {
+      setModifyLoading(false);
+    }
+  };
 
   /* ── Loading ── */
 
@@ -272,13 +366,27 @@ const RoleDetailPage = () => {
         onRefresh={() => void fetchDetail()}
         refreshing={loading}
         backLabel="Roles"
-      />
+      >
+        {canModify && detail?.status === 'ACTIVE' && (
+          <button onClick={openModifyModal} className={adminButtonClass('listPrimary')}>
+            Modify
+          </button>
+        )}
+      </DetailPageHeader>
 
       {/* Inline error banner */}
       {error && (
         <div className="shrink-0 px-6 pt-3 pb-1">
           <div className="rounded border border-adm-red/30 bg-adm-red/10 px-4 py-2 font-mono text-[11px] text-adm-red">
             {error}
+          </div>
+        </div>
+      )}
+
+      {notice && (
+        <div className="shrink-0 px-6 pt-3 pb-1">
+          <div className="rounded border border-adm-green/30 bg-adm-green/10 px-4 py-2 font-mono text-[11px] text-adm-green">
+            {notice}
           </div>
         </div>
       )}
@@ -392,6 +500,158 @@ const RoleDetailPage = () => {
           </SidebarGroup>
         </div>
       </div>
+
+      {/* ════ Modify Role Modal ════ */}
+      {showModifyModal && detail && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-lg overflow-hidden rounded-xl border border-adm-border bg-adm-panel shadow-xl">
+
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-adm-border bg-adm-card px-5 py-4">
+              <div>
+                <p className="font-mono text-[11px] font-semibold text-adm-t1">
+                  Modify Role Definition
+                </p>
+                <p className="mt-1 font-mono text-[9px] text-adm-t3">
+                  Submits an approval request. Changes take effect after approval.
+                </p>
+              </div>
+              <button
+                onClick={closeModifyModal}
+                className="rounded p-1 text-adm-t3 hover:bg-adm-hover hover:text-adm-t1"
+              >
+                <X size={15} />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="max-h-[60vh] space-y-4 overflow-y-auto px-5 py-4">
+
+              {/* Role Code (read-only) */}
+              <div>
+                <p className="mb-1.5 font-mono text-[8.5px] uppercase tracking-[0.14em] text-adm-t3">
+                  Role Code
+                </p>
+                <p className="font-mono text-[11px] font-semibold text-adm-amber">
+                  {detail.code}
+                </p>
+              </div>
+
+              {/* Role Name */}
+              <div>
+                <p className="mb-1.5 font-mono text-[8.5px] uppercase tracking-[0.14em] text-adm-t3">
+                  Role Name
+                </p>
+                <input
+                  value={modifyName}
+                  onChange={(e) => setModifyName(e.target.value)}
+                  className="h-[32px] w-full rounded border border-adm-border bg-adm-bg px-3 font-mono text-[11px] text-adm-t1 placeholder:text-adm-t3 outline-none focus:border-adm-amber transition-colors"
+                />
+              </div>
+
+              {/* Description */}
+              <div>
+                <p className="mb-1.5 font-mono text-[8.5px] uppercase tracking-[0.14em] text-adm-t3">
+                  Description (optional)
+                </p>
+                <input
+                  value={modifyDescription}
+                  onChange={(e) => setModifyDescription(e.target.value)}
+                  className="h-[32px] w-full rounded border border-adm-border bg-adm-bg px-3 font-mono text-[11px] text-adm-t1 placeholder:text-adm-t3 outline-none focus:border-adm-amber transition-colors"
+                />
+              </div>
+
+              {/* Capabilities */}
+              <div>
+                <p className="mb-1.5 font-mono text-[8.5px] uppercase tracking-[0.14em] text-adm-t3">
+                  Capabilities
+                </p>
+                <div className="space-y-2">
+                  {(catalog?.domains ?? [])
+                    .filter((d) => d.buckets.length > 0)
+                    .map((domain) => (
+                      <div key={domain.id}>
+                        <p className="flex items-center gap-1.5 py-1 font-mono text-[10px] font-semibold text-adm-t2">
+                          <span>{domain.icon}</span>
+                          {domain.label}
+                        </p>
+                        <div className="space-y-1">
+                          {domain.buckets.map((bucket) => (
+                            <label
+                              key={bucket.key}
+                              className="flex cursor-pointer gap-3 rounded border border-adm-border bg-adm-bg p-3 hover:bg-adm-card"
+                              title={bucket.description}
+                            >
+                              <input
+                                type="checkbox"
+                                className="mt-0.5"
+                                checked={modifySelectedBuckets.has(bucket.key)}
+                                onChange={(e) => {
+                                  setModifySelectedBuckets((prev) => {
+                                    const next = new Set(prev);
+                                    if (e.target.checked) {
+                                      next.add(bucket.key);
+                                    } else {
+                                      next.delete(bucket.key);
+                                    }
+                                    return next;
+                                  });
+                                }}
+                              />
+                              <div>
+                                <p className="font-mono text-[10px] font-semibold text-adm-t1">
+                                  {bucket.label}
+                                </p>
+                                <p className="mt-0.5 font-mono text-[9px] text-adm-t3">
+                                  {bucket.description}
+                                </p>
+                              </div>
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              </div>
+
+              {/* Change Reason */}
+              <div>
+                <p className="mb-1.5 font-mono text-[8.5px] uppercase tracking-[0.14em] text-adm-t3">
+                  Change Reason
+                </p>
+                <textarea
+                  value={modifyReason}
+                  onChange={(e) => setModifyReason(e.target.value)}
+                  rows={3}
+                  placeholder="Explain why this role definition change is needed."
+                  className="w-full rounded border border-adm-border bg-adm-bg px-3 py-2 font-mono text-[10px] text-adm-t2 placeholder:text-adm-t3 outline-none focus:border-adm-amber transition-colors resize-none"
+                />
+              </div>
+
+              {modifyError && (
+                <div className="rounded border border-adm-red/30 bg-adm-red/10 px-3 py-2 font-mono text-[10px] text-adm-red">
+                  {modifyError}
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="flex justify-end gap-2 border-t border-adm-border bg-adm-card px-5 py-4">
+              <button onClick={closeModifyModal} className={adminButtonClass('modalCancel')}>
+                Cancel
+              </button>
+              <button
+                onClick={() => void submitModify()}
+                disabled={modifyLoading}
+                className={adminButtonClass('modalConfirm')}
+              >
+                {modifyLoading ? 'Submitting…' : 'Submit Request'}
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
     </div>
   );
 };
