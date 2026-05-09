@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   forwardRef,
   Inject,
@@ -600,6 +601,12 @@ export class ApprovalsService {
     });
   }
 
+  private hasActorApprovedAnyStep(steps: any[], userId: string): boolean {
+    return steps.some(
+      (s) => s.status === ApprovalStepStatuses.APPROVED && s.decidedByUserId === userId,
+    );
+  }
+
   private async resolveDecisionRole(
     approval: ApprovalCaseRow,
     actor: ApprovalActorContext,
@@ -624,6 +631,10 @@ export class ApprovalsService {
       (await this.approvalPolicyService.isSameUserMakerCheckerDenied())
     ) {
       throw new ForbiddenException('Maker and checker must be different users');
+    }
+
+    if (approval.steps && this.hasActorApprovedAnyStep(approval.steps, actor.userId)) {
+      throw new ConflictException('Same user cannot approve multiple steps of the same case');
     }
 
     if (normalizedRequestedRole) {
