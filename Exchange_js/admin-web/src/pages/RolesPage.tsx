@@ -440,7 +440,7 @@ const RolesPage = () => {
                   onChange={(e) => setCreateReason(e.target.value)}
                 />
               </div>
-              {createError && <p className="text-xs text-red-500">{createError}</p>}
+              {createError && <p className="text-xs text-adm-red">{createError}</p>}
             </div>
             <div className="flex justify-end gap-2 border-t border-adm-border px-6 py-3">
               <button

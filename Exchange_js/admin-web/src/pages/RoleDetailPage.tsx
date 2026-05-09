@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Check, RefreshCw } from 'lucide-react';
 import {
@@ -10,6 +10,7 @@ import {
 import { DetailPageHeader } from '../components/compliance/DetailPageComponents';
 import { adminButtonClass } from '../components/common/adminButtonStyles';
 import { AdminBadge } from '../components/ui/AdminBadge';
+import { SidebarGroup, SidebarKV } from '../components/ui/SidebarPrimitives';
 
 /* ── Types ────────────────────────────────────────────────────── */
 
@@ -58,42 +59,6 @@ interface ActionBucketCatalogResponse {
   domains: ActionDomain[];
   permCodeToGroups: Record<string, string[]>;
 }
-
-/* ── Shared sidebar primitives ────────────────────────────────── */
-
-const SidebarGroup = ({ title, children }: { title: string; children: ReactNode }) => (
-  <div className="border-b border-adm-border py-4 last:border-b-0">
-    <p className="font-mono text-[8.5px] font-semibold uppercase tracking-[0.16em] text-adm-t3">
-      {title}
-    </p>
-    <div className="mt-2.5 flex flex-col gap-1.5">{children}</div>
-  </div>
-);
-
-const SidebarKV = ({
-  label,
-  value,
-  mono = false,
-}: {
-  label: string;
-  value: ReactNode;
-  mono?: boolean;
-}) => {
-  if (value === null || value === undefined || value === '') return null;
-  return (
-    <div className="flex items-baseline justify-between gap-2">
-      <span className="shrink-0 font-mono text-[9px] text-adm-t3">{label}</span>
-      <span
-        className={[
-          'min-w-0 break-all text-right text-adm-t2',
-          mono ? 'font-mono text-[10px]' : 'text-[11px]',
-        ].join(' ')}
-      >
-        {value}
-      </span>
-    </div>
-  );
-};
 
 /* ── Action bucket row ───────────────────────────────────────── */
 
@@ -246,9 +211,16 @@ const RoleDetailPage = () => {
 
   if (loading) {
     return (
-      <div className="flex h-full items-center justify-center gap-3">
-        <RefreshCw size={22} className="animate-spin text-adm-amber" />
-        <p className="font-mono text-[11px] text-adm-t3">Loading…</p>
+      <div className="flex h-full flex-col overflow-hidden">
+        <div className="shrink-0 flex items-center gap-2 border-b border-adm-border bg-adm-panel px-6 py-4">
+          <button onClick={() => navigate('/dashboard/members/roles')} className={adminButtonClass('detailUtility')}>
+            ← Back
+          </button>
+        </div>
+        <div className="flex flex-1 items-center justify-center gap-3">
+          <RefreshCw size={22} className="animate-spin text-adm-amber" />
+          <p className="font-mono text-[11px] text-adm-t3">Loading…</p>
+        </div>
       </div>
     );
   }
