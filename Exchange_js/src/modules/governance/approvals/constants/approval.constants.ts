@@ -343,6 +343,7 @@ export const V1_APPROVAL_ACTION_TYPES: readonly string[] = [
   ApprovalActionTypes.ADMIN_REACTIVATION_APPROVAL,
   ApprovalActionTypes.AUDIT_EVIDENCE_EXPORT_APPROVAL,
   ApprovalActionTypes.APPROVAL_POLICY_CHANGE,
+  ApprovalActionTypes.ROLE_DEFINITION_CREATE,
   ApprovalActionTypes.ROLE_DEFINITION_MODIFY,
 ] as const;
 
