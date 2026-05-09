@@ -162,6 +162,7 @@ export const PERMISSIONS = {
 
   IAM_ROLE_DEFINITIONS_CREATE: 'api.post.admin_iam_role_definitions',
   IAM_ROLE_DEFINITIONS_PERMISSION_GROUPS: 'api.get.admin_iam_role_definitions_permission_groups',
+  IAM_ACTION_BUCKETS_READ: 'api.get.admin_iam_action_buckets',
 
   // Approval Policy Management
   GOV_APPROVAL_POLICIES_READ: 'api.get.admin_governance_approval_policies',
