@@ -50,6 +50,7 @@ export const ApprovalActionTypes = {
   APPROVAL_POLICY_CHANGE: 'APPROVAL_POLICY_CHANGE',
   // ─── Role Definition Governance (2026-05-08) ────
   ROLE_DEFINITION_CREATE: 'ROLE_DEFINITION_CREATE',
+  ROLE_DEFINITION_MODIFY: 'ROLE_DEFINITION_MODIFY',
 } as const;
 
 export const ApprovalStatuses = {
@@ -322,6 +323,13 @@ export const DEFAULT_APPROVAL_POLICIES: Record<
     allowCancel: true,
     allowRetry: false,
   },
+  [ApprovalActionTypes.ROLE_DEFINITION_MODIFY]: {
+    riskLevel: ApprovalRiskLevels.HIGH,
+    steps: [{ stepNo: 1, roles: ['CISO'] }],
+    timeoutHours: 48,
+    allowCancel: true,
+    allowRetry: false,
+  },
 };
 
 /**
@@ -335,6 +343,7 @@ export const V1_APPROVAL_ACTION_TYPES: readonly string[] = [
   ApprovalActionTypes.ADMIN_REACTIVATION_APPROVAL,
   ApprovalActionTypes.AUDIT_EVIDENCE_EXPORT_APPROVAL,
   ApprovalActionTypes.APPROVAL_POLICY_CHANGE,
+  ApprovalActionTypes.ROLE_DEFINITION_MODIFY,
 ] as const;
 
 export function isSuperAdminRoleContext(roleCodes: string[]): boolean {

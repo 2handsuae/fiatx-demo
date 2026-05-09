@@ -147,6 +147,7 @@ export const AuditBusinessWorkflowTypes = {
   ADMIN_CREDENTIAL_MGMT: 'ADMIN_CREDENTIAL_MGMT',
   // Role Definition Governance (2026-05-08)
   ROLE_DEFINITION_CREATE: 'ROLE_DEFINITION_CREATE',
+  ROLE_DEFINITION_MODIFY: 'ROLE_DEFINITION_MODIFY',
 } as const;
 
 export const AuditUserActions = {
@@ -514,6 +515,10 @@ export const AuditGovernanceActions = {
     ROLE_ACTIVATED:       'ROLE_ACTIVATED',
     ROLE_ACTIVATE_FAILED: 'ROLE_ACTIVATE_FAILED',
     CREATE_CANCELLED:     'CREATE_CANCELLED',
+    MODIFY_REQUESTED:     'MODIFY_REQUESTED',
+    ROLE_MODIFIED:        'ROLE_MODIFIED',
+    ROLE_MODIFY_FAILED:   'ROLE_MODIFY_FAILED',
+    MODIFY_CANCELLED:     'MODIFY_CANCELLED',
   },
 } as const;
 
