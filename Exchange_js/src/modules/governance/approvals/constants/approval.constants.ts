@@ -51,6 +51,9 @@ export const ApprovalActionTypes = {
   // ─── Role Definition Governance (2026-05-08) ────
   ROLE_DEFINITION_CREATE: 'ROLE_DEFINITION_CREATE',
   ROLE_DEFINITION_MODIFY: 'ROLE_DEFINITION_MODIFY',
+  // ─── Credential Reset Governance (2026-05-10) ────
+  ADMIN_PASSWORD_RESET: 'ADMIN_PASSWORD_RESET',
+  ADMIN_MFA_RESET: 'ADMIN_MFA_RESET',
 } as const;
 
 export const ApprovalStatuses = {
@@ -330,6 +333,21 @@ export const DEFAULT_APPROVAL_POLICIES: Record<
     allowCancel: true,
     allowRetry: false,
   },
+  // ─── Credential Reset Governance (2026-05-10) ────
+  [ApprovalActionTypes.ADMIN_PASSWORD_RESET]: {
+    riskLevel: ApprovalRiskLevels.HIGH,
+    steps: [{ stepNo: 1, roles: ['SENIOR_MANAGEMENT_OFFICER'] }],
+    timeoutHours: 48,
+    allowCancel: true,
+    allowRetry: false,
+  },
+  [ApprovalActionTypes.ADMIN_MFA_RESET]: {
+    riskLevel: ApprovalRiskLevels.HIGH,
+    steps: [{ stepNo: 1, roles: ['SENIOR_MANAGEMENT_OFFICER'] }],
+    timeoutHours: 48,
+    allowCancel: true,
+    allowRetry: false,
+  },
 };
 
 /**
@@ -345,6 +363,8 @@ export const V1_APPROVAL_ACTION_TYPES: readonly string[] = [
   ApprovalActionTypes.APPROVAL_POLICY_CHANGE,
   ApprovalActionTypes.ROLE_DEFINITION_CREATE,
   ApprovalActionTypes.ROLE_DEFINITION_MODIFY,
+  ApprovalActionTypes.ADMIN_PASSWORD_RESET,
+  ApprovalActionTypes.ADMIN_MFA_RESET,
 ] as const;
 
 export function isSuperAdminRoleContext(roleCodes: string[]): boolean {
