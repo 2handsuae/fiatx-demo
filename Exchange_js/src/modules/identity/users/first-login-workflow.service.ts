@@ -18,7 +18,7 @@ import { decryptMfaSecret, encryptMfaSecret } from '../../../common/utils/mfa-cr
 interface OtplibFunctions {
   generateSecret: () => string;
   generateURI: (opts: { secret: string; label: string; issuer: string }) => string;
-  verifySync: (opts: { token: string; secret: string }) => { valid: boolean };
+  verifySync: (opts: { token: string; secret: string; window?: number }) => { valid: boolean };
 }
 let _otpFns: OtplibFunctions | null = null;
 // Use new Function to prevent TypeScript (module:commonjs) from rewriting
@@ -219,7 +219,7 @@ export class FirstLoginWorkflowService {
 
     const secret = decryptMfaSecret(user.mfaSecret);
     const otp = await getOtp();
-    const verifyResult = otp.verifySync({ token: code, secret });
+    const verifyResult = otp.verifySync({ token: code, secret, window: 1 });
     const isValid = verifyResult.valid;
 
     if (!isValid) {
@@ -261,7 +261,7 @@ export class FirstLoginWorkflowService {
 
     const secret = decryptMfaSecret(user.mfaSecret);
     const otp = await getOtp();
-    const verifyResult = otp.verifySync({ token: code, secret });
+    const verifyResult = otp.verifySync({ token: code, secret, window: 1 });
     const isValid = verifyResult.valid;
 
     if (!isValid) {
@@ -420,7 +420,7 @@ export class FirstLoginWorkflowService {
 
     const secret = decryptMfaSecret(user.mfaSecret);
     const otp = await getOtp();
-    const verifyResult = otp.verifySync({ token: code, secret });
+    const verifyResult = otp.verifySync({ token: code, secret, window: 1 });
     const isValid = verifyResult.valid;
 
     if (!isValid) {
