@@ -70,20 +70,48 @@ TigerBeetleService
 | 所有者类型 | `user_data_32` (u32) | 0=SYSTEM, 1=CUSTOMER, 2=LP |
 | 余额约束 | `flags` (u16) | 负债类设 `debits_must_not_exceed_credits` |
 
+**u128 存储方案：** TB 的 u128 值（account ID、transfer ID）在 Prisma/SQLite 中以 **String（hex 格式）** 存储，不用 BigInt（SQLite INTEGER 只有 i64，存不下 u128）。JS 层用原生 `bigint` 运算，入库时转 hex string，出库时 parse 回 bigint。
+
 ### 1.5 Account Type Code 编码
 
-| code | 类型 | 性质 | TB Flag |
-|------|------|------|---------|
-| 1 | BANK | 资产 | 无约束 |
-| 2 | BANK_RESTRICTED | 资产 | 无约束 |
-| 10 | CUSTODY | 资产 | 无约束 |
-| 11 | CUSTODY_RESTRICTED | 资产 | 无约束 |
-| 100 | CLIENT_CREDIT | 负债 | `debits_must_not_exceed_credits` |
-| 200 | REVENUE_SWAP_FEE | 收入 | 无约束 |
-| 201 | REVENUE_WITHDRAWAL_FEE | 收入 | 无约束 |
-| 300 | EXPENSE_LP_COST | 费用 | 无约束 |
-| 301 | EXPENSE_NETWORK_FEE | 费用 | 无约束 |
-| 400 | RETAINED_EARNINGS | 权益 | 无约束 |
+**编号段约定（按需增长，一旦分配不可改）：**
+
+| 段 | 范围 | 性质 |
+|----|------|------|
+| 资产 | 1–99 | Asset accounts |
+| 负债 | 100–199 | Liability accounts |
+| 收入 | 200–299 | Revenue accounts |
+| 费用 | 300–399 | Expense accounts |
+| 权益 | 400–499 | Equity accounts |
+
+**Phase 0 / V3 MVP 最小集：**
+
+| code | 类型 | 性质 | TB Flag | 首次需要 |
+|------|------|------|---------|----------|
+| 1 | BANK | 资产 | 无约束 | V3 Asset Listing（法币） |
+| 10 | CUSTODY | 资产 | 无约束 | V3 Asset Listing（加密） |
+| 100 | CLIENT_CREDIT | 负债 | `debits_must_not_exceed_credits` | V3 Customer Account Provisioning |
+
+**后续版本按需新增（示例，非终态）：**
+
+| code | 类型 | 首次需要 |
+|------|------|----------|
+| 2 | BANK_RESTRICTED | V4 制裁冻结 |
+| 3 | BANK_IN_TRANSIT | V5 法币提现在途 |
+| 11 | CUSTODY_RESTRICTED | V4 制裁冻结 |
+| 12 | CUSTODY_IN_TRANSIT | V4 链上在途 |
+| 101 | SUSPENSE | V4 孤儿充值 |
+| 102 | CLIENT_FROZEN | V4 制裁冻结 |
+| 103 | EXCHANGE_POOL | V6 兑换中间 |
+| 110 | LP_PAYABLE | V7 LP 应付 |
+| 200 | REVENUE_SWAP_FEE | V6 兑换手续费 |
+| 201 | REVENUE_WITHDRAWAL_FEE | V5 提现手续费 |
+| 202 | REVENUE_DEPOSIT_FEE | V4 充值手续费 |
+| 300 | EXPENSE_LP_COST | V7 LP 成本 |
+| 301 | EXPENSE_NETWORK_FEE | V7 Gas 费用 |
+| 302 | EXPENSE_BANK_FEE | V5 银行手续费 |
+| 50 | GAS_RESERVE | V7 Gas 费用池 |
+| 400 | RETAINED_EARNINGS | V8 对账/期末 |
 
 **注意：不设 CLIENT_HELD 账户。** TB 的两阶段转账（pending transfer）在 CLIENT_CREDIT 账户上原生追踪锁定金额（`debits_pending`），无需独立冻结账户。每客户每币种只需 1 个 TB 账户。
 
@@ -238,6 +266,8 @@ interface EvidenceParams {
   debitCode: string;      // 人可读 COA code, e.g. 'L.CLIENT_CREDIT'
   creditCode: string;     // e.g. 'A.CUSTODY'
   assetCode: string;      // AED | USDT
+  actorType: string;      // 'ADMIN' | 'CUSTOMER' | 'SYSTEM'
+  actorId: string;        // adminNo / customerNo / 'SYSTEM'
   memo?: string;
 }
 ```
@@ -246,7 +276,7 @@ interface EvidenceParams {
 
 ```prisma
 model TbAccountRegistry {
-  tbAccountId BigInt   @id
+  tbAccountId String   @id          // TB u128 as hex string
   code        Int
   ledger      Int
   ownerType   String
@@ -281,17 +311,61 @@ const COA_TO_TB_CODE: Record<string, number> = {
 
 Asset Code → TB Ledger 映射从 `Asset.tbLedgerId` 动态读取。
 
-### 2.6 错误处理
+### 2.6 Transfer ID 幂等性策略
+
+**使用确定性 transfer ID，不用随机 `id()` 生成器。**
+
+TB 对相同 transfer ID 天然幂等（返回已存在，不报错）。利用这一特性，用确定性 hash 生成 transfer ID：
+
+```typescript
+function deterministicTransferId(sourceType: string, sourceNo: string, eventCode: string, legIndex: number): bigint {
+  const input = `${sourceType}:${sourceNo}:${eventCode}:${legIndex}`;
+  const hash = createHash('sha256').update(input).digest();
+  // 取前 16 字节作为 u128
+  return BigInt('0x' + hash.subarray(0, 16).toString('hex'));
+}
+```
+
+效果：同一业务事件重复触发（如 deposit DEP-001 的 DEPOSIT_CREDIT 事件），生成相同的 TB transfer ID → TB 直接返回已存在 → 不产生重复记账。无需额外查 evidence 表做去重。
+
+**Account ID 仍用 `id()` 时间序生成器**——账户只创建一次，无重复触发风险。
+
+### 2.7 Transfer Code 注册表
+
+TB transfer 的 `code` (u16) 字段分类转账类型，按需增长：
+
+**Phase 0 / V3 MVP 最小集：**
+
+| code | 类型 | 首次需要 |
+|------|------|----------|
+| 1 | ACCOUNT_SETUP | V3 系统账户初始化 |
+
+**后续版本按需新增（示例）：**
+
+| code | 类型 | 首次需要 |
+|------|------|----------|
+| 10 | DEPOSIT_CREDIT | V4 充值入账 |
+| 20 | WITHDRAWAL_DEBIT | V5 提现扣款 |
+| 30 | SWAP_SOURCE | V6 兑换源币 |
+| 31 | SWAP_TARGET | V6 兑换目标币 |
+| 32 | SWAP_FEE | V6 兑换手续费 |
+| 40 | HOLD_PENDING | V5/V6 余额锁定 |
+| 41 | HOLD_POST | V5/V6 锁定确认 |
+| 42 | HOLD_VOID | V5/V6 锁定释放 |
+| 50 | INTERNAL_TRANSFER | V7 内部转账 |
+| 60 | GAS_FEE | V7 Gas 费用 |
+| 90 | CORRECTING | 冲正补偿 |
+
+### 2.8 错误处理
 
 | 场景 | 行为 |
 |------|------|
 | TB 连不上 | 应用启动失败 |
 | TB transfer 被拒（余额不足等） | 抛 `AccountingTransferError`，workflow 失败 |
-| `id_already_failed` | 自动换新 ID 重试一次 |
+| 重复 transfer ID（幂等命中） | TB 返回已存在，AccountingService 视为成功，跳过 evidence 重写 |
 | TB 成功 + Prisma evidence 写失败 | 不回滚 TB；写入 `TbEvidenceBacklog` 待补录 |
-| 重复 transfer ID | TB 天然幂等 |
 
-### 2.7 AccountingEventExecutionService 重构
+### 2.9 AccountingEventExecutionService 重构
 
 保留作为事件→转账的翻译层，职责变更：
 
@@ -320,7 +394,7 @@ TB transfer 本身已是完整的借贷记录（debit_account, credit_account, a
 
 ```prisma
 model TbTransferEvidence {
-  tbTransferId BigInt   @id
+  tbTransferId String   @id          // TB u128 as hex string
   sourceType   String
   sourceNo     String
   eventCode    String
@@ -329,8 +403,10 @@ model TbTransferEvidence {
   amount       Decimal
   assetCode    String
   traceId      String
+  actorType    String               // ADMIN | CUSTOMER | SYSTEM
+  actorId      String               // adminNo / customerNo / 'SYSTEM'
   memo         String?
-  pendingId    BigInt?              // 如果是 post/void，关联的 pending transfer
+  pendingId    String?              // 如果是 post/void，关联的 pending transfer (hex)
   transferType String  @default("POSTED")  // POSTED | PENDING | POST_PENDING | VOID_PENDING | CORRECTING
   createdAt    DateTime @default(now())
 
@@ -338,6 +414,7 @@ model TbTransferEvidence {
   @@index([traceId])
   @@index([eventCode])
   @@index([assetCode])
+  @@index([actorType, actorId])
   @@index([createdAt])
 }
 ```
@@ -347,7 +424,7 @@ model TbTransferEvidence {
 ```prisma
 model TbEvidenceBacklog {
   id            String   @id @default(uuid())
-  tbTransferId  BigInt   @unique
+  tbTransferId  String   @unique          // TB u128 as hex string
   transferData  String                    // JSON: transfer 参数快照
   evidenceData  String                    // JSON: 待写入的证据数据
   errorMessage  String
