@@ -15,8 +15,10 @@ import { AdminSuspensionApprovalService } from './admin-suspension-approval.serv
 import { AdminSuspensionWorkflowService } from './admin-suspension-workflow.service';
 import { AdminReactivationApprovalService } from './admin-reactivation-approval.service';
 import { AdminReactivationWorkflowService } from './admin-reactivation-workflow.service';
-import { AdminMfaResetService } from './admin-mfa-reset.service';
+import { AdminPasswordResetApprovalService } from './admin-password-reset-approval.service';
 import { AdminPasswordResetWorkflowService } from './admin-password-reset-workflow.service';
+import { AdminMfaResetApprovalService } from './admin-mfa-reset-approval.service';
+import { AdminMfaResetWorkflowService } from './admin-mfa-reset-workflow.service';
 import { AdminCredentialMgmtController } from './admin-credential-mgmt.controller';
 import { UsersController } from './users.controller';
 
@@ -42,8 +44,10 @@ import { UsersController } from './users.controller';
     AdminSuspensionWorkflowService,
     AdminReactivationApprovalService,
     AdminReactivationWorkflowService,
-    AdminMfaResetService,
+    AdminPasswordResetApprovalService,
     AdminPasswordResetWorkflowService,
+    AdminMfaResetApprovalService,
+    AdminMfaResetWorkflowService,
   ],
   controllers: [UsersController, AdminRoleChangeRequestController, AdminCredentialMgmtController],
   exports: [UsersService, UsersDomainService, AdminInvitationsService, AdminPasswordResetWorkflowService],
