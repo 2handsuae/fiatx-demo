@@ -359,6 +359,8 @@ export class ApprovalsService {
       AuditBusinessWorkflowTypes.APPROVAL_POLICY,
       AuditBusinessWorkflowTypes.ROLE_DEFINITION_CREATE,
       AuditBusinessWorkflowTypes.ROLE_DEFINITION_MODIFY,
+      AuditBusinessWorkflowTypes.ADMIN_PASSWORD_RESET,
+      AuditBusinessWorkflowTypes.ADMIN_MFA_RESET,
     ];
     return DEDICATED.includes(workflowType);
   }
