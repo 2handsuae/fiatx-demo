@@ -777,7 +777,7 @@ export class PoolSettlementBatchesService {
             workflowType: 'POOL_SETTLEMENT_BATCH',
             workflowId: batch.id,
             workflowNo: batch.batchNo,
-            metadata: {
+            objectSnapshot: {
               batchId: batch.id,
               batchNo: batch.batchNo,
             },

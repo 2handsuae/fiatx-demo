@@ -1154,13 +1154,13 @@ const ComplianceCaseDetailPage = () => {
         <InfoField label="Filing Status" value={currentFilingStatus} />
         <div className="xl:col-span-2">
           <JsonBlock
-            title="Freeze / Restriction Snapshot"
+            title="Freeze / Compliance Snapshot"
             value={{
               freezeStatus: detail.freezeStatus || 'ACTIVE',
               frozenAt: detail.frozenAt,
               freezeReason: detail.freezeReason,
-              restrictionCaseId: detailRecord.restrictionCaseId,
-              restrictionStatus: detailRecord.restrictionStatus,
+              complianceFreezeCaseId: detailRecord.complianceFreezeCaseId,
+              complianceStatus: detailRecord.complianceStatus,
               filingStatus: currentFilingStatus,
               filingNo: detail.currentFiling?.filingNo || null,
               filingType: detail.currentFiling?.filingType || null,

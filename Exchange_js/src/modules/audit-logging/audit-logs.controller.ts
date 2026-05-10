@@ -1,10 +1,8 @@
 import {
-  Body,
   Controller,
   ForbiddenException,
   Get,
   Param,
-  Post,
   Query,
   Req,
   UseGuards,
@@ -17,7 +15,6 @@ import { AuditLogsService } from './audit-logs.service';
 import {
   AuditActorContext,
   AuditLogQueryDto,
-  CreateAuditLogEventDto,
 } from './dto/audit-log.dto';
 
 @ApiTags('Admin - Audit Logs')
@@ -40,32 +37,6 @@ export class AuditLogsController {
       actorNo: req.user.userNo,
       actorRole: req.user.role,
     };
-  }
-
-  private resolveRequestSourceIp(req: any): string | undefined {
-    const xff = req.headers?.['x-forwarded-for'];
-    if (typeof xff === 'string' && xff.length > 0) {
-      return xff.split(',')[0]?.trim();
-    }
-    return req.ip;
-  }
-
-  @Post()
-  @ApiOperation({ summary: 'Create one manual audit log record (admin)' })
-  create(
-    @Req() req: any,
-    @Body(new ValidationPipe({ transform: true })) body: CreateAuditLogEventDto,
-  ) {
-    const actor = this.ensureAdmin(req);
-    return this.auditLogsService.recordByActor(
-      {
-        ...body,
-        requestId: body.requestId ?? req.id,
-        sourceIp: body.sourceIp ?? this.resolveRequestSourceIp(req),
-        sourcePlatform: body.sourcePlatform ?? 'ADMIN_API',
-      },
-      actor,
-    );
   }
 
   @Get()

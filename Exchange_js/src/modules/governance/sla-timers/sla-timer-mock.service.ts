@@ -53,7 +53,7 @@ export class SlaTimerMockService {
       {
         actionType: ApprovalActionTypes.CHANGE_TICKET_APPROVAL,
         entityRef: `SLA-MOCK-APPROVAL-${randomUUID()}`,
-        metadata: {
+        objectSnapshot: {
           mockMode: true,
           mockType: SlaTimerTypes.APPROVAL_TIMEOUT,
           requestedBy: actor.userId,

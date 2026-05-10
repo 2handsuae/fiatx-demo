@@ -23,9 +23,8 @@ import {
   canStartEdd,
   CustomerNextStepActionType,
   CustomerOnboardingStatus,
-  CustomerOperatingStatus,
+  CustomerAdminStatus,
   CustomerReviewStage,
-  CustomerRestrictionStatus,
   getCustomerBlockedReason,
   getCustomerNextStepActionTypes,
   getExpectedReviewStageFromCustomerState,
@@ -51,7 +50,7 @@ import {
   ReinitiateEddDto,
   StartVerificationCustomerSnapshotDto,
   StartVerificationSnapshotDto,
-  UpdateInvestorClassificationDto,
+  UpdateInvestorTierDto,
   UpsertEntityDto,
 } from './dto/onboarding.dto';
 import { WorkflowTransitionService } from './workflow-transition.service';
@@ -112,8 +111,8 @@ export interface SessionResponse {
 const customerAutoExpireSelect = {
   id: true,
   onboardingStatus: true,
-  operatingStatus: true,
-  restrictionStatus: true,
+  adminStatus: true,
+  complianceStatus: true,
   cddDocumentExpiresAt: true,
 } satisfies Prisma.CustomerMainSelect;
 
@@ -121,10 +120,9 @@ const tradingEligibilitySelect = {
   id: true,
   customerNo: true,
   onboardingStatus: true,
-  operatingStatus: true,
-  restrictionStatus: true,
-  complianceHoldStatus: true,
-  complianceHoldCaseId: true,
+  adminStatus: true,
+  complianceStatus: true,
+  complianceFreezeCaseId: true,
 } satisfies Prisma.CustomerMainSelect;
 
 const SUMSUB_EVENT_ACTION_MAP: Record<string, string> = {
@@ -175,8 +173,8 @@ export class OnboardingService {
   ): Promise<{
     customer: {
       onboardingStatus: string | null;
-      operatingStatus: string | null;
-      restrictionStatus: string | null;
+      adminStatus: string | null;
+      complianceStatus: string | null;
     };
     verification: VerificationProjection;
   }> {
@@ -224,8 +222,8 @@ export class OnboardingService {
         return {
           customer: {
             onboardingStatus: customer.onboardingStatus ?? null,
-            operatingStatus: customer.operatingStatus ?? null,
-            restrictionStatus: customer.restrictionStatus ?? null,
+            adminStatus: customer.adminStatus ?? null,
+            complianceStatus: customer.complianceStatus ?? null,
           },
           verification: this.buildVerificationProjection(customer),
         };
@@ -262,7 +260,7 @@ export class OnboardingService {
             ...updateData,
             ...this.buildCustomerLifecyclePatch(customer, {
               onboardingStatus: 'PENDING_VERIFICATION',
-              operatingStatus: 'INACTIVE',
+              adminStatus: 'INACTIVE',
             }),
             verificationSubstatus: 'SUBMITTED',
             verificationCustomerActionRequired: false,
@@ -274,7 +272,7 @@ export class OnboardingService {
             ...updateData,
             ...this.buildCustomerLifecyclePatch(customer, {
               onboardingStatus: 'PENDING_VERIFICATION',
-              operatingStatus: 'INACTIVE',
+              adminStatus: 'INACTIVE',
             }),
             verificationSubstatus: 'UNDER_REVIEW',
             verificationCustomerActionRequired: false,
@@ -286,7 +284,7 @@ export class OnboardingService {
             ...updateData,
             ...this.buildCustomerLifecyclePatch(customer, {
               onboardingStatus: 'PENDING_VERIFICATION',
-              operatingStatus: 'INACTIVE',
+              adminStatus: 'INACTIVE',
             }),
             verificationSubstatus: 'NEXT_LEVEL_REQUIRED',
             verificationCustomerActionRequired: false,
@@ -300,7 +298,7 @@ export class OnboardingService {
               ...updateData,
               ...this.buildCustomerLifecyclePatch(customer, {
                 onboardingStatus: 'PENDING_VERIFICATION',
-                operatingStatus: 'INACTIVE',
+                adminStatus: 'INACTIVE',
               }),
               verificationSubstatus: 'RESUBMIT_REQUIRED',
               verificationCustomerActionRequired: true,
@@ -312,7 +310,7 @@ export class OnboardingService {
               ...updateData,
               ...this.buildCustomerLifecyclePatch(customer, {
                 onboardingStatus: 'PENDING_VERIFICATION',
-                operatingStatus: 'INACTIVE',
+                adminStatus: 'INACTIVE',
               }),
               verificationSubstatus: 'UNDER_REVIEW',
               verificationCustomerActionRequired: false,
@@ -328,7 +326,7 @@ export class OnboardingService {
                 customer: {
                   ...customer,
                   onboardingStatus: 'FINAL_APPROVAL',
-                  operatingStatus: 'INACTIVE',
+                  adminStatus: 'INACTIVE',
                 },
                 actorId,
                 actorRole,
@@ -338,7 +336,7 @@ export class OnboardingService {
               ...updateData,
               ...this.buildCustomerLifecyclePatch(customer, {
                 onboardingStatus: 'FINAL_APPROVAL',
-                operatingStatus: 'INACTIVE',
+                adminStatus: 'INACTIVE',
               }),
               ...this.buildLatestRiskApprovalBindingPatch(pendingApproval.approval.id),
               latestRiskApprovalStatus: pendingApproval.approval.status || 'PENDING',
@@ -352,7 +350,7 @@ export class OnboardingService {
               ...updateData,
               ...this.buildCustomerLifecyclePatch(customer, {
                 onboardingStatus: 'APPROVED',
-                operatingStatus: 'ACTIVE',
+                adminStatus: 'ACTIVE',
               }),
               ...this.buildLatestRiskApprovalBindingPatch(null),
               latestRiskApprovalStatus: null,
@@ -368,7 +366,7 @@ export class OnboardingService {
             ...updateData,
             ...this.buildCustomerLifecyclePatch(customer, {
               onboardingStatus: 'REJECTED',
-              operatingStatus: 'INACTIVE',
+              adminStatus: 'INACTIVE',
             }),
             ...this.buildLatestRiskApprovalBindingPatch(null),
             latestRiskApprovalStatus: null,
@@ -383,7 +381,7 @@ export class OnboardingService {
             ...updateData,
             ...this.buildCustomerLifecyclePatch(customer, {
               onboardingStatus: 'PENDING_VERIFICATION',
-              operatingStatus: 'INACTIVE',
+              adminStatus: 'INACTIVE',
             }),
             verificationSubstatus: 'PROCESSING',
             verificationCustomerActionRequired: false,
@@ -415,8 +413,8 @@ export class OnboardingService {
       return {
         customer: {
           onboardingStatus: updatedCustomer.onboardingStatus ?? null,
-          operatingStatus: updatedCustomer.operatingStatus ?? null,
-          restrictionStatus: updatedCustomer.restrictionStatus ?? null,
+          adminStatus: updatedCustomer.adminStatus ?? null,
+          complianceStatus: updatedCustomer.complianceStatus ?? null,
         },
         verification: this.buildVerificationProjection(updatedCustomer),
       };
@@ -610,8 +608,8 @@ export class OnboardingService {
 
   private getCanonicalState(customer: {
     onboardingStatus?: string | null;
-    operatingStatus?: string | null;
-    restrictionStatus?: string | null;
+    adminStatus?: string | null;
+    complianceStatus?: string | null;
   }) {
     return resolveCustomerCanonicalState(customer);
   }
@@ -635,8 +633,8 @@ export class OnboardingService {
 
   private getCustomerOnboardingStatus(customer: {
     onboardingStatus?: string | null;
-    operatingStatus?: string | null;
-    restrictionStatus?: string | null;
+    adminStatus?: string | null;
+    complianceStatus?: string | null;
   }): LegacyCompatibleOnboardingStatus {
     return this.getCanonicalState(customer).onboardingStatus;
   }
@@ -667,15 +665,15 @@ export class OnboardingService {
   private buildCustomerLifecyclePatch(
     customer: {
       onboardingStatus?: string | null;
-      operatingStatus?: string | null;
-      restrictionStatus?: string | null;
+      adminStatus?: string | null;
+      complianceStatus?: string | null;
       eddRequired?: boolean | null;
       cddDocumentExpiresAt?: Date | string | null;
     },
     next: {
       onboardingStatus: LegacyCompatibleOnboardingStatus;
-      operatingStatus?: CustomerOperatingStatus;
-      restrictionStatus?: CustomerRestrictionStatus;
+      adminStatus?: CustomerAdminStatus;
+      complianceStatus?: string;
       eddRequired?: boolean;
     },
   ): Prisma.CustomerMainUpdateInput {
@@ -1049,8 +1047,8 @@ export class OnboardingService {
 
   private mapActionsByStatus(status: {
     onboardingStatus?: string | null;
-    operatingStatus?: string | null;
-    restrictionStatus?: string | null;
+    adminStatus?: string | null;
+    complianceStatus?: string | null;
   }): OnboardingAction[] {
     const actionTypes = getCustomerNextStepActionTypes(status);
     return actionTypes.map((type) => ({ type }));
@@ -1058,8 +1056,8 @@ export class OnboardingService {
 
   private buildBlockedReason(status: {
     onboardingStatus?: string | null;
-    operatingStatus?: string | null;
-    restrictionStatus?: string | null;
+    adminStatus?: string | null;
+    complianceStatus?: string | null;
   }): string | null {
     return getCustomerBlockedReason(status);
   }
@@ -1283,7 +1281,7 @@ export class OnboardingService {
       data: {
         ...this.buildCustomerLifecyclePatch(customer, {
           onboardingStatus: 'PENDING_CDD_INPUT',
-          operatingStatus: 'INACTIVE',
+          adminStatus: 'INACTIVE',
         }),
         ...this.buildLatestRiskApprovalBindingPatch(null),
         latestRiskApprovalStatus: null,
@@ -1426,7 +1424,7 @@ export class OnboardingService {
       ? {
           ...this.buildCustomerLifecyclePatch(customer, {
             onboardingStatus: 'APPROVED',
-            operatingStatus: 'ACTIVE',
+            adminStatus: 'ACTIVE',
             eddRequired: false,
           }),
           latestDecisionRecordId: decisionRecordId,
@@ -1438,7 +1436,7 @@ export class OnboardingService {
       : {
           ...this.buildCustomerLifecyclePatch(customer, {
             onboardingStatus: 'CDD_UNDER_REVIEW',
-            operatingStatus: 'INACTIVE',
+            adminStatus: 'INACTIVE',
             eddRequired: false,
           }),
           latestDecisionRecordId: decisionRecordId,
@@ -1469,7 +1467,7 @@ export class OnboardingService {
     const updateData: Prisma.CustomerMainUpdateInput = {
       ...this.buildCustomerLifecyclePatch(customer, {
         onboardingStatus: 'EDD_UNDER_REVIEW',
-        operatingStatus: 'INACTIVE',
+        adminStatus: 'INACTIVE',
         eddRequired: true,
       }),
       latestDecisionRecordId: decisionRecordId,
@@ -1800,8 +1798,8 @@ export class OnboardingService {
     return {
       ...customer,
       onboardingStatus: canonical.onboardingStatus,
-      operatingStatus: canonical.operatingStatus,
-      restrictionStatus: canonical.restrictionStatus,
+      adminStatus: canonical.adminStatus,
+      complianceStatus: canonical.complianceStatus,
       actions: nextStep.actions,
       blockedReason: nextStep.blockedReason,
       activeCaseId: nextStep.activeCaseId,
@@ -1812,14 +1810,14 @@ export class OnboardingService {
 
   private buildCustomerSnapshot(customer: {
     onboardingStatus?: string | null;
-    operatingStatus?: string | null;
-    restrictionStatus?: string | null;
+    adminStatus?: string | null;
+    complianceStatus?: string | null;
   }): StartVerificationCustomerSnapshotDto {
     const canonical = this.getCanonicalState(customer);
     return {
       onboardingStatus: canonical.onboardingStatus,
-      operatingStatus: canonical.operatingStatus,
-      restrictionStatus: canonical.restrictionStatus,
+      adminStatus: canonical.adminStatus,
+      complianceStatus: canonical.complianceStatus,
     };
   }
 
@@ -1894,7 +1892,7 @@ export class OnboardingService {
     const updateData: Prisma.CustomerMainUpdateInput = {
       ...this.buildCustomerLifecyclePatch(customer, {
         onboardingStatus: 'PENDING_VERIFICATION',
-        operatingStatus: 'INACTIVE',
+        adminStatus: 'INACTIVE',
       }),
       ...(customer.onboardingTraceId ? {} : { onboardingTraceId: randomUUID() }),
       ...(currentStatus === 'PENDING_VERIFICATION' && !customer.verificationProvider
@@ -2095,8 +2093,8 @@ export class OnboardingService {
       data: {
         ...this.buildCustomerLifecyclePatch(customer, {
           onboardingStatus: this.getCanonicalState(customer).onboardingStatus,
-          operatingStatus: this.getCanonicalState(customer).operatingStatus,
-          restrictionStatus: this.getCanonicalState(customer).restrictionStatus,
+          adminStatus: this.getCanonicalState(customer).adminStatus,
+          complianceStatus: this.getCanonicalState(customer).complianceStatus,
           eddRequired: !!customer.eddRequired,
         }),
         customerType: 'INDIVIDUAL',
@@ -2167,7 +2165,7 @@ export class OnboardingService {
       data: {
         ...this.buildCustomerLifecyclePatch(customer, {
           onboardingStatus: 'PENDING_CDD_INPUT',
-          operatingStatus: 'INACTIVE',
+          adminStatus: 'INACTIVE',
           eddRequired: false,
         }),
         ...this.buildLatestRiskApprovalBindingPatch(null),
@@ -2292,7 +2290,7 @@ export class OnboardingService {
       data: {
         ...this.buildCustomerLifecyclePatch(customer, {
           onboardingStatus: 'PENDING_EDD_INPUT',
-          operatingStatus: 'INACTIVE',
+          adminStatus: 'INACTIVE',
           eddRequired: true,
         }),
         ...this.buildLatestRiskApprovalBindingPatch(null),
@@ -2552,7 +2550,7 @@ export class OnboardingService {
         data: {
           ...this.buildCustomerLifecyclePatch(customer, {
             onboardingStatus: 'CDD_UNDER_REVIEW',
-            operatingStatus: 'INACTIVE',
+            adminStatus: 'INACTIVE',
             eddRequired: false,
           }),
           latestDecisionRecordId: pendingDecision.decisionRecordId,
@@ -2634,7 +2632,7 @@ export class OnboardingService {
       data: {
         ...this.buildCustomerLifecyclePatch(customer, {
           onboardingStatus: 'EDD_UNDER_REVIEW',
-          operatingStatus: 'INACTIVE',
+          adminStatus: 'INACTIVE',
           eddRequired: true,
         }),
         latestDecisionRecordId: pendingDecision.decisionRecordId,
@@ -2710,8 +2708,8 @@ export class OnboardingService {
               customerType: true,
               companyName: true,
               onboardingStatus: true,
-              operatingStatus: true,
-              restrictionStatus: true,
+              adminStatus: true,
+              complianceStatus: true,
             },
           },
           reports: {
@@ -2744,9 +2742,8 @@ export class OnboardingService {
             companyName: true,
             customerType: true,
             onboardingStatus: true,
-            operatingStatus: true,
-            restrictionStatus: true,
-            complianceHoldStatus: true,
+            adminStatus: true,
+            complianceStatus: true,
           },
         },
         reports: {
@@ -2817,8 +2814,8 @@ export class OnboardingService {
               customerType: true,
               companyName: true,
               onboardingStatus: true,
-              operatingStatus: true,
-              restrictionStatus: true,
+              adminStatus: true,
+              complianceStatus: true,
             },
           },
           reports: {
@@ -2851,9 +2848,8 @@ export class OnboardingService {
             companyName: true,
             customerType: true,
             onboardingStatus: true,
-            operatingStatus: true,
-            restrictionStatus: true,
-            complianceHoldStatus: true,
+            adminStatus: true,
+            complianceStatus: true,
           },
         },
         reports: {
@@ -2914,20 +2910,20 @@ export class OnboardingService {
     };
   }
 
-  async updateInvestorClassification(
+  async updateInvestorTier(
     customerId: string,
     actorId: string,
     actorRole: string,
-    dto: UpdateInvestorClassificationDto,
+    dto: UpdateInvestorTierDto,
   ) {
     await this.getCustomerOrThrow(customerId);
 
     const updated = await this.prisma.customerMain.update({
       where: { id: customerId },
       data: {
-        investorClassification: dto.classification,
-        investorClassificationSource: 'ADMIN_OVERRIDE',
-        investorClassificationUpdatedAt: new Date(),
+        investorTier: dto.classification,
+        investorTierSource: 'ADMIN_OVERRIDE',
+        investorTierUpdatedAt: new Date(),
       },
     });
 
@@ -2941,9 +2937,9 @@ export class OnboardingService {
 
     return {
       customerId: updated.id,
-      investorClassification: updated.investorClassification,
-      investorClassificationSource: updated.investorClassificationSource,
-      investorClassificationUpdatedAt: updated.investorClassificationUpdatedAt,
+      investorTier: updated.investorTier,
+      investorTierSource: updated.investorTierSource,
+      investorTierUpdatedAt: updated.investorTierUpdatedAt,
     };
   }
 
@@ -2962,31 +2958,29 @@ export class OnboardingService {
 
     if (
       canonical.onboardingStatus !== 'APPROVED' ||
-      canonical.operatingStatus !== 'ACTIVE' ||
-      canonical.restrictionStatus === 'RESTRICTED'
+      canonical.adminStatus !== 'ACTIVE' ||
+      canonical.complianceStatus === 'FROZEN'
     ) {
       throw new ForbiddenException({
         message: `${action} is blocked by onboarding gate`,
         customerId,
         customerNo: customer.customerNo,
         onboardingStatus: canonical.onboardingStatus,
-        operatingStatus: canonical.operatingStatus,
-        restrictionStatus: canonical.restrictionStatus,
-        complianceHoldStatus: customer.complianceHoldStatus,
-        complianceHoldCaseId: customer.complianceHoldCaseId,
+        adminStatus: canonical.adminStatus,
+        complianceStatus: customer.complianceStatus,
+        complianceFreezeCaseId: customer.complianceFreezeCaseId,
       });
     }
 
-    if (String(customer.complianceHoldStatus || 'ACTIVE').toUpperCase() === 'FROZEN') {
+    if (String(customer.complianceStatus || 'CLEAR').toUpperCase() === 'FROZEN') {
       throw new ForbiddenException({
         message: `${action} is blocked by compliance hold`,
         customerId,
         customerNo: customer.customerNo,
         onboardingStatus: canonical.onboardingStatus,
-        operatingStatus: canonical.operatingStatus,
-        restrictionStatus: canonical.restrictionStatus,
-        complianceHoldStatus: customer.complianceHoldStatus,
-        complianceHoldCaseId: customer.complianceHoldCaseId,
+        adminStatus: canonical.adminStatus,
+        complianceStatus: customer.complianceStatus,
+        complianceFreezeCaseId: customer.complianceFreezeCaseId,
       });
     }
   }
@@ -2997,8 +2991,8 @@ export class OnboardingService {
     const eddRequired = this.resolveEddRequiredForState(customer, canonical.onboardingStatus);
     const patch: Prisma.CustomerMainUpdateInput = this.buildCustomerLifecyclePatch(customer, {
       onboardingStatus: canonical.onboardingStatus,
-      operatingStatus: canonical.operatingStatus,
-      restrictionStatus: canonical.restrictionStatus,
+      adminStatus: canonical.adminStatus,
+      complianceStatus: canonical.complianceStatus,
       eddRequired,
     });
 

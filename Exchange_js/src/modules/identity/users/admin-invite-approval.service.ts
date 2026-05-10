@@ -17,6 +17,7 @@ export class AdminInviteApprovalService extends ApprovalHandlerBase {
     granted: AuditGovernanceActions.ADMIN_INVITE.APPROVAL_GRANTED,
     declined: AuditGovernanceActions.ADMIN_INVITE.APPROVAL_DECLINED,
     cancelled: AuditGovernanceActions.ADMIN_INVITE.APPROVAL_CANCELLED,
+    expired: AuditGovernanceActions.ADMIN_INVITE.APPROVAL_EXPIRED,
   };
   readonly entityType = AuditEntityTypes.ACCESS_CONTROL;
 

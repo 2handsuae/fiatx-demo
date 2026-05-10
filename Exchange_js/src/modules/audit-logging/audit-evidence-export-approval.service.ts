@@ -17,6 +17,7 @@ export class AuditEvidenceExportApprovalService extends ApprovalHandlerBase {
     granted: AuditGovernanceActions.AUDIT_EVIDENCE_EXPORT.APPROVAL_GRANTED,
     declined: AuditGovernanceActions.AUDIT_EVIDENCE_EXPORT.APPROVAL_DECLINED,
     cancelled: AuditGovernanceActions.AUDIT_EVIDENCE_EXPORT.APPROVAL_CANCELLED,
+    expired: AuditGovernanceActions.AUDIT_EVIDENCE_EXPORT.APPROVAL_EXPIRED,
   };
   readonly entityType = AuditEntityTypes.AUDIT_EVIDENCE_PACKAGE;
 

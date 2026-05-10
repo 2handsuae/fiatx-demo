@@ -142,11 +142,10 @@ export class SumsubIngestionService {
             });
             dispatchedContext = 'ONBOARDING';
           }
-          // Clue 4.5: APPROVED + RESTRICTED + applicantWorkflowCompleted → Level 2 completed
+          // Clue 4.5: APPROVED + applicantWorkflowCompleted → Level 2 completed
           // handleLevel2WorkflowComplete is idempotent: it returns early if no PENDING_LEVEL2 case exists
           else if (
             customer.onboardingStatus === 'APPROVED' &&
-            customer.restrictionStatus === 'RESTRICTED' &&
             event.eventType === 'applicantWorkflowCompleted'
           ) {
             await this.tierUpgradeCaseService.handleLevel2WorkflowComplete(customer.id);

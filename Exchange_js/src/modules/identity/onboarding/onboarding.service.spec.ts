@@ -144,8 +144,8 @@ describe('OnboardingService', () => {
     customerNo: 'CU0001',
     customerType: 'INDIVIDUAL',
     onboardingStatus: 'PENDING_VERIFICATION',
-    operatingStatus: 'INACTIVE',
-    restrictionStatus: 'CLEAR',
+    adminStatus: 'INACTIVE',
+    complianceStatus: 'CLEAR',
     verificationProvider: 'SUMSUB',
     verificationSubstatus: 'CREATED',
     verificationCustomerActionRequired: true,
@@ -303,7 +303,7 @@ describe('OnboardingService', () => {
         expect.objectContaining({
           data: expect.objectContaining({
             onboardingStatus: 'APPROVED',
-            operatingStatus: 'ACTIVE',
+            adminStatus: 'ACTIVE',
             verificationSubstatus: 'COMPLETED',
             latestRiskApprovalStatus: null,
           }),
@@ -311,7 +311,7 @@ describe('OnboardingService', () => {
       );
       expect(onboardingFinalApprovalServiceMock.ensurePendingApprovalInTransaction).not.toHaveBeenCalled();
       expect(result.customer.onboardingStatus).toBe('APPROVED');
-      expect(result.customer.operatingStatus).toBe('ACTIVE');
+      expect(result.customer.adminStatus).toBe('ACTIVE');
     });
 
     it('routes workflow completion with level2 into FINAL_APPROVAL and ensures pending approval', async () => {
@@ -349,7 +349,7 @@ describe('OnboardingService', () => {
         }),
       );
       expect(result.customer.onboardingStatus).toBe('FINAL_APPROVAL');
-      expect(result.customer.operatingStatus).toBe('INACTIVE');
+      expect(result.customer.adminStatus).toBe('INACTIVE');
     });
 
     it('rejects onboarding when workflow fails', async () => {
@@ -370,7 +370,7 @@ describe('OnboardingService', () => {
         expect.objectContaining({
           data: expect.objectContaining({
             onboardingStatus: 'REJECTED',
-            operatingStatus: 'INACTIVE',
+            adminStatus: 'INACTIVE',
             verificationSubstatus: 'FAILED',
           }),
         }),
@@ -405,7 +405,7 @@ describe('OnboardingService', () => {
     it('does not regress APPROVED customers when a late webhook arrives', async () => {
       const customer = buildVerificationCustomer({
         onboardingStatus: 'APPROVED',
-        operatingStatus: 'ACTIVE',
+        adminStatus: 'ACTIVE',
         verificationSubstatus: 'COMPLETED',
         verificationCustomerActionRequired: false,
         verificationCanContinue: false,
@@ -422,7 +422,7 @@ describe('OnboardingService', () => {
 
       expect(prismaMock.customerMain.update).not.toHaveBeenCalled();
       expect(result.customer.onboardingStatus).toBe('APPROVED');
-      expect(result.customer.operatingStatus).toBe('ACTIVE');
+      expect(result.customer.adminStatus).toBe('ACTIVE');
       expect(result.verification.substatus).toBe('COMPLETED');
     });
 
@@ -567,8 +567,8 @@ describe('OnboardingService', () => {
       id: 'c1',
       customerNo: 'CU0001',
       onboardingStatus: 'PENDING_CDD_INPUT',
-      operatingStatus: 'INACTIVE',
-      restrictionStatus: 'CLEAR',
+      adminStatus: 'INACTIVE',
+      complianceStatus: 'CLEAR',
     };
     const cddResponse = {
       id: 'cdd-1',
@@ -588,8 +588,8 @@ describe('OnboardingService', () => {
     prismaMock.customerMain.update.mockResolvedValue({
       ...customer,
       onboardingStatus: 'CDD_UNDER_REVIEW',
-      operatingStatus: 'INACTIVE',
-      restrictionStatus: 'CLEAR',
+      adminStatus: 'INACTIVE',
+      complianceStatus: 'CLEAR',
     });
     prismaMock.onboardingAuditLog.create.mockResolvedValue({ id: 'audit-1' });
     prismaMock.complianceAlert.findFirst.mockResolvedValue(null);
@@ -622,24 +622,22 @@ describe('OnboardingService', () => {
       id: 'c1',
       customerNo: 'CU1',
       onboardingStatus: 'APPROVED',
-      operatingStatus: 'ACTIVE',
-      restrictionStatus: 'CLEAR',
-      complianceHoldStatus: 'ACTIVE',
-      complianceHoldCaseId: null,
+      adminStatus: 'ACTIVE',
+      complianceStatus: 'CLEAR',
+      complianceFreezeCaseId: null,
     });
 
     await expect(service.assertTradingEligibility('c1', 'SWAP')).resolves.toBeUndefined();
   });
 
-  it('should block trading when restriction status is RESTRICTED', async () => {
+  it('should block trading when compliance status is FROZEN', async () => {
     prismaMock.customerMain.findUnique.mockResolvedValue({
       id: 'c1',
       customerNo: 'CU1',
       onboardingStatus: 'APPROVED',
-      operatingStatus: 'ACTIVE',
-      restrictionStatus: 'RESTRICTED',
-      complianceHoldStatus: 'ACTIVE',
-      complianceHoldCaseId: null,
+      adminStatus: 'ACTIVE',
+      complianceStatus: 'FROZEN',
+      complianceFreezeCaseId: null,
     });
 
     await expect(service.assertTradingEligibility('c1', 'WITHDRAW')).rejects.toBeInstanceOf(
@@ -652,10 +650,9 @@ describe('OnboardingService', () => {
       id: 'c1',
       customerNo: 'CU1',
       onboardingStatus: 'CDD_UNDER_REVIEW',
-      operatingStatus: 'INACTIVE',
-      restrictionStatus: 'CLEAR',
-      complianceHoldStatus: 'ACTIVE',
-      complianceHoldCaseId: null,
+      adminStatus: 'INACTIVE',
+      complianceStatus: 'CLEAR',
+      complianceFreezeCaseId: null,
     });
 
     await expect(service.assertTradingEligibility('c1', 'WITHDRAW')).rejects.toBeInstanceOf(
@@ -668,10 +665,9 @@ describe('OnboardingService', () => {
       id: 'c1',
       customerNo: 'CU1',
       onboardingStatus: 'APPROVED',
-      operatingStatus: 'ACTIVE',
-      restrictionStatus: 'CLEAR',
-      complianceHoldStatus: 'FROZEN',
-      complianceHoldCaseId: 'inc-1',
+      adminStatus: 'ACTIVE',
+      complianceStatus: 'FROZEN',
+      complianceFreezeCaseId: 'inc-1',
     });
 
     await expect(service.assertTradingEligibility('c1', 'WITHDRAW')).rejects.toBeInstanceOf(
@@ -691,8 +687,8 @@ describe('OnboardingService', () => {
     prismaMock.customerMain.findUnique.mockResolvedValue({
       id: 'c1',
       onboardingStatus: 'CDD_UNDER_REVIEW',
-      operatingStatus: 'INACTIVE',
-      restrictionStatus: 'CLEAR',
+      adminStatus: 'INACTIVE',
+      complianceStatus: 'CLEAR',
       eddRequired: false,
     });
     prismaMock.cddResponse.findFirst.mockResolvedValue({ id: 'cdd-1' });
@@ -738,9 +734,8 @@ describe('OnboardingService', () => {
         companyName: null,
         customerType: 'INDIVIDUAL',
         onboardingStatus: 'APPROVED',
-        operatingStatus: 'ACTIVE',
-        restrictionStatus: 'CLEAR',
-        complianceHoldStatus: 'ACTIVE',
+        adminStatus: 'ACTIVE',
+        complianceStatus: 'CLEAR',
       },
       inputData: '{"provider":"MOCK"}',
     });
@@ -756,8 +751,8 @@ describe('OnboardingService', () => {
     prismaMock.customerMain.findUnique.mockResolvedValue({
       id: 'c1',
       onboardingStatus: 'CDD_UNDER_REVIEW',
-      operatingStatus: 'INACTIVE',
-      restrictionStatus: 'CLEAR',
+      adminStatus: 'INACTIVE',
+      complianceStatus: 'CLEAR',
       eddRequired: false,
     });
     prismaMock.cddResponse.findFirst.mockResolvedValue({ id: 'cdd-1' });
@@ -774,8 +769,8 @@ describe('OnboardingService', () => {
     prismaMock.customerMain.findUnique.mockResolvedValue({
       id: 'c1',
       onboardingStatus: 'FINAL_APPROVAL',
-      operatingStatus: 'INACTIVE',
-      restrictionStatus: 'CLEAR',
+      adminStatus: 'INACTIVE',
+      complianceStatus: 'CLEAR',
       activeCaseId: null,
       eddRequired: true,
     });
@@ -794,8 +789,8 @@ describe('OnboardingService', () => {
         id: 'c1',
         customerType: 'INDIVIDUAL',
         onboardingStatus: status,
-        operatingStatus: status === 'APPROVED' ? 'ACTIVE' : 'INACTIVE',
-        restrictionStatus: 'CLEAR',
+        adminStatus: status === 'APPROVED' ? 'ACTIVE' : 'INACTIVE',
+        complianceStatus: 'CLEAR',
       });
 
       await expect(service.startVerification('c1')).rejects.toBeInstanceOf(
@@ -811,8 +806,8 @@ describe('OnboardingService', () => {
         id: 'c1',
         customerType: 'INDIVIDUAL',
         onboardingStatus: status,
-        operatingStatus: 'INACTIVE',
-        restrictionStatus: 'CLEAR',
+        adminStatus: 'INACTIVE',
+        complianceStatus: 'CLEAR',
       });
 
       await expect(service.startVerification('c1')).rejects.toBeInstanceOf(
@@ -827,8 +822,8 @@ describe('OnboardingService', () => {
       customerNo: 'CU0001',
       customerType: 'INDIVIDUAL',
       onboardingStatus: 'SOMETHING_UNKNOWN',
-      operatingStatus: 'INACTIVE',
-      restrictionStatus: 'CLEAR',
+      adminStatus: 'INACTIVE',
+      complianceStatus: 'CLEAR',
     });
 
     await expect(service.startVerification('c1')).rejects.toBeInstanceOf(BadRequestException);
@@ -843,8 +838,8 @@ describe('OnboardingService', () => {
       customerNo: 'CU0001',
       customerType: 'INDIVIDUAL',
       onboardingStatus: 'SOMETHING_UNKNOWN',
-      operatingStatus: 'INACTIVE',
-      restrictionStatus: 'CLEAR',
+      adminStatus: 'INACTIVE',
+      complianceStatus: 'CLEAR',
     });
 
     const result = await service.getNextStep('c1');
@@ -859,8 +854,8 @@ describe('OnboardingService', () => {
       customerNo: 'CU0001',
       customerType: 'INDIVIDUAL',
       onboardingStatus: 'SOMETHING_UNKNOWN',
-      operatingStatus: 'INACTIVE',
-      restrictionStatus: 'CLEAR',
+      adminStatus: 'INACTIVE',
+      complianceStatus: 'CLEAR',
     });
 
     const result = await service.getMyOnboarding('c1');
@@ -875,8 +870,8 @@ describe('OnboardingService', () => {
       customerNo: 'CU0001',
       customerType: 'INDIVIDUAL',
       onboardingStatus: 'NONE',
-      operatingStatus: 'INACTIVE',
-      restrictionStatus: 'CLEAR',
+      adminStatus: 'INACTIVE',
+      complianceStatus: 'CLEAR',
       verificationProvider: null,
       verificationSubstatus: null,
       verificationCustomerActionRequired: false,
@@ -899,8 +894,8 @@ describe('OnboardingService', () => {
       customerNo: 'CU0001',
       customerType: 'INDIVIDUAL',
       onboardingStatus: 'PENDING_VERIFICATION',
-      operatingStatus: 'INACTIVE',
-      restrictionStatus: 'CLEAR',
+      adminStatus: 'INACTIVE',
+      complianceStatus: 'CLEAR',
       verificationProvider: 'SUMSUB',
       verificationSubstatus: 'CREATED',
       verificationCustomerActionRequired: true,
@@ -946,8 +941,8 @@ describe('OnboardingService', () => {
     expect(firstUpdateData.latestRiskApprovalStatus).toBeUndefined();
     expect(result.customer).toEqual({
       onboardingStatus: 'PENDING_VERIFICATION',
-      operatingStatus: 'INACTIVE',
-      restrictionStatus: 'CLEAR',
+      adminStatus: 'INACTIVE',
+      complianceStatus: 'CLEAR',
     });
     expect(result.nextStep).toEqual(
       expect.objectContaining({
@@ -976,8 +971,8 @@ describe('OnboardingService', () => {
       customerNo: 'CU0001',
       customerType: 'INDIVIDUAL',
       onboardingStatus: 'PENDING_VERIFICATION',
-      operatingStatus: 'INACTIVE',
-      restrictionStatus: 'CLEAR',
+      adminStatus: 'INACTIVE',
+      complianceStatus: 'CLEAR',
       verificationProvider: 'SUMSUB',
       verificationSubstatus: 'UNDER_REVIEW',
       verificationCustomerActionRequired: false,
@@ -1003,8 +998,8 @@ describe('OnboardingService', () => {
       customerNo: 'CU0001',
       customerType: 'INDIVIDUAL',
       onboardingStatus: 'PENDING_VERIFICATION',
-      operatingStatus: 'INACTIVE',
-      restrictionStatus: 'CLEAR',
+      adminStatus: 'INACTIVE',
+      complianceStatus: 'CLEAR',
       verificationProvider: 'SUMSUB',
       verificationSubstatus: 'NEXT_LEVEL_REQUIRED',
       verificationCustomerActionRequired: false,
@@ -1023,8 +1018,8 @@ describe('OnboardingService', () => {
       customerNo: 'CU0001',
       customerType: 'INDIVIDUAL',
       onboardingStatus: 'PENDING_VERIFICATION',
-      operatingStatus: 'INACTIVE',
-      restrictionStatus: 'CLEAR',
+      adminStatus: 'INACTIVE',
+      complianceStatus: 'CLEAR',
       verificationProvider: 'SUMSUB',
       verificationSubstatus: 'NEXT_LEVEL_REQUIRED',
       verificationCustomerActionRequired: false,
@@ -1072,8 +1067,8 @@ describe('OnboardingService', () => {
       customerNo: 'CU0001',
       customerType: 'INDIVIDUAL',
       onboardingStatus: 'PENDING_VERIFICATION',
-      operatingStatus: 'INACTIVE',
-      restrictionStatus: 'CLEAR',
+      adminStatus: 'INACTIVE',
+      complianceStatus: 'CLEAR',
       verificationProvider: 'OTHER',
       verificationSubstatus: 'NEXT_LEVEL_REQUIRED',
       verificationCustomerActionRequired: false,
@@ -1099,8 +1094,8 @@ describe('OnboardingService', () => {
       customerNo: 'CU0001',
       customerType: 'INDIVIDUAL',
       onboardingStatus: 'REJECTED',
-      operatingStatus: 'INACTIVE',
-      restrictionStatus: 'CLEAR',
+      adminStatus: 'INACTIVE',
+      complianceStatus: 'CLEAR',
       verificationProvider: 'SUMSUB',
       verificationSubstatus: 'FAILED',
       verificationCustomerActionRequired: false,
@@ -1122,8 +1117,8 @@ describe('OnboardingService', () => {
       customerNo: 'CU0001',
       customerType: 'INDIVIDUAL',
       onboardingStatus: 'PENDING_VERIFICATION',
-      operatingStatus: 'INACTIVE',
-      restrictionStatus: 'CLEAR',
+      adminStatus: 'INACTIVE',
+      complianceStatus: 'CLEAR',
       verificationProvider: 'SUMSUB',
       verificationSubstatus: 'CREATED',
       verificationCustomerActionRequired: true,
@@ -1177,8 +1172,8 @@ describe('OnboardingService', () => {
       customerNo: 'CU0001',
       customerType: 'INDIVIDUAL',
       onboardingStatus: 'NONE',
-      operatingStatus: 'INACTIVE',
-      restrictionStatus: 'CLEAR',
+      adminStatus: 'INACTIVE',
+      complianceStatus: 'CLEAR',
       onboardingTraceId: null,
       verificationProvider: null,
       verificationSubstatus: null,
@@ -1202,8 +1197,8 @@ describe('OnboardingService', () => {
       customerNo: 'CU0001',
       customerType: 'INDIVIDUAL',
       onboardingStatus: 'PENDING_VERIFICATION',
-      operatingStatus: 'INACTIVE',
-      restrictionStatus: 'CLEAR',
+      adminStatus: 'INACTIVE',
+      complianceStatus: 'CLEAR',
       verificationProvider: 'SUMSUB',
       verificationSubstatus: 'CREATED',
       verificationCustomerActionRequired: true,
@@ -1234,8 +1229,8 @@ describe('OnboardingService', () => {
       customerNo: 'CU0001',
       customerType: 'INDIVIDUAL',
       onboardingStatus: 'NONE',
-      operatingStatus: 'INACTIVE',
-      restrictionStatus: 'CLEAR',
+      adminStatus: 'INACTIVE',
+      complianceStatus: 'CLEAR',
       onboardingTraceId: existingTraceId,
       verificationProvider: null,
       verificationSubstatus: null,
@@ -1259,8 +1254,8 @@ describe('OnboardingService', () => {
       customerNo: 'CU0001',
       customerType: 'INDIVIDUAL',
       onboardingStatus: 'PENDING_VERIFICATION',
-      operatingStatus: 'INACTIVE',
-      restrictionStatus: 'CLEAR',
+      adminStatus: 'INACTIVE',
+      complianceStatus: 'CLEAR',
       verificationProvider: 'SUMSUB',
       verificationSubstatus: 'CREATED',
       verificationCustomerActionRequired: true,
@@ -1286,8 +1281,8 @@ describe('OnboardingService', () => {
     prismaMock.customerMain.findUnique.mockResolvedValue({
       id: 'c1',
       onboardingStatus: 'REJECTED',
-      operatingStatus: 'INACTIVE',
-      restrictionStatus: 'CLEAR',
+      adminStatus: 'INACTIVE',
+      complianceStatus: 'CLEAR',
       activeCaseId: null,
       eddRequired: false,
     });
@@ -1303,8 +1298,8 @@ describe('OnboardingService', () => {
       .mockResolvedValueOnce({
         id: 'c1',
         onboardingStatus: 'PENDING_VERIFICATION',
-        operatingStatus: 'INACTIVE',
-        restrictionStatus: 'CLEAR',
+        adminStatus: 'INACTIVE',
+        complianceStatus: 'CLEAR',
         verificationProvider: 'SUMSUB',
         verificationSubstatus: 'CREATED',
         verificationCustomerActionRequired: true,
@@ -1321,8 +1316,8 @@ describe('OnboardingService', () => {
         id: 'c1',
         customerType: 'INDIVIDUAL',
         onboardingStatus: 'PENDING_VERIFICATION',
-        operatingStatus: 'INACTIVE',
-        restrictionStatus: 'CLEAR',
+        adminStatus: 'INACTIVE',
+        complianceStatus: 'CLEAR',
         verificationProvider: 'SUMSUB',
         verificationSubstatus: 'CREATED',
         verificationCustomerActionRequired: true,
@@ -1358,8 +1353,8 @@ describe('OnboardingService', () => {
     prismaMock.customerMain.findUnique.mockResolvedValue({
       id: 'c1',
       onboardingStatus: 'PENDING_VERIFICATION',
-      operatingStatus: 'INACTIVE',
-      restrictionStatus: 'CLEAR',
+      adminStatus: 'INACTIVE',
+      complianceStatus: 'CLEAR',
       verificationProvider: 'SUMSUB',
       verificationSubstatus: 'UNDER_REVIEW',
       verificationCustomerActionRequired: false,
@@ -1396,23 +1391,23 @@ describe('OnboardingService', () => {
       .mockResolvedValueOnce({
         id: 'c1',
         onboardingStatus: 'APPROVED',
-        operatingStatus: 'ACTIVE',
-        restrictionStatus: 'CLEAR',
+        adminStatus: 'ACTIVE',
+        complianceStatus: 'CLEAR',
         eddRequired: false,
         cddDocumentExpiresAt: new Date(Date.now() - 60 * 1000),
       })
       .mockResolvedValueOnce({
         id: 'c1',
         onboardingStatus: 'PENDING_CDD_INPUT',
-        operatingStatus: 'INACTIVE',
-        restrictionStatus: 'CLEAR',
+        adminStatus: 'INACTIVE',
+        complianceStatus: 'CLEAR',
         eddRequired: false,
       });
     prismaMock.customerMain.update.mockResolvedValue({
       id: 'c1',
       onboardingStatus: 'PENDING_CDD_INPUT',
-      operatingStatus: 'INACTIVE',
-      restrictionStatus: 'CLEAR',
+      adminStatus: 'INACTIVE',
+      complianceStatus: 'CLEAR',
     });
 
     const result = await service.getNextStep('c1');
@@ -1422,8 +1417,8 @@ describe('OnboardingService', () => {
         where: { id: 'c1' },
         data: expect.objectContaining({
           onboardingStatus: 'PENDING_CDD_INPUT',
-          operatingStatus: 'INACTIVE',
-          restrictionStatus: 'CLEAR',
+          adminStatus: 'INACTIVE',
+          complianceStatus: 'CLEAR',
         }),
       }),
     );
@@ -1435,24 +1430,23 @@ describe('OnboardingService', () => {
       .mockResolvedValueOnce({
         id: 'c1',
         onboardingStatus: 'APPROVED',
-        operatingStatus: 'ACTIVE',
-        restrictionStatus: 'CLEAR',
+        adminStatus: 'ACTIVE',
+        complianceStatus: 'CLEAR',
         cddDocumentExpiresAt: new Date(Date.now() - 60 * 1000),
       })
       .mockResolvedValueOnce({
         id: 'c1',
         customerNo: 'CU1',
         onboardingStatus: 'PENDING_CDD_INPUT',
-        operatingStatus: 'INACTIVE',
-        restrictionStatus: 'CLEAR',
-        complianceHoldStatus: 'ACTIVE',
-        complianceHoldCaseId: null,
+        adminStatus: 'INACTIVE',
+        complianceStatus: 'CLEAR',
+        complianceFreezeCaseId: null,
       });
     prismaMock.customerMain.update.mockResolvedValue({
       id: 'c1',
       onboardingStatus: 'PENDING_CDD_INPUT',
-      operatingStatus: 'INACTIVE',
-      restrictionStatus: 'CLEAR',
+      adminStatus: 'INACTIVE',
+      complianceStatus: 'CLEAR',
     });
 
     await expect(service.assertTradingEligibility('c1', 'DEPOSIT')).rejects.toBeInstanceOf(
@@ -1465,8 +1459,8 @@ describe('OnboardingService', () => {
     prismaMock.customerMain.findUnique.mockResolvedValue({
       id: 'c1',
       onboardingStatus: 'PENDING_CDD_INPUT',
-      operatingStatus: 'INACTIVE',
-      restrictionStatus: 'CLEAR',
+      adminStatus: 'INACTIVE',
+      complianceStatus: 'CLEAR',
       currentEddResponseId: 'edd-1',
     });
 
@@ -1586,8 +1580,8 @@ describe('OnboardingService', () => {
     prismaMock.customerMain.findUnique.mockResolvedValue({
       id: 'c1',
       onboardingStatus: 'REJECTED',
-      operatingStatus: 'INACTIVE',
-      restrictionStatus: 'CLEAR',
+      adminStatus: 'INACTIVE',
+      complianceStatus: 'CLEAR',
     });
     prismaMock.customerMain.update.mockResolvedValue({});
     jest.spyOn(service, 'startCddResponses').mockResolvedValue({
@@ -1613,14 +1607,14 @@ describe('OnboardingService', () => {
     prismaMock.customerMain.findUnique.mockResolvedValue({
       id: 'c1',
       onboardingStatus: 'NONE',
-      operatingStatus: 'INACTIVE',
-      restrictionStatus: 'CLEAR',
+      adminStatus: 'INACTIVE',
+      complianceStatus: 'CLEAR',
     });
     prismaMock.customerMain.update.mockResolvedValue({
       id: 'c1',
       onboardingStatus: 'NONE',
-      operatingStatus: 'INACTIVE',
-      restrictionStatus: 'CLEAR',
+      adminStatus: 'INACTIVE',
+      complianceStatus: 'CLEAR',
       eddRequired: false,
     });
 
@@ -1630,8 +1624,8 @@ describe('OnboardingService', () => {
       where: { id: 'c1' },
       data: expect.objectContaining({
         onboardingStatus: 'NONE',
-        operatingStatus: 'INACTIVE',
-        restrictionStatus: 'CLEAR',
+        adminStatus: 'INACTIVE',
+        complianceStatus: 'CLEAR',
         eddRequired: false,
       }),
     });
@@ -1664,7 +1658,7 @@ describe('OnboardingService', () => {
       expect.objectContaining({
         data: expect.objectContaining({
           onboardingStatus: 'CDD_UNDER_REVIEW',
-          operatingStatus: 'INACTIVE',
+          adminStatus: 'INACTIVE',
           latestDecisionRecordId: 'dr-pending',
         }),
       }),
@@ -1695,14 +1689,14 @@ describe('OnboardingService', () => {
       id: 'c1',
       customerNo: 'CU0001',
       onboardingStatus: 'CDD_UNDER_REVIEW',
-      operatingStatus: 'INACTIVE',
-      restrictionStatus: 'CLEAR',
+      adminStatus: 'INACTIVE',
+      complianceStatus: 'CLEAR',
     });
     prismaMock.customerMain.update.mockResolvedValue({
       id: 'c1',
       onboardingStatus: 'APPROVED',
-      operatingStatus: 'ACTIVE',
-      restrictionStatus: 'CLEAR',
+      adminStatus: 'ACTIVE',
+      complianceStatus: 'CLEAR',
     });
     riskEngineMock.completeDecisionRecord.mockResolvedValue({
       decision: 'REVIEW',
@@ -1732,7 +1726,7 @@ describe('OnboardingService', () => {
       expect.objectContaining({
         data: expect.objectContaining({
           onboardingStatus: 'APPROVED',
-          operatingStatus: 'ACTIVE',
+          adminStatus: 'ACTIVE',
         }),
       }),
     );
@@ -1758,14 +1752,14 @@ describe('OnboardingService', () => {
       id: 'c1',
       customerNo: 'CU0001',
       onboardingStatus: 'CDD_UNDER_REVIEW',
-      operatingStatus: 'INACTIVE',
-      restrictionStatus: 'CLEAR',
+      adminStatus: 'INACTIVE',
+      complianceStatus: 'CLEAR',
     });
     prismaMock.customerMain.update.mockResolvedValue({
       id: 'c1',
       onboardingStatus: 'CDD_UNDER_REVIEW',
-      operatingStatus: 'INACTIVE',
-      restrictionStatus: 'CLEAR',
+      adminStatus: 'INACTIVE',
+      complianceStatus: 'CLEAR',
     });
     riskEngineMock.completeDecisionRecord.mockResolvedValue({
       decision: 'REVIEW',
@@ -1821,14 +1815,14 @@ describe('OnboardingService', () => {
       id: 'c1',
       customerNo: 'CU0001',
       onboardingStatus: 'CDD_UNDER_REVIEW',
-      operatingStatus: 'INACTIVE',
-      restrictionStatus: 'CLEAR',
+      adminStatus: 'INACTIVE',
+      complianceStatus: 'CLEAR',
     });
     prismaMock.customerMain.update.mockResolvedValue({
       id: 'c1',
       onboardingStatus: 'CDD_UNDER_REVIEW',
-      operatingStatus: 'INACTIVE',
-      restrictionStatus: 'CLEAR',
+      adminStatus: 'INACTIVE',
+      complianceStatus: 'CLEAR',
     });
     riskEngineMock.completeDecisionRecord.mockResolvedValue({
       decision: 'REVIEW',
@@ -1887,16 +1881,16 @@ describe('OnboardingService', () => {
       id: 'c1',
       customerNo: 'CU0001',
       onboardingStatus: 'PENDING_EDD_INPUT',
-      operatingStatus: 'INACTIVE',
-      restrictionStatus: 'CLEAR',
+      adminStatus: 'INACTIVE',
+      complianceStatus: 'CLEAR',
       currentEddResponseId: 'edd-1',
     });
     prismaMock.customerMain.update.mockResolvedValue({
       id: 'c1',
       customerNo: 'CU0001',
       onboardingStatus: 'EDD_UNDER_REVIEW',
-      operatingStatus: 'INACTIVE',
-      restrictionStatus: 'CLEAR',
+      adminStatus: 'INACTIVE',
+      complianceStatus: 'CLEAR',
     });
     prismaMock.onboardingAuditLog.create.mockResolvedValue({ id: 'audit-edd-1' });
     riskEngineMock.createPendingDecisionRecord.mockResolvedValue({
@@ -1970,8 +1964,8 @@ describe('OnboardingService', () => {
       id: 'c1',
       customerNo: 'CU0001',
       onboardingStatus: 'EDD_UNDER_REVIEW',
-      operatingStatus: 'INACTIVE',
-      restrictionStatus: 'CLEAR',
+      adminStatus: 'INACTIVE',
+      complianceStatus: 'CLEAR',
       eddRequired: true,
     });
     riskEngineMock.completeDecisionRecord.mockResolvedValue({
@@ -1991,8 +1985,8 @@ describe('OnboardingService', () => {
       updatedCustomer: {
         id: 'c1',
         onboardingStatus: 'FINAL_APPROVAL',
-        operatingStatus: 'INACTIVE',
-        restrictionStatus: 'CLEAR',
+        adminStatus: 'INACTIVE',
+        complianceStatus: 'CLEAR',
         latestRiskApprovalId: 'approval-1',
         latestRiskApprovalStatus: 'PENDING',
       },

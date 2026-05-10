@@ -170,9 +170,9 @@ export class UsersController {
       throw new ForbiddenException('Admin token required');
     }
 
-    return this.adminPasswordResetWorkflow.requestCisoReset(
+    return this.adminPasswordResetWorkflow.initiateAdminReset(
       id,
-      { userId: req.user.userId, userNo: req.user.userNo },
+      this.buildAdminActor(req),
     );
   }
 }

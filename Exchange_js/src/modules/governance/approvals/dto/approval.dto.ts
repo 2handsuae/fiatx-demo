@@ -20,10 +20,10 @@ export class CreateApprovalDto {
   @IsString()
   docRef?: string;
 
-  @ApiPropertyOptional({ type: Object })
+  @ApiPropertyOptional({ type: Object, description: 'Frozen snapshot of the approval subject (request) at creation time' })
   @IsOptional()
   @IsObject()
-  metadata?: Record<string, unknown>;
+  objectSnapshot?: Record<string, unknown>;
 
   @IsOptional()
   @IsString()

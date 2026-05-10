@@ -13,7 +13,6 @@ import {
 } from '../components/compliance/DetailPageComponents';
 import { adminButtonClass } from '../components/common/adminButtonStyles';
 import { AdminBadge } from '../components/ui/AdminBadge';
-import { LinkedRelationCard, LinkedRelationEmpty } from '../components/ui/LinkedRelationCard';
 import { PERMISSIONS } from '../rbac/permissions';
 import { useAdminSession } from '../contexts/AdminSessionContext';
 
@@ -35,7 +34,7 @@ interface ApprovalDetail {
   allowCancel: boolean;
   allowRetry: boolean;
   docRef?: string | null;
-  metadata?: Record<string, unknown>;
+  objectSnapshot?: Record<string, unknown> | null;
   traceId: string;
   workflowType?: string | null;
   workflowId?: string | null;
@@ -367,84 +366,6 @@ const ApprovalDetailPage = () => {
   const hasSteps             = allSteps.length > 0;
   const hasDecision          = !!(detail.decidedAt || detail.decisionByUserNo || detail.decisionReason);
 
-  /**
-   * Derive a clickable Subject card for this approval.
-   *
-   * Strategy:
-   *   1. When the API returns a typed subject object (evidencePackage /
-   *      caseEvidencePackage) use it directly — that gives us a real
-   *      status badge for free.
-   *   2. Otherwise fall back to the ACTION_TYPE → subject-route mapping,
-   *      using `entityRef` as the target id and `workflowNo` as the
-   *      human-readable identifier. This makes change tickets, delete
-   *      requests and any other governed subject navigable without
-   *      waiting for backend schema changes.
-   */
-  const ACTION_TYPE_SUBJECT_MAP: Record<
-    string,
-    { cap: string; route: (entityRef: string) => string }
-  > = {
-    AUDIT_EVIDENCE_EXPORT_APPROVAL: {
-      cap: 'Audit Evidence Package',
-      route: (ref) => `/dashboard/audit/evidence-exports/${ref}`,
-    },
-    CASE_EVIDENCE_EXPORT_APPROVAL: {
-      cap: 'Case Evidence Package',
-      route: (ref) => `/dashboard/compliance/case-evidence-exports/${ref}`,
-    },
-    CHANGE_TICKET_APPROVAL: {
-      cap: 'Change Ticket',
-      route: (ref) => `/dashboard/control-gates/change-tickets/${ref}`,
-    },
-    DELETE_REQUEST_APPROVAL: {
-      cap: 'Delete Request',
-      route: (ref) => `/dashboard/control-gates/delete-requests/${ref}`,
-    },
-  };
-
-  const subjectCards: {
-    cap: string;
-    identifier: string;
-    statusValue?: string;
-    secondaryStatus?: string;
-    onClick?: () => void;
-  }[] = [];
-
-  if (detail.evidencePackage) {
-    subjectCards.push({
-      cap: 'Audit Evidence Package',
-      identifier: detail.evidencePackage.packageNo,
-      statusValue: detail.evidencePackage.status,
-      onClick: () =>
-        navigate(`/dashboard/audit/evidence-exports/${detail.evidencePackage!.id}`),
-    });
-  }
-  if (detail.caseEvidencePackage) {
-    subjectCards.push({
-      cap: 'Case Evidence Package',
-      identifier: detail.caseEvidencePackage.packageNo,
-      statusValue: detail.caseEvidencePackage.status,
-      onClick: () =>
-        navigate(`/dashboard/compliance/case-evidence-exports/${detail.caseEvidencePackage!.id}`),
-    });
-  }
-
-  // Fallback: actionType-driven mapping for subjects not returned as
-  // typed objects (change ticket / delete request / …)
-  if (subjectCards.length === 0) {
-    const mapping = ACTION_TYPE_SUBJECT_MAP[detail.actionType];
-    if (mapping && detail.entityRef) {
-      subjectCards.push({
-        cap: mapping.cap,
-        identifier: detail.workflowNo || detail.entityRef,
-        onClick: () => navigate(mapping.route(detail.entityRef)),
-      });
-    }
-  }
-
-  const hasSubject = subjectCards.length > 0;
-  const hasMetadata          =
-    !!detail.metadata && Object.keys(detail.metadata).length > 0;
   const showActionsBlock =
     (detail.canApprove && canDecide) ||
     (detail.canReject && canDecide) ||
@@ -619,42 +540,15 @@ const ApprovalDetailPage = () => {
             </section>
           )}
 
-          {/* ⑥ Subject — the thing this approval governs */}
-          <section className="px-6 py-5">
-            <Cap>Subject</Cap>
-            <p className="mt-1 mb-4 font-mono text-[9px] text-adm-t3">
-              The business object this approval decision governs
-            </p>
-            {hasSubject ? (
-              <div className="flex flex-col gap-2">
-                {subjectCards.map((card, i) => (
-                  <LinkedRelationCard
-                    key={`${card.cap}-${i}`}
-                    cap={card.cap}
-                    identifier={card.identifier}
-                    statusValue={card.statusValue}
-                    secondaryStatus={card.secondaryStatus}
-                    onClick={card.onClick}
-                  />
-                ))}
-              </div>
-            ) : (
-              <LinkedRelationEmpty
-                cap={detail.actionType}
-                message={`Entity Ref: ${detail.entityRef}`}
-              />
-            )}
-          </section>
-
-          {/* ⑦ Metadata */}
-          {hasMetadata && (
+          {/* ⑥ Request Snapshot */}
+          {detail.objectSnapshot && Object.keys(detail.objectSnapshot).length > 0 && (
             <section className="px-6 py-5">
-              <Cap>Metadata</Cap>
+              <Cap>Request Snapshot</Cap>
               <p className="mt-1 mb-4 font-mono text-[9px] text-adm-t3">
-                Structured payload for this approval case
+                Snapshot of the business object at the time of the request
               </p>
               <div className="rounded border border-adm-border bg-adm-bg p-4">
-                <JsonBlock title="metadata" value={detail.metadata} />
+                <JsonBlock title="objectSnapshot" value={detail.objectSnapshot} />
               </div>
             </section>
           )}

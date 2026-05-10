@@ -134,9 +134,8 @@ describe('DepositTransactionsService', () => {
             lastName: 'Lovelace',
             email: 'ada@example.com',
             onboardingStatus: 'APPROVED',
-            operatingStatus: 'ACTIVE',
-            restrictionStatus: 'CLEAR',
-            complianceHoldStatus: 'ACTIVE',
+            adminStatus: 'ACTIVE',
+            complianceStatus: 'CLEAR',
           },
         },
       ]);
@@ -209,9 +208,8 @@ describe('DepositTransactionsService', () => {
           lastName: 'Lovelace',
           email: 'ada@example.com',
           onboardingStatus: 'APPROVED',
-          operatingStatus: 'ACTIVE',
-          restrictionStatus: 'CLEAR',
-          complianceHoldStatus: 'ACTIVE',
+          adminStatus: 'ACTIVE',
+          complianceStatus: 'CLEAR',
         },
         auditLogs: [],
       });
@@ -242,9 +240,8 @@ describe('DepositTransactionsService', () => {
         },
         customer: {
           onboardingStatus: 'APPROVED',
-          operatingStatus: 'ACTIVE',
-          restrictionStatus: 'CLEAR',
-          complianceHoldStatus: 'ACTIVE',
+          adminStatus: 'ACTIVE',
+          complianceStatus: 'CLEAR',
         },
       };
       ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValue(mockRecord);
@@ -364,9 +361,8 @@ describe('DepositTransactionsService', () => {
         },
         customer: {
           onboardingStatus: 'APPROVED',
-          operatingStatus: 'ACTIVE',
-          restrictionStatus: 'CLEAR',
-          complianceHoldStatus: 'ACTIVE',
+          adminStatus: 'ACTIVE',
+          complianceStatus: 'CLEAR',
         },
       };
       ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValue(mockRecord);
@@ -395,9 +391,8 @@ describe('DepositTransactionsService', () => {
         },
         customer: {
           onboardingStatus: 'APPROVED',
-          operatingStatus: 'ACTIVE',
-          restrictionStatus: 'CLEAR',
-          complianceHoldStatus: 'ACTIVE',
+          adminStatus: 'ACTIVE',
+          complianceStatus: 'CLEAR',
         },
       };
       ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValue(
@@ -458,7 +453,7 @@ describe('DepositTransactionsService', () => {
       );
     });
 
-    it('should block SUCCESS when customer restriction or compliance hold is active', async () => {
+    it('should block SUCCESS when customer compliance status is frozen', async () => {
       const mockRecord = {
         id: mockId,
         status: DepositTransactionStatus.UNDER_REVIEW,
@@ -475,9 +470,8 @@ describe('DepositTransactionsService', () => {
         },
         customer: {
           onboardingStatus: 'APPROVED',
-          operatingStatus: 'ACTIVE',
-          restrictionStatus: 'RESTRICTED',
-          complianceHoldStatus: 'FROZEN',
+          adminStatus: 'ACTIVE',
+          complianceStatus: 'FROZEN',
         },
       };
       ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValue(

@@ -1413,8 +1413,8 @@ describe('AuditLogsService', () => {
           firstName: 'Ada',
           lastName: 'Lovelace',
           email: 'ada@example.com',
-          amlRiskTier: 'LOW',
-          investorClassification: 'RETAIL',
+          riskRating: 'LOW',
+          investorTier: 'RETAIL',
         },
       },
     ]);
@@ -1749,7 +1749,7 @@ describe('AuditLogsService', () => {
           firstName: 'Ada',
           lastName: 'Lovelace',
           email: 'ada@example.com',
-          amlRiskTier: 'LOW',
+          riskRating: 'LOW',
         },
         payout: {
           id: 'payout-1',

@@ -35,8 +35,8 @@ interface FinalApprovalCustomerRow {
   id: string;
   customerNo?: string | null;
   onboardingStatus?: string | null;
-  operatingStatus?: string | null;
-  restrictionStatus?: string | null;
+  adminStatus?: string | null;
+  complianceStatus?: string | null;
   eddRequired?: boolean | null;
   latestRiskApprovalId?: string | null;
   latestRiskApprovalStatus?: string | null;
@@ -58,8 +58,8 @@ const FINAL_APPROVAL_CUSTOMER_SELECT = {
   id: true,
   customerNo: true,
   onboardingStatus: true,
-  operatingStatus: true,
-  restrictionStatus: true,
+  adminStatus: true,
+  complianceStatus: true,
   eddRequired: true,
   latestRiskApprovalId: true,
   latestRiskApprovalStatus: true,
@@ -311,7 +311,7 @@ export class OnboardingFinalApprovalService {
         workflowType: ONBOARDING_WORKFLOW,
         workflowId: customer.id,
         workflowNo: customer.customerNo || customer.id,
-        metadata: {
+        objectSnapshot: {
           source: 'WAVE3_PHASE4_ONBOARDING',
           customerId: customer.id,
           customerNo: customer.customerNo || null,
@@ -489,7 +489,7 @@ export class OnboardingFinalApprovalService {
       return {
         ...buildCustomerLifecycleStatePatch(customer, {
           onboardingStatus: 'APPROVED',
-          operatingStatus: 'ACTIVE',
+          adminStatus: 'ACTIVE',
           eddRequired: true,
         }),
         ...this.buildLatestRiskApprovalBindingPatch(event.approvalId),
@@ -501,7 +501,7 @@ export class OnboardingFinalApprovalService {
       return {
         ...buildCustomerLifecycleStatePatch(customer, {
           onboardingStatus: 'REJECTED',
-          operatingStatus: 'INACTIVE',
+          adminStatus: 'INACTIVE',
           eddRequired: true,
         }),
         ...this.buildLatestRiskApprovalBindingPatch(event.approvalId),
@@ -602,12 +602,12 @@ export class OnboardingFinalApprovalService {
           `Customer final approval projected as ${normalizedStatus}`,
         );
 
-        // Set riskTier based on level: level2 → HIGH, else → LOW
+        // Set riskRating based on level: level2 → HIGH, else → LOW
         const level = updated.sumsubCurrentLevelName || 'wave3-level-1';
         const defaultTier = level.includes('level-2') || level.includes('level2') ? 'HIGH' : 'LOW';
         await this.prisma.customerMain.update({
           where: { id: updated.id },
-          data: { riskTier: defaultTier, amlRiskTier: defaultTier, riskTierUpdatedAt: new Date() },
+          data: { riskRating: defaultTier, riskRatingUpdatedAt: new Date() },
         });
 
         // Seed initial material holdings

@@ -68,7 +68,7 @@ export class ClientRiskAssessmentService {
         customerId: input.customerId,
         triggerType: input.triggerType,
         policyVersion: policy.version,
-        previousRiskTier: customer.riskTier,
+        previousRiskTier: customer.riskRating,
         status: 'PENDING_SUMSUB_RESULT',
         sumsubAmlCheckRequestedAt: new Date(),
         traceId,
@@ -165,7 +165,7 @@ export class ClientRiskAssessmentService {
         customerId: input.customerId,
         triggerType: input.triggerType || 'SUMSUB_AML_HIT',
         policyVersion: policy.version,
-        previousRiskTier: customer.riskTier,
+        previousRiskTier: customer.riskRating,
         status: 'PENDING_SUMSUB_RESULT',
         sumsubSnapshotAt: new Date(),
         sumsubAmlReviewAnswer: input.knownAmlResult.reviewAnswer,
@@ -321,7 +321,7 @@ export class ClientRiskAssessmentService {
 
     // Load previous labels for HIGH→HIGH comparison
     let previousLabels: string[] | undefined;
-    if (customer.riskTier === 'HIGH') {
+    if (customer.riskRating === 'HIGH') {
       const prevAssessment = await this.prisma.clientRiskAssessment.findFirst({
         where: { customerId: customer.id, status: 'SIGNED' },
         orderBy: { triggeredAt: 'desc' },
@@ -344,7 +344,7 @@ export class ClientRiskAssessmentService {
         status: h.status,
         expiresAt: h.expiresAt,
       })),
-      previousTier: customer.riskTier as any,
+      previousTier: customer.riskRating as any,
       previousPepStatus: customer.pepStatus as any,
       previousLabels,
     };
@@ -446,8 +446,8 @@ export class ClientRiskAssessmentService {
       await tx.customerMain.update({
         where: { id: customer.id },
         data: {
-          complianceHoldStatus: 'FROZEN',
-          complianceHoldReason: 'sanctions_hit_pending_investigation',
+          complianceStatus: 'FROZEN',
+          complianceFreezeReason: 'sanctions_hit_pending_investigation',
         },
       });
       await tx.clientRiskAssessment.update({
@@ -488,7 +488,7 @@ export class ClientRiskAssessmentService {
 
     const tierChanged =
       assessment.resultingRiskTier &&
-      assessment.resultingRiskTier !== customer.riskTier;
+      assessment.resultingRiskTier !== customer.riskRating;
 
     const updateData: any = {
       latestRiskAssessmentId: assessment.id,
@@ -497,13 +497,8 @@ export class ClientRiskAssessmentService {
     };
 
     if (tierChanged) {
-      updateData.riskTier = assessment.resultingRiskTier;
-      updateData.riskTierUpdatedAt = new Date();
-    }
-
-    if (customer.restrictionReason === 'pep_review_pending') {
-      updateData.restrictionStatus = 'CLEAR';
-      updateData.restrictionReason = null;
+      updateData.riskRating = assessment.resultingRiskTier;
+      updateData.riskRatingUpdatedAt = new Date();
     }
 
     await this.prisma.customerMain.update({
@@ -512,7 +507,7 @@ export class ClientRiskAssessmentService {
     });
 
     // Sync Sumsub level (skip if frozen)
-    if (customer.complianceHoldStatus !== 'FROZEN' && assessment.resultingRiskTier) {
+    if (customer.complianceStatus !== 'FROZEN' && assessment.resultingRiskTier) {
       const allowed = policy.tierLevelConstraint[assessment.resultingRiskTier] || [];
       if (
         customer.sumsubApplicantId &&

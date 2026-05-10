@@ -92,8 +92,8 @@ describe('TransactionRiskBridgeService', () => {
     customer: {
       id: 'customer-1',
       customerNo: 'CU0001',
-      amlRiskTier: 'LOW',
-      investorClassification: 'RETAIL',
+      riskRating: 'LOW',
+      investorTier: 'RETAIL',
     },
     ...overrides,
   });
@@ -583,8 +583,8 @@ describe('TransactionRiskBridgeService', () => {
         customer: {
           id: 'customer-1',
           customerNo: 'CU0001',
-          amlRiskTier: 'MEDIUM',
-          investorClassification: 'RETAIL',
+          riskRating: 'MEDIUM',
+          investorTier: 'RETAIL',
         },
       }),
     );
@@ -632,8 +632,8 @@ describe('TransactionRiskBridgeService', () => {
         customer: {
           id: 'customer-1',
           customerNo: 'CU0001',
-          amlRiskTier: 'HIGH',
-          investorClassification: 'RETAIL',
+          riskRating: 'HIGH',
+          investorTier: 'RETAIL',
         },
       }),
     );

@@ -40,7 +40,7 @@ interface CycleDetail {
     customerNo: string;
     email: string;
     riskTier: string;
-    restrictionStatus?: string | null;
+    complianceStatus?: string | null;
     sumsubCurrentLevelName?: string | null;
   };
   holding: {
@@ -345,11 +345,11 @@ const RefreshCycleDetailPage = () => {
             <SidebarKV label="Email" value={detail.customer.email} mono />
             <SidebarKV label="Risk Tier" value={detail.customer.riskTier} />
             <SidebarKV
-              label="Restriction"
+              label="Compliance"
               value={
-                detail.customer.restrictionStatus &&
-                detail.customer.restrictionStatus !== 'CLEAR'
-                  ? detail.customer.restrictionStatus
+                detail.customer.complianceStatus &&
+                detail.customer.complianceStatus !== 'CLEAR'
+                  ? detail.customer.complianceStatus
                   : null
               }
             />

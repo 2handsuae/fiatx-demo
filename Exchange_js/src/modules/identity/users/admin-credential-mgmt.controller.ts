@@ -14,14 +14,15 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { AdminPermissionGuard } from '../access-control/admin-permission.guard';
 import { RequirePermissions } from '../access-control/require-permissions.decorator';
 import { buildPermissionCode } from '../access-control/permission-code.util';
-import { AdminMfaResetService, MfaResetActor } from './admin-mfa-reset.service';
+import { ApprovalActorContext } from '../../governance/approvals/constants/approval.constants';
+import { AdminMfaResetWorkflowService } from './admin-mfa-reset-workflow.service';
 
 @ApiTags('Admin - IAM')
 @Controller('admin/iam')
 @UseGuards(AuthGuard('jwt'), AdminPermissionGuard)
 @ApiBearerAuth()
 export class AdminCredentialMgmtController {
-  constructor(private readonly adminMfaResetService: AdminMfaResetService) {}
+  constructor(private readonly adminMfaResetWorkflow: AdminMfaResetWorkflowService) {}
 
   private ensureAdmin(req: any) {
     if (req.user?.type !== 'ADMIN') {
@@ -29,21 +30,25 @@ export class AdminCredentialMgmtController {
     }
   }
 
+  private buildAdminActor(req: any): ApprovalActorContext {
+    return {
+      actorType: 'ADMIN',
+      userId: req.user.userId,
+      userNo: req.user.userNo,
+      role: req.user.role,
+      roleCodes: req.user.roleCodes || [req.user.role],
+    };
+  }
+
   @Post('users/:id/reset-mfa')
   @RequirePermissions(buildPermissionCode('POST', '/admin/iam/users/:id/reset-mfa'))
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Reset admin MFA binding (CISO / TECH_OFFICER)' })
+  @ApiOperation({ summary: 'Initiate admin MFA reset with approval (CISO / TECH_OFFICER)' })
   async resetMfa(
     @Param('id', new ParseUUIDPipe()) userId: string,
     @Req() req: any,
   ) {
     this.ensureAdmin(req);
-    const actor: MfaResetActor = {
-      actorType: 'ADMIN',
-      actorId: req.user.userId,
-      actorNo: req.user.userNo,
-      actorRole: req.user.role,
-    };
-    return this.adminMfaResetService.executeMfaReset(userId, actor);
+    return this.adminMfaResetWorkflow.initiateAdminMfaReset(userId, this.buildAdminActor(req));
   }
 }

@@ -16,6 +16,7 @@ import {
 import {
   ApprovalSoDRuleCodes,
   DEFAULT_APPROVAL_POLICIES,
+  deriveCheckerRoles,
   joinRoleCsv,
 } from '../src/modules/governance/approvals/constants/approval.constants';
 
@@ -296,7 +297,7 @@ async function seedGovernanceApprovalBaseline(prisma: PrismaClient): Promise<voi
       where: { actionType },
       update: {
         riskLevel: policy.riskLevel,
-        checkerRoles: joinRoleCsv(policy.checkerRoles),
+        checkerRoles: joinRoleCsv(deriveCheckerRoles(policy.steps)),
         timeoutHours: policy.timeoutHours,
         allowCancel: policy.allowCancel,
         allowRetry: policy.allowRetry,
@@ -304,7 +305,7 @@ async function seedGovernanceApprovalBaseline(prisma: PrismaClient): Promise<voi
       create: {
         actionType,
         riskLevel: policy.riskLevel,
-        checkerRoles: joinRoleCsv(policy.checkerRoles),
+        checkerRoles: joinRoleCsv(deriveCheckerRoles(policy.steps)),
         timeoutHours: policy.timeoutHours,
         allowCancel: policy.allowCancel,
         allowRetry: policy.allowRetry,
@@ -454,9 +455,8 @@ async function seedBaseCustomers(prisma: PrismaClient): Promise<void> {
       passwordUpdatedAt: now,
       customerType: 'INDIVIDUAL',
       onboardingStatus: 'APPROVED',
-      operatingStatus: 'ACTIVE',
-      restrictionStatus: 'CLEAR',
-      amlRiskTier: 'LOW',
+      adminStatus: 'ACTIVE',
+      riskRating: 'LOW',
       eddRequired: false,
       cddDocumentExpiresAt: null,
     },
@@ -469,9 +469,8 @@ async function seedBaseCustomers(prisma: PrismaClient): Promise<void> {
       passwordUpdatedAt: now,
       customerType: 'INDIVIDUAL',
       onboardingStatus: 'APPROVED',
-      operatingStatus: 'ACTIVE',
-      restrictionStatus: 'CLEAR',
-      amlRiskTier: 'LOW',
+      adminStatus: 'ACTIVE',
+      riskRating: 'LOW',
       eddRequired: false,
       cddDocumentExpiresAt: null,
     },
@@ -1013,7 +1012,7 @@ async function isBaseComplete(prisma: PrismaClient): Promise<boolean> {
     }
     if (
       existing.riskLevel !== policy.riskLevel ||
-      existing.checkerRoles !== joinRoleCsv(policy.checkerRoles) ||
+      existing.checkerRoles !== joinRoleCsv(deriveCheckerRoles(policy.steps)) ||
       existing.timeoutHours !== policy.timeoutHours ||
       existing.allowCancel !== policy.allowCancel ||
       existing.allowRetry !== policy.allowRetry
@@ -1028,8 +1027,7 @@ async function isBaseComplete(prisma: PrismaClient): Promise<boolean> {
         email: DEFAULT_BASE_CUSTOMER_EMAIL,
         passwordHash: { not: null },
         onboardingStatus: 'APPROVED',
-        operatingStatus: 'ACTIVE',
-        restrictionStatus: 'CLEAR',
+        adminStatus: 'ACTIVE',
       },
     })) > 0;
   if (!baseCustomerExists) {

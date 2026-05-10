@@ -126,12 +126,13 @@ const DashboardLayout = () => {
           icon: <ShieldCheck size={13} />,
           requiredPermissions: [PERMISSIONS.IAM_ROLES_READ],
         },
-        {
-          path: '/dashboard/members/role-change-requests',
-          label: 'Role Change Requests',
-          icon: <ArrowLeftRight size={13} />,
-          requiredPermissions: [PERMISSIONS.IAM_ROLE_CHANGE_REQUESTS_READ],
-        },
+        // Hidden: objectSnapshot on approval replaces direct navigation
+        // {
+        //   path: '/dashboard/members/role-change-requests',
+        //   label: 'Role Change Requests',
+        //   icon: <ArrowLeftRight size={13} />,
+        //   requiredPermissions: [PERMISSIONS.IAM_ROLE_CHANGE_REQUESTS_READ],
+        // },
       ],
     },
     // ─── Control Gates ────────────────────────────────────────────
@@ -151,12 +152,13 @@ const DashboardLayout = () => {
           icon: <Shield size={13} />,
           requiredPermissions: [PERMISSIONS.GOV_APPROVAL_POLICIES_READ],
         },
-        {
-          path: '/dashboard/governance/policy-change-requests',
-          label: 'Policy Change Requests',
-          icon: <ArrowLeftRight size={13} />,
-          requiredPermissions: [PERMISSIONS.GOV_APPROVAL_POLICY_CHANGE_REQUESTS_READ],
-        },
+        // Hidden: objectSnapshot on approval replaces direct navigation
+        // {
+        //   path: '/dashboard/governance/policy-change-requests',
+        //   label: 'Policy Change Requests',
+        //   icon: <ArrowLeftRight size={13} />,
+        //   requiredPermissions: [PERMISSIONS.GOV_APPROVAL_POLICY_CHANGE_REQUESTS_READ],
+        // },
       ],
     },
     // ─── Audit Center ─────────────────────────────────────────────
@@ -212,13 +214,13 @@ const DashboardLayout = () => {
           path: '/dashboard/compliance/sumsub-events',
           label: 'Sumsub Events',
           icon: <Zap size={13} />,
-          requiredPermissions: [],
+          requiredPermissions: [PERMISSIONS.SUMSUB_EVENTS_READ],
         },
         {
           path: '/dashboard/compliance/risk-assessments',
           label: 'Risk Assessments',
           icon: <Shield size={13} />,
-          requiredPermissions: [],
+          requiredPermissions: [PERMISSIONS.RISK_ASSESSMENTS_READ],
         },
       ],
     },

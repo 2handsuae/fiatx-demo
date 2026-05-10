@@ -103,7 +103,7 @@ async function seedCustomersMinimal(prisma: PrismaClient): Promise<void> {
   for (const item of items) {
     const canonical = {
       onboardingStatus: item.onboardingStatus,
-      operatingStatus: item.onboardingStatus === 'APPROVED' ? 'ACTIVE' : 'INACTIVE',
+      adminStatus: item.onboardingStatus === 'APPROVED' ? 'ACTIVE' : 'INACTIVE',
     };
 
     await prisma.customerMain.upsert({
@@ -117,9 +117,8 @@ async function seedCustomersMinimal(prisma: PrismaClient): Promise<void> {
         passwordUpdatedAt: now,
         customerType: 'INDIVIDUAL',
         onboardingStatus: canonical.onboardingStatus,
-        operatingStatus: canonical.operatingStatus,
-        restrictionStatus: 'CLEAR',
-        amlRiskTier: 'LOW',
+        adminStatus: canonical.adminStatus,
+        riskRating: 'LOW',
         eddRequired: item.eddRequired,
         cddDocumentExpiresAt: item.cddDocumentExpiresAt,
       },
@@ -133,9 +132,8 @@ async function seedCustomersMinimal(prisma: PrismaClient): Promise<void> {
         passwordUpdatedAt: now,
         customerType: 'INDIVIDUAL',
         onboardingStatus: canonical.onboardingStatus,
-        operatingStatus: canonical.operatingStatus,
-        restrictionStatus: 'CLEAR',
-        amlRiskTier: 'LOW',
+        adminStatus: canonical.adminStatus,
+        riskRating: 'LOW',
         eddRequired: item.eddRequired,
         cddDocumentExpiresAt: item.cddDocumentExpiresAt,
       },

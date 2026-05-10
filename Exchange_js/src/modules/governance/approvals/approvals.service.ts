@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   forwardRef,
   Inject,
@@ -114,27 +115,6 @@ export class ApprovalsService {
   private normalizeSkip(skip?: number): number {
     if (!skip || skip < 0) return 0;
     return skip;
-  }
-
-  private serializeMetadata(value: unknown): string {
-    if (value === null || value === undefined) return '{}';
-    try {
-      return JSON.stringify(value);
-    } catch {
-      throw new BadRequestException('Failed to serialize approval metadata');
-    }
-  }
-
-  private parseMetadata(value: string | null | undefined): Record<string, unknown> {
-    if (!value) return {};
-    try {
-      const parsed = JSON.parse(value);
-      return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-        ? (parsed as Record<string, unknown>)
-        : {};
-    } catch {
-      return {};
-    }
   }
 
   private toAuditActor(actor: ApprovalActorContext) {
@@ -376,6 +356,11 @@ export class ApprovalsService {
       AuditBusinessWorkflowTypes.ADMIN_ROLE_BINDING_CHANGE,
       AuditBusinessWorkflowTypes.ADMIN_SUSPENSION,
       AuditBusinessWorkflowTypes.ADMIN_REACTIVATION,
+      AuditBusinessWorkflowTypes.APPROVAL_POLICY,
+      AuditBusinessWorkflowTypes.ROLE_DEFINITION_CREATE,
+      AuditBusinessWorkflowTypes.ROLE_DEFINITION_MODIFY,
+      AuditBusinessWorkflowTypes.ADMIN_PASSWORD_RESET,
+      AuditBusinessWorkflowTypes.ADMIN_MFA_RESET,
     ];
     return DEDICATED.includes(workflowType);
   }
@@ -533,20 +518,31 @@ export class ApprovalsService {
       ApprovalStatuses.PENDING,
     ]);
     const checkerRoles = splitRoleCsv(approval.checkerRoles);
+    const pendingStep = (approval.steps || []).find(
+      (s: any) => s.status === ApprovalStepStatuses.PENDING,
+    );
+    const stepRoles = pendingStep
+      ? splitRoleCsv(pendingStep.checkerRoleCandidates)
+      : [];
     const availableDecisionRoles = actor
       ? this.isSuperAdmin(actor)
-        ? checkerRoles
-        : checkerRoles.filter((role) => actor.roleCodes.includes(role))
+        ? stepRoles
+        : stepRoles.filter((role) => actor.roleCodes.includes(role))
       : [];
     const makerCheckerConflict = actor
       ? !this.isSuperAdmin(actor) &&
         actor.userId === approval.createdByUserId &&
         availableDecisionRoles.length > 0
       : false;
+    const crossStepConflict = actor
+      ? this.hasActorApprovedAnyStep(approval.steps || [], actor.userId)
+      : false;
     const canDecide =
       approval.status === ApprovalStatuses.PENDING &&
+      !!pendingStep &&
       availableDecisionRoles.length > 0 &&
-      !makerCheckerConflict;
+      !makerCheckerConflict &&
+      !crossStepConflict;
 
     return {
       id: approval.id,
@@ -560,7 +556,7 @@ export class ApprovalsService {
       riskLevel: approval.riskLevel,
       checkerRoles,
       docRef: approval.docRef,
-      metadata: this.parseMetadata(approval.metadataJson),
+      objectSnapshot: approval.objectSnapshot ? JSON.parse(approval.objectSnapshot as string) : null,
       traceId: approval.traceId,
       workflowType: approval.workflowType,
       workflowId: approval.workflowId,
@@ -618,6 +614,12 @@ export class ApprovalsService {
     });
   }
 
+  private hasActorApprovedAnyStep(steps: any[], userId: string): boolean {
+    return steps.some(
+      (s) => s.status === ApprovalStepStatuses.APPROVED && s.decidedByUserId === userId,
+    );
+  }
+
   private async resolveDecisionRole(
     approval: ApprovalCaseRow,
     actor: ApprovalActorContext,
@@ -642,6 +644,10 @@ export class ApprovalsService {
       (await this.approvalPolicyService.isSameUserMakerCheckerDenied())
     ) {
       throw new ForbiddenException('Maker and checker must be different users');
+    }
+
+    if (approval.steps && this.hasActorApprovedAnyStep(approval.steps, actor.userId)) {
+      throw new ConflictException('Same user cannot approve multiple steps of the same case');
     }
 
     if (normalizedRequestedRole) {
@@ -749,7 +755,7 @@ export class ApprovalsService {
         allowCancel: policy.allowCancel,
         allowRetry: policy.allowRetry,
         docRef: this.normalizeOptionalString(dto.docRef),
-        metadataJson: this.serializeMetadata(dto.metadata || {}),
+        objectSnapshot: dto.objectSnapshot ? JSON.stringify(dto.objectSnapshot) : null,
         traceId:
           (lockWorkflowToParent
             ? parentWorkflowContext.traceId

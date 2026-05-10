@@ -132,13 +132,14 @@ const CustomerDashboardLayout = () => {
     ((user?.firstName?.[0] || '') + (user?.lastName?.[0] || 'M')).toUpperCase();
   const email = user?.email || '';
 
+  const hasRestrictions = Array.isArray(user?.restrictions) && user.restrictions.length > 0;
   const displayStatus =
-    String(user?.complianceHoldStatus || '').toUpperCase() === 'FROZEN'
+    String(user?.complianceStatus || '').toUpperCase() === 'FROZEN'
       ? 'FROZEN'
-      : String(user?.restrictionStatus || '').toUpperCase() === 'RESTRICTED'
+      : hasRestrictions
         ? 'RESTRICTED'
         : String(user?.onboardingStatus || 'NONE').toUpperCase() === 'APPROVED' &&
-            String(user?.operatingStatus || 'INACTIVE').toUpperCase() === 'ACTIVE'
+            String(user?.adminStatus || 'INACTIVE').toUpperCase() === 'ACTIVE'
           ? 'ACTIVE'
           : String(user?.onboardingStatus || 'NONE').toUpperCase();
 

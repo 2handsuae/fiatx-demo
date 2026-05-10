@@ -45,9 +45,9 @@ interface AssessmentDetail {
     customerNo: string;
     email?: string | null;
     riskTier?: string | null;
-    restrictionStatus?: string | null;
+    complianceStatus?: string | null;
     sumsubCurrentLevelName?: string | null;
-    operatingStatus?: string | null;
+    adminStatus?: string | null;
   };
 }
 
@@ -385,11 +385,11 @@ const RiskAssessmentDetailPage = () => {
             <SidebarKV label="Email" value={detail.customer.email} mono />
             <SidebarKV label="Risk Tier" value={detail.customer.riskTier} />
             <SidebarKV
-              label="Restriction"
+              label="Compliance"
               value={
-                detail.customer.restrictionStatus &&
-                detail.customer.restrictionStatus !== 'CLEAR'
-                  ? detail.customer.restrictionStatus
+                detail.customer.complianceStatus &&
+                detail.customer.complianceStatus !== 'CLEAR'
+                  ? detail.customer.complianceStatus
                   : null
               }
             />

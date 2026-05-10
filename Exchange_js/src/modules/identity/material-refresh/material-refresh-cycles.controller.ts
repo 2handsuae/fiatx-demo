@@ -96,7 +96,7 @@ export class MaterialRefreshCyclesController {
     if (!customer?.sumsubApplicantId) {
       throw new ForbiddenException('No Sumsub applicant');
     }
-    if (customer.complianceHoldStatus === 'FROZEN') {
+    if (customer.complianceStatus === 'FROZEN') {
       throw new ForbiddenException('Account is frozen');
     }
 

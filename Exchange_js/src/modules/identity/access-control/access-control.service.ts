@@ -6,11 +6,13 @@ import {
   AuditEntityTypes,
 } from '../../audit-logging/constants/audit-actions.constant';
 import {
-  ACTIVE_RBAC_ROLE_CODES,
+  ACTION_BUCKET_CATALOG,
+
   HARD_MUTEX_ROLE_PAIRS,
   RBAC_PERMISSION_CODE_SET,
   RBAC_PERMISSION_DEFINITIONS,
   SOFT_WARNING_ROLE_GROUPS,
+  buildPermCodeToGroups,
   getPrimaryRoleCode,
 } from './rbac.catalog';
 
@@ -87,8 +89,7 @@ export class AccessControlService {
   async listRoles() {
     const roles = await (this.prisma as any).role.findMany({
       where: {
-        status: 'ACTIVE',
-        code: { in: ACTIVE_RBAC_ROLE_CODES },
+        status: { in: ['ACTIVE', 'PENDING_APPROVAL'] },
       },
       orderBy: { code: 'asc' },
       include: {
@@ -156,14 +157,35 @@ export class AccessControlService {
     }));
   }
 
+  getActionBucketCatalog() {
+    return {
+      domains: ACTION_BUCKET_CATALOG,
+      permCodeToGroups: buildPermCodeToGroups(),
+    };
+  }
+
+  listPermissionGroups() {
+    const groupMap = new Map<string, { code: string; permissionCount: number }>();
+
+    for (const perm of RBAC_PERMISSION_DEFINITIONS) {
+      for (const group of perm.groups) {
+        const existing = groupMap.get(group);
+        if (existing) {
+          existing.permissionCount++;
+        } else {
+          groupMap.set(group, { code: group, permissionCount: 1 });
+        }
+      }
+    }
+
+    return Array.from(groupMap.values()).sort((a, b) => a.code.localeCompare(b.code));
+  }
+
   async getUserRoleCodes(userId: string): Promise<string[]> {
     const userRoles = await (this.prisma as any).userRole.findMany({
       where: {
         userId,
-        role: {
-          status: 'ACTIVE',
-          code: { in: ACTIVE_RBAC_ROLE_CODES },
-        },
+        role: { status: 'ACTIVE' },
       },
       include: { role: true },
       orderBy: { role: { code: 'asc' } },
@@ -176,10 +198,7 @@ export class AccessControlService {
     const userRoles = await (this.prisma as any).userRole.findMany({
       where: {
         userId,
-        role: {
-          status: 'ACTIVE',
-          code: { in: ACTIVE_RBAC_ROLE_CODES },
-        },
+        role: { status: 'ACTIVE' },
       },
       include: { role: true },
       orderBy: { role: { code: 'asc' } },
@@ -202,10 +221,7 @@ export class AccessControlService {
     const userRoles = await (this.prisma as any).userRole.findMany({
       where: {
         userId,
-        role: {
-          status: 'ACTIVE',
-          code: { in: ACTIVE_RBAC_ROLE_CODES },
-        },
+        role: { status: 'ACTIVE' },
       },
       include: {
         role: {
@@ -314,26 +330,28 @@ export class AccessControlService {
     const afterRoleCodes = await this.getUserRoleCodes(userId);
     const warnings = this.buildSoftWarnings(afterRoleCodes);
 
-    await this.auditLogsService.recordByActor(
-      this.applyAuditContext({
-        action: AuditActions.USER_ROLE_BINDING_UPDATED,
-        entityType: AuditEntityTypes.ACCESS_CONTROL,
-        entityId: user.id,
-        entityNo: user.userNo,
-        metadata: {
-          userId: user.id,
-          userNo: user.userNo,
-          userEmail: user.email,
-          warnings,
+    if (!auditContext?.workflowType) {
+      await this.auditLogsService.recordByActor(
+        this.applyAuditContext({
+          action: AuditActions.USER_ROLE_BINDING_UPDATED,
+          entityType: AuditEntityTypes.ACCESS_CONTROL,
+          entityId: user.id,
+          entityNo: user.userNo,
+          metadata: {
+            userId: user.id,
+            userNo: user.userNo,
+            userEmail: user.email,
+            warnings,
+          },
+        }, auditContext),
+        {
+          actorType: 'ADMIN',
+          actorId: actor.actorId,
+          actorNo: actor.actorNo,
+          actorRole: actor.actorRole,
         },
-      }, auditContext),
-      {
-        actorType: 'ADMIN',
-        actorId: actor.actorId,
-        actorNo: actor.actorNo,
-        actorRole: actor.actorRole,
-      },
-    );
+      );
+    }
 
     return {
       userId: user.id,
@@ -341,6 +359,43 @@ export class AccessControlService {
       roles: afterRoleCodes,
       warnings,
     };
+  }
+
+  /* ── Role Definition Modify Requests ── */
+
+  async listRoleDefinitionModifyRequests(query: {
+    roleId?: string;
+    status?: string;
+    take?: number;
+    skip?: number;
+  }) {
+    const where: any = {};
+    if (query.roleId) where.roleId = query.roleId;
+    if (query.status) where.status = query.status;
+
+    const [items, total] = await Promise.all([
+      (this.prisma as any).roleDefinitionModifyRequest.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        take: query.take || 50,
+        skip: query.skip || 0,
+        include: { role: { select: { code: true, name: true } } },
+      }),
+      (this.prisma as any).roleDefinitionModifyRequest.count({ where }),
+    ]);
+
+    return { items, total };
+  }
+
+  async getRoleDefinitionModifyRequest(id: string) {
+    const request = await (this.prisma as any).roleDefinitionModifyRequest.findUnique({
+      where: { id },
+      include: { role: { select: { code: true, name: true, status: true } } },
+    });
+    if (!request) {
+      throw new NotFoundException(`Role definition modify request not found: ${id}`);
+    }
+    return request;
   }
 
 }

@@ -30,6 +30,7 @@ export abstract class ApprovalHandlerBase {
     granted: string;
     declined: string;
     cancelled: string;
+    expired: string;
   };
   abstract readonly entityType: string;
 
@@ -157,29 +158,22 @@ export abstract class ApprovalHandlerBase {
   async handleExpired(event: ApprovalDecisionEvent) {
     if (event.actionType !== this.actionType) return;
 
-    await this.auditLogsService.recordByActor(
-      {
-        action: this.auditActions.cancelled,
-        entityType: this.entityType,
-        entityId: event.entityRef,
-        entityNo: event.workflowNo || undefined,
-        workflowType: this.workflowType,
-        traceId: event.traceId,
-        result: AuditResult.SUCCESS,
-        metadata: {
-          approvalId: event.approvalId,
-          approvalNo: event.approvalNo,
-          expiredAt: event.decidedAt,
-        },
-        requestId: `${this.workflowType}_APPROVAL_EXPIRED_${event.approvalNo}`,
-        sourcePlatform: 'ADMIN_API',
+    await this.auditLogsService.recordSystem({
+      action: this.auditActions.expired,
+      entityType: this.entityType,
+      entityId: event.entityRef,
+      entityNo: event.workflowNo || undefined,
+      workflowType: this.workflowType,
+      traceId: event.traceId,
+      result: AuditResult.SUCCESS,
+      metadata: {
+        approvalId: event.approvalId,
+        approvalNo: event.approvalNo,
+        expiredAt: event.decidedAt,
       },
-      {
-        actorType: 'ADMIN',
-        actorId: 'SYSTEM',
-        actorRole: 'SYSTEM',
-      },
-    );
+      requestId: `${this.workflowType}_APPROVAL_EXPIRED_${event.approvalNo}`,
+      sourcePlatform: 'ADMIN_API',
+    });
 
     await this.emitDecidedEvent('EXPIRED', event);
   }

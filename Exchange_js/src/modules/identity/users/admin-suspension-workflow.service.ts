@@ -93,9 +93,11 @@ export class AdminSuspensionWorkflowService {
         workflowId: dto.targetUserId,
         workflowNo: targetUser.userNo,
         traceId,
-        metadata: {
+        objectSnapshot: {
+          targetUserId: dto.targetUserId,
           targetUserNo: targetUser.userNo,
           targetEmail: targetUser.email,
+          targetStatus: targetUser.status,
           reason: dto.reason,
         },
       },

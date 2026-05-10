@@ -334,7 +334,7 @@ export class InternalTransactionWorkflowService {
           workflowType: 'INTERNAL_TX',
           workflowId: internalTx.id,
           workflowNo: internalTx.internalTxNo,
-          metadata: {
+          objectSnapshot: {
             purpose,
             internalTxNo: internalTx.internalTxNo,
             sourceType: internalTx.sourceType,

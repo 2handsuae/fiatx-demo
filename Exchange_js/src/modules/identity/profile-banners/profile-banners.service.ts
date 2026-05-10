@@ -42,7 +42,7 @@ export class ProfileBannerService {
 
     const banners: ProfileBanner[] = [];
 
-    if (customer.complianceHoldStatus === 'FROZEN') {
+    if (customer.complianceStatus === 'FROZEN') {
       banners.push({
         id: `banner-hold-${customer.id}`,
         type: 'COMPLIANCE_HOLD',
@@ -55,7 +55,7 @@ export class ProfileBannerService {
       });
     }
 
-    if (customer.restrictionReason === 'pep_review_pending') {
+    if (customer.complianceFreezeReason === 'pep_review_pending') {
       banners.push({
         id: `banner-pep-${customer.id}`,
         type: 'PEP_REVIEW_PENDING',

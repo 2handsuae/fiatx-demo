@@ -54,8 +54,7 @@ export class PeriodicReviewWorkflowTransitionService {
 
   private getCustomerOnboardingStatus(customer: {
     onboardingStatus?: string | null;
-    operatingStatus?: string | null;
-    restrictionStatus?: string | null;
+    adminStatus?: string | null;
   }): CustomerOnboardingStatus {
     return resolveCustomerCanonicalState(customer).onboardingStatus;
   }
@@ -413,8 +412,6 @@ export class PeriodicReviewWorkflowTransitionService {
 
     const customerUpdateData: Prisma.CustomerMainUpdateInput = {
       latestDecisionRecordId: input.latestDecisionRecordId || customer.latestDecisionRecordId || null,
-      periodicReviewOverdueAt: null,
-      periodicReviewOverdueReason: null,
     };
     const cycleUpdateData: Record<string, unknown> = {
       latestDecisionRecordId:
@@ -422,8 +419,8 @@ export class PeriodicReviewWorkflowTransitionService {
     };
 
     const clearRestriction =
-      String(customer.restrictionStatus || '').trim().toUpperCase() === 'RESTRICTED' &&
-      String(customer.restrictionCaseId || '').trim() ===
+      String(customer.complianceStatus || '').trim().toUpperCase() === 'FROZEN' &&
+      String(customer.complianceFreezeCaseId || '').trim() ===
         String(cycle.primaryIncidentId || '').trim();
 
     if (stage === ONBOARDING_REVIEW_STAGES.REVIEW_CDD) {
@@ -452,9 +449,9 @@ export class PeriodicReviewWorkflowTransitionService {
         });
         if (clearRestriction) {
           Object.assign(customerUpdateData, {
-            restrictionStatus: 'CLEAR',
-            restrictionCaseId: null,
-            restrictionReleasedAt: now,
+            complianceStatus: 'CLEAR',
+            complianceFreezeCaseId: null,
+            complianceFreezeReleasedAt: now,
           });
         }
       } else if (workflowDecision === 'REJECT') {
@@ -523,9 +520,9 @@ export class PeriodicReviewWorkflowTransitionService {
         });
         if (clearRestriction) {
           Object.assign(customerUpdateData, {
-            restrictionStatus: 'CLEAR',
-            restrictionCaseId: null,
-            restrictionReleasedAt: now,
+            complianceStatus: 'CLEAR',
+            complianceFreezeCaseId: null,
+            complianceFreezeReleasedAt: now,
           });
         }
       } else if (workflowDecision === 'REJECT') {

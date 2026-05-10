@@ -152,7 +152,7 @@ export class AdminSumsubSimulationController {
       // False positive: clear freeze
       await this.prisma.customerMain.update({
         where: { id: customer!.id },
-        data: { complianceHoldStatus: 'CLEAR', complianceHoldReason: null },
+        data: { complianceStatus: 'CLEAR', complianceFreezeReason: null },
       });
       await this.prisma.clientRiskAssessment.update({
         where: { id: assessment.id },
@@ -170,8 +170,8 @@ export class AdminSumsubSimulationController {
         where: { id: customer!.id },
         data: {
           onboardingStatus: 'REJECTED',
-          operatingStatus: 'INACTIVE',
-          complianceHoldStatus: 'FROZEN',
+          adminStatus: 'INACTIVE',
+          complianceStatus: 'FROZEN',
         },
       });
       await this.prisma.clientRiskAssessment.update({
@@ -285,13 +285,16 @@ export class AdminSumsubSimulationController {
 
     const customer = await this.prisma.customerMain.findFirst({
       where: { customerNo: body.customerNo },
-      select: { id: true, sumsubApplicantId: true, restrictionStatus: true },
+      select: { id: true, sumsubApplicantId: true },
     });
     if (!customer) {
       throw new NotFoundException(`Customer ${body.customerNo} not found`);
     }
-    if (customer.restrictionStatus !== 'RESTRICTED') {
-      throw new BadRequestException(`Customer ${body.customerNo} is not RESTRICTED — no upgrade in progress`);
+    const pendingUpgrade = await this.prisma.tierUpgradeCase.findFirst({
+      where: { customerId: customer.id, status: 'PENDING_LEVEL2' },
+    });
+    if (!pendingUpgrade) {
+      throw new BadRequestException(`Customer ${body.customerNo} has no PENDING_LEVEL2 tier upgrade case — no upgrade in progress`);
     }
 
     // For demo customers without a real Sumsub applicant, call the handler directly.

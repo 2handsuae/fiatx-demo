@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { RefreshCw, Search } from 'lucide-react';
+import { Plus, RefreshCw, Search, X } from 'lucide-react';
 import {
   adminButtonClass,
   adminIconButtonClass,
@@ -13,6 +13,8 @@ import {
 } from '../utils/adminFetch';
 import { AdminBadge } from '../components/ui/AdminBadge';
 import { PageTitleBar } from '../components/ui/PageTitleBar';
+import { PERMISSIONS } from '../rbac/permissions';
+import { useAdminSession } from '../contexts/AdminSessionContext';
 
 /* ── Interfaces ──────────────────────────────────────────────── */
 
@@ -33,10 +35,28 @@ interface RoleItem {
   permissions: RolePermission[];
 }
 
+interface ActionBucket {
+  key: string;
+  label: string;
+  description: string;
+  groups: string[];
+  forcedOn?: boolean;
+  restricted?: boolean;
+}
+
+interface ActionDomain {
+  id: string;
+  label: string;
+  icon: string;
+  buckets: ActionBucket[];
+}
+
 /* ─────────────────────────────────────────────────────────────── */
 
 const RolesPage = () => {
   const navigate = useNavigate();
+  const { hasPermission } = useAdminSession();
+  const canCreate = hasPermission(PERMISSIONS.IAM_ROLE_DEFINITIONS_CREATE);
 
   const [roles, setRoles] = useState<RoleItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -46,6 +66,20 @@ const RolesPage = () => {
   const [keyword, setKeyword] = useState('');
   const [applied, setApplied] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+
+  /* Create modal state */
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [createCode, setCreateCode] = useState('');
+  const [createName, setCreateName] = useState('');
+  const [createDescription, setCreateDescription] = useState('');
+  const [selectedBucketKeys, setSelectedBucketKeys] = useState<Set<string>>(new Set());
+  const [createReason, setCreateReason] = useState('');
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [createLoading, setCreateLoading] = useState(false);
+  const [actionDomains, setActionDomains] = useState<ActionDomain[]>([]);
+
+  /* Success notice with auto-dismiss */
+  const [notice, setNotice] = useState<string | null>(null);
 
   /* ── Data fetching ── */
 
@@ -74,6 +108,91 @@ const RolesPage = () => {
   };
 
   useEffect(() => { void loadRoles(); }, []);
+
+  useEffect(() => {
+    if (!notice) return undefined;
+    const t = window.setTimeout(() => setNotice((c) => (c === notice ? null : c)), 4000);
+    return () => window.clearTimeout(t);
+  }, [notice]);
+
+  /* ── Action buckets fetch (when create modal opens) ── */
+
+  useEffect(() => {
+    if (!showCreateModal) return;
+    adminFetch(`${import.meta.env.VITE_API_URL}/admin/iam/action-buckets`)
+      .then(async (res) => {
+        if (!res.ok) return;
+        const data = (await res.json()) as { domains: ActionDomain[] };
+        setActionDomains((data.domains ?? []).filter((d) => d.buckets.length > 0));
+      })
+      .catch(() => {});
+  }, [showCreateModal]);
+
+  /* ── Modal open/close helpers ── */
+
+  const openCreateModal = () => setShowCreateModal(true);
+  const closeCreateModal = () => {
+    setShowCreateModal(false);
+    setCreateCode('');
+    setCreateName('');
+    setCreateDescription('');
+    setSelectedBucketKeys(new Set());
+    setCreateReason('');
+    setCreateError(null);
+  };
+
+  /* ── Submit create ── */
+
+  const submitCreate = async () => {
+    setCreateError(null);
+    const code = createCode.trim().toUpperCase();
+    const name = createName.trim();
+    const reason = createReason.trim();
+    const hasForcedBuckets = actionDomains.some((d) => d.buckets.some((b) => b.forcedOn));
+    if (!code || !name || (!hasForcedBuckets && selectedBucketKeys.size === 0) || !reason) {
+      setCreateError('All fields except description are required.');
+      return;
+    }
+    setCreateLoading(true);
+    try {
+      const response = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/admin/iam/role-definitions`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            roleCode: code,
+            roleName: name,
+            description: createDescription.trim() || undefined,
+            permissionGroupCodes: Array.from(new Set(
+              actionDomains
+                .flatMap((d) => d.buckets)
+                .filter((b) => !b.restricted && (b.forcedOn || selectedBucketKeys.has(b.key)))
+                .flatMap((b) => b.groups),
+            )),
+            changeReason: reason,
+          }),
+        },
+      );
+      if (!response.ok) {
+        const msg = await getApiErrorMessage(response, 'Failed to submit');
+        setCreateError(msg);
+        return;
+      }
+      const res = (await response.json()) as { approvalNo: string };
+      closeCreateModal();
+      void loadRoles();
+      setNotice(`Role definition approval ${res.approvalNo} submitted for ${code}.`);
+    } catch (err: unknown) {
+      if (err instanceof AdminPermissionError) {
+        setCreateError('Permission denied. You cannot submit role definition requests.');
+      } else {
+        setCreateError(err instanceof Error ? err.message : 'Failed to submit.');
+      }
+    } finally {
+      setCreateLoading(false);
+    }
+  };
 
   /* ── Derived ── */
 
@@ -111,6 +230,12 @@ const RolesPage = () => {
         title="Roles"
         meta={`${roles.length} role${roles.length === 1 ? '' : 's'} · ${totalPermissions} permission bindings · Identity & Access`}
       >
+        {canCreate && (
+          <button onClick={openCreateModal} className={adminButtonClass('listPrimary')}>
+            <Plus size={13} />
+            Create Role
+          </button>
+        )}
         <button
           onClick={() => void loadRoles()}
           className={adminIconButtonClass()}
@@ -132,11 +257,12 @@ const RolesPage = () => {
         <select
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value)}
-          className={`${fi} w-32`}
+          className={`${fi} w-40`}
         >
           <option value="">All Status</option>
           <option value="ACTIVE">ACTIVE</option>
           <option value="INACTIVE">INACTIVE</option>
+          <option value="PENDING_APPROVAL">PENDING_APPROVAL</option>
         </select>
         <button
           onClick={() => setApplied(keyword.trim())}
@@ -155,6 +281,11 @@ const RolesPage = () => {
       </div>
 
       {/* ── Notices ── */}
+      {notice && (
+        <div className="shrink-0 border-b border-adm-green/20 bg-adm-green/6 px-5 py-2.5 font-mono text-[11px] text-adm-green">
+          {notice}
+        </div>
+      )}
       {error && (
         <div className="shrink-0 border-b border-adm-red/20 bg-adm-red/6 px-5 py-2.5 font-mono text-[11px] text-adm-red">
           {error}
@@ -170,7 +301,7 @@ const RolesPage = () => {
                 [
                   ['Code',        '200px'],
                   ['Name',        '200px'],
-                  ['Status',      '100px'],
+                  ['Status',      '130px'],
                   ['Permissions', '130px'],
                   ['Description', 'auto'],
                 ] as [string, string][]
@@ -251,6 +382,167 @@ const RolesPage = () => {
           Fixed backend catalog
         </span>
       </div>
+
+      {/* ════ Create Role Modal ════ */}
+      {showCreateModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-lg overflow-hidden rounded-xl border border-adm-border bg-adm-panel shadow-xl">
+
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-adm-border bg-adm-card px-5 py-4">
+              <div>
+                <p className="font-mono text-[11px] font-semibold text-adm-t1">
+                  Create Role Definition
+                </p>
+                <p className="mt-1 font-mono text-[9px] text-adm-t3">
+                  Submits an approval request. The role becomes active after approval.
+                </p>
+              </div>
+              <button
+                onClick={closeCreateModal}
+                className="rounded p-1 text-adm-t3 hover:bg-adm-hover hover:text-adm-t1"
+              >
+                <X size={15} />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="max-h-[60vh] space-y-4 overflow-y-auto px-5 py-4">
+
+              {/* Role Code */}
+              <div>
+                <p className="mb-1.5 font-mono text-[8.5px] uppercase tracking-[0.14em] text-adm-t3">
+                  Role Code
+                </p>
+                <input
+                  value={createCode}
+                  onChange={(e) => setCreateCode(e.target.value.toUpperCase().replace(/[^A-Z0-9_]/g, ''))}
+                  placeholder="e.g. RISK_ANALYST"
+                  className="h-[32px] w-full rounded border border-adm-border bg-adm-bg px-3 font-mono text-[11px] text-adm-t1 placeholder:text-adm-t3 outline-none focus:border-adm-amber transition-colors uppercase"
+                />
+              </div>
+
+              {/* Role Name */}
+              <div>
+                <p className="mb-1.5 font-mono text-[8.5px] uppercase tracking-[0.14em] text-adm-t3">
+                  Role Name
+                </p>
+                <input
+                  value={createName}
+                  onChange={(e) => setCreateName(e.target.value)}
+                  placeholder="e.g. Risk Analyst"
+                  className="h-[32px] w-full rounded border border-adm-border bg-adm-bg px-3 font-mono text-[11px] text-adm-t1 placeholder:text-adm-t3 outline-none focus:border-adm-amber transition-colors"
+                />
+              </div>
+
+              {/* Description */}
+              <div>
+                <p className="mb-1.5 font-mono text-[8.5px] uppercase tracking-[0.14em] text-adm-t3">
+                  Description (optional)
+                </p>
+                <input
+                  value={createDescription}
+                  onChange={(e) => setCreateDescription(e.target.value)}
+                  className="h-[32px] w-full rounded border border-adm-border bg-adm-bg px-3 font-mono text-[11px] text-adm-t1 placeholder:text-adm-t3 outline-none focus:border-adm-amber transition-colors"
+                />
+              </div>
+
+              {/* Capabilities */}
+              <div>
+                <p className="mb-1.5 font-mono text-[8.5px] uppercase tracking-[0.14em] text-adm-t3">
+                  Capabilities
+                </p>
+                <div className="space-y-2">
+                  {actionDomains.length === 0 && (
+                    <p className="font-mono text-[10px] text-adm-t3">Loading…</p>
+                  )}
+                  {actionDomains.map((domain) => (
+                    <div key={domain.id}>
+                      <p className="flex items-center gap-1.5 py-1 font-mono text-[10px] font-semibold text-adm-t2">
+                        <span>{domain.icon}</span>
+                        {domain.label}
+                      </p>
+                      <div className="space-y-1">
+                        {domain.buckets.map((bucket) => (
+                          <label
+                            key={bucket.key}
+                            className={`flex gap-3 rounded border border-adm-border bg-adm-bg p-3 ${bucket.forcedOn || bucket.restricted ? 'cursor-not-allowed opacity-70' : 'cursor-pointer hover:bg-adm-card'}`}
+                            title={bucket.restricted ? 'Restricted — CISO only' : bucket.forcedOn ? 'Required — cannot be disabled' : bucket.description}
+                          >
+                            <input
+                              type="checkbox"
+                              className="mt-0.5"
+                              checked={bucket.forcedOn ? true : bucket.restricted ? false : selectedBucketKeys.has(bucket.key)}
+                              disabled={bucket.forcedOn || bucket.restricted}
+                              onChange={(e) => {
+                                if (bucket.forcedOn || bucket.restricted) return;
+                                setSelectedBucketKeys((prev) => {
+                                  const next = new Set(prev);
+                                  if (e.target.checked) {
+                                    next.add(bucket.key);
+                                  } else {
+                                    next.delete(bucket.key);
+                                  }
+                                  return next;
+                                });
+                              }}
+                            />
+                            <div>
+                              <p className="font-mono text-[10px] font-semibold text-adm-t1">
+                                {bucket.label}
+                                {bucket.forcedOn && <span className="ml-1.5 text-[8px] text-adm-t3">(required)</span>}
+                                {bucket.restricted && <span className="ml-1.5 text-[8px] text-adm-t3">(CISO only)</span>}
+                              </p>
+                              <p className="mt-0.5 font-mono text-[9px] text-adm-t3">
+                                {bucket.description}
+                              </p>
+                            </div>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Change Reason */}
+              <div>
+                <p className="mb-1.5 font-mono text-[8.5px] uppercase tracking-[0.14em] text-adm-t3">
+                  Change Reason
+                </p>
+                <textarea
+                  value={createReason}
+                  onChange={(e) => setCreateReason(e.target.value)}
+                  rows={3}
+                  placeholder="Explain why this role definition is needed."
+                  className="w-full rounded border border-adm-border bg-adm-bg px-3 py-2 font-mono text-[10px] text-adm-t2 placeholder:text-adm-t3 outline-none focus:border-adm-amber transition-colors resize-none"
+                />
+              </div>
+
+              {createError && (
+                <div className="rounded border border-adm-red/30 bg-adm-red/10 px-3 py-2 font-mono text-[10px] text-adm-red">
+                  {createError}
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="flex justify-end gap-2 border-t border-adm-border bg-adm-card px-5 py-4">
+              <button onClick={closeCreateModal} className={adminButtonClass('modalCancel')}>
+                Cancel
+              </button>
+              <button
+                onClick={() => void submitCreate()}
+                disabled={createLoading}
+                className={adminButtonClass('modalConfirm')}
+              >
+                {createLoading ? 'Submitting…' : 'Submit Request'}
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
 
     </div>
   );

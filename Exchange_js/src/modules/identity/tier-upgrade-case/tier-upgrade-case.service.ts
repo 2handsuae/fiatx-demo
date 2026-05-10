@@ -45,8 +45,8 @@ export class TierUpgradeCaseService {
       await tx.customerMain.update({
         where: { id: cra.customerId },
         data: {
-          restrictionStatus: 'RESTRICTED',
-          restrictionReason: 'tier_upgrade_pending_level2',
+          complianceStatus: 'FROZEN',
+          complianceFreezeReason: 'tier_upgrade_pending_level2',
         },
       });
     });
@@ -143,11 +143,10 @@ export class TierUpgradeCaseService {
         await tx.customerMain.update({
           where: { id: upgradeCase.customerId },
           data: {
-            riskTier: 'HIGH',
-            amlRiskTier: 'HIGH',
-            riskTierUpdatedAt: new Date(),
-            restrictionStatus: 'CLEAR',
-            restrictionReason: null,
+            riskRating: 'HIGH',
+            riskRatingUpdatedAt: new Date(),
+            complianceStatus: 'CLEAR',
+            complianceFreezeReason: null,
             latestRiskAssessmentId: upgradeCase.sourceCraId,
             latestRiskApprovalId: upgradeCase.phase2ApprovalCaseId,
             latestRiskApprovalStatus: 'APPROVED',
@@ -175,9 +174,9 @@ export class TierUpgradeCaseService {
           where: { id: upgradeCase.customerId },
           data: {
             onboardingStatus: 'REJECTED',
-            operatingStatus: 'INACTIVE',
-            restrictionStatus: 'CLEAR',
-            restrictionReason: null,
+            adminStatus: 'INACTIVE',
+            complianceStatus: 'CLEAR',
+            complianceFreezeReason: null,
           },
         });
         await tx.tierUpgradeCase.update({

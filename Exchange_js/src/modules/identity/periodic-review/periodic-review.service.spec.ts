@@ -100,7 +100,7 @@ describe('PeriodicReviewService', () => {
       expect.objectContaining({
         where: expect.objectContaining({
           onboardingStatus: 'APPROVED',
-          operatingStatus: 'ACTIVE',
+          adminStatus: 'ACTIVE',
           activePeriodicReviewCycleId: null,
         }),
       }),

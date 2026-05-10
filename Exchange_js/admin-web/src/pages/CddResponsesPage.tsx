@@ -49,8 +49,8 @@ interface CddResponseDetail {
     companyName?: string | null;
     customerType?: string;
     onboardingStatus?: string;
-    operatingStatus?: string;
-    restrictionStatus?: string;
+    adminStatus?: string;
+    complianceStatus?: string;
   };
   mockDetail?: Record<string, unknown>;
   latestReport?: {

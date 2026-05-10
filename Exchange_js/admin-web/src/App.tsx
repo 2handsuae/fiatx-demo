@@ -398,7 +398,7 @@ function App() {
             />
             <Route
               path="compliance/sumsub-events"
-              element={withPermission(<SumsubEventsPage />, [])}
+              element={withPermission(<SumsubEventsPage />, [PERMISSIONS.SUMSUB_EVENTS_READ])}
             />
             <Route
               path="compliance/cdd-responses"
@@ -442,11 +442,11 @@ function App() {
             />
             <Route
               path="compliance/risk-assessments"
-              element={withPermission(<RiskAssessmentListPage />, [])}
+              element={withPermission(<RiskAssessmentListPage />, [PERMISSIONS.RISK_ASSESSMENTS_READ])}
             />
             <Route
               path="compliance/risk-assessments/:assessmentId"
-              element={withPermission(<RiskAssessmentDetailPage />, [])}
+              element={withPermission(<RiskAssessmentDetailPage />, [PERMISSIONS.RISK_ASSESSMENTS_READ])}
             />
             <Route
               path="compliance/tx-kyt-responses"

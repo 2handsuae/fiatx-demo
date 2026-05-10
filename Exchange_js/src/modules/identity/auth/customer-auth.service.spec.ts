@@ -33,8 +33,8 @@ describe('CustomerAuthService', () => {
       customerNo: 'CU001',
       email: 'test@example.com',
       passwordHash: '$2b$10$abcdefghijklmnopqrstuv',
-      complianceHoldStatus: 'FROZEN',
-      complianceHoldReason: 'Compliance freeze',
+      complianceStatus: 'FROZEN',
+      complianceFreezeReason: 'Compliance freeze',
       failedLoginCount: 0,
     });
 
@@ -51,8 +51,7 @@ describe('CustomerAuthService', () => {
       customerNo: 'CU001',
       email: 'test@example.com',
       passwordHash,
-      complianceHoldStatus: 'ACTIVE',
-      restrictionStatus: 'RESTRICTED',
+      complianceStatus: 'CLEAR',
       failedLoginCount: 1,
       lockedUntil: null,
     });

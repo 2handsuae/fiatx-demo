@@ -9,8 +9,13 @@ export interface RbacRoleDefinition {
 export type PermissionGroup =
   | 'BASE_ACCESS'
   | 'IAM_READ'
+  | 'IAM_MEMBER_READ'
+  | 'IAM_ROLE_READ'
   | 'IAM_ASSIGN'
+  | 'IAM_MEMBER_MANAGE'
+  | 'IAM_ROLE_ASSIGN'
   | 'IAM_CREDENTIAL_RESET'
+  | 'IAM_ROLE_DEFINE'
   | 'CUSTOMER_READ'
   | 'CUSTOMER_WRITE'
   | 'CUSTOMER_RATE_READ'
@@ -64,7 +69,6 @@ export type PermissionGroup =
   | 'AUDIT_READ'
   | 'AUDIT_EXPORT_CREATE'
   | 'AUDIT_EXPORT_READ'
-  | 'AUDIT_MANUAL_WRITE'
   | 'GOV_APPROVAL_READ'
   | 'GOV_APPROVAL_WRITE'
   | 'GOV_APPROVAL_DECIDE'
@@ -193,20 +197,26 @@ export const SOFT_WARNING_ROLE_GROUPS: Array<{ codes: string[]; message: string 
 export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   // Session / IAM
   route('GET', '/auth/me', 'Get current admin session', ['BASE_ACCESS']),
-  route('GET', '/users', 'List users', ['IAM_READ']),
-  route('POST', '/users', 'Create admin user', ['IAM_ASSIGN']),
-  route('POST', '/users/:id/invitations/resend', 'Resend admin invitation', ['IAM_ASSIGN']),
-  route('POST', '/users/:id/suspend', 'Suspend admin user (C4)', ['IAM_ASSIGN']),
-  route('POST', '/users/:id/reactivate', 'Reactivate admin user (C4b)', ['IAM_ASSIGN']),
-  route('GET', '/admin/iam/roles', 'List role catalog', ['IAM_READ']),
-  route('GET', '/admin/iam/permissions', 'List permission catalog', ['IAM_READ']),
-  route('GET', '/admin/iam/users/:id/roles', 'Get user roles', ['IAM_READ']),
-  route('PUT', '/admin/iam/users/:id/roles', 'Replace user roles', ['IAM_ASSIGN']),
-  route('POST', '/admin/iam/role-change-requests', 'Create role binding change request', ['IAM_ASSIGN']),
-  route('GET', '/admin/iam/role-change-requests', 'List role binding change requests', ['IAM_READ']),
-  route('GET', '/admin/iam/role-change-requests/:id', 'Get role binding change request', ['IAM_READ']),
+  route('GET', '/users', 'List users', ['IAM_READ', 'IAM_MEMBER_READ']),
+  route('POST', '/users', 'Create admin user', ['IAM_ASSIGN', 'IAM_MEMBER_MANAGE']),
+  route('POST', '/users/:id/invitations/resend', 'Resend admin invitation', ['IAM_ASSIGN', 'IAM_MEMBER_MANAGE']),
+  route('POST', '/users/:id/suspend', 'Suspend admin user (C4)', ['IAM_ASSIGN', 'IAM_MEMBER_MANAGE']),
+  route('POST', '/users/:id/reactivate', 'Reactivate admin user (C4b)', ['IAM_ASSIGN', 'IAM_MEMBER_MANAGE']),
+  route('GET', '/admin/iam/roles', 'List role catalog', ['IAM_READ', 'IAM_ROLE_READ']),
+  route('GET', '/admin/iam/permissions', 'List permission catalog', ['IAM_READ', 'IAM_ROLE_READ']),
+  route('GET', '/admin/iam/users/:id/roles', 'Get user roles', ['IAM_READ', 'IAM_MEMBER_READ']),
+  route('PUT', '/admin/iam/users/:id/roles', 'Replace user roles', ['IAM_ASSIGN', 'IAM_ROLE_ASSIGN']),
+  route('POST', '/admin/iam/role-change-requests', 'Create role binding change request', ['IAM_ASSIGN', 'IAM_ROLE_ASSIGN']),
+  route('GET', '/admin/iam/role-change-requests', 'List role binding change requests', ['IAM_READ', 'IAM_ROLE_READ']),
+  route('GET', '/admin/iam/role-change-requests/:id', 'Get role binding change request', ['IAM_READ', 'IAM_ROLE_READ']),
   route('POST', '/admin/iam/users/:id/reset-mfa', 'Reset admin MFA binding', ['IAM_CREDENTIAL_RESET']),
   route('POST', '/users/:id/reset-password', 'Reset admin password (C5)', ['IAM_CREDENTIAL_RESET']),
+  route('POST', '/admin/iam/role-definitions', 'Create role definition request', ['IAM_ROLE_DEFINE']),
+  route('GET', '/admin/iam/role-definitions/permission-groups', 'List available permission groups', ['IAM_ROLE_DEFINE']),
+  route('POST', '/admin/iam/role-definitions/:roleId/modify', 'Submit role definition modify request', ['IAM_ROLE_DEFINE']),
+  route('GET', '/admin/iam/role-definition-modify-requests', 'List role definition modify requests', ['IAM_READ', 'IAM_ROLE_READ']),
+  route('GET', '/admin/iam/role-definition-modify-requests/:id', 'Get role definition modify request detail', ['IAM_READ', 'IAM_ROLE_READ']),
+  route('GET', '/admin/iam/action-buckets', 'List action bucket catalog', ['IAM_READ', 'IAM_ROLE_READ']),
 
   // Customer domain
   route('POST', '/customers', 'Create customer', ['CUSTOMER_WRITE']),
@@ -237,6 +247,16 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('GET', '/admin/compliance/edd-responses/:id', 'Get EDD response detail', ['ONBOARDING_READ']),
   route('POST', '/admin/compliance/customers/:id/simulate-expired', 'Simulate customer expired', ['SIMULATE_EXPIRED_WRITE']),
   route('PATCH', '/admin/compliance/customers/:id/investor-classification', 'Override investor classification', ['INVESTOR_OVERRIDE_WRITE']),
+
+  // Sumsub events
+  route('GET', '/admin/sumsub-events', 'List Sumsub webhook events', ['RISK_DECISION_RECORD_READ']),
+  route('GET', '/admin/sumsub-events/:id', 'Get Sumsub event detail', ['RISK_DECISION_RECORD_READ']),
+  route('POST', '/admin/sumsub-events/simulate', 'Simulate Sumsub event', ['RISK_DECISION_RECORD_WRITE']),
+  route('POST', '/admin/sumsub-events/:id/replay', 'Replay Sumsub event', ['RISK_DECISION_RECORD_WRITE']),
+
+  // Risk assessments
+  route('GET', '/admin/compliance/risk-assessments', 'List risk assessments', ['RISK_DECISION_RECORD_READ']),
+  route('GET', '/admin/compliance/risk-assessments/:id', 'Get risk assessment detail', ['RISK_DECISION_RECORD_READ']),
 
   // Risk decision records
   route('GET', '/admin/risk/decision-records', 'List risk decision records', ['RISK_DECISION_RECORD_READ']),
@@ -603,19 +623,18 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('PATCH', '/liquidity-configurations/:id/status', 'Update liquidity configuration status', ['COUNTERPARTY_WRITE']),
 
   // Audit logs
-  route('POST', '/admin/audit-logs', 'Create manual audit log event', ['AUDIT_MANUAL_WRITE']),
   route('GET', '/admin/audit-logs', 'List audit logs', ['AUDIT_READ']),
   route('GET', '/admin/audit-logs/:id', 'Get audit log detail', ['AUDIT_READ']),
-  route('POST', '/admin/audit-logs/export/evidence-package', 'Export audit evidence package', [
+  route('POST', '/admin/audit/evidence-packages', 'Export audit evidence package', [
     'AUDIT_EXPORT_CREATE',
   ]),
-  route('GET', '/admin/audit-logs/evidence-packages', 'List evidence package exports', [
+  route('GET', '/admin/audit/evidence-packages', 'List evidence package exports', [
     'AUDIT_EXPORT_READ',
   ]),
-  route('GET', '/admin/audit-logs/evidence-packages/:id', 'Get evidence package detail', [
+  route('GET', '/admin/audit/evidence-packages/:id', 'Get evidence package detail', [
     'AUDIT_EXPORT_READ',
   ]),
-  route('GET', '/admin/audit-logs/evidence-packages/:id/download', 'Download evidence package content', [
+  route('GET', '/admin/audit/evidence-packages/:id/download', 'Download evidence package content', [
     'AUDIT_EXPORT_READ',
   ]),
 
@@ -771,6 +790,169 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
 
 ];
 
+/* ═══════════════════════════════════════════════════════════════
+   Action Bucket Catalog
+   User-facing capability abstraction. Each "bucket" represents
+   a functional capability users can understand (e.g. "View members & roles")
+   mapped to one or more PermissionGroups.
+   ═══════════════════════════════════════════════════════════════ */
+
+export interface ActionBucket {
+  key: string;
+  label: string;
+  description: string;
+  groups: PermissionGroup[];
+  forcedOn?: boolean;
+  restricted?: boolean;
+}
+
+export interface ActionDomain {
+  id: string;
+  label: string;
+  icon: string;
+  buckets: ActionBucket[];
+}
+
+export const ACTION_BUCKET_CATALOG: ActionDomain[] = [
+  // ─── Domain 0: Auth (forced on, non-toggleable) ─────
+  {
+    id: 'auth',
+    label: 'Auth',
+    icon: '🔑',
+    buckets: [
+      {
+        key: 'auth.base_access',
+        label: 'Base Access',
+        description: 'Basic session access — required for all admin users to log in and use the platform',
+        groups: ['BASE_ACCESS'],
+        forcedOn: true,
+      },
+    ],
+  },
+  // ─── Domain 1: Identity & Access ─────────────────────
+  {
+    id: 'iam',
+    label: 'Identity & Access',
+    icon: '🔐',
+    buckets: [
+      {
+        key: 'iam.view_members',
+        label: 'View members',
+        description: 'Browse member list, view member detail and role bindings',
+        groups: ['IAM_MEMBER_READ'],
+      },
+      {
+        key: 'iam.view_roles',
+        label: 'View roles & catalog',
+        description: 'Browse role catalog, permissions, action buckets, role change requests',
+        groups: ['IAM_ROLE_READ'],
+      },
+      {
+        key: 'iam.manage_members',
+        label: 'Manage members',
+        description: 'Invite members, resend invitations, suspend and reactivate accounts',
+        groups: ['IAM_MEMBER_MANAGE'],
+      },
+      {
+        key: 'iam.assign_roles',
+        label: 'Assign roles',
+        description: 'Change user role bindings, create role change requests',
+        groups: ['IAM_ROLE_ASSIGN'],
+      },
+      {
+        key: 'iam.manage_credentials',
+        label: 'Manage credentials',
+        description: 'Reset password, reset MFA',
+        groups: ['IAM_CREDENTIAL_RESET'],
+      },
+      {
+        key: 'iam.define_roles',
+        label: 'Manage role definitions',
+        description: 'Propose new role definitions or modify existing ones for approval',
+        groups: ['IAM_ROLE_DEFINE'],
+      },
+    ],
+  },
+  // ─── Domain 2: Approval Center ───────────────────────
+  {
+    id: 'gov_approvals',
+    label: 'Approval Center',
+    icon: '🚦',
+    buckets: [
+      {
+        key: 'gov_approvals.view',
+        label: 'View approvals',
+        description: 'Browse approval list, view approval detail and history',
+        groups: ['GOV_APPROVAL_READ'],
+      },
+      {
+        key: 'gov_approval_policies.view',
+        label: 'View approval policies',
+        description: 'Browse approval policy configurations',
+        groups: ['GOV_APPROVAL_POLICY_READ'],
+      },
+      {
+        key: 'gov_approval_policies.manage',
+        label: 'Manage approval policies',
+        description: 'Submit approval policy change requests — CISO only',
+        groups: ['GOV_APPROVAL_POLICY_WRITE'],
+        restricted: true,
+      },
+    ],
+  },
+  // ─── Domain 3: Audit Center ──────────────────────────
+  {
+    id: 'audit',
+    label: 'Audit Center',
+    icon: '📁',
+    buckets: [
+      {
+        key: 'audit.view',
+        label: 'View audit logs',
+        description: 'Browse audit log events, filter, view detail',
+        groups: ['AUDIT_READ'],
+      },
+      {
+        key: 'audit.view_exports',
+        label: 'View evidence packages',
+        description: 'Browse and download audit evidence packages',
+        groups: ['AUDIT_EXPORT_READ'],
+      },
+      {
+        key: 'audit.create_exports',
+        label: 'Create evidence packages',
+        description: 'Create new audit evidence export packages',
+        groups: ['AUDIT_EXPORT_CREATE'],
+      },
+    ],
+  },
+  // ─── Placeholder Domains (no buckets yet) ────────────
+  { id: 'customer', label: 'Customer Management', icon: '👥', buckets: [] },
+  { id: 'compliance', label: 'Compliance', icon: '🛡️', buckets: [] },
+  { id: 'trading', label: 'Trading', icon: '📊', buckets: [] },
+  { id: 'accounting', label: 'Accounting', icon: '📒', buckets: [] },
+  { id: 'treasury', label: 'Treasury', icon: '📦', buckets: [] },
+  { id: 'recon', label: 'Reconciliation', icon: '🔍', buckets: [] },
+  { id: 'pricing', label: 'Pricing', icon: '💰', buckets: [] },
+  { id: 'config', label: 'Configuration', icon: '⚙️', buckets: [] },
+  { id: 'gov_registry', label: 'Governance Registries', icon: '🏛️', buckets: [] },
+  { id: 'counterparty', label: 'Counterparty', icon: '🤝', buckets: [] },
+  { id: 'clearing', label: 'Clearing', icon: '📋', buckets: [] },
+];
+
+/**
+ * Build a map from permission code → PermissionGroup[].
+ * Used by the frontend to derive which groups a role holds
+ * from its list of individual permission codes.
+ */
+export function buildPermCodeToGroups(): Record<string, string[]> {
+  const map: Record<string, string[]> = {};
+  for (const perm of RBAC_PERMISSION_DEFINITIONS) {
+    map[perm.code] = [...perm.groups];
+  }
+  return map;
+}
+
 export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
   SUPER_ADMIN: [],
   SENIOR_MANAGEMENT_OFFICER: [
@@ -796,6 +978,7 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'IAM_READ',
     'IAM_ASSIGN',
     'IAM_CREDENTIAL_RESET',
+    'IAM_ROLE_DEFINE',
     'AUDIT_READ',
     'AUDIT_EXPORT_READ',
     'RISK_DECISION_RECORD_READ',
@@ -915,6 +1098,7 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'IAM_READ',
     'IAM_ASSIGN',
     'IAM_CREDENTIAL_RESET',
+    'IAM_ROLE_DEFINE',
     'AUDIT_READ',
     'RISK_DECISION_RECORD_READ',
     'ALERT_READ',

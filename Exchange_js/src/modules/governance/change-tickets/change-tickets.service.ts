@@ -662,7 +662,7 @@ export class ChangeTicketsService {
         {
           actionType: ApprovalActionTypes.CHANGE_TICKET_APPROVAL,
           entityRef: ticket.id,
-          metadata: {
+          objectSnapshot: {
             source: 'WF06',
             ticketNo: ticket.ticketNo,
           },

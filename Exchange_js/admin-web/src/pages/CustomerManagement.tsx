@@ -26,10 +26,9 @@ interface CustomerItem {
   email: string | null;
   customerType: string;
   onboardingStatus?: string | null;
-  operatingStatus?: string | null;
-  restrictionStatus?: string | null;
-  complianceHoldStatus?: string | null;
-  amlRiskTier?: string | null;
+  adminStatus?: string | null;
+  complianceStatus?: string | null;
+  riskRating?: string | null;
   createdAt: string;
   updatedAt?: string | null;
 }
@@ -230,9 +229,9 @@ const CustomerManagement = () => {
                   ['Email',        '240px'],
                   ['Type',         '110px'],
                   ['Onboarding',   '160px'],
-                  ['Operating',    '120px'],
-                  ['Restriction',  '130px'],
-                  ['Risk Tier',    '110px'],
+                  ['Admin',        '120px'],
+                  ['Compliance',   '130px'],
+                  ['Risk Rating',  '110px'],
                   ['Created',      'auto'],
                 ] as [string, string][]
               ).map(([label, w]) => (
@@ -294,19 +293,19 @@ const CustomerManagement = () => {
                   <AdminBadge value={customer.onboardingStatus || 'NONE'} />
                 </td>
 
-                {/* Operating */}
+                {/* Admin */}
                 <td className="px-4 py-2.5">
-                  <AdminBadge value={customer.operatingStatus || 'INACTIVE'} />
+                  <AdminBadge value={customer.adminStatus || 'INACTIVE'} />
                 </td>
 
-                {/* Restriction */}
+                {/* Compliance */}
                 <td className="px-4 py-2.5">
-                  <AdminBadge value={customer.restrictionStatus || 'CLEAR'} />
+                  <AdminBadge value={customer.complianceStatus || 'CLEAR'} />
                 </td>
 
-                {/* Risk Tier */}
+                {/* Risk Rating */}
                 <td className="px-4 py-2.5 font-mono text-[10px] text-adm-t2">
-                  {customer.amlRiskTier || <span className="text-adm-t3">—</span>}
+                  {customer.riskRating || <span className="text-adm-t3">—</span>}
                 </td>
 
                 {/* Created */}

@@ -6,8 +6,8 @@ export type CustomerOnboardingStatus =
   | 'REJECTED'
   | 'WITHDRAWN';
 
-export type CustomerOperatingStatus = 'INACTIVE' | 'ACTIVE';
-export type CustomerRestrictionStatus = 'CLEAR' | 'RESTRICTED';
+export type CustomerAdminStatus = 'INACTIVE' | 'ACTIVE' | 'SUSPENDED' | 'OFFBOARDED';
+export type CustomerComplianceStatus = 'CLEAR' | 'FROZEN';
 export type CustomerNextStepActionType =
   | 'START_VERIFICATION'
   | 'CONTINUE_VERIFICATION'
@@ -19,14 +19,14 @@ export type CustomerReviewStage = 'REVIEW_CDD' | 'REVIEW_EDD';
 
 export interface CustomerCanonicalState {
   onboardingStatus: CustomerOnboardingStatus;
-  operatingStatus: CustomerOperatingStatus;
-  restrictionStatus: CustomerRestrictionStatus;
+  adminStatus: CustomerAdminStatus;
+  complianceStatus: CustomerComplianceStatus;
 }
 
 export interface CustomerStatusSource {
   onboardingStatus?: string | null;
-  operatingStatus?: string | null;
-  restrictionStatus?: string | null;
+  adminStatus?: string | null;
+  complianceStatus?: string | null;
   verificationSubstatus?: string | null;
   verificationCustomerActionRequired?: boolean | null;
   verificationCanContinue?: boolean | null;
@@ -43,8 +43,8 @@ const CANONICAL_ONBOARDING_STATUSES: CustomerOnboardingStatus[] = [
   'WITHDRAWN',
 ];
 
-const CUSTOMER_OPERATING_STATUSES: CustomerOperatingStatus[] = ['INACTIVE', 'ACTIVE'];
-const CUSTOMER_RESTRICTION_STATUSES: CustomerRestrictionStatus[] = ['CLEAR', 'RESTRICTED'];
+const CUSTOMER_ADMIN_STATUSES: CustomerAdminStatus[] = ['INACTIVE', 'ACTIVE', 'SUSPENDED', 'OFFBOARDED'];
+const CUSTOMER_COMPLIANCE_STATUSES: CustomerComplianceStatus[] = ['CLEAR', 'FROZEN'];
 const LEGACY_PENDING_ONBOARDING_STATUSES = new Set([
   'PENDING_CDD_INPUT',
   'CDD_UNDER_REVIEW',
@@ -73,22 +73,22 @@ export function normalizeCustomerOnboardingStatus(
   return null;
 }
 
-export function normalizeCustomerOperatingStatus(
+export function normalizeCustomerAdminStatus(
   value?: string | null,
-): CustomerOperatingStatus | null {
+): CustomerAdminStatus | null {
   const current = String(value || '').trim().toUpperCase();
-  if (CUSTOMER_OPERATING_STATUSES.includes(current as CustomerOperatingStatus)) {
-    return current as CustomerOperatingStatus;
+  if (CUSTOMER_ADMIN_STATUSES.includes(current as CustomerAdminStatus)) {
+    return current as CustomerAdminStatus;
   }
   return null;
 }
 
-export function normalizeCustomerRestrictionStatus(
+export function normalizeCustomerComplianceStatus(
   value?: string | null,
-): CustomerRestrictionStatus {
+): CustomerComplianceStatus {
   const current = String(value || '').trim().toUpperCase();
-  if (CUSTOMER_RESTRICTION_STATUSES.includes(current as CustomerRestrictionStatus)) {
-    return current as CustomerRestrictionStatus;
+  if (CUSTOMER_COMPLIANCE_STATUSES.includes(current as CustomerComplianceStatus)) {
+    return current as CustomerComplianceStatus;
   }
   return 'CLEAR';
 }
@@ -97,15 +97,15 @@ export function resolveCustomerCanonicalState(
   source: CustomerStatusSource,
 ): CustomerCanonicalState {
   const onboardingStatus = normalizeCustomerOnboardingStatus(source.onboardingStatus) ?? 'NONE';
-  const operatingStatus =
-    normalizeCustomerOperatingStatus(source.operatingStatus) ??
+  const adminStatus =
+    normalizeCustomerAdminStatus(source.adminStatus) ??
     (onboardingStatus === 'APPROVED' ? 'ACTIVE' : 'INACTIVE');
-  const restrictionStatus = normalizeCustomerRestrictionStatus(source.restrictionStatus);
+  const complianceStatus = normalizeCustomerComplianceStatus(source.complianceStatus);
 
   return {
     onboardingStatus,
-    operatingStatus,
-    restrictionStatus,
+    adminStatus,
+    complianceStatus,
   };
 }
 
@@ -126,8 +126,8 @@ export function buildCustomerLifecyclePatch(
   source: CustomerStatusSource,
   next: {
     onboardingStatus: CustomerOnboardingStatus;
-    operatingStatus?: CustomerOperatingStatus;
-    restrictionStatus?: CustomerRestrictionStatus;
+    adminStatus?: CustomerAdminStatus;
+    complianceStatus?: CustomerComplianceStatus;
     eddRequired?: boolean;
   },
 ): CustomerCanonicalState & {
@@ -136,8 +136,8 @@ export function buildCustomerLifecyclePatch(
   const current = resolveCustomerCanonicalState(source);
   const resolved: CustomerCanonicalState = {
     onboardingStatus: next.onboardingStatus,
-    operatingStatus: next.operatingStatus || current.operatingStatus,
-    restrictionStatus: next.restrictionStatus || current.restrictionStatus,
+    adminStatus: next.adminStatus || current.adminStatus,
+    complianceStatus: next.complianceStatus || current.complianceStatus,
   };
   const eddRequired = next.eddRequired ?? Boolean(source.eddRequired);
 
@@ -200,7 +200,7 @@ export function getCustomerBlockedReason(source: CustomerStatusSource): string |
     case 'WITHDRAWN':
       return 'Onboarding is withdrawn.';
     case 'APPROVED':
-      return canonical.operatingStatus === 'ACTIVE' ? 'Onboarding completed.' : null;
+      return canonical.adminStatus === 'ACTIVE' ? 'Onboarding completed.' : null;
     default:
       return null;
   }
@@ -274,5 +274,5 @@ export function canFinalReview(source: CustomerStatusSource): boolean {
 export function isCustomerApprovedAndActive(source: CustomerStatusSource): boolean {
   const canonical = resolveCustomerCanonicalState(source);
 
-  return canonical.onboardingStatus === 'APPROVED' && canonical.operatingStatus === 'ACTIVE';
+  return canonical.onboardingStatus === 'APPROVED' && canonical.adminStatus === 'ACTIVE';
 }

@@ -20,14 +20,7 @@ export const PERMISSIONS = {
   CUSTOMERS_DETAIL_READ: 'api.get.customers_id',
   PRICING_POLICIES_READ: 'api.get.admin_pricing_policies',
   PRICING_SWAP_CONFIG_READ: 'api.get.admin_pricing_policies_swap',
-  PRICING_SWAP_CONFIG_WRITE: 'api.put.admin_pricing_policies_swap',
   PRICING_WITHDRAW_CONFIG_READ: 'api.get.admin_pricing_policies_withdrawal',
-  PRICING_WITHDRAW_CONFIG_WRITE: 'api.put.admin_pricing_policies_withdrawal',
-
-  // Backward-compatible aliases for existing usages.
-  CUSTOMER_SWAP_RATES_READ: 'api.get.admin_pricing_policies',
-  CUSTOMER_SWAP_RATES_WRITE: 'api.put.admin_pricing_policies_swap',
-  CUSTOMER_SWAP_RATES_EDIT: 'api.put.admin_pricing_policies_withdrawal',
 
   SWAP_QUOTES_READ: 'api.get.admin_swap_transactions_quotes',
   SWAP_QUOTES_DETAIL_READ: 'api.get.admin_swap_transactions_quotes_id',
@@ -87,17 +80,19 @@ export const PERMISSIONS = {
   TX_TRAVEL_RULE_RESPONSE_DETAIL_READ:
     'api.get.admin_compliance_tx_travel_rule_cases_id',
   TX_COMPLIANCE_BUNDLE_READ:
-    'api.get.admin_compliance_tx_cases_sourceType_sourceId',
+    'api.get.admin_compliance_tx_cases_sourcetype_sourceid',
   TX_COMPLIANCE_READ: 'api.get.admin_compliance_tx_kyt_cases',
   TX_COMPLIANCE_WRITE: 'api.post.admin_compliance_tx_kyt_cases_mock_complete',
+  SUMSUB_EVENTS_READ: 'api.get.admin_sumsub_events',
+  RISK_ASSESSMENTS_READ: 'api.get.admin_compliance_risk_assessments',
   RISK_DECISION_RECORDS_READ: 'api.get.admin_risk_decision_records',
   RISK_DECISION_RECORD_DETAIL_READ: 'api.get.admin_risk_decision_records_id',
   AUDIT_LOGS_READ: 'api.get.admin_audit_logs',
-  AUDIT_EXPORT_CREATE: 'api.post.admin_audit_logs_export_evidence_package',
-  AUDIT_EVIDENCE_EXPORTS_READ: 'api.get.admin_audit_logs_evidence_packages',
-  AUDIT_EVIDENCE_EXPORT_DETAIL_READ: 'api.get.admin_audit_logs_evidence_packages_id',
+  AUDIT_EXPORT_CREATE: 'api.post.admin_audit_evidence_packages',
+  AUDIT_EVIDENCE_EXPORTS_READ: 'api.get.admin_audit_evidence_packages',
+  AUDIT_EVIDENCE_EXPORT_DETAIL_READ: 'api.get.admin_audit_evidence_packages_id',
   AUDIT_EVIDENCE_EXPORT_DOWNLOAD:
-    'api.get.admin_audit_logs_evidence_packages_id_download',
+    'api.get.admin_audit_evidence_packages_id_download',
   GOV_APPROVALS_READ: 'api.get.admin_control_gates_approvals',
   GOV_APPROVAL_DETAIL_READ: 'api.get.admin_control_gates_approvals_id',
   GOV_APPROVAL_CREATE: 'api.post.admin_control_gates_approvals',
@@ -159,6 +154,13 @@ export const PERMISSIONS = {
     'api.post.admin_governance_regulatory_gates_id_mark_effective',
   GOV_REGULATORY_GATE_REVOKE:
     'api.post.admin_governance_regulatory_gates_id_revoke',
+
+  IAM_ROLE_DEFINITIONS_CREATE: 'api.post.admin_iam_role_definitions',
+  IAM_ROLE_DEFINITIONS_PERMISSION_GROUPS: 'api.get.admin_iam_role_definitions_permission_groups',
+  IAM_ROLE_DEFINITIONS_MODIFY: 'api.post.admin_iam_role_definitions_roleid_modify',
+  IAM_ROLE_DEFINITION_MODIFY_REQUESTS_READ: 'api.get.admin_iam_role_definition_modify_requests',
+  IAM_ROLE_DEFINITION_MODIFY_REQUEST_DETAIL_READ: 'api.get.admin_iam_role_definition_modify_requests_id',
+  IAM_ACTION_BUCKETS_READ: 'api.get.admin_iam_action_buckets',
 
   // Approval Policy Management
   GOV_APPROVAL_POLICIES_READ: 'api.get.admin_governance_approval_policies',

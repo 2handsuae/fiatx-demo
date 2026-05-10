@@ -9,6 +9,8 @@ import {
   getCustomerNextStepActionTypes,
   getExpectedReviewStageFromCustomerState,
   isCustomerApprovedAndActive,
+  normalizeCustomerAdminStatus,
+  normalizeCustomerComplianceStatus,
   resolveCustomerCanonicalState,
 } from './customer-status.util';
 
@@ -17,34 +19,34 @@ describe('customer-status.util', () => {
     expect(
       resolveCustomerCanonicalState({
         onboardingStatus: 'APPROVED',
-        operatingStatus: 'ACTIVE',
-        restrictionStatus: 'CLEAR',
+        adminStatus: 'ACTIVE',
+        complianceStatus: 'CLEAR',
       }),
     ).toEqual({
       onboardingStatus: 'APPROVED',
-      operatingStatus: 'ACTIVE',
-      restrictionStatus: 'CLEAR',
+      adminStatus: 'ACTIVE',
+      complianceStatus: 'CLEAR',
     });
   });
 
-  it('should recompute canonical lifecycle patch while preserving restriction state', () => {
+  it('should recompute canonical lifecycle patch while preserving compliance state', () => {
     expect(
       buildCustomerLifecyclePatch(
         {
           onboardingStatus: 'APPROVED',
-          operatingStatus: 'ACTIVE',
-          restrictionStatus: 'RESTRICTED',
+          adminStatus: 'ACTIVE',
+          complianceStatus: 'FROZEN',
           eddRequired: true,
         },
         {
           onboardingStatus: 'REJECTED',
-          operatingStatus: 'INACTIVE',
+          adminStatus: 'INACTIVE',
         },
       ),
     ).toEqual({
       onboardingStatus: 'REJECTED',
-      operatingStatus: 'INACTIVE',
-      restrictionStatus: 'RESTRICTED',
+      adminStatus: 'INACTIVE',
+      complianceStatus: 'FROZEN',
       eddRequired: true,
     });
   });
@@ -53,7 +55,7 @@ describe('customer-status.util', () => {
     expect(
       getCustomerNextStepActionTypes({
         onboardingStatus: 'FINAL_APPROVAL',
-        operatingStatus: 'INACTIVE',
+        adminStatus: 'INACTIVE',
       }),
     ).toEqual(['WAIT_FINAL_APPROVAL']);
   });
@@ -104,20 +106,20 @@ describe('customer-status.util', () => {
     expect(
       getCustomerNextStepActionTypes({
         onboardingStatus: 'APPROVED',
-        operatingStatus: 'ACTIVE',
+        adminStatus: 'ACTIVE',
       }),
     ).toEqual(['NONE']);
   });
 
-  it('should resolve unknown onboarding status to NONE and default operating state', () => {
+  it('should resolve unknown onboarding status to NONE and default admin state', () => {
     expect(
       resolveCustomerCanonicalState({
         onboardingStatus: 'legacy-value',
       }),
     ).toEqual({
       onboardingStatus: 'NONE',
-      operatingStatus: 'INACTIVE',
-      restrictionStatus: 'CLEAR',
+      adminStatus: 'INACTIVE',
+      complianceStatus: 'CLEAR',
     });
   });
 
@@ -128,8 +130,8 @@ describe('customer-status.util', () => {
       }),
     ).toEqual({
       onboardingStatus: 'PENDING_VERIFICATION',
-      operatingStatus: 'INACTIVE',
-      restrictionStatus: 'CLEAR',
+      adminStatus: 'INACTIVE',
+      complianceStatus: 'CLEAR',
     });
 
     expect(
@@ -176,13 +178,13 @@ describe('customer-status.util', () => {
     expect(
       isCustomerApprovedAndActive({
         onboardingStatus: 'APPROVED',
-        operatingStatus: 'ACTIVE',
+        adminStatus: 'ACTIVE',
       }),
     ).toBe(true);
     expect(
       getCustomerBlockedReason({
         onboardingStatus: 'APPROVED',
-        operatingStatus: 'ACTIVE',
+        adminStatus: 'ACTIVE',
       }),
     ).toBe('Onboarding completed.');
     expect(
@@ -190,5 +192,46 @@ describe('customer-status.util', () => {
         onboardingStatus: 'REJECTED',
       }),
     ).toBe('Onboarding is rejected. Re-initiate required.');
+  });
+
+  describe('normalizeCustomerAdminStatus', () => {
+    it('should normalize valid admin statuses', () => {
+      expect(normalizeCustomerAdminStatus('ACTIVE')).toBe('ACTIVE');
+      expect(normalizeCustomerAdminStatus('INACTIVE')).toBe('INACTIVE');
+      expect(normalizeCustomerAdminStatus('SUSPENDED')).toBe('SUSPENDED');
+      expect(normalizeCustomerAdminStatus('OFFBOARDED')).toBe('OFFBOARDED');
+    });
+
+    it('should handle case-insensitive input', () => {
+      expect(normalizeCustomerAdminStatus('active')).toBe('ACTIVE');
+      expect(normalizeCustomerAdminStatus('suspended')).toBe('SUSPENDED');
+      expect(normalizeCustomerAdminStatus('offboarded')).toBe('OFFBOARDED');
+    });
+
+    it('should return null for unknown values', () => {
+      expect(normalizeCustomerAdminStatus('UNKNOWN')).toBeNull();
+      expect(normalizeCustomerAdminStatus('')).toBeNull();
+      expect(normalizeCustomerAdminStatus(null)).toBeNull();
+      expect(normalizeCustomerAdminStatus(undefined)).toBeNull();
+    });
+  });
+
+  describe('normalizeCustomerComplianceStatus', () => {
+    it('should normalize valid compliance statuses', () => {
+      expect(normalizeCustomerComplianceStatus('CLEAR')).toBe('CLEAR');
+      expect(normalizeCustomerComplianceStatus('FROZEN')).toBe('FROZEN');
+    });
+
+    it('should handle case-insensitive input', () => {
+      expect(normalizeCustomerComplianceStatus('clear')).toBe('CLEAR');
+      expect(normalizeCustomerComplianceStatus('frozen')).toBe('FROZEN');
+    });
+
+    it('should default to CLEAR for unknown values', () => {
+      expect(normalizeCustomerComplianceStatus('UNKNOWN')).toBe('CLEAR');
+      expect(normalizeCustomerComplianceStatus('')).toBe('CLEAR');
+      expect(normalizeCustomerComplianceStatus(null)).toBe('CLEAR');
+      expect(normalizeCustomerComplianceStatus(undefined)).toBe('CLEAR');
+    });
   });
 });

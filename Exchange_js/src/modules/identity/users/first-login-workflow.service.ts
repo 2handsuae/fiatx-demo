@@ -18,7 +18,7 @@ import { decryptMfaSecret, encryptMfaSecret } from '../../../common/utils/mfa-cr
 interface OtplibFunctions {
   generateSecret: () => string;
   generateURI: (opts: { secret: string; label: string; issuer: string }) => string;
-  verifySync: (opts: { token: string; secret: string }) => { valid: boolean };
+  verifySync: (opts: { token: string; secret: string; window?: number }) => { valid: boolean };
 }
 let _otpFns: OtplibFunctions | null = null;
 // Use new Function to prevent TypeScript (module:commonjs) from rewriting
@@ -63,6 +63,7 @@ interface FirstLoginUserState {
   userNo: string;
   email: string;
   role: string;
+  status: string;
   firstLoginStatus: string;
   firstLoginTraceId: string | null;
   mfaSecret: string | null;
@@ -218,7 +219,7 @@ export class FirstLoginWorkflowService {
 
     const secret = decryptMfaSecret(user.mfaSecret);
     const otp = await getOtp();
-    const verifyResult = otp.verifySync({ token: code, secret });
+    const verifyResult = otp.verifySync({ token: code, secret, window: 1 });
     const isValid = verifyResult.valid;
 
     if (!isValid) {
@@ -260,7 +261,7 @@ export class FirstLoginWorkflowService {
 
     const secret = decryptMfaSecret(user.mfaSecret);
     const otp = await getOtp();
-    const verifyResult = otp.verifySync({ token: code, secret });
+    const verifyResult = otp.verifySync({ token: code, secret, window: 1 });
     const isValid = verifyResult.valid;
 
     if (!isValid) {
@@ -397,6 +398,15 @@ export class FirstLoginWorkflowService {
     ctx: { requestId?: string; sourceIp?: string } = {},
   ): Promise<{ accessToken: string }> {
     const user = await this.loadUser(userId);
+
+    // Status gate: reject SUSPENDED and LOCKED users
+    if (user.status === 'SUSPENDED') {
+      throw new ForbiddenException('Account has been suspended');
+    }
+    if (user.status === 'LOCKED') {
+      throw new ForbiddenException('Account is locked');
+    }
+
     if (!user.mfaSecret) {
       throw new ForbiddenException('MFA not bound');
     }
@@ -410,7 +420,7 @@ export class FirstLoginWorkflowService {
 
     const secret = decryptMfaSecret(user.mfaSecret);
     const otp = await getOtp();
-    const verifyResult = otp.verifySync({ token: code, secret });
+    const verifyResult = otp.verifySync({ token: code, secret, window: 1 });
     const isValid = verifyResult.valid;
 
     if (!isValid) {

@@ -883,7 +883,7 @@ export class DeleteRequestsService {
           actionType: ApprovalActionTypes.DELETE_REQUEST_APPROVAL,
           entityRef: current.id,
           docRef: current.docRef || undefined,
-          metadata: {
+          objectSnapshot: {
             source: 'WF05',
             requestNo: current.requestNo,
             targetType: current.targetType,

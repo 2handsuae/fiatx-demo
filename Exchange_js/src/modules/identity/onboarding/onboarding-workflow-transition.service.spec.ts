@@ -48,8 +48,8 @@ describe('OnboardingWorkflowTransitionService', () => {
       id: 'c1',
       customerNo: 'CU0001',
       onboardingStatus: 'CDD_UNDER_REVIEW',
-      operatingStatus: 'INACTIVE',
-      restrictionStatus: 'CLEAR',
+      adminStatus: 'INACTIVE',
+      complianceStatus: 'CLEAR',
       activeJourneyId: 'ONB-1',
       latestRiskApprovalStatus: null,
       latestDecisionRecordId: 'dr-1',
@@ -74,8 +74,8 @@ describe('OnboardingWorkflowTransitionService', () => {
     txMock.customerMain.update.mockResolvedValue({
       id: 'c1',
       onboardingStatus: 'PENDING_EDD_INPUT',
-      operatingStatus: 'INACTIVE',
-      restrictionStatus: 'CLEAR',
+      adminStatus: 'INACTIVE',
+      complianceStatus: 'CLEAR',
       eddRequired: true,
       latestRiskApprovalStatus: null,
     });
@@ -114,8 +114,8 @@ describe('OnboardingWorkflowTransitionService', () => {
       expect.objectContaining({
         data: expect.objectContaining({
           onboardingStatus: 'PENDING_EDD_INPUT',
-          operatingStatus: 'INACTIVE',
-          restrictionStatus: 'CLEAR',
+          adminStatus: 'INACTIVE',
+          complianceStatus: 'CLEAR',
           eddRequired: true,
         }),
       }),
@@ -159,8 +159,8 @@ describe('OnboardingWorkflowTransitionService', () => {
       id: 'c1',
       customerNo: 'CU0001',
       onboardingStatus: 'EDD_UNDER_REVIEW',
-      operatingStatus: 'INACTIVE',
-      restrictionStatus: 'CLEAR',
+      adminStatus: 'INACTIVE',
+      complianceStatus: 'CLEAR',
       eddRequired: true,
       activeJourneyId: 'ONB-1',
       latestDecisionRecordId: 'dr-1',
@@ -174,8 +174,8 @@ describe('OnboardingWorkflowTransitionService', () => {
     txMock.customerMain.update.mockResolvedValue({
       id: 'c1',
       onboardingStatus: 'FINAL_APPROVAL',
-      operatingStatus: 'INACTIVE',
-      restrictionStatus: 'CLEAR',
+      adminStatus: 'INACTIVE',
+      complianceStatus: 'CLEAR',
       latestRiskApprovalId: 'approval-1',
       latestRiskApprovalStatus: 'PENDING',
     });
@@ -229,8 +229,8 @@ describe('OnboardingWorkflowTransitionService', () => {
     txMock.customerMain.findUnique.mockResolvedValue({
       id: 'c1',
       onboardingStatus: 'EDD_UNDER_REVIEW',
-      operatingStatus: 'INACTIVE',
-      restrictionStatus: 'CLEAR',
+      adminStatus: 'INACTIVE',
+      complianceStatus: 'CLEAR',
       latestRiskApprovalStatus: null,
     });
 

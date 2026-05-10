@@ -15,11 +15,11 @@ async function seed() {
 
   for (const customer of customers) {
     try {
-      // Ensure default riskTier + pepStatus
+      // Ensure default riskRating + pepStatus
       await prisma.customerMain.update({
         where: { id: customer.id },
         data: {
-          riskTier: customer.riskTier || 'LOW',
+          riskRating: customer.riskRating || 'LOW',
           pepStatus: customer.pepStatus || 'NONE',
         },
       });

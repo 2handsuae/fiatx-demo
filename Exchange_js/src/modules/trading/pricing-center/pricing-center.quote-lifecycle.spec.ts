@@ -110,7 +110,7 @@ describe('PricingCenterService - Quote lifecycle', () => {
     mockPrisma.customerMain.findUnique.mockResolvedValue({
       id: 'customer-1',
       customerNo: 'CU_0001',
-      investorClassification: 'RETAIL',
+      investorTier: 'RETAIL',
     });
     mockPoliciesReady();
     jest
