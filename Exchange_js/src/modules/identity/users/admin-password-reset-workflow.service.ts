@@ -16,6 +16,7 @@ class TooManyRequestsException extends HttpException {
   }
 }
 import { JwtService } from '@nestjs/jwt';
+import { OnEvent } from '@nestjs/event-emitter';
 import { createHash, randomBytes, randomUUID } from 'crypto';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../../../core/prisma/prisma.service';
@@ -29,10 +30,17 @@ import {
   AuditGovernanceActions,
 } from '../../audit-logging/constants/audit-actions.constant';
 import { AuditResult } from '../../audit-logging/dto/audit-log.dto';
+import { ApprovalsService } from '../../governance/approvals/approvals.service';
+import { ApprovalDecidedEvent } from '../../governance/approvals/approval-handler.base';
+import {
+  ApprovalActionTypes,
+  ApprovalActorContext,
+} from '../../governance/approvals/constants/approval.constants';
 
 const TOKEN_TTL_MS = 15 * 60 * 1000;
 const RATE_LIMIT_MS = TOKEN_TTL_MS;
 const MAX_TOKEN_RETRIES = 5;
+const SECONDARY_EVENT = 'workflow.admin-password-reset.decided';
 
 @Injectable()
 export class AdminPasswordResetWorkflowService {
@@ -42,10 +50,20 @@ export class AdminPasswordResetWorkflowService {
     private readonly usersDomainService: UsersDomainService,
     private readonly jwtService: JwtService,
     private readonly auditLogsService: AuditLogsService,
+    private readonly approvalsService: ApprovalsService,
   ) {}
 
   private hashToken(token: string): string {
     return createHash('sha256').update(token).digest('hex');
+  }
+
+  private toAuditActor(actor: ApprovalActorContext) {
+    return {
+      actorType: actor.actorType,
+      actorId: actor.userId,
+      actorNo: actor.userNo,
+      actorRole: actor.role || actor.roleCodes[0] || 'UNKNOWN',
+    };
   }
 
   // --- Phase 1: Self-service path ---
@@ -77,14 +95,13 @@ export class AdminPasswordResetWorkflowService {
     return { status: 'MFA_REQUIRED', mfaSessionToken };
   }
 
-  // --- Phase 1: CISO path ---
+  // --- Phase 1: Admin-initiated path (approval required) ---
 
-  async requestCisoReset(
-    targetUserId: string,
-    actor: { userId: string; userNo: string },
-  ): Promise<{ resetNo: string; status: string }> {
+  async initiateAdminReset(targetUserId: string, actor: ApprovalActorContext) {
+    const traceId = randomUUID();
+
     if (actor.userId === targetUserId) {
-      throw new ForbiddenException('Cannot reset your own password via CISO path');
+      throw new ForbiddenException('Cannot reset your own password via admin path');
     }
 
     const target = await this.prisma.user.findFirst({
@@ -108,13 +125,71 @@ export class AdminPasswordResetWorkflowService {
 
     const roleCodes = target.userRoles.map((ur: any) => ur.role.code);
     if (roleCodes.includes('SUPER_ADMIN')) {
-      throw new ForbiddenException('Cannot reset SUPER_ADMIN password via CISO path');
+      throw new ForbiddenException('Cannot reset SUPER_ADMIN password via admin path');
     }
 
-    return this.createResetToken(
-      target.id, target.userNo, target.email,
-      'CISO', actor.userId, actor.userNo,
+    const existingPending = await this.prisma.approvalCase.findFirst({
+      where: {
+        actionType: ApprovalActionTypes.ADMIN_PASSWORD_RESET,
+        entityRef: targetUserId,
+        status: 'PENDING',
+        deletedAt: null,
+      },
+    });
+    if (existingPending) {
+      throw new ConflictException(
+        `A pending password reset approval already exists: ${existingPending.approvalNo}`,
+      );
+    }
+
+    const approvalCase = await this.approvalsService.createAndSubmit(
+      {
+        actionType: ApprovalActionTypes.ADMIN_PASSWORD_RESET,
+        entityRef: targetUserId,
+        workflowType: AuditBusinessWorkflowTypes.ADMIN_PASSWORD_RESET,
+        workflowId: targetUserId,
+        workflowNo: target.userNo,
+        traceId,
+        objectSnapshot: {
+          targetUserId,
+          targetUserNo: target.userNo,
+          targetEmail: target.email,
+          targetStatus: target.status,
+          targetRoles: roleCodes,
+        },
+      },
+      {
+        reason: `Admin password reset request for ${target.email}`,
+        traceId,
+      },
+      actor,
     );
+
+    await this.auditLogsService.recordByActor(
+      {
+        action: AuditGovernanceActions.ADMIN_PASSWORD_RESET.RESET_REQUESTED,
+        entityType: AuditEntityTypes.ADMIN_USER,
+        entityId: targetUserId,
+        entityNo: target.userNo,
+        workflowType: AuditBusinessWorkflowTypes.ADMIN_PASSWORD_RESET,
+        traceId,
+        result: AuditResult.SUCCESS,
+        metadata: {
+          targetEmail: target.email,
+          approvalNo: approvalCase.approvalNo,
+        },
+        requestId: `ADMIN_PASSWORD_RESET_REQUESTED_${target.userNo}`,
+        sourcePlatform: 'ADMIN_API',
+      },
+      this.toAuditActor(actor),
+    );
+
+    return {
+      approvalNo: approvalCase.approvalNo,
+      traceId,
+      targetUserNo: target.userNo,
+      status: 'PENDING_APPROVAL',
+    };
   }
 
   // --- Public method for self-service after MFA verified ---
@@ -125,6 +200,118 @@ export class AdminPasswordResetWorkflowService {
     email: string,
   ): Promise<{ resetNo: string; status: string }> {
     return this.createResetToken(userId, userNo, email, 'SELF', null, null);
+  }
+
+  // --- Approval event handler ---
+
+  @OnEvent(SECONDARY_EVENT, { async: true })
+  async handleApprovalDecided(event: ApprovalDecidedEvent) {
+    switch (event.decision) {
+      case 'APPROVED':
+        return this.executeAdminReset(event);
+      case 'DECLINED':
+      case 'CANCELLED':
+      case 'EXPIRED':
+        return this.recordCancellation(event);
+    }
+  }
+
+  private async executeAdminReset(event: ApprovalDecidedEvent) {
+    try {
+      const target = await this.prisma.user.findFirst({
+        where: { id: event.entityRef, deletedAt: null },
+        select: { id: true, userNo: true, email: true, status: true },
+      });
+      if (!target || target.status !== 'ACTIVE') {
+        throw new Error('Target user is no longer active');
+      }
+
+      await this.createResetToken(
+        target.id, target.userNo, target.email,
+        'CISO',
+        event.decisionByUserId || null,
+        event.decisionByUserNo as string || null,
+      );
+
+      await this.auditLogsService.recordSystem({
+        action: AuditGovernanceActions.ADMIN_PASSWORD_RESET.RESET_EXECUTED,
+        entityType: AuditEntityTypes.ADMIN_USER,
+        entityId: event.entityRef,
+        entityNo: target.userNo,
+        workflowType: AuditBusinessWorkflowTypes.ADMIN_PASSWORD_RESET,
+        traceId: event.traceId,
+        result: AuditResult.SUCCESS,
+        metadata: {
+          approvalId: event.approvalId,
+          approvalNo: event.approvalNo,
+          resetByUserId: event.decisionByUserId,
+          resetByUserNo: event.decisionByUserNo,
+        },
+        requestId: `ADMIN_PASSWORD_RESET_EXECUTED_${target.userNo}`,
+        sourcePlatform: 'ADMIN_API',
+      });
+
+      await this.approvalsService.markExecutionResult(
+        event.approvalId,
+        true,
+        {
+          actorType: 'ADMIN',
+          userId: event.decisionByUserId || 'SYSTEM',
+          userNo: event.decisionByUserNo || undefined,
+          role: event.decisionByRole || 'SYSTEM',
+          roleCodes: event.decisionByRole ? [event.decisionByRole] : [],
+        },
+        'Password reset token generated successfully',
+      );
+    } catch (error) {
+      await this.auditLogsService.recordSystem({
+        action: AuditGovernanceActions.ADMIN_PASSWORD_RESET.RESET_FAILED,
+        entityType: AuditEntityTypes.ADMIN_USER,
+        entityId: event.entityRef,
+        workflowType: AuditBusinessWorkflowTypes.ADMIN_PASSWORD_RESET,
+        traceId: event.traceId,
+        result: AuditResult.FAILED,
+        reason: error instanceof Error ? error.message : 'Password reset execution failed',
+        metadata: { approvalId: event.approvalId },
+        requestId: `ADMIN_PASSWORD_RESET_FAILED_${event.entityRef}`,
+        sourcePlatform: 'ADMIN_API',
+      });
+
+      await this.approvalsService
+        .markExecutionResult(
+          event.approvalId,
+          false,
+          {
+            actorType: 'ADMIN',
+            userId: event.decisionByUserId || 'SYSTEM',
+            userNo: event.decisionByUserNo || undefined,
+            role: event.decisionByRole || 'SYSTEM',
+            roleCodes: event.decisionByRole ? [event.decisionByRole] : [],
+          },
+          error instanceof Error ? error.message : 'Password reset execution failed',
+        )
+        .catch(() => undefined);
+
+      throw error;
+    }
+  }
+
+  private async recordCancellation(event: ApprovalDecidedEvent) {
+    await this.auditLogsService.recordSystem({
+      action: AuditGovernanceActions.ADMIN_PASSWORD_RESET.RESET_CANCELLED,
+      entityType: AuditEntityTypes.ADMIN_USER,
+      entityId: event.entityRef,
+      workflowType: AuditBusinessWorkflowTypes.ADMIN_PASSWORD_RESET,
+      traceId: event.traceId,
+      result: AuditResult.SUCCESS,
+      metadata: {
+        approvalId: event.approvalId,
+        approvalNo: event.approvalNo,
+        decision: event.decision,
+      },
+      requestId: `ADMIN_PASSWORD_RESET_CANCELLED_${event.entityRef}`,
+      sourcePlatform: 'ADMIN_API',
+    });
   }
 
   // --- Shared token creation ---

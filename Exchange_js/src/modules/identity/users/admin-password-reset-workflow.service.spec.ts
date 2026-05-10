@@ -4,12 +4,18 @@ import { UsersDomainService } from './users.domain.service';
 import { UsersService } from './users.service';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
+import { ApprovalsService } from '../../governance/approvals/approvals.service';
 import { JwtService } from '@nestjs/jwt';
 import { ConflictException, ForbiddenException } from '@nestjs/common';
 
 const mockAuditLogsService = {
   recordByActor: jest.fn().mockResolvedValue({}),
   recordSystem: jest.fn().mockResolvedValue({}),
+};
+
+const mockApprovalsService = {
+  createAndSubmit: jest.fn().mockResolvedValue({ approvalNo: 'APR001' }),
+  markExecutionResult: jest.fn().mockResolvedValue({}),
 };
 
 const mockPrisma: any = {
@@ -23,6 +29,9 @@ const mockPrisma: any = {
   },
   user: {
     findFirst: jest.fn(),
+  },
+  approvalCase: {
+    findFirst: jest.fn().mockResolvedValue(null),
   },
   $transaction: jest.fn((fn: any) => fn(mockPrisma)),
 };
@@ -39,6 +48,14 @@ const mockJwtService = {
   sign: jest.fn().mockReturnValue('mock-mfa-token'),
 };
 
+const mockAdminActor = {
+  actorType: 'ADMIN' as const,
+  userId: 'u1',
+  userNo: 'ADM001',
+  role: 'CISO',
+  roleCodes: ['CISO'],
+};
+
 describe('AdminPasswordResetWorkflowService', () => {
   let service: AdminPasswordResetWorkflowService;
 
@@ -46,6 +63,7 @@ describe('AdminPasswordResetWorkflowService', () => {
     jest.clearAllMocks();
     // Reset findMany to return empty array by default
     mockPrisma.passwordResetToken.findMany.mockResolvedValue([]);
+    mockPrisma.approvalCase.findFirst.mockResolvedValue(null);
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AdminPasswordResetWorkflowService,
@@ -54,6 +72,7 @@ describe('AdminPasswordResetWorkflowService', () => {
         { provide: UsersDomainService, useValue: mockUsersDomainService },
         { provide: JwtService, useValue: mockJwtService },
         { provide: AuditLogsService, useValue: mockAuditLogsService },
+        { provide: ApprovalsService, useValue: mockApprovalsService },
       ],
     }).compile();
     service = module.get(AdminPasswordResetWorkflowService);
@@ -101,16 +120,10 @@ describe('AdminPasswordResetWorkflowService', () => {
     });
   });
 
-  describe('requestCisoReset', () => {
+  describe('initiateAdminReset', () => {
     it('should reject if actor = target', async () => {
-      mockPrisma.user.findFirst.mockResolvedValue({
-        id: 'u1', userNo: 'ADM001', email: 'a@b.com',
-        status: 'ACTIVE', firstLoginStatus: 'COMPLETED',
-        mfaEnabledAt: new Date(), deletedAt: null,
-        userRoles: [{ role: { code: 'COMPLIANCE_OFFICER' } }],
-      });
       await expect(
-        service.requestCisoReset('u1', { userId: 'u1', userNo: 'ADM001' }),
+        service.initiateAdminReset('u1', { ...mockAdminActor, userId: 'u1' }),
       ).rejects.toThrow(ForbiddenException);
     });
 
@@ -122,7 +135,7 @@ describe('AdminPasswordResetWorkflowService', () => {
         userRoles: [{ role: { code: 'SUPER_ADMIN' } }],
       });
       await expect(
-        service.requestCisoReset('u2', { userId: 'u1', userNo: 'ADM001' }),
+        service.initiateAdminReset('u2', mockAdminActor),
       ).rejects.toThrow(ForbiddenException);
     });
 
@@ -134,25 +147,22 @@ describe('AdminPasswordResetWorkflowService', () => {
         userRoles: [{ role: { code: 'COMPLIANCE_OFFICER' } }],
       });
       await expect(
-        service.requestCisoReset('u2', { userId: 'u1', userNo: 'ADM001' }),
+        service.initiateAdminReset('u2', mockAdminActor),
       ).rejects.toThrow(ConflictException);
     });
 
-    it('should create reset token for valid CISO request', async () => {
+    it('should create approval case for valid admin reset request', async () => {
       mockPrisma.user.findFirst.mockResolvedValue({
         id: 'u2', userNo: 'ADM002', email: 'b@b.com',
         status: 'ACTIVE', firstLoginStatus: 'COMPLETED',
         mfaEnabledAt: new Date(), deletedAt: null,
         userRoles: [{ role: { code: 'COMPLIANCE_OFFICER' } }],
       });
-      mockPrisma.passwordResetToken.findFirst.mockResolvedValue(null); // no rate limit
-      mockPrisma.passwordResetToken.create.mockResolvedValue({
-        id: 'prt1', resetNo: 'PWR2605060001',
-      });
 
-      const result = await service.requestCisoReset('u2', { userId: 'u1', userNo: 'ADM001' });
-      expect(result.status).toBe('RESET_EMAIL_SENT');
-      expect(result.resetNo).toBeDefined();
+      const result = await service.initiateAdminReset('u2', mockAdminActor);
+      expect(result.status).toBe('PENDING_APPROVAL');
+      expect(result.approvalNo).toBe('APR001');
+      expect(mockApprovalsService.createAndSubmit).toHaveBeenCalled();
       expect(mockAuditLogsService.recordByActor).toHaveBeenCalled();
     });
   });
