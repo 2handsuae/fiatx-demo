@@ -625,16 +625,16 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   // Audit logs
   route('GET', '/admin/audit-logs', 'List audit logs', ['AUDIT_READ']),
   route('GET', '/admin/audit-logs/:id', 'Get audit log detail', ['AUDIT_READ']),
-  route('POST', '/admin/audit-logs/export/evidence-package', 'Export audit evidence package', [
+  route('POST', '/admin/audit/evidence-packages', 'Export audit evidence package', [
     'AUDIT_EXPORT_CREATE',
   ]),
-  route('GET', '/admin/audit-logs/evidence-packages', 'List evidence package exports', [
+  route('GET', '/admin/audit/evidence-packages', 'List evidence package exports', [
     'AUDIT_EXPORT_READ',
   ]),
-  route('GET', '/admin/audit-logs/evidence-packages/:id', 'Get evidence package detail', [
+  route('GET', '/admin/audit/evidence-packages/:id', 'Get evidence package detail', [
     'AUDIT_EXPORT_READ',
   ]),
-  route('GET', '/admin/audit-logs/evidence-packages/:id/download', 'Download evidence package content', [
+  route('GET', '/admin/audit/evidence-packages/:id/download', 'Download evidence package content', [
     'AUDIT_EXPORT_READ',
   ]),
 
