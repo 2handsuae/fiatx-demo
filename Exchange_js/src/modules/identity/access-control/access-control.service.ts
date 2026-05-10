@@ -330,26 +330,28 @@ export class AccessControlService {
     const afterRoleCodes = await this.getUserRoleCodes(userId);
     const warnings = this.buildSoftWarnings(afterRoleCodes);
 
-    await this.auditLogsService.recordByActor(
-      this.applyAuditContext({
-        action: AuditActions.USER_ROLE_BINDING_UPDATED,
-        entityType: AuditEntityTypes.ACCESS_CONTROL,
-        entityId: user.id,
-        entityNo: user.userNo,
-        metadata: {
-          userId: user.id,
-          userNo: user.userNo,
-          userEmail: user.email,
-          warnings,
+    if (!auditContext?.workflowType) {
+      await this.auditLogsService.recordByActor(
+        this.applyAuditContext({
+          action: AuditActions.USER_ROLE_BINDING_UPDATED,
+          entityType: AuditEntityTypes.ACCESS_CONTROL,
+          entityId: user.id,
+          entityNo: user.userNo,
+          metadata: {
+            userId: user.id,
+            userNo: user.userNo,
+            userEmail: user.email,
+            warnings,
+          },
+        }, auditContext),
+        {
+          actorType: 'ADMIN',
+          actorId: actor.actorId,
+          actorNo: actor.actorNo,
+          actorRole: actor.actorRole,
         },
-      }, auditContext),
-      {
-        actorType: 'ADMIN',
-        actorId: actor.actorId,
-        actorNo: actor.actorNo,
-        actorRole: actor.actorRole,
-      },
-    );
+      );
+    }
 
     return {
       userId: user.id,
