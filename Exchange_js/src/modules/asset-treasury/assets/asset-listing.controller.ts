@@ -1,6 +1,8 @@
 import { Controller, Post, Body, Param, Req, UseGuards, ForbiddenException } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { AdminPermissionGuard } from '../../identity/access-control/admin-permission.guard';
+import { RequirePermissions } from '../../identity/access-control/require-permissions.decorator';
+import { buildPermissionCode } from '../../identity/access-control/permission-code.util';
 import { ApprovalActorContext } from '../../governance/approvals/constants/approval.constants';
 import { AssetListingWorkflowService } from './asset-listing-workflow.service';
 import { SubmitAssetListingDto } from './dto/submit-asset-listing.dto';
@@ -27,12 +29,14 @@ export class AssetListingController {
   }
 
   @Post('listing')
+  @RequirePermissions(buildPermissionCode('POST', '/admin/assets/listing'))
   async submitListing(@Body() dto: SubmitAssetListingDto, @Req() req: any) {
     this.ensureAdmin(req);
     return this.workflowService.submitListing(dto, this.buildAdminActor(req));
   }
 
   @Post(':assetNo/activate')
+  @RequirePermissions(buildPermissionCode('POST', '/admin/assets/:assetNo/activate'))
   async activateAsset(@Param('assetNo') assetNo: string, @Req() req: any) {
     this.ensureAdmin(req);
     return this.workflowService.activateAsset(assetNo, this.buildAdminActor(req));

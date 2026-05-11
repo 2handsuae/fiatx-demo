@@ -72,19 +72,25 @@ export class AssetListingWorkflowService {
       },
     });
 
-    const approvalCase = await this.approvalsService.createAndSubmit(
-      {
-        actionType: ApprovalActionTypes.ASSET_LISTING,
-        entityRef: asset.id,
-        workflowType: AuditBusinessWorkflowTypes.ASSET_LISTING,
-        workflowId: asset.id,
-        workflowNo: assetNo,
-        traceId,
-        objectSnapshot: { ...dto },
-      },
-      { reason: `List new asset: ${dto.code} (${dto.type})`, traceId },
-      actor,
-    );
+    let approvalCase: any;
+    try {
+      approvalCase = await this.approvalsService.createAndSubmit(
+        {
+          actionType: ApprovalActionTypes.ASSET_LISTING,
+          entityRef: asset.id,
+          workflowType: AuditBusinessWorkflowTypes.ASSET_LISTING,
+          workflowId: asset.id,
+          workflowNo: assetNo,
+          traceId,
+          objectSnapshot: { ...dto },
+        },
+        { reason: `List new asset: ${dto.code} (${dto.type})`, traceId },
+        actor,
+      );
+    } catch (err) {
+      await this.prisma.asset.delete({ where: { id: asset.id } });
+      throw err;
+    }
 
     await this.prisma.asset.update({
       where: { id: asset.id },
