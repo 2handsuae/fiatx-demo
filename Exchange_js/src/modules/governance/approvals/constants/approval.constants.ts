@@ -54,6 +54,8 @@ export const ApprovalActionTypes = {
   // ─── Credential Reset Governance (2026-05-10) ────
   ADMIN_PASSWORD_RESET: 'ADMIN_PASSWORD_RESET',
   ADMIN_MFA_RESET: 'ADMIN_MFA_RESET',
+  // ─── Asset Listing (2026-05-11) ────
+  ASSET_LISTING: 'ASSET_LISTING',
 } as const;
 
 export const ApprovalStatuses = {
@@ -348,6 +350,14 @@ export const DEFAULT_APPROVAL_POLICIES: Record<
     allowCancel: true,
     allowRetry: false,
   },
+  // ─── Asset Listing (2026-05-11) ────
+  [ApprovalActionTypes.ASSET_LISTING]: {
+    riskLevel: ApprovalRiskLevels.HIGH,
+    steps: [{ stepNo: 1, roles: ['CISO'] }],
+    timeoutHours: 48,
+    allowCancel: true,
+    allowRetry: false,
+  },
 };
 
 /**
@@ -365,6 +375,7 @@ export const V1_APPROVAL_ACTION_TYPES: readonly string[] = [
   ApprovalActionTypes.ROLE_DEFINITION_MODIFY,
   ApprovalActionTypes.ADMIN_PASSWORD_RESET,
   ApprovalActionTypes.ADMIN_MFA_RESET,
+  ApprovalActionTypes.ASSET_LISTING,
 ] as const;
 
 export function isSuperAdminRoleContext(roleCodes: string[]): boolean {
