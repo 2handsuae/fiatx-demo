@@ -7,7 +7,7 @@ import { TbEvidenceService } from './tb-evidence.service';
 import { deterministicTransferId, bigintToHex, hexToBigint } from './utils/tb-id.util';
 import { CreateTbAccountParams, EvidenceParams, TbBalanceResult, CustomerAvailableBalance } from './types/accounting.types';
 import { TB_ACCOUNT_CODES } from './constants/tb-account-codes.constant';
-import { id as tbId } from 'tigerbeetle-node';
+import { id as tbId, CreateAccountStatus, CreateTransferStatus } from 'tigerbeetle-node';
 
 @Injectable()
 export class AccountingService {
@@ -46,11 +46,13 @@ export class AccountingService {
     );
 
     if (errors.length > 0) {
-      const realErrors = errors.filter((e: any) => e.result !== 'exists');
+      const realErrors = errors.filter((e: any) =>
+        e.status !== CreateAccountStatus.exists && e.status !== CreateAccountStatus.created,
+      );
       if (realErrors.length > 0) {
         throw new BadRequestException({
           code: 'TB_ACCOUNT_CREATE_FAILED',
-          message: `TigerBeetle account creation failed: ${JSON.stringify(realErrors)}`,
+          message: `TigerBeetle account creation failed: ${JSON.stringify(realErrors, (_, v) => typeof v === 'bigint' ? v.toString() : v)}`,
         });
       }
     }
@@ -104,11 +106,13 @@ export class AccountingService {
       timestamp: 0n,
     }]);
 
-    const realErrors = errors.filter((e: any) => e.result !== 'exists');
+    const realErrors = errors.filter((e: any) =>
+      e.status !== CreateTransferStatus.exists && e.status !== CreateTransferStatus.created,
+    );
     if (realErrors.length > 0) {
       throw new BadRequestException({
         code: 'TB_TRANSFER_FAILED',
-        message: `TigerBeetle transfer rejected: ${JSON.stringify(realErrors)}`,
+        message: `TigerBeetle transfer rejected: ${JSON.stringify(realErrors, (_, v) => typeof v === 'bigint' ? v.toString() : v)}`,
       });
     }
 
