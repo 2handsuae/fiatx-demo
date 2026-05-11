@@ -1250,6 +1250,15 @@ model Asset {
   description                    String?
   status                         String                          @default("ACTIVE")
   tbLedgerId                     Int?                            @unique
+  contractAddress                String?
+  minDepositAmount               Float?
+  maxDepositAmount               Float?
+  minWithdrawAmount              Float?
+  maxWithdrawAmount              Float?
+  depositEnabled                 Boolean                         @default(true)
+  withdrawalEnabled              Boolean                         @default(true)
+  approvalCaseId                 String?
+  approvalCaseNo                 String?
   createdAt                      DateTime                        @default(now())
   updatedAt                      DateTime                        @updatedAt
   depositTransactions            DepositTransaction[]
