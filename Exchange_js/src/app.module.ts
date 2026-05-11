@@ -21,6 +21,7 @@ import { JournalLinesModule } from './modules/accounting/journal-lines/journal-l
 import { AcctEventsModule } from './modules/accounting/acct-events/acct-events.module';
 import { JournalHeaderTemplatesModule } from './modules/accounting/journal-header-templates/journal-header-templates.module';
 import { JournalLineTemplatesModule } from './modules/accounting/journal-line-templates/journal-line-templates.module';
+import { TigerBeetleModule } from './modules/accounting/tigerbeetle/tigerbeetle.module';
 import { WorkflowsModule } from './orchestrators/workflows.module';
 import { TreasuryModule } from './modules/asset-treasury/treasury/treasury.module';
 import { MonitoringModule } from './core/monitoring/monitoring.module';
@@ -88,6 +89,7 @@ import { ProfileBannersModule } from './modules/identity/profile-banners/profile
     AcctEventsModule,
     JournalHeaderTemplatesModule,
     JournalLineTemplatesModule,
+    TigerBeetleModule,
     WorkflowsModule,
     TreasuryModule,
     MonitoringModule,
