@@ -12,7 +12,7 @@ import {
   AuditEntityTypes,
   AuditGovernanceActions,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditResult } from '../../audit-logging/dto/audit-log.dto';
+import { AuditResult, AuditSubjectRole } from '../../audit-logging/dto/audit-log.dto';
 import { AssetProvisioningService } from './asset-provisioning.service';
 import { SubmitAssetListingDto } from './dto/submit-asset-listing.dto';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
@@ -104,7 +104,7 @@ export class AssetListingWorkflowService {
         traceId,
         result: AuditResult.SUCCESS,
         subjectNos: [{
-          subjectRole: 'ENTITY',
+          subjectRole: AuditSubjectRole.ENTITY,
           subjectType: 'ASSET',
           subjectId: asset.id,
           subjectNo: assetNo,
@@ -153,7 +153,7 @@ export class AssetListingWorkflowService {
         action: AuditGovernanceActions.ASSET_LISTING.ASSET_PROVISIONED,
         entityType: AuditEntityTypes.ASSET,
         entityId: assetId,
-        entityNo: asset.assetNo,
+        entityNo: asset.assetNo ?? undefined,
         workflowType: AuditBusinessWorkflowTypes.ASSET_LISTING,
         traceId,
         result: AuditResult.SUCCESS,
@@ -187,7 +187,7 @@ export class AssetListingWorkflowService {
       action: AuditGovernanceActions.ASSET_LISTING.LISTING_CANCELLED,
       entityType: AuditEntityTypes.ASSET,
       entityId: assetId,
-      entityNo: asset.assetNo,
+      entityNo: asset.assetNo ?? undefined,
       workflowType: AuditBusinessWorkflowTypes.ASSET_LISTING,
       traceId,
       result: AuditResult.SUCCESS,
