@@ -1249,6 +1249,7 @@ model Asset {
   decimals                       Int
   description                    String?
   status                         String                          @default("ACTIVE")
+  tbLedgerId                     Int?                            @unique
   createdAt                      DateTime                        @default(now())
   updatedAt                      DateTime                        @updatedAt
   depositTransactions            DepositTransaction[]
@@ -2942,4 +2943,66 @@ model RoleDefinitionModifyRequest {
 
   @@index([roleId, status])
   @@map("role_definition_modify_requests")
+}
+
+// ── TigerBeetle Infrastructure (V3 Phase 0) ──
+
+model TbAccountRegistry {
+  tbAccountId String   @id              // TB u128 as hex string
+  code        Int                       // TB account type code (u16)
+  ledger      Int                       // TB ledger ID (u32): 1=AED, 2=USDT
+  ownerType   String                    // SYSTEM | CUSTOMER | LP
+  ownerUuid   String?                   // Prisma entity UUID (queryable)
+  ownerNo     String?                   // Human-readable No
+  assetCode   String                    // AED | USDT
+  status      String   @default("ACTIVE")
+  description String?
+  flags       Int      @default(0)      // TB account flags
+  createdAt   DateTime @default(now())
+
+  @@unique([code, ledger, ownerType, ownerUuid])
+  @@index([ownerUuid])
+  @@index([ownerNo])
+  @@map("tb_account_registry")
+}
+
+model TbTransferEvidence {
+  tbTransferId String   @id             // TB u128 as hex string (deterministic)
+  sourceType   String                   // DEPOSIT | WITHDRAWAL | SWAP | ...
+  sourceNo     String
+  eventCode    String                   // From events.manifest
+  debitCode    String                   // Human-readable COA, e.g. 'L.CLIENT_CREDIT'
+  creditCode   String                   // e.g. 'A.CUSTODY'
+  amount       Decimal
+  assetCode    String
+  traceId      String
+  actorType    String                   // ADMIN | CUSTOMER | SYSTEM
+  actorId      String                   // adminNo / customerNo / 'SYSTEM'
+  memo         String?
+  pendingId    String?                  // Related pending transfer hex ID
+  transferType String   @default("POSTED") // POSTED | PENDING | POST_PENDING | VOID_PENDING | CORRECTING
+  createdAt    DateTime @default(now())
+
+  @@index([sourceType, sourceNo])
+  @@index([traceId])
+  @@index([eventCode])
+  @@index([assetCode])
+  @@index([actorType, actorId])
+  @@index([createdAt])
+  @@map("tb_transfer_evidence")
+}
+
+model TbEvidenceBacklog {
+  id           String    @id @default(uuid())
+  tbTransferId String    @unique         // TB u128 as hex string
+  transferData String                    // JSON: transfer params snapshot
+  evidenceData String                    // JSON: evidence data to write
+  errorMessage String
+  retryCount   Int       @default(0)
+  status       String    @default("PENDING") // PENDING | RESOLVED | FAILED
+  createdAt    DateTime  @default(now())
+  resolvedAt   DateTime?
+
+  @@index([status])
+  @@map("tb_evidence_backlog")
 }
