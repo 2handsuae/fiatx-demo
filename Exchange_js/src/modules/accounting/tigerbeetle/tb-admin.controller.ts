@@ -1,9 +1,11 @@
-import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, NotFoundException, Param, Query, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { AdminPermissionGuard } from 'src/modules/identity/access-control/admin-permission.guard';
+import { AccountingService } from './accounting.service';
 import { TbAccountRegistryService } from './tb-account-registry.service';
 import { TbEvidenceService } from './tb-evidence.service';
+import { hexToBigint } from './utils/tb-id.util';
 
 @ApiTags('TB Ledger Admin')
 @Controller('admin/tb')
@@ -12,6 +14,7 @@ export class TbAdminController {
   constructor(
     private readonly tbAccountRegistryService: TbAccountRegistryService,
     private readonly tbEvidenceService: TbEvidenceService,
+    private readonly accountingService: AccountingService,
   ) {}
 
   @Get('accounts')
@@ -30,6 +33,44 @@ export class TbAdminController {
       skip: skip ? Number(skip) : 0,
       take: take ? Number(take) : 50,
     });
+  }
+
+  @Get('accounts/:tbAccountId')
+  @ApiOperation({ summary: 'Get a single TB account with real-time balance' })
+  async findOneAccount(@Param('tbAccountId') tbAccountId: string) {
+    const registry = await this.tbAccountRegistryService.findByTbAccountId(tbAccountId);
+    if (!registry) {
+      throw new NotFoundException({
+        code: 'TB_ACCOUNT_NOT_FOUND',
+        message: `TB account ${tbAccountId} not found in registry`,
+      });
+    }
+
+    let debitsPosted: string | null = null;
+    let creditsPosted: string | null = null;
+    let debitsPending: string | null = null;
+    let creditsPending: string | null = null;
+    let netBalance: string | null = null;
+
+    try {
+      const balance = await this.accountingService.lookupBalance(hexToBigint(tbAccountId));
+      debitsPosted = balance.debitsPosted.toString();
+      creditsPosted = balance.creditsPosted.toString();
+      debitsPending = balance.debitsPending.toString();
+      creditsPending = balance.creditsPending.toString();
+      netBalance = (balance.creditsPosted - balance.debitsPosted).toString();
+    } catch {
+      // TB unavailable — balance fields stay null
+    }
+
+    return {
+      ...registry,
+      debitsPosted,
+      creditsPosted,
+      debitsPending,
+      creditsPending,
+      netBalance,
+    };
   }
 
   @Get('transfers')
