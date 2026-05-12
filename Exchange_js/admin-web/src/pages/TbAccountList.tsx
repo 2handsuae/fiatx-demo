@@ -9,6 +9,7 @@ import {
   adminFetch,
   getApiErrorMessage,
 } from '../utils/adminFetch';
+import { TB_CODE_LABELS, TB_CODE_OPTIONS } from './tb-account.constants';
 
 interface TbAccountRow {
   tbAccountId: string;
@@ -30,24 +31,6 @@ interface FilterState {
   code: string;
 }
 
-const CODE_LABELS: Record<number, string> = {
-  1: 'BANK',
-  10: 'CUSTODY',
-  100: 'CLIENT_CREDIT',
-  101: 'CLIENT_AUDIT',
-  110: 'TRADE_CLEARING',
-  120: 'FEE_RECEIVABLE',
-};
-
-const CODE_OPTIONS = [
-  { value: '', label: 'All codes' },
-  { value: '1', label: '1 · BANK' },
-  { value: '10', label: '10 · CUSTODY' },
-  { value: '100', label: '100 · CLIENT_CREDIT' },
-  { value: '101', label: '101 · CLIENT_AUDIT' },
-  { value: '110', label: '110 · TRADE_CLEARING' },
-  { value: '120', label: '120 · FEE_RECEIVABLE' },
-];
 
 const DEFAULT_FILTERS: FilterState = { assetCode: '', ownerType: '', code: '' };
 const PAGE_SIZE = 50;
@@ -151,7 +134,7 @@ const TbAccountList = () => {
           onChange={(e) => { setFilters((p) => ({ ...p, code: e.target.value })); }}
           className={`${fi} w-48`}
         >
-          {CODE_OPTIONS.map((o) => (
+          {TB_CODE_OPTIONS.map((o) => (
             <option key={o.value} value={o.value}>{o.label}</option>
           ))}
         </select>
@@ -204,7 +187,7 @@ const TbAccountList = () => {
                   <span className="inline-flex items-center gap-1.5 font-mono text-[11px]">
                     <span className="text-adm-t1 font-semibold">{row.code}</span>
                     <span className="text-adm-t3">·</span>
-                    <span className="text-adm-amber text-[10px]">{CODE_LABELS[row.code] ?? '?'}</span>
+                    <span className="text-adm-amber text-[10px]">{TB_CODE_LABELS[row.code] ?? '?'}</span>
                   </span>
                 </td>
                 <td className="px-4 py-3 font-mono text-[11px] text-adm-t2">{row.ledger}</td>
