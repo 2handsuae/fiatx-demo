@@ -434,7 +434,7 @@ const DashboardLayout = () => {
       icon: <Cpu size={12} />,
       children: [
         {
-          path: '/dashboard/system/asset-configs',
+          path: '/dashboard/system/assets',
           label: 'Assets',
           icon: <Coins size={13} />,
           requiredPermissions: [PERMISSIONS.ASSETS_READ],
