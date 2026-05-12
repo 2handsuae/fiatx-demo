@@ -104,11 +104,12 @@ V6 → V7（EOD 兑换结算触发 INTERNAL-IN/OUT 真实资产交割；LP 缺�
 
 ## V3 — 财务配置
 
-> 建立记账架构底座与资产治理体系：TigerBeetle 账户模型、资产上架与暂停、客户金融账户开通、充值地址与 VIBAN 分配、提现地址注册（含安全冷却）、交易限额配置。V4–V7 所有记账操作的硬前置依赖。
+> 建立记账架构底座与资产治理体系：TigerBeetle 账户模型、资产上架与暂停、系统钱包开通、客户金融账户开通、充值地址与 VIBAN 分配、提现地址注册（含安全冷却）、交易限额配置。V4–V7 所有记账操作的硬前置依赖。
 
-### MVP（8 workflows）
+### MVP（9 workflows）
 
-- [ ] Asset Listing（资产上架审批：Maker 提案含全部参数——symbol / precision / 支持网络 / 合约地址 / min-max 金额 / 充提启用开关 → Checker 审批 → 批准后系统自动创建该资产全套 TB 系统账户） — **VARA + 业务**：没有资产定义，V4-V7 全部无法运行
+- [x] Asset Listing（资产上架审批：Maker 提案含全部参数——symbol / precision / 支持网络 / 合约地址 / min-max 金额 / 充提启用开关 → Checker 审批 → 批准后系统自动创建该资产全套 TB 系统账户） — **VARA + 业务**：没有资产定义，V4-V7 全部无法运行 ✅ 2026-05-11
+- [ ] System Wallet Provisioning（系统钱包开通：资产上架审批通过后，为该资产创建一组系统钱包——MASTER / OUTBOUND / LIQ 等；钱包是物理托管层，TB 账户是记账层，两层独立但同步创建） — **业务必须**：V4-V7 充提和内部转账的物理执行依赖系统钱包
 - [ ] Asset Suspension / Resumption（资产暂停/恢复审批：区别于 V4/V5 的"渠道暂停"——渠道暂停只关一条链或一个银行通道，这里是暂停整个资产的所有操作；暂停期间充值进 Suspense、提现/兑换拒绝新建；恢复需审批） — **VARA**：TIR Rulebook IV.C Incident Response — 技术故障 / 合规要求 / 链分叉时必须能暂停资产级操作
 - [ ] Customer Account Provisioning（客户 TB 账户开通：V2 Onboarding 通过后自动触发 → 为客户创建全套 TB 账户组；仅做账户创建，充值地址和 VIBAN 由独立工作流分配） — **业务必须**：V4-V6 的前置，客户没有 TB 账户就无法记账
 - [ ] Crypto Deposit Address Creation（为客户创建虚拟币充值地址 + 对应 TB Account；Onboarding 完成后触发或按需创建） — **业务必须**：V4 虚拟币充值的前置
@@ -125,11 +126,8 @@ V6 → V7（EOD 兑换结算触发 INTERNAL-IN/OUT 真实资产交割；LP 缺�
 
 ### Supporting Features（非 workflow，无独立状态机）
 
-- **TB Account 类型定义** — 全量定义资产侧 / 负债侧 / 系统级 / 客户级账户类型及 flags（MVP）
-- **系统钱包架构 + TB 映射** — Client Deposit Wallet / Main Wallet / Outbound Wallet / Company Liquidity / Ops / LP Pool / Gas Reserve 的创建与 TB Account 绑定（MVP）
-- **Network / Chain 配置** — 支持网络列表、确认数要求、Gas 参数、合约地址；资产上架时引用（MVP）
-- **Custodian 集成配置** — HexTrust vault 配置、钱包策略、callback 注册；V4 充值监听 / V5 提现广播 / V7 内部转账全部依赖（MVP）
-- **Banking Partner 集成配置** — 银行 API 对接、VIBAN 号段分配、法币通道配置（MVP）
+- **TB Account 类型定义** — 全量定义资产侧 / 负债侧 / 系统级 / 客户级账户类型及 flags ✅ 2026-05-11
+- **钱包模型（V3 适配）** — V1 Wallet 模型已有角色体系（DEPOSIT / MASTER / OUTBOUND / LIQ / OPS），需清理适配 V3：去除旧 Journal/Balance 依赖，明确 TB 记账层与物理钱包层的职责分离
 
 ---
 
