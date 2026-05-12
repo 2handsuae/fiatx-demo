@@ -67,4 +67,29 @@ export class TbAccountRegistryService {
       where: { tbAccountId },
     });
   }
+
+  async findAll(filters: {
+    assetCode?: string;
+    ownerType?: string;
+    code?: number;
+    skip?: number;
+    take?: number;
+  }) {
+    const where: any = {};
+    if (filters.assetCode) where.assetCode = filters.assetCode;
+    if (filters.ownerType) where.ownerType = filters.ownerType;
+    if (filters.code !== undefined) where.code = filters.code;
+
+    const [items, total] = await Promise.all([
+      (this.prisma as any).tbAccountRegistry.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: filters.skip ?? 0,
+        take: filters.take ?? 50,
+      }),
+      (this.prisma as any).tbAccountRegistry.count({ where }),
+    ]);
+
+    return { items, total };
+  }
 }
