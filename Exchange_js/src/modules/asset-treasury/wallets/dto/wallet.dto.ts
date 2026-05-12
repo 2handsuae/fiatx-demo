@@ -26,13 +26,13 @@ export enum WalletDirection {
 }
 
 export enum WalletRole {
-  GENERAL = 'GENERAL',
-  DEPOSIT = 'DEPOSIT',
-  MASTER = 'MASTER',
-  PAYOUT = 'PAYOUT',
-  LIQ = 'LIQ',
-  CUST_BANK = 'CUST_BANK',
-  LIQ_BANK = 'LIQ_BANK',
+  C_DEP = 'C_DEP',
+  C_VIBAN = 'C_VIBAN',
+  C_MAIN = 'C_MAIN',
+  C_OUT = 'C_OUT',
+  C_CMA = 'C_CMA',
+  F_LIQ = 'F_LIQ',
+  F_OPS = 'F_OPS',
 }
 
 export enum WalletStatus {
