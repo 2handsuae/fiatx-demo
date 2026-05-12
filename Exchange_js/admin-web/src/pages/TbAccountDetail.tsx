@@ -8,6 +8,7 @@ import {
   adminFetch,
   getApiErrorMessage,
 } from '../utils/adminFetch';
+import { copyToClipboard } from '../utils/clipboard';
 import { TB_CODE_LABELS } from './tb-account.constants';
 
 interface TbAccountDetailData {
@@ -106,6 +107,7 @@ const TbAccountDetail = () => {
   const seqRef = useRef(0);
 
   const fetchData = async () => {
+    if (!tbAccountId) return;
     const seq = ++seqRef.current;
     setLoading(true);
     setError(null);
@@ -133,9 +135,9 @@ const TbAccountDetail = () => {
   }, [tbAccountId]);
 
   const handleCopy = (text: string) => {
-    void navigator.clipboard.writeText(text);
+    copyToClipboard(text);
     setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
+    setTimeout(() => setCopied(false), 2000);
   };
 
   const codeLabel = detail ? (TB_CODE_LABELS[detail.code] ?? `CODE_${detail.code}`) : '';
