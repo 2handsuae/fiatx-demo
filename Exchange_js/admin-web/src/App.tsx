@@ -45,27 +45,10 @@ const WithdrawTransactionList = lazy(() => import('./pages/WithdrawTransactionLi
 const WithdrawTransactionDetail = lazy(() => import('./pages/WithdrawTransactionDetail'));
 const SwapTransactionList = lazy(() => import('./pages/SwapTransactionList'));
 const SwapTransactionDetail = lazy(() => import('./pages/SwapTransactionDetail'));
-const CoaList = lazy(() => import('./pages/CoaList'));
-const CoaDetail = lazy(() => import('./pages/CoaDetail'));
-const CoaSnapshot = lazy(() => import('./pages/CoaSnapshot'));
 const AssetConfigList = lazy(() => import('./pages/AssetConfigList'));
 const AssetConfigDetail = lazy(() => import('./pages/AssetConfigDetail'));
 const AssetConfigHistory = lazy(() => import('./pages/AssetConfigHistory'));
 const AssetConfigSnapshot = lazy(() => import('./pages/AssetConfigSnapshot'));
-const JournalList = lazy(() => import('./pages/JournalList'));
-const JournalDetail = lazy(() => import('./pages/JournalDetail'));
-const JournalLinesList = lazy(() => import('./pages/JournalLinesList'));
-const JournalLineDetail = lazy(() => import('./pages/JournalLineDetail'));
-const CustomerBalanceHistory = lazy(() => import('./pages/CustomerBalanceHistory'));
-const AcctEventList = lazy(() => import('./pages/AcctEventList'));
-const JournalHeaderTemplateList = lazy(() => import('./pages/JournalHeaderTemplateList'));
-const JournalLineTemplateList = lazy(() => import('./pages/JournalLineTemplateList'));
-const ClearingHeaderTemplateList = lazy(() => import('./pages/ClearingHeaderTemplateList'));
-const ClearingLineTemplateList = lazy(() => import('./pages/ClearingLineTemplateList'));
-const ClearingManagementList = lazy(() => import('./pages/ClearingManagementList'));
-const ClearingDetail = lazy(() => import('./pages/ClearingDetail'));
-const ClearingDetailsList = lazy(() => import('./pages/ClearingDetailsList'));
-const ClearingLineDetail = lazy(() => import('./pages/ClearingLineDetail'));
 const CddResponsesPage = lazy(() => import('./pages/CddResponsesPage'));
 const EddResponsesPage = lazy(() => import('./pages/EddResponsesPage'));
 const AuditLogsPage = lazy(() => import('./pages/AuditLogsPage'));
@@ -136,22 +119,13 @@ const RefreshCyclesPage = lazy(() => import('./pages/RefreshCyclesPage'));
 const RefreshCycleDetailPage = lazy(() => import('./pages/RefreshCycleDetailPage'));
 const RiskAssessmentListPage = lazy(() => import('./pages/RiskAssessmentListPage'));
 const RiskAssessmentDetailPage = lazy(() => import('./pages/RiskAssessmentDetailPage'));
-const CoaHistory = lazy(() => import('./pages/CoaHistory'));
-const AcctEventHistory = lazy(() => import('./pages/AcctEventHistory'));
-const AcctEventDetail = lazy(() => import('./pages/AcctEventDetail'));
-const AcctEventSnapshot = lazy(() => import('./pages/AcctEventSnapshot'));
-const JournalHeaderTemplateHistory = lazy(() => import('./pages/JournalHeaderTemplateHistory'));
-const JournalHeaderTemplateDetail = lazy(() => import('./pages/JournalHeaderTemplateDetail'));
-const JournalTemplateSnapshot = lazy(() => import('./pages/JournalTemplateSnapshot'));
-const ClearingHeaderTemplateHistory = lazy(() => import('./pages/ClearingHeaderTemplateHistory'));
-const ClearingHeaderTemplateDetail = lazy(() => import('./pages/ClearingHeaderTemplateDetail'));
-const ClearingTemplateSnapshot = lazy(() => import('./pages/ClearingTemplateSnapshot'));
 const PricingPolicyList = lazy(() => import('./pages/PricingPolicyList'));
 const PricingPolicyHistory = lazy(() => import('./pages/PricingPolicyHistory'));
 const ApprovalPoliciesPage = lazy(() => import('./pages/ApprovalPoliciesPage'));
 const PolicyChangeRequestsPage = lazy(() => import('./pages/PolicyChangeRequestsPage'));
 const PolicyChangeRequestDetailPage = lazy(() => import('./pages/PolicyChangeRequestDetailPage'));
 const TbAccountList = lazy(() => import('./pages/TbAccountList'));
+const TbAccountDetail = lazy(() => import('./pages/TbAccountDetail'));
 const TbTransferList = lazy(() => import('./pages/TbTransferList'));
 const TbBacklogList = lazy(() => import('./pages/TbBacklogList'));
 
@@ -896,62 +870,6 @@ function App() {
               path="system/asset-configs/:assetNo"
               element={withPermission(<AssetConfigDetail />, [PERMISSIONS.ASSETS_READ])}
             />
-            <Route
-              path="system/acct-events"
-              element={withPermission(<AcctEventList />, [PERMISSIONS.ACCT_EVENTS_READ])}
-            />
-            <Route
-              path="system/acct-events/history"
-              element={withPermission(<AcctEventHistory />, [PERMISSIONS.ACCT_EVENTS_READ])}
-            />
-            <Route
-              path="system/acct-events/history/:releaseNo"
-              element={withPermission(<AcctEventSnapshot />, [PERMISSIONS.ACCT_EVENTS_READ])}
-            />
-            <Route
-              path="system/acct-events/:eventCode"
-              element={withPermission(<AcctEventDetail />, [PERMISSIONS.ACCT_EVENTS_READ])}
-            />
-            <Route
-              path="system/journal-header-templates"
-              element={withPermission(<JournalHeaderTemplateList />, [PERMISSIONS.JOURNAL_HEADER_TEMPLATES_READ])}
-            />
-            <Route
-              path="system/journal-header-templates/history"
-              element={withPermission(<JournalHeaderTemplateHistory />, [PERMISSIONS.JOURNAL_HEADER_TEMPLATES_READ])}
-            />
-            <Route
-              path="system/journal-header-templates/history/:releaseNo"
-              element={withPermission(<JournalTemplateSnapshot />, [PERMISSIONS.JOURNAL_HEADER_TEMPLATES_READ])}
-            />
-            <Route
-              path="system/journal-header-templates/:templateCode"
-              element={withPermission(<JournalHeaderTemplateDetail />, [PERMISSIONS.JOURNAL_HEADER_TEMPLATES_READ])}
-            />
-            <Route
-              path="system/journal-line-templates"
-              element={withPermission(<JournalLineTemplateList />, [PERMISSIONS.JOURNAL_LINE_TEMPLATES_READ])}
-            />
-            <Route
-              path="system/clearing-header-templates"
-              element={withPermission(<ClearingHeaderTemplateList />, [PERMISSIONS.CLEARING_TEMPLATES_READ])}
-            />
-            <Route
-              path="system/clearing-header-templates/history"
-              element={withPermission(<ClearingHeaderTemplateHistory />, [PERMISSIONS.CLEARING_TEMPLATES_READ])}
-            />
-            <Route
-              path="system/clearing-header-templates/history/:releaseNo"
-              element={withPermission(<ClearingTemplateSnapshot />, [PERMISSIONS.CLEARING_TEMPLATES_READ])}
-            />
-            <Route
-              path="system/clearing-header-templates/:templateCode"
-              element={withPermission(<ClearingHeaderTemplateDetail />, [PERMISSIONS.CLEARING_TEMPLATES_READ])}
-            />
-            <Route
-              path="system/clearing-line-templates"
-              element={withPermission(<ClearingLineTemplateList />, [PERMISSIONS.CLEARING_TEMPLATES_READ])}
-            />
           </Route>
 
           <Route path="/exchange">
@@ -990,30 +908,13 @@ function App() {
           </Route>
 
           <Route path="/ledger">
-            <Route path="coa" element={withPermission(<CoaList />, [PERMISSIONS.COA_READ])} />
-            <Route path="coa/history" element={withPermission(<CoaHistory />, [PERMISSIONS.COA_READ])} />
-            <Route path="coa/history/:releaseNo" element={withPermission(<CoaSnapshot />, [PERMISSIONS.COA_READ])} />
-            <Route path="coa/:accountCode" element={withPermission(<CoaDetail />, [PERMISSIONS.COA_READ])} />
-            <Route path="journals" element={withPermission(<JournalList />, [PERMISSIONS.JOURNALS_READ])} />
-            <Route
-              path="journals/:id"
-              element={withPermission(<JournalDetail />, [PERMISSIONS.JOURNAL_DETAIL_READ])}
-            />
-            <Route
-              path="journal-lines"
-              element={withPermission(<JournalLinesList />, [PERMISSIONS.JOURNAL_LINES_READ])}
-            />
-            <Route
-              path="journal-lines/:id"
-              element={withPermission(<JournalLineDetail />, [PERMISSIONS.JOURNAL_LINE_DETAIL_READ])}
-            />
-            <Route
-              path="balance-history"
-              element={withPermission(<CustomerBalanceHistory />, [PERMISSIONS.CUSTOMER_BALANCE_HISTORY_READ])}
-            />
             <Route
               path="tb-accounts"
               element={withPermission(<TbAccountList />, [PERMISSIONS.TB_ACCOUNTS_READ])}
+            />
+            <Route
+              path="tb-accounts/:tbAccountId"
+              element={withPermission(<TbAccountDetail />, [PERMISSIONS.TB_ACCOUNTS_READ])}
             />
             <Route
               path="tb-transfers"
@@ -1025,24 +926,6 @@ function App() {
             />
           </Route>
 
-          <Route path="/clearing">
-            <Route
-              path="management"
-              element={withPermission(<ClearingManagementList />, [PERMISSIONS.CLEARINGS_READ])}
-            />
-            <Route
-              path="management/:id"
-              element={withPermission(<ClearingDetail />, [PERMISSIONS.CLEARING_DETAIL_READ])}
-            />
-            <Route
-              path="details"
-              element={withPermission(<ClearingDetailsList />, [PERMISSIONS.CLEARING_LINES_READ])}
-            />
-            <Route
-              path="lines/:id"
-              element={withPermission(<ClearingLineDetail />, [PERMISSIONS.CLEARING_LINE_DETAIL_READ])}
-            />
-          </Route>
         </Route>
 
         <Route path="/forbidden" element={<ForbiddenPage />} />
