@@ -601,6 +601,11 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('GET', '/clearing-templates', 'List clearing templates', ['ACCOUNTING_CONFIG_READ']),
   route('GET', '/clearing-templates/:id', 'Get clearing template detail', ['ACCOUNTING_CONFIG_READ']),
 
+  // TB Ledger (read-only)
+  route('GET', '/admin/tb/accounts', 'List TB account registry', ['ACCOUNTING_CONFIG_READ']),
+  route('GET', '/admin/tb/transfers', 'List TB transfer evidence', ['ACCOUNTING_CONFIG_READ']),
+  route('GET', '/admin/tb/backlog', 'List TB evidence backlog', ['ACCOUNTING_CONFIG_READ']),
+
   // Assets
   route('POST', '/assets', 'Create asset', ['ASSET_CONFIG_WRITE']),
   route('GET', '/assets', 'List assets', ['ASSET_CONFIG_READ']),

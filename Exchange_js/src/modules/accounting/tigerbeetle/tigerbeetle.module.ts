@@ -3,8 +3,10 @@ import { TigerBeetleService } from './tigerbeetle.service';
 import { AccountingService } from './accounting.service';
 import { TbEvidenceService } from './tb-evidence.service';
 import { TbAccountRegistryService } from './tb-account-registry.service';
+import { TbAdminController } from './tb-admin.controller';
 
 @Module({
+  controllers: [TbAdminController],
   providers: [
     TigerBeetleService,
     AccountingService,
