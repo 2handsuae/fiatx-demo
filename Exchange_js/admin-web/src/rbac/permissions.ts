@@ -223,6 +223,10 @@ export const PERMISSIONS = {
   CLEARING_DETAIL_READ: 'api.get.clearings_id',
   CLEARING_LINES_READ: 'api.get.clearings_lines',
   CLEARING_LINE_DETAIL_READ: 'api.get.clearings_lines_id',
+
+  TB_ACCOUNTS_READ: 'api.get.admin_tb_accounts',
+  TB_TRANSFERS_READ: 'api.get.admin_tb_transfers',
+  TB_BACKLOG_READ: 'api.get.admin_tb_backlog',
 } as const;
 
 export type PermissionCode = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];

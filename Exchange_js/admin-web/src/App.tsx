@@ -151,6 +151,9 @@ const PricingPolicyHistory = lazy(() => import('./pages/PricingPolicyHistory'));
 const ApprovalPoliciesPage = lazy(() => import('./pages/ApprovalPoliciesPage'));
 const PolicyChangeRequestsPage = lazy(() => import('./pages/PolicyChangeRequestsPage'));
 const PolicyChangeRequestDetailPage = lazy(() => import('./pages/PolicyChangeRequestDetailPage'));
+const TbAccountList = lazy(() => import('./pages/TbAccountList'));
+const TbTransferList = lazy(() => import('./pages/TbTransferList'));
+const TbBacklogList = lazy(() => import('./pages/TbBacklogList'));
 
 const FullPageMessage = ({
   title,
@@ -1007,6 +1010,18 @@ function App() {
             <Route
               path="balance-history"
               element={withPermission(<CustomerBalanceHistory />, [PERMISSIONS.CUSTOMER_BALANCE_HISTORY_READ])}
+            />
+            <Route
+              path="tb-accounts"
+              element={withPermission(<TbAccountList />, [PERMISSIONS.TB_ACCOUNTS_READ])}
+            />
+            <Route
+              path="tb-transfers"
+              element={withPermission(<TbTransferList />, [PERMISSIONS.TB_TRANSFERS_READ])}
+            />
+            <Route
+              path="tb-backlog"
+              element={withPermission(<TbBacklogList />, [PERMISSIONS.TB_BACKLOG_READ])}
             />
           </Route>
 

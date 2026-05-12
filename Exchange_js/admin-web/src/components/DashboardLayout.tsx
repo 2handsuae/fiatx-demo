@@ -35,6 +35,7 @@ import {
   Moon,
   AlertTriangle,
   Tag,
+  Database,
 } from 'lucide-react';
 import { Link, useLocation, useNavigate, Outlet } from 'react-router-dom';
 import { useAdminSession } from '../contexts/AdminSessionContext';
@@ -277,6 +278,24 @@ const DashboardLayout = () => {
           label: 'Balance History',
           icon: <History size={13} />,
           requiredPermissions: [PERMISSIONS.CUSTOMER_BALANCE_HISTORY_READ],
+        },
+        {
+          path: '/ledger/tb-accounts',
+          label: 'TB Accounts',
+          icon: <Database size={13} />,
+          requiredPermissions: [PERMISSIONS.TB_ACCOUNTS_READ],
+        },
+        {
+          path: '/ledger/tb-transfers',
+          label: 'TB Transfers',
+          icon: <Database size={13} />,
+          requiredPermissions: [PERMISSIONS.TB_TRANSFERS_READ],
+        },
+        {
+          path: '/ledger/tb-backlog',
+          label: 'TB Backlog',
+          icon: <Database size={13} />,
+          requiredPermissions: [PERMISSIONS.TB_BACKLOG_READ],
         },
       ],
     },
