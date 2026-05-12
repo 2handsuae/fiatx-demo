@@ -9,9 +9,10 @@ import { AssetsService } from './assets.service';
 import { AssetListingWorkflowService } from './asset-listing-workflow.service';
 import { AssetListingApprovalService } from './asset-listing-approval.service';
 import { AssetProvisioningService } from './asset-provisioning.service';
+import { WalletsModule } from '../wallets/wallets.module';
 
 @Module({
-  imports: [PrismaModule, TigerBeetleModule, ApprovalsModule, AuditLogsModule],
+  imports: [PrismaModule, TigerBeetleModule, ApprovalsModule, AuditLogsModule, WalletsModule],
   controllers: [AssetsController, AssetListingController],
   providers: [
     AssetsService,

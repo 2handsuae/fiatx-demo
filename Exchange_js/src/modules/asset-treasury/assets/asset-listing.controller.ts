@@ -6,11 +6,15 @@ import { buildPermissionCode } from '../../identity/access-control/permission-co
 import { ApprovalActorContext } from '../../governance/approvals/constants/approval.constants';
 import { AssetListingWorkflowService } from './asset-listing-workflow.service';
 import { SubmitAssetListingDto } from './dto/submit-asset-listing.dto';
+import { SystemWalletProvisioningService } from '../wallets/system-wallet-provisioning.service';
 
 @Controller('admin/assets')
 @UseGuards(AuthGuard('jwt'), AdminPermissionGuard)
 export class AssetListingController {
-  constructor(private readonly workflowService: AssetListingWorkflowService) {}
+  constructor(
+    private readonly workflowService: AssetListingWorkflowService,
+    private readonly provisioningService: SystemWalletProvisioningService,
+  ) {}
 
   private ensureAdmin(req: any) {
     if (req.user?.type !== 'ADMIN') {
@@ -40,5 +44,12 @@ export class AssetListingController {
   async activateAsset(@Param('assetNo') assetNo: string, @Req() req: any) {
     this.ensureAdmin(req);
     return this.workflowService.activateAsset(assetNo, this.buildAdminActor(req));
+  }
+
+  @Post(':assetNo/provision-wallets')
+  @RequirePermissions(buildPermissionCode('POST', '/admin/assets/:assetNo/provision-wallets'))
+  async provisionWallets(@Param('assetNo') assetNo: string, @Req() req: any) {
+    this.ensureAdmin(req);
+    return this.provisioningService.provisionSystemWallets(assetNo, this.buildAdminActor(req));
   }
 }
