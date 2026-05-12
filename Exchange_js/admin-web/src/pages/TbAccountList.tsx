@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { RefreshCw } from 'lucide-react';
 import { adminIconButtonClass } from '../components/common/adminButtonStyles';
 import { AdminBadge } from '../components/ui/AdminBadge';
@@ -43,6 +44,7 @@ const TbAccountList = () => {
   const [error, setError] = useState<string | null>(null);
   const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
   const requestSeqRef = useRef(0);
+  const navigate = useNavigate();
 
   const fetchData = async (overridePage?: number) => {
     const seq = ++requestSeqRef.current;
@@ -179,7 +181,11 @@ const TbAccountList = () => {
               </tr>
             )}
             {items.map((row) => (
-              <tr key={row.tbAccountId} className="border-b border-adm-border transition-colors hover:bg-adm-hover">
+              <tr
+                key={row.tbAccountId}
+                className="border-b border-adm-border transition-colors hover:bg-adm-hover cursor-pointer"
+                onClick={() => navigate(`/ledger/tb-accounts/${row.tbAccountId}`)}
+              >
                 <td className="px-4 py-3 font-mono text-[11px] text-adm-t1 max-w-[200px] truncate" title={row.tbAccountId}>
                   {row.tbAccountId}
                 </td>
