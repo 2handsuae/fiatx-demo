@@ -1,27 +1,22 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import {
-  Link2,
-  Plus,
-  Repeat,
-  Wallet,
-  User,
-  Banknote,
-  Activity,
-  MapPin,
-} from 'lucide-react';
+import { Repeat, Link2, Plus } from 'lucide-react';
 import { copyToClipboard } from '../utils/clipboard';
 import { formatAssetAmount } from '../utils/number-format';
 import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/adminFetch';
 import { adminButtonClass } from '../components/common/adminButtonStyles';
-import { DetailCard, DetailPageHeader, InfoField } from '../components/compliance/DetailPageComponents';
+import { DetailPageHeader, InfoField } from '../components/compliance/DetailPageComponents';
+import { AdminBadge } from '../components/ui/AdminBadge';
 import { useAdminSession } from '../contexts/AdminSessionContext';
 import { PERMISSIONS } from '../rbac/permissions';
+import { WalletRoleBadge, WALLET_ROLE_LABEL } from '../utils/walletRole.util';
+
+/* ── Interfaces ──────────────────────────────────────────────── */
 
 interface WalletDetailData {
   id: string;
   walletNo: string;
-  walletRole?: string;
+  walletRole: string;
   surfaceCategory?: string;
   ownerType: string;
   ownerId: string | null;
@@ -30,12 +25,7 @@ interface WalletDetailData {
   type: string;
   direction: string;
   assetId: string;
-
-  availableBalance?: string;
-  restrictedBalance?: string;
-  totalBalance?: string;
-  totalAedEquivalent?: string | null;
-  balanceUpdatedAt?: string | null;
+  balance: string;
 
   address: string | null;
   memo: string | null;
@@ -49,16 +39,11 @@ interface WalletDetailData {
   iban: string | null;
 
   status: string;
-  regulatoryEnablementStatus?: string | null;
-  regulatoryEnabledAt?: string | null;
   regulatoryGateSummary?: {
     gateId: string;
     gateNo: string;
     gateType: string;
     gateResult: string;
-    filingStatus: string;
-    receiptStatus: string;
-    effectivenessStatus: string;
   } | null;
 
   createdAt: string;
@@ -81,42 +66,97 @@ interface CollectionActionResult {
   expectedCollectionAmount?: string;
 }
 
-const WalletDetail = () => {
+/* ── Helpers ─────────────────────────────────────────────────── */
+
+const fmt = (v?: string | null): string => {
+  if (!v) return '—';
+  const d = new Date(v);
+  return Number.isNaN(d.getTime()) ? v : d.toLocaleString();
+};
+
+/* ── Layout primitives (Pattern B — same as PlatformMemberDetailPage) ── */
+
+const Cap = ({ children }: { children: ReactNode }) => (
+  <p className="font-mono text-[8.5px] font-semibold uppercase tracking-[0.16em] text-adm-t3">
+    {children}
+  </p>
+);
+
+const SidebarGroup = ({ title, children }: { title: string; children: ReactNode }) => (
+  <div className="border-b border-adm-border py-4 last:border-b-0">
+    <Cap>{title}</Cap>
+    <div className="mt-2.5 flex flex-col gap-1.5">{children}</div>
+  </div>
+);
+
+const SidebarKV = ({
+  label,
+  value,
+  mono = false,
+}: {
+  label: string;
+  value: ReactNode;
+  mono?: boolean;
+}) => {
+  if (value === null || value === undefined || value === '' || value === '—') return null;
+  return (
+    <div className="flex items-baseline justify-between gap-2">
+      <span className="shrink-0 font-mono text-[9px] text-adm-t3">{label}</span>
+      <span
+        className={[
+          'min-w-0 break-all text-right text-adm-t2',
+          mono ? 'font-mono text-[10px]' : 'text-[11px]',
+        ].join(' ')}
+      >
+        {value}
+      </span>
+    </div>
+  );
+};
+
+/* ── Surface label mapping ── */
+
+const SURFACE_LABELS: Record<string, string> = {
+  CUSTOMER_POOL: 'Customer Pool',
+  PLATFORM_POOL: 'Platform Pool',
+  CUSTOMER_DEPOSIT: 'Customer Deposit Surface',
+  CUSTOMER_PAYOUT_TARGET: 'Customer Payout Target',
+  LIQUIDITY_PROVIDER_ACCOUNT: 'Liquidity Provider Account',
+  OTHER: 'Other Wallet',
+};
+
+/* ── Main Component ──────────────────────────────────────────── */
+
+export default function WalletDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { hasAnyPermission } = useAdminSession();
+
   const [wallet, setWallet] = useState<WalletDetailData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const [collectionSubmitting, setCollectionSubmitting] = useState(false);
   const [collectionResult, setCollectionResult] = useState<CollectionActionResult | null>(null);
 
   const fetchWallet = async () => {
     if (!id) return;
-
+    setLoading(true);
+    setError(null);
     try {
-      setLoading(true);
-      setError('');
-      const response = await adminFetch(`${import.meta.env.VITE_API_URL}/wallets/${id}`);
-
-      if (response.ok) {
-        const data = await response.json();
-        setWallet(data);
-      } else {
-        setError(await getApiErrorMessage(response, 'Failed to fetch wallet details.'));
-      }
-    } catch (error) {
-      if (error instanceof AdminSessionError) return;
-      setError(error instanceof Error ? error.message : 'Network error');
+      const res = await adminFetch(`${import.meta.env.VITE_API_URL}/wallets/${id}`);
+      if (!res.ok) throw new Error(await getApiErrorMessage(res, 'Failed to fetch wallet details.'));
+      setWallet(await res.json());
+    } catch (err) {
+      if (err instanceof AdminSessionError) return;
+      setError(err instanceof Error ? err.message : 'Network error');
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => {
-    void fetchWallet();
-  }, [id]);
+  useEffect(() => { void fetchWallet(); }, [id]);
 
   const handleCopy = (text: string, field: string) => {
     copyToClipboard(text);
@@ -124,349 +164,331 @@ const WalletDetail = () => {
     setTimeout(() => setCopiedField(null), 2000);
   };
 
-  if (loading) {
+  /* ── Loading / Error states ── */
+
+  if (loading && !wallet) {
     return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-primary"></div>
+      <div className="flex min-h-[320px] flex-col items-center justify-center">
+        <div className="animate-spin rounded-full h-6 w-6 border-2 border-adm-amber border-t-transparent" />
+        <p className="mt-3 font-mono text-[11px] text-adm-t3">Loading wallet…</p>
       </div>
     );
   }
 
-  if (error || !wallet) {
+  if (!wallet) {
     return (
-      <div className="p-8 text-center bg-white rounded-xl shadow-sm border border-admin-border">
-        <div className="text-red-500 mb-4">{error || 'Wallet not found'}</div>
-        <button
-          onClick={() => navigate(-1)}
-          className={adminButtonClass('detailUtility')}
-        >
+      <div className="space-y-4 rounded border border-adm-red/30 bg-adm-red/10 p-8 text-center">
+        <div className="font-mono text-[11px] text-adm-red">{error || 'Wallet not found'}</div>
+        <button onClick={() => navigate(-1)} className={adminButtonClass('detailUtility')}>
           Back
         </button>
       </div>
     );
   }
 
+  /* ── Derived state ── */
+
   const isCrypto = wallet.type === 'CRYPTO_ADDRESS';
   const isFiat = wallet.type === 'FIAT_BANK';
-  const isCustBank = wallet.walletRole === 'CUST_BANK';
-  const isDepositWallet = wallet.walletRole === 'DEPOSIT';
+  const isDepositWallet = wallet.walletRole === 'C_DEP';
+  const isCmaWallet = wallet.walletRole === 'C_CMA';
+  const canCreateCollection = hasAnyPermission([PERMISSIONS.INTERNAL_COLLECTIONS_RECONCILE]);
   const canReadGate = hasAnyPermission([PERMISSIONS.GOV_REGULATORY_GATE_DETAIL_READ]);
   const canCreateGate = hasAnyPermission([PERMISSIONS.GOV_REGULATORY_GATE_CREATE]);
-  const canCreateCollection = hasAnyPermission([PERMISSIONS.INTERNAL_COLLECTIONS_RECONCILE]);
-  const ownerLabel =
-    wallet.ownerName || wallet.ownerNo || wallet.ownerId || '-';
-  const surfaceLabel =
-    {
-      CUSTOMER_POOL: 'Customer Pool',
-      PLATFORM_POOL: 'Platform Pool',
-      CUSTOMER_DEPOSIT: 'Customer Deposit Surface',
-      CUSTOMER_PAYOUT_TARGET: 'Customer Payout Target',
-      LIQUIDITY_PROVIDER_ACCOUNT: 'Liquidity Provider Account',
-      OTHER: 'Other Wallet',
-    }[wallet.surfaceCategory || 'OTHER'] || 'Other Wallet';
+  const ownerLabel = wallet.ownerName || wallet.ownerNo || wallet.ownerId || '—';
+  const surfaceLabel = SURFACE_LABELS[wallet.surfaceCategory || 'OTHER'] || 'Other Wallet';
+
+  /* ── Status toggle ── */
+
+  const handleStatusChange = async (newStatus: string) => {
+    if (!window.confirm(`${newStatus === 'DISABLED' ? 'Disable' : 'Enable'} wallet ${wallet.walletNo}?`)) return;
+    try {
+      const res = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/wallets/${wallet.id}/status`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: newStatus }),
+        },
+      );
+      if (!res.ok) {
+        setError(await getApiErrorMessage(res, 'Failed to update wallet status.'));
+        return;
+      }
+      setNotice(`Wallet ${newStatus === 'ACTIVE' ? 'enabled' : 'disabled'} successfully.`);
+      void fetchWallet();
+    } catch (err) {
+      if (err instanceof AdminSessionError) return;
+      setError(err instanceof Error ? err.message : 'Failed to update wallet status.');
+    }
+  };
+
+  /* ── Collection action ── */
 
   const handleCreateCollection = async () => {
     setCollectionSubmitting(true);
     setCollectionResult(null);
     try {
-      const response = await adminFetch(
+      const res = await adminFetch(
         `${import.meta.env.VITE_API_URL}/admin/internal-transactions/collection-wallets/${wallet.id}/reconcile`,
         {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ dryRun: false }),
         },
       );
-
-      if (!response.ok) {
-        const message = await getApiErrorMessage(
-          response,
-          'Failed to create wallet-driven collection.',
-        );
-        alert(message);
+      if (!res.ok) {
+        setError(await getApiErrorMessage(res, 'Failed to create wallet-driven collection.'));
         return;
       }
-
-      const payload = (await response.json()) as CollectionActionResult;
+      const payload = (await res.json()) as CollectionActionResult;
       setCollectionResult(payload);
-      if (
-        payload.internalTransactionId &&
-        (payload.action === 'CREATED' || payload.action === 'IDEMPOTENT')
-      ) {
+      if (payload.internalTransactionId && (payload.action === 'CREATED' || payload.action === 'IDEMPOTENT')) {
         navigate(`/exchange/internal-transactions/${payload.internalTransactionId}`);
         return;
       }
-      alert(payload.reason || payload.action || 'Collection request completed.');
-    } catch (e: unknown) {
-      if (e instanceof AdminSessionError) return;
-      alert(e instanceof Error ? e.message : 'Failed to create wallet-driven collection.');
+      setNotice(payload.reason || payload.action || 'Collection request completed.');
+    } catch (err) {
+      if (err instanceof AdminSessionError) return;
+      setError(err instanceof Error ? err.message : 'Failed to create collection.');
     } finally {
       setCollectionSubmitting(false);
     }
   };
 
+  /* ── Sidebar action visibility ── */
+
+  const canToggleStatus = wallet.status !== 'FROZEN';
+  const showActions = canToggleStatus || (isDepositWallet && canCreateCollection) || (isCmaWallet && (canReadGate || canCreateGate));
+
   return (
-    <div className="space-y-6 max-w-5xl mx-auto pb-12">
+    <div className="flex h-full flex-col overflow-hidden">
+      {/* ── Header ── */}
       <DetailPageHeader
-        title="Wallet Detail"
-        subtitle={`${wallet.walletNo || 'N/A'} · ${wallet.asset.code}/${wallet.asset.network || 'NA'}`}
-        onBack={() => navigate(-1)}
+        title="WALLET"
+        subtitle={wallet.walletNo}
+        onBack={() => navigate('/dashboard/treasury/wallets')}
         onRefresh={() => void fetchWallet()}
         refreshing={loading}
-      >
-        <span
-          className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${
-            wallet.status === 'ACTIVE'
-              ? 'bg-green-100 text-green-700'
-              : wallet.status === 'DISABLED'
-                ? 'bg-red-100 text-red-700'
-                : 'bg-yellow-100 text-yellow-700'
-          }`}
-        >
-          {wallet.status}
-        </span>
-      </DetailPageHeader>
+      />
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <DetailCard title="Summary" icon={<Wallet size={18} />}>
-          <InfoField label="Wallet No" value={wallet.walletNo} highlight mono />
-          <InfoField
-            label="Wallet Role"
-            value={wallet.walletRole || 'GENERAL'}
-          />
-          <InfoField label="Surface Category" value={surfaceLabel} />
-          <InfoField
-            label="Owner"
-            value={ownerLabel}
-            icon={<User size={14} />}
-          />
-          <InfoField label="Owner Type" value={wallet.ownerType} />
-          <InfoField label="Owner ID" value={wallet.ownerId} mono />
-          <InfoField label="Owner No" value={wallet.ownerNo} mono accent />
-          <InfoField label="Direction" value={wallet.direction} />
-          <InfoField
-            label="Asset"
-            value={`${wallet.asset.code} (${wallet.asset.type})`}
-          />
-          <InfoField label="Network" value={wallet.asset.network || 'NA'} />
-          <InfoField label="Asset ID" value={wallet.assetId} mono />
-        </DetailCard>
-
-        <DetailCard title="Balance" icon={<Banknote size={18} />}>
-          <InfoField
-            label="Available Balance"
-            value={`${formatAssetAmount(wallet.availableBalance ?? '0', wallet.asset.decimals)} ${wallet.asset.code}`}
-            highlight
-          />
-          <InfoField
-            label="Restricted Balance"
-            value={`${formatAssetAmount(wallet.restrictedBalance ?? '0', wallet.asset.decimals)} ${wallet.asset.code}`}
-          />
-          <InfoField
-            label="Total Balance"
-            value={`${formatAssetAmount(wallet.totalBalance ?? '0', wallet.asset.decimals)} ${wallet.asset.code}`}
-          />
-          <InfoField
-            label="Total AED Equivalent"
-            value={
-              wallet.totalAedEquivalent
-                ? `${wallet.totalAedEquivalent} AED`
-                : 'N/A'
-            }
-          />
-          <InfoField
-            label="Balance Updated At"
-            value={
-              wallet.balanceUpdatedAt
-                ? formatDate(wallet.balanceUpdatedAt)
-                : '-'
-            }
-          />
-        </DetailCard>
-
-        <DetailCard title="Address / Bank" icon={<MapPin size={18} />}>
-          {isCrypto ? (
-            <>
-              <InfoField
-                label="Address"
-                value={wallet.address}
-                mono
-                copyable
-                copied={copiedField === 'address'}
-                onCopy={(value) => handleCopy(value, 'address')}
-              />
-              <InfoField label="Memo / Tag" value={wallet.memo} />
-              <InfoField
-                label="Beneficiary Name"
-                value={wallet.beneficiaryName}
-              />
-              <InfoField
-                label="Counterparty VASP"
-                value={wallet.counterpartyVasp}
-              />
-            </>
-          ) : isFiat ? (
-            <>
-              <InfoField label="Bank Name" value={wallet.bankName} />
-              <InfoField label="Account Holder" value={wallet.accountName} />
-              <InfoField label="Account Number" value={wallet.bankAccount} />
-              <InfoField label="IBAN" value={wallet.iban} />
-              <InfoField
-                label="Bank Code (SWIFT/BIC)"
-                value={wallet.bankCode}
-              />
-            </>
-          ) : (
-            <div className="col-span-full text-sm text-gray-400 italic">
-              No specific details for this wallet type
+      {/* ── Notices ── */}
+      {(notice || error) && (
+        <div className="shrink-0 px-6 pt-3 pb-1 space-y-2">
+          {notice && (
+            <div className="rounded border border-adm-green/30 bg-adm-green/10 px-4 py-2 font-mono text-[11px] text-adm-green">
+              {notice}
             </div>
           )}
-        </DetailCard>
+          {error && (
+            <div className="rounded border border-adm-red/30 bg-adm-red/10 px-4 py-2 font-mono text-[11px] text-adm-red">
+              {error}
+            </div>
+          )}
+        </div>
+      )}
 
-        <DetailCard title="Audit / Metadata" icon={<Activity size={18} />}>
-          <InfoField
-            label="Status"
-            value={wallet.status}
-            highlight={wallet.status === 'ACTIVE'}
-          />
-          <InfoField label="Created At" value={formatDate(wallet.createdAt)} />
-          <InfoField label="Updated At" value={formatDate(wallet.updatedAt)} />
-          <InfoField
-            label="Regulatory Enablement"
-            value={wallet.regulatoryEnablementStatus || 'N/A'}
-          />
-          <InfoField
-            label="Regulatory Enabled At"
-            value={wallet.regulatoryEnabledAt ? formatDate(wallet.regulatoryEnabledAt) : 'N/A'}
-          />
-          <InfoField label="Wallet ID" value={wallet.id} mono />
-        </DetailCard>
+      {/* ── Body: two-column layout ── */}
+      <div className="flex min-h-0 flex-1 overflow-hidden">
 
-        {isDepositWallet ? (
-          <DetailCard title="Deposit Collection" icon={<Repeat size={18} />}>
-            <InfoField
-              label="Collection Amount"
-              value={`${formatAssetAmount(wallet.availableBalance ?? '0', wallet.asset.decimals)} ${wallet.asset.code}`}
-              highlight
-            />
-            <InfoField
-              label="Execution Rule"
-              value="Create full-balance DEPOSIT_COLLECTION when triggered from wallet detail"
-            />
-            {collectionResult ? (
-              <div className="col-span-full rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-                <div className="font-semibold">
-                  Collection result: {collectionResult.action || 'UNKNOWN'}
-                </div>
-                <div className="mt-1">
-                  {collectionResult.reason || 'Collection request completed.'}
-                </div>
-                {collectionResult.expectedCollectionAmount ? (
-                  <div className="mt-1 text-xs">
-                    Expected amount: {collectionResult.expectedCollectionAmount} {wallet.asset.code}
-                  </div>
-                ) : null}
-                {collectionResult.existingPendingAmount ? (
-                  <div className="mt-1 text-xs">
-                    Existing pending amount: {collectionResult.existingPendingAmount} {wallet.asset.code}
-                  </div>
-                ) : null}
-                {collectionResult.internalTransactionId ? (
-                  <button
-                    type="button"
-                    onClick={() =>
-                      navigate(`/exchange/internal-transactions/${collectionResult.internalTransactionId}`)
-                    }
-                    className="mt-3 inline-flex items-center gap-2 rounded-lg border border-amber-300 bg-white px-3 py-2 text-xs font-medium text-amber-900 hover:bg-amber-100"
-                  >
-                    <Link2 size={14} />
-                    View Existing Collection
-                  </button>
-                ) : null}
+        {/* ════ LEFT MAIN ════ */}
+        <div className="flex min-w-0 flex-1 flex-col divide-y divide-adm-border overflow-y-auto">
+
+          {/* ① Identity */}
+          <section className="bg-adm-card px-6 py-5">
+            <Cap>Wallet</Cap>
+            <p className="mt-1.5 font-mono text-[19px] font-bold leading-snug text-adm-amber">
+              {wallet.walletNo}
+            </p>
+            <div className="mt-2.5 flex items-center gap-2">
+              <AdminBadge value={wallet.status} />
+              <WalletRoleBadge role={wallet.walletRole} />
+            </div>
+            <div className="mt-2 font-mono text-[10px] text-adm-t3">{surfaceLabel}</div>
+          </section>
+
+          {/* ② Details */}
+          <section className="px-6 py-5">
+            <Cap>Details</Cap>
+            <div className="mt-3 grid grid-cols-2 gap-x-8 gap-y-4">
+              <InfoField label="Owner" value={ownerLabel} mono />
+              <InfoField label="Owner Type" value={wallet.ownerType} />
+              <InfoField label="Owner No" value={wallet.ownerNo} mono accent />
+              <InfoField label="Direction" value={wallet.direction} />
+              <InfoField label="Asset" value={`${wallet.asset.code} (${wallet.asset.type})`} />
+              <InfoField label="Network" value={wallet.asset.network || '—'} />
+            </div>
+          </section>
+
+          {/* ③ Balance */}
+          <section className="px-6 py-5">
+            <Cap>Balance</Cap>
+            <div className="mt-3">
+              <InfoField
+                label="Balance"
+                value={`${formatAssetAmount(wallet.balance ?? '0', wallet.asset.decimals)} ${wallet.asset.code}`}
+                highlight
+              />
+            </div>
+          </section>
+
+          {/* ④ Address / Bank (conditional) */}
+          {(isCrypto || isFiat) && (
+            <section className="px-6 py-5">
+              <Cap>{isCrypto ? 'Crypto Address' : 'Bank Account'}</Cap>
+              <div className="mt-3 grid grid-cols-2 gap-x-8 gap-y-4">
+                {isCrypto ? (
+                  <>
+                    <InfoField
+                      label="Address"
+                      value={wallet.address}
+                      mono
+                      copyable
+                      copied={copiedField === 'address'}
+                      onCopy={(v) => handleCopy(v, 'address')}
+                    />
+                    <InfoField label="Memo / Tag" value={wallet.memo} />
+                    <InfoField label="Beneficiary Name" value={wallet.beneficiaryName} />
+                    <InfoField label="Counterparty VASP" value={wallet.counterpartyVasp} />
+                  </>
+                ) : (
+                  <>
+                    <InfoField label="Bank Name" value={wallet.bankName} />
+                    <InfoField label="Account Holder" value={wallet.accountName} />
+                    <InfoField label="Account Number" value={wallet.bankAccount} />
+                    <InfoField label="IBAN" value={wallet.iban} />
+                    <InfoField label="Bank Code (SWIFT/BIC)" value={wallet.bankCode} />
+                  </>
+                )}
               </div>
-            ) : null}
-            <div className="col-span-full">
-              {canCreateCollection ? (
-                <button
-                  onClick={() => void handleCreateCollection()}
-                  disabled={collectionSubmitting}
-                  className="inline-flex items-center gap-2 rounded-lg bg-brand-primary px-4 py-2 text-sm font-medium text-white hover:bg-brand-primary/90 disabled:opacity-60"
-                >
-                  <Repeat size={16} />
-                  {collectionSubmitting ? 'Creating...' : 'Create Collection'}
-                </button>
-              ) : (
-                <div className="text-sm text-gray-500">
-                  You do not have permission to trigger wallet-driven collection.
+            </section>
+          )}
+
+          {/* ⑤ Deposit Collection (conditional: C_DEP only) */}
+          {isDepositWallet && (
+            <section className="px-6 py-5">
+              <Cap>Deposit Collection</Cap>
+              <div className="mt-3 grid grid-cols-2 gap-x-8 gap-y-4">
+                <InfoField
+                  label="Collection Amount"
+                  value={`${formatAssetAmount(wallet.balance ?? '0', wallet.asset.decimals)} ${wallet.asset.code}`}
+                  highlight
+                />
+                <InfoField
+                  label="Execution Rule"
+                  value="Create full-balance DEPOSIT_COLLECTION when triggered"
+                />
+              </div>
+              {collectionResult && (
+                <div className="mt-3 rounded border border-adm-amber/30 bg-adm-amber/10 px-4 py-3 font-mono text-[11px] text-adm-amber">
+                  <div className="font-semibold">Collection result: {collectionResult.action || 'UNKNOWN'}</div>
+                  <div className="mt-1">{collectionResult.reason || 'Collection request completed.'}</div>
+                  {collectionResult.expectedCollectionAmount && (
+                    <div className="mt-1 text-[10px]">
+                      Expected: {collectionResult.expectedCollectionAmount} {wallet.asset.code}
+                    </div>
+                  )}
+                  {collectionResult.internalTransactionId && (
+                    <button
+                      onClick={() => navigate(`/exchange/internal-transactions/${collectionResult.internalTransactionId}`)}
+                      className={`mt-2 ${adminButtonClass('detailUtility')}`}
+                    >
+                      <Link2 size={13} />
+                      View Collection
+                    </button>
+                  )}
                 </div>
               )}
-            </div>
-          </DetailCard>
-        ) : null}
+            </section>
+          )}
 
-        {isCustBank ? (
-          <DetailCard title="Regulatory Gate" icon={<Link2 size={18} />}>
-            <InfoField
-              label="Gate No"
-              value={wallet.regulatoryGateSummary?.gateNo || 'N/A'}
-            />
-            <InfoField
-              label="Gate Type"
-              value={wallet.regulatoryGateSummary?.gateType || 'N/A'}
-            />
-            <InfoField
-              label="Gate Result"
-              value={wallet.regulatoryGateSummary?.gateResult || 'N/A'}
-            />
-            <div className="col-span-full flex flex-wrap gap-3">
-              {wallet.regulatoryGateSummary && canReadGate ? (
-                <button
-                  onClick={() =>
-                    navigate(
-                      `/dashboard/governance/regulatory-gates/${wallet.regulatoryGateSummary?.gateId}`,
-                    )
-                  }
-                  className="inline-flex items-center gap-2 rounded-lg border border-admin-border bg-white px-4 py-2 text-sm text-brand-primary hover:bg-gray-50"
-                >
-                  <Link2 size={16} />
-                  View Gate
-                </button>
-              ) : null}
-              {!wallet.regulatoryGateSummary && canCreateGate ? (
-                <button
-                  onClick={() => {
-                    const params = new URLSearchParams({
-                      gateType: 'CLIENT_BANK_ACCOUNT_ENABLEMENT',
-                      subjectType: 'WALLET',
-                      subjectId: wallet.id,
-                      subjectNo: wallet.walletNo,
-                    });
-                    navigate(`/dashboard/governance/regulatory-gates/create?${params.toString()}`);
-                  }}
-                  className="inline-flex items-center gap-2 rounded-lg bg-brand-primary px-4 py-2 text-sm font-medium text-white hover:bg-brand-primary/90"
-                >
-                  <Plus size={16} />
-                  Create Regulatory Gate
-                </button>
-              ) : null}
+          {/* ⑥ Audit */}
+          <section className="px-6 py-5">
+            <Cap>Audit</Cap>
+            <div className="mt-3 grid grid-cols-2 gap-x-8 gap-y-4">
+              <InfoField label="Created" value={fmt(wallet.createdAt)} mono />
+              <InfoField label="Updated" value={fmt(wallet.updatedAt)} mono />
             </div>
-          </DetailCard>
-        ) : null}
+          </section>
+
+        </div>
+
+        {/* ════ RIGHT SIDEBAR ════ */}
+        <div className="w-[272px] min-w-[272px] overflow-y-auto border-l border-adm-border bg-adm-panel px-4 py-1">
+
+          {/* Actions */}
+          {showActions && (
+            <div className="border-b border-adm-border py-4">
+              <Cap>Actions</Cap>
+              <div className="mt-2.5 flex flex-col gap-2">
+                {canToggleStatus && wallet.status === 'ACTIVE' && (
+                  <button
+                    onClick={() => void handleStatusChange('DISABLED')}
+                    className={adminButtonClass('workflowNegative')}
+                  >
+                    Disable Wallet
+                  </button>
+                )}
+                {canToggleStatus && wallet.status === 'DISABLED' && (
+                  <button
+                    onClick={() => void handleStatusChange('ACTIVE')}
+                    className={adminButtonClass('workflowPrimary')}
+                  >
+                    Enable Wallet
+                  </button>
+                )}
+                {isDepositWallet && canCreateCollection && (
+                  <button
+                    onClick={() => void handleCreateCollection()}
+                    disabled={collectionSubmitting}
+                    className={adminButtonClass('workflowPrimary')}
+                  >
+                    <Repeat size={13} />
+                    {collectionSubmitting ? 'Creating…' : 'Create Collection'}
+                  </button>
+                )}
+                {isCmaWallet && wallet.regulatoryGateSummary && canReadGate && (
+                  <button
+                    onClick={() => navigate(`/dashboard/governance/regulatory-gates/${wallet.regulatoryGateSummary!.gateId}`)}
+                    className={adminButtonClass('detailUtility')}
+                  >
+                    <Link2 size={13} />
+                    View Regulatory Gate
+                  </button>
+                )}
+                {isCmaWallet && !wallet.regulatoryGateSummary && canCreateGate && (
+                  <button
+                    onClick={() => {
+                      const p = new URLSearchParams({
+                        gateType: 'CLIENT_BANK_ACCOUNT_ENABLEMENT',
+                        subjectType: 'WALLET',
+                        subjectId: wallet.id,
+                        subjectNo: wallet.walletNo,
+                      });
+                      navigate(`/dashboard/governance/regulatory-gates/create?${p.toString()}`);
+                    }}
+                    className={adminButtonClass('workflowPrimary')}
+                  >
+                    <Plus size={13} />
+                    Create Regulatory Gate
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Quick Reference */}
+          <SidebarGroup title="Quick Reference">
+            <SidebarKV label="Wallet No" value={wallet.walletNo} mono />
+            <SidebarKV label="Status" value={<AdminBadge value={wallet.status} />} />
+            <SidebarKV label="Role" value={wallet.walletRole} mono />
+            <SidebarKV label="Role Name" value={WALLET_ROLE_LABEL[wallet.walletRole] || wallet.walletRole} />
+            <SidebarKV label="Asset" value={wallet.asset.code} />
+            <SidebarKV label="Wallet ID" value={wallet.id} mono />
+          </SidebarGroup>
+
+        </div>
       </div>
     </div>
   );
-};
-
-const formatDate = (value: string) => {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '-';
-
-  const pad = (num: number) => String(num).padStart(2, '0');
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(
-    date.getHours(),
-  )}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
-};
-
-export default WalletDetail;
+}
