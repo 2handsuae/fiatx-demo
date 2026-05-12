@@ -284,13 +284,13 @@ describe('PoolSettlementBatchApprovalProjectionService', () => {
         asset: { id: 'asset-fiat', type: 'FIAT' },
         walletA: {
           id: 'wallet-cust-bank',
-          walletRole: 'CUST_BANK',
+          walletRole: 'C_CMA',
           address: null,
           iban: 'AE11',
         },
         walletB: {
           id: 'wallet-liq-bank',
-          walletRole: 'LIQ_BANK',
+          walletRole: 'F_LIQ',
           address: null,
           iban: 'AE22',
         },
@@ -308,13 +308,13 @@ describe('PoolSettlementBatchApprovalProjectionService', () => {
         asset: { id: 'asset-crypto', type: 'CRYPTO' },
         walletA: {
           id: 'wallet-master',
-          walletRole: 'MASTER',
+          walletRole: 'C_MAIN',
           address: '0xmaster',
           iban: null,
         },
         walletB: {
           id: 'wallet-liq',
-          walletRole: 'LIQ',
+          walletRole: 'F_LIQ',
           address: '0xliq',
           iban: null,
         },
@@ -480,13 +480,13 @@ describe('PoolSettlementBatchApprovalProjectionService', () => {
         asset: { id: 'asset-fiat', type: 'FIAT' },
         walletA: {
           id: 'wallet-cust-bank',
-          walletRole: 'CUST_BANK',
+          walletRole: 'C_CMA',
           address: null,
           iban: 'AE11',
         },
         walletB: {
           id: 'wallet-liq-bank',
-          walletRole: 'LIQ_BANK',
+          walletRole: 'F_LIQ',
           address: null,
           iban: 'AE22',
         },
@@ -656,13 +656,13 @@ describe('PoolSettlementBatchApprovalProjectionService', () => {
         asset: { id: 'asset-fiat', type: 'FIAT' },
         walletA: {
           id: 'wallet-cust-bank',
-          walletRole: 'CUST_BANK',
+          walletRole: 'C_CMA',
           address: null,
           iban: 'AE11',
         },
         walletB: {
           id: 'wallet-liq-bank',
-          walletRole: 'LIQ_BANK',
+          walletRole: 'F_LIQ',
           address: null,
           iban: 'AE22',
         },

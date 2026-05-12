@@ -20,10 +20,7 @@ import {
   InternalTransactionStatus,
   InternalTransactionType,
 } from '../internal-transactions/dto/internal-transaction.dto';
-import {
-  isCryptoLiqWalletNo,
-  isCryptoMasterWalletNo,
-} from '../wallets/system-wallet.util';
+import { WalletRole } from '../wallets/dto/wallet.dto';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
   AuditActions,
@@ -729,7 +726,7 @@ export class InternalFundsService {
   async createMock(operatorId = 'SYSTEM') {
     const systemWallets = await (this.prisma as any).wallet.findMany({
       where: {
-        walletRole: { in: ['MASTER', 'LIQ'] },
+        walletRole: { in: [WalletRole.C_MAIN, WalletRole.F_LIQ] },
         status: 'ACTIVE',
       },
       include: {
@@ -751,9 +748,9 @@ export class InternalFundsService {
         });
       }
       const pair = pairByAsset.get(wallet.assetId)!;
-      if (isCryptoMasterWalletNo(wallet)) {
+      if (wallet.walletRole === WalletRole.C_MAIN) {
         pair.fromWallet = wallet;
-      } else if (isCryptoLiqWalletNo(wallet)) {
+      } else if (wallet.walletRole === WalletRole.F_LIQ) {
         pair.toWallet = wallet;
       }
     }
@@ -765,7 +762,7 @@ export class InternalFundsService {
 
     if (!candidates.length) {
       throw new BadRequestException(
-        'No active MASTER/LIQ wallet pair found for mock creation',
+        'No active C_MAIN/F_LIQ wallet pair found for mock creation',
       );
     }
 

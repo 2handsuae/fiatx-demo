@@ -98,7 +98,7 @@ describe('InternalTransactionWorkflowService', () => {
     txClient.wallet.findUnique
       .mockResolvedValueOnce({
         id: 'wallet-master',
-        walletRole: 'MASTER',
+        walletRole: 'C_MAIN',
         ownerType: 'CUSTOMER',
         ownerId: null,
         ownerNo: 'CUSTOMER_POOL',
@@ -109,7 +109,7 @@ describe('InternalTransactionWorkflowService', () => {
       })
       .mockResolvedValueOnce({
         id: 'wallet-payout',
-        walletRole: 'PAYOUT',
+        walletRole: 'C_OUT',
         ownerType: 'CUSTOMER',
         ownerId: null,
         ownerNo: 'CUSTOMER_POOL',
@@ -187,7 +187,7 @@ describe('InternalTransactionWorkflowService', () => {
     txClient.wallet.findUnique
       .mockResolvedValueOnce({
         id: 'wallet-cust-bank',
-        walletRole: 'CUST_BANK',
+        walletRole: 'C_CMA',
         ownerType: 'CUSTOMER',
         ownerId: null,
         ownerNo: 'CUSTOMER_POOL',
@@ -199,7 +199,7 @@ describe('InternalTransactionWorkflowService', () => {
       })
       .mockResolvedValueOnce({
         id: 'wallet-liq-bank',
-        walletRole: 'LIQ_BANK',
+        walletRole: 'F_LIQ',
         ownerType: 'PLATFORM',
         ownerId: null,
         ownerNo: 'PLATFORM',
@@ -301,7 +301,7 @@ describe('InternalTransactionWorkflowService', () => {
     txClient.wallet.findUnique
       .mockResolvedValueOnce({
         id: 'wallet-master',
-        walletRole: 'MASTER',
+        walletRole: 'C_MAIN',
         ownerType: 'CUSTOMER',
         ownerId: null,
         ownerNo: 'CUSTOMER_POOL',
@@ -310,7 +310,7 @@ describe('InternalTransactionWorkflowService', () => {
       })
       .mockResolvedValueOnce({
         id: 'wallet-payout',
-        walletRole: 'PAYOUT',
+        walletRole: 'C_OUT',
         ownerType: 'CUSTOMER',
         ownerId: null,
         ownerNo: 'CUSTOMER_POOL',
@@ -362,7 +362,7 @@ describe('InternalTransactionWorkflowService', () => {
     txClient.wallet.findUnique
       .mockResolvedValueOnce({
         id: 'wallet-wrong',
-        walletRole: 'LIQ',
+        walletRole: 'F_LIQ',
         ownerType: 'PLATFORM',
         ownerId: null,
         ownerNo: 'PLATFORM',
@@ -371,7 +371,7 @@ describe('InternalTransactionWorkflowService', () => {
       })
       .mockResolvedValueOnce({
         id: 'wallet-liq-bank',
-        walletRole: 'LIQ_BANK',
+        walletRole: 'F_LIQ',
         ownerType: 'PLATFORM',
         ownerId: null,
         ownerNo: 'PLATFORM',

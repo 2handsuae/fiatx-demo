@@ -70,10 +70,10 @@ export type FiatStatementImportStatus =
   (typeof FiatStatementImportStatuses)[keyof typeof FiatStatementImportStatuses];
 
 export const SafeguardingPoolRoles = {
-  DEPOSIT: 'DEPOSIT',
-  MASTER: 'MASTER',
-  PAYOUT: 'PAYOUT',
-  CUST_BANK: 'CUST_BANK',
+  DEPOSIT: 'C_DEP',
+  MASTER: 'C_MAIN',
+  PAYOUT: 'C_OUT',
+  CUST_BANK: 'C_CMA',
   OUTBOUND_IN_TRANSIT: 'OUTBOUND_IN_TRANSIT',
 } as const;
 

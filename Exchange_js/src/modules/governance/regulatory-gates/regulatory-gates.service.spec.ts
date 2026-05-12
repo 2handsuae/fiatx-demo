@@ -279,11 +279,11 @@ describe('RegulatoryGatesService', () => {
     expect(result.subjectType).toBe('BUSINESS_CONFIG_RELEASE');
   });
 
-  it('rejects client-bank-account gate creation when wallet is not CUST_BANK', async () => {
+  it('rejects client-bank-account gate creation when wallet is not C_CMA', async () => {
     prisma.wallet.findUnique.mockResolvedValue({
       id: 'wallet-1',
       walletNo: 'WA-LIQ-AED-NA',
-      walletRole: 'LIQ_BANK',
+      walletRole: 'F_LIQ',
       status: 'ACTIVE',
     });
 
@@ -328,7 +328,7 @@ describe('RegulatoryGatesService', () => {
       wallet: {
         id: 'wallet-1',
         walletNo: 'WA-CB-AED-NA',
-        walletRole: 'CUST_BANK',
+        walletRole: 'C_CMA',
         regulatoryEnablementStatus: 'PENDING',
       },
       linkedApproval: null,
@@ -336,7 +336,7 @@ describe('RegulatoryGatesService', () => {
     prisma.wallet.update.mockResolvedValue({
       id: 'wallet-1',
       walletNo: 'WA-CB-AED-NA',
-      walletRole: 'CUST_BANK',
+      walletRole: 'C_CMA',
       regulatoryEnablementStatus: 'EFFECTIVE',
       regulatoryEnabledAt: new Date('2026-04-01T09:00:00.000Z'),
     });
@@ -374,7 +374,7 @@ describe('RegulatoryGatesService', () => {
       wallet: {
         id: 'wallet-1',
         walletNo: 'WA-CB-AED-NA',
-        walletRole: 'CUST_BANK',
+        walletRole: 'C_CMA',
         regulatoryEnablementStatus: 'EFFECTIVE',
         regulatoryEnabledAt: new Date('2026-04-01T09:00:00.000Z'),
       },

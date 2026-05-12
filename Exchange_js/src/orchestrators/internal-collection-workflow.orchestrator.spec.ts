@@ -9,7 +9,6 @@ import {
   TreasuryTransferInitiationMode,
   TreasuryTransferPurpose,
 } from '../modules/asset-treasury/internal-transactions/dto/internal-transaction.dto';
-import { WalletsService } from '../modules/asset-treasury/wallets/wallets.service';
 import { DepositTransactionStatus } from '../modules/trading/deposit-transactions/dto/deposit-transaction.dto';
 import { InternalCollectionWorkflowOrchestrator } from './internal-collection-workflow.orchestrator';
 
@@ -18,8 +17,6 @@ describe('InternalCollectionWorkflowOrchestrator', () => {
   let prisma: any;
   let internalTransactionsService: any;
   let internalFundsService: any;
-  let walletsService: any;
-
   const mockTxClient: any = {};
 
   const mockPrisma = {
@@ -31,6 +28,9 @@ describe('InternalCollectionWorkflowOrchestrator', () => {
     },
     wallet: {
       findFirst: jest.fn(),
+      findUnique: jest.fn(),
+      findMany: jest.fn(),
+      count: jest.fn(),
     },
     internalTransaction: {
       findUnique: jest.fn(),
@@ -51,15 +51,10 @@ describe('InternalCollectionWorkflowOrchestrator', () => {
     createFromInternalTransaction: jest.fn(),
   };
 
-  const mockWalletsService = {
-    findAll: jest.fn(),
-    findOne: jest.fn(),
-  };
-
   const depositWallet = {
     id: 'wallet-deposit',
     walletNo: 'WA-DEP-BTC-DEMO',
-    walletRole: 'DEPOSIT',
+    walletRole: 'C_DEP',
     ownerType: 'CUSTOMER',
     ownerId: 'customer-1',
     ownerNo: 'CUST-001',
@@ -92,10 +87,6 @@ describe('InternalCollectionWorkflowOrchestrator', () => {
           provide: InternalFundsService,
           useValue: mockInternalFundsService,
         },
-        {
-          provide: WalletsService,
-          useValue: mockWalletsService,
-        },
       ],
     }).compile();
 
@@ -107,7 +98,6 @@ describe('InternalCollectionWorkflowOrchestrator', () => {
       InternalTransactionsService,
     );
     internalFundsService = module.get<InternalFundsService>(InternalFundsService);
-    walletsService = module.get<WalletsService>(WalletsService);
 
     jest.clearAllMocks();
   });
@@ -128,11 +118,9 @@ describe('InternalCollectionWorkflowOrchestrator', () => {
   });
 
   it('lists deposit wallets with collection thresholds and shouldCollect flag', async () => {
-    walletsService.findAll.mockResolvedValue({
-      items: [depositWallet],
-      total: 1,
-    });
-    walletsService.findOne.mockResolvedValue(depositWallet);
+    prisma.wallet.findMany.mockResolvedValue([depositWallet]);
+    prisma.wallet.count.mockResolvedValue(1);
+    prisma.wallet.findUnique.mockResolvedValue(depositWallet);
     prisma.safeguardingPolicy.findUnique.mockResolvedValue({
       collectionAmountThreshold: '1.00000000',
       collectionMaxAgeMinutes: 60,
@@ -153,10 +141,10 @@ describe('InternalCollectionWorkflowOrchestrator', () => {
       take: 20,
     });
 
-    expect(walletsService.findAll).toHaveBeenCalledWith(
+    expect(prisma.wallet.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
-          walletRole: 'DEPOSIT',
+          walletRole: 'C_DEP',
           status: 'ACTIVE',
         }),
       }),
@@ -175,7 +163,7 @@ describe('InternalCollectionWorkflowOrchestrator', () => {
   });
 
   it('returns dry-run WOULD_CREATE for eligible deposit wallet collection', async () => {
-    walletsService.findOne.mockResolvedValue(depositWallet);
+    prisma.wallet.findUnique.mockResolvedValue(depositWallet);
     prisma.safeguardingPolicy.findUnique.mockResolvedValue({
       collectionAmountThreshold: '1.00000000',
       collectionMaxAgeMinutes: 60,
@@ -216,7 +204,7 @@ describe('InternalCollectionWorkflowOrchestrator', () => {
   });
 
   it('returns IDEMPOTENT when a pending collection already exists for the wallet', async () => {
-    walletsService.findOne.mockResolvedValue(depositWallet);
+    prisma.wallet.findUnique.mockResolvedValue(depositWallet);
     prisma.safeguardingPolicy.findUnique.mockResolvedValue({
       collectionAmountThreshold: '1.00000000',
       collectionMaxAgeMinutes: 60,
@@ -255,7 +243,7 @@ describe('InternalCollectionWorkflowOrchestrator', () => {
   });
 
   it('does not reuse a legacy pending collection when amount does not match current wallet balance', async () => {
-    walletsService.findOne.mockResolvedValue(depositWallet);
+    prisma.wallet.findUnique.mockResolvedValue(depositWallet);
     prisma.safeguardingPolicy.findUnique.mockResolvedValue({
       collectionAmountThreshold: '1.00000000',
       collectionMaxAgeMinutes: 60,
@@ -304,7 +292,7 @@ describe('InternalCollectionWorkflowOrchestrator', () => {
   });
 
   it('creates wallet-driven collection transaction and first internal fund', async () => {
-    walletsService.findOne.mockResolvedValue(depositWallet);
+    prisma.wallet.findUnique.mockResolvedValue(depositWallet);
     prisma.safeguardingPolicy.findUnique.mockResolvedValue({
       collectionAmountThreshold: '1.00000000',
       collectionMaxAgeMinutes: 60,

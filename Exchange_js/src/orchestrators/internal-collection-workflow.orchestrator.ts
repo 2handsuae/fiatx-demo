@@ -4,8 +4,7 @@ import { PrismaService } from '../core/prisma/prisma.service';
 import { InternalTransactionsService } from '../modules/asset-treasury/internal-transactions/internal-transactions.service';
 import { InternalFundsService } from '../modules/asset-treasury/internal-funds/internal-funds.service';
 import { InternalFundStatus } from '../modules/asset-treasury/internal-funds/dto/internal-fund.dto';
-import { buildCryptoSystemWalletNo } from '../modules/asset-treasury/wallets/system-wallet.util';
-import { WalletsService } from '../modules/asset-treasury/wallets/wallets.service';
+import { WalletRole } from '../modules/asset-treasury/wallets/dto/wallet.dto';
 import { DepositStatusChangedEvent } from '../modules/trading/deposit-transactions/events/deposit-transaction.events';
 import { DepositTransactionStatus } from '../modules/trading/deposit-transactions/dto/deposit-transaction.dto';
 import {
@@ -111,7 +110,6 @@ export class InternalCollectionWorkflowOrchestrator {
     private readonly prisma: PrismaService,
     private readonly internalTransactionsService: InternalTransactionsService,
     private readonly internalFundsService: InternalFundsService,
-    private readonly walletsService: WalletsService,
   ) {}
 
   async onDepositStatusChanged(event: DepositStatusChangedEvent) {
@@ -164,7 +162,12 @@ export class InternalCollectionWorkflowOrchestrator {
   }
 
   private async evaluateCollectionWallet(walletId: string) {
-    const wallet = await this.walletsService.findOne(walletId);
+    const wallet = await (this.prisma as any).wallet.findUnique({
+      where: { id: walletId },
+      include: {
+        asset: { select: { id: true, code: true, type: true, network: true } },
+      },
+    });
     if (!wallet) {
       return null;
     }
@@ -175,7 +178,7 @@ export class InternalCollectionWorkflowOrchestrator {
         where: {
           assetId_poolRole: {
             assetId: wallet.assetId,
-            poolRole: 'DEPOSIT',
+            poolRole: WalletRole.C_DEP,
           },
         },
       }),
@@ -279,16 +282,26 @@ export class InternalCollectionWorkflowOrchestrator {
   async listCollectionWallets(
     params: CollectionWalletQueryParams = {},
   ): Promise<{ items: CollectionWalletSummaryItem[]; total: number }> {
-    const page = await this.walletsService.findAll({
-      skip: params.skip ?? 0,
-      take: params.take ?? 20,
-      where: {
-        walletRole: 'DEPOSIT',
-        status: 'ACTIVE',
-        ...(params.assetId ? { assetId: params.assetId } : {}),
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+    const where: any = {
+      walletRole: WalletRole.C_DEP,
+      status: 'ACTIVE',
+      ...(params.assetId ? { assetId: params.assetId } : {}),
+    };
+    const skip = params.skip ?? 0;
+    const take = params.take ?? 20;
+    const [items, total] = await Promise.all([
+      (this.prisma as any).wallet.findMany({
+        where,
+        skip,
+        take,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          asset: { select: { id: true, code: true, type: true, network: true } },
+        },
+      }),
+      (this.prisma as any).wallet.count({ where }),
+    ]);
+    const page = { items, total };
 
     const evaluations = await Promise.all(
       (page.items || []).map(async (wallet: any) => {
@@ -366,11 +379,11 @@ export class InternalCollectionWorkflowOrchestrator {
       collectionMaxAgeMinutes: details.collectionMaxAgeMinutes,
     };
 
-    if (String(wallet.walletRole || '').trim().toUpperCase() !== 'DEPOSIT') {
+    if (wallet.walletRole !== WalletRole.C_DEP) {
       return {
         ...baseResult,
         action: 'SKIPPED',
-        reason: `walletRole ${wallet.walletRole || 'UNKNOWN'} is not DEPOSIT`,
+        reason: `walletRole ${wallet.walletRole || 'UNKNOWN'} is not C_DEP`,
       };
     }
 
@@ -428,26 +441,21 @@ export class InternalCollectionWorkflowOrchestrator {
       };
     }
 
-    const masterWalletNo = buildCryptoSystemWalletNo(
-      'MASTER',
-      wallet.asset.code,
-      wallet.asset.network,
-    );
     const masterWallet = await (this.prisma as any).wallet.findFirst({
       where: {
-        walletNo: masterWalletNo,
-        ownerType: 'CUSTOMER',
-        ownerId: null,
+        walletRole: WalletRole.C_MAIN,
         assetId: wallet.assetId,
+        ownerType: 'PLATFORM',
         status: 'ACTIVE',
       },
+      orderBy: { createdAt: 'asc' },
     });
 
     if (!masterWallet) {
       return {
         ...baseResult,
         action: 'FAILED',
-        reason: `Master wallet ${masterWalletNo} not found`,
+        reason: `C_MAIN wallet not found for asset ${wallet.assetId}`,
       };
     }
 
@@ -620,18 +628,14 @@ export class InternalCollectionWorkflowOrchestrator {
           continue;
         }
 
-        const masterWalletNo = buildCryptoSystemWalletNo(
-          'MASTER',
-          deposit.asset.code,
-          deposit.asset.network,
-        );
         const masterWallet = await (this.prisma as any).wallet.findFirst({
           where: {
-            walletNo: masterWalletNo,
-            ownerType: 'CUSTOMER',
-            ownerId: null,
+            walletRole: WalletRole.C_MAIN,
             assetId: deposit.assetId,
+            ownerType: 'PLATFORM',
+            status: 'ACTIVE',
           },
+          orderBy: { createdAt: 'asc' },
         });
 
         if (!masterWallet) {
@@ -640,10 +644,10 @@ export class InternalCollectionWorkflowOrchestrator {
             depositId: deposit.id,
             depositNo: deposit.depositNo,
             action: 'SKIPPED',
-            reason: `Master wallet ${masterWalletNo} not found`,
+            reason: `C_MAIN wallet not found for asset ${deposit.assetId}`,
           });
           this.logger.warn(
-            `Skip internal collection for deposit ${deposit.depositNo}: master wallet ${masterWalletNo} not found`,
+            `Skip internal collection for deposit ${deposit.depositNo}: C_MAIN wallet not found`,
           );
           continue;
         }

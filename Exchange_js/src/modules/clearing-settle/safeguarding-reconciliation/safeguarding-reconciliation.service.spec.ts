@@ -20,7 +20,7 @@ describe('SafeguardingReconciliationService', () => {
     ownerNo: 'CU260001',
     type: 'CRYPTO_ADDRESS',
     direction: 'INBOUND',
-    walletRole: 'DEPOSIT',
+    walletRole: 'C_DEP',
     assetId: 'asset-btc',
     status: 'ACTIVE',
     address: '0xabc',
@@ -96,7 +96,7 @@ describe('SafeguardingReconciliationService', () => {
     assetId: 'asset-btc',
     assetCode: 'BTC',
     warningType: 'DEPOSIT_COLLECTION_OVER_AMOUNT',
-    poolRole: 'DEPOSIT',
+    poolRole: 'C_DEP',
     walletId: 'wallet-deposit',
     accountRef: null,
     observedValue: new Prisma.Decimal('2'),
@@ -223,7 +223,7 @@ describe('SafeguardingReconciliationService', () => {
       buildWallet({
         id: 'wallet-deposit',
         walletNo: 'WA-DEP-BTC-CU1',
-        walletRole: 'DEPOSIT',
+        walletRole: 'C_DEP',
         direction: 'INBOUND',
         ownerType: 'CUSTOMER',
         ownerId: 'customer-1',
@@ -232,7 +232,7 @@ describe('SafeguardingReconciliationService', () => {
       buildWallet({
         id: 'wallet-master',
         walletNo: 'WA-MST-BTC-NA',
-        walletRole: 'MASTER',
+        walletRole: 'C_MAIN',
         direction: 'BIDIRECTIONAL',
         ownerType: 'CUSTOMER',
         ownerId: null,
@@ -257,7 +257,7 @@ describe('SafeguardingReconciliationService', () => {
       {
         id: 'policy-1',
         assetId: 'asset-btc',
-        poolRole: 'DEPOSIT',
+        poolRole: 'C_DEP',
         collectionAmountThreshold: new Prisma.Decimal('1'),
         collectionMaxAgeMinutes: 60,
         targetMinBalance: null,
@@ -306,7 +306,7 @@ describe('SafeguardingReconciliationService', () => {
       buildWallet({
         id: 'wallet-master',
         walletNo: 'WA-MST-BTC-NA',
-        walletRole: 'MASTER',
+        walletRole: 'C_MAIN',
         direction: 'BIDIRECTIONAL',
         ownerType: 'CUSTOMER',
         ownerId: null,
@@ -361,7 +361,7 @@ describe('SafeguardingReconciliationService', () => {
       buildWallet({
         id: 'wallet-bank',
         walletNo: 'WA-CBK-AED-NA',
-        walletRole: 'CUST_BANK',
+        walletRole: 'C_CMA',
         type: 'FIAT_BANK',
         direction: 'BIDIRECTIONAL',
         assetId: 'asset-aed',
@@ -435,7 +435,7 @@ describe('SafeguardingReconciliationService', () => {
       buildWallet({
         id: 'wallet-bank',
         walletNo: 'WA-CBK-AED-NA',
-        walletRole: 'CUST_BANK',
+        walletRole: 'C_CMA',
         type: 'FIAT_BANK',
         direction: 'BIDIRECTIONAL',
         assetId: 'asset-aed',
@@ -510,7 +510,7 @@ describe('SafeguardingReconciliationService', () => {
       buildWallet({
         id: 'wallet-bank',
         walletNo: 'WA-CBK-AED-NA',
-        walletRole: 'CUST_BANK',
+        walletRole: 'C_CMA',
         type: 'FIAT_BANK',
         direction: 'BIDIRECTIONAL',
         assetId: 'asset-aed',

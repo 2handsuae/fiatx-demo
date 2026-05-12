@@ -8,8 +8,9 @@ import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import {
   classifyWalletSurface,
-  isProtectedPoolWalletRole,
+  isProtectedSystemWalletRole,
 } from '../wallets/system-wallet.util';
+import { WalletRole } from '../wallets/dto/wallet.dto';
 import { ReimbursementObligationsService } from '../reimbursement-obligations/reimbursement-obligations.service';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
@@ -206,10 +207,10 @@ export class FeeOccurrencesService {
   }) {
     const explicitRole = String(input.poolRole || '').trim().toUpperCase();
     if (
-      explicitRole === 'DEPOSIT' ||
-      explicitRole === 'MASTER' ||
-      explicitRole === 'PAYOUT' ||
-      explicitRole === 'CUST_BANK'
+      explicitRole === WalletRole.C_DEP ||
+      explicitRole === WalletRole.C_MAIN ||
+      explicitRole === WalletRole.C_OUT ||
+      explicitRole === WalletRole.C_CMA
     ) {
       return {
         reimbursementImpact: 'SAFEGUARDED_POOL',
@@ -219,7 +220,7 @@ export class FeeOccurrencesService {
 
     const wallet = input.sourceWallet;
     const walletRole = String(wallet?.walletRole || '').trim().toUpperCase();
-    if (walletRole === 'MASTER' || walletRole === 'PAYOUT' || walletRole === 'CUST_BANK') {
+    if (walletRole === WalletRole.C_MAIN || walletRole === WalletRole.C_OUT || walletRole === WalletRole.C_CMA) {
       return {
         reimbursementImpact: 'SAFEGUARDED_POOL',
         poolRole: walletRole,
@@ -229,13 +230,13 @@ export class FeeOccurrencesService {
     if (wallet && classifyWalletSurface(wallet) === 'CUSTOMER_DEPOSIT') {
       return {
         reimbursementImpact: 'SAFEGUARDED_POOL',
-        poolRole: 'DEPOSIT',
+        poolRole: WalletRole.C_DEP,
       };
     }
 
     return {
       reimbursementImpact: 'NONE',
-      poolRole: explicitRole || (isProtectedPoolWalletRole(walletRole) ? walletRole : null),
+      poolRole: explicitRole || (isProtectedSystemWalletRole(walletRole) ? walletRole : null),
     };
   }
 

@@ -17,10 +17,7 @@ import {
   PayoutType,
   PayoutAction,
 } from '../modules/asset-treasury/payouts/dto/payout.dto';
-import {
-  buildCryptoSystemWalletNo,
-  buildFiatPoolWalletNo,
-} from '../modules/asset-treasury/wallets/system-wallet.util';
+import { WalletRole } from '../modules/asset-treasury/wallets/dto/wallet.dto';
 import { AuditLogsService } from '../modules/audit-logging/audit-logs.service';
 import {
   AuditActions,
@@ -1045,20 +1042,17 @@ export class WithdrawWorkflowOrchestrator {
       );
     }
 
-    const walletNo =
-      suffix === 'CRYPTO'
-        ? buildCryptoSystemWalletNo('PAYOUT', asset.code, asset.network)
-        : buildFiatPoolWalletNo('CUST_BANK', asset.code);
-    const ownerType = 'CUSTOMER';
+    const walletRole =
+      suffix === 'CRYPTO' ? WalletRole.C_OUT : WalletRole.C_CMA;
 
     const sourceWallet = (await tx.wallet.findFirst({
       where: {
-        walletNo,
-        ownerType,
-        ownerId: null,
+        walletRole,
         assetId: withdrawal.assetId,
+        ownerType: 'PLATFORM',
         status: 'ACTIVE',
       },
+      orderBy: { createdAt: 'asc' },
       select: {
         id: true,
         walletNo: true,
@@ -1069,7 +1063,7 @@ export class WithdrawWorkflowOrchestrator {
 
     if (!sourceWallet) {
       throw new BadRequestException(
-        `Source wallet ${walletNo} not found for withdrawal ${withdrawal.id}`,
+        `Source wallet with role ${walletRole} not found for withdrawal ${withdrawal.id}`,
       );
     }
 
@@ -1077,7 +1071,7 @@ export class WithdrawWorkflowOrchestrator {
       where: { id: withdrawal.id },
       data: {
         fromWalletId: sourceWallet.id,
-        fromWalletNo: sourceWallet.walletNo ?? walletNo,
+        fromWalletNo: sourceWallet.walletNo ?? null,
         fromAddress: sourceWallet.address ?? null,
         fromIban: sourceWallet.iban ?? null,
       },

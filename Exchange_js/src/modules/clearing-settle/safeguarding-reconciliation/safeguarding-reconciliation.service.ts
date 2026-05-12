@@ -9,7 +9,6 @@ import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import {
   classifyWalletSurface,
-  isProtectedPoolWalletRole,
 } from '../../asset-treasury/wallets/system-wallet.util';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
@@ -1531,7 +1530,7 @@ export class SafeguardingReconciliationService {
       throw new BadRequestException('Wallet asset does not match statement asset');
     }
     if (String(wallet.walletRole || '').toUpperCase() !== SafeguardingPoolRoles.CUST_BANK) {
-      throw new BadRequestException('Only CUST_BANK wallet can accept fiat statements');
+      throw new BadRequestException('Only C_CMA wallet can accept fiat statements');
     }
     if (
       String(wallet.regulatoryEnablementStatus || '')
@@ -1539,7 +1538,7 @@ export class SafeguardingReconciliationService {
         .toUpperCase() !== 'EFFECTIVE'
     ) {
       throw new BadRequestException(
-        'CUST_BANK wallet must be regulator-enabled before statement import',
+        'C_CMA wallet must be regulator-enabled before statement import',
       );
     }
 

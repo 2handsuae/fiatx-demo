@@ -6,10 +6,7 @@ import { ReimbursementObligationsService } from '../../asset-treasury/reimbursem
 import { OutstandingsService } from '../outstandings/outstandings.service';
 import { ApprovalsService } from '../../governance/approvals/approvals.service';
 import { ApprovalActionTypes } from '../../governance/approvals/constants/approval.constants';
-import {
-  buildCryptoSystemWalletNo,
-  buildFiatPoolWalletNo,
-} from '../../asset-treasury/wallets/system-wallet.util';
+import { WalletRole as WalletRoleEnum } from '../../asset-treasury/wallets/dto/wallet.dto';
 import {
   CreatePoolSettlementBatchDto,
   PoolSettlementBatchQueryDto,
@@ -18,7 +15,7 @@ import {
 
 type TxClient = Prisma.TransactionClient;
 type SourceFamily = 'OUTSTANDING' | 'REIMBURSEMENT_OBLIGATION';
-type WalletRole = 'MASTER' | 'LIQ' | 'CUST_BANK' | 'LIQ_BANK';
+type SettlementWalletRole = WalletRoleEnum;
 type NetDirection = 'A_TO_B' | 'B_TO_A';
 
 interface NormalizedSource {
@@ -186,7 +183,7 @@ export class PoolSettlementBatchesService {
     walletNo?: string | null;
     regulatoryEnablementStatus?: string | null;
   }) {
-    if (String(wallet.walletRole || '').trim().toUpperCase() !== 'CUST_BANK') {
+    if (String(wallet.walletRole || '').trim().toUpperCase() !== WalletRoleEnum.C_CMA) {
       return;
     }
 
@@ -196,7 +193,7 @@ export class PoolSettlementBatchesService {
         .toUpperCase() !== 'EFFECTIVE'
     ) {
       throw new BadRequestException(
-        `CUST_BANK wallet ${wallet.walletNo || 'UNKNOWN'} is not regulator-enabled`,
+        `C_CMA wallet ${wallet.walletNo || 'UNKNOWN'} is not regulator-enabled`,
       );
     }
   }
@@ -210,18 +207,18 @@ export class PoolSettlementBatchesService {
   }
 
   private resolveOutstandingRoute(assetType: string, direction: string): {
-    fromRole: WalletRole;
-    toRole: WalletRole;
+    fromRole: SettlementWalletRole;
+    toRole: SettlementWalletRole;
   } {
     const normalizedAssetType = String(assetType || '').trim().toUpperCase();
     const normalizedDirection = String(direction || '').trim().toUpperCase();
 
     if (normalizedAssetType === 'FIAT') {
       if (normalizedDirection === 'IN') {
-        return { fromRole: 'LIQ_BANK', toRole: 'CUST_BANK' };
+        return { fromRole: WalletRoleEnum.F_LIQ, toRole: WalletRoleEnum.C_CMA };
       }
       if (normalizedDirection === 'OUT') {
-        return { fromRole: 'CUST_BANK', toRole: 'LIQ_BANK' };
+        return { fromRole: WalletRoleEnum.C_CMA, toRole: WalletRoleEnum.F_LIQ };
       }
       throw new BadRequestException(
         `Unsupported outstanding direction ${direction} for FIAT asset`,
@@ -230,10 +227,10 @@ export class PoolSettlementBatchesService {
 
     if (normalizedAssetType === 'CRYPTO') {
       if (normalizedDirection === 'IN') {
-        return { fromRole: 'LIQ', toRole: 'MASTER' };
+        return { fromRole: WalletRoleEnum.F_LIQ, toRole: WalletRoleEnum.C_MAIN };
       }
       if (normalizedDirection === 'OUT') {
-        return { fromRole: 'MASTER', toRole: 'LIQ' };
+        return { fromRole: WalletRoleEnum.C_MAIN, toRole: WalletRoleEnum.F_LIQ };
       }
       throw new BadRequestException(
         `Unsupported outstanding direction ${direction} for CRYPTO asset`,
@@ -246,17 +243,17 @@ export class PoolSettlementBatchesService {
   }
 
   private resolveReimbursementRoute(assetType: string): {
-    fromRole: WalletRole;
-    toRole: WalletRole;
+    fromRole: SettlementWalletRole;
+    toRole: SettlementWalletRole;
   } {
     const normalizedAssetType = String(assetType || '').trim().toUpperCase();
 
     if (normalizedAssetType === 'FIAT') {
-      return { fromRole: 'LIQ_BANK', toRole: 'CUST_BANK' };
+      return { fromRole: WalletRoleEnum.F_LIQ, toRole: WalletRoleEnum.C_CMA };
     }
 
     if (normalizedAssetType === 'CRYPTO') {
-      return { fromRole: 'LIQ', toRole: 'MASTER' };
+      return { fromRole: WalletRoleEnum.F_LIQ, toRole: WalletRoleEnum.C_MAIN };
     }
 
     throw new BadRequestException(
@@ -271,58 +268,27 @@ export class PoolSettlementBatchesService {
       assetCode: string;
       assetType: string;
       assetNetwork?: string | null;
-      walletRole: WalletRole;
+      walletRole: SettlementWalletRole;
     },
   ) {
-    const normalizedAssetType = String(input.assetType || '').trim().toUpperCase();
-    let deterministicWalletNo: string;
-
-    if (normalizedAssetType === 'CRYPTO') {
-      deterministicWalletNo = buildCryptoSystemWalletNo(
-        input.walletRole as 'MASTER' | 'PAYOUT' | 'LIQ',
-        input.assetCode,
-        input.assetNetwork || 'NA',
-      );
-    } else if (normalizedAssetType === 'FIAT') {
-      deterministicWalletNo = buildFiatPoolWalletNo(
-        input.walletRole as 'CUST_BANK' | 'LIQ_BANK',
-        input.assetCode,
-      );
-    } else {
-      throw new BadRequestException(
-        `Unsupported asset type for wallet resolution: ${input.assetType}`,
-      );
-    }
-
-    const byWalletNo = await (tx as any).wallet.findFirst({
+    const wallet = await (tx as any).wallet.findFirst({
       where: {
-        assetId: input.assetId,
-        status: 'ACTIVE',
-        walletNo: deterministicWalletNo,
-      },
-    });
-    if (byWalletNo) {
-      this.ensureRegulatorEnabledCustBankWallet(byWalletNo);
-      return byWalletNo;
-    }
-
-    const byRole = await (tx as any).wallet.findFirst({
-      where: {
-        assetId: input.assetId,
-        status: 'ACTIVE',
         walletRole: input.walletRole,
+        assetId: input.assetId,
+        ownerType: 'PLATFORM',
+        status: 'ACTIVE',
       },
       orderBy: { createdAt: 'asc' },
     });
 
-    if (!byRole) {
+    if (!wallet) {
       throw new BadRequestException(
         `No ACTIVE ${input.walletRole} wallet found for asset ${input.assetCode}`,
       );
     }
 
-    this.ensureRegulatorEnabledCustBankWallet(byRole);
-    return byRole;
+    this.ensureRegulatorEnabledCustBankWallet(wallet);
+    return wallet;
   }
 
   private async normalizeOutstandingSource(
