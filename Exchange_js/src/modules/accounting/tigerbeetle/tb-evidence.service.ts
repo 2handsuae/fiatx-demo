@@ -97,6 +97,7 @@ export class TbEvidenceService {
     sourceType?: string;
     assetCode?: string;
     eventCode?: string;
+    transferType?: string;
     actorType?: string;
     actorId?: string;
     skip?: number;
@@ -106,10 +107,11 @@ export class TbEvidenceService {
     if (filters.sourceType) where.sourceType = filters.sourceType;
     if (filters.assetCode) where.assetCode = filters.assetCode;
     if (filters.eventCode) where.eventCode = filters.eventCode;
+    if (filters.transferType) where.transferType = filters.transferType;
     if (filters.actorType) where.actorType = filters.actorType;
     if (filters.actorId) where.actorId = filters.actorId;
 
-    const [data, total] = await Promise.all([
+    const [items, total] = await Promise.all([
       (this.prisma as any).tbTransferEvidence.findMany({
         where,
         orderBy: { createdAt: 'desc' },
@@ -119,6 +121,27 @@ export class TbEvidenceService {
       (this.prisma as any).tbTransferEvidence.count({ where }),
     ]);
 
-    return { data, total };
+    return { items, total };
+  }
+
+  async findBacklog(filters: {
+    status?: string;
+    skip?: number;
+    take?: number;
+  }) {
+    const where: any = {};
+    if (filters.status) where.status = filters.status;
+
+    const [items, total] = await Promise.all([
+      (this.prisma as any).tbEvidenceBacklog.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: filters.skip ?? 0,
+        take: filters.take ?? 50,
+      }),
+      (this.prisma as any).tbEvidenceBacklog.count({ where }),
+    ]);
+
+    return { items, total };
   }
 }
