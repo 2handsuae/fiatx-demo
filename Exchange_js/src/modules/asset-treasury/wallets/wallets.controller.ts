@@ -11,6 +11,7 @@ import {
   Request,
 } from '@nestjs/common';
 import { WalletsService } from './wallets.service';
+import { WalletQueryService } from './wallet-query.service';
 import {
   CreateWalletDto,
   UpdateWalletStatusDto,
@@ -35,7 +36,10 @@ import { Prisma } from '@prisma/client';
 @Controller('wallets')
 @UseGuards(AuthGuard('jwt'), AdminPermissionGuard)
 export class WalletsController {
-  constructor(private readonly service: WalletsService) {}
+  constructor(
+    private readonly service: WalletsService,
+    private readonly queryService: WalletQueryService,
+  ) {}
 
   private ensureSupportedToken(req: any) {
     if (req.user?.type !== 'ADMIN' && req.user?.type !== 'CUSTOMER') {
@@ -72,19 +76,20 @@ export class WalletsController {
       }
 
       if (payload.direction === WalletDirection.INBOUND) {
-        if (payload.walletRole && payload.walletRole !== WalletRole.DEPOSIT) {
+        if (payload.walletRole && payload.walletRole !== WalletRole.C_DEP && payload.walletRole !== WalletRole.C_VIBAN) {
           throw new ForbiddenException(
             'Customer inbound wallets must use DEPOSIT role',
           );
         }
-        payload.walletRole = WalletRole.DEPOSIT;
+        // Role resolved by service based on asset type (C_DEP or C_VIBAN)
+        payload.walletRole = undefined;
       } else if (payload.direction === WalletDirection.OUTBOUND) {
-        if (payload.walletRole && payload.walletRole !== WalletRole.GENERAL) {
+        if (payload.walletRole && payload.walletRole !== WalletRole.C_OUT) {
           throw new ForbiddenException(
             'Customer outbound wallets must use GENERAL role',
           );
         }
-        payload.walletRole = WalletRole.GENERAL;
+        payload.walletRole = WalletRole.C_OUT;
       } else {
         throw new ForbiddenException(
           'Customer can only create INBOUND deposit wallets or OUTBOUND payout targets',
@@ -143,7 +148,7 @@ export class WalletsController {
     if (direction) where.direction = direction;
     if (walletRole) where.walletRole = walletRole;
 
-    return this.service.findAll({
+    return this.queryService.findAll({
       skip: skip ? Number(skip) : 0,
       take: take ? Number(take) : 20,
       where,
@@ -156,7 +161,7 @@ export class WalletsController {
   async findOne(@Request() req: any, @Param('id') id: string) {
     this.ensureSupportedToken(req);
 
-    const wallet = await this.service.findOne(id);
+    const wallet = await this.queryService.findOne(id);
     if (
       req.user.type === 'CUSTOMER' &&
       (wallet.ownerType !== OwnerType.CUSTOMER || wallet.ownerId !== req.user.userId)
@@ -172,7 +177,7 @@ export class WalletsController {
   async findBalance(@Request() req: any, @Param('id') id: string) {
     this.ensureSupportedToken(req);
 
-    const wallet = await this.service.findOne(id);
+    const wallet = await this.queryService.findOne(id);
     if (
       req.user.type === 'CUSTOMER' &&
       (wallet.ownerType !== OwnerType.CUSTOMER || wallet.ownerId !== req.user.userId)
@@ -180,7 +185,7 @@ export class WalletsController {
       throw new ForbiddenException('Customer can only access own wallets');
     }
 
-    return this.service.findBalance(id);
+    return this.queryService.findBalance(id);
   }
 
   @Patch(':id/status')

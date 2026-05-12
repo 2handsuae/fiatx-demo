@@ -2,6 +2,7 @@ import { ForbiddenException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { WalletsController } from './wallets.controller';
 import { WalletsService } from './wallets.service';
+import { WalletQueryService } from './wallet-query.service';
 import {
   CreateWalletDto,
   OwnerType,
@@ -15,9 +16,12 @@ describe('WalletsController', () => {
   let controller: WalletsController;
   const serviceMock = {
     create: jest.fn(),
+    changeStatus: jest.fn(),
+  };
+  const queryServiceMock = {
     findAll: jest.fn(),
     findOne: jest.fn(),
-    changeStatus: jest.fn(),
+    findBalance: jest.fn(),
   };
 
   const customerReq = { user: { type: 'CUSTOMER', userId: 'cust-1' } };
@@ -34,7 +38,10 @@ describe('WalletsController', () => {
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [WalletsController],
-      providers: [{ provide: WalletsService, useValue: serviceMock }],
+      providers: [
+        { provide: WalletsService, useValue: serviceMock },
+        { provide: WalletQueryService, useValue: queryServiceMock },
+      ],
     }).compile();
 
     controller = module.get<WalletsController>(WalletsController);
@@ -69,19 +76,19 @@ describe('WalletsController', () => {
     ).toThrow(ForbiddenException);
   });
 
-  it('should normalize CUSTOMER inbound create to DEPOSIT role', async () => {
+  it('should normalize CUSTOMER inbound create to undefined role (service resolves)', async () => {
     serviceMock.create.mockResolvedValue({ id: 'wallet-1' });
 
     await controller.create(customerReq, createDto);
 
     expect(serviceMock.create).toHaveBeenCalledWith(
       expect.objectContaining({
-        walletRole: WalletRole.DEPOSIT,
+        walletRole: undefined,
       }),
     );
   });
 
-  it('should normalize CUSTOMER outbound create to GENERAL role', async () => {
+  it('should normalize CUSTOMER outbound create to C_OUT role', async () => {
     serviceMock.create.mockResolvedValue({ id: 'wallet-1' });
 
     await controller.create(customerReq, {
@@ -91,13 +98,13 @@ describe('WalletsController', () => {
 
     expect(serviceMock.create).toHaveBeenCalledWith(
       expect.objectContaining({
-        walletRole: WalletRole.GENERAL,
+        walletRole: WalletRole.C_OUT,
       }),
     );
   });
 
   it('should force CUSTOMER list query to self owner', async () => {
-    serviceMock.findAll.mockResolvedValue({ items: [], total: 0 });
+    queryServiceMock.findAll.mockResolvedValue({ items: [], total: 0 });
 
     await controller.findAll(
       customerReq,
@@ -110,7 +117,7 @@ describe('WalletsController', () => {
       undefined,
     );
 
-    expect(serviceMock.findAll).toHaveBeenCalledWith(
+    expect(queryServiceMock.findAll).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
           ownerType: OwnerType.CUSTOMER,
@@ -176,7 +183,7 @@ describe('WalletsController', () => {
   });
 
   it('should reject CUSTOMER reading wallet not owned by self', async () => {
-    serviceMock.findOne.mockResolvedValue({
+    queryServiceMock.findOne.mockResolvedValue({
       id: 'wallet-2',
       ownerType: OwnerType.CUSTOMER,
       ownerId: 'cust-2',
