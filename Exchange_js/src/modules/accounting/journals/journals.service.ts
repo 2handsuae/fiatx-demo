@@ -136,8 +136,8 @@ export class JournalsService {
   }
 
   private async projectWalletBalances(
-    client: Prisma.TransactionClient,
-    lines: Array<{
+    _client: Prisma.TransactionClient,
+    _lines: Array<{
       id: string;
       walletId?: string | null;
       assetId?: string | null;
@@ -145,170 +145,8 @@ export class JournalsService {
       drCr: string;
       amount: Prisma.Decimal;
     }>,
-  ) {
-    const candidates = lines.filter(
-      (line) => line.walletId && line.assetId && this.resolveWalletBalanceBucket(line.accountCode),
-    );
-    if (!candidates.length) return;
-
-    const existingEntries = await (client as any).walletBalanceEntry.findMany({
-      where: { journalLineId: { in: candidates.map((line) => line.id) } },
-      select: { journalLineId: true },
-    });
-    const projectedLineIds = new Set(
-      existingEntries.map((entry: { journalLineId: string }) => entry.journalLineId),
-    );
-
-    const pending = candidates.filter(
-      (line) => !projectedLineIds.has(line.id) && line.walletId && line.assetId,
-    );
-    if (!pending.length) return;
-
-    const balanceDeltaByBucket = new Map<
-      string,
-      {
-        walletId: string;
-        assetId: string;
-        bucket: 'AVAILABLE' | 'RESTRICTED' | 'IN_TRANSIT';
-        delta: Prisma.Decimal;
-      }
-    >();
-    for (const line of pending) {
-      if (!line.walletId || !line.assetId) continue;
-      const bucket = this.resolveWalletBalanceBucket(line.accountCode);
-      if (!bucket) continue;
-
-      const direction = line.drCr === 'DR' ? new Prisma.Decimal(1) : new Prisma.Decimal(-1);
-      const delta = this.parseDecimal(line.amount).mul(direction);
-      const bucketKey = `${line.walletId}::${line.assetId}::${bucket}`;
-
-      const existing = balanceDeltaByBucket.get(bucketKey);
-      if (existing) {
-        existing.delta = existing.delta.plus(delta);
-      } else {
-        balanceDeltaByBucket.set(bucketKey, {
-          walletId: line.walletId,
-          assetId: line.assetId,
-          bucket,
-          delta,
-        });
-      }
-    }
-
-    if (balanceDeltaByBucket.size > 0) {
-      const walletIds = Array.from(
-        new Set(
-          Array.from(balanceDeltaByBucket.values()).map((item) => item.walletId),
-        ),
-      );
-      const assetIds = Array.from(
-        new Set(
-          Array.from(balanceDeltaByBucket.values()).map((item) => item.assetId),
-        ),
-      );
-
-      const snapshots = await (client as any).walletBalanceSnapshot.findMany({
-        where: {
-          walletId: { in: walletIds },
-          assetId: { in: assetIds },
-        },
-        select: {
-          walletId: true,
-          assetId: true,
-          availableBalance: true,
-          restrictedBalance: true,
-          inTransitBalance: true,
-        },
-      });
-      const snapshotByKey = new Map<
-        string,
-        {
-          availableBalance: Prisma.Decimal | string | number;
-          restrictedBalance: Prisma.Decimal | string | number;
-          inTransitBalance: Prisma.Decimal | string | number;
-        }
-      >(
-        snapshots.map((snapshot: any) => [
-          `${snapshot.walletId}::${snapshot.assetId}`,
-          {
-            availableBalance: snapshot.availableBalance,
-            restrictedBalance: snapshot.restrictedBalance,
-            inTransitBalance: snapshot.inTransitBalance,
-          },
-        ]),
-      );
-
-      for (const deltaItem of balanceDeltaByBucket.values()) {
-        const snapshot = snapshotByKey.get(
-          `${deltaItem.walletId}::${deltaItem.assetId}`,
-        );
-        const current =
-          deltaItem.bucket === 'AVAILABLE'
-            ? this.parseDecimal(snapshot?.availableBalance)
-            : deltaItem.bucket === 'RESTRICTED'
-              ? this.parseDecimal(snapshot?.restrictedBalance)
-              : this.parseDecimal(snapshot?.inTransitBalance);
-        const next = current.plus(deltaItem.delta);
-        if (next.lt(0)) {
-          throw new BadRequestException({
-            code: 'INSUFFICIENT_WALLET_BALANCE',
-            message: `Insufficient ${deltaItem.bucket.toLowerCase()} balance for wallet ${deltaItem.walletId} asset ${deltaItem.assetId}`,
-          });
-        }
-      }
-    }
-
-    for (const line of pending) {
-      if (!line.walletId || !line.assetId) continue;
-      const bucket = this.resolveWalletBalanceBucket(line.accountCode);
-      if (!bucket) continue;
-
-      const direction = line.drCr === 'DR' ? new Prisma.Decimal(1) : new Prisma.Decimal(-1);
-      const amount = this.parseDecimal(line.amount);
-      const delta = amount.mul(direction);
-      const deltaAvailable = bucket === 'AVAILABLE' ? delta : new Prisma.Decimal(0);
-      const deltaRestricted = bucket === 'RESTRICTED' ? delta : new Prisma.Decimal(0);
-      const deltaInTransit = bucket === 'IN_TRANSIT' ? delta : new Prisma.Decimal(0);
-
-      await (client as any).walletBalanceEntry.create({
-        data: {
-          journalLineId: line.id,
-          walletId: line.walletId,
-          assetId: line.assetId,
-          accountCode: line.accountCode,
-          drCr: line.drCr,
-          amount,
-          deltaAvailable,
-          deltaRestricted,
-          deltaInTransit,
-        },
-      });
-
-      await (client as any).walletBalanceSnapshot.upsert({
-        where: {
-          walletId_assetId: {
-            walletId: line.walletId,
-            assetId: line.assetId,
-          },
-        },
-        update: {
-          availableBalance: { increment: deltaAvailable },
-          restrictedBalance: { increment: deltaRestricted },
-          inTransitBalance: { increment: deltaInTransit },
-          totalBalance: { increment: delta },
-          lastJournalLineId: line.id,
-        },
-        create: {
-          walletId: line.walletId,
-          assetId: line.assetId,
-          availableBalance: deltaAvailable,
-          restrictedBalance: deltaRestricted,
-          inTransitBalance: deltaInTransit,
-          totalBalance: delta,
-          lastJournalLineId: line.id,
-        },
-      });
-    }
+  ): Promise<any> {
+    throw new Error('DEPRECATED: migrate to TB — WalletBalanceEntry/WalletBalanceSnapshot projection');
   }
 
   private toCanonicalSourcePath(source: string): string {
@@ -438,294 +276,26 @@ export class JournalsService {
   }
 
   async getCustomerLiabilityBalance(
-    params: {
+    _params: {
       ownerId: string;
       assetId: string;
       ownerType?: string;
     },
-    tx?: Prisma.TransactionClient,
-  ) {
-    const { ownerId, assetId, ownerType = 'CUSTOMER' } = params;
-    const client = tx || this.prisma;
-
-    const [creditCr, creditDr, heldCr, heldDr] = await Promise.all([
-      (client as any).journalLine.aggregate({
-        _sum: { amount: true },
-        where: {
-          accountCode: 'L.CLIENT_CREDIT',
-          ownerType,
-          ownerId,
-          assetId,
-          drCr: 'CR',
-        },
-      }),
-      (client as any).journalLine.aggregate({
-        _sum: { amount: true },
-        where: {
-          accountCode: 'L.CLIENT_CREDIT',
-          ownerType,
-          ownerId,
-          assetId,
-          drCr: 'DR',
-        },
-      }),
-      (client as any).journalLine.aggregate({
-        _sum: { amount: true },
-        where: {
-          accountCode: 'L.CLIENT_HELD',
-          ownerType,
-          ownerId,
-          assetId,
-          drCr: 'CR',
-        },
-      }),
-      (client as any).journalLine.aggregate({
-        _sum: { amount: true },
-        where: {
-          accountCode: 'L.CLIENT_HELD',
-          ownerType,
-          ownerId,
-          assetId,
-          drCr: 'DR',
-        },
-      }),
-    ]);
-
-    const creditBalance = this.parseDecimal(creditCr?._sum?.amount).minus(
-      this.parseDecimal(creditDr?._sum?.amount),
-    );
-    const heldBalance = this.parseDecimal(heldCr?._sum?.amount).minus(
-      this.parseDecimal(heldDr?._sum?.amount),
-    );
-    const availableBalance = creditBalance;
-
-    return {
-      ownerId,
-      ownerType,
-      assetId,
-      availableBalance,
-      creditBalance,
-      heldBalance,
-    };
+    _tx?: Prisma.TransactionClient,
+  ): Promise<any> {
+    throw new Error('DEPRECATED: migrate to TB — getCustomerLiabilityBalance via JournalLine aggregation');
   }
 
-  async createJournal(params: {
-    sourceType: string;
-    sourceId: string;
-    eventCode: string;
-    context: any;
-  }, tx?: Prisma.TransactionClient) {
-    const { sourceType, sourceId, eventCode, context } = params;
-    const client = tx || this.prisma;
-
-    // Idempotency check
-    const existing = await (client as any).journal.findFirst({
-      where: { sourceType, sourceId, eventCode },
-      include: { lines: true },
-    });
-
-    if (existing) {
-      this.logger.log(
-        `Journal entry already exists for ${sourceType} ${sourceId} event ${eventCode}`,
-      );
-      return existing;
-    }
-
-    // Find Template
-    const template = await (client as any).journalHeaderTemplate.findFirst(
-      {
-        where: { eventCode, status: 'ACTIVE' },
-        include: { journalLineTemplates: true },
-      },
-    );
-
-    if (!template) {
-      this.logger.error(
-        `No active journal template found for event ${eventCode}. Please check JournalHeaderTemplate table.`,
-      );
-      throw new NotFoundException(
-        `No active journal template found for event ${eventCode}`,
-      );
-    }
-
-    this.logger.log(
-      `Creating journal entry using template ${template.templateCode}`,
-    );
-
-    // Resolve Source No
-    let sourceNo = null;
-    try {
-      if (sourceType === 'DEPOSIT') {
-        sourceNo = context.src.depositNo;
-      } else if (sourceType === 'SWAP') {
-        const source = await (client as any).swapTransaction.findUnique({ where: { id: sourceId }, select: { swapNo: true } });
-        sourceNo = source?.swapNo;
-      } else if (sourceType === 'WITHDRAWAL' || sourceType === 'WITHDRAW') {
-        const source = await (client as any).withdrawTransaction.findUnique({ where: { id: sourceId }, select: { withdrawNo: true } });
-        sourceNo = source?.withdrawNo;
-      } else if (sourceType === 'PAYIN') {
-        const source = await (client as any).payin.findUnique({ where: { id: sourceId }, select: { payinNo: true } });
-        sourceNo = source?.payinNo;
-      } else if (sourceType === 'PAYOUT') {
-        const source = await (client as any).payout.findUnique({ where: { id: sourceId }, select: { payoutNo: true } });
-        sourceNo = source?.payoutNo;
-      } else if (sourceType === 'INTERNAL_TX') {
-        const source = await (client as any).internalTransaction.findUnique({
-          where: { id: sourceId },
-          select: { internalTxNo: true },
-        });
-        sourceNo = source?.internalTxNo;
-      } else if (sourceType === 'CLEARING') {
-        const source = await (client as any).clearing.findUnique({ where: { id: sourceId }, select: { clearingNo: true } });
-        sourceNo = source?.clearingNo;
-      }
-    } catch (e) {
-      // Ignore errors if source not found
-    }
-
-    const journalId = crypto.randomUUID();
-    const linesCreateInput: any[] = [];
-
-    for (const lineTemplate of template.journalLineTemplates) {
-      // 1. Resolve Amount
-      let amount = new Prisma.Decimal(0);
-      if (lineTemplate.amountSource === 'AMOUNT') {
-        amount = new Prisma.Decimal(context.src.amount || 0);
-      } else if (lineTemplate.amountSource === 'NET_AMOUNT') {
-        amount = new Prisma.Decimal(context.src.netAmount || 0);
-      } else if (lineTemplate.amountSource === 'FROM_AMOUNT') {
-        amount = new Prisma.Decimal(context.src.fromAmount || 0);
-      } else if (lineTemplate.amountSource === 'TO_AMOUNT') {
-        amount = new Prisma.Decimal(context.src.toAmount || 0);
-      } else if (lineTemplate.amountSource === 'FEE_AMOUNT') {
-        amount = new Prisma.Decimal(context.src.feeAmount || 0);
-      }
-
-      // 2. Resolve Asset
-      let assetId = context.src.assetId;
-      if (lineTemplate.assetSource === 'FROM_ASSET_ID') {
-        assetId = context.src.fromAssetId;
-      } else if (lineTemplate.assetSource === 'TO_ASSET_ID') {
-        assetId = context.src.toAssetId;
-      } else if (lineTemplate.assetSource === 'FEE_ASSET_ID') {
-        assetId = context.src.feeAssetId;
-      }
-
-      // 3. Resolve Identity
-      const ownerType =
-        this.resolveTemplateValue(lineTemplate.ownerTypeSource, context) ||
-        'PLATFORM';
-      const ownerId = this.resolveTemplateValue(
-        lineTemplate.ownerIdSource,
-        context,
-      );
-
-      // 4. Resolve FX & Reference
-      const fxRateVal = this.resolveTemplateValue(
-        lineTemplate.fxRateSource,
-        context,
-      );
-      const fxRate = fxRateVal ? new Prisma.Decimal(fxRateVal) : null;
-      const referenceId = this.resolveTemplateValue(
-        lineTemplate.referenceSource,
-        context,
-      );
-
-      // 5. Resolve Dimensions & Description
-      const dimensions = this.processTemplateString(
-        lineTemplate.dimensionsRule,
-        context,
-      );
-      const walletId = this.extractWalletIdFromDimensions(dimensions);
-      const description = this.processTemplateString(
-        lineTemplate.description || template.description,
-        context,
-      );
-
-      linesCreateInput.push({
-        id: `JEL_${crypto.randomUUID()}`,
-        journalId,
-        lineNo: lineTemplate.lineNo,
-        accountCode: lineTemplate.accountCode,
-        drCr: lineTemplate.drCr,
-        amount,
-        assetId,
-        fxRate,
-        referenceId,
-        ownerType,
-        ownerId,
-        walletId,
-        dimensions,
-        description,
-        journalLineTemplateId: lineTemplate.id,
-      });
-    }
-
-    await this.alignAssetLineOwnerTypeWithWallet(client, linesCreateInput);
-
-    this.assertJournalBalancedByAsset(
-      linesCreateInput.map((line) => ({
-        lineNo: line.lineNo,
-        drCr: line.drCr,
-        amount: this.parseDecimal(line.amount),
-        assetId: line.assetId,
-      })),
-      eventCode,
-    );
-    this.assertAssetLinesHaveWalletId(
-      sourceType,
-      eventCode,
-      linesCreateInput.map((line) => ({
-        lineNo: line.lineNo,
-        accountCode: line.accountCode,
-        walletId: line.walletId,
-      })),
-    );
-
-    const executeCreate = async (transactionClient: Prisma.TransactionClient) => {
-      try {
-        const createdJournal = await transactionClient.journal.create({
-          data: {
-            id: journalId,
-            journalNo: generateReferenceNo('JO'),
-            sourceType,
-            sourceId,
-            sourceNo,
-            eventCode,
-            postingStatus: 'POSTED',
-            baseAssetId: template.baseAssetId, // Use template's base asset
-            postedAt: new Date(),
-            description: this.processTemplateString(
-              template.description,
-              context,
-            ),
-            totalAmount: new Prisma.Decimal(context.src.amount || 0),
-            journalHeaderTemplateId: template.id,
-          },
-        });
-
-        if (linesCreateInput.length > 0) {
-          await transactionClient.journalLine.createMany({ data: linesCreateInput });
-          await this.projectWalletBalances(transactionClient, linesCreateInput);
-        }
-
-        return createdJournal;
-      } catch (error: any) {
-        this.logger.error(
-          `Failed to create journal entry for ${eventCode}: ${error.message}`,
-          error.stack,
-        );
-        throw error;
-      }
-    };
-
-    if (tx) {
-      return executeCreate(tx);
-    } else {
-      return this.prisma.$transaction(async (transactionClient: Prisma.TransactionClient) => {
-        return executeCreate(transactionClient);
-      });
-    }
+  async createJournal(
+    _params: {
+      sourceType: string;
+      sourceId: string;
+      eventCode: string;
+      context: any;
+    },
+    _tx?: Prisma.TransactionClient,
+  ): Promise<any> {
+    throw new Error('DEPRECATED: migrate to TB — createJournal writes JournalLine rows');
   }
 
   async triggerEvent(params: {
@@ -838,194 +408,38 @@ export class JournalsService {
     }, tx);
   }
 
-  async reverseJournal(params: {
-    sourceType: string;
-    sourceId: string;
-    reversalEventCode: string;
-    targetEventCode: string;
-    context: any;
-  }, tx?: Prisma.TransactionClient) {
-    const { sourceType, sourceId, reversalEventCode, targetEventCode, context } =
-      params;
-    const client = tx || this.prisma;
-
-    // 1. Idempotency check
-    const existing = await (client as any).journal.findFirst({
-      where: { sourceType, sourceId, eventCode: reversalEventCode },
-    });
-    if (existing) {
-      this.logger.log(
-        `Reversal journal already exists for ${sourceType} ${sourceId} event ${reversalEventCode}`,
-      );
-      return existing;
-    }
-
-    // 2. Find the original journal to reverse
-    const originalJournal = await (client as any).journal.findFirst({
-      where: { sourceType, sourceId, eventCode: targetEventCode },
-      include: { lines: true },
-    });
-
-    if (!originalJournal) {
-      this.logger.error(
-        `Cannot perform AUTO_REVERSAL: Original journal not found for ${sourceType} ${sourceId} event ${targetEventCode}`,
-      );
-      return null;
-    }
-
-    this.logger.log(
-      `Performing AUTO_REVERSAL of journal ${originalJournal.id} (Event: ${targetEventCode})`,
-    );
-
-    const reversalJournalId = crypto.randomUUID();
-    const reversalLines = originalJournal.lines.map((line: any) => ({
-      id: `JEL_${crypto.randomUUID()}`,
-      journalId: reversalJournalId,
-      lineNo: line.lineNo,
-      accountCode: line.accountCode,
-      drCr: line.drCr === 'DR' ? 'CR' : 'DR', // Mirror direction
-      amount: line.amount,
-      assetId: line.assetId,
-      fxRate: line.fxRate,
-      ownerType: line.ownerType,
-      ownerId: line.ownerId,
-      walletId: line.walletId ?? this.extractWalletIdFromDimensions(line.dimensions || '{}'),
-      dimensions: line.dimensions,
-      referenceId: line.referenceId,
-      description: `[REVERSAL] ${line.description}`,
-      journalLineTemplateId: line.journalLineTemplateId,
-    }));
-
-    const executeReverse = async (transactionClient: Prisma.TransactionClient) => {
-      const createdJournal = await transactionClient.journal.create({
-        data: {
-          id: reversalJournalId,
-          journalNo: generateReferenceNo('JO'),
-          sourceType,
-          sourceId,
-          eventCode: reversalEventCode,
-          postingStatus: 'POSTED',
-          baseAssetId: originalJournal.baseAssetId,
-          reversalOfJournalId: originalJournal.id,
-          postedAt: new Date(),
-          description: `[REVERSAL] ${originalJournal.description}`,
-          totalAmount: originalJournal.totalAmount,
-          journalHeaderTemplateId: originalJournal.journalHeaderTemplateId,
-        },
-      });
-
-      if (reversalLines.length > 0) {
-        await transactionClient.journalLine.createMany({ data: reversalLines });
-        await this.projectWalletBalances(transactionClient, reversalLines);
-      }
-
-      return createdJournal;
-    };
-
-    if (tx) {
-      return executeReverse(tx);
-    } else {
-      return this.prisma.$transaction(async (transactionClient: Prisma.TransactionClient) => {
-        return executeReverse(transactionClient);
-      });
-    }
+  async reverseJournal(
+    _params: {
+      sourceType: string;
+      sourceId: string;
+      reversalEventCode: string;
+      targetEventCode: string;
+      context: any;
+    },
+    _tx?: Prisma.TransactionClient,
+  ): Promise<any> {
+    throw new Error('DEPRECATED: migrate to TB — reverseJournal writes JournalLine rows');
   }
 
   async reverseAllBySource(
-    params: {
+    _params: {
       sourceType: string;
       sourceId: string;
       context: any;
     },
-    tx?: Prisma.TransactionClient,
-  ) {
-    const { sourceType, sourceId, context } = params;
-    const client = tx || this.prisma;
-
-    const originalJournals = await (client as any).journal.findMany({
-      where: {
-        sourceType,
-        sourceId,
-        reversalOfJournalId: null,
-      },
-      orderBy: { createdAt: 'asc' },
-    });
-    const originalJournalIds = originalJournals.map((journal: any) => journal.id);
-    const existingReversals = originalJournalIds.length
-      ? await (client as any).journal.findMany({
-          where: {
-            sourceType,
-            sourceId,
-            reversalOfJournalId: {
-              in: originalJournalIds,
-            },
-          },
-          select: {
-            reversalOfJournalId: true,
-          },
-        })
-      : [];
-    const reversedSourceIds = new Set(
-      existingReversals
-        .map((journal: { reversalOfJournalId?: string | null }) => journal.reversalOfJournalId)
-        .filter(
-          (value: string | null | undefined): value is string =>
-            typeof value === 'string' && value.length > 0,
-        ),
-    );
-
-    const reversals: any[] = [];
-    for (const journal of originalJournals) {
-      if (reversedSourceIds.has(journal.id)) {
-        continue;
-      }
-      const reversal = await this.reverseJournal(
-        {
-          sourceType,
-          sourceId,
-          reversalEventCode: `REV_${journal.eventCode}`,
-          targetEventCode: journal.eventCode,
-          context,
-        },
-        tx,
-      );
-      if (reversal) {
-        reversals.push(reversal);
-      }
-    }
-
-    return reversals;
+    _tx?: Prisma.TransactionClient,
+  ): Promise<any> {
+    throw new Error('DEPRECATED: migrate to TB — reverseAllBySource writes JournalLine rows');
   }
 
   async createDepositJournal(
-    depositId: string,
-    eventCode: string,
-    amount: string,
-    assetId: string,
-    ownerId: string,
-  ) {
-    const deposit = await (this.prisma as any).depositTransaction.findUnique({
-      where: { id: depositId },
-    });
-
-    const context = {
-      src: {
-        ownerId,
-        ownerType: deposit?.ownerType || 'CUSTOMER',
-        assetId,
-        depositId,
-        amount,
-        depositNo: deposit?.depositNo,
-        walletId: deposit?.toWalletId,
-      },
-    };
-
-    return this.createJournal({
-      sourceType: 'DEPOSIT',
-      sourceId: depositId,
-      eventCode,
-      context,
-    });
+    _depositId: string,
+    _eventCode: string,
+    _amount: string,
+    _assetId: string,
+    _ownerId: string,
+  ): Promise<any> {
+    throw new Error('DEPRECATED: migrate to TB — createDepositJournal writes JournalLine rows');
   }
 
   async findAll(query: JournalQueryDto) {

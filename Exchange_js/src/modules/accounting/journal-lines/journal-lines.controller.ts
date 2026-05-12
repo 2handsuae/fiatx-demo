@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Query, UseGuards, Request, ForbiddenException } from '@nestjs/common';
+import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
 import { JournalLinesService } from './journal-lines.service';
 import { JournalLineQueryDto } from './dto/journal-line.dto';
 import { CustomerBalanceHistoryQueryDto } from './dto/customer-balance-history.dto';
@@ -15,29 +15,19 @@ export class JournalLinesController {
 
   @Get()
   @ApiOperation({ summary: 'List all journal lines (Admin only)' })
-  findAll(@Query() query: JournalLineQueryDto, @Request() req: any) {
-    if (req.user.type !== 'ADMIN') {
-      throw new ForbiddenException('Only admin can access all journal lines');
-    }
-    return this.journalLinesService.findAll(query);
+  findAll(@Query() query: JournalLineQueryDto) {
+    throw new Error('DEPRECATED: migrate to TB — JournalLine CRUD');
   }
 
   @Get('customer-balance-history')
   @ApiOperation({ summary: 'Get customer available balance history' })
-  getCustomerBalanceHistory(@Query() query: CustomerBalanceHistoryQueryDto, @Request() req: any) {
-    // If it's a customer, ensure they only fetch their own data
-    if (req.user.type === 'CUSTOMER') {
-      if (query.customerId && query.customerId !== req.user.userId) {
-        throw new ForbiddenException('You can only access your own balance history');
-      }
-      query.customerId = req.user.userId;
-    }
-    return this.journalLinesService.getCustomerBalanceHistory(query);
+  getCustomerBalanceHistory(@Query() query: CustomerBalanceHistoryQueryDto) {
+    throw new Error('DEPRECATED: migrate to TB — JournalLine CRUD');
   }
 
   @Get(':id')
   @ApiOperation({ summary: 'Get a journal line by id' })
   findOne(@Param('id') id: string) {
-    return this.journalLinesService.findOne(id);
+    throw new Error('DEPRECATED: migrate to TB — JournalLine CRUD');
   }
 }
