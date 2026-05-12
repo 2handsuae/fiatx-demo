@@ -66,7 +66,7 @@ describe('FeeOccurrencesService', () => {
         fromIban: null,
         fromWallet: {
           id: 'wallet-1',
-          walletRole: 'PAYOUT',
+          walletRole: 'C_OUT',
           ownerType: 'CUSTOMER',
           ownerId: null,
           ownerNo: 'CUSTOMER_POOL',
@@ -91,7 +91,7 @@ describe('FeeOccurrencesService', () => {
         create: expect.objectContaining({
           feeType: 'INTERNAL_TRANSFER_GAS',
           reimbursementImpact: 'SAFEGUARDED_POOL',
-          poolRole: 'PAYOUT',
+          poolRole: 'C_OUT',
           sourceEntityType: 'INTERNAL_FUND',
           sourceEntityId: 'ifd-1',
           relatedEntityType: 'INTERNAL_TRANSACTION',
@@ -106,7 +106,7 @@ describe('FeeOccurrencesService', () => {
         create: expect.objectContaining({
           feeType: 'CUSTODY_FEE',
           reimbursementImpact: 'SAFEGUARDED_POOL',
-          poolRole: 'PAYOUT',
+          poolRole: 'C_OUT',
         }),
       }),
     );
@@ -151,7 +151,7 @@ describe('FeeOccurrencesService', () => {
         fromIban: 'AE0001',
         fromWallet: {
           id: 'wallet-liq-bank',
-          walletRole: 'LIQ_BANK',
+          walletRole: 'F_LIQ',
           ownerType: 'PLATFORM',
         },
         internalTransaction: {
@@ -192,7 +192,7 @@ describe('FeeOccurrencesService', () => {
         assetId: 'asset-aed',
         amount: '25.00',
         sourceAccountRef: 'BANK-ACC-1',
-        poolRole: 'CUST_BANK',
+        poolRole: 'C_CMA',
         evidenceRef: 'statement-2026-03.csv',
       } as any,
       'admin-1',
@@ -203,7 +203,7 @@ describe('FeeOccurrencesService', () => {
         data: expect.objectContaining({
           feeType: 'BANK_MONTHLY_FEE',
           reimbursementImpact: 'SAFEGUARDED_POOL',
-          poolRole: 'CUST_BANK',
+          poolRole: 'C_CMA',
           payer: 'PLATFORM',
           chargedToCustomer: false,
         }),
@@ -248,7 +248,7 @@ describe('FeeOccurrencesService', () => {
         asset: { id: 'asset-usdt', type: 'CRYPTO' },
         sourceWallet: {
           id: 'wallet-1',
-          walletRole: 'PAYOUT',
+          walletRole: 'C_OUT',
           ownerType: 'CUSTOMER',
           ownerId: null,
           ownerNo: 'CUSTOMER_POOL',
@@ -276,7 +276,7 @@ describe('FeeOccurrencesService', () => {
           relatedEntityId: 'wd-1',
           sourceWalletId: 'wallet-1',
           reimbursementImpact: 'SAFEGUARDED_POOL',
-          poolRole: 'PAYOUT',
+          poolRole: 'C_OUT',
         }),
       }),
     );

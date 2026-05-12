@@ -8,7 +8,7 @@ describe('PoolSettlementBatchesService', () => {
   const buildWallet = (overrides: Record<string, unknown>) => ({
     id: 'wallet-unknown',
     status: 'ACTIVE',
-    walletRole: 'GENERAL',
+    walletRole: 'F_OPS',
     walletNo: 'WA-GEN-UNKNOWN-NA',
     regulatoryEnablementStatus: 'EFFECTIVE',
     ...overrides,
@@ -45,7 +45,7 @@ describe('PoolSettlementBatchesService', () => {
     assetId: 'asset-1',
     asset: buildAsset('asset-1', 'BTC', 'CRYPTO', 'BITCOIN'),
     sourceWalletId: 'wallet-source',
-    poolRole: 'PAYOUT',
+    poolRole: 'C_OUT',
     ...overrides,
   });
 
@@ -154,13 +154,13 @@ describe('PoolSettlementBatchesService', () => {
     registerWallets(prisma, {
       'WA-MST-BTC-BITCOIN': buildWallet({
         id: 'wallet-btc-master',
-        walletRole: 'MASTER',
+        walletRole: 'C_MAIN',
         walletNo: 'WA-MST-BTC-BITCOIN',
         assetId: 'asset-btc',
       }),
       'WA-LIQ-BTC-BITCOIN': buildWallet({
         id: 'wallet-btc-liq',
-        walletRole: 'LIQ',
+        walletRole: 'F_LIQ',
         walletNo: 'WA-LIQ-BTC-BITCOIN',
         assetId: 'asset-btc',
       }),
@@ -238,25 +238,25 @@ describe('PoolSettlementBatchesService', () => {
     registerWallets(prisma, {
       'WA-MST-BTC-BITCOIN': buildWallet({
         id: 'wallet-btc-master',
-        walletRole: 'MASTER',
+        walletRole: 'C_MAIN',
         walletNo: 'WA-MST-BTC-BITCOIN',
         assetId: 'asset-btc',
       }),
       'WA-LIQ-BTC-BITCOIN': buildWallet({
         id: 'wallet-btc-liq',
-        walletRole: 'LIQ',
+        walletRole: 'F_LIQ',
         walletNo: 'WA-LIQ-BTC-BITCOIN',
         assetId: 'asset-btc',
       }),
       'WA-MST-ETH-ETHEREUM': buildWallet({
         id: 'wallet-eth-master',
-        walletRole: 'MASTER',
+        walletRole: 'C_MAIN',
         walletNo: 'WA-MST-ETH-ETHEREUM',
         assetId: 'asset-eth',
       }),
       'WA-LIQ-ETH-ETHEREUM': buildWallet({
         id: 'wallet-eth-liq',
-        walletRole: 'LIQ',
+        walletRole: 'F_LIQ',
         walletNo: 'WA-LIQ-ETH-ETHEREUM',
         assetId: 'asset-eth',
       }),
@@ -332,26 +332,26 @@ describe('PoolSettlementBatchesService', () => {
     registerWallets(prisma, {
       'WA-CBK-AED-NA': buildWallet({
         id: 'wallet-aed-cust-bank',
-        walletRole: 'CUST_BANK',
+        walletRole: 'C_CMA',
         walletNo: 'WA-CBK-AED-NA',
         assetId: 'asset-aed',
         regulatoryEnablementStatus: 'PENDING',
       }),
       'WA-LBK-AED-NA': buildWallet({
         id: 'wallet-aed-liq-bank',
-        walletRole: 'LIQ_BANK',
+        walletRole: 'F_LIQ',
         walletNo: 'WA-LBK-AED-NA',
         assetId: 'asset-aed',
       }),
       'WA-MST-BTC-BITCOIN': buildWallet({
         id: 'wallet-btc-master',
-        walletRole: 'MASTER',
+        walletRole: 'C_MAIN',
         walletNo: 'WA-MST-BTC-BITCOIN',
         assetId: 'asset-btc',
       }),
       'WA-LIQ-BTC-BITCOIN': buildWallet({
         id: 'wallet-btc-liq',
-        walletRole: 'LIQ',
+        walletRole: 'F_LIQ',
         walletNo: 'WA-LIQ-BTC-BITCOIN',
         assetId: 'asset-btc',
       }),
@@ -398,14 +398,14 @@ describe('PoolSettlementBatchesService', () => {
     registerWallets(prisma, {
       'WA-CBK-AED-NA': buildWallet({
         id: 'wallet-aed-cust-bank',
-        walletRole: 'CUST_BANK',
+        walletRole: 'C_CMA',
         walletNo: 'WA-CBK-AED-NA',
         assetId: 'asset-aed',
         regulatoryEnablementStatus: 'PENDING',
       }),
       'WA-LBK-AED-NA': buildWallet({
         id: 'wallet-aed-liq-bank',
-        walletRole: 'LIQ_BANK',
+        walletRole: 'F_LIQ',
         walletNo: 'WA-LBK-AED-NA',
         assetId: 'asset-aed',
       }),
@@ -441,13 +441,13 @@ describe('PoolSettlementBatchesService', () => {
     registerWallets(prisma, {
       'WA-CBK-AED-NA': buildWallet({
         id: 'wallet-aed-cust-bank',
-        walletRole: 'CUST_BANK',
+        walletRole: 'C_CMA',
         walletNo: 'WA-CBK-AED-NA',
         assetId: 'asset-aed',
       }),
       'WA-LBK-AED-NA': buildWallet({
         id: 'wallet-aed-liq-bank',
-        walletRole: 'LIQ_BANK',
+        walletRole: 'F_LIQ',
         walletNo: 'WA-LBK-AED-NA',
         assetId: 'asset-aed',
       }),
@@ -490,13 +490,13 @@ describe('PoolSettlementBatchesService', () => {
     registerWallets(prisma, {
       'WA-MST-BTC-BITCOIN': buildWallet({
         id: 'wallet-btc-master',
-        walletRole: 'MASTER',
+        walletRole: 'C_MAIN',
         walletNo: 'WA-MST-BTC-BITCOIN',
         assetId: 'asset-btc',
       }),
       'WA-LIQ-BTC-BITCOIN': buildWallet({
         id: 'wallet-btc-liq',
-        walletRole: 'LIQ',
+        walletRole: 'F_LIQ',
         walletNo: 'WA-LIQ-BTC-BITCOIN',
         assetId: 'asset-btc',
       }),
@@ -566,25 +566,25 @@ describe('PoolSettlementBatchesService', () => {
     registerWallets(prisma, {
       'WA-MST-BTC-BITCOIN': buildWallet({
         id: 'wallet-btc-master',
-        walletRole: 'MASTER',
+        walletRole: 'C_MAIN',
         walletNo: 'WA-MST-BTC-BITCOIN',
         assetId: 'asset-btc',
       }),
       'WA-LIQ-BTC-BITCOIN': buildWallet({
         id: 'wallet-btc-liq',
-        walletRole: 'LIQ',
+        walletRole: 'F_LIQ',
         walletNo: 'WA-LIQ-BTC-BITCOIN',
         assetId: 'asset-btc',
       }),
       'WA-MST-ETH-ETHEREUM': buildWallet({
         id: 'wallet-eth-master',
-        walletRole: 'MASTER',
+        walletRole: 'C_MAIN',
         walletNo: 'WA-MST-ETH-ETHEREUM',
         assetId: 'asset-eth',
       }),
       'WA-LIQ-ETH-ETHEREUM': buildWallet({
         id: 'wallet-eth-liq',
-        walletRole: 'LIQ',
+        walletRole: 'F_LIQ',
         walletNo: 'WA-LIQ-ETH-ETHEREUM',
         assetId: 'asset-eth',
       }),
@@ -664,13 +664,13 @@ describe('PoolSettlementBatchesService', () => {
     registerWallets(prisma, {
       'WA-MST-BTC-BITCOIN': buildWallet({
         id: 'wallet-btc-master',
-        walletRole: 'MASTER',
+        walletRole: 'C_MAIN',
         walletNo: 'WA-MST-BTC-BITCOIN',
         assetId: 'asset-btc',
       }),
       'WA-LIQ-BTC-BITCOIN': buildWallet({
         id: 'wallet-btc-liq',
-        walletRole: 'LIQ',
+        walletRole: 'F_LIQ',
         walletNo: 'WA-LIQ-BTC-BITCOIN',
         assetId: 'asset-btc',
       }),
@@ -734,25 +734,25 @@ describe('PoolSettlementBatchesService', () => {
     registerWallets(prisma, {
       'WA-MST-BTC-BITCOIN': buildWallet({
         id: 'wallet-btc-master',
-        walletRole: 'MASTER',
+        walletRole: 'C_MAIN',
         walletNo: 'WA-MST-BTC-BITCOIN',
         assetId: 'asset-btc',
       }),
       'WA-LIQ-BTC-BITCOIN': buildWallet({
         id: 'wallet-btc-liq',
-        walletRole: 'LIQ',
+        walletRole: 'F_LIQ',
         walletNo: 'WA-LIQ-BTC-BITCOIN',
         assetId: 'asset-btc',
       }),
       'WA-MST-ETH-ETHEREUM': buildWallet({
         id: 'wallet-eth-master',
-        walletRole: 'MASTER',
+        walletRole: 'C_MAIN',
         walletNo: 'WA-MST-ETH-ETHEREUM',
         assetId: 'asset-eth',
       }),
       'WA-LIQ-ETH-ETHEREUM': buildWallet({
         id: 'wallet-eth-liq',
-        walletRole: 'LIQ',
+        walletRole: 'F_LIQ',
         walletNo: 'WA-LIQ-ETH-ETHEREUM',
         assetId: 'asset-eth',
       }),
@@ -819,13 +819,13 @@ describe('PoolSettlementBatchesService', () => {
     registerWallets(prisma, {
       'WA-MST-BTC-BITCOIN': buildWallet({
         id: 'wallet-btc-master',
-        walletRole: 'MASTER',
+        walletRole: 'C_MAIN',
         walletNo: 'WA-MST-BTC-BITCOIN',
         assetId: 'asset-btc',
       }),
       'WA-LIQ-BTC-BITCOIN': buildWallet({
         id: 'wallet-btc-liq',
-        walletRole: 'LIQ',
+        walletRole: 'F_LIQ',
         walletNo: 'WA-LIQ-BTC-BITCOIN',
         assetId: 'asset-btc',
       }),
@@ -874,13 +874,13 @@ describe('PoolSettlementBatchesService', () => {
     registerWallets(prisma, {
       'WA-MST-BTC-BITCOIN': buildWallet({
         id: 'wallet-btc-master',
-        walletRole: 'MASTER',
+        walletRole: 'C_MAIN',
         walletNo: 'WA-MST-BTC-BITCOIN',
         assetId: 'asset-btc',
       }),
       'WA-LIQ-BTC-BITCOIN': buildWallet({
         id: 'wallet-btc-liq',
-        walletRole: 'LIQ',
+        walletRole: 'F_LIQ',
         walletNo: 'WA-LIQ-BTC-BITCOIN',
         assetId: 'asset-btc',
       }),
@@ -920,7 +920,7 @@ describe('PoolSettlementBatchesService', () => {
       buildReimbursement({
         id: 'reimbursement-1',
         amount: decimal(2),
-        poolRole: 'PAYOUT',
+        poolRole: 'C_OUT',
         sourceWalletId: 'wallet-payout',
         assetId: 'asset-btc',
         asset: buildAsset('asset-btc', 'BTC', 'CRYPTO', 'BITCOIN'),
@@ -930,13 +930,13 @@ describe('PoolSettlementBatchesService', () => {
     registerWallets(prisma, {
       'WA-MST-BTC-BITCOIN': buildWallet({
         id: 'wallet-btc-master',
-        walletRole: 'MASTER',
+        walletRole: 'C_MAIN',
         walletNo: 'WA-MST-BTC-BITCOIN',
         assetId: 'asset-btc',
       }),
       'WA-LIQ-BTC-BITCOIN': buildWallet({
         id: 'wallet-btc-liq',
-        walletRole: 'LIQ',
+        walletRole: 'F_LIQ',
         walletNo: 'WA-LIQ-BTC-BITCOIN',
         assetId: 'asset-btc',
       }),
@@ -1076,12 +1076,12 @@ describe('PoolSettlementBatchesService', () => {
           walletA: buildWallet({
             id: 'wallet-a',
             walletNo: 'WA-MST-BTC-BITCOIN',
-            walletRole: 'MASTER',
+            walletRole: 'C_MAIN',
           }),
           walletB: buildWallet({
             id: 'wallet-b',
             walletNo: 'WA-LIQ-BTC-BITCOIN',
-            walletRole: 'LIQ',
+            walletRole: 'F_LIQ',
           }),
           internalTransaction: {
             id: 'internal-tx-1',
@@ -1112,12 +1112,12 @@ describe('PoolSettlementBatchesService', () => {
           fromWallet: buildWallet({
             id: 'wallet-a',
             walletNo: 'WA-MST-BTC-BITCOIN',
-            walletRole: 'MASTER',
+            walletRole: 'C_MAIN',
           }),
           toWallet: buildWallet({
             id: 'wallet-b',
             walletNo: 'WA-LIQ-BTC-BITCOIN',
-            walletRole: 'LIQ',
+            walletRole: 'F_LIQ',
           }),
         },
         {
@@ -1141,12 +1141,12 @@ describe('PoolSettlementBatchesService', () => {
           fromWallet: buildWallet({
             id: 'wallet-b',
             walletNo: 'WA-LIQ-BTC-BITCOIN',
-            walletRole: 'LIQ',
+            walletRole: 'F_LIQ',
           }),
           toWallet: buildWallet({
             id: 'wallet-a',
             walletNo: 'WA-MST-BTC-BITCOIN',
-            walletRole: 'MASTER',
+            walletRole: 'C_MAIN',
           }),
         },
       ],

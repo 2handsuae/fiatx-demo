@@ -1249,11 +1249,20 @@ model Asset {
   decimals                       Int
   description                    String?
   status                         String                          @default("ACTIVE")
+  tbLedgerId                     Int?                            @unique
+  contractAddress                String?
+  minDepositAmount               Float?
+  maxDepositAmount               Float?
+  minWithdrawAmount              Float?
+  maxWithdrawAmount              Float?
+  depositEnabled                 Boolean                         @default(true)
+  withdrawalEnabled              Boolean                         @default(true)
+  approvalCaseId                 String?
+  approvalCaseNo                 String?
   createdAt                      DateTime                        @default(now())
   updatedAt                      DateTime                        @updatedAt
   depositTransactions            DepositTransaction[]
   journalHeaderTemplates         JournalHeaderTemplate[]
-  journalLines                   JournalLine[]
   journals                       Journal[]                       @relation("BaseAsset")
   fromConfigs                    LiquidityConfiguration[]        @relation("FromAsset")
   toConfigs                      LiquidityConfiguration[]        @relation("ToAsset")
@@ -1281,8 +1290,6 @@ model Asset {
   safeguardingPoolSnapshots      SafeguardingPoolSnapshot[]
   reconciliationWarnings         ReconciliationWarning[]
   fiatStatementImports           FiatStatementImport[]
-  walletBalanceSnapshots         WalletBalanceSnapshot[]
-  walletBalanceEntries           WalletBalanceEntry[]
   valuationRates                 AssetValuationRate[]
 
   @@unique([type, code, network])
@@ -1484,6 +1491,7 @@ model Wallet {
   bankAccount                              String?
   bankCode                                 String?
   status                                   String                          @default("ACTIVE")
+  mockBalance                              Decimal                         @default(0)
   regulatoryEnablementStatus               String                          @default("PENDING")
   regulatoryEnabledAt                      DateTime?
   createdAt                                DateTime                        @default(now()) @map("created_at")
@@ -1510,9 +1518,6 @@ model Wallet {
   safeguardingPoolSnapshots                SafeguardingPoolSnapshot[]      @relation("SafeguardingPoolSnapshotWallet")
   reconciliationWarnings                   ReconciliationWarning[]         @relation("ReconciliationWarningWallet")
   fiatStatementImports                     FiatStatementImport[]           @relation("FiatStatementImportWallet")
-  journalLines                             JournalLine[]                   @relation("JournalLineWallet")
-  balanceSnapshots                         WalletBalanceSnapshot[]
-  balanceEntries                           WalletBalanceEntry[]
   asset                                    Asset                           @relation(fields: [assetId], references: [id])
   inboundTransferSignals                   InboundTransferSignal[]
 
@@ -1839,7 +1844,6 @@ model Coa {
   createdAt            DateTime              @default(now())
   updatedAt            DateTime              @updatedAt
   journalLineTemplates JournalLineTemplate[]
-  journalLines         JournalLine[]
 
   @@index([code])
   @@index([status])
@@ -1862,7 +1866,6 @@ model Journal {
   createdAt               DateTime               @default(now())
   updatedAt               DateTime               @updatedAt
   journalHeaderTemplateId String?
-  lines                   JournalLine[]
   baseAsset               Asset                  @relation("BaseAsset", fields: [baseAssetId], references: [id])
   journalHeaderTemplate   JournalHeaderTemplate? @relation(fields: [journalHeaderTemplateId], references: [id])
 
@@ -1874,84 +1877,6 @@ model Journal {
   @@index([createdAt])
   @@index([journalHeaderTemplateId])
   @@map("journals")
-}
-
-model JournalLine {
-  id                    String               @id
-  journalId             String
-  lineNo                Int
-  accountCode           String
-  drCr                  String
-  amount                Decimal
-  assetId               String
-  baseAmount            Decimal?
-  fxRate                Decimal?
-  ownerType             String?
-  ownerId               String?
-  walletId              String?
-  dimensions            String               @default("{}")
-  description           String?
-  referenceId           String?
-  journalLineTemplateId String?
-  createdAt             DateTime             @default(now())
-  journalLineTemplate   JournalLineTemplate? @relation(fields: [journalLineTemplateId], references: [id])
-  journal               Journal              @relation(fields: [journalId], references: [id])
-  account               Coa                  @relation(fields: [accountCode], references: [code])
-  asset                 Asset                @relation(fields: [assetId], references: [id])
-  wallet                Wallet?              @relation("JournalLineWallet", fields: [walletId], references: [id])
-  walletBalanceEntry    WalletBalanceEntry?
-
-  @@unique([journalId, lineNo])
-  @@index([journalId])
-  @@index([accountCode])
-  @@index([assetId])
-  @@index([ownerType, ownerId])
-  @@index([accountCode, ownerType, ownerId])
-  @@index([journalLineTemplateId])
-  @@index([walletId])
-  @@index([walletId, assetId])
-  @@map("journal_lines")
-}
-
-model WalletBalanceSnapshot {
-  id                String   @id @default(uuid())
-  walletId          String
-  assetId           String
-  availableBalance  Decimal  @default(0)
-  restrictedBalance Decimal  @default(0)
-  inTransitBalance  Decimal  @default(0)
-  totalBalance      Decimal  @default(0)
-  lastJournalLineId String?
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-  wallet            Wallet   @relation(fields: [walletId], references: [id], onDelete: Cascade)
-  asset             Asset    @relation(fields: [assetId], references: [id], onDelete: Cascade)
-
-  @@unique([walletId, assetId])
-  @@index([walletId])
-  @@index([assetId])
-  @@map("wallet_balance_snapshots")
-}
-
-model WalletBalanceEntry {
-  id              String      @id @default(uuid())
-  journalLineId   String      @unique
-  walletId        String
-  assetId         String
-  accountCode     String
-  drCr            String
-  amount          Decimal
-  deltaAvailable  Decimal     @default(0)
-  deltaRestricted Decimal     @default(0)
-  deltaInTransit  Decimal     @default(0)
-  createdAt       DateTime    @default(now())
-  journalLine     JournalLine @relation(fields: [journalLineId], references: [id], onDelete: Cascade)
-  wallet          Wallet      @relation(fields: [walletId], references: [id], onDelete: Cascade)
-  asset           Asset       @relation(fields: [assetId], references: [id], onDelete: Cascade)
-
-  @@index([walletId, assetId])
-  @@index([createdAt])
-  @@map("wallet_balance_entries")
 }
 
 model AssetValuationRate {
@@ -2035,7 +1960,6 @@ model JournalLineTemplate {
   createdAt       DateTime              @default(now())
   headerTemplate  JournalHeaderTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
   account         Coa                   @relation(fields: [accountCode], references: [code])
-  journalLines    JournalLine[]
 
   @@unique([templateId, lineNo])
   @@map("journal_line_templates")
@@ -2942,4 +2866,66 @@ model RoleDefinitionModifyRequest {
 
   @@index([roleId, status])
   @@map("role_definition_modify_requests")
+}
+
+// ── TigerBeetle Infrastructure (V3 Phase 0) ──
+
+model TbAccountRegistry {
+  tbAccountId String   @id              // TB u128 as hex string
+  code        Int                       // TB account type code (u16)
+  ledger      Int                       // TB ledger ID (u32): 1=AED, 2=USDT
+  ownerType   String                    // SYSTEM | CUSTOMER | LP
+  ownerUuid   String?                   // Prisma entity UUID (queryable)
+  ownerNo     String?                   // Human-readable No
+  assetCode   String                    // AED | USDT
+  status      String   @default("ACTIVE")
+  description String?
+  flags       Int      @default(0)      // TB account flags
+  createdAt   DateTime @default(now())
+
+  @@unique([code, ledger, ownerType, ownerUuid])
+  @@index([ownerUuid])
+  @@index([ownerNo])
+  @@map("tb_account_registry")
+}
+
+model TbTransferEvidence {
+  tbTransferId String   @id             // TB u128 as hex string (deterministic)
+  sourceType   String                   // DEPOSIT | WITHDRAWAL | SWAP | ...
+  sourceNo     String
+  eventCode    String                   // From events.manifest
+  debitCode    String                   // Human-readable COA, e.g. 'L.CLIENT_CREDIT'
+  creditCode   String                   // e.g. 'A.CUSTODY'
+  amount       Decimal
+  assetCode    String
+  traceId      String
+  actorType    String                   // ADMIN | CUSTOMER | SYSTEM
+  actorId      String                   // adminNo / customerNo / 'SYSTEM'
+  memo         String?
+  pendingId    String?                  // Related pending transfer hex ID
+  transferType String   @default("POSTED") // POSTED | PENDING | POST_PENDING | VOID_PENDING | CORRECTING
+  createdAt    DateTime @default(now())
+
+  @@index([sourceType, sourceNo])
+  @@index([traceId])
+  @@index([eventCode])
+  @@index([assetCode])
+  @@index([actorType, actorId])
+  @@index([createdAt])
+  @@map("tb_transfer_evidence")
+}
+
+model TbEvidenceBacklog {
+  id           String    @id @default(uuid())
+  tbTransferId String    @unique         // TB u128 as hex string
+  transferData String                    // JSON: transfer params snapshot
+  evidenceData String                    // JSON: evidence data to write
+  errorMessage String
+  retryCount   Int       @default(0)
+  status       String    @default("PENDING") // PENDING | RESOLVED | FAILED
+  createdAt    DateTime  @default(now())
+  resolvedAt   DateTime?
+
+  @@index([status])
+  @@map("tb_evidence_backlog")
 }

@@ -48,6 +48,7 @@ import {
   RegulatoryGateSubjectTypes,
   RegulatoryGateTypes,
 } from './constants/regulatory-gates.constants';
+import { WalletRole } from '../../asset-treasury/wallets/dto/wallet.dto';
 
 type RegulatoryGateWriteClient = any;
 
@@ -469,9 +470,9 @@ export class RegulatoryGatesService {
       if (!wallet) {
         throw new NotFoundException(`Wallet not found: ${walletId}`);
       }
-      if (String(wallet.walletRole || '').trim().toUpperCase() !== 'CUST_BANK') {
+      if (wallet.walletRole !== WalletRole.C_CMA) {
         throw new BadRequestException(
-          'CLIENT_BANK_ACCOUNT_ENABLEMENT requires CUST_BANK wallet',
+          'CLIENT_BANK_ACCOUNT_ENABLEMENT requires C_CMA wallet',
         );
       }
       return {

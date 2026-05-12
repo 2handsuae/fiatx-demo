@@ -23,6 +23,7 @@ import {
   type ManualTreasuryTransferPurpose,
   type TreasuryTransferRoutePolicy,
 } from '../internal-transactions/internal-transaction.constants';
+import { WalletRole } from '../wallets/dto/wallet.dto';
 import { CreateManualInternalTransactionDto } from './dto/create-manual-internal-transaction.dto';
 import {
   ManualInternalTransactionReviewAction,
@@ -103,7 +104,7 @@ export class InternalTransactionWorkflowService {
     walletNo?: string | null;
     regulatoryEnablementStatus?: string | null;
   }) {
-    if (String(wallet.walletRole || '').trim().toUpperCase() !== 'CUST_BANK') {
+    if (wallet.walletRole !== WalletRole.C_CMA) {
       return;
     }
     if (
@@ -112,7 +113,7 @@ export class InternalTransactionWorkflowService {
         .toUpperCase() !== 'EFFECTIVE'
     ) {
       throw new BadRequestException(
-        `CUST_BANK wallet ${wallet.walletNo || 'UNKNOWN'} is not regulator-enabled`,
+        `C_CMA wallet ${wallet.walletNo || 'UNKNOWN'} is not regulator-enabled`,
       );
     }
   }

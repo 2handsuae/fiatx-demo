@@ -154,6 +154,8 @@ export const AuditBusinessWorkflowTypes = {
   // Credential Reset Governance (2026-05-10)
   ADMIN_PASSWORD_RESET: 'ADMIN_PASSWORD_RESET',
   ADMIN_MFA_RESET: 'ADMIN_MFA_RESET',
+  // Asset Listing (2026-05-11)
+  ASSET_LISTING: 'ASSET_LISTING',
 } as const;
 
 export const AuditUserActions = {
@@ -555,6 +557,20 @@ export const AuditGovernanceActions = {
     ROLE_MODIFIED:        'ROLE_MODIFIED',
     ROLE_MODIFY_FAILED:   'ROLE_MODIFY_FAILED',
     MODIFY_CANCELLED:     'MODIFY_CANCELLED',
+  },
+
+  // Asset Listing (2026-05-11)
+  ASSET_LISTING: {
+    LISTING_SUBMITTED:           'LISTING_SUBMITTED',
+    APPROVAL_GRANTED:            'APPROVAL_GRANTED',
+    APPROVAL_DECLINED:           'APPROVAL_DECLINED',
+    APPROVAL_CANCELLED:          'APPROVAL_CANCELLED',
+    APPROVAL_EXPIRED:            'APPROVAL_EXPIRED',
+    ASSET_PROVISIONED:           'ASSET_PROVISIONED',
+    ASSET_PROVISION_FAILED:      'ASSET_PROVISION_FAILED',
+    LISTING_CANCELLED:           'LISTING_CANCELLED',
+    ASSET_ACTIVATED:             'ASSET_ACTIVATED',
+    SYSTEM_WALLETS_PROVISIONED:  'asset_listing.system_wallets_provisioned',
   },
 } as const;
 

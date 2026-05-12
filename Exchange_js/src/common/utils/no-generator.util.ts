@@ -10,6 +10,15 @@ export function generateReferenceNo(prefix: string): string {
 }
 
 const WALLET_ROLE_SEGMENT_MAP: Record<string, string> = {
+  // V3 canonical role names
+  C_DEP: 'DEP',
+  C_VIBAN: 'VIB',
+  C_MAIN: 'MST',
+  C_OUT: 'PAY',
+  C_CMA: 'CBK',
+  F_LIQ: 'LIQ',
+  F_OPS: 'GEN',
+  // Legacy aliases (kept for backward-compatible walletNo generation)
   DEPOSIT: 'DEP',
   MASTER: 'MST',
   PAYOUT: 'PAY',
@@ -32,10 +41,10 @@ function resolveWalletRoleSegment(
   walletRole: string | null | undefined,
 ): string {
   const normalizedRole = normalizeWalletSegment(
-    walletRole || 'GENERAL',
+    walletRole || 'F_OPS',
   ).replace(/-/g, '_');
   return (
-    WALLET_ROLE_SEGMENT_MAP[normalizedRole] || WALLET_ROLE_SEGMENT_MAP.GENERAL
+    WALLET_ROLE_SEGMENT_MAP[normalizedRole] || WALLET_ROLE_SEGMENT_MAP.F_OPS
   );
 }
 

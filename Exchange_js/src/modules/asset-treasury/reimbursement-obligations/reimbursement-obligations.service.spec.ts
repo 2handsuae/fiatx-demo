@@ -38,7 +38,7 @@ describe('ReimbursementObligationsService', () => {
         assetId: 'asset-1',
         amount: '3.00',
         reimbursementImpact: 'SAFEGUARDED_POOL',
-        poolRole: 'PAYOUT',
+        poolRole: 'C_OUT',
         sourceWalletId: 'wallet-1',
         sourceAccountRef: null,
         traceId: 'WITHDRAW:wd-1',
@@ -53,7 +53,7 @@ describe('ReimbursementObligationsService', () => {
         create: expect.objectContaining({
           feeOccurrenceId: 'fee-1',
           status: 'OPEN',
-          poolRole: 'PAYOUT',
+          poolRole: 'C_OUT',
         }),
       }),
     );

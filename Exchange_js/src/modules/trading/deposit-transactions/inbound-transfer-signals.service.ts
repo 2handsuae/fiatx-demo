@@ -33,6 +33,7 @@ import {
   SimulationRiskReason,
 } from './dto/inbound-transfer-signal.dto';
 import { DepositTransactionStatus } from './dto/deposit-transaction.dto';
+import { WalletRole } from '../../asset-treasury/wallets/dto/wallet.dto';
 
 export interface ScanSummaryRecord {
   signalId: string;
@@ -556,7 +557,7 @@ export class InboundTransferSignalsService {
       wallet.ownerType !== 'CUSTOMER' ||
       wallet.ownerId !== customerId ||
       wallet.direction !== 'INBOUND' ||
-      wallet.walletRole !== 'DEPOSIT'
+      wallet.walletRole !== WalletRole.C_DEP
     ) {
       throw new ForbiddenException('Customer can only use own deposit wallet');
     }

@@ -16,10 +16,7 @@ import {
   InternalTransactionStatus,
   InternalTransactionType,
 } from '../../asset-treasury/internal-transactions/dto/internal-transaction.dto';
-import {
-  buildCryptoSystemWalletNo,
-  buildFiatPoolWalletNo,
-} from '../../asset-treasury/wallets/system-wallet.util';
+import { WalletRole } from '../../asset-treasury/wallets/dto/wallet.dto';
 import {
   CreateOutstandingSettlementDto,
   OutstandingSettlementItemStatus,
@@ -73,7 +70,7 @@ export class OutstandingSettlementsService {
     walletNo?: string | null;
     regulatoryEnablementStatus?: string | null;
   }) {
-    if (String(wallet.walletRole || '').trim().toUpperCase() !== 'CUST_BANK') {
+    if (String(wallet.walletRole || '').trim().toUpperCase() !== WalletRole.C_CMA) {
       return;
     }
     if (
@@ -82,7 +79,7 @@ export class OutstandingSettlementsService {
         .toUpperCase() !== 'EFFECTIVE'
     ) {
       throw new BadRequestException(
-        `CUST_BANK wallet ${wallet.walletNo || 'UNKNOWN'} is not regulator-enabled`,
+        `C_CMA wallet ${wallet.walletNo || 'UNKNOWN'} is not regulator-enabled`,
       );
     }
   }
@@ -204,8 +201,8 @@ export class OutstandingSettlementsService {
     netAmount: Prisma.Decimal,
   ): {
     internalType: InternalTransactionType;
-    fromRole: 'MASTER' | 'LIQ' | 'CUST_BANK' | 'LIQ_BANK';
-    toRole: 'MASTER' | 'LIQ' | 'CUST_BANK' | 'LIQ_BANK';
+    fromRole: WalletRole;
+    toRole: WalletRole;
     amount: Prisma.Decimal;
   } {
     const normalizedAssetType = String(assetType || '').toUpperCase();
@@ -214,16 +211,16 @@ export class OutstandingSettlementsService {
       if (netAmount.gt(0)) {
         return {
           internalType: InternalTransactionType.LIQ_BANK_TO_CLIENT_BANK,
-          fromRole: 'LIQ_BANK',
-          toRole: 'CUST_BANK',
+          fromRole: WalletRole.F_LIQ,
+          toRole: WalletRole.C_CMA,
           amount: new Prisma.Decimal(netAmount),
         };
       }
 
       return {
         internalType: InternalTransactionType.CLIENT_BANK_TO_LIQ_BANK,
-        fromRole: 'CUST_BANK',
-        toRole: 'LIQ_BANK',
+        fromRole: WalletRole.C_CMA,
+        toRole: WalletRole.F_LIQ,
         amount: new Prisma.Decimal(netAmount.abs()),
       };
     }
@@ -232,16 +229,16 @@ export class OutstandingSettlementsService {
       if (netAmount.gt(0)) {
         return {
           internalType: InternalTransactionType.LIQ_TO_MASTER,
-          fromRole: 'LIQ',
-          toRole: 'MASTER',
+          fromRole: WalletRole.F_LIQ,
+          toRole: WalletRole.C_MAIN,
           amount: new Prisma.Decimal(netAmount),
         };
       }
 
       return {
         internalType: InternalTransactionType.MASTER_TO_LIQ,
-        fromRole: 'MASTER',
-        toRole: 'LIQ',
+        fromRole: WalletRole.C_MAIN,
+        toRole: WalletRole.F_LIQ,
         amount: new Prisma.Decimal(netAmount.abs()),
       };
     }
@@ -258,68 +255,28 @@ export class OutstandingSettlementsService {
       assetCode: string;
       assetType: string;
       assetNetwork?: string | null;
-      walletRole: 'MASTER' | 'LIQ' | 'CUST_BANK' | 'LIQ_BANK';
+      walletRole: WalletRole;
     },
   ) {
-    const normalizedAssetType = String(input.assetType || '').toUpperCase();
-    let deterministicWalletNo: string;
-    if (normalizedAssetType === 'CRYPTO') {
-      if (input.walletRole !== 'MASTER' && input.walletRole !== 'LIQ') {
-        throw new BadRequestException(
-          `Unsupported CRYPTO wallet role ${input.walletRole} for asset ${input.assetCode}`,
-        );
-      }
-      deterministicWalletNo = buildCryptoSystemWalletNo(
-        input.walletRole,
-        input.assetCode,
-        input.assetNetwork || 'NA',
-      );
-    } else if (normalizedAssetType === 'FIAT') {
-      if (input.walletRole !== 'CUST_BANK' && input.walletRole !== 'LIQ_BANK') {
-        throw new BadRequestException(
-          `Unsupported FIAT wallet role ${input.walletRole} for asset ${input.assetCode}`,
-        );
-      }
-      deterministicWalletNo = buildFiatPoolWalletNo(
-        input.walletRole,
-        input.assetCode,
-      );
-    } else {
-      throw new BadRequestException(
-        `Unsupported asset type for wallet resolution: ${input.assetType}`,
-      );
-    }
-
-    const byWalletNo = await (client as any).wallet.findFirst({
+    const wallet = await (client as any).wallet.findFirst({
       where: {
-        assetId: input.assetId,
-        status: 'ACTIVE',
-        walletNo: deterministicWalletNo,
-      },
-    });
-    if (byWalletNo) {
-      this.ensureRegulatorEnabledCustBankWallet(byWalletNo);
-      return byWalletNo;
-    }
-
-    const byRole = await (client as any).wallet.findFirst({
-      where: {
-        assetId: input.assetId,
-        status: 'ACTIVE',
         walletRole: input.walletRole,
+        assetId: input.assetId,
+        ownerType: 'PLATFORM',
+        status: 'ACTIVE',
       },
       orderBy: { createdAt: 'asc' },
     });
 
-    if (!byRole) {
+    if (!wallet) {
       throw new BadRequestException(
         `No ACTIVE ${input.walletRole} wallet found for asset ${input.assetCode}`,
       );
     }
 
-    this.ensureRegulatorEnabledCustBankWallet(byRole);
+    this.ensureRegulatorEnabledCustBankWallet(wallet);
 
-    return byRole;
+    return wallet;
   }
 
   private deriveSettlementStatus(itemStatuses: string[]) {
