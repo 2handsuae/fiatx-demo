@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Check, RefreshCw, X } from 'lucide-react';
+import { Check, Pencil, RefreshCw, X } from 'lucide-react';
 import {
   AdminPermissionError,
   AdminSessionError,
@@ -369,13 +369,7 @@ const RoleDetailPage = () => {
         onRefresh={() => void fetchDetail()}
         refreshing={loading}
         backLabel="Roles"
-      >
-        {canModify && detail?.status === 'ACTIVE' && (
-          <button onClick={openModifyModal} className={adminButtonClass('listPrimary')}>
-            Modify
-          </button>
-        )}
-      </DetailPageHeader>
+      />
 
       {/* Inline error banner */}
       {error && (
@@ -445,7 +439,26 @@ const RoleDetailPage = () => {
         </div>
 
         {/* ════ RIGHT SIDEBAR ════ */}
-        <div className="w-[240px] min-w-[240px] overflow-y-auto border-l border-adm-border bg-adm-panel px-4 py-1">
+        <div className="w-[272px] min-w-[272px] overflow-y-auto border-l border-adm-border bg-adm-panel px-4 py-1">
+
+          {/* Actions */}
+          {canModify && detail.status === 'ACTIVE' && (
+            <div className="border-b border-adm-border py-4">
+              <p className="font-mono text-[8.5px] font-semibold uppercase tracking-[0.16em] text-adm-t3">
+                Actions
+              </p>
+              <div className="mt-2.5 flex flex-col gap-2">
+                <button
+                  onClick={openModifyModal}
+                  className={adminButtonClass('workflowPrimary')}
+                >
+                  <Pencil size={13} />
+                  Modify Role
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Quick Info */}
           <SidebarGroup title="Quick Info">
             <div className="flex items-center justify-between gap-2">
