@@ -199,6 +199,7 @@ export const PERMISSIONS = {
   LIQUIDITY_CONFIG_UPDATE: 'api.put.liquidity_configurations_id',
   ASSETS_READ: 'api.get.assets',
   ASSETS_CREATE: 'api.post.assets',
+  ASSET_PROVISION_WALLETS: 'api.post.admin_assets_assetno_provision_wallets',
   ACCT_EVENTS_READ: 'api.get.acct_events',
   JOURNAL_HEADER_TEMPLATES_READ: 'api.get.journal_header_templates',
   JOURNAL_LINE_TEMPLATES_READ: 'api.get.journal_line_templates',
