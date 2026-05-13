@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { RefreshCw, Search } from 'lucide-react';
+import { RefreshCw, Search, Plus, RotateCcw } from 'lucide-react';
 import Pagination from '../components/common/Pagination';
 import {
   adminButtonClass,
@@ -15,6 +15,9 @@ import { AdminBadge } from '../components/ui/AdminBadge';
 import { PageTitleBar } from '../components/ui/PageTitleBar';
 import { WalletRoleBadge, WALLET_ROLE_OPTIONS } from '../utils/walletRole.util';
 import { formatAssetAmount } from '../utils/number-format';
+import { useAdminSession } from '../contexts/AdminSessionContext';
+import { PERMISSIONS } from '../rbac/permissions';
+import CustodianWalletCreateModal from './CustodianWalletCreateModal';
 
 /* ── Interfaces ──────────────────────────────────────────────── */
 
@@ -32,6 +35,7 @@ interface WalletItem {
   balance: string;
   asset: { code: string; type: string; network?: string | null; decimals?: number };
   status: string;
+  vaultId?: string | null;
   updatedAt: string;
 }
 
@@ -72,6 +76,10 @@ const DEFAULT_FILTERS: FilterState = {
 
 const CustodianWalletList = () => {
   const navigate = useNavigate();
+  const { hasAnyPermission } = useAdminSession();
+  const canCreate = hasAnyPermission([PERMISSIONS.CUSTODIAN_WALLET_CREATE]);
+  const canRetry = hasAnyPermission([PERMISSIONS.CUSTODIAN_WALLET_RETRY]);
+  const [showCreateModal, setShowCreateModal] = useState(false);
 
   const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
   const [items, setItems] = useState<WalletItem[]>([]);
@@ -167,6 +175,25 @@ const CustodianWalletList = () => {
     }
   };
 
+  const handleRetry = async (walletNo: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!window.confirm(`Retry vault creation for wallet ${walletNo}?`)) return;
+    try {
+      const res = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/admin/custodian-wallets/${walletNo}/retry`,
+        { method: 'POST' },
+      );
+      if (!res.ok) {
+        setError(await getApiErrorMessage(res, 'Retry failed.'));
+        return;
+      }
+      void fetchItems(currentPage);
+    } catch (err) {
+      if (err instanceof AdminSessionError) return;
+      setError(err instanceof Error ? err.message : 'Retry failed.');
+    }
+  };
+
   /* ── Render ── */
 
   return (
@@ -174,9 +201,18 @@ const CustodianWalletList = () => {
 
       {/* ── Title bar ── */}
       <PageTitleBar
-        title="Wallets"
+        title="Custodian Wallets"
         meta={`${total} wallet${total === 1 ? '' : 's'} · Treasury`}
       >
+        {canCreate && (
+          <button
+            onClick={() => setShowCreateModal(true)}
+            className={adminButtonClass('listPrimary')}
+          >
+            <Plus size={13} />
+            Create Wallet
+          </button>
+        )}
         <button
           onClick={() => void fetchItems(currentPage)}
           className={adminIconButtonClass()}
@@ -226,10 +262,13 @@ const CustodianWalletList = () => {
         <select
           value={filters.status}
           onChange={(e) => updateFilter('status', e.target.value)}
-          className={`${fi} w-28`}
+          className={`${fi} w-36`}
         >
           <option value="">All status</option>
+          <option value="PENDING_APPROVAL">PENDING_APPROVAL</option>
+          <option value="CREATING">CREATING</option>
           <option value="ACTIVE">ACTIVE</option>
+          <option value="FAILED">FAILED</option>
           <option value="DISABLED">DISABLED</option>
           <option value="FROZEN">FROZEN</option>
         </select>
@@ -266,6 +305,7 @@ const CustodianWalletList = () => {
                   ['Asset',      '100px'],
                   ['Balance',    '130px'],
                   ['Status',     '90px'],
+                  ['Vault',      '110px'],
                   ['Updated',    '150px'],
                   ['Action',     '100px'],
                 ] as [string, string][]
@@ -283,14 +323,14 @@ const CustodianWalletList = () => {
           <tbody>
             {loading && (
               <tr>
-                <td colSpan={8} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
+                <td colSpan={9} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
                   Loading…
                 </td>
               </tr>
             )}
             {!loading && items.length === 0 && (
               <tr>
-                <td colSpan={8} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
+                <td colSpan={9} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
                   No wallets found.
                 </td>
               </tr>
@@ -343,6 +383,13 @@ const CustodianWalletList = () => {
                     <AdminBadge value={w.status} />
                   </td>
 
+                  {/* Vault */}
+                  <td className="px-4 py-2.5">
+                    <span className="font-mono text-[10px] text-adm-t2">
+                      {(w as any).vaultId || '—'}
+                    </span>
+                  </td>
+
                   {/* Updated */}
                   <td className="px-4 py-2.5 font-mono text-[10px] text-adm-t2 whitespace-nowrap">
                     {fmt(w.updatedAt)}
@@ -351,6 +398,15 @@ const CustodianWalletList = () => {
                   {/* Action */}
                   <td className="px-4 py-2.5" onClick={(e) => e.stopPropagation()}>
                     <div className="flex items-center gap-2">
+                      {w.status === 'FAILED' && canRetry && w.walletNo && (
+                        <button
+                          onClick={(e) => void handleRetry(w.walletNo!, e)}
+                          className={adminButtonClass('rowSecondaryUtility')}
+                        >
+                          <RotateCcw size={11} />
+                          Retry
+                        </button>
+                      )}
                       {statusActionLabel && (
                         <button
                           onClick={() => void handleStatusChange(w)}
@@ -387,6 +443,15 @@ const CustodianWalletList = () => {
         </div>
       </div>
 
+      {showCreateModal && (
+        <CustodianWalletCreateModal
+          onClose={() => setShowCreateModal(false)}
+          onCreated={() => {
+            setShowCreateModal(false);
+            void fetchItems(1);
+          }}
+        />
+      )}
     </div>
   );
 };
