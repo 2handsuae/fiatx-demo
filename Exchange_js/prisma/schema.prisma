@@ -283,6 +283,7 @@ model CustomerMain {
   materialRefreshCycles     MaterialRefreshCycle[]   @relation("CustomerMaterialRefreshCycles")
   riskAssessments           ClientRiskAssessment[]   @relation("CustomerRiskAssessments")
   tierUpgradeCases          TierUpgradeCase[]        @relation("CustomerTierUpgradeCases")
+  withdrawalAddresses       WithdrawalAddress[]
 
   @@index([adminStatus])
   @@index([complianceStatus])
@@ -1289,6 +1290,7 @@ model Asset {
   reconciliationWarnings         ReconciliationWarning[]
   fiatStatementImports           FiatStatementImport[]
   valuationRates                 AssetValuationRate[]
+  withdrawalAddresses            WithdrawalAddress[]
 
   @@unique([type, code, network])
   @@map("assets")
@@ -1525,6 +1527,45 @@ model Wallet {
   @@index([assetId])
   @@index([status])
   @@map("wallets")
+}
+
+model WithdrawalAddress {
+  id                   String       @id @default(uuid())
+  addressNo            String       @unique
+  customerId           String
+  customerNo           String
+  assetId              String
+  network              String
+  address              String
+  addressType          String
+  label                String?
+
+  counterpartyVaspName String?
+  counterpartyVaspDid  String?
+
+  ownershipDeclaredAt  DateTime?
+  ownershipProofType   String?
+
+  status               String       @default("PENDING_ACTIVATION")
+  activatesAt          DateTime
+  activatedAt          DateTime?
+  suspendedAt          DateTime?
+  suspendedBy          String?
+  suspendReason        String?
+  cancelledAt          DateTime?
+
+  traceId              String
+
+  createdAt            DateTime     @default(now()) @map("created_at")
+  updatedAt            DateTime     @updatedAt @map("updated_at")
+
+  customer             CustomerMain @relation(fields: [customerId], references: [id])
+  asset                Asset        @relation(fields: [assetId], references: [id])
+
+  @@unique([customerId, assetId, address])
+  @@index([customerId, assetId, status])
+  @@index([status, activatesAt])
+  @@map("withdrawal_addresses")
 }
 
 model InboundTransferSignal {
