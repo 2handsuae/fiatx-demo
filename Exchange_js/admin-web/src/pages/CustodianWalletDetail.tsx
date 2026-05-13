@@ -535,7 +535,7 @@ export default function CustodianWalletDetail() {
                 value={
                   wallet.approvalCaseId ? (
                     <button
-                      onClick={() => navigate(`/dashboard/governance/approvals/${wallet.approvalCaseId}`)}
+                      onClick={() => navigate(`/dashboard/control-gates/approvals/${wallet.approvalCaseId}`)}
                       className="font-mono text-[10px] text-adm-amber underline"
                     >
                       {wallet.approvalCaseNo}

@@ -16,6 +16,11 @@ export class CreateCustodianWalletDto {
   @IsOptional()
   ownerId?: string;
 
+  @ApiProperty({ required: false, description: 'Custodian provider — defaults to HEXTRUST' })
+  @IsString()
+  @IsOptional()
+  custodianProvider?: string;
+
   @ApiProperty({ required: false, description: 'Existing vault ID — if provided, creates address under this vault; otherwise creates a new vault' })
   @IsString()
   @IsOptional()

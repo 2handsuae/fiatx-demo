@@ -55,6 +55,7 @@ export default function CustodianWalletCreateModal({ onClose, onCreated }: Props
 
   const [assetNo, setAssetNo] = useState('');
   const [role, setRole] = useState('');
+  const [vaultId, setVaultId] = useState('');
   const [ownerId, setOwnerId] = useState('');
 
   const [submitting, setSubmitting] = useState(false);
@@ -107,7 +108,8 @@ export default function CustodianWalletCreateModal({ onClose, onCreated }: Props
 
     setSubmitting(true);
     try {
-      const body: Record<string, string> = { assetNo, role };
+      const body: Record<string, string> = { assetNo, role, custodianProvider: 'HEXTRUST' };
+      if (vaultId.trim()) body.vaultId = vaultId.trim();
       if (needsOwnerId && ownerId.trim()) body.ownerId = ownerId.trim();
 
       const res = await adminFetch(
@@ -199,6 +201,18 @@ export default function CustodianWalletCreateModal({ onClose, onCreated }: Props
             <select value="HEXTRUST" disabled className={inputCls}>
               <option value="HEXTRUST">HexTrust</option>
             </select>
+          </div>
+
+          {/* Vault ID (optional) */}
+          <div>
+            <label className={labelCls}>Vault ID (optional)</label>
+            <input
+              type="text"
+              value={vaultId}
+              onChange={(e) => setVaultId(e.target.value)}
+              placeholder="Leave empty to create new vault"
+              className={inputCls}
+            />
           </div>
 
           {/* Owner ID (conditional) */}
