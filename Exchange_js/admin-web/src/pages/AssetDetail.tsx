@@ -1,12 +1,9 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Wallet } from 'lucide-react';
 import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/adminFetch';
 import { adminButtonClass } from '../components/common/adminButtonStyles';
 import { DetailPageHeader, InfoField } from '../components/compliance/DetailPageComponents';
 import { AdminBadge } from '../components/ui/AdminBadge';
-import { useAdminSession } from '../contexts/AdminSessionContext';
-import { PERMISSIONS } from '../rbac/permissions';
 
 /* ── Interfaces ──────────────────────────────────────────────── */
 
@@ -28,11 +25,6 @@ interface AssetDetailData {
   withdrawalEnabled?: boolean;
   createdAt: string;
   updatedAt: string;
-}
-
-interface ProvisionResult {
-  created: { role: string; walletNo: string; walletId: string }[];
-  skipped: { role: string; walletNo: string }[];
 }
 
 /* ── Helpers ─────────────────────────────────────────────────── */
@@ -88,15 +80,10 @@ const SidebarKV = ({
 export default function AssetDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { hasAnyPermission } = useAdminSession();
 
   const [asset, setAsset] = useState<AssetDetailData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
-  const [provisioning, setProvisioning] = useState(false);
-
-  const canProvision = hasAnyPermission([PERMISSIONS.ASSET_PROVISION_WALLETS]);
 
   const fetchDetail = async () => {
     if (!id) return;
@@ -115,39 +102,6 @@ export default function AssetDetail() {
   };
 
   useEffect(() => { void fetchDetail(); }, [id]);
-
-  /* ── Provision system wallets ── */
-
-  const handleProvision = async () => {
-    if (!asset?.assetNo) return;
-    if (!window.confirm(`Provision system wallets for ${asset.code}?`)) return;
-
-    setProvisioning(true);
-    setError(null);
-    setNotice(null);
-    try {
-      const res = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/assets/${asset.assetNo}/provision-wallets`,
-        { method: 'POST' },
-      );
-      if (!res.ok) {
-        setError(await getApiErrorMessage(res, 'Failed to provision system wallets.'));
-        return;
-      }
-      const result = (await res.json()) as ProvisionResult;
-      if (result.created.length > 0) {
-        const roles = result.created.map((w) => w.role).join(', ');
-        setNotice(`Provisioned ${result.created.length} wallet${result.created.length > 1 ? 's' : ''}: ${roles}`);
-      } else {
-        setNotice('All system wallets already exist.');
-      }
-    } catch (err) {
-      if (err instanceof AdminSessionError) return;
-      setError(err instanceof Error ? err.message : 'Failed to provision system wallets.');
-    } finally {
-      setProvisioning(false);
-    }
-  };
 
   /* ── Loading / Error states ── */
 
@@ -176,8 +130,6 @@ export default function AssetDetail() {
     );
   }
 
-  const canShowProvision = canProvision && (asset.status === 'PROVISIONING' || asset.status === 'ACTIVE');
-
   return (
     <div className="flex h-full flex-col overflow-hidden">
       {/* ── Header ── */}
@@ -190,18 +142,11 @@ export default function AssetDetail() {
       />
 
       {/* ── Notices ── */}
-      {(notice || error) && (
-        <div className="shrink-0 px-6 pt-3 pb-1 space-y-2">
-          {notice && (
-            <div className="rounded border border-adm-green/30 bg-adm-green/10 px-4 py-2 font-mono text-[11px] text-adm-green">
-              {notice}
-            </div>
-          )}
-          {error && (
-            <div className="rounded border border-adm-red/30 bg-adm-red/10 px-4 py-2 font-mono text-[11px] text-adm-red">
-              {error}
-            </div>
-          )}
+      {error && (
+        <div className="shrink-0 px-6 pt-3 pb-1">
+          <div className="rounded border border-adm-red/30 bg-adm-red/10 px-4 py-2 font-mono text-[11px] text-adm-red">
+            {error}
+          </div>
         </div>
       )}
 
@@ -260,23 +205,6 @@ export default function AssetDetail() {
 
         {/* ════ RIGHT SIDEBAR ════ */}
         <div className="w-[272px] min-w-[272px] overflow-y-auto border-l border-adm-border bg-adm-panel px-4 py-1">
-
-          {/* Actions */}
-          {canShowProvision && (
-            <div className="border-b border-adm-border py-4">
-              <Cap>Actions</Cap>
-              <div className="mt-2.5 flex flex-col gap-2">
-                <button
-                  onClick={() => void handleProvision()}
-                  disabled={provisioning}
-                  className={adminButtonClass('workflowPrimary')}
-                >
-                  <Wallet size={13} />
-                  {provisioning ? 'Provisioning…' : 'Provision System Wallets'}
-                </button>
-              </div>
-            </div>
-          )}
 
           {/* Quick Reference */}
           <SidebarGroup title="Quick Reference">
