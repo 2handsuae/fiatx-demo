@@ -116,6 +116,7 @@ export class CustodianWalletCreateWorkflowService {
         direction,
         walletRole: dto.role,
         assetId: asset.id,
+        vaultId: dto.vaultId ?? null,
         status: 'PENDING_APPROVAL',
       },
     });
@@ -226,6 +227,7 @@ export class CustodianWalletCreateWorkflowService {
         assetCode: wallet.asset.code,
         network: wallet.asset.network ?? undefined,
         role: wallet.walletRole as WalletRole,
+        vaultId: wallet.vaultId ?? undefined,
       });
 
       await this.prisma.wallet.update({
@@ -317,6 +319,7 @@ export class CustodianWalletCreateWorkflowService {
         assetCode: wallet.asset.code,
         network: wallet.asset.network ?? undefined,
         role: wallet.walletRole as WalletRole,
+        vaultId: wallet.vaultId ?? undefined,
       });
 
       const updated = await this.prisma.wallet.update({

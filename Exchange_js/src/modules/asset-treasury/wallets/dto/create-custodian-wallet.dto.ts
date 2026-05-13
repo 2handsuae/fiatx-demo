@@ -15,4 +15,9 @@ export class CreateCustodianWalletDto {
   @IsString()
   @IsOptional()
   ownerId?: string;
+
+  @ApiProperty({ required: false, description: 'Existing vault ID — if provided, creates address under this vault; otherwise creates a new vault' })
+  @IsString()
+  @IsOptional()
+  vaultId?: string;
 }

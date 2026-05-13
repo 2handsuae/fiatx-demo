@@ -6,6 +6,7 @@ export interface CreateVaultParams {
   assetCode: string;
   network?: string;
   role: WalletRole;
+  vaultId?: string;
 }
 
 export interface CreateVaultResult {
