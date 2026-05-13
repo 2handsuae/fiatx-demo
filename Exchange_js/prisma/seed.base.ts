@@ -2,11 +2,8 @@ import { Prisma, PrismaClient } from '@prisma/client';
 import { createHash } from 'crypto';
 import * as bcrypt from 'bcrypt';
 import { DEFAULT_ASSETS } from '../src/config/manifests/assets.manifest';
-import { DEFAULT_COA } from '../src/config/manifests/coa.manifest';
-import { DEFAULT_ACCT_EVENTS } from '../src/config/manifests/events.manifest';
-import { DEFAULT_JOURNAL_TEMPLATES } from '../src/config/manifests/journal-templates.manifest';
-import { DEFAULT_CLEARING_TEMPLATES } from '../src/config/manifests/clearing-templates.manifest';
-import { buildDeterministicWalletNo } from '../src/common/utils/no-generator.util';
+import { buildDeterministicNo } from '../src/common/utils/no-generator.util';
+import { TB_ACCOUNT_CODES } from '../src/modules/accounting/tigerbeetle/constants/tb-account-codes.constant';
 import {
   ACTIVE_RBAC_ROLE_CODES,
   RBAC_PERMISSION_DEFINITIONS,
@@ -21,11 +18,11 @@ import {
 } from '../src/modules/governance/approvals/constants/approval.constants';
 
 const DEFAULT_ADMIN_EMAIL = 'admin@fiatx.com';
-const DEFAULT_ADMIN_USER_NO = 'ADMIN-001';
+const DEFAULT_ADMIN_USER_NO = buildDeterministicNo('ADM', 'SUPER_ADMIN', DEFAULT_ADMIN_EMAIL);
 const DEFAULT_ADMIN_PASSWORD = '123456';
 const DEFAULT_ROLE_ADMIN_PASSWORD = '123456';
 const DEFAULT_BASE_CUSTOMER_EMAIL = 'shawn@fiatx.com';
-const DEFAULT_BASE_CUSTOMER_NO = 'CUST-BASE-SHAWN';
+const DEFAULT_BASE_CUSTOMER_NO = buildDeterministicNo('CU', DEFAULT_BASE_CUSTOMER_EMAIL);
 const DEFAULT_BASE_CUSTOMER_PASSWORD = '123456';
 const DEFAULT_BASE_CUSTOMER_FIRST_NAME = 'Shawn';
 const DEFAULT_BASE_CUSTOMER_LAST_NAME = 'FiatX';
@@ -37,19 +34,18 @@ type RoleSeedAccount = {
 };
 
 const ROLE_SEED_ACCOUNTS: RoleSeedAccount[] = [
-  { roleCode: 'SUPER_ADMIN', email: 'admin@fiatx.com', userNo: 'ADMIN-001' },
-  { roleCode: 'SENIOR_MANAGEMENT_OFFICER', email: 'sm@fiatx.com', userNo: 'ADMIN-SMO' },
-  { roleCode: 'CISO', email: 'ciso@fiatx.com', userNo: 'ADMIN-CISO' },
-  { roleCode: 'MLRO', email: 'mlro@fiatx.com', userNo: 'ADMIN-MLRO' },
-  { roleCode: 'DPO', email: 'dpo@fiatx.com', userNo: 'ADMIN-DPO' },
-  {
-    roleCode: 'COMPLIANCE_OFFICER',
-    email: 'compliance_lead@fiatx.com',
-    userNo: 'ADMIN-COMP',
-  },
-  { roleCode: 'TECH_OFFICER', email: 'tech_admin@fiatx.com', userNo: 'ADMIN-TECH' },
-  { roleCode: 'OPS_OFFICER', email: 'ops_officer@fiatx.com', userNo: 'ADMIN-OPS' },
-];
+  { roleCode: 'SUPER_ADMIN', email: 'admin@fiatx.com' },
+  { roleCode: 'SENIOR_MANAGEMENT_OFFICER', email: 'sm@fiatx.com' },
+  { roleCode: 'CISO', email: 'ciso@fiatx.com' },
+  { roleCode: 'MLRO', email: 'mlro@fiatx.com' },
+  { roleCode: 'DPO', email: 'dpo@fiatx.com' },
+  { roleCode: 'COMPLIANCE_OFFICER', email: 'compliance_lead@fiatx.com' },
+  { roleCode: 'TECH_OFFICER', email: 'tech_admin@fiatx.com' },
+  { roleCode: 'OPS_OFFICER', email: 'ops_officer@fiatx.com' },
+].map((a) => ({
+  ...a,
+  userNo: buildDeterministicNo('ADM', a.roleCode, a.email),
+}));
 
 const CRYPTO_SYSTEM_WALLET_KINDS = [
   'CUST_CRYPTO_MASTER',
@@ -65,17 +61,17 @@ const CRYPTO_SYSTEM_WALLET_KIND_CONFIG: Record<
   CUST_CRYPTO_MASTER: {
     ownerType: 'CUSTOMER',
     ownerNo: 'CUSTOMER_POOL',
-    walletRole: 'MASTER',
+    walletRole: 'C_MAIN',
   },
   CUST_CRYPTO_PAYOUT: {
     ownerType: 'CUSTOMER',
     ownerNo: 'CUSTOMER_POOL',
-    walletRole: 'PAYOUT',
+    walletRole: 'C_OUT',
   },
   PLATFORM_CRYPTO_LIQ: {
     ownerType: 'PLATFORM',
     ownerNo: 'PLATFORM',
-    walletRole: 'LIQ',
+    walletRole: 'F_LIQ',
   },
 };
 
@@ -89,42 +85,18 @@ const FIAT_POOL_WALLET_KIND_CONFIG: Record<
   CUST_BANK: {
     ownerType: 'CUSTOMER',
     ownerNo: 'CUSTOMER_POOL',
-    walletRole: 'CUST_BANK',
+    walletRole: 'C_CMA',
   },
   LIQ_BANK: {
     ownerType: 'PLATFORM',
     ownerNo: 'PLATFORM',
-    walletRole: 'LIQ_BANK',
+    walletRole: 'F_LIQ',
   },
 };
 
 const DEFAULT_CRYPTO_AED_VALUATION_BY_CODE: Record<string, string> = {
   USDT: '3.6725',
-  BTC: '250000',
 };
-
-const DEPRECATED_DEPOSIT_REJECTED_EVENT_CODES = [
-  'EVT_DEPOSIT_REJECTED__CRYPTO',
-  'EVT_DEPOSIT_REJECTED__FIAT',
-] as const;
-
-const LEGACY_INTERNAL_TX_EVENT_CODES = [
-  'EVT_INTERNAL_TX_CREATED',
-  'EVT_INTERNAL_TX_SUCCESS',
-  'EVT_INTERNAL_TX_FAILED',
-  'EVT_INTERNAL_TX_CANCELLED',
-  'EVT_INTERNAL_TX_REJECTED',
-] as const;
-
-const LEGACY_INTERNAL_TX_TEMPLATE_CODES = [
-  'TPL_EVT_INTERNAL_TX_CREATED_V1',
-  'TPL_EVT_INTERNAL_TX_SUCCESS_V1',
-] as const;
-
-const LEGACY_WITHDRAW_FAILED_EVENT_CODES = [
-  'EVT_WITHDRAWAL_FAILED__CRYPTO',
-  'EVT_WITHDRAWAL_FAILED__FIAT',
-] as const;
 
 export async function seedBase(prisma: PrismaClient): Promise<void> {
   console.log('--- Seeding Base Configuration ---');
@@ -136,10 +108,7 @@ export async function seedBase(prisma: PrismaClient): Promise<void> {
   await seedSystemWallets(prisma);
   await seedWalletBalanceSnapshotBaseline(prisma);
   await seedAssetValuationRates(prisma);
-  await seedCoa(prisma);
-  await seedAcctEvents(prisma);
-  await seedJournalTemplates(prisma);
-  await seedClearingTemplates(prisma);
+  await seedTbAccountRegistry(prisma);
   console.log('✅ Base configuration seeded.');
 }
 
@@ -441,40 +410,170 @@ async function areRoleSeedAccountsComplete(prisma: PrismaClient): Promise<boolea
   return true;
 }
 
+const TEST_CUSTOMERS = [
+  {
+    email: DEFAULT_BASE_CUSTOMER_EMAIL,
+    firstName: DEFAULT_BASE_CUSTOMER_FIRST_NAME,
+    lastName: DEFAULT_BASE_CUSTOMER_LAST_NAME,
+    customerType: 'INDIVIDUAL' as const,
+    onboardingStatus: 'APPROVED',
+    adminStatus: 'ACTIVE',
+    complianceStatus: 'CLEAR',
+    riskRating: 'LOW',
+    eddRequired: false,
+  },
+  {
+    email: 'alice@test.com',
+    firstName: 'Alice',
+    lastName: 'Approved-Active',
+    customerType: 'INDIVIDUAL' as const,
+    onboardingStatus: 'APPROVED',
+    adminStatus: 'ACTIVE',
+    complianceStatus: 'CLEAR',
+    riskRating: 'MEDIUM',
+    eddRequired: false,
+  },
+  {
+    email: 'bob@test.com',
+    firstName: 'Bob',
+    lastName: 'Approved-Frozen',
+    customerType: 'INDIVIDUAL' as const,
+    onboardingStatus: 'APPROVED',
+    adminStatus: 'ACTIVE',
+    complianceStatus: 'FROZEN',
+    riskRating: 'HIGH',
+    eddRequired: true,
+    complianceFreezeReason: 'Adverse media alert triggered',
+  },
+  {
+    email: 'charlie@test.com',
+    firstName: 'Charlie',
+    lastName: 'Approved-Suspended',
+    customerType: 'INDIVIDUAL' as const,
+    onboardingStatus: 'APPROVED',
+    adminStatus: 'SUSPENDED',
+    complianceStatus: 'CLEAR',
+    riskRating: 'LOW',
+    eddRequired: false,
+  },
+  {
+    email: 'diana@test.com',
+    firstName: 'Diana',
+    lastName: 'Pending-Verification',
+    customerType: 'INDIVIDUAL' as const,
+    onboardingStatus: 'PENDING_VERIFICATION',
+    adminStatus: 'INACTIVE',
+    complianceStatus: 'CLEAR',
+    riskRating: null,
+    eddRequired: false,
+  },
+  {
+    email: 'edward@test.com',
+    firstName: 'Edward',
+    lastName: 'Onboarding-None',
+    customerType: 'INDIVIDUAL' as const,
+    onboardingStatus: 'NONE',
+    adminStatus: 'INACTIVE',
+    complianceStatus: 'CLEAR',
+    riskRating: null,
+    eddRequired: false,
+  },
+  {
+    email: 'fiona@test.com',
+    firstName: 'Fiona',
+    lastName: 'Rejected',
+    customerType: 'INDIVIDUAL' as const,
+    onboardingStatus: 'REJECTED',
+    adminStatus: 'INACTIVE',
+    complianceStatus: 'CLEAR',
+    riskRating: null,
+    eddRequired: false,
+  },
+  {
+    email: 'george@test.com',
+    firstName: 'George',
+    lastName: 'Corporate-Active',
+    customerType: 'CORPORATE' as const,
+    onboardingStatus: 'APPROVED',
+    adminStatus: 'ACTIVE',
+    complianceStatus: 'CLEAR',
+    riskRating: 'LOW',
+    eddRequired: false,
+    companyName: 'Acme Trading LLC',
+  },
+  {
+    email: 'helen@test.com',
+    firstName: 'Helen',
+    lastName: 'High-Risk-Active',
+    customerType: 'INDIVIDUAL' as const,
+    onboardingStatus: 'APPROVED',
+    adminStatus: 'ACTIVE',
+    complianceStatus: 'CLEAR',
+    riskRating: 'HIGH',
+    eddRequired: true,
+  },
+  {
+    email: 'ivan@test.com',
+    firstName: 'Ivan',
+    lastName: 'Withdrawn',
+    customerType: 'INDIVIDUAL' as const,
+    onboardingStatus: 'WITHDRAWN',
+    adminStatus: 'INACTIVE',
+    complianceStatus: 'CLEAR',
+    riskRating: null,
+    eddRequired: false,
+  },
+].map((c) => ({
+  ...c,
+  customerNo: c.email === DEFAULT_BASE_CUSTOMER_EMAIL
+    ? DEFAULT_BASE_CUSTOMER_NO
+    : buildDeterministicNo('CU', c.email),
+}));
+
 async function seedBaseCustomers(prisma: PrismaClient): Promise<void> {
   const now = new Date();
   const passwordHash = await bcrypt.hash(DEFAULT_BASE_CUSTOMER_PASSWORD, 10);
 
-  await prisma.customerMain.upsert({
-    where: { email: DEFAULT_BASE_CUSTOMER_EMAIL },
-    update: {
-      customerNo: DEFAULT_BASE_CUSTOMER_NO,
-      firstName: DEFAULT_BASE_CUSTOMER_FIRST_NAME,
-      lastName: DEFAULT_BASE_CUSTOMER_LAST_NAME,
-      passwordHash,
-      passwordUpdatedAt: now,
-      customerType: 'INDIVIDUAL',
-      onboardingStatus: 'APPROVED',
-      adminStatus: 'ACTIVE',
-      riskRating: 'LOW',
-      eddRequired: false,
-      cddDocumentExpiresAt: null,
-    },
-    create: {
-      customerNo: DEFAULT_BASE_CUSTOMER_NO,
-      email: DEFAULT_BASE_CUSTOMER_EMAIL,
-      firstName: DEFAULT_BASE_CUSTOMER_FIRST_NAME,
-      lastName: DEFAULT_BASE_CUSTOMER_LAST_NAME,
-      passwordHash,
-      passwordUpdatedAt: now,
-      customerType: 'INDIVIDUAL',
-      onboardingStatus: 'APPROVED',
-      adminStatus: 'ACTIVE',
-      riskRating: 'LOW',
-      eddRequired: false,
-      cddDocumentExpiresAt: null,
-    },
-  });
+  for (const c of TEST_CUSTOMERS) {
+    await prisma.customerMain.upsert({
+      where: { email: c.email },
+      update: {
+        customerNo: c.customerNo,
+        firstName: c.firstName,
+        lastName: c.lastName,
+        passwordHash,
+        passwordUpdatedAt: now,
+        customerType: c.customerType,
+        onboardingStatus: c.onboardingStatus,
+        adminStatus: c.adminStatus,
+        complianceStatus: c.complianceStatus,
+        riskRating: c.riskRating ?? undefined,
+        eddRequired: c.eddRequired,
+        complianceFreezeReason: (c as any).complianceFreezeReason ?? null,
+        complianceFreezeAt: c.complianceStatus === 'FROZEN' ? now : null,
+        companyName: (c as any).companyName ?? null,
+        cddDocumentExpiresAt: null,
+      },
+      create: {
+        customerNo: c.customerNo,
+        email: c.email,
+        firstName: c.firstName,
+        lastName: c.lastName,
+        passwordHash,
+        passwordUpdatedAt: now,
+        customerType: c.customerType,
+        onboardingStatus: c.onboardingStatus,
+        adminStatus: c.adminStatus,
+        complianceStatus: c.complianceStatus,
+        riskRating: c.riskRating ?? undefined,
+        eddRequired: c.eddRequired,
+        complianceFreezeReason: (c as any).complianceFreezeReason ?? null,
+        complianceFreezeAt: c.complianceStatus === 'FROZEN' ? now : null,
+        companyName: (c as any).companyName ?? null,
+        cddDocumentExpiresAt: null,
+      },
+    });
+  }
 }
 
 async function seedAssets(prisma: PrismaClient): Promise<void> {
@@ -695,273 +794,76 @@ async function seedWalletBalanceSnapshotBaseline(
   }
 }
 
-async function seedCoa(prisma: PrismaClient): Promise<void> {
-  for (const item of DEFAULT_COA) {
-    await prisma.coa.upsert({
-      where: { code: item.code },
-      update: {
-        type: item.type,
-        name: item.name,
-        status: item.status,
-      },
-      create: {
-        code: item.code,
-        type: item.type,
-        name: item.name,
-        status: item.status,
-        requiredTags: '[]',
-      },
-    });
-  }
-}
-
-async function seedAcctEvents(prisma: PrismaClient): Promise<void> {
-  for (const event of DEFAULT_ACCT_EVENTS) {
-    await prisma.acctEvent.upsert({
-      where: { eventCode: event.eventCode },
-      update: event,
-      create: event,
-    });
-  }
-
-  await cleanupDeprecatedDepositRejectedEvents(prisma);
-  await cleanupLegacyInternalTxAndWithdrawFailedContracts(prisma);
-  await cleanupInactiveNonDefaultAccountingContracts(prisma);
-}
-
-async function cleanupDeprecatedDepositRejectedEvents(
-  prisma: PrismaClient,
-): Promise<void> {
-  try {
-    await prisma.journalHeaderTemplate.deleteMany({
-      where: {
-        eventCode: { in: [...DEPRECATED_DEPOSIT_REJECTED_EVENT_CODES] },
-      },
-    });
-  } catch {
-    await prisma.journalHeaderTemplate.updateMany({
-      where: {
-        eventCode: { in: [...DEPRECATED_DEPOSIT_REJECTED_EVENT_CODES] },
-      },
-      data: { status: 'INACTIVE' },
-    });
-  }
-
-  try {
-    await prisma.acctEvent.deleteMany({
-      where: {
-        eventCode: { in: [...DEPRECATED_DEPOSIT_REJECTED_EVENT_CODES] },
-      },
-    });
-  } catch {
-    await prisma.acctEvent.updateMany({
-      where: {
-        eventCode: { in: [...DEPRECATED_DEPOSIT_REJECTED_EVENT_CODES] },
-      },
-      data: { isActive: false },
-    });
-  }
-}
-
-async function cleanupLegacyInternalTxAndWithdrawFailedContracts(
-  prisma: PrismaClient,
-): Promise<void> {
-  try {
-    await prisma.journalHeaderTemplate.deleteMany({
-      where: {
-        OR: [
-          {
-            templateCode: {
-              in: [...LEGACY_INTERNAL_TX_TEMPLATE_CODES],
-            },
-          },
-          {
-            eventCode: {
-              in: [...LEGACY_INTERNAL_TX_EVENT_CODES],
-            },
-          },
-        ],
-      },
-    });
-  } catch {
-    await prisma.journalHeaderTemplate.updateMany({
-      where: {
-        OR: [
-          {
-            templateCode: {
-              in: [...LEGACY_INTERNAL_TX_TEMPLATE_CODES],
-            },
-          },
-          {
-            eventCode: {
-              in: [...LEGACY_INTERNAL_TX_EVENT_CODES],
-            },
-          },
-        ],
-      },
-      data: { status: 'INACTIVE' },
-    });
-  }
-
-  try {
-    await prisma.acctEvent.deleteMany({
-      where: {
-        eventCode: {
-          in: [
-            ...LEGACY_INTERNAL_TX_EVENT_CODES,
-            ...LEGACY_WITHDRAW_FAILED_EVENT_CODES,
-          ],
-        },
-      },
-    });
-  } catch {
-    await prisma.acctEvent.updateMany({
-      where: {
-        eventCode: {
-          in: [
-            ...LEGACY_INTERNAL_TX_EVENT_CODES,
-            ...LEGACY_WITHDRAW_FAILED_EVENT_CODES,
-          ],
-        },
-      },
-      data: { isActive: false },
-    });
-  }
-}
-
-async function cleanupInactiveNonDefaultAccountingContracts(
-  prisma: PrismaClient,
-): Promise<void> {
-  const defaultEventCodes = DEFAULT_ACCT_EVENTS.map((item) => item.eventCode);
-  const defaultTemplateCodes = DEFAULT_JOURNAL_TEMPLATES.map(
-    (item) => item.header.templateCode,
-  );
-
-  await prisma.journalHeaderTemplate.deleteMany({
-    where: {
-      status: 'INACTIVE',
-      templateCode: { notIn: defaultTemplateCodes },
-    },
+async function seedTbAccountRegistry(prisma: PrismaClient): Promise<void> {
+  const activeAssets = await prisma.asset.findMany({
+    where: { status: 'ACTIVE' },
+    select: { id: true, type: true, code: true },
+    orderBy: [{ code: 'asc' }],
   });
 
-  await prisma.acctEvent.deleteMany({
-    where: {
-      isActive: false,
-      eventCode: { notIn: defaultEventCodes },
-    },
-  });
-}
-
-async function seedJournalTemplates(prisma: PrismaClient): Promise<void> {
-  const baseAsset =
-    (await prisma.asset.findFirst({
-      where: { code: 'AED' },
-      orderBy: { createdAt: 'asc' },
-    })) ?? (await prisma.asset.findFirst({ orderBy: { createdAt: 'asc' } }));
-
-  if (!baseAsset) {
-    throw new Error('No base asset found when seeding journal templates.');
+  let nextLedgerId = 1;
+  const maxResult = await prisma.asset.aggregate({ _max: { tbLedgerId: true } });
+  if (maxResult._max.tbLedgerId) {
+    nextLedgerId = maxResult._max.tbLedgerId + 1;
   }
 
-  for (const template of DEFAULT_JOURNAL_TEMPLATES) {
-    const header = await prisma.journalHeaderTemplate.upsert({
-      where: { templateCode: template.header.templateCode },
-      update: {
-        ...template.header,
-        baseAssetId: baseAsset.id,
-      },
-      create: {
-        ...template.header,
-        baseAssetId: baseAsset.id,
-      },
+  for (const asset of activeAssets) {
+    let tbLedgerId: number;
+    const existing = await prisma.asset.findUnique({
+      where: { id: asset.id },
+      select: { tbLedgerId: true },
     });
 
-    await prisma.journalLineTemplate.deleteMany({
-      where: { templateId: header.id },
-    });
-
-    for (const line of template.lines) {
-      const coa = await prisma.coa.findUnique({
-        where: { code: line.accountCode },
-        select: { code: true },
-      });
-      if (!coa) {
-        throw new Error(
-          `COA ${line.accountCode} is missing while seeding template ${template.header.templateCode}.`,
-        );
-      }
-
-      await prisma.journalLineTemplate.create({
-        data: {
-          templateId: header.id,
-          lineNo: line.lineNo,
-          accountCode: line.accountCode,
-          drCr: line.drCr,
-          amountSource: line.amountSource,
-          assetSource: line.assetSource,
-          ownerTypeSource: line.ownerTypeSource ?? null,
-          ownerIdSource: line.ownerIdSource ?? null,
-          fxRateSource: readOptionalString(line, 'fxRateSource'),
-          referenceSource: readOptionalString(line, 'referenceSource'),
-          dimensionsRule: line.dimensionsRule ?? '{}',
-          conditionExpr: readOptionalString(line, 'conditionExpr'),
-          description: line.description ?? null,
-        },
+    if (existing?.tbLedgerId) {
+      tbLedgerId = existing.tbLedgerId;
+    } else {
+      tbLedgerId = nextLedgerId++;
+      await prisma.asset.update({
+        where: { id: asset.id },
+        data: { tbLedgerId, status: 'ACTIVE' },
       });
     }
-  }
-}
 
-async function seedClearingTemplates(prisma: PrismaClient): Promise<void> {
-  for (const template of DEFAULT_CLEARING_TEMPLATES) {
-    const header = await prisma.clearingTemplate.upsert({
-      where: { code: template.code },
-      update: {
-        clearingType: template.clearingType,
-        sourceType: template.sourceType,
-        isEnabled: template.isEnabled,
-        description: template.description,
-        feeMethod: template.feeMethod,
-        outAssetSource: template.outAssetSource,
-        outAmountSource: template.outAmountSource,
-        inAssetSource: template.inAssetSource,
-        inAmountSource: template.inAmountSource,
-        feeAssetSource: template.feeAssetSource,
-        feeAmountSource: template.feeAmountSource,
-      },
-      create: {
-        code: template.code,
-        clearingType: template.clearingType,
-        sourceType: template.sourceType,
-        isEnabled: template.isEnabled,
-        description: template.description,
-        feeMethod: template.feeMethod,
-        outAssetSource: template.outAssetSource,
-        outAmountSource: template.outAmountSource,
-        inAssetSource: template.inAssetSource,
-        inAmountSource: template.inAmountSource,
-        feeAssetSource: template.feeAssetSource,
-        feeAmountSource: template.feeAmountSource,
-      },
-    });
+    const custodyCode = asset.type === 'FIAT'
+      ? TB_ACCOUNT_CODES.BANK
+      : TB_ACCOUNT_CODES.CUSTODY;
 
-    await prisma.clearingLineTemplate.deleteMany({
-      where: { clearingTemplateId: header.id },
-    });
+    const systemAccounts = [
+      { code: custodyCode, desc: asset.type === 'FIAT' ? 'BANK' : 'CUSTODY' },
+      { code: TB_ACCOUNT_CODES.TRADE_CLEARING, desc: 'TRADE_CLEARING' },
+      { code: TB_ACCOUNT_CODES.FEE_RECEIVABLE, desc: 'FEE_RECEIVABLE', flags: 0x04 },
+    ];
 
-    for (const line of template.lineTemplates) {
-      await prisma.clearingLineTemplate.create({
-        data: {
-          clearingTemplateId: header.id,
-          lineNo: line.lineNo,
-          lineType: line.lineType,
-          partyType: line.partyType,
-          partyIdSource: line.partyIdSource ?? null,
-          assetSource: line.assetSource,
-          amountSource: line.amountSource,
-          isEnabled: true,
+    for (const acct of systemAccounts) {
+      const existingAccount = await (prisma as any).tbAccountRegistry.findFirst({
+        where: {
+          code: acct.code,
+          ledger: tbLedgerId,
+          ownerType: 'SYSTEM',
+          ownerUuid: null,
         },
       });
+
+      if (!existingAccount) {
+        const tbAccountId = createHash('sha256')
+          .update(`SEED|${acct.code}|${tbLedgerId}|SYSTEM`)
+          .digest('hex')
+          .slice(0, 32);
+
+        await (prisma as any).tbAccountRegistry.create({
+          data: {
+            tbAccountId,
+            code: acct.code,
+            ledger: tbLedgerId,
+            ownerType: 'SYSTEM',
+            ownerUuid: null,
+            ownerNo: null,
+            assetCode: asset.code,
+            description: `${acct.desc} for ${asset.code}`,
+            flags: acct.flags ?? 0,
+          },
+        });
+      }
     }
   }
 }
@@ -1147,39 +1049,17 @@ async function isBaseComplete(prisma: PrismaClient): Promise<boolean> {
     }
   }
 
-  const coaCount = await prisma.coa.count({
-    where: { code: { in: DEFAULT_COA.map((item) => item.code) } },
+  const tbRegistryCount = await (prisma as any).tbAccountRegistry.count({
+    where: { ownerType: 'SYSTEM', status: 'ACTIVE' },
   });
-  if (coaCount < DEFAULT_COA.length) {
+  if (tbRegistryCount < activeAssets.length * 3) {
     return false;
   }
 
-  const eventCount = await prisma.acctEvent.count({
-    where: {
-      eventCode: { in: DEFAULT_ACCT_EVENTS.map((item) => item.eventCode) },
-    },
+  const assetsWithLedger = await prisma.asset.count({
+    where: { status: 'ACTIVE', tbLedgerId: { not: null } },
   });
-  if (eventCount < DEFAULT_ACCT_EVENTS.length) {
-    return false;
-  }
-
-  const journalTemplateCount = await prisma.journalHeaderTemplate.count({
-    where: {
-      templateCode: {
-        in: DEFAULT_JOURNAL_TEMPLATES.map((item) => item.header.templateCode),
-      },
-    },
-  });
-  if (journalTemplateCount < DEFAULT_JOURNAL_TEMPLATES.length) {
-    return false;
-  }
-
-  const clearingTemplateCount = await prisma.clearingTemplate.count({
-    where: {
-      code: { in: DEFAULT_CLEARING_TEMPLATES.map((item) => item.code) },
-    },
-  });
-  if (clearingTemplateCount < DEFAULT_CLEARING_TEMPLATES.length) {
+  if (assetsWithLedger < activeAssets.length) {
     return false;
   }
 
@@ -1238,11 +1118,7 @@ function buildCryptoSystemWalletNo(
   network: string | null | undefined,
 ): string {
   const role = CRYPTO_SYSTEM_WALLET_KIND_CONFIG[kind].walletRole;
-  return buildDeterministicWalletNo(
-    role,
-    normalizeSegment(assetCode),
-    normalizeSegment(network || 'NA'),
-  );
+  return buildDeterministicNo('WA', role, assetCode, network || '');
 }
 
 function buildSystemWalletAddress(
@@ -1276,7 +1152,7 @@ function buildFiatPoolWalletNo(
   assetCode: string,
 ): string {
   const role = FIAT_POOL_WALLET_KIND_CONFIG[kind].walletRole;
-  return buildDeterministicWalletNo(role, normalizeSegment(assetCode), 'NA');
+  return buildDeterministicNo('WA', role, assetCode, '');
 }
 
 function buildSystemPoolIban(
@@ -1290,11 +1166,3 @@ function buildSystemPoolIban(
   return `AE00FIATX${hash.slice(0, 16)}`;
 }
 
-function readOptionalString(source: unknown, key: string): string | null {
-  if (typeof source !== 'object' || source === null || !(key in source)) {
-    return null;
-  }
-
-  const value = (source as Record<string, unknown>)[key];
-  return typeof value === 'string' ? value : null;
-}
