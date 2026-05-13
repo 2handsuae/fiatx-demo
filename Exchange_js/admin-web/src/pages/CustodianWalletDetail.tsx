@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Repeat, Link2, Plus } from 'lucide-react';
+import { Repeat, Link2, Plus, RotateCcw } from 'lucide-react';
 import { copyToClipboard } from '../utils/clipboard';
 import { formatAssetAmount } from '../utils/number-format';
 import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/adminFetch';
@@ -37,6 +37,10 @@ interface WalletDetailData {
   bankCode: string | null;
   accountName: string | null;
   iban: string | null;
+
+  vaultId: string | null;
+  approvalCaseId: string | null;
+  approvalCaseNo: string | null;
 
   status: string;
   regulatoryGateSummary?: {
@@ -195,6 +199,7 @@ export default function CustodianWalletDetail() {
   const canCreateCollection = hasAnyPermission([PERMISSIONS.INTERNAL_COLLECTIONS_RECONCILE]);
   const canReadGate = hasAnyPermission([PERMISSIONS.GOV_REGULATORY_GATE_DETAIL_READ]);
   const canCreateGate = hasAnyPermission([PERMISSIONS.GOV_REGULATORY_GATE_CREATE]);
+  const canRetry = hasAnyPermission([PERMISSIONS.CUSTODIAN_WALLET_RETRY]);
   const ownerLabel = wallet.ownerName || wallet.ownerNo || wallet.ownerId || '—';
   const surfaceLabel = SURFACE_LABELS[wallet.surfaceCategory || 'OTHER'] || 'Other Wallet';
 
@@ -256,16 +261,36 @@ export default function CustodianWalletDetail() {
     }
   };
 
+  const handleRetryCreation = async () => {
+    if (!wallet.walletNo || !window.confirm(`Retry vault creation for wallet ${wallet.walletNo}?`)) return;
+    try {
+      const res = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/admin/custodian-wallets/${wallet.walletNo}/retry`,
+        { method: 'POST' },
+      );
+      if (!res.ok) {
+        setError(await getApiErrorMessage(res, 'Retry failed.'));
+        return;
+      }
+      setNotice('Vault creation retried successfully.');
+      void fetchWallet();
+    } catch (err) {
+      if (err instanceof AdminSessionError) return;
+      setError(err instanceof Error ? err.message : 'Retry failed.');
+    }
+  };
+
   /* ── Sidebar action visibility ── */
 
   const canToggleStatus = wallet.status !== 'FROZEN';
-  const showActions = canToggleStatus || (isDepositWallet && canCreateCollection) || (isCmaWallet && (canReadGate || canCreateGate));
+  const isFailed = wallet.status === 'FAILED';
+  const showActions = canToggleStatus || isFailed || (isDepositWallet && canCreateCollection) || (isCmaWallet && (canReadGate || canCreateGate));
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
       {/* ── Header ── */}
       <DetailPageHeader
-        title="WALLET"
+        title="CUSTODIAN WALLET"
         subtitle={wallet.walletNo}
         onBack={() => navigate('/dashboard/treasury/custodian-wallets')}
         onRefresh={() => void fetchWallet()}
@@ -421,6 +446,15 @@ export default function CustodianWalletDetail() {
             <div className="border-b border-adm-border py-4">
               <Cap>Actions</Cap>
               <div className="mt-2.5 flex flex-col gap-2">
+                {isFailed && canRetry && (
+                  <button
+                    onClick={() => void handleRetryCreation()}
+                    className={adminButtonClass('workflowPrimary')}
+                  >
+                    <RotateCcw size={13} />
+                    Retry Creation
+                  </button>
+                )}
                 {canToggleStatus && wallet.status === 'ACTIVE' && (
                   <button
                     onClick={() => void handleStatusChange('DISABLED')}
@@ -486,6 +520,33 @@ export default function CustodianWalletDetail() {
             <SidebarKV label="Asset" value={wallet.asset.code} />
             <SidebarKV label="Wallet ID" value={wallet.id} mono />
           </SidebarGroup>
+
+          {/* Vault Info */}
+          <SidebarGroup title="Vault Info">
+            <SidebarKV label="Vault ID" value={wallet.vaultId} mono />
+            <SidebarKV label="Custodian" value="HexTrust" />
+          </SidebarGroup>
+
+          {/* Approval Info */}
+          {wallet.approvalCaseNo && (
+            <SidebarGroup title="Approval">
+              <SidebarKV
+                label="Case No"
+                value={
+                  wallet.approvalCaseId ? (
+                    <button
+                      onClick={() => navigate(`/dashboard/governance/approvals/${wallet.approvalCaseId}`)}
+                      className="font-mono text-[10px] text-adm-amber underline"
+                    >
+                      {wallet.approvalCaseNo}
+                    </button>
+                  ) : (
+                    wallet.approvalCaseNo
+                  )
+                }
+              />
+            </SidebarGroup>
+          )}
 
         </div>
       </div>
