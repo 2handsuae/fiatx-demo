@@ -128,6 +128,8 @@ const TbAccountList = lazy(() => import('./pages/TbAccountList'));
 const TbAccountDetail = lazy(() => import('./pages/TbAccountDetail'));
 const TbTransferList = lazy(() => import('./pages/TbTransferList'));
 const TbBacklogList = lazy(() => import('./pages/TbBacklogList'));
+const WithdrawalAddressList = lazy(() => import('./pages/WithdrawalAddressList'));
+const WithdrawalAddressDetail = lazy(() => import('./pages/WithdrawalAddressDetail'));
 
 const FullPageMessage = ({
   title,
@@ -925,6 +927,9 @@ function App() {
               element={withPermission(<TbBacklogList />, [PERMISSIONS.TB_BACKLOG_READ])}
             />
           </Route>
+
+          <Route path="/withdrawal-addresses" element={withPermission(<WithdrawalAddressList />, [PERMISSIONS.BASE_ACCESS])} />
+          <Route path="/withdrawal-addresses/:addressNo" element={withPermission(<WithdrawalAddressDetail />, [PERMISSIONS.BASE_ACCESS])} />
 
         </Route>
 
