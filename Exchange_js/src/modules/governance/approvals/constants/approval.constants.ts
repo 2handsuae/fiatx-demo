@@ -56,6 +56,8 @@ export const ApprovalActionTypes = {
   ADMIN_MFA_RESET: 'ADMIN_MFA_RESET',
   // ─── Asset Listing (2026-05-11) ────
   ASSET_LISTING: 'ASSET_LISTING',
+  // ─── Custodian Wallet Create (2026-05-13) ────
+  CUSTODIAN_WALLET_CREATE: 'CUSTODIAN_WALLET_CREATE',
 } as const;
 
 export const ApprovalStatuses = {
@@ -358,6 +360,14 @@ export const DEFAULT_APPROVAL_POLICIES: Record<
     allowCancel: true,
     allowRetry: false,
   },
+  // ─── Custodian Wallet Create (2026-05-13) ────
+  [ApprovalActionTypes.CUSTODIAN_WALLET_CREATE]: {
+    riskLevel: ApprovalRiskLevels.HIGH,
+    steps: [{ stepNo: 1, roles: ['CISO'] }],
+    timeoutHours: 48,
+    allowCancel: true,
+    allowRetry: false,
+  },
 };
 
 /**
@@ -376,6 +386,7 @@ export const V1_APPROVAL_ACTION_TYPES: readonly string[] = [
   ApprovalActionTypes.ADMIN_PASSWORD_RESET,
   ApprovalActionTypes.ADMIN_MFA_RESET,
   ApprovalActionTypes.ASSET_LISTING,
+  ApprovalActionTypes.CUSTODIAN_WALLET_CREATE,
 ] as const;
 
 export function isSuperAdminRoleContext(roleCodes: string[]): boolean {

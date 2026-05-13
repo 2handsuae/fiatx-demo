@@ -156,6 +156,8 @@ export const AuditBusinessWorkflowTypes = {
   ADMIN_MFA_RESET: 'ADMIN_MFA_RESET',
   // Asset Listing (2026-05-11)
   ASSET_LISTING: 'ASSET_LISTING',
+  // Custodian Wallet Create (2026-05-13)
+  CUSTODIAN_WALLET_CREATE: 'CUSTODIAN_WALLET_CREATE',
 } as const;
 
 export const AuditUserActions = {
@@ -571,6 +573,18 @@ export const AuditGovernanceActions = {
     LISTING_CANCELLED:           'LISTING_CANCELLED',
     ASSET_ACTIVATED:             'ASSET_ACTIVATED',
     SYSTEM_WALLETS_PROVISIONED:  'asset_listing.system_wallets_provisioned',
+  },
+
+  // Custodian Wallet Create (2026-05-13)
+  CUSTODIAN_WALLET_CREATE: {
+    CREATE_REQUESTED:      'CREATE_REQUESTED',
+    APPROVAL_GRANTED:      'APPROVAL_GRANTED',
+    APPROVAL_DECLINED:     'APPROVAL_DECLINED',
+    APPROVAL_CANCELLED:    'APPROVAL_CANCELLED',
+    APPROVAL_EXPIRED:      'APPROVAL_EXPIRED',
+    WALLET_CREATED:        'WALLET_CREATED',
+    WALLET_CREATE_FAILED:  'WALLET_CREATE_FAILED',
+    CREATE_CANCELLED:      'CREATE_CANCELLED',
   },
 } as const;
 
