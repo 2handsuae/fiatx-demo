@@ -13,14 +13,9 @@ import { LiquidityProvidersModule } from './modules/counterparty/liquidity-provi
 import { AssetsModule } from './modules/asset-treasury/assets/assets.module';
 import { LiquidityConfigModule } from './modules/counterparty/liquidity-config/liquidity-config.module';
 import { WalletsModule } from './modules/asset-treasury/wallets/wallets.module';
+import { WithdrawalAddressesModule } from './modules/asset-treasury/withdrawal-addresses/withdrawal-addresses.module';
 import { PayinsModule } from './modules/asset-treasury/payins/payins.module';
 import { DepositTransactionsModule } from './modules/trading/deposit-transactions/deposit-transactions.module';
-import { CoaModule } from './modules/accounting/coa/coa.module';
-import { JournalsModule } from './modules/accounting/journals/journals.module';
-import { JournalLinesModule } from './modules/accounting/journal-lines/journal-lines.module';
-import { AcctEventsModule } from './modules/accounting/acct-events/acct-events.module';
-import { JournalHeaderTemplatesModule } from './modules/accounting/journal-header-templates/journal-header-templates.module';
-import { JournalLineTemplatesModule } from './modules/accounting/journal-line-templates/journal-line-templates.module';
 import { TigerBeetleModule } from './modules/accounting/tigerbeetle/tigerbeetle.module';
 import { WorkflowsModule } from './orchestrators/workflows.module';
 import { TreasuryModule } from './modules/asset-treasury/treasury/treasury.module';
@@ -34,7 +29,6 @@ import { InternalFundsModule } from './modules/asset-treasury/internal-funds/int
 import { InternalTransactionWorkflowModule } from './modules/asset-treasury/internal-transaction-workflow/internal-transaction-workflow.module';
 import { FeeOccurrencesModule } from './modules/asset-treasury/fee-occurrences/fee-occurrences.module';
 import { ReimbursementObligationsModule } from './modules/asset-treasury/reimbursement-obligations/reimbursement-obligations.module';
-import { ClearingModule } from './modules/clearing-settle/clearing/clearing.module';
 import { OutstandingsModule } from './modules/clearing-settle/outstandings/outstandings.module';
 import { OutstandingSettlementsModule } from './modules/clearing-settle/outstanding-settlements/outstanding-settlements.module';
 import { PoolSettlementBatchesModule } from './modules/clearing-settle/pool-settlement-batches/pool-settlement-batches.module';
@@ -81,14 +75,9 @@ import { ProfileBannersModule } from './modules/identity/profile-banners/profile
     AssetsModule,
     LiquidityConfigModule,
     WalletsModule,
+    WithdrawalAddressesModule,
     PayinsModule,
     DepositTransactionsModule,
-    CoaModule,
-    JournalsModule,
-    JournalLinesModule,
-    AcctEventsModule,
-    JournalHeaderTemplatesModule,
-    JournalLineTemplatesModule,
     TigerBeetleModule,
     WorkflowsModule,
     TreasuryModule,
@@ -102,7 +91,6 @@ import { ProfileBannersModule } from './modules/identity/profile-banners/profile
     InternalTransactionWorkflowModule,
     FeeOccurrencesModule,
     ReimbursementObligationsModule,
-    ClearingModule,
     OutstandingsModule,
     OutstandingSettlementsModule,
     PoolSettlementBatchesModule,
