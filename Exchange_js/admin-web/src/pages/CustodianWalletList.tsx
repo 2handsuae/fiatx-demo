@@ -70,7 +70,7 @@ const DEFAULT_FILTERS: FilterState = {
 
 /* ── Component ───────────────────────────────────────────────── */
 
-const WalletList = () => {
+const CustodianWalletList = () => {
   const navigate = useNavigate();
 
   const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
@@ -303,7 +303,7 @@ const WalletList = () => {
                 <tr
                   key={w.id}
                   className="cursor-pointer border-b border-adm-border transition-colors hover:bg-adm-hover"
-                  onClick={() => navigate(`/dashboard/treasury/wallets/${w.id}`)}
+                  onClick={() => navigate(`/dashboard/treasury/custodian-wallets/${w.id}`)}
                 >
                   {/* Wallet No */}
                   <td className="px-4 py-2.5">
@@ -391,4 +391,4 @@ const WalletList = () => {
   );
 };
 
-export default WalletList;
+export default CustodianWalletList;

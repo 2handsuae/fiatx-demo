@@ -27,8 +27,8 @@ const LiquidityProviderCreate = lazy(() => import('./pages/LiquidityProviderCrea
 const LiquidityConfigList = lazy(() => import('./pages/LiquidityConfigList'));
 const LiquidityConfigCreate = lazy(() => import('./pages/LiquidityConfigCreate'));
 const LiquidityConfigEdit = lazy(() => import('./pages/LiquidityConfigEdit'));
-const WalletList = lazy(() => import('./pages/WalletList'));
-const WalletDetail = lazy(() => import('./pages/WalletDetail'));
+const CustodianWalletList = lazy(() => import('./pages/CustodianWalletList'));
+const CustodianWalletDetail = lazy(() => import('./pages/CustodianWalletDetail'));
 const PayinList = lazy(() => import('./pages/PayinList'));
 const PayinDetail = lazy(() => import('./pages/PayinDetail'));
 const PayoutList = lazy(() => import('./pages/PayoutList'));
@@ -745,12 +745,12 @@ function App() {
               element={withPermission(<CustomerDetail />, [PERMISSIONS.CUSTOMERS_DETAIL_READ])}
             />
             <Route
-              path="treasury/wallets"
-              element={withPermission(<WalletList />, [PERMISSIONS.WALLETS_READ])}
+              path="treasury/custodian-wallets"
+              element={withPermission(<CustodianWalletList />, [PERMISSIONS.WALLETS_READ])}
             />
             <Route
-              path="treasury/wallets/:id"
-              element={withPermission(<WalletDetail />, [PERMISSIONS.WALLET_DETAIL_READ])}
+              path="treasury/custodian-wallets/:id"
+              element={withPermission(<CustodianWalletDetail />, [PERMISSIONS.WALLET_DETAIL_READ])}
             />
             <Route
               path="treasury/payins"

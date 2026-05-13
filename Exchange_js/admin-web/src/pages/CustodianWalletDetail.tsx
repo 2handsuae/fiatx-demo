@@ -127,7 +127,7 @@ const SURFACE_LABELS: Record<string, string> = {
 
 /* ── Main Component ──────────────────────────────────────────── */
 
-export default function WalletDetail() {
+export default function CustodianWalletDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { hasAnyPermission } = useAdminSession();
@@ -267,7 +267,7 @@ export default function WalletDetail() {
       <DetailPageHeader
         title="WALLET"
         subtitle={wallet.walletNo}
-        onBack={() => navigate('/dashboard/treasury/wallets')}
+        onBack={() => navigate('/dashboard/treasury/custodian-wallets')}
         onRefresh={() => void fetchWallet()}
         refreshing={loading}
       />
