@@ -126,26 +126,30 @@ const AssetList = () => {
     void fetchItems(1, DEFAULT_FILTERS);
   };
 
-  /* ── Status toggle ── */
+  /* ── Suspension / Reactivation ── */
 
-  const handleStatusChange = async (asset: AssetItem) => {
-    const newStatus = asset.status === 'ACTIVE' ? 'DISABLED' : 'ACTIVE';
-    if (!window.confirm(`${newStatus === 'DISABLED' ? 'Disable' : 'Enable'} asset ${asset.code}?`)) return;
+  const [actionBusy, setActionBusy] = useState(false);
 
+  const handleReactivate = async (asset: AssetItem) => {
+    if (!asset.assetNo) return;
+    if (!window.confirm(`Request reactivation for asset ${asset.code}? This requires CISO approval.`)) return;
+    setActionBusy(true);
+    setError(null);
     try {
-      setError(null);
       const res = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/assets/${asset.id}/status`,
-        { method: 'PATCH', body: JSON.stringify({ status: newStatus }) },
+        `${import.meta.env.VITE_API_URL}/admin/assets/${asset.assetNo}/reactivate`,
+        { method: 'POST' },
       );
       if (!res.ok) {
-        setError(await getApiErrorMessage(res, 'Failed to update asset status.'));
+        setError(await getApiErrorMessage(res, 'Failed to request reactivation.'));
         return;
       }
       void fetchItems(currentPage, filters);
     } catch (err) {
       if (err instanceof AdminSessionError) return;
-      setError(err instanceof Error ? err.message : 'Failed to update asset status.');
+      setError(err instanceof Error ? err.message : 'Failed to request reactivation.');
+    } finally {
+      setActionBusy(false);
     }
   };
 
@@ -196,13 +200,15 @@ const AssetList = () => {
           <option value="CRYPTO">CRYPTO</option>
         </select>
         <select
-          className={`${fi} w-[120px]`}
+          className={`${fi} w-[160px]`}
           value={filters.status}
           onChange={(e) => updateFilter('status', e.target.value)}
         >
           <option value="">All status</option>
+          <option value="PENDING_APPROVAL">PENDING_APPROVAL</option>
+          <option value="PROVISIONING">PROVISIONING</option>
           <option value="ACTIVE">ACTIVE</option>
-          <option value="DISABLED">DISABLED</option>
+          <option value="SUSPENDED">SUSPENDED</option>
         </select>
 
         <button onClick={handleSearch} className={adminButtonClass('listPrimary')}>
@@ -283,12 +289,24 @@ const AssetList = () => {
                   </td>
                   <td className="px-3 py-2">
                     <div className="flex items-center gap-1.5">
-                      <button
-                        onClick={() => handleStatusChange(a)}
-                        className={adminButtonClass('rowSecondaryUtility')}
-                      >
-                        {a.status === 'ACTIVE' ? 'Disable' : 'Enable'}
-                      </button>
+                      {a.status === 'ACTIVE' && (
+                        <button
+                          onClick={() => navigate(`/dashboard/system/assets/${a.id}`)}
+                          disabled={actionBusy}
+                          className={adminButtonClass('rowSecondaryUtility')}
+                        >
+                          Suspend
+                        </button>
+                      )}
+                      {a.status === 'SUSPENDED' && (
+                        <button
+                          onClick={() => void handleReactivate(a)}
+                          disabled={actionBusy}
+                          className={adminButtonClass('rowSecondaryUtility')}
+                        >
+                          Reactivate
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>
