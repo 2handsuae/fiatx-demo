@@ -30,7 +30,7 @@ fi
 
 load_stack_config "$1"
 
-require_commands node npm lsof sqlite3 git python3
+require_commands node npm lsof sqlite3 git python3 tigerbeetle
 assert_stack_paths
 assert_branch_rule
 
@@ -80,11 +80,26 @@ bootstrap_database_if_needed
 DB_URL="$(read_database_url "${APP_DIR}" "${STACK}")"
 
 bash "${SCRIPT_DIR}/stack-stop.sh" "${STACK}" >/dev/null 2>&1 || true
-rm -f "${BACKEND_PID_FILE}" "${ADMIN_PID_FILE}" "${CLIENT_PID_FILE}"
+rm -f "${BACKEND_PID_FILE}" "${ADMIN_PID_FILE}" "${CLIENT_PID_FILE}" "${TB_PID_FILE}"
 
 ensure_port_free "${BACKEND_PORT}" "backend"
 ensure_port_free "${ADMIN_PORT}" "admin"
 ensure_port_free "${CLIENT_PORT}" "client"
+ensure_port_free "${TB_PORT}" "tb"
+
+echo "[${STACK}] starting TigerBeetle at ${TB_ADDRESS}"
+mkdir -p "$(dirname "${TB_DATA_FILE}")"
+if [ ! -f "${TB_DATA_FILE}" ]; then
+  echo "[${STACK}] formatting new TigerBeetle data file..."
+  tigerbeetle format --cluster=0 --replica=0 --replica-count=1 "${TB_DATA_FILE}"
+fi
+launch_detached_service \
+  "/" \
+  "${TB_LOG}" \
+  "[\"tigerbeetle\",\"start\",\"--development\",\"--addresses=${TB_ADDRESS}\",\"${TB_DATA_FILE}\"]" \
+  "{}" \
+  >/dev/null
+capture_listener_pid "tb" "${TB_PORT}" "${TB_PID_FILE}"
 
 echo "[${STACK}] building backend runtime"
 (
@@ -97,7 +112,7 @@ launch_detached_service \
   "${APP_DIR}" \
   "${BACKEND_LOG}" \
   "[\"node\",\"dist/main\"]" \
-  "{\"API_PORT\":\"${BACKEND_PORT}\",\"ADMIN_URL\":\"${ADMIN_URL}\",\"CLIENT_URL\":\"${CLIENT_URL}\",\"DATABASE_URL\":\"${DB_URL}\",\"GOVERNANCE_DEMO_ENABLED\":\"${GOVERNANCE_DEMO_ENABLED:-true}\"}" \
+  "{\"API_PORT\":\"${BACKEND_PORT}\",\"ADMIN_URL\":\"${ADMIN_URL}\",\"CLIENT_URL\":\"${CLIENT_URL}\",\"DATABASE_URL\":\"${DB_URL}\",\"GOVERNANCE_DEMO_ENABLED\":\"${GOVERNANCE_DEMO_ENABLED:-true}\",\"TB_ADDRESS\":\"${TB_ADDRESS}\"}" \
   >/dev/null
 
 echo "[${STACK}] starting admin on ${ADMIN_PORT}"
@@ -126,13 +141,16 @@ echo "Branch: $(stack_branch)"
 echo "API:    ${BACKEND_URL}"
 echo "Admin:  ${ADMIN_URL}"
 echo "Client: ${CLIENT_URL}"
+echo "TB:     ${TB_ADDRESS}"
 echo ""
 echo "Logs:"
 echo "  ${BACKEND_LOG}"
 echo "  ${ADMIN_LOG}"
 echo "  ${CLIENT_LOG}"
+echo "  ${TB_LOG}"
 echo ""
 echo "Tail logs:"
 echo "  tail -f ${BACKEND_LOG}"
 echo "  tail -f ${ADMIN_LOG}"
 echo "  tail -f ${CLIENT_LOG}"
+echo "  tail -f ${TB_LOG}"
