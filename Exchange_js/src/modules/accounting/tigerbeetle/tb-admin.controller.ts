@@ -1,10 +1,12 @@
-import { Controller, Get, NotFoundException, Param, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Body, Request, NotFoundException, Param, Query, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { AdminPermissionGuard } from 'src/modules/identity/access-control/admin-permission.guard';
 import { AccountingService } from './accounting.service';
 import { TbAccountRegistryService } from './tb-account-registry.service';
 import { TbEvidenceService } from './tb-evidence.service';
+import { TbManualAccountService } from './tb-manual-account.service';
+import { CreateTbAccountDto } from './dto/create-tb-account.dto';
 import { hexToBigint } from './utils/tb-id.util';
 
 @ApiTags('TB Ledger Admin')
@@ -15,7 +17,27 @@ export class TbAdminController {
     private readonly tbAccountRegistryService: TbAccountRegistryService,
     private readonly tbEvidenceService: TbEvidenceService,
     private readonly accountingService: AccountingService,
+    private readonly tbManualAccountService: TbManualAccountService,
   ) {}
+
+  @Post('accounts')
+  @ApiOperation({ summary: 'Manually create a TB account (system or customer)' })
+  async createAccount(@Request() req: any, @Body() dto: CreateTbAccountDto) {
+    return this.tbManualAccountService.manualCreate(
+      {
+        accountCategory: dto.accountCategory,
+        assetCode: dto.assetCode,
+        code: dto.code,
+        customerNo: dto.customerNo,
+        description: dto.description,
+      },
+      {
+        actorId: req.user.userId,
+        actorNo: req.user.userNo,
+        actorRole: req.user.role || 'ADMIN',
+      },
+    );
+  }
 
   @Get('accounts')
   @ApiOperation({ summary: 'List TB account registry entries' })

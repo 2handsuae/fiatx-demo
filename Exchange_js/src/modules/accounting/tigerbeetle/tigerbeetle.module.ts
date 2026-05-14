@@ -3,6 +3,7 @@ import { TigerBeetleService } from './tigerbeetle.service';
 import { AccountingService } from './accounting.service';
 import { TbEvidenceService } from './tb-evidence.service';
 import { TbAccountRegistryService } from './tb-account-registry.service';
+import { TbManualAccountService } from './tb-manual-account.service';
 import { TbAdminController } from './tb-admin.controller';
 
 @Module({
@@ -12,11 +13,13 @@ import { TbAdminController } from './tb-admin.controller';
     AccountingService,
     TbEvidenceService,
     TbAccountRegistryService,
+    TbManualAccountService,
   ],
   exports: [
     AccountingService,
     TbEvidenceService,
     TbAccountRegistryService,
+    TbManualAccountService,
   ],
 })
 export class TigerBeetleModule {}

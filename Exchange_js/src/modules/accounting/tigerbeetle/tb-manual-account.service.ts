@@ -20,14 +20,14 @@ import { AuditResult } from '../../audit-logging/dto/audit-log.dto';
 import { isCustomerApprovedAndActive } from '../../identity/customer-status.util';
 import { AccountFlags } from 'tigerbeetle-node';
 
-const SYSTEM_CODES = new Set([
+const SYSTEM_CODES = new Set<number>([
   TB_ACCOUNT_CODES.BANK,
   TB_ACCOUNT_CODES.CUSTODY,
   TB_ACCOUNT_CODES.TRADE_CLEARING,
   TB_ACCOUNT_CODES.FEE_RECEIVABLE,
 ]);
 
-const CUSTOMER_CODES = new Set([
+const CUSTOMER_CODES = new Set<number>([
   TB_ACCOUNT_CODES.CLIENT_CREDIT,
   TB_ACCOUNT_CODES.CLIENT_AUDIT,
 ]);
