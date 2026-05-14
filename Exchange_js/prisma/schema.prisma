@@ -1258,6 +1258,10 @@ model Asset {
   maxWithdrawAmount              Float?
   depositEnabled                 Boolean                         @default(true)
   withdrawalEnabled              Boolean                         @default(true)
+  suspendedAt                    DateTime?
+  suspendReason                  String?
+  preSuspendDepositEnabled       Boolean?
+  preSuspendWithdrawalEnabled    Boolean?
   approvalCaseId                 String?
   approvalCaseNo                 String?
   createdAt                      DateTime                        @default(now())
