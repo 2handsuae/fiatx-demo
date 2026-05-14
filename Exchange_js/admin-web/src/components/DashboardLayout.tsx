@@ -293,6 +293,12 @@ const DashboardLayout = () => {
           requiredPermissions: [PERMISSIONS.WALLETS_READ],
         },
         {
+          path: '/withdrawal-addresses',
+          label: 'Withdrawal Addresses',
+          icon: <Upload size={13} />,
+          requiredPermissions: [PERMISSIONS.BASE_ACCESS],
+        },
+        {
           path: '/dashboard/treasury/payins',
           label: 'Payin Records',
           icon: <LogIn size={13} />,

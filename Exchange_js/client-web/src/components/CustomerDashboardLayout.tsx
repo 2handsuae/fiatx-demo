@@ -32,7 +32,7 @@ type NavItem = {
 
 const NAV: NavItem[] = [
   { group: 'ASSETS',   path: '/overview',     label: 'Overview',     icon: <LineChart size={14} /> },
-  { group: 'ASSETS',   path: '/wallet',       label: 'Wallet',       icon: <Wallet size={14} /> },
+  { group: 'ASSETS',   path: '/withdrawal-addresses', label: 'Wallet', icon: <Wallet size={14} /> },
   { group: 'MOVEMENT', path: '/deposit',      label: 'Deposit',      icon: <ArrowDownCircle size={14} /> },
   { group: 'MOVEMENT', path: '/swap',         label: 'Swap',         icon: <ArrowLeftRight size={14} /> },
   { group: 'MOVEMENT', path: '/withdraw',     label: 'Withdraw',     icon: <ArrowUpCircle size={14} /> },

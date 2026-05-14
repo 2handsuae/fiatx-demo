@@ -14,6 +14,8 @@ interface CreateAddressData {
   address: string;
   addressType: string;
   label?: string;
+  beneficiaryName?: string;
+  memo?: string;
   counterpartyVaspName?: string;
   counterpartyVaspDid?: string;
   ownershipDeclaredAt: Date;
@@ -60,6 +62,8 @@ export class WithdrawalAddressService {
           address: data.address,
           addressType: data.addressType,
           label: data.label,
+          beneficiaryName: data.beneficiaryName,
+          memo: data.memo,
           counterpartyVaspName: data.counterpartyVaspName,
           counterpartyVaspDid: data.counterpartyVaspDid,
           ownershipDeclaredAt: data.ownershipDeclaredAt,

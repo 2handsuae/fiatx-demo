@@ -1,210 +1,627 @@
-import { useEffect, useState } from 'react';
-import { AlertCircle, Plus, Clock } from 'lucide-react';
-import { customerFetch } from '../utils/customerFetch';
+import { useEffect, useState, useCallback } from 'react';
+import {
+  Wallet,
+  Building2,
+  Plus,
+  Clock,
+  X,
+  AlertCircle,
+  Copy,
+  Check,
+  ChevronRight,
+  ShieldCheck,
+  ArrowLeft,
+  RefreshCw,
+} from 'lucide-react';
+import {
+  customerFetch,
+  CustomerSessionError,
+  getCustomerApiErrorMessage,
+} from '../utils/customerFetch';
 
-const VITE_API_URL = import.meta.env.VITE_API_URL;
+const API = import.meta.env.VITE_API_URL;
 
-interface Asset { id: string; code: string; type: string; network: string; }
-interface WithdrawalAddr {
-  addressNo: string; address: string; addressType: string; network: string;
-  status: string; label: string | null; activatesAt: string; activatedAt: string | null;
-  counterpartyVaspName: string | null;
-  asset: { code: string };
+/* ─── Types ────────────────────────────────────────────────── */
+
+interface Asset {
+  id: string;
+  code: string;
+  type: string;
+  network: string;
 }
 
-type View = 'list' | 'form' | 'confirmation';
+interface WithdrawalAddr {
+  addressNo: string;
+  address: string;
+  addressType: string;
+  network: string;
+  status: string;
+  label: string | null;
+  beneficiaryName: string | null;
+  memo: string | null;
+  activatesAt: string;
+  activatedAt: string | null;
+  createdAt: string;
+  counterpartyVaspName: string | null;
+  ownershipDeclaredAt: string | null;
+  asset: { code: string; network?: string };
+}
+
+type ActiveTab = 'crypto' | 'bank';
+
+/* ─── Helpers ──────────────────────────────────────────────── */
+
+function formatCountdown(activatesAt: string): string {
+  const ms = Math.max(0, new Date(activatesAt).getTime() - Date.now());
+  const h = Math.floor(ms / 3600000);
+  const m = Math.floor((ms % 3600000) / 60000);
+  return `${h}h ${m}m`;
+}
+
+function truncAddr(addr: string): string {
+  if (addr.length <= 14) return addr;
+  return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
+}
+
+function statusLabel(s: string): string {
+  switch (s) {
+    case 'PENDING_ACTIVATION': return 'Cooling';
+    case 'ACTIVE':             return 'Active';
+    case 'SUSPENDED':          return 'Suspended';
+    case 'CANCELLED':          return 'Cancelled';
+    default:                   return s;
+  }
+}
+
+function statusColor(s: string): string {
+  switch (s) {
+    case 'PENDING_ACTIVATION': return 'bg-amber-500/15 text-amber-400';
+    case 'ACTIVE':             return 'bg-fx-sage/15 text-fx-sage';
+    case 'SUSPENDED':          return 'bg-rose-500/15 text-rose-400';
+    case 'CANCELLED':          return 'bg-fx-dust/15 text-fx-dust';
+    default:                   return 'bg-fx-dust/15 text-fx-dust';
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+ *  Main Component
+ * ═══════════════════════════════════════════════════════════════ */
 
 export default function WithdrawalAddresses() {
-  const [view, setView] = useState<View>('list');
+  const [activeTab, setActiveTab] = useState<ActiveTab>('crypto');
   const [assets, setAssets] = useState<Asset[]>([]);
-  const [selectedAssetId, setSelectedAssetId] = useState('');
   const [addresses, setAddresses] = useState<WithdrawalAddr[]>([]);
   const [loading, setLoading] = useState(true);
-  const [newAddress, setNewAddress] = useState('');
-  const [newLabel, setNewLabel] = useState('');
-  const [declaration, setDeclaration] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState('');
-  const [lastCreated, setLastCreated] = useState<WithdrawalAddr | null>(null);
 
+  // modal states
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [detailAddr, setDetailAddr] = useState<WithdrawalAddr | null>(null);
+
+  // form fields
+  const [formAssetId, setFormAssetId] = useState('');
+  const [formBeneficiary, setFormBeneficiary] = useState('');
+  const [formLabel, setFormLabel] = useState('');
+  const [formAddress, setFormAddress] = useState('');
+  const [formMemo, setFormMemo] = useState('');
+  const [formDeclaration, setFormDeclaration] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [formError, setFormError] = useState('');
+
+  const [copied, setCopied] = useState(false);
+
+  /* ─── Load assets ────────────────────────────────────────── */
   useEffect(() => {
-    const load = async () => {
+    (async () => {
       try {
-        const res = await customerFetch(`${VITE_API_URL}/assets?take=200`);
+        const res = await customerFetch(`${API}/assets?take=200`);
         if (res.ok) {
           const data = await res.json();
-          const cryptoActive = ((data.items ?? data) as Asset[]).filter(a => a.type === 'CRYPTO');
-          setAssets(cryptoActive);
-          if (cryptoActive.length > 0) setSelectedAssetId(cryptoActive[0].id);
+          const crypto = ((data.items ?? data) as Asset[]).filter(a => a.type === 'CRYPTO');
+          setAssets(crypto);
+          if (crypto.length > 0) setFormAssetId(crypto[0].id);
         }
-      } catch { /* ignore */ }
-    };
-    void load();
+      } catch (err) {
+        if (err instanceof CustomerSessionError) return;
+      }
+    })();
   }, []);
 
-  useEffect(() => {
-    if (!selectedAssetId) return;
-    const load = async () => {
-      setLoading(true);
-      try {
-        const res = await customerFetch(`${VITE_API_URL}/client/withdrawal-addresses?assetId=${selectedAssetId}`);
-        if (res.ok) {
-          const data = await res.json();
-          setAddresses(data.items ?? []);
-        }
-      } catch { /* ignore */ }
-      setLoading(false);
-    };
-    void load();
-  }, [selectedAssetId, view]);
+  /* ─── Load addresses ─────────────────────────────────────── */
+  const fetchAddresses = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await customerFetch(`${API}/client/withdrawal-addresses?take=100`);
+      if (res.ok) {
+        const data = await res.json();
+        setAddresses(data.items ?? []);
+      }
+    } catch (err) {
+      if (err instanceof CustomerSessionError) return;
+    }
+    setLoading(false);
+  }, []);
 
+  useEffect(() => { void fetchAddresses(); }, [fetchAddresses]);
+
+  /* ─── Derived ────────────────────────────────────────────── */
+  const visibleAddresses = addresses.filter(a => a.status !== 'CANCELLED');
   const activeCount = addresses.filter(a => ['PENDING_ACTIVATION', 'ACTIVE'].includes(a.status)).length;
   const canAdd = activeCount < 3;
 
+  /* ─── Copy ───────────────────────────────────────────────── */
+  const copy = (text: string) => {
+    navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  /* ─── Submit ─────────────────────────────────────────────── */
   const handleSubmit = async () => {
-    setError('');
-    if (!newAddress.trim()) { setError('Address is required'); return; }
-    if (!declaration) { setError('You must accept the ownership declaration'); return; }
+    setFormError('');
+    if (!formAssetId) { setFormError('Please select an asset'); return; }
+    if (!formAddress.trim()) { setFormError('Wallet address is required'); return; }
+    if (!formDeclaration) { setFormError('You must accept the ownership declaration'); return; }
+
     setSubmitting(true);
     try {
-      const res = await customerFetch(`${VITE_API_URL}/client/withdrawal-addresses`, {
+      const res = await customerFetch(`${API}/client/withdrawal-addresses`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ assetId: selectedAssetId, address: newAddress.trim(), ownershipDeclaration: true, label: newLabel.trim() || undefined }),
+        body: JSON.stringify({
+          assetId: formAssetId,
+          address: formAddress.trim(),
+          ownershipDeclaration: true,
+          label: formLabel.trim() || undefined,
+          beneficiaryName: formBeneficiary.trim() || undefined,
+          memo: formMemo.trim() || undefined,
+        }),
       });
+
       if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        setError(data.message || 'Failed to register address');
+        setFormError(await getCustomerApiErrorMessage(res, 'Failed to register address'));
         return;
       }
-      const created = await res.json();
-      setLastCreated(created);
-      setView('confirmation');
-      setNewAddress('');
-      setNewLabel('');
-      setDeclaration(false);
+
+      // success — close modal, reset form, reload list
+      setShowAddModal(false);
+      resetForm();
+      await fetchAddresses();
     } catch (err: any) {
-      setError(err.message || 'Failed to register address');
+      if (err instanceof CustomerSessionError) return;
+      setFormError(err.message || 'Unexpected error');
     } finally {
       setSubmitting(false);
     }
   };
 
-  const handleCancel = async (addrNo: string) => {
-    try {
-      const res = await customerFetch(`${VITE_API_URL}/client/withdrawal-addresses/${addrNo}`, { method: 'DELETE' });
-      if (res.ok) {
-        setAddresses(prev => prev.map(a => a.addressNo === addrNo ? { ...a, status: 'CANCELLED' } : a));
-        if (lastCreated?.addressNo === addrNo) setView('list');
-      }
-    } catch { /* ignore */ }
+  const resetForm = () => {
+    setFormBeneficiary('');
+    setFormLabel('');
+    setFormAddress('');
+    setFormMemo('');
+    setFormDeclaration(false);
+    setFormError('');
   };
 
-  const formatCountdown = (activatesAt: string) => {
-    const ms = Math.max(0, new Date(activatesAt).getTime() - Date.now());
-    const h = Math.floor(ms / 3600000);
-    const m = Math.floor((ms % 3600000) / 60000);
-    return `${h}h ${m}m`;
+  const openAddModal = () => {
+    resetForm();
+    if (assets.length > 0 && !formAssetId) setFormAssetId(assets[0].id);
+    setShowAddModal(true);
   };
 
-  if (view === 'confirmation' && lastCreated) {
-    return (
-      <div className="mx-auto max-w-md p-6 text-center">
-        <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-amber-500/10">
-          <Clock size={24} className="text-amber-400" />
-        </div>
-        <h2 className="text-lg font-semibold text-white">Cooling Period Active</h2>
-        <p className="mt-2 text-sm text-gray-400">Your address has been registered and will be available for withdrawals after the safety cooling period expires.</p>
-        <div className="mt-4 rounded-lg border border-amber-500/30 bg-gray-900 p-4">
-          <div className="text-xs text-amber-400 uppercase">Activates In</div>
-          <div className="mt-1 text-2xl font-bold font-mono text-amber-400">{formatCountdown(lastCreated.activatesAt)}</div>
-          <div className="mt-1 text-xs text-gray-500">{new Date(lastCreated.activatesAt).toLocaleString()}</div>
-        </div>
-        <div className="mt-4 rounded-lg bg-gray-900 p-3 text-left text-xs space-y-1">
-          <div className="flex justify-between"><span className="text-gray-500">Address</span><span className="text-white font-mono">{lastCreated.address.slice(0, 6)}...{lastCreated.address.slice(-4)}</span></div>
-          <div className="flex justify-between"><span className="text-gray-500">Type</span><span className={lastCreated.addressType === 'VASP' ? 'text-blue-400' : 'text-purple-400'}>{lastCreated.addressType}</span></div>
-          {lastCreated.label && <div className="flex justify-between"><span className="text-gray-500">Label</span><span className="text-white">{lastCreated.label}</span></div>}
-        </div>
-        <button onClick={() => handleCancel(lastCreated.addressNo)}
-          className="mt-4 w-full rounded-lg border border-red-500/30 py-2 text-xs text-red-400 hover:bg-red-500/10">Cancel Registration</button>
-        <button onClick={() => setView('list')}
-          className="mt-2 w-full py-2 text-xs text-gray-400 hover:text-white">Back to Addresses</button>
-      </div>
-    );
-  }
-
-  if (view === 'form') {
-    return (
-      <div className="mx-auto max-w-md p-6">
-        <button onClick={() => setView('list')} className="mb-4 text-xs text-gray-400 hover:text-white">← Back</button>
-        <h2 className="text-lg font-semibold text-white mb-4">New Withdrawal Address</h2>
-        {error && <div className="mb-3 flex items-start gap-2 rounded-lg border border-red-500/20 bg-red-500/5 px-3 py-2 text-xs text-red-400"><AlertCircle size={14} className="mt-0.5 shrink-0" />{error}</div>}
-        <div className="space-y-4">
-          <div>
-            <label className="block text-xs text-gray-400 mb-1">Wallet Address</label>
-            <input value={newAddress} onChange={(e) => setNewAddress(e.target.value)}
-              placeholder="0x..." className="w-full rounded-lg border border-gray-700 bg-gray-900 px-3 py-2 font-mono text-sm text-white placeholder:text-gray-600 outline-none focus:border-purple-500" />
-          </div>
-          <div>
-            <label className="block text-xs text-gray-400 mb-1">Label (optional)</label>
-            <input value={newLabel} onChange={(e) => setNewLabel(e.target.value)}
-              placeholder="e.g. My Ledger" className="w-full rounded-lg border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-white placeholder:text-gray-600 outline-none focus:border-purple-500" />
-          </div>
-          <div className="rounded-lg border border-purple-500/30 bg-purple-500/5 p-3">
-            <label className="flex items-start gap-2 cursor-pointer">
-              <input type="checkbox" checked={declaration} onChange={(e) => setDeclaration(e.target.checked)} className="mt-0.5" />
-              <span className="text-xs text-purple-300 leading-relaxed">I declare that I am the sole owner and controller of this wallet address. I understand that providing false information may result in account suspension and regulatory action.</span>
-            </label>
-          </div>
-          <button onClick={handleSubmit} disabled={submitting || !declaration}
-            className="w-full rounded-lg bg-purple-600 py-2.5 text-sm font-semibold text-white hover:bg-purple-700 disabled:opacity-50">{submitting ? 'Registering...' : 'Register Address'}</button>
-        </div>
-      </div>
-    );
-  }
-
+  /* ═══════════════════════════════════════════════════════════
+   *  Render
+   * ═══════════════════════════════════════════════════════════ */
   return (
-    <div className="mx-auto max-w-lg p-6">
-      <h2 className="text-lg font-semibold text-white mb-4">My Withdrawal Addresses</h2>
-      <div className="mb-4">
-        <label className="block text-xs text-gray-400 mb-1">Asset</label>
-        <select value={selectedAssetId} onChange={(e) => setSelectedAssetId(e.target.value)}
-          className="w-full rounded-lg border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-white">
-          {assets.map(a => <option key={a.id} value={a.id}>{a.code} — {a.network}</option>)}
-        </select>
+    <div className="space-y-6 pb-20">
+      {/* ── Header ─────────────────────────────────────────── */}
+      <div>
+        <h1 className="text-2xl font-bold text-fx-sand">Wallet</h1>
+        <p className="text-fx-dune mt-1">Manage your withdrawal addresses and bank accounts</p>
       </div>
 
-      <div className="mb-2 text-xs text-gray-500">Registered Addresses ({activeCount}/3)</div>
-      {loading ? <div className="text-center text-xs text-gray-500 py-8">Loading...</div> : (
-        <div className="space-y-2 mb-4">
-          {addresses.filter(a => a.status !== 'CANCELLED').map(a => (
-            <div key={a.addressNo} className="rounded-lg border border-gray-700 bg-gray-900 p-3">
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="text-sm text-white">{a.label || a.address.slice(0, 10) + '...'}</div>
-                  <div className="text-xs text-gray-500 font-mono">{a.address.slice(0, 6)}...{a.address.slice(-4)}</div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className={`text-[10px] ${a.addressType === 'VASP' ? 'text-blue-400' : 'text-purple-400'}`}>{a.addressType === 'VASP' ? 'VASP' : 'Self'}</span>
-                  <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${
-                    a.status === 'ACTIVE' ? 'bg-emerald-500/10 text-emerald-400' :
-                    a.status === 'PENDING_ACTIVATION' ? 'bg-amber-500/10 text-amber-400' :
-                    'bg-red-500/10 text-red-400'}`}>{a.status === 'PENDING_ACTIVATION' ? formatCountdown(a.activatesAt) : a.status}</span>
-                </div>
+      {/* ── Main Card ──────────────────────────────────────── */}
+      <div className="bg-fx-ink/40 rounded-3xl border border-fx-rule shadow-sm overflow-hidden min-h-[500px]">
+        {/* Tabs */}
+        <div className="border-b border-fx-rule bg-fx-charcoal/50">
+          <div className="flex overflow-x-auto px-6">
+            <button
+              onClick={() => setActiveTab('crypto')}
+              className={`px-6 py-4 text-sm font-bold transition-colors border-b-[3px] flex-1 sm:flex-none whitespace-nowrap ${
+                activeTab === 'crypto'
+                  ? 'border-fx-brass text-fx-brass bg-fx-ink/40'
+                  : 'border-transparent text-fx-dust hover:text-fx-dune'
+              }`}
+            >
+              <div className="flex items-center justify-center gap-2">
+                <Wallet size={18} />
+                Crypto Addresses
               </div>
-              {a.status === 'PENDING_ACTIVATION' && (
-                <button onClick={() => handleCancel(a.addressNo)} className="mt-2 text-[10px] text-red-400 hover:underline">Cancel</button>
-              )}
+            </button>
+            <button
+              onClick={() => setActiveTab('bank')}
+              className={`px-6 py-4 text-sm font-bold transition-colors border-b-[3px] flex-1 sm:flex-none whitespace-nowrap ${
+                activeTab === 'bank'
+                  ? 'border-fx-brass text-fx-brass bg-fx-ink/40'
+                  : 'border-transparent text-fx-dust hover:text-fx-dune'
+              }`}
+            >
+              <div className="flex items-center justify-center gap-2">
+                <Building2 size={18} />
+                Bank Accounts
+              </div>
+            </button>
+          </div>
+        </div>
+
+        {/* ── Crypto Tab ─────────────────────────────────── */}
+        {activeTab === 'crypto' && (
+          <div className="p-6 space-y-5">
+            {/* Top bar */}
+            <div className="flex items-center justify-between">
+              <div className="text-sm text-fx-dune">
+                Registered Addresses
+                <span className="ml-1.5 font-mono text-fx-dust">({activeCount}/3)</span>
+              </div>
+              <button
+                onClick={openAddModal}
+                disabled={!canAdd}
+                className="flex items-center gap-1.5 px-4 py-2 bg-fx-brass text-fx-obsidian text-sm font-bold rounded-xl hover:shadow-lg hover:shadow-fx-brass/20 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <Plus size={16} />
+                Add Address
+              </button>
             </div>
-          ))}
+
+            {!canAdd && (
+              <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 px-4 py-2.5 text-xs text-amber-400 flex items-center gap-2">
+                <AlertCircle size={14} className="shrink-0" />
+                Maximum 3 active addresses reached. Suspend or wait for an address to be removed before adding a new one.
+              </div>
+            )}
+
+            {/* Address list */}
+            {loading ? (
+              <div className="text-center py-16 text-fx-dust">
+                <RefreshCw className="animate-spin mx-auto mb-2" size={24} />
+                Loading addresses...
+              </div>
+            ) : visibleAddresses.length === 0 ? (
+              <div className="text-center py-16 bg-fx-charcoal/30 rounded-2xl border border-dashed border-fx-rule">
+                <div className="w-16 h-16 bg-fx-charcoal rounded-full flex items-center justify-center mb-4 text-fx-dust mx-auto">
+                  <Wallet size={32} />
+                </div>
+                <h3 className="text-lg font-bold text-fx-sand mb-2">No Addresses Yet</h3>
+                <p className="text-fx-dust mb-6 max-w-sm mx-auto">
+                  Register a crypto withdrawal address to start making on-chain transfers.
+                </p>
+                <button
+                  onClick={openAddModal}
+                  className="px-6 py-3 bg-fx-brass text-fx-obsidian rounded-xl font-bold hover:shadow-lg hover:shadow-fx-brass/30 transition-all"
+                >
+                  Add Your First Address
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {visibleAddresses.map(addr => (
+                  <button
+                    key={addr.addressNo}
+                    onClick={() => setDetailAddr(addr)}
+                    className="w-full text-left rounded-2xl border border-fx-rule bg-fx-charcoal/40 p-4 hover:border-fx-brass/40 hover:bg-fx-charcoal/60 transition-all group"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-semibold text-fx-sand truncate">
+                            {addr.label || truncAddr(addr.address)}
+                          </span>
+                          <span className="shrink-0 text-[10px] font-bold uppercase text-fx-dust bg-fx-charcoal px-1.5 py-0.5 rounded">
+                            {addr.asset.code}
+                          </span>
+                        </div>
+                        <div className="mt-1 text-xs font-mono text-fx-dust truncate">
+                          {truncAddr(addr.address)}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2.5 shrink-0">
+                        {addr.status === 'PENDING_ACTIVATION' && (
+                          <div className="flex items-center gap-1 text-xs font-mono text-amber-400">
+                            <Clock size={12} />
+                            {formatCountdown(addr.activatesAt)}
+                          </div>
+                        )}
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${statusColor(addr.status)}`}>
+                          {statusLabel(addr.status)}
+                        </span>
+                        <ChevronRight size={16} className="text-fx-dust group-hover:text-fx-brass transition-colors" />
+                      </div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── Bank Tab (placeholder) ─────────────────────── */}
+        {activeTab === 'bank' && (
+          <div className="p-6">
+            <div className="text-center py-16 bg-fx-charcoal/30 rounded-2xl border border-dashed border-fx-rule">
+              <div className="w-16 h-16 bg-fx-charcoal rounded-full flex items-center justify-center mb-4 text-fx-dust mx-auto">
+                <Building2 size={32} />
+              </div>
+              <h3 className="text-lg font-bold text-fx-sand mb-2">Coming Soon</h3>
+              <p className="text-fx-dust max-w-sm mx-auto">
+                Bank account registration will be available in a future update. Stay tuned.
+              </p>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ═══════════════════════════════════════════════════════
+       *  Add Address Modal
+       * ═══════════════════════════════════════════════════════ */}
+      {showAddModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="bg-fx-ink rounded-2xl shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto border border-fx-rule">
+            {/* header */}
+            <div className="flex justify-between items-center p-5 border-b border-fx-rule">
+              <div>
+                <h3 className="text-lg font-bold text-fx-sand">New Withdrawal Address</h3>
+                <p className="text-sm text-fx-dust mt-1">Register a crypto address for withdrawals</p>
+              </div>
+              <button
+                onClick={() => setShowAddModal(false)}
+                className="p-2 hover:bg-fx-charcoal rounded-full transition-colors text-fx-dust"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* body */}
+            <div className="p-5 space-y-4">
+              {formError && (
+                <div className="flex items-start gap-2 rounded-xl border border-rose-500/20 bg-rose-500/5 px-3 py-2.5 text-xs text-rose-400">
+                  <AlertCircle size={14} className="mt-0.5 shrink-0" />
+                  {formError}
+                </div>
+              )}
+
+              {/* Asset */}
+              <div>
+                <label className="text-xs text-fx-dust font-medium block mb-1">Asset</label>
+                <select
+                  value={formAssetId}
+                  onChange={e => setFormAssetId(e.target.value)}
+                  className="w-full px-3 py-2.5 border border-fx-rule rounded-xl bg-fx-charcoal text-fx-sand text-sm focus:outline-none focus:border-fx-brass"
+                >
+                  {assets.map(a => (
+                    <option key={a.id} value={a.id}>{a.code} ({a.network})</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Beneficiary Name */}
+              <div>
+                <label className="text-xs text-fx-dust font-medium block mb-1">Beneficiary Name</label>
+                <input
+                  value={formBeneficiary}
+                  onChange={e => setFormBeneficiary(e.target.value)}
+                  placeholder="Full name of the wallet owner"
+                  className="w-full px-3 py-2.5 border border-fx-rule rounded-xl bg-fx-charcoal text-fx-sand text-sm placeholder:text-fx-dust/50 focus:outline-none focus:border-fx-brass"
+                />
+              </div>
+
+              {/* Label */}
+              <div>
+                <label className="text-xs text-fx-dust font-medium block mb-1">Address Label</label>
+                <input
+                  value={formLabel}
+                  onChange={e => setFormLabel(e.target.value)}
+                  placeholder="e.g. My Ledger, Binance Hot Wallet"
+                  className="w-full px-3 py-2.5 border border-fx-rule rounded-xl bg-fx-charcoal text-fx-sand text-sm placeholder:text-fx-dust/50 focus:outline-none focus:border-fx-brass"
+                />
+              </div>
+
+              {/* Wallet Address */}
+              <div>
+                <label className="text-xs text-fx-dust font-medium block mb-1">Wallet Address</label>
+                <input
+                  value={formAddress}
+                  onChange={e => setFormAddress(e.target.value)}
+                  placeholder="0x... / T... / bc1..."
+                  className="w-full px-3 py-2.5 border border-fx-rule rounded-xl bg-fx-charcoal text-fx-sand text-sm font-mono placeholder:text-fx-dust/50 focus:outline-none focus:border-fx-brass"
+                />
+              </div>
+
+              {/* Memo / Tag */}
+              <div>
+                <label className="text-xs text-fx-dust font-medium block mb-1">
+                  Memo / Tag
+                  <span className="ml-1 text-fx-dust/60 font-normal">(optional)</span>
+                </label>
+                <input
+                  value={formMemo}
+                  onChange={e => setFormMemo(e.target.value)}
+                  placeholder="Required for some networks (e.g. XLM, XRP)"
+                  className="w-full px-3 py-2.5 border border-fx-rule rounded-xl bg-fx-charcoal text-fx-sand text-sm placeholder:text-fx-dust/50 focus:outline-none focus:border-fx-brass"
+                />
+              </div>
+
+              {/* Ownership Declaration */}
+              <div className="rounded-xl border border-fx-brass/20 bg-fx-brass/5 p-4">
+                <label className="flex items-start gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={formDeclaration}
+                    onChange={e => setFormDeclaration(e.target.checked)}
+                    className="mt-0.5 accent-fx-brass"
+                  />
+                  <div>
+                    <div className="text-xs font-bold text-fx-brass mb-1 flex items-center gap-1.5">
+                      <ShieldCheck size={13} />
+                      Ownership Declaration
+                    </div>
+                    <span className="text-xs text-fx-dune leading-relaxed">
+                      I declare that I am the sole owner and controller of this wallet address. I understand that providing false information may result in account suspension and regulatory action.
+                    </span>
+                  </div>
+                </label>
+              </div>
+            </div>
+
+            {/* footer */}
+            <div className="p-5 border-t border-fx-rule bg-fx-charcoal/50 flex gap-3">
+              <button
+                onClick={() => setShowAddModal(false)}
+                disabled={submitting}
+                className="flex-1 py-3 bg-fx-ink border border-fx-rule text-fx-dune font-semibold rounded-xl hover:bg-fx-charcoal transition-colors disabled:opacity-60"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSubmit}
+                disabled={submitting || !formDeclaration}
+                className="flex-1 py-3 bg-fx-brass text-fx-obsidian font-bold rounded-xl hover:shadow-lg hover:shadow-fx-brass/20 transition-all disabled:opacity-40 flex items-center justify-center gap-2"
+              >
+                {submitting && <RefreshCw size={16} className="animate-spin" />}
+                {submitting ? 'Registering...' : 'Register Address'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
-      <button onClick={() => setView('form')} disabled={!canAdd}
-        className="w-full rounded-lg border border-dashed border-purple-500/50 py-2.5 text-sm text-purple-400 hover:bg-purple-500/5 disabled:opacity-50 disabled:cursor-not-allowed">
-        <Plus size={14} className="inline mr-1" /> Add Withdrawal Address
-      </button>
-      {!canAdd && <div className="mt-1 text-center text-[10px] text-gray-500">Maximum 3 addresses reached</div>}
+      {/* ═══════════════════════════════════════════════════════
+       *  Address Detail Modal
+       * ═══════════════════════════════════════════════════════ */}
+      {detailAddr && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="bg-fx-ink rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto border border-fx-rule">
+            {/* header */}
+            <div className="flex justify-between items-center p-5 border-b border-fx-rule">
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setDetailAddr(null)}
+                  className="p-1.5 hover:bg-fx-charcoal rounded-lg transition-colors text-fx-dust"
+                >
+                  <ArrowLeft size={18} />
+                </button>
+                <div>
+                  <h3 className="text-lg font-bold text-fx-sand">
+                    {detailAddr.label || 'Address Details'}
+                  </h3>
+                  <p className="text-xs font-mono text-fx-dust mt-0.5">{detailAddr.addressNo}</p>
+                </div>
+              </div>
+              <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold ${statusColor(detailAddr.status)}`}>
+                {statusLabel(detailAddr.status)}
+              </span>
+            </div>
+
+            {/* body */}
+            <div className="p-5 space-y-5">
+              {/* Cooling Period Banner */}
+              {detailAddr.status === 'PENDING_ACTIVATION' && (
+                <div className="rounded-xl border border-amber-500/25 bg-amber-500/5 p-4 text-center">
+                  <div className="text-[11px] uppercase tracking-wider text-amber-400/70 font-bold">Activates In</div>
+                  <div className="mt-1 text-2xl font-bold font-mono text-amber-400">
+                    {formatCountdown(detailAddr.activatesAt)}
+                  </div>
+                  <div className="mt-1 text-xs text-fx-dust">
+                    {new Date(detailAddr.activatesAt).toLocaleString()}
+                  </div>
+                </div>
+              )}
+
+              {/* Wallet Address */}
+              <div className="rounded-xl bg-fx-charcoal/50 border border-fx-rule p-4">
+                <label className="text-[11px] uppercase tracking-wider text-fx-dust font-bold">Wallet Address</label>
+                <div className="mt-2 flex items-center justify-between gap-3">
+                  <code className="text-sm font-mono text-fx-sand break-all">{detailAddr.address}</code>
+                  <button
+                    onClick={() => copy(detailAddr.address)}
+                    className="p-2 text-fx-dust hover:text-fx-brass transition-colors shrink-0"
+                  >
+                    {copied ? <Check size={16} className="text-fx-sage" /> : <Copy size={16} />}
+                  </button>
+                </div>
+                {detailAddr.memo && (
+                  <div className="mt-3 pt-3 border-t border-fx-rule">
+                    <label className="text-[11px] uppercase tracking-wider text-fx-dust font-bold">Memo / Tag</label>
+                    <div className="mt-1 text-sm font-mono text-fx-sand">{detailAddr.memo}</div>
+                  </div>
+                )}
+              </div>
+
+              {/* Info Grid */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="rounded-xl bg-fx-charcoal/50 border border-fx-rule p-3">
+                  <div className="text-[11px] uppercase tracking-wider text-fx-dust font-bold">Asset</div>
+                  <div className="mt-1 text-sm font-semibold text-fx-sand">{detailAddr.asset.code}</div>
+                </div>
+                <div className="rounded-xl bg-fx-charcoal/50 border border-fx-rule p-3">
+                  <div className="text-[11px] uppercase tracking-wider text-fx-dust font-bold">Network</div>
+                  <div className="mt-1 text-sm font-semibold text-fx-sand">{detailAddr.network}</div>
+                </div>
+                <div className="rounded-xl bg-fx-charcoal/50 border border-fx-rule p-3">
+                  <div className="text-[11px] uppercase tracking-wider text-fx-dust font-bold">Type</div>
+                  <div className="mt-1 text-sm font-semibold text-fx-sand">
+                    {detailAddr.addressType === 'VASP' ? 'Exchange (VASP)' : 'Self-Custody'}
+                  </div>
+                </div>
+                <div className="rounded-xl bg-fx-charcoal/50 border border-fx-rule p-3">
+                  <div className="text-[11px] uppercase tracking-wider text-fx-dust font-bold">Registered</div>
+                  <div className="mt-1 text-sm text-fx-sand">
+                    {new Date(detailAddr.createdAt).toLocaleDateString()}
+                  </div>
+                </div>
+              </div>
+
+              {/* Beneficiary */}
+              {detailAddr.beneficiaryName && (
+                <div className="rounded-xl bg-fx-charcoal/50 border border-fx-rule p-4">
+                  <div className="text-[11px] uppercase tracking-wider text-fx-dust font-bold">Beneficiary</div>
+                  <div className="mt-1 text-sm font-semibold text-fx-sand">{detailAddr.beneficiaryName}</div>
+                </div>
+              )}
+
+              {/* VASP Info */}
+              {detailAddr.counterpartyVaspName && (
+                <div className="rounded-xl bg-fx-charcoal/50 border border-fx-rule p-4">
+                  <div className="text-[11px] uppercase tracking-wider text-fx-dust font-bold">Counterparty VASP</div>
+                  <div className="mt-1 text-sm font-semibold text-fx-sand">{detailAddr.counterpartyVaspName}</div>
+                </div>
+              )}
+
+              {/* Ownership Declaration */}
+              {detailAddr.ownershipDeclaredAt && (
+                <div className="rounded-xl border border-fx-sage/20 bg-fx-sage/5 p-4 flex items-start gap-3">
+                  <ShieldCheck size={18} className="text-fx-sage shrink-0 mt-0.5" />
+                  <div>
+                    <div className="text-xs font-bold text-fx-sage">Ownership Declared</div>
+                    <div className="text-xs text-fx-dust mt-0.5">
+                      {new Date(detailAddr.ownershipDeclaredAt).toLocaleString()}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* footer */}
+            <div className="p-5 border-t border-fx-rule bg-fx-charcoal/50 rounded-b-2xl">
+              <button
+                onClick={() => setDetailAddr(null)}
+                className="w-full py-3 bg-fx-ink border border-fx-rule text-fx-dune font-bold rounded-xl hover:bg-fx-charcoal transition-colors"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

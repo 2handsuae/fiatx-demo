@@ -56,6 +56,8 @@ export class WithdrawalAddressWorkflowService {
       address: dto.address,
       addressType,
       label: dto.label,
+      beneficiaryName: dto.beneficiaryName,
+      memo: dto.memo,
       counterpartyVaspName: attribution.vaspName,
       counterpartyVaspDid: attribution.vaspDid,
       ownershipDeclaredAt: new Date(),

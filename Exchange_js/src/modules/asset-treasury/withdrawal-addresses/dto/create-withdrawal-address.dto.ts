@@ -19,4 +19,14 @@ export class CreateWithdrawalAddressDto {
   @IsString()
   @IsOptional()
   label?: string;
+
+  @ApiProperty({ required: false, description: 'Beneficiary full name' })
+  @IsString()
+  @IsOptional()
+  beneficiaryName?: string;
+
+  @ApiProperty({ required: false, description: 'Memo / Tag for chains that require it' })
+  @IsString()
+  @IsOptional()
+  memo?: string;
 }
