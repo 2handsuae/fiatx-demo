@@ -126,32 +126,7 @@ const AssetList = () => {
     void fetchItems(1, DEFAULT_FILTERS);
   };
 
-  /* ── Suspension / Reactivation ── */
-
-  const [actionBusy, setActionBusy] = useState(false);
-
-  const handleReactivate = async (asset: AssetItem) => {
-    if (!asset.assetNo) return;
-    if (!window.confirm(`Request reactivation for asset ${asset.code}? This requires CISO approval.`)) return;
-    setActionBusy(true);
-    setError(null);
-    try {
-      const res = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/assets/${asset.assetNo}/reactivate`,
-        { method: 'POST' },
-      );
-      if (!res.ok) {
-        setError(await getApiErrorMessage(res, 'Failed to request reactivation.'));
-        return;
-      }
-      void fetchItems(currentPage, filters);
-    } catch (err) {
-      if (err instanceof AdminSessionError) return;
-      setError(err instanceof Error ? err.message : 'Failed to request reactivation.');
-    } finally {
-      setActionBusy(false);
-    }
-  };
+  /* (Suspend / Reactivate actions are on the detail page) */
 
   /* ── Table header style ── */
   const th =
@@ -292,7 +267,6 @@ const AssetList = () => {
                       {a.status === 'ACTIVE' && (
                         <button
                           onClick={() => navigate(`/dashboard/system/assets/${a.id}`)}
-                          disabled={actionBusy}
                           className={adminButtonClass('rowSecondaryUtility')}
                         >
                           Suspend
@@ -300,8 +274,7 @@ const AssetList = () => {
                       )}
                       {a.status === 'SUSPENDED' && (
                         <button
-                          onClick={() => void handleReactivate(a)}
-                          disabled={actionBusy}
+                          onClick={() => navigate(`/dashboard/system/assets/${a.id}`)}
                           className={adminButtonClass('rowSecondaryUtility')}
                         >
                           Reactivate

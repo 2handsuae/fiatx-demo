@@ -1,5 +1,6 @@
-import { useEffect, useState, useRef, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { X, ShieldOff, ShieldCheck } from 'lucide-react';
 import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/adminFetch';
 import { adminButtonClass } from '../components/common/adminButtonStyles';
 import { DetailPageHeader, InfoField } from '../components/compliance/DetailPageComponents';
@@ -86,10 +87,14 @@ export default function AssetDetail() {
   const [asset, setAsset] = useState<AssetDetailData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [actionBusy, setActionBusy] = useState(false);
-  const [showSuspendDialog, setShowSuspendDialog] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  const [showSuspendModal, setShowSuspendModal] = useState(false);
   const [suspendReason, setSuspendReason] = useState('');
-  const reasonRef = useRef<HTMLTextAreaElement>(null);
+  const [submittingSuspend, setSubmittingSuspend] = useState(false);
+
+  const [showReactivateModal, setShowReactivateModal] = useState(false);
+  const [submittingReactivate, setSubmittingReactivate] = useState(false);
 
   const fetchDetail = async () => {
     if (!id) return;
@@ -109,46 +114,58 @@ export default function AssetDetail() {
 
   useEffect(() => { void fetchDetail(); }, [id]);
 
+  useEffect(() => {
+    if (!notice) return undefined;
+    const t = window.setTimeout(() => setNotice((c) => (c === notice ? null : c)), 4000);
+    return () => window.clearTimeout(t);
+  }, [notice]);
+
   /* ── Suspend / Reactivate actions ── */
 
-  const handleSuspend = async () => {
+  const handleSubmitSuspend = async () => {
     if (!asset?.assetNo || !suspendReason.trim()) return;
-    setActionBusy(true);
-    setError(null);
+    setSubmittingSuspend(true);
     try {
       const res = await adminFetch(
         `${import.meta.env.VITE_API_URL}/admin/assets/${asset.assetNo}/suspend`,
-        { method: 'POST', body: JSON.stringify({ reason: suspendReason.trim() }) },
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reason: suspendReason.trim() }),
+        },
       );
-      if (!res.ok) throw new Error(await getApiErrorMessage(res, 'Failed to request suspension.'));
-      setShowSuspendDialog(false);
+      if (!res.ok) throw new Error(await getApiErrorMessage(res, 'Failed to submit suspension request'));
+      const data = await res.json();
+      setShowSuspendModal(false);
       setSuspendReason('');
+      setNotice(`Suspension request submitted for approval (${data.approvalNo}).`);
       void fetchDetail();
     } catch (err) {
       if (err instanceof AdminSessionError) return;
-      setError(err instanceof Error ? err.message : 'Failed to request suspension.');
+      setError(err instanceof Error ? err.message : 'Failed to submit suspension request.');
     } finally {
-      setActionBusy(false);
+      setSubmittingSuspend(false);
     }
   };
 
-  const handleReactivate = async () => {
+  const handleSubmitReactivate = async () => {
     if (!asset?.assetNo) return;
-    if (!window.confirm(`Request reactivation for asset ${asset.code}? This requires CISO approval.`)) return;
-    setActionBusy(true);
-    setError(null);
+    setSubmittingReactivate(true);
     try {
       const res = await adminFetch(
         `${import.meta.env.VITE_API_URL}/admin/assets/${asset.assetNo}/reactivate`,
         { method: 'POST' },
       );
-      if (!res.ok) throw new Error(await getApiErrorMessage(res, 'Failed to request reactivation.'));
+      if (!res.ok) throw new Error(await getApiErrorMessage(res, 'Failed to submit reactivation request'));
+      const data = await res.json();
+      setShowReactivateModal(false);
+      setNotice(`Reactivation request submitted for approval (${data.approvalNo}).`);
       void fetchDetail();
     } catch (err) {
       if (err instanceof AdminSessionError) return;
-      setError(err instanceof Error ? err.message : 'Failed to request reactivation.');
+      setError(err instanceof Error ? err.message : 'Failed to submit reactivation request.');
     } finally {
-      setActionBusy(false);
+      setSubmittingReactivate(false);
     }
   };
 
@@ -190,12 +207,19 @@ export default function AssetDetail() {
         refreshing={loading}
       />
 
-      {/* ── Notices ── */}
-      {error && (
-        <div className="shrink-0 px-6 pt-3 pb-1">
-          <div className="rounded border border-adm-red/30 bg-adm-red/10 px-4 py-2 font-mono text-[11px] text-adm-red">
-            {error}
-          </div>
+      {/* ── Inline notices ── */}
+      {(notice || error) && (
+        <div className="shrink-0 px-6 pt-3 pb-1 space-y-2">
+          {notice && (
+            <div className="rounded border border-adm-green/30 bg-adm-green/10 px-4 py-2 font-mono text-[11px] text-adm-green">
+              {notice}
+            </div>
+          )}
+          {error && (
+            <div className="rounded border border-adm-red/30 bg-adm-red/10 px-4 py-2 font-mono text-[11px] text-adm-red">
+              {error}
+            </div>
+          )}
         </div>
       )}
 
@@ -261,68 +285,37 @@ export default function AssetDetail() {
             </div>
           </section>
 
-          {/* ⑥ Actions */}
-          {(asset.status === 'ACTIVE' || asset.status === 'SUSPENDED') && (
-            <section className="px-6 py-5">
-              <Cap>Actions</Cap>
-              <div className="mt-3 flex flex-col gap-3">
-                {asset.status === 'ACTIVE' && !showSuspendDialog && (
-                  <button
-                    onClick={() => { setShowSuspendDialog(true); setTimeout(() => reasonRef.current?.focus(), 50); }}
-                    disabled={actionBusy}
-                    className={adminButtonClass('detailUtility')}
-                  >
-                    Suspend Asset
-                  </button>
-                )}
-                {asset.status === 'ACTIVE' && showSuspendDialog && (
-                  <div className="rounded border border-adm-border bg-adm-bg p-4 space-y-3">
-                    <p className="font-mono text-[10px] font-semibold uppercase tracking-wider text-adm-t3">
-                      Suspension requires CISO approval
-                    </p>
-                    <textarea
-                      ref={reasonRef}
-                      className="w-full rounded border border-adm-border bg-adm-card px-3 py-2 font-mono text-[11px] text-adm-t1 placeholder:text-adm-t3 outline-none focus:border-adm-amber"
-                      rows={3}
-                      placeholder="Reason for suspension (required)"
-                      value={suspendReason}
-                      onChange={(e) => setSuspendReason(e.target.value)}
-                    />
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => void handleSuspend()}
-                        disabled={actionBusy || !suspendReason.trim()}
-                        className={adminButtonClass('detailUtility')}
-                      >
-                        {actionBusy ? 'Submitting…' : 'Submit Suspension Request'}
-                      </button>
-                      <button
-                        onClick={() => { setShowSuspendDialog(false); setSuspendReason(''); }}
-                        disabled={actionBusy}
-                        className={adminButtonClass('detailUtility')}
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  </div>
-                )}
-                {asset.status === 'SUSPENDED' && (
-                  <button
-                    onClick={() => void handleReactivate()}
-                    disabled={actionBusy}
-                    className={adminButtonClass('detailUtility')}
-                  >
-                    {actionBusy ? 'Submitting…' : 'Reactivate Asset'}
-                  </button>
-                )}
-              </div>
-            </section>
-          )}
-
         </div>
 
         {/* ════ RIGHT SIDEBAR ════ */}
         <div className="w-[272px] min-w-[272px] overflow-y-auto border-l border-adm-border bg-adm-panel px-4 py-1">
+
+          {/* Actions */}
+          {(asset.status === 'ACTIVE' || asset.status === 'SUSPENDED') && (
+            <div className="border-b border-adm-border py-4">
+              <Cap>Actions</Cap>
+              <div className="mt-2.5 flex flex-col gap-2">
+                {asset.status === 'ACTIVE' && (
+                  <button
+                    onClick={() => { setSuspendReason(''); setShowSuspendModal(true); }}
+                    className={adminButtonClass('workflowNegative')}
+                  >
+                    <ShieldOff size={13} />
+                    Suspend Asset
+                  </button>
+                )}
+                {asset.status === 'SUSPENDED' && (
+                  <button
+                    onClick={() => setShowReactivateModal(true)}
+                    className={adminButtonClass('workflowPrimary')}
+                  >
+                    <ShieldCheck size={13} />
+                    Reactivate Asset
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Quick Reference */}
           <SidebarGroup title="Quick Reference">
@@ -335,6 +328,112 @@ export default function AssetDetail() {
 
         </div>
       </div>
+
+      {/* ════ Suspend Modal ════ */}
+      {showSuspendModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md overflow-hidden rounded-xl border border-adm-border bg-adm-panel shadow-xl">
+
+            <div className="flex items-center justify-between border-b border-adm-border bg-adm-card px-5 py-4">
+              <div>
+                <p className="font-mono text-[11px] font-semibold text-adm-t1">
+                  Suspend Asset
+                </p>
+                <p className="mt-1 font-mono text-[9px] text-adm-t3">
+                  {asset.assetNo} · {asset.code}
+                </p>
+              </div>
+              <button
+                onClick={() => setShowSuspendModal(false)}
+                className="rounded p-1 text-adm-t3 hover:bg-adm-hover hover:text-adm-t1"
+              >
+                <X size={15} />
+              </button>
+            </div>
+
+            <div className="px-5 py-4 space-y-3">
+              <div className="rounded border border-adm-amber/30 bg-adm-amber/10 px-3 py-2.5 font-mono text-[10px] text-adm-amber leading-relaxed">
+                This will submit a suspension request for CISO approval. If approved, the asset will
+                be suspended and deposit/withdrawal will be disabled immediately.
+              </div>
+
+              <div>
+                <p className="mb-1.5 font-mono text-[8.5px] uppercase tracking-[0.14em] text-adm-t3">
+                  Reason for Suspension
+                </p>
+                <textarea
+                  value={suspendReason}
+                  onChange={(e) => setSuspendReason(e.target.value)}
+                  rows={4}
+                  placeholder="Describe why this asset should be suspended…"
+                  className="w-full rounded border border-adm-border bg-adm-bg px-3 py-2 font-mono text-[10px] text-adm-t2 placeholder:text-adm-t3 focus:border-adm-amber focus:outline-none resize-none transition-colors"
+                  autoFocus
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 border-t border-adm-border bg-adm-card px-5 py-4">
+              <button onClick={() => setShowSuspendModal(false)} className={adminButtonClass('modalCancel')}>
+                Cancel
+              </button>
+              <button
+                onClick={() => void handleSubmitSuspend()}
+                disabled={submittingSuspend || !suspendReason.trim()}
+                className={adminButtonClass('modalConfirm')}
+              >
+                {submittingSuspend ? 'Submitting…' : 'Submit for Approval'}
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* ════ Reactivate Modal ════ */}
+      {showReactivateModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md overflow-hidden rounded-xl border border-adm-border bg-adm-panel shadow-xl">
+
+            <div className="flex items-center justify-between border-b border-adm-border bg-adm-card px-5 py-4">
+              <div>
+                <p className="font-mono text-[11px] font-semibold text-adm-t1">
+                  Reactivate Asset
+                </p>
+                <p className="mt-1 font-mono text-[9px] text-adm-t3">
+                  {asset.assetNo} · {asset.code}
+                </p>
+              </div>
+              <button
+                onClick={() => setShowReactivateModal(false)}
+                className="rounded p-1 text-adm-t3 hover:bg-adm-hover hover:text-adm-t1"
+              >
+                <X size={15} />
+              </button>
+            </div>
+
+            <div className="px-5 py-4 space-y-3">
+              <div className="rounded border border-adm-amber/30 bg-adm-amber/10 px-3 py-2.5 font-mono text-[10px] text-adm-amber leading-relaxed">
+                This will submit a reactivation request for CISO approval. If approved, the asset
+                will be reactivated and deposit/withdrawal settings will be restored.
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 border-t border-adm-border bg-adm-card px-5 py-4">
+              <button onClick={() => setShowReactivateModal(false)} className={adminButtonClass('modalCancel')}>
+                Cancel
+              </button>
+              <button
+                onClick={() => void handleSubmitReactivate()}
+                disabled={submittingReactivate}
+                className={adminButtonClass('modalConfirm')}
+              >
+                {submittingReactivate ? 'Submitting…' : 'Submit for Approval'}
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
     </div>
   );
 }
