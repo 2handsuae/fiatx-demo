@@ -4,6 +4,23 @@ import { ArrowLeft, Save, AlertCircle } from 'lucide-react';
 import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/adminFetch';
 import { adminButtonClass } from '../components/common/adminButtonStyles';
 
+/* ── Helpers ─────────────────────────────────────────────────── */
+
+const fi =
+  'w-full rounded border border-adm-border bg-adm-bg px-3 py-2 font-mono text-[11px] text-adm-t1 placeholder:text-adm-t3 outline-none focus:border-adm-amber transition-colors';
+
+const Label = ({ children, required }: { children: React.ReactNode; required?: boolean }) => (
+  <label className="block font-mono text-[9px] font-semibold uppercase tracking-[0.12em] text-adm-t3 mb-1.5">
+    {children}{required && <span className="text-adm-red ml-0.5">*</span>}
+  </label>
+);
+
+const Hint = ({ children }: { children: React.ReactNode }) => (
+  <p className="mt-1 font-mono text-[9px] text-adm-t3">{children}</p>
+);
+
+/* ── Component ───────────────────────────────────────────────── */
+
 const AssetCreate = () => {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
@@ -13,15 +30,25 @@ const AssetCreate = () => {
     type: 'CRYPTO',
     code: '',
     network: '',
-    decimals: 0,
+    decimals: 18,
+    contractAddress: '',
     description: '',
+    minDepositAmount: 0,
+    maxDepositAmount: 0,
+    minWithdrawAmount: 0,
+    maxWithdrawAmount: 0,
+    depositEnabled: true,
+    withdrawalEnabled: true,
   });
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
-    const { name, value } = e.target;
+    const { name, value, type } = e.target;
     setFormData(prev => ({
       ...prev,
-      [name]: name === 'decimals' ? parseInt(value) || 0 : value
+      [name]:
+        type === 'checkbox' ? (e.target as HTMLInputElement).checked
+        : type === 'number' || name === 'decimals' ? parseFloat(value) || 0
+        : value,
     }));
   };
 
@@ -30,13 +57,28 @@ const AssetCreate = () => {
     setLoading(true);
     setError(null);
 
+    const payload: Record<string, unknown> = {
+      type: formData.type,
+      code: formData.code,
+      decimals: formData.decimals,
+      description: formData.description || undefined,
+      contractAddress: formData.contractAddress || undefined,
+      minDepositAmount: formData.minDepositAmount,
+      maxDepositAmount: formData.maxDepositAmount,
+      minWithdrawAmount: formData.minWithdrawAmount,
+      maxWithdrawAmount: formData.maxWithdrawAmount,
+      depositEnabled: formData.depositEnabled,
+      withdrawalEnabled: formData.withdrawalEnabled,
+    };
+    if (formData.type === 'CRYPTO' && formData.network) {
+      payload.network = formData.network;
+    }
+
     try {
-      const response = await adminFetch(`${import.meta.env.VITE_API_URL}/assets`, {
+      const response = await adminFetch(`${import.meta.env.VITE_API_URL}/admin/assets/listing`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(formData)
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
       });
 
       if (response.ok) {
@@ -46,7 +88,6 @@ const AssetCreate = () => {
       }
     } catch (err) {
       if (err instanceof AdminSessionError) return;
-      console.error('Failed to create asset', err);
       setError('An unexpected error occurred');
     } finally {
       setLoading(false);
@@ -54,124 +95,131 @@ const AssetCreate = () => {
   };
 
   return (
-    <div className="max-w-2xl mx-auto space-y-6">
-      <div className="flex items-center gap-4">
-        <button 
+    <div className="flex h-full flex-col overflow-hidden">
+      {/* ── Header ── */}
+      <div className="flex shrink-0 items-center gap-3 border-b border-adm-border bg-adm-panel px-4 py-3">
+        <button
           onClick={() => navigate('/dashboard/system/assets')}
-          className={adminButtonClass('detailUtility', 'px-2')}
+          className="rounded p-1 text-adm-t3 hover:bg-adm-hover hover:text-adm-t1"
         >
-          <ArrowLeft size={20} />
+          <ArrowLeft size={16} />
         </button>
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Create New Asset</h1>
-          <p className="text-sm text-gray-500 mt-1">Add a new asset to the system</p>
+          <p className="font-mono text-[12px] font-semibold text-adm-t1">Create New Asset</p>
+          <p className="font-mono text-[9px] text-adm-t3">Asset will be created in PROVISIONING status</p>
         </div>
       </div>
 
-      <div className="bg-white rounded-xl shadow-sm border border-admin-border overflow-hidden">
-        <form onSubmit={handleSubmit} className="p-6 space-y-6">
-          {error && (
-            <div className="bg-red-50 text-red-600 p-4 rounded-lg flex items-start gap-3 text-sm">
-              <AlertCircle size={18} className="mt-0.5 shrink-0" />
-              <span>{error}</span>
+      {/* ── Error ── */}
+      {error && (
+        <div className="shrink-0 border-b border-adm-border bg-adm-red/5 px-4 py-2.5 font-mono text-[11px] text-adm-red flex items-start gap-2">
+          <AlertCircle size={14} className="mt-0.5 shrink-0" />
+          <span>{error}</span>
+        </div>
+      )}
+
+      {/* ── Form ── */}
+      <div className="flex-1 overflow-y-auto px-6 py-5">
+        <form onSubmit={handleSubmit} className="max-w-3xl space-y-6">
+
+          {/* ① Identity */}
+          <fieldset className="space-y-4">
+            <p className="font-mono text-[8.5px] font-semibold uppercase tracking-[0.16em] text-adm-t3 border-b border-adm-border pb-2">
+              Asset Identity
+            </p>
+            <div className="grid grid-cols-2 gap-x-6 gap-y-4">
+              <div>
+                <Label required>Asset Type</Label>
+                <select name="type" value={formData.type} onChange={handleChange} className={fi} required>
+                  <option value="CRYPTO">CRYPTO</option>
+                  <option value="FIAT">FIAT</option>
+                </select>
+              </div>
+              <div>
+                <Label required>Asset Code</Label>
+                <input name="code" value={formData.code} onChange={handleChange} placeholder="e.g. USDT, BTC" className={`${fi} uppercase`} required maxLength={16} />
+                <Hint>Max 16 characters</Hint>
+              </div>
+              <div>
+                <Label required={formData.type === 'CRYPTO'}>Network</Label>
+                <input name="network" value={formData.network} onChange={handleChange} placeholder="e.g. TRC20, ERC20" className={`${fi} uppercase`} required={formData.type === 'CRYPTO'} maxLength={32} />
+                <Hint>Required for Crypto assets</Hint>
+              </div>
+              <div>
+                <Label required>Decimals</Label>
+                <input type="number" name="decimals" value={formData.decimals} onChange={handleChange} min={0} max={18} className={fi} required />
+                <Hint>0–18</Hint>
+              </div>
+              <div className="col-span-2">
+                <Label>Contract Address</Label>
+                <input name="contractAddress" value={formData.contractAddress} onChange={handleChange} placeholder="0x..." className={`${fi} font-mono`} maxLength={128} />
+              </div>
+              <div className="col-span-2">
+                <Label>Description</Label>
+                <textarea name="description" value={formData.description} onChange={handleChange} rows={2} className={fi} maxLength={256} placeholder="Optional description" />
+              </div>
             </div>
-          )}
+          </fieldset>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="space-y-2">
-              <label className="block text-sm font-medium text-gray-700">Asset Type <span className="text-red-500">*</span></label>
-              <select
-                name="type"
-                value={formData.type}
-                onChange={handleChange}
-                className="w-full px-3 py-2 bg-white border border-admin-border rounded-lg focus:outline-none focus:border-brand-primary focus:ring-1 focus:ring-brand-primary/20 transition-all"
-                required
-              >
-                <option value="CRYPTO">Crypto</option>
-                <option value="FIAT">Fiat</option>
-              </select>
+          {/* ② Limits */}
+          <fieldset className="space-y-4">
+            <p className="font-mono text-[8.5px] font-semibold uppercase tracking-[0.16em] text-adm-t3 border-b border-adm-border pb-2">
+              Deposit & Withdrawal Limits
+            </p>
+            <div className="grid grid-cols-2 gap-x-6 gap-y-4">
+              <div>
+                <Label required>Min Deposit Amount</Label>
+                <input type="number" name="minDepositAmount" value={formData.minDepositAmount} onChange={handleChange} min={0} step="any" className={fi} required />
+              </div>
+              <div>
+                <Label required>Max Deposit Amount</Label>
+                <input type="number" name="maxDepositAmount" value={formData.maxDepositAmount} onChange={handleChange} min={0} step="any" className={fi} required />
+                <Hint>Must be &ge; min deposit</Hint>
+              </div>
+              <div>
+                <Label required>Min Withdraw Amount</Label>
+                <input type="number" name="minWithdrawAmount" value={formData.minWithdrawAmount} onChange={handleChange} min={0} step="any" className={fi} required />
+              </div>
+              <div>
+                <Label required>Max Withdraw Amount</Label>
+                <input type="number" name="maxWithdrawAmount" value={formData.maxWithdrawAmount} onChange={handleChange} min={0} step="any" className={fi} required />
+                <Hint>Must be &ge; min withdraw</Hint>
+              </div>
             </div>
+          </fieldset>
 
-            <div className="space-y-2">
-              <label className="block text-sm font-medium text-gray-700">Asset Code <span className="text-red-500">*</span></label>
-              <input
-                type="text"
-                name="code"
-                value={formData.code}
-                onChange={handleChange}
-                placeholder="e.g. USDT, BTC"
-                className="w-full px-3 py-2 bg-white border border-admin-border rounded-lg focus:outline-none focus:border-brand-primary focus:ring-1 focus:ring-brand-primary/20 transition-all uppercase"
-                required
-                maxLength={16}
-              />
-              <p className="text-xs text-gray-500">Max 16 characters</p>
+          {/* ③ Toggles */}
+          <fieldset className="space-y-4">
+            <p className="font-mono text-[8.5px] font-semibold uppercase tracking-[0.16em] text-adm-t3 border-b border-adm-border pb-2">
+              Feature Flags
+            </p>
+            <div className="flex items-center gap-6">
+              <label className="flex items-center gap-2 font-mono text-[11px] text-adm-t2 cursor-pointer">
+                <input type="checkbox" name="depositEnabled" checked={formData.depositEnabled} onChange={handleChange} className="accent-adm-amber" />
+                Deposit Enabled
+              </label>
+              <label className="flex items-center gap-2 font-mono text-[11px] text-adm-t2 cursor-pointer">
+                <input type="checkbox" name="withdrawalEnabled" checked={formData.withdrawalEnabled} onChange={handleChange} className="accent-adm-amber" />
+                Withdrawal Enabled
+              </label>
             </div>
+          </fieldset>
 
-            <div className="space-y-2">
-              <label className="block text-sm font-medium text-gray-700">Network {formData.type === 'CRYPTO' && <span className="text-red-500">*</span>}</label>
-              <input
-                type="text"
-                name="network"
-                value={formData.network}
-                onChange={handleChange}
-                placeholder="e.g. TRC20, ERC20"
-                className="w-full px-3 py-2 bg-white border border-admin-border rounded-lg focus:outline-none focus:border-brand-primary focus:ring-1 focus:ring-brand-primary/20 transition-all uppercase"
-                required={formData.type === 'CRYPTO'}
-                maxLength={32}
-              />
-              <p className="text-xs text-gray-500">Required for Crypto assets</p>
-            </div>
-
-            <div className="space-y-2">
-              <label className="block text-sm font-medium text-gray-700">Decimals <span className="text-red-500">*</span></label>
-              <input
-                type="number"
-                name="decimals"
-                value={formData.decimals}
-                onChange={handleChange}
-                min="0"
-                max="18"
-                className="w-full px-3 py-2 bg-white border border-admin-border rounded-lg focus:outline-none focus:border-brand-primary focus:ring-1 focus:ring-brand-primary/20 transition-all"
-                required
-              />
-              <p className="text-xs text-gray-500">Integer between 0-18</p>
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <label className="block text-sm font-medium text-gray-700">Description</label>
-            <textarea
-              name="description"
-              value={formData.description}
-              onChange={handleChange}
-              rows={3}
-              className="w-full px-3 py-2 bg-white border border-admin-border rounded-lg focus:outline-none focus:border-brand-primary focus:ring-1 focus:ring-brand-primary/20 transition-all"
-              maxLength={64}
-            />
-            <p className="text-xs text-gray-500">Optional description (max 64 chars)</p>
-          </div>
-
-          <div className="pt-4 flex justify-end gap-3 border-t border-admin-border">
-            <button
-              type="button"
-              onClick={() => navigate('/dashboard/system/assets')}
-              className={adminButtonClass('modalCancel')}
-            >
+          {/* ④ Submit */}
+          <div className="flex justify-end gap-3 border-t border-adm-border pt-4">
+            <button type="button" onClick={() => navigate('/dashboard/system/assets')} className={adminButtonClass('modalCancel')}>
               Cancel
             </button>
-            <button
-              type="submit"
-              disabled={loading}
-              className={adminButtonClass('modalConfirm')}
-            >
+            <button type="submit" disabled={loading} className={adminButtonClass('modalConfirm')}>
               {loading ? (
-                <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
               ) : (
-                <Save size={18} />
+                <Save size={13} />
               )}
               Create Asset
             </button>
           </div>
+
         </form>
       </div>
     </div>

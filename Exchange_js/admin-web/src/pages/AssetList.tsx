@@ -180,7 +180,6 @@ const AssetList = () => {
           onChange={(e) => updateFilter('status', e.target.value)}
         >
           <option value="">All status</option>
-          <option value="PENDING_APPROVAL">PENDING_APPROVAL</option>
           <option value="PROVISIONING">PROVISIONING</option>
           <option value="ACTIVE">ACTIVE</option>
           <option value="SUSPENDED">SUSPENDED</option>
@@ -264,6 +263,14 @@ const AssetList = () => {
                   </td>
                   <td className="px-3 py-2">
                     <div className="flex items-center gap-1.5">
+                      {a.status === 'PROVISIONING' && (
+                        <button
+                          onClick={() => navigate(`/dashboard/system/assets/${a.id}`)}
+                          className={adminButtonClass('rowSecondaryUtility')}
+                        >
+                          Activate
+                        </button>
+                      )}
                       {a.status === 'ACTIVE' && (
                         <button
                           onClick={() => navigate(`/dashboard/system/assets/${a.id}`)}
