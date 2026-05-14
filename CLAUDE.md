@@ -5,10 +5,36 @@ API: 3500 | Admin: 3501 | Client: 3502 | DB: `/tmp/exchange_js_branch/dev.db`
 
 Worktree 路径: `branch/Exchange_js/`
 
+## 服务启动规则
+
+**必须使用 branch 端口，禁止混用其他端口：**
+
+| 服务 | 端口 | 说明 |
+|------|------|------|
+| Backend API | **3500** | `.env` 中 `API_PORT=3500` |
+| Admin Web | **3501** | Vite `--port 3501` |
+| Client Web | **3502** | Vite `--port 3502` |
+| TigerBeetle | **3503** | branch 栈专用；main 栈用 **3003** |
+
+- `.env` 必须设置 `API_PORT=3500`、`ADMIN_URL=http://localhost:3501`、`CLIENT_URL=http://localhost:3502`
+- **端口隔离规则（不可违反）**：每个栈的所有进程严格限定在自己的端口段内，禁止跨栈访问任何服务或数据库：
+
+  | 栈 | Backend | Admin | Client | TigerBeetle |
+  |-----|---------|-------|--------|-------------|
+  | main | 3000 | 3001 | 3002 | **3003** |
+  | codex | 3100 | 3101 | 3102 | **3103** |
+  | claude | 3200 | 3201 | 3202 | **3203** |
+  | trae | 3300 | 3301 | 3302 | **3303** |
+  | branch | 3500 | 3501 | 3502 | **3503** |
+
+- `admin-web/.env.local` 和 `client-web/.env.local` 中 `VITE_API_URL=http://localhost:3500`
+- **禁止**用 3000/3001/3002 或其他端口启动服务，所有前后端必须统一指向 branch 端口
+- 启动前先确认端口无残留进程：`lsof -ti:3500,3501,3502`
+
 ## 关键命令（在 Exchange_js/ 内执行）
 
 ```bash
-npm run dev:start     # 启动完整 stack
+npm run dev:start     # 启动完整 stack（推荐）
 npm run dev:stop      # 停止
 npm run dev:reset     # 重置业务数据
 npm run dev:rebuild   # 完整重建 DB
