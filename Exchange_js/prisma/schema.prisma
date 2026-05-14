@@ -1542,6 +1542,10 @@ model WithdrawalAddress {
   beneficiaryName      String?
   memo                 String?
 
+  iban                 String?
+  swiftBic             String?
+  bankName             String?
+
   counterpartyVaspName String?
   counterpartyVaspDid  String?
 
