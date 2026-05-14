@@ -5,13 +5,18 @@ import { RequirePermissions } from '../../identity/access-control/require-permis
 import { buildPermissionCode } from '../../identity/access-control/permission-code.util';
 import { ApprovalActorContext } from '../../governance/approvals/constants/approval.constants';
 import { AssetListingWorkflowService } from './asset-listing-workflow.service';
+import { AssetSuspensionWorkflowService } from './asset-suspension-workflow.service';
+import { AssetReactivationWorkflowService } from './asset-reactivation-workflow.service';
 import { SubmitAssetListingDto } from './dto/submit-asset-listing.dto';
+import { SuspendAssetDto } from './dto/suspend-asset.dto';
 
 @Controller('admin/assets')
 @UseGuards(AuthGuard('jwt'), AdminPermissionGuard)
 export class AssetListingController {
   constructor(
     private readonly workflowService: AssetListingWorkflowService,
+    private readonly suspensionWorkflow: AssetSuspensionWorkflowService,
+    private readonly reactivationWorkflow: AssetReactivationWorkflowService,
   ) {}
 
   private ensureAdmin(req: any) {
@@ -42,5 +47,30 @@ export class AssetListingController {
   async activateAsset(@Param('assetNo') assetNo: string, @Req() req: any) {
     this.ensureAdmin(req);
     return this.workflowService.activateAsset(assetNo, this.buildAdminActor(req));
+  }
+
+  @Post(':assetNo/suspend')
+  @RequirePermissions(buildPermissionCode('POST', '/admin/assets/:assetNo/suspend'))
+  async suspendAsset(
+    @Param('assetNo') assetNo: string,
+    @Body() dto: SuspendAssetDto,
+    @Req() req: any,
+  ) {
+    this.ensureAdmin(req);
+    return this.suspensionWorkflow.requestSuspension(
+      assetNo,
+      dto.reason,
+      this.buildAdminActor(req),
+    );
+  }
+
+  @Post(':assetNo/reactivate')
+  @RequirePermissions(buildPermissionCode('POST', '/admin/assets/:assetNo/reactivate'))
+  async reactivateAsset(@Param('assetNo') assetNo: string, @Req() req: any) {
+    this.ensureAdmin(req);
+    return this.reactivationWorkflow.requestReactivation(
+      assetNo,
+      this.buildAdminActor(req),
+    );
   }
 }
