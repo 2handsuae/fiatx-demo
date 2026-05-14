@@ -2733,6 +2733,25 @@ model TbAccountRegistry {
   @@map("tb_account_registry")
 }
 
+model TbAccountBacklog {
+  id          String   @id @default(uuid())
+  assetCode   String
+  ledger      Int
+  customerId  String
+  customerNo  String
+  code        Int      // 100 (CLIENT_CREDIT) or 101 (CLIENT_AUDIT)
+  status      String   @default("FAILED") // FAILED, COMPLETED
+  attempts    Int      @default(0)
+  lastError   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([ledger, customerId, code])
+  @@index([status])
+  @@index([assetCode])
+  @@map("tb_account_backlog")
+}
+
 model TbTransferEvidence {
   tbTransferId String   @id             // TB u128 as hex string (deterministic)
   sourceType   String                   // DEPOSIT | WITHDRAWAL | SWAP | ...
