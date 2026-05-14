@@ -114,13 +114,13 @@ describe('AssetsService', () => {
       });
       mockPrismaService.asset.update.mockResolvedValue({
         id: '1',
-        status: AssetStatus.DISABLED,
+        status: AssetStatus.SUSPENDED,
       });
-      const result = await service.changeStatus('1', AssetStatus.DISABLED);
-      expect(result.status).toBe(AssetStatus.DISABLED);
+      const result = await service.changeStatus('1', AssetStatus.SUSPENDED);
+      expect(result.status).toBe(AssetStatus.SUSPENDED);
       expect(mockPrismaService.asset.update).toHaveBeenCalledWith({
         where: { id: '1' },
-        data: { status: AssetStatus.DISABLED },
+        data: { status: AssetStatus.SUSPENDED },
       });
     });
   });

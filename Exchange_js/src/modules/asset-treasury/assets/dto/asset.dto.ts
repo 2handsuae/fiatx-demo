@@ -18,7 +18,7 @@ export enum AssetStatus {
   PENDING_APPROVAL = 'PENDING_APPROVAL',
   PROVISIONING = 'PROVISIONING',
   ACTIVE = 'ACTIVE',
-  DISABLED = 'DISABLED',
+  SUSPENDED = 'SUSPENDED',
 }
 
 export class CreateAssetDto {
