@@ -3,7 +3,6 @@ import { AuthGuard } from '@nestjs/passport';
 import { AdminPermissionGuard } from '../../identity/access-control/admin-permission.guard';
 import { RequirePermissions } from '../../identity/access-control/require-permissions.decorator';
 import { buildPermissionCode } from '../../identity/access-control/permission-code.util';
-import { ApprovalActorContext } from '../../governance/approvals/constants/approval.constants';
 import { AssetListingWorkflowService } from './asset-listing-workflow.service';
 import { AssetSuspensionWorkflowService } from './asset-suspension-workflow.service';
 import { AssetReactivationWorkflowService } from './asset-reactivation-workflow.service';
@@ -25,9 +24,9 @@ export class AssetListingController {
     }
   }
 
-  private buildAdminActor(req: any): ApprovalActorContext {
+  private buildAdminActor(req: any) {
     return {
-      actorType: 'ADMIN',
+      actorType: 'ADMIN' as const,
       userId: req.user.userId,
       userNo: req.user.userNo,
       role: req.user.role || 'ADMIN',
@@ -42,12 +41,7 @@ export class AssetListingController {
     return this.workflowService.submitListing(dto, this.buildAdminActor(req));
   }
 
-  @Post(':assetNo/activate')
-  @RequirePermissions(buildPermissionCode('POST', '/admin/assets/:assetNo/activate'))
-  async activateAsset(@Param('assetNo') assetNo: string, @Req() req: any) {
-    this.ensureAdmin(req);
-    return this.workflowService.activateAsset(assetNo, this.buildAdminActor(req));
-  }
+  // NOTE: activate endpoint moved to AssetActivationWorkflowService (Task 5)
 
   @Post(':assetNo/suspend')
   @RequirePermissions(buildPermissionCode('POST', '/admin/assets/:assetNo/suspend'))
