@@ -10,6 +10,7 @@ import { AuditResult, AuditSubjectRole } from '../../audit-logging/dto/audit-log
 import { WithdrawalAddressService } from './withdrawal-address.service';
 import { TRAVEL_RULE_ADAPTER, TravelRuleAdapter } from './travel-rule-adapter.interface';
 import { CreateWithdrawalAddressDto } from './dto/create-withdrawal-address.dto';
+import { CreateBankAccountDto } from './dto/create-bank-account.dto';
 import * as crypto from 'crypto';
 
 @Injectable()
@@ -81,6 +82,65 @@ export class WithdrawalAddressWorkflowService {
     });
 
     this.logger.log(`Withdrawal address ${address.addressNo} registered by customer ${customerNo}`);
+    return address;
+  }
+
+  async registerBankAccount(dto: CreateBankAccountDto, customerId: string, customerNo: string) {
+    const customer = await (this.prisma as any).customerMain.findUnique({ where: { id: customerId } });
+    if (!customer) throw new NotFoundException({ code: 'CUSTOMER_NOT_FOUND', message: 'Customer not found' });
+    if (customer.onboardingStatus !== 'APPROVED') {
+      throw new ForbiddenException({ code: 'ONBOARDING_NOT_APPROVED', message: 'Customer onboarding not approved' });
+    }
+    if (customer.adminStatus !== 'ACTIVE') {
+      throw new ForbiddenException({ code: 'ACCOUNT_SUSPENDED', message: 'Customer account is not active' });
+    }
+
+    const asset = await (this.prisma as any).asset.findUnique({ where: { id: dto.assetId } });
+    if (!asset) throw new NotFoundException({ code: 'ASSET_NOT_FOUND', message: 'Asset not found' });
+    if (asset.status !== 'ACTIVE') {
+      throw new BadRequestException({ code: 'ASSET_NOT_ACTIVE', message: `Asset is in ${asset.status} status` });
+    }
+    if (asset.type !== 'FIAT') {
+      throw new BadRequestException({ code: 'ASSET_NOT_FIAT', message: 'Only fiat assets are supported for bank accounts' });
+    }
+
+    const traceId = crypto.randomUUID();
+
+    const address = await this.addressService.createBankAccount({
+      customerId,
+      customerNo,
+      assetId: dto.assetId,
+      iban: dto.iban,
+      swiftBic: dto.swiftBic,
+      bankName: dto.bankName,
+      beneficiaryName: dto.beneficiaryName,
+      label: dto.label,
+      ownershipDeclaredAt: new Date(),
+      ownershipProofType: 'DECLARATION',
+      traceId,
+    });
+
+    const cleanIban = dto.iban.replace(/\s/g, '').toUpperCase();
+    const maskedIban = cleanIban.length > 8
+      ? `${cleanIban.slice(0, 4)}****${cleanIban.slice(-4)}`
+      : cleanIban;
+
+    await this.auditLogsService.recordSystem({
+      action: AuditGovernanceActions.WITHDRAWAL_ADDRESS_REGISTRATION.ADDRESS_REGISTERED,
+      entityType: AuditEntityTypes.WITHDRAWAL_ADDRESS,
+      entityId: address.id,
+      entityNo: address.addressNo,
+      workflowType: AuditBusinessWorkflowTypes.WITHDRAWAL_ADDRESS_REGISTRATION,
+      traceId,
+      result: AuditResult.SUCCESS,
+      subjectNos: [{ subjectRole: AuditSubjectRole.ENTITY, subjectType: 'WITHDRAWAL_ADDRESS', subjectId: address.id, subjectNo: address.addressNo }],
+      metadata: { addressType: 'BANK', iban: maskedIban, bankName: dto.bankName, assetCode: asset.code },
+      sourcePlatform: 'CLIENT_API',
+      entityOwnerId: customerId,
+      entityOwnerNo: customerNo,
+    });
+
+    this.logger.log(`Bank account ${address.addressNo} registered by customer ${customerNo}`);
     return address;
   }
 

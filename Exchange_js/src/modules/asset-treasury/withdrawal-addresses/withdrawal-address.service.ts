@@ -2,6 +2,7 @@ import { Injectable, Logger, BadRequestException, NotFoundException, ForbiddenEx
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 import { validateCryptoAddress } from './address-validator.util';
+import { validateIban, validateSwiftBic } from './bank-validator.util';
 
 const MAX_ADDRESSES_PER_ASSET = 3;
 const COOLING_PERIOD_HOURS = 24;
@@ -18,6 +19,20 @@ interface CreateAddressData {
   memo?: string;
   counterpartyVaspName?: string;
   counterpartyVaspDid?: string;
+  ownershipDeclaredAt: Date;
+  ownershipProofType: string;
+  traceId: string;
+}
+
+interface CreateBankAccountData {
+  customerId: string;
+  customerNo: string;
+  assetId: string;
+  iban: string;
+  swiftBic: string;
+  bankName: string;
+  beneficiaryName: string;
+  label?: string;
   ownershipDeclaredAt: Date;
   ownershipProofType: string;
   traceId: string;
@@ -76,6 +91,66 @@ export class WithdrawalAddressService {
     } catch (error: any) {
       if (error?.code === 'P2002') {
         throw new ConflictException({ code: 'ADDRESS_ALREADY_REGISTERED', message: 'This address is already registered for this asset' });
+      }
+      throw error;
+    }
+  }
+
+  async createBankAccount(data: CreateBankAccountData, tx?: any) {
+    const db = tx ?? this.prisma;
+
+    const ibanResult = validateIban(data.iban);
+    if (!ibanResult.valid) {
+      throw new BadRequestException({ code: 'INVALID_IBAN', message: ibanResult.reason });
+    }
+
+    const swiftResult = validateSwiftBic(data.swiftBic);
+    if (!swiftResult.valid) {
+      throw new BadRequestException({ code: 'INVALID_SWIFT_BIC', message: swiftResult.reason });
+    }
+
+    const cleanIban = data.iban.replace(/\s/g, '').toUpperCase();
+    const cleanSwift = data.swiftBic.replace(/\s/g, '').toUpperCase();
+
+    const activeCount = await db.withdrawalAddress.count({
+      where: {
+        customerId: data.customerId,
+        assetId: data.assetId,
+        status: { in: ['PENDING_ACTIVATION', 'ACTIVE'] },
+      },
+    });
+    if (activeCount >= MAX_ADDRESSES_PER_ASSET) {
+      throw new BadRequestException({ code: 'ADDRESS_LIMIT_REACHED', message: `Maximum ${MAX_ADDRESSES_PER_ASSET} bank accounts per asset` });
+    }
+
+    const addressNo = generateReferenceNo('WAD');
+    const activatesAt = new Date(Date.now() + COOLING_PERIOD_HOURS * 60 * 60 * 1000);
+
+    try {
+      return await db.withdrawalAddress.create({
+        data: {
+          addressNo,
+          customerId: data.customerId,
+          customerNo: data.customerNo,
+          assetId: data.assetId,
+          network: 'FIAT',
+          address: cleanIban,
+          addressType: 'BANK',
+          label: data.label,
+          beneficiaryName: data.beneficiaryName,
+          iban: cleanIban,
+          swiftBic: cleanSwift,
+          bankName: data.bankName,
+          ownershipDeclaredAt: data.ownershipDeclaredAt,
+          ownershipProofType: data.ownershipProofType,
+          activatesAt,
+          traceId: data.traceId,
+        },
+        include: { asset: true },
+      });
+    } catch (error: any) {
+      if (error?.code === 'P2002') {
+        throw new ConflictException({ code: 'BANK_ACCOUNT_ALREADY_REGISTERED', message: 'This IBAN is already registered for this asset' });
       }
       throw error;
     }
