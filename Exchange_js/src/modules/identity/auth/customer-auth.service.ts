@@ -371,6 +371,7 @@ export class CustomerAuthService {
       sub: customer.id,
       role: 'CUSTOMER',
       type: 'CUSTOMER',
+      userNo: customer.customerNo,
     };
     return {
       access_token: this.jwtService.sign(payload),
