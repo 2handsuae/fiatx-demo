@@ -250,26 +250,26 @@ const DashboardLayout = () => {
         },
       ],
     },
-    // ─── Accounting ───────────────────────────────────────────────
+    // ─── Ledger ───────────────────────────────────────────────────
     {
-      label: 'Accounting',
+      label: 'Ledger',
       icon: <Library size={12} />,
       children: [
         {
-          path: '/ledger/tb-accounts',
-          label: 'TB Accounts',
+          path: '/ledger/accounts',
+          label: 'Ledger Accounts',
           icon: <Database size={13} />,
           requiredPermissions: [PERMISSIONS.TB_ACCOUNTS_READ],
         },
         {
-          path: '/ledger/tb-transfers',
-          label: 'TB Transfers',
+          path: '/ledger/transfers',
+          label: 'Transfer Evidence',
           icon: <Database size={13} />,
           requiredPermissions: [PERMISSIONS.TB_TRANSFERS_READ],
         },
         {
-          path: '/ledger/tb-backlog',
-          label: 'TB Backlog',
+          path: '/ledger/retry-queue',
+          label: 'Retry Queue',
           icon: <Database size={13} />,
           requiredPermissions: [PERMISSIONS.TB_BACKLOG_READ],
         },
@@ -293,7 +293,7 @@ const DashboardLayout = () => {
           requiredPermissions: [PERMISSIONS.WALLETS_READ],
         },
         {
-          path: '/withdrawal-addresses',
+          path: '/dashboard/treasury/withdrawal-addresses',
           label: 'Withdrawal Addresses',
           icon: <Upload size={13} />,
           requiredPermissions: [PERMISSIONS.BASE_ACCESS],

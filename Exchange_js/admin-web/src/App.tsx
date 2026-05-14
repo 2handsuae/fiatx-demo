@@ -124,10 +124,10 @@ const PricingPolicyHistory = lazy(() => import('./pages/PricingPolicyHistory'));
 const ApprovalPoliciesPage = lazy(() => import('./pages/ApprovalPoliciesPage'));
 const PolicyChangeRequestsPage = lazy(() => import('./pages/PolicyChangeRequestsPage'));
 const PolicyChangeRequestDetailPage = lazy(() => import('./pages/PolicyChangeRequestDetailPage'));
-const TbAccountList = lazy(() => import('./pages/TbAccountList'));
-const TbAccountDetail = lazy(() => import('./pages/TbAccountDetail'));
-const TbTransferList = lazy(() => import('./pages/TbTransferList'));
-const TbBacklogList = lazy(() => import('./pages/TbBacklogList'));
+const LedgerAccountList = lazy(() => import('./pages/LedgerAccountList'));
+const LedgerAccountDetail = lazy(() => import('./pages/LedgerAccountDetail'));
+const TransferEvidenceList = lazy(() => import('./pages/TransferEvidenceList'));
+const RetryQueueList = lazy(() => import('./pages/RetryQueueList'));
 const WithdrawalAddressList = lazy(() => import('./pages/WithdrawalAddressList'));
 const WithdrawalAddressDetail = lazy(() => import('./pages/WithdrawalAddressDetail'));
 
@@ -872,6 +872,14 @@ function App() {
               path="system/asset-configs/:assetNo"
               element={withPermission(<AssetConfigDetail />, [PERMISSIONS.ASSETS_READ])}
             />
+            <Route
+              path="treasury/withdrawal-addresses"
+              element={withPermission(<WithdrawalAddressList />, [PERMISSIONS.BASE_ACCESS])}
+            />
+            <Route
+              path="treasury/withdrawal-addresses/:addressNo"
+              element={withPermission(<WithdrawalAddressDetail />, [PERMISSIONS.BASE_ACCESS])}
+            />
           </Route>
 
           <Route path="/exchange">
@@ -911,25 +919,22 @@ function App() {
 
           <Route path="/ledger">
             <Route
-              path="tb-accounts"
-              element={withPermission(<TbAccountList />, [PERMISSIONS.TB_ACCOUNTS_READ])}
+              path="accounts"
+              element={withPermission(<LedgerAccountList />, [PERMISSIONS.TB_ACCOUNTS_READ])}
             />
             <Route
-              path="tb-accounts/:tbAccountId"
-              element={withPermission(<TbAccountDetail />, [PERMISSIONS.TB_ACCOUNTS_READ])}
+              path="accounts/:id"
+              element={withPermission(<LedgerAccountDetail />, [PERMISSIONS.TB_ACCOUNTS_READ])}
             />
             <Route
-              path="tb-transfers"
-              element={withPermission(<TbTransferList />, [PERMISSIONS.TB_TRANSFERS_READ])}
+              path="transfers"
+              element={withPermission(<TransferEvidenceList />, [PERMISSIONS.TB_TRANSFERS_READ])}
             />
             <Route
-              path="tb-backlog"
-              element={withPermission(<TbBacklogList />, [PERMISSIONS.TB_BACKLOG_READ])}
+              path="retry-queue"
+              element={withPermission(<RetryQueueList />, [PERMISSIONS.TB_BACKLOG_READ])}
             />
           </Route>
-
-          <Route path="/withdrawal-addresses" element={withPermission(<WithdrawalAddressList />, [PERMISSIONS.BASE_ACCESS])} />
-          <Route path="/withdrawal-addresses/:addressNo" element={withPermission(<WithdrawalAddressDetail />, [PERMISSIONS.BASE_ACCESS])} />
 
         </Route>
 
