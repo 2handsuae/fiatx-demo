@@ -61,6 +61,8 @@ export const ApprovalActionTypes = {
   // ─── Asset Suspension (2026-05-14) ────
   ASSET_SUSPENSION: 'ASSET_SUSPENSION',
   ASSET_REACTIVATION: 'ASSET_REACTIVATION',
+  // ─── Asset Activation (2026-05-14) ────
+  ASSET_ACTIVATION: 'ASSET_ACTIVATION',
 } as const;
 
 export const ApprovalStatuses = {
@@ -386,6 +388,14 @@ export const DEFAULT_APPROVAL_POLICIES: Record<
     allowCancel: true,
     allowRetry: false,
   },
+  // ─── Asset Activation (2026-05-14) ────
+  [ApprovalActionTypes.ASSET_ACTIVATION]: {
+    riskLevel: ApprovalRiskLevels.HIGH,
+    steps: [{ stepNo: 1, roles: ['CISO'] }],
+    timeoutHours: 12,
+    allowCancel: true,
+    allowRetry: false,
+  },
 };
 
 /**
@@ -403,7 +413,7 @@ export const V1_APPROVAL_ACTION_TYPES: readonly string[] = [
   ApprovalActionTypes.ROLE_DEFINITION_MODIFY,
   ApprovalActionTypes.ADMIN_PASSWORD_RESET,
   ApprovalActionTypes.ADMIN_MFA_RESET,
-  ApprovalActionTypes.ASSET_LISTING,
+  ApprovalActionTypes.ASSET_ACTIVATION,
   ApprovalActionTypes.CUSTODIAN_WALLET_CREATE,
   ApprovalActionTypes.ASSET_SUSPENSION,
   ApprovalActionTypes.ASSET_REACTIVATION,

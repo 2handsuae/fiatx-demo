@@ -15,7 +15,6 @@ export enum AssetType {
 }
 
 export enum AssetStatus {
-  PENDING_APPROVAL = 'PENDING_APPROVAL',
   PROVISIONING = 'PROVISIONING',
   ACTIVE = 'ACTIVE',
   SUSPENDED = 'SUSPENDED',
