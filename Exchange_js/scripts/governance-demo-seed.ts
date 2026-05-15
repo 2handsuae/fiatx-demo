@@ -20,14 +20,6 @@ type ChangeTicketResponse = {
   traceId: string;
 };
 
-type DeleteRequestResponse = {
-  id: string;
-  requestNo: string;
-  status: string;
-  latestApprovalId: string | null;
-  latestApprovalNo: string | null;
-  traceId: string;
-};
 
 type SlaTimerResponse = {
   id: string;
@@ -172,56 +164,6 @@ async function seedChangeTicketChain() {
   );
 }
 
-async function seedDeleteRequestChain(targetNo: string) {
-  const makerToken = await login(process.env.GOV_DEMO_DELETE_MAKER_EMAIL || 'compliance_lead@fiatx.com');
-  const checkerToken = await login(process.env.GOV_DEMO_DELETE_CHECKER_EMAIL || 'dpo@fiatx.com');
-  const executorToken = await login(process.env.GOV_DEMO_DELETE_EXECUTOR_EMAIL || 'tech_admin@fiatx.com');
-
-  const created = await authed<DeleteRequestResponse>(
-    makerToken,
-    'post',
-    '/admin/control-gates/delete-requests',
-    {
-      targetType: 'CHANGE_TICKET',
-      targetNo,
-      deleteReason: 'Wave1 demo delete request',
-      docRef: `DOC-${uniqueSuffix()}`,
-    },
-  );
-
-  const submitted = await authed<DeleteRequestResponse>(
-    makerToken,
-    'post',
-    `/admin/control-gates/delete-requests/${created.id}/submit`,
-    {
-      reason: 'Wave1 demo delete submit',
-      traceId: created.traceId,
-    },
-  );
-
-  if (!submitted.latestApprovalId) {
-    throw new Error(`Delete request ${submitted.requestNo} missing linked approval`);
-  }
-
-  await authed<ApprovalResponse>(
-    checkerToken,
-    'post',
-    `/admin/control-gates/approvals/${submitted.latestApprovalId}/approve`,
-    {
-      reason: 'Wave1 demo delete approved',
-      checkerRole: 'DPO',
-    },
-  );
-
-  return authed<DeleteRequestResponse>(
-    executorToken,
-    'post',
-    `/admin/control-gates/delete-requests/${created.id}/execute`,
-    {
-      reason: 'Wave1 demo delete executed',
-    },
-  );
-}
 
 async function seedSlaDemoChains() {
   const adminToken = await login(process.env.GOV_DEMO_ADMIN_EMAIL || 'admin@fiatx.com');
@@ -269,7 +211,6 @@ async function seedSlaDemoChains() {
 async function main() {
   const approval = await seedApprovalChain();
   const changeTicket = await seedChangeTicketChain();
-  const deleteRequest = await seedDeleteRequestChain(changeTicket.ticketNo);
   const sla = await seedSlaDemoChains();
 
   console.log(
@@ -285,12 +226,6 @@ async function main() {
           status: changeTicket.status,
           latestApprovalNo: changeTicket.latestApprovalNo,
           traceId: changeTicket.traceId,
-        },
-        deleteRequest: {
-          requestNo: deleteRequest.requestNo,
-          status: deleteRequest.status,
-          latestApprovalNo: deleteRequest.latestApprovalNo,
-          traceId: deleteRequest.traceId,
         },
         sla,
       },

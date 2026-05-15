@@ -8,9 +8,6 @@ import { ApprovalActionTypes } from '../src/modules/governance/approvals/constan
 import {
   ChangeTicketTypes,
 } from '../src/modules/governance/change-tickets/constants/change-ticket.constants';
-import {
-  DeleteRequestTargetTypes,
-} from '../src/modules/governance/delete-requests/constants/delete-request.constants';
 
 const prisma = new PrismaClient();
 const syntheticProvisioningTraceByUserNo = new Map<string, string>();
@@ -83,19 +80,6 @@ function mapChangeTypeToWorkflow(changeType: string | null | undefined): string 
   }
 }
 
-function mapDeleteTargetToWorkflow(targetType: string | null | undefined): string | null {
-  const normalized = normalizeString(targetType);
-  switch (normalized) {
-    case DeleteRequestTargetTypes.CHANGE_TICKET:
-      return AuditBusinessWorkflowTypes.CHANGE_TICKET_DELETION;
-    case DeleteRequestTargetTypes.ADMIN_USER:
-      return AuditBusinessWorkflowTypes.ADMIN_USER_DELETION;
-    case DeleteRequestTargetTypes.AUDIT_EVIDENCE_PACKAGE:
-      return AuditBusinessWorkflowTypes.AUDIT_EVIDENCE_PACKAGE_DELETION;
-    default:
-      return null;
-  }
-}
 
 function getSyntheticProvisioningTrace(userNo: string): string {
   const existing = syntheticProvisioningTraceByUserNo.get(userNo);
@@ -213,38 +197,6 @@ async function deriveProvisioningContext(input: {
   return null;
 }
 
-async function deriveTargetTraceForDeleteRequest(request: any): Promise<string | null> {
-  switch (normalizeString(request.targetType)) {
-    case DeleteRequestTargetTypes.CHANGE_TICKET: {
-      const ticket = await prisma.changeTicket.findFirst({
-        where: { id: request.targetId },
-        select: { traceId: true },
-      });
-      return normalizeString(ticket?.traceId);
-    }
-    case DeleteRequestTargetTypes.AUDIT_EVIDENCE_PACKAGE: {
-      const exportAudit = await (prisma as any).auditLogEvent.findFirst({
-        where: {
-          action: AuditActions.AUDIT_EVIDENCE_PACKAGE_EXPORTED,
-          entityNo: request.targetNo,
-          traceId: { not: null },
-        },
-        orderBy: [{ occurredAt: 'desc' }],
-        select: { traceId: true },
-      });
-      return normalizeString(exportAudit?.traceId);
-    }
-    case DeleteRequestTargetTypes.ADMIN_USER: {
-      const context = await deriveProvisioningContext({
-        userId: request.targetId,
-        userNo: request.targetNo,
-      });
-      return context?.traceId || null;
-    }
-    default:
-      return null;
-  }
-}
 
 async function deriveApprovalContext(approval: any): Promise<WorkflowContext | null> {
   const parsedMetadata =
@@ -280,23 +232,6 @@ async function deriveApprovalContext(approval: any): Promise<WorkflowContext | n
       const workflowType = mapChangeTypeToWorkflow(ticket?.changeType);
       const workflowNo = normalizeString(ticket?.ticketNo) || fallbackTicketNo;
       const traceId = normalizeString(ticket?.traceId) || normalizeString(approval.traceId);
-      if (workflowType && workflowNo && traceId) {
-        return { workflowType, workflowNo, traceId };
-      }
-      return null;
-    }
-    case ApprovalActionTypes.DELETE_REQUEST_APPROVAL: {
-      const request = await prisma.deleteRequest.findFirst({
-        where: { id: approval.entityRef },
-        select: {
-          requestNo: true,
-          traceId: true,
-          targetType: true,
-        },
-      });
-      const workflowType = mapDeleteTargetToWorkflow(request?.targetType);
-      const workflowNo = normalizeString(request?.requestNo);
-      const traceId = normalizeString(request?.traceId) || normalizeString(approval.traceId);
       if (workflowType && workflowNo && traceId) {
         return { workflowType, workflowNo, traceId };
       }
@@ -342,7 +277,6 @@ async function deriveApprovalContext(approval: any): Promise<WorkflowContext | n
 async function main() {
   const { apply, dryRun } = parseArgs();
   const summary = {
-    deleteTraceChainsReset: 0,
     approvalCasesUpdated: 0,
     approvalAuditRowsUpdated: 0,
     provisioningAuditRowsUpdated: 0,
@@ -351,104 +285,11 @@ async function main() {
     evidenceExportAuditRowsUpdated: 0,
   };
 
-  const deleteRequests = await prisma.deleteRequest.findMany({
-    select: {
-      id: true,
-      requestNo: true,
-      targetType: true,
-      targetId: true,
-      targetNo: true,
-      traceId: true,
-      approvalCaseId: true,
-      approvalNo: true,
-    },
-  });
-
-  for (const request of deleteRequests) {
-    const targetTrace = await deriveTargetTraceForDeleteRequest(request);
-    if (!targetTrace || normalizeString(request.traceId) !== targetTrace) {
-      continue;
-    }
-
-    const workflowType = mapDeleteTargetToWorkflow(request.targetType);
-    if (!workflowType) {
-      continue;
-    }
-
-    const newTraceId = randomUUID();
-    summary.deleteTraceChainsReset += 1;
-
-    if (!apply) {
-      continue;
-    }
-
-    await prisma.deleteRequest.update({
-      where: { id: request.id },
-      data: { traceId: newTraceId },
-    });
-
-    if (request.approvalCaseId) {
-      await prisma.approvalCase.update({
-        where: { id: request.approvalCaseId },
-        data: {
-          traceId: newTraceId,
-          workflowType,
-          workflowNo: request.requestNo,
-        },
-      });
-    }
-
-    await (prisma as any).auditLogEvent.updateMany({
-      where: {
-        OR: [
-          { entityId: request.id },
-          { entityNo: request.requestNo },
-          { workflowNo: request.requestNo },
-        ],
-        action: {
-          in: [
-            AuditActions.DELETE_REQUEST_CREATED,
-            AuditActions.DELETE_REQUEST_SUBMITTED,
-            AuditActions.DELETE_REQUEST_APPROVED,
-            AuditActions.DELETE_REQUEST_REJECTED,
-            AuditActions.DELETE_REQUEST_CANCELLED,
-            AuditActions.DELETE_REQUEST_EXECUTED,
-            AuditActions.DELETE_REQUEST_EXECUTION_FAILED,
-            AuditActions.DELETE_REQUEST_CONSUMED,
-          ],
-        },
-      },
-      data: {
-        workflowType,
-        workflowNo: request.requestNo,
-        traceId: newTraceId,
-      },
-    });
-
-    if (request.approvalCaseId || request.approvalNo) {
-      await (prisma as any).auditLogEvent.updateMany({
-        where: {
-          action: { in: APPROVAL_AUDIT_ACTIONS },
-          OR: [
-            request.approvalCaseId ? { entityId: request.approvalCaseId } : undefined,
-            request.approvalNo ? { entityNo: request.approvalNo } : undefined,
-          ].filter(Boolean),
-        },
-        data: {
-          workflowType,
-          workflowNo: request.requestNo,
-          traceId: newTraceId,
-        },
-      });
-    }
-  }
-
   const approvalCases = await prisma.approvalCase.findMany({
     where: {
       actionType: {
         in: [
           ApprovalActionTypes.CHANGE_TICKET_APPROVAL,
-          ApprovalActionTypes.DELETE_REQUEST_APPROVAL,
           ApprovalActionTypes.AUDIT_EVIDENCE_EXPORT_APPROVAL,
           ApprovalActionTypes.CASE_EVIDENCE_EXPORT_APPROVAL,
         ],

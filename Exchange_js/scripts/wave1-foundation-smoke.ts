@@ -62,20 +62,7 @@ type CustomerRegistration = {
   email: string;
 };
 
-type DeleteRequestDetail = {
-  id: string;
-  requestNo: string;
-  status: string;
-  latestApprovalId?: string | null;
-  traceId?: string | null;
-};
 
-type AdminUserResponse = {
-  id: string;
-  userNo: string;
-  email: string;
-  inviteLink: string;
-};
 
 type PeriodicReviewTriggerResponse = {
   blocked: boolean;
@@ -90,7 +77,6 @@ type PeriodicReviewTriggerResponse = {
 const baseUrl = process.env.API_BASE_URL || 'http://localhost:3000';
 const adminPassword = process.env.ADMIN_PASSWORD || '123456';
 const customerPassword = process.env.CUSTOMER_PASSWORD || '123456';
-const activationPassword = process.env.WAVE1_SMOKE_ACTIVATION_PASSWORD || '654321';
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) {
@@ -162,11 +148,6 @@ async function registerCustomer(email: string, password = customerPassword) {
   return response.data;
 }
 
-function extractInviteToken(inviteLink: string) {
-  const token = new URL(inviteLink).searchParams.get('token');
-  assert(token, `Invitation link missing token: ${inviteLink}`);
-  return token;
-}
 
 async function waitFor<T>(
   label: string,
@@ -251,64 +232,6 @@ async function approveApproval(token: string, approvalId: string, reason: string
   );
 }
 
-async function waitForDeleteRequestReady(token: string, id: string) {
-  return waitFor(
-    `delete request ${id} ready`,
-    () => authed<DeleteRequestDetail>(token, 'get', `/admin/control-gates/delete-requests/${id}`),
-    (value) => value.status === 'READY_TO_EXECUTE',
-  );
-}
-
-async function createAndExecuteDeleteRequest(
-  makerToken: string,
-  checkerToken: string,
-  executorToken: string,
-  targetType: string,
-  targetNo: string,
-  deleteReason: string,
-) {
-  const created = await authed<DeleteRequestDetail>(
-    makerToken,
-    'post',
-    '/admin/control-gates/delete-requests',
-    {
-      targetType,
-      targetNo,
-      deleteReason,
-      docRef: `W1-${Date.now()}`,
-    },
-  );
-
-  const submitted = await authed<DeleteRequestDetail>(
-    makerToken,
-    'post',
-    `/admin/control-gates/delete-requests/${created.id}/submit`,
-    {
-      reason: `${deleteReason} submit`,
-      traceId: created.traceId,
-    },
-  );
-
-  assert(submitted.latestApprovalId, `Delete request ${submitted.requestNo} missing approval`);
-  await approveApproval(
-    checkerToken,
-    submitted.latestApprovalId,
-    `${deleteReason} approval`,
-  );
-  await waitForDeleteRequestReady(makerToken, created.id);
-
-  const executed = await authed<DeleteRequestDetail>(
-    executorToken,
-    'post',
-    `/admin/control-gates/delete-requests/${created.id}/execute`,
-    {
-      reason: `${deleteReason} execute`,
-    },
-  );
-
-  assert(executed.status === 'EXECUTED', `Delete request ${executed.requestNo} not executed`);
-  return executed;
-}
 
 async function runOnboardingCaseScenario(adminToken: string, adminUserId: string) {
   const email = uniqueEmail('wave1.onboarding');
@@ -537,180 +460,11 @@ async function runCaseEvidenceExportScenario(
   return readyPackage;
 }
 
-async function createAdminUser(token: string, email: string) {
-  return authed<AdminUserResponse>(token, 'post', '/users', {
-    email,
-    roleCodes: ['OPS_OFFICER'],
-  });
-}
 
-async function getUserList(token: string) {
-  return authed<Array<{ userNo: string; email: string }>>(token, 'get', '/users');
-}
-
-async function verifyDeletedInviteUser(
-  superAdminToken: string,
-  complianceLeadToken: string,
-  dpoToken: string,
-  techAdminToken: string,
-) {
-  const inviteUser = await createAdminUser(superAdminToken, uniqueEmail('wave1.invite-delete'));
-  const inviteToken = extractInviteToken(inviteUser.inviteLink);
-
-  await axios.get(`${baseUrl}/auth/admin-invitations/${inviteToken}`);
-
-  await createAndExecuteDeleteRequest(
-    complianceLeadToken,
-    dpoToken,
-    techAdminToken,
-    'ADMIN_USER',
-    inviteUser.userNo,
-    'Wave1 foundation smoke delete inactive admin user',
-  );
-
-  await expectFailure(
-    'deleted inactive admin invitation preview',
-    () => axios.get(`${baseUrl}/auth/admin-invitations/${inviteToken}`),
-    [400, 404],
-  );
-  await expectFailure(
-    'deleted inactive admin invitation accept',
-    () =>
-      axios.post(`${baseUrl}/auth/admin-invitations/accept`, {
-        token: inviteToken,
-        password: activationPassword,
-      }),
-    [400, 404],
-  );
-  await expectFailure(
-    'deleted inactive admin invitation resend',
-    () =>
-      authed(
-        superAdminToken,
-        'post',
-        `/users/${inviteUser.id}/invitations/resend`,
-      ),
-    [400, 404],
-  );
-
-  const usersAfterDelete = await getUserList(superAdminToken);
-  assert(
-    !usersAfterDelete.some((user) => user.userNo === inviteUser.userNo),
-    'Deleted inactive admin user should be hidden from member list',
-  );
-
-  return inviteUser.userNo;
-}
-
-async function verifyDeletedActiveUser(
-  superAdminToken: string,
-  complianceLeadToken: string,
-  dpoToken: string,
-  techAdminToken: string,
-) {
-  const activeUser = await createAdminUser(superAdminToken, uniqueEmail('wave1.active-delete'));
-  const activationToken = extractInviteToken(activeUser.inviteLink);
-
-  await axios.post(`${baseUrl}/auth/admin-invitations/accept`, {
-    token: activationToken,
-    password: activationPassword,
-  });
-  await loginAdmin(activeUser.email, activationPassword);
-
-  await createAndExecuteDeleteRequest(
-    complianceLeadToken,
-    dpoToken,
-    techAdminToken,
-    'ADMIN_USER',
-    activeUser.userNo,
-    'Wave1 foundation smoke delete active admin user',
-  );
-
-  await expectFailure(
-    'deleted active admin login',
-    () =>
-      axios.post(`${baseUrl}/auth/login`, {
-        email: activeUser.email,
-        password: activationPassword,
-      }),
-    [401],
-  );
-  await expectFailure(
-    'deleted active admin role replace',
-    () =>
-      authed(
-        superAdminToken,
-        'put',
-        `/admin/iam/users/${activeUser.id}/roles`,
-        { roleCodes: ['OPS_OFFICER'] },
-      ),
-    [404],
-  );
-
-  const usersAfterDelete = await getUserList(superAdminToken);
-  assert(
-    !usersAfterDelete.some((user) => user.userNo === activeUser.userNo),
-    'Deleted active admin user should be hidden from member list',
-  );
-
-  return activeUser.userNo;
-}
-
-async function verifyDeletedCaseEvidencePackage(
-  adminToken: string,
-  complianceLeadToken: string,
-  dpoToken: string,
-  techAdminToken: string,
-  packageDetail: EvidencePackageDetail,
-) {
-  await createAndExecuteDeleteRequest(
-    complianceLeadToken,
-    dpoToken,
-    techAdminToken,
-    'COMPLIANCE_CASE_EVIDENCE_PACKAGE',
-    packageDetail.packageNo,
-    'Wave1 foundation smoke delete case evidence package',
-  );
-
-  const list = await authed<ListResponse<{ id: string; packageNo: string }>>(
-    adminToken,
-    'get',
-    '/admin/compliance/cases/evidence-packages',
-    undefined,
-    { take: 50 },
-  );
-  assert(
-    !list.items.some((item) => item.id === packageDetail.id),
-    'Deleted case evidence package should be hidden from list',
-  );
-
-  await expectFailure(
-    'deleted case evidence detail',
-    () =>
-      authed(
-        adminToken,
-        'get',
-        `/admin/compliance/cases/evidence-packages/${packageDetail.id}`,
-      ),
-    [404],
-  );
-  await expectFailure(
-    'deleted case evidence download',
-    () =>
-      authed(
-        adminToken,
-        'get',
-        `/admin/compliance/cases/evidence-packages/${packageDetail.id}/download`,
-      ),
-    [404],
-  );
-}
 
 async function main() {
   const superAdmin = await loginAdmin('admin@fiatx.com');
   const dpo = await loginAdmin('dpo@fiatx.com');
-  const complianceLead = await loginAdmin('compliance_lead@fiatx.com');
-  const techAdmin = await loginAdmin('tech_admin@fiatx.com');
 
   console.log('[wave1-smoke] onboarding case scenario');
   const onboarding = await runOnboardingCaseScenario(
@@ -734,29 +488,6 @@ async function main() {
     onboarding.case.id,
   );
 
-  console.log('[wave1-smoke] delete case evidence package scenario');
-  await verifyDeletedCaseEvidencePackage(
-    superAdmin.access_token,
-    complianceLead.access_token,
-    dpo.access_token,
-    techAdmin.access_token,
-    casePackage,
-  );
-  console.log('[wave1-smoke] delete inactive admin user scenario');
-  const deletedInviteUserNo = await verifyDeletedInviteUser(
-    superAdmin.access_token,
-    complianceLead.access_token,
-    dpo.access_token,
-    techAdmin.access_token,
-  );
-  console.log('[wave1-smoke] delete active admin user scenario');
-  const deletedActiveUserNo = await verifyDeletedActiveUser(
-    superAdmin.access_token,
-    complianceLead.access_token,
-    dpo.access_token,
-    techAdmin.access_token,
-  );
-
   console.log('Wave1 foundation smoke completed successfully.');
   console.log(
     JSON.stringify(
@@ -774,8 +505,10 @@ async function main() {
           packageNo: auditPackage.packageNo,
           status: auditPackage.status,
         },
-        deletedCaseEvidencePackage: casePackage.packageNo,
-        deletedAdminUsers: [deletedInviteUserNo, deletedActiveUserNo],
+        caseEvidencePackage: {
+          packageNo: casePackage.packageNo,
+          status: casePackage.status,
+        },
       },
       null,
       2,

@@ -105,7 +105,7 @@ export const PERMISSIONS = {
   GOV_CHANGE_TICKET_CREATE: 'api.post.admin_control_gates_change_tickets',
   GOV_CHANGE_TICKET_SUBMIT: 'api.post.admin_control_gates_change_tickets_id_submit',
   GOV_CHANGE_TICKET_CONSUME: 'api.post.admin_control_gates_change_tickets_id_consume',
-GOV_SHAREHOLDING_REGISTRY_READ:
+  GOV_SHAREHOLDING_REGISTRY_READ:
     'api.get.admin_governance_registries_shareholding_versions',
   GOV_SHAREHOLDING_REGISTRY_DETAIL_READ:
     'api.get.admin_governance_registries_shareholding_versions_id',

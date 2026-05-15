@@ -523,7 +523,7 @@ function App() {
                 PERMISSIONS.GOV_CHANGE_TICKET_DETAIL_READ,
               ])}
             />
-<Route
+            <Route
               path="control-gates/approvals"
               element={withPermission(<ApprovalsPage />, [PERMISSIONS.GOV_APPROVALS_READ])}
             />

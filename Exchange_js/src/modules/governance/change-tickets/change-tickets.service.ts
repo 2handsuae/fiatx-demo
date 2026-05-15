@@ -299,9 +299,6 @@ export class ChangeTicketsService {
       resultNote: ticket.resultNote,
       deletedAt: ticket.deletedAt || null,
       deletedBy: ticket.deletedBy || null,
-      deleteRequestId: ticket.deleteRequestId || null,
-      deleteRequestNo: ticket.deleteRequestNo || null,
-      deleteReason: ticket.deleteReason || null,
       createdAt: ticket.createdAt,
       updatedAt: ticket.updatedAt,
     };

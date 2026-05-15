@@ -872,9 +872,6 @@ model ChangeTicket {
   resultNote           String?
   deletedAt            DateTime?
   deletedBy            String?
-  deleteRequestId      String?
-  deleteRequestNo      String?
-  deleteReason         String?
   createdAt            DateTime      @default(now())
   updatedAt            DateTime      @updatedAt
   approvalCase         ApprovalCase? @relation("ChangeTicketApprovalCase", fields: [approvalCaseId], references: [id], onDelete: SetNull)
