@@ -79,7 +79,7 @@ V6 → V7（EOD 兑换结算触发 INTERNAL-IN/OUT 真实资产交割；LP 缺�
 - [ ] 客户 Onboarding（CDD 全套：ID + 自拍 + 地址证明 + 风险问卷 + PEP/制裁筛查 → 通过即 Level 1 开户） — **VARA**：CRM Rulebook II.A Customer Due Diligence — 客户准入强制尽职调查
 - [ ] CRA Review（客户风险评估与定期重审；三种触发：① cron 按风险等级定期触发完整 re-KYC ② Sumsub ongoing monitoring alert ③ MLRO 手动；Risk = HIGH 时启动 EDD 调查分支——MLRO 在平台内部收集 SOW/SOF 并人工审查决策） — **VARA**：CRM Rulebook II.C Risk-Based Approach + III.B Enhanced Due Diligence — AML 风险持续评估与高风险客户深度调查义务
 - [ ] Material Refresh（材料过期补充：NUDGE → URGENT → BLOCKING → RESOLVED） — **VARA**：CRM Rulebook II.A.3 Ongoing CDD — 客户身份材料必须保持有效
-- [ ] Tier Upgrade（限额升级：客户申请 → 提交收入/流水证明 → Sumsub 增强验证 → MLRO + SMO 审批门 → Level 2 高限额） — **业务必须**：客户需要更高交易限额的标准化升级路径
+- [ ] Trading Tier Upgrade（交易层级升级审批：客户申请 BASIC → PREMIUM → 提交收入/流水证明 → Sumsub 增强验证 → 前置校验 riskLevel ≠ HIGH → MLRO + SMO 审批门（48h）→ tradingTier = PREMIUM，适用 PREMIUM 限额组） — **业务必须**：客户需要更高交易限额的标准化升级路径
 - [ ] 客户账号冻结 / 解冻（统一 workflow：管理层手动触发走先审批后冻结；合规事件自动触发走先冻结后 MLRO 审查；解冻统一需 MLRO 审批；冻结期间客户不可交易） — **VARA**：CRM Rulebook IV.A Suspicious Activity Response + TIR Rulebook IV.C Incident Response — 合规事件必须能立即冻结客户并有正式解冻决策路径
 
 ### ADVANCED
@@ -116,7 +116,7 @@ V6 → V7（EOD 兑换结算触发 INTERNAL-IN/OUT 真实资产交割；LP 缺�
 - [x] Withdrawal Address Registration — Crypto（客户注册提现虚拟币地址：提交地址 → 地址格式 + 网络校验 → PENDING_ACTIVATION → 安全冷却期 24h → 冷却期内客户可取消 → 冷却期满自动 ACTIVE → 方可用于提现；含 skip-cooling 管理员后门；前端完整 UI 含地址管理、详情弹窗、冷却倒计时） — **VARA**：TIR Rulebook III.A Authentication — 安全冷却防止凭证泄露后资产被立即转移 ✅ 2026-05-13
 - [x] Withdrawal Address Registration — Bank（客户注册提现银行账户：提交银行账户信息 → PENDING_ACTIVATION → 安全冷却期 → 冷却期满 ACTIVE；含完整银行账户字段（accountName/bankName/iban/bankCode）；前端 UI 与 Crypto 地址共享管理页面） — **VARA**：TIR Rulebook III.A Authentication — 安全冷却防止凭证泄露后资产被立即转移；CRM Rulebook IV.A — 第三方账户禁止 ✅ 2026-05-13
 - [x] TB Account Creation（在 TigerBeetle 创建账户：① 系统级 3 账户（BANK/CUSTODY + TRADE_CLEARING + FEE_RECEIVABLE）在资产创建事务中同步 provision；② 客户级 2 账户（CLIENT_CREDIT + CLIENT_AUDIT）在 `asset.provisioned` 事件后异步批量创建；TbAccountRegistry 持久化映射；TbAccountBacklog 追踪失败项支持重试；含手动创建 API `POST /admin/tb/accounts`） — **业务必须**：V4-V6 的前置，没有 TB 账户就无法记账 ✅ 2026-05-15
-- [ ] Transaction Limit Configuration（交易限额配置变更审批：定义 Level 1 / Level 2 × 操作类型 deposit/withdrawal/swap × 时间周期 daily/monthly 的金额上限矩阵；变更走 Maker/Checker；V4-V7 运行时消费此配置做前置校验） — **VARA + 业务**：CRM Rulebook II.C Risk-Based Approach — 限额是 AML 风控的核心参数
+- [x] Transaction Limit Configuration（交易限额配置变更审批：BASIC/PREMIUM × WITHDRAWAL/SWAP × DAILY 的 AED 金额上限矩阵（4 行）；变更走 MLRO → SMO 两步审批（48h 超时）；独立 Prisma 模型（非 config-release）；运行时两层校验设计（Layer 1 per-tx Asset min/max + Layer 2 cumulative daily check）；V4+ 运行时消费此配置做前置校验；Customer 模型新增 tradingTier/riskLevel/sumsubVerificationLevel 三字段） — **VARA + 业务**：CRM Rulebook II.C Risk-Based Approach — 限额是 AML 风控的核心参数 ✅ 2026-05-16
 
 ### ADVANCED（3 workflows）
 
