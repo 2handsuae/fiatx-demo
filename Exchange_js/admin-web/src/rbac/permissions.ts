@@ -100,11 +100,6 @@ export const PERMISSIONS = {
   GOV_APPROVAL_APPROVE: 'api.post.admin_control_gates_approvals_id_approve',
   GOV_APPROVAL_REJECT: 'api.post.admin_control_gates_approvals_id_reject',
   GOV_APPROVAL_CANCEL: 'api.post.admin_control_gates_approvals_id_cancel',
-  GOV_CHANGE_TICKETS_READ: 'api.get.admin_control_gates_change_tickets',
-  GOV_CHANGE_TICKET_DETAIL_READ: 'api.get.admin_control_gates_change_tickets_id',
-  GOV_CHANGE_TICKET_CREATE: 'api.post.admin_control_gates_change_tickets',
-  GOV_CHANGE_TICKET_SUBMIT: 'api.post.admin_control_gates_change_tickets_id_submit',
-  GOV_CHANGE_TICKET_CONSUME: 'api.post.admin_control_gates_change_tickets_id_consume',
   GOV_SHAREHOLDING_REGISTRY_READ:
     'api.get.admin_governance_registries_shareholding_versions',
   GOV_SHAREHOLDING_REGISTRY_DETAIL_READ:

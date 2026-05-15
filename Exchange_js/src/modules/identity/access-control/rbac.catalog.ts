@@ -72,10 +72,6 @@ export type PermissionGroup =
   | 'GOV_APPROVAL_READ'
   | 'GOV_APPROVAL_WRITE'
   | 'GOV_APPROVAL_DECIDE'
-  | 'GOV_CHANGE_TICKET_READ'
-  | 'GOV_CHANGE_TICKET_WRITE'
-  | 'GOV_CHANGE_TICKET_GATE'
-  | 'GOV_CHANGE_TICKET_CLOSE'
   | 'GOV_REGISTRY_READ'
   | 'GOV_REGISTRY_WRITE'
   | 'GOV_REGULATORY_GATE_READ'
@@ -623,15 +619,6 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('GET', '/admin/control-gates/approvals/:id', 'Get approval case detail', ['GOV_APPROVAL_READ']),
   route('GET', '/admin/control-gates/approvals', 'List approval cases', ['GOV_APPROVAL_READ']),
 
-  // Governance change tickets
-  route('POST', '/admin/control-gates/change-tickets', 'Create change ticket', ['GOV_CHANGE_TICKET_WRITE']),
-  route('GET', '/admin/control-gates/change-tickets', 'List change tickets', ['GOV_CHANGE_TICKET_READ']),
-  route('GET', '/admin/control-gates/change-tickets/:id', 'Get change ticket detail', ['GOV_CHANGE_TICKET_READ']),
-  route('POST', '/admin/control-gates/change-tickets/:id/submit', 'Submit change ticket', ['GOV_CHANGE_TICKET_WRITE']),
-  route('POST', '/admin/control-gates/change-tickets/:id/consume', 'Consume change ticket', [
-    'GOV_CHANGE_TICKET_WRITE',
-  ]),
-
   // Governance registries
   route('GET', '/admin/governance/registries/shareholding-versions', 'List shareholding registry versions', [
     'GOV_REGISTRY_READ',
@@ -922,7 +909,6 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'RECON_BREAK_READ',
     'GOV_APPROVAL_READ',
     'GOV_APPROVAL_DECIDE',
-    'GOV_CHANGE_TICKET_READ',
     'GOV_REGISTRY_READ',
     'GOV_REGULATORY_GATE_READ',
     'GOV_APPROVAL_POLICY_READ',
@@ -942,10 +928,6 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'RECON_BREAK_WRITE',
     'GOV_APPROVAL_READ',
     'GOV_APPROVAL_DECIDE',
-    'GOV_CHANGE_TICKET_READ',
-    'GOV_CHANGE_TICKET_WRITE',
-    'GOV_CHANGE_TICKET_GATE',
-    'GOV_CHANGE_TICKET_CLOSE',
     'GOV_REGISTRY_READ',
     'GOV_REGISTRY_WRITE',
     'GOV_REGULATORY_GATE_READ',
@@ -961,8 +943,6 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'RECON_BREAK_READ',
     'RECON_BREAK_WRITE',
     'GOV_APPROVAL_READ',
-    'GOV_CHANGE_TICKET_READ',
-    'GOV_CHANGE_TICKET_WRITE',
     'GOV_REGISTRY_READ',
     'GOV_REGULATORY_GATE_READ',
   ],
@@ -984,8 +964,6 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'RECON_BREAK_WRITE',
     'GOV_APPROVAL_READ',
     'GOV_APPROVAL_WRITE',
-    'GOV_CHANGE_TICKET_READ',
-    'GOV_CHANGE_TICKET_WRITE',
     'GOV_REGISTRY_READ',
     'GOV_REGISTRY_WRITE',
     'GOV_REGULATORY_GATE_READ',
@@ -1014,7 +992,6 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'GOV_APPROVAL_READ',
     'GOV_APPROVAL_WRITE',
     'GOV_APPROVAL_DECIDE',
-    'GOV_CHANGE_TICKET_READ',
     'GOV_REGISTRY_READ',
     'GOV_APPROVAL_POLICY_READ',
 
@@ -1028,7 +1005,6 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'GOV_APPROVAL_READ',
     'GOV_APPROVAL_WRITE',
     'GOV_APPROVAL_DECIDE',
-    'GOV_CHANGE_TICKET_READ',
     'GOV_REGISTRY_READ',
     'GOV_REGISTRY_WRITE',
     'GOV_REGULATORY_GATE_READ',
@@ -1051,8 +1027,6 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'RECON_BREAK_READ',
     'GOV_APPROVAL_READ',
     'GOV_APPROVAL_DECIDE',
-    'GOV_CHANGE_TICKET_READ',
-    'GOV_CHANGE_TICKET_GATE',
     'GOV_REGISTRY_READ',
     'GOV_REGISTRY_WRITE',
     'GOV_REGULATORY_GATE_READ',
