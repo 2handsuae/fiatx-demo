@@ -92,6 +92,7 @@ export const AuditEntityTypes = {
   PASSWORD_RESET_TOKEN: 'PASSWORD_RESET_TOKEN',
   APPROVAL_POLICY: 'APPROVAL_POLICY',
   TB_ACCOUNT: 'TB_ACCOUNT',
+  TRANSACTION_LIMIT_POLICY: 'TRANSACTION_LIMIT_POLICY',
 } as const;
 
 export const AuditWorkflowTypes = {
@@ -138,6 +139,10 @@ export const AuditBusinessWorkflowTypes = {
   // Asset Creation & Activation (2026-05-14)
   ASSET_CREATION: 'ASSET_CREATION',
   ASSET_ACTIVATION: 'ASSET_ACTIVATION',
+  // Transaction Limit Change (2026-05-16)
+  TRANSACTION_LIMIT_CHANGE: 'TRANSACTION_LIMIT_CHANGE',
+  // Trading Tier Upgrade (pre-registered, workflow deferred)
+  TRADING_TIER_UPGRADE: 'TRADING_TIER_UPGRADE',
 } as const;
 
 export const AuditUserActions = {
@@ -583,6 +588,19 @@ export const AuditGovernanceActions = {
     APPROVAL_EXPIRED:      'APPROVAL_EXPIRED',
     ASSET_ACTIVATED:       'ASSET_ACTIVATED',
     ACTIVATION_FAILED:     'ACTIVATION_FAILED',
+  },
+
+  // Transaction Limit Change (2026-05-16)
+  TRANSACTION_LIMIT_CHANGE: {
+    CHANGE_REQUESTED:      'CHANGE_REQUESTED',
+    APPROVAL_GRANTED:      'APPROVAL_GRANTED',
+    APPROVAL_DECLINED:     'APPROVAL_DECLINED',
+    APPROVAL_CANCELLED:    'APPROVAL_CANCELLED',
+    APPROVAL_EXPIRED:      'APPROVAL_EXPIRED',
+    CHANGE_APPLIED:        'CHANGE_APPLIED',
+    CHANGE_APPLY_FAILED:   'CHANGE_APPLY_FAILED',
+    CHANGE_CANCELLED:      'CHANGE_CANCELLED',
+    LIMIT_POLICY_CREATED:  'LIMIT_POLICY_CREATED',
   },
 } as const;
 

@@ -59,6 +59,8 @@ export const ApprovalActionTypes = {
   ASSET_REACTIVATION: 'ASSET_REACTIVATION',
   // ─── Asset Activation (2026-05-14) ────
   ASSET_ACTIVATION: 'ASSET_ACTIVATION',
+  // Transaction Limit Change (2026-05-16)
+  TRANSACTION_LIMIT_CHANGE: 'TRANSACTION_LIMIT_CHANGE',
 } as const;
 
 export const ApprovalStatuses = {
@@ -378,6 +380,17 @@ export const DEFAULT_APPROVAL_POLICIES: Record<
     allowCancel: true,
     allowRetry: false,
   },
+  // ─── Transaction Limit Change (2026-05-16) ────
+  [ApprovalActionTypes.TRANSACTION_LIMIT_CHANGE]: {
+    riskLevel: ApprovalRiskLevels.HIGH,
+    steps: [
+      { stepNo: 1, roles: ['MLRO'] },
+      { stepNo: 2, roles: ['SMO'] },
+    ],
+    timeoutHours: 48,
+    allowCancel: true,
+    allowRetry: false,
+  },
 };
 
 /**
@@ -399,6 +412,7 @@ export const V1_APPROVAL_ACTION_TYPES: readonly string[] = [
   ApprovalActionTypes.CUSTODIAN_WALLET_CREATE,
   ApprovalActionTypes.ASSET_SUSPENSION,
   ApprovalActionTypes.ASSET_REACTIVATION,
+  ApprovalActionTypes.TRANSACTION_LIMIT_CHANGE,
 ] as const;
 
 export function isSuperAdminRoleContext(roleCodes: string[]): boolean {
