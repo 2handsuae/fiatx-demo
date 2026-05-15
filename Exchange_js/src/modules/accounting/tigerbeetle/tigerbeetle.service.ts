@@ -22,6 +22,11 @@ export class TigerBeetleService implements OnModuleInit, OnModuleDestroy {
   }
 
   async onModuleInit(): Promise<void> {
+    const tbEnabled = this.configService.get<string>('TB_ENABLED', 'false');
+    if (tbEnabled !== 'true') {
+      this.logger.warn('TigerBeetle disabled (TB_ENABLED!=true) — running in mock mode');
+      return;
+    }
     this.logger.log(`Connecting to TigerBeetle at ${this.address}...`);
     this.client = createClient({
       cluster_id: 0n,
