@@ -22,6 +22,7 @@ export async function seedBusiness(
 
   await seedCustomersMinimal(prisma);
   await seedPricingPolicies(prisma);
+  await seedTransactionLimitPolicies(prisma);
   console.log('✅ Business data seeded.');
 }
 
@@ -196,4 +197,39 @@ async function seedPricingPolicies(prisma: PrismaClient): Promise<void> {
   console.log(
     `Seeded pricing policies (swap pairs: ${swapManifest?.config.pairs.length || 0}, withdrawal assets: ${withdrawalManifest?.config.assets.length || 0}).`,
   );
+}
+
+export async function seedTransactionLimitPolicies(prisma: PrismaClient): Promise<void> {
+  const policies = [
+    { policyNo: 'TLP-001', tradingTier: 'BASIC',   operationType: 'WITHDRAWAL', period: 'DAILY', limitAmount: 30000 },
+    { policyNo: 'TLP-002', tradingTier: 'BASIC',   operationType: 'SWAP',       period: 'DAILY', limitAmount: 100000 },
+    { policyNo: 'TLP-003', tradingTier: 'PREMIUM',  operationType: 'WITHDRAWAL', period: 'DAILY', limitAmount: 150000 },
+    { policyNo: 'TLP-004', tradingTier: 'PREMIUM',  operationType: 'SWAP',       period: 'DAILY', limitAmount: 500000 },
+  ];
+
+  for (const p of policies) {
+    await prisma.transactionLimitPolicy.upsert({
+      where: {
+        tradingTier_operationType_period: {
+          tradingTier: p.tradingTier,
+          operationType: p.operationType,
+          period: p.period,
+        },
+      },
+      update: {
+        policyNo: p.policyNo,
+        limitAmount: p.limitAmount,
+      },
+      create: {
+        policyNo: p.policyNo,
+        tradingTier: p.tradingTier,
+        operationType: p.operationType,
+        period: p.period,
+        limitAmount: p.limitAmount,
+        status: 'ACTIVE',
+      },
+    });
+  }
+
+  console.log(`  ✔ Seeded ${policies.length} transaction limit policies`);
 }
